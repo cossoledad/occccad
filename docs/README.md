@@ -42,7 +42,9 @@
         |
   versioned Go commands -> persistent Undo / Redo
         |
-  multi-tab TypeScript CAD workbench -> Product hierarchy / transform gizmo
+  multi-tab TypeScript CAD workbench -> live/pinned Product references
+        |
+  Onshape-style viewport navigation -> Product hierarchy / transform gizmo
 
 尚未实现
   sketch constraint solving and dimensions
@@ -62,3 +64,5 @@
 - 已验证环境应写明验证日期，不把它等同于最低支持范围；
 - 尚未接入的库、服务或功能明确标注为“规划”；
 - 架构发生变化时同步更新规格与 Demo；实现状态变化时优先更新 README 和本索引。
+- 引用、缓存和版本更新必须分别说明“源文档边界、派生解析边界、触发时机和是否产生版本”；
+- 默认引用策略变更时必须说明旧数据兼容语义，避免历史 Product 静默采用不确定行为。

@@ -79,6 +79,9 @@ type ProductInstance struct {
 	ReferencedDocumentID string     `json:"documentId"`
 	ReferencedVersionID  string     `json:"versionId"`
 	Translation          [3]float64 `json:"translation"`
+	ReferenceMode        string     `json:"referenceMode,omitempty"`
+	ResolvedVersionID    string     `json:"resolvedVersionId,omitempty"`
+	HeadChanged          bool       `json:"headChanged,omitempty"`
 }
 
 type ProductModel struct {
@@ -132,6 +135,7 @@ type CommandRequest struct {
 	Name                 string     `json:"name,omitempty"`
 	InstanceID           string     `json:"instanceId,omitempty"`
 	Translation          [3]float64 `json:"translation,omitempty"`
+	ReferenceMode        string     `json:"referenceMode,omitempty"`
 }
 
 type Service struct {
@@ -276,6 +280,21 @@ func (service *Service) GetDocument(ctx context.Context, documentID string) (Doc
 	var model ProductModel
 	if err := json.Unmarshal(modelJSON, &model); err != nil {
 		return view, err
+	}
+	for index := range model.Instances {
+		instance := &model.Instances[index]
+		if instance.ReferenceMode == "" {
+			instance.ReferenceMode = "FOLLOW_HEAD"
+		}
+		instance.ResolvedVersionID = instance.ReferencedVersionID
+		if instance.ReferenceMode == "FOLLOW_HEAD" {
+			if err := service.database.QueryRow(ctx,
+				`SELECT head_version_id::text FROM occccad.documents WHERE id=$1`,
+				instance.ReferencedDocumentID).Scan(&instance.ResolvedVersionID); err != nil {
+				return view, err
+			}
+			instance.HeadChanged = instance.ResolvedVersionID != instance.ReferencedVersionID
+		}
 	}
 	view.Product = &model
 	view.Artifacts = map[string]Artifact{}
@@ -498,7 +517,8 @@ func (service *Service) mutateProduct(
 		model.Instances = append(model.Instances, ProductInstance{
 			ID: newID("instance"), Name: instanceName,
 			ReferencedDocumentID: referenceID, ReferencedVersionID: versionID,
-			Translation: request.Translation,
+			Translation:   request.Translation,
+			ReferenceMode: "FOLLOW_HEAD",
 		})
 	case "MOVE_INSTANCE":
 		if !finite(request.Translation[0]) || !finite(request.Translation[1]) || !finite(request.Translation[2]) {
@@ -511,6 +531,33 @@ func (service *Service) mutateProduct(
 				found = true
 				break
 			}
+		}
+		if !found {
+			return fmt.Errorf("%w: selected instance does not exist", ErrValidation)
+		}
+	case "SET_REFERENCE_MODE":
+		mode := strings.ToUpper(request.ReferenceMode)
+		if mode != "FOLLOW_HEAD" && mode != "PINNED" {
+			return fmt.Errorf("%w: reference mode must be FOLLOW_HEAD or PINNED", ErrValidation)
+		}
+		found := false
+		for index := range model.Instances {
+			instance := &model.Instances[index]
+			if instance.ID != request.InstanceID {
+				continue
+			}
+			instance.ReferenceMode = mode
+			if mode == "PINNED" {
+				if err := tx.QueryRow(ctx,
+					`SELECT head_version_id::text FROM occccad.documents WHERE id=$1`,
+					instance.ReferencedDocumentID).Scan(&instance.ReferencedVersionID); err != nil {
+					return err
+				}
+			}
+			instance.ResolvedVersionID = ""
+			instance.HeadChanged = false
+			found = true
+			break
 		}
 		if !found {
 			return fmt.Errorf("%w: selected instance does not exist", ErrValidation)
@@ -727,7 +774,15 @@ func (service *Service) resolveProduct(
 	}
 	for _, instance := range model.Instances {
 		offset := [3]float64{parent[0] + instance.Translation[0], parent[1] + instance.Translation[1], parent[2] + instance.Translation[2]}
-		if err := service.resolveProduct(ctx, instance.ReferencedVersionID, offset,
+		resolvedVersionID := instance.ReferencedVersionID
+		if instance.ReferenceMode == "" || instance.ReferenceMode == "FOLLOW_HEAD" {
+			if err := service.database.QueryRow(ctx,
+				`SELECT head_version_id::text FROM occccad.documents WHERE id=$1`,
+				instance.ReferencedDocumentID).Scan(&resolvedVersionID); err != nil {
+				return err
+			}
+		}
+		if err := service.resolveProduct(ctx, resolvedVersionID, offset,
 			path+"/"+instance.ID, visiting, artifacts, output); err != nil {
 			return err
 		}

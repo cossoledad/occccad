@@ -20,7 +20,9 @@
 - 通过粗粒度 gRPC 在 Go API 与 C++ Geometry Worker 之间求值；
 - 在 PostgreSQL 中保存 Document、Version、Command、Product Instance 和几何制品；
 - 使用多标签 CAD 工作台创建 Part/Product，插入 Part 或嵌套 Product；
-- 使用三轴手柄移动实例，并对草图、拉伸、插入、移动执行持久化 Undo/Redo。
+- Product 实例默认递归跟随被引用文档 Head，也可按实例固定到不可变 Version；
+- 使用三轴手柄移动实例，并对草图、拉伸、插入、移动和引用策略执行持久化 Undo/Redo；
+- 使用右键旋转、中键或 Ctrl+右键平移、滚轮缩放以及 F 适配的 CAD 视图导航。
 
 当前矩形草图尚不包含尺寸/几何约束求解，装配也暂不包含旋转、配合约束、Redis、对象
 存储或分布式调度；这些属于后续目标。当前进度详见[文档索引](docs/README.md)。

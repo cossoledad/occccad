@@ -223,7 +223,8 @@ function renderTree(): void {
     if (view.artifact) children.appendChild(treeRow("Body", "⬡", { kind: "solid", id: "body-1" }, "SOLID"));
   } else {
     for (const instance of view.product?.instances ?? []) {
-      children.appendChild(treeRow(instance.name, "⊹", { kind: "instance", id: instance.id }, "INSTANCE"));
+      const mode = instance.referenceMode === "PINNED" ? "PINNED" : "LIVE";
+      children.appendChild(treeRow(instance.name, "⊹", { kind: "instance", id: instance.id }, mode));
     }
   }
   host.appendChild(children);
@@ -232,6 +233,11 @@ function renderTree(): void {
 function selectedFeature(): Feature | undefined {
   if (state.selection?.kind !== "sketch" && state.selection?.kind !== "pad") return undefined;
   return state.active?.part?.features.find((feature) => feature.id === state.selection?.id);
+}
+
+function selectedInstance() {
+  if (state.selection?.kind !== "instance") return undefined;
+  return state.active?.product?.instances.find((item) => item.id === state.selection?.id);
 }
 
 function renderProperties(): void {
@@ -259,9 +265,12 @@ function renderProperties(): void {
         ["宽度", `${rectangle.width.toFixed(2)} mm`], ["高度", `${rectangle.height.toFixed(2)} mm`]);
     } else rows.push(["类型", "拉伸"], ["草图", feature.profile ?? "—"], ["长度", `${feature.length ?? 0} mm`]);
   } else if (state.selection?.kind === "instance") {
-    const instance = state.active.product?.instances.find((item) => item.id === state.selection?.id);
+    const instance = selectedInstance();
     title.textContent = instance?.name ?? "Instance";
     rows.push(["类型", "文档实例"], ["引用", instance?.documentId ?? "—"],
+      ["引用策略", instance?.referenceMode === "PINNED" ? "固定 Version" : "跟随 Head"],
+      ["解析版本", instance?.resolvedVersionId?.slice(0, 13) ?? instance?.versionId.slice(0, 13) ?? "—"],
+      ["Head 变化", instance?.headChanged ? "已自动使用最新版本" : "无"],
       ["位置", instance?.translation.map((value) => value.toFixed(2)).join(", ") ?? "—"]);
   } else if (state.active.artifact) {
     title.textContent = "Body";
@@ -311,6 +320,11 @@ function renderToolbar(): void {
   const hasPad = Boolean(view?.part?.features.some((feature) => feature.type.toUpperCase() === "PAD"));
   element<HTMLButtonElement>("#pad-sketch").disabled = state.busy || !isPart || state.selection?.kind !== "sketch" || hasPad || inSketch;
   element<HTMLButtonElement>("#insert-document").disabled = state.busy || !isProduct;
+  const referenceButton = element<HTMLButtonElement>("#reference-mode");
+  const instance = selectedInstance();
+  referenceButton.disabled = state.busy || !isProduct || !instance;
+  referenceButton.querySelector("span")!.textContent = instance?.referenceMode === "PINNED"
+    ? "跟随最新" : "固定版本";
   element<HTMLButtonElement>("#undo").disabled = state.busy || !view?.document.canUndo;
   element<HTMLButtonElement>("#redo").disabled = state.busy || !view?.document.canRedo;
   const mode = element("#mode-label");
@@ -440,6 +454,20 @@ async function moveInstance(instanceId: string, translation: Vec3): Promise<void
   setStatus(`实例位置：${translation.map((value) => value.toFixed(1)).join(", ")}`);
 }
 
+async function toggleReferenceMode(): Promise<void> {
+  if (!state.active) return;
+  const instance = selectedInstance();
+  if (!instance) return;
+  const mode = instance.referenceMode === "PINNED" ? "FOLLOW_HEAD" : "PINNED";
+  const result = await withBusy(mode === "PINNED" ? "固定引用版本…" : "切换为跟随最新…", () =>
+    api.setReferenceMode(state.active!.document.id, instance.id, mode));
+  if (!result) return;
+  activateView(result);
+  cad.select({ kind: "instance", id: instance.id });
+  await refreshDocuments();
+  setStatus(mode === "PINNED" ? "实例已固定到当前 Version" : "实例将跟随引用文档 Head");
+}
+
 async function history(direction: "undo" | "redo"): Promise<void> {
   if (!state.active) return;
   const result = await withBusy(direction === "undo" ? "Undo…" : "Redo…", () =>
@@ -470,14 +498,31 @@ element("#exit-sketch").addEventListener("click", exitSketch);
 element("#pad-sketch").addEventListener("click", () => void padSketch());
 element("#confirm-pad").addEventListener("click", (event) => { event.preventDefault(); void confirmPad(); });
 element("#insert-document").addEventListener("click", showInsertDialog);
+element("#reference-mode").addEventListener("click", () => void toggleReferenceMode());
 element("#confirm-insert").addEventListener("click", (event) => { event.preventDefault(); void confirmInsert(); });
 element("#undo").addEventListener("click", () => void history("undo"));
 element("#redo").addEventListener("click", () => void history("redo"));
-element("#refresh-documents").addEventListener("click", () => void refreshDocuments());
+element("#refresh-documents").addEventListener("click", () => {
+  if (state.active) void reloadActive(state.selection, Boolean(state.sketchPlane));
+  else void refreshDocuments();
+});
+element("#fit-view").addEventListener("click", () => cad.fit());
+for (const button of document.querySelectorAll<HTMLButtonElement>("[data-view]")) {
+  button.addEventListener("click", () =>
+    cad.setStandardView(button.dataset.view as "TOP" | "FRONT" | "RIGHT" | "ISO"));
+}
 window.addEventListener("keydown", (event) => {
-  if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "z") return;
-  event.preventDefault();
-  void history(event.shiftKey ? "redo" : "undo");
+  const target = event.target;
+  const editing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.isContentEditable);
+  if (editing) return;
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+    event.preventDefault();
+    void history(event.shiftKey ? "redo" : "undo");
+  } else if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "f") {
+    event.preventDefault();
+    cad.fit();
+  }
 });
 
 void (async () => {

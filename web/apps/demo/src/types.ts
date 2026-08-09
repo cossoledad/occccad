@@ -40,6 +40,9 @@ export type ProductInstance = {
   documentId: string;
   versionId: string;
   translation: Vec3;
+  referenceMode?: "FOLLOW_HEAD" | "PINNED";
+  resolvedVersionId?: string;
+  headChanged?: boolean;
 };
 
 export type DocumentSummary = {

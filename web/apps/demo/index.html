@@ -26,10 +26,14 @@
         </div>
         <div class="command-group product-tools">
           <button id="insert-document" class="command" disabled><b>⊕</b><span>插入文档</span></button>
+          <button id="reference-mode" class="command" disabled><b>⛓</b><span>固定版本</span></button>
         </div>
         <div class="command-group history-tools">
           <button id="undo" class="command compact" disabled title="Ctrl+Z"><b>↶</b><span>Undo</span></button>
           <button id="redo" class="command compact" disabled title="Ctrl+Shift+Z"><b>↷</b><span>Redo</span></button>
+        </div>
+        <div class="command-group view-tools">
+          <button id="fit-view" class="command compact" title="适配视图 (F)"><b>⌗</b><span>适配</span></button>
         </div>
         <div id="mode-label" class="mode-label">选择模式</div>
       </section>
@@ -51,10 +55,16 @@
 
         <section class="viewport-shell">
           <div id="viewport"></div>
-          <div class="view-cube"><span>TOP</span><b>FRONT</b><i>RIGHT</i></div>
+          <div class="view-cube">
+            <button data-view="ISO" class="cube-corner" title="等轴测">◆</button>
+            <button data-view="TOP" class="cube-top">TOP</button>
+            <button data-view="FRONT" class="cube-front">FRONT</button>
+            <button data-view="RIGHT" class="cube-right">RIGHT</button>
+          </div>
           <div id="hint" class="viewport-hint">选择一个基准面，然后点击“新建草图”</div>
           <div class="statusbar">
             <span id="status">就绪</span>
+            <span class="navigation-help">右键旋转 · 中键 / Ctrl+右键平移 · 滚轮缩放 · F 适配</span>
             <span>单位：mm</span>
           </div>
         </section>

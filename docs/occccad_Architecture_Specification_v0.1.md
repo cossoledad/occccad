@@ -656,7 +656,24 @@ WorkspaceHead
 BranchHead
 ```
 
-V1 可只实现 `PinnedVersion`，避免初期引入复杂的动态引用语义。
+Demo 02 已实现其中两种策略：`FOLLOW_HEAD` 对应 `WorkspaceHead`，`PINNED` 对应
+`PinnedVersion`。每条 Product Instance 引用边独立保存策略；缺少策略字段的历史数据按
+`FOLLOW_HEAD` 兼容读取。
+
+更新边界如下：
+
+```text
+被引用 Document 的编辑 / Undo / Redo
+    -> 只移动被引用 Document 的 Head
+    -> FOLLOW_HEAD 父项在下次读取时递归解析新 Head
+    -> PINNED 父项继续解析已保存的不可变 Version
+    -> 不自动生成父 Product Version
+```
+
+父 Product Version 只在其直接结构发生用户命令时产生，例如插入实例、移动实例或改变引用
+策略。动态解析结果属于派生视图，不写回父快照；父 Product 的 Undo/Redo 也只恢复父快照，
+不能跨文档撤销子 Part/Product 的命令。该边界避免一次 Part 编辑沿反向引用图制造大量隐式
+版本，同时允许设计态装配自动更新；发布态应使用 `PINNED` 获得可复现结果。
 
 ---
 

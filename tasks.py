@@ -285,7 +285,7 @@ def test(c, build_type=None, filter=None):
         raise Exit(f"Build dir {build_dir} not found. Run 'invoke configure build' first.")
 
     print("[test] Building tests...")
-    c.run(f"cmake --build {build_dir} --target occccad_smoke_test -j 0", pty=True)
+    c.run(f"cmake --build {build_dir} --target occccad_smoke_test --parallel", pty=True)
 
     print("[test] Running tests...")
     ctest_cmd = f"ctest --test-dir {build_dir} --output-on-failure"
@@ -313,7 +313,7 @@ def run_geometry(c, build_type=None):
     worker_bin = build_dir / "workers" / "geometry" / "occccad_geometry_worker"
     if not worker_bin.exists():
         print("[run] Building geometry worker...")
-        c.run(f"cmake --build {build_dir} --target occccad_geometry_worker -j 0", pty=True)
+        c.run(f"cmake --build {build_dir} --target occccad_geometry_worker --parallel", pty=True)
 
     print(f"[run] Starting geometry worker at {worker_bin}")
     c.run(f"{worker_bin} --smoke", pty=True)
@@ -326,7 +326,7 @@ def run_worker(c, build_type=None):
     build_dir = _get_build_dir(bt)
     worker_bin = build_dir / "workers" / "geometry" / "occccad_geometry_worker"
     if not worker_bin.exists():
-        c.run(f"cmake --build {build_dir} --target occccad_geometry_worker -j 0", pty=True)
+        c.run(f"cmake --build {build_dir} --target occccad_geometry_worker --parallel", pty=True)
     c.run(str(worker_bin), pty=True)
 
 

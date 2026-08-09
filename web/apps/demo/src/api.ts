@@ -35,6 +35,8 @@ export const api = {
     }),
   move: (documentId: string, instanceId: string, translation: Vec3) =>
     api.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation }),
+  setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_HEAD" | "PINNED") =>
+    api.command(documentId, { type: "SET_REFERENCE_MODE", instanceId, referenceMode }),
   undo: (documentId: string) => api.command(documentId, { type: "UNDO" }),
   redo: (documentId: string) => api.command(documentId, { type: "REDO" }),
 };

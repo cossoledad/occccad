@@ -42,3 +42,31 @@ func TestPartCommandValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestProductFollowHeadIsDefaultAndUndoableModelState(t *testing.T) {
+	t.Parallel()
+	model := ProductModel{Instances: []ProductInstance{{
+		ID: "instance-1", ReferencedDocumentID: "document-1", ReferencedVersionID: "version-1",
+	}}}
+	service := &Service{}
+	if err := service.mutateProduct(t.Context(), nil, "product-1", &model, CommandRequest{
+		Type: "SET_REFERENCE_MODE", InstanceID: "instance-1", ReferenceMode: "FOLLOW_HEAD",
+	}); err != nil {
+		t.Fatalf("set follow-head reference: %v", err)
+	}
+	if model.Instances[0].ReferenceMode != "FOLLOW_HEAD" {
+		t.Fatalf("unexpected reference mode: %q", model.Instances[0].ReferenceMode)
+	}
+}
+
+func TestProductReferenceModeValidation(t *testing.T) {
+	t.Parallel()
+	model := ProductModel{Instances: []ProductInstance{{ID: "instance-1"}}}
+	service := &Service{}
+	err := service.mutateProduct(t.Context(), nil, "product-1", &model, CommandRequest{
+		Type: "SET_REFERENCE_MODE", InstanceID: "instance-1", ReferenceMode: "floating",
+	})
+	if err == nil || !strings.Contains(err.Error(), ErrValidation.Error()) {
+		t.Fatalf("invalid reference mode should be rejected, got %v", err)
+	}
+}

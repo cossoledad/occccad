@@ -64,6 +64,8 @@ export class CadView {
   private drawingStart?: Vec2;
   private preview?: THREE.Line;
   private pointerDown = false;
+  private suppressSelection = false;
+  private lastMiddleClick = 0;
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: Callbacks) {
     this.scene.background = new THREE.Color(0x10151d);
@@ -78,12 +80,22 @@ export class CadView {
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement);
     this.orbit.target.set(0, 0, 20);
     this.orbit.enableDamping = true;
+    this.orbit.dampingFactor = 0.09;
+    this.orbit.rotateSpeed = 0.72;
+    this.orbit.panSpeed = 0.9;
+    this.orbit.zoomSpeed = 1.15;
+    this.orbit.zoomToCursor = true;
+    this.orbit.screenSpacePanning = true;
+    this.orbit.mouseButtons.LEFT = null;
+    this.orbit.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
+    this.orbit.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
     this.transform = new TransformControls(this.camera, this.renderer.domElement);
     this.transform.setMode("translate");
     this.transform.setSpace("world");
     this.scene.add(this.transform.getHelper());
     this.transform.addEventListener("dragging-changed", (event) => {
       this.orbit.enabled = !Boolean(event.value);
+      if (event.value) this.suppressSelection = true;
     });
     this.transform.addEventListener("mouseUp", () => this.commitTransform());
 
@@ -100,7 +112,11 @@ export class CadView {
     this.renderer.domElement.addEventListener("pointerdown", (event) => this.onPointerDown(event));
     this.renderer.domElement.addEventListener("pointermove", (event) => this.onPointerMove(event));
     this.renderer.domElement.addEventListener("pointerup", (event) => this.onPointerUp(event));
-    this.renderer.domElement.addEventListener("pointerleave", () => this.cancelDrawing());
+    this.renderer.domElement.addEventListener("pointerleave", () => {
+      this.host.classList.remove("navigating");
+      this.cancelDrawing();
+    });
+    this.renderer.domElement.addEventListener("contextmenu", (event) => event.preventDefault());
     this.animate();
   }
 
@@ -132,6 +148,7 @@ export class CadView {
     this.transform.detach();
     this.select({ kind: "plane", id: `datum-${plane.toLowerCase()}`, plane });
     this.orbit.enabled = true;
+    this.orbit.enableRotate = false;
     if (plane === "XY") this.camera.position.set(0, 0, 420);
     else if (plane === "XZ") this.camera.position.set(0, -420, 0);
     else this.camera.position.set(420, 0, 0);
@@ -145,7 +162,30 @@ export class CadView {
     this.sketchPlane = undefined;
     this.cancelDrawing();
     this.orbit.enabled = true;
+    this.orbit.enableRotate = true;
     this.frameContent();
+  }
+
+  fit(): void {
+    this.frameContent();
+  }
+
+  setStandardView(view: "TOP" | "FRONT" | "RIGHT" | "ISO"): void {
+    const box = new THREE.Box3().setFromObject(this.content);
+    if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
+    const center = box.getCenter(new THREE.Vector3());
+    const distance = Math.max(box.getSize(new THREE.Vector3()).length(), 180) * 1.35;
+    const directions = {
+      TOP: new THREE.Vector3(0, 0, distance),
+      FRONT: new THREE.Vector3(0, -distance, 0),
+      RIGHT: new THREE.Vector3(distance, 0, 0),
+      ISO: new THREE.Vector3(distance, -distance, distance),
+    };
+    this.camera.position.copy(center).add(directions[view]);
+    this.camera.up.set(0, 0, 1);
+    this.orbit.target.copy(center);
+    this.camera.lookAt(center);
+    this.orbit.update();
   }
 
   select(selection: Selection): void {
@@ -264,11 +304,21 @@ export class CadView {
   }
 
   private onPointerDown(event: PointerEvent): void {
+    if (event.button === 1 || event.button === 2) {
+      this.host.classList.add("navigating");
+      if (event.button === 1) {
+        const now = performance.now();
+        if (now - this.lastMiddleClick < 360) this.fit();
+        this.lastMiddleClick = now;
+      }
+      return;
+    }
     if (event.button !== 0) return;
     this.pointerDown = true;
     if (!this.sketchPlane) return;
     const point = this.intersectDrawingPlane(event);
     if (!point) return;
+    this.renderer.domElement.setPointerCapture(event.pointerId);
     this.drawingStart = worldToLocal(this.sketchPlane, point);
     this.orbit.enabled = false;
   }
@@ -282,6 +332,15 @@ export class CadView {
   }
 
   private onPointerUp(event: PointerEvent): void {
+    this.host.classList.remove("navigating");
+    if (this.renderer.domElement.hasPointerCapture(event.pointerId)) {
+      this.renderer.domElement.releasePointerCapture(event.pointerId);
+    }
+    if (this.suppressSelection) {
+      this.suppressSelection = false;
+      this.pointerDown = false;
+      return;
+    }
     if (!this.pointerDown) return;
     this.pointerDown = false;
     if (this.sketchPlane && this.drawingStart) {

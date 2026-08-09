@@ -18,9 +18,10 @@ Demo 02 把 Demo 01 的固定模型展示升级为可编辑的 Part/Product 工�
 | 精确实体 | OCCT 按基准面局部坐标构造 Wire → Face → Prism，并生成 B-Rep、GLB 和 Mesh |
 | Part Undo/Redo | 草图和拉伸分别生成版本；Undo 拉伸恢复只有草图的版本，Redo 恢复实体 |
 | 多文档标签页 | 文档库与标签页可同时打开、切换 Part 和 Product |
-| Product 插入 | 可引用 Part 或 Product 的特定版本，后端递归展开且拒绝引用环 |
+| Product 插入 | 默认递归跟随 Part/Product 的 Head，也可把单个实例固定到特定 Version；后端拒绝引用环 |
 | 实例拖动 | Three.js TransformControls 移动顶层 Part/Product 实例，释放手柄时提交 Command |
-| Product Undo/Redo | 插入和移动都生成新版本，Undo/Redo 恢复完整 Product Snapshot |
+| Product Undo/Redo | 插入、移动和引用策略变更都生成新版本，Undo/Redo 恢复完整 Product Snapshot |
+| CAD 视图导航 | 右键旋转，中键或 Ctrl+右键平移，滚轮以光标为中心缩放，F/双击中键适配视图 |
 
 ## 状态与几何边界
 
@@ -40,8 +41,54 @@ Browser Workbench
 ```
 
 基准面不是普通 Feature，不占用版本，也不会被删除或重新编号。草图只保存二维几何和所依附
-的基准面；拉伸引用稳定的 Sketch ID。Product 保存 Document/Version Reference 和 Instance
-Transform，不保存 `TopoDS_Compound` 或复制后的 Part Geometry。
+的基准面；拉伸引用稳定的 Sketch ID。Product 保存 Document Reference、插入基线 Version、
+引用策略和 Instance Transform，不保存 `TopoDS_Compound` 或复制后的 Part Geometry。
+
+## Product 引用与更新边界
+
+`Document` 是全局唯一的可编辑对象，`Version` 是该文档的不可变快照，`Head` 是文档当前
+指向的 Version。Product 中的每个实例引用一份 Document，不复制 Part/Product 模型；每一条
+父子引用边独立选择以下策略：
+
+- `FOLLOW_HEAD`（默认）：读取 Product 时解析被引用文档当前 Head。Part 新拉伸、Part Undo/Redo、
+  子 Product 插入或移动实例，都会在下一次打开、切换到或刷新父 Product 时自动出现；嵌套
+  Product 按每一层引用策略递归解析。
+- `PINNED`：固定到切换该策略时被引用文档的当前 Version。之后子文档 Head 如何变化，都不会
+  改变该实例；适合发布、评审、导出和需要可复现结果的场景。
+
+插入时仍记录 `versionId` 作为插入基线；`resolvedVersionId` 表示本次读取实际解析的版本。
+旧模型没有 `referenceMode` 时按 `FOLLOW_HEAD` 处理，因此已有 Product 会自动获得修正后的更新
+行为。结构树以 `LIVE` / `PINNED` 标识策略，选择实例后可用“固定版本/跟随最新”命令切换。
+
+| 发生的操作 | FOLLOW_HEAD 实例 | PINNED 实例 | 哪个文档产生新版本 |
+|---|---|---|---|
+| 修改或 Undo/Redo Part | 下一次解析显示 Part 新 Head | 保持固定几何 | 仅 Part |
+| 修改或 Undo/Redo 子 Product | 下一次解析显示其新结构与位置 | 保持固定子结构 | 仅子 Product |
+| 移动/插入父 Product 实例 | 使用更新后的父结构 | 使用更新后的父结构 | 父 Product |
+| 切换引用策略 | 按新策略解析 | 按新策略解析 | 父 Product |
+| Undo/Redo 父 Product | 恢复父结构、位置和引用策略 | 同左 | 仅父 Product Head 移动 |
+
+这里刻意不在子文档变化时给所有父 Product 生成版本。父 Product 的不可变快照保存的是引用
+关系、策略和变换；FOLLOW_HEAD 的递归解析结果属于派生状态。否则一次常用 Part 修改会向整个
+引用图传播并制造大量无用户命令的父版本。需要冻结完整装配时，应沿所需引用边切换为
+`PINNED`；父 Product 的 Undo 也不会跨文档撤销子 Part 的建模命令。
+
+## 视图区导航
+
+当前鼠标映射对齐 Onshape 默认 CAD 导航习惯：
+
+| 操作 | 输入 |
+|---|---|
+| 选择、草图绘制、操作三轴手柄 | 鼠标左键 |
+| 旋转视图 | 按住鼠标右键拖动 |
+| 平移视图 | 按住鼠标中键拖动，或 Ctrl+右键拖动 |
+| 以光标为中心缩放 | 鼠标滚轮 |
+| 适配全部内容 | `F`、双击中键或工具栏“适配” |
+| 标准视图 | 点击右上角 TOP / FRONT / RIGHT / 等轴测按钮 |
+
+进入草图后锁定视图旋转，但继续允许平移和缩放，避免草图平面意外倾斜；退出草图后恢复三维
+旋转。视图区拦截右键菜单，启用惯性阻尼与光标中心缩放，矩形绘制使用 Pointer Capture，
+因此拖出画布边界再释放也能正确结束操作。
 
 ## 命令与历史语义
 
@@ -52,6 +99,7 @@ CREATE_RECTANGLE_SKETCH
 PAD_SKETCH
 INSERT_INSTANCE
 MOVE_INSTANCE
+SET_REFERENCE_MODE
 ```
 
 每条命令创建新的 `document_versions` 记录，并在 `document_history` 当前游标之后建立时间线。
@@ -80,7 +128,8 @@ POST /api/documents/{documentId}/commands
 - 每个 Part 当前只允许一个 Pad，尚未实现多 Feature Boolean 历史；
 - 拉伸为单方向正长度，不含对称、反向、到面等终止条件；
 - Product 手柄当前只提交平移，旋转、缩放和装配配合尚未实现；
-- Product Reference 固定到插入时的 Document Version，尚未提供“跟随最新版本”策略；
+- FOLLOW_HEAD 是读取时解析，不使用 WebSocket 主动推送；已打开的父 Product 需要切换标签页或刷新后更新；
+- 固定整个深层装配目前需要逐条引用边设置 PINNED，尚未提供“一键发布基线”命令；
 - B-Rep/GLB 暂存在 PostgreSQL，后续迁移到 S3-compatible Artifact Store。
 
 这些边界不会改变 Document/Command/Geometry 的分层，可在后续切片中增量扩展。
