@@ -1,0 +1,72 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/occccad/occccad/internal/api"
+	"github.com/occccad/occccad/internal/config"
+	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/demo"
+	"github.com/occccad/occccad/internal/geometry"
+)
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("occccad server stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	configuration := config.Load()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	pool, err := database.Open(ctx, configuration.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := database.Migrate(ctx, pool); err != nil {
+		return err
+	}
+
+	worker, err := geometry.Open(configuration.WorkerAddress)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = worker.Close() }()
+
+	demoService := demo.New(pool, worker)
+	httpServer := &http.Server{
+		Addr:              configuration.ListenAddress,
+		Handler:           api.New(pool, worker, demoService, configuration.WebDirectory).Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+
+	go func() {
+		<-ctx.Done()
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = httpServer.Shutdown(shutdownContext)
+	}()
+
+	slog.Info("occccad server listening",
+		"address", configuration.ListenAddress,
+		"worker", configuration.WorkerAddress)
+	err = httpServer.ListenAndServe()
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}

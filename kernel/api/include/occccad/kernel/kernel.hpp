@@ -52,6 +52,14 @@ struct BoundingBox {
     Vec3 max;
 };
 
+struct RectangularPadSpec {
+    double origin_x = 0.0;
+    double origin_y = 0.0;
+    double width = 0.0;
+    double height = 0.0;
+    double pad_length = 0.0;
+};
+
 // ---------------------------------------------------------------------------
 // Tessellation Result
 // ---------------------------------------------------------------------------
@@ -107,10 +115,12 @@ public:
 
     // Primitive creation
     virtual GeometryId createBox(double dx, double dy, double dz) = 0;
+    virtual GeometryId createRectangularPad(const RectangularPadSpec& spec) = 0;
 
     // Queries
     virtual BoundingBox getBoundingBox(const GeometryId& id) = 0;
     virtual TopologyInfo getTopology(const GeometryId& id) = 0;
+    virtual double getVolume(const GeometryId& id) = 0;
 
     // Tessellation
     virtual TessellationResult tessellate(

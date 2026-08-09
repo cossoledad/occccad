@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package occccad.worker.v1;
 
+option go_package = "github.com/occccad/occccad/gen/worker/v1;workerv1";
+
 // ---------------------------------------------------------------------------
 // Geometry Worker gRPC Service
 //
@@ -12,6 +14,9 @@ package occccad.worker.v1;
 service GeometryWorker {
     // Health check
     rpc Ping(PingRequest) returns (PingResponse);
+
+    // Evaluate the complete Demo 01 feature chain in one worker call.
+    rpc EvaluatePart(EvaluatePartRequest) returns (EvaluatePartResponse);
 
     // Load geometry from B-Rep artifact
     rpc LoadGeometry(LoadGeometryRequest) returns (LoadGeometryResponse);
@@ -28,6 +33,55 @@ service GeometryWorker {
     // Feature operations
     rpc CreateChamfer(CreateChamferRequest) returns (CreateChamferResponse);
     rpc CreateFillet(CreateFilletRequest) returns (CreateFilletResponse);
+}
+
+message EvaluatePartRequest {
+    string request_id = 1;
+    string geometry_key = 2;
+    RectangularPadSpec rectangular_pad = 3;
+    double linear_deflection = 4;
+    double angular_deflection = 5;
+}
+
+message RectangularPadSpec {
+    double origin_x = 1;
+    double origin_y = 2;
+    double width = 3;
+    double height = 4;
+    double pad_length = 5;
+    string units = 6;
+}
+
+message EvaluatePartResponse {
+    string geometry_id = 1;
+    string geometry_key = 2;
+    bytes brep_data = 3;
+    Mesh mesh = 4;
+    BoundingBox bbox = 5;
+    TopologySummary topology = 6;
+    double volume = 7;
+    bool cache_hit = 8;
+    string occt_version = 9;
+    bytes glb_data = 10;
+}
+
+message Mesh {
+    repeated Vec3 vertices = 1;
+    repeated Triangle triangles = 2;
+    repeated uint32 face_ids = 3;
+}
+
+message Triangle {
+    uint32 v0 = 1;
+    uint32 v1 = 2;
+    uint32 v2 = 3;
+}
+
+message TopologySummary {
+    uint32 face_count = 1;
+    uint32 edge_count = 2;
+    uint32 vertex_count = 3;
+    uint32 solid_count = 4;
 }
 
 // ---------------------------------------------------------------------------

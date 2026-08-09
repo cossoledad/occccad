@@ -7,7 +7,7 @@
 
 ## 文档定位
 
-本文定义 occccad 的第一个端到端垂直切片。它是一份**待实施方案**，不是当前仓库已经具备的功能清单。当前代码只完成本地 Box、包围盒、拓扑和卸载测试；本文中的 Go Server、gRPC、数据库、Artifact、GLB 和 Web 交互均属于 Demo 交付范围。
+本文定义 occccad 的第一个端到端垂直切片。其核心链路已于 2026-08-09 实现并通过真实 PostgreSQL 端到端验证：Go Server、gRPC Worker、Rectangle Sketch → Pad、SHA-256 GeometryId、B-Rep/GLB Artifact、多层 Product Reference 和 Web 多实例显示均已落地。正文仍保留设计推导；通用草图编辑、Undo/Redo、对象存储和分布式调度不属于本次交付。实际运行方式见 [Demo 01 运行手册](occccad_Demo01_Runbook.md)。
 
 项目名称统一为 **occccad**：`occ` 表示 OCCT 几何内核，`c` 取自 `could`，`cad` 表示项目所服务的 CAD 领域。
 

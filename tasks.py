@@ -7,7 +7,10 @@ Provides:
     invoke build          — Build all C++ targets
     invoke test           — Run C++ tests
     invoke clean          — Remove build artifacts
-    invoke run.geometry   — Run geometry worker
+    invoke run.geometry   — Run geometry worker smoke test
+    invoke run.worker     — Start the Geometry Worker gRPC server
+    invoke run.server     — Start the Go API and Web server
+    invoke web.build      — Build the Demo 01 web application
     invoke info           — Print toolchain versions and paths
 
 All commands respect OCCCCAD_BUILD_TYPE from environment (default: Debug).
@@ -30,6 +33,30 @@ BUILD_DIR = PROJECT_ROOT / "build" / "cmake"
 CONAN_DIR = PROJECT_ROOT / "build-support" / "conan"
 PROFILES_DIR = CONAN_DIR / "profiles"
 LOCKS_DIR = CONAN_DIR / "locks"
+
+
+def _load_project_env() -> None:
+    """Load simple KEY=VALUE entries from .env; exported variables take precedence."""
+    env_file = PROJECT_ROOT / ".env"
+    if not env_file.exists():
+        return
+    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line.removeprefix("export ").strip()
+        key, separator, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if not separator or not key.replace("_", "").isalnum():
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
+_load_project_env()
 
 # Default profile depending on detected compiler
 _CC = os.environ.get("CC", "gcc").split("/")[-1]
@@ -289,7 +316,32 @@ def run_geometry(c, build_type=None):
         c.run(f"cmake --build {build_dir} --target occccad_geometry_worker -j 0", pty=True)
 
     print(f"[run] Starting geometry worker at {worker_bin}")
+    c.run(f"{worker_bin} --smoke", pty=True)
+
+
+@task(help={"build_type": "Debug or Release"})
+def run_worker(c, build_type=None):
+    """Build and start the Geometry Worker gRPC server."""
+    bt = build_type or _get_build_type()
+    build_dir = _get_build_dir(bt)
+    worker_bin = build_dir / "workers" / "geometry" / "occccad_geometry_worker"
+    if not worker_bin.exists():
+        c.run(f"cmake --build {build_dir} --target occccad_geometry_worker -j 0", pty=True)
     c.run(str(worker_bin), pty=True)
+
+
+@task
+def run_server(c):
+    """Start the Go control-plane server (requires database environment variables)."""
+    with c.cd(str(PROJECT_ROOT / "services")):
+        c.run("go run ./cmd/occccad-server", pty=True)
+
+
+@task
+def build_web(c):
+    """Type-check and build the Demo 01 web application."""
+    with c.cd(str(PROJECT_ROOT / "web")):
+        c.run("pnpm build", pty=True)
 
 
 # ---------------------------------------------------------------------------
@@ -318,6 +370,11 @@ def clean(c):
 
 run_collection = Collection("run")
 run_collection.add_task(run_geometry, "geometry")
+run_collection.add_task(run_worker, "worker")
+run_collection.add_task(run_server, "server")
+
+web_collection = Collection("web")
+web_collection.add_task(build_web, "build")
 
 # ---------------------------------------------------------------------------
 # Root namespace
@@ -331,3 +388,4 @@ ns.add_task(build)
 ns.add_task(test)
 ns.add_task(clean)
 ns.add_collection(run_collection)
+ns.add_collection(web_collection)

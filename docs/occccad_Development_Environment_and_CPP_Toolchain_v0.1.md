@@ -35,12 +35,15 @@
 | Python | 3.14.7 | Conan / Invoke 运行环境 |
 | Invoke | 3.0.3 | 统一开发入口 |
 | OCCT | 7.9.1 | Conan 包 `opencascade/7.9.1` |
+| gRPC / Protobuf | 1.71.0 / 5.27.0 | Conan C++ Worker 协议与代码生成 |
 | Go | 1.26.5 | `services/go.mod` 声明版本 |
-| Node.js | 26.7.0 | 前端占位工程已验证环境 |
+| Node.js | 26.7.0 | Demo Web 构建环境 |
 | pnpm | 11.20.0 | `web/package.json` 固定版本 |
+| PostgreSQL Client | 18 | 迁移与数据库人工验证 |
 
-验证结果：`occccad_smoke_test` 通过，`occccad_geometry_worker` 能创建 10×20×30
-的 Box，并返回 6 个面、12 条边、8 个顶点和 1 个实体。
+验证结果：`occccad_smoke_test` 通过，`occccad_geometry_worker` 能把 100×60 mm 矩形草图
+拉伸 40 mm，返回 240000 mm³、6 面、12 边、8 点、1 个实体和 12 个显示三角形；
+Go、PostgreSQL 与 Web 的 Demo 01 闭环也已通过。
 
 ### 2.2 仓库硬约束
 
@@ -49,7 +52,7 @@
 | 文件 | 当前约束 |
 |---|---|
 | `CMakeLists.txt` | CMake >= 3.30，C++17，无编译器扩展 |
-| `conanfile.py` | Conan 2；OCCT 7.9.1；GoogleTest `[>=1.14 <3]` |
+| `conanfile.py` | Conan 2；OCCT 7.9.1；gRPC 1.71.0；GoogleTest `[>=1.14 <3]` |
 | `build-support/conan/profiles/*` | Linux x86_64、libstdc++11、C++17 |
 | `requirements-build.txt` | Conan 2、Invoke 3、cmake-format |
 | `services/go.mod` | Go 1.26.5 |
@@ -65,12 +68,12 @@
 |---|---|---|
 | C++ | C++17 | 需要明确收益和兼容验证后再评估 C++20/23 |
 | OCCT | 7.9.1 | 通过回归测试后再升级 7.9.x/8.x |
-| RPC | 未接入 | gRPC + Protobuf |
+| RPC | gRPC 1.71 + Protobuf 5.27 | 超时、取消、重试与服务发现 |
 | 日志 | 标准输出 | spdlog 或其他结构化日志方案 |
 | 数学/求解 | 未接入 | Eigen、Ceres 等 |
-| 控制面 | Go module 占位 | 文档、产品、命令、调度服务 |
-| Web | pnpm workspace 占位 | TypeScript/React/Three.js |
-| 数据设施 | 地址占位 | PostgreSQL、Redis、S3-compatible storage |
+| 控制面 | Go Demo API、迁移、领域服务 | 完整文档、命令和调度服务 |
+| Web | TypeScript + Three.js Demo | 编辑器框架与交互建模 |
+| 数据设施 | PostgreSQL | Redis、S3-compatible storage |
 
 升级路线不是安装说明。规划依赖只有在 `conanfile.py`、源代码和测试真正启用后，才列入
 当前环境。
@@ -108,13 +111,15 @@ sudo apt install -y \
     python3-pip \
     python3-venv \
     ccache \
-    gdb
+    gdb \
+    postgresql-client-18
 ```
 
 如果发行版仓库没有 GCC 15 或 CMake 3.30+，应使用可信的软件源或工具版本管理器。
 不要为了满足文档而全局替换系统编译器软链接；Profile 应明确工具路径。
 
-Go、Node.js 和 pnpm 暂不参与当前 C++ 冒烟构建，可在开始对应子项目时安装。
+仅构建 C++ 冒烟测试不需要 Go、Node.js、pnpm 和 PostgreSQL Client；运行完整 Demo 01
+需要它们。
 
 ## 5. 环境检查
 
@@ -162,10 +167,11 @@ invoke bootstrap
 
 ### 7.1 当前依赖
 
-当前普通构建只有一个第三方运行依赖：
+当前普通构建的主要第三方运行依赖：
 
 ```text
 opencascade/7.9.1
+grpc/1.71.0
 ```
 
 当前测试依赖：
@@ -174,8 +180,8 @@ opencascade/7.9.1
 gtest/[>=1.14 <3]
 ```
 
-`spdlog`、Protobuf、gRPC、Eigen、Ceres 和 Benchmark 在 `conanfile.py` 中仍是注释或规划项，
-不应出现在“当前必须安装”的列表中。
+gRPC 的 Conan 依赖会带入匹配的 Protobuf。`spdlog`、Eigen、Ceres 和 Benchmark 仍是
+规划项，不应出现在“当前必须安装”的列表中。
 
 ### 7.2 系统包与 Conan 的边界
 
@@ -300,20 +306,19 @@ Conan install、定位 toolchain 和 CMake configure。
 
 | Target | 类型 | 作用 |
 |---|---|---|
-| `occccad_kernel_api` | Interface library | 与 OCCT 类型隔离的公共 API |
+| `occccad_kernel_api` | Static library | 公共 API、SHA-256 与 GLB 编码 |
 | `occccad_occt_kernel` | Static library | OCCT 适配实现 |
-| `occccad_geometry_worker` | Executable | Phase 0 本地冒烟程序，尚非 gRPC server |
-| `occccad_smoke_test` | Executable / CTest | Box、包围盒、拓扑和 unload 验证 |
+| `occccad_worker_proto` | Static library | C++ Protobuf/gRPC 生成代码 |
+| `occccad_geometry_worker` | Executable | gRPC Server，也支持 `--smoke` |
+| `occccad_smoke_test` | Executable / CTest | Sketch → Pad、制品、拓扑和 round-trip 验证 |
 
 成功的 Geometry Worker 输出应包含：
 
 ```text
-[SMOKE] Created box: ...
-faces:  6
-edges:  12
-vertices: 8
-solids: 1
-[PASS] OCCT MakeBox smoke test passed.
+[SMOKE] Volume: 240000 mm^3
+[SMOKE] Topology: 6 faces / 12 edges / 8 vertices / 1 solid
+[SMOKE] Triangles: 12
+[PASS] Rectangle Sketch -> Pad
 ```
 
 ## 10. 测试与质量工具
@@ -360,34 +365,31 @@ kernel/occt/
 
 当前已经实现并被测试的能力：
 
-- `createBox`；
-- 内存内 GeometryId 占位标识；
+- `createRectangularPad`（Rectangle Wire → Face → Prism）和 `createBox`；
+- 对 B-Rep 字节计算真实 SHA-256 GeometryId；
 - `getBoundingBox`；
 - 面、边、点、实体的拓扑计数与基础分类；
+- B-Rep 序列化/反序列化、网格化和 GLB 2.0 编码；
+- 粗粒度 `EvaluatePart` gRPC 和内存缓存；
 - `unload` 和 resident count。
 
 当前接口中存在但尚未完整实现的能力：
 
-- GeometryId 的真实 SHA-256 内容寻址；
-- B-Rep 序列化/反序列化；
-- 完整 tessellation 数据；
 - 真正执行的 chamfer / fillet；
-- gRPC server 和远程 Worker 生命周期；
 - 对象存储、调度与故障恢复。
 
 文档、Issue 和提交说明应区分“接口已定义”与“功能已实现”。
 
 ## 12. 外部服务与跨语言工程
 
-`.env.example` 预留 PostgreSQL、Redis、S3-compatible storage 和各服务端口，但当前 C++
-构建、测试和 Geometry Worker 冒烟程序不连接这些服务。因此完成 Phase 0 不需要预先启动
-数据库、缓存或 MinIO。
+`.env.example` 提供 PostgreSQL、Redis、S3-compatible storage 和各服务端口。C++ Worker
+自身不连接数据库；完整 Demo 由 Go Server 连接 PostgreSQL。Redis 和 MinIO 仍未接入。
 
-`services/` 当前只有 Go module 声明；`web/` 当前只有 pnpm workspace 声明。开始相关开发时：
+`services/` 已包含 Go API、gRPC Client 和嵌入式迁移；`web/apps/demo` 已包含 Three.js 页面：
 
 - Go 依赖以 `go.mod` / `go.sum` 为准；
-- Node 与 pnpm 版本以 `packageManager` 和未来的 lockfile 为准；
-- Proto 工具链应固定版本，并让 C++、Go、TypeScript 从同一份 schema 生成代码；
+- Node 与 pnpm 版本以 `packageManager` 和 lockfile 为准；
+- C++ 与 Go 从 `proto/` 下同一份 schema 生成协议代码；
 - 外部服务应通过 `.env` 或部署配置注入，不硬编码到源代码。
 
 ## 13. 常见问题
@@ -451,7 +453,7 @@ invoke configure --build-type=Debug
 在完成这些步骤前，“计划使用 C++23”或“希望升级 OCCT 8”都只是设计方向，不能替代
 仓库事实。
 
-## 15. Phase 0 完成标准
+## 15. Phase 0 与 Demo 01 完成标准
 
 当前工程骨架的可重复验收命令为：
 
@@ -462,6 +464,7 @@ invoke configure --build-type=Debug
 invoke build --build-type=Debug
 invoke test --build-type=Debug
 invoke run.geometry --build-type=Debug
+invoke web.build
 ```
 
 验收标准：
@@ -470,7 +473,9 @@ invoke run.geometry --build-type=Debug
 - CMake 以 C++17 配置成功；
 - 所有当前 targets 编译成功；
 - CTest 报告 100% 通过；
-- Worker 输出正确 Box 包围盒与拓扑数量；
+- Worker 输出正确 Sketch → Pad 体积、包围盒、拓扑与三角形数量；
 - 公共 API 不泄漏 OCCT 类型。
 
-这套基线是后续加入 gRPC、持久化和分布式调度的起点。新增能力不应破坏这条最小验证链。
+完整 Demo 01 还应按[运行手册](occccad_Demo01_Runbook.md)启动 Worker、Go Server 和
+PostgreSQL，验证 4 个实例复用 1 份几何制品。它是后续通用建模、对象存储与分布式调度
+的起点；新增能力不应破坏这条最小验证链。

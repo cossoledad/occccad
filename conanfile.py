@@ -23,9 +23,8 @@ class OccccadDependencies(ConanFile):
         # NOTE: may conflict with opencascade over fmt version;
         # if so add "fmt/12.2.0" with override=True
         # "spdlog/*",
-        # RPC (uncomment when needed)
-        # "protobuf/*",
-        # "grpc/*",
+        # Coarse-grained Geometry Worker RPC
+        "grpc/1.71.0",
         # Math (uncomment when needed)
         # "eigen/*",
         # "ceres-solver/*",

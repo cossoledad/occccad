@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111827" />
+    <title>occccad · Demo 01</title>
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">occ</span><span>ccad</span></div>
+        <div class="demo-label">Vertical Slice · Demo 01</div>
+        <div id="health" class="health waiting"><span></span>正在检查服务</div>
+      </header>
+      <main class="workspace">
+        <aside class="sidebar">
+          <section>
+            <div class="section-title">Document Tree</div>
+            <div id="tree" class="tree empty">运行 Demo 后显示装配结构</div>
+          </section>
+          <section class="specification">
+            <div class="section-title">Part Parameters</div>
+            <dl>
+              <div><dt>Sketch</dt><dd>Rectangle</dd></div>
+              <div><dt>Width</dt><dd>100 mm</dd></div>
+              <div><dt>Height</dt><dd>60 mm</dd></div>
+              <div><dt>Pad</dt><dd>40 mm</dd></div>
+            </dl>
+          </section>
+        </aside>
+        <section class="viewport-panel">
+          <div id="viewport"></div>
+          <div class="viewport-toolbar">
+            <button id="run-demo" type="button">构建 Demo 01</button>
+            <span id="status">等待执行</span>
+          </div>
+          <div class="axis-label">Z ↑ &nbsp; · &nbsp; units: mm</div>
+        </section>
+        <aside class="inspector">
+          <section>
+            <div class="section-title">Geometry</div>
+            <div id="geometry-info" class="placeholder">尚未求值</div>
+          </section>
+          <section>
+            <div class="section-title">Architecture Proof</div>
+            <div id="metrics" class="metric-grid">
+              <div><strong>—</strong><span>Visible instances</span></div>
+              <div><strong>—</strong><span>Unique geometry</span></div>
+              <div><strong>—</strong><span>Documents</span></div>
+              <div><strong>—</strong><span>Commands</span></div>
+            </div>
+          </section>
+        </aside>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

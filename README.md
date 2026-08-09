@@ -10,17 +10,17 @@
 
 ## 当前状态
 
-仓库目前处于 **v0.1 / Phase 0 工程骨架阶段**。已经能够完成：
+仓库目前处于 **v0.1 / Demo 01 垂直切片阶段**。已经能够完成：
 
-- 通过 Conan 2 获取 OCCT 7.9.1 和 GoogleTest；
-- 以 CMake + Ninja 构建 C++17 内核接口、OCCT 适配层和 Geometry Worker；
-- 创建 OCCT Box，查询包围盒和拓扑数量；
-- 通过 CTest 运行 Geometry Worker 冒烟测试；
-- 为后续 Go 控制面和 Web 前端保留工程目录。
+- 通过 Conan 2 获取 OCCT 7.9.1、gRPC/Protobuf 和 GoogleTest；
+- 用真实的 Rectangle Sketch → Face → Pad 创建 100×60×40 mm Part；
+- 生成稳定的 SHA-256 GeometryId、B-Rep、GLB、网格、包围盒和拓扑摘要；
+- 通过粗粒度 gRPC 在 Go API 与 C++ Geometry Worker 之间求值；
+- 在 PostgreSQL 中保存 Document、Version、Command、Product Instance 和几何制品；
+- 在 Three.js 页面展示两层 Product 引用图中的 4 个实例，并复用 1 份几何。
 
-文档中描述的 gRPC、持久化、内容寻址、调度、浏览器建模和完整 Undo/Redo
-属于目标架构，尚不能视为已经实现。当前进度详见
-[文档索引](docs/README.md)。
+Demo 01 不包含通用草图编辑器、约束求解、Undo/Redo、Redis、对象存储或分布式调度；
+这些仍属于后续目标。当前进度详见[文档索引](docs/README.md)。
 
 ## 已验证的开发环境
 
@@ -37,8 +37,9 @@
 | Python | 3.14.7 | 用于 Conan 和 Invoke，不进入运行时 |
 | OCCT | 7.9.1 | `opencascade/7.9.1` |
 | GoogleTest | 1.17.0 | `gtest/[>=1.14 <3]`，当前解析结果 1.17.0 |
-| Go | 1.26.5 | `services/go.mod`，控制面尚未实现 |
+| Go | 1.26.5 | Demo API、迁移和 gRPC Client |
 | Node.js / pnpm | 26.7.0 / 11.20.0 | pnpm 版本由 `web/package.json` 固定 |
+| PostgreSQL Client | 18 | Demo 数据迁移和人工检查 |
 
 这张表记录的是已跑通组合，不表示所有工具都必须逐字匹配该补丁版本。开始开发前，
 请同时查看[开发环境与 C++ 工具链](docs/occccad_Development_Environment_and_CPP_Toolchain_v0.1.md)。
@@ -63,7 +64,7 @@ invoke configure --build-type=Debug
 invoke build --build-type=Debug
 invoke test --build-type=Debug
 
-# 5. 运行当前的 Geometry Worker 冒烟程序
+# 5. 运行 Rectangle Sketch -> Pad 冒烟程序
 invoke run.geometry --build-type=Debug
 ```
 
@@ -79,6 +80,19 @@ invoke build --build-type=Release
 invoke test --build-type=Release
 ```
 
+完整 Demo 还需要一个 PostgreSQL 数据库。复制 `.env.example` 为 `.env` 并设置连接信息后，
+Invoke 会自动加载该文件。按照 [Demo 01 运行手册](docs/occccad_Demo01_Runbook.md) 分别启动
+Worker 和 Server：
+
+```bash
+invoke web.build
+invoke run.worker --build-type=Debug
+invoke run.server
+```
+
+然后从 Windows 访问 `http://localhost:8080`，点击“构建 Demo 01”。Server 默认绑定
+`0.0.0.0:8080`；若 WSL 没有转发 localhost，可改用 `hostname -I` 显示的 WSL 地址。
+
 ## 常用命令
 
 ```text
@@ -89,6 +103,9 @@ invoke build --build-type=Debug          编译全部 C++ 目标
 invoke build --target=<target>           编译指定目标
 invoke test --filter=<regex>             运行匹配的 CTest
 invoke run.geometry                      运行 Geometry Worker 冒烟程序
+invoke run.worker                        启动 Geometry Worker gRPC Server
+invoke run.server                        启动 Go API 和静态 Web Server
+invoke web.build                         类型检查并构建 Demo Web
 invoke clean                             删除仓库内 build 产物
 ```
 
@@ -109,10 +126,11 @@ occccad/
 ├── kernel/
 │   ├── api/                       不暴露 OCCT 类型的公共 C++ API
 │   └── occt/                      OCCT 适配实现
-├── workers/geometry/              当前 Geometry Worker 冒烟程序
-├── tests/geometry/                C++ 几何冒烟测试
-├── services/                      Go 控制面占位工程
-├── web/                           pnpm 前端工作区占位工程
+├── proto/                         C++ / Go 共用的 Worker 协议
+├── workers/geometry/              C++ Geometry Worker gRPC Server
+├── tests/geometry/                C++ 几何与制品测试
+├── services/                      Go API、数据迁移和领域服务
+├── web/apps/demo/                 TypeScript + Three.js Demo 页面
 └── docs/                          架构、环境和 Demo 文档
 ```
 
@@ -130,8 +148,8 @@ C++ Geometry Workers (OCCT)
 PostgreSQL / Redis / S3-compatible storage
 ```
 
-外部服务地址已经在 `.env.example` 中预留，但当前 C++ 冒烟程序不需要 PostgreSQL、
-Redis 或 MinIO。它们将在相应服务实现后成为运行依赖。
+Demo 01 使用 PostgreSQL；为保持垂直切片紧凑，B-Rep 和 GLB 暂存于 PostgreSQL `bytea`。
+Redis、MinIO/S3 与多 Worker 调度尚未进入本 Demo。
 
 ## 文档
 
@@ -139,6 +157,7 @@ Redis 或 MinIO。它们将在相应服务实现后成为运行依赖。
 - [架构规格](docs/occccad_Architecture_Specification_v0.1.md)
 - [开发环境与 C++ 工具链](docs/occccad_Development_Environment_and_CPP_Toolchain_v0.1.md)
 - [首个垂直切片 Demo](docs/occccad_demo_v0.1.md)
+- [Demo 01 运行手册](docs/occccad_Demo01_Runbook.md)
 
 ## License
 

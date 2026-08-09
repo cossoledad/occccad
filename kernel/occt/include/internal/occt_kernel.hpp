@@ -39,9 +39,11 @@ public:
     void unload(const GeometryId& id) override;
 
     GeometryId createBox(double dx, double dy, double dz) override;
+    GeometryId createRectangularPad(const RectangularPadSpec& spec) override;
 
     BoundingBox getBoundingBox(const GeometryId& id) override;
     TopologyInfo getTopology(const GeometryId& id) override;
+    double getVolume(const GeometryId& id) override;
 
     TessellationResult tessellate(
         const GeometryId& id,
@@ -61,15 +63,13 @@ public:
     std::vector<uint8_t> serializeBrepr(const GeometryId& id) override;
 
     // Additional accessors
-    size_t resident_count() const noexcept { return shapes_.size(); }
+    size_t resident_count() const noexcept;
     bool is_loaded(const GeometryId& id) const noexcept;
 
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
 
-    // Map GeometryId -> TopoDS_Shape (owned internally)
-    std::unordered_map<GeometryId, void*> shapes_;
 };
 
 }  // namespace occccad::kernel
