@@ -1,14 +1,15 @@
 package api
 
 import (
+	"bytes"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -18,17 +19,24 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/occccad/occccad/internal/access"
+	"github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/authn"
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/workspace"
 	"go.opentelemetry.io/otel/trace"
 )
 
 type Server struct {
-	database     *pgxpool.Pool
-	worker       *geometry.Client
-	workspace    *workspace.Service
-	access       *access.Service
-	webDirectory string
+	database      *pgxpool.Pool
+	worker        *geometry.Client
+	workspace     *workspace.Service
+	access        *access.Service
+	authn         *authn.Service
+	artifacts     *artifact.Service
+	jobs          *jobs.Service
+	webDirectory  string
+	secureCookies bool
 }
 
 func New(
@@ -36,11 +44,18 @@ func New(
 	worker *geometry.Client,
 	workspaceService *workspace.Service,
 	accessService *access.Service,
+	authenticationService *authn.Service,
+	artifactService *artifact.Service,
+	jobService *jobs.Service,
 	webDirectory string,
+	secureCookies bool,
 ) *Server {
 	return &Server{
 		database: database, worker: worker,
-		workspace: workspaceService, access: accessService, webDirectory: webDirectory,
+		workspace: workspaceService, access: accessService, authn: authenticationService,
+		artifacts:    artifactService,
+		jobs:         jobService,
+		webDirectory: webDirectory, secureCookies: secureCookies,
 	}
 }
 
@@ -88,6 +103,18 @@ func (server *Server) writeDocumentResult(writer http.ResponseWriter, request *h
 		if role, roleErr := server.access.EffectiveDocumentRole(request.Context(), result.Document.ID, principal(request).ID); roleErr == nil {
 			result.Document.Permission = string(role)
 		}
+		if request.Method != http.MethodGet && result.Artifact != nil {
+			digest := sha256.Sum256([]byte(result.Document.ID + ":" + result.Document.VersionID + ":preview-v1"))
+			identity := hex.EncodeToString(digest[:])
+			_, jobErr := server.jobs.Enqueue(request.Context(), jobs.EnqueueRequest{Type: "THUMBNAIL_RENDER",
+				DocumentID: result.Document.ID, VersionID: &result.Document.VersionID,
+				RequestedBy: principal(request).ID, IdempotencyKey: identity,
+				Payload: map[string]any{"previewIdentity": identity, "rendererVersion": "svg-v1",
+					"name": result.Document.Name, "bbox": result.Artifact.BBox}})
+			if jobErr != nil {
+				slog.ErrorContext(request.Context(), "enqueue document preview", "error", jobErr)
+			}
+		}
 	}
 	writeWorkspaceResult(writer, result, err)
 }
@@ -95,7 +122,17 @@ func (server *Server) writeDocumentResult(writer http.ResponseWriter, request *h
 func (server *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", server.health)
+	mux.HandleFunc("POST /api/auth/login", server.login)
+	mux.HandleFunc("POST /api/auth/register", server.register)
+	mux.HandleFunc("POST /api/auth/logout", server.logout)
+	mux.HandleFunc("POST /api/auth/change-password", server.changePassword)
 	mux.HandleFunc("GET /api/session", server.session)
+	mux.HandleFunc("GET /api/admin/users", server.adminListUsers)
+	mux.HandleFunc("POST /api/admin/users", server.adminCreateUser)
+	mux.HandleFunc("PATCH /api/admin/users/{userID}", server.adminUpdateUser)
+	mux.HandleFunc("DELETE /api/admin/users/{userID}", server.adminDisableUser)
+	mux.HandleFunc("POST /api/admin/users/{userID}/reset-password", server.adminResetPassword)
+	mux.HandleFunc("GET /api/admin/stats", server.adminStats)
 	mux.HandleFunc("GET /api/users", server.listUsers)
 	mux.HandleFunc("GET /api/teams", server.listTeams)
 	mux.HandleFunc("GET /api/teams/{teamID}/members", server.listTeamMembers)
@@ -107,6 +144,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/folders/{folderID}", server.deleteFolder)
 	mux.HandleFunc("GET /api/folders/{folderID}/breadcrumbs", server.folderBreadcrumbs)
 	mux.HandleFunc("GET /api/documents/{documentID}", server.getDocument)
+	mux.HandleFunc("GET /api/documents/{documentID}/preview", server.documentPreview)
 	mux.HandleFunc("PATCH /api/documents/{documentID}", server.updateDocument)
 	mux.HandleFunc("DELETE /api/documents/{documentID}", server.deleteDocument)
 	mux.HandleFunc("POST /api/documents/{documentID}/restore", server.restoreDocument)
@@ -116,7 +154,10 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{documentID}/versions", server.createVersion)
 	mux.HandleFunc("POST /api/documents/{documentID}/commands", server.applyCommand)
 	mux.HandleFunc("POST /api/documents/{documentID}/import-step", server.importStep)
-	mux.HandleFunc("GET /api/documents/{documentID}/export-step", server.exportStep)
+	mux.HandleFunc("POST /api/documents/{documentID}/export-step", server.startExportStep)
+	mux.HandleFunc("GET /api/jobs", server.listJobs)
+	mux.HandleFunc("GET /api/jobs/{jobID}", server.getJob)
+	mux.HandleFunc("GET /api/jobs/{jobID}/download", server.downloadJob)
 	mux.HandleFunc("GET /api/documents/{documentID}/shares", server.documentShares)
 	mux.HandleFunc("POST /api/documents/{documentID}/shares", server.shareDocument)
 	mux.HandleFunc("DELETE /api/documents/{documentID}/shares/{grantID}", server.unshareDocument)
@@ -132,7 +173,7 @@ func (server *Server) Handler() http.Handler {
 }
 
 func (server *Server) session(writer http.ResponseWriter, request *http.Request) {
-	writeJSON(writer, http.StatusOK, map[string]any{"user": principal(request), "authenticationMode": "local-principal"})
+	writeJSON(writer, http.StatusOK, map[string]any{"user": principal(request), "authenticationMode": "password-session"})
 }
 
 func (server *Server) listUsers(writer http.ResponseWriter, request *http.Request) {
@@ -295,6 +336,7 @@ func (server *Server) importStep(writer http.ResponseWriter, request *http.Reque
 		writeError(writer, http.StatusBadRequest, "invalid STEP upload: "+err.Error())
 		return
 	}
+	defer request.MultipartForm.RemoveAll()
 	file, header, err := request.FormFile("file")
 	if err != nil {
 		writeError(writer, http.StatusBadRequest, "STEP file is required")
@@ -311,34 +353,30 @@ func (server *Server) importStep(writer http.ResponseWriter, request *http.Reque
 		writeError(writer, http.StatusBadRequest, "STEP file exceeds the 64 MiB limit")
 		return
 	}
+	stored, err := server.artifacts.Put(request.Context(), artifact.KindStepSource,
+		"application/step", bytes.NewReader(data))
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "store STEP source: "+err.Error())
+		return
+	}
 	requestID := request.FormValue("requestId")
 	if requestID == "" {
 		requestID = request.Header.Get("X-Request-ID")
 	}
-	result, err := server.workspace.ImportStep(
-		request.Context(), request.PathValue("documentID"), requestID,
-		filepath.Base(header.Filename), data)
-	server.writeDocumentResult(writer, request, result, err)
-}
-
-func (server *Server) exportStep(writer http.ResponseWriter, request *http.Request) {
-	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
-		return
-	}
-	data, fileName, err := server.workspace.ExportStep(
-		request.Context(), request.PathValue("documentID"), request.Header.Get("X-Request-ID"))
+	view, err := server.workspace.GetDocument(request.Context(), request.PathValue("documentID"))
 	if err != nil {
 		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
 		return
 	}
-	writer.Header().Set("Content-Type", "application/step")
-	writer.Header().Set("Content-Disposition", mime.FormatMediaType(
-		"attachment", map[string]string{"filename": fileName}))
-	writer.Header().Set("Content-Length", fmt.Sprint(len(data)))
-	writer.WriteHeader(http.StatusOK)
-	if _, err := writer.Write(data); err != nil {
-		slog.Error("write STEP response", "error", err)
+	job, err := server.jobs.Enqueue(request.Context(), jobs.EnqueueRequest{Type: "STEP_IMPORT",
+		DocumentID: request.PathValue("documentID"), VersionID: &view.Document.VersionID,
+		RequestedBy: principal(request).ID, InputObjectID: stored.ID, IdempotencyKey: requestID,
+		Payload: map[string]any{"fileName": filepath.Base(header.Filename), "requestId": requestID}})
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
 	}
+	writeJSON(writer, http.StatusAccepted, job)
 }
 
 func (server *Server) listDocuments(writer http.ResponseWriter, request *http.Request) {
@@ -631,25 +669,45 @@ func (server *Server) middleware(next http.Handler) http.Handler {
 				requestID = hex.EncodeToString(buffer)
 			}
 		}
+		request.Header.Set("X-Request-ID", requestID)
 		writer.Header().Set("X-Request-ID", requestID)
 		spanContext := trace.SpanContextFromContext(request.Context())
 		if spanContext.IsValid() {
 			writer.Header().Set("Trace-ID", spanContext.TraceID().String())
 		}
-		writer.Header().Set("Access-Control-Allow-Origin", "*")
-		writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, X-OCCCCAD-User-ID, Traceparent, Tracestate")
+		writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, X-CSRF-Token, Traceparent, Tracestate")
 		writer.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
 		if request.Method == http.MethodOptions {
 			writer.WriteHeader(http.StatusNoContent)
 			return
 		}
-		if strings.HasPrefix(request.URL.Path, "/api/") && request.URL.Path != "/api/health" {
-			resolved, err := server.access.ResolvePrincipal(request.Context(), request.Header.Get("X-OCCCCAD-User-ID"))
+		if strings.HasPrefix(request.URL.Path, "/api/") && !publicAPI(request.URL.Path) {
+			cookie, err := request.Cookie(sessionCookieName)
 			if err != nil {
-				writeAccessError(writer, err)
+				writeError(writer, http.StatusUnauthorized, "authentication required")
 				return
 			}
-			request = request.WithContext(access.WithPrincipal(request.Context(), resolved))
+			resolved, err := server.authn.Authenticate(request.Context(), cookie.Value)
+			if err != nil {
+				server.clearSessionCookies(writer)
+				writeError(writer, http.StatusUnauthorized, "authentication required")
+				return
+			}
+			request = request.WithContext(access.WithPrincipal(request.Context(), resolved.Principal()))
+			if request.Method != http.MethodGet && request.Method != http.MethodHead {
+				csrfCookie, cookieErr := request.Cookie(csrfCookieName)
+				csrfHeader := request.Header.Get("X-CSRF-Token")
+				if cookieErr != nil || csrfHeader == "" || csrfCookie.Value != csrfHeader ||
+					server.authn.ValidateCSRF(request.Context(), cookie.Value, csrfHeader) != nil {
+					writeError(writer, http.StatusForbidden, "invalid CSRF token")
+					return
+				}
+			}
+			if resolved.MustChangePassword && request.URL.Path != "/api/auth/change-password" &&
+				request.URL.Path != "/api/auth/logout" && request.URL.Path != "/api/session" {
+				writeError(writer, http.StatusForbidden, "password change required")
+				return
+			}
 		}
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		recorder := &statusRecorder{ResponseWriter: writer, status: http.StatusOK}

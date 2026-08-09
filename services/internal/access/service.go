@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -43,10 +42,12 @@ func (role Role) Level() int {
 }
 
 type User struct {
-	ID          string `json:"id"`
-	Email       string `json:"email"`
-	DisplayName string `json:"displayName"`
-	Status      string `json:"status"`
+	ID                 string `json:"id"`
+	Email              string `json:"email"`
+	DisplayName        string `json:"displayName"`
+	Status             string `json:"status"`
+	PlatformRole       string `json:"platformRole"`
+	MustChangePassword bool   `json:"mustChangePassword"`
 }
 
 type Team struct {
@@ -104,25 +105,9 @@ func Principal(ctx context.Context) (User, bool) {
 	return principal, ok
 }
 
-func (service *Service) ResolvePrincipal(ctx context.Context, value string) (User, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		value = DefaultUserID
-	}
-	var user User
-	err := service.database.QueryRow(ctx, `
-		SELECT id::text,email,display_name,status FROM occccad.users
-		WHERE status='ACTIVE' AND (id::text=$1 OR lower(email)=lower($1))`, value).
-		Scan(&user.ID, &user.Email, &user.DisplayName, &user.Status)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return User{}, fmt.Errorf("%w: principal is unknown or disabled", ErrUnauthorized)
-	}
-	return user, err
-}
-
 func (service *Service) ListUsers(ctx context.Context, query string) ([]User, error) {
 	rows, err := service.database.Query(ctx, `
-		SELECT id::text,email,display_name,status FROM occccad.users
+		SELECT id::text,email,display_name,status,platform_role,must_change_password FROM occccad.users
 		WHERE status='ACTIVE' AND ($1='' OR email ILIKE '%'||$1||'%' OR display_name ILIKE '%'||$1||'%')
 		ORDER BY lower(display_name) LIMIT 50`, strings.TrimSpace(query))
 	if err != nil {
@@ -132,7 +117,8 @@ func (service *Service) ListUsers(ctx context.Context, query string) ([]User, er
 	result := []User{}
 	for rows.Next() {
 		var item User
-		if err := rows.Scan(&item.ID, &item.Email, &item.DisplayName, &item.Status); err != nil {
+		if err := rows.Scan(&item.ID, &item.Email, &item.DisplayName, &item.Status,
+			&item.PlatformRole, &item.MustChangePassword); err != nil {
 			return nil, err
 		}
 		result = append(result, item)

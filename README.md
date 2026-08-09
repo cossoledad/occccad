@@ -10,7 +10,7 @@
 
 ## 当前状态
 
-仓库目前处于 **v0.0.6 / 协作与访问控制基础阶段**。已经能够完成：
+仓库目前处于 **v0.0.7 / 账号管理与持久任务阶段**。已经能够完成：
 
 - 通过 Conan 2 获取 OCCT 7.9.1、gRPC/Protobuf 和 GoogleTest；
 - 显示并选择 XY/XZ/YZ 三个基准面，在任意基准面进入草图模式；
@@ -33,9 +33,14 @@
 - 文档中心支持层级 Folder、Breadcrumb、最近打开、移动、Main Workspace 复制和服务端分页。
 - User/Team、Owner/Editor/Viewer ACL、Folder 权限继承、文档/文件夹共享与“与我共享”视图；
 - 所有 API 请求绑定 Principal，成功写操作记录 Actor、Resource、Request ID 与 Trace ID 审计。
+- 使用真实账号登录和数据库会话；注册账号由管理员审批并分配 `ADMIN/MEMBER` 平台角色；
+- 管理后台支持账号查询、添加、审批、禁用和密码重置，旧 Demo 身份切换已移除；
+- STEP 导入/导出通过 PostgreSQL 持久任务和独立 `occccad-jobs` Worker 异步执行；
+- 大文件制品按 SHA-256 原子写入服务启动目录的 `data/`，并通过存储接口预留未来 S3 后端。
+- 新几何双写 B-Rep/GLB 本地制品，Part 缩略图由后台任务生成并显示在文档中心。
 
 当前矩形草图尚不包含尺寸/几何约束求解，装配也暂不包含旋转、配合约束、Redis、对象
-存储、多 Worker 调度或 XCAF Assembly STEP；这些属于后续目标。当前进度详见
+S3、Redis、完整任务中心、多 Worker 路由或 XCAF Assembly STEP；这些属于后续目标。当前进度详见
 [文档索引](docs/README.md)。
 
 ## 已验证的开发环境
@@ -53,9 +58,9 @@
 | Python | 3.14.7 | 用于 Conan 和 Invoke，不进入运行时 |
 | OCCT | 7.9.1 | `opencascade/7.9.1` |
 | GoogleTest | 1.17.0 | `gtest/[>=1.14 <3]`，当前解析结果 1.17.0 |
-| Go | 1.26.5 | Demo API、迁移和 gRPC Client |
+| Go | 1.26.5 | API、迁移、任务 Worker 和 gRPC Client |
 | Node.js / pnpm | 26.7.0 / 11.20.0 | pnpm 版本由 `web/package.json` 固定 |
-| PostgreSQL Client | 18 | Demo 数据迁移和人工检查 |
+| PostgreSQL Client | 18 | 数据迁移和人工检查 |
 
 这张表记录的是已跑通组合，不表示所有工具都必须逐字匹配该补丁版本。开始开发前，
 请同时查看[开发环境与 C++ 工具链](docs/occccad_Development_Environment_and_CPP_Toolchain_v0.1.md)。
@@ -97,12 +102,13 @@ invoke test --build-type=Release
 ```
 
 完整应用还需要一个 PostgreSQL 数据库。复制 `.env.example` 为 `.env` 并设置连接信息后，
-Invoke 会自动加载该文件。按照 [v0.0.6 设计与运行说明](docs/occccad_v0.0.6_Collaboration_and_Access_Control.md) 分别启动
-Worker 和 Server：
+Invoke 会自动加载该文件。`OCCCCAD_ADMIN_PASSWORD` 在首次启动时必须设置。按照
+[v0.0.7 设计与运行说明](docs/occccad_v0.0.7_Distributed_Artifact_Pipeline.md) 启动：
 
 ```bash
 invoke web.build
 invoke run.worker --build-type=Debug
+invoke run.jobs
 invoke run.server
 ```
 
@@ -120,8 +126,9 @@ invoke build --target=<target>           编译指定目标
 invoke test --filter=<regex>             运行匹配的 CTest
 invoke run.geometry                      运行 Geometry Worker 冒烟程序
 invoke run.worker                        启动 Geometry Worker gRPC Server
+invoke run.jobs                          启动 PostgreSQL 持久任务 Worker
 invoke run.server                        启动 Go API 和静态 Web Server
-invoke web.build                         类型检查并构建 Demo Web
+invoke web.build                         类型检查并构建 Web 应用
 invoke clean                             删除仓库内 build 产物
 ```
 
@@ -146,7 +153,7 @@ occccad/
 ├── workers/geometry/              C++ Geometry Worker gRPC Server
 ├── tests/geometry/                C++ 几何与制品测试
 ├── services/                      Go API、数据迁移和领域服务
-├── web/apps/demo/                 TypeScript + Three.js 文档中心与 CAD 工作台
+├── web/apps/cad/                  TypeScript + Three.js 文档中心与 CAD 工作台
 └── docs/                          架构、环境和 Demo 文档
 ```
 
@@ -161,11 +168,11 @@ Geometry Router / Scheduler
    |
 C++ Geometry Workers (OCCT)
    |
-PostgreSQL / Redis / S3-compatible storage
+PostgreSQL / ArtifactStore
 ```
 
-Demo 02 使用 PostgreSQL；为保持垂直切片紧凑，B-Rep 和 GLB 暂存于 PostgreSQL `bytea`。
-Redis、MinIO/S3 与多 Worker 调度尚未进入本 Demo。
+当前使用 PostgreSQL 保存业务/任务状态，B-Rep 和 GLB 仍保留于 `bytea`，STEP 制品使用本地
+`data/` ArtifactStore。Redis 和 S3 暂不引入；未来按已预留接口替换或优化。
 
 ## 文档
 
@@ -179,6 +186,7 @@ Redis、MinIO/S3 与多 Worker 调度尚未进入本 Demo。
 - [v0.0.4 文档中心与专业 CAD 工作台](docs/occccad_v0.0.4_Document_Center_and_Workbench.md)
 - [v0.0.5 文档组织与设计复用](docs/occccad_v0.0.5_Document_Organization.md)
 - [v0.0.6 协作与访问控制基础](docs/occccad_v0.0.6_Collaboration_and_Access_Control.md)
+- [v0.0.7 账号管理、本地制品与持久任务](docs/occccad_v0.0.7_Distributed_Artifact_Pipeline.md)
 
 ## License
 

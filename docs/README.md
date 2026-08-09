@@ -22,6 +22,8 @@
    Folder、Breadcrumb、Recent、Move、Copy 和服务端分页。
 10. [v0.0.6 协作与访问控制基础](occccad_v0.0.6_Collaboration_and_Access_Control.md)：
     User/Team、ACL、Folder 继承、Share、Request Principal 和访问审计。
+11. [v0.0.7 账号管理、本地制品与持久任务](occccad_v0.0.7_Distributed_Artifact_Pipeline.md)：
+    注册审批、管理后台、数据库会话、本地 ArtifactStore、Job Queue 和异步 STEP。
 
 ## 文档状态
 
@@ -37,6 +39,7 @@
 | v0.0.4 文档中心与工作台 | 已实现基线 | 首页、文档生命周期和工作台组件架构 |
 | v0.0.5 文档组织与复用 | 当前事实 + 迭代边界 | 当前 Folder、Recent、Copy 和分页架构 |
 | v0.0.6 协作与访问控制 | 当前事实 + 安全边界 | 当前 User/Team、ACL、Share 和审计架构 |
+| v0.0.7 账号、制品与任务 | 已实现基线 | 管理后台、可信会话、本地 Artifact、Job Worker、异步 STEP 和 Thumbnail |
 
 ## 当前实现快照
 
@@ -67,12 +70,14 @@
   Folder hierarchy / Recent / Copy -> paginated document organization
         |
   Request Principal -> User/Team ACL -> inherited Share / access audit
+        |
+  password session / admin console -> PostgreSQL jobs -> local ArtifactStore
 
 尚未实现
   sketch constraint solving and dimensions
   assembly rotation and mating constraints
-  Redis / S3 integration
-  distributed scheduling and recovery
+  Redis / S3 integration (reserved, not currently required)
+  historical artifact backfill jobs
 ```
 
 架构文档中的“系统应当”“目标”“V0.1 设计”均属于目标态；只有被源代码、构建配置和

@@ -385,7 +385,7 @@ kernel/occt/
 `.env.example` 提供 PostgreSQL、Redis、S3-compatible storage 和各服务端口。C++ Worker
 自身不连接数据库；完整 Demo 由 Go Server 连接 PostgreSQL。Redis 和 MinIO 仍未接入。
 
-`services/` 已包含 Go API、gRPC Client 和嵌入式迁移；`web/apps/demo` 已包含 Three.js 页面：
+`services/` 已包含 Go API、gRPC Client 和嵌入式迁移；`web/apps/cad` 已包含 Three.js 页面：
 
 - Go 依赖以 `go.mod` / `go.sum` 为准；
 - Node 与 pnpm 版本以 `packageManager` 和 lockfile 为准；

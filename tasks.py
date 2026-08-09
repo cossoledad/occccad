@@ -10,6 +10,7 @@ Provides:
     invoke run.geometry   — Run geometry worker smoke test
     invoke run.worker     — Start the Geometry Worker gRPC server
     invoke run.server     — Start the Go API and Web server
+    invoke run.jobs       — Start the durable background job worker
     invoke web.build      — Build the current web application
     invoke info           — Print toolchain versions and paths
 
@@ -338,6 +339,13 @@ def run_server(c):
 
 
 @task
+def run_jobs(c):
+    """Start the PostgreSQL-backed artifact and STEP job worker."""
+    with c.cd(str(PROJECT_ROOT / "services")):
+        c.run("go run ./cmd/occccad-jobs", pty=True)
+
+
+@task
 def build_web(c):
     """Type-check and build the current web application."""
     with c.cd(str(PROJECT_ROOT / "web")):
@@ -372,6 +380,7 @@ run_collection = Collection("run")
 run_collection.add_task(run_geometry, "geometry")
 run_collection.add_task(run_worker, "worker")
 run_collection.add_task(run_server, "server")
+run_collection.add_task(run_jobs, "jobs")
 
 web_collection = Collection("web")
 web_collection.add_task(build_web, "build")

@@ -98,7 +98,14 @@ export type FolderSummary = {
   permission: "OWNER" | "EDITOR" | "VIEWER";
 };
 
-export type User = { id: string; email: string; displayName: string; status: "ACTIVE" | "DISABLED" };
+export type User = {
+  id: string; email: string; displayName: string;
+  status: "PENDING" | "ACTIVE" | "DISABLED";
+  platformRole?: "ADMIN" | "MEMBER";
+  mustChangePassword?: boolean;
+  createdAt?: string;
+  lastLoginAt?: string;
+};
 export type Team = { id: string; name: string; description: string; ownerUserId: string; memberCount: number };
 export type AccessRole = "VIEWER" | "EDITOR" | "OWNER";
 export type ShareGrant = {
@@ -108,6 +115,11 @@ export type ShareGrant = {
 export type AuditEvent = {
   id: number; actorName: string; action: string; resourceType?: string; resourceId?: string;
   requestId?: string; metadata: Record<string, unknown>; createdAt: string;
+};
+export type Job = {
+  id: string; type: "STEP_IMPORT" | "STEP_EXPORT" | "THUMBNAIL_RENDER" | "ARTIFACT_BACKFILL";
+  state: "QUEUED" | "RUNNING" | "RETRY_WAIT" | "SUCCEEDED" | "FAILED" | "CANCELED";
+  documentId?: string; progress: number; errorMessage?: string; resultObjectId?: string;
 };
 
 export type ResolvedInstance = {

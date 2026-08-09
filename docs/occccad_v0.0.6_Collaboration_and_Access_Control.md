@@ -3,6 +3,9 @@
 > 状态：已实现并通过真实 PostgreSQL 权限隔离测试  
 > 实现日期：2026-08-09
 
+> 历史说明：本页记录 v0.0.6 当时的 Header 身份适配器；该入口和固定 Demo 用户已在 v0.0.7 删除，
+> 当前账号与会话规则以 [v0.0.7 文档](occccad_v0.0.7_Distributed_Artifact_Pipeline.md)为准。
+
 v0.0.6 在 v0.0.5 文档组织模型上建立统一 Request Principal、User/Team、ACL、共享和访问审计。
 本版本的目标不是实现账号密码系统，而是确保每一次文档读取、建模命令和管理操作都有明确主体，
 并且后端能够独立拒绝越权请求。
@@ -146,8 +149,8 @@ GET /api/audit?documentId={id}&limit=50
 - 写操作产生可按 Document 查询的审计事件；
 - Go、TypeScript/Vite、C++/OCCT 测试通过。
 
-## 9. v0.0.7 建议
+## 9. v0.0.7 后续实现
 
-下一阶段优先接入可信 OIDC 网关和正式 Team 管理界面，然后建设异步 Artifact Pipeline：文档缩略图、
-STEP 导入导出任务、对象存储和任务状态。CAD 内核主线继续推进 Persistent Topology Naming、Face
-Support 与更完整的 Feature 编辑，避免协作框架停留在只有管理界面而缺少建模深度的状态。
+后续范围已经由 [v0.0.7 账号管理、本地制品与持久任务](occccad_v0.0.7_Distributed_Artifact_Pipeline.md)
+实现：旧 Header 身份切换被数据库会话替代，增加注册审批与管理后台，并以 PostgreSQL Job Queue、
+本地 ArtifactStore 和异步 STEP 建立可恢复计算闭环。S3、Redis 和 OIDC 均保留为未来适配器。

@@ -12,9 +12,12 @@ import (
 
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/api"
+	"github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/authn"
 	"github.com/occccad/occccad/internal/config"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/observability"
 	"github.com/occccad/occccad/internal/workspace"
 )
@@ -50,6 +53,20 @@ func run() error {
 	if err := database.Migrate(ctx, pool); err != nil {
 		return err
 	}
+	if configuration.AdminPassword == "" {
+		return errors.New("OCCCCAD_ADMIN_PASSWORD must be set")
+	}
+	authenticationService := authn.New(pool, configuration.SessionTTL)
+	if err := authenticationService.BootstrapAdmin(ctx, configuration.AdminEmail,
+		configuration.AdminName, configuration.AdminPassword); err != nil {
+		return err
+	}
+	localArtifactStore, err := artifact.NewLocalStore(configuration.DataDirectory)
+	if err != nil {
+		return err
+	}
+	artifactService := artifact.NewService(pool, localArtifactStore)
+	jobService := jobs.New(pool)
 
 	worker, err := geometry.Open(configuration.WorkerAddress)
 	if err != nil {
@@ -57,12 +74,15 @@ func run() error {
 	}
 	defer func() { _ = worker.Close() }()
 
-	workspaceService := workspace.New(pool, worker)
+	workspaceService := workspace.NewWithArtifacts(pool, worker, artifactService)
 	accessService := access.New(pool)
 	httpServer := &http.Server{
 		Addr: configuration.ListenAddress,
 		Handler: observability.HTTPHandler(api.New(
-			pool, worker, workspaceService, accessService, configuration.WebDirectory).Handler()),
+			pool, worker, workspaceService, accessService, authenticationService,
+			artifactService,
+			jobService,
+			configuration.WebDirectory, configuration.SecureCookies).Handler()),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
@@ -78,7 +98,9 @@ func run() error {
 
 	slog.Info("occccad server listening",
 		"address", configuration.ListenAddress,
-		"worker", configuration.WorkerAddress)
+		"worker", configuration.WorkerAddress,
+		"artifact_backend", "LOCAL",
+		"data_directory", localArtifactStore.Root())
 	err = httpServer.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
 		return nil

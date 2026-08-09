@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -230,12 +232,17 @@ type CreateVersionRequest struct {
 }
 
 type Service struct {
-	database *pgxpool.Pool
-	worker   *geometry.Client
+	database  *pgxpool.Pool
+	worker    *geometry.Client
+	artifacts *artifactstore.Service
 }
 
 func New(database *pgxpool.Pool, worker *geometry.Client) *Service {
 	return &Service{database: database, worker: worker}
+}
+
+func NewWithArtifacts(database *pgxpool.Pool, worker *geometry.Client, artifacts *artifactstore.Service) *Service {
+	return &Service{database: database, worker: worker, artifacts: artifacts}
 }
 
 func newID(prefix string) string {
@@ -1642,14 +1649,30 @@ func (service *Service) storeEvaluation(
 		"faces": evaluation.GetTopology().GetFaceCount(), "edges": evaluation.GetTopology().GetEdgeCount(),
 		"vertices": evaluation.GetTopology().GetVertexCount(), "solids": evaluation.GetTopology().GetSolidCount(),
 	})
+	var brepObjectID, glbObjectID *string
+	storageState := "DATABASE"
+	if service.artifacts != nil {
+		brepObject, err := service.artifacts.Put(ctx, artifactstore.KindBREP,
+			"application/vnd.opencascade.brep", bytes.NewReader(evaluation.GetBrepData()))
+		if err != nil {
+			return fmt.Errorf("store B-Rep artifact: %w", err)
+		}
+		glbObject, err := service.artifacts.Put(ctx, artifactstore.KindGLB,
+			"model/gltf-binary", bytes.NewReader(evaluation.GetGlbData()))
+		if err != nil {
+			return fmt.Errorf("store GLB artifact: %w", err)
+		}
+		brepObjectID, glbObjectID, storageState = &brepObject.ID, &glbObject.ID, "DUAL"
+	}
 	if _, err := service.database.Exec(ctx, `
 		INSERT INTO occccad.geometry_artifacts(
 			geometry_key,geometry_id,evaluator_version,occt_version,units,
-			brep_data,glb_data,mesh_json,bbox_json,topology_json,volume)
-		VALUES($1,$2,$3,$4,'mm',$5,$6,$7,$8,$9,$10)
+			brep_data,glb_data,mesh_json,bbox_json,topology_json,volume,
+			brep_object_id,glb_object_id,storage_state)
+		VALUES($1,$2,$3,$4,'mm',$5,$6,$7,$8,$9,$10,$11,$12,$13)
 		ON CONFLICT (geometry_key) DO NOTHING`, key, evaluation.GetGeometryId(), evaluatorVersion,
 		evaluation.GetOcctVersion(), evaluation.GetBrepData(), evaluation.GetGlbData(), meshJSON,
-		bboxJSON, topologyJSON, evaluation.GetVolume()); err != nil {
+		bboxJSON, topologyJSON, evaluation.GetVolume(), brepObjectID, glbObjectID, storageState); err != nil {
 		return err
 	}
 	return nil

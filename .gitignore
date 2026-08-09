@@ -48,3 +48,7 @@ compile_commands.json
 # Database
 db/*.db
 db/*.sqlite
+
+# Runtime artifacts (local object-store backend)
+data/
+services/data/

@@ -96,29 +96,131 @@ async function initializeIdentity(): Promise<void> {
   state.currentUser = session.user;
   state.users = users;
   state.teams = teams;
-  const select = element<HTMLSelectElement>("#current-user");
-  select.replaceChildren();
-  for (const user of users) {
-    const option = document.createElement("option");
-    option.value = user.id; option.textContent = `${user.displayName} · ${user.email}`;
-    select.appendChild(option);
-  }
-  select.value = session.user.id;
   element("#avatar").textContent = session.user.displayName.slice(0, 1).toUpperCase();
+  element("#current-user-name").textContent = session.user.displayName;
+  element("#current-user-role").textContent = session.user.platformRole === "ADMIN" ? "管理员" : "成员";
+  element("#admin-button").classList.toggle("hidden", session.user.platformRole !== "ADMIN");
+  if (session.user.mustChangePassword) element<HTMLDialogElement>("#password-dialog").showModal();
 }
 
-async function switchIdentity(userId: string): Promise<void> {
-  api.setPrincipal(userId);
-  state.tabs = [];
-  state.active = undefined;
-  state.currentFolderId = undefined;
-  state.selectedDocumentId = undefined;
-  persistTabs(); cad.clear();
-  await initializeIdentity();
-  showDocumentCenter(false);
-  await refreshDocuments();
-  renderAll();
-  setStatus(`当前身份：${state.currentUser?.displayName ?? "—"}`);
+function showAuthentication(): void {
+  element("#app").classList.add("hidden");
+  element("#auth-screen").classList.remove("hidden");
+}
+
+function showApplication(): void {
+  element("#auth-screen").classList.add("hidden");
+  element("#app").classList.remove("hidden");
+}
+
+async function login(event: SubmitEvent): Promise<void> {
+  event.preventDefault();
+  const error = element("#auth-error"); error.classList.add("hidden");
+  try {
+    await api.login(element<HTMLInputElement>("#login-email").value, element<HTMLInputElement>("#login-password").value);
+    await startApplication();
+  } catch (reason) {
+    error.textContent = reason instanceof Error ? reason.message : "登录失败"; error.classList.remove("hidden");
+  }
+}
+
+async function register(event: SubmitEvent): Promise<void> {
+  event.preventDefault();
+  const message = element("#register-message"); message.classList.add("hidden");
+  try {
+    await api.register(element<HTMLInputElement>("#register-email").value,
+      element<HTMLInputElement>("#register-name").value, element<HTMLInputElement>("#register-password").value);
+    message.textContent = "申请已提交。管理员审批后即可登录。";
+    message.className = "auth-error success";
+  } catch (reason) {
+    message.textContent = reason instanceof Error ? reason.message : "注册失败"; message.className = "auth-error";
+  }
+}
+
+async function logout(): Promise<void> {
+  try { await api.logout(); } finally {
+    state.active = undefined; state.currentUser = undefined; cad.clear(); showAuthentication();
+  }
+}
+
+async function changePassword(event: Event): Promise<void> {
+  event.preventDefault();
+  const changed = await withBusy("修改密码…", () => api.changePassword(
+    element<HTMLInputElement>("#current-password").value, element<HTMLInputElement>("#new-password").value));
+  if (!changed) return;
+  element<HTMLDialogElement>("#password-dialog").close();
+  if (state.currentUser) state.currentUser.mustChangePassword = false;
+  setStatus("密码已更新");
+}
+
+async function showAdmin(): Promise<void> {
+  element<HTMLDialogElement>("#admin-dialog").showModal();
+  await refreshAdmin();
+}
+
+async function refreshAdmin(): Promise<void> {
+  const [users, stats] = await Promise.all([api.adminUsers(
+    element<HTMLInputElement>("#admin-search").value, element<HTMLSelectElement>("#admin-status").value), api.adminStats()]);
+  element("#admin-stats").innerHTML = `<article><b>${stats.users}</b><span>全部账号</span></article><article><b>${stats.pending}</b><span>待审批</span></article><article><b>${stats.activeSessions}</b><span>活跃会话</span></article><article><b>${stats.documents}</b><span>设计文档</span></article>`;
+  const host = element("#admin-users"); host.replaceChildren();
+  for (const user of users) {
+    const row = document.createElement("div"); row.className = "admin-user-row";
+    const identity = document.createElement("span"); identity.innerHTML = `<b></b><small></small>`;
+    identity.querySelector("b")!.textContent = user.displayName; identity.querySelector("small")!.textContent = user.email;
+    const role = document.createElement("span"); role.className = "admin-pill"; role.textContent = user.platformRole === "ADMIN" ? "管理员" : "成员";
+    const status = document.createElement("span"); status.className = `admin-pill ${user.status.toLowerCase()}`;
+    status.textContent = user.status === "PENDING" ? "待审批" : user.status === "ACTIVE" ? "已启用" : "已禁用";
+    const actions = document.createElement("span"); actions.className = "admin-actions";
+    const edit = document.createElement("button"); edit.type = "button"; edit.textContent = user.status === "PENDING" ? "审批" : "编辑";
+    edit.addEventListener("click", () => showAdminUser(user));
+    const reset = document.createElement("button"); reset.type = "button"; reset.textContent = "重置密码";
+    reset.addEventListener("click", () => showAdminPasswordReset(user));
+    actions.append(edit); if (user.id !== state.currentUser?.id) actions.append(reset);
+    row.append(identity, role, status, actions); host.append(row);
+  }
+}
+
+function showAdminUser(user?: User): void {
+  element("#admin-user-title").textContent = user ? (user.status === "PENDING" ? "审批账号" : "编辑账号") : "添加账号";
+  element<HTMLInputElement>("#admin-user-id").value = user?.id ?? "";
+  element<HTMLInputElement>("#admin-user-name").value = user?.displayName ?? "";
+  element<HTMLInputElement>("#admin-user-email").value = user?.email ?? "";
+  element<HTMLInputElement>("#admin-user-email").disabled = Boolean(user);
+  element<HTMLInputElement>("#admin-user-password").value = "";
+  element("#admin-password-label").classList.toggle("hidden", Boolean(user));
+  element<HTMLSelectElement>("#admin-user-role").value = user?.platformRole ?? "MEMBER";
+  element<HTMLSelectElement>("#admin-user-status").value = user?.status === "PENDING" ? "ACTIVE" : user?.status ?? "ACTIVE";
+  element<HTMLDialogElement>("#admin-user-dialog").showModal();
+}
+
+async function saveAdminUser(event: Event): Promise<void> {
+  event.preventDefault();
+  const id = element<HTMLInputElement>("#admin-user-id").value;
+  const common = { displayName: element<HTMLInputElement>("#admin-user-name").value,
+    platformRole: element<HTMLSelectElement>("#admin-user-role").value,
+    status: element<HTMLSelectElement>("#admin-user-status").value };
+  const saved = await withBusy("保存账号…", () => id ? api.adminUpdateUser(id, common) : api.adminCreateUser({
+    ...common, email: element<HTMLInputElement>("#admin-user-email").value,
+    password: element<HTMLInputElement>("#admin-user-password").value,
+  }));
+  if (!saved) return;
+  element<HTMLDialogElement>("#admin-user-dialog").close(); await refreshAdmin(); setStatus("账号已保存");
+}
+
+function showAdminPasswordReset(user: User): void {
+  element<HTMLInputElement>("#admin-reset-id").value = user.id;
+  element("#admin-reset-name").textContent = `账号：${user.displayName} · ${user.email}`;
+  element<HTMLInputElement>("#admin-reset-password").value = "";
+  element<HTMLDialogElement>("#admin-reset-dialog").showModal();
+}
+
+async function resetAdminPassword(event: Event): Promise<void> {
+  event.preventDefault();
+  const result = await withBusy("重置密码…", () => api.adminResetPassword(
+    element<HTMLInputElement>("#admin-reset-id").value, element<HTMLInputElement>("#admin-reset-password").value));
+  if (!result) return;
+  element<HTMLDialogElement>("#admin-reset-dialog").close();
+  setStatus("临时密码已设置，账号下次登录必须修改密码");
 }
 
 async function showShareDialog(type: "documents" | "folders", id: string, name: string): Promise<void> {
@@ -385,6 +487,11 @@ function renderDocuments(): void {
     const icon = document.createElement("span");
     icon.className = "icon";
     icon.textContent = documentInfo.type === "PART" ? "◇" : "▦";
+    if (documentInfo.type === "PART") {
+      const preview = document.createElement("img"); preview.alt = "";
+      preview.src = `/api/documents/${documentInfo.id}/preview?v=${encodeURIComponent(documentInfo.versionId)}`;
+      preview.addEventListener("load", () => { icon.textContent = ""; icon.append(preview); }, { once: true });
+    }
     const names = document.createElement("span");
     const name = document.createElement("strong"); name.textContent = documentInfo.name;
     const workspace = document.createElement("small"); workspace.textContent = `${documentInfo.workspaceName ?? "Main"} · ${documentInfo.permission}`;
@@ -967,7 +1074,11 @@ async function createRectangle(draft: RectangleDraft): Promise<void> {
 
 async function importStep(file: File): Promise<void> {
   if (!state.active || state.active.document.type !== "PART") return;
-  const result = await withBusy(`导入 ${file.name}…`, () => api.importStep(state.active!.document.id, file));
+  const result = await withBusy(`上传 ${file.name}…`, async () => {
+    const job = await api.importStep(state.active!.document.id, file);
+    await waitForJob(job.id, `正在导入 ${file.name}`);
+    return api.getDocument(state.active!.document.id);
+  });
   element<HTMLInputElement>("#step-file").value = "";
   if (!result) return;
   activateView(result);
@@ -980,10 +1091,22 @@ async function importStep(file: File): Promise<void> {
 async function exportStep(): Promise<void> {
   if (!state.active || state.active.document.type !== "PART") return;
   const completed = await withBusy("正在生成 STEP…", async () => {
-    await api.exportStep(state.active!.document.id);
+    const job = await api.startExportStep(state.active!.document.id);
+    await waitForJob(job.id, "正在生成 STEP");
+    await api.downloadJob(job.id);
     return true;
   });
   if (completed) setStatus("STEP 导出完成");
+}
+
+async function waitForJob(id: string, label: string): Promise<void> {
+  for (;;) {
+    const job = await api.getJob(id);
+    if (job.state === "SUCCEEDED") return;
+    if (job.state === "FAILED" || job.state === "CANCELED") throw new Error(job.errorMessage ?? `${label}失败`);
+    setStatus(`${label} · ${job.state === "RUNNING" ? "处理中" : "排队中"}`);
+    await new Promise((resolve) => window.setTimeout(resolve, 700));
+  }
 }
 
 async function padSketch(): Promise<void> {
@@ -1099,8 +1222,25 @@ element("#share-document").addEventListener("click", () => {
   if (state.active) void showShareDialog("documents", state.active.document.id, state.active.document.name);
 });
 element("#confirm-share").addEventListener("click", (event) => { event.preventDefault(); void confirmShare(); });
-element<HTMLSelectElement>("#current-user").addEventListener("change", (event) =>
-  void switchIdentity((event.currentTarget as HTMLSelectElement).value));
+element<HTMLFormElement>("#login-form").addEventListener("submit", (event) => void login(event));
+element<HTMLFormElement>("#register-form").addEventListener("submit", (event) => void register(event));
+element("#show-register").addEventListener("click", () => {
+  element("#login-form").classList.add("hidden"); element("#register-form").classList.remove("hidden");
+});
+element("#show-login").addEventListener("click", () => {
+  element("#register-form").classList.add("hidden"); element("#login-form").classList.remove("hidden");
+});
+element("#logout-button").addEventListener("click", () => void logout());
+element("#admin-button").addEventListener("click", () => void showAdmin());
+element("#admin-new-user").addEventListener("click", () => showAdminUser());
+element("#admin-save-user").addEventListener("click", (event) => void saveAdminUser(event));
+element("#admin-confirm-reset").addEventListener("click", (event) => void resetAdminPassword(event));
+element("#confirm-password").addEventListener("click", (event) => void changePassword(event));
+element("#admin-status").addEventListener("change", () => void refreshAdmin());
+let adminSearchTimer = 0;
+element<HTMLInputElement>("#admin-search").addEventListener("input", () => {
+  window.clearTimeout(adminSearchTimer); adminSearchTimer = window.setTimeout(() => void refreshAdmin(), 200);
+});
 element("#confirm-version").addEventListener("click", (event) => { event.preventDefault(); void createVersion(); });
 element("#confirm-document").addEventListener("click", (event) => { event.preventDefault(); void createDocument(); });
 element("#confirm-edit-document").addEventListener("click", (event) => { event.preventDefault(); void confirmEditDocument(); });
@@ -1209,8 +1349,9 @@ window.addEventListener("popstate", () => {
   else showDocumentCenter(false);
 });
 
-void (async () => {
+async function startApplication(): Promise<void> {
   await initializeIdentity();
+  showApplication();
   await checkHealth();
   await refreshDocuments();
   const match = window.location.pathname.match(/^\/documents\/([^/]+)$/);
@@ -1219,4 +1360,6 @@ void (async () => {
     showDocumentCenter(false);
     renderAll();
   }
-})();
+}
+
+void startApplication().catch(() => showAuthentication());

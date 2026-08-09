@@ -1,13 +1,15 @@
-import type { AuditEvent, DocumentPage, DocumentScope, DocumentView, FolderSummary, HistoryEntry, ShareGrant, Team, User, Vec2, Vec3 } from "./types";
+import type { AuditEvent, DocumentPage, DocumentScope, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, Team, User, Vec2, Vec3 } from "./types";
 
-const principalKey = "occccad.principal";
-let principalId = localStorage.getItem(principalKey) ?? "00000000-0000-7000-8000-000000000001";
-const authenticatedHeaders = (): Record<string, string> => ({ "X-OCCCCAD-User-ID": principalId });
+const cookie = (name: string): string => decodeURIComponent(document.cookie.split("; ")
+  .find((item) => item.startsWith(`${name}=`))?.split("=").slice(1).join("=") ?? "");
+const mutationHeaders = (method = "GET"): Record<string, string> =>
+  method === "GET" || method === "HEAD" ? {} : { "X-CSRF-Token": cookie("occccad_csrf") };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...authenticatedHeaders(), ...init?.headers },
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...mutationHeaders(init?.method), ...init?.headers },
   });
   const body = await response.json().catch(() => ({})) as { error?: string };
   if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
@@ -17,9 +19,30 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 const requestId = (): string => crypto.randomUUID();
 
 export const api = {
-  setPrincipal: (id: string): void => { principalId = id; localStorage.setItem(principalKey, id); },
-  principalId: (): string => principalId,
   session: () => request<{ user: User; authenticationMode: string }>("/api/session"),
+  login: (email: string, password: string) => request<{ user: User }>("/api/auth/login", {
+    method: "POST", body: JSON.stringify({ email, password }),
+  }),
+  register: (email: string, displayName: string, password: string) => request<{ user: User; message: string }>("/api/auth/register", {
+    method: "POST", body: JSON.stringify({ email, displayName, password }),
+  }),
+  logout: () => request<void>("/api/auth/logout", { method: "POST" }),
+  changePassword: (currentPassword: string, newPassword: string) => request<{ message: string }>("/api/auth/change-password", {
+    method: "POST", body: JSON.stringify({ currentPassword, newPassword }),
+  }),
+  adminUsers: async (query = "", status = ""): Promise<User[]> => {
+    const parameters = new URLSearchParams(); if (query) parameters.set("q", query); if (status) parameters.set("status", status);
+    return (await request<{ users: User[] }>(`/api/admin/users?${parameters}`)).users;
+  },
+  adminStats: () => request<{ users: number; pending: number; activeSessions: number; documents: number }>("/api/admin/stats"),
+  adminCreateUser: (input: { email: string; displayName: string; password: string; platformRole: string; status: string }) =>
+    request<User>("/api/admin/users", { method: "POST", body: JSON.stringify(input) }),
+  adminUpdateUser: (id: string, input: { displayName: string; platformRole: string; status: string }) =>
+    request<User>(`/api/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(input) }),
+  adminDisableUser: async (id: string): Promise<void> => { await request<void>(`/api/admin/users/${id}`, { method: "DELETE" }); },
+  adminResetPassword: (id: string, password: string) => request<{ message: string }>(`/api/admin/users/${id}/reset-password`, {
+    method: "POST", body: JSON.stringify({ password }),
+  }),
   listUsers: async (): Promise<User[]> => (await request<{ users: User[] }>("/api/users")).users,
   listTeams: async (): Promise<Team[]> => (await request<{ teams: Team[] }>("/api/teams")).teams,
   listShares: async (type: "documents" | "folders", id: string): Promise<ShareGrant[]> =>
@@ -27,7 +50,7 @@ export const api = {
   share: (type: "documents" | "folders", id: string, subjectType: "USER" | "TEAM", subjectId: string, role: "VIEWER" | "EDITOR") =>
     request<ShareGrant>(`/api/${type}/${id}/shares`, { method: "POST", body: JSON.stringify({ subjectType, subjectId, role }) }),
   unshare: async (type: "documents" | "folders", id: string, grantId: string): Promise<void> => {
-    const response = await fetch(`/api/${type}/${id}/shares/${grantId}`, { method: "DELETE", headers: authenticatedHeaders() });
+    const response = await fetch(`/api/${type}/${id}/shares/${grantId}`, { method: "DELETE", credentials: "same-origin", headers: mutationHeaders("DELETE") });
     if (!response.ok) throw new Error((await response.json().catch(() => ({})) as { error?: string }).error ?? `HTTP ${response.status}`);
   },
   listAudit: async (documentId: string): Promise<AuditEvent[]> =>
@@ -67,7 +90,7 @@ export const api = {
       method: "PATCH", body: JSON.stringify({ name, description }),
     }),
   deleteFolder: async (id: string): Promise<void> => {
-    const response = await fetch(`/api/folders/${id}`, { method: "DELETE", headers: authenticatedHeaders() });
+    const response = await fetch(`/api/folders/${id}`, { method: "DELETE", credentials: "same-origin", headers: mutationHeaders("DELETE") });
     if (!response.ok) {
       const value = await response.json().catch(() => ({})) as { error?: string };
       throw new Error(value.error ?? `HTTP ${response.status}`);
@@ -90,7 +113,7 @@ export const api = {
     }),
   deleteDocument: async (id: string): Promise<void> => {
     const response = await fetch(`/api/documents/${id}`, {
-      method: "DELETE", headers: { ...authenticatedHeaders(), "X-Request-ID": requestId() },
+      method: "DELETE", credentials: "same-origin", headers: { ...mutationHeaders("DELETE"), "X-Request-ID": requestId() },
     });
     if (!response.ok) {
       const value = await response.json().catch(() => ({})) as { error?: string };
@@ -127,18 +150,24 @@ export const api = {
   redo: (documentId: string) => api.command(documentId, { type: "REDO" }),
   restore: (documentId: string, versionId: string) =>
     api.command(documentId, { type: "RESTORE", versionId }),
-  importStep: async (documentId: string, file: File): Promise<DocumentView> => {
+  importStep: async (documentId: string, file: File): Promise<Job> => {
     const body = new FormData();
     body.set("requestId", requestId());
     body.set("file", file);
-    const response = await fetch(`/api/documents/${documentId}/import-step`, { method: "POST", headers: authenticatedHeaders(), body });
-    const value = await response.json().catch(() => ({})) as DocumentView & { error?: string };
+    const response = await fetch(`/api/documents/${documentId}/import-step`, {
+      method: "POST", credentials: "same-origin", headers: mutationHeaders("POST"), body,
+    });
+    const value = await response.json().catch(() => ({})) as Job & { error?: string };
     if (!response.ok) throw new Error(value.error ?? `HTTP ${response.status}`);
     return value;
   },
-  exportStep: async (documentId: string): Promise<void> => {
-    const response = await fetch(`/api/documents/${documentId}/export-step`, {
-      headers: { ...authenticatedHeaders(), "X-Request-ID": requestId() },
+  startExportStep: (documentId: string): Promise<Job> => request<Job>(`/api/documents/${documentId}/export-step`, {
+    method: "POST", headers: { "X-Request-ID": requestId() },
+  }),
+  getJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}`),
+  downloadJob: async (id: string): Promise<void> => {
+    const response = await fetch(`/api/jobs/${id}/download`, {
+      credentials: "same-origin", headers: { "X-Request-ID": requestId() },
     });
     if (!response.ok) {
       const value = await response.json().catch(() => ({})) as { error?: string };
