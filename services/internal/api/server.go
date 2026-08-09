@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -103,20 +104,49 @@ func (server *Server) writeDocumentResult(writer http.ResponseWriter, request *h
 		if role, roleErr := server.access.EffectiveDocumentRole(request.Context(), result.Document.ID, principal(request).ID); roleErr == nil {
 			result.Document.Permission = string(role)
 		}
-		if request.Method != http.MethodGet && result.Artifact != nil {
-			digest := sha256.Sum256([]byte(result.Document.ID + ":" + result.Document.VersionID + ":preview-v1"))
-			identity := hex.EncodeToString(digest[:])
-			_, jobErr := server.jobs.Enqueue(request.Context(), jobs.EnqueueRequest{Type: "THUMBNAIL_RENDER",
-				DocumentID: result.Document.ID, VersionID: &result.Document.VersionID,
-				RequestedBy: principal(request).ID, IdempotencyKey: identity,
-				Payload: map[string]any{"previewIdentity": identity, "rendererVersion": "svg-v1",
-					"name": result.Document.Name, "bbox": result.Artifact.BBox}})
-			if jobErr != nil {
-				slog.ErrorContext(request.Context(), "enqueue document preview", "error", jobErr)
+		if request.Method != http.MethodGet {
+			if jobErr := server.enqueueDocumentPreviews(request.Context(), result, principal(request).ID); jobErr != nil {
+				slog.ErrorContext(request.Context(), "enqueue document previews", "error", jobErr)
 			}
 		}
 	}
 	writeWorkspaceResult(writer, result, err)
+}
+
+func (server *Server) enqueueDocumentPreviews(ctx context.Context, changed workspace.DocumentView, requestedBy string) error {
+	rows, err := server.database.Query(ctx, `WITH RECURSIVE affected(document_id,version_id) AS (
+		SELECT $1::uuid,$2::uuid
+		UNION
+		SELECT parent.id,parent.head_version_id
+		FROM affected child
+		JOIN occccad.documents parent ON parent.document_type='PRODUCT' AND parent.deleted_at IS NULL
+		JOIN occccad.document_versions version ON version.id=parent.head_version_id
+		CROSS JOIN LATERAL jsonb_array_elements(
+			COALESCE(version.model_json->'instances','[]'::jsonb)) instance
+		WHERE instance->>'documentId'=child.document_id::text
+		  AND COALESCE(instance->>'referenceMode','FOLLOW_HEAD')='FOLLOW_HEAD'
+	)
+	SELECT document_id::text,version_id::text FROM affected`, changed.Document.ID, changed.Document.VersionID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var documentID, versionID string
+		if err := rows.Scan(&documentID, &versionID); err != nil {
+			return err
+		}
+		digest := sha256.Sum256([]byte(documentID + ":" + versionID + ":" +
+			changed.Document.ID + ":" + changed.Document.VersionID + ":preview-v2"))
+		identity := hex.EncodeToString(digest[:])
+		if _, err := server.jobs.Enqueue(ctx, jobs.EnqueueRequest{Type: "THUMBNAIL_RENDER",
+			DocumentID: documentID, VersionID: &versionID, RequestedBy: requestedBy,
+			IdempotencyKey: identity, Payload: map[string]any{
+				"previewIdentity": identity, "rendererVersion": "svg-v2"}}); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }
 
 func (server *Server) Handler() http.Handler {

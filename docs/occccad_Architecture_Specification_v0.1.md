@@ -24,6 +24,8 @@
 稳定服务入口、Geometry 容量路由、统一启动和调试 Override 的当前实现见
 [v0.0.8 服务控制与调试路由](occccad_v0.0.8_Service_Control_and_Debug_Routing.md)。本地 Control Plane
 与未来集群编排器共享相同控制语义，但当前不承担跨主机调度。
+目标图与当前服务/Worker 关系的逐项对照见
+[目标架构与当前实现对照](occccad_Target_Architecture_and_Current_Implementation.md)。
 
 occccad 的目标不是“把传统桌面 CAD 搬到浏览器”，也不是“给 OCCT 外面套一层 HTTP API”，而是构建一套真正面向云环境设计的 CAD 基础设施。
 

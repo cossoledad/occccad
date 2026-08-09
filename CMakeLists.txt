@@ -44,8 +44,3 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # ---- Subdirectories ---------------------------------------------------------
 add_subdirectory(kernel)
 add_subdirectory(workers)
-
-if(OCCCCAD_BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
-endif()

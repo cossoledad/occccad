@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html"
 	"io"
 	"log/slog"
 	"os"
@@ -23,6 +22,7 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
+	"github.com/occccad/occccad/internal/thumbnail"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
@@ -126,6 +126,11 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		return err
 	}
 	if job.VersionID != nil && current.Document.VersionID != *job.VersionID {
+		if job.Type == "THUMBNAIL_RENDER" {
+			// Interactive commands can supersede several queued previews in a
+			// fraction of a second. An old preview is obsolete, not retryable.
+			return h.queue.Succeed(ctx, job.ID, h.workerID, "")
+		}
 		return errors.New("document head changed after the job was submitted")
 	}
 	switch job.Type {
@@ -167,21 +172,15 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		var preview struct {
 			PreviewIdentity string `json:"previewIdentity"`
 			RendererVersion string `json:"rendererVersion"`
-			Name            string `json:"name"`
-			BBox            struct {
-				Min [3]float64 `json:"min"`
-				Max [3]float64 `json:"max"`
-			} `json:"bbox"`
 		}
 		if err := json.Unmarshal(job.Payload, &preview); err != nil {
 			return err
 		}
-		dx := preview.BBox.Max[0] - preview.BBox.Min[0]
-		dy := preview.BBox.Max[1] - preview.BBox.Min[1]
-		dz := preview.BBox.Max[2] - preview.BBox.Min[2]
-		caption := fmt.Sprintf("%.1f × %.1f × %.1f mm", dx, dy, dz)
-		svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f5f9fc"/><stop offset="1" stop-color="#dbe9f3"/></linearGradient></defs><rect width="320" height="200" fill="url(#g)"/><path d="M160 38l70 39-70 40-70-40z" fill="#84b9dc" stroke="#286e9c" stroke-width="2"/><path d="M90 77v48l70 39v-47z" fill="#5e9fc9" stroke="#286e9c" stroke-width="2"/><path d="M230 77v48l-70 39v-47z" fill="#3e83b2" stroke="#286e9c" stroke-width="2"/><text x="16" y="178" font-family="system-ui,sans-serif" font-size="12" fill="#29485d">%s</text><text x="304" y="178" text-anchor="end" font-family="system-ui,sans-serif" font-size="10" fill="#688093">%s</text></svg>`, html.EscapeString(preview.Name), html.EscapeString(caption))
-		object, err := h.artifacts.Put(ctx, artifact.KindThumbnail, "image/svg+xml", bytes.NewReader([]byte(svg)))
+		svg, err := thumbnail.Render(current)
+		if err != nil {
+			return err
+		}
+		object, err := h.artifacts.Put(ctx, artifact.KindThumbnail, "image/svg+xml", bytes.NewReader(svg))
 		if err != nil {
 			return err
 		}
@@ -200,14 +199,11 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 }
 
 func (h handler) enqueuePreview(ctx context.Context, requestedBy string, view workspace.DocumentView) error {
-	if view.Artifact == nil {
-		return nil
-	}
-	digest := sha256.Sum256([]byte(view.Document.ID + ":" + view.Document.VersionID + ":preview-v1"))
+	digest := sha256.Sum256([]byte(view.Document.ID + ":" + view.Document.VersionID + ":preview-v2"))
 	identity := hex.EncodeToString(digest[:])
 	_, err := h.queue.Enqueue(ctx, jobs.EnqueueRequest{Type: "THUMBNAIL_RENDER",
 		DocumentID: view.Document.ID, VersionID: &view.Document.VersionID, RequestedBy: requestedBy,
 		IdempotencyKey: identity, Payload: map[string]any{"previewIdentity": identity,
-			"rendererVersion": "svg-v1", "name": view.Document.Name, "bbox": view.Artifact.BBox}})
+			"rendererVersion": "svg-v2"}})
 	return err
 }

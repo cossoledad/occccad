@@ -84,7 +84,9 @@ func (server *Server) documentPreview(writer http.ResponseWriter, request *http.
 	}
 	var objectID string
 	err := server.database.QueryRow(request.Context(), `SELECT p.object_id::text
-		FROM occccad.document_previews p WHERE p.document_id=$1 AND p.state='READY'
+		FROM occccad.document_previews p
+		JOIN occccad.documents d ON d.id=p.document_id AND d.head_version_id=p.version_id
+		WHERE p.document_id=$1 AND p.state='READY'
 		ORDER BY p.updated_at DESC LIMIT 1`, request.PathValue("documentID")).Scan(&objectID)
 	if err != nil {
 		writer.WriteHeader(http.StatusNoContent)
@@ -97,7 +99,9 @@ func (server *Server) documentPreview(writer http.ResponseWriter, request *http.
 	}
 	defer reader.Close()
 	writer.Header().Set("Content-Type", object.ContentType)
-	writer.Header().Set("Cache-Control", "private, max-age=60")
+	// A FOLLOW_HEAD Product can change when a referenced document changes even
+	// though the Product's own version ID remains stable.
+	writer.Header().Set("Cache-Control", "private, no-store")
 	_, _ = io.Copy(writer, reader)
 }
 

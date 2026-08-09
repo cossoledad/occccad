@@ -486,11 +486,19 @@ function renderDocuments(): void {
     const icon = document.createElement("span");
     icon.className = "icon";
     icon.textContent = documentInfo.type === "PART" ? "◇" : "▦";
-    if (documentInfo.type === "PART") {
-      const preview = document.createElement("img"); preview.alt = "";
-      preview.src = `/api/documents/${documentInfo.id}/preview?v=${encodeURIComponent(documentInfo.versionId)}`;
-      preview.addEventListener("load", () => { icon.textContent = ""; icon.append(preview); }, { once: true });
-    }
+    const preview = document.createElement("img"); preview.alt = "";
+    const previewURL = `/api/documents/${documentInfo.id}/preview?v=${encodeURIComponent(documentInfo.versionId)}`;
+    let previewAttempts = 0;
+    const retryPreview = (): void => {
+      if (++previewAttempts > 4) return;
+      window.setTimeout(() => { preview.src = `${previewURL}&retry=${Date.now()}`; }, 750 * previewAttempts);
+    };
+    preview.src = previewURL;
+    preview.addEventListener("load", () => {
+      if (preview.naturalWidth === 0) { retryPreview(); return; }
+      icon.textContent = ""; icon.append(preview);
+    });
+    preview.addEventListener("error", retryPreview);
     const names = document.createElement("span");
     const name = document.createElement("strong"); name.textContent = documentInfo.name;
     const workspace = document.createElement("small"); workspace.textContent = `${documentInfo.workspaceName ?? "Main"} · ${documentInfo.permission}`;
