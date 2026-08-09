@@ -1,4 +1,19 @@
-这个 Demo 很合适，因为它刚好能把我们前面定义的核心架构完整串起来，而且规模又足够小。
+# occccad Vertical Slice Demo 01
+
+> **状态：** v0.1 实施方案，尚未完成
+> **依赖：** occccad Architecture Specification v0.1
+> **当前起点：** C++17 + OCCT 7.9.1 Geometry Worker 冒烟框架
+> **最后更新：** 2026-08-09
+
+## 文档定位
+
+本文定义 occccad 的第一个端到端垂直切片。它是一份**待实施方案**，不是当前仓库已经具备的功能清单。当前代码只完成本地 Box、包围盒、拓扑和卸载测试；本文中的 Go Server、gRPC、数据库、Artifact、GLB 和 Web 交互均属于 Demo 交付范围。
+
+项目名称统一为 **occccad**：`occ` 表示 OCCT 几何内核，`c` 取自 `could`，`cad` 表示项目所服务的 CAD 领域。
+
+## Demo 目标
+
+这个 Demo 能把核心目标架构串起来，同时保持足够小的范围。
 
 我建议这个最小 Demo 不追求“功能多”，而是验证下面这条完整链路：
 
@@ -39,7 +54,7 @@ Geometry Worker 用 OCCT 生成 Box
 * Web Visualization
 * 多层级 Product Instance
 
-我会把它定义成 **CloudCAD Vertical Slice Demo 01**。
+本文将它定义成 **occccad Vertical Slice Demo 01**。
 
 ---
 
@@ -1009,7 +1024,7 @@ Command Service
 但 Demo 完全可以：
 
 ```text
-cloudcad-server
+occccad-server
 ```
 
 一个 Go Binary 内部模块：
@@ -1024,7 +1039,7 @@ product/
 然后：
 
 ```text
-cloudcad-geometry-worker
+occccad-geometry-worker
 ```
 
 一个独立 C++ Binary。
@@ -1047,13 +1062,13 @@ Compute Plane
 
 ```text
 ┌────────────────────────┐
-│ cloudcad-web           │
+│ occccad-web            │
 │ TypeScript / React     │
 └───────────┬────────────┘
             │ HTTP/WS
             ▼
 ┌────────────────────────┐
-│ cloudcad-server        │
+│ occccad-server         │
 │ Go                     │
 │                        │
 │ Document               │
@@ -1412,7 +1427,7 @@ v3 Insert Module
 我会直接这样：
 
 ```text
-cloudcad/
+occccad/
 
 proto/
     common.proto
@@ -1423,7 +1438,7 @@ proto/
     geometry.proto
 
 server/
-    cmd/cloudcad-server/
+    cmd/occccad-server/
 
     internal/
         document/
@@ -1586,7 +1601,7 @@ Feature Tree
 sequenceDiagram
     participant U as User
     participant WEB as Web
-    participant S as CloudCAD Server
+    participant S as occccad Server
     participant DB as PostgreSQL
     participant W as Geometry Worker
 
@@ -1626,7 +1641,7 @@ sequenceDiagram
     WEB->>WEB: Reuse same Geometry cache
 ```
 
-这就是最小但完整的 CloudCAD。
+这就是最小但完整的 occccad 垂直切片。
 
 ---
 
@@ -1696,10 +1711,10 @@ Downloaded GLB = 1
 14. **Feature ID 必须稳定，不要用数组下标。**
 15. **所有业务修改尽量从第一版就走 Command。**
 
-如果这 15 点守住，那么这个 Demo 写完以后，绝大部分代码都可以直接成为正式 CloudCAD 的基础，而不是“Demo 写完全部推倒重来”。
+如果这 15 点守住，那么这个 Demo 写完以后，绝大部分代码都可以直接成为正式 occccad 的基础，而不是“Demo 写完全部推倒重来”。
 
 我会把 **Demo 01 的成功标准**概括成一句话：
 
 > **同一个 Part 的参数化模型只定义一次、精确 Geometry 只计算并缓存一次、GLB 只传输一次，但可以通过多层 Product Reference Graph 在任意多个 Instance 中复用，并且所有创建过程都留下可版本化的 Command/Document 历史。**
 
-这正好是我们这套 CloudCAD 架构的第一次真正闭环。
+这正好是 occccad 架构的第一次真正闭环。

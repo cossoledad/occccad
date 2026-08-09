@@ -4,13 +4,18 @@
 > **Document Type:** Architecture Specification / Architecture Decision Baseline  
 > **Target:** Open-source distributed cloud-native CAD platform  
 > **Primary Kernel:** Open CASCADE Technology (OCCT)  
-> **Last Updated:** 2026-08-07
+> **Implementation Status:** Target architecture; not a completed-feature list
+> **Last Updated:** 2026-08-09
 
 ---
 
 ## 1. 文档目的
 
 本文档定义 occccad 的总体架构、核心领域模型、分布式计算模型、前后端通信协议、几何内核抽象、产品装配模型、约束求解模型、命令与事务框架、版本与 Undo/Redo 机制，以及系统建议采用的技术栈。
+
+项目名称统一为 **occccad**：`occ` 表示 OCCT 几何内核，`c` 取自 `could`，`cad` 表示项目所服务的 CAD 领域。历史临时名称不再使用。
+
+本文描述的是**目标架构和决策基线**，不是当前实现清单。仓库现阶段已经跑通 C++17、OCCT 7.9.1 的本地内核适配层、Geometry Worker 冒烟程序和 CTest；gRPC、Go 控制面、持久化、浏览器建模、真实内容寻址和分布式调度仍是后续实施内容。当前事实以 [文档索引](README.md) 和 [开发环境规范](occccad_Development_Environment_and_CPP_Toolchain_v0.1.md) 为准。
 
 occccad 的目标不是“把传统桌面 CAD 搬到浏览器”，也不是“给 OCCT 外面套一层 HTTP API”，而是构建一套真正面向云环境设计的 CAD 基础设施。
 
@@ -437,13 +442,13 @@ Go 负责：
 
 ## 5.3 CAD Compute
 
-建议：
+当前仓库基线与目标组件：
 
 ```text
-C++23
-OCCT
-gRPC
-Protocol Buffers
+C++17（当前；未来升级需回归验证）
+OCCT 7.9.1（当前）
+gRPC（规划）
+Protocol Buffers（规划）
 Conan 2
 CMake
 ```
@@ -2250,7 +2255,7 @@ B-Rep / GLB / Topology / Edge
 | Static CAD Artifacts | HTTP/2/HTTP/3 + CDN |
 | Backend | Go |
 | Internal RPC | gRPC + Protobuf |
-| Geometry Compute | C++23 + OCCT |
+| Geometry Compute | C++17 + OCCT 7.9.1（当前基线；可按升级规则演进） |
 | Constraint Solve | C++ + Eigen/Ceres 或自研 |
 | Relational Storage | PostgreSQL |
 | Runtime Cache | Redis |
