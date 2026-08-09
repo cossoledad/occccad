@@ -18,6 +18,10 @@ service GeometryWorker {
     // Evaluate the complete Demo 01 feature chain in one worker call.
     rpc EvaluatePart(EvaluatePartRequest) returns (EvaluatePartResponse);
 
+    // Neutral CAD exchange. STEP is converted to/from the worker's internal B-Rep.
+    rpc ImportStep(ImportStepRequest) returns (EvaluatePartResponse);
+    rpc ExportStep(ExportStepRequest) returns (ExportStepResponse);
+
     // Load geometry from B-Rep artifact
     rpc LoadGeometry(LoadGeometryRequest) returns (LoadGeometryResponse);
 
@@ -41,6 +45,26 @@ message EvaluatePartRequest {
     RectangularPadSpec rectangular_pad = 3;
     double linear_deflection = 4;
     double angular_deflection = 5;
+    repeated RectangularPadSpec rectangular_pads = 6;
+    bytes base_brep_data = 7;
+}
+
+message ImportStepRequest {
+    string request_id = 1;
+    string geometry_key = 2;
+    string file_name = 3;
+    bytes step_data = 4;
+    double linear_deflection = 5;
+    double angular_deflection = 6;
+}
+
+message ExportStepRequest {
+    string request_id = 1;
+    bytes brep_data = 2;
+}
+
+message ExportStepResponse {
+    bytes step_data = 1;
 }
 
 message RectangularPadSpec {

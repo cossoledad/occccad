@@ -13,7 +13,9 @@
 3. [架构规格](occccad_Architecture_Specification_v0.1.md)：长期系统边界与关键原则；
 4. [首个垂直切片 Demo](occccad_demo_v0.1.md)：已交付的首个端到端闭环；
 5. [Demo 01 运行手册](occccad_Demo01_Runbook.md)：配置、启动和验收命令；
-6. [Demo 02 最小 CAD 工作台](occccad_Demo02_Minimal_CAD_Workbench.md)：交互建模与命令历史。
+6. [Demo 02 最小 CAD 工作台](occccad_Demo02_Minimal_CAD_Workbench.md)：交互建模与命令历史；
+7. [Demo 03 分布式 CAD 开发框架](occccad_Demo03_Distributed_CAD_Framework.md)：Main 历史线、
+   Feature 重生成、STEP、迁移和可观测性。
 
 ## 文档状态
 
@@ -25,6 +27,7 @@
 | Demo v0.1 | 已实现基线 + 后续设计 | Demo 01 核心验收项已实现，扩展项仍按正文边界理解 |
 | Demo 01 运行手册 | 当前事实 | 本地启动、接口与验收结果 |
 | Demo 02 最小 CAD 工作台 | 当前事实 + 设计边界 | Part/Product 编辑、Undo/Redo 与验收结果 |
+| Demo 03 分布式 CAD 开发框架 | 当前事实 + 下一阶段边界 | Onshape 对标交互与平台框架的当前实现 |
 
 ## 当前实现快照
 
@@ -44,7 +47,11 @@
         |
   multi-tab TypeScript CAD workbench -> live/pinned Product references
         |
-  Onshape-style viewport navigation -> Product hierarchy / transform gizmo
+  Main change line -> immutable named Version -> non-destructive Restore
+        |
+  ordered Feature regeneration -> STEP import/export
+        |
+  OpenTelemetry HTTP/gRPC trace -> structured logs / Command correlation
 
 尚未实现
   sketch constraint solving and dimensions
@@ -63,6 +70,6 @@
 - 当前 C++ 标准以根 `CMakeLists.txt` 和 target compile features 为准；
 - 已验证环境应写明验证日期，不把它等同于最低支持范围；
 - 尚未接入的库、服务或功能明确标注为“规划”；
-- 架构发生变化时同步更新规格与 Demo；实现状态变化时优先更新 README 和本索引。
+- 架构发生变化时同步更新规格与 Demo；实现状态变化时优先更新 README 和本索引；
 - 引用、缓存和版本更新必须分别说明“源文档边界、派生解析边界、触发时机和是否产生版本”；
 - 默认引用策略变更时必须说明旧数据兼容语义，避免历史 Product 静默采用不确定行为。

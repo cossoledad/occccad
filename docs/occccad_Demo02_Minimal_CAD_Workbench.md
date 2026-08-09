@@ -3,6 +3,9 @@
 > 状态：已实现并通过端到端验证  
 > 最后验证：2026-08-09
 
+> Demo 02 是最小工作台基线；多 Feature、命名 Version、STEP、迁移校验和可观测性的当前行为
+> 以 [Demo 03](occccad_Demo03_Distributed_CAD_Framework.md) 为准。
+
 Demo 02 把 Demo 01 的固定模型展示升级为可编辑的 Part/Product 工作台。目标不是模拟 UI，
 而是确保浏览器操作最终形成持久化 Command、不可变 Document Version 和真实 OCCT Geometry。
 

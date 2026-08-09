@@ -3,6 +3,7 @@
 #include <occccad/kernel/geometry_id.hpp>
 
 #include <BRepBndLib.hxx>
+#include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepGProp.hxx>
@@ -27,6 +28,7 @@
 #include <IFSelect_ReturnStatus.hxx>
 #include <Poly_Triangulation.hxx>
 #include <STEPControl_Reader.hxx>
+#include <STEPControl_Writer.hxx>
 #include <TopAbs_Orientation.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
@@ -40,7 +42,12 @@
 #include <gp_Vec.hxx>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -104,6 +111,76 @@ void validate_positive(const double value, const char* name) {
         throw std::invalid_argument(std::string(name) + " must be finite and greater than zero");
     }
 }
+
+TopoDS_Shape make_rectangular_pad(const RectangularPadSpec& spec) {
+    validate_positive(spec.width, "width");
+    validate_positive(spec.height, "height");
+    validate_positive(spec.pad_length, "pad_length");
+    if (!std::isfinite(spec.origin_x) || !std::isfinite(spec.origin_y)) {
+        throw std::invalid_argument("origin must be finite");
+    }
+
+    gp_Pnt origin;
+    gp_Vec width_axis;
+    gp_Vec height_axis;
+    gp_Vec pad_axis;
+    if (spec.plane == "XY") {
+        origin = gp_Pnt(spec.origin_x, spec.origin_y, 0.0);
+        width_axis = gp_Vec(spec.width, 0.0, 0.0);
+        height_axis = gp_Vec(0.0, spec.height, 0.0);
+        pad_axis = gp_Vec(0.0, 0.0, spec.pad_length);
+    } else if (spec.plane == "XZ") {
+        origin = gp_Pnt(spec.origin_x, 0.0, spec.origin_y);
+        width_axis = gp_Vec(spec.width, 0.0, 0.0);
+        height_axis = gp_Vec(0.0, 0.0, spec.height);
+        pad_axis = gp_Vec(0.0, -spec.pad_length, 0.0);
+    } else if (spec.plane == "YZ") {
+        origin = gp_Pnt(0.0, spec.origin_x, spec.origin_y);
+        width_axis = gp_Vec(0.0, spec.width, 0.0);
+        height_axis = gp_Vec(0.0, 0.0, spec.height);
+        pad_axis = gp_Vec(spec.pad_length, 0.0, 0.0);
+    } else {
+        throw std::invalid_argument("plane must be XY, XZ, or YZ");
+    }
+
+    const gp_Pnt width_end = origin.Translated(width_axis);
+    const gp_Pnt opposite = width_end.Translated(height_axis);
+    const gp_Pnt height_end = origin.Translated(height_axis);
+    BRepBuilderAPI_MakePolygon polygon;
+    polygon.Add(origin);
+    polygon.Add(width_end);
+    polygon.Add(opposite);
+    polygon.Add(height_end);
+    polygon.Close();
+    if (!polygon.IsDone()) {
+        throw std::runtime_error("rectangle wire construction failed");
+    }
+    BRepBuilderAPI_MakeFace face_builder(polygon.Wire());
+    if (!face_builder.IsDone()) {
+        throw std::runtime_error("rectangle face construction failed");
+    }
+    BRepPrimAPI_MakePrism prism(face_builder.Face(), pad_axis);
+    prism.Build();
+    if (!prism.IsDone()) {
+        throw std::runtime_error("pad construction failed");
+    }
+    return prism.Shape();
+}
+
+std::filesystem::path temporary_step_path() {
+    static std::atomic<uint64_t> sequence{0};
+    const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
+    return std::filesystem::temp_directory_path() /
+        ("occccad-" + std::to_string(stamp) + "-" +
+         std::to_string(sequence.fetch_add(1)) + ".step");
+}
+
+class ScopedFile final {
+public:
+    explicit ScopedFile(std::filesystem::path value) : path(std::move(value)) {}
+    ~ScopedFile() { std::error_code ignored; std::filesystem::remove(path, ignored); }
+    std::filesystem::path path;
+};
 
 }  // namespace
 
@@ -176,6 +253,21 @@ GeometryId OcctKernel::loadStep(const std::string& path) {
     return impl_->store(reader.OneShape());
 }
 
+GeometryId OcctKernel::loadStepData(const std::vector<uint8_t>& data) {
+    if (data.empty()) {
+        throw std::invalid_argument("STEP data must not be empty");
+    }
+    ScopedFile temporary(temporary_step_path());
+    std::ofstream stream(temporary.path, std::ios::binary);
+    stream.write(reinterpret_cast<const char*>(data.data()),
+                 static_cast<std::streamsize>(data.size()));
+    stream.close();
+    if (!stream) {
+        throw std::runtime_error("cannot write temporary STEP input");
+    }
+    return loadStep(temporary.path.string());
+}
+
 void OcctKernel::unload(const GeometryId& id) {
     impl_->shapes.erase(id);
 }
@@ -188,61 +280,34 @@ GeometryId OcctKernel::createBox(const double dx, const double dy, const double 
 }
 
 GeometryId OcctKernel::createRectangularPad(const RectangularPadSpec& spec) {
-    validate_positive(spec.width, "width");
-    validate_positive(spec.height, "height");
-    validate_positive(spec.pad_length, "pad_length");
-    if (!std::isfinite(spec.origin_x) || !std::isfinite(spec.origin_y)) {
-        throw std::invalid_argument("origin must be finite");
-    }
+    return impl_->store(make_rectangular_pad(spec));
+}
 
-    gp_Pnt origin;
-    gp_Vec width_axis;
-    gp_Vec height_axis;
-    gp_Vec pad_axis;
-    if (spec.plane == "XY") {
-        origin = gp_Pnt(spec.origin_x, spec.origin_y, 0.0);
-        width_axis = gp_Vec(spec.width, 0.0, 0.0);
-        height_axis = gp_Vec(0.0, spec.height, 0.0);
-        pad_axis = gp_Vec(0.0, 0.0, spec.pad_length);
-    } else if (spec.plane == "XZ") {
-        origin = gp_Pnt(spec.origin_x, 0.0, spec.origin_y);
-        width_axis = gp_Vec(spec.width, 0.0, 0.0);
-        height_axis = gp_Vec(0.0, 0.0, spec.height);
-        pad_axis = gp_Vec(0.0, -spec.pad_length, 0.0);
-    } else if (spec.plane == "YZ") {
-        origin = gp_Pnt(0.0, spec.origin_x, spec.origin_y);
-        width_axis = gp_Vec(0.0, spec.width, 0.0);
-        height_axis = gp_Vec(0.0, 0.0, spec.height);
-        pad_axis = gp_Vec(spec.pad_length, 0.0, 0.0);
-    } else {
-        throw std::invalid_argument("plane must be XY, XZ, or YZ");
+GeometryId OcctKernel::evaluateRectangularPads(
+    const std::vector<RectangularPadSpec>& specs,
+    const std::vector<uint8_t>& base_brep) {
+    TopoDS_Shape result;
+    if (!base_brep.empty()) {
+        const GeometryId base_id = loadBrepr(base_brep);
+        result = impl_->find(base_id);
     }
-
-    const gp_Pnt width_end = origin.Translated(width_axis);
-    const gp_Pnt opposite = width_end.Translated(height_axis);
-    const gp_Pnt height_end = origin.Translated(height_axis);
-
-    BRepBuilderAPI_MakePolygon polygon;
-    polygon.Add(origin);
-    polygon.Add(width_end);
-    polygon.Add(opposite);
-    polygon.Add(height_end);
-    polygon.Close();
-    if (!polygon.IsDone()) {
-        throw std::runtime_error("rectangle wire construction failed");
+    for (const auto& spec : specs) {
+        const TopoDS_Shape pad = make_rectangular_pad(spec);
+        if (result.IsNull()) {
+            result = pad;
+            continue;
+        }
+        BRepAlgoAPI_Fuse fuse(result, pad);
+        fuse.Build();
+        if (!fuse.IsDone()) {
+            throw std::runtime_error("feature chain boolean fuse failed");
+        }
+        result = fuse.Shape();
     }
-
-    BRepBuilderAPI_MakeFace face_builder(polygon.Wire());
-    if (!face_builder.IsDone()) {
-        throw std::runtime_error("rectangle face construction failed");
+    if (result.IsNull()) {
+        throw std::invalid_argument("feature chain contains no solid geometry");
     }
-
-    BRepPrimAPI_MakePrism prism(face_builder.Face(), pad_axis);
-    prism.Build();
-    if (!prism.IsDone()) {
-        throw std::runtime_error("pad construction failed");
-    }
-    return impl_->store(prism.Shape());
+    return impl_->store(result);
 }
 
 BoundingBox OcctKernel::getBoundingBox(const GeometryId& id) {
@@ -366,6 +431,27 @@ std::vector<uint8_t> OcctKernel::serializeBrepr(const GeometryId& id) {
         throw std::out_of_range("geometry is not resident: " + id);
     }
     return iterator->second.brep;
+}
+
+std::vector<uint8_t> OcctKernel::serializeStep(const GeometryId& id) {
+    STEPControl_Writer writer;
+    if (writer.Transfer(impl_->find(id), STEPControl_AsIs) != IFSelect_RetDone) {
+        throw std::runtime_error("STEP transfer failed");
+    }
+    ScopedFile temporary(temporary_step_path());
+    if (writer.Write(temporary.path.string().c_str()) != IFSelect_RetDone) {
+        throw std::runtime_error("STEP write failed");
+    }
+    std::ifstream stream(temporary.path, std::ios::binary);
+    if (!stream.is_open()) {
+        throw std::runtime_error("cannot open temporary STEP output");
+    }
+    std::vector<uint8_t> data(
+        (std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+    if (data.empty()) {
+        throw std::runtime_error("cannot read temporary STEP output");
+    }
+    return data;
 }
 
 }  // namespace occccad::kernel

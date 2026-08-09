@@ -20,15 +20,20 @@
           <button id="new-product" class="command"><b>▦</b><span>新建 Product</span></button>
         </div>
         <div class="command-group part-tools">
-          <button id="start-sketch" class="command" disabled><b>✎</b><span>新建草图</span></button>
+          <button id="start-sketch" class="command" disabled><b>✎</b><span>草图</span></button>
           <button id="exit-sketch" class="command hidden"><b>✓</b><span>退出草图</span></button>
+          <button id="rectangle-tool" class="command hidden" title="边角矩形 (R)"><b>▭</b><span>矩形</span></button>
           <button id="pad-sketch" class="command" disabled><b>↥</b><span>拉伸</span></button>
+          <button id="import-step" class="command" disabled><b>⇥</b><span>导入 STEP</span></button>
+          <button id="export-step" class="command" disabled><b>⇤</b><span>导出 STEP</span></button>
+          <input id="step-file" type="file" accept=".step,.stp,model/step" hidden />
         </div>
         <div class="command-group product-tools">
           <button id="insert-document" class="command" disabled><b>⊕</b><span>插入文档</span></button>
           <button id="reference-mode" class="command" disabled><b>⛓</b><span>固定版本</span></button>
         </div>
         <div class="command-group history-tools">
+          <button id="create-version" class="command compact" disabled title="创建不可变版本"><b>●</b><span>版本</span></button>
           <button id="undo" class="command compact" disabled title="Ctrl+Z"><b>↶</b><span>Undo</span></button>
           <button id="redo" class="command compact" disabled title="Ctrl+Shift+Z"><b>↷</b><span>Redo</span></button>
         </div>
@@ -73,8 +78,9 @@
           <div class="panel-tabs"><button class="active">属性</button><button>历史</button></div>
           <section id="properties" class="properties empty">选择对象查看属性</section>
           <section class="history-summary">
-            <div class="section-heading"><span>版本状态</span></div>
+            <div class="section-heading"><span>Main · 版本与历史</span></div>
             <dl id="history-info"><div><dt>Version</dt><dd>—</dd></div></dl>
+            <div id="history-list" class="history-list"></div>
           </section>
         </aside>
       </main>
@@ -103,6 +109,14 @@
         <label>引用文档<select id="insert-document-select" required></select></label>
         <label>实例名称<input id="instance-name" maxlength="120" autocomplete="off" /></label>
         <footer><button value="cancel">取消</button><button id="confirm-insert" value="default" class="primary">插入</button></footer>
+      </form>
+    </dialog>
+    <dialog id="version-dialog">
+      <form method="dialog">
+        <header><h2>创建版本</h2><button value="cancel" aria-label="关闭">×</button></header>
+        <label>版本名称<input id="version-name" required maxlength="120" autocomplete="off" placeholder="例如：V1 - Initial concept" /></label>
+        <label>说明<input id="version-description" maxlength="500" autocomplete="off" /></label>
+        <footer><button value="cancel">取消</button><button id="confirm-version" value="default" class="primary">创建</button></footer>
       </form>
     </dialog>
     <script type="module" src="/src/main.ts"></script>

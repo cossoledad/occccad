@@ -2,7 +2,7 @@ import "./styles.css";
 import { api } from "./api";
 import { CadView } from "./cad-view";
 import type {
-  DocumentSummary, DocumentView, Feature, PlaneName, RectangleDraft, Selection, Vec3,
+  DocumentSummary, DocumentView, Feature, HistoryEntry, PlaneName, RectangleDraft, Selection, Vec3,
 } from "./types";
 
 const element = <T extends HTMLElement>(selector: string): T =>
@@ -14,8 +14,10 @@ const state: {
   active?: DocumentView;
   selection: Selection;
   sketchPlane?: PlaneName;
+  sketchTool: "SELECT" | "RECTANGLE";
+  history: HistoryEntry[];
   busy: boolean;
-} = { documents: [], tabs: [], selection: null, busy: false };
+} = { documents: [], tabs: [], selection: null, sketchTool: "SELECT", history: [], busy: false };
 
 const cad = new CadView(element("#viewport"), {
   selectionChanged: (selection) => {
@@ -69,13 +71,29 @@ function activateView(view: DocumentView): void {
   state.active = view;
   state.selection = null;
   state.sketchPlane = undefined;
+  state.sketchTool = "SELECT";
+  state.history = [];
   cad.endSketch();
+  cad.setSketchTool("SELECT");
   cad.render(view);
   const summaryIndex = state.documents.findIndex((item) => item.id === view.document.id);
   if (summaryIndex >= 0) state.documents[summaryIndex] = view.document;
   else state.documents.unshift(view.document);
   renderAll();
+  void refreshHistory(view.document.id);
   setStatus(`${view.document.name} · ${view.document.type}`);
+}
+
+async function refreshHistory(documentId = state.active?.document.id): Promise<void> {
+  if (!documentId) return;
+  try {
+    const history = await api.getHistory(documentId);
+    if (state.active?.document.id !== documentId) return;
+    state.history = history;
+    renderHistory();
+  } catch (error) {
+    setStatus(error instanceof Error ? error.message : "读取历史失败", true);
+  }
 }
 
 async function reloadActive(selection?: Selection, preserveSketch = false): Promise<void> {
@@ -211,16 +229,29 @@ function renderTree(): void {
   const children = document.createElement("div");
   children.className = "tree-children";
   if (view.part) {
+    children.appendChild(treeRow("Origin", "⌄", undefined, "基准几何"));
+    const originChildren = document.createElement("div");
+    originChildren.className = "tree-children nested";
     for (const datum of view.datumPlanes ?? []) {
-      children.appendChild(treeRow(datum.name, "▱", { kind: "plane", id: datum.id, plane: datum.plane }));
+      originChildren.appendChild(treeRow(datum.name, "▱", { kind: "plane", id: datum.id, plane: datum.plane }));
     }
+    children.appendChild(originChildren);
     for (const feature of view.part.features) {
-      const isSketch = feature.type.toUpperCase().includes("SKETCH");
-      children.appendChild(treeRow(feature.name ?? (isSketch ? "Rectangle Sketch" : "Pad"),
-        isSketch ? "⌑" : "↥", { kind: isSketch ? "sketch" : "pad", id: feature.id },
-        isSketch ? feature.plane ?? "XY" : `${feature.length ?? 0} mm`));
+      const type = feature.type.toUpperCase();
+      const isSketch = type.includes("SKETCH");
+      const isImport = type === "IMPORT_STEP";
+      const kind = isSketch ? "sketch" : isImport ? "import" : "pad";
+      const detail = isSketch ? feature.plane ?? "XY" : isImport ? "STEP" : `${feature.length ?? 0} mm`;
+      children.appendChild(treeRow(feature.name ?? (isSketch ? "Sketch" : "Extrude"),
+        isSketch ? "⌑" : isImport ? "⇥" : "↥", { kind, id: feature.id }, detail));
     }
-    if (view.artifact) children.appendChild(treeRow("Body", "⬡", { kind: "solid", id: "body-1" }, "SOLID"));
+    if (view.artifact) {
+      children.appendChild(treeRow("Parts", "⌄", undefined, `${view.artifact.topology.solids}`));
+      const parts = document.createElement("div");
+      parts.className = "tree-children nested";
+      parts.appendChild(treeRow("Part 1", "⬡", { kind: "solid", id: "body-1" }, "SOLID"));
+      children.appendChild(parts);
+    }
   } else {
     for (const instance of view.product?.instances ?? []) {
       const mode = instance.referenceMode === "PINNED" ? "PINNED" : "LIVE";
@@ -231,7 +262,7 @@ function renderTree(): void {
 }
 
 function selectedFeature(): Feature | undefined {
-  if (state.selection?.kind !== "sketch" && state.selection?.kind !== "pad") return undefined;
+  if (state.selection?.kind !== "sketch" && state.selection?.kind !== "pad" && state.selection?.kind !== "import") return undefined;
   return state.active?.part?.features.find((feature) => feature.id === state.selection?.id);
 }
 
@@ -256,14 +287,19 @@ function renderProperties(): void {
     title.textContent = `${state.selection.plane} Plane`;
     rows.push(["类型", "基准面"], ["标识", state.selection.id], ["状态", "可用于草图"]);
   } else if (feature) {
-    const isSketch = feature.type.toUpperCase().includes("SKETCH");
+    const type = feature.type.toUpperCase();
+    const isSketch = type.includes("SKETCH");
     title.textContent = feature.name ?? (isSketch ? "Rectangle Sketch" : "Pad");
-    if (isSketch) {
+    if (type === "IMPORT_STEP") {
+      rows.push(["类型", "导入 STEP"], ["源文件", feature.fileName ?? "—"],
+        ["GeometryKey", feature.geometryKey ?? "—"]);
+    } else if (isSketch) {
       const rectangle = feature.rectangle ?? { origin: feature.origin ?? [0, 0], width: feature.width ?? 0, height: feature.height ?? 0 };
       rows.push(["类型", "矩形草图"], ["基准面", feature.plane ?? "XY"],
         ["原点", `${rectangle.origin[0].toFixed(2)}, ${rectangle.origin[1].toFixed(2)}`],
         ["宽度", `${rectangle.width.toFixed(2)} mm`], ["高度", `${rectangle.height.toFixed(2)} mm`]);
-    } else rows.push(["类型", "拉伸"], ["草图", feature.profile ?? "—"], ["长度", `${feature.length ?? 0} mm`]);
+    } else rows.push(["类型", "拉伸"], ["操作", feature.operation ?? "ADD"],
+      ["草图", feature.profile ?? "—"], ["长度", `${feature.length ?? 0} mm`]);
   } else if (state.selection?.kind === "instance") {
     const instance = selectedInstance();
     title.textContent = instance?.name ?? "Instance";
@@ -307,6 +343,38 @@ function renderHistory(): void {
     const description = document.createElement("dd"); description.textContent = value;
     row.append(term, description); host.appendChild(row);
   }
+  const list = element("#history-list");
+  list.replaceChildren();
+  for (const entry of state.history) {
+    const row = document.createElement("div");
+    row.className = `history-entry${entry.isHead ? " current" : ""}`;
+    const marker = document.createElement("i");
+    const content = document.createElement("span");
+    const label = document.createElement("b");
+    label.textContent = entry.versionName
+      ? `${entry.versionName} · ${entry.commandType.replaceAll("_", " ")}`
+      : entry.commandType.replaceAll("_", " ");
+    const meta = document.createElement("small");
+    meta.textContent = `#${entry.sequence} · ${new Date(entry.createdAt).toLocaleString()}`;
+    content.append(label, meta); row.append(marker, content);
+    if (!entry.isHead) {
+      const restore = document.createElement("button");
+      restore.textContent = "恢复";
+      restore.title = "将此状态作为 Main 工作区的新变更恢复";
+      restore.addEventListener("click", () => void restoreVersion(entry));
+      row.appendChild(restore);
+    }
+    list.appendChild(row);
+  }
+}
+
+async function restoreVersion(entry: HistoryEntry): Promise<void> {
+  if (!state.active || !window.confirm(`将 #${entry.sequence} 恢复为 Main 的最新状态？\n当前历史不会被覆盖。`)) return;
+  const result = await withBusy("恢复历史状态…", () => api.restore(state.active!.document.id, entry.versionId));
+  if (!result) return;
+  activateView(result);
+  await refreshDocuments();
+  setStatus(`已将 #${entry.sequence} 作为新的 RESTORE 变更恢复`);
 }
 
 function renderToolbar(): void {
@@ -317,8 +385,13 @@ function renderToolbar(): void {
   element<HTMLButtonElement>("#start-sketch").disabled = state.busy || !isPart || state.selection?.kind !== "plane" || inSketch;
   element("#exit-sketch").classList.toggle("hidden", !inSketch);
   element("#start-sketch").classList.toggle("hidden", inSketch);
-  const hasPad = Boolean(view?.part?.features.some((feature) => feature.type.toUpperCase() === "PAD"));
-  element<HTMLButtonElement>("#pad-sketch").disabled = state.busy || !isPart || state.selection?.kind !== "sketch" || hasPad || inSketch;
+  const rectangle = element<HTMLButtonElement>("#rectangle-tool");
+  rectangle.classList.toggle("hidden", !inSketch);
+  rectangle.classList.toggle("active", state.sketchTool === "RECTANGLE");
+  rectangle.disabled = state.busy || !inSketch;
+  element<HTMLButtonElement>("#pad-sketch").disabled = state.busy || !isPart || state.selection?.kind !== "sketch" || inSketch;
+  element<HTMLButtonElement>("#import-step").disabled = state.busy || !isPart || (view?.part?.features.length ?? 0) > 0 || inSketch;
+  element<HTMLButtonElement>("#export-step").disabled = state.busy || !isPart || !view?.artifact || inSketch;
   element<HTMLButtonElement>("#insert-document").disabled = state.busy || !isProduct;
   const referenceButton = element<HTMLButtonElement>("#reference-mode");
   const instance = selectedInstance();
@@ -327,12 +400,40 @@ function renderToolbar(): void {
     ? "跟随最新" : "固定版本";
   element<HTMLButtonElement>("#undo").disabled = state.busy || !view?.document.canUndo;
   element<HTMLButtonElement>("#redo").disabled = state.busy || !view?.document.canRedo;
+  element<HTMLButtonElement>("#create-version").disabled = state.busy || !view;
   const mode = element("#mode-label");
-  mode.textContent = inSketch ? `${state.sketchPlane} 草图模式 · 按住拖动绘制矩形` : "选择模式";
+  mode.textContent = inSketch
+    ? `${state.sketchPlane} 草图 · ${state.sketchTool === "RECTANGLE" ? "矩形命令" : "选择工具"}`
+    : "选择模式";
   mode.classList.toggle("sketch", inSketch);
   element("#hint").textContent = inSketch
-    ? "在视图区按住鼠标左键拖动绘制矩形，完成后点击“退出草图”"
+    ? state.sketchTool === "RECTANGLE"
+      ? "矩形：单击并拖动两个对角点；按 Esc 返回选择工具"
+      : "选择“矩形”工具开始绘制，或按 R"
     : isProduct ? "选择实例后使用三轴手柄拖动" : "选择一个基准面，然后点击“新建草图”";
+}
+
+function showVersionDialog(): void {
+  if (!state.active) return;
+  const count = state.history.filter((entry) => entry.versionName).length + 1;
+  element<HTMLInputElement>("#version-name").value = `V${count}`;
+  element<HTMLInputElement>("#version-description").value = "";
+  element<HTMLDialogElement>("#version-dialog").showModal();
+  element<HTMLInputElement>("#version-name").select();
+}
+
+async function createVersion(): Promise<void> {
+  if (!state.active) return;
+  const name = element<HTMLInputElement>("#version-name").value.trim();
+  const description = element<HTMLInputElement>("#version-description").value.trim();
+  if (!name) return;
+  const history = await withBusy(`创建版本 ${name}…`, () =>
+    api.createVersion(state.active!.document.id, name, description));
+  if (!history) return;
+  state.history = history;
+  element<HTMLDialogElement>("#version-dialog").close();
+  renderHistory();
+  setStatus(`已创建不可变版本 ${name}`);
 }
 
 function showDocumentDialog(type: "PART" | "PRODUCT"): void {
@@ -360,15 +461,27 @@ async function createDocument(): Promise<void> {
 function startSketch(): void {
   if (state.selection?.kind !== "plane") return;
   state.sketchPlane = state.selection.plane;
+  state.sketchTool = "SELECT";
   cad.beginSketch(state.sketchPlane);
+  cad.setSketchTool("SELECT");
   renderToolbar();
 }
 
 function exitSketch(): void {
   state.sketchPlane = undefined;
+  state.sketchTool = "SELECT";
+  cad.setSketchTool("SELECT");
   cad.endSketch();
   state.selection = null;
   renderAll();
+}
+
+function toggleRectangleTool(force?: boolean): void {
+  if (!state.sketchPlane) return;
+  const enabled = force ?? state.sketchTool !== "RECTANGLE";
+  state.sketchTool = enabled ? "RECTANGLE" : "SELECT";
+  cad.setSketchTool(state.sketchTool);
+  renderToolbar();
 }
 
 async function createRectangle(draft: RectangleDraft): Promise<void> {
@@ -381,11 +494,36 @@ async function createRectangle(draft: RectangleDraft): Promise<void> {
   const feature = result.part?.features.find((item) => !previousIDs.has(item.id));
   const plane = state.sketchPlane;
   cad.render(result);
-  if (plane) cad.beginSketch(plane);
+  if (plane) {
+    cad.beginSketch(plane);
+    cad.setSketchTool(state.sketchTool);
+  }
   if (feature) cad.select({ kind: "sketch", id: feature.id });
   renderAll();
+  void refreshHistory(result.document.id);
   await refreshDocuments();
   setStatus(`已创建 ${draft.width.toFixed(2)} × ${draft.height.toFixed(2)} mm 矩形草图`);
+}
+
+async function importStep(file: File): Promise<void> {
+  if (!state.active || state.active.document.type !== "PART") return;
+  const result = await withBusy(`导入 ${file.name}…`, () => api.importStep(state.active!.document.id, file));
+  element<HTMLInputElement>("#step-file").value = "";
+  if (!result) return;
+  activateView(result);
+  const imported = result.part?.features.find((feature) => feature.type.toUpperCase() === "IMPORT_STEP");
+  if (imported) cad.select({ kind: "import", id: imported.id });
+  await refreshDocuments();
+  setStatus(`STEP 导入完成 · ${file.name}`);
+}
+
+async function exportStep(): Promise<void> {
+  if (!state.active || state.active.document.type !== "PART") return;
+  const completed = await withBusy("正在生成 STEP…", async () => {
+    await api.exportStep(state.active!.document.id);
+    return true;
+  });
+  if (completed) setStatus("STEP 导出完成");
 }
 
 async function padSketch(): Promise<void> {
@@ -492,10 +630,19 @@ async function checkHealth(): Promise<void> {
 
 element("#new-part").addEventListener("click", () => showDocumentDialog("PART"));
 element("#new-product").addEventListener("click", () => showDocumentDialog("PRODUCT"));
+element("#create-version").addEventListener("click", showVersionDialog);
+element("#confirm-version").addEventListener("click", (event) => { event.preventDefault(); void createVersion(); });
 element("#confirm-document").addEventListener("click", (event) => { event.preventDefault(); void createDocument(); });
 element("#start-sketch").addEventListener("click", startSketch);
 element("#exit-sketch").addEventListener("click", exitSketch);
+element("#rectangle-tool").addEventListener("click", () => toggleRectangleTool());
 element("#pad-sketch").addEventListener("click", () => void padSketch());
+element("#import-step").addEventListener("click", () => element<HTMLInputElement>("#step-file").click());
+element<HTMLInputElement>("#step-file").addEventListener("change", (event) => {
+  const file = (event.currentTarget as HTMLInputElement).files?.[0];
+  if (file) void importStep(file);
+});
+element("#export-step").addEventListener("click", () => void exportStep());
 element("#confirm-pad").addEventListener("click", (event) => { event.preventDefault(); void confirmPad(); });
 element("#insert-document").addEventListener("click", showInsertDialog);
 element("#reference-mode").addEventListener("click", () => void toggleReferenceMode());
@@ -522,6 +669,12 @@ window.addEventListener("keydown", (event) => {
   } else if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "f") {
     event.preventDefault();
     cad.fit();
+  } else if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "r" && state.sketchPlane) {
+    event.preventDefault();
+    toggleRectangleTool(true);
+  } else if (event.key === "Escape" && state.sketchTool !== "SELECT") {
+    event.preventDefault();
+    toggleRectangleTool(false);
   }
 });
 

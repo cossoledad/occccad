@@ -23,7 +23,7 @@ export type DatumPlane = { id: string; name: string; plane: PlaneName };
 
 export type Feature = {
   id: string;
-  type: "RECTANGLE_SKETCH" | "rectangle_sketch" | "PAD" | "pad";
+  type: "RECTANGLE_SKETCH" | "rectangle_sketch" | "PAD" | "pad" | "IMPORT_STEP";
   name?: string;
   plane?: PlaneName;
   rectangle?: { origin: Vec2; width: number; height: number };
@@ -32,6 +32,19 @@ export type Feature = {
   height?: number;
   profile?: string;
   length?: number;
+  operation?: "NEW" | "ADD" | "REMOVE" | "INTERSECT";
+  geometryKey?: string;
+  fileName?: string;
+};
+
+export type HistoryEntry = {
+  position: number;
+  versionId: string;
+  sequence: number;
+  commandType: string;
+  createdAt: string;
+  isHead: boolean;
+  versionName?: string;
 };
 
 export type ProductInstance = {
@@ -53,6 +66,7 @@ export type DocumentSummary = {
   canUndo: boolean;
   canRedo: boolean;
   lastUpdated: string;
+  workspaceName?: string;
 };
 
 export type ResolvedInstance = {
@@ -77,6 +91,7 @@ export type Selection =
   | { kind: "plane"; id: string; plane: PlaneName }
   | { kind: "sketch"; id: string }
   | { kind: "pad"; id: string }
+  | { kind: "import"; id: string }
   | { kind: "instance"; id: string }
   | { kind: "solid"; id: string }
   | null;

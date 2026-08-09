@@ -1690,6 +1690,11 @@ Chamfer001
 
 Geometry Worker 根据 Feature Model 重生成 Geometry。
 
+Demo 03 已实现第一段顺序重生成框架：`Origin -> Sketch -> Extrude -> Sketch -> Extrude`。
+Control Plane 规范化完整 Feature Chain 并计算 GeometryKey，Worker 在单次粗粒度 RPC 中依次
+求值和 Boolean Fuse。Feature ID 稳定且不使用数组下标作为引用；Face Support 仍等待
+Persistent Topological Naming，不能绑定临时 Mesh Face。
+
 ---
 
 # 39. Persistent Topological Naming
@@ -1932,6 +1937,10 @@ Grafana
 Loki / OpenSearch
 ```
 
+Demo 03 当前实现 JSON `slog`、W3C Trace Context、OpenTelemetry HTTP/gRPC Client
+instrumentation、可选 OTLP/HTTP Exporter，以及 Worker 侧 `traceparent` 关联日志。Command 表
+保存 trace/span 标识。C++ Worker Server Span、Metrics 和 Collector 后端仍属于后续部署切片。
+
 核心指标：
 
 ```text
@@ -1945,6 +1954,10 @@ Command Commit Latency
 Cache Hit Rate
 Artifact CDN Hit Rate
 ```
+
+数据库 Schema 只允许通过递增 SQL Migration 演进。Runner 必须使用全局 Advisory Lock、单文件
+事务、已应用文件 SHA-256 校验和执行耗时记录；生产部署优先使用独立 Migration Job，Server
+启动时执行相同 Runner 作为开发环境和单实例部署的安全兜底。
 
 ---
 

@@ -40,6 +40,9 @@ public:
 
     GeometryId createBox(double dx, double dy, double dz) override;
     GeometryId createRectangularPad(const RectangularPadSpec& spec) override;
+    GeometryId evaluateRectangularPads(
+        const std::vector<RectangularPadSpec>& specs,
+        const std::vector<uint8_t>& base_brep = {}) override;
 
     BoundingBox getBoundingBox(const GeometryId& id) override;
     TopologyInfo getTopology(const GeometryId& id) override;
@@ -61,6 +64,8 @@ public:
         double radius) override;
 
     std::vector<uint8_t> serializeBrepr(const GeometryId& id) override;
+    GeometryId loadStepData(const std::vector<uint8_t>& data) override;
+    std::vector<uint8_t> serializeStep(const GeometryId& id) override;
 
     // Additional accessors
     size_t resident_count() const noexcept;

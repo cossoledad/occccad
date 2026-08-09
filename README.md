@@ -10,7 +10,7 @@
 
 ## 当前状态
 
-仓库目前处于 **v0.2 / Demo 02 最小 CAD 工作台阶段**。已经能够完成：
+仓库目前处于 **v0.3 / Demo 03 分布式 CAD 开发框架阶段**。已经能够完成：
 
 - 通过 Conan 2 获取 OCCT 7.9.1、gRPC/Protobuf 和 GoogleTest；
 - 显示并选择 XY/XZ/YZ 三个基准面，在任意基准面进入草图模式；
@@ -22,10 +22,16 @@
 - 使用多标签 CAD 工作台创建 Part/Product，插入 Part 或嵌套 Product；
 - Product 实例默认递归跟随被引用文档 Head，也可按实例固定到不可变 Version；
 - 使用三轴手柄移动实例，并对草图、拉伸、插入、移动和引用策略执行持久化 Undo/Redo；
-- 使用右键旋转、中键或 Ctrl+右键平移、滚轮缩放以及 F 适配的 CAD 视图导航。
+- Main Workspace 使用追加式 Change History、不可变命名 Version 和非破坏性 Restore；
+- Part Feature Tree 支持 Sketch 1 → Extrude 1 → Sketch 2 → Extrude 2 顺序重生成；
+- 矩形是显式 Sketch Toolbar 命令，支持 `R` 激活和 Esc 退出；
+- Part 支持 STEP 导入/导出，并可在导入实体后继续草图与拉伸；
+- 使用无惯性右键旋转、中键或 Ctrl+右键平移、光标中心缩放和动态相机裁剪；
+- SQL 文件自动迁移具备 Advisory Lock、事务、Checksum；HTTP/gRPC 使用 JSON 日志和 Trace Context。
 
 当前矩形草图尚不包含尺寸/几何约束求解，装配也暂不包含旋转、配合约束、Redis、对象
-存储或分布式调度；这些属于后续目标。当前进度详见[文档索引](docs/README.md)。
+存储、多 Worker 调度或 XCAF Assembly STEP；这些属于后续目标。当前进度详见
+[文档索引](docs/README.md)。
 
 ## 已验证的开发环境
 
@@ -164,8 +170,9 @@ Redis、MinIO/S3 与多 Worker 调度尚未进入本 Demo。
 - [首个垂直切片 Demo](docs/occccad_demo_v0.1.md)
 - [Demo 01 运行手册](docs/occccad_Demo01_Runbook.md)
 - [Demo 02 最小 CAD 工作台设计与实现](docs/occccad_Demo02_Minimal_CAD_Workbench.md)
+- [Demo 03 分布式 CAD 开发框架](docs/occccad_Demo03_Distributed_CAD_Framework.md)
 
 ## License
 
-许可证尚未确定。在正式选择并添加 `LICENSE` 文件前，请不要假定仓库代码已按某一
-开源许可证授权。
+本项目采用 [MIT License](LICENSE)，允许开源或商业使用、复制、修改、再发布和销售；
+再分发时需保留原版权声明和许可文本。

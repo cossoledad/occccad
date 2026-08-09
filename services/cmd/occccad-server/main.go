@@ -15,6 +15,7 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/demo"
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/observability"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
@@ -29,6 +30,17 @@ func run() error {
 	configuration := config.Load()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	shutdownTracing, err := observability.Initialize(ctx, "occccad-server")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdownContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := shutdownTracing(shutdownContext); err != nil {
+			slog.Error("flush tracing", "error", err)
+		}
+	}()
 
 	pool, err := database.Open(ctx, configuration.DatabaseURL)
 	if err != nil {
@@ -49,8 +61,8 @@ func run() error {
 	workspaceService := workspace.New(pool, worker)
 	httpServer := &http.Server{
 		Addr: configuration.ListenAddress,
-		Handler: api.New(
-			pool, worker, demoService, workspaceService, configuration.WebDirectory).Handler(),
+		Handler: observability.HTTPHandler(api.New(
+			pool, worker, demoService, workspaceService, configuration.WebDirectory).Handler()),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

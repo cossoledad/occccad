@@ -1,4 +1,4 @@
-import type { DocumentSummary, DocumentView, Vec2, Vec3 } from "./types";
+import type { DocumentSummary, DocumentView, HistoryEntry, Vec2, Vec3 } from "./types";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -17,6 +17,12 @@ export const api = {
   listDocuments: async (): Promise<DocumentSummary[]> =>
     (await request<{ documents: DocumentSummary[] }>("/api/documents")).documents,
   getDocument: (id: string) => request<DocumentView>(`/api/documents/${id}`),
+  getHistory: async (id: string): Promise<HistoryEntry[]> =>
+    (await request<{ workspace: string; history: HistoryEntry[] }>(`/api/documents/${id}/history`)).history,
+  createVersion: async (id: string, name: string, description = ""): Promise<HistoryEntry[]> =>
+    (await request<{ history: HistoryEntry[] }>(`/api/documents/${id}/versions`, {
+      method: "POST", body: JSON.stringify({ requestId: requestId(), name, description }),
+    })).history,
   createDocument: (type: "PART" | "PRODUCT", name: string) =>
     request<DocumentView>("/api/documents", {
       method: "POST", body: JSON.stringify({ requestId: requestId(), type, name }),
@@ -39,4 +45,32 @@ export const api = {
     api.command(documentId, { type: "SET_REFERENCE_MODE", instanceId, referenceMode }),
   undo: (documentId: string) => api.command(documentId, { type: "UNDO" }),
   redo: (documentId: string) => api.command(documentId, { type: "REDO" }),
+  restore: (documentId: string, versionId: string) =>
+    api.command(documentId, { type: "RESTORE", versionId }),
+  importStep: async (documentId: string, file: File): Promise<DocumentView> => {
+    const body = new FormData();
+    body.set("requestId", requestId());
+    body.set("file", file);
+    const response = await fetch(`/api/documents/${documentId}/import-step`, { method: "POST", body });
+    const value = await response.json().catch(() => ({})) as DocumentView & { error?: string };
+    if (!response.ok) throw new Error(value.error ?? `HTTP ${response.status}`);
+    return value;
+  },
+  exportStep: async (documentId: string): Promise<void> => {
+    const response = await fetch(`/api/documents/${documentId}/export-step`, {
+      headers: { "X-Request-ID": requestId() },
+    });
+    if (!response.ok) {
+      const value = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(value.error ?? `HTTP ${response.status}`);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") ?? "";
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = match?.[1] ?? "occccad-part.step";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  },
 };

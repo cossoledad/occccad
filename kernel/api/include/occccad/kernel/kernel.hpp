@@ -117,6 +117,9 @@ public:
     // Primitive creation
     virtual GeometryId createBox(double dx, double dy, double dz) = 0;
     virtual GeometryId createRectangularPad(const RectangularPadSpec& spec) = 0;
+    virtual GeometryId evaluateRectangularPads(
+        const std::vector<RectangularPadSpec>& specs,
+        const std::vector<uint8_t>& base_brep = {}) = 0;
 
     // Queries
     virtual BoundingBox getBoundingBox(const GeometryId& id) = 0;
@@ -142,6 +145,8 @@ public:
 
     // Serialization
     virtual std::vector<uint8_t> serializeBrepr(const GeometryId& id) = 0;
+    virtual GeometryId loadStepData(const std::vector<uint8_t>& data) = 0;
+    virtual std::vector<uint8_t> serializeStep(const GeometryId& id) = 0;
 };
 
 }  // namespace occccad::kernel

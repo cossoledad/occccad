@@ -125,6 +125,23 @@ int main() {
         // Expected.
     }
 
+    const auto feature_chain_id = kernel.evaluateRectangularPads({
+        {0.0, 0.0, 10.0, 10.0, 10.0, "XY"},
+        {20.0, 0.0, 10.0, 10.0, 10.0, "XY"},
+    });
+    if (!near(kernel.getVolume(feature_chain_id), 2000.0, 1.0e-3) ||
+        kernel.getTopology(feature_chain_id).solid_count != 2) {
+        return fail("ordered multi-extrude feature chain is incorrect");
+    }
+    const auto step = kernel.serializeStep(feature_chain_id);
+    if (step.empty()) {
+        return fail("STEP export returned no data");
+    }
+    const auto imported_step_id = kernel.loadStepData(step);
+    if (!near(kernel.getVolume(imported_step_id), 2000.0, 1.0e-3)) {
+        return fail("STEP import/export round trip changed volume");
+    }
+
     std::cout << "[PASS] Rectangle Sketch -> Face -> Pad\n"
               << "[PASS] SHA-256 GeometryId = " << geometry_id << '\n'
               << "[PASS] BBox = 100 x 60 x 40 mm\n"
@@ -134,5 +151,7 @@ int main() {
               << "[PASS] GLB bytes = " << glb.size() << '\n'
               << "[PASS] B-Rep round trip\n";
     std::cout << "[PASS] XY / XZ / YZ datum plane orientations\n";
+    std::cout << "[PASS] Ordered Sketch/Extrude feature chain\n";
+    std::cout << "[PASS] STEP import/export round trip\n";
     return EXIT_SUCCESS;
 }

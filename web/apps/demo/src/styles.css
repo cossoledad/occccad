@@ -29,12 +29,14 @@ button { color: inherit; }
 .health.online i { background: #22c55e; box-shadow: 0 0 7px #22c55e; }
 .health.offline i { background: #ef4444; }
 
-.commandbar { display: flex; align-items: stretch; padding: 5px 10px; background: #111923; border-bottom: 1px solid var(--line); gap: 4px; }
-.command-group { display: flex; gap: 2px; padding: 0 8px; border-right: 1px solid var(--line); }
+.commandbar { display: flex; align-items: stretch; padding: 5px 10px; background: #111923; border-bottom: 1px solid var(--line); gap: 4px; overflow-x: auto; overflow-y: hidden; }
+.command-group { display: flex; flex: none; gap: 2px; padding: 0 8px; border-right: 1px solid var(--line); }
 .command { min-width: 72px; border: 1px solid transparent; border-radius: 4px; background: transparent; display: grid; place-items: center; grid-template-rows: 29px 18px; padding: 3px 8px; cursor: pointer; }
 .command b { font-size: 22px; font-weight: 400; color: var(--accent-2); }
 .command span { font-size: 11px; white-space: nowrap; }
 .command:hover:not(:disabled) { background: #213041; border-color: #344b61; }
+.command.active { background: #4f3b14; border-color: #a7771b; box-shadow: inset 0 -2px #ffc04c; }
+.command.active b { color: #ffd275; }
 .command.primary { background: #173654; border-color: #245d8d; }
 .command.compact { min-width: 55px; }
 .command:disabled { opacity: .35; cursor: default; }
@@ -70,12 +72,14 @@ button { color: inherit; }
 .tree-row .icon, .document-row .icon { width: 16px; text-align: center; color: #8fc8f5; }
 .tree-row .secondary, .document-row .secondary { margin-left: auto; color: #667b90; font-size: 9px; }
 .tree-children { margin-left: 16px; border-left: 1px solid #2b3a49; padding-left: 4px; }
+.tree-children.nested { margin-left: 22px; }
 
 .viewport-shell { min-width: 0; min-height: 0; position: relative; background: #10151d; }
 #viewport { position: absolute; inset: 0 0 24px; }
 #viewport canvas { display: block; width: 100%; height: 100%; outline: none; }
 #viewport { cursor: default; }
 #viewport.navigating { cursor: grabbing; }
+#viewport.drawing { cursor: crosshair; }
 .view-cube { position: absolute; right: 22px; top: 18px; width: 74px; height: 65px; color: #91a4b8; font-size: 9px; pointer-events: none; }
 .view-cube button { position: absolute; pointer-events: auto; border: 1px solid #526579; background: rgba(26,37,49,.9); color: #a7b7c8; padding: 7px; font-size: 9px; cursor: pointer; }
 .view-cube button:hover { color: white; background: #2b4358; }
@@ -94,8 +98,19 @@ button { color: inherit; }
 .properties dl, .history-summary dl { margin: 0; }
 .properties dl div, .history-summary dl div { display: grid; grid-template-columns: 92px 1fr; padding: 7px 4px; border-bottom: 1px solid #24313e; }
 .properties dt, .history-summary dt { color: #7f91a4; }.properties dd, .history-summary dd { margin: 0; text-align: right; word-break: break-all; }
-.history-summary { margin-top: auto; border-top: 1px solid var(--line); }
+.history-summary { margin-top: auto; min-height: 210px; max-height: 48%; border-top: 1px solid var(--line); display: flex; flex-direction: column; }
 .history-summary dl { padding: 8px 10px; font-size: 11px; }
+.history-list { min-height: 0; overflow: auto; padding: 2px 10px 12px 15px; }
+.history-entry { position: relative; display: grid; grid-template-columns: 15px minmax(0, 1fr) auto; gap: 7px; min-height: 42px; color: #91a2b4; }
+.history-entry::before { content: ""; position: absolute; left: 5px; top: 14px; bottom: -3px; width: 1px; background: #38506a; }
+.history-entry:last-child::before { display: none; }
+.history-entry i { width: 11px; height: 11px; margin-top: 7px; border: 2px solid #58738e; border-radius: 50%; background: #151d27; z-index: 1; }
+.history-entry.current i { border-color: #42aaf7; background: #218bd7; box-shadow: 0 0 0 3px #17476a; }
+.history-entry span { display: grid; gap: 2px; padding: 4px 0 8px; }
+.history-entry b { color: #c4d0dc; font-size: 10px; font-weight: 600; }
+.history-entry small { color: #66798d; font-size: 9px; }
+.history-entry > button { align-self: center; border: 1px solid #354b61; border-radius: 3px; padding: 3px 6px; background: #1d2b39; color: #89bde5; font-size: 9px; cursor: pointer; }
+.history-entry > button:hover { border-color: #4186bb; color: white; }
 
 dialog { width: min(420px, calc(100vw - 30px)); border: 1px solid #405368; border-radius: 7px; background: #19232e; color: #e2e8f0; padding: 0; box-shadow: 0 24px 80px #000a; }
 dialog::backdrop { background: rgba(2,6,12,.68); }

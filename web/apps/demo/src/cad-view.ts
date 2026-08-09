@@ -49,7 +49,7 @@ function makeGeometry(artifact: Artifact): THREE.BufferGeometry {
 export class CadView {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(42, 1, 0.1, 5000);
-  private readonly renderer = new THREE.WebGLRenderer({ antialias: true });
+  private readonly renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   private readonly orbit: OrbitControls;
   private readonly transform: TransformControls;
   private readonly raycaster = new THREE.Raycaster();
@@ -66,29 +66,31 @@ export class CadView {
   private pointerDown = false;
   private suppressSelection = false;
   private lastMiddleClick = 0;
+  private sketchTool: "SELECT" | "RECTANGLE" = "SELECT";
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: Callbacks) {
     this.scene.background = new THREE.Color(0x10151d);
-    this.scene.fog = new THREE.Fog(0x10151d, 900, 2400);
     this.camera.position.set(310, -360, 270);
     this.camera.up.set(0, 0, 1);
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    this.renderer.shadowMap.enabled = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     host.appendChild(this.renderer.domElement);
 
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement);
     this.orbit.target.set(0, 0, 20);
-    this.orbit.enableDamping = true;
-    this.orbit.dampingFactor = 0.09;
-    this.orbit.rotateSpeed = 0.72;
-    this.orbit.panSpeed = 0.9;
-    this.orbit.zoomSpeed = 1.15;
+    this.orbit.enableDamping = false;
+    this.orbit.rotateSpeed = 1.0;
+    this.orbit.panSpeed = 1.0;
+    this.orbit.zoomSpeed = 1.35;
     this.orbit.zoomToCursor = true;
     this.orbit.screenSpacePanning = true;
+    this.orbit.minDistance = 0.001;
+    this.orbit.maxDistance = 1.0e9;
     this.orbit.mouseButtons.LEFT = null;
     this.orbit.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
     this.orbit.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
+    this.orbit.addEventListener("change", () => this.updateCameraClipping());
     this.transform = new TransformControls(this.camera, this.renderer.domElement);
     this.transform.setMode("translate");
     this.transform.setSpace("world");
@@ -160,10 +162,17 @@ export class CadView {
 
   endSketch(): void {
     this.sketchPlane = undefined;
+    this.host.classList.remove("drawing");
     this.cancelDrawing();
     this.orbit.enabled = true;
     this.orbit.enableRotate = true;
     this.frameContent();
+  }
+
+  setSketchTool(tool: "SELECT" | "RECTANGLE"): void {
+    this.sketchTool = tool;
+    this.cancelDrawing();
+    this.host.classList.toggle("drawing", tool === "RECTANGLE" && Boolean(this.sketchPlane));
   }
 
   fit(): void {
@@ -174,17 +183,18 @@ export class CadView {
     const box = new THREE.Box3().setFromObject(this.content);
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
     const center = box.getCenter(new THREE.Vector3());
-    const distance = Math.max(box.getSize(new THREE.Vector3()).length(), 180) * 1.35;
+    const distance = this.fitDistance(box);
     const directions = {
-      TOP: new THREE.Vector3(0, 0, distance),
-      FRONT: new THREE.Vector3(0, -distance, 0),
-      RIGHT: new THREE.Vector3(distance, 0, 0),
-      ISO: new THREE.Vector3(distance, -distance, distance),
+      TOP: new THREE.Vector3(0, 0, 1).multiplyScalar(distance),
+      FRONT: new THREE.Vector3(0, -1, 0).multiplyScalar(distance),
+      RIGHT: new THREE.Vector3(1, 0, 0).multiplyScalar(distance),
+      ISO: new THREE.Vector3(1, -1, 1).normalize().multiplyScalar(distance),
     };
     this.camera.position.copy(center).add(directions[view]);
     this.camera.up.set(0, 0, 1);
     this.orbit.target.copy(center);
     this.camera.lookAt(center);
+    this.updateCameraClipping(box);
     this.orbit.update();
   }
 
@@ -315,7 +325,7 @@ export class CadView {
     }
     if (event.button !== 0) return;
     this.pointerDown = true;
-    if (!this.sketchPlane) return;
+    if (!this.sketchPlane || this.sketchTool !== "RECTANGLE") return;
     const point = this.intersectDrawingPlane(event);
     if (!point) return;
     this.renderer.domElement.setPointerCapture(event.pointerId);
@@ -443,12 +453,34 @@ export class CadView {
     const box = new THREE.Box3().setFromObject(this.content);
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
     const center = box.getCenter(new THREE.Vector3());
-    const size = Math.max(box.getSize(new THREE.Vector3()).length(), 180);
+    const distance = this.fitDistance(box);
     this.orbit.target.copy(center);
-    this.camera.position.copy(center).add(new THREE.Vector3(size * 1.2, -size * 1.4, size));
+    this.camera.position.copy(center).add(
+      new THREE.Vector3(1, -1.2, 0.8).normalize().multiplyScalar(distance));
     this.camera.up.set(0, 0, 1);
     this.camera.lookAt(center);
+    this.updateCameraClipping(box);
     this.orbit.update();
+  }
+
+  private fitDistance(box: THREE.Box3): number {
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const radius = Math.max(sphere.radius, 1);
+    const verticalFov = THREE.MathUtils.degToRad(this.camera.fov);
+    const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(this.camera.aspect, 0.01));
+    return radius / Math.sin(Math.min(verticalFov, horizontalFov) / 2) * 1.15;
+  }
+
+  private updateCameraClipping(box?: THREE.Box3): void {
+    const bounds = box ?? new THREE.Box3().setFromObject(this.content);
+    const sphere = bounds.isEmpty()
+      ? new THREE.Sphere(this.orbit.target.clone(), 100)
+      : bounds.getBoundingSphere(new THREE.Sphere());
+    const distance = this.camera.position.distanceTo(this.orbit.target);
+    const radius = Math.max(sphere.radius, 1.0e-3);
+    this.camera.near = Math.max(1.0e-4, Math.min(radius * 1.0e-3, distance * 0.1));
+    this.camera.far = Math.max(this.camera.near * 1000, distance + radius * 20, 1000);
+    this.camera.updateProjectionMatrix();
   }
 
   private resize(): void {
@@ -472,7 +504,6 @@ export class CadView {
   }
 
   private animate = (): void => {
-    this.orbit.update();
     this.renderer.render(this.scene, this.camera);
     requestAnimationFrame(this.animate);
   };

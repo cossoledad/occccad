@@ -21,6 +21,8 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	GeometryWorker_Ping_FullMethodName           = "/occccad.worker.v1.GeometryWorker/Ping"
 	GeometryWorker_EvaluatePart_FullMethodName   = "/occccad.worker.v1.GeometryWorker/EvaluatePart"
+	GeometryWorker_ImportStep_FullMethodName     = "/occccad.worker.v1.GeometryWorker/ImportStep"
+	GeometryWorker_ExportStep_FullMethodName     = "/occccad.worker.v1.GeometryWorker/ExportStep"
 	GeometryWorker_LoadGeometry_FullMethodName   = "/occccad.worker.v1.GeometryWorker/LoadGeometry"
 	GeometryWorker_UnloadGeometry_FullMethodName = "/occccad.worker.v1.GeometryWorker/UnloadGeometry"
 	GeometryWorker_GetTopology_FullMethodName    = "/occccad.worker.v1.GeometryWorker/GetTopology"
@@ -37,6 +39,9 @@ type GeometryWorkerClient interface {
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
 	// Evaluate the complete Demo 01 feature chain in one worker call.
 	EvaluatePart(ctx context.Context, in *EvaluatePartRequest, opts ...grpc.CallOption) (*EvaluatePartResponse, error)
+	// Neutral CAD exchange. STEP is converted to/from the worker's internal B-Rep.
+	ImportStep(ctx context.Context, in *ImportStepRequest, opts ...grpc.CallOption) (*EvaluatePartResponse, error)
+	ExportStep(ctx context.Context, in *ExportStepRequest, opts ...grpc.CallOption) (*ExportStepResponse, error)
 	// Load geometry from B-Rep artifact
 	LoadGeometry(ctx context.Context, in *LoadGeometryRequest, opts ...grpc.CallOption) (*LoadGeometryResponse, error)
 	// Unload geometry
@@ -72,6 +77,26 @@ func (c *geometryWorkerClient) EvaluatePart(ctx context.Context, in *EvaluatePar
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EvaluatePartResponse)
 	err := c.cc.Invoke(ctx, GeometryWorker_EvaluatePart_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *geometryWorkerClient) ImportStep(ctx context.Context, in *ImportStepRequest, opts ...grpc.CallOption) (*EvaluatePartResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EvaluatePartResponse)
+	err := c.cc.Invoke(ctx, GeometryWorker_ImportStep_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *geometryWorkerClient) ExportStep(ctx context.Context, in *ExportStepRequest, opts ...grpc.CallOption) (*ExportStepResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExportStepResponse)
+	err := c.cc.Invoke(ctx, GeometryWorker_ExportStep_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -146,6 +171,9 @@ type GeometryWorkerServer interface {
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
 	// Evaluate the complete Demo 01 feature chain in one worker call.
 	EvaluatePart(context.Context, *EvaluatePartRequest) (*EvaluatePartResponse, error)
+	// Neutral CAD exchange. STEP is converted to/from the worker's internal B-Rep.
+	ImportStep(context.Context, *ImportStepRequest) (*EvaluatePartResponse, error)
+	ExportStep(context.Context, *ExportStepRequest) (*ExportStepResponse, error)
 	// Load geometry from B-Rep artifact
 	LoadGeometry(context.Context, *LoadGeometryRequest) (*LoadGeometryResponse, error)
 	// Unload geometry
@@ -172,6 +200,12 @@ func (UnimplementedGeometryWorkerServer) Ping(context.Context, *PingRequest) (*P
 }
 func (UnimplementedGeometryWorkerServer) EvaluatePart(context.Context, *EvaluatePartRequest) (*EvaluatePartResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method EvaluatePart not implemented")
+}
+func (UnimplementedGeometryWorkerServer) ImportStep(context.Context, *ImportStepRequest) (*EvaluatePartResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ImportStep not implemented")
+}
+func (UnimplementedGeometryWorkerServer) ExportStep(context.Context, *ExportStepRequest) (*ExportStepResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExportStep not implemented")
 }
 func (UnimplementedGeometryWorkerServer) LoadGeometry(context.Context, *LoadGeometryRequest) (*LoadGeometryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LoadGeometry not implemented")
@@ -244,6 +278,42 @@ func _GeometryWorker_EvaluatePart_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GeometryWorkerServer).EvaluatePart(ctx, req.(*EvaluatePartRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GeometryWorker_ImportStep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImportStepRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GeometryWorkerServer).ImportStep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GeometryWorker_ImportStep_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GeometryWorkerServer).ImportStep(ctx, req.(*ImportStepRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GeometryWorker_ExportStep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportStepRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GeometryWorkerServer).ExportStep(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GeometryWorker_ExportStep_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GeometryWorkerServer).ExportStep(ctx, req.(*ExportStepRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -370,6 +440,14 @@ var GeometryWorker_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "EvaluatePart",
 			Handler:    _GeometryWorker_EvaluatePart_Handler,
+		},
+		{
+			MethodName: "ImportStep",
+			Handler:    _GeometryWorker_ImportStep_Handler,
+		},
+		{
+			MethodName: "ExportStep",
+			Handler:    _GeometryWorker_ExportStep_Handler,
 		},
 		{
 			MethodName: "LoadGeometry",
