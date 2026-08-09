@@ -15,7 +15,7 @@
 
 项目名称统一为 **occccad**：`occ` 表示 OCCT 几何内核，`c` 取自 `could`，`cad` 表示项目所服务的 CAD 领域。历史临时名称不再使用。
 
-本文描述的是**目标架构和决策基线**，不是当前实现清单。仓库已跑通 Demo 01：C++17/OCCT 7.9.1 Geometry Worker、gRPC、Go API、PostgreSQL 持久化、SHA-256 内容寻址、B-Rep/GLB 制品和浏览器多实例显示。通用建模、Undo/Redo、对象存储和分布式调度仍是后续内容。当前事实以 [文档索引](README.md)、[运行手册](occccad_Demo01_Runbook.md) 和 [开发环境规范](occccad_Development_Environment_and_CPP_Toolchain_v0.1.md) 为准。
+本文描述的是**目标架构和决策基线**，不是当前实现清单。仓库已在 Demo01–03 贯通 C++17/OCCT 7.9.1 Geometry Worker、gRPC、Go API、PostgreSQL、参数化 Feature Chain、Undo/Redo、STEP 和 Product 引用；v0.0.4–0.0.6 增加文档中心、Folder、Copy、User/Team ACL、Share 与访问审计。对象存储和分布式调度仍是后续内容。当前事实以 [文档索引](README.md)、[v0.0.6 说明](occccad_v0.0.6_Collaboration_and_Access_Control.md)和[开发环境规范](occccad_Development_Environment_and_CPP_Toolchain_v0.1.md)为准。
 
 occccad 的目标不是“把传统桌面 CAD 搬到浏览器”，也不是“给 OCCT 外面套一层 HTTP API”，而是构建一套真正面向云环境设计的 CAD 基础设施。
 

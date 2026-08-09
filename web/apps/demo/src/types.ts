@@ -61,12 +61,53 @@ export type ProductInstance = {
 export type DocumentSummary = {
   id: string;
   name: string;
+  description: string;
   type: "PART" | "PRODUCT";
   versionId: string;
   canUndo: boolean;
   canRedo: boolean;
+  createdAt: string;
   lastUpdated: string;
+  deletedAt?: string;
+  folderId?: string;
+  lastOpenedAt?: string;
+  copiedFromDocumentId?: string;
   workspaceName?: string;
+  permission: "OWNER" | "EDITOR" | "VIEWER";
+};
+
+export type DocumentScope = "active" | "trash" | "all";
+
+export type DocumentPage = {
+  documents: DocumentSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type FolderSummary = {
+  id: string;
+  parentId?: string;
+  name: string;
+  description: string;
+  documentCount: number;
+  trashCount: number;
+  childCount: number;
+  createdAt: string;
+  updatedAt: string;
+  permission: "OWNER" | "EDITOR" | "VIEWER";
+};
+
+export type User = { id: string; email: string; displayName: string; status: "ACTIVE" | "DISABLED" };
+export type Team = { id: string; name: string; description: string; ownerUserId: string; memberCount: number };
+export type AccessRole = "VIEWER" | "EDITOR" | "OWNER";
+export type ShareGrant = {
+  id: string; subjectType: "USER" | "TEAM"; subjectId: string; subjectName: string;
+  role: "VIEWER" | "EDITOR"; inherited: boolean; sourceName?: string;
+};
+export type AuditEvent = {
+  id: number; actorName: string; action: string; resourceType?: string; resourceId?: string;
+  requestId?: string; metadata: Record<string, unknown>; createdAt: string;
 };
 
 export type ResolvedInstance = {

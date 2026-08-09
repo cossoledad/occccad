@@ -70,3 +70,28 @@ func TestProductReferenceModeValidation(t *testing.T) {
 		t.Fatalf("invalid reference mode should be rejected, got %v", err)
 	}
 }
+
+func TestDocumentManagementValidation(t *testing.T) {
+	t.Parallel()
+	service := &Service{}
+	if _, err := service.ListDocuments(t.Context(), DocumentListOptions{Scope: "unknown"}); err == nil || !strings.Contains(err.Error(), ErrValidation.Error()) {
+		t.Fatalf("invalid document scope should be rejected, got %v", err)
+	}
+	if _, err := service.ListDocuments(t.Context(), DocumentListOptions{Scope: "active", Type: "DRAWING"}); err == nil || !strings.Contains(err.Error(), ErrValidation.Error()) {
+		t.Fatalf("invalid document type should be rejected, got %v", err)
+	}
+	if _, err := service.ListDocuments(t.Context(), DocumentListOptions{FolderID: "not-a-uuid"}); err == nil || !strings.Contains(err.Error(), ErrValidation.Error()) {
+		t.Fatalf("invalid folder id should be rejected, got %v", err)
+	}
+	if _, err := service.ListDocuments(t.Context(), DocumentListOptions{Limit: 201}); err == nil || !strings.Contains(err.Error(), ErrValidation.Error()) {
+		t.Fatalf("invalid page size should be rejected, got %v", err)
+	}
+	if _, err := service.UpdateDocument(t.Context(), "document-1", UpdateDocumentRequest{Name: ""}); err == nil || !strings.Contains(err.Error(), ErrValidation.Error()) {
+		t.Fatalf("empty document name should be rejected, got %v", err)
+	}
+	if _, err := service.CreateDocument(t.Context(), CreateDocumentRequest{
+		Name: "Part", Type: "PART", Description: strings.Repeat("x", 501),
+	}); err == nil || !strings.Contains(err.Error(), ErrValidation.Error()) {
+		t.Fatalf("long description should be rejected, got %v", err)
+	}
+}

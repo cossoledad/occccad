@@ -10,7 +10,7 @@ Provides:
     invoke run.geometry   — Run geometry worker smoke test
     invoke run.worker     — Start the Geometry Worker gRPC server
     invoke run.server     — Start the Go API and Web server
-    invoke web.build      — Build the Demo 01 web application
+    invoke web.build      — Build the current web application
     invoke info           — Print toolchain versions and paths
 
 All commands respect OCCCCAD_BUILD_TYPE from environment (default: Debug).
@@ -339,7 +339,7 @@ def run_server(c):
 
 @task
 def build_web(c):
-    """Type-check and build the Demo 01 web application."""
+    """Type-check and build the current web application."""
     with c.cd(str(PROJECT_ROOT / "web")):
         c.run("pnpm build", pty=True)
 

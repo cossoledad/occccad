@@ -2,6 +2,10 @@
 
 > 最后验证：2026-08-09，Ubuntu 26.04 WSL2、GCC 15、OCCT 7.9.1、PostgreSQL 18
 
+> 归档说明：固定 Seed API `/api/demo/seed` 已在 v0.0.4 删除。本手册保留首个垂直切片的
+> 历史验收记录；当前启动与页面入口请以
+> [v0.0.4 文档](occccad_v0.0.4_Document_Center_and_Workbench.md)为准。
+
 Demo 01 已贯通浏览器、Go API、PostgreSQL、gRPC Geometry Worker 和 OCCT。它创建一个
 100×60 mm 的矩形草图并拉伸 40 mm，再把同一 Part 以 4 个实例组成两层 Product。
 
@@ -58,11 +62,10 @@ Go Server 默认监听 `0.0.0.0:8080`。先从 Windows 浏览器访问
 `hostname -I`，使用输出的 WSL IPv4 地址访问 `http://<WSL-IP>:8080`。Geometry Worker
 仍只监听 `127.0.0.1:51001`，无需暴露给 Windows 或局域网。
 
-打开页面后点击“构建 Demo 01”。也可在 WSL 内直接检查：
+当前页面进入文档中心。健康检查仍可使用：
 
 ```bash
 curl --noproxy '*' http://127.0.0.1:8080/api/health
-curl --noproxy '*' -X POST http://127.0.0.1:8080/api/demo/seed
 ```
 
 ## 4. 验收结果
@@ -74,7 +77,7 @@ curl --noproxy '*' -X POST http://127.0.0.1:8080/api/demo/seed
 - 1 个 Part Document、2 个 Product Document、3 个 Version、3 条 Command；
 - Machine → 2 个 Module → 每个 Module 2 个 Part Instance；
 - 4 个可见实例共享 1 个 GeometryKey 和 1 份 B-Rep/GLB 制品；
-- 重复执行 `/api/demo/seed` 不增加上述记录，Worker 只求值一次。
+- 当时重复执行 `/api/demo/seed` 不增加上述记录；该接口现已退役。
 
 当前 Demo 为验证架构边界而固定了建模参数。通用参数编辑、约束求解、Undo/Redo、对象
 存储和多 Worker 调度将在后续切片中实现。

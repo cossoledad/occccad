@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.30)
 
 project(
     occccad
-    VERSION 0.1.0
+    VERSION 0.0.6
     DESCRIPTION "Cloud-native distributed CAD platform"
     LANGUAGES CXX
 )

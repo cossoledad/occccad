@@ -16,6 +16,12 @@
 6. [Demo 02 最小 CAD 工作台](occccad_Demo02_Minimal_CAD_Workbench.md)：交互建模与命令历史；
 7. [Demo 03 分布式 CAD 开发框架](occccad_Demo03_Distributed_CAD_Framework.md)：Main 历史线、
    Feature 重生成、STEP、迁移和可观测性。
+8. [v0.0.4 文档中心与专业 CAD 工作台](occccad_v0.0.4_Document_Center_and_Workbench.md)：
+   文档 CRUD、Trash、页面路由、Toolbar、Tab、Feature Tree 和清理边界。
+9. [v0.0.5 文档组织与设计复用](occccad_v0.0.5_Document_Organization.md)：
+   Folder、Breadcrumb、Recent、Move、Copy 和服务端分页。
+10. [v0.0.6 协作与访问控制基础](occccad_v0.0.6_Collaboration_and_Access_Control.md)：
+    User/Team、ACL、Folder 继承、Share、Request Principal 和访问审计。
 
 ## 文档状态
 
@@ -25,9 +31,12 @@
 | 开发环境与工具链 | 当前事实 + 升级规则 | 与仓库构建文件保持一致 |
 | 架构规格 | 目标架构 | 描述方向，不表示所有模块已实现 |
 | Demo v0.1 | 已实现基线 + 后续设计 | Demo 01 核心验收项已实现，扩展项仍按正文边界理解 |
-| Demo 01 运行手册 | 当前事实 | 本地启动、接口与验收结果 |
+| Demo 01 运行手册 | 历史归档 | 首个固定 Seed 垂直切片；Seed API 已在 v0.0.4 退役 |
 | Demo 02 最小 CAD 工作台 | 当前事实 + 设计边界 | Part/Product 编辑、Undo/Redo 与验收结果 |
 | Demo 03 分布式 CAD 开发框架 | 当前事实 + 下一阶段边界 | Onshape 对标交互与平台框架的当前实现 |
+| v0.0.4 文档中心与工作台 | 已实现基线 | 首页、文档生命周期和工作台组件架构 |
+| v0.0.5 文档组织与复用 | 当前事实 + 迭代边界 | 当前 Folder、Recent、Copy 和分页架构 |
+| v0.0.6 协作与访问控制 | 当前事实 + 安全边界 | 当前 User/Team、ACL、Share 和审计架构 |
 
 ## 当前实现快照
 
@@ -52,6 +61,12 @@
   ordered Feature regeneration -> STEP import/export
         |
   OpenTelemetry HTTP/gRPC trace -> structured logs / Command correlation
+        |
+  Document Center CRUD / Trash -> routed multi-tab CAD workbench
+        |
+  Folder hierarchy / Recent / Copy -> paginated document organization
+        |
+  Request Principal -> User/Team ACL -> inherited Share / access audit
 
 尚未实现
   sketch constraint solving and dimensions

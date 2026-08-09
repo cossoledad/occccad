@@ -10,7 +10,7 @@
 
 ## 当前状态
 
-仓库目前处于 **v0.3 / Demo 03 分布式 CAD 开发框架阶段**。已经能够完成：
+仓库目前处于 **v0.0.6 / 协作与访问控制基础阶段**。已经能够完成：
 
 - 通过 Conan 2 获取 OCCT 7.9.1、gRPC/Protobuf 和 GoogleTest；
 - 显示并选择 XY/XZ/YZ 三个基准面，在任意基准面进入草图模式；
@@ -28,6 +28,11 @@
 - Part 支持 STEP 导入/导出，并可在导入实体后继续草图与拉伸；
 - 使用无惯性右键旋转、中键或 Ctrl+右键平移、光标中心缩放和动态相机裁剪；
 - SQL 文件自动迁移具备 Advisory Lock、事务、Checksum；HTTP/gRPC 使用 JSON 日志和 Trace Context。
+- 首页文档中心支持创建、搜索、修改、软删除和恢复 Part/Product；
+- 双击文档进入路由式 CAD 工作台，多文档 Tab、分组 Toolbar、Feature Tree 和 Inspector 独立组织。
+- 文档中心支持层级 Folder、Breadcrumb、最近打开、移动、Main Workspace 复制和服务端分页。
+- User/Team、Owner/Editor/Viewer ACL、Folder 权限继承、文档/文件夹共享与“与我共享”视图；
+- 所有 API 请求绑定 Principal，成功写操作记录 Actor、Resource、Request ID 与 Trace ID 审计。
 
 当前矩形草图尚不包含尺寸/几何约束求解，装配也暂不包含旋转、配合约束、Redis、对象
 存储、多 Worker 调度或 XCAF Assembly STEP；这些属于后续目标。当前进度详见
@@ -91,8 +96,8 @@ invoke build --build-type=Release
 invoke test --build-type=Release
 ```
 
-完整 Demo 还需要一个 PostgreSQL 数据库。复制 `.env.example` 为 `.env` 并设置连接信息后，
-Invoke 会自动加载该文件。按照 [Demo 01 运行手册](docs/occccad_Demo01_Runbook.md) 分别启动
+完整应用还需要一个 PostgreSQL 数据库。复制 `.env.example` 为 `.env` 并设置连接信息后，
+Invoke 会自动加载该文件。按照 [v0.0.6 设计与运行说明](docs/occccad_v0.0.6_Collaboration_and_Access_Control.md) 分别启动
 Worker 和 Server：
 
 ```bash
@@ -141,7 +146,7 @@ occccad/
 ├── workers/geometry/              C++ Geometry Worker gRPC Server
 ├── tests/geometry/                C++ 几何与制品测试
 ├── services/                      Go API、数据迁移和领域服务
-├── web/apps/demo/                 TypeScript + Three.js Demo 页面
+├── web/apps/demo/                 TypeScript + Three.js 文档中心与 CAD 工作台
 └── docs/                          架构、环境和 Demo 文档
 ```
 
@@ -171,6 +176,9 @@ Redis、MinIO/S3 与多 Worker 调度尚未进入本 Demo。
 - [Demo 01 运行手册](docs/occccad_Demo01_Runbook.md)
 - [Demo 02 最小 CAD 工作台设计与实现](docs/occccad_Demo02_Minimal_CAD_Workbench.md)
 - [Demo 03 分布式 CAD 开发框架](docs/occccad_Demo03_Distributed_CAD_Framework.md)
+- [v0.0.4 文档中心与专业 CAD 工作台](docs/occccad_v0.0.4_Document_Center_and_Workbench.md)
+- [v0.0.5 文档组织与设计复用](docs/occccad_v0.0.5_Document_Organization.md)
+- [v0.0.6 协作与访问控制基础](docs/occccad_v0.0.6_Collaboration_and_Access_Control.md)
 
 ## License
 

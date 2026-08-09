@@ -3,6 +3,9 @@
 > 状态：已实现核心垂直切片并通过真实 PostgreSQL、gRPC 和 OCCT 验证  
 > 最后验证：2026-08-09
 
+> Demo03 是分布式建模框架基线；文档中心、Trash、路由式工作台与运行时清理的当前行为以
+> [v0.0.4](occccad_v0.0.4_Document_Center_and_Workbench.md) 为准。
+
 Demo 03 不再增加孤立的演示按钮，而是建立后续 CAD 功能都要遵守的框架：Main Workspace
 单线历史、不可变 Version、顺序 Feature 重生成、显式 Sketch Tool、STEP 中性交换、增量迁移和
 跨 HTTP/gRPC 的可观测性。

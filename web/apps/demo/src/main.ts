@@ -1,23 +1,55 @@
 import "./styles.css";
 import { api } from "./api";
 import { CadView } from "./cad-view";
+import { documentMetrics, flattenFolderTree, pageLabel, relativeDate, type LibraryScope } from "./document-center";
 import type {
-  DocumentSummary, DocumentView, Feature, HistoryEntry, PlaneName, RectangleDraft, Selection, Vec3,
+  DocumentSummary, DocumentView, Feature, FolderSummary, HistoryEntry, PlaneName, RectangleDraft, Selection, Team, User, Vec3,
 } from "./types";
 
 const element = <T extends HTMLElement>(selector: string): T =>
   document.querySelector<T>(selector)!;
 
+function loadTabs(): string[] {
+  try {
+    const value = JSON.parse(sessionStorage.getItem("occccad.tabs") ?? "[]") as unknown;
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
 const state: {
   documents: DocumentSummary[];
+  catalog: DocumentSummary[];
+  trashCount: number;
+  recentCount: number;
+  folders: FolderSummary[];
+  breadcrumbs: FolderSummary[];
+  currentFolderId?: string;
+  documentTotal: number;
+  documentOffset: number;
+  documentLimit: number;
   tabs: string[];
+  libraryScope: LibraryScope;
+  selectedDocumentId?: string;
   active?: DocumentView;
   selection: Selection;
   sketchPlane?: PlaneName;
   sketchTool: "SELECT" | "RECTANGLE";
   history: HistoryEntry[];
   busy: boolean;
-} = { documents: [], tabs: [], selection: null, sketchTool: "SELECT", history: [], busy: false };
+  users: User[];
+  teams: Team[];
+  currentUser?: User;
+} = {
+  documents: [], catalog: [], trashCount: 0, recentCount: 0, folders: [], breadcrumbs: [],
+  documentTotal: 0, documentOffset: 0, documentLimit: 25,
+  tabs: loadTabs(),
+  libraryScope: "active", selection: null, sketchTool: "SELECT", history: [], busy: false,
+  users: [], teams: [],
+};
+
+const canEdit = (permission?: string): boolean => permission === "OWNER" || permission === "EDITOR";
 
 const cad = new CadView(element("#viewport"), {
   selectionChanged: (selection) => {
@@ -34,6 +66,13 @@ function setStatus(message: string, error = false): void {
   const target = element<HTMLSpanElement>("#status");
   target.textContent = message;
   target.classList.toggle("error", error);
+  if (error) {
+    const toast = element("#toast");
+    toast.textContent = message;
+    toast.classList.remove("hidden");
+    toast.classList.add("error");
+    window.setTimeout(() => toast.classList.add("hidden"), 5000);
+  }
 }
 
 async function withBusy<T>(label: string, operation: () => Promise<T>): Promise<T | undefined> {
@@ -52,19 +91,151 @@ async function withBusy<T>(label: string, operation: () => Promise<T>): Promise<
   }
 }
 
+async function initializeIdentity(): Promise<void> {
+  const [session, users, teams] = await Promise.all([api.session(), api.listUsers(), api.listTeams()]);
+  state.currentUser = session.user;
+  state.users = users;
+  state.teams = teams;
+  const select = element<HTMLSelectElement>("#current-user");
+  select.replaceChildren();
+  for (const user of users) {
+    const option = document.createElement("option");
+    option.value = user.id; option.textContent = `${user.displayName} · ${user.email}`;
+    select.appendChild(option);
+  }
+  select.value = session.user.id;
+  element("#avatar").textContent = session.user.displayName.slice(0, 1).toUpperCase();
+}
+
+async function switchIdentity(userId: string): Promise<void> {
+  api.setPrincipal(userId);
+  state.tabs = [];
+  state.active = undefined;
+  state.currentFolderId = undefined;
+  state.selectedDocumentId = undefined;
+  persistTabs(); cad.clear();
+  await initializeIdentity();
+  showDocumentCenter(false);
+  await refreshDocuments();
+  renderAll();
+  setStatus(`当前身份：${state.currentUser?.displayName ?? "—"}`);
+}
+
+async function showShareDialog(type: "documents" | "folders", id: string, name: string): Promise<void> {
+  const result = await withBusy("读取共享设置…", async () => {
+    const [grants, users, teams] = await Promise.all([api.listShares(type, id), api.listUsers(), api.listTeams()]);
+    return { grants, users, teams };
+  });
+  if (!result) return;
+  state.users = result.users; state.teams = result.teams;
+  element<HTMLInputElement>("#share-resource-type").value = type;
+  element<HTMLInputElement>("#share-resource-id").value = id;
+  element("#share-resource-name").textContent = `${type === "folders" ? "文件夹" : "文档"}：${name}`;
+  renderShareGrants(result.grants);
+  renderShareSubjects();
+  element<HTMLDialogElement>("#share-dialog").showModal();
+}
+
+function renderShareSubjects(): void {
+  const select = element<HTMLSelectElement>("#share-subject"); select.replaceChildren();
+  for (const user of state.users.filter((item) => item.id !== state.currentUser?.id)) {
+    const option = document.createElement("option"); option.value = `USER:${user.id}`;
+    option.textContent = `${user.displayName} · 用户`; select.appendChild(option);
+  }
+  for (const team of state.teams) {
+    const option = document.createElement("option"); option.value = `TEAM:${team.id}`;
+    option.textContent = `${team.name} · 团队 (${team.memberCount})`; select.appendChild(option);
+  }
+}
+
+function renderShareGrants(grants: Awaited<ReturnType<typeof api.listShares>>): void {
+  const host = element("#share-grants"); host.replaceChildren();
+  if (grants.length === 0) {
+    const empty = document.createElement("p"); empty.className = "share-empty";
+    empty.textContent = "尚未直接共享；所有者仍拥有完整权限。"; host.appendChild(empty); return;
+  }
+  for (const grant of grants) {
+    const row = document.createElement("div"); row.className = "share-grant";
+    const identity = document.createElement("span");
+    const name = document.createElement("strong"); name.textContent = grant.subjectName;
+    const kind = document.createElement("small"); kind.textContent = grant.subjectType === "TEAM" ? "团队" : "用户";
+    identity.append(name, kind);
+    const role = document.createElement("b"); role.textContent = grant.role === "EDITOR" ? "可编辑" : "可查看";
+    const remove = document.createElement("button"); remove.type = "button"; remove.textContent = "移除";
+    remove.addEventListener("click", () => void removeShare(grant.id));
+    row.append(identity, role, remove); host.appendChild(row);
+  }
+}
+
+async function confirmShare(): Promise<void> {
+  const type = element<HTMLInputElement>("#share-resource-type").value as "documents" | "folders";
+  const id = element<HTMLInputElement>("#share-resource-id").value;
+  const [subjectType, subjectId] = element<HTMLSelectElement>("#share-subject").value.split(":") as ["USER" | "TEAM", string];
+  const role = element<HTMLSelectElement>("#share-role").value as "VIEWER" | "EDITOR";
+  if (!id || !subjectId) return;
+  const saved = await withBusy("保存共享权限…", () => api.share(type, id, subjectType, subjectId, role));
+  if (!saved) return;
+  renderShareGrants(await api.listShares(type, id));
+  setStatus("共享权限已更新");
+}
+
+async function removeShare(grantId: string): Promise<void> {
+  const type = element<HTMLInputElement>("#share-resource-type").value as "documents" | "folders";
+  const id = element<HTMLInputElement>("#share-resource-id").value;
+  const removed = await withBusy("移除共享权限…", async () => { await api.unshare(type, id, grantId); return true; });
+  if (!removed) return;
+  renderShareGrants(await api.listShares(type, id));
+  setStatus("共享权限已移除");
+}
+
 async function refreshDocuments(): Promise<void> {
-  const documents = await withBusy("刷新文档库…", () => api.listDocuments());
-  if (!documents) return;
-  state.documents = documents;
+  const scope = state.libraryScope === "trash" ? "trash" : "active";
+  const type = state.libraryScope === "parts" ? "PART" : state.libraryScope === "products" ? "PRODUCT" : "";
+  const recent = state.libraryScope === "recent";
+  const shared = state.libraryScope === "shared";
+  const query = element<HTMLInputElement>("#document-search").value.trim();
+  const selectedType = element<HTMLSelectElement>("#document-type-filter").value || type;
+  const sort = recent ? "recent" : element<HTMLSelectElement>("#document-sort").value as "updated" | "name" | "created";
+  const allFolders = recent || shared || state.libraryScope === "trash" || query !== "";
+  const result = await withBusy("刷新文档库…", async () => {
+    const [catalog, active, trash, recentDocuments, folders, breadcrumbs] = await Promise.all([
+      api.listDocuments({ scope, query, type: selectedType, folderId: state.currentFolderId,
+        recent, shared, allFolders, sort, limit: state.documentLimit, offset: state.documentOffset }),
+      api.listDocuments({ scope: "active", allFolders: true, limit: 200 }),
+      api.listDocuments({ scope: "trash", allFolders: true, limit: 1 }),
+      api.listDocuments({ scope: "active", recent: true, allFolders: true, sort: "recent", limit: 1 }),
+      shared ? api.listFolders("", true) : allFolders ? Promise.resolve([]) : api.listFolders(state.currentFolderId ?? ""),
+      state.currentFolderId ? api.folderBreadcrumbs(state.currentFolderId) : Promise.resolve([]),
+    ]);
+    return { catalog, active, trash, recentDocuments, folders, breadcrumbs };
+  });
+  if (!result) return;
+  state.catalog = result.catalog.documents;
+  state.documentTotal = result.catalog.total;
+  state.documents = result.active.documents;
+  state.trashCount = result.trash.total;
+  state.recentCount = result.recentDocuments.total;
+  state.folders = result.folders;
+  state.breadcrumbs = result.breadcrumbs;
+  state.tabs = state.tabs.filter((id) => state.documents.some((item) => item.id === id));
+  persistTabs();
   renderDocuments();
+  renderFolders();
+  renderFolderBreadcrumbs();
+  renderPagination();
+  renderLibrarySummary();
+  renderTabs();
   setStatus("就绪");
 }
 
-async function openDocument(documentId: string): Promise<void> {
+async function openDocument(documentId: string, updateLocation = true): Promise<void> {
   const view = await withBusy("打开文档…", () => api.getDocument(documentId));
   if (!view) return;
   if (!state.tabs.includes(documentId)) state.tabs.push(documentId);
+  persistTabs();
   activateView(view);
+  showWorkbench();
+  if (updateLocation) window.history.pushState({ documentId }, "", `/documents/${documentId}`);
 }
 
 function activateView(view: DocumentView): void {
@@ -79,6 +250,10 @@ function activateView(view: DocumentView): void {
   const summaryIndex = state.documents.findIndex((item) => item.id === view.document.id);
   if (summaryIndex >= 0) state.documents[summaryIndex] = view.document;
   else state.documents.unshift(view.document);
+  const catalogIndex = state.catalog.findIndex((item) => item.id === view.document.id);
+  if (catalogIndex >= 0) state.catalog[catalogIndex] = view.document;
+  element("#crumb-name").textContent = view.document.name;
+  element("#tree-document-type").textContent = view.document.type === "PART" ? "PART STUDIO" : "PRODUCT";
   renderAll();
   void refreshHistory(view.document.id);
   setStatus(`${view.document.name} · ${view.document.type}`);
@@ -118,6 +293,25 @@ function renderAll(): void {
   renderHistory();
 }
 
+function persistTabs(): void {
+  sessionStorage.setItem("occccad.tabs", JSON.stringify(state.tabs));
+}
+
+function showWorkbench(): void {
+  element("#document-center").classList.add("hidden");
+  element("#workbench").classList.remove("hidden");
+  element("#workspace-crumb").classList.remove("hidden");
+  requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+}
+
+function showDocumentCenter(updateLocation = true): void {
+  element("#workbench").classList.add("hidden");
+  element("#document-center").classList.remove("hidden");
+  element("#workspace-crumb").classList.add("hidden");
+  if (updateLocation) window.history.pushState({}, "", "/");
+  void refreshDocuments();
+}
+
 function renderTabs(): void {
   const host = element("#tabs");
   host.replaceChildren();
@@ -155,6 +349,7 @@ function renderTabs(): void {
 function closeTab(id: string): void {
   const index = state.tabs.indexOf(id);
   state.tabs = state.tabs.filter((item) => item !== id);
+  persistTabs();
   if (state.active?.document.id === id) {
     state.active = undefined;
     const next = state.tabs[Math.min(index, state.tabs.length - 1)];
@@ -162,6 +357,7 @@ function closeTab(id: string): void {
     else {
       cad.clear();
       renderAll();
+      showDocumentCenter();
     }
   } else renderTabs();
 }
@@ -169,28 +365,153 @@ function closeTab(id: string): void {
 function renderDocuments(): void {
   const host = element("#documents");
   host.replaceChildren();
-  host.className = "documents";
-  if (state.documents.length === 0) {
+  host.className = "document-list";
+  if (state.catalog.length === 0) {
     host.classList.add("empty");
-    host.textContent = "还没有文档";
+    const title = document.createElement("strong");
+    title.textContent = state.libraryScope === "trash" ? "回收站为空" : "没有找到文档";
+    const detail = document.createElement("span");
+    detail.textContent = state.libraryScope === "trash" ? "移入回收站的文档会显示在这里。" : "新建 Part 或 Product 开始设计。";
+    host.append(title, detail);
     return;
   }
-  for (const documentInfo of state.documents) {
+  for (const documentInfo of state.catalog) {
     const row = document.createElement("div");
     row.className = "document-row";
+    row.tabIndex = 0;
+    if (state.selectedDocumentId === documentInfo.id) row.classList.add("selected");
+    const identity = document.createElement("div");
+    identity.className = "document-identity";
     const icon = document.createElement("span");
     icon.className = "icon";
     icon.textContent = documentInfo.type === "PART" ? "◇" : "▦";
-    const name = document.createElement("span");
-    name.textContent = documentInfo.name;
-    const secondary = document.createElement("span");
-    secondary.className = "secondary";
-    secondary.textContent = documentInfo.type;
-    row.append(icon, name, secondary);
-    row.addEventListener("dblclick", () => void openDocument(documentInfo.id));
-    row.addEventListener("click", () => void openDocument(documentInfo.id));
+    const names = document.createElement("span");
+    const name = document.createElement("strong"); name.textContent = documentInfo.name;
+    const workspace = document.createElement("small"); workspace.textContent = `${documentInfo.workspaceName ?? "Main"} · ${documentInfo.permission}`;
+    names.append(name, workspace); identity.append(icon, names);
+    const type = document.createElement("span"); type.className = `document-type ${documentInfo.type.toLowerCase()}`; type.textContent = documentInfo.type === "PART" ? "Part" : "Product";
+    const description = document.createElement("span"); description.className = "document-description"; description.textContent = documentInfo.description || "—";
+    const updated = document.createElement("time"); updated.dateTime = documentInfo.lastUpdated; updated.textContent = relativeDate(documentInfo.lastUpdated);
+    const actions = document.createElement("div"); actions.className = "row-actions";
+    if (state.libraryScope === "trash") {
+      const restore = document.createElement("button"); restore.textContent = "恢复"; restore.disabled = !canEdit(documentInfo.permission);
+      restore.addEventListener("click", (event) => { event.stopPropagation(); void restoreDocument(documentInfo.id); });
+      actions.appendChild(restore);
+    } else {
+      const copy = document.createElement("button"); copy.textContent = "复制";
+      copy.addEventListener("click", (event) => { event.stopPropagation(); showCopyDialog(documentInfo); });
+      actions.append(copy);
+      if (canEdit(documentInfo.permission)) {
+        const edit = document.createElement("button"); edit.textContent = "编辑";
+        edit.addEventListener("click", (event) => { event.stopPropagation(); showEditDocumentDialog(documentInfo); });
+        const move = document.createElement("button"); move.textContent = "移动";
+        move.addEventListener("click", (event) => { event.stopPropagation(); void showMoveDialog(documentInfo.id); });
+        const remove = document.createElement("button"); remove.className = "remove"; remove.textContent = "删除";
+        remove.addEventListener("click", (event) => { event.stopPropagation(); showDeleteDocumentDialog(documentInfo.id); });
+        actions.prepend(edit); actions.append(move, remove);
+      }
+      if (documentInfo.permission === "OWNER") {
+        const share = document.createElement("button"); share.textContent = "共享";
+        share.addEventListener("click", (event) => { event.stopPropagation(); void showShareDialog("documents", documentInfo.id, documentInfo.name); });
+        actions.prepend(share);
+      }
+    }
+    row.append(identity, type, description, updated, actions);
+    row.addEventListener("click", () => { state.selectedDocumentId = documentInfo.id; renderDocuments(); });
+    if (!documentInfo.deletedAt) {
+      row.addEventListener("dblclick", () => void openDocument(documentInfo.id));
+      row.addEventListener("keydown", (event) => { if (event.key === "Enter") void openDocument(documentInfo.id); });
+    }
     host.appendChild(row);
   }
+}
+
+function renderLibrarySummary(): void {
+  const metrics = documentMetrics(state.documents);
+  element("#active-count").textContent = String(state.documents.length);
+  element("#part-count").textContent = String(metrics.parts);
+  element("#product-count").textContent = String(metrics.products);
+  element("#trash-count").textContent = String(state.trashCount);
+  element("#recent-count").textContent = String(state.recentCount);
+  element("#part-stat").textContent = String(metrics.parts);
+  element("#product-stat").textContent = String(metrics.products);
+  element("#recent-stat").textContent = String(metrics.recentlyUpdated);
+}
+
+function renderFolders(): void {
+  const host = element("#folders");
+  host.replaceChildren();
+  host.classList.toggle("hidden", state.folders.length === 0 || state.libraryScope === "trash" || state.libraryScope === "recent" || state.libraryScope === "shared");
+  for (const folder of state.folders) {
+    const card = document.createElement("article");
+    card.className = "folder-card";
+    const icon = document.createElement("span"); icon.className = "folder-icon"; icon.textContent = "▰";
+    const details = document.createElement("span");
+    const name = document.createElement("strong"); name.textContent = folder.name;
+    const counts = document.createElement("small");
+    counts.textContent = `${folder.documentCount} 文档${folder.trashCount ? ` · ${folder.trashCount} Trash` : ""} · ${folder.childCount} 子文件夹`;
+    details.append(name, counts);
+    const actions = document.createElement("span"); actions.className = "folder-actions";
+    if (folder.permission === "OWNER") {
+      const share = document.createElement("button"); share.textContent = "共享";
+      share.addEventListener("click", (event) => { event.stopPropagation(); void showShareDialog("folders", folder.id, folder.name); });
+      actions.append(share);
+    }
+    if (canEdit(folder.permission)) {
+      const edit = document.createElement("button"); edit.textContent = "编辑";
+      edit.addEventListener("click", (event) => { event.stopPropagation(); showFolderDialog(folder); });
+      const remove = document.createElement("button"); remove.textContent = "删除";
+      remove.disabled = folder.documentCount > 0 || folder.trashCount > 0 || folder.childCount > 0;
+      remove.title = remove.disabled ? "请先移出文件夹中的内容" : "删除空文件夹";
+      remove.addEventListener("click", (event) => { event.stopPropagation(); void deleteFolder(folder); });
+      actions.append(edit, remove);
+    }
+    card.append(icon, details, actions);
+    card.addEventListener("dblclick", () => openFolder(folder.id));
+    card.addEventListener("click", () => card.classList.toggle("selected"));
+    host.appendChild(card);
+  }
+}
+
+function renderFolderBreadcrumbs(): void {
+  const host = element("#folder-breadcrumbs");
+  host.replaceChildren();
+  const root = document.createElement("button"); root.textContent = "我的文档";
+  root.addEventListener("click", () => openFolder(undefined)); host.appendChild(root);
+  for (const folder of state.breadcrumbs) {
+    const separator = document.createElement("span"); separator.textContent = "›";
+    const button = document.createElement("button"); button.textContent = folder.name;
+    button.addEventListener("click", () => openFolder(folder.id)); host.append(separator, button);
+  }
+  host.classList.toggle("hidden", state.libraryScope === "trash" || state.libraryScope === "recent" || state.libraryScope === "shared");
+  const currentPermission = state.breadcrumbs.at(-1)?.permission;
+  const writable = !state.currentFolderId || canEdit(currentPermission);
+  element<HTMLButtonElement>("#new-folder").disabled = !writable;
+  element<HTMLButtonElement>("#new-part").disabled = !writable;
+  element<HTMLButtonElement>("#new-product").disabled = !writable;
+}
+
+function openFolder(folderId?: string): void {
+  if (state.libraryScope === "shared") {
+    state.libraryScope = "active";
+    for (const item of document.querySelectorAll<HTMLElement>("[data-scope]")) {
+      item.classList.toggle("active", item.dataset.scope === "active");
+    }
+    element("#library-heading").textContent = "全部文档";
+    element("#library-subtitle").textContent = "管理 Part 与 Product，双击文档进入 CAD 工作台。";
+    element("#new-part").classList.remove("hidden"); element("#new-product").classList.remove("hidden");
+    element("#new-folder").classList.remove("hidden");
+  }
+  state.currentFolderId = folderId;
+  state.documentOffset = 0;
+  void refreshDocuments();
+}
+
+function renderPagination(): void {
+  element("#pagination-info").textContent = pageLabel(
+    state.documentOffset, state.documentLimit, state.documentTotal);
+  element<HTMLButtonElement>("#previous-page").disabled = state.documentOffset === 0;
+  element<HTMLButtonElement>("#next-page").disabled = state.documentOffset + state.documentLimit >= state.documentTotal;
 }
 
 function treeRow(label: string, iconText: string, selection?: Exclude<Selection, null>, detail?: string): HTMLElement {
@@ -357,7 +678,7 @@ function renderHistory(): void {
     const meta = document.createElement("small");
     meta.textContent = `#${entry.sequence} · ${new Date(entry.createdAt).toLocaleString()}`;
     content.append(label, meta); row.append(marker, content);
-    if (!entry.isHead) {
+    if (!entry.isHead && canEdit(view?.document.permission)) {
       const restore = document.createElement("button");
       restore.textContent = "恢复";
       restore.title = "将此状态作为 Main 工作区的新变更恢复";
@@ -381,26 +702,28 @@ function renderToolbar(): void {
   const view = state.active;
   const isPart = view?.document.type === "PART";
   const isProduct = view?.document.type === "PRODUCT";
+  const editable = canEdit(view?.document.permission);
   const inSketch = Boolean(state.sketchPlane);
-  element<HTMLButtonElement>("#start-sketch").disabled = state.busy || !isPart || state.selection?.kind !== "plane" || inSketch;
+  element<HTMLButtonElement>("#start-sketch").disabled = state.busy || !editable || !isPart || state.selection?.kind !== "plane" || inSketch;
   element("#exit-sketch").classList.toggle("hidden", !inSketch);
   element("#start-sketch").classList.toggle("hidden", inSketch);
   const rectangle = element<HTMLButtonElement>("#rectangle-tool");
   rectangle.classList.toggle("hidden", !inSketch);
   rectangle.classList.toggle("active", state.sketchTool === "RECTANGLE");
-  rectangle.disabled = state.busy || !inSketch;
-  element<HTMLButtonElement>("#pad-sketch").disabled = state.busy || !isPart || state.selection?.kind !== "sketch" || inSketch;
-  element<HTMLButtonElement>("#import-step").disabled = state.busy || !isPart || (view?.part?.features.length ?? 0) > 0 || inSketch;
+  rectangle.disabled = state.busy || !editable || !inSketch;
+  element<HTMLButtonElement>("#pad-sketch").disabled = state.busy || !editable || !isPart || state.selection?.kind !== "sketch" || inSketch;
+  element<HTMLButtonElement>("#import-step").disabled = state.busy || !editable || !isPart || (view?.part?.features.length ?? 0) > 0 || inSketch;
   element<HTMLButtonElement>("#export-step").disabled = state.busy || !isPart || !view?.artifact || inSketch;
-  element<HTMLButtonElement>("#insert-document").disabled = state.busy || !isProduct;
+  element<HTMLButtonElement>("#insert-document").disabled = state.busy || !editable || !isProduct;
   const referenceButton = element<HTMLButtonElement>("#reference-mode");
   const instance = selectedInstance();
-  referenceButton.disabled = state.busy || !isProduct || !instance;
+  referenceButton.disabled = state.busy || !editable || !isProduct || !instance;
   referenceButton.querySelector("span")!.textContent = instance?.referenceMode === "PINNED"
     ? "跟随最新" : "固定版本";
-  element<HTMLButtonElement>("#undo").disabled = state.busy || !view?.document.canUndo;
-  element<HTMLButtonElement>("#redo").disabled = state.busy || !view?.document.canRedo;
-  element<HTMLButtonElement>("#create-version").disabled = state.busy || !view;
+  element<HTMLButtonElement>("#undo").disabled = state.busy || !editable || !view?.document.canUndo;
+  element<HTMLButtonElement>("#redo").disabled = state.busy || !editable || !view?.document.canRedo;
+  element<HTMLButtonElement>("#create-version").disabled = state.busy || !editable || !view;
+  element<HTMLButtonElement>("#share-document").disabled = state.busy || view?.document.permission !== "OWNER";
   const mode = element("#mode-label");
   mode.textContent = inSketch
     ? `${state.sketchPlane} 草图 · ${state.sketchTool === "RECTANGLE" ? "矩形命令" : "选择工具"}`
@@ -442,6 +765,7 @@ function showDocumentDialog(type: "PART" | "PRODUCT"): void {
   let index = state.documents.filter((item) => item.type === type).length + 1;
   while (state.documents.some((item) => item.name === `${base} ${index}`)) index++;
   element<HTMLInputElement>("#document-name").value = `${base} ${index}`;
+  element<HTMLTextAreaElement>("#document-description").value = "";
   element<HTMLDialogElement>("#document-dialog").showModal();
   element<HTMLInputElement>("#document-name").select();
 }
@@ -449,13 +773,149 @@ function showDocumentDialog(type: "PART" | "PRODUCT"): void {
 async function createDocument(): Promise<void> {
   const type = element<HTMLInputElement>("#document-type").value as "PART" | "PRODUCT";
   const name = element<HTMLInputElement>("#document-name").value.trim();
+  const description = element<HTMLTextAreaElement>("#document-description").value.trim();
   if (!name) return;
-  const view = await withBusy(`创建 ${type}…`, () => api.createDocument(type, name));
+  const view = await withBusy(`创建 ${type}…`, () =>
+    api.createDocument(type, name, description, state.currentFolderId));
   if (!view) return;
   element<HTMLDialogElement>("#document-dialog").close();
   state.documents.unshift(view.document);
   state.tabs.push(view.document.id);
   activateView(view);
+  showWorkbench();
+  persistTabs();
+  window.history.pushState({ documentId: view.document.id }, "", `/documents/${view.document.id}`);
+}
+
+function showEditDocumentDialog(documentInfo: DocumentSummary): void {
+  element<HTMLInputElement>("#edit-document-id").value = documentInfo.id;
+  element<HTMLInputElement>("#edit-document-name").value = documentInfo.name;
+  element<HTMLTextAreaElement>("#edit-document-description").value = documentInfo.description;
+  element<HTMLDialogElement>("#edit-document-dialog").showModal();
+  element<HTMLInputElement>("#edit-document-name").select();
+}
+
+async function confirmEditDocument(): Promise<void> {
+  const id = element<HTMLInputElement>("#edit-document-id").value;
+  const name = element<HTMLInputElement>("#edit-document-name").value.trim();
+  const description = element<HTMLTextAreaElement>("#edit-document-description").value.trim();
+  if (!id || !name) return;
+  const view = await withBusy("保存文档信息…", () => api.updateDocument(id, name, description));
+  if (!view) return;
+  element<HTMLDialogElement>("#edit-document-dialog").close();
+  if (state.active?.document.id === id) activateView(view);
+  await refreshDocuments();
+  setStatus(`已更新 ${name}`);
+}
+
+function showDeleteDocumentDialog(documentId: string): void {
+  element<HTMLInputElement>("#delete-document-id").value = documentId;
+  element<HTMLDialogElement>("#delete-document-dialog").showModal();
+}
+
+async function confirmDeleteDocument(): Promise<void> {
+  const id = element<HTMLInputElement>("#delete-document-id").value;
+  if (!id) return;
+  const removed = await withBusy("移入回收站…", async () => { await api.deleteDocument(id); return true; });
+  if (!removed) return;
+  element<HTMLDialogElement>("#delete-document-dialog").close();
+  state.tabs = state.tabs.filter((tabId) => tabId !== id);
+  persistTabs();
+  if (state.active?.document.id === id) {
+    state.active = undefined;
+    cad.clear();
+  }
+  await refreshDocuments();
+  showDocumentCenter();
+  setStatus("文档已移入回收站");
+}
+
+async function restoreDocument(id: string): Promise<void> {
+  const view = await withBusy("恢复文档…", () => api.restoreDocument(id));
+  if (!view) return;
+  await refreshDocuments();
+  setStatus(`已恢复 ${view.document.name}`);
+}
+
+function showFolderDialog(folder?: FolderSummary): void {
+  element<HTMLInputElement>("#folder-id").value = folder?.id ?? "";
+  element("#folder-dialog-title").textContent = folder ? "编辑文件夹" : "新建文件夹";
+  element<HTMLInputElement>("#folder-name").value = folder?.name ?? "";
+  element<HTMLTextAreaElement>("#folder-description").value = folder?.description ?? "";
+  element<HTMLDialogElement>("#folder-dialog").showModal();
+  element<HTMLInputElement>("#folder-name").focus();
+}
+
+async function confirmFolder(): Promise<void> {
+  const id = element<HTMLInputElement>("#folder-id").value;
+  const name = element<HTMLInputElement>("#folder-name").value.trim();
+  const description = element<HTMLTextAreaElement>("#folder-description").value.trim();
+  if (!name) return;
+  const result = await withBusy(id ? "保存文件夹…" : "创建文件夹…", () => id
+    ? api.updateFolder(id, name, description)
+    : api.createFolder(name, description, state.currentFolderId));
+  if (!result) return;
+  element<HTMLDialogElement>("#folder-dialog").close();
+  await refreshDocuments();
+  setStatus(id ? `已更新 ${name}` : `已创建 ${name}`);
+}
+
+async function deleteFolder(folder: FolderSummary): Promise<void> {
+  if (!window.confirm(`删除空文件夹“${folder.name}”？`)) return;
+  const deleted = await withBusy("删除文件夹…", async () => { await api.deleteFolder(folder.id); return true; });
+  if (!deleted) return;
+  await refreshDocuments();
+  setStatus(`已删除空文件夹 ${folder.name}`);
+}
+
+async function showMoveDialog(documentId: string): Promise<void> {
+  const options = await withBusy("读取文件夹…", () => flattenFolderTree(api.listFolders));
+  if (!options) return;
+  const select = element<HTMLSelectElement>("#move-folder-select"); select.replaceChildren();
+  const root = document.createElement("option"); root.value = ""; root.textContent = "我的文档（根目录）";
+  select.appendChild(root);
+  for (const folder of options) {
+    const option = document.createElement("option"); option.value = folder.id; option.textContent = folder.label;
+    select.appendChild(option);
+  }
+  const current = state.documents.find((item) => item.id === documentId)?.folderId ?? "";
+  select.value = current;
+  element<HTMLInputElement>("#move-document-id").value = documentId;
+  element<HTMLDialogElement>("#move-dialog").showModal();
+}
+
+async function confirmMove(): Promise<void> {
+  const documentId = element<HTMLInputElement>("#move-document-id").value;
+  const folderId = element<HTMLSelectElement>("#move-folder-select").value || undefined;
+  const view = await withBusy("移动文档…", () => api.moveDocument(documentId, folderId));
+  if (!view) return;
+  element<HTMLDialogElement>("#move-dialog").close();
+  if (state.active?.document.id === documentId) state.active = view;
+  await refreshDocuments();
+  setStatus(`已移动 ${view.document.name}`);
+}
+
+function showCopyDialog(documentInfo: DocumentSummary): void {
+  element<HTMLInputElement>("#copy-document-id").value = documentInfo.id;
+  element<HTMLInputElement>("#copy-document-name").value = `${documentInfo.name} Copy`;
+  element<HTMLDialogElement>("#copy-dialog").showModal();
+  element<HTMLInputElement>("#copy-document-name").select();
+}
+
+async function confirmCopy(): Promise<void> {
+  const id = element<HTMLInputElement>("#copy-document-id").value;
+  const name = element<HTMLInputElement>("#copy-document-name").value.trim();
+  if (!id || !name) return;
+  const source = state.documents.find((item) => item.id === id);
+  const targetFolder = canEdit(source?.permission) ? source?.folderId : "";
+  const view = await withBusy("复制 Main Workspace…", () => api.copyDocument(id, name, targetFolder));
+  if (!view) return;
+  element<HTMLDialogElement>("#copy-dialog").close();
+  state.documents.unshift(view.document);
+  if (!state.tabs.includes(view.document.id)) state.tabs.push(view.document.id);
+  persistTabs(); activateView(view); showWorkbench();
+  window.history.pushState({ documentId: view.document.id }, "", `/documents/${view.document.id}`);
+  setStatus(`已创建副本 ${name}`);
 }
 
 function startSketch(): void {
@@ -581,6 +1041,9 @@ async function confirmInsert(): Promise<void> {
 
 async function moveInstance(instanceId: string, translation: Vec3): Promise<void> {
   if (!state.active || state.active.document.type !== "PRODUCT") return;
+  if (!canEdit(state.active.document.permission)) {
+    cad.render(state.active); setStatus("当前文档为只读", true); return;
+  }
   const result = await withBusy("保存实例位置…", () => api.move(state.active!.document.id, instanceId, translation));
   if (!result) {
     await reloadActive();
@@ -607,7 +1070,7 @@ async function toggleReferenceMode(): Promise<void> {
 }
 
 async function history(direction: "undo" | "redo"): Promise<void> {
-  if (!state.active) return;
+  if (!state.active || !canEdit(state.active.document.permission)) return;
   const result = await withBusy(direction === "undo" ? "Undo…" : "Redo…", () =>
     direction === "undo" ? api.undo(state.active!.document.id) : api.redo(state.active!.document.id));
   if (!result) return;
@@ -630,9 +1093,22 @@ async function checkHealth(): Promise<void> {
 
 element("#new-part").addEventListener("click", () => showDocumentDialog("PART"));
 element("#new-product").addEventListener("click", () => showDocumentDialog("PRODUCT"));
+element("#new-folder").addEventListener("click", () => showFolderDialog());
 element("#create-version").addEventListener("click", showVersionDialog);
+element("#share-document").addEventListener("click", () => {
+  if (state.active) void showShareDialog("documents", state.active.document.id, state.active.document.name);
+});
+element("#confirm-share").addEventListener("click", (event) => { event.preventDefault(); void confirmShare(); });
+element<HTMLSelectElement>("#current-user").addEventListener("change", (event) =>
+  void switchIdentity((event.currentTarget as HTMLSelectElement).value));
 element("#confirm-version").addEventListener("click", (event) => { event.preventDefault(); void createVersion(); });
 element("#confirm-document").addEventListener("click", (event) => { event.preventDefault(); void createDocument(); });
+element("#confirm-edit-document").addEventListener("click", (event) => { event.preventDefault(); void confirmEditDocument(); });
+element("#confirm-delete-document").addEventListener("click", (event) => { event.preventDefault(); void confirmDeleteDocument(); });
+element("#confirm-folder").addEventListener("click", (event) => { event.preventDefault(); void confirmFolder(); });
+element("#confirm-move").addEventListener("click", (event) => { event.preventDefault(); void confirmMove(); });
+element("#confirm-copy").addEventListener("click", (event) => { event.preventDefault(); void confirmCopy(); });
+element("#home-button").addEventListener("click", () => showDocumentCenter());
 element("#start-sketch").addEventListener("click", startSketch);
 element("#exit-sketch").addEventListener("click", exitSketch);
 element("#rectangle-tool").addEventListener("click", () => toggleRectangleTool());
@@ -649,11 +1125,60 @@ element("#reference-mode").addEventListener("click", () => void toggleReferenceM
 element("#confirm-insert").addEventListener("click", (event) => { event.preventDefault(); void confirmInsert(); });
 element("#undo").addEventListener("click", () => void history("undo"));
 element("#redo").addEventListener("click", () => void history("redo"));
-element("#refresh-documents").addEventListener("click", () => {
-  if (state.active) void reloadActive(state.selection, Boolean(state.sketchPlane));
-  else void refreshDocuments();
-});
+element("#refresh-documents").addEventListener("click", () => void refreshDocuments());
 element("#fit-view").addEventListener("click", () => cad.fit());
+for (const button of document.querySelectorAll<HTMLButtonElement>("[data-scope]")) {
+  button.addEventListener("click", () => {
+    const scope = button.dataset.scope as typeof state.libraryScope;
+    state.libraryScope = scope;
+    state.documentOffset = 0;
+    if (scope === "trash" || scope === "recent" || scope === "shared") state.currentFolderId = undefined;
+    state.selectedDocumentId = undefined;
+    for (const item of document.querySelectorAll("[data-scope]")) item.classList.toggle("active", item === button);
+    const headings = {
+      active: ["全部文档", "管理 Part 与 Product，双击文档进入 CAD 工作台。"],
+      recent: ["最近打开", "快速返回最近进入过的设计文档。"],
+      shared: ["与我共享", "通过用户、团队或文件夹继承获得访问权限的设计。"],
+      parts: ["零件文档", "参数化 Part Studio 与导入的 STEP 零件。"],
+      products: ["产品文档", "由 Part 或子 Product 实例组成的装配文档。"],
+      trash: ["回收站", "文档仍保留历史和引用关系，恢复后可继续编辑。"],
+    } as const;
+    element("#library-heading").textContent = headings[scope][0];
+    element("#library-subtitle").textContent = headings[scope][1];
+    element("#document-type-filter").classList.toggle("hidden", scope === "parts" || scope === "products");
+    element("#new-part").classList.toggle("hidden", scope === "trash" || scope === "shared");
+    element("#new-product").classList.toggle("hidden", scope === "trash" || scope === "shared");
+    element("#new-folder").classList.toggle("hidden", scope === "trash" || scope === "recent" || scope === "shared");
+    element("#document-sort").classList.toggle("hidden", scope === "recent");
+    void refreshDocuments();
+  });
+}
+let searchTimer = 0;
+element<HTMLInputElement>("#document-search").addEventListener("input", () => {
+  window.clearTimeout(searchTimer);
+  state.documentOffset = 0;
+  searchTimer = window.setTimeout(() => void refreshDocuments(), 220);
+});
+element<HTMLSelectElement>("#document-type-filter").addEventListener("change", () => void refreshDocuments());
+element<HTMLSelectElement>("#document-sort").addEventListener("change", () => {
+  state.documentOffset = 0; void refreshDocuments();
+});
+element("#previous-page").addEventListener("click", () => {
+  state.documentOffset = Math.max(0, state.documentOffset - state.documentLimit); void refreshDocuments();
+});
+element("#next-page").addEventListener("click", () => {
+  if (state.documentOffset + state.documentLimit < state.documentTotal) {
+    state.documentOffset += state.documentLimit; void refreshDocuments();
+  }
+});
+for (const button of document.querySelectorAll<HTMLButtonElement>("[data-inspector]")) {
+  button.addEventListener("click", () => {
+    const page = button.dataset.inspector;
+    for (const item of document.querySelectorAll("[data-inspector]")) item.classList.toggle("active", item === button);
+    element("#properties-panel").classList.toggle("active", page === "properties");
+    element("#history-panel").classList.toggle("active", page === "history");
+  });
+}
 for (const button of document.querySelectorAll<HTMLButtonElement>("[data-view]")) {
   button.addEventListener("click", () =>
     cad.setStandardView(button.dataset.view as "TOP" | "FRONT" | "RIGHT" | "ISO"));
@@ -678,10 +1203,20 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
+window.addEventListener("popstate", () => {
+  const match = window.location.pathname.match(/^\/documents\/([^/]+)$/);
+  if (match) void openDocument(match[1], false);
+  else showDocumentCenter(false);
+});
+
 void (async () => {
+  await initializeIdentity();
   await checkHealth();
   await refreshDocuments();
-  const firstPart = state.documents.find((documentInfo) => documentInfo.type === "PART");
-  if (firstPart) await openDocument(firstPart.id);
-  else renderAll();
+  const match = window.location.pathname.match(/^\/documents\/([^/]+)$/);
+  if (match) await openDocument(match[1], false);
+  else {
+    showDocumentCenter(false);
+    renderAll();
+  }
 })();

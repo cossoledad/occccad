@@ -3,122 +3,146 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b1118" />
-    <title>occccad · CAD Workspace</title>
+    <meta name="theme-color" content="#f7f9fb" />
+    <title>occccad · Cloud CAD</title>
   </head>
   <body>
     <div id="app">
-      <header class="appbar">
-        <div class="brand"><span>occ</span>ccad</div>
-        <nav class="menus"><button>文件</button><button>编辑</button><button>视图</button></nav>
-        <div id="health" class="health waiting"><i></i>连接中</div>
+      <header class="shellbar">
+        <button id="home-button" class="brand" title="返回文档中心"><span class="brand-mark">O</span><span>occccad</span></button>
+        <div id="workspace-crumb" class="workspace-crumb hidden"><span>文档</span><b>›</b><strong id="crumb-name">—</strong></div>
+        <div class="shell-actions">
+          <span class="release-badge">v0.0.6</span>
+          <div id="health" class="health waiting"><i></i>连接中</div>
+          <label class="identity-switch" title="v0.0.6 本地开发身份"><span id="avatar" class="avatar">G</span><select id="current-user" aria-label="当前用户"></select></label>
+        </div>
       </header>
+      <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-      <section class="commandbar">
-        <div class="command-group">
-          <button id="new-part" class="command primary"><b>＋</b><span>新建 Part</span></button>
-          <button id="new-product" class="command"><b>▦</b><span>新建 Product</span></button>
-        </div>
-        <div class="command-group part-tools">
-          <button id="start-sketch" class="command" disabled><b>✎</b><span>草图</span></button>
-          <button id="exit-sketch" class="command hidden"><b>✓</b><span>退出草图</span></button>
-          <button id="rectangle-tool" class="command hidden" title="边角矩形 (R)"><b>▭</b><span>矩形</span></button>
-          <button id="pad-sketch" class="command" disabled><b>↥</b><span>拉伸</span></button>
-          <button id="import-step" class="command" disabled><b>⇥</b><span>导入 STEP</span></button>
-          <button id="export-step" class="command" disabled><b>⇤</b><span>导出 STEP</span></button>
-          <input id="step-file" type="file" accept=".step,.stp,model/step" hidden />
-        </div>
-        <div class="command-group product-tools">
-          <button id="insert-document" class="command" disabled><b>⊕</b><span>插入文档</span></button>
-          <button id="reference-mode" class="command" disabled><b>⛓</b><span>固定版本</span></button>
-        </div>
-        <div class="command-group history-tools">
-          <button id="create-version" class="command compact" disabled title="创建不可变版本"><b>●</b><span>版本</span></button>
-          <button id="undo" class="command compact" disabled title="Ctrl+Z"><b>↶</b><span>Undo</span></button>
-          <button id="redo" class="command compact" disabled title="Ctrl+Shift+Z"><b>↷</b><span>Redo</span></button>
-        </div>
-        <div class="command-group view-tools">
-          <button id="fit-view" class="command compact" title="适配视图 (F)"><b>⌗</b><span>适配</span></button>
-        </div>
-        <div id="mode-label" class="mode-label">选择模式</div>
-      </section>
-
-      <section id="tabs" class="tabs"><div class="tabs-empty">打开或新建文档开始建模</div></section>
-
-      <main class="workspace">
-        <aside class="panel left-panel">
-          <div class="panel-tabs"><button class="active">结构树</button><button>文档</button></div>
-          <section class="browser-section">
-            <div class="section-heading"><span>当前文档</span><button id="refresh-documents" title="刷新">↻</button></div>
-            <div id="tree" class="tree empty">没有打开的文档</div>
-          </section>
-          <section class="browser-section documents-section">
-            <div class="section-heading"><span>文档库</span></div>
-            <div id="documents" class="documents empty">正在加载…</div>
-          </section>
+      <main id="document-center" class="document-center">
+        <aside class="library-sidebar">
+          <div class="library-title">工作区</div>
+          <nav class="library-nav" aria-label="文档筛选">
+            <button class="active" data-scope="active"><span>▣</span>全部文档<em id="active-count">0</em></button>
+            <button data-scope="recent"><span>◷</span>最近打开<em id="recent-count">0</em></button>
+            <button data-scope="shared"><span>♧</span>与我共享<em>ACL</em></button>
+            <button data-scope="parts"><span>◇</span>零件<em id="part-count">0</em></button>
+            <button data-scope="products"><span>▦</span>产品<em id="product-count">0</em></button>
+            <button data-scope="trash"><span>♲</span>回收站<em id="trash-count">0</em></button>
+          </nav>
+          <div class="sidebar-note"><b>Main Workspace</b><span>每个文档维持一条连续变更线</span></div>
         </aside>
 
-        <section class="viewport-shell">
-          <div id="viewport"></div>
-          <div class="view-cube">
-            <button data-view="ISO" class="cube-corner" title="等轴测">◆</button>
-            <button data-view="TOP" class="cube-top">TOP</button>
-            <button data-view="FRONT" class="cube-front">FRONT</button>
-            <button data-view="RIGHT" class="cube-right">RIGHT</button>
+        <section class="library-content">
+          <header class="library-header">
+            <div><p class="eyebrow">DOCUMENTS</p><h1 id="library-heading">全部文档</h1><p id="library-subtitle">管理 Part 与 Product，双击文档进入 CAD 工作台。</p></div>
+            <div class="create-actions">
+              <button id="new-folder" class="button"><span>＋</span>新建文件夹</button>
+              <button id="new-part" class="button primary"><span>＋</span>新建 Part</button>
+              <button id="new-product" class="button"><span>▦</span>新建 Product</button>
+            </div>
+          </header>
+
+          <section class="overview-cards">
+            <article><span class="overview-icon part">◇</span><div><strong id="part-stat">0</strong><small>Part 文档</small></div></article>
+            <article><span class="overview-icon product">▦</span><div><strong id="product-stat">0</strong><small>Product 文档</small></div></article>
+            <article><span class="overview-icon recent">◷</span><div><strong id="recent-stat">0</strong><small>最近 7 天更新</small></div></article>
+          </section>
+
+          <section class="document-browser">
+            <div id="folder-breadcrumbs" class="folder-breadcrumbs"><button data-folder-id="">我的文档</button></div>
+            <div class="browser-toolbar">
+              <label class="search-box"><span>⌕</span><input id="document-search" type="search" placeholder="搜索名称或说明" autocomplete="off" /></label>
+              <select id="document-type-filter" aria-label="文档类型"><option value="">所有类型</option><option value="PART">Part</option><option value="PRODUCT">Product</option></select>
+              <select id="document-sort" aria-label="排序"><option value="updated">最近修改</option><option value="name">名称</option><option value="created">创建时间</option></select>
+              <button id="refresh-documents" class="icon-button" title="刷新文档">↻</button>
+            </div>
+            <div id="folders" class="folder-grid"></div>
+            <div class="document-table-header"><span>名称</span><span>类型</span><span>说明</span><span>最后修改</span><span></span></div>
+            <div id="documents" class="document-list"><div class="loading-state">正在读取文档…</div></div>
+            <footer class="pagination"><span id="pagination-info">0 个文档</span><div><button id="previous-page" disabled>上一页</button><button id="next-page" disabled>下一页</button></div></footer>
+          </section>
+        </section>
+      </main>
+
+      <section id="workbench" class="workbench hidden">
+        <section class="commandbar" aria-label="建模工具栏">
+          <div class="tool-section part-tools">
+            <span class="tool-section-title">创建</span>
+            <button id="start-sketch" class="command" disabled><b>✎</b><span>草图</span></button>
+            <button id="exit-sketch" class="command hidden"><b>✓</b><span>完成草图</span></button>
+            <button id="rectangle-tool" class="command hidden" title="边角矩形 (R)"><b>▭</b><span>矩形</span></button>
+            <button id="pad-sketch" class="command" disabled><b>↥</b><span>拉伸</span></button>
           </div>
-          <div id="hint" class="viewport-hint">选择一个基准面，然后点击“新建草图”</div>
-          <div class="statusbar">
-            <span id="status">就绪</span>
-            <span class="navigation-help">右键旋转 · 中键 / Ctrl+右键平移 · 滚轮缩放 · F 适配</span>
-            <span>单位：mm</span>
+          <div class="tool-section part-tools">
+            <span class="tool-section-title">交换</span>
+            <button id="import-step" class="command" disabled><b>⇥</b><span>导入 STEP</span></button>
+            <button id="export-step" class="command" disabled><b>⇤</b><span>导出 STEP</span></button>
+            <input id="step-file" type="file" accept=".step,.stp,model/step" hidden />
           </div>
+          <div class="tool-section product-tools">
+            <span class="tool-section-title">装配</span>
+            <button id="insert-document" class="command" disabled><b>⊕</b><span>插入</span></button>
+            <button id="reference-mode" class="command" disabled><b>⛓</b><span>固定版本</span></button>
+          </div>
+          <div class="tool-section history-tools">
+            <span class="tool-section-title">历史</span>
+            <button id="create-version" class="command compact" disabled><b>●</b><span>版本</span></button>
+            <button id="undo" class="command compact" disabled title="Ctrl+Z"><b>↶</b><span>撤销</span></button>
+            <button id="redo" class="command compact" disabled title="Ctrl+Shift+Z"><b>↷</b><span>重做</span></button>
+          </div>
+          <div class="tool-section collaboration-tools">
+            <span class="tool-section-title">协作</span>
+            <button id="share-document" class="command compact" disabled><b>♧</b><span>共享</span></button>
+          </div>
+          <div class="tool-section view-tools">
+            <span class="tool-section-title">视图</span>
+            <button id="fit-view" class="command compact" title="适配视图 (F)"><b>⌗</b><span>适配</span></button>
+          </div>
+          <div id="mode-label" class="mode-label">选择模式</div>
         </section>
 
-        <aside class="panel inspector">
-          <div class="panel-tabs"><button class="active">属性</button><button>历史</button></div>
-          <section id="properties" class="properties empty">选择对象查看属性</section>
-          <section class="history-summary">
-            <div class="section-heading"><span>Main · 版本与历史</span></div>
-            <dl id="history-info"><div><dt>Version</dt><dd>—</dd></div></dl>
-            <div id="history-list" class="history-list"></div>
+        <section id="tabs" class="tabs"><div class="tabs-empty">从文档中心打开文档</div></section>
+
+        <main class="workspace">
+          <aside class="panel left-panel">
+            <div class="panel-header"><strong>特征列表</strong><span id="tree-document-type">—</span></div>
+            <div id="tree" class="tree empty">没有打开的文档</div>
+          </aside>
+
+          <section class="viewport-shell">
+            <div id="viewport"></div>
+            <div class="view-cube">
+              <button data-view="ISO" class="cube-corner" title="等轴测">◆</button>
+              <button data-view="TOP" class="cube-top">TOP</button>
+              <button data-view="FRONT" class="cube-front">FRONT</button>
+              <button data-view="RIGHT" class="cube-right">RIGHT</button>
+            </div>
+            <div id="hint" class="viewport-hint">选择一个基准面，然后点击“草图”</div>
+            <div class="statusbar"><span id="status">就绪</span><span class="navigation-help">右键旋转 · 中键平移 · 滚轮缩放 · F 适配</span><span>mm</span></div>
           </section>
-        </aside>
-      </main>
+
+          <aside class="panel inspector">
+            <div class="inspector-tabs"><button class="active" data-inspector="properties">属性</button><button data-inspector="history">版本历史</button></div>
+            <section id="properties-panel" class="inspector-page active"><div id="properties" class="properties empty">选择对象查看属性</div></section>
+            <section id="history-panel" class="inspector-page">
+              <div class="history-summary"><div class="section-heading"><span>Main · 变更线</span></div><dl id="history-info"><div><dt>Version</dt><dd>—</dd></div></dl><div id="history-list" class="history-list"></div></div>
+            </section>
+          </aside>
+        </main>
+      </section>
     </div>
 
-    <dialog id="document-dialog">
-      <form method="dialog">
-        <header><h2>创建文档</h2><button value="cancel" aria-label="关闭">×</button></header>
-        <input id="document-type" type="hidden" />
-        <label>文档名称<input id="document-name" required maxlength="120" autocomplete="off" /></label>
-        <footer><button value="cancel">取消</button><button id="confirm-document" value="default" class="primary">创建</button></footer>
-      </form>
-    </dialog>
-
-    <dialog id="pad-dialog">
-      <form method="dialog">
-        <header><h2>拉伸草图</h2><button value="cancel" aria-label="关闭">×</button></header>
-        <label>拉伸长度（mm）<input id="pad-length" type="number" min="0.1" step="1" value="40" required /></label>
-        <footer><button value="cancel">取消</button><button id="confirm-pad" value="default" class="primary">确定</button></footer>
-      </form>
-    </dialog>
-
-    <dialog id="insert-dialog">
-      <form method="dialog">
-        <header><h2>插入 Part / Product</h2><button value="cancel" aria-label="关闭">×</button></header>
-        <label>引用文档<select id="insert-document-select" required></select></label>
-        <label>实例名称<input id="instance-name" maxlength="120" autocomplete="off" /></label>
-        <footer><button value="cancel">取消</button><button id="confirm-insert" value="default" class="primary">插入</button></footer>
-      </form>
-    </dialog>
-    <dialog id="version-dialog">
-      <form method="dialog">
-        <header><h2>创建版本</h2><button value="cancel" aria-label="关闭">×</button></header>
-        <label>版本名称<input id="version-name" required maxlength="120" autocomplete="off" placeholder="例如：V1 - Initial concept" /></label>
-        <label>说明<input id="version-description" maxlength="500" autocomplete="off" /></label>
-        <footer><button value="cancel">取消</button><button id="confirm-version" value="default" class="primary">创建</button></footer>
-      </form>
-    </dialog>
+    <dialog id="document-dialog"><form method="dialog"><header><div><small>NEW DOCUMENT</small><h2>创建文档</h2></div><button value="cancel" aria-label="关闭">×</button></header><input id="document-type" type="hidden" /><label>文档名称<input id="document-name" required maxlength="120" autocomplete="off" /></label><label>说明（可选）<textarea id="document-description" maxlength="500" rows="3"></textarea></label><footer><button value="cancel">取消</button><button id="confirm-document" value="default" class="primary">创建并打开</button></footer></form></dialog>
+    <dialog id="edit-document-dialog"><form method="dialog"><header><div><small>DOCUMENT DETAILS</small><h2>编辑文档</h2></div><button value="cancel">×</button></header><input id="edit-document-id" type="hidden" /><label>文档名称<input id="edit-document-name" required maxlength="120" /></label><label>说明<textarea id="edit-document-description" maxlength="500" rows="3"></textarea></label><footer><button value="cancel">取消</button><button id="confirm-edit-document" value="default" class="primary">保存</button></footer></form></dialog>
+    <dialog id="delete-document-dialog"><form method="dialog"><header><div><small>MOVE TO TRASH</small><h2>移入回收站</h2></div><button value="cancel">×</button></header><p class="dialog-message">文档会从文档中心隐藏，但历史、几何和 Product 引用仍会保留，可以随时恢复。</p><input id="delete-document-id" type="hidden" /><footer><button value="cancel">取消</button><button id="confirm-delete-document" value="default" class="danger">移入回收站</button></footer></form></dialog>
+    <dialog id="folder-dialog"><form method="dialog"><header><div><small>ORGANIZE</small><h2 id="folder-dialog-title">新建文件夹</h2></div><button value="cancel">×</button></header><input id="folder-id" type="hidden" /><label>文件夹名称<input id="folder-name" required maxlength="120" /></label><label>说明<textarea id="folder-description" maxlength="500" rows="3"></textarea></label><footer><button value="cancel">取消</button><button id="confirm-folder" value="default" class="primary">保存</button></footer></form></dialog>
+    <dialog id="move-dialog"><form method="dialog"><header><div><small>MOVE DOCUMENT</small><h2>移动文档</h2></div><button value="cancel">×</button></header><input id="move-document-id" type="hidden" /><label>目标位置<select id="move-folder-select"></select></label><footer><button value="cancel">取消</button><button id="confirm-move" value="default" class="primary">移动</button></footer></form></dialog>
+    <dialog id="copy-dialog"><form method="dialog"><header><div><small>COPY WORKSPACE</small><h2>复制文档</h2></div><button value="cancel">×</button></header><input id="copy-document-id" type="hidden" /><label>新文档名称<input id="copy-document-name" required maxlength="120" /></label><p class="dialog-message compact">复制当前 Main Workspace 快照；新文档从 Version #1 开始，并复用不可变几何制品。</p><footer><button value="cancel">取消</button><button id="confirm-copy" value="default" class="primary">复制并打开</button></footer></form></dialog>
+    <dialog id="share-dialog" class="share-dialog"><form method="dialog"><header><div><small>ACCESS CONTROL</small><h2>共享与权限</h2></div><button value="cancel">×</button></header><input id="share-resource-type" type="hidden" /><input id="share-resource-id" type="hidden" /><p id="share-resource-name" class="dialog-message compact"></p><div id="share-grants" class="share-grants"></div><div class="share-add"><label>共享对象<select id="share-subject"></select></label><label>权限<select id="share-role"><option value="VIEWER">可查看</option><option value="EDITOR">可编辑</option></select></label><button id="confirm-share" value="default" class="primary">添加</button></div><p class="share-note">文件夹权限自动继承到全部子文件夹和文档；资源所有者始终保留管理权限。</p><footer><button value="cancel">完成</button></footer></form></dialog>
+    <dialog id="pad-dialog"><form method="dialog"><header><h2>拉伸草图</h2><button value="cancel">×</button></header><label>拉伸长度（mm）<input id="pad-length" type="number" min="0.1" step="1" value="40" required /></label><footer><button value="cancel">取消</button><button id="confirm-pad" value="default" class="primary">确定</button></footer></form></dialog>
+    <dialog id="insert-dialog"><form method="dialog"><header><h2>插入 Part / Product</h2><button value="cancel">×</button></header><label>引用文档<select id="insert-document-select" required></select></label><label>实例名称<input id="instance-name" maxlength="120" /></label><footer><button value="cancel">取消</button><button id="confirm-insert" value="default" class="primary">插入</button></footer></form></dialog>
+    <dialog id="version-dialog"><form method="dialog"><header><h2>创建版本</h2><button value="cancel">×</button></header><label>版本名称<input id="version-name" required maxlength="120" placeholder="例如：V1 - Initial concept" /></label><label>说明<input id="version-description" maxlength="500" /></label><footer><button value="cancel">取消</button><button id="confirm-version" value="default" class="primary">创建</button></footer></form></dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

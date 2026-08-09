@@ -55,7 +55,7 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh) {
     while ((binary.size() % 4U) != 0U) binary.push_back(0U);
 
     std::ostringstream json_stream;
-    json_stream << "{\"asset\":{\"version\":\"2.0\",\"generator\":\"occccad Demo 01\"},"
+    json_stream << "{\"asset\":{\"version\":\"2.0\",\"generator\":\"occccad Geometry Worker\"},"
                 << "\"buffers\":[{\"byteLength\":" << binary.size() << "}],"
                 << "\"bufferViews\":["
                 << "{\"buffer\":0,\"byteOffset\":0,\"byteLength\":" << index_offset

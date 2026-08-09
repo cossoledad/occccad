@@ -15,7 +15,7 @@ service GeometryWorker {
     // Health check
     rpc Ping(PingRequest) returns (PingResponse);
 
-    // Evaluate the complete Demo 01 feature chain in one worker call.
+    // Evaluate one complete Part feature chain in a coarse-grained worker call.
     rpc EvaluatePart(EvaluatePartRequest) returns (EvaluatePartResponse);
 
     // Neutral CAD exchange. STEP is converted to/from the worker's internal B-Rep.
