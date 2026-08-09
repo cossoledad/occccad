@@ -24,6 +24,8 @@
     User/Team、ACL、Folder 继承、Share、Request Principal 和访问审计。
 11. [v0.0.7 账号管理、本地制品与持久任务](occccad_v0.0.7_Distributed_Artifact_Pipeline.md)：
     注册审批、管理后台、数据库会话、本地 ArtifactStore、Job Queue 和异步 STEP。
+12. [v0.0.8 服务控制与调试路由](occccad_v0.0.8_Service_Control_and_Debug_Routing.md)：
+    单命令启动、Geometry 自动扩缩容、进程管理和 VS Code 调试切流。
 
 ## 文档状态
 
@@ -40,6 +42,7 @@
 | v0.0.5 文档组织与复用 | 当前事实 + 迭代边界 | 当前 Folder、Recent、Copy 和分页架构 |
 | v0.0.6 协作与访问控制 | 当前事实 + 安全边界 | 当前 User/Team、ACL、Share 和审计架构 |
 | v0.0.7 账号、制品与任务 | 已实现基线 | 管理后台、可信会话、本地 Artifact、Job Worker、异步 STEP 和 Thumbnail |
+| v0.0.8 服务控制与调试 | 已实现基线 | Control Plane、Geometry Router、自动扩缩容和调试 Override |
 
 ## 当前实现快照
 

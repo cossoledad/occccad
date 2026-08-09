@@ -1,10 +1,13 @@
 package config
 
 import (
+	"bufio"
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -19,6 +22,59 @@ type Config struct {
 	AdminPassword string
 	SessionTTL    time.Duration
 	SecureCookies bool
+}
+
+// LoadProjectEnv loads simple KEY=VALUE entries without overriding exported values.
+// It searches the current directory and its parents so the control binary can be
+// launched either from the repository root or from services/.
+func LoadProjectEnv() (string, error) {
+	if explicit := strings.TrimSpace(os.Getenv("OCCCCAD_ENV_FILE")); explicit != "" {
+		return explicit, loadEnvFile(explicit)
+	}
+	directory, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		candidate := filepath.Join(directory, ".env")
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, loadEnvFile(candidate)
+		}
+		parent := filepath.Dir(directory)
+		if parent == directory {
+			return "", nil
+		}
+		directory = parent
+	}
+}
+
+func loadEnvFile(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(line, "export "))
+		key, value, found := strings.Cut(line, "=")
+		if !found {
+			continue
+		}
+		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+		if len(value) >= 2 && ((value[0] == '\'' && value[len(value)-1] == '\'') ||
+			(value[0] == '"' && value[len(value)-1] == '"')) {
+			value = value[1 : len(value)-1]
+		}
+		if _, exists := os.LookupEnv(key); !exists {
+			_ = os.Setenv(key, value)
+		}
+	}
+	return scanner.Err()
 }
 
 func Load() Config {

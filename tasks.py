@@ -11,6 +11,7 @@ Provides:
     invoke run.worker     — Start the Geometry Worker gRPC server
     invoke run.server     — Start the Go API and Web server
     invoke run.jobs       — Start the durable background job worker
+    invoke run.app        — Build and start the complete local application
     invoke web.build      — Build the current web application
     invoke info           — Print toolchain versions and paths
 
@@ -345,6 +346,31 @@ def run_jobs(c):
         c.run("go run ./cmd/occccad-jobs", pty=True)
 
 
+@task(help={"build_type": "Debug or Release"})
+def run_app(c, build_type=None):
+    """Build and start the control plane, router, API, jobs, and geometry workers."""
+    bt = build_type or _get_build_type()
+    worker_bin = _get_build_dir(bt) / "workers" / "geometry" / "occccad_geometry_worker"
+    if not worker_bin.exists():
+        c.run(
+            f"cmake --build {_get_build_dir(bt)} --target occccad_geometry_worker --parallel",
+            pty=True,
+        )
+    with c.cd(str(PROJECT_ROOT / "web")):
+        c.run("pnpm build", pty=True)
+    service_build = PROJECT_ROOT / "build" / "services"
+    service_build.mkdir(parents=True, exist_ok=True)
+    with c.cd(str(PROJECT_ROOT / "services")):
+        c.run(f"go build -o {service_build / 'occccad-server'} ./cmd/occccad-server")
+        c.run(f"go build -o {service_build / 'occccad-jobs'} ./cmd/occccad-jobs")
+        c.run(f"go build -o {service_build / 'occccad-control'} ./cmd/occccad-control")
+    c.run(
+        str(service_build / "occccad-control"),
+        env={"OCCCCAD_BUILD_TYPE": bt},
+        pty=True,
+    )
+
+
 @task
 def build_web(c):
     """Type-check and build the current web application."""
@@ -381,6 +407,7 @@ run_collection.add_task(run_geometry, "geometry")
 run_collection.add_task(run_worker, "worker")
 run_collection.add_task(run_server, "server")
 run_collection.add_task(run_jobs, "jobs")
+run_collection.add_task(run_app, "app")
 
 web_collection = Collection("web")
 web_collection.add_task(build_web, "build")

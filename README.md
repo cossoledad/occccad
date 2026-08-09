@@ -10,7 +10,7 @@
 
 ## 当前状态
 
-仓库目前处于 **v0.0.7 / 账号管理与持久任务阶段**。已经能够完成：
+仓库目前处于 **v0.0.8 / 服务控制与调试路由阶段**。已经能够完成：
 
 - 通过 Conan 2 获取 OCCT 7.9.1、gRPC/Protobuf 和 GoogleTest；
 - 显示并选择 XY/XZ/YZ 三个基准面，在任意基准面进入草图模式；
@@ -38,9 +38,11 @@
 - STEP 导入/导出通过 PostgreSQL 持久任务和独立 `occccad-jobs` Worker 异步执行；
 - 大文件制品按 SHA-256 原子写入服务启动目录的 `data/`，并通过存储接口预留未来 S3 后端。
 - 新几何双写 B-Rep/GLB 本地制品，Part 缩略图由后台任务生成并显示在文档中心。
+- 使用单个 `occccad-control` 启动 API、Jobs、Geometry Router 和最小 Worker 集合；
+- Geometry Worker 按 Resident Geometry 容量自动扩缩容，并支持 API/Jobs/C++ Worker 调试切流。
 
-当前矩形草图尚不包含尺寸/几何约束求解，装配也暂不包含旋转、配合约束、Redis、对象
-S3、Redis、完整任务中心、多 Worker 路由或 XCAF Assembly STEP；这些属于后续目标。当前进度详见
+当前矩形草图尚不包含尺寸/几何约束求解，装配也暂不包含旋转、配合约束、S3、Redis、完整任务
+中心、跨主机调度或 XCAF Assembly STEP；这些属于后续目标。当前进度详见
 [文档索引](docs/README.md)。
 
 ## 已验证的开发环境
@@ -103,14 +105,14 @@ invoke test --build-type=Release
 
 完整应用还需要一个 PostgreSQL 数据库。复制 `.env.example` 为 `.env` 并设置连接信息后，
 Invoke 会自动加载该文件。`OCCCCAD_ADMIN_PASSWORD` 在首次启动时必须设置。按照
-[v0.0.7 设计与运行说明](docs/occccad_v0.0.7_Distributed_Artifact_Pipeline.md) 启动：
+[v0.0.8 设计与运行说明](docs/occccad_v0.0.8_Service_Control_and_Debug_Routing.md) 使用一个入口启动：
 
 ```bash
-invoke web.build
-invoke run.worker --build-type=Debug
-invoke run.jobs
-invoke run.server
+invoke run.app --build-type=Debug
 ```
+
+`.env` 中的密码用于管理员账号首次初始化，开发阶段登录后不强制修改密码。账号已初始化后，
+修改 `.env` 不会覆盖数据库中的密码。
 
 然后从 Windows 访问 `http://localhost:8080`。Server 默认绑定
 `0.0.0.0:8080`；若 WSL 没有转发 localhost，可改用 `hostname -I` 显示的 WSL 地址。
@@ -125,6 +127,7 @@ invoke build --build-type=Debug          编译全部 C++ 目标
 invoke build --target=<target>           编译指定目标
 invoke test --filter=<regex>             运行匹配的 CTest
 invoke run.geometry                      运行 Geometry Worker 冒烟程序
+invoke run.app                           启动完整应用、路由器和自动扩缩 Worker
 invoke run.worker                        启动 Geometry Worker gRPC Server
 invoke run.jobs                          启动 PostgreSQL 持久任务 Worker
 invoke run.server                        启动 Go API 和静态 Web Server
@@ -187,6 +190,7 @@ PostgreSQL / ArtifactStore
 - [v0.0.5 文档组织与设计复用](docs/occccad_v0.0.5_Document_Organization.md)
 - [v0.0.6 协作与访问控制基础](docs/occccad_v0.0.6_Collaboration_and_Access_Control.md)
 - [v0.0.7 账号管理、本地制品与持久任务](docs/occccad_v0.0.7_Distributed_Artifact_Pipeline.md)
+- [v0.0.8 服务控制、自动扩缩容与调试路由](docs/occccad_v0.0.8_Service_Control_and_Debug_Routing.md)
 
 ## License
 

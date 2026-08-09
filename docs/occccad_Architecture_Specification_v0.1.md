@@ -15,11 +15,15 @@
 
 项目名称统一为 **occccad**：`occ` 表示 OCCT 几何内核，`c` 取自 `could`，`cad` 表示项目所服务的 CAD 领域。历史临时名称不再使用。
 
-本文描述的是**目标架构和决策基线**，不是当前实现清单。仓库已在 Demo01–03 贯通 C++17/OCCT 7.9.1 Geometry Worker、gRPC、Go API、PostgreSQL、参数化 Feature Chain、Undo/Redo、STEP 和 Product 引用；v0.0.4–0.0.7 增加文档中心、Folder、Copy、User/Team ACL、管理账号、数据库会话、本地 ArtifactStore 与持久任务 Worker。当前事实以 [文档索引](README.md)、[v0.0.7 说明](occccad_v0.0.7_Distributed_Artifact_Pipeline.md)和[开发环境规范](occccad_Development_Environment_and_CPP_Toolchain_v0.1.md)为准。
+本文描述的是**目标架构和决策基线**，不是当前实现清单。仓库已在 Demo01–03 贯通 C++17/OCCT 7.9.1 Geometry Worker、gRPC、Go API、PostgreSQL、参数化 Feature Chain、Undo/Redo、STEP 和 Product 引用；v0.0.4–0.0.8 增加文档中心、ACL、管理账号、数据库会话、本地 ArtifactStore、持久任务、Geometry Router、单机服务控制和容量扩缩容。当前事实以 [文档索引](README.md)、[v0.0.8 说明](occccad_v0.0.8_Service_Control_and_Debug_Routing.md)和[开发环境规范](occccad_Development_Environment_and_CPP_Toolchain_v0.1.md)为准。
 
 账号、本地对象存储抽象和持久 Job 的已实现边界见
 [v0.0.7 账号管理、本地制品与持久任务](occccad_v0.0.7_Distributed_Artifact_Pipeline.md)。S3、Redis
 和 OIDC 保留为未来适配器，不是当前运行依赖。
+
+稳定服务入口、Geometry 容量路由、统一启动和调试 Override 的当前实现见
+[v0.0.8 服务控制与调试路由](occccad_v0.0.8_Service_Control_and_Debug_Routing.md)。本地 Control Plane
+与未来集群编排器共享相同控制语义，但当前不承担跨主机调度。
 
 occccad 的目标不是“把传统桌面 CAD 搬到浏览器”，也不是“给 OCCT 外面套一层 HTTP API”，而是构建一套真正面向云环境设计的 CAD 基础设施。
 

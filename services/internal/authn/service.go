@@ -115,7 +115,6 @@ func (service *Service) BootstrapAdmin(ctx context.Context, email, displayName, 
 		return err
 	}
 	passwordHash := currentHash
-	initializedPassword := false
 	if passwordHash == nil || *passwordHash == "" {
 		encoded, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
@@ -123,13 +122,12 @@ func (service *Service) BootstrapAdmin(ctx context.Context, email, displayName, 
 		}
 		value := string(encoded)
 		passwordHash = &value
-		initializedPassword = true
 	}
 	_, err = service.database.Exec(ctx, `UPDATE occccad.users SET
 		email=$1,display_name=$2,password_hash=$3,status='ACTIVE',platform_role='ADMIN',
 		approved_at=COALESCE(approved_at,now()),
-		must_change_password=CASE WHEN $5 THEN true ELSE must_change_password END,updated_at=now()
-		WHERE id=$4`, email, displayName, passwordHash, access.DefaultUserID, initializedPassword)
+		must_change_password=false,updated_at=now()
+		WHERE id=$4`, email, displayName, passwordHash, access.DefaultUserID)
 	return err
 }
 
@@ -330,7 +328,7 @@ func (service *Service) CreateUser(ctx context.Context, actorID string, request 
 	var result User
 	err = service.database.QueryRow(ctx, `INSERT INTO occccad.users(email,display_name,status,platform_role,
 		password_hash,must_change_password,approved_at,approved_by_user_id)
-		VALUES($1,$2,$3,$4,$5,true,CASE WHEN $3='ACTIVE' THEN now() END,$6)
+		VALUES($1,$2,$3,$4,$5,false,CASE WHEN $3='ACTIVE' THEN now() END,$6)
 		RETURNING id::text,email,display_name,status,platform_role,must_change_password,created_at::text,NULL`,
 		email, name, status, role, string(hash), actorID).Scan(&result.ID, &result.Email,
 		&result.DisplayName, &result.Status, &result.PlatformRole, &result.MustChangePassword,
@@ -414,7 +412,7 @@ func (service *Service) ResetPassword(ctx context.Context, actorID, targetID, pa
 		return err
 	}
 	command, err := service.database.Exec(ctx, `UPDATE occccad.users SET password_hash=$1,
-		must_change_password=true,failed_login_count=0,locked_until=NULL,updated_at=now() WHERE id=$2`,
+		must_change_password=false,failed_login_count=0,locked_until=NULL,updated_at=now() WHERE id=$2`,
 		string(hash), targetID)
 	if err != nil {
 		return err

@@ -1,0 +1,41 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "control: debug API on",
+      "type": "shell",
+      "command": "curl -fsS -X POST -H 'Content-Type: application/json' -d '{\"target\":\"127.0.0.1:18081\"}' http://127.0.0.1:19090/control/debug/api",
+      "problemMatcher": []
+    },
+    {
+      "label": "control: debug API off",
+      "type": "shell",
+      "command": "curl -fsS -X DELETE http://127.0.0.1:19090/control/debug/api",
+      "problemMatcher": []
+    },
+    {
+      "label": "control: debug Geometry on",
+      "type": "shell",
+      "command": "curl -fsS -X POST -H 'Content-Type: application/json' -d '{\"target\":\"127.0.0.1:51999\"}' http://127.0.0.1:19090/control/debug/geometry",
+      "problemMatcher": []
+    },
+    {
+      "label": "control: debug Geometry off",
+      "type": "shell",
+      "command": "curl -fsS -X DELETE http://127.0.0.1:19090/control/debug/geometry",
+      "problemMatcher": []
+    },
+    {
+      "label": "control: debug Jobs on",
+      "type": "shell",
+      "command": "curl -fsS -X POST http://127.0.0.1:19090/control/debug/jobs",
+      "problemMatcher": []
+    },
+    {
+      "label": "control: debug Jobs off",
+      "type": "shell",
+      "command": "curl -fsS -X DELETE http://127.0.0.1:19090/control/debug/jobs",
+      "problemMatcher": []
+    }
+  ]
+}

@@ -92,15 +92,13 @@ async function withBusy<T>(label: string, operation: () => Promise<T>): Promise<
 }
 
 async function initializeIdentity(): Promise<void> {
-  const [session, users, teams] = await Promise.all([api.session(), api.listUsers(), api.listTeams()]);
+  const session = await api.session();
   state.currentUser = session.user;
-  state.users = users;
-  state.teams = teams;
   element("#avatar").textContent = session.user.displayName.slice(0, 1).toUpperCase();
   element("#current-user-name").textContent = session.user.displayName;
   element("#current-user-role").textContent = session.user.platformRole === "ADMIN" ? "管理员" : "成员";
   element("#admin-button").classList.toggle("hidden", session.user.platformRole !== "ADMIN");
-  if (session.user.mustChangePassword) element<HTMLDialogElement>("#password-dialog").showModal();
+  [state.users, state.teams] = await Promise.all([api.listUsers(), api.listTeams()]);
 }
 
 function showAuthentication(): void {
@@ -151,6 +149,7 @@ async function changePassword(event: Event): Promise<void> {
   element<HTMLDialogElement>("#password-dialog").close();
   if (state.currentUser) state.currentUser.mustChangePassword = false;
   setStatus("密码已更新");
+  await startApplication();
 }
 
 async function showAdmin(): Promise<void> {

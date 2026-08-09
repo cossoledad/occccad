@@ -703,11 +703,6 @@ func (server *Server) middleware(next http.Handler) http.Handler {
 					return
 				}
 			}
-			if resolved.MustChangePassword && request.URL.Path != "/api/auth/change-password" &&
-				request.URL.Path != "/api/auth/logout" && request.URL.Path != "/api/session" {
-				writeError(writer, http.StatusForbidden, "password change required")
-				return
-			}
 		}
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
 		recorder := &statusRecorder{ResponseWriter: writer, status: http.StatusOK}
