@@ -105,6 +105,7 @@ type RectangularPadSpec struct {
 	Height        float64                `protobuf:"fixed64,4,opt,name=height,proto3" json:"height,omitempty"`
 	PadLength     float64                `protobuf:"fixed64,5,opt,name=pad_length,json=padLength,proto3" json:"pad_length,omitempty"`
 	Units         string                 `protobuf:"bytes,6,opt,name=units,proto3" json:"units,omitempty"`
+	Plane         string                 `protobuf:"bytes,7,opt,name=plane,proto3" json:"plane,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -177,6 +178,13 @@ func (x *RectangularPadSpec) GetPadLength() float64 {
 func (x *RectangularPadSpec) GetUnits() string {
 	if x != nil {
 		return x.Units
+	}
+	return ""
+}
+
+func (x *RectangularPadSpec) GetPlane() string {
+	if x != nil {
+		return x.Plane
 	}
 	return ""
 }
@@ -1504,7 +1512,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\fgeometry_key\x18\x02 \x01(\tR\vgeometryKey\x12N\n" +
 	"\x0frectangular_pad\x18\x03 \x01(\v2%.occccad.worker.v1.RectangularPadSpecR\x0erectangularPad\x12+\n" +
 	"\x11linear_deflection\x18\x04 \x01(\x01R\x10linearDeflection\x12-\n" +
-	"\x12angular_deflection\x18\x05 \x01(\x01R\x11angularDeflection\"\xad\x01\n" +
+	"\x12angular_deflection\x18\x05 \x01(\x01R\x11angularDeflection\"\xc3\x01\n" +
 	"\x12RectangularPadSpec\x12\x19\n" +
 	"\borigin_x\x18\x01 \x01(\x01R\aoriginX\x12\x19\n" +
 	"\borigin_y\x18\x02 \x01(\x01R\aoriginY\x12\x14\n" +
@@ -1512,7 +1520,8 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x06height\x18\x04 \x01(\x01R\x06height\x12\x1d\n" +
 	"\n" +
 	"pad_length\x18\x05 \x01(\x01R\tpadLength\x12\x14\n" +
-	"\x05units\x18\x06 \x01(\tR\x05units\"\x8b\x03\n" +
+	"\x05units\x18\x06 \x01(\tR\x05units\x12\x14\n" +
+	"\x05plane\x18\a \x01(\tR\x05plane\"\x8b\x03\n" +
 	"\x14EvaluatePartResponse\x12\x1f\n" +
 	"\vgeometry_id\x18\x01 \x01(\tR\n" +
 	"geometryId\x12!\n" +

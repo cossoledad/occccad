@@ -50,6 +50,7 @@ message RectangularPadSpec {
     double height = 4;
     double pad_length = 5;
     string units = 6;
+    string plane = 7;
 }
 
 message EvaluatePartResponse {

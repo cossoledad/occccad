@@ -3,57 +3,98 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#111827" />
-    <title>occccad · Demo 01</title>
+    <meta name="theme-color" content="#0b1118" />
+    <title>occccad · CAD Workspace</title>
   </head>
   <body>
     <div id="app">
-      <header class="topbar">
-        <div class="brand"><span class="brand-mark">occ</span><span>ccad</span></div>
-        <div class="demo-label">Vertical Slice · Demo 01</div>
-        <div id="health" class="health waiting"><span></span>正在检查服务</div>
+      <header class="appbar">
+        <div class="brand"><span>occ</span>ccad</div>
+        <nav class="menus"><button>文件</button><button>编辑</button><button>视图</button></nav>
+        <div id="health" class="health waiting"><i></i>连接中</div>
       </header>
+
+      <section class="commandbar">
+        <div class="command-group">
+          <button id="new-part" class="command primary"><b>＋</b><span>新建 Part</span></button>
+          <button id="new-product" class="command"><b>▦</b><span>新建 Product</span></button>
+        </div>
+        <div class="command-group part-tools">
+          <button id="start-sketch" class="command" disabled><b>✎</b><span>新建草图</span></button>
+          <button id="exit-sketch" class="command hidden"><b>✓</b><span>退出草图</span></button>
+          <button id="pad-sketch" class="command" disabled><b>↥</b><span>拉伸</span></button>
+        </div>
+        <div class="command-group product-tools">
+          <button id="insert-document" class="command" disabled><b>⊕</b><span>插入文档</span></button>
+        </div>
+        <div class="command-group history-tools">
+          <button id="undo" class="command compact" disabled title="Ctrl+Z"><b>↶</b><span>Undo</span></button>
+          <button id="redo" class="command compact" disabled title="Ctrl+Shift+Z"><b>↷</b><span>Redo</span></button>
+        </div>
+        <div id="mode-label" class="mode-label">选择模式</div>
+      </section>
+
+      <section id="tabs" class="tabs"><div class="tabs-empty">打开或新建文档开始建模</div></section>
+
       <main class="workspace">
-        <aside class="sidebar">
-          <section>
-            <div class="section-title">Document Tree</div>
-            <div id="tree" class="tree empty">运行 Demo 后显示装配结构</div>
+        <aside class="panel left-panel">
+          <div class="panel-tabs"><button class="active">结构树</button><button>文档</button></div>
+          <section class="browser-section">
+            <div class="section-heading"><span>当前文档</span><button id="refresh-documents" title="刷新">↻</button></div>
+            <div id="tree" class="tree empty">没有打开的文档</div>
           </section>
-          <section class="specification">
-            <div class="section-title">Part Parameters</div>
-            <dl>
-              <div><dt>Sketch</dt><dd>Rectangle</dd></div>
-              <div><dt>Width</dt><dd>100 mm</dd></div>
-              <div><dt>Height</dt><dd>60 mm</dd></div>
-              <div><dt>Pad</dt><dd>40 mm</dd></div>
-            </dl>
+          <section class="browser-section documents-section">
+            <div class="section-heading"><span>文档库</span></div>
+            <div id="documents" class="documents empty">正在加载…</div>
           </section>
         </aside>
-        <section class="viewport-panel">
+
+        <section class="viewport-shell">
           <div id="viewport"></div>
-          <div class="viewport-toolbar">
-            <button id="run-demo" type="button">构建 Demo 01</button>
-            <span id="status">等待执行</span>
+          <div class="view-cube"><span>TOP</span><b>FRONT</b><i>RIGHT</i></div>
+          <div id="hint" class="viewport-hint">选择一个基准面，然后点击“新建草图”</div>
+          <div class="statusbar">
+            <span id="status">就绪</span>
+            <span>单位：mm</span>
           </div>
-          <div class="axis-label">Z ↑ &nbsp; · &nbsp; units: mm</div>
         </section>
-        <aside class="inspector">
-          <section>
-            <div class="section-title">Geometry</div>
-            <div id="geometry-info" class="placeholder">尚未求值</div>
-          </section>
-          <section>
-            <div class="section-title">Architecture Proof</div>
-            <div id="metrics" class="metric-grid">
-              <div><strong>—</strong><span>Visible instances</span></div>
-              <div><strong>—</strong><span>Unique geometry</span></div>
-              <div><strong>—</strong><span>Documents</span></div>
-              <div><strong>—</strong><span>Commands</span></div>
-            </div>
+
+        <aside class="panel inspector">
+          <div class="panel-tabs"><button class="active">属性</button><button>历史</button></div>
+          <section id="properties" class="properties empty">选择对象查看属性</section>
+          <section class="history-summary">
+            <div class="section-heading"><span>版本状态</span></div>
+            <dl id="history-info"><div><dt>Version</dt><dd>—</dd></div></dl>
           </section>
         </aside>
       </main>
     </div>
+
+    <dialog id="document-dialog">
+      <form method="dialog">
+        <header><h2>创建文档</h2><button value="cancel" aria-label="关闭">×</button></header>
+        <input id="document-type" type="hidden" />
+        <label>文档名称<input id="document-name" required maxlength="120" autocomplete="off" /></label>
+        <footer><button value="cancel">取消</button><button id="confirm-document" value="default" class="primary">创建</button></footer>
+      </form>
+    </dialog>
+
+    <dialog id="pad-dialog">
+      <form method="dialog">
+        <header><h2>拉伸草图</h2><button value="cancel" aria-label="关闭">×</button></header>
+        <label>拉伸长度（mm）<input id="pad-length" type="number" min="0.1" step="1" value="40" required /></label>
+        <footer><button value="cancel">取消</button><button id="confirm-pad" value="default" class="primary">确定</button></footer>
+      </form>
+    </dialog>
+
+    <dialog id="insert-dialog">
+      <form method="dialog">
+        <header><h2>插入 Part / Product</h2><button value="cancel" aria-label="关闭">×</button></header>
+        <label>引用文档<select id="insert-document-select" required></select></label>
+        <label>实例名称<input id="instance-name" maxlength="120" autocomplete="off" /></label>
+        <footer><button value="cancel">取消</button><button id="confirm-insert" value="default" class="primary">插入</button></footer>
+      </form>
+    </dialog>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

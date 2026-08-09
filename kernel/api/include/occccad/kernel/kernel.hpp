@@ -58,6 +58,7 @@ struct RectangularPadSpec {
     double width = 0.0;
     double height = 0.0;
     double pad_length = 0.0;
+    std::string plane{"XY"};
 };
 
 // ---------------------------------------------------------------------------

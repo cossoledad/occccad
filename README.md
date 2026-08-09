@@ -10,17 +10,20 @@
 
 ## 当前状态
 
-仓库目前处于 **v0.1 / Demo 01 垂直切片阶段**。已经能够完成：
+仓库目前处于 **v0.2 / Demo 02 最小 CAD 工作台阶段**。已经能够完成：
 
 - 通过 Conan 2 获取 OCCT 7.9.1、gRPC/Protobuf 和 GoogleTest；
-- 用真实的 Rectangle Sketch → Face → Pad 创建 100×60×40 mm Part；
+- 显示并选择 XY/XZ/YZ 三个基准面，在任意基准面进入草图模式；
+- 在视图区拖动绘制矩形草图，从结构树或视图区选择并高亮草图；
+- 对选择的草图设置长度并执行真实的 Rectangle Sketch → Face → Pad；
 - 生成稳定的 SHA-256 GeometryId、B-Rep、GLB、网格、包围盒和拓扑摘要；
 - 通过粗粒度 gRPC 在 Go API 与 C++ Geometry Worker 之间求值；
 - 在 PostgreSQL 中保存 Document、Version、Command、Product Instance 和几何制品；
-- 在 Three.js 页面展示两层 Product 引用图中的 4 个实例，并复用 1 份几何。
+- 使用多标签 CAD 工作台创建 Part/Product，插入 Part 或嵌套 Product；
+- 使用三轴手柄移动实例，并对草图、拉伸、插入、移动执行持久化 Undo/Redo。
 
-Demo 01 不包含通用草图编辑器、约束求解、Undo/Redo、Redis、对象存储或分布式调度；
-这些仍属于后续目标。当前进度详见[文档索引](docs/README.md)。
+当前矩形草图尚不包含尺寸/几何约束求解，装配也暂不包含旋转、配合约束、Redis、对象
+存储或分布式调度；这些属于后续目标。当前进度详见[文档索引](docs/README.md)。
 
 ## 已验证的开发环境
 
@@ -90,7 +93,7 @@ invoke run.worker --build-type=Debug
 invoke run.server
 ```
 
-然后从 Windows 访问 `http://localhost:8080`，点击“构建 Demo 01”。Server 默认绑定
+然后从 Windows 访问 `http://localhost:8080`。Server 默认绑定
 `0.0.0.0:8080`；若 WSL 没有转发 localhost，可改用 `hostname -I` 显示的 WSL 地址。
 
 ## 常用命令
@@ -148,7 +151,7 @@ C++ Geometry Workers (OCCT)
 PostgreSQL / Redis / S3-compatible storage
 ```
 
-Demo 01 使用 PostgreSQL；为保持垂直切片紧凑，B-Rep 和 GLB 暂存于 PostgreSQL `bytea`。
+Demo 02 使用 PostgreSQL；为保持垂直切片紧凑，B-Rep 和 GLB 暂存于 PostgreSQL `bytea`。
 Redis、MinIO/S3 与多 Worker 调度尚未进入本 Demo。
 
 ## 文档
@@ -158,6 +161,7 @@ Redis、MinIO/S3 与多 Worker 调度尚未进入本 Demo。
 - [开发环境与 C++ 工具链](docs/occccad_Development_Environment_and_CPP_Toolchain_v0.1.md)
 - [首个垂直切片 Demo](docs/occccad_demo_v0.1.md)
 - [Demo 01 运行手册](docs/occccad_Demo01_Runbook.md)
+- [Demo 02 最小 CAD 工作台设计与实现](docs/occccad_Demo02_Minimal_CAD_Workbench.md)
 
 ## License
 

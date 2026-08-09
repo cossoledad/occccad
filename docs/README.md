@@ -12,7 +12,8 @@
    当前真实构建基线、依赖和排障；
 3. [架构规格](occccad_Architecture_Specification_v0.1.md)：长期系统边界与关键原则；
 4. [首个垂直切片 Demo](occccad_demo_v0.1.md)：已交付的首个端到端闭环；
-5. [Demo 01 运行手册](occccad_Demo01_Runbook.md)：配置、启动和验收命令。
+5. [Demo 01 运行手册](occccad_Demo01_Runbook.md)：配置、启动和验收命令；
+6. [Demo 02 最小 CAD 工作台](occccad_Demo02_Minimal_CAD_Workbench.md)：交互建模与命令历史。
 
 ## 文档状态
 
@@ -23,6 +24,7 @@
 | 架构规格 | 目标架构 | 描述方向，不表示所有模块已实现 |
 | Demo v0.1 | 已实现基线 + 后续设计 | Demo 01 核心验收项已实现，扩展项仍按正文边界理解 |
 | Demo 01 运行手册 | 当前事实 | 本地启动、接口与验收结果 |
+| Demo 02 最小 CAD 工作台 | 当前事实 + 设计边界 | Part/Product 编辑、Undo/Redo 与验收结果 |
 
 ## 当前实现快照
 
@@ -34,15 +36,17 @@
         |
   coarse-grained gRPC Geometry Worker
         |
-  Rectangle Sketch -> Pad / SHA-256 / B-Rep / GLB
+  XY/XZ/YZ Datum -> interactive Rectangle Sketch -> Pad
         |
   Go API -> PostgreSQL documents, versions, commands, artifacts
         |
-  TypeScript + Three.js product tree and 4 reused instances
+  versioned Go commands -> persistent Undo / Redo
+        |
+  multi-tab TypeScript CAD workbench -> Product hierarchy / transform gizmo
 
 尚未实现
-  general sketch editing and constraint solving
-  undo / redo command navigation
+  sketch constraint solving and dimensions
+  assembly rotation and mating constraints
   Redis / S3 integration
   distributed scheduling and recovery
 ```

@@ -125,7 +125,7 @@ func (service *Service) ensureArtifact(ctx context.Context) (Artifact, error) {
 	}
 
 	evaluation, err := service.worker.EvaluateRectangularPad(
-		ctx, "demo01-evaluate-box", key, 100, 60, 40)
+		ctx, "demo01-evaluate-box", key, 0, 0, 100, 60, 40, "XY")
 	if err != nil {
 		return artifact, err
 	}

@@ -195,16 +195,38 @@ GeometryId OcctKernel::createRectangularPad(const RectangularPadSpec& spec) {
         throw std::invalid_argument("origin must be finite");
     }
 
-    const double x0 = spec.origin_x;
-    const double y0 = spec.origin_y;
-    const double x1 = x0 + spec.width;
-    const double y1 = y0 + spec.height;
+    gp_Pnt origin;
+    gp_Vec width_axis;
+    gp_Vec height_axis;
+    gp_Vec pad_axis;
+    if (spec.plane == "XY") {
+        origin = gp_Pnt(spec.origin_x, spec.origin_y, 0.0);
+        width_axis = gp_Vec(spec.width, 0.0, 0.0);
+        height_axis = gp_Vec(0.0, spec.height, 0.0);
+        pad_axis = gp_Vec(0.0, 0.0, spec.pad_length);
+    } else if (spec.plane == "XZ") {
+        origin = gp_Pnt(spec.origin_x, 0.0, spec.origin_y);
+        width_axis = gp_Vec(spec.width, 0.0, 0.0);
+        height_axis = gp_Vec(0.0, 0.0, spec.height);
+        pad_axis = gp_Vec(0.0, -spec.pad_length, 0.0);
+    } else if (spec.plane == "YZ") {
+        origin = gp_Pnt(0.0, spec.origin_x, spec.origin_y);
+        width_axis = gp_Vec(0.0, spec.width, 0.0);
+        height_axis = gp_Vec(0.0, 0.0, spec.height);
+        pad_axis = gp_Vec(spec.pad_length, 0.0, 0.0);
+    } else {
+        throw std::invalid_argument("plane must be XY, XZ, or YZ");
+    }
+
+    const gp_Pnt width_end = origin.Translated(width_axis);
+    const gp_Pnt opposite = width_end.Translated(height_axis);
+    const gp_Pnt height_end = origin.Translated(height_axis);
 
     BRepBuilderAPI_MakePolygon polygon;
-    polygon.Add(gp_Pnt(x0, y0, 0.0));
-    polygon.Add(gp_Pnt(x1, y0, 0.0));
-    polygon.Add(gp_Pnt(x1, y1, 0.0));
-    polygon.Add(gp_Pnt(x0, y1, 0.0));
+    polygon.Add(origin);
+    polygon.Add(width_end);
+    polygon.Add(opposite);
+    polygon.Add(height_end);
     polygon.Close();
     if (!polygon.IsDone()) {
         throw std::runtime_error("rectangle wire construction failed");
@@ -215,7 +237,7 @@ GeometryId OcctKernel::createRectangularPad(const RectangularPadSpec& spec) {
         throw std::runtime_error("rectangle face construction failed");
     }
 
-    BRepPrimAPI_MakePrism prism(face_builder.Face(), gp_Vec(0.0, 0.0, spec.pad_length));
+    BRepPrimAPI_MakePrism prism(face_builder.Face(), pad_axis);
     prism.Build();
     if (!prism.IsDone()) {
         throw std::runtime_error("pad construction failed");

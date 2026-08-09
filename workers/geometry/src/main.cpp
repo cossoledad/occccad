@@ -77,6 +77,7 @@ public:
                 input.width(),
                 input.height(),
                 input.pad_length(),
+                input.plane().empty() ? "XY" : input.plane(),
             };
             const auto geometry_id = kernel_.createRectangularPad(spec);
             const auto bbox = kernel_.getBoundingBox(geometry_id);
@@ -139,7 +140,8 @@ private:
 
 int run_smoke() {
     occccad::kernel::OcctKernel kernel;
-    const occccad::kernel::RectangularPadSpec spec{0.0, 0.0, 100.0, 60.0, 40.0};
+    const occccad::kernel::RectangularPadSpec spec{
+        0.0, 0.0, 100.0, 60.0, 40.0, "XY"};
     const auto id = kernel.createRectangularPad(spec);
     const auto topology = kernel.getTopology(id);
     const auto mesh = kernel.tessellate(id);

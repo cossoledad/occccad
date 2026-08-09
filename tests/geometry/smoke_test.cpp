@@ -39,6 +39,7 @@ int main() {
         100.0,
         60.0,
         40.0,
+        "XY",
     };
 
     const auto geometry_id = kernel.createRectangularPad(spec);
@@ -88,6 +89,26 @@ int main() {
         return fail("B-Rep round trip changed identity or volume");
     }
 
+    const auto xz_id = kernel.createRectangularPad(
+        {-20.0, -10.0, 80.0, 50.0, 35.0, "XZ"});
+    const auto xz_bbox = kernel.getBoundingBox(xz_id);
+    if (!near(kernel.getVolume(xz_id), 140000.0, 1.0e-3) ||
+        !near(xz_bbox.min.x, -20.0) || !near(xz_bbox.min.y, -35.0) ||
+        !near(xz_bbox.min.z, -10.0) || !near(xz_bbox.max.x, 60.0) ||
+        !near(xz_bbox.max.y, 0.0) || !near(xz_bbox.max.z, 40.0)) {
+        return fail("XZ rectangular pad orientation is incorrect");
+    }
+
+    const auto yz_id = kernel.createRectangularPad(
+        {5.0, 10.0, 30.0, 20.0, 15.0, "YZ"});
+    const auto yz_bbox = kernel.getBoundingBox(yz_id);
+    if (!near(kernel.getVolume(yz_id), 9000.0, 1.0e-3) ||
+        !near(yz_bbox.min.x, 0.0) || !near(yz_bbox.min.y, 5.0) ||
+        !near(yz_bbox.min.z, 10.0) || !near(yz_bbox.max.x, 15.0) ||
+        !near(yz_bbox.max.y, 35.0) || !near(yz_bbox.max.z, 30.0)) {
+        return fail("YZ rectangular pad orientation is incorrect");
+    }
+
     bool rejected_invalid_spec = false;
     try {
         kernel.createRectangularPad({0.0, 0.0, -1.0, 60.0, 40.0});
@@ -96,6 +117,12 @@ int main() {
     }
     if (!rejected_invalid_spec) {
         return fail("invalid rectangular pad dimensions were accepted");
+    }
+    try {
+        kernel.createRectangularPad({0.0, 0.0, 10.0, 10.0, 10.0, "AB"});
+        return fail("invalid datum plane was accepted");
+    } catch (const std::invalid_argument&) {
+        // Expected.
     }
 
     std::cout << "[PASS] Rectangle Sketch -> Face -> Pad\n"
@@ -106,5 +133,6 @@ int main() {
               << "[PASS] Mesh triangles = " << mesh.triangles.size() << '\n'
               << "[PASS] GLB bytes = " << glb.size() << '\n'
               << "[PASS] B-Rep round trip\n";
+    std::cout << "[PASS] XY / XZ / YZ datum plane orientations\n";
     return EXIT_SUCCESS;
 }

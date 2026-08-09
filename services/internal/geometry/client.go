@@ -41,9 +41,12 @@ func (client *Client) EvaluateRectangularPad(
 	ctx context.Context,
 	requestID string,
 	geometryKey string,
+	originX float64,
+	originY float64,
 	width float64,
 	height float64,
 	padLength float64,
+	plane string,
 ) (*workerv1.EvaluatePartResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
@@ -51,12 +54,13 @@ func (client *Client) EvaluateRectangularPad(
 		RequestId:   requestID,
 		GeometryKey: geometryKey,
 		RectangularPad: &workerv1.RectangularPadSpec{
-			OriginX:   0,
-			OriginY:   0,
+			OriginX:   originX,
+			OriginY:   originY,
 			Width:     width,
 			Height:    height,
 			PadLength: padLength,
 			Units:     "mm",
+			Plane:     plane,
 		},
 		LinearDeflection:  0.1,
 		AngularDeflection: 0.5,

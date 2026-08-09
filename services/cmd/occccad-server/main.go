@@ -15,6 +15,7 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/demo"
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/workspace"
 )
 
 func main() {
@@ -45,9 +46,11 @@ func run() error {
 	defer func() { _ = worker.Close() }()
 
 	demoService := demo.New(pool, worker)
+	workspaceService := workspace.New(pool, worker)
 	httpServer := &http.Server{
-		Addr:              configuration.ListenAddress,
-		Handler:           api.New(pool, worker, demoService, configuration.WebDirectory).Handler(),
+		Addr: configuration.ListenAddress,
+		Handler: api.New(
+			pool, worker, demoService, workspaceService, configuration.WebDirectory).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
