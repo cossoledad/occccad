@@ -1,0 +1,77 @@
+// Internal OCCT Kernel Adapter — implementation class
+//
+// This header is NOT part of the public API.
+// It is only used within kernel/occt and workers/geometry.
+
+#ifndef INTERNAL_OCCT_KERNEL_HPP
+#define INTERNAL_OCCT_KERNEL_HPP
+
+#include <occccad/kernel/kernel.hpp>
+
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+// Forward declarations (OCCT types isolated to .cpp)
+class TopoDS_Shape;
+
+namespace occccad::kernel {
+
+/// OCCT-backed implementation of ICadKernel.
+///
+/// Manages a set of loaded geometries, each keyed by GeometryId.
+/// All OCCT types are confined to the implementation file.
+class OcctKernel : public ICadKernel {
+public:
+    OcctKernel();
+    ~OcctKernel() override;
+
+    // Non-copyable, movable
+    OcctKernel(const OcctKernel&) = delete;
+    OcctKernel& operator=(const OcctKernel&) = delete;
+    OcctKernel(OcctKernel&&) noexcept;
+    OcctKernel& operator=(OcctKernel&&) noexcept;
+
+    // ICadKernel
+    GeometryId loadBrepr(const std::vector<uint8_t>& data) override;
+    GeometryId loadStep(const std::string& path) override;
+    void unload(const GeometryId& id) override;
+
+    GeometryId createBox(double dx, double dy, double dz) override;
+
+    BoundingBox getBoundingBox(const GeometryId& id) override;
+    TopologyInfo getTopology(const GeometryId& id) override;
+
+    TessellationResult tessellate(
+        const GeometryId& id,
+        double linear_deflection = 0.1,
+        double angular_deflection = 0.5) override;
+
+    GeometryId chamfer(
+        const GeometryId& id,
+        const std::vector<uint64_t>& edge_local_ids,
+        double distance) override;
+
+    GeometryId fillet(
+        const GeometryId& id,
+        const std::vector<uint64_t>& edge_local_ids,
+        double radius) override;
+
+    std::vector<uint8_t> serializeBrepr(const GeometryId& id) override;
+
+    // Additional accessors
+    size_t resident_count() const noexcept { return shapes_.size(); }
+    bool is_loaded(const GeometryId& id) const noexcept;
+
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+
+    // Map GeometryId -> TopoDS_Shape (owned internally)
+    std::unordered_map<GeometryId, void*> shapes_;
+};
+
+}  // namespace occccad::kernel
+
+#endif  // INTERNAL_OCCT_KERNEL_HPP

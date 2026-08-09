@@ -1,0 +1,76 @@
+{
+  "version": 9,
+  "configurePresets": [
+    {
+      "name": "dev-debug",
+      "displayName": "Development Debug",
+      "description": "Debug build with ASan/UBSan, compile_commands.json",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cmake/debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "OCCCCAD_BUILD_TESTS": "ON",
+        "OCCCCAD_ENABLE_ASAN": "OFF",
+        "OCCCCAD_ENABLE_UBSAN": "OFF"
+      }
+    },
+    {
+      "name": "dev-release",
+      "displayName": "Development Release",
+      "description": "Release build, tests on",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cmake/release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "OCCCCAD_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "ci-debug",
+      "displayName": "CI Debug",
+      "description": "CI debug build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cmake/ci-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "OCCCCAD_BUILD_TESTS": "ON",
+        "OCCCCAD_ENABLE_ASAN": "ON",
+        "OCCCCAD_ENABLE_UBSAN": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev-debug",
+      "configurePreset": "dev-debug",
+      "jobs": 0
+    },
+    {
+      "name": "dev-release",
+      "configurePreset": "dev-release",
+      "jobs": 0
+    },
+    {
+      "name": "ci-debug",
+      "configurePreset": "ci-debug",
+      "jobs": 0
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "dev-debug",
+      "configurePreset": "dev-debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "dev-release",
+      "configurePreset": "dev-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

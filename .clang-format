@@ -1,0 +1,30 @@
+BasedOnStyle: Google
+ColumnLimit: 100
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+AccessModifierOffset: -4
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+BreakBeforeBraces: Attach
+Cpp11BracedListStyle: true
+NamespaceIndentation: None
+PointerAlignment: Left
+SortIncludes: true
+IncludeBlocks: Regroup
+IncludeCategories:
+  - Regex: '^<.*\.hxx>'
+    Priority: 1
+  - Regex: '^<.*\.hpp>'
+    Priority: 2
+  - Regex: '^<.*\.h>'
+    Priority: 3
+  - Regex: '^"occccad/'
+    Priority: 4
+  - Regex: '^"internal/'
+    Priority: 5
+  - Regex: '^<'
+    Priority: 6
+  - Regex: '.*'
+    Priority: 7

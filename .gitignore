@@ -1,0 +1,50 @@
+# Build output
+build/
+cmake-build-*/
+out/
+
+# Conan
+.conan2/
+conan_imports_*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+.cache/
+
+# Go
+*.exe
+*.test
+vendor/
+
+# Docker
+*.log
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.tmp
+compile_commands.json
+
+# Database
+db/*.db
+db/*.sqlite
