@@ -1,10 +1,8 @@
-import type { DocumentSummary, FolderSummary } from "./types";
+import type { DocumentSummary, FolderSummary } from "../../types";
 
 export type LibraryScope = "active" | "recent" | "shared" | "parts" | "products" | "trash";
 
-export type DocumentMetrics = { parts: number; products: number; recentlyUpdated: number };
-
-export function documentMetrics(documents: DocumentSummary[]): DocumentMetrics {
+export function documentMetrics(documents: DocumentSummary[]) {
   const recentBoundary = Date.now() - 604_800_000;
   return {
     parts: documents.filter((item) => item.type === "PART").length,
@@ -23,16 +21,10 @@ export function relativeDate(value: string): string {
   return date.toLocaleDateString();
 }
 
-export function pageLabel(offset: number, limit: number, total: number): string {
-  const first = total === 0 ? 0 : offset + 1;
-  const last = Math.min(offset + limit, total);
-  return `${first}–${last} / ${total} 个文档`;
-}
-
 export async function flattenFolderTree(
-  loadChildren: (parentId: string) => Promise<FolderSummary[]>, parentId = "", prefix = "",
+  loadChildren: (parentID: string) => Promise<FolderSummary[]>, parentID = "", prefix = "",
 ): Promise<Array<{ id: string; label: string }>> {
-  const folders = await loadChildren(parentId);
+  const folders = await loadChildren(parentID);
   const result: Array<{ id: string; label: string }> = [];
   for (const folder of folders) {
     const label = `${prefix}${folder.name}`;

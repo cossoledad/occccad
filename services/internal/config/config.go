@@ -12,16 +12,16 @@ import (
 )
 
 type Config struct {
-	DatabaseURL   string
-	ListenAddress string
-	WorkerAddress string
-	WebDirectory  string
-	DataDirectory string
-	AdminEmail    string
-	AdminName     string
-	AdminPassword string
-	SessionTTL    time.Duration
-	SecureCookies bool
+	DatabaseURL    string
+	ListenAddress  string
+	WorkerAddress  string
+	DataDirectory  string
+	AllowedOrigins []string
+	AdminEmail     string
+	AdminName      string
+	AdminPassword  string
+	SessionTTL     time.Duration
+	SecureCookies  bool
 }
 
 // LoadProjectEnv loads simple KEY=VALUE entries without overriding exported values.
@@ -100,17 +100,27 @@ func Load() Config {
 	}
 	secureCookies, _ := strconv.ParseBool(value("OCCCCAD_SECURE_COOKIES", "false"))
 	return Config{
-		DatabaseURL:   databaseURL,
-		ListenAddress: value("OCCCCAD_SERVER_LISTEN", "0.0.0.0:8080"),
-		WorkerAddress: value("OCCCCAD_GEOMETRY_WORKER_ADDRESS", "127.0.0.1:51001"),
-		WebDirectory:  value("OCCCCAD_WEB_DIR", "../web/apps/cad/dist"),
-		DataDirectory: value("OCCCCAD_DATA_DIR", "./data"),
-		AdminEmail:    value("OCCCCAD_ADMIN_EMAIL", "admin@occccad.local"),
-		AdminName:     value("OCCCCAD_ADMIN_DISPLAY_NAME", "Administrator"),
-		AdminPassword: os.Getenv("OCCCCAD_ADMIN_PASSWORD"),
-		SessionTTL:    sessionTTL,
-		SecureCookies: secureCookies,
+		DatabaseURL:    databaseURL,
+		ListenAddress:  value("OCCCCAD_SERVER_LISTEN", "0.0.0.0:8080"),
+		WorkerAddress:  value("OCCCCAD_GEOMETRY_WORKER_ADDRESS", "127.0.0.1:51001"),
+		DataDirectory:  value("OCCCCAD_DATA_DIR", "./data"),
+		AllowedOrigins: splitList(os.Getenv("OCCCCAD_ALLOWED_ORIGINS")),
+		AdminEmail:     value("OCCCCAD_ADMIN_EMAIL", "admin@occccad.local"),
+		AdminName:      value("OCCCCAD_ADMIN_DISPLAY_NAME", "Administrator"),
+		AdminPassword:  os.Getenv("OCCCCAD_ADMIN_PASSWORD"),
+		SessionTTL:     sessionTTL,
+		SecureCookies:  secureCookies,
 	}
+}
+
+func splitList(raw string) []string {
+	var result []string
+	for _, item := range strings.Split(raw, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func value(name, fallback string) string {

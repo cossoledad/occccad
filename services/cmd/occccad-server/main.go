@@ -82,7 +82,7 @@ func run() error {
 			pool, worker, workspaceService, accessService, authenticationService,
 			artifactService,
 			jobService,
-			configuration.WebDirectory, configuration.SecureCookies).Handler()),
+			configuration.SecureCookies, configuration.AllowedOrigins).Handler()),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

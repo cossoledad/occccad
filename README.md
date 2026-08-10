@@ -10,7 +10,7 @@
 
 ## 当前状态
 
-仓库目前处于 **v0.0.8 / 服务控制与调试路由阶段**。已经能够完成：
+仓库目前处于 **v0.0.9 / 前端应用架构阶段**。已经能够完成：
 
 - 通过 Conan 2 获取 OCCT 7.9.1、gRPC/Protobuf 和 GoogleTest；
 - 显示并选择 XY/XZ/YZ 三个基准面，在任意基准面进入草图模式；
@@ -40,6 +40,9 @@
 - 新几何双写 B-Rep/GLB 本地制品，Part 缩略图由后台任务生成并显示在文档中心。
 - 使用单个 `occccad-control` 启动 API、Jobs、Geometry Router 和最小 Worker 集合；
 - Geometry Worker 按 Resident Geometry 容量自动扩缩容，并支持 API/Jobs/C++ Worker 调试切流。
+- 使用 React、Ant Design、TanStack Query、Zustand 和 React Router 构建统一的现代 Web 应用；
+- Three.js 被封装为独立 CAD Viewport Engine，页面层不直接操作 Scene、Renderer 或 Controls；
+- 前端与 Go 服务独立启动/部署，并可在无数据库、API 和 Geometry Worker 时使用 Mock Adapter 调试。
 
 当前矩形草图尚不包含尺寸/几何约束求解，装配也暂不包含旋转、配合约束、S3、Redis、完整任务
 中心、跨主机调度或 XCAF Assembly STEP；这些属于后续目标。当前进度详见
@@ -105,7 +108,7 @@ invoke test --build-type=Release
 
 完整应用还需要一个 PostgreSQL 数据库。复制 `.env.example` 为 `.env` 并设置连接信息后，
 Invoke 会自动加载该文件。`OCCCCAD_ADMIN_PASSWORD` 在首次启动时必须设置。按照
-[v0.0.8 设计与运行说明](docs/occccad_v0.0.8_Service_Control_and_Debug_Routing.md) 使用一个入口启动：
+[v0.0.8 设计与运行说明](docs/occccad_v0.0.8_Service_Control_and_Debug_Routing.md) 启动后端：
 
 ```bash
 invoke run.app --build-type=Debug
@@ -114,8 +117,15 @@ invoke run.app --build-type=Debug
 `.env` 中的密码用于管理员账号首次初始化，开发阶段登录后不强制修改密码。账号已初始化后，
 修改 `.env` 不会覆盖数据库中的密码。
 
-然后从 Windows 访问 `http://localhost:8080`。Server 默认绑定
-`0.0.0.0:8080`；若 WSL 没有转发 localhost，可改用 `hostname -I` 显示的 WSL 地址。
+另开终端独立启动前端并接入 API：
+
+```bash
+invoke run.web --mode=api
+```
+
+然后从 Windows 访问 `http://localhost:5173`。只调试界面时直接执行 `invoke run.web`，默认使用浏览器内
+Mock Adapter，不需要 PostgreSQL、Go 或 C++ 服务。完整边界见
+[v0.0.9 前端应用架构](docs/occccad_v0.0.9_Frontend_Application_Architecture.md)。
 
 ## 常用命令
 
@@ -127,10 +137,12 @@ invoke build --build-type=Debug          编译全部 C++ 目标
 invoke build --target=<target>           编译指定目标
 invoke test --filter=<regex>             运行匹配的 CTest
 invoke run.geometry                      运行 Geometry Worker 冒烟程序
-invoke run.app                           启动完整应用、路由器和自动扩缩 Worker
+invoke run.app                           启动后端控制面、路由器和自动扩缩 Worker
+invoke run.web                           独立启动 Mock 前端（不需要后端）
+invoke run.web --mode=api                独立启动前端并代理真实 API
 invoke run.worker                        启动 Geometry Worker gRPC Server
 invoke run.jobs                          启动 PostgreSQL 持久任务 Worker
-invoke run.server                        启动 Go API 和静态 Web Server
+invoke run.server                        只启动 Go API
 invoke web.build                         类型检查并构建 Web 应用
 invoke clean                             删除仓库内 build 产物
 ```
@@ -156,15 +168,15 @@ occccad/
 ├── workers/geometry/              C++ Geometry Worker gRPC Server
 ├── tests/geometry/                C++ 几何与制品测试
 ├── services/                      Go API、数据迁移和领域服务
-├── web/apps/cad/                  TypeScript + Three.js 文档中心与 CAD 工作台
+├── web/apps/cad/                  React + Ant Design + Three.js CAD Web 应用
 └── docs/                          架构、环境和 Demo 文档
 ```
 
 ## 架构方向
 
 ```text
-Browser
-   |
+Browser -- Frontend Server/CDN
+   | /api
 Gateway / Control Plane
    |
 Geometry Router / Scheduler
@@ -191,6 +203,7 @@ PostgreSQL / ArtifactStore
 - [v0.0.6 协作与访问控制基础](docs/occccad_v0.0.6_Collaboration_and_Access_Control.md)
 - [v0.0.7 账号管理、本地制品与持久任务](docs/occccad_v0.0.7_Distributed_Artifact_Pipeline.md)
 - [v0.0.8 服务控制、自动扩缩容与调试路由](docs/occccad_v0.0.8_Service_Control_and_Debug_Routing.md)
+- [v0.0.9 前端应用架构与独立开发](docs/occccad_v0.0.9_Frontend_Application_Architecture.md)
 
 ## License
 

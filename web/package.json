@@ -3,7 +3,9 @@
   "private": true,
   "packageManager": "pnpm@11.20.0",
   "scripts": {
-    "dev": "pnpm --filter @occccad/cad dev",
+    "dev": "pnpm --filter @occccad/cad dev:mock",
+    "dev:mock": "pnpm --filter @occccad/cad dev:mock",
+    "dev:api": "pnpm --filter @occccad/cad dev:api",
     "build": "pnpm --filter @occccad/cad build",
     "typecheck": "pnpm --filter @occccad/cad typecheck"
   },

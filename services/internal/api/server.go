@@ -12,7 +12,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -29,15 +28,15 @@ import (
 )
 
 type Server struct {
-	database      *pgxpool.Pool
-	worker        *geometry.Client
-	workspace     *workspace.Service
-	access        *access.Service
-	authn         *authn.Service
-	artifacts     *artifact.Service
-	jobs          *jobs.Service
-	webDirectory  string
-	secureCookies bool
+	database       *pgxpool.Pool
+	worker         *geometry.Client
+	workspace      *workspace.Service
+	access         *access.Service
+	authn          *authn.Service
+	artifacts      *artifact.Service
+	jobs           *jobs.Service
+	secureCookies  bool
+	allowedOrigins map[string]struct{}
 }
 
 func New(
@@ -48,15 +47,20 @@ func New(
 	authenticationService *authn.Service,
 	artifactService *artifact.Service,
 	jobService *jobs.Service,
-	webDirectory string,
 	secureCookies bool,
+	allowedOrigins []string,
 ) *Server {
+	origins := make(map[string]struct{}, len(allowedOrigins))
+	for _, origin := range allowedOrigins {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			origins[origin] = struct{}{}
+		}
+	}
 	return &Server{
 		database: database, worker: worker,
 		workspace: workspaceService, access: accessService, authn: authenticationService,
-		artifacts:    artifactService,
-		jobs:         jobService,
-		webDirectory: webDirectory, secureCookies: secureCookies,
+		artifacts: artifactService,
+		jobs:      jobService, secureCookies: secureCookies, allowedOrigins: origins,
 	}
 }
 
@@ -198,7 +202,15 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/", func(writer http.ResponseWriter, _ *http.Request) {
 		writeError(writer, http.StatusNotFound, "API route not found")
 	})
-	mux.Handle("/", server.staticHandler())
+	mux.HandleFunc("GET /{$}", func(writer http.ResponseWriter, _ *http.Request) {
+		writeJSON(writer, http.StatusOK, map[string]string{
+			"service": "occccad-api",
+			"message": "frontend is served by an independent web process",
+		})
+	})
+	mux.HandleFunc("/", func(writer http.ResponseWriter, _ *http.Request) {
+		writeError(writer, http.StatusNotFound, "route not found")
+	})
 	return server.middleware(mux)
 }
 
@@ -707,6 +719,15 @@ func (server *Server) middleware(next http.Handler) http.Handler {
 		}
 		writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, X-CSRF-Token, Traceparent, Tracestate")
 		writer.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
+		if origin := strings.TrimSpace(request.Header.Get("Origin")); origin != "" && len(server.allowedOrigins) > 0 {
+			if _, allowed := server.allowedOrigins[origin]; !allowed {
+				writeError(writer, http.StatusForbidden, "origin not allowed")
+				return
+			}
+			writer.Header().Set("Access-Control-Allow-Origin", origin)
+			writer.Header().Set("Access-Control-Allow-Credentials", "true")
+			writer.Header().Add("Vary", "Origin")
+		}
 		if request.Method == http.MethodOptions {
 			writer.WriteHeader(http.StatusNoContent)
 			return
@@ -788,23 +809,6 @@ func (recorder *statusRecorder) Write(data []byte) (int, error) {
 	written, err := recorder.ResponseWriter.Write(data)
 	recorder.bytes += written
 	return written, err
-}
-
-func (server *Server) staticHandler() http.Handler {
-	root := filepath.Clean(server.webDirectory)
-	fileServer := http.FileServer(http.Dir(root))
-	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		path := filepath.Join(root, filepath.Clean(request.URL.Path))
-		if info, err := os.Stat(path); err == nil && !info.IsDir() {
-			fileServer.ServeHTTP(writer, request)
-			return
-		}
-		if strings.Contains(request.URL.Path, ".") {
-			http.NotFound(writer, request)
-			return
-		}
-		http.ServeFile(writer, request, filepath.Join(root, "index.html"))
-	})
 }
 
 func writeJSON(writer http.ResponseWriter, status int, value any) {

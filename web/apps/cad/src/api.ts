@@ -1,14 +1,17 @@
 import type { AuditEvent, DocumentPage, DocumentScope, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, Team, User, Vec2, Vec3 } from "./types";
 
+const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+export const apiURL = (path: string): string => `${apiBaseURL}${path}`;
+
 const cookie = (name: string): string => decodeURIComponent(document.cookie.split("; ")
   .find((item) => item.startsWith(`${name}=`))?.split("=").slice(1).join("=") ?? "");
 const mutationHeaders = (method = "GET"): Record<string, string> =>
   method === "GET" || method === "HEAD" ? {} : { "X-CSRF-Token": cookie("occccad_csrf") };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, {
+  const response = await fetch(apiURL(path), {
     ...init,
-    credentials: "same-origin",
+    credentials: "include",
     headers: { "Content-Type": "application/json", ...mutationHeaders(init?.method), ...init?.headers },
   });
   const body = await response.json().catch(() => ({})) as { error?: string };
@@ -18,7 +21,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 const requestId = (): string => crypto.randomUUID();
 
-export const api = {
+export const restApi = {
   session: () => request<{ user: User; authenticationMode: string }>("/api/session"),
   login: (email: string, password: string) => request<{ user: User }>("/api/auth/login", {
     method: "POST", body: JSON.stringify({ email, password }),
@@ -50,7 +53,7 @@ export const api = {
   share: (type: "documents" | "folders", id: string, subjectType: "USER" | "TEAM", subjectId: string, role: "VIEWER" | "EDITOR") =>
     request<ShareGrant>(`/api/${type}/${id}/shares`, { method: "POST", body: JSON.stringify({ subjectType, subjectId, role }) }),
   unshare: async (type: "documents" | "folders", id: string, grantId: string): Promise<void> => {
-    const response = await fetch(`/api/${type}/${id}/shares/${grantId}`, { method: "DELETE", credentials: "same-origin", headers: mutationHeaders("DELETE") });
+    const response = await fetch(apiURL(`/api/${type}/${id}/shares/${grantId}`), { method: "DELETE", credentials: "include", headers: mutationHeaders("DELETE") });
     if (!response.ok) throw new Error((await response.json().catch(() => ({})) as { error?: string }).error ?? `HTTP ${response.status}`);
   },
   listAudit: async (documentId: string): Promise<AuditEvent[]> =>
@@ -90,7 +93,7 @@ export const api = {
       method: "PATCH", body: JSON.stringify({ name, description }),
     }),
   deleteFolder: async (id: string): Promise<void> => {
-    const response = await fetch(`/api/folders/${id}`, { method: "DELETE", credentials: "same-origin", headers: mutationHeaders("DELETE") });
+    const response = await fetch(apiURL(`/api/folders/${id}`), { method: "DELETE", credentials: "include", headers: mutationHeaders("DELETE") });
     if (!response.ok) {
       const value = await response.json().catch(() => ({})) as { error?: string };
       throw new Error(value.error ?? `HTTP ${response.status}`);
@@ -112,8 +115,8 @@ export const api = {
       method: "PATCH", body: JSON.stringify({ requestId: requestId(), name, description }),
     }),
   deleteDocument: async (id: string): Promise<void> => {
-    const response = await fetch(`/api/documents/${id}`, {
-      method: "DELETE", credentials: "same-origin", headers: { ...mutationHeaders("DELETE"), "X-Request-ID": requestId() },
+    const response = await fetch(apiURL(`/api/documents/${id}`), {
+      method: "DELETE", credentials: "include", headers: { ...mutationHeaders("DELETE"), "X-Request-ID": requestId() },
     });
     if (!response.ok) {
       const value = await response.json().catch(() => ({})) as { error?: string };
@@ -135,27 +138,27 @@ export const api = {
       method: "POST", body: JSON.stringify({ requestId: requestId(), ...command }),
     }),
   createSketch: (documentId: string, plane: string, origin: Vec2, width: number, height: number) =>
-    api.command(documentId, { type: "CREATE_RECTANGLE_SKETCH", plane, origin, width, height }),
+    restApi.command(documentId, { type: "CREATE_RECTANGLE_SKETCH", plane, origin, width, height }),
   pad: (documentId: string, sketchId: string, length: number) =>
-    api.command(documentId, { type: "PAD_SKETCH", sketchId, length }),
+    restApi.command(documentId, { type: "PAD_SKETCH", sketchId, length }),
   insert: (documentId: string, referencedDocumentId: string, name: string) =>
-    api.command(documentId, {
+    restApi.command(documentId, {
       type: "INSERT_INSTANCE", referencedDocumentId, name, translation: [0, 0, 0],
     }),
   move: (documentId: string, instanceId: string, translation: Vec3) =>
-    api.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation }),
+    restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation }),
   setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_HEAD" | "PINNED") =>
-    api.command(documentId, { type: "SET_REFERENCE_MODE", instanceId, referenceMode }),
-  undo: (documentId: string) => api.command(documentId, { type: "UNDO" }),
-  redo: (documentId: string) => api.command(documentId, { type: "REDO" }),
+    restApi.command(documentId, { type: "SET_REFERENCE_MODE", instanceId, referenceMode }),
+  undo: (documentId: string) => restApi.command(documentId, { type: "UNDO" }),
+  redo: (documentId: string) => restApi.command(documentId, { type: "REDO" }),
   restore: (documentId: string, versionId: string) =>
-    api.command(documentId, { type: "RESTORE", versionId }),
+    restApi.command(documentId, { type: "RESTORE", versionId }),
   importStep: async (documentId: string, file: File): Promise<Job> => {
     const body = new FormData();
     body.set("requestId", requestId());
     body.set("file", file);
-    const response = await fetch(`/api/documents/${documentId}/import-step`, {
-      method: "POST", credentials: "same-origin", headers: mutationHeaders("POST"), body,
+    const response = await fetch(apiURL(`/api/documents/${documentId}/import-step`), {
+      method: "POST", credentials: "include", headers: mutationHeaders("POST"), body,
     });
     const value = await response.json().catch(() => ({})) as Job & { error?: string };
     if (!response.ok) throw new Error(value.error ?? `HTTP ${response.status}`);
@@ -166,8 +169,8 @@ export const api = {
   }),
   getJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}`),
   downloadJob: async (id: string): Promise<void> => {
-    const response = await fetch(`/api/jobs/${id}/download`, {
-      credentials: "same-origin", headers: { "X-Request-ID": requestId() },
+    const response = await fetch(apiURL(`/api/jobs/${id}/download`), {
+      credentials: "include", headers: { "X-Request-ID": requestId() },
     });
     if (!response.ok) {
       const value = await response.json().catch(() => ({})) as { error?: string };
@@ -183,3 +186,5 @@ export const api = {
     URL.revokeObjectURL(link.href);
   },
 };
+
+export type CadApi = typeof restApi;

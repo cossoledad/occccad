@@ -334,7 +334,7 @@ def run_worker(c, build_type=None):
 
 @task
 def run_server(c):
-    """Start the Go control-plane server (requires database environment variables)."""
+    """Start the standalone Go API server (does not build or serve the frontend)."""
     with c.cd(str(PROJECT_ROOT / "services")):
         c.run("go run ./cmd/occccad-server", pty=True)
 
@@ -348,7 +348,7 @@ def run_jobs(c):
 
 @task(help={"build_type": "Debug or Release"})
 def run_app(c, build_type=None):
-    """Build and start the control plane, router, API, jobs, and geometry workers."""
+    """Build and start the backend control plane, API, jobs, and geometry workers."""
     bt = build_type or _get_build_type()
     worker_bin = _get_build_dir(bt) / "workers" / "geometry" / "occccad_geometry_worker"
     if not worker_bin.exists():
@@ -356,8 +356,6 @@ def run_app(c, build_type=None):
             f"cmake --build {_get_build_dir(bt)} --target occccad_geometry_worker --parallel",
             pty=True,
         )
-    with c.cd(str(PROJECT_ROOT / "web")):
-        c.run("pnpm build", pty=True)
     service_build = PROJECT_ROOT / "build" / "services"
     service_build.mkdir(parents=True, exist_ok=True)
     with c.cd(str(PROJECT_ROOT / "services")):
@@ -369,6 +367,15 @@ def run_app(c, build_type=None):
         env={"OCCCCAD_BUILD_TYPE": bt},
         pty=True,
     )
+
+
+@task(help={"mode": "mock (no backend) or api (proxy /api to the backend)"})
+def run_web(c, mode="mock"):
+    """Start the independent Vite frontend development server."""
+    if mode not in {"mock", "api"}:
+        raise Exit("--mode must be 'mock' or 'api'")
+    with c.cd(str(PROJECT_ROOT / "web")):
+        c.run(f"pnpm dev:{mode}", pty=True)
 
 
 @task
@@ -408,6 +415,7 @@ run_collection.add_task(run_worker, "worker")
 run_collection.add_task(run_server, "server")
 run_collection.add_task(run_jobs, "jobs")
 run_collection.add_task(run_app, "app")
+run_collection.add_task(run_web, "web")
 
 web_collection = Collection("web")
 web_collection.add_task(build_web, "build")

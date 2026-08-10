@@ -2,6 +2,22 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "occccad: Frontend (mock)",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/web/apps/cad",
+      "preLaunchTask": "frontend: mock"
+    },
+    {
+      "name": "occccad: Frontend (API)",
+      "type": "pwa-chrome",
+      "request": "launch",
+      "url": "http://localhost:5173",
+      "webRoot": "${workspaceFolder}/web/apps/cad",
+      "preLaunchTask": "frontend: api"
+    },
+    {
       "name": "occccad: API (routed debug)",
       "type": "go",
       "request": "launch",

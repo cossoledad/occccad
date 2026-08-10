@@ -3,7 +3,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import type {
   Artifact, DocumentView, Feature, PlaneName, RectangleDraft, Selection, Vec2, Vec3,
-} from "./types";
+} from "../types";
 
 type Callbacks = {
   selectionChanged: (selection: Selection) => void;
@@ -46,7 +46,7 @@ function makeGeometry(artifact: Artifact): THREE.BufferGeometry {
   return geometry;
 }
 
-export class CadView {
+export class CadViewportEngine {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(42, 1, 0.1, 5000);
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
@@ -67,6 +67,9 @@ export class CadView {
   private suppressSelection = false;
   private lastMiddleClick = 0;
   private sketchTool: "SELECT" | "RECTANGLE" = "SELECT";
+  private readonly resizeObserver: ResizeObserver;
+  private animationFrame = 0;
+  private disposed = false;
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: Callbacks) {
     this.scene.background = new THREE.Color(0x10151d);
@@ -90,7 +93,10 @@ export class CadView {
     this.orbit.mouseButtons.LEFT = null;
     this.orbit.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
     this.orbit.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
-    this.orbit.addEventListener("change", () => this.updateCameraClipping());
+    this.orbit.addEventListener("change", () => {
+      this.updateCameraClipping();
+      this.invalidate();
+    });
     this.transform = new TransformControls(this.camera, this.renderer.domElement);
     this.transform.setMode("translate");
     this.transform.setSpace("world");
@@ -100,6 +106,7 @@ export class CadView {
       if (event.value) this.suppressSelection = true;
     });
     this.transform.addEventListener("mouseUp", () => this.commitTransform());
+    this.transform.addEventListener("change", () => this.invalidate());
 
     this.scene.add(new THREE.HemisphereLight(0xd8e8ff, 0x1f2937, 2.4));
     const light = new THREE.DirectionalLight(0xffffff, 3.4);
@@ -110,7 +117,8 @@ export class CadView {
     grid.rotation.x = Math.PI / 2;
     this.scene.add(grid, new THREE.AxesHelper(70), this.content, this.helpers);
 
-    new ResizeObserver(() => this.resize()).observe(host);
+    this.resizeObserver = new ResizeObserver(() => this.resize());
+    this.resizeObserver.observe(host);
     this.renderer.domElement.addEventListener("pointerdown", (event) => this.onPointerDown(event));
     this.renderer.domElement.addEventListener("pointermove", (event) => this.onPointerMove(event));
     this.renderer.domElement.addEventListener("pointerup", (event) => this.onPointerUp(event));
@@ -119,7 +127,7 @@ export class CadView {
       this.cancelDrawing();
     });
     this.renderer.domElement.addEventListener("contextmenu", (event) => event.preventDefault());
-    this.animate();
+    this.invalidate();
   }
 
   render(view: DocumentView): void {
@@ -198,7 +206,7 @@ export class CadView {
     this.orbit.update();
   }
 
-  select(selection: Selection): void {
+  select(selection: Selection, notify = true): void {
     this.selected = selection;
     this.transform.detach();
     for (const object of this.selectable.values()) this.applyHighlight(object, false);
@@ -209,7 +217,23 @@ export class CadView {
         if (selection.kind === "instance" && object instanceof THREE.Group) this.transform.attach(object);
       }
     }
-    this.callbacks.selectionChanged(selection);
+    if (notify) this.callbacks.selectionChanged(selection);
+    this.invalidate();
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    cancelAnimationFrame(this.animationFrame);
+    this.resizeObserver.disconnect();
+    this.clearPreview();
+    this.transform.detach();
+    this.transform.dispose();
+    this.orbit.dispose();
+    this.disposeGroup(this.content);
+    this.disposeGroup(this.helpers);
+    this.renderer.dispose();
+    this.renderer.domElement.remove();
   }
 
   private renderPart(view: DocumentView): void {
@@ -412,6 +436,7 @@ export class CadView {
       new THREE.LineBasicMaterial({ color: 0xffffff }),
     );
     this.scene.add(this.preview);
+    this.invalidate();
   }
 
   private clearPreview(): void {
@@ -420,6 +445,7 @@ export class CadView {
     this.preview.geometry.dispose();
     (this.preview.material as THREE.Material).dispose();
     this.preview = undefined;
+    this.invalidate();
   }
 
   private cancelDrawing(): void {
@@ -489,6 +515,7 @@ export class CadView {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+    this.invalidate();
   }
 
   private disposeGroup(group: THREE.Group): void {
@@ -503,8 +530,11 @@ export class CadView {
     }
   }
 
-  private animate = (): void => {
-    this.renderer.render(this.scene, this.camera);
-    requestAnimationFrame(this.animate);
-  };
+  private invalidate(): void {
+    if (this.disposed || this.animationFrame) return;
+    this.animationFrame = requestAnimationFrame(() => {
+      this.animationFrame = 0;
+      if (!this.disposed) this.renderer.render(this.scene, this.camera);
+    });
+  }
 }

@@ -4,6 +4,10 @@
 > 实现日期：2026-08-09  
 > 前置版本：[v0.0.7 账号管理、本地制品与持久任务](occccad_v0.0.7_Distributed_Artifact_Pipeline.md)
 
+> v0.0.9 更新：本文中的 `:8080` 现在只表示后端 API 稳定入口。前端已独立为 `:5173` 开发进程，
+> `invoke run.app` 不再构建或托管 Web 文件；当前启动方式见
+> [v0.0.9 前端应用架构](occccad_v0.0.9_Frontend_Application_Architecture.md)。
+
 v0.0.8 为本地开发和单机部署增加统一控制面 `occccad-control`。用户只启动一个入口，控制面读取
 项目 `.env`，启动 API、Job Worker、Geometry Router 和最小 Geometry Worker 集合，并维护子进程
 生命周期。浏览器与业务服务只连接稳定入口，具体实例可以扩缩、重启或被调试实例替换。

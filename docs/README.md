@@ -1,6 +1,6 @@
 # occccad 文档索引
 
-> 最后更新：2026-08-09
+> 最后更新：2026-08-10
 
 `occccad` 是项目的唯一名称：`occ` 表示 OCCT 几何内核，`c` 取自 `could`，`cad`
 表示 CAD 领域。文档中不再使用 CloudCAD、cloudcad 等临时名称。
@@ -28,6 +28,8 @@
     单命令启动、Geometry 自动扩缩容、进程管理和 VS Code 调试切流。
 13. [目标架构与当前实现对照](occccad_Target_Architecture_and_Current_Implementation.md)：
     原始目标图、当前服务拓扑、Worker 依赖差异和实现进度。
+14. [v0.0.9 前端应用架构](occccad_v0.0.9_Frontend_Application_Architecture.md)：
+    React/Ant Design 技术决策、CAD Viewport 边界、前后端分离和无后端调试。
 
 ## 文档状态
 
@@ -46,6 +48,7 @@
 | v0.0.7 账号、制品与任务 | 已实现基线 | 管理后台、可信会话、本地 Artifact、Job Worker、异步 STEP 和 Thumbnail |
 | v0.0.8 服务控制与调试 | 已实现基线 | Control Plane、Geometry Router、自动扩缩容和调试 Override |
 | 目标架构与当前实现对照 | 当前事实 + 差距分析 | 目标与当前服务/Worker 关系的 Mermaid 对照 |
+| v0.0.9 前端应用架构 | 已实现基线 | React 应用、统一 UI、Three.js Viewport 封装、独立启动和 Mock Adapter |
 
 ## 当前实现快照
 
@@ -63,7 +66,7 @@
         |
   versioned Go commands -> persistent Undo / Redo
         |
-  multi-tab TypeScript CAD workbench -> live/pinned Product references
+  multi-tab React CAD workbench -> live/pinned Product references
         |
   Main change line -> immutable named Version -> non-destructive Restore
         |
@@ -78,6 +81,8 @@
   Request Principal -> User/Team ACL -> inherited Share / access audit
         |
   password session / admin console -> PostgreSQL jobs -> local ArtifactStore
+        |
+  React / Ant Design application -> isolated Three.js CAD Viewport -> REST or Mock adapter
 
 尚未实现
   sketch constraint solving and dimensions
