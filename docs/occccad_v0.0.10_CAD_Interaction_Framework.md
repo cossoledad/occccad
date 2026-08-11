@@ -211,15 +211,27 @@ Shortcut 和未来的 Command Palette。
 每个 Toolbar 都有独立拖动柄。左键拖动只改变该 Toolbar 在 Viewport 内的位置，右键点击拖动柄切换横向/纵向，
 布局以 Toolbar ID 保存到浏览器 Local Storage。Toolbar 内容仍只通过 Command Registry 执行命令。
 
-工作区除页眉外完全由 Viewport 占据，当前提供三组悬浮 Toolbar：
+工作区除页眉外完全由 Viewport 占据。Toolbar 按 Workbench 隔离，而不是把所有命令混在一条工具栏：
 
-- Modeling：Select、Sketch、Rectangle、Pad 或 Product Insert；
-- History/Exchange：Undo、Redo、Version、Share、STEP Import/Export；
+- Part Design：Select、Sketch、Pad、STEP Import/Export；
+- Sketcher：Select、Rectangle、Finish Sketch；
+- Assembly Design：Select、Insert、Reference Mode；
+- Generative Shape Design：已注册 Workbench 边界，曲面命令尚未实现；
+- Common：Undo、Redo、Version、Share；
 - View：Navigation Profile、Fit、Isometric View。
 
-Specification Tree 使用项目专用递归组件，不再使用 Ant Design Tree。它透明叠加在 Viewport 左侧，通过连续细线、
-紧凑图标和小型展开符号表达层级；PartBody 中 Pad 会包含其消费的 Sketch。Properties/History 共用右侧可折叠
+只有 Active Workbench 的建模 Toolbar 被挂载。进入/退出 Sketch 会在 Part Design 和 Sketcher 之间切换；Product
+只显示 Assembly Design。未来 Product 中双击 Part 实例时，可将 Active Workbench 切到 Part Design 并保留 Product
+Context，实现 in-context edit，而不需要重写 Toolbar。
+
+Specification Tree 使用项目专用递归组件，不再使用 Ant Design Tree。它透明叠加在 Viewport 左侧，以节点图标为
+连接轴：Root 图标下方直接引出竖线，叶节点使用小连接点，可展开分支使用空心圆，展开后显示为十字方向四瓣节点。
+PartBody 中 Pad 会包含其消费的 Sketch。Properties/History 共用右侧可折叠
 Inspector。全局左下角 Document Orb 在文档中心和 Workbench 都存在，提供新建、查看已打开文档、切换和关闭文档。
+鼠标离开悬浮球及其 Popover 控制区域后，Popover 自动收起。
+
+没有选择对象时，Properties 显示当前 Workbench、Document/Workspace、权限、Head Version、Active Tool、Navigation、
+Undo/Redo、显示对象数、三角形数和实体渲染路径，作为开发阶段运行诊断面板。
 
 浏览器原生 Context Menu 在应用根节点统一抑制；自定义 Toolbar 方向菜单和未来 CAD Context Menu 仍可以接收并处理
 `contextmenu` 事件，不依赖浏览器菜单。
@@ -250,19 +262,49 @@ Resize 和按需 Render 前更新 Overlay Camera，Pointer Move 不触发 React 
 | Program | 当前用途 | 已预留能力 |
 |---|---|---|
 | `cad.background` | CATIA 风格蓝灰渐变和轻微 Vignette | Theme 切换 |
-| `cad.surface` | 灰色 CAD Surface、双向补光、Specular、Rim、Selection | Section Plane |
+| `cad.surface` | 自定义 Surface 实验程序和后续高级显示 | Section Plane |
 | `cad.edge` | 深色实体边线和橘色 Selection | Section Plane、隐藏线扩展 |
 | `cad.point` | 后续 Vertex/Constraint Point | Point Size、Section Plane |
 | `cad.overlay.line` | Navigation Cross/Rotation Sphere | Screen-space Gizmo |
 | `cad.overlay.solid` | Navigation Center Sphere | Screen-space Gizmo |
 
-`CadMaterialFactory` 是 Scene Object 获取材质的唯一应用层入口，并共享 Selection 和 Section Plane Uniform。
-当前渲染顺序为 Background Shader → Ground Grid/CAD Scene → Clear Depth → Navigation Overlay。实体使用
-`cad.surface` 实体填充材质，边线由独立 `cad.edge` pass 表现，不使用 wireframe 模式。底面保留低对比度 CAD 网格，
+`CadMaterialFactory` 是 Scene Object 获取材质的唯一应用层入口。当前稳定实体路径使用 Factory 创建的
+`MeshPhongMaterial`，由 Hemisphere/Key/Fill 三组光源提供可靠实体填充；不再让实体可见性依赖实验 Surface Shader。
+边线提取前先把 OCCT tessellation 的 position-only 副本焊接，再以 32° 阈值提取 Feature Edge，避免重复顶点被识别为
+三角边界而形成伪 wireframe。原始显示网格不会被焊接或改变。
+
+当前渲染顺序为 Background Shader → Ground Grid/CAD Scene → Clear Depth → Navigation Overlay。边线由独立
+`cad.edge` pass 表现，不使用 wireframe 模式。底面保留低对比度 CAD 网格，
 实体使用中性灰表面、深色边线、橘色选中和蓝灰渐变背景。后续剖切、点、隐藏线和边线增强继续注册 Shader Program，
 不修改 Navigation 或 Feature 业务代码。
 
-## 12. 前端开发与热更新
+## 12. Specification Tree 数据协议
+
+`DocumentView.structureTree` 是后端生成、前端渲染的递归树。每个节点包含：
+
+| Field | 语义 |
+|---|---|
+| `id` | 当前 View 内路径稳定的节点 ID |
+| `kind` | PART/PRODUCT/INSTANCE/ORIGIN/PLANE/BODY/SKETCH/PAD/IMPORT 等 |
+| `entityId` | 可用于 Selection/Command 的领域对象 ID |
+| `documentId` / `versionId` | 节点来源文档和实际解析版本 |
+| `documentType` | 引用节点是 Part 还是 Product |
+| `referenceMode` | FOLLOW_HEAD 或 PINNED |
+| `children` | 已解析的递归子树 |
+
+Product 获取时，后端递归读取引用文档结构：FOLLOW_HEAD 使用当前 Head，PINNED 使用记录的 Version；Product 引用
+Product 会继续展开，Part 会展开 Origin、Planes、PartBody 和 Feature。后端保留 cycle guard，前端不读取 Scene 来猜树。
+
+```mermaid
+flowchart LR
+    ProductView --> StructureTree
+    StructureTree --> Instance
+    Instance -->|documentId + resolved versionId| ReferencedDocument
+    ReferencedDocument --> PartTree[Part: Origin + PartBody + Features]
+    ReferencedDocument --> ProductTree[Product: Nested Instances]
+```
+
+## 13. 前端开发与热更新
 
 前端由 Vite 独立启动，React Fast Refresh 和 CSS HMR 默认启用：
 
@@ -285,8 +327,10 @@ VITE_WATCH_INTERVAL=100
 ```
 
 生产环境仍执行独立 `pnpm build`；后端不承担开发期前端编译和热更新。
+Viewport 对 Engine 类版本建立生命周期依赖；开发期修改 Renderer/Shader/Material 后会 dispose 旧 WebGL Engine、创建新
+Engine，并恢复当前 Document、Selection、Tool 和 Navigation Profile，避免 Fast Refresh 保留旧 GPU 材质。
 
-## 13. 已打开文档的服务端边界
+## 14. 已打开文档的服务端边界
 
 “已打开”是当前 API 服务进程中的用户会话状态，不是浏览器 Tab 状态，也不等同于数据库的 `last_opened_at`：
 
@@ -300,7 +344,36 @@ VITE_WATCH_INTERVAL=100
 当前注册表有并发保护，但随 API 进程重启而清空。未来多 API 实例部署时，应将同一 HTTP Contract 接到 Presence
 Service；不能用持久化文档历史替代临时在线状态。
 
-## 14. 兼容调整
+## 15. Part 参考几何与 GLB 扩展
+
+新建 Part 的 `model_json` 会立即持久化三项内容：XY/XZ/YZ 三个基准面（原点、法向、显示尺寸）、默认绝对轴系
+（原点及 X/Y/Z 单位方向）以及初始为空的 Feature 列表。这些参考对象不是 `GET Document` 时临时拼装的 UI 数据。
+
+每个 Part 版本始终拥有 `geometry_key`。无实体的 Part 使用 volume 为 0 的 reference-only geometry artifact；存在实体时，
+参考几何与 B-Rep、mesh 一起属于同一个 artifact。两类 GLB 都声明顶层扩展：
+
+```json
+{
+  "extensionsUsed": ["OCCCCAD_reference_geometry"],
+  "extensions": {
+    "OCCCCAD_reference_geometry": {
+      "datumPlanes": [],
+      "axisSystems": []
+    }
+  }
+}
+```
+
+该扩展属于显示层交换契约，不替代 OCCT B-Rep。Product 展开引用时通过 artifact 的 `referenceGeometry` 在实例局部坐标中
+渲染基准面和轴系，因此空 Part 插入装配后仍然可见。旧的空 Part 在首次读取时会补建 reference-only artifact 并关联原版本。
+
+## 16. 后端属性诊断接口
+
+`GET /api/documents/{documentID}/properties` 是默认属性面板的数据源。它返回当前版本、geometry artifact 明细和汇总、
+GLB/B-Rep 字节数、拓扑与三角网格数量、求值器版本、存储状态、产物 worker，以及当前 Geometry Worker 的 ID、OCCT
+版本和驻留几何数量。前端不再从 Three.js Scene 猜测这些后端状态。
+
+## 17. 兼容调整
 
 - 保留现有 Scene、Renderer、Raycaster、材质、按需渲染和动态裁剪面；
 - 保留 Zustand 作为 React 可观察的 Active Tool/Profile/Selection 真相，ToolManager 负责 Engine 内实际分发；
@@ -310,7 +383,7 @@ Service；不能用持久化文档历史替代临时在线状态。
 - 保留现有 Sketch Rectangle 后端命令和 API，不改变数据库 Undo/Redo 语义；
 - 未引入 R3F、第二个状态库或第二套 UI Design System。
 
-## 15. 验证和已知限制
+## 18. 验证和已知限制
 
 执行：
 
@@ -329,4 +402,6 @@ invoke web.build
 - Touch/Pen 会被 PointerEvent 正确归一化，但尚未定义专用手势 Profile；
 - TransformControls 仍是兼容适配层，还不是正式 MoveInstanceTool；
 - Selection 仍是 Object/Sketch/Datum 粒度，Face/Edge/Vertex ID Picking 和 Context Command 推导属于下一阶段；
+- Generative Shape Design 只有 Workbench/Toolbar 隔离边界，尚未实现曲面业务命令；
+- Product 内的引用 Part 树已可展开，但双击节点进入 in-context Part Edit 尚未接入编辑上下文和退出命令；
 - FloatingToolbar 已支持拖动、横竖切换和布局持久化；尚未实现工具栏互相避让、边缘 Dock 和跨设备布局同步。

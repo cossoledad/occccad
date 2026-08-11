@@ -183,6 +183,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/folders/{folderID}", server.deleteFolder)
 	mux.HandleFunc("GET /api/folders/{folderID}/breadcrumbs", server.folderBreadcrumbs)
 	mux.HandleFunc("GET /api/documents/{documentID}", server.getDocument)
+	mux.HandleFunc("GET /api/documents/{documentID}/properties", server.documentProperties)
 	mux.HandleFunc("GET /api/documents/{documentID}/preview", server.documentPreview)
 	mux.HandleFunc("PATCH /api/documents/{documentID}", server.updateDocument)
 	mux.HandleFunc("DELETE /api/documents/{documentID}", server.deleteDocument)
@@ -649,6 +650,51 @@ func (server *Server) getDocument(writer http.ResponseWriter, request *http.Requ
 		server.openDocuments.Open(principal(request).ID, result.Document)
 	}
 	server.writeDocumentResult(writer, request, result, err)
+}
+
+func (server *Server) documentProperties(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	view, err := server.workspace.GetDocument(request.Context(), request.PathValue("documentID"))
+	if err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	artifacts := make([]workspace.Artifact, 0, len(view.Artifacts)+1)
+	if view.Artifact != nil {
+		artifacts = append(artifacts, *view.Artifact)
+	}
+	for _, item := range view.Artifacts {
+		artifacts = append(artifacts, item)
+	}
+	triangles, vertices, solids, glbBytes, brepBytes := 0, 0, 0, 0, 0
+	for _, item := range artifacts {
+		triangles += len(item.Mesh.Triangles)
+		vertices += len(item.Mesh.Vertices)
+		if value, ok := item.Topology["solids"].(float64); ok {
+			solids += int(value)
+		}
+		glbBytes += item.GLBBytes
+		brepBytes += item.BRepBytes
+	}
+	worker := map[string]any{"available": false}
+	if server.worker != nil {
+		if ping, pingErr := server.worker.Ping(request.Context()); pingErr == nil {
+			worker = map[string]any{"available": true, "workerId": ping.GetWorkerId(),
+				"occtVersion": ping.GetOcctVersion(), "residentGeometryCount": ping.GetResidentGeometryCount()}
+		} else {
+			worker["error"] = pingErr.Error()
+		}
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{
+		"documentId": view.Document.ID, "versionId": view.Document.VersionID,
+		"documentType": view.Document.Type, "units": "mm", "artifacts": artifacts,
+		"aggregate": map[string]any{"artifactCount": len(artifacts), "triangleCount": triangles,
+			"vertexCount": vertices, "solidCount": solids, "glbBytes": glbBytes, "brepBytes": brepBytes,
+			"resolvedInstanceCount": len(view.ResolvedInstances)},
+		"worker": worker,
+	})
 }
 
 func (server *Server) applyCommand(writer http.ResponseWriter, request *http.Request) {

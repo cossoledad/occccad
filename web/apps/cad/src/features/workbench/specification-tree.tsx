@@ -1,11 +1,14 @@
-import { CaretDownOutlined, CaretRightOutlined } from "@ant-design/icons";
-import { useEffect, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 export type SpecificationTreeNode = {
   key: string;
   title: ReactNode;
   icon?: ReactNode;
   children?: SpecificationTreeNode[];
+  kind?: string;
+  entityId?: string;
+  documentId?: string;
+  plane?: string;
 };
 
 function branchKeys(nodes: SpecificationTreeNode[], result = new Set<string>()): Set<string> {
@@ -21,11 +24,18 @@ function branchKeys(nodes: SpecificationTreeNode[], result = new Set<string>()):
 export function SpecificationTree({ nodes, selectedKey, onSelect }: {
   nodes: SpecificationTreeNode[];
   selectedKey?: string;
-  onSelect: (key: string) => void;
+  onSelect: (node: SpecificationTreeNode) => void;
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(() => branchKeys(nodes));
+  const initialBranches = branchKeys(nodes);
+  const knownBranches = useRef(initialBranches);
+  const [expanded, setExpanded] = useState<Set<string>>(() => initialBranches);
   useEffect(() => {
-    setExpanded((current) => new Set([...current, ...branchKeys(nodes)]));
+    const currentBranches = branchKeys(nodes);
+    setExpanded((current) => new Set([
+      ...[...current].filter((key) => currentBranches.has(key)),
+      ...[...currentBranches].filter((key) => !knownBranches.current.has(key)),
+    ]));
+    knownBranches.current = currentBranches;
   }, [nodes]);
 
   const toggle = (key: string) => setExpanded((current) => {
@@ -34,7 +44,7 @@ export function SpecificationTree({ nodes, selectedKey, onSelect }: {
     return next;
   });
   const keyboardSelect = (event: KeyboardEvent, node: SpecificationTreeNode) => {
-    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(node.key); }
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(node); }
     if (event.key === "ArrowRight" && node.children?.length) setExpanded((current) => new Set(current).add(node.key));
     if (event.key === "ArrowLeft" && node.children?.length) setExpanded((current) => {
       const next = new Set(current); next.delete(node.key); return next;
@@ -45,15 +55,17 @@ export function SpecificationTree({ nodes, selectedKey, onSelect }: {
     className={`specification-tree-level ${nested ? "nested" : "root"}`} role={nested ? "group" : "tree"}>
     {items.map((node) => {
       const hasChildren = Boolean(node.children?.length);
-      const isExpanded = hasChildren && expanded.has(node.key);
+      const isExpanded = hasChildren && (!nested || expanded.has(node.key));
       return <li className="specification-tree-node" key={node.key}>
         <div className={`specification-tree-row ${selectedKey === node.key ? "selected" : ""}`}
           role="treeitem" aria-expanded={hasChildren ? isExpanded : undefined} aria-selected={selectedKey === node.key}
-          tabIndex={0} onClick={() => onSelect(node.key)} onKeyDown={(event) => keyboardSelect(event, node)}>
-          {hasChildren ? <button className="specification-tree-toggle" tabIndex={-1} aria-label={isExpanded ? "折叠" : "展开"}
+          tabIndex={0} onClick={() => onSelect(node)} onKeyDown={(event) => keyboardSelect(event, node)}>
+          {!nested ? <span className="specification-tree-root-anchor" /> : hasChildren
+            ? <button className={`specification-tree-junction branch ${isExpanded ? "expanded" : "collapsed"}`}
+              tabIndex={-1} aria-label={isExpanded ? "折叠" : "展开"}
             onClick={(event) => { event.stopPropagation(); toggle(node.key); }}>
-            {isExpanded ? <CaretDownOutlined /> : <CaretRightOutlined />}
-          </button> : <span className="specification-tree-leaf" />}
+              {isExpanded && <><i /><i /><i /><i /></>}
+            </button> : <span className="specification-tree-junction leaf" />}
           <span className="specification-tree-icon">{node.icon}</span>
           <span className="specification-tree-label">{node.title}</span>
         </div>

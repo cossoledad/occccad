@@ -39,8 +39,13 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
     }, props.commandRegistry);
     engine.current = instance;
+    instance.render(callbacks.current.view);
+    instance.select(callbacks.current.selection, false);
+    if (callbacks.current.sketchPlane) instance.beginSketch(callbacks.current.sketchPlane);
+    instance.setActiveTool(callbacks.current.activeToolID);
+    instance.setNavigationProfile(callbacks.current.navigationProfile);
     return () => { instance.dispose(); engine.current = undefined; };
-  }, []);
+  }, [props.commandRegistry, CadViewportEngine]);
 
   useEffect(() => { engine.current?.render(props.view); }, [props.view]);
   useEffect(() => { engine.current?.select(props.selection, false); }, [props.selection]);

@@ -3,17 +3,20 @@ package geometry
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 )
 
 type Client struct {
 	connection *grpc.ClientConn
 	worker     workerv1.GeometryWorkerClient
+	workers    sync.Map
 }
 
 type RectangularPad struct {
@@ -42,6 +45,23 @@ func (client *Client) Ping(ctx context.Context) (*workerv1.PingResponse, error) 
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	return client.worker.Ping(ctx, &workerv1.PingRequest{})
+}
+
+func (client *Client) WorkerFor(geometryKey string) string {
+	if value, ok := client.workers.Load(geometryKey); ok {
+		return value.(string)
+	}
+	return ""
+}
+
+func (client *Client) rememberWorker(ctx context.Context, geometryKey string, header metadata.MD) {
+	if values := header.Get("x-occccad-worker-id"); len(values) > 0 && values[0] != "" {
+		client.workers.Store(geometryKey, values[0])
+		return
+	}
+	if ping, err := client.worker.Ping(ctx, &workerv1.PingRequest{}); err == nil && ping.GetWorkerId() != "" {
+		client.workers.Store(geometryKey, ping.GetWorkerId())
+	}
 }
 
 func (client *Client) EvaluateRectangularPad(
@@ -77,15 +97,17 @@ func (client *Client) EvaluatePart(
 			Height: pad.Height, PadLength: pad.Length, Units: "mm", Plane: pad.Plane,
 		})
 	}
+	var header metadata.MD
 	response, err := client.worker.EvaluatePart(ctx, &workerv1.EvaluatePartRequest{
 		RequestId: requestID, GeometryKey: geometryKey,
 		RectangularPads: protoPads, BaseBrepData: baseBRep,
 		LinearDeflection:  0.1,
 		AngularDeflection: 0.5,
-	})
+	}, grpc.Header(&header))
 	if err != nil {
 		return nil, fmt.Errorf("evaluate Part feature chain: %w", err)
 	}
+	client.rememberWorker(ctx, geometryKey, header)
 	return response, nil
 }
 
@@ -94,13 +116,15 @@ func (client *Client) ImportStep(
 ) (*workerv1.EvaluatePartResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
+	var header metadata.MD
 	response, err := client.worker.ImportStep(ctx, &workerv1.ImportStepRequest{
 		RequestId: requestID, GeometryKey: geometryKey, FileName: fileName, StepData: data,
 		LinearDeflection: 0.1, AngularDeflection: 0.5,
-	})
+	}, grpc.Header(&header))
 	if err != nil {
 		return nil, fmt.Errorf("import STEP: %w", err)
 	}
+	client.rememberWorker(ctx, geometryKey, header)
 	return response, nil
 }
 

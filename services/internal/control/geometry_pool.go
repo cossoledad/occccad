@@ -309,6 +309,7 @@ func (pool *GeometryPool) EvaluatePart(ctx context.Context, request *workerv1.Ev
 	if err != nil {
 		return nil, err
 	}
+	_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
 	response, err := client.EvaluatePart(outgoing(ctx), request)
 	pool.release(worker, request.GetGeometryKey(), err == nil)
 	if err == nil {
@@ -321,6 +322,7 @@ func (pool *GeometryPool) ImportStep(ctx context.Context, request *workerv1.Impo
 	if err != nil {
 		return nil, err
 	}
+	_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
 	response, err := client.ImportStep(outgoing(ctx), request)
 	pool.release(worker, request.GetGeometryKey(), err == nil)
 	if err == nil {

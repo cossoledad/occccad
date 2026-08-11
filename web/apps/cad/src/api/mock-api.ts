@@ -1,6 +1,6 @@
 import type { CadApi } from "../api";
 import type {
-  Artifact, DocumentSummary, DocumentView, Feature, FolderSummary, HistoryEntry, Job,
+  Artifact, DocumentProperties, DocumentStructureNode, DocumentSummary, DocumentView, Feature, FolderSummary, HistoryEntry, Job,
   ProductInstance, ShareGrant, User, Vec2, Vec3,
 } from "../types";
 
@@ -8,6 +8,13 @@ const pause = async <T>(value: T, milliseconds = 90): Promise<T> =>
   new Promise((resolve) => window.setTimeout(() => resolve(structuredClone(value)), milliseconds));
 const now = (): string => new Date().toISOString();
 const id = (prefix: string): string => `${prefix}-${crypto.randomUUID()}`;
+const datumPlanes = [
+  { id: "datum-xy", name: "XY Plane", plane: "XY" as const, origin: [0, 0, 0] as Vec3, normal: [0, 0, 1] as Vec3, size: 180 },
+  { id: "datum-xz", name: "XZ Plane", plane: "XZ" as const, origin: [0, 0, 0] as Vec3, normal: [0, 1, 0] as Vec3, size: 180 },
+  { id: "datum-yz", name: "YZ Plane", plane: "YZ" as const, origin: [0, 0, 0] as Vec3, normal: [1, 0, 0] as Vec3, size: 180 },
+];
+const axisSystems = [{ id: "axis-system-default", name: "Absolute Axis System", origin: [0, 0, 0] as Vec3,
+  xDirection: [1, 0, 0] as Vec3, yDirection: [0, 1, 0] as Vec3, zDirection: [0, 0, 1] as Vec3 }];
 
 const administrator: User = {
   id: "mock-admin", email: "admin@occccad.local", displayName: "CAD Designer",
@@ -30,7 +37,9 @@ function boxArtifact(key: string, size: Vec3): Artifact {
     },
     bbox: { min: [0, 0, 0], max: size },
     topology: { faces: 6, edges: 12, vertices: 8, solids: 1 },
-    volume: x * y * z, occtVersion: "mock-7.9.1", glbBytes: 0,
+    volume: x * y * z, occtVersion: "mock-7.9.1", glbBytes: 4096, brepBytes: 2048,
+    evaluatorVersion: "mock-v1", workerId: "mock-geometry-1", storageState: "DATABASE", createdAt: now(),
+    referenceGeometry: { datumPlanes, axisSystems },
   };
 }
 
@@ -53,9 +62,8 @@ const summaries: DocumentSummary[] = [
 const views = new Map<string, DocumentView>([
   [partID, {
     document: summaries[0],
-    datumPlanes: [{ id: "datum-xy", name: "XY Plane", plane: "XY" },
-      { id: "datum-xz", name: "XZ Plane", plane: "XZ" }, { id: "datum-yz", name: "YZ Plane", plane: "YZ" }],
-    part: { units: "mm", features: [
+    datumPlanes, axisSystems,
+    part: { units: "mm", datumPlanes, axisSystems, features: [
       { id: "mock-sketch-1", type: "RECTANGLE_SKETCH", name: "Sketch 1", plane: "XY", rectangle: { origin: [0, 0], width: 72, height: 38 } },
       { id: "mock-pad-1", type: "PAD", name: "Extrude 1", profile: "mock-sketch-1", length: 16, operation: "ADD" },
     ] },
@@ -96,9 +104,52 @@ const folders: FolderSummary[] = [{
 const shares: ShareGrant[] = [];
 const jobs = new Map<string, Job>();
 
+function mockStructure(view: DocumentView, path = `document:${view.document.id}`, visiting = new Set<string>()): DocumentStructureNode {
+  if (visiting.has(view.document.id)) return { id: path, kind: "REFERENCE_CYCLE", name: view.document.name,
+    documentId: view.document.id, documentType: view.document.type, versionId: view.document.versionId };
+  const nextVisiting = new Set(visiting).add(view.document.id);
+  if (view.document.type === "PART") {
+    const features = view.part?.features ?? [];
+    const sketches = new Map(features.filter((feature) => feature.type.toUpperCase().includes("SKETCH"))
+      .map((feature) => [feature.id, feature]));
+    const consumed = new Set(features.filter((feature) => feature.type.toUpperCase() === "PAD" && feature.profile)
+      .map((feature) => feature.profile!));
+    const featureNode = (feature: Feature, parent: string): DocumentStructureNode => ({
+      id: `${parent}/${feature.type.toLowerCase()}:${feature.id}`,
+      kind: feature.type.toUpperCase().includes("SKETCH") ? "SKETCH" : feature.type.toUpperCase() === "PAD" ? "PAD" : "IMPORT",
+      name: feature.name ?? feature.type, entityId: feature.id, documentId: view.document.id, versionId: view.document.versionId,
+    });
+    const bodyChildren = features.filter((feature) => !consumed.has(feature.id)).map((feature) => {
+      const node = featureNode(feature, `${path}/body`);
+      const sketch = feature.profile ? sketches.get(feature.profile) : undefined;
+      if (sketch) node.children = [featureNode(sketch, node.id)];
+      return node;
+    });
+    return { id: path, kind: "PART", name: view.document.name, documentId: view.document.id,
+      documentType: "PART", versionId: view.document.versionId, children: [
+        { id: `${path}/origin`, kind: "ORIGIN", name: "Origin", documentId: view.document.id, children: [
+          ...(view.datumPlanes ?? []).map((plane) => ({ id: `${path}/origin/plane:${plane.id}`, kind: "PLANE" as const,
+            name: plane.name, entityId: plane.id, documentId: view.document.id, plane: plane.plane })),
+          ...(view.axisSystems ?? []).map((axis) => ({ id: `${path}/origin/axis:${axis.id}`, kind: "AXIS_SYSTEM" as const,
+            name: axis.name, entityId: axis.id, documentId: view.document.id })),
+        ] },
+        { id: `${path}/body`, kind: "BODY", name: "PartBody", documentId: view.document.id, children: bodyChildren },
+      ] };
+  }
+  return { id: path, kind: "PRODUCT", name: view.document.name, documentId: view.document.id,
+    documentType: "PRODUCT", versionId: view.document.versionId, children: (view.product?.instances ?? []).map((instance) => {
+      const referenced = views.get(instance.documentId);
+      const referenceTree = referenced ? mockStructure(referenced, `${path}/instance:${instance.id}/reference`, nextVisiting) : undefined;
+      return { id: `${path}/instance:${instance.id}`, kind: "INSTANCE", name: instance.name,
+        entityId: instance.id, documentId: instance.documentId, documentType: referenced?.document.type,
+        versionId: instance.versionId, referenceMode: instance.referenceMode ?? "FOLLOW_HEAD", children: referenceTree?.children };
+    }) };
+}
+
 function getView(documentID: string): DocumentView {
   const view = views.get(documentID);
   if (!view) throw new Error("文档不存在");
+  view.structureTree = mockStructure(view);
   return view;
 }
 
@@ -219,6 +270,17 @@ export const mockApi: CadApi = {
   },
   deleteFolder: async (folderID) => { const index = folders.findIndex((folder) => folder.id === folderID); if (index >= 0) folders.splice(index, 1); },
   getDocument: async (documentID) => { markDocumentOpen(documentID); return pause(getView(documentID)); },
+  getDocumentProperties: async (documentID): Promise<DocumentProperties> => {
+    const view = getView(documentID);
+    const artifacts = view.artifact ? [view.artifact] : Object.values(view.artifacts ?? {});
+    return pause({ documentId: documentID, versionId: view.document.versionId, documentType: view.document.type, units: "mm", artifacts,
+      aggregate: { artifactCount: artifacts.length, triangleCount: artifacts.reduce((sum, item) => sum + item.mesh.triangles.length, 0),
+        vertexCount: artifacts.reduce((sum, item) => sum + item.mesh.vertices.length, 0),
+        solidCount: artifacts.reduce((sum, item) => sum + item.topology.solids, 0),
+        glbBytes: artifacts.reduce((sum, item) => sum + item.glbBytes, 0), brepBytes: artifacts.reduce((sum, item) => sum + item.brepBytes, 0),
+        resolvedInstanceCount: view.resolvedInstances?.length ?? 0 },
+      worker: { available: true, workerId: "mock-geometry-1", occtVersion: "mock-7.9.1", residentGeometryCount: artifacts.length } });
+  },
   getHistory: async (documentID) => pause(histories.get(documentID) ?? []),
   createVersion: async (documentID, name) => {
     const entries = histories.get(documentID) ?? []; const head = entries.find((entry) => entry.isHead);
@@ -228,9 +290,8 @@ export const mockApi: CadApi = {
     const document: DocumentSummary = { id: id("mock-document"), name, description, type, versionId: id("mock-version"),
       canUndo: false, canRedo: false, createdAt: now(), lastUpdated: now(), folderId: folderID,
       workspaceName: "Main", permission: "OWNER" };
-    const view: DocumentView = type === "PART" ? { document, datumPlanes: [
-      { id: "datum-xy", name: "XY Plane", plane: "XY" }, { id: "datum-xz", name: "XZ Plane", plane: "XZ" },
-      { id: "datum-yz", name: "YZ Plane", plane: "YZ" }], part: { units: "mm", features: [] } }
+    const view: DocumentView = type === "PART" ? { document, datumPlanes, axisSystems,
+      part: { units: "mm", datumPlanes, axisSystems, features: [] } }
       : { document, product: { instances: [] }, artifacts: {}, resolvedInstances: [] };
     summaries.unshift(document); views.set(document.id, view); histories.set(document.id, []); markDocumentOpen(document.id); return pause(view);
   },

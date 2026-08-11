@@ -1,4 +1,4 @@
-import type { AuditEvent, DocumentPage, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, Team, User, Vec2, Vec3 } from "./types";
+import type { AuditEvent, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, Team, User, Vec2, Vec3 } from "./types";
 
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 export const apiURL = (path: string): string => `${apiBaseURL}${path}`;
@@ -111,6 +111,7 @@ export const restApi = {
     }
   },
   getDocument: (id: string) => request<DocumentView>(`/api/documents/${id}`),
+  getDocumentProperties: (id: string) => request<DocumentProperties>(`/api/documents/${id}/properties`),
   getHistory: async (id: string): Promise<HistoryEntry[]> =>
     (await request<{ workspace: string; history: HistoryEntry[] }>(`/api/documents/${id}/history`)).history,
   createVersion: async (id: string, name: string, description = ""): Promise<HistoryEntry[]> =>

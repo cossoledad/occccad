@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
+import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { CommandRegistry } from "../cad/command/command-registry";
 import { InputManager } from "../cad/input/input-manager";
 import type { InputState } from "../cad/input/input-types";
@@ -17,7 +18,7 @@ import { ShortcutManager } from "../cad/shortcut/shortcut-manager";
 import { RectangleSketchTool, SelectTool, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
-  Artifact, DocumentView, Feature, PlaneName, RectangleDraft, Selection, Vec2, Vec3,
+  Artifact, AxisSystem, DatumPlane, DocumentView, Feature, PlaneName, RectangleDraft, ReferenceGeometry, Selection, Vec2, Vec3,
 } from "../types";
 
 type Callbacks = {
@@ -69,6 +70,21 @@ function makeGeometry(artifact: Artifact): THREE.BufferGeometry {
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
   return geometry;
+}
+
+function makeFeatureEdges(geometry: THREE.BufferGeometry): THREE.EdgesGeometry {
+  // OCCT tessellation can repeat the same vertex for adjacent triangles/faces.
+  // EdgesGeometry interprets those repetitions as open triangle boundaries and
+  // makes a shaded solid look like a wireframe. Weld position-only geometry
+  // before extracting display edges; keep the original mesh untouched.
+  const edgeSource = new THREE.BufferGeometry();
+  edgeSource.setAttribute("position", geometry.getAttribute("position").clone());
+  if (geometry.index) edgeSource.setIndex(geometry.index.clone());
+  const welded = mergeVertices(edgeSource, 1.0e-4);
+  const edges = new THREE.EdgesGeometry(welded, 32);
+  edgeSource.dispose();
+  welded.dispose();
+  return edges;
 }
 
 export class CadViewportEngine {
@@ -142,6 +158,12 @@ export class CadViewportEngine {
     groundGrid.material = groundMaterial as unknown as THREE.LineBasicMaterial;
     groundGrid.renderOrder = -10;
     this.environment.add(groundGrid);
+    const hemisphere = new THREE.HemisphereLight(0xf4f7f8, 0x405261, 2.25);
+    const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
+    keyLight.position.set(-3, -4, 7);
+    const fillLight = new THREE.DirectionalLight(0xadc9d8, 1.25);
+    fillLight.position.set(5, 2, 3);
+    this.environment.add(hemisphere, keyLight, fillLight);
     this.scene.add(this.environment, this.content, this.helpers);
 
     const navigationPicker = new NavigationPicker(
@@ -308,11 +330,12 @@ export class CadViewportEngine {
   }
 
   private renderPart(view: DocumentView): void {
-    for (const datum of view.datumPlanes ?? []) this.addDatumPlane(datum.id, datum.plane);
+    for (const datum of view.datumPlanes ?? []) this.addDatumPlane(datum, this.helpers, true);
+    for (const axis of view.axisSystems ?? []) this.addAxisSystem(axis, this.helpers);
     for (const feature of view.part?.features ?? []) {
       if (feature.type.toUpperCase().includes("SKETCH")) this.addSketch(feature);
     }
-    if (view.artifact) {
+    if (view.artifact && view.artifact.mesh.triangles.length > 0) {
       const solid = this.makeSolid(view.artifact, CATIA_VISUAL_THEME.surface);
       solid.userData = { kind: "solid", id: "body-1" };
       this.content.add(solid);
@@ -334,14 +357,19 @@ export class CadViewportEngine {
         if (!resolved.id.startsWith(prefix)) continue;
         const artifact = view.artifacts?.[resolved.geometryKey];
         if (!artifact) continue;
-        const solid = this.makeSolid(artifact, CATIA_VISUAL_THEME.productSurface);
-        solid.position.set(
+        const resolvedGroup = new THREE.Group();
+        resolvedGroup.position.set(
           resolved.translation[0] - instance.translation[0],
           resolved.translation[1] - instance.translation[1],
           resolved.translation[2] - instance.translation[2],
         );
-        solid.userData = { kind: "instance", id: instance.id };
-        group.add(solid);
+        if (artifact.mesh.triangles.length > 0) {
+          const solid = this.makeSolid(artifact, CATIA_VISUAL_THEME.productSurface);
+          solid.userData = { kind: "instance", id: instance.id };
+          resolvedGroup.add(solid);
+        }
+        this.addReferenceGeometry(artifact.referenceGeometry, resolvedGroup);
+        if (resolvedGroup.children.length > 0) group.add(resolvedGroup);
       }
       if (group.children.length === 0) {
         const placeholder = new THREE.Mesh(
@@ -355,8 +383,9 @@ export class CadViewportEngine {
     }
   }
 
-  private addDatumPlane(id: string, plane: PlaneName): void {
-    const geometry = new THREE.PlaneGeometry(180, 180);
+  private addDatumPlane(datum: DatumPlane, parent: THREE.Group, selectable: boolean): void {
+    const { id, plane } = datum;
+    const geometry = new THREE.PlaneGeometry(datum.size || 180, datum.size || 180);
     if (plane === "XZ") geometry.rotateX(Math.PI / 2);
     if (plane === "YZ") geometry.rotateY(Math.PI / 2);
     const material = new THREE.MeshBasicMaterial({
@@ -364,14 +393,39 @@ export class CadViewportEngine {
       side: THREE.DoubleSide, depthWrite: false,
     });
     const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.fromArray(datum.origin);
     mesh.userData = { kind: "plane", id, plane };
     const edge = new THREE.LineSegments(
       new THREE.EdgesGeometry(geometry),
       new THREE.LineBasicMaterial({ color: planeColors[plane], transparent: true, opacity: 0.5 }),
     );
     mesh.add(edge);
-    this.helpers.add(mesh);
-    this.selectable.set(`plane:${id}`, mesh);
+    parent.add(mesh);
+    if (selectable) this.selectable.set(`plane:${id}`, mesh);
+  }
+
+  private addAxisSystem(axis: AxisSystem, parent: THREE.Group): void {
+    const length = 38;
+    const origin = new THREE.Vector3().fromArray(axis.origin);
+    const vertices: number[] = [];
+    for (const direction of [axis.xDirection, axis.yDirection, axis.zDirection]) {
+      vertices.push(origin.x, origin.y, origin.z,
+        origin.x + direction[0] * length, origin.y + direction[1] * length, origin.z + direction[2] * length);
+    }
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute("color", new THREE.Float32BufferAttribute([
+      0.9, 0.18, 0.14, 0.9, 0.18, 0.14, 0.16, 0.72, 0.28, 0.16, 0.72, 0.28, 0.18, 0.42, 0.92, 0.18, 0.42, 0.92,
+    ], 3));
+    const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }));
+    lines.userData = { kind: "reference-axis", id: axis.id };
+    parent.add(lines);
+  }
+
+  private addReferenceGeometry(reference: ReferenceGeometry | undefined, parent: THREE.Group): void {
+    if (!reference) return;
+    for (const datum of reference.datumPlanes ?? []) this.addDatumPlane(datum, parent, false);
+    for (const axis of reference.axisSystems ?? []) this.addAxisSystem(axis, parent);
   }
 
   private addSketch(feature: Feature): void {
@@ -402,9 +456,19 @@ export class CadViewportEngine {
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     const edges = new THREE.LineSegments(
-      new THREE.EdgesGeometry(geometry, 24), this.materials.edge(),
+      makeFeatureEdges(geometry), this.materials.edge(),
     );
-    group.add(mesh, edges);
+    const triangleCount = geometry.index ? geometry.index.count / 3 : geometry.getAttribute("position").count / 3;
+    const edgeSegmentCount = edges.geometry.getAttribute("position").count / 2;
+    // A dense edge pass means tessellation seams still dominate the result.
+    // Keep the solid and drop that pass instead of presenting a wireframe.
+    if (triangleCount >= 64 && edgeSegmentCount > triangleCount * 0.45) {
+      edges.geometry.dispose();
+      (edges.material as THREE.Material).dispose();
+      group.add(mesh);
+    } else {
+      group.add(mesh, edges);
+    }
     return group;
   }
 

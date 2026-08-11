@@ -8,12 +8,14 @@ export class CadMaterialFactory {
 
   constructor(readonly shaders: CadShaderLibrary, readonly theme = CATIA_VISUAL_THEME) {}
 
-  surface(color: number = this.theme.surface): THREE.ShaderMaterial {
-    const material = this.withSharedCadUniforms(this.shaders.createMaterial("cad.surface", {
-      uBaseColor: new THREE.Color(color),
-      uSelectedColor: new THREE.Color(this.theme.selected),
-    }));
-    material.wireframe = false;
+  surface(color: number = this.theme.surface): THREE.MeshPhongMaterial {
+    const material = new THREE.MeshPhongMaterial({
+      color, specular: 0x76848b, shininess: 46, side: THREE.DoubleSide,
+      wireframe: false, depthTest: true, depthWrite: true,
+      polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+    });
+    material.userData.cadMaterial = "surface";
+    material.userData.baseColor = color;
     return material;
   }
 
@@ -40,9 +42,15 @@ export class CadMaterialFactory {
       const renderable = child as THREE.Mesh | THREE.LineSegments;
       const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material];
       for (const material of materials) {
-        if (!(material instanceof THREE.ShaderMaterial)) continue;
-        const selectedUniform = material.uniforms.uSelected;
-        if (selectedUniform) selectedUniform.value = selected ? 1 : 0;
+        if (material instanceof THREE.MeshPhongMaterial && material.userData.cadMaterial === "surface") {
+          const baseColor = Number(material.userData.baseColor ?? this.theme.surface);
+          material.color.setHex(selected ? this.theme.selected : baseColor);
+          material.emissive.setHex(selected ? 0x3d2100 : 0x000000);
+          material.emissiveIntensity = selected ? 0.32 : 0;
+        } else if (material instanceof THREE.ShaderMaterial) {
+          const selectedUniform = material.uniforms.uSelected;
+          if (selectedUniform) selectedUniform.value = selected ? 1 : 0;
+        }
       }
     });
   }

@@ -1,9 +1,35 @@
 package workspace
 
 import (
+	"encoding/binary"
+	"encoding/json"
 	"strings"
 	"testing"
 )
+
+func TestDefaultPartReferenceGeometryAndGLBExtension(t *testing.T) {
+	t.Parallel()
+	model := newPartModel()
+	if len(model.DatumPlanes) != 3 || len(model.AxisSystems) != 1 {
+		t.Fatalf("a new Part must own three planes and one axis system: %#v", model)
+	}
+	glb, err := glbWithReferenceGeometry(nil, referenceGeometry(model))
+	if err != nil {
+		t.Fatalf("encode reference GLB: %v", err)
+	}
+	if binary.LittleEndian.Uint32(glb[:4]) != 0x46546c67 {
+		t.Fatal("missing GLB magic")
+	}
+	jsonLength := int(binary.LittleEndian.Uint32(glb[12:16]))
+	var document map[string]any
+	if err := json.Unmarshal(glb[20:20+jsonLength], &document); err != nil {
+		t.Fatalf("decode GLB JSON: %v", err)
+	}
+	extensions, ok := document["extensions"].(map[string]any)
+	if !ok || extensions[referenceGeometryExtension] == nil {
+		t.Fatalf("GLB does not contain %s", referenceGeometryExtension)
+	}
+}
 
 func TestPartSketchAndPadCommands(t *testing.T) {
 	t.Parallel()
@@ -25,6 +51,29 @@ func TestPartSketchAndPadCommands(t *testing.T) {
 	}
 	if len(model.Features) != 2 || model.Features[1].Profile != sketchID || model.Features[1].Length != 35 {
 		t.Fatalf("unexpected pad model: %#v", model.Features)
+	}
+}
+
+func TestPartStructureNestsConsumedSketchUnderPad(t *testing.T) {
+	t.Parallel()
+	model := PartModel{Units: "mm", Features: []Feature{
+		{ID: "sketch-1", Type: "RECTANGLE_SKETCH", Name: "Sketch 1"},
+		{ID: "pad-1", Type: "PAD", Name: "Pad 1", Profile: "sketch-1"},
+		{ID: "sketch-2", Type: "RECTANGLE_SKETCH", Name: "Sketch 2"},
+	}}
+	children := partStructureChildren(model, "document:part-1", "part-1", "version-1")
+	if len(children) != 2 || children[1].Kind != "BODY" || len(children[1].Children) != 2 {
+		t.Fatalf("unexpected part structure: %#v", children)
+	}
+	pad := children[1].Children[0]
+	if pad.Kind != "PAD" || len(pad.Children) != 1 || pad.Children[0].EntityID != "sketch-1" {
+		t.Fatalf("pad must own its consumed sketch: %#v", pad)
+	}
+	if children[1].Children[1].EntityID != "sketch-2" {
+		t.Fatalf("unconsumed sketch must remain in PartBody: %#v", children[1].Children)
+	}
+	if len(children[0].Children) != 4 || children[0].Children[3].Kind != "AXIS_SYSTEM" {
+		t.Fatalf("Origin must contain three planes and one axis system: %#v", children[0])
 	}
 }
 

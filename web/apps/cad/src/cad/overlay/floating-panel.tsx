@@ -17,8 +17,8 @@ export function FloatingPanel({ className = "", title, position = "top-left", ch
 type ToolbarOrientation = "horizontal" | "vertical";
 type ToolbarLayout = { x?: number; y?: number; orientation: ToolbarOrientation };
 
-export function FloatingToolbar({ children, id, orientation = "horizontal", position = "top-center", className = "" }:
-  FloatingPanelProps & { id: string; orientation?: ToolbarOrientation }) {
+export function FloatingToolbar({ children, id, label, orientation = "horizontal", position = "top-center", className = "" }:
+  FloatingPanelProps & { id: string; label?: string; orientation?: ToolbarOrientation }) {
   const storageKey = `occccad.toolbar.${id}`;
   const [layout, setLayout] = useState<ToolbarLayout>(() => {
     try {
@@ -81,9 +81,10 @@ export function FloatingToolbar({ children, id, orientation = "horizontal", posi
     persist({ ...layout, orientation: layout.orientation === "horizontal" ? "vertical" : "horizontal" });
   };
 
-  return <section ref={toolbar} style={style}
+  return <section ref={toolbar} style={style} aria-label={label}
     className={`cad-floating-panel cad-floating-toolbar ${placed ? "custom-position" : position} ${layout.orientation} ${className}`.trim()}>
-    <button className="cad-toolbar-handle" aria-label="拖动工具栏；右键切换方向" title="拖动工具栏 · 右键切换横竖方向"
+    <button className="cad-toolbar-handle" aria-label={`拖动${label ?? "工具栏"}；右键切换方向`}
+      title={`${label ? `${label} · ` : ""}拖动工具栏 · 右键切换横竖方向`}
       onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp}
       onLostPointerCapture={pointerUp}
       onContextMenu={toggleOrientation}><span /><span /><span /></button>

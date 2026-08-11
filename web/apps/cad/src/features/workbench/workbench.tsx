@@ -18,8 +18,9 @@ import { CommandProvider } from "../../cad/command/command-context";
 import { CommandRegistry } from "../../cad/command/command-registry";
 import { FloatingToolbar, ToolbarGroup, ToolbarSeparator } from "../../cad/overlay/floating-panel";
 import { ToolButton } from "../../cad/overlay/tool-button";
+import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
 import { useWorkbenchStore } from "../../state/workbench-store";
-import type { DocumentView, Feature, HistoryEntry, PlaneName, RectangleDraft, Selection, Vec3 } from "../../types";
+import type { DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, PlaneName, RectangleDraft, Selection, Vec3 } from "../../types";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 
@@ -38,7 +39,32 @@ function featureNode(feature: Feature): SpecificationTreeNode {
   };
 }
 
+function structureIcon(kind: DocumentStructureNode["kind"]) {
+  if (kind === "PRODUCT") return <ApartmentOutlined />;
+  if (kind === "PART" || kind === "INSTANCE") return <BuildOutlined />;
+  if (kind === "ORIGIN") return <GatewayOutlined />;
+  if (kind === "PLANE") return <NodeIndexOutlined />;
+  if (kind === "AXIS_SYSTEM") return <AimOutlined />;
+  if (kind === "BODY") return <DatabaseOutlined />;
+  if (kind === "SKETCH") return <ScissorOutlined />;
+  if (kind === "PAD") return <InsertRowAboveOutlined />;
+  return <CloudUploadOutlined />;
+}
+
+function mapStructureNode(node: DocumentStructureNode, currentDocumentID: string): SpecificationTreeNode {
+  let key = node.id;
+  if (node.kind === "INSTANCE" && node.entityId) key = `instance:${node.entityId}`;
+  else if (node.documentId === currentDocumentID && node.entityId) {
+    if (node.kind === "PLANE") key = `plane:${node.entityId}:${node.plane}`;
+    else if (["SKETCH", "PAD", "IMPORT"].includes(node.kind)) key = `${node.kind.toLowerCase()}:${node.entityId}`;
+  }
+  return { key, title: node.name, icon: structureIcon(node.kind), kind: node.kind,
+    entityId: node.entityId, documentId: node.documentId, plane: node.plane,
+    children: node.children?.map((child) => mapStructureNode(child, currentDocumentID)) };
+}
+
 function treeData(view: DocumentView): SpecificationTreeNode[] {
+  if (view.structureTree) return [mapStructureNode(view.structureTree, view.document.id)];
   if (view.document.type === "PART") {
     const features = view.part?.features ?? [];
     const sketches = new Map(features.filter((feature) => feature.type.toUpperCase().includes("SKETCH"))
@@ -53,7 +79,9 @@ function treeData(view: DocumentView): SpecificationTreeNode[] {
     return [{ key: "document", title: view.document.name, icon: <BuildOutlined />, children: [
       { key: "origin", title: "Origin", icon: <GatewayOutlined />, children: (view.datumPlanes ?? []).map((plane) => ({
         key: `plane:${plane.id}:${plane.plane}`, title: plane.name, icon: <NodeIndexOutlined />,
-      })) },
+      })).concat((view.axisSystems ?? []).map((axis) => ({
+        key: `axis:${axis.id}`, title: axis.name, icon: <AimOutlined />,
+      }))) },
       { key: "body", title: "PartBody", icon: <DatabaseOutlined />, children: bodyFeatures },
     ] }];
   }
@@ -89,6 +117,7 @@ export function Workbench() {
   const [shareResource, setShareResource] = useState<ShareResource>();
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
+  const properties = useQuery({ queryKey: queryKeys.documentProperties(documentID), queryFn: () => api.getDocumentProperties(documentID), enabled: Boolean(documentID) });
   const history = useQuery({ queryKey: queryKeys.history(documentID), queryFn: () => api.getHistory(documentID), enabled: Boolean(documentID) });
   const catalog = useQuery({ queryKey: queryKeys.documents({ workbench: true }), queryFn: () => api.listDocuments({ limit: 100, allFolders: true }) });
 
@@ -98,7 +127,8 @@ export function Workbench() {
   const refresh = useCallback(async (view?: DocumentView) => {
     if (view) client.setQueryData(queryKeys.document(view.document.id), view);
     await Promise.all([client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
-    client.invalidateQueries({ queryKey: queryKeys.history(documentID) }), client.invalidateQueries({ queryKey: ["documents"] }),
+    client.invalidateQueries({ queryKey: queryKeys.history(documentID) }), client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID) }),
+    client.invalidateQueries({ queryKey: ["documents"] }),
     client.invalidateQueries({ queryKey: queryKeys.openDocuments })]);
   }, [client, documentID]);
   const command = useMutation({
@@ -107,6 +137,7 @@ export function Workbench() {
   });
   const view = document.data;
   const canEdit = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
+  const activeWorkbench = resolveCadWorkbench(view?.document.type ?? "PART", Boolean(store.sketchPlane));
 
   const createRectangle = (draft: RectangleDraft) => {
     if (!view) return;
@@ -211,27 +242,32 @@ export function Workbench() {
           sketchPlane={store.sketchPlane} activeToolID={store.activeToolID} navigationProfile={store.navigationProfile}
           commandRegistry={commandRegistry} onSelectionChange={store.setSelection} onRectangleCreated={createRectangle}
           onInstanceMoved={moveInstance} /></Suspense>
-        <FloatingToolbar id="modeling" position="top-left">
+        {activeWorkbench === "PART_DESIGN" && <FloatingToolbar id="part-design" label="Part Design" position="top-left" className="part-design-toolbar">
           <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
             <ToolButton command="sketch.start" icon={<ScissorOutlined />} tooltip="选择基准面后创建草图" />
-            <ToolButton command="sketch.finish" icon={<CheckOutlined />} tooltip="退出草图" />
-            <ToolButton command="sketch.rectangle" icon={<BorderOutlined />} tooltip="矩形 (R)" />
             <ToolButton command="part.pad" icon={<InsertRowAboveOutlined />} tooltip="拉伸所选草图" /></ToolbarGroup>
           <ToolbarSeparator />
-          <ToolbarGroup><ToolButton command="product.insert" icon={<ApartmentOutlined />} tooltip="插入 Part / Product" />
+          <ToolbarGroup><ToolButton command="exchange.import" icon={<CloudUploadOutlined />} tooltip="导入 STEP" />
+            <ToolButton command="exchange.export" icon={<CloudDownloadOutlined />} tooltip="导出 STEP" /></ToolbarGroup>
+        </FloatingToolbar>}
+        {activeWorkbench === "SKETCHER" && <FloatingToolbar id="sketcher" label="Sketcher" position="top-left" className="sketcher-toolbar">
+          <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
+            <ToolButton command="sketch.rectangle" icon={<BorderOutlined />} tooltip="矩形 (R)" />
+            <ToolButton command="sketch.finish" icon={<CheckOutlined />} tooltip="退出草图" /></ToolbarGroup>
+        </FloatingToolbar>}
+        {activeWorkbench === "ASSEMBLY_DESIGN" && <FloatingToolbar id="assembly-design" label="Assembly Design" position="top-left" className="assembly-design-toolbar">
+          <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
+            <ToolButton command="product.insert" icon={<ApartmentOutlined />} tooltip="插入 Part / Product" />
             <ToolButton command="product.reference.toggle" icon={<GatewayOutlined />}
               tooltip={selectedInstance?.referenceMode === "PINNED" ? "切换为跟随 Head" : "固定当前版本"} /></ToolbarGroup>
-        </FloatingToolbar>
-        <FloatingToolbar id="history-exchange" position="top-center">
+        </FloatingToolbar>}
+        <FloatingToolbar id="common-edit" label="Common" position="top-center" className="common-toolbar">
           <ToolbarGroup><ToolButton command="edit.undo" icon={<UndoOutlined />} tooltip="Undo (Ctrl+Z)" />
             <ToolButton command="edit.redo" icon={<RedoOutlined />} tooltip="Redo (Ctrl+Y / Ctrl+Shift+Z)" />
             <ToolButton command="history.version" icon={<SaveOutlined />} tooltip="创建命名版本" />
             <ToolButton command="document.share" icon={<ShareAltOutlined />} tooltip="共享文档" /></ToolbarGroup>
-          <ToolbarSeparator />
-          <ToolbarGroup><ToolButton command="exchange.import" icon={<CloudUploadOutlined />} tooltip="导入 STEP" />
-            <ToolButton command="exchange.export" icon={<CloudDownloadOutlined />} tooltip="导出 STEP" /></ToolbarGroup>
         </FloatingToolbar>
-        <FloatingToolbar id="view" position="top-right">
+        <FloatingToolbar id="view" label="View" position="top-right">
           <ToolbarGroup><ToolButton command="navigation.profile.toggle" icon={<CompassOutlined />}
             tooltip={store.navigationProfile === "default" ? "切换到 CATIA 导航" : "切换到默认导航"} />
             <ToolButton command="view.fit" icon={<CompressOutlined />} tooltip="Fit (F)" />
@@ -243,7 +279,7 @@ export function Workbench() {
         <aside className="floating-structure-tree">
           <SpecificationTree nodes={treeData(view)}
             selectedKey={store.selection ? `${store.selection.kind}:${store.selection.id}${store.selection.kind === "plane" ? `:${store.selection.plane}` : ""}` : undefined}
-            onSelect={(key) => store.setSelection(selectionFromKey(key))} />
+            onSelect={(node) => store.setSelection(selectionFromKey(node.key))} />
         </aside>
         <button className={`inspector-toggle ${inspectorOpen ? "open" : ""}`} onClick={() => setInspectorOpen((current) => !current)}
           title={inspectorOpen ? "收起属性面板" : "展开属性面板"}>
@@ -253,7 +289,9 @@ export function Workbench() {
           <Segmented block value={store.inspectorTab} onChange={(value) => store.setInspectorTab(value as "properties" | "history")}
             options={[{ label: "属性", value: "properties" }, { label: "历史", value: "history" }]} />
           <div className="inspector-overlay-content">{store.inspectorTab === "properties"
-            ? <Properties view={view} selection={store.selection} feature={selected} />
+            ? <Properties view={view} selection={store.selection} feature={selected}
+              workbench={activeWorkbench} sketchPlane={store.sketchPlane} activeTool={store.activeToolID}
+              navigationProfile={store.navigationProfile} diagnostics={properties.data} />
             : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(view.document.id, entry.versionId))} />}</div>
         </aside>
         <div className="viewport-status">
@@ -280,8 +318,55 @@ export function Workbench() {
   </section></CommandProvider>;
 }
 
-function Properties({ view, selection, feature }: { view: DocumentView; selection: Selection; feature?: Feature }) {
-  if (!selection) return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="选择对象查看属性" />;
+function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics }: {
+  view: DocumentView;
+  selection: Selection;
+  feature?: Feature;
+  workbench: keyof typeof CAD_WORKBENCHES;
+  sketchPlane?: PlaneName;
+  activeTool: string;
+  navigationProfile: string;
+  diagnostics?: DocumentProperties;
+}) {
+  if (!selection) {
+    const triangleCount = view.artifact?.mesh.triangles.length
+      ?? (view.resolvedInstances ?? []).reduce((total, instance) =>
+        total + (view.artifacts?.[instance.geometryKey]?.mesh.triangles.length ?? 0), 0);
+    const geometryCount = diagnostics?.aggregate.artifactCount
+      ?? (view.document.type === "PRODUCT" ? view.resolvedInstances?.length ?? 0 : view.artifact ? 1 : 0);
+    const detail = diagnostics?.artifacts[0];
+    const bytes = (value = 0) => value < 1024 ? `${value} B` : `${(value / 1024).toFixed(1)} KiB`;
+    return <><div className="property-context-hint">未选择对象 · 当前工作环境</div><Descriptions column={1} size="small"
+      bordered className="property-list" items={[
+        { key: "workbench", label: "Workbench", children: `${CAD_WORKBENCHES[workbench].label} · ${CAD_WORKBENCHES[workbench].domain}` },
+        { key: "document", label: "文档", children: `${view.document.name} (${view.document.type})` },
+        { key: "workspace", label: "工作区", children: view.document.workspaceName ?? "Main" },
+        { key: "permission", label: "权限", children: view.document.permission },
+        { key: "version", label: "Head Version", children: view.document.versionId.slice(0, 16) },
+        { key: "tool", label: "Active Tool", children: activeTool },
+        { key: "navigation", label: "Navigation", children: navigationProfile.toUpperCase() },
+        ...(sketchPlane ? [{ key: "plane", label: "Sketch Plane", children: sketchPlane }] : []),
+        { key: "history", label: "History", children: `Undo ${view.document.canUndo ? "Yes" : "No"} · Redo ${view.document.canRedo ? "Yes" : "No"}` },
+        { key: "geometry", label: "Display Geometry", children: `${geometryCount} object(s) · ${triangleCount} triangles` },
+        { key: "topology", label: "Topology", children: diagnostics
+          ? `${diagnostics.aggregate.solidCount} solid(s) · ${diagnostics.aggregate.vertexCount} vertices` : "Loading…" },
+        { key: "artifact", label: "Geometry Key", children: detail?.geometryKey ?? "—" },
+        { key: "geometry-id", label: "Geometry ID", children: detail?.geometryId ?? "—" },
+        { key: "evaluator", label: "Evaluator", children: detail?.evaluatorVersion ?? "—" },
+        { key: "artifacts", label: "Artifacts", children: diagnostics
+          ? `GLB ${bytes(diagnostics.aggregate.glbBytes)} · B-Rep ${bytes(diagnostics.aggregate.brepBytes)}` : "Loading…" },
+        { key: "storage", label: "Storage", children: detail?.storageState ?? "—" },
+        { key: "artifact-worker", label: "Artifact Worker", children: detail?.workerId ?? "—" },
+        { key: "worker", label: "Worker Route", children: diagnostics?.worker.available
+          ? `${diagnostics.worker.workerId} · ${diagnostics.worker.residentGeometryCount} resident` : diagnostics?.worker.error ?? "Loading…" },
+        { key: "occt", label: "OCCT", children: diagnostics?.worker.occtVersion ?? detail?.occtVersion ?? "—" },
+        { key: "reference", label: "Reference Geometry", children: detail
+          ? `${detail.referenceGeometry.datumPlanes.length} planes · ${detail.referenceGeometry.axisSystems.length} axis system(s)` : "—" },
+        { key: "rendering", label: "Rendering", children: "Phong Solid + welded feature edges" },
+        { key: "features", label: view.document.type === "PART" ? "Features" : "Instances",
+          children: view.document.type === "PART" ? view.part?.features.length ?? 0 : view.product?.instances.length ?? 0 },
+      ]} /></>;
+  }
   const instance = selection.kind === "instance" ? view.product?.instances.find((item) => item.id === selection.id) : undefined;
   return <Descriptions column={1} size="small" bordered className="property-list" items={[
     { key: "type", label: "类型", children: selection.kind.toUpperCase() },

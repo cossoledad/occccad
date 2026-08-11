@@ -36,20 +36,43 @@ type Mesh struct {
 }
 
 type Artifact struct {
-	GeometryKey string         `json:"geometryKey"`
-	GeometryID  string         `json:"geometryId"`
-	Mesh        Mesh           `json:"mesh"`
-	BBox        map[string]any `json:"bbox"`
-	Topology    map[string]any `json:"topology"`
-	Volume      float64        `json:"volume"`
-	OCCTVersion string         `json:"occtVersion"`
-	GLBBytes    int            `json:"glbBytes"`
+	GeometryKey       string            `json:"geometryKey"`
+	GeometryID        string            `json:"geometryId"`
+	Mesh              Mesh              `json:"mesh"`
+	BBox              map[string]any    `json:"bbox"`
+	Topology          map[string]any    `json:"topology"`
+	Volume            float64           `json:"volume"`
+	OCCTVersion       string            `json:"occtVersion"`
+	GLBBytes          int               `json:"glbBytes"`
+	BRepBytes         int               `json:"brepBytes"`
+	EvaluatorVersion  string            `json:"evaluatorVersion"`
+	WorkerID          string            `json:"workerId"`
+	StorageState      string            `json:"storageState"`
+	CreatedAt         string            `json:"createdAt"`
+	ReferenceGeometry ReferenceGeometry `json:"referenceGeometry"`
 }
 
 type DatumPlane struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Plane string `json:"plane"`
+	ID     string     `json:"id"`
+	Name   string     `json:"name"`
+	Plane  string     `json:"plane"`
+	Origin [3]float64 `json:"origin"`
+	Normal [3]float64 `json:"normal"`
+	Size   float64    `json:"size"`
+}
+
+type AxisSystem struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Origin     [3]float64 `json:"origin"`
+	XDirection [3]float64 `json:"xDirection"`
+	YDirection [3]float64 `json:"yDirection"`
+	ZDirection [3]float64 `json:"zDirection"`
+}
+
+type ReferenceGeometry struct {
+	DatumPlanes []DatumPlane `json:"datumPlanes"`
+	AxisSystems []AxisSystem `json:"axisSystems"`
 }
 
 type Rectangle struct {
@@ -77,8 +100,10 @@ type Feature struct {
 }
 
 type PartModel struct {
-	Units    string    `json:"units"`
-	Features []Feature `json:"features"`
+	Units       string       `json:"units"`
+	DatumPlanes []DatumPlane `json:"datumPlanes"`
+	AxisSystems []AxisSystem `json:"axisSystems"`
+	Features    []Feature    `json:"features"`
 }
 
 type ProductInstance struct {
@@ -171,14 +196,32 @@ type ResolvedInstance struct {
 	Translation [3]float64 `json:"translation"`
 }
 
+// DocumentStructureNode is the UI-independent specification tree contract.
+// IDs are path-stable within one DocumentView while EntityID preserves the
+// domain object identity used by commands and selection.
+type DocumentStructureNode struct {
+	ID            string                  `json:"id"`
+	Kind          string                  `json:"kind"`
+	Name          string                  `json:"name"`
+	EntityID      string                  `json:"entityId,omitempty"`
+	DocumentID    string                  `json:"documentId,omitempty"`
+	DocumentType  string                  `json:"documentType,omitempty"`
+	VersionID     string                  `json:"versionId,omitempty"`
+	Plane         string                  `json:"plane,omitempty"`
+	ReferenceMode string                  `json:"referenceMode,omitempty"`
+	Children      []DocumentStructureNode `json:"children,omitempty"`
+}
+
 type DocumentView struct {
-	Document          DocumentSummary     `json:"document"`
-	DatumPlanes       []DatumPlane        `json:"datumPlanes,omitempty"`
-	Part              *PartModel          `json:"part,omitempty"`
-	Product           *ProductModel       `json:"product,omitempty"`
-	Artifact          *Artifact           `json:"artifact,omitempty"`
-	Artifacts         map[string]Artifact `json:"artifacts,omitempty"`
-	ResolvedInstances []ResolvedInstance  `json:"resolvedInstances,omitempty"`
+	Document          DocumentSummary        `json:"document"`
+	DatumPlanes       []DatumPlane           `json:"datumPlanes,omitempty"`
+	AxisSystems       []AxisSystem           `json:"axisSystems,omitempty"`
+	Part              *PartModel             `json:"part,omitempty"`
+	Product           *ProductModel          `json:"product,omitempty"`
+	Artifact          *Artifact              `json:"artifact,omitempty"`
+	Artifacts         map[string]Artifact    `json:"artifacts,omitempty"`
+	ResolvedInstances []ResolvedInstance     `json:"resolvedInstances,omitempty"`
+	StructureTree     *DocumentStructureNode `json:"structureTree,omitempty"`
 }
 
 type CreateDocumentRequest struct {
@@ -915,7 +958,7 @@ func (service *Service) ImportStep(
 		if err != nil {
 			return DocumentView{}, err
 		}
-		if err := service.storeEvaluation(ctx, key, evaluation); err != nil {
+		if err := service.storeEvaluation(ctx, key, evaluation, referenceGeometry(newPartModel())); err != nil {
 			return DocumentView{}, err
 		}
 	}
@@ -946,10 +989,14 @@ func (service *Service) ExportStep(
 		return nil, "", fmt.Errorf("%w: Part has no solid geometry to export", ErrValidation)
 	}
 	var brep []byte
+	var volume float64
 	if err := service.database.QueryRow(ctx,
-		`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, *geometryKey).
-		Scan(&brep); err != nil {
+		`SELECT brep_data,volume FROM occccad.geometry_artifacts WHERE geometry_key=$1`, *geometryKey).
+		Scan(&brep, &volume); err != nil {
 		return nil, "", err
+	}
+	if volume <= 0 || len(brep) == 0 {
+		return nil, "", fmt.Errorf("%w: Part has no solid geometry to export", ErrValidation)
 	}
 	data, err := service.worker.ExportStep(ctx, requestID(reqID), brep)
 	if err != nil {
@@ -983,9 +1030,17 @@ func (service *Service) CreateDocument(
 			return DocumentView{}, ErrNotFound
 		}
 	}
-	model := any(PartModel{Units: "mm", Features: []Feature{}})
+	partModel := newPartModel()
+	model := any(partModel)
+	var initialGeometryKey *string
 	if documentType == "PRODUCT" {
 		model = ProductModel{Instances: []ProductInstance{}}
+	} else {
+		key, artifactErr := service.ensureReferenceArtifact(ctx, partModel)
+		if artifactErr != nil {
+			return DocumentView{}, artifactErr
+		}
+		initialGeometryKey = &key
 	}
 	modelJSON, err := json.Marshal(model)
 	if err != nil {
@@ -1014,9 +1069,9 @@ func (service *Service) CreateDocument(
 		return DocumentView{}, err
 	}
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO occccad.document_versions(document_id,sequence,model_json,state,created_by_command_id)
-		VALUES($1,1,$2,'READY',$3) RETURNING id::text`,
-		documentID, modelJSON, commandID).Scan(&versionID); err != nil {
+		INSERT INTO occccad.document_versions(document_id,sequence,model_json,geometry_key,state,created_by_command_id)
+		VALUES($1,1,$2,$3,'READY',$4) RETURNING id::text`,
+		documentID, modelJSON, initialGeometryKey, commandID).Scan(&versionID); err != nil {
 		return DocumentView{}, err
 	}
 	if _, err := tx.Exec(ctx,
@@ -1077,15 +1132,38 @@ func (service *Service) GetDocument(ctx context.Context, documentID string) (Doc
 		if err := json.Unmarshal(modelJSON, &model); err != nil {
 			return view, err
 		}
+		normalizePartModel(&model)
 		view.Part = &model
-		view.DatumPlanes = datumPlanes()
+		view.DatumPlanes = model.DatumPlanes
+		view.AxisSystems = model.AxisSystems
+		if geometryKey == nil {
+			key, referenceErr := service.ensureReferenceArtifact(ctx, model)
+			if referenceErr != nil {
+				return view, referenceErr
+			}
+			if _, updateErr := service.database.Exec(ctx,
+				`UPDATE occccad.document_versions SET geometry_key=$1 WHERE id=$2 AND geometry_key IS NULL`,
+				key, summary.VersionID); updateErr != nil {
+				return view, updateErr
+			}
+			geometryKey = &key
+		}
 		if geometryKey != nil {
+			if referenceErr := service.ensureArtifactReferenceGeometry(ctx, *geometryKey, model); referenceErr != nil {
+				return view, referenceErr
+			}
 			artifact, err := service.loadArtifact(ctx, *geometryKey)
 			if err != nil {
 				return view, err
 			}
 			view.Artifact = &artifact
 		}
+		structure, err := service.buildDocumentStructure(ctx, summary.VersionID,
+			"document:"+summary.ID, summary.Name, map[string]bool{})
+		if err != nil {
+			return view, err
+		}
+		view.StructureTree = &structure
 		return view, nil
 	}
 	var model ProductModel
@@ -1114,15 +1192,50 @@ func (service *Service) GetDocument(ctx context.Context, documentID string) (Doc
 		map[string]bool{}, view.Artifacts, &view.ResolvedInstances); err != nil {
 		return view, err
 	}
+	structure, err := service.buildDocumentStructure(ctx, summary.VersionID,
+		"document:"+summary.ID, summary.Name, map[string]bool{})
+	if err != nil {
+		return view, err
+	}
+	view.StructureTree = &structure
 	return view, nil
 }
 
 func datumPlanes() []DatumPlane {
 	return []DatumPlane{
-		{ID: "datum-xy", Name: "XY Plane", Plane: "XY"},
-		{ID: "datum-xz", Name: "XZ Plane", Plane: "XZ"},
-		{ID: "datum-yz", Name: "YZ Plane", Plane: "YZ"},
+		{ID: "datum-xy", Name: "XY Plane", Plane: "XY", Normal: [3]float64{0, 0, 1}, Size: 180},
+		{ID: "datum-xz", Name: "XZ Plane", Plane: "XZ", Normal: [3]float64{0, 1, 0}, Size: 180},
+		{ID: "datum-yz", Name: "YZ Plane", Plane: "YZ", Normal: [3]float64{1, 0, 0}, Size: 180},
 	}
+}
+
+func defaultAxisSystems() []AxisSystem {
+	return []AxisSystem{{ID: "axis-system-default", Name: "Absolute Axis System",
+		XDirection: [3]float64{1, 0, 0}, YDirection: [3]float64{0, 1, 0}, ZDirection: [3]float64{0, 0, 1}}}
+}
+
+func newPartModel() PartModel {
+	return PartModel{Units: "mm", DatumPlanes: datumPlanes(), AxisSystems: defaultAxisSystems(), Features: []Feature{}}
+}
+
+func normalizePartModel(model *PartModel) {
+	if model.Units == "" {
+		model.Units = "mm"
+	}
+	if len(model.DatumPlanes) == 0 {
+		model.DatumPlanes = datumPlanes()
+	}
+	if len(model.AxisSystems) == 0 {
+		model.AxisSystems = defaultAxisSystems()
+	}
+	if model.Features == nil {
+		model.Features = []Feature{}
+	}
+}
+
+func referenceGeometry(model PartModel) ReferenceGeometry {
+	normalizePartModel(&model)
+	return ReferenceGeometry{DatumPlanes: model.DatumPlanes, AxisSystems: model.AxisSystems}
 }
 
 func (service *Service) ApplyCommand(
@@ -1275,6 +1388,7 @@ func (service *Service) applyMutation(ctx context.Context, documentID string, re
 		if err := json.Unmarshal(modelJSON, &model); err != nil {
 			return err
 		}
+		normalizePartModel(&model)
 		if err := mutatePart(&model, request); err != nil {
 			return err
 		}
@@ -1564,11 +1678,14 @@ func (service *Service) moveHistory(ctx context.Context, documentID string, requ
 }
 
 func (service *Service) evaluatePart(ctx context.Context, reqID string, model PartModel) (string, error) {
+	normalizePartModel(&model)
 	sketches := map[string]Feature{}
 	pads := []geometry.RectangularPad{}
 	baseKey := ""
 	var canonical strings.Builder
 	canonical.WriteString(evaluatorVersion)
+	referenceJSON, _ := json.Marshal(referenceGeometry(model))
+	canonical.WriteString("|reference=" + string(referenceJSON))
 	for _, feature := range model.Features {
 		switch strings.ToUpper(feature.Type) {
 		case "IMPORT_STEP":
@@ -1602,7 +1719,10 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 		}
 	}
 	if len(pads) == 0 {
-		return baseKey, nil
+		if baseKey != "" {
+			return baseKey, nil
+		}
+		return service.ensureReferenceArtifact(ctx, model)
 	}
 	var baseBRep []byte
 	if baseKey != "" {
@@ -1627,17 +1747,29 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 	if err != nil {
 		return "", err
 	}
-	if err := service.storeEvaluation(ctx, key, evaluation); err != nil {
+	if err := service.storeEvaluation(ctx, key, evaluation, referenceGeometry(model)); err != nil {
 		return "", err
 	}
 	return key, nil
 }
 
 func (service *Service) storeEvaluation(
-	ctx context.Context, key string, evaluation *workerv1.EvaluatePartResponse,
+	ctx context.Context, key string, evaluation *workerv1.EvaluatePartResponse, reference ReferenceGeometry,
 ) error {
-	if evaluation.GetVolume() <= 0 {
+	if evaluation.GetVolume() < 0 {
 		return fmt.Errorf("%w: imported/evaluated STEP must contain solid geometry", ErrValidation)
+	}
+	glb, err := glbWithReferenceGeometry(evaluation.GetGlbData(), reference)
+	if err != nil {
+		return fmt.Errorf("add reference geometry to GLB: %w", err)
+	}
+	referenceJSON, _ := json.Marshal(reference)
+	workerID := service.worker.WorkerFor(key)
+	if workerID == "" {
+		workerID = "geometry-worker"
+		if worker, pingErr := service.worker.Ping(ctx); pingErr == nil && worker.GetWorkerId() != "" {
+			workerID = worker.GetWorkerId()
+		}
 	}
 	mesh := meshFromProto(evaluation.GetMesh())
 	meshJSON, _ := json.Marshal(mesh)
@@ -1658,7 +1790,7 @@ func (service *Service) storeEvaluation(
 			return fmt.Errorf("store B-Rep artifact: %w", err)
 		}
 		glbObject, err := service.artifacts.Put(ctx, artifactstore.KindGLB,
-			"model/gltf-binary", bytes.NewReader(evaluation.GetGlbData()))
+			"model/gltf-binary", bytes.NewReader(glb))
 		if err != nil {
 			return fmt.Errorf("store GLB artifact: %w", err)
 		}
@@ -1668,14 +1800,91 @@ func (service *Service) storeEvaluation(
 		INSERT INTO occccad.geometry_artifacts(
 			geometry_key,geometry_id,evaluator_version,occt_version,units,
 			brep_data,glb_data,mesh_json,bbox_json,topology_json,volume,
-			brep_object_id,glb_object_id,storage_state)
-		VALUES($1,$2,$3,$4,'mm',$5,$6,$7,$8,$9,$10,$11,$12,$13)
+			brep_object_id,glb_object_id,storage_state,reference_geometry_json,worker_id)
+		VALUES($1,$2,$3,$4,'mm',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (geometry_key) DO NOTHING`, key, evaluation.GetGeometryId(), evaluatorVersion,
-		evaluation.GetOcctVersion(), evaluation.GetBrepData(), evaluation.GetGlbData(), meshJSON,
-		bboxJSON, topologyJSON, evaluation.GetVolume(), brepObjectID, glbObjectID, storageState); err != nil {
+		evaluation.GetOcctVersion(), evaluation.GetBrepData(), glb, meshJSON,
+		bboxJSON, topologyJSON, evaluation.GetVolume(), brepObjectID, glbObjectID, storageState,
+		referenceJSON, workerID); err != nil {
 		return err
 	}
 	return nil
+}
+
+func (service *Service) ensureReferenceArtifact(ctx context.Context, model PartModel) (string, error) {
+	reference := referenceGeometry(model)
+	referenceJSON, _ := json.Marshal(reference)
+	digest := sha256.Sum256(append([]byte(evaluatorVersion+"|reference-only|"), referenceJSON...))
+	key := "sha256:" + hex.EncodeToString(digest[:])
+	var exists bool
+	if err := service.database.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, key).Scan(&exists); err != nil {
+		return "", err
+	}
+	if exists {
+		return key, nil
+	}
+	glb, err := glbWithReferenceGeometry(nil, reference)
+	if err != nil {
+		return "", err
+	}
+	meshJSON, _ := json.Marshal(Mesh{Vertices: [][3]float64{}, Triangles: [][3]uint32{}, FaceIDs: []uint32{}})
+	bboxJSON := []byte(`{"min":[-90,-90,-90],"max":[90,90,90]}`)
+	topologyJSON := []byte(`{"faces":0,"edges":0,"vertices":0,"solids":0}`)
+	var glbObjectID *string
+	storageState := "DATABASE"
+	if service.artifacts != nil {
+		object, putErr := service.artifacts.Put(ctx, artifactstore.KindGLB, "model/gltf-binary", bytes.NewReader(glb))
+		if putErr != nil {
+			return "", fmt.Errorf("store reference GLB: %w", putErr)
+		}
+		glbObjectID, storageState = &object.ID, "DUAL"
+	}
+	_, err = service.database.Exec(ctx, `
+		INSERT INTO occccad.geometry_artifacts(
+			geometry_key,geometry_id,evaluator_version,occt_version,units,brep_data,glb_data,
+			mesh_json,bbox_json,topology_json,volume,glb_object_id,storage_state,
+			reference_geometry_json,worker_id)
+		VALUES($1,$2,$3,'none','mm','',$4,$5,$6,$7,0,$8,$9,$10,'metadata-service')
+		ON CONFLICT (geometry_key) DO NOTHING`, key, "reference:"+hex.EncodeToString(digest[:]), evaluatorVersion,
+		glb, meshJSON, bboxJSON, topologyJSON, glbObjectID, storageState, referenceJSON)
+	return key, err
+}
+
+func (service *Service) ensureArtifactReferenceGeometry(ctx context.Context, key string, model PartModel) error {
+	var glb, storedReference []byte
+	if err := service.database.QueryRow(ctx, `
+		SELECT glb_data,reference_geometry_json FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).
+		Scan(&glb, &storedReference); err != nil {
+		return err
+	}
+	var current ReferenceGeometry
+	if json.Unmarshal(storedReference, &current) == nil &&
+		(len(current.DatumPlanes) > 0 || len(current.AxisSystems) > 0) {
+		return nil
+	}
+	reference := referenceGeometry(model)
+	updatedGLB, err := glbWithReferenceGeometry(glb, reference)
+	if err != nil {
+		return err
+	}
+	referenceJSON, _ := json.Marshal(reference)
+	var objectID *string
+	if service.artifacts != nil {
+		object, putErr := service.artifacts.Put(ctx, artifactstore.KindGLB,
+			"model/gltf-binary", bytes.NewReader(updatedGLB))
+		if putErr != nil {
+			return fmt.Errorf("backfill reference GLB: %w", putErr)
+		}
+		objectID = &object.ID
+	}
+	_, err = service.database.Exec(ctx, `
+		UPDATE occccad.geometry_artifacts
+		SET glb_data=$2,reference_geometry_json=$3,
+		    glb_object_id=COALESCE($4,glb_object_id),
+		    storage_state=CASE WHEN $4::uuid IS NULL THEN storage_state ELSE 'DUAL' END
+		WHERE geometry_key=$1`, key, updatedGLB, referenceJSON, objectID)
+	return err
 }
 
 func meshFromProto(source *workerv1.Mesh) Mesh {
@@ -1693,11 +1902,15 @@ func meshFromProto(source *workerv1.Mesh) Mesh {
 func (service *Service) loadArtifact(ctx context.Context, key string) (Artifact, error) {
 	artifact := Artifact{GeometryKey: key}
 	var meshJSON, bboxJSON, topologyJSON []byte
+	var referenceJSON []byte
 	if err := service.database.QueryRow(ctx, `
-		SELECT geometry_id,mesh_json,bbox_json,topology_json,volume,occt_version,octet_length(glb_data)
+		SELECT geometry_id,mesh_json,bbox_json,topology_json,volume,occt_version,
+		       octet_length(glb_data),octet_length(brep_data),evaluator_version,worker_id,
+		       storage_state,created_at::text,reference_geometry_json
 		FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).Scan(
 		&artifact.GeometryID, &meshJSON, &bboxJSON, &topologyJSON, &artifact.Volume,
-		&artifact.OCCTVersion, &artifact.GLBBytes); err != nil {
+		&artifact.OCCTVersion, &artifact.GLBBytes, &artifact.BRepBytes, &artifact.EvaluatorVersion,
+		&artifact.WorkerID, &artifact.StorageState, &artifact.CreatedAt, &referenceJSON); err != nil {
 		return artifact, err
 	}
 	if err := json.Unmarshal(meshJSON, &artifact.Mesh); err != nil {
@@ -1707,6 +1920,9 @@ func (service *Service) loadArtifact(ctx context.Context, key string) (Artifact,
 		return artifact, err
 	}
 	if err := json.Unmarshal(topologyJSON, &artifact.Topology); err != nil {
+		return artifact, err
+	}
+	if err := json.Unmarshal(referenceJSON, &artifact.ReferenceGeometry); err != nil {
 		return artifact, err
 	}
 	return artifact, nil
@@ -1727,6 +1943,129 @@ func insertProductInstances(ctx context.Context, tx pgx.Tx, versionID string, mo
 	return nil
 }
 
+func featureStructureNode(feature Feature, path, documentID, versionID string) DocumentStructureNode {
+	kind := strings.ToUpper(feature.Type)
+	switch {
+	case strings.Contains(kind, "SKETCH"):
+		kind = "SKETCH"
+	case kind == "PAD":
+		kind = "PAD"
+	case kind == "IMPORT_STEP":
+		kind = "IMPORT"
+	default:
+		kind = "FEATURE"
+	}
+	return DocumentStructureNode{ID: path + "/" + strings.ToLower(kind) + ":" + feature.ID,
+		Kind: kind, Name: feature.Name, EntityID: feature.ID, DocumentID: documentID, VersionID: versionID}
+}
+
+func partStructureChildren(model PartModel, path, documentID, versionID string) []DocumentStructureNode {
+	normalizePartModel(&model)
+	planes := model.DatumPlanes
+	origin := DocumentStructureNode{ID: path + "/origin", Kind: "ORIGIN", Name: "Origin",
+		DocumentID: documentID, VersionID: versionID,
+		Children: make([]DocumentStructureNode, 0, len(planes)+len(model.AxisSystems))}
+	for _, plane := range planes {
+		origin.Children = append(origin.Children, DocumentStructureNode{
+			ID: path + "/origin/plane:" + plane.ID, Kind: "PLANE", Name: plane.Name,
+			EntityID: plane.ID, DocumentID: documentID, VersionID: versionID, Plane: plane.Plane,
+		})
+	}
+	for _, axis := range model.AxisSystems {
+		origin.Children = append(origin.Children, DocumentStructureNode{
+			ID: path + "/origin/axis:" + axis.ID, Kind: "AXIS_SYSTEM", Name: axis.Name,
+			EntityID: axis.ID, DocumentID: documentID, VersionID: versionID,
+		})
+	}
+	sketches := make(map[string]Feature)
+	consumed := make(map[string]bool)
+	for _, feature := range model.Features {
+		if strings.Contains(strings.ToUpper(feature.Type), "SKETCH") {
+			sketches[feature.ID] = feature
+		}
+		if strings.EqualFold(feature.Type, "PAD") && feature.Profile != "" {
+			consumed[feature.Profile] = true
+		}
+	}
+	body := DocumentStructureNode{ID: path + "/body", Kind: "BODY", Name: "PartBody",
+		DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+	for _, feature := range model.Features {
+		if consumed[feature.ID] {
+			continue
+		}
+		node := featureStructureNode(feature, body.ID, documentID, versionID)
+		if strings.EqualFold(feature.Type, "PAD") && feature.Profile != "" {
+			if sketch, exists := sketches[feature.Profile]; exists {
+				node.Children = []DocumentStructureNode{featureStructureNode(sketch, node.ID, documentID, versionID)}
+			}
+		}
+		body.Children = append(body.Children, node)
+	}
+	return []DocumentStructureNode{origin, body}
+}
+
+func (service *Service) buildDocumentStructure(
+	ctx context.Context, versionID, path, displayName string, visiting map[string]bool,
+) (DocumentStructureNode, error) {
+	var documentID, documentType, storedName string
+	var modelJSON []byte
+	if err := service.database.QueryRow(ctx, `
+		SELECT d.id::text,d.document_type,d.name,v.model_json
+		FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id
+		WHERE v.id=$1`, versionID).Scan(&documentID, &documentType, &storedName, &modelJSON); err != nil {
+		return DocumentStructureNode{}, err
+	}
+	if displayName == "" {
+		displayName = storedName
+	}
+	root := DocumentStructureNode{ID: path, Kind: documentType, Name: displayName,
+		DocumentID: documentID, DocumentType: documentType, VersionID: versionID}
+	if visiting[documentID] {
+		root.Kind = "REFERENCE_CYCLE"
+		return root, nil
+	}
+	if documentType == "PART" {
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return DocumentStructureNode{}, err
+		}
+		normalizePartModel(&model)
+		root.Children = partStructureChildren(model, path, documentID, versionID)
+		return root, nil
+	}
+	visiting[documentID] = true
+	defer delete(visiting, documentID)
+	var model ProductModel
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return DocumentStructureNode{}, err
+	}
+	root.Children = make([]DocumentStructureNode, 0, len(model.Instances))
+	for _, instance := range model.Instances {
+		resolvedVersionID := instance.ReferencedVersionID
+		mode := strings.ToUpper(instance.ReferenceMode)
+		if mode == "" || mode == "FOLLOW_HEAD" {
+			mode = "FOLLOW_HEAD"
+			if err := service.database.QueryRow(ctx,
+				`SELECT head_version_id::text FROM occccad.documents WHERE id=$1`,
+				instance.ReferencedDocumentID).Scan(&resolvedVersionID); err != nil {
+				return DocumentStructureNode{}, err
+			}
+		}
+		instancePath := path + "/instance:" + instance.ID
+		reference, err := service.buildDocumentStructure(ctx, resolvedVersionID, instancePath+"/reference",
+			instance.Name, visiting)
+		if err != nil {
+			return DocumentStructureNode{}, err
+		}
+		root.Children = append(root.Children, DocumentStructureNode{
+			ID: instancePath, Kind: "INSTANCE", Name: instance.Name, EntityID: instance.ID,
+			DocumentID: reference.DocumentID, DocumentType: reference.DocumentType,
+			VersionID: resolvedVersionID, ReferenceMode: mode, Children: reference.Children,
+		})
+	}
+	return root, nil
+}
+
 func (service *Service) resolveProduct(
 	ctx context.Context, versionID string, parent [3]float64, path string, visiting map[string]bool,
 	artifacts map[string]Artifact, output *[]ResolvedInstance,
@@ -1744,8 +2083,24 @@ func (service *Service) resolveProduct(
 		return fmt.Errorf("product reference cycle detected at %s", name)
 	}
 	if documentType == "PART" {
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return err
+		}
+		normalizePartModel(&model)
 		if geometryKey == nil {
-			return nil
+			key, err := service.ensureReferenceArtifact(ctx, model)
+			if err != nil {
+				return err
+			}
+			if _, err := service.database.Exec(ctx,
+				`UPDATE occccad.document_versions SET geometry_key=$1 WHERE id=$2 AND geometry_key IS NULL`, key, versionID); err != nil {
+				return err
+			}
+			geometryKey = &key
+		}
+		if err := service.ensureArtifactReferenceGeometry(ctx, *geometryKey, model); err != nil {
+			return err
 		}
 		if _, exists := artifacts[*geometryKey]; !exists {
 			artifact, err := service.loadArtifact(ctx, *geometryKey)

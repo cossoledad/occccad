@@ -17,9 +17,25 @@ export type Artifact = {
   volume: number;
   occtVersion: string;
   glbBytes: number;
+	brepBytes: number;
+	evaluatorVersion: string;
+	workerId: string;
+	storageState: "DATABASE" | "DUAL" | "OBJECT";
+	createdAt: string;
+	referenceGeometry: ReferenceGeometry;
 };
 
-export type DatumPlane = { id: string; name: string; plane: PlaneName };
+export type DatumPlane = { id: string; name: string; plane: PlaneName; origin: Vec3; normal: Vec3; size: number };
+export type AxisSystem = { id: string; name: string; origin: Vec3; xDirection: Vec3; yDirection: Vec3; zDirection: Vec3 };
+export type ReferenceGeometry = { datumPlanes: DatumPlane[]; axisSystems: AxisSystem[] };
+
+export type DocumentProperties = {
+  documentId: string; versionId: string; documentType: "PART" | "PRODUCT"; units: string;
+  artifacts: Artifact[];
+  aggregate: { artifactCount: number; triangleCount: number; vertexCount: number; solidCount: number;
+    glbBytes: number; brepBytes: number; resolvedInstanceCount: number };
+  worker: { available: boolean; workerId?: string; occtVersion?: string; residentGeometryCount?: number; error?: string };
+};
 
 export type Feature = {
   id: string;
@@ -130,14 +146,29 @@ export type ResolvedInstance = {
   translation: Vec3;
 };
 
+export type DocumentStructureNode = {
+  id: string;
+  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "BODY" | "SKETCH" | "PAD" | "IMPORT" | "FEATURE" | "REFERENCE_CYCLE";
+  name: string;
+  entityId?: string;
+  documentId?: string;
+  documentType?: "PART" | "PRODUCT";
+  versionId?: string;
+  plane?: PlaneName;
+  referenceMode?: "FOLLOW_HEAD" | "PINNED";
+  children?: DocumentStructureNode[];
+};
+
 export type DocumentView = {
   document: DocumentSummary;
   datumPlanes?: DatumPlane[];
-  part?: { units: string; features: Feature[] };
+  axisSystems?: AxisSystem[];
+  part?: { units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; features: Feature[] };
   product?: { instances: ProductInstance[] };
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;
   resolvedInstances?: ResolvedInstance[];
+  structureTree?: DocumentStructureNode;
 };
 
 export type Selection =
