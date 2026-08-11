@@ -15,7 +15,6 @@ import { queryKeys } from "../../app/query-keys";
 import { DocumentThumbnail } from "../../components/document-thumbnail";
 import { ShareDialog, type ShareResource } from "../../components/share-dialog";
 import { documentMetrics, flattenFolderTree, relativeDate, type LibraryScope } from "./document-utils";
-import { useWorkbenchStore } from "../../state/workbench-store";
 import type { DocumentSummary, FolderSummary } from "../../types";
 
 type DocumentForm = { name: string; description?: string; type: "PART" | "PRODUCT" };
@@ -27,7 +26,6 @@ export function DocumentCenter() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const { message, modal } = App.useApp();
-  const openTab = useWorkbenchStore((state) => state.openTab);
   const [scope, setScope] = useState<LibraryScope>("active");
   const [query, setQuery] = useState("");
   const [type, setType] = useState("");
@@ -61,7 +59,10 @@ export function DocumentCenter() {
   const currentPermission = breadcrumbs.data?.at(-1)?.permission;
   const writableLocation = !currentFolderID || canEdit(currentPermission);
 
-  const invalidateDocuments = async () => { await client.invalidateQueries({ queryKey: ["documents"] }); };
+  const invalidateDocuments = async () => { await Promise.all([
+    client.invalidateQueries({ queryKey: ["documents"] }),
+    client.invalidateQueries({ queryKey: queryKeys.openDocuments }),
+  ]); };
   const invalidateFolders = async () => {
     await Promise.all([client.invalidateQueries({ queryKey: ["folders"] }), client.invalidateQueries({ queryKey: ["folder-options"] })]);
   };
@@ -70,7 +71,7 @@ export function DocumentCenter() {
     : api.createDocument(values.type, values.name, values.description ?? "", currentFolderID || undefined),
   onSuccess: async (view) => {
     const created = !editing; setCreateOpen(false); setEditing(undefined); documentForm.resetFields(); await invalidateDocuments();
-    message.success("文档已保存"); if (created) { openTab(view.document.id); navigate(`/documents/${view.document.id}`); }
+    message.success("文档已保存"); if (created) navigate(`/documents/${view.document.id}`);
   }, onError: (error) => message.error(error.message) });
   const saveFolder = useMutation({ mutationFn: (values: FolderForm) => folderEditor !== "new" && folderEditor
     ? api.updateFolder(folderEditor.id, values.name, values.description ?? "")
@@ -85,7 +86,7 @@ export function DocumentCenter() {
   }, onSuccess: async () => { setOperation(undefined); operationForm.resetFields(); await invalidateDocuments(); message.success("操作已完成"); },
   onError: (error) => message.error(error.message) });
 
-  const openDocument = (document: DocumentSummary) => { if (document.deletedAt) return; openTab(document.id); navigate(`/documents/${document.id}`); };
+  const openDocument = (document: DocumentSummary) => { if (!document.deletedAt) navigate(`/documents/${document.id}`); };
   const enterFolder = (folderID: string) => { if (scope === "shared") setScope("active"); setCurrentFolderID(folderID); setOffset(0); };
   const openDocumentEditor = (document?: DocumentSummary, documentType?: "PART" | "PRODUCT") => {
     setEditing(document); documentForm.setFieldsValue(document

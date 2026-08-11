@@ -75,6 +75,7 @@ func (server *Server) register(writer http.ResponseWriter, request *http.Request
 }
 
 func (server *Server) logout(writer http.ResponseWriter, request *http.Request) {
+	server.openDocuments.CloseAll(principal(request).ID)
 	if cookie, err := request.Cookie(sessionCookieName); err == nil {
 		_ = server.authn.Logout(request.Context(), cookie.Value)
 	}

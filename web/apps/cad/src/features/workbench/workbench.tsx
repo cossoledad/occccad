@@ -1,17 +1,16 @@
 import {
   AimOutlined, ApartmentOutlined, BorderOutlined, BuildOutlined, CheckOutlined, CloudDownloadOutlined, CloudUploadOutlined,
   CompassOutlined, CompressOutlined, DatabaseOutlined, ExportOutlined, GatewayOutlined, HistoryOutlined,
-  InsertRowAboveOutlined, NodeIndexOutlined, PlusSquareOutlined, RedoOutlined, SaveOutlined,
+  InsertRowAboveOutlined, MenuFoldOutlined, MenuUnfoldOutlined, NodeIndexOutlined, RedoOutlined, SaveOutlined,
   ScissorOutlined, SelectOutlined, ShareAltOutlined, UndoOutlined,
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   App, Button, Descriptions, Empty, Form, Input, InputNumber, List, Modal, Segmented,
-  Select, Space, Spin, Tabs, Tag, Tree, Typography,
+  Select, Space, Spin, Tag,
 } from "antd";
-import type { DataNode } from "antd/es/tree";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../app/query-keys";
 import { ShareDialog, type ShareResource } from "../../components/share-dialog";
@@ -22,6 +21,7 @@ import { ToolButton } from "../../cad/overlay/tool-button";
 import { useWorkbenchStore } from "../../state/workbench-store";
 import type { DocumentView, Feature, HistoryEntry, PlaneName, RectangleDraft, Selection, Vec3 } from "../../types";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
+import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
@@ -31,29 +31,39 @@ function featureIcon(feature: Feature) {
   return <CloudUploadOutlined />;
 }
 
-function treeData(view: DocumentView): DataNode[] {
-  if (view.document.type === "PART") return [
-    {
-      key: "origin", title: "Origin", icon: <GatewayOutlined />, children: (view.datumPlanes ?? []).map((plane) => ({
-        key: `plane:${plane.id}:${plane.plane}`, title: plane.name, icon: <NodeIndexOutlined />,
-      }))
-    },
-    {
-      key: "features", title: "Feature list", icon: <HistoryOutlined />, children: (view.part?.features ?? []).map((feature) => ({
-        key: `${feature.type.toUpperCase().includes("SKETCH") ? "sketch" : feature.type.toUpperCase() === "PAD" ? "pad" : "import"}:${feature.id}`,
-        title: feature.name ?? feature.type, icon: featureIcon(feature),
-      }))
-    },
-    ...(view.artifact ? [{ key: "solid:body-1", title: "Part body", icon: <DatabaseOutlined /> }] : []),
-  ];
-  return [{
-    key: "assembly", title: view.document.name, icon: <ApartmentOutlined />, children: (view.product?.instances ?? []).map((instance) => ({
-      key: `instance:${instance.id}`, title: instance.name, icon: <BuildOutlined />,
-    }))
-  }];
+function featureNode(feature: Feature): SpecificationTreeNode {
+  return {
+    key: `${feature.type.toUpperCase().includes("SKETCH") ? "sketch" : feature.type.toUpperCase() === "PAD" ? "pad" : "import"}:${feature.id}`,
+    title: feature.name ?? feature.type, icon: featureIcon(feature),
+  };
 }
 
-function selectionFromKey(value: React.Key): Selection {
+function treeData(view: DocumentView): SpecificationTreeNode[] {
+  if (view.document.type === "PART") {
+    const features = view.part?.features ?? [];
+    const sketches = new Map(features.filter((feature) => feature.type.toUpperCase().includes("SKETCH"))
+      .map((feature) => [feature.id, feature]));
+    const consumedSketches = new Set(features.filter((feature) => feature.type.toUpperCase() === "PAD" && feature.profile)
+      .map((feature) => feature.profile!));
+    const bodyFeatures = features.filter((feature) => !consumedSketches.has(feature.id)).map((feature) => {
+      const node = featureNode(feature);
+      const profile = feature.type.toUpperCase() === "PAD" && feature.profile ? sketches.get(feature.profile) : undefined;
+      return profile ? { ...node, children: [featureNode(profile)] } : node;
+    });
+    return [{ key: "document", title: view.document.name, icon: <BuildOutlined />, children: [
+      { key: "origin", title: "Origin", icon: <GatewayOutlined />, children: (view.datumPlanes ?? []).map((plane) => ({
+        key: `plane:${plane.id}:${plane.plane}`, title: plane.name, icon: <NodeIndexOutlined />,
+      })) },
+      { key: "body", title: "PartBody", icon: <DatabaseOutlined />, children: bodyFeatures },
+    ] }];
+  }
+  return [{ key: "document", title: view.document.name, icon: <ApartmentOutlined />, children:
+    (view.product?.instances ?? []).map((instance) => ({
+      key: `instance:${instance.id}`, title: instance.name, icon: <BuildOutlined />,
+    })) }];
+}
+
+function selectionFromKey(value: string): Selection {
   const [kind, id, plane] = String(value).split(":");
   if (kind === "plane") return { kind, id, plane: plane as PlaneName };
   if (["sketch", "pad", "import", "instance", "solid"].includes(kind)) return { kind: kind as Exclude<Selection, null>["kind"], id } as Selection;
@@ -67,7 +77,6 @@ function selectedFeature(view: DocumentView, selection: Selection): Feature | un
 
 export function Workbench() {
   const { documentID = "" } = useParams();
-  const navigate = useNavigate();
   const client = useQueryClient();
   const { message } = App.useApp();
   const commandRegistry = useMemo(() => new CommandRegistry(), []);
@@ -76,18 +85,21 @@ export function Workbench() {
   const [padOpen, setPadOpen] = useState(false);
   const [insertOpen, setInsertOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(true);
   const [shareResource, setShareResource] = useState<ShareResource>();
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
   const history = useQuery({ queryKey: queryKeys.history(documentID), queryFn: () => api.getHistory(documentID), enabled: Boolean(documentID) });
   const catalog = useQuery({ queryKey: queryKeys.documents({ workbench: true }), queryFn: () => api.listDocuments({ limit: 100, allFolders: true }) });
-  const tabDocuments = useQuery({ queryKey: ["workbench-tabs", store.tabs], queryFn: async () => Promise.all(store.tabs.map((id) => api.getDocument(id))), enabled: store.tabs.length > 0 });
 
-  useEffect(() => { if (documentID) store.openTab(documentID); }, [documentID]);
+  useEffect(() => {
+    if (document.data) void client.invalidateQueries({ queryKey: queryKeys.openDocuments });
+  }, [client, document.data]);
   const refresh = useCallback(async (view?: DocumentView) => {
     if (view) client.setQueryData(queryKeys.document(view.document.id), view);
     await Promise.all([client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
-    client.invalidateQueries({ queryKey: queryKeys.history(documentID) }), client.invalidateQueries({ queryKey: ["documents"] })]);
+    client.invalidateQueries({ queryKey: queryKeys.history(documentID) }), client.invalidateQueries({ queryKey: ["documents"] }),
+    client.invalidateQueries({ queryKey: queryKeys.openDocuments })]);
   }, [client, documentID]);
   const command = useMutation({
     mutationFn: (operation: () => Promise<DocumentView>) => operation(),
@@ -138,7 +150,6 @@ export function Workbench() {
       await api.downloadJob(job.id); message.success("STEP 导出完成");
     } catch (error) { message.error((error as Error).message); }
   };
-
   useEffect(() => {
     const selectedInstance = () => {
       const selection = useWorkbenchStore.getState().selection;
@@ -188,7 +199,6 @@ export function Workbench() {
   useEffect(() => { commandRegistry.notifyStateChanged(); }, [commandRegistry, view, store.selection, store.sketchPlane,
     store.activeToolID, store.navigationProfile, command.isPending]);
 
-  const tabs = (tabDocuments.data ?? []).map((item) => ({ key: item.document.id, label: <span>{item.document.type === "PART" ? <BuildOutlined /> : <ApartmentOutlined />} {item.document.name}</span> }));
   const selected = selectedFeature(view ?? {} as DocumentView, store.selection);
   const selectedInstance = store.selection?.kind === "instance" ? view?.product?.instances.find((instance) => instance.id === store.selection!.id) : undefined;
 
@@ -196,54 +206,56 @@ export function Workbench() {
   if (!view) return <Empty description="无法打开文档" />;
 
   return <CommandProvider registry={commandRegistry}><section className="cad-workbench">
-    <div className="command-ribbon">
-      <div className="ribbon-group"><span>CREATE</span><Space.Compact>
-        <ToolButton command="sketch.start" icon={<ScissorOutlined />} tooltip="选择基准面后创建草图" label="草图" />
-        <ToolButton command="sketch.finish" icon={<CheckOutlined />} tooltip="退出草图" label="完成" />
-        <ToolButton command="sketch.rectangle" icon={<PlusSquareOutlined />} tooltip="矩形 (R)" label="矩形" />
-        <ToolButton command="part.pad" icon={<InsertRowAboveOutlined />} tooltip="拉伸所选草图" label="拉伸" />
-      </Space.Compact></div>
-      <div className="ribbon-group"><span>ASSEMBLY</span><Space.Compact>
-        <ToolButton command="product.insert" icon={<ApartmentOutlined />} tooltip="插入 Part / Product" label="插入" />
-        <ToolButton command="product.reference.toggle" icon={<GatewayOutlined />} tooltip="切换引用策略"
-          label={selectedInstance?.referenceMode === "PINNED" ? "跟随 Head" : "固定版本"} />
-      </Space.Compact></div>
-      <div className="ribbon-group"><span>HISTORY</span><Space.Compact>
-        <ToolButton command="history.version" icon={<SaveOutlined />} tooltip="创建命名版本" label="版本" />
-        <ToolButton command="document.share" icon={<ShareAltOutlined />} tooltip="共享文档" label="共享" />
-        <ToolButton command="edit.undo" icon={<UndoOutlined />} tooltip="Undo (Ctrl+Z)" />
-        <ToolButton command="edit.redo" icon={<RedoOutlined />} tooltip="Redo (Ctrl+Y / Ctrl+Shift+Z)" />
-      </Space.Compact></div>
-      <div className="ribbon-group"><span>EXCHANGE</span><Space.Compact>
-        <ToolButton command="exchange.import" icon={<CloudUploadOutlined />} tooltip="导入 STEP" label="导入" />
-        <ToolButton command="exchange.export" icon={<CloudDownloadOutlined />} tooltip="导出 STEP" label="导出" />
-        <input ref={fileInput} hidden type="file" accept=".step,.stp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void importStep(file); }} />
-      </Space.Compact></div>
-      <div className="ribbon-spacer" /><Tag color={store.sketchPlane ? "blue" : "default"}>{store.sketchPlane ? `${store.sketchPlane} SKETCH · ${store.activeToolID}` : store.activeToolID}</Tag>
-    </div>
-    <Tabs className="document-tabs" type="editable-card" hideAdd activeKey={documentID} items={tabs}
-      onChange={(key) => { store.setActiveDocument(key); navigate(`/documents/${key}`); }}
-      onEdit={(key) => { store.closeTab(String(key)); const next = useWorkbenchStore.getState().activeDocumentID; navigate(next ? `/documents/${next}` : "/"); }} />
-    <main className="workbench-grid">
-      <aside className="feature-panel">
-        <header><span><strong>{view.document.name}</strong><small>{view.document.type} · Main</small></span><Tag>{view.document.permission}</Tag></header>
-        <Tree showIcon defaultExpandAll blockNode treeData={treeData(view)} selectedKeys={store.selection ? [`${store.selection.kind}:${store.selection.id}${store.selection.kind === "plane" ? `:${store.selection.plane}` : ""}`] : []}
-          onSelect={(keys) => store.setSelection(keys[0] ? selectionFromKey(keys[0]) : null)} />
-      </aside>
-      <section className="viewport-frame">
+    <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view} selection={store.selection}
           sketchPlane={store.sketchPlane} activeToolID={store.activeToolID} navigationProfile={store.navigationProfile}
           commandRegistry={commandRegistry} onSelectionChange={store.setSelection} onRectangleCreated={createRectangle}
           onInstanceMoved={moveInstance} /></Suspense>
-        <FloatingToolbar position="top-center">
-          <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="Select (Esc)" />
-            <ToolButton command="sketch.rectangle" icon={<BorderOutlined />} tooltip="Rectangle (R)" /></ToolbarGroup>
+        <FloatingToolbar id="modeling" position="top-left">
+          <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
+            <ToolButton command="sketch.start" icon={<ScissorOutlined />} tooltip="选择基准面后创建草图" />
+            <ToolButton command="sketch.finish" icon={<CheckOutlined />} tooltip="退出草图" />
+            <ToolButton command="sketch.rectangle" icon={<BorderOutlined />} tooltip="矩形 (R)" />
+            <ToolButton command="part.pad" icon={<InsertRowAboveOutlined />} tooltip="拉伸所选草图" /></ToolbarGroup>
           <ToolbarSeparator />
+          <ToolbarGroup><ToolButton command="product.insert" icon={<ApartmentOutlined />} tooltip="插入 Part / Product" />
+            <ToolButton command="product.reference.toggle" icon={<GatewayOutlined />}
+              tooltip={selectedInstance?.referenceMode === "PINNED" ? "切换为跟随 Head" : "固定当前版本"} /></ToolbarGroup>
+        </FloatingToolbar>
+        <FloatingToolbar id="history-exchange" position="top-center">
+          <ToolbarGroup><ToolButton command="edit.undo" icon={<UndoOutlined />} tooltip="Undo (Ctrl+Z)" />
+            <ToolButton command="edit.redo" icon={<RedoOutlined />} tooltip="Redo (Ctrl+Y / Ctrl+Shift+Z)" />
+            <ToolButton command="history.version" icon={<SaveOutlined />} tooltip="创建命名版本" />
+            <ToolButton command="document.share" icon={<ShareAltOutlined />} tooltip="共享文档" /></ToolbarGroup>
+          <ToolbarSeparator />
+          <ToolbarGroup><ToolButton command="exchange.import" icon={<CloudUploadOutlined />} tooltip="导入 STEP" />
+            <ToolButton command="exchange.export" icon={<CloudDownloadOutlined />} tooltip="导出 STEP" /></ToolbarGroup>
+        </FloatingToolbar>
+        <FloatingToolbar id="view" position="top-right">
           <ToolbarGroup><ToolButton command="navigation.profile.toggle" icon={<CompassOutlined />}
             tooltip={store.navigationProfile === "default" ? "切换到 CATIA 导航" : "切换到默认导航"} />
             <ToolButton command="view.fit" icon={<CompressOutlined />} tooltip="Fit (F)" />
             <ToolButton command="view.iso" icon={<AimOutlined />} tooltip="Isometric" /></ToolbarGroup>
         </FloatingToolbar>
+        <input ref={fileInput} hidden type="file" accept=".step,.stp" onChange={(event) => {
+          const file = event.target.files?.[0]; if (file) void importStep(file);
+        }} />
+        <aside className="floating-structure-tree">
+          <SpecificationTree nodes={treeData(view)}
+            selectedKey={store.selection ? `${store.selection.kind}:${store.selection.id}${store.selection.kind === "plane" ? `:${store.selection.plane}` : ""}` : undefined}
+            onSelect={(key) => store.setSelection(selectionFromKey(key))} />
+        </aside>
+        <button className={`inspector-toggle ${inspectorOpen ? "open" : ""}`} onClick={() => setInspectorOpen((current) => !current)}
+          title={inspectorOpen ? "收起属性面板" : "展开属性面板"}>
+          {inspectorOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
+        </button>
+        <aside className={`inspector-overlay ${inspectorOpen ? "open" : ""}`}>
+          <Segmented block value={store.inspectorTab} onChange={(value) => store.setInspectorTab(value as "properties" | "history")}
+            options={[{ label: "属性", value: "properties" }, { label: "历史", value: "history" }]} />
+          <div className="inspector-overlay-content">{store.inspectorTab === "properties"
+            ? <Properties view={view} selection={store.selection} feature={selected} />
+            : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(view.document.id, entry.versionId))} />}</div>
+        </aside>
         <div className="viewport-status">
           <span>{command.isPending ? "正在更新模型…" : store.selection ? `${store.selection.kind}: ${store.selection.id}` : "就绪"}</span>
           <span>{store.navigationProfile === "catia"
@@ -251,14 +263,7 @@ export function Workbench() {
             : "默认：右键旋转 · 中键平移"}</span>
           <span>mm</span>
         </div>
-      </section>
-      <aside className="inspector-panel">
-        <Segmented block value={store.inspectorTab} onChange={(value) => store.setInspectorTab(value as "properties" | "history")}
-          options={[{ label: "属性", value: "properties" }, { label: "历史", value: "history" }]} />
-        {store.inspectorTab === "properties" ? <Properties view={view} selection={store.selection} feature={selected} />
-          : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(view.document.id, entry.versionId))} />}
-      </aside>
-    </main>
+      </section></main>
     <Modal title="拉伸草图" open={padOpen} onCancel={() => setPadOpen(false)} footer={null} destroyOnHidden>
       <Form layout="vertical" initialValues={{ length: 40 }} onFinish={padSketch}><Form.Item name="length" label="拉伸长度（mm）" rules={[{ required: true }]}><InputNumber min={0.1} precision={2} style={{ width: "100%" }} /></Form.Item>
         <Button block type="primary" htmlType="submit" loading={command.isPending}>确定拉伸</Button></Form>

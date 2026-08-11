@@ -82,6 +82,13 @@ const histories = new Map<string, HistoryEntry[]>([
   ]],
   [productID, [{ position: 0, versionId: "mock-product-v3", sequence: 3, commandType: "MOVE_INSTANCE", createdAt: now(), isHead: true }]],
 ]);
+const openDocumentIDs: string[] = [];
+
+function markDocumentOpen(documentID: string): void {
+  const index = openDocumentIDs.indexOf(documentID);
+  if (index >= 0) openDocumentIDs.splice(index, 1);
+  openDocumentIDs.unshift(documentID);
+}
 const folders: FolderSummary[] = [{
   id: "mock-folder", name: "Concepts", description: "Early design studies", documentCount: 0,
   trashCount: 0, childCount: 0, createdAt: now(), updatedAt: now(), permission: "OWNER",
@@ -194,6 +201,12 @@ export const mockApi: CadApi = {
     const offset = options.offset ?? 0; const limit = options.limit ?? 50;
     return pause({ documents: documents.slice(offset, offset + limit), total: documents.length, offset, limit });
   },
+  listOpenDocuments: async () => pause(openDocumentIDs.map((documentID) => getView(documentID).document)),
+  closeOpenDocument: async (documentID) => {
+    const index = openDocumentIDs.indexOf(documentID);
+    if (index >= 0) openDocumentIDs.splice(index, 1);
+    await pause(undefined);
+  },
   listFolders: async (parentID = "") => pause(folders.filter((folder) => (folder.parentId ?? "") === parentID)),
   folderBreadcrumbs: async (folderID) => pause(folders.filter((folder) => folder.id === folderID)),
   createFolder: async (name, description, parentID) => {
@@ -205,7 +218,7 @@ export const mockApi: CadApi = {
     const folder = folders.find((candidate) => candidate.id === folderID)!; Object.assign(folder, { name, description }); return pause(folder);
   },
   deleteFolder: async (folderID) => { const index = folders.findIndex((folder) => folder.id === folderID); if (index >= 0) folders.splice(index, 1); },
-  getDocument: async (documentID) => pause(getView(documentID)),
+  getDocument: async (documentID) => { markDocumentOpen(documentID); return pause(getView(documentID)); },
   getHistory: async (documentID) => pause(histories.get(documentID) ?? []),
   createVersion: async (documentID, name) => {
     const entries = histories.get(documentID) ?? []; const head = entries.find((entry) => entry.isHead);
@@ -219,7 +232,7 @@ export const mockApi: CadApi = {
       { id: "datum-xy", name: "XY Plane", plane: "XY" }, { id: "datum-xz", name: "XZ Plane", plane: "XZ" },
       { id: "datum-yz", name: "YZ Plane", plane: "YZ" }], part: { units: "mm", features: [] } }
       : { document, product: { instances: [] }, artifacts: {}, resolvedInstances: [] };
-    summaries.unshift(document); views.set(document.id, view); histories.set(document.id, []); return pause(view);
+    summaries.unshift(document); views.set(document.id, view); histories.set(document.id, []); markDocumentOpen(document.id); return pause(view);
   },
   updateDocument: async (documentID, name, description) => pause(commit(documentID, "UPDATE_DOCUMENT", (view) => Object.assign(view.document, { name, description }))),
   deleteDocument: async (documentID) => { getView(documentID).document.deletedAt = now(); },

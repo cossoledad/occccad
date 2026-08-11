@@ -90,6 +90,7 @@ export class CadViewportEngine {
   private readonly pointer = new THREE.Vector2();
   private readonly content = new THREE.Group();
   private readonly helpers = new THREE.Group();
+  private readonly environment = new THREE.Group();
   private readonly contentBounds = new THREE.Box3();
   private readonly selectable = new Map<string, THREE.Object3D>();
   private readonly instanceGroups = new Map<string, THREE.Group>();
@@ -131,7 +132,17 @@ export class CadViewportEngine {
     });
     this.transform.addEventListener("change", () => this.invalidate());
 
-    this.scene.add(this.content, this.helpers);
+    const groundGrid = new THREE.GridHelper(1200, 60);
+    groundGrid.rotation.x = Math.PI / 2;
+    groundGrid.position.z = -0.02;
+    (groundGrid.material as THREE.Material).dispose();
+    const groundMaterial = this.materials.edge(0x5c7281);
+    groundMaterial.uniforms.uOpacity.value = 0.24;
+    groundMaterial.depthWrite = false;
+    groundGrid.material = groundMaterial as unknown as THREE.LineBasicMaterial;
+    groundGrid.renderOrder = -10;
+    this.environment.add(groundGrid);
+    this.scene.add(this.environment, this.content, this.helpers);
 
     const navigationPicker = new NavigationPicker(
       this.camera,
@@ -289,6 +300,7 @@ export class CadViewportEngine {
     this.transform.dispose();
     this.navigationHUD.dispose();
     this.background.dispose();
+    this.disposeGroup(this.environment);
     this.disposeGroup(this.content);
     this.disposeGroup(this.helpers);
     this.renderer.dispose();
@@ -336,7 +348,6 @@ export class CadViewportEngine {
           new THREE.BoxGeometry(20, 20, 20),
           this.materials.surface(CATIA_VISUAL_THEME.placeholder),
         );
-        (placeholder.material as THREE.ShaderMaterial).wireframe = true;
         placeholder.userData = { kind: "instance", id: instance.id };
         markNavigationPickable(placeholder);
         group.add(placeholder);

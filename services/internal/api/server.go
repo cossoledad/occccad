@@ -35,6 +35,7 @@ type Server struct {
 	authn          *authn.Service
 	artifacts      *artifact.Service
 	jobs           *jobs.Service
+	openDocuments  *openDocumentRegistry
 	secureCookies  bool
 	allowedOrigins map[string]struct{}
 }
@@ -60,7 +61,8 @@ func New(
 		database: database, worker: worker,
 		workspace: workspaceService, access: accessService, authn: authenticationService,
 		artifacts: artifactService,
-		jobs:      jobService, secureCookies: secureCookies, allowedOrigins: origins,
+		jobs:      jobService, openDocuments: newOpenDocumentRegistry(),
+		secureCookies: secureCookies, allowedOrigins: origins,
 	}
 }
 
@@ -113,6 +115,7 @@ func (server *Server) writeDocumentResult(writer http.ResponseWriter, request *h
 				slog.ErrorContext(request.Context(), "enqueue document previews", "error", jobErr)
 			}
 		}
+		server.openDocuments.Update(principal(request).ID, result.Document)
 	}
 	writeWorkspaceResult(writer, result, err)
 }
@@ -172,6 +175,8 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/teams/{teamID}/members", server.listTeamMembers)
 	mux.HandleFunc("GET /api/documents", server.listDocuments)
 	mux.HandleFunc("POST /api/documents", server.createDocument)
+	mux.HandleFunc("GET /api/open-documents", server.listOpenDocuments)
+	mux.HandleFunc("DELETE /api/open-documents/{documentID}", server.closeOpenDocument)
 	mux.HandleFunc("GET /api/folders", server.listFolders)
 	mux.HandleFunc("POST /api/folders", server.createFolder)
 	mux.HandleFunc("PATCH /api/folders/{folderID}", server.updateFolder)
@@ -553,6 +558,7 @@ func (server *Server) deleteDocument(writer http.ResponseWriter, request *http.R
 		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
 		return
 	}
+	server.openDocuments.Close(principal(request).ID, request.PathValue("documentID"))
 	writer.WriteHeader(http.StatusNoContent)
 }
 
@@ -625,14 +631,23 @@ func (server *Server) createDocument(writer http.ResponseWriter, request *http.R
 	}
 	input.ActorID = principal(request).ID
 	result, err := server.workspace.CreateDocument(request.Context(), input)
+	if err == nil {
+		result.Document.Permission = string(access.RoleOwner)
+		server.openDocuments.Open(principal(request).ID, result.Document)
+	}
 	server.writeDocumentResult(writer, request, result, err)
 }
 
 func (server *Server) getDocument(writer http.ResponseWriter, request *http.Request) {
-	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+	role, ok := server.requireDocument(writer, request, access.RoleViewer)
+	if !ok {
 		return
 	}
 	result, err := server.workspace.GetDocument(request.Context(), request.PathValue("documentID"))
+	if err == nil {
+		result.Document.Permission = string(role)
+		server.openDocuments.Open(principal(request).ID, result.Document)
+	}
 	server.writeDocumentResult(writer, request, result, err)
 }
 

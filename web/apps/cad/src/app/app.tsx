@@ -1,12 +1,13 @@
 import { DashboardOutlined, HomeOutlined, LogoutOutlined, SettingOutlined, UserOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Avatar, Button, Dropdown, Layout, Space, Spin, Tag, Typography } from "antd";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api, isMockMode } from "../api/client";
 import { Brand } from "../components/brand";
 import { AuthScreen } from "../features/auth/auth-screen";
 import { DocumentCenter } from "../features/documents/document-center";
+import { DocumentOrbController } from "../features/workbench/document-orb-controller";
 import { queryKeys } from "./query-keys";
 
 const AdminDrawer = lazy(() => import("../features/admin/admin-drawer").then((module) => ({ default: module.AdminDrawer })));
@@ -48,16 +49,26 @@ function ApplicationShell() {
       </Space>
     </Layout.Header>
     <Layout.Content className="application-content"><Outlet /></Layout.Content>
+    <DocumentOrbController />
     {adminOpen && <Suspense fallback={null}><AdminDrawer open onClose={() => setAdminOpen(false)} /></Suspense>}
   </Layout>;
 }
 
+function GlobalBrowserInteractionPolicy() {
+  useEffect(() => {
+    const suppressNativeContextMenu = (event: MouseEvent) => event.preventDefault();
+    document.addEventListener("contextmenu", suppressNativeContextMenu, { capture: true });
+    return () => document.removeEventListener("contextmenu", suppressNativeContextMenu, { capture: true });
+  }, []);
+  return null;
+}
+
 export function App() {
-  return <Routes>
+  return <><GlobalBrowserInteractionPolicy /><Routes>
     <Route element={<ApplicationShell />}>
       <Route index element={<DocumentCenter />} />
       <Route path="documents/:documentID" element={<Suspense fallback={<RouteLoading />}><Workbench /></Suspense>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Route>
-  </Routes>;
+  </Routes></>;
 }

@@ -199,22 +199,30 @@ flowchart LR
     Registry --> API
 ```
 
-Workbench Ribbon 不再自行计算 disabled/active/visible，也不直接执行建模动作。`ToolButton` 只接收 Command ID、
-Icon、Tooltip 和可选 Label，并订阅 Registry 状态。同一个 `sketch.rectangle` 同时服务 Ribbon、Floating
-Toolbar 和 R Shortcut。
+Workbench 不再自行计算 disabled/active/visible，也不直接执行建模动作。`ToolButton` 只接收 Command ID、
+Icon、Tooltip 和可选 Label，并订阅 Registry 状态。同一个 `sketch.rectangle` 同时服务 Floating Toolbar、
+Shortcut 和未来的 Command Palette。
 
 ## 9. Overlay
 
 `FloatingPanel` 是定位、边框、阴影和标题的基础容器；`FloatingToolbar` 在其上增加方向、Group 和 Separator；
 `ContextToolbar` 接收已经由 Selection Context Resolver 得出的 Command 描述，不读取 Three.js Scene。
 
-当前 Viewport 顶部悬浮 Toolbar 提供：
+每个 Toolbar 都有独立拖动柄。左键拖动只改变该 Toolbar 在 Viewport 内的位置，右键点击拖动柄切换横向/纵向，
+布局以 Toolbar ID 保存到浏览器 Local Storage。Toolbar 内容仍只通过 Command Registry 执行命令。
 
-- Select；
-- Rectangle；
-- Default/CATIA Profile Toggle；
-- Fit；
-- Isometric View。
+工作区除页眉外完全由 Viewport 占据，当前提供三组悬浮 Toolbar：
+
+- Modeling：Select、Sketch、Rectangle、Pad 或 Product Insert；
+- History/Exchange：Undo、Redo、Version、Share、STEP Import/Export；
+- View：Navigation Profile、Fit、Isometric View。
+
+Specification Tree 使用项目专用递归组件，不再使用 Ant Design Tree。它透明叠加在 Viewport 左侧，通过连续细线、
+紧凑图标和小型展开符号表达层级；PartBody 中 Pad 会包含其消费的 Sketch。Properties/History 共用右侧可折叠
+Inspector。全局左下角 Document Orb 在文档中心和 Workbench 都存在，提供新建、查看已打开文档、切换和关闭文档。
+
+浏览器原生 Context Menu 在应用根节点统一抑制；自定义 Toolbar 方向菜单和未来 CAD Context Menu 仍可以接收并处理
+`contextmenu` 事件，不依赖浏览器菜单。
 
 后续 FloatingProperties、Constraint、Measure、NavigationWidget 可以复用 FloatingPanel，不需要复制一套定位和
 视觉实现。Ant Design Button/Tooltip 继续提供统一 Hover、Disabled、Active 和无障碍状态。
@@ -249,11 +257,50 @@ Resize 和按需 Render 前更新 Overlay Camera，Pointer Move 不触发 React 
 | `cad.overlay.solid` | Navigation Center Sphere | Screen-space Gizmo |
 
 `CadMaterialFactory` 是 Scene Object 获取材质的唯一应用层入口，并共享 Selection 和 Section Plane Uniform。
-当前渲染顺序为 Background Shader → CAD Scene → Clear Depth → Navigation Overlay。默认 Grid/Axes 已移除，实体
-使用中性灰表面、深色边线、橘色选中和蓝灰渐变背景，后续剖切、点、隐藏线和边线增强继续注册 Shader Program，
+当前渲染顺序为 Background Shader → Ground Grid/CAD Scene → Clear Depth → Navigation Overlay。实体使用
+`cad.surface` 实体填充材质，边线由独立 `cad.edge` pass 表现，不使用 wireframe 模式。底面保留低对比度 CAD 网格，
+实体使用中性灰表面、深色边线、橘色选中和蓝灰渐变背景。后续剖切、点、隐藏线和边线增强继续注册 Shader Program，
 不修改 Navigation 或 Feature 业务代码。
 
-## 12. 兼容调整
+## 12. 前端开发与热更新
+
+前端由 Vite 独立启动，React Fast Refresh 和 CSS HMR 默认启用：
+
+```bash
+cd web
+pnpm dev:mock  # 无后端调试
+pnpm dev:api   # 代理 /api 到后端
+```
+
+WSL2/挂载目录中文件系统事件不稳定，因此开发配置默认启用 polling watch。以下变量可以按网络环境覆盖：
+
+```dotenv
+VITE_DEV_PORT=5173
+VITE_USE_POLLING=true
+VITE_WATCH_INTERVAL=100
+# 跨主机访问 HMR 时按需配置：
+# VITE_HMR_HOST=192.168.1.100
+# VITE_HMR_CLIENT_PORT=5173
+# VITE_HMR_PROTOCOL=ws
+```
+
+生产环境仍执行独立 `pnpm build`；后端不承担开发期前端编译和热更新。
+
+## 13. 已打开文档的服务端边界
+
+“已打开”是当前 API 服务进程中的用户会话状态，不是浏览器 Tab 状态，也不等同于数据库的 `last_opened_at`：
+
+- `GET /api/documents/{id}` 成功后把文档加入当前用户的打开集合；
+- 创建文档后直接加入集合；
+- `GET /api/open-documents` 返回该用户当前打开的文档；
+- `DELETE /api/open-documents/{id}` 关闭一个文档；
+- 删除文档或退出登录会同步清理相应状态；
+- 前端 Zustand 只保留选择、工具和导航等 UI 状态，不再是打开文档列表的真相来源。
+
+当前注册表有并发保护，但随 API 进程重启而清空。未来多 API 实例部署时，应将同一 HTTP Contract 接到 Presence
+Service；不能用持久化文档历史替代临时在线状态。
+
+## 14. 兼容调整
 
 - 保留现有 Scene、Renderer、Raycaster、材质、按需渲染和动态裁剪面；
 - 保留 Zustand 作为 React 可观察的 Active Tool/Profile/Selection 真相，ToolManager 负责 Engine 内实际分发；
@@ -263,7 +310,7 @@ Resize 和按需 Render 前更新 Overlay Camera，Pointer Move 不触发 React 
 - 保留现有 Sketch Rectangle 后端命令和 API，不改变数据库 Undo/Redo 语义；
 - 未引入 R3F、第二个状态库或第二套 UI Design System。
 
-## 13. 验证和已知限制
+## 15. 验证和已知限制
 
 执行：
 
@@ -272,14 +319,14 @@ invoke web.build
 ```
 
 前端不维护单元测试代码。`invoke web.build` 负责 TypeScript 类型检查和 Vite 生产构建；Pointer Capture、
-多按键顺序、Blur/Visibility 清理、局部 Context Menu、快捷键优先级和 CATIA 组合导航通过开发模式人工验收。
+多按键顺序、Blur/Visibility 清理、全局浏览器 Context Menu 抑制、快捷键优先级和 CATIA 组合导航通过开发模式人工验收。
 
 当前限制：
 
 - 当前 CATIA Profile 实现 Examine Mode 核心手势，不复制 CATIA V5 的所有偏好选项、光标图标和惯性细节；
-- CAD Viewport Context Menu 尚未实现；Right 单独点击仍只阻止浏览器菜单，Middle + Right 已用于 CATIA Rotate/Zoom；
+- CAD 自定义 Context Menu 尚未实现；浏览器原生菜单在整个应用内被抑制，Middle + Right 已用于 CATIA Rotate/Zoom；
 - Viewport 当前只创建 PerspectiveCamera，Orthographic CameraRig 已实现但尚未提供 UI 切换入口；
 - Touch/Pen 会被 PointerEvent 正确归一化，但尚未定义专用手势 Profile；
 - TransformControls 仍是兼容适配层，还不是正式 MoveInstanceTool；
 - Selection 仍是 Object/Sketch/Datum 粒度，Face/Edge/Vertex ID Picking 和 Context Command 推导属于下一阶段；
-- FloatingPanel 暂不支持用户拖动、Dock、布局持久化和碰撞避让。
+- FloatingToolbar 已支持拖动、横竖切换和布局持久化；尚未实现工具栏互相避让、边缘 Dock 和跨设备布局同步。

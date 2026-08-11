@@ -9,10 +9,12 @@ export class CadMaterialFactory {
   constructor(readonly shaders: CadShaderLibrary, readonly theme = CATIA_VISUAL_THEME) {}
 
   surface(color: number = this.theme.surface): THREE.ShaderMaterial {
-    return this.withSharedCadUniforms(this.shaders.createMaterial("cad.surface", {
+    const material = this.withSharedCadUniforms(this.shaders.createMaterial("cad.surface", {
       uBaseColor: new THREE.Color(color),
       uSelectedColor: new THREE.Color(this.theme.selected),
     }));
+    material.wireframe = false;
+    return material;
   }
 
   edge(color: number = this.theme.edge): THREE.ShaderMaterial {

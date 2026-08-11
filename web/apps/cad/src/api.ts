@@ -1,4 +1,4 @@
-import type { AuditEvent, DocumentPage, DocumentScope, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, Team, User, Vec2, Vec3 } from "./types";
+import type { AuditEvent, DocumentPage, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, Team, User, Vec2, Vec3 } from "./types";
 
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 export const apiURL = (path: string): string => `${apiBaseURL}${path}`;
@@ -75,6 +75,17 @@ export const restApi = {
     parameters.set("limit", String(options.limit ?? 50));
     parameters.set("offset", String(options.offset ?? 0));
     return request<DocumentPage>(`/api/documents?${parameters}`);
+  },
+  listOpenDocuments: async (): Promise<DocumentSummary[]> =>
+    (await request<{ documents: DocumentSummary[] }>("/api/open-documents")).documents,
+  closeOpenDocument: async (id: string): Promise<void> => {
+    const response = await fetch(apiURL(`/api/open-documents/${id}`), {
+      method: "DELETE", credentials: "include", headers: mutationHeaders("DELETE"),
+    });
+    if (!response.ok) {
+      const value = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(value.error ?? `HTTP ${response.status}`);
+    }
   },
   listFolders: async (parentId = "", shared = false): Promise<FolderSummary[]> => {
     const parameters = new URLSearchParams();
