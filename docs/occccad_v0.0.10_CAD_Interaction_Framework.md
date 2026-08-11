@@ -373,7 +373,60 @@ Service；不能用持久化文档历史替代临时在线状态。
 GLB/B-Rep 字节数、拓扑与三角网格数量、求值器版本、存储状态、产物 worker，以及当前 Geometry Worker 的 ID、OCCT
 版本和驻留几何数量。前端不再从 Three.js Scene 猜测这些后端状态。
 
-## 17. 兼容调整
+## 17. 统一选择、预选与结构树关联
+
+视图区与结构树不再各自维护一套“选中对象”。二者交换同一个 `Selection` 身份：
+
+```text
+documentId + occurrencePath + geometryKey + kind + localId + treeNodeId
+```
+
+- `occurrencePath` 区分 Product 中同一 Part 的不同实例和嵌套实例；
+- `geometryKey` 固定本次显示的几何产物；
+- `kind/localId` 表示 Solid、Face、Edge、Vertex、Plane、AxisSystem 或单根 Axis；
+- `treeNodeId` 是后端结构树节点的稳定定位键；
+- `visualKey` 允许 Body、Feature 或上层 Product 实例映射到多个显示对象，而不复制选择状态。
+
+```mermaid
+flowchart LR
+    Pointer[Pointer move/click] --> Ray[Three.js Raycaster + BVH]
+    Ray --> Index[SelectionIndex]
+    Index --> Identity[Selection identity]
+    Identity --> Overlay[face/edge/vertex overlay]
+    Identity --> Tree[virtual specification tree]
+    Tree -->|hover/click| Identity
+    Identity -->|topology selection| API[Topology properties API]
+    API --> Workspace[Workspace ownership validation]
+    Workspace --> Worker[Geometry Worker GetTopology]
+    Worker --> OCCT[OCCT B-Rep adaptor]
+    OCCT --> Properties[exact B-Rep properties]
+```
+
+`pointermove` 直接在 Viewport Engine 中完成 BVH 求交和材质/拓扑 Overlay 更新；只有命中的身份发生变化时才通知
+Zustand/React。因此相机矩阵、射线和逐帧 hover 不会驱动整棵 React 树重绘。面通过三角形携带的 Face ID 解析，边使用
+Worker 输出的 B-Rep 采样折线，点使用 B-Rep Vertex 世界坐标；边和点不是从三角网格拓扑反推的近似对象。
+
+结构树只扁平化当前展开分支，并使用虚拟滚动渲染可见行。节点 hover/点击根据 Selection 身份反查显示对象；视图区
+预选/选择则用 `treeNodeId` 展开祖先并定位高亮。Product 的 occurrence 前缀可映射到所有后代显示对象，所以点击上层实例、
+PartBody 或 Feature 可聚合高亮，点击实例内部 Face/Edge/Vertex 又能精确回到该实例的引用树。
+
+选择点、边、面后，属性面板调用：
+
+```http
+GET /api/documents/{documentId}/topology-properties
+    ?geometryKey={geometryKey}&kind={FACE|EDGE|VERTEX}&localId={brepLocalId}
+```
+
+API 先验证 geometry 属于当前 Part/Product 解析视图，再把 B-Rep 交给实际 Geometry Worker。Worker 使用
+`BRepAdaptor_Curve`、`BRepAdaptor_Surface` 和 OCCT Properties 返回精确类型、参数范围、公差、长度/面积、方向、半径、
+周期性以及 BSpline/Bezier 阶数、控制点/节点数量等数据。前端显示这些值，不使用 Three.js 三角形估算 CAD 属性。
+
+当前大装配扩展策略是“虚拟 DOM + 显示对象级索引 + 拓扑惰性解析”：内存索引与已加载的显示对象/实例数成正比，不为每个
+Face/Edge/Vertex 创建 React 节点，Worker 只在选择后返回目标拓扑详情。真正达到十万级实例的下一阶段还需把后端递归
+`DocumentStructure` 和 `resolvedInstances` 改成分页/按需展开，并将重复 Part 改为 GPU Instancing/分块加载；当前接口仍会
+一次性构建完整递归 DTO，这一点不能用前端虚拟滚动掩盖。
+
+## 18. 兼容调整
 
 - 保留现有 Scene、Renderer、Raycaster、材质、按需渲染和动态裁剪面；
 - 保留 Zustand 作为 React 可观察的 Active Tool/Profile/Selection 真相，ToolManager 负责 Engine 内实际分发；
@@ -383,7 +436,7 @@ GLB/B-Rep 字节数、拓扑与三角网格数量、求值器版本、存储状�
 - 保留现有 Sketch Rectangle 后端命令和 API，不改变数据库 Undo/Redo 语义；
 - 未引入 R3F、第二个状态库或第二套 UI Design System。
 
-## 18. 验证和已知限制
+## 19. 验证和已知限制
 
 执行：
 
@@ -401,7 +454,10 @@ invoke web.build
 - Viewport 当前只创建 PerspectiveCamera，Orthographic CameraRig 已实现但尚未提供 UI 切换入口；
 - Touch/Pen 会被 PointerEvent 正确归一化，但尚未定义专用手势 Profile；
 - TransformControls 仍是兼容适配层，还不是正式 MoveInstanceTool；
-- Selection 仍是 Object/Sketch/Datum 粒度，Face/Edge/Vertex ID Picking 和 Context Command 推导属于下一阶段；
+- Face/Edge/Vertex、Plane、AxisSystem、单根 Axis、Body/Feature/Occurrence 已共享统一选择身份；Persistent Topological
+  Naming 和由选择集推导 Context Command 仍属于下一阶段；
+- 大装配前端已使用虚拟结构树和对象级 SelectionIndex，但后端结构树/Resolved View 尚未分页，重复实例也尚未改为 GPU
+  Instancing；十万级装配需完成这两个数据面改造后再定义性能验收值；
 - Generative Shape Design 只有 Workbench/Toolbar 隔离边界，尚未实现曲面业务命令；
 - Product 内的引用 Part 树已可展开，但双击节点进入 in-context Part Edit 尚未接入编辑上下文和退出命令；
 - FloatingToolbar 已支持拖动、横竖切换和布局持久化；尚未实现工具栏互相避让、边缘 Dock 和跨设备布局同步。

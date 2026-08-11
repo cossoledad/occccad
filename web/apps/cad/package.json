@@ -14,11 +14,13 @@
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
     "@tanstack/react-query": "^5.101.4",
+    "@tanstack/react-virtual": "^3.14.9",
     "antd": "^6.5.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^7.18.2",
     "three": "0.179.1",
+    "three-mesh-bvh": "^0.9.14",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

@@ -1,11 +1,13 @@
 import * as THREE from "three";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import { CommandRegistry } from "../cad/command/command-registry";
 import { InputManager } from "../cad/input/input-manager";
 import type { InputState } from "../cad/input/input-types";
 import { InteractionRouter } from "../cad/interaction/interaction-router";
 import { SelectionController } from "../cad/interaction/selection-controller";
+import { sameSelection, SelectionIndex } from "../cad/interaction/selection-index";
 import { NavigationController, type NavigationSnapshot } from "../cad/navigation/navigation-controller";
 import { CatiaNavigationHUD } from "../cad/navigation/hud/catia-navigation-hud";
 import { CAD_GEOMETRY_LAYER, markNavigationPickable, NavigationPicker } from "../cad/navigation/navigation-picker";
@@ -23,10 +25,17 @@ import type {
 
 type Callbacks = {
   selectionChanged: (selection: Selection) => void;
+  preselectionChanged: (selection: Selection) => void;
   rectangleCreated: (rectangle: RectangleDraft) => void;
   instanceMoved: (instanceId: string, translation: Vec3) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
+
+type SolidContext = {
+  documentId: string; geometryKey: string; occurrencePath: string; treeNodeId: string; instanceId?: string;
+};
+
+type SolidBinding = { group: THREE.Group; mesh: THREE.Mesh; artifact: Artifact; context: SolidContext };
 
 export type ViewportDebugState = {
   input: InputState;
@@ -69,6 +78,12 @@ function makeGeometry(artifact: Artifact): THREE.BufferGeometry {
   geometry.setIndex(artifact.mesh.triangles.flat());
   geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
+  const accelerated = geometry as THREE.BufferGeometry & {
+    computeBoundsTree: typeof computeBoundsTree; disposeBoundsTree: typeof disposeBoundsTree;
+  };
+  accelerated.computeBoundsTree = computeBoundsTree;
+  accelerated.disposeBoundsTree = disposeBoundsTree;
+  accelerated.computeBoundsTree();
   return geometry;
 }
 
@@ -109,8 +124,13 @@ export class CadViewportEngine {
   private readonly environment = new THREE.Group();
   private readonly contentBounds = new THREE.Box3();
   private readonly selectable = new Map<string, THREE.Object3D>();
+  private readonly selectionIndex = new SelectionIndex();
+  private readonly solidBindings = new Map<string, SolidBinding>();
   private readonly instanceGroups = new Map<string, THREE.Group>();
   private selected: Selection = null;
+  private preselected: Selection = null;
+  private selectedOverlay?: THREE.Object3D;
+  private preselectedOverlay?: THREE.Object3D;
   private view?: DocumentView;
   private sketchPlane?: PlaneName;
   private preview?: THREE.Line;
@@ -184,7 +204,11 @@ export class CadViewportEngine {
     this.tools.register(new SelectTool());
     this.tools.register(new RectangleSketchTool());
     this.tools.activate("select");
-    this.selectionController = new SelectionController((x, y) => this.pick(x, y));
+    this.selectionController = new SelectionController(
+      (x, y) => this.pick(x, y),
+      (x, y) => this.preselectAt(x, y),
+      () => this.preselect(null, true),
+    );
     this.interaction = new InteractionRouter(this.tools, this.selectionController, this.navigation, this.shortcuts);
     this.input = new InputManager(this.renderer.domElement, this.interaction);
     this.shortcuts.pushContext("Global", [
@@ -219,8 +243,11 @@ export class CadViewportEngine {
     this.disposeGroup(this.content);
     this.disposeGroup(this.helpers);
     this.selectable.clear();
+    this.selectionIndex.clear();
+    this.solidBindings.clear();
     this.instanceGroups.clear();
     this.selected = null;
+    this.preselected = null;
     if (view.document.type === "PART") this.renderPart(view);
     else this.renderProduct(view);
     this.refreshContentBounds();
@@ -298,6 +325,12 @@ export class CadViewportEngine {
     this.selected = selection;
     this.transform.detach();
     for (const object of this.selectable.values()) this.applyHighlight(object, false);
+    for (const object of this.selectionIndex.objectsFor(selection)) this.applyHighlight(object, true);
+    this.replaceTopologyOverlay("selected", selection);
+    if (!sameSelection(this.preselected, selection)) {
+      for (const object of this.selectionIndex.objectsFor(this.preselected)) this.applyHighlight(object, true);
+      this.replaceTopologyOverlay("preselected", this.preselected);
+    } else this.replaceTopologyOverlay("preselected", null);
     if (selection) {
       const object = this.selectable.get(`${selection.kind}:${selection.id}`);
       if (object) {
@@ -306,6 +339,20 @@ export class CadViewportEngine {
       }
     }
     if (notify) this.callbacks.selectionChanged(selection);
+    this.invalidate();
+  }
+
+  preselect(selection: Selection, notify = false): void {
+    if (sameSelection(this.preselected, selection)) return;
+    for (const object of this.selectionIndex.objectsFor(this.preselected)) {
+      if (!this.selectionIndex.objectsFor(this.selected).includes(object)) this.applyHighlight(object, false);
+    }
+    this.preselected = selection;
+    for (const object of this.selectionIndex.objectsFor(selection)) {
+      if (!this.selectionIndex.objectsFor(this.selected).includes(object)) this.applyHighlight(object, true);
+    }
+    this.replaceTopologyOverlay("preselected", sameSelection(selection, this.selected) ? null : selection);
+    if (notify) this.callbacks.preselectionChanged(selection);
     this.invalidate();
   }
 
@@ -330,16 +377,25 @@ export class CadViewportEngine {
   }
 
   private renderPart(view: DocumentView): void {
-    for (const datum of view.datumPlanes ?? []) this.addDatumPlane(datum, this.helpers, true);
-    for (const axis of view.axisSystems ?? []) this.addAxisSystem(axis, this.helpers);
+    const rootPath = `document:${view.document.id}`;
+    for (const datum of view.datumPlanes ?? []) this.addDatumPlane(datum, this.helpers, true, {
+      documentId: view.document.id, geometryKey: view.artifact?.geometryKey ?? "", occurrencePath: "",
+      treeNodeId: `${rootPath}/origin/plane:${datum.id}`,
+    });
+    for (const axis of view.axisSystems ?? []) this.addAxisSystem(axis, this.helpers, {
+      documentId: view.document.id, geometryKey: view.artifact?.geometryKey ?? "", occurrencePath: "",
+      treeNodeId: `${rootPath}/origin/axis:${axis.id}`,
+    });
     for (const feature of view.part?.features ?? []) {
       if (feature.type.toUpperCase().includes("SKETCH")) this.addSketch(feature);
     }
     if (view.artifact && view.artifact.mesh.triangles.length > 0) {
-      const solid = this.makeSolid(view.artifact, CATIA_VISUAL_THEME.surface);
-      solid.userData = { kind: "solid", id: "body-1" };
+      const solid = this.makeSolid(view.artifact, CATIA_VISUAL_THEME.surface, {
+        documentId: view.document.id, geometryKey: view.artifact.geometryKey, occurrencePath: "", treeNodeId: `${rootPath}/body`,
+      });
+      solid.userData = { kind: "body", id: "body-1" };
       this.content.add(solid);
-      this.selectable.set("solid:body-1", solid);
+      this.selectable.set("body:body-1", solid);
     }
   }
 
@@ -348,10 +404,14 @@ export class CadViewportEngine {
     for (const instance of view.product?.instances ?? []) {
       const group = new THREE.Group();
       group.position.fromArray(instance.translation);
-      group.userData = { kind: "instance", id: instance.id };
+      const instanceSelection = { kind: "instance" as const, id: instance.id,
+        treeNodeId: `document:${view.document.id}/instance:${instance.id}`, documentId: instance.documentId,
+        occurrencePath: instance.id, instanceId: instance.id };
+      group.userData = instanceSelection;
       this.content.add(group);
       this.instanceGroups.set(instance.id, group);
       this.selectable.set(`instance:${instance.id}`, group);
+      this.selectionIndex.register(instanceSelection, group);
       const prefix = `${rootName}/${instance.id}`;
       for (const resolved of view.resolvedInstances ?? []) {
         if (!resolved.id.startsWith(prefix)) continue;
@@ -364,11 +424,16 @@ export class CadViewportEngine {
           resolved.translation[2] - instance.translation[2],
         );
         if (artifact.mesh.triangles.length > 0) {
-          const solid = this.makeSolid(artifact, CATIA_VISUAL_THEME.productSurface);
+          const context: SolidContext = { documentId: resolved.documentId, geometryKey: artifact.geometryKey,
+            occurrencePath: resolved.occurrencePath, treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id };
+          const solid = this.makeSolid(artifact, CATIA_VISUAL_THEME.productSurface, context);
           solid.userData = { kind: "instance", id: instance.id };
           resolvedGroup.add(solid);
         }
-        this.addReferenceGeometry(artifact.referenceGeometry, resolvedGroup);
+        this.addReferenceGeometry(artifact.referenceGeometry, resolvedGroup, {
+          documentId: resolved.documentId, geometryKey: artifact.geometryKey, occurrencePath: resolved.occurrencePath,
+          treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id,
+        });
         if (resolvedGroup.children.length > 0) group.add(resolvedGroup);
       }
       if (group.children.length === 0) {
@@ -383,7 +448,7 @@ export class CadViewportEngine {
     }
   }
 
-  private addDatumPlane(datum: DatumPlane, parent: THREE.Group, selectable: boolean): void {
+  private addDatumPlane(datum: DatumPlane, parent: THREE.Group, selectable: boolean, context?: SolidContext): void {
     const { id, plane } = datum;
     const geometry = new THREE.PlaneGeometry(datum.size || 180, datum.size || 180);
     if (plane === "XZ") geometry.rotateX(Math.PI / 2);
@@ -394,38 +459,53 @@ export class CadViewportEngine {
     });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.fromArray(datum.origin);
-    mesh.userData = { kind: "plane", id, plane };
+    const selection = { kind: "plane" as const, id: `${context?.occurrencePath || "root"}:${id}`, plane,
+      treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
+      geometryKey: context?.geometryKey, instanceId: context?.instanceId };
+    mesh.userData = selection;
     const edge = new THREE.LineSegments(
       new THREE.EdgesGeometry(geometry),
       new THREE.LineBasicMaterial({ color: planeColors[plane], transparent: true, opacity: 0.5 }),
     );
     mesh.add(edge);
     parent.add(mesh);
-    if (selectable) this.selectable.set(`plane:${id}`, mesh);
+    if (selectable || context) {
+      this.selectable.set(`plane:${selection.id}`, mesh);
+      this.selectionIndex.register(selection, mesh);
+      this.selectionIndex.registerPick(mesh, () => selection, 8);
+    }
   }
 
-  private addAxisSystem(axis: AxisSystem, parent: THREE.Group): void {
+  private addAxisSystem(axis: AxisSystem, parent: THREE.Group, context?: SolidContext): void {
     const length = 38;
     const origin = new THREE.Vector3().fromArray(axis.origin);
-    const vertices: number[] = [];
-    for (const direction of [axis.xDirection, axis.yDirection, axis.zDirection]) {
-      vertices.push(origin.x, origin.y, origin.z,
-        origin.x + direction[0] * length, origin.y + direction[1] * length, origin.z + direction[2] * length);
+    const system = new THREE.Group();
+    const systemSelection = { kind: "axis-system" as const, id: `${context?.occurrencePath || "root"}:${axis.id}`,
+      treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
+      geometryKey: context?.geometryKey, instanceId: context?.instanceId };
+    const definitions = [["X", axis.xDirection, 0xe62e24], ["Y", axis.yDirection, 0x29b849], ["Z", axis.zDirection, 0x3478e5]] as const;
+    for (const [name, direction, color] of definitions) {
+      const geometry = new THREE.BufferGeometry().setFromPoints([origin,
+        origin.clone().add(new THREE.Vector3().fromArray(direction).multiplyScalar(length))]);
+      const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 }));
+      const selection = { ...systemSelection, kind: "axis" as const, axis: name, id: `${systemSelection.id}:${name}`,
+        treeNodeId: context?.treeNodeId ? `${context.treeNodeId}/${name.toLowerCase()}` : undefined };
+      line.userData = selection; system.add(line);
+      this.selectionIndex.register(selection, line, context?.treeNodeId);
+      this.selectionIndex.registerPick(line, () => selection, 45);
     }
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute("position", new THREE.Float32BufferAttribute(vertices, 3));
-    geometry.setAttribute("color", new THREE.Float32BufferAttribute([
-      0.9, 0.18, 0.14, 0.9, 0.18, 0.14, 0.16, 0.72, 0.28, 0.16, 0.72, 0.28, 0.18, 0.42, 0.92, 0.18, 0.42, 0.92,
-    ], 3));
-    const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.9 }));
-    lines.userData = { kind: "reference-axis", id: axis.id };
-    parent.add(lines);
+    system.userData = systemSelection; parent.add(system);
+    this.selectionIndex.register(systemSelection, system);
   }
 
-  private addReferenceGeometry(reference: ReferenceGeometry | undefined, parent: THREE.Group): void {
+  private addReferenceGeometry(reference: ReferenceGeometry | undefined, parent: THREE.Group, context: SolidContext): void {
     if (!reference) return;
-    for (const datum of reference.datumPlanes ?? []) this.addDatumPlane(datum, parent, false);
-    for (const axis of reference.axisSystems ?? []) this.addAxisSystem(axis, parent);
+    for (const datum of reference.datumPlanes ?? []) this.addDatumPlane(datum, parent, false, {
+      ...context, treeNodeId: context.treeNodeId.replace(/\/body$/, `/origin/plane:${datum.id}`),
+    });
+    for (const axis of reference.axisSystems ?? []) this.addAxisSystem(axis, parent, {
+      ...context, treeNodeId: context.treeNodeId.replace(/\/body$/, `/origin/axis:${axis.id}`),
+    });
   }
 
   private addSketch(feature: Feature): void {
@@ -443,56 +523,136 @@ export class CadViewportEngine {
       color: 0xffc857, linewidth: 2, depthTest: false,
     }));
     line.renderOrder = 20;
-    line.userData = { kind: "sketch", id: feature.id };
+    const selection = { kind: "sketch" as const, id: feature.id, documentId: this.view?.document.id,
+      treeNodeId: `document:${this.view?.document.id}/body/sketch:${feature.id}` };
+    line.userData = selection;
     this.helpers.add(line);
     this.selectable.set(`sketch:${feature.id}`, line);
+    this.selectionIndex.register(selection, line);
+    this.selectionIndex.registerPick(line, () => selection, 60);
   }
 
-  private makeSolid(artifact: Artifact, color: number): THREE.Group {
+  private makeSolid(artifact: Artifact, color: number, context: SolidContext): THREE.Group {
     const geometry = makeGeometry(artifact);
     const group = new THREE.Group();
     const mesh = new THREE.Mesh(geometry, this.materials.surface(color));
+    mesh.raycast = acceleratedRaycast;
     markNavigationPickable(mesh);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    const edges = new THREE.LineSegments(
-      makeFeatureEdges(geometry), this.materials.edge(),
-    );
-    const triangleCount = geometry.index ? geometry.index.count / 3 : geometry.getAttribute("position").count / 3;
-    const edgeSegmentCount = edges.geometry.getAttribute("position").count / 2;
-    // A dense edge pass means tessellation seams still dominate the result.
-    // Keep the solid and drop that pass instead of presenting a wireframe.
-    if (triangleCount >= 64 && edgeSegmentCount > triangleCount * 0.45) {
-      edges.geometry.dispose();
-      (edges.material as THREE.Material).dispose();
-      group.add(mesh);
-    } else {
-      group.add(mesh, edges);
+    const bodySelection = { kind: "body" as const, id: `${context.occurrencePath || "root"}:body`, ...context };
+    this.selectionIndex.register(bodySelection, group);
+    const occurrenceParts = context.occurrencePath.split("/").filter(Boolean);
+    for (let length = 1; length <= occurrenceParts.length; length++) {
+      this.selectionIndex.registerVisualKey(`occurrence:${occurrenceParts.slice(0, length).join("/")}`, group);
     }
+    this.selectable.set(`body:${bodySelection.id}`, group);
+    this.selectionIndex.registerPick(mesh, (hit) => {
+      const triangle = hit.faceIndex ?? -1;
+      const localID = triangle >= 0 ? (artifact.mesh.faceIds[triangle] ?? 0) + 1 : 0;
+      return localID > 0 ? { kind: "face", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:face:${localID}`,
+        topologyId: localID, ...context } : bodySelection;
+    }, 20);
+    group.add(mesh);
+    const edgePositions: number[] = [];
+    const edgeIDs: number[] = [];
+    for (const edge of artifact.mesh.edges ?? []) {
+      for (let index = 1; index < edge.points.length; index++) {
+        edgePositions.push(...edge.points[index - 1], ...edge.points[index]); edgeIDs.push(edge.localId);
+      }
+    }
+    if (edgePositions.length > 0) {
+      const edgeGeometry = new THREE.BufferGeometry();
+      edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(edgePositions, 3));
+      const edges = new THREE.LineSegments(edgeGeometry, this.materials.edge());
+      this.selectionIndex.registerPick(edges, (hit) => {
+        const localID = edgeIDs[hit.index ?? 0] ?? 0;
+        return { kind: "edge", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:edge:${localID}`,
+          topologyId: localID, ...context };
+      }, 40);
+      group.add(edges);
+    } else {
+      group.add(new THREE.LineSegments(makeFeatureEdges(geometry), this.materials.edge()));
+    }
+    const topologyVertices = artifact.mesh.topologyVertices ?? [];
+    if (topologyVertices.length > 0) {
+      const pointGeometry = new THREE.BufferGeometry();
+      pointGeometry.setAttribute("position", new THREE.Float32BufferAttribute(topologyVertices.flatMap((item) => item.point), 3));
+      const points = new THREE.Points(pointGeometry, this.materials.point(0x1f2a30, 6));
+      this.selectionIndex.registerPick(points, (hit) => {
+        const localID = topologyVertices[hit.index ?? 0]?.localId ?? 0;
+        return { kind: "vertex", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:vertex:${localID}`,
+          topologyId: localID, ...context };
+      }, 50);
+      group.add(points);
+    }
+    this.solidBindings.set(context.occurrencePath || "root", { group, mesh, artifact, context });
     return group;
   }
 
   private pick(x: number, y: number): void {
     if (this.suppressNextSelection) { this.suppressNextSelection = false; return; }
     if (this.transform.dragging) return;
+    this.select(this.hitTest(x, y));
+  }
+
+  private preselectAt(x: number, y: number): void {
+    if (this.transform.dragging || this.navigation.activeAction !== "none") return;
+    this.preselect(this.hitTest(x, y), true);
+  }
+
+  private hitTest(x: number, y: number): Selection {
     this.updatePointer(x, y);
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    this.raycaster.params.Line = { threshold: 5 };
-    const roots = [...this.selectable.values()];
-    const hits = this.raycaster.intersectObjects(roots, true);
-    if (hits.length === 0) {
-      this.select(null);
-      return;
+    const distance = Math.max(this.camera.position.distanceTo(this.navigation.target), 1);
+    const worldPerPixel = 2 * distance * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) /
+      Math.max(this.renderer.domElement.clientHeight, 1);
+    this.raycaster.params.Line = { threshold: worldPerPixel * 5 };
+    this.raycaster.params.Points = { threshold: worldPerPixel * 7 };
+    return this.selectionIndex.pick(this.raycaster);
+  }
+
+  private replaceTopologyOverlay(layer: "selected" | "preselected", selection: Selection): void {
+    const property = layer === "selected" ? "selectedOverlay" : "preselectedOverlay";
+    const previous = this[property];
+    if (previous) {
+      previous.parent?.remove(previous);
+      this.disposeRenderable(previous);
+      this[property] = undefined;
     }
-    const selections = hits.map((hit) => {
-      let object: THREE.Object3D | null = hit.object;
-      while (object && !object.userData.kind) object = object.parent;
-      return object?.userData as Exclude<Selection, null> | undefined;
-    }).filter((value): value is Exclude<Selection, null> => Boolean(value));
-    // A visible sketch must remain selectable even when it is coplanar with a datum or body face.
-    const selection = selections.find((value) => value.kind === "sketch")
-      ?? selections.find((value) => value.kind !== "plane") ?? selections[0];
-    if (selection) this.select(selection);
+    if (!selection || (selection.kind !== "face" && selection.kind !== "edge" && selection.kind !== "vertex")) return;
+    const binding = this.solidBindings.get(selection.occurrencePath || "root");
+    if (!binding || !selection.topologyId) return;
+    const color = layer === "selected" ? 0xff8a00 : 0xffc640;
+    let overlay: THREE.Object3D | undefined;
+    if (selection.kind === "face") {
+      const positions: number[] = [];
+      binding.artifact.mesh.triangles.forEach((triangle, index) => {
+        if ((binding.artifact.mesh.faceIds[index] ?? -1) + 1 !== selection.topologyId) return;
+        for (const vertex of triangle) positions.push(...binding.artifact.mesh.vertices[vertex]);
+      });
+      if (positions.length > 0) {
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3)); geometry.computeVertexNormals();
+        overlay = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, transparent: true,
+          opacity: layer === "selected" ? 0.48 : 0.3, side: THREE.DoubleSide, depthWrite: false,
+          polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+      }
+    } else if (selection.kind === "edge") {
+      const edge = (binding.artifact.mesh.edges ?? []).find((item) => item.localId === selection.topologyId);
+      if (edge) overlay = new THREE.Line(new THREE.BufferGeometry().setFromPoints(edge.points.map((point) => new THREE.Vector3().fromArray(point))),
+        new THREE.LineBasicMaterial({ color, depthTest: false }));
+    } else {
+      const vertex = (binding.artifact.mesh.topologyVertices ?? []).find((item) => item.localId === selection.topologyId);
+      if (vertex) {
+        const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3().fromArray(vertex.point)]);
+        overlay = new THREE.Points(geometry, new THREE.PointsMaterial({ color, size: layer === "selected" ? 9 : 7,
+          sizeAttenuation: false, depthTest: false }));
+      }
+    }
+    if (!overlay) return;
+    overlay.renderOrder = layer === "selected" ? 102 : 101;
+    binding.group.add(overlay); this[property] = overlay;
   }
 
   private sketchPoint(x: number, y: number): Vec2 | null {
@@ -659,6 +819,15 @@ export class CadViewportEngine {
         materials.forEach((material) => material?.dispose());
       });
     }
+  }
+
+  private disposeRenderable(root: THREE.Object3D): void {
+    root.traverse((object) => {
+      const renderable = object as THREE.Mesh;
+      renderable.geometry?.dispose();
+      const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material];
+      materials.forEach((material) => material?.dispose());
+    });
   }
 
   private invalidate(): void {

@@ -8,6 +8,11 @@ const pause = async <T>(value: T, milliseconds = 90): Promise<T> =>
   new Promise((resolve) => window.setTimeout(() => resolve(structuredClone(value)), milliseconds));
 const now = (): string => new Date().toISOString();
 const id = (prefix: string): string => `${prefix}-${crypto.randomUUID()}`;
+const mockTopologyProperties = (kind: "FACE" | "EDGE" | "VERTEX"): Record<string, number | boolean | string | Vec3> => {
+  if (kind === "FACE") return { area: 100, normal: [0, 0, 1] };
+  if (kind === "EDGE") return { length: 10, direction: [1, 0, 0] };
+  return { tolerance: 1e-7 };
+};
 const datumPlanes = [
   { id: "datum-xy", name: "XY Plane", plane: "XY" as const, origin: [0, 0, 0] as Vec3, normal: [0, 0, 1] as Vec3, size: 180 },
   { id: "datum-xz", name: "XZ Plane", plane: "XZ" as const, origin: [0, 0, 0] as Vec3, normal: [0, 1, 0] as Vec3, size: 180 },
@@ -27,13 +32,18 @@ const users: User[] = [administrator, {
 
 function boxArtifact(key: string, size: Vec3): Artifact {
   const [x, y, z] = size;
+  const vertices: Vec3[] = [[0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0], [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]];
   return {
     geometryKey: key, geometryId: `geometry-${key}`,
     mesh: {
-      vertices: [[0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0], [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]],
+      vertices,
       triangles: [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
         [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]],
-      faceIds: [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6],
+      faceIds: [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5],
+      edges: [
+        [0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7],
+      ].map(([a, b], index) => ({ localId: index + 1, points: [vertices[a], vertices[b]] })),
+      topologyVertices: vertices.map((point, index) => ({ localId: index + 1, point })),
     },
     bbox: { min: [0, 0, 0], max: size },
     topology: { faces: 6, edges: 12, vertices: 8, solids: 1 },
@@ -76,8 +86,8 @@ const views = new Map<string, DocumentView>([
     ] },
     artifacts: { [partArtifact.geometryKey]: partArtifact },
     resolvedInstances: [
-      { id: "Frame Assembly/mock-instance-a/part", name: "Bracket A", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [-45, 0, 0] },
-      { id: "Frame Assembly/mock-instance-b/part", name: "Bracket B", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [45, 0, 0] },
+      { id: "Frame Assembly/mock-instance-a/part", name: "Bracket A", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [-45, 0, 0], occurrencePath: "mock-instance-a", bodyTreeNodeId: `document:${productID}/instance:mock-instance-a/reference/body` },
+      { id: "Frame Assembly/mock-instance-b/part", name: "Bracket B", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [45, 0, 0], occurrencePath: "mock-instance-b", bodyTreeNodeId: `document:${productID}/instance:mock-instance-b/reference/body` },
     ],
   }],
 ]);
@@ -131,7 +141,10 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
           ...(view.datumPlanes ?? []).map((plane) => ({ id: `${path}/origin/plane:${plane.id}`, kind: "PLANE" as const,
             name: plane.name, entityId: plane.id, documentId: view.document.id, plane: plane.plane })),
           ...(view.axisSystems ?? []).map((axis) => ({ id: `${path}/origin/axis:${axis.id}`, kind: "AXIS_SYSTEM" as const,
-            name: axis.name, entityId: axis.id, documentId: view.document.id })),
+            name: axis.name, entityId: axis.id, documentId: view.document.id, children: (["X", "Y", "Z"] as const).map((name) => ({
+              id: `${path}/origin/axis:${axis.id}/${name.toLowerCase()}`, kind: "AXIS" as const, name: `${name} Axis`,
+              entityId: axis.id, axis: name, documentId: view.document.id,
+            })) })),
         ] },
         { id: `${path}/body`, kind: "BODY", name: "PartBody", documentId: view.document.id, children: bodyChildren },
       ] };
@@ -171,7 +184,8 @@ function rebuildProduct(view: DocumentView): void {
   view.artifacts = { [partArtifact.geometryKey]: partArtifact };
   view.resolvedInstances = (view.product?.instances ?? []).map((instance) => ({
     id: `${view.document.name}/${instance.id}/part`, name: instance.name, documentId: partID,
-    geometryKey: partArtifact.geometryKey, translation: instance.translation,
+    geometryKey: partArtifact.geometryKey, translation: instance.translation, occurrencePath: instance.id,
+    bodyTreeNodeId: `document:${view.document.id}/instance:${instance.id}/reference/body`,
   }));
 }
 
@@ -281,6 +295,12 @@ export const mockApi: CadApi = {
         resolvedInstanceCount: view.resolvedInstances?.length ?? 0 },
       worker: { available: true, workerId: "mock-geometry-1", occtVersion: "mock-7.9.1", residentGeometryCount: artifacts.length } });
   },
+  getTopologyProperties: async (_documentID, geometryKey, kind, localId) => pause({
+    geometryKey, geometryId: `geometry-${geometryKey}`, kind, localId,
+    geometryType: kind === "FACE" ? "PLANE" : kind === "EDGE" ? "LINE" : "POINT",
+    properties: mockTopologyProperties(kind),
+    workerId: "mock-geometry-1", occtVersion: "mock-7.9.1",
+  }),
   getHistory: async (documentID) => pause(histories.get(documentID) ?? []),
   createVersion: async (documentID, name) => {
     const entries = histories.get(documentID) ?? []; const head = entries.find((entry) => entry.isHead);

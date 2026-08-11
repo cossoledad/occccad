@@ -54,6 +54,25 @@ func (client *Client) WorkerFor(geometryKey string) string {
 	return ""
 }
 
+func (client *Client) GetTopology(
+	ctx context.Context, geometryID string, brep []byte, topologyType string, localID uint64,
+) (*workerv1.GetTopologyResponse, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	var header metadata.MD
+	response, err := client.worker.GetTopology(ctx, &workerv1.GetTopologyRequest{
+		GeometryId: geometryID, BrepData: brep, TopologyType: topologyType, LocalId: localID,
+	}, grpc.Header(&header))
+	if err != nil {
+		return nil, "", fmt.Errorf("query B-Rep topology: %w", err)
+	}
+	workerID := ""
+	if values := header.Get("x-occccad-worker-id"); len(values) > 0 {
+		workerID = values[0]
+	}
+	return response, workerID, nil
+}
+
 func (client *Client) rememberWorker(ctx context.Context, geometryKey string, header metadata.MD) {
 	if values := header.Get("x-occccad-worker-id"); len(values) > 0 && values[0] != "" {
 		client.workers.Store(geometryKey, values[0])

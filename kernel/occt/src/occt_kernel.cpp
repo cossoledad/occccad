@@ -3,6 +3,8 @@
 #include <occccad/kernel/geometry_id.hpp>
 
 #include <BRepBndLib.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -15,8 +17,11 @@
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
 #include <Geom_BSplineCurve.hxx>
 #include <Geom_BSplineSurface.hxx>
+#include <Geom_BezierCurve.hxx>
+#include <Geom_BezierSurface.hxx>
 #include <Geom_Circle.hxx>
 #include <Geom_ConicalSurface.hxx>
 #include <Geom_CylindricalSurface.hxx>
@@ -38,6 +43,7 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
+#include <TopoDS_Vertex.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
 
@@ -73,27 +79,236 @@ Vec3 to_vec3(const gp_Pnt& point) {
 }
 
 int classify_surface(const TopoDS_Face& face) {
-    const Handle(Geom_Surface) surface = BRep_Tool::Surface(face);
-    if (surface.IsNull()) return -1;
-    if (surface->IsKind(STANDARD_TYPE(Geom_Plane))) return 0;
-    if (surface->IsKind(STANDARD_TYPE(Geom_CylindricalSurface))) return 1;
-    if (surface->IsKind(STANDARD_TYPE(Geom_ConicalSurface))) return 2;
-    if (surface->IsKind(STANDARD_TYPE(Geom_SphericalSurface))) return 3;
-    if (surface->IsKind(STANDARD_TYPE(Geom_ToroidalSurface))) return 4;
-    if (surface->IsKind(STANDARD_TYPE(Geom_BSplineSurface))) return 5;
-    return -1;
+    switch (BRepAdaptor_Surface(face, Standard_True).GetType()) {
+    case GeomAbs_Plane: return 0;
+    case GeomAbs_Cylinder: return 1;
+    case GeomAbs_Cone: return 2;
+    case GeomAbs_Sphere: return 3;
+    case GeomAbs_Torus: return 4;
+    case GeomAbs_BSplineSurface: return 5;
+    case GeomAbs_BezierSurface: return 6;
+    case GeomAbs_SurfaceOfExtrusion: return 7;
+    case GeomAbs_SurfaceOfRevolution: return 8;
+    case GeomAbs_OffsetSurface: return 9;
+    default: return -1;
+    }
 }
 
 int classify_curve(const TopoDS_Edge& edge) {
-    Standard_Real first = 0.0;
-    Standard_Real last = 0.0;
-    const Handle(Geom_Curve) curve = BRep_Tool::Curve(edge, first, last);
-    if (curve.IsNull()) return -1;
-    if (curve->IsKind(STANDARD_TYPE(Geom_Line))) return 0;
-    if (curve->IsKind(STANDARD_TYPE(Geom_Circle))) return 1;
-    if (curve->IsKind(STANDARD_TYPE(Geom_Ellipse))) return 2;
-    if (curve->IsKind(STANDARD_TYPE(Geom_BSplineCurve))) return 3;
-    return -1;
+    switch (BRepAdaptor_Curve(edge).GetType()) {
+    case GeomAbs_Line: return 0;
+    case GeomAbs_Circle: return 1;
+    case GeomAbs_Ellipse: return 2;
+    case GeomAbs_BSplineCurve: return 3;
+    case GeomAbs_Hyperbola: return 4;
+    case GeomAbs_Parabola: return 5;
+    case GeomAbs_BezierCurve: return 6;
+    case GeomAbs_OffsetCurve: return 7;
+    default: return -1;
+    }
+}
+
+TopologyProperty number_property(std::string name, const double value) {
+    TopologyProperty result;
+    result.name = std::move(name);
+    result.kind = TopologyProperty::Kind::NUMBER;
+    result.number_value = value;
+    return result;
+}
+
+TopologyProperty integer_property(std::string name, const int64_t value) {
+    TopologyProperty result;
+    result.name = std::move(name);
+    result.kind = TopologyProperty::Kind::INTEGER;
+    result.integer_value = value;
+    return result;
+}
+
+TopologyProperty boolean_property(std::string name, const bool value) {
+    TopologyProperty result;
+    result.name = std::move(name);
+    result.kind = TopologyProperty::Kind::BOOLEAN;
+    result.bool_value = value;
+    return result;
+}
+
+TopologyProperty vector_property(std::string name, const gp_XYZ& value) {
+    TopologyProperty result;
+    result.name = std::move(name);
+    result.kind = TopologyProperty::Kind::VECTOR;
+    result.vector_value = {value.X(), value.Y(), value.Z()};
+    return result;
+}
+
+void append_surface_properties(const TopoDS_Face& face, FaceInfo& output) {
+    BRepAdaptor_Surface surface(face, Standard_True);
+    output.properties.push_back(number_property("uFirst", surface.FirstUParameter()));
+    output.properties.push_back(number_property("uLast", surface.LastUParameter()));
+    output.properties.push_back(number_property("vFirst", surface.FirstVParameter()));
+    output.properties.push_back(number_property("vLast", surface.LastVParameter()));
+    output.properties.push_back(number_property("tolerance", BRep_Tool::Tolerance(face)));
+    output.properties.push_back(integer_property("orientation", static_cast<int>(face.Orientation())));
+    output.properties.push_back(boolean_property("uPeriodic", surface.IsUPeriodic()));
+    output.properties.push_back(boolean_property("vPeriodic", surface.IsVPeriodic()));
+    GProp_GProps area;
+    BRepGProp::SurfaceProperties(face, area);
+    output.properties.push_back(number_property("area", area.Mass()));
+    switch (surface.GetType()) {
+    case GeomAbs_Plane: {
+        const auto value = surface.Plane();
+        output.properties.push_back(vector_property("origin", value.Location().XYZ()));
+        output.properties.push_back(vector_property("normal", value.Axis().Direction().XYZ()));
+        output.properties.push_back(vector_property("xDirection", value.XAxis().Direction().XYZ()));
+        output.properties.push_back(vector_property("yDirection", value.YAxis().Direction().XYZ()));
+        break;
+    }
+    case GeomAbs_Cylinder: {
+        const auto value = surface.Cylinder();
+        output.properties.push_back(vector_property("origin", value.Location().XYZ()));
+        output.properties.push_back(vector_property("axis", value.Axis().Direction().XYZ()));
+        output.properties.push_back(number_property("radius", value.Radius()));
+        break;
+    }
+    case GeomAbs_Cone: {
+        const auto value = surface.Cone();
+        output.properties.push_back(vector_property("origin", value.Location().XYZ()));
+        output.properties.push_back(vector_property("axis", value.Axis().Direction().XYZ()));
+        output.properties.push_back(number_property("referenceRadius", value.RefRadius()));
+        output.properties.push_back(number_property("semiAngle", value.SemiAngle()));
+        break;
+    }
+    case GeomAbs_Sphere: {
+        const auto value = surface.Sphere();
+        output.properties.push_back(vector_property("center", value.Location().XYZ()));
+        output.properties.push_back(number_property("radius", value.Radius()));
+        break;
+    }
+    case GeomAbs_Torus: {
+        const auto value = surface.Torus();
+        output.properties.push_back(vector_property("center", value.Location().XYZ()));
+        output.properties.push_back(vector_property("axis", value.Axis().Direction().XYZ()));
+        output.properties.push_back(number_property("majorRadius", value.MajorRadius()));
+        output.properties.push_back(number_property("minorRadius", value.MinorRadius()));
+        break;
+    }
+    case GeomAbs_BSplineSurface: {
+        const auto value = surface.BSpline();
+        output.properties.push_back(integer_property("uDegree", value->UDegree()));
+        output.properties.push_back(integer_property("vDegree", value->VDegree()));
+        output.properties.push_back(integer_property("uPoles", value->NbUPoles()));
+        output.properties.push_back(integer_property("vPoles", value->NbVPoles()));
+        output.properties.push_back(integer_property("uKnots", value->NbUKnots()));
+        output.properties.push_back(integer_property("vKnots", value->NbVKnots()));
+        output.properties.push_back(boolean_property("uRational", value->IsURational()));
+        output.properties.push_back(boolean_property("vRational", value->IsVRational()));
+        break;
+    }
+    case GeomAbs_BezierSurface: {
+        const auto value = surface.Bezier();
+        output.properties.push_back(integer_property("uDegree", value->UDegree()));
+        output.properties.push_back(integer_property("vDegree", value->VDegree()));
+        output.properties.push_back(integer_property("uPoles", value->NbUPoles()));
+        output.properties.push_back(integer_property("vPoles", value->NbVPoles()));
+        output.properties.push_back(boolean_property("uRational", value->IsURational()));
+        output.properties.push_back(boolean_property("vRational", value->IsVRational()));
+        break;
+    }
+    case GeomAbs_SurfaceOfExtrusion:
+        output.properties.push_back(vector_property("direction", surface.Direction().XYZ()));
+        break;
+    case GeomAbs_SurfaceOfRevolution:
+        output.properties.push_back(vector_property("axisOrigin", surface.AxeOfRevolution().Location().XYZ()));
+        output.properties.push_back(vector_property("axisDirection", surface.AxeOfRevolution().Direction().XYZ()));
+        break;
+    default:
+        break;
+    }
+}
+
+void append_curve_properties(const TopoDS_Edge& edge, EdgeInfo& output) {
+    BRepAdaptor_Curve curve(edge);
+    const double first = curve.FirstParameter();
+    const double last = curve.LastParameter();
+    output.properties.push_back(number_property("firstParameter", first));
+    output.properties.push_back(number_property("lastParameter", last));
+    output.properties.push_back(number_property("tolerance", BRep_Tool::Tolerance(edge)));
+    if (std::isfinite(first) && std::isfinite(last)) {
+        output.properties.push_back(number_property("length", GCPnts_AbscissaPoint::Length(curve, first, last)));
+    }
+    output.properties.push_back(boolean_property("closed", curve.IsClosed()));
+    output.properties.push_back(boolean_property("periodic", curve.IsPeriodic()));
+    switch (curve.GetType()) {
+    case GeomAbs_Line: {
+        const auto value = curve.Line();
+        output.properties.push_back(vector_property("origin", value.Location().XYZ()));
+        output.properties.push_back(vector_property("direction", value.Direction().XYZ()));
+        break;
+    }
+    case GeomAbs_Circle: {
+        const auto value = curve.Circle();
+        output.properties.push_back(vector_property("center", value.Location().XYZ()));
+        output.properties.push_back(vector_property("normal", value.Axis().Direction().XYZ()));
+        output.properties.push_back(number_property("radius", value.Radius()));
+        break;
+    }
+    case GeomAbs_Ellipse: {
+        const auto value = curve.Ellipse();
+        output.properties.push_back(vector_property("center", value.Location().XYZ()));
+        output.properties.push_back(vector_property("normal", value.Axis().Direction().XYZ()));
+        output.properties.push_back(number_property("majorRadius", value.MajorRadius()));
+        output.properties.push_back(number_property("minorRadius", value.MinorRadius()));
+        break;
+    }
+    case GeomAbs_BSplineCurve: {
+        const auto value = curve.BSpline();
+        output.properties.push_back(integer_property("degree", value->Degree()));
+        output.properties.push_back(integer_property("poles", value->NbPoles()));
+        output.properties.push_back(integer_property("knots", value->NbKnots()));
+        output.properties.push_back(boolean_property("rational", value->IsRational()));
+        break;
+    }
+    case GeomAbs_Hyperbola: {
+        const auto value = curve.Hyperbola();
+        output.properties.push_back(vector_property("center", value.Location().XYZ()));
+        output.properties.push_back(vector_property("normal", value.Axis().Direction().XYZ()));
+        output.properties.push_back(number_property("majorRadius", value.MajorRadius()));
+        output.properties.push_back(number_property("minorRadius", value.MinorRadius()));
+        break;
+    }
+    case GeomAbs_Parabola: {
+        const auto value = curve.Parabola();
+        output.properties.push_back(vector_property("location", value.Location().XYZ()));
+        output.properties.push_back(vector_property("axis", value.Axis().Direction().XYZ()));
+        output.properties.push_back(number_property("focal", value.Focal()));
+        break;
+    }
+    case GeomAbs_BezierCurve: {
+        const auto value = curve.Bezier();
+        output.properties.push_back(integer_property("degree", value->Degree()));
+        output.properties.push_back(integer_property("poles", value->NbPoles()));
+        output.properties.push_back(boolean_property("rational", value->IsRational()));
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+std::vector<Vec3> sample_edge(const TopoDS_Edge& edge) {
+    BRepAdaptor_Curve curve(edge);
+    const double first = curve.FirstParameter();
+    const double last = curve.LastParameter();
+    if (!std::isfinite(first) || !std::isfinite(last)) return {};
+    int samples = 24;
+    if (curve.GetType() == GeomAbs_Line) samples = 2;
+    if (curve.GetType() == GeomAbs_Circle || curve.GetType() == GeomAbs_Ellipse) samples = 49;
+    std::vector<Vec3> result;
+    result.reserve(static_cast<size_t>(samples));
+    for (int sample = 0; sample < samples; ++sample) {
+        const double ratio = samples == 1 ? 0.0 : static_cast<double>(sample) / (samples - 1);
+        result.push_back(to_vec3(curve.Value(first + (last - first) * ratio)));
+    }
+    return result;
 }
 
 std::vector<uint8_t> write_brep(const TopoDS_Shape& shape) {
@@ -337,15 +552,32 @@ TopologyInfo OcctKernel::getTopology(const GeometryId& id) {
         const TopoDS_Face& face = TopoDS::Face(face_map(index));
         Bnd_Box box;
         BRepBndLib::Add(face, box);
-        info.faces.push_back({
-            static_cast<uint64_t>(index), classify_surface(face), to_bbox(box)});
+        FaceInfo face_info{};
+        face_info.local_id = static_cast<uint64_t>(index);
+        face_info.surface_type = classify_surface(face);
+        face_info.bbox = to_bbox(box);
+        append_surface_properties(face, face_info);
+        info.faces.push_back(std::move(face_info));
     }
     for (int index = 1; index <= edge_map.Extent(); ++index) {
         const TopoDS_Edge& edge = TopoDS::Edge(edge_map(index));
         Bnd_Box box;
         BRepBndLib::Add(edge, box);
-        info.edges.push_back({
-            static_cast<uint64_t>(index), classify_curve(edge), to_bbox(box)});
+        EdgeInfo edge_info{};
+        edge_info.local_id = static_cast<uint64_t>(index);
+        edge_info.curve_type = classify_curve(edge);
+        edge_info.bbox = to_bbox(box);
+        append_curve_properties(edge, edge_info);
+        edge_info.render_points = sample_edge(edge);
+        info.edges.push_back(std::move(edge_info));
+    }
+    for (int index = 1; index <= vertex_map.Extent(); ++index) {
+        const TopoDS_Vertex& vertex = TopoDS::Vertex(vertex_map(index));
+        VertexInfo vertex_info{};
+        vertex_info.local_id = static_cast<uint64_t>(index);
+        vertex_info.point = to_vec3(BRep_Tool::Pnt(vertex));
+        vertex_info.properties.push_back(number_property("tolerance", BRep_Tool::Tolerance(vertex)));
+        info.vertices.push_back(std::move(vertex_info));
     }
     return info;
 }
@@ -405,6 +637,20 @@ TessellationResult OcctKernel::tessellate(
             result.face_ids.push_back(face_id);
         }
         ++face_id;
+    }
+    TopTools_IndexedMapOfShape edge_map;
+    TopTools_IndexedMapOfShape vertex_map;
+    TopExp::MapShapes(shape, TopAbs_EDGE, edge_map);
+    TopExp::MapShapes(shape, TopAbs_VERTEX, vertex_map);
+    for (int index = 1; index <= edge_map.Extent(); ++index) {
+        const TopoDS_Edge& edge = TopoDS::Edge(edge_map(index));
+        EdgePolyline polyline{static_cast<uint64_t>(index), sample_edge(edge)};
+        if (polyline.points.empty()) continue;
+        result.edges.push_back(std::move(polyline));
+    }
+    for (int index = 1; index <= vertex_map.Extent(); ++index) {
+        const TopoDS_Vertex& vertex = TopoDS::Vertex(vertex_map(index));
+        result.topology_vertices.push_back({static_cast<uint64_t>(index), to_vec3(BRep_Tool::Pnt(vertex))});
     }
     return result;
 }

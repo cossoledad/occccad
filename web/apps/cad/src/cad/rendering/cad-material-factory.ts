@@ -40,6 +40,7 @@ export class CadMaterialFactory {
   setSelected(object: THREE.Object3D, selected: boolean): void {
     object.traverse((child) => {
       const renderable = child as THREE.Mesh | THREE.LineSegments;
+      if (!("material" in renderable) || !renderable.material) return;
       const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material];
       for (const material of materials) {
         if (material instanceof THREE.MeshPhongMaterial && material.userData.cadMaterial === "surface") {
@@ -50,6 +51,9 @@ export class CadMaterialFactory {
         } else if (material instanceof THREE.ShaderMaterial) {
           const selectedUniform = material.uniforms.uSelected;
           if (selectedUniform) selectedUniform.value = selected ? 1 : 0;
+        } else if (material && "color" in material && material.color instanceof THREE.Color) {
+          if (material.userData.baseColor === undefined) material.userData.baseColor = material.color.getHex();
+          material.color.setHex(selected ? this.theme.selected : Number(material.userData.baseColor));
         }
       }
     });

@@ -368,6 +368,7 @@ func (pool *GeometryPool) GetTopology(ctx context.Context, request *workerv1.Get
 	if err != nil {
 		return nil, err
 	}
+	_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
 	response, err := client.GetTopology(outgoing(ctx), request)
 	pool.release(worker, "", err == nil)
 	return response, err

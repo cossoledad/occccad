@@ -184,6 +184,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/folders/{folderID}/breadcrumbs", server.folderBreadcrumbs)
 	mux.HandleFunc("GET /api/documents/{documentID}", server.getDocument)
 	mux.HandleFunc("GET /api/documents/{documentID}/properties", server.documentProperties)
+	mux.HandleFunc("GET /api/documents/{documentID}/topology-properties", server.topologyProperties)
 	mux.HandleFunc("GET /api/documents/{documentID}/preview", server.documentPreview)
 	mux.HandleFunc("PATCH /api/documents/{documentID}", server.updateDocument)
 	mux.HandleFunc("DELETE /api/documents/{documentID}", server.deleteDocument)
@@ -695,6 +696,32 @@ func (server *Server) documentProperties(writer http.ResponseWriter, request *ht
 			"resolvedInstanceCount": len(view.ResolvedInstances)},
 		"worker": worker,
 	})
+}
+
+func (server *Server) topologyProperties(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	localID, err := strconv.ParseUint(request.URL.Query().Get("localId"), 10, 64)
+	if err != nil || localID == 0 {
+		writeError(writer, http.StatusBadRequest, "localId must be a positive integer")
+		return
+	}
+	result, err := server.workspace.GetTopologyElementProperties(request.Context(), request.PathValue("documentID"),
+		request.URL.Query().Get("geometryKey"), request.URL.Query().Get("kind"), localID)
+	if err != nil {
+		if errors.Is(err, workspace.ErrNotFound) {
+			writeError(writer, http.StatusNotFound, err.Error())
+			return
+		}
+		if errors.Is(err, workspace.ErrValidation) {
+			writeError(writer, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
 }
 
 func (server *Server) applyCommand(writer http.ResponseWriter, request *http.Request) {

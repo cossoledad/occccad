@@ -286,8 +286,12 @@ def test(c, build_type=None, filter=None):
     if not build_dir.exists():
         raise Exit(f"Build dir {build_dir} not found. Run 'invoke configure build' first.")
 
-    print("[test] Building tests...")
-    c.run(f"cmake --build {build_dir} --target occccad_smoke_test --parallel", pty=True)
+    print("[test] Building Geometry Worker smoke target...")
+    c.run(f"cmake --build {build_dir} --target occccad_geometry_worker --parallel", pty=True)
+
+    worker_smoke = build_dir / "workers" / "geometry" / "occccad_geometry_worker"
+    print("[test] Running Geometry Worker smoke test...")
+    c.run(f"{worker_smoke} --smoke", pty=True)
 
     print("[test] Running tests...")
     ctest_cmd = f"ctest --test-dir {build_dir} --output-on-failure"

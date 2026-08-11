@@ -22,7 +22,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "demo03-feature-chain-v1"
+const evaluatorVersion = "topology-selection-v2"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -30,9 +30,33 @@ var (
 )
 
 type Mesh struct {
-	Vertices  [][3]float64 `json:"vertices"`
-	Triangles [][3]uint32  `json:"triangles"`
-	FaceIDs   []uint32     `json:"faceIds"`
+	Vertices         [][3]float64    `json:"vertices"`
+	Triangles        [][3]uint32     `json:"triangles"`
+	FaceIDs          []uint32        `json:"faceIds"`
+	Edges            []MeshEdge      `json:"edges"`
+	TopologyVertices []TopologyPoint `json:"topologyVertices"`
+}
+
+type MeshEdge struct {
+	LocalID uint64       `json:"localId"`
+	Points  [][3]float64 `json:"points"`
+}
+type TopologyPoint struct {
+	LocalID uint64     `json:"localId"`
+	Point   [3]float64 `json:"point"`
+}
+
+type TopologyElementProperties struct {
+	GeometryKey  string         `json:"geometryKey"`
+	GeometryID   string         `json:"geometryId"`
+	Kind         string         `json:"kind"`
+	LocalID      uint64         `json:"localId"`
+	GeometryType string         `json:"geometryType"`
+	BBox         map[string]any `json:"bbox,omitempty"`
+	Point        *[3]float64    `json:"point,omitempty"`
+	Properties   map[string]any `json:"properties"`
+	WorkerID     string         `json:"workerId"`
+	OCCTVersion  string         `json:"occtVersion"`
 }
 
 type Artifact struct {
@@ -189,11 +213,13 @@ type CopyDocumentRequest struct {
 }
 
 type ResolvedInstance struct {
-	ID          string     `json:"id"`
-	Name        string     `json:"name"`
-	DocumentID  string     `json:"documentId"`
-	GeometryKey string     `json:"geometryKey"`
-	Translation [3]float64 `json:"translation"`
+	ID             string     `json:"id"`
+	Name           string     `json:"name"`
+	DocumentID     string     `json:"documentId"`
+	GeometryKey    string     `json:"geometryKey"`
+	Translation    [3]float64 `json:"translation"`
+	OccurrencePath string     `json:"occurrencePath"`
+	BodyTreeNodeID string     `json:"bodyTreeNodeId"`
 }
 
 // DocumentStructureNode is the UI-independent specification tree contract.
@@ -208,6 +234,7 @@ type DocumentStructureNode struct {
 	DocumentType  string                  `json:"documentType,omitempty"`
 	VersionID     string                  `json:"versionId,omitempty"`
 	Plane         string                  `json:"plane,omitempty"`
+	Axis          string                  `json:"axis,omitempty"`
 	ReferenceMode string                  `json:"referenceMode,omitempty"`
 	Children      []DocumentStructureNode `json:"children,omitempty"`
 }
@@ -1188,7 +1215,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string) (Doc
 	view.Product = &model
 	view.Artifacts = map[string]Artifact{}
 	view.ResolvedInstances = []ResolvedInstance{}
-	if err := service.resolveProduct(ctx, summary.VersionID, [3]float64{}, summary.Name,
+	if err := service.resolveProduct(ctx, summary.VersionID, [3]float64{}, summary.Name, "", "document:"+summary.ID,
 		map[string]bool{}, view.Artifacts, &view.ResolvedInstances); err != nil {
 		return view, err
 	}
@@ -1889,12 +1916,25 @@ func (service *Service) ensureArtifactReferenceGeometry(ctx context.Context, key
 
 func meshFromProto(source *workerv1.Mesh) Mesh {
 	result := Mesh{Vertices: make([][3]float64, 0, len(source.GetVertices())),
-		Triangles: make([][3]uint32, 0, len(source.GetTriangles())), FaceIDs: append([]uint32{}, source.GetFaceIds()...)}
+		Triangles: make([][3]uint32, 0, len(source.GetTriangles())), FaceIDs: append([]uint32{}, source.GetFaceIds()...),
+		Edges: make([]MeshEdge, 0, len(source.GetEdges())), TopologyVertices: make([]TopologyPoint, 0, len(source.GetTopologyVertices()))}
 	for _, vertex := range source.GetVertices() {
 		result.Vertices = append(result.Vertices, [3]float64{vertex.GetX(), vertex.GetY(), vertex.GetZ()})
 	}
 	for _, triangle := range source.GetTriangles() {
 		result.Triangles = append(result.Triangles, [3]uint32{triangle.GetV0(), triangle.GetV1(), triangle.GetV2()})
+	}
+	for _, edge := range source.GetEdges() {
+		item := MeshEdge{LocalID: edge.GetLocalId(), Points: make([][3]float64, 0, len(edge.GetPoints()))}
+		for _, point := range edge.GetPoints() {
+			item.Points = append(item.Points, [3]float64{point.GetX(), point.GetY(), point.GetZ()})
+		}
+		result.Edges = append(result.Edges, item)
+	}
+	for _, vertex := range source.GetTopologyVertices() {
+		point := vertex.GetPoint()
+		result.TopologyVertices = append(result.TopologyVertices, TopologyPoint{LocalID: vertex.GetLocalId(),
+			Point: [3]float64{point.GetX(), point.GetY(), point.GetZ()}})
 	}
 	return result
 }
@@ -1916,6 +1956,36 @@ func (service *Service) loadArtifact(ctx context.Context, key string) (Artifact,
 	if err := json.Unmarshal(meshJSON, &artifact.Mesh); err != nil {
 		return artifact, err
 	}
+	if artifact.Volume > 0 && (len(artifact.Mesh.Edges) == 0 || len(artifact.Mesh.TopologyVertices) == 0) {
+		var brep []byte
+		if err := service.database.QueryRow(ctx,
+			`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).Scan(&brep); err != nil {
+			return artifact, err
+		}
+		response, _, topologyErr := service.worker.GetTopology(ctx, artifact.GeometryID, brep, "", 0)
+		if topologyErr != nil {
+			return artifact, topologyErr
+		}
+		artifact.Mesh.Edges = make([]MeshEdge, 0, len(response.GetEdges()))
+		for _, edge := range response.GetEdges() {
+			item := MeshEdge{LocalID: edge.GetLocalId(), Points: make([][3]float64, 0, len(edge.GetRenderPoints()))}
+			for _, point := range edge.GetRenderPoints() {
+				item.Points = append(item.Points, [3]float64{point.GetX(), point.GetY(), point.GetZ()})
+			}
+			artifact.Mesh.Edges = append(artifact.Mesh.Edges, item)
+		}
+		artifact.Mesh.TopologyVertices = make([]TopologyPoint, 0, len(response.GetVertices()))
+		for _, vertex := range response.GetVertices() {
+			point := vertex.GetPoint()
+			artifact.Mesh.TopologyVertices = append(artifact.Mesh.TopologyVertices,
+				TopologyPoint{LocalID: vertex.GetLocalId(), Point: [3]float64{point.GetX(), point.GetY(), point.GetZ()}})
+		}
+		updatedMesh, _ := json.Marshal(artifact.Mesh)
+		if _, err := service.database.Exec(ctx,
+			`UPDATE occccad.geometry_artifacts SET mesh_json=$2 WHERE geometry_key=$1`, key, updatedMesh); err != nil {
+			return artifact, err
+		}
+	}
 	if err := json.Unmarshal(bboxJSON, &artifact.BBox); err != nil {
 		return artifact, err
 	}
@@ -1926,6 +1996,103 @@ func (service *Service) loadArtifact(ctx context.Context, key string) (Artifact,
 		return artifact, err
 	}
 	return artifact, nil
+}
+
+func protoBBox(source *workerv1.BoundingBox) map[string]any {
+	return map[string]any{"min": []float64{source.GetMinX(), source.GetMinY(), source.GetMinZ()},
+		"max": []float64{source.GetMaxX(), source.GetMaxY(), source.GetMaxZ()}}
+}
+
+func topologyProperties(source []*workerv1.TopologyProperty) map[string]any {
+	result := make(map[string]any, len(source))
+	for _, property := range source {
+		switch value := property.GetValue().(type) {
+		case *workerv1.TopologyProperty_NumberValue:
+			result[property.GetName()] = value.NumberValue
+		case *workerv1.TopologyProperty_IntegerValue:
+			result[property.GetName()] = value.IntegerValue
+		case *workerv1.TopologyProperty_BoolValue:
+			result[property.GetName()] = value.BoolValue
+		case *workerv1.TopologyProperty_TextValue:
+			result[property.GetName()] = value.TextValue
+		case *workerv1.TopologyProperty_VectorValue:
+			result[property.GetName()] = [3]float64{value.VectorValue.GetX(), value.VectorValue.GetY(), value.VectorValue.GetZ()}
+		}
+	}
+	return result
+}
+
+func (service *Service) GetTopologyElementProperties(
+	ctx context.Context, documentID, geometryKey, kind string, localID uint64,
+) (TopologyElementProperties, error) {
+	kind = strings.ToUpper(strings.TrimSpace(kind))
+	if (kind != "FACE" && kind != "EDGE" && kind != "VERTEX") || localID == 0 {
+		return TopologyElementProperties{}, fmt.Errorf("%w: kind must be FACE, EDGE, or VERTEX and localId must be positive", ErrValidation)
+	}
+	view, err := service.GetDocument(ctx, documentID)
+	if err != nil {
+		return TopologyElementProperties{}, err
+	}
+	allowed := view.Artifact != nil && view.Artifact.GeometryKey == geometryKey
+	if _, exists := view.Artifacts[geometryKey]; exists {
+		allowed = true
+	}
+	if !allowed {
+		return TopologyElementProperties{}, ErrNotFound
+	}
+	var geometryID, workerID, occtVersion string
+	var brep []byte
+	if err := service.database.QueryRow(ctx, `
+		SELECT geometry_id,brep_data,worker_id,occt_version FROM occccad.geometry_artifacts WHERE geometry_key=$1`, geometryKey).
+		Scan(&geometryID, &brep, &workerID, &occtVersion); err != nil {
+		return TopologyElementProperties{}, err
+	}
+	response, servingWorkerID, err := service.worker.GetTopology(ctx, geometryID, brep, kind, localID)
+	if err != nil {
+		return TopologyElementProperties{}, err
+	}
+	result := TopologyElementProperties{GeometryKey: geometryKey, GeometryID: geometryID, Kind: kind,
+		LocalID: localID, Properties: map[string]any{}, WorkerID: workerID, OCCTVersion: occtVersion}
+	if servingWorkerID != "" {
+		result.WorkerID = servingWorkerID
+	}
+	surfaceTypes := map[int32]string{0: "PLANE", 1: "CYLINDER", 2: "CONE", 3: "SPHERE", 4: "TORUS",
+		5: "BSPLINE_SURFACE", 6: "BEZIER_SURFACE", 7: "EXTRUSION_SURFACE", 8: "REVOLUTION_SURFACE",
+		9: "OFFSET_SURFACE", -1: "OTHER_SURFACE"}
+	curveTypes := map[int32]string{0: "LINE", 1: "CIRCLE", 2: "ELLIPSE", 3: "BSPLINE_CURVE",
+		4: "HYPERBOLA", 5: "PARABOLA", 6: "BEZIER_CURVE", 7: "OFFSET_CURVE", -1: "OTHER_CURVE"}
+	switch kind {
+	case "FACE":
+		if len(response.GetFaces()) == 0 {
+			return result, ErrNotFound
+		}
+		item := response.GetFaces()[0]
+		result.GeometryType = surfaceTypes[item.GetSurfaceType()]
+		if result.GeometryType == "" {
+			result.GeometryType = "OTHER_SURFACE"
+		}
+		result.BBox, result.Properties = protoBBox(item.GetBbox()), topologyProperties(item.GetProperties())
+	case "EDGE":
+		if len(response.GetEdges()) == 0 {
+			return result, ErrNotFound
+		}
+		item := response.GetEdges()[0]
+		result.GeometryType = curveTypes[item.GetCurveType()]
+		if result.GeometryType == "" {
+			result.GeometryType = "OTHER_CURVE"
+		}
+		result.BBox, result.Properties = protoBBox(item.GetBbox()), topologyProperties(item.GetProperties())
+	case "VERTEX":
+		if len(response.GetVertices()) == 0 {
+			return result, ErrNotFound
+		}
+		item := response.GetVertices()[0]
+		result.GeometryType = "POINT"
+		point := item.GetPoint()
+		value := [3]float64{point.GetX(), point.GetY(), point.GetZ()}
+		result.Point, result.Properties = &value, topologyProperties(item.GetProperties())
+	}
+	return result, nil
 }
 
 func insertProductInstances(ctx context.Context, tx pgx.Tx, versionID string, model ProductModel) error {
@@ -1974,7 +2141,11 @@ func partStructureChildren(model PartModel, path, documentID, versionID string) 
 	for _, axis := range model.AxisSystems {
 		origin.Children = append(origin.Children, DocumentStructureNode{
 			ID: path + "/origin/axis:" + axis.ID, Kind: "AXIS_SYSTEM", Name: axis.Name,
-			EntityID: axis.ID, DocumentID: documentID, VersionID: versionID,
+			EntityID: axis.ID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{
+				{ID: path + "/origin/axis:" + axis.ID + "/x", Kind: "AXIS", Name: "X Axis", EntityID: axis.ID, Axis: "X", DocumentID: documentID, VersionID: versionID},
+				{ID: path + "/origin/axis:" + axis.ID + "/y", Kind: "AXIS", Name: "Y Axis", EntityID: axis.ID, Axis: "Y", DocumentID: documentID, VersionID: versionID},
+				{ID: path + "/origin/axis:" + axis.ID + "/z", Kind: "AXIS", Name: "Z Axis", EntityID: axis.ID, Axis: "Z", DocumentID: documentID, VersionID: versionID},
+			},
 		})
 	}
 	sketches := make(map[string]Feature)
@@ -2067,7 +2238,7 @@ func (service *Service) buildDocumentStructure(
 }
 
 func (service *Service) resolveProduct(
-	ctx context.Context, versionID string, parent [3]float64, path string, visiting map[string]bool,
+	ctx context.Context, versionID string, parent [3]float64, path, occurrencePath, treePath string, visiting map[string]bool,
 	artifacts map[string]Artifact, output *[]ResolvedInstance,
 ) error {
 	var documentID, documentType, name string
@@ -2111,6 +2282,7 @@ func (service *Service) resolveProduct(
 		}
 		*output = append(*output, ResolvedInstance{
 			ID: path, Name: name, DocumentID: documentID, GeometryKey: *geometryKey, Translation: parent,
+			OccurrencePath: occurrencePath, BodyTreeNodeID: treePath + "/body",
 		})
 		return nil
 	}
@@ -2131,7 +2303,9 @@ func (service *Service) resolveProduct(
 			}
 		}
 		if err := service.resolveProduct(ctx, resolvedVersionID, offset,
-			path+"/"+instance.ID, visiting, artifacts, output); err != nil {
+			path+"/"+instance.ID,
+			strings.TrimPrefix(occurrencePath+"/"+instance.ID, "/"),
+			treePath+"/instance:"+instance.ID+"/reference", visiting, artifacts, output); err != nil {
 			return err
 		}
 	}

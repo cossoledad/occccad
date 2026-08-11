@@ -94,6 +94,18 @@ message Mesh {
     repeated Vec3 vertices = 1;
     repeated Triangle triangles = 2;
     repeated uint32 face_ids = 3;
+    repeated EdgePolyline edges = 4;
+    repeated TopologyPoint topology_vertices = 5;
+}
+
+message EdgePolyline {
+    uint64 local_id = 1;
+    repeated Vec3 points = 2;
+}
+
+message TopologyPoint {
+    uint64 local_id = 1;
+    Vec3 point = 2;
 }
 
 message Triangle {
@@ -148,6 +160,9 @@ message UnloadGeometryResponse {}
 
 message GetTopologyRequest {
     string geometry_id = 1;
+    bytes brep_data = 2;
+    string topology_type = 3;
+    uint64 local_id = 4;
 }
 
 message GetTopologyResponse {
@@ -157,18 +172,39 @@ message GetTopologyResponse {
     uint32 solid_count = 4;
     repeated FaceInfo faces = 5;
     repeated EdgeInfo edges = 6;
+    repeated VertexInfo vertices = 7;
+}
+
+message TopologyProperty {
+    string name = 1;
+    oneof value {
+        double number_value = 2;
+        int64 integer_value = 3;
+        bool bool_value = 4;
+        string text_value = 5;
+        Vec3 vector_value = 6;
+    }
 }
 
 message FaceInfo {
     uint64 local_id = 1;
     int32 surface_type = 2;
     BoundingBox bbox = 3;
+    repeated TopologyProperty properties = 4;
 }
 
 message EdgeInfo {
     uint64 local_id = 1;
     int32 curve_type = 2;
     BoundingBox bbox = 3;
+    repeated TopologyProperty properties = 4;
+    repeated Vec3 render_points = 5;
+}
+
+message VertexInfo {
+    uint64 local_id = 1;
+    Vec3 point = 2;
+    repeated TopologyProperty properties = 3;
 }
 
 // ---------------------------------------------------------------------------

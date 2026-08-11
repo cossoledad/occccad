@@ -75,6 +75,10 @@ func TestPartStructureNestsConsumedSketchUnderPad(t *testing.T) {
 	if len(children[0].Children) != 4 || children[0].Children[3].Kind != "AXIS_SYSTEM" {
 		t.Fatalf("Origin must contain three planes and one axis system: %#v", children[0])
 	}
+	axisSystem := children[0].Children[3]
+	if len(axisSystem.Children) != 3 || axisSystem.Children[0].Axis != "X" || axisSystem.Children[1].Axis != "Y" || axisSystem.Children[2].Axis != "Z" {
+		t.Fatalf("axis system must expose independently selectable X/Y/Z axes: %#v", axisSystem)
+	}
 }
 
 func TestPartCommandValidation(t *testing.T) {

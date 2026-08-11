@@ -7,11 +7,13 @@ export type WorkbenchToolID = "select" | "sketch.rectangle";
 
 type WorkbenchState = {
   selection: Selection;
+  preselection: Selection;
   sketchPlane?: PlaneName;
   activeToolID: WorkbenchToolID;
   navigationProfile: NavigationProfileID;
   inspectorTab: "properties" | "history";
   setSelection: (selection: Selection) => void;
+  setPreselection: (selection: Selection) => void;
   beginSketch: (plane: PlaneName) => void;
   endSketch: () => void;
   setActiveTool: (tool: WorkbenchToolID) => void;
@@ -20,8 +22,9 @@ type WorkbenchState = {
 };
 
 export const useWorkbenchStore = create<WorkbenchState>()(persist((set) => ({
-  selection: null, activeToolID: "select", navigationProfile: "default", inspectorTab: "properties",
+  selection: null, preselection: null, activeToolID: "select", navigationProfile: "default", inspectorTab: "properties",
   setSelection: (selection) => set({ selection }),
+  setPreselection: (preselection) => set({ preselection }),
   beginSketch: (sketchPlane) => set({ sketchPlane, activeToolID: "select" }),
   endSketch: () => set({ sketchPlane: undefined, activeToolID: "select" }),
   setActiveTool: (activeToolID) => set({ activeToolID }),

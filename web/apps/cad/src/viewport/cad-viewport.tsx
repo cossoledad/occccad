@@ -14,11 +14,13 @@ export type CadViewportHandle = {
 type Props = {
   view: DocumentView;
   selection: Selection;
+  preselection: Selection;
   sketchPlane?: PlaneName;
   activeToolID: WorkbenchToolID;
   navigationProfile: NavigationProfileID;
   commandRegistry: CommandRegistry;
   onSelectionChange: (selection: Selection) => void;
+  onPreselectionChange: (selection: Selection) => void;
   onRectangleCreated: (rectangle: RectangleDraft) => void;
   onInstanceMoved: (instanceID: string, translation: Vec3) => void;
 };
@@ -34,6 +36,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     if (!host.current) return;
     const instance = new CadViewportEngine(host.current, {
       selectionChanged: (selection) => callbacks.current.onSelectionChange(selection),
+      preselectionChanged: (selection) => callbacks.current.onPreselectionChange(selection),
       rectangleCreated: (rectangle) => callbacks.current.onRectangleCreated(rectangle),
       instanceMoved: (instanceID, translation) => callbacks.current.onInstanceMoved(instanceID, translation),
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
@@ -41,6 +44,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     engine.current = instance;
     instance.render(callbacks.current.view);
     instance.select(callbacks.current.selection, false);
+    instance.preselect(callbacks.current.preselection, false);
     if (callbacks.current.sketchPlane) instance.beginSketch(callbacks.current.sketchPlane);
     instance.setActiveTool(callbacks.current.activeToolID);
     instance.setNavigationProfile(callbacks.current.navigationProfile);
@@ -49,6 +53,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
 
   useEffect(() => { engine.current?.render(props.view); }, [props.view]);
   useEffect(() => { engine.current?.select(props.selection, false); }, [props.selection]);
+  useEffect(() => { engine.current?.preselect(props.preselection, false); }, [props.preselection]);
   useEffect(() => {
     if (props.sketchPlane) engine.current?.beginSketch(props.sketchPlane);
     else engine.current?.endSketch();

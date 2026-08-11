@@ -69,10 +69,22 @@ struct Triangle {
     uint32_t v0, v1, v2;
 };
 
+struct EdgePolyline {
+    uint64_t local_id;
+    std::vector<Vec3> points;
+};
+
+struct TopologyPoint {
+    uint64_t local_id;
+    Vec3 point;
+};
+
 struct TessellationResult {
     std::vector<Vec3> vertices;
     std::vector<Triangle> triangles;
     std::vector<uint32_t> face_ids;  // triangle -> face index
+    std::vector<EdgePolyline> edges;
+    std::vector<TopologyPoint> topology_vertices;
     BoundingBox bbox;
 };
 
@@ -80,16 +92,36 @@ struct TessellationResult {
 // Topology Info
 // ---------------------------------------------------------------------------
 
+struct TopologyProperty {
+    enum class Kind : uint8_t { NUMBER, INTEGER, BOOLEAN, TEXT, VECTOR };
+    std::string name;
+    Kind kind{Kind::NUMBER};
+    double number_value{0.0};
+    int64_t integer_value{0};
+    bool bool_value{false};
+    std::string text_value;
+    Vec3 vector_value;
+};
+
 struct FaceInfo {
     uint64_t local_id;
     int surface_type;  // 0=plane, 1=cylinder, 2=cone, 3=sphere, 4=torus, 5=bspline, -1=other
     BoundingBox bbox;
+    std::vector<TopologyProperty> properties;
 };
 
 struct EdgeInfo {
     uint64_t local_id;
     int curve_type;  // 0=line, 1=circle, 2=ellipse, 3=bspline, -1=other
     BoundingBox bbox;
+    std::vector<TopologyProperty> properties;
+    std::vector<Vec3> render_points;
+};
+
+struct VertexInfo {
+    uint64_t local_id;
+    Vec3 point;
+    std::vector<TopologyProperty> properties;
 };
 
 struct TopologyInfo {
@@ -99,6 +131,7 @@ struct TopologyInfo {
     uint32_t solid_count;
     std::vector<FaceInfo> faces;
     std::vector<EdgeInfo> edges;
+    std::vector<VertexInfo> vertices;
 };
 
 // ---------------------------------------------------------------------------

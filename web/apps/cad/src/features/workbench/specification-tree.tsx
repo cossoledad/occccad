@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
+import type { Selection } from "../../types";
 
 export type SpecificationTreeNode = {
   key: string;
@@ -9,70 +11,91 @@ export type SpecificationTreeNode = {
   entityId?: string;
   documentId?: string;
   plane?: string;
+  selection?: Selection;
 };
 
-function branchKeys(nodes: SpecificationTreeNode[], result = new Set<string>()): Set<string> {
+type VisibleNode = { node: SpecificationTreeNode; depth: number; hasChildren: boolean };
+
+function flatten(nodes: SpecificationTreeNode[], expanded: Set<string>, depth = 0, output: VisibleNode[] = []): VisibleNode[] {
   for (const node of nodes) {
-    if (node.children?.length) {
-      result.add(node.key);
-      branchKeys(node.children, result);
-    }
+    const hasChildren = Boolean(node.children?.length);
+    output.push({ node, depth, hasChildren });
+    if (hasChildren && (depth === 0 || expanded.has(node.key))) flatten(node.children!, expanded, depth + 1, output);
   }
-  return result;
+  return output;
 }
 
-export function SpecificationTree({ nodes, selectedKey, onSelect }: {
+function ancestorsOf(nodes: SpecificationTreeNode[], target: string, parents: string[] = []): string[] | undefined {
+  for (const node of nodes) {
+    if (node.key === target) return parents;
+    const found = node.children ? ancestorsOf(node.children, target, [...parents, node.key]) : undefined;
+    if (found) return found;
+  }
+  return undefined;
+}
+
+export function SpecificationTree({ nodes, selectedKey, highlightedKey, onSelect, onHover }: {
   nodes: SpecificationTreeNode[];
   selectedKey?: string;
+  highlightedKey?: string;
   onSelect: (node: SpecificationTreeNode) => void;
+  onHover?: (node?: SpecificationTreeNode) => void;
 }) {
-  const initialBranches = branchKeys(nodes);
-  const knownBranches = useRef(initialBranches);
-  const [expanded, setExpanded] = useState<Set<string>>(() => initialBranches);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const scrollElement = useRef<HTMLElement>(null);
+  const visible = useMemo(() => flatten(nodes, expanded), [nodes, expanded]);
   useEffect(() => {
-    const currentBranches = branchKeys(nodes);
-    setExpanded((current) => new Set([
-      ...[...current].filter((key) => currentBranches.has(key)),
-      ...[...currentBranches].filter((key) => !knownBranches.current.has(key)),
-    ]));
-    knownBranches.current = currentBranches;
+    const available = new Set(visible.filter((entry) => entry.hasChildren).map((entry) => entry.node.key));
+    setExpanded((current) => new Set([...current].filter((key) => available.has(key))));
+  // Node identity changes only when a new document view arrives.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes]);
+  useEffect(() => {
+    if (!selectedKey) return;
+    const ancestors = ancestorsOf(nodes, selectedKey);
+    if (ancestors?.length) setExpanded((current) => new Set([...current, ...ancestors]));
+  }, [nodes, selectedKey]);
+  const virtualizer = useVirtualizer({ count: visible.length, getScrollElement: () => scrollElement.current,
+    estimateSize: () => 27, overscan: 14, getItemKey: (index) => visible[index]?.node.key ?? index });
 
   const toggle = (key: string) => setExpanded((current) => {
-    const next = new Set(current);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    return next;
+    const next = new Set(current); if (next.has(key)) next.delete(key); else next.add(key); return next;
   });
-  const keyboardSelect = (event: KeyboardEvent, node: SpecificationTreeNode) => {
-    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(node); }
-    if (event.key === "ArrowRight" && node.children?.length) setExpanded((current) => new Set(current).add(node.key));
-    if (event.key === "ArrowLeft" && node.children?.length) setExpanded((current) => {
-      const next = new Set(current); next.delete(node.key); return next;
+  const keyboardSelect = (event: KeyboardEvent, entry: VisibleNode) => {
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(entry.node); }
+    if (event.key === "ArrowRight" && entry.hasChildren) setExpanded((current) => new Set(current).add(entry.node.key));
+    if (event.key === "ArrowLeft" && entry.hasChildren) setExpanded((current) => {
+      const next = new Set(current); next.delete(entry.node.key); return next;
     });
   };
 
-  const renderNodes = (items: SpecificationTreeNode[], nested = false): ReactNode => <ul
-    className={`specification-tree-level ${nested ? "nested" : "root"}`} role={nested ? "group" : "tree"}>
-    {items.map((node) => {
-      const hasChildren = Boolean(node.children?.length);
-      const isExpanded = hasChildren && (!nested || expanded.has(node.key));
-      return <li className="specification-tree-node" key={node.key}>
-        <div className={`specification-tree-row ${selectedKey === node.key ? "selected" : ""}`}
-          role="treeitem" aria-expanded={hasChildren ? isExpanded : undefined} aria-selected={selectedKey === node.key}
-          tabIndex={0} onClick={() => onSelect(node)} onKeyDown={(event) => keyboardSelect(event, node)}>
-          {!nested ? <span className="specification-tree-root-anchor" /> : hasChildren
-            ? <button className={`specification-tree-junction branch ${isExpanded ? "expanded" : "collapsed"}`}
-              tabIndex={-1} aria-label={isExpanded ? "折叠" : "展开"}
-            onClick={(event) => { event.stopPropagation(); toggle(node.key); }}>
-              {isExpanded && <><i /><i /><i /><i /></>}
-            </button> : <span className="specification-tree-junction leaf" />}
-          <span className="specification-tree-icon">{node.icon}</span>
-          <span className="specification-tree-label">{node.title}</span>
-        </div>
-        {isExpanded && node.children ? renderNodes(node.children, true) : null}
-      </li>;
-    })}
-  </ul>;
-
-  return <nav className="specification-tree" aria-label="Specification tree">{renderNodes(nodes)}</nav>;
+  return <nav ref={scrollElement} className="specification-tree specification-tree-virtual" aria-label="Specification tree"
+    role="tree" onMouseLeave={() => onHover?.()}>
+    <div className="specification-tree-virtual-space" style={{ height: virtualizer.getTotalSize() }}>
+      {virtualizer.getVirtualItems().map((item) => {
+        const entry = visible[item.index];
+        const { node, depth, hasChildren } = entry;
+        const isExpanded = hasChildren && (depth === 0 || expanded.has(node.key));
+        const rowStyle = { transform: `translateY(${item.start}px)`, paddingLeft: depth * 31,
+          "--tree-depth": depth } as CSSProperties;
+        return <div key={node.key} className={`specification-tree-virtual-row ${depth > 0 ? "nested" : "root"}`} style={rowStyle}>
+          {Array.from({ length: depth }, (_, guide) => <i key={guide} className="specification-tree-depth-guide"
+            style={{ left: guide * 31 + 13 }} />)}
+          <div className={`specification-tree-row ${selectedKey === node.key ? "selected" : ""} ${highlightedKey === node.key ? "highlighted" : ""}`}
+            role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? isExpanded : undefined}
+            aria-selected={selectedKey === node.key} tabIndex={0} onClick={() => onSelect(node)}
+            onMouseEnter={() => onHover?.(node)} onKeyDown={(event) => keyboardSelect(event, entry)}>
+            {depth === 0 ? <span className="specification-tree-root-anchor" /> : hasChildren
+              ? <button className={`specification-tree-junction branch ${isExpanded ? "expanded" : "collapsed"}`}
+                tabIndex={-1} aria-label={isExpanded ? "折叠" : "展开"}
+                onClick={(event) => { event.stopPropagation(); toggle(node.key); }}>
+                {isExpanded && <><i /><i /><i /><i /></>}
+              </button> : <span className="specification-tree-junction leaf" />}
+            <span className="specification-tree-icon">{node.icon}</span>
+            <span className="specification-tree-label">{node.title}</span>
+          </div>
+        </div>;
+      })}
+    </div>
+  </nav>;
 }

@@ -20,7 +20,7 @@ import { FloatingToolbar, ToolbarGroup, ToolbarSeparator } from "../../cad/overl
 import { ToolButton } from "../../cad/overlay/tool-button";
 import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
 import { useWorkbenchStore } from "../../state/workbench-store";
-import type { DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, PlaneName, RectangleDraft, Selection, Vec3 } from "../../types";
+import type { DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, PlaneName, RectangleDraft, Selection, TopologyElementProperties, Vec3 } from "../../types";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 
@@ -45,26 +45,51 @@ function structureIcon(kind: DocumentStructureNode["kind"]) {
   if (kind === "ORIGIN") return <GatewayOutlined />;
   if (kind === "PLANE") return <NodeIndexOutlined />;
   if (kind === "AXIS_SYSTEM") return <AimOutlined />;
+  if (kind === "AXIS") return <NodeIndexOutlined />;
   if (kind === "BODY") return <DatabaseOutlined />;
   if (kind === "SKETCH") return <ScissorOutlined />;
   if (kind === "PAD") return <InsertRowAboveOutlined />;
   return <CloudUploadOutlined />;
 }
 
-function mapStructureNode(node: DocumentStructureNode, currentDocumentID: string): SpecificationTreeNode {
-  let key = node.id;
-  if (node.kind === "INSTANCE" && node.entityId) key = `instance:${node.entityId}`;
-  else if (node.documentId === currentDocumentID && node.entityId) {
-    if (node.kind === "PLANE") key = `plane:${node.entityId}:${node.plane}`;
-    else if (["SKETCH", "PAD", "IMPORT"].includes(node.kind)) key = `${node.kind.toLowerCase()}:${node.entityId}`;
+function structureSelection(node: DocumentStructureNode, view: DocumentView): Selection {
+  const resolved = [...(view.resolvedInstances ?? [])].sort((a, b) => b.bodyTreeNodeId.length - a.bodyTreeNodeId.length)
+    .find((item) => node.id.startsWith(item.bodyTreeNodeId.replace(/\/body$/, "")));
+  const occurrencePath = resolved?.occurrencePath ?? "";
+  const geometryKey = resolved?.geometryKey ?? view.artifact?.geometryKey;
+  const context = { treeNodeId: node.id, documentId: node.documentId, occurrencePath, geometryKey,
+    instanceId: occurrencePath.split("/")[0] || undefined };
+  if (node.kind === "INSTANCE" && node.entityId) {
+    const path = [...node.id.matchAll(/\/instance:([^/]+)/g)].map((match) => match[1]).join("/") || node.entityId;
+    return { kind: "instance", id: path, visualKey: `occurrence:${path}`, ...context,
+      occurrencePath: path, instanceId: path.split("/")[0] };
   }
-  return { key, title: node.name, icon: structureIcon(node.kind), kind: node.kind,
+  if (node.kind === "PLANE" && node.entityId && node.plane) return {
+    kind: "plane", id: `${occurrencePath || "root"}:${node.entityId}`, plane: node.plane, ...context,
+  };
+  if (node.kind === "AXIS_SYSTEM" && node.entityId) return {
+    kind: "axis-system", id: `${occurrencePath || "root"}:${node.entityId}`, ...context,
+  };
+  if (node.kind === "AXIS" && node.entityId && node.axis) return {
+    kind: "axis", axis: node.axis, id: `${occurrencePath || "root"}:${node.entityId}:${node.axis}`, ...context,
+  };
+  const bodyID = `${occurrencePath || "root"}:body`;
+  if (node.kind === "BODY" || node.kind === "PART") return { kind: "body", id: bodyID, ...context };
+  if (["SKETCH", "PAD", "IMPORT"].includes(node.kind) && node.entityId) return {
+    kind: node.kind.toLowerCase() as "sketch" | "pad" | "import", id: node.entityId,
+    visualKey: node.kind === "SKETCH" ? undefined : `body:${bodyID}`, ...context,
+  };
+  return null;
+}
+
+function mapStructureNode(node: DocumentStructureNode, view: DocumentView): SpecificationTreeNode {
+  return { key: node.id, title: node.name, icon: structureIcon(node.kind), kind: node.kind,
     entityId: node.entityId, documentId: node.documentId, plane: node.plane,
-    children: node.children?.map((child) => mapStructureNode(child, currentDocumentID)) };
+    selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view)) };
 }
 
 function treeData(view: DocumentView): SpecificationTreeNode[] {
-  if (view.structureTree) return [mapStructureNode(view.structureTree, view.document.id)];
+  if (view.structureTree) return [mapStructureNode(view.structureTree, view)];
   if (view.document.type === "PART") {
     const features = view.part?.features ?? [];
     const sketches = new Map(features.filter((feature) => feature.type.toUpperCase().includes("SKETCH"))
@@ -91,16 +116,23 @@ function treeData(view: DocumentView): SpecificationTreeNode[] {
     })) }];
 }
 
-function selectionFromKey(value: string): Selection {
-  const [kind, id, plane] = String(value).split(":");
-  if (kind === "plane") return { kind, id, plane: plane as PlaneName };
-  if (["sketch", "pad", "import", "instance", "solid"].includes(kind)) return { kind: kind as Exclude<Selection, null>["kind"], id } as Selection;
-  return null;
-}
-
 function selectedFeature(view: DocumentView, selection: Selection): Feature | undefined {
   if (!selection || !["sketch", "pad", "import"].includes(selection.kind)) return undefined;
   return view.part?.features.find((feature) => feature.id === selection.id);
+}
+
+function treeKeyForSelection(nodes: SpecificationTreeNode[], selection: Selection): string | undefined {
+  if (!selection) return undefined;
+  const visit = (items: SpecificationTreeNode[]): string | undefined => {
+    for (const node of items) {
+      if (selection.treeNodeId === node.key || (selection.documentId && node.documentId === selection.documentId &&
+        selection.id === node.entityId)) return node.key;
+      const child = node.children ? visit(node.children) : undefined;
+      if (child) return child;
+    }
+    return undefined;
+  };
+  return visit(nodes);
 }
 
 export function Workbench() {
@@ -120,6 +152,15 @@ export function Workbench() {
   const properties = useQuery({ queryKey: queryKeys.documentProperties(documentID), queryFn: () => api.getDocumentProperties(documentID), enabled: Boolean(documentID) });
   const history = useQuery({ queryKey: queryKeys.history(documentID), queryFn: () => api.getHistory(documentID), enabled: Boolean(documentID) });
   const catalog = useQuery({ queryKey: queryKeys.documents({ workbench: true }), queryFn: () => api.listDocuments({ limit: 100, allFolders: true }) });
+  const topologySelection = store.selection && ["face", "edge", "vertex"].includes(store.selection.kind)
+    ? store.selection as Extract<Exclude<Selection, null>, { kind: "face" | "edge" | "vertex" }> : undefined;
+  const topology = useQuery({
+    queryKey: topologySelection ? queryKeys.topologyProperties(documentID, topologySelection.geometryKey ?? "",
+      topologySelection.kind, topologySelection.topologyId) : ["topology-properties", "none"],
+    queryFn: () => api.getTopologyProperties(documentID, topologySelection!.geometryKey!,
+      topologySelection!.kind.toUpperCase() as "FACE" | "EDGE" | "VERTEX", topologySelection!.topologyId),
+    enabled: Boolean(documentID && topologySelection?.geometryKey), staleTime: 5 * 60_000,
+  });
 
   useEffect(() => {
     if (document.data) void client.invalidateQueries({ queryKey: queryKeys.openDocuments });
@@ -136,6 +177,7 @@ export function Workbench() {
     onSuccess: async (view) => { store.setSelection(null); await refresh(view); }, onError: (error) => message.error(error.message)
   });
   const view = document.data;
+  const treeNodes = useMemo(() => view ? treeData(view) : [], [view]);
   const canEdit = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
   const activeWorkbench = resolveCadWorkbench(view?.document.type ?? "PART", Boolean(store.sketchPlane));
 
@@ -239,8 +281,9 @@ export function Workbench() {
   return <CommandProvider registry={commandRegistry}><section className="cad-workbench">
     <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view} selection={store.selection}
+          preselection={store.preselection}
           sketchPlane={store.sketchPlane} activeToolID={store.activeToolID} navigationProfile={store.navigationProfile}
-          commandRegistry={commandRegistry} onSelectionChange={store.setSelection} onRectangleCreated={createRectangle}
+          commandRegistry={commandRegistry} onSelectionChange={store.setSelection} onPreselectionChange={store.setPreselection} onRectangleCreated={createRectangle}
           onInstanceMoved={moveInstance} /></Suspense>
         {activeWorkbench === "PART_DESIGN" && <FloatingToolbar id="part-design" label="Part Design" position="top-left" className="part-design-toolbar">
           <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
@@ -277,9 +320,10 @@ export function Workbench() {
           const file = event.target.files?.[0]; if (file) void importStep(file);
         }} />
         <aside className="floating-structure-tree">
-          <SpecificationTree nodes={treeData(view)}
-            selectedKey={store.selection ? `${store.selection.kind}:${store.selection.id}${store.selection.kind === "plane" ? `:${store.selection.plane}` : ""}` : undefined}
-            onSelect={(node) => store.setSelection(selectionFromKey(node.key))} />
+          <SpecificationTree nodes={treeNodes} selectedKey={treeKeyForSelection(treeNodes, store.selection)}
+            highlightedKey={treeKeyForSelection(treeNodes, store.preselection)}
+            onSelect={(node) => store.setSelection(node.selection ?? null)}
+            onHover={(node) => store.setPreselection(node?.selection ?? null)} />
         </aside>
         <button className={`inspector-toggle ${inspectorOpen ? "open" : ""}`} onClick={() => setInspectorOpen((current) => !current)}
           title={inspectorOpen ? "收起属性面板" : "展开属性面板"}>
@@ -291,7 +335,8 @@ export function Workbench() {
           <div className="inspector-overlay-content">{store.inspectorTab === "properties"
             ? <Properties view={view} selection={store.selection} feature={selected}
               workbench={activeWorkbench} sketchPlane={store.sketchPlane} activeTool={store.activeToolID}
-              navigationProfile={store.navigationProfile} diagnostics={properties.data} />
+              navigationProfile={store.navigationProfile} diagnostics={properties.data}
+              topology={topology.data} topologyLoading={topology.isLoading} />
             : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(view.document.id, entry.versionId))} />}</div>
         </aside>
         <div className="viewport-status">
@@ -318,7 +363,7 @@ export function Workbench() {
   </section></CommandProvider>;
 }
 
-function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics }: {
+function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading }: {
   view: DocumentView;
   selection: Selection;
   feature?: Feature;
@@ -327,6 +372,8 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
   activeTool: string;
   navigationProfile: string;
   diagnostics?: DocumentProperties;
+  topology?: TopologyElementProperties;
+  topologyLoading?: boolean;
 }) {
   if (!selection) {
     const triangleCount = view.artifact?.mesh.triangles.length
@@ -366,6 +413,36 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
         { key: "features", label: view.document.type === "PART" ? "Features" : "Instances",
           children: view.document.type === "PART" ? view.part?.features.length ?? 0 : view.product?.instances.length ?? 0 },
       ]} /></>;
+  }
+  if (["face", "edge", "vertex"].includes(selection.kind)) {
+    const format = (value: unknown): string => Array.isArray(value)
+      ? value.map((entry) => typeof entry === "number" ? Number(entry).toPrecision(7) : String(entry)).join(", ")
+      : typeof value === "number" ? Number(value).toPrecision(9) : String(value);
+    if (topologyLoading || !topology) return <Spin size="small" tip="从 Geometry Worker 读取 B-Rep…" />;
+    return <><div className="property-context-hint">OCCT B-Rep 拓扑属性</div><Descriptions column={1} size="small"
+      bordered className="property-list" items={[
+        { key: "kind", label: "Topology", children: `${topology.kind} #${topology.localId}` },
+        { key: "geometry-type", label: "Geometry", children: topology.geometryType },
+        { key: "geometry-id", label: "Geometry ID", children: topology.geometryId },
+        { key: "worker", label: "Worker", children: topology.workerId },
+        { key: "occt", label: "OCCT", children: topology.occtVersion },
+        ...(topology.point ? [{ key: "point", label: "Point", children: format(topology.point) }] : []),
+        ...Object.entries(topology.properties).map(([key, value]) => ({ key: `brep-${key}`, label: key, children: format(value) })),
+      ]} /></>;
+  }
+  if (selection.kind === "axis" || selection.kind === "axis-system") {
+    const systems = view.axisSystems ?? diagnostics?.artifacts.flatMap((item) => item.referenceGeometry.axisSystems) ?? [];
+    const axisSystem = systems.find((item) => selection.id.includes(item.id));
+    const direction = selection.kind === "axis" && axisSystem
+      ? selection.axis === "X" ? axisSystem.xDirection : selection.axis === "Y" ? axisSystem.yDirection : axisSystem.zDirection
+      : undefined;
+    return <Descriptions column={1} size="small" bordered className="property-list" items={[
+      { key: "type", label: "类型", children: selection.kind === "axis" ? `${selection.axis} Axis` : "Axis System" },
+      { key: "name", label: "名称", children: axisSystem?.name ?? selection.id },
+      { key: "origin", label: "原点", children: axisSystem?.origin.join(", ") ?? "—" },
+      ...(direction ? [{ key: "direction", label: "方向", children: direction.join(", ") }] : []),
+      { key: "reference", label: "引用路径", children: selection.occurrencePath || "Part root" },
+    ]} />;
   }
   const instance = selection.kind === "instance" ? view.product?.instances.find((item) => item.id === selection.id) : undefined;
   return <Descriptions column={1} size="small" bordered className="property-list" items={[

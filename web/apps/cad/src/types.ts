@@ -6,6 +6,8 @@ export type MeshData = {
   vertices: Vec3[];
   triangles: [number, number, number][];
   faceIds: number[];
+  edges: Array<{ localId: number; points: Vec3[] }> | null;
+  topologyVertices: Array<{ localId: number; point: Vec3 }> | null;
 };
 
 export type Artifact = {
@@ -144,17 +146,20 @@ export type ResolvedInstance = {
   documentId: string;
   geometryKey: string;
   translation: Vec3;
+  occurrencePath: string;
+  bodyTreeNodeId: string;
 };
 
 export type DocumentStructureNode = {
   id: string;
-  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "BODY" | "SKETCH" | "PAD" | "IMPORT" | "FEATURE" | "REFERENCE_CYCLE";
+  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "BODY" | "SKETCH" | "PAD" | "IMPORT" | "FEATURE" | "REFERENCE_CYCLE";
   name: string;
   entityId?: string;
   documentId?: string;
   documentType?: "PART" | "PRODUCT";
   versionId?: string;
   plane?: PlaneName;
+  axis?: "X" | "Y" | "Z";
   referenceMode?: "FOLLOW_HEAD" | "PINNED";
   children?: DocumentStructureNode[];
 };
@@ -171,14 +176,34 @@ export type DocumentView = {
   structureTree?: DocumentStructureNode;
 };
 
+export type SelectionIdentity = {
+  id: string;
+  treeNodeId?: string;
+  documentId?: string;
+  occurrencePath?: string;
+  geometryKey?: string;
+  instanceId?: string;
+  visualKey?: string;
+};
+
 export type Selection =
-  | { kind: "plane"; id: string; plane: PlaneName }
-  | { kind: "sketch"; id: string }
-  | { kind: "pad"; id: string }
-  | { kind: "import"; id: string }
-  | { kind: "instance"; id: string }
-  | { kind: "solid"; id: string }
+  | (SelectionIdentity & { kind: "plane"; plane: PlaneName })
+  | (SelectionIdentity & { kind: "axis-system" })
+  | (SelectionIdentity & { kind: "axis"; axis: "X" | "Y" | "Z" })
+  | (SelectionIdentity & { kind: "sketch" })
+  | (SelectionIdentity & { kind: "pad" })
+  | (SelectionIdentity & { kind: "import" })
+  | (SelectionIdentity & { kind: "instance" })
+  | (SelectionIdentity & { kind: "body" })
+  | (SelectionIdentity & { kind: "solid" })
+  | (SelectionIdentity & { kind: "face" | "edge" | "vertex"; topologyId: number })
   | null;
+
+export type TopologyElementProperties = {
+  geometryKey: string; geometryId: string; kind: "FACE" | "EDGE" | "VERTEX"; localId: number;
+  geometryType: string; bbox?: { min: Vec3; max: Vec3 }; point?: Vec3;
+  properties: Record<string, number | boolean | string | Vec3>; workerId: string; occtVersion: string;
+};
 
 export type RectangleDraft = {
   plane: PlaneName;

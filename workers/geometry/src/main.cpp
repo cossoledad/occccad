@@ -32,6 +32,32 @@ void fill_bbox(
     destination->set_max_z(source.max.z);
 }
 
+void fill_properties(
+    const std::vector<occccad::kernel::TopologyProperty>& source,
+    google::protobuf::RepeatedPtrField<worker_api::TopologyProperty>* destination) {
+    for (const auto& property : source) {
+        auto* output = destination->Add();
+        output->set_name(property.name);
+        switch (property.kind) {
+        case occccad::kernel::TopologyProperty::Kind::NUMBER:
+            output->set_number_value(property.number_value); break;
+        case occccad::kernel::TopologyProperty::Kind::INTEGER:
+            output->set_integer_value(property.integer_value); break;
+        case occccad::kernel::TopologyProperty::Kind::BOOLEAN:
+            output->set_bool_value(property.bool_value); break;
+        case occccad::kernel::TopologyProperty::Kind::TEXT:
+            output->set_text_value(property.text_value); break;
+        case occccad::kernel::TopologyProperty::Kind::VECTOR: {
+            auto* vector = output->mutable_vector_value();
+            vector->set_x(property.vector_value.x);
+            vector->set_y(property.vector_value.y);
+            vector->set_z(property.vector_value.z);
+            break;
+        }
+        }
+    }
+}
+
 std::string metadata_value(grpc::ServerContext* context, const std::string& key) {
     const auto iterator = context->client_metadata().find(key);
     if (iterator == context->client_metadata().end()) return {};
@@ -166,6 +192,69 @@ public:
         }
     }
 
+    grpc::Status GetTopology(
+        grpc::ServerContext* context,
+        const worker_api::GetTopologyRequest* request,
+        worker_api::GetTopologyResponse* response) override {
+        if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "request was cancelled"};
+        if (request->geometry_id().empty()) {
+            return {grpc::StatusCode::INVALID_ARGUMENT, "geometry_id is required"};
+        }
+        std::lock_guard<std::mutex> lock(mutex_);
+        try {
+            std::string geometry_id = request->geometry_id();
+            if (!kernel_.is_loaded(geometry_id)) {
+                if (request->brep_data().empty()) {
+                    return {grpc::StatusCode::NOT_FOUND, "geometry is not resident and brep_data was not supplied"};
+                }
+                const std::vector<uint8_t> brep(request->brep_data().begin(), request->brep_data().end());
+                geometry_id = kernel_.loadBrepr(brep);
+            }
+            const auto topology = kernel_.getTopology(geometry_id);
+            response->set_face_count(topology.face_count);
+            response->set_edge_count(topology.edge_count);
+            response->set_vertex_count(topology.vertex_count);
+            response->set_solid_count(topology.solid_count);
+            for (const auto& face : topology.faces) {
+                if (!request->topology_type().empty() && request->topology_type() != "FACE") continue;
+                if (request->local_id() != 0 && request->local_id() != face.local_id) continue;
+                auto* output = response->add_faces();
+                output->set_local_id(face.local_id);
+                output->set_surface_type(face.surface_type);
+                fill_bbox(face.bbox, output->mutable_bbox());
+                fill_properties(face.properties, output->mutable_properties());
+            }
+            for (const auto& edge : topology.edges) {
+                if (!request->topology_type().empty() && request->topology_type() != "EDGE") continue;
+                if (request->local_id() != 0 && request->local_id() != edge.local_id) continue;
+                auto* output = response->add_edges();
+                output->set_local_id(edge.local_id);
+                output->set_curve_type(edge.curve_type);
+                fill_bbox(edge.bbox, output->mutable_bbox());
+                fill_properties(edge.properties, output->mutable_properties());
+                for (const auto& point : edge.render_points) {
+                    auto* output_point = output->add_render_points();
+                    output_point->set_x(point.x); output_point->set_y(point.y); output_point->set_z(point.z);
+                }
+            }
+            for (const auto& vertex : topology.vertices) {
+                if (!request->topology_type().empty() && request->topology_type() != "VERTEX") continue;
+                if (request->local_id() != 0 && request->local_id() != vertex.local_id) continue;
+                auto* output = response->add_vertices();
+                output->set_local_id(vertex.local_id);
+                output->mutable_point()->set_x(vertex.point.x);
+                output->mutable_point()->set_y(vertex.point.y);
+                output->mutable_point()->set_z(vertex.point.z);
+                fill_properties(vertex.properties, output->mutable_properties());
+            }
+            return grpc::Status::OK;
+        } catch (const std::invalid_argument& error) {
+            return {grpc::StatusCode::INVALID_ARGUMENT, error.what()};
+        } catch (const std::exception& error) {
+            return {grpc::StatusCode::INTERNAL, error.what()};
+        }
+    }
+
     grpc::Status ExportStep(
         grpc::ServerContext* context,
         const worker_api::ExportStepRequest* request,
@@ -242,6 +331,23 @@ private:
         for (const uint32_t face_id : mesh.face_ids) {
             output_mesh->add_face_ids(face_id);
         }
+        for (const auto& edge : mesh.edges) {
+            auto* output_edge = output_mesh->add_edges();
+            output_edge->set_local_id(edge.local_id);
+            for (const auto& point : edge.points) {
+                auto* output_point = output_edge->add_points();
+                output_point->set_x(point.x);
+                output_point->set_y(point.y);
+                output_point->set_z(point.z);
+            }
+        }
+        for (const auto& vertex : mesh.topology_vertices) {
+            auto* output_vertex = output_mesh->add_topology_vertices();
+            output_vertex->set_local_id(vertex.local_id);
+            output_vertex->mutable_point()->set_x(vertex.point.x);
+            output_vertex->mutable_point()->set_y(vertex.point.y);
+            output_vertex->mutable_point()->set_z(vertex.point.z);
+        }
     }
 
     std::mutex mutex_;
@@ -256,6 +362,12 @@ int run_smoke() {
     const auto id = kernel.createRectangularPad(spec);
     const auto topology = kernel.getTopology(id);
     const auto mesh = kernel.tessellate(id);
+    if (topology.faces.size() != 6 || topology.edges.size() != 12 || topology.vertices.size() != 8 ||
+        topology.faces.front().properties.empty() || topology.edges.front().properties.empty() ||
+        mesh.edges.size() != 12 || mesh.topology_vertices.size() != 8) {
+        std::cerr << "[FAIL] B-Rep topology detail or selection mesh is incomplete\n";
+        return EXIT_FAILURE;
+    }
     std::cout << "occccad Geometry Worker " << OCC_VERSION_COMPLETE << '\n'
               << "[SMOKE] GeometryId: " << id << '\n'
               << "[SMOKE] Volume: " << kernel.getVolume(id) << " mm^3\n"
@@ -263,6 +375,8 @@ int run_smoke() {
               << topology.edge_count << " edges / " << topology.vertex_count
               << " vertices / " << topology.solid_count << " solid\n"
               << "[SMOKE] Triangles: " << mesh.triangles.size() << '\n'
+              << "[SMOKE] Selectable topology: " << mesh.edges.size() << " edges / "
+              << mesh.topology_vertices.size() << " vertices\n"
               << "[PASS] Rectangle Sketch -> Pad\n";
     return EXIT_SUCCESS;
 }
