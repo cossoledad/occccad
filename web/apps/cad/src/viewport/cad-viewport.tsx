@@ -1,4 +1,8 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import type { CommandRegistry } from "../cad/command/command-registry";
+import { InputDebugOverlay, type InputDebugSnapshot } from "../cad/overlay/input-debug-overlay";
+import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
+import type { WorkbenchToolID } from "../state/workbench-store";
 import type { DocumentView, PlaneName, RectangleDraft, Selection, Vec3 } from "../types";
 import { CadViewportEngine } from "./cad-viewport-engine";
 
@@ -11,7 +15,9 @@ type Props = {
   view: DocumentView;
   selection: Selection;
   sketchPlane?: PlaneName;
-  sketchTool: "SELECT" | "RECTANGLE";
+  activeToolID: WorkbenchToolID;
+  navigationProfile: NavigationProfileID;
+  commandRegistry: CommandRegistry;
   onSelectionChange: (selection: Selection) => void;
   onRectangleCreated: (rectangle: RectangleDraft) => void;
   onInstanceMoved: (instanceID: string, translation: Vec3) => void;
@@ -21,6 +27,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<CadViewportEngine | undefined>(undefined);
   const callbacks = useRef(props);
+  const [debug, setDebug] = useState<InputDebugSnapshot>();
   callbacks.current = props;
 
   useEffect(() => {
@@ -29,7 +36,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       selectionChanged: (selection) => callbacks.current.onSelectionChange(selection),
       rectangleCreated: (rectangle) => callbacks.current.onRectangleCreated(rectangle),
       instanceMoved: (instanceID, translation) => callbacks.current.onInstanceMoved(instanceID, translation),
-    });
+      debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
+    }, props.commandRegistry);
     engine.current = instance;
     return () => { instance.dispose(); engine.current = undefined; };
   }, []);
@@ -40,12 +48,13 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     if (props.sketchPlane) engine.current?.beginSketch(props.sketchPlane);
     else engine.current?.endSketch();
   }, [props.sketchPlane]);
-  useEffect(() => { engine.current?.setSketchTool(props.sketchTool); }, [props.sketchTool]);
+  useEffect(() => { engine.current?.setActiveTool(props.activeToolID); }, [props.activeToolID]);
+  useEffect(() => { engine.current?.setNavigationProfile(props.navigationProfile); }, [props.navigationProfile]);
 
   useImperativeHandle(ref, () => ({
     fit: () => engine.current?.fit(),
     setStandardView: (view) => engine.current?.setStandardView(view),
   }), []);
 
-  return <div ref={host} className="cad-viewport-canvas" />;
+  return <><div ref={host} className="cad-viewport-canvas" />{debug && <InputDebugOverlay snapshot={debug} />}</>;
 });

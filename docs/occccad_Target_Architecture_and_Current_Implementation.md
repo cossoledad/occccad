@@ -2,8 +2,8 @@
 
 > 状态：当前实现说明  
 > 对照基线：[Architecture Specification v0.1](occccad_Architecture_Specification_v0.1.md)  
-> 当前迭代：v0.0.9 前端应用架构
-> 更新日期：2026-08-10
+> 当前迭代：v0.0.10 CAD 前端交互基础框架
+> 更新日期：2026-08-11
 
 本文不重新定义目标架构，而是说明最初设计中的哪些边界已经实现、当前真实服务关系，以及它与
 目标 Worker 依赖图不同的原因。
@@ -168,7 +168,7 @@ flowchart LR
 | Geometry Worker | 已实现 MVP | C++17 / OCCT 7.9.1、粗粒度 gRPC、B-Rep/GLB/Mesh/拓扑结果、多 Geometry 缓存 |
 | Geometry Router | 已实现单机版 | Geometry Key/ID 粘滞路由、容量扩缩容、失效替换、Debug Override |
 | 文档中心 / CAD Web | 已实现应用基线 | React/Ant Design、路由、Tab、Toolbar、Feature Tree、Query/Store 分层和无后端 Mock 调试 |
-| CAD Viewport | 已实现封装基线 | Three.js 隐藏在 CadViewportEngine 后，支持 CAD 相机、选择、草图反馈和实例拖动 |
+| CAD Viewport | 已实现交互基线 | Three.js 隐藏在 CadViewportEngine 后；统一 Pointer/Keyboard、Tool/Selection/Navigation 短路路由、Default/CATIA Profile、草图反馈和实例拖动 |
 | 账号 / ACL / 管理后台 | 已实现基线 | 管理员、注册审批、角色、Session/CSRF、用户/团队/文档/文件夹权限 |
 | Artifact | 已实现本地后端 | B-Rep、GLB、STEP、缩略图按内容寻址写入 `./data`；S3 预留 |
 | Persistent Jobs | 已实现 | STEP Import/Export、Thumbnail、Claim/Lease/Retry/Attempt |

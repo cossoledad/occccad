@@ -1,13 +1,17 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { PlaneName, Selection } from "../types";
+import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
+
+export type WorkbenchToolID = "select" | "sketch.rectangle";
 
 type WorkbenchState = {
   tabs: string[];
   activeDocumentID?: string;
   selection: Selection;
   sketchPlane?: PlaneName;
-  sketchTool: "SELECT" | "RECTANGLE";
+  activeToolID: WorkbenchToolID;
+  navigationProfile: NavigationProfileID;
   inspectorTab: "properties" | "history";
   openTab: (documentID: string) => void;
   closeTab: (documentID: string) => void;
@@ -15,12 +19,13 @@ type WorkbenchState = {
   setSelection: (selection: Selection) => void;
   beginSketch: (plane: PlaneName) => void;
   endSketch: () => void;
-  setSketchTool: (tool: "SELECT" | "RECTANGLE") => void;
+  setActiveTool: (tool: WorkbenchToolID) => void;
+  setNavigationProfile: (profile: NavigationProfileID) => void;
   setInspectorTab: (tab: "properties" | "history") => void;
 };
 
 export const useWorkbenchStore = create<WorkbenchState>()(persist((set) => ({
-  tabs: [], selection: null, sketchTool: "SELECT", inspectorTab: "properties",
+  tabs: [], selection: null, activeToolID: "select", navigationProfile: "default", inspectorTab: "properties",
   openTab: (documentID) => set((state) => ({
     tabs: state.tabs.includes(documentID) ? state.tabs : [...state.tabs, documentID],
     activeDocumentID: documentID, selection: null,
@@ -33,8 +38,10 @@ export const useWorkbenchStore = create<WorkbenchState>()(persist((set) => ({
   }),
   setActiveDocument: (activeDocumentID) => set({ activeDocumentID, selection: null }),
   setSelection: (selection) => set({ selection }),
-  beginSketch: (sketchPlane) => set({ sketchPlane, sketchTool: "SELECT" }),
-  endSketch: () => set({ sketchPlane: undefined, sketchTool: "SELECT" }),
-  setSketchTool: (sketchTool) => set({ sketchTool }),
+  beginSketch: (sketchPlane) => set({ sketchPlane, activeToolID: "select" }),
+  endSketch: () => set({ sketchPlane: undefined, activeToolID: "select" }),
+  setActiveTool: (activeToolID) => set({ activeToolID }),
+  setNavigationProfile: (navigationProfile) => set({ navigationProfile }),
   setInspectorTab: (inspectorTab) => set({ inspectorTab }),
-}), { name: "occccad.workbench", partialize: (state) => ({ tabs: state.tabs, inspectorTab: state.inspectorTab }) }));
+}), { name: "occccad.workbench", partialize: (state) => ({ tabs: state.tabs, inspectorTab: state.inspectorTab,
+  navigationProfile: state.navigationProfile }) }));

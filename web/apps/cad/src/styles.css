@@ -756,23 +756,44 @@ select {
 }
 
 .cad-viewport-canvas.navigating canvas {
-  cursor: grabbing;
+  cursor: default;
 }
 
-.view-controls {
+.cad-floating-panel {
   position: absolute;
-  top: 12px;
-  right: 12px;
-  display: grid;
-  grid-template-columns: repeat(2, 48px);
-  opacity: .82;
+  z-index: 8;
+  color: #dce9f0;
+  border: 1px solid rgb(115 143 160 / 42%);
+  border-radius: 9px;
+  background: rgb(24 35 44 / 91%);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 24%);
+  backdrop-filter: blur(10px);
 }
 
-.view-controls .ant-btn {
-  width: 48px;
-  padding: 0;
-  border-radius: 0;
-  font-size: 9px;
+.cad-floating-panel.top-left { top: 12px; left: 12px; }
+.cad-floating-panel.top-center { top: 12px; left: 50%; transform: translateX(-50%); }
+.cad-floating-panel.top-right { top: 12px; right: 12px; }
+.cad-floating-panel.bottom-left { bottom: 38px; left: 12px; }
+.cad-floating-panel.bottom-center { bottom: 38px; left: 50%; transform: translateX(-50%); }
+.cad-floating-panel.bottom-right { right: 12px; bottom: 38px; }
+.cad-floating-panel-title { padding: 7px 9px 2px; color: #7994a4; font-size: 8px; font-weight: 700; letter-spacing: 1px; }
+.cad-floating-toolbar { padding: 4px; }
+.cad-floating-toolbar-content { display: flex; flex-direction: var(--toolbar-direction); align-items: stretch; gap: 4px; }
+.cad-toolbar-group { display: flex; flex-direction: var(--toolbar-direction); gap: 2px; }
+.cad-toolbar-separator { width: 1px; min-height: 25px; margin: 2px 3px; background: rgb(151 177 191 / 30%); }
+.cad-floating-toolbar-content[style*="column"] .cad-toolbar-separator { width: auto; min-height: 1px; }
+.cad-tool-button.ant-btn { min-width: 31px; height: 29px; padding-inline: 8px; border-color: transparent; background: transparent; }
+.cad-tool-button.ant-btn:not(:disabled) { color: #cadbe4; }
+.cad-tool-button.ant-btn:not(:disabled):hover { color: white; border-color: #52758a; background: #314957; }
+.cad-tool-button.ant-btn.active { color: white; border-color: #238cb9; background: #157fac; }
+.command-ribbon .cad-tool-button.ant-btn { border-color: #d5dfe4; color: #22333e; background: white; }
+.command-ribbon .cad-tool-button.ant-btn.active { color: white; border-color: #1683b8; background: #1683b8; }
+.cad-input-debug { min-width: 310px; padding: 0 9px 7px; pointer-events: none; }
+.cad-input-debug code { display: block; margin-top: 4px; color: #b8cad4; font-size: 9px; line-height: 1.4; }
+
+@media (max-width: 720px) {
+  .cad-floating-toolbar.top-center { right: 8px; left: auto; transform: none; }
+  .cad-input-debug { display: none; }
 }
 
 .viewport-status {

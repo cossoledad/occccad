@@ -1,6 +1,6 @@
 # occccad 文档索引
 
-> 最后更新：2026-08-10
+> 最后更新：2026-08-11
 
 `occccad` 是项目的唯一名称：`occ` 表示 OCCT 几何内核，`c` 取自 `could`，`cad`
 表示 CAD 领域。文档中不再使用 CloudCAD、cloudcad 等临时名称。
@@ -30,6 +30,8 @@
     原始目标图、当前服务拓扑、Worker 依赖差异和实现进度。
 14. [v0.0.9 前端应用架构](occccad_v0.0.9_Frontend_Application_Architecture.md)：
     React/Ant Design 技术决策、CAD Viewport 边界、前后端分离和无后端调试。
+15. [v0.0.10 CAD 前端交互基础框架](occccad_v0.0.10_CAD_Interaction_Framework.md)：
+    CadInput、Tool/Selection/Navigation 路由、Command、Shortcut Context、Floating Toolbar 和测试边界。
 
 ## 文档状态
 
@@ -49,6 +51,7 @@
 | v0.0.8 服务控制与调试 | 已实现基线 | Control Plane、Geometry Router、自动扩缩容和调试 Override |
 | 目标架构与当前实现对照 | 当前事实 + 差距分析 | 目标与当前服务/Worker 关系的 Mermaid 对照 |
 | v0.0.9 前端应用架构 | 已实现基线 | React 应用、统一 UI、Three.js Viewport 封装、独立启动和 Mock Adapter |
+| v0.0.10 CAD 前端交互框架 | 已实现基线 | 统一输入、可替换导航、Tool/Command/Shortcut、悬浮 Overlay 和输入生命周期处理 |
 
 ## 当前实现快照
 
@@ -83,6 +86,8 @@
   password session / admin console -> PostgreSQL jobs -> local ArtifactStore
         |
   React / Ant Design application -> isolated Three.js CAD Viewport -> REST or Mock adapter
+        |
+  CadInput -> Tool / Selection / Navigation router -> UI Command / Floating Overlay
 
 尚未实现
   sketch constraint solving and dimensions

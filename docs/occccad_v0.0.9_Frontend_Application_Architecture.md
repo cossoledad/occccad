@@ -209,12 +209,11 @@ Viewport 后续按以下顺序演进：
 4. 增加材质/主题 Token、自定义 Shader 与大装配分层加载；
 5. 通过性能基准决定 WebGL2、WebGPU 或混合 Renderer，不把选择直接泄漏到页面层。
 
-### 测试
+### 前端验证
 
-- API Adapter 使用契约测试保证 Mock 与 REST 返回形状一致；
-- Query/Store/Feature 使用组件测试覆盖命令可用性和状态迁移；
-- Viewport 使用确定性 Scene 测试与关键交互 E2E；
-- 生产构建必须执行 `invoke web.build`，真实后端测试与 Mock 测试分别运行。
+- 前端不维护单元测试体系；
+- 生产构建必须执行 `invoke web.build`，同时完成 TypeScript 类型检查和 Vite 生产构建；
+- Mock 与真实 API 模式分别通过独立启动和人工验收验证关键流程。
 
 ## 8. 本版本验收
 

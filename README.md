@@ -10,7 +10,7 @@
 
 ## 当前状态
 
-仓库目前处于 **v0.0.9 / 前端应用架构阶段**。已经能够完成：
+仓库目前处于 **v0.0.10 / CAD 交互基础框架阶段**。已经能够完成：
 
 - 通过 Conan 2 获取 OCCT 7.9.1、gRPC/Protobuf 和 GoogleTest；
 - 显示并选择 XY/XZ/YZ 三个基准面，在任意基准面进入草图模式；
@@ -43,6 +43,9 @@
 - 使用 React、Ant Design、TanStack Query、Zustand 和 React Router 构建统一的现代 Web 应用；
 - Three.js 被封装为独立 CAD Viewport Engine，页面层不直接操作 Scene、Renderer 或 Controls；
 - 前端与 Go 服务独立启动/部署，并可在无数据库、API 和 Geometry Worker 时使用 Mock Adapter 调试。
+- 通过 CadInput、CadInteraction、CadCommand、CadOverlay 统一 Pointer/Keyboard、Tool、Selection、导航、
+  快捷键上下文、Toolbar 与 Context Toolbar 扩展边界；
+- Default/CATIA 可替换导航 Profile 支持多按键组合、Pointer Capture 和异常输入状态恢复。
 
 当前矩形草图尚不包含尺寸/几何约束求解，装配也暂不包含旋转、配合约束、S3、Redis、完整任务
 中心、跨主机调度或 XCAF Assembly STEP；这些属于后续目标。当前进度详见
@@ -204,6 +207,7 @@ PostgreSQL / ArtifactStore
 - [v0.0.7 账号管理、本地制品与持久任务](docs/occccad_v0.0.7_Distributed_Artifact_Pipeline.md)
 - [v0.0.8 服务控制、自动扩缩容与调试路由](docs/occccad_v0.0.8_Service_Control_and_Debug_Routing.md)
 - [v0.0.9 前端应用架构与独立开发](docs/occccad_v0.0.9_Frontend_Application_Architecture.md)
+- [v0.0.10 CAD 前端交互基础框架](docs/occccad_v0.0.10_CAD_Interaction_Framework.md)
 
 ## License
 
