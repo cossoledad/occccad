@@ -140,7 +140,7 @@ export class CadViewportEngine {
     this.selected = null;
     if (view.document.type === "PART") this.renderPart(view);
     else this.renderProduct(view);
-    this.frameContent();
+    // this.frameContent();
   }
 
   clear(): void {
@@ -477,14 +477,31 @@ export class CadViewportEngine {
 
   private frameContent(): void {
     const box = new THREE.Box3().setFromObject(this.content);
-    if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
-    const center = box.getCenter(new THREE.Vector3());
+    if (box.isEmpty()) {
+      box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
+    }
+
+    const newCenter = box.getCenter(new THREE.Vector3());
     const distance = this.fitDistance(box);
-    this.orbit.target.copy(center);
-    this.camera.position.copy(center).add(
-      new THREE.Vector3(1, -1.2, 0.8).normalize().multiplyScalar(distance));
-    this.camera.up.set(0, 0, 1);
-    this.camera.lookAt(center);
+
+    // 1. 获取当前相机的视线方向（从旧的 orbit.target 指向相机的向量方向）
+    const viewDir = new THREE.Vector3()
+      .subVectors(this.camera.position, this.orbit.target)
+      .normalize();
+
+    // 如果相机恰好在原 target 点上导致 viewDir 为零，给定一个默认方向 fallback
+    if (viewDir.lengthSq() === 0) {
+      viewDir.set(1, -1.2, 0.8).normalize();
+    }
+
+    // 2. 更新轨道控制器的旋转中心为物体包围盒的中心
+    this.orbit.target.copy(newCenter);
+
+    // 3. 沿原视线方向拉远/拉近相机，将位置移动到新中心偏移 distance 的地方
+    this.camera.position.copy(newCenter).addScaledVector(viewDir, distance);
+
+    // 4. 更新相机视角及裁剪面
+    this.camera.lookAt(newCenter);
     this.updateCameraClipping(box);
     this.orbit.update();
   }

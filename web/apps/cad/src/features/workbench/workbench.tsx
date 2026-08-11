@@ -29,18 +29,24 @@ function featureIcon(feature: Feature) {
 
 function treeData(view: DocumentView): DataNode[] {
   if (view.document.type === "PART") return [
-    { key: "origin", title: "Origin", icon: <GatewayOutlined />, children: (view.datumPlanes ?? []).map((plane) => ({
-      key: `plane:${plane.id}:${plane.plane}`, title: plane.name, icon: <NodeIndexOutlined />,
-    })) },
-    { key: "features", title: "Feature list", icon: <HistoryOutlined />, children: (view.part?.features ?? []).map((feature) => ({
-      key: `${feature.type.toUpperCase().includes("SKETCH") ? "sketch" : feature.type.toUpperCase() === "PAD" ? "pad" : "import"}:${feature.id}`,
-      title: feature.name ?? feature.type, icon: featureIcon(feature),
-    })) },
+    {
+      key: "origin", title: "Origin", icon: <GatewayOutlined />, children: (view.datumPlanes ?? []).map((plane) => ({
+        key: `plane:${plane.id}:${plane.plane}`, title: plane.name, icon: <NodeIndexOutlined />,
+      }))
+    },
+    {
+      key: "features", title: "Feature list", icon: <HistoryOutlined />, children: (view.part?.features ?? []).map((feature) => ({
+        key: `${feature.type.toUpperCase().includes("SKETCH") ? "sketch" : feature.type.toUpperCase() === "PAD" ? "pad" : "import"}:${feature.id}`,
+        title: feature.name ?? feature.type, icon: featureIcon(feature),
+      }))
+    },
     ...(view.artifact ? [{ key: "solid:body-1", title: "Part body", icon: <DatabaseOutlined /> }] : []),
   ];
-  return [{ key: "assembly", title: view.document.name, icon: <ApartmentOutlined />, children: (view.product?.instances ?? []).map((instance) => ({
-    key: `instance:${instance.id}`, title: instance.name, icon: <BuildOutlined />,
-  })) }];
+  return [{
+    key: "assembly", title: view.document.name, icon: <ApartmentOutlined />, children: (view.product?.instances ?? []).map((instance) => ({
+      key: `instance:${instance.id}`, title: instance.name, icon: <BuildOutlined />,
+    }))
+  }];
 }
 
 function selectionFromKey(value: React.Key): Selection {
@@ -76,10 +82,12 @@ export function Workbench() {
   const refresh = useCallback(async (view?: DocumentView) => {
     if (view) client.setQueryData(queryKeys.document(view.document.id), view);
     await Promise.all([client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
-      client.invalidateQueries({ queryKey: queryKeys.history(documentID) }), client.invalidateQueries({ queryKey: ["documents"] })]);
+    client.invalidateQueries({ queryKey: queryKeys.history(documentID) }), client.invalidateQueries({ queryKey: ["documents"] })]);
   }, [client, documentID]);
-  const command = useMutation({ mutationFn: (operation: () => Promise<DocumentView>) => operation(),
-    onSuccess: async (view) => { store.setSelection(null); await refresh(view); }, onError: (error) => message.error(error.message) });
+  const command = useMutation({
+    mutationFn: (operation: () => Promise<DocumentView>) => operation(),
+    onSuccess: async (view) => { store.setSelection(null); await refresh(view); }, onError: (error) => message.error(error.message)
+  });
   const view = document.data;
   const canEdit = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
 
@@ -191,8 +199,9 @@ export function Workbench() {
           <Button onClick={() => viewport.current?.setStandardView("FRONT")}>FRONT</Button>
           <Button onClick={() => viewport.current?.setStandardView("RIGHT")}>RIGHT</Button>
           <Button type="primary" onClick={() => viewport.current?.setStandardView("ISO")}>ISO</Button></div>
-        <div className="viewport-status"><span>{command.isPending ? "正在更新模型…" : store.selection ? `${store.selection.kind}: ${store.selection.id}` : "就绪"}</span>
-          <span>右键旋转 · 中键平移 · 滚轮缩放 · F 适配</span><span>mm</span></div>
+        <div className="viewport-status">
+          <span>{command.isPending ? "正在更新模型…" : store.selection ? `${store.selection.kind}: ${store.selection.id}` : "就绪"}</span>
+        </div>
       </section>
       <aside className="inspector-panel">
         <Segmented block value={store.inspectorTab} onChange={(value) => store.setInspectorTab(value as "properties" | "history")}
@@ -227,7 +236,7 @@ function Properties({ view, selection, feature }: { view: DocumentView; selectio
     ...(feature?.rectangle ? [{ key: "size", label: "尺寸", children: `${feature.rectangle.width} × ${feature.rectangle.height} mm` }] : []),
     ...(feature?.length ? [{ key: "length", label: "长度", children: `${feature.length} mm` }] : []),
     ...(instance ? [{ key: "transform", label: "位移", children: instance.translation.map((value) => value.toFixed(2)).join(", ") },
-      { key: "reference", label: "引用", children: instance.referenceMode ?? "FOLLOW_HEAD" }] : []),
+    { key: "reference", label: "引用", children: instance.referenceMode ?? "FOLLOW_HEAD" }] : []),
   ]} />;
 }
 
