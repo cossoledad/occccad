@@ -14,6 +14,7 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 
 - [现有架构](docs/CURRENT_ARCHITECTURE.md)：只描述当前仓库中可以从代码、配置和数据库迁移验证的事实。
 - [目标架构](docs/TARGET_ARCHITECTURE.md)：面向开源分布式 CAD 的长期设计、Worker 划分、调用关系、技术选型和演进路线。
+- [AI Agent 指南](AGENTS.md)：面向仓库级 AI 开发的项目上下文、平台不变量、自主判断、验证与文档责任。
 
 除根 README 与各可运行单元的 README 外，`docs/` 只维护上述两份核心文档。历史 Demo 和版本说明已经合并，不再作为有效架构依据。
 
