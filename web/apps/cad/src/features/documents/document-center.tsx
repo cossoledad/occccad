@@ -44,47 +44,59 @@ export function DocumentCenter() {
 
   const specialScope = scope === "recent" || scope === "shared" || scope === "trash";
   const filters = { scope, query, type, sort, offset, currentFolderID };
-  const documents = useQuery({ queryKey: queryKeys.documents(filters), queryFn: () => api.listDocuments({
-    scope: scope === "trash" ? "trash" : "active", query,
-    type: type || (scope === "parts" ? "PART" : scope === "products" ? "PRODUCT" : ""),
-    folderId: specialScope || query ? undefined : currentFolderID, recent: scope === "recent", shared: scope === "shared",
-    allFolders: specialScope || Boolean(query), sort: scope === "recent" ? "recent" : sort, limit: 24, offset,
-  }) });
+  const documents = useQuery({
+    queryKey: queryKeys.documents(filters), queryFn: () => api.listDocuments({
+      scope: scope === "trash" ? "trash" : "active", query,
+      type: type || (scope === "parts" ? "PART" : scope === "products" ? "PRODUCT" : ""),
+      folderId: specialScope || query ? undefined : currentFolderID, recent: scope === "recent", shared: scope === "shared",
+      allFolders: specialScope || Boolean(query), sort: scope === "recent" ? "recent" : sort, limit: 24, offset,
+    })
+  });
   const overview = useQuery({ queryKey: queryKeys.documents({ overview: true }), queryFn: () => api.listDocuments({ limit: 200, allFolders: true }) });
-  const folders = useQuery({ queryKey: queryKeys.folders(`${scope}:${currentFolderID}`),
-    queryFn: () => api.listFolders(currentFolderID, scope === "shared"), enabled: scope === "active" || scope === "parts" || scope === "products" || scope === "shared" });
+  const folders = useQuery({
+    queryKey: queryKeys.folders(`${scope}:${currentFolderID}`),
+    queryFn: () => api.listFolders(currentFolderID, scope === "shared"), enabled: scope === "active" || scope === "parts" || scope === "products" || scope === "shared"
+  });
   const breadcrumbs = useQuery({ queryKey: ["folder-breadcrumbs", currentFolderID], queryFn: () => api.folderBreadcrumbs(currentFolderID), enabled: Boolean(currentFolderID) });
   const folderTree = useQuery({ queryKey: ["folder-options"], queryFn: () => flattenFolderTree((parentID) => api.listFolders(parentID)), staleTime: 10_000 });
   const metrics = useMemo(() => documentMetrics(overview.data?.documents ?? []), [overview.data]);
   const currentPermission = breadcrumbs.data?.at(-1)?.permission;
   const writableLocation = !currentFolderID || canEdit(currentPermission);
 
-  const invalidateDocuments = async () => { await Promise.all([
-    client.invalidateQueries({ queryKey: ["documents"] }),
-    client.invalidateQueries({ queryKey: queryKeys.openDocuments }),
-  ]); };
+  const invalidateDocuments = async () => {
+    await Promise.all([
+      client.invalidateQueries({ queryKey: ["documents"] }),
+      client.invalidateQueries({ queryKey: queryKeys.openDocuments }),
+    ]);
+  };
   const invalidateFolders = async () => {
     await Promise.all([client.invalidateQueries({ queryKey: ["folders"] }), client.invalidateQueries({ queryKey: ["folder-options"] })]);
   };
-  const saveDocument = useMutation({ mutationFn: async (values: DocumentForm) => editing
-    ? api.updateDocument(editing.id, values.name, values.description ?? "")
-    : api.createDocument(values.type, values.name, values.description ?? "", currentFolderID || undefined),
-  onSuccess: async (view) => {
-    const created = !editing; setCreateOpen(false); setEditing(undefined); documentForm.resetFields(); await invalidateDocuments();
-    message.success("文档已保存"); if (created) navigate(`/documents/${view.document.id}`);
-  }, onError: (error) => message.error(error.message) });
-  const saveFolder = useMutation({ mutationFn: (values: FolderForm) => folderEditor !== "new" && folderEditor
-    ? api.updateFolder(folderEditor.id, values.name, values.description ?? "")
-    : api.createFolder(values.name, values.description ?? "", currentFolderID || undefined),
-  onSuccess: async () => { setFolderEditor(undefined); folderForm.resetFields(); await invalidateFolders(); message.success("文件夹已保存"); },
-  onError: (error) => message.error(error.message) });
-  const runOperation = useMutation({ mutationFn: (values: { name?: string; folderID?: string }) => {
-    if (!operation) throw new Error("没有待执行操作");
-    return operation.type === "copy"
-      ? api.copyDocument(operation.document.id, values.name || `${operation.document.name} Copy`, values.folderID || undefined)
-      : api.moveDocument(operation.document.id, values.folderID || undefined);
-  }, onSuccess: async () => { setOperation(undefined); operationForm.resetFields(); await invalidateDocuments(); message.success("操作已完成"); },
-  onError: (error) => message.error(error.message) });
+  const saveDocument = useMutation({
+    mutationFn: async (values: DocumentForm) => editing
+      ? api.updateDocument(editing.id, values.name, values.description ?? "")
+      : api.createDocument(values.type, values.name, values.description ?? "", currentFolderID || undefined),
+    onSuccess: async (view) => {
+      const created = !editing; setCreateOpen(false); setEditing(undefined); documentForm.resetFields(); await invalidateDocuments();
+      message.success("文档已保存"); if (created) navigate(`/documents/${view.document.id}`);
+    }, onError: (error) => message.error(error.message)
+  });
+  const saveFolder = useMutation({
+    mutationFn: (values: FolderForm) => folderEditor !== "new" && folderEditor
+      ? api.updateFolder(folderEditor.id, values.name, values.description ?? "")
+      : api.createFolder(values.name, values.description ?? "", currentFolderID || undefined),
+    onSuccess: async () => { setFolderEditor(undefined); folderForm.resetFields(); await invalidateFolders(); message.success("文件夹已保存"); },
+    onError: (error) => message.error(error.message)
+  });
+  const runOperation = useMutation({
+    mutationFn: (values: { name?: string; folderID?: string }) => {
+      if (!operation) throw new Error("没有待执行操作");
+      return operation.type === "copy"
+        ? api.copyDocument(operation.document.id, values.name || `${operation.document.name} Copy`, values.folderID || undefined)
+        : api.moveDocument(operation.document.id, values.folderID || undefined);
+    }, onSuccess: async () => { setOperation(undefined); operationForm.resetFields(); await invalidateDocuments(); message.success("操作已完成"); },
+    onError: (error) => message.error(error.message)
+  });
 
   const openDocument = (document: DocumentSummary) => { if (!document.deletedAt) navigate(`/documents/${document.id}`); };
   const enterFolder = (folderID: string) => { if (scope === "shared") setScope("active"); setCurrentFolderID(folderID); setOffset(0); };
@@ -94,12 +106,16 @@ export function DocumentCenter() {
       : { type: documentType }); setCreateOpen(true);
   };
   const openFolderEditor = (folder?: FolderSummary) => { setFolderEditor(folder ?? "new"); folderForm.setFieldsValue(folder ?? { name: "", description: "" }); };
-  const removeDocument = (document: DocumentSummary) => modal.confirm({ title: `将“${document.name}”移入回收站？`,
+  const removeDocument = (document: DocumentSummary) => modal.confirm({
+    title: `将“${document.name}”移入回收站？`,
     content: "历史、几何制品和 Product 引用将继续保留。", okText: "移入回收站", okButtonProps: { danger: true },
-    onOk: async () => { await api.deleteDocument(document.id); await invalidateDocuments(); message.success("文档已移入回收站"); } });
+    onOk: async () => { await api.deleteDocument(document.id); await invalidateDocuments(); message.success("文档已移入回收站"); }
+  });
   const restoreDocument = async (document: DocumentSummary) => { await api.restoreDocument(document.id); await invalidateDocuments(); message.success("文档已恢复"); };
-  const removeFolder = (folder: FolderSummary) => modal.confirm({ title: `删除空文件夹“${folder.name}”？`, okButtonProps: { danger: true },
-    onOk: async () => { await api.deleteFolder(folder.id); await invalidateFolders(); message.success("文件夹已删除"); } });
+  const removeFolder = (folder: FolderSummary) => modal.confirm({
+    title: `删除空文件夹“${folder.name}”？`, okButtonProps: { danger: true },
+    onOk: async () => { await api.deleteFolder(folder.id); await invalidateFolders(); message.success("文件夹已删除"); }
+  });
   const chooseOperation = (kind: "copy" | "move", document: DocumentSummary) => {
     setOperation({ type: kind, document }); operationForm.setFieldsValue({ name: kind === "copy" ? `${document.name} Copy` : undefined, folderID: document.folderId });
   };
@@ -129,11 +145,13 @@ export function DocumentCenter() {
         { title: <Button type="link" onClick={() => enterFolder("")}>我的文档</Button> },
         ...(breadcrumbs.data ?? []).map((folder) => ({ title: <Button type="link" onClick={() => enterFolder(folder.id)}>{folder.name}</Button> })),
       ]} />}
-      <Row gutter={14} className="metric-row">
-        <Col span={8}><Card><Statistic title="Part 文档" value={metrics.parts} prefix={<BuildOutlined />} /></Card></Col>
-        <Col span={8}><Card><Statistic title="Product 文档" value={metrics.products} prefix={<ApartmentOutlined />} /></Card></Col>
-        <Col span={8}><Card><Statistic title="最近 7 天更新" value={metrics.recentlyUpdated} prefix={<ClockCircleOutlined />} /></Card></Col>
-      </Row>
+      <div className="metric-row-wrapper">
+        <Row gutter={14} className="metric-row">
+          <Col span={8}><Card><Statistic title="Part 文档" value={metrics.parts} prefix={<BuildOutlined />} /></Card></Col>
+          <Col span={8}><Card><Statistic title="Product 文档" value={metrics.products} prefix={<ApartmentOutlined />} /></Card></Col>
+          <Col span={8}><Card><Statistic title="最近 7 天更新" value={metrics.recentlyUpdated} prefix={<ClockCircleOutlined />} /></Card></Col>
+        </Row>
+      </div>
       <Card className="document-browser" bordered={false}>
         <div className="browser-controls">
           <Input allowClear prefix={<SearchOutlined />} placeholder="搜索文档名称或说明" value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0); }} />
@@ -144,12 +162,16 @@ export function DocumentCenter() {
         {folders.data?.length ? <div className="folder-grid">{folders.data.map((folder) => <Card key={folder.id} size="small" hoverable
           className="folder-card" onDoubleClick={() => enterFolder(folder.id)}>
           <div className="folder-card-content"><FolderOpenOutlined /><span><strong>{folder.name}</strong><small>{folder.documentCount} 文档 · {folder.childCount} 子文件夹</small></span>
-            <Dropdown trigger={["click"]} menu={{ items: [
-              ...(folder.permission === "OWNER" ? [{ key: "share", icon: <ShareAltOutlined />, label: "共享" }] : []),
-              ...(canEdit(folder.permission) ? [{ key: "edit", icon: <EditOutlined />, label: "编辑" },
+            <Dropdown trigger={["click"]} menu={{
+              items: [
+                ...(folder.permission === "OWNER" ? [{ key: "share", icon: <ShareAltOutlined />, label: "共享" }] : []),
+                ...(canEdit(folder.permission) ? [{ key: "edit", icon: <EditOutlined />, label: "编辑" },
                 { key: "delete", icon: <DeleteOutlined />, label: "删除", danger: true, disabled: folder.documentCount + folder.trashCount + folder.childCount > 0 }] : []),
-            ], onClick: ({ key, domEvent }) => { domEvent.stopPropagation(); if (key === "share") setShareResource({ type: "folders", id: folder.id, name: folder.name });
-              else if (key === "edit") openFolderEditor(folder); else removeFolder(folder); } }}><Button type="text" icon={<MoreOutlined />} /></Dropdown>
+              ], onClick: ({ key, domEvent }) => {
+                domEvent.stopPropagation(); if (key === "share") setShareResource({ type: "folders", id: folder.id, name: folder.name });
+                else if (key === "edit") openFolderEditor(folder); else removeFolder(folder);
+              }
+            }}><Button type="text" icon={<MoreOutlined />} /></Dropdown>
           </div></Card>)}</div> : null}
         {documents.isLoading ? <div className="center-spinner"><Spin /></div> : documents.data?.documents.length
           ? <div className="document-grid">{documents.data.documents.map((document) => {
@@ -165,11 +187,13 @@ export function DocumentCenter() {
                 onKeyDown={(event) => { if (event.key === "Enter") openDocument(document); }}><DocumentThumbnail document={document} /></button>}>
               <Card.Meta title={<span className="document-title"><span>{document.name}</span><Tag color={document.type === "PART" ? "blue" : "cyan"}>{document.type}</Tag></span>}
                 description={<><span className="document-description">{document.description || "暂无说明"}</span><small>{document.workspaceName ?? "Main"} · {document.permission} · {relativeDate(document.lastUpdated)}</small></>} />
-              <Dropdown trigger={["click"]} menu={{ items: menuItems, onClick: ({ key }) => {
-                if (key === "open") openDocument(document); else if (key === "edit") openDocumentEditor(document); else if (key === "delete") removeDocument(document);
-                else if (key === "restore") void restoreDocument(document); else if (key === "copy" || key === "move") chooseOperation(key, document);
-                else if (key === "share") setShareResource({ type: "documents", id: document.id, name: document.name });
-              } }}><Button className="card-menu" type="text" icon={<MoreOutlined />} /></Dropdown>
+              <Dropdown trigger={["click"]} menu={{
+                items: menuItems, onClick: ({ key }) => {
+                  if (key === "open") openDocument(document); else if (key === "edit") openDocumentEditor(document); else if (key === "delete") removeDocument(document);
+                  else if (key === "restore") void restoreDocument(document); else if (key === "copy" || key === "move") chooseOperation(key, document);
+                  else if (key === "share") setShareResource({ type: "documents", id: document.id, name: document.name });
+                }
+              }}><Button className="card-menu" type="text" icon={<MoreOutlined />} /></Dropdown>
             </Card>;
           })}</div> : <Empty description="没有找到文档" />}
         <Pagination current={Math.floor(offset / 24) + 1} pageSize={24} total={documents.data?.total ?? 0} hideOnSinglePage onChange={(page) => setOffset((page - 1) * 24)} />

@@ -349,9 +349,14 @@ select {
   margin-bottom: 0;
 }
 
-.metric-row {
+.metric-row-wrapper{
   max-width: 1480px;
   margin: 0 auto 14px;
+}
+
+.metric-row {
+  justify-content: center;
+  align-items: center;
 }
 
 .metric-row .ant-card {
@@ -969,7 +974,7 @@ select {
     grid-template-columns: 1fr;
   }
 
-  .metric-row {
+  .metric-row-wrapper {
     display: none;
   }
 

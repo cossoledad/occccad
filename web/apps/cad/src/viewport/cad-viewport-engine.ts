@@ -83,7 +83,7 @@ function makeGeometry(artifact: Artifact): THREE.BufferGeometry {
   };
   accelerated.computeBoundsTree = computeBoundsTree;
   accelerated.disposeBoundsTree = disposeBoundsTree;
-  accelerated.computeBoundsTree();
+  accelerated.computeBoundsTree({ indirect: true });
   return geometry;
 }
 
@@ -404,9 +404,11 @@ export class CadViewportEngine {
     for (const instance of view.product?.instances ?? []) {
       const group = new THREE.Group();
       group.position.fromArray(instance.translation);
-      const instanceSelection = { kind: "instance" as const, id: instance.id,
+      const instanceSelection = {
+        kind: "instance" as const, id: instance.id,
         treeNodeId: `document:${view.document.id}/instance:${instance.id}`, documentId: instance.documentId,
-        occurrencePath: instance.id, instanceId: instance.id };
+        occurrencePath: instance.id, instanceId: instance.id
+      };
       group.userData = instanceSelection;
       this.content.add(group);
       this.instanceGroups.set(instance.id, group);
@@ -424,8 +426,10 @@ export class CadViewportEngine {
           resolved.translation[2] - instance.translation[2],
         );
         if (artifact.mesh.triangles.length > 0) {
-          const context: SolidContext = { documentId: resolved.documentId, geometryKey: artifact.geometryKey,
-            occurrencePath: resolved.occurrencePath, treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id };
+          const context: SolidContext = {
+            documentId: resolved.documentId, geometryKey: artifact.geometryKey,
+            occurrencePath: resolved.occurrencePath, treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id
+          };
           const solid = this.makeSolid(artifact, CATIA_VISUAL_THEME.productSurface, context);
           solid.userData = { kind: "instance", id: instance.id };
           resolvedGroup.add(solid);
@@ -459,9 +463,11 @@ export class CadViewportEngine {
     });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.fromArray(datum.origin);
-    const selection = { kind: "plane" as const, id: `${context?.occurrencePath || "root"}:${id}`, plane,
+    const selection = {
+      kind: "plane" as const, id: `${context?.occurrencePath || "root"}:${id}`, plane,
       treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
-      geometryKey: context?.geometryKey, instanceId: context?.instanceId };
+      geometryKey: context?.geometryKey, instanceId: context?.instanceId
+    };
     mesh.userData = selection;
     const edge = new THREE.LineSegments(
       new THREE.EdgesGeometry(geometry),
@@ -480,16 +486,20 @@ export class CadViewportEngine {
     const length = 38;
     const origin = new THREE.Vector3().fromArray(axis.origin);
     const system = new THREE.Group();
-    const systemSelection = { kind: "axis-system" as const, id: `${context?.occurrencePath || "root"}:${axis.id}`,
+    const systemSelection = {
+      kind: "axis-system" as const, id: `${context?.occurrencePath || "root"}:${axis.id}`,
       treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
-      geometryKey: context?.geometryKey, instanceId: context?.instanceId };
+      geometryKey: context?.geometryKey, instanceId: context?.instanceId
+    };
     const definitions = [["X", axis.xDirection, 0xe62e24], ["Y", axis.yDirection, 0x29b849], ["Z", axis.zDirection, 0x3478e5]] as const;
     for (const [name, direction, color] of definitions) {
       const geometry = new THREE.BufferGeometry().setFromPoints([origin,
         origin.clone().add(new THREE.Vector3().fromArray(direction).multiplyScalar(length))]);
       const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 }));
-      const selection = { ...systemSelection, kind: "axis" as const, axis: name, id: `${systemSelection.id}:${name}`,
-        treeNodeId: context?.treeNodeId ? `${context.treeNodeId}/${name.toLowerCase()}` : undefined };
+      const selection = {
+        ...systemSelection, kind: "axis" as const, axis: name, id: `${systemSelection.id}:${name}`,
+        treeNodeId: context?.treeNodeId ? `${context.treeNodeId}/${name.toLowerCase()}` : undefined
+      };
       line.userData = selection; system.add(line);
       this.selectionIndex.register(selection, line, context?.treeNodeId);
       this.selectionIndex.registerPick(line, () => selection, 45);
@@ -523,8 +533,10 @@ export class CadViewportEngine {
       color: 0xffc857, linewidth: 2, depthTest: false,
     }));
     line.renderOrder = 20;
-    const selection = { kind: "sketch" as const, id: feature.id, documentId: this.view?.document.id,
-      treeNodeId: `document:${this.view?.document.id}/body/sketch:${feature.id}` };
+    const selection = {
+      kind: "sketch" as const, id: feature.id, documentId: this.view?.document.id,
+      treeNodeId: `document:${this.view?.document.id}/body/sketch:${feature.id}`
+    };
     line.userData = selection;
     this.helpers.add(line);
     this.selectable.set(`sketch:${feature.id}`, line);
@@ -550,8 +562,10 @@ export class CadViewportEngine {
     this.selectionIndex.registerPick(mesh, (hit) => {
       const triangle = hit.faceIndex ?? -1;
       const localID = triangle >= 0 ? (artifact.mesh.faceIds[triangle] ?? 0) + 1 : 0;
-      return localID > 0 ? { kind: "face", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:face:${localID}`,
-        topologyId: localID, ...context } : bodySelection;
+      return localID > 0 ? {
+        kind: "face", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:face:${localID}`,
+        topologyId: localID, ...context
+      } : bodySelection;
     }, 20);
     group.add(mesh);
     const edgePositions: number[] = [];
@@ -566,9 +580,12 @@ export class CadViewportEngine {
       edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(edgePositions, 3));
       const edges = new THREE.LineSegments(edgeGeometry, this.materials.edge());
       this.selectionIndex.registerPick(edges, (hit) => {
-        const localID = edgeIDs[hit.index ?? 0] ?? 0;
-        return { kind: "edge", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:edge:${localID}`,
-          topologyId: localID, ...context };
+        const segmentIndex = ((hit.index ?? 0) / 2) | 0;
+        const localID = edgeIDs[segmentIndex] ?? 0;
+        return {
+          kind: "edge", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:edge:${localID}`,
+          topologyId: localID, ...context
+        };
       }, 40);
       group.add(edges);
     } else {
@@ -581,8 +598,10 @@ export class CadViewportEngine {
       const points = new THREE.Points(pointGeometry, this.materials.point(0x1f2a30, 6));
       this.selectionIndex.registerPick(points, (hit) => {
         const localID = topologyVertices[hit.index ?? 0]?.localId ?? 0;
-        return { kind: "vertex", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:vertex:${localID}`,
-          topologyId: localID, ...context };
+        return {
+          kind: "vertex", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:vertex:${localID}`,
+          topologyId: localID, ...context
+        };
       }, 50);
       group.add(points);
     }
@@ -634,20 +653,24 @@ export class CadViewportEngine {
       if (positions.length > 0) {
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3)); geometry.computeVertexNormals();
-        overlay = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ color, transparent: true,
+        overlay = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+          color, transparent: true,
           opacity: layer === "selected" ? 0.48 : 0.3, side: THREE.DoubleSide, depthWrite: false,
-          polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+          polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
+        }));
       }
     } else if (selection.kind === "edge") {
       const edge = (binding.artifact.mesh.edges ?? []).find((item) => item.localId === selection.topologyId);
       if (edge) overlay = new THREE.Line(new THREE.BufferGeometry().setFromPoints(edge.points.map((point) => new THREE.Vector3().fromArray(point))),
-        new THREE.LineBasicMaterial({ color, depthTest: false }));
+        new THREE.LineBasicMaterial({ color, depthTest: true }));
     } else {
       const vertex = (binding.artifact.mesh.topologyVertices ?? []).find((item) => item.localId === selection.topologyId);
       if (vertex) {
         const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3().fromArray(vertex.point)]);
-        overlay = new THREE.Points(geometry, new THREE.PointsMaterial({ color, size: layer === "selected" ? 9 : 7,
-          sizeAttenuation: false, depthTest: false }));
+        overlay = new THREE.Points(geometry, new THREE.PointsMaterial({
+          color, size: layer === "selected" ? 9 : 7,
+          sizeAttenuation: false, depthTest: false
+        }));
       }
     }
     if (!overlay) return;
@@ -713,9 +736,11 @@ export class CadViewportEngine {
 
   private emitDebugState(): void {
     if (this.disposed) return;
-    this.callbacks.debugStateChanged?.({ input: this.input.getState(), activeTool: this.activeToolID,
+    this.callbacks.debugStateChanged?.({
+      input: this.input.getState(), activeTool: this.activeToolID,
       navigationProfile: this.navigationProfile, navigationAction: this.navigation.activeAction,
-      navigation: this.navigation.snapshot, hudScreen: this.navigationHUD.screenPosition });
+      navigation: this.navigation.snapshot, hudScreen: this.navigationHUD.screenPosition
+    });
   }
 
   private updateNavigationHUD(snapshot = this.navigation.snapshot): void {
