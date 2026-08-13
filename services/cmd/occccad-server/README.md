@@ -6,8 +6,8 @@ occccad-server 是当前系统的 HTTP API 与业务编排进程。它是模块�
 
 - 初始化管理员账号和数据库会话认证；
 - 提供用户、团队、文档、文件夹、版本、历史、分享、ACL 与审计 API；
-- 验证访问权限并把用户命令应用到 Part/Product Workspace；
-- 通过 gRPC 调用 Geometry Worker，持久化模型、命令与几何元数据；
+- 验证访问权限，把 HTTP transport DTO 转换为版本化 Domain Command，并由 typed handler 应用到显式 Part/Product Workspace；
+- 在数据库事务外通过 gRPC 求值候选模型，再以 Workspace Head/sequence CAS 原子持久化 Transaction、ChangeSet、Revision、EvaluationManifest、依赖投影和 outbox；
 - 把 STEP 和缩略图工作写入 PostgreSQL 持久任务队列；
 - 通过 ArtifactStore 读写本地内容寻址制品；
 - 暴露健康检查并传播 HTTP/gRPC Trace Context。
@@ -35,6 +35,8 @@ flowchart LR
 - 根路径返回服务说明，不提供 Web 静态文件。
 
 主要资源包括 `/api/auth/*`、`/api/session`、`/api/documents`、`/api/folders`、`/api/jobs`、`/api/teams`、`/api/users`、`/api/admin/*` 与 `/api/audit`。具体契约当前以 `services/internal/api/server.go` 为准；仓库尚未发布稳定的外部 OpenAPI。
+
+`GET|POST /api/documents/{documentID}/workspaces` 用于列出 Workspace 或从所属 Revision 创建 Branch。`POST /api/documents/{documentID}/commands` 是当前 HTTP transport 入口；`SET_PARAMETER_VALUE` 接受 `parameterId/value/unit`，`SET_PARAMETER_EXPRESSION` 接受 `parameterId/expression`。表达式在服务端绑定稳定 ParameterId，Worker 不解析用户 source text。
 
 ## 配置
 
@@ -70,7 +72,9 @@ invoke run.server
 ## 一致性与故障语义
 
 - PostgreSQL 是业务真相；Geometry Worker 返回的是可重建的计算结果。
-- 写操作经过身份和 ACL 校验；命令、版本与审计数据在数据库事务边界内处理。
+- 写操作经过身份和 ACL 校验；昂贵求值不占用数据库事务，最终提交以 Head CAS 防止迟到结果覆盖新 Revision。
+- Undo/Redo/Restore 都追加 Transaction 与 Revision；Revert/Reapply 围绕稳定根 Transaction 折叠，支持连续多步 Undo/Redo。`canUndo/canRedo` 由同一 actor history fold 计算并返回 Web；字段 digest 或结构依赖不匹配时返回冲突。
+- 当前是无生产数据的新项目阶段；C0–C4 schema 变更要求重建开发数据库，不提供旧 cursor/history adapter。
 - 后台任务具有幂等键；API 返回任务后不保证任务已完成。
 - HTTP 读写超时当前均为 30 秒，因此长操作应进入任务系统。
 - 进程重启会丢失内存中的“已打开文档”注册表，但不会丢失持久文档。

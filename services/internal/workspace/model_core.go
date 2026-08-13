@@ -1,0 +1,821 @@
+package workspace
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/modelcore"
+)
+
+const (
+	typeCreateSketch           = "occccad://part/rectangle-sketch/create"
+	typeCreatePad              = "occccad://part/pad/create"
+	typeImportStep             = "occccad://part/step/import"
+	typeSetParameterLiteral    = "occccad://parameter/literal/set"
+	typeSetParameterExpression = "occccad://parameter/expression/set"
+	typeInsertInstance         = "occccad://product/instance/insert"
+	typeMoveInstance           = "occccad://product/instance/move"
+	typeSetReferenceMode       = "occccad://product/instance/reference-mode/set"
+)
+
+type commandHandler struct {
+	typeURI      string
+	documentType string
+	apply        func(json.RawMessage, json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error)
+}
+
+func (handler commandHandler) TypeURI() string                   { return handler.typeURI }
+func (handler commandHandler) SupportedSchemaVersions() []uint32 { return []uint32{1} }
+func (handler commandHandler) TargetDocumentTypes() []string     { return []string{handler.documentType} }
+func (handler commandHandler) Apply(model, payload json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	return handler.apply(model, payload)
+}
+
+var workspaceCommandRegistry = mustWorkspaceRegistry()
+
+func mustWorkspaceRegistry() *modelcore.Registry {
+	registry, err := modelcore.NewRegistry(
+		commandHandler{typeCreateSketch, "PART", applyCreateFeature},
+		commandHandler{typeCreatePad, "PART", applyCreateFeature},
+		commandHandler{typeImportStep, "PART", applyCreateFeature},
+		commandHandler{typeSetParameterLiteral, "PART", applyParameterSource},
+		commandHandler{typeSetParameterExpression, "PART", applyParameterSource},
+		commandHandler{typeInsertInstance, "PRODUCT", applyInsertInstance},
+		commandHandler{typeMoveInstance, "PRODUCT", applyMoveInstance},
+		commandHandler{typeSetReferenceMode, "PRODUCT", applyReferenceMode},
+	)
+	if err != nil {
+		panic(err)
+	}
+	return registry
+}
+
+type createFeaturePayload struct {
+	Feature Feature `json:"feature"`
+}
+
+func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model PartModel
+	var payload createFeaturePayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	normalizePartModel(&model)
+	for _, feature := range model.Features {
+		if feature.ID == payload.Feature.ID {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate feature identity", ErrValidation)
+		}
+	}
+	model.Features = append(model.Features, payload.Feature)
+	ensureFeatureParameters(&model)
+	if err := validateAndResolvePartParameters(&model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Feature.ID, SlotID: "entity"}, nil, payload.Feature)
+	set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.Feature.ID)}}
+	next, _ := json.Marshal(model)
+	return next, set, nil
+}
+
+type parameterSourcePayload struct {
+	ParameterID string                `json:"parameterId"`
+	Source      modelcore.ValueSource `json:"source"`
+}
+
+func applyParameterSource(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model PartModel
+	var payload parameterSourcePayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	normalizePartModel(&model)
+	for index := range model.Parameters {
+		if model.Parameters[index].ParameterID != payload.ParameterID {
+			continue
+		}
+		before := model.Parameters[index].Source
+		model.Parameters[index].Source = payload.Source
+		if err := validateAndResolvePartParameters(&model); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.ParameterID, SlotID: "parameter.source"}, before, payload.Source)
+		set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"parameter:" + modelcore.DependencyKey(payload.ParameterID)}}
+		next, _ := json.Marshal(model)
+		return next, set, nil
+	}
+	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter does not exist", ErrValidation)
+}
+
+type insertInstancePayload struct {
+	Instance ProductInstance `json:"instance"`
+}
+
+func applyInsertInstance(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model ProductModel
+	var payload insertInstancePayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	for _, instance := range model.Instances {
+		if instance.ID == payload.Instance.ID {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate instance identity", ErrValidation)
+		}
+	}
+	model.Instances = append(model.Instances, payload.Instance)
+	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Instance.ID, SlotID: "entity"}, nil, payload.Instance)
+	set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"instance:" + modelcore.DependencyKey(payload.Instance.ID)}}
+	next, _ := json.Marshal(model)
+	return next, set, nil
+}
+
+type moveInstancePayload struct {
+	InstanceID  string     `json:"instanceId"`
+	Translation [3]float64 `json:"translation"`
+}
+
+func applyMoveInstance(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model ProductModel
+	var payload moveInstancePayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if !finite(payload.Translation[0]) || !finite(payload.Translation[1]) || !finite(payload.Translation[2]) {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: translation must be finite", ErrValidation)
+	}
+	for index := range model.Instances {
+		if model.Instances[index].ID == payload.InstanceID {
+			before := model.Instances[index].Translation
+			model.Instances[index].Translation = payload.Translation
+			change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.InstanceID, SlotID: "instance.translation"}, before, payload.Translation)
+			set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"placement:" + modelcore.DependencyKey(payload.InstanceID)}}
+			next, _ := json.Marshal(model)
+			return next, set, nil
+		}
+	}
+	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected instance does not exist", ErrValidation)
+}
+
+type referenceModePayload struct{ InstanceID, Mode, PinnedVersionID string }
+
+func applyReferenceMode(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model ProductModel
+	var payload referenceModePayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	for index := range model.Instances {
+		instance := &model.Instances[index]
+		if instance.ID != payload.InstanceID {
+			continue
+		}
+		before := struct{ Mode, Version string }{instance.ReferenceMode, instance.ReferencedVersionID}
+		instance.ReferenceMode = payload.Mode
+		if payload.Mode == "PINNED" {
+			instance.ReferencedVersionID = payload.PinnedVersionID
+		}
+		instance.ResolvedVersionID = ""
+		instance.HeadChanged = false
+		after := struct{ Mode, Version string }{instance.ReferenceMode, instance.ReferencedVersionID}
+		change, _ := modelcore.NewChange(modelcore.ChangeBind, modelcore.PropertyAddress{EntityID: payload.InstanceID, SlotID: "instance.reference"}, before, after)
+		set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"reference:" + modelcore.DependencyKey(payload.InstanceID)}}
+		next, _ := json.Marshal(model)
+		return next, set, nil
+	}
+	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected instance does not exist", ErrValidation)
+}
+
+type preparedDomainMutation struct {
+	workspaceID, headRevision, documentType, requestDigest, requestID, actorID string
+	headSequence                                                               uint64
+	modelJSON                                                                  json.RawMessage
+	command                                                                    modelcore.DomainCommand
+	transactionID                                                              string
+	priorManifest                                                              *modelcore.EvaluationManifest
+}
+
+func (service *Service) prepareDomainMutation(ctx context.Context, documentID string, request CommandRequest) (preparedDomainMutation, error) {
+	var prepared preparedDomainMutation
+	request.RequestID = requestID(request.RequestID)
+	prepared.requestID = request.RequestID
+	prepared.actorID = actorID(request.ActorID)
+	var priorManifestJSON []byte
+	if err := service.database.QueryRow(ctx, `SELECT w.id::text,w.head_revision_id::text,w.head_sequence,d.document_type,v.model_json,v.evaluation_manifest FROM occccad.workspaces w JOIN occccad.documents d ON d.id=w.document_id JOIN occccad.document_versions v ON v.id=w.head_revision_id WHERE w.document_id=$1 AND w.name='main' AND d.deleted_at IS NULL`, documentID).Scan(&prepared.workspaceID, &prepared.headRevision, &prepared.headSequence, &prepared.documentType, &prepared.modelJSON, &priorManifestJSON); errors.Is(err, pgx.ErrNoRows) {
+		return prepared, ErrNotFound
+	} else if err != nil {
+		return prepared, err
+	}
+	if len(priorManifestJSON) > 0 {
+		var manifest modelcore.EvaluationManifest
+		if json.Unmarshal(priorManifestJSON, &manifest) == nil {
+			prepared.priorManifest = &manifest
+		}
+	}
+	command, payload, err := service.adaptLegacyCommand(ctx, documentID, prepared.documentType, prepared.modelJSON, request)
+	if err != nil {
+		return prepared, err
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.command = modelcore.DomainCommand{CommandID: newID("command"), TypeURI: command, SchemaVersion: 1, Payload: payloadJSON}
+	transactionUUID, err := uuid.NewV7()
+	if err != nil {
+		return prepared, err
+	}
+	prepared.transactionID = transactionUUID.String()
+	transaction := modelcore.DomainTransaction{TransactionID: prepared.transactionID, RequestID: request.RequestID, DocumentID: documentID, WorkspaceID: prepared.workspaceID, ExpectedHeadSequence: prepared.headSequence, ExpectedHeadRevisionID: prepared.headRevision, Commands: []modelcore.DomainCommand{prepared.command}, EvaluationPolicy: "IMMEDIATE_ALLOW_FEATURE_FAILURE"}
+	if _, err = transaction.CanonicalDigest(); err != nil {
+		return prepared, err
+	}
+	requestJSON, err := json.Marshal(request)
+	if err != nil {
+		return prepared, err
+	}
+	prepared.requestDigest = modelcore.ValueDigest(requestJSON)
+	return prepared, nil
+}
+
+func (service *Service) applyDomainMutation(ctx context.Context, documentID string, request CommandRequest) error {
+	prepared, err := service.prepareDomainMutation(ctx, documentID, request)
+	if err != nil {
+		return err
+	}
+	var storedDigest string
+	if err := service.database.QueryRow(ctx, `SELECT request_digest FROM occccad.domain_transactions WHERE workspace_id=$1 AND request_id=$2 AND status='COMMITTED'`, prepared.workspaceID, prepared.requestID).Scan(&storedDigest); err == nil {
+		if storedDigest != prepared.requestDigest {
+			return fmt.Errorf("%w: IDEMPOTENCY_KEY_REUSED", ErrValidation)
+		}
+		return nil
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	nextJSON, changes, err := workspaceCommandRegistry.Apply(prepared.documentType, prepared.modelJSON, prepared.command)
+	if err != nil {
+		return err
+	}
+	revisionUUID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+	revisionID := revisionUUID.String()
+	modelHash := canonicalModelHash(nextJSON)
+	geometryKey := ""
+	var graph *modelcore.DependencyGraph
+	var manifest modelcore.EvaluationManifest
+	if prepared.documentType == "PART" {
+		var model PartModel
+		if err := json.Unmarshal(nextJSON, &model); err != nil {
+			return err
+		}
+		normalizePartModel(&model)
+		if err := validateAndResolvePartParameters(&model); err != nil {
+			return err
+		}
+		nextJSON, _ = json.Marshal(model)
+		modelHash = canonicalModelHash(nextJSON)
+		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)
+		if err != nil {
+			return err
+		}
+		geometryKey, err = service.evaluatePart(ctx, prepared.requestID, model)
+		if err != nil {
+			return err
+		}
+	} else {
+		var model ProductModel
+		if err := json.Unmarshal(nextJSON, &model); err != nil {
+			return err
+		}
+		graph, manifest, err = buildProductEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)
+		if err != nil {
+			return err
+		}
+	}
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return err
+	}
+	manifestDigest := modelcore.ValueDigest(manifestJSON)
+	dependencyDigest, err := graph.Digest()
+	if err != nil {
+		return err
+	}
+	changesJSON, err := json.Marshal(changes)
+	if err != nil {
+		return err
+	}
+	payloadDigest := modelcore.ValueDigest(prepared.command.Payload)
+	tx, err := service.database.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	var currentHead string
+	var currentSequence uint64
+	if err := tx.QueryRow(ctx, `SELECT head_revision_id::text,head_sequence FROM occccad.workspaces WHERE id=$1 FOR UPDATE`, prepared.workspaceID).Scan(&currentHead, &currentSequence); err != nil {
+		return err
+	}
+	if currentHead != prepared.headRevision || currentSequence != prepared.headSequence {
+		return fmt.Errorf("%w: WORKSPACE_HEAD_CONFLICT", ErrValidation)
+	}
+	var revisionSequence uint64
+	if err := tx.QueryRow(ctx, `SELECT coalesce(max(sequence),0)+1 FROM occccad.document_versions WHERE document_id=$1`, documentID).Scan(&revisionSequence); err != nil {
+		return err
+	}
+	transportPayload, _ := json.Marshal(request)
+	traceID, spanID := traceIDs(ctx)
+	var auditCommandID string
+	if err := tx.QueryRow(ctx, `INSERT INTO occccad.commands(request_id,command_type,document_id,payload,status,completed_at,trace_id,span_id) VALUES($1,$2,$3,$4,'SUCCEEDED',now(),$5,$6) RETURNING id::text`, prepared.requestID, request.Type, documentID, transportPayload, traceID, spanID).Scan(&auditCommandID); err != nil {
+		return err
+	}
+	var nullableGeometry any
+	if geometryKey != "" {
+		nullableGeometry = geometryKey
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,'READY',$7,$8,$9,$10)`, revisionID, documentID, prepared.headRevision, revisionSequence, nextJSON, nullableGeometry, auditCommandID, modelHash, dependencyDigest, manifestJSON); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, revisionID, prepared.headRevision); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO occccad.domain_transactions(id,workspace_id,sequence,actor_id,request_id,request_digest,kind,status,base_revision_id,result_revision_id,committed_at) VALUES($1,$2,$3,$4,$5,$6,'DOMAIN','COMMITTED',$7,$8,now())`, prepared.transactionID, prepared.workspaceID, currentSequence+1, prepared.actorID, prepared.requestID, prepared.requestDigest, prepared.headRevision, revisionID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO occccad.transaction_commands(transaction_id,ordinal,command_id,type_uri,schema_version,payload,payload_digest) VALUES($1,0,$2,$3,$4,$5,$6)`, prepared.transactionID, prepared.command.CommandID, prepared.command.TypeURI, prepared.command.SchemaVersion, prepared.command.Payload, payloadDigest); err != nil {
+		return err
+	}
+	writes := make([]string, 0, len(changes.Changes))
+	for _, change := range changes.Changes {
+		writes = append(writes, change.Target.Key())
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO occccad.change_sets(transaction_id,canonical_blob,canonical_digest,write_set,impact_seeds) VALUES($1,$2,$3,$4,$5)`, prepared.transactionID, changesJSON, changes.CanonicalDigest, writes, changes.ImpactSeeds); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,'SUCCEEDED',true)`, revisionID, strings.ToLower(prepared.documentType), evaluatorVersion, modelHash, manifestJSON, manifestDigest); err != nil {
+		return err
+	}
+	for _, edge := range graph.Edges {
+		if _, err := tx.Exec(ctx, `INSERT INTO occccad.dependency_edges(revision_id,source_key,target_key,edge_kind) VALUES($1,$2,$3,$4)`, revisionID, edge.Source, edge.Target, edge.Kind); err != nil {
+			return err
+		}
+	}
+	eventPayload, _ := json.Marshal(map[string]any{"workspaceId": prepared.workspaceID, "sequence": currentSequence + 1, "revisionId": revisionID, "transactionId": prepared.transactionID, "modelHash": modelHash, "changeDigest": changes.CanonicalDigest})
+	if _, err := tx.Exec(ctx, `INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload) VALUES('WORKSPACE',$1,'workspace.transaction.committed.v1',1,$2)`, prepared.workspaceID, eventPayload); err != nil {
+		return err
+	}
+	var position int
+	if err := tx.QueryRow(ctx, `SELECT coalesce(max(position),-1)+1 FROM occccad.document_history WHERE document_id=$1`, documentID).Scan(&position); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_history(document_id,position,version_id,command_id) VALUES($1,$2,$3,$4)`, documentID, position, revisionID, auditCommandID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_changes(document_id,version_id,command_id,change_type) VALUES($1,$2,$3,$4)`, documentID, revisionID, auditCommandID, request.Type); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE occccad.workspaces SET head_revision_id=$1,head_sequence=$2,updated_at=now() WHERE id=$3`, revisionID, currentSequence+1, prepared.workspaceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE occccad.documents SET head_version_id=$1,updated_at=now() WHERE id=$2`, revisionID, documentID); err != nil {
+		return err
+	}
+	if prepared.documentType == "PRODUCT" {
+		var model ProductModel
+		_ = json.Unmarshal(nextJSON, &model)
+		if err := insertProductInstances(ctx, tx, revisionID, model); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func buildProductEvaluation(model ProductModel, revisionID, modelHash string, seeds []modelcore.DependencyKey, prior *modelcore.EvaluationManifest) (*modelcore.DependencyGraph, modelcore.EvaluationManifest, error) {
+	nodes := make([]modelcore.DependencyNode, 0, len(model.Instances))
+	for _, instance := range model.Instances {
+		data, _ := json.Marshal(instance)
+		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("instance:" + instance.ID), Phase: 1, Type: "PRODUCT_INSTANCE", CanonicalInput: data})
+	}
+	graph, err := modelcore.NewDependencyGraph(nodes, nil)
+	if err != nil {
+		return nil, modelcore.EvaluationManifest{}, err
+	}
+	evaluator := func(node modelcore.DependencyNode, _ map[modelcore.DependencyKey]modelcore.NodeResult) (string, error) {
+		return modelcore.ValueDigest(node.CanonicalInput), nil
+	}
+	manifest, err := graph.Evaluate(revisionID, modelHash, evaluatorVersion, "units-mm-v1", seeds, prior, evaluator)
+	return graph, manifest, err
+}
+
+func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, documentType string, modelJSON json.RawMessage, request CommandRequest) (string, any, error) {
+	switch request.Type {
+	case "CREATE_RECTANGLE_SKETCH":
+		if documentType != "PART" {
+			break
+		}
+		plane := strings.ToUpper(request.Plane)
+		if plane != "XY" && plane != "XZ" && plane != "YZ" {
+			return "", nil, fmt.Errorf("%w: select XY, XZ, or YZ plane", ErrValidation)
+		}
+		if !positiveFinite(request.Width) || !positiveFinite(request.Height) || !finite(request.Origin[0]) || !finite(request.Origin[1]) {
+			return "", nil, fmt.Errorf("%w: rectangle dimensions must be positive finite values", ErrValidation)
+		}
+		var model PartModel
+		_ = json.Unmarshal(modelJSON, &model)
+		return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "RECTANGLE_SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Rectangle: &Rectangle{Origin: request.Origin, Width: request.Width, Height: request.Height}}}, nil
+	case "PAD_SKETCH":
+		if documentType != "PART" {
+			break
+		}
+		if !positiveFinite(request.Length) {
+			return "", nil, fmt.Errorf("%w: pad length must be a positive finite value", ErrValidation)
+		}
+		var model PartModel
+		_ = json.Unmarshal(modelJSON, &model)
+		found := false
+		for _, feature := range model.Features {
+			if feature.ID == request.SketchID && strings.Contains(strings.ToUpper(feature.Type), "SKETCH") {
+				found = true
+			}
+		}
+		if !found {
+			return "", nil, fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
+		}
+		return typeCreatePad, createFeaturePayload{Feature: Feature{ID: newID("extrude"), Type: "PAD", Name: numberedFeatureName(model.Features, "PAD", "Extrude"), Profile: request.SketchID, Length: request.Length, Operation: "ADD"}}, nil
+	case "IMPORT_STEP":
+		if documentType != "PART" {
+			break
+		}
+		var model PartModel
+		_ = json.Unmarshal(modelJSON, &model)
+		if strings.TrimSpace(request.GeometryKey) == "" || len(model.Features) != 0 {
+			return "", nil, fmt.Errorf("%w: STEP import requires an empty Part and geometry key", ErrValidation)
+		}
+		name := strings.TrimSpace(request.FileName)
+		if name == "" {
+			name = "Imported STEP"
+		}
+		return typeImportStep, createFeaturePayload{Feature: Feature{ID: newID("import"), Type: "IMPORT_STEP", Name: "Import " + name, GeometryKey: request.GeometryKey, FileName: name}}, nil
+	case "SET_PARAMETER_VALUE":
+		if documentType != "PART" {
+			break
+		}
+		quantity, err := modelcore.NewQuantity(request.Value, request.Unit)
+		if err != nil {
+			return "", nil, err
+		}
+		return typeSetParameterLiteral, parameterSourcePayload{ParameterID: request.ParameterID, Source: modelcore.ValueSource{Literal: &quantity}}, nil
+	case "SET_PARAMETER_EXPRESSION":
+		if documentType != "PART" {
+			break
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		normalizePartModel(&model)
+		names := map[string]modelcore.ParameterBinding{}
+		var expected *modelcore.ParameterDefinition
+		for index := range model.Parameters {
+			parameter := &model.Parameters[index]
+			names[parameter.Key] = modelcore.ParameterBinding{ParameterID: parameter.ParameterID, Dimension: parameter.Dimension}
+			if parameter.ParameterID == request.ParameterID {
+				expected = parameter
+			}
+		}
+		if expected == nil {
+			return "", nil, fmt.Errorf("%w: parameter does not exist", ErrValidation)
+		}
+		expression, err := modelcore.CompileExpression(request.Expression, names, expected.Dimension)
+		if err != nil {
+			return "", nil, err
+		}
+		return typeSetParameterExpression, parameterSourcePayload{ParameterID: request.ParameterID, Source: modelcore.ValueSource{Expression: &expression}}, nil
+	case "INSERT_INSTANCE":
+		if documentType != "PRODUCT" {
+			break
+		}
+		var referenceID, versionID, name string
+		if err := service.database.QueryRow(ctx, `SELECT id::text,head_version_id::text,name FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, request.ReferencedDocumentID).Scan(&referenceID, &versionID, &name); errors.Is(err, pgx.ErrNoRows) {
+			return "", nil, fmt.Errorf("%w: referenced document does not exist", ErrValidation)
+		} else if err != nil {
+			return "", nil, err
+		}
+		if referenceID == documentID {
+			return "", nil, fmt.Errorf("%w: a Product cannot contain itself", ErrValidation)
+		}
+		var cycle bool
+		if err := service.database.QueryRow(ctx, `WITH RECURSIVE graph(document_id) AS (SELECT $1::uuid UNION SELECT pi.referenced_document_id FROM graph g JOIN occccad.documents d ON d.id=g.document_id JOIN occccad.product_instances pi ON pi.product_version_id=d.head_version_id) SELECT EXISTS(SELECT 1 FROM graph WHERE document_id=$2::uuid)`, referenceID, documentID).Scan(&cycle); err != nil {
+			return "", nil, err
+		}
+		if cycle {
+			return "", nil, fmt.Errorf("%w: Product reference would create a cycle", ErrValidation)
+		}
+		instanceName := strings.TrimSpace(request.Name)
+		if instanceName == "" {
+			instanceName = name
+		}
+		return typeInsertInstance, insertInstancePayload{Instance: ProductInstance{ID: newID("instance"), Name: instanceName, ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Translation: request.Translation, ReferenceMode: "FOLLOW_HEAD"}}, nil
+	case "MOVE_INSTANCE":
+		if documentType != "PRODUCT" {
+			break
+		}
+		return typeMoveInstance, moveInstancePayload{request.InstanceID, request.Translation}, nil
+	case "SET_REFERENCE_MODE":
+		if documentType != "PRODUCT" {
+			break
+		}
+		mode := strings.ToUpper(request.ReferenceMode)
+		if mode != "FOLLOW_HEAD" && mode != "PINNED" {
+			return "", nil, fmt.Errorf("%w: reference mode must be FOLLOW_HEAD or PINNED", ErrValidation)
+		}
+		var model ProductModel
+		_ = json.Unmarshal(modelJSON, &model)
+		var referenced string
+		for _, instance := range model.Instances {
+			if instance.ID == request.InstanceID {
+				referenced = instance.ReferencedDocumentID
+			}
+		}
+		if referenced == "" {
+			return "", nil, fmt.Errorf("%w: selected instance does not exist", ErrValidation)
+		}
+		pinned := ""
+		if mode == "PINNED" {
+			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, referenced).Scan(&pinned); err != nil {
+				return "", nil, err
+			}
+		}
+		return typeSetReferenceMode, referenceModePayload{request.InstanceID, mode, pinned}, nil
+	}
+	return "", nil, fmt.Errorf("%w: command %s is not valid for a %s", ErrValidation, request.Type, documentType)
+}
+
+func ensureFeatureParameters(model *PartModel) {
+	existing := map[string]struct{}{}
+	for _, parameter := range model.Parameters {
+		existing[parameter.ParameterID] = struct{}{}
+	}
+	add := func(featureID, slot, key string, value float64) {
+		id := "parameter:" + featureID + ":" + slot
+		if _, exists := existing[id]; exists {
+			return
+		}
+		quantity, _ := modelcore.NewQuantity(value, "mm")
+		model.Parameters = append(model.Parameters, modelcore.ParameterDefinition{ParameterID: id, Key: key, Label: key, ValueType: modelcore.ValueQuantity, Dimension: modelcore.LengthDimension, Role: "INPUT", Source: modelcore.ValueSource{Literal: &quantity}})
+		existing[id] = struct{}{}
+	}
+	for _, feature := range model.Features {
+		keyPrefix := strings.NewReplacer("-", "_", ":", "_").Replace(feature.ID)
+		switch strings.ToUpper(feature.Type) {
+		case "RECTANGLE_SKETCH":
+			if feature.Rectangle != nil {
+				add(feature.ID, "width", keyPrefix+"_width", feature.Rectangle.Width)
+				add(feature.ID, "height", keyPrefix+"_height", feature.Rectangle.Height)
+			}
+		case "PAD":
+			add(feature.ID, "length", keyPrefix+"_length", feature.Length)
+		}
+	}
+	sort.Slice(model.Parameters, func(i, j int) bool { return model.Parameters[i].ParameterID < model.Parameters[j].ParameterID })
+}
+
+func validateAndResolvePartParameters(model *PartModel) error {
+	if err := validatePartStructure(*model); err != nil {
+		return err
+	}
+	nodes := make([]modelcore.DependencyNode, 0, len(model.Parameters))
+	edges := []modelcore.DependencyEdge{}
+	definitions := map[string]modelcore.ParameterDefinition{}
+	for _, parameter := range model.Parameters {
+		if _, exists := definitions[parameter.ParameterID]; exists {
+			return fmt.Errorf("%w: duplicate parameter id", ErrValidation)
+		}
+		definitions[parameter.ParameterID] = parameter
+		source, _ := json.Marshal(parameter.Source)
+		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Phase: 1, Type: "PARAMETER", CanonicalInput: source})
+		if parameter.Source.Expression != nil {
+			for _, read := range parameter.Source.Expression.Reads {
+				edges = append(edges, modelcore.DependencyEdge{Source: read, Target: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Kind: modelcore.ReadValue})
+			}
+		}
+	}
+	graph, err := modelcore.NewDependencyGraph(nodes, edges)
+	if err != nil {
+		return err
+	}
+	values := map[string]modelcore.Quantity{}
+	for _, key := range graph.TopologicalOrder() {
+		id := strings.TrimPrefix(string(key), "parameter:")
+		parameter := definitions[id]
+		var value modelcore.Quantity
+		if parameter.Source.Literal != nil {
+			value = *parameter.Source.Literal
+		} else if parameter.Source.Expression != nil {
+			value, err = modelcore.EvaluateExpression(*parameter.Source.Expression, values)
+			if err != nil {
+				return err
+			}
+		} else {
+			return fmt.Errorf("%w: parameter %s has no source", ErrValidation, id)
+		}
+		if !value.Dimension.Equal(parameter.Dimension) {
+			return fmt.Errorf("%w: parameter %s dimension mismatch", modelcore.ErrUnitMismatch, id)
+		}
+		values[id] = value
+	}
+	for index := range model.Features {
+		feature := &model.Features[index]
+		switch strings.ToUpper(feature.Type) {
+		case "RECTANGLE_SKETCH":
+			if feature.Rectangle != nil {
+				feature.Rectangle.Width = values["parameter:"+feature.ID+":width"].SIValue * 1000
+				feature.Rectangle.Height = values["parameter:"+feature.ID+":height"].SIValue * 1000
+			}
+		case "PAD":
+			feature.Length = values["parameter:"+feature.ID+":length"].SIValue * 1000
+		}
+	}
+	return nil
+}
+
+func validatePartStructure(model PartModel) error {
+	features := map[string]Feature{}
+	for _, feature := range model.Features {
+		if feature.ID == "" {
+			return fmt.Errorf("%w: feature identity is required", ErrValidation)
+		}
+		if _, exists := features[feature.ID]; exists {
+			return fmt.Errorf("%w: duplicate feature identity %s", ErrValidation, feature.ID)
+		}
+		if strings.EqualFold(feature.Type, "PAD") {
+			profile, exists := features[feature.Profile]
+			if !exists || !strings.Contains(strings.ToUpper(profile.Type), "SKETCH") {
+				return fmt.Errorf("%w: pad %s requires an earlier sketch profile %s", ErrValidation, feature.ID, feature.Profile)
+			}
+		}
+		features[feature.ID] = feature
+	}
+	return nil
+}
+
+func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []modelcore.DependencyKey, prior *modelcore.EvaluationManifest) (*modelcore.DependencyGraph, modelcore.EvaluationManifest, error) {
+	if err := validatePartStructure(model); err != nil {
+		return nil, modelcore.EvaluationManifest{}, err
+	}
+	nodes := []modelcore.DependencyNode{}
+	edges := []modelcore.DependencyEdge{}
+	for _, parameter := range model.Parameters {
+		source, _ := json.Marshal(parameter.Source)
+		key := modelcore.DependencyKey("parameter:" + parameter.ParameterID)
+		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 1, Type: "PARAMETER", CanonicalInput: source})
+		if parameter.Source.Expression != nil {
+			for _, read := range parameter.Source.Expression.Reads {
+				edges = append(edges, modelcore.DependencyEdge{Source: read, Target: key, Kind: modelcore.ReadValue})
+			}
+		}
+	}
+	for _, feature := range model.Features {
+		key := modelcore.DependencyKey("feature:" + feature.ID)
+		data, _ := json.Marshal(feature)
+		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 2, Type: feature.Type, CanonicalInput: data})
+		prefix := "parameter:" + feature.ID + ":"
+		for _, parameter := range model.Parameters {
+			if strings.HasPrefix(parameter.ParameterID, prefix) {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Target: key, Kind: modelcore.ReadValue})
+			}
+		}
+		if strings.EqualFold(feature.Type, "PAD") {
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.Profile), Target: key, Kind: modelcore.ReadGeometry})
+		}
+	}
+	graph, err := modelcore.NewDependencyGraph(nodes, edges)
+	if err != nil {
+		return nil, modelcore.EvaluationManifest{}, err
+	}
+	evaluator := func(node modelcore.DependencyNode, deps map[modelcore.DependencyKey]modelcore.NodeResult) (string, error) {
+		data, _ := json.Marshal(struct {
+			Node json.RawMessage
+			Deps map[modelcore.DependencyKey]modelcore.NodeResult
+		}{node.CanonicalInput, deps})
+		sum := sha256.Sum256(data)
+		return hex.EncodeToString(sum[:]), nil
+	}
+	manifest, err := graph.Evaluate(revisionID, modelHash, evaluatorVersion, "units-mm-v1", seeds, prior, evaluator)
+	return graph, manifest, err
+}
+
+func canonicalModelHash(modelJSON []byte) string {
+	var value any
+	if json.Unmarshal(modelJSON, &value) != nil {
+		sum := sha256.Sum256(modelJSON)
+		return hex.EncodeToString(sum[:])
+	}
+	canonical, _ := json.Marshal(value)
+	sum := sha256.Sum256(canonical)
+	return hex.EncodeToString(sum[:])
+}
+
+func prepareInitialEvaluation(documentType, revisionID string, modelJSON []byte) ([]byte, string, *modelcore.DependencyGraph, modelcore.EvaluationManifest, string, error) {
+	modelHash := ""
+	var graph *modelcore.DependencyGraph
+	var manifest modelcore.EvaluationManifest
+	var err error
+	if documentType == "PART" {
+		var model PartModel
+		if err = json.Unmarshal(modelJSON, &model); err != nil {
+			return nil, "", nil, manifest, "", err
+		}
+		normalizePartModel(&model)
+		if err = validateAndResolvePartParameters(&model); err != nil {
+			return nil, "", nil, manifest, "", err
+		}
+		modelJSON, _ = json.Marshal(model)
+		modelHash = canonicalModelHash(modelJSON)
+		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, nil, nil)
+	} else {
+		var model ProductModel
+		if err = json.Unmarshal(modelJSON, &model); err != nil {
+			return nil, "", nil, manifest, "", err
+		}
+		modelHash = canonicalModelHash(modelJSON)
+		graph, manifest, err = buildProductEvaluation(model, revisionID, modelHash, nil, nil)
+	}
+	if err != nil {
+		return nil, "", nil, manifest, "", err
+	}
+	digest, err := graph.Digest()
+	return modelJSON, modelHash, graph, manifest, digest, err
+}
+
+func persistEvaluationProjection(ctx context.Context, tx pgx.Tx, revisionID, documentType, modelHash, dependencyDigest string, graph *modelcore.DependencyGraph, manifest modelcore.EvaluationManifest) error {
+	manifestJSON, err := json.Marshal(manifest)
+	if err != nil {
+		return err
+	}
+	manifestDigest := modelcore.ValueDigest(manifestJSON)
+	if _, err = tx.Exec(ctx, `INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,'SUCCEEDED',true)`, revisionID, strings.ToLower(documentType), evaluatorVersion, modelHash, manifestJSON, manifestDigest); err != nil {
+		return err
+	}
+	for _, edge := range graph.Edges {
+		if _, err = tx.Exec(ctx, `INSERT INTO occccad.dependency_edges(revision_id,source_key,target_key,edge_kind) VALUES($1,$2,$3,$4)`, revisionID, edge.Source, edge.Target, edge.Kind); err != nil {
+			return err
+		}
+	}
+	_, err = tx.Exec(ctx, `UPDATE occccad.document_versions SET dependency_snapshot_digest=$1,evaluation_manifest=$2 WHERE id=$3`, dependencyDigest, manifestJSON, revisionID)
+	return err
+}
+
+func persistInitialTransaction(ctx context.Context, tx pgx.Tx, workspaceID, documentID, revisionID, actor, modelHash, typeURI string, modelJSON []byte) error {
+	transactionUUID, err := uuid.NewV7()
+	if err != nil {
+		return err
+	}
+	transactionID := transactionUUID.String()
+	requestID := "initial:" + documentID
+	requestDigest := modelcore.ValueDigest(modelJSON)
+	if _, err = tx.Exec(ctx, `INSERT INTO occccad.domain_transactions(id,workspace_id,sequence,actor_id,request_id,request_digest,kind,status,result_revision_id,committed_at) VALUES($1,$2,1,$3,$4,$5,'CREATE','COMMITTED',$6,now())`, transactionID, workspaceID, actor, requestID, requestDigest, revisionID); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO occccad.transaction_commands(transaction_id,ordinal,command_id,type_uri,schema_version,payload,payload_digest) VALUES($1,0,$2,$3,1,$4,$5)`, transactionID, newID("command"), typeURI, modelJSON, requestDigest); err != nil {
+		return err
+	}
+	change, err := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: documentID, SlotID: "document.model"}, nil, json.RawMessage(modelJSON))
+	if err != nil {
+		return err
+	}
+	set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"document:" + modelcore.DependencyKey(documentID)}}
+	if err = set.Finalize(); err != nil {
+		return err
+	}
+	setJSON, _ := json.Marshal(set)
+	if _, err = tx.Exec(ctx, `INSERT INTO occccad.change_sets(transaction_id,canonical_blob,canonical_digest,write_set,impact_seeds) VALUES($1,$2,$3,$4,$5)`, transactionID, setJSON, set.CanonicalDigest, []string{change.Target.Key()}, set.ImpactSeeds); err != nil {
+		return err
+	}
+	event, _ := json.Marshal(map[string]any{"workspaceId": workspaceID, "sequence": 1, "revisionId": revisionID, "transactionId": transactionID, "modelHash": modelHash})
+	_, err = tx.Exec(ctx, `INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload) VALUES('WORKSPACE',$1,'workspace.transaction.committed.v1',1,$2)`, workspaceID, event)
+	return err
+}

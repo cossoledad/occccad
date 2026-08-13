@@ -35,6 +35,31 @@ func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
+// ResetDevelopmentSchema removes every occccad-owned PostgreSQL object. It is
+// intentionally separate from Migrate so callers must opt into the destructive
+// development workflow before rebuilding the current schema baseline.
+func ResetDevelopmentSchema(ctx context.Context, pool *pgxpool.Pool) (string, error) {
+	connection, err := pool.Acquire(ctx)
+	if err != nil {
+		return "", fmt.Errorf("acquire development reset connection: %w", err)
+	}
+	defer connection.Release()
+	if _, err := connection.Exec(ctx, `SELECT pg_advisory_lock(hashtext('occccad.schema_migrations'))`); err != nil {
+		return "", fmt.Errorf("acquire development reset lock: %w", err)
+	}
+	defer func() {
+		_, _ = connection.Exec(context.Background(), `SELECT pg_advisory_unlock(hashtext('occccad.schema_migrations'))`)
+	}()
+	var databaseName string
+	if err := connection.QueryRow(ctx, `SELECT current_database()`).Scan(&databaseName); err != nil {
+		return "", fmt.Errorf("read development database name: %w", err)
+	}
+	if _, err := connection.Exec(ctx, `DROP SCHEMA IF EXISTS occccad CASCADE`); err != nil {
+		return "", fmt.Errorf("drop development schema occccad: %w", err)
+	}
+	return databaseName, nil
+}
+
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	connection, err := pool.Acquire(ctx)
 	if err != nil {

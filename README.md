@@ -50,6 +50,14 @@ invoke test --build-type=Debug
 invoke run.app --build-type=Debug
 ```
 
+当前未发布开发阶段允许直接丢弃本地业务数据。需要从完全干净的服务端状态启动时，先停止已有 occccad 进程，再执行：
+
+```bash
+invoke run.app --reset-data --build-type=Debug
+```
+
+该选项只删除配置数据库中的 `occccad` schema 和 `OCCCCAD_DATA_DIR` 指向的本地 ArtifactStore，随后从当前迁移重建 schema；进程内 Router/Worker 状态随新进程自然清空。若只清理和迁移而不启动，使用 `invoke data.reset --yes`。命令不可用于已经承诺保留数据的发布环境。
+
 另开终端启动连接真实 API 的前端：
 
 ```bash

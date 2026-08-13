@@ -12,6 +12,7 @@ Provides:
     invoke run.server     — Start the Go API and Web server
     invoke run.jobs       — Start the durable background job worker
     invoke run.app        — Build and start the complete local application
+    invoke data.reset     — Clear all server-side development data
     invoke web.build      — Build the current web application
     invoke info           — Print toolchain versions and paths
 
@@ -350,10 +351,36 @@ def run_jobs(c):
         c.run("go run ./cmd/occccad-jobs", pty=True)
 
 
-@task(help={"build_type": "Debug or Release"})
-def run_app(c, build_type=None):
+def _reset_development_data(c):
+    """Clear the fixed PostgreSQL schema and local ArtifactStore, then migrate."""
+    print("[data.reset] Clearing PostgreSQL schema 'occccad' and the local ArtifactStore...")
+    with c.cd(str(PROJECT_ROOT / "services")):
+        c.run(
+            "go run ./cmd/occccad-migrate --reset-development-data",
+            env={"OCCCCAD_ALLOW_DEV_RESET": "1"},
+            pty=True,
+        )
+
+
+@task(help={"yes": "Confirm deletion of all server-side development data"})
+def reset_data(c, yes=False):
+    """Clear all server-side development data without starting the application."""
+    if not yes:
+        raise Exit("data.reset is destructive; rerun with --yes")
+    _reset_development_data(c)
+
+
+@task(
+    help={
+        "build_type": "Debug or Release",
+        "reset_data": "Clear all server-side development data before startup",
+    }
+)
+def run_app(c, build_type=None, reset_data=False):
     """Build and start the backend control plane, API, jobs, and geometry workers."""
     bt = build_type or _get_build_type()
+    if reset_data:
+        _reset_development_data(c)
     worker_bin = _get_build_dir(bt) / "workers" / "geometry" / "occccad_geometry_worker"
     if not worker_bin.exists():
         c.run(
@@ -424,6 +451,9 @@ run_collection.add_task(run_web, "web")
 web_collection = Collection("web")
 web_collection.add_task(build_web, "build")
 
+data_collection = Collection("data")
+data_collection.add_task(reset_data, "reset")
+
 # ---------------------------------------------------------------------------
 # Root namespace
 # ---------------------------------------------------------------------------
@@ -437,3 +467,4 @@ ns.add_task(test)
 ns.add_task(clean)
 ns.add_collection(run_collection)
 ns.add_collection(web_collection)
+ns.add_collection(data_collection)

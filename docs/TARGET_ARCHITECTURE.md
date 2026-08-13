@@ -318,19 +318,9 @@ Feature 不应继续编码为 `repeated RectangularPadSpec`。目标模型需要
 
 #### 4.3.2 当前实现基线与主要差距
 
-当前后端已经具备有价值的基础：`commands.request_id` 幂等记录、`document_versions` 不可变快照、`document_history`、`history_cursor/history_tip`、Part/Product 命令、服务端求值和数据库事务；前端有 `CommandRegistry`、快捷键和 Tool 输入路由。这些能力应通过 adapter 保留。
+当前后端已落实 C0–C4 的首个垂直切片：HTTP transport DTO 在边界转换为版本化 envelope 并进入 handler registry；显式 Workspace、Transaction、ChangeSet、Revision parent、EvaluationRun、dependency edge 和 outbox 已落库；新命令在事务外完成纯模型变换与求值并以 Head/sequence CAS 提交；Undo/Redo/Restore 使用根 Transaction 与有序 Revert/Reapply action log 产生追加 Revision；Rectangle/Pad property facade、Quantity、ID-bound arithmetic AST、typed dependency graph、dirty closure 和 EvaluationManifest 已贯通现有 Part/Product 路径。
 
-当前边界仍属于原型阶段：
-
-- 一个扁平 `CommandRequest` 混合所有文档类型字段，新增模块会持续扩张；
-- 命令 handler、数据库锁、模型变换、远程几何求值和最终提交耦合在一次调用中；
-- Part 以顺序数组整体重算，缺少 property/parameter 级依赖和 dirty set；
-- Undo/Redo 通过全局 history cursor 移动 Head，新编辑会删除 cursor 后历史，不适合多人协作和完整审计；
-- `Document` 实际承担 Workspace，尚未形成显式 Workspace/Branch 聚合；
-- 参数只存在于若干 Feature 字段，没有统一 ParameterId、量纲类型、表达式 AST、作用域和跨文档解析；
-- UI Command 与持久领域命令同名但没有正式分层，预览动作容易被误认为模型事务。
-
-因此后续不是在当前 `CommandRequest` 上继续加字段，而是增加版本化命令 envelope、领域 handler registry、ChangeSet、Workspace log 和 Design Dependency Graph；旧 API 由兼容 adapter 转换。
+仍需按后续阶段扩展而不能误报为完成的边界包括：表达式 profile 尚未覆盖布尔、条件、向量和完整纯函数目录；除现有 Rectangle/Pad/Instance 外的专业 schema 尚未注册 PropertySlot；通用删除/重排命令、多人 semantic rebase、跨文档 Publication/Configuration/Rule/Check 属于 C5–C6。当前没有已发布数据兼容承诺，开发 schema 直接重建并只维护这一套历史语义。
 
 #### 4.3.3 四种“命令”必须分层
 
@@ -994,21 +984,11 @@ HTTP/gRPC status 只表示传输级类别，客户端行为依据稳定领域 er
 
 最关键的 oracle 是：任意 Revision 清空所有缓存后，可从模型、依赖快照和 evaluator manifests 重建语义等价结果；任意 Transaction 的 ChangeSet 应与前后快照 diff 一致；增量求值必须与全量求值一致。
 
-#### 4.3.40 现有实现迁移
+#### 4.3.40 新项目 Schema 策略
 
-迁移采取兼容层而非一次重写：
+项目当前没有需要承诺兼容的生产数据。核心骨架只维护一套 Workspace/Transaction/ChangeSet/Revision 语义，不回填 cursor 历史、不保留平行 Undo 状态机，也不为实验数据增加读取 adapter。C0–C4 schema 变化时重建开发数据库，以 conformance corpus 和端到端场景验证新基线。
 
-1. 把现有扁平 `CommandRequest` 映射为 `legacy.*` versioned DomainCommand，保持 API 行为；
-2. 从现有 `document_versions.model_json` 生成 Revision snapshot/digest，不改写旧行；
-3. 将当前 document implicit workspace 建成 `main` Workspace，历史位置映射为 legacy transaction sequence；
-4. 保留被 cursor 截断前仍存在的 Version；新架构启用后不再删除 redo tail；
-5. 为旧 Feature 字段确定性派生 PropertySlot/Parameter facade ID；
-6. 引入 handler registry 和 ChangeSet，先覆盖现有草图、Pad、Instance 命令；
-7. 把求值移出长数据库事务，增加 candidate/manifest/CAS；
-8. 启用补偿式 Undo，旧 cursor Undo API 通过 adapter 调用新语义；
-9. 最后引入跨文档 Publication Parameter、Configuration 和 Rules/Checks。
-
-迁移期新旧路径运行 shadow diff：相同旧命令产生等价 model JSON/GeometryKey/DocumentView 才切流。旧 Revision 和命令永久通过 version adapter 可读。
+一旦产生正式发布或外部持久数据，本节策略必须通过架构变更切换为版本化迁移：从该发布点开始只追加 migration、旧 Revision 只读、命令 upcast 和 shadow diff。不能把“当前允许重建”误用到未来已发布数据。
 
 #### 4.3.41 实施路线与阶段门
 
@@ -4870,7 +4850,7 @@ flowchart LR
 
 ## 15. 演进路线与阶段门槛
 
-路线表示架构依赖和成熟度，不是固定发布日期。每阶段都必须通过兼容 adapter 保持当前垂直切片可运行，并选择至少一个真实用户工作流端到端交付；禁止先建设多年不可用的“完美平台”，也禁止为短期 Demo 绕过长期身份、版本和诊断契约。
+路线表示架构依赖和成熟度，不是固定发布日期。当前未发布阶段通过同步修改调用方、重建开发数据来保持垂直切片可运行；建立发布基线后，每阶段再通过兼容 adapter 演进。每阶段选择至少一个真实用户工作流端到端交付；禁止先建设多年不可用的平台，也禁止为短期 Demo 绕过长期身份、版本和诊断契约。
 
 ```mermaid
 flowchart LR
@@ -4983,7 +4963,7 @@ flowchart LR
 
 ### 19.1 当前推荐主线
 
-近期工作首先落实 4.3 的 C0–C4，并用现有 Rectangle Sketch → Pad → Product Instance 垂直切片验证兼容迁移；随后按 5.3、5.4 和 5.7 扩展通用草图、Feature 与持久拓扑身份。共享对象存储、跨主机 Scheduler 和高级装配建立在可重放 Revision/EvaluationManifest 之上，不能反过来成为模型正确性的前置大工程。
+近期工作首先落实 4.3 的 C0–C4，并用空数据重建后的 Rectangle Sketch → Pad → Product Instance 垂直切片验证唯一基线；随后按 5.3、5.4 和 5.7 扩展通用草图、Feature 与持久拓扑身份。共享对象存储、跨主机 Scheduler 和高级装配建立在可重放 Revision/EvaluationManifest 之上，不能反过来成为模型正确性的前置大工程。
 
 ```mermaid
 flowchart LR
@@ -4997,7 +4977,7 @@ flowchart LR
     Assembly --> Ecosystem["Drawing / CAM / CAE / Plugins"]
 ```
 
-每一箭头都通过兼容 adapter 逐步切换，旧 Revision 永久可读。可以并行研究后续算法和原型，但进入产品主线的数据模型不得跳过其上游平台契约。
+当前未发布阶段的每一箭头直接切换到唯一实现并重建开发数据；建立发布基线后才通过兼容 adapter 逐步切换并保证旧 Revision 可读。可以并行研究后续算法和原型，但进入产品主线的数据模型不得跳过其上游平台契约。
 
 ### 19.2 新模块详细设计模板
 

@@ -1,6 +1,6 @@
 # occccad 现有架构
 
-> 状态日期：2026-08-12  
+> 状态日期：2026-08-13
 > 文档性质：事实基线。本文只描述当前仓库能够由源码、构建文件、数据库迁移和配置证明的行为；目标能力见[目标架构](TARGET_ARCHITECTURE.md)。
 
 ## 1. 结论
@@ -52,6 +52,8 @@ flowchart LR
 5. 在 `0.0.0.0:8080` 提供稳定 HTTP 代理入口；
 6. 在 `127.0.0.1:19090` 提供无认证的本机 Control API。
 
+`invoke run.app --reset-data` 在启动控制进程前运行受保护的开发重置：删除配置数据库中固定的 `occcad` schema，清空 `OCCCCAD_DATA_DIR` 对应的本地 ArtifactStore，再从嵌入迁移重建 schema。该命令只面向当前未发布开发数据；Router、Worker resident geometry 和其他进程内状态由新进程自然重建。
+
 ```mermaid
 sequenceDiagram
     participant Dev as Developer
@@ -91,6 +93,14 @@ erDiagram
     USERS ||--o{ RESOURCE_GRANTS : receives
     TEAMS ||--o{ TEAM_MEMBERS : contains
     DOCUMENTS ||--o{ DOCUMENT_VERSIONS : has
+    DOCUMENTS ||--o{ WORKSPACES : owns
+    WORKSPACES ||--o{ DOMAIN_TRANSACTIONS : appends
+    DOMAIN_TRANSACTIONS ||--|{ TRANSACTION_COMMANDS : contains
+    DOMAIN_TRANSACTIONS ||--|| CHANGE_SETS : records
+    DOCUMENT_VERSIONS ||--o{ REVISION_PARENTS : links
+    DOCUMENT_VERSIONS ||--o{ EVALUATION_RUNS : evaluates
+    DOCUMENT_VERSIONS ||--o{ DEPENDENCY_EDGES : projects
+    WORKSPACES ||--o{ OUTBOX_EVENTS : emits
     DOCUMENTS ||--o{ COMMANDS : records
     DOCUMENTS ||--o{ DOCUMENT_CHANGES : appends
     DOCUMENTS ||--o{ PRODUCT_INSTANCES : contains
@@ -104,17 +114,28 @@ erDiagram
 ### 4.1 Document 与 Version
 
 - Document 类型当前为 Part 或 Product；
-- Document 保存可变 Head，Version 是不可变命名快照；
-- Main Workspace 使用追加式 change/history 数据；
+- Document 是容器；显式 Workspace 保存可变 Head/sequence/base，`document_versions` 是不可变 Revision 快照；
+- 每个新建或复制的 Document 自动建立 `main` Workspace，旧 Document 由迁移确定性回填；可以从任意所属 Revision 创建并列出 Branch Workspace；
+- Domain Transaction、typed command envelope、语义 ChangeSet、Revision parent、EvaluationRun、dependency edge 与 outbox 在 Head CAS 的同一短事务中追加；
 - Restore 创建新的状态，而不是覆写历史；
 - Product 保存对子文档的引用和实例 Transform，不展开复制完整子树；
 - 实例可以跟随被引用文档 Head，也可以固定到 Version。
 
 ### 4.2 Command 与 Undo/Redo
 
-浏览器提交语义命令，服务端把命令应用到 Workspace 并持久化结果。当前 Part Feature 按顺序重生成，支持草图、拉伸、STEP 基础实体；Product 支持插入、移动和引用策略。Undo/Redo 通过持久化命令/历史语义实现，不依赖只存在于浏览器的撤销栈。
+HTTP transport DTO 在 API 边界转换为 `type_uri + schema_version + typed payload`，再由进程内 handler registry 执行；持久历史只保存 Domain Command，不存在第二套旧命令语义。Handler 的模型变换无数据库、网络、系统时间和 OCCT I/O；Product 外部引用先冻结，Part 几何在数据库事务外求值，提交阶段以 `(workspace head revision, head sequence)` 做 CAS。重复 request ID 只有 payload digest 相同才返回原结果。
 
-### 4.3 身份与访问控制
+Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更新；Product 支持插入、移动和引用策略。Undo/Redo 以根 Domain Transaction 为稳定 identity：Revert 指向根 intent，Reapply 指向根 intent 并消费一个具体 Revert。服务端按 actor 折叠有序 action log 计算 capability，因此连续 Undo 两步可按逆序 Redo 两步；新 Domain/Restore 形成 redo boundary，但不删除历史。API 返回的 `canUndo/canRedo` 来自同一状态折叠，Web 按它置灰。删除上游实体前会检查当前结构依赖，字段 digest 或依赖冲突不会覆盖后续编辑。
+
+### 4.3 参数、依赖与增量求值
+
+- Rectangle width/height 与 Pad length 会确定性派生稳定 ParameterId 和 PropertySlot facade；
+- Quantity 以 SI canonical value 和显式 Dimension 保存，当前注册 `mm/cm/m` 与 `deg/rad`，拒绝非有限值和量纲错误；
+- 当前安全表达式 profile 支持数量字面量、Parameter read、括号和 `+ - * /`，在提交时完成名称绑定、单位检查、cost limit 和 dependency extraction；持久 AST 只保存 ParameterId，显示 key 重命名不破坏引用；
+- Design Dependency Graph 使用稳定 key 与 typed edge，提交前检查 phase 和 cycle；handler 的 impact seed 计算 transitive dirty closure；
+- 每个新模型 Revision 保存 model hash、dependency snapshot digest 和 EvaluationManifest，并投影 node input/output digest、dirty nodes 与 authoritative EvaluationRun；增量 evaluator 只在 input digest 相同才复用前一 manifest 结果，测试以清缓存冷求值为等价 oracle。
+
+### 4.4 身份与访问控制
 
 - 邮箱/密码登录与数据库会话 Cookie；
 - 注册账号经管理员审批，平台角色为 `ADMIN` 或 `MEMBER`；
@@ -137,14 +158,15 @@ sequenceDiagram
     participant F as ArtifactStore
 
     W->>A: POST document command
-    A->>P: load document, version, ACL
+    A->>P: load Workspace Head, Revision, ACL
+    A->>A: adapt typed command, pure handler, ChangeSet and dependency graph
     A->>R: EvaluatePart(model parameters, geometry key)
     R->>G: route coarse-grained request
     G->>G: Sketch rectangle -> Face -> Pad
     G->>G: B-Rep + mesh + GLB + topology + hash
     G-->>A: EvaluatePartResponse
     A->>F: put B-Rep/GLB objects
-    A->>P: commit model, command, version and metadata
+    A->>P: CAS and atomically append Transaction, Revision, manifest and outbox
     A-->>W: updated document view
 ```
 

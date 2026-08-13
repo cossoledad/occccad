@@ -192,6 +192,8 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{documentID}/move", server.moveDocument)
 	mux.HandleFunc("POST /api/documents/{documentID}/copy", server.copyDocument)
 	mux.HandleFunc("GET /api/documents/{documentID}/history", server.getDocumentHistory)
+	mux.HandleFunc("GET /api/documents/{documentID}/workspaces", server.listDocumentWorkspaces)
+	mux.HandleFunc("POST /api/documents/{documentID}/workspaces", server.branchDocumentWorkspace)
 	mux.HandleFunc("POST /api/documents/{documentID}/versions", server.createVersion)
 	mux.HandleFunc("POST /api/documents/{documentID}/commands", server.applyCommand)
 	mux.HandleFunc("POST /api/documents/{documentID}/import-step", server.importStep)
@@ -376,6 +378,34 @@ func (server *Server) getDocumentHistory(writer http.ResponseWriter, request *ht
 	writeJSON(writer, http.StatusOK, map[string]any{"workspace": "Main", "history": history})
 }
 
+func (server *Server) listDocumentWorkspaces(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	items, err := server.workspace.ListWorkspaces(request.Context(), request.PathValue("documentID"))
+	if err != nil {
+		server.writeDocumentResult(writer, request, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"workspaces": items})
+}
+
+func (server *Server) branchDocumentWorkspace(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleEditor); !ok {
+		return
+	}
+	var input workspace.CreateWorkspaceRequest
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	item, err := server.workspace.BranchWorkspace(request.Context(), request.PathValue("documentID"), input)
+	if err != nil {
+		server.writeDocumentResult(writer, request, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(writer, http.StatusCreated, item)
+}
+
 func (server *Server) importStep(writer http.ResponseWriter, request *http.Request) {
 	if _, ok := server.requireDocument(writer, request, access.RoleEditor); !ok {
 		return
@@ -412,7 +442,7 @@ func (server *Server) importStep(writer http.ResponseWriter, request *http.Reque
 	if requestID == "" {
 		requestID = request.Header.Get("X-Request-ID")
 	}
-	view, err := server.workspace.GetDocument(request.Context(), request.PathValue("documentID"))
+	view, err := server.workspace.GetDocument(request.Context(), request.PathValue("documentID"), principal(request).ID)
 	if err != nil {
 		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
 		return
@@ -645,7 +675,7 @@ func (server *Server) getDocument(writer http.ResponseWriter, request *http.Requ
 	if !ok {
 		return
 	}
-	result, err := server.workspace.GetDocument(request.Context(), request.PathValue("documentID"))
+	result, err := server.workspace.GetDocument(request.Context(), request.PathValue("documentID"), principal(request).ID)
 	if err == nil {
 		result.Document.Permission = string(role)
 		server.openDocuments.Open(principal(request).ID, result.Document)
@@ -732,6 +762,7 @@ func (server *Server) applyCommand(writer http.ResponseWriter, request *http.Req
 	if !decodeJSON(writer, request, &input) {
 		return
 	}
+	input.ActorID = principal(request).ID
 	if strings.EqualFold(input.Type, "INSERT_INSTANCE") && input.ReferencedDocumentID != "" {
 		if _, err := server.access.RequireDocument(request.Context(), input.ReferencedDocumentID,
 			principal(request).ID, access.RoleViewer); err != nil {

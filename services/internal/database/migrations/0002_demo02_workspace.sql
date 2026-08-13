@@ -1,7 +1,3 @@
-ALTER TABLE occccad.documents
-    ADD COLUMN IF NOT EXISTS history_cursor integer NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS history_tip integer NOT NULL DEFAULT 0;
-
 CREATE TABLE IF NOT EXISTS occccad.document_history (
     document_id uuid NOT NULL REFERENCES occccad.documents(id) ON DELETE CASCADE,
     position integer NOT NULL CHECK (position >= 0),

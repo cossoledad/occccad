@@ -63,4 +63,12 @@ flowchart LR
 invoke run.app --build-type=Debug
 ```
 
+当前未发布开发环境需要丢弃全部服务端数据并从空基线启动时：
+
+```bash
+invoke run.app --reset-data --build-type=Debug
+```
+
+重置会删除数据库中固定的 `occcad` schema 与 `OCCCCAD_DATA_DIR` 本地制品目录，再执行当前迁移。它要求旧的 occccad 进程已经停止，且不能用于已发布或需要保留外部数据的环境。
+
 Router 的内存映射不持久化；重启后会重新发现计算结果。它只管理本机子进程，没有跨主机注册、认证、配额、租户隔离或 Kubernetes 集成。生产目标中的 Scheduler/Registry 不能把本进程原样搬进集群，演进方案见[目标架构](../../../docs/TARGET_ARCHITECTURE.md)。

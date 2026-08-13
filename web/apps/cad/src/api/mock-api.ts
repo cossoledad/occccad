@@ -59,12 +59,12 @@ const partArtifact = boxArtifact("mock-bracket-v3", [72, 38, 16]);
 const summaries: DocumentSummary[] = [
   {
     id: partID, name: "Mounting Bracket", description: "参数化安装支架", type: "PART",
-    versionId: "mock-part-v3", canUndo: true, canRedo: false, createdAt: now(), lastUpdated: now(),
+    versionId: "mock-part-v3", canUndo: false, canRedo: false, createdAt: now(), lastUpdated: now(),
     workspaceName: "Main", permission: "OWNER",
   },
   {
     id: productID, name: "Frame Assembly", description: "支架装配示例", type: "PRODUCT",
-    versionId: "mock-product-v3", canUndo: true, canRedo: false, createdAt: now(), lastUpdated: now(),
+    versionId: "mock-product-v3", canUndo: false, canRedo: false, createdAt: now(), lastUpdated: now(),
     workspaceName: "Main", permission: "OWNER",
   },
 ];
@@ -91,6 +91,8 @@ const views = new Map<string, DocumentView>([
     ],
   }],
 ]);
+const undoSnapshots = new Map<string, DocumentView[]>();
+const redoSnapshots = new Map<string, DocumentView[]>();
 
 const histories = new Map<string, HistoryEntry[]>([
   [partID, [
@@ -167,12 +169,17 @@ function getView(documentID: string): DocumentView {
 }
 
 function commit(documentID: string, commandType: string, mutate?: (view: DocumentView) => void): DocumentView {
-  const view = getView(documentID);
-  mutate?.(view);
+	const view = getView(documentID);
+	const undo = undoSnapshots.get(documentID) ?? [];
+	undo.push(structuredClone(view));
+	undoSnapshots.set(documentID, undo);
+	redoSnapshots.set(documentID, []);
+	mutate?.(view);
   const versionID = id("mock-version");
   view.document.versionId = versionID;
   view.document.lastUpdated = now();
-  view.document.canUndo = true;
+	view.document.canUndo = true;
+	view.document.canRedo = false;
   const entries = histories.get(documentID) ?? [];
   entries.forEach((entry) => { entry.isHead = false; });
   entries.push({ position: entries.length, versionId: versionID, sequence: entries.length + 1, commandType, createdAt: now(), isHead: true });
@@ -190,8 +197,25 @@ function rebuildProduct(view: DocumentView): void {
 }
 
 async function command(documentID: string, input: Record<string, unknown>): Promise<DocumentView> {
-  const commandType = String(input.type ?? "COMMAND");
-  return pause(commit(documentID, commandType, (view) => {
+	const commandType = String(input.type ?? "COMMAND");
+	if (commandType === "UNDO" || commandType === "REDO") {
+		const source = commandType === "UNDO" ? (undoSnapshots.get(documentID) ?? []) : (redoSnapshots.get(documentID) ?? []);
+		if (source.length === 0) return pause(getView(documentID));
+		const current = structuredClone(getView(documentID));
+		const target = source.pop()!;
+		const destination = commandType === "UNDO" ? (redoSnapshots.get(documentID) ?? []) : (undoSnapshots.get(documentID) ?? []);
+		destination.push(current);
+		if (commandType === "UNDO") { undoSnapshots.set(documentID, source); redoSnapshots.set(documentID, destination); }
+		else { redoSnapshots.set(documentID, source); undoSnapshots.set(documentID, destination); }
+		target.document.canUndo = (undoSnapshots.get(documentID)?.length ?? 0) > 0;
+		target.document.canRedo = (redoSnapshots.get(documentID)?.length ?? 0) > 0;
+		target.document.versionId = id("mock-version"); target.document.lastUpdated = now();
+		views.set(documentID, target);
+		const summary = summaries.find((item) => item.id === documentID);
+		if (summary) Object.assign(summary, target.document);
+		return pause(getView(documentID));
+	}
+	return pause(commit(documentID, commandType, (view) => {
     if (commandType === "CREATE_RECTANGLE_SKETCH" && view.part) {
       view.part.features.push({ id: id("mock-sketch"), type: "RECTANGLE_SKETCH", name: `Sketch ${view.part.features.length + 1}`,
         plane: input.plane as "XY" | "XZ" | "YZ", rectangle: { origin: input.origin as Vec2, width: Number(input.width), height: Number(input.height) } });
@@ -313,7 +337,7 @@ export const mockApi: CadApi = {
     const view: DocumentView = type === "PART" ? { document, datumPlanes, axisSystems,
       part: { units: "mm", datumPlanes, axisSystems, features: [] } }
       : { document, product: { instances: [] }, artifacts: {}, resolvedInstances: [] };
-    summaries.unshift(document); views.set(document.id, view); histories.set(document.id, []); markDocumentOpen(document.id); return pause(view);
+    summaries.unshift(document); views.set(document.id, view); histories.set(document.id, []); undoSnapshots.set(document.id, []); redoSnapshots.set(document.id, []); markDocumentOpen(document.id); return pause(view);
   },
   updateDocument: async (documentID, name, description) => pause(commit(documentID, "UPDATE_DOCUMENT", (view) => Object.assign(view.document, { name, description }))),
   deleteDocument: async (documentID) => { getView(documentID).document.deletedAt = now(); },

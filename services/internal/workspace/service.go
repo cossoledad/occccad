@@ -19,6 +19,7 @@ import (
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/modelcore"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -124,10 +125,11 @@ type Feature struct {
 }
 
 type PartModel struct {
-	Units       string       `json:"units"`
-	DatumPlanes []DatumPlane `json:"datumPlanes"`
-	AxisSystems []AxisSystem `json:"axisSystems"`
-	Features    []Feature    `json:"features"`
+	Units       string                          `json:"units"`
+	DatumPlanes []DatumPlane                    `json:"datumPlanes"`
+	AxisSystems []AxisSystem                    `json:"axisSystems"`
+	Features    []Feature                       `json:"features"`
+	Parameters  []modelcore.ParameterDefinition `json:"parameters,omitempty"`
 }
 
 type ProductInstance struct {
@@ -283,6 +285,11 @@ type CommandRequest struct {
 	GeometryKey          string     `json:"geometryKey,omitempty"`
 	FileName             string     `json:"fileName,omitempty"`
 	VersionID            string     `json:"versionId,omitempty"`
+	ParameterID          string     `json:"parameterId,omitempty"`
+	Expression           string     `json:"expression,omitempty"`
+	Value                float64    `json:"value,omitempty"`
+	Unit                 string     `json:"unit,omitempty"`
+	ActorID              string     `json:"-"`
 }
 
 type HistoryEntry struct {
@@ -299,6 +306,56 @@ type CreateVersionRequest struct {
 	RequestID   string `json:"requestId"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
+}
+
+type CreateWorkspaceRequest struct {
+	Name       string `json:"name"`
+	RevisionID string `json:"revisionId"`
+}
+
+type WorkspaceSummary struct {
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	HeadRevisionID string `json:"headRevisionId"`
+	HeadSequence   uint64 `json:"headSequence"`
+	BaseRevisionID string `json:"baseRevisionId"`
+}
+
+func (service *Service) ListWorkspaces(ctx context.Context, documentID string) ([]WorkspaceSummary, error) {
+	rows, err := service.database.Query(ctx, `SELECT id::text,name,head_revision_id::text,head_sequence,base_revision_id::text FROM occccad.workspaces WHERE document_id=$1 ORDER BY created_at,id`, documentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []WorkspaceSummary{}
+	for rows.Next() {
+		var item WorkspaceSummary
+		if err := rows.Scan(&item.ID, &item.Name, &item.HeadRevisionID, &item.HeadSequence, &item.BaseRevisionID); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
+}
+
+func (service *Service) BranchWorkspace(ctx context.Context, documentID string, request CreateWorkspaceRequest) (WorkspaceSummary, error) {
+	name := strings.TrimSpace(request.Name)
+	if name == "" || len(name) > 100 {
+		return WorkspaceSummary{}, fmt.Errorf("%w: workspace name is required and limited to 100 characters", ErrValidation)
+	}
+	var belongs bool
+	if err := service.database.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM occccad.document_versions WHERE id=$1 AND document_id=$2)`, request.RevisionID, documentID).Scan(&belongs); err != nil {
+		return WorkspaceSummary{}, err
+	}
+	if !belongs {
+		return WorkspaceSummary{}, fmt.Errorf("%w: branch revision does not belong to this document", ErrValidation)
+	}
+	var result WorkspaceSummary
+	err := service.database.QueryRow(ctx, `INSERT INTO occccad.workspaces(document_id,name,head_revision_id,head_sequence,base_revision_id) VALUES($1,$2,$3,0,$3) RETURNING id::text,name,head_revision_id::text,head_sequence,base_revision_id::text`, documentID, name, request.RevisionID).Scan(&result.ID, &result.Name, &result.HeadRevisionID, &result.HeadSequence, &result.BaseRevisionID)
+	if isUniqueViolation(err) {
+		return WorkspaceSummary{}, fmt.Errorf("%w: workspace name already exists", ErrValidation)
+	}
+	return result, err
 }
 
 type Service struct {
@@ -392,7 +449,7 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 	}
 	rows, err := service.database.Query(ctx, `
 		SELECT d.id::text,d.name,d.description,d.document_type,d.head_version_id::text,
-		       d.history_cursor>0,d.history_cursor<d.history_tip,d.created_at::text,
+		       d.created_at::text,
 		       d.updated_at::text,d.deleted_at::text,d.folder_id::text,d.last_opened_at::text,
 		       d.copied_from_document_id::text,d.workspace_name,
 		       occccad.role_name(occccad.effective_document_role(d.id,$9))
@@ -416,9 +473,13 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 	for rows.Next() {
 		var item DocumentSummary
 		if err := rows.Scan(&item.ID, &item.Name, &item.Description, &item.Type, &item.VersionID,
-			&item.CanUndo, &item.CanRedo, &item.CreatedAt, &item.LastUpdated,
+			&item.CreatedAt, &item.LastUpdated,
 			&item.DeletedAt, &item.FolderID, &item.LastOpenedAt, &item.CopiedFromID,
 			&item.WorkspaceName, &item.Permission); err != nil {
+			return DocumentPage{}, err
+		}
+		item.CanUndo, item.CanRedo, err = service.historyCapabilities(ctx, item.ID, options.ActorID)
+		if err != nil {
 			return DocumentPage{}, err
 		}
 		result = append(result, item)
@@ -732,6 +793,15 @@ func (service *Service) CopyDocument(
 			return DocumentView{}, err
 		}
 	}
+	versionUUID, err := uuid.NewV7()
+	if err != nil {
+		return DocumentView{}, err
+	}
+	versionID := versionUUID.String()
+	modelJSON, modelHash, initialGraph, initialManifest, dependencyDigest, err := prepareInitialEvaluation(documentType, versionID, modelJSON)
+	if err != nil {
+		return DocumentView{}, err
+	}
 	tx, err := service.database.Begin(ctx)
 	if err != nil {
 		return DocumentView{}, err
@@ -747,7 +817,7 @@ func (service *Service) CopyDocument(
 			return DocumentView{}, ErrNotFound
 		}
 	}
-	var documentID, commandID, versionID string
+	var documentID, commandID string
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO occccad.documents(document_type,name,description,folder_id,copied_from_document_id,owner_user_id)
 		VALUES($1,$2,$3,$4,$5,$6) RETURNING id::text`, documentType, name, description,
@@ -765,10 +835,10 @@ func (service *Service) CopyDocument(
 		requestID(request.RequestID), documentID, payload, traceID, spanID).Scan(&commandID); err != nil {
 		return DocumentView{}, err
 	}
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO occccad.document_versions(document_id,sequence,model_json,geometry_key,state,created_by_command_id)
-		VALUES($1,1,$2,$3,'READY',$4) RETURNING id::text`,
-		documentID, modelJSON, sourceGeometryKey, commandID).Scan(&versionID); err != nil {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO occccad.document_versions(id,document_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash)
+		VALUES($1,$2,1,$3,$4,'READY',$5,$6)`,
+		versionID, documentID, modelJSON, sourceGeometryKey, commandID, modelHash); err != nil {
 		return DocumentView{}, err
 	}
 	if documentType == "PRODUCT" {
@@ -784,6 +854,18 @@ func (service *Service) CopyDocument(
 		`UPDATE occccad.documents SET head_version_id=$1 WHERE id=$2`, versionID, documentID); err != nil {
 		return DocumentView{}, err
 	}
+	var workspaceID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO occccad.workspaces(document_id,name,head_revision_id,head_sequence,base_revision_id)
+		VALUES($1,'main',$2,1,$2) RETURNING id::text`, documentID, versionID).Scan(&workspaceID); err != nil {
+		return DocumentView{}, err
+	}
+	if err := persistEvaluationProjection(ctx, tx, versionID, documentType, modelHash, dependencyDigest, initialGraph, initialManifest); err != nil {
+		return DocumentView{}, err
+	}
+	if err := persistInitialTransaction(ctx, tx, workspaceID, documentID, versionID, actorID(request.ActorID), modelHash, "occccad://document/copy", modelJSON); err != nil {
+		return DocumentView{}, err
+	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO occccad.document_history(document_id,position,version_id,command_id)
 		VALUES($1,0,$2,$3)`, documentID, versionID, commandID); err != nil {
@@ -797,7 +879,7 @@ func (service *Service) CopyDocument(
 	if err := tx.Commit(ctx); err != nil {
 		return DocumentView{}, err
 	}
-	return service.GetDocument(ctx, documentID)
+	return service.GetDocument(ctx, documentID, request.ActorID)
 }
 
 func (service *Service) changeDocumentMetadata(
@@ -993,10 +1075,10 @@ func (service *Service) ImportStep(
 		RequestID: reqID, Type: "IMPORT_STEP", GeometryKey: key,
 		FileName: strings.TrimSpace(fileName),
 	}
-	if err := service.applyMutation(ctx, documentID, request); err != nil {
+	if err := service.applyDomainMutation(ctx, documentID, request); err != nil {
 		return DocumentView{}, err
 	}
-	return service.GetDocument(ctx, documentID)
+	return service.GetDocument(ctx, documentID, request.ActorID)
 }
 
 func (service *Service) ExportStep(
@@ -1073,12 +1155,21 @@ func (service *Service) CreateDocument(
 	if err != nil {
 		return DocumentView{}, err
 	}
+	versionUUID, err := uuid.NewV7()
+	if err != nil {
+		return DocumentView{}, err
+	}
+	versionID := versionUUID.String()
+	modelJSON, modelHash, initialGraph, initialManifest, dependencyDigest, err := prepareInitialEvaluation(documentType, versionID, modelJSON)
+	if err != nil {
+		return DocumentView{}, err
+	}
 	tx, err := service.database.Begin(ctx)
 	if err != nil {
 		return DocumentView{}, err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	var documentID, commandID, versionID string
+	var documentID, commandID string
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO occccad.documents(document_type,name,description,folder_id,owner_user_id) VALUES($1,$2,$3,$4,$5)
 		RETURNING id::text`, documentType, name, description, folderID,
@@ -1095,15 +1186,27 @@ func (service *Service) CreateDocument(
 		requestID(request.RequestID), documentID, modelJSON, traceID, spanID).Scan(&commandID); err != nil {
 		return DocumentView{}, err
 	}
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO occccad.document_versions(document_id,sequence,model_json,geometry_key,state,created_by_command_id)
-		VALUES($1,1,$2,$3,'READY',$4) RETURNING id::text`,
-		documentID, modelJSON, initialGeometryKey, commandID).Scan(&versionID); err != nil {
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO occccad.document_versions(id,document_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash)
+		VALUES($1,$2,1,$3,$4,'READY',$5,$6)`,
+		versionID, documentID, modelJSON, initialGeometryKey, commandID, modelHash); err != nil {
 		return DocumentView{}, err
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE occccad.documents SET head_version_id=$1,updated_at=now() WHERE id=$2`,
 		versionID, documentID); err != nil {
+		return DocumentView{}, err
+	}
+	var workspaceID string
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO occccad.workspaces(document_id,name,head_revision_id,head_sequence,base_revision_id)
+		VALUES($1,'main',$2,1,$2) RETURNING id::text`, documentID, versionID).Scan(&workspaceID); err != nil {
+		return DocumentView{}, err
+	}
+	if err := persistEvaluationProjection(ctx, tx, versionID, documentType, modelHash, dependencyDigest, initialGraph, initialManifest); err != nil {
+		return DocumentView{}, err
+	}
+	if err := persistInitialTransaction(ctx, tx, workspaceID, documentID, versionID, actorID(request.ActorID), modelHash, "occccad://document/create", modelJSON); err != nil {
 		return DocumentView{}, err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -1122,13 +1225,13 @@ func (service *Service) CreateDocument(
 	return service.GetDocument(ctx, documentID)
 }
 
-func (service *Service) GetDocument(ctx context.Context, documentID string) (DocumentView, error) {
+func (service *Service) GetDocument(ctx context.Context, documentID string, actors ...string) (DocumentView, error) {
 	var summary DocumentSummary
 	var modelJSON []byte
 	var geometryKey *string
 	err := service.database.QueryRow(ctx, `
 		SELECT d.id::text,d.name,d.description,d.document_type,d.head_version_id::text,
-		       d.history_cursor>0,d.history_cursor<d.history_tip,d.created_at::text,
+		       d.created_at::text,
 		       d.updated_at::text,d.deleted_at::text,d.folder_id::text,d.last_opened_at::text,
 		       d.copied_from_document_id::text,d.workspace_name,
 		       v.model_json,v.geometry_key
@@ -1136,7 +1239,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string) (Doc
 		JOIN occccad.document_versions v ON v.id=d.head_version_id
 		WHERE d.id=$1 AND d.deleted_at IS NULL`, documentID).Scan(
 		&summary.ID, &summary.Name, &summary.Description, &summary.Type, &summary.VersionID,
-		&summary.CanUndo, &summary.CanRedo, &summary.CreatedAt, &summary.LastUpdated,
+		&summary.CreatedAt, &summary.LastUpdated,
 		&summary.DeletedAt, &summary.FolderID, &summary.LastOpenedAt, &summary.CopiedFromID,
 		&summary.WorkspaceName,
 		&modelJSON, &geometryKey)
@@ -1145,6 +1248,12 @@ func (service *Service) GetDocument(ctx context.Context, documentID string) (Doc
 	}
 	if err != nil {
 		return DocumentView{}, err
+	}
+	if len(actors) > 0 {
+		summary.CanUndo, summary.CanRedo, err = service.historyCapabilities(ctx, documentID, actors[0])
+		if err != nil {
+			return DocumentView{}, err
+		}
 	}
 	var lastOpened string
 	if err := service.database.QueryRow(ctx,
@@ -1242,7 +1351,7 @@ func defaultAxisSystems() []AxisSystem {
 }
 
 func newPartModel() PartModel {
-	return PartModel{Units: "mm", DatumPlanes: datumPlanes(), AxisSystems: defaultAxisSystems(), Features: []Feature{}}
+	return PartModel{Units: "mm", DatumPlanes: datumPlanes(), AxisSystems: defaultAxisSystems(), Features: []Feature{}, Parameters: []modelcore.ParameterDefinition{}}
 }
 
 func normalizePartModel(model *PartModel) {
@@ -1258,6 +1367,10 @@ func normalizePartModel(model *PartModel) {
 	if model.Features == nil {
 		model.Features = []Feature{}
 	}
+	if model.Parameters == nil {
+		model.Parameters = []modelcore.ParameterDefinition{}
+	}
+	ensureFeatureParameters(model)
 }
 
 func referenceGeometry(model PartModel) ReferenceGeometry {
@@ -1273,21 +1386,21 @@ func (service *Service) ApplyCommand(
 	}
 	request.Type = strings.ToUpper(strings.TrimSpace(request.Type))
 	if request.Type == "UNDO" || request.Type == "REDO" {
-		if err := service.moveHistory(ctx, documentID, request); err != nil {
+		if err := service.applyCompensatingHistory(ctx, documentID, request); err != nil {
 			return DocumentView{}, err
 		}
-		return service.GetDocument(ctx, documentID)
+		return service.GetDocument(ctx, documentID, request.ActorID)
 	}
 	if request.Type == "RESTORE" {
-		if err := service.restoreHistory(ctx, documentID, request); err != nil {
+		if err := service.applyRestoreRevision(ctx, documentID, request); err != nil {
 			return DocumentView{}, err
 		}
-		return service.GetDocument(ctx, documentID)
+		return service.GetDocument(ctx, documentID, request.ActorID)
 	}
-	if err := service.applyMutation(ctx, documentID, request); err != nil {
+	if err := service.applyDomainMutation(ctx, documentID, request); err != nil {
 		return DocumentView{}, err
 	}
-	return service.GetDocument(ctx, documentID)
+	return service.GetDocument(ctx, documentID, request.ActorID)
 }
 
 func (service *Service) requireActiveDocument(ctx context.Context, documentID string) error {
@@ -1301,201 +1414,6 @@ func (service *Service) requireActiveDocument(ctx context.Context, documentID st
 		return ErrNotFound
 	}
 	return nil
-}
-
-func (service *Service) restoreHistory(
-	ctx context.Context, documentID string, request CommandRequest,
-) error {
-	tx, err := service.database.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	var documentType, headVersion string
-	var cursor int
-	if err := tx.QueryRow(ctx, `
-		SELECT document_type,head_version_id::text,history_cursor
-		FROM occccad.documents WHERE id=$1 FOR UPDATE`, documentID).
-		Scan(&documentType, &headVersion, &cursor); errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	} else if err != nil {
-		return err
-	}
-	var modelJSON []byte
-	var geometryKey *string
-	if err := tx.QueryRow(ctx, `
-		SELECT model_json,geometry_key FROM occccad.document_versions
-		WHERE id=$1 AND document_id=$2`, request.VersionID, documentID).
-		Scan(&modelJSON, &geometryKey); errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("%w: restore point does not belong to this document", ErrValidation)
-	} else if err != nil {
-		return err
-	}
-	payload, _ := json.Marshal(request)
-	traceID, spanID := traceIDs(ctx)
-	var commandID string
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO occccad.commands(request_id,command_type,document_id,payload,status,completed_at,trace_id,span_id)
-		VALUES($1,'RESTORE',$2,$3,'SUCCEEDED',now(),$4,$5) RETURNING id::text`,
-		requestID(request.RequestID), documentID, payload, traceID, spanID).Scan(&commandID); err != nil {
-		return err
-	}
-	var sequence int
-	if err := tx.QueryRow(ctx,
-		`SELECT coalesce(max(sequence),0)+1 FROM occccad.document_versions WHERE document_id=$1`,
-		documentID).Scan(&sequence); err != nil {
-		return err
-	}
-	var versionID string
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO occccad.document_versions(
-			document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id)
-		VALUES($1,$2,$3,$4,$5,'READY',$6) RETURNING id::text`,
-		documentID, headVersion, sequence, modelJSON, geometryKey, commandID).Scan(&versionID); err != nil {
-		return err
-	}
-	nextPosition := cursor + 1
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM occccad.document_history WHERE document_id=$1 AND position>$2`, documentID, cursor); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO occccad.document_history(document_id,position,version_id,command_id)
-		VALUES($1,$2,$3,$4)`, documentID, nextPosition, versionID, commandID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO occccad.document_changes(document_id,version_id,command_id,change_type)
-		VALUES($1,$2,$3,$4)`, documentID, versionID, commandID, request.Type); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE occccad.documents SET head_version_id=$1,history_cursor=$2,history_tip=$2,updated_at=now()
-		WHERE id=$3`, versionID, nextPosition, documentID); err != nil {
-		return err
-	}
-	if documentType == "PRODUCT" {
-		var model ProductModel
-		if err := json.Unmarshal(modelJSON, &model); err != nil {
-			return err
-		}
-		if err := insertProductInstances(ctx, tx, versionID, model); err != nil {
-			return err
-		}
-	}
-	return tx.Commit(ctx)
-}
-
-func (service *Service) applyMutation(ctx context.Context, documentID string, request CommandRequest) error {
-	tx, err := service.database.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	var documentType, headVersion string
-	var cursor int
-	if err := tx.QueryRow(ctx, `
-		SELECT document_type,head_version_id::text,history_cursor
-		FROM occccad.documents WHERE id=$1 FOR UPDATE`, documentID).
-		Scan(&documentType, &headVersion, &cursor); errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	} else if err != nil {
-		return err
-	}
-	var modelJSON []byte
-	if err := tx.QueryRow(ctx,
-		`SELECT model_json FROM occccad.document_versions WHERE id=$1`, headVersion).
-		Scan(&modelJSON); err != nil {
-		return err
-	}
-	var nextModel any
-	var geometryKey string
-	if documentType == "PART" {
-		var model PartModel
-		if err := json.Unmarshal(modelJSON, &model); err != nil {
-			return err
-		}
-		normalizePartModel(&model)
-		if err := mutatePart(&model, request); err != nil {
-			return err
-		}
-		nextModel = model
-		key, err := service.evaluatePart(ctx, requestID(request.RequestID), model)
-		if err != nil {
-			return err
-		}
-		geometryKey = key
-	} else {
-		var model ProductModel
-		if err := json.Unmarshal(modelJSON, &model); err != nil {
-			return err
-		}
-		if err := service.mutateProduct(ctx, tx, documentID, &model, request); err != nil {
-			return err
-		}
-		nextModel = model
-	}
-	nextJSON, err := json.Marshal(nextModel)
-	if err != nil {
-		return err
-	}
-	var commandID string
-	payloadJSON, err := json.Marshal(request)
-	if err != nil {
-		return err
-	}
-	traceID, spanID := traceIDs(ctx)
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO occccad.commands(request_id,command_type,document_id,payload,status,completed_at,trace_id,span_id)
-		VALUES($1,$2,$3,$4,'SUCCEEDED',now(),$5,$6) RETURNING id::text`,
-		requestID(request.RequestID), request.Type, documentID, payloadJSON, traceID, spanID).Scan(&commandID); err != nil {
-		return err
-	}
-	var sequence int
-	if err := tx.QueryRow(ctx,
-		`SELECT coalesce(max(sequence),0)+1 FROM occccad.document_versions WHERE document_id=$1`,
-		documentID).Scan(&sequence); err != nil {
-		return err
-	}
-	var versionID string
-	var nullableGeometry any
-	if geometryKey != "" {
-		nullableGeometry = geometryKey
-	}
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO occccad.document_versions(
-			document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id)
-		VALUES($1,$2,$3,$4,$5,'READY',$6) RETURNING id::text`,
-		documentID, headVersion, sequence, nextJSON, nullableGeometry, commandID).Scan(&versionID); err != nil {
-		return err
-	}
-	nextPosition := cursor + 1
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM occccad.document_history WHERE document_id=$1 AND position>$2`,
-		documentID, cursor); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO occccad.document_history(document_id,position,version_id,command_id)
-		VALUES($1,$2,$3,$4)`, documentID, nextPosition, versionID, commandID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO occccad.document_changes(document_id,version_id,command_id,change_type)
-		VALUES($1,$2,$3,$4)`, documentID, versionID, commandID, request.Type); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE occccad.documents SET head_version_id=$1,history_cursor=$2,history_tip=$2,updated_at=now()
-		WHERE id=$3`, versionID, nextPosition, documentID); err != nil {
-		return err
-	}
-	if documentType == "PRODUCT" {
-		if err := insertProductInstances(ctx, tx, versionID, nextModel.(ProductModel)); err != nil {
-			return err
-		}
-	}
-	return tx.Commit(ctx)
 }
 
 func mutatePart(model *PartModel, request CommandRequest) error {
@@ -1653,55 +1571,6 @@ func (service *Service) mutateProduct(
 		return fmt.Errorf("%w: command %s is not valid for a Product", ErrValidation, request.Type)
 	}
 	return nil
-}
-
-func (service *Service) moveHistory(ctx context.Context, documentID string, request CommandRequest) error {
-	tx, err := service.database.Begin(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-	var cursor, tip int
-	if err := tx.QueryRow(ctx, `
-		SELECT history_cursor,history_tip FROM occccad.documents WHERE id=$1 FOR UPDATE`, documentID).
-		Scan(&cursor, &tip); errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	} else if err != nil {
-		return err
-	}
-	target := cursor - 1
-	if request.Type == "REDO" {
-		target = cursor + 1
-	}
-	if target < 0 || target > tip {
-		return fmt.Errorf("%w: nothing to %s", ErrValidation, strings.ToLower(request.Type))
-	}
-	var versionID string
-	if err := tx.QueryRow(ctx, `
-		SELECT version_id::text FROM occccad.document_history
-		WHERE document_id=$1 AND position=$2`, documentID, target).Scan(&versionID); err != nil {
-		return err
-	}
-	payload, _ := json.Marshal(map[string]any{"from": cursor, "to": target, "versionId": versionID})
-	traceID, spanID := traceIDs(ctx)
-	var commandID string
-	if err := tx.QueryRow(ctx, `
-		INSERT INTO occccad.commands(request_id,command_type,document_id,payload,status,completed_at,trace_id,span_id)
-		VALUES($1,$2,$3,$4,'SUCCEEDED',now(),$5,$6) RETURNING id::text`,
-		requestID(request.RequestID), request.Type, documentID, payload, traceID, spanID).Scan(&commandID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		INSERT INTO occccad.document_changes(document_id,version_id,command_id,change_type)
-		VALUES($1,$2,$3,$4)`, documentID, versionID, commandID, request.Type); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `
-		UPDATE occccad.documents SET head_version_id=$1,history_cursor=$2,updated_at=now() WHERE id=$3`,
-		versionID, target, documentID); err != nil {
-		return err
-	}
-	return tx.Commit(ctx)
 }
 
 func (service *Service) evaluatePart(ctx context.Context, reqID string, model PartModel) (string, error) {
