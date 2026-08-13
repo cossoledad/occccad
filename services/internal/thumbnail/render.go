@@ -16,10 +16,13 @@ const (
 	height        = 200.0
 	drawingTop    = 16.0
 	drawingBottom = 158.0
-	maximumFaces  = 1400
 )
 
-type point struct{ x, y, depth float64 }
+type point struct {
+	x     float64
+	y     float64
+	depth float64
+}
 
 type face struct {
 	points [3]point
@@ -35,192 +38,585 @@ type line struct {
 type scene struct {
 	faces []face
 	lines []line
-	all   []point
+
+	minX float64
+	maxX float64
+	minY float64
+	maxY float64
+
+	hasBounds bool
 }
 
-var palette = []string{"#4d9aca", "#6b8fd3", "#48a6a0", "#8b79c6", "#ca8058", "#5f9f72"}
+var palette = []string{
+	"#4d9aca",
+	"#6b8fd3",
+	"#48a6a0",
+	"#8b79c6",
+	"#ca8058",
+	"#5f9f72",
+}
 
 // Render produces a deterministic, dependency-free SVG preview from the same
 // mesh data used by the browser. It supports Part solids, Part sketches and
 // flattened Product instances.
 func Render(view workspace.DocumentView) ([]byte, error) {
 	var drawing scene
+
 	if view.Document.Type == "PRODUCT" {
 		for index, instance := range view.ResolvedInstances {
 			artifact, exists := view.Artifacts[instance.GeometryKey]
 			if !exists {
 				continue
 			}
-			appendMesh(&drawing, artifact.Mesh, instance.Translation, colorFor(instance.ID, index))
+
+			appendMesh(
+				&drawing,
+				artifact.Mesh,
+				instance.Translation,
+				colorFor(instance.ID, index),
+			)
 		}
 	} else if view.Artifact != nil {
-		appendMesh(&drawing, view.Artifact.Mesh, [3]float64{}, colorFor(view.Artifact.GeometryKey, 0))
+		appendMesh(
+			&drawing,
+			view.Artifact.Mesh,
+			[3]float64{},
+			colorFor(view.Artifact.GeometryKey, 0),
+		)
 	} else if view.Part != nil {
 		appendSketches(&drawing, view.Part.Features)
 	}
 
-	transform := fit(drawing.all)
+	transform := fit(&drawing)
+
 	var body strings.Builder
+
 	for _, item := range drawing.faces {
 		body.WriteString(`<polygon points="`)
+
 		for index, vertex := range item.points {
 			if index > 0 {
 				body.WriteByte(' ')
 			}
+
 			x, y := transform(vertex)
-			fmt.Fprintf(&body, "%.2f,%.2f", x, y)
+
+			fmt.Fprintf(
+				&body,
+				"%.2f,%.2f",
+				x,
+				y,
+			)
 		}
-		fmt.Fprintf(&body, `" fill="%s" stroke="#24516d" stroke-width="0.55" stroke-linejoin="round"/>`, item.fill)
+
+		fmt.Fprintf(
+			&body,
+			`" fill="%s" stroke="#24516d" stroke-width="0.16" stroke-opacity="0.35" stroke-linejoin="round"/>`,
+			item.fill,
+		)
 	}
+
 	for _, item := range drawing.lines {
 		body.WriteString(`<polyline points="`)
+
 		for index, vertex := range item.points {
 			if index > 0 {
 				body.WriteByte(' ')
 			}
+
 			x, y := transform(vertex)
-			fmt.Fprintf(&body, "%.2f,%.2f", x, y)
+
+			fmt.Fprintf(
+				&body,
+				"%.2f,%.2f",
+				x,
+				y,
+			)
 		}
-		fmt.Fprintf(&body, `" fill="none" stroke="%s" stroke-width="2" stroke-linejoin="round"/>`, item.color)
+
+		fmt.Fprintf(
+			&body,
+			`" fill="none" stroke="%s" stroke-width="2" stroke-linejoin="round"/>`,
+			item.color,
+		)
 	}
-	if len(drawing.all) == 0 {
+
+	if !drawing.hasBounds {
 		body.WriteString(emptyMark(view.Document.Type))
 	}
 
 	detail := partDetail(view)
-	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200" role="img" aria-label="%s"><defs><linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f7fafc"/><stop offset="1" stop-color="#e4edf3"/></linearGradient></defs><rect width="320" height="200" rx="8" fill="url(#background)"/><path d="M0 164H320" stroke="#ccdbe4"/>%s<text x="16" y="181" font-family="system-ui,sans-serif" font-size="12" font-weight="600" fill="#203746">%s</text><text x="304" y="181" text-anchor="end" font-family="system-ui,sans-serif" font-size="10" fill="#647b89">%s</text></svg>`,
-		html.EscapeString(view.Document.Name), body.String(), html.EscapeString(view.Document.Name), html.EscapeString(detail))
+
+	svg := fmt.Sprintf(
+		`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200" role="img" aria-label="%s"><defs><linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f7fafc"/><stop offset="1" stop-color="#e4edf3"/></linearGradient></defs><rect width="320" height="200" rx="8" fill="url(#background)"/><path d="M0 164H320" stroke="#ccdbe4"/>%s<text x="16" y="181" font-family="system-ui,sans-serif" font-size="12" font-weight="600" fill="#203746">%s</text><text x="304" y="181" text-anchor="end" font-family="system-ui,sans-serif" font-size="10" fill="#647b89">%s</text></svg>`,
+		html.EscapeString(view.Document.Name),
+		body.String(),
+		html.EscapeString(view.Document.Name),
+		html.EscapeString(detail),
+	)
+
 	return []byte(svg), nil
 }
 
-func appendMesh(target *scene, mesh workspace.Mesh, translation [3]float64, color string) {
+func appendMesh(
+	target *scene,
+	mesh workspace.Mesh,
+	translation [3]float64,
+	color string,
+) {
 	if len(mesh.Triangles) == 0 || len(mesh.Vertices) == 0 {
 		return
 	}
-	step := int(math.Ceil(float64(len(mesh.Triangles)) / maximumFaces))
-	if step < 1 {
-		step = 1
-	}
-	for index := 0; index < len(mesh.Triangles); index += step {
-		triangle := mesh.Triangles[index]
-		if int(triangle[0]) >= len(mesh.Vertices) || int(triangle[1]) >= len(mesh.Vertices) || int(triangle[2]) >= len(mesh.Vertices) {
+
+	//
+	// Important:
+	//
+	// Do not sample triangles using:
+	//
+	//     index += step
+	//
+	// Doing that literally removes triangles from the surface and therefore
+	// creates visible holes on finely tessellated curved surfaces.
+	//
+	// For the SVG renderer we preserve mesh connectivity and render every
+	// triangle.
+	//
+	for _, triangle := range mesh.Triangles {
+		i0 := int(triangle[0])
+		i1 := int(triangle[1])
+		i2 := int(triangle[2])
+
+		if i0 < 0 || i0 >= len(mesh.Vertices) ||
+			i1 < 0 || i1 >= len(mesh.Vertices) ||
+			i2 < 0 || i2 >= len(mesh.Vertices) {
 			continue
 		}
+
+		sourceA := mesh.Vertices[i0]
+		sourceB := mesh.Vertices[i1]
+		sourceC := mesh.Vertices[i2]
+
+		//
+		// Skip degenerate triangles.
+		//
+		if triangleAreaSquared(sourceA, sourceB, sourceC) < 1e-24 {
+			continue
+		}
+
+		vertices := [3][3]float64{
+			translate(sourceA, translation),
+			translate(sourceB, translation),
+			translate(sourceC, translation),
+		}
+
 		var projected [3]point
 		var depth float64
-		for vertexIndex, sourceIndex := range triangle {
-			vertex := mesh.Vertices[sourceIndex]
-			vertex[0] += translation[0]
-			vertex[1] += translation[1]
-			vertex[2] += translation[2]
-			projected[vertexIndex] = project(vertex)
-			depth += projected[vertexIndex].depth
-			target.all = append(target.all, projected[vertexIndex])
+
+		for index, vertex := range vertices {
+			p := project(vertex)
+
+			projected[index] = p
+			depth += p.depth
+
+			target.addPoint(p)
 		}
-		shade := faceShade(mesh.Vertices[triangle[0]], mesh.Vertices[triangle[1]], mesh.Vertices[triangle[2]])
-		target.faces = append(target.faces, face{points: projected, depth: depth / 3, fill: shadeColor(color, shade)})
+
+		shade := faceShade(
+			sourceA,
+			sourceB,
+			sourceC,
+		)
+
+		target.faces = append(
+			target.faces,
+			face{
+				points: projected,
+				depth:  depth / 3.0,
+				fill:   shadeColor(color, shade),
+			},
+		)
 	}
-	sort.SliceStable(target.faces, func(left, right int) bool { return target.faces[left].depth < target.faces[right].depth })
+
+	//
+	// SVG has no depth buffer, so use a painter-style depth sort.
+	//
+	// Smaller depth values are rendered first, larger values later.
+	//
+	sort.SliceStable(
+		target.faces,
+		func(left, right int) bool {
+			return target.faces[left].depth < target.faces[right].depth
+		},
+	)
 }
 
-func appendSketches(target *scene, features []workspace.Feature) {
+func appendSketches(
+	target *scene,
+	features []workspace.Feature,
+) {
 	for _, feature := range features {
-		if !strings.Contains(strings.ToUpper(feature.Type), "SKETCH") {
+		if !strings.Contains(
+			strings.ToUpper(feature.Type),
+			"SKETCH",
+		) {
 			continue
 		}
+
 		rectangle := feature.Rectangle
 		if rectangle == nil {
 			continue
 		}
-		u0, v0 := rectangle.Origin[0], rectangle.Origin[1]
-		coordinates := [][2]float64{{u0, v0}, {u0 + rectangle.Width, v0}, {u0 + rectangle.Width, v0 + rectangle.Height}, {u0, v0 + rectangle.Height}, {u0, v0}}
-		item := line{color: "#2679aa"}
-		for _, coordinate := range coordinates {
-			world := sketchPoint(feature.Plane, coordinate)
-			projected := project(world)
-			item.points = append(item.points, projected)
-			target.all = append(target.all, projected)
+
+		u0 := rectangle.Origin[0]
+		v0 := rectangle.Origin[1]
+
+		coordinates := [][2]float64{
+			{u0, v0},
+			{u0 + rectangle.Width, v0},
+			{u0 + rectangle.Width, v0 + rectangle.Height},
+			{u0, v0 + rectangle.Height},
+			{u0, v0},
 		}
-		target.lines = append(target.lines, item)
+
+		item := line{
+			color: "#2679aa",
+		}
+
+		for _, coordinate := range coordinates {
+			world := sketchPoint(
+				feature.Plane,
+				coordinate,
+			)
+
+			projected := project(world)
+
+			item.points = append(
+				item.points,
+				projected,
+			)
+
+			target.addPoint(projected)
+		}
+
+		target.lines = append(
+			target.lines,
+			item,
+		)
 	}
 }
 
-func sketchPoint(plane string, coordinate [2]float64) [3]float64 {
+func (s *scene) addPoint(p point) {
+	if !s.hasBounds {
+		s.minX = p.x
+		s.maxX = p.x
+		s.minY = p.y
+		s.maxY = p.y
+		s.hasBounds = true
+
+		return
+	}
+
+	s.minX = math.Min(s.minX, p.x)
+	s.maxX = math.Max(s.maxX, p.x)
+	s.minY = math.Min(s.minY, p.y)
+	s.maxY = math.Max(s.maxY, p.y)
+}
+
+func translate(
+	vertex [3]float64,
+	translation [3]float64,
+) [3]float64 {
+	return [3]float64{
+		vertex[0] + translation[0],
+		vertex[1] + translation[1],
+		vertex[2] + translation[2],
+	}
+}
+
+func sketchPoint(
+	plane string,
+	coordinate [2]float64,
+) [3]float64 {
 	switch strings.ToUpper(plane) {
 	case "XZ":
-		return [3]float64{coordinate[0], 0, coordinate[1]}
+		return [3]float64{
+			coordinate[0],
+			0,
+			coordinate[1],
+		}
+
 	case "YZ":
-		return [3]float64{0, coordinate[0], coordinate[1]}
+		return [3]float64{
+			0,
+			coordinate[0],
+			coordinate[1],
+		}
+
 	default:
-		return [3]float64{coordinate[0], coordinate[1], 0}
+		return [3]float64{
+			coordinate[0],
+			coordinate[1],
+			0,
+		}
 	}
 }
 
+// project performs a fixed axonometric/isometric-style projection.
+//
+// Screen-space X:
+//
+//	sqrt(3) / 2 * (X - Y)
+//
+// Screen-space Y:
+//
+//	1 / 2 * (X + Y) - Z
+//
+// depth is retained separately for painter-style SVG ordering.
 func project(vertex [3]float64) point {
-	return point{x: .8660254 * (vertex[0] - vertex[1]), y: .5*(vertex[0]+vertex[1]) - vertex[2],
-		depth: vertex[0] + vertex[1] + vertex[2]}
+	return point{
+		x: 0.8660254037844386 *
+			(vertex[0] - vertex[1]),
+
+		y: 0.5*
+			(vertex[0]+vertex[1]) -
+			vertex[2],
+
+		depth: vertex[0] +
+			vertex[1] +
+			vertex[2],
+	}
 }
 
-func fit(points []point) func(point) (float64, float64) {
-	if len(points) == 0 {
-		return func(point) (float64, float64) { return width / 2, (drawingTop + drawingBottom) / 2 }
+func fit(
+	drawing *scene,
+) func(point) (float64, float64) {
+	if !drawing.hasBounds {
+		return func(point) (float64, float64) {
+			return width / 2,
+				(drawingTop + drawingBottom) / 2
+		}
 	}
-	minX, maxX, minY, maxY := points[0].x, points[0].x, points[0].y, points[0].y
-	for _, item := range points[1:] {
-		minX, maxX = math.Min(minX, item.x), math.Max(maxX, item.x)
-		minY, maxY = math.Min(minY, item.y), math.Max(maxY, item.y)
+
+	dx := math.Max(
+		drawing.maxX-drawing.minX,
+		1e-9,
+	)
+
+	dy := math.Max(
+		drawing.maxY-drawing.minY,
+		1e-9,
+	)
+
+	//
+	// Keep a horizontal margin of 20 px on both sides.
+	//
+	scale := math.Min(
+		(width-40.0)/dx,
+		(drawingBottom-drawingTop)/dy,
+	)
+
+	centerX := (drawing.minX + drawing.maxX) / 2.0
+	centerY := (drawing.minY + drawing.maxY) / 2.0
+
+	targetCenterX := width / 2.0
+	targetCenterY := (drawingTop + drawingBottom) / 2.0
+
+	return func(value point) (float64, float64) {
+		x := targetCenterX +
+			(value.x-centerX)*scale
+
+		//
+		// SVG's Y axis points downward.
+		//
+		y := targetCenterY -
+			(value.y-centerY)*scale
+
+		return x, y
 	}
-	dx, dy := math.Max(maxX-minX, 1e-9), math.Max(maxY-minY, 1e-9)
-	scale := math.Min((width-40)/dx, (drawingBottom-drawingTop)/dy)
-	offsetX := (width - scale*(minX+maxX)) / 2
-	offsetY := (drawingTop + drawingBottom + scale*(minY+maxY)) / 2
-	return func(value point) (float64, float64) { return offsetX + scale*value.x, offsetY - scale*value.y }
 }
 
-func faceShade(a, b, c [3]float64) float64 {
-	u := [3]float64{b[0] - a[0], b[1] - a[1], b[2] - a[2]}
-	v := [3]float64{c[0] - a[0], c[1] - a[1], c[2] - a[2]}
-	n := [3]float64{u[1]*v[2] - u[2]*v[1], u[2]*v[0] - u[0]*v[2], u[0]*v[1] - u[1]*v[0]}
-	length := math.Sqrt(n[0]*n[0] + n[1]*n[1] + n[2]*n[2])
-	if length == 0 {
-		return .8
+func faceShade(
+	a [3]float64,
+	b [3]float64,
+	c [3]float64,
+) float64 {
+	u := [3]float64{
+		b[0] - a[0],
+		b[1] - a[1],
+		b[2] - a[2],
 	}
-	light := math.Abs((n[0]*.3 + n[1]*-.5 + n[2]*.8) / length)
-	return .62 + .32*light
+
+	v := [3]float64{
+		c[0] - a[0],
+		c[1] - a[1],
+		c[2] - a[2],
+	}
+
+	n := [3]float64{
+		u[1]*v[2] - u[2]*v[1],
+		u[2]*v[0] - u[0]*v[2],
+		u[0]*v[1] - u[1]*v[0],
+	}
+
+	length := math.Sqrt(
+		n[0]*n[0] +
+			n[1]*n[1] +
+			n[2]*n[2],
+	)
+
+	if length < 1e-12 {
+		return 0.8
+	}
+
+	//
+	// Normalized directional light:
+	//
+	//     approximately (0.3, -0.5, 0.8)
+	//
+	// The vector below has already been normalized.
+	//
+	const (
+		lightX = 0.30304576336566325
+		lightY = -0.5050762722761054
+		lightZ = 0.8081220356417685
+	)
+
+	diffuse := (n[0]*lightX +
+		n[1]*lightY +
+		n[2]*lightZ) / length
+
+	//
+	// Do not use abs(diffuse). Opposite-facing surfaces should not receive
+	// exactly the same illumination.
+	//
+	diffuse = math.Max(0, diffuse)
+
+	//
+	// Keep sufficient ambient light because this is a small thumbnail rather
+	// than a physically based renderer.
+	//
+	return 0.62 + 0.32*diffuse
 }
 
-func colorFor(identifier string, index int) string {
+// triangleAreaSquared returns a value proportional to the squared area of the
+// triangle. It is used only for detecting degenerate triangles, so dividing by
+// four is unnecessary.
+func triangleAreaSquared(
+	a [3]float64,
+	b [3]float64,
+	c [3]float64,
+) float64 {
+	u := [3]float64{
+		b[0] - a[0],
+		b[1] - a[1],
+		b[2] - a[2],
+	}
+
+	v := [3]float64{
+		c[0] - a[0],
+		c[1] - a[1],
+		c[2] - a[2],
+	}
+
+	cross := [3]float64{
+		u[1]*v[2] - u[2]*v[1],
+		u[2]*v[0] - u[0]*v[2],
+		u[0]*v[1] - u[1]*v[0],
+	}
+
+	return cross[0]*cross[0] +
+		cross[1]*cross[1] +
+		cross[2]*cross[2]
+}
+
+func colorFor(
+	identifier string,
+	index int,
+) string {
 	hasher := fnv.New32a()
-	_, _ = hasher.Write([]byte(identifier))
+
+	_, _ = hasher.Write(
+		[]byte(identifier),
+	)
+
 	return palette[(int(hasher.Sum32())+index)%len(palette)]
 }
 
-func shadeColor(hexColor string, shade float64) string {
-	var red, green, blue int
-	if _, err := fmt.Sscanf(hexColor, "#%02x%02x%02x", &red, &green, &blue); err != nil {
+func shadeColor(
+	hexColor string,
+	shade float64,
+) string {
+	var red int
+	var green int
+	var blue int
+
+	if _, err := fmt.Sscanf(
+		hexColor,
+		"#%02x%02x%02x",
+		&red,
+		&green,
+		&blue,
+	); err != nil {
 		return hexColor
 	}
-	return fmt.Sprintf("#%02x%02x%02x", min(255, int(float64(red)*shade)),
-		min(255, int(float64(green)*shade)), min(255, int(float64(blue)*shade)))
+
+	shade = math.Max(
+		0,
+		math.Min(1, shade),
+	)
+
+	return fmt.Sprintf(
+		"#%02x%02x%02x",
+		min(
+			255,
+			int(float64(red)*shade),
+		),
+		min(
+			255,
+			int(float64(green)*shade),
+		),
+		min(
+			255,
+			int(float64(blue)*shade),
+		),
+	)
 }
 
-func partDetail(view workspace.DocumentView) string {
+func partDetail(
+	view workspace.DocumentView,
+) string {
 	if view.Document.Type == "PRODUCT" {
-		return fmt.Sprintf("Product · %d instances", len(view.ResolvedInstances))
+		return fmt.Sprintf(
+			"Product · %d instances",
+			len(view.ResolvedInstances),
+		)
 	}
+
 	if view.Artifact != nil {
-		return fmt.Sprintf("Part · %d faces", len(view.Artifact.Mesh.Triangles))
+		return fmt.Sprintf(
+			"Part · %d faces",
+			len(view.Artifact.Mesh.Triangles),
+		)
 	}
+
 	count := 0
+
 	if view.Part != nil {
 		count = len(view.Part.Features)
 	}
-	return fmt.Sprintf("Part · %d features", count)
+
+	return fmt.Sprintf(
+		"Part · %d features",
+		count,
+	)
 }
 
-func emptyMark(documentType string) string {
+func emptyMark(
+	documentType string,
+) string {
 	if documentType == "PRODUCT" {
 		return `<g fill="none" stroke="#6f91a6" stroke-width="2"><rect x="112" y="48" width="45" height="36"/><rect x="164" y="77" width="45" height="36"/><path d="M157 66h27v11"/></g>`
 	}
+
 	return `<g fill="none" stroke="#6f91a6" stroke-width="2"><path d="M112 104l48-56 48 56-48 31z"/><path d="M112 104h96M160 48v87"/></g>`
 }
