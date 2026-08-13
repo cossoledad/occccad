@@ -86,6 +86,7 @@ occcad 是一个基于开源技术的云原生、分布式参数化 CAD 与产�
 - 页面/功能层不要直接散布 Three.js 生命周期和全局事件；复用 Viewport、Input、Tool、Selection 和 Command 边界。
 - 服务端状态与短期交互状态分离。相同 GeometryId 的实例共享资源，大装配按结构、LOD 和可见性渐进加载。
 - 交互预览可以近似，但提交后必须由权威 evaluator 验证，并清楚标识 stale/preview/failed 状态。
+- 前端不需要单元测试。
 
 ### 5.5 Proto、数据库与兼容
 
