@@ -1,11 +1,12 @@
 # occccad-server
 
-occccad-server 是当前系统的 HTTP API 与业务编排进程。它是模块化单体，不是多个虚构微服务的集合。
+occccad-server 是当前系统的 HTTP/WebSocket API 与业务编排进程。它是模块化单体，不是多个虚构微服务的集合。
 
 ## 当前职责
 
 - 初始化管理员账号和数据库会话认证；
 - 提供用户、团队、文档、文件夹、版本、历史、分享、ACL 与审计 API；
+- 提供版本化 WebSocket 消息、文档订阅、命令请求响应和 Workspace Outbox 实时事件；
 - 验证访问权限，把 HTTP transport DTO 转换为版本化 Domain Command，并由 typed handler 应用到显式 Part/Product Workspace；
 - 在数据库事务外通过 gRPC 求值候选模型，再以 Workspace Head/sequence CAS 原子持久化 Transaction、ChangeSet、Revision、EvaluationManifest、依赖投影和 outbox；
 - 把 STEP 和缩略图工作写入 PostgreSQL 持久任务队列；
@@ -32,11 +33,16 @@ flowchart LR
 - 默认监听：`0.0.0.0:8080`
 - 健康检查：`GET /api/health`
 - API 前缀：`/api/`
+- 实时入口：`GET /api/realtime`，子协议 `occccad.realtime.v1`
 - 根路径返回服务说明，不提供 Web 静态文件。
 
 主要资源包括 `/api/auth/*`、`/api/session`、`/api/documents`、`/api/folders`、`/api/jobs`、`/api/teams`、`/api/users`、`/api/admin/*` 与 `/api/audit`。具体契约当前以 `services/internal/api/server.go` 为准；仓库尚未发布稳定的外部 OpenAPI。
 
-`GET|POST /api/documents/{documentID}/workspaces` 用于列出 Workspace 或从所属 Revision 创建 Branch。`POST /api/documents/{documentID}/commands` 是当前 HTTP transport 入口；`SET_PARAMETER_VALUE` 接受 `parameterId/value/unit`，`SET_PARAMETER_EXPRESSION` 接受 `parameterId/expression`。表达式在服务端绑定稳定 ParameterId，Worker 不解析用户 source text。
+`GET|POST /api/documents/{documentID}/workspaces` 用于列出 Workspace 或从所属 Revision 创建 Branch。`POST /api/documents/{documentID}/commands` 是保留的 HTTP transport；Web 使用 `workspace.command.execute.v1` WebSocket 消息。二者进入同一 Workspace handler。`SET_PARAMETER_VALUE` 接受 `parameterId/value/unit`，`SET_PARAMETER_EXPRESSION` 接受 `parameterId/expression`。表达式在服务端绑定稳定 ParameterId，Worker 不解析用户 source text。
+
+WebSocket 首条消息必须是携带 CSRF token 的 `connection.initialize.v1`。之后可发送 `document.subscribe.v1`、`document.unsubscribe.v1`、`workspace.command.execute.v1` 与 `stream.ack.v1`；服务端返回 correlation response/error，并从事务 Outbox 发布 `workspace.transaction.committed.v1`。单消息限制 1 MiB，大制品仍走 HTTP/ArtifactStore。
+
+RFC 6455 Upgrade、frame、Ping/Pong 由 `github.com/gorilla/websocket` v1.5.3 提供；该依赖使用两条款 BSD 许可。它只位于 HTTP transport adapter，领域 Envelope、Command、Outbox 和恢复语义不依赖其类型，未来可以替换实现而不改变持久模型。
 
 ## 配置
 
@@ -76,6 +82,7 @@ invoke run.server
 - Undo/Redo/Restore 都追加 Transaction 与 Revision；Revert/Reapply 围绕稳定根 Transaction 折叠，支持连续多步 Undo/Redo。`canUndo/canRedo` 由同一 actor history fold 计算并返回 Web；字段 digest 或结构依赖不匹配时返回冲突。
 - 当前是无生产数据的新项目阶段；C0–C4 schema 变更要求重建开发数据库，不提供旧 cursor/history adapter。
 - 后台任务具有幂等键；API 返回任务后不保证任务已完成。
+- WebSocket 事件按 Workspace sequence 去重；断线、gap 或慢消费者被断开后，浏览器重新订阅并获取权威快照。当前 Hub 只覆盖单个 API 进程，多实例需要事件总线扇出。
 - HTTP 读写超时当前均为 30 秒，因此长操作应进入任务系统。
 - 进程重启会丢失内存中的“已打开文档”注册表，但不会丢失持久文档。
 

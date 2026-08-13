@@ -11,7 +11,8 @@ import {
 } from "antd";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api } from "../../api/client";
+import { api, isMockMode } from "../../api/client";
+import { realtime } from "../../api/realtime-client";
 import { queryKeys } from "../../app/query-keys";
 import { ShareDialog, type ShareResource } from "../../components/share-dialog";
 import { CommandProvider } from "../../cad/command/command-context";
@@ -172,6 +173,31 @@ export function Workbench() {
     client.invalidateQueries({ queryKey: ["documents"] }),
     client.invalidateQueries({ queryKey: queryKeys.openDocuments })]);
   }, [client, documentID]);
+  useEffect(() => {
+    if (!documentID || isMockMode) return;
+    let disposed = false;
+    let unsubscribe: (() => void) | undefined;
+    void realtime.subscribe(documentID, (event) => {
+      if (event.type === "document.snapshot.v1") {
+        const snapshot = event.payload as { view: DocumentView };
+        client.setQueryData(queryKeys.document(documentID), snapshot.view);
+      } else {
+        useWorkbenchStore.getState().setSelection(null);
+      }
+      void Promise.all([
+        client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
+        client.invalidateQueries({ queryKey: queryKeys.history(documentID) }),
+        client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID) }),
+        client.invalidateQueries({ queryKey: ["documents"] }),
+        client.invalidateQueries({ queryKey: queryKeys.openDocuments }),
+      ]);
+    }).then((dispose) => {
+      if (disposed) dispose(); else unsubscribe = dispose;
+    }).catch((error: Error) => {
+      if (!disposed) message.error(`实时连接失败：${error.message}`);
+    });
+    return () => { disposed = true; unsubscribe?.(); };
+  }, [client, documentID, message]);
   const command = useMutation({
     mutationFn: (operation: () => Promise<DocumentView>) => operation(),
     onSuccess: async (view) => { store.setSelection(null); await refresh(view); }, onError: (error) => message.error(error.message)

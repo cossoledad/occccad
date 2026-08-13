@@ -238,7 +238,9 @@ func (app *application) proxy() http.Handler {
 			app.mu.Unlock()
 			request.URL.Scheme = "http"
 			request.URL.Host = target
-			request.Host = target
+			// Preserve the browser-facing Host header. The API compares it with
+			// Origin during WebSocket Upgrade; replacing it with the internal
+			// target would reject a legitimate same-origin connection.
 		},
 		ErrorHandler: func(writer http.ResponseWriter, _ *http.Request, err error) {
 			writeJSON(writer, http.StatusBadGateway, map[string]any{

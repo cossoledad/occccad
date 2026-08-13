@@ -4,6 +4,7 @@ import { Avatar, Button, Dropdown, Layout, Space, Spin, Tag, Typography } from "
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api, isMockMode } from "../api/client";
+import { realtime } from "../api/realtime-client";
 import { Brand } from "../components/brand";
 import { AuthScreen } from "../features/auth/auth-screen";
 import { DocumentCenter } from "../features/documents/document-center";
@@ -25,12 +26,17 @@ function ApplicationShell() {
   const session = useQuery({ queryKey: queryKeys.session, queryFn: api.session, retry: false });
   const health = useQuery({ queryKey: queryKeys.health, queryFn: api.health, retry: false, refetchInterval: 30_000,
     enabled: Boolean(session.data) });
+  useEffect(() => {
+    if (!session.data || isMockMode) return;
+    realtime.start();
+    return () => realtime.stop();
+  }, [session.data]);
 
   if (session.isLoading) return <div className="application-loading"><Brand /><Spin size="large" /></div>;
   if (!session.data) return <AuthScreen />;
   const user = session.data.user;
   const inWorkbench = location.pathname.startsWith("/documents/");
-  const logout = async () => { await api.logout(); client.clear(); navigate("/"); };
+  const logout = async () => { realtime.stop(); await api.logout(); client.clear(); navigate("/"); };
 
   return <Layout className="application-shell">
     <Layout.Header className="global-header">

@@ -10,7 +10,9 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 - 草图矩形交互、拉伸、实例插入/移动、Undo/Redo；
 - Default/CATIA 导航 Profile、Pointer Capture、快捷键上下文和 Overlay；
 - TanStack Query 管理服务端状态，Zustand 管理工作台交互状态；
-- Mock 与真实 HTTP 两种 API Adapter。
+- Mock Adapter，以及真实 REST + WebSocket 双平面 Adapter；
+- 工作台通过 `occccad.realtime.v1` 订阅文档，建模命令走关联请求响应，其他浏览器提交后由 Outbox event 触发权威状态刷新；
+- WebSocket 自动心跳、指数退避重连、重新订阅、sequence 去重/gap 恢复和事件确认。
 
 浏览器只负责交互和显示，不执行可信 B-Rep 运算，也不成为文档的权威存储。
 

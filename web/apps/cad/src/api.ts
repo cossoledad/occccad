@@ -1,4 +1,5 @@
 import type { AuditEvent, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, Team, TopologyElementProperties, User, Vec2, Vec3 } from "./types";
+import { realtime } from "./api/realtime-client";
 
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 export const apiURL = (path: string): string => `${apiBaseURL}${path}`;
@@ -150,9 +151,7 @@ export const restApi = {
     method: "POST", body: JSON.stringify({ requestId: requestId(), name, folderId: folderId ?? null }),
   }),
   command: (documentId: string, command: Record<string, unknown>) =>
-    request<DocumentView>(`/api/documents/${documentId}/commands`, {
-      method: "POST", body: JSON.stringify({ requestId: requestId(), ...command }),
-    }),
+    realtime.executeCommand(documentId, { requestId: requestId(), ...command }),
   createSketch: (documentId: string, plane: string, origin: Vec2, width: number, height: number) =>
     restApi.command(documentId, { type: "CREATE_RECTANGLE_SKETCH", plane, origin, width, height }),
   pad: (documentId: string, sketchId: string, length: number) =>

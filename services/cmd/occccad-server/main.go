@@ -76,13 +76,13 @@ func run() error {
 
 	workspaceService := workspace.NewWithArtifacts(pool, worker, artifactService)
 	accessService := access.New(pool)
+	apiServer := api.New(
+		pool, worker, workspaceService, accessService, authenticationService,
+		artifactService, jobService, configuration.SecureCookies, configuration.AllowedOrigins)
+	defer apiServer.Close()
 	httpServer := &http.Server{
-		Addr: configuration.ListenAddress,
-		Handler: observability.HTTPHandler(api.New(
-			pool, worker, workspaceService, accessService, authenticationService,
-			artifactService,
-			jobService,
-			configuration.SecureCookies, configuration.AllowedOrigins).Handler()),
+		Addr:              configuration.ListenAddress,
+		Handler:           observability.HTTPHandler(apiServer.Handler()),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

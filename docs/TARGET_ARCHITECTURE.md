@@ -4672,10 +4672,97 @@ Kubernetes 使用 node pool/taint 区分普通 Go、内存型 OCCT、GPU/CAE 节
 
 ## 7. 通信协议
 
+### 7.1 结论：双平面而不是 WebSocket 全面替代 REST
+
+WebSocket 对服务端主动推送、低延迟双向消息、同文档订阅、在线状态、交互预览和任务进度有明显优势；单靠 REST 若不轮询、长轮询或 SSE，无法及时把另一用户已经提交的操作送到当前浏览器。但 WebSocket 不是更好的通用文件/资源协议：登录和管理 CRUD 需要清晰的 HTTP 状态与审计边界，GET 需要缓存和条件请求，STEP/GLB/B-Rep 需要流式上传下载、Range/CDN/signed URL，健康检查还需要负载均衡器直接理解。
+
+因此目标不是把所有 HTTP 包进一个长连接，而是共享同一领域层的两个 transport：
+
+- **REST 控制与制品面**：认证、管理 CRUD、首次查询、健康检查、上传下载和 signed URL；
+- **WebSocket 实时消息面**：版本化请求/响应、Document/Workspace 订阅、已提交事件、异步进度、presence 和短期 interaction preview；
+- 两个入口必须调用同一个 typed Command Handler、ACL、幂等表、Workspace CAS 和 Outbox，不能分别实现业务规则；
+- 大 payload 只在消息中携带 ArtifactId/URL/digest，不通过 WebSocket 搬运 B-Rep、GLB 或 STEP。
+
+浏览器标准 `WebSocket` 没有应用级 backpressure，接收方过慢可能造成缓冲和内存压力；`WebSocketStream` 虽提供 backpressure，但仍是非标准实验能力。因此服务端必须使用有界发送队列，并在队列满时断开慢消费者，让其重连并恢复权威快照，而不是无限缓冲。[MDN WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) [MDN WebSocketStream](https://developer.mozilla.org/en-US/docs/Web/API/WebSocketStream)
+
+### 7.2 统一消息 Envelope
+
+当前 JSON 子协议固定为 `occccad.realtime.v1`，握手通过 `Sec-WebSocket-Protocol` 协商。每条应用消息都是完整 Envelope，不依赖 WebSocket frame 边界之外的隐式上下文：
+
+```text
+RealtimeEnvelope
+  protocol: "occccad.realtime.v1"
+  id: UUID
+  kind: request|response|event|ack|error
+  type: versioned.message.name.v1
+  correlationId?: request.id
+  sequence?: Workspace sequence
+  sentAt: RFC3339Nano
+  payload?: typed JSON object
+  error?: { code, message, retryable }
+```
+
+同步请求由 `response/error.correlationId` 完成；异步事件使用稳定 event type 和 Workspace sequence；`ack` 表示客户端已处理到的序列位置，不等价于业务事务提交。当前消息目录：
+
+| 消息 | 方向 | 语义 |
+|---|---|---|
+| `connection.initialize.v1` / `connection.ready.v1` | C→S / S→C | CSRF 初始化、连接能力与心跳参数 |
+| `document.subscribe.v1` / `document.subscribed.v1` | C→S / S→C | ACL 校验、订阅 main Workspace，并返回权威快照与 sequence |
+| `document.unsubscribe.v1` | C→S | 释放文档订阅 |
+| `workspace.command.execute.v1` / `workspace.command.completed.v1` | C→S / S→C | 执行现有 typed Domain Command；request ID 仍是幂等 identity |
+| `workspace.transaction.committed.v1` | S→C | Outbox 中的持久提交事实与 sequence |
+| `stream.ack.v1` | C→S | 单调确认已处理 sequence |
+| `request.failed.v1` | S→C | 稳定错误 code、可重试提示与 correlation |
+
+### 7.3 连接、顺序与恢复
+
+```mermaid
+sequenceDiagram
+    participant A as Browser A
+    participant R as Realtime API
+    participant M as Model Handler
+    participant P as PostgreSQL
+    participant B as Browser B
+    A->>R: initialize(CSRF)
+    R-->>A: ready(connectionId, limits)
+    B->>R: subscribe(documentId)
+    R->>P: ACL + Workspace Head
+    R-->>B: subscribed(snapshot, sequence=N)
+    A->>R: command.execute(requestId)
+    R->>M: shared typed handler
+    M->>P: CAS + Revision + Outbox
+    R-->>A: command.completed(DocumentView)
+    P-->>R: Outbox dispatcher
+    R-->>A: transaction.committed(N+1)
+    R-->>B: transaction.committed(N+1)
+    B->>R: stream.ack(N+1)
+    B->>R: refetch authoritative projections
+```
+
+- WebSocket/TCP 只保证当前连接内有序传输，不提供业务 exactly-once；RFC 6455 允许中间层拆分/合并 frame，因此应用只按完整 message 和 envelope 解释数据。[RFC 6455](https://www.rfc-editor.org/rfc/rfc6455)
+- Domain Command 依靠持久 `request_id + payload digest` 幂等；事件依靠 Outbox 在事务提交后产生，客户端按 Workspace sequence 去重。
+- 客户端发现 sequence gap、发送队列溢出、网络切换或进程重启时，不猜测缺失 patch：指数退避重连、重新订阅、获取权威快照，再继续接收事件。
+- 服务端每 25 秒发送 Ping，60 秒未收到 Pong 判定失联；单连接一条 reader loop 和一条 writer loop，遵守 Gorilla WebSocket 的并发约束。[Gorilla WebSocket concurrency](https://pkg.go.dev/github.com/gorilla/websocket#hdr-Concurrency)
+- 当前每连接发送队列上限 128 条、单消息上限 1 MiB。事件只携带小型变更事实；几何和大列表通过 REST/Artifact 协议读取。
+
+### 7.4 安全、权限与协作语义
+
+- Upgrade 使用现有 HttpOnly session cookie；连接后必须以可读 CSRF cookie 完成 `connection.initialize.v1`，服务端同时校验 Origin/允许列表；
+- 每次 subscribe 和 command 都重新检查资源 ACL，不能因为连接建立时有权限就永久信任；
+- 同一 Workspace 的并发提交仍由 Head/sequence CAS 决定。实时传输让冲突更快可见，但不会自动把两个不兼容 Feature edit 合并；后续 semantic rebase 必须位于 Model 层；
+- `workspace.transaction.committed` 是持久事实。Presence、光标、预选和拖拽 preview 是带 TTL、限频、可丢失且不得进入 Revision/Undo 的 ephemeral message；提交后必须由权威 evaluator 替换 preview；
+- 当前实现让另一浏览器实时看到“已提交操作”的结果，不宣称已经实现逐像素鼠标轨迹共享、OT/CRDT 或多人草图求解。
+
+### 7.5 单机实现与横向扩展边界
+
+当前模块化单体使用 PostgreSQL Outbox 轮询并向进程内 subscription hub 扇出，适合一个 API 实例。断线客户端通过 snapshot 恢复，不要求服务端为每个浏览器永久保存消费游标。
+
+扩展到多个 API/Realtime 实例时，不能让某实例独占 Outbox 后只通知本机连接。届时 Outbox Publisher 把事件发布到按 tenant/document 分区的 Event Bus，每个 Realtime 实例建立独立 consumer/fanout subscription；sticky session 只是优化，不是正确性条件。Presence 可以放 Valkey TTL，持久 Workspace event 仍来自 PostgreSQL/事件总线。引入总线前应先有多实例和吞吐证据。
+
 | 路径 | 协议 | 用途 |
 |---|---|---|
-| Browser → Gateway | HTTPS JSON/REST | CRUD、命令、短查询；发布 OpenAPI |
-| Browser ↔ Realtime | WebSocket | presence、selection、workspace events、job progress |
+| Browser → Gateway | HTTPS JSON/REST | 认证、CRUD、短查询、上传下载；发布 OpenAPI |
+| Browser ↔ Realtime | WebSocket | 命令请求响应、订阅、workspace events、presence、selection、job progress |
 | Service → Service | gRPC/Protobuf | 低延迟 typed query/command |
 | Control → Event Bus | Protobuf events | 事务后事件、索引、通知、审计 |
 | Scheduler → Workers | JetStream work queue + gRPC control | 持久任务与取消/心跳 |

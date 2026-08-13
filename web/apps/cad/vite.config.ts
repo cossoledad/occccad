@@ -23,7 +23,8 @@ export default defineConfig(({ mode }) => {
       proxy: mode === "mock" ? undefined : {
         "/api": {
           target: environment.VITE_API_PROXY_TARGET || "http://127.0.0.1:8080",
-          changeOrigin: true,
+          changeOrigin: false,
+          ws: true,
         },
       },
     },

@@ -5,7 +5,7 @@
 
 ## 1. 结论
 
-当前 occccad 是一个“模块化业务单体 + 持久任务进程 + C++ 几何计算 Worker + 独立 Web 应用”的早期分布式垂直切片。HTTP 业务、数据库、后台任务与几何计算已经跨进程，但调度仅限本机，制品仅限共享本地目录，因此还不是真正的跨主机云平台。
+当前 occccad 是一个“模块化业务单体 + 持久任务进程 + C++ 几何计算 Worker + 独立 Web 应用”的早期分布式垂直切片。HTTP/WebSocket、数据库、后台任务与几何计算已经跨进程，但调度仅限本机，制品仅限共享本地目录，因此还不是真正的跨主机云平台。
 
 ```mermaid
 flowchart LR
@@ -21,14 +21,14 @@ flowchart LR
     Router --> Gn["C++ Geometry Worker N"]
 ```
 
-`occccad-control` 是可选的本地聚合入口。单独运行时，Web、API、Jobs 和 Geometry Worker 也可分别启动。
+图中的 `/api` 浏览器入口同时承载普通 HTTP 与 `/api/realtime` WebSocket Upgrade。`occccad-control` 是可选的本地聚合入口；单独运行时，Web、API、Jobs 和 Geometry Worker 也可分别启动。
 
 ## 2. 仓库与进程边界
 
 | 路径/进程 | 技术 | 真实边界 |
 |---|---|---|
-| `web/apps/cad` | React/TypeScript/Three.js | 独立浏览器应用，可使用 Mock 或真实 HTTP API |
-| `occccad-server` | Go/net/http | 身份、文档、ACL、版本、任务提交和几何编排 |
+| `web/apps/cad` | React/TypeScript/Three.js | 独立浏览器应用，可使用 Mock，或真实 REST + WebSocket API |
+| `occccad-server` | Go/net/http | 身份、文档、ACL、版本、实时消息、任务提交和几何编排 |
 | `occccad-jobs` | Go | PostgreSQL 任务消费者，无监听端口 |
 | `occccad-migrate` | Go | 一次性数据库迁移任务 |
 | `occccad-control` | Go HTTP/gRPC | 本地子进程管理、反向代理、Geometry Router、调试切流 |
@@ -127,7 +127,16 @@ HTTP transport DTO 在 API 边界转换为 `type_uri + schema_version + typed pa
 
 Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更新；Product 支持插入、移动和引用策略。Undo/Redo 以根 Domain Transaction 为稳定 identity：Revert 指向根 intent，Reapply 指向根 intent 并消费一个具体 Revert。服务端按 actor 折叠有序 action log 计算 capability，因此连续 Undo 两步可按逆序 Redo 两步；新 Domain/Restore 形成 redo boundary，但不删除历史。API 返回的 `canUndo/canRedo` 来自同一状态折叠，Web 按它置灰。删除上游实体前会检查当前结构依赖，字段 digest 或依赖冲突不会覆盖后续编辑。
 
-### 4.3 参数、依赖与增量求值
+### 4.3 实时消息与同文档同步
+
+- `GET /api/realtime` 使用 `occccad.realtime.v1` WebSocket 子协议；现有 session cookie 负责身份，首条 `connection.initialize.v1` 再验证 CSRF token 和 Origin；
+- JSON Envelope 支持 request/response/event/ack/error、correlation ID、版本化 type、Workspace sequence 和稳定错误；当前最大消息 1 MiB；
+- Web 前端的建模命令使用 `workspace.command.execute.v1`，HTTP 命令入口仍保留并调用同一个 Workspace Service；
+- 浏览器进入工作台后订阅 Document 并获得 DocumentView 快照。其他用户提交后，事务内 Outbox 由 API 轮询并向所有本机订阅者发布 `workspace.transaction.committed.v1`，浏览器刷新 Document、History、Properties 和目录投影；
+- 客户端按 sequence 去重和发现 gap，断线指数退避重连并重新获取快照；服务端以 Ping/Pong 检测失联，有界 128 消息队列满时断开慢消费者；
+- 当前实现多浏览器查看同一文档的提交后实时同步；presence、鼠标/选择和拖拽 preview 尚未接入 UI，多 API 实例间扇出也尚未实现。
+
+### 4.4 参数、依赖与增量求值
 
 - Rectangle width/height 与 Pad length 会确定性派生稳定 ParameterId 和 PropertySlot facade；
 - Quantity 以 SI canonical value 和显式 Dimension 保存，当前注册 `mm/cm/m` 与 `deg/rad`，拒绝非有限值和量纲错误；
@@ -135,7 +144,7 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 - Design Dependency Graph 使用稳定 key 与 typed edge，提交前检查 phase 和 cycle；handler 的 impact seed 计算 transitive dirty closure；
 - 每个新模型 Revision 保存 model hash、dependency snapshot digest 和 EvaluationManifest，并投影 node input/output digest、dirty nodes 与 authoritative EvaluationRun；增量 evaluator 只在 input digest 相同才复用前一 manifest 结果，测试以清缓存冷求值为等价 oracle。
 
-### 4.4 身份与访问控制
+### 4.5 身份与访问控制
 
 - 邮箱/密码登录与数据库会话 Cookie；
 - 注册账号经管理员审批，平台角色为 `ADMIN` 或 `MEMBER`；
@@ -260,7 +269,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 
 | 能力 | 状态 | 证据边界 |
 |---|---|---|
-| Part/Product 文档与版本 | 已实现基础闭环 | Go workspace、迁移、HTTP API |
+| Part/Product 文档与版本 | 已实现基础闭环 | Go workspace、迁移、REST/WebSocket API |
 | 账号、团队、ACL、审计 | 已实现基础闭环 | authn/access/API/迁移 |
 | 矩形草图与 Pad | 已实现 | Web 命令、Proto、OCCT Worker |
 | STEP Part 导入导出 | 已实现基础闭环 | 持久任务与 Worker |
@@ -270,7 +279,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 | 三维装配约束/运动学 | 未实现 | Product 只有 Transform |
 | 持久拓扑命名 | 未实现 | 当前 local ID 不可作长期 Feature 引用 |
 | S3 兼容对象存储/CDN | 未实现 | 当前仅本地目录 |
-| 实时多人同文档编辑 | 未实现 | 有 ACL，无实时协作协议 |
+| 实时多人同文档编辑 | 已实现首个提交同步闭环 | WebSocket request/event、Outbox、sequence、重连快照；尚无 presence/preview 与 semantic rebase |
 | XDE/AP242 装配交换 | 未实现 | 当前 STEP 路径为基础 Part 交换 |
 | 大装配 LOD/流式加载 | 未实现 | 当前为基础 GLB 显示 |
 | 曲面、钣金、工程图、CAM、CAE | 未实现 | 无对应领域模型与 Worker |

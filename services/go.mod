@@ -4,6 +4,7 @@ go 1.26.5
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.7.6
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0

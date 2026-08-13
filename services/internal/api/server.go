@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -11,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -38,6 +40,8 @@ type Server struct {
 	openDocuments  *openDocumentRegistry
 	secureCookies  bool
 	allowedOrigins map[string]struct{}
+	realtime       *realtimeHub
+	realtimeCancel context.CancelFunc
 }
 
 func New(
@@ -57,13 +61,26 @@ func New(
 			origins[origin] = struct{}{}
 		}
 	}
-	return &Server{
+	server := &Server{
 		database: database, worker: worker,
 		workspace: workspaceService, access: accessService, authn: authenticationService,
 		artifacts: artifactService,
 		jobs:      jobService, openDocuments: newOpenDocumentRegistry(),
-		secureCookies: secureCookies, allowedOrigins: origins,
+		secureCookies: secureCookies, allowedOrigins: origins, realtime: newRealtimeHub(),
 	}
+	if database != nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		server.realtimeCancel = cancel
+		go server.dispatchRealtimeOutbox(ctx)
+	}
+	return server
+}
+
+func (server *Server) Close() {
+	if server.realtimeCancel != nil {
+		server.realtimeCancel()
+	}
+	server.realtime.close()
 }
 
 func principal(request *http.Request) access.User {
@@ -164,6 +181,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", server.logout)
 	mux.HandleFunc("POST /api/auth/change-password", server.changePassword)
 	mux.HandleFunc("GET /api/session", server.session)
+	mux.HandleFunc("GET /api/realtime", server.realtimeConnection)
 	mux.HandleFunc("GET /api/admin/users", server.adminListUsers)
 	mux.HandleFunc("POST /api/admin/users", server.adminCreateUser)
 	mux.HandleFunc("PATCH /api/admin/users/{userID}", server.adminUpdateUser)
@@ -918,6 +936,16 @@ type statusRecorder struct {
 	status int
 	bytes  int
 }
+
+func (recorder *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return http.NewResponseController(recorder.ResponseWriter).Hijack()
+}
+
+func (recorder *statusRecorder) Flush() {
+	_ = http.NewResponseController(recorder.ResponseWriter).Flush()
+}
+
+func (recorder *statusRecorder) Unwrap() http.ResponseWriter { return recorder.ResponseWriter }
 
 func (recorder *statusRecorder) WriteHeader(status int) {
 	recorder.status = status
