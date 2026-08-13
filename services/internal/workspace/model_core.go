@@ -12,11 +12,13 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
 const (
-	typeCreateSketch           = "occccad://part/rectangle-sketch/create"
+	typeCreateSketch           = "occccad://part/sketch/create"
+	typeEditSketch             = "occccad://part/sketch/edit"
 	typeCreatePad              = "occccad://part/pad/create"
 	typeImportStep             = "occccad://part/step/import"
 	typeSetParameterLiteral    = "occccad://parameter/literal/set"
@@ -44,6 +46,7 @@ var workspaceCommandRegistry = mustWorkspaceRegistry()
 func mustWorkspaceRegistry() *modelcore.Registry {
 	registry, err := modelcore.NewRegistry(
 		commandHandler{typeCreateSketch, "PART", applyCreateFeature},
+		commandHandler{typeEditSketch, "PART", applyEditSketch},
 		commandHandler{typeCreatePad, "PART", applyCreateFeature},
 		commandHandler{typeImportStep, "PART", applyCreateFeature},
 		commandHandler{typeSetParameterLiteral, "PART", applyParameterSource},
@@ -56,6 +59,109 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		panic(err)
 	}
 	return registry
+}
+
+type editSketchPayload struct {
+	SketchID   string            `json:"sketchId"`
+	Operations []SketchOperation `json:"operations"`
+}
+
+func applyEditSketch(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model PartModel
+	var payload editSketchPayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	normalizePartModel(&model)
+	for index := range model.Features {
+		feature := &model.Features[index]
+		if feature.ID != payload.SketchID {
+			continue
+		}
+		if feature.Type != "SKETCH" || feature.Sketch == nil {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected feature is not a sketch", ErrValidation)
+		}
+		before := *feature.Sketch
+		if err := applySketchOperations(feature.Sketch, payload.Operations); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		if err := validateSketch(*feature.Sketch); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: feature.ID, SlotID: "sketch.model"}, before, *feature.Sketch)
+		next, _ := json.Marshal(model)
+		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(feature.ID)}}, nil
+	}
+	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
+}
+
+func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) error {
+	if len(operations) == 0 {
+		return fmt.Errorf("%w: sketch edit requires at least one operation", ErrValidation)
+	}
+	for _, operation := range operations {
+		switch operation.Type {
+		case "ADD_ENTITY":
+			if operation.Entity == nil {
+				return fmt.Errorf("%w: ADD_ENTITY requires an entity", ErrValidation)
+			}
+			sketch.Entities = append(sketch.Entities, *operation.Entity)
+		case "ADD_CONSTRAINT":
+			if operation.Constraint == nil {
+				return fmt.Errorf("%w: ADD_CONSTRAINT requires a constraint", ErrValidation)
+			}
+			sketch.Constraints = append(sketch.Constraints, *operation.Constraint)
+		case "ADD_RECTANGLE":
+			if operation.First == nil || operation.Second == nil {
+				return fmt.Errorf("%w: ADD_RECTANGLE requires two points", ErrValidation)
+			}
+			return fmt.Errorf("%w: rectangle macro must be expanded before command dispatch", ErrValidation)
+		default:
+			return fmt.Errorf("%w: unsupported sketch operation %s", ErrValidation, operation.Type)
+		}
+	}
+	return nil
+}
+
+func validateSketch(sketch SketchFeature) error {
+	if sketch.SchemaVersion != 1 {
+		return fmt.Errorf("%w: unsupported sketch schema version", ErrValidation)
+	}
+	entityKinds := map[string]string{}
+	for _, entity := range sketch.Entities {
+		if entity.ID == "" || entityKinds[entity.ID] != "" {
+			return fmt.Errorf("%w: sketch entity ids must be unique", ErrValidation)
+		}
+		entityKinds[entity.ID] = entity.Kind
+		switch entity.Kind {
+		case "POINT":
+			if entity.Point == nil || !finite(entity.Point.X) || !finite(entity.Point.Y) {
+				return fmt.Errorf("%w: invalid sketch point", ErrValidation)
+			}
+		case "LINE":
+			if entity.Start == nil || entity.End == nil || !finite(entity.Start.X) || !finite(entity.Start.Y) || !finite(entity.End.X) || !finite(entity.End.Y) || (entity.Start.X == entity.End.X && entity.Start.Y == entity.End.Y) {
+				return fmt.Errorf("%w: invalid sketch line", ErrValidation)
+			}
+		default:
+			return fmt.Errorf("%w: unsupported sketch entity %s", ErrValidation, entity.Kind)
+		}
+	}
+	constraints := map[string]bool{}
+	for _, constraint := range sketch.Constraints {
+		if constraint.ID == "" || constraints[constraint.ID] {
+			return fmt.Errorf("%w: sketch constraint ids must be unique", ErrValidation)
+		}
+		constraints[constraint.ID] = true
+		for _, reference := range constraint.References {
+			if reference.Target == "ENTITY" && entityKinds[reference.EntityID] == "" {
+				return fmt.Errorf("%w: constraint %s references unknown entity %s", ErrValidation, constraint.ID, reference.EntityID)
+			}
+		}
+	}
+	return nil
 }
 
 type createFeaturePayload struct {
@@ -292,6 +398,9 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			return err
 		}
 		normalizePartModel(&model)
+		if err := service.solveSketches(ctx, prepared.requestID, &model); err != nil {
+			return err
+		}
 		if err := validateAndResolvePartParameters(&model); err != nil {
 			return err
 		}
@@ -314,6 +423,10 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err != nil {
 			return err
 		}
+	}
+	changes, err = reconcilePersistedChanges(prepared.documentType, prepared.modelJSON, nextJSON, changes)
+	if err != nil {
+		return err
 	}
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
@@ -413,6 +526,65 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	return tx.Commit(ctx)
 }
 
+func (service *Service) solveSketches(ctx context.Context, requestID string, model *PartModel) error {
+	for featureIndex := range model.Features {
+		sketch := model.Features[featureIndex].Sketch
+		if sketch == nil || len(sketch.Entities) == 0 {
+			continue
+		}
+		if service.worker == nil {
+			return fmt.Errorf("%w: geometry worker is required to solve sketches", ErrValidation)
+		}
+		input := geometry.SketchModel{}
+		for _, entity := range sketch.Entities {
+			switch entity.Kind {
+			case "POINT":
+				input.Points = append(input.Points, geometry.SketchPoint{ID: entity.ID, X: entity.Point.X, Y: entity.Point.Y, Role: entity.Role})
+			case "LINE":
+				input.Lines = append(input.Lines, geometry.SketchLine{ID: entity.ID, StartX: entity.Start.X, StartY: entity.Start.Y, EndX: entity.End.X, EndY: entity.End.Y, Role: entity.Role})
+			}
+		}
+		for _, constraint := range sketch.Constraints {
+			value := geometry.SketchConstraint{ID: constraint.ID, Kind: constraint.Kind}
+			if constraint.FixedPoint != nil {
+				value.FixedX, value.FixedY = constraint.FixedPoint.X, constraint.FixedPoint.Y
+			}
+			for _, reference := range constraint.References {
+				value.References = append(value.References, geometry.SketchReference{Target: reference.Target, EntityID: reference.EntityID, SubElement: reference.SubElement})
+			}
+			input.Constraints = append(input.Constraints, value)
+		}
+		result, err := service.worker.SolveSketch(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
+		if err != nil {
+			return err
+		}
+		if result.Status != "SOLVED" && result.Status != "UNDER_CONSTRAINED" {
+			return fmt.Errorf("%w: sketch solve %s: %s", ErrValidation, result.Status, result.Diagnostic)
+		}
+		byID := map[string]geometry.SketchPoint{}
+		lines := map[string]geometry.SketchLine{}
+		for _, point := range result.Model.Points {
+			byID[point.ID] = point
+		}
+		for _, line := range result.Model.Lines {
+			lines[line.ID] = line
+		}
+		for entityIndex := range sketch.Entities {
+			entity := &sketch.Entities[entityIndex]
+			if entity.Kind == "POINT" {
+				p := byID[entity.ID]
+				entity.Point = &SketchPoint2{p.X, p.Y}
+			} else if entity.Kind == "LINE" {
+				l := lines[entity.ID]
+				entity.Start = &SketchPoint2{l.StartX, l.StartY}
+				entity.End = &SketchPoint2{l.EndX, l.EndY}
+			}
+		}
+		sketch.Solve = SketchSolveState{Status: result.Status, DegreesOfFreedom: result.DegreesOfFreedom, Diagnostic: result.Diagnostic, ConflictingConstraintIDs: result.ConflictingConstraintIDs, RedundantConstraintIDs: result.RedundantConstraintIDs}
+	}
+	return nil
+}
+
 func buildProductEvaluation(model ProductModel, revisionID, modelHash string, seeds []modelcore.DependencyKey, prior *modelcore.EvaluationManifest) (*modelcore.DependencyGraph, modelcore.EvaluationManifest, error) {
 	nodes := make([]modelcore.DependencyNode, 0, len(model.Instances))
 	for _, instance := range model.Instances {
@@ -432,7 +604,7 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 
 func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, documentType string, modelJSON json.RawMessage, request CommandRequest) (string, any, error) {
 	switch request.Type {
-	case "CREATE_RECTANGLE_SKETCH":
+	case "CREATE_SKETCH":
 		if documentType != "PART" {
 			break
 		}
@@ -440,12 +612,29 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if plane != "XY" && plane != "XZ" && plane != "YZ" {
 			return "", nil, fmt.Errorf("%w: select XY, XZ, or YZ plane", ErrValidation)
 		}
-		if !positiveFinite(request.Width) || !positiveFinite(request.Height) || !finite(request.Origin[0]) || !finite(request.Origin[1]) {
-			return "", nil, fmt.Errorf("%w: rectangle dimensions must be positive finite values", ErrValidation)
-		}
 		var model PartModel
 		_ = json.Unmarshal(modelJSON, &model)
-		return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "RECTANGLE_SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Rectangle: &Rectangle{Origin: request.Origin, Width: request.Width, Height: request.Height}}}, nil
+		return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DegreesOfFreedom: 0}}}}, nil
+	case "EDIT_SKETCH":
+		if documentType != "PART" {
+			break
+		}
+		operations := make([]SketchOperation, 0, len(request.Operations)+12)
+		for index, operation := range request.Operations {
+			if operation.Type != "ADD_RECTANGLE" {
+				operations = append(operations, operation)
+				continue
+			}
+			if operation.First == nil || operation.Second == nil {
+				return "", nil, fmt.Errorf("%w: rectangle requires two points", ErrValidation)
+			}
+			expanded, err := rectangleMacro(request.RequestID+fmt.Sprintf("/%d", index), *operation.First, *operation.Second)
+			if err != nil {
+				return "", nil, err
+			}
+			operations = append(operations, expanded...)
+		}
+		return typeEditSketch, editSketchPayload{SketchID: request.SketchID, Operations: operations}, nil
 	case "PAD_SKETCH":
 		if documentType != "PART" {
 			break
@@ -574,6 +763,56 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 	return "", nil, fmt.Errorf("%w: command %s is not valid for a %s", ErrValidation, request.Type, documentType)
 }
 
+func macroID(seed, slot string) string {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("occccad/sketch/"+seed+"/"+slot)).String()
+}
+
+func rectangleMacro(seed string, first, second SketchPoint2) ([]SketchOperation, error) {
+	if !finite(first.X) || !finite(first.Y) || !finite(second.X) || !finite(second.Y) || first.X == second.X || first.Y == second.Y {
+		return nil, fmt.Errorf("%w: rectangle corners must define positive area", ErrValidation)
+	}
+	minX, maxX, minY, maxY := first.X, second.X, first.Y, second.Y
+	if minX > maxX {
+		minX, maxX = maxX, minX
+	}
+	if minY > maxY {
+		minY, maxY = maxY, minY
+	}
+	lineIDs := []string{macroID(seed, "line-bottom"), macroID(seed, "line-right"), macroID(seed, "line-top"), macroID(seed, "line-left")}
+	lines := []SketchEntity{
+		{ID: lineIDs[0], Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{minX, minY}, End: &SketchPoint2{maxX, minY}},
+		{ID: lineIDs[1], Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{maxX, minY}, End: &SketchPoint2{maxX, maxY}},
+		{ID: lineIDs[2], Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{maxX, maxY}, End: &SketchPoint2{minX, maxY}},
+		{ID: lineIDs[3], Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{minX, maxY}, End: &SketchPoint2{minX, minY}},
+	}
+	operations := make([]SketchOperation, 0, 12)
+	for index := range lines {
+		entity := lines[index]
+		operations = append(operations, SketchOperation{Type: "ADD_ENTITY", Entity: &entity})
+	}
+	endpoint := func(id, sub string) SketchGeometryRef {
+		return SketchGeometryRef{Target: "ENTITY", EntityID: id, SubElement: sub}
+	}
+	axis := func(target string) SketchGeometryRef {
+		return SketchGeometryRef{Target: target, SubElement: "DIRECTION"}
+	}
+	constraints := []SketchConstraint{
+		{ID: macroID(seed, "coincident-0"), Kind: "COINCIDENT", References: []SketchGeometryRef{endpoint(lineIDs[0], "END"), endpoint(lineIDs[1], "START")}},
+		{ID: macroID(seed, "coincident-1"), Kind: "COINCIDENT", References: []SketchGeometryRef{endpoint(lineIDs[1], "END"), endpoint(lineIDs[2], "START")}},
+		{ID: macroID(seed, "coincident-2"), Kind: "COINCIDENT", References: []SketchGeometryRef{endpoint(lineIDs[2], "END"), endpoint(lineIDs[3], "START")}},
+		{ID: macroID(seed, "coincident-3"), Kind: "COINCIDENT", References: []SketchGeometryRef{endpoint(lineIDs[3], "END"), endpoint(lineIDs[0], "START")}},
+		{ID: macroID(seed, "parallel-x-0"), Kind: "PARALLEL", References: []SketchGeometryRef{endpoint(lineIDs[0], "DIRECTION"), axis("SKETCH_X_AXIS")}},
+		{ID: macroID(seed, "parallel-y-0"), Kind: "PARALLEL", References: []SketchGeometryRef{endpoint(lineIDs[1], "DIRECTION"), axis("SKETCH_Y_AXIS")}},
+		{ID: macroID(seed, "parallel-x-1"), Kind: "PARALLEL", References: []SketchGeometryRef{endpoint(lineIDs[2], "DIRECTION"), axis("SKETCH_X_AXIS")}},
+		{ID: macroID(seed, "parallel-y-1"), Kind: "PARALLEL", References: []SketchGeometryRef{endpoint(lineIDs[3], "DIRECTION"), axis("SKETCH_Y_AXIS")}},
+	}
+	for index := range constraints {
+		constraint := constraints[index]
+		operations = append(operations, SketchOperation{Type: "ADD_CONSTRAINT", Constraint: &constraint})
+	}
+	return operations, nil
+}
+
 func ensureFeatureParameters(model *PartModel) {
 	existing := map[string]struct{}{}
 	for _, parameter := range model.Parameters {
@@ -591,11 +830,6 @@ func ensureFeatureParameters(model *PartModel) {
 	for _, feature := range model.Features {
 		keyPrefix := strings.NewReplacer("-", "_", ":", "_").Replace(feature.ID)
 		switch strings.ToUpper(feature.Type) {
-		case "RECTANGLE_SKETCH":
-			if feature.Rectangle != nil {
-				add(feature.ID, "width", keyPrefix+"_width", feature.Rectangle.Width)
-				add(feature.ID, "height", keyPrefix+"_height", feature.Rectangle.Height)
-			}
 		case "PAD":
 			add(feature.ID, "length", keyPrefix+"_length", feature.Length)
 		}
@@ -650,11 +884,6 @@ func validateAndResolvePartParameters(model *PartModel) error {
 	for index := range model.Features {
 		feature := &model.Features[index]
 		switch strings.ToUpper(feature.Type) {
-		case "RECTANGLE_SKETCH":
-			if feature.Rectangle != nil {
-				feature.Rectangle.Width = values["parameter:"+feature.ID+":width"].SIValue * 1000
-				feature.Rectangle.Height = values["parameter:"+feature.ID+":height"].SIValue * 1000
-			}
 		case "PAD":
 			feature.Length = values["parameter:"+feature.ID+":length"].SIValue * 1000
 		}

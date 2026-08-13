@@ -3,7 +3,7 @@ import type { CommandRegistry } from "../cad/command/command-registry";
 import { InputDebugOverlay, type InputDebugSnapshot } from "../cad/overlay/input-debug-overlay";
 import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
 import type { WorkbenchToolID } from "../state/workbench-store";
-import type { DocumentView, PlaneName, RectangleDraft, Selection, Vec3 } from "../types";
+import type { DocumentView, PlaneName, Selection, SketchOperation, Vec3 } from "../types";
 import { CadViewportEngine } from "./cad-viewport-engine";
 
 export type CadViewportHandle = {
@@ -16,12 +16,13 @@ type Props = {
   selection: Selection;
   preselection: Selection;
   sketchPlane?: PlaneName;
+  activeSketchID?: string;
   activeToolID: WorkbenchToolID;
   navigationProfile: NavigationProfileID;
   commandRegistry: CommandRegistry;
   onSelectionChange: (selection: Selection) => void;
   onPreselectionChange: (selection: Selection) => void;
-  onRectangleCreated: (rectangle: RectangleDraft) => void;
+  onSketchOperations: (operations: SketchOperation[]) => void;
   onInstanceMoved: (instanceID: string, translation: Vec3) => void;
 };
 
@@ -30,14 +31,17 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   const engine = useRef<CadViewportEngine | undefined>(undefined);
   const callbacks = useRef(props);
   const [debug, setDebug] = useState<InputDebugSnapshot>();
+  const [toolPrompt, setToolPrompt] = useState("");
   callbacks.current = props;
+  const activeSketch = props.view.part?.features.find((feature) => feature.id === props.activeSketchID)?.sketch;
 
   useEffect(() => {
     if (!host.current) return;
     const instance = new CadViewportEngine(host.current, {
       selectionChanged: (selection) => callbacks.current.onSelectionChange(selection),
       preselectionChanged: (selection) => callbacks.current.onPreselectionChange(selection),
-      rectangleCreated: (rectangle) => callbacks.current.onRectangleCreated(rectangle),
+      sketchOperations: (operations) => callbacks.current.onSketchOperations(operations),
+      toolPromptChanged: setToolPrompt,
       instanceMoved: (instanceID, translation) => callbacks.current.onInstanceMoved(instanceID, translation),
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
     }, props.commandRegistry);
@@ -45,7 +49,9 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.render(callbacks.current.view);
     instance.select(callbacks.current.selection, false);
     instance.preselect(callbacks.current.preselection, false);
-    if (callbacks.current.sketchPlane) instance.beginSketch(callbacks.current.sketchPlane);
+    if (callbacks.current.sketchPlane && callbacks.current.activeSketchID) {
+      instance.beginSketch(callbacks.current.activeSketchID, callbacks.current.sketchPlane);
+    }
     instance.setActiveTool(callbacks.current.activeToolID);
     instance.setNavigationProfile(callbacks.current.navigationProfile);
     return () => { instance.dispose(); engine.current = undefined; };
@@ -55,9 +61,9 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => { engine.current?.select(props.selection, false); }, [props.selection]);
   useEffect(() => { engine.current?.preselect(props.preselection, false); }, [props.preselection]);
   useEffect(() => {
-    if (props.sketchPlane) engine.current?.beginSketch(props.sketchPlane);
+    if (props.sketchPlane && props.activeSketchID) engine.current?.beginSketch(props.activeSketchID, props.sketchPlane);
     else engine.current?.endSketch();
-  }, [props.sketchPlane]);
+  }, [props.sketchPlane, props.activeSketchID]);
   useEffect(() => { engine.current?.setActiveTool(props.activeToolID); }, [props.activeToolID]);
   useEffect(() => { engine.current?.setNavigationProfile(props.navigationProfile); }, [props.navigationProfile]);
 
@@ -66,5 +72,10 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     setStandardView: (view) => engine.current?.setStandardView(view),
   }), []);
 
-  return <><div ref={host} className="cad-viewport-canvas" />{debug && <InputDebugOverlay snapshot={debug} />}</>;
+  return <><div ref={host} className="cad-viewport-canvas" />
+    {props.sketchPlane && <div className="sketch-tool-prompt" role="status" aria-live="polite">
+      <strong>Sketcher · {props.sketchPlane}</strong><span>{toolPrompt}</span>
+      {activeSketch && <small>{activeSketch.solve.status} · {activeSketch.solve.degreesOfFreedom} DoF</small>}
+    </div>}
+    {debug && <InputDebugOverlay snapshot={debug} />}</>;
 });

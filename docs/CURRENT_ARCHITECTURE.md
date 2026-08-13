@@ -155,7 +155,11 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 
 ## 5. Part 几何求值链
 
-当前草图不是通用约束草图。它以矩形参数表示，在指定基准面上形成 Wire/Face，再由 OCCT Pad 得到实体。
+当前已不再保存 `origin + width + height` 测试矩形。Part 中的 `SKETCH` Feature 保存版本化 `SketchFeature v1`：Datum Plane support、具有稳定 ID 的 Point/Line、显式 GeometryRef、Constraint 和最近一次权威 solve 状态。线段持有自己的起终点；端点相接必须由 Coincident 明确表达。
+
+Geometry Worker 内的项目自有 `SketchSolver` 已通过 `SolveSketch` 粗粒度 RPC 接入提交链，PlaneGCS 只存在于适配层内部。当前支持 Point、Line 以及 Coincident、Parallel、FixedPoint，返回 SOLVED/UNDER_CONSTRAINED/INVALID/REDUNDANT/CONFLICTING/FAILED、DoF 和约束诊断。Web 的鼠标移动预览是瞬态确定性预览；`EDIT_SKETCH` 提交后服务端求解结果才会进入不可变 Revision。
+
+草图编辑的 ChangeSet 以最终写入 Revision 的求解后 `sketch.model` 为准，而不是命令处理器产生的求解前候选值；历史投影层能够独立读取和回写该稳定属性槽。Undo/Redo 还会从原事务不可变的 base/result Revision 重建实际 before/after，因此此前由求解前候选值生成的 ChangeSet 也可安全使用，且不放宽并发冲突检查。PlaneGCS 改写坐标、DoF 或诊断后，补偿和重放不会再产生候选值与 Revision 的 digest 冲突。
 
 ```mermaid
 sequenceDiagram
@@ -171,7 +175,8 @@ sequenceDiagram
     A->>A: adapt typed command, pure handler, ChangeSet and dependency graph
     A->>R: EvaluatePart(model parameters, geometry key)
     R->>G: route coarse-grained request
-    G->>G: Sketch rectangle -> Face -> Pad
+    G->>G: SolveSketch entities + constraints
+    G->>G: rectangle profile -> Face -> Pad
     G->>G: B-Rep + mesh + GLB + topology + hash
     G-->>A: EvaluatePartResponse
     A->>F: put B-Rep/GLB objects
@@ -181,12 +186,21 @@ sequenceDiagram
 
 GeometryId 是 SHA-256 内容标识，不绑定 Worker。几何输出包括 B-Rep、GLB、三角形、边折线、包围盒、拓扑计数和体积。新增几何已接入本地制品对象；历史表结构仍保留部分内联数据字段。
 
-### 5.1 Geometry Worker 真实 RPC
+### 5.1 PlaneGCS 技术验证边界
+
+- 上游锁定 FreeCAD `1.0.2` commit `256fc7eff3379911ab5daf88e10182c509aa8052`；该版本原生满足仓库 C++17 基线，未为引入求解器升级全仓语言标准；
+- 构建仅从 FreeCAD 官方仓库获取审计清单内的 PlaneGCS 源文件、必要支持头和许可证，每个文件都有 SHA-256 校验，不下载/链接 FreeCAD App、GUI 或 Python；
+- PlaneGCS 编译为独立 `liboccccad_planegcs.so`，Eigen 3.4.0 与 header-only Boost 1.86.0 由 Conan 显式提供；FreeCAD 配置与日志依赖由 Worker 内窄兼容头隔离；
+- Geometry Worker 持有项目自有 `SketchSolver`，业务头文件不暴露 `GCS::*`。构建目录同时输出 `LICENSE.FreeCAD-PlaneGCS`；
+- 当前测试验证 Rectangle 宏展开后的 4 Line + 4 Coincident + 4 axis Parallel 求解、4 DoF，以及未知实体引用在调用 PlaneGCS 前失败；Go 测试还验证宏对象 ID 的确定性和一个批次内 4 实体/8 约束的原子展开。曲线、尺寸约束、拖拽 RPC、deadline 和 corpus conformance 仍属于后续工作。
+
+### 5.2 Geometry Worker 真实 RPC
 
 | RPC | 当前状态 | 说明 |
 |---|---|---|
 | `Ping` | 已实现 | 健康与 resident 数量 |
 | `EvaluatePart` | 已实现 | 矩形 Pad 链与基础 B-Rep |
+| `SolveSketch` | 已实现 | GeometryPool Router 转发到 Worker，执行 SketchModel v1 的权威 PlaneGCS 求解与诊断 |
 | `ImportStep` | 已实现 | STEP 到 B-Rep/GLB/拓扑 |
 | `ExportStep` | 已实现 | B-Rep 到 STEP |
 | `GetTopology` | 已实现 | 拓扑摘要与属性 |
@@ -248,7 +262,7 @@ flowchart TD
     Query --> Adapter{"Mock or HTTP adapter"}
 ```
 
-Three.js 被封装在 Viewport Engine 内，页面层不应直接操作 Scene/Renderer/Controls。统一输入系统处理 Pointer/Keyboard、导航、Tool、Selection、快捷键上下文和 Overlay。当前已实现结构树与视口选择联动、基准面、矩形草图、拉伸和 Product 实例操作。
+Three.js 被封装在 Viewport Engine 内，页面层不应直接操作 Scene/Renderer/Controls。统一输入系统处理 Pointer/Keyboard、导航、Tool、Selection、快捷键上下文和 Overlay。Sketcher 使用显式 `activeSketchID + plane`，不根据共面草图顺序猜测编辑目标；进入后显示独立 H/V 轴、原点和网格，只显示活动草图。Point、Line、端点和约束标记使用不同渲染 primitive，求解诊断以白/绿/紫/红显示。Point、Line、Rectangle 命令保持连续有效；两点命令支持点击—移动预览—点击，Esc 先取消当前采集、再次 Esc 返回选择；两阶段约束选择提供 hover/首选高亮和状态提示。
 
 Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端行为或权限正确性的证明。
 
@@ -263,7 +277,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 - Go module 当前声明 Go 1.26.5；
 - Web 锁定 pnpm 11.20.0，并执行 TypeScript 检查和 Vite 构建。
 
-仓库包含 Go 单元/边界测试以及 C++ 测试配置；Web 当前缺少正式自动化测试套件。根 README 中曾出现过不存在的 `tests/geometry` 目录，现已按真实结构修正。
+仓库包含 Go 单元/边界测试以及 C++ 测试配置。Web 的 `test:sketch` 使用 Vite SSR 加载真实 Tool 模块，覆盖 Rectangle 点击—移动—点击、Esc 分层取消、Point 标准元素提交、两阶段 Coincident 和 Point/Line 独立渲染数据；更完整的浏览器/WebGL E2E 仍待补充。根 README 中曾出现过不存在的 `tests/geometry` 目录，现已按真实结构修正。
 
 ## 10. 已实现与未实现矩阵
 
@@ -275,7 +289,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 | STEP Part 导入导出 | 已实现基础闭环 | 持久任务与 Worker |
 | 本机 Geometry 扩缩容 | 已实现 | occccad-control |
 | 跨主机 Geometry 调度 | 未实现 | 无注册中心/集群调度 |
-| 通用二维约束求解 | 未实现 | 当前草图是矩形参数 |
+| 二维草图与基础约束 | 已实现首个模板 | SketchFeature v1、Point/Line、Coincident/Parallel/FixedPoint、PlaneGCS 与 Sketcher 交互 |
 | 三维装配约束/运动学 | 未实现 | Product 只有 Transform |
 | 持久拓扑命名 | 未实现 | 当前 local ID 不可作长期 Feature 引用 |
 | S3 兼容对象存储/CDN | 未实现 | 当前仅本地目录 |
@@ -286,7 +300,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 
 ## 11. 当前主要风险
 
-1. **模型表达过窄**：矩形 Pad 结构无法承载通用草图、Feature DAG 和参数表达式。
+1. **草图能力仍窄**：模型与交互模板已经建立，但尺寸约束、圆弧/样条、Trim、拖拽求解和通用 Profile Builder 尚未实现。
 2. **拓扑引用不稳定**：面/边 local ID 只适合本次结果查询，不能支撑可靠圆角、倒角和下游引用。
 3. **制品无法跨主机**：本地文件系统阻止 API/Jobs/Worker 任意调度。
 4. **控制器仅为开发工具**：进程级 Router 不是集群 Scheduler。

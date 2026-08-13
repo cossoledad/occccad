@@ -18,6 +18,10 @@ service GeometryWorker {
     // Evaluate one complete Part feature chain in a coarse-grained worker call.
     rpc EvaluatePart(EvaluatePartRequest) returns (EvaluatePartResponse);
 
+    // Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
+    // implementation detail of this coarse-grained boundary.
+    rpc SolveSketch(SolveSketchRequest) returns (SolveSketchResponse);
+
     // Neutral CAD exchange. STEP is converted to/from the worker's internal B-Rep.
     rpc ImportStep(ImportStepRequest) returns (EvaluatePartResponse);
     rpc ExportStep(ExportStepRequest) returns (ExportStepResponse);
@@ -37,6 +41,62 @@ service GeometryWorker {
     // Feature operations
     rpc CreateChamfer(CreateChamferRequest) returns (CreateChamferResponse);
     rpc CreateFillet(CreateFilletRequest) returns (CreateFilletResponse);
+}
+
+message Vec2 {
+    double x = 1;
+    double y = 2;
+}
+
+message SketchPoint {
+    string id = 1;
+    Vec2 point = 2;
+    string role = 3;
+}
+
+message SketchLine {
+    string id = 1;
+    Vec2 start = 2;
+    Vec2 end = 3;
+    string role = 4;
+}
+
+message SketchGeometryRef {
+    // ENTITY, SKETCH_ORIGIN, SKETCH_X_AXIS, or SKETCH_Y_AXIS.
+    string target = 1;
+    string entity_id = 2;
+    // WHOLE, POINT, START, END, or DIRECTION.
+    string sub_element = 3;
+}
+
+message SketchConstraint {
+    string id = 1;
+    // COINCIDENT, PARALLEL, or FIXED_POINT.
+    string kind = 2;
+    repeated SketchGeometryRef references = 3;
+    Vec2 fixed_point = 4;
+}
+
+message SketchModel {
+    uint32 schema_version = 1;
+    repeated SketchPoint points = 2;
+    repeated SketchLine lines = 3;
+    repeated SketchConstraint constraints = 4;
+}
+
+message SolveSketchRequest {
+    string request_id = 1;
+    SketchModel sketch = 2;
+}
+
+message SolveSketchResponse {
+    SketchModel sketch = 1;
+    // SOLVED, UNDER_CONSTRAINED, INVALID_MODEL, REDUNDANT, CONFLICTING, FAILED.
+    string status = 2;
+    int32 degrees_of_freedom = 3;
+    repeated string conflicting_constraint_ids = 4;
+    repeated string redundant_constraint_ids = 5;
+    string diagnostic = 6;
 }
 
 message EvaluatePartRequest {

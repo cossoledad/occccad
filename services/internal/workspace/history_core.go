@@ -132,6 +132,24 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 	if err := original.Finalize(); err != nil {
 		return fmt.Errorf("%w: invalid persisted ChangeSet: %v", ErrValidation, err)
 	}
+	// The immutable base/result revisions are the final authority for the
+	// transaction's before/after values. Reconstructing through the persisted
+	// write set also repairs ChangeSets produced before evaluator-normalized
+	// sketch values were recorded, without weakening compensation conflict checks.
+	var transactionBase, transactionResult json.RawMessage
+	if err := service.database.QueryRow(ctx, `
+		SELECT base.model_json,result.model_json
+		FROM occccad.domain_transactions domain_tx
+		JOIN occccad.document_versions base ON base.id=domain_tx.base_revision_id
+		JOIN occccad.document_versions result ON result.id=domain_tx.result_revision_id
+		WHERE domain_tx.id=$1`, rootTransaction).Scan(&transactionBase, &transactionResult); err != nil {
+		return err
+	}
+	reconciled, err := reconcilePersistedChanges(documentType, transactionBase, transactionResult, original)
+	if err != nil {
+		return err
+	}
+	original = reconciled
 	current, err := modelValues(documentType, modelJSON, original)
 	if err != nil {
 		return err
@@ -207,6 +225,12 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 				for _, feature := range model.Features {
 					if feature.ID == change.Target.EntityID {
 						result[change.Target], _ = json.Marshal(feature)
+					}
+				}
+			case "sketch.model":
+				for _, feature := range model.Features {
+					if feature.ID == change.Target.EntityID && feature.Sketch != nil {
+						result[change.Target], _ = json.Marshal(feature.Sketch)
 					}
 				}
 			case "parameter.source":
@@ -290,6 +314,25 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 						model.Features = append(model.Features, feature)
 					}
 				}
+			case "sketch.model":
+				index := -1
+				for i := range model.Features {
+					if model.Features[i].ID == address.EntityID {
+						index = i
+						break
+					}
+				}
+				if index < 0 || model.Features[index].Type != "SKETCH" || model.Features[index].Sketch == nil {
+					return nil, fmt.Errorf("%w: sketch %s was deleted", ErrValidation, address.EntityID)
+				}
+				if len(value) == 0 || string(value) == "null" {
+					return nil, fmt.Errorf("%w: sketch.model cannot be removed independently", ErrValidation)
+				}
+				var sketch SketchFeature
+				if err := json.Unmarshal(value, &sketch); err != nil {
+					return nil, err
+				}
+				model.Features[index].Sketch = &sketch
 			case "parameter.source":
 				for i := range model.Parameters {
 					if model.Parameters[i].ParameterID == address.EntityID {
@@ -357,6 +400,23 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 		}
 	}
 	return json.Marshal(model)
+}
+
+// reconcilePersistedChanges rebuilds the handler ChangeSet against the exact
+// model bytes that will be committed. Authoritative evaluators may normalize a
+// command candidate (for example, PlaneGCS updates sketch coordinates and solve
+// diagnostics), so persisting the handler's pre-evaluation after value would
+// make a subsequent compensation compare against a state that never existed.
+func reconcilePersistedChanges(documentType string, beforeJSON, afterJSON json.RawMessage, set modelcore.ChangeSet) (modelcore.ChangeSet, error) {
+	before, err := modelValues(documentType, beforeJSON, set)
+	if err != nil {
+		return modelcore.ChangeSet{}, err
+	}
+	after, err := modelValues(documentType, afterJSON, set)
+	if err != nil {
+		return modelcore.ChangeSet{}, err
+	}
+	return changesBetweenValues(before, after, set.ImpactSeeds)
 }
 
 func changesBetweenValues(before, after map[modelcore.PropertyAddress]json.RawMessage, seeds []modelcore.DependencyKey) (modelcore.ChangeSet, error) {

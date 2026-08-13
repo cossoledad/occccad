@@ -1046,27 +1046,26 @@ flowchart LR
 
 ### 5.3 二维约束求解路线
 
-本节是草图及约束后端的开发规格。目标不是给当前 `RECTANGLE_SKETCH` 增加几个尺寸字段，而是建立可以长期承载 Part Design 的版本化二维参数模型、权威求解边界和 Profile 生成链。
+本节是草图及约束后端的开发规格。目标不是给测试矩形增加几个尺寸字段，而是建立可以长期承载 Part Design 的版本化二维参数模型、权威求解边界和 Profile 生成链。
 
-#### 5.3.1 当前起点与迁移目标
+#### 5.3.1 已落地的首个纵向切片
 
-当前后端把矩形草图直接保存为 `Feature.Rectangle { origin, width, height }`，`PAD` 通过 `profile` 引用草图。Part 求值时，Go Workspace 将其折叠成 `RectangularPadSpec`，C++ Worker 直接构造矩形 Wire/Face/Prism。它没有独立的 Sketch Entity、Constraint、自由度、求解状态或冲突诊断。
+首个实现已经删除 `Feature.Rectangle` 测试模型。选择 Datum Plane 后先以 `CREATE_SKETCH` 创建空的 `SketchFeature v1`；点、线、约束和复合工具统一形成 `EDIT_SKETCH` operation batch。服务端在写 Revision 之前通过 Worker `SolveSketch` 执行权威求解并回写求解坐标、状态、DoF 与诊断。
 
-目标表示为：
+当前链表示为：
 
 ```mermaid
 flowchart LR
-    Legacy["RECTANGLE_SKETCH<br/>origin + width + height"] --> Migrator["Schema migrator"]
-    Migrator --> Sketch["SketchFeature v1"]
-    Sketch --> E["4 LineSegments"]
-    Sketch --> C["Coincident + H/V constraints"]
-    Sketch --> D["2 driving dimensions"]
+    Plane["selected Datum Plane"] --> Sketch["CREATE_SKETCH<br/>SketchFeature v1"]
+    Sketch --> Macro["EDIT_SKETCH rectangle macro"]
+    Macro --> E["4 LineSegments"]
+    Macro --> C["4 Coincident + 4 axis Parallel"]
     Sketch --> Solver["Sketch Solver"]
     Solver --> Profile["Profile Builder"]
     Profile --> Pad["PAD Feature"]
 ```
 
-旧 Revision 永久可读，不在数据库中原地改写。读取旧 Feature 时由版本适配器生成等价的内存 `SketchFeature v1`；只有新提交的 Revision 使用新 schema。矩形的四条线、端点和约束 ID 必须由旧 Feature ID 确定性派生，使重复迁移结果一致。迁移后的 Width/Height 使用 driving dimension，Origin 保留为两个自由度，除非旧模型明确把它锁定。
+本切片处于尚未发布数据契约的开发阶段，按仓库的数据重置规则直接替换测试 schema，不保留 `RECTANGLE_SKETCH` 读取适配器；升级后开发环境必须执行数据重置。正式发布兼容承诺一旦建立，后续 schema 演进重新遵守版本化 adapter、只追加迁移和旧 Revision 可读规则。
 
 #### 5.3.2 后端组件边界
 
@@ -1405,7 +1404,7 @@ OCCT `Geom2d` 支持 Line、Circle、Ellipse、Bezier 和 BSpline 等参数曲�
 
 | 工具 | 生成结果 |
 |---|---|
-| Rectangle | 4 LineSegments + 4 Coincident + 2 Horizontal + 2 Vertical；按模式增加尺寸/对称约束 |
+| Rectangle | 4 LineSegments + 4 Coincident + 2 Parallel(X axis) + 2 Parallel(Y axis)；按模式增加尺寸/对称约束 |
 | Polyline | N 个 LineSegments/Arcs + 相邻 Coincident；结束方式决定闭合约束 |
 | Slot | 2 LineSegments + 2 CircularArcs + Coincident/Tangent/Parallel/Equal |
 | Regular Polygon | N 条线 + Coincident + Equal + construction center/radial constraints |
@@ -1842,6 +1841,8 @@ SketchSolver
 
 推荐建立 `PlaneGCSAdapter` 技术验证。FreeCAD 的 Sketcher/PlaneGCS 已用于实际几何约束草图，FreeCAD 仓库采用 LGPL-2.1；但 PlaneGCS 是 FreeCAD 内部组件而非承诺稳定 ABI 的独立库，因此必须通过适配器隔离，并在引入前审计具体源码文件、依赖、修改发布和动态/静态链接义务。[FreeCAD 官方仓库](https://github.com/FreeCAD/FreeCAD)
 
+初始技术基线锁定 FreeCAD 1.0.2 的 commit `256fc7eff3379911ab5daf88e10182c509aa8052`：只获取带逐文件 SHA-256 的 PlaneGCS 核心清单，构建独立 LGPL shared library，并随构建产物复制上游许可证。选择 1.0.2 而非当前 1.1.x 的原因是前者原生兼容项目已验证的 C++17 工具链；不能为了追随上游版本而在适配层外散布 C++20 补丁。升级时必须重新审计源文件清单、许可证、依赖、conformance corpus 和确定性结果，不能只替换 commit。项目 `SketchSolver` 接口及模型不得包含 `GCS::*` 类型。
+
 建议交付顺序：
 
 1. 用项目自有 SketchModel 和测试语料定义行为；
@@ -2041,6 +2042,10 @@ sequenceDiagram
 #### 5.3.14 拖拽与交互求解
 
 拖拽不写 Command、不创建 Version、不在每个 pointer move 后重生成完整 Part。
+
+创建交互采用 CATIA Sketcher 的渐进 characteristic-point 模式作为产品参照，而不复制其 UI：进入上下文必须绑定明确的 `SketchId + support plane`；Point 是一次采集，Line/两点 Rectangle 是“第一点 → pointer move 动态预览 → 第二点”；复合图元提交后工具保持激活以便连续创建。Esc 首先取消尚未完成的采集或约束首选，当前没有中间状态时才退出工具回到 Select。选择已有 Sketch 后使用同一入口重新进入编辑，不能创建另一个共面 Sketch 或根据数组顺序猜测活动对象。
+
+视口必须分别渲染 Point、Curve、curve endpoints、construction geometry 和 constraint glyph，不能把单点塞入 Line primitive。活动 Sketch 独占显示本地 H/V 轴、origin 和可配置网格；默认诊断色遵循 White=under-constrained、Green=solved/fixed、Purple=over/redundant、Red=inconsistent，construction geometry 使用 Gray。SmartPick hover 与约束首选必须高亮稳定 GeometryRef，并以可访问状态文本说明下一步；hover 只产生建议，是否生成永久约束由显式策略决定。参照：[CATIA Sketcher tools](https://catiahelp.azurewebsites.net/English/DysUserMap/dys-c-BeforeYouBegin-ToolsSketchingUse.htm)、[CATIA constraint diagnosis colors](https://catiahelp.azurewebsites.net/English/DysUserMap/dys-c-BeforeYouBegin-ColorUse.htm)、[CATIA rectangle creation](https://catiahelp.azurewebsites.net/English/DysUserMap/dys-t-SimpleProfileSketch-Rectangle.htm)。
 
 ```mermaid
 sequenceDiagram

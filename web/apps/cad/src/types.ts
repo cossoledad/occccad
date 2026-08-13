@@ -41,19 +41,23 @@ export type DocumentProperties = {
 
 export type Feature = {
   id: string;
-  type: "RECTANGLE_SKETCH" | "rectangle_sketch" | "PAD" | "pad" | "IMPORT_STEP";
+  type: "SKETCH" | "sketch" | "PAD" | "pad" | "IMPORT_STEP";
   name?: string;
   plane?: PlaneName;
-  rectangle?: { origin: Vec2; width: number; height: number };
-  origin?: Vec2;
-  width?: number;
-  height?: number;
+  sketch?: SketchFeature;
   profile?: string;
   length?: number;
   operation?: "NEW" | "ADD" | "REMOVE" | "INTERSECT";
   geometryKey?: string;
   fileName?: string;
 };
+
+export type SketchPoint2 = { x: number; y: number };
+export type SketchGeometryRef = { target: "ENTITY" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "DIRECTION" };
+export type SketchEntity = { id: string; kind: "POINT" | "LINE"; role: "PROFILE" | "CONSTRUCTION"; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2 };
+export type SketchConstraint = { id: string; kind: "COINCIDENT" | "PARALLEL" | "FIXED_POINT"; references: SketchGeometryRef[]; fixedPoint?: SketchPoint2 };
+export type SketchFeature = { schemaVersion: 1; support: { type: "DATUM_PLANE"; datumPlaneId: string; plane: PlaneName }; entities: SketchEntity[]; constraints: SketchConstraint[]; solve: { status: string; degreesOfFreedom: number; diagnostic?: string } };
+export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { type: "ADD_CONSTRAINT"; constraint: SketchConstraint } | { type: "ADD_RECTANGLE"; first: SketchPoint2; second: SketchPoint2 };
 
 export type HistoryEntry = {
   position: number;
@@ -203,11 +207,4 @@ export type TopologyElementProperties = {
   geometryKey: string; geometryId: string; kind: "FACE" | "EDGE" | "VERTEX"; localId: number;
   geometryType: string; bbox?: { min: Vec3; max: Vec3 }; point?: Vec3;
   properties: Record<string, number | boolean | string | Vec3>; workerId: string; occtVersion: string;
-};
-
-export type RectangleDraft = {
-  plane: PlaneName;
-  origin: Vec2;
-  width: number;
-  height: number;
 };

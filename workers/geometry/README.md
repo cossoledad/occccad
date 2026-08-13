@@ -5,10 +5,12 @@ Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 g
 ## 当前能力
 
 - `Ping`：返回 Worker ID、OCCT 版本和 resident geometry 数；
+- `SolveSketch`：求解版本化 Point/Line/Constraint SketchModel，返回坐标、状态、DoF 和冲突/冗余约束 ID；
 - `EvaluatePart`：求值一个矩形草图/拉伸链或在基础 B-Rep 上追加拉伸；
 - `ImportStep` / `ExportStep`：STEP 与内部 B-Rep 互换；
 - `GetTopology`：返回面、边、点及诊断属性；
 - 生成 SHA-256 GeometryId、B-Rep、三角网格、边折线、包围盒、体积和 GLB。
+- 内置项目自有 `SketchSolver`/PlaneGCS 适配层；`GCS::*` 不进入公共头或 Proto。当前实体覆盖 Point/Line，约束覆盖 Coincident/Parallel/FixedPoint。
 
 Proto 中已经声明但当前服务类没有覆盖的 `LoadGeometry`、`UnloadGeometry`、`Tessellate`、`CreateChamfer` 和 `CreateFillet` 会得到 gRPC `UNIMPLEMENTED`；协议声明不等于已交付能力。
 
@@ -20,6 +22,8 @@ flowchart LR
     Worker --> API["kernel/api<br/>OCCT-free public types"]
     API --> Adapter["kernel/occt"]
     Adapter --> OCCT["Open CASCADE 7.9.1"]
+    Worker --> SketchAPI["SolveSketch RPC / SketchSolver"]
+    SketchAPI --> PlaneGCS["PlaneGCS shared library"]
     Worker --> Cache["in-memory resident geometry"]
 ```
 
@@ -43,13 +47,20 @@ invoke build --build-type=Debug --target=occccad_geometry_worker
 invoke run.worker --build-type=Debug
 ```
 
+PlaneGCS 适配器基础测试：
+
+```bash
+invoke build --build-type=Debug --target=occccad_plane_gcs_adapter_test
+ctest --test-dir build/cmake/debug --output-on-failure -R PlaneGcsSketchSolver
+```
+
 几何冒烟程序：
 
 ```bash
 invoke run.geometry --build-type=Debug
 ```
 
-依赖版本以根 `conanfile.py` 为准，当前为 C++17、OCCT 7.9.1、gRPC 1.71.0。
+依赖版本以根 `conanfile.py` 为准，当前为 C++17、OCCT 7.9.1、gRPC 1.71.0、Eigen 3.4.0 和 header-only Boost 1.86.0。PlaneGCS 锁定 FreeCAD 1.0.2 的不可变 commit，CMake 仅下载带逐文件 SHA-256 的官方核心源码清单，并构建为独立 shared library；不链接完整 FreeCAD。构建产物旁的 `LICENSE.FreeCAD-PlaneGCS` 必须随该库分发。
 
 ## 资源与故障语义
 

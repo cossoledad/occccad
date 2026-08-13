@@ -65,8 +65,7 @@ func TestRealtimeTwoClientCommit(t *testing.T) {
 	command := map[string]any{"protocol": "occccad.realtime.v1", "id": requestID, "kind": "request",
 		"type": "workspace.command.execute.v1", "sentAt": time.Now().UTC().Format(time.RFC3339Nano),
 		"payload": map[string]any{"documentId": documentID, "command": map[string]any{
-			"requestId": requestID, "type": "CREATE_RECTANGLE_SKETCH", "plane": "XY",
-			"origin": []float64{0, 0}, "width": 20, "height": 10,
+			"requestId": requestID, "type": "CREATE_SKETCH", "plane": "XY",
 		}}}
 	if err := first.WriteJSON(command); err != nil {
 		t.Fatal(err)

@@ -35,7 +35,7 @@ func TestDefaultPartReferenceGeometryAndGLBExtension(t *testing.T) {
 
 func TestLegacyVerticalSliceUsesTypedHandlersAndStableParameterFacades(t *testing.T) {
 	modelJSON, _ := json.Marshal(newPartModel())
-	sketch := Feature{ID: "sketch-stable", Type: "RECTANGLE_SKETCH", Name: "Sketch 1", Plane: "XY", Rectangle: &Rectangle{Width: 20, Height: 10}}
+	sketch := testRectangleSketch("sketch-stable", "XY")
 	payload, _ := json.Marshal(createFeaturePayload{Feature: sketch})
 	next, sketchChanges, err := workspaceCommandRegistry.Apply("PART", modelJSON, modelcore.DomainCommand{CommandID: "command-sketch", TypeURI: typeCreateSketch, SchemaVersion: 1, Payload: payload})
 	if err != nil {
@@ -51,53 +51,27 @@ func TestLegacyVerticalSliceUsesTypedHandlersAndStableParameterFacades(t *testin
 	if err := json.Unmarshal(next, &model); err != nil {
 		t.Fatal(err)
 	}
-	if len(model.Parameters) != 3 {
-		t.Fatalf("expected width, height and length facades, got %#v", model.Parameters)
+	if len(model.Parameters) != 1 {
+		t.Fatalf("expected pad length facade, got %#v", model.Parameters)
 	}
-	if model.Parameters[2].ParameterID == model.Parameters[2].Key {
+	if model.Parameters[0].ParameterID == model.Parameters[0].Key {
 		t.Fatal("persistent parameter identity must not depend on its display key")
 	}
 	graph, _, err := buildPartEvaluation(model, "revision-1", canonicalModelHash(next), sketchChanges.ImpactSeeds, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	dirty := graph.DirtyClosure([]modelcore.DependencyKey{"parameter:parameter:sketch-stable:width"})
+	dirty := graph.DirtyClosure([]modelcore.DependencyKey{"feature:sketch-stable"})
 	if !containsDependency(dirty, "feature:sketch-stable") || !containsDependency(dirty, "feature:pad-stable") {
-		t.Fatalf("width change did not dirty sketch and pad: %v", dirty)
+		t.Fatalf("sketch change did not dirty sketch and pad: %v", dirty)
 	}
 }
 
-func TestParameterExpressionUpdatesFacadeWithoutNameBoundPersistence(t *testing.T) {
-	model := newPartModel()
-	model.Features = []Feature{{ID: "sketch-1", Type: "RECTANGLE_SKETCH", Rectangle: &Rectangle{Width: 20, Height: 10}}}
-	normalizePartModel(&model)
-	widthID := "parameter:sketch-1:width"
-	heightID := "parameter:sketch-1:height"
-	names := map[string]modelcore.ParameterBinding{}
-	for _, parameter := range model.Parameters {
-		names[parameter.Key] = modelcore.ParameterBinding{ParameterID: parameter.ParameterID, Dimension: parameter.Dimension}
-	}
-	expression, err := modelcore.CompileExpression("sketch_1_width + 5 mm", names, modelcore.LengthDimension)
-	if err != nil {
-		t.Fatal(err)
-	}
-	modelJSON, _ := json.Marshal(model)
-	payload, _ := json.Marshal(parameterSourcePayload{ParameterID: heightID, Source: modelcore.ValueSource{Expression: &expression}})
-	next, _, err := workspaceCommandRegistry.Apply("PART", modelJSON, modelcore.DomainCommand{CommandID: "command-expression", TypeURI: typeSetParameterExpression, SchemaVersion: 1, Payload: payload})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var updated PartModel
-	_ = json.Unmarshal(next, &updated)
-	if updated.Features[0].Rectangle.Height != 25 {
-		t.Fatalf("expected 25 mm, got %g", updated.Features[0].Rectangle.Height)
-	}
-	for _, read := range expression.Reads {
-		if read == modelcore.DependencyKey("parameter:"+widthID) {
-			return
-		}
-	}
-	t.Fatal("checked AST did not retain stable ParameterId")
+func testRectangleSketch(id, plane string) Feature {
+	operations, _ := rectangleMacro(id, SketchPoint2{0, 0}, SketchPoint2{20, 10})
+	sketch := &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}}
+	_ = applySketchOperations(sketch, operations)
+	return Feature{ID: id, Type: "SKETCH", Name: "Sketch 1", Plane: plane, Sketch: sketch}
 }
 
 func containsDependency(values []modelcore.DependencyKey, target modelcore.DependencyKey) bool {
@@ -121,6 +95,66 @@ func TestHistoryChangeSetForRecreatedEntityRemainsUndoable(t *testing.T) {
 	}
 }
 
+func TestSolvedSketchChangeSetUsesPersistedAfterValue(t *testing.T) {
+	original := testRectangleSketch("sketch-solved-history", "XY")
+	model := newPartModel()
+	model.Features = append(model.Features, original)
+	beforeJSON, _ := json.Marshal(model)
+	operation := SketchOperation{Type: "ADD_ENTITY", Entity: &SketchEntity{
+		ID: "point-solved", Kind: "POINT", Role: "PROFILE", Point: &SketchPoint2{X: 2, Y: 3},
+	}}
+	payload, _ := json.Marshal(editSketchPayload{SketchID: original.ID, Operations: []SketchOperation{operation}})
+	candidateJSON, handlerChanges, err := workspaceCommandRegistry.Apply("PART", beforeJSON, modelcore.DomainCommand{
+		CommandID: "edit-solved-sketch", TypeURI: typeEditSketch, SchemaVersion: 1, Payload: payload,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Model the authoritative solver changing both geometry and diagnostics
+	// after the pure command handler has produced its candidate ChangeSet.
+	var solved PartModel
+	if err = json.Unmarshal(candidateJSON, &solved); err != nil {
+		t.Fatal(err)
+	}
+	point := solved.Features[0].Sketch.Entities[len(solved.Features[0].Sketch.Entities)-1].Point
+	point.X, point.Y = 2.25, 3.5
+	solved.Features[0].Sketch.Solve = SketchSolveState{Status: "UNDER_CONSTRAINED", DegreesOfFreedom: 2}
+	persistedJSON, _ := json.Marshal(solved)
+	changes, err := reconcilePersistedChanges("PART", beforeJSON, persistedJSON, handlerChanges)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	current, err := modelValues("PART", persistedJSON, changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired, err := changes.Compensate(current)
+	if err != nil {
+		t.Fatalf("undo rejected the persisted solver result: %v", err)
+	}
+	undoneJSON, err := applyModelValues("PART", persistedJSON, desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reappliedCurrent, err := modelValues("PART", undoneJSON, changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reapplied, err := changes.Reapply(reappliedCurrent)
+	if err != nil {
+		t.Fatalf("redo rejected the compensated sketch: %v", err)
+	}
+	redoneJSON, err := applyModelValues("PART", undoneJSON, reapplied)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if canonicalModelHash(redoneJSON) != canonicalModelHash(persistedJSON) {
+		t.Fatal("redo did not restore the exact solver-normalized sketch model")
+	}
+}
+
 func TestPartStructureRejectsPadWhoseSketchWasRemoved(t *testing.T) {
 	model := PartModel{Units: "mm", Features: []Feature{{ID: "pad-1", Type: "PAD", Profile: "sketch-1", Length: 10}}}
 	if err := validatePartStructure(model); err == nil || !strings.Contains(err.Error(), "requires an earlier sketch") {
@@ -130,7 +164,7 @@ func TestPartStructureRejectsPadWhoseSketchWasRemoved(t *testing.T) {
 
 func TestSketchPadSupportsTwoUndoAndTwoRedoModelSteps(t *testing.T) {
 	initial, _ := json.Marshal(newPartModel())
-	sketch := Feature{ID: "sketch-history", Type: "RECTANGLE_SKETCH", Name: "Sketch 1", Plane: "XY", Rectangle: &Rectangle{Width: 20, Height: 10}}
+	sketch := testRectangleSketch("sketch-history", "XY")
 	sketchPayload, _ := json.Marshal(createFeaturePayload{Feature: sketch})
 	afterSketch, sketchChanges, err := workspaceCommandRegistry.Apply("PART", initial, modelcore.DomainCommand{CommandID: "create-sketch", TypeURI: typeCreateSketch, SchemaVersion: 1, Payload: sketchPayload})
 	if err != nil {
@@ -184,13 +218,10 @@ func TestSketchPadSupportsTwoUndoAndTwoRedoModelSteps(t *testing.T) {
 func TestPartSketchAndPadCommands(t *testing.T) {
 	t.Parallel()
 	model := PartModel{Units: "mm", Features: []Feature{}}
-	if err := mutatePart(&model, CommandRequest{
-		Type: "CREATE_RECTANGLE_SKETCH", Plane: "YZ", Origin: [2]float64{-10, 5},
-		Width: 80, Height: 50,
-	}); err != nil {
+	if err := mutatePart(&model, CommandRequest{Type: "CREATE_SKETCH", Plane: "YZ"}); err != nil {
 		t.Fatalf("create sketch: %v", err)
 	}
-	if len(model.Features) != 1 || model.Features[0].Plane != "YZ" || model.Features[0].Rectangle == nil {
+	if len(model.Features) != 1 || model.Features[0].Plane != "YZ" || model.Features[0].Sketch == nil {
 		t.Fatalf("unexpected sketch model: %#v", model.Features)
 	}
 	sketchID := model.Features[0].ID
@@ -204,12 +235,52 @@ func TestPartSketchAndPadCommands(t *testing.T) {
 	}
 }
 
+func TestRectangleMacroExpandsToStableLinesAndExplicitConstraints(t *testing.T) {
+	first := SketchPoint2{X: 20, Y: 10}
+	second := SketchPoint2{X: -5, Y: -2}
+	operations, err := rectangleMacro("request-1/0", first, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, _ := rectangleMacro("request-1/0", first, second)
+	if len(operations) != 12 || len(again) != 12 {
+		t.Fatalf("rectangle must be one macro containing 4 entities and 8 constraints: %#v", operations)
+	}
+	for index := range operations {
+		if operations[index].Type != again[index].Type {
+			t.Fatal("macro operation order is not deterministic")
+		}
+		if operations[index].Entity != nil && operations[index].Entity.ID != again[index].Entity.ID {
+			t.Fatal("macro entity identity is not deterministic")
+		}
+		if operations[index].Constraint != nil && operations[index].Constraint.ID != again[index].Constraint.ID {
+			t.Fatal("macro constraint identity is not deterministic")
+		}
+	}
+	sketch := SketchFeature{SchemaVersion: 1, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}}
+	if err := applySketchOperations(&sketch, operations); err != nil {
+		t.Fatal(err)
+	}
+	if len(sketch.Entities) != 4 || len(sketch.Constraints) != 8 {
+		t.Fatalf("unexpected rectangle expansion: %#v", sketch)
+	}
+	for index, constraint := range sketch.Constraints {
+		want := "COINCIDENT"
+		if index >= 4 {
+			want = "PARALLEL"
+		}
+		if constraint.Kind != want {
+			t.Fatalf("constraint %d is %s, want %s", index, constraint.Kind, want)
+		}
+	}
+}
+
 func TestPartStructureNestsConsumedSketchUnderPad(t *testing.T) {
 	t.Parallel()
 	model := PartModel{Units: "mm", Features: []Feature{
-		{ID: "sketch-1", Type: "RECTANGLE_SKETCH", Name: "Sketch 1"},
+		{ID: "sketch-1", Type: "SKETCH", Name: "Sketch 1"},
 		{ID: "pad-1", Type: "PAD", Name: "Pad 1", Profile: "sketch-1"},
-		{ID: "sketch-2", Type: "RECTANGLE_SKETCH", Name: "Sketch 2"},
+		{ID: "sketch-2", Type: "SKETCH", Name: "Sketch 2"},
 	}}
 	children := partStructureChildren(model, "document:part-1", "part-1", "version-1")
 	if len(children) != 2 || children[1].Kind != "BODY" || len(children[1].Children) != 2 {
@@ -234,8 +305,8 @@ func TestPartStructureNestsConsumedSketchUnderPad(t *testing.T) {
 func TestPartCommandValidation(t *testing.T) {
 	t.Parallel()
 	tests := []CommandRequest{
-		{Type: "CREATE_RECTANGLE_SKETCH", Plane: "AB", Width: 10, Height: 10},
-		{Type: "CREATE_RECTANGLE_SKETCH", Plane: "XY", Width: -1, Height: 10},
+		{Type: "CREATE_SKETCH", Plane: "AB"},
+		{Type: "EDIT_SKETCH", SketchID: "missing", Operations: []SketchOperation{{Type: "ADD_ENTITY"}}},
 		{Type: "PAD_SKETCH", SketchID: "missing", Length: 10},
 	}
 	for _, command := range tests {

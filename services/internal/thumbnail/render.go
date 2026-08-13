@@ -262,46 +262,21 @@ func appendSketches(
 			continue
 		}
 
-		rectangle := feature.Rectangle
-		if rectangle == nil {
+		if feature.Sketch == nil {
 			continue
 		}
-
-		u0 := rectangle.Origin[0]
-		v0 := rectangle.Origin[1]
-
-		coordinates := [][2]float64{
-			{u0, v0},
-			{u0 + rectangle.Width, v0},
-			{u0 + rectangle.Width, v0 + rectangle.Height},
-			{u0, v0 + rectangle.Height},
-			{u0, v0},
+		for _, entity := range feature.Sketch.Entities {
+			if entity.Kind != "LINE" || entity.Start == nil || entity.End == nil {
+				continue
+			}
+			item := line{color: "#2679aa"}
+			for _, coordinate := range [][2]float64{{entity.Start.X, entity.Start.Y}, {entity.End.X, entity.End.Y}} {
+				projected := project(sketchPoint(feature.Sketch.Support.Plane, coordinate))
+				item.points = append(item.points, projected)
+				target.addPoint(projected)
+			}
+			target.lines = append(target.lines, item)
 		}
-
-		item := line{
-			color: "#2679aa",
-		}
-
-		for _, coordinate := range coordinates {
-			world := sketchPoint(
-				feature.Plane,
-				coordinate,
-			)
-
-			projected := project(world)
-
-			item.points = append(
-				item.points,
-				projected,
-			)
-
-			target.addPoint(projected)
-		}
-
-		target.lines = append(
-			target.lines,
-			item,
-		)
 	}
 }
 

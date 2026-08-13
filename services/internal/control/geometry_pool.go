@@ -317,6 +317,23 @@ func (pool *GeometryPool) EvaluatePart(ctx context.Context, request *workerv1.Ev
 	}
 	return response, err
 }
+
+// SolveSketch is routed through the same coarse-grained worker pool as Part
+// evaluation. Sketches do not own resident geometry, so they do not affect
+// geometry affinity; request metadata is still propagated for tracing.
+func (pool *GeometryPool) SolveSketch(ctx context.Context, request *workerv1.SolveSketchRequest) (*workerv1.SolveSketchResponse, error) {
+	client, worker, err := pool.selectClient("")
+	if err != nil {
+		return nil, err
+	}
+	if worker != nil {
+		_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
+	}
+	response, err := client.SolveSketch(outgoing(ctx), request)
+	pool.release(worker, "", err == nil)
+	return response, err
+}
+
 func (pool *GeometryPool) ImportStep(ctx context.Context, request *workerv1.ImportStepRequest) (*workerv1.EvaluatePartResponse, error) {
 	client, worker, err := pool.selectClient(request.GetGeometryKey())
 	if err != nil {

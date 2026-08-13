@@ -14,19 +14,21 @@ import { CAD_GEOMETRY_LAYER, markNavigationPickable, NavigationPicker } from "..
 import type { NavigationAction, NavigationProfileID } from "../cad/navigation/navigation-profile";
 import { CadBackground } from "../cad/rendering/cad-background";
 import { CadMaterialFactory } from "../cad/rendering/cad-material-factory";
+import { buildSketchRenderModel } from "../cad/rendering/sketch-render-model";
 import { CATIA_VISUAL_THEME } from "../cad/rendering/cad-visual-theme";
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
 import { ShortcutManager } from "../cad/shortcut/shortcut-manager";
-import { RectangleSketchTool, SelectTool, type ToolViewportPort } from "../cad/tool/cad-tool";
+import { ConstraintSketchTool, LineSketchTool, PointSketchTool, RectangleSketchTool, SelectTool, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
-  Artifact, AxisSystem, DatumPlane, DocumentView, Feature, PlaneName, RectangleDraft, ReferenceGeometry, Selection, Vec2, Vec3,
+  Artifact, AxisSystem, DatumPlane, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SketchGeometryRef, SketchOperation, Vec2, Vec3,
 } from "../types";
 
 type Callbacks = {
   selectionChanged: (selection: Selection) => void;
   preselectionChanged: (selection: Selection) => void;
-  rectangleCreated: (rectangle: RectangleDraft) => void;
+  sketchOperations: (operations: SketchOperation[]) => void;
+  toolPromptChanged: (prompt: string) => void;
   instanceMoved: (instanceId: string, translation: Vec3) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
@@ -48,12 +50,6 @@ export type ViewportDebugState = {
 
 const planeColors: Record<PlaneName, number> = { XY: 0x3b82f6, XZ: 0x22c55e, YZ: 0xef4444 };
 
-function sketchRectangle(feature: Feature): { origin: Vec2; width: number; height: number } {
-  return feature.rectangle ?? {
-    origin: feature.origin ?? [0, 0], width: feature.width ?? 1, height: feature.height ?? 1,
-  };
-}
-
 function localToWorld(plane: PlaneName, point: Vec2): THREE.Vector3 {
   if (plane === "XY") return new THREE.Vector3(point[0], point[1], 0);
   if (plane === "XZ") return new THREE.Vector3(point[0], 0, point[1]);
@@ -64,6 +60,18 @@ function worldToLocal(plane: PlaneName, point: THREE.Vector3): Vec2 {
   if (plane === "XY") return [point.x, point.y];
   if (plane === "XZ") return [point.x, point.z];
   return [point.y, point.z];
+}
+
+function sketchDiagnosticColor(status: string | undefined, construction = false): number {
+  if (construction) return 0x9aa5aa;
+  switch (status) {
+  case "SOLVED": return 0x56d879;
+  case "CONFLICTING":
+  case "FAILED":
+  case "INVALID_MODEL": return 0xff5252;
+  case "REDUNDANT": return 0xd878ff;
+  default: return 0xffffff;
+  }
 }
 
 function rayPlane(plane: PlaneName): THREE.Plane {
@@ -121,6 +129,7 @@ export class CadViewportEngine {
   private readonly pointer = new THREE.Vector2();
   private readonly content = new THREE.Group();
   private readonly helpers = new THREE.Group();
+  private readonly sketchContext = new THREE.Group();
   private readonly environment = new THREE.Group();
   private readonly contentBounds = new THREE.Box3();
   private readonly selectable = new Map<string, THREE.Object3D>();
@@ -133,7 +142,9 @@ export class CadViewportEngine {
   private preselectedOverlay?: THREE.Object3D;
   private view?: DocumentView;
   private sketchPlane?: PlaneName;
-  private preview?: THREE.Line;
+  private activeSketchID?: string;
+  private preview?: THREE.Object3D;
+  private referencePreview?: THREE.Object3D;
   private suppressNextSelection = false;
   private activeToolID = "select";
   private navigationProfile: NavigationProfileID = "default";
@@ -184,7 +195,8 @@ export class CadViewportEngine {
     const fillLight = new THREE.DirectionalLight(0xadc9d8, 1.25);
     fillLight.position.set(5, 2, 3);
     this.environment.add(hemisphere, keyLight, fillLight);
-    this.scene.add(this.environment, this.content, this.helpers);
+    this.sketchContext.renderOrder = 15;
+    this.scene.add(this.environment, this.content, this.helpers, this.sketchContext);
 
     const navigationPicker = new NavigationPicker(
       this.camera,
@@ -202,7 +214,11 @@ export class CadViewportEngine {
     this.shortcuts = new ShortcutManager((commandID) => commandRegistry.execute(commandID));
     this.tools = new ToolManager({ viewport: this.toolViewportPort() });
     this.tools.register(new SelectTool());
+    this.tools.register(new PointSketchTool());
+    this.tools.register(new LineSketchTool());
     this.tools.register(new RectangleSketchTool());
+    this.tools.register(new ConstraintSketchTool("sketch.constraint.coincident"));
+    this.tools.register(new ConstraintSketchTool("sketch.constraint.parallel"));
     this.tools.activate("select");
     this.selectionController = new SelectionController(
       (x, y) => this.pick(x, y),
@@ -220,7 +236,7 @@ export class CadViewportEngine {
     this.input.subscribe(() => this.emitDebugState());
     this.tools.subscribe((toolID) => {
       this.activeToolID = toolID ?? "select";
-      this.host.classList.toggle("drawing", toolID === "sketch.rectangle" && Boolean(this.sketchPlane));
+      this.host.classList.toggle("drawing", Boolean(toolID?.startsWith("sketch.")) && Boolean(this.sketchPlane));
       this.refreshShortcutContexts();
       this.emitDebugState();
     });
@@ -250,6 +266,7 @@ export class CadViewportEngine {
     this.preselected = null;
     if (view.document.type === "PART") this.renderPart(view);
     else this.renderProduct(view);
+    this.updateSketchContextVisibility();
     this.refreshContentBounds();
     // this.frameContent();
     this.invalidate();
@@ -267,7 +284,8 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
-  beginSketch(plane: PlaneName): void {
+  beginSketch(sketchID: string, plane: PlaneName): void {
+    this.activeSketchID = sketchID;
     this.sketchPlane = plane;
     this.transform.detach();
     this.select({ kind: "plane", id: `datum-${plane.toLowerCase()}`, plane });
@@ -279,19 +297,27 @@ export class CadViewportEngine {
     if (plane === "XY") this.camera.up.set(0, 1, 0);
     else this.camera.up.set(0, 0, 1);
     this.navigation.syncCamera();
+    this.buildSketchContext();
+    this.updateSketchContextVisibility();
+    this.callbacks.toolPromptChanged("选择：选择草图元素，或从工具栏启动创建命令");
     this.refreshShortcutContexts();
+    this.invalidate();
   }
 
   endSketch(): void {
     this.sketchPlane = undefined;
+    this.activeSketchID = undefined;
     this.host.classList.remove("drawing");
     this.tools.cancel();
     this.navigation.setEnabled(true);
+    this.disposeGroup(this.sketchContext);
+    this.updateSketchContextVisibility();
+    this.callbacks.toolPromptChanged("");
     this.refreshShortcutContexts();
     this.frameContent();
   }
 
-  setActiveTool(toolID: "select" | "sketch.rectangle"): void {
+  setActiveTool(toolID: import("../state/workbench-store").WorkbenchToolID): void {
     this.tools.activate(toolID);
   }
 
@@ -365,6 +391,7 @@ export class CadViewportEngine {
     this.sketchShortcutDispose?.();
     this.toolShortcutDispose?.();
     this.clearPreview();
+    this.clearReferencePreview();
     this.transform.detach();
     this.transform.dispose();
     this.navigationHUD.dispose();
@@ -372,6 +399,7 @@ export class CadViewportEngine {
     this.disposeGroup(this.environment);
     this.disposeGroup(this.content);
     this.disposeGroup(this.helpers);
+    this.disposeGroup(this.sketchContext);
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -518,30 +546,142 @@ export class CadViewportEngine {
     });
   }
 
+  private buildSketchContext(): void {
+    this.disposeGroup(this.sketchContext);
+    if (!this.sketchPlane) return;
+    const gridPositions: number[] = [];
+    for (let coordinate = -100; coordinate <= 100; coordinate += 10) {
+      for (const [first, second] of [
+        [[coordinate, -100], [coordinate, 100]], [[-100, coordinate], [100, coordinate]],
+      ] as Array<[Vec2, Vec2]>) {
+        for (const point of [first, second]) {
+          const world = localToWorld(this.sketchPlane, point);
+          gridPositions.push(world.x, world.y, world.z);
+        }
+      }
+    }
+    const grid = new THREE.LineSegments(
+      new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(gridPositions, 3)),
+      new THREE.LineBasicMaterial({ color: 0x8ca0aa, transparent: true, opacity: 0.16, depthTest: false }),
+    );
+    grid.renderOrder = 14;
+    this.sketchContext.add(grid);
+    const axis = (first: Vec2, second: Vec2, color: number) => {
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane!, first), localToWorld(this.sketchPlane!, second)]),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false }),
+      );
+      line.renderOrder = 16;
+      this.sketchContext.add(line);
+    };
+    axis([-110, 0], [110, 0], 0xe75b52);
+    axis([0, -110], [0, 110], 0x55c878);
+    const origin = new THREE.Points(
+      new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane, [0, 0])]),
+      new THREE.PointsMaterial({ color: 0xffffff, size: 9, sizeAttenuation: false, depthTest: false }),
+    );
+    origin.renderOrder = 18;
+    this.sketchContext.add(origin);
+  }
+
+  private updateSketchContextVisibility(): void {
+    const editing = Boolean(this.sketchPlane && this.activeSketchID);
+    this.environment.visible = !editing;
+    this.content.visible = !editing;
+    this.sketchContext.visible = editing;
+    for (const child of this.helpers.children) {
+      child.visible = !editing || (child.userData.sketchFeatureID === this.activeSketchID);
+    }
+  }
+
   private addSketch(feature: Feature): void {
-    const plane = feature.plane ?? "XY";
-    const rectangle = sketchRectangle(feature);
-    const points: Vec2[] = [
-      rectangle.origin,
-      [rectangle.origin[0] + rectangle.width, rectangle.origin[1]],
-      [rectangle.origin[0] + rectangle.width, rectangle.origin[1] + rectangle.height],
-      [rectangle.origin[0], rectangle.origin[1] + rectangle.height],
-      rectangle.origin,
-    ];
-    const geometry = new THREE.BufferGeometry().setFromPoints(points.map((point) => localToWorld(plane, point)));
-    const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({
-      color: 0xffc857, linewidth: 2, depthTest: false,
-    }));
-    line.renderOrder = 20;
+    const plane = feature.sketch?.support.plane ?? feature.plane ?? "XY";
+    const group = new THREE.Group();
+    group.userData.sketchFeatureID = feature.id;
+    const renderModel = buildSketchRenderModel(feature);
+    const worldPoints = (points: Vec2[]) => points.map((point) => localToWorld(plane, point));
+    const profileLines = worldPoints(renderModel.profileLines);
+    const constructionLines = worldPoints(renderModel.constructionLines);
+    const profilePoints = worldPoints(renderModel.profilePoints);
+    const constructionPoints = worldPoints(renderModel.constructionPoints);
+    const endpointPoints = worldPoints(renderModel.endpoints);
+    const constraintPoints: THREE.Vector3[] = [];
+    const parallelTicks: THREE.Vector3[] = [];
+    const entities = new Map((feature.sketch?.entities ?? []).map((entity) => [entity.id, entity]));
+    const referencedPoint = (reference: SketchGeometryRef): Vec2 | undefined => {
+      if (reference.target === "SKETCH_ORIGIN") return [0, 0];
+      const entity = reference.entityId ? entities.get(reference.entityId) : undefined;
+      if (entity?.kind === "POINT" && entity.point && reference.subElement === "POINT") return [entity.point.x, entity.point.y];
+      if (entity?.kind !== "LINE") return undefined;
+      if (reference.subElement === "START" && entity.start) return [entity.start.x, entity.start.y];
+      if (reference.subElement === "END" && entity.end) return [entity.end.x, entity.end.y];
+      return undefined;
+    };
+    for (const constraint of feature.sketch?.constraints ?? []) {
+      if (constraint.kind === "COINCIDENT") {
+        const point = referencedPoint(constraint.references[0]);
+        if (point) constraintPoints.push(localToWorld(plane, point));
+      }
+      if (constraint.kind === "PARALLEL") {
+        for (const reference of constraint.references.filter((item) => item.target === "ENTITY")) {
+          const entity = reference.entityId ? entities.get(reference.entityId) : undefined;
+          if (entity?.kind !== "LINE" || !entity.start || !entity.end) continue;
+          const dx=entity.end.x-entity.start.x, dy=entity.end.y-entity.start.y, length=Math.hypot(dx,dy);
+          if (length===0) continue;
+          const middle:Vec2=[(entity.start.x+entity.end.x)/2,(entity.start.y+entity.end.y)/2];
+          const perpendicular:Vec2=[-dy/length,dx/length];
+          for (const offset of [-2,2]) {
+            const center:Vec2=[middle[0]+dx/length*offset,middle[1]+dy/length*offset];
+            parallelTicks.push(localToWorld(plane,[center[0]-perpendicular[0]*2,center[1]-perpendicular[1]*2]),localToWorld(plane,[center[0]+perpendicular[0]*2,center[1]+perpendicular[1]*2]));
+          }
+        }
+      }
+    }
     const selection = {
       kind: "sketch" as const, id: feature.id, documentId: this.view?.document.id,
       treeNodeId: `document:${this.view?.document.id}/body/sketch:${feature.id}`
     };
-    line.userData = selection;
-    this.helpers.add(line);
-    this.selectable.set(`sketch:${feature.id}`, line);
-    this.selectionIndex.register(selection, line);
-    this.selectionIndex.registerPick(line, () => selection, 60);
+    const addLines = (positions: THREE.Vector3[], construction: boolean) => {
+      if (positions.length === 0) return;
+      const line = new THREE.LineSegments(
+        new THREE.BufferGeometry().setFromPoints(positions),
+        new THREE.LineBasicMaterial({ color: sketchDiagnosticColor(feature.sketch?.solve.status, construction), depthTest: false }),
+      );
+      line.renderOrder = 20;
+      line.userData = selection;
+      group.add(line);
+      this.selectionIndex.registerPick(line, () => selection, 60);
+    };
+    const addPoints = (positions: THREE.Vector3[], construction: boolean, size: number) => {
+      if (positions.length === 0) return;
+      const points = new THREE.Points(
+        new THREE.BufferGeometry().setFromPoints(positions),
+        new THREE.PointsMaterial({ color: sketchDiagnosticColor(feature.sketch?.solve.status, construction), size, sizeAttenuation: false, depthTest: false }),
+      );
+      points.renderOrder = 22;
+      points.userData = selection;
+      group.add(points);
+      this.selectionIndex.registerPick(points, () => selection, 65);
+    };
+    addLines(profileLines, false);
+    addLines(constructionLines, true);
+    addPoints(profilePoints, false, 9);
+    addPoints(constructionPoints, true, 9);
+    addPoints(endpointPoints, false, 5);
+    if (constraintPoints.length > 0) {
+      const markers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(constraintPoints),
+        new THREE.PointsMaterial({color:0x61d27c,size:8,sizeAttenuation:false,depthTest:false}));
+      markers.renderOrder=24; group.add(markers);
+    }
+    if (parallelTicks.length > 0) {
+      const markers = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(parallelTicks),
+        new THREE.LineBasicMaterial({color:0x61d27c,depthTest:false}));
+      markers.renderOrder=24; group.add(markers);
+    }
+    group.userData = { ...selection, sketchFeatureID: feature.id };
+    this.helpers.add(group);
+    this.selectable.set(`sketch:${feature.id}`, group);
+    this.selectionIndex.register(selection, group);
   }
 
   private makeSolid(artifact: Artifact, color: number, context: SolidContext): THREE.Group {
@@ -692,10 +832,10 @@ export class CadViewportEngine {
     this.pointer.set((x / width) * 2 - 1, -(y / height) * 2 + 1);
   }
 
-  private drawPreview(start: Vec2, end: Vec2, plane: PlaneName): void {
+  private drawPreview(points2: Vec2[], closed: boolean, plane: PlaneName): void {
     this.clearPreview();
-    const points = [start, [end[0], start[1]] as Vec2, end,
-      [start[0], end[1]] as Vec2, start].map((point) => localToWorld(plane, point));
+    const localPoints = closed && points2.length > 0 ? [...points2, points2[0]] : points2;
+    const points = localPoints.map((point) => localToWorld(plane, point));
     this.preview = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(points),
       new THREE.LineBasicMaterial({ color: 0xffffff }),
@@ -704,34 +844,134 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
+  private drawPointPreview(point: Vec2, plane: PlaneName): void {
+    this.clearPreview();
+    this.preview = new THREE.Points(
+      new THREE.BufferGeometry().setFromPoints([localToWorld(plane, point)]),
+      new THREE.PointsMaterial({ color: 0xffa126, size: 11, sizeAttenuation: false, depthTest: false }),
+    );
+    this.preview.renderOrder = 28;
+    this.scene.add(this.preview);
+    this.invalidate();
+  }
+
   private clearPreview(): void {
     if (!this.preview) return;
     this.scene.remove(this.preview);
-    this.preview.geometry.dispose();
-    (this.preview.material as THREE.Material).dispose();
+    this.disposeRenderable(this.preview);
     this.preview = undefined;
+    this.invalidate();
+  }
+
+  private clearReferencePreview(): void {
+    if (!this.referencePreview) return;
+    this.scene.remove(this.referencePreview);
+    this.disposeRenderable(this.referencePreview);
+    this.referencePreview = undefined;
+    this.invalidate();
+  }
+
+  private showReferencePreview(reference: SketchGeometryRef): void {
+    this.clearReferencePreview();
+    if (!this.sketchPlane || !this.view || !reference.entityId) return;
+    const entity = this.view.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch?.entities
+      .find((candidate) => candidate.id === reference.entityId);
+    if (!entity) return;
+    if (entity.kind === "POINT" && entity.point && reference.subElement === "POINT") {
+      this.referencePreview = new THREE.Points(
+        new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane, [entity.point.x, entity.point.y])]),
+        new THREE.PointsMaterial({ color: 0xff9800, size: 13, sizeAttenuation: false, depthTest: false }),
+      );
+      this.referencePreview.renderOrder = 30;
+      this.scene.add(this.referencePreview);
+      this.invalidate();
+      return;
+    }
+    if (entity.kind !== "LINE" || !entity.start || !entity.end) return;
+    const start = localToWorld(this.sketchPlane, [entity.start.x, entity.start.y]);
+    const end = localToWorld(this.sketchPlane, [entity.end.x, entity.end.y]);
+    if (reference.subElement === "DIRECTION") {
+      this.referencePreview = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([start, end]),
+        new THREE.LineBasicMaterial({ color: 0xff9800, depthTest: false }),
+      );
+    } else {
+      this.referencePreview = new THREE.Points(
+        new THREE.BufferGeometry().setFromPoints([reference.subElement === "START" ? start : end]),
+        new THREE.PointsMaterial({ color: 0xff9800, size: 13, sizeAttenuation: false, depthTest: false }),
+      );
+    }
+    this.referencePreview.renderOrder = 30;
+    this.scene.add(this.referencePreview);
     this.invalidate();
   }
 
   private toolViewportPort(): ToolViewportPort {
     return {
       sketchPoint: (x, y) => this.sketchPoint(x, y),
-      showRectanglePreview: (start, end) => {
-        if (this.sketchPlane) this.drawPreview(start, end, this.sketchPlane);
+      showPolylinePreview: (points, closed = false) => {
+        if (this.sketchPlane) this.drawPreview(points, closed, this.sketchPlane);
+      },
+      showPointPreview: (point) => {
+        if (this.sketchPlane) this.drawPointPreview(point, this.sketchPlane);
       },
       clearToolPreview: () => this.clearPreview(),
-      commitRectangle: (draft) => this.callbacks.rectangleCreated(draft),
-      currentSketchPlane: () => this.sketchPlane,
+      commitSketchOperations: (operations) => this.callbacks.sketchOperations(operations),
+      hasActiveSketch: () => Boolean(this.sketchPlane && this.activeSketchID),
+      sketchReferenceAt: (x, y, kind) => this.sketchReferenceAt(x, y, kind),
+      showReferencePreview: (reference) => this.showReferencePreview(reference),
+      clearReferencePreview: () => this.clearReferencePreview(),
+      setToolPrompt: (prompt) => this.callbacks.toolPromptChanged(prompt),
     };
+  }
+
+  private sketchReferenceAt(x: number, y: number, kind: "COINCIDENT" | "PARALLEL") {
+    if (!this.sketchPlane || !this.view) return null;
+    const width = Math.max(this.renderer.domElement.clientWidth, 1);
+    const height = Math.max(this.renderer.domElement.clientHeight, 1);
+    let best: { distance: number; entityId: string; subElement: "POINT" | "START" | "END" | "DIRECTION" } | undefined;
+    const screen = (point: Vec2) => {
+      const projected = localToWorld(this.sketchPlane!, point).project(this.camera);
+      return { x: (projected.x + 1) * width / 2, y: (1 - projected.y) * height / 2 };
+    };
+    const segmentDistance = (point: {x:number;y:number}, start: {x:number;y:number}, end: {x:number;y:number}) => {
+      const dx=end.x-start.x, dy=end.y-start.y, length=dx*dx+dy*dy;
+      const t=length===0?0:Math.max(0,Math.min(1,((point.x-start.x)*dx+(point.y-start.y)*dy)/length));
+      return Math.hypot(point.x-(start.x+t*dx),point.y-(start.y+t*dy));
+    };
+    for (const feature of this.view.part?.features ?? []) {
+      if (feature.id !== this.activeSketchID) continue;
+      for (const entity of feature.sketch?.entities ?? []) {
+        if (kind === "COINCIDENT" && entity.kind === "POINT" && entity.point) {
+          const point=screen([entity.point.x,entity.point.y]);
+          const distance=Math.hypot(x-point.x,y-point.y);
+          if (distance < (best?.distance ?? 12)) best={distance,entityId:entity.id,subElement:"POINT"};
+          continue;
+        }
+        if (entity.kind !== "LINE" || !entity.start || !entity.end) continue;
+        const start=screen([entity.start.x,entity.start.y]), end=screen([entity.end.x,entity.end.y]);
+        if (kind === "PARALLEL") {
+          const distance=segmentDistance({x,y},start,end); if (distance < (best?.distance ?? 12)) best={distance,entityId:entity.id,subElement:"DIRECTION"};
+        } else {
+          for (const candidate of [{point:start,subElement:"START" as const},{point:end,subElement:"END" as const}]) {
+            const distance=Math.hypot(x-candidate.point.x,y-candidate.point.y); if (distance < (best?.distance ?? 12)) best={distance,entityId:entity.id,subElement:candidate.subElement};
+          }
+        }
+      }
+    }
+    return best ? { target:"ENTITY" as const, entityId:best.entityId, subElement:best.subElement } : null;
   }
 
   private refreshShortcutContexts(): void {
     this.sketchShortcutDispose?.();
     this.toolShortcutDispose?.();
-    this.sketchShortcutDispose = this.sketchPlane
-      ? this.shortcuts.pushContext("Sketch", [{ key: "r", primary: false, command: "sketch.rectangle" }]) : undefined;
-    this.toolShortcutDispose = this.activeToolID === "sketch.rectangle"
-      ? this.shortcuts.pushContext("RectangleTool", [{ key: "Escape", primary: false, command: "tool.select" }]) : undefined;
+    this.sketchShortcutDispose = this.sketchPlane ? this.shortcuts.pushContext("Sketch", [
+      { key: "p", primary: false, command: "sketch.point" },
+      { key: "l", primary: false, command: "sketch.line" },
+      { key: "r", primary: false, command: "sketch.rectangle" },
+    ]) : undefined;
+    this.toolShortcutDispose = this.sketchPlane && this.activeToolID !== "select"
+      ? this.shortcuts.pushContext("SketchTool", [{ key: "Escape", primary: false, command: "tool.select" }]) : undefined;
   }
 
   private emitDebugState(): void {

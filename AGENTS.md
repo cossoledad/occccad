@@ -75,6 +75,8 @@ occcad 是一个基于开源技术的云原生、分布式参数化 CAD 与产�
 - 一个用户动作形成一个可理解的 Transaction；不要把鼠标轨迹写成数百个 Revision。
 - Command Handler 应是确定、无 I/O 的模型变换；昂贵求值在事务外执行，最终短事务 CAS 提交。
 - 新命令使用可版本化 typed payload 和 handler registry；不要继续扩张跨领域的巨型可选字段结构或 switch。
+- Command Handler 产生的是求值前候选模型；若 Solver、Evaluator 或规范化步骤会改写坐标、诊断、参数或派生字段，ChangeSet 的 `after` 必须在最终 Revision 确定后重新生成。不得让 ChangeSet 描述一个从未持久化过的中间状态。
+- 新增 PropertySlot 时必须同时贯通：handler ChangeSet、当前值读取、补偿值回写、digest/canonicalization、依赖种子以及 Undo/Redo 测试。只会“写新 Revision”不代表该属性已经接入历史系统。
 
 ### 5.2 参数化与几何
 
@@ -90,6 +92,7 @@ occcad 是一个基于开源技术的云原生、分布式参数化 CAD 与产�
 - Worker 接收不可变输入 manifest，通过对象存储交换大制品，不持有业务数据库凭据。
 - Job 必须有状态机、attempt/lease、deadline、cancel、资源限制、幂等提交和迟到结果保护。
 - 本地开发可以用文件存储和单机 Router，但生产语义不能依赖共享本地目录或进程内注册表。
+- Proto 新增 RPC 后必须检查并测试每一层实现：Worker server、生成代码、语言适配 client、GeometryPool/Router 代理和 capability 报告。直接连 Worker 成功不能证明经正式 Router 路径可用；任一代理遗漏都会在运行时表现为 `Unimplemented`。
 
 ### 5.4 Web 与交互
 
@@ -97,7 +100,9 @@ occcad 是一个基于开源技术的云原生、分布式参数化 CAD 与产�
 - 页面/功能层不要直接散布 Three.js 生命周期和全局事件；复用 Viewport、Input、Tool、Selection 和 Command 边界。
 - 服务端状态与短期交互状态分离。相同 GeometryId 的实例共享资源，大装配按结构、LOD 和可见性渐进加载。
 - 交互预览可以近似，但提交后必须由权威 evaluator 验证，并清楚标识 stale/preview/failed 状态。
-- 前端不需要单元测试。
+- Pointer 工具必须显式拥有完整手势生命周期：`pointerdown`、移动、`pointerup`、`pointercancel`、capture/release、lost capture、窗口失焦和 Esc。两点/两选择工具的第一次点击状态必须跨第一次 `pointerup` 保留，且不能让 Selection 或 Navigation 接管配对事件。
+- 点、线、面、辅助标记应使用与其语义一致的 Three.js primitive；遍历 Group 时不得假设每个 Object3D 都有 material。点的像素尺寸、depth test/render order 和草图平面变换需要单独验证，不能用“线可见”推断“点也可见”。
+- 纯展示样式不强制单元测试；输入状态机、命令生成、选择引用、渲染数据分层和历史按钮 capability 等确定性逻辑必须有轻量测试。复杂跨层交互再补组件或 Playwright 场景。
 
 ### 5.5 Proto、数据库与兼容
 
@@ -134,6 +139,22 @@ occcad 是一个基于开源技术的云原生、分布式参数化 CAD 与产�
 - 分布式路径：覆盖重复投递、Worker crash/timeout、CAS 冲突、取消、对象上传后提交失败和 projection 重建。
 
 若环境无法运行完整验证，完成能运行的最有价值部分，并明确未验证项和原因。不要声称未实际运行的测试通过，也不要为了通过测试而降低领域不变量。
+
+### 7.1 跨层功能的防漏回归清单
+
+以下检查来自仓库中已经实际发生过的故障。它们不是临时问题记录，而是新增命令、Sketch/Feature、Worker RPC、实时通道和输入工具时的长期完成条件。
+
+| 故障信号 | 容易遗漏的根因 | 后续强制检查 |
+|---|---|---|
+| `digest mismatch` / `no longer has the original after value` | ChangeSet 在权威求值前生成，或新增 PropertySlot 没有接入历史投影 | 对最终持久 Revision 重建 ChangeSet；测试 evaluator 改写字段后的 Undo 和 Redo；确认 slot 能读取、回写和 canonicalize |
+| 第二次 Undo/Redo 消失，或 `nothing to undo for this actor` 与按钮状态不一致 | capability 与执行路径使用了不同的历史折叠规则，或把 redo 栈当成单值状态 | 用同一 action-log 语义计算 `canUndo/canRedo` 和执行目标；覆盖两次 Undo、两次 Redo、新提交截断 Redo、不同 actor 和刷新后恢复 |
+| `edge ... references an unknown node` | Feature、依赖边和节点不是从同一最终模型原子构建，Undo 删除上游后仍残留边 | 每次提交从最终模型验证全部 edge 两端；覆盖删除/补偿上游、dirty closure 和清缓存冷重建 |
+| RPC 返回 `Unimplemented` | Proto/Worker 已实现，但 Router、Pool 或代理 server 没有转发 | 通过应用实际连接的 Router 做 RPC 测试；枚举并核对完整 GeometryWorker service method/capability |
+| WebSocket 握手 403 | 只测试了 API 直连，遗漏开发服务器 Upgrade 代理、Origin、cookie/CSRF 或 subprotocol | 同时测试 API 直连和浏览器实际入口（例如 Vite `/api/realtime`）；验证 Upgrade headers、允许 Origin、session、CSRF 和 `occccad.realtime.v1` |
+| 第一次点击抬起后预览/绘制中断 | 工具只处理 `pointerdown/move`，配对的 `pointerup` 落入 Selection/Navigation，或 capture 被意外取消 | 用真实 `down → up → move → down → up` 序列测试 Point、Line、Rectangle 和双选择 Constraint；另测 cancel、lost capture、Esc 与中键导航抢占 |
+| 草图点存在于模型但不可见 | Point 被塞进 LineSegments、材质/深度/尺寸不适合，或 Group 遍历假设 material 存在 | 分离 point/line render model 和 primitive；用包含独立 Point、Line、端点及诊断色的 fixture 验证，至少执行 TypeScript 检查和生产构建 |
+
+一个新的 Sketch/Feature 垂直切片不能只以“创建成功”作为完成标准。与变更相关时，至少串行验证：进入/退出编辑模式、预览、提交、权威求值、刷新重载、依赖图、Pad/下游消费、连续两步 Undo/Redo、按钮置灰，以及通过正式 Router/浏览器代理的真实通信路径。开发数据可按 §3.1 重置，但清库不能替代同一模型在完整状态转换中的正确性验证。
 
 ## 8. 代码与依赖质量
 

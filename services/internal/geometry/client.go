@@ -24,6 +24,67 @@ type RectangularPad struct {
 	Plane                                   string
 }
 
+type SketchPoint struct {
+	ID   string
+	X, Y float64
+	Role string
+}
+type SketchLine struct {
+	ID                         string
+	StartX, StartY, EndX, EndY float64
+	Role                       string
+}
+type SketchReference struct{ Target, EntityID, SubElement string }
+type SketchConstraint struct {
+	ID, Kind       string
+	References     []SketchReference
+	FixedX, FixedY float64
+}
+type SketchModel struct {
+	Points      []SketchPoint
+	Lines       []SketchLine
+	Constraints []SketchConstraint
+}
+type SketchSolve struct {
+	Model                                            SketchModel
+	Status                                           string
+	DegreesOfFreedom                                 int
+	Diagnostic                                       string
+	ConflictingConstraintIDs, RedundantConstraintIDs []string
+}
+
+func (client *Client) SolveSketch(ctx context.Context, requestID string, model SketchModel) (SketchSolve, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	input := &workerv1.SketchModel{SchemaVersion: 1}
+	for _, point := range model.Points {
+		input.Points = append(input.Points, &workerv1.SketchPoint{Id: point.ID, Point: &workerv1.Vec2{X: point.X, Y: point.Y}, Role: point.Role})
+	}
+	for _, line := range model.Lines {
+		input.Lines = append(input.Lines, &workerv1.SketchLine{Id: line.ID, Start: &workerv1.Vec2{X: line.StartX, Y: line.StartY}, End: &workerv1.Vec2{X: line.EndX, Y: line.EndY}, Role: line.Role})
+	}
+	for _, constraint := range model.Constraints {
+		value := &workerv1.SketchConstraint{Id: constraint.ID, Kind: constraint.Kind, FixedPoint: &workerv1.Vec2{X: constraint.FixedX, Y: constraint.FixedY}}
+		for _, reference := range constraint.References {
+			value.References = append(value.References, &workerv1.SketchGeometryRef{Target: reference.Target, EntityId: reference.EntityID, SubElement: reference.SubElement})
+		}
+		input.Constraints = append(input.Constraints, value)
+	}
+	response, err := client.worker.SolveSketch(ctx, &workerv1.SolveSketchRequest{RequestId: requestID, Sketch: input})
+	if err != nil {
+		return SketchSolve{}, fmt.Errorf("solve sketch: %w", err)
+	}
+	result := SketchSolve{Status: response.GetStatus(), DegreesOfFreedom: int(response.GetDegreesOfFreedom()), Diagnostic: response.GetDiagnostic(), ConflictingConstraintIDs: response.GetConflictingConstraintIds(), RedundantConstraintIDs: response.GetRedundantConstraintIds()}
+	for _, point := range response.GetSketch().GetPoints() {
+		result.Model.Points = append(result.Model.Points, SketchPoint{ID: point.GetId(), X: point.GetPoint().GetX(), Y: point.GetPoint().GetY(), Role: point.GetRole()})
+	}
+	for _, line := range response.GetSketch().GetLines() {
+		result.Model.Lines = append(result.Model.Lines, SketchLine{ID: line.GetId(), StartX: line.GetStart().GetX(), StartY: line.GetStart().GetY(), EndX: line.GetEnd().GetX(), EndY: line.GetEnd().GetY(), Role: line.GetRole()})
+	}
+	result.Model.Constraints = model.Constraints
+	return result, nil
+}
+
 func Open(address string) (*Client, error) {
 	connection, err := grpc.NewClient(
 		address,

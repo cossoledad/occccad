@@ -20,6 +20,11 @@ option(OCCCCAD_ENABLE_TSAN "Enable ThreadSanitizer" OFF)
 option(OCCCCAD_ENABLE_LTO "Enable Link-Time Optimization" OFF)
 option(OCCCCAD_ENABLE_CCACHE "Use ccache for compilation" ON)
 
+if(OCCCCAD_BUILD_TESTS)
+    include(CTest)
+    enable_testing()
+endif()
+
 # ---- CMake Modules ----------------------------------------------------------
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 

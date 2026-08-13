@@ -100,28 +100,67 @@ type ReferenceGeometry struct {
 	AxisSystems []AxisSystem `json:"axisSystems"`
 }
 
-type Rectangle struct {
-	Origin [2]float64 `json:"origin"`
-	Width  float64    `json:"width"`
-	Height float64    `json:"height"`
+type SketchPoint2 struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+type SketchSupport struct {
+	Type         string `json:"type"`
+	DatumPlaneID string `json:"datumPlaneId"`
+	Plane        string `json:"plane"`
+}
+type SketchEntity struct {
+	ID    string        `json:"id"`
+	Kind  string        `json:"kind"`
+	Role  string        `json:"role"`
+	Point *SketchPoint2 `json:"point,omitempty"`
+	Start *SketchPoint2 `json:"start,omitempty"`
+	End   *SketchPoint2 `json:"end,omitempty"`
+}
+type SketchGeometryRef struct {
+	Target     string `json:"target"`
+	EntityID   string `json:"entityId,omitempty"`
+	SubElement string `json:"subElement"`
+}
+type SketchConstraint struct {
+	ID         string              `json:"id"`
+	Kind       string              `json:"kind"`
+	References []SketchGeometryRef `json:"references"`
+	FixedPoint *SketchPoint2       `json:"fixedPoint,omitempty"`
+}
+type SketchSolveState struct {
+	Status                   string   `json:"status"`
+	DegreesOfFreedom         int      `json:"degreesOfFreedom"`
+	Diagnostic               string   `json:"diagnostic,omitempty"`
+	ConflictingConstraintIDs []string `json:"conflictingConstraintIds,omitempty"`
+	RedundantConstraintIDs   []string `json:"redundantConstraintIds,omitempty"`
+}
+type SketchFeature struct {
+	SchemaVersion uint32             `json:"schemaVersion"`
+	Support       SketchSupport      `json:"support"`
+	Entities      []SketchEntity     `json:"entities"`
+	Constraints   []SketchConstraint `json:"constraints"`
+	Solve         SketchSolveState   `json:"solve"`
+}
+type SketchOperation struct {
+	Type       string            `json:"type"`
+	Entity     *SketchEntity     `json:"entity,omitempty"`
+	Constraint *SketchConstraint `json:"constraint,omitempty"`
+	First      *SketchPoint2     `json:"first,omitempty"`
+	Second     *SketchPoint2     `json:"second,omitempty"`
 }
 
 type Feature struct {
-	ID          string     `json:"id"`
-	Type        string     `json:"type"`
-	Name        string     `json:"name"`
-	Plane       string     `json:"plane,omitempty"`
-	Rectangle   *Rectangle `json:"rectangle,omitempty"`
-	Profile     string     `json:"profile,omitempty"`
-	Length      float64    `json:"length,omitempty"`
-	Operation   string     `json:"operation,omitempty"`
-	GeometryKey string     `json:"geometryKey,omitempty"`
-	FileName    string     `json:"fileName,omitempty"`
-
-	// Legacy snapshots stored before the nested Rectangle model are still readable.
-	Origin *[2]float64 `json:"origin,omitempty"`
-	Width  float64     `json:"width,omitempty"`
-	Height float64     `json:"height,omitempty"`
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Name        string         `json:"name"`
+	Plane       string         `json:"plane,omitempty"`
+	Sketch      *SketchFeature `json:"sketch,omitempty"`
+	Profile     string         `json:"profile,omitempty"`
+	Length      float64        `json:"length,omitempty"`
+	Operation   string         `json:"operation,omitempty"`
+	GeometryKey string         `json:"geometryKey,omitempty"`
+	FileName    string         `json:"fileName,omitempty"`
 }
 
 type PartModel struct {
@@ -269,27 +308,25 @@ type UpdateDocumentRequest struct {
 }
 
 type CommandRequest struct {
-	RequestID            string     `json:"requestId"`
-	Type                 string     `json:"type"`
-	Plane                string     `json:"plane,omitempty"`
-	Origin               [2]float64 `json:"origin,omitempty"`
-	Width                float64    `json:"width,omitempty"`
-	Height               float64    `json:"height,omitempty"`
-	SketchID             string     `json:"sketchId,omitempty"`
-	Length               float64    `json:"length,omitempty"`
-	ReferencedDocumentID string     `json:"referencedDocumentId,omitempty"`
-	Name                 string     `json:"name,omitempty"`
-	InstanceID           string     `json:"instanceId,omitempty"`
-	Translation          [3]float64 `json:"translation,omitempty"`
-	ReferenceMode        string     `json:"referenceMode,omitempty"`
-	GeometryKey          string     `json:"geometryKey,omitempty"`
-	FileName             string     `json:"fileName,omitempty"`
-	VersionID            string     `json:"versionId,omitempty"`
-	ParameterID          string     `json:"parameterId,omitempty"`
-	Expression           string     `json:"expression,omitempty"`
-	Value                float64    `json:"value,omitempty"`
-	Unit                 string     `json:"unit,omitempty"`
-	ActorID              string     `json:"-"`
+	RequestID            string            `json:"requestId"`
+	Type                 string            `json:"type"`
+	Plane                string            `json:"plane,omitempty"`
+	SketchID             string            `json:"sketchId,omitempty"`
+	Operations           []SketchOperation `json:"operations,omitempty"`
+	Length               float64           `json:"length,omitempty"`
+	ReferencedDocumentID string            `json:"referencedDocumentId,omitempty"`
+	Name                 string            `json:"name,omitempty"`
+	InstanceID           string            `json:"instanceId,omitempty"`
+	Translation          [3]float64        `json:"translation,omitempty"`
+	ReferenceMode        string            `json:"referenceMode,omitempty"`
+	GeometryKey          string            `json:"geometryKey,omitempty"`
+	FileName             string            `json:"fileName,omitempty"`
+	VersionID            string            `json:"versionId,omitempty"`
+	ParameterID          string            `json:"parameterId,omitempty"`
+	Expression           string            `json:"expression,omitempty"`
+	Value                float64           `json:"value,omitempty"`
+	Unit                 string            `json:"unit,omitempty"`
+	ActorID              string            `json:"-"`
 }
 
 type HistoryEntry struct {
@@ -1418,20 +1455,23 @@ func (service *Service) requireActiveDocument(ctx context.Context, documentID st
 
 func mutatePart(model *PartModel, request CommandRequest) error {
 	switch request.Type {
-	case "CREATE_RECTANGLE_SKETCH":
+	case "CREATE_SKETCH":
 		plane := strings.ToUpper(request.Plane)
 		if plane != "XY" && plane != "XZ" && plane != "YZ" {
 			return fmt.Errorf("%w: select XY, XZ, or YZ plane", ErrValidation)
 		}
-		if !positiveFinite(request.Width) || !positiveFinite(request.Height) ||
-			!finite(request.Origin[0]) || !finite(request.Origin[1]) {
-			return fmt.Errorf("%w: rectangle dimensions must be positive finite values", ErrValidation)
-		}
 		model.Features = append(model.Features, Feature{
-			ID: newID("sketch"), Type: "RECTANGLE_SKETCH",
+			ID: newID("sketch"), Type: "SKETCH",
 			Name:  numberedFeatureName(model.Features, "SKETCH", "Sketch"),
-			Plane: plane, Rectangle: &Rectangle{Origin: request.Origin, Width: request.Width, Height: request.Height},
+			Plane: plane, Sketch: &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY"}},
 		})
+	case "EDIT_SKETCH":
+		for index := range model.Features {
+			if model.Features[index].ID == request.SketchID && model.Features[index].Sketch != nil {
+				return applySketchOperations(model.Features[index].Sketch, request.Operations)
+			}
+		}
+		return fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
 	case "PAD_SKETCH":
 		if !positiveFinite(request.Length) {
 			return fmt.Errorf("%w: pad length must be a positive finite value", ErrValidation)
@@ -1587,31 +1627,26 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 		case "IMPORT_STEP":
 			baseKey = feature.GeometryKey
 			canonical.WriteString("|base=" + baseKey)
-		case "RECTANGLE_SKETCH":
+		case "SKETCH":
 			sketches[feature.ID] = feature
 		case "PAD":
 			sketch, exists := sketches[feature.Profile]
 			if !exists {
 				return "", fmt.Errorf("%w: extrude profile %s is missing or follows the extrude", ErrValidation, feature.Profile)
 			}
-			rectangle := sketch.Rectangle
-			if rectangle == nil {
-				origin := [2]float64{}
-				if sketch.Origin != nil {
-					origin = *sketch.Origin
-				}
-				rectangle = &Rectangle{Origin: origin, Width: sketch.Width, Height: sketch.Height}
+			origin, width, height, err := rectangleProfile(sketch)
+			if err != nil {
+				return "", err
 			}
 			plane := sketch.Plane
 			if plane == "" {
 				plane = "XY"
 			}
 			pads = append(pads, geometry.RectangularPad{
-				OriginX: rectangle.Origin[0], OriginY: rectangle.Origin[1],
-				Width: rectangle.Width, Height: rectangle.Height, Length: feature.Length, Plane: plane,
+				OriginX: origin[0], OriginY: origin[1], Width: width, Height: height, Length: feature.Length, Plane: plane,
 			})
 			fmt.Fprintf(&canonical, "|pad=%s,%.9g,%.9g,%.9g,%.9g,%.9g",
-				plane, rectangle.Origin[0], rectangle.Origin[1], rectangle.Width, rectangle.Height, feature.Length)
+				plane, origin[0], origin[1], width, height, feature.Length)
 		}
 	}
 	if len(pads) == 0 {
@@ -1647,6 +1682,45 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 		return "", err
 	}
 	return key, nil
+}
+
+func rectangleProfile(feature Feature) ([2]float64, float64, float64, error) {
+	if feature.Sketch == nil {
+		return [2]float64{}, 0, 0, fmt.Errorf("%w: sketch model is missing", ErrValidation)
+	}
+	lines := []SketchEntity{}
+	for _, entity := range feature.Sketch.Entities {
+		if entity.Kind == "LINE" && entity.Role == "PROFILE" {
+			lines = append(lines, entity)
+		}
+	}
+	if len(lines) != 4 {
+		return [2]float64{}, 0, 0, fmt.Errorf("%w: pad currently requires one four-line rectangle profile", ErrValidation)
+	}
+	minX, minY, maxX, maxY := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
+	for _, line := range lines {
+		if line.Start == nil || line.End == nil {
+			return [2]float64{}, 0, 0, fmt.Errorf("%w: rectangle profile has an invalid line", ErrValidation)
+		}
+		for _, p := range []*SketchPoint2{line.Start, line.End} {
+			minX = math.Min(minX, p.X)
+			minY = math.Min(minY, p.Y)
+			maxX = math.Max(maxX, p.X)
+			maxY = math.Max(maxY, p.Y)
+		}
+	}
+	width, height := maxX-minX, maxY-minY
+	if !positiveFinite(width) || !positiveFinite(height) {
+		return [2]float64{}, 0, 0, fmt.Errorf("%w: rectangle profile has no area", ErrValidation)
+	}
+	const tolerance = 1e-6
+	for _, line := range lines {
+		dx, dy := math.Abs(line.End.X-line.Start.X), math.Abs(line.End.Y-line.Start.Y)
+		if dx > tolerance && dy > tolerance {
+			return [2]float64{}, 0, 0, fmt.Errorf("%w: rectangle profile is not axis aligned", ErrValidation)
+		}
+	}
+	return [2]float64{minX, minY}, width, height, nil
 }
 
 func (service *Service) storeEvaluation(

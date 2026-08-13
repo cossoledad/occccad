@@ -318,9 +318,8 @@ def run_geometry(c, build_type=None):
         raise Exit(f"Build dir {build_dir} not found. Run 'invoke configure build' first.")
 
     worker_bin = build_dir / "workers" / "geometry" / "occccad_geometry_worker"
-    if not worker_bin.exists():
-        print("[run] Building geometry worker...")
-        c.run(f"cmake --build {build_dir} --target occccad_geometry_worker --parallel", pty=True)
+    print("[run] Building geometry worker incrementally...")
+    c.run(f"cmake --build {build_dir} --target occccad_geometry_worker --parallel", pty=True)
 
     print(f"[run] Starting geometry worker at {worker_bin}")
     c.run(f"{worker_bin} --smoke", pty=True)
@@ -332,8 +331,7 @@ def run_worker(c, build_type=None):
     bt = build_type or _get_build_type()
     build_dir = _get_build_dir(bt)
     worker_bin = build_dir / "workers" / "geometry" / "occccad_geometry_worker"
-    if not worker_bin.exists():
-        c.run(f"cmake --build {build_dir} --target occccad_geometry_worker --parallel", pty=True)
+    c.run(f"cmake --build {build_dir} --target occccad_geometry_worker --parallel", pty=True)
     c.run(str(worker_bin), pty=True)
 
 
@@ -382,11 +380,10 @@ def run_app(c, build_type=None, reset_data=False):
     if reset_data:
         _reset_development_data(c)
     worker_bin = _get_build_dir(bt) / "workers" / "geometry" / "occccad_geometry_worker"
-    if not worker_bin.exists():
-        c.run(
-            f"cmake --build {_get_build_dir(bt)} --target occccad_geometry_worker --parallel",
-            pty=True,
-        )
+    c.run(
+        f"cmake --build {_get_build_dir(bt)} --target occccad_geometry_worker --parallel",
+        pty=True,
+    )
     service_build = PROJECT_ROOT / "build" / "services"
     service_build.mkdir(parents=True, exist_ok=True)
     with c.cd(str(PROJECT_ROOT / "services")):

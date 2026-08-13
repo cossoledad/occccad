@@ -3,6 +3,8 @@
 find_package(Protobuf REQUIRED CONFIG)
 find_package(gRPC REQUIRED CONFIG)
 
+add_subdirectory(sketch)
+
 set(OCCCCAD_WORKER_PROTO
     "${PROJECT_SOURCE_DIR}/proto/occccad/worker/v1/geometry_worker.proto"
 )
@@ -56,6 +58,7 @@ target_link_libraries(
         occccad_occt_kernel
         occccad_kernel_api
         occccad_worker_proto
+        occccad_sketch_solver
 )
 
 occccad_set_warnings(occccad_geometry_worker PRIVATE)

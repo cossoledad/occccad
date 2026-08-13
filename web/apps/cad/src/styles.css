@@ -658,6 +658,32 @@ select {
   cursor: default;
 }
 
+.sketch-tool-prompt {
+  position: absolute;
+  z-index: 6;
+  bottom: 38px;
+  left: 50%;
+  display: flex;
+  min-width: 360px;
+  max-width: min(680px, 72vw);
+  align-items: center;
+  gap: 12px;
+  padding: 7px 12px;
+  color: #edf4f7;
+  border: 1px solid rgb(178 202 212 / 38%);
+  border-radius: 4px;
+  background: rgb(24 39 49 / 88%);
+  box-shadow: 0 3px 10px rgb(10 25 34 / 28%);
+  transform: translateX(-50%);
+  pointer-events: none;
+  font-size: 11px;
+  backdrop-filter: blur(7px);
+}
+
+.sketch-tool-prompt strong { flex: 0 0 auto; color: #f5a33b; font-weight: 650; }
+.sketch-tool-prompt span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sketch-tool-prompt small { flex: 0 0 auto; margin-left: auto; color: #a8bbc5; font-size: 10px; }
+
 .cad-floating-panel {
   position: absolute;
   z-index: 8;

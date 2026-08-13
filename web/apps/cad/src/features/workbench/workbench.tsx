@@ -21,7 +21,7 @@ import { FloatingToolbar, ToolbarGroup, ToolbarSeparator } from "../../cad/overl
 import { ToolButton } from "../../cad/overlay/tool-button";
 import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
 import { useWorkbenchStore } from "../../state/workbench-store";
-import type { DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, PlaneName, RectangleDraft, Selection, TopologyElementProperties, Vec3 } from "../../types";
+import type { DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, PlaneName, Selection, SketchOperation, TopologyElementProperties, Vec3 } from "../../types";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 
@@ -207,10 +207,9 @@ export function Workbench() {
   const canEdit = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
   const activeWorkbench = resolveCadWorkbench(view?.document.type ?? "PART", Boolean(store.sketchPlane));
 
-  const createRectangle = (draft: RectangleDraft) => {
-    if (!view) return;
-    command.mutate(() => api.createSketch(view.document.id, draft.plane, draft.origin, draft.width, draft.height));
-    store.setActiveTool("select");
+  const editSketch = (operations: SketchOperation[]) => {
+    if (!view || !store.activeSketchID) return;
+    command.mutate(() => api.editSketch(view.document.id, store.activeSketchID!, operations));
   };
   const moveInstance = (instanceID: string, translation: Vec3) => {
     if (view && canEdit) command.mutate(() => api.move(view.document.id, instanceID, translation));
@@ -219,8 +218,19 @@ export function Workbench() {
     if (!view) return; command.mutate(() => direction === "undo" ? api.undo(view.document.id) : api.redo(view.document.id));
   };
   const startSketch = () => {
-    if (store.selection?.kind !== "plane") return;
-    store.beginSketch(store.selection.plane);
+    if (!view || !store.selection) return;
+    if (store.selection.kind === "sketch") {
+      const feature = view.part?.features.find((candidate) => candidate.id === store.selection!.id);
+      const plane = feature?.sketch?.support.plane ?? feature?.plane;
+      if (feature && plane) store.beginSketch(feature.id, plane);
+      return;
+    }
+    if (store.selection.kind !== "plane") return;
+    const plane = store.selection.plane;
+    command.mutate(() => api.createSketch(view.document.id, plane), { onSuccess: (updated) => {
+      const sketch = [...(updated.part?.features ?? [])].reverse().find((feature) => feature.type.toUpperCase() === "SKETCH");
+      if (sketch) store.beginSketch(sketch.id, plane);
+    }});
   };
   const padSketch = (values: { length: number }) => {
     if (!view || store.selection?.kind !== "sketch") return;
@@ -258,12 +268,16 @@ export function Workbench() {
       commandRegistry.register({ id: "tool.select", execute: () => store.setActiveTool("select"),
         isActive: () => store.activeToolID === "select" }),
       commandRegistry.register({ id: "sketch.start", execute: startSketch,
-        isVisible: () => view?.document.type === "PART", isEnabled: () => Boolean(canEdit && store.selection?.kind === "plane") }),
+        isVisible: () => view?.document.type === "PART", isEnabled: () => Boolean(canEdit && (store.selection?.kind === "plane" || store.selection?.kind === "sketch")) }),
       commandRegistry.register({ id: "sketch.finish", execute: store.endSketch,
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit) }),
       commandRegistry.register({ id: "sketch.rectangle", execute: () => store.setActiveTool("sketch.rectangle"),
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane),
         isActive: () => store.activeToolID === "sketch.rectangle" }),
+      commandRegistry.register({ id: "sketch.point", execute: () => store.setActiveTool("sketch.point"), isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane), isActive: () => store.activeToolID === "sketch.point" }),
+      commandRegistry.register({ id: "sketch.line", execute: () => store.setActiveTool("sketch.line"), isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane), isActive: () => store.activeToolID === "sketch.line" }),
+      commandRegistry.register({ id: "sketch.constraint.coincident", execute: () => store.setActiveTool("sketch.constraint.coincident"), isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane), isActive: () => store.activeToolID === "sketch.constraint.coincident" }),
+      commandRegistry.register({ id: "sketch.constraint.parallel", execute: () => store.setActiveTool("sketch.constraint.parallel"), isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane), isActive: () => store.activeToolID === "sketch.constraint.parallel" }),
       commandRegistry.register({ id: "part.pad", execute: () => setPadOpen(true), isVisible: () => view?.document.type === "PART",
         isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch") }),
       commandRegistry.register({ id: "product.insert", execute: () => setInsertOpen(true), isVisible: () => view?.document.type === "PRODUCT",
@@ -308,12 +322,12 @@ export function Workbench() {
     <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view} selection={store.selection}
           preselection={store.preselection}
-          sketchPlane={store.sketchPlane} activeToolID={store.activeToolID} navigationProfile={store.navigationProfile}
-          commandRegistry={commandRegistry} onSelectionChange={store.setSelection} onPreselectionChange={store.setPreselection} onRectangleCreated={createRectangle}
+          sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={store.navigationProfile}
+          commandRegistry={commandRegistry} onSelectionChange={store.setSelection} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
           onInstanceMoved={moveInstance} /></Suspense>
         {activeWorkbench === "PART_DESIGN" && <FloatingToolbar id="part-design" label="Part Design" position="top-left" className="part-design-toolbar">
           <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
-            <ToolButton command="sketch.start" icon={<ScissorOutlined />} tooltip="选择基准面后创建草图" />
+            <ToolButton command="sketch.start" icon={<ScissorOutlined />} tooltip="选择基准面创建草图，或选择已有草图进入编辑" />
             <ToolButton command="part.pad" icon={<InsertRowAboveOutlined />} tooltip="拉伸所选草图" /></ToolbarGroup>
           <ToolbarSeparator />
           <ToolbarGroup><ToolButton command="exchange.import" icon={<CloudUploadOutlined />} tooltip="导入 STEP" />
@@ -321,7 +335,13 @@ export function Workbench() {
         </FloatingToolbar>}
         {activeWorkbench === "SKETCHER" && <FloatingToolbar id="sketcher" label="Sketcher" position="top-left" className="sketcher-toolbar">
           <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
-            <ToolButton command="sketch.rectangle" icon={<BorderOutlined />} tooltip="矩形 (R)" />
+            <ToolButton command="sketch.point" icon={<AimOutlined />} tooltip="点" />
+            <ToolButton command="sketch.line" icon={<NodeIndexOutlined />} tooltip="直线" /></ToolbarGroup>
+          <ToolbarSeparator />
+          <ToolbarGroup><ToolButton command="sketch.constraint.coincident" icon={<GatewayOutlined />} tooltip="重合约束：选择两个端点" />
+            <ToolButton command="sketch.constraint.parallel" icon={<MenuUnfoldOutlined />} tooltip="平行约束：选择两条线" /></ToolbarGroup>
+          <ToolbarSeparator />
+          <ToolbarGroup><ToolButton command="sketch.rectangle" icon={<BorderOutlined />} tooltip="矩形聚合功能 (R)" />
             <ToolButton command="sketch.finish" icon={<CheckOutlined />} tooltip="退出草图" /></ToolbarGroup>
         </FloatingToolbar>}
         {activeWorkbench === "ASSEMBLY_DESIGN" && <FloatingToolbar id="assembly-design" label="Assembly Design" position="top-left" className="assembly-design-toolbar">
@@ -475,7 +495,9 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
     { key: "type", label: "类型", children: selection.kind.toUpperCase() },
     { key: "name", label: "名称", children: feature?.name ?? instance?.name ?? selection.id },
     ...(selection.kind === "plane" ? [{ key: "plane", label: "基准面", children: selection.plane }] : []),
-    ...(feature?.rectangle ? [{ key: "size", label: "尺寸", children: `${feature.rectangle.width} × ${feature.rectangle.height} mm` }] : []),
+    ...(feature?.sketch ? [{ key: "entities", label: "草图元素", children: feature.sketch.entities.length },
+      { key: "constraints", label: "约束", children: feature.sketch.constraints.length },
+      { key: "solve", label: "求解", children: `${feature.sketch.solve.status} · ${feature.sketch.solve.degreesOfFreedom} DoF` }] : []),
     ...(feature?.length ? [{ key: "length", label: "长度", children: `${feature.length} mm` }] : []),
     ...(instance ? [{ key: "transform", label: "位移", children: instance.translation.map((value) => value.toFixed(2)).join(", ") },
     { key: "reference", label: "引用", children: instance.referenceMode ?? "FOLLOW_HEAD" }] : []),

@@ -45,8 +45,10 @@ func TestRenderProductChangesWhenInstanceMoves(t *testing.T) {
 
 func TestRenderSketchWithoutSolid(t *testing.T) {
 	view := workspace.DocumentView{Document: workspace.DocumentSummary{Name: "Sketch", Type: "PART"},
-		Part: &workspace.PartModel{Features: []workspace.Feature{{Type: "RECTANGLE_SKETCH", Plane: "XY",
-			Rectangle: &workspace.Rectangle{Origin: [2]float64{2, 3}, Width: 10, Height: 5}}}}}
+		Part: &workspace.PartModel{Features: []workspace.Feature{{Type: "SKETCH", Plane: "XY",
+			Sketch: &workspace.SketchFeature{SchemaVersion: 1, Support: workspace.SketchSupport{Plane: "XY"}, Entities: []workspace.SketchEntity{
+				{ID: "line", Kind: "LINE", Role: "PROFILE", Start: &workspace.SketchPoint2{X: 2, Y: 3}, End: &workspace.SketchPoint2{X: 12, Y: 3}},
+			}}}}}}
 	result, err := Render(view)
 	if err != nil {
 		t.Fatal(err)

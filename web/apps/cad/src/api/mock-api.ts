@@ -1,7 +1,7 @@
 import type { CadApi } from "../api";
 import type {
   Artifact, DocumentProperties, DocumentStructureNode, DocumentSummary, DocumentView, Feature, FolderSummary, HistoryEntry, Job,
-  ProductInstance, ShareGrant, User, Vec2, Vec3,
+  ProductInstance, ShareGrant, SketchOperation, User, Vec3,
 } from "../types";
 
 const pause = async <T>(value: T, milliseconds = 90): Promise<T> =>
@@ -74,7 +74,10 @@ const views = new Map<string, DocumentView>([
     document: summaries[0],
     datumPlanes, axisSystems,
     part: { units: "mm", datumPlanes, axisSystems, features: [
-      { id: "mock-sketch-1", type: "RECTANGLE_SKETCH", name: "Sketch 1", plane: "XY", rectangle: { origin: [0, 0], width: 72, height: 38 } },
+      { id: "mock-sketch-1", type: "SKETCH", name: "Sketch 1", plane: "XY", sketch: { schemaVersion: 1, support: { type: "DATUM_PLANE", datumPlaneId: "datum-xy", plane: "XY" }, entities: [
+        { id:"bottom",kind:"LINE",role:"PROFILE",start:{x:0,y:0},end:{x:72,y:0} }, { id:"right",kind:"LINE",role:"PROFILE",start:{x:72,y:0},end:{x:72,y:38} },
+        { id:"top",kind:"LINE",role:"PROFILE",start:{x:72,y:38},end:{x:0,y:38} }, { id:"left",kind:"LINE",role:"PROFILE",start:{x:0,y:38},end:{x:0,y:0} },
+      ], constraints: [], solve:{status:"UNDER_CONSTRAINED",degreesOfFreedom:4} } },
       { id: "mock-pad-1", type: "PAD", name: "Extrude 1", profile: "mock-sketch-1", length: 16, operation: "ADD" },
     ] },
     artifact: partArtifact,
@@ -97,7 +100,7 @@ const redoSnapshots = new Map<string, DocumentView[]>();
 const histories = new Map<string, HistoryEntry[]>([
   [partID, [
     { position: 0, versionId: "mock-part-v1", sequence: 1, commandType: "CREATE_DOCUMENT", createdAt: now(), isHead: false },
-    { position: 1, versionId: "mock-part-v2", sequence: 2, commandType: "CREATE_RECTANGLE_SKETCH", createdAt: now(), isHead: false },
+    { position: 1, versionId: "mock-part-v2", sequence: 2, commandType: "CREATE_SKETCH", createdAt: now(), isHead: false },
     { position: 2, versionId: "mock-part-v3", sequence: 3, commandType: "PAD_SKETCH", createdAt: now(), isHead: true },
   ]],
   [productID, [{ position: 0, versionId: "mock-product-v3", sequence: 3, commandType: "MOVE_INSTANCE", createdAt: now(), isHead: true }]],
@@ -216,15 +219,27 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 		return pause(getView(documentID));
 	}
 	return pause(commit(documentID, commandType, (view) => {
-    if (commandType === "CREATE_RECTANGLE_SKETCH" && view.part) {
-      view.part.features.push({ id: id("mock-sketch"), type: "RECTANGLE_SKETCH", name: `Sketch ${view.part.features.length + 1}`,
-        plane: input.plane as "XY" | "XZ" | "YZ", rectangle: { origin: input.origin as Vec2, width: Number(input.width), height: Number(input.height) } });
+    if (commandType === "CREATE_SKETCH" && view.part) {
+      const plane=input.plane as "XY"|"XZ"|"YZ";
+      view.part.features.push({ id: id("mock-sketch"), type: "SKETCH", name: `Sketch ${view.part.features.length + 1}`, plane,
+        sketch:{schemaVersion:1,support:{type:"DATUM_PLANE",datumPlaneId:`datum-${plane.toLowerCase()}`,plane},entities:[],constraints:[],solve:{status:"EMPTY",degreesOfFreedom:0}} });
+    }
+    if (commandType === "EDIT_SKETCH" && view.part) {
+      const sketch=view.part.features.find((feature)=>feature.id===input.sketchId)?.sketch;
+      for (const operation of input.operations as SketchOperation[] ?? []) {
+        if (operation.type==="ADD_ENTITY") sketch?.entities.push(operation.entity);
+        if (operation.type==="ADD_CONSTRAINT") sketch?.constraints.push(operation.constraint);
+        if (operation.type==="ADD_RECTANGLE" && sketch) {
+          const {first,second}=operation, x0=Math.min(first.x,second.x),x1=Math.max(first.x,second.x),y0=Math.min(first.y,second.y),y1=Math.max(first.y,second.y);
+          sketch.entities.push({id:id("line"),kind:"LINE",role:"PROFILE",start:{x:x0,y:y0},end:{x:x1,y:y0}},{id:id("line"),kind:"LINE",role:"PROFILE",start:{x:x1,y:y0},end:{x:x1,y:y1}},{id:id("line"),kind:"LINE",role:"PROFILE",start:{x:x1,y:y1},end:{x:x0,y:y1}},{id:id("line"),kind:"LINE",role:"PROFILE",start:{x:x0,y:y1},end:{x:x0,y:y0}});
+        }
+      }
     }
     if (commandType === "PAD_SKETCH" && view.part) {
       const sketch = view.part.features.find((feature) => feature.id === input.sketchId);
       view.part.features.push({ id: id("mock-pad"), type: "PAD", name: `Extrude ${view.part.features.length + 1}`,
         profile: String(input.sketchId), length: Number(input.length), operation: "ADD" });
-      if (sketch?.rectangle) view.artifact = boxArtifact(id("mock-shape"), [sketch.rectangle.width, sketch.rectangle.height, Number(input.length)]);
+      if (sketch?.sketch) { const points=sketch.sketch.entities.flatMap((entity)=>[entity.start,entity.end]).filter(Boolean) as Array<{x:number;y:number}>; const xs=points.map((point)=>point.x),ys=points.map((point)=>point.y); view.artifact=boxArtifact(id("mock-shape"),[Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys),Number(input.length)]); }
     }
     if (commandType === "INSERT_INSTANCE" && view.product) {
       view.product.instances.push({ id: id("mock-instance"), name: String(input.name || "Instance"),
@@ -349,7 +364,8 @@ export const mockApi: CadApi = {
     summaries.unshift(copy.document); views.set(copy.document.id, copy); histories.set(copy.document.id, []); return pause(copy);
   },
   command,
-  createSketch: async (documentID, plane, origin, width, height) => command(documentID, { type: "CREATE_RECTANGLE_SKETCH", plane, origin, width, height }),
+  createSketch: async (documentID, plane) => command(documentID, { type: "CREATE_SKETCH", plane }),
+  editSketch: async (documentID, sketchID, operations) => command(documentID, { type: "EDIT_SKETCH", sketchId: sketchID, operations }),
   pad: async (documentID, sketchID, length) => command(documentID, { type: "PAD_SKETCH", sketchId: sketchID, length }),
   insert: async (documentID, referencedDocumentID, name) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID, name }),
   move: async (documentID, instanceID, translation) => command(documentID, { type: "MOVE_INSTANCE", instanceId: instanceID, translation }),

@@ -25,8 +25,11 @@ class OccccadDependencies(ConanFile):
         # "spdlog/*",
         # Coarse-grained Geometry Worker RPC
         "grpc/1.71.0",
-        # Math (uncomment when needed)
-        # "eigen/*",
+        # PlaneGCS numerical and graph dependencies. Keep these direct: the
+        # sketch solver must not depend on an incidental OCCT dependency edge.
+        "eigen/3.4.0",
+        "boost/1.86.0",
+        # Additional math backends (uncomment when needed)
         # "ceres-solver/*",
     )
 
@@ -34,6 +37,12 @@ class OccccadDependencies(ConanFile):
         "gtest/[>=1.14 <3]",
         # "benchmark/[>=1.9 <3]",
     )
+
+    default_options = {
+        # PlaneGCS uses Boost.Graph and Boost.Math headers only. Avoid building
+        # the complete Boost binary library set for the geometry worker.
+        "boost/*:header_only": True,
+    }
 
     generators = "CMakeDeps", "CMakeToolchain"
 
