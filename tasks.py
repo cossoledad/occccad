@@ -82,7 +82,7 @@ def _get_profile(build_type: str | None = None) -> str:
     bt_lower = bt.lower()
     if _IS_CLANG:
         return f"linux-clang-{bt_lower}"
-    return f"linux-gcc14-{bt_lower}"
+    return f"linux-gcc15-{bt_lower}"
 
 
 def _get_build_dir(build_type: str | None = None) -> Path:

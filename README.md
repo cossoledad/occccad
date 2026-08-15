@@ -36,6 +36,9 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 推荐在 Linux 或 WSL2 中开发。需要 CMake 3.30+、C++17 编译器、Ninja、Conan 2、Python 3、Go、Node.js/pnpm 和 PostgreSQL。仓库当前固定 OCCT 7.9.1；精确版本以 `conanfile.py`、`services/go.mod` 和 `web/package.json` 为准。
 
 ```bash
+
+
+
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements-build.txt
