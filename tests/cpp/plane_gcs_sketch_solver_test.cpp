@@ -23,28 +23,36 @@ SketchModel rectangle() {
     model.constraints = {
         {"join-0",
          ConstraintKind::coincident,
-         {endpoint("bottom", SubElement::end), endpoint("right", SubElement::start)}},
+         {endpoint("bottom", SubElement::end), endpoint("right", SubElement::start)},
+         {}},
         {"join-1",
          ConstraintKind::coincident,
-         {endpoint("right", SubElement::end), endpoint("top", SubElement::start)}},
+         {endpoint("right", SubElement::end), endpoint("top", SubElement::start)},
+         {}},
         {"join-2",
          ConstraintKind::coincident,
-         {endpoint("top", SubElement::end), endpoint("left", SubElement::start)}},
+         {endpoint("top", SubElement::end), endpoint("left", SubElement::start)},
+         {}},
         {"join-3",
          ConstraintKind::coincident,
-         {endpoint("left", SubElement::end), endpoint("bottom", SubElement::start)}},
+         {endpoint("left", SubElement::end), endpoint("bottom", SubElement::start)},
+         {}},
         {"parallel-x-0",
          ConstraintKind::parallel,
-         {endpoint("bottom", SubElement::direction), axis(GeometryTarget::sketch_x_axis)}},
+         {endpoint("bottom", SubElement::direction), axis(GeometryTarget::sketch_x_axis)},
+         {}},
         {"parallel-y-0",
          ConstraintKind::parallel,
-         {endpoint("right", SubElement::direction), axis(GeometryTarget::sketch_y_axis)}},
+         {endpoint("right", SubElement::direction), axis(GeometryTarget::sketch_y_axis)},
+         {}},
         {"parallel-x-1",
          ConstraintKind::parallel,
-         {endpoint("top", SubElement::direction), axis(GeometryTarget::sketch_x_axis)}},
+         {endpoint("top", SubElement::direction), axis(GeometryTarget::sketch_x_axis)},
+         {}},
         {"parallel-y-1",
          ConstraintKind::parallel,
-         {endpoint("left", SubElement::direction), axis(GeometryTarget::sketch_y_axis)}},
+         {endpoint("left", SubElement::direction), axis(GeometryTarget::sketch_y_axis)},
+         {}},
     };
     return model;
 }
@@ -70,7 +78,8 @@ TEST(PlaneGcsSketchSolver, RejectsUnknownReferencesBeforeCallingBackend) {
     model.constraints = {
         {"bad",
          ConstraintKind::coincident,
-         {endpoint("line", SubElement::start), endpoint("missing", SubElement::end)}}};
+         {endpoint("line", SubElement::start), endpoint("missing", SubElement::end)},
+         {}}};
 
     const auto result = make_plane_gcs_sketch_solver()->solve(model);
 

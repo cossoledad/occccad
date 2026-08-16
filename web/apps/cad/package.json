@@ -10,8 +10,8 @@
     "preview": "vite preview --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test:sketch": "node scripts/sketch-tools.test.mjs",
-    "test:realtime": "node scripts/realtime-client.test.mjs"
+    "test:sketch": "node ../../../tests/front/sketch-tools.test.mjs",
+    "test:realtime": "node ../../../tests/front/realtime-client.test.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",

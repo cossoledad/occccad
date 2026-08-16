@@ -243,7 +243,7 @@ stateDiagram-v2
     RUNNING --> RUNNING: expired lease reclaimed
 ```
 
-当前任务类型为 `EXCHANGE_IMPORT`、`EXCHANGE_EXPORT` 和 `THUMBNAIL_RENDER`。Exchange 导入先检查清单，再以最多 8 个并发调用导入独立根组件；每个组件形成带默认 DatumPlane、AxisSystem 和可扩展 `IMPORT_BODY` Feature 的 Part，多组件再形成引用这些 Part 的 Product。创建文档和后续命令共享稳定 request ID，任务重领后可继续未完成阶段。导出支持 Part 和展平后的 Product occurrence，最终格式为 STEP 或 BREP。语义是至少一次，不是恰好一次；过时缩略图会被安全跳过，文档 Head 已改变的导出任务会失败以避免输出混合版本。
+当前任务类型为 `EXCHANGE_IMPORT`、`EXCHANGE_EXPORT` 和 `THUMBNAIL_RENDER`。Exchange 导入先检查清单，再以最多 8 个并发调用导入独立根组件；每个组件形成带默认 DatumPlane、AxisSystem 和可扩展 `IMPORT_BODY` Feature 的 Part，多组件再形成引用这些 Part 的 Product。导入文档名使用经路径清理后的完整文件名，保留 `.step`/`.brep` 后缀。创建文档和后续命令共享稳定 request ID，任务重领后可继续未完成阶段。导出支持 Part 和展平后的 Product occurrence，最终格式为 STEP 或 BREP。Product STEP 导出对每个 occurrence 单独 Transfer 一个带 placement 的 root，因此当前展平 Product 导出再导入仍被识别为 Product，而不会因先合并为 compound 而退化为 Part。语义是至少一次，不是恰好一次；过时缩略图会被安全跳过，文档 Head 已改变的导出任务会失败以避免输出混合版本。
 
 ### 7.2 ArtifactStore
 
@@ -253,7 +253,7 @@ Document Center 的 `POST /api/exchange/imports` 接收原始 HTTP body，使用
 
 Exchange HTTP 提交只等待上传落盘和 Job 入队，随后立即关闭对话框；浏览器不轮询等待几何处理。Jobs 在最终 `SUCCEEDED` 或最终 `FAILED` 状态转换的同一 SQL statement 中写入 `JOB` Outbox，API 将 `job.state.changed.v1` 仅推送给任务发起用户。若该用户没有可接收的 WebSocket 会话，事件保持 unpublished，直到至少一个会话接受；导出成功通知提供显式下载动作，导入成功后刷新 Document Center 并可直接打开新文档。
 
-当前 STEP 装配识别以 OCCT transferable root 为并行边界，能保存多根文件为 Product/Part 引用并保留根 Shape 自带放置；尚未使用 STEPCAF/XDE 恢复嵌套层级、名称、颜色、单位和共享实例关系，因此不能宣称完整 AP242 装配交换。
+当前 STEP 装配识别以 OCCT transferable root 为并行边界，能保存多根文件为 Product/Part 引用并保留根 Shape 自带放置；Product 导出同样保持“每个 occurrence 一个 transferable root”的当前对称契约。这只保证展平 Product 的类型和 placement round-trip；尚未使用 STEPCAF/XDE 恢复嵌套层级、名称、颜色、单位和共享实例关系，因此不能宣称完整 AP242 装配交换。
 
 ## 8. Web 应用架构
 
@@ -284,7 +284,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 - Go module 当前声明 Go 1.26.5；
 - Web 锁定 pnpm 11.20.0，并执行 TypeScript 检查和 Vite 构建。
 
-仓库包含 Go 单元/边界测试以及 C++ 测试配置。Web 的 `test:sketch` 使用 Vite SSR 加载真实 Tool 模块，覆盖 Rectangle 点击—移动—点击、Esc 分层取消、Point 标准元素提交、两阶段 Coincident 和 Point/Line 独立渲染数据；更完整的浏览器/WebGL E2E 仍待补充。根 README 中曾出现过不存在的 `tests/geometry` 目录，现已按真实结构修正。
+仓库级测试资产按语言集中在 `tests/cpp`、`tests/go` 和 `tests/front`，`models/` 保存不属于某个语言的真实 STEP/BREP 回归语料。`invoke test` 构建并运行 CTest、`services/` Go package tests、独立 `tests/go` module 和 Front 状态机测试；Geometry Worker `main` 只是服务入口，不再内置 `run_smoke` 测试分支。Go 工具链要求 package-private 白盒 `_test.go` 与被测 package 同目录，这些必要例外仍不进入生产二进制；跨包黑盒测试放在 `tests/go`。Web 的 `test:sketch` 使用 Vite SSR 加载真实 Tool 模块，覆盖 Rectangle 点击—移动—点击、Esc 分层取消、Point 标准元素提交、两阶段 Coincident 和 Point/Line 独立渲染数据；更完整的浏览器/WebGL E2E 仍待补充。
 
 ## 10. 已实现与未实现矩阵
 

@@ -1,4 +1,4 @@
-package api_test
+package realtime_test
 
 import (
 	"bytes"
@@ -117,8 +117,7 @@ func TestRealtimeExchangeImportNotification(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer source.Close()
-	query := url.Values{"format": {"STEP"}, "fileName": {filepath.Base(stepPath)},
-		"documentName": {"Realtime import " + uuid.NewString()}}
+	query := url.Values{"format": {"STEP"}, "fileName": {filepath.Base(stepPath)}}
 	request, _ := http.NewRequest(http.MethodPost, base+"/api/exchange/imports?"+query.Encode(), source)
 	request.Header.Set("Content-Type", "model/step")
 	request.Header.Set("X-CSRF-Token", csrf)

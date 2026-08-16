@@ -373,8 +373,8 @@ export const mockApi: CadApi = {
   undo: async (documentID) => command(documentID, { type: "UNDO" }),
   redo: async (documentID) => command(documentID, { type: "REDO" }),
   restore: async (documentID, versionID) => command(documentID, { type: "RESTORE", versionId: versionID }),
-  importDocument: async (file, folderID, documentName) => {
-    const documentID = id("mock-document"); const name = documentName || file.name.replace(/\.[^.]+$/, "");
+  importDocument: async (file, folderID) => {
+    const documentID = id("mock-document"); const name = file.name;
     const document: DocumentSummary = { id: documentID, name, description: "", type: "PART", versionId: id("mock-version"),
       canUndo: true, canRedo: false, createdAt: now(), lastUpdated: now(), folderId: folderID || undefined,
       workspaceName: "Main", permission: "OWNER" };

@@ -11,6 +11,7 @@ occccad-jobs 是当前 PostgreSQL 持久任务的消费者进程，适合脱离 
 | `THUMBNAIL_RENDER` | 文档与版本 | 生成 SVG 缩略图并更新 `document_previews` |
 
 Worker 不提供网络 API，不接受用户认证请求，也不是通用分布式工作流引擎。
+导入的 Part/Product 文档名统一使用清理路径后的完整上传文件名，包含 `.step`/`.brep` 后缀；客户端不再另行传入可分叉的文档名。Product STEP 导出按 occurrence 生成独立 transferable root，以保持当前展平 Product 再导入时的类型和 placement。
 
 ## 执行模型
 

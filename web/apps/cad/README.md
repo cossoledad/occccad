@@ -63,9 +63,10 @@ pnpm dev:api
 
 ```bash
 invoke web.build
+invoke test --build-type=Debug
 ```
 
-该命令执行 TypeScript 类型检查和生产构建。仓库当前没有浏览器端自动化测试套件，复杂交互在扩展前应补充单元、组件和 Playwright 场景。
+`invoke web.build` 执行 TypeScript 类型检查和生产构建。Front 单元/交互状态机测试源集中在根目录 `tests/front`，由统一 `invoke test` 入口运行；当前仍没有完整的浏览器/WebGL Playwright 套件，复杂跨层交互在扩展前应补充组件和 Playwright 场景。
 
 ## 性能与安全边界
 

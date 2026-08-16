@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/config"
 	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/exchange"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/thumbnail"
@@ -119,11 +119,10 @@ func (h handler) heartbeat(ctx context.Context, jobID string, done <-chan struct
 
 func (h handler) execute(ctx context.Context, job jobs.Job) error {
 	var payload struct {
-		FileName     string `json:"fileName"`
-		DocumentName string `json:"documentName"`
-		FolderID     string `json:"folderId"`
-		Format       string `json:"format"`
-		RequestID    string `json:"requestId"`
+		FileName  string `json:"fileName"`
+		FolderID  string `json:"folderId"`
+		Format    string `json:"format"`
+		RequestID string `json:"requestId"`
 	}
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		return err
@@ -178,10 +177,7 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if err := group.Wait(); err != nil {
 			return err
 		}
-		baseName := strings.TrimSpace(payload.DocumentName)
-		if baseName == "" {
-			baseName = strings.TrimSuffix(filepath.Base(payload.FileName), filepath.Ext(payload.FileName))
-		}
+		baseName := exchange.ImportedDocumentName(payload.FileName)
 		parts := make([]workspace.DocumentView, 0, len(results))
 		for index, result := range results {
 			name := baseName

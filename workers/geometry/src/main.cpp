@@ -11,7 +11,6 @@
 #include <chrono>
 #include <cctype>
 #include <cstdint>
-#include <cmath>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
@@ -529,14 +528,21 @@ public:
                 components.push_back({id, {component.translation().x(), component.translation().y(),
                                            component.translation().z()}});
             }
-            const auto geometry_id = components.size() == 1U &&
-                                             components.front().translation.x == 0.0 &&
-                                             components.front().translation.y == 0.0 &&
-                                             components.front().translation.z == 0.0
-                                         ? components.front().geometry_id
-                                         : kernel_.combine(components);
-            const auto data = format == "STEP" ? kernel_.serializeStep(geometry_id)
-                                                : kernel_.serializeBrepr(geometry_id);
+            std::vector<uint8_t> data;
+            if (format == "STEP") {
+                // One transferable root per occurrence is the current flat
+                // Product exchange contract. Collapsing them into a compound
+                // makes a subsequent import indistinguishable from a Part.
+                data = kernel_.serializeStepComponents(components);
+            } else {
+                const auto geometry_id = components.size() == 1U &&
+                                                 components.front().translation.x == 0.0 &&
+                                                 components.front().translation.y == 0.0 &&
+                                                 components.front().translation.z == 0.0
+                                             ? components.front().geometry_id
+                                             : kernel_.combine(components);
+                data = kernel_.serializeBrepr(geometry_id);
+            }
             write_artifact(request->output_key(), data,
                            format == "STEP" ? "model/step" : "application/vnd.opencascade.brep",
                            response->mutable_result());
@@ -630,65 +636,9 @@ private:
     std::unordered_map<std::string, worker_api::EvaluatePartResponse> cache_;
 };
 
-int run_smoke() {
-    occccad::kernel::OcctKernel kernel;
-    const occccad::kernel::RectangularPadSpec spec{0.0, 0.0, 100.0, 60.0, 40.0, "XY"};
-    const auto id = kernel.createRectangularPad(spec);
-    const auto topology = kernel.getTopology(id);
-    const auto mesh = kernel.tessellate(id);
-    if (topology.faces.size() != 6 || topology.edges.size() != 12 ||
-        topology.vertices.size() != 8 || topology.faces.front().properties.empty() ||
-        topology.edges.front().properties.empty() || mesh.edges.size() != 12 ||
-        mesh.topology_vertices.size() != 8) {
-        std::cerr << "[FAIL] B-Rep topology detail or selection mesh is incomplete\n";
-        return EXIT_FAILURE;
-    }
-	const auto step = kernel.serializeStep(id);
-	const char* requested_exchange_path = std::getenv("OCCCCAD_SMOKE_STEP_OUTPUT");
-	const auto exchange_path = requested_exchange_path != nullptr
-	                               ? std::filesystem::path(requested_exchange_path)
-	                               : std::filesystem::temp_directory_path() /
-	                                     ("occccad-exchange-smoke-" +
-	                                      std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-	                                      ".step");
-	{
-		std::ofstream output(exchange_path, std::ios::binary);
-		output.write(reinterpret_cast<const char*>(step.data()), static_cast<std::streamsize>(step.size()));
-	}
-	const auto roots = kernel.inspectStepRootCount(exchange_path.string());
-	const auto imported = kernel.loadStepRoot(exchange_path.string(), 1U);
-	if (requested_exchange_path == nullptr)
-		std::filesystem::remove(exchange_path);
-	const auto brep = kernel.serializeBrepr(imported);
-	const auto brep_round_trip = kernel.loadBrepr(brep);
-	const auto assembly = kernel.combine({{brep_round_trip, {0.0, 0.0, 0.0}},
-	                                      {brep_round_trip, {150.0, 0.0, 0.0}}});
-	if (roots != 1U || brep.empty() || std::abs(kernel.getVolume(imported) - kernel.getVolume(id)) > 1e-6 ||
-	    std::abs(kernel.getVolume(assembly) - 2.0 * kernel.getVolume(id)) > 1e-6) {
-		std::cerr << "[FAIL] STEP/BREP exchange round-trip or Product combine is invalid\n";
-		return EXIT_FAILURE;
-	}
-    std::cout << "occccad Geometry Worker " << OCC_VERSION_COMPLETE << '\n'
-              << "[SMOKE] GeometryId: " << id << '\n'
-              << "[SMOKE] Volume: " << kernel.getVolume(id) << " mm^3\n"
-              << "[SMOKE] Topology: " << topology.face_count << " faces / " << topology.edge_count
-              << " edges / " << topology.vertex_count << " vertices / " << topology.solid_count
-              << " solid\n"
-              << "[SMOKE] Triangles: " << mesh.triangles.size() << '\n'
-              << "[SMOKE] Selectable topology: " << mesh.edges.size() << " edges / "
-              << mesh.topology_vertices.size() << " vertices\n"
-			  << "[SMOKE] STEP/BREP round-trip: " << roots << " root / Product combine verified\n"
-              << "[PASS] Rectangle Sketch -> Pad\n";
-    return EXIT_SUCCESS;
-}
-
 }  // namespace
 
-int main(const int argc, char* argv[]) {
-    if (argc > 1 && std::string(argv[1]) == "--smoke") {
-        return run_smoke();
-    }
-
+int main() {
     const char* configured_address = std::getenv("OCCCCAD_GEOMETRY_WORKER_LISTEN");
     const std::string address =
         configured_address != nullptr ? configured_address : "127.0.0.1:51001";

@@ -12,6 +12,7 @@ import (
 
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/exchange"
 	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/workspace"
 )
@@ -52,7 +53,7 @@ func (server *Server) startExchangeImport(writer http.ResponseWriter, request *h
 		writeError(writer, http.StatusRequestEntityTooLarge, "exchange file exceeds the 128 MiB limit")
 		return
 	}
-	fileName := filepath.Base(strings.TrimSpace(request.URL.Query().Get("fileName")))
+	fileName := exchange.ImportedDocumentName(request.URL.Query().Get("fileName"))
 	if fileName == "." || fileName == "" {
 		writeError(writer, http.StatusBadRequest, "fileName is required")
 		return
@@ -82,8 +83,8 @@ func (server *Server) startExchangeImport(writer http.ResponseWriter, request *h
 	requestID := strings.TrimSpace(request.Header.Get("X-Request-ID"))
 	job, err := server.jobs.Enqueue(request.Context(), jobs.EnqueueRequest{Type: "EXCHANGE_IMPORT",
 		RequestedBy: principal(request).ID, InputObjectID: stored.ID, IdempotencyKey: requestID,
-		Payload: map[string]any{"fileName": fileName, "documentName": strings.TrimSpace(request.URL.Query().Get("documentName")),
-			"folderId": folderID, "format": format, "requestId": requestID}})
+		Payload: map[string]any{"fileName": fileName, "folderId": folderID, "format": format,
+			"requestId": requestID}})
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return

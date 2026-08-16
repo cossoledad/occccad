@@ -69,6 +69,8 @@ public:
     std::vector<uint8_t> serializeBrepr(const GeometryId& id) override;
     GeometryId loadStepData(const std::vector<uint8_t>& data) override;
     std::vector<uint8_t> serializeStep(const GeometryId& id) override;
+    std::vector<uint8_t> serializeStepComponents(
+        const std::vector<PlacedGeometry>& components) override;
 
     // Additional accessors
     size_t resident_count() const noexcept;

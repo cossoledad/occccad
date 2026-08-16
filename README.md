@@ -88,9 +88,13 @@ occccad/
 ├── services/internal/       Go 领域、存储和控制实现
 ├── services/internal/database/migrations/
 ├── web/apps/cad/            React CAD Web 应用
+├── tests/                   按 cpp/go/front 集中的仓库级测试
+├── models/                  STEP/BREP 等真实交换回归语料
 ├── deploy/                  部署辅助配置
 └── docs/                    现有架构与目标架构
 ```
+
+`invoke test` 是 C++、Go 和 Front 单元/边界测试的统一入口；目录边界与 Go package-private 测试的必要例外见 [tests/README.md](tests/README.md)。
 
 ## 文档维护规则
 

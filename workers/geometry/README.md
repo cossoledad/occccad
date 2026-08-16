@@ -47,18 +47,19 @@ invoke build --build-type=Debug --target=occccad_geometry_worker
 invoke run.worker --build-type=Debug
 ```
 
-PlaneGCS 适配器基础测试：
+Geometry/PlaneGCS 测试源集中在根目录 `tests/cpp`。可运行全部 C++ 测试：
 
 ```bash
-invoke build --build-type=Debug --target=occccad_plane_gcs_adapter_test
-ctest --test-dir build/cmake/debug --output-on-failure -R PlaneGcsSketchSolver
+invoke test --build-type=Debug
 ```
 
-几何冒烟程序：
+只验证几何交换回归（包括 `models/` 中的真实 STEP 语料和多 root Product round-trip）：
 
 ```bash
 invoke run.geometry --build-type=Debug
 ```
+
+Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用分支。
 
 依赖版本以根 `conanfile.py` 为准，当前为 C++17、OCCT 7.9.1、gRPC 1.71.0、Eigen 3.4.0 和 header-only Boost 1.86.0。PlaneGCS 锁定 FreeCAD 1.0.2 的不可变 commit，CMake 仅下载带逐文件 SHA-256 的官方核心源码清单，并构建为独立 shared library；不链接完整 FreeCAD。构建产物旁的 `LICENSE.FreeCAD-PlaneGCS` 必须随该库分发。
 

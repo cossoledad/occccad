@@ -280,26 +280,35 @@ def build(c, build_type=None, target=None, jobs=0):
     "filter": "CTest filter regex",
 })
 def test(c, build_type=None, filter=None):
-    """Run C++ tests via CTest."""
+    """Run the repository C++, Go, and Front test suites."""
     bt = build_type or _get_build_type()
     build_dir = _get_build_dir(bt)
 
     if not build_dir.exists():
         raise Exit(f"Build dir {build_dir} not found. Run 'invoke configure build' first.")
 
-    print("[test] Building Geometry Worker smoke target...")
-    c.run(f"cmake --build {build_dir} --target occccad_geometry_worker --parallel", pty=True)
+    print("[test] Building C++ tests...")
+    c.run(f"cmake --build {build_dir} --parallel", pty=True)
 
-    worker_smoke = build_dir / "workers" / "geometry" / "occccad_geometry_worker"
-    print("[test] Running Geometry Worker smoke test...")
-    c.run(f"{worker_smoke} --smoke", pty=True)
-
-    print("[test] Running tests...")
+    print("[test] Running CTest...")
     ctest_cmd = f"ctest --test-dir {build_dir} --output-on-failure"
     if filter:
         ctest_cmd += f" -R {filter}"
 
     c.run(ctest_cmd, pty=True)
+
+    print("[test] Running Go package tests...")
+    with c.cd(str(PROJECT_ROOT / "services")):
+        c.run("go test ./...", pty=True)
+
+    print("[test] Running standalone Go tests...")
+    with c.cd(str(PROJECT_ROOT / "tests" / "go")):
+        c.run("go test ./...", pty=True)
+
+    print("[test] Running Front unit tests...")
+    with c.cd(str(PROJECT_ROOT / "web" / "apps" / "cad")):
+        c.run("pnpm test:sketch", pty=True)
+        c.run("pnpm test:realtime", pty=True)
     print("[test] Done.")
 
 
@@ -310,19 +319,16 @@ def test(c, build_type=None, filter=None):
 
 @task(help={"build_type": "Debug or Release"})
 def run_geometry(c, build_type=None):
-    """Build and run the geometry worker (smoke test)."""
+    """Build and run the C++ geometry tests."""
     bt = build_type or _get_build_type()
     build_dir = _get_build_dir(bt)
 
     if not build_dir.exists():
         raise Exit(f"Build dir {build_dir} not found. Run 'invoke configure build' first.")
 
-    worker_bin = build_dir / "workers" / "geometry" / "occccad_geometry_worker"
-    print("[run] Building geometry worker incrementally...")
-    c.run(f"cmake --build {build_dir} --target occccad_geometry_worker --parallel", pty=True)
-
-    print(f"[run] Starting geometry worker at {worker_bin}")
-    c.run(f"{worker_bin} --smoke", pty=True)
+    print("[run] Building geometry tests incrementally...")
+    c.run(f"cmake --build {build_dir} --target occccad_geometry_exchange_test --parallel", pty=True)
+    c.run(f"ctest --test-dir {build_dir} --output-on-failure -R GeometryExchange", pty=True)
 
 
 @task(help={"build_type": "Debug or Release"})

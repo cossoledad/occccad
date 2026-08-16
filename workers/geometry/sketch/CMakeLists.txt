@@ -91,19 +91,3 @@ target_link_libraries(occccad_sketch_solver PRIVATE occccad_planegcs)
 target_compile_features(occccad_sketch_solver PUBLIC cxx_std_17)
 occccad_set_warnings(occccad_sketch_solver PRIVATE)
 occccad_apply_sanitizers(occccad_sketch_solver)
-
-if(OCCCCAD_BUILD_TESTS)
-    find_package(GTest REQUIRED CONFIG)
-    include(GoogleTest)
-
-    add_executable(occccad_plane_gcs_adapter_test
-        tests/plane_gcs_sketch_solver_test.cpp
-    )
-    target_link_libraries(occccad_plane_gcs_adapter_test
-        PRIVATE occccad_sketch_solver GTest::gtest_main
-    )
-    target_compile_features(occccad_plane_gcs_adapter_test PRIVATE cxx_std_17)
-    occccad_set_warnings(occccad_plane_gcs_adapter_test PRIVATE)
-    occccad_apply_sanitizers(occccad_plane_gcs_adapter_test)
-    gtest_discover_tests(occccad_plane_gcs_adapter_test)
-endif()

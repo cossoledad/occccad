@@ -170,14 +170,13 @@ export const restApi = {
   redo: (documentId: string) => restApi.command(documentId, { type: "REDO" }),
   restore: (documentId: string, versionId: string) =>
     restApi.command(documentId, { type: "RESTORE", versionId }),
-  importDocument: async (file: File, folderId = "", documentName = ""): Promise<Job> => {
+  importDocument: async (file: File, folderId = ""): Promise<Job> => {
     const extension = file.name.split(".").pop()?.toUpperCase();
     const format = extension === "STEP" || extension === "STP" ? "STEP"
       : extension === "BREP" || extension === "BRP" ? "BREP" : "";
     if (!format) throw new Error("仅支持 STEP、STP、BREP 或 BRP 文件");
     const parameters = new URLSearchParams({ format, fileName: file.name });
     if (folderId) parameters.set("folderId", folderId);
-    if (documentName.trim()) parameters.set("documentName", documentName.trim());
     const response = await fetch(apiURL(`/api/exchange/imports?${parameters}`), {
       method: "POST", credentials: "include", body: file,
       headers: { ...mutationHeaders("POST"), "X-Request-ID": requestId(), "Content-Type": file.type || "application/octet-stream" },

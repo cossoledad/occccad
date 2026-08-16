@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
-import ts from "typescript";
 
-const sourceURL = new URL("../src/api/websocket-lifecycle.ts", import.meta.url);
+const require = createRequire(new URL("../../web/apps/cad/package.json", import.meta.url));
+const ts = require("typescript");
+
+const sourceURL = new URL("../../web/apps/cad/src/api/websocket-lifecycle.ts", import.meta.url);
 const source = await readFile(sourceURL, "utf8");
 const output = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },

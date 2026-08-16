@@ -729,9 +729,23 @@ std::vector<uint8_t> OcctKernel::serializeBrepr(const GeometryId& id) {
 }
 
 std::vector<uint8_t> OcctKernel::serializeStep(const GeometryId& id) {
+    return serializeStepComponents({{id, {0.0, 0.0, 0.0}}});
+}
+
+std::vector<uint8_t> OcctKernel::serializeStepComponents(
+    const std::vector<PlacedGeometry>& components) {
+    if (components.empty()) {
+        throw std::invalid_argument("STEP export requires at least one component");
+    }
     STEPControl_Writer writer;
-    if (writer.Transfer(impl_->find(id), STEPControl_AsIs) != IFSelect_RetDone) {
-        throw std::runtime_error("STEP transfer failed");
+    for (const auto& component : components) {
+        gp_Trsf transform;
+        transform.SetTranslation(gp_Vec(
+            component.translation.x, component.translation.y, component.translation.z));
+        const auto shape = impl_->find(component.geometry_id).Moved(TopLoc_Location(transform));
+        if (writer.Transfer(shape, STEPControl_AsIs) != IFSelect_RetDone) {
+            throw std::runtime_error("STEP component transfer failed");
+        }
     }
     ScopedFile temporary(temporary_step_path());
     if (writer.Write(temporary.path.string().c_str()) != IFSelect_RetDone) {
