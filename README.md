@@ -36,11 +36,13 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 推荐在 Linux 或 WSL2 中开发。需要 CMake 3.30+、C++17 编译器、Ninja、Conan 2、Python 3、Go、Node.js/pnpm 和 PostgreSQL。仓库当前固定 OCCT 7.9.1；精确版本以 `conanfile.py`、`services/go.mod` 和 `web/package.json` 为准。
 
 ```bash
+sudo apt install cmake clang ninja-build build-essential
+# WSLg
+sudo apt install libgl1-mesa-dev libgl-dev libx11-xcb-dev libfontenc-dev libice-dev libsm-dev libxaw7-dev libxcomposite-dev libxcursor-dev libxdamage-dev libxext-dev libxfixes-dev libxi-dev libxinerama-dev libxkbfile-dev libxmu-dev libxmuu-dev libxpm-dev libxrandr-dev libxrender-dev libxres-dev libxss-dev libxt-dev libxtst-dev libxv-dev libxxf86vm-dev libxcb-glx0-dev libxcb-render0-dev libxcb-render-util0-dev libxcb-xkb-dev libxcb-icccm4-dev libxcb-image0-dev libxcb-keysyms1-dev libxcb-randr0-dev libxcb-shape0-dev libxcb-sync-dev libxcb-xfixes0-dev libxcb-xinerama0-dev libxcb-dri3-dev uuid-dev libxcb-cursor-dev libxcb-dri2-0-dev libxcb-dri3-dev libxcb-present-dev libxcb-composite0-dev libxcb-ewmh-dev libxcb-res0-dev libxcb-util-dev pkg-config
 
+curl https://mise.run | sh
+mise use --global python@3.14 node@lts go@1.26
 
-
-python3 -m venv .venv
-source .venv/bin/activate
 python -m pip install -r requirements-build.txt
 invoke configure --build-type=Debug
 invoke build --build-type=Debug
