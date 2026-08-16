@@ -170,37 +170,33 @@ export const restApi = {
   redo: (documentId: string) => restApi.command(documentId, { type: "REDO" }),
   restore: (documentId: string, versionId: string) =>
     restApi.command(documentId, { type: "RESTORE", versionId }),
-  importStep: async (documentId: string, file: File): Promise<Job> => {
-    const body = new FormData();
-    body.set("requestId", requestId());
-    body.set("file", file);
-    const response = await fetch(apiURL(`/api/documents/${documentId}/import-step`), {
-      method: "POST", credentials: "include", headers: mutationHeaders("POST"), body,
+  importDocument: async (file: File, folderId = "", documentName = ""): Promise<Job> => {
+    const extension = file.name.split(".").pop()?.toUpperCase();
+    const format = extension === "STEP" || extension === "STP" ? "STEP"
+      : extension === "BREP" || extension === "BRP" ? "BREP" : "";
+    if (!format) throw new Error("仅支持 STEP、STP、BREP 或 BRP 文件");
+    const parameters = new URLSearchParams({ format, fileName: file.name });
+    if (folderId) parameters.set("folderId", folderId);
+    if (documentName.trim()) parameters.set("documentName", documentName.trim());
+    const response = await fetch(apiURL(`/api/exchange/imports?${parameters}`), {
+      method: "POST", credentials: "include", body: file,
+      headers: { ...mutationHeaders("POST"), "X-Request-ID": requestId(), "Content-Type": file.type || "application/octet-stream" },
     });
     const value = await response.json().catch(() => ({})) as Job & { error?: string };
     if (!response.ok) throw new Error(value.error ?? `HTTP ${response.status}`);
     return value;
   },
-  startExportStep: (documentId: string): Promise<Job> => request<Job>(`/api/documents/${documentId}/export-step`, {
-    method: "POST", headers: { "X-Request-ID": requestId() },
+  startExport: (documentId: string, format: "STEP" | "BREP"): Promise<Job> => request<Job>("/api/exchange/exports", {
+    method: "POST", headers: { "X-Request-ID": requestId() }, body: JSON.stringify({ documentId, format }),
   }),
   getJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}`),
   downloadJob: async (id: string): Promise<void> => {
-    const response = await fetch(apiURL(`/api/jobs/${id}/download`), {
-      credentials: "include", headers: { "X-Request-ID": requestId() },
-    });
-    if (!response.ok) {
-      const value = await response.json().catch(() => ({})) as { error?: string };
-      throw new Error(value.error ?? `HTTP ${response.status}`);
-    }
-    const blob = await response.blob();
-    const disposition = response.headers.get("content-disposition") ?? "";
-    const match = disposition.match(/filename="?([^";]+)"?/i);
     const link = document.createElement("a");
-    link.href = URL.createObjectURL(blob);
-    link.download = match?.[1] ?? "occccad-part.step";
+    link.href = apiURL(`/api/jobs/${id}/download`);
+    link.download = "";
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(link.href);
+    link.remove();
   },
 };
 

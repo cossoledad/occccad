@@ -6,8 +6,8 @@ occccad-jobs 是当前 PostgreSQL 持久任务的消费者进程，适合脱离 
 
 | 任务类型 | 输入 | 输出/副作用 |
 |---|---|---|
-| `STEP_IMPORT` | ArtifactStore 中的 STEP 对象 | 调用 Geometry Worker，更新目标 Part，并触发预览 |
-| `STEP_EXPORT` | 文档当前几何 | 生成 STEP，并把结果对象 ID 写回任务 |
+| `EXCHANGE_IMPORT` | ArtifactStore 中的 STEP/BREP 对象 | 检查清单，并行导入根组件，创建带私有基准特征的 Part；多根再创建 Product |
+| `EXCHANGE_EXPORT` | Part 或 Product 当前 Head 的 B-Rep 引用 | 生成 STEP/BREP，并把结果对象 ID 写回任务 |
 | `THUMBNAIL_RENDER` | 文档与版本 | 生成 SVG 缩略图并更新 `document_previews` |
 
 Worker 不提供网络 API，不接受用户认证请求，也不是通用分布式工作流引擎。
@@ -27,6 +27,7 @@ flowchart LR
 - 进程崩溃后，租约过期的 `RUNNING` 任务可被其他 Worker 重新领取；
 - 失败任务在达到最大次数前进入 `RETRY_WAIT`；
 - 领取语义是至少一次，任务处理器必须依赖幂等键和条件写入，不能假设“恰好一次”；
+- 最终成功或最终失败与 `JOB` Outbox 在同一数据库 statement 中写入；API 通过 `job.state.changed.v1` 通知任务发起用户，重试等待状态不制造失败通知；
 - 轮询为空时等待 1 秒。
 
 ## 依赖和配置
@@ -49,14 +50,14 @@ invoke run.app --build-type=Debug
 
 ## 失败处理
 
-- STEP 任务提交后若文档 Head 已变化，任务失败，避免把旧输入覆盖到新版本；
+- Exchange 导出提交后若文档 Head 已变化，任务失败，避免混合不同版本；
 - 过时的缩略图任务直接成功结束，不覆盖新版本预览；
 - 不支持的任务类型会失败并按队列策略重试；
 - 制品写入成功但数据库提交失败时可能留下未引用对象，未来对象存储 GC 必须按引用扫描清理。
 
 ## 扩缩容与验证
 
-多个实例可以并行消费，`SKIP LOCKED` 防止同时领取同一行。扩容前要确认 Geometry Worker 与共享制品存储容量；当前没有按任务类型隔离队列，耗时 STEP 工作可能影响缩略图延迟。
+多个实例可以并行消费，`SKIP LOCKED` 防止同时领取同一行。单个 Product 导入内部最多并行处理 8 个独立 root，正式 Geometry Router 可把它们分配给不同 Worker；最终 Product 组装与交换文件写出仍是确定性的 reduce 阶段。扩容前要确认 Geometry Worker 与共享制品存储容量；当前没有按任务类型隔离队列，耗时交换工作可能影响缩略图延迟。
 
 ```bash
 cd services

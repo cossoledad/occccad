@@ -36,6 +36,9 @@ public:
     // ICadKernel
     GeometryId loadBrepr(const std::vector<uint8_t>& data) override;
     GeometryId loadStep(const std::string& path) override;
+    uint32_t inspectStepRootCount(const std::string& path) override;
+    GeometryId loadStepRoot(const std::string& path, uint32_t root_index) override;
+    GeometryId combine(const std::vector<PlacedGeometry>& components) override;
     void unload(const GeometryId& id) override;
 
     GeometryId createBox(double dx, double dy, double dz) override;

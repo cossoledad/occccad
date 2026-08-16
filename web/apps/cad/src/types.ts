@@ -41,7 +41,7 @@ export type DocumentProperties = {
 
 export type Feature = {
   id: string;
-  type: "SKETCH" | "sketch" | "PAD" | "pad" | "IMPORT_STEP";
+  type: "SKETCH" | "sketch" | "PAD" | "pad" | "IMPORT_BODY";
   name?: string;
   plane?: PlaneName;
   sketch?: SketchFeature;
@@ -50,6 +50,7 @@ export type Feature = {
   operation?: "NEW" | "ADD" | "REMOVE" | "INTERSECT";
   geometryKey?: string;
   fileName?: string;
+  sourceFormat?: "STEP" | "BREP";
 };
 
 export type SketchPoint2 = { x: number; y: number };
@@ -139,7 +140,7 @@ export type AuditEvent = {
   requestId?: string; metadata: Record<string, unknown>; createdAt: string;
 };
 export type Job = {
-  id: string; type: "STEP_IMPORT" | "STEP_EXPORT" | "THUMBNAIL_RENDER" | "ARTIFACT_BACKFILL";
+  id: string; type: "EXCHANGE_IMPORT" | "EXCHANGE_EXPORT" | "THUMBNAIL_RENDER" | "ARTIFACT_BACKFILL";
   state: "QUEUED" | "RUNNING" | "RETRY_WAIT" | "SUCCEEDED" | "FAILED" | "CANCELED";
   documentId?: string; progress: number; errorMessage?: string; resultObjectId?: string;
 };

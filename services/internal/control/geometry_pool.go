@@ -19,6 +19,7 @@ import (
 
 type GeometryPoolConfig struct {
 	WorkerBinary     string
+	DataDirectory    string
 	WorkerHost       string
 	FirstWorkerPort  int
 	MinimumWorkers   int
@@ -134,11 +135,15 @@ func (pool *GeometryPool) spawnLocked() (*workerInstance, error) {
 	address := net.JoinHostPort(pool.config.WorkerHost, strconv.Itoa(port))
 	environment := make([]string, 0, len(os.Environ())+1)
 	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "OCCCCAD_GEOMETRY_WORKER_LISTEN=") {
+		if !strings.HasPrefix(entry, "OCCCCAD_GEOMETRY_WORKER_LISTEN=") &&
+			!strings.HasPrefix(entry, "OCCCCAD_DATA_DIR=") {
 			environment = append(environment, entry)
 		}
 	}
 	environment = append(environment, "OCCCCAD_GEOMETRY_WORKER_LISTEN="+address)
+	if pool.config.DataDirectory != "" {
+		environment = append(environment, "OCCCCAD_DATA_DIR="+pool.config.DataDirectory)
+	}
 	process, err := StartManagedProcess(pool.ctx, fmt.Sprintf("geometry-%d", port), pool.config.WorkerBinary, "", nil, environment)
 	if err != nil {
 		return nil, err
@@ -309,7 +314,9 @@ func (pool *GeometryPool) EvaluatePart(ctx context.Context, request *workerv1.Ev
 	if err != nil {
 		return nil, err
 	}
-	_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
+	if worker != nil {
+		_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
+	}
 	response, err := client.EvaluatePart(outgoing(ctx), request)
 	pool.release(worker, request.GetGeometryKey(), err == nil)
 	if err == nil {
@@ -334,25 +341,37 @@ func (pool *GeometryPool) SolveSketch(ctx context.Context, request *workerv1.Sol
 	return response, err
 }
 
-func (pool *GeometryPool) ImportStep(ctx context.Context, request *workerv1.ImportStepRequest) (*workerv1.EvaluatePartResponse, error) {
+func (pool *GeometryPool) InspectExchange(ctx context.Context, request *workerv1.InspectExchangeRequest) (*workerv1.InspectExchangeResponse, error) {
+	client, worker, err := pool.selectClient("")
+	if err != nil {
+		return nil, err
+	}
+	response, err := client.InspectExchange(outgoing(ctx), request)
+	pool.release(worker, "", err == nil)
+	return response, err
+}
+
+func (pool *GeometryPool) ImportExchange(ctx context.Context, request *workerv1.ImportExchangeRequest) (*workerv1.EvaluatePartResponse, error) {
 	client, worker, err := pool.selectClient(request.GetGeometryKey())
 	if err != nil {
 		return nil, err
 	}
-	_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
-	response, err := client.ImportStep(outgoing(ctx), request)
+	if worker != nil {
+		_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
+	}
+	response, err := client.ImportExchange(outgoing(ctx), request)
 	pool.release(worker, request.GetGeometryKey(), err == nil)
 	if err == nil {
 		pool.remember(worker, response.GetGeometryId())
 	}
 	return response, err
 }
-func (pool *GeometryPool) ExportStep(ctx context.Context, request *workerv1.ExportStepRequest) (*workerv1.ExportStepResponse, error) {
+func (pool *GeometryPool) ExportExchange(ctx context.Context, request *workerv1.ExportExchangeRequest) (*workerv1.ExportExchangeResponse, error) {
 	client, worker, err := pool.selectClient("")
 	if err != nil {
 		return nil, err
 	}
-	response, err := client.ExportStep(outgoing(ctx), request)
+	response, err := client.ExportExchange(outgoing(ctx), request)
 	pool.release(worker, "", err == nil)
 	return response, err
 }

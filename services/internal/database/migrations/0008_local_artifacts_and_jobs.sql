@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS occccad.artifact_objects (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
-    kind text NOT NULL CHECK (kind IN ('BREP','GLB','STEP_SOURCE','STEP_EXPORT','THUMBNAIL')),
+    kind text NOT NULL CHECK (kind IN ('BREP','GLB','EXCHANGE_SOURCE','EXCHANGE_EXPORT','THUMBNAIL')),
     sha256 char(64) NOT NULL,
     storage_backend text NOT NULL DEFAULT 'LOCAL' CHECK (storage_backend IN ('LOCAL','S3')),
     object_key text NOT NULL,
@@ -19,9 +19,17 @@ ALTER TABLE occccad.geometry_artifacts
     ADD COLUMN IF NOT EXISTS storage_state text NOT NULL DEFAULT 'DATABASE'
         CHECK (storage_state IN ('DATABASE','DUAL','OBJECT'));
 
+ALTER TABLE occccad.geometry_artifacts
+    ALTER COLUMN brep_data DROP NOT NULL,
+    ALTER COLUMN glb_data DROP NOT NULL,
+    ADD CONSTRAINT geometry_artifacts_storage_payload_check CHECK (
+        (storage_state <> 'DATABASE' OR (brep_data IS NOT NULL AND glb_data IS NOT NULL))
+        AND (storage_state <> 'OBJECT' OR (brep_object_id IS NOT NULL AND glb_object_id IS NOT NULL))
+    );
+
 CREATE TABLE IF NOT EXISTS occccad.jobs (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
-    job_type text NOT NULL CHECK (job_type IN ('STEP_IMPORT','STEP_EXPORT','THUMBNAIL_RENDER','ARTIFACT_BACKFILL')),
+    job_type text NOT NULL CHECK (job_type IN ('EXCHANGE_IMPORT','EXCHANGE_EXPORT','THUMBNAIL_RENDER','ARTIFACT_BACKFILL')),
     state text NOT NULL DEFAULT 'QUEUED'
         CHECK (state IN ('QUEUED','RUNNING','RETRY_WAIT','SUCCEEDED','FAILED','CANCELED')),
     document_id uuid REFERENCES occccad.documents(id) ON DELETE CASCADE,

@@ -7,7 +7,7 @@ Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 g
 - `Ping`：返回 Worker ID、OCCT 版本和 resident geometry 数；
 - `SolveSketch`：求解版本化 Point/Line/Constraint SketchModel，返回坐标、状态、DoF 和冲突/冗余约束 ID；
 - `EvaluatePart`：求值一个矩形草图/拉伸链或在基础 B-Rep 上追加拉伸；
-- `ImportStep` / `ExportStep`：STEP 与内部 B-Rep 互换；
+- `InspectExchange` / `ImportExchange` / `ExportExchange`：通过 ArtifactReference 检查、导入和导出 STEP/BREP；
 - `GetTopology`：返回面、边、点及诊断属性；
 - 生成 SHA-256 GeometryId、B-Rep、三角网格、边折线、包围盒、体积和 GLB。
 - 内置项目自有 `SketchSolver`/PlaneGCS 适配层；`GCS::*` 不进入公共头或 Proto。当前实体覆盖 Point/Line，约束覆盖 Coincident/Parallel/FixedPoint。
@@ -37,7 +37,7 @@ flowchart LR
 - 默认监听：`127.0.0.1:51001`
 - 配置：`OCCCCAD_GEOMETRY_WORKER_LISTEN`
 
-调用应是“求值完整 Part”“导入 STEP”一类粗粒度操作，不能把每个 OCCT 函数映射为远程 RPC。请求携带 `request_id` 与 `geometry_key`；Trace Context 通过 gRPC metadata 传播。
+调用应是“求值完整 Part”“导入一个交换根”“合成一次导出”一类粗粒度操作，不能把每个 OCCT 函数映射为远程 RPC。请求携带 `request_id` 与 `geometry_key`；Trace Context 通过 gRPC metadata 传播。B-Rep、GLB、STEP 和 BREP 交换文件通过 ArtifactReference 读写，不进入 unary gRPC bytes；当前 `LOCAL` backend 要求 Worker 与 API/Jobs 共享 `OCCCCAD_DATA_DIR`，object key 必须是根目录内的 opaque 相对键。
 
 ## 构建与运行
 
@@ -67,7 +67,7 @@ invoke run.geometry --build-type=Debug
 - resident geometry 只存在于进程内；Worker 退出后必须能从持久 B-Rep 或参数模型重建；
 - GeometryId 基于内容，不得包含 Worker 地址；
 - 同一个 Worker 内的 OCCT 操作当前由互斥边界保护，扩展吞吐优先增加进程而不是假设所有 OCCT 路径线程安全；
-- 输入 STEP 是不可信复杂文件，生产环境需要大小、时间、内存限制和进程级隔离；
+- 输入 STEP/BREP 是不可信复杂文件；当前 Worker 拒绝空对象、越界 object key 和超过 512 MiB 的制品，生产环境仍需要更严格的时间、内存、实体数量和进程级隔离；
 - 计算请求必须可重试，调用方不能把 Worker 局部状态当成唯一副本。
 
 ## 目标边界

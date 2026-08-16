@@ -373,13 +373,19 @@ export const mockApi: CadApi = {
   undo: async (documentID) => command(documentID, { type: "UNDO" }),
   redo: async (documentID) => command(documentID, { type: "REDO" }),
   restore: async (documentID, versionID) => command(documentID, { type: "RESTORE", versionId: versionID }),
-  importStep: async (documentID, file) => {
-    commit(documentID, "IMPORT_STEP", (view) => { view.part?.features.push({ id: id("mock-import"), type: "IMPORT_STEP", fileName: file.name }); view.artifact = boxArtifact(id("mock-step"), [48, 32, 26]); });
-    const job: Job = { id: id("mock-job"), type: "STEP_IMPORT", state: "SUCCEEDED", documentId: documentID, progress: 100 };
+  importDocument: async (file, folderID, documentName) => {
+    const documentID = id("mock-document"); const name = documentName || file.name.replace(/\.[^.]+$/, "");
+    const document: DocumentSummary = { id: documentID, name, description: "", type: "PART", versionId: id("mock-version"),
+      canUndo: true, canRedo: false, createdAt: now(), lastUpdated: now(), folderId: folderID || undefined,
+      workspaceName: "Main", permission: "OWNER" };
+    const view: DocumentView = { document, datumPlanes, axisSystems, part: { units: "mm", datumPlanes, axisSystems,
+      features: [{ id: id("mock-import"), type: "IMPORT_BODY", fileName: file.name }] }, artifact: boxArtifact(id("mock-exchange"), [48, 32, 26]) };
+    summaries.unshift(document); views.set(documentID, view); histories.set(documentID, []);
+    const job: Job = { id: id("mock-job"), type: "EXCHANGE_IMPORT", state: "SUCCEEDED", documentId: documentID, progress: 100 };
     jobs.set(job.id, job); return pause(job);
   },
-  startExportStep: async (documentID) => {
-    const job: Job = { id: id("mock-job"), type: "STEP_EXPORT", state: "SUCCEEDED", documentId: documentID, progress: 100, resultObjectId: "mock-step" };
+  startExport: async (documentID) => {
+    const job: Job = { id: id("mock-job"), type: "EXCHANGE_EXPORT", state: "SUCCEEDED", documentId: documentID, progress: 100, resultObjectId: "mock-exchange" };
     jobs.set(job.id, job); return pause(job);
   },
   getJob: async (jobID) => pause(jobs.get(jobID)!),

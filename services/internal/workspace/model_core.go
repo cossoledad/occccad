@@ -20,7 +20,7 @@ const (
 	typeCreateSketch           = "occccad://part/sketch/create"
 	typeEditSketch             = "occccad://part/sketch/edit"
 	typeCreatePad              = "occccad://part/pad/create"
-	typeImportStep             = "occccad://part/step/import"
+	typeImportExchange         = "occccad://part/exchange/import"
 	typeSetParameterLiteral    = "occccad://parameter/literal/set"
 	typeSetParameterExpression = "occccad://parameter/expression/set"
 	typeInsertInstance         = "occccad://product/instance/insert"
@@ -48,7 +48,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeCreateSketch, "PART", applyCreateFeature},
 		commandHandler{typeEditSketch, "PART", applyEditSketch},
 		commandHandler{typeCreatePad, "PART", applyCreateFeature},
-		commandHandler{typeImportStep, "PART", applyCreateFeature},
+		commandHandler{typeImportExchange, "PART", applyCreateFeature},
 		commandHandler{typeSetParameterLiteral, "PART", applyParameterSource},
 		commandHandler{typeSetParameterExpression, "PART", applyParameterSource},
 		commandHandler{typeInsertInstance, "PRODUCT", applyInsertInstance},
@@ -654,7 +654,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
 		}
 		return typeCreatePad, createFeaturePayload{Feature: Feature{ID: newID("extrude"), Type: "PAD", Name: numberedFeatureName(model.Features, "PAD", "Extrude"), Profile: request.SketchID, Length: request.Length, Operation: "ADD"}}, nil
-	case "IMPORT_STEP":
+	case "IMPORT_EXCHANGE":
 		if documentType != "PART" {
 			break
 		}
@@ -667,7 +667,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if name == "" {
 			name = "Imported STEP"
 		}
-		return typeImportStep, createFeaturePayload{Feature: Feature{ID: newID("import"), Type: "IMPORT_STEP", Name: "Import " + name, GeometryKey: request.GeometryKey, FileName: name}}, nil
+		format := strings.ToUpper(strings.TrimSpace(request.SourceFormat))
+		if format != "STEP" && format != "BREP" {
+			return "", nil, fmt.Errorf("%w: exchange format must be STEP or BREP", ErrValidation)
+		}
+		return typeImportExchange, createFeaturePayload{Feature: Feature{ID: newID("import"), Type: "IMPORT_BODY", Name: "Import " + name, GeometryKey: request.GeometryKey, FileName: name, SourceFormat: format}}, nil
 	case "SET_PARAMETER_VALUE":
 		if documentType != "PART" {
 			break

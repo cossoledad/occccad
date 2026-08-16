@@ -145,6 +145,27 @@ func (hub *realtimeHub) broadcast(documentID string, message []byte) {
 	}
 }
 
+func (hub *realtimeHub) broadcastUser(userID string, message []byte) int {
+	hub.mu.RLock()
+	clients := make([]*realtimeClient, 0)
+	for client := range hub.connections {
+		if client.actor.ID == userID {
+			clients = append(clients, client)
+		}
+	}
+	hub.mu.RUnlock()
+	delivered := 0
+	for _, client := range clients {
+		select {
+		case client.send <- message:
+			delivered++
+		default:
+			hub.remove(client)
+		}
+	}
+	return delivered
+}
+
 func (hub *realtimeHub) close() {
 	hub.mu.RLock()
 	clients := make([]*realtimeClient, 0, len(hub.connections))
@@ -451,8 +472,54 @@ func (server *Server) dispatchRealtimeOutbox(ctx context.Context) {
 			if err := server.publishRealtimeBatch(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				slog.ErrorContext(ctx, "publish realtime outbox", "error", err)
 			}
+			if err := server.publishJobRealtimeBatch(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				slog.ErrorContext(ctx, "publish job realtime outbox", "error", err)
+			}
 		}
 	}
+}
+
+func (server *Server) publishJobRealtimeBatch(ctx context.Context) error {
+	rows, err := server.database.Query(ctx, `SELECT e.id::text,e.aggregate_id::text,j.requested_by_user_id::text
+		FROM occccad.outbox_events e JOIN occccad.jobs j ON j.id=e.aggregate_id
+		WHERE e.aggregate_type='JOB' AND e.published_at IS NULL
+		ORDER BY e.created_at,e.id LIMIT 100`)
+	if err != nil {
+		return err
+	}
+	type event struct{ id, jobID, userID string }
+	events := []event{}
+	for rows.Next() {
+		var item event
+		if err := rows.Scan(&item.id, &item.jobID, &item.userID); err != nil {
+			rows.Close()
+			return err
+		}
+		events = append(events, item)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, item := range events {
+		job, err := server.jobs.Get(ctx, item.jobID)
+		if err != nil {
+			return err
+		}
+		envelope := newRealtimeEnvelope("event", "job.state.changed.v1", "", nil,
+			map[string]any{"job": job}, nil)
+		encoded, _ := json.Marshal(envelope)
+		if server.realtime.broadcastUser(item.userID, encoded) == 0 {
+			// Job completion is a user notification, not a recoverable document
+			// snapshot hint. Keep it durable until at least one session accepts it.
+			continue
+		}
+		if _, err := server.database.Exec(ctx, `UPDATE occccad.outbox_events SET published_at=now()
+			WHERE id=$1 AND published_at IS NULL`, item.id); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (server *Server) publishRealtimeBatch(ctx context.Context) error {

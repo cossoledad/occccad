@@ -6,7 +6,7 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 
 ## 项目状态
 
-仓库当前是可运行的早期垂直切片，而不是完整 CAD 产品。已经贯通浏览器工作台、Go API、PostgreSQL、持久任务、C++/OCCT Geometry Worker 和本地制品存储；当前支持矩形草图到拉伸、Part/Product 文档、版本历史、STEP 导入导出、账号与 ACL 等基础能力。
+仓库当前是可运行的早期垂直切片，而不是完整 CAD 产品。已经贯通浏览器工作台、Go API、PostgreSQL、持久任务、C++/OCCT Geometry Worker 和本地制品存储；当前支持矩形草图到拉伸、Part/Product 文档、版本历史、Document Center 中的 STEP/BREP 文档交换、账号与 ACL 等基础能力。
 
 尚未实现通用二维约束求解、三维装配配合、稳定拓扑命名、曲面/钣金/工程图/CAM/CAE、跨主机调度和对象存储。这些能力的边界与演进顺序见[目标架构](docs/TARGET_ARCHITECTURE.md)。
 
@@ -23,10 +23,10 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 | 单元 | 类型 | 说明 |
 |---|---|---|
 | [occccad-server](services/cmd/occccad-server/README.md) | Go HTTP 服务 | 账号、文档、版本、ACL、任务与几何编排 |
-| [occccad-jobs](services/cmd/occccad-jobs/README.md) | Go 后台 Worker | STEP 导入导出和缩略图持久任务 |
+| [occccad-jobs](services/cmd/occccad-jobs/README.md) | Go 后台 Worker | STEP/BREP 文档交换和缩略图持久任务 |
 | [occccad-control](services/cmd/occccad-control/README.md) | Go 本地控制进程 | 启动、代理、调试切流和本机 Geometry Worker 池 |
 | [occccad-migrate](services/cmd/occccad-migrate/README.md) | Go 一次性任务 | 执行带校验的 PostgreSQL 迁移 |
-| [Geometry Worker](workers/geometry/README.md) | C++ gRPC Worker | OCCT 精确几何、拓扑、网格与 STEP 交换 |
+| [Geometry Worker](workers/geometry/README.md) | C++ gRPC Worker | OCCT 精确几何、拓扑、网格与 STEP/BREP 交换 |
 | [CAD Web](web/apps/cad/README.md) | React Web 应用 | 文档中心、CAD 工作台、交互和 Three.js 视口 |
 
 `kernel/api` 与 `kernel/occt` 是 Geometry Worker 内部链接的 C++ 库，并非网络服务；`services/internal/*` 是 Go 进程共享的内部包，也不是微服务。

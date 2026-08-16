@@ -134,16 +134,42 @@ func (service *Service) Claim(ctx context.Context, workerID string, lease time.D
 }
 
 func (service *Service) Succeed(ctx context.Context, jobID, workerID, resultObjectID string) error {
-	command, err := service.database.Exec(ctx, `WITH finished AS (
+	var updated int
+	err := service.database.QueryRow(ctx, `WITH finished AS (
 		UPDATE occccad.jobs SET state='SUCCEEDED',progress=100,result_object_id=NULLIF($3,'')::uuid,
 			completed_at=now(),lease_owner=NULL,lease_expires_at=NULL WHERE id=$1 AND state='RUNNING' AND lease_owner=$2
-		RETURNING attempt_count)
-	UPDATE occccad.job_attempts a SET completed_at=now(),result='SUCCEEDED'
-	FROM finished WHERE a.job_id=$1 AND a.attempt=finished.attempt_count`, jobID, workerID, resultObjectID)
+		RETURNING id,job_type,attempt_count), attempt AS (
+		UPDATE occccad.job_attempts a SET completed_at=now(),result='SUCCEEDED'
+		FROM finished WHERE a.job_id=finished.id AND a.attempt=finished.attempt_count RETURNING a.job_id), notified AS (
+		INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
+		SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state','SUCCEEDED')
+		FROM finished WHERE job_type IN ('EXCHANGE_IMPORT','EXCHANGE_EXPORT') RETURNING id)
+	SELECT count(*) FROM finished`, jobID, workerID, resultObjectID).Scan(&updated)
 	if err != nil {
 		return err
 	}
-	if command.RowsAffected() == 0 {
+	if updated == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (service *Service) SucceedImport(ctx context.Context, jobID, workerID, documentID string) error {
+	var updated int
+	err := service.database.QueryRow(ctx, `WITH finished AS (
+		UPDATE occccad.jobs SET state='SUCCEEDED',progress=100,document_id=$3,
+			completed_at=now(),lease_owner=NULL,lease_expires_at=NULL
+			WHERE id=$1 AND state='RUNNING' AND lease_owner=$2 RETURNING id,attempt_count), attempt AS (
+		UPDATE occccad.job_attempts a SET completed_at=now(),result='SUCCEEDED'
+		FROM finished WHERE a.job_id=finished.id AND a.attempt=finished.attempt_count RETURNING a.job_id), notified AS (
+		INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
+		SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state','SUCCEEDED')
+		FROM finished RETURNING id)
+	SELECT count(*) FROM finished`, jobID, workerID, documentID).Scan(&updated)
+	if err != nil {
+		return err
+	}
+	if updated == 0 {
 		return ErrNotFound
 	}
 	return nil
@@ -174,9 +200,13 @@ func (service *Service) Fail(ctx context.Context, job Job, workerID, code, messa
 	_, err := service.database.Exec(ctx, `WITH finished AS (
 		UPDATE occccad.jobs SET state=$3,error_code=$4,error_message=$5,available_at=now()+$6::interval,
 			completed_at=CASE WHEN $3='FAILED' THEN now() END,lease_owner=NULL,lease_expires_at=NULL
-		WHERE id=$1 AND lease_owner=$2 RETURNING attempt_count)
-	UPDATE occccad.job_attempts a SET completed_at=now(),result='FAILED',error_code=$4,error_message=$5
-	FROM finished WHERE a.job_id=$1 AND a.attempt=finished.attempt_count`, job.ID, workerID, state, code, message, delay)
+		WHERE id=$1 AND lease_owner=$2 RETURNING id,job_type,attempt_count,state), attempt AS (
+		UPDATE occccad.job_attempts a SET completed_at=now(),result='FAILED',error_code=$4,error_message=$5
+		FROM finished WHERE a.job_id=finished.id AND a.attempt=finished.attempt_count RETURNING a.job_id)
+	INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
+	SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state',state)
+	FROM finished WHERE state='FAILED' AND job_type IN ('EXCHANGE_IMPORT','EXCHANGE_EXPORT')`,
+		job.ID, workerID, state, code, message, delay)
 	return err
 }
 

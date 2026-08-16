@@ -2,7 +2,6 @@ package api
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -10,11 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -214,8 +211,9 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{documentID}/workspaces", server.branchDocumentWorkspace)
 	mux.HandleFunc("POST /api/documents/{documentID}/versions", server.createVersion)
 	mux.HandleFunc("POST /api/documents/{documentID}/commands", server.applyCommand)
-	mux.HandleFunc("POST /api/documents/{documentID}/import-step", server.importStep)
-	mux.HandleFunc("POST /api/documents/{documentID}/export-step", server.startExportStep)
+	mux.HandleFunc("GET /api/exchange/capabilities", server.exchangeCapabilities)
+	mux.HandleFunc("POST /api/exchange/imports", server.startExchangeImport)
+	mux.HandleFunc("POST /api/exchange/exports", server.startExchangeExport)
 	mux.HandleFunc("GET /api/jobs", server.listJobs)
 	mux.HandleFunc("GET /api/jobs/{jobID}", server.getJob)
 	mux.HandleFunc("GET /api/jobs/{jobID}/download", server.downloadJob)
@@ -422,58 +420,6 @@ func (server *Server) branchDocumentWorkspace(writer http.ResponseWriter, reques
 		return
 	}
 	writeJSON(writer, http.StatusCreated, item)
-}
-
-func (server *Server) importStep(writer http.ResponseWriter, request *http.Request) {
-	if _, ok := server.requireDocument(writer, request, access.RoleEditor); !ok {
-		return
-	}
-	request.Body = http.MaxBytesReader(writer, request.Body, 64<<20)
-	if err := request.ParseMultipartForm(8 << 20); err != nil {
-		writeError(writer, http.StatusBadRequest, "invalid STEP upload: "+err.Error())
-		return
-	}
-	defer request.MultipartForm.RemoveAll()
-	file, header, err := request.FormFile("file")
-	if err != nil {
-		writeError(writer, http.StatusBadRequest, "STEP file is required")
-		return
-	}
-	defer file.Close()
-	extension := strings.ToLower(filepath.Ext(header.Filename))
-	if extension != ".step" && extension != ".stp" {
-		writeError(writer, http.StatusBadRequest, "file extension must be .step or .stp")
-		return
-	}
-	data, err := io.ReadAll(io.LimitReader(file, (64<<20)+1))
-	if err != nil || len(data) > 64<<20 {
-		writeError(writer, http.StatusBadRequest, "STEP file exceeds the 64 MiB limit")
-		return
-	}
-	stored, err := server.artifacts.Put(request.Context(), artifact.KindStepSource,
-		"application/step", bytes.NewReader(data))
-	if err != nil {
-		writeError(writer, http.StatusInternalServerError, "store STEP source: "+err.Error())
-		return
-	}
-	requestID := request.FormValue("requestId")
-	if requestID == "" {
-		requestID = request.Header.Get("X-Request-ID")
-	}
-	view, err := server.workspace.GetDocument(request.Context(), request.PathValue("documentID"), principal(request).ID)
-	if err != nil {
-		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
-		return
-	}
-	job, err := server.jobs.Enqueue(request.Context(), jobs.EnqueueRequest{Type: "STEP_IMPORT",
-		DocumentID: request.PathValue("documentID"), VersionID: &view.Document.VersionID,
-		RequestedBy: principal(request).ID, InputObjectID: stored.ID, IdempotencyKey: requestID,
-		Payload: map[string]any{"fileName": filepath.Base(header.Filename), "requestId": requestID}})
-	if err != nil {
-		writeError(writer, http.StatusInternalServerError, err.Error())
-		return
-	}
-	writeJSON(writer, http.StatusAccepted, job)
 }
 
 func (server *Server) listDocuments(writer http.ResponseWriter, request *http.Request) {

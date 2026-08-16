@@ -332,7 +332,10 @@ def run_worker(c, build_type=None):
     build_dir = _get_build_dir(bt)
     worker_bin = build_dir / "workers" / "geometry" / "occccad_geometry_worker"
     c.run(f"cmake --build {build_dir} --target occccad_geometry_worker --parallel", pty=True)
-    c.run(str(worker_bin), pty=True)
+    data_directory = Path(os.environ.get("OCCCCAD_DATA_DIR", PROJECT_ROOT / "services" / "data"))
+    if not data_directory.is_absolute():
+        data_directory = PROJECT_ROOT / "services" / data_directory
+    c.run(str(worker_bin), env={"OCCCCAD_DATA_DIR": str(data_directory.resolve())}, pty=True)
 
 
 @task

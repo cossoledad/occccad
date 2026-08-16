@@ -24,6 +24,32 @@ type RectangularPad struct {
 	Plane                                   string
 }
 
+type ArtifactReference struct {
+	Backend, ObjectKey, SHA256, ContentType string
+	Size                                    int64
+}
+
+type ExchangeComponentInfo struct {
+	SourceIndex uint32
+	Name        string
+}
+
+type ExchangeInspection struct {
+	DocumentType string
+	Components   []ExchangeComponentInfo
+}
+
+type ExchangeComponent struct {
+	Name        string
+	BRep        ArtifactReference
+	Translation [3]float64
+}
+
+func artifactProto(value ArtifactReference) *workerv1.ArtifactReference {
+	return &workerv1.ArtifactReference{Backend: value.Backend, ObjectKey: value.ObjectKey,
+		Sha256: value.SHA256, SizeBytes: uint64(value.Size), ContentType: value.ContentType}
+}
+
 type SketchPoint struct {
 	ID   string
 	X, Y float64
@@ -134,6 +160,25 @@ func (client *Client) GetTopology(
 	return response, workerID, nil
 }
 
+func (client *Client) GetTopologyFromArtifact(
+	ctx context.Context, geometryID string, brep ArtifactReference, topologyType string, localID uint64,
+) (*workerv1.GetTopologyResponse, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	var header metadata.MD
+	response, err := client.worker.GetTopology(ctx, &workerv1.GetTopologyRequest{
+		GeometryId: geometryID, BrepArtifact: artifactProto(brep), TopologyType: topologyType, LocalId: localID,
+	}, grpc.Header(&header))
+	if err != nil {
+		return nil, "", fmt.Errorf("query B-Rep topology: %w", err)
+	}
+	workerID := ""
+	if values := header.Get("x-occccad-worker-id"); len(values) > 0 {
+		workerID = values[0]
+	}
+	return response, workerID, nil
+}
+
 func (client *Client) rememberWorker(ctx context.Context, geometryKey string, header metadata.MD) {
 	if values := header.Get("x-occccad-worker-id"); len(values) > 0 && values[0] != "" {
 		client.workers.Store(geometryKey, values[0])
@@ -191,33 +236,83 @@ func (client *Client) EvaluatePart(
 	return response, nil
 }
 
-func (client *Client) ImportStep(
-	ctx context.Context, requestID, geometryKey, fileName string, data []byte,
+func (client *Client) EvaluatePartFromArtifact(
+	ctx context.Context, requestID, geometryKey string, pads []RectangularPad,
+	baseBRep ArtifactReference, brepOutputKey, glbOutputKey string,
 ) (*workerv1.EvaluatePartResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
+	protoPads := make([]*workerv1.RectangularPadSpec, 0, len(pads))
+	for _, pad := range pads {
+		protoPads = append(protoPads, &workerv1.RectangularPadSpec{
+			OriginX: pad.OriginX, OriginY: pad.OriginY, Width: pad.Width,
+			Height: pad.Height, PadLength: pad.Length, Units: "mm", Plane: pad.Plane,
+		})
+	}
+	request := &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
+		RectangularPads: protoPads, LinearDeflection: 0.1, AngularDeflection: 0.5,
+		BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey}
+	if baseBRep.ObjectKey != "" {
+		request.BaseBrepArtifact = artifactProto(baseBRep)
+	}
 	var header metadata.MD
-	response, err := client.worker.ImportStep(ctx, &workerv1.ImportStepRequest{
-		RequestId: requestID, GeometryKey: geometryKey, FileName: fileName, StepData: data,
-		LinearDeflection: 0.1, AngularDeflection: 0.5,
-	}, grpc.Header(&header))
+	response, err := client.worker.EvaluatePart(ctx, request, grpc.Header(&header))
 	if err != nil {
-		return nil, fmt.Errorf("import STEP: %w", err)
+		return nil, fmt.Errorf("evaluate Part feature chain: %w", err)
 	}
 	client.rememberWorker(ctx, geometryKey, header)
 	return response, nil
 }
 
-func (client *Client) ExportStep(
-	ctx context.Context, requestID string, brep []byte,
-) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+func (client *Client) InspectExchange(ctx context.Context, requestID, format string, source ArtifactReference) (ExchangeInspection, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	response, err := client.worker.ExportStep(ctx, &workerv1.ExportStepRequest{
-		RequestId: requestID, BrepData: brep,
+	response, err := client.worker.InspectExchange(ctx, &workerv1.InspectExchangeRequest{
+		RequestId: requestID, Format: format, Source: artifactProto(source),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("export STEP: %w", err)
+		return ExchangeInspection{}, fmt.Errorf("inspect %s exchange: %w", format, err)
 	}
-	return response.GetStepData(), nil
+	result := ExchangeInspection{DocumentType: response.GetDocumentType()}
+	for _, component := range response.GetComponents() {
+		result.Components = append(result.Components, ExchangeComponentInfo{
+			SourceIndex: component.GetSourceIndex(), Name: component.GetName(),
+		})
+	}
+	return result, nil
+}
+
+func (client *Client) ImportExchange(ctx context.Context, requestID, geometryKey, format string,
+	source ArtifactReference, sourceIndex uint32, brepOutputKey, glbOutputKey string) (*workerv1.EvaluatePartResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	var header metadata.MD
+	response, err := client.worker.ImportExchange(ctx, &workerv1.ImportExchangeRequest{
+		RequestId: requestID, GeometryKey: geometryKey, Format: format, Source: artifactProto(source),
+		SourceIndex: sourceIndex, BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey,
+		LinearDeflection: 0.1, AngularDeflection: 0.5,
+	}, grpc.Header(&header))
+	if err != nil {
+		return nil, fmt.Errorf("import %s exchange: %w", format, err)
+	}
+	client.rememberWorker(ctx, geometryKey, header)
+	return response, nil
+}
+
+func (client *Client) ExportExchange(ctx context.Context, requestID, format, outputKey string,
+	components []ExchangeComponent) (ArtifactReference, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	request := &workerv1.ExportExchangeRequest{RequestId: requestID, Format: format, OutputKey: outputKey}
+	for _, component := range components {
+		request.Components = append(request.Components, &workerv1.ExchangeComponent{Name: component.Name,
+			Brep: artifactProto(component.BRep), Translation: &workerv1.Vec3{X: component.Translation[0], Y: component.Translation[1], Z: component.Translation[2]}})
+	}
+	response, err := client.worker.ExportExchange(ctx, request)
+	if err != nil {
+		return ArtifactReference{}, fmt.Errorf("export %s exchange: %w", format, err)
+	}
+	result := response.GetResult()
+	return ArtifactReference{Backend: result.GetBackend(), ObjectKey: result.GetObjectKey(),
+		SHA256: result.GetSha256(), Size: int64(result.GetSizeBytes()), ContentType: result.GetContentType()}, nil
 }

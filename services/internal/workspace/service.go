@@ -151,16 +151,17 @@ type SketchOperation struct {
 }
 
 type Feature struct {
-	ID          string         `json:"id"`
-	Type        string         `json:"type"`
-	Name        string         `json:"name"`
-	Plane       string         `json:"plane,omitempty"`
-	Sketch      *SketchFeature `json:"sketch,omitempty"`
-	Profile     string         `json:"profile,omitempty"`
-	Length      float64        `json:"length,omitempty"`
-	Operation   string         `json:"operation,omitempty"`
-	GeometryKey string         `json:"geometryKey,omitempty"`
-	FileName    string         `json:"fileName,omitempty"`
+	ID           string         `json:"id"`
+	Type         string         `json:"type"`
+	Name         string         `json:"name"`
+	Plane        string         `json:"plane,omitempty"`
+	Sketch       *SketchFeature `json:"sketch,omitempty"`
+	Profile      string         `json:"profile,omitempty"`
+	Length       float64        `json:"length,omitempty"`
+	Operation    string         `json:"operation,omitempty"`
+	GeometryKey  string         `json:"geometryKey,omitempty"`
+	FileName     string         `json:"fileName,omitempty"`
+	SourceFormat string         `json:"sourceFormat,omitempty"`
 }
 
 type PartModel struct {
@@ -321,6 +322,7 @@ type CommandRequest struct {
 	ReferenceMode        string            `json:"referenceMode,omitempty"`
 	GeometryKey          string            `json:"geometryKey,omitempty"`
 	FileName             string            `json:"fileName,omitempty"`
+	SourceFormat         string            `json:"sourceFormat,omitempty"`
 	VersionID            string            `json:"versionId,omitempty"`
 	ParameterID          string            `json:"parameterId,omitempty"`
 	Expression           string            `json:"expression,omitempty"`
@@ -1074,86 +1076,133 @@ func (service *Service) CreateVersion(
 	return service.ListHistory(ctx, documentID)
 }
 
-func (service *Service) ImportStep(
-	ctx context.Context, documentID, reqID, fileName string, data []byte,
-) (DocumentView, error) {
-	var documentType string
-	if err := service.database.QueryRow(ctx,
-		`SELECT document_type FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, documentID).
-		Scan(&documentType); errors.Is(err, pgx.ErrNoRows) {
-		return DocumentView{}, ErrNotFound
-	} else if err != nil {
+func (service *Service) CommitImportedPart(ctx context.Context, actor, folderID, reqID, name,
+	fileName, format, geometryKey string, evaluation *workerv1.EvaluatePartResponse) (DocumentView, error) {
+	if err := service.storeEvaluation(ctx, geometryKey, evaluation, referenceGeometry(newPartModel())); err != nil {
 		return DocumentView{}, err
 	}
-	if documentType != "PART" {
-		return DocumentView{}, fmt.Errorf("%w: STEP can only be imported into a Part", ErrValidation)
+	var folder *string
+	if strings.TrimSpace(folderID) != "" {
+		folder = &folderID
 	}
-	if len(data) == 0 {
-		return DocumentView{}, fmt.Errorf("%w: STEP file is empty", ErrValidation)
-	}
-	digest := sha256.Sum256(append([]byte("demo03-step-import-v1\x00"), data...))
-	key := "sha256:" + hex.EncodeToString(digest[:])
-	var exists bool
-	if err := service.database.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, key).
-		Scan(&exists); err != nil {
+	view, err := service.CreateDocument(ctx, CreateDocumentRequest{RequestID: reqID + "/document",
+		Name: name, Type: "PART", FolderID: folder, ActorID: actor})
+	if err != nil {
 		return DocumentView{}, err
 	}
-	if !exists {
-		evaluation, err := service.worker.ImportStep(ctx, requestID(reqID), key, fileName, data)
+	return service.ApplyCommand(ctx, view.Document.ID, CommandRequest{RequestID: reqID + "/import",
+		Type: "IMPORT_EXCHANGE", GeometryKey: geometryKey, FileName: strings.TrimSpace(fileName),
+		SourceFormat: strings.ToUpper(format), ActorID: actor})
+}
+
+func (service *Service) CommitImportedProduct(ctx context.Context, actor, folderID, reqID, name string,
+	parts []DocumentView) (DocumentView, error) {
+	var folder *string
+	if strings.TrimSpace(folderID) != "" {
+		folder = &folderID
+	}
+	view, err := service.CreateDocument(ctx, CreateDocumentRequest{RequestID: reqID + "/document",
+		Name: name, Type: "PRODUCT", FolderID: folder, ActorID: actor})
+	if err != nil {
+		return DocumentView{}, err
+	}
+	for index, part := range parts {
+		view, err = service.ApplyCommand(ctx, view.Document.ID, CommandRequest{
+			RequestID: reqID + fmt.Sprintf("/instance/%d", index), Type: "INSERT_INSTANCE",
+			ReferencedDocumentID: part.Document.ID, Name: part.Document.Name,
+			ReferenceMode: "PINNED", ActorID: actor,
+		})
 		if err != nil {
 			return DocumentView{}, err
 		}
-		if err := service.storeEvaluation(ctx, key, evaluation, referenceGeometry(newPartModel())); err != nil {
-			return DocumentView{}, err
-		}
 	}
-	request := CommandRequest{
-		RequestID: reqID, Type: "IMPORT_STEP", GeometryKey: key,
-		FileName: strings.TrimSpace(fileName),
-	}
-	if err := service.applyDomainMutation(ctx, documentID, request); err != nil {
-		return DocumentView{}, err
-	}
-	return service.GetDocument(ctx, documentID, request.ActorID)
+	return view, nil
 }
 
-func (service *Service) ExportStep(
-	ctx context.Context, documentID, reqID string,
-) ([]byte, string, error) {
-	var name, documentType string
-	var geometryKey *string
-	if err := service.database.QueryRow(ctx, `
-		SELECT d.name,d.document_type,v.geometry_key
-		FROM occccad.documents d JOIN occccad.document_versions v ON v.id=d.head_version_id
-		WHERE d.id=$1 AND d.deleted_at IS NULL`, documentID).Scan(&name, &documentType, &geometryKey); errors.Is(err, pgx.ErrNoRows) {
-		return nil, "", ErrNotFound
-	} else if err != nil {
-		return nil, "", err
-	}
-	if documentType != "PART" || geometryKey == nil {
-		return nil, "", fmt.Errorf("%w: Part has no solid geometry to export", ErrValidation)
-	}
-	var brep []byte
-	var volume float64
-	if err := service.database.QueryRow(ctx,
-		`SELECT brep_data,volume FROM occccad.geometry_artifacts WHERE geometry_key=$1`, *geometryKey).
-		Scan(&brep, &volume); err != nil {
-		return nil, "", err
-	}
-	if volume <= 0 || len(brep) == 0 {
-		return nil, "", fmt.Errorf("%w: Part has no solid geometry to export", ErrValidation)
-	}
-	data, err := service.worker.ExportStep(ctx, requestID(reqID), brep)
+type ExchangeExportComponent struct {
+	Name        string
+	BRep        geometry.ArtifactReference
+	Translation [3]float64
+}
+
+func (service *Service) ExchangeExportComponents(ctx context.Context, documentID string) (string, string, []ExchangeExportComponent, error) {
+	view, err := service.GetDocument(ctx, documentID)
 	if err != nil {
-		return nil, "", err
+		return "", "", nil, err
 	}
-	return data, name + ".step", nil
+	components := []ExchangeExportComponent{}
+	if view.Document.Type == "PART" {
+		if view.Artifact == nil || view.Artifact.Volume <= 0 {
+			return "", "", nil, fmt.Errorf("%w: Part has no solid geometry to export", ErrValidation)
+		}
+		reference, err := service.brepArtifactReference(ctx, view.Artifact.GeometryKey)
+		if err != nil {
+			return "", "", nil, err
+		}
+		components = append(components, ExchangeExportComponent{Name: view.Document.Name, BRep: reference})
+	} else {
+		for _, instance := range view.ResolvedInstances {
+			reference, err := service.brepArtifactReference(ctx, instance.GeometryKey)
+			if err != nil {
+				return "", "", nil, err
+			}
+			components = append(components, ExchangeExportComponent{Name: instance.Name,
+				BRep: reference, Translation: instance.Translation})
+		}
+		if len(components) == 0 {
+			return "", "", nil, fmt.Errorf("%w: Product has no resolvable Part geometry to export", ErrValidation)
+		}
+	}
+	return view.Document.Name, view.Document.Type, components, nil
+}
+
+func (service *Service) brepArtifactReference(ctx context.Context, geometryKey string) (geometry.ArtifactReference, error) {
+	var objectID *string
+	var inline []byte
+	if err := service.database.QueryRow(ctx, `SELECT brep_object_id::text,brep_data
+		FROM occccad.geometry_artifacts WHERE geometry_key=$1 AND volume>0`, geometryKey).
+		Scan(&objectID, &inline); err != nil {
+		return geometry.ArtifactReference{}, err
+	}
+	if objectID == nil {
+		if service.artifacts == nil || len(inline) == 0 {
+			return geometry.ArtifactReference{}, fmt.Errorf("%w: B-Rep artifact is unavailable", ErrValidation)
+		}
+		object, err := service.artifacts.Put(ctx, artifactstore.KindBREP,
+			"application/vnd.opencascade.brep", bytes.NewReader(inline))
+		if err != nil {
+			return geometry.ArtifactReference{}, err
+		}
+		objectID = &object.ID
+		if _, err := service.database.Exec(ctx, `UPDATE occccad.geometry_artifacts
+			SET brep_object_id=$2,storage_state=CASE WHEN storage_state='DATABASE' THEN 'DUAL' ELSE storage_state END
+			WHERE geometry_key=$1`, geometryKey, object.ID); err != nil {
+			return geometry.ArtifactReference{}, err
+		}
+	}
+	object, err := service.artifacts.Get(ctx, *objectID)
+	if err != nil {
+		return geometry.ArtifactReference{}, err
+	}
+	return geometry.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key,
+		SHA256: object.SHA256, Size: object.Size, ContentType: object.ContentType}, nil
 }
 
 func (service *Service) CreateDocument(
 	ctx context.Context, request CreateDocumentRequest,
 ) (DocumentView, error) {
+	if stableRequestID := strings.TrimSpace(request.RequestID); stableRequestID != "" {
+		var existingDocumentID string
+		err := service.database.QueryRow(ctx, `SELECT document_id::text FROM occccad.commands
+			WHERE request_id=$1 AND command_type='CREATE_DOCUMENT' AND status='SUCCEEDED'`, stableRequestID).
+			Scan(&existingDocumentID)
+		if err == nil {
+			return service.GetDocument(ctx, existingDocumentID, request.ActorID)
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return DocumentView{}, err
+		}
+	}
 	documentType := strings.ToUpper(strings.TrimSpace(request.Type))
 	if documentType != "PART" && documentType != "PRODUCT" {
 		return DocumentView{}, fmt.Errorf("%w: type must be PART or PRODUCT", ErrValidation)
@@ -1492,7 +1541,7 @@ func mutatePart(model *PartModel, request CommandRequest) error {
 			Name:    numberedFeatureName(model.Features, "PAD", "Extrude"),
 			Profile: sketch.ID, Length: request.Length, Operation: "ADD",
 		})
-	case "IMPORT_STEP":
+	case "IMPORT_EXCHANGE":
 		if strings.TrimSpace(request.GeometryKey) == "" {
 			return fmt.Errorf("%w: imported geometry key is required", ErrValidation)
 		}
@@ -1504,8 +1553,8 @@ func mutatePart(model *PartModel, request CommandRequest) error {
 			name = "Imported STEP"
 		}
 		model.Features = append(model.Features, Feature{
-			ID: newID("import"), Type: "IMPORT_STEP", Name: "Import " + name,
-			GeometryKey: request.GeometryKey, FileName: name,
+			ID: newID("import"), Type: "IMPORT_BODY", Name: "Import " + name,
+			GeometryKey: request.GeometryKey, FileName: name, SourceFormat: strings.ToUpper(request.SourceFormat),
 		})
 	default:
 		return fmt.Errorf("%w: command %s is not valid for a Part", ErrValidation, request.Type)
@@ -1624,7 +1673,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 	canonical.WriteString("|reference=" + string(referenceJSON))
 	for _, feature := range model.Features {
 		switch strings.ToUpper(feature.Type) {
-		case "IMPORT_STEP":
+		case "IMPORT_BODY":
 			baseKey = feature.GeometryKey
 			canonical.WriteString("|base=" + baseKey)
 		case "SKETCH":
@@ -1655,14 +1704,6 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 		}
 		return service.ensureReferenceArtifact(ctx, model)
 	}
-	var baseBRep []byte
-	if baseKey != "" {
-		if err := service.database.QueryRow(ctx,
-			`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, baseKey).
-			Scan(&baseBRep); err != nil {
-			return "", err
-		}
-	}
 	digest := sha256.Sum256([]byte(canonical.String()))
 	key := "sha256:" + hex.EncodeToString(digest[:])
 	var exists bool
@@ -1674,7 +1715,28 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 	if exists {
 		return key, nil
 	}
-	evaluation, err := service.worker.EvaluatePart(ctx, reqID, key, pads, baseBRep)
+	var evaluation *workerv1.EvaluatePartResponse
+	var err error
+	if service.artifacts != nil {
+		var base geometry.ArtifactReference
+		if baseKey != "" {
+			base, err = service.brepArtifactReference(ctx, baseKey)
+			if err != nil {
+				return "", err
+			}
+		}
+		evaluation, err = service.worker.EvaluatePartFromArtifact(ctx, reqID, key, pads, base,
+			artifactstore.StagingKey(reqID, "shape.brep"), artifactstore.StagingKey(reqID, "mesh.glb"))
+	} else {
+		var baseBRep []byte
+		if baseKey != "" {
+			err = service.database.QueryRow(ctx,
+				`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, baseKey).Scan(&baseBRep)
+		}
+		if err == nil {
+			evaluation, err = service.worker.EvaluatePart(ctx, reqID, key, pads, baseBRep)
+		}
+	}
 	if err != nil {
 		return "", err
 	}
@@ -1726,12 +1788,16 @@ func rectangleProfile(feature Feature) ([2]float64, float64, float64, error) {
 func (service *Service) storeEvaluation(
 	ctx context.Context, key string, evaluation *workerv1.EvaluatePartResponse, reference ReferenceGeometry,
 ) error {
-	if evaluation.GetVolume() < 0 {
-		return fmt.Errorf("%w: imported/evaluated STEP must contain solid geometry", ErrValidation)
+	if evaluation.GetTopology().GetSolidCount() == 0 || evaluation.GetVolume() <= 0 {
+		return fmt.Errorf("%w: imported/evaluated shape must contain solid geometry", ErrValidation)
 	}
-	glb, err := glbWithReferenceGeometry(evaluation.GetGlbData(), reference)
-	if err != nil {
-		return fmt.Errorf("add reference geometry to GLB: %w", err)
+	glb := evaluation.GetGlbData()
+	if evaluation.GetGlbArtifact() == nil {
+		var err error
+		glb, err = glbWithReferenceGeometry(glb, reference)
+		if err != nil {
+			return fmt.Errorf("add reference geometry to GLB: %w", err)
+		}
 	}
 	referenceJSON, _ := json.Marshal(reference)
 	workerID := service.worker.WorkerFor(key)
@@ -1754,17 +1820,38 @@ func (service *Service) storeEvaluation(
 	var brepObjectID, glbObjectID *string
 	storageState := "DATABASE"
 	if service.artifacts != nil {
-		brepObject, err := service.artifacts.Put(ctx, artifactstore.KindBREP,
-			"application/vnd.opencascade.brep", bytes.NewReader(evaluation.GetBrepData()))
+		var brepObject, glbObject artifactstore.Object
+		var err error
+		if reference := evaluation.GetBrepArtifact(); reference != nil {
+			brepObject, err = service.artifacts.Adopt(ctx, artifactstore.KindBREP,
+				"application/vnd.opencascade.brep", reference.GetObjectKey())
+		} else {
+			brepObject, err = service.artifacts.Put(ctx, artifactstore.KindBREP,
+				"application/vnd.opencascade.brep", bytes.NewReader(evaluation.GetBrepData()))
+		}
 		if err != nil {
 			return fmt.Errorf("store B-Rep artifact: %w", err)
 		}
-		glbObject, err := service.artifacts.Put(ctx, artifactstore.KindGLB,
-			"model/gltf-binary", bytes.NewReader(glb))
+		if reference := evaluation.GetGlbArtifact(); reference != nil {
+			glbObject, err = service.artifacts.Adopt(ctx, artifactstore.KindGLB,
+				"model/gltf-binary", reference.GetObjectKey())
+		} else {
+			glbObject, err = service.artifacts.Put(ctx, artifactstore.KindGLB,
+				"model/gltf-binary", bytes.NewReader(glb))
+		}
 		if err != nil {
 			return fmt.Errorf("store GLB artifact: %w", err)
 		}
-		brepObjectID, glbObjectID, storageState = &brepObject.ID, &glbObject.ID, "DUAL"
+		brepObjectID, glbObjectID = &brepObject.ID, &glbObject.ID
+		if evaluation.GetBrepArtifact() != nil || evaluation.GetGlbArtifact() != nil {
+			storageState = "OBJECT"
+		} else {
+			storageState = "DUAL"
+		}
+	}
+	brepData, glbData := evaluation.GetBrepData(), glb
+	if storageState == "OBJECT" {
+		brepData, glbData = nil, nil
 	}
 	if _, err := service.database.Exec(ctx, `
 		INSERT INTO occccad.geometry_artifacts(
@@ -1773,7 +1860,7 @@ func (service *Service) storeEvaluation(
 			brep_object_id,glb_object_id,storage_state,reference_geometry_json,worker_id)
 		VALUES($1,$2,$3,$4,'mm',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (geometry_key) DO NOTHING`, key, evaluation.GetGeometryId(), evaluatorVersion,
-		evaluation.GetOcctVersion(), evaluation.GetBrepData(), glb, meshJSON,
+		evaluation.GetOcctVersion(), brepData, glbData, meshJSON,
 		bboxJSON, topologyJSON, evaluation.GetVolume(), brepObjectID, glbObjectID, storageState,
 		referenceJSON, workerID); err != nil {
 		return err
@@ -1888,9 +1975,13 @@ func (service *Service) loadArtifact(ctx context.Context, key string) (Artifact,
 	var referenceJSON []byte
 	if err := service.database.QueryRow(ctx, `
 		SELECT geometry_id,mesh_json,bbox_json,topology_json,volume,occt_version,
-		       octet_length(glb_data),octet_length(brep_data),evaluator_version,worker_id,
-		       storage_state,created_at::text,reference_geometry_json
-		FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).Scan(
+		       COALESCE(octet_length(glb_data),glb_object.size_bytes,0),
+		       COALESCE(octet_length(brep_data),brep_object.size_bytes,0),evaluator_version,worker_id,
+		       storage_state,artifact.created_at::text,reference_geometry_json
+		FROM occccad.geometry_artifacts artifact
+		LEFT JOIN occccad.artifact_objects glb_object ON glb_object.id=artifact.glb_object_id
+		LEFT JOIN occccad.artifact_objects brep_object ON brep_object.id=artifact.brep_object_id
+		WHERE geometry_key=$1`, key).Scan(
 		&artifact.GeometryID, &meshJSON, &bboxJSON, &topologyJSON, &artifact.Volume,
 		&artifact.OCCTVersion, &artifact.GLBBytes, &artifact.BRepBytes, &artifact.EvaluatorVersion,
 		&artifact.WorkerID, &artifact.StorageState, &artifact.CreatedAt, &referenceJSON); err != nil {
@@ -1900,12 +1991,22 @@ func (service *Service) loadArtifact(ctx context.Context, key string) (Artifact,
 		return artifact, err
 	}
 	if artifact.Volume > 0 && (len(artifact.Mesh.Edges) == 0 || len(artifact.Mesh.TopologyVertices) == 0) {
-		var brep []byte
-		if err := service.database.QueryRow(ctx,
-			`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).Scan(&brep); err != nil {
-			return artifact, err
+		var response *workerv1.GetTopologyResponse
+		var topologyErr error
+		if service.artifacts != nil {
+			reference, referenceErr := service.brepArtifactReference(ctx, key)
+			if referenceErr != nil {
+				return artifact, referenceErr
+			}
+			response, _, topologyErr = service.worker.GetTopologyFromArtifact(ctx, artifact.GeometryID, reference, "", 0)
+		} else {
+			var brep []byte
+			if err := service.database.QueryRow(ctx,
+				`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).Scan(&brep); err != nil {
+				return artifact, err
+			}
+			response, _, topologyErr = service.worker.GetTopology(ctx, artifact.GeometryID, brep, "", 0)
 		}
-		response, _, topologyErr := service.worker.GetTopology(ctx, artifact.GeometryID, brep, "", 0)
 		if topologyErr != nil {
 			return artifact, topologyErr
 		}
@@ -1984,13 +2085,27 @@ func (service *Service) GetTopologyElementProperties(
 		return TopologyElementProperties{}, ErrNotFound
 	}
 	var geometryID, workerID, occtVersion string
-	var brep []byte
 	if err := service.database.QueryRow(ctx, `
-		SELECT geometry_id,brep_data,worker_id,occt_version FROM occccad.geometry_artifacts WHERE geometry_key=$1`, geometryKey).
-		Scan(&geometryID, &brep, &workerID, &occtVersion); err != nil {
+		SELECT geometry_id,worker_id,occt_version FROM occccad.geometry_artifacts WHERE geometry_key=$1`, geometryKey).
+		Scan(&geometryID, &workerID, &occtVersion); err != nil {
 		return TopologyElementProperties{}, err
 	}
-	response, servingWorkerID, err := service.worker.GetTopology(ctx, geometryID, brep, kind, localID)
+	var response *workerv1.GetTopologyResponse
+	var servingWorkerID string
+	if service.artifacts != nil {
+		reference, referenceErr := service.brepArtifactReference(ctx, geometryKey)
+		if referenceErr != nil {
+			return TopologyElementProperties{}, referenceErr
+		}
+		response, servingWorkerID, err = service.worker.GetTopologyFromArtifact(ctx, geometryID, reference, kind, localID)
+	} else {
+		var brep []byte
+		if queryErr := service.database.QueryRow(ctx,
+			`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, geometryKey).Scan(&brep); queryErr != nil {
+			return TopologyElementProperties{}, queryErr
+		}
+		response, servingWorkerID, err = service.worker.GetTopology(ctx, geometryID, brep, kind, localID)
+	}
 	if err != nil {
 		return TopologyElementProperties{}, err
 	}
@@ -2060,7 +2175,7 @@ func featureStructureNode(feature Feature, path, documentID, versionID string) D
 		kind = "SKETCH"
 	case kind == "PAD":
 		kind = "PAD"
-	case kind == "IMPORT_STEP":
+	case kind == "IMPORT_BODY":
 		kind = "IMPORT"
 	default:
 		kind = "FEATURE"

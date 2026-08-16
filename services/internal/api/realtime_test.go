@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/occccad/occccad/internal/access"
 )
 
 func TestRealtimeEnvelopeCarriesVersionAndCorrelation(t *testing.T) {
@@ -42,6 +44,31 @@ func TestRealtimeHubScopesBroadcastByDocument(t *testing.T) {
 	select {
 	case <-second.send:
 		t.Fatal("event leaked to a different document subscription")
+	default:
+	}
+	hub.close()
+}
+
+func TestRealtimeHubScopesJobEventsByUser(t *testing.T) {
+	hub := newRealtimeHub()
+	first := &realtimeClient{hub: hub, actor: access.User{ID: "user-1"}, send: make(chan []byte, 1), done: make(chan struct{}),
+		subscriptions: map[string]string{}, acknowledged: map[string]uint64{}}
+	second := &realtimeClient{hub: hub, actor: access.User{ID: "user-2"}, send: make(chan []byte, 1), done: make(chan struct{}),
+		subscriptions: map[string]string{}, acknowledged: map[string]uint64{}}
+	hub.add(first)
+	hub.add(second)
+	hub.broadcastUser("user-1", []byte("job-event"))
+	select {
+	case message := <-first.send:
+		if string(message) != "job-event" {
+			t.Fatalf("unexpected message %q", message)
+		}
+	default:
+		t.Fatal("job owner did not receive the event")
+	}
+	select {
+	case <-second.send:
+		t.Fatal("job event leaked to a different user")
 	default:
 	}
 	hub.close()

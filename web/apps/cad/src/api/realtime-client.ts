@@ -1,4 +1,5 @@
-import type { DocumentView } from "../types";
+import type { DocumentView, Job } from "../types";
+import { closeAfterInitializationFailure } from "./websocket-lifecycle";
 
 const protocol = "occccad.realtime.v1";
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
@@ -31,6 +32,7 @@ interface DocumentEvent {
 }
 
 type DocumentListener = (event: DocumentEvent) => void;
+type JobListener = (job: Job) => void;
 
 const cookie = (name: string): string => decodeURIComponent(document.cookie.split("; ")
   .find((item) => item.startsWith(`${name}=`))?.split("=").slice(1).join("=") ?? "");
@@ -58,6 +60,7 @@ export class RealtimeClient {
   private readonly listeners = new Map<string, Set<DocumentListener>>();
   private readonly desiredDocuments = new Set<string>();
   private readonly sequences = new Map<string, number>();
+  private readonly jobListeners = new Set<JobListener>();
 
   start(): void {
     this.explicitlyStopped = false;
@@ -69,9 +72,13 @@ export class RealtimeClient {
     window.clearTimeout(this.reconnectTimer);
     this.socket?.close(1000, "client stopped");
     this.socket = undefined;
+    const error = new Error("realtime connection stopped");
+    this.rejectConnect?.(error);
     this.connectPromise = undefined;
+    this.resolveConnect = undefined;
+    this.rejectConnect = undefined;
     this.connectedOnce = false;
-    this.rejectPending(new Error("realtime connection stopped"));
+    this.rejectPending(error);
   }
 
   async subscribe(documentId: string, listener: DocumentListener): Promise<() => void> {
@@ -120,6 +127,11 @@ export class RealtimeClient {
     }
   }
 
+  onJobEvent(listener: JobListener): () => void {
+    this.jobListeners.add(listener);
+    return () => this.jobListeners.delete(listener);
+  }
+
   private async ensureConnected(): Promise<void> {
     if (this.socket?.readyState === WebSocket.OPEN && !this.connectPromise) return;
     if (this.connectPromise) return this.connectPromise;
@@ -143,14 +155,14 @@ export class RealtimeClient {
         if (reconnecting) void this.resubscribe();
       }, (error) => {
         this.rejectConnect?.(error);
-        socket.close(1008, "initialization failed");
+        closeAfterInitializationFailure(socket);
       });
       this.send({ protocol, id, kind: "request", type: "connection.initialize.v1",
         sentAt: new Date().toISOString(), payload: { csrfToken: cookie("occccad_csrf") } });
     };
     socket.onmessage = (message) => this.receive(message.data);
     socket.onerror = () => undefined;
-    socket.onclose = () => this.closed();
+    socket.onclose = () => this.closed(socket);
     return this.connectPromise;
   }
 
@@ -191,6 +203,11 @@ export class RealtimeClient {
       return;
     }
     if (envelope.kind !== "event") return;
+    if (envelope.type === "job.state.changed.v1") {
+      const job = (envelope.payload as { job?: Job } | undefined)?.job;
+      if (job) for (const listener of this.jobListeners) listener(job);
+      return;
+    }
     const payload = envelope.payload as { documentId?: string } | undefined;
     if (!payload?.documentId) return;
     const previous = this.sequences.get(payload.documentId) ?? 0;
@@ -214,7 +231,10 @@ export class RealtimeClient {
     }
   }
 
-  private closed(): void {
+  private closed(socket: WebSocket): void {
+    // A late close event from a deliberately stopped or superseded socket
+    // must not tear down the current connection or its pending requests.
+    if (this.socket !== socket) return;
     this.socket = undefined;
     const error = new Error("realtime connection closed");
     this.rejectConnect?.(error);

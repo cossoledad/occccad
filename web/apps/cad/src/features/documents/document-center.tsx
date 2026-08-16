@@ -1,16 +1,16 @@
 import {
-  ApartmentOutlined, BuildOutlined, ClockCircleOutlined, CopyOutlined, DeleteOutlined, EditOutlined,
+  ApartmentOutlined, BuildOutlined, ClockCircleOutlined, CopyOutlined, DeleteOutlined, DownloadOutlined, EditOutlined,
   FolderAddOutlined, FolderOpenOutlined, FolderOutlined, MoreOutlined, PlusOutlined, ReloadOutlined,
-  SearchOutlined, ShareAltOutlined, SwapOutlined, TeamOutlined, UndoOutlined,
+  SearchOutlined, ShareAltOutlined, SwapOutlined, TeamOutlined, UndoOutlined, UploadOutlined, InboxOutlined,
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   App, Breadcrumb, Button, Card, Col, Dropdown, Empty, Form, Input, Layout, Menu, Modal, Pagination,
-  Row, Segmented, Select, Space, Spin, Statistic, Tag, Typography,
+  Row, Segmented, Select, Space, Spin, Statistic, Tag, Typography, Upload,
 } from "antd";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api } from "../../api/client";
+import { api, isMockMode } from "../../api/client";
 import { queryKeys } from "../../app/query-keys";
 import { DocumentThumbnail } from "../../components/document-thumbnail";
 import { ShareDialog, type ShareResource } from "../../components/share-dialog";
@@ -38,6 +38,10 @@ export function DocumentCenter() {
   const [folderEditor, setFolderEditor] = useState<FolderSummary | "new">();
   const [operation, setOperation] = useState<DocumentOperation>();
   const [shareResource, setShareResource] = useState<ShareResource>();
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState<File>();
+  const [exportDocument, setExportDocument] = useState<DocumentSummary>();
+  const [exportFormat, setExportFormat] = useState<"STEP" | "BREP">("STEP");
   const [documentForm] = Form.useForm<DocumentForm>();
   const [folderForm] = Form.useForm<FolderForm>();
   const [operationForm] = Form.useForm<{ name?: string; folderID?: string }>();
@@ -97,6 +101,31 @@ export function DocumentCenter() {
     }, onSuccess: async () => { setOperation(undefined); operationForm.resetFields(); await invalidateDocuments(); message.success("操作已完成"); },
     onError: (error) => message.error(error.message)
   });
+  const importDocument = useMutation({
+    mutationFn: async () => {
+      if (!importFile) throw new Error("请选择需要导入的 STEP 或 BREP 文件");
+      if (importFile.size > 128 * 1024 * 1024) throw new Error("文件不能超过 128 MiB");
+      return api.importDocument(importFile, currentFolderID);
+    },
+    onSuccess: async (job) => {
+      setImportOpen(false); setImportFile(undefined);
+      if (isMockMode && job.state === "SUCCEEDED") await invalidateDocuments();
+      message.info(isMockMode ? "文档导入完成" : "导入任务已提交，完成后会通知你");
+    },
+    onError: (error) => message.error(error.message),
+  });
+  const exportExchange = useMutation({
+    mutationFn: async () => {
+      if (!exportDocument) throw new Error("没有待导出的文档");
+      return api.startExport(exportDocument.id, exportFormat);
+    },
+    onSuccess: (job) => {
+      setExportDocument(undefined);
+      if (isMockMode && job.state === "SUCCEEDED") void api.downloadJob(job.id);
+      message.info(isMockMode ? `${exportFormat} 导出完成` : "导出任务已提交，完成后会通知你");
+    },
+    onError: (error) => message.error(error.message),
+  });
 
   const openDocument = (document: DocumentSummary) => { if (!document.deletedAt) navigate(`/documents/${document.id}`); };
   const enterFolder = (folderID: string) => { if (scope === "shared") setScope("active"); setCurrentFolderID(folderID); setOffset(0); };
@@ -139,6 +168,7 @@ export function DocumentCenter() {
       <header className="page-heading"><div><Typography.Text className="eyebrow">DOCUMENT CENTER</Typography.Text>
         <Typography.Title level={2}>设计文档</Typography.Title><Typography.Paragraph type="secondary">管理 Part、Product、版本与工作区；双击打开文档或文件夹。</Typography.Paragraph></div>
         {!specialScope && <Space><Button icon={<FolderAddOutlined />} disabled={!writableLocation} onClick={() => openFolderEditor()}>新建文件夹</Button>
+          <Button icon={<UploadOutlined />} disabled={!writableLocation} onClick={() => setImportOpen(true)}>导入文档</Button>
           <Button icon={<BuildOutlined />} disabled={!writableLocation} onClick={() => openDocumentEditor(undefined, "PART")}>新建 Part</Button>
           <Button type="primary" icon={<ApartmentOutlined />} disabled={!writableLocation} onClick={() => openDocumentEditor(undefined, "PRODUCT")}>新建 Product</Button></Space>}</header>
       {!specialScope && <Breadcrumb className="folder-breadcrumb" items={[
@@ -180,6 +210,7 @@ export function DocumentCenter() {
               ...(canEdit(document.permission) ? [{ key: "edit", icon: <EditOutlined />, label: "编辑" }, { key: "move", icon: <SwapOutlined />, label: "移动" }] : []),
               { key: "copy", icon: <CopyOutlined />, label: "复制" },
               ...(document.permission === "OWNER" ? [{ key: "share", icon: <ShareAltOutlined />, label: "共享" }] : []),
+              { key: "export", icon: <DownloadOutlined />, label: "导出" },
               ...(canEdit(document.permission) ? [{ key: "delete", danger: true, icon: <DeleteOutlined />, label: "移入回收站" }] : []),
             ];
             return <Card key={document.id} hoverable className={`document-card${selectedID === document.id ? " selected" : ""}`}
@@ -191,6 +222,7 @@ export function DocumentCenter() {
                 items: menuItems, onClick: ({ key }) => {
                   if (key === "open") openDocument(document); else if (key === "edit") openDocumentEditor(document); else if (key === "delete") removeDocument(document);
                   else if (key === "restore") void restoreDocument(document); else if (key === "copy" || key === "move") chooseOperation(key, document);
+                  else if (key === "export") { setExportFormat("STEP"); setExportDocument(document); }
                   else if (key === "share") setShareResource({ type: "documents", id: document.id, name: document.name });
                 }
               }}><Button className="card-menu" type="text" icon={<MoreOutlined />} /></Dropdown>
@@ -219,6 +251,22 @@ export function DocumentCenter() {
         {operation?.type === "copy" && <Form.Item name="name" label="副本名称" rules={[{ required: true }]}><Input autoFocus /></Form.Item>}
         <Form.Item name="folderID" label="目标文件夹"><Select showSearch optionFilterProp="label" options={folderOptions} /></Form.Item>
       </Form>
+    </Modal>
+    <Modal title="导入文档" open={importOpen} okText="开始导入" confirmLoading={importDocument.isPending}
+      okButtonProps={{ disabled: !importFile }} onOk={() => importDocument.mutate()}
+      onCancel={() => { if (!importDocument.isPending) { setImportOpen(false); setImportFile(undefined); } }} destroyOnHidden>
+      <Typography.Paragraph type="secondary">支持 STEP/STP 与 BREP/BRP，单个文件最大 128 MiB。装配会创建 Product，并为可独立处理的组件创建 Part。</Typography.Paragraph>
+      <Upload.Dragger accept=".step,.stp,.brep,.brp" maxCount={1} fileList={importFile ? [{ uid: "exchange", name: importFile.name, status: "done", size: importFile.size }] : []}
+        beforeUpload={(file) => { setImportFile(file); return false; }} onRemove={() => { setImportFile(undefined); return true; }}>
+        <p className="ant-upload-drag-icon"><InboxOutlined /></p><p className="ant-upload-text">拖入文件，或点击打开文件资源管理器</p>
+      </Upload.Dragger>
+    </Modal>
+    <Modal title={`导出${exportDocument ? `“${exportDocument.name}”` : "文档"}`} open={Boolean(exportDocument)} okText="导出并下载"
+      confirmLoading={exportExchange.isPending} onOk={() => exportExchange.mutate()}
+      onCancel={() => { if (!exportExchange.isPending) setExportDocument(undefined); }} destroyOnHidden>
+      <Typography.Paragraph type="secondary">选择用于交换或归档的输出格式。Part 与 Product 均可导出。</Typography.Paragraph>
+      <Segmented block value={exportFormat} onChange={(value) => setExportFormat(value as "STEP" | "BREP")}
+        options={[{ label: "STEP (.step)", value: "STEP" }, { label: "OpenCascade BREP (.brep)", value: "BREP" }]} />
     </Modal>
     <ShareDialog resource={shareResource} onClose={() => setShareResource(undefined)} />
   </Layout>;

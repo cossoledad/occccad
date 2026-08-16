@@ -27,6 +27,7 @@ import (
 type application struct {
 	ctx                             context.Context
 	root, servicesDirectory         string
+	dataDirectory                   string
 	serverBinary, jobsBinary        string
 	routerAddress, managedAPITarget string
 	pool                            *control.GeometryPool
@@ -54,8 +55,10 @@ func run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	servicesDirectory := filepath.Join(root, "services")
+	dataDirectory := resolveDataDirectory(servicesDirectory, value("OCCCCAD_DATA_DIR", "./data"))
 	app := &application{
-		ctx: ctx, root: root, servicesDirectory: filepath.Join(root, "services"),
+		ctx: ctx, root: root, servicesDirectory: servicesDirectory, dataDirectory: dataDirectory,
 		serverBinary:     value("OCCCCAD_SERVER_BIN", filepath.Join(root, "build", "services", "occccad-server")),
 		jobsBinary:       value("OCCCCAD_JOBS_BIN", filepath.Join(root, "build", "services", "occccad-jobs")),
 		routerAddress:    value("OCCCCAD_GEOMETRY_ROUTER_LISTEN", "127.0.0.1:51001"),
@@ -65,7 +68,7 @@ func run() error {
 	workerBinary := value("OCCCCAD_GEOMETRY_WORKER_BIN", filepath.Join(root, "build", "cmake",
 		strings.ToLower(value("OCCCCAD_BUILD_TYPE", "Debug")), "workers", "geometry", "occccad_geometry_worker"))
 	app.pool = control.NewGeometryPool(ctx, control.GeometryPoolConfig{
-		WorkerBinary: workerBinary, WorkerHost: "127.0.0.1",
+		WorkerBinary: workerBinary, DataDirectory: dataDirectory, WorkerHost: "127.0.0.1",
 		FirstWorkerPort:  integer("OCCCCAD_GEOMETRY_WORKER_FIRST_PORT", 51100),
 		MinimumWorkers:   integer("OCCCCAD_GEOMETRY_WORKER_MIN", 1),
 		MaximumWorkers:   integer("OCCCCAD_GEOMETRY_WORKER_MAX", 8),
@@ -113,7 +116,7 @@ func run() error {
 	proxy := &http.Server{
 		Addr:    value("OCCCCAD_APP_LISTEN", value("OCCCCAD_SERVER_LISTEN", "0.0.0.0:8080")),
 		Handler: app.proxy(), ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout: 2 * time.Minute, WriteTimeout: 2 * time.Minute, IdleTimeout: 60 * time.Second,
+		ReadTimeout: 15 * time.Minute, WriteTimeout: 15 * time.Minute, IdleTimeout: 60 * time.Second,
 	}
 	go func() {
 		<-ctx.Done()
@@ -130,6 +133,13 @@ func run() error {
 	return err
 }
 
+func resolveDataDirectory(servicesDirectory, configured string) string {
+	if !filepath.IsAbs(configured) {
+		configured = filepath.Join(servicesDirectory, configured)
+	}
+	return filepath.Clean(configured)
+}
+
 func (app *application) startManagedServices() error {
 	if err := app.startAPI(); err != nil {
 		return err
@@ -143,7 +153,8 @@ func (app *application) startManagedServices() error {
 func (app *application) startAPI() error {
 	api, err := control.StartManagedProcess(app.ctx, "api", app.serverBinary, app.servicesDirectory, nil,
 		withEnvironment("OCCCCAD_SERVER_LISTEN", app.managedAPITarget,
-			"OCCCCAD_GEOMETRY_WORKER_ADDRESS", app.routerAddress))
+			"OCCCCAD_GEOMETRY_WORKER_ADDRESS", app.routerAddress,
+			"OCCCCAD_DATA_DIR", app.dataDirectory))
 	if err != nil {
 		return err
 	}
@@ -156,7 +167,8 @@ func (app *application) startAPI() error {
 
 func (app *application) startJobs() error {
 	jobs, err := control.StartManagedProcess(app.ctx, "jobs", app.jobsBinary, app.servicesDirectory, nil,
-		withEnvironment("OCCCCAD_GEOMETRY_WORKER_ADDRESS", app.routerAddress))
+		withEnvironment("OCCCCAD_GEOMETRY_WORKER_ADDRESS", app.routerAddress,
+			"OCCCCAD_DATA_DIR", app.dataDirectory))
 	if err != nil {
 		return err
 	}

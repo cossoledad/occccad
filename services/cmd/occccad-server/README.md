@@ -9,7 +9,7 @@ occccad-server 是当前系统的 HTTP/WebSocket API 与业务编排进程。它
 - 提供版本化 WebSocket 消息、文档订阅、命令请求响应和 Workspace Outbox 实时事件；
 - 验证访问权限，把 HTTP transport DTO 转换为版本化 Domain Command，并由 typed handler 应用到显式 Part/Product Workspace；
 - 在数据库事务外通过 gRPC 求值候选模型，再以 Workspace Head/sequence CAS 原子持久化 Transaction、ChangeSet、Revision、EvaluationManifest、依赖投影和 outbox；
-- 把 STEP 和缩略图工作写入 PostgreSQL 持久任务队列；
+- 将 STEP/BREP 文档交换与缩略图工作写入 PostgreSQL 持久任务队列；
 - 通过 ArtifactStore 读写本地内容寻址制品；
 - 暴露健康检查并传播 HTTP/gRPC Trace Context。
 
@@ -38,9 +38,15 @@ flowchart LR
 
 主要资源包括 `/api/auth/*`、`/api/session`、`/api/documents`、`/api/folders`、`/api/jobs`、`/api/teams`、`/api/users`、`/api/admin/*` 与 `/api/audit`。具体契约当前以 `services/internal/api/server.go` 为准；仓库尚未发布稳定的外部 OpenAPI。
 
+文档交换使用独立资源：`POST /api/exchange/imports?format=STEP|BREP&fileName=...` 把原始 request body 流式写入 ArtifactStore，限制 128 MiB；`POST /api/exchange/exports` 提交 `{documentId, format}`；任务完成后从 `GET /api/jobs/{jobID}/download` 流式下载。导入不要求先创建 Part，不使用 multipart，也不让大文件经过 WebSocket 或 gRPC bytes。
+
 `GET|POST /api/documents/{documentID}/workspaces` 用于列出 Workspace 或从所属 Revision 创建 Branch。`POST /api/documents/{documentID}/commands` 是保留的 HTTP transport；Web 使用 `workspace.command.execute.v1` WebSocket 消息。二者进入同一 Workspace handler。`SET_PARAMETER_VALUE` 接受 `parameterId/value/unit`，`SET_PARAMETER_EXPRESSION` 接受 `parameterId/expression`。表达式在服务端绑定稳定 ParameterId，Worker 不解析用户 source text。
 
 WebSocket 首条消息必须是携带 CSRF token 的 `connection.initialize.v1`。之后可发送 `document.subscribe.v1`、`document.unsubscribe.v1`、`workspace.command.execute.v1` 与 `stream.ack.v1`；服务端返回 correlation response/error，并从事务 Outbox 发布 `workspace.transaction.committed.v1`。单消息限制 1 MiB，大制品仍走 HTTP/ArtifactStore。
+
+后台 Exchange 到达最终状态时发布用户级 `job.state.changed.v1`。事件只发送到 `requested_by_user_id` 对应的连接；没有在线连接时保持在 Outbox，不能因一次空广播丢失完成通知。前端提交后立即返回 Document Center，导出结果只在用户点击通知中的下载动作时走流式 HTTP。
+
+可在整套应用运行时设置 `OCCCCAD_REALTIME_TEST_URL`、`OCCCCAD_ADMIN_PASSWORD` 与 `OCCCCAD_EXCHANGE_TEST_STEP`，运行 `go test ./internal/api -run TestRealtimeExchangeImportNotification -count=1 -v`，验证“HTTP 提交立即返回、后台导入、用户级 WebSocket 终态通知”这一真实入口；测试本身不查询 Job 状态。
 
 RFC 6455 Upgrade、frame、Ping/Pong 由 `github.com/gorilla/websocket` v1.5.3 提供；该依赖使用两条款 BSD 许可。它只位于 HTTP transport adapter，领域 Envelope、Command、Outbox 和恢复语义不依赖其类型，未来可以替换实现而不改变持久模型。
 
@@ -83,7 +89,7 @@ invoke run.server
 - 当前是无生产数据的新项目阶段；C0–C4 schema 变更要求重建开发数据库，不提供旧 cursor/history adapter。
 - 后台任务具有幂等键；API 返回任务后不保证任务已完成。
 - WebSocket 事件按 Workspace sequence 去重；断线、gap 或慢消费者被断开后，浏览器重新订阅并获取权威快照。当前 Hub 只覆盖单个 API 进程，多实例需要事件总线扇出。
-- HTTP 读写超时当前均为 30 秒，因此长操作应进入任务系统。
+- HTTP header 超时为 5 秒；为支持受限的 128 MiB 流式上传下载，body 读写超时为 15 分钟。几何解析等长操作仍必须进入任务系统，不能占用 HTTP 请求。
 - 进程重启会丢失内存中的“已打开文档”注册表，但不会丢失持久文档。
 
 ## 验证与扩展边界

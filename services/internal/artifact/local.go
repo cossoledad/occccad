@@ -129,10 +129,10 @@ func fileName(kind Kind) string {
 		return "shape.brep"
 	case KindGLB:
 		return "mesh.glb"
-	case KindStepSource:
-		return "source.step"
-	case KindStepExport:
-		return "export.step"
+	case KindExchangeSource:
+		return "source.exchange"
+	case KindExchangeExport:
+		return "export.exchange"
 	case KindThumbnail:
 		return "preview.svg"
 	default:

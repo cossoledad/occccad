@@ -1,6 +1,6 @@
 import { DashboardOutlined, HomeOutlined, LogoutOutlined, SettingOutlined, UserOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Avatar, Button, Dropdown, Layout, Space, Spin, Tag, Typography } from "antd";
+import { App as AntApp, Avatar, Button, Dropdown, Layout, Space, Spin, Tag, Typography } from "antd";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api, isMockMode } from "../api/client";
@@ -22,15 +22,31 @@ function ApplicationShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const client = useQueryClient();
+  const { message, notification } = AntApp.useApp();
   const [adminOpen, setAdminOpen] = useState(false);
   const session = useQuery({ queryKey: queryKeys.session, queryFn: api.session, retry: false });
   const health = useQuery({ queryKey: queryKeys.health, queryFn: api.health, retry: false, refetchInterval: 30_000,
     enabled: Boolean(session.data) });
   useEffect(() => {
     if (!session.data || isMockMode) return;
+    const unsubscribe = realtime.onJobEvent((job) => {
+      if (job.type !== "EXCHANGE_IMPORT" && job.type !== "EXCHANGE_EXPORT") return;
+      void client.invalidateQueries({ queryKey: ["jobs"] });
+      if (job.type === "EXCHANGE_IMPORT") void client.invalidateQueries({ queryKey: ["documents"] });
+      if (job.state === "SUCCEEDED" && job.type === "EXCHANGE_IMPORT") {
+        notification.success({ key: job.id, message: "文档导入完成", description: "导入结果已写入文档中心。",
+          btn: job.documentId ? <Button type="primary" onClick={() => { notification.destroy(job.id); navigate(`/documents/${job.documentId}`); }}>打开文档</Button> : undefined });
+      } else if (job.state === "SUCCEEDED" && job.type === "EXCHANGE_EXPORT") {
+        notification.success({ key: job.id, message: "文档导出完成", description: "交换文件已经生成，可以开始下载。",
+          btn: <Button type="primary" onClick={() => void api.downloadJob(job.id).catch((error) => message.error(error.message))}>下载文件</Button> });
+      } else if (job.state === "FAILED") {
+        notification.error({ key: job.id, message: job.type === "EXCHANGE_IMPORT" ? "文档导入失败" : "文档导出失败",
+          description: job.errorMessage ?? "后台任务执行失败" });
+      }
+    });
     realtime.start();
-    return () => realtime.stop();
-  }, [session.data]);
+    return () => { unsubscribe(); realtime.stop(); };
+  }, [client, message, navigate, notification, session.data]);
 
   if (session.isLoading) return <div className="application-loading"><Brand /><Spin size="large" /></div>;
   if (!session.data) return <AuthScreen />;

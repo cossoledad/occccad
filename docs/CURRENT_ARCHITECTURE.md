@@ -201,8 +201,9 @@ GeometryId 是 SHA-256 内容标识，不绑定 Worker。几何输出包括 B-Re
 | `Ping` | 已实现 | 健康与 resident 数量 |
 | `EvaluatePart` | 已实现 | 矩形 Pad 链与基础 B-Rep |
 | `SolveSketch` | 已实现 | GeometryPool Router 转发到 Worker，执行 SketchModel v1 的权威 PlaneGCS 求解与诊断 |
-| `ImportStep` | 已实现 | STEP 到 B-Rep/GLB/拓扑 |
-| `ExportStep` | 已实现 | B-Rep 到 STEP |
+| `InspectExchange` | 已实现 | 读取 STEP/BREP 制品清单，判定 Part 或可并行根组件 Product |
+| `ImportExchange` | 已实现 | 从 ArtifactReference 导入一个 STEP 根或 BREP，输出 B-Rep/GLB 制品引用 |
+| `ExportExchange` | 已实现 | 将一个或多个带放置的 B-Rep 制品合成为 STEP/BREP |
 | `GetTopology` | 已实现 | 拓扑摘要与属性 |
 | `LoadGeometry` / `UnloadGeometry` | 仅 Proto 声明 | 服务未覆盖，返回 `UNIMPLEMENTED` |
 | `Tessellate` | 仅 Proto 声明 | 服务未覆盖 |
@@ -242,11 +243,17 @@ stateDiagram-v2
     RUNNING --> RUNNING: expired lease reclaimed
 ```
 
-当前任务类型为 `STEP_IMPORT`、`STEP_EXPORT` 和 `THUMBNAIL_RENDER`。语义是至少一次，不是恰好一次。过时缩略图会被安全跳过；文档 Head 已改变的 STEP 任务会失败以避免覆盖新状态。
+当前任务类型为 `EXCHANGE_IMPORT`、`EXCHANGE_EXPORT` 和 `THUMBNAIL_RENDER`。Exchange 导入先检查清单，再以最多 8 个并发调用导入独立根组件；每个组件形成带默认 DatumPlane、AxisSystem 和可扩展 `IMPORT_BODY` Feature 的 Part，多组件再形成引用这些 Part 的 Product。创建文档和后续命令共享稳定 request ID，任务重领后可继续未完成阶段。导出支持 Part 和展平后的 Product occurrence，最终格式为 STEP 或 BREP。语义是至少一次，不是恰好一次；过时缩略图会被安全跳过，文档 Head 已改变的导出任务会失败以避免输出混合版本。
 
 ### 7.2 ArtifactStore
 
-本地后端按 SHA-256 内容寻址并原子写入 `OCCCCAD_DATA_DIR`。数据库保存对象元数据、大小、媒体类型和引用。API 与 Jobs 必须指向同一物理目录；因此该后端不能直接支撑无共享盘的多主机部署。
+本地后端按 SHA-256 内容寻址并原子写入 `OCCCCAD_DATA_DIR`。数据库保存对象元数据、大小、媒体类型和引用。`occccad-control` 以 `services/` 为相对路径基准，将该目录规范化为绝对路径并显式传给 API、Jobs 和每个动态 Geometry Worker；不能让子进程按各自 working directory 重新解释 `./data`。因此本地后端仍不能直接支撑无共享盘的多主机部署。
+
+Document Center 的 `POST /api/exchange/imports` 接收原始 HTTP body，使用 `MaxBytesReader` 限制为 128 MiB，并直接以 `io.Reader` 流入 ArtifactStore；不使用 multipart、`ReadAll`、WebSocket 或 gRPC bytes 字段。`POST /api/exchange/exports` 只提交文档 ID、Head 和格式，`GET /api/jobs/{jobID}/download` 以流式响应下载结果。Geometry gRPC 只交换 opaque object key、digest、大小和媒体类型；当前 Worker 与 API/Jobs 通过相同 `OCCCCAD_DATA_DIR` 模拟对象存储。生产替换为 S3 signed upload/download 时，领域任务与 Worker 契约保持 ArtifactReference，不传本机绝对路径。
+
+Exchange HTTP 提交只等待上传落盘和 Job 入队，随后立即关闭对话框；浏览器不轮询等待几何处理。Jobs 在最终 `SUCCEEDED` 或最终 `FAILED` 状态转换的同一 SQL statement 中写入 `JOB` Outbox，API 将 `job.state.changed.v1` 仅推送给任务发起用户。若该用户没有可接收的 WebSocket 会话，事件保持 unpublished，直到至少一个会话接受；导出成功通知提供显式下载动作，导入成功后刷新 Document Center 并可直接打开新文档。
+
+当前 STEP 装配识别以 OCCT transferable root 为并行边界，能保存多根文件为 Product/Part 引用并保留根 Shape 自带放置；尚未使用 STEPCAF/XDE 恢复嵌套层级、名称、颜色、单位和共享实例关系，因此不能宣称完整 AP242 装配交换。
 
 ## 8. Web 应用架构
 
@@ -286,7 +293,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 | Part/Product 文档与版本 | 已实现基础闭环 | Go workspace、迁移、REST/WebSocket API |
 | 账号、团队、ACL、审计 | 已实现基础闭环 | authn/access/API/迁移 |
 | 矩形草图与 Pad | 已实现 | Web 命令、Proto、OCCT Worker |
-| STEP Part 导入导出 | 已实现基础闭环 | 持久任务与 Worker |
+| STEP/BREP Part 与多根 Product 导入导出 | 已实现基础闭环 | Document Center、流式 HTTP、持久任务与 ArtifactReference Worker |
 | 本机 Geometry 扩缩容 | 已实现 | occccad-control |
 | 跨主机 Geometry 调度 | 未实现 | 无注册中心/集群调度 |
 | 二维草图与基础约束 | 已实现首个模板 | SketchFeature v1、Point/Line、Coincident/Parallel/FixedPoint、PlaneGCS 与 Sketcher 交互 |
@@ -294,7 +301,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 | 持久拓扑命名 | 未实现 | 当前 local ID 不可作长期 Feature 引用 |
 | S3 兼容对象存储/CDN | 未实现 | 当前仅本地目录 |
 | 实时多人同文档编辑 | 已实现首个提交同步闭环 | WebSocket request/event、Outbox、sequence、重连快照；尚无 presence/preview 与 semantic rebase |
-| XDE/AP242 装配交换 | 未实现 | 当前 STEP 路径为基础 Part 交换 |
+| XDE/AP242 语义装配交换 | 未实现 | 当前仅按 transferable root 构建 Product，未恢复嵌套 BOM/颜色/共享实例 |
 | 大装配 LOD/流式加载 | 未实现 | 当前为基础 GLB 显示 |
 | 曲面、钣金、工程图、CAM、CAE | 未实现 | 无对应领域模型与 Worker |
 
@@ -304,7 +311,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 2. **拓扑引用不稳定**：面/边 local ID 只适合本次结果查询，不能支撑可靠圆角、倒角和下游引用。
 3. **制品无法跨主机**：本地文件系统阻止 API/Jobs/Worker 任意调度。
 4. **控制器仅为开发工具**：进程级 Router 不是集群 Scheduler。
-5. **长计算边界不完整**：同步 Part 求值仍受 HTTP 30 秒超时限制。
+5. **长计算边界不完整**：交换文件的 HTTP 流允许 15 分钟，但同步 Part 求值仍受 Geometry client 的短 deadline 限制；复杂再生尚未全部任务化。
 6. **协议超前于实现**：部分 Proto RPC 未实现，版本化和能力协商尚未建立。
 7. **测试金字塔不完整**：缺少模型语料库、确定性回归、大装配基准和浏览器 E2E。
 

@@ -4803,6 +4803,32 @@ Redis/Valkey 只用于可丢失数据：presence、短期 rate limit、热点路
 
 ## 9. 制品协议与大装配
 
+### 9.1 文档交换管线
+
+导入导出是 Document Center 的文档级能力，不属于 Part Workbench toolbar，也不是对某个已有 Part 的二进制覆盖命令。控制面保持模块化单体中的独立 `Exchange` 模块；只有持续出现独立安全沙箱、格式依赖发布节奏或资源池证据后，才把 transport/orchestrator 拆成网络服务。无论部署形态如何，大文件数据面与任务控制面分离：
+
+```mermaid
+flowchart LR
+    Browser["Document Center"] -->|"raw HTTPS stream / signed upload"| Artifact["ArtifactStore"]
+    Browser -->|"submit format + ArtifactId"| Exchange["Exchange API / Job"]
+    Exchange -->|"inspect manifest"| Worker["Exchange-capable Geometry Worker"]
+    Exchange -->|"parallel Part roots"| Workers["Worker pool"]
+    Workers -->|"B-Rep/GLB ArtifactReference"| Artifact
+    Exchange --> Model["Part/Product commands + revisions"]
+    Model -->|"export manifest"| Worker
+    Worker -->|"STEP/BREP result"| Artifact
+    Artifact -->|"stream / signed download"| Browser
+```
+
+- 浏览器上传原始流，网关只执行认证、限额、digest 和制品登记；不得把 100 MiB 文件组装为 Go/JS byte array、WebSocket message 或 unary gRPC `bytes`。
+- 本地开发以受约束共享目录实现 ArtifactStore；Worker 只接收 backend/object key/digest/size/content type，不能接收或持久化宿主机绝对路径。对象存储上线后改为短期 signed URL 或 Worker storage adapter。
+- `Inspect` 先生成版本化 import manifest。Part 是一个根；Product 的独立 Part/root 形成可并行 fan-out，每个输出单独内容寻址，最后由控制面以幂等 Domain Command 组装 Product。最终 STEP/BREP writer 是 reduce 阶段，不因“并行”而把一个 OCCT Shape 写成相互竞争的文件片段。
+- Imported Part 不是不可编辑的特殊文档。它使用普通 Part 初始模板（Origin、DatumPlane、AxisSystem、Body），以版本化 `ImportBodyFeature` 引用源制品/provenance；未来 healing、单位映射、颜色、PMI 或 external reference 使用新 typed feature/manifest 字段扩展，不能继续膨胀一个可选字段 JSON。
+- 任务保存 source digest、格式、importer/evaluator 版本、component identity 和输出 manifest；至少一次重试复用稳定 request ID。部分 fan-out 成功不能让同一 Part 重复创建，迟到 attempt 不能覆盖新 Head，未引用 staging object 由 GC 清理。
+- HTTP 提交只返回持久 Job identity，不让页面持有长轮询或等待 Promise。Job 终态与 Outbox 原子写入，Realtime 按 requested user 推送版本化终态事件；没有在线消费者时保留待投递事件，重连后再通知。进度事件可以节流且允许合并，但最终成功/失败通知不能只存在进程内。
+- STEP 装配目标适配层是 OCCT XDE/STEPCAF：保留嵌套层级、名称、单位、颜色、placement 和共享引用。仅按 STEP transferable root 切分可作为早期能力，但必须在事实文档中明确边界，并以 XDE corpus/round-trip conformance 作为完整装配交换的验收门。
+- 导入文件一律不可信：同时限制上传字节、解压/实体数量、解析时间、内存、递归深度和输出放大率；取消或超时后丢弃候选模型，不提交半成品 Revision。
+
 一个 GeometryId 对应 Artifact Manifest，而不是单个 GLB：
 
 ```text

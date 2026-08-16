@@ -9,9 +9,15 @@
 #include <occccad/worker/v1/geometry_worker.grpc.pb.h>
 
 #include <chrono>
+#include <cctype>
+#include <cstdint>
+#include <cmath>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -22,6 +28,76 @@ namespace worker_api = occccad::worker::v1;
 namespace sketch_api = occccad::geometry::sketch;
 
 namespace {
+
+constexpr std::uintmax_t kMaximumExchangeBytes = 512ULL * 1024ULL * 1024ULL;
+
+std::filesystem::path artifact_root() {
+    const char* configured = std::getenv("OCCCCAD_DATA_DIR");
+    return std::filesystem::absolute(configured != nullptr ? configured : "./data").lexically_normal();
+}
+
+std::filesystem::path artifact_path(const std::string& key, const bool create_parent = false) {
+    const std::filesystem::path relative(key);
+    if (key.empty() || relative.is_absolute())
+        throw std::invalid_argument("artifact object_key must be a relative path");
+    const auto clean = relative.lexically_normal();
+    if (clean.empty() || *clean.begin() == "..")
+        throw std::invalid_argument("artifact object_key escapes the storage root");
+    const auto result = (artifact_root() / clean).lexically_normal();
+    const auto relative_to_root = result.lexically_relative(artifact_root());
+    if (relative_to_root.empty() || *relative_to_root.begin() == "..")
+        throw std::invalid_argument("artifact object_key escapes the storage root");
+    if (create_parent)
+        std::filesystem::create_directories(result.parent_path());
+    return result;
+}
+
+std::filesystem::path validate_artifact(const worker_api::ArtifactReference& reference) {
+    if (reference.backend() != "LOCAL")
+        throw std::invalid_argument("only LOCAL artifacts are available in the current deployment");
+    const auto path = artifact_path(reference.object_key());
+    const auto size = std::filesystem::file_size(path);
+    if (size == 0U || size > kMaximumExchangeBytes) {
+        throw std::invalid_argument("artifact size is outside the worker exchange limit");
+    }
+    return path;
+}
+
+std::vector<uint8_t> read_artifact(const worker_api::ArtifactReference& reference) {
+    const auto path = validate_artifact(reference);
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream)
+        throw std::runtime_error("cannot open artifact input");
+    return {(std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>()};
+}
+
+void write_artifact(const std::string& key, const std::vector<uint8_t>& data,
+                    const std::string& content_type, worker_api::ArtifactReference* output) {
+    if (data.empty() || data.size() > kMaximumExchangeBytes)
+        throw std::invalid_argument("artifact output is outside the worker exchange limit");
+    const auto path = artifact_path(key, true);
+    const auto temporary = path.string() + ".tmp";
+    {
+        std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
+        stream.write(reinterpret_cast<const char*>(data.data()),
+                     static_cast<std::streamsize>(data.size()));
+        if (!stream)
+            throw std::runtime_error("cannot write artifact output");
+    }
+    std::filesystem::rename(temporary, path);
+    output->set_backend("LOCAL");
+    output->set_object_key(key);
+    output->set_size_bytes(static_cast<uint64_t>(data.size()));
+    output->set_content_type(content_type);
+}
+
+std::string exchange_format(std::string value) {
+    for (char& character : value)
+        character = static_cast<char>(std::toupper(static_cast<unsigned char>(character)));
+    if (value != "STEP" && value != "BREP")
+        throw std::invalid_argument("exchange format must be STEP or BREP");
+    return value;
+}
 
 void fill_bbox(const occccad::kernel::BoundingBox& source, worker_api::BoundingBox* destination) {
     destination->set_min_x(source.min.x);
@@ -242,8 +318,10 @@ public:
         }
 
         std::lock_guard<std::mutex> lock(mutex_);
+        const bool external_outputs = !request->brep_output_key().empty() ||
+                                      !request->glb_output_key().empty();
         const auto cached = cache_.find(request->geometry_key());
-        if (cached != cache_.end()) {
+        if (!external_outputs && cached != cache_.end()) {
             response->CopyFrom(cached->second);
             response->set_cache_hit(true);
             log_rpc("EvaluatePart", request->request_id(), traceparent, "CACHE_HIT", started);
@@ -270,13 +348,17 @@ public:
             if (specs.empty() && request->has_rectangular_pad()) {
                 append_spec(request->rectangular_pad());
             }
-            const std::vector<uint8_t> base_brep(request->base_brep_data().begin(),
-                                                 request->base_brep_data().end());
+            std::vector<uint8_t> base_brep(request->base_brep_data().begin(),
+                                           request->base_brep_data().end());
+            if (request->has_base_brep_artifact())
+                base_brep = read_artifact(request->base_brep_artifact());
             const auto geometry_id = kernel_.evaluateRectangularPads(specs, base_brep);
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
-                            request->angular_deflection(), response);
+                            request->angular_deflection(), response, request->brep_output_key(),
+                            request->glb_output_key());
 
-            cache_.insert_or_assign(request->geometry_key(), *response);
+			if (!external_outputs)
+				cache_.insert_or_assign(request->geometry_key(), *response);
             log_rpc("EvaluatePart", request->request_id(), traceparent, "OK", started);
             return grpc::Status::OK;
         } catch (const std::invalid_argument& error) {
@@ -286,35 +368,60 @@ public:
         }
     }
 
-    grpc::Status ImportStep(grpc::ServerContext* context,
-                            const worker_api::ImportStepRequest* request,
-                            worker_api::EvaluatePartResponse* response) override {
+    grpc::Status InspectExchange(grpc::ServerContext* context,
+                                 const worker_api::InspectExchangeRequest* request,
+                                 worker_api::InspectExchangeResponse* response) override {
+        if (context->IsCancelled())
+            return {grpc::StatusCode::CANCELLED, "request was cancelled"};
+        try {
+            const auto format = exchange_format(request->format());
+            if (!request->has_source())
+                throw std::invalid_argument("exchange source artifact is required");
+			std::lock_guard<std::mutex> lock(mutex_);
+            const auto source = validate_artifact(request->source());
+            const uint32_t count = format == "STEP" ? kernel_.inspectStepRootCount(source.string()) : 1U;
+            response->set_document_type(count > 1U ? "PRODUCT" : "PART");
+            for (uint32_t index = 1; index <= count; ++index) {
+                auto* component = response->add_components();
+                component->set_source_index(index);
+                component->set_name(count > 1U ? "Component " + std::to_string(index) : "Part");
+            }
+            return grpc::Status::OK;
+        } catch (const std::invalid_argument& error) {
+            return {grpc::StatusCode::INVALID_ARGUMENT, error.what()};
+        } catch (const std::exception& error) {
+            return {grpc::StatusCode::INTERNAL, error.what()};
+        }
+    }
+
+    grpc::Status ImportExchange(grpc::ServerContext* context,
+                                const worker_api::ImportExchangeRequest* request,
+                                worker_api::EvaluatePartResponse* response) override {
         const auto started = std::chrono::steady_clock::now();
         const auto traceparent = metadata_value(context, "traceparent");
         if (context->IsCancelled()) {
             return {grpc::StatusCode::CANCELLED, "request was cancelled"};
         }
         if (request->request_id().empty() || request->geometry_key().empty() ||
-            request->step_data().empty()) {
+            !request->has_source() || request->brep_output_key().empty() ||
+            request->glb_output_key().empty()) {
             return {grpc::StatusCode::INVALID_ARGUMENT,
-                    "request_id, geometry_key, and step_data are required"};
+                    "request_id, geometry_key, source, and output keys are required"};
         }
         std::lock_guard<std::mutex> lock(mutex_);
-        const auto cached = cache_.find(request->geometry_key());
-        if (cached != cache_.end()) {
-            response->CopyFrom(cached->second);
-            response->set_cache_hit(true);
-            log_rpc("ImportStep", request->request_id(), traceparent, "CACHE_HIT", started);
-            return grpc::Status::OK;
-        }
         try {
-            const std::vector<uint8_t> data(request->step_data().begin(),
-                                            request->step_data().end());
-            const auto geometry_id = kernel_.loadStepData(data);
+            const auto format = exchange_format(request->format());
+			const auto source = validate_artifact(request->source());
+            occccad::kernel::GeometryId geometry_id;
+            if (format == "STEP") {
+                geometry_id = kernel_.loadStepRoot(source.string(), request->source_index());
+            } else {
+                geometry_id = kernel_.loadBrepr(read_artifact(request->source()));
+            }
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
-                            request->angular_deflection(), response);
-            cache_.insert_or_assign(request->geometry_key(), *response);
-            log_rpc("ImportStep", request->request_id(), traceparent, "OK", started);
+                            request->angular_deflection(), response, request->brep_output_key(),
+                            request->glb_output_key());
+            log_rpc("ImportExchange", request->request_id(), traceparent, "OK", started);
             return grpc::Status::OK;
         } catch (const std::invalid_argument& error) {
             return {grpc::StatusCode::INVALID_ARGUMENT, error.what()};
@@ -335,12 +442,13 @@ public:
         try {
             std::string geometry_id = request->geometry_id();
             if (!kernel_.is_loaded(geometry_id)) {
-                if (request->brep_data().empty()) {
+                if (request->brep_data().empty() && !request->has_brep_artifact()) {
                     return {grpc::StatusCode::NOT_FOUND,
-                            "geometry is not resident and brep_data was not supplied"};
+                            "geometry is not resident and no B-Rep artifact was supplied"};
                 }
-                const std::vector<uint8_t> brep(request->brep_data().begin(),
-                                                request->brep_data().end());
+                std::vector<uint8_t> brep(request->brep_data().begin(), request->brep_data().end());
+                if (request->has_brep_artifact())
+                    brep = read_artifact(request->brep_artifact());
                 geometry_id = kernel_.loadBrepr(brep);
             }
             const auto topology = kernel_.getTopology(geometry_id);
@@ -396,25 +504,43 @@ public:
         }
     }
 
-    grpc::Status ExportStep(grpc::ServerContext* context,
-                            const worker_api::ExportStepRequest* request,
-                            worker_api::ExportStepResponse* response) override {
+    grpc::Status ExportExchange(grpc::ServerContext* context,
+                                const worker_api::ExportExchangeRequest* request,
+                                worker_api::ExportExchangeResponse* response) override {
         const auto started = std::chrono::steady_clock::now();
         const auto traceparent = metadata_value(context, "traceparent");
         if (context->IsCancelled()) {
             return {grpc::StatusCode::CANCELLED, "request was cancelled"};
         }
-        if (request->request_id().empty() || request->brep_data().empty()) {
-            return {grpc::StatusCode::INVALID_ARGUMENT, "request_id and brep_data are required"};
+		if (request->request_id().empty() || request->components_size() == 0 ||
+            request->output_key().empty()) {
+            return {grpc::StatusCode::INVALID_ARGUMENT,
+                    "request_id, components, and output_key are required"};
         }
         std::lock_guard<std::mutex> lock(mutex_);
         try {
-            const std::vector<uint8_t> brep(request->brep_data().begin(),
-                                            request->brep_data().end());
-            const auto geometry_id = kernel_.loadBrepr(brep);
-            const auto step = kernel_.serializeStep(geometry_id);
-            response->set_step_data(step.data(), step.size());
-            log_rpc("ExportStep", request->request_id(), traceparent, "OK", started);
+            const auto format = exchange_format(request->format());
+			std::vector<occccad::kernel::PlacedGeometry> components;
+            components.reserve(static_cast<size_t>(request->components_size()));
+            for (const auto& component : request->components()) {
+                if (!component.has_brep())
+                    throw std::invalid_argument("each export component requires a B-Rep artifact");
+                const auto id = kernel_.loadBrepr(read_artifact(component.brep()));
+                components.push_back({id, {component.translation().x(), component.translation().y(),
+                                           component.translation().z()}});
+            }
+            const auto geometry_id = components.size() == 1U &&
+                                             components.front().translation.x == 0.0 &&
+                                             components.front().translation.y == 0.0 &&
+                                             components.front().translation.z == 0.0
+                                         ? components.front().geometry_id
+                                         : kernel_.combine(components);
+            const auto data = format == "STEP" ? kernel_.serializeStep(geometry_id)
+                                                : kernel_.serializeBrepr(geometry_id);
+            write_artifact(request->output_key(), data,
+                           format == "STEP" ? "model/step" : "application/vnd.opencascade.brep",
+                           response->mutable_result());
+            log_rpc("ExportExchange", request->request_id(), traceparent, "OK", started);
             return grpc::Status::OK;
         } catch (const std::invalid_argument& error) {
             return {grpc::StatusCode::INVALID_ARGUMENT, error.what()};
@@ -428,7 +554,9 @@ private:
                          const occccad::kernel::GeometryId& geometry_id,
                          const double requested_linear_deflection,
                          const double requested_angular_deflection,
-                         worker_api::EvaluatePartResponse* response) {
+                         worker_api::EvaluatePartResponse* response,
+                         const std::string& brep_output_key = {},
+                         const std::string& glb_output_key = {}) {
         const auto bbox = kernel_.getBoundingBox(geometry_id);
         const auto topology = kernel_.getTopology(geometry_id);
         const double linear_deflection =
@@ -441,8 +569,16 @@ private:
 
         response->set_geometry_id(geometry_id);
         response->set_geometry_key(geometry_key);
-        response->set_brep_data(brep.data(), brep.size());
-        response->set_glb_data(glb.data(), glb.size());
+        if (!brep_output_key.empty())
+            write_artifact(brep_output_key, brep, "application/vnd.opencascade.brep",
+                           response->mutable_brep_artifact());
+        else
+            response->set_brep_data(brep.data(), brep.size());
+        if (!glb_output_key.empty())
+            write_artifact(glb_output_key, glb, "model/gltf-binary",
+                           response->mutable_glb_artifact());
+        else
+            response->set_glb_data(glb.data(), glb.size());
         fill_bbox(bbox, response->mutable_bbox());
         response->set_volume(kernel_.getVolume(geometry_id));
         response->set_cache_hit(false);
@@ -507,6 +643,31 @@ int run_smoke() {
         std::cerr << "[FAIL] B-Rep topology detail or selection mesh is incomplete\n";
         return EXIT_FAILURE;
     }
+	const auto step = kernel.serializeStep(id);
+	const char* requested_exchange_path = std::getenv("OCCCCAD_SMOKE_STEP_OUTPUT");
+	const auto exchange_path = requested_exchange_path != nullptr
+	                               ? std::filesystem::path(requested_exchange_path)
+	                               : std::filesystem::temp_directory_path() /
+	                                     ("occccad-exchange-smoke-" +
+	                                      std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+	                                      ".step");
+	{
+		std::ofstream output(exchange_path, std::ios::binary);
+		output.write(reinterpret_cast<const char*>(step.data()), static_cast<std::streamsize>(step.size()));
+	}
+	const auto roots = kernel.inspectStepRootCount(exchange_path.string());
+	const auto imported = kernel.loadStepRoot(exchange_path.string(), 1U);
+	if (requested_exchange_path == nullptr)
+		std::filesystem::remove(exchange_path);
+	const auto brep = kernel.serializeBrepr(imported);
+	const auto brep_round_trip = kernel.loadBrepr(brep);
+	const auto assembly = kernel.combine({{brep_round_trip, {0.0, 0.0, 0.0}},
+	                                      {brep_round_trip, {150.0, 0.0, 0.0}}});
+	if (roots != 1U || brep.empty() || std::abs(kernel.getVolume(imported) - kernel.getVolume(id)) > 1e-6 ||
+	    std::abs(kernel.getVolume(assembly) - 2.0 * kernel.getVolume(id)) > 1e-6) {
+		std::cerr << "[FAIL] STEP/BREP exchange round-trip or Product combine is invalid\n";
+		return EXIT_FAILURE;
+	}
     std::cout << "occccad Geometry Worker " << OCC_VERSION_COMPLETE << '\n'
               << "[SMOKE] GeometryId: " << id << '\n'
               << "[SMOKE] Volume: " << kernel.getVolume(id) << " mm^3\n"
@@ -516,6 +677,7 @@ int run_smoke() {
               << "[SMOKE] Triangles: " << mesh.triangles.size() << '\n'
               << "[SMOKE] Selectable topology: " << mesh.edges.size() << " edges / "
               << mesh.topology_vertices.size() << " vertices\n"
+			  << "[SMOKE] STEP/BREP round-trip: " << roots << " root / Product combine verified\n"
               << "[PASS] Rectangle Sketch -> Pad\n";
     return EXIT_SUCCESS;
 }

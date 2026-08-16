@@ -1,5 +1,5 @@
 import {
-  AimOutlined, ApartmentOutlined, BorderOutlined, BuildOutlined, CheckOutlined, CloudDownloadOutlined, CloudUploadOutlined,
+  AimOutlined, ApartmentOutlined, BorderOutlined, BuildOutlined, CheckOutlined, CloudUploadOutlined,
   CompassOutlined, CompressOutlined, DatabaseOutlined, ExportOutlined, GatewayOutlined, HistoryOutlined,
   InsertRowAboveOutlined, MenuFoldOutlined, MenuUnfoldOutlined, NodeIndexOutlined, RedoOutlined, SaveOutlined,
   ScissorOutlined, SelectOutlined, ShareAltOutlined, UndoOutlined,
@@ -142,7 +142,6 @@ export function Workbench() {
   const { message } = App.useApp();
   const commandRegistry = useMemo(() => new CommandRegistry(), []);
   const viewport = useRef<CadViewportHandle>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
   const [padOpen, setPadOpen] = useState(false);
   const [insertOpen, setInsertOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
@@ -243,22 +242,6 @@ export function Workbench() {
     if (!view) return; await api.createVersion(view.document.id, values.name, values.description); setVersionOpen(false);
     await history.refetch(); message.success("版本已创建");
   };
-  const importStep = async (file: File) => {
-    if (!view) return;
-    try { const job = await api.importStep(view.document.id, file); message.success(`STEP 导入任务已创建：${job.id}`); window.setTimeout(() => void refresh(), 1200); }
-    catch (error) { message.error((error as Error).message); }
-  };
-  const exportStep = async () => {
-    if (!view) return;
-    try {
-      let job = await api.startExportStep(view.document.id);
-      for (let attempt = 0; attempt < 30 && !["SUCCEEDED", "FAILED"].includes(job.state); attempt++) {
-        await new Promise((resolve) => window.setTimeout(resolve, 500)); job = await api.getJob(job.id);
-      }
-      if (job.state !== "SUCCEEDED") throw new Error(job.errorMessage ?? "STEP 导出失败");
-      await api.downloadJob(job.id); message.success("STEP 导出完成");
-    } catch (error) { message.error((error as Error).message); }
-  };
   useEffect(() => {
     const selectedInstance = () => {
       const selection = useWorkbenchStore.getState().selection;
@@ -294,10 +277,6 @@ export function Workbench() {
         isEnabled: () => Boolean(canEdit && view?.document.canUndo && !command.isPending) }),
       commandRegistry.register({ id: "edit.redo", execute: () => executeHistory("redo"),
         isEnabled: () => Boolean(canEdit && view?.document.canRedo && !command.isPending) }),
-      commandRegistry.register({ id: "exchange.import", execute: () => fileInput.current?.click(),
-        isVisible: () => view?.document.type === "PART", isEnabled: () => Boolean(canEdit) }),
-      commandRegistry.register({ id: "exchange.export", execute: exportStep, isVisible: () => view?.document.type === "PART",
-        isEnabled: () => Boolean(view?.artifact) }),
       commandRegistry.register({ id: "view.fit", execute: () => viewport.current?.fit() }),
       commandRegistry.register({ id: "view.top", execute: () => viewport.current?.setStandardView("TOP") }),
       commandRegistry.register({ id: "view.front", execute: () => viewport.current?.setStandardView("FRONT") }),
@@ -329,9 +308,6 @@ export function Workbench() {
           <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
             <ToolButton command="sketch.start" icon={<ScissorOutlined />} tooltip="选择基准面创建草图，或选择已有草图进入编辑" />
             <ToolButton command="part.pad" icon={<InsertRowAboveOutlined />} tooltip="拉伸所选草图" /></ToolbarGroup>
-          <ToolbarSeparator />
-          <ToolbarGroup><ToolButton command="exchange.import" icon={<CloudUploadOutlined />} tooltip="导入 STEP" />
-            <ToolButton command="exchange.export" icon={<CloudDownloadOutlined />} tooltip="导出 STEP" /></ToolbarGroup>
         </FloatingToolbar>}
         {activeWorkbench === "SKETCHER" && <FloatingToolbar id="sketcher" label="Sketcher" position="top-left" className="sketcher-toolbar">
           <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
@@ -362,9 +338,6 @@ export function Workbench() {
             <ToolButton command="view.fit" icon={<CompressOutlined />} tooltip="Fit (F)" />
             <ToolButton command="view.iso" icon={<AimOutlined />} tooltip="Isometric" /></ToolbarGroup>
         </FloatingToolbar>
-        <input ref={fileInput} hidden type="file" accept=".step,.stp" onChange={(event) => {
-          const file = event.target.files?.[0]; if (file) void importStep(file);
-        }} />
         <aside className="floating-structure-tree">
           <SpecificationTree nodes={treeNodes} selectedKey={treeKeyForSelection(treeNodes, store.selection)}
             highlightedKey={treeKeyForSelection(treeNodes, store.preselection)}

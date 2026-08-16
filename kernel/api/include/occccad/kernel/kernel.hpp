@@ -134,6 +134,11 @@ struct TopologyInfo {
     std::vector<VertexInfo> vertices;
 };
 
+struct PlacedGeometry {
+    GeometryId geometry_id;
+    Vec3 translation;
+};
+
 // ---------------------------------------------------------------------------
 // Abstract Kernel Interface
 // ---------------------------------------------------------------------------
@@ -145,6 +150,9 @@ public:
     // Lifecycle
     virtual GeometryId loadBrepr(const std::vector<uint8_t>& data) = 0;
     virtual GeometryId loadStep(const std::string& path) = 0;
+    virtual uint32_t inspectStepRootCount(const std::string& path) = 0;
+    virtual GeometryId loadStepRoot(const std::string& path, uint32_t root_index) = 0;
+    virtual GeometryId combine(const std::vector<PlacedGeometry>& components) = 0;
     virtual void unload(const GeometryId& id) = 0;
 
     // Primitive creation

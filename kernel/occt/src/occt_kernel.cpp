@@ -44,6 +44,8 @@
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Vertex.hxx>
+#include <TopoDS_Compound.hxx>
+#include <gp_Trsf.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Vec.hxx>
 
@@ -466,6 +468,53 @@ GeometryId OcctKernel::loadStep(const std::string& path) {
         throw std::runtime_error("STEP file contains no transferable roots: " + path);
     }
     return impl_->store(reader.OneShape());
+}
+
+uint32_t OcctKernel::inspectStepRootCount(const std::string& path) {
+    STEPControl_Reader reader;
+    if (reader.ReadFile(path.c_str()) != IFSelect_RetDone) {
+        throw std::runtime_error("STEP read failed: " + path);
+    }
+    const int count = reader.NbRootsForTransfer();
+    if (count <= 0) {
+        throw std::runtime_error("STEP file contains no transferable roots: " + path);
+    }
+    return static_cast<uint32_t>(count);
+}
+
+GeometryId OcctKernel::loadStepRoot(const std::string& path, const uint32_t root_index) {
+    STEPControl_Reader reader;
+    if (reader.ReadFile(path.c_str()) != IFSelect_RetDone) {
+        throw std::runtime_error("STEP read failed: " + path);
+    }
+    const int count = reader.NbRootsForTransfer();
+    if (root_index == 0U || root_index > static_cast<uint32_t>(count)) {
+        throw std::invalid_argument("STEP root index is out of range");
+    }
+    if (!reader.TransferRoot(static_cast<int>(root_index))) {
+        throw std::runtime_error("STEP root transfer failed");
+    }
+    const TopoDS_Shape shape = reader.Shape(1);
+    if (shape.IsNull()) {
+        throw std::runtime_error("STEP root produced an empty shape");
+    }
+    return impl_->store(shape);
+}
+
+GeometryId OcctKernel::combine(const std::vector<PlacedGeometry>& components) {
+    if (components.empty()) {
+        throw std::invalid_argument("exchange export requires at least one component");
+    }
+    BRep_Builder builder;
+    TopoDS_Compound compound;
+    builder.MakeCompound(compound);
+    for (const auto& component : components) {
+        gp_Trsf transform;
+        transform.SetTranslation(gp_Vec(component.translation.x, component.translation.y,
+                                        component.translation.z));
+        builder.Add(compound, impl_->find(component.geometry_id).Moved(TopLoc_Location(transform)));
+    }
+    return impl_->store(compound);
 }
 
 GeometryId OcctKernel::loadStepData(const std::vector<uint8_t>& data) {

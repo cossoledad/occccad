@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/json"
 	"strings"
@@ -30,6 +31,54 @@ func TestDefaultPartReferenceGeometryAndGLBExtension(t *testing.T) {
 	extensions, ok := document["extensions"].(map[string]any)
 	if !ok || extensions[referenceGeometryExtension] == nil {
 		t.Fatalf("GLB does not contain %s", referenceGeometryExtension)
+	}
+}
+
+func TestImportedBodyUsesOrdinaryPartTemplateAndCompensatableFeature(t *testing.T) {
+	model := newPartModel()
+	if len(model.DatumPlanes) != 3 || len(model.AxisSystems) != 1 {
+		t.Fatal("imported Parts must start from the ordinary private reference template")
+	}
+	before, _ := json.Marshal(model)
+	typeURI, payload, err := (&Service{}).adaptLegacyCommand(context.Background(), "", "PART", before, CommandRequest{
+		Type: "IMPORT_EXCHANGE", GeometryKey: "sha256:imported", FileName: "gear.step", SourceFormat: "STEP",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloadJSON, _ := json.Marshal(payload)
+	after, changes, err := workspaceCommandRegistry.Apply("PART", before, modelcore.DomainCommand{
+		CommandID: "import-command", TypeURI: typeURI, SchemaVersion: 1, Payload: payloadJSON,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var imported PartModel
+	if err := json.Unmarshal(after, &imported); err != nil {
+		t.Fatal(err)
+	}
+	if len(imported.Features) != 1 || imported.Features[0].Type != "IMPORT_BODY" ||
+		imported.Features[0].SourceFormat != "STEP" || imported.Features[0].GeometryKey != "sha256:imported" {
+		t.Fatalf("unexpected imported feature: %#v", imported.Features)
+	}
+	current, err := modelValues("PART", after, changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	compensated, err := changes.Compensate(current)
+	if err != nil {
+		t.Fatalf("import feature is not undoable: %v", err)
+	}
+	undone, err := applyModelValues("PART", after, compensated)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored PartModel
+	if err := json.Unmarshal(undone, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if len(restored.Features) != 0 || len(restored.DatumPlanes) != 3 || len(restored.AxisSystems) != 1 {
+		t.Fatalf("undo must remove only the imported body: %#v", restored)
 	}
 }
 

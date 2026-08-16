@@ -8,6 +8,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +75,77 @@ func TestRealtimeTwoClientCommit(t *testing.T) {
 	readRealtimeType(t, second, "workspace.transaction.committed.v1")
 }
 
+// TestRealtimeExchangeImportNotification verifies the browser-facing async
+// contract: uploading returns a Job immediately and terminal state arrives on
+// the authenticated user channel without polling the Job endpoint.
+func TestRealtimeExchangeImportNotification(t *testing.T) {
+	base := strings.TrimRight(os.Getenv("OCCCCAD_REALTIME_TEST_URL"), "/")
+	password := os.Getenv("OCCCCAD_ADMIN_PASSWORD")
+	stepPath := os.Getenv("OCCCCAD_EXCHANGE_TEST_STEP")
+	if base == "" || password == "" || stepPath == "" {
+		t.Skip("set OCCCCAD_REALTIME_TEST_URL, OCCCCAD_ADMIN_PASSWORD, and OCCCCAD_EXCHANGE_TEST_STEP")
+	}
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar, Timeout: 20 * time.Second}
+	loginBody, _ := json.Marshal(map[string]string{
+		"email": value("OCCCCAD_ADMIN_EMAIL", "admin@occcad.local"), "password": password,
+	})
+	response, err := client.Post(base+"/api/auth/login", "application/json", bytes.NewReader(loginBody))
+	if err != nil {
+		t.Fatal(err)
+	}
+	csrf := ""
+	for _, cookie := range response.Cookies() {
+		if cookie.Name == "occccad_csrf" {
+			csrf = cookie.Value
+		}
+	}
+	response.Body.Close()
+	if response.StatusCode != http.StatusOK || csrf == "" {
+		t.Fatalf("login status %d, csrf present %v", response.StatusCode, csrf != "")
+	}
+	baseURL, _ := url.Parse(base)
+	baseURL.Path = "/"
+	connection := dialRealtime(t, jar, baseURL, csrf)
+	defer connection.Close()
+
+	source, err := os.Open(stepPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer source.Close()
+	query := url.Values{"format": {"STEP"}, "fileName": {filepath.Base(stepPath)},
+		"documentName": {"Realtime import " + uuid.NewString()}}
+	request, _ := http.NewRequest(http.MethodPost, base+"/api/exchange/imports?"+query.Encode(), source)
+	request.Header.Set("Content-Type", "model/step")
+	request.Header.Set("X-CSRF-Token", csrf)
+	request.Header.Set("X-Request-ID", uuid.NewString())
+	response, err = client.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var submitted struct {
+		ID string `json:"id"`
+	}
+	if response.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(response.Body)
+		t.Fatalf("submit import status %d: %s", response.StatusCode, body)
+	}
+	if err := json.NewDecoder(response.Body).Decode(&submitted); err != nil || submitted.ID == "" {
+		t.Fatalf("decode submitted job: %v", err)
+	}
+
+	job := readRealtimeJob(t, connection, submitted.ID)
+	if job.State != "SUCCEEDED" || job.DocumentID == "" {
+		t.Fatalf("terminal import job = %+v", job)
+	}
+	defer deleteRealtimeTestDocument(t, client, base, csrf, job.DocumentID)
+}
+
 func dialRealtime(t *testing.T, jar http.CookieJar, base *url.URL, csrf string) *websocket.Conn {
 	t.Helper()
 	target := *base
@@ -128,6 +200,31 @@ func readRealtimeType(t *testing.T, connection *websocket.Conn, expected string)
 		}
 		if envelope.Type == "request.failed.v1" {
 			t.Fatalf("received request failure while waiting for %s", expected)
+		}
+	}
+}
+
+type realtimeJob struct {
+	ID         string `json:"id"`
+	State      string `json:"state"`
+	DocumentID string `json:"documentId"`
+}
+
+func readRealtimeJob(t *testing.T, connection *websocket.Conn, jobID string) realtimeJob {
+	t.Helper()
+	_ = connection.SetReadDeadline(time.Now().Add(30 * time.Second))
+	for {
+		var envelope struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Job realtimeJob `json:"job"`
+			} `json:"payload"`
+		}
+		if err := connection.ReadJSON(&envelope); err != nil {
+			t.Fatalf("read terminal job %s: %v", jobID, err)
+		}
+		if envelope.Type == "job.state.changed.v1" && envelope.Payload.Job.ID == jobID {
+			return envelope.Payload.Job
 		}
 	}
 }

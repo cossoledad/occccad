@@ -22,6 +22,7 @@ flowchart LR
 - 在稳定地址代理浏览器流量到托管 API 或外部调试 API；
 - 实现 GeometryWorker gRPC 代理，按 resident geometry 和 in-flight 负载选 Worker；
 - 容量不足且未达上限时拉起 Worker，空闲超时后缩容；
+- 将相对 `OCCCCAD_DATA_DIR` 以 `services/` 为唯一基准解析成绝对路径，并传给 API、Jobs 与所有 Geometry Worker，保证本地 ArtifactReference 指向同一对象；
 - Worker 失联后移除并维持最小副本数；
 - 为 API、Jobs、Geometry 提供调试切流。
 

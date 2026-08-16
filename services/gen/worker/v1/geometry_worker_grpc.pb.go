@@ -19,17 +19,18 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	GeometryWorker_Ping_FullMethodName           = "/occccad.worker.v1.GeometryWorker/Ping"
-	GeometryWorker_EvaluatePart_FullMethodName   = "/occccad.worker.v1.GeometryWorker/EvaluatePart"
-	GeometryWorker_SolveSketch_FullMethodName    = "/occccad.worker.v1.GeometryWorker/SolveSketch"
-	GeometryWorker_ImportStep_FullMethodName     = "/occccad.worker.v1.GeometryWorker/ImportStep"
-	GeometryWorker_ExportStep_FullMethodName     = "/occccad.worker.v1.GeometryWorker/ExportStep"
-	GeometryWorker_LoadGeometry_FullMethodName   = "/occccad.worker.v1.GeometryWorker/LoadGeometry"
-	GeometryWorker_UnloadGeometry_FullMethodName = "/occccad.worker.v1.GeometryWorker/UnloadGeometry"
-	GeometryWorker_GetTopology_FullMethodName    = "/occccad.worker.v1.GeometryWorker/GetTopology"
-	GeometryWorker_Tessellate_FullMethodName     = "/occccad.worker.v1.GeometryWorker/Tessellate"
-	GeometryWorker_CreateChamfer_FullMethodName  = "/occccad.worker.v1.GeometryWorker/CreateChamfer"
-	GeometryWorker_CreateFillet_FullMethodName   = "/occccad.worker.v1.GeometryWorker/CreateFillet"
+	GeometryWorker_Ping_FullMethodName            = "/occccad.worker.v1.GeometryWorker/Ping"
+	GeometryWorker_EvaluatePart_FullMethodName    = "/occccad.worker.v1.GeometryWorker/EvaluatePart"
+	GeometryWorker_SolveSketch_FullMethodName     = "/occccad.worker.v1.GeometryWorker/SolveSketch"
+	GeometryWorker_InspectExchange_FullMethodName = "/occccad.worker.v1.GeometryWorker/InspectExchange"
+	GeometryWorker_ImportExchange_FullMethodName  = "/occccad.worker.v1.GeometryWorker/ImportExchange"
+	GeometryWorker_ExportExchange_FullMethodName  = "/occccad.worker.v1.GeometryWorker/ExportExchange"
+	GeometryWorker_LoadGeometry_FullMethodName    = "/occccad.worker.v1.GeometryWorker/LoadGeometry"
+	GeometryWorker_UnloadGeometry_FullMethodName  = "/occccad.worker.v1.GeometryWorker/UnloadGeometry"
+	GeometryWorker_GetTopology_FullMethodName     = "/occccad.worker.v1.GeometryWorker/GetTopology"
+	GeometryWorker_Tessellate_FullMethodName      = "/occccad.worker.v1.GeometryWorker/Tessellate"
+	GeometryWorker_CreateChamfer_FullMethodName   = "/occccad.worker.v1.GeometryWorker/CreateChamfer"
+	GeometryWorker_CreateFillet_FullMethodName    = "/occccad.worker.v1.GeometryWorker/CreateFillet"
 )
 
 // GeometryWorkerClient is the client API for GeometryWorker service.
@@ -43,9 +44,11 @@ type GeometryWorkerClient interface {
 	// Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
 	// implementation detail of this coarse-grained boundary.
 	SolveSketch(ctx context.Context, in *SolveSketchRequest, opts ...grpc.CallOption) (*SolveSketchResponse, error)
-	// Neutral CAD exchange. STEP is converted to/from the worker's internal B-Rep.
-	ImportStep(ctx context.Context, in *ImportStepRequest, opts ...grpc.CallOption) (*EvaluatePartResponse, error)
-	ExportStep(ctx context.Context, in *ExportStepRequest, opts ...grpc.CallOption) (*ExportStepResponse, error)
+	// Neutral CAD exchange uses immutable ArtifactReference values. Large file
+	// bytes never cross this unary gRPC boundary.
+	InspectExchange(ctx context.Context, in *InspectExchangeRequest, opts ...grpc.CallOption) (*InspectExchangeResponse, error)
+	ImportExchange(ctx context.Context, in *ImportExchangeRequest, opts ...grpc.CallOption) (*EvaluatePartResponse, error)
+	ExportExchange(ctx context.Context, in *ExportExchangeRequest, opts ...grpc.CallOption) (*ExportExchangeResponse, error)
 	// Load geometry from B-Rep artifact
 	LoadGeometry(ctx context.Context, in *LoadGeometryRequest, opts ...grpc.CallOption) (*LoadGeometryResponse, error)
 	// Unload geometry
@@ -97,20 +100,30 @@ func (c *geometryWorkerClient) SolveSketch(ctx context.Context, in *SolveSketchR
 	return out, nil
 }
 
-func (c *geometryWorkerClient) ImportStep(ctx context.Context, in *ImportStepRequest, opts ...grpc.CallOption) (*EvaluatePartResponse, error) {
+func (c *geometryWorkerClient) InspectExchange(ctx context.Context, in *InspectExchangeRequest, opts ...grpc.CallOption) (*InspectExchangeResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(EvaluatePartResponse)
-	err := c.cc.Invoke(ctx, GeometryWorker_ImportStep_FullMethodName, in, out, cOpts...)
+	out := new(InspectExchangeResponse)
+	err := c.cc.Invoke(ctx, GeometryWorker_InspectExchange_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *geometryWorkerClient) ExportStep(ctx context.Context, in *ExportStepRequest, opts ...grpc.CallOption) (*ExportStepResponse, error) {
+func (c *geometryWorkerClient) ImportExchange(ctx context.Context, in *ImportExchangeRequest, opts ...grpc.CallOption) (*EvaluatePartResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ExportStepResponse)
-	err := c.cc.Invoke(ctx, GeometryWorker_ExportStep_FullMethodName, in, out, cOpts...)
+	out := new(EvaluatePartResponse)
+	err := c.cc.Invoke(ctx, GeometryWorker_ImportExchange_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *geometryWorkerClient) ExportExchange(ctx context.Context, in *ExportExchangeRequest, opts ...grpc.CallOption) (*ExportExchangeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ExportExchangeResponse)
+	err := c.cc.Invoke(ctx, GeometryWorker_ExportExchange_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -188,9 +201,11 @@ type GeometryWorkerServer interface {
 	// Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
 	// implementation detail of this coarse-grained boundary.
 	SolveSketch(context.Context, *SolveSketchRequest) (*SolveSketchResponse, error)
-	// Neutral CAD exchange. STEP is converted to/from the worker's internal B-Rep.
-	ImportStep(context.Context, *ImportStepRequest) (*EvaluatePartResponse, error)
-	ExportStep(context.Context, *ExportStepRequest) (*ExportStepResponse, error)
+	// Neutral CAD exchange uses immutable ArtifactReference values. Large file
+	// bytes never cross this unary gRPC boundary.
+	InspectExchange(context.Context, *InspectExchangeRequest) (*InspectExchangeResponse, error)
+	ImportExchange(context.Context, *ImportExchangeRequest) (*EvaluatePartResponse, error)
+	ExportExchange(context.Context, *ExportExchangeRequest) (*ExportExchangeResponse, error)
 	// Load geometry from B-Rep artifact
 	LoadGeometry(context.Context, *LoadGeometryRequest) (*LoadGeometryResponse, error)
 	// Unload geometry
@@ -221,11 +236,14 @@ func (UnimplementedGeometryWorkerServer) EvaluatePart(context.Context, *Evaluate
 func (UnimplementedGeometryWorkerServer) SolveSketch(context.Context, *SolveSketchRequest) (*SolveSketchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SolveSketch not implemented")
 }
-func (UnimplementedGeometryWorkerServer) ImportStep(context.Context, *ImportStepRequest) (*EvaluatePartResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ImportStep not implemented")
+func (UnimplementedGeometryWorkerServer) InspectExchange(context.Context, *InspectExchangeRequest) (*InspectExchangeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InspectExchange not implemented")
 }
-func (UnimplementedGeometryWorkerServer) ExportStep(context.Context, *ExportStepRequest) (*ExportStepResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ExportStep not implemented")
+func (UnimplementedGeometryWorkerServer) ImportExchange(context.Context, *ImportExchangeRequest) (*EvaluatePartResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ImportExchange not implemented")
+}
+func (UnimplementedGeometryWorkerServer) ExportExchange(context.Context, *ExportExchangeRequest) (*ExportExchangeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ExportExchange not implemented")
 }
 func (UnimplementedGeometryWorkerServer) LoadGeometry(context.Context, *LoadGeometryRequest) (*LoadGeometryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LoadGeometry not implemented")
@@ -320,38 +338,56 @@ func _GeometryWorker_SolveSketch_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
-func _GeometryWorker_ImportStep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ImportStepRequest)
+func _GeometryWorker_InspectExchange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InspectExchangeRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(GeometryWorkerServer).ImportStep(ctx, in)
+		return srv.(GeometryWorkerServer).InspectExchange(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: GeometryWorker_ImportStep_FullMethodName,
+		FullMethod: GeometryWorker_InspectExchange_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(GeometryWorkerServer).ImportStep(ctx, req.(*ImportStepRequest))
+		return srv.(GeometryWorkerServer).InspectExchange(ctx, req.(*InspectExchangeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _GeometryWorker_ExportStep_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ExportStepRequest)
+func _GeometryWorker_ImportExchange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImportExchangeRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(GeometryWorkerServer).ExportStep(ctx, in)
+		return srv.(GeometryWorkerServer).ImportExchange(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: GeometryWorker_ExportStep_FullMethodName,
+		FullMethod: GeometryWorker_ImportExchange_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(GeometryWorkerServer).ExportStep(ctx, req.(*ExportStepRequest))
+		return srv.(GeometryWorkerServer).ImportExchange(ctx, req.(*ImportExchangeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GeometryWorker_ExportExchange_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ExportExchangeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GeometryWorkerServer).ExportExchange(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GeometryWorker_ExportExchange_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GeometryWorkerServer).ExportExchange(ctx, req.(*ExportExchangeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -484,12 +520,16 @@ var GeometryWorker_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _GeometryWorker_SolveSketch_Handler,
 		},
 		{
-			MethodName: "ImportStep",
-			Handler:    _GeometryWorker_ImportStep_Handler,
+			MethodName: "InspectExchange",
+			Handler:    _GeometryWorker_InspectExchange_Handler,
 		},
 		{
-			MethodName: "ExportStep",
-			Handler:    _GeometryWorker_ExportStep_Handler,
+			MethodName: "ImportExchange",
+			Handler:    _GeometryWorker_ImportExchange_Handler,
+		},
+		{
+			MethodName: "ExportExchange",
+			Handler:    _GeometryWorker_ExportExchange_Handler,
 		},
 		{
 			MethodName: "LoadGeometry",

@@ -22,9 +22,11 @@ service GeometryWorker {
     // implementation detail of this coarse-grained boundary.
     rpc SolveSketch(SolveSketchRequest) returns (SolveSketchResponse);
 
-    // Neutral CAD exchange. STEP is converted to/from the worker's internal B-Rep.
-    rpc ImportStep(ImportStepRequest) returns (EvaluatePartResponse);
-    rpc ExportStep(ExportStepRequest) returns (ExportStepResponse);
+    // Neutral CAD exchange uses immutable ArtifactReference values. Large file
+    // bytes never cross this unary gRPC boundary.
+    rpc InspectExchange(InspectExchangeRequest) returns (InspectExchangeResponse);
+    rpc ImportExchange(ImportExchangeRequest) returns (EvaluatePartResponse);
+    rpc ExportExchange(ExportExchangeRequest) returns (ExportExchangeResponse);
 
     // Load geometry from B-Rep artifact
     rpc LoadGeometry(LoadGeometryRequest) returns (LoadGeometryResponse);
@@ -107,24 +109,66 @@ message EvaluatePartRequest {
     double angular_deflection = 5;
     repeated RectangularPadSpec rectangular_pads = 6;
     bytes base_brep_data = 7;
+    ArtifactReference base_brep_artifact = 8;
+    string brep_output_key = 9;
+    string glb_output_key = 10;
 }
 
-message ImportStepRequest {
+message ArtifactReference {
+    // LOCAL is the current development backend. HTTPS/S3 references can be
+    // added without exposing an operating-system path to the protocol.
+    string backend = 1;
+    string object_key = 2;
+    string sha256 = 3;
+    uint64 size_bytes = 4;
+    string content_type = 5;
+}
+
+message InspectExchangeRequest {
+    string request_id = 1;
+    string format = 2; // STEP | BREP
+    ArtifactReference source = 3;
+}
+
+message ExchangeComponentInfo {
+    uint32 source_index = 1;
+    string name = 2;
+}
+
+message InspectExchangeResponse {
+    // PART for one transferable root; PRODUCT when roots can be evaluated in
+    // parallel and assembled as referenced Part documents.
+    string document_type = 1;
+    repeated ExchangeComponentInfo components = 2;
+}
+
+message ImportExchangeRequest {
     string request_id = 1;
     string geometry_key = 2;
-    string file_name = 3;
-    bytes step_data = 4;
-    double linear_deflection = 5;
-    double angular_deflection = 6;
+    string format = 3;
+    ArtifactReference source = 4;
+    uint32 source_index = 5;
+    string brep_output_key = 6;
+    string glb_output_key = 7;
+    double linear_deflection = 8;
+    double angular_deflection = 9;
 }
 
-message ExportStepRequest {
+message ExchangeComponent {
+    string name = 1;
+    ArtifactReference brep = 2;
+    Vec3 translation = 3;
+}
+
+message ExportExchangeRequest {
     string request_id = 1;
-    bytes brep_data = 2;
+    string format = 2; // STEP | BREP
+    repeated ExchangeComponent components = 3;
+    string output_key = 4;
 }
 
-message ExportStepResponse {
-    bytes step_data = 1;
+message ExportExchangeResponse {
+    ArtifactReference result = 1;
 }
 
 message RectangularPadSpec {
@@ -148,6 +192,8 @@ message EvaluatePartResponse {
     bool cache_hit = 8;
     string occt_version = 9;
     bytes glb_data = 10;
+    ArtifactReference brep_artifact = 11;
+    ArtifactReference glb_artifact = 12;
 }
 
 message Mesh {
@@ -223,6 +269,7 @@ message GetTopologyRequest {
     bytes brep_data = 2;
     string topology_type = 3;
     uint64 local_id = 4;
+    ArtifactReference brep_artifact = 5;
 }
 
 message GetTopologyResponse {

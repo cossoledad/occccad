@@ -12,11 +12,11 @@ func TestLocalStoreRoundTripAndDeduplication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	first, err := store.Put(context.Background(), KindStepSource, "application/step", strings.NewReader("STEP"))
+	first, err := store.Put(context.Background(), KindExchangeSource, "application/step", strings.NewReader("STEP"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.Put(context.Background(), KindStepSource, "application/step", strings.NewReader("STEP"))
+	second, err := store.Put(context.Background(), KindExchangeSource, "application/step", strings.NewReader("STEP"))
 	if err != nil {
 		t.Fatal(err)
 	}
