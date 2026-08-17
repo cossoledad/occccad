@@ -7,9 +7,12 @@
 #include <grpcpp/grpcpp.h>
 #include <occccad/geometry/sketch/sketch_solver.h>
 #include <occccad/worker/v1/geometry_worker.grpc.pb.h>
+#include <spdlog/sinks/rotating_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
 
-#include <chrono>
 #include <cctype>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -21,6 +24,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace worker_api = occccad::worker::v1;
@@ -29,6 +33,49 @@ namespace sketch_api = occccad::geometry::sketch;
 namespace {
 
 constexpr std::uintmax_t kMaximumExchangeBytes = 512ULL * 1024ULL * 1024ULL;
+constexpr std::size_t kLogFileBytes = 10ULL * 1024ULL * 1024ULL;
+constexpr std::size_t kLogFileCount = 5U;
+
+spdlog::level::level_enum configured_log_level() {
+    const char* configured = std::getenv("OCCCCAD_LOG_LEVEL");
+    const std::string value = configured != nullptr ? configured : "info";
+    if (value == "trace")
+        return spdlog::level::trace;
+    if (value == "debug")
+        return spdlog::level::debug;
+    if (value == "warn" || value == "warning")
+        return spdlog::level::warn;
+    if (value == "error")
+        return spdlog::level::err;
+    if (value == "critical")
+        return spdlog::level::critical;
+    return spdlog::level::info;
+}
+
+std::filesystem::path configure_logging(const std::string& address) {
+    const char* configured_directory = std::getenv("OCCCCAD_LOG_DIR");
+    const auto directory = std::filesystem::absolute(
+        configured_directory != nullptr ? configured_directory : "./logs");
+    std::filesystem::create_directories(directory);
+    std::string worker_name = address;
+    for (char& character : worker_name) {
+        if (!std::isalnum(static_cast<unsigned char>(character)))
+            character = '-';
+    }
+    const auto log_file = directory / ("occccad-geometry-" + worker_name + ".log");
+    auto console = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    auto rotating_file = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+        log_file.string(), kLogFileBytes, kLogFileCount);
+    std::vector<spdlog::sink_ptr> sinks{console, rotating_file};
+    auto logger =
+        std::make_shared<spdlog::logger>("occccad-geometry-worker", sinks.begin(), sinks.end());
+    logger->set_level(configured_log_level());
+    logger->set_pattern("%Y-%m-%dT%H:%M:%S.%e%z level=%l service=geometry-worker %v");
+    logger->flush_on(spdlog::level::warn);
+    spdlog::set_default_logger(logger);
+    spdlog::flush_every(std::chrono::seconds(3));
+    return log_file;
+}
 
 std::filesystem::path artifact_root() {
     const char* configured = std::getenv("OCCCCAD_DATA_DIR");
@@ -149,12 +196,8 @@ void log_rpc(const char* operation, const std::string& request_id, const std::st
     const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                               std::chrono::steady_clock::now() - started)
                               .count();
-    std::cout << "{\"level\":\"INFO\",\"service\":\"occccad-geometry-worker\""
-              << ",\"operation\":\"" << operation << "\""
-              << ",\"request_id\":\"" << request_id << "\""
-              << ",\"traceparent\":\"" << traceparent << "\""
-              << ",\"status\":\"" << status << "\""
-              << ",\"duration_ms\":" << duration << "}" << std::endl;
+    spdlog::info("rpc operation={} request_id={} traceparent={} status={} duration_ms={}",
+                 operation, request_id, traceparent, status, duration);
 }
 
 sketch_api::GeometryRef read_sketch_reference(const worker_api::SketchGeometryRef& input) {
@@ -432,6 +475,7 @@ public:
     grpc::Status GetTopology(grpc::ServerContext* context,
                              const worker_api::GetTopologyRequest* request,
                              worker_api::GetTopologyResponse* response) override {
+        const auto started = std::chrono::steady_clock::now();
         if (context->IsCancelled())
             return {grpc::StatusCode::CANCELLED, "request was cancelled"};
         if (request->geometry_id().empty()) {
@@ -450,7 +494,10 @@ public:
                     brep = read_artifact(request->brep_artifact());
                 geometry_id = kernel_.loadBrepr(brep);
             }
-            const auto topology = kernel_.getTopology(geometry_id);
+            const bool topology_cache_hit =
+                topology_cached_.find(geometry_id) != topology_cached_.end();
+            const auto& topology = kernel_.getTopology(geometry_id);
+            topology_cached_.insert(geometry_id);
             response->set_face_count(topology.face_count);
             response->set_edge_count(topology.edge_count);
             response->set_vertex_count(topology.vertex_count);
@@ -495,10 +542,21 @@ public:
                 output->mutable_point()->set_z(vertex.point.z);
                 fill_properties(vertex.properties, output->mutable_properties());
             }
+            const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                      std::chrono::steady_clock::now() - started)
+                                      .count();
+            spdlog::info(
+                "topology query geometry_id={} kind={} local_id={} cache_hit={} duration_ms={}",
+                geometry_id, request->topology_type(), request->local_id(), topology_cache_hit,
+                duration);
             return grpc::Status::OK;
         } catch (const std::invalid_argument& error) {
+            spdlog::warn("topology query rejected geometry_id={} error={}", request->geometry_id(),
+                         error.what());
             return {grpc::StatusCode::INVALID_ARGUMENT, error.what()};
         } catch (const std::exception& error) {
+            spdlog::error("topology query failed geometry_id={} error={}", request->geometry_id(),
+                          error.what());
             return {grpc::StatusCode::INTERNAL, error.what()};
         }
     }
@@ -564,7 +622,8 @@ private:
                          const std::string& brep_output_key = {},
                          const std::string& glb_output_key = {}) {
         const auto bbox = kernel_.getBoundingBox(geometry_id);
-        const auto topology = kernel_.getTopology(geometry_id);
+        const auto& topology = kernel_.getTopology(geometry_id);
+        topology_cached_.insert(geometry_id);
         const double linear_deflection =
             requested_linear_deflection > 0.0 ? requested_linear_deflection : 0.1;
         const double angular_deflection =
@@ -634,26 +693,40 @@ private:
     std::unique_ptr<occccad::geometry::sketch::SketchSolver> sketch_solver_ =
         occccad::geometry::sketch::make_plane_gcs_sketch_solver();
     std::unordered_map<std::string, worker_api::EvaluatePartResponse> cache_;
+    std::unordered_set<std::string> topology_cached_;
 };
 
 }  // namespace
 
 int main() {
-    const char* configured_address = std::getenv("OCCCCAD_GEOMETRY_WORKER_LISTEN");
-    const std::string address =
-        configured_address != nullptr ? configured_address : "127.0.0.1:51001";
+    try {
+        const char* configured_address = std::getenv("OCCCCAD_GEOMETRY_WORKER_LISTEN");
+        const std::string address =
+            configured_address != nullptr ? configured_address : "127.0.0.1:51001";
+        const auto log_file = configure_logging(address);
 
-    GeometryWorkerService service;
-    grpc::ServerBuilder builder;
-    builder.AddListeningPort(address, grpc::InsecureServerCredentials());
-    builder.RegisterService(&service);
-    std::unique_ptr<grpc::Server> server = builder.BuildAndStart();
-    if (!server) {
-        std::cerr << "Failed to start Geometry Worker on " << address << '\n';
+        GeometryWorkerService service;
+        grpc::ServerBuilder builder;
+        builder.AddListeningPort(address, grpc::InsecureServerCredentials());
+        builder.RegisterService(&service);
+        std::unique_ptr<grpc::Server> server = builder.BuildAndStart();
+        if (!server) {
+            spdlog::critical("geometry worker failed to listen address={}", address);
+            return EXIT_FAILURE;
+        }
+        spdlog::info("geometry worker ready address={} occt_version={} log_file={}", address,
+                     OCC_VERSION_COMPLETE, log_file.string());
+        server->Wait();
+        spdlog::info("geometry worker stopped address={}", address);
+        spdlog::shutdown();
+        return EXIT_SUCCESS;
+    } catch (const std::exception& error) {
+        try {
+            spdlog::critical("geometry worker startup failed error={}", error.what());
+            spdlog::shutdown();
+        } catch (...) {
+            std::cerr << "Geometry Worker startup failed: " << error.what() << '\n';
+        }
         return EXIT_FAILURE;
     }
-    std::cout << "occccad Geometry Worker listening on " << address << " (OCCT "
-              << OCC_VERSION_COMPLETE << ")\n";
-    server->Wait();
-    return EXIT_SUCCESS;
 }

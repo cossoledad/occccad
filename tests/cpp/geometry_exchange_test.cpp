@@ -58,6 +58,17 @@ TEST(GeometryExchange, RectanglePadProducesSelectableTopologyAndRoundTrips) {
     EXPECT_NEAR(kernel.getVolume(brep_round_trip), kernel.getVolume(id), 1e-6);
 }
 
+TEST(GeometryExchange, ReusesTopologyAnalysisForEveryElementOfTheSameBody) {
+    OcctKernel kernel;
+    const auto id = kernel.createRectangularPad({0.0, 0.0, 20.0, 10.0, 5.0, "XY"});
+
+    const auto& first = kernel.getTopology(id);
+    const auto& second = kernel.getTopology(id);
+
+    EXPECT_EQ(&first, &second);
+    EXPECT_EQ(first.faces.size(), 6U);
+}
+
 TEST(GeometryExchange, ProductStepKeepsOneTransferableRootPerOccurrence) {
     OcctKernel kernel;
     const auto id = kernel.createRectangularPad({0.0, 0.0, 20.0, 10.0, 5.0, "XY"});

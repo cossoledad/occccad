@@ -19,10 +19,8 @@ class OccccadDependencies(ConanFile):
     requires = (
         # CAD Kernel (conancenter)
         "opencascade/7.9.1",
-        # Logging — uncomment when needed
-        # NOTE: may conflict with opencascade over fmt version;
-        # if so add "fmt/12.2.0" with override=True
-        # "spdlog/*",
+        # Structured console and rotating file logs for native workers.
+        "spdlog/1.15.3",
         # Coarse-grained Geometry Worker RPC
         "grpc/1.71.0",
         # PlaneGCS numerical and graph dependencies. Keep these direct: the

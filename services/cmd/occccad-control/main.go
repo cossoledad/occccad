@@ -57,6 +57,7 @@ func run() error {
 	defer stop()
 	servicesDirectory := filepath.Join(root, "services")
 	dataDirectory := resolveDataDirectory(servicesDirectory, value("OCCCCAD_DATA_DIR", "./data"))
+	logDirectory := resolveDataDirectory(servicesDirectory, value("OCCCCAD_LOG_DIR", "./logs"))
 	app := &application{
 		ctx: ctx, root: root, servicesDirectory: servicesDirectory, dataDirectory: dataDirectory,
 		serverBinary:     value("OCCCCAD_SERVER_BIN", filepath.Join(root, "build", "services", "occccad-server")),
@@ -68,7 +69,8 @@ func run() error {
 	workerBinary := value("OCCCCAD_GEOMETRY_WORKER_BIN", filepath.Join(root, "build", "cmake",
 		strings.ToLower(value("OCCCCAD_BUILD_TYPE", "Debug")), "workers", "geometry", "occccad_geometry_worker"))
 	app.pool = control.NewGeometryPool(ctx, control.GeometryPoolConfig{
-		WorkerBinary: workerBinary, DataDirectory: dataDirectory, WorkerHost: "127.0.0.1",
+		WorkerBinary: workerBinary, DataDirectory: dataDirectory, LogDirectory: logDirectory,
+		WorkerHost:       "127.0.0.1",
 		FirstWorkerPort:  integer("OCCCCAD_GEOMETRY_WORKER_FIRST_PORT", 51100),
 		MinimumWorkers:   integer("OCCCCAD_GEOMETRY_WORKER_MIN", 1),
 		MaximumWorkers:   integer("OCCCCAD_GEOMETRY_WORKER_MAX", 8),

@@ -4657,6 +4657,8 @@ score = artifact_locality + warm_kernel + capability_match
 
 Worker 通过租约注册：capabilities、kernel build digest、solver versions、CPU/RAM/GPU、resident artifact bloom/filter、current load。Scheduler 只发 immutable input manifest 和 signed object URLs，不传数据库凭证。
 
+几何驻留和亲和的最小单位是不可变 Body GeometryId，而不是 DocumentId、面选择或 Product occurrence。一个 Body 的 B-Rep、拓扑索引和派生查询缓存必须由同一 owner Worker 原子管理；首次冷加载期间也要预留 owner，避免并发请求重复解析。多 Body Part 可以按 BodyGeometryId 独立调度，Product 中引用相同 Part/Body 的 occurrence 共享几何驻留，只携带各自 InstancePath/Transform。跨节点生产调度使用带租约的 owner/replica 记录；只有显式 eviction、内存压力策略或 Worker 失联才能解除绑定，且客户端必须能从 Artifact 重建。
+
 ```mermaid
 stateDiagram-v2
     [*] --> SUBMITTED

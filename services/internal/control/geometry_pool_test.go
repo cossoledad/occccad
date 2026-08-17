@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"net"
+	"sync/atomic"
 	"testing"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
@@ -12,6 +13,20 @@ import (
 
 type sketchWorkerStub struct {
 	workerv1.UnimplementedGeometryWorkerServer
+}
+
+type topologyWorkerStub struct {
+	workerv1.UnimplementedGeometryWorkerServer
+	topologyCalls atomic.Int32
+}
+
+func (worker *topologyWorkerStub) Ping(context.Context, *workerv1.PingRequest) (*workerv1.PingResponse, error) {
+	return &workerv1.PingResponse{WorkerId: "topology-worker", ResidentGeometryCount: 1}, nil
+}
+
+func (worker *topologyWorkerStub) GetTopology(context.Context, *workerv1.GetTopologyRequest) (*workerv1.GetTopologyResponse, error) {
+	worker.topologyCalls.Add(1)
+	return &workerv1.GetTopologyResponse{FaceCount: 1}, nil
 }
 
 func (sketchWorkerStub) SolveSketch(_ context.Context, request *workerv1.SolveSketchRequest) (*workerv1.SolveSketchResponse, error) {
@@ -101,5 +116,60 @@ func TestGeometryPoolRoutesEveryExchangeRPC(t *testing.T) {
 	exported, err := client.ExportExchange(t.Context(), &workerv1.ExportExchangeRequest{RequestId: "export", OutputKey: "result.step"})
 	if err != nil || exported.GetResult().GetObjectKey() != "result.step" {
 		t.Fatalf("ExportExchange was not routed: %#v, %v", exported, err)
+	}
+}
+
+func TestGeometryPoolReservesColdBodyBeforeFirstRPCCompletes(t *testing.T) {
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{GeometryCapacity: 1, MaximumWorkers: 2})
+	first := &workerInstance{id: "first", known: map[string]bool{}}
+	second := &workerInstance{id: "second", known: map[string]bool{}}
+	pool.workers = []*workerInstance{first, second}
+
+	_, selectedFirst, err := pool.selectClient("body-geometry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, selectedConcurrent, err := pool.selectClient("body-geometry")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selectedFirst != first || selectedConcurrent != first {
+		t.Fatalf("cold Body requests split across workers: first=%v concurrent=%v", selectedFirst.id, selectedConcurrent.id)
+	}
+}
+
+func TestGeometryPoolKeepsTopologyQueriesOnColdLoadedBodyOwner(t *testing.T) {
+	firstService := &topologyWorkerStub{}
+	secondService := &topologyWorkerStub{}
+	firstAddress := serveGeometry(t, firstService)
+	secondAddress := serveGeometry(t, secondService)
+	firstConnection, err := grpc.NewClient(firstAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondConnection, err := grpc.NewClient(secondAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = firstConnection.Close()
+		_ = secondConnection.Close()
+	})
+
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{GeometryCapacity: 1, MaximumWorkers: 2})
+	pool.workers = []*workerInstance{
+		{id: "first", connection: firstConnection, client: workerv1.NewGeometryWorkerClient(firstConnection), known: map[string]bool{}},
+		{id: "second", connection: secondConnection, client: workerv1.NewGeometryWorkerClient(secondConnection), known: map[string]bool{}},
+	}
+	request := &workerv1.GetTopologyRequest{GeometryId: "body-geometry", BrepData: []byte("brep")}
+	if _, err := pool.GetTopology(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.GetTopology(t.Context(), request); err != nil {
+		t.Fatal(err)
+	}
+	if firstService.topologyCalls.Load() != 2 || secondService.topologyCalls.Load() != 0 {
+		t.Fatalf("topology affinity was not retained: first=%d second=%d",
+			firstService.topologyCalls.Load(), secondService.topologyCalls.Load())
 	}
 }

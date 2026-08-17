@@ -48,7 +48,7 @@ public:
         const std::vector<uint8_t>& base_brep = {}) override;
 
     BoundingBox getBoundingBox(const GeometryId& id) override;
-    TopologyInfo getTopology(const GeometryId& id) override;
+    const TopologyInfo& getTopology(const GeometryId& id) override;
     double getVolume(const GeometryId& id) override;
 
     TessellationResult tessellate(

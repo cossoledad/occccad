@@ -204,7 +204,7 @@ GeometryId 是 SHA-256 内容标识，不绑定 Worker。几何输出包括 B-Re
 | `InspectExchange` | 已实现 | 读取 STEP/BREP 制品清单，判定 Part 或可并行根组件 Product |
 | `ImportExchange` | 已实现 | 从 ArtifactReference 导入一个 STEP 根或 BREP，输出 B-Rep/GLB 制品引用 |
 | `ExportExchange` | 已实现 | 将一个或多个带放置的 B-Rep 制品合成为 STEP/BREP |
-| `GetTopology` | 已实现 | 拓扑摘要与属性 |
+| `GetTopology` | 已实现 | 拓扑摘要与属性；同一 GeometryId 的完整拓扑分析在 Worker 内只计算一次 |
 | `LoadGeometry` / `UnloadGeometry` | 仅 Proto 声明 | 服务未覆盖，返回 `UNIMPLEMENTED` |
 | `Tessellate` | 仅 Proto 声明 | 服务未覆盖 |
 | `CreateChamfer` / `CreateFillet` | 仅 Proto 声明 | 服务未覆盖 |
@@ -213,15 +213,15 @@ GeometryId 是 SHA-256 内容标识，不绑定 Worker。几何输出包括 B-Re
 
 ## 6. Geometry Router 与本机扩缩容
 
-Router 实现与 GeometryWorker 相同的 gRPC 服务并转发请求。选择规则为：
+Router 实现与 GeometryWorker 相同的 gRPC 服务并转发请求。当前 Part 只有一个权威求值 Body，因此其 `GeometryId` 就是驻留原子；同一 Part 的面/边/点查询以及 Product occurrence 引用复用这个原子。未来多 Body Part 必须为每个 Body 产生独立不可变 GeometryId/Artifact，不能以文档 ID 把多个 Body 强制绑在一起。选择规则为：
 
 1. 如果设置调试覆盖，所有请求发往调试 Worker；
-2. 优先选择已知拥有目标 `geometryKey` 的 Worker；
+2. 优先选择已拥有目标 `GeometryId`/`geometryKey` 的 Worker；首次冷请求在发出 RPC 前即预留 owner，因此并发请求不会把同一 Body 加载到多个 Worker；
 3. 否则选择 resident + in-flight 未达到容量且负载较低的 Worker；
 4. 无容量且未达最大数量时启动新进程；
 5. 最后退化为选择 in-flight 最低的已有 Worker。
 
-Worker 完成后 Router 通过 `Ping` 刷新 resident 数。失联 Worker 被移除并补足最小副本；超出最小副本的空闲 Worker 会被回收。
+`GetTopology` 从 Artifact 恢复 B-Rep 后会立即把请求 GeometryId 绑定到实际 Worker；后续元素查询即使 `OCCCCAD_GEOMETRY_PER_WORKER=1` 也绕过普通容量选择并命中同一 owner。Worker 对每个 GeometryId 缓存完整 `TopologyInfo`，单面查询只过滤缓存结果，不再重复遍历并分析整个 OCCT Shape。Worker 完成后 Router 通过 `Ping` 刷新 resident 数。失联 Worker 被移除并补足最小副本；超出最小副本且 `resident=0` 的空 Worker 才会在超时后回收，驻留 Body 不会被空闲缩容静默丢弃。
 
 局限：所有注册和缓存亲和信息均在内存中；只会拉起本机进程；没有持久租约、跨节点资源报告、优先级、公平调度或租户预算。
 
@@ -283,6 +283,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 - 当前固定 OCCT 7.9.1 和 gRPC C++ 1.71.0；
 - Go module 当前声明 Go 1.26.5；
 - Web 锁定 pnpm 11.20.0，并执行 TypeScript 检查和 Vite 构建。
+- C++ Geometry Worker 使用 Conan 固定的 spdlog 1.15.3，同时写彩色控制台和按 Worker 地址隔离的滚动文件；默认文件位于 `services/logs/`，单文件 10 MiB、保留 5 个，级别复用 `OCCCCAD_LOG_LEVEL`。
 
 仓库级测试资产按语言集中在 `tests/cpp`、`tests/go` 和 `tests/front`，`models/` 保存不属于某个语言的真实 STEP/BREP 回归语料。`invoke test` 构建并运行 CTest、`services/` Go package tests、独立 `tests/go` module 和 Front 状态机测试；Geometry Worker `main` 只是服务入口，不再内置 `run_smoke` 测试分支。Go 工具链要求 package-private 白盒 `_test.go` 与被测 package 同目录，这些必要例外仍不进入生产二进制；跨包黑盒测试放在 `tests/go`。Web 的 `test:sketch` 使用 Vite SSR 加载真实 Tool 模块，覆盖 Rectangle 点击—移动—点击、Esc 分层取消、Point 标准元素提交、两阶段 Coincident 和 Point/Line 独立渲染数据；更完整的浏览器/WebGL E2E 仍待补充。
 

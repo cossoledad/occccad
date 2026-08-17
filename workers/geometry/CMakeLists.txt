@@ -2,6 +2,7 @@
 
 find_package(Protobuf REQUIRED CONFIG)
 find_package(gRPC REQUIRED CONFIG)
+find_package(spdlog REQUIRED CONFIG)
 
 add_subdirectory(sketch)
 
@@ -59,6 +60,7 @@ target_link_libraries(
         occccad_kernel_api
         occccad_worker_proto
         occccad_sketch_solver
+        spdlog::spdlog
 )
 
 occccad_set_warnings(occccad_geometry_worker PRIVATE)
@@ -69,6 +71,3 @@ target_compile_features(
     PRIVATE
         cxx_std_17
 )
-
-# Future: link gRPC, Proto, spdlog
-# target_link_libraries(occccad_geometry_worker PRIVATE grpc::grpc++ protobuf::libprotobuf spdlog::spdlog)

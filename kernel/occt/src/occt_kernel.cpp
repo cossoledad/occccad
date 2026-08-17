@@ -408,6 +408,7 @@ struct OcctKernel::Impl {
     };
 
     std::unordered_map<GeometryId, StoredGeometry> shapes;
+    std::unordered_map<GeometryId, TopologyInfo> topologies;
 
     GeometryId store(const TopoDS_Shape& shape) {
         if (shape.IsNull()) {
@@ -534,6 +535,7 @@ GeometryId OcctKernel::loadStepData(const std::vector<uint8_t>& data) {
 
 void OcctKernel::unload(const GeometryId& id) {
     impl_->shapes.erase(id);
+    impl_->topologies.erase(id);
 }
 
 GeometryId OcctKernel::createBox(const double dx, const double dy, const double dz) {
@@ -580,7 +582,11 @@ BoundingBox OcctKernel::getBoundingBox(const GeometryId& id) {
     return to_bbox(box);
 }
 
-TopologyInfo OcctKernel::getTopology(const GeometryId& id) {
+const TopologyInfo& OcctKernel::getTopology(const GeometryId& id) {
+    const auto cached = impl_->topologies.find(id);
+    if (cached != impl_->topologies.end()) {
+        return cached->second;
+    }
     const TopoDS_Shape& shape = impl_->find(id);
     TopTools_IndexedMapOfShape face_map;
     TopTools_IndexedMapOfShape edge_map;
@@ -628,7 +634,7 @@ TopologyInfo OcctKernel::getTopology(const GeometryId& id) {
         vertex_info.properties.push_back(number_property("tolerance", BRep_Tool::Tolerance(vertex)));
         info.vertices.push_back(std::move(vertex_info));
     }
-    return info;
+    return impl_->topologies.emplace(id, std::move(info)).first->second;
 }
 
 double OcctKernel::getVolume(const GeometryId& id) {

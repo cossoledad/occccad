@@ -164,7 +164,7 @@ public:
 
     // Queries
     virtual BoundingBox getBoundingBox(const GeometryId& id) = 0;
-    virtual TopologyInfo getTopology(const GeometryId& id) = 0;
+    virtual const TopologyInfo& getTopology(const GeometryId& id) = 0;
     virtual double getVolume(const GeometryId& id) = 0;
 
     // Tessellation

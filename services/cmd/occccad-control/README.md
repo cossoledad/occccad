@@ -20,8 +20,8 @@ flowchart LR
 
 - 启动和停止 API、Jobs 与最小数量的 C++ Geometry Worker；
 - 在稳定地址代理浏览器流量到托管 API 或外部调试 API；
-- 实现 GeometryWorker gRPC 代理，按 resident geometry 和 in-flight 负载选 Worker；
-- 容量不足且未达上限时拉起 Worker，空闲超时后缩容；
+- 实现 GeometryWorker gRPC 代理，以不可变 Body GeometryId 建立原子 owner 亲和，再按 resident geometry 和 in-flight 负载选 Worker；
+- 容量不足且未达上限时拉起 Worker；只有没有 resident geometry 的额外 Worker 才在空闲超时后缩容；
 - 将相对 `OCCCCAD_DATA_DIR` 以 `services/` 为唯一基准解析成绝对路径，并传给 API、Jobs 与所有 Geometry Worker，保证本地 ArtifactReference 指向同一对象；
 - Worker 失联后移除并维持最小副本数；
 - 为 API、Jobs、Geometry 提供调试切流。
@@ -39,6 +39,8 @@ flowchart LR
 | `OCCCCAD_GEOMETRY_WORKER_MAX` | `8` | 最大 Worker 数 |
 | `OCCCCAD_GEOMETRY_PER_WORKER` | `2` | 每 Worker resident geometry 容量 |
 | `OCCCCAD_GEOMETRY_WORKER_IDLE` | `5m` | 超出最小副本后的空闲回收时间 |
+| `OCCCCAD_LOG_LEVEL` | `info` | Geometry Worker 控制台与文件日志级别 |
+| `OCCCCAD_LOG_DIR` | `./logs` | Geometry Worker 滚动日志目录；相对路径以 `services/` 为基准 |
 | `OCCCCAD_SERVER_BIN` | 构建目录中的二进制 | API 可执行文件覆盖 |
 | `OCCCCAD_JOBS_BIN` | 构建目录中的二进制 | Jobs 可执行文件覆盖 |
 | `OCCCCAD_GEOMETRY_WORKER_BIN` | CMake 构建产物 | Geometry Worker 覆盖 |
@@ -72,4 +74,4 @@ invoke run.app --reset-data --build-type=Debug
 
 重置会删除数据库中固定的 `occcad` schema 与 `OCCCCAD_DATA_DIR` 本地制品目录，再执行当前迁移。它要求旧的 occccad 进程已经停止，且不能用于已发布或需要保留外部数据的环境。
 
-Router 的内存映射不持久化；重启后会重新发现计算结果。它只管理本机子进程，没有跨主机注册、认证、配额、租户隔离或 Kubernetes 集成。生产目标中的 Scheduler/Registry 不能把本进程原样搬进集群，演进方案见[目标架构](../../../docs/TARGET_ARCHITECTURE.md)。
+Router 的 owner 映射不持久化；重启后的第一个 GeometryId 请求会从 Artifact 冷恢复并重新绑定。首次请求在发往 Worker 前完成 owner 预留，所以同一 Body 的并发面查询不会因容量为 1 而分裂；后续请求优先命中 owner，不受普通容量筛选影响。它只管理本机子进程，没有跨主机注册、认证、配额、租户隔离或 Kubernetes 集成。生产目标中的 Scheduler/Registry 不能把本进程原样搬进集群，演进方案见[目标架构](../../../docs/TARGET_ARCHITECTURE.md)。

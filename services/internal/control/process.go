@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
 	"sync"
 	"syscall"
@@ -21,11 +22,25 @@ type ManagedProcess struct {
 }
 
 func StartManagedProcess(ctx context.Context, name, executable, workingDirectory string, arguments []string, environment []string) (*ManagedProcess, error) {
+	return startManagedProcess(ctx, name, executable, workingDirectory, arguments, environment,
+		&logWriter{service: name, level: slog.LevelInfo},
+		&logWriter{service: name, level: slog.LevelInfo})
+}
+
+// StartManagedProcessPassthrough keeps a native service's own console format.
+// The service remains fully lifecycle-managed; only stdout/stderr bypass the
+// control process's structured log envelope.
+func StartManagedProcessPassthrough(ctx context.Context, name, executable, workingDirectory string, arguments []string, environment []string) (*ManagedProcess, error) {
+	return startManagedProcess(ctx, name, executable, workingDirectory, arguments, environment,
+		os.Stdout, os.Stderr)
+}
+
+func startManagedProcess(ctx context.Context, name, executable, workingDirectory string, arguments []string, environment []string, stdout, stderr io.Writer) (*ManagedProcess, error) {
 	command := exec.CommandContext(ctx, executable, arguments...)
 	command.Dir = workingDirectory
 	command.Env = environment
-	command.Stdout = &logWriter{service: name, level: slog.LevelInfo}
-	command.Stderr = &logWriter{service: name, level: slog.LevelInfo}
+	command.Stdout = stdout
+	command.Stderr = stderr
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := command.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", name, err)
