@@ -49,7 +49,7 @@ function boxArtifact(key: string, size: Vec3): Artifact {
     topology: { faces: 6, edges: 12, vertices: 8, solids: 1 },
     volume: x * y * z, occtVersion: "mock-7.9.1", glbBytes: 4096, brepBytes: 2048,
     evaluatorVersion: "mock-v1", workerId: "mock-geometry-1", storageState: "DATABASE", createdAt: now(),
-    referenceGeometry: { datumPlanes, axisSystems },
+    visualization: { schemaVersion: 1, referenceGeometry: { datumPlanes, axisSystems }, primitives: [] },
   };
 }
 

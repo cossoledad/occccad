@@ -4837,10 +4837,12 @@ flowchart LR
 ```text
 GeometryManifest
   exact: BREP
-  display: GLB LOD0..N, edge stream, topology-picking map
+  display: GLB LOD0..N, edge stream, topology-picking map, VisualizationManifest
   analysis: bbox, OBB, mass properties, collision proxies
   provenance: model hash, kernel build, evaluator version, tolerance profile
 ```
+
+`VisualizationManifest` 是 Part Revision 的显示契约，不是 B-Rep 的附属注释。它以 Part 坐标保存稳定 ID 的 typed primitives：`POINTS`、`POLYLINE/CURVE` 和 `TRIANGLES/SURFACE`，并记录 owner feature、construction/profile 角色、选择策略和生成 provenance。实体 B-Rep 相同但非实体元素不同的两个 Part Revision 可以共享 GeometryId，却必须得到不同的 display artifact identity。Part viewport、缩略图和 Product occurrence 都消费同一 manifest；装配只组合 InstancePath/Transform/visual override，禁止从被引用 PartModel 临时重建另一份场景。编辑期约束 glyph、hover 和 solver diagnostics 属于可丢弃 overlay，不写入权威显示制品。
 
 大装配加载顺序：Product Structure → 包围盒/低 LOD → 视锥与屏幕误差选择 → 高 LOD → 精确边/拓扑按需。相同 GeometryId 的多个实例共享 GPU buffers，只改变 transform/material/visibility。
 

@@ -18,6 +18,7 @@ try {
     RectangleSketchTool,
   } = await server.ssrLoadModule("/src/cad/tool/cad-tool.ts");
   const { buildSketchRenderModel } = await server.ssrLoadModule("/src/cad/rendering/sketch-render-model.ts");
+  const { visualSelection, visualType } = await server.ssrLoadModule("/src/cad/rendering/visualization-render-model.ts");
   const operations = [];
   const prompts = [];
   const previews = [];
@@ -100,6 +101,19 @@ try {
   assert.deepEqual(renderModel.profilePoints, [[4, 5]]);
   assert.deepEqual(renderModel.profileLines, [[0, 0], [2, 0]]);
   assert.deepEqual(renderModel.endpoints, [[0, 0], [2, 0]]);
+
+  const persistedLine = { id: "line-1", featureId: "sketch-1", kind: "POLYLINE",
+    semantic: "SKETCH_CURVE", role: "PROFILE", positions: [[0, 0, 0], [2, 0, 0]], selectable: true };
+  assert.equal(visualType(persistedLine), "CURVE");
+  assert.deepEqual(visualSelection(persistedLine, {
+    documentId: "part-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
+    instanceId: "instance-a", treeNodeId: "product/instance-a/reference/body/sketch:sketch-1",
+  }), {
+    kind: "visual", id: "instance-a:sketch-1:line-1", visualType: "CURVE",
+    featureId: "sketch-1", entityId: "line-1", role: "PROFILE",
+    documentId: "part-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
+    instanceId: "instance-a", treeNodeId: "product/instance-a/reference/body/sketch:sketch-1",
+  });
 
   console.log("Sketch tool interaction tests passed.");
 } finally {

@@ -24,12 +24,21 @@ export type Artifact = {
 	workerId: string;
 	storageState: "DATABASE" | "DUAL" | "OBJECT";
 	createdAt: string;
-	referenceGeometry: ReferenceGeometry;
+	visualization: VisualizationManifest;
 };
 
 export type DatumPlane = { id: string; name: string; plane: PlaneName; origin: Vec3; normal: Vec3; size: number };
 export type AxisSystem = { id: string; name: string; origin: Vec3; xDirection: Vec3; yDirection: Vec3; zDirection: Vec3 };
 export type ReferenceGeometry = { datumPlanes: DatumPlane[]; axisSystems: AxisSystem[] };
+export type VisualPrimitive = {
+  id: string; featureId: string; kind: "POINTS" | "POLYLINE" | "TRIANGLES";
+  semantic: "SKETCH_POINT" | "SKETCH_CURVE" | "CURVE" | "SURFACE";
+  role?: "PROFILE" | "CONSTRUCTION"; status?: string; positions: Vec3[];
+  indices?: number[]; selectable: boolean;
+};
+export type VisualizationManifest = {
+  schemaVersion: 1; referenceGeometry: ReferenceGeometry; primitives: VisualPrimitive[];
+};
 
 export type DocumentProperties = {
   documentId: string; versionId: string; documentType: "PART" | "PRODUCT"; units: string;
@@ -201,6 +210,8 @@ export type Selection =
   | (SelectionIdentity & { kind: "instance" })
   | (SelectionIdentity & { kind: "body" })
   | (SelectionIdentity & { kind: "solid" })
+  | (SelectionIdentity & { kind: "visual"; visualType: "POINT" | "CURVE" | "SURFACE";
+      featureId: string; entityId: string; role?: "PROFILE" | "CONSTRUCTION" })
   | (SelectionIdentity & { kind: "face" | "edge" | "vertex"; topologyId: number })
   | null;
 

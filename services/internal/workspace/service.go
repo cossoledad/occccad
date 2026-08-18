@@ -9,7 +9,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"reflect"
 	"strings"
 
 	"github.com/google/uuid"
@@ -23,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "topology-selection-v2"
+const evaluatorVersion = "part-visualization-v3"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -61,20 +63,20 @@ type TopologyElementProperties struct {
 }
 
 type Artifact struct {
-	GeometryKey       string            `json:"geometryKey"`
-	GeometryID        string            `json:"geometryId"`
-	Mesh              Mesh              `json:"mesh"`
-	BBox              map[string]any    `json:"bbox"`
-	Topology          map[string]any    `json:"topology"`
-	Volume            float64           `json:"volume"`
-	OCCTVersion       string            `json:"occtVersion"`
-	GLBBytes          int               `json:"glbBytes"`
-	BRepBytes         int               `json:"brepBytes"`
-	EvaluatorVersion  string            `json:"evaluatorVersion"`
-	WorkerID          string            `json:"workerId"`
-	StorageState      string            `json:"storageState"`
-	CreatedAt         string            `json:"createdAt"`
-	ReferenceGeometry ReferenceGeometry `json:"referenceGeometry"`
+	GeometryKey      string                `json:"geometryKey"`
+	GeometryID       string                `json:"geometryId"`
+	Mesh             Mesh                  `json:"mesh"`
+	BBox             map[string]any        `json:"bbox"`
+	Topology         map[string]any        `json:"topology"`
+	Volume           float64               `json:"volume"`
+	OCCTVersion      string                `json:"occtVersion"`
+	GLBBytes         int                   `json:"glbBytes"`
+	BRepBytes        int                   `json:"brepBytes"`
+	EvaluatorVersion string                `json:"evaluatorVersion"`
+	WorkerID         string                `json:"workerId"`
+	StorageState     string                `json:"storageState"`
+	CreatedAt        string                `json:"createdAt"`
+	Visualization    VisualizationManifest `json:"visualization"`
 }
 
 type DatumPlane struct {
@@ -98,6 +100,30 @@ type AxisSystem struct {
 type ReferenceGeometry struct {
 	DatumPlanes []DatumPlane `json:"datumPlanes"`
 	AxisSystems []AxisSystem `json:"axisSystems"`
+}
+
+// VisualizationManifest is the immutable display contract shared by a Part
+// and every Product occurrence that references it. Positions are always in
+// Part coordinates; occurrence transforms are applied only by the consumer.
+type VisualizationManifest struct {
+	SchemaVersion     uint32            `json:"schemaVersion"`
+	ReferenceGeometry ReferenceGeometry `json:"referenceGeometry"`
+	Primitives        []VisualPrimitive `json:"primitives"`
+}
+
+// VisualPrimitive represents selectable non-solid geometry. POINTS,
+// POLYLINE, and TRIANGLES cover sketches and form the extension boundary for
+// future wire/curve/surface modules without leaking OCCT types.
+type VisualPrimitive struct {
+	ID         string       `json:"id"`
+	FeatureID  string       `json:"featureId"`
+	Kind       string       `json:"kind"`
+	Semantic   string       `json:"semantic"`
+	Role       string       `json:"role,omitempty"`
+	Status     string       `json:"status,omitempty"`
+	Positions  [][3]float64 `json:"positions"`
+	Indices    []uint32     `json:"indices,omitempty"`
+	Selectable bool         `json:"selectable"`
 }
 
 type SketchPoint2 struct {
@@ -1078,7 +1104,7 @@ func (service *Service) CreateVersion(
 
 func (service *Service) CommitImportedPart(ctx context.Context, actor, folderID, reqID, name,
 	fileName, format, geometryKey string, evaluation *workerv1.EvaluatePartResponse) (DocumentView, error) {
-	if err := service.storeEvaluation(ctx, geometryKey, evaluation, referenceGeometry(newPartModel())); err != nil {
+	if err := service.storeEvaluation(ctx, geometryKey, evaluation, visualizationManifest(newPartModel())); err != nil {
 		return DocumentView{}, err
 	}
 	var folder *string
@@ -1231,7 +1257,7 @@ func (service *Service) CreateDocument(
 	if documentType == "PRODUCT" {
 		model = ProductModel{Instances: []ProductInstance{}}
 	} else {
-		key, artifactErr := service.ensureReferenceArtifact(ctx, partModel)
+		key, artifactErr := service.ensureVisualizationArtifact(ctx, partModel)
 		if artifactErr != nil {
 			return DocumentView{}, artifactErr
 		}
@@ -1359,7 +1385,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		view.DatumPlanes = model.DatumPlanes
 		view.AxisSystems = model.AxisSystems
 		if geometryKey == nil {
-			key, referenceErr := service.ensureReferenceArtifact(ctx, model)
+			key, referenceErr := service.ensureVisualizationArtifact(ctx, model)
 			if referenceErr != nil {
 				return view, referenceErr
 			}
@@ -1371,7 +1397,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 			geometryKey = &key
 		}
 		if geometryKey != nil {
-			if referenceErr := service.ensureArtifactReferenceGeometry(ctx, *geometryKey, model); referenceErr != nil {
+			if referenceErr := service.ensureArtifactVisualization(ctx, *geometryKey, model); referenceErr != nil {
 				return view, referenceErr
 			}
 			artifact, err := service.loadArtifact(ctx, *geometryKey)
@@ -1462,6 +1488,61 @@ func normalizePartModel(model *PartModel) {
 func referenceGeometry(model PartModel) ReferenceGeometry {
 	normalizePartModel(&model)
 	return ReferenceGeometry{DatumPlanes: model.DatumPlanes, AxisSystems: model.AxisSystems}
+}
+
+func visualizationManifest(model PartModel) VisualizationManifest {
+	normalizePartModel(&model)
+	manifest := VisualizationManifest{
+		SchemaVersion:     1,
+		ReferenceGeometry: referenceGeometry(model),
+		Primitives:        []VisualPrimitive{},
+	}
+	for _, feature := range model.Features {
+		if feature.Sketch == nil {
+			continue
+		}
+		plane := strings.ToUpper(feature.Sketch.Support.Plane)
+		if plane == "" {
+			plane = strings.ToUpper(feature.Plane)
+		}
+		if plane == "" {
+			plane = "XY"
+		}
+		toWorld := func(point SketchPoint2) [3]float64 {
+			switch plane {
+			case "XZ":
+				return [3]float64{point.X, 0, point.Y}
+			case "YZ":
+				return [3]float64{0, point.X, point.Y}
+			default:
+				return [3]float64{point.X, point.Y, 0}
+			}
+		}
+		for _, entity := range feature.Sketch.Entities {
+			primitive := VisualPrimitive{ID: entity.ID, FeatureID: feature.ID,
+				Role: entity.Role, Status: feature.Sketch.Solve.Status, Selectable: true}
+			switch entity.Kind {
+			case "POINT":
+				if entity.Point == nil {
+					continue
+				}
+				primitive.Kind = "POINTS"
+				primitive.Semantic = "SKETCH_POINT"
+				primitive.Positions = [][3]float64{toWorld(*entity.Point)}
+			case "LINE":
+				if entity.Start == nil || entity.End == nil {
+					continue
+				}
+				primitive.Kind = "POLYLINE"
+				primitive.Semantic = "SKETCH_CURVE"
+				primitive.Positions = [][3]float64{toWorld(*entity.Start), toWorld(*entity.End)}
+			default:
+				continue
+			}
+			manifest.Primitives = append(manifest.Primitives, primitive)
+		}
+	}
+	return manifest
 }
 
 func (service *Service) ApplyCommand(
@@ -1669,8 +1750,9 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 	baseKey := ""
 	var canonical strings.Builder
 	canonical.WriteString(evaluatorVersion)
-	referenceJSON, _ := json.Marshal(referenceGeometry(model))
-	canonical.WriteString("|reference=" + string(referenceJSON))
+	visualization := visualizationManifest(model)
+	visualizationJSON, _ := json.Marshal(visualization)
+	canonical.WriteString("|visualization=" + string(visualizationJSON))
 	for _, feature := range model.Features {
 		switch strings.ToUpper(feature.Type) {
 		case "IMPORT_BODY":
@@ -1700,9 +1782,9 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 	}
 	if len(pads) == 0 {
 		if baseKey != "" {
-			return baseKey, nil
+			return service.ensureVisualizationVariant(ctx, baseKey, visualization)
 		}
-		return service.ensureReferenceArtifact(ctx, model)
+		return service.ensureVisualizationArtifact(ctx, model)
 	}
 	digest := sha256.Sum256([]byte(canonical.String()))
 	key := "sha256:" + hex.EncodeToString(digest[:])
@@ -1740,7 +1822,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 	if err != nil {
 		return "", err
 	}
-	if err := service.storeEvaluation(ctx, key, evaluation, referenceGeometry(model)); err != nil {
+	if err := service.storeEvaluation(ctx, key, evaluation, visualization); err != nil {
 		return "", err
 	}
 	return key, nil
@@ -1786,20 +1868,40 @@ func rectangleProfile(feature Feature) ([2]float64, float64, float64, error) {
 }
 
 func (service *Service) storeEvaluation(
-	ctx context.Context, key string, evaluation *workerv1.EvaluatePartResponse, reference ReferenceGeometry,
+	ctx context.Context, key string, evaluation *workerv1.EvaluatePartResponse, visualization VisualizationManifest,
 ) error {
 	if evaluation.GetTopology().GetSolidCount() == 0 || evaluation.GetVolume() <= 0 {
 		return fmt.Errorf("%w: imported/evaluated shape must contain solid geometry", ErrValidation)
 	}
 	glb := evaluation.GetGlbData()
-	if evaluation.GetGlbArtifact() == nil {
-		var err error
-		glb, err = glbWithReferenceGeometry(glb, reference)
+	if reference := evaluation.GetGlbArtifact(); reference != nil {
+		if service.artifacts == nil {
+			return fmt.Errorf("GLB artifact response requires an ArtifactStore")
+		}
+		baseObject, err := service.artifacts.Adopt(ctx, artifactstore.KindGLB,
+			"model/gltf-binary", reference.GetObjectKey())
 		if err != nil {
-			return fmt.Errorf("add reference geometry to GLB: %w", err)
+			return fmt.Errorf("adopt worker GLB artifact: %w", err)
+		}
+		_, reader, err := service.artifacts.Open(ctx, baseObject.ID)
+		if err != nil {
+			return fmt.Errorf("open worker GLB artifact: %w", err)
+		}
+		glb, err = io.ReadAll(reader)
+		closeErr := reader.Close()
+		if err != nil {
+			return fmt.Errorf("read worker GLB artifact: %w", err)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("close worker GLB artifact: %w", closeErr)
 		}
 	}
-	referenceJSON, _ := json.Marshal(reference)
+	var err error
+	glb, err = glbWithVisualization(glb, visualization)
+	if err != nil {
+		return fmt.Errorf("add visualization manifest to GLB: %w", err)
+	}
+	visualizationJSON, _ := json.Marshal(visualization)
 	workerID := service.worker.WorkerFor(key)
 	if workerID == "" {
 		workerID = "geometry-worker"
@@ -1832,13 +1934,8 @@ func (service *Service) storeEvaluation(
 		if err != nil {
 			return fmt.Errorf("store B-Rep artifact: %w", err)
 		}
-		if reference := evaluation.GetGlbArtifact(); reference != nil {
-			glbObject, err = service.artifacts.Adopt(ctx, artifactstore.KindGLB,
-				"model/gltf-binary", reference.GetObjectKey())
-		} else {
-			glbObject, err = service.artifacts.Put(ctx, artifactstore.KindGLB,
-				"model/gltf-binary", bytes.NewReader(glb))
-		}
+		glbObject, err = service.artifacts.Put(ctx, artifactstore.KindGLB,
+			"model/gltf-binary", bytes.NewReader(glb))
 		if err != nil {
 			return fmt.Errorf("store GLB artifact: %w", err)
 		}
@@ -1857,21 +1954,21 @@ func (service *Service) storeEvaluation(
 		INSERT INTO occccad.geometry_artifacts(
 			geometry_key,geometry_id,evaluator_version,occt_version,units,
 			brep_data,glb_data,mesh_json,bbox_json,topology_json,volume,
-			brep_object_id,glb_object_id,storage_state,reference_geometry_json,worker_id)
+			brep_object_id,glb_object_id,storage_state,visualization_json,worker_id)
 		VALUES($1,$2,$3,$4,'mm',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
 		ON CONFLICT (geometry_key) DO NOTHING`, key, evaluation.GetGeometryId(), evaluatorVersion,
 		evaluation.GetOcctVersion(), brepData, glbData, meshJSON,
 		bboxJSON, topologyJSON, evaluation.GetVolume(), brepObjectID, glbObjectID, storageState,
-		referenceJSON, workerID); err != nil {
+		visualizationJSON, workerID); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (service *Service) ensureReferenceArtifact(ctx context.Context, model PartModel) (string, error) {
-	reference := referenceGeometry(model)
-	referenceJSON, _ := json.Marshal(reference)
-	digest := sha256.Sum256(append([]byte(evaluatorVersion+"|reference-only|"), referenceJSON...))
+func (service *Service) ensureVisualizationArtifact(ctx context.Context, model PartModel) (string, error) {
+	visualization := visualizationManifest(model)
+	visualizationJSON, _ := json.Marshal(visualization)
+	digest := sha256.Sum256(append([]byte(evaluatorVersion+"|visualization-only|"), visualizationJSON...))
 	key := "sha256:" + hex.EncodeToString(digest[:])
 	var exists bool
 	if err := service.database.QueryRow(ctx,
@@ -1881,7 +1978,7 @@ func (service *Service) ensureReferenceArtifact(ctx context.Context, model PartM
 	if exists {
 		return key, nil
 	}
-	glb, err := glbWithReferenceGeometry(nil, reference)
+	glb, err := glbWithVisualization(nil, visualization)
 	if err != nil {
 		return "", err
 	}
@@ -1893,7 +1990,7 @@ func (service *Service) ensureReferenceArtifact(ctx context.Context, model PartM
 	if service.artifacts != nil {
 		object, putErr := service.artifacts.Put(ctx, artifactstore.KindGLB, "model/gltf-binary", bytes.NewReader(glb))
 		if putErr != nil {
-			return "", fmt.Errorf("store reference GLB: %w", putErr)
+			return "", fmt.Errorf("store visualization GLB: %w", putErr)
 		}
 		glbObjectID, storageState = &object.ID, "DUAL"
 	}
@@ -1901,47 +1998,94 @@ func (service *Service) ensureReferenceArtifact(ctx context.Context, model PartM
 		INSERT INTO occccad.geometry_artifacts(
 			geometry_key,geometry_id,evaluator_version,occt_version,units,brep_data,glb_data,
 			mesh_json,bbox_json,topology_json,volume,glb_object_id,storage_state,
-			reference_geometry_json,worker_id)
+			visualization_json,worker_id)
 		VALUES($1,$2,$3,'none','mm','',$4,$5,$6,$7,0,$8,$9,$10,'metadata-service')
-		ON CONFLICT (geometry_key) DO NOTHING`, key, "reference:"+hex.EncodeToString(digest[:]), evaluatorVersion,
-		glb, meshJSON, bboxJSON, topologyJSON, glbObjectID, storageState, referenceJSON)
+		ON CONFLICT (geometry_key) DO NOTHING`, key, "visualization:"+hex.EncodeToString(digest[:]), evaluatorVersion,
+		glb, meshJSON, bboxJSON, topologyJSON, glbObjectID, storageState, visualizationJSON)
 	return key, err
 }
 
-func (service *Service) ensureArtifactReferenceGeometry(ctx context.Context, key string, model PartModel) error {
-	var glb, storedReference []byte
+func (service *Service) ensureVisualizationVariant(
+	ctx context.Context, baseKey string, visualization VisualizationManifest,
+) (string, error) {
+	visualizationJSON, _ := json.Marshal(visualization)
+	digest := sha256.Sum256(append([]byte(evaluatorVersion+"|base="+baseKey+"|visualization="), visualizationJSON...))
+	key := "sha256:" + hex.EncodeToString(digest[:])
+	var exists bool
+	if err := service.database.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, key).Scan(&exists); err != nil {
+		return "", err
+	}
+	if exists {
+		return key, nil
+	}
+	var sourceGLB []byte
+	var sourceGLBObjectID *string
+	var storageState string
 	if err := service.database.QueryRow(ctx, `
-		SELECT glb_data,reference_geometry_json FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).
-		Scan(&glb, &storedReference); err != nil {
-		return err
+		SELECT glb_data,glb_object_id::text,storage_state
+		FROM occccad.geometry_artifacts WHERE geometry_key=$1`, baseKey).
+		Scan(&sourceGLB, &sourceGLBObjectID, &storageState); err != nil {
+		return "", err
 	}
-	var current ReferenceGeometry
-	if json.Unmarshal(storedReference, &current) == nil &&
-		(len(current.DatumPlanes) > 0 || len(current.AxisSystems) > 0) {
-		return nil
-	}
-	reference := referenceGeometry(model)
-	updatedGLB, err := glbWithReferenceGeometry(glb, reference)
-	if err != nil {
-		return err
-	}
-	referenceJSON, _ := json.Marshal(reference)
-	var objectID *string
-	if service.artifacts != nil {
-		object, putErr := service.artifacts.Put(ctx, artifactstore.KindGLB,
-			"model/gltf-binary", bytes.NewReader(updatedGLB))
-		if putErr != nil {
-			return fmt.Errorf("backfill reference GLB: %w", putErr)
+	if len(sourceGLB) == 0 {
+		if service.artifacts == nil || sourceGLBObjectID == nil {
+			return "", fmt.Errorf("%w: base visualization GLB is unavailable", ErrValidation)
 		}
-		objectID = &object.ID
+		_, reader, err := service.artifacts.Open(ctx, *sourceGLBObjectID)
+		if err != nil {
+			return "", err
+		}
+		sourceGLB, err = io.ReadAll(reader)
+		closeErr := reader.Close()
+		if err != nil {
+			return "", err
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+	}
+	composed, err := glbWithVisualization(sourceGLB, visualization)
+	if err != nil {
+		return "", err
+	}
+	var glbObjectID *string
+	if service.artifacts != nil {
+		object, putErr := service.artifacts.Put(ctx, artifactstore.KindGLB, "model/gltf-binary", bytes.NewReader(composed))
+		if putErr != nil {
+			return "", putErr
+		}
+		glbObjectID = &object.ID
+	}
+	glbData := composed
+	if storageState == "OBJECT" {
+		glbData = nil
 	}
 	_, err = service.database.Exec(ctx, `
-		UPDATE occccad.geometry_artifacts
-		SET glb_data=$2,reference_geometry_json=$3,
-		    glb_object_id=COALESCE($4,glb_object_id),
-		    storage_state=CASE WHEN $4::uuid IS NULL THEN storage_state ELSE 'DUAL' END
-		WHERE geometry_key=$1`, key, updatedGLB, referenceJSON, objectID)
-	return err
+		INSERT INTO occccad.geometry_artifacts(
+			geometry_key,geometry_id,evaluator_version,occt_version,units,brep_data,glb_data,
+			mesh_json,bbox_json,topology_json,volume,evaluation_count,brep_object_id,glb_object_id,
+			storage_state,visualization_json,worker_id)
+		SELECT $1,geometry_id,$2,occt_version,units,brep_data,$3,mesh_json,bbox_json,topology_json,
+		       volume,evaluation_count,brep_object_id,$4,storage_state,$5,worker_id
+		FROM occccad.geometry_artifacts WHERE geometry_key=$6
+		ON CONFLICT (geometry_key) DO NOTHING`, key, evaluatorVersion, glbData, glbObjectID,
+		visualizationJSON, baseKey)
+	return key, err
+}
+
+func (service *Service) ensureArtifactVisualization(ctx context.Context, key string, model PartModel) error {
+	var stored []byte
+	if err := service.database.QueryRow(ctx, `
+		SELECT visualization_json FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).
+		Scan(&stored); err != nil {
+		return err
+	}
+	var current VisualizationManifest
+	if json.Unmarshal(stored, &current) != nil || !reflect.DeepEqual(current, visualizationManifest(model)) {
+		return fmt.Errorf("%w: visualization artifact does not match the Part revision", ErrValidation)
+	}
+	return nil
 }
 
 func meshFromProto(source *workerv1.Mesh) Mesh {
@@ -1972,19 +2116,19 @@ func meshFromProto(source *workerv1.Mesh) Mesh {
 func (service *Service) loadArtifact(ctx context.Context, key string) (Artifact, error) {
 	artifact := Artifact{GeometryKey: key}
 	var meshJSON, bboxJSON, topologyJSON []byte
-	var referenceJSON []byte
+	var visualizationJSON []byte
 	if err := service.database.QueryRow(ctx, `
 		SELECT geometry_id,mesh_json,bbox_json,topology_json,volume,occt_version,
 		       COALESCE(octet_length(glb_data),glb_object.size_bytes,0),
 		       COALESCE(octet_length(brep_data),brep_object.size_bytes,0),evaluator_version,worker_id,
-		       storage_state,artifact.created_at::text,reference_geometry_json
+		       storage_state,artifact.created_at::text,visualization_json
 		FROM occccad.geometry_artifacts artifact
 		LEFT JOIN occccad.artifact_objects glb_object ON glb_object.id=artifact.glb_object_id
 		LEFT JOIN occccad.artifact_objects brep_object ON brep_object.id=artifact.brep_object_id
 		WHERE geometry_key=$1`, key).Scan(
 		&artifact.GeometryID, &meshJSON, &bboxJSON, &topologyJSON, &artifact.Volume,
 		&artifact.OCCTVersion, &artifact.GLBBytes, &artifact.BRepBytes, &artifact.EvaluatorVersion,
-		&artifact.WorkerID, &artifact.StorageState, &artifact.CreatedAt, &referenceJSON); err != nil {
+		&artifact.WorkerID, &artifact.StorageState, &artifact.CreatedAt, &visualizationJSON); err != nil {
 		return artifact, err
 	}
 	if err := json.Unmarshal(meshJSON, &artifact.Mesh); err != nil {
@@ -2036,7 +2180,7 @@ func (service *Service) loadArtifact(ctx context.Context, key string) (Artifact,
 	if err := json.Unmarshal(topologyJSON, &artifact.Topology); err != nil {
 		return artifact, err
 	}
-	if err := json.Unmarshal(referenceJSON, &artifact.ReferenceGeometry); err != nil {
+	if err := json.Unmarshal(visualizationJSON, &artifact.Visualization); err != nil {
 		return artifact, err
 	}
 	return artifact, nil
@@ -2318,7 +2462,7 @@ func (service *Service) resolveProduct(
 		}
 		normalizePartModel(&model)
 		if geometryKey == nil {
-			key, err := service.ensureReferenceArtifact(ctx, model)
+			key, err := service.ensureVisualizationArtifact(ctx, model)
 			if err != nil {
 				return err
 			}
@@ -2328,7 +2472,7 @@ func (service *Service) resolveProduct(
 			}
 			geometryKey = &key
 		}
-		if err := service.ensureArtifactReferenceGeometry(ctx, *geometryKey, model); err != nil {
+		if err := service.ensureArtifactVisualization(ctx, *geometryKey, model); err != nil {
 			return err
 		}
 		if _, exists := artifacts[*geometryKey]; !exists {

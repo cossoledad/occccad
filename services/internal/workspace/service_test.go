@@ -10,13 +10,26 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
-func TestDefaultPartReferenceGeometryAndGLBExtension(t *testing.T) {
+func TestPartVisualizationManifestAndGLBExtensionContainSelectableSketchGeometry(t *testing.T) {
 	t.Parallel()
 	model := newPartModel()
+	model.Features = append(model.Features, Feature{ID: "sketch-visible", Type: "SKETCH", Plane: "XZ",
+		Sketch: &SketchFeature{SchemaVersion: 1,
+			Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xz", Plane: "XZ"},
+			Entities: []SketchEntity{
+				{ID: "point-visible", Kind: "POINT", Role: "CONSTRUCTION", Point: &SketchPoint2{X: 2, Y: 3}},
+				{ID: "line-visible", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{X: 1, Y: 4}, End: &SketchPoint2{X: 5, Y: 6}},
+			}, Solve: SketchSolveState{Status: "UNDER_CONSTRAINED"}}})
 	if len(model.DatumPlanes) != 3 || len(model.AxisSystems) != 1 {
 		t.Fatalf("a new Part must own three planes and one axis system: %#v", model)
 	}
-	glb, err := glbWithReferenceGeometry(nil, referenceGeometry(model))
+	visualization := visualizationManifest(model)
+	if len(visualization.Primitives) != 2 || visualization.Primitives[0].ID != "point-visible" ||
+		visualization.Primitives[0].Positions[0] != [3]float64{2, 0, 3} ||
+		visualization.Primitives[1].Kind != "POLYLINE" || !visualization.Primitives[1].Selectable {
+		t.Fatalf("unexpected visualization manifest: %#v", visualization)
+	}
+	glb, err := glbWithVisualization(nil, visualization)
 	if err != nil {
 		t.Fatalf("encode reference GLB: %v", err)
 	}
@@ -29,8 +42,8 @@ func TestDefaultPartReferenceGeometryAndGLBExtension(t *testing.T) {
 		t.Fatalf("decode GLB JSON: %v", err)
 	}
 	extensions, ok := document["extensions"].(map[string]any)
-	if !ok || extensions[referenceGeometryExtension] == nil {
-		t.Fatalf("GLB does not contain %s", referenceGeometryExtension)
+	if !ok || extensions[visualizationExtension] == nil {
+		t.Fatalf("GLB does not contain %s", visualizationExtension)
 	}
 }
 

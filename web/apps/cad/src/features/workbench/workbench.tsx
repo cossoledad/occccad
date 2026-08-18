@@ -427,7 +427,8 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
           ? `${diagnostics.worker.workerId} · ${diagnostics.worker.residentGeometryCount} resident` : diagnostics?.worker.error ?? "Loading…" },
         { key: "occt", label: "OCCT", children: diagnostics?.worker.occtVersion ?? detail?.occtVersion ?? "—" },
         { key: "reference", label: "Reference Geometry", children: detail
-          ? `${detail.referenceGeometry.datumPlanes.length} planes · ${detail.referenceGeometry.axisSystems.length} axis system(s)` : "—" },
+          ? `${detail.visualization.referenceGeometry.datumPlanes.length} planes · ${detail.visualization.referenceGeometry.axisSystems.length} axis system(s)` : "—" },
+        { key: "visual-primitives", label: "Non-solid Geometry", children: detail?.visualization.primitives.length ?? 0 },
         { key: "rendering", label: "Rendering", children: "Phong Solid + welded feature edges" },
         { key: "features", label: view.document.type === "PART" ? "Features" : "Instances",
           children: view.document.type === "PART" ? view.part?.features.length ?? 0 : view.product?.instances.length ?? 0 },
@@ -450,7 +451,7 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
       ]} /></>;
   }
   if (selection.kind === "axis" || selection.kind === "axis-system") {
-    const systems = view.axisSystems ?? diagnostics?.artifacts.flatMap((item) => item.referenceGeometry.axisSystems) ?? [];
+    const systems = view.axisSystems ?? diagnostics?.artifacts.flatMap((item) => item.visualization.referenceGeometry.axisSystems) ?? [];
     const axisSystem = systems.find((item) => selection.id.includes(item.id));
     const direction = selection.kind === "axis" && axisSystem
       ? selection.axis === "X" ? axisSystem.xDirection : selection.axis === "Y" ? axisSystem.yDirection : axisSystem.zDirection
@@ -464,6 +465,13 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
     ]} />;
   }
   const instance = selection.kind === "instance" ? view.product?.instances.find((item) => item.id === selection.id) : undefined;
+  if (selection.kind === "visual") return <Descriptions column={1} size="small" bordered className="property-list" items={[
+    { key: "type", label: "类型", children: selection.visualType },
+    { key: "entity", label: "元素", children: selection.entityId },
+    { key: "feature", label: "所属特征", children: selection.featureId },
+    { key: "role", label: "角色", children: selection.role ?? "—" },
+    { key: "reference", label: "Occurrence", children: selection.occurrencePath || "Part root" },
+  ]} />;
   return <Descriptions column={1} size="small" bordered className="property-list" items={[
     { key: "type", label: "类型", children: selection.kind.toUpperCase() },
     { key: "name", label: "名称", children: feature?.name ?? instance?.name ?? selection.id },

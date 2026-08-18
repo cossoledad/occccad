@@ -15,13 +15,14 @@ import type { NavigationAction, NavigationProfileID } from "../cad/navigation/na
 import { CadBackground } from "../cad/rendering/cad-background";
 import { CadMaterialFactory } from "../cad/rendering/cad-material-factory";
 import { buildSketchRenderModel } from "../cad/rendering/sketch-render-model";
+import { visualSelection, visualType } from "../cad/rendering/visualization-render-model";
 import { CATIA_VISUAL_THEME } from "../cad/rendering/cad-visual-theme";
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
 import { ShortcutManager } from "../cad/shortcut/shortcut-manager";
 import { ConstraintSketchTool, LineSketchTool, PointSketchTool, RectangleSketchTool, SelectTool, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
-  Artifact, AxisSystem, DatumPlane, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SketchGeometryRef, SketchOperation, Vec2, Vec3,
+  Artifact, AxisSystem, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SketchGeometryRef, SketchOperation, Vec2, Vec3, VisualizationManifest,
 } from "../types";
 
 type Callbacks = {
@@ -414,8 +415,11 @@ export class CadViewportEngine {
       documentId: view.document.id, geometryKey: view.artifact?.geometryKey ?? "", occurrencePath: "",
       treeNodeId: `${rootPath}/origin/axis:${axis.id}`,
     });
+    if (view.artifact) this.addVisualPrimitives(view.artifact.visualization, this.helpers, {
+      documentId: view.document.id, geometryKey: view.artifact.geometryKey, occurrencePath: "", treeNodeId: `${rootPath}/body`,
+    });
     for (const feature of view.part?.features ?? []) {
-      if (feature.type.toUpperCase().includes("SKETCH")) this.addSketch(feature);
+      if (feature.type.toUpperCase().includes("SKETCH")) this.addSketch(feature, false);
     }
     if (view.artifact && view.artifact.mesh.triangles.length > 0) {
       const solid = this.makeSolid(view.artifact, CATIA_VISUAL_THEME.surface, {
@@ -462,10 +466,12 @@ export class CadViewportEngine {
           solid.userData = { kind: "instance", id: instance.id };
           resolvedGroup.add(solid);
         }
-        this.addReferenceGeometry(artifact.referenceGeometry, resolvedGroup, {
+        const visualContext = {
           documentId: resolved.documentId, geometryKey: artifact.geometryKey, occurrencePath: resolved.occurrencePath,
           treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id,
-        });
+        };
+        this.addReferenceGeometry(artifact.visualization.referenceGeometry, resolvedGroup, visualContext);
+        this.addVisualPrimitives(artifact.visualization, resolvedGroup, visualContext);
         if (resolvedGroup.children.length > 0) group.add(resolvedGroup);
       }
       if (group.children.length === 0) {
@@ -546,6 +552,58 @@ export class CadViewportEngine {
     });
   }
 
+  private featureTreeNode(context: SolidContext, featureID: string): string | undefined {
+    const visit = (node: DocumentStructureNode | undefined): string | undefined => {
+      if (!node) return undefined;
+      if (node.entityId === featureID && node.id.startsWith(context.treeNodeId)) return node.id;
+      for (const child of node.children ?? []) {
+        const found = visit(child);
+        if (found) return found;
+      }
+      return undefined;
+    };
+    return visit(this.view?.structureTree);
+  }
+
+  private addVisualPrimitives(visualization: VisualizationManifest | undefined, parent: THREE.Group, context: SolidContext): void {
+    if (!visualization || visualization.schemaVersion !== 1) return;
+    for (const primitive of visualization.primitives ?? []) {
+      if (primitive.positions.length === 0) continue;
+      const construction = primitive.role === "CONSTRUCTION";
+      const color = sketchDiagnosticColor(primitive.status, construction);
+      const geometry = new THREE.BufferGeometry().setFromPoints(
+        primitive.positions.map((position) => new THREE.Vector3().fromArray(position)),
+      );
+      let object: THREE.Object3D;
+      const type = visualType(primitive);
+      if (primitive.kind === "POINTS") {
+        object = new THREE.Points(geometry,
+          new THREE.PointsMaterial({ color, size: 9, sizeAttenuation: false, depthTest: false }));
+      } else if (primitive.kind === "POLYLINE") {
+        object = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, depthTest: false }));
+      } else {
+        if (!primitive.indices || primitive.indices.length < 3) { geometry.dispose(); continue; }
+        geometry.setIndex(primitive.indices);
+        geometry.computeVertexNormals();
+        object = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+          color, transparent: true, opacity: 0.58, side: THREE.DoubleSide, depthWrite: false,
+        }));
+      }
+      object.renderOrder = primitive.kind === "POINTS" ? 22 : 20;
+      const selection = visualSelection(primitive, {
+        treeNodeId: this.featureTreeNode(context, primitive.featureId), documentId: context.documentId,
+        occurrencePath: context.occurrencePath, geometryKey: context.geometryKey, instanceId: context.instanceId,
+      });
+      object.userData = { ...selection, sketchFeatureID: primitive.featureId };
+      parent.add(object);
+      if (primitive.selectable) {
+        this.selectable.set(`visual:${selection.id}`, object);
+        this.selectionIndex.register(selection, object, selection.treeNodeId);
+        this.selectionIndex.registerPick(object, () => selection, type === "POINT" ? 75 : type === "CURVE" ? 70 : 30);
+      }
+    }
+  }
+
   private buildSketchContext(): void {
     this.disposeGroup(this.sketchContext);
     if (!this.sketchPlane) return;
@@ -590,11 +648,13 @@ export class CadViewportEngine {
     this.content.visible = !editing;
     this.sketchContext.visible = editing;
     for (const child of this.helpers.children) {
-      child.visible = !editing || (child.userData.sketchFeatureID === this.activeSketchID);
+      child.visible = child.userData.sketchEditOverlay
+        ? editing && child.userData.sketchFeatureID === this.activeSketchID
+        : !editing || child.userData.sketchFeatureID === this.activeSketchID;
     }
   }
 
-  private addSketch(feature: Feature): void {
+  private addSketch(feature: Feature, includeEntities = true): void {
     const plane = feature.sketch?.support.plane ?? feature.plane ?? "XY";
     const group = new THREE.Group();
     group.userData.sketchFeatureID = feature.id;
@@ -663,11 +723,13 @@ export class CadViewportEngine {
       group.add(points);
       this.selectionIndex.registerPick(points, () => selection, 65);
     };
-    addLines(profileLines, false);
-    addLines(constructionLines, true);
-    addPoints(profilePoints, false, 9);
-    addPoints(constructionPoints, true, 9);
-    addPoints(endpointPoints, false, 5);
+    if (includeEntities) {
+      addLines(profileLines, false);
+      addLines(constructionLines, true);
+      addPoints(profilePoints, false, 9);
+      addPoints(constructionPoints, true, 9);
+      addPoints(endpointPoints, false, 5);
+    }
     if (constraintPoints.length > 0) {
       const markers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(constraintPoints),
         new THREE.PointsMaterial({color:0x61d27c,size:8,sizeAttenuation:false,depthTest:false}));
@@ -678,7 +740,7 @@ export class CadViewportEngine {
         new THREE.LineBasicMaterial({color:0x61d27c,depthTest:false}));
       markers.renderOrder=24; group.add(markers);
     }
-    group.userData = { ...selection, sketchFeatureID: feature.id };
+    group.userData = { ...selection, sketchFeatureID: feature.id, sketchEditOverlay: !includeEntities };
     this.helpers.add(group);
     this.selectable.set(`sketch:${feature.id}`, group);
     this.selectionIndex.register(selection, group);

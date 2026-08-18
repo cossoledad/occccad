@@ -38,6 +38,7 @@ type line struct {
 type scene struct {
 	faces []face
 	lines []line
+	dots  []point
 
 	minX float64
 	maxX float64
@@ -75,6 +76,7 @@ func Render(view workspace.DocumentView) ([]byte, error) {
 				instance.Translation,
 				colorFor(instance.ID, index),
 			)
+			appendVisualization(&drawing, artifact.Visualization, instance.Translation)
 		}
 	} else if view.Artifact != nil {
 		appendMesh(
@@ -83,6 +85,7 @@ func Render(view workspace.DocumentView) ([]byte, error) {
 			[3]float64{},
 			colorFor(view.Artifact.GeometryKey, 0),
 		)
+		appendVisualization(&drawing, view.Artifact.Visualization, [3]float64{})
 	} else if view.Part != nil {
 		appendSketches(&drawing, view.Part.Features)
 	}
@@ -140,6 +143,10 @@ func Render(view workspace.DocumentView) ([]byte, error) {
 			item.color,
 		)
 	}
+	for _, item := range drawing.dots {
+		x, y := transform(item)
+		fmt.Fprintf(&body, `<circle cx="%.2f" cy="%.2f" r="2.4" fill="#f4f7f8" stroke="#32556b" stroke-width="1.2"/>`, x, y)
+	}
 
 	if !drawing.hasBounds {
 		body.WriteString(emptyMark(view.Document.Type))
@@ -156,6 +163,41 @@ func Render(view workspace.DocumentView) ([]byte, error) {
 	)
 
 	return []byte(svg), nil
+}
+
+func appendVisualization(target *scene, visualization workspace.VisualizationManifest, translation [3]float64) {
+	for _, primitive := range visualization.Primitives {
+		if len(primitive.Positions) == 0 {
+			continue
+		}
+		switch primitive.Kind {
+		case "POINTS":
+			for _, position := range primitive.Positions {
+				projected := project(translate(position, translation))
+				target.dots = append(target.dots, projected)
+				target.addPoint(projected)
+			}
+		case "POLYLINE":
+			item := line{color: "#315b72", points: make([]point, 0, len(primitive.Positions))}
+			if primitive.Role == "CONSTRUCTION" {
+				item.color = "#7b8c94"
+			}
+			for _, position := range primitive.Positions {
+				projected := project(translate(position, translation))
+				item.points = append(item.points, projected)
+				target.addPoint(projected)
+			}
+			target.lines = append(target.lines, item)
+		case "TRIANGLES":
+			mesh := workspace.Mesh{Vertices: primitive.Positions, Triangles: make([][3]uint32, 0, len(primitive.Indices)/3)}
+			for index := 0; index+2 < len(primitive.Indices); index += 3 {
+				mesh.Triangles = append(mesh.Triangles, [3]uint32{
+					primitive.Indices[index], primitive.Indices[index+1], primitive.Indices[index+2],
+				})
+			}
+			appendMesh(target, mesh, translation, "#65a6b8")
+		}
+	}
 }
 
 func appendMesh(

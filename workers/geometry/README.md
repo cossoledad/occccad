@@ -39,6 +39,8 @@ flowchart LR
 
 调用应是“求值完整 Part”“导入一个交换根”“合成一次导出”一类粗粒度操作，不能把每个 OCCT 函数映射为远程 RPC。请求携带 `request_id` 与 `geometry_key`；Trace Context 通过 gRPC metadata 传播。B-Rep、GLB、STEP 和 BREP 交换文件通过 ArtifactReference 读写，不进入 unary gRPC bytes；当前 `LOCAL` backend 要求 Worker 与 API/Jobs 共享 `OCCCCAD_DATA_DIR`，object key 必须是根目录内的 opaque 相对键。
 
+Worker 只生成 Body 的基础实体 GLB。Part 模型拥有的 Datum、Sketch 以及未来非实体曲线/曲面由控制面的版本化 `VisualizationManifest` 表达；Artifact 管线把它注入最终 GLB 的 `OCCCCAD_visualization` 扩展。不要把完整 PartModel 或装配 occurrence 传入 OCCT Worker 来生成第二套场景：同一最终 GLB/manifest 必须同时供 Part、缩略图和 Product occurrence 使用。
+
 当前单 Body Part 以不可变 GeometryId 作为驻留原子。首次拓扑请求可以从 B-Rep Artifact 冷恢复，但 Router 会在 RPC 前预留同一 owner，Worker 随后缓存完整 `TopologyInfo`；选择其他面、边或点只过滤缓存，不重新读取 B-Rep 或遍历整个 Shape。未来多 Body Part 应为每个 Body 生成独立 GeometryId，而装配中的相同 Part occurrence 复用 GeometryId，仅区分 InstancePath/Transform。
 
 ## 日志

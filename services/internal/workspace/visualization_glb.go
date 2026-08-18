@@ -6,12 +6,12 @@ import (
 	"fmt"
 )
 
-const referenceGeometryExtension = "OCCCCAD_reference_geometry"
+const visualizationExtension = "OCCCCAD_visualization"
 
-// glbWithReferenceGeometry mirrors the persisted Part reference geometry into
-// a vendor GLB extension. The extension remains useful even when the GLB has no
-// triangle mesh, which makes an empty Part a real display artifact.
-func glbWithReferenceGeometry(source []byte, reference ReferenceGeometry) ([]byte, error) {
+// glbWithVisualization mirrors the complete Part display manifest into a
+// vendor GLB extension. It remains valid without a triangle mesh, so an empty
+// Part or sketch-only Part is still a real visualization artifact.
+func glbWithVisualization(source []byte, visualization VisualizationManifest) ([]byte, error) {
 	var document map[string]any
 	var binaryChunk []byte
 	if len(source) == 0 {
@@ -50,16 +50,16 @@ func glbWithReferenceGeometry(source []byte, reference ReferenceGeometry) ([]byt
 		extensions = map[string]any{}
 		document["extensions"] = extensions
 	}
-	extensions[referenceGeometryExtension] = reference
+	extensions[visualizationExtension] = visualization
 	used, _ := document["extensionsUsed"].([]any)
 	found := false
 	for _, entry := range used {
-		if entry == referenceGeometryExtension {
+		if entry == visualizationExtension {
 			found = true
 		}
 	}
 	if !found {
-		used = append(used, referenceGeometryExtension)
+		used = append(used, visualizationExtension)
 	}
 	document["extensionsUsed"] = used
 	jsonChunk, err := json.Marshal(document)
