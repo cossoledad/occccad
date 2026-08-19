@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-visualization-v3"
+const evaluatorVersion = "part-visualization-v4"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -119,6 +119,7 @@ type VisualPrimitive struct {
 	FeatureID  string       `json:"featureId"`
 	Kind       string       `json:"kind"`
 	Semantic   string       `json:"semantic"`
+	EntityType string       `json:"entityType,omitempty"`
 	Role       string       `json:"role,omitempty"`
 	Status     string       `json:"status,omitempty"`
 	Positions  [][3]float64 `json:"positions"`
@@ -304,6 +305,10 @@ type DocumentStructureNode struct {
 	Plane         string                  `json:"plane,omitempty"`
 	Axis          string                  `json:"axis,omitempty"`
 	ReferenceMode string                  `json:"referenceMode,omitempty"`
+	OwnerEntityID string                  `json:"ownerEntityId,omitempty"`
+	EntityType    string                  `json:"entityType,omitempty"`
+	Role          string                  `json:"role,omitempty"`
+	Capabilities  []string                `json:"capabilities,omitempty"`
 	Children      []DocumentStructureNode `json:"children,omitempty"`
 }
 
@@ -344,6 +349,9 @@ type CommandRequest struct {
 	ReferencedDocumentID string            `json:"referencedDocumentId,omitempty"`
 	Name                 string            `json:"name,omitempty"`
 	InstanceID           string            `json:"instanceId,omitempty"`
+	TargetKind           string            `json:"targetKind,omitempty"`
+	TargetID             string            `json:"targetId,omitempty"`
+	OwnerEntityID        string            `json:"ownerEntityId,omitempty"`
 	Translation          [3]float64        `json:"translation,omitempty"`
 	ReferenceMode        string            `json:"referenceMode,omitempty"`
 	GeometryKey          string            `json:"geometryKey,omitempty"`
@@ -1520,7 +1528,7 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 		}
 		for _, entity := range feature.Sketch.Entities {
 			primitive := VisualPrimitive{ID: entity.ID, FeatureID: feature.ID,
-				Role: entity.Role, Status: feature.Sketch.Solve.Status, Selectable: true}
+				EntityType: entity.Kind, Role: entity.Role, Status: feature.Sketch.Solve.Status, Selectable: true}
 			switch entity.Kind {
 			case "POINT":
 				if entity.Point == nil {
@@ -1536,6 +1544,81 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 				primitive.Kind = "POLYLINE"
 				primitive.Semantic = "SKETCH_CURVE"
 				primitive.Positions = [][3]float64{toWorld(*entity.Start), toWorld(*entity.End)}
+			default:
+				continue
+			}
+			manifest.Primitives = append(manifest.Primitives, primitive)
+		}
+		entities := make(map[string]SketchEntity, len(feature.Sketch.Entities))
+		for _, entity := range feature.Sketch.Entities {
+			entities[entity.ID] = entity
+		}
+		referencedPoint := func(reference SketchGeometryRef) (SketchPoint2, bool) {
+			if reference.Target == "SKETCH_ORIGIN" {
+				return SketchPoint2{}, true
+			}
+			entity, exists := entities[reference.EntityID]
+			if !exists {
+				return SketchPoint2{}, false
+			}
+			if entity.Kind == "POINT" && entity.Point != nil && reference.SubElement == "POINT" {
+				return *entity.Point, true
+			}
+			if entity.Kind == "LINE" && entity.Start != nil && reference.SubElement == "START" {
+				return *entity.Start, true
+			}
+			if entity.Kind == "LINE" && entity.End != nil && reference.SubElement == "END" {
+				return *entity.End, true
+			}
+			return SketchPoint2{}, false
+		}
+		for _, constraint := range feature.Sketch.Constraints {
+			primitive := VisualPrimitive{ID: constraint.ID, FeatureID: feature.ID, EntityType: constraint.Kind,
+				Semantic: "SKETCH_CONSTRAINT", Status: feature.Sketch.Solve.Status, Selectable: true}
+			switch constraint.Kind {
+			case "COINCIDENT":
+				if len(constraint.References) == 0 {
+					continue
+				}
+				point, exists := referencedPoint(constraint.References[0])
+				if !exists {
+					continue
+				}
+				primitive.Kind, primitive.Positions = "POINTS", [][3]float64{toWorld(point)}
+			case "FIXED_POINT":
+				point, exists := SketchPoint2{}, false
+				if constraint.FixedPoint != nil {
+					point, exists = *constraint.FixedPoint, true
+				} else if len(constraint.References) > 0 {
+					point, exists = referencedPoint(constraint.References[0])
+				}
+				if !exists {
+					continue
+				}
+				primitive.Kind, primitive.Positions = "POINTS", [][3]float64{toWorld(point)}
+			case "PARALLEL":
+				primitive.Kind = "LINE_SEGMENTS"
+				for _, reference := range constraint.References {
+					entity, exists := entities[reference.EntityID]
+					if reference.Target != "ENTITY" || !exists || entity.Kind != "LINE" || entity.Start == nil || entity.End == nil {
+						continue
+					}
+					dx, dy := entity.End.X-entity.Start.X, entity.End.Y-entity.Start.Y
+					length := math.Hypot(dx, dy)
+					if length == 0 {
+						continue
+					}
+					middle := SketchPoint2{(entity.Start.X + entity.End.X) / 2, (entity.Start.Y + entity.End.Y) / 2}
+					for _, offset := range []float64{-2, 2} {
+						center := SketchPoint2{middle.X + dx/length*offset, middle.Y + dy/length*offset}
+						primitive.Positions = append(primitive.Positions,
+							toWorld(SketchPoint2{center.X + dy/length*2, center.Y - dx/length*2}),
+							toWorld(SketchPoint2{center.X - dy/length*2, center.Y + dx/length*2}))
+					}
+				}
+				if len(primitive.Positions) == 0 {
+					continue
+				}
 			default:
 				continue
 			}
@@ -2312,7 +2395,7 @@ func insertProductInstances(ctx context.Context, tx pgx.Tx, versionID string, mo
 	return nil
 }
 
-func featureStructureNode(feature Feature, path, documentID, versionID string) DocumentStructureNode {
+func featureStructureNode(feature Feature, path, documentID, versionID string, deletable, childrenEditable bool) DocumentStructureNode {
 	kind := strings.ToUpper(feature.Type)
 	switch {
 	case strings.Contains(kind, "SKETCH"):
@@ -2324,11 +2407,51 @@ func featureStructureNode(feature Feature, path, documentID, versionID string) D
 	default:
 		kind = "FEATURE"
 	}
-	return DocumentStructureNode{ID: path + "/" + strings.ToLower(kind) + ":" + feature.ID,
-		Kind: kind, Name: feature.Name, EntityID: feature.ID, DocumentID: documentID, VersionID: versionID}
+	node := DocumentStructureNode{ID: path + "/" + strings.ToLower(kind) + ":" + feature.ID,
+		Kind: kind, Name: feature.Name, EntityID: feature.ID, EntityType: feature.Type,
+		DocumentID: documentID, VersionID: versionID}
+	if deletable {
+		node.Capabilities = []string{"DELETE"}
+	}
+	if feature.Sketch != nil {
+		node.Children = sketchStructureChildren(*feature.Sketch, node.ID, feature.ID, documentID, versionID, childrenEditable)
+	}
+	return node
 }
 
-func partStructureChildren(model PartModel, path, documentID, versionID string) []DocumentStructureNode {
+func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, versionID string, editable bool) []DocumentStructureNode {
+	geometry := DocumentStructureNode{ID: path + "/geometry", Kind: "SKETCH_GEOMETRY_SET", Name: "Geometry",
+		OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+	counts := map[string]int{}
+	for _, entity := range sketch.Entities {
+		counts[entity.Kind]++
+		name := strings.Title(strings.ToLower(entity.Kind)) + " " + fmt.Sprint(counts[entity.Kind])
+		node := DocumentStructureNode{ID: geometry.ID + "/entity:" + entity.ID, Kind: "SKETCH_ENTITY", Name: name,
+			EntityID: entity.ID, OwnerEntityID: sketchID, EntityType: entity.Kind, Role: entity.Role,
+			DocumentID: documentID, VersionID: versionID}
+		if editable {
+			node.Capabilities = []string{"DELETE"}
+		}
+		geometry.Children = append(geometry.Children, node)
+	}
+	constraints := DocumentStructureNode{ID: path + "/constraints", Kind: "SKETCH_CONSTRAINT_SET", Name: "Constraints",
+		OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+	counts = map[string]int{}
+	for _, constraint := range sketch.Constraints {
+		counts[constraint.Kind]++
+		name := strings.Title(strings.ToLower(strings.ReplaceAll(constraint.Kind, "_", " "))) + " " + fmt.Sprint(counts[constraint.Kind])
+		node := DocumentStructureNode{ID: constraints.ID + "/constraint:" + constraint.ID, Kind: "SKETCH_CONSTRAINT", Name: name,
+			EntityID: constraint.ID, OwnerEntityID: sketchID, EntityType: constraint.Kind,
+			DocumentID: documentID, VersionID: versionID}
+		if editable {
+			node.Capabilities = []string{"DELETE"}
+		}
+		constraints.Children = append(constraints.Children, node)
+	}
+	return []DocumentStructureNode{geometry, constraints}
+}
+
+func partStructureChildren(model PartModel, path, documentID, versionID string, editable bool) []DocumentStructureNode {
 	normalizePartModel(&model)
 	planes := model.DatumPlanes
 	origin := DocumentStructureNode{ID: path + "/origin", Kind: "ORIGIN", Name: "Origin",
@@ -2352,12 +2475,14 @@ func partStructureChildren(model PartModel, path, documentID, versionID string) 
 	}
 	sketches := make(map[string]Feature)
 	consumed := make(map[string]bool)
+	dependents := make(map[string]bool)
 	for _, feature := range model.Features {
 		if strings.Contains(strings.ToUpper(feature.Type), "SKETCH") {
 			sketches[feature.ID] = feature
 		}
 		if strings.EqualFold(feature.Type, "PAD") && feature.Profile != "" {
 			consumed[feature.Profile] = true
+			dependents[feature.Profile] = true
 		}
 	}
 	body := DocumentStructureNode{ID: path + "/body", Kind: "BODY", Name: "PartBody",
@@ -2366,10 +2491,10 @@ func partStructureChildren(model PartModel, path, documentID, versionID string) 
 		if consumed[feature.ID] {
 			continue
 		}
-		node := featureStructureNode(feature, body.ID, documentID, versionID)
+		node := featureStructureNode(feature, body.ID, documentID, versionID, editable && !dependents[feature.ID], editable)
 		if strings.EqualFold(feature.Type, "PAD") && feature.Profile != "" {
 			if sketch, exists := sketches[feature.Profile]; exists {
-				node.Children = []DocumentStructureNode{featureStructureNode(sketch, node.ID, documentID, versionID)}
+				node.Children = []DocumentStructureNode{featureStructureNode(sketch, node.ID, documentID, versionID, false, editable)}
 			}
 		}
 		body.Children = append(body.Children, node)
@@ -2403,7 +2528,7 @@ func (service *Service) buildDocumentStructure(
 			return DocumentStructureNode{}, err
 		}
 		normalizePartModel(&model)
-		root.Children = partStructureChildren(model, path, documentID, versionID)
+		root.Children = partStructureChildren(model, path, documentID, versionID, path == "document:"+documentID)
 		return root, nil
 	}
 	visiting[documentID] = true
@@ -2430,11 +2555,15 @@ func (service *Service) buildDocumentStructure(
 		if err != nil {
 			return DocumentStructureNode{}, err
 		}
-		root.Children = append(root.Children, DocumentStructureNode{
+		instanceNode := DocumentStructureNode{
 			ID: instancePath, Kind: "INSTANCE", Name: instance.Name, EntityID: instance.ID,
 			DocumentID: reference.DocumentID, DocumentType: reference.DocumentType,
 			VersionID: resolvedVersionID, ReferenceMode: mode, Children: reference.Children,
-		})
+		}
+		if path == "document:"+documentID {
+			instanceNode.Capabilities = []string{"DELETE"}
+		}
+		root.Children = append(root.Children, instanceNode)
 	}
 	return root, nil
 }

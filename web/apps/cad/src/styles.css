@@ -867,6 +867,9 @@ select {
 }
 .specification-tree-node:first-child>.specification-tree-row>.specification-tree-icon { color: #79b8dc; }
 .specification-tree-label { overflow: hidden; max-width: 250px; text-overflow: ellipsis; white-space: nowrap; }
+.specification-tree-delete { margin-left: auto; border: 0; padding: 2px 5px; color: inherit; background: transparent; opacity: 0; cursor: pointer; }
+.specification-tree-row:hover .specification-tree-delete, .specification-tree-row:focus-within .specification-tree-delete { opacity: .8; }
+.specification-tree-delete:hover { color: #ffb5a8; opacity: 1 !important; }
 
 .inspector-overlay {
   position: absolute;

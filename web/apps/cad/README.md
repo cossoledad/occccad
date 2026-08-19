@@ -6,7 +6,7 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 
 - 登录、注册、账号管理、文档/文件夹中心、分享与任务入口；
 - Part/Product 多标签工作台、Specification Tree、Toolbar、Inspector；
-- Three.js 精确网格显示、基准面、选择/预选与结构树联动；
+- Three.js 精确网格显示、基准面、选择/预选与结构树联动；Specification Tree 展开草图几何与约束，按服务端 capability 提供删除，实体删除原子级联其引用约束；
 - 草图矩形交互、拉伸、实例插入/移动、Undo/Redo；
 - Default/CATIA 导航 Profile、Pointer Capture、快捷键上下文和 Overlay；
 - TanStack Query 管理服务端状态，Zustand 管理工作台交互状态；

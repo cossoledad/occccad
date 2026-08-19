@@ -19,14 +19,18 @@ func TestPartVisualizationManifestAndGLBExtensionContainSelectableSketchGeometry
 			Entities: []SketchEntity{
 				{ID: "point-visible", Kind: "POINT", Role: "CONSTRUCTION", Point: &SketchPoint2{X: 2, Y: 3}},
 				{ID: "line-visible", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{X: 1, Y: 4}, End: &SketchPoint2{X: 5, Y: 6}},
-			}, Solve: SketchSolveState{Status: "UNDER_CONSTRAINED"}}})
+			}, Constraints: []SketchConstraint{{ID: "coincident-visible", Kind: "COINCIDENT",
+				References: []SketchGeometryRef{{Target: "ENTITY", EntityID: "line-visible", SubElement: "START"}, {Target: "ENTITY", EntityID: "point-visible", SubElement: "POINT"}}}},
+			Solve: SketchSolveState{Status: "UNDER_CONSTRAINED"}}})
 	if len(model.DatumPlanes) != 3 || len(model.AxisSystems) != 1 {
 		t.Fatalf("a new Part must own three planes and one axis system: %#v", model)
 	}
 	visualization := visualizationManifest(model)
-	if len(visualization.Primitives) != 2 || visualization.Primitives[0].ID != "point-visible" ||
+	if len(visualization.Primitives) != 3 || visualization.Primitives[0].ID != "point-visible" ||
 		visualization.Primitives[0].Positions[0] != [3]float64{2, 0, 3} ||
-		visualization.Primitives[1].Kind != "POLYLINE" || !visualization.Primitives[1].Selectable {
+		visualization.Primitives[1].Kind != "POLYLINE" || !visualization.Primitives[1].Selectable ||
+		visualization.Primitives[2].Semantic != "SKETCH_CONSTRAINT" || visualization.Primitives[2].EntityType != "COINCIDENT" ||
+		visualization.Primitives[2].Positions[0] != [3]float64{1, 0, 4} {
 		t.Fatalf("unexpected visualization manifest: %#v", visualization)
 	}
 	glb, err := glbWithVisualization(nil, visualization)
@@ -344,7 +348,7 @@ func TestPartStructureNestsConsumedSketchUnderPad(t *testing.T) {
 		{ID: "pad-1", Type: "PAD", Name: "Pad 1", Profile: "sketch-1"},
 		{ID: "sketch-2", Type: "SKETCH", Name: "Sketch 2"},
 	}}
-	children := partStructureChildren(model, "document:part-1", "part-1", "version-1")
+	children := partStructureChildren(model, "document:part-1", "part-1", "version-1", true)
 	if len(children) != 2 || children[1].Kind != "BODY" || len(children[1].Children) != 2 {
 		t.Fatalf("unexpected part structure: %#v", children)
 	}
@@ -361,6 +365,116 @@ func TestPartStructureNestsConsumedSketchUnderPad(t *testing.T) {
 	axisSystem := children[0].Children[3]
 	if len(axisSystem.Children) != 3 || axisSystem.Children[0].Axis != "X" || axisSystem.Children[1].Axis != "Y" || axisSystem.Children[2].Axis != "Z" {
 		t.Fatalf("axis system must expose independently selectable X/Y/Z axes: %#v", axisSystem)
+	}
+}
+
+func TestSketchStructureProjectsEntitiesConstraintsAndDeleteCapabilities(t *testing.T) {
+	t.Parallel()
+	model := PartModel{Units: "mm", Features: []Feature{{ID: "sketch-1", Type: "SKETCH", Name: "Sketch 1", Sketch: &SketchFeature{
+		SchemaVersion: 1,
+		Entities:      []SketchEntity{{ID: "line-1", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{0, 0}, End: &SketchPoint2{10, 0}}},
+		Constraints:   []SketchConstraint{{ID: "constraint-1", Kind: "PARALLEL", References: []SketchGeometryRef{{Target: "ENTITY", EntityID: "line-1", SubElement: "DIRECTION"}, {Target: "SKETCH_X_AXIS", SubElement: "DIRECTION"}}}},
+	}}}}
+	children := partStructureChildren(model, "document:part-1", "part-1", "version-1", true)
+	sketch := children[1].Children[0]
+	if len(sketch.Capabilities) != 1 || sketch.Capabilities[0] != "DELETE" || len(sketch.Children) != 2 {
+		t.Fatalf("sketch must expose delete capability and two child sets: %#v", sketch)
+	}
+	entity := sketch.Children[0].Children[0]
+	constraint := sketch.Children[1].Children[0]
+	if entity.Kind != "SKETCH_ENTITY" || entity.EntityID != "line-1" || entity.OwnerEntityID != "sketch-1" || len(entity.Capabilities) != 1 {
+		t.Fatalf("unexpected entity projection: %#v", entity)
+	}
+	if constraint.Kind != "SKETCH_CONSTRAINT" || constraint.EntityID != "constraint-1" || constraint.EntityType != "PARALLEL" || len(constraint.Capabilities) != 1 {
+		t.Fatalf("unexpected constraint projection: %#v", constraint)
+	}
+	if len(children[0].Children[0].Capabilities) != 0 || len(children[0].Children[3].Capabilities) != 0 {
+		t.Fatal("datum planes and axis systems must never expose delete capability")
+	}
+}
+
+func TestDeleteSketchEntityCascadesReferencingConstraints(t *testing.T) {
+	t.Parallel()
+	model := PartModel{Units: "mm", Features: []Feature{{ID: "sketch-1", Type: "SKETCH", Name: "Sketch 1", Sketch: &SketchFeature{
+		SchemaVersion: 1,
+		Entities: []SketchEntity{
+			{ID: "line-1", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{0, 0}, End: &SketchPoint2{10, 0}},
+			{ID: "line-2", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{10, 0}, End: &SketchPoint2{10, 10}},
+		},
+		Constraints: []SketchConstraint{
+			{ID: "attached", Kind: "COINCIDENT", References: []SketchGeometryRef{{Target: "ENTITY", EntityID: "line-1", SubElement: "END"}, {Target: "ENTITY", EntityID: "line-2", SubElement: "START"}}},
+			{ID: "unrelated", Kind: "PARALLEL", References: []SketchGeometryRef{{Target: "ENTITY", EntityID: "line-2", SubElement: "DIRECTION"}, {Target: "SKETCH_Y_AXIS", SubElement: "DIRECTION"}}},
+		},
+	}}}}
+	modelJSON, _ := json.Marshal(model)
+	payload, _ := json.Marshal(deleteNodePayload{TargetKind: "SKETCH_ENTITY", TargetID: "line-1", OwnerEntityID: "sketch-1"})
+	nextJSON, changes, err := applyDeletePartNode(modelJSON, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var next PartModel
+	_ = json.Unmarshal(nextJSON, &next)
+	if len(next.Features[0].Sketch.Entities) != 1 || next.Features[0].Sketch.Entities[0].ID != "line-2" ||
+		len(next.Features[0].Sketch.Constraints) != 1 || next.Features[0].Sketch.Constraints[0].ID != "unrelated" {
+		t.Fatalf("entity deletion must atomically cascade only referencing constraints: %#v", next.Features[0].Sketch)
+	}
+	if len(changes.Changes) != 1 || changes.Changes[0].Target.SlotID != "sketch.model" {
+		t.Fatalf("cascade must remain one history property change: %#v", changes)
+	}
+	change := changes.Changes[0]
+	restoredJSON, err := applyModelValues("PART", nextJSON, map[modelcore.PropertyAddress]json.RawMessage{change.Target: change.Before})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reappliedJSON, err := applyModelValues("PART", restoredJSON, map[modelcore.PropertyAddress]json.RawMessage{change.Target: change.After})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored, reapplied PartModel
+	_ = json.Unmarshal(restoredJSON, &restored)
+	_ = json.Unmarshal(reappliedJSON, &reapplied)
+	if len(restored.Features[0].Sketch.Entities) != 2 || len(restored.Features[0].Sketch.Constraints) != 2 ||
+		len(reapplied.Features[0].Sketch.Entities) != 1 || len(reapplied.Features[0].Sketch.Constraints) != 1 {
+		t.Fatalf("delete cascade must survive undo/redo projection: restored=%#v reapplied=%#v", restored.Features[0].Sketch, reapplied.Features[0].Sketch)
+	}
+}
+
+func TestDeleteNodeHandlersProtectInfrastructureAndDeleteOwnedModelNodes(t *testing.T) {
+	t.Parallel()
+	part := PartModel{Units: "mm", Features: []Feature{
+		{ID: "sketch-1", Type: "SKETCH", Sketch: &SketchFeature{SchemaVersion: 1, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}}},
+		{ID: "pad-1", Type: "PAD", Profile: "sketch-1", Length: 10},
+	}}
+	partJSON, _ := json.Marshal(part)
+	protectedPayload, _ := json.Marshal(deleteNodePayload{TargetKind: "PLANE", TargetID: "datum-xy"})
+	if _, _, err := applyDeletePartNode(partJSON, protectedPayload); err == nil || !strings.Contains(err.Error(), "protected") {
+		t.Fatalf("unregistered node kinds must be protected by default, got %v", err)
+	}
+	dependentPayload, _ := json.Marshal(deleteNodePayload{TargetKind: "FEATURE", TargetID: "sketch-1"})
+	if _, _, err := applyDeletePartNode(partJSON, dependentPayload); err == nil || !strings.Contains(err.Error(), "depends") {
+		t.Fatalf("upstream feature deletion must honor dependencies, got %v", err)
+	}
+	padPayload, _ := json.Marshal(deleteNodePayload{TargetKind: "FEATURE", TargetID: "pad-1"})
+	withoutPad, changes, err := applyDeletePartNode(partJSON, padPayload)
+	if err != nil || len(changes.Changes) != 1 || changes.Changes[0].Kind != modelcore.ChangeDelete {
+		t.Fatalf("owned feature must produce one delete change: err=%v changes=%#v", err, changes)
+	}
+	var nextPart PartModel
+	_ = json.Unmarshal(withoutPad, &nextPart)
+	if len(nextPart.Features) != 1 || nextPart.Features[0].ID != "sketch-1" {
+		t.Fatalf("unexpected feature deletion result: %#v", nextPart.Features)
+	}
+
+	productJSON, _ := json.Marshal(ProductModel{Instances: []ProductInstance{{ID: "instance-1"}, {ID: "instance-2"}}})
+	instancePayload, _ := json.Marshal(deleteNodePayload{TargetKind: "INSTANCE", TargetID: "instance-1"})
+	nextProductJSON, productChanges, err := applyDeleteProductNode(productJSON, instancePayload)
+	if err != nil || len(productChanges.Changes) != 1 || productChanges.Changes[0].Kind != modelcore.ChangeDelete {
+		t.Fatalf("owned instance must produce one delete change: err=%v changes=%#v", err, productChanges)
+	}
+	var nextProduct ProductModel
+	_ = json.Unmarshal(nextProductJSON, &nextProduct)
+	if len(nextProduct.Instances) != 1 || nextProduct.Instances[0].ID != "instance-2" {
+		t.Fatalf("unexpected instance deletion result: %#v", nextProduct.Instances)
 	}
 }
 

@@ -26,6 +26,8 @@ const (
 	typeInsertInstance         = "occccad://product/instance/insert"
 	typeMoveInstance           = "occccad://product/instance/move"
 	typeSetReferenceMode       = "occccad://product/instance/reference-mode/set"
+	typeDeletePartNode         = "occccad://part/node/delete"
+	typeDeleteProductNode      = "occccad://product/node/delete"
 )
 
 type commandHandler struct {
@@ -54,11 +56,158 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeInsertInstance, "PRODUCT", applyInsertInstance},
 		commandHandler{typeMoveInstance, "PRODUCT", applyMoveInstance},
 		commandHandler{typeSetReferenceMode, "PRODUCT", applyReferenceMode},
+		commandHandler{typeDeletePartNode, "PART", applyDeletePartNode},
+		commandHandler{typeDeleteProductNode, "PRODUCT", applyDeleteProductNode},
 	)
 	if err != nil {
 		panic(err)
 	}
 	return registry
+}
+
+type deleteNodePayload struct {
+	TargetKind    string `json:"targetKind"`
+	TargetID      string `json:"targetId"`
+	OwnerEntityID string `json:"ownerEntityId,omitempty"`
+}
+
+func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model PartModel
+	var payload deleteNodePayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	normalizePartModel(&model)
+	switch payload.TargetKind {
+	case "FEATURE":
+		index := -1
+		for i := range model.Features {
+			if model.Features[i].ID == payload.TargetID {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected feature does not exist", ErrValidation)
+		}
+		for _, dependent := range model.Features {
+			if dependent.Profile == payload.TargetID {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: cannot delete feature %s while feature %s depends on it", ErrValidation, payload.TargetID, dependent.ID)
+			}
+		}
+		before := model.Features[index]
+		model.Features = append(model.Features[:index], model.Features[index+1:]...)
+		parameters := model.Parameters[:0]
+		for _, parameter := range model.Parameters {
+			if !strings.HasPrefix(parameter.ParameterID, "parameter:"+payload.TargetID+":") {
+				parameters = append(parameters, parameter)
+			}
+		}
+		model.Parameters = parameters
+		if err := validateAndResolvePartParameters(&model); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		change, _ := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: payload.TargetID, SlotID: "entity"}, before, nil)
+		next, _ := json.Marshal(model)
+		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.TargetID)}}, nil
+	case "SKETCH_ENTITY", "SKETCH_CONSTRAINT":
+		for i := range model.Features {
+			feature := &model.Features[i]
+			if feature.ID != payload.OwnerEntityID || feature.Sketch == nil {
+				continue
+			}
+			var before SketchFeature
+			beforeJSON, _ := json.Marshal(feature.Sketch)
+			_ = json.Unmarshal(beforeJSON, &before)
+			if payload.TargetKind == "SKETCH_ENTITY" {
+				found := false
+				entities := feature.Sketch.Entities[:0]
+				for _, entity := range feature.Sketch.Entities {
+					if entity.ID == payload.TargetID {
+						found = true
+						continue
+					}
+					entities = append(entities, entity)
+				}
+				if !found {
+					return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected sketch entity does not exist", ErrValidation)
+				}
+				feature.Sketch.Entities = entities
+				constraints := feature.Sketch.Constraints[:0]
+				for _, constraint := range feature.Sketch.Constraints {
+					referencesDeleted := false
+					for _, reference := range constraint.References {
+						if reference.Target == "ENTITY" && reference.EntityID == payload.TargetID {
+							referencesDeleted = true
+							break
+						}
+					}
+					if !referencesDeleted {
+						constraints = append(constraints, constraint)
+					}
+				}
+				feature.Sketch.Constraints = constraints
+			} else {
+				found := false
+				constraints := feature.Sketch.Constraints[:0]
+				for _, constraint := range feature.Sketch.Constraints {
+					if constraint.ID == payload.TargetID {
+						found = true
+						continue
+					}
+					constraints = append(constraints, constraint)
+				}
+				if !found {
+					return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected sketch constraint does not exist", ErrValidation)
+				}
+				feature.Sketch.Constraints = constraints
+			}
+			if len(feature.Sketch.Entities) == 0 {
+				feature.Sketch.Solve = SketchSolveState{Status: "EMPTY"}
+			}
+			if err := validateSketch(*feature.Sketch); err != nil {
+				return nil, modelcore.ChangeSet{}, err
+			}
+			change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: feature.ID, SlotID: "sketch.model"}, before, *feature.Sketch)
+			next, _ := json.Marshal(model)
+			return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(feature.ID)}}, nil
+		}
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: owning sketch does not exist", ErrValidation)
+	default:
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: node kind %s is protected from deletion", ErrValidation, payload.TargetKind)
+	}
+}
+
+func applyDeleteProductNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model ProductModel
+	var payload deleteNodePayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if payload.TargetKind != "INSTANCE" {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: node kind %s is protected from deletion", ErrValidation, payload.TargetKind)
+	}
+	index := -1
+	for i := range model.Instances {
+		if model.Instances[i].ID == payload.TargetID {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected instance does not exist", ErrValidation)
+	}
+	before := model.Instances[index]
+	model.Instances = append(model.Instances[:index], model.Instances[index+1:]...)
+	change, _ := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: payload.TargetID, SlotID: "entity"}, before, nil)
+	next, _ := json.Marshal(model)
+	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"instance:" + modelcore.DependencyKey(payload.TargetID)}}, nil
 }
 
 type editSketchPayload struct {
@@ -763,6 +912,25 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 		}
 		return typeSetReferenceMode, referenceModePayload{request.InstanceID, mode, pinned}, nil
+	case "DELETE_NODE":
+		kind := strings.ToUpper(strings.TrimSpace(request.TargetKind))
+		id := strings.TrimSpace(request.TargetID)
+		owner := strings.TrimSpace(request.OwnerEntityID)
+		if id == "" {
+			return "", nil, fmt.Errorf("%w: delete target identity is required", ErrValidation)
+		}
+		if documentType == "PART" {
+			if kind != "FEATURE" && kind != "SKETCH_ENTITY" && kind != "SKETCH_CONSTRAINT" {
+				break
+			}
+			if (kind == "SKETCH_ENTITY" || kind == "SKETCH_CONSTRAINT") && owner == "" {
+				return "", nil, fmt.Errorf("%w: sketch child deletion requires its owning sketch", ErrValidation)
+			}
+			return typeDeletePartNode, deleteNodePayload{TargetKind: kind, TargetID: id, OwnerEntityID: owner}, nil
+		}
+		if documentType == "PRODUCT" && kind == "INSTANCE" {
+			return typeDeleteProductNode, deleteNodePayload{TargetKind: kind, TargetID: id}, nil
+		}
 	}
 	return "", nil, fmt.Errorf("%w: command %s is not valid for a %s", ErrValidation, request.Type, documentType)
 }

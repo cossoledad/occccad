@@ -129,15 +129,33 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
       .map((feature) => [feature.id, feature]));
     const consumed = new Set(features.filter((feature) => feature.type.toUpperCase() === "PAD" && feature.profile)
       .map((feature) => feature.profile!));
-    const featureNode = (feature: Feature, parent: string): DocumentStructureNode => ({
-      id: `${parent}/${feature.type.toLowerCase()}:${feature.id}`,
-      kind: feature.type.toUpperCase().includes("SKETCH") ? "SKETCH" : feature.type.toUpperCase() === "PAD" ? "PAD" : "IMPORT",
-      name: feature.name ?? feature.type, entityId: feature.id, documentId: view.document.id, versionId: view.document.versionId,
-    });
+    const editable = path === `document:${view.document.id}`;
+    const featureNode = (feature: Feature, parent: string, deletable: boolean): DocumentStructureNode => {
+      const node: DocumentStructureNode = {
+        id: `${parent}/${feature.type.toLowerCase()}:${feature.id}`,
+        kind: feature.type.toUpperCase().includes("SKETCH") ? "SKETCH" : feature.type.toUpperCase() === "PAD" ? "PAD" : "IMPORT",
+        name: feature.name ?? feature.type, entityId: feature.id, entityType: feature.type,
+        documentId: view.document.id, versionId: view.document.versionId,
+        capabilities: deletable ? ["DELETE"] : undefined,
+      };
+      if (feature.sketch) node.children = [
+        { id: `${node.id}/geometry`, kind: "SKETCH_GEOMETRY_SET", name: "Geometry", ownerEntityId: feature.id,
+          children: feature.sketch.entities.map((entity, index) => ({ id: `${node.id}/geometry/entity:${entity.id}`,
+            kind: "SKETCH_ENTITY", name: `${entity.kind === "LINE" ? "Line" : "Point"} ${index + 1}`, entityId: entity.id,
+            ownerEntityId: feature.id, entityType: entity.kind, role: entity.role, documentId: view.document.id,
+            capabilities: editable ? ["DELETE"] : undefined })) },
+        { id: `${node.id}/constraints`, kind: "SKETCH_CONSTRAINT_SET", name: "Constraints", ownerEntityId: feature.id,
+          children: feature.sketch.constraints.map((constraint, index) => ({ id: `${node.id}/constraints/constraint:${constraint.id}`,
+            kind: "SKETCH_CONSTRAINT", name: `${constraint.kind} ${index + 1}`, entityId: constraint.id,
+            ownerEntityId: feature.id, entityType: constraint.kind, documentId: view.document.id,
+            capabilities: editable ? ["DELETE"] : undefined })) },
+      ];
+      return node;
+    };
     const bodyChildren = features.filter((feature) => !consumed.has(feature.id)).map((feature) => {
-      const node = featureNode(feature, `${path}/body`);
+      const node = featureNode(feature, `${path}/body`, editable && !consumed.has(feature.id));
       const sketch = feature.profile ? sketches.get(feature.profile) : undefined;
-      if (sketch) node.children = [featureNode(sketch, node.id)];
+      if (sketch) node.children = [featureNode(sketch, node.id, false)];
       return node;
     });
     return { id: path, kind: "PART", name: view.document.name, documentId: view.document.id,
@@ -160,7 +178,8 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
       const referenceTree = referenced ? mockStructure(referenced, `${path}/instance:${instance.id}/reference`, nextVisiting) : undefined;
       return { id: `${path}/instance:${instance.id}`, kind: "INSTANCE", name: instance.name,
         entityId: instance.id, documentId: instance.documentId, documentType: referenced?.document.type,
-        versionId: instance.versionId, referenceMode: instance.referenceMode ?? "FOLLOW_HEAD", children: referenceTree?.children };
+        versionId: instance.versionId, referenceMode: instance.referenceMode ?? "FOLLOW_HEAD",
+        capabilities: path === `document:${view.document.id}` ? ["DELETE"] : undefined, children: referenceTree?.children };
     }) };
 }
 
@@ -255,6 +274,23 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
     if (commandType === "SET_REFERENCE_MODE" && view.product) {
       const instance = view.product.instances.find((candidate) => candidate.id === input.instanceId);
       if (instance) instance.referenceMode = input.referenceMode as ProductInstance["referenceMode"];
+    }
+    if (commandType === "DELETE_NODE") {
+      const kind = String(input.targetKind);
+      const target = String(input.targetId);
+      const owner = String(input.ownerEntityId ?? "");
+      if (kind === "INSTANCE" && view.product) {
+        view.product.instances = view.product.instances.filter((instance) => instance.id !== target); rebuildProduct(view);
+      } else if (kind === "FEATURE" && view.part) {
+        view.part.features = view.part.features.filter((feature) => feature.id !== target);
+      } else if (view.part) {
+        const sketch = view.part.features.find((feature) => feature.id === owner)?.sketch;
+        if (sketch && kind === "SKETCH_CONSTRAINT") sketch.constraints = sketch.constraints.filter((constraint) => constraint.id !== target);
+        if (sketch && kind === "SKETCH_ENTITY") {
+          sketch.entities = sketch.entities.filter((entity) => entity.id !== target);
+          sketch.constraints = sketch.constraints.filter((constraint) => !constraint.references.some((reference) => reference.target === "ENTITY" && reference.entityId === target));
+        }
+      }
     }
   }));
 }
@@ -366,6 +402,7 @@ export const mockApi: CadApi = {
   command,
   createSketch: async (documentID, plane) => command(documentID, { type: "CREATE_SKETCH", plane }),
   editSketch: async (documentID, sketchID, operations) => command(documentID, { type: "EDIT_SKETCH", sketchId: sketchID, operations }),
+  deleteNode: async (documentID, targetKind, targetID, ownerEntityID) => command(documentID, { type: "DELETE_NODE", targetKind, targetId: targetID, ownerEntityId: ownerEntityID }),
   pad: async (documentID, sketchID, length) => command(documentID, { type: "PAD_SKETCH", sketchId: sketchID, length }),
   insert: async (documentID, referencedDocumentID, name) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID, name }),
   move: async (documentID, instanceID, translation) => command(documentID, { type: "MOVE_INSTANCE", instanceId: instanceID, translation }),

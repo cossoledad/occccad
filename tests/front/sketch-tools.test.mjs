@@ -114,6 +114,18 @@ try {
     documentId: "part-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
     instanceId: "instance-a", treeNodeId: "product/instance-a/reference/body/sketch:sketch-1",
   });
+  const persistedConstraint = { id: "parallel-1", featureId: "sketch-1", kind: "LINE_SEGMENTS",
+    semantic: "SKETCH_CONSTRAINT", entityType: "PARALLEL", positions: [[0, 0, 0], [0, 2, 0]], selectable: true };
+  assert.equal(visualType(persistedConstraint), "CURVE");
+  assert.deepEqual(visualSelection(persistedConstraint, {
+    documentId: "part-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
+    instanceId: "instance-a", treeNodeId: "product/instance-a/reference/body/sketch:sketch-1/constraints/constraint:parallel-1",
+  }), {
+    kind: "sketch-constraint", id: "instance-a:sketch-1:constraint:parallel-1",
+    featureId: "sketch-1", constraintId: "parallel-1", constraintType: "PARALLEL",
+    documentId: "part-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
+    instanceId: "instance-a", treeNodeId: "product/instance-a/reference/body/sketch:sketch-1/constraints/constraint:parallel-1",
+  });
 
   console.log("Sketch tool interaction tests passed.");
 } finally {

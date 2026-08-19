@@ -86,6 +86,7 @@ invoke run.server
 - PostgreSQL 是业务真相；Geometry Worker 返回的是可重建的计算结果。
 - 写操作经过身份和 ACL 校验；昂贵求值不占用数据库事务，最终提交以 Head CAS 防止迟到结果覆盖新 Revision。
 - Undo/Redo/Restore 都追加 Transaction 与 Revision；Revert/Reapply 围绕稳定根 Transaction 折叠，支持连续多步 Undo/Redo。`canUndo/canRedo` 由同一 actor history fold 计算并返回 Web；字段 digest 或结构依赖不匹配时返回冲突。
+- DocumentView 的 Specification Tree 节点携带服务端计算的 capability。`DELETE_NODE` transport 意图只可适配为受支持的 Part Feature/Sketch child 或 Product Instance typed command；未列出的节点类型（包括基准面和轴）默认拒绝。Sketch Entity 删除与引用约束清理属于同一原子 `sketch.model` 变更。
 - 当前是无生产数据的新项目阶段；C0–C4 schema 变更要求重建开发数据库，不提供旧 cursor/history adapter。
 - 后台任务具有幂等键；API 返回任务后不保证任务已完成。
 - WebSocket 事件按 Workspace sequence 去重；断线、gap 或慢消费者被断开后，浏览器重新订阅并获取权威快照。当前 Hub 只覆盖单个 API 进程，多实例需要事件总线扇出。

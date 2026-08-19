@@ -31,8 +31,9 @@ export type DatumPlane = { id: string; name: string; plane: PlaneName; origin: V
 export type AxisSystem = { id: string; name: string; origin: Vec3; xDirection: Vec3; yDirection: Vec3; zDirection: Vec3 };
 export type ReferenceGeometry = { datumPlanes: DatumPlane[]; axisSystems: AxisSystem[] };
 export type VisualPrimitive = {
-  id: string; featureId: string; kind: "POINTS" | "POLYLINE" | "TRIANGLES";
-  semantic: "SKETCH_POINT" | "SKETCH_CURVE" | "CURVE" | "SURFACE";
+  id: string; featureId: string; kind: "POINTS" | "POLYLINE" | "LINE_SEGMENTS" | "TRIANGLES";
+  semantic: "SKETCH_POINT" | "SKETCH_CURVE" | "SKETCH_CONSTRAINT" | "CURVE" | "SURFACE";
+  entityType?: string;
   role?: "PROFILE" | "CONSTRUCTION"; status?: string; positions: Vec3[];
   indices?: number[]; selectable: boolean;
 };
@@ -166,7 +167,7 @@ export type ResolvedInstance = {
 
 export type DocumentStructureNode = {
   id: string;
-  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "BODY" | "SKETCH" | "PAD" | "IMPORT" | "FEATURE" | "REFERENCE_CYCLE";
+  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "BODY" | "SKETCH" | "PAD" | "IMPORT" | "FEATURE" | "SKETCH_GEOMETRY_SET" | "SKETCH_CONSTRAINT_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "REFERENCE_CYCLE";
   name: string;
   entityId?: string;
   documentId?: string;
@@ -175,6 +176,10 @@ export type DocumentStructureNode = {
   plane?: PlaneName;
   axis?: "X" | "Y" | "Z";
   referenceMode?: "FOLLOW_HEAD" | "PINNED";
+  ownerEntityId?: string;
+  entityType?: string;
+  role?: "PROFILE" | "CONSTRUCTION";
+  capabilities?: Array<"DELETE">;
   children?: DocumentStructureNode[];
 };
 
@@ -212,6 +217,7 @@ export type Selection =
   | (SelectionIdentity & { kind: "solid" })
   | (SelectionIdentity & { kind: "visual"; visualType: "POINT" | "CURVE" | "SURFACE";
       featureId: string; entityId: string; role?: "PROFILE" | "CONSTRUCTION" })
+  | (SelectionIdentity & { kind: "sketch-constraint"; featureId: string; constraintId: string; constraintType: string })
   | (SelectionIdentity & { kind: "face" | "edge" | "vertex"; topologyId: number })
   | null;
 

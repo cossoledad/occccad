@@ -49,6 +49,9 @@ function structureIcon(kind: DocumentStructureNode["kind"]) {
   if (kind === "AXIS") return <NodeIndexOutlined />;
   if (kind === "BODY") return <DatabaseOutlined />;
   if (kind === "SKETCH") return <ScissorOutlined />;
+  if (kind === "SKETCH_ENTITY") return <NodeIndexOutlined />;
+  if (kind === "SKETCH_CONSTRAINT") return <GatewayOutlined />;
+  if (kind === "SKETCH_GEOMETRY_SET" || kind === "SKETCH_CONSTRAINT_SET") return <DatabaseOutlined />;
   if (kind === "PAD") return <InsertRowAboveOutlined />;
   return <CloudUploadOutlined />;
 }
@@ -80,12 +83,23 @@ function structureSelection(node: DocumentStructureNode, view: DocumentView): Se
     kind: node.kind.toLowerCase() as "sketch" | "pad" | "import", id: node.entityId,
     visualKey: node.kind === "SKETCH" ? undefined : `body:${bodyID}`, ...context,
   };
+  if (node.kind === "SKETCH_ENTITY" && node.entityId && node.ownerEntityId) return {
+    kind: "visual", id: `${occurrencePath || "root"}:${node.ownerEntityId}:${node.entityId}`,
+    visualType: node.entityType === "POINT" ? "POINT" : "CURVE", featureId: node.ownerEntityId,
+    entityId: node.entityId, role: node.role, ...context,
+  };
+  if (node.kind === "SKETCH_CONSTRAINT" && node.entityId && node.ownerEntityId) return {
+    kind: "sketch-constraint", id: `${occurrencePath || "root"}:${node.ownerEntityId}:constraint:${node.entityId}`,
+    featureId: node.ownerEntityId, constraintId: node.entityId, constraintType: node.entityType ?? "UNKNOWN", ...context,
+  };
   return null;
 }
 
 function mapStructureNode(node: DocumentStructureNode, view: DocumentView): SpecificationTreeNode {
+  const canEdit = view.document.permission === "OWNER" || view.document.permission === "EDITOR";
   return { key: node.id, title: node.name, icon: structureIcon(node.kind), kind: node.kind,
-    entityId: node.entityId, documentId: node.documentId, plane: node.plane,
+    entityId: node.entityId, documentId: node.documentId, plane: node.plane, ownerEntityId: node.ownerEntityId,
+    capabilities: canEdit ? node.capabilities : undefined,
     selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view)) };
 }
 
@@ -238,6 +252,15 @@ export function Workbench() {
   const insertDocument = (values: { referencedDocumentID: string; name: string }) => {
     if (!view) return; command.mutate(() => api.insert(view.document.id, values.referencedDocumentID, values.name)); setInsertOpen(false);
   };
+  const deleteTreeNode = (node: SpecificationTreeNode) => {
+    if (!view || !canEdit || !node.entityId || !node.kind || !node.capabilities?.includes("DELETE")) return;
+    const targetKind = ["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "INSTANCE"].includes(node.kind) ? node.kind : "FEATURE";
+    Modal.confirm({ title: `删除 ${String(node.title)}？`, content: node.kind === "SKETCH_ENTITY"
+      ? "引用该几何的草图约束也会在同一操作中删除。" : "该操作会创建新的模型 Revision，可通过撤销恢复。",
+      okText: "删除", okButtonProps: { danger: true }, cancelText: "取消",
+      onOk: async () => { await command.mutateAsync(() => api.deleteNode(view.document.id, targetKind, node.entityId!, node.ownerEntityId)); },
+    });
+  };
   const createVersion = async (values: { name: string; description: string }) => {
     if (!view) return; await api.createVersion(view.document.id, values.name, values.description); setVersionOpen(false);
     await history.refetch(); message.success("版本已创建");
@@ -342,7 +365,7 @@ export function Workbench() {
           <SpecificationTree nodes={treeNodes} selectedKey={treeKeyForSelection(treeNodes, store.selection)}
             highlightedKey={treeKeyForSelection(treeNodes, store.preselection)}
             onSelect={(node) => store.setSelection(node.selection ?? null)}
-            onHover={(node) => store.setPreselection(node?.selection ?? null)} />
+            onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={deleteTreeNode} />
         </aside>
         <button className={`inspector-toggle ${inspectorOpen ? "open" : ""}`} onClick={() => setInspectorOpen((current) => !current)}
           title={inspectorOpen ? "收起属性面板" : "展开属性面板"}>

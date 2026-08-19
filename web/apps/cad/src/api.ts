@@ -156,6 +156,8 @@ export const restApi = {
     restApi.command(documentId, { type: "CREATE_SKETCH", plane }),
   editSketch: (documentId: string, sketchId: string, operations: SketchOperation[]) =>
     restApi.command(documentId, { type: "EDIT_SKETCH", sketchId, operations }),
+  deleteNode: (documentId: string, targetKind: string, targetId: string, ownerEntityId?: string) =>
+    restApi.command(documentId, { type: "DELETE_NODE", targetKind, targetId, ownerEntityId }),
   pad: (documentId: string, sketchId: string, length: number) =>
     restApi.command(documentId, { type: "PAD_SKETCH", sketchId, length }),
   insert: (documentId: string, referencedDocumentId: string, name: string) =>

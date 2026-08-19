@@ -1,4 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { DeleteOutlined } from "@ant-design/icons";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import type { Selection } from "../../types";
 
@@ -12,6 +13,8 @@ export type SpecificationTreeNode = {
   documentId?: string;
   plane?: string;
   selection?: Selection;
+  capabilities?: Array<"DELETE">;
+  ownerEntityId?: string;
 };
 
 type VisibleNode = { node: SpecificationTreeNode; depth: number; hasChildren: boolean };
@@ -34,12 +37,13 @@ function ancestorsOf(nodes: SpecificationTreeNode[], target: string, parents: st
   return undefined;
 }
 
-export function SpecificationTree({ nodes, selectedKey, highlightedKey, onSelect, onHover }: {
+export function SpecificationTree({ nodes, selectedKey, highlightedKey, onSelect, onHover, onDelete }: {
   nodes: SpecificationTreeNode[];
   selectedKey?: string;
   highlightedKey?: string;
   onSelect: (node: SpecificationTreeNode) => void;
   onHover?: (node?: SpecificationTreeNode) => void;
+  onDelete?: (node: SpecificationTreeNode) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const scrollElement = useRef<HTMLElement>(null);
@@ -67,6 +71,9 @@ export function SpecificationTree({ nodes, selectedKey, highlightedKey, onSelect
     if (event.key === "ArrowLeft" && entry.hasChildren) setExpanded((current) => {
       const next = new Set(current); next.delete(entry.node.key); return next;
     });
+    if (event.key === "Delete" && entry.node.capabilities?.includes("DELETE")) {
+      event.preventDefault(); onDelete?.(entry.node);
+    }
   };
 
   return <nav ref={scrollElement} className="specification-tree specification-tree-virtual" aria-label="Specification tree"
@@ -93,6 +100,8 @@ export function SpecificationTree({ nodes, selectedKey, highlightedKey, onSelect
               </button> : <span className="specification-tree-junction leaf" />}
             <span className="specification-tree-icon">{node.icon}</span>
             <span className="specification-tree-label">{node.title}</span>
+            {node.capabilities?.includes("DELETE") && <button className="specification-tree-delete" title="删除" aria-label={`删除 ${String(node.title)}`}
+              onClick={(event) => { event.stopPropagation(); onDelete?.(node); }}><DeleteOutlined /></button>}
           </div>
         </div>;
       })}
