@@ -17,7 +17,7 @@ import { queryKeys } from "../../app/query-keys";
 import { ShareDialog, type ShareResource } from "../../components/share-dialog";
 import { CommandProvider } from "../../cad/command/command-context";
 import { CommandRegistry } from "../../cad/command/command-registry";
-import { FloatingToolbar, ToolbarGroup, ToolbarSeparator } from "../../cad/overlay/floating-panel";
+import { CommandDialog, FloatingToolbar, ToolbarGroup, ToolbarSeparator } from "../../cad/overlay/floating-panel";
 import { ToolButton } from "../../cad/overlay/tool-button";
 import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
 import { useWorkbenchStore } from "../../state/workbench-store";
@@ -157,10 +157,19 @@ export function Workbench() {
   const commandRegistry = useMemo(() => new CommandRegistry(), []);
   const viewport = useRef<CadViewportHandle>(null);
   const [padOpen, setPadOpen] = useState(false);
+  const [padSketchID, setPadSketchID] = useState<string>();
+  const [padPreviewPending, setPadPreviewPending] = useState(false);
+  const padPreviewAbort = useRef<AbortController | undefined>(undefined);
+  const padPreviewSequence = useRef(0);
+  const padIntentRequestID = useRef<string | undefined>(undefined);
+  const latestDocumentVersion = useRef<string | undefined>(undefined);
   const [insertOpen, setInsertOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [shareResource, setShareResource] = useState<ShareResource>();
+  const [padForm] = Form.useForm<{ length: number }>();
+  const [insertForm] = Form.useForm<{ referencedDocumentID: string; name: string }>();
+  const [versionForm] = Form.useForm<{ name: string; description: string }>();
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
   const properties = useQuery({ queryKey: queryKeys.documentProperties(documentID), queryFn: () => api.getDocumentProperties(documentID), enabled: Boolean(documentID) });
@@ -216,6 +225,7 @@ export function Workbench() {
     onSuccess: async (view) => { store.setSelection(null); await refresh(view); }, onError: (error) => message.error(error.message)
   });
   const view = document.data;
+  latestDocumentVersion.current = view?.document.versionId;
   const treeNodes = useMemo(() => view ? treeData(view) : [], [view]);
   const canEdit = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
   const activeWorkbench = resolveCadWorkbench(view?.document.type ?? "PART", Boolean(store.sketchPlane));
@@ -246,8 +256,36 @@ export function Workbench() {
     }});
   };
   const padSketch = (values: { length: number }) => {
-    if (!view || store.selection?.kind !== "sketch") return;
-    command.mutate(() => api.pad(view.document.id, store.selection!.id, values.length)); setPadOpen(false);
+    if (!view || !padSketchID) return;
+    padPreviewAbort.current?.abort();
+    viewport.current?.clearCommandPreview();
+    command.mutate(() => api.pad(view.document.id, padSketchID, values.length, padIntentRequestID.current));
+    setPadOpen(false); setPadSketchID(undefined); padIntentRequestID.current = undefined;
+  };
+  const closePad = () => {
+    padPreviewAbort.current?.abort(); padPreviewSequence.current += 1; setPadPreviewPending(false);
+    viewport.current?.clearCommandPreview(); setPadOpen(false); setPadSketchID(undefined); padIntentRequestID.current = undefined;
+  };
+  const requestPadPreview = async (sketchID: string, length: number) => {
+    if (!view || !Number.isFinite(length) || length <= 0) return;
+    padPreviewAbort.current?.abort();
+    const abort = new AbortController(); padPreviewAbort.current = abort;
+    const sequence = ++padPreviewSequence.current; const baseVersionID = view.document.versionId;
+    setPadPreviewPending(true);
+    try {
+      const preview = await api.previewCommand(view.document.id, { type: "PAD_SKETCH", sketchId: sketchID, length,
+        ...(padIntentRequestID.current ? { requestId: padIntentRequestID.current } : {}) }, abort.signal);
+      if (sequence !== padPreviewSequence.current || preview.baseVersionId !== baseVersionID ||
+        preview.baseVersionId !== latestDocumentVersion.current || !preview.artifact) return;
+      viewport.current?.previewArtifact(preview.artifact);
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) message.error(`预览失败：${(error as Error).message}`);
+    } finally {
+      if (sequence === padPreviewSequence.current) setPadPreviewPending(false);
+    }
+  };
+  const previewPad = () => {
+    if (padSketchID) void requestPadPreview(padSketchID, Number(padForm.getFieldValue("length")));
   };
   const insertDocument = (values: { referencedDocumentID: string; name: string }) => {
     if (!view) return; command.mutate(() => api.insert(view.document.id, values.referencedDocumentID, values.name)); setInsertOpen(false);
@@ -284,7 +322,13 @@ export function Workbench() {
       commandRegistry.register({ id: "sketch.line", execute: () => store.setActiveTool("sketch.line"), isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane), isActive: () => store.activeToolID === "sketch.line" }),
       commandRegistry.register({ id: "sketch.constraint.coincident", execute: () => store.setActiveTool("sketch.constraint.coincident"), isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane), isActive: () => store.activeToolID === "sketch.constraint.coincident" }),
       commandRegistry.register({ id: "sketch.constraint.parallel", execute: () => store.setActiveTool("sketch.constraint.parallel"), isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane), isActive: () => store.activeToolID === "sketch.constraint.parallel" }),
-      commandRegistry.register({ id: "part.pad", execute: () => setPadOpen(true), isVisible: () => view?.document.type === "PART",
+      commandRegistry.register({ id: "part.pad", execute: () => {
+        if (store.selection?.kind !== "sketch") return;
+        const sketchID = store.selection.id;
+        padIntentRequestID.current = crypto.randomUUID();
+        setPadSketchID(sketchID); padForm.setFieldsValue({ length: 40 }); setPadOpen(true);
+        void requestPadPreview(sketchID, 40);
+      }, isVisible: () => view?.document.type === "PART",
         isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch") }),
       commandRegistry.register({ id: "product.insert", execute: () => setInsertOpen(true), isVisible: () => view?.document.type === "PRODUCT",
         isEnabled: () => Boolean(canEdit) }),
@@ -389,18 +433,23 @@ export function Workbench() {
           <span>mm</span>
         </div>
       </section></main>
-    <Modal title="拉伸草图" open={padOpen} onCancel={() => setPadOpen(false)} footer={null} destroyOnHidden>
-      <Form layout="vertical" initialValues={{ length: 40 }} onFinish={padSketch}><Form.Item name="length" label="拉伸长度（mm）" rules={[{ required: true }]}><InputNumber min={0.1} precision={2} style={{ width: "100%" }} /></Form.Item>
-        <Button block type="primary" htmlType="submit" loading={command.isPending}>确定拉伸</Button></Form>
-    </Modal>
-    <Modal title="插入 Part / Product" open={insertOpen} onCancel={() => setInsertOpen(false)} footer={null} destroyOnHidden>
-      <Form layout="vertical" onFinish={insertDocument}><Form.Item name="referencedDocumentID" label="引用文档" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={(catalog.data?.documents ?? []).filter((item) => item.id !== view.document.id).map((item) => ({ value: item.id, label: `${item.name} (${item.type})` }))} /></Form.Item>
-        <Form.Item name="name" label="实例名称" rules={[{ required: true }]}><Input /></Form.Item><Button block type="primary" htmlType="submit">插入实例</Button></Form>
-    </Modal>
-    <Modal title="创建命名版本" open={versionOpen} onCancel={() => setVersionOpen(false)} footer={null} destroyOnHidden>
-      <Form layout="vertical" onFinish={(values) => void createVersion(values)}><Form.Item name="name" label="版本名称" rules={[{ required: true }]}><Input placeholder="V1 - Initial concept" /></Form.Item>
-        <Form.Item name="description" label="说明"><Input.TextArea rows={3} /></Form.Item><Button block type="primary" htmlType="submit">创建版本</Button></Form>
-    </Modal>
+    <CommandDialog id="pad" open={padOpen} title="拉伸草图" onClose={closePad} confirmLoading={command.isPending}
+      onConfirm={async () => padSketch(await padForm.validateFields())}>
+      <Form form={padForm} layout="vertical"><Form.Item name="length" label="拉伸长度（mm）"
+        rules={[{ required: true }, { type: "number", min: 0.1 }]}><InputNumber min={0.1} precision={2} style={{ width: "100%" }}
+          onBlur={previewPad} onPressEnter={previewPad} /></Form.Item>
+        <small className="cad-command-hint">{padPreviewPending ? "后端正在求值预览…" : "输入后按 Enter 或点击视口可刷新后端瞬态预览；预览不会创建 Revision。"}</small></Form>
+    </CommandDialog>
+    <CommandDialog id="insert" open={insertOpen} title="插入 Part / Product" onClose={() => setInsertOpen(false)}
+      confirmLoading={command.isPending} onConfirm={async () => insertDocument(await insertForm.validateFields())}>
+      <Form form={insertForm} layout="vertical"><Form.Item name="referencedDocumentID" label="引用文档" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={(catalog.data?.documents ?? []).filter((item) => item.id !== view.document.id).map((item) => ({ value: item.id, label: `${item.name} (${item.type})` }))} /></Form.Item>
+        <Form.Item name="name" label="实例名称" rules={[{ required: true }]}><Input /></Form.Item></Form>
+    </CommandDialog>
+    <CommandDialog id="version" open={versionOpen} title="创建命名版本" onClose={() => setVersionOpen(false)}
+      onConfirm={async () => createVersion(await versionForm.validateFields())}>
+      <Form form={versionForm} layout="vertical"><Form.Item name="name" label="版本名称" rules={[{ required: true }]}><Input placeholder="V1 - Initial concept" /></Form.Item>
+        <Form.Item name="description" label="说明"><Input.TextArea rows={3} /></Form.Item></Form>
+    </CommandDialog>
     <ShareDialog resource={shareResource} onClose={() => setShareResource(undefined)} />
   </section></CommandProvider>;
 }

@@ -305,8 +305,21 @@ func validateSketch(sketch SketchFeature) error {
 		}
 		constraints[constraint.ID] = true
 		for _, reference := range constraint.References {
-			if reference.Target == "ENTITY" && entityKinds[reference.EntityID] == "" {
-				return fmt.Errorf("%w: constraint %s references unknown entity %s", ErrValidation, constraint.ID, reference.EntityID)
+			switch reference.Target {
+			case "ENTITY":
+				if entityKinds[reference.EntityID] == "" {
+					return fmt.Errorf("%w: constraint %s references unknown entity %s", ErrValidation, constraint.ID, reference.EntityID)
+				}
+			case "SKETCH_ORIGIN":
+				if reference.EntityID != "" || reference.SubElement != "POINT" {
+					return fmt.Errorf("%w: sketch origin must use the POINT sub-element", ErrValidation)
+				}
+			case "SKETCH_X_AXIS", "SKETCH_Y_AXIS":
+				if reference.EntityID != "" || reference.SubElement != "DIRECTION" {
+					return fmt.Errorf("%w: sketch axis must use the DIRECTION sub-element", ErrValidation)
+				}
+			default:
+				return fmt.Errorf("%w: constraint %s has unknown reference target %s", ErrValidation, constraint.ID, reference.Target)
 			}
 		}
 	}
@@ -675,6 +688,54 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	return tx.Commit(ctx)
 }
 
+// PreviewCommand runs the normal command adapter, typed handler, sketch solver
+// and authoritative Part evaluator without creating a Revision, advancing a
+// Workspace or appending history. Geometry artifacts remain content-addressed
+// rebuildable cache entries and may therefore be reused by the later commit.
+func (service *Service) PreviewCommand(ctx context.Context, documentID string, request CommandRequest) (CommandPreview, error) {
+	request.Type = strings.ToUpper(strings.TrimSpace(request.Type))
+	if request.Type == "UNDO" || request.Type == "REDO" || request.Type == "RESTORE" {
+		return CommandPreview{}, fmt.Errorf("%w: history commands cannot be previewed", ErrValidation)
+	}
+	prepared, err := service.prepareDomainMutation(ctx, documentID, request)
+	if err != nil {
+		return CommandPreview{}, err
+	}
+	if !strings.EqualFold(prepared.documentType, "PART") {
+		return CommandPreview{}, fmt.Errorf("%w: command preview currently requires a Part document", ErrValidation)
+	}
+	nextJSON, _, err := workspaceCommandRegistry.Apply(prepared.documentType, prepared.modelJSON, prepared.command)
+	if err != nil {
+		return CommandPreview{}, err
+	}
+	var model PartModel
+	if err = json.Unmarshal(nextJSON, &model); err != nil {
+		return CommandPreview{}, err
+	}
+	normalizePartModel(&model)
+	if err = service.solveSketches(ctx, "preview/"+prepared.requestID, &model); err != nil {
+		return CommandPreview{}, err
+	}
+	if err = validateAndResolvePartParameters(&model); err != nil {
+		return CommandPreview{}, err
+	}
+	nextJSON, _ = json.Marshal(model)
+	modelHash := canonicalModelHash(nextJSON)
+	geometryKey, err := service.evaluatePart(ctx, "preview/"+prepared.requestID, model)
+	if err != nil {
+		return CommandPreview{}, err
+	}
+	artifact, err := service.loadArtifact(ctx, geometryKey)
+	if err != nil {
+		return CommandPreview{}, err
+	}
+	identity := sha256.Sum256([]byte(prepared.headRevision + "|" + modelHash + "|" + geometryKey))
+	return CommandPreview{
+		PreviewID: "sha256:" + hex.EncodeToString(identity[:]), BaseVersionID: prepared.headRevision,
+		BaseSequence: prepared.headSequence, ModelHash: modelHash, Artifact: &artifact,
+	}, nil
+}
+
 func (service *Service) solveSketches(ctx context.Context, requestID string, model *PartModel) error {
 	for featureIndex := range model.Features {
 		sketch := model.Features[featureIndex].Sketch
@@ -802,7 +863,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if !found {
 			return "", nil, fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
 		}
-		return typeCreatePad, createFeaturePayload{Feature: Feature{ID: newID("extrude"), Type: "PAD", Name: numberedFeatureName(model.Features, "PAD", "Extrude"), Profile: request.SketchID, Length: request.Length, Operation: "ADD"}}, nil
+		return typeCreatePad, createFeaturePayload{Feature: Feature{ID: commandEntityID("extrude", request.RequestID), Type: "PAD", Name: numberedFeatureName(model.Features, "PAD", "Extrude"), Profile: request.SketchID, Length: request.Length, Operation: "ADD"}}, nil
 	case "IMPORT_EXCHANGE":
 		if documentType != "PART" {
 			break
@@ -937,6 +998,10 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 
 func macroID(seed, slot string) string {
 	return uuid.NewSHA1(uuid.NameSpaceURL, []byte("occccad/sketch/"+seed+"/"+slot)).String()
+}
+
+func commandEntityID(prefix, requestID string) string {
+	return prefix + "-" + uuid.NewSHA1(uuid.NameSpaceURL, []byte("occccad/command/"+requestID+"/"+prefix)).String()
 }
 
 func rectangleMacro(seed string, first, second SketchPoint2) ([]SketchOperation, error) {

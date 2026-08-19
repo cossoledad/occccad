@@ -1,3 +1,5 @@
+import { CloseOutlined } from "@ant-design/icons";
+import { Button } from "antd";
 import { useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent, type PropsWithChildren, type ReactNode } from "react";
 
@@ -97,3 +99,56 @@ export function ToolbarGroup({ children }: PropsWithChildren) {
 }
 
 export function ToolbarSeparator() { return <span className="cad-toolbar-separator" aria-hidden />; }
+
+export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmText = "确定",
+  cancelText = "取消", confirmLoading = false, width = 320 }: PropsWithChildren<{
+  id: string; open: boolean; title: ReactNode; onClose: () => void; onConfirm: () => void | Promise<void>;
+  confirmText?: string; cancelText?: string; confirmLoading?: boolean; width?: number;
+}>) {
+  const storageKey = `occccad.command-dialog.${id}`;
+  const [position, setPosition] = useState<{ x: number; y: number }>(() => {
+    try { return JSON.parse(window.localStorage.getItem(storageKey) ?? "null") ?? { x: 360, y: 84 }; }
+    catch { return { x: 360, y: 84 }; }
+  });
+  const dialog = useRef<HTMLElement>(null);
+  const positionRef = useRef(position); positionRef.current = position;
+  const drag = useRef<{ pointerId: number; offsetX: number; offsetY: number } | undefined>(undefined);
+  if (!open) return null;
+  const pointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return;
+    const rect = dialog.current?.getBoundingClientRect(); if (!rect) return;
+    drag.current = { pointerId: event.pointerId, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top };
+    event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault();
+  };
+  const pointerMove = (event: ReactPointerEvent<HTMLElement>) => {
+    if (drag.current?.pointerId !== event.pointerId || !dialog.current?.parentElement) return;
+    const parent = dialog.current.parentElement.getBoundingClientRect();
+    const next = { x: Math.max(8, Math.min(event.clientX - parent.left - drag.current.offsetX, parent.width - width - 8)),
+      y: Math.max(8, Math.min(event.clientY - parent.top - drag.current.offsetY, parent.height - dialog.current.offsetHeight - 32)) };
+    positionRef.current = next; setPosition(next);
+  };
+  const pointerUp = (event: ReactPointerEvent<HTMLElement>) => {
+    if (drag.current?.pointerId !== event.pointerId) return;
+    drag.current = undefined;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    window.localStorage.setItem(storageKey, JSON.stringify(positionRef.current));
+  };
+  const confirm = async () => {
+    try { await onConfirm(); }
+    catch (error) {
+      // Ant Form owns field validation feedback; unexpected command failures remain observable.
+      if (!(error && typeof error === "object" && "errorFields" in error)) throw error;
+    }
+  };
+  return <section ref={dialog} className="cad-command-dialog" role="dialog" aria-modal="false" aria-label={String(title)}
+    style={{ left: position.x, top: position.y, width }}>
+    <header className="cad-command-dialog-header" onPointerDown={pointerDown} onPointerMove={pointerMove}
+      onPointerUp={pointerUp} onPointerCancel={pointerUp} onLostPointerCapture={pointerUp}>
+      <strong>{title}</strong><button aria-label="关闭" title="关闭" onPointerDown={(event) => event.stopPropagation()}
+        onClick={onClose}><CloseOutlined /></button>
+    </header>
+    <div className="cad-command-dialog-body">{children}</div>
+    <footer className="cad-command-dialog-footer"><Button onClick={onClose}>{cancelText}</Button>
+      <Button type="primary" loading={confirmLoading} onClick={() => void confirm()}>{confirmText}</Button></footer>
+  </section>;
+}

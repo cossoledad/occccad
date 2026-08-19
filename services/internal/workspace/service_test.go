@@ -133,6 +133,34 @@ func TestLegacyVerticalSliceUsesTypedHandlersAndStableParameterFacades(t *testin
 	}
 }
 
+func TestPadIntentProducesStableCandidateFeatureIdentity(t *testing.T) {
+	t.Parallel()
+	model := newPartModel()
+	model.Features = append(model.Features, testRectangleSketch("sketch-preview", "XY"))
+	modelJSON, _ := json.Marshal(model)
+	request := CommandRequest{RequestID: "pad-intent-1", Type: "PAD_SKETCH", SketchID: "sketch-preview", Length: 25}
+	_, first, err := (&Service{}).adaptLegacyCommand(context.Background(), "part-1", "PART", modelJSON, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, second, err := (&Service{}).adaptLegacyCommand(context.Background(), "part-1", "PART", modelJSON, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID := first.(createFeaturePayload).Feature.ID
+	if second.(createFeaturePayload).Feature.ID != firstID {
+		t.Fatal("preview and commit of one intent must produce the same feature identity")
+	}
+	request.RequestID = "pad-intent-2"
+	_, other, err := (&Service{}).adaptLegacyCommand(context.Background(), "part-1", "PART", modelJSON, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.(createFeaturePayload).Feature.ID == firstID {
+		t.Fatal("different intents must not share a feature identity")
+	}
+}
+
 func testRectangleSketch(id, plane string) Feature {
 	operations, _ := rectangleMacro(id, SketchPoint2{0, 0}, SketchPoint2{20, 10})
 	sketch := &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}}
@@ -390,6 +418,25 @@ func TestSketchStructureProjectsEntitiesConstraintsAndDeleteCapabilities(t *test
 	}
 	if len(children[0].Children[0].Capabilities) != 0 || len(children[0].Children[3].Capabilities) != 0 {
 		t.Fatal("datum planes and axis systems must never expose delete capability")
+	}
+}
+
+func TestSketchIntrinsicGeometryUsesStableConstraintReferences(t *testing.T) {
+	t.Parallel()
+	sketch := SketchFeature{SchemaVersion: 1,
+		Entities: []SketchEntity{{ID: "line-1", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{2, 3}, End: &SketchPoint2{12, 3}}},
+		Constraints: []SketchConstraint{
+			{ID: "coincident-origin", Kind: "COINCIDENT", References: []SketchGeometryRef{
+				{Target: "ENTITY", EntityID: "line-1", SubElement: "START"}, {Target: "SKETCH_ORIGIN", SubElement: "POINT"}}},
+			{ID: "parallel-axis", Kind: "PARALLEL", References: []SketchGeometryRef{
+				{Target: "ENTITY", EntityID: "line-1", SubElement: "DIRECTION"}, {Target: "SKETCH_X_AXIS", SubElement: "DIRECTION"}}},
+		}}
+	if err := validateSketch(sketch); err != nil {
+		t.Fatalf("intrinsic sketch references must validate: %v", err)
+	}
+	sketch.Constraints[1].References[1].SubElement = "POINT"
+	if err := validateSketch(sketch); err == nil {
+		t.Fatal("axis references must reject non-direction sub-elements")
 	}
 }
 

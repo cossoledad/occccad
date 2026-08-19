@@ -26,10 +26,12 @@ export class CadMaterialFactory {
     }));
   }
 
-  point(color: number = this.theme.edge, size = 5): THREE.ShaderMaterial {
-    return this.withSharedCadUniforms(this.shaders.createMaterial("cad.point", {
-      uColor: new THREE.Color(color), uPointSize: size,
+  point(color: number = this.theme.edge, size = 5, depthTest = true): THREE.ShaderMaterial {
+    const material = this.withSharedCadUniforms(this.shaders.createMaterial("cad.point", {
+      uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uPointSize: size,
     }));
+    material.depthTest = depthTest;
+    return material;
   }
 
   setSectionPlane(enabled: boolean, plane?: THREE.Plane): void {
@@ -38,6 +40,10 @@ export class CadMaterialFactory {
   }
 
   setSelected(object: THREE.Object3D, selected: boolean): void {
+    this.setInteractionState(object, selected ? "selected" : "default");
+  }
+
+  setInteractionState(object: THREE.Object3D, state: "default" | "hover" | "selected"): void {
     object.traverse((child) => {
       const renderable = child as THREE.Mesh | THREE.LineSegments;
       if (!("material" in renderable) || !renderable.material) return;
@@ -45,15 +51,17 @@ export class CadMaterialFactory {
       for (const material of materials) {
         if (material instanceof THREE.MeshPhongMaterial && material.userData.cadMaterial === "surface") {
           const baseColor = Number(material.userData.baseColor ?? this.theme.surface);
-          material.color.setHex(selected ? this.theme.selected : baseColor);
-          material.emissive.setHex(selected ? 0x3d2100 : 0x000000);
-          material.emissiveIntensity = selected ? 0.32 : 0;
+          material.color.setHex(state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : baseColor);
+          material.emissive.setHex(state === "selected" ? this.theme.selectedEmissive : 0x000000);
+          material.emissiveIntensity = state === "selected" ? 0.32 : state === "hover" ? 0.12 : 0;
         } else if (material instanceof THREE.ShaderMaterial) {
           const selectedUniform = material.uniforms.uSelected;
-          if (selectedUniform) selectedUniform.value = selected ? 1 : 0;
+          const selectedColor = material.uniforms.uSelectedColor;
+          if (selectedColor) selectedColor.value.setHex(state === "hover" ? this.theme.hover : this.theme.selected);
+          if (selectedUniform) selectedUniform.value = state === "default" ? 0 : 1;
         } else if (material && "color" in material && material.color instanceof THREE.Color) {
           if (material.userData.baseColor === undefined) material.userData.baseColor = material.color.getHex();
-          material.color.setHex(selected ? this.theme.selected : Number(material.userData.baseColor));
+          material.color.setHex(state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : Number(material.userData.baseColor));
         }
       }
     });

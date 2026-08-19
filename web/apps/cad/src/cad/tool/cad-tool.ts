@@ -10,12 +10,14 @@ export type ToolViewportPort = {
   commitSketchOperations(operations: SketchOperation[]): void;
   hasActiveSketch(): boolean;
   sketchReferenceAt(x: number, y: number, kind: "COINCIDENT" | "PARALLEL"): SketchGeometryRef | null;
-  showReferencePreview(reference: SketchGeometryRef): void;
+  showReferencePreview(reference: SketchGeometryRef, retained?: SketchGeometryRef): void;
   clearReferencePreview(): void;
   setToolPrompt(prompt: string): void;
 };
 
 export type ToolContext = { viewport: ToolViewportPort };
+const sameSketchReference = (left: SketchGeometryRef, right: SketchGeometryRef): boolean =>
+  left.target === right.target && left.entityId === right.entityId && left.subElement === right.subElement;
 export interface CadTool {
   readonly id: string;
   activate?(context: ToolContext): void;
@@ -168,13 +170,18 @@ export class ConstraintSketchTool implements CadTool {
     if (event.button !== 0 || this.capturedPointerID !== undefined || !context.viewport.hasActiveSketch()) return InputResult.Ignored;
     const kind = this.kind;
     const reference = context.viewport.sketchReferenceAt(event.x, event.y, kind); if (!reference) return InputResult.Ignored;
-    this.capturedPointerID = event.pointerId;
     if (!this.first) {
+      this.capturedPointerID = event.pointerId;
       this.first = reference;
       context.viewport.showReferencePreview(reference);
       context.viewport.setToolPrompt(this.secondPrompt());
       return InputResult.Capture;
     }
+    if (sameSketchReference(this.first, reference)) {
+      context.viewport.showReferencePreview(this.first);
+      return InputResult.Consumed;
+    }
+    this.capturedPointerID = event.pointerId;
     const first = this.first; this.first = undefined;
     context.viewport.clearReferencePreview();
     context.viewport.commitSketchOperations([{ type: "ADD_CONSTRAINT", constraint: { id: crypto.randomUUID(), kind, references: [first, reference] } }]);
@@ -193,10 +200,18 @@ export class ConstraintSketchTool implements CadTool {
     return InputResult.Consumed;
   }
   pointerMove(event: CadPointerEvent, context: ToolContext): InputResult {
-    if (this.first || event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
+    if (event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
     const reference = context.viewport.sketchReferenceAt(event.x, event.y, this.kind);
-    if (!reference) { context.viewport.clearReferencePreview(); return InputResult.Ignored; }
-    context.viewport.showReferencePreview(reference);
+    if (!reference) {
+      if (this.first) context.viewport.showReferencePreview(this.first);
+      else context.viewport.clearReferencePreview();
+      return InputResult.Ignored;
+    }
+    if (this.first && sameSketchReference(this.first, reference)) {
+      context.viewport.showReferencePreview(this.first);
+      return InputResult.Consumed;
+    }
+    context.viewport.showReferencePreview(reference, this.first);
     return InputResult.Consumed;
   }
   keyDown(event: CadKeyboardEvent, context: ToolContext): InputResult {

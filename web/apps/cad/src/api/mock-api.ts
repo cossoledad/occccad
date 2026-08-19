@@ -400,10 +400,23 @@ export const mockApi: CadApi = {
     summaries.unshift(copy.document); views.set(copy.document.id, copy); histories.set(copy.document.id, []); return pause(copy);
   },
   command,
+  previewCommand: async (documentID, input, signal) => {
+    if (signal?.aborted) throw new DOMException("Preview cancelled", "AbortError");
+    const view = getView(documentID);
+    if (input.type !== "PAD_SKETCH" || !view.part) throw new Error("Mock preview currently supports PAD_SKETCH only");
+    const sketch = view.part.features.find((feature) => feature.id === input.sketchId)?.sketch;
+    const points = sketch?.entities.flatMap((entity) => [entity.start, entity.end]).filter(Boolean) as Array<{x:number;y:number}>;
+    if (!points?.length) throw new Error("Preview profile is empty");
+    const xs = points.map((point) => point.x), ys = points.map((point) => point.y);
+    const artifact = boxArtifact(id("mock-preview"), [Math.max(...xs)-Math.min(...xs), Math.max(...ys)-Math.min(...ys), Number(input.length)]);
+    return pause({ previewId: id("mock-command-preview"), baseVersionId: view.document.versionId,
+      baseSequence: 0, modelHash: "mock-preview", artifact });
+  },
   createSketch: async (documentID, plane) => command(documentID, { type: "CREATE_SKETCH", plane }),
   editSketch: async (documentID, sketchID, operations) => command(documentID, { type: "EDIT_SKETCH", sketchId: sketchID, operations }),
   deleteNode: async (documentID, targetKind, targetID, ownerEntityID) => command(documentID, { type: "DELETE_NODE", targetKind, targetId: targetID, ownerEntityId: ownerEntityID }),
-  pad: async (documentID, sketchID, length) => command(documentID, { type: "PAD_SKETCH", sketchId: sketchID, length }),
+  pad: async (documentID, sketchID, length, intentRequestID) => command(documentID, { type: "PAD_SKETCH", sketchId: sketchID, length,
+    ...(intentRequestID ? { requestId: intentRequestID } : {}) }),
   insert: async (documentID, referencedDocumentID, name) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID, name }),
   move: async (documentID, instanceID, translation) => command(documentID, { type: "MOVE_INSTANCE", instanceId: instanceID, translation }),
   setReferenceMode: async (documentID, instanceID, referenceMode) => command(documentID, { type: "SET_REFERENCE_MODE", instanceId: instanceID, referenceMode }),

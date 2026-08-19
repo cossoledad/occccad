@@ -22,6 +22,7 @@ import (
 	"github.com/occccad/occccad/internal/authn"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
+	"github.com/occccad/occccad/internal/modelcore"
 	"github.com/occccad/occccad/internal/workspace"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -211,6 +212,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{documentID}/workspaces", server.branchDocumentWorkspace)
 	mux.HandleFunc("POST /api/documents/{documentID}/versions", server.createVersion)
 	mux.HandleFunc("POST /api/documents/{documentID}/commands", server.applyCommand)
+	mux.HandleFunc("POST /api/documents/{documentID}/command-previews", server.previewCommand)
 	mux.HandleFunc("GET /api/exchange/capabilities", server.exchangeCapabilities)
 	mux.HandleFunc("POST /api/exchange/imports", server.startExchangeImport)
 	mux.HandleFunc("POST /api/exchange/exports", server.startExchangeExport)
@@ -737,6 +739,37 @@ func (server *Server) applyCommand(writer http.ResponseWriter, request *http.Req
 	result, err := server.workspace.ApplyCommand(
 		request.Context(), request.PathValue("documentID"), input)
 	server.writeDocumentResult(writer, request, result, err)
+}
+
+func (server *Server) previewCommand(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleEditor); !ok {
+		return
+	}
+	var input workspace.CommandRequest
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	input.ActorID = principal(request).ID
+	ctx, cancel := context.WithTimeout(request.Context(), 15*time.Second)
+	defer cancel()
+	result, err := server.workspace.PreviewCommand(ctx, request.PathValue("documentID"), input)
+	if err == nil {
+		writeJSON(writer, http.StatusOK, result)
+		return
+	}
+	if errors.Is(err, workspace.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return
+	}
+	if errors.Is(err, workspace.ErrValidation) || errors.Is(err, modelcore.ErrInvalidCommand) || errors.Is(err, modelcore.ErrUnsupportedCommand) {
+		writeError(writer, http.StatusBadRequest, err.Error())
+		return
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		writeError(writer, http.StatusGatewayTimeout, "command preview timed out")
+		return
+	}
+	writeError(writer, http.StatusInternalServerError, err.Error())
 }
 
 func decodeJSON(writer http.ResponseWriter, request *http.Request, value any) bool {

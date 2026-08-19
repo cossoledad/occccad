@@ -50,7 +50,7 @@ export class SelectionIndex {
       const binding = bindings.get(intersection.object.uuid);
       return binding ? { intersection, binding } : undefined;
     }).filter((value): value is { intersection: THREE.Intersection; binding: PickBinding } => Boolean(value));
-    candidates.sort((left, right) => Math.abs(left.intersection.distance - right.intersection.distance) < 1.0e-3
+    candidates.sort((left, right) => Math.abs(left.intersection.distance - right.intersection.distance) < 0.75
       ? right.binding.priority - left.binding.priority : left.intersection.distance - right.intersection.distance);
     return candidates[0]?.binding.resolve(candidates[0].intersection) ?? null;
   }

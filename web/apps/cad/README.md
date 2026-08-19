@@ -9,6 +9,9 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 - Three.js 精确网格显示、基准面、选择/预选与结构树联动；Specification Tree 展开草图几何与约束，按服务端 capability 提供删除，实体删除原子级联其引用约束；
 - 草图矩形交互、拉伸、实例插入/移动、Undo/Redo；
 - Default/CATIA 导航 Profile、Pointer Capture、快捷键上下文和 Overlay；
+- 统一 CAD 语义色与 hover/selected/snap 层次；草图创建支持原点、点/端点、中点、线投影和 10 mm 网格吸附；
+- Pad、Insert、命名版本使用可拖动非模态命令面板；Pad 数值 blur/Enter 后请求后端复用正式 typed command、Sketch Solver 与 Part evaluator 生成非持久化精确预览，提交才创建 Revision；
+- 草图原点和 H/V 基准轴是自动带入、可约束选择的稳定内在引用；第一次约束选择与第二候选同时高亮，点、端点、捕获点和拓扑顶点统一显示为 X 形；
 - TanStack Query 管理服务端状态，Zustand 管理工作台交互状态；
 - Mock Adapter，以及真实 REST + WebSocket 双平面 Adapter；
 - 工作台通过 `occccad.realtime.v1` 订阅文档，建模命令走关联请求响应，其他浏览器提交后由 Outbox event 触发权威状态刷新；

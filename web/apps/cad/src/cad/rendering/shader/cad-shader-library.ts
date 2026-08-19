@@ -53,11 +53,11 @@ export class CadShaderLibrary {
       uniforms,
       vertexShader: definition.vertexShader,
       fragmentShader: definition.fragmentShader,
-      transparent: definition.transparent,
-      depthTest: definition.depthTest,
-      depthWrite: definition.depthWrite,
-      side: definition.side,
-      vertexColors: definition.vertexColors,
+      ...(definition.transparent === undefined ? {} : { transparent: definition.transparent }),
+      ...(definition.depthTest === undefined ? {} : { depthTest: definition.depthTest }),
+      ...(definition.depthWrite === undefined ? {} : { depthWrite: definition.depthWrite }),
+      ...(definition.side === undefined ? {} : { side: definition.side }),
+      ...(definition.vertexColors === undefined ? {} : { vertexColors: definition.vertexColors }),
       toneMapped: false,
     });
     material.userData.cadShaderProgram = id;
@@ -177,6 +177,8 @@ export class CadShaderLibrary {
     this.register("cad.point", {
       uniforms: {
         uColor: { value: new THREE.Color() },
+        uSelectedColor: { value: new THREE.Color() },
+        uSelected: { value: 0 },
         uPointSize: { value: 5 },
         ...sectionUniforms(),
       },
@@ -192,13 +194,16 @@ export class CadShaderLibrary {
       `,
       fragmentShader: `
         uniform vec3 uColor;
+        uniform vec3 uSelectedColor;
+        uniform float uSelected;
         varying vec3 vWorldPosition;
         ${sectionFragment}
         void main() {
           applyCadSection();
           vec2 p = gl_PointCoord - 0.5;
-          if (dot(p, p) > 0.25) discard;
-          gl_FragColor = vec4(uColor, 1.0);
+          float diagonal = min(abs(p.x - p.y), abs(p.x + p.y));
+          if (max(abs(p.x), abs(p.y)) > 0.48 || diagonal > 0.085) discard;
+          gl_FragColor = vec4(mix(uColor, uSelectedColor, uSelected), 1.0);
           #include <colorspace_fragment>
         }
       `,

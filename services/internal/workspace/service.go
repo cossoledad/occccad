@@ -365,6 +365,17 @@ type CommandRequest struct {
 	ActorID              string            `json:"-"`
 }
 
+// CommandPreview is a non-persistent evaluation of the same typed command
+// used by ApplyCommand. The base revision lets clients reject a response that
+// arrived after the workspace head changed.
+type CommandPreview struct {
+	PreviewID     string    `json:"previewId"`
+	BaseVersionID string    `json:"baseVersionId"`
+	BaseSequence  uint64    `json:"baseSequence"`
+	ModelHash     string    `json:"modelHash"`
+	Artifact      *Artifact `json:"artifact,omitempty"`
+}
+
 type HistoryEntry struct {
 	Position    int    `json:"position"`
 	VersionID   string `json:"versionId"`

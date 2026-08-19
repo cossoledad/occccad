@@ -1,4 +1,4 @@
-import type { AuditEvent, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, SketchOperation, Team, TopologyElementProperties, User, Vec3 } from "./types";
+import type { AuditEvent, CommandPreview, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, SketchOperation, Team, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
 
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
@@ -152,14 +152,19 @@ export const restApi = {
   }),
   command: (documentId: string, command: Record<string, unknown>) =>
     realtime.executeCommand(documentId, { requestId: requestId(), ...command }),
+  previewCommand: (documentId: string, command: Record<string, unknown>, signal?: AbortSignal) =>
+    request<CommandPreview>(`/api/documents/${documentId}/command-previews`, {
+      method: "POST", signal, body: JSON.stringify({ requestId: requestId(), ...command }),
+    }),
   createSketch: (documentId: string, plane: string) =>
     restApi.command(documentId, { type: "CREATE_SKETCH", plane }),
   editSketch: (documentId: string, sketchId: string, operations: SketchOperation[]) =>
     restApi.command(documentId, { type: "EDIT_SKETCH", sketchId, operations }),
   deleteNode: (documentId: string, targetKind: string, targetId: string, ownerEntityId?: string) =>
     restApi.command(documentId, { type: "DELETE_NODE", targetKind, targetId, ownerEntityId }),
-  pad: (documentId: string, sketchId: string, length: number) =>
-    restApi.command(documentId, { type: "PAD_SKETCH", sketchId, length }),
+  pad: (documentId: string, sketchId: string, length: number, intentRequestId?: string) =>
+    restApi.command(documentId, { type: "PAD_SKETCH", sketchId, length,
+      ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
   insert: (documentId: string, referencedDocumentId: string, name: string) =>
     restApi.command(documentId, {
       type: "INSERT_INSTANCE", referencedDocumentId, name, translation: [0, 0, 0],

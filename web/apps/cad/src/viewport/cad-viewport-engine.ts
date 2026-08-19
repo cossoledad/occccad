@@ -8,6 +8,8 @@ import type { InputState } from "../cad/input/input-types";
 import { InteractionRouter } from "../cad/interaction/interaction-router";
 import { SelectionController } from "../cad/interaction/selection-controller";
 import { sameSelection, SelectionIndex } from "../cad/interaction/selection-index";
+import { resolveSketchReference } from "../cad/interaction/sketch-reference-pick";
+import { resolveSketchSnap, type SketchSnapResult } from "../cad/interaction/sketch-snap";
 import { NavigationController, type NavigationSnapshot } from "../cad/navigation/navigation-controller";
 import { CatiaNavigationHUD } from "../cad/navigation/hud/catia-navigation-hud";
 import { CAD_GEOMETRY_LAYER, markNavigationPickable, NavigationPicker } from "../cad/navigation/navigation-picker";
@@ -48,7 +50,7 @@ export type ViewportDebugState = {
   hudScreen?: { x: number; y: number };
 };
 
-const planeColors: Record<PlaneName, number> = { XY: 0x3b82f6, XZ: 0x22c55e, YZ: 0xef4444 };
+const planeColors: Record<PlaneName, number> = { XY: CATIA_VISUAL_THEME.axisZ, XZ: CATIA_VISUAL_THEME.axisY, YZ: CATIA_VISUAL_THEME.axisX };
 
 function localToWorld(plane: PlaneName, point: Vec2): THREE.Vector3 {
   if (plane === "XY") return new THREE.Vector3(point[0], point[1], 0);
@@ -63,14 +65,14 @@ function worldToLocal(plane: PlaneName, point: THREE.Vector3): Vec2 {
 }
 
 function sketchDiagnosticColor(status: string | undefined, construction = false): number {
-  if (construction) return 0x9aa5aa;
+  if (construction) return CATIA_VISUAL_THEME.sketchConstruction;
   switch (status) {
-  case "SOLVED": return 0x56d879;
+  case "SOLVED": return CATIA_VISUAL_THEME.sketchSolved;
   case "CONFLICTING":
   case "FAILED":
-  case "INVALID_MODEL": return 0xff5252;
-  case "REDUNDANT": return 0xd878ff;
-  default: return 0xffffff;
+  case "INVALID_MODEL": return CATIA_VISUAL_THEME.sketchInvalid;
+  case "REDUNDANT": return CATIA_VISUAL_THEME.sketchRedundant;
+  default: return CATIA_VISUAL_THEME.sketchProfile;
   }
 }
 
@@ -145,6 +147,8 @@ export class CadViewportEngine {
   private activeSketchID?: string;
   private preview?: THREE.Object3D;
   private referencePreview?: THREE.Object3D;
+  private snapPreview?: THREE.Object3D;
+  private commandPreview?: THREE.Object3D;
   private suppressNextSelection = false;
   private activeToolID = "select";
   private navigationProfile: NavigationProfileID = "default";
@@ -254,6 +258,7 @@ export class CadViewportEngine {
   }
 
   render(view: DocumentView): void {
+    this.clearCommandPreview();
     this.view = view;
     this.transform.detach();
     this.disposeGroup(this.content);
@@ -273,6 +278,7 @@ export class CadViewportEngine {
   }
 
   clear(): void {
+    this.clearCommandPreview();
     this.view = undefined;
     this.transform.detach();
     this.disposeGroup(this.content);
@@ -309,6 +315,7 @@ export class CadViewportEngine {
     this.activeSketchID = undefined;
     this.host.classList.remove("drawing");
     this.tools.cancel();
+    this.clearSnapPreview();
     this.navigation.setEnabled(true);
     this.disposeGroup(this.sketchContext);
     this.updateSketchContextVisibility();
@@ -327,6 +334,25 @@ export class CadViewportEngine {
 
   fit(): void {
     this.frameContent();
+  }
+
+  previewArtifact(artifact: Artifact): void {
+    this.clearCommandPreview();
+    if (!artifact.mesh.vertices.length || !artifact.mesh.triangles.length) return;
+    const geometry = makeGeometry(artifact);
+    const group = new THREE.Group();
+    const solid = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({ color: CATIA_VISUAL_THEME.commandPreview,
+      transparent: true, opacity: 0.34, depthWrite: false, side: THREE.DoubleSide }));
+    const edges = new THREE.LineSegments(makeFeatureEdges(geometry),
+      new THREE.LineBasicMaterial({ color: CATIA_VISUAL_THEME.preview, transparent: true, opacity: 0.9, depthTest: false }));
+    solid.renderOrder = 90; edges.renderOrder = 91; group.add(solid, edges);
+    this.scene.add(group); this.commandPreview = group; this.invalidate();
+  }
+
+  clearCommandPreview(): void {
+    if (!this.commandPreview) return;
+    this.scene.remove(this.commandPreview); this.disposeRenderable(this.commandPreview);
+    this.commandPreview = undefined; this.invalidate();
   }
 
   setStandardView(view: "TOP" | "FRONT" | "RIGHT" | "ISO"): void {
@@ -350,17 +376,17 @@ export class CadViewportEngine {
   select(selection: Selection, notify = true): void {
     this.selected = selection;
     this.transform.detach();
-    for (const object of this.selectable.values()) this.applyHighlight(object, false);
-    for (const object of this.selectionIndex.objectsFor(selection)) this.applyHighlight(object, true);
+    for (const object of this.selectable.values()) this.applyHighlight(object, "default");
+    for (const object of this.selectionIndex.objectsFor(selection)) this.applyHighlight(object, "selected");
     this.replaceTopologyOverlay("selected", selection);
     if (!sameSelection(this.preselected, selection)) {
-      for (const object of this.selectionIndex.objectsFor(this.preselected)) this.applyHighlight(object, true);
+      for (const object of this.selectionIndex.objectsFor(this.preselected)) this.applyHighlight(object, "hover");
       this.replaceTopologyOverlay("preselected", this.preselected);
     } else this.replaceTopologyOverlay("preselected", null);
     if (selection) {
       const object = this.selectable.get(`${selection.kind}:${selection.id}`);
       if (object) {
-        this.applyHighlight(object, true);
+        this.applyHighlight(object, "selected");
         if (selection.kind === "instance" && object instanceof THREE.Group) this.transform.attach(object);
       }
     }
@@ -371,11 +397,11 @@ export class CadViewportEngine {
   preselect(selection: Selection, notify = false): void {
     if (sameSelection(this.preselected, selection)) return;
     for (const object of this.selectionIndex.objectsFor(this.preselected)) {
-      if (!this.selectionIndex.objectsFor(this.selected).includes(object)) this.applyHighlight(object, false);
+      if (!this.selectionIndex.objectsFor(this.selected).includes(object)) this.applyHighlight(object, "default");
     }
     this.preselected = selection;
     for (const object of this.selectionIndex.objectsFor(selection)) {
-      if (!this.selectionIndex.objectsFor(this.selected).includes(object)) this.applyHighlight(object, true);
+      if (!this.selectionIndex.objectsFor(this.selected).includes(object)) this.applyHighlight(object, "hover");
     }
     this.replaceTopologyOverlay("preselected", sameSelection(selection, this.selected) ? null : selection);
     if (notify) this.callbacks.preselectionChanged(selection);
@@ -392,6 +418,8 @@ export class CadViewportEngine {
     this.toolShortcutDispose?.();
     this.clearPreview();
     this.clearReferencePreview();
+    this.clearSnapPreview();
+    this.clearCommandPreview();
     this.transform.detach();
     this.transform.dispose();
     this.navigationHUD.dispose();
@@ -569,7 +597,7 @@ export class CadViewportEngine {
     for (const primitive of visualization.primitives ?? []) {
       if (primitive.positions.length === 0) continue;
       const construction = primitive.role === "CONSTRUCTION";
-      const color = primitive.semantic === "SKETCH_CONSTRAINT" ? 0x61d27c
+      const color = primitive.semantic === "SKETCH_CONSTRAINT" ? CATIA_VISUAL_THEME.constraint
         : sketchDiagnosticColor(primitive.status, construction);
       const geometry = new THREE.BufferGeometry().setFromPoints(
         primitive.positions.map((position) => new THREE.Vector3().fromArray(position)),
@@ -577,12 +605,11 @@ export class CadViewportEngine {
       let object: THREE.Object3D;
       const type = visualType(primitive);
       if (primitive.kind === "POINTS") {
-        object = new THREE.Points(geometry,
-          new THREE.PointsMaterial({ color, size: 9, sizeAttenuation: false, depthTest: false }));
+        object = new THREE.Points(geometry, this.materials.point(color, 9, false));
       } else if (primitive.kind === "POLYLINE") {
         object = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, depthTest: false }));
       } else if (primitive.kind === "LINE_SEGMENTS") {
-        object = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: 0x61d27c, depthTest: false }));
+        object = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: CATIA_VISUAL_THEME.constraint, depthTest: false }));
       } else {
         if (!primitive.indices || primitive.indices.length < 3) { geometry.dispose(); continue; }
         geometry.setIndex(primitive.indices);
@@ -612,23 +639,27 @@ export class CadViewportEngine {
   private buildSketchContext(): void {
     this.disposeGroup(this.sketchContext);
     if (!this.sketchPlane) return;
-    const gridPositions: number[] = [];
+    const minorGridPositions: number[] = [];
+    const majorGridPositions: number[] = [];
     for (let coordinate = -100; coordinate <= 100; coordinate += 10) {
       for (const [first, second] of [
         [[coordinate, -100], [coordinate, 100]], [[-100, coordinate], [100, coordinate]],
       ] as Array<[Vec2, Vec2]>) {
         for (const point of [first, second]) {
           const world = localToWorld(this.sketchPlane, point);
-          gridPositions.push(world.x, world.y, world.z);
+          const target = coordinate % 50 === 0 ? majorGridPositions : minorGridPositions;
+          target.push(world.x, world.y, world.z);
         }
       }
     }
-    const grid = new THREE.LineSegments(
-      new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(gridPositions, 3)),
-      new THREE.LineBasicMaterial({ color: 0x8ca0aa, transparent: true, opacity: 0.16, depthTest: false }),
-    );
-    grid.renderOrder = 14;
-    this.sketchContext.add(grid);
+    const grid = (positions: number[], color: number, opacity: number) => {
+      const lines = new THREE.LineSegments(
+        new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(positions, 3)),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false }));
+      lines.renderOrder = 14; this.sketchContext.add(lines);
+    };
+    grid(minorGridPositions, CATIA_VISUAL_THEME.gridMinor, 0.16);
+    grid(majorGridPositions, CATIA_VISUAL_THEME.gridMajor, 0.3);
     const axis = (first: Vec2, second: Vec2, color: number) => {
       const line = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane!, first), localToWorld(this.sketchPlane!, second)]),
@@ -637,11 +668,11 @@ export class CadViewportEngine {
       line.renderOrder = 16;
       this.sketchContext.add(line);
     };
-    axis([-110, 0], [110, 0], 0xe75b52);
-    axis([0, -110], [0, 110], 0x55c878);
+    axis([-110, 0], [110, 0], CATIA_VISUAL_THEME.axisX);
+    axis([0, -110], [0, 110], CATIA_VISUAL_THEME.axisY);
     const origin = new THREE.Points(
       new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane, [0, 0])]),
-      new THREE.PointsMaterial({ color: 0xffffff, size: 9, sizeAttenuation: false, depthTest: false }),
+      this.materials.point(CATIA_VISUAL_THEME.sketchProfile, 11, false),
     );
     origin.renderOrder = 18;
     this.sketchContext.add(origin);
@@ -690,13 +721,17 @@ export class CadViewportEngine {
       let object: THREE.Object3D | undefined;
       if (entity.kind === "POINT" && entity.point) {
         object = new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(plane, [entity.point.x, entity.point.y])]),
-          new THREE.PointsMaterial({ color: sketchDiagnosticColor(feature.sketch?.solve.status, entity.role === "CONSTRUCTION"), size: 9, sizeAttenuation: false, depthTest: false }));
+          this.materials.point(sketchDiagnosticColor(feature.sketch?.solve.status, entity.role === "CONSTRUCTION"), 9, false));
         object.renderOrder = 22;
       } else if (entity.kind === "LINE" && entity.start && entity.end) {
+        const endpoints = [localToWorld(plane, [entity.start.x, entity.start.y]), localToWorld(plane, [entity.end.x, entity.end.y])];
         object = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
-          localToWorld(plane, [entity.start.x, entity.start.y]), localToWorld(plane, [entity.end.x, entity.end.y]),
+          ...endpoints,
         ]), new THREE.LineBasicMaterial({ color: sketchDiagnosticColor(feature.sketch?.solve.status, entity.role === "CONSTRUCTION"), depthTest: false }));
         object.renderOrder = 20;
+        const endpointMarkers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(endpoints),
+          this.materials.point(CATIA_VISUAL_THEME.vertex, 8, false));
+        endpointMarkers.userData = { sketchEntityOverlay: true }; endpointMarkers.renderOrder = 21; group.add(endpointMarkers);
       }
       if (!object) continue;
       object.userData = { ...entitySelection, sketchEntityOverlay: true }; group.add(object);
@@ -713,7 +748,7 @@ export class CadViewportEngine {
       if (constraint.kind === "COINCIDENT") {
         const point = referencedPoint(constraint.references[0]);
         if (point) constraintGroup.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(plane, point)]),
-          new THREE.PointsMaterial({ color: 0x61d27c, size: 8, sizeAttenuation: false, depthTest: false })));
+          this.materials.point(CATIA_VISUAL_THEME.constraint, 8, false)));
       }
       if (constraint.kind === "PARALLEL") {
         for (const reference of constraint.references.filter((item) => item.target === "ENTITY")) {
@@ -729,14 +764,14 @@ export class CadViewportEngine {
             ticks.push(localToWorld(plane,[center[0]-perpendicular[0]*2,center[1]-perpendicular[1]*2]),localToWorld(plane,[center[0]+perpendicular[0]*2,center[1]+perpendicular[1]*2]));
           }
           constraintGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(ticks),
-            new THREE.LineBasicMaterial({ color: 0x61d27c, depthTest: false })));
+            new THREE.LineBasicMaterial({ color: CATIA_VISUAL_THEME.constraint, depthTest: false })));
         }
       }
       if (constraint.kind === "FIXED_POINT") {
         const point = constraint.fixedPoint ? [constraint.fixedPoint.x, constraint.fixedPoint.y] as Vec2
           : referencedPoint(constraint.references[0]);
         if (point) constraintGroup.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(plane, point)]),
-          new THREE.PointsMaterial({ color: 0x61d27c, size: 11, sizeAttenuation: false, depthTest: false })));
+          this.materials.point(CATIA_VISUAL_THEME.constraint, 11, false)));
       }
       if (constraintGroup.children.length === 0) continue;
       constraintGroup.userData = constraintSelection;
@@ -803,7 +838,7 @@ export class CadViewportEngine {
     if (topologyVertices.length > 0) {
       const pointGeometry = new THREE.BufferGeometry();
       pointGeometry.setAttribute("position", new THREE.Float32BufferAttribute(topologyVertices.flatMap((item) => item.point), 3));
-      const points = new THREE.Points(pointGeometry, this.materials.point(0x1f2a30, 6));
+      const points = new THREE.Points(pointGeometry, this.materials.point(CATIA_VISUAL_THEME.vertex, 7));
       this.selectionIndex.registerPick(points, (hit) => {
         const localID = topologyVertices[hit.index ?? 0]?.localId ?? 0;
         return {
@@ -850,7 +885,7 @@ export class CadViewportEngine {
     if (!selection || (selection.kind !== "face" && selection.kind !== "edge" && selection.kind !== "vertex")) return;
     const binding = this.solidBindings.get(selection.occurrencePath || "root");
     if (!binding || !selection.topologyId) return;
-    const color = layer === "selected" ? 0xff8a00 : 0xffc640;
+    const color = layer === "selected" ? CATIA_VISUAL_THEME.selected : CATIA_VISUAL_THEME.hover;
     let overlay: THREE.Object3D | undefined;
     if (selection.kind === "face") {
       const positions: number[] = [];
@@ -875,10 +910,7 @@ export class CadViewportEngine {
       const vertex = (binding.artifact.mesh.topologyVertices ?? []).find((item) => item.localId === selection.topologyId);
       if (vertex) {
         const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3().fromArray(vertex.point)]);
-        overlay = new THREE.Points(geometry, new THREE.PointsMaterial({
-          color, size: layer === "selected" ? 9 : 7,
-          sizeAttenuation: false, depthTest: false
-        }));
+        overlay = new THREE.Points(geometry, this.materials.point(color, layer === "selected" ? 11 : 9, false));
       }
     }
     if (!overlay) return;
@@ -891,7 +923,37 @@ export class CadViewportEngine {
     this.updatePointer(x, y);
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const point = this.raycaster.ray.intersectPlane(rayPlane(this.sketchPlane), new THREE.Vector3());
-    return point ? worldToLocal(this.sketchPlane, point) : null;
+    if (!point) { this.clearSnapPreview(); return null; }
+    const raw = worldToLocal(this.sketchPlane, point);
+    const active = this.view?.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch;
+    const screen = (local: Vec2) => {
+      const projected = localToWorld(this.sketchPlane!, local).project(this.camera);
+      return [(projected.x + 1) * this.renderer.domElement.clientWidth / 2,
+        (1 - projected.y) * this.renderer.domElement.clientHeight / 2] as Vec2;
+    };
+    const first = screen(raw), second = screen([raw[0] + 1, raw[1]]);
+    const pixelsPerUnit = Math.max(Math.hypot(second[0] - first[0], second[1] - first[1]), 1.0e-6);
+    const snap = resolveSketchSnap(raw, active?.entities ?? [], pixelsPerUnit);
+    if (snap) this.showSnapPreview(snap); else this.clearSnapPreview();
+    return snap?.point ?? raw;
+  }
+
+  private showSnapPreview(snap: SketchSnapResult): void {
+    this.clearSnapPreview();
+    if (!this.sketchPlane) return;
+    const center = localToWorld(this.sketchPlane, snap.point);
+    const group = new THREE.Group();
+    const marker = new THREE.Points(new THREE.BufferGeometry().setFromPoints([center]),
+      this.materials.point(CATIA_VISUAL_THEME.snap, 15, false));
+    marker.renderOrder = 35;
+    group.userData.snapKind = snap.kind;
+    group.add(marker); this.scene.add(group); this.snapPreview = group; this.invalidate();
+  }
+
+  private clearSnapPreview(): void {
+    if (!this.snapPreview) return;
+    this.scene.remove(this.snapPreview); this.disposeRenderable(this.snapPreview);
+    this.snapPreview = undefined; this.invalidate();
   }
 
   private updatePointer(x: number, y: number): void {
@@ -906,7 +968,7 @@ export class CadViewportEngine {
     const points = localPoints.map((point) => localToWorld(plane, point));
     this.preview = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(points),
-      new THREE.LineBasicMaterial({ color: 0xffffff }),
+      new THREE.LineBasicMaterial({ color: CATIA_VISUAL_THEME.preview, depthTest: false }),
     );
     this.scene.add(this.preview);
     this.invalidate();
@@ -916,7 +978,7 @@ export class CadViewportEngine {
     this.clearPreview();
     this.preview = new THREE.Points(
       new THREE.BufferGeometry().setFromPoints([localToWorld(plane, point)]),
-      new THREE.PointsMaterial({ color: 0xffa126, size: 11, sizeAttenuation: false, depthTest: false }),
+      this.materials.point(CATIA_VISUAL_THEME.preview, 11, false),
     );
     this.preview.renderOrder = 28;
     this.scene.add(this.preview);
@@ -939,37 +1001,58 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
-  private showReferencePreview(reference: SketchGeometryRef): void {
-    this.clearReferencePreview();
-    if (!this.sketchPlane || !this.view || !reference.entityId) return;
+  private makeReferencePreview(reference: SketchGeometryRef, color: number): THREE.Object3D | undefined {
+    if (!this.sketchPlane) return undefined;
+    if (reference.target === "SKETCH_ORIGIN") {
+      return new THREE.Points(
+        new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane, [0, 0])]),
+        this.materials.point(color, 15, false),
+      );
+    }
+    if (reference.target === "SKETCH_X_AXIS" || reference.target === "SKETCH_Y_AXIS") {
+      const points: [Vec2, Vec2] = reference.target === "SKETCH_X_AXIS"
+        ? [[-110, 0], [110, 0]] : [[0, -110], [0, 110]];
+      return new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points.map((point) => localToWorld(this.sketchPlane!, point))),
+        new THREE.LineBasicMaterial({ color, depthTest: false }),
+      );
+    }
+    if (!this.view || !reference.entityId) return undefined;
     const entity = this.view.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch?.entities
       .find((candidate) => candidate.id === reference.entityId);
-    if (!entity) return;
+    if (!entity) return undefined;
     if (entity.kind === "POINT" && entity.point && reference.subElement === "POINT") {
-      this.referencePreview = new THREE.Points(
+      return new THREE.Points(
         new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane, [entity.point.x, entity.point.y])]),
-        new THREE.PointsMaterial({ color: 0xff9800, size: 13, sizeAttenuation: false, depthTest: false }),
+        this.materials.point(color, 15, false),
       );
-      this.referencePreview.renderOrder = 30;
-      this.scene.add(this.referencePreview);
-      this.invalidate();
-      return;
     }
-    if (entity.kind !== "LINE" || !entity.start || !entity.end) return;
+    if (entity.kind !== "LINE" || !entity.start || !entity.end) return undefined;
     const start = localToWorld(this.sketchPlane, [entity.start.x, entity.start.y]);
     const end = localToWorld(this.sketchPlane, [entity.end.x, entity.end.y]);
     if (reference.subElement === "DIRECTION") {
-      this.referencePreview = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints([start, end]),
-        new THREE.LineBasicMaterial({ color: 0xff9800, depthTest: false }),
-      );
-    } else {
-      this.referencePreview = new THREE.Points(
-        new THREE.BufferGeometry().setFromPoints([reference.subElement === "START" ? start : end]),
-        new THREE.PointsMaterial({ color: 0xff9800, size: 13, sizeAttenuation: false, depthTest: false }),
-      );
+      return new THREE.Line(new THREE.BufferGeometry().setFromPoints([start, end]),
+        new THREE.LineBasicMaterial({ color, depthTest: false }));
     }
+    return new THREE.Points(
+      new THREE.BufferGeometry().setFromPoints([reference.subElement === "START" ? start : end]),
+      this.materials.point(color, 15, false),
+    );
+  }
+
+  private showReferencePreview(reference: SketchGeometryRef, retained?: SketchGeometryRef): void {
+    this.clearReferencePreview();
+    const group = new THREE.Group();
+    const same = retained && retained.target === reference.target && retained.entityId === reference.entityId &&
+      retained.subElement === reference.subElement;
+    if (retained && !same) {
+      const first = this.makeReferencePreview(retained, CATIA_VISUAL_THEME.selected); if (first) group.add(first);
+    }
+    const candidate = this.makeReferencePreview(reference, CATIA_VISUAL_THEME.snap); if (candidate) group.add(candidate);
+    if (group.children.length === 0) return;
+    this.referencePreview = group;
     this.referencePreview.renderOrder = 30;
+    this.referencePreview.traverse((child) => { child.renderOrder = 30; });
     this.scene.add(this.referencePreview);
     this.invalidate();
   }
@@ -983,11 +1066,11 @@ export class CadViewportEngine {
       showPointPreview: (point) => {
         if (this.sketchPlane) this.drawPointPreview(point, this.sketchPlane);
       },
-      clearToolPreview: () => this.clearPreview(),
-      commitSketchOperations: (operations) => this.callbacks.sketchOperations(operations),
+      clearToolPreview: () => { this.clearPreview(); this.clearSnapPreview(); },
+      commitSketchOperations: (operations) => { this.clearSnapPreview(); this.callbacks.sketchOperations(operations); },
       hasActiveSketch: () => Boolean(this.sketchPlane && this.activeSketchID),
       sketchReferenceAt: (x, y, kind) => this.sketchReferenceAt(x, y, kind),
-      showReferencePreview: (reference) => this.showReferencePreview(reference),
+      showReferencePreview: (reference, retained) => this.showReferencePreview(reference, retained),
       clearReferencePreview: () => this.clearReferencePreview(),
       setToolPrompt: (prompt) => this.callbacks.toolPromptChanged(prompt),
     };
@@ -997,37 +1080,12 @@ export class CadViewportEngine {
     if (!this.sketchPlane || !this.view) return null;
     const width = Math.max(this.renderer.domElement.clientWidth, 1);
     const height = Math.max(this.renderer.domElement.clientHeight, 1);
-    let best: { distance: number; entityId: string; subElement: "POINT" | "START" | "END" | "DIRECTION" } | undefined;
     const screen = (point: Vec2) => {
       const projected = localToWorld(this.sketchPlane!, point).project(this.camera);
       return { x: (projected.x + 1) * width / 2, y: (1 - projected.y) * height / 2 };
     };
-    const segmentDistance = (point: {x:number;y:number}, start: {x:number;y:number}, end: {x:number;y:number}) => {
-      const dx=end.x-start.x, dy=end.y-start.y, length=dx*dx+dy*dy;
-      const t=length===0?0:Math.max(0,Math.min(1,((point.x-start.x)*dx+(point.y-start.y)*dy)/length));
-      return Math.hypot(point.x-(start.x+t*dx),point.y-(start.y+t*dy));
-    };
-    for (const feature of this.view.part?.features ?? []) {
-      if (feature.id !== this.activeSketchID) continue;
-      for (const entity of feature.sketch?.entities ?? []) {
-        if (kind === "COINCIDENT" && entity.kind === "POINT" && entity.point) {
-          const point=screen([entity.point.x,entity.point.y]);
-          const distance=Math.hypot(x-point.x,y-point.y);
-          if (distance < (best?.distance ?? 12)) best={distance,entityId:entity.id,subElement:"POINT"};
-          continue;
-        }
-        if (entity.kind !== "LINE" || !entity.start || !entity.end) continue;
-        const start=screen([entity.start.x,entity.start.y]), end=screen([entity.end.x,entity.end.y]);
-        if (kind === "PARALLEL") {
-          const distance=segmentDistance({x,y},start,end); if (distance < (best?.distance ?? 12)) best={distance,entityId:entity.id,subElement:"DIRECTION"};
-        } else {
-          for (const candidate of [{point:start,subElement:"START" as const},{point:end,subElement:"END" as const}]) {
-            const distance=Math.hypot(x-candidate.point.x,y-candidate.point.y); if (distance < (best?.distance ?? 12)) best={distance,entityId:entity.id,subElement:candidate.subElement};
-          }
-        }
-      }
-    }
-    return best ? { target:"ENTITY" as const, entityId:best.entityId, subElement:best.subElement } : null;
+    const entities = this.view.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch?.entities ?? [];
+    return resolveSketchReference({ x, y }, entities, screen, kind);
   }
 
   private refreshShortcutContexts(): void {
@@ -1068,18 +1126,18 @@ export class CadViewportEngine {
     this.refreshContentBounds();
   }
 
-  private applyHighlight(object: THREE.Object3D, selected: boolean): void {
-    this.materials.setSelected(object, selected);
+  private applyHighlight(object: THREE.Object3D, state: "default" | "hover" | "selected"): void {
+    this.materials.setInteractionState(object, state);
     object.traverse((child) => {
       const material = (child as THREE.Mesh).material;
       if (material instanceof THREE.MeshBasicMaterial) {
-        material.opacity = selected ? 0.28 : 0.075;
+        material.opacity = state === "selected" ? 0.28 : state === "hover" ? 0.18 : 0.075;
       } else if (material instanceof THREE.LineBasicMaterial) {
         material.userData.baseColor ??= material.color.getHex();
-        material.color.setHex(selected ? 0xffffff : Number(material.userData.baseColor));
+        material.color.setHex(state === "selected" ? CATIA_VISUAL_THEME.selected : state === "hover" ? CATIA_VISUAL_THEME.hover : Number(material.userData.baseColor));
       } else if (material instanceof THREE.PointsMaterial) {
         material.userData.baseColor ??= material.color.getHex();
-        material.color.setHex(selected ? 0xffffff : Number(material.userData.baseColor));
+        material.color.setHex(state === "selected" ? CATIA_VISUAL_THEME.selected : state === "hover" ? CATIA_VISUAL_THEME.hover : Number(material.userData.baseColor));
       }
     });
   }

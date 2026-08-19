@@ -27,6 +27,14 @@ export type Artifact = {
 	visualization: VisualizationManifest;
 };
 
+export type CommandPreview = {
+  previewId: string;
+  baseVersionId: string;
+  baseSequence: number;
+  modelHash: string;
+  artifact?: Artifact;
+};
+
 export type DatumPlane = { id: string; name: string; plane: PlaneName; origin: Vec3; normal: Vec3; size: number };
 export type AxisSystem = { id: string; name: string; origin: Vec3; xDirection: Vec3; yDirection: Vec3; zDirection: Vec3 };
 export type ReferenceGeometry = { datumPlanes: DatumPlane[]; axisSystems: AxisSystem[] };

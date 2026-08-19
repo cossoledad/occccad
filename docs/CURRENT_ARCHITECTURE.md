@@ -273,7 +273,9 @@ flowchart TD
     Query --> Adapter{"Mock or HTTP adapter"}
 ```
 
-Three.js 被封装在 Viewport Engine 内，页面层不应直接操作 Scene/Renderer/Controls。统一输入系统处理 Pointer/Keyboard、导航、Tool、Selection、快捷键上下文和 Overlay。Sketcher 使用显式 `activeSketchID + plane`，不根据共面草图顺序猜测编辑目标；进入后显示独立 H/V 轴、原点和网格，只显示活动草图。Point、Line、端点和约束标记使用不同渲染 primitive，求解诊断以白/绿/紫/红显示。Point、Line、Rectangle 命令保持连续有效；两点命令支持点击—移动预览—点击，Esc 先取消当前采集、再次 Esc 返回选择；两阶段约束选择提供 hover/首选高亮和状态提示。
+Three.js 被封装在 Viewport Engine 内，页面层不应直接操作 Scene/Renderer/Controls。统一输入系统处理 Pointer/Keyboard、导航、Tool、Selection、快捷键上下文和 Overlay。语义视觉主题统一定义背景、实体、边、顶点、草图轮廓/构造线、约束、求解诊断、hover、selected、preview、snap、网格和轴色；hover 使用青色，持久选择使用琥珀色，所有点、端点、原点和拓扑顶点使用像素稳定的 X 形 shader，点/边/面以独立 overlay 和拾取优先级表达层次。Sketcher 使用显式 `activeSketchID + plane`，不根据共面草图顺序猜测编辑目标；进入后自动显示并开放稳定引用的 H/V 轴与原点，以及 10 mm 次网格/50 mm 主网格。Point、Line、Rectangle 的输入坐标经过统一纯函数吸附，优先级为原点/点/端点、中点、线投影、网格，并显示瞬态 snap 标记；Coincident 可引用 `SKETCH_ORIGIN`，Parallel 可引用 `SKETCH_X_AXIS/SKETCH_Y_AXIS`；两点命令支持点击—移动预览—点击，Esc 先取消当前采集、再次 Esc 返回选择；两阶段约束选择同时保留第一引用高亮和当前候选高亮。
+
+工作台的 Pad、Insert 和命名版本输入使用统一、可拖动、无遮罩的 `CommandDialog`，因此命令打开时仍可选择和检查视口对象。Pad 面板在数值字段 blur 或 Enter 后调用 `POST /api/documents/{documentID}/command-previews`；服务端在当前 Head 上复用正式 command adapter、typed handler、Sketch Solver 和 Part evaluator，返回带 base Revision 与 evaluator provenance 的精确 Artifact，但不创建 Revision、历史、Outbox 或推进 Workspace。一个面板会话的预览和提交共享稳定 request identity，迟到或 base 已变化的响应由客户端丢弃，新的预览会取消旧请求，服务端交互求值最长 15 秒。内容寻址几何缓存可以复用，取消、关闭、提交或收到新的权威 DocumentView 时清理视口预览。
 
 Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端行为或权限正确性的证明。
 

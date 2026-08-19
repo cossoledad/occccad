@@ -3,12 +3,14 @@ import type { CommandRegistry } from "../cad/command/command-registry";
 import { InputDebugOverlay, type InputDebugSnapshot } from "../cad/overlay/input-debug-overlay";
 import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
 import type { WorkbenchToolID } from "../state/workbench-store";
-import type { DocumentView, PlaneName, Selection, SketchOperation, Vec3 } from "../types";
+import type { Artifact, DocumentView, PlaneName, Selection, SketchOperation, Vec3 } from "../types";
 import { CadViewportEngine } from "./cad-viewport-engine";
 
 export type CadViewportHandle = {
   fit: () => void;
   setStandardView: (view: "TOP" | "FRONT" | "RIGHT" | "ISO") => void;
+  previewArtifact: (artifact: Artifact) => void;
+  clearCommandPreview: () => void;
 };
 
 type Props = {
@@ -70,6 +72,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useImperativeHandle(ref, () => ({
     fit: () => engine.current?.fit(),
     setStandardView: (view) => engine.current?.setStandardView(view),
+    previewArtifact: (artifact) => engine.current?.previewArtifact(artifact),
+    clearCommandPreview: () => engine.current?.clearCommandPreview(),
   }), []);
 
   return <><div ref={host} className="cad-viewport-canvas" />

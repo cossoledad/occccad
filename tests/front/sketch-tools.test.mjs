@@ -19,11 +19,15 @@ try {
   } = await server.ssrLoadModule("/src/cad/tool/cad-tool.ts");
   const { buildSketchRenderModel } = await server.ssrLoadModule("/src/cad/rendering/sketch-render-model.ts");
   const { visualSelection, visualType } = await server.ssrLoadModule("/src/cad/rendering/visualization-render-model.ts");
+  const { resolveSketchSnap } = await server.ssrLoadModule("/src/cad/interaction/sketch-snap.ts");
+  const { resolveSketchReference } = await server.ssrLoadModule("/src/cad/interaction/sketch-reference-pick.ts");
+  const { CadShaderLibrary } = await server.ssrLoadModule("/src/cad/rendering/shader/cad-shader-library.ts");
   const operations = [];
   const prompts = [];
   const previews = [];
   const references = [
     { target: "ENTITY", entityId: "line-a", subElement: "END" },
+    { target: "ENTITY", entityId: "line-b", subElement: "START" },
     { target: "ENTITY", entityId: "line-b", subElement: "START" },
   ];
   const viewport = {
@@ -34,7 +38,7 @@ try {
     commitSketchOperations: (value) => operations.push(value),
     hasActiveSketch: () => true,
     sketchReferenceAt: () => references.shift() ?? null,
-    showReferencePreview: (value) => previews.push(value),
+    showReferencePreview: (value, retained) => previews.push({ reference: value, retained }),
     clearReferencePreview: () => previews.push("clear-reference"),
     setToolPrompt: (value) => prompts.push(value),
   };
@@ -87,6 +91,8 @@ try {
   coincident.activate(context);
   coincident.pointerDown(pointer(0, 0, "down"), context);
   coincident.pointerUp(pointer(0, 0, "up"), context);
+  assert.equal(coincident.pointerMove(pointer(4, 0), context), "consumed");
+  assert.deepEqual(previews.at(-1), { reference: references[0], retained: { target: "ENTITY", entityId: "line-a", subElement: "END" } });
   coincident.pointerDown(pointer(0, 0, "down"), context);
   coincident.pointerUp(pointer(0, 0, "up"), context);
   assert.equal(operations[3][0].constraint.kind, "COINCIDENT");
@@ -102,6 +108,30 @@ try {
   assert.deepEqual(renderModel.profileLines, [[0, 0], [2, 0]]);
   assert.deepEqual(renderModel.endpoints, [[0, 0], [2, 0]]);
 
+  const snapEntities = [{ id: "line-a", kind: "LINE", role: "PROFILE",
+    start: { x: 0, y: 0 }, end: { x: 20, y: 0 } }];
+  assert.deepEqual(resolveSketchSnap([0.7, 0.4], snapEntities, 10), {
+    point: [0, 0], kind: "ORIGIN", distancePixels: Math.hypot(0.7, 0.4) * 10,
+  });
+  const endpointSnap = resolveSketchSnap([19.4, 0.2], snapEntities, 10);
+  assert.deepEqual({ ...endpointSnap, distancePixels: undefined }, {
+    point: [20, 0], kind: "ENDPOINT", distancePixels: undefined, entityId: "line-a", subElement: "END",
+  });
+  assert.ok(Math.abs(endpointSnap.distancePixels - Math.hypot(0.6, 0.2) * 10) < 1e-10);
+  assert.equal(resolveSketchSnap([30.1, 24.9], [], 1)?.kind, "GRID");
+  assert.equal(resolveSketchSnap([10.2, 0.6], snapEntities, 10)?.kind, "MIDPOINT");
+  const project = ([x, y]) => ({ x: x * 10, y: y * 10 });
+  assert.deepEqual(resolveSketchReference({ x: 3, y: 2 }, snapEntities, project, "COINCIDENT"),
+    { target: "SKETCH_ORIGIN", subElement: "POINT" });
+  assert.deepEqual(resolveSketchReference({ x: 198, y: 1 }, snapEntities, project, "COINCIDENT"),
+    { target: "ENTITY", entityId: "line-a", subElement: "END" });
+  assert.deepEqual(resolveSketchReference({ x: 400, y: 2 }, [], project, "PARALLEL"),
+    { target: "SKETCH_X_AXIS", subElement: "DIRECTION" });
+  assert.deepEqual(resolveSketchReference({ x: 2, y: 400 }, [], project, "PARALLEL"),
+    { target: "SKETCH_Y_AXIS", subElement: "DIRECTION" });
+  const pointMaterial = new CadShaderLibrary().createMaterial("cad.point");
+  assert.match(pointMaterial.fragmentShader, /abs\(p\.x - p\.y\)/);
+  pointMaterial.dispose();
   const persistedLine = { id: "line-1", featureId: "sketch-1", kind: "POLYLINE",
     semantic: "SKETCH_CURVE", role: "PROFILE", positions: [[0, 0, 0], [2, 0, 0]], selectable: true };
   assert.equal(visualType(persistedLine), "CURVE");
