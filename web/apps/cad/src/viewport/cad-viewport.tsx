@@ -25,6 +25,7 @@ type Props = {
   onSelectionChange: (selection: Selection) => void;
   onPreselectionChange: (selection: Selection) => void;
   onSketchOperations: (operations: SketchOperation[]) => void;
+  onToolUseComplete: () => void;
   onInstanceMoved: (instanceID: string, translation: Vec3) => void;
 };
 
@@ -43,6 +44,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       selectionChanged: (selection) => callbacks.current.onSelectionChange(selection),
       preselectionChanged: (selection) => callbacks.current.onPreselectionChange(selection),
       sketchOperations: (operations) => callbacks.current.onSketchOperations(operations),
+      toolUseCompleted: () => callbacks.current.onToolUseComplete(),
       toolPromptChanged: setToolPrompt,
       instanceMoved: (instanceID, translation) => callbacks.current.onInstanceMoved(instanceID, translation),
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,

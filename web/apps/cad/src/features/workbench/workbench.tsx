@@ -20,12 +20,16 @@ import { CommandRegistry } from "../../cad/command/command-registry";
 import { CommandDialog, FloatingToolbar, ToolbarGroup, ToolbarSeparator } from "../../cad/overlay/floating-panel";
 import { ToolButton } from "../../cad/overlay/tool-button";
 import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
-import { useWorkbenchStore } from "../../state/workbench-store";
+import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
 import type { DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, PlaneName, Selection, SketchOperation, TopologyElementProperties, Vec3 } from "../../types";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
+const sketchToolCommands:WorkbenchToolID[]=["sketch.rectangle","sketch.polygon","sketch.slot","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline",
+  "sketch.constraint.coincident","sketch.constraint.parallel","sketch.constraint.fixed","sketch.constraint.horizontal","sketch.constraint.vertical",
+  "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.constraint.distance","sketch.constraint.length",
+  "sketch.constraint.radius","sketch.constraint.diameter","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint"];
 
 function featureIcon(feature: Feature) {
   if (feature.type.toUpperCase().includes("SKETCH")) return <ScissorOutlined />;
@@ -309,19 +313,14 @@ export function Workbench() {
       return selection?.kind === "instance" ? view?.product?.instances.find((instance) => instance.id === selection.id) : undefined;
     };
     const disposers = [
-      commandRegistry.register({ id: "tool.select", execute: () => store.setActiveTool("select"),
+      commandRegistry.register({ id: "tool.select", execute: () => store.setActiveTool("select", "once"),
         isActive: () => store.activeToolID === "select" }),
       commandRegistry.register({ id: "sketch.start", execute: startSketch,
         isVisible: () => view?.document.type === "PART", isEnabled: () => Boolean(canEdit && (store.selection?.kind === "plane" || store.selection?.kind === "sketch")) }),
       commandRegistry.register({ id: "sketch.finish", execute: store.endSketch,
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit) }),
-      commandRegistry.register({ id: "sketch.rectangle", execute: () => store.setActiveTool("sketch.rectangle"),
-        isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane),
-        isActive: () => store.activeToolID === "sketch.rectangle" }),
-      commandRegistry.register({ id: "sketch.point", execute: () => store.setActiveTool("sketch.point"), isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane), isActive: () => store.activeToolID === "sketch.point" }),
-      commandRegistry.register({ id: "sketch.line", execute: () => store.setActiveTool("sketch.line"), isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane), isActive: () => store.activeToolID === "sketch.line" }),
-      commandRegistry.register({ id: "sketch.constraint.coincident", execute: () => store.setActiveTool("sketch.constraint.coincident"), isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane), isActive: () => store.activeToolID === "sketch.constraint.coincident" }),
-      commandRegistry.register({ id: "sketch.constraint.parallel", execute: () => store.setActiveTool("sketch.constraint.parallel"), isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && store.sketchPlane), isActive: () => store.activeToolID === "sketch.constraint.parallel" }),
+      ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,invocation?.continuous?"continuous":"once"),
+        isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane),isActive:()=>store.activeToolID===toolID})),
       commandRegistry.register({ id: "part.pad", execute: () => {
         if (store.selection?.kind !== "sketch") return;
         const sketchID = store.selection.id;
@@ -370,23 +369,38 @@ export function Workbench() {
           preselection={store.preselection}
           sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={store.navigationProfile}
           commandRegistry={commandRegistry} onSelectionChange={store.setSelection} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
+          onToolUseComplete={store.completeToolUse}
           onInstanceMoved={moveInstance} /></Suspense>
         {activeWorkbench === "PART_DESIGN" && <FloatingToolbar id="part-design" label="Part Design" position="top-left" className="part-design-toolbar">
           <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
             <ToolButton command="sketch.start" icon={<ScissorOutlined />} tooltip="选择基准面创建草图，或选择已有草图进入编辑" />
             <ToolButton command="part.pad" icon={<InsertRowAboveOutlined />} tooltip="拉伸所选草图" /></ToolbarGroup>
         </FloatingToolbar>}
-        {activeWorkbench === "SKETCHER" && <FloatingToolbar id="sketcher" label="Sketcher" position="top-left" className="sketcher-toolbar">
-          <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
-            <ToolButton command="sketch.point" icon={<AimOutlined />} tooltip="点" />
-            <ToolButton command="sketch.line" icon={<NodeIndexOutlined />} tooltip="直线" /></ToolbarGroup>
-          <ToolbarSeparator />
-          <ToolbarGroup><ToolButton command="sketch.constraint.coincident" icon={<GatewayOutlined />} tooltip="重合约束：选择两个端点" />
-            <ToolButton command="sketch.constraint.parallel" icon={<MenuUnfoldOutlined />} tooltip="平行约束：选择两条线" /></ToolbarGroup>
-          <ToolbarSeparator />
-          <ToolbarGroup><ToolButton command="sketch.rectangle" icon={<BorderOutlined />} tooltip="矩形聚合功能 (R)" />
-            <ToolButton command="sketch.finish" icon={<CheckOutlined />} tooltip="退出草图" /></ToolbarGroup>
-        </FloatingToolbar>}
+        {activeWorkbench === "SKETCHER" && <>
+          <FloatingToolbar id="sketch-geometry" label="草图几何" position="top-left" className="sketcher-toolbar sketch-geometry-toolbar">
+            <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
+              <ToolButton repeatable command="sketch.point" icon={<AimOutlined />} tooltip="点 · 单击绘制一次，双击连续绘制" />
+              <ToolButton repeatable command="sketch.line" icon={<NodeIndexOutlined />} tooltip="直线 · 单击绘制一次，双击连续绘制" />
+              <ToolButton repeatable command="sketch.circle" icon={<GatewayOutlined />} tooltip="圆 · 单击绘制一次，双击连续绘制" />
+              <ToolButton repeatable command="sketch.arc" icon={<CompressOutlined />} tooltip="圆弧 · 单击绘制一次，双击连续绘制" />
+              <ToolButton repeatable command="sketch.polyline" icon={<ShareAltOutlined />} tooltip="多段线 · 双击或 Enter 完成本次绘制" />
+              <ToolButton repeatable command="sketch.spline" icon={<NodeIndexOutlined />} tooltip="草图曲线 · 双击或 Enter 完成本次绘制" />
+              <ToolButton command="sketch.finish" icon={<CheckOutlined />} tooltip="退出草图" /></ToolbarGroup>
+          </FloatingToolbar>
+          <FloatingToolbar id="sketch-constraints" label="草图约束" position="top-left" className="sketcher-toolbar sketch-constraints-toolbar">
+            <ToolbarGroup><ToolButton repeatable command="sketch.constraint.coincident" icon={<GatewayOutlined />} tooltip="重合 · 单击约束一次，双击连续约束" />
+              <ToolButton repeatable command="sketch.constraint.parallel" icon={<MenuUnfoldOutlined />} tooltip="平行" />
+              {[["fixed","固定"],["horizontal","水平"],["vertical","竖直"],["perpendicular","垂直"],["tangent","相切"],["equal","相等"],
+                ["distance","距离"],["length","长度"],["radius","半径"],["diameter","直径"],["angle","角度"],["concentric","同心"],
+                ["point_on_object","点在对象上"],["midpoint","中点"]].map(([id,label])=><ToolButton key={id} repeatable command={`sketch.constraint.${id}`}
+                  icon={<GatewayOutlined />} tooltip={`${label} · 单击一次，双击连续`} label={label} />)}</ToolbarGroup>
+          </FloatingToolbar>
+          <FloatingToolbar id="sketch-aggregates" label="草图常用图形" position="top-left" className="sketcher-toolbar sketch-aggregates-toolbar">
+            <ToolbarGroup><ToolButton repeatable command="sketch.rectangle" icon={<BorderOutlined />} tooltip="矩形 (R) · 单击绘制一次，双击连续绘制" /></ToolbarGroup>
+            <ToolbarGroup><ToolButton repeatable command="sketch.polygon" icon={<GatewayOutlined />} tooltip="正六边形 · 单击绘制一次，双击连续绘制" label="正六边形" />
+              <ToolButton repeatable command="sketch.slot" icon={<CompressOutlined />} tooltip="长圆槽 · 单击绘制一次，双击连续绘制" label="长圆槽" /></ToolbarGroup>
+          </FloatingToolbar>
+        </>}
         {activeWorkbench === "ASSEMBLY_DESIGN" && <FloatingToolbar id="assembly-design" label="Assembly Design" position="top-left" className="assembly-design-toolbar">
           <ToolbarGroup><ToolButton command="tool.select" icon={<SelectOutlined />} tooltip="选择 (Esc)" />
             <ToolButton command="product.insert" icon={<ApartmentOutlined />} tooltip="插入 Part / Product" />

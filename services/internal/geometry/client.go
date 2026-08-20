@@ -24,6 +24,58 @@ type RectangularPad struct {
 	Plane                                   string
 }
 
+type ProfileCurve struct {
+	EntityID, Kind               string
+	Reversed                     bool
+	Start, End, Center           [2]float64
+	Radius, StartAngle, EndAngle float64
+	ControlPoints                [][2]float64
+	Degree                       uint32
+	Closed                       bool
+}
+type ProfileLoop struct {
+	ID     string
+	Curves []ProfileCurve
+}
+type ProfileRegion struct {
+	ID    string
+	Outer ProfileLoop
+	Holes []ProfileLoop
+}
+type ProfilePad struct {
+	Regions []ProfileRegion
+	Length  float64
+	Plane   string
+}
+
+func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
+	result := make([]*workerv1.ProfilePadSpec, 0, len(pads))
+	for _, pad := range pads {
+		value := &workerv1.ProfilePadSpec{PadLength: pad.Length, Units: "mm", Plane: pad.Plane}
+		loopProto := func(loop ProfileLoop) *workerv1.ProfileLoop {
+			output := &workerv1.ProfileLoop{Id: loop.ID}
+			for _, curve := range loop.Curves {
+				item := &workerv1.ProfileCurve{EntityId: curve.EntityID, Kind: curve.Kind, Reversed: curve.Reversed, Radius: curve.Radius, StartAngle: curve.StartAngle, EndAngle: curve.EndAngle, Degree: curve.Degree, Closed: curve.Closed,
+					Start: &workerv1.Vec2{X: curve.Start[0], Y: curve.Start[1]}, End: &workerv1.Vec2{X: curve.End[0], Y: curve.End[1]}, Center: &workerv1.Vec2{X: curve.Center[0], Y: curve.Center[1]}}
+				for _, point := range curve.ControlPoints {
+					item.ControlPoints = append(item.ControlPoints, &workerv1.Vec2{X: point[0], Y: point[1]})
+				}
+				output.Curves = append(output.Curves, item)
+			}
+			return output
+		}
+		for _, region := range pad.Regions {
+			item := &workerv1.ProfileRegion{Id: region.ID, Outer: loopProto(region.Outer)}
+			for _, hole := range region.Holes {
+				item.Holes = append(item.Holes, loopProto(hole))
+			}
+			value.Regions = append(value.Regions, item)
+		}
+		result = append(result, value)
+	}
+	return result
+}
+
 type ArtifactReference struct {
 	Backend, ObjectKey, SHA256, ContentType string
 	Size                                    int64
@@ -60,15 +112,35 @@ type SketchLine struct {
 	StartX, StartY, EndX, EndY float64
 	Role                       string
 }
+type SketchCircle struct {
+	ID, Role                 string
+	CenterX, CenterY, Radius float64
+}
+type SketchArc struct {
+	ID, Role                                       string
+	CenterX, CenterY, Radius, StartAngle, EndAngle float64
+}
+type SketchSpline struct {
+	ID, Role      string
+	ControlPoints [][2]float64
+	Degree        uint32
+	Closed        bool
+}
 type SketchReference struct{ Target, EntityID, SubElement string }
 type SketchConstraint struct {
 	ID, Kind       string
 	References     []SketchReference
 	FixedX, FixedY float64
+	Value          float64
+	Unit           string
+	Internal       bool
 }
 type SketchModel struct {
 	Points      []SketchPoint
 	Lines       []SketchLine
+	Circles     []SketchCircle
+	Arcs        []SketchArc
+	Splines     []SketchSpline
 	Constraints []SketchConstraint
 }
 type SketchSolve struct {
@@ -89,8 +161,21 @@ func (client *Client) SolveSketch(ctx context.Context, requestID string, model S
 	for _, line := range model.Lines {
 		input.Lines = append(input.Lines, &workerv1.SketchLine{Id: line.ID, Start: &workerv1.Vec2{X: line.StartX, Y: line.StartY}, End: &workerv1.Vec2{X: line.EndX, Y: line.EndY}, Role: line.Role})
 	}
+	for _, circle := range model.Circles {
+		input.Circles = append(input.Circles, &workerv1.SketchCircle{Id: circle.ID, Center: &workerv1.Vec2{X: circle.CenterX, Y: circle.CenterY}, Radius: circle.Radius, Role: circle.Role})
+	}
+	for _, arc := range model.Arcs {
+		input.Arcs = append(input.Arcs, &workerv1.SketchArc{Id: arc.ID, Center: &workerv1.Vec2{X: arc.CenterX, Y: arc.CenterY}, Radius: arc.Radius, StartAngle: arc.StartAngle, EndAngle: arc.EndAngle, Role: arc.Role})
+	}
+	for _, spline := range model.Splines {
+		value := &workerv1.SketchSpline{Id: spline.ID, Degree: spline.Degree, Closed: spline.Closed, Role: spline.Role}
+		for _, point := range spline.ControlPoints {
+			value.ControlPoints = append(value.ControlPoints, &workerv1.Vec2{X: point[0], Y: point[1]})
+		}
+		input.Splines = append(input.Splines, value)
+	}
 	for _, constraint := range model.Constraints {
-		value := &workerv1.SketchConstraint{Id: constraint.ID, Kind: constraint.Kind, FixedPoint: &workerv1.Vec2{X: constraint.FixedX, Y: constraint.FixedY}}
+		value := &workerv1.SketchConstraint{Id: constraint.ID, Kind: constraint.Kind, FixedPoint: &workerv1.Vec2{X: constraint.FixedX, Y: constraint.FixedY}, Value: constraint.Value, Unit: constraint.Unit, Internal: constraint.Internal}
 		for _, reference := range constraint.References {
 			value.References = append(value.References, &workerv1.SketchGeometryRef{Target: reference.Target, EntityId: reference.EntityID, SubElement: reference.SubElement})
 		}
@@ -106,6 +191,19 @@ func (client *Client) SolveSketch(ctx context.Context, requestID string, model S
 	}
 	for _, line := range response.GetSketch().GetLines() {
 		result.Model.Lines = append(result.Model.Lines, SketchLine{ID: line.GetId(), StartX: line.GetStart().GetX(), StartY: line.GetStart().GetY(), EndX: line.GetEnd().GetX(), EndY: line.GetEnd().GetY(), Role: line.GetRole()})
+	}
+	for _, circle := range response.GetSketch().GetCircles() {
+		result.Model.Circles = append(result.Model.Circles, SketchCircle{ID: circle.GetId(), CenterX: circle.GetCenter().GetX(), CenterY: circle.GetCenter().GetY(), Radius: circle.GetRadius(), Role: circle.GetRole()})
+	}
+	for _, arc := range response.GetSketch().GetArcs() {
+		result.Model.Arcs = append(result.Model.Arcs, SketchArc{ID: arc.GetId(), CenterX: arc.GetCenter().GetX(), CenterY: arc.GetCenter().GetY(), Radius: arc.GetRadius(), StartAngle: arc.GetStartAngle(), EndAngle: arc.GetEndAngle(), Role: arc.GetRole()})
+	}
+	for _, spline := range response.GetSketch().GetSplines() {
+		value := SketchSpline{ID: spline.GetId(), Degree: spline.GetDegree(), Closed: spline.GetClosed(), Role: spline.GetRole()}
+		for _, point := range spline.GetControlPoints() {
+			value.ControlPoints = append(value.ControlPoints, [2]float64{point.GetX(), point.GetY()})
+		}
+		result.Model.Splines = append(result.Model.Splines, value)
 	}
 	result.Model.Constraints = model.Constraints
 	return result, nil
@@ -259,6 +357,36 @@ func (client *Client) EvaluatePartFromArtifact(
 	response, err := client.worker.EvaluatePart(ctx, request, grpc.Header(&header))
 	if err != nil {
 		return nil, fmt.Errorf("evaluate Part feature chain: %w", err)
+	}
+	client.rememberWorker(ctx, geometryKey, header)
+	return response, nil
+}
+
+func (client *Client) EvaluateProfilePart(ctx context.Context, requestID, geometryKey string, pads []ProfilePad, baseBRep []byte) (*workerv1.EvaluatePartResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	var header metadata.MD
+	response, err := client.worker.EvaluatePart(ctx, &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
+		ProfilePads: profilePadsProto(pads), BaseBrepData: baseBRep, LinearDeflection: 0.1, AngularDeflection: 0.5}, grpc.Header(&header))
+	if err != nil {
+		return nil, fmt.Errorf("evaluate Part profile feature chain: %w", err)
+	}
+	client.rememberWorker(ctx, geometryKey, header)
+	return response, nil
+}
+
+func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, requestID, geometryKey string, pads []ProfilePad, baseBRep ArtifactReference, brepOutputKey, glbOutputKey string) (*workerv1.EvaluatePartResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	request := &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
+		ProfilePads: profilePadsProto(pads), LinearDeflection: 0.1, AngularDeflection: 0.5, BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey}
+	if baseBRep.ObjectKey != "" {
+		request.BaseBrepArtifact = artifactProto(baseBRep)
+	}
+	var header metadata.MD
+	response, err := client.worker.EvaluatePart(ctx, request, grpc.Header(&header))
+	if err != nil {
+		return nil, fmt.Errorf("evaluate Part profile feature chain: %w", err)
 	}
 	client.rememberWorker(ctx, geometryKey, header)
 	return response, nil

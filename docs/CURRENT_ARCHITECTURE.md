@@ -1,6 +1,6 @@
 # occccad 现有架构
 
-> 状态日期：2026-08-19
+> 状态日期：2026-08-20
 > 文档性质：事实基线。本文只描述当前仓库能够由源码、构建文件、数据库迁移和配置证明的行为；目标能力见[目标架构](TARGET_ARCHITECTURE.md)。
 
 ## 1. 结论
@@ -155,9 +155,11 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 
 ## 5. Part 几何求值链
 
-当前已不再保存 `origin + width + height` 测试矩形。Part 中的 `SKETCH` Feature 保存版本化 `SketchFeature v1`：Datum Plane support、具有稳定 ID 的 Point/Line、显式 GeometryRef、Constraint 和最近一次权威 solve 状态。线段持有自己的起终点；端点相接必须由 Coincident 明确表达。
+当前已不再保存 `origin + width + height` 测试矩形。Part 中的 `SKETCH` Feature 保存版本化 `SketchFeature v1`：Datum Plane support、具有稳定 ID 的 Point/Line/Circle/Arc/Spline、显式 GeometryRef、Constraint 和最近一次权威 solve 状态。线段、圆弧和开放曲线持有可稳定引用的端点；端点相接必须由 Coincident 明确表达，不能以浮点坐标接近替代模型关系。
 
-Geometry Worker 内的项目自有 `SketchSolver` 已通过 `SolveSketch` 粗粒度 RPC 接入提交链，PlaneGCS 只存在于适配层内部。当前支持 Point、Line 以及 Coincident、Parallel、FixedPoint，返回 SOLVED/UNDER_CONSTRAINED/INVALID/REDUNDANT/CONFLICTING/FAILED、DoF 和约束诊断。Web 的鼠标移动预览是瞬态确定性预览；`EDIT_SKETCH` 提交后服务端求解结果才会进入不可变 Revision。
+Geometry Worker 内的项目自有 `SketchSolver` 已通过 `SolveSketch` 粗粒度 RPC 接入提交链，PlaneGCS 只存在于适配层内部。当前支持 Coincident、Parallel、Fixed、Horizontal、Vertical、Perpendicular、Tangent、Equal、Distance、Length、Radius、Diameter、Angle、Concentric、PointOnObject 和 Midpoint；维度明确携带 `mm` 或 `deg`，返回 SOLVED/UNDER_CONSTRAINED/INVALID/REDUNDANT/CONFLICTING/FAILED、DoF 和约束诊断。宏生成的 `internal` 约束仍参与求解和冲突诊断，但其纯冗余项不阻止整个原子宏提交；用户显式添加的冗余约束继续报告 REDUNDANT。Spline 控制点当前参与持久化、自由度与固定/端点关系，尚未接入 PlaneGCS 的完整 B-Spline 相切/曲率约束。Web 的鼠标移动预览是瞬态确定性预览；`EDIT_SKETCH` 提交后服务端求解结果才会进入不可变 Revision。
+
+Pad 已不再调用四条轴对齐直线特判。OCCT-free Profile Builder 排除 Construction/Point，以 Coincident 等价类构建 Line/Arc/开放 Spline 端点图，并把 Circle/闭合 Spline 作为闭环；它拒绝开放端、T-junction、重叠/相交和自交，确定性遍历环，按包含深度区分外环、孔和岛，并生成稳定 ProfileLoop/ProfileRegion identity。`EvaluatePart.profile_pads` 将有向曲线和孔环送入 OCCT，后者构造 Edge/Wire/Face、执行 BRepCheck，再沿草图平面法向 Prism；一个草图中的多个偶数深度区域会一并拉伸。当前 Pad 仍以整个 Sketch 为 profile selection，尚未提供单独区域的视口选择。
 
 草图编辑的 ChangeSet 以最终写入 Revision 的求解后 `sketch.model` 为准，而不是命令处理器产生的求解前候选值；历史投影层能够独立读取和回写该稳定属性槽。Undo/Redo 还会从原事务不可变的 base/result Revision 重建实际 before/after，因此此前由求解前候选值生成的 ChangeSet 也可安全使用，且不放宽并发冲突检查。PlaneGCS 改写坐标、DoF 或诊断后，补偿和重放不会再产生候选值与 Revision 的 digest 冲突。
 
@@ -176,7 +178,7 @@ sequenceDiagram
     A->>R: EvaluatePart(model parameters, geometry key)
     R->>G: route coarse-grained request
     G->>G: SolveSketch entities + constraints
-    G->>G: rectangle profile -> Face -> Pad
+    G->>G: solved curves -> Profile regions/holes -> Face -> Pad
     G->>G: B-Rep + mesh + GLB + topology + hash
     G-->>A: EvaluatePartResponse
     A->>F: put B-Rep/GLB objects
@@ -186,7 +188,7 @@ sequenceDiagram
 
 GeometryId 是精确 Body B-Rep 的 SHA-256 内容标识，不绑定 Worker；`geometry_key` 标识带 evaluator 和 Part 显示语义的求值结果，因此两个结果可以共享 GeometryId，但拥有不同的可视化制品。几何输出包括 B-Rep、GLB、三角形、边折线、包围盒、拓扑计数和体积。新增几何已接入本地制品对象；历史表结构仍保留部分内联数据字段。
 
-每个 Part 求值结果还持有 schema v1 `VisualizationManifest`，并镜像到最终 GLB 的 `OCCCCAD_visualization` 扩展。Manifest 统一包含 DatumPlane/AxisSystem 和可选择的非实体 primitive；当前草图 Point 映射为 `POINTS`，Line 映射为 `POLYLINE`，约束符号映射为 `POINTS` 或 `LINE_SEGMENTS`，同时保存稳定 entity/constraint ID、所属 FeatureId、类型、PROFILE/CONSTRUCTION role、求解状态和 Part 坐标。协议预留 `TRIANGLES`，供后续独立曲面显示使用，但当前尚未交付三维曲线/曲面建模命令。对象存储路径会读取 Worker 基础 GLB、注入 Manifest 后再登记最终不可变 GLB，不依赖数据库旁路元数据。
+每个 Part 求值结果还持有 schema v1 `VisualizationManifest`，并镜像到最终 GLB 的 `OCCCCAD_visualization` 扩展。Manifest 统一包含 DatumPlane/AxisSystem 和可选择的非实体 primitive；当前草图 Point 映射为 `POINTS`，Line/Circle/Arc/Spline 映射为 `POLYLINE`，约束符号映射为 `POINTS` 或 `LINE_SEGMENTS`，同时保存稳定 entity/constraint ID、所属 FeatureId、类型、PROFILE/CONSTRUCTION role、求解状态和 Part 坐标。协议预留 `TRIANGLES`，供后续独立曲面显示使用，但当前尚未交付三维曲线/曲面建模命令。对象存储路径会读取 Worker 基础 GLB、注入 Manifest 后再登记最终不可变 GLB，不依赖数据库旁路元数据。
 
 Web 的 Part 与 Product occurrence 共用同一个 Visualization renderer 和 selection identity builder。Product 只在 Part primitive 上施加 occurrence Transform；不会重新解释 SketchModel，也不会维护装配专用草图副本。因此零件中的点线样式、约束符号、可见性和稳定选择会原样出现在装配中。结构树在每个 Sketch 下投影 Geometry 与 Constraints 分组及其稳定子节点；草图实体和每条约束的显示 primitive 与树节点共享 selection identity，支持 Part/Product 中的树/视口双向选择和预选高亮。约束 primitive 是带 provenance 的可重建显示制品，不是参数模型之外的第二份业务状态。
 
@@ -196,14 +198,14 @@ Web 的 Part 与 Product occurrence 共用同一个 Visualization renderer 和 s
 - 构建仅从 FreeCAD 官方仓库获取审计清单内的 PlaneGCS 源文件、必要支持头和许可证，每个文件都有 SHA-256 校验，不下载/链接 FreeCAD App、GUI 或 Python；
 - PlaneGCS 编译为独立 `liboccccad_planegcs.so`，Eigen 3.4.0 与 header-only Boost 1.86.0 由 Conan 显式提供；FreeCAD 配置与日志依赖由 Worker 内窄兼容头隔离；
 - Geometry Worker 持有项目自有 `SketchSolver`，业务头文件不暴露 `GCS::*`。构建目录同时输出 `LICENSE.FreeCAD-PlaneGCS`；
-- 当前测试验证 Rectangle 宏展开后的 4 Line + 4 Coincident + 4 axis Parallel 求解、4 DoF，以及未知实体引用在调用 PlaneGCS 前失败；Go 测试还验证宏对象 ID 的确定性和一个批次内 4 实体/8 约束的原子展开。曲线、尺寸约束、拖拽 RPC、deadline 和 corpus conformance 仍属于后续工作。
+- 当前测试验证 Rectangle 宏求解、未知引用失败、Circle Radius + Line Tangent、Profile 外环/孔、Arc + Line 混合闭环、开放/T-junction 诊断，以及 OCCT 圆环 Pad 的体积和有效拓扑。拖拽 RPC、完整 B-Spline 约束和大规模 corpus conformance 仍属于后续工作。
 
 ### 5.2 Geometry Worker 真实 RPC
 
 | RPC | 当前状态 | 说明 |
 |---|---|---|
 | `Ping` | 已实现 | 健康与 resident 数量 |
-| `EvaluatePart` | 已实现 | 矩形 Pad 链与基础 B-Rep |
+| `EvaluatePart` | 已实现 | ProfileRegion/孔环 Pad 链、基础 B-Rep；保留旧矩形字段作为当前开发期过渡入口 |
 | `SolveSketch` | 已实现 | GeometryPool Router 转发到 Worker，执行 SketchModel v1 的权威 PlaneGCS 求解与诊断 |
 | `InspectExchange` | 已实现 | 读取 STEP/BREP 制品清单，判定 Part 或可并行根组件 Product |
 | `ImportExchange` | 已实现 | 从 ArtifactReference 导入一个 STEP 根或 BREP，输出 B-Rep/GLB 制品引用 |
@@ -243,11 +245,18 @@ stateDiagram-v2
     RUNNING --> SUCCEEDED: durable result committed
     RUNNING --> RETRY_WAIT: failed, attempts remain
     RUNNING --> FAILED: attempts exhausted
+    QUEUED --> CANCELED: user cancel
+    RETRY_WAIT --> CANCELED: user cancel
+    RUNNING --> CANCELED: cooperative cancel
+    FAILED --> QUEUED: manual retry
+    CANCELED --> QUEUED: manual retry
     RUNNING --> RUNNING: heartbeat renews lease
     RUNNING --> RUNNING: expired lease reclaimed
 ```
 
-当前任务类型为 `EXCHANGE_IMPORT`、`EXCHANGE_EXPORT` 和 `THUMBNAIL_RENDER`。Exchange 导入先检查清单，再以最多 8 个并发调用导入独立根组件；每个组件形成带默认 DatumPlane、AxisSystem 和可扩展 `IMPORT_BODY` Feature 的 Part，多组件再形成引用这些 Part 的 Product。导入文档名使用经路径清理后的完整文件名，保留 `.step`/`.brep` 后缀。创建文档和后续命令共享稳定 request ID，任务重领后可继续未完成阶段。导出支持 Part 和展平后的 Product occurrence，最终格式为 STEP 或 BREP。Product STEP 导出对每个 occurrence 单独 Transfer 一个带 placement 的 root，因此当前展平 Product 导出再导入仍被识别为 Product，而不会因先合并为 compound 而退化为 Part。语义是至少一次，不是恰好一次；过时缩略图会被安全跳过，文档 Head 已改变的导出任务会失败以避免输出混合版本。
+当前任务类型为 `EXCHANGE_IMPORT`、`EXCHANGE_EXPORT` 和 `THUMBNAIL_RENDER`。任务可显式标记为用户可见；自动缩略图不进入消息中心。Exchange 导入先检查清单，再以最多 8 个并发调用导入独立根组件；每个组件形成带默认 DatumPlane、AxisSystem 和可扩展 `IMPORT_BODY` Feature 的 Part，多组件再形成引用这些 Part 的 Product。导入文档名使用经路径清理后的完整文件名，保留 `.step`/`.brep` 后缀。创建文档和后续命令共享稳定 request ID，任务重领后可继续未完成阶段。导出支持 Part 和展平后的 Product occurrence，最终格式为 STEP 或 BREP。Product STEP 导出对每个 occurrence 单独 Transfer 一个带 placement 的 root，因此当前展平 Product 导出再导入仍被识别为 Product，而不会因先合并为 compound 而退化为 Part。语义是至少一次，不是恰好一次；过时缩略图会被安全跳过，文档 Head 已改变的导出任务会失败以避免输出混合版本。
+
+用户可通过 `POST /api/jobs/{jobID}/cancel` 取消自己发起的排队或运行任务，并通过 `POST /api/jobs/{jobID}/retry` 让最终失败或已取消任务重新排队。运行任务每秒检查取消请求并取消其 Geometry 上下文；成功提交条件同时拒绝带取消请求的迟到结果。导入在进度 70% 进入正式文档提交阶段，此后不再开放取消，避免产生用户可见的半提交组件集合。Worker 在检查、几何转换、文档提交和制品登记等阶段单调更新进度。
 
 ### 7.2 ArtifactStore
 
@@ -255,7 +264,7 @@ stateDiagram-v2
 
 Document Center 的 `POST /api/exchange/imports` 接收原始 HTTP body，使用 `MaxBytesReader` 限制为 128 MiB，并直接以 `io.Reader` 流入 ArtifactStore；不使用 multipart、`ReadAll`、WebSocket 或 gRPC bytes 字段。`POST /api/exchange/exports` 只提交文档 ID、Head 和格式，`GET /api/jobs/{jobID}/download` 以流式响应下载结果。Geometry gRPC 只交换 opaque object key、digest、大小和媒体类型；当前 Worker 与 API/Jobs 通过相同 `OCCCCAD_DATA_DIR` 模拟对象存储。生产替换为 S3 signed upload/download 时，领域任务与 Worker 契约保持 ArtifactReference，不传本机绝对路径。
 
-Exchange HTTP 提交只等待上传落盘和 Job 入队，随后立即关闭对话框；浏览器不轮询等待几何处理。Jobs 在最终 `SUCCEEDED` 或最终 `FAILED` 状态转换的同一 SQL statement 中写入 `JOB` Outbox，API 将 `job.state.changed.v1` 仅推送给任务发起用户。若该用户没有可接收的 WebSocket 会话，事件保持 unpublished，直到至少一个会话接受；导出成功通知提供显式下载动作，导入成功后刷新 Document Center 并可直接打开新文档。
+Exchange HTTP 提交只等待上传落盘和 Job 入队，随后立即关闭对话框；浏览器不会让提交请求等待几何处理。Jobs 在最终 `SUCCEEDED`、最终 `FAILED` 或 `CANCELED` 状态转换的同一 SQL statement 中写入 `JOB` Outbox，API 将 `job.state.changed.v1` 仅推送给任务发起用户。若该用户没有可接收的 WebSocket 会话，事件保持 unpublished，直到至少一个会话接受。Web 顶部消息中心同时从 `GET /api/jobs` 恢复最近 100 条用户可见任务，因此错过瞬时通知或重新登录后仍能看到状态、失败原因、进度和下载/打开入口；仅在存在活动任务时每 2.5 秒刷新进度，终态仍由 WebSocket 立即提示。前端把持久 Job 投影为通用 ActivityItem，任务类型展示与动作注册集中在 activity 模块，未来其他持久消息来源可增加独立 projector 后合并，而不复制 Drawer 或任务状态机。
 
 当前 STEP 装配识别以 OCCT transferable root 为并行边界，能保存多根文件为 Product/Part 引用并保留根 Shape 自带放置；Product 导出同样保持“每个 occurrence 一个 transferable root”的当前对称契约。这只保证展平 Product 的类型和 placement round-trip；尚未使用 STEPCAF/XDE 恢复嵌套层级、名称、颜色、单位和共享实例关系，因此不能宣称完整 AP242 装配交换。
 
@@ -273,7 +282,7 @@ flowchart TD
     Query --> Adapter{"Mock or HTTP adapter"}
 ```
 
-Three.js 被封装在 Viewport Engine 内，页面层不应直接操作 Scene/Renderer/Controls。统一输入系统处理 Pointer/Keyboard、导航、Tool、Selection、快捷键上下文和 Overlay。语义视觉主题统一定义背景、实体、边、顶点、草图轮廓/构造线、约束、求解诊断、hover、selected、preview、snap、网格和轴色；hover 使用青色，持久选择使用琥珀色，所有点、端点、原点和拓扑顶点使用像素稳定的 X 形 shader，点/边/面以独立 overlay 和拾取优先级表达层次。Sketcher 使用显式 `activeSketchID + plane`，不根据共面草图顺序猜测编辑目标；进入后自动显示并开放稳定引用的 H/V 轴与原点，以及 10 mm 次网格/50 mm 主网格。Point、Line、Rectangle 的输入坐标经过统一纯函数吸附，优先级为原点/点/端点、中点、线投影、网格，并显示瞬态 snap 标记；Coincident 可引用 `SKETCH_ORIGIN`，Parallel 可引用 `SKETCH_X_AXIS/SKETCH_Y_AXIS`；两点命令支持点击—移动预览—点击，Esc 先取消当前采集、再次 Esc 返回选择；两阶段约束选择同时保留第一引用高亮和当前候选高亮。
+Three.js 被封装在 Viewport Engine 内，页面层不应直接操作 Scene/Renderer/Controls。统一输入系统处理 Pointer/Keyboard、导航、Tool、Selection、快捷键上下文和 Overlay。Sketcher 把绘制几何、约束、常用图形拆为三个可拖动 Toolbar；所有创建/约束按钮统一为单击执行一个逻辑操作后回到选择、双击进入连续模式。Point、Line、Circle、Arc、Polyline、Spline 和 Rectangle 共用完整手势生命周期；常用图形还提供正六边形和由 2 Line + 2 Arc 组成的长圆槽宏；Polyline/Spline 以双击或 Enter 结束本次多点采集。尺寸约束选择引用后直接键盘输入数值并 Enter 提交。语义视觉主题统一定义背景、实体、边、顶点、草图轮廓/构造线、约束、求解诊断、hover、selected、preview、snap、网格和轴色；Sketcher 使用显式 `activeSketchID + plane`，进入后自动显示稳定 H/V 轴、原点和网格。当前吸附只改变预览/提交坐标；除 Polyline、Rectangle、正六边形和长圆槽宏自动生成的内部 Coincident 外，独立工具之间的连接仍需用户显式添加 Coincident。
 
 工作台的 Pad、Insert 和命名版本输入使用统一、可拖动、无遮罩的 `CommandDialog`，因此命令打开时仍可选择和检查视口对象。Pad 面板在数值字段 blur 或 Enter 后调用 `POST /api/documents/{documentID}/command-previews`；服务端在当前 Head 上复用正式 command adapter、typed handler、Sketch Solver 和 Part evaluator，返回带 base Revision 与 evaluator provenance 的精确 Artifact，但不创建 Revision、历史、Outbox 或推进 Workspace。一个面板会话的预览和提交共享稳定 request identity，迟到或 base 已变化的响应由客户端丢弃，新的预览会取消旧请求，服务端交互求值最长 15 秒。内容寻址几何缓存可以复用，取消、关闭、提交或收到新的权威 DocumentView 时清理视口预览。
 
@@ -291,7 +300,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 - Web 锁定 pnpm 11.20.0，并执行 TypeScript 检查和 Vite 构建。
 - C++ Geometry Worker 使用 Conan 固定的 spdlog 1.15.3，同时写彩色控制台和按 Worker 地址隔离的滚动文件；默认文件位于 `services/logs/`，单文件 10 MiB、保留 5 个，级别复用 `OCCCCAD_LOG_LEVEL`。
 
-仓库级测试资产按语言集中在 `tests/cpp`、`tests/go` 和 `tests/front`，`models/` 保存不属于某个语言的真实 STEP/BREP 回归语料。`invoke test` 构建并运行 CTest、`services/` Go package tests、独立 `tests/go` module 和 Front 状态机测试；Geometry Worker `main` 只是服务入口，不再内置 `run_smoke` 测试分支。Go 工具链要求 package-private 白盒 `_test.go` 与被测 package 同目录，这些必要例外仍不进入生产二进制；跨包黑盒测试放在 `tests/go`。Web 的 `test:sketch` 使用 Vite SSR 加载真实 Tool 模块，覆盖 Rectangle 点击—移动—点击、Esc 分层取消、Point 标准元素提交、两阶段 Coincident 和 Point/Line 独立渲染数据；更完整的浏览器/WebGL E2E 仍待补充。
+仓库级测试资产按语言集中在 `tests/cpp`、`tests/go` 和 `tests/front`，`models/` 保存不属于某个语言的真实 STEP/BREP 回归语料。`invoke test` 构建并运行 CTest、`services/` Go package tests、独立 `tests/go` module 和 Front 状态机测试；Geometry Worker `main` 只是服务入口，不再内置 `run_smoke` 测试分支。Go 工具链要求 package-private 白盒 `_test.go` 与被测 package 同目录，这些必要例外仍不进入生产二进制；跨包黑盒测试放在 `tests/go`。Web 的 `test:sketch` 使用 Vite SSR 加载真实 Tool 模块，覆盖单次工具完成、Circle、Polyline 原子批次、尺寸键盘输入和两阶段 Coincident；更完整的浏览器/WebGL E2E 仍待补充。
 
 ## 10. 已实现与未实现矩阵
 
@@ -299,11 +308,11 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 |---|---|---|
 | Part/Product 文档与版本 | 已实现基础闭环 | Go workspace、迁移、REST/WebSocket API |
 | 账号、团队、ACL、审计 | 已实现基础闭环 | authn/access/API/迁移 |
-| 矩形草图与 Pad | 已实现 | Web 命令、Proto、OCCT Worker |
+| 通用闭合草图与 Pad | 已实现基础闭环 | Profile Builder、ProfilePad Proto、OCCT Edge/Wire/Face/Prism；当前整张草图选择 |
 | STEP/BREP Part 与多根 Product 导入导出 | 已实现基础闭环 | Document Center、流式 HTTP、持久任务与 ArtifactReference Worker |
 | 本机 Geometry 扩缩容 | 已实现 | occccad-control |
 | 跨主机 Geometry 调度 | 未实现 | 无注册中心/集群调度 |
-| 二维草图与基础约束 | 已实现首个模板 | SketchFeature v1、Point/Line、Coincident/Parallel/FixedPoint、PlaneGCS 与 Sketcher 交互 |
+| 二维草图与基础约束 | 已实现基础集合 | Point/Line/Circle/Arc/Spline、基本几何/尺寸约束、PlaneGCS 与三组 Sketcher Toolbar |
 | 三维装配约束/运动学 | 未实现 | Product 只有 Transform |
 | 持久拓扑命名 | 未实现 | 当前 local ID 不可作长期 Feature 引用 |
 | S3 兼容对象存储/CDN | 未实现 | 当前仅本地目录 |
@@ -314,7 +323,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 
 ## 11. 当前主要风险
 
-1. **草图能力仍窄**：模型与交互模板已经建立，但尺寸约束、圆弧/样条、Trim、拖拽求解和通用 Profile Builder 尚未实现。
+1. **草图仍非完整专业实现**：基础实体、约束和 Profile Builder 已贯通，但尺寸值尚未升级为独立 ParameterBinding/表达式，Spline 尚无完整相切/曲率求解，Trim/Extend、拖拽求解、区域点选和大规模退化 corpus 尚未实现。
 2. **拓扑引用不稳定**：面/边 local ID 只适合本次结果查询，不能支撑可靠圆角、倒角和下游引用。
 3. **制品无法跨主机**：本地文件系统阻止 API/Jobs/Worker 任意调度。
 4. **控制器仅为开发工具**：进程级 Router 不是集群 Scheduler。

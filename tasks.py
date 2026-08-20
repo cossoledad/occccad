@@ -309,6 +309,7 @@ def test(c, build_type=None, filter=None):
     with c.cd(str(PROJECT_ROOT / "web" / "apps" / "cad")):
         c.run("pnpm test:sketch", pty=True)
         c.run("pnpm test:realtime", pty=True)
+        c.run("pnpm test:activity", pty=True)
     print("[test] Done.")
 
 

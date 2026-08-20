@@ -7,6 +7,7 @@ import { api, isMockMode } from "../api/client";
 import { realtime } from "../api/realtime-client";
 import { Brand } from "../components/brand";
 import { AuthScreen } from "../features/auth/auth-screen";
+import { ActivityCenter } from "../features/activity/activity-center";
 import { DocumentCenter } from "../features/documents/document-center";
 import { DocumentOrbController } from "../features/workbench/document-orb-controller";
 import { queryKeys } from "./query-keys";
@@ -31,7 +32,7 @@ function ApplicationShell() {
     if (!session.data || isMockMode) return;
     const unsubscribe = realtime.onJobEvent((job) => {
       if (job.type !== "EXCHANGE_IMPORT" && job.type !== "EXCHANGE_EXPORT") return;
-      void client.invalidateQueries({ queryKey: ["jobs"] });
+      void client.invalidateQueries({ queryKey: queryKeys.jobs });
       if (job.type === "EXCHANGE_IMPORT") void client.invalidateQueries({ queryKey: ["documents"] });
       if (job.state === "SUCCEEDED" && job.type === "EXCHANGE_IMPORT") {
         notification.success({ key: job.id, message: "文档导入完成", description: "导入结果已写入文档中心。",
@@ -61,6 +62,7 @@ function ApplicationShell() {
       <div className="global-header-spacer" />
       <Space size="middle">
         <Tag color={isMockMode ? "gold" : health.isSuccess ? "green" : "red"}>{isMockMode ? "MOCK" : health.isSuccess ? `OCCT ${health.data.occtVersion}` : "OFFLINE"}</Tag>
+        <ActivityCenter />
         {user.platformRole === "ADMIN" && <Button ghost icon={<SettingOutlined />} onClick={() => setAdminOpen(true)}>管理</Button>}
         <Dropdown menu={{ items: [
           { key: "home", icon: <HomeOutlined />, label: "文档中心", onClick: () => navigate("/") },

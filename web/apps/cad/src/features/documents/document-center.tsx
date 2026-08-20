@@ -109,6 +109,7 @@ export function DocumentCenter() {
     },
     onSuccess: async (job) => {
       setImportOpen(false); setImportFile(undefined);
+      await client.invalidateQueries({ queryKey: queryKeys.jobs });
       if (isMockMode && job.state === "SUCCEEDED") await invalidateDocuments();
       message.info(isMockMode ? "文档导入完成" : "导入任务已提交，完成后会通知你");
     },
@@ -119,8 +120,9 @@ export function DocumentCenter() {
       if (!exportDocument) throw new Error("没有待导出的文档");
       return api.startExport(exportDocument.id, exportFormat);
     },
-    onSuccess: (job) => {
+    onSuccess: async (job) => {
       setExportDocument(undefined);
+      await client.invalidateQueries({ queryKey: queryKeys.jobs });
       if (isMockMode && job.state === "SUCCEEDED") void api.downloadJob(job.id);
       message.info(isMockMode ? `${exportFormat} 导出完成` : "导出任务已提交，完成后会通知你");
     },

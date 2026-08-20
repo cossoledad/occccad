@@ -8,7 +8,7 @@ import type { InputState } from "../cad/input/input-types";
 import { InteractionRouter } from "../cad/interaction/interaction-router";
 import { SelectionController } from "../cad/interaction/selection-controller";
 import { sameSelection, SelectionIndex } from "../cad/interaction/selection-index";
-import { resolveSketchReference } from "../cad/interaction/sketch-reference-pick";
+import { resolveSketchReference, type SketchReferencePickKind } from "../cad/interaction/sketch-reference-pick";
 import { resolveSketchSnap, type SketchSnapResult } from "../cad/interaction/sketch-snap";
 import { NavigationController, type NavigationSnapshot } from "../cad/navigation/navigation-controller";
 import { CatiaNavigationHUD } from "../cad/navigation/hud/catia-navigation-hud";
@@ -18,9 +18,10 @@ import { CadBackground } from "../cad/rendering/cad-background";
 import { CadMaterialFactory } from "../cad/rendering/cad-material-factory";
 import { visualSelection, visualType } from "../cad/rendering/visualization-render-model";
 import { CATIA_VISUAL_THEME } from "../cad/rendering/cad-visual-theme";
+import { sampleSketchEntity, sketchEntityPoint } from "../cad/sketch/sketch-geometry";
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
 import { ShortcutManager } from "../cad/shortcut/shortcut-manager";
-import { ConstraintSketchTool, LineSketchTool, PointSketchTool, RectangleSketchTool, SelectTool, type ToolViewportPort } from "../cad/tool/cad-tool";
+import { ArcSketchTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
   Artifact, AxisSystem, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SketchGeometryRef, SketchOperation, Vec2, Vec3, VisualizationManifest,
@@ -31,6 +32,7 @@ type Callbacks = {
   preselectionChanged: (selection: Selection) => void;
   sketchOperations: (operations: SketchOperation[]) => void;
   toolPromptChanged: (prompt: string) => void;
+  toolUseCompleted: () => void;
   instanceMoved: (instanceId: string, translation: Vec3) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
@@ -220,9 +222,15 @@ export class CadViewportEngine {
     this.tools.register(new SelectTool());
     this.tools.register(new PointSketchTool());
     this.tools.register(new LineSketchTool());
+    this.tools.register(new CircleSketchTool());
+    this.tools.register(new ArcSketchTool());
+    this.tools.register(new PolylineSketchTool());
+    this.tools.register(new SplineSketchTool());
     this.tools.register(new RectangleSketchTool());
-    this.tools.register(new ConstraintSketchTool("sketch.constraint.coincident"));
-    this.tools.register(new ConstraintSketchTool("sketch.constraint.parallel"));
+    this.tools.register(new RegularPolygonSketchTool());
+    this.tools.register(new SlotSketchTool());
+    for (const kind of ["COINCIDENT","PARALLEL","FIXED","HORIZONTAL","VERTICAL","PERPENDICULAR","TANGENT","EQUAL","DISTANCE","LENGTH","RADIUS","DIAMETER","ANGLE","CONCENTRIC","POINT_ON_OBJECT","MIDPOINT"] as const)
+      this.tools.register(new ConstraintSketchTool(kind));
     this.tools.activate("select");
     this.selectionController = new SelectionController(
       (x, y) => this.pick(x, y),
@@ -706,11 +714,8 @@ export class CadViewportEngine {
     const referencedPoint = (reference: SketchGeometryRef): Vec2 | undefined => {
       if (reference.target === "SKETCH_ORIGIN") return [0, 0];
       const entity = reference.entityId ? entities.get(reference.entityId) : undefined;
-      if (entity?.kind === "POINT" && entity.point && reference.subElement === "POINT") return [entity.point.x, entity.point.y];
-      if (entity?.kind !== "LINE") return undefined;
-      if (reference.subElement === "START" && entity.start) return [entity.start.x, entity.start.y];
-      if (reference.subElement === "END" && entity.end) return [entity.end.x, entity.end.y];
-      return undefined;
+      if (!entity || !["POINT","START","END","CENTER"].includes(reference.subElement)) return undefined;
+      return sketchEntityPoint(entity,reference.subElement as "POINT"|"START"|"END"|"CENTER");
     };
     const sketchSelection = { kind: "sketch" as const, id: feature.id, documentId, treeNodeId: featureTreeNode };
     for (const entity of feature.sketch?.entities ?? []) {
@@ -723,13 +728,14 @@ export class CadViewportEngine {
         object = new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(plane, [entity.point.x, entity.point.y])]),
           this.materials.point(sketchDiagnosticColor(feature.sketch?.solve.status, entity.role === "CONSTRUCTION"), 9, false));
         object.renderOrder = 22;
-      } else if (entity.kind === "LINE" && entity.start && entity.end) {
-        const endpoints = [localToWorld(plane, [entity.start.x, entity.start.y]), localToWorld(plane, [entity.end.x, entity.end.y])];
-        object = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
-          ...endpoints,
-        ]), new THREE.LineBasicMaterial({ color: sketchDiagnosticColor(feature.sketch?.solve.status, entity.role === "CONSTRUCTION"), depthTest: false }));
+      } else {
+        const sampled=sampleSketchEntity(entity);
+        if(sampled.length<2)continue;
+        const positions=sampled.map((point)=>localToWorld(plane,point));
+        object = new THREE.Line(new THREE.BufferGeometry().setFromPoints(positions), new THREE.LineBasicMaterial({ color: sketchDiagnosticColor(feature.sketch?.solve.status, entity.role === "CONSTRUCTION"), depthTest: false }));
         object.renderOrder = 20;
-        const endpointMarkers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(endpoints),
+        const markers=entity.kind==="CIRCLE"&&entity.center?[localToWorld(plane,[entity.center.x,entity.center.y])]:[positions[0],positions.at(-1)!];
+        const endpointMarkers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(markers),
           this.materials.point(CATIA_VISUAL_THEME.vertex, 8, false));
         endpointMarkers.userData = { sketchEntityOverlay: true }; endpointMarkers.renderOrder = 21; group.add(endpointMarkers);
       }
@@ -1073,10 +1079,11 @@ export class CadViewportEngine {
       showReferencePreview: (reference, retained) => this.showReferencePreview(reference, retained),
       clearReferencePreview: () => this.clearReferencePreview(),
       setToolPrompt: (prompt) => this.callbacks.toolPromptChanged(prompt),
+      finishToolUse: () => this.callbacks.toolUseCompleted(),
     };
   }
 
-  private sketchReferenceAt(x: number, y: number, kind: "COINCIDENT" | "PARALLEL") {
+  private sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind) {
     if (!this.sketchPlane || !this.view) return null;
     const width = Math.max(this.renderer.domElement.clientWidth, 1);
     const height = Math.max(this.renderer.domElement.clientHeight, 1);

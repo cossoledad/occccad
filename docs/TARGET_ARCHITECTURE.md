@@ -1050,7 +1050,7 @@ flowchart LR
 
 #### 5.3.1 已落地的首个纵向切片
 
-首个实现已经删除 `Feature.Rectangle` 测试模型。选择 Datum Plane 后先以 `CREATE_SKETCH` 创建空的 `SketchFeature v1`；点、线、约束和复合工具统一形成 `EDIT_SKETCH` operation batch。服务端在写 Revision 之前通过 Worker `SolveSketch` 执行权威求解并回写求解坐标、状态、DoF 与诊断。
+当前实现已经删除 `Feature.Rectangle` 测试模型。选择 Datum Plane 后先以 `CREATE_SKETCH` 创建空的 `SketchFeature v1`；Point/Line/Circle/Arc/Spline、约束和复合工具统一形成 `EDIT_SKETCH` operation batch。服务端在写 Revision 之前通过 Worker `SolveSketch` 执行权威求解并回写求解坐标、状态、DoF 与诊断。第一版 OCCT-free Profile Builder 已按 Coincident 等价类、环方向和包含深度产生外环/孔/岛，并通过 `ProfilePadSpec` 进入 OCCT Edge/Wire/Face/Prism；区域点选、独立尺寸 ParameterBinding、完整 B-Spline 约束和退化 corpus 仍按本章后续规格演进。
 
 当前链表示为：
 
@@ -4829,6 +4829,7 @@ flowchart LR
 - Imported Part 不是不可编辑的特殊文档。它使用普通 Part 初始模板（Origin、DatumPlane、AxisSystem、Body），以版本化 `ImportBodyFeature` 引用源制品/provenance；未来 healing、单位映射、颜色、PMI 或 external reference 使用新 typed feature/manifest 字段扩展，不能继续膨胀一个可选字段 JSON。
 - 任务保存 source digest、格式、importer/evaluator 版本、component identity 和输出 manifest；至少一次重试复用稳定 request ID。部分 fan-out 成功不能让同一 Part 重复创建，迟到 attempt 不能覆盖新 Head，未引用 staging object 由 GC 清理。
 - HTTP 提交只返回持久 Job identity，不让页面持有长轮询或等待 Promise。Job 终态与 Outbox 原子写入，Realtime 按 requested user 推送版本化终态事件；没有在线消费者时保留待投递事件，重连后再通知。进度事件可以节流且允许合并，但最终成功/失败通知不能只存在进程内。
+- Web 消息中心是多个持久来源的统一读模型，不是 Toast 历史或第二套 Job 状态机。任务、协作、安全和系统公告分别通过版本化 projector 形成统一 ActivityItem；动作仍回到各自领域 API。服务端保存跨设备需要一致的已读/确认语义，短期 UI 展开状态才可留在浏览器。活动任务只在可取消阶段暴露取消 capability，手动重试保留原任务和 attempt provenance，下载动作引用受权限与生命周期约束的 Artifact。
 - STEP 装配目标适配层是 OCCT XDE/STEPCAF：保留嵌套层级、名称、单位、颜色、placement 和共享引用。仅按 STEP transferable root 切分可作为早期能力；早期 Product writer 也应按 occurrence 分别 Transfer root，保持当前展平契约的 Product 类型与 placement round-trip，不能先合并成单一 compound 导致再导入退化为 Part。该边界必须写入事实文档，并以 XDE corpus/round-trip conformance 作为完整装配交换的验收门。
 - 导入文件一律不可信：同时限制上传字节、解压/实体数量、解析时间、内存、递归深度和输出放大率；取消或超时后丢弃候选模型，不提交半成品 Revision。
 

@@ -11,7 +11,8 @@
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "test:sketch": "node ../../../tests/front/sketch-tools.test.mjs",
-    "test:realtime": "node ../../../tests/front/realtime-client.test.mjs"
+    "test:realtime": "node ../../../tests/front/realtime-client.test.mjs",
+    "test:activity": "node ../../../tests/front/activity-model.test.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",

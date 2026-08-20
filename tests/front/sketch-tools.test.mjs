@@ -13,9 +13,12 @@ const server = await createServer({
 try {
   const {
     ConstraintSketchTool,
+    CircleSketchTool,
     LineSketchTool,
     PointSketchTool,
+    PolylineSketchTool,
     RectangleSketchTool,
+    SlotSketchTool,
   } = await server.ssrLoadModule("/src/cad/tool/cad-tool.ts");
   const { buildSketchRenderModel } = await server.ssrLoadModule("/src/cad/rendering/sketch-render-model.ts");
   const { visualSelection, visualType } = await server.ssrLoadModule("/src/cad/rendering/visualization-render-model.ts");
@@ -25,6 +28,7 @@ try {
   const operations = [];
   const prompts = [];
   const previews = [];
+  let completions = 0;
   const references = [
     { target: "ENTITY", entityId: "line-a", subElement: "END" },
     { target: "ENTITY", entityId: "line-b", subElement: "START" },
@@ -41,6 +45,7 @@ try {
     showReferencePreview: (value, retained) => previews.push({ reference: value, retained }),
     clearReferencePreview: () => previews.push("clear-reference"),
     setToolPrompt: (value) => prompts.push(value),
+    finishToolUse: () => { completions += 1; },
   };
   const context = { viewport };
   const pointer = (x, y, phase = "move") => ({
@@ -52,6 +57,7 @@ try {
     y,
     deltaX: 0,
     deltaY: 0,
+    originalEvent: { detail: 1 },
     state: { buttons: { left: false, middle: false, right: false } },
   });
 
@@ -63,6 +69,7 @@ try {
   assert.equal(rectangle.pointerDown(pointer(8, 9, "down"), context), "capture");
   assert.equal(rectangle.pointerUp(pointer(8, 9, "up"), context), "release-capture");
   assert.equal(operations[0][0].type, "ADD_RECTANGLE");
+  assert.equal(completions, 1);
   assert.equal(previews.some((value) => value?.closed === true), true);
 
   const line = new LineSketchTool();
@@ -73,6 +80,7 @@ try {
   line.pointerDown(pointer(5, 5, "down"), context);
   line.pointerUp(pointer(5, 5, "up"), context);
   assert.equal(operations[1][0].entity.kind, "LINE");
+  assert.equal(completions, 2);
 
   const cancelledLine = new LineSketchTool();
   cancelledLine.activate(context);
@@ -85,6 +93,7 @@ try {
   assert.equal(point.pointerDown(pointer(4, 5, "down"), context), "capture");
   assert.equal(point.pointerUp(pointer(4, 5, "up"), context), "release-capture");
   assert.equal(operations[2][0].entity.role, "PROFILE");
+  assert.equal(completions, 3);
   assert.equal(previews.some((value) => value?.point?.[0] === 4), true);
 
   const coincident = new ConstraintSketchTool("sketch.constraint.coincident");
@@ -96,7 +105,41 @@ try {
   coincident.pointerDown(pointer(0, 0, "down"), context);
   coincident.pointerUp(pointer(0, 0, "up"), context);
   assert.equal(operations[3][0].constraint.kind, "COINCIDENT");
+  assert.equal(completions, 4);
   assert.equal(prompts.some((value) => value.includes("第二个端点")), true);
+
+  const circleIndex = operations.length;
+  const circle = new CircleSketchTool();
+  circle.pointerDown(pointer(0, 0, "down"), context); circle.pointerUp(pointer(0, 0, "up"), context);
+  circle.pointerDown(pointer(0, 10, "down"), context); circle.pointerUp(pointer(0, 10, "up"), context);
+  assert.equal(operations[circleIndex][0].entity.kind, "CIRCLE");
+  assert.equal(operations[circleIndex][0].entity.radius, 10);
+
+  const polylineIndex = operations.length;
+  const polyline = new PolylineSketchTool();
+  polyline.pointerDown(pointer(0, 0, "down"), context); polyline.pointerUp(pointer(0, 0, "up"), context);
+  polyline.pointerDown(pointer(10, 0, "down"), context); polyline.pointerUp(pointer(10, 0, "up"), context);
+  polyline.pointerDown(pointer(10, 10, "down"), context); polyline.pointerUp(pointer(10, 10, "up"), context);
+  polyline.keyDown({ key: "Enter" }, context);
+  assert.equal(operations[polylineIndex].filter((item) => item.type === "ADD_ENTITY").length, 2);
+  assert.equal(operations[polylineIndex].filter((item) => item.type === "ADD_CONSTRAINT").length, 1);
+
+  references.push({ target: "ENTITY", entityId: "line-dimension", subElement: "DIRECTION" });
+  const dimensionIndex = operations.length;
+  const length = new ConstraintSketchTool("LENGTH");
+  length.pointerDown(pointer(0, 0, "down"), context); length.pointerUp(pointer(0, 0, "up"), context);
+  length.keyDown({ key: "2" }, context); length.keyDown({ key: "5" }, context); length.keyDown({ key: "Enter" }, context);
+  assert.equal(operations[dimensionIndex][0].constraint.value, 25);
+  assert.equal(operations[dimensionIndex][0].constraint.unit, "mm");
+
+  const slotIndex = operations.length;
+  const slot = new SlotSketchTool();
+  for (const [x, y] of [[0, 0], [20, 0], [10, 5]]) {
+    slot.pointerDown(pointer(x, y, "down"), context); slot.pointerUp(pointer(x, y, "up"), context);
+  }
+  assert.equal(operations[slotIndex].filter((item) => item.entity?.kind === "LINE").length, 2);
+  assert.equal(operations[slotIndex].filter((item) => item.entity?.kind === "ARC").length, 2);
+  assert.equal(operations[slotIndex].filter((item) => item.constraint?.kind === "COINCIDENT").length, 4);
 
   const renderModel = buildSketchRenderModel({
     id: "sketch-1", type: "SKETCH", sketch: { entities: [

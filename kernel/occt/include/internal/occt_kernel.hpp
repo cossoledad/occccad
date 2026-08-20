@@ -43,28 +43,23 @@ public:
 
     GeometryId createBox(double dx, double dy, double dz) override;
     GeometryId createRectangularPad(const RectangularPadSpec& spec) override;
-    GeometryId evaluateRectangularPads(
-        const std::vector<RectangularPadSpec>& specs,
-        const std::vector<uint8_t>& base_brep = {}) override;
+    GeometryId evaluateRectangularPads(const std::vector<RectangularPadSpec>& specs,
+                                       const std::vector<uint8_t>& base_brep = {}) override;
+    GeometryId evaluateProfilePads(const std::vector<ProfilePadSpec>& specs,
+                                   const std::vector<uint8_t>& base_brep = {}) override;
 
     BoundingBox getBoundingBox(const GeometryId& id) override;
     const TopologyInfo& getTopology(const GeometryId& id) override;
     double getVolume(const GeometryId& id) override;
 
-    TessellationResult tessellate(
-        const GeometryId& id,
-        double linear_deflection = 0.1,
-        double angular_deflection = 0.5) override;
+    TessellationResult tessellate(const GeometryId& id, double linear_deflection = 0.1,
+                                  double angular_deflection = 0.5) override;
 
-    GeometryId chamfer(
-        const GeometryId& id,
-        const std::vector<uint64_t>& edge_local_ids,
-        double distance) override;
+    GeometryId chamfer(const GeometryId& id, const std::vector<uint64_t>& edge_local_ids,
+                       double distance) override;
 
-    GeometryId fillet(
-        const GeometryId& id,
-        const std::vector<uint64_t>& edge_local_ids,
-        double radius) override;
+    GeometryId fillet(const GeometryId& id, const std::vector<uint64_t>& edge_local_ids,
+                      double radius) override;
 
     std::vector<uint8_t> serializeBrepr(const GeometryId& id) override;
     GeometryId loadStepData(const std::vector<uint8_t>& data) override;
@@ -79,7 +74,6 @@ public:
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;
-
 };
 
 }  // namespace occccad::kernel

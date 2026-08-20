@@ -201,12 +201,240 @@ func (x *SketchLine) GetRole() string {
 	return ""
 }
 
+type SketchCircle struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Center        *Vec2                  `protobuf:"bytes,2,opt,name=center,proto3" json:"center,omitempty"`
+	Radius        float64                `protobuf:"fixed64,3,opt,name=radius,proto3" json:"radius,omitempty"`
+	Role          string                 `protobuf:"bytes,4,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SketchCircle) Reset() {
+	*x = SketchCircle{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SketchCircle) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SketchCircle) ProtoMessage() {}
+
+func (x *SketchCircle) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SketchCircle.ProtoReflect.Descriptor instead.
+func (*SketchCircle) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *SketchCircle) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SketchCircle) GetCenter() *Vec2 {
+	if x != nil {
+		return x.Center
+	}
+	return nil
+}
+
+func (x *SketchCircle) GetRadius() float64 {
+	if x != nil {
+		return x.Radius
+	}
+	return 0
+}
+
+func (x *SketchCircle) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+type SketchArc struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Center        *Vec2                  `protobuf:"bytes,2,opt,name=center,proto3" json:"center,omitempty"`
+	Radius        float64                `protobuf:"fixed64,3,opt,name=radius,proto3" json:"radius,omitempty"`
+	StartAngle    float64                `protobuf:"fixed64,4,opt,name=start_angle,json=startAngle,proto3" json:"start_angle,omitempty"`
+	EndAngle      float64                `protobuf:"fixed64,5,opt,name=end_angle,json=endAngle,proto3" json:"end_angle,omitempty"`
+	Role          string                 `protobuf:"bytes,6,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SketchArc) Reset() {
+	*x = SketchArc{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SketchArc) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SketchArc) ProtoMessage() {}
+
+func (x *SketchArc) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SketchArc.ProtoReflect.Descriptor instead.
+func (*SketchArc) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *SketchArc) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SketchArc) GetCenter() *Vec2 {
+	if x != nil {
+		return x.Center
+	}
+	return nil
+}
+
+func (x *SketchArc) GetRadius() float64 {
+	if x != nil {
+		return x.Radius
+	}
+	return 0
+}
+
+func (x *SketchArc) GetStartAngle() float64 {
+	if x != nil {
+		return x.StartAngle
+	}
+	return 0
+}
+
+func (x *SketchArc) GetEndAngle() float64 {
+	if x != nil {
+		return x.EndAngle
+	}
+	return 0
+}
+
+func (x *SketchArc) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+type SketchSpline struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	ControlPoints []*Vec2                `protobuf:"bytes,2,rep,name=control_points,json=controlPoints,proto3" json:"control_points,omitempty"`
+	Degree        uint32                 `protobuf:"varint,3,opt,name=degree,proto3" json:"degree,omitempty"`
+	Closed        bool                   `protobuf:"varint,4,opt,name=closed,proto3" json:"closed,omitempty"`
+	Role          string                 `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SketchSpline) Reset() {
+	*x = SketchSpline{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SketchSpline) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SketchSpline) ProtoMessage() {}
+
+func (x *SketchSpline) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SketchSpline.ProtoReflect.Descriptor instead.
+func (*SketchSpline) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *SketchSpline) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *SketchSpline) GetControlPoints() []*Vec2 {
+	if x != nil {
+		return x.ControlPoints
+	}
+	return nil
+}
+
+func (x *SketchSpline) GetDegree() uint32 {
+	if x != nil {
+		return x.Degree
+	}
+	return 0
+}
+
+func (x *SketchSpline) GetClosed() bool {
+	if x != nil {
+		return x.Closed
+	}
+	return false
+}
+
+func (x *SketchSpline) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
 type SketchGeometryRef struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// ENTITY, SKETCH_ORIGIN, SKETCH_X_AXIS, or SKETCH_Y_AXIS.
 	Target   string `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
 	EntityId string `protobuf:"bytes,2,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
-	// WHOLE, POINT, START, END, or DIRECTION.
+	// WHOLE, POINT, START, END, CENTER, or DIRECTION.
 	SubElement    string `protobuf:"bytes,3,opt,name=sub_element,json=subElement,proto3" json:"sub_element,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -214,7 +442,7 @@ type SketchGeometryRef struct {
 
 func (x *SketchGeometryRef) Reset() {
 	*x = SketchGeometryRef{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[3]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -226,7 +454,7 @@ func (x *SketchGeometryRef) String() string {
 func (*SketchGeometryRef) ProtoMessage() {}
 
 func (x *SketchGeometryRef) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[3]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -239,7 +467,7 @@ func (x *SketchGeometryRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SketchGeometryRef.ProtoReflect.Descriptor instead.
 func (*SketchGeometryRef) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{3}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *SketchGeometryRef) GetTarget() string {
@@ -266,17 +494,22 @@ func (x *SketchGeometryRef) GetSubElement() string {
 type SketchConstraint struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
-	// COINCIDENT, PARALLEL, or FIXED_POINT.
+	// Versioned domain kind such as COINCIDENT, PARALLEL, FIXED,
+	// HORIZONTAL, VERTICAL, PERPENDICULAR, TANGENT, EQUAL, DISTANCE,
+	// LENGTH, RADIUS, DIAMETER, ANGLE, CONCENTRIC, POINT_ON_OBJECT, MIDPOINT.
 	Kind          string               `protobuf:"bytes,2,opt,name=kind,proto3" json:"kind,omitempty"`
 	References    []*SketchGeometryRef `protobuf:"bytes,3,rep,name=references,proto3" json:"references,omitempty"`
 	FixedPoint    *Vec2                `protobuf:"bytes,4,opt,name=fixed_point,json=fixedPoint,proto3" json:"fixed_point,omitempty"`
+	Value         float64              `protobuf:"fixed64,5,opt,name=value,proto3" json:"value,omitempty"`
+	Unit          string               `protobuf:"bytes,6,opt,name=unit,proto3" json:"unit,omitempty"`
+	Internal      bool                 `protobuf:"varint,7,opt,name=internal,proto3" json:"internal,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SketchConstraint) Reset() {
 	*x = SketchConstraint{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[4]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -288,7 +521,7 @@ func (x *SketchConstraint) String() string {
 func (*SketchConstraint) ProtoMessage() {}
 
 func (x *SketchConstraint) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[4]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -301,7 +534,7 @@ func (x *SketchConstraint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SketchConstraint.ProtoReflect.Descriptor instead.
 func (*SketchConstraint) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{4}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *SketchConstraint) GetId() string {
@@ -332,19 +565,43 @@ func (x *SketchConstraint) GetFixedPoint() *Vec2 {
 	return nil
 }
 
+func (x *SketchConstraint) GetValue() float64 {
+	if x != nil {
+		return x.Value
+	}
+	return 0
+}
+
+func (x *SketchConstraint) GetUnit() string {
+	if x != nil {
+		return x.Unit
+	}
+	return ""
+}
+
+func (x *SketchConstraint) GetInternal() bool {
+	if x != nil {
+		return x.Internal
+	}
+	return false
+}
+
 type SketchModel struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SchemaVersion uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	Points        []*SketchPoint         `protobuf:"bytes,2,rep,name=points,proto3" json:"points,omitempty"`
 	Lines         []*SketchLine          `protobuf:"bytes,3,rep,name=lines,proto3" json:"lines,omitempty"`
 	Constraints   []*SketchConstraint    `protobuf:"bytes,4,rep,name=constraints,proto3" json:"constraints,omitempty"`
+	Circles       []*SketchCircle        `protobuf:"bytes,5,rep,name=circles,proto3" json:"circles,omitempty"`
+	Arcs          []*SketchArc           `protobuf:"bytes,6,rep,name=arcs,proto3" json:"arcs,omitempty"`
+	Splines       []*SketchSpline        `protobuf:"bytes,7,rep,name=splines,proto3" json:"splines,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SketchModel) Reset() {
 	*x = SketchModel{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[5]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -356,7 +613,7 @@ func (x *SketchModel) String() string {
 func (*SketchModel) ProtoMessage() {}
 
 func (x *SketchModel) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[5]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -369,7 +626,7 @@ func (x *SketchModel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SketchModel.ProtoReflect.Descriptor instead.
 func (*SketchModel) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{5}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *SketchModel) GetSchemaVersion() uint32 {
@@ -400,6 +657,27 @@ func (x *SketchModel) GetConstraints() []*SketchConstraint {
 	return nil
 }
 
+func (x *SketchModel) GetCircles() []*SketchCircle {
+	if x != nil {
+		return x.Circles
+	}
+	return nil
+}
+
+func (x *SketchModel) GetArcs() []*SketchArc {
+	if x != nil {
+		return x.Arcs
+	}
+	return nil
+}
+
+func (x *SketchModel) GetSplines() []*SketchSpline {
+	if x != nil {
+		return x.Splines
+	}
+	return nil
+}
+
 type SolveSketchRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RequestId     string                 `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
@@ -410,7 +688,7 @@ type SolveSketchRequest struct {
 
 func (x *SolveSketchRequest) Reset() {
 	*x = SolveSketchRequest{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[6]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -422,7 +700,7 @@ func (x *SolveSketchRequest) String() string {
 func (*SolveSketchRequest) ProtoMessage() {}
 
 func (x *SolveSketchRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[6]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -435,7 +713,7 @@ func (x *SolveSketchRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SolveSketchRequest.ProtoReflect.Descriptor instead.
 func (*SolveSketchRequest) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{6}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *SolveSketchRequest) GetRequestId() string {
@@ -467,7 +745,7 @@ type SolveSketchResponse struct {
 
 func (x *SolveSketchResponse) Reset() {
 	*x = SolveSketchResponse{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[7]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -479,7 +757,7 @@ func (x *SolveSketchResponse) String() string {
 func (*SolveSketchResponse) ProtoMessage() {}
 
 func (x *SolveSketchResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[7]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -492,7 +770,7 @@ func (x *SolveSketchResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SolveSketchResponse.ProtoReflect.Descriptor instead.
 func (*SolveSketchResponse) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{7}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *SolveSketchResponse) GetSketch() *SketchModel {
@@ -549,13 +827,14 @@ type EvaluatePartRequest struct {
 	BaseBrepArtifact  *ArtifactReference     `protobuf:"bytes,8,opt,name=base_brep_artifact,json=baseBrepArtifact,proto3" json:"base_brep_artifact,omitempty"`
 	BrepOutputKey     string                 `protobuf:"bytes,9,opt,name=brep_output_key,json=brepOutputKey,proto3" json:"brep_output_key,omitempty"`
 	GlbOutputKey      string                 `protobuf:"bytes,10,opt,name=glb_output_key,json=glbOutputKey,proto3" json:"glb_output_key,omitempty"`
+	ProfilePads       []*ProfilePadSpec      `protobuf:"bytes,11,rep,name=profile_pads,json=profilePads,proto3" json:"profile_pads,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
 
 func (x *EvaluatePartRequest) Reset() {
 	*x = EvaluatePartRequest{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[8]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -567,7 +846,7 @@ func (x *EvaluatePartRequest) String() string {
 func (*EvaluatePartRequest) ProtoMessage() {}
 
 func (x *EvaluatePartRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[8]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -580,7 +859,7 @@ func (x *EvaluatePartRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EvaluatePartRequest.ProtoReflect.Descriptor instead.
 func (*EvaluatePartRequest) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{8}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *EvaluatePartRequest) GetRequestId() string {
@@ -653,6 +932,325 @@ func (x *EvaluatePartRequest) GetGlbOutputKey() string {
 	return ""
 }
 
+func (x *EvaluatePartRequest) GetProfilePads() []*ProfilePadSpec {
+	if x != nil {
+		return x.ProfilePads
+	}
+	return nil
+}
+
+type ProfileCurve struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	EntityId      string                 `protobuf:"bytes,1,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
+	Reversed      bool                   `protobuf:"varint,2,opt,name=reversed,proto3" json:"reversed,omitempty"`
+	Kind          string                 `protobuf:"bytes,3,opt,name=kind,proto3" json:"kind,omitempty"` // LINE | CIRCLE | ARC | SPLINE
+	Start         *Vec2                  `protobuf:"bytes,4,opt,name=start,proto3" json:"start,omitempty"`
+	End           *Vec2                  `protobuf:"bytes,5,opt,name=end,proto3" json:"end,omitempty"`
+	Center        *Vec2                  `protobuf:"bytes,6,opt,name=center,proto3" json:"center,omitempty"`
+	Radius        float64                `protobuf:"fixed64,7,opt,name=radius,proto3" json:"radius,omitempty"`
+	StartAngle    float64                `protobuf:"fixed64,8,opt,name=start_angle,json=startAngle,proto3" json:"start_angle,omitempty"`
+	EndAngle      float64                `protobuf:"fixed64,9,opt,name=end_angle,json=endAngle,proto3" json:"end_angle,omitempty"`
+	ControlPoints []*Vec2                `protobuf:"bytes,10,rep,name=control_points,json=controlPoints,proto3" json:"control_points,omitempty"`
+	Degree        uint32                 `protobuf:"varint,11,opt,name=degree,proto3" json:"degree,omitempty"`
+	Closed        bool                   `protobuf:"varint,12,opt,name=closed,proto3" json:"closed,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProfileCurve) Reset() {
+	*x = ProfileCurve{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileCurve) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileCurve) ProtoMessage() {}
+
+func (x *ProfileCurve) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileCurve.ProtoReflect.Descriptor instead.
+func (*ProfileCurve) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *ProfileCurve) GetEntityId() string {
+	if x != nil {
+		return x.EntityId
+	}
+	return ""
+}
+
+func (x *ProfileCurve) GetReversed() bool {
+	if x != nil {
+		return x.Reversed
+	}
+	return false
+}
+
+func (x *ProfileCurve) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *ProfileCurve) GetStart() *Vec2 {
+	if x != nil {
+		return x.Start
+	}
+	return nil
+}
+
+func (x *ProfileCurve) GetEnd() *Vec2 {
+	if x != nil {
+		return x.End
+	}
+	return nil
+}
+
+func (x *ProfileCurve) GetCenter() *Vec2 {
+	if x != nil {
+		return x.Center
+	}
+	return nil
+}
+
+func (x *ProfileCurve) GetRadius() float64 {
+	if x != nil {
+		return x.Radius
+	}
+	return 0
+}
+
+func (x *ProfileCurve) GetStartAngle() float64 {
+	if x != nil {
+		return x.StartAngle
+	}
+	return 0
+}
+
+func (x *ProfileCurve) GetEndAngle() float64 {
+	if x != nil {
+		return x.EndAngle
+	}
+	return 0
+}
+
+func (x *ProfileCurve) GetControlPoints() []*Vec2 {
+	if x != nil {
+		return x.ControlPoints
+	}
+	return nil
+}
+
+func (x *ProfileCurve) GetDegree() uint32 {
+	if x != nil {
+		return x.Degree
+	}
+	return 0
+}
+
+func (x *ProfileCurve) GetClosed() bool {
+	if x != nil {
+		return x.Closed
+	}
+	return false
+}
+
+type ProfileLoop struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Curves        []*ProfileCurve        `protobuf:"bytes,2,rep,name=curves,proto3" json:"curves,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProfileLoop) Reset() {
+	*x = ProfileLoop{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileLoop) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileLoop) ProtoMessage() {}
+
+func (x *ProfileLoop) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileLoop.ProtoReflect.Descriptor instead.
+func (*ProfileLoop) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *ProfileLoop) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ProfileLoop) GetCurves() []*ProfileCurve {
+	if x != nil {
+		return x.Curves
+	}
+	return nil
+}
+
+type ProfileRegion struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Outer         *ProfileLoop           `protobuf:"bytes,2,opt,name=outer,proto3" json:"outer,omitempty"`
+	Holes         []*ProfileLoop         `protobuf:"bytes,3,rep,name=holes,proto3" json:"holes,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProfileRegion) Reset() {
+	*x = ProfileRegion{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfileRegion) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfileRegion) ProtoMessage() {}
+
+func (x *ProfileRegion) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfileRegion.ProtoReflect.Descriptor instead.
+func (*ProfileRegion) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *ProfileRegion) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *ProfileRegion) GetOuter() *ProfileLoop {
+	if x != nil {
+		return x.Outer
+	}
+	return nil
+}
+
+func (x *ProfileRegion) GetHoles() []*ProfileLoop {
+	if x != nil {
+		return x.Holes
+	}
+	return nil
+}
+
+type ProfilePadSpec struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Regions       []*ProfileRegion       `protobuf:"bytes,1,rep,name=regions,proto3" json:"regions,omitempty"`
+	PadLength     float64                `protobuf:"fixed64,2,opt,name=pad_length,json=padLength,proto3" json:"pad_length,omitempty"`
+	Units         string                 `protobuf:"bytes,3,opt,name=units,proto3" json:"units,omitempty"`
+	Plane         string                 `protobuf:"bytes,4,opt,name=plane,proto3" json:"plane,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ProfilePadSpec) Reset() {
+	*x = ProfilePadSpec{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ProfilePadSpec) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ProfilePadSpec) ProtoMessage() {}
+
+func (x *ProfilePadSpec) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ProfilePadSpec.ProtoReflect.Descriptor instead.
+func (*ProfilePadSpec) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{15}
+}
+
+func (x *ProfilePadSpec) GetRegions() []*ProfileRegion {
+	if x != nil {
+		return x.Regions
+	}
+	return nil
+}
+
+func (x *ProfilePadSpec) GetPadLength() float64 {
+	if x != nil {
+		return x.PadLength
+	}
+	return 0
+}
+
+func (x *ProfilePadSpec) GetUnits() string {
+	if x != nil {
+		return x.Units
+	}
+	return ""
+}
+
+func (x *ProfilePadSpec) GetPlane() string {
+	if x != nil {
+		return x.Plane
+	}
+	return ""
+}
+
 type ArtifactReference struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// LOCAL is the current development backend. HTTPS/S3 references can be
@@ -668,7 +1266,7 @@ type ArtifactReference struct {
 
 func (x *ArtifactReference) Reset() {
 	*x = ArtifactReference{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[9]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -680,7 +1278,7 @@ func (x *ArtifactReference) String() string {
 func (*ArtifactReference) ProtoMessage() {}
 
 func (x *ArtifactReference) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[9]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -693,7 +1291,7 @@ func (x *ArtifactReference) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ArtifactReference.ProtoReflect.Descriptor instead.
 func (*ArtifactReference) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{9}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ArtifactReference) GetBackend() string {
@@ -742,7 +1340,7 @@ type InspectExchangeRequest struct {
 
 func (x *InspectExchangeRequest) Reset() {
 	*x = InspectExchangeRequest{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[10]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -754,7 +1352,7 @@ func (x *InspectExchangeRequest) String() string {
 func (*InspectExchangeRequest) ProtoMessage() {}
 
 func (x *InspectExchangeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[10]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -767,7 +1365,7 @@ func (x *InspectExchangeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectExchangeRequest.ProtoReflect.Descriptor instead.
 func (*InspectExchangeRequest) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{10}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *InspectExchangeRequest) GetRequestId() string {
@@ -801,7 +1399,7 @@ type ExchangeComponentInfo struct {
 
 func (x *ExchangeComponentInfo) Reset() {
 	*x = ExchangeComponentInfo{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[11]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -813,7 +1411,7 @@ func (x *ExchangeComponentInfo) String() string {
 func (*ExchangeComponentInfo) ProtoMessage() {}
 
 func (x *ExchangeComponentInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[11]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -826,7 +1424,7 @@ func (x *ExchangeComponentInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExchangeComponentInfo.ProtoReflect.Descriptor instead.
 func (*ExchangeComponentInfo) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{11}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ExchangeComponentInfo) GetSourceIndex() uint32 {
@@ -855,7 +1453,7 @@ type InspectExchangeResponse struct {
 
 func (x *InspectExchangeResponse) Reset() {
 	*x = InspectExchangeResponse{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[12]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -867,7 +1465,7 @@ func (x *InspectExchangeResponse) String() string {
 func (*InspectExchangeResponse) ProtoMessage() {}
 
 func (x *InspectExchangeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[12]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -880,7 +1478,7 @@ func (x *InspectExchangeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InspectExchangeResponse.ProtoReflect.Descriptor instead.
 func (*InspectExchangeResponse) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{12}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *InspectExchangeResponse) GetDocumentType() string {
@@ -914,7 +1512,7 @@ type ImportExchangeRequest struct {
 
 func (x *ImportExchangeRequest) Reset() {
 	*x = ImportExchangeRequest{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[13]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -926,7 +1524,7 @@ func (x *ImportExchangeRequest) String() string {
 func (*ImportExchangeRequest) ProtoMessage() {}
 
 func (x *ImportExchangeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[13]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -939,7 +1537,7 @@ func (x *ImportExchangeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ImportExchangeRequest.ProtoReflect.Descriptor instead.
 func (*ImportExchangeRequest) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{13}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ImportExchangeRequest) GetRequestId() string {
@@ -1016,7 +1614,7 @@ type ExchangeComponent struct {
 
 func (x *ExchangeComponent) Reset() {
 	*x = ExchangeComponent{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[14]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1028,7 +1626,7 @@ func (x *ExchangeComponent) String() string {
 func (*ExchangeComponent) ProtoMessage() {}
 
 func (x *ExchangeComponent) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[14]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1041,7 +1639,7 @@ func (x *ExchangeComponent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExchangeComponent.ProtoReflect.Descriptor instead.
 func (*ExchangeComponent) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{14}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ExchangeComponent) GetName() string {
@@ -1077,7 +1675,7 @@ type ExportExchangeRequest struct {
 
 func (x *ExportExchangeRequest) Reset() {
 	*x = ExportExchangeRequest{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[15]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1089,7 +1687,7 @@ func (x *ExportExchangeRequest) String() string {
 func (*ExportExchangeRequest) ProtoMessage() {}
 
 func (x *ExportExchangeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[15]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1102,7 +1700,7 @@ func (x *ExportExchangeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportExchangeRequest.ProtoReflect.Descriptor instead.
 func (*ExportExchangeRequest) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{15}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ExportExchangeRequest) GetRequestId() string {
@@ -1142,7 +1740,7 @@ type ExportExchangeResponse struct {
 
 func (x *ExportExchangeResponse) Reset() {
 	*x = ExportExchangeResponse{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[16]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1154,7 +1752,7 @@ func (x *ExportExchangeResponse) String() string {
 func (*ExportExchangeResponse) ProtoMessage() {}
 
 func (x *ExportExchangeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[16]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1167,7 +1765,7 @@ func (x *ExportExchangeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportExchangeResponse.ProtoReflect.Descriptor instead.
 func (*ExportExchangeResponse) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{16}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ExportExchangeResponse) GetResult() *ArtifactReference {
@@ -1192,7 +1790,7 @@ type RectangularPadSpec struct {
 
 func (x *RectangularPadSpec) Reset() {
 	*x = RectangularPadSpec{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[17]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1204,7 +1802,7 @@ func (x *RectangularPadSpec) String() string {
 func (*RectangularPadSpec) ProtoMessage() {}
 
 func (x *RectangularPadSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[17]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1217,7 +1815,7 @@ func (x *RectangularPadSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RectangularPadSpec.ProtoReflect.Descriptor instead.
 func (*RectangularPadSpec) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{17}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *RectangularPadSpec) GetOriginX() float64 {
@@ -1289,7 +1887,7 @@ type EvaluatePartResponse struct {
 
 func (x *EvaluatePartResponse) Reset() {
 	*x = EvaluatePartResponse{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[18]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1301,7 +1899,7 @@ func (x *EvaluatePartResponse) String() string {
 func (*EvaluatePartResponse) ProtoMessage() {}
 
 func (x *EvaluatePartResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[18]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1314,7 +1912,7 @@ func (x *EvaluatePartResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EvaluatePartResponse.ProtoReflect.Descriptor instead.
 func (*EvaluatePartResponse) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{18}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *EvaluatePartResponse) GetGeometryId() string {
@@ -1414,7 +2012,7 @@ type Mesh struct {
 
 func (x *Mesh) Reset() {
 	*x = Mesh{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[19]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1426,7 +2024,7 @@ func (x *Mesh) String() string {
 func (*Mesh) ProtoMessage() {}
 
 func (x *Mesh) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[19]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1439,7 +2037,7 @@ func (x *Mesh) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Mesh.ProtoReflect.Descriptor instead.
 func (*Mesh) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{19}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *Mesh) GetVertices() []*Vec3 {
@@ -1487,7 +2085,7 @@ type EdgePolyline struct {
 
 func (x *EdgePolyline) Reset() {
 	*x = EdgePolyline{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[20]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1499,7 +2097,7 @@ func (x *EdgePolyline) String() string {
 func (*EdgePolyline) ProtoMessage() {}
 
 func (x *EdgePolyline) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[20]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1512,7 +2110,7 @@ func (x *EdgePolyline) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgePolyline.ProtoReflect.Descriptor instead.
 func (*EdgePolyline) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{20}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *EdgePolyline) GetLocalId() uint64 {
@@ -1539,7 +2137,7 @@ type TopologyPoint struct {
 
 func (x *TopologyPoint) Reset() {
 	*x = TopologyPoint{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[21]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1551,7 +2149,7 @@ func (x *TopologyPoint) String() string {
 func (*TopologyPoint) ProtoMessage() {}
 
 func (x *TopologyPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[21]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1564,7 +2162,7 @@ func (x *TopologyPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TopologyPoint.ProtoReflect.Descriptor instead.
 func (*TopologyPoint) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{21}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *TopologyPoint) GetLocalId() uint64 {
@@ -1592,7 +2190,7 @@ type Triangle struct {
 
 func (x *Triangle) Reset() {
 	*x = Triangle{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[22]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1604,7 +2202,7 @@ func (x *Triangle) String() string {
 func (*Triangle) ProtoMessage() {}
 
 func (x *Triangle) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[22]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1617,7 +2215,7 @@ func (x *Triangle) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Triangle.ProtoReflect.Descriptor instead.
 func (*Triangle) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{22}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *Triangle) GetV0() uint32 {
@@ -1653,7 +2251,7 @@ type TopologySummary struct {
 
 func (x *TopologySummary) Reset() {
 	*x = TopologySummary{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[23]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1665,7 +2263,7 @@ func (x *TopologySummary) String() string {
 func (*TopologySummary) ProtoMessage() {}
 
 func (x *TopologySummary) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[23]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1678,7 +2276,7 @@ func (x *TopologySummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TopologySummary.ProtoReflect.Descriptor instead.
 func (*TopologySummary) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{23}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *TopologySummary) GetFaceCount() uint32 {
@@ -1717,7 +2315,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[24]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1729,7 +2327,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[24]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1742,7 +2340,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{24}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{31}
 }
 
 type PingResponse struct {
@@ -1756,7 +2354,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[25]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1768,7 +2366,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[25]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1781,7 +2379,7 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{25}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *PingResponse) GetWorkerId() string {
@@ -1814,7 +2412,7 @@ type LoadGeometryRequest struct {
 
 func (x *LoadGeometryRequest) Reset() {
 	*x = LoadGeometryRequest{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[26]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1826,7 +2424,7 @@ func (x *LoadGeometryRequest) String() string {
 func (*LoadGeometryRequest) ProtoMessage() {}
 
 func (x *LoadGeometryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[26]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1839,7 +2437,7 @@ func (x *LoadGeometryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoadGeometryRequest.ProtoReflect.Descriptor instead.
 func (*LoadGeometryRequest) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{26}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *LoadGeometryRequest) GetBrepData() []byte {
@@ -1861,7 +2459,7 @@ type LoadGeometryResponse struct {
 
 func (x *LoadGeometryResponse) Reset() {
 	*x = LoadGeometryResponse{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[27]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1873,7 +2471,7 @@ func (x *LoadGeometryResponse) String() string {
 func (*LoadGeometryResponse) ProtoMessage() {}
 
 func (x *LoadGeometryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[27]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1886,7 +2484,7 @@ func (x *LoadGeometryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LoadGeometryResponse.ProtoReflect.Descriptor instead.
 func (*LoadGeometryResponse) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{27}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *LoadGeometryResponse) GetGeometryId() string {
@@ -1926,7 +2524,7 @@ type UnloadGeometryRequest struct {
 
 func (x *UnloadGeometryRequest) Reset() {
 	*x = UnloadGeometryRequest{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[28]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1938,7 +2536,7 @@ func (x *UnloadGeometryRequest) String() string {
 func (*UnloadGeometryRequest) ProtoMessage() {}
 
 func (x *UnloadGeometryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[28]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1951,7 +2549,7 @@ func (x *UnloadGeometryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnloadGeometryRequest.ProtoReflect.Descriptor instead.
 func (*UnloadGeometryRequest) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{28}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *UnloadGeometryRequest) GetGeometryId() string {
@@ -1969,7 +2567,7 @@ type UnloadGeometryResponse struct {
 
 func (x *UnloadGeometryResponse) Reset() {
 	*x = UnloadGeometryResponse{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[29]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1981,7 +2579,7 @@ func (x *UnloadGeometryResponse) String() string {
 func (*UnloadGeometryResponse) ProtoMessage() {}
 
 func (x *UnloadGeometryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[29]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1994,7 +2592,7 @@ func (x *UnloadGeometryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UnloadGeometryResponse.ProtoReflect.Descriptor instead.
 func (*UnloadGeometryResponse) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{29}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{36}
 }
 
 type GetTopologyRequest struct {
@@ -2010,7 +2608,7 @@ type GetTopologyRequest struct {
 
 func (x *GetTopologyRequest) Reset() {
 	*x = GetTopologyRequest{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[30]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2022,7 +2620,7 @@ func (x *GetTopologyRequest) String() string {
 func (*GetTopologyRequest) ProtoMessage() {}
 
 func (x *GetTopologyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[30]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2035,7 +2633,7 @@ func (x *GetTopologyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTopologyRequest.ProtoReflect.Descriptor instead.
 func (*GetTopologyRequest) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{30}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *GetTopologyRequest) GetGeometryId() string {
@@ -2088,7 +2686,7 @@ type GetTopologyResponse struct {
 
 func (x *GetTopologyResponse) Reset() {
 	*x = GetTopologyResponse{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[31]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2100,7 +2698,7 @@ func (x *GetTopologyResponse) String() string {
 func (*GetTopologyResponse) ProtoMessage() {}
 
 func (x *GetTopologyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[31]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2113,7 +2711,7 @@ func (x *GetTopologyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTopologyResponse.ProtoReflect.Descriptor instead.
 func (*GetTopologyResponse) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{31}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *GetTopologyResponse) GetFaceCount() uint32 {
@@ -2182,7 +2780,7 @@ type TopologyProperty struct {
 
 func (x *TopologyProperty) Reset() {
 	*x = TopologyProperty{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[32]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2194,7 +2792,7 @@ func (x *TopologyProperty) String() string {
 func (*TopologyProperty) ProtoMessage() {}
 
 func (x *TopologyProperty) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[32]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2207,7 +2805,7 @@ func (x *TopologyProperty) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TopologyProperty.ProtoReflect.Descriptor instead.
 func (*TopologyProperty) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{32}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *TopologyProperty) GetName() string {
@@ -2315,7 +2913,7 @@ type FaceInfo struct {
 
 func (x *FaceInfo) Reset() {
 	*x = FaceInfo{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[33]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2327,7 +2925,7 @@ func (x *FaceInfo) String() string {
 func (*FaceInfo) ProtoMessage() {}
 
 func (x *FaceInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[33]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2340,7 +2938,7 @@ func (x *FaceInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FaceInfo.ProtoReflect.Descriptor instead.
 func (*FaceInfo) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{33}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *FaceInfo) GetLocalId() uint64 {
@@ -2384,7 +2982,7 @@ type EdgeInfo struct {
 
 func (x *EdgeInfo) Reset() {
 	*x = EdgeInfo{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[34]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2396,7 +2994,7 @@ func (x *EdgeInfo) String() string {
 func (*EdgeInfo) ProtoMessage() {}
 
 func (x *EdgeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[34]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2409,7 +3007,7 @@ func (x *EdgeInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EdgeInfo.ProtoReflect.Descriptor instead.
 func (*EdgeInfo) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{34}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *EdgeInfo) GetLocalId() uint64 {
@@ -2458,7 +3056,7 @@ type VertexInfo struct {
 
 func (x *VertexInfo) Reset() {
 	*x = VertexInfo{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[35]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2470,7 +3068,7 @@ func (x *VertexInfo) String() string {
 func (*VertexInfo) ProtoMessage() {}
 
 func (x *VertexInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[35]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2483,7 +3081,7 @@ func (x *VertexInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VertexInfo.ProtoReflect.Descriptor instead.
 func (*VertexInfo) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{35}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *VertexInfo) GetLocalId() uint64 {
@@ -2518,7 +3116,7 @@ type TessellateRequest struct {
 
 func (x *TessellateRequest) Reset() {
 	*x = TessellateRequest{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[36]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2530,7 +3128,7 @@ func (x *TessellateRequest) String() string {
 func (*TessellateRequest) ProtoMessage() {}
 
 func (x *TessellateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[36]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2543,7 +3141,7 @@ func (x *TessellateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TessellateRequest.ProtoReflect.Descriptor instead.
 func (*TessellateRequest) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{36}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *TessellateRequest) GetGeometryId() string {
@@ -2578,7 +3176,7 @@ type TessellateResponse struct {
 
 func (x *TessellateResponse) Reset() {
 	*x = TessellateResponse{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[37]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2590,7 +3188,7 @@ func (x *TessellateResponse) String() string {
 func (*TessellateResponse) ProtoMessage() {}
 
 func (x *TessellateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[37]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2603,7 +3201,7 @@ func (x *TessellateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TessellateResponse.ProtoReflect.Descriptor instead.
 func (*TessellateResponse) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{37}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *TessellateResponse) GetGlbData() []byte {
@@ -2638,7 +3236,7 @@ type CreateChamferRequest struct {
 
 func (x *CreateChamferRequest) Reset() {
 	*x = CreateChamferRequest{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[38]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2650,7 +3248,7 @@ func (x *CreateChamferRequest) String() string {
 func (*CreateChamferRequest) ProtoMessage() {}
 
 func (x *CreateChamferRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[38]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2663,7 +3261,7 @@ func (x *CreateChamferRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateChamferRequest.ProtoReflect.Descriptor instead.
 func (*CreateChamferRequest) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{38}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *CreateChamferRequest) GetGeometryId() string {
@@ -2696,7 +3294,7 @@ type CreateChamferResponse struct {
 
 func (x *CreateChamferResponse) Reset() {
 	*x = CreateChamferResponse{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[39]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2708,7 +3306,7 @@ func (x *CreateChamferResponse) String() string {
 func (*CreateChamferResponse) ProtoMessage() {}
 
 func (x *CreateChamferResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[39]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2721,7 +3319,7 @@ func (x *CreateChamferResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateChamferResponse.ProtoReflect.Descriptor instead.
 func (*CreateChamferResponse) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{39}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *CreateChamferResponse) GetNewGeometryId() string {
@@ -2742,7 +3340,7 @@ type CreateFilletRequest struct {
 
 func (x *CreateFilletRequest) Reset() {
 	*x = CreateFilletRequest{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[40]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2754,7 +3352,7 @@ func (x *CreateFilletRequest) String() string {
 func (*CreateFilletRequest) ProtoMessage() {}
 
 func (x *CreateFilletRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[40]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2767,7 +3365,7 @@ func (x *CreateFilletRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateFilletRequest.ProtoReflect.Descriptor instead.
 func (*CreateFilletRequest) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{40}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *CreateFilletRequest) GetGeometryId() string {
@@ -2800,7 +3398,7 @@ type CreateFilletResponse struct {
 
 func (x *CreateFilletResponse) Reset() {
 	*x = CreateFilletResponse{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[41]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2812,7 +3410,7 @@ func (x *CreateFilletResponse) String() string {
 func (*CreateFilletResponse) ProtoMessage() {}
 
 func (x *CreateFilletResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[41]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2825,7 +3423,7 @@ func (x *CreateFilletResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateFilletResponse.ProtoReflect.Descriptor instead.
 func (*CreateFilletResponse) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{41}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *CreateFilletResponse) GetNewGeometryId() string {
@@ -2849,7 +3447,7 @@ type BoundingBox struct {
 
 func (x *BoundingBox) Reset() {
 	*x = BoundingBox{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[42]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2861,7 +3459,7 @@ func (x *BoundingBox) String() string {
 func (*BoundingBox) ProtoMessage() {}
 
 func (x *BoundingBox) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[42]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2874,7 +3472,7 @@ func (x *BoundingBox) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BoundingBox.ProtoReflect.Descriptor instead.
 func (*BoundingBox) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{42}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *BoundingBox) GetMinX() float64 {
@@ -2930,7 +3528,7 @@ type Vec3 struct {
 
 func (x *Vec3) Reset() {
 	*x = Vec3{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[43]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[50]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2942,7 +3540,7 @@ func (x *Vec3) String() string {
 func (*Vec3) ProtoMessage() {}
 
 func (x *Vec3) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[43]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[50]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2955,7 +3553,7 @@ func (x *Vec3) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Vec3.ProtoReflect.Descriptor instead.
 func (*Vec3) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{43}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *Vec3) GetX() float64 {
@@ -2996,12 +3594,31 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12-\n" +
 	"\x05start\x18\x02 \x01(\v2\x17.occccad.worker.v1.Vec2R\x05start\x12)\n" +
 	"\x03end\x18\x03 \x01(\v2\x17.occccad.worker.v1.Vec2R\x03end\x12\x12\n" +
-	"\x04role\x18\x04 \x01(\tR\x04role\"i\n" +
+	"\x04role\x18\x04 \x01(\tR\x04role\"{\n" +
+	"\fSketchCircle\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12/\n" +
+	"\x06center\x18\x02 \x01(\v2\x17.occccad.worker.v1.Vec2R\x06center\x12\x16\n" +
+	"\x06radius\x18\x03 \x01(\x01R\x06radius\x12\x12\n" +
+	"\x04role\x18\x04 \x01(\tR\x04role\"\xb6\x01\n" +
+	"\tSketchArc\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12/\n" +
+	"\x06center\x18\x02 \x01(\v2\x17.occccad.worker.v1.Vec2R\x06center\x12\x16\n" +
+	"\x06radius\x18\x03 \x01(\x01R\x06radius\x12\x1f\n" +
+	"\vstart_angle\x18\x04 \x01(\x01R\n" +
+	"startAngle\x12\x1b\n" +
+	"\tend_angle\x18\x05 \x01(\x01R\bendAngle\x12\x12\n" +
+	"\x04role\x18\x06 \x01(\tR\x04role\"\xa2\x01\n" +
+	"\fSketchSpline\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12>\n" +
+	"\x0econtrol_points\x18\x02 \x03(\v2\x17.occccad.worker.v1.Vec2R\rcontrolPoints\x12\x16\n" +
+	"\x06degree\x18\x03 \x01(\rR\x06degree\x12\x16\n" +
+	"\x06closed\x18\x04 \x01(\bR\x06closed\x12\x12\n" +
+	"\x04role\x18\x05 \x01(\tR\x04role\"i\n" +
 	"\x11SketchGeometryRef\x12\x16\n" +
 	"\x06target\x18\x01 \x01(\tR\x06target\x12\x1b\n" +
 	"\tentity_id\x18\x02 \x01(\tR\bentityId\x12\x1f\n" +
 	"\vsub_element\x18\x03 \x01(\tR\n" +
-	"subElement\"\xb6\x01\n" +
+	"subElement\"\xfc\x01\n" +
 	"\x10SketchConstraint\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12D\n" +
@@ -3009,12 +3626,18 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"references\x18\x03 \x03(\v2$.occccad.worker.v1.SketchGeometryRefR\n" +
 	"references\x128\n" +
 	"\vfixed_point\x18\x04 \x01(\v2\x17.occccad.worker.v1.Vec2R\n" +
-	"fixedPoint\"\xe8\x01\n" +
+	"fixedPoint\x12\x14\n" +
+	"\x05value\x18\x05 \x01(\x01R\x05value\x12\x12\n" +
+	"\x04unit\x18\x06 \x01(\tR\x04unit\x12\x1a\n" +
+	"\binternal\x18\a \x01(\bR\binternal\"\x90\x03\n" +
 	"\vSketchModel\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x126\n" +
 	"\x06points\x18\x02 \x03(\v2\x1e.occccad.worker.v1.SketchPointR\x06points\x123\n" +
 	"\x05lines\x18\x03 \x03(\v2\x1d.occccad.worker.v1.SketchLineR\x05lines\x12E\n" +
-	"\vconstraints\x18\x04 \x03(\v2#.occccad.worker.v1.SketchConstraintR\vconstraints\"k\n" +
+	"\vconstraints\x18\x04 \x03(\v2#.occccad.worker.v1.SketchConstraintR\vconstraints\x129\n" +
+	"\acircles\x18\x05 \x03(\v2\x1f.occccad.worker.v1.SketchCircleR\acircles\x120\n" +
+	"\x04arcs\x18\x06 \x03(\v2\x1c.occccad.worker.v1.SketchArcR\x04arcs\x129\n" +
+	"\asplines\x18\a \x03(\v2\x1f.occccad.worker.v1.SketchSplineR\asplines\"k\n" +
 	"\x12SolveSketchRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x126\n" +
@@ -3027,7 +3650,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x18redundant_constraint_ids\x18\x05 \x03(\tR\x16redundantConstraintIds\x12\x1e\n" +
 	"\n" +
 	"diagnostic\x18\x06 \x01(\tR\n" +
-	"diagnostic\"\x9d\x04\n" +
+	"diagnostic\"\xe3\x04\n" +
 	"\x13EvaluatePartRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12!\n" +
@@ -3040,7 +3663,36 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x12base_brep_artifact\x18\b \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\x10baseBrepArtifact\x12&\n" +
 	"\x0fbrep_output_key\x18\t \x01(\tR\rbrepOutputKey\x12$\n" +
 	"\x0eglb_output_key\x18\n" +
-	" \x01(\tR\fglbOutputKey\"\xa6\x01\n" +
+	" \x01(\tR\fglbOutputKey\x12D\n" +
+	"\fprofile_pads\x18\v \x03(\v2!.occccad.worker.v1.ProfilePadSpecR\vprofilePads\"\xac\x03\n" +
+	"\fProfileCurve\x12\x1b\n" +
+	"\tentity_id\x18\x01 \x01(\tR\bentityId\x12\x1a\n" +
+	"\breversed\x18\x02 \x01(\bR\breversed\x12\x12\n" +
+	"\x04kind\x18\x03 \x01(\tR\x04kind\x12-\n" +
+	"\x05start\x18\x04 \x01(\v2\x17.occccad.worker.v1.Vec2R\x05start\x12)\n" +
+	"\x03end\x18\x05 \x01(\v2\x17.occccad.worker.v1.Vec2R\x03end\x12/\n" +
+	"\x06center\x18\x06 \x01(\v2\x17.occccad.worker.v1.Vec2R\x06center\x12\x16\n" +
+	"\x06radius\x18\a \x01(\x01R\x06radius\x12\x1f\n" +
+	"\vstart_angle\x18\b \x01(\x01R\n" +
+	"startAngle\x12\x1b\n" +
+	"\tend_angle\x18\t \x01(\x01R\bendAngle\x12>\n" +
+	"\x0econtrol_points\x18\n" +
+	" \x03(\v2\x17.occccad.worker.v1.Vec2R\rcontrolPoints\x12\x16\n" +
+	"\x06degree\x18\v \x01(\rR\x06degree\x12\x16\n" +
+	"\x06closed\x18\f \x01(\bR\x06closed\"V\n" +
+	"\vProfileLoop\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x127\n" +
+	"\x06curves\x18\x02 \x03(\v2\x1f.occccad.worker.v1.ProfileCurveR\x06curves\"\x8b\x01\n" +
+	"\rProfileRegion\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x124\n" +
+	"\x05outer\x18\x02 \x01(\v2\x1e.occccad.worker.v1.ProfileLoopR\x05outer\x124\n" +
+	"\x05holes\x18\x03 \x03(\v2\x1e.occccad.worker.v1.ProfileLoopR\x05holes\"\x97\x01\n" +
+	"\x0eProfilePadSpec\x12:\n" +
+	"\aregions\x18\x01 \x03(\v2 .occccad.worker.v1.ProfileRegionR\aregions\x12\x1d\n" +
+	"\n" +
+	"pad_length\x18\x02 \x01(\x01R\tpadLength\x12\x14\n" +
+	"\x05units\x18\x03 \x01(\tR\x05units\x12\x14\n" +
+	"\x05plane\x18\x04 \x01(\tR\x05plane\"\xa6\x01\n" +
 	"\x11ArtifactReference\x12\x18\n" +
 	"\abackend\x18\x01 \x01(\tR\abackend\x12\x1d\n" +
 	"\n" +
@@ -3268,127 +3920,149 @@ func file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP() []byte {
 	return file_occccad_worker_v1_geometry_worker_proto_rawDescData
 }
 
-var file_occccad_worker_v1_geometry_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
+var file_occccad_worker_v1_geometry_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 51)
 var file_occccad_worker_v1_geometry_worker_proto_goTypes = []any{
 	(*Vec2)(nil),                    // 0: occccad.worker.v1.Vec2
 	(*SketchPoint)(nil),             // 1: occccad.worker.v1.SketchPoint
 	(*SketchLine)(nil),              // 2: occccad.worker.v1.SketchLine
-	(*SketchGeometryRef)(nil),       // 3: occccad.worker.v1.SketchGeometryRef
-	(*SketchConstraint)(nil),        // 4: occccad.worker.v1.SketchConstraint
-	(*SketchModel)(nil),             // 5: occccad.worker.v1.SketchModel
-	(*SolveSketchRequest)(nil),      // 6: occccad.worker.v1.SolveSketchRequest
-	(*SolveSketchResponse)(nil),     // 7: occccad.worker.v1.SolveSketchResponse
-	(*EvaluatePartRequest)(nil),     // 8: occccad.worker.v1.EvaluatePartRequest
-	(*ArtifactReference)(nil),       // 9: occccad.worker.v1.ArtifactReference
-	(*InspectExchangeRequest)(nil),  // 10: occccad.worker.v1.InspectExchangeRequest
-	(*ExchangeComponentInfo)(nil),   // 11: occccad.worker.v1.ExchangeComponentInfo
-	(*InspectExchangeResponse)(nil), // 12: occccad.worker.v1.InspectExchangeResponse
-	(*ImportExchangeRequest)(nil),   // 13: occccad.worker.v1.ImportExchangeRequest
-	(*ExchangeComponent)(nil),       // 14: occccad.worker.v1.ExchangeComponent
-	(*ExportExchangeRequest)(nil),   // 15: occccad.worker.v1.ExportExchangeRequest
-	(*ExportExchangeResponse)(nil),  // 16: occccad.worker.v1.ExportExchangeResponse
-	(*RectangularPadSpec)(nil),      // 17: occccad.worker.v1.RectangularPadSpec
-	(*EvaluatePartResponse)(nil),    // 18: occccad.worker.v1.EvaluatePartResponse
-	(*Mesh)(nil),                    // 19: occccad.worker.v1.Mesh
-	(*EdgePolyline)(nil),            // 20: occccad.worker.v1.EdgePolyline
-	(*TopologyPoint)(nil),           // 21: occccad.worker.v1.TopologyPoint
-	(*Triangle)(nil),                // 22: occccad.worker.v1.Triangle
-	(*TopologySummary)(nil),         // 23: occccad.worker.v1.TopologySummary
-	(*PingRequest)(nil),             // 24: occccad.worker.v1.PingRequest
-	(*PingResponse)(nil),            // 25: occccad.worker.v1.PingResponse
-	(*LoadGeometryRequest)(nil),     // 26: occccad.worker.v1.LoadGeometryRequest
-	(*LoadGeometryResponse)(nil),    // 27: occccad.worker.v1.LoadGeometryResponse
-	(*UnloadGeometryRequest)(nil),   // 28: occccad.worker.v1.UnloadGeometryRequest
-	(*UnloadGeometryResponse)(nil),  // 29: occccad.worker.v1.UnloadGeometryResponse
-	(*GetTopologyRequest)(nil),      // 30: occccad.worker.v1.GetTopologyRequest
-	(*GetTopologyResponse)(nil),     // 31: occccad.worker.v1.GetTopologyResponse
-	(*TopologyProperty)(nil),        // 32: occccad.worker.v1.TopologyProperty
-	(*FaceInfo)(nil),                // 33: occccad.worker.v1.FaceInfo
-	(*EdgeInfo)(nil),                // 34: occccad.worker.v1.EdgeInfo
-	(*VertexInfo)(nil),              // 35: occccad.worker.v1.VertexInfo
-	(*TessellateRequest)(nil),       // 36: occccad.worker.v1.TessellateRequest
-	(*TessellateResponse)(nil),      // 37: occccad.worker.v1.TessellateResponse
-	(*CreateChamferRequest)(nil),    // 38: occccad.worker.v1.CreateChamferRequest
-	(*CreateChamferResponse)(nil),   // 39: occccad.worker.v1.CreateChamferResponse
-	(*CreateFilletRequest)(nil),     // 40: occccad.worker.v1.CreateFilletRequest
-	(*CreateFilletResponse)(nil),    // 41: occccad.worker.v1.CreateFilletResponse
-	(*BoundingBox)(nil),             // 42: occccad.worker.v1.BoundingBox
-	(*Vec3)(nil),                    // 43: occccad.worker.v1.Vec3
+	(*SketchCircle)(nil),            // 3: occccad.worker.v1.SketchCircle
+	(*SketchArc)(nil),               // 4: occccad.worker.v1.SketchArc
+	(*SketchSpline)(nil),            // 5: occccad.worker.v1.SketchSpline
+	(*SketchGeometryRef)(nil),       // 6: occccad.worker.v1.SketchGeometryRef
+	(*SketchConstraint)(nil),        // 7: occccad.worker.v1.SketchConstraint
+	(*SketchModel)(nil),             // 8: occccad.worker.v1.SketchModel
+	(*SolveSketchRequest)(nil),      // 9: occccad.worker.v1.SolveSketchRequest
+	(*SolveSketchResponse)(nil),     // 10: occccad.worker.v1.SolveSketchResponse
+	(*EvaluatePartRequest)(nil),     // 11: occccad.worker.v1.EvaluatePartRequest
+	(*ProfileCurve)(nil),            // 12: occccad.worker.v1.ProfileCurve
+	(*ProfileLoop)(nil),             // 13: occccad.worker.v1.ProfileLoop
+	(*ProfileRegion)(nil),           // 14: occccad.worker.v1.ProfileRegion
+	(*ProfilePadSpec)(nil),          // 15: occccad.worker.v1.ProfilePadSpec
+	(*ArtifactReference)(nil),       // 16: occccad.worker.v1.ArtifactReference
+	(*InspectExchangeRequest)(nil),  // 17: occccad.worker.v1.InspectExchangeRequest
+	(*ExchangeComponentInfo)(nil),   // 18: occccad.worker.v1.ExchangeComponentInfo
+	(*InspectExchangeResponse)(nil), // 19: occccad.worker.v1.InspectExchangeResponse
+	(*ImportExchangeRequest)(nil),   // 20: occccad.worker.v1.ImportExchangeRequest
+	(*ExchangeComponent)(nil),       // 21: occccad.worker.v1.ExchangeComponent
+	(*ExportExchangeRequest)(nil),   // 22: occccad.worker.v1.ExportExchangeRequest
+	(*ExportExchangeResponse)(nil),  // 23: occccad.worker.v1.ExportExchangeResponse
+	(*RectangularPadSpec)(nil),      // 24: occccad.worker.v1.RectangularPadSpec
+	(*EvaluatePartResponse)(nil),    // 25: occccad.worker.v1.EvaluatePartResponse
+	(*Mesh)(nil),                    // 26: occccad.worker.v1.Mesh
+	(*EdgePolyline)(nil),            // 27: occccad.worker.v1.EdgePolyline
+	(*TopologyPoint)(nil),           // 28: occccad.worker.v1.TopologyPoint
+	(*Triangle)(nil),                // 29: occccad.worker.v1.Triangle
+	(*TopologySummary)(nil),         // 30: occccad.worker.v1.TopologySummary
+	(*PingRequest)(nil),             // 31: occccad.worker.v1.PingRequest
+	(*PingResponse)(nil),            // 32: occccad.worker.v1.PingResponse
+	(*LoadGeometryRequest)(nil),     // 33: occccad.worker.v1.LoadGeometryRequest
+	(*LoadGeometryResponse)(nil),    // 34: occccad.worker.v1.LoadGeometryResponse
+	(*UnloadGeometryRequest)(nil),   // 35: occccad.worker.v1.UnloadGeometryRequest
+	(*UnloadGeometryResponse)(nil),  // 36: occccad.worker.v1.UnloadGeometryResponse
+	(*GetTopologyRequest)(nil),      // 37: occccad.worker.v1.GetTopologyRequest
+	(*GetTopologyResponse)(nil),     // 38: occccad.worker.v1.GetTopologyResponse
+	(*TopologyProperty)(nil),        // 39: occccad.worker.v1.TopologyProperty
+	(*FaceInfo)(nil),                // 40: occccad.worker.v1.FaceInfo
+	(*EdgeInfo)(nil),                // 41: occccad.worker.v1.EdgeInfo
+	(*VertexInfo)(nil),              // 42: occccad.worker.v1.VertexInfo
+	(*TessellateRequest)(nil),       // 43: occccad.worker.v1.TessellateRequest
+	(*TessellateResponse)(nil),      // 44: occccad.worker.v1.TessellateResponse
+	(*CreateChamferRequest)(nil),    // 45: occccad.worker.v1.CreateChamferRequest
+	(*CreateChamferResponse)(nil),   // 46: occccad.worker.v1.CreateChamferResponse
+	(*CreateFilletRequest)(nil),     // 47: occccad.worker.v1.CreateFilletRequest
+	(*CreateFilletResponse)(nil),    // 48: occccad.worker.v1.CreateFilletResponse
+	(*BoundingBox)(nil),             // 49: occccad.worker.v1.BoundingBox
+	(*Vec3)(nil),                    // 50: occccad.worker.v1.Vec3
 }
 var file_occccad_worker_v1_geometry_worker_proto_depIdxs = []int32{
 	0,  // 0: occccad.worker.v1.SketchPoint.point:type_name -> occccad.worker.v1.Vec2
 	0,  // 1: occccad.worker.v1.SketchLine.start:type_name -> occccad.worker.v1.Vec2
 	0,  // 2: occccad.worker.v1.SketchLine.end:type_name -> occccad.worker.v1.Vec2
-	3,  // 3: occccad.worker.v1.SketchConstraint.references:type_name -> occccad.worker.v1.SketchGeometryRef
-	0,  // 4: occccad.worker.v1.SketchConstraint.fixed_point:type_name -> occccad.worker.v1.Vec2
-	1,  // 5: occccad.worker.v1.SketchModel.points:type_name -> occccad.worker.v1.SketchPoint
-	2,  // 6: occccad.worker.v1.SketchModel.lines:type_name -> occccad.worker.v1.SketchLine
-	4,  // 7: occccad.worker.v1.SketchModel.constraints:type_name -> occccad.worker.v1.SketchConstraint
-	5,  // 8: occccad.worker.v1.SolveSketchRequest.sketch:type_name -> occccad.worker.v1.SketchModel
-	5,  // 9: occccad.worker.v1.SolveSketchResponse.sketch:type_name -> occccad.worker.v1.SketchModel
-	17, // 10: occccad.worker.v1.EvaluatePartRequest.rectangular_pad:type_name -> occccad.worker.v1.RectangularPadSpec
-	17, // 11: occccad.worker.v1.EvaluatePartRequest.rectangular_pads:type_name -> occccad.worker.v1.RectangularPadSpec
-	9,  // 12: occccad.worker.v1.EvaluatePartRequest.base_brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	9,  // 13: occccad.worker.v1.InspectExchangeRequest.source:type_name -> occccad.worker.v1.ArtifactReference
-	11, // 14: occccad.worker.v1.InspectExchangeResponse.components:type_name -> occccad.worker.v1.ExchangeComponentInfo
-	9,  // 15: occccad.worker.v1.ImportExchangeRequest.source:type_name -> occccad.worker.v1.ArtifactReference
-	9,  // 16: occccad.worker.v1.ExchangeComponent.brep:type_name -> occccad.worker.v1.ArtifactReference
-	43, // 17: occccad.worker.v1.ExchangeComponent.translation:type_name -> occccad.worker.v1.Vec3
-	14, // 18: occccad.worker.v1.ExportExchangeRequest.components:type_name -> occccad.worker.v1.ExchangeComponent
-	9,  // 19: occccad.worker.v1.ExportExchangeResponse.result:type_name -> occccad.worker.v1.ArtifactReference
-	19, // 20: occccad.worker.v1.EvaluatePartResponse.mesh:type_name -> occccad.worker.v1.Mesh
-	42, // 21: occccad.worker.v1.EvaluatePartResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
-	23, // 22: occccad.worker.v1.EvaluatePartResponse.topology:type_name -> occccad.worker.v1.TopologySummary
-	9,  // 23: occccad.worker.v1.EvaluatePartResponse.brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	9,  // 24: occccad.worker.v1.EvaluatePartResponse.glb_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	43, // 25: occccad.worker.v1.Mesh.vertices:type_name -> occccad.worker.v1.Vec3
-	22, // 26: occccad.worker.v1.Mesh.triangles:type_name -> occccad.worker.v1.Triangle
-	20, // 27: occccad.worker.v1.Mesh.edges:type_name -> occccad.worker.v1.EdgePolyline
-	21, // 28: occccad.worker.v1.Mesh.topology_vertices:type_name -> occccad.worker.v1.TopologyPoint
-	43, // 29: occccad.worker.v1.EdgePolyline.points:type_name -> occccad.worker.v1.Vec3
-	43, // 30: occccad.worker.v1.TopologyPoint.point:type_name -> occccad.worker.v1.Vec3
-	42, // 31: occccad.worker.v1.LoadGeometryResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
-	9,  // 32: occccad.worker.v1.GetTopologyRequest.brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	33, // 33: occccad.worker.v1.GetTopologyResponse.faces:type_name -> occccad.worker.v1.FaceInfo
-	34, // 34: occccad.worker.v1.GetTopologyResponse.edges:type_name -> occccad.worker.v1.EdgeInfo
-	35, // 35: occccad.worker.v1.GetTopologyResponse.vertices:type_name -> occccad.worker.v1.VertexInfo
-	43, // 36: occccad.worker.v1.TopologyProperty.vector_value:type_name -> occccad.worker.v1.Vec3
-	42, // 37: occccad.worker.v1.FaceInfo.bbox:type_name -> occccad.worker.v1.BoundingBox
-	32, // 38: occccad.worker.v1.FaceInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
-	42, // 39: occccad.worker.v1.EdgeInfo.bbox:type_name -> occccad.worker.v1.BoundingBox
-	32, // 40: occccad.worker.v1.EdgeInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
-	43, // 41: occccad.worker.v1.EdgeInfo.render_points:type_name -> occccad.worker.v1.Vec3
-	43, // 42: occccad.worker.v1.VertexInfo.point:type_name -> occccad.worker.v1.Vec3
-	32, // 43: occccad.worker.v1.VertexInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
-	24, // 44: occccad.worker.v1.GeometryWorker.Ping:input_type -> occccad.worker.v1.PingRequest
-	8,  // 45: occccad.worker.v1.GeometryWorker.EvaluatePart:input_type -> occccad.worker.v1.EvaluatePartRequest
-	6,  // 46: occccad.worker.v1.GeometryWorker.SolveSketch:input_type -> occccad.worker.v1.SolveSketchRequest
-	10, // 47: occccad.worker.v1.GeometryWorker.InspectExchange:input_type -> occccad.worker.v1.InspectExchangeRequest
-	13, // 48: occccad.worker.v1.GeometryWorker.ImportExchange:input_type -> occccad.worker.v1.ImportExchangeRequest
-	15, // 49: occccad.worker.v1.GeometryWorker.ExportExchange:input_type -> occccad.worker.v1.ExportExchangeRequest
-	26, // 50: occccad.worker.v1.GeometryWorker.LoadGeometry:input_type -> occccad.worker.v1.LoadGeometryRequest
-	28, // 51: occccad.worker.v1.GeometryWorker.UnloadGeometry:input_type -> occccad.worker.v1.UnloadGeometryRequest
-	30, // 52: occccad.worker.v1.GeometryWorker.GetTopology:input_type -> occccad.worker.v1.GetTopologyRequest
-	36, // 53: occccad.worker.v1.GeometryWorker.Tessellate:input_type -> occccad.worker.v1.TessellateRequest
-	38, // 54: occccad.worker.v1.GeometryWorker.CreateChamfer:input_type -> occccad.worker.v1.CreateChamferRequest
-	40, // 55: occccad.worker.v1.GeometryWorker.CreateFillet:input_type -> occccad.worker.v1.CreateFilletRequest
-	25, // 56: occccad.worker.v1.GeometryWorker.Ping:output_type -> occccad.worker.v1.PingResponse
-	18, // 57: occccad.worker.v1.GeometryWorker.EvaluatePart:output_type -> occccad.worker.v1.EvaluatePartResponse
-	7,  // 58: occccad.worker.v1.GeometryWorker.SolveSketch:output_type -> occccad.worker.v1.SolveSketchResponse
-	12, // 59: occccad.worker.v1.GeometryWorker.InspectExchange:output_type -> occccad.worker.v1.InspectExchangeResponse
-	18, // 60: occccad.worker.v1.GeometryWorker.ImportExchange:output_type -> occccad.worker.v1.EvaluatePartResponse
-	16, // 61: occccad.worker.v1.GeometryWorker.ExportExchange:output_type -> occccad.worker.v1.ExportExchangeResponse
-	27, // 62: occccad.worker.v1.GeometryWorker.LoadGeometry:output_type -> occccad.worker.v1.LoadGeometryResponse
-	29, // 63: occccad.worker.v1.GeometryWorker.UnloadGeometry:output_type -> occccad.worker.v1.UnloadGeometryResponse
-	31, // 64: occccad.worker.v1.GeometryWorker.GetTopology:output_type -> occccad.worker.v1.GetTopologyResponse
-	37, // 65: occccad.worker.v1.GeometryWorker.Tessellate:output_type -> occccad.worker.v1.TessellateResponse
-	39, // 66: occccad.worker.v1.GeometryWorker.CreateChamfer:output_type -> occccad.worker.v1.CreateChamferResponse
-	41, // 67: occccad.worker.v1.GeometryWorker.CreateFillet:output_type -> occccad.worker.v1.CreateFilletResponse
-	56, // [56:68] is the sub-list for method output_type
-	44, // [44:56] is the sub-list for method input_type
-	44, // [44:44] is the sub-list for extension type_name
-	44, // [44:44] is the sub-list for extension extendee
-	0,  // [0:44] is the sub-list for field type_name
+	0,  // 3: occccad.worker.v1.SketchCircle.center:type_name -> occccad.worker.v1.Vec2
+	0,  // 4: occccad.worker.v1.SketchArc.center:type_name -> occccad.worker.v1.Vec2
+	0,  // 5: occccad.worker.v1.SketchSpline.control_points:type_name -> occccad.worker.v1.Vec2
+	6,  // 6: occccad.worker.v1.SketchConstraint.references:type_name -> occccad.worker.v1.SketchGeometryRef
+	0,  // 7: occccad.worker.v1.SketchConstraint.fixed_point:type_name -> occccad.worker.v1.Vec2
+	1,  // 8: occccad.worker.v1.SketchModel.points:type_name -> occccad.worker.v1.SketchPoint
+	2,  // 9: occccad.worker.v1.SketchModel.lines:type_name -> occccad.worker.v1.SketchLine
+	7,  // 10: occccad.worker.v1.SketchModel.constraints:type_name -> occccad.worker.v1.SketchConstraint
+	3,  // 11: occccad.worker.v1.SketchModel.circles:type_name -> occccad.worker.v1.SketchCircle
+	4,  // 12: occccad.worker.v1.SketchModel.arcs:type_name -> occccad.worker.v1.SketchArc
+	5,  // 13: occccad.worker.v1.SketchModel.splines:type_name -> occccad.worker.v1.SketchSpline
+	8,  // 14: occccad.worker.v1.SolveSketchRequest.sketch:type_name -> occccad.worker.v1.SketchModel
+	8,  // 15: occccad.worker.v1.SolveSketchResponse.sketch:type_name -> occccad.worker.v1.SketchModel
+	24, // 16: occccad.worker.v1.EvaluatePartRequest.rectangular_pad:type_name -> occccad.worker.v1.RectangularPadSpec
+	24, // 17: occccad.worker.v1.EvaluatePartRequest.rectangular_pads:type_name -> occccad.worker.v1.RectangularPadSpec
+	16, // 18: occccad.worker.v1.EvaluatePartRequest.base_brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	15, // 19: occccad.worker.v1.EvaluatePartRequest.profile_pads:type_name -> occccad.worker.v1.ProfilePadSpec
+	0,  // 20: occccad.worker.v1.ProfileCurve.start:type_name -> occccad.worker.v1.Vec2
+	0,  // 21: occccad.worker.v1.ProfileCurve.end:type_name -> occccad.worker.v1.Vec2
+	0,  // 22: occccad.worker.v1.ProfileCurve.center:type_name -> occccad.worker.v1.Vec2
+	0,  // 23: occccad.worker.v1.ProfileCurve.control_points:type_name -> occccad.worker.v1.Vec2
+	12, // 24: occccad.worker.v1.ProfileLoop.curves:type_name -> occccad.worker.v1.ProfileCurve
+	13, // 25: occccad.worker.v1.ProfileRegion.outer:type_name -> occccad.worker.v1.ProfileLoop
+	13, // 26: occccad.worker.v1.ProfileRegion.holes:type_name -> occccad.worker.v1.ProfileLoop
+	14, // 27: occccad.worker.v1.ProfilePadSpec.regions:type_name -> occccad.worker.v1.ProfileRegion
+	16, // 28: occccad.worker.v1.InspectExchangeRequest.source:type_name -> occccad.worker.v1.ArtifactReference
+	18, // 29: occccad.worker.v1.InspectExchangeResponse.components:type_name -> occccad.worker.v1.ExchangeComponentInfo
+	16, // 30: occccad.worker.v1.ImportExchangeRequest.source:type_name -> occccad.worker.v1.ArtifactReference
+	16, // 31: occccad.worker.v1.ExchangeComponent.brep:type_name -> occccad.worker.v1.ArtifactReference
+	50, // 32: occccad.worker.v1.ExchangeComponent.translation:type_name -> occccad.worker.v1.Vec3
+	21, // 33: occccad.worker.v1.ExportExchangeRequest.components:type_name -> occccad.worker.v1.ExchangeComponent
+	16, // 34: occccad.worker.v1.ExportExchangeResponse.result:type_name -> occccad.worker.v1.ArtifactReference
+	26, // 35: occccad.worker.v1.EvaluatePartResponse.mesh:type_name -> occccad.worker.v1.Mesh
+	49, // 36: occccad.worker.v1.EvaluatePartResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
+	30, // 37: occccad.worker.v1.EvaluatePartResponse.topology:type_name -> occccad.worker.v1.TopologySummary
+	16, // 38: occccad.worker.v1.EvaluatePartResponse.brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	16, // 39: occccad.worker.v1.EvaluatePartResponse.glb_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	50, // 40: occccad.worker.v1.Mesh.vertices:type_name -> occccad.worker.v1.Vec3
+	29, // 41: occccad.worker.v1.Mesh.triangles:type_name -> occccad.worker.v1.Triangle
+	27, // 42: occccad.worker.v1.Mesh.edges:type_name -> occccad.worker.v1.EdgePolyline
+	28, // 43: occccad.worker.v1.Mesh.topology_vertices:type_name -> occccad.worker.v1.TopologyPoint
+	50, // 44: occccad.worker.v1.EdgePolyline.points:type_name -> occccad.worker.v1.Vec3
+	50, // 45: occccad.worker.v1.TopologyPoint.point:type_name -> occccad.worker.v1.Vec3
+	49, // 46: occccad.worker.v1.LoadGeometryResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
+	16, // 47: occccad.worker.v1.GetTopologyRequest.brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	40, // 48: occccad.worker.v1.GetTopologyResponse.faces:type_name -> occccad.worker.v1.FaceInfo
+	41, // 49: occccad.worker.v1.GetTopologyResponse.edges:type_name -> occccad.worker.v1.EdgeInfo
+	42, // 50: occccad.worker.v1.GetTopologyResponse.vertices:type_name -> occccad.worker.v1.VertexInfo
+	50, // 51: occccad.worker.v1.TopologyProperty.vector_value:type_name -> occccad.worker.v1.Vec3
+	49, // 52: occccad.worker.v1.FaceInfo.bbox:type_name -> occccad.worker.v1.BoundingBox
+	39, // 53: occccad.worker.v1.FaceInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
+	49, // 54: occccad.worker.v1.EdgeInfo.bbox:type_name -> occccad.worker.v1.BoundingBox
+	39, // 55: occccad.worker.v1.EdgeInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
+	50, // 56: occccad.worker.v1.EdgeInfo.render_points:type_name -> occccad.worker.v1.Vec3
+	50, // 57: occccad.worker.v1.VertexInfo.point:type_name -> occccad.worker.v1.Vec3
+	39, // 58: occccad.worker.v1.VertexInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
+	31, // 59: occccad.worker.v1.GeometryWorker.Ping:input_type -> occccad.worker.v1.PingRequest
+	11, // 60: occccad.worker.v1.GeometryWorker.EvaluatePart:input_type -> occccad.worker.v1.EvaluatePartRequest
+	9,  // 61: occccad.worker.v1.GeometryWorker.SolveSketch:input_type -> occccad.worker.v1.SolveSketchRequest
+	17, // 62: occccad.worker.v1.GeometryWorker.InspectExchange:input_type -> occccad.worker.v1.InspectExchangeRequest
+	20, // 63: occccad.worker.v1.GeometryWorker.ImportExchange:input_type -> occccad.worker.v1.ImportExchangeRequest
+	22, // 64: occccad.worker.v1.GeometryWorker.ExportExchange:input_type -> occccad.worker.v1.ExportExchangeRequest
+	33, // 65: occccad.worker.v1.GeometryWorker.LoadGeometry:input_type -> occccad.worker.v1.LoadGeometryRequest
+	35, // 66: occccad.worker.v1.GeometryWorker.UnloadGeometry:input_type -> occccad.worker.v1.UnloadGeometryRequest
+	37, // 67: occccad.worker.v1.GeometryWorker.GetTopology:input_type -> occccad.worker.v1.GetTopologyRequest
+	43, // 68: occccad.worker.v1.GeometryWorker.Tessellate:input_type -> occccad.worker.v1.TessellateRequest
+	45, // 69: occccad.worker.v1.GeometryWorker.CreateChamfer:input_type -> occccad.worker.v1.CreateChamferRequest
+	47, // 70: occccad.worker.v1.GeometryWorker.CreateFillet:input_type -> occccad.worker.v1.CreateFilletRequest
+	32, // 71: occccad.worker.v1.GeometryWorker.Ping:output_type -> occccad.worker.v1.PingResponse
+	25, // 72: occccad.worker.v1.GeometryWorker.EvaluatePart:output_type -> occccad.worker.v1.EvaluatePartResponse
+	10, // 73: occccad.worker.v1.GeometryWorker.SolveSketch:output_type -> occccad.worker.v1.SolveSketchResponse
+	19, // 74: occccad.worker.v1.GeometryWorker.InspectExchange:output_type -> occccad.worker.v1.InspectExchangeResponse
+	25, // 75: occccad.worker.v1.GeometryWorker.ImportExchange:output_type -> occccad.worker.v1.EvaluatePartResponse
+	23, // 76: occccad.worker.v1.GeometryWorker.ExportExchange:output_type -> occccad.worker.v1.ExportExchangeResponse
+	34, // 77: occccad.worker.v1.GeometryWorker.LoadGeometry:output_type -> occccad.worker.v1.LoadGeometryResponse
+	36, // 78: occccad.worker.v1.GeometryWorker.UnloadGeometry:output_type -> occccad.worker.v1.UnloadGeometryResponse
+	38, // 79: occccad.worker.v1.GeometryWorker.GetTopology:output_type -> occccad.worker.v1.GetTopologyResponse
+	44, // 80: occccad.worker.v1.GeometryWorker.Tessellate:output_type -> occccad.worker.v1.TessellateResponse
+	46, // 81: occccad.worker.v1.GeometryWorker.CreateChamfer:output_type -> occccad.worker.v1.CreateChamferResponse
+	48, // 82: occccad.worker.v1.GeometryWorker.CreateFillet:output_type -> occccad.worker.v1.CreateFilletResponse
+	71, // [71:83] is the sub-list for method output_type
+	59, // [59:71] is the sub-list for method input_type
+	59, // [59:59] is the sub-list for extension type_name
+	59, // [59:59] is the sub-list for extension extendee
+	0,  // [0:59] is the sub-list for field type_name
 }
 
 func init() { file_occccad_worker_v1_geometry_worker_proto_init() }
@@ -3396,7 +4070,7 @@ func file_occccad_worker_v1_geometry_worker_proto_init() {
 	if File_occccad_worker_v1_geometry_worker_proto != nil {
 		return
 	}
-	file_occccad_worker_v1_geometry_worker_proto_msgTypes[32].OneofWrappers = []any{
+	file_occccad_worker_v1_geometry_worker_proto_msgTypes[39].OneofWrappers = []any{
 		(*TopologyProperty_NumberValue)(nil),
 		(*TopologyProperty_IntegerValue)(nil),
 		(*TopologyProperty_BoolValue)(nil),
@@ -3409,7 +4083,7 @@ func file_occccad_worker_v1_geometry_worker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_occccad_worker_v1_geometry_worker_proto_rawDesc), len(file_occccad_worker_v1_geometry_worker_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   44,
+			NumMessages:   51,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

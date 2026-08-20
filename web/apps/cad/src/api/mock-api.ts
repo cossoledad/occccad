@@ -3,6 +3,7 @@ import type {
   Artifact, DocumentProperties, DocumentStructureNode, DocumentSummary, DocumentView, Feature, FolderSummary, HistoryEntry, Job,
   ProductInstance, ShareGrant, SketchOperation, User, Vec3,
 } from "../types";
+import { sampleSketchEntity } from "../cad/sketch/sketch-geometry";
 
 const pause = async <T>(value: T, milliseconds = 90): Promise<T> =>
   new Promise((resolve) => window.setTimeout(() => resolve(structuredClone(value)), milliseconds));
@@ -258,7 +259,7 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
       const sketch = view.part.features.find((feature) => feature.id === input.sketchId);
       view.part.features.push({ id: id("mock-pad"), type: "PAD", name: `Extrude ${view.part.features.length + 1}`,
         profile: String(input.sketchId), length: Number(input.length), operation: "ADD" });
-      if (sketch?.sketch) { const points=sketch.sketch.entities.flatMap((entity)=>[entity.start,entity.end]).filter(Boolean) as Array<{x:number;y:number}>; const xs=points.map((point)=>point.x),ys=points.map((point)=>point.y); view.artifact=boxArtifact(id("mock-shape"),[Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys),Number(input.length)]); }
+      if (sketch?.sketch) { const points=sketch.sketch.entities.flatMap((entity)=>sampleSketchEntity(entity));const xs=points.map((point)=>point[0]),ys=points.map((point)=>point[1]);if(points.length>0)view.artifact=boxArtifact(id("mock-shape"),[Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys),Number(input.length)]); }
     }
     if (commandType === "INSERT_INSTANCE" && view.product) {
       view.product.instances.push({ id: id("mock-instance"), name: String(input.name || "Instance"),
@@ -431,13 +432,30 @@ export const mockApi: CadApi = {
     const view: DocumentView = { document, datumPlanes, axisSystems, part: { units: "mm", datumPlanes, axisSystems,
       features: [{ id: id("mock-import"), type: "IMPORT_BODY", fileName: file.name }] }, artifact: boxArtifact(id("mock-exchange"), [48, 32, 26]) };
     summaries.unshift(document); views.set(documentID, view); histories.set(documentID, []);
-    const job: Job = { id: id("mock-job"), type: "EXCHANGE_IMPORT", state: "SUCCEEDED", documentId: documentID, progress: 100 };
+    const job: Job = { id: id("mock-job"), type: "EXCHANGE_IMPORT", state: "SUCCEEDED", documentId: documentID,
+      progress: 100, payload: { fileName: file.name, format: "STEP" }, attemptCount: 1, maxAttempts: 3,
+      createdAt: now(), completedAt: now(), canCancel: false, canRetry: false, userVisible: true };
     jobs.set(job.id, job); return pause(job);
   },
   startExport: async (documentID) => {
-    const job: Job = { id: id("mock-job"), type: "EXCHANGE_EXPORT", state: "SUCCEEDED", documentId: documentID, progress: 100, resultObjectId: "mock-exchange" };
+    const job: Job = { id: id("mock-job"), type: "EXCHANGE_EXPORT", state: "SUCCEEDED", documentId: documentID,
+      progress: 100, resultObjectId: "mock-exchange", payload: { fileName: "mock.step", format: "STEP" },
+      attemptCount: 1, maxAttempts: 3, createdAt: now(), completedAt: now(), canCancel: false, canRetry: false, userVisible: true };
     jobs.set(job.id, job); return pause(job);
   },
   getJob: async (jobID) => pause(jobs.get(jobID)!),
+  listJobs: async () => pause([...jobs.values()].filter((job) => job.userVisible).reverse()),
+  cancelJob: async (jobID) => {
+    const job = jobs.get(jobID)!;
+    const updated = { ...job, state: "CANCELED" as const, canCancel: false, canRetry: true,
+      cancelRequestedAt: now(), completedAt: now() };
+    jobs.set(jobID, updated); return pause(updated);
+  },
+  retryJob: async (jobID) => {
+    const job = jobs.get(jobID)!;
+    const updated = { ...job, state: "QUEUED" as const, progress: 0, canCancel: true, canRetry: false,
+      cancelRequestedAt: undefined, completedAt: undefined, errorCode: undefined, errorMessage: undefined };
+    jobs.set(jobID, updated); return pause(updated);
+  },
   downloadJob: async () => { /* no file is produced in mock mode */ },
 };

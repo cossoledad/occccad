@@ -11,4 +11,5 @@ export const queryKeys = {
   users: ["users"] as const,
   adminUsers: ["admin-users"] as const,
   adminStats: ["admin-stats"] as const,
+  jobs: ["jobs"] as const,
 };

@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-visualization-v4"
+const evaluatorVersion = "part-profile-regions-v5"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -137,12 +137,19 @@ type SketchSupport struct {
 	Plane        string `json:"plane"`
 }
 type SketchEntity struct {
-	ID    string        `json:"id"`
-	Kind  string        `json:"kind"`
-	Role  string        `json:"role"`
-	Point *SketchPoint2 `json:"point,omitempty"`
-	Start *SketchPoint2 `json:"start,omitempty"`
-	End   *SketchPoint2 `json:"end,omitempty"`
+	ID            string         `json:"id"`
+	Kind          string         `json:"kind"`
+	Role          string         `json:"role"`
+	Point         *SketchPoint2  `json:"point,omitempty"`
+	Start         *SketchPoint2  `json:"start,omitempty"`
+	End           *SketchPoint2  `json:"end,omitempty"`
+	Center        *SketchPoint2  `json:"center,omitempty"`
+	Radius        float64        `json:"radius,omitempty"`
+	StartAngle    float64        `json:"startAngle,omitempty"`
+	EndAngle      float64        `json:"endAngle,omitempty"`
+	ControlPoints []SketchPoint2 `json:"controlPoints,omitempty"`
+	Degree        uint32         `json:"degree,omitempty"`
+	Closed        bool           `json:"closed,omitempty"`
 }
 type SketchGeometryRef struct {
 	Target     string `json:"target"`
@@ -154,6 +161,9 @@ type SketchConstraint struct {
 	Kind       string              `json:"kind"`
 	References []SketchGeometryRef `json:"references"`
 	FixedPoint *SketchPoint2       `json:"fixedPoint,omitempty"`
+	Value      *float64            `json:"value,omitempty"`
+	Unit       string              `json:"unit,omitempty"`
+	Internal   bool                `json:"internal,omitempty"`
 }
 type SketchSolveState struct {
 	Status                   string   `json:"status"`
@@ -1555,6 +1565,15 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 				primitive.Kind = "POLYLINE"
 				primitive.Semantic = "SKETCH_CURVE"
 				primitive.Positions = [][3]float64{toWorld(*entity.Start), toWorld(*entity.End)}
+			case "CIRCLE", "ARC", "SPLINE":
+				points := sampleProfileCurve(profileCurve(entity, false))
+				if len(points) < 2 {
+					continue
+				}
+				primitive.Kind, primitive.Semantic = "POLYLINE", "SKETCH_CURVE"
+				for _, point := range points {
+					primitive.Positions = append(primitive.Positions, toWorld(point))
+				}
 			default:
 				continue
 			}
@@ -1580,6 +1599,18 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 			}
 			if entity.Kind == "LINE" && entity.End != nil && reference.SubElement == "END" {
 				return *entity.End, true
+			}
+			if entity.Center != nil && reference.SubElement == "CENTER" {
+				return *entity.Center, true
+			}
+			if reference.SubElement == "START" || reference.SubElement == "END" {
+				start, end, ok := entityProfileEndpoints(entity)
+				if ok {
+					if reference.SubElement == "START" {
+						return start, true
+					}
+					return end, true
+				}
 			}
 			return SketchPoint2{}, false
 		}
@@ -1840,7 +1871,7 @@ func (service *Service) mutateProduct(
 func (service *Service) evaluatePart(ctx context.Context, reqID string, model PartModel) (string, error) {
 	normalizePartModel(&model)
 	sketches := map[string]Feature{}
-	pads := []geometry.RectangularPad{}
+	pads := []geometry.ProfilePad{}
 	baseKey := ""
 	var canonical strings.Builder
 	canonical.WriteString(evaluatorVersion)
@@ -1859,19 +1890,20 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 			if !exists {
 				return "", fmt.Errorf("%w: extrude profile %s is missing or follows the extrude", ErrValidation, feature.Profile)
 			}
-			origin, width, height, err := rectangleProfile(sketch)
+			regions, err := buildProfileRegions(sketch)
 			if err != nil {
 				return "", err
 			}
 			plane := sketch.Plane
+			if sketch.Sketch != nil && sketch.Sketch.Support.Plane != "" {
+				plane = sketch.Sketch.Support.Plane
+			}
 			if plane == "" {
 				plane = "XY"
 			}
-			pads = append(pads, geometry.RectangularPad{
-				OriginX: origin[0], OriginY: origin[1], Width: width, Height: height, Length: feature.Length, Plane: plane,
-			})
-			fmt.Fprintf(&canonical, "|pad=%s,%.9g,%.9g,%.9g,%.9g,%.9g",
-				plane, origin[0], origin[1], width, height, feature.Length)
+			pads = append(pads, geometry.ProfilePad{Regions: regions, Length: feature.Length, Plane: plane})
+			profileJSON, _ := json.Marshal(regions)
+			fmt.Fprintf(&canonical, "|pad=%s,%s,%.9g", plane, profileJSON, feature.Length)
 		}
 	}
 	if len(pads) == 0 {
@@ -1901,7 +1933,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 				return "", err
 			}
 		}
-		evaluation, err = service.worker.EvaluatePartFromArtifact(ctx, reqID, key, pads, base,
+		evaluation, err = service.worker.EvaluateProfilePartFromArtifact(ctx, reqID, key, pads, base,
 			artifactstore.StagingKey(reqID, "shape.brep"), artifactstore.StagingKey(reqID, "mesh.glb"))
 	} else {
 		var baseBRep []byte
@@ -1910,7 +1942,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 				`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, baseKey).Scan(&baseBRep)
 		}
 		if err == nil {
-			evaluation, err = service.worker.EvaluatePart(ctx, reqID, key, pads, baseBRep)
+			evaluation, err = service.worker.EvaluateProfilePart(ctx, reqID, key, pads, baseBRep)
 		}
 	}
 	if err != nil {
@@ -1920,45 +1952,6 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 		return "", err
 	}
 	return key, nil
-}
-
-func rectangleProfile(feature Feature) ([2]float64, float64, float64, error) {
-	if feature.Sketch == nil {
-		return [2]float64{}, 0, 0, fmt.Errorf("%w: sketch model is missing", ErrValidation)
-	}
-	lines := []SketchEntity{}
-	for _, entity := range feature.Sketch.Entities {
-		if entity.Kind == "LINE" && entity.Role == "PROFILE" {
-			lines = append(lines, entity)
-		}
-	}
-	if len(lines) != 4 {
-		return [2]float64{}, 0, 0, fmt.Errorf("%w: pad currently requires one four-line rectangle profile", ErrValidation)
-	}
-	minX, minY, maxX, maxY := math.Inf(1), math.Inf(1), math.Inf(-1), math.Inf(-1)
-	for _, line := range lines {
-		if line.Start == nil || line.End == nil {
-			return [2]float64{}, 0, 0, fmt.Errorf("%w: rectangle profile has an invalid line", ErrValidation)
-		}
-		for _, p := range []*SketchPoint2{line.Start, line.End} {
-			minX = math.Min(minX, p.X)
-			minY = math.Min(minY, p.Y)
-			maxX = math.Max(maxX, p.X)
-			maxY = math.Max(maxY, p.Y)
-		}
-	}
-	width, height := maxX-minX, maxY-minY
-	if !positiveFinite(width) || !positiveFinite(height) {
-		return [2]float64{}, 0, 0, fmt.Errorf("%w: rectangle profile has no area", ErrValidation)
-	}
-	const tolerance = 1e-6
-	for _, line := range lines {
-		dx, dy := math.Abs(line.End.X-line.Start.X), math.Abs(line.End.Y-line.Start.Y)
-		if dx > tolerance && dy > tolerance {
-			return [2]float64{}, 0, 0, fmt.Errorf("%w: rectangle profile is not axis aligned", ErrValidation)
-		}
-	}
-	return [2]float64{minX, minY}, width, height, nil
 }
 
 func (service *Service) storeEvaluation(

@@ -83,6 +83,7 @@ func (server *Server) startExchangeImport(writer http.ResponseWriter, request *h
 	requestID := strings.TrimSpace(request.Header.Get("X-Request-ID"))
 	job, err := server.jobs.Enqueue(request.Context(), jobs.EnqueueRequest{Type: "EXCHANGE_IMPORT",
 		RequestedBy: principal(request).ID, InputObjectID: stored.ID, IdempotencyKey: requestID,
+		UserVisible: true,
 		Payload: map[string]any{"fileName": fileName, "folderId": folderID, "format": format,
 			"requestId": requestID}})
 	if err != nil {
@@ -121,7 +122,8 @@ func (server *Server) startExchangeExport(writer http.ResponseWriter, request *h
 	job, err := server.jobs.Enqueue(request.Context(), jobs.EnqueueRequest{Type: "EXCHANGE_EXPORT",
 		DocumentID: view.Document.ID, VersionID: &view.Document.VersionID,
 		RequestedBy: principal(request).ID, IdempotencyKey: idempotencyKey,
-		Payload: map[string]any{"fileName": view.Document.Name + extension, "format": format, "requestId": idempotencyKey}})
+		UserVisible: true,
+		Payload:     map[string]any{"fileName": view.Document.Name + extension, "format": format, "requestId": idempotencyKey}})
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
@@ -130,7 +132,7 @@ func (server *Server) startExchangeExport(writer http.ResponseWriter, request *h
 }
 
 func (server *Server) listJobs(writer http.ResponseWriter, request *http.Request) {
-	items, err := server.jobs.ListForUser(request.Context(), principal(request).ID, 30)
+	items, err := server.jobs.ListForUser(request.Context(), principal(request).ID, 100)
 	if err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
@@ -144,6 +146,50 @@ func (server *Server) getJob(writer http.ResponseWriter, request *http.Request) 
 		return
 	}
 	writeJSON(writer, http.StatusOK, job)
+}
+
+func (server *Server) cancelJob(writer http.ResponseWriter, request *http.Request) {
+	job, ok := server.ownedJob(writer, request)
+	if !ok {
+		return
+	}
+	actor := principal(request)
+	updated, err := server.jobs.RequestCancel(request.Context(), job.ID, actor.ID, actor.PlatformRole == "ADMIN")
+	if errors.Is(err, jobs.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return
+	}
+	if errors.Is(err, jobs.ErrNotCancelable) {
+		writeError(writer, http.StatusConflict, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, updated)
+}
+
+func (server *Server) retryJob(writer http.ResponseWriter, request *http.Request) {
+	job, ok := server.ownedJob(writer, request)
+	if !ok {
+		return
+	}
+	actor := principal(request)
+	updated, err := server.jobs.Retry(request.Context(), job.ID, actor.ID, actor.PlatformRole == "ADMIN")
+	if errors.Is(err, jobs.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return
+	}
+	if errors.Is(err, jobs.ErrNotRetryable) {
+		writeError(writer, http.StatusConflict, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(writer, http.StatusOK, updated)
 }
 
 func (server *Server) downloadJob(writer http.ResponseWriter, request *http.Request) {
@@ -225,5 +271,23 @@ func (server *Server) authorizedJob(writer http.ResponseWriter, request *http.Re
 		return job, true
 	}
 	writeError(writer, http.StatusForbidden, "job access denied")
+	return jobs.Job{}, false
+}
+
+func (server *Server) ownedJob(writer http.ResponseWriter, request *http.Request) (jobs.Job, bool) {
+	job, err := server.jobs.Get(request.Context(), request.PathValue("jobID"))
+	if errors.Is(err, jobs.ErrNotFound) {
+		writeError(writer, http.StatusNotFound, err.Error())
+		return jobs.Job{}, false
+	}
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, err.Error())
+		return jobs.Job{}, false
+	}
+	actor := principal(request)
+	if actor.PlatformRole == "ADMIN" || job.RequestedBy == actor.ID {
+		return job, true
+	}
+	writeError(writer, http.StatusForbidden, "job action denied")
 	return jobs.Job{}, false
 }

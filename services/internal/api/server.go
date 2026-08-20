@@ -218,6 +218,8 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/exchange/exports", server.startExchangeExport)
 	mux.HandleFunc("GET /api/jobs", server.listJobs)
 	mux.HandleFunc("GET /api/jobs/{jobID}", server.getJob)
+	mux.HandleFunc("POST /api/jobs/{jobID}/cancel", server.cancelJob)
+	mux.HandleFunc("POST /api/jobs/{jobID}/retry", server.retryJob)
 	mux.HandleFunc("GET /api/jobs/{jobID}/download", server.downloadJob)
 	mux.HandleFunc("GET /api/documents/{documentID}/shares", server.documentShares)
 	mux.HandleFunc("POST /api/documents/{documentID}/shares", server.shareDocument)

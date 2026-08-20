@@ -1,8 +1,9 @@
 export type CadCommandState = { enabled: boolean; visible: boolean; active: boolean };
+export type CadCommandInvocation = { continuous?: boolean };
 
 export interface CadCommand {
   readonly id: string;
-  execute(): void | Promise<void>;
+  execute(invocation?: CadCommandInvocation): void | Promise<void>;
   isEnabled?(): boolean;
   isVisible?(): boolean;
   isActive?(): boolean;
@@ -32,11 +33,11 @@ export class CommandRegistry {
     return { enabled: command.isEnabled?.() ?? true, visible: command.isVisible?.() ?? true, active: command.isActive?.() ?? false };
   }
 
-  async execute(commandID: string): Promise<boolean> {
+  async execute(commandID: string, invocation?: CadCommandInvocation): Promise<boolean> {
     const command = this.commands.get(commandID);
     const state = this.state(commandID);
     if (!command || !state.visible || !state.enabled) return false;
-    await command.execute();
+    await command.execute(invocation);
     this.notifyStateChanged();
     return true;
   }
@@ -52,4 +53,3 @@ export class CommandRegistry {
     for (const listener of this.listeners) listener();
   }
 }
-

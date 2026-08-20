@@ -41,6 +41,11 @@ struct TopologyRef {
 // Geometry Primitives
 // ---------------------------------------------------------------------------
 
+struct Vec2 {
+    double x = 0.0;
+    double y = 0.0;
+};
+
 struct Vec3 {
     double x = 0.0;
     double y = 0.0;
@@ -58,6 +63,35 @@ struct RectangularPadSpec {
     double width = 0.0;
     double height = 0.0;
     double pad_length = 0.0;
+    std::string plane{"XY"};
+};
+
+struct ProfileCurveSpec {
+    std::string entity_id;
+    bool reversed{};
+    std::string kind;
+    Vec2 start;
+    Vec2 end;
+    Vec2 center;
+    double radius{};
+    double start_angle{};
+    double end_angle{};
+    std::vector<Vec2> control_points;
+    uint32_t degree{};
+    bool closed{};
+};
+struct ProfileLoopSpec {
+    std::string id;
+    std::vector<ProfileCurveSpec> curves;
+};
+struct ProfileRegionSpec {
+    std::string id;
+    ProfileLoopSpec outer;
+    std::vector<ProfileLoopSpec> holes;
+};
+struct ProfilePadSpec {
+    std::vector<ProfileRegionSpec> regions;
+    double pad_length{};
     std::string plane{"XY"};
 };
 
@@ -158,9 +192,10 @@ public:
     // Primitive creation
     virtual GeometryId createBox(double dx, double dy, double dz) = 0;
     virtual GeometryId createRectangularPad(const RectangularPadSpec& spec) = 0;
-    virtual GeometryId evaluateRectangularPads(
-        const std::vector<RectangularPadSpec>& specs,
-        const std::vector<uint8_t>& base_brep = {}) = 0;
+    virtual GeometryId evaluateRectangularPads(const std::vector<RectangularPadSpec>& specs,
+                                               const std::vector<uint8_t>& base_brep = {}) = 0;
+    virtual GeometryId evaluateProfilePads(const std::vector<ProfilePadSpec>& specs,
+                                           const std::vector<uint8_t>& base_brep = {}) = 0;
 
     // Queries
     virtual BoundingBox getBoundingBox(const GeometryId& id) = 0;
@@ -168,21 +203,15 @@ public:
     virtual double getVolume(const GeometryId& id) = 0;
 
     // Tessellation
-    virtual TessellationResult tessellate(
-        const GeometryId& id,
-        double linear_deflection = 0.1,
-        double angular_deflection = 0.5) = 0;
+    virtual TessellationResult tessellate(const GeometryId& id, double linear_deflection = 0.1,
+                                          double angular_deflection = 0.5) = 0;
 
     // Feature operations (return new GeometryId)
-    virtual GeometryId chamfer(
-        const GeometryId& id,
-        const std::vector<uint64_t>& edge_local_ids,
-        double distance) = 0;
+    virtual GeometryId chamfer(const GeometryId& id, const std::vector<uint64_t>& edge_local_ids,
+                               double distance) = 0;
 
-    virtual GeometryId fillet(
-        const GeometryId& id,
-        const std::vector<uint64_t>& edge_local_ids,
-        double radius) = 0;
+    virtual GeometryId fillet(const GeometryId& id, const std::vector<uint64_t>& edge_local_ids,
+                              double radius) = 0;
 
     // Serialization
     virtual std::vector<uint8_t> serializeBrepr(const GeometryId& id) = 0;

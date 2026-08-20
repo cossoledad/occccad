@@ -196,6 +196,9 @@ export const restApi = {
     method: "POST", headers: { "X-Request-ID": requestId() }, body: JSON.stringify({ documentId, format }),
   }),
   getJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}`),
+  listJobs: async (): Promise<Job[]> => (await request<{ jobs: Job[] }>("/api/jobs")).jobs,
+  cancelJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}/cancel`, { method: "POST" }),
+  retryJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}/retry`, { method: "POST" }),
   downloadJob: async (id: string): Promise<void> => {
     const link = document.createElement("a");
     link.href = apiURL(`/api/jobs/${id}/download`);

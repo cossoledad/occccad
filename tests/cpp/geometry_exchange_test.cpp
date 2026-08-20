@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
@@ -67,6 +68,72 @@ TEST(GeometryExchange, ReusesTopologyAnalysisForEveryElementOfTheSameBody) {
 
     EXPECT_EQ(&first, &second);
     EXPECT_EQ(first.faces.size(), 6U);
+}
+
+TEST(GeometryExchange, ProfilePadSupportsCircularOuterLoopAndHole) {
+    OcctKernel kernel;
+    ProfileCurveSpec outer;
+    outer.entity_id = "outer";
+    outer.kind = "CIRCLE";
+    outer.center = {0.0, 0.0};
+    outer.radius = 20.0;
+    ProfileCurveSpec hole;
+    hole.entity_id = "hole";
+    hole.kind = "CIRCLE";
+    hole.reversed = true;
+    hole.center = {0.0, 0.0};
+    hole.radius = 8.0;
+    ProfileRegionSpec region;
+    region.id = "annulus";
+    region.outer = {"outer-loop", {outer}};
+    region.holes = {{"hole-loop", {hole}}};
+
+    const auto id = kernel.evaluateProfilePads({{{region}, 12.0, "XY"}});
+
+    EXPECT_NEAR(kernel.getVolume(id), 3.14159265358979323846 * (400.0 - 64.0) * 12.0, 1.0e-5);
+    EXPECT_GT(kernel.getTopology(id).solid_count, 0U);
+}
+
+TEST(GeometryExchange, ProfilePadKeepsArcAnglesInTheSketchPlane) {
+    OcctKernel kernel;
+    ProfileCurveSpec arc;
+    arc.entity_id = "arc";
+    arc.kind = "ARC";
+    arc.center = {0.0, 0.0};
+    arc.radius = 10.0;
+    arc.start_angle = 0.0;
+    arc.end_angle = 3.14159265358979323846;
+    ProfileCurveSpec diameter;
+    diameter.entity_id = "diameter";
+    diameter.kind = "LINE";
+    diameter.start = {-10.0, 0.0};
+    diameter.end = {10.0, 0.0};
+    ProfileRegionSpec region;
+    region.id = "semicircle";
+    region.outer = {"semicircle-loop", {arc, diameter}};
+
+    const auto id = kernel.evaluateProfilePads({{{region}, 7.0, "XZ"}});
+
+    EXPECT_NEAR(kernel.getVolume(id), 0.5 * 3.14159265358979323846 * 100.0 * 7.0,
+                1.0e-5);
+}
+
+TEST(GeometryExchange, ProfilePadBuildsClosedSplineWire) {
+    OcctKernel kernel;
+    ProfileCurveSpec spline;
+    spline.entity_id = "spline";
+    spline.kind = "SPLINE";
+    spline.control_points = {{0.0, 0.0}, {20.0, 0.0}, {20.0, 20.0}, {0.0, 20.0}};
+    spline.degree = 3;
+    spline.closed = true;
+    ProfileRegionSpec region;
+    region.id = "spline-region";
+    region.outer = {"spline-loop", {spline}};
+
+    const auto id = kernel.evaluateProfilePads({{{region}, 5.0, "YZ"}});
+
+    EXPECT_GT(kernel.getVolume(id), 0.0);
+    EXPECT_GT(kernel.getTopology(id).solid_count, 0U);
 }
 
 TEST(GeometryExchange, ProductStepKeepsOneTransferableRootPerOccurrence) {

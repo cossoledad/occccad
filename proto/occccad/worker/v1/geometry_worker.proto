@@ -63,20 +63,49 @@ message SketchLine {
     string role = 4;
 }
 
+message SketchCircle {
+    string id = 1;
+    Vec2 center = 2;
+    double radius = 3;
+    string role = 4;
+}
+
+message SketchArc {
+    string id = 1;
+    Vec2 center = 2;
+    double radius = 3;
+    double start_angle = 4;
+    double end_angle = 5;
+    string role = 6;
+}
+
+message SketchSpline {
+    string id = 1;
+    repeated Vec2 control_points = 2;
+    uint32 degree = 3;
+    bool closed = 4;
+    string role = 5;
+}
+
 message SketchGeometryRef {
     // ENTITY, SKETCH_ORIGIN, SKETCH_X_AXIS, or SKETCH_Y_AXIS.
     string target = 1;
     string entity_id = 2;
-    // WHOLE, POINT, START, END, or DIRECTION.
+    // WHOLE, POINT, START, END, CENTER, or DIRECTION.
     string sub_element = 3;
 }
 
 message SketchConstraint {
     string id = 1;
-    // COINCIDENT, PARALLEL, or FIXED_POINT.
+    // Versioned domain kind such as COINCIDENT, PARALLEL, FIXED,
+    // HORIZONTAL, VERTICAL, PERPENDICULAR, TANGENT, EQUAL, DISTANCE,
+    // LENGTH, RADIUS, DIAMETER, ANGLE, CONCENTRIC, POINT_ON_OBJECT, MIDPOINT.
     string kind = 2;
     repeated SketchGeometryRef references = 3;
     Vec2 fixed_point = 4;
+    double value = 5;
+    string unit = 6;
+    bool internal = 7;
 }
 
 message SketchModel {
@@ -84,6 +113,9 @@ message SketchModel {
     repeated SketchPoint points = 2;
     repeated SketchLine lines = 3;
     repeated SketchConstraint constraints = 4;
+    repeated SketchCircle circles = 5;
+    repeated SketchArc arcs = 6;
+    repeated SketchSpline splines = 7;
 }
 
 message SolveSketchRequest {
@@ -112,6 +144,40 @@ message EvaluatePartRequest {
     ArtifactReference base_brep_artifact = 8;
     string brep_output_key = 9;
     string glb_output_key = 10;
+    repeated ProfilePadSpec profile_pads = 11;
+}
+
+message ProfileCurve {
+    string entity_id = 1;
+    bool reversed = 2;
+    string kind = 3; // LINE | CIRCLE | ARC | SPLINE
+    Vec2 start = 4;
+    Vec2 end = 5;
+    Vec2 center = 6;
+    double radius = 7;
+    double start_angle = 8;
+    double end_angle = 9;
+    repeated Vec2 control_points = 10;
+    uint32 degree = 11;
+    bool closed = 12;
+}
+
+message ProfileLoop {
+    string id = 1;
+    repeated ProfileCurve curves = 2;
+}
+
+message ProfileRegion {
+    string id = 1;
+    ProfileLoop outer = 2;
+    repeated ProfileLoop holes = 3;
+}
+
+message ProfilePadSpec {
+    repeated ProfileRegion regions = 1;
+    double pad_length = 2;
+    string units = 3;
+    string plane = 4;
 }
 
 message ArtifactReference {

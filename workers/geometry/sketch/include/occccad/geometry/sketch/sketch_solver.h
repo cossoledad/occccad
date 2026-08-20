@@ -26,8 +26,32 @@ struct LineEntity {
     EntityRole role{EntityRole::profile};
 };
 
+struct CircleEntity {
+    std::string id;
+    Vec2 center;
+    double radius{};
+    EntityRole role{EntityRole::profile};
+};
+
+struct ArcEntity {
+    std::string id;
+    Vec2 center;
+    double radius{};
+    double start_angle{};
+    double end_angle{};
+    EntityRole role{EntityRole::profile};
+};
+
+struct SplineEntity {
+    std::string id;
+    std::vector<Vec2> control_points;
+    unsigned int degree{3};
+    bool closed{};
+    EntityRole role{EntityRole::profile};
+};
+
 enum class GeometryTarget { entity, sketch_x_axis, sketch_y_axis, sketch_origin };
-enum class SubElement { whole, point, start, end, direction };
+enum class SubElement { whole, point, start, end, center, direction };
 
 struct GeometryRef {
     GeometryTarget target{GeometryTarget::entity};
@@ -35,18 +59,42 @@ struct GeometryRef {
     SubElement sub_element{SubElement::whole};
 };
 
-enum class ConstraintKind { coincident, parallel, fixed_point };
+enum class ConstraintKind {
+    coincident,
+    parallel,
+    fixed,
+    fixed_point,
+    horizontal,
+    vertical,
+    perpendicular,
+    tangent,
+    equal,
+    distance,
+    length,
+    radius,
+    diameter,
+    angle,
+    concentric,
+    point_on_object,
+    midpoint
+};
 
 struct SketchConstraint {
     std::string id;
     ConstraintKind kind{ConstraintKind::coincident};
     std::vector<GeometryRef> references;
     Vec2 fixed_point;
+    double value{};
+    std::string unit;
+    bool internal{};
 };
 
 struct SketchModel {
     std::vector<PointEntity> points;
     std::vector<LineEntity> lines;
+    std::vector<CircleEntity> circles;
+    std::vector<ArcEntity> arcs;
+    std::vector<SplineEntity> splines;
     std::vector<SketchConstraint> constraints;
 };
 
@@ -56,6 +104,9 @@ struct SolveResult {
     SolveStatus status{SolveStatus::failed};
     std::vector<PointEntity> points;
     std::vector<LineEntity> lines;
+    std::vector<CircleEntity> circles;
+    std::vector<ArcEntity> arcs;
+    std::vector<SplineEntity> splines;
     int degrees_of_freedom{-1};
     std::vector<std::string> conflicting_constraint_ids;
     std::vector<std::string> redundant_constraint_ids;

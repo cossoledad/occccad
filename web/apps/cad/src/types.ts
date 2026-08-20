@@ -72,9 +72,9 @@ export type Feature = {
 };
 
 export type SketchPoint2 = { x: number; y: number };
-export type SketchGeometryRef = { target: "ENTITY" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "DIRECTION" };
-export type SketchEntity = { id: string; kind: "POINT" | "LINE"; role: "PROFILE" | "CONSTRUCTION"; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2 };
-export type SketchConstraint = { id: string; kind: "COINCIDENT" | "PARALLEL" | "FIXED_POINT"; references: SketchGeometryRef[]; fixedPoint?: SketchPoint2 };
+export type SketchGeometryRef = { target: "ENTITY" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" };
+export type SketchEntity = { id: string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; degree?: number; closed?: boolean };
+export type SketchConstraint = { id: string; kind: "COINCIDENT" | "PARALLEL" | "FIXED" | "FIXED_POINT" | "HORIZONTAL" | "VERTICAL" | "PERPENDICULAR" | "TANGENT" | "EQUAL" | "DISTANCE" | "LENGTH" | "RADIUS" | "DIAMETER" | "ANGLE" | "CONCENTRIC" | "POINT_ON_OBJECT" | "MIDPOINT"; references: SketchGeometryRef[]; fixedPoint?: SketchPoint2; value?: number; unit?: "mm" | "deg"; internal?: boolean };
 export type SketchFeature = { schemaVersion: 1; support: { type: "DATUM_PLANE"; datumPlaneId: string; plane: PlaneName }; entities: SketchEntity[]; constraints: SketchConstraint[]; solve: { status: string; degreesOfFreedom: number; diagnostic?: string } };
 export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { type: "ADD_CONSTRAINT"; constraint: SketchConstraint } | { type: "ADD_RECTANGLE"; first: SketchPoint2; second: SketchPoint2 };
 
@@ -158,9 +158,12 @@ export type AuditEvent = {
   requestId?: string; metadata: Record<string, unknown>; createdAt: string;
 };
 export type Job = {
-  id: string; type: "EXCHANGE_IMPORT" | "EXCHANGE_EXPORT" | "THUMBNAIL_RENDER" | "ARTIFACT_BACKFILL";
+  id: string; type: string;
   state: "QUEUED" | "RUNNING" | "RETRY_WAIT" | "SUCCEEDED" | "FAILED" | "CANCELED";
-  documentId?: string; progress: number; errorMessage?: string; resultObjectId?: string;
+  documentId?: string; versionId?: string; progress: number; errorCode?: string; errorMessage?: string;
+  resultObjectId?: string; payload: Record<string, unknown>; attemptCount: number; maxAttempts: number;
+  createdAt: string; startedAt?: string; completedAt?: string; cancelRequestedAt?: string;
+  canCancel: boolean; canRetry: boolean; userVisible: boolean;
 };
 
 export type ResolvedInstance = {

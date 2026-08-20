@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -284,6 +285,9 @@ func validateSketch(sketch SketchFeature) error {
 		if entity.ID == "" || entityKinds[entity.ID] != "" {
 			return fmt.Errorf("%w: sketch entity ids must be unique", ErrValidation)
 		}
+		if entity.Role != "PROFILE" && entity.Role != "CONSTRUCTION" {
+			return fmt.Errorf("%w: sketch entity %s has invalid role", ErrValidation, entity.ID)
+		}
 		entityKinds[entity.ID] = entity.Kind
 		switch entity.Kind {
 		case "POINT":
@@ -293,6 +297,25 @@ func validateSketch(sketch SketchFeature) error {
 		case "LINE":
 			if entity.Start == nil || entity.End == nil || !finite(entity.Start.X) || !finite(entity.Start.Y) || !finite(entity.End.X) || !finite(entity.End.Y) || (entity.Start.X == entity.End.X && entity.Start.Y == entity.End.Y) {
 				return fmt.Errorf("%w: invalid sketch line", ErrValidation)
+			}
+		case "CIRCLE":
+			if entity.Center == nil || !finite(entity.Center.X) || !finite(entity.Center.Y) || !positiveFinite(entity.Radius) {
+				return fmt.Errorf("%w: invalid sketch circle", ErrValidation)
+			}
+		case "ARC":
+			sweep := entity.EndAngle - entity.StartAngle
+			if entity.Center == nil || !finite(entity.Center.X) || !finite(entity.Center.Y) || !positiveFinite(entity.Radius) ||
+				!finite(entity.StartAngle) || !finite(entity.EndAngle) || math.Abs(sweep) < 1e-9 || math.Abs(sweep) >= 2*math.Pi-1e-9 {
+				return fmt.Errorf("%w: invalid sketch arc", ErrValidation)
+			}
+		case "SPLINE":
+			if entity.Degree < 2 || entity.Degree > 3 || len(entity.ControlPoints) < int(entity.Degree)+1 {
+				return fmt.Errorf("%w: invalid sketch spline degree or control points", ErrValidation)
+			}
+			for _, point := range entity.ControlPoints {
+				if !finite(point.X) || !finite(point.Y) {
+					return fmt.Errorf("%w: invalid sketch spline control point", ErrValidation)
+				}
 			}
 		default:
 			return fmt.Errorf("%w: unsupported sketch entity %s", ErrValidation, entity.Kind)
@@ -304,11 +327,43 @@ func validateSketch(sketch SketchFeature) error {
 			return fmt.Errorf("%w: sketch constraint ids must be unique", ErrValidation)
 		}
 		constraints[constraint.ID] = true
+		counts := map[string]int{"COINCIDENT": 2, "PARALLEL": 2, "FIXED": 1, "FIXED_POINT": 1,
+			"HORIZONTAL": 1, "VERTICAL": 1, "PERPENDICULAR": 2, "TANGENT": 2, "EQUAL": 2,
+			"DISTANCE": 2, "LENGTH": 1, "RADIUS": 1, "DIAMETER": 1, "ANGLE": 2,
+			"CONCENTRIC": 2, "POINT_ON_OBJECT": 2, "MIDPOINT": 2}
+		expected, supported := counts[constraint.Kind]
+		if !supported || len(constraint.References) != expected {
+			return fmt.Errorf("%w: constraint %s has unsupported kind or reference count", ErrValidation, constraint.ID)
+		}
+		if constraint.Kind == "FIXED_POINT" && (constraint.FixedPoint == nil || !finite(constraint.FixedPoint.X) || !finite(constraint.FixedPoint.Y)) {
+			return fmt.Errorf("%w: fixed-point constraint %s requires a finite point", ErrValidation, constraint.ID)
+		}
+		if constraint.Kind == "DISTANCE" || constraint.Kind == "LENGTH" || constraint.Kind == "RADIUS" || constraint.Kind == "DIAMETER" || constraint.Kind == "ANGLE" {
+			if constraint.Value == nil || !positiveFinite(*constraint.Value) {
+				return fmt.Errorf("%w: dimensional constraint %s requires a positive finite value", ErrValidation, constraint.ID)
+			}
+			expectedUnit := "mm"
+			if constraint.Kind == "ANGLE" {
+				expectedUnit = "deg"
+			}
+			if constraint.Unit != expectedUnit {
+				return fmt.Errorf("%w: dimensional constraint %s requires unit %s", ErrValidation, constraint.ID, expectedUnit)
+			}
+		}
 		for _, reference := range constraint.References {
 			switch reference.Target {
 			case "ENTITY":
-				if entityKinds[reference.EntityID] == "" {
+				kind := entityKinds[reference.EntityID]
+				if kind == "" {
 					return fmt.Errorf("%w: constraint %s references unknown entity %s", ErrValidation, constraint.ID, reference.EntityID)
+				}
+				validSubElements := map[string]map[string]bool{
+					"POINT": {"POINT": true, "WHOLE": true}, "LINE": {"START": true, "END": true, "DIRECTION": true, "WHOLE": true},
+					"CIRCLE": {"CENTER": true, "WHOLE": true}, "ARC": {"START": true, "END": true, "CENTER": true, "WHOLE": true},
+					"SPLINE": {"START": true, "END": true, "WHOLE": true},
+				}
+				if !validSubElements[kind][reference.SubElement] {
+					return fmt.Errorf("%w: constraint %s uses invalid %s sub-element %s", ErrValidation, constraint.ID, kind, reference.SubElement)
 				}
 			case "SKETCH_ORIGIN":
 				if reference.EntityID != "" || reference.SubElement != "POINT" {
@@ -752,10 +807,23 @@ func (service *Service) solveSketches(ctx context.Context, requestID string, mod
 				input.Points = append(input.Points, geometry.SketchPoint{ID: entity.ID, X: entity.Point.X, Y: entity.Point.Y, Role: entity.Role})
 			case "LINE":
 				input.Lines = append(input.Lines, geometry.SketchLine{ID: entity.ID, StartX: entity.Start.X, StartY: entity.Start.Y, EndX: entity.End.X, EndY: entity.End.Y, Role: entity.Role})
+			case "CIRCLE":
+				input.Circles = append(input.Circles, geometry.SketchCircle{ID: entity.ID, CenterX: entity.Center.X, CenterY: entity.Center.Y, Radius: entity.Radius, Role: entity.Role})
+			case "ARC":
+				input.Arcs = append(input.Arcs, geometry.SketchArc{ID: entity.ID, CenterX: entity.Center.X, CenterY: entity.Center.Y, Radius: entity.Radius, StartAngle: entity.StartAngle, EndAngle: entity.EndAngle, Role: entity.Role})
+			case "SPLINE":
+				value := geometry.SketchSpline{ID: entity.ID, Degree: entity.Degree, Closed: entity.Closed, Role: entity.Role}
+				for _, point := range entity.ControlPoints {
+					value.ControlPoints = append(value.ControlPoints, [2]float64{point.X, point.Y})
+				}
+				input.Splines = append(input.Splines, value)
 			}
 		}
 		for _, constraint := range sketch.Constraints {
-			value := geometry.SketchConstraint{ID: constraint.ID, Kind: constraint.Kind}
+			value := geometry.SketchConstraint{ID: constraint.ID, Kind: constraint.Kind, Unit: constraint.Unit, Internal: constraint.Internal}
+			if constraint.Value != nil {
+				value.Value = *constraint.Value
+			}
 			if constraint.FixedPoint != nil {
 				value.FixedX, value.FixedY = constraint.FixedPoint.X, constraint.FixedPoint.Y
 			}
@@ -773,11 +841,23 @@ func (service *Service) solveSketches(ctx context.Context, requestID string, mod
 		}
 		byID := map[string]geometry.SketchPoint{}
 		lines := map[string]geometry.SketchLine{}
+		circles := map[string]geometry.SketchCircle{}
+		arcs := map[string]geometry.SketchArc{}
+		splines := map[string]geometry.SketchSpline{}
 		for _, point := range result.Model.Points {
 			byID[point.ID] = point
 		}
 		for _, line := range result.Model.Lines {
 			lines[line.ID] = line
+		}
+		for _, circle := range result.Model.Circles {
+			circles[circle.ID] = circle
+		}
+		for _, arc := range result.Model.Arcs {
+			arcs[arc.ID] = arc
+		}
+		for _, spline := range result.Model.Splines {
+			splines[spline.ID] = spline
 		}
 		for entityIndex := range sketch.Entities {
 			entity := &sketch.Entities[entityIndex]
@@ -788,6 +868,20 @@ func (service *Service) solveSketches(ctx context.Context, requestID string, mod
 				l := lines[entity.ID]
 				entity.Start = &SketchPoint2{l.StartX, l.StartY}
 				entity.End = &SketchPoint2{l.EndX, l.EndY}
+			} else if entity.Kind == "CIRCLE" {
+				circle := circles[entity.ID]
+				entity.Center, entity.Radius = &SketchPoint2{circle.CenterX, circle.CenterY}, circle.Radius
+			} else if entity.Kind == "ARC" {
+				arc := arcs[entity.ID]
+				entity.Center, entity.Radius = &SketchPoint2{arc.CenterX, arc.CenterY}, arc.Radius
+				entity.StartAngle, entity.EndAngle = arc.StartAngle, arc.EndAngle
+			} else if entity.Kind == "SPLINE" {
+				spline := splines[entity.ID]
+				entity.ControlPoints = entity.ControlPoints[:0]
+				for _, point := range spline.ControlPoints {
+					entity.ControlPoints = append(entity.ControlPoints, SketchPoint2{X: point[0], Y: point[1]})
+				}
+				entity.Degree, entity.Closed = spline.Degree, spline.Closed
 			}
 		}
 		sketch.Solve = SketchSolveState{Status: result.Status, DegreesOfFreedom: result.DegreesOfFreedom, Diagnostic: result.Diagnostic, ConflictingConstraintIDs: result.ConflictingConstraintIDs, RedundantConstraintIDs: result.RedundantConstraintIDs}

@@ -79,7 +79,8 @@ std::filesystem::path configure_logging(const std::string& address) {
 
 std::filesystem::path artifact_root() {
     const char* configured = std::getenv("OCCCCAD_DATA_DIR");
-    return std::filesystem::absolute(configured != nullptr ? configured : "./data").lexically_normal();
+    return std::filesystem::absolute(configured != nullptr ? configured : "./data")
+        .lexically_normal();
 }
 
 std::filesystem::path artifact_path(const std::string& key, const bool create_parent = false) {
@@ -221,6 +222,8 @@ sketch_api::GeometryRef read_sketch_reference(const worker_api::SketchGeometryRe
         sub_element = sketch_api::SubElement::start;
     else if (input.sub_element() == "END")
         sub_element = sketch_api::SubElement::end;
+    else if (input.sub_element() == "CENTER")
+        sub_element = sketch_api::SubElement::center;
     else if (input.sub_element() == "DIRECTION")
         sub_element = sketch_api::SubElement::direction;
     else
@@ -245,6 +248,35 @@ sketch_api::SketchModel read_sketch(const worker_api::SketchModel& input) {
                                line.role() == "CONSTRUCTION" ? sketch_api::EntityRole::construction
                                                              : sketch_api::EntityRole::profile});
     }
+    for (const auto& circle : input.circles()) {
+        model.circles.push_back({circle.id(),
+                                 {circle.center().x(), circle.center().y()},
+                                 circle.radius(),
+                                 circle.role() == "CONSTRUCTION"
+                                     ? sketch_api::EntityRole::construction
+                                     : sketch_api::EntityRole::profile});
+    }
+    for (const auto& arc : input.arcs()) {
+        model.arcs.push_back({arc.id(),
+                              {arc.center().x(), arc.center().y()},
+                              arc.radius(),
+                              arc.start_angle(),
+                              arc.end_angle(),
+                              arc.role() == "CONSTRUCTION" ? sketch_api::EntityRole::construction
+                                                           : sketch_api::EntityRole::profile});
+    }
+    for (const auto& spline : input.splines()) {
+        sketch_api::SplineEntity output{spline.id(),
+                                        {},
+                                        spline.degree(),
+                                        spline.closed(),
+                                        spline.role() == "CONSTRUCTION"
+                                            ? sketch_api::EntityRole::construction
+                                            : sketch_api::EntityRole::profile};
+        for (const auto& point : spline.control_points())
+            output.control_points.push_back({point.x(), point.y()});
+        model.splines.push_back(std::move(output));
+    }
     for (const auto& constraint : input.constraints()) {
         sketch_api::ConstraintKind kind;
         if (constraint.kind() == "COINCIDENT")
@@ -253,13 +285,44 @@ sketch_api::SketchModel read_sketch(const worker_api::SketchModel& input) {
             kind = sketch_api::ConstraintKind::parallel;
         else if (constraint.kind() == "FIXED_POINT")
             kind = sketch_api::ConstraintKind::fixed_point;
+        else if (constraint.kind() == "FIXED")
+            kind = sketch_api::ConstraintKind::fixed;
+        else if (constraint.kind() == "HORIZONTAL")
+            kind = sketch_api::ConstraintKind::horizontal;
+        else if (constraint.kind() == "VERTICAL")
+            kind = sketch_api::ConstraintKind::vertical;
+        else if (constraint.kind() == "PERPENDICULAR")
+            kind = sketch_api::ConstraintKind::perpendicular;
+        else if (constraint.kind() == "TANGENT")
+            kind = sketch_api::ConstraintKind::tangent;
+        else if (constraint.kind() == "EQUAL")
+            kind = sketch_api::ConstraintKind::equal;
+        else if (constraint.kind() == "DISTANCE")
+            kind = sketch_api::ConstraintKind::distance;
+        else if (constraint.kind() == "LENGTH")
+            kind = sketch_api::ConstraintKind::length;
+        else if (constraint.kind() == "RADIUS")
+            kind = sketch_api::ConstraintKind::radius;
+        else if (constraint.kind() == "DIAMETER")
+            kind = sketch_api::ConstraintKind::diameter;
+        else if (constraint.kind() == "ANGLE")
+            kind = sketch_api::ConstraintKind::angle;
+        else if (constraint.kind() == "CONCENTRIC")
+            kind = sketch_api::ConstraintKind::concentric;
+        else if (constraint.kind() == "POINT_ON_OBJECT")
+            kind = sketch_api::ConstraintKind::point_on_object;
+        else if (constraint.kind() == "MIDPOINT")
+            kind = sketch_api::ConstraintKind::midpoint;
         else
             throw std::invalid_argument("unknown sketch constraint kind");
         sketch_api::SketchConstraint output{
             constraint.id(),
             kind,
             {},
-            {constraint.fixed_point().x(), constraint.fixed_point().y()}};
+            {constraint.fixed_point().x(), constraint.fixed_point().y()},
+            constraint.value(),
+            constraint.unit(),
+            constraint.internal()};
         for (const auto& reference : constraint.references()) {
             output.references.push_back(read_sketch_reference(reference));
         }
@@ -303,6 +366,38 @@ void write_solved_sketch(const sketch_api::SolveResult& result, worker_api::Sket
         value->mutable_start()->set_y(line.start.y);
         value->mutable_end()->set_x(line.end.x);
         value->mutable_end()->set_y(line.end.y);
+    }
+    for (const auto& circle : result.circles) {
+        auto* value = output->add_circles();
+        value->set_id(circle.id);
+        value->set_role(circle.role == sketch_api::EntityRole::profile ? "PROFILE"
+                                                                       : "CONSTRUCTION");
+        value->mutable_center()->set_x(circle.center.x);
+        value->mutable_center()->set_y(circle.center.y);
+        value->set_radius(circle.radius);
+    }
+    for (const auto& arc : result.arcs) {
+        auto* value = output->add_arcs();
+        value->set_id(arc.id);
+        value->set_role(arc.role == sketch_api::EntityRole::profile ? "PROFILE" : "CONSTRUCTION");
+        value->mutable_center()->set_x(arc.center.x);
+        value->mutable_center()->set_y(arc.center.y);
+        value->set_radius(arc.radius);
+        value->set_start_angle(arc.start_angle);
+        value->set_end_angle(arc.end_angle);
+    }
+    for (const auto& spline : result.splines) {
+        auto* value = output->add_splines();
+        value->set_id(spline.id);
+        value->set_role(spline.role == sketch_api::EntityRole::profile ? "PROFILE"
+                                                                       : "CONSTRUCTION");
+        value->set_degree(spline.degree);
+        value->set_closed(spline.closed);
+        for (const auto& point : spline.control_points) {
+            auto* control = value->add_control_points();
+            control->set_x(point.x);
+            control->set_y(point.y);
+        }
     }
 }
 
@@ -354,14 +449,14 @@ public:
         if (request->request_id().empty() || request->geometry_key().empty()) {
             return {grpc::StatusCode::INVALID_ARGUMENT, "request_id and geometry_key are required"};
         }
-        if (!request->has_rectangular_pad() && request->rectangular_pads().empty()) {
-            return {grpc::StatusCode::INVALID_ARGUMENT,
-                    "feature chain requires at least one rectangular pad"};
+        if (!request->has_rectangular_pad() && request->rectangular_pads().empty() &&
+            request->profile_pads().empty()) {
+            return {grpc::StatusCode::INVALID_ARGUMENT, "feature chain requires at least one pad"};
         }
 
         std::lock_guard<std::mutex> lock(mutex_);
-        const bool external_outputs = !request->brep_output_key().empty() ||
-                                      !request->glb_output_key().empty();
+        const bool external_outputs =
+            !request->brep_output_key().empty() || !request->glb_output_key().empty();
         const auto cached = cache_.find(request->geometry_key());
         if (!external_outputs && cached != cache_.end()) {
             response->CopyFrom(cached->second);
@@ -394,13 +489,54 @@ public:
                                            request->base_brep_data().end());
             if (request->has_base_brep_artifact())
                 base_brep = read_artifact(request->base_brep_artifact());
-            const auto geometry_id = kernel_.evaluateRectangularPads(specs, base_brep);
+            std::vector<occccad::kernel::ProfilePadSpec> profile_specs;
+            for (const auto& input : request->profile_pads()) {
+                if (input.units() != "mm")
+                    throw std::invalid_argument("profile pads must use mm");
+                occccad::kernel::ProfilePadSpec pad;
+                pad.pad_length = input.pad_length();
+                pad.plane = input.plane().empty() ? "XY" : input.plane();
+                const auto read_loop = [](const worker_api::ProfileLoop& source) {
+                    occccad::kernel::ProfileLoopSpec loop;
+                    loop.id = source.id();
+                    for (const auto& curve : source.curves()) {
+                        occccad::kernel::ProfileCurveSpec value;
+                        value.entity_id = curve.entity_id();
+                        value.reversed = curve.reversed();
+                        value.kind = curve.kind();
+                        value.start = {curve.start().x(), curve.start().y()};
+                        value.end = {curve.end().x(), curve.end().y()};
+                        value.center = {curve.center().x(), curve.center().y()};
+                        value.radius = curve.radius();
+                        value.start_angle = curve.start_angle();
+                        value.end_angle = curve.end_angle();
+                        value.degree = curve.degree();
+                        value.closed = curve.closed();
+                        for (const auto& point : curve.control_points())
+                            value.control_points.push_back({point.x(), point.y()});
+                        loop.curves.push_back(std::move(value));
+                    }
+                    return loop;
+                };
+                for (const auto& region_input : input.regions()) {
+                    occccad::kernel::ProfileRegionSpec region;
+                    region.id = region_input.id();
+                    region.outer = read_loop(region_input.outer());
+                    for (const auto& hole : region_input.holes())
+                        region.holes.push_back(read_loop(hole));
+                    pad.regions.push_back(std::move(region));
+                }
+                profile_specs.push_back(std::move(pad));
+            }
+            const auto geometry_id = profile_specs.empty()
+                                         ? kernel_.evaluateRectangularPads(specs, base_brep)
+                                         : kernel_.evaluateProfilePads(profile_specs, base_brep);
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
                             request->glb_output_key());
 
-			if (!external_outputs)
-				cache_.insert_or_assign(request->geometry_key(), *response);
+            if (!external_outputs)
+                cache_.insert_or_assign(request->geometry_key(), *response);
             log_rpc("EvaluatePart", request->request_id(), traceparent, "OK", started);
             return grpc::Status::OK;
         } catch (const std::invalid_argument& error) {
@@ -419,9 +555,10 @@ public:
             const auto format = exchange_format(request->format());
             if (!request->has_source())
                 throw std::invalid_argument("exchange source artifact is required");
-			std::lock_guard<std::mutex> lock(mutex_);
+            std::lock_guard<std::mutex> lock(mutex_);
             const auto source = validate_artifact(request->source());
-            const uint32_t count = format == "STEP" ? kernel_.inspectStepRootCount(source.string()) : 1U;
+            const uint32_t count =
+                format == "STEP" ? kernel_.inspectStepRootCount(source.string()) : 1U;
             response->set_document_type(count > 1U ? "PRODUCT" : "PART");
             for (uint32_t index = 1; index <= count; ++index) {
                 auto* component = response->add_components();
@@ -453,7 +590,7 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         try {
             const auto format = exchange_format(request->format());
-			const auto source = validate_artifact(request->source());
+            const auto source = validate_artifact(request->source());
             occccad::kernel::GeometryId geometry_id;
             if (format == "STEP") {
                 geometry_id = kernel_.loadStepRoot(source.string(), request->source_index());
@@ -569,7 +706,7 @@ public:
         if (context->IsCancelled()) {
             return {grpc::StatusCode::CANCELLED, "request was cancelled"};
         }
-		if (request->request_id().empty() || request->components_size() == 0 ||
+        if (request->request_id().empty() || request->components_size() == 0 ||
             request->output_key().empty()) {
             return {grpc::StatusCode::INVALID_ARGUMENT,
                     "request_id, components, and output_key are required"};
@@ -577,14 +714,15 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         try {
             const auto format = exchange_format(request->format());
-			std::vector<occccad::kernel::PlacedGeometry> components;
+            std::vector<occccad::kernel::PlacedGeometry> components;
             components.reserve(static_cast<size_t>(request->components_size()));
             for (const auto& component : request->components()) {
                 if (!component.has_brep())
                     throw std::invalid_argument("each export component requires a B-Rep artifact");
                 const auto id = kernel_.loadBrepr(read_artifact(component.brep()));
-                components.push_back({id, {component.translation().x(), component.translation().y(),
-                                           component.translation().z()}});
+                components.push_back({id,
+                                      {component.translation().x(), component.translation().y(),
+                                       component.translation().z()}});
             }
             std::vector<uint8_t> data;
             if (format == "STEP") {

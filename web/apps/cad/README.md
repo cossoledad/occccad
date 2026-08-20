@@ -4,10 +4,11 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 
 ## 当前能力
 
-- 登录、注册、账号管理、文档/文件夹中心、分享与任务入口；
+- 登录、注册、账号管理、文档/文件夹中心、分享与常驻消息中心；消息中心恢复用户可见任务，展示进度和失败原因，并提供取消、重试、下载或打开文档动作；
 - Part/Product 多标签工作台、Specification Tree、Toolbar、Inspector；
 - Three.js 精确网格显示、基准面、选择/预选与结构树联动；Specification Tree 展开草图几何与约束，按服务端 capability 提供删除，实体删除原子级联其引用约束；
-- 草图矩形交互、拉伸、实例插入/移动、Undo/Redo；
+- 草图绘制几何/约束/常用图形三组 Toolbar；Point、Line、Circle、Arc、Polyline、Spline、Rectangle、正六边形、长圆槽以及基础几何/尺寸约束；单击执行一次后回到选择，双击连续执行；
+- 通用闭合 Profile（包含外环、孔和岛）拉伸、实例插入/移动、Undo/Redo；
 - Default/CATIA 导航 Profile、Pointer Capture、快捷键上下文和 Overlay；
 - 统一 CAD 语义色与 hover/selected/snap 层次；草图创建支持原点、点/端点、中点、线投影和 10 mm 网格吸附；
 - Pad、Insert、命名版本使用可拖动非模态命令面板；Pad 数值 blur/Enter 后请求后端复用正式 typed command、Sketch Solver 与 Part evaluator 生成非持久化精确预览，提交才创建 Revision；
@@ -16,6 +17,7 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 - Mock Adapter，以及真实 REST + WebSocket 双平面 Adapter；
 - 工作台通过 `occccad.realtime.v1` 订阅文档，建模命令走关联请求响应，其他浏览器提交后由 Outbox event 触发权威状态刷新；
 - WebSocket 自动心跳、指数退避重连、重新订阅、sequence 去重/gap 恢复和事件确认。
+- `features/activity` 把后端来源投影成统一 ActivityItem；当前接入持久 Job，只有存在活动任务时才低频刷新进度，未来通知来源通过独立 projector 扩展。
 
 浏览器只负责交互和显示，不执行可信 B-Rep 运算，也不成为文档的权威存储。
 

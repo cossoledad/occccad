@@ -88,21 +88,32 @@ func run() error {
 			slog.Error("claim job", "error", err)
 			continue
 		}
-		heartbeatDone := make(chan struct{})
-		go h.heartbeat(ctx, job.ID, heartbeatDone)
-		err = h.execute(ctx, job)
-		close(heartbeatDone)
+		jobContext, cancelJob := context.WithCancel(ctx)
+		monitorDone := make(chan struct{})
+		go h.monitor(jobContext, job.ID, cancelJob, monitorDone)
+		err = h.execute(jobContext, job)
+		close(monitorDone)
+		cancelJob()
 		if err != nil {
-			slog.Error("execute job", "job_id", job.ID, "type", job.Type, "error", err)
-			_ = h.queue.Fail(ctx, job, workerID, "PROCESSING_FAILED", err.Error())
+			finishContext, finishCancel := context.WithTimeout(context.Background(), 3*time.Second)
+			cancelRequested, cancelErr := h.queue.CancellationRequested(finishContext, job.ID, workerID)
+			if cancelErr == nil && cancelRequested {
+				slog.Info("job canceled", "job_id", job.ID, "type", job.Type)
+				_ = h.queue.AcknowledgeCanceled(finishContext, job.ID, workerID)
+			} else if ctx.Err() == nil {
+				slog.Error("execute job", "job_id", job.ID, "type", job.Type, "error", err)
+				_ = h.queue.Fail(finishContext, job, workerID, "PROCESSING_FAILED", err.Error())
+			}
+			finishCancel()
 		}
 	}
 	return nil
 }
 
-func (h handler) heartbeat(ctx context.Context, jobID string, done <-chan struct{}) {
-	ticker := time.NewTicker(30 * time.Second)
+func (h handler) monitor(ctx context.Context, jobID string, cancel context.CancelFunc, done <-chan struct{}) {
+	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
+	heartbeatAt := time.Now().Add(30 * time.Second)
 	for {
 		select {
 		case <-ctx.Done():
@@ -110,6 +121,15 @@ func (h handler) heartbeat(ctx context.Context, jobID string, done <-chan struct
 		case <-done:
 			return
 		case <-ticker.C:
+			requested, err := h.queue.CancellationRequested(ctx, jobID, h.workerID)
+			if err == nil && requested {
+				cancel()
+				return
+			}
+			if time.Now().Before(heartbeatAt) {
+				continue
+			}
+			heartbeatAt = time.Now().Add(30 * time.Second)
 			if err := h.queue.Heartbeat(ctx, jobID, h.workerID, 2*time.Minute); err != nil {
 				slog.Warn("renew job lease", "job_id", jobID, "error", err)
 			}
@@ -118,6 +138,9 @@ func (h handler) heartbeat(ctx context.Context, jobID string, done <-chan struct
 }
 
 func (h handler) execute(ctx context.Context, job jobs.Job) error {
+	if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 5); err != nil {
+		return err
+	}
 	var payload struct {
 		FileName  string `json:"fileName"`
 		FolderID  string `json:"folderId"`
@@ -141,6 +164,9 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if err != nil {
 			return err
 		}
+		if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 15); err != nil {
+			return err
+		}
 		format := strings.ToUpper(payload.Format)
 		reference := geometry.ArtifactReference{Backend: source.Backend, ObjectKey: source.Key,
 			SHA256: source.SHA256, Size: source.Size, ContentType: source.ContentType}
@@ -150,6 +176,9 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		}
 		if len(inspection.Components) == 0 {
 			return errors.New("exchange source contains no importable components")
+		}
+		if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 30); err != nil {
+			return err
 		}
 		type imported struct {
 			name, key  string
@@ -177,9 +206,15 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if err := group.Wait(); err != nil {
 			return err
 		}
+		if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 70); err != nil {
+			return err
+		}
 		baseName := exchange.ImportedDocumentName(payload.FileName)
 		parts := make([]workspace.DocumentView, 0, len(results))
 		for index, result := range results {
+			if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 70+(index*20)/len(results)); err != nil {
+				return err
+			}
 			name := baseName
 			if len(results) > 1 {
 				name = fmt.Sprintf("%s - %s", baseName, result.name)
@@ -205,6 +240,9 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 				slog.Warn("enqueue imported Product preview", "job_id", job.ID, "error", err)
 			}
 		}
+		if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 95); err != nil {
+			return err
+		}
 		return h.queue.SucceedImport(ctx, job.ID, h.workerID, root.Document.ID)
 	case "EXCHANGE_EXPORT":
 		if job.DocumentID == nil {
@@ -224,6 +262,9 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if err != nil {
 			return err
 		}
+		if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 35); err != nil {
+			return err
+		}
 		components := make([]geometry.ExchangeComponent, 0, len(sourceComponents))
 		for _, component := range sourceComponents {
 			components = append(components, geometry.ExchangeComponent{Name: component.Name,
@@ -234,8 +275,14 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if err != nil {
 			return err
 		}
+		if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 85); err != nil {
+			return err
+		}
 		object, err := h.artifacts.Adopt(ctx, artifact.KindExchangeExport, result.ContentType, result.ObjectKey)
 		if err != nil {
+			return err
+		}
+		if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 95); err != nil {
 			return err
 		}
 		return h.queue.Succeed(ctx, job.ID, h.workerID, object.ID)
