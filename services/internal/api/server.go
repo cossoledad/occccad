@@ -23,6 +23,7 @@ import (
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/modelcore"
+	"github.com/occccad/occccad/internal/thumbnail"
 	"github.com/occccad/occccad/internal/workspace"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -159,12 +160,12 @@ func (server *Server) enqueueDocumentPreviews(ctx context.Context, changed works
 			return err
 		}
 		digest := sha256.Sum256([]byte(documentID + ":" + versionID + ":" +
-			changed.Document.ID + ":" + changed.Document.VersionID + ":preview-v2"))
+			changed.Document.ID + ":" + changed.Document.VersionID + ":" + thumbnail.RendererVersion))
 		identity := hex.EncodeToString(digest[:])
 		if _, err := server.jobs.Enqueue(ctx, jobs.EnqueueRequest{Type: "THUMBNAIL_RENDER",
 			DocumentID: documentID, VersionID: &versionID, RequestedBy: requestedBy,
 			IdempotencyKey: identity, Payload: map[string]any{
-				"previewIdentity": identity, "rendererVersion": "svg-v2"}}); err != nil {
+				"previewIdentity": identity, "rendererVersion": thumbnail.RendererVersion}}); err != nil {
 			return err
 		}
 	}

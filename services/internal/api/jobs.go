@@ -14,6 +14,7 @@ import (
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/exchange"
 	"github.com/occccad/occccad/internal/jobs"
+	"github.com/occccad/occccad/internal/thumbnail"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
@@ -226,19 +227,25 @@ func (server *Server) documentPreview(writer http.ResponseWriter, request *http.
 	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
 		return
 	}
+	documentType := "PART"
+	if err := server.database.QueryRow(request.Context(), `SELECT document_type
+		FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, request.PathValue("documentID")).Scan(&documentType); err != nil {
+		writeThumbnail(writer, thumbnail.DefaultForType(documentType), "default")
+		return
+	}
 	var objectID string
 	err := server.database.QueryRow(request.Context(), `SELECT p.object_id::text
 		FROM occccad.document_previews p
 		JOIN occccad.documents d ON d.id=p.document_id AND d.head_version_id=p.version_id
-		WHERE p.document_id=$1 AND p.state='READY'
-		ORDER BY p.updated_at DESC LIMIT 1`, request.PathValue("documentID")).Scan(&objectID)
+		WHERE p.document_id=$1 AND p.state='READY' AND p.renderer_version=$2
+		ORDER BY p.updated_at DESC LIMIT 1`, request.PathValue("documentID"), thumbnail.RendererVersion).Scan(&objectID)
 	if err != nil {
-		writer.WriteHeader(http.StatusNoContent)
+		writeThumbnail(writer, thumbnail.DefaultForType(documentType), "default")
 		return
 	}
 	object, reader, err := server.artifacts.Open(request.Context(), objectID)
 	if err != nil {
-		writer.WriteHeader(http.StatusNoContent)
+		writeThumbnail(writer, thumbnail.DefaultForType(documentType), "default")
 		return
 	}
 	defer reader.Close()
@@ -246,7 +253,16 @@ func (server *Server) documentPreview(writer http.ResponseWriter, request *http.
 	// A FOLLOW_HEAD Product can change when a referenced document changes even
 	// though the Product's own version ID remains stable.
 	writer.Header().Set("Cache-Control", "private, no-store")
+	writer.Header().Set("X-OCCCCAD-Thumbnail-State", "ready")
 	_, _ = io.Copy(writer, reader)
+}
+
+func writeThumbnail(writer http.ResponseWriter, payload []byte, state string) {
+	writer.Header().Set("Content-Type", "image/svg+xml")
+	writer.Header().Set("Cache-Control", "private, no-store")
+	writer.Header().Set("X-OCCCCAD-Thumbnail-State", state)
+	writer.Header().Set("Content-Length", fmt.Sprint(len(payload)))
+	_, _ = writer.Write(payload)
 }
 
 func (server *Server) authorizedJob(writer http.ResponseWriter, request *http.Request) (jobs.Job, bool) {

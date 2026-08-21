@@ -31,13 +31,14 @@ import (
 )
 
 type handler struct {
-	workerID  string
-	database  *pgxpool.Pool
-	queue     *jobs.Service
-	access    *access.Service
-	artifacts *artifact.Service
-	geometry  *geometry.Client
-	workspace *workspace.Service
+	workerID               string
+	thumbnailRenderTimeout time.Duration
+	database               *pgxpool.Pool
+	queue                  *jobs.Service
+	access                 *access.Service
+	artifacts              *artifact.Service
+	geometry               *geometry.Client
+	workspace              *workspace.Service
 }
 
 func main() {
@@ -71,7 +72,7 @@ func run() error {
 	hostname, _ := os.Hostname()
 	workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())
 	artifactService := artifact.NewService(pool, store)
-	h := handler{workerID: workerID, database: pool, queue: jobs.New(pool), artifacts: artifactService,
+	h := handler{workerID: workerID, thumbnailRenderTimeout: configuration.ThumbnailRenderTimeout, database: pool, queue: jobs.New(pool), artifacts: artifactService,
 		access: access.New(pool), geometry: geometryClient,
 		workspace: workspace.NewWithArtifacts(pool, geometryClient, artifactService)}
 	slog.Info("job worker started", "worker_id", workerID, "artifact_backend", "LOCAL", "data_directory", store.Root())
@@ -304,9 +305,13 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if err := json.Unmarshal(job.Payload, &preview); err != nil {
 			return err
 		}
-		svg, err := thumbnail.Render(current)
+		svg, usedDefault, err := thumbnail.RenderWithTimeout(current, h.thumbnailRenderTimeout)
 		if err != nil {
 			return err
+		}
+		if usedDefault {
+			slog.Warn("thumbnail render exceeded deadline; storing default", "job_id", job.ID,
+				"document_id", *job.DocumentID, "timeout", h.thumbnailRenderTimeout)
 		}
 		object, err := h.artifacts.Put(ctx, artifact.KindThumbnail, "image/svg+xml", bytes.NewReader(svg))
 		if err != nil {
@@ -327,11 +332,11 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 }
 
 func (h handler) enqueuePreview(ctx context.Context, requestedBy string, view workspace.DocumentView) error {
-	digest := sha256.Sum256([]byte(view.Document.ID + ":" + view.Document.VersionID + ":preview-v2"))
+	digest := sha256.Sum256([]byte(view.Document.ID + ":" + view.Document.VersionID + ":" + thumbnail.RendererVersion))
 	identity := hex.EncodeToString(digest[:])
 	_, err := h.queue.Enqueue(ctx, jobs.EnqueueRequest{Type: "THUMBNAIL_RENDER",
 		DocumentID: view.Document.ID, VersionID: &view.Document.VersionID, RequestedBy: requestedBy,
 		IdempotencyKey: identity, Payload: map[string]any{"previewIdentity": identity,
-			"rendererVersion": "svg-v2"}})
+			"rendererVersion": thumbnail.RendererVersion}})
 	return err
 }

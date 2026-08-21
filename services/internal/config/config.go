@@ -12,16 +12,17 @@ import (
 )
 
 type Config struct {
-	DatabaseURL    string
-	ListenAddress  string
-	WorkerAddress  string
-	DataDirectory  string
-	AllowedOrigins []string
-	AdminEmail     string
-	AdminName      string
-	AdminPassword  string
-	SessionTTL     time.Duration
-	SecureCookies  bool
+	DatabaseURL            string
+	ListenAddress          string
+	WorkerAddress          string
+	DataDirectory          string
+	AllowedOrigins         []string
+	AdminEmail             string
+	AdminName              string
+	AdminPassword          string
+	SessionTTL             time.Duration
+	ThumbnailRenderTimeout time.Duration
+	SecureCookies          bool
 }
 
 // LoadProjectEnv loads simple KEY=VALUE entries without overriding exported values.
@@ -98,18 +99,23 @@ func Load() Config {
 	if err != nil || sessionTTL <= 0 {
 		sessionTTL = 12 * time.Hour
 	}
+	thumbnailTimeout, err := time.ParseDuration(value("OCCCCAD_THUMBNAIL_RENDER_TIMEOUT", "5s"))
+	if err != nil || thumbnailTimeout <= 0 {
+		thumbnailTimeout = 5 * time.Second
+	}
 	secureCookies, _ := strconv.ParseBool(value("OCCCCAD_SECURE_COOKIES", "false"))
 	return Config{
-		DatabaseURL:    databaseURL,
-		ListenAddress:  value("OCCCCAD_SERVER_LISTEN", "0.0.0.0:8080"),
-		WorkerAddress:  value("OCCCCAD_GEOMETRY_WORKER_ADDRESS", "127.0.0.1:51001"),
-		DataDirectory:  value("OCCCCAD_DATA_DIR", "./data"),
-		AllowedOrigins: splitList(os.Getenv("OCCCCAD_ALLOWED_ORIGINS")),
-		AdminEmail:     value("OCCCCAD_ADMIN_EMAIL", "admin@occccad.local"),
-		AdminName:      value("OCCCCAD_ADMIN_DISPLAY_NAME", "Administrator"),
-		AdminPassword:  os.Getenv("OCCCCAD_ADMIN_PASSWORD"),
-		SessionTTL:     sessionTTL,
-		SecureCookies:  secureCookies,
+		DatabaseURL:            databaseURL,
+		ListenAddress:          value("OCCCCAD_SERVER_LISTEN", "0.0.0.0:8080"),
+		WorkerAddress:          value("OCCCCAD_GEOMETRY_WORKER_ADDRESS", "127.0.0.1:51001"),
+		DataDirectory:          value("OCCCCAD_DATA_DIR", "./data"),
+		AllowedOrigins:         splitList(os.Getenv("OCCCCAD_ALLOWED_ORIGINS")),
+		AdminEmail:             value("OCCCCAD_ADMIN_EMAIL", "admin@occccad.local"),
+		AdminName:              value("OCCCCAD_ADMIN_DISPLAY_NAME", "Administrator"),
+		AdminPassword:          os.Getenv("OCCCCAD_ADMIN_PASSWORD"),
+		SessionTTL:             sessionTTL,
+		ThumbnailRenderTimeout: thumbnailTimeout,
+		SecureCookies:          secureCookies,
 	}
 }
 

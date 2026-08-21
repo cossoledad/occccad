@@ -1,21 +1,26 @@
 package thumbnail
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"html"
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/occccad/occccad/internal/workspace"
 )
 
 const (
-	width         = 320.0
-	height        = 200.0
-	drawingTop    = 16.0
-	drawingBottom = 158.0
+	Width           = 320
+	Height          = 200
+	RendererVersion = "svg-v3"
+	width           = float64(Width)
+	drawingTop      = 16.0
+	drawingBottom   = 184.0
 )
 
 type point struct {
@@ -31,8 +36,10 @@ type face struct {
 }
 
 type line struct {
-	points []point
-	color  string
+	points  []point
+	color   string
+	width   float64
+	opacity float64
 }
 
 type scene struct {
@@ -61,6 +68,53 @@ var palette = []string{
 // mesh data used by the browser. It supports Part solids, Part sketches and
 // flattened Product instances.
 func Render(view workspace.DocumentView) ([]byte, error) {
+	return render(context.Background(), view)
+}
+
+// RenderWithTimeout bounds thumbnail generation. A timeout produces a valid
+// fixed-size default thumbnail so callers never need to turn a missing image
+// into a layout decision.
+func RenderWithTimeout(view workspace.DocumentView, timeout time.Duration) ([]byte, bool, error) {
+	if timeout <= 0 {
+		return Default(view), true, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	resultChannel := make(chan struct {
+		result []byte
+		err    error
+	}, 1)
+	go func() {
+		result, err := render(ctx, view)
+		resultChannel <- struct {
+			result []byte
+			err    error
+		}{result: result, err: err}
+	}()
+	select {
+	case result := <-resultChannel:
+		if errors.Is(result.err, context.DeadlineExceeded) || errors.Is(result.err, context.Canceled) {
+			return Default(view), true, nil
+		}
+		return result.result, false, result.err
+	case <-ctx.Done():
+		return Default(view), true, nil
+	}
+}
+
+// Default returns the same fixed-size SVG contract used when a preview is not
+// ready, unavailable, or exceeds its generation deadline.
+func Default(view workspace.DocumentView) []byte {
+	return defaultSVG(view.Document.Type, triangleCount(view))
+}
+
+// DefaultForType returns a fixed-size placeholder when the API only has the
+// document type available and the current model has not been loaded.
+func DefaultForType(documentType string) []byte {
+	return defaultSVG(documentType, 0)
+}
+
+func render(ctx context.Context, view workspace.DocumentView) ([]byte, error) {
 	var drawing scene
 
 	if view.Document.Type == "PRODUCT" {
@@ -70,31 +124,50 @@ func Render(view workspace.DocumentView) ([]byte, error) {
 				continue
 			}
 
-			appendMesh(
+			if err := appendMesh(ctx,
 				&drawing,
 				artifact.Mesh,
 				instance.Translation,
 				colorFor(instance.ID, index),
-			)
-			appendVisualization(&drawing, artifact.Visualization, instance.Translation)
+			); err != nil {
+				return nil, err
+			}
+			if err := appendVisualization(ctx, &drawing, artifact.Visualization, instance.Translation); err != nil {
+				return nil, err
+			}
 		}
 	} else if view.Artifact != nil {
-		appendMesh(
+		if err := appendMesh(ctx,
 			&drawing,
 			view.Artifact.Mesh,
 			[3]float64{},
 			colorFor(view.Artifact.GeometryKey, 0),
-		)
-		appendVisualization(&drawing, view.Artifact.Visualization, [3]float64{})
+		); err != nil {
+			return nil, err
+		}
+		if err := appendVisualization(ctx, &drawing, view.Artifact.Visualization, [3]float64{}); err != nil {
+			return nil, err
+		}
 	} else if view.Part != nil {
-		appendSketches(&drawing, view.Part.Features)
+		if err := appendSketches(ctx, &drawing, view.Part.Features); err != nil {
+			return nil, err
+		}
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	sort.SliceStable(drawing.faces, func(left, right int) bool {
+		return drawing.faces[left].depth < drawing.faces[right].depth
+	})
 
 	transform := fit(&drawing)
 
 	var body strings.Builder
 
 	for _, item := range drawing.faces {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		body.WriteString(`<polygon points="`)
 
 		for index, vertex := range item.points {
@@ -112,14 +185,13 @@ func Render(view workspace.DocumentView) ([]byte, error) {
 			)
 		}
 
-		fmt.Fprintf(
-			&body,
-			`" fill="%s" stroke="#24516d" stroke-width="0.16" stroke-opacity="0.35" stroke-linejoin="round"/>`,
-			item.fill,
-		)
+		fmt.Fprintf(&body, `" fill="%s" stroke="none"/>`, item.fill)
 	}
 
 	for _, item := range drawing.lines {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		body.WriteString(`<polyline points="`)
 
 		for index, vertex := range item.points {
@@ -137,13 +209,21 @@ func Render(view workspace.DocumentView) ([]byte, error) {
 			)
 		}
 
-		fmt.Fprintf(
-			&body,
-			`" fill="none" stroke="%s" stroke-width="2" stroke-linejoin="round"/>`,
-			item.color,
-		)
+		strokeWidth := item.width
+		if strokeWidth <= 0 {
+			strokeWidth = 2
+		}
+		strokeOpacity := item.opacity
+		if strokeOpacity <= 0 {
+			strokeOpacity = 1
+		}
+		fmt.Fprintf(&body, `" fill="none" stroke="%s" stroke-width="%.2f" stroke-opacity="%.2f" stroke-linejoin="round"/>`,
+			item.color, strokeWidth, strokeOpacity)
 	}
 	for _, item := range drawing.dots {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		x, y := transform(item)
 		fmt.Fprintf(&body, `<circle cx="%.2f" cy="%.2f" r="2.4" fill="#f4f7f8" stroke="#32556b" stroke-width="1.2"/>`, x, y)
 	}
@@ -152,21 +232,30 @@ func Render(view workspace.DocumentView) ([]byte, error) {
 		body.WriteString(emptyMark(view.Document.Type))
 	}
 
-	detail := partDetail(view)
-
 	svg := fmt.Sprintf(
-		`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200" role="img" aria-label="%s"><defs><linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f7fafc"/><stop offset="1" stop-color="#e4edf3"/></linearGradient></defs><rect width="320" height="200" rx="8" fill="url(#background)"/><path d="M0 164H320" stroke="#ccdbe4"/>%s<text x="16" y="181" font-family="system-ui,sans-serif" font-size="12" font-weight="600" fill="#203746">%s</text><text x="304" y="181" text-anchor="end" font-family="system-ui,sans-serif" font-size="10" fill="#647b89">%s</text></svg>`,
-		html.EscapeString(view.Document.Name),
-		body.String(),
-		html.EscapeString(view.Document.Name),
-		html.EscapeString(detail),
+		`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" aria-label="triangle count %d"><defs><linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f7fafc"/><stop offset="1" stop-color="#e4edf3"/></linearGradient></defs><rect width="%d" height="%d" rx="8" fill="url(#background)"/>%s<text x="304" y="190" text-anchor="end" font-family="system-ui,sans-serif" font-size="10" fill="#647b89">△ %d</text></svg>`,
+		Width, Height, Width, Height, triangleCount(view), Width, Height, body.String(), triangleCount(view),
 	)
 
 	return []byte(svg), nil
 }
 
-func appendVisualization(target *scene, visualization workspace.VisualizationManifest, translation [3]float64) {
+func defaultSVG(documentType string, triangles int) []byte {
+	label := "PART"
+	if documentType == "PRODUCT" {
+		label = "PRODUCT"
+	}
+	return []byte(fmt.Sprintf(
+		`<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" viewBox="0 0 %d %d" role="img" aria-label="default %s thumbnail"><defs><linearGradient id="background" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#f7fafc"/><stop offset="1" stop-color="#e4edf3"/></linearGradient></defs><rect width="%d" height="%d" rx="8" fill="url(#background)"/><path d="M120 118L160 82L200 118L160 142Z" fill="#8eb6c9" fill-opacity="0.55" stroke="#47788f" stroke-width="2"/><path d="M120 118V78L160 48L200 78V118" fill="none" stroke="#47788f" stroke-width="2" stroke-linejoin="round"/><path d="M160 82V142" stroke="#47788f" stroke-width="2"/><text x="304" y="190" text-anchor="end" font-family="system-ui,sans-serif" font-size="10" fill="#647b89">△ %d</text></svg>`,
+		Width, Height, Width, Height, html.EscapeString(label), Width, Height, triangles,
+	))
+}
+
+func appendVisualization(ctx context.Context, target *scene, visualization workspace.VisualizationManifest, translation [3]float64) error {
 	for _, primitive := range visualization.Primitives {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if len(primitive.Positions) == 0 {
 			continue
 		}
@@ -178,9 +267,10 @@ func appendVisualization(target *scene, visualization workspace.VisualizationMan
 				target.addPoint(projected)
 			}
 		case "POLYLINE":
-			item := line{color: "#315b72", points: make([]point, 0, len(primitive.Positions))}
+			item := line{color: "#315b72", width: 1.5, points: make([]point, 0, len(primitive.Positions))}
 			if primitive.Role == "CONSTRUCTION" {
 				item.color = "#7b8c94"
+				item.width = 1
 			}
 			for _, position := range primitive.Positions {
 				projected := project(translate(position, translation))
@@ -195,35 +285,47 @@ func appendVisualization(target *scene, visualization workspace.VisualizationMan
 					primitive.Indices[index], primitive.Indices[index+1], primitive.Indices[index+2],
 				})
 			}
-			appendMesh(target, mesh, translation, "#65a6b8")
+			if err := appendMesh(ctx, target, mesh, translation, "#65a6b8"); err != nil {
+				return err
+			}
 		}
 	}
+	return nil
 }
 
 func appendMesh(
+	ctx context.Context,
 	target *scene,
 	mesh workspace.Mesh,
 	translation [3]float64,
 	color string,
-) {
+) error {
 	if len(mesh.Triangles) == 0 || len(mesh.Vertices) == 0 {
-		return
+		return nil
 	}
 
-	//
-	// Important:
-	//
-	// Do not sample triangles using:
-	//
-	//     index += step
-	//
-	// Doing that literally removes triangles from the surface and therefore
-	// creates visible holes on finely tessellated curved surfaces.
-	//
-	// For the SVG renderer we preserve mesh connectivity and render every
-	// triangle.
-	//
+	type triangleRecord struct {
+		indices [3]int
+		points  [3]point
+		normal  [3]float64
+		depth   float64
+	}
+	type edgeRecord struct {
+		vertices [2][3]float64
+		normals  [][3]float64
+	}
+
+	triangles := make([]triangleRecord, 0, len(mesh.Triangles))
+	vertexNormals := make([][][3]float64, len(mesh.Vertices))
+	edges := make(map[[2]int]*edgeRecord, len(mesh.Triangles)*3)
+
+	// Preserve every valid triangle. The first pass also builds averaged
+	// vertex normals and adjacency information for smooth light and visible
+	// outline/crease edges.
 	for _, triangle := range mesh.Triangles {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		i0 := int(triangle[0])
 		i1 := int(triangle[1])
 		i2 := int(triangle[2])
@@ -242,6 +344,10 @@ func appendMesh(
 		// Skip degenerate triangles.
 		//
 		if triangleAreaSquared(sourceA, sourceB, sourceC) < 1e-24 {
+			continue
+		}
+		normal, ok := unitNormal(sourceA, sourceB, sourceC)
+		if !ok {
 			continue
 		}
 
@@ -263,40 +369,72 @@ func appendMesh(
 			target.addPoint(p)
 		}
 
-		shade := faceShade(
-			sourceA,
-			sourceB,
-			sourceC,
-		)
-
-		target.faces = append(
-			target.faces,
-			face{
-				points: projected,
-				depth:  depth / 3.0,
-				fill:   shadeColor(color, shade),
-			},
-		)
+		record := triangleRecord{indices: [3]int{i0, i1, i2}, points: projected,
+			normal: normal, depth: depth / 3.0}
+		triangles = append(triangles, record)
+		for _, index := range record.indices {
+			vertexNormals[index] = append(vertexNormals[index], normal)
+		}
+		for _, pair := range [][2]int{{i0, i1}, {i1, i2}, {i2, i0}} {
+			key := pair
+			if key[0] > key[1] {
+				key[0], key[1] = key[1], key[0]
+			}
+			item := edges[key]
+			if item == nil {
+				item = &edgeRecord{vertices: [2][3]float64{mesh.Vertices[key[0]], mesh.Vertices[key[1]]}}
+				edges[key] = item
+			}
+			item.normals = append(item.normals, normal)
+		}
 	}
 
-	//
-	// SVG has no depth buffer, so use a painter-style depth sort.
-	//
-	// Smaller depth values are rendered first, larger values later.
-	//
-	sort.SliceStable(
-		target.faces,
-		func(left, right int) bool {
-			return target.faces[left].depth < target.faces[right].depth
-		},
-	)
+	for _, item := range triangles {
+		smoothNormal := [3]float64{}
+		for _, index := range item.indices {
+			for _, candidate := range vertexNormals[index] {
+				// Do not smooth across a real crease. The threshold still
+				// averages finely tessellated curved surfaces.
+				if dot(candidate, item.normal) < 0.82 {
+					continue
+				}
+				smoothNormal[0] += candidate[0]
+				smoothNormal[1] += candidate[1]
+				smoothNormal[2] += candidate[2]
+			}
+		}
+		smoothNormal, ok := normalize(smoothNormal)
+		if !ok {
+			smoothNormal = item.normal
+		}
+		target.faces = append(target.faces, face{points: item.points, depth: item.depth,
+			fill: shadeColor(color, faceShadeNormal(smoothNormal))})
+	}
+
+	// Draw only boundary, silhouette, and strong crease edges. Drawing every
+	// tessellation seam makes curved surfaces look noisy; this keeps the shape
+	// legible while retaining the useful CAD edge cues.
+	viewDirection := [3]float64{0.577350269, 0.577350269, 0.577350269}
+	for _, edge := range edges {
+		if !visibleEdge(edge.normals, viewDirection) {
+			continue
+		}
+		first := project(translate(edge.vertices[0], translation))
+		second := project(translate(edge.vertices[1], translation))
+		target.lines = append(target.lines, line{points: []point{first, second}, color: "#264e67", width: 0.8, opacity: 0.78})
+	}
+	return nil
 }
 
 func appendSketches(
+	ctx context.Context,
 	target *scene,
 	features []workspace.Feature,
-) {
+) error {
 	for _, feature := range features {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if !strings.Contains(
 			strings.ToUpper(feature.Type),
 			"SKETCH",
@@ -308,6 +446,9 @@ func appendSketches(
 			continue
 		}
 		for _, entity := range feature.Sketch.Entities {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			if entity.Kind != "LINE" || entity.Start == nil || entity.End == nil {
 				continue
 			}
@@ -320,6 +461,7 @@ func appendSketches(
 			target.lines = append(target.lines, item)
 		}
 	}
+	return nil
 }
 
 func (s *scene) addPoint(p point) {
@@ -452,38 +594,49 @@ func fit(
 	}
 }
 
-func faceShade(
+func unitNormal(
 	a [3]float64,
 	b [3]float64,
 	c [3]float64,
-) float64 {
-	u := [3]float64{
-		b[0] - a[0],
-		b[1] - a[1],
-		b[2] - a[2],
-	}
-
-	v := [3]float64{
-		c[0] - a[0],
-		c[1] - a[1],
-		c[2] - a[2],
-	}
-
-	n := [3]float64{
+) ([3]float64, bool) {
+	u := [3]float64{b[0] - a[0], b[1] - a[1], b[2] - a[2]}
+	v := [3]float64{c[0] - a[0], c[1] - a[1], c[2] - a[2]}
+	return normalize([3]float64{
 		u[1]*v[2] - u[2]*v[1],
 		u[2]*v[0] - u[0]*v[2],
 		u[0]*v[1] - u[1]*v[0],
-	}
+	})
+}
 
-	length := math.Sqrt(
-		n[0]*n[0] +
-			n[1]*n[1] +
-			n[2]*n[2],
-	)
-
+func normalize(value [3]float64) ([3]float64, bool) {
+	length := math.Sqrt(value[0]*value[0] + value[1]*value[1] + value[2]*value[2])
 	if length < 1e-12 {
-		return 0.8
+		return [3]float64{}, false
 	}
+	return [3]float64{value[0] / length, value[1] / length, value[2] / length}, true
+}
+
+func visibleEdge(normals [][3]float64, viewDirection [3]float64) bool {
+	if len(normals) <= 1 {
+		return len(normals) == 1
+	}
+	for index, left := range normals {
+		leftFacing := dot(left, viewDirection)
+		for _, right := range normals[index+1:] {
+			rightFacing := dot(right, viewDirection)
+			if leftFacing*rightFacing <= 0 || dot(left, right) < 0.82 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func dot(left [3]float64, right [3]float64) float64 {
+	return left[0]*right[0] + left[1]*right[1] + left[2]*right[2]
+}
+
+func faceShadeNormal(normal [3]float64) float64 {
 
 	//
 	// Normalized directional light:
@@ -498,9 +651,7 @@ func faceShade(
 		lightZ = 0.8081220356417685
 	)
 
-	diffuse := (n[0]*lightX +
-		n[1]*lightY +
-		n[2]*lightZ) / length
+	diffuse := normal[0]*lightX + normal[1]*lightY + normal[2]*lightZ
 
 	//
 	// Do not use abs(diffuse). Opposite-facing surfaces should not receive
@@ -512,7 +663,7 @@ func faceShade(
 	// Keep sufficient ambient light because this is a small thumbnail rather
 	// than a physically based renderer.
 	//
-	return 0.62 + 0.32*diffuse
+	return 0.48 + 0.52*diffuse
 }
 
 // triangleAreaSquared returns a value proportional to the squared area of the
@@ -599,33 +750,20 @@ func shadeColor(
 	)
 }
 
-func partDetail(
-	view workspace.DocumentView,
-) string {
+func triangleCount(view workspace.DocumentView) int {
 	if view.Document.Type == "PRODUCT" {
-		return fmt.Sprintf(
-			"Product · %d instances",
-			len(view.ResolvedInstances),
-		)
+		count := 0
+		for _, instance := range view.ResolvedInstances {
+			if artifact, ok := view.Artifacts[instance.GeometryKey]; ok {
+				count += len(artifact.Mesh.Triangles)
+			}
+		}
+		return count
 	}
-
 	if view.Artifact != nil {
-		return fmt.Sprintf(
-			"Part · %d faces",
-			len(view.Artifact.Mesh.Triangles),
-		)
+		return len(view.Artifact.Mesh.Triangles)
 	}
-
-	count := 0
-
-	if view.Part != nil {
-		count = len(view.Part.Features)
-	}
-
-	return fmt.Sprintf(
-		"Part · %d features",
-		count,
-	)
+	return 0
 }
 
 func emptyMark(

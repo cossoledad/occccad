@@ -16,8 +16,31 @@ func TestRenderPartUsesMeshGeometry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(result, []byte("<polygon")) || !bytes.Contains(result, []byte("Bracket")) {
+	if !bytes.Contains(result, []byte(`<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200"`)) ||
+		!bytes.Contains(result, []byte("<polygon")) || !bytes.Contains(result, []byte("△ 1")) {
 		t.Fatalf("rendered SVG does not contain projected geometry: %s", result)
+	}
+	if bytes.Contains(result, []byte("Bracket")) || bytes.Contains(result, []byte("M0 164H320")) {
+		t.Fatalf("thumbnail still contains removed name or divider: %s", result)
+	}
+	if !bytes.Contains(result, []byte(`stroke="none"`)) || !bytes.Contains(result, []byte(`stroke-width="0.80"`)) {
+		t.Fatalf("thumbnail does not contain the separated clean face and edge rendering: %s", result)
+	}
+}
+
+func TestDefaultThumbnailHasFixedCanvas(t *testing.T) {
+	result := DefaultForType("PRODUCT")
+	if !bytes.Contains(result, []byte(`width="320" height="200" viewBox="0 0 320 200"`)) ||
+		!bytes.Contains(result, []byte("△ 0")) {
+		t.Fatalf("default thumbnail does not satisfy the fixed SVG contract: %s", result)
+	}
+}
+
+func TestRenderWithExpiredTimeoutReturnsDefault(t *testing.T) {
+	view := workspace.DocumentView{Document: workspace.DocumentSummary{Type: "PART"}}
+	result, usedDefault, err := RenderWithTimeout(view, 0)
+	if err != nil || !usedDefault || !bytes.Contains(result, []byte("default PART thumbnail")) {
+		t.Fatalf("expired thumbnail render did not return default: usedDefault=%v err=%v svg=%s", usedDefault, err, result)
 	}
 }
 

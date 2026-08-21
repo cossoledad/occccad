@@ -525,6 +525,7 @@ select {
 
 .document-card .ant-card-cover {
   border-bottom: 1px solid #dce5ea;
+  aspect-ratio: 8 / 5;
 }
 
 .document-card .ant-card-body {
@@ -533,7 +534,9 @@ select {
 
 .thumbnail-button {
   width: 100%;
-  height: 100%;
+  height: auto;
+  aspect-ratio: 8 / 5;
+  display: block;
   padding: 0;
   overflow: hidden;
   border: 0;
@@ -545,15 +548,17 @@ select {
   position: relative;
   width: 100%;
   height: 100%;
+  aspect-ratio: 8 / 5;
   display: grid;
   place-items: center;
   overflow: hidden;
 }
 
 .document-thumbnail img {
+  display: block;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
 }
 
 .document-thumbnail.fallback {
@@ -564,24 +569,6 @@ select {
 
 .document-thumbnail.fallback.product {
   color: #5a739b;
-}
-
-.document-thumbnail.fallback i {
-  position: absolute;
-  width: 52%;
-  height: 1px;
-  background: rgb(38 100 132 / 22%);
-  transform: rotate(-22deg);
-}
-
-.document-thumbnail.fallback i:nth-child(3) {
-  transform: rotate(22deg);
-}
-
-.document-thumbnail.fallback i:nth-child(4) {
-  width: 1px;
-  height: 70%;
-  transform: none;
 }
 
 .document-title {
