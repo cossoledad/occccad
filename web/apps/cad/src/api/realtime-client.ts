@@ -1,5 +1,6 @@
 import type { DocumentView, Job } from "../types";
 import { closeAfterInitializationFailure } from "./websocket-lifecycle";
+import { randomUUID } from "../utils/random-uuid";
 
 const protocol = "occccad.realtime.v1";
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
@@ -111,7 +112,7 @@ export class RealtimeClient {
   }
 
   async executeCommand(documentId: string, command: Record<string, unknown>): Promise<DocumentView> {
-    const requestId = typeof command.requestId === "string" ? command.requestId : crypto.randomUUID();
+    const requestId = typeof command.requestId === "string" ? command.requestId : randomUUID();
     const payload = { documentId, command: { ...command, requestId } };
     for (let attempt = 0; ; attempt++) {
       try {
@@ -143,7 +144,7 @@ export class RealtimeClient {
     const socket = new WebSocket(socketURL(), protocol);
     this.socket = socket;
     socket.onopen = () => {
-      const id = crypto.randomUUID();
+      const id = randomUUID();
       this.addPending(id, () => {
         const reconnecting = this.connectedOnce;
         this.connectedOnce = true;
@@ -169,7 +170,7 @@ export class RealtimeClient {
   private async request<T>(type: string, payload: unknown): Promise<T> {
     await this.ensureConnected();
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) throw new Error("realtime connection unavailable");
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     return new Promise<T>((resolve, reject) => {
       this.addPending(id, (value) => resolve(value as T), reject);
       this.send({ protocol, id, kind: "request", type, sentAt: new Date().toISOString(), payload });
@@ -225,7 +226,7 @@ export class RealtimeClient {
       listener({ type: envelope.type, sequence: envelope.sequence, payload: envelope.payload });
     }
     if (envelope.sequence !== undefined && this.socket?.readyState === WebSocket.OPEN) {
-      this.send({ protocol, id: crypto.randomUUID(), kind: "ack", type: "stream.ack.v1",
+      this.send({ protocol, id: randomUUID(), kind: "ack", type: "stream.ack.v1",
         sequence: envelope.sequence, sentAt: new Date().toISOString(),
         payload: { documentId: payload.documentId } });
     }

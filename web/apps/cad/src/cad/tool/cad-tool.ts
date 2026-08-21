@@ -2,6 +2,7 @@ import type { CadKeyboardEvent, CadPointerEvent } from "../input/input-types";
 import { InputResult } from "../input/input-types";
 import type { SketchGeometryRef, SketchOperation, Vec2 } from "../../types";
 import type { SketchReferencePickKind } from "../interaction/sketch-reference-pick";
+import { randomUUID } from "../../utils/random-uuid";
 
 export type ToolViewportPort = {
   sketchPoint(x: number, y: number): Vec2 | null;
@@ -106,7 +107,7 @@ export class LineSketchTool extends TwoClickSketchTool {
   readonly secondPrompt = "直线：移动预览，单击终点；Esc 取消当前线";
   preview(first: Vec2, second: Vec2, context: ToolContext): void { context.viewport.showPolylinePreview([first, second]); }
   commit(first: Vec2, second: Vec2, context: ToolContext): void {
-    context.viewport.commitSketchOperations([{ type: "ADD_ENTITY", entity: { id: crypto.randomUUID(), kind: "LINE", role: "PROFILE", start: { x: first[0], y: first[1] }, end: { x: second[0], y: second[1] } } }]);
+    context.viewport.commitSketchOperations([{ type: "ADD_ENTITY", entity: { id: randomUUID(), kind: "LINE", role: "PROFILE", start: { x: first[0], y: first[1] }, end: { x: second[0], y: second[1] } } }]);
     context.viewport.finishToolUse();
   }
 }
@@ -128,12 +129,12 @@ export class RectangleSketchTool extends TwoClickSketchTool {
 
 function polylineOperations(points:Vec2[],closed:boolean):SketchOperation[] {
   const vertices=closed?[...points,points[0]]:points;
-  const ids=Array.from({length:vertices.length-1},()=>crypto.randomUUID());
+  const ids=Array.from({length:vertices.length-1},()=>randomUUID());
   const operations:SketchOperation[]=ids.map((id,index)=>({type:"ADD_ENTITY",entity:{id,kind:"LINE",role:"PROFILE",
     start:{x:vertices[index][0],y:vertices[index][1]},end:{x:vertices[index+1][0],y:vertices[index+1][1]}}}));
-  for(let index=1;index<ids.length;index+=1)operations.push({type:"ADD_CONSTRAINT",constraint:{id:crypto.randomUUID(),kind:"COINCIDENT",internal:true,
+  for(let index=1;index<ids.length;index+=1)operations.push({type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"COINCIDENT",internal:true,
     references:[{target:"ENTITY",entityId:ids[index-1],subElement:"END"},{target:"ENTITY",entityId:ids[index],subElement:"START"}]}});
-  if(closed&&ids.length>1)operations.push({type:"ADD_CONSTRAINT",constraint:{id:crypto.randomUUID(),kind:"COINCIDENT",internal:true,
+  if(closed&&ids.length>1)operations.push({type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"COINCIDENT",internal:true,
     references:[{target:"ENTITY",entityId:ids.at(-1),subElement:"END"},{target:"ENTITY",entityId:ids[0],subElement:"START"}]}});
   return operations;
 }
@@ -142,7 +143,7 @@ export class RegularPolygonSketchTool extends TwoClickSketchTool {
   readonly id="sketch.polygon";readonly firstPrompt="正六边形：单击中心";readonly secondPrompt="正六边形：单击一个顶点；Esc 取消";
   private vertices(center:Vec2,vertex:Vec2):Vec2[]{const radius=Math.hypot(vertex[0]-center[0],vertex[1]-center[1]);const start=Math.atan2(vertex[1]-center[1],vertex[0]-center[0]);return Array.from({length:6},(_,index)=>[center[0]+radius*Math.cos(start+index*Math.PI/3),center[1]+radius*Math.sin(start+index*Math.PI/3)]);}
   preview(center:Vec2,vertex:Vec2,context:ToolContext):void {context.viewport.showPolylinePreview(this.vertices(center,vertex),true);}
-  commit(center:Vec2,vertex:Vec2,context:ToolContext):void {const operations=polylineOperations(this.vertices(center,vertex),true);const ids=operations.filter((item)=>item.type==="ADD_ENTITY").map((item)=>item.entity.id);for(let index=1;index<ids.length;index+=1){operations.push({type:"ADD_CONSTRAINT",constraint:{id:crypto.randomUUID(),kind:"EQUAL",internal:true,references:[{target:"ENTITY",entityId:ids[0],subElement:"WHOLE"},{target:"ENTITY",entityId:ids[index],subElement:"WHOLE"}]}},{type:"ADD_CONSTRAINT",constraint:{id:crypto.randomUUID(),kind:"ANGLE",internal:true,value:60,unit:"deg",references:[{target:"ENTITY",entityId:ids[index-1],subElement:"DIRECTION"},{target:"ENTITY",entityId:ids[index],subElement:"DIRECTION"}]}});}context.viewport.commitSketchOperations(operations);context.viewport.finishToolUse();}
+  commit(center:Vec2,vertex:Vec2,context:ToolContext):void {const operations=polylineOperations(this.vertices(center,vertex),true);const ids=operations.filter((item)=>item.type==="ADD_ENTITY").map((item)=>item.entity.id);for(let index=1;index<ids.length;index+=1){operations.push({type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"EQUAL",internal:true,references:[{target:"ENTITY",entityId:ids[0],subElement:"WHOLE"},{target:"ENTITY",entityId:ids[index],subElement:"WHOLE"}]}},{type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"ANGLE",internal:true,value:60,unit:"deg",references:[{target:"ENTITY",entityId:ids[index-1],subElement:"DIRECTION"},{target:"ENTITY",entityId:ids[index],subElement:"DIRECTION"}]}});}context.viewport.commitSketchOperations(operations);context.viewport.finishToolUse();}
 }
 
 export class SlotSketchTool implements CadTool {
@@ -151,9 +152,9 @@ export class SlotSketchTool implements CadTool {
   private geometry(widthPoint:Vec2){const first=this.first!,second=this.second!,dx=second[0]-first[0],dy=second[1]-first[1],length=Math.hypot(dx,dy);const normal:Vec2=[-dy/length,dx/length];const middle:Vec2=[(first[0]+second[0])/2,(first[1]+second[1])/2];const radius=Math.max(0.5,Math.abs((widthPoint[0]-middle[0])*normal[0]+(widthPoint[1]-middle[1])*normal[1]));const angle=Math.atan2(normal[1],normal[0]);return{normal,radius,angle};}
   pointerDown(event:CadPointerEvent,context:ToolContext):InputResult{if(event.button!==0||this.capturedPointerID!==undefined||!context.viewport.hasActiveSketch())return InputResult.Ignored;const point=context.viewport.sketchPoint(event.x,event.y);if(!point)return InputResult.Ignored;this.capturedPointerID=event.pointerId;
     if(!this.first){this.first=point;context.viewport.setToolPrompt("长圆槽：单击第二圆心");return InputResult.Capture;}if(!this.second){if(Math.hypot(point[0]-this.first[0],point[1]-this.first[1])<0.5)return InputResult.Consumed;this.second=point;context.viewport.setToolPrompt("长圆槽：单击确定半宽；Esc 取消");return InputResult.Capture;}
-    const {normal,radius,angle}=this.geometry(point),first=this.first,second=this.second;const ids=Array.from({length:4},()=>crypto.randomUUID());const topA:Vec2=[first[0]+normal[0]*radius,first[1]+normal[1]*radius],topB:Vec2=[second[0]+normal[0]*radius,second[1]+normal[1]*radius],bottomB:Vec2=[second[0]-normal[0]*radius,second[1]-normal[1]*radius],bottomA:Vec2=[first[0]-normal[0]*radius,first[1]-normal[1]*radius];
+    const {normal,radius,angle}=this.geometry(point),first=this.first,second=this.second;const ids=Array.from({length:4},()=>randomUUID());const topA:Vec2=[first[0]+normal[0]*radius,first[1]+normal[1]*radius],topB:Vec2=[second[0]+normal[0]*radius,second[1]+normal[1]*radius],bottomB:Vec2=[second[0]-normal[0]*radius,second[1]-normal[1]*radius],bottomA:Vec2=[first[0]-normal[0]*radius,first[1]-normal[1]*radius];
     const entities:SketchOperation[]=[{type:"ADD_ENTITY",entity:{id:ids[0],kind:"LINE",role:"PROFILE",start:{x:topA[0],y:topA[1]},end:{x:topB[0],y:topB[1]}}},{type:"ADD_ENTITY",entity:{id:ids[1],kind:"ARC",role:"PROFILE",center:{x:second[0],y:second[1]},radius,startAngle:angle,endAngle:angle+Math.PI}},{type:"ADD_ENTITY",entity:{id:ids[2],kind:"LINE",role:"PROFILE",start:{x:bottomB[0],y:bottomB[1]},end:{x:bottomA[0],y:bottomA[1]}}},{type:"ADD_ENTITY",entity:{id:ids[3],kind:"ARC",role:"PROFILE",center:{x:first[0],y:first[1]},radius,startAngle:angle+Math.PI,endAngle:angle+Math.PI*2}}];
-    for(let index=0;index<4;index+=1)entities.push({type:"ADD_CONSTRAINT",constraint:{id:crypto.randomUUID(),kind:"COINCIDENT",internal:true,references:[{target:"ENTITY",entityId:ids[index],subElement:"END"},{target:"ENTITY",entityId:ids[(index+1)%4],subElement:"START"}]}},{type:"ADD_CONSTRAINT",constraint:{id:crypto.randomUUID(),kind:"TANGENT",internal:true,references:[{target:"ENTITY",entityId:ids[index],subElement:"WHOLE"},{target:"ENTITY",entityId:ids[(index+1)%4],subElement:"WHOLE"}]}});entities.push({type:"ADD_CONSTRAINT",constraint:{id:crypto.randomUUID(),kind:"EQUAL",internal:true,references:[{target:"ENTITY",entityId:ids[1],subElement:"WHOLE"},{target:"ENTITY",entityId:ids[3],subElement:"WHOLE"}]}});context.viewport.commitSketchOperations(entities);this.reset(context);context.viewport.finishToolUse();return InputResult.Capture;}
+    for(let index=0;index<4;index+=1)entities.push({type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"COINCIDENT",internal:true,references:[{target:"ENTITY",entityId:ids[index],subElement:"END"},{target:"ENTITY",entityId:ids[(index+1)%4],subElement:"START"}]}},{type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"TANGENT",internal:true,references:[{target:"ENTITY",entityId:ids[index],subElement:"WHOLE"},{target:"ENTITY",entityId:ids[(index+1)%4],subElement:"WHOLE"}]}});entities.push({type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"EQUAL",internal:true,references:[{target:"ENTITY",entityId:ids[1],subElement:"WHOLE"},{target:"ENTITY",entityId:ids[3],subElement:"WHOLE"}]}});context.viewport.commitSketchOperations(entities);this.reset(context);context.viewport.finishToolUse();return InputResult.Capture;}
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult{if(!this.first||event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;const point=context.viewport.sketchPoint(event.x,event.y);if(!point)return InputResult.Ignored;if(!this.second){context.viewport.showPolylinePreview([this.first,point]);return InputResult.Consumed;}const{normal,radius}=this.geometry(point);context.viewport.showPolylinePreview([[this.first[0]+normal[0]*radius,this.first[1]+normal[1]*radius],[this.second[0]+normal[0]*radius,this.second[1]+normal[1]*radius],[this.second[0]-normal[0]*radius,this.second[1]-normal[1]*radius],[this.first[0]-normal[0]*radius,this.first[1]-normal[1]*radius]],true);return InputResult.Consumed;}
   pointerUp(event:CadPointerEvent):InputResult{if(event.button!==0||event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.capturedPointerID=undefined;return InputResult.ReleaseCapture;}pointerCancel(event:CadPointerEvent,context:ToolContext):InputResult{if(event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.reset(context);return InputResult.Consumed;}keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult{if(event.key!=="Escape")return InputResult.Ignored;this.reset(context);return InputResult.Consumed;}deactivate(context:ToolContext):void{this.reset(context);}private reset(context:ToolContext):void{this.first=undefined;this.second=undefined;this.capturedPointerID=undefined;context.viewport.clearToolPreview();context.viewport.setToolPrompt("长圆槽：单击第一圆心");}
 }
@@ -167,7 +168,7 @@ export class CircleSketchTool extends TwoClickSketchTool {
     context.viewport.showPolylinePreview(Array.from({length:65},(_,index):Vec2=>[center[0]+radius*Math.cos(index*Math.PI/32),center[1]+radius*Math.sin(index*Math.PI/32)]));
   }
   commit(center: Vec2, edge: Vec2, context: ToolContext): void {
-    context.viewport.commitSketchOperations([{type:"ADD_ENTITY",entity:{id:crypto.randomUUID(),kind:"CIRCLE",role:"PROFILE",
+    context.viewport.commitSketchOperations([{type:"ADD_ENTITY",entity:{id:randomUUID(),kind:"CIRCLE",role:"PROFILE",
       center:{x:center[0],y:center[1]},radius:Math.hypot(edge[0]-center[0],edge[1]-center[1])}}]);
     context.viewport.finishToolUse();
   }
@@ -185,7 +186,7 @@ export class ArcSketchTool implements CadTool {
     let startAngle=Math.atan2(start[1]-center[1],start[0]-center[0]);let endAngle=Math.atan2(value[1]-center[1],value[0]-center[0]);
     while(endAngle<=startAngle+1e-6)endAngle+=Math.PI*2;
     if(endAngle-startAngle>=Math.PI*2-1e-6)return InputResult.Consumed;
-    context.viewport.clearToolPreview();context.viewport.commitSketchOperations([{type:"ADD_ENTITY",entity:{id:crypto.randomUUID(),kind:"ARC",role:"PROFILE",center:{x:center[0],y:center[1]},radius,startAngle,endAngle}}]);
+    context.viewport.clearToolPreview();context.viewport.commitSketchOperations([{type:"ADD_ENTITY",entity:{id:randomUUID(),kind:"ARC",role:"PROFILE",center:{x:center[0],y:center[1]},radius,startAngle,endAngle}}]);
     this.center=undefined;this.start=undefined;context.viewport.finishToolUse();context.viewport.setToolPrompt("圆弧：单击圆心");return InputResult.Capture;
   }
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {
@@ -227,7 +228,7 @@ export class PolylineSketchTool extends MultiPointSketchTool {
 export class SplineSketchTool extends MultiPointSketchTool {
   readonly id="sketch.spline";readonly prompt="草图曲线：依次单击控制点，双击或 Enter 完成，单击首点闭合";minimumPoints=3;
   commit(context:ToolContext):void {const closed=this.points.length>3&&this.points.at(-1)===this.points[0];const controls=closed?this.points.slice(0,-1):this.points;
-    context.viewport.commitSketchOperations([{type:"ADD_ENTITY",entity:{id:crypto.randomUUID(),kind:"SPLINE",role:"PROFILE",controlPoints:controls.map(([x,y])=>({x,y})),degree:Math.min(3,controls.length-1),closed}}]);}
+    context.viewport.commitSketchOperations([{type:"ADD_ENTITY",entity:{id:randomUUID(),kind:"SPLINE",role:"PROFILE",controlPoints:controls.map(([x,y])=>({x,y})),degree:Math.min(3,controls.length-1),closed}}]);}
 }
 
 export class PointSketchTool implements CadTool {
@@ -238,7 +239,7 @@ export class PointSketchTool implements CadTool {
     if (event.button !== 0 || this.capturedPointerID !== undefined || !context.viewport.hasActiveSketch()) return InputResult.Ignored;
     const point = context.viewport.sketchPoint(event.x, event.y); if (!point) return InputResult.Ignored;
     this.capturedPointerID = event.pointerId;
-    context.viewport.commitSketchOperations([{ type: "ADD_ENTITY", entity: { id: crypto.randomUUID(), kind: "POINT", role: "PROFILE", point: { x: point[0], y: point[1] } } }]);
+    context.viewport.commitSketchOperations([{ type: "ADD_ENTITY", entity: { id: randomUUID(), kind: "POINT", role: "PROFILE", point: { x: point[0], y: point[1] } } }]);
     context.viewport.finishToolUse();
     return InputResult.Capture;
   }
@@ -348,5 +349,5 @@ export class ConstraintSketchTool implements CadTool {
     context.viewport.clearReferencePreview();
     context.viewport.setToolPrompt(this.prompt());
   }
-  private commit(context:ToolContext,value?:number):void {context.viewport.clearReferencePreview();context.viewport.commitSketchOperations([{type:"ADD_CONSTRAINT",constraint:{id:crypto.randomUUID(),kind:this.kind,references:this.references,...(value===undefined?{}:{value,unit:this.spec.unit})}}]);this.references=[];this.numeric="";context.viewport.finishToolUse();context.viewport.setToolPrompt(this.prompt());}
+  private commit(context:ToolContext,value?:number):void {context.viewport.clearReferencePreview();context.viewport.commitSketchOperations([{type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:this.kind,references:this.references,...(value===undefined?{}:{value,unit:this.spec.unit})}}]);this.references=[];this.numeric="";context.viewport.finishToolUse();context.viewport.setToolPrompt(this.prompt());}
 }

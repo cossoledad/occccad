@@ -13,6 +13,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useParams } from "react-router-dom";
 import { api, isMockMode } from "../../api/client";
 import { realtime } from "../../api/realtime-client";
+import { randomUUID } from "../../utils/random-uuid";
 import { queryKeys } from "../../app/query-keys";
 import { ShareDialog, type ShareResource } from "../../components/share-dialog";
 import { CommandProvider } from "../../cad/command/command-context";
@@ -324,7 +325,7 @@ export function Workbench() {
       commandRegistry.register({ id: "part.pad", execute: () => {
         if (store.selection?.kind !== "sketch") return;
         const sketchID = store.selection.id;
-        padIntentRequestID.current = crypto.randomUUID();
+        padIntentRequestID.current = randomUUID();
         setPadSketchID(sketchID); padForm.setFieldsValue({ length: 40 }); setPadOpen(true);
         void requestPadPreview(sketchID, 40);
       }, isVisible: () => view?.document.type === "PART",

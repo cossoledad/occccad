@@ -4,11 +4,12 @@ import type {
   ProductInstance, ShareGrant, SketchOperation, User, Vec3,
 } from "../types";
 import { sampleSketchEntity } from "../cad/sketch/sketch-geometry";
+import { randomUUID } from "../utils/random-uuid";
 
 const pause = async <T>(value: T, milliseconds = 90): Promise<T> =>
   new Promise((resolve) => window.setTimeout(() => resolve(structuredClone(value)), milliseconds));
 const now = (): string => new Date().toISOString();
-const id = (prefix: string): string => `${prefix}-${crypto.randomUUID()}`;
+const id = (prefix: string): string => `${prefix}-${randomUUID()}`;
 const mockTopologyProperties = (kind: "FACE" | "EDGE" | "VERTEX"): Record<string, number | boolean | string | Vec3> => {
   if (kind === "FACE") return { area: 100, normal: [0, 0, 1] };
   if (kind === "EDGE") return { length: 10, direction: [1, 0, 0] };

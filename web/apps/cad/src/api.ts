@@ -1,5 +1,6 @@
 import type { AuditEvent, CommandPreview, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, SketchOperation, Team, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
+import { randomUUID } from "./utils/random-uuid";
 
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 export const apiURL = (path: string): string => `${apiBaseURL}${path}`;
@@ -20,7 +21,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T;
 }
 
-const requestId = (): string => crypto.randomUUID();
+const requestId = (): string => randomUUID();
 
 export const restApi = {
   session: () => request<{ user: User; authenticationMode: string }>("/api/session"),
