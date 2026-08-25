@@ -163,6 +163,8 @@ export const restApi = {
     restApi.command(documentId, { type: "EDIT_SKETCH", sketchId, operations }),
   deleteNode: (documentId: string, targetKind: string, targetId: string, ownerEntityId?: string) =>
     restApi.command(documentId, { type: "DELETE_NODE", targetKind, targetId, ownerEntityId }),
+  deleteNodes: (documentId: string, targets: Array<{ targetKind: string; targetId: string; ownerEntityId?: string }>) =>
+    restApi.command(documentId, { type: "DELETE_NODES", targets }),
   pad: (documentId: string, sketchId: string, length: number, intentRequestId?: string) =>
     restApi.command(documentId, { type: "PAD_SKETCH", sketchId, length,
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),

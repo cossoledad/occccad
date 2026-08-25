@@ -1,27 +1,31 @@
 import * as THREE from "three";
-import type { Selection } from "../../types";
+import type { Selection, SelectionItem } from "../../types";
+import { selectionKey } from "./selection-identity";
 
 export type PickResolver = (intersection: THREE.Intersection) => Selection;
 
 type PickBinding = { root: THREE.Object3D; resolve: PickResolver; priority: number };
-
-const keyOf = (selection: Exclude<Selection, null>): string => `${selection.kind}:${selection.id}`;
 
 // Scene objects and tree nodes share Selection identity through this index.
 // Topology elements are resolved lazily from hit indices, so the index remains
 // proportional to rendered objects/occurrences rather than B-Rep element count.
 export class SelectionIndex {
   private readonly objects = new Map<string, Set<THREE.Object3D>>();
+  private readonly treeObjects = new Map<string, Set<THREE.Object3D>>();
   private readonly tree = new Map<string, Selection>();
   private readonly picks: PickBinding[] = [];
 
-  clear(): void { this.objects.clear(); this.tree.clear(); this.picks.length = 0; }
+  clear(): void { this.objects.clear(); this.treeObjects.clear(); this.tree.clear(); this.picks.length = 0; }
 
   register(selection: Exclude<Selection, null>, object: THREE.Object3D, treeNodeId = selection.treeNodeId): void {
-    const key = keyOf(selection);
+    const key = selectionKey(selection);
     const entries = this.objects.get(key) ?? new Set<THREE.Object3D>();
     entries.add(object); this.objects.set(key, entries);
-    if (treeNodeId) this.tree.set(treeNodeId, selection);
+    if (treeNodeId) {
+      this.tree.set(treeNodeId, selection);
+      const treeEntries = this.treeObjects.get(treeNodeId) ?? new Set<THREE.Object3D>();
+      treeEntries.add(object); this.treeObjects.set(treeNodeId, treeEntries);
+    }
   }
 
   registerVisualKey(key: string, object: THREE.Object3D): void {
@@ -35,14 +39,24 @@ export class SelectionIndex {
 
   objectsFor(selection: Selection): readonly THREE.Object3D[] {
     if (!selection) return [];
-    const direct = this.objects.get(keyOf(selection));
+    const direct = this.objects.get(selectionKey(selection));
     const visual = selection.visualKey ? this.objects.get(selection.visualKey) : undefined;
-    return [...new Set([...(direct ?? []), ...(visual ?? [])])];
+    const descendants: THREE.Object3D[] = [];
+    if (selection.treeNodeId && selection.expandTreeDescendants) {
+      for (const [treeNodeId, objects] of this.treeObjects) {
+        if (treeNodeId === selection.treeNodeId || treeNodeId.startsWith(`${selection.treeNodeId}/`)) descendants.push(...objects);
+      }
+    }
+    return [...new Set([...(direct ?? []), ...(visual ?? []), ...descendants])];
+  }
+
+  objectsForMany(selections: readonly SelectionItem[]): readonly THREE.Object3D[] {
+    return [...new Set(selections.flatMap((selection) => [...this.objectsFor(selection)]))];
   }
 
   selectionForTreeNode(treeNodeId: string): Selection { return this.tree.get(treeNodeId) ?? null; }
 
-  pick(raycaster: THREE.Raycaster): Selection {
+  pick(raycaster: THREE.Raycaster, accepts: (selection: Exclude<Selection, null>) => boolean = () => true): Selection {
     const roots = this.picks.map((binding) => binding.root);
     if (roots.length === 0) return null;
     const bindings = new Map(this.picks.map((binding) => [binding.root.uuid, binding]));
@@ -52,10 +66,10 @@ export class SelectionIndex {
     }).filter((value): value is { intersection: THREE.Intersection; binding: PickBinding } => Boolean(value));
     candidates.sort((left, right) => Math.abs(left.intersection.distance - right.intersection.distance) < 0.75
       ? right.binding.priority - left.binding.priority : left.intersection.distance - right.intersection.distance);
-    return candidates[0]?.binding.resolve(candidates[0].intersection) ?? null;
+    for (const candidate of candidates) {
+      const selection = candidate.binding.resolve(candidate.intersection);
+      if (selection && accepts(selection)) return selection;
+    }
+    return null;
   }
-}
-
-export function sameSelection(left: Selection, right: Selection): boolean {
-  return left === right || Boolean(left && right && left.kind === right.kind && left.id === right.id);
 }

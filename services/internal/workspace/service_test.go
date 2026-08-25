@@ -525,6 +525,58 @@ func TestDeleteNodeHandlersProtectInfrastructureAndDeleteOwnedModelNodes(t *test
 	}
 }
 
+func TestDeleteNodesIsAtomicAndProducesOneUndoableChangePerProperty(t *testing.T) {
+	t.Parallel()
+	part := PartModel{Units: "mm", Features: []Feature{{ID: "sketch-1", Type: "SKETCH", Sketch: &SketchFeature{
+		SchemaVersion: 1,
+		Entities: []SketchEntity{
+			{ID: "line-1", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{0, 0}, End: &SketchPoint2{10, 0}},
+			{ID: "line-2", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{10, 0}, End: &SketchPoint2{10, 10}},
+		},
+	}}}}
+	partJSON, _ := json.Marshal(part)
+	typeURI, adapted, err := (&Service{}).adaptLegacyCommand(t.Context(), "part-1", "PART", partJSON, CommandRequest{
+		Type: "DELETE_NODES", Targets: []DeleteNodeTarget{
+			{TargetKind: "SKETCH_ENTITY", TargetID: "line-1", OwnerEntityID: "sketch-1"},
+			{TargetKind: "SKETCH_ENTITY", TargetID: "line-2", OwnerEntityID: "sketch-1"},
+		},
+	})
+	if err != nil || typeURI != typeDeletePartNodes {
+		t.Fatalf("multi-delete command adapter: type=%q err=%v", typeURI, err)
+	}
+	payload, _ := json.Marshal(adapted)
+	nextJSON, changes, err := applyDeletePartNodes(partJSON, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes.Changes) != 1 || changes.Changes[0].Target.SlotID != "sketch.model" {
+		t.Fatalf("one multi-delete action must collapse repeated property writes: %#v", changes)
+	}
+	var next PartModel
+	_ = json.Unmarshal(nextJSON, &next)
+	if len(next.Features[0].Sketch.Entities) != 0 {
+		t.Fatalf("all requested entities must be deleted atomically: %#v", next.Features[0].Sketch.Entities)
+	}
+	change := changes.Changes[0]
+	restoredJSON, err := applyModelValues("PART", nextJSON, map[modelcore.PropertyAddress]json.RawMessage{change.Target: change.Before})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored PartModel
+	_ = json.Unmarshal(restoredJSON, &restored)
+	if len(restored.Features[0].Sketch.Entities) != 2 {
+		t.Fatalf("one Undo must restore the complete selection: %#v", restored.Features[0].Sketch.Entities)
+	}
+
+	invalidPayload, _ := json.Marshal(deleteNodesPayload{Targets: []deleteNodePayload{
+		{TargetKind: "SKETCH_ENTITY", TargetID: "line-1", OwnerEntityID: "sketch-1"},
+		{TargetKind: "SKETCH_ENTITY", TargetID: "missing", OwnerEntityID: "sketch-1"},
+	}})
+	if _, _, err := applyDeletePartNodes(partJSON, invalidPayload); err == nil {
+		t.Fatal("a missing target must reject the complete multi-delete candidate")
+	}
+}
+
 func TestPartCommandValidation(t *testing.T) {
 	t.Parallel()
 	tests := []CommandRequest{

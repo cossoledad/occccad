@@ -31,6 +31,7 @@ export class CadMaterialFactory {
       uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uPointSize: size,
     }));
     material.depthTest = depthTest;
+    if (!depthTest) material.depthWrite = false;
     return material;
   }
 

@@ -4,13 +4,13 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 
 ## 当前能力
 
-- 登录、注册、账号管理、文档/文件夹中心、分享与常驻消息中心；消息中心恢复用户可见任务，展示进度和失败原因，并提供取消、重试、下载或打开文档动作；
-- Part/Product 多标签工作台、Specification Tree、Toolbar、Inspector；
-- Three.js 精确网格显示、基准面、选择/预选与结构树联动；Specification Tree 展开草图几何与约束，按服务端 capability 提供删除，实体删除原子级联其引用约束；
+- 登录、注册、账号管理、文档/文件夹中心、分享与常驻消息中心；Document 使用 UUID 身份并允许显示名称重复，创建时提供可编辑的 `PartN`/`ProductN` 默认名称；消息中心恢复用户可见任务，展示进度和失败原因，并提供取消、重试、下载或打开文档动作；
+- Part/Product 多标签工作台、Specification Tree、无文字 CAD 语义图标 Toolbar、Inspector；
+- Three.js 精确网格显示、基准面、集合化选择/预选与结构树联动；最终 Body 的视口选择归属最近的 Import/Extrude 节点，精确拓扑元素使用遮挡可见的面、宽边线和点 Overlay，树选父节点才展开全部后代；Specification Tree 支持 Ctrl/Meta 多选、Shift 连选和固定宽度的节点锚定右键菜单，选择变化关闭菜单，删除不确认并以一个原子 Revision 作用于当前选择集合，实体删除仍级联其引用约束；
 - 草图绘制几何/约束/常用图形三组 Toolbar；Point、Line、Circle、Arc、Polyline、Spline、Rectangle、正六边形、长圆槽以及基础几何/尺寸约束；单击执行一次后回到选择，双击连续执行；
 - 通用闭合 Profile（包含外环、孔和岛）拉伸、实例插入/移动、Undo/Redo；
-- Default/CATIA 导航 Profile、Pointer Capture、快捷键上下文和 Overlay；
-- 统一 CAD 语义色与 hover/selected/snap 层次；草图创建支持原点、点/端点、中点、线投影和 10 mm 网格吸附；
+- Default/CATIA 导航 Profile、Pointer Capture、Tool 手势状态机和 Overlay；Toolbar 命令不注册快捷键，Enter/Esc 只用于多阶段手势完成/取消；
+- 统一 CAD 语义色与 hover/selected/snap 层次；默认全开的捕获设置可分别过滤三维点、边、面、实体、草图、约束、基准面、基准轴/坐标系和实例，以及草图原点、点/端点、圆心、中点、Line/Circle/Arc/Spline 曲线投影和 10 mm 网格吸附；
 - Pad、Insert、命名版本使用可拖动非模态命令面板；Pad 数值 blur/Enter 后请求后端复用正式 typed command、Sketch Solver 与 Part evaluator 生成非持久化精确预览，提交才创建 Revision；
 - 草图原点和 H/V 基准轴是自动带入、可约束选择的稳定内在引用；第一次约束选择与第二候选同时高亮，点、端点、捕获点和拓扑顶点统一显示为 X 形；
 - TanStack Query 管理服务端状态，Zustand 管理工作台交互状态；

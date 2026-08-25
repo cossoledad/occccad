@@ -277,20 +277,23 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
       const instance = view.product.instances.find((candidate) => candidate.id === input.instanceId);
       if (instance) instance.referenceMode = input.referenceMode as ProductInstance["referenceMode"];
     }
-    if (commandType === "DELETE_NODE") {
-      const kind = String(input.targetKind);
-      const target = String(input.targetId);
-      const owner = String(input.ownerEntityId ?? "");
-      if (kind === "INSTANCE" && view.product) {
-        view.product.instances = view.product.instances.filter((instance) => instance.id !== target); rebuildProduct(view);
-      } else if (kind === "FEATURE" && view.part) {
-        view.part.features = view.part.features.filter((feature) => feature.id !== target);
-      } else if (view.part) {
-        const sketch = view.part.features.find((feature) => feature.id === owner)?.sketch;
-        if (sketch && kind === "SKETCH_CONSTRAINT") sketch.constraints = sketch.constraints.filter((constraint) => constraint.id !== target);
-        if (sketch && kind === "SKETCH_ENTITY") {
-          sketch.entities = sketch.entities.filter((entity) => entity.id !== target);
-          sketch.constraints = sketch.constraints.filter((constraint) => !constraint.references.some((reference) => reference.target === "ENTITY" && reference.entityId === target));
+    if (commandType === "DELETE_NODE" || commandType === "DELETE_NODES") {
+      const targets = commandType === "DELETE_NODES" ? input.targets as Array<Record<string, unknown>> : [input];
+      for (const item of targets) {
+        const kind = String(item.targetKind);
+        const target = String(item.targetId);
+        const owner = String(item.ownerEntityId ?? "");
+        if (kind === "INSTANCE" && view.product) {
+          view.product.instances = view.product.instances.filter((instance) => instance.id !== target); rebuildProduct(view);
+        } else if (kind === "FEATURE" && view.part) {
+          view.part.features = view.part.features.filter((feature) => feature.id !== target);
+        } else if (view.part) {
+          const sketch = view.part.features.find((feature) => feature.id === owner)?.sketch;
+          if (sketch && kind === "SKETCH_CONSTRAINT") sketch.constraints = sketch.constraints.filter((constraint) => constraint.id !== target);
+          if (sketch && kind === "SKETCH_ENTITY") {
+            sketch.entities = sketch.entities.filter((entity) => entity.id !== target);
+            sketch.constraints = sketch.constraints.filter((constraint) => !constraint.references.some((reference) => reference.target === "ENTITY" && reference.entityId === target));
+          }
         }
       }
     }
@@ -417,6 +420,7 @@ export const mockApi: CadApi = {
   createSketch: async (documentID, plane) => command(documentID, { type: "CREATE_SKETCH", plane }),
   editSketch: async (documentID, sketchID, operations) => command(documentID, { type: "EDIT_SKETCH", sketchId: sketchID, operations }),
   deleteNode: async (documentID, targetKind, targetID, ownerEntityID) => command(documentID, { type: "DELETE_NODE", targetKind, targetId: targetID, ownerEntityId: ownerEntityID }),
+  deleteNodes: async (documentID, targets) => command(documentID, { type: "DELETE_NODES", targets }),
   pad: async (documentID, sketchID, length, intentRequestID) => command(documentID, { type: "PAD_SKETCH", sketchId: sketchID, length,
     ...(intentRequestID ? { requestId: intentRequestID } : {}) }),
   insert: async (documentID, referencedDocumentID, name) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID, name }),

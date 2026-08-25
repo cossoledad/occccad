@@ -2,14 +2,16 @@ import * as THREE from "three";
 import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
-import { CommandRegistry } from "../cad/command/command-registry";
 import { InputManager } from "../cad/input/input-manager";
 import type { InputState } from "../cad/input/input-types";
 import { InteractionRouter } from "../cad/interaction/interaction-router";
 import { SelectionController } from "../cad/interaction/selection-controller";
-import { sameSelection, SelectionIndex } from "../cad/interaction/selection-index";
+import { SelectionIndex } from "../cad/interaction/selection-index";
+import { sameSelection, sameSelections, selectionKey } from "../cad/interaction/selection-identity";
+import { resultBodyFeatureTreeNode } from "../cad/interaction/selection-hierarchy";
 import { resolveSketchReference, type SketchReferencePickKind } from "../cad/interaction/sketch-reference-pick";
 import { resolveSketchSnap, type SketchSnapResult } from "../cad/interaction/sketch-snap";
+import { allowsSelection, DEFAULT_CAPTURE_SETTINGS, type CaptureSettings } from "../cad/interaction/capture-settings";
 import { NavigationController, type NavigationSnapshot } from "../cad/navigation/navigation-controller";
 import { CatiaNavigationHUD } from "../cad/navigation/hud/catia-navigation-hud";
 import { CAD_GEOMETRY_LAYER, markNavigationPickable, NavigationPicker } from "../cad/navigation/navigation-picker";
@@ -18,21 +20,22 @@ import { CadBackground } from "../cad/rendering/cad-background";
 import { CadMaterialFactory } from "../cad/rendering/cad-material-factory";
 import { visualSelection, visualType } from "../cad/rendering/visualization-render-model";
 import { CATIA_VISUAL_THEME } from "../cad/rendering/cad-visual-theme";
+import { makeOcclusionVisibleHighlightLine, updateHighlightLineResolution } from "../cad/rendering/interaction-highlight";
 import { sampleSketchEntity, sketchEntityPoint } from "../cad/sketch/sketch-geometry";
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
-import { ShortcutManager } from "../cad/shortcut/shortcut-manager";
 import { ArcSketchTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
-  Artifact, AxisSystem, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SketchGeometryRef, SketchOperation, Vec2, Vec3, VisualizationManifest,
+  Artifact, AxisSystem, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SelectionItem, SketchGeometryRef, SketchOperation, Vec2, Vec3, VisualizationManifest,
 } from "../types";
 
 type Callbacks = {
-  selectionChanged: (selection: Selection) => void;
+  selectionsChanged: (selections: SelectionItem[]) => void;
   preselectionChanged: (selection: Selection) => void;
   sketchOperations: (operations: SketchOperation[]) => void;
   toolPromptChanged: (prompt: string) => void;
   toolUseCompleted: () => void;
+  activeToolChanged: (toolID: import("../state/workbench-store").WorkbenchToolID) => void;
   instanceMoved: (instanceId: string, translation: Vec3) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
@@ -124,7 +127,6 @@ export class CadViewportEngine {
   private readonly transform: TransformControls;
   private readonly navigation: NavigationController;
   private readonly navigationHUD: CatiaNavigationHUD;
-  private readonly shortcuts: ShortcutManager;
   private readonly tools: ToolManager;
   private readonly selectionController: SelectionController;
   private readonly interaction: InteractionRouter;
@@ -140,10 +142,11 @@ export class CadViewportEngine {
   private readonly selectionIndex = new SelectionIndex();
   private readonly solidBindings = new Map<string, SolidBinding>();
   private readonly instanceGroups = new Map<string, THREE.Group>();
-  private selected: Selection = null;
+  private selected: SelectionItem[] = [];
   private preselected: Selection = null;
-  private selectedOverlay?: THREE.Object3D;
-  private preselectedOverlay?: THREE.Object3D;
+  private selectedOverlays: THREE.Object3D[] = [];
+  private preselectedOverlays: THREE.Object3D[] = [];
+  private highlightedRoots = new Set<THREE.Object3D>();
   private view?: DocumentView;
   private sketchPlane?: PlaneName;
   private activeSketchID?: string;
@@ -154,13 +157,12 @@ export class CadViewportEngine {
   private suppressNextSelection = false;
   private activeToolID = "select";
   private navigationProfile: NavigationProfileID = "default";
-  private sketchShortcutDispose?: () => void;
-  private toolShortcutDispose?: () => void;
+  private captureSettings: CaptureSettings = DEFAULT_CAPTURE_SETTINGS;
   private readonly resizeObserver: ResizeObserver;
   private animationFrame = 0;
   private disposed = false;
 
-  constructor(private readonly host: HTMLElement, private readonly callbacks: Callbacks, commandRegistry: CommandRegistry) {
+  constructor(private readonly host: HTMLElement, private readonly callbacks: Callbacks) {
     this.scene.background = null;
     this.camera.position.set(310, -360, 270);
     this.camera.up.set(0, 0, 1);
@@ -217,7 +219,6 @@ export class CadViewportEngine {
       this.invalidate();
     }, navigationPicker, "default", import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true");
     this.navigationHUD = new CatiaNavigationHUD(this.shaders);
-    this.shortcuts = new ShortcutManager((commandID) => commandRegistry.execute(commandID));
     this.tools = new ToolManager({ viewport: this.toolViewportPort() });
     this.tools.register(new SelectTool());
     this.tools.register(new PointSketchTool());
@@ -233,28 +234,23 @@ export class CadViewportEngine {
       this.tools.register(new ConstraintSketchTool(kind));
     this.tools.activate("select");
     this.selectionController = new SelectionController(
-      (x, y) => this.pick(x, y),
+      (x, y, additive) => this.pick(x, y, additive),
       (x, y) => this.preselectAt(x, y),
-      () => this.preselect(null, true),
+      () => { this.preselect(null, true); this.clearSnapPreview(); },
     );
-    this.interaction = new InteractionRouter(this.tools, this.selectionController, this.navigation, this.shortcuts);
+    this.interaction = new InteractionRouter(this.tools, this.selectionController, this.navigation);
     this.input = new InputManager(this.renderer.domElement, this.interaction);
-    this.shortcuts.pushContext("Global", [
-      { key: "z", primary: true, shift: true, command: "edit.redo" },
-      { key: "y", primary: true, shift: false, command: "edit.redo" },
-      { key: "z", primary: true, shift: false, command: "edit.undo" },
-    ]);
-    this.shortcuts.pushContext("Viewport", [{ key: "f", primary: false, command: "view.fit" }]);
     this.input.subscribe(() => this.emitDebugState());
     this.tools.subscribe((toolID) => {
       this.activeToolID = toolID ?? "select";
       this.host.classList.toggle("drawing", Boolean(toolID?.startsWith("sketch.")) && Boolean(this.sketchPlane));
-      this.refreshShortcutContexts();
+      this.callbacks.activeToolChanged(this.activeToolID as import("../state/workbench-store").WorkbenchToolID);
       this.emitDebugState();
     });
     this.navigation.subscribe((action, profile, snapshot) => {
       this.navigationProfile = profile;
       this.host.classList.toggle("navigating", action !== "none" || Boolean(snapshot.catia?.hudVisible));
+      if (action !== "none") this.clearSnapPreview();
       this.updateNavigationHUD(snapshot);
       this.invalidate();
       this.emitDebugState();
@@ -275,8 +271,9 @@ export class CadViewportEngine {
     this.selectionIndex.clear();
     this.solidBindings.clear();
     this.instanceGroups.clear();
-    this.selected = null;
+    this.selected = [];
     this.preselected = null;
+    this.selectedOverlays = []; this.preselectedOverlays = []; this.highlightedRoots.clear();
     if (view.document.type === "PART") this.renderPart(view);
     else this.renderProduct(view);
     this.updateSketchContextVisibility();
@@ -294,7 +291,9 @@ export class CadViewportEngine {
     this.selectable.clear();
     this.instanceGroups.clear();
     this.contentBounds.makeEmpty();
-    this.selected = null;
+    this.selected = [];
+    this.preselected = null;
+    this.selectedOverlays = []; this.preselectedOverlays = []; this.highlightedRoots.clear();
     this.invalidate();
   }
 
@@ -314,7 +313,6 @@ export class CadViewportEngine {
     this.buildSketchContext();
     this.updateSketchContextVisibility();
     this.callbacks.toolPromptChanged("选择：选择草图元素，或从工具栏启动创建命令");
-    this.refreshShortcutContexts();
     this.invalidate();
   }
 
@@ -328,7 +326,6 @@ export class CadViewportEngine {
     this.disposeGroup(this.sketchContext);
     this.updateSketchContextVisibility();
     this.callbacks.toolPromptChanged("");
-    this.refreshShortcutContexts();
     this.frameContent();
   }
 
@@ -338,6 +335,12 @@ export class CadViewportEngine {
 
   setNavigationProfile(profile: NavigationProfileID): void {
     this.navigation.setProfile(profile);
+  }
+
+  setCaptureSettings(settings: CaptureSettings): void {
+    this.captureSettings = settings;
+    this.preselect(null, true);
+    this.clearSnapPreview();
   }
 
   fit(): void {
@@ -382,38 +385,45 @@ export class CadViewportEngine {
   }
 
   select(selection: Selection, notify = true): void {
-    this.selected = selection;
+    this.selectMany(selection ? [selection] : [], notify);
+  }
+
+  selectMany(selections: readonly SelectionItem[], notify = true): void {
+    const unique = [...new Map(selections.map((selection) => [selectionKey(selection), selection])).values()];
+    if (sameSelections(this.selected, unique) && !this.preselected) return;
+    this.selected = unique;
+    this.preselected = null;
     this.transform.detach();
-    for (const object of this.selectable.values()) this.applyHighlight(object, "default");
-    for (const object of this.selectionIndex.objectsFor(selection)) this.applyHighlight(object, "selected");
-    this.replaceTopologyOverlay("selected", selection);
-    if (!sameSelection(this.preselected, selection)) {
-      for (const object of this.selectionIndex.objectsFor(this.preselected)) this.applyHighlight(object, "hover");
-      this.replaceTopologyOverlay("preselected", this.preselected);
-    } else this.replaceTopologyOverlay("preselected", null);
-    if (selection) {
-      const object = this.selectable.get(`${selection.kind}:${selection.id}`);
-      if (object) {
-        this.applyHighlight(object, "selected");
-        if (selection.kind === "instance" && object instanceof THREE.Group) this.transform.attach(object);
-      }
+    this.refreshInteractionHighlights();
+    if (unique.length === 1 && unique[0].kind === "instance") {
+      const object = this.selectable.get(`instance:${unique[0].id}`);
+      if (object instanceof THREE.Group) this.transform.attach(object);
     }
-    if (notify) this.callbacks.selectionChanged(selection);
+    if (notify) this.callbacks.selectionsChanged(unique);
     this.invalidate();
   }
 
   preselect(selection: Selection, notify = false): void {
     if (sameSelection(this.preselected, selection)) return;
-    for (const object of this.selectionIndex.objectsFor(this.preselected)) {
-      if (!this.selectionIndex.objectsFor(this.selected).includes(object)) this.applyHighlight(object, "default");
-    }
     this.preselected = selection;
-    for (const object of this.selectionIndex.objectsFor(selection)) {
-      if (!this.selectionIndex.objectsFor(this.selected).includes(object)) this.applyHighlight(object, "hover");
-    }
-    this.replaceTopologyOverlay("preselected", sameSelection(selection, this.selected) ? null : selection);
+    this.refreshInteractionHighlights();
     if (notify) this.callbacks.preselectionChanged(selection);
     this.invalidate();
+  }
+
+  private refreshInteractionHighlights(): void {
+    for (const object of this.highlightedRoots) this.applyHighlight(object, "default");
+    this.highlightedRoots.clear();
+    this.replaceTopologyOverlays("preselected", this.preselected ? [this.preselected] : []);
+    if (this.preselected) {
+      for (const object of this.selectionIndex.objectsFor(this.preselected)) {
+        this.applyHighlight(object, "hover"); this.highlightedRoots.add(object);
+      }
+    }
+    this.replaceTopologyOverlays("selected", this.selected);
+    for (const object of this.selectionIndex.objectsForMany(this.selected)) {
+      this.applyHighlight(object, "selected"); this.highlightedRoots.add(object);
+    }
   }
 
   dispose(): void {
@@ -422,8 +432,6 @@ export class CadViewportEngine {
     cancelAnimationFrame(this.animationFrame);
     this.resizeObserver.disconnect();
     this.input.dispose();
-    this.sketchShortcutDispose?.();
-    this.toolShortcutDispose?.();
     this.clearPreview();
     this.clearReferencePreview();
     this.clearSnapPreview();
@@ -442,6 +450,7 @@ export class CadViewportEngine {
 
   private renderPart(view: DocumentView): void {
     const rootPath = `document:${view.document.id}`;
+    const bodyTreeNodeId = `${rootPath}/body`;
     for (const datum of view.datumPlanes ?? []) this.addDatumPlane(datum, this.helpers, true, {
       documentId: view.document.id, geometryKey: view.artifact?.geometryKey ?? "", occurrencePath: "",
       treeNodeId: `${rootPath}/origin/plane:${datum.id}`,
@@ -458,7 +467,8 @@ export class CadViewportEngine {
     }
     if (view.artifact && view.artifact.mesh.triangles.length > 0) {
       const solid = this.makeSolid(view.artifact, CATIA_VISUAL_THEME.surface, {
-        documentId: view.document.id, geometryKey: view.artifact.geometryKey, occurrencePath: "", treeNodeId: `${rootPath}/body`,
+        documentId: view.document.id, geometryKey: view.artifact.geometryKey, occurrencePath: "",
+        treeNodeId: resultBodyFeatureTreeNode(this.view?.structureTree, bodyTreeNodeId) ?? bodyTreeNodeId,
       });
       solid.userData = { kind: "body", id: "body-1" };
       this.content.add(solid);
@@ -493,9 +503,10 @@ export class CadViewportEngine {
           resolved.translation[2] - instance.translation[2],
         );
         if (artifact.mesh.triangles.length > 0) {
+          const resultTreeNodeId = resultBodyFeatureTreeNode(this.view?.structureTree, resolved.bodyTreeNodeId) ?? resolved.bodyTreeNodeId;
           const context: SolidContext = {
             documentId: resolved.documentId, geometryKey: artifact.geometryKey,
-            occurrencePath: resolved.occurrencePath, treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id
+            occurrencePath: resolved.occurrencePath, treeNodeId: resultTreeNodeId, instanceId: instance.id
           };
           const solid = this.makeSolid(artifact, CATIA_VISUAL_THEME.productSurface, context);
           solid.userData = { kind: "instance", id: instance.id };
@@ -630,7 +641,8 @@ export class CadViewportEngine {
       const featureTreeNode = this.featureTreeNode(context, primitive.featureId);
       const selection = visualSelection(primitive, {
         treeNodeId: featureTreeNode ? primitive.semantic === "SKETCH_CONSTRAINT"
-          ? `${featureTreeNode}/constraints/constraint:${primitive.id}` : `${featureTreeNode}/geometry/entity:${primitive.id}` : undefined,
+          ? `${featureTreeNode}/constraints/constraint:${primitive.id}` : `${featureTreeNode}/geometry/entity:${primitive.id}`
+          : context.treeNodeId,
         documentId: context.documentId,
         occurrencePath: context.occurrencePath, geometryKey: context.geometryKey, instanceId: context.instanceId,
       });
@@ -803,6 +815,7 @@ export class CadViewportEngine {
     mesh.receiveShadow = true;
     const bodySelection = { kind: "body" as const, id: `${context.occurrencePath || "root"}:body`, ...context };
     this.selectionIndex.register(bodySelection, group);
+    this.selectionIndex.registerVisualKey(`body:${bodySelection.id}`, group);
     const occurrenceParts = context.occurrencePath.split("/").filter(Boolean);
     for (let length = 1; length <= occurrenceParts.length; length++) {
       this.selectionIndex.registerVisualKey(`occurrence:${occurrenceParts.slice(0, length).join("/")}`, group);
@@ -858,14 +871,20 @@ export class CadViewportEngine {
     return group;
   }
 
-  private pick(x: number, y: number): void {
+  private pick(x: number, y: number, additive: boolean): void {
     if (this.suppressNextSelection) { this.suppressNextSelection = false; return; }
     if (this.transform.dragging) return;
-    this.select(this.hitTest(x, y));
+    const hit = this.hitTest(x, y);
+    if (!hit) { if (!additive) this.selectMany([]); return; }
+    if (!additive) { this.selectMany([hit]); return; }
+    const key = selectionKey(hit);
+    this.selectMany(this.selected.some((selection) => selectionKey(selection) === key)
+      ? this.selected.filter((selection) => selectionKey(selection) !== key) : [...this.selected, hit]);
   }
 
   private preselectAt(x: number, y: number): void {
     if (this.transform.dragging || this.navigation.activeAction !== "none") return;
+    if (this.sketchPlane && this.activeToolID === "select" && this.captureSettings.enabled) this.sketchPoint(x, y);
     this.preselect(this.hitTest(x, y), true);
   }
 
@@ -877,18 +896,21 @@ export class CadViewportEngine {
       Math.max(this.renderer.domElement.clientHeight, 1);
     this.raycaster.params.Line = { threshold: worldPerPixel * 5 };
     this.raycaster.params.Points = { threshold: worldPerPixel * 7 };
-    return this.selectionIndex.pick(this.raycaster);
+    return this.selectionIndex.pick(this.raycaster, (selection) => allowsSelection(this.captureSettings, selection));
   }
 
-  private replaceTopologyOverlay(layer: "selected" | "preselected", selection: Selection): void {
-    const property = layer === "selected" ? "selectedOverlay" : "preselectedOverlay";
-    const previous = this[property];
-    if (previous) {
+  private replaceTopologyOverlays(layer: "selected" | "preselected", selections: readonly SelectionItem[]): void {
+    const property = layer === "selected" ? "selectedOverlays" : "preselectedOverlays";
+    for (const previous of this[property]) {
       previous.parent?.remove(previous);
       this.disposeRenderable(previous);
-      this[property] = undefined;
     }
-    if (!selection || (selection.kind !== "face" && selection.kind !== "edge" && selection.kind !== "vertex")) return;
+    this[property] = [];
+    for (const selection of selections) this.addTopologyOverlay(layer, selection);
+  }
+
+  private addTopologyOverlay(layer: "selected" | "preselected", selection: SelectionItem): void {
+    if (selection.kind !== "face" && selection.kind !== "edge" && selection.kind !== "vertex") return;
     const binding = this.solidBindings.get(selection.occurrencePath || "root");
     if (!binding || !selection.topologyId) return;
     const color = layer === "selected" ? CATIA_VISUAL_THEME.selected : CATIA_VISUAL_THEME.hover;
@@ -905,13 +927,15 @@ export class CadViewportEngine {
         overlay = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
           color, transparent: true,
           opacity: layer === "selected" ? 0.48 : 0.3, side: THREE.DoubleSide, depthWrite: false,
+          depthTest: false,
           polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2
         }));
       }
     } else if (selection.kind === "edge") {
       const edge = (binding.artifact.mesh.edges ?? []).find((item) => item.localId === selection.topologyId);
-      if (edge) overlay = new THREE.Line(new THREE.BufferGeometry().setFromPoints(edge.points.map((point) => new THREE.Vector3().fromArray(point))),
-        new THREE.LineBasicMaterial({ color, depthTest: true }));
+      if (edge) overlay = makeOcclusionVisibleHighlightLine(
+        edge.points.map((point) => new THREE.Vector3().fromArray(point)), color, layer === "selected" ? 5 : 4,
+      );
     } else {
       const vertex = (binding.artifact.mesh.topologyVertices ?? []).find((item) => item.localId === selection.topologyId);
       if (vertex) {
@@ -921,7 +945,9 @@ export class CadViewportEngine {
     }
     if (!overlay) return;
     overlay.renderOrder = layer === "selected" ? 102 : 101;
-    binding.group.add(overlay); this[property] = overlay;
+    updateHighlightLineResolution(overlay, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
+    binding.group.add(overlay);
+    (layer === "selected" ? this.selectedOverlays : this.preselectedOverlays).push(overlay);
   }
 
   private sketchPoint(x: number, y: number): Vec2 | null {
@@ -939,21 +965,30 @@ export class CadViewportEngine {
     };
     const first = screen(raw), second = screen([raw[0] + 1, raw[1]]);
     const pixelsPerUnit = Math.max(Math.hypot(second[0] - first[0], second[1] - first[1]), 1.0e-6);
-    const snap = resolveSketchSnap(raw, active?.entities ?? [], pixelsPerUnit);
-    if (snap) this.showSnapPreview(snap); else this.clearSnapPreview();
+    const snap = this.captureSettings.enabled
+      ? resolveSketchSnap(raw, active?.entities ?? [], pixelsPerUnit, 10, 11, this.captureSettings.sketch) : undefined;
+    if (snap) this.showSnapPreview(snap, 8 / pixelsPerUnit); else this.clearSnapPreview();
     return snap?.point ?? raw;
   }
 
-  private showSnapPreview(snap: SketchSnapResult): void {
+  private showSnapPreview(snap: SketchSnapResult, markerRadius: number): void {
     this.clearSnapPreview();
     if (!this.sketchPlane) return;
     const center = localToWorld(this.sketchPlane, snap.point);
     const group = new THREE.Group();
     const marker = new THREE.Points(new THREE.BufferGeometry().setFromPoints([center]),
-      this.materials.point(CATIA_VISUAL_THEME.snap, 15, false));
-    marker.renderOrder = 35;
+      this.materials.point(CATIA_VISUAL_THEME.snap, snap.kind === "GRID" ? 19 : 16, false));
+    marker.renderOrder = 36;
+    const ringPoints = Array.from({ length: 33 }, (_, index) => {
+      const angle = index / 32 * Math.PI * 2;
+      const radius = markerRadius * (snap.kind === "GRID" ? 1.15 : 1);
+      return localToWorld(this.sketchPlane!, [snap.point[0] + Math.cos(angle) * radius, snap.point[1] + Math.sin(angle) * radius]);
+    });
+    const ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(ringPoints),
+      new THREE.LineBasicMaterial({ color: CATIA_VISUAL_THEME.snap, depthTest: false, transparent: true, opacity: 0.92 }));
+    ring.renderOrder = 35;
     group.userData.snapKind = snap.kind;
-    group.add(marker); this.scene.add(group); this.snapPreview = group; this.invalidate();
+    group.add(ring, marker); this.scene.add(group); this.snapPreview = group; this.invalidate();
   }
 
   private clearSnapPreview(): void {
@@ -1084,7 +1119,7 @@ export class CadViewportEngine {
   }
 
   private sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind) {
-    if (!this.sketchPlane || !this.view) return null;
+    if (!this.sketchPlane || !this.view || !this.captureSettings.enabled) return null;
     const width = Math.max(this.renderer.domElement.clientWidth, 1);
     const height = Math.max(this.renderer.domElement.clientHeight, 1);
     const screen = (point: Vec2) => {
@@ -1092,19 +1127,12 @@ export class CadViewportEngine {
       return { x: (projected.x + 1) * width / 2, y: (1 - projected.y) * height / 2 };
     };
     const entities = this.view.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch?.entities ?? [];
-    return resolveSketchReference({ x, y }, entities, screen, kind);
-  }
-
-  private refreshShortcutContexts(): void {
-    this.sketchShortcutDispose?.();
-    this.toolShortcutDispose?.();
-    this.sketchShortcutDispose = this.sketchPlane ? this.shortcuts.pushContext("Sketch", [
-      { key: "p", primary: false, command: "sketch.point" },
-      { key: "l", primary: false, command: "sketch.line" },
-      { key: "r", primary: false, command: "sketch.rectangle" },
-    ]) : undefined;
-    this.toolShortcutDispose = this.sketchPlane && this.activeToolID !== "select"
-      ? this.shortcuts.pushContext("SketchTool", [{ key: "Escape", primary: false, command: "tool.select" }]) : undefined;
+    const reference = resolveSketchReference({ x, y }, entities, screen, kind);
+    if (!reference) return null;
+    const captureKind = reference.target === "SKETCH_ORIGIN" ? "ORIGIN"
+      : reference.subElement === "START" || reference.subElement === "END" ? "ENDPOINT"
+      : reference.subElement === "CENTER" ? "CENTER" : reference.subElement === "POINT" ? "POINT" : "CURVE";
+    return this.captureSettings.sketch.includes(captureKind) ? reference : null;
   }
 
   private emitDebugState(): void {
@@ -1203,6 +1231,9 @@ export class CadViewportEngine {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
+    for (const overlay of [...this.preselectedOverlays, ...this.selectedOverlays]) {
+      updateHighlightLineResolution(overlay, width, height);
+    }
     this.updateNavigationHUD();
     this.invalidate();
   }

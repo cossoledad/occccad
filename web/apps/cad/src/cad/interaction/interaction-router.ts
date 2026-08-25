@@ -1,6 +1,5 @@
 import { InputResult, isHandled, type CadInputSink, type CadKeyboardEvent, type CadPointerEvent, type CadWheelEvent } from "../input/input-types";
 import type { NavigationController } from "../navigation/navigation-controller";
-import type { ShortcutManager } from "../shortcut/shortcut-manager";
 import type { ToolManager } from "../tool/tool-manager";
 import type { SelectionController } from "./selection-controller";
 
@@ -9,7 +8,6 @@ export class InteractionRouter implements CadInputSink {
     private readonly tools: ToolManager,
     private readonly selection: SelectionController,
     private readonly navigation: NavigationController,
-    private readonly shortcuts: ShortcutManager,
   ) {}
 
   // Middle-led gestures are routed to navigation first. This guarantees that an
@@ -38,9 +36,7 @@ export class InteractionRouter implements CadInputSink {
     return InputResult.Consumed;
   }
   wheel(event: CadWheelEvent): InputResult { return this.navigation.wheel(event); }
-  keyDown(event: CadKeyboardEvent): InputResult {
-    return this.first(() => this.tools.keyDown(event), () => this.shortcuts.keyDown(event));
-  }
+  keyDown(event: CadKeyboardEvent): InputResult { return this.tools.keyDown(event); }
   keyUp(event: CadKeyboardEvent): InputResult { return this.tools.keyUp(event); }
   cancel(): void { this.tools.cancel(); this.selection.cancel(); this.navigation.cancel(); }
 

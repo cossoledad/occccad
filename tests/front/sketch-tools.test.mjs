@@ -23,8 +23,16 @@ try {
   const { buildSketchRenderModel } = await server.ssrLoadModule("/src/cad/rendering/sketch-render-model.ts");
   const { visualSelection, visualType } = await server.ssrLoadModule("/src/cad/rendering/visualization-render-model.ts");
   const { resolveSketchSnap } = await server.ssrLoadModule("/src/cad/interaction/sketch-snap.ts");
+  const { allowsSelection, DEFAULT_CAPTURE_SETTINGS, selectionCaptureKind } = await server.ssrLoadModule("/src/cad/interaction/capture-settings.ts");
+  const { ToolManager } = await server.ssrLoadModule("/src/cad/tool/tool-manager.ts");
+  const { SelectionIndex } = await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
+  const { resultBodyFeatureTreeNode } = await server.ssrLoadModule("/src/cad/interaction/selection-hierarchy.ts");
+  const { SelectionController } = await server.ssrLoadModule("/src/cad/interaction/selection-controller.ts");
+  const { closestTreeKey, resolveTreeSelection } = await server.ssrLoadModule("/src/features/workbench/tree-selection.ts");
   const { resolveSketchReference } = await server.ssrLoadModule("/src/cad/interaction/sketch-reference-pick.ts");
   const { CadShaderLibrary } = await server.ssrLoadModule("/src/cad/rendering/shader/cad-shader-library.ts");
+  const { makeOcclusionVisibleHighlightLine } = await server.ssrLoadModule("/src/cad/rendering/interaction-highlight.ts");
+  const { defaultDocumentName } = await server.ssrLoadModule("/src/features/documents/document-utils.ts");
   const operations = [];
   const prompts = [];
   const previews = [];
@@ -58,7 +66,8 @@ try {
     deltaX: 0,
     deltaY: 0,
     originalEvent: { detail: 1 },
-    state: { buttons: { left: false, middle: false, right: false } },
+    state: { buttons: { left: false, middle: false, right: false },
+      modifiers: { ctrl: false, shift: false, alt: false, meta: false }, keys: new Set(), pointer: { x, y, deltaX: 0, deltaY: 0 } },
   });
 
   const rectangle = new RectangleSketchTool();
@@ -74,6 +83,7 @@ try {
 
   const line = new LineSketchTool();
   line.activate(context);
+  assert.equal(line.pointerMove(pointer(0.2, 0.3), context), "consumed");
   line.pointerDown(pointer(1, 1, "down"), context);
   line.pointerUp(pointer(1, 1, "up"), context);
   line.pointerMove(pointer(5, 5), context);
@@ -163,6 +173,69 @@ try {
   assert.ok(Math.abs(endpointSnap.distancePixels - Math.hypot(0.6, 0.2) * 10) < 1e-10);
   assert.equal(resolveSketchSnap([30.1, 24.9], [], 1)?.kind, "GRID");
   assert.equal(resolveSketchSnap([10.2, 0.6], snapEntities, 10)?.kind, "MIDPOINT");
+  assert.equal(resolveSketchSnap([0.1, 0.1], snapEntities, 10, 10, 11, ["GRID"])?.kind, "GRID");
+  assert.equal(resolveSketchSnap([19.9, 0.1], snapEntities, 10, 10, 11, ["MIDPOINT"]), undefined);
+  const curvedSnapEntities = [
+    { id: "circle-a", kind: "CIRCLE", role: "PROFILE", center: { x: 30, y: 30 }, radius: 10 },
+    { id: "arc-a", kind: "ARC", role: "PROFILE", center: { x: 0, y: 30 }, radius: 10, startAngle: 0, endAngle: Math.PI },
+    { id: "spline-a", kind: "SPLINE", role: "PROFILE", controlPoints: [{ x: 0, y: 50 }, { x: 10, y: 55 }, { x: 20, y: 50 }], degree: 2 },
+  ];
+  assert.equal(resolveSketchSnap([30.2, 29.9], curvedSnapEntities, 10)?.kind, "CENTER");
+  assert.equal(resolveSketchSnap([39.8, 30.1], curvedSnapEntities, 10)?.kind, "CURVE");
+  assert.equal(resolveSketchSnap([10.1, 30.1], curvedSnapEntities, 10)?.kind, "ENDPOINT");
+  assert.equal(resolveSketchSnap([8, 52.4], curvedSnapEntities, 10)?.kind, "CURVE");
+  assert.equal(selectionCaptureKind({ kind: "plane", id: "xy", plane: "XY" }), "DATUM_PLANE");
+  assert.equal(selectionCaptureKind({ kind: "axis", id: "x", axis: "X" }), "DATUM_AXIS");
+  assert.equal(selectionCaptureKind({ kind: "vertex", id: "v1", topologyId: 1 }), "POINT");
+  assert.equal(allowsSelection({ ...DEFAULT_CAPTURE_SETTINGS, selection: ["POINT"] },
+    { kind: "vertex", id: "v1", topologyId: 1 }), true);
+  assert.equal(allowsSelection({ ...DEFAULT_CAPTURE_SETTINGS, selection: ["POINT"] },
+    { kind: "face", id: "f1", topologyId: 1 }), false);
+
+  const THREE = await import(require.resolve("three"));
+  const index = new SelectionIndex();
+  const near = new THREE.Mesh(new THREE.PlaneGeometry(10, 10)); near.position.z = -1; near.updateMatrixWorld();
+  const far = new THREE.Mesh(new THREE.PlaneGeometry(10, 10)); far.position.z = -2; far.updateMatrixWorld();
+  index.registerPick(near, () => ({ kind: "face", id: "near", topologyId: 1 }));
+  index.registerPick(far, () => ({ kind: "vertex", id: "far", topologyId: 2 }));
+  assert.equal(index.pick(new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, 0, -1)),
+    (selection) => selection.kind === "vertex")?.id, "far");
+  const childObject = new THREE.Group();
+  index.register({ kind: "sketch", id: "sketch-1", treeNodeId: "document/body/sketch:1" }, childObject);
+  assert.equal(index.objectsFor({ kind: "face", id: "face-1", topologyId: 1,
+    treeNodeId: "document/body" }).includes(childObject), false);
+  assert.equal(index.objectsFor({ kind: "tree", id: "body", treeNodeId: "document/body",
+    expandTreeDescendants: true }).includes(childObject), true);
+  near.geometry.dispose(); far.geometry.dispose();
+
+  assert.deepEqual(resolveTreeSelection(["a", "b", "c", "d"], [], "b", undefined, {}), ["b"]);
+  assert.deepEqual(resolveTreeSelection(["a", "b", "c", "d"], ["b"], "d", "b", { ctrl: true }), ["b", "d"]);
+  assert.deepEqual(resolveTreeSelection(["a", "b", "c", "d"], ["b", "d"], "b", "d", { ctrl: true }), ["d"]);
+  assert.deepEqual(resolveTreeSelection(["a", "b", "c", "d"], ["a"], "d", "b", { shift: true }), ["b", "c", "d"]);
+  assert.deepEqual(resolveTreeSelection(["a", "b", "c", "d"], ["a"], "d", "b", { ctrl: true, shift: true }), ["a", "b", "c", "d"]);
+  assert.equal(closestTreeKey([{ key: "document", children: [{ key: "document/body" }] }],
+    "document/body/imported-face:42"), "document/body");
+  assert.equal(resultBodyFeatureTreeNode({ id: "document", kind: "PART", name: "Part", children: [
+    { id: "document/body", kind: "BODY", name: "PartBody", children: [
+      { id: "document/body/import:1", kind: "IMPORT", name: "Import" },
+      { id: "document/body/pad:2", kind: "PAD", name: "Extrude" },
+    ] },
+  ] }, "document/body"), "document/body/pad:2");
+
+  let additivePick = false;
+  const selector = new SelectionController((_x, _y, additive) => { additivePick = additive; }, () => {}, () => {});
+  const controlPointer = { ...pointer(5, 5, "down"), state: { ...pointer(5, 5, "down").state,
+    modifiers: { ctrl: true, shift: false, alt: false, meta: false } } };
+  selector.pointerDown(controlPointer);
+  selector.pointerUp({ ...controlPointer, phase: "up" });
+  assert.equal(additivePick, true);
+
+  const manager = new ToolManager(context);
+  manager.register(new (await server.ssrLoadModule("/src/cad/tool/cad-tool.ts")).SelectTool());
+  manager.register(new LineSketchTool());
+  manager.activate("sketch.line");
+  assert.equal(manager.keyDown({ key: "Escape" }), "consumed");
+  assert.equal(manager.activeToolID, "select");
   const project = ([x, y]) => ({ x: x * 10, y: y * 10 });
   assert.deepEqual(resolveSketchReference({ x: 3, y: 2 }, snapEntities, project, "COINCIDENT"),
     { target: "SKETCH_ORIGIN", subElement: "POINT" });
@@ -175,6 +248,15 @@ try {
   const pointMaterial = new CadShaderLibrary().createMaterial("cad.point");
   assert.match(pointMaterial.fragmentShader, /abs\(p\.x - p\.y\)/);
   pointMaterial.dispose();
+  const highlightLine = makeOcclusionVisibleHighlightLine([
+    new THREE.Vector3(0, 0, 0), new THREE.Vector3(10, 0, 0),
+  ], 0xffa62b, 5);
+  assert.equal(highlightLine.material.depthTest, false);
+  assert.equal(highlightLine.material.depthWrite, false);
+  assert.equal(highlightLine.material.linewidth, 5);
+  highlightLine.geometry.dispose(); highlightLine.material.dispose();
+  assert.equal(defaultDocumentName("PART", [{ name: "Part1" }, { name: "part3" }]), "Part2");
+  assert.equal(defaultDocumentName("PRODUCT", [{ name: "Product1" }, { name: "Product2" }]), "Product3");
   const persistedLine = { id: "line-1", featureId: "sketch-1", kind: "POLYLINE",
     semantic: "SKETCH_CURVE", role: "PROFILE", positions: [[0, 0, 0], [2, 0, 0]], selectable: true };
   assert.equal(visualType(persistedLine), "CURVE");

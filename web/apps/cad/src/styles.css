@@ -777,6 +777,16 @@ select {
 .cad-tool-button.ant-btn:not(:disabled) { color: #2d3b43; }
 .cad-tool-button.ant-btn:not(:disabled):hover { color: #13242d; border-color: #81929a; background: #f8faf9; }
 .cad-tool-button.ant-btn.active { color: #17232d; border-color: #d98610; background: var(--cad-selected); }
+.cad-command-icon { display: block; overflow: visible; }
+.cad-capture-button.ant-btn.active { color: #122e3c; border-color: #4f93b6; background: #c8e4f1; }
+.cad-capture-panel { width: 310px; color: #263b46; }
+.cad-capture-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.cad-capture-presets { display: flex; gap: 6px; padding-bottom: 9px; border-bottom: 1px solid #dce4e7; }
+.cad-capture-panel section { margin-top: 10px; }
+.cad-capture-panel section>strong { display: block; margin-bottom: 6px; color: #526b77; font-size: 10px; letter-spacing: .35px; }
+.cad-capture-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; }
+.cad-capture-grid .ant-checkbox-wrapper { margin-inline-start: 0; font-size: 11px; }
+.cad-capture-panel>small { display: block; margin-top: 10px; color: #758993; }
 .cad-command-dialog { position: absolute; z-index: 14; overflow: hidden; color: var(--cad-text);
   border: 1px solid var(--cad-panel-edge); border-radius: 8px; background: var(--cad-panel);
   box-shadow: 0 14px 38px rgb(3 15 23 / 42%); pointer-events: auto; }
@@ -832,7 +842,7 @@ select {
   scrollbar-width: thin;
 }
 
-.specification-tree { min-width: max-content; height: 100%; padding: 7px 16px 22px 4px; overflow: auto; }
+.specification-tree { min-width: max-content; height: 100%; padding: 7px 16px 22px 4px; overflow: auto; user-select: none; }
 .specification-tree-virtual-space { position: relative; min-width: 280px; }
 .specification-tree-virtual-row { position: absolute; top: 0; left: 0; width: max-content; min-width: 100%; height: 27px; }
 .specification-tree-virtual-row.nested::after { content: ""; position: absolute; z-index: -1; top: 13px;
@@ -934,10 +944,12 @@ select {
 }
 .specification-tree-node:first-child>.specification-tree-row>.specification-tree-icon { color: #79b8dc; }
 .specification-tree-label { overflow: hidden; max-width: 250px; text-overflow: ellipsis; white-space: nowrap; }
-.specification-tree-delete { margin-left: auto; border: 0; padding: 2px 5px; color: inherit; background: transparent; opacity: 0; cursor: pointer; }
-.specification-tree-row:hover .specification-tree-delete, .specification-tree-row:focus-within .specification-tree-delete { opacity: .8; }
-.specification-tree-delete:hover { color: #ffb5a8; opacity: 1 !important; }
-
+.specification-tree-context-menu,
+.specification-tree-context-menu .ant-dropdown-menu {
+  width: 176px !important;
+  min-width: 176px !important;
+  max-width: 176px !important;
+}
 .inspector-overlay {
   position: absolute;
   z-index: 10;

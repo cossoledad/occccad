@@ -37,8 +37,12 @@ export class ToolManager {
   pointerMove(event: CadPointerEvent): InputResult { return this.active?.pointerMove?.(event, this.context) ?? InputResult.Ignored; }
   pointerUp(event: CadPointerEvent): InputResult { return this.active?.pointerUp?.(event, this.context) ?? InputResult.Ignored; }
   pointerCancel(event: CadPointerEvent): InputResult { return this.active?.pointerCancel?.(event, this.context) ?? InputResult.Ignored; }
-  keyDown(event: CadKeyboardEvent): InputResult { return this.active?.keyDown?.(event, this.context) ?? InputResult.Ignored; }
+  keyDown(event: CadKeyboardEvent): InputResult {
+    const result = this.active?.keyDown?.(event, this.context) ?? InputResult.Ignored;
+    if (result !== InputResult.Ignored || event.key !== "Escape" || this.active?.id === "select") return result;
+    this.activate("select");
+    return InputResult.Consumed;
+  }
   keyUp(event: CadKeyboardEvent): InputResult { return this.active?.keyUp?.(event, this.context) ?? InputResult.Ignored; }
   cancel(): void { this.active?.cancel?.(this.context); }
 }
-

@@ -209,6 +209,7 @@ export type DocumentView = {
 export type SelectionIdentity = {
   id: string;
   treeNodeId?: string;
+  expandTreeDescendants?: boolean;
   documentId?: string;
   occurrencePath?: string;
   geometryKey?: string;
@@ -216,7 +217,7 @@ export type SelectionIdentity = {
   visualKey?: string;
 };
 
-export type Selection =
+export type SelectionItem =
   | (SelectionIdentity & { kind: "plane"; plane: PlaneName })
   | (SelectionIdentity & { kind: "axis-system" })
   | (SelectionIdentity & { kind: "axis"; axis: "X" | "Y" | "Z" })
@@ -230,7 +231,8 @@ export type Selection =
       featureId: string; entityId: string; role?: "PROFILE" | "CONSTRUCTION" })
   | (SelectionIdentity & { kind: "sketch-constraint"; featureId: string; constraintId: string; constraintType: string })
   | (SelectionIdentity & { kind: "face" | "edge" | "vertex"; topologyId: number })
-  | null;
+  | (SelectionIdentity & { kind: "tree" });
+export type Selection = SelectionItem | null;
 
 export type TopologyElementProperties = {
   geometryKey: string; geometryId: string; kind: "FACE" | "EDGE" | "VERTEX"; localId: number;

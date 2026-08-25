@@ -7,12 +7,11 @@ export type ToolButtonProps = {
   command: string;
   icon: ReactNode;
   tooltip: ReactNode;
-  label?: ReactNode;
   className?: string;
   repeatable?: boolean;
 };
 
-export function ToolButton({ command, icon, tooltip, label, className = "", repeatable = false }: ToolButtonProps) {
+export function ToolButton({ command, icon, tooltip, className = "", repeatable = false }: ToolButtonProps) {
   const registry = useCommandRegistry();
   const state = useCommandState(command);
   const singleClick = useRef<number | undefined>(undefined);
@@ -30,6 +29,7 @@ export function ToolButton({ command, icon, tooltip, label, className = "", repe
   };
   const button = <Button className={`cad-tool-button ${state.active ? "active" : ""} ${className}`.trim()}
     type={state.active ? "primary" : "default"} icon={icon} disabled={!state.enabled} aria-pressed={state.active}
-    onClick={click} onDoubleClick={doubleClick}>{label}</Button>;
+    aria-label={typeof tooltip === "string" ? tooltip.split(" · ")[0] : undefined}
+    onClick={click} onDoubleClick={doubleClick} />;
   return tooltip ? <Tooltip title={tooltip}>{button}</Tooltip> : button;
 }

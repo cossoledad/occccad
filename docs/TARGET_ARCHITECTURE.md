@@ -275,6 +275,7 @@ classDiagram
 ```
 
 - **Document**：稳定业务身份、所有权、生命周期和策略；
+- **Document display name**：允许在同一作用域重复，只用于展示和搜索；持久引用、权限、版本和协作必须使用 `DocumentId`，创建端可以生成 `PartN`/`ProductN` 等可编辑默认名称但不得把它升级为唯一键；
 - **Workspace/Branch**：可变编辑线，指向一个不可变基础 Revision；
 - **Transaction**：用户认为原子的命令集合；
 - **Revision**：不可变、可引用、可签名的模型快照；
@@ -559,6 +560,8 @@ gitGraph
 #### 4.3.13 Undo 的权威语义
 
 Undo 默认指：在当前 Workspace/编辑上下文中，撤销当前 actor 最近一个仍可撤销的 Domain Transaction。服务端创建新的 `RevertTransaction(original_transaction_id)`，把原 ChangeSet 的 before intent 应用于当前 Head，然后形成新 Revision；旧 Revision 和其他人的后续提交不消失。
+
+可逆且只修改当前 Workspace 参数模型的普通编辑默认直接执行，不用确认对话框打断用户；Delete、Suppress、Reorder 等入口应保持单一动作，并通过统一 Undo/Redo 恢复。多选上的一个动作必须形成一个原子 Domain Transaction，不能在客户端拆成多个 Revision。确认只保留给 Undo 无法覆盖的外部副作用、已发布/外部数据破坏、权限或兼容边界变化等不可逆操作。
 
 Revert 算法：
 
@@ -2044,6 +2047,8 @@ sequenceDiagram
 拖拽不写 Command、不创建 Version、不在每个 pointer move 后重生成完整 Part。
 
 创建交互采用 CATIA Sketcher 的渐进 characteristic-point 模式作为产品参照，而不复制其 UI：进入上下文必须绑定明确的 `SketchId + support plane`；Point 是一次采集，Line/两点 Rectangle 是“第一点 → pointer move 动态预览 → 第二点”；复合图元提交后工具保持激活以便连续创建。Esc 首先取消尚未完成的采集或约束首选，当前没有中间状态时才退出工具回到 Select。选择已有 Sketch 后使用同一入口重新进入编辑，不能创建另一个共面 Sketch 或根据数组顺序猜测活动对象。
+
+Selection 是稳定 identity 的有序集合，而不是单个临时 mesh index；最后一个成员是 Inspector/单目标命令的主选择。视口和结构树共享集合语义，支持普通替换、Ctrl/Meta 切换与 Shift 可见区间选择，但共享状态不等于共享高亮粒度：结构树父节点选择显式展开全部后代显示对象；视口精确元素选择只高亮命中元素，并把结构树显示单向投影到最近存在的 Feature/Body 祖先，不能因为树中缺少对应叶节点而把父节点重新解释成视口选择。高亮 Overlay 必须独立于基础黑色边线并使用屏幕稳定宽度；Face/Edge/Vertex 的 selected/hover 提示应具有一致的遮挡可见策略，同时不得改变权威深度、选择 identity 或几何。清空或切换选择必须立即撤销全部 selected/hover/topology overlay，不能依赖下一次 pointer move 修复显示。结构树操作集中在可扩展、锚定节点位置且尺寸稳定的右键菜单，普通行不堆叠删除等动作按钮；任何选择集合变化都使已打开菜单失效并关闭。
 
 视口必须分别渲染 Point、Curve、curve endpoints、construction geometry 和 constraint glyph，不能把单点塞入 Line primitive。活动 Sketch 独占显示本地 H/V 轴、origin 和可配置网格；默认诊断色遵循 White=under-constrained、Green=solved/fixed、Purple=over/redundant、Red=inconsistent，construction geometry 使用 Gray。SmartPick hover 与约束首选必须高亮稳定 GeometryRef，并以可访问状态文本说明下一步；hover 只产生建议，是否生成永久约束由显式策略决定。参照：[CATIA Sketcher tools](https://catiahelp.azurewebsites.net/English/DysUserMap/dys-c-BeforeYouBegin-ToolsSketchingUse.htm)、[CATIA constraint diagnosis colors](https://catiahelp.azurewebsites.net/English/DysUserMap/dys-c-BeforeYouBegin-ColorUse.htm)、[CATIA rectangle creation](https://catiahelp.azurewebsites.net/English/DysUserMap/dys-t-SimpleProfileSketch-Rectangle.htm)。
 

@@ -14,7 +14,7 @@ import { api, isMockMode } from "../../api/client";
 import { queryKeys } from "../../app/query-keys";
 import { DocumentThumbnail } from "../../components/document-thumbnail";
 import { ShareDialog, type ShareResource } from "../../components/share-dialog";
-import { documentMetrics, flattenFolderTree, relativeDate, type LibraryScope } from "./document-utils";
+import { defaultDocumentName, documentMetrics, flattenFolderTree, relativeDate, type LibraryScope } from "./document-utils";
 import type { DocumentSummary, FolderSummary } from "../../types";
 
 type DocumentForm = { name: string; description?: string; type: "PART" | "PRODUCT" };
@@ -132,9 +132,10 @@ export function DocumentCenter() {
   const openDocument = (document: DocumentSummary) => { if (!document.deletedAt) navigate(`/documents/${document.id}`); };
   const enterFolder = (folderID: string) => { if (scope === "shared") setScope("active"); setCurrentFolderID(folderID); setOffset(0); };
   const openDocumentEditor = (document?: DocumentSummary, documentType?: "PART" | "PRODUCT") => {
-    setEditing(document); documentForm.setFieldsValue(document
+    setEditing(document); documentForm.resetFields(); documentForm.setFieldsValue(document
       ? { name: document.name, description: document.description, type: document.type }
-      : { type: documentType }); setCreateOpen(true);
+      : { type: documentType ?? "PART", name: defaultDocumentName(documentType ?? "PART", overview.data?.documents ?? []), description: "" });
+    setCreateOpen(true);
   };
   const openFolderEditor = (folder?: FolderSummary) => { setFolderEditor(folder ?? "new"); folderForm.setFieldsValue(folder ?? { name: "", description: "" }); };
   const removeDocument = (document: DocumentSummary) => modal.confirm({
@@ -237,7 +238,9 @@ export function DocumentCenter() {
     <Modal title={editing ? "编辑文档" : "创建设计文档"} open={createOpen} onCancel={() => { setCreateOpen(false); setEditing(undefined); documentForm.resetFields(); }}
       onOk={() => documentForm.submit()} confirmLoading={saveDocument.isPending} destroyOnHidden>
       <Form form={documentForm} layout="vertical" onFinish={(values) => saveDocument.mutate(values)}>
-        <Form.Item name="type" label="文档类型" rules={[{ required: true }]}><Segmented block disabled={Boolean(editing)} options={[{ label: "Part 零件", value: "PART", icon: <BuildOutlined /> }, { label: "Product 产品", value: "PRODUCT", icon: <ApartmentOutlined /> }]} /></Form.Item>
+        <Form.Item name="type" label="文档类型" rules={[{ required: true }]}><Segmented block disabled={Boolean(editing)}
+          onChange={(value) => { if (!editing) documentForm.setFieldValue("name", defaultDocumentName(value as "PART" | "PRODUCT", overview.data?.documents ?? [])); }}
+          options={[{ label: "Part 零件", value: "PART", icon: <BuildOutlined /> }, { label: "Product 产品", value: "PRODUCT", icon: <ApartmentOutlined /> }]} /></Form.Item>
         <Form.Item name="name" label="文档名称" rules={[{ required: true, max: 120 }]}><Input autoFocus /></Form.Item>
         <Form.Item name="description" label="说明"><Input.TextArea rows={3} maxLength={500} showCount /></Form.Item>
       </Form>

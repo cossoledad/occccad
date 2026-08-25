@@ -1,13 +1,15 @@
 import type { SketchEntity, Vec2 } from "../../types";
+import type { SketchSnapCaptureKind } from "./capture-settings";
+import { sampleSketchEntity } from "../sketch/sketch-geometry";
 
-export type SketchSnapKind = "ORIGIN" | "POINT" | "ENDPOINT" | "MIDPOINT" | "LINE" | "GRID";
+export type SketchSnapKind = "ORIGIN" | "POINT" | "ENDPOINT" | "CENTER" | "MIDPOINT" | "CURVE" | "GRID";
 
 export type SketchSnapResult = {
   point: Vec2;
   kind: SketchSnapKind;
   distancePixels: number;
   entityId?: string;
-  subElement?: "POINT" | "START" | "END" | "DIRECTION";
+  subElement?: "POINT" | "START" | "END" | "CENTER" | "DIRECTION";
 };
 
 type Candidate = SketchSnapResult & { priority: number };
@@ -22,8 +24,20 @@ function projectToSegment(point: Vec2, start: Vec2, end: Vec2): Vec2 {
   return [start[0] + dx * t, start[1] + dy * t];
 }
 
+function projectToCurve(point: Vec2, sampled: Vec2[]): Vec2 | undefined {
+  let best: Vec2 | undefined;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (let index = 1; index < sampled.length; index += 1) {
+    const candidate = projectToSegment(point, sampled[index - 1], sampled[index]);
+    const candidateDistance = distance(point, candidate);
+    if (candidateDistance < bestDistance) { best = candidate; bestDistance = candidateDistance; }
+  }
+  return best;
+}
+
 export function resolveSketchSnap(raw: Vec2, entities: SketchEntity[], pixelsPerUnit: number,
-  gridSpacing = 10, thresholdPixels = 11): SketchSnapResult | undefined {
+  gridSpacing = 10, thresholdPixels = 11,
+  enabled: readonly SketchSnapCaptureKind[] = ["GRID", "ORIGIN", "POINT", "ENDPOINT", "CENTER", "MIDPOINT", "CURVE"]): SketchSnapResult | undefined {
   const scale = Math.max(pixelsPerUnit, 1.0e-6);
   const candidates: Candidate[] = [];
   const offer = (point: Vec2, kind: SketchSnapKind, priority: number, entityId?: string,
@@ -32,23 +46,36 @@ export function resolveSketchSnap(raw: Vec2, entities: SketchEntity[], pixelsPer
     if (distancePixels <= threshold) candidates.push({ point, kind, priority, distancePixels, entityId, subElement });
   };
 
-  offer([0, 0], "ORIGIN", 600, undefined, undefined, 13);
+  if (enabled.includes("ORIGIN")) offer([0, 0], "ORIGIN", 600, undefined, undefined, 13);
   for (const entity of entities) {
-    if (entity.kind === "POINT" && entity.point) {
+    if (enabled.includes("POINT") && entity.kind === "POINT" && entity.point) {
       offer([entity.point.x, entity.point.y], "POINT", 550, entity.id, "POINT", 13);
       continue;
     }
-    if (entity.kind !== "LINE" || !entity.start || !entity.end) continue;
-    const start: Vec2 = [entity.start.x, entity.start.y];
-    const end: Vec2 = [entity.end.x, entity.end.y];
-    offer(start, "ENDPOINT", 550, entity.id, "START", 13);
-    offer(end, "ENDPOINT", 550, entity.id, "END", 13);
-    offer([(start[0] + end[0]) / 2, (start[1] + end[1]) / 2], "MIDPOINT", 420, entity.id, "DIRECTION");
-    offer(projectToSegment(raw, start, end), "LINE", 300, entity.id, "DIRECTION", 8);
+    const sampled = sampleSketchEntity(entity, 64);
+    if (sampled.length < 2) continue;
+    const start = sampled[0], end = sampled.at(-1)!;
+    const closed = entity.kind === "CIRCLE" || (entity.kind === "SPLINE" && entity.closed);
+    if (enabled.includes("ENDPOINT")) {
+      if (!closed) {
+        offer(start, "ENDPOINT", 550, entity.id, "START", 13);
+        offer(end, "ENDPOINT", 550, entity.id, "END", 13);
+      }
+    }
+    if (enabled.includes("CENTER") && entity.center) offer([entity.center.x, entity.center.y], "CENTER", 520, entity.id, "CENTER", 13);
+    if (enabled.includes("MIDPOINT") && !closed) {
+      const position = (sampled.length - 1) / 2, lower = Math.floor(position), upper = Math.ceil(position), blend = position - lower;
+      offer([sampled[lower][0] * (1 - blend) + sampled[upper][0] * blend,
+        sampled[lower][1] * (1 - blend) + sampled[upper][1] * blend], "MIDPOINT", 420, entity.id, "DIRECTION");
+    }
+    const projected = enabled.includes("CURVE") ? projectToCurve(raw, sampled) : undefined;
+    if (projected) offer(projected, "CURVE", 300, entity.id, "DIRECTION", 8);
   }
 
-  const grid: Vec2 = [Math.round(raw[0] / gridSpacing) * gridSpacing, Math.round(raw[1] / gridSpacing) * gridSpacing];
-  offer(grid, "GRID", 100, undefined, undefined, 8);
+  if (enabled.includes("GRID")) {
+    const grid: Vec2 = [Math.round(raw[0] / gridSpacing) * gridSpacing, Math.round(raw[1] / gridSpacing) * gridSpacing];
+    offer(grid, "GRID", 100, undefined, undefined, 8);
+  }
   candidates.sort((left, right) => right.priority - left.priority || left.distancePixels - right.distancePixels);
   const best = candidates[0];
   if (!best) return undefined;

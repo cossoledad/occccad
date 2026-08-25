@@ -349,30 +349,37 @@ type UpdateDocumentRequest struct {
 	Description string `json:"description,omitempty"`
 }
 
+type DeleteNodeTarget struct {
+	TargetKind    string `json:"targetKind"`
+	TargetID      string `json:"targetId"`
+	OwnerEntityID string `json:"ownerEntityId,omitempty"`
+}
+
 type CommandRequest struct {
-	RequestID            string            `json:"requestId"`
-	Type                 string            `json:"type"`
-	Plane                string            `json:"plane,omitempty"`
-	SketchID             string            `json:"sketchId,omitempty"`
-	Operations           []SketchOperation `json:"operations,omitempty"`
-	Length               float64           `json:"length,omitempty"`
-	ReferencedDocumentID string            `json:"referencedDocumentId,omitempty"`
-	Name                 string            `json:"name,omitempty"`
-	InstanceID           string            `json:"instanceId,omitempty"`
-	TargetKind           string            `json:"targetKind,omitempty"`
-	TargetID             string            `json:"targetId,omitempty"`
-	OwnerEntityID        string            `json:"ownerEntityId,omitempty"`
-	Translation          [3]float64        `json:"translation,omitempty"`
-	ReferenceMode        string            `json:"referenceMode,omitempty"`
-	GeometryKey          string            `json:"geometryKey,omitempty"`
-	FileName             string            `json:"fileName,omitempty"`
-	SourceFormat         string            `json:"sourceFormat,omitempty"`
-	VersionID            string            `json:"versionId,omitempty"`
-	ParameterID          string            `json:"parameterId,omitempty"`
-	Expression           string            `json:"expression,omitempty"`
-	Value                float64           `json:"value,omitempty"`
-	Unit                 string            `json:"unit,omitempty"`
-	ActorID              string            `json:"-"`
+	RequestID            string             `json:"requestId"`
+	Type                 string             `json:"type"`
+	Plane                string             `json:"plane,omitempty"`
+	SketchID             string             `json:"sketchId,omitempty"`
+	Operations           []SketchOperation  `json:"operations,omitempty"`
+	Length               float64            `json:"length,omitempty"`
+	ReferencedDocumentID string             `json:"referencedDocumentId,omitempty"`
+	Name                 string             `json:"name,omitempty"`
+	InstanceID           string             `json:"instanceId,omitempty"`
+	TargetKind           string             `json:"targetKind,omitempty"`
+	TargetID             string             `json:"targetId,omitempty"`
+	OwnerEntityID        string             `json:"ownerEntityId,omitempty"`
+	Targets              []DeleteNodeTarget `json:"targets,omitempty"`
+	Translation          [3]float64         `json:"translation,omitempty"`
+	ReferenceMode        string             `json:"referenceMode,omitempty"`
+	GeometryKey          string             `json:"geometryKey,omitempty"`
+	FileName             string             `json:"fileName,omitempty"`
+	SourceFormat         string             `json:"sourceFormat,omitempty"`
+	VersionID            string             `json:"versionId,omitempty"`
+	ParameterID          string             `json:"parameterId,omitempty"`
+	Expression           string             `json:"expression,omitempty"`
+	Value                float64            `json:"value,omitempty"`
+	Unit                 string             `json:"unit,omitempty"`
+	ActorID              string             `json:"-"`
 }
 
 // CommandPreview is a non-persistent evaluation of the same typed command
@@ -845,9 +852,6 @@ func (service *Service) MoveDocument(
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE occccad.documents SET folder_id=$1,updated_at=now() WHERE id=$2`, folderID, documentID); err != nil {
-		if isUniqueViolation(err) {
-			return DocumentView{}, fmt.Errorf("%w: a document with this name and type already exists in the target folder", ErrValidation)
-		}
 		return DocumentView{}, err
 	}
 	if _, err := tx.Exec(ctx, `
@@ -916,9 +920,6 @@ func (service *Service) CopyDocument(
 		INSERT INTO occccad.documents(document_type,name,description,folder_id,copied_from_document_id,owner_user_id)
 		VALUES($1,$2,$3,$4,$5,$6) RETURNING id::text`, documentType, name, description,
 		targetFolderID, sourceDocumentID, actorID(request.ActorID)).Scan(&documentID); err != nil {
-		if isUniqueViolation(err) {
-			return DocumentView{}, fmt.Errorf("%w: a copied document with this name already exists here", ErrValidation)
-		}
 		return DocumentView{}, err
 	}
 	payload, _ := json.Marshal(map[string]any{"sourceDocumentId": sourceDocumentID, "name": name})
@@ -982,9 +983,6 @@ func (service *Service) changeDocumentMetadata(
 ) error {
 	tx, err := service.database.Begin(ctx)
 	if err != nil {
-		if isUniqueViolation(err) {
-			return fmt.Errorf("%w: a document with this name and type already exists here", ErrValidation)
-		}
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
@@ -1315,9 +1313,6 @@ func (service *Service) CreateDocument(
 		INSERT INTO occccad.documents(document_type,name,description,folder_id,owner_user_id) VALUES($1,$2,$3,$4,$5)
 		RETURNING id::text`, documentType, name, description, folderID,
 		actorID(request.ActorID)).Scan(&documentID); err != nil {
-		if isUniqueViolation(err) {
-			return DocumentView{}, fmt.Errorf("%w: a %s document with this name already exists here", ErrValidation, documentType)
-		}
 		return DocumentView{}, fmt.Errorf("create document: %w", err)
 	}
 	traceID, spanID := traceIDs(ctx)

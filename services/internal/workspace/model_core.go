@@ -29,6 +29,8 @@ const (
 	typeSetReferenceMode       = "occccad://product/instance/reference-mode/set"
 	typeDeletePartNode         = "occccad://part/node/delete"
 	typeDeleteProductNode      = "occccad://product/node/delete"
+	typeDeletePartNodes        = "occccad://part/nodes/delete"
+	typeDeleteProductNodes     = "occccad://product/nodes/delete"
 )
 
 type commandHandler struct {
@@ -59,6 +61,8 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeSetReferenceMode, "PRODUCT", applyReferenceMode},
 		commandHandler{typeDeletePartNode, "PART", applyDeletePartNode},
 		commandHandler{typeDeleteProductNode, "PRODUCT", applyDeleteProductNode},
+		commandHandler{typeDeletePartNodes, "PART", applyDeletePartNodes},
+		commandHandler{typeDeleteProductNodes, "PRODUCT", applyDeleteProductNodes},
 	)
 	if err != nil {
 		panic(err)
@@ -70,6 +74,84 @@ type deleteNodePayload struct {
 	TargetKind    string `json:"targetKind"`
 	TargetID      string `json:"targetId"`
 	OwnerEntityID string `json:"ownerEntityId,omitempty"`
+}
+
+type deleteNodesPayload struct {
+	Targets []deleteNodePayload `json:"targets"`
+}
+
+func mergeDeleteChangeSets(changeSets []modelcore.ChangeSet) (modelcore.ChangeSet, error) {
+	merged := modelcore.ChangeSet{}
+	changeIndexes := map[string]int{}
+	seeds := map[modelcore.DependencyKey]bool{}
+	for _, changeSet := range changeSets {
+		for _, change := range changeSet.Changes {
+			key := change.Target.EntityID + "\x00" + change.Target.SlotID
+			if index, exists := changeIndexes[key]; exists {
+				previous := merged.Changes[index]
+				var before, after any
+				if len(previous.Before) > 0 {
+					before = json.RawMessage(previous.Before)
+				}
+				if len(change.After) > 0 {
+					after = json.RawMessage(change.After)
+				}
+				combined, err := modelcore.NewChange(previous.Kind, previous.Target, before, after)
+				if err != nil {
+					return modelcore.ChangeSet{}, err
+				}
+				merged.Changes[index] = combined
+				continue
+			}
+			changeIndexes[key] = len(merged.Changes)
+			merged.Changes = append(merged.Changes, change)
+		}
+		for _, seed := range changeSet.ImpactSeeds {
+			if !seeds[seed] {
+				seeds[seed] = true
+				merged.ImpactSeeds = append(merged.ImpactSeeds, seed)
+			}
+		}
+	}
+	return merged, nil
+}
+
+func applyDeleteNodes(modelJSON, payloadJSON json.RawMessage,
+	applyOne func(json.RawMessage, json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error)) (json.RawMessage, modelcore.ChangeSet, error) {
+	var payload deleteNodesPayload
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if len(payload.Targets) == 0 {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: delete targets are required", ErrValidation)
+	}
+	next := modelJSON
+	changeSets := make([]modelcore.ChangeSet, 0, len(payload.Targets))
+	for _, target := range payload.Targets {
+		targetJSON, err := json.Marshal(target)
+		if err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		var changes modelcore.ChangeSet
+		next, changes, err = applyOne(next, targetJSON)
+		if err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		changeSets = append(changeSets, changes)
+	}
+	merged, err := mergeDeleteChangeSets(changeSets)
+	if err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	return next, merged, nil
+}
+
+func applyDeletePartNodes(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	return applyDeleteNodes(modelJSON, payloadJSON, applyDeletePartNode)
+}
+
+func applyDeleteProductNodes(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	return applyDeleteNodes(modelJSON, payloadJSON, applyDeleteProductNode)
 }
 
 func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -1086,6 +1168,46 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType == "PRODUCT" && kind == "INSTANCE" {
 			return typeDeleteProductNode, deleteNodePayload{TargetKind: kind, TargetID: id}, nil
 		}
+	case "DELETE_NODES":
+		if len(request.Targets) == 0 {
+			return "", nil, fmt.Errorf("%w: delete targets are required", ErrValidation)
+		}
+		targets := make([]deleteNodePayload, 0, len(request.Targets))
+		seen := map[string]bool{}
+		valid := true
+		for _, requested := range request.Targets {
+			kind := strings.ToUpper(strings.TrimSpace(requested.TargetKind))
+			id := strings.TrimSpace(requested.TargetID)
+			owner := strings.TrimSpace(requested.OwnerEntityID)
+			if id == "" {
+				return "", nil, fmt.Errorf("%w: delete target identity is required", ErrValidation)
+			}
+			if documentType == "PART" {
+				if kind != "FEATURE" && kind != "SKETCH_ENTITY" && kind != "SKETCH_CONSTRAINT" {
+					valid = false
+					break
+				}
+				if (kind == "SKETCH_ENTITY" || kind == "SKETCH_CONSTRAINT") && owner == "" {
+					return "", nil, fmt.Errorf("%w: sketch child deletion requires its owning sketch", ErrValidation)
+				}
+			} else if documentType != "PRODUCT" || kind != "INSTANCE" {
+				valid = false
+				break
+			}
+			key := kind + "\x00" + id
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			targets = append(targets, deleteNodePayload{TargetKind: kind, TargetID: id, OwnerEntityID: owner})
+		}
+		if !valid || len(targets) == 0 {
+			break
+		}
+		if documentType == "PART" {
+			return typeDeletePartNodes, deleteNodesPayload{Targets: targets}, nil
+		}
+		return typeDeleteProductNodes, deleteNodesPayload{Targets: targets}, nil
 	}
 	return "", nil, fmt.Errorf("%w: command %s is not valid for a %s", ErrValidation, request.Type, documentType)
 }

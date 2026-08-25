@@ -19,8 +19,10 @@ ALTER TABLE occccad.documents
 ALTER TABLE occccad.documents
     DROP CONSTRAINT IF EXISTS documents_document_type_name_key;
 
-CREATE UNIQUE INDEX IF NOT EXISTS documents_folder_type_name_idx
-    ON occccad.documents(folder_id, document_type, lower(name)) NULLS NOT DISTINCT
+DROP INDEX IF EXISTS occccad.documents_folder_type_name_idx;
+
+CREATE INDEX IF NOT EXISTS documents_folder_type_idx
+    ON occccad.documents(folder_id, document_type)
     WHERE deleted_at IS NULL;
 
 CREATE INDEX IF NOT EXISTS documents_folder_updated_idx

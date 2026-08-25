@@ -1,9 +1,9 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import type { CommandRegistry } from "../cad/command/command-registry";
+import type { CaptureSettings } from "../cad/interaction/capture-settings";
 import { InputDebugOverlay, type InputDebugSnapshot } from "../cad/overlay/input-debug-overlay";
 import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
 import type { WorkbenchToolID } from "../state/workbench-store";
-import type { Artifact, DocumentView, PlaneName, Selection, SketchOperation, Vec3 } from "../types";
+import type { Artifact, DocumentView, PlaneName, Selection, SelectionItem, SketchOperation, Vec3 } from "../types";
 import { CadViewportEngine } from "./cad-viewport-engine";
 
 export type CadViewportHandle = {
@@ -15,17 +15,18 @@ export type CadViewportHandle = {
 
 type Props = {
   view: DocumentView;
-  selection: Selection;
+  selections: SelectionItem[];
   preselection: Selection;
   sketchPlane?: PlaneName;
   activeSketchID?: string;
   activeToolID: WorkbenchToolID;
   navigationProfile: NavigationProfileID;
-  commandRegistry: CommandRegistry;
-  onSelectionChange: (selection: Selection) => void;
+  captureSettings: CaptureSettings;
+  onSelectionsChange: (selections: SelectionItem[]) => void;
   onPreselectionChange: (selection: Selection) => void;
   onSketchOperations: (operations: SketchOperation[]) => void;
   onToolUseComplete: () => void;
+  onActiveToolChange: (toolID: WorkbenchToolID) => void;
   onInstanceMoved: (instanceID: string, translation: Vec3) => void;
 };
 
@@ -41,28 +42,35 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => {
     if (!host.current) return;
     const instance = new CadViewportEngine(host.current, {
-      selectionChanged: (selection) => callbacks.current.onSelectionChange(selection),
+      selectionsChanged: (selections) => callbacks.current.onSelectionsChange(selections),
       preselectionChanged: (selection) => callbacks.current.onPreselectionChange(selection),
       sketchOperations: (operations) => callbacks.current.onSketchOperations(operations),
       toolUseCompleted: () => callbacks.current.onToolUseComplete(),
+      activeToolChanged: (toolID) => callbacks.current.onActiveToolChange(toolID),
       toolPromptChanged: setToolPrompt,
       instanceMoved: (instanceID, translation) => callbacks.current.onInstanceMoved(instanceID, translation),
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
-    }, props.commandRegistry);
+    });
     engine.current = instance;
     instance.render(callbacks.current.view);
-    instance.select(callbacks.current.selection, false);
+    instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
     if (callbacks.current.sketchPlane && callbacks.current.activeSketchID) {
       instance.beginSketch(callbacks.current.activeSketchID, callbacks.current.sketchPlane);
     }
     instance.setActiveTool(callbacks.current.activeToolID);
     instance.setNavigationProfile(callbacks.current.navigationProfile);
+    instance.setCaptureSettings(callbacks.current.captureSettings);
     return () => { instance.dispose(); engine.current = undefined; };
-  }, [props.commandRegistry, CadViewportEngine]);
+  }, [CadViewportEngine]);
 
-  useEffect(() => { engine.current?.render(props.view); }, [props.view]);
-  useEffect(() => { engine.current?.select(props.selection, false); }, [props.selection]);
+  useEffect(() => {
+    const instance = engine.current; if (!instance) return;
+    instance.render(props.view);
+    instance.selectMany(callbacks.current.selections, false);
+    instance.preselect(callbacks.current.preselection, false);
+  }, [props.view]);
+  useEffect(() => { engine.current?.selectMany(props.selections, false); }, [props.selections]);
   useEffect(() => { engine.current?.preselect(props.preselection, false); }, [props.preselection]);
   useEffect(() => {
     if (props.sketchPlane && props.activeSketchID) engine.current?.beginSketch(props.activeSketchID, props.sketchPlane);
@@ -70,6 +78,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   }, [props.sketchPlane, props.activeSketchID]);
   useEffect(() => { engine.current?.setActiveTool(props.activeToolID); }, [props.activeToolID]);
   useEffect(() => { engine.current?.setNavigationProfile(props.navigationProfile); }, [props.navigationProfile]);
+  useEffect(() => { engine.current?.setCaptureSettings(props.captureSettings); }, [props.captureSettings]);
 
   useImperativeHandle(ref, () => ({
     fit: () => engine.current?.fit(),

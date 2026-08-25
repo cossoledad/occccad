@@ -3,7 +3,7 @@ import { InputResult, type CadPointerEvent } from "../input/input-types";
 export class SelectionController {
   private down?: { x: number; y: number };
 
-  constructor(private readonly pick: (x: number, y: number) => void,
+  constructor(private readonly pick: (x: number, y: number, additive: boolean) => void,
     private readonly preselect: (x: number, y: number) => void,
     private readonly clearPreselection: () => void) {}
 
@@ -28,7 +28,7 @@ export class SelectionController {
     if (event.state.buttons.middle || event.state.buttons.right) { this.down = undefined; return InputResult.Ignored; }
     const distance = Math.hypot(event.x - this.down.x, event.y - this.down.y);
     this.down = undefined;
-    if (distance <= 4) this.pick(event.x, event.y);
+    if (distance <= 4) this.pick(event.x, event.y, event.state.modifiers.ctrl || event.state.modifiers.meta);
     return InputResult.Consumed;
   }
 
