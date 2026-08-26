@@ -1784,6 +1784,8 @@ E0–E2 是草图 P0 权威求解的前置范围；不要等待 Spline 才交付
 - `REFERENCE`：与 Driven 等价，但显式用于 UI/工程引用；
 - `SUPPRESSED`：保留身份和表达式但本次不参与求解。
 
+每个可交互 Constraint kind 还必须有一份唯一的展示/拾取定义：有序引用签名与数量、允许的 Entity/SubElement 组合、viewport symbol、结构树投影、尺寸引线布局策略和单位。工具栏、输入状态机和服务端 validator 必须由同一领域语义派生，不能各维护一份会漂移的 switch。几何约束以可选的像素稳定三维 glyph 表示；尺寸约束使用 extension line、dimension line、arrow 和 value label，并保存稳定 ConstraintId 以及版本化 annotation placement。约束 hover/select 必须同时反馈全部引用实体；拖动 annotation 是一个完整 Interaction，鼠标轨迹不写 Revision，pointerup 只提交一次 placement command；双击 driving dimension 在视图区原位编辑并形成一个可 Undo 的值变更。显示 packet 可以由权威 SketchModel 重建，但不是新的业务真相；交互 preview 可以临时生成同形布局，提交后必须被持久可视化制品替换。
+
 系统不使用“无限大权重”模拟硬约束。几何/Driving 约束是等式系统；拖拽目标是可行流形上的优化目标。自动约束建议（端点吸附、水平、相切）由客户端或独立 suggestion 模块生成，只有用户提交后才成为持久 Constraint。
 
 **方程与残差约定**

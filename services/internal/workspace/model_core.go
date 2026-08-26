@@ -346,6 +346,45 @@ func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) 
 				return fmt.Errorf("%w: ADD_CONSTRAINT requires a constraint", ErrValidation)
 			}
 			sketch.Constraints = append(sketch.Constraints, *operation.Constraint)
+		case "UPDATE_CONSTRAINT_PLACEMENT":
+			if operation.ConstraintID == "" || operation.LabelPosition == nil ||
+				!finite(operation.LabelPosition.X) || !finite(operation.LabelPosition.Y) {
+				return fmt.Errorf("%w: UPDATE_CONSTRAINT_PLACEMENT requires a constraint and finite position", ErrValidation)
+			}
+			found := false
+			for index := range sketch.Constraints {
+				if sketch.Constraints[index].ID != operation.ConstraintID {
+					continue
+				}
+				if !isDimensionalConstraint(sketch.Constraints[index].Kind) {
+					return fmt.Errorf("%w: only dimensional constraints have a placement", ErrValidation)
+				}
+				sketch.Constraints[index].LabelPosition = operation.LabelPosition
+				found = true
+				break
+			}
+			if !found {
+				return fmt.Errorf("%w: selected constraint does not exist", ErrValidation)
+			}
+		case "UPDATE_CONSTRAINT_VALUE":
+			if operation.ConstraintID == "" || operation.Value == nil || !positiveFinite(*operation.Value) {
+				return fmt.Errorf("%w: UPDATE_CONSTRAINT_VALUE requires a positive finite value", ErrValidation)
+			}
+			found := false
+			for index := range sketch.Constraints {
+				if sketch.Constraints[index].ID != operation.ConstraintID {
+					continue
+				}
+				if !isDimensionalConstraint(sketch.Constraints[index].Kind) {
+					return fmt.Errorf("%w: only dimensional constraints have editable values", ErrValidation)
+				}
+				sketch.Constraints[index].Value = operation.Value
+				found = true
+				break
+			}
+			if !found {
+				return fmt.Errorf("%w: selected constraint does not exist", ErrValidation)
+			}
 		case "ADD_RECTANGLE":
 			if operation.First == nil || operation.Second == nil {
 				return fmt.Errorf("%w: ADD_RECTANGLE requires two points", ErrValidation)
@@ -356,6 +395,10 @@ func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) 
 		}
 	}
 	return nil
+}
+
+func isDimensionalConstraint(kind string) bool {
+	return kind == "DISTANCE" || kind == "LENGTH" || kind == "RADIUS" || kind == "DIAMETER" || kind == "ANGLE"
 }
 
 func validateSketch(sketch SketchFeature) error {
@@ -420,6 +463,10 @@ func validateSketch(sketch SketchFeature) error {
 		if constraint.Kind == "FIXED_POINT" && (constraint.FixedPoint == nil || !finite(constraint.FixedPoint.X) || !finite(constraint.FixedPoint.Y)) {
 			return fmt.Errorf("%w: fixed-point constraint %s requires a finite point", ErrValidation, constraint.ID)
 		}
+		if constraint.LabelPosition != nil && (!isDimensionalConstraint(constraint.Kind) ||
+			!finite(constraint.LabelPosition.X) || !finite(constraint.LabelPosition.Y)) {
+			return fmt.Errorf("%w: constraint %s has an invalid dimension placement", ErrValidation, constraint.ID)
+		}
 		if constraint.Kind == "DISTANCE" || constraint.Kind == "LENGTH" || constraint.Kind == "RADIUS" || constraint.Kind == "DIAMETER" || constraint.Kind == "ANGLE" {
 			if constraint.Value == nil || !positiveFinite(*constraint.Value) {
 				return fmt.Errorf("%w: dimensional constraint %s requires a positive finite value", ErrValidation, constraint.ID)
@@ -459,8 +506,65 @@ func validateSketch(sketch SketchFeature) error {
 				return fmt.Errorf("%w: constraint %s has unknown reference target %s", ErrValidation, constraint.ID, reference.Target)
 			}
 		}
+		if !constraintReferencesCompatible(constraint, entityKinds) {
+			return fmt.Errorf("%w: constraint %s has incompatible reference types for %s", ErrValidation, constraint.ID, constraint.Kind)
+		}
 	}
 	return nil
+}
+
+func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map[string]string) bool {
+	point := func(reference SketchGeometryRef) bool {
+		if reference.Target == "SKETCH_ORIGIN" {
+			return reference.SubElement == "POINT"
+		}
+		kind := entityKinds[reference.EntityID]
+		switch reference.SubElement {
+		case "POINT":
+			return kind == "POINT"
+		case "START", "END":
+			return kind == "LINE" || kind == "ARC" || kind == "SPLINE"
+		case "CENTER":
+			return kind == "CIRCLE" || kind == "ARC"
+		}
+		return false
+	}
+	line := func(reference SketchGeometryRef) bool {
+		return (reference.Target == "SKETCH_X_AXIS" || reference.Target == "SKETCH_Y_AXIS") ||
+			(reference.Target == "ENTITY" && entityKinds[reference.EntityID] == "LINE" &&
+				(reference.SubElement == "DIRECTION" || reference.SubElement == "WHOLE"))
+	}
+	circular := func(reference SketchGeometryRef) bool {
+		kind := entityKinds[reference.EntityID]
+		return reference.Target == "ENTITY" && (kind == "CIRCLE" || kind == "ARC") && reference.SubElement == "WHOLE"
+	}
+	curve := func(reference SketchGeometryRef) bool { return line(reference) || circular(reference) }
+	refs := constraint.References
+	switch constraint.Kind {
+	case "COINCIDENT", "DISTANCE":
+		return point(refs[0]) && point(refs[1])
+	case "PARALLEL", "PERPENDICULAR", "ANGLE":
+		return line(refs[0]) && line(refs[1])
+	case "FIXED":
+		return refs[0].Target == "ENTITY" && refs[0].SubElement == "WHOLE"
+	case "FIXED_POINT":
+		return point(refs[0])
+	case "HORIZONTAL", "VERTICAL", "LENGTH":
+		return line(refs[0])
+	case "RADIUS", "DIAMETER":
+		return circular(refs[0])
+	case "CONCENTRIC":
+		return circular(refs[0]) && circular(refs[1])
+	case "TANGENT":
+		return curve(refs[0]) && curve(refs[1]) && !(line(refs[0]) && line(refs[1]))
+	case "EQUAL":
+		return (line(refs[0]) && line(refs[1])) || (circular(refs[0]) && circular(refs[1]))
+	case "POINT_ON_OBJECT":
+		return point(refs[0]) && curve(refs[1])
+	case "MIDPOINT":
+		return point(refs[0]) && line(refs[1])
+	}
+	return false
 }
 
 type createFeaturePayload struct {

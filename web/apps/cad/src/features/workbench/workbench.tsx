@@ -22,6 +22,7 @@ import { ToolButton } from "../../cad/overlay/tool-button";
 import { CadIcon, type CadIconName } from "../../cad/overlay/cad-icons";
 import { CaptureSettingsButton } from "../../cad/overlay/capture-settings-button";
 import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
+import { constraintDefinition, LOGICAL_CONSTRAINT_KINDS, OTHER_DIMENSION_CONSTRAINT_KINDS } from "../../cad/sketch/sketch-constraint-definition";
 import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
 import type { DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, PlaneName, Selection, SelectionItem, SketchOperation, TopologyElementProperties, Vec3 } from "../../types";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
@@ -31,7 +32,7 @@ import { closestTreeKey } from "./tree-selection";
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 const sketchToolCommands:WorkbenchToolID[]=["sketch.rectangle","sketch.polygon","sketch.slot","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline",
   "sketch.constraint.coincident","sketch.constraint.parallel","sketch.constraint.fixed","sketch.constraint.horizontal","sketch.constraint.vertical",
-  "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.constraint.distance","sketch.constraint.length",
+  "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.dimension.linear",
   "sketch.constraint.radius","sketch.constraint.diameter","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint"];
 
 function featureIcon(feature: Feature) {
@@ -409,13 +410,16 @@ export function Workbench() {
               <ToolButton command="sketch.finish" icon={<CadIcon name="finish" />} tooltip="退出草图" /></ToolbarGroup>
           </FloatingToolbar>
           <FloatingToolbar id="sketch-constraints" label="草图约束" position="top-left" className="sketcher-toolbar sketch-constraints-toolbar">
-            <ToolbarGroup>{[["coincident","重合","coincident"],["parallel","平行","parallel"],["fixed","固定","fixed"],
-              ["horizontal","水平","horizontal"],["vertical","竖直","vertical"],["perpendicular","垂直","perpendicular"],
-              ["tangent","相切","tangent"],["equal","相等","equal"],["distance","距离","distance"],["length","长度","length"],
-              ["radius","半径","radius"],["diameter","直径","diameter"],["angle","角度","angle"],["concentric","同心","concentric"],
-              ["point_on_object","点在对象上","point-on-object"],["midpoint","中点","midpoint"]].map(([id,label,icon])=><ToolButton key={id}
-                repeatable command={`sketch.constraint.${id}`} icon={<CadIcon name={icon as CadIconName} />}
-                tooltip={`${label} · 单击一次，双击连续`} />)}</ToolbarGroup>
+            <ToolbarGroup>{LOGICAL_CONSTRAINT_KINDS.map((kind) => { const definition = constraintDefinition(kind);
+              const id = kind.toLowerCase(); return <ToolButton key={kind} repeatable command={`sketch.constraint.${id}`}
+                icon={<CadIcon name={definition.symbol.replaceAll("_", "-") as CadIconName} />}
+                tooltip={`${definition.label} · ${definition.pickLabels.join(" → ")} · 单击一次，双击连续`} />; })}</ToolbarGroup>
+            <ToolbarGroup><ToolButton repeatable command="sketch.dimension.linear" icon={<CadIcon name="distance" />}
+              tooltip="线性尺寸 · 选择直线，或依次选择两个点，然后移动放置" />
+              {OTHER_DIMENSION_CONSTRAINT_KINDS.map((kind) => { const definition=constraintDefinition(kind);const id=kind.toLowerCase();
+                return <ToolButton key={kind} repeatable command={`sketch.constraint.${id}`}
+                  icon={<CadIcon name={definition.symbol.replaceAll("_","-") as CadIconName} />}
+                  tooltip={`${definition.label}尺寸 · ${definition.pickLabels.join(" → ")} · 移动放置`} />; })}</ToolbarGroup>
           </FloatingToolbar>
           <FloatingToolbar id="sketch-aggregates" label="草图常用图形" position="top-left" className="sketcher-toolbar sketch-aggregates-toolbar">
             <ToolbarGroup><ToolButton repeatable command="sketch.rectangle" icon={<CadIcon name="rectangle" />} tooltip="矩形 · 单击绘制一次，双击连续绘制" /></ToolbarGroup>
@@ -466,14 +470,6 @@ export function Workbench() {
               topology={topology.data} topologyLoading={topology.isLoading} />
             : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(view.document.id, entry.versionId))} />}</div>
         </aside>
-        <div className="viewport-status">
-          <span>{command.isPending ? "正在更新模型…" : store.selections.length > 1 ? `已选择 ${store.selections.length} 项`
-            : store.selection ? `${store.selection.kind}: ${store.selection.id}` : "就绪"}</span>
-          <span>{store.navigationProfile === "catia"
-            ? "CATIA：M 平移/定中心 · M+L/R 旋转 · 保持 M 释放侧键后缩放"
-            : "默认：右键旋转 · 中键平移"}</span>
-          <span>mm</span>
-        </div>
       </section></main>
     <CommandDialog id="pad" open={padOpen} title="拉伸草图" onClose={closePad} confirmLoading={command.isPending}
       onConfirm={async () => padSketch(await padForm.validateFields())}>

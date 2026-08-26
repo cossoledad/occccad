@@ -115,16 +115,19 @@ type VisualizationManifest struct {
 // POLYLINE, and TRIANGLES cover sketches and form the extension boundary for
 // future wire/curve/surface modules without leaking OCCT types.
 type VisualPrimitive struct {
-	ID         string       `json:"id"`
-	FeatureID  string       `json:"featureId"`
-	Kind       string       `json:"kind"`
-	Semantic   string       `json:"semantic"`
-	EntityType string       `json:"entityType,omitempty"`
-	Role       string       `json:"role,omitempty"`
-	Status     string       `json:"status,omitempty"`
-	Positions  [][3]float64 `json:"positions"`
-	Indices    []uint32     `json:"indices,omitempty"`
-	Selectable bool         `json:"selectable"`
+	ID               string       `json:"id"`
+	FeatureID        string       `json:"featureId"`
+	Kind             string       `json:"kind"`
+	Semantic         string       `json:"semantic"`
+	EntityType       string       `json:"entityType,omitempty"`
+	Role             string       `json:"role,omitempty"`
+	Status           string       `json:"status,omitempty"`
+	Positions        [][3]float64 `json:"positions"`
+	Label            string       `json:"label,omitempty"`
+	LabelPosition    *[3]float64  `json:"labelPosition,omitempty"`
+	RelatedEntityIDs []string     `json:"relatedEntityIds,omitempty"`
+	Indices          []uint32     `json:"indices,omitempty"`
+	Selectable       bool         `json:"selectable"`
 }
 
 type SketchPoint2 struct {
@@ -157,13 +160,14 @@ type SketchGeometryRef struct {
 	SubElement string `json:"subElement"`
 }
 type SketchConstraint struct {
-	ID         string              `json:"id"`
-	Kind       string              `json:"kind"`
-	References []SketchGeometryRef `json:"references"`
-	FixedPoint *SketchPoint2       `json:"fixedPoint,omitempty"`
-	Value      *float64            `json:"value,omitempty"`
-	Unit       string              `json:"unit,omitempty"`
-	Internal   bool                `json:"internal,omitempty"`
+	ID            string              `json:"id"`
+	Kind          string              `json:"kind"`
+	References    []SketchGeometryRef `json:"references"`
+	FixedPoint    *SketchPoint2       `json:"fixedPoint,omitempty"`
+	Value         *float64            `json:"value,omitempty"`
+	Unit          string              `json:"unit,omitempty"`
+	LabelPosition *SketchPoint2       `json:"labelPosition,omitempty"`
+	Internal      bool                `json:"internal,omitempty"`
 }
 type SketchSolveState struct {
 	Status                   string   `json:"status"`
@@ -180,11 +184,14 @@ type SketchFeature struct {
 	Solve         SketchSolveState   `json:"solve"`
 }
 type SketchOperation struct {
-	Type       string            `json:"type"`
-	Entity     *SketchEntity     `json:"entity,omitempty"`
-	Constraint *SketchConstraint `json:"constraint,omitempty"`
-	First      *SketchPoint2     `json:"first,omitempty"`
-	Second     *SketchPoint2     `json:"second,omitempty"`
+	Type          string            `json:"type"`
+	Entity        *SketchEntity     `json:"entity,omitempty"`
+	Constraint    *SketchConstraint `json:"constraint,omitempty"`
+	ConstraintID  string            `json:"constraintId,omitempty"`
+	LabelPosition *SketchPoint2     `json:"labelPosition,omitempty"`
+	Value         *float64          `json:"value,omitempty"`
+	First         *SketchPoint2     `json:"first,omitempty"`
+	Second        *SketchPoint2     `json:"second,omitempty"`
 }
 
 type Feature struct {
@@ -1578,86 +1585,29 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 		for _, entity := range feature.Sketch.Entities {
 			entities[entity.ID] = entity
 		}
-		referencedPoint := func(reference SketchGeometryRef) (SketchPoint2, bool) {
-			if reference.Target == "SKETCH_ORIGIN" {
-				return SketchPoint2{}, true
-			}
-			entity, exists := entities[reference.EntityID]
-			if !exists {
-				return SketchPoint2{}, false
-			}
-			if entity.Kind == "POINT" && entity.Point != nil && reference.SubElement == "POINT" {
-				return *entity.Point, true
-			}
-			if entity.Kind == "LINE" && entity.Start != nil && reference.SubElement == "START" {
-				return *entity.Start, true
-			}
-			if entity.Kind == "LINE" && entity.End != nil && reference.SubElement == "END" {
-				return *entity.End, true
-			}
-			if entity.Center != nil && reference.SubElement == "CENTER" {
-				return *entity.Center, true
-			}
-			if reference.SubElement == "START" || reference.SubElement == "END" {
-				start, end, ok := entityProfileEndpoints(entity)
-				if ok {
-					if reference.SubElement == "START" {
-						return start, true
-					}
-					return end, true
-				}
-			}
-			return SketchPoint2{}, false
-		}
 		for _, constraint := range feature.Sketch.Constraints {
-			primitive := VisualPrimitive{ID: constraint.ID, FeatureID: feature.ID, EntityType: constraint.Kind,
-				Semantic: "SKETCH_CONSTRAINT", Status: feature.Sketch.Solve.Status, Selectable: true}
-			switch constraint.Kind {
-			case "COINCIDENT":
-				if len(constraint.References) == 0 {
-					continue
-				}
-				point, exists := referencedPoint(constraint.References[0])
-				if !exists {
-					continue
-				}
-				primitive.Kind, primitive.Positions = "POINTS", [][3]float64{toWorld(point)}
-			case "FIXED_POINT":
-				point, exists := SketchPoint2{}, false
-				if constraint.FixedPoint != nil {
-					point, exists = *constraint.FixedPoint, true
-				} else if len(constraint.References) > 0 {
-					point, exists = referencedPoint(constraint.References[0])
-				}
-				if !exists {
-					continue
-				}
-				primitive.Kind, primitive.Positions = "POINTS", [][3]float64{toWorld(point)}
-			case "PARALLEL":
-				primitive.Kind = "LINE_SEGMENTS"
-				for _, reference := range constraint.References {
-					entity, exists := entities[reference.EntityID]
-					if reference.Target != "ENTITY" || !exists || entity.Kind != "LINE" || entity.Start == nil || entity.End == nil {
-						continue
-					}
-					dx, dy := entity.End.X-entity.Start.X, entity.End.Y-entity.Start.Y
-					length := math.Hypot(dx, dy)
-					if length == 0 {
-						continue
-					}
-					middle := SketchPoint2{(entity.Start.X + entity.End.X) / 2, (entity.Start.Y + entity.End.Y) / 2}
-					for _, offset := range []float64{-2, 2} {
-						center := SketchPoint2{middle.X + dx/length*offset, middle.Y + dy/length*offset}
-						primitive.Positions = append(primitive.Positions,
-							toWorld(SketchPoint2{center.X + dy/length*2, center.Y - dx/length*2}),
-							toWorld(SketchPoint2{center.X - dy/length*2, center.Y + dx/length*2}))
-					}
-				}
-				if len(primitive.Positions) == 0 {
-					continue
-				}
-			default:
+			visual, ok := constraintVisual(constraint, entities)
+			if !ok {
 				continue
+			}
+			primitive := VisualPrimitive{
+				ID: constraint.ID, FeatureID: feature.ID, Kind: visual.Kind,
+				EntityType: constraint.Kind, Semantic: "SKETCH_CONSTRAINT",
+				Status: feature.Sketch.Solve.Status, Label: visual.Label, Selectable: true,
+			}
+			seenRelated := map[string]bool{}
+			for _, reference := range constraint.References {
+				if reference.EntityID != "" && !seenRelated[reference.EntityID] {
+					primitive.RelatedEntityIDs = append(primitive.RelatedEntityIDs, reference.EntityID)
+					seenRelated[reference.EntityID] = true
+				}
+			}
+			for _, point := range visual.Positions {
+				primitive.Positions = append(primitive.Positions, toWorld(point))
+			}
+			if visual.LabelPosition != nil {
+				worldPosition := toWorld(*visual.LabelPosition)
+				primitive.LabelPosition = &worldPosition
 			}
 			manifest.Primitives = append(manifest.Primitives, primitive)
 		}
@@ -2435,18 +2385,27 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 	}
 	constraints := DocumentStructureNode{ID: path + "/constraints", Kind: "SKETCH_CONSTRAINT_SET", Name: "Constraints",
 		OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+	logical := DocumentStructureNode{ID: constraints.ID + "/logical", Kind: "SKETCH_LOGICAL_CONSTRAINT_SET", Name: "Geometric Constraints",
+		OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+	dimensions := DocumentStructureNode{ID: constraints.ID + "/dimensions", Kind: "SKETCH_DIMENSION_SET", Name: "Dimensions",
+		OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
 	counts = map[string]int{}
 	for _, constraint := range sketch.Constraints {
 		counts[constraint.Kind]++
 		name := strings.Title(strings.ToLower(strings.ReplaceAll(constraint.Kind, "_", " "))) + " " + fmt.Sprint(counts[constraint.Kind])
-		node := DocumentStructureNode{ID: constraints.ID + "/constraint:" + constraint.ID, Kind: "SKETCH_CONSTRAINT", Name: name,
+		parent := &logical
+		if isDimensionalConstraint(constraint.Kind) {
+			parent = &dimensions
+		}
+		node := DocumentStructureNode{ID: parent.ID + "/constraint:" + constraint.ID, Kind: "SKETCH_CONSTRAINT", Name: name,
 			EntityID: constraint.ID, OwnerEntityID: sketchID, EntityType: constraint.Kind,
 			DocumentID: documentID, VersionID: versionID}
 		if editable {
 			node.Capabilities = []string{"DELETE"}
 		}
-		constraints.Children = append(constraints.Children, node)
+		parent.Children = append(parent.Children, node)
 	}
+	constraints.Children = append(constraints.Children, logical, dimensions)
 	return []DocumentStructureNode{geometry, constraints}
 }
 

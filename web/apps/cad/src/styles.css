@@ -690,7 +690,7 @@ select {
 
 .cad-viewport-canvas {
   position: absolute;
-  inset: 0 0 25px;
+  inset: 0;
 }
 
 .cad-viewport-canvas canvas {
@@ -708,31 +708,21 @@ select {
   cursor: default;
 }
 
-.sketch-tool-prompt {
+.sketch-dimension-editor {
   position: absolute;
-  z-index: 6;
-  bottom: 38px;
-  left: 50%;
-  display: flex;
-  min-width: 360px;
-  max-width: min(680px, 72vw);
-  align-items: center;
-  gap: 12px;
-  padding: 7px 12px;
-  color: #edf4f7;
-  border: 1px solid rgb(178 202 212 / 38%);
-  border-radius: 4px;
-  background: rgb(24 39 49 / 88%);
-  box-shadow: 0 3px 10px rgb(10 25 34 / 28%);
-  transform: translateX(-50%);
-  pointer-events: none;
-  font-size: 11px;
-  backdrop-filter: blur(7px);
+  z-index: 60;
+  width: 112px;
+  transform: translate(-50%, -50%);
+  border: 1px solid #72dda0;
+  border-radius: 5px;
+  background: rgba(12, 29, 39, 0.96);
+  color: #e8fff1;
+  padding: 5px 8px;
+  font: 600 13px/1.2 system-ui, sans-serif;
+  text-align: center;
+  outline: none;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
 }
-
-.sketch-tool-prompt strong { flex: 0 0 auto; color: #f5a33b; font-weight: 650; }
-.sketch-tool-prompt span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sketch-tool-prompt small { flex: 0 0 auto; margin-left: auto; color: #a8bbc5; font-size: 10px; }
 
 .cad-floating-panel {
   position: absolute;
@@ -811,23 +801,6 @@ select {
   .cad-command-dialog { right: 8px; left: 8px !important; width: auto !important; }
 }
 
-.viewport-status {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: 25px;
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  align-items: center;
-  gap: 20px;
-  padding: 0 10px;
-  color: var(--cad-text-on-dark);
-  border-top: 1px solid rgb(26 47 61 / 48%);
-  background: rgb(24 39 49 / 82%);
-  font-size: 9px;
-  backdrop-filter: blur(7px);
-}
 
 .floating-structure-tree {
   position: absolute;

@@ -30,7 +30,7 @@ func TestPartVisualizationManifestAndGLBExtensionContainSelectableSketchGeometry
 		visualization.Primitives[0].Positions[0] != [3]float64{2, 0, 3} ||
 		visualization.Primitives[1].Kind != "POLYLINE" || !visualization.Primitives[1].Selectable ||
 		visualization.Primitives[2].Semantic != "SKETCH_CONSTRAINT" || visualization.Primitives[2].EntityType != "COINCIDENT" ||
-		visualization.Primitives[2].Positions[0] != [3]float64{1, 0, 4} {
+		visualization.Primitives[2].Positions[0] != [3]float64{1, 0, 4} || len(visualization.Primitives[2].RelatedEntityIDs) != 2 {
 		t.Fatalf("unexpected visualization manifest: %#v", visualization)
 	}
 	glb, err := glbWithVisualization(nil, visualization)
@@ -409,7 +409,11 @@ func TestSketchStructureProjectsEntitiesConstraintsAndDeleteCapabilities(t *test
 		t.Fatalf("sketch must expose delete capability and two child sets: %#v", sketch)
 	}
 	entity := sketch.Children[0].Children[0]
-	constraint := sketch.Children[1].Children[0]
+	if len(sketch.Children[1].Children) != 2 || sketch.Children[1].Children[0].Kind != "SKETCH_LOGICAL_CONSTRAINT_SET" ||
+		sketch.Children[1].Children[1].Kind != "SKETCH_DIMENSION_SET" {
+		t.Fatalf("constraints must be split into logical and dimension groups: %#v", sketch.Children[1])
+	}
+	constraint := sketch.Children[1].Children[0].Children[0]
 	if entity.Kind != "SKETCH_ENTITY" || entity.EntityID != "line-1" || entity.OwnerEntityID != "sketch-1" || len(entity.Capabilities) != 1 {
 		t.Fatalf("unexpected entity projection: %#v", entity)
 	}

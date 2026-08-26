@@ -20,13 +20,15 @@ import { CadBackground } from "../cad/rendering/cad-background";
 import { CadMaterialFactory } from "../cad/rendering/cad-material-factory";
 import { visualSelection, visualType } from "../cad/rendering/visualization-render-model";
 import { CATIA_VISUAL_THEME } from "../cad/rendering/cad-visual-theme";
-import { makeOcclusionVisibleHighlightLine, updateHighlightLineResolution } from "../cad/rendering/interaction-highlight";
+import { makeOcclusionVisibleHighlightLine, makeOcclusionVisibleSegments, updateHighlightLineResolution } from "../cad/rendering/interaction-highlight";
+import { constraintSymbolCode, makeConstraintDimensionLabel, makeSketchConstraintRenderable } from "../cad/rendering/sketch-constraint-renderer";
+import { isDimensionConstraintKind, type ConstraintKind } from "../cad/sketch/sketch-constraint-definition";
 import { sampleSketchEntity, sketchEntityPoint } from "../cad/sketch/sketch-geometry";
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
-import { ArcSketchTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type ToolViewportPort } from "../cad/tool/cad-tool";
+import { ArcSketchTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
-  Artifact, AxisSystem, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SelectionItem, SketchGeometryRef, SketchOperation, Vec2, Vec3, VisualizationManifest,
+  Artifact, AxisSystem, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SelectionItem, SketchConstraint, SketchGeometryRef, SketchOperation, Vec2, Vec3, VisualizationManifest,
 } from "../types";
 
 type Callbacks = {
@@ -35,6 +37,7 @@ type Callbacks = {
   sketchOperations: (operations: SketchOperation[]) => void;
   toolPromptChanged: (prompt: string) => void;
   toolUseCompleted: () => void;
+  dimensionEditRequested: (request: { featureId: string; constraintId: string; value: number; unit: "mm" | "deg"; x: number; y: number }) => void;
   activeToolChanged: (toolID: import("../state/workbench-store").WorkbenchToolID) => void;
   instanceMoved: (instanceId: string, translation: Vec3) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
@@ -85,6 +88,11 @@ function rayPlane(plane: PlaneName): THREE.Plane {
   if (plane === "XY") return new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
   if (plane === "XZ") return new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
   return new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
+}
+
+function constraintTreeNodeID(featureTreeNode: string, kind: ConstraintKind, constraintID: string): string {
+  const group = isDimensionConstraintKind(kind) ? "dimensions" : "logical";
+  return `${featureTreeNode}/constraints/${group}/constraint:${constraintID}`;
 }
 
 function makeGeometry(artifact: Artifact): THREE.BufferGeometry {
@@ -154,6 +162,8 @@ export class CadViewportEngine {
   private referencePreview?: THREE.Object3D;
   private snapPreview?: THREE.Object3D;
   private commandPreview?: THREE.Object3D;
+  private dimensionDrag?: { selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; constraint: SketchConstraint;
+    root?: THREE.Object3D; startX: number; startY: number; position?: Vec2 };
   private suppressNextSelection = false;
   private activeToolID = "select";
   private navigationProfile: NavigationProfileID = "default";
@@ -230,6 +240,7 @@ export class CadViewportEngine {
     this.tools.register(new RectangleSketchTool());
     this.tools.register(new RegularPolygonSketchTool());
     this.tools.register(new SlotSketchTool());
+    this.tools.register(new LinearDimensionSketchTool());
     for (const kind of ["COINCIDENT","PARALLEL","FIXED","HORIZONTAL","VERTICAL","PERPENDICULAR","TANGENT","EQUAL","DISTANCE","LENGTH","RADIUS","DIAMETER","ANGLE","CONCENTRIC","POINT_ON_OBJECT","MIDPOINT"] as const)
       this.tools.register(new ConstraintSketchTool(kind));
     this.tools.activate("select");
@@ -613,17 +624,37 @@ export class CadViewportEngine {
 
   private addVisualPrimitives(visualization: VisualizationManifest | undefined, parent: THREE.Group, context: SolidContext): void {
     if (!visualization || visualization.schemaVersion !== 1) return;
+    const sketchEntityObjects = new Map<string, THREE.Object3D>();
     for (const primitive of visualization.primitives ?? []) {
       if (primitive.positions.length === 0) continue;
       const construction = primitive.role === "CONSTRUCTION";
       const color = primitive.semantic === "SKETCH_CONSTRAINT" ? CATIA_VISUAL_THEME.constraint
         : sketchDiagnosticColor(primitive.status, construction);
-      const geometry = new THREE.BufferGeometry().setFromPoints(
-        primitive.positions.map((position) => new THREE.Vector3().fromArray(position)),
-      );
+      const points = primitive.positions.map((position) => new THREE.Vector3().fromArray(position));
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
       let object: THREE.Object3D;
       const type = visualType(primitive);
-      if (primitive.kind === "POINTS") {
+      if (primitive.semantic === "SKETCH_CONSTRAINT" && primitive.kind === "POINTS") {
+        object = new THREE.Points(geometry,
+          this.materials.constraintGlyph(constraintSymbolCode(primitive.entityType as ConstraintKind)));
+        object.renderOrder = 84;
+      } else if (primitive.semantic === "SKETCH_CONSTRAINT" && primitive.kind === "LINE_SEGMENTS") {
+        geometry.dispose();
+        const group = new THREE.Group();
+        const segments: Array<[THREE.Vector3, THREE.Vector3]> = [];
+        for (let index = 0; index + 1 < points.length; index += 2) segments.push([points[index], points[index + 1]]);
+        const leaders = makeOcclusionVisibleSegments(segments, CATIA_VISUAL_THEME.constraint, 2.5);
+        leaders.renderOrder = 82;
+        updateHighlightLineResolution(leaders, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
+        group.add(leaders);
+        if (primitive.label && primitive.labelPosition) {
+          const label = makeConstraintDimensionLabel(primitive.label);
+          label.position.fromArray(primitive.labelPosition);
+          label.renderOrder = 86;
+          group.add(label);
+        }
+        object = group;
+      } else if (primitive.kind === "POINTS") {
         object = new THREE.Points(geometry, this.materials.point(color, 9, false));
       } else if (primitive.kind === "POLYLINE") {
         object = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, depthTest: false }));
@@ -637,21 +668,36 @@ export class CadViewportEngine {
           color, transparent: true, opacity: 0.58, side: THREE.DoubleSide, depthWrite: false,
         }));
       }
-      object.renderOrder = primitive.kind === "POINTS" ? 22 : 20;
+      if (primitive.semantic !== "SKETCH_CONSTRAINT") object.renderOrder = primitive.kind === "POINTS" ? 22 : 20;
       const featureTreeNode = this.featureTreeNode(context, primitive.featureId);
       const selection = visualSelection(primitive, {
         treeNodeId: featureTreeNode ? primitive.semantic === "SKETCH_CONSTRAINT"
-          ? `${featureTreeNode}/constraints/constraint:${primitive.id}` : `${featureTreeNode}/geometry/entity:${primitive.id}`
+          ? constraintTreeNodeID(featureTreeNode, primitive.entityType as ConstraintKind, primitive.id) : `${featureTreeNode}/geometry/entity:${primitive.id}`
           : context.treeNodeId,
         documentId: context.documentId,
         occurrencePath: context.occurrencePath, geometryKey: context.geometryKey, instanceId: context.instanceId,
       });
       object.userData = { ...selection, sketchFeatureID: primitive.featureId };
+      object.traverse((child) => {
+        child.userData = { ...child.userData, ...selection, sketchFeatureID: primitive.featureId };
+      });
       parent.add(object);
+      if (primitive.semantic === "SKETCH_POINT" || primitive.semantic === "SKETCH_CURVE") {
+        sketchEntityObjects.set(`${primitive.featureId}:${primitive.id}`, object);
+      }
       if (primitive.selectable) {
         this.selectable.set(`visual:${selection.id}`, object);
         this.selectionIndex.register(selection, object, selection.treeNodeId);
-        this.selectionIndex.registerPick(object, () => selection, type === "POINT" ? 75 : type === "CURVE" ? 70 : 30);
+        const pickables = object.children.length > 0 ? object.children : [object];
+        for (const pickable of pickables) {
+          this.selectionIndex.registerPick(pickable, () => selection, type === "POINT" ? 75 : type === "CURVE" ? 70 : 30);
+        }
+        if (primitive.semantic === "SKETCH_CONSTRAINT") {
+          for (const entityID of primitive.relatedEntityIds ?? []) {
+            const related = sketchEntityObjects.get(`${primitive.featureId}:${entityID}`);
+            if (related) this.selectionIndex.associate(selection, related);
+          }
+        }
       }
     }
   }
@@ -718,18 +764,12 @@ export class CadViewportEngine {
     const plane = feature.sketch?.support.plane ?? feature.plane ?? "XY";
     const group = new THREE.Group();
     group.userData.sketchFeatureID = feature.id;
-    const entities = new Map((feature.sketch?.entities ?? []).map((entity) => [entity.id, entity]));
     const documentId = this.view?.document.id ?? "";
     const featureTreeNode = this.featureTreeNode({ documentId, geometryKey: this.view?.artifact?.geometryKey ?? "",
       occurrencePath: "", treeNodeId: `document:${documentId}/body` }, feature.id)
       ?? `document:${documentId}/body/sketch:${feature.id}`;
-    const referencedPoint = (reference: SketchGeometryRef): Vec2 | undefined => {
-      if (reference.target === "SKETCH_ORIGIN") return [0, 0];
-      const entity = reference.entityId ? entities.get(reference.entityId) : undefined;
-      if (!entity || !["POINT","START","END","CENTER"].includes(reference.subElement)) return undefined;
-      return sketchEntityPoint(entity,reference.subElement as "POINT"|"START"|"END"|"CENTER");
-    };
     const sketchSelection = { kind: "sketch" as const, id: feature.id, documentId, treeNodeId: featureTreeNode };
+    const sketchEntityObjects = new Map<string, THREE.Object3D>();
     for (const entity of feature.sketch?.entities ?? []) {
       const type = entity.kind === "POINT" ? "POINT" as const : "CURVE" as const;
       const entitySelection = { kind: "visual" as const, id: `root:${feature.id}:${entity.id}`, visualType: type,
@@ -753,6 +793,7 @@ export class CadViewportEngine {
       }
       if (!object) continue;
       object.userData = { ...entitySelection, sketchEntityOverlay: true }; group.add(object);
+      sketchEntityObjects.set(entity.id, object);
       this.selectable.set(`visual:${entitySelection.id}`, object);
       this.selectionIndex.register(entitySelection, object);
       this.selectionIndex.registerPick(object, () => entitySelection, type === "POINT" ? 75 : 70);
@@ -761,43 +802,22 @@ export class CadViewportEngine {
       const constraintSelection = { kind: "sketch-constraint" as const,
         id: `root:${feature.id}:constraint:${constraint.id}`, featureId: feature.id,
         constraintId: constraint.id, constraintType: constraint.kind, documentId,
-        treeNodeId: `${featureTreeNode}/constraints/constraint:${constraint.id}` };
-      const constraintGroup = new THREE.Group();
-      if (constraint.kind === "COINCIDENT") {
-        const point = referencedPoint(constraint.references[0]);
-        if (point) constraintGroup.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(plane, point)]),
-          this.materials.point(CATIA_VISUAL_THEME.constraint, 8, false)));
-      }
-      if (constraint.kind === "PARALLEL") {
-        for (const reference of constraint.references.filter((item) => item.target === "ENTITY")) {
-          const entity = reference.entityId ? entities.get(reference.entityId) : undefined;
-          if (entity?.kind !== "LINE" || !entity.start || !entity.end) continue;
-          const dx=entity.end.x-entity.start.x, dy=entity.end.y-entity.start.y, length=Math.hypot(dx,dy);
-          if (length===0) continue;
-          const middle:Vec2=[(entity.start.x+entity.end.x)/2,(entity.start.y+entity.end.y)/2];
-          const perpendicular:Vec2=[-dy/length,dx/length];
-          const ticks: THREE.Vector3[] = [];
-          for (const offset of [-2,2]) {
-            const center:Vec2=[middle[0]+dx/length*offset,middle[1]+dy/length*offset];
-            ticks.push(localToWorld(plane,[center[0]-perpendicular[0]*2,center[1]-perpendicular[1]*2]),localToWorld(plane,[center[0]+perpendicular[0]*2,center[1]+perpendicular[1]*2]));
-          }
-          constraintGroup.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(ticks),
-            new THREE.LineBasicMaterial({ color: CATIA_VISUAL_THEME.constraint, depthTest: false })));
-        }
-      }
-      if (constraint.kind === "FIXED_POINT") {
-        const point = constraint.fixedPoint ? [constraint.fixedPoint.x, constraint.fixedPoint.y] as Vec2
-          : referencedPoint(constraint.references[0]);
-        if (point) constraintGroup.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(plane, point)]),
-          this.materials.point(CATIA_VISUAL_THEME.constraint, 11, false)));
-      }
+        treeNodeId: constraintTreeNodeID(featureTreeNode, constraint.kind, constraint.id) };
+      const constraintGroup = makeSketchConstraintRenderable(constraint, feature.sketch?.entities ?? [],
+        (point) => localToWorld(plane, point), this.materials,
+        { width: this.renderer.domElement.clientWidth, height: this.renderer.domElement.clientHeight });
       if (constraintGroup.children.length === 0) continue;
       constraintGroup.userData = constraintSelection;
-      constraintGroup.traverse((child) => { child.userData = constraintSelection; child.renderOrder = 24;
+      constraintGroup.traverse((child) => { child.userData = constraintSelection;
         if (child !== constraintGroup) this.selectionIndex.registerPick(child, () => constraintSelection, 80); });
       group.add(constraintGroup);
       this.selectable.set(`sketch-constraint:${constraintSelection.id}`, constraintGroup);
       this.selectionIndex.register(constraintSelection, constraintGroup);
+      for (const reference of constraint.references) {
+        if (!reference.entityId) continue;
+        const related = sketchEntityObjects.get(reference.entityId);
+        if (related) this.selectionIndex.associate(constraintSelection, related);
+      }
     }
     group.userData = { ...sketchSelection, sketchFeatureID: feature.id, sketchEditOverlay: true };
     this.helpers.add(group);
@@ -897,6 +917,73 @@ export class CadViewportEngine {
     this.raycaster.params.Line = { threshold: worldPerPixel * 5 };
     this.raycaster.params.Points = { threshold: worldPerPixel * 7 };
     return this.selectionIndex.pick(this.raycaster, (selection) => allowsSelection(this.captureSettings, selection));
+  }
+
+  private dimensionConstraintAt(x: number, y: number) {
+    const selection = this.hitTest(x, y);
+    if (!selection || selection.kind !== "sketch-constraint" || !this.view) return undefined;
+    const feature = this.view.part?.features.find((candidate) => candidate.id === selection.featureId);
+    const constraint = feature?.sketch?.constraints.find((candidate) => candidate.id === selection.constraintId);
+    if (!constraint || !isDimensionConstraintKind(constraint.kind)) return undefined;
+    return { selection, constraint, feature };
+  }
+
+  private rawSketchPoint(x: number, y: number): Vec2 | undefined {
+    if (!this.sketchPlane) return undefined;
+    this.updatePointer(x, y); this.raycaster.setFromCamera(this.pointer, this.camera);
+    const world = this.raycaster.ray.intersectPlane(rayPlane(this.sketchPlane), new THREE.Vector3());
+    return world ? worldToLocal(this.sketchPlane, world) : undefined;
+  }
+
+  private beginDimensionDrag(x: number, y: number): boolean {
+    if (!this.sketchPlane || !this.activeSketchID) return false;
+    const hit = this.dimensionConstraintAt(x, y);
+    if (!hit || hit.selection.featureId !== this.activeSketchID) return false;
+    this.selectMany([hit.selection]);
+    const root = this.selectable.get(`sketch-constraint:${hit.selection.id}`);
+    this.dimensionDrag = { selection: hit.selection, constraint: hit.constraint, root, startX: x, startY: y };
+    return true;
+  }
+
+  private updateDimensionDrag(x: number, y: number): void {
+    if (!this.dimensionDrag || !this.sketchPlane || !this.view) return;
+    if (Math.hypot(x - this.dimensionDrag.startX, y - this.dimensionDrag.startY) < 3 && !this.dimensionDrag.position) return;
+    const position = this.rawSketchPoint(x, y); if (!position) return;
+    this.dimensionDrag.position = position;
+    if (this.dimensionDrag.root) this.dimensionDrag.root.visible = false;
+    this.clearReferencePreview();
+    const feature = this.view.part?.features.find((candidate) => candidate.id === this.dimensionDrag!.selection.featureId);
+    if (!feature?.sketch) return;
+    const previewConstraint = { ...this.dimensionDrag.constraint, labelPosition: { x: position[0], y: position[1] } };
+    this.referencePreview = makeSketchConstraintRenderable(previewConstraint, feature.sketch.entities,
+      (point) => localToWorld(this.sketchPlane!, point), this.materials,
+      { width: this.renderer.domElement.clientWidth, height: this.renderer.domElement.clientHeight });
+    this.scene.add(this.referencePreview); this.invalidate();
+  }
+
+  private finishDimensionDrag(): void {
+    const drag = this.dimensionDrag; this.dimensionDrag = undefined;
+    if (!drag) return;
+    if (drag.root) drag.root.visible = true;
+    this.clearReferencePreview();
+    if (drag.position) this.callbacks.sketchOperations([{ type: "UPDATE_CONSTRAINT_PLACEMENT",
+      constraintId: drag.constraint.id, labelPosition: { x: drag.position[0], y: drag.position[1] } }]);
+    this.invalidate();
+  }
+
+  private cancelDimensionDrag(): void {
+    if (this.dimensionDrag?.root) this.dimensionDrag.root.visible = true;
+    this.dimensionDrag = undefined; this.clearReferencePreview(); this.invalidate();
+  }
+
+  private editDimensionAt(x: number, y: number): boolean {
+    const hit = this.dimensionConstraintAt(x, y);
+    if (!hit || hit.selection.featureId !== this.activeSketchID || hit.constraint.value === undefined ||
+      (hit.constraint.unit !== "mm" && hit.constraint.unit !== "deg")) return false;
+    this.selectMany([hit.selection]);
+    this.callbacks.dimensionEditRequested({ featureId: hit.selection.featureId, constraintId: hit.constraint.id,
+      value: hit.constraint.value, unit: hit.constraint.unit, x, y });
+    return true;
   }
 
   private replaceTopologyOverlays(layer: "selected" | "preselected", selections: readonly SelectionItem[]): void {
@@ -1053,32 +1140,30 @@ export class CadViewportEngine {
     if (reference.target === "SKETCH_X_AXIS" || reference.target === "SKETCH_Y_AXIS") {
       const points: [Vec2, Vec2] = reference.target === "SKETCH_X_AXIS"
         ? [[-110, 0], [110, 0]] : [[0, -110], [0, 110]];
-      return new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(points.map((point) => localToWorld(this.sketchPlane!, point))),
-        new THREE.LineBasicMaterial({ color, depthTest: false }),
-      );
+      const line = makeOcclusionVisibleHighlightLine(points.map((point) => localToWorld(this.sketchPlane!, point)), color, 4);
+      updateHighlightLineResolution(line, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
+      return line;
     }
     if (!this.view || !reference.entityId) return undefined;
     const entity = this.view.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch?.entities
       .find((candidate) => candidate.id === reference.entityId);
     if (!entity) return undefined;
-    if (entity.kind === "POINT" && entity.point && reference.subElement === "POINT") {
+    if (entity.kind === "POINT" && entity.point) {
       return new THREE.Points(
         new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane, [entity.point.x, entity.point.y])]),
         this.materials.point(color, 15, false),
       );
     }
-    if (entity.kind !== "LINE" || !entity.start || !entity.end) return undefined;
-    const start = localToWorld(this.sketchPlane, [entity.start.x, entity.start.y]);
-    const end = localToWorld(this.sketchPlane, [entity.end.x, entity.end.y]);
-    if (reference.subElement === "DIRECTION") {
-      return new THREE.Line(new THREE.BufferGeometry().setFromPoints([start, end]),
-        new THREE.LineBasicMaterial({ color, depthTest: false }));
+    if (["POINT", "START", "END", "CENTER"].includes(reference.subElement)) {
+      const point = sketchEntityPoint(entity, reference.subElement as "POINT" | "START" | "END" | "CENTER");
+      if (point) return new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane, point)]),
+        this.materials.point(color, 15, false));
     }
-    return new THREE.Points(
-      new THREE.BufferGeometry().setFromPoints([reference.subElement === "START" ? start : end]),
-      this.materials.point(color, 15, false),
-    );
+    const sampled = sampleSketchEntity(entity);
+    if (sampled.length < 2) return undefined;
+    const line = makeOcclusionVisibleHighlightLine(sampled.map((point) => localToWorld(this.sketchPlane!, point)), color, 4);
+    updateHighlightLineResolution(line, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
+    return line;
   }
 
   private showReferencePreview(reference: SketchGeometryRef, retained?: SketchGeometryRef): void {
@@ -1098,9 +1183,33 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
+  private showConstraintPreview(kind: ConstraintKind, references: readonly SketchGeometryRef[], value?: number, labelPosition?: Vec2): void {
+    this.clearReferencePreview();
+    if (!this.sketchPlane || !this.view) return;
+    const feature = this.view.part?.features.find((candidate) => candidate.id === this.activeSketchID);
+    if (!feature?.sketch) return;
+    const group = new THREE.Group();
+    for (const reference of references) {
+      const highlight = this.makeReferencePreview(reference, CATIA_VISUAL_THEME.selected);
+      if (highlight) group.add(highlight);
+    }
+    const constraint: SketchConstraint = {
+      id: "constraint-preview", kind, references: [...references],
+      ...(value === undefined ? {} : { value, unit: kind === "ANGLE" ? "deg" : "mm" }),
+      ...(labelPosition ? { labelPosition: { x: labelPosition[0], y: labelPosition[1] } } : {}),
+    };
+    group.add(makeSketchConstraintRenderable(constraint, feature.sketch.entities,
+      (point) => localToWorld(this.sketchPlane!, point), this.materials,
+      { width: this.renderer.domElement.clientWidth, height: this.renderer.domElement.clientHeight }));
+    this.referencePreview = group;
+    this.scene.add(group);
+    this.invalidate();
+  }
+
   private toolViewportPort(): ToolViewportPort {
     return {
       sketchPoint: (x, y) => this.sketchPoint(x, y),
+      sketchPlacementPoint: (x, y) => this.rawSketchPoint(x, y) ?? null,
       showPolylinePreview: (points, closed = false) => {
         if (this.sketchPlane) this.drawPreview(points, closed, this.sketchPlane);
       },
@@ -1110,15 +1219,21 @@ export class CadViewportEngine {
       clearToolPreview: () => { this.clearPreview(); this.clearSnapPreview(); },
       commitSketchOperations: (operations) => { this.clearSnapPreview(); this.callbacks.sketchOperations(operations); },
       hasActiveSketch: () => Boolean(this.sketchPlane && this.activeSketchID),
-      sketchReferenceAt: (x, y, kind) => this.sketchReferenceAt(x, y, kind),
+      sketchReferenceAt: (x, y, kind, retained) => this.sketchReferenceAt(x, y, kind, retained),
       showReferencePreview: (reference, retained) => this.showReferencePreview(reference, retained),
+      showConstraintPreview: (kind, references, value, labelPosition) => this.showConstraintPreview(kind, references, value, labelPosition),
+      beginDimensionDrag: (x, y) => this.beginDimensionDrag(x, y),
+      updateDimensionDrag: (x, y) => this.updateDimensionDrag(x, y),
+      finishDimensionDrag: () => this.finishDimensionDrag(),
+      cancelDimensionDrag: () => this.cancelDimensionDrag(),
+      editDimensionAt: (x, y) => this.editDimensionAt(x, y),
       clearReferencePreview: () => this.clearReferencePreview(),
       setToolPrompt: (prompt) => this.callbacks.toolPromptChanged(prompt),
       finishToolUse: () => this.callbacks.toolUseCompleted(),
     };
   }
 
-  private sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind) {
+  private sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind, retained?: SketchGeometryRef) {
     if (!this.sketchPlane || !this.view || !this.captureSettings.enabled) return null;
     const width = Math.max(this.renderer.domElement.clientWidth, 1);
     const height = Math.max(this.renderer.domElement.clientHeight, 1);
@@ -1127,7 +1242,7 @@ export class CadViewportEngine {
       return { x: (projected.x + 1) * width / 2, y: (1 - projected.y) * height / 2 };
     };
     const entities = this.view.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch?.entities ?? [];
-    const reference = resolveSketchReference({ x, y }, entities, screen, kind);
+    const reference = resolveSketchReference({ x, y }, entities, screen, kind, 12, 110, retained);
     if (!reference) return null;
     const captureKind = reference.target === "SKETCH_ORIGIN" ? "ORIGIN"
       : reference.subElement === "START" || reference.subElement === "END" ? "ENDPOINT"
@@ -1234,6 +1349,7 @@ export class CadViewportEngine {
     for (const overlay of [...this.preselectedOverlays, ...this.selectedOverlays]) {
       updateHighlightLineResolution(overlay, width, height);
     }
+    updateHighlightLineResolution(this.helpers, width, height);
     this.updateNavigationHUD();
     this.invalidate();
   }
@@ -1259,7 +1375,10 @@ export class CadViewportEngine {
       const renderable = object as THREE.Mesh;
       renderable.geometry?.dispose();
       const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material];
-      materials.forEach((material) => material?.dispose());
+      materials.forEach((material) => {
+        if (material?.userData.ownedTexture instanceof THREE.Texture) material.userData.ownedTexture.dispose();
+        material?.dispose();
+      });
     });
   }
 

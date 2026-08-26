@@ -33,6 +33,12 @@ export class SelectionIndex {
     entries.add(object); this.objects.set(key, entries);
   }
 
+  associate(selection: Exclude<Selection, null>, object: THREE.Object3D): void {
+    const key = selectionKey(selection);
+    const entries = this.objects.get(key) ?? new Set<THREE.Object3D>();
+    entries.add(object); this.objects.set(key, entries);
+  }
+
   registerPick(root: THREE.Object3D, resolve: PickResolver, priority = 0): void {
     this.picks.push({ root, resolve, priority });
   }

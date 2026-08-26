@@ -2,17 +2,25 @@ import type { CadKeyboardEvent, CadPointerEvent } from "../input/input-types";
 import { InputResult } from "../input/input-types";
 import type { SketchGeometryRef, SketchOperation, Vec2 } from "../../types";
 import type { SketchReferencePickKind } from "../interaction/sketch-reference-pick";
+import { constraintDefinition, type ConstraintKind } from "../sketch/sketch-constraint-definition";
 import { randomUUID } from "../../utils/random-uuid";
 
 export type ToolViewportPort = {
   sketchPoint(x: number, y: number): Vec2 | null;
+  sketchPlacementPoint(x: number, y: number): Vec2 | null;
   showPolylinePreview(points: Vec2[], closed?: boolean): void;
   showPointPreview(point: Vec2): void;
   clearToolPreview(): void;
   commitSketchOperations(operations: SketchOperation[]): void;
   hasActiveSketch(): boolean;
-  sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind): SketchGeometryRef | null;
+  sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind, retained?: SketchGeometryRef): SketchGeometryRef | null;
   showReferencePreview(reference: SketchGeometryRef, retained?: SketchGeometryRef): void;
+  showConstraintPreview(kind: ConstraintKind, references: readonly SketchGeometryRef[], value?: number, labelPosition?: Vec2): void;
+  beginDimensionDrag(x: number, y: number): boolean;
+  updateDimensionDrag(x: number, y: number): void;
+  finishDimensionDrag(): void;
+  cancelDimensionDrag(): void;
+  editDimensionAt(x: number, y: number): boolean;
   clearReferencePreview(): void;
   setToolPrompt(prompt: string): void;
   finishToolUse(): void;
@@ -36,7 +44,31 @@ export interface CadTool {
 
 export class SelectTool implements CadTool {
   readonly id = "select";
+  private dimensionPointer?: number;
   activate(context: ToolContext): void { context.viewport.setToolPrompt("选择：选择草图元素，或从工具栏启动创建命令"); }
+  pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
+    if (event.button !== 0 || event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
+    if (event.originalEvent.detail >= 2 && context.viewport.editDimensionAt(event.x, event.y)) return InputResult.Consumed;
+    if (!context.viewport.beginDimensionDrag(event.x, event.y)) return InputResult.Ignored;
+    this.dimensionPointer = event.pointerId;
+    return InputResult.Capture;
+  }
+  pointerMove(event: CadPointerEvent, context: ToolContext): InputResult {
+    if (event.pointerId !== this.dimensionPointer) return InputResult.Ignored;
+    context.viewport.updateDimensionDrag(event.x, event.y);
+    return InputResult.Consumed;
+  }
+  pointerUp(event: CadPointerEvent, context: ToolContext): InputResult {
+    if (event.pointerId !== this.dimensionPointer || event.button !== 0) return InputResult.Ignored;
+    this.dimensionPointer = undefined; context.viewport.finishDimensionDrag();
+    return InputResult.ReleaseCapture;
+  }
+  pointerCancel(event: CadPointerEvent, context: ToolContext): InputResult {
+    if (event.pointerId !== this.dimensionPointer) return InputResult.Ignored;
+    this.dimensionPointer = undefined; context.viewport.cancelDimensionDrag();
+    return InputResult.Consumed;
+  }
+  cancel(context: ToolContext): void { this.dimensionPointer = undefined; context.viewport.cancelDimensionDrag(); }
 }
 
 abstract class TwoClickSketchTool implements CadTool {
@@ -268,35 +300,31 @@ export class PointSketchTool implements CadTool {
 // Constraint tools intentionally share the same tool lifecycle now. Entity
 // reference picking is the next extension point; commands stay typed and no
 // topology or array index is persisted.
-type ConstraintKind = Exclude<import("../../types").SketchConstraint["kind"], "FIXED_POINT">;
-const constraintSpecs:Record<ConstraintKind,{picks:SketchReferencePickKind[];label:string;unit?:"mm"|"deg"}>={
-  COINCIDENT:{picks:["POINT","POINT"],label:"重合"},PARALLEL:{picks:["LINE","LINE"],label:"平行"},FIXED:{picks:["ENTITY"],label:"固定"},
-  HORIZONTAL:{picks:["LINE"],label:"水平"},VERTICAL:{picks:["LINE"],label:"垂直"},PERPENDICULAR:{picks:["LINE","LINE"],label:"垂直"},
-  TANGENT:{picks:["CURVE","CURVE"],label:"相切"},EQUAL:{picks:["CURVE","CURVE"],label:"相等"},DISTANCE:{picks:["POINT","POINT"],label:"距离",unit:"mm"},
-  LENGTH:{picks:["LINE"],label:"长度",unit:"mm"},RADIUS:{picks:["CIRCULAR"],label:"半径",unit:"mm"},DIAMETER:{picks:["CIRCULAR"],label:"直径",unit:"mm"},
-  ANGLE:{picks:["LINE","LINE"],label:"角度",unit:"deg"},CONCENTRIC:{picks:["CIRCULAR","CIRCULAR"],label:"同心"},
-  POINT_ON_OBJECT:{picks:["POINT","CURVE"],label:"点在对象上"},MIDPOINT:{picks:["POINT","LINE"],label:"中点"},
-};
-
 export class ConstraintSketchTool implements CadTool {
   private references:SketchGeometryRef[]=[];
   private capturedPointerID?: number;
   private numeric="";
+  private labelPosition?:Vec2;
   readonly id:string;
   private readonly kind:ConstraintKind;
   constructor(kind:ConstraintKind|string) {
     this.kind=(kind.startsWith("sketch.constraint.")?kind.slice("sketch.constraint.".length).toUpperCase():kind) as ConstraintKind;
     this.id=`sketch.constraint.${this.kind.toLowerCase()}`;
   }
-  private get spec(){return constraintSpecs[this.kind];}
+  private get spec(){return constraintDefinition(this.kind);}
   private prompt():string {if(this.references.length===this.spec.picks.length&&this.spec.unit)return `${this.spec.label}：输入数值 (${this.spec.unit})，Enter 确认`;
-    const ordinal=this.references.length===0?"第一个":"第二个";const target=this.spec.picks[this.references.length]==="POINT"?"端点":"对象";
-    return `${this.spec.label}约束：选择${ordinal}${target}；Esc 取消`;}
+    return `${this.spec.label}约束：选择${this.spec.pickLabels[this.references.length]}；Esc 取消`;}
   activate(context: ToolContext): void { context.viewport.setToolPrompt(this.prompt()); }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
     if (event.button !== 0 || this.capturedPointerID !== undefined || !context.viewport.hasActiveSketch()) return InputResult.Ignored;
-    if(this.references.length>=this.spec.picks.length)return InputResult.Ignored;
-    const reference = context.viewport.sketchReferenceAt(event.x, event.y, this.spec.picks[this.references.length]); if (!reference) return InputResult.Ignored;
+    if(this.references.length>=this.spec.picks.length){
+      if(!this.spec.unit||this.labelPosition)return InputResult.Ignored;
+      const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Ignored;
+      this.capturedPointerID=event.pointerId;this.labelPosition=position;
+      context.viewport.showConstraintPreview(this.kind,this.references,undefined,position);
+      context.viewport.setToolPrompt(this.prompt());return InputResult.Capture;
+    }
+    const reference = context.viewport.sketchReferenceAt(event.x, event.y, this.spec.picks[this.references.length], this.references[0]); if (!reference) return InputResult.Ignored;
     if (this.references.some((item)=>sameSketchReference(item, reference))) {
       context.viewport.showReferencePreview(reference,this.references[0]);
       return InputResult.Consumed;
@@ -304,7 +332,10 @@ export class ConstraintSketchTool implements CadTool {
     this.capturedPointerID = event.pointerId;
     this.references.push(reference);context.viewport.showReferencePreview(reference,this.references[0]);
     if(this.references.length===this.spec.picks.length&&!this.spec.unit)this.commit(context);
-    else context.viewport.setToolPrompt(this.prompt());
+    else {
+      if(this.references.length===this.spec.picks.length)context.viewport.showConstraintPreview(this.kind,this.references);
+      context.viewport.setToolPrompt(this.prompt());
+    }
     return InputResult.Capture;
   }
   pointerUp(event: CadPointerEvent): InputResult {
@@ -320,8 +351,12 @@ export class ConstraintSketchTool implements CadTool {
   }
   pointerMove(event: CadPointerEvent, context: ToolContext): InputResult {
     if (event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
-    if(this.references.length>=this.spec.picks.length)return InputResult.Ignored;
-    const reference = context.viewport.sketchReferenceAt(event.x, event.y, this.spec.picks[this.references.length]);
+    if(this.references.length>=this.spec.picks.length){
+      if(!this.spec.unit||this.labelPosition)return InputResult.Ignored;
+      const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Ignored;
+      context.viewport.showConstraintPreview(this.kind,this.references,undefined,position);return InputResult.Consumed;
+    }
+    const reference = context.viewport.sketchReferenceAt(event.x, event.y, this.spec.picks[this.references.length], this.references[0]);
     if (!reference) {
       if (this.references[0]) context.viewport.showReferencePreview(this.references[0]);
       else context.viewport.clearReferencePreview();
@@ -336,10 +371,10 @@ export class ConstraintSketchTool implements CadTool {
   }
   keyDown(event: CadKeyboardEvent, context: ToolContext): InputResult {
     if(event.key==="Escape"){this.cancel(context);return InputResult.Consumed;}
-    if(!this.spec.unit||this.references.length!==this.spec.picks.length)return InputResult.Ignored;
-    if(event.key==="Backspace"){this.numeric=this.numeric.slice(0,-1);context.viewport.setToolPrompt(`${this.prompt()}：${this.numeric}`);return InputResult.Consumed;}
+    if(!this.spec.unit||this.references.length!==this.spec.picks.length||!this.labelPosition)return InputResult.Ignored;
+    if(event.key==="Backspace"){this.numeric=this.numeric.slice(0,-1);const value=Number(this.numeric);context.viewport.showConstraintPreview(this.kind,this.references,value>0?value:undefined,this.labelPosition);context.viewport.setToolPrompt(`${this.prompt()}：${this.numeric}`);return InputResult.Consumed;}
     if(event.key==="Enter"){const value=Number(this.numeric);if(Number.isFinite(value)&&value>0)this.commit(context,value);return InputResult.Consumed;}
-    if(/^[0-9.]$/.test(event.key)&&!(event.key==="."&&this.numeric.includes("."))){this.numeric+=event.key;context.viewport.setToolPrompt(`${this.prompt()}：${this.numeric}`);return InputResult.Consumed;}
+    if(/^[0-9.]$/.test(event.key)&&!(event.key==="."&&this.numeric.includes("."))){this.numeric+=event.key;const value=Number(this.numeric);context.viewport.showConstraintPreview(this.kind,this.references,value>0?value:undefined,this.labelPosition);context.viewport.setToolPrompt(`${this.prompt()}：${this.numeric}`);return InputResult.Consumed;}
     return InputResult.Ignored;
   }
   deactivate(context: ToolContext): void { this.cancel(context); }
@@ -347,8 +382,67 @@ export class ConstraintSketchTool implements CadTool {
     this.capturedPointerID = undefined;
     this.references = [];
     this.numeric="";
+    this.labelPosition=undefined;
     context.viewport.clearReferencePreview();
     context.viewport.setToolPrompt(this.prompt());
   }
-  private commit(context:ToolContext,value?:number):void {context.viewport.clearReferencePreview();context.viewport.commitSketchOperations([{type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:this.kind,references:this.references,...(value===undefined?{}:{value,unit:this.spec.unit})}}]);this.references=[];this.numeric="";context.viewport.finishToolUse();context.viewport.setToolPrompt(this.prompt());}
+  private commit(context:ToolContext,value?:number):void {context.viewport.clearReferencePreview();context.viewport.commitSketchOperations([{type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:this.kind,references:this.references,...(value===undefined?{}:{value,unit:this.spec.unit}),...(this.labelPosition?{labelPosition:{x:this.labelPosition[0],y:this.labelPosition[1]}}:{})}}]);this.references=[];this.numeric="";this.labelPosition=undefined;context.viewport.finishToolUse();context.viewport.setToolPrompt(this.prompt());}
+}
+
+export class LinearDimensionSketchTool implements CadTool {
+  readonly id="sketch.dimension.linear";
+  private references:SketchGeometryRef[]=[];
+  private kind?:"DISTANCE"|"LENGTH";
+  private labelPosition?:Vec2;
+  private numeric="";
+  private capturedPointerID?:number;
+  activate(context:ToolContext):void {context.viewport.setToolPrompt("线性尺寸：选择直线或第一个点");}
+  private referencesComplete():boolean {return this.kind==="LENGTH"?this.references.length===1:this.kind==="DISTANCE"&&this.references.length===2;}
+  pointerDown(event:CadPointerEvent,context:ToolContext):InputResult {
+    if(event.button!==0||this.capturedPointerID!==undefined||!context.viewport.hasActiveSketch())return InputResult.Ignored;
+    if(this.referencesComplete()){
+      if(this.labelPosition)return InputResult.Ignored;
+      const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Ignored;
+      this.capturedPointerID=event.pointerId;this.labelPosition=position;
+      context.viewport.showConstraintPreview(this.kind!,this.references,undefined,position);return InputResult.Capture;
+    }
+    const reference=context.viewport.sketchReferenceAt(event.x,event.y,this.references.length===0?"LINEAR_DIMENSION":"POINT",this.references[0]);
+    if(!reference||this.references.some((item)=>sameSketchReference(item,reference)))return InputResult.Ignored;
+    this.capturedPointerID=event.pointerId;this.references.push(reference);
+    if(this.references.length===1)this.kind=reference.subElement==="WHOLE"?"LENGTH":"DISTANCE";
+    context.viewport.showReferencePreview(reference,this.references[0]);
+    if(this.referencesComplete())context.viewport.showConstraintPreview(this.kind!,this.references);
+    return InputResult.Capture;
+  }
+  pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {
+    if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
+    if(this.referencesComplete()){
+      if(this.labelPosition)return InputResult.Ignored;
+      const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Ignored;
+      context.viewport.showConstraintPreview(this.kind!,this.references,undefined,position);return InputResult.Consumed;
+    }
+    const reference=context.viewport.sketchReferenceAt(event.x,event.y,this.references.length===0?"LINEAR_DIMENSION":"POINT",this.references[0]);
+    if(reference&&!this.references.some((item)=>sameSketchReference(item,reference)))context.viewport.showReferencePreview(reference,this.references[0]);
+    else if(this.references[0])context.viewport.showReferencePreview(this.references[0]);
+    else context.viewport.clearReferencePreview();
+    return InputResult.Consumed;
+  }
+  pointerUp(event:CadPointerEvent):InputResult {if(event.button!==0||event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.capturedPointerID=undefined;return InputResult.ReleaseCapture;}
+  pointerCancel(event:CadPointerEvent,context:ToolContext):InputResult {if(event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
+  keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {
+    if(event.key==="Escape"){this.cancel(context);return InputResult.Consumed;}
+    if(!this.referencesComplete()||!this.labelPosition)return InputResult.Ignored;
+    if(event.key==="Backspace")this.numeric=this.numeric.slice(0,-1);
+    else if(event.key==="Enter"){const value=Number(this.numeric);if(Number.isFinite(value)&&value>0)this.commit(context,value);return InputResult.Consumed;}
+    else if(/^[0-9.]$/.test(event.key)&&!(event.key==="."&&this.numeric.includes(".")))this.numeric+=event.key;
+    else return InputResult.Ignored;
+    const value=Number(this.numeric);context.viewport.showConstraintPreview(this.kind!,this.references,value>0?value:undefined,this.labelPosition);
+    return InputResult.Consumed;
+  }
+  deactivate(context:ToolContext):void {this.cancel(context);}
+  cancel(context:ToolContext):void {this.references=[];this.kind=undefined;this.labelPosition=undefined;this.numeric="";this.capturedPointerID=undefined;context.viewport.clearReferencePreview();}
+  private commit(context:ToolContext,value:number):void {
+    context.viewport.clearReferencePreview();context.viewport.commitSketchOperations([{type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:this.kind!,references:this.references,value,unit:"mm",labelPosition:{x:this.labelPosition![0],y:this.labelPosition![1]}}}]);
+    this.references=[];this.kind=undefined;this.labelPosition=undefined;this.numeric="";context.viewport.finishToolUse();
+  }
 }

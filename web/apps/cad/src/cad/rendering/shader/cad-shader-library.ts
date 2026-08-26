@@ -5,6 +5,7 @@ export type CadShaderProgramID =
   | "cad.surface"
   | "cad.edge"
   | "cad.point"
+  | "cad.constraint.glyph"
   | "cad.overlay.line"
   | "cad.overlay.solid";
 
@@ -208,6 +209,62 @@ export class CadShaderLibrary {
         }
       `,
       transparent: true,
+    });
+
+    this.register("cad.constraint.glyph", {
+      uniforms: {
+        uColor: { value: new THREE.Color() },
+        uSelectedColor: { value: new THREE.Color() },
+        uSelected: { value: 0 },
+        uGlyph: { value: 0 },
+        uPointSize: { value: 22 },
+      },
+      vertexShader: `
+        uniform float uPointSize;
+        void main() {
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          gl_PointSize = uPointSize;
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uColor;
+        uniform vec3 uSelectedColor;
+        uniform float uSelected;
+        uniform float uGlyph;
+        float segmentDistance(vec2 p, vec2 a, vec2 b) {
+          vec2 ab = b - a;
+          float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 0.0001), 0.0, 1.0);
+          return length(p - (a + ab * t));
+        }
+        float ring(vec2 p, float radius) { return abs(length(p) - radius); }
+        void main() {
+          vec2 p = gl_PointCoord - 0.5;
+          float d = 1.0;
+          if (uGlyph < 0.5) d = min(ring(p, 0.24), length(p));
+          else if (uGlyph < 1.5) d = min(segmentDistance(p, vec2(-0.30,-0.22),vec2(0.05,0.24)),segmentDistance(p,vec2(-0.05,-0.24),vec2(0.30,0.22)));
+          else if (uGlyph < 2.5) d = min(max(abs(p.x)-0.24,abs(p.y)-0.24),min(segmentDistance(p,vec2(-0.2,-0.2),vec2(0.2,0.2)),segmentDistance(p,vec2(-0.2,0.2),vec2(0.2,-0.2))));
+          else if (uGlyph < 3.5) d = min(segmentDistance(p,vec2(-0.32,0.0),vec2(0.32,0.0)),min(segmentDistance(p,vec2(-0.22,-0.16),vec2(-0.22,0.16)),segmentDistance(p,vec2(0.22,-0.16),vec2(0.22,0.16))));
+          else if (uGlyph < 4.5) d = min(segmentDistance(p,vec2(0.0,-0.32),vec2(0.0,0.32)),min(segmentDistance(p,vec2(-0.16,-0.22),vec2(0.16,-0.22)),segmentDistance(p,vec2(-0.16,0.22),vec2(0.16,0.22))));
+          else if (uGlyph < 5.5) d = min(segmentDistance(p,vec2(-0.24,0.26),vec2(-0.24,-0.20)),segmentDistance(p,vec2(-0.24,-0.20),vec2(0.25,-0.20)));
+          else if (uGlyph < 6.5) d = min(ring(p-vec2(0.0,0.06),0.22),segmentDistance(p,vec2(-0.34,-0.18),vec2(0.34,-0.18)));
+          else if (uGlyph < 7.5) d = min(segmentDistance(p,vec2(-0.28,-0.10),vec2(0.28,-0.10)),segmentDistance(p,vec2(-0.28,0.10),vec2(0.28,0.10)));
+          else if (uGlyph < 8.5) d = min(segmentDistance(p,vec2(-0.34,0.0),vec2(0.34,0.0)),min(segmentDistance(p,vec2(-0.34,0.0),vec2(-0.20,0.12)),segmentDistance(p,vec2(0.34,0.0),vec2(0.20,-0.12))));
+          else if (uGlyph < 9.5) d = min(segmentDistance(p,vec2(-0.28,-0.24),vec2(0.28,0.24)),min(segmentDistance(p,vec2(-0.28,-0.24),vec2(-0.12,-0.20)),segmentDistance(p,vec2(0.28,0.24),vec2(0.12,0.20))));
+          else if (uGlyph < 10.5) d = min(ring(p,0.25),segmentDistance(p,vec2(0.0,0.0),vec2(0.28,0.0)));
+          else if (uGlyph < 11.5) d = min(ring(p,0.25),segmentDistance(p,vec2(-0.28,-0.28),vec2(0.28,0.28)));
+          else if (uGlyph < 12.5) d = min(segmentDistance(p,vec2(-0.30,-0.22),vec2(0.0,0.0)),min(segmentDistance(p,vec2(0.0,0.0),vec2(0.30,-0.22)),ring(p-vec2(0.0,-0.22),0.24)));
+          else if (uGlyph < 13.5) d = min(ring(p,0.28),ring(p,0.14));
+          else if (uGlyph < 14.5) d = min(segmentDistance(p,vec2(-0.32,0.0),vec2(0.32,0.0)),length(p));
+          else d = min(min(segmentDistance(p,vec2(-0.28,-0.20),vec2(0.0,0.26)),segmentDistance(p,vec2(0.0,0.26),vec2(0.28,-0.20))),length(p));
+          float alpha = 1.0 - smoothstep(0.035, 0.075, d);
+          if (alpha < 0.02) discard;
+          gl_FragColor = vec4(mix(uColor, uSelectedColor, uSelected), alpha);
+          #include <colorspace_fragment>
+        }
+      `,
+      transparent: true,
+      depthTest: false,
+      depthWrite: false,
     });
 
     const overlayVertex = `

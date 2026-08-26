@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { CATIA_VISUAL_THEME } from "./cad-visual-theme";
 import { CadShaderLibrary } from "./shader/cad-shader-library";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
 
 export class CadMaterialFactory {
   private readonly sectionEnabled: THREE.IUniform<boolean> = { value: false };
@@ -35,6 +36,12 @@ export class CadMaterialFactory {
     return material;
   }
 
+  constraintGlyph(glyph: number, color = this.theme.constraint, size = 22): THREE.ShaderMaterial {
+    return this.shaders.createMaterial("cad.constraint.glyph", {
+      uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uGlyph: glyph, uPointSize: size,
+    });
+  }
+
   setSectionPlane(enabled: boolean, plane?: THREE.Plane): void {
     this.sectionEnabled.value = enabled;
     if (plane) this.sectionPlane.value.set(plane.normal.x, plane.normal.y, plane.normal.z, plane.constant);
@@ -55,6 +62,10 @@ export class CadMaterialFactory {
           material.color.setHex(state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : baseColor);
           material.emissive.setHex(state === "selected" ? this.theme.selectedEmissive : 0x000000);
           material.emissiveIntensity = state === "selected" ? 0.32 : state === "hover" ? 0.12 : 0;
+        } else if (material instanceof LineMaterial) {
+          const baseColor = Number(material.userData.baseColor ?? material.color.getHex());
+          material.userData.baseColor = baseColor;
+          material.color.setHex(state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : baseColor);
         } else if (material instanceof THREE.ShaderMaterial) {
           const selectedUniform = material.uniforms.uSelected;
           const selectedColor = material.uniforms.uSelectedColor;

@@ -35,9 +35,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   const engine = useRef<CadViewportEngine | undefined>(undefined);
   const callbacks = useRef(props);
   const [debug, setDebug] = useState<InputDebugSnapshot>();
-  const [toolPrompt, setToolPrompt] = useState("");
+  const [dimensionEditor, setDimensionEditor] = useState<{ constraintId: string; value: number; unit: "mm" | "deg"; x: number; y: number }>();
   callbacks.current = props;
-  const activeSketch = props.view.part?.features.find((feature) => feature.id === props.activeSketchID)?.sketch;
 
   useEffect(() => {
     if (!host.current) return;
@@ -46,8 +45,9 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       preselectionChanged: (selection) => callbacks.current.onPreselectionChange(selection),
       sketchOperations: (operations) => callbacks.current.onSketchOperations(operations),
       toolUseCompleted: () => callbacks.current.onToolUseComplete(),
+      dimensionEditRequested: (request) => setDimensionEditor(request),
       activeToolChanged: (toolID) => callbacks.current.onActiveToolChange(toolID),
-      toolPromptChanged: setToolPrompt,
+      toolPromptChanged: () => {},
       instanceMoved: (instanceID, translation) => callbacks.current.onInstanceMoved(instanceID, translation),
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
     });
@@ -88,9 +88,18 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   }), []);
 
   return <><div ref={host} className="cad-viewport-canvas" />
-    {props.sketchPlane && <div className="sketch-tool-prompt" role="status" aria-live="polite">
-      <strong>Sketcher · {props.sketchPlane}</strong><span>{toolPrompt}</span>
-      {activeSketch && <small>{activeSketch.solve.status} · {activeSketch.solve.degreesOfFreedom} DoF</small>}
-    </div>}
+    {dimensionEditor && <input key={dimensionEditor.constraintId} className="sketch-dimension-editor" autoFocus
+      defaultValue={dimensionEditor.value} aria-label={`编辑尺寸 (${dimensionEditor.unit})`}
+      style={{ left: dimensionEditor.x, top: dimensionEditor.y }}
+      onBlur={() => setDimensionEditor(undefined)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") { setDimensionEditor(undefined); return; }
+        if (event.key !== "Enter") return;
+        const value = Number(event.currentTarget.value);
+        if (Number.isFinite(value) && value > 0) callbacks.current.onSketchOperations([
+          { type: "UPDATE_CONSTRAINT_VALUE", constraintId: dimensionEditor.constraintId, value },
+        ]);
+        setDimensionEditor(undefined);
+      }} />}
     {debug && <InputDebugOverlay snapshot={debug} />}</>;
 });

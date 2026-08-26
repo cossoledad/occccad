@@ -147,10 +147,20 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
             ownerEntityId: feature.id, entityType: entity.kind, role: entity.role, documentId: view.document.id,
             capabilities: editable ? ["DELETE"] : undefined })) },
         { id: `${node.id}/constraints`, kind: "SKETCH_CONSTRAINT_SET", name: "Constraints", ownerEntityId: feature.id,
-          children: feature.sketch.constraints.map((constraint, index) => ({ id: `${node.id}/constraints/constraint:${constraint.id}`,
-            kind: "SKETCH_CONSTRAINT", name: `${constraint.kind} ${index + 1}`, entityId: constraint.id,
-            ownerEntityId: feature.id, entityType: constraint.kind, documentId: view.document.id,
-            capabilities: editable ? ["DELETE"] : undefined })) },
+          children: [
+            { id: `${node.id}/constraints/logical`, kind: "SKETCH_LOGICAL_CONSTRAINT_SET", name: "Geometric Constraints",
+              children: feature.sketch.constraints.filter((constraint) => !["DISTANCE","LENGTH","RADIUS","DIAMETER","ANGLE"].includes(constraint.kind))
+                .map((constraint, index) => ({ id: `${node.id}/constraints/logical/constraint:${constraint.id}`,
+                  kind: "SKETCH_CONSTRAINT", name: `${constraint.kind} ${index + 1}`, entityId: constraint.id,
+                  ownerEntityId: feature.id, entityType: constraint.kind, documentId: view.document.id,
+                  capabilities: editable ? ["DELETE"] : undefined })) },
+            { id: `${node.id}/constraints/dimensions`, kind: "SKETCH_DIMENSION_SET", name: "Dimensions",
+              children: feature.sketch.constraints.filter((constraint) => ["DISTANCE","LENGTH","RADIUS","DIAMETER","ANGLE"].includes(constraint.kind))
+                .map((constraint, index) => ({ id: `${node.id}/constraints/dimensions/constraint:${constraint.id}`,
+                  kind: "SKETCH_CONSTRAINT", name: `${constraint.kind} ${index + 1}`, entityId: constraint.id,
+                  ownerEntityId: feature.id, entityType: constraint.kind, documentId: view.document.id,
+                  capabilities: editable ? ["DELETE"] : undefined })) },
+          ] },
       ];
       return node;
     };
@@ -250,6 +260,14 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
       for (const operation of input.operations as SketchOperation[] ?? []) {
         if (operation.type==="ADD_ENTITY") sketch?.entities.push(operation.entity);
         if (operation.type==="ADD_CONSTRAINT") sketch?.constraints.push(operation.constraint);
+        if (operation.type==="UPDATE_CONSTRAINT_PLACEMENT" && sketch) {
+          const constraint=sketch.constraints.find((candidate)=>candidate.id===operation.constraintId);
+          if(constraint)constraint.labelPosition=operation.labelPosition;
+        }
+        if (operation.type==="UPDATE_CONSTRAINT_VALUE" && sketch) {
+          const constraint=sketch.constraints.find((candidate)=>candidate.id===operation.constraintId);
+          if(constraint)constraint.value=operation.value;
+        }
         if (operation.type==="ADD_RECTANGLE" && sketch) {
           const {first,second}=operation, x0=Math.min(first.x,second.x),x1=Math.max(first.x,second.x),y0=Math.min(first.y,second.y),y1=Math.max(first.y,second.y);
           sketch.entities.push({id:id("line"),kind:"LINE",role:"PROFILE",start:{x:x0,y:y0},end:{x:x1,y:y0}},{id:id("line"),kind:"LINE",role:"PROFILE",start:{x:x1,y:y0},end:{x:x1,y:y1}},{id:id("line"),kind:"LINE",role:"PROFILE",start:{x:x1,y:y1},end:{x:x0,y:y1}},{id:id("line"),kind:"LINE",role:"PROFILE",start:{x:x0,y:y1},end:{x:x0,y:y0}});
