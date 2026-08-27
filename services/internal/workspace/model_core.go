@@ -455,7 +455,7 @@ func validateSketch(sketch SketchFeature) error {
 		counts := map[string]int{"COINCIDENT": 2, "PARALLEL": 2, "FIXED": 1, "FIXED_POINT": 1,
 			"HORIZONTAL": 1, "VERTICAL": 1, "PERPENDICULAR": 2, "TANGENT": 2, "EQUAL": 2,
 			"DISTANCE": 2, "LENGTH": 1, "RADIUS": 1, "DIAMETER": 1, "ANGLE": 2,
-			"CONCENTRIC": 2, "POINT_ON_OBJECT": 2, "MIDPOINT": 2}
+			"CONCENTRIC": 2, "POINT_ON_OBJECT": 2, "MIDPOINT": 2, "SYMMETRY": 3}
 		expected, supported := counts[constraint.Kind]
 		if !supported || len(constraint.References) != expected {
 			return fmt.Errorf("%w: constraint %s has unsupported kind or reference count", ErrValidation, constraint.ID)
@@ -563,6 +563,8 @@ func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map
 		return point(refs[0]) && curve(refs[1])
 	case "MIDPOINT":
 		return point(refs[0]) && line(refs[1])
+	case "SYMMETRY":
+		return point(refs[0]) && (line(refs[1]) || point(refs[1])) && point(refs[2])
 	}
 	return false
 }

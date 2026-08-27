@@ -89,16 +89,11 @@ func ValueDigest(value json.RawMessage) string {
 }
 
 func (set *ChangeSet) Finalize() error {
-	seen := map[string]struct{}{}
+	if err := set.ValidateStructure(); err != nil {
+		return err
+	}
 	for index := range set.Changes {
 		change := &set.Changes[index]
-		if strings.TrimSpace(change.Target.EntityID) == "" || strings.TrimSpace(change.Target.SlotID) == "" {
-			return fmt.Errorf("change target requires stable entity and slot IDs")
-		}
-		if _, exists := seen[change.Target.Key()]; exists {
-			return fmt.Errorf("multiple changes target %s", change.Target.Key())
-		}
-		seen[change.Target.Key()] = struct{}{}
 		if change.BeforeDigest != ValueDigest(change.Before) || change.AfterDigest != ValueDigest(change.After) {
 			return fmt.Errorf("digest mismatch for %s", change.Target.Key())
 		}
@@ -112,6 +107,24 @@ func (set *ChangeSet) Finalize() error {
 		return err
 	}
 	set.CanonicalDigest = ValueDigest(payload)
+	return nil
+}
+
+// ValidateStructure checks the stable write-set identity without trusting
+// stored value digests. History repair uses immutable base/result revisions as
+// value authority, but must still reject malformed or ambiguous write sets.
+func (set ChangeSet) ValidateStructure() error {
+	seen := map[string]struct{}{}
+	for index := range set.Changes {
+		change := set.Changes[index]
+		if strings.TrimSpace(change.Target.EntityID) == "" || strings.TrimSpace(change.Target.SlotID) == "" {
+			return fmt.Errorf("change target requires stable entity and slot IDs")
+		}
+		if _, exists := seen[change.Target.Key()]; exists {
+			return fmt.Errorf("multiple changes target %s", change.Target.Key())
+		}
+		seen[change.Target.Key()] = struct{}{}
+	}
 	return nil
 }
 

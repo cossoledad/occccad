@@ -10,7 +10,7 @@ Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 g
 - `InspectExchange` / `ImportExchange` / `ExportExchange`：通过 ArtifactReference 检查、导入和导出 STEP/BREP；
 - `GetTopology`：返回面、边、点及诊断属性；
 - 生成 SHA-256 GeometryId、B-Rep、三角网格、边折线、包围盒、体积和 GLB。
-- 内置项目自有 `SketchSolver`/PlaneGCS 适配层；`GCS::*` 不进入公共头或 Proto。当前约束覆盖重合、平行、固定、水平/竖直、垂直、相切、相等、距离/长度/半径/直径/角度、同心、点在对象上和中点；Spline 暂只覆盖参数自由度、固定和端点引用。
+- 内置项目自有 `SketchSolver`/PlaneGCS 适配层；`GCS::*` 不进入公共头或 Proto。当前约束覆盖重合、平行、固定、水平/竖直、垂直、相切、相等、距离/长度/半径/直径/角度、同心、点在对象上、中点，以及点-线-点/点-点-点对称；基于内置草图轴的复合对称会保留与同一线段 H/V/轴平行关系重叠的设计意图，但仍报告冲突和无关冗余。Spline 的采集点按插值拟合点解释，暂只覆盖参数自由度、固定和端点引用。
 - `EvaluatePart.profile_pads` 消费控制面 Profile Builder 输出的有向外环/孔环，在 OCCT 内构造 Edge/Wire/Face、执行 BRepCheck 并 Prism；旧矩形字段只保留为当前开发期过渡入口。
 
 Proto 中已经声明但当前服务类没有覆盖的 `LoadGeometry`、`UnloadGeometry`、`Tessellate`、`CreateChamfer` 和 `CreateFillet` 会得到 gRPC `UNIMPLEMENTED`；协议声明不等于已交付能力。

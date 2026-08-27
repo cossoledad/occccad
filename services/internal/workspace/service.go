@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-profile-regions-v5"
+const evaluatorVersion = "part-profile-interpolation-v6"
 
 var (
 	ErrNotFound   = errors.New("document not found")

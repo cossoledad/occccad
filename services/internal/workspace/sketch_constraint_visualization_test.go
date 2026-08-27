@@ -37,6 +37,8 @@ func TestEverySketchConstraintHasAViewportVisual(t *testing.T) {
 		{ID: "concentric", Kind: "CONCENTRIC", References: []SketchGeometryRef{ref("circle-a", "WHOLE"), ref("arc-a", "WHOLE")}},
 		{ID: "point-on-object", Kind: "POINT_ON_OBJECT", References: []SketchGeometryRef{ref("point-a", "POINT"), ref("line-a", "WHOLE")}},
 		{ID: "midpoint", Kind: "MIDPOINT", References: []SketchGeometryRef{ref("point-a", "POINT"), ref("line-a", "DIRECTION")}},
+		{ID: "symmetry-line", Kind: "SYMMETRY", References: []SketchGeometryRef{ref("point-a", "POINT"), ref("line-a", "DIRECTION"), ref("point-b", "POINT")}},
+		{ID: "symmetry-point", Kind: "SYMMETRY", References: []SketchGeometryRef{ref("point-a", "POINT"), ref("point-b", "POINT"), ref("line-a", "START")}},
 	}
 	for _, constraint := range constraints {
 		constraint := constraint
@@ -91,6 +93,26 @@ func TestSketchValidationEnforcesConstraintReferenceSignature(t *testing.T) {
 	err := validateSketch(sketch)
 	if err == nil || !strings.Contains(err.Error(), "incompatible reference types") {
 		t.Fatalf("invalid constraint signature reached the solver: %v", err)
+	}
+}
+
+func TestSymmetryAcceptsLineOrPointCenterAndRejectsCurveCenter(t *testing.T) {
+	t.Parallel()
+	kinds := map[string]string{"a": "POINT", "b": "POINT", "center": "POINT", "axis": "LINE", "circle": "CIRCLE"}
+	ref := func(id, sub string) SketchGeometryRef {
+		return SketchGeometryRef{Target: "ENTITY", EntityID: id, SubElement: sub}
+	}
+	for _, constraint := range []SketchConstraint{
+		{Kind: "SYMMETRY", References: []SketchGeometryRef{ref("a", "POINT"), ref("axis", "DIRECTION"), ref("b", "POINT")}},
+		{Kind: "SYMMETRY", References: []SketchGeometryRef{ref("a", "POINT"), ref("center", "POINT"), ref("b", "POINT")}},
+	} {
+		if !constraintReferencesCompatible(constraint, kinds) {
+			t.Fatalf("rejected symmetry: %#v", constraint)
+		}
+	}
+	invalid := SketchConstraint{Kind: "SYMMETRY", References: []SketchGeometryRef{ref("a", "POINT"), ref("circle", "WHOLE"), ref("b", "POINT")}}
+	if constraintReferencesCompatible(invalid, kinds) {
+		t.Fatal("accepted circular symmetry center")
 	}
 }
 

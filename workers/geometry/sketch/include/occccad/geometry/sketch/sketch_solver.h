@@ -76,7 +76,8 @@ enum class ConstraintKind {
     angle,
     concentric,
     point_on_object,
-    midpoint
+    midpoint,
+    symmetry
 };
 
 struct SketchConstraint {

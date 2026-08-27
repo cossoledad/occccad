@@ -217,7 +217,7 @@ export class CadShaderLibrary {
         uSelectedColor: { value: new THREE.Color() },
         uSelected: { value: 0 },
         uGlyph: { value: 0 },
-        uPointSize: { value: 22 },
+        uPointSize: { value: 17 },
       },
       vertexShader: `
         uniform float uPointSize;
@@ -255,8 +255,9 @@ export class CadShaderLibrary {
           else if (uGlyph < 12.5) d = min(segmentDistance(p,vec2(-0.30,-0.22),vec2(0.0,0.0)),min(segmentDistance(p,vec2(0.0,0.0),vec2(0.30,-0.22)),ring(p-vec2(0.0,-0.22),0.24)));
           else if (uGlyph < 13.5) d = min(ring(p,0.28),ring(p,0.14));
           else if (uGlyph < 14.5) d = min(segmentDistance(p,vec2(-0.32,0.0),vec2(0.32,0.0)),length(p));
-          else d = min(min(segmentDistance(p,vec2(-0.28,-0.20),vec2(0.0,0.26)),segmentDistance(p,vec2(0.0,0.26),vec2(0.28,-0.20))),length(p));
-          float alpha = 1.0 - smoothstep(0.035, 0.075, d);
+          else if (uGlyph < 15.5) d = min(min(segmentDistance(p,vec2(-0.28,-0.20),vec2(0.0,0.26)),segmentDistance(p,vec2(0.0,0.26),vec2(0.28,-0.20))),length(p));
+          else d = min(segmentDistance(p,vec2(0.0,-0.36),vec2(0.0,0.36)),min(length(p-vec2(-0.24,0.0)),length(p-vec2(0.24,0.0))));
+          float alpha = 1.0 - smoothstep(0.022, 0.052, d);
           if (alpha < 0.02) discard;
           gl_FragColor = vec4(mix(uColor, uSelectedColor, uSelected), alpha);
           #include <colorspace_fragment>

@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 export type CadIconName =
   | "select" | "capture" | "sketch" | "pad" | "point" | "line" | "circle" | "arc" | "polyline" | "spline" | "finish"
   | "coincident" | "parallel" | "fixed" | "horizontal" | "vertical" | "perpendicular" | "tangent" | "equal"
-  | "distance" | "length" | "radius" | "diameter" | "angle" | "concentric" | "point-on-object" | "midpoint"
+  | "distance" | "length" | "radius" | "diameter" | "angle" | "concentric" | "point-on-object" | "midpoint" | "symmetry"
   | "rectangle" | "polygon" | "slot" | "insert" | "reference" | "undo" | "redo" | "version" | "share"
   | "navigation" | "fit" | "isometric";
 
@@ -39,6 +39,7 @@ function glyph(name: CadIconName): ReactNode {
   case "concentric": return <><C cx={10} cy={10} r={6} /><C cx={10} cy={10} r={3} /><C cx={10} cy={10} r={0.7} /></>;
   case "point-on-object": return <><P d="M3 14C7 7 12 15 17 6" /><C cx={10} cy={10} r={2} /></>;
   case "midpoint": return <><P d="M3 14L17 6" /><C cx={10} cy={10} r={2} /><P d="M4 10l-1 4 4 1M13 5l4 1-1 4" /></>;
+  case "symmetry": return <><P d="M10 2v16" /><C cx={5} cy={8} r={1.7} /><C cx={15} cy={8} r={1.7} /><P d="M6.7 8h6.6M8 6l2 2-2 2M12 6l-2 2 2 2" /></>;
   case "rectangle": return <><rect x="4" y="5" width="12" height="10" /><C cx={4} cy={5} /><C cx={16} cy={15} /></>;
   case "polygon": return <><P d="M10 3l6 3.5v7L10 17l-6-3.5v-7z" /><C cx={10} cy={3} /></>;
   case "slot": return <><P d="M7 5h6a5 5 0 010 10H7A5 5 0 017 5z" /><P d="M7 5a5 5 0 000 10M13 5a5 5 0 010 10" /></>;

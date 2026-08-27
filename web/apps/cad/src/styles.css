@@ -757,8 +757,9 @@ select {
 .cad-floating-toolbar.vertical .cad-toolbar-handle span { box-shadow: 5px 0 #66767e, -5px 0 #66767e; }
 .part-design-toolbar .cad-toolbar-handle { box-shadow: inset 2px 0 #3c8fc0; }
 .sketcher-toolbar .cad-toolbar-handle { box-shadow: inset 2px 0 #db840f; }
-.sketch-constraints-toolbar.top-left { top: 58px; }
-.sketch-aggregates-toolbar.top-left { top: 104px; }
+.sketch-geometric-constraints-toolbar.top-left { top: 58px; }
+.sketch-dimensional-constraints-toolbar.top-left { top: 104px; }
+.sketch-aggregates-toolbar.top-left { top: 150px; }
 .assembly-design-toolbar .cad-toolbar-handle { box-shadow: inset 2px 0 #4b9c75; }
 .cad-floating-toolbar.vertical.part-design-toolbar .cad-toolbar-handle { box-shadow: inset 0 2px #3c8fc0; }
 .cad-floating-toolbar.vertical.sketcher-toolbar .cad-toolbar-handle { box-shadow: inset 0 2px #db840f; }

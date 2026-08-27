@@ -1,6 +1,7 @@
 import type { SketchConstraint, SketchEntity, SketchGeometryRef, Vec2 } from "../../types";
 import { sampleSketchEntity, sketchEntityPoint } from "./sketch-geometry";
 import { constraintDefinition } from "./sketch-constraint-definition";
+import { formatSketchDimensionValue } from "./sketch-input-policy";
 
 export type ConstraintSegment = readonly [Vec2, Vec2];
 export type SketchConstraintLayout = {
@@ -59,7 +60,7 @@ function linearDimension(a: Vec2, b: Vec2, text: string, placement?: Vec2): Pick
 }
 
 function constraintText(constraint: SketchConstraint): string {
-  const value = constraint.value === undefined ? "?" : Number(constraint.value.toFixed(3)).toString();
+  const value = constraint.value === undefined ? "?" : formatSketchDimensionValue(constraint.value, constraint.unit ?? "mm");
   if (constraint.kind === "RADIUS") return `R ${value}`;
   if (constraint.kind === "DIAMETER") return `Ø ${value}`;
   if (constraint.kind === "ANGLE") return `${value}°`;
@@ -79,6 +80,32 @@ function lineIntersection(first: [Vec2, Vec2], second: [Vec2, Vec2]): Vec2 {
   if (Math.abs(denominator) < 1e-9) return midpoint(midpoint(...first), midpoint(...second));
   const delta = sub(second[0], first[0]);
   return add(first[0], scale(a, (delta[0] * b[1] - delta[1] * b[0]) / denominator));
+}
+
+export function measureSketchDimension(kind: SketchConstraint["kind"], references: readonly SketchGeometryRef[],
+  sketchEntities: readonly SketchEntity[]): number | undefined {
+  const entities = new Map(sketchEntities.map((entity) => [entity.id, entity]));
+  if (kind === "DISTANCE") {
+    const points = references.map((reference) => sketchReferencePoint(reference, entities));
+    if (points.length >= 2 && points[0] && points[1]) return Math.hypot(...sub(points[1], points[0]));
+  }
+  if (kind === "LENGTH") {
+    const line = references[0] ? linePoints(references[0], entities) : undefined;
+    if (line) return Math.hypot(...sub(line[1], line[0]));
+  }
+  if (kind === "RADIUS" || kind === "DIAMETER") {
+    const circular = references[0] ? circularData(references[0], entities) : undefined;
+    if (circular) return circular.radius * (kind === "DIAMETER" ? 2 : 1);
+  }
+  if (kind === "ANGLE") {
+    const first = references[0] ? linePoints(references[0], entities) : undefined;
+    const second = references[1] ? linePoints(references[1], entities) : undefined;
+    if (first && second) {
+      const a = normalize(sub(first[1], first[0])), b = normalize(sub(second[1], second[0]));
+      return Math.acos(Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1]))) * 180 / Math.PI;
+    }
+  }
+  return undefined;
 }
 
 export function buildSketchConstraintLayout(constraint: SketchConstraint, sketchEntities: readonly SketchEntity[]): SketchConstraintLayout {

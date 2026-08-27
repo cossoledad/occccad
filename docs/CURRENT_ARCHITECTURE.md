@@ -1,6 +1,6 @@
 # occccad 现有架构
 
-> 状态日期：2026-08-20
+> 状态日期：2026-08-27
 > 文档性质：事实基线。本文只描述当前仓库能够由源码、构建文件、数据库迁移和配置证明的行为；目标能力见[目标架构](TARGET_ARCHITECTURE.md)。
 
 ## 1. 结论
@@ -158,11 +158,11 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 
 当前已不再保存 `origin + width + height` 测试矩形。Part 中的 `SKETCH` Feature 保存版本化 `SketchFeature v1`：Datum Plane support、具有稳定 ID 的 Point/Line/Circle/Arc/Spline、显式 GeometryRef、Constraint 和最近一次权威 solve 状态。线段、圆弧和开放曲线持有可稳定引用的端点；端点相接必须由 Coincident 明确表达，不能以浮点坐标接近替代模型关系。
 
-Geometry Worker 内的项目自有 `SketchSolver` 已通过 `SolveSketch` 粗粒度 RPC 接入提交链，PlaneGCS 只存在于适配层内部。当前支持 Coincident、Parallel、Fixed、Horizontal、Vertical、Perpendicular、Tangent、Equal、Distance、Length、Radius、Diameter、Angle、Concentric、PointOnObject 和 Midpoint；维度明确携带 `mm` 或 `deg`，返回 SOLVED/UNDER_CONSTRAINED/INVALID/REDUNDANT/CONFLICTING/FAILED、DoF 和约束诊断。宏生成的 `internal` 约束仍参与求解和冲突诊断，但其纯冗余项不阻止整个原子宏提交；用户显式添加的冗余约束继续报告 REDUNDANT。Spline 控制点当前参与持久化、自由度与固定/端点关系，尚未接入 PlaneGCS 的完整 B-Spline 相切/曲率约束。Web 的鼠标移动预览是瞬态确定性预览；`EDIT_SKETCH` 提交后服务端求解结果才会进入不可变 Revision。
+Geometry Worker 内的项目自有 `SketchSolver` 已通过 `SolveSketch` 粗粒度 RPC 接入提交链，PlaneGCS 只存在于适配层内部。当前支持 Coincident、Parallel、Fixed、Horizontal、Vertical、Perpendicular、Tangent、Equal、Distance、Length、Radius、Diameter、Angle、Concentric、PointOnObject、Midpoint 和 Symmetry；Symmetry 支持“点—直线—点”的轴对称及“点—点—点”的中心对称。维度明确携带 `mm` 或 `deg`，返回 SOLVED/UNDER_CONSTRAINED/INVALID/REDUNDANT/CONFLICTING/FAILED、DoF 和约束诊断。宏生成的 `internal` 约束仍参与求解和冲突诊断，但其纯冗余项不阻止整个原子宏提交；用户显式添加的无关冗余约束继续报告 REDUNDANT。Symmetry 属于包含两个标量方程的复合设计意图；当其基于内置 U/V 轴且其中一个方程已被同一线段的 Horizontal/Vertical/对应轴 Parallel 隐含时，适配层保留 Symmetry 并只容忍这一组关联冗余，冲突和其他冗余仍失败。当前 `Spline` 命令把采集点解释为曲线必须经过的拟合点：Web 用确定性插值折线预览与拾取，Profile Builder 用同语义采样检查区域，OCCT 用 `GeomAPI_Interpolate` 构造精确曲线；这些拟合点参与持久化、自由度与固定/端点关系，但尚未接入 PlaneGCS 的完整样条相切/曲率约束。Web 的鼠标移动预览是瞬态确定性预览；`EDIT_SKETCH` 提交后服务端求解结果才会进入不可变 Revision。
 
 Pad 已不再调用四条轴对齐直线特判。OCCT-free Profile Builder 排除 Construction/Point，以 Coincident 等价类构建 Line/Arc/开放 Spline 端点图，并把 Circle/闭合 Spline 作为闭环；它拒绝开放端、T-junction、重叠/相交和自交，确定性遍历环，按包含深度区分外环、孔和岛，并生成稳定 ProfileLoop/ProfileRegion identity。`EvaluatePart.profile_pads` 将有向曲线和孔环送入 OCCT，后者构造 Edge/Wire/Face、执行 BRepCheck，再沿草图平面法向 Prism；一个草图中的多个偶数深度区域会一并拉伸。当前 Pad 仍以整个 Sketch 为 profile selection，尚未提供单独区域的视口选择。
 
-草图编辑的 ChangeSet 以最终写入 Revision 的求解后 `sketch.model` 为准，而不是命令处理器产生的求解前候选值；历史投影层能够独立读取和回写该稳定属性槽。Undo/Redo 还会从原事务不可变的 base/result Revision 重建实际 before/after，因此此前由求解前候选值生成的 ChangeSet 也可安全使用，且不放宽并发冲突检查。PlaneGCS 改写坐标、DoF 或诊断后，补偿和重放不会再产生候选值与 Revision 的 digest 冲突。
+草图编辑的 ChangeSet 以最终写入 Revision 的求解后 `sketch.model` 为准，而不是命令处理器产生的求解前候选值；历史投影层能够独立读取和回写该稳定属性槽。Undo/Redo 对持久 ChangeSet 先验证稳定 write-set 的 target/slot 唯一性，再从原事务不可变的 base/result Revision 重建实际 before/after 和 digest，最后执行当前值冲突检查；因此旧版本中已写入错误 digest 的求解后草图事务也能修复并回滚，但不会信任旧 ChangeSet 内容或放宽并发冲突检查。PlaneGCS 改写坐标、DoF 或诊断后，补偿和重放不会再产生候选值与 Revision 的 digest 冲突。
 
 ```mermaid
 sequenceDiagram
@@ -283,9 +283,9 @@ flowchart TD
     Query --> Adapter{"Mock or HTTP adapter"}
 ```
 
-Three.js 被封装在 Viewport Engine 内，页面层不应直接操作 Scene/Renderer/Controls。统一输入系统处理 Pointer/Keyboard、导航、Tool、Selection、Capture 和 Overlay；Toolbar 命令不注册快捷键，Enter/Esc 只保留为多阶段手势的完成/取消输入，视图区底部不再显示工具提示条。Part Design、Sketcher、Assembly、历史与视图 Toolbar 使用同一套无文字、统一描边的 CAD 语义 SVG；Sketcher 把绘制几何、约束、常用图形拆为三个可拖动 Toolbar，约束 Toolbar 内再分几何/逻辑约束与尺寸两组。Distance 与 Length 共用一个线性尺寸工具：首次命中直线主体形成 Length，首次命中点后继续选择第二点形成 Distance；Radius、Diameter、Angle 保持独立尺寸类型。约束定义声明按顺序允许的拾取类型/数量、符号、尺寸类型和单位；相切排除 Spline 与 line-line，相等的第二个引用按首个引用限制为 line-line 或 circle/arc pair。Go 命令验证层再次执行相同的类型不变量，UI 过滤不是唯一正确性边界。所有创建/约束按钮统一为单击执行一个逻辑操作后回到选择、双击进入连续模式。Point、Line、Circle、Arc、Polyline、Spline 和 Rectangle 共用完整手势生命周期；常用图形还提供正六边形和由 2 Line + 2 Arc 组成的长圆槽宏；Polyline/Spline 以双击或 Enter 结束本次多点采集。尺寸约束按“选择引用 → 移动并点击放置 → 输入数值 → Enter”的状态机创建。
+Three.js 被封装在 Viewport Engine 内，页面层不应直接操作 Scene/Renderer/Controls。统一输入系统处理 Pointer/Keyboard、导航、Tool、Selection、Capture 和 Overlay；Toolbar 命令不注册快捷键，Enter/Esc 只保留为多阶段手势的完成/取消输入，视图区底部不再显示工具提示条。Part Design、Sketcher、Assembly、历史与视图 Toolbar 使用同一套无文字、统一描边的 CAD 语义 SVG；Sketcher 将基础几何、几何约束、尺寸约束和常用图形拆为四个可拖动 Toolbar，常用图形统一为矩形、正六边形和圆。Distance 与 Length 共用一个线性尺寸工具：首次命中直线主体形成 Length，首次命中点后继续选择第二点形成 Distance；Radius、Diameter、Angle 保持独立尺寸类型。约束定义声明按顺序允许的拾取类型/数量、符号、尺寸类型和单位；相切排除 Spline 与 line-line，相等的第二个引用按首个引用限制为 line-line 或 circle/arc pair。Go 命令验证层再次执行相同的类型不变量，UI 过滤不是唯一正确性边界。所有创建/约束按钮统一为单击执行一个逻辑操作后回到选择、双击进入连续模式。Point、Line、Circle、Arc、Polyline、Spline 和 Rectangle 共用完整手势生命周期；Polyline/Spline 以双击或 Enter 结束本次多点采集。创建工具只上报 Point/Line/Circle 三类基础预览几何，由统一策略派生瞬态尺寸、精度和位置；矩形上报两条正交基线、正六边形上报一条代表边，后续复合工具无需自定义尺寸字符串。参考尺寸和持久尺寸 label 都以 CSS pixel 为目标，在每次渲染前根据相机深度/FOV/Viewport 高度反算 world scale，因此缩放长尺寸时保持固定屏幕大小。显示/输入精度统一为长度 2 位、角度 1 位小数；10 mm 网格是吸附步距，`0.01 mm` 是退化几何提交阈值，二者不再混用。尺寸约束按“选择引用 → 从当前已求解几何测量初值 → 移动并点击放置 → 内联编辑 → Enter 提交”的状态机创建；创建后的尺寸可在约束 glyph 或结构树叶节点上双击，并通过同一个编辑器提交 `UPDATE_CONSTRAINT_VALUE`。视口双击由 Pointer 手势状态机基于时间、位移和完整 down/up 序列识别，不依赖浏览器不稳定的 `PointerEvent.detail`。长度、两点距离、半径、直径和夹角均使用实际几何初值，不再要求用户从空值开始输入。
 
-Capture 策略是独立于当前 Tool 和持久 Selection 的可恢复交互状态，默认全部开启。三维选择过滤覆盖点/顶点、曲线/边、曲面/面、实体/特征、草图、草图约束、基准面、基准轴/坐标系和装配实例；草图吸附过滤覆盖 10 mm 网格点、原点、独立点、端点、圆/圆弧中心、中点和曲线投影，并提供“全部”和“仅点”预设。Line、Circle、Arc 和 Spline 都进入同一个候选求解器，其中曲线投影使用显示采样折线作交互近似，提交后仍由权威 evaluator 验证。SelectionIndex 会在按距离和语义优先级排序后跳过被过滤候选，而不是让最近的禁用类型遮挡后方可用元素。约束工具选择过程中，候选引用使用 hover 色，已保留引用使用 selected 色；固定 Point 的 `WHOLE` 引用仍按点显示，固定 Line/Circle/Arc/Spline 则显示完整元素。草图工具从第一次点击前就持续求解吸附候选，选择模式也会显示候选；吸附点用像素稳定的高亮点和圆环单独显示，导航、取消、切换策略或退出草图时清理，避免提交坐标已吸附但用户看不到反馈。语义视觉主题统一定义背景、实体、边、顶点、草图轮廓/构造线、约束、求解诊断、hover、selected、preview、snap、网格和轴色；所有约束符号使用像素稳定 SDF glyph shader，尺寸引线使用屏幕空间宽线，符号、引线和 label 均关闭 depth test/write。Sketcher 使用显式 `activeSketchID + plane`，进入后自动显示稳定 H/V 轴、原点和网格。当前吸附只改变预览/提交坐标；除 Polyline、Rectangle、正六边形和长圆槽宏自动生成的内部 Coincident 外，独立工具之间的连接仍需用户显式添加 Coincident。
+Capture 策略是独立于当前 Tool 和持久 Selection 的可恢复交互状态，默认全部开启。三维选择过滤覆盖点/顶点、曲线/边、曲面/面、实体/特征、草图、草图约束、基准面、基准轴/坐标系和装配实例；草图吸附过滤覆盖 10 mm 网格点、原点、独立点、端点、圆/圆弧中心、中点和曲线投影，并提供“全部”和“仅点”预设。Line、Circle、Arc 和 Spline 都进入同一个候选求解器，其中曲线投影使用显示采样折线作交互近似，提交后仍由权威 evaluator 验证。端点/独立点候选的语义优先级高于网格；Line 的起点或终点命中已有稳定点引用时，同一 `EDIT_SKETCH` batch 会同时创建实体和显式 Coincident，而不是只保存相同浮点坐标。SelectionIndex 会在按距离和语义优先级排序后跳过被过滤候选，而不是让最近的禁用类型遮挡后方可用元素。约束工具选择过程中，候选引用使用 hover 色，全部已保留引用使用 selected 色；Symmetry 选择第三点时，其 U/V 轴引用保持高亮，选择或 hover 已创建的轴约束也会重建轴高亮 Overlay。固定 Point 的 `WHOLE` 引用仍按点显示，固定 Line/Circle/Arc/Spline 则显示完整元素。草图创建工具从第一次点击前就持续求解并显示吸附候选；纯选择模式不求解或显示吸附圆环。进入 Sketcher 后，拾取作用域强制限制为 `activeSketchID` 的实体和约束，Pad 产生的面/边/点、Datum Plane 以及其他 Sketch 均不能被当前编辑选择命中；跨草图外部几何需等待显式 Reference/Projection 领域能力。吸附点用像素稳定的高亮点和圆环单独显示，导航、取消、切换策略或退出草图时清理，避免提交坐标已吸附但用户看不到反馈。语义视觉主题统一定义背景、实体、边、顶点、草图轮廓/构造线、约束、求解诊断、hover、selected、preview、snap、网格和轴色；U/V 基准轴使用不透明、低 renderOrder 的弱化底线，在草图曲线之前绘制，避免透明队列将重合的选中线遮住。所有约束符号使用较小的像素稳定 SDF glyph shader，尺寸引线使用 1.25 px 屏幕空间线，label 使用轻量半透明底，符号、引线和 label 均关闭 depth test/write。约束结构树叶节点与视口 glyph 使用同一 exact selection identity；选择任一入口都会高亮 glyph 及全部关联草图元素。Sketcher 使用显式 `activeSketchID + plane`，进入后自动显示稳定 H/V 轴、原点和网格。
 
 选择状态由有序 `selections[]` 与最后一个主选择组成；属性面板和单目标命令读取主选择，结构树与视口高亮读取完整集合。视口 Ctrl/Meta 点击切换集合成员，空白点击清空；结构树普通点击替换、Ctrl/Meta 点击切换、Shift 点击按当前可见顺序连续选择、Ctrl/Meta+Shift 合并区间，点击空白清空。SelectionIndex 仅对结构树发起且显式带 `expandTreeDescendants` 的父节点选择，按稳定 `treeNodeId` 前缀展开全部已注册后代渲染对象；约束 selection 额外关联其全部引用草图元素，因此 hover/select 约束会同时高亮标记、引线和相关几何。最终 Body 制品绑定到结构树中最后一个产生实体的 Import/Extrude Feature，因此视口 Face/Edge/Vertex 选择落到该 Feature，而不是笼统落到 PartBody。当前 Artifact 仍是最终 Body 粒度，尚不能显示历史中每个 Feature 的独立 Result。精确元素只高亮命中元素，结构树显示单向投影到最近现存祖先，不会反向扩大视口高亮。拓扑面、边和点的 selected/hover Overlay 均关闭 depth test/write，使被实体遮挡的选择仍可见；边使用独立 4–5 px 屏幕空间线覆盖原始黑色边线。每次状态变化先恢复旧高亮和 Overlay，再按 hover 后 selected 重建。草图尺寸的 `labelPosition` 是版本化注释属性：Select 工具拖动引线/label 时只更新瞬态 preview，pointerup 才提交一次 `UPDATE_CONSTRAINT_PLACEMENT`；双击尺寸在原位置打开内联数值框，Enter 以 `UPDATE_CONSTRAINT_VALUE` 形成一次可 Undo 的 Revision。结构树不显示行内删除按钮；右键菜单锚定节点固定位置、使用固定 `176px` 宽度并作用于当前选择集合，选择集合变化立即关闭菜单；`DELETE_NODES` 在一个 typed Domain Command 中原子删除多个节点、合并同一 PropertySlot 的 ChangeSet，并形成一次可 Undo 的 Revision，不显示确认框。
 
@@ -317,7 +317,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 | STEP/BREP Part 与多根 Product 导入导出 | 已实现基础闭环 | Document Center、流式 HTTP、持久任务与 ArtifactReference Worker |
 | 本机 Geometry 扩缩容 | 已实现 | occccad-control |
 | 跨主机 Geometry 调度 | 未实现 | 无注册中心/集群调度 |
-| 二维草图与基础约束 | 已实现基础集合 | Point/Line/Circle/Arc/Spline、基本几何/尺寸约束、PlaneGCS 与三组 Sketcher Toolbar |
+| 二维草图与基础约束 | 已实现基础集合 | Point/Line/Circle/Arc/插值 Spline、基本几何/尺寸/对称约束、PlaneGCS 与四组 Sketcher Toolbar |
 | 三维装配约束/运动学 | 未实现 | Product 只有 Transform |
 | 持久拓扑命名 | 未实现 | 当前 local ID 不可作长期 Feature 引用 |
 | S3 兼容对象存储/CDN | 未实现 | 当前仅本地目录 |

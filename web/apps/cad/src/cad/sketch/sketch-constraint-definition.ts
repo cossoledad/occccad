@@ -3,10 +3,11 @@ import type { SketchReferencePickKind } from "../interaction/sketch-reference-pi
 
 export type ConstraintKind = SketchConstraint["kind"];
 export type ToolbarConstraintKind = Exclude<ConstraintKind, "FIXED_POINT">;
+export type DimensionConstraintKind = Extract<ConstraintKind, "DISTANCE" | "LENGTH" | "RADIUS" | "DIAMETER" | "ANGLE">;
 export type ConstraintSymbol =
   | "coincident" | "parallel" | "fixed" | "horizontal" | "vertical" | "perpendicular"
   | "tangent" | "equal" | "distance" | "length" | "radius" | "diameter" | "angle"
-  | "concentric" | "point_on_object" | "midpoint";
+  | "concentric" | "point_on_object" | "midpoint" | "symmetry";
 
 export type SketchConstraintDefinition = {
   kind: ConstraintKind;
@@ -55,22 +56,24 @@ export const SKETCH_CONSTRAINT_DEFINITIONS: Record<ConstraintKind, SketchConstra
     picks: ["POINT", "SOLVER_CURVE"], pickLabels: ["点", "直线、圆或圆弧"], dimension: "none" }),
   MIDPOINT: define({ kind: "MIDPOINT", label: "中点", symbol: "midpoint", picks: ["POINT", "LINE"],
     pickLabels: ["点", "直线"], dimension: "none" }),
+  SYMMETRY: define({ kind: "SYMMETRY", label: "对称", symbol: "symmetry", picks: ["POINT", "SYMMETRY_CENTER", "POINT"],
+    pickLabels: ["第一个点", "对称轴或中心点", "第二个点"], dimension: "none" }),
 };
 
 export const TOOLBAR_CONSTRAINT_KINDS: readonly ToolbarConstraintKind[] = [
   "COINCIDENT", "PARALLEL", "FIXED", "HORIZONTAL", "VERTICAL", "PERPENDICULAR", "TANGENT", "EQUAL",
-  "DISTANCE", "LENGTH", "RADIUS", "DIAMETER", "ANGLE", "CONCENTRIC", "POINT_ON_OBJECT", "MIDPOINT",
+  "DISTANCE", "LENGTH", "RADIUS", "DIAMETER", "ANGLE", "CONCENTRIC", "POINT_ON_OBJECT", "MIDPOINT", "SYMMETRY",
 ];
 
 export const LOGICAL_CONSTRAINT_KINDS: readonly ToolbarConstraintKind[] = [
   "COINCIDENT", "PARALLEL", "FIXED", "HORIZONTAL", "VERTICAL", "PERPENDICULAR", "TANGENT", "EQUAL",
-  "CONCENTRIC", "POINT_ON_OBJECT", "MIDPOINT",
+  "CONCENTRIC", "POINT_ON_OBJECT", "MIDPOINT", "SYMMETRY",
 ];
 
 export const OTHER_DIMENSION_CONSTRAINT_KINDS: readonly ToolbarConstraintKind[] = ["RADIUS", "DIAMETER", "ANGLE"];
-export const DIMENSION_CONSTRAINT_KINDS: readonly ConstraintKind[] = ["DISTANCE", "LENGTH", "RADIUS", "DIAMETER", "ANGLE"];
+export const DIMENSION_CONSTRAINT_KINDS: readonly DimensionConstraintKind[] = ["DISTANCE", "LENGTH", "RADIUS", "DIAMETER", "ANGLE"];
 
-export function isDimensionConstraintKind(kind: string): kind is ConstraintKind {
+export function isDimensionConstraintKind(kind: string): kind is DimensionConstraintKind {
   return (DIMENSION_CONSTRAINT_KINDS as readonly string[]).includes(kind);
 }
 

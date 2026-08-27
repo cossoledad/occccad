@@ -79,9 +79,10 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 	}
 	var rootTransaction, consumedRevert string
 	var changeJSON []byte
+	var persistedWrites []string
 	if request.Type == "UNDO" {
 		err := service.database.QueryRow(ctx, `
-			SELECT root.id::text,cs.canonical_blob
+			SELECT root.id::text,cs.canonical_blob,cs.write_set
 			FROM occccad.domain_transactions root
 			JOIN occccad.change_sets cs ON cs.transaction_id=root.id
 			LEFT JOIN LATERAL (
@@ -92,7 +93,7 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 			WHERE root.workspace_id=$1 AND root.actor_id=$2 AND root.status='COMMITTED'
 			  AND root.kind IN ('DOMAIN','RESTORE')
 			  AND (latest.kind IS NULL OR latest.kind='REAPPLY')
-			ORDER BY root.sequence DESC LIMIT 1`, workspaceID, actor).Scan(&rootTransaction, &changeJSON)
+			ORDER BY root.sequence DESC LIMIT 1`, workspaceID, actor).Scan(&rootTransaction, &changeJSON, &persistedWrites)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("%w: nothing to undo for this actor", ErrValidation)
 		}
@@ -107,7 +108,7 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 				WHERE workspace_id=$1 AND actor_id=$2 AND status='COMMITTED'
 				  AND kind IN ('DOMAIN','RESTORE','CREATE')
 			)
-			SELECT root.id::text,revert_tx.id::text,cs.canonical_blob
+			SELECT root.id::text,revert_tx.id::text,cs.canonical_blob,cs.write_set
 			FROM occccad.domain_transactions revert_tx
 			JOIN occccad.domain_transactions root ON root.id=revert_tx.root_transaction_id
 			JOIN occccad.change_sets cs ON cs.transaction_id=root.id
@@ -117,7 +118,7 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 			  AND revert_tx.sequence>boundary.sequence
 			  AND NOT EXISTS (SELECT 1 FROM occccad.domain_transactions reapply
 			      WHERE reapply.reapplies_transaction_id=revert_tx.id AND reapply.status='COMMITTED')
-			ORDER BY revert_tx.sequence DESC LIMIT 1`, workspaceID, actor).Scan(&rootTransaction, &consumedRevert, &changeJSON)
+			ORDER BY revert_tx.sequence DESC LIMIT 1`, workspaceID, actor).Scan(&rootTransaction, &consumedRevert, &changeJSON, &persistedWrites)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("%w: REDO_NOT_AVAILABLE", ErrValidation)
 		}
@@ -129,7 +130,7 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 	if err := json.Unmarshal(changeJSON, &original); err != nil {
 		return err
 	}
-	if err := original.Finalize(); err != nil {
+	if err := validatePersistedChangeSetStructure(original, persistedWrites); err != nil {
 		return fmt.Errorf("%w: invalid persisted ChangeSet: %v", ErrValidation, err)
 	}
 	// The immutable base/result revisions are the final authority for the
@@ -181,6 +182,28 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 		headRevision: headRevision, documentType: documentType, actorID: actor, requestID: request.RequestID,
 		headSequence: headSequence, modelJSON: nextJSON, changes: reverse, kind: kind, typeURI: typeURI,
 		rootTransaction: rootTransaction, consumedRevert: consumedRevert, requestDigest: historyDigest})
+}
+
+func validatePersistedChangeSetStructure(set modelcore.ChangeSet, persistedWrites []string) error {
+	if err := set.ValidateStructure(); err != nil {
+		return err
+	}
+	if len(set.Changes) != len(persistedWrites) {
+		return fmt.Errorf("canonical change count does not match persisted write set")
+	}
+	writes := make(map[string]struct{}, len(persistedWrites))
+	for _, key := range persistedWrites {
+		if _, duplicate := writes[key]; duplicate {
+			return fmt.Errorf("persisted write set contains duplicate %s", key)
+		}
+		writes[key] = struct{}{}
+	}
+	for _, change := range set.Changes {
+		if _, ok := writes[change.Target.Key()]; !ok {
+			return fmt.Errorf("change target %s is absent from persisted write set", change.Target.Key())
+		}
+	}
+	return nil
 }
 
 func (service *Service) applyRestoreRevision(ctx context.Context, documentID string, request CommandRequest) error {

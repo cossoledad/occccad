@@ -188,4 +188,63 @@ TEST(PlaneGcsSketchSolver, SolvesRegularHexagonMacro) {
 
     EXPECT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
 }
+
+TEST(PlaneGcsSketchSolver, SolvesPointLinePointSymmetry) {
+    SketchModel model;
+    model.points = {{"first", {-4.8, 2.2}}, {"second", {5.1, 1.8}}};
+    model.lines = {{"axis", {0.0, -10.0}, {0.0, 10.0}}};
+    model.constraints = {
+        {"fixed-axis", ConstraintKind::fixed, {endpoint("axis", SubElement::whole)}, {}},
+        {"symmetric",
+         ConstraintKind::symmetry,
+         {endpoint("first", SubElement::point), endpoint("axis", SubElement::direction),
+          endpoint("second", SubElement::point)},
+         {}}};
+
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+
+    EXPECT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    ASSERT_EQ(result.points.size(), 2U);
+    EXPECT_NEAR(result.points[0].point.x, -result.points[1].point.x, 1e-8);
+    EXPECT_NEAR(result.points[0].point.y, result.points[1].point.y, 1e-8);
+}
+
+TEST(PlaneGcsSketchSolver, SolvesPointPointPointSymmetry) {
+    SketchModel model;
+    model.points = {{"first", {1.8, 2.9}}, {"center", {0.0, 0.0}}, {"second", {-2.2, -3.1}}};
+    model.constraints = {
+        {"fixed-center", ConstraintKind::fixed, {endpoint("center", SubElement::whole)}, {}},
+        {"symmetric",
+         ConstraintKind::symmetry,
+         {endpoint("first", SubElement::point), endpoint("center", SubElement::point),
+          endpoint("second", SubElement::point)},
+         {}}};
+
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+
+    EXPECT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    ASSERT_EQ(result.points.size(), 3U);
+    EXPECT_NEAR(result.points[0].point.x + result.points[2].point.x, 0.0, 1e-8);
+    EXPECT_NEAR(result.points[0].point.y + result.points[2].point.y, 0.0, 1e-8);
+}
+
+TEST(PlaneGcsSketchSolver, KeepsAxisSymmetryWhenOneEquationIsAlreadyImplied) {
+    SketchModel model;
+    model.lines = {{"edge", {-5.0, 3.0}, {5.0, 3.0}}};
+    model.constraints = {
+        {"horizontal", ConstraintKind::horizontal, {endpoint("edge", SubElement::direction)}, {}},
+        {"symmetric-y",
+         ConstraintKind::symmetry,
+         {endpoint("edge", SubElement::start), axis(GeometryTarget::sketch_y_axis),
+          endpoint("edge", SubElement::end)},
+         {}}};
+
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+
+    EXPECT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    EXPECT_TRUE(result.redundant_constraint_ids.empty());
+    ASSERT_EQ(result.lines.size(), 1U);
+    EXPECT_NEAR(result.lines[0].start.x, -result.lines[0].end.x, 1e-8);
+    EXPECT_NEAR(result.lines[0].start.y, result.lines[0].end.y, 1e-8);
+}
 }  // namespace occccad::geometry::sketch

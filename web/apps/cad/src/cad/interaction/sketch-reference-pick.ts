@@ -2,7 +2,7 @@ import type { SketchEntity, SketchGeometryRef, Vec2 } from "../../types";
 import { sampleSketchEntity, sketchEntityPoint } from "../sketch/sketch-geometry";
 
 type ScreenPoint = { x: number; y: number };
-export type SketchReferencePickKind = "POINT" | "LINE" | "LINEAR_DIMENSION" | "CURVE" | "CIRCULAR" | "SOLVER_CURVE" | "TANGENT_CURVE" | "EQUAL_CURVE" | "ENTITY";
+export type SketchReferencePickKind = "POINT" | "LINE" | "LINEAR_DIMENSION" | "CURVE" | "CIRCULAR" | "SOLVER_CURVE" | "TANGENT_CURVE" | "EQUAL_CURVE" | "SYMMETRY_CENTER" | "ENTITY";
 
 const segmentDistance = (point: ScreenPoint, start: ScreenPoint, end: ScreenPoint): number => {
   const dx = end.x - start.x, dy = end.y - start.y, length = dx * dx + dy * dy;
@@ -20,7 +20,7 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
   const consider = (distance: number, reference: SketchGeometryRef) => {
     if (distance < (best?.distance ?? thresholdPixels)) best = { distance, reference };
   };
-  if (mode === "POINT" || mode === "LINEAR_DIMENSION") {
+  if (mode === "POINT" || mode === "LINEAR_DIMENSION" || mode === "SYMMETRY_CENTER") {
     const origin = project([0, 0]);
     consider(Math.hypot(cursor.x - origin.x, cursor.y - origin.y), { target: "SKETCH_ORIGIN", subElement: "POINT" });
   }
@@ -29,7 +29,7 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
       const projected=project([entity.point.x,entity.point.y]);consider(Math.hypot(cursor.x-projected.x,cursor.y-projected.y),
         {target:"ENTITY",entityId:entity.id,subElement:"WHOLE"});continue;
     }
-    if (mode === "POINT" || mode === "LINEAR_DIMENSION") {
+    if (mode === "POINT" || mode === "LINEAR_DIMENSION" || mode === "SYMMETRY_CENTER") {
       const candidates = entity.kind === "POINT" ? ["POINT"] as const
         : entity.kind === "CIRCLE" ? ["CENTER"] as const
           : entity.kind === "ARC" ? ["START", "END", "CENTER"] as const : ["START", "END"] as const;
@@ -42,6 +42,7 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
     }
     if (mode === "LINEAR_DIMENSION" && entity.kind !== "LINE") continue;
     if (mode === "LINE" && entity.kind !== "LINE") continue;
+    if (mode === "SYMMETRY_CENTER" && entity.kind !== "LINE") continue;
     if (mode === "CIRCULAR" && entity.kind !== "CIRCLE" && entity.kind !== "ARC") continue;
     if ((mode === "SOLVER_CURVE" || mode === "TANGENT_CURVE") && !["LINE", "CIRCLE", "ARC"].includes(entity.kind)) continue;
     if (mode === "TANGENT_CURVE") {
@@ -57,12 +58,12 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
     const sampled = sampleSketchEntity(entity).map(project);
     for (let index=1; index<sampled.length; index+=1) {
       consider(segmentDistance(cursor,sampled[index-1],sampled[index]), { target:"ENTITY",entityId:entity.id,
-        subElement: entity.kind === "LINE" && mode === "LINE" ? "DIRECTION" : "WHOLE" });
+        subElement: entity.kind === "LINE" && (mode === "LINE" || mode === "SYMMETRY_CENTER") ? "DIRECTION" : "WHOLE" });
     }
   }
   // User lines win exact ties, while an exposed portion of either intrinsic
   // axis stays selectable for Parallel constraints.
-  if (mode === "LINE") {
+  if (mode === "LINE" || mode === "SYMMETRY_CENTER") {
     consider(segmentDistance(cursor, project([-axisExtent, 0]), project([axisExtent, 0])),
       { target: "SKETCH_X_AXIS", subElement: "DIRECTION" });
     consider(segmentDistance(cursor, project([0, -axisExtent]), project([0, axisExtent])),

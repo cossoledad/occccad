@@ -153,8 +153,57 @@ public:
         y_axis.p2 = y_axis_end;
         GCS::System system;
         std::unordered_map<int, std::string> constraint_ids;
-        std::unordered_map<int, bool> constraint_internal;
+        std::unordered_map<int, bool> constraint_redundancy_tolerated;
         std::unordered_set<std::string> seen_constraint_ids;
+
+        const auto redundancy_tolerated = [&model](const SketchConstraint& candidate) {
+            if (candidate.internal || candidate.kind == ConstraintKind::symmetry)
+                return true;
+            if (candidate.references.empty() || (candidate.kind != ConstraintKind::horizontal &&
+                                                 candidate.kind != ConstraintKind::vertical &&
+                                                 candidate.kind != ConstraintKind::parallel))
+                return false;
+            for (const auto& symmetry : model.constraints) {
+                if (symmetry.kind != ConstraintKind::symmetry || symmetry.references.size() != 3U)
+                    continue;
+                const auto& first = symmetry.references[0];
+                const auto& center = symmetry.references[1];
+                const auto& second = symmetry.references[2];
+                if (first.target != GeometryTarget::entity ||
+                    second.target != GeometryTarget::entity ||
+                    first.entity_id != second.entity_id || first.entity_id.empty() ||
+                    !((first.sub_element == SubElement::start &&
+                       second.sub_element == SubElement::end) ||
+                      (first.sub_element == SubElement::end &&
+                       second.sub_element == SubElement::start)))
+                    continue;
+                const bool horizontal_axis_symmetry =
+                    center.target == GeometryTarget::sketch_y_axis;
+                const bool vertical_axis_symmetry = center.target == GeometryTarget::sketch_x_axis;
+                if ((candidate.kind == ConstraintKind::horizontal && horizontal_axis_symmetry) ||
+                    (candidate.kind == ConstraintKind::vertical && vertical_axis_symmetry)) {
+                    const auto& line = candidate.references[0];
+                    if (line.target == GeometryTarget::entity && line.entity_id == first.entity_id)
+                        return true;
+                }
+                if (candidate.kind == ConstraintKind::parallel &&
+                    candidate.references.size() == 2U) {
+                    const GeometryTarget expected_axis =
+                        horizontal_axis_symmetry ? GeometryTarget::sketch_x_axis
+                        : vertical_axis_symmetry ? GeometryTarget::sketch_y_axis
+                                                 : GeometryTarget::entity;
+                    bool has_line = false, has_axis = false;
+                    for (const auto& reference : candidate.references) {
+                        has_line = has_line || (reference.target == GeometryTarget::entity &&
+                                                reference.entity_id == first.entity_id);
+                        has_axis = has_axis || reference.target == expected_axis;
+                    }
+                    if (expected_axis != GeometryTarget::entity && has_line && has_axis)
+                        return true;
+                }
+            }
+            return false;
+        };
 
         try {
             for (auto& arc : arcs)
@@ -164,7 +213,11 @@ public:
                 if (constraint.id.empty() || !seen_constraint_ids.insert(constraint.id).second)
                     return invalid("constraint ids must be unique");
                 constraint_ids.emplace(tag, constraint.id);
-                constraint_internal.emplace(tag, constraint.internal);
+                // Composite axis symmetry can make its own scalar equation, or
+                // the matching H/V/Parallel relation, appear redundant based
+                // on insertion order. Preserve that combined design intent;
+                // unrelated user redundancy remains an error.
+                constraint_redundancy_tolerated.emplace(tag, redundancy_tolerated(constraint));
                 const auto error =
                     add_constraint(constraint, tag, point_indices, line_indices, circle_indices,
                                    arc_indices, spline_indices, points, lines, circles, arcs,
@@ -217,7 +270,7 @@ public:
             system.getRedundant(redundant);
             GCS::VEC_I user_redundant;
             for (const int redundant_tag : redundant) {
-                if (redundant_tag != 0 && !constraint_internal[redundant_tag])
+                if (redundant_tag != 0 && !constraint_redundancy_tolerated[redundant_tag])
                     user_redundant.push_back(redundant_tag);
             }
             if (!conflicting.empty() || !user_redundant.empty()) {
@@ -477,6 +530,25 @@ private:
             second_half.p2 = line->p2;
             system.addConstraintPointOnLine(*point, *line, tag);
             system.addConstraintEqualLength(first_half, second_half, tag);
+            return {};
+        }
+        if (c.kind == ConstraintKind::symmetry) {
+            if (!count(3))
+                return "symmetry requires point, axis-or-center, point";
+            auto* first = resolve_point(c.references[0], point_i, line_i, circle_i, arc_i, spline_i,
+                                        points, lines, circles, arcs, splines, origin);
+            auto* second = resolve_point(c.references[2], point_i, line_i, circle_i, arc_i,
+                                         spline_i, points, lines, circles, arcs, splines, origin);
+            if (!first || !second)
+                return "symmetry outer references must be points";
+            if (auto* axis = resolve_line(c.references[1], line_i, lines, x_axis, y_axis))
+                system.addConstraintP2PSymmetric(*first, *second, *axis, tag);
+            else if (auto* center =
+                         resolve_point(c.references[1], point_i, line_i, circle_i, arc_i, spline_i,
+                                       points, lines, circles, arcs, splines, origin))
+                system.addConstraintP2PSymmetric(*first, *second, *center, tag);
+            else
+                return "symmetry center reference must be a line or point";
             return {};
         }
         return "unsupported constraint kind";

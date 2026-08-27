@@ -277,62 +277,41 @@ func sampleProfileCurve(curve geometry.ProfileCurve) []SketchPoint2 {
 		for i, value := range curve.ControlPoints {
 			points[i] = SketchPoint2{X: value[0], Y: value[1]}
 		}
-		if curve.Closed && len(points) > 0 {
-			points = append(points, points[0])
-		}
-		return sampleBSpline(points, int(curve.Degree), 64)
+		return sampleInterpolatingSpline(points, curve.Closed, 64)
 	}
 	return nil
 }
 
-func sampleBSpline(control []SketchPoint2, degree, segments int) []SketchPoint2 {
-	n := len(control) - 1
-	if n < 1 {
-		return control
+func sampleInterpolatingSpline(fit []SketchPoint2, closed bool, segments int) []SketchPoint2 {
+	if len(fit) < 2 {
+		return append([]SketchPoint2(nil), fit...)
 	}
-	p := degree
-	if p < 1 {
-		p = 1
+	segmentCount := len(fit) - 1
+	if closed {
+		segmentCount = len(fit)
 	}
-	if p > n {
-		p = n
+	perSegment := int(math.Max(4, math.Ceil(float64(segments)/float64(segmentCount))))
+	at := func(index int) SketchPoint2 {
+		if closed {
+			index = ((index % len(fit)) + len(fit)) % len(fit)
+		} else {
+			index = max(0, min(len(fit)-1, index))
+		}
+		return fit[index]
 	}
-	maximum := n - p + 1
-	knots := make([]int, n+p+2)
-	for index := range knots {
-		switch {
-		case index <= p:
-			knots[index] = 0
-		case index > n:
-			knots[index] = maximum
-		default:
-			knots[index] = index - p
+	result := make([]SketchPoint2, 0, segmentCount*perSegment+1)
+	for segment := 0; segment < segmentCount; segment++ {
+		p0, p1, p2, p3 := at(segment-1), at(segment), at(segment+1), at(segment+2)
+		for step := 0; step < perSegment; step++ {
+			t := float64(step) / float64(perSegment)
+			t2, t3 := t*t, t*t*t
+			result = append(result, SketchPoint2{X: .5 * ((2 * p1.X) + (-p0.X+p2.X)*t + (2*p0.X-5*p1.X+4*p2.X-p3.X)*t2 + (-p0.X+3*p1.X-3*p2.X+p3.X)*t3), Y: .5 * ((2 * p1.Y) + (-p0.Y+p2.Y)*t + (2*p0.Y-5*p1.Y+4*p2.Y-p3.Y)*t2 + (-p0.Y+3*p1.Y-3*p2.Y+p3.Y)*t3)})
 		}
 	}
-	evaluate := func(parameter float64) SketchPoint2 {
-		u := math.Min(parameter, float64(maximum)-math.SmallestNonzeroFloat64)
-		span := int(math.Floor(u)) + p
-		if parameter >= float64(maximum) || span > n {
-			span = n
-		}
-		values := make([]SketchPoint2, p+1)
-		copy(values, control[span-p:span+1])
-		for level := 1; level <= p; level++ {
-			for index := p; index >= level; index-- {
-				source := span - p + index
-				denominator := knots[source+p-level+1] - knots[source]
-				alpha := 0.0
-				if denominator != 0 {
-					alpha = (u - float64(knots[source])) / float64(denominator)
-				}
-				values[index] = SketchPoint2{X: values[index-1].X*(1-alpha) + values[index].X*alpha, Y: values[index-1].Y*(1-alpha) + values[index].Y*alpha}
-			}
-		}
-		return values[p]
-	}
-	result := make([]SketchPoint2, segments+1)
-	for index := range result {
-		result[index] = evaluate(float64(maximum) * float64(index) / float64(segments))
+	if closed {
+		result = append(result, fit[0])
+	} else {
+		result = append(result, fit[len(fit)-1])
 	}
 	return result
 }

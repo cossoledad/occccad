@@ -2,29 +2,24 @@ import type { SketchEntity, SketchPoint2, Vec2 } from "../../types";
 
 const point = (value: SketchPoint2): Vec2 => [value.x, value.y];
 
-function sampleSpline(control: Vec2[], degree: number, segments: number): Vec2[] {
-  const n = control.length - 1;
-  const p = Math.max(1, Math.min(degree, n));
-  const maximum = n - p + 1;
-  const knots = Array.from({ length: n + p + 2 }, (_, index) =>
-    index <= p ? 0 : index > n ? maximum : index - p);
-  const evaluate = (parameter: number): Vec2 => {
-    const u = Math.min(parameter, maximum - Number.EPSILON);
-    let span = Math.min(n, Math.floor(u) + p);
-    if (parameter >= maximum) span = n;
-    const values = Array.from({ length: p + 1 }, (_, index) => [...control[span - p + index]] as Vec2);
-    for (let level = 1; level <= p; level += 1) {
-      for (let index = p; index >= level; index -= 1) {
-        const source = span - p + index;
-        const denominator = knots[source + p - level + 1] - knots[source];
-        const alpha = denominator === 0 ? 0 : (u - knots[source]) / denominator;
-        values[index] = [values[index - 1][0] * (1 - alpha) + values[index][0] * alpha,
-          values[index - 1][1] * (1 - alpha) + values[index][1] * alpha];
-      }
+export function sampleInterpolatingSpline(fitPoints: Vec2[], closed: boolean, segments = 64): Vec2[] {
+  if (fitPoints.length < 2) return [...fitPoints];
+  const segmentCount = closed ? fitPoints.length : fitPoints.length - 1;
+  const perSegment = Math.max(4, Math.ceil(segments / segmentCount));
+  const at = (index: number): Vec2 => closed
+    ? fitPoints[(index % fitPoints.length + fitPoints.length) % fitPoints.length]
+    : fitPoints[Math.max(0, Math.min(fitPoints.length - 1, index))];
+  const result: Vec2[] = [];
+  for (let segment = 0; segment < segmentCount; segment += 1) {
+    const p0=at(segment-1),p1=at(segment),p2=at(segment+1),p3=at(segment+2);
+    for (let step=0;step<perSegment;step+=1) {
+      const t=step/perSegment,t2=t*t,t3=t2*t;
+      result.push([0.5*((2*p1[0])+(-p0[0]+p2[0])*t+(2*p0[0]-5*p1[0]+4*p2[0]-p3[0])*t2+(-p0[0]+3*p1[0]-3*p2[0]+p3[0])*t3),
+        0.5*((2*p1[1])+(-p0[1]+p2[1])*t+(2*p0[1]-5*p1[1]+4*p2[1]-p3[1])*t2+(-p0[1]+3*p1[1]-3*p2[1]+p3[1])*t3)]);
     }
-    return values[p];
-  };
-  return Array.from({ length: segments + 1 }, (_, index) => evaluate(maximum * index / segments));
+  }
+  result.push(closed ? fitPoints[0] : fitPoints.at(-1)!);
+  return result;
 }
 
 export function sampleSketchEntity(entity: SketchEntity, segments = 64): Vec2[] {
@@ -40,10 +35,7 @@ export function sampleSketchEntity(entity: SketchEntity, segments = 64): Vec2[] 
     });
   }
   if (entity.kind === "SPLINE" && entity.controlPoints && entity.controlPoints.length >= 2) {
-    const controls = entity.controlPoints.map(point);
-    if (entity.closed) controls.push(controls[0]);
-    const sampled = sampleSpline(controls, entity.degree ?? 3, segments);
-    return sampled;
+    return sampleInterpolatingSpline(entity.controlPoints.map(point), Boolean(entity.closed), segments);
   }
   return [];
 }

@@ -19,12 +19,13 @@ try {
     PointSketchTool,
     PolylineSketchTool,
     RectangleSketchTool,
+    SplineSketchTool,
     SlotSketchTool,
   } = await server.ssrLoadModule("/src/cad/tool/cad-tool.ts");
   const { buildSketchRenderModel } = await server.ssrLoadModule("/src/cad/rendering/sketch-render-model.ts");
   const { visualSelection, visualType } = await server.ssrLoadModule("/src/cad/rendering/visualization-render-model.ts");
   const { resolveSketchSnap } = await server.ssrLoadModule("/src/cad/interaction/sketch-snap.ts");
-  const { allowsSelection, DEFAULT_CAPTURE_SETTINGS, selectionCaptureKind } = await server.ssrLoadModule("/src/cad/interaction/capture-settings.ts");
+  const { allowsSelection, allowsSelectionInContext, DEFAULT_CAPTURE_SETTINGS, selectionCaptureKind } = await server.ssrLoadModule("/src/cad/interaction/capture-settings.ts");
   const { ToolManager } = await server.ssrLoadModule("/src/cad/tool/tool-manager.ts");
   const { SelectionIndex } = await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
   const { resultBodyFeatureTreeNode } = await server.ssrLoadModule("/src/cad/interaction/selection-hierarchy.ts");
@@ -32,13 +33,18 @@ try {
   const { closestTreeKey, resolveTreeSelection } = await server.ssrLoadModule("/src/features/workbench/tree-selection.ts");
   const { resolveSketchReference } = await server.ssrLoadModule("/src/cad/interaction/sketch-reference-pick.ts");
   const { constraintDefinition, TOOLBAR_CONSTRAINT_KINDS } = await server.ssrLoadModule("/src/cad/sketch/sketch-constraint-definition.ts");
-  const { buildSketchConstraintLayout } = await server.ssrLoadModule("/src/cad/sketch/sketch-constraint-layout.ts");
+  const { buildSketchConstraintLayout, measureSketchDimension } = await server.ssrLoadModule("/src/cad/sketch/sketch-constraint-layout.ts");
+  const { sampleInterpolatingSpline } = await server.ssrLoadModule("/src/cad/sketch/sketch-geometry.ts");
+  const { formatSketchDimensionValue, sketchReferenceDimensions } = await server.ssrLoadModule("/src/cad/sketch/sketch-input-policy.ts");
   const { CadShaderLibrary } = await server.ssrLoadModule("/src/cad/rendering/shader/cad-shader-library.ts");
+  const { perspectiveWorldUnitsPerPixel } = await server.ssrLoadModule("/src/cad/rendering/sketch-constraint-renderer.ts");
   const { makeOcclusionVisibleHighlightLine } = await server.ssrLoadModule("/src/cad/rendering/interaction-highlight.ts");
   const { defaultDocumentName } = await server.ssrLoadModule("/src/features/documents/document-utils.ts");
   const operations = [];
   const prompts = [];
   const previews = [];
+  const dimensionRequests = [];
+  let snapReference;
   let completions = 0;
   const references = [
     { target: "ENTITY", entityId: "line-a", subElement: "END" },
@@ -47,15 +53,23 @@ try {
   ];
   const viewport = {
     sketchPoint: (x, y) => [x, y],
+    sketchSnapReference: () => snapReference,
     sketchPlacementPoint: (x, y) => [x, y],
     showPolylinePreview: (points, closed) => previews.push({ points, closed }),
     showPointPreview: (point) => previews.push({ point }),
+    showReferenceDimensions: (geometry) => previews.push({ referenceDimensions: sketchReferenceDimensions(geometry) }),
     clearToolPreview: () => previews.push("clear"),
     commitSketchOperations: (value) => operations.push(value),
     hasActiveSketch: () => true,
     sketchReferenceAt: () => references.shift() ?? null,
     showReferencePreview: (value, retained) => previews.push({ reference: value, retained }),
     showConstraintPreview: (kind, value, dimension, labelPosition) => previews.push({ constraintPreview: kind, value, dimension, labelPosition }),
+    measureDimension: () => 12.5,
+    requestDimensionCreation: (kind, selectedReferences, value, unit, labelPosition, x, y) => {
+      dimensionRequests.push({ kind, selectedReferences, value, unit, labelPosition, x, y });
+      operations.push([{ type: "ADD_CONSTRAINT", constraint: { id: "dimension-request", kind,
+        references: selectedReferences, value, unit, labelPosition: { x: labelPosition[0], y: labelPosition[1] } } }]);
+    },
     beginDimensionDrag: () => false, updateDimensionDrag: () => {}, finishDimensionDrag: () => {}, cancelDimensionDrag: () => {},
     editDimensionAt: () => false,
     clearReferencePreview: () => previews.push("clear-reference"),
@@ -87,6 +101,8 @@ try {
   assert.equal(operations[0][0].type, "ADD_RECTANGLE");
   assert.equal(completions, 1);
   assert.equal(previews.some((value) => value?.closed === true), true);
+  assert.equal(previews.some((value) => value?.referenceDimensions?.length === 2), true,
+    "rectangle reference dimensions must be derived from two foundational lines");
 
   const line = new LineSketchTool();
   line.activate(context);
@@ -99,6 +115,18 @@ try {
   assert.equal(operations[1][0].entity.kind, "LINE");
   assert.equal(completions, 2);
 
+  snapReference = { target: "ENTITY", entityId: "line-a", subElement: "END" };
+  const connectedLine = new LineSketchTool();
+  connectedLine.activate(context);
+  connectedLine.pointerDown(pointer(5, 5, "down"), context);
+  connectedLine.pointerUp(pointer(5, 5, "up"), context);
+  snapReference = { target: "ENTITY", entityId: "line-b", subElement: "START" };
+  connectedLine.pointerDown(pointer(9, 5, "down"), context);
+  connectedLine.pointerUp(pointer(9, 5, "up"), context);
+  assert.deepEqual(operations[2].slice(1).map((operation) => operation.constraint.kind), ["COINCIDENT", "COINCIDENT"]);
+  assert.deepEqual(operations[2][1].constraint.references[1], { target: "ENTITY", entityId: "line-a", subElement: "END" });
+  snapReference = undefined;
+
   const cancelledLine = new LineSketchTool();
   cancelledLine.activate(context);
   cancelledLine.pointerDown(pointer(1, 1, "down"), context);
@@ -109,8 +137,8 @@ try {
   point.pointerMove(pointer(4, 5), context);
   assert.equal(point.pointerDown(pointer(4, 5, "down"), context), "capture");
   assert.equal(point.pointerUp(pointer(4, 5, "up"), context), "release-capture");
-  assert.equal(operations[2][0].entity.role, "PROFILE");
-  assert.equal(completions, 3);
+  assert.equal(operations[3][0].entity.role, "PROFILE");
+  assert.equal(completions, 4);
   assert.equal(previews.some((value) => value?.point?.[0] === 4), true);
 
   const coincident = new ConstraintSketchTool("sketch.constraint.coincident");
@@ -118,12 +146,29 @@ try {
   coincident.pointerDown(pointer(0, 0, "down"), context);
   coincident.pointerUp(pointer(0, 0, "up"), context);
   assert.equal(coincident.pointerMove(pointer(4, 0), context), "consumed");
-  assert.deepEqual(previews.at(-1), { reference: references[0], retained: { target: "ENTITY", entityId: "line-a", subElement: "END" } });
+  assert.deepEqual(previews.at(-1), { reference: references[0], retained: [{ target: "ENTITY", entityId: "line-a", subElement: "END" }] });
   coincident.pointerDown(pointer(0, 0, "down"), context);
   coincident.pointerUp(pointer(0, 0, "up"), context);
-  assert.equal(operations[3][0].constraint.kind, "COINCIDENT");
-  assert.equal(completions, 4);
+  assert.equal(operations[4][0].constraint.kind, "COINCIDENT");
+  assert.equal(completions, 5);
   assert.equal(prompts.some((value) => value.includes("第二个点")), true);
+
+  const axisReferences = [
+    { target: "ENTITY", entityId: "line-a", subElement: "START" },
+    { target: "SKETCH_Y_AXIS", subElement: "DIRECTION" },
+    { target: "ENTITY", entityId: "line-a", subElement: "END" },
+  ];
+  const symmetryViewport = { ...viewport, sketchReferenceAt: () => axisReferences.shift() ?? null };
+  const symmetry = new ConstraintSketchTool("SYMMETRY");
+  symmetry.activate({ viewport: symmetryViewport });
+  for (const [x, y] of [[0, 0], [10, 0]]) {
+    symmetry.pointerDown(pointer(x, y, "down"), { viewport: symmetryViewport });
+    symmetry.pointerUp(pointer(x, y, "up"), { viewport: symmetryViewport });
+  }
+  symmetry.pointerMove(pointer(20, 0), { viewport: symmetryViewport });
+  assert.equal(previews.at(-1).retained.some((reference) => reference.target === "SKETCH_Y_AXIS"), true,
+    "selected UV axis must remain highlighted while choosing the final symmetry point");
+  symmetry.cancel({ viewport: symmetryViewport });
 
   const circleIndex = operations.length;
   const circle = new CircleSketchTool();
@@ -141,6 +186,16 @@ try {
   assert.equal(operations[polylineIndex].filter((item) => item.type === "ADD_ENTITY").length, 2);
   assert.equal(operations[polylineIndex].filter((item) => item.type === "ADD_CONSTRAINT").length, 1);
 
+  const splineIndex = operations.length;
+  const spline = new SplineSketchTool();
+  for (const [x, y, timeStamp] of [[0, 30, 1000], [10, 35, 2000], [20, 30, 3000], [20, 30, 3200]]) {
+    const down = { ...pointer(x, y, "down"), originalEvent: { timeStamp } };
+    spline.pointerDown(down, context);
+    spline.pointerUp({ ...pointer(x, y, "up"), originalEvent: { timeStamp: timeStamp + 20 } }, context);
+  }
+  assert.equal(operations[splineIndex][0].entity.kind, "SPLINE");
+  assert.equal(operations[splineIndex][0].entity.controlPoints.length, 3);
+
   references.push({ target: "ENTITY", entityId: "line-dimension", subElement: "DIRECTION" });
   const dimensionIndex = operations.length;
   const length = new ConstraintSketchTool("LENGTH");
@@ -148,7 +203,7 @@ try {
   length.pointerMove(pointer(10, 8), context);
   length.pointerDown(pointer(10, 8, "down"), context); length.pointerUp(pointer(10, 8, "up"), context);
   length.keyDown({ key: "2" }, context); length.keyDown({ key: "5" }, context); length.keyDown({ key: "Enter" }, context);
-  assert.equal(operations[dimensionIndex][0].constraint.value, 25);
+  assert.equal(operations[dimensionIndex][0].constraint.value, 12.5);
   assert.equal(operations[dimensionIndex][0].constraint.unit, "mm");
   assert.deepEqual(operations[dimensionIndex][0].constraint.labelPosition, { x: 10, y: 8 });
 
@@ -171,6 +226,7 @@ try {
   smartDistance.pointerDown(pointer(10, 10, "down"), context); smartDistance.pointerUp(pointer(10, 10, "up"), context);
   smartDistance.keyDown({ key: "2" }, context); smartDistance.keyDown({ key: "0" }, context); smartDistance.keyDown({ key: "Enter" }, context);
   assert.equal(operations[smartDistanceIndex][0].constraint.kind, "DISTANCE");
+  assert.equal(dimensionRequests.length, 3);
 
   const slotIndex = operations.length;
   const slot = new SlotSketchTool();
@@ -213,7 +269,7 @@ try {
   assert.equal(resolveSketchSnap([30.2, 29.9], curvedSnapEntities, 10)?.kind, "CENTER");
   assert.equal(resolveSketchSnap([39.8, 30.1], curvedSnapEntities, 10)?.kind, "CURVE");
   assert.equal(resolveSketchSnap([10.1, 30.1], curvedSnapEntities, 10)?.kind, "ENDPOINT");
-  assert.equal(resolveSketchSnap([8, 52.4], curvedSnapEntities, 10)?.kind, "CURVE");
+  assert.equal(resolveSketchSnap([4.375, 53.125], curvedSnapEntities, 10)?.kind, "CURVE");
   assert.equal(selectionCaptureKind({ kind: "plane", id: "xy", plane: "XY" }), "DATUM_PLANE");
   assert.equal(selectionCaptureKind({ kind: "axis", id: "x", axis: "X" }), "DATUM_AXIS");
   assert.equal(selectionCaptureKind({ kind: "vertex", id: "v1", topologyId: 1 }), "POINT");
@@ -221,6 +277,12 @@ try {
     { kind: "vertex", id: "v1", topologyId: 1 }), true);
   assert.equal(allowsSelection({ ...DEFAULT_CAPTURE_SETTINGS, selection: ["POINT"] },
     { kind: "face", id: "f1", topologyId: 1 }), false);
+  assert.equal(allowsSelectionInContext(DEFAULT_CAPTURE_SETTINGS,
+    { kind: "visual", id: "current", visualType: "CURVE", featureId: "sketch-a", entityId: "line-a" }, "sketch-a"), true);
+  assert.equal(allowsSelectionInContext(DEFAULT_CAPTURE_SETTINGS,
+    { kind: "visual", id: "other", visualType: "CURVE", featureId: "sketch-b", entityId: "line-b" }, "sketch-a"), false);
+  assert.equal(allowsSelectionInContext(DEFAULT_CAPTURE_SETTINGS,
+    { kind: "plane", id: "pad-plane", plane: "XY" }, "sketch-a"), false);
 
   const THREE = await import(require.resolve("three"));
   const index = new SelectionIndex();
@@ -277,7 +339,12 @@ try {
   dimensionSelector.pointerMove({...pointer(12,12),pointerId:dragDown.pointerId},context);
   assert.equal(dimensionSelector.pointerUp({...pointer(12,12,"up"),pointerId:dragDown.pointerId},context),"release-capture");
   assert.equal(dimensionDragUpdates,1);assert.equal(dimensionDragFinished,1);
-  assert.equal(dimensionSelector.pointerDown({...pointer(8,8,"down"),originalEvent:{detail:2}},context),"consumed");
+  const firstClickDown={...pointer(8,8,"down"),originalEvent:{timeStamp:100}};
+  assert.equal(dimensionSelector.pointerDown(firstClickDown,context),"capture");
+  assert.equal(dimensionSelector.pointerUp({...pointer(8,8,"up"),originalEvent:{timeStamp:120}},context),"release-capture");
+  const secondClickDown={...pointer(8,8,"down"),originalEvent:{timeStamp:200}};
+  assert.equal(dimensionSelector.pointerDown(secondClickDown,context),"capture");
+  assert.equal(dimensionSelector.pointerUp({...pointer(8,8,"up"),originalEvent:{timeStamp:220}},context),"release-capture");
   assert.equal(dimensionEdits,1);
   viewport.beginDimensionDrag=()=>false;
   viewport.editDimensionAt=()=>false;
@@ -317,8 +384,17 @@ try {
     RADIUS: [ref("circle-a")], DIAMETER: [ref("arc-a")], ANGLE: [ref("line-a", "DIRECTION"), ref("line-b", "DIRECTION")],
     CONCENTRIC: [ref("circle-a"), ref("arc-a")], POINT_ON_OBJECT: [ref("point-a", "POINT"), ref("line-a")],
     MIDPOINT: [ref("point-a", "POINT"), ref("line-a", "DIRECTION")],
+    SYMMETRY: [ref("point-a", "POINT"), ref("line-a", "DIRECTION"), ref("point-b", "POINT")],
   };
-  assert.equal(TOOLBAR_CONSTRAINT_KINDS.length, 16);
+  assert.equal(measureSketchDimension("LENGTH", fixtures.LENGTH, constraintEntities), 20);
+  assert.equal(measureSketchDimension("DISTANCE", fixtures.DISTANCE, constraintEntities), Math.hypot(20, 10));
+  assert.equal(measureSketchDimension("RADIUS", fixtures.RADIUS, constraintEntities), 8);
+  assert.equal(measureSketchDimension("DIAMETER", fixtures.DIAMETER, constraintEntities), 16);
+  assert.equal(measureSketchDimension("ANGLE", fixtures.ANGLE, constraintEntities), 90);
+  assert.ok(Math.abs(measureSketchDimension("ANGLE", [ref("line-a", "DIRECTION"), ref("line-obtuse", "DIRECTION")],
+    [...constraintEntities, { id: "line-obtuse", kind: "LINE", role: "PROFILE", start: { x: 0, y: 0 },
+      end: { x: -10, y: 10 * Math.sqrt(3) } }]) - 120) < 1e-10);
+  assert.equal(TOOLBAR_CONSTRAINT_KINDS.length, 17);
   for (const [kind, refs] of Object.entries(fixtures)) {
     const definition = constraintDefinition(kind);
     assert.equal(definition.picks.length, refs.length, `${kind} selection count`);
@@ -345,6 +421,15 @@ try {
     ref("line-b")), null, "line-line tangent must be rejected while selecting");
   assert.equal(resolveSketchReference({ x: 38, y: 20 }, constraintEntities, identityProject, "TANGENT_CURVE", 12, 110,
     ref("line-a"))?.entityId, "circle-a");
+  assert.equal(resolveSketchReference({ x: 10, y: 0 }, constraintEntities, identityProject, "SYMMETRY_CENTER")?.subElement,
+    "DIRECTION");
+  assert.equal(formatSketchDimensionValue(12.3456, "mm"), "12.35");
+  assert.equal(formatSketchDimensionValue(12.3456, "deg"), "12.3");
+  assert.equal(perspectiveWorldUnitsPerPixel(200, 50, 800), perspectiveWorldUnitsPerPixel(100, 50, 800)*2,
+    "sprite world scale must compensate camera depth to preserve screen pixels");
+  const fitPoints = [[0, 0], [5, 8], [10, -2], [15, 4]];
+  const interpolated = sampleInterpolatingSpline(fitPoints, false, 48);
+  for (const fitPoint of fitPoints) assert.equal(interpolated.some((point) => Math.hypot(point[0]-fitPoint[0], point[1]-fitPoint[1]) < 1e-9), true);
   const pointMaterial = new CadShaderLibrary().createMaterial("cad.point");
   assert.match(pointMaterial.fragmentShader, /abs\(p\.x - p\.y\)/);
   pointMaterial.dispose();

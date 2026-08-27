@@ -7,7 +7,7 @@ import { DEFAULT_CAPTURE_SETTINGS, normalizeCaptureSettings, type CaptureSetting
 
 export type WorkbenchToolID = "select" | "sketch.point" | "sketch.line" | "sketch.circle" | "sketch.arc" | "sketch.polyline" | "sketch.spline" | "sketch.rectangle" | "sketch.polygon" | "sketch.slot"
   | "sketch.dimension.linear"
-  | `sketch.constraint.${"coincident"|"parallel"|"fixed"|"horizontal"|"vertical"|"perpendicular"|"tangent"|"equal"|"distance"|"length"|"radius"|"diameter"|"angle"|"concentric"|"point_on_object"|"midpoint"}`;
+  | `sketch.constraint.${"coincident"|"parallel"|"fixed"|"horizontal"|"vertical"|"perpendicular"|"tangent"|"equal"|"distance"|"length"|"radius"|"diameter"|"angle"|"concentric"|"point_on_object"|"midpoint"|"symmetry"}`;
 export type WorkbenchToolMode = "once" | "continuous";
 
 type WorkbenchState = {

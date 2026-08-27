@@ -249,6 +249,68 @@ func TestSolvedSketchChangeSetUsesPersistedAfterValue(t *testing.T) {
 	}
 }
 
+func TestSolvedSketchHistoryRepairsLegacyDigestBeforeUndo(t *testing.T) {
+	original := testRectangleSketch("sketch-legacy-history", "XY")
+	model := newPartModel()
+	model.Features = append(model.Features, original)
+	beforeJSON, _ := json.Marshal(model)
+	firstLine, secondLine := original.Sketch.Entities[0].ID, original.Sketch.Entities[1].ID
+	operation := SketchOperation{Type: "ADD_CONSTRAINT", Constraint: &SketchConstraint{ID: "symmetry-axis", Kind: "SYMMETRY",
+		References: []SketchGeometryRef{{Target: "ENTITY", EntityID: firstLine, SubElement: "START"},
+			{Target: "SKETCH_Y_AXIS", SubElement: "DIRECTION"}, {Target: "ENTITY", EntityID: secondLine, SubElement: "END"}}}}
+	payload, _ := json.Marshal(editSketchPayload{SketchID: original.ID, Operations: []SketchOperation{operation}})
+	candidateJSON, legacy, err := workspaceCommandRegistry.Apply("PART", beforeJSON, modelcore.DomainCommand{
+		CommandID: "edit-legacy-symmetry", TypeURI: typeEditSketch, SchemaVersion: 1, Payload: payload,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the historical bug: the authoritative solver changed the stored
+	// sketch after the handler had already finalized its digest.
+	var persisted PartModel
+	if err = json.Unmarshal(candidateJSON, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	persisted.Features[0].Sketch.Solve = SketchSolveState{Status: "UNDER_CONSTRAINED", DegreesOfFreedom: 4}
+	persistedJSON, _ := json.Marshal(persisted)
+	if err = legacy.ValidateStructure(); err != nil {
+		t.Fatal(err)
+	}
+	if err = legacy.Finalize(); err != nil {
+		t.Fatal(err)
+	}
+	legacy.Changes[0].After, _ = json.Marshal(persisted.Features[0].Sketch)
+	if err = legacy.Finalize(); err == nil {
+		t.Fatal("expected the legacy persisted digest to be stale")
+	}
+	repaired, err := reconcilePersistedChanges("PART", beforeJSON, persistedJSON, legacy)
+	if err != nil {
+		t.Fatalf("immutable revisions must repair the legacy digest: %v", err)
+	}
+	current, err := modelValues("PART", persistedJSON, repaired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = repaired.Compensate(current); err != nil {
+		t.Fatalf("repaired symmetry transaction must be undoable: %v", err)
+	}
+}
+
+func TestPersistedChangeSetRepairStillRequiresAuthoritativeWriteSet(t *testing.T) {
+	change, err := modelcore.NewChange(modelcore.ChangeUpdate,
+		modelcore.PropertyAddress{EntityID: "sketch-1", SlotID: "sketch.model"}, map[string]any{"before": true}, map[string]any{"after": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}}
+	if err = validatePersistedChangeSetStructure(set, []string{"sketch-1:sketch.model"}); err != nil {
+		t.Fatalf("valid write set rejected: %v", err)
+	}
+	if err = validatePersistedChangeSetStructure(set, []string{"other:sketch.model"}); err == nil {
+		t.Fatal("repair accepted a change target outside the persisted write set")
+	}
+}
+
 func TestPartStructureRejectsPadWhoseSketchWasRemoved(t *testing.T) {
 	model := PartModel{Units: "mm", Features: []Feature{{ID: "pad-1", Type: "PAD", Profile: "sketch-1", Length: 10}}}
 	if err := validatePartStructure(model); err == nil || !strings.Contains(err.Error(), "requires an earlier sketch") {

@@ -36,6 +36,13 @@ export function allowsSelection(settings: CaptureSettings, selection: Exclude<Se
   return settings.enabled && settings.selection.includes(selectionCaptureKind(selection));
 }
 
+export function allowsSelectionInContext(settings: CaptureSettings, selection: Exclude<Selection, null>,
+  activeSketchID?: string): boolean {
+  if (!allowsSelection(settings, selection)) return false;
+  if (!activeSketchID) return true;
+  return (selection.kind === "visual" || selection.kind === "sketch-constraint") && selection.featureId === activeSketchID;
+}
+
 export function normalizeCaptureSettings(value: Partial<CaptureSettings> | undefined): CaptureSettings {
   const selection = value?.selection?.filter((kind): kind is SelectionCaptureKind =>
     SELECTION_CAPTURE_KINDS.includes(kind as SelectionCaptureKind));

@@ -37,10 +37,11 @@ function indexNodes(nodes: SpecificationTreeNode[], output = new Map<string, Spe
   return output;
 }
 
-export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, onSelect, onHover, onDelete }: {
+export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, onSelect, onActivate, onHover, onDelete }: {
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; selectedIdentityKeys: readonly string[];
   selectionToken: string; highlightedKey?: string;
   onSelect: (nodes: SpecificationTreeNode[]) => void; onHover?: (node?: SpecificationTreeNode) => void;
+  onActivate?: (node: SpecificationTreeNode) => void;
   onDelete?: (nodes: SpecificationTreeNode[]) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
@@ -117,6 +118,7 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
         const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${highlightedKey === node.key ? "highlighted" : ""}`}
           role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? isExpanded : undefined}
           aria-selected={isSelected} tabIndex={0} onClick={(event) => { event.stopPropagation(); selectNode(node, eventModifiers(event)); }}
+          onDoubleClick={(event) => { event.stopPropagation(); onActivate?.(node); }}
           onContextMenu={(event) => contextSelection(event, node)}
           onMouseEnter={() => onHover?.(node)} onKeyDown={(event) => keyboardSelect(event, entry)}>
           {depth === 0 ? <span className="specification-tree-root-anchor" /> : hasChildren

@@ -33,7 +33,7 @@ const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((modul
 const sketchToolCommands:WorkbenchToolID[]=["sketch.rectangle","sketch.polygon","sketch.slot","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline",
   "sketch.constraint.coincident","sketch.constraint.parallel","sketch.constraint.fixed","sketch.constraint.horizontal","sketch.constraint.vertical",
   "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.dimension.linear",
-  "sketch.constraint.radius","sketch.constraint.diameter","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint"];
+  "sketch.constraint.radius","sketch.constraint.diameter","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint","sketch.constraint.symmetry"];
 
 function featureIcon(feature: Feature) {
   if (feature.type.toUpperCase().includes("SKETCH")) return <ScissorOutlined />;
@@ -69,7 +69,9 @@ function structureSelection(node: DocumentStructureNode, view: DocumentView): Se
     .find((item) => node.id.startsWith(item.bodyTreeNodeId.replace(/\/body$/, "")));
   const occurrencePath = resolved?.occurrencePath ?? "";
   const geometryKey = resolved?.geometryKey ?? view.artifact?.geometryKey;
-  const context = { treeNodeId: node.id, expandTreeDescendants: true, documentId: node.documentId, occurrencePath, geometryKey,
+  const expands = ["PART", "PRODUCT", "INSTANCE", "ORIGIN", "BODY", "SKETCH", "SKETCH_GEOMETRY_SET", "SKETCH_CONSTRAINT_SET",
+    "SKETCH_LOGICAL_CONSTRAINT_SET", "SKETCH_DIMENSION_SET"].includes(node.kind);
+  const context = { treeNodeId: node.id, expandTreeDescendants: expands || undefined, documentId: node.documentId, occurrencePath, geometryKey,
     instanceId: occurrencePath.split("/")[0] || undefined };
   if (node.kind === "INSTANCE" && node.entityId) {
     const path = [...node.id.matchAll(/\/instance:([^/]+)/g)].map((match) => match[1]).join("/") || node.entityId;
@@ -242,9 +244,9 @@ export function Workbench() {
   const canEdit = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
   const activeWorkbench = resolveCadWorkbench(view?.document.type ?? "PART", Boolean(store.sketchPlane));
 
-  const editSketch = (operations: SketchOperation[]) => {
-    if (!view || !store.activeSketchID) return;
-    command.mutate(() => api.editSketch(view.document.id, store.activeSketchID!, operations));
+  const editSketch = (featureID: string, operations: SketchOperation[]) => {
+    if (!view) return;
+    command.mutate(() => api.editSketch(view.document.id, featureID, operations));
   };
   const moveInstance = (instanceID: string, translation: Vec3) => {
     if (view && canEdit) command.mutate(() => api.move(view.document.id, instanceID, translation));
@@ -403,17 +405,18 @@ export function Workbench() {
                 onAll={store.captureAll} onPointsOnly={store.capturePointsOnly} />
               <ToolButton repeatable command="sketch.point" icon={<CadIcon name="point" />} tooltip="点 · 单击绘制一次，双击连续绘制" />
               <ToolButton repeatable command="sketch.line" icon={<CadIcon name="line" />} tooltip="直线 · 单击绘制一次，双击连续绘制" />
-              <ToolButton repeatable command="sketch.circle" icon={<CadIcon name="circle" />} tooltip="圆 · 单击绘制一次，双击连续绘制" />
               <ToolButton repeatable command="sketch.arc" icon={<CadIcon name="arc" />} tooltip="圆弧 · 单击绘制一次，双击连续绘制" />
               <ToolButton repeatable command="sketch.polyline" icon={<CadIcon name="polyline" />} tooltip="多段线 · 双击或 Enter 完成本次绘制" />
-              <ToolButton repeatable command="sketch.spline" icon={<CadIcon name="spline" />} tooltip="草图曲线 · 双击或 Enter 完成本次绘制" />
+              <ToolButton repeatable command="sketch.spline" icon={<CadIcon name="spline" />} tooltip="过点插值曲线 · 双击或 Enter 完成本次绘制" />
               <ToolButton command="sketch.finish" icon={<CadIcon name="finish" />} tooltip="退出草图" /></ToolbarGroup>
           </FloatingToolbar>
-          <FloatingToolbar id="sketch-constraints" label="草图约束" position="top-left" className="sketcher-toolbar sketch-constraints-toolbar">
+          <FloatingToolbar id="sketch-geometric-constraints" label="几何约束" position="top-left" className="sketcher-toolbar sketch-geometric-constraints-toolbar">
             <ToolbarGroup>{LOGICAL_CONSTRAINT_KINDS.map((kind) => { const definition = constraintDefinition(kind);
               const id = kind.toLowerCase(); return <ToolButton key={kind} repeatable command={`sketch.constraint.${id}`}
                 icon={<CadIcon name={definition.symbol.replaceAll("_", "-") as CadIconName} />}
                 tooltip={`${definition.label} · ${definition.pickLabels.join(" → ")} · 单击一次，双击连续`} />; })}</ToolbarGroup>
+          </FloatingToolbar>
+          <FloatingToolbar id="sketch-dimensional-constraints" label="尺寸约束" position="top-left" className="sketcher-toolbar sketch-dimensional-constraints-toolbar">
             <ToolbarGroup><ToolButton repeatable command="sketch.dimension.linear" icon={<CadIcon name="distance" />}
               tooltip="线性尺寸 · 选择直线，或依次选择两个点，然后移动放置" />
               {OTHER_DIMENSION_CONSTRAINT_KINDS.map((kind) => { const definition=constraintDefinition(kind);const id=kind.toLowerCase();
@@ -422,9 +425,9 @@ export function Workbench() {
                   tooltip={`${definition.label}尺寸 · ${definition.pickLabels.join(" → ")} · 移动放置`} />; })}</ToolbarGroup>
           </FloatingToolbar>
           <FloatingToolbar id="sketch-aggregates" label="草图常用图形" position="top-left" className="sketcher-toolbar sketch-aggregates-toolbar">
-            <ToolbarGroup><ToolButton repeatable command="sketch.rectangle" icon={<CadIcon name="rectangle" />} tooltip="矩形 · 单击绘制一次，双击连续绘制" /></ToolbarGroup>
-            <ToolbarGroup><ToolButton repeatable command="sketch.polygon" icon={<CadIcon name="polygon" />} tooltip="正六边形 · 单击绘制一次，双击连续绘制" />
-              <ToolButton repeatable command="sketch.slot" icon={<CadIcon name="slot" />} tooltip="长圆槽 · 单击绘制一次，双击连续绘制" /></ToolbarGroup>
+            <ToolbarGroup><ToolButton repeatable command="sketch.rectangle" icon={<CadIcon name="rectangle" />} tooltip="矩形 · 两对角点" />
+              <ToolButton repeatable command="sketch.polygon" icon={<CadIcon name="polygon" />} tooltip="正六边形 · 中心和顶点" />
+              <ToolButton repeatable command="sketch.circle" icon={<CadIcon name="circle" />} tooltip="圆 · 圆心和圆周点" /></ToolbarGroup>
           </FloatingToolbar>
         </>}
         {activeWorkbench === "ASSEMBLY_DESIGN" && <FloatingToolbar id="assembly-design" label="Assembly Design" position="top-left" className="assembly-design-toolbar">
@@ -454,6 +457,7 @@ export function Workbench() {
             selectionToken={selectionSetToken(store.selections)}
             highlightedKey={treeKeyForSelection(treeNodes, store.preselection)}
             onSelect={(nodes) => store.setSelections(nodes.flatMap((node) => node.selection ? [node.selection] : []))}
+            onActivate={(node) => { if (canEdit && node.selection?.kind === "sketch-constraint") viewport.current?.editDimension(node.selection); }}
             onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={deleteTreeNodes} />
         </aside>
         <button className={`inspector-toggle ${inspectorOpen ? "open" : ""}`} onClick={() => setInspectorOpen((current) => !current)}

@@ -36,7 +36,7 @@ export class CadMaterialFactory {
     return material;
   }
 
-  constraintGlyph(glyph: number, color = this.theme.constraint, size = 22): THREE.ShaderMaterial {
+  constraintGlyph(glyph: number, color = this.theme.constraint, size = 17): THREE.ShaderMaterial {
     return this.shaders.createMaterial("cad.constraint.glyph", {
       uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uGlyph: glyph, uPointSize: size,
     });

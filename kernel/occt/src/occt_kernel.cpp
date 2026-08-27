@@ -18,6 +18,7 @@
 #include <GCPnts_AbscissaPoint.hxx>
 #include <GProp_GProps.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <GeomAPI_Interpolate.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <Geom_BezierSurface.hxx>
@@ -34,6 +35,7 @@
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
 #include <TColgp_Array1OfPnt.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <TopAbs_Orientation.hxx>
@@ -471,25 +473,16 @@ TopoDS_Edge make_profile_edge(const ProfileCurveSpec& curve, const std::string& 
     } else if (curve.kind == "SPLINE") {
         if (curve.control_points.size() < 3U)
             throw std::invalid_argument("profile spline requires at least three control points");
-        const int extra = curve.closed ? 1 : 0;
-        const int pole_count = static_cast<int>(curve.control_points.size()) + extra;
-        const int degree = std::min(std::max(2, static_cast<int>(curve.degree)), pole_count - 1);
-        TColgp_Array1OfPnt points(1, pole_count);
+        const int point_count = static_cast<int>(curve.control_points.size());
+        Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, point_count);
         for (std::size_t index = 0; index < curve.control_points.size(); ++index)
-            points.SetValue(static_cast<int>(index) + 1,
-                            profile_point(plane, curve.control_points[index]));
-        if (curve.closed)
-            points.SetValue(points.Upper(), profile_point(plane, curve.control_points.front()));
-        const int knot_count = pole_count - degree + 1;
-        TColStd_Array1OfReal knots(1, knot_count);
-        TColStd_Array1OfInteger multiplicities(1, knot_count);
-        for (int index = 1; index <= knot_count; ++index) {
-            knots.SetValue(index, static_cast<double>(index - 1));
-            multiplicities.SetValue(index,
-                                    index == 1 || index == knot_count ? degree + 1 : 1);
-        }
-        Handle(Geom_BSplineCurve) spline =
-            new Geom_BSplineCurve(points, knots, multiplicities, degree, false);
+            points->SetValue(static_cast<int>(index) + 1,
+                             profile_point(plane, curve.control_points[index]));
+        GeomAPI_Interpolate interpolation(points, curve.closed, 1.0e-7);
+        interpolation.Perform();
+        if (!interpolation.IsDone())
+            throw std::runtime_error("profile interpolation spline construction failed");
+        Handle(Geom_BSplineCurve) spline = interpolation.Curve();
         edge = BRepBuilderAPI_MakeEdge(spline);
     } else {
         throw std::invalid_argument("unsupported profile curve kind: " + curve.kind);

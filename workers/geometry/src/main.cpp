@@ -313,6 +313,8 @@ sketch_api::SketchModel read_sketch(const worker_api::SketchModel& input) {
             kind = sketch_api::ConstraintKind::point_on_object;
         else if (constraint.kind() == "MIDPOINT")
             kind = sketch_api::ConstraintKind::midpoint;
+        else if (constraint.kind() == "SYMMETRY")
+            kind = sketch_api::ConstraintKind::symmetry;
         else
             throw std::invalid_argument("unknown sketch constraint kind");
         sketch_api::SketchConstraint output{

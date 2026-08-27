@@ -3,14 +3,17 @@ import type { CaptureSettings } from "../cad/interaction/capture-settings";
 import { InputDebugOverlay, type InputDebugSnapshot } from "../cad/overlay/input-debug-overlay";
 import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
 import type { WorkbenchToolID } from "../state/workbench-store";
-import type { Artifact, DocumentView, PlaneName, Selection, SelectionItem, SketchOperation, Vec3 } from "../types";
+import { randomUUID } from "../utils/random-uuid";
+import type { Artifact, DocumentView, PlaneName, Selection, SelectionItem, SketchGeometryRef, SketchOperation, Vec2, Vec3 } from "../types";
 import { CadViewportEngine } from "./cad-viewport-engine";
+import { formatSketchDimensionValue, normalizeSketchDimensionValue } from "../cad/sketch/sketch-input-policy";
 
 export type CadViewportHandle = {
   fit: () => void;
   setStandardView: (view: "TOP" | "FRONT" | "RIGHT" | "ISO") => void;
   previewArtifact: (artifact: Artifact) => void;
   clearCommandPreview: () => void;
+  editDimension: (selection: Extract<SelectionItem, { kind: "sketch-constraint" }>) => void;
 };
 
 type Props = {
@@ -24,7 +27,7 @@ type Props = {
   captureSettings: CaptureSettings;
   onSelectionsChange: (selections: SelectionItem[]) => void;
   onPreselectionChange: (selection: Selection) => void;
-  onSketchOperations: (operations: SketchOperation[]) => void;
+  onSketchOperations: (featureID: string, operations: SketchOperation[]) => void;
   onToolUseComplete: () => void;
   onActiveToolChange: (toolID: WorkbenchToolID) => void;
   onInstanceMoved: (instanceID: string, translation: Vec3) => void;
@@ -35,7 +38,10 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   const engine = useRef<CadViewportEngine | undefined>(undefined);
   const callbacks = useRef(props);
   const [debug, setDebug] = useState<InputDebugSnapshot>();
-  const [dimensionEditor, setDimensionEditor] = useState<{ constraintId: string; value: number; unit: "mm" | "deg"; x: number; y: number }>();
+  const [dimensionEditor, setDimensionEditor] = useState<
+    { mode: "edit"; featureId: string; constraintId: string; value: number; unit: "mm" | "deg"; x: number; y: number }
+    | { mode: "create"; featureId: string; kind: "DISTANCE"|"LENGTH"|"RADIUS"|"DIAMETER"|"ANGLE";
+      references: SketchGeometryRef[]; labelPosition: Vec2; value: number; unit: "mm"|"deg"; x: number; y: number }>();
   callbacks.current = props;
 
   useEffect(() => {
@@ -43,9 +49,10 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     const instance = new CadViewportEngine(host.current, {
       selectionsChanged: (selections) => callbacks.current.onSelectionsChange(selections),
       preselectionChanged: (selection) => callbacks.current.onPreselectionChange(selection),
-      sketchOperations: (operations) => callbacks.current.onSketchOperations(operations),
+      sketchOperations: (featureID, operations) => callbacks.current.onSketchOperations(featureID, operations),
       toolUseCompleted: () => callbacks.current.onToolUseComplete(),
       dimensionEditRequested: (request) => setDimensionEditor(request),
+      dimensionCreateRequested: (request) => setDimensionEditor(request),
       activeToolChanged: (toolID) => callbacks.current.onActiveToolChange(toolID),
       toolPromptChanged: () => {},
       instanceMoved: (instanceID, translation) => callbacks.current.onInstanceMoved(instanceID, translation),
@@ -85,20 +92,25 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     setStandardView: (view) => engine.current?.setStandardView(view),
     previewArtifact: (artifact) => engine.current?.previewArtifact(artifact),
     clearCommandPreview: () => engine.current?.clearCommandPreview(),
+    editDimension: (selection) => engine.current?.requestDimensionEdit(selection),
   }), []);
 
   return <><div ref={host} className="cad-viewport-canvas" />
-    {dimensionEditor && <input key={dimensionEditor.constraintId} className="sketch-dimension-editor" autoFocus
-      defaultValue={dimensionEditor.value} aria-label={`编辑尺寸 (${dimensionEditor.unit})`}
+    {dimensionEditor && <input key={`${dimensionEditor.mode}:${dimensionEditor.mode === "edit" ? dimensionEditor.constraintId : dimensionEditor.kind}`} className="sketch-dimension-editor" autoFocus
+      defaultValue={formatSketchDimensionValue(dimensionEditor.value, dimensionEditor.unit)}
+      inputMode="decimal" step={dimensionEditor.unit === "deg" ? 0.1 : 0.01} aria-label={`编辑尺寸 (${dimensionEditor.unit})`}
       style={{ left: dimensionEditor.x, top: dimensionEditor.y }}
       onBlur={() => setDimensionEditor(undefined)}
       onKeyDown={(event) => {
         if (event.key === "Escape") { setDimensionEditor(undefined); return; }
         if (event.key !== "Enter") return;
-        const value = Number(event.currentTarget.value);
-        if (Number.isFinite(value) && value > 0) callbacks.current.onSketchOperations([
-          { type: "UPDATE_CONSTRAINT_VALUE", constraintId: dimensionEditor.constraintId, value },
-        ]);
+        const value = normalizeSketchDimensionValue(Number(event.currentTarget.value), dimensionEditor.unit);
+        if (Number.isFinite(value) && value > 0) callbacks.current.onSketchOperations(dimensionEditor.featureId,
+          dimensionEditor.mode === "edit"
+            ? [{ type: "UPDATE_CONSTRAINT_VALUE", constraintId: dimensionEditor.constraintId, value }]
+            : [{ type: "ADD_CONSTRAINT", constraint: { id: randomUUID(), kind: dimensionEditor.kind,
+              references: dimensionEditor.references, value, unit: dimensionEditor.unit,
+              labelPosition: { x: dimensionEditor.labelPosition[0], y: dimensionEditor.labelPosition[1] } } }]);
         setDimensionEditor(undefined);
       }} />}
     {debug && <InputDebugOverlay snapshot={debug} />}</>;
