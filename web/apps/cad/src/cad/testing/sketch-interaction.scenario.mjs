@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 
-const require = createRequire(new URL("../../web/apps/cad/package.json", import.meta.url));
+const require = createRequire(new URL("../../../package.json", import.meta.url));
 const { createServer } = await import(require.resolve("vite"));
 
 const server = await createServer({

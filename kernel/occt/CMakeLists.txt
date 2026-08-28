@@ -28,3 +28,7 @@ target_compile_features(
 )
 
 occccad_set_warnings(occccad_occt_kernel PRIVATE)
+
+if(OCCCCAD_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()

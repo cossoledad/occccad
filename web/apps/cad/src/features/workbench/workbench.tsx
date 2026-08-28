@@ -24,6 +24,7 @@ import { CaptureSettingsButton } from "../../cad/overlay/capture-settings-button
 import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
 import { constraintDefinition, LOGICAL_CONSTRAINT_KINDS, OTHER_DIMENSION_CONSTRAINT_KINDS } from "../../cad/sketch/sketch-constraint-definition";
 import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
+import { useUIPreferences } from "../../state/ui-preferences";
 import type { DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, PlaneName, Selection, SelectionItem, SketchOperation, TopologyElementProperties, Vec3 } from "../../types";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
@@ -180,7 +181,8 @@ export function Workbench() {
   const latestDocumentVersion = useRef<string | undefined>(undefined);
   const [insertOpen, setInsertOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
-  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
+  const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const [shareResource, setShareResource] = useState<ShareResource>();
   const [padForm] = Form.useForm<{ length: number }>();
   const [insertForm] = Form.useForm<{ referencedDocumentID: string; name: string }>();
@@ -472,7 +474,7 @@ export function Workbench() {
                 role:node.role==="CONSTRUCTION"?"PROFILE":"CONSTRUCTION"}]);
             }} />
         </aside>
-        <button className={`inspector-toggle ${inspectorOpen ? "open" : ""}`} onClick={() => setInspectorOpen((current) => !current)}
+        <button className={`inspector-toggle ${inspectorOpen ? "open" : ""}`} onClick={() => setInspectorOpen(!inspectorOpen)}
           title={inspectorOpen ? "收起属性面板" : "展开属性面板"}>
           {inspectorOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
         </button>

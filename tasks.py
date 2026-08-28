@@ -305,11 +305,9 @@ def test(c, build_type=None, filter=None):
     with c.cd(str(PROJECT_ROOT / "tests" / "go")):
         c.run("go test ./...", pty=True)
 
-    print("[test] Running Front unit tests...")
+    print("[test] Running colocated Front scenarios...")
     with c.cd(str(PROJECT_ROOT / "web" / "apps" / "cad")):
-        c.run("pnpm test:sketch", pty=True)
-        c.run("pnpm test:realtime", pty=True)
-        c.run("pnpm test:activity", pty=True)
+        c.run("pnpm test", pty=True)
     print("[test] Done.")
 
 

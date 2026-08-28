@@ -416,6 +416,13 @@ export const mockApi: CadApi = {
   updateDocument: async (documentID, name, description) => pause(commit(documentID, "UPDATE_DOCUMENT", (view) => Object.assign(view.document, { name, description }))),
   deleteDocument: async (documentID) => { getView(documentID).document.deletedAt = now(); },
   restoreDocument: async (documentID) => { getView(documentID).document.deletedAt = undefined; return pause(getView(documentID)); },
+  purgeDocument: async (documentID) => {
+    const view = getView(documentID);
+    if (!view.document.deletedAt) throw new Error("move the document to trash before permanent deletion");
+    const index = summaries.findIndex((item) => item.id === documentID);
+    if (index >= 0) summaries.splice(index, 1);
+    views.delete(documentID);
+  },
   moveDocument: async (documentID, folderID) => pause(commit(documentID, "MOVE_DOCUMENT", (view) => { view.document.folderId = folderID; })),
   copyDocument: async (documentID, name, folderID) => {
     const source = getView(documentID); const copy = structuredClone(source); copy.document = { ...copy.document, id: id("mock-document"),

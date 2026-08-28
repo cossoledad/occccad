@@ -144,6 +144,15 @@ export const restApi = {
   restoreDocument: (id: string) => request<DocumentView>(`/api/documents/${id}/restore`, {
     method: "POST", headers: { "X-Request-ID": requestId() },
   }),
+  purgeDocument: async (id: string): Promise<void> => {
+    const response = await fetch(apiURL(`/api/documents/${id}/trash`), {
+      method: "DELETE", credentials: "include", headers: mutationHeaders("DELETE"),
+    });
+    if (!response.ok) {
+      const value = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(value.error ?? `HTTP ${response.status}`);
+    }
+  },
   moveDocument: (id: string, folderId?: string) => request<DocumentView>(`/api/documents/${id}/move`, {
     method: "POST", headers: { "X-Request-ID": requestId() },
     body: JSON.stringify({ folderId: folderId || null }),

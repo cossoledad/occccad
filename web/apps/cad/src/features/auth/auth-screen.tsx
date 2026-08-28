@@ -22,21 +22,13 @@ export function AuthScreen() {
     {context}
     <section className="auth-hero">
       <Brand />
-      <div className="auth-hero-copy">
-        <Typography.Text className="eyebrow">PARAMETRIC CLOUD CAD</Typography.Text>
-        <Typography.Title>Design systems,<br />not isolated files.</Typography.Title>
-        <Typography.Paragraph>文档版本、参数化建模、产品结构与分布式几何计算，统一在一个可扩展工作区中。</Typography.Paragraph>
-      </div>
       <div className="auth-grid-decoration" />
     </section>
     <section className="auth-panel">
       <Card className="auth-card" bordered={false}>
         <Brand compact />
-        <Typography.Title level={2}>{mode === "login" ? "登录工作区" : "申请账号"}</Typography.Title>
-        <Typography.Paragraph type="secondary">
-          {mode === "login" ? "使用 occcccad 账号继续" : "账号由管理员审批后启用"}
-        </Typography.Paragraph>
-        {isMockMode && <Alert showIcon type="info" message="Mock 模式" description="无需后端，任意账号密码均可进入。" />}
+        <Typography.Title level={2}>{mode === "login" ? "登录" : "注册"}</Typography.Title>
+        {isMockMode && <Alert showIcon type="info" message="Mock" />}
         <Segmented block value={mode} onChange={(value) => setMode(value as typeof mode)}
           options={[{ label: "登录", value: "login" }, { label: "注册", value: "register" }]} />
         {mode === "login" ? <Form<LoginValues> layout="vertical" requiredMark={false}

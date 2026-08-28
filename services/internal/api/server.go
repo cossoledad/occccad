@@ -206,6 +206,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /api/documents/{documentID}", server.updateDocument)
 	mux.HandleFunc("DELETE /api/documents/{documentID}", server.deleteDocument)
 	mux.HandleFunc("POST /api/documents/{documentID}/restore", server.restoreDocument)
+	mux.HandleFunc("DELETE /api/documents/{documentID}/trash", server.purgeDocument)
 	mux.HandleFunc("POST /api/documents/{documentID}/move", server.moveDocument)
 	mux.HandleFunc("POST /api/documents/{documentID}/copy", server.copyDocument)
 	mux.HandleFunc("GET /api/documents/{documentID}/history", server.getDocumentHistory)
@@ -570,6 +571,18 @@ func (server *Server) restoreDocument(writer http.ResponseWriter, request *http.
 	result, err := server.workspace.RestoreDocument(request.Context(),
 		request.PathValue("documentID"), request.Header.Get("X-Request-ID"))
 	server.writeDocumentResult(writer, request, result, err)
+}
+
+func (server *Server) purgeDocument(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleOwner); !ok {
+		return
+	}
+	if err := server.workspace.PurgeDocument(request.Context(), request.PathValue("documentID")); err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	server.openDocuments.Close(principal(request).ID, request.PathValue("documentID"))
+	writer.WriteHeader(http.StatusNoContent)
 }
 
 func (server *Server) moveDocument(writer http.ResponseWriter, request *http.Request) {

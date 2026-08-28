@@ -825,6 +825,36 @@ func (service *Service) RestoreDocument(ctx context.Context, documentID, request
 	return service.GetDocument(ctx, documentID)
 }
 
+// PurgeDocument permanently removes a document only after it has entered the trash.
+// Immutable artifact objects are retained for the artifact garbage collector; all
+// document-owned relational state is removed through database cascades.
+func (service *Service) PurgeDocument(ctx context.Context, documentID string) error {
+	tx, err := service.database.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if _, err := tx.Exec(ctx, `DELETE FROM occccad.resource_grants
+		WHERE resource_type='DOCUMENT' AND resource_id=$1`, documentID); err != nil {
+		return err
+	}
+	result, err := tx.Exec(ctx, `DELETE FROM occccad.documents WHERE id=$1 AND deleted_at IS NOT NULL`, documentID)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() == 1 {
+		return tx.Commit(ctx)
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM occccad.documents WHERE id=$1)`, documentID).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrNotFound
+	}
+	return fmt.Errorf("%w: move the document to trash before permanent deletion", ErrValidation)
+}
+
 func (service *Service) MoveDocument(
 	ctx context.Context, documentID, requestIDValue string, request MoveDocumentRequest,
 ) (DocumentView, error) {

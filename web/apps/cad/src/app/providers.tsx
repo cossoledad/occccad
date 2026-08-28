@@ -13,16 +13,17 @@ export function AppProviders({ children }: PropsWithChildren) {
     <ConfigProvider locale={zhCN} theme={{
       algorithm: theme.defaultAlgorithm,
       token: {
-        colorPrimary: "#168eb8", colorInfo: "#168eb8", colorSuccess: "#2f9b73",
-        colorWarning: "#d99022", colorError: "#d85252", borderRadius: 6,
+        colorPrimary: "#176b87", colorInfo: "#176b87", colorSuccess: "#327b5f",
+        colorWarning: "#a96d1f", colorError: "#b64b4b", borderRadius: 2, borderRadiusLG: 3,
+        colorBgLayout: "#dfe4e7", colorBorder: "#aeb8be", colorText: "#202b31",
         fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         controlHeight: 34,
       },
       components: {
         Button: { primaryShadow: "none", fontWeight: 550 },
-        Layout: { bodyBg: "#e9eef1", headerBg: "#0f1c26", siderBg: "#14232e" },
-        Menu: { darkItemBg: "#14232e", darkItemSelectedBg: "#168eb8" },
-        Modal: { borderRadiusLG: 8 },
+        Layout: { bodyBg: "#dfe4e7", headerBg: "#17232b", siderBg: "#1d2a32" },
+        Menu: { darkItemBg: "#1d2a32", darkItemSelectedBg: "#176b87" },
+        Modal: { borderRadiusLG: 3 },
         Tree: { nodeHoverBg: "#e9f2f7", nodeSelectedBg: "#d9edf7" },
       },
     }}>

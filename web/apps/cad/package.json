@@ -10,9 +10,10 @@
     "preview": "vite preview --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
-    "test:sketch": "node ../../../tests/front/sketch-tools.test.mjs",
-    "test:realtime": "node ../../../tests/front/realtime-client.test.mjs",
-    "test:activity": "node ../../../tests/front/activity-model.test.mjs"
+    "test": "node scripts/run-scenarios.mjs",
+    "test:sketch": "node src/cad/testing/sketch-interaction.scenario.mjs",
+    "test:realtime": "node src/api/testing/realtime-lifecycle.scenario.mjs",
+    "test:activity": "node src/features/activity/testing/activity-projection.scenario.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",

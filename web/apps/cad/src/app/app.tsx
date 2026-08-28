@@ -1,6 +1,6 @@
-import { DashboardOutlined, HomeOutlined, LogoutOutlined, SettingOutlined, UserOutlined } from "@ant-design/icons";
+import { LogoutOutlined, SettingOutlined, UserOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { App as AntApp, Avatar, Button, Dropdown, Layout, Space, Spin, Tag, Typography } from "antd";
+import { App as AntApp, Avatar, Button, Dropdown, Layout, Spin } from "antd";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { api, isMockMode } from "../api/client";
@@ -57,23 +57,24 @@ function ApplicationShell() {
 
   return <Layout className="application-shell">
     <Layout.Header className="global-header">
-      <button className="brand-button" onClick={() => navigate("/")}><Brand /></button>
-      {inWorkbench && <><span className="header-divider" /><Typography.Text className="header-context"><DashboardOutlined /> CAD Workbench</Typography.Text></>}
+      <button className="brand-button" aria-label="文档中心" onClick={() => navigate("/")}><Brand /></button>
       <div className="global-header-spacer" />
-      <Space size="middle">
-        <Tag color={isMockMode ? "gold" : health.isSuccess ? "green" : "red"}>{isMockMode ? "MOCK" : health.isSuccess ? `OCCT ${health.data.occtVersion}` : "OFFLINE"}</Tag>
+      <div className="global-header-actions">
+        <i role="status" aria-label={isMockMode ? "Mock" : health.isSuccess ? `OCCT ${health.data.occtVersion}` : "离线"}
+          className={`service-state ${isMockMode ? "mock" : health.isSuccess ? "online" : "offline"}`} />
         <ActivityCenter />
-        {user.platformRole === "ADMIN" && <Button ghost icon={<SettingOutlined />} onClick={() => setAdminOpen(true)}>管理</Button>}
+        {user.platformRole === "ADMIN" && <Button ghost aria-label="管理" icon={<SettingOutlined />} onClick={() => setAdminOpen(true)} />}
         <Dropdown menu={{ items: [
-          { key: "home", icon: <HomeOutlined />, label: "文档中心", onClick: () => navigate("/") },
           { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true, onClick: () => void logout() },
         ] }}>
-          <button className="user-menu"><Avatar icon={<UserOutlined />}>{user.displayName[0]}</Avatar><span><strong>{user.displayName}</strong><small>{user.platformRole}</small></span></button>
+          <button className="user-menu" aria-label={user.displayName}>
+            <Avatar icon={<UserOutlined />}>{user.displayName[0]}</Avatar>
+          </button>
         </Dropdown>
-      </Space>
+      </div>
     </Layout.Header>
     <Layout.Content className="application-content"><Outlet /></Layout.Content>
-    <DocumentOrbController />
+    {inWorkbench && <DocumentOrbController />}
     {adminOpen && <Suspense fallback={null}><AdminDrawer open onClose={() => setAdminOpen(false)} /></Suspense>}
   </Layout>;
 }

@@ -307,15 +307,16 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 - 当前固定 OCCT 7.9.1 和 gRPC C++ 1.71.0；
 - Go module 当前声明 Go 1.26.5；
 - Web 锁定 pnpm 11.20.0，并执行 TypeScript 检查和 Vite 构建。
+- Web 的非权威界面偏好由版本化 `occccad.ui-preferences.v1` Store 持久化；当前包含 Inspector 开合和各 Toolbar 的位置/方向。模型、选择和命令状态不得进入这一客户端偏好契约。
 - C++ Geometry Worker 使用 Conan 固定的 spdlog 1.15.3，同时写彩色控制台和按 Worker 地址隔离的滚动文件；默认文件位于 `services/logs/`，单文件 10 MiB、保留 5 个，级别复用 `OCCCCAD_LOG_LEVEL`。
 
-仓库级测试资产按语言集中在 `tests/cpp`、`tests/go` 和 `tests/front`，`models/` 保存不属于某个语言的真实 STEP/BREP 回归语料。`invoke test` 构建并运行 CTest、`services/` Go package tests、独立 `tests/go` module 和 Front 状态机测试；Geometry Worker `main` 只是服务入口，不再内置 `run_smoke` 测试分支。Go 工具链要求 package-private 白盒 `_test.go` 与被测 package 同目录，这些必要例外仍不进入生产二进制；跨包黑盒测试放在 `tests/go`。Web 的 `test:sketch` 使用 Vite SSR 加载真实 Tool 模块，覆盖单次工具完成、Circle、Polyline 原子批次、尺寸键盘输入和两阶段 Coincident；更完整的浏览器/WebGL E2E 仍待补充。
+测试资产现在由被测模块拥有，而不是按语言堆在仓库根目录：C++ 场景位于对应 library 的 `tests/` 并由局部 CMake 注册；Web 场景位于 `src/**/testing/*.scenario.mjs`，统一 runner 自动发现后为每个场景启动独立进程；Go 遵循工具链，将 package 白盒测试保留为邻近 `_test.go`，只有跨 package、跨进程的公共契约测试进入 `tests/go`。`models/` 只保存可被多个实现复用的 STEP/BREP 回归语料，根 `tests/` 不再作为语言分类目录。`invoke test` 构建并运行 CTest、`services/` Go package tests、独立 `tests/go` module 和 Web 场景。Web 当前使用 Vite SSR 加载真实 Tool/状态模块，覆盖完整 pointer 手势、操作批次、约束选择、尺寸输入和实时生命周期；浏览器布局、WebGL 拾取及真实后端组合 E2E 仍待补充。
 
 ## 10. 已实现与未实现矩阵
 
 | 能力 | 状态 | 证据边界 |
 |---|---|---|
-| Part/Product 文档与版本 | 已实现基础闭环 | Go workspace、迁移、REST/WebSocket API |
+| Part/Product 文档与版本 | 已实现基础闭环 | Go workspace、迁移、REST/WebSocket API；文件夹组织、软删除/还原及 Owner 永久清理 |
 | 账号、团队、ACL、审计 | 已实现基础闭环 | authn/access/API/迁移 |
 | 通用闭合草图与 Pad | 已实现基础闭环 | Profile Builder、ProfilePad Proto、OCCT Edge/Wire/Face/Prism；当前整张草图选择 |
 | STEP/BREP Part 与多根 Product 导入导出 | 已实现基础闭环 | Document Center、流式 HTTP、持久任务与 ArtifactReference Worker |

@@ -10,6 +10,7 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 - 草图绘制几何/约束/常用图形三组 Toolbar；Point、Line、Circle、Arc、Polyline、Spline、Rectangle、正六边形、长圆槽以及基础几何/尺寸约束；单击执行一次后回到选择，双击连续执行；
 - 通用闭合 Profile（包含外环、孔和岛）拉伸、实例插入/移动、Undo/Redo；
 - Default/CATIA 导航 Profile、Pointer Capture、Tool 手势状态机和 Overlay；Toolbar 命令不注册快捷键，Enter/Esc 只用于多阶段手势完成/取消；
+- 版本化 `ui-preferences` 本地偏好统一保存 Inspector 开合与每组 Toolbar 的位置/方向；新增纯客户端显示偏好应扩展同一 schema，不再自行散写 localStorage key；
 - 统一 CAD 语义色与 hover/selected/snap 层次；默认全开的捕获设置可分别过滤三维点、边、面、实体、草图、约束、基准面、基准轴/坐标系和实例，以及草图原点、点/端点、圆心、中点、Line/Circle/Arc/Spline 曲线投影和 10 mm 网格吸附；
 - Pad、Insert、命名版本使用可拖动非模态命令面板；Pad 数值 blur/Enter 后请求后端复用正式 typed command、Sketch Solver 与 Part evaluator 生成非持久化精确预览，提交才创建 Revision；
 - 草图原点和 H/V 基准轴是自动带入、可约束选择的稳定内在引用；第一次约束选择与第二候选同时高亮，点、端点、捕获点和拓扑顶点统一显示为 X 形；
@@ -73,7 +74,7 @@ invoke web.build
 invoke test --build-type=Debug
 ```
 
-`invoke web.build` 执行 TypeScript 类型检查和生产构建。Front 单元/交互状态机测试源集中在根目录 `tests/front`，由统一 `invoke test` 入口运行；当前仍没有完整的浏览器/WebGL Playwright 套件，复杂跨层交互在扩展前应补充组件和 Playwright 场景。
+`invoke web.build` 执行 TypeScript 类型检查和生产构建。Front 行为场景邻近所属模块存放为 `src/**/testing/*.scenario.mjs`，`pnpm test` 自动发现并在独立进程运行，避免 fixture 和模块状态串扰；当前仍没有完整的浏览器/WebGL Playwright 套件，复杂视觉布局仍需浏览器验收。
 
 ## 性能与安全边界
 

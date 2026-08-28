@@ -5,16 +5,16 @@ import {
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  App, Breadcrumb, Button, Card, Col, Dropdown, Empty, Form, Input, Layout, Menu, Modal, Pagination,
-  Row, Segmented, Select, Space, Spin, Statistic, Tag, Typography, Upload,
+  App, Breadcrumb, Button, Card, Dropdown, Empty, Form, Input, Layout, Menu, Modal, Pagination,
+  Segmented, Select, Space, Spin, Tag, Typography, Upload,
 } from "antd";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, isMockMode } from "../../api/client";
 import { queryKeys } from "../../app/query-keys";
 import { DocumentThumbnail } from "../../components/document-thumbnail";
 import { ShareDialog, type ShareResource } from "../../components/share-dialog";
-import { defaultDocumentName, documentMetrics, flattenFolderTree, relativeDate, type LibraryScope } from "./document-utils";
+import { defaultDocumentName, flattenFolderTree, relativeDate, type LibraryScope } from "./document-utils";
 import type { DocumentSummary, FolderSummary } from "../../types";
 
 type DocumentForm = { name: string; description?: string; type: "PART" | "PRODUCT" };
@@ -56,14 +56,13 @@ export function DocumentCenter() {
       allFolders: specialScope || Boolean(query), sort: scope === "recent" ? "recent" : sort, limit: 24, offset,
     })
   });
-  const overview = useQuery({ queryKey: queryKeys.documents({ overview: true }), queryFn: () => api.listDocuments({ limit: 200, allFolders: true }) });
+  const catalog = useQuery({ queryKey: queryKeys.documents({ defaultNames: true }), queryFn: () => api.listDocuments({ limit: 200, allFolders: true }) });
   const folders = useQuery({
     queryKey: queryKeys.folders(`${scope}:${currentFolderID}`),
     queryFn: () => api.listFolders(currentFolderID, scope === "shared"), enabled: scope === "active" || scope === "parts" || scope === "products" || scope === "shared"
   });
   const breadcrumbs = useQuery({ queryKey: ["folder-breadcrumbs", currentFolderID], queryFn: () => api.folderBreadcrumbs(currentFolderID), enabled: Boolean(currentFolderID) });
   const folderTree = useQuery({ queryKey: ["folder-options"], queryFn: () => flattenFolderTree((parentID) => api.listFolders(parentID)), staleTime: 10_000 });
-  const metrics = useMemo(() => documentMetrics(overview.data?.documents ?? []), [overview.data]);
   const currentPermission = breadcrumbs.data?.at(-1)?.permission;
   const writableLocation = !currentFolderID || canEdit(currentPermission);
 
@@ -134,7 +133,7 @@ export function DocumentCenter() {
   const openDocumentEditor = (document?: DocumentSummary, documentType?: "PART" | "PRODUCT") => {
     setEditing(document); documentForm.resetFields(); documentForm.setFieldsValue(document
       ? { name: document.name, description: document.description, type: document.type }
-      : { type: documentType ?? "PART", name: defaultDocumentName(documentType ?? "PART", overview.data?.documents ?? []), description: "" });
+      : { type: documentType ?? "PART", name: defaultDocumentName(documentType ?? "PART", catalog.data?.documents ?? []), description: "" });
     setCreateOpen(true);
   };
   const openFolderEditor = (folder?: FolderSummary) => { setFolderEditor(folder ?? "new"); folderForm.setFieldsValue(folder ?? { name: "", description: "" }); };
@@ -145,9 +144,38 @@ export function DocumentCenter() {
   });
   const restoreDocument = async (document: DocumentSummary) => { await api.restoreDocument(document.id); await invalidateDocuments(); message.success("文档已恢复"); };
   const removeFolder = (folder: FolderSummary) => modal.confirm({
-    title: `删除空文件夹“${folder.name}”？`, okButtonProps: { danger: true },
-    onOk: async () => { await api.deleteFolder(folder.id); await invalidateFolders(); message.success("文件夹已删除"); }
+    title: `删除文件夹“${folder.name}”？`, content: "只有不包含文档和子文件夹时才能删除。", okButtonProps: { danger: true },
+    onOk: async () => {
+      try { await api.deleteFolder(folder.id); await invalidateFolders(); message.success("文件夹已删除"); }
+      catch (error) { message.error(error instanceof Error ? error.message : "文件夹删除失败"); }
+    }
   });
+  const listAllTrash = async () => {
+    const result: DocumentSummary[] = [];
+    for (let offset = 0; ; offset += 200) {
+      const page = await api.listDocuments({ scope: "trash", limit: 200, offset, allFolders: true });
+      result.push(...page.documents);
+      if (result.length >= page.total || page.documents.length === 0) return result;
+    }
+  };
+  const restoreAllTrash = () => modal.confirm({ title: "还原回收站中的全部文档？", okText: "全部还原",
+    onOk: async () => {
+      const items = (await listAllTrash()).filter((item) => canEdit(item.permission));
+      const results = await Promise.allSettled(items.map((item) => api.restoreDocument(item.id)));
+      await invalidateDocuments();
+      const failed = results.filter((result) => result.status === "rejected").length;
+      failed ? message.warning(`已还原 ${items.length - failed} 个，${failed} 个失败`) : message.success(`已还原 ${items.length} 个文档`);
+    } });
+  const emptyTrash = () => modal.confirm({ title: "永久删除回收站中的全部文档？",
+    content: "此操作不可撤销；仍被 Product 引用的文档将保留并报告失败。", okText: "清空回收站", okButtonProps: { danger: true },
+    onOk: async () => {
+      const items = (await listAllTrash()).filter((item) => item.permission === "OWNER");
+      const results = await Promise.allSettled(items.map((item) => api.purgeDocument(item.id)));
+      await invalidateDocuments();
+      const failed = results.filter((result) => result.status === "rejected").length;
+      failed ? message.warning(`已永久删除 ${items.length - failed} 个，${failed} 个因权限或引用关系保留`)
+        : message.success(`已永久删除 ${items.length} 个文档`);
+    } });
   const chooseOperation = (kind: "copy" | "move", document: DocumentSummary) => {
     setOperation({ type: kind, document }); operationForm.setFieldsValue({ name: kind === "copy" ? `${document.name} Copy` : undefined, folderID: document.folderId });
   };
@@ -161,30 +189,22 @@ export function DocumentCenter() {
 
   return <Layout className="document-center-layout">
     <Layout.Sider width={224} className="library-sider">
-      <Typography.Text className="sider-caption">WORKSPACE</Typography.Text>
       <Menu mode="inline" theme="dark" selectedKeys={[scope]} items={navItems} onSelect={({ key }) => {
         setScope(key as LibraryScope); setCurrentFolderID(""); setSelectedID(""); setOffset(0);
       }} />
-      <div className="workspace-note"><strong>Main Workspace</strong><span>单一连续变更线</span></div>
     </Layout.Sider>
     <Layout.Content className="library-main">
-      <header className="page-heading"><div><Typography.Text className="eyebrow">DOCUMENT CENTER</Typography.Text>
-        <Typography.Title level={2}>设计文档</Typography.Title><Typography.Paragraph type="secondary">管理 Part、Product、版本与工作区；双击打开文档或文件夹。</Typography.Paragraph></div>
-        {!specialScope && <Space><Button icon={<FolderAddOutlined />} disabled={!writableLocation} onClick={() => openFolderEditor()}>新建文件夹</Button>
-          <Button icon={<UploadOutlined />} disabled={!writableLocation} onClick={() => setImportOpen(true)}>导入文档</Button>
-          <Button icon={<BuildOutlined />} disabled={!writableLocation} onClick={() => openDocumentEditor(undefined, "PART")}>新建 Part</Button>
-          <Button type="primary" icon={<ApartmentOutlined />} disabled={!writableLocation} onClick={() => openDocumentEditor(undefined, "PRODUCT")}>新建 Product</Button></Space>}</header>
+      <header className="page-heading"><Typography.Title level={2}>文档中心</Typography.Title>
+        {!specialScope && <Space.Compact><Button title="新建文件夹" aria-label="新建文件夹" icon={<FolderAddOutlined />} disabled={!writableLocation} onClick={() => openFolderEditor()} />
+          <Button title="导入" aria-label="导入" icon={<UploadOutlined />} disabled={!writableLocation} onClick={() => setImportOpen(true)} />
+          <Button type="primary" title="创建文档" aria-label="创建文档" icon={<PlusOutlined />} disabled={!writableLocation}
+            onClick={() => openDocumentEditor()} /></Space.Compact>}
+        {scope === "trash" && <Space.Compact><Button icon={<UndoOutlined />} onClick={restoreAllTrash}>全部还原</Button>
+          <Button danger icon={<DeleteOutlined />} onClick={emptyTrash}>清空回收站</Button></Space.Compact>}</header>
       {!specialScope && <Breadcrumb className="folder-breadcrumb" items={[
         { title: <Button type="link" onClick={() => enterFolder("")}>我的文档</Button> },
         ...(breadcrumbs.data ?? []).map((folder) => ({ title: <Button type="link" onClick={() => enterFolder(folder.id)}>{folder.name}</Button> })),
       ]} />}
-      <div className="metric-row-wrapper">
-        <Row gutter={14} className="metric-row">
-          <Col span={8}><Card><Statistic title="Part 文档" value={metrics.parts} prefix={<BuildOutlined />} /></Card></Col>
-          <Col span={8}><Card><Statistic title="Product 文档" value={metrics.products} prefix={<ApartmentOutlined />} /></Card></Col>
-          <Col span={8}><Card><Statistic title="最近 7 天更新" value={metrics.recentlyUpdated} prefix={<ClockCircleOutlined />} /></Card></Col>
-        </Row>
-      </div>
       <Card className="document-browser" bordered={false}>
         <div className="browser-controls">
           <Input allowClear prefix={<SearchOutlined />} placeholder="搜索文档名称或说明" value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0); }} />
@@ -199,7 +219,7 @@ export function DocumentCenter() {
               items: [
                 ...(folder.permission === "OWNER" ? [{ key: "share", icon: <ShareAltOutlined />, label: "共享" }] : []),
                 ...(canEdit(folder.permission) ? [{ key: "edit", icon: <EditOutlined />, label: "编辑" },
-                { key: "delete", icon: <DeleteOutlined />, label: "删除", danger: true, disabled: folder.documentCount + folder.trashCount + folder.childCount > 0 }] : []),
+                { key: "delete", icon: <DeleteOutlined />, label: "删除", danger: true }] : []),
               ], onClick: ({ key, domEvent }) => {
                 domEvent.stopPropagation(); if (key === "share") setShareResource({ type: "folders", id: folder.id, name: folder.name });
                 else if (key === "edit") openFolderEditor(folder); else removeFolder(folder);
@@ -239,7 +259,7 @@ export function DocumentCenter() {
       onOk={() => documentForm.submit()} confirmLoading={saveDocument.isPending} destroyOnHidden>
       <Form form={documentForm} layout="vertical" onFinish={(values) => saveDocument.mutate(values)}>
         <Form.Item name="type" label="文档类型" rules={[{ required: true }]}><Segmented block disabled={Boolean(editing)}
-          onChange={(value) => { if (!editing) documentForm.setFieldValue("name", defaultDocumentName(value as "PART" | "PRODUCT", overview.data?.documents ?? [])); }}
+          onChange={(value) => { if (!editing) documentForm.setFieldValue("name", defaultDocumentName(value as "PART" | "PRODUCT", catalog.data?.documents ?? [])); }}
           options={[{ label: "Part 零件", value: "PART", icon: <BuildOutlined /> }, { label: "Product 产品", value: "PRODUCT", icon: <ApartmentOutlined /> }]} /></Form.Item>
         <Form.Item name="name" label="文档名称" rules={[{ required: true, max: 120 }]}><Input autoFocus /></Form.Item>
         <Form.Item name="description" label="说明"><Input.TextArea rows={3} maxLength={500} showCount /></Form.Item>

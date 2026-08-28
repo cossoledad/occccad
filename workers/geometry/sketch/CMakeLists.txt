@@ -91,3 +91,7 @@ target_link_libraries(occccad_sketch_solver PRIVATE occccad_planegcs)
 target_compile_features(occccad_sketch_solver PUBLIC cxx_std_17)
 occccad_set_warnings(occccad_sketch_solver PRIVATE)
 occccad_apply_sanitizers(occccad_sketch_solver)
+
+if(OCCCCAD_BUILD_TESTS)
+    add_subdirectory(tests)
+endif()

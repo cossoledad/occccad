@@ -37,6 +37,13 @@ function indexNodes(nodes: SpecificationTreeNode[], output = new Map<string, Spe
   return output;
 }
 
+function branchKeys(nodes: SpecificationTreeNode[], output = new Set<string>()): Set<string> {
+  for (const node of nodes) {
+    if (node.children?.length) { output.add(node.key); branchKeys(node.children, output); }
+  }
+  return output;
+}
+
 export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, onSelect, onActivate, onHover, onDelete, onToggleConstruction }: {
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; selectedIdentityKeys: readonly string[];
   selectionToken: string; highlightedKey?: string;
@@ -46,6 +53,7 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
   onToggleConstruction?: (node: SpecificationTreeNode) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const knownBranches = useRef(new Set<string>());
   const [contextMenu, setContextMenu] = useState<{ nodeKey: string; selectionSignature: string }>();
   const anchorKey = useRef<string | undefined>(undefined);
   const scrollElement = useRef<HTMLElement>(null);
@@ -54,8 +62,12 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
   const visibleKeys = useMemo(() => visible.map((entry) => entry.node.key), [visible]);
   const selected = useMemo(() => new Set(selectedKeys), [selectedKeys]);
   useEffect(() => {
-    const available = new Set(visible.filter((entry) => entry.hasChildren).map((entry) => entry.node.key));
-    setExpanded((current) => new Set([...current].filter((key) => available.has(key))));
+    const available = branchKeys(nodes);
+    setExpanded((current) => new Set([
+      ...[...current].filter((key) => available.has(key)),
+      ...[...available].filter((key) => !knownBranches.current.has(key)),
+    ]));
+    knownBranches.current = available;
   // Node identity changes only when a new document view arrives.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes]);

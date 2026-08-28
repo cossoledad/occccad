@@ -2,6 +2,7 @@ import { CloseOutlined } from "@ant-design/icons";
 import { Button } from "antd";
 import { useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent, type PropsWithChildren, type ReactNode } from "react";
+import { normalizeToolbarLayout, useUIPreferences, type ToolbarLayout, type ToolbarOrientation } from "../../state/ui-preferences";
 
 export type FloatingPanelProps = PropsWithChildren<{
   className?: string;
@@ -16,20 +17,11 @@ export function FloatingPanel({ className = "", title, position = "top-left", ch
   </section>;
 }
 
-type ToolbarOrientation = "horizontal" | "vertical";
-type ToolbarLayout = { x?: number; y?: number; orientation: ToolbarOrientation };
-
 export function FloatingToolbar({ children, id, label, orientation = "horizontal", position = "top-center", className = "" }:
   FloatingPanelProps & { id: string; label?: string; orientation?: ToolbarOrientation }) {
-  const storageKey = `occccad.toolbar.${id}`;
-  const [layout, setLayout] = useState<ToolbarLayout>(() => {
-    try {
-      const saved = window.localStorage.getItem(storageKey);
-      if (!saved) return { orientation };
-      const parsed = JSON.parse(saved) as Partial<ToolbarLayout>;
-      return { ...parsed, orientation: parsed.orientation ?? orientation };
-    } catch { return { orientation }; }
-  });
+  const savedLayout = useUIPreferences((state) => state.toolbarLayouts[id]);
+  const saveLayout = useUIPreferences((state) => state.setToolbarLayout);
+  const [layout, setLayout] = useState<ToolbarLayout>(() => normalizeToolbarLayout(savedLayout, orientation));
   const toolbar = useRef<HTMLElement>(null);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
@@ -43,7 +35,7 @@ export function FloatingToolbar({ children, id, label, orientation = "horizontal
   const persist = (next: ToolbarLayout) => {
     layoutRef.current = next;
     setLayout(next);
-    window.localStorage.setItem(storageKey, JSON.stringify(next));
+    saveLayout(id, next);
   };
   const pointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0 || !toolbar.current?.parentElement) return;

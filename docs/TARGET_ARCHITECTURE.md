@@ -2122,6 +2122,8 @@ ExternalGeometry 不复制一条“看起来相同”的普通线，而是保存
 
 #### 5.3.18 测试体系
 
+测试代码与其领域实现共同归属：模块内白盒测试验证最小不变量，跨模块 conformance 只依赖公开契约，仓库级 E2E 才允许编排多个进程。文件名和目录遵循各语言工具链，不建立第二套测试发现协议；每个场景必须自行创建 fixture、执行用户意图并断言领域结果，不得依赖上一测试留下的数组位置、全局 Store、数据库记录或执行顺序。CAD 交互场景以 `pointerdown -> pointerup -> move -> pointerdown -> pointerup` 等真实手势驱动 Tool 边界，同时断言持久 operation，而不是直接篡改 UI state。
+
 | 层级 | 必须覆盖 |
 |---|---|
 | Schema unit | 每种 Entity/Constraint 签名、非法引用、单位和有限数 |
