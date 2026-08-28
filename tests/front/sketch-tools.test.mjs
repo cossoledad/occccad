@@ -358,6 +358,8 @@ try {
   const project = ([x, y]) => ({ x: x * 10, y: y * 10 });
   assert.deepEqual(resolveSketchReference({ x: 3, y: 2 }, snapEntities, project, "POINT"),
     { target: "SKETCH_ORIGIN", subElement: "POINT" });
+  assert.deepEqual(resolveSketchReference({ x: 0, y: 0 }, snapEntities, project, "SYMMETRY_CENTER"),
+    { target: "SKETCH_ORIGIN", subElement: "POINT" }, "origin must win over both intersecting intrinsic axes");
   assert.deepEqual(resolveSketchReference({ x: 198, y: 1 }, snapEntities, project, "POINT"),
     { target: "ENTITY", entityId: "line-a", subElement: "END" });
   assert.deepEqual(resolveSketchReference({ x: 400, y: 2 }, [], project, "LINE"),
@@ -388,6 +390,8 @@ try {
   };
   assert.equal(measureSketchDimension("LENGTH", fixtures.LENGTH, constraintEntities), 20);
   assert.equal(measureSketchDimension("DISTANCE", fixtures.DISTANCE, constraintEntities), Math.hypot(20, 10));
+  assert.equal(measureSketchDimension("DISTANCE", [ref("point-b", "POINT"),
+    { target: "SKETCH_X_AXIS", subElement: "DIRECTION" }], constraintEntities), 10);
   assert.equal(measureSketchDimension("RADIUS", fixtures.RADIUS, constraintEntities), 8);
   assert.equal(measureSketchDimension("DIAMETER", fixtures.DIAMETER, constraintEntities), 16);
   assert.equal(measureSketchDimension("ANGLE", fixtures.ANGLE, constraintEntities), 90);
@@ -411,8 +415,8 @@ try {
     references: [ref("line-a", "DIRECTION")], value: 20, unit: "mm", labelPosition: { x: 10, y: -12 } }, constraintEntities);
   assert.deepEqual(placedLayout.label?.position, [10, -12]);
   const identityProject = ([x, y]) => ({ x, y });
-  assert.equal(resolveSketchReference({ x: 10, y: 32 }, constraintEntities, identityProject, "SOLVER_CURVE"),
-    null, "tangent/point-on-object must not pick splines");
+  assert.equal(resolveSketchReference({ x: 10, y: 32 }, constraintEntities, identityProject, "SOLVER_CURVE")?.target,
+    "SKETCH_Y_AXIS", "point-on-object must expose intrinsic axes while rejecting splines");
   assert.equal(resolveSketchReference({ x: 38, y: 20 }, constraintEntities, identityProject, "EQUAL_CURVE", 12, 110,
     ref("line-a")), null, "equal line must reject a circular second element");
   assert.equal(resolveSketchReference({ x: 38, y: 20 }, constraintEntities, identityProject, "EQUAL_CURVE", 12, 110,

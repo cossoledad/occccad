@@ -184,14 +184,21 @@ type SketchFeature struct {
 	Solve         SketchSolveState   `json:"solve"`
 }
 type SketchOperation struct {
-	Type          string            `json:"type"`
-	Entity        *SketchEntity     `json:"entity,omitempty"`
-	Constraint    *SketchConstraint `json:"constraint,omitempty"`
-	ConstraintID  string            `json:"constraintId,omitempty"`
-	LabelPosition *SketchPoint2     `json:"labelPosition,omitempty"`
-	Value         *float64          `json:"value,omitempty"`
-	First         *SketchPoint2     `json:"first,omitempty"`
-	Second        *SketchPoint2     `json:"second,omitempty"`
+	Type              string             `json:"type"`
+	Entity            *SketchEntity      `json:"entity,omitempty"`
+	Constraint        *SketchConstraint  `json:"constraint,omitempty"`
+	ConstraintID      string             `json:"constraintId,omitempty"`
+	LabelPosition     *SketchPoint2      `json:"labelPosition,omitempty"`
+	Value             *float64           `json:"value,omitempty"`
+	First             *SketchPoint2      `json:"first,omitempty"`
+	Second            *SketchPoint2      `json:"second,omitempty"`
+	FirstReference    *SketchGeometryRef `json:"firstReference,omitempty"`
+	SecondReference   *SketchGeometryRef `json:"secondReference,omitempty"`
+	EntityID          string             `json:"entityId,omitempty"`
+	Role              string             `json:"role,omitempty"`
+	SubElement        string             `json:"subElement,omitempty"`
+	ControlPointIndex *int               `json:"controlPointIndex,omitempty"`
+	Point             *SketchPoint2      `json:"point,omitempty"`
 }
 
 type Feature struct {
@@ -1580,6 +1587,40 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 				continue
 			}
 			manifest.Primitives = append(manifest.Primitives, primitive)
+			auxiliaryPoints := []struct {
+				suffix string
+				point  SketchPoint2
+			}{}
+			if (entity.Kind == "CIRCLE" || entity.Kind == "ARC") && entity.Center != nil {
+				auxiliaryPoints = append(auxiliaryPoints, struct {
+					suffix string
+					point  SketchPoint2
+				}{"center", *entity.Center})
+			}
+			if entity.Kind == "ARC" {
+				if first, last, ok := entityProfileEndpoints(entity); ok {
+					auxiliaryPoints = append(auxiliaryPoints, struct {
+						suffix string
+						point  SketchPoint2
+					}{"start", first}, struct {
+						suffix string
+						point  SketchPoint2
+					}{"end", last})
+				}
+			}
+			if entity.Kind == "SPLINE" {
+				for index, point := range entity.ControlPoints {
+					auxiliaryPoints = append(auxiliaryPoints, struct {
+						suffix string
+						point  SketchPoint2
+					}{fmt.Sprintf("fit-%d", index), point})
+				}
+			}
+			for _, auxiliary := range auxiliaryPoints {
+				manifest.Primitives = append(manifest.Primitives, VisualPrimitive{ID: entity.ID + ":" + auxiliary.suffix, FeatureID: feature.ID,
+					Kind: "POINTS", Semantic: "SKETCH_POINT", EntityType: "REFERENCE_POINT", Role: entity.Role,
+					Status: feature.Sketch.Solve.Status, Positions: [][3]float64{toWorld(auxiliary.point)}, Selectable: false})
+			}
 		}
 		entities := make(map[string]SketchEntity, len(feature.Sketch.Entities))
 		for _, entity := range feature.Sketch.Entities {

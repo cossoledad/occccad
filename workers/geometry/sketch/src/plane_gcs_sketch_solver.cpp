@@ -414,6 +414,17 @@ private:
                                   points, lines, circles, arcs, splines, origin);
                 b = resolve_point(c.references[1], point_i, line_i, circle_i, arc_i, spline_i,
                                   points, lines, circles, arcs, splines, origin);
+                if (a && !b) {
+                    if (auto* line = resolve_line(c.references[1], line_i, lines, x_axis, y_axis)) {
+                        system.addConstraintP2LDistance(*a, *line, constant(c.value), tag);
+                        return {};
+                    }
+                } else if (!a && b) {
+                    if (auto* line = resolve_line(c.references[0], line_i, lines, x_axis, y_axis)) {
+                        system.addConstraintP2LDistance(*b, *line, constant(c.value), tag);
+                        return {};
+                    }
+                }
             } else if (c.kind == ConstraintKind::length && count(1)) {
                 if (auto* line = resolve_line(c.references[0], line_i, lines, x_axis, y_axis)) {
                     a = &line->p1;

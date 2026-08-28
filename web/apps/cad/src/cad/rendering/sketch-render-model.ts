@@ -23,6 +23,19 @@ export function buildSketchRenderModel(feature: Feature): SketchRenderModel {
       (construction ? result.constructionLines : result.profileLines).push(start, end);
       result.endpoints.push(start, end);
     }
+    if ((entity.kind === "CIRCLE" || entity.kind === "ARC") && entity.center) {
+      (construction ? result.constructionPoints : result.profilePoints).push([entity.center.x, entity.center.y]);
+    }
+    if (entity.kind === "ARC" && entity.center && entity.radius && entity.startAngle !== undefined && entity.endAngle !== undefined) {
+      result.endpoints.push(
+        [entity.center.x + entity.radius * Math.cos(entity.startAngle), entity.center.y + entity.radius * Math.sin(entity.startAngle)],
+        [entity.center.x + entity.radius * Math.cos(entity.endAngle), entity.center.y + entity.radius * Math.sin(entity.endAngle)],
+      );
+    }
+    if (entity.kind === "SPLINE" && !entity.closed && entity.controlPoints?.length) {
+      result.endpoints.push([entity.controlPoints[0].x, entity.controlPoints[0].y],
+        [entity.controlPoints.at(-1)!.x, entity.controlPoints.at(-1)!.y]);
+    }
   }
   return result;
 }

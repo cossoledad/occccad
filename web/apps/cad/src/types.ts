@@ -74,14 +74,16 @@ export type Feature = {
 };
 
 export type SketchPoint2 = { x: number; y: number };
-export type SketchGeometryRef = { target: "ENTITY" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" };
+export type SketchGeometryRef = { target: "ENTITY" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL"; controlPointIndex?: number };
 export type SketchEntity = { id: string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; degree?: number; closed?: boolean };
 export type SketchConstraint = { id: string; kind: "COINCIDENT" | "PARALLEL" | "FIXED" | "FIXED_POINT" | "HORIZONTAL" | "VERTICAL" | "PERPENDICULAR" | "TANGENT" | "EQUAL" | "DISTANCE" | "LENGTH" | "RADIUS" | "DIAMETER" | "ANGLE" | "CONCENTRIC" | "POINT_ON_OBJECT" | "MIDPOINT" | "SYMMETRY"; references: SketchGeometryRef[]; fixedPoint?: SketchPoint2; value?: number; unit?: "mm" | "deg"; labelPosition?: SketchPoint2; internal?: boolean };
 export type SketchFeature = { schemaVersion: 1; support: { type: "DATUM_PLANE"; datumPlaneId: string; plane: PlaneName }; entities: SketchEntity[]; constraints: SketchConstraint[]; solve: { status: string; degreesOfFreedom: number; diagnostic?: string } };
 export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { type: "ADD_CONSTRAINT"; constraint: SketchConstraint }
   | { type: "UPDATE_CONSTRAINT_PLACEMENT"; constraintId: string; labelPosition: SketchPoint2 }
   | { type: "UPDATE_CONSTRAINT_VALUE"; constraintId: string; value: number }
-  | { type: "ADD_RECTANGLE"; first: SketchPoint2; second: SketchPoint2 };
+  | { type: "ADD_RECTANGLE"; first: SketchPoint2; second: SketchPoint2; firstReference?: SketchGeometryRef; secondReference?: SketchGeometryRef }
+  | { type: "UPDATE_ENTITY_ROLE"; entityId: string; role: "PROFILE" | "CONSTRUCTION" }
+  | { type: "UPDATE_ENTITY_POINT"; entityId: string; subElement: "POINT" | "CENTER" | "CONTROL"; controlPointIndex?: number; point: SketchPoint2 };
 
 export type HistoryEntry = {
   position: number;

@@ -1,4 +1,4 @@
-import { DeleteOutlined } from "@ant-design/icons";
+import { DeleteOutlined, SwapOutlined } from "@ant-design/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Dropdown } from "antd";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
@@ -9,7 +9,7 @@ import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-select
 export type SpecificationTreeNode = {
   key: string; title: ReactNode; icon?: ReactNode; children?: SpecificationTreeNode[];
   kind?: string; entityId?: string; documentId?: string; plane?: string; selection?: Selection;
-  capabilities?: Array<"DELETE">; ownerEntityId?: string;
+  capabilities?: Array<"DELETE">; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
 };
 
 type VisibleNode = { node: SpecificationTreeNode; depth: number; hasChildren: boolean };
@@ -37,12 +37,13 @@ function indexNodes(nodes: SpecificationTreeNode[], output = new Map<string, Spe
   return output;
 }
 
-export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, onSelect, onActivate, onHover, onDelete }: {
+export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, onSelect, onActivate, onHover, onDelete, onToggleConstruction }: {
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; selectedIdentityKeys: readonly string[];
   selectionToken: string; highlightedKey?: string;
   onSelect: (nodes: SpecificationTreeNode[]) => void; onHover?: (node?: SpecificationTreeNode) => void;
   onActivate?: (node: SpecificationTreeNode) => void;
   onDelete?: (nodes: SpecificationTreeNode[]) => void;
+  onToggleConstruction?: (node: SpecificationTreeNode) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [contextMenu, setContextMenu] = useState<{ nodeKey: string; selectionSignature: string }>();
@@ -136,7 +137,11 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
           <Dropdown trigger={[]} placement="bottomLeft" overlayClassName="specification-tree-context-menu"
             open={contextMenu?.nodeKey === node.key}
             onOpenChange={(open) => { if (!open) setContextMenu(undefined); }}
-            menu={{ items: [{ key: "delete", icon: <DeleteOutlined />, danger: true,
+            menu={{ items: [node.kind === "SKETCH_ENTITY" ? { key: "construction", icon: <SwapOutlined />,
+              label: node.role === "CONSTRUCTION" ? "设为轮廓元素" : "设为构造元素",
+              disabled: !node.capabilities?.includes("DELETE"),
+              onClick: () => { setContextMenu(undefined); onToggleConstruction?.(node); } } : null,
+            { key: "delete", icon: <DeleteOutlined />, danger: true,
             label: deletable.length > 1 ? `删除 ${deletable.length} 项` : "删除", disabled: deletable.length === 0,
             onClick: () => { setContextMenu(undefined); onDelete?.(deletable); } }] }}>{row}</Dropdown>
         </div>;

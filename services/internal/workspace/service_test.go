@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -427,6 +428,28 @@ func TestRectangleMacroExpandsToStableLinesAndExplicitConstraints(t *testing.T) 
 		}
 		if constraint.Kind != want {
 			t.Fatalf("constraint %d is %s, want %s", index, constraint.Kind, want)
+		}
+	}
+}
+
+func TestVisualizationManifestIncludesCircularCentersAndSplineFitPoints(t *testing.T) {
+	model := PartModel{Features: []Feature{{
+		ID: "sketch", Type: "SKETCH", Sketch: &SketchFeature{
+			SchemaVersion: 1, Support: SketchSupport{Plane: "XY"}, Solve: SketchSolveState{Status: "UNDER_CONSTRAINED"},
+			Entities: []SketchEntity{
+				{ID: "arc", Kind: "ARC", Role: "PROFILE", Center: &SketchPoint2{X: 5, Y: 6}, Radius: 3, StartAngle: 0, EndAngle: math.Pi},
+				{ID: "spline", Kind: "SPLINE", Role: "CONSTRUCTION", Degree: 2, ControlPoints: []SketchPoint2{{X: 0, Y: 0}, {X: 4, Y: 8}, {X: 9, Y: 2}}},
+			},
+		},
+	}}}
+	manifest := visualizationManifest(model)
+	ids := map[string]bool{}
+	for _, primitive := range manifest.Primitives {
+		ids[primitive.ID] = true
+	}
+	for _, id := range []string{"arc:center", "arc:start", "arc:end", "spline:fit-0", "spline:fit-1", "spline:fit-2"} {
+		if !ids[id] {
+			t.Fatalf("missing editable reference point %s: %#v", id, ids)
 		}
 	}
 }

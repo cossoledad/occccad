@@ -109,6 +109,7 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView): Spec
   const canEdit = view.document.permission === "OWNER" || view.document.permission === "EDITOR";
   return { key: node.id, title: node.name, icon: structureIcon(node.kind), kind: node.kind,
     entityId: node.entityId, documentId: node.documentId, plane: node.plane, ownerEntityId: node.ownerEntityId,
+    role: node.role,
     capabilities: canEdit ? node.capabilities : undefined,
     selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view)) };
 }
@@ -457,8 +458,19 @@ export function Workbench() {
             selectionToken={selectionSetToken(store.selections)}
             highlightedKey={treeKeyForSelection(treeNodes, store.preselection)}
             onSelect={(nodes) => store.setSelections(nodes.flatMap((node) => node.selection ? [node.selection] : []))}
-            onActivate={(node) => { if (canEdit && node.selection?.kind === "sketch-constraint") viewport.current?.editDimension(node.selection); }}
-            onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={deleteTreeNodes} />
+            onActivate={(node) => {
+              if (!canEdit || !node.selection) return;
+              if (node.selection.kind === "sketch") {
+                const feature=view?.part?.features.find((candidate)=>candidate.id===node.selection!.id);
+                const plane=feature?.sketch?.support.plane??feature?.plane;if(feature&&plane)store.beginSketch(feature.id,plane);
+              } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
+            }}
+            onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={deleteTreeNodes}
+            onToggleConstruction={(node)=>{
+              if(!node.ownerEntityId||!node.entityId)return;
+              editSketch(node.ownerEntityId,[{type:"UPDATE_ENTITY_ROLE",entityId:node.entityId,
+                role:node.role==="CONSTRUCTION"?"PROFILE":"CONSTRUCTION"}]);
+            }} />
         </aside>
         <button className={`inspector-toggle ${inspectorOpen ? "open" : ""}`} onClick={() => setInspectorOpen((current) => !current)}
           title={inspectorOpen ? "收起属性面板" : "展开属性面板"}>

@@ -346,6 +346,53 @@ func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) 
 				return fmt.Errorf("%w: ADD_CONSTRAINT requires a constraint", ErrValidation)
 			}
 			sketch.Constraints = append(sketch.Constraints, *operation.Constraint)
+		case "UPDATE_ENTITY_ROLE":
+			if operation.EntityID == "" || (operation.Role != "PROFILE" && operation.Role != "CONSTRUCTION") {
+				return fmt.Errorf("%w: UPDATE_ENTITY_ROLE requires an entity and valid role", ErrValidation)
+			}
+			found := false
+			for index := range sketch.Entities {
+				if sketch.Entities[index].ID == operation.EntityID {
+					sketch.Entities[index].Role = operation.Role
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("%w: selected sketch entity does not exist", ErrValidation)
+			}
+		case "UPDATE_ENTITY_POINT":
+			if operation.EntityID == "" || operation.Point == nil || !finite(operation.Point.X) || !finite(operation.Point.Y) {
+				return fmt.Errorf("%w: UPDATE_ENTITY_POINT requires an entity and finite point", ErrValidation)
+			}
+			found := false
+			for index := range sketch.Entities {
+				entity := &sketch.Entities[index]
+				if entity.ID != operation.EntityID {
+					continue
+				}
+				switch operation.SubElement {
+				case "POINT":
+					if entity.Kind == "POINT" {
+						entity.Point = operation.Point
+						found = true
+					}
+				case "CENTER":
+					if entity.Kind == "CIRCLE" || entity.Kind == "ARC" {
+						entity.Center = operation.Point
+						found = true
+					}
+				case "CONTROL":
+					if entity.Kind == "SPLINE" && operation.ControlPointIndex != nil && *operation.ControlPointIndex >= 0 && *operation.ControlPointIndex < len(entity.ControlPoints) {
+						entity.ControlPoints[*operation.ControlPointIndex] = *operation.Point
+						found = true
+					}
+				}
+				break
+			}
+			if !found {
+				return fmt.Errorf("%w: selected entity point does not exist", ErrValidation)
+			}
 		case "UPDATE_CONSTRAINT_PLACEMENT":
 			if operation.ConstraintID == "" || operation.LabelPosition == nil ||
 				!finite(operation.LabelPosition.X) || !finite(operation.LabelPosition.Y) {
@@ -541,8 +588,11 @@ func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map
 	curve := func(reference SketchGeometryRef) bool { return line(reference) || circular(reference) }
 	refs := constraint.References
 	switch constraint.Kind {
-	case "COINCIDENT", "DISTANCE":
+	case "COINCIDENT":
 		return point(refs[0]) && point(refs[1])
+	case "DISTANCE":
+		return (point(refs[0]) && (point(refs[1]) || line(refs[1]))) ||
+			(line(refs[0]) && point(refs[1]))
 	case "PARALLEL", "PERPENDICULAR", "ANGLE":
 		return line(refs[0]) && line(refs[1])
 	case "FIXED":
@@ -1125,6 +1175,39 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, err
 			}
 			operations = append(operations, expanded...)
+			for _, snapped := range []struct {
+				suffix    string
+				point     SketchPoint2
+				reference *SketchGeometryRef
+			}{
+				{"first", *operation.First, operation.FirstReference},
+				{"second", *operation.Second, operation.SecondReference},
+			} {
+				if snapped.reference == nil {
+					continue
+				}
+				found := false
+				for _, candidate := range expanded {
+					if candidate.Entity == nil || candidate.Entity.Kind != "LINE" {
+						continue
+					}
+					for _, endpoint := range []struct {
+						sub   string
+						point *SketchPoint2
+					}{{"START", candidate.Entity.Start}, {"END", candidate.Entity.End}} {
+						if endpoint.point != nil && endpoint.point.X == snapped.point.X && endpoint.point.Y == snapped.point.Y {
+							constraint := SketchConstraint{ID: macroID(request.RequestID+fmt.Sprintf("/%d", index), "snap-"+snapped.suffix), Kind: "COINCIDENT",
+								References: []SketchGeometryRef{{Target: "ENTITY", EntityID: candidate.Entity.ID, SubElement: endpoint.sub}, *snapped.reference}}
+							operations = append(operations, SketchOperation{Type: "ADD_CONSTRAINT", Constraint: &constraint})
+							found = true
+							break
+						}
+					}
+					if found {
+						break
+					}
+				}
+			}
 		}
 		return typeEditSketch, editSketchPayload{SketchID: request.SketchID, Operations: operations}, nil
 	case "PAD_SKETCH":

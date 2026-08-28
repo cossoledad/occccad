@@ -58,6 +58,35 @@ func TestEverySketchConstraintHasAViewportVisual(t *testing.T) {
 	}
 }
 
+func TestPointLineDistanceVisualUsesPerpendicularFoot(t *testing.T) {
+	value := 7.0
+	entities := map[string]SketchEntity{
+		"point": {ID: "point", Kind: "POINT", Point: &SketchPoint2{X: 4, Y: 7}},
+		"line":  {ID: "line", Kind: "LINE", Start: &SketchPoint2{X: -10, Y: 0}, End: &SketchPoint2{X: 20, Y: 0}},
+	}
+	visual, ok := constraintVisual(SketchConstraint{Kind: "DISTANCE", Value: &value, Unit: "mm", References: []SketchGeometryRef{
+		{Target: "ENTITY", EntityID: "point", SubElement: "POINT"},
+		{Target: "ENTITY", EntityID: "line", SubElement: "WHOLE"},
+	}}, entities)
+	if !ok || len(visual.Positions) < 4 {
+		t.Fatalf("missing point-line dimension: %#v", visual)
+	}
+	if visual.Positions[2].X != 4 || visual.Positions[2].Y != 0 {
+		t.Fatalf("dimension uses line midpoint instead of perpendicular foot: %#v", visual.Positions[:4])
+	}
+}
+
+func TestEntityRoleUpdateIsAtomic(t *testing.T) {
+	sketch := SketchFeature{SchemaVersion: 1, Entities: []SketchEntity{{ID: "line", Kind: "LINE", Role: "PROFILE",
+		Start: &SketchPoint2{X: 0, Y: 0}, End: &SketchPoint2{X: 10, Y: 0}}}}
+	if err := applySketchOperations(&sketch, []SketchOperation{{Type: "UPDATE_ENTITY_ROLE", EntityID: "line", Role: "CONSTRUCTION"}}); err != nil {
+		t.Fatal(err)
+	}
+	if sketch.Entities[0].Role != "CONSTRUCTION" {
+		t.Fatalf("role was not updated: %#v", sketch.Entities[0])
+	}
+}
+
 func TestConstraintReferenceCompatibilityRejectsUnsupportedPairs(t *testing.T) {
 	t.Parallel()
 	kinds := map[string]string{"line": "LINE", "circle": "CIRCLE", "spline": "SPLINE", "point": "POINT"}

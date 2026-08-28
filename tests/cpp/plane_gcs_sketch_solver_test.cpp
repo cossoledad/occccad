@@ -247,4 +247,20 @@ TEST(PlaneGcsSketchSolver, KeepsAxisSymmetryWhenOneEquationIsAlreadyImplied) {
     EXPECT_NEAR(result.lines[0].start.x, -result.lines[0].end.x, 1e-8);
     EXPECT_NEAR(result.lines[0].start.y, result.lines[0].end.y, 1e-8);
 }
+
+TEST(PlaneGcsSketchSolver, SolvesPointToIntrinsicAxisDistance) {
+    SketchModel model;
+    model.points = {{"point", {4.0, 8.0}}};
+    model.constraints = {
+        {"distance-x",
+         ConstraintKind::distance,
+         {endpoint("point", SubElement::point), axis(GeometryTarget::sketch_x_axis)},
+         {}, 5.0, "mm"}};
+
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+
+    EXPECT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    ASSERT_EQ(result.points.size(), 1U);
+    EXPECT_NEAR(std::abs(result.points[0].point.y), 5.0, 1e-8);
+}
 }  // namespace occccad::geometry::sketch

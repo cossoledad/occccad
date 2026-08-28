@@ -162,8 +162,26 @@ func constraintVisual(constraint SketchConstraint, entities map[string]SketchEnt
 	}
 	switch constraint.Kind {
 	case "DISTANCE":
-		if len(points) >= 2 {
-			return linearConstraintVisual(points[0], points[1], constraintValueLabel(constraint), constraint.LabelPosition), true
+		if len(constraint.References) == 2 {
+			firstLineA, firstLineB, firstIsLine := constraintLine(constraint.References[0], entities)
+			secondLineA, secondLineB, secondIsLine := constraintLine(constraint.References[1], entities)
+			firstPoint, firstIsPoint := constraintReferencePoint(constraint.References[0], entities)
+			secondPoint, secondIsPoint := constraintReferencePoint(constraint.References[1], entities)
+			if !firstIsLine && !secondIsLine && firstIsPoint && secondIsPoint {
+				return linearConstraintVisual(firstPoint, secondPoint, constraintValueLabel(constraint), constraint.LabelPosition), true
+			}
+			point, lineA, lineB, ok := firstPoint, secondLineA, secondLineB, firstIsPoint && secondIsLine
+			if firstIsLine && secondIsPoint {
+				point, lineA, lineB, ok = secondPoint, firstLineA, firstLineB, true
+			}
+			if ok {
+				direction := sub2(lineB, lineA)
+				lengthSquared := direction.X*direction.X + direction.Y*direction.Y
+				if lengthSquared > 1e-18 {
+					projection := add2(lineA, scale2(direction, (sub2(point, lineA).X*direction.X+sub2(point, lineA).Y*direction.Y)/lengthSquared))
+					return linearConstraintVisual(point, projection, constraintValueLabel(constraint), constraint.LabelPosition), true
+				}
+			}
 		}
 	case "LENGTH":
 		if len(constraint.References) > 0 {

@@ -86,8 +86,13 @@ export function measureSketchDimension(kind: SketchConstraint["kind"], reference
   sketchEntities: readonly SketchEntity[]): number | undefined {
   const entities = new Map(sketchEntities.map((entity) => [entity.id, entity]));
   if (kind === "DISTANCE") {
-    const points = references.map((reference) => sketchReferencePoint(reference, entities));
-    if (points.length >= 2 && points[0] && points[1]) return Math.hypot(...sub(points[1], points[0]));
+    const lines=references.map((reference)=>linePoints(reference,entities));
+    const points = references.map((reference,index) => lines[index]?undefined:sketchReferencePoint(reference, entities));
+    if (!lines[0]&&!lines[1]&&points.length >= 2 && points[0] && points[1]) return Math.hypot(...sub(points[1], points[0]));
+    const pointIndex=points[0]?0:points[1]?1:-1,lineIndex=pointIndex===0?1:0;
+    const line=lines[lineIndex];
+    if(pointIndex>=0&&line){const p=points[pointIndex]!,direction=sub(line[1],line[0]);
+      return Math.abs(direction[0]*(line[0][1]-p[1])-(line[0][0]-p[0])*direction[1])/Math.hypot(...direction);}
   }
   if (kind === "LENGTH") {
     const line = references[0] ? linePoints(references[0], entities) : undefined;
@@ -115,10 +120,21 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
   const anchors: Vec2[] = [];
   const segments: ConstraintSegment[] = [];
   let label: SketchConstraintLayout["label"];
-  if (constraint.kind === "DISTANCE" && points.length >= 2) {
+  if (constraint.kind === "DISTANCE") {
     const placement = constraint.labelPosition ? [constraint.labelPosition.x, constraint.labelPosition.y] as Vec2 : undefined;
-    const dimension = linearDimension(points[0], points[1], constraintText(constraint), placement);
-    segments.push(...dimension.segments); label = dimension.label;
+    const lines=constraint.references.map((reference)=>linePoints(reference,entities));
+    const pointReferences=constraint.references.map((reference,index)=>lines[index]?undefined:sketchReferencePoint(reference,entities));
+    let endpoints:readonly [Vec2,Vec2]|undefined;
+    if(pointReferences[0]&&pointReferences[1])endpoints=[pointReferences[0],pointReferences[1]];
+    else {
+      const pointIndex=pointReferences[0]?0:pointReferences[1]?1:-1,lineIndex=pointIndex===0?1:0;
+      const line=constraint.references[lineIndex]?linePoints(constraint.references[lineIndex],entities):undefined;
+      if(pointIndex>=0&&line){const p=pointReferences[pointIndex]!,direction=sub(line[1],line[0]);const length2=direction[0]**2+direction[1]**2;
+        const t=((p[0]-line[0][0])*direction[0]+(p[1]-line[0][1])*direction[1])/length2;
+        endpoints=[p,add(line[0],scale(direction,t))];}
+    }
+    if(endpoints){const dimension = linearDimension(endpoints[0], endpoints[1], constraintText(constraint), placement);
+      segments.push(...dimension.segments); label = dimension.label;}
   }
   if (constraint.kind === "LENGTH") {
     const line = linePoints(constraint.references[0], entities);
