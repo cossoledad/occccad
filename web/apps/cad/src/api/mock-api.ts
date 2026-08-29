@@ -492,4 +492,5 @@ export const mockApi: CadApi = {
     jobs.set(jobID, updated); return pause(updated);
   },
   downloadJob: async () => { /* no file is produced in mock mode */ },
+	downloadDiagnosticBundle: async () => { /* server diagnostics are unavailable in mock mode */ },
 };

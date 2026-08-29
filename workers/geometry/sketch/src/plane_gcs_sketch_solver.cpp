@@ -260,12 +260,14 @@ public:
                     parameters.push_back(point.y);
                 }
 
-            const int status = system.solve(parameters, true, GCS::DogLeg);
+            int status = system.solve(parameters, true, GCS::DogLeg);
+            if (status != GCS::Success)
+                status = system.solve(parameters, true, GCS::LevenbergMarquardt);
+            if (status != GCS::Success)
+                status = system.solve(parameters, true, GCS::BFGS);
             // PlaneGCS return codes are an implementation detail.  Diagnose every
             // non-successful solve before mapping it to the platform vocabulary so
             // callers never need to know which numerical backend is in use.
-            if (status == GCS::Success)
-                system.applySolution();
             system.diagnose(GCS::DogLeg);
             GCS::VEC_I conflicting, redundant;
             system.getConflicting(conflicting);
@@ -286,6 +288,8 @@ public:
                                       result.redundant_constraint_ids);
                 result.diagnostic =
                     !conflicting.empty() ? "conflicting constraints" : "redundant constraints";
+                if (conflicting.empty() && status == GCS::Success)
+                    system.applySolution();
                 for (const auto& value : points) result.points.push_back(value.entity);
                 for (const auto& value : lines) result.lines.push_back(value.entity);
                 for (const auto& value : circles) result.circles.push_back(value.entity);
@@ -302,6 +306,11 @@ public:
                 for (const auto& value : splines) result.splines.push_back(value.entity);
                 return result;
             }
+            // diagnose() temporarily solves reduced systems and restores the
+            // original parameter references. Apply the authoritative full-system
+            // solution afterwards; applying before diagnose loses solved values
+            // whenever a disconnected component contains redundant constraints.
+            system.applySolution();
             SolveResult result;
             result.degrees_of_freedom = system.dofsNumber();
             result.status = result.degrees_of_freedom > 0 ? SolveStatus::under_constrained

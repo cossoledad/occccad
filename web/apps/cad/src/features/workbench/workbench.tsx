@@ -385,6 +385,8 @@ export function Workbench() {
       commandRegistry.register({ id: "view.iso", execute: () => viewport.current?.setStandardView("ISO") }),
       commandRegistry.register({ id: "navigation.profile.toggle", execute: () => store.setNavigationProfile(
         store.navigationProfile === "default" ? "catia" : "default"), isActive: () => store.navigationProfile === "catia" }),
+	  commandRegistry.register({ id: "debug.download", execute: () => view && api.downloadDiagnosticBundle(view.document.id),
+		isVisible: () => !isMockMode, isEnabled: () => Boolean(view) }),
     ];
     return () => { for (const dispose of disposers.reverse()) dispose(); };
   }, [commandRegistry, view, canEdit, store.selection, store.sketchPlane, store.activeToolID, store.navigationProfile, command.isPending]);
@@ -469,6 +471,9 @@ export function Workbench() {
             <ToolButton command="view.fit" icon={<CadIcon name="fit" />} tooltip="适合窗口" />
             <ToolButton command="view.iso" icon={<CadIcon name="isometric" />} tooltip="等轴测视图" /></ToolbarGroup>
         </FloatingToolbar>
+		<FloatingToolbar id="debug" label="Debug" position="bottom-right" className="debug-toolbar">
+		  <ToolbarGroup><ToolButton command="debug.download" icon={<CadIcon name="debug" />} tooltip="下载诊断包" /></ToolbarGroup>
+		</FloatingToolbar>
         <aside className="floating-structure-tree">
           <SpecificationTree nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
             selectedIdentityKeys={store.selections.map(selectionKey)}

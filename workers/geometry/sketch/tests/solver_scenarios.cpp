@@ -189,6 +189,61 @@ TEST(PlaneGcsSketchSolver, SolvesRegularHexagonMacro) {
     EXPECT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
 }
 
+TEST(PlaneGcsSketchSolver, SolvesConstraintAddedAfterDisconnectedRegularHexagon) {
+    auto model = SketchModel{};
+    constexpr double pi = 3.14159265358979323846;
+    for (int index = 0; index < 6; ++index) {
+        const double first = index * pi / 3.0;
+        const double second = (index + 1) * pi / 3.0;
+        model.lines.push_back({"edge-" + std::to_string(index),
+                               {50.0 * std::cos(first), 50.0 * std::sin(first)},
+                               {50.0 * std::cos(second), 50.0 * std::sin(second)}});
+    }
+    for (int index = 0; index < 6; ++index) {
+        const auto current = "edge-" + std::to_string(index);
+        const auto next = "edge-" + std::to_string((index + 1) % 6);
+        model.constraints.push_back(
+            {"join-" + std::to_string(index), ConstraintKind::coincident,
+             {endpoint(current.c_str(), SubElement::end), endpoint(next.c_str(), SubElement::start)},
+             {}, 0.0, {}, true});
+        if (index == 0) continue;
+        model.constraints.push_back(
+            {"equal-" + std::to_string(index), ConstraintKind::equal,
+             {endpoint("edge-0", SubElement::whole), endpoint(current.c_str(), SubElement::whole)},
+             {}, 0.0, {}, true});
+        model.constraints.push_back(
+            {"angle-" + std::to_string(index), ConstraintKind::angle,
+             {endpoint(("edge-" + std::to_string(index - 1)).c_str(), SubElement::direction),
+              endpoint(current.c_str(), SubElement::direction)},
+             {}, 60.0, "deg", true});
+    }
+    model.lines.push_back({"later-line", {-58.371609311792255, 56.71477323962336}, {60.0, 90.0}});
+    model.splines.push_back({"later-spline",
+                             {{40.01896358930731, 65.63619824360909},
+                              {126.17443934208364, 85.5182311096344},
+                              {174.85993007811993, -25.872132511558654},
+                              {84.62608860923586, 38.87192323165195},
+                              {105.52771290428815, -86.28292468140478}},
+                             3, false});
+    model.constraints.push_back(
+        {"horizontal", ConstraintKind::horizontal,
+         {endpoint("later-line", SubElement::direction)}, {}});
+    model.constraints.push_back(
+        {"spline-control-at-origin", ConstraintKind::coincident,
+         {{GeometryTarget::sketch_origin, {}, SubElement::point},
+          {GeometryTarget::entity, "later-spline", SubElement::control, 4}}, {}});
+
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+
+    ASSERT_TRUE(result.status == SolveStatus::under_constrained || result.status == SolveStatus::redundant)
+        << result.diagnostic;
+    ASSERT_EQ(result.lines.size(), 7U);
+    EXPECT_NEAR(result.lines.back().start.y, result.lines.back().end.y, 1e-8);
+    ASSERT_EQ(result.splines.size(), 1U);
+    EXPECT_NEAR(result.splines[0].control_points[4].x, 0.0, 1e-8);
+    EXPECT_NEAR(result.splines[0].control_points[4].y, 0.0, 1e-8);
+}
+
 TEST(PlaneGcsSketchSolver, SolvesPointLinePointSymmetry) {
     SketchModel model;
     model.points = {{"first", {-4.8, 2.2}}, {"second", {5.1, 1.8}}};
@@ -278,5 +333,36 @@ TEST(PlaneGcsSketchSolver, ClassifiesConflictsWithoutLeakingBackendStatus) {
     EXPECT_FALSE(result.conflicting_constraint_ids.empty());
     EXPECT_EQ(result.diagnostic.find("PlaneGCS"), std::string::npos);
     ASSERT_EQ(result.points.size(), 1U);
+}
+
+TEST(PlaneGcsSketchSolver, SolvesArcClosureAngleToIntrinsicXAxisRegression) {
+    SketchModel model;
+    model.arcs = {{"arc", {-4.17222551406913e-23, 0.0}, 90.0,
+                   2.1599643563596285, 7.265087723106667}};
+    model.lines = {{"left", {-50.01025611280795, 74.82629406519713}, {0.0, 0.0}},
+                   {"right", {0.0, 0.0}, {49.9897429479288, 74.84000000000002}}};
+    model.constraints = {
+        {"arc-center", ConstraintKind::coincident,
+         {endpoint("arc", SubElement::center), {GeometryTarget::sketch_origin, {}, SubElement::point}}},
+        {"line-join", ConstraintKind::coincident,
+         {endpoint("left", SubElement::end), endpoint("right", SubElement::start)}},
+        {"left-arc", ConstraintKind::coincident,
+         {endpoint("left", SubElement::start), endpoint("arc", SubElement::start)}},
+        {"right-arc", ConstraintKind::coincident,
+         {endpoint("right", SubElement::end), endpoint("arc", SubElement::end)}},
+        {"radius", ConstraintKind::radius, {endpoint("arc", SubElement::whole)}, {}, 90.0, "mm"},
+        {"chord", ConstraintKind::distance,
+         {endpoint("arc", SubElement::start), endpoint("arc", SubElement::end)}, {}, 100.0, "mm"},
+        {"at-origin", ConstraintKind::coincident,
+         {endpoint("left", SubElement::end), {GeometryTarget::sketch_origin, {}, SubElement::point}}},
+        {"angle", ConstraintKind::angle,
+         {endpoint("right", SubElement::direction), axis(GeometryTarget::sketch_x_axis)}, {},
+         56.25, "deg"},
+    };
+
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+
+    EXPECT_EQ(result.status, SolveStatus::solved) << result.diagnostic;
+    EXPECT_EQ(result.degrees_of_freedom, 0);
 }
 }  // namespace occccad::geometry::sketch

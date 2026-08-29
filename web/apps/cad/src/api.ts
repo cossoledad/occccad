@@ -23,6 +23,37 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 const requestId = (): string => randomUUID();
 
+async function downloadDiagnosticBundle(documentId: string, command: Record<string, unknown>, errorMessage: string): Promise<void> {
+	const response = await fetch(apiURL(`/api/documents/${documentId}/diagnostic-bundles`), {
+		method: "POST", credentials: "include",
+		headers: { "Content-Type": "application/json", ...mutationHeaders("POST"), "X-Request-ID": requestId() },
+		body: JSON.stringify({
+			failedCommand: command, error: errorMessage,
+			client: { generatedAt: new Date().toISOString(), page: window.location.href,
+				userAgent: navigator.userAgent, language: navigator.language },
+		}),
+	});
+	if (!response.ok) throw new Error(`diagnostic export failed with HTTP ${response.status}`);
+	const blob = await response.blob();
+	const disposition = response.headers.get("Content-Disposition") ?? "";
+	const filename = disposition.match(/filename="([^"]+)"/)?.[1] ?? `occccad-diagnostic-${documentId}.json`;
+	const link = document.createElement("a");
+	link.href = URL.createObjectURL(blob); link.download = filename;
+	document.body.appendChild(link); link.click(); link.remove();
+	window.setTimeout(() => URL.revokeObjectURL(link.href), 0);
+}
+
+async function executeDocumentCommand(documentId: string, command: Record<string, unknown>): Promise<DocumentView> {
+	const commandWithID = { requestId: requestId(), ...command };
+	try {
+		return await realtime.executeCommand(documentId, commandWithID);
+	} catch (cause) {
+		const error = cause instanceof Error ? cause : new Error(String(cause));
+		if (error.message.includes("sketch solve")) void downloadDiagnosticBundle(documentId, commandWithID, error.message).catch(() => undefined);
+		throw error;
+	}
+}
+
 export const restApi = {
   session: () => request<{ user: User; authenticationMode: string }>("/api/session"),
   login: (email: string, password: string) => request<{ user: User }>("/api/auth/login", {
@@ -160,8 +191,9 @@ export const restApi = {
   copyDocument: (id: string, name: string, folderId?: string) => request<DocumentView>(`/api/documents/${id}/copy`, {
     method: "POST", body: JSON.stringify({ requestId: requestId(), name, folderId: folderId ?? null }),
   }),
-  command: (documentId: string, command: Record<string, unknown>) =>
-    realtime.executeCommand(documentId, { requestId: requestId(), ...command }),
+	command: executeDocumentCommand,
+	downloadDiagnosticBundle: (documentId: string) => downloadDiagnosticBundle(documentId,
+		{ type: "MANUAL_DIAGNOSTIC_EXPORT", requestId: requestId() }, "manual diagnostic export"),
   previewCommand: (documentId: string, command: Record<string, unknown>, signal?: AbortSignal) =>
     request<CommandPreview>(`/api/documents/${documentId}/command-previews`, {
       method: "POST", signal, body: JSON.stringify({ requestId: requestId(), ...command }),

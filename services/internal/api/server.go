@@ -215,6 +215,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/documents/{documentID}/versions", server.createVersion)
 	mux.HandleFunc("POST /api/documents/{documentID}/commands", server.applyCommand)
 	mux.HandleFunc("POST /api/documents/{documentID}/command-previews", server.previewCommand)
+	mux.HandleFunc("POST /api/documents/{documentID}/diagnostic-bundles", server.downloadDiagnosticBundle)
 	mux.HandleFunc("GET /api/exchange/capabilities", server.exchangeCapabilities)
 	mux.HandleFunc("POST /api/exchange/imports", server.startExchangeImport)
 	mux.HandleFunc("POST /api/exchange/exports", server.startExchangeExport)

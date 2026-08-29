@@ -5,7 +5,7 @@ export type CadIconName =
   | "coincident" | "parallel" | "fixed" | "horizontal" | "vertical" | "perpendicular" | "tangent" | "equal"
   | "distance" | "length" | "radius" | "diameter" | "angle" | "concentric" | "point-on-object" | "midpoint" | "symmetry"
   | "rectangle" | "polygon" | "slot" | "insert" | "reference" | "undo" | "redo" | "version" | "share"
-  | "navigation" | "fit" | "isometric";
+  | "navigation" | "fit" | "isometric" | "debug";
 
 const P = ({ d }: { d: string }) => <path d={d} />;
 const C = ({ cx, cy, r = 1.5 }: { cx: number; cy: number; r?: number }) => <circle cx={cx} cy={cy} r={r} />;
@@ -52,6 +52,7 @@ function glyph(name: CadIconName): ReactNode {
   case "navigation": return <><C cx={10} cy={10} r={7} /><P d="M12.5 7.5l-1.5 4-4 1.5 1.5-4z" /></>;
   case "fit": return <><P d="M8 4H4v4M12 4h4v4M4 12v4h4M16 12v4h-4" /><rect x="7" y="7" width="6" height="6" /></>;
   case "isometric": return <><P d="M10 3l6 3.5v7L10 17l-6-3.5v-7zM4 6.5l6 3.5 6-3.5M10 10v7" /></>;
+	case "debug": return <><P d="M7 7h6a3 3 0 013 3v3a6 6 0 01-12 0v-3a3 3 0 013-3zM10 7V4M7 4l3 3 3-3" /><P d="M4 10H2M18 10h-2M4 14H2M18 14h-2" /></>;
   }
 }
 

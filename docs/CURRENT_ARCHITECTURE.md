@@ -177,6 +177,8 @@ stateDiagram-v2
     end note
 ```
 
+PlaneGCS 适配器按 `DogLeg → Levenberg-Marquardt → BFGS` 执行确定性收敛回退；只有三种算法都失败且诊断不能产生冲突/冗余解释集时才返回平台 `FAILED`。`diagnose()` 会为冗余分析临时求解 reduced systems 并恢复 parameter reference，因此完整系统的 `applySolution()` 必须在诊断结束后执行；否则含 internal 冗余的六边形会让之后其他连通分量的约束看似提交成功却保存旧坐标。仓库保存了真实 XZ“圆弧闭包 + 内置 U 轴角度”以及“六边形 + 后建直线/Spline 分量”的数值回归。
+
 Pad 已不再调用四条轴对齐直线特判。OCCT-free Profile Builder 排除 Construction/Point，以 Coincident 等价类构建 Line/Arc/开放 Spline 端点图，并把 Circle/闭合 Spline 作为闭环；它拒绝开放端、T-junction、重叠/相交和自交，确定性遍历环，按包含深度区分外环、孔和岛，并生成稳定 ProfileLoop/ProfileRegion identity。`EvaluatePart.profile_pads` 将有向曲线和孔环送入 OCCT，后者构造 Edge/Wire/Face、执行 BRepCheck，再沿草图平面法向 Prism；一个草图中的多个偶数深度区域会一并拉伸。当前 Pad 仍以整个 Sketch 为 profile selection，尚未提供单独区域的视口选择。
 
 草图编辑的 ChangeSet 以最终写入 Revision 的求解后 `sketch.model` 为准，而不是命令处理器产生的求解前候选值；历史投影层能够独立读取和回写该稳定属性槽。Undo/Redo 对持久 ChangeSet 先验证稳定 write-set 的 target/slot 唯一性，再从原事务不可变的 base/result Revision 重建实际 before/after 和 digest，最后执行当前值冲突检查；因此旧版本中已写入错误 digest 的求解后草图事务也能修复并回滚，但不会信任旧 ChangeSet 内容或放宽并发冲突检查。PlaneGCS 改写坐标、DoF 或诊断后，补偿和重放不会再产生候选值与 Revision 的 digest 冲突。
@@ -337,6 +339,8 @@ Capture 策略是独立于当前 Tool 和持久 Selection 的可恢复交互状�
 工作台的 Pad、Insert 和命名版本输入使用统一、可拖动、无遮罩的 `CommandDialog`，因此命令打开时仍可选择和检查视口对象。Pad 面板在数值字段 blur 或 Enter 后调用 `POST /api/documents/{documentID}/command-previews`；服务端在当前 Head 上复用正式 command adapter、typed handler、Sketch Solver 和 Part evaluator，返回带 base Revision 与 evaluator provenance 的精确 Artifact，但不创建 Revision、历史、Outbox 或推进 Workspace。一个面板会话的预览和提交共享稳定 request identity，迟到或 base 已变化的响应由客户端丢弃，新的预览会取消旧请求，服务端交互求值最长 15 秒。内容寻址几何缓存可以复用，取消、关闭、提交或收到新的权威 DocumentView 时清理视口预览。
 
 Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端行为或权限正确性的证明。
+
+命令出现 `sketch solve` 失败时，Web 自动调用 `POST /api/documents/{documentID}/diagnostic-bundles` 并下载 schema `occccad.cad-diagnostic-bundle.v1` JSON；工作台右下角另有可拖动、可持久化布局的 Debug Toolbar，用户可随时手动下载同一诊断包，即使问题没有触发异常。诊断包包含触发命令及 request ID、当前完整 DocumentView/Sketch、Workspace Head/sequence/policy、历史、最近事务与命令错误、evaluator manifest/digest、客户端环境和日志关联字段，足以在开发环境离线重建候选草图。接口沿用文档 ACL 与 CSRF，响应禁止缓存；Cookie、凭据、其他文档日志和 B-Rep 原始字节不进入导出。
 
 ## 9. 可观测性、构建与测试
 

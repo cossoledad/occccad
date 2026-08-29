@@ -42,6 +42,8 @@ flowchart LR
 
 `GET|POST /api/documents/{documentID}/workspaces` 用于列出 Workspace 或从所属 Revision 创建 Branch。`POST /api/documents/{documentID}/commands` 是保留的 HTTP transport；Web 使用 `workspace.command.execute.v1` WebSocket 消息。二者进入同一 Workspace handler。`POST /api/documents/{documentID}/command-previews` 在当前 Head 上运行相同 command adapter、typed handler、Sketch Solver 与 Part evaluator，返回 base Revision 和精确 Artifact，但不创建 Revision、历史、Outbox 或推进 Workspace；请求受 Editor ACL、HTTP cancellation 和 15 秒 deadline 约束。`SET_PARAMETER_VALUE` 接受 `parameterId/value/unit`，`SET_PARAMETER_EXPRESSION` 接受 `parameterId/expression`。表达式在服务端绑定稳定 ParameterId，Worker 不解析用户 source text。
 
+`POST /api/documents/{documentID}/diagnostic-bundles` 为具有文档读取权限的用户生成不可缓存的 `occccad.cad-diagnostic-bundle.v1` JSON 下载。Web 在草图求解命令失败时自动提交失败命令和客户端环境，也允许通过 Debug Toolbar 手动导出当前状态；服务端补充当前文档、草图、Workspace、历史、最近事务/命令错误及 evaluator provenance。该接口不导出 Cookie、密码、其他文档日志或 B-Rep 原始字节。
+
 WebSocket 首条消息必须是携带 CSRF token 的 `connection.initialize.v1`。之后可发送 `document.subscribe.v1`、`document.unsubscribe.v1`、`workspace.command.execute.v1` 与 `stream.ack.v1`；服务端返回 correlation response/error，并从事务 Outbox 发布 `workspace.transaction.committed.v1`。单消息限制 1 MiB，大制品仍走 HTTP/ArtifactStore。
 
 后台 Exchange 到达最终状态时发布用户级 `job.state.changed.v1`。事件只发送到 `requested_by_user_id` 对应的连接；没有在线连接时保持在 Outbox，不能因一次空广播丢失完成通知。前端提交后立即返回 Document Center，导出结果只在用户点击通知中的下载动作时走流式 HTTP。

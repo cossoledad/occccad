@@ -1117,6 +1117,8 @@ flowchart LR
     Model --> UI["Tree and viewport"]
 ```
 
+数值后端允许在适配器内部按固定顺序执行有限次算法回退，但必须记录尝试顺序并通过相同 corpus 验证；禁止随机初值或无界重试掩盖退化模型。最终不可分类失败应生成可授权下载的版本化诊断包，至少包含不可变 base Revision、失败 Domain Command、规范化 solver input、adapter/evaluator 版本、求解状态与日志 correlation。诊断包是调试制品，不是业务真相，也不得包含凭据或无关租户数据。
+
 #### 5.3.3 SketchFeature 领域模型
 
 一个 Sketch 是 Feature Graph 中的 typed node，而不是独立 Document。推荐的规范模型如下；字段名表达语义，最终以版本化 Protobuf/JSON Schema 为准。
