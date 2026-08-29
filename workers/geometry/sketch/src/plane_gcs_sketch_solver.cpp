@@ -261,9 +261,11 @@ public:
                 }
 
             const int status = system.solve(parameters, true, GCS::DogLeg);
-            if (status != GCS::Success)
-                return failed("PlaneGCS failed with status " + std::to_string(status));
-            system.applySolution();
+            // PlaneGCS return codes are an implementation detail.  Diagnose every
+            // non-successful solve before mapping it to the platform vocabulary so
+            // callers never need to know which numerical backend is in use.
+            if (status == GCS::Success)
+                system.applySolution();
             system.diagnose(GCS::DogLeg);
             GCS::VEC_I conflicting, redundant;
             system.getConflicting(conflicting);
@@ -284,6 +286,20 @@ public:
                                       result.redundant_constraint_ids);
                 result.diagnostic =
                     !conflicting.empty() ? "conflicting constraints" : "redundant constraints";
+                for (const auto& value : points) result.points.push_back(value.entity);
+                for (const auto& value : lines) result.lines.push_back(value.entity);
+                for (const auto& value : circles) result.circles.push_back(value.entity);
+                for (const auto& value : arcs) result.arcs.push_back(value.entity);
+                for (const auto& value : splines) result.splines.push_back(value.entity);
+                return result;
+            }
+            if (status != GCS::Success) {
+                auto result = failed("constraint solver could not classify the model");
+                for (const auto& value : points) result.points.push_back(value.entity);
+                for (const auto& value : lines) result.lines.push_back(value.entity);
+                for (const auto& value : circles) result.circles.push_back(value.entity);
+                for (const auto& value : arcs) result.arcs.push_back(value.entity);
+                for (const auto& value : splines) result.splines.push_back(value.entity);
                 return result;
             }
             SolveResult result;
@@ -302,7 +318,7 @@ public:
                 result.splines.push_back(value.entity);
             return result;
         } catch (const std::exception& error) {
-            return failed("PlaneGCS exception: " + std::string(error.what()));
+            return failed("constraint solver exception: " + std::string(error.what()));
         }
     }
 
@@ -598,6 +614,9 @@ private:
         }
         if (const auto i = spline_i.find(r.entity_id);
             i != spline_i.end() && !splines[i->second].controls.empty()) {
+            if (r.sub_element == SubElement::control &&
+                r.control_point_index < splines[i->second].controls.size())
+                return &splines[i->second].controls[r.control_point_index];
             if (r.sub_element == SubElement::start)
                 return &splines[i->second].controls.front();
             if (r.sub_element == SubElement::end)

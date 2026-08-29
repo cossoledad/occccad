@@ -37,6 +37,11 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
         {target:"ENTITY",entityId:entity.id,subElement:"WHOLE"});continue;
     }
     if (mode === "POINT" || mode === "LINEAR_DIMENSION" || mode === "SYMMETRY_CENTER") {
+      if (entity.kind === "SPLINE") for (const [controlPointIndex, point] of (entity.controlPoints ?? []).entries()) {
+        const projected = project([point.x, point.y]);
+        consider(Math.hypot(cursor.x - projected.x, cursor.y - projected.y),
+          { target: "ENTITY", entityId: entity.id, subElement: "CONTROL", controlPointIndex }, 85);
+      }
       const candidates = entity.kind === "POINT" ? ["POINT"] as const
         : entity.kind === "CIRCLE" ? ["CENTER"] as const
           : entity.kind === "ARC" ? ["START", "END", "CENTER"] as const : ["START", "END"] as const;

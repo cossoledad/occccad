@@ -226,9 +226,11 @@ sketch_api::GeometryRef read_sketch_reference(const worker_api::SketchGeometryRe
         sub_element = sketch_api::SubElement::center;
     else if (input.sub_element() == "DIRECTION")
         sub_element = sketch_api::SubElement::direction;
+    else if (input.sub_element() == "CONTROL")
+        sub_element = sketch_api::SubElement::control;
     else
         throw std::invalid_argument("unknown sketch sub-element");
-    return {target, input.entity_id(), sub_element};
+    return {target, input.entity_id(), sub_element, input.control_point_index()};
 }
 
 sketch_api::SketchModel read_sketch(const worker_api::SketchModel& input) {

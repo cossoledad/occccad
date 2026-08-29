@@ -126,7 +126,10 @@ type SketchSpline struct {
 	Degree        uint32
 	Closed        bool
 }
-type SketchReference struct{ Target, EntityID, SubElement string }
+type SketchReference struct {
+	Target, EntityID, SubElement string
+	ControlPointIndex            *int
+}
 type SketchConstraint struct {
 	ID, Kind       string
 	References     []SketchReference
@@ -143,9 +146,39 @@ type SketchModel struct {
 	Splines     []SketchSpline
 	Constraints []SketchConstraint
 }
+type SketchSolveStatus string
+
+const (
+	SketchSolveFullyConstrained SketchSolveStatus = "FULLY_CONSTRAINED"
+	SketchSolveUnderConstrained SketchSolveStatus = "UNDER_CONSTRAINED"
+	SketchSolveConflicting      SketchSolveStatus = "CONFLICTING"
+	SketchSolveRedundant        SketchSolveStatus = "REDUNDANT"
+	SketchSolveInvalid          SketchSolveStatus = "INVALID"
+	SketchSolveFailed           SketchSolveStatus = "FAILED"
+)
+
+// sketchSolveStatus is the sole adapter from the current worker protocol to
+// the platform vocabulary. Solver-specific names and codes must not escape it.
+func sketchSolveStatus(status string) SketchSolveStatus {
+	switch status {
+	case "SOLVED", "FULLY_CONSTRAINED":
+		return SketchSolveFullyConstrained
+	case "UNDER_CONSTRAINED":
+		return SketchSolveUnderConstrained
+	case "CONFLICTING":
+		return SketchSolveConflicting
+	case "REDUNDANT":
+		return SketchSolveRedundant
+	case "INVALID_MODEL", "INVALID":
+		return SketchSolveInvalid
+	default:
+		return SketchSolveFailed
+	}
+}
+
 type SketchSolve struct {
 	Model                                            SketchModel
-	Status                                           string
+	Status                                           SketchSolveStatus
 	DegreesOfFreedom                                 int
 	Diagnostic                                       string
 	ConflictingConstraintIDs, RedundantConstraintIDs []string
@@ -177,7 +210,12 @@ func (client *Client) SolveSketch(ctx context.Context, requestID string, model S
 	for _, constraint := range model.Constraints {
 		value := &workerv1.SketchConstraint{Id: constraint.ID, Kind: constraint.Kind, FixedPoint: &workerv1.Vec2{X: constraint.FixedX, Y: constraint.FixedY}, Value: constraint.Value, Unit: constraint.Unit, Internal: constraint.Internal}
 		for _, reference := range constraint.References {
-			value.References = append(value.References, &workerv1.SketchGeometryRef{Target: reference.Target, EntityId: reference.EntityID, SubElement: reference.SubElement})
+			index := uint32(0)
+			if reference.ControlPointIndex != nil {
+				index = uint32(*reference.ControlPointIndex)
+			}
+			value.References = append(value.References, &workerv1.SketchGeometryRef{Target: reference.Target, EntityId: reference.EntityID,
+				SubElement: reference.SubElement, ControlPointIndex: index})
 		}
 		input.Constraints = append(input.Constraints, value)
 	}
@@ -185,7 +223,7 @@ func (client *Client) SolveSketch(ctx context.Context, requestID string, model S
 	if err != nil {
 		return SketchSolve{}, fmt.Errorf("solve sketch: %w", err)
 	}
-	result := SketchSolve{Status: response.GetStatus(), DegreesOfFreedom: int(response.GetDegreesOfFreedom()), Diagnostic: response.GetDiagnostic(), ConflictingConstraintIDs: response.GetConflictingConstraintIds(), RedundantConstraintIDs: response.GetRedundantConstraintIds()}
+	result := SketchSolve{Status: sketchSolveStatus(response.GetStatus()), DegreesOfFreedom: int(response.GetDegreesOfFreedom()), Diagnostic: response.GetDiagnostic(), ConflictingConstraintIDs: response.GetConflictingConstraintIds(), RedundantConstraintIDs: response.GetRedundantConstraintIds()}
 	for _, point := range response.GetSketch().GetPoints() {
 		result.Model.Points = append(result.Model.Points, SketchPoint{ID: point.GetId(), X: point.GetPoint().GetX(), Y: point.GetPoint().GetY(), Role: point.GetRole()})
 	}

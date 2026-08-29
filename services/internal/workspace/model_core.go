@@ -249,7 +249,7 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 				feature.Sketch.Constraints = constraints
 			}
 			if len(feature.Sketch.Entities) == 0 {
-				feature.Sketch.Solve = SketchSolveState{Status: "EMPTY"}
+				feature.Sketch.Solve = SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY"}
 			}
 			if err := validateSketch(*feature.Sketch); err != nil {
 				return nil, modelcore.ChangeSet{}, err
@@ -393,6 +393,46 @@ func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) 
 			if !found {
 				return fmt.Errorf("%w: selected entity point does not exist", ErrValidation)
 			}
+		case "UPDATE_ENTITY_SUPPRESSION":
+			if operation.EntityID == "" || operation.Suppressed == nil {
+				return fmt.Errorf("%w: entity suppression requires a target", ErrValidation)
+			}
+			found := false
+			for index := range sketch.Entities {
+				if sketch.Entities[index].ID == operation.EntityID {
+					sketch.Entities[index].Suppressed = *operation.Suppressed
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("%w: selected sketch entity does not exist", ErrValidation)
+			}
+			if *operation.Suppressed {
+				for index := range sketch.Constraints {
+					for _, reference := range sketch.Constraints[index].References {
+						if reference.EntityID == operation.EntityID {
+							sketch.Constraints[index].Suppressed = true
+							break
+						}
+					}
+				}
+			}
+		case "UPDATE_CONSTRAINT_SUPPRESSION":
+			if operation.ConstraintID == "" || operation.Suppressed == nil {
+				return fmt.Errorf("%w: constraint suppression requires a target", ErrValidation)
+			}
+			found := false
+			for index := range sketch.Constraints {
+				if sketch.Constraints[index].ID == operation.ConstraintID {
+					sketch.Constraints[index].Suppressed = *operation.Suppressed
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("%w: selected sketch constraint does not exist", ErrValidation)
+			}
 		case "UPDATE_CONSTRAINT_PLACEMENT":
 			if operation.ConstraintID == "" || operation.LabelPosition == nil ||
 				!finite(operation.LabelPosition.X) || !finite(operation.LabelPosition.Y) {
@@ -453,6 +493,7 @@ func validateSketch(sketch SketchFeature) error {
 		return fmt.Errorf("%w: unsupported sketch schema version", ErrValidation)
 	}
 	entityKinds := map[string]string{}
+	entityControlCounts := map[string]int{}
 	for _, entity := range sketch.Entities {
 		if entity.ID == "" || entityKinds[entity.ID] != "" {
 			return fmt.Errorf("%w: sketch entity ids must be unique", ErrValidation)
@@ -461,6 +502,7 @@ func validateSketch(sketch SketchFeature) error {
 			return fmt.Errorf("%w: sketch entity %s has invalid role", ErrValidation, entity.ID)
 		}
 		entityKinds[entity.ID] = entity.Kind
+		entityControlCounts[entity.ID] = len(entity.ControlPoints)
 		switch entity.Kind {
 		case "POINT":
 			if entity.Point == nil || !finite(entity.Point.X) || !finite(entity.Point.Y) {
@@ -499,6 +541,9 @@ func validateSketch(sketch SketchFeature) error {
 			return fmt.Errorf("%w: sketch constraint ids must be unique", ErrValidation)
 		}
 		constraints[constraint.ID] = true
+		if constraint.Suppressed {
+			continue
+		}
 		counts := map[string]int{"COINCIDENT": 2, "PARALLEL": 2, "FIXED": 1, "FIXED_POINT": 1,
 			"HORIZONTAL": 1, "VERTICAL": 1, "PERPENDICULAR": 2, "TANGENT": 2, "EQUAL": 2,
 			"DISTANCE": 2, "LENGTH": 1, "RADIUS": 1, "DIAMETER": 1, "ANGLE": 2,
@@ -536,10 +581,14 @@ func validateSketch(sketch SketchFeature) error {
 				validSubElements := map[string]map[string]bool{
 					"POINT": {"POINT": true, "WHOLE": true}, "LINE": {"START": true, "END": true, "DIRECTION": true, "WHOLE": true},
 					"CIRCLE": {"CENTER": true, "WHOLE": true}, "ARC": {"START": true, "END": true, "CENTER": true, "WHOLE": true},
-					"SPLINE": {"START": true, "END": true, "WHOLE": true},
+					"SPLINE": {"START": true, "END": true, "CONTROL": true, "WHOLE": true},
 				}
 				if !validSubElements[kind][reference.SubElement] {
 					return fmt.Errorf("%w: constraint %s uses invalid %s sub-element %s", ErrValidation, constraint.ID, kind, reference.SubElement)
+				}
+				if reference.SubElement == "CONTROL" && (reference.ControlPointIndex == nil ||
+					*reference.ControlPointIndex < 0 || *reference.ControlPointIndex >= entityControlCounts[reference.EntityID]) {
+					return fmt.Errorf("%w: constraint %s uses invalid spline control point", ErrValidation, constraint.ID)
 				}
 			case "SKETCH_ORIGIN":
 				if reference.EntityID != "" || reference.SubElement != "POINT" {
@@ -573,6 +622,8 @@ func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map
 			return kind == "LINE" || kind == "ARC" || kind == "SPLINE"
 		case "CENTER":
 			return kind == "CIRCLE" || kind == "ARC"
+		case "CONTROL":
+			return kind == "SPLINE" && reference.ControlPointIndex != nil
 		}
 		return false
 	}
@@ -1040,6 +1091,9 @@ func (service *Service) solveSketches(ctx context.Context, requestID string, mod
 		}
 		input := geometry.SketchModel{}
 		for _, entity := range sketch.Entities {
+			if entity.Suppressed {
+				continue
+			}
 			switch entity.Kind {
 			case "POINT":
 				input.Points = append(input.Points, geometry.SketchPoint{ID: entity.ID, X: entity.Point.X, Y: entity.Point.Y, Role: entity.Role})
@@ -1058,6 +1112,9 @@ func (service *Service) solveSketches(ctx context.Context, requestID string, mod
 			}
 		}
 		for _, constraint := range sketch.Constraints {
+			if constraint.Suppressed {
+				continue
+			}
 			value := geometry.SketchConstraint{ID: constraint.ID, Kind: constraint.Kind, Unit: constraint.Unit, Internal: constraint.Internal}
 			if constraint.Value != nil {
 				value.Value = *constraint.Value
@@ -1066,15 +1123,20 @@ func (service *Service) solveSketches(ctx context.Context, requestID string, mod
 				value.FixedX, value.FixedY = constraint.FixedPoint.X, constraint.FixedPoint.Y
 			}
 			for _, reference := range constraint.References {
-				value.References = append(value.References, geometry.SketchReference{Target: reference.Target, EntityID: reference.EntityID, SubElement: reference.SubElement})
+				value.References = append(value.References, geometry.SketchReference{Target: reference.Target, EntityID: reference.EntityID,
+					SubElement: reference.SubElement, ControlPointIndex: reference.ControlPointIndex})
 			}
 			input.Constraints = append(input.Constraints, value)
+		}
+		if len(input.Points)+len(input.Lines)+len(input.Circles)+len(input.Arcs)+len(input.Splines) == 0 {
+			sketch.Solve = SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}
+			continue
 		}
 		result, err := service.worker.SolveSketch(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
 		if err != nil {
 			return err
 		}
-		if result.Status != "SOLVED" && result.Status != "UNDER_CONSTRAINED" {
+		if result.Status != geometry.SketchSolveFullyConstrained && result.Status != geometry.SketchSolveUnderConstrained && result.Status != geometry.SketchSolveConflicting && result.Status != geometry.SketchSolveRedundant {
 			return fmt.Errorf("%w: sketch solve %s: %s", ErrValidation, result.Status, result.Diagnostic)
 		}
 		byID := map[string]geometry.SketchPoint{}
@@ -1099,6 +1161,9 @@ func (service *Service) solveSketches(ctx context.Context, requestID string, mod
 		}
 		for entityIndex := range sketch.Entities {
 			entity := &sketch.Entities[entityIndex]
+			if entity.Suppressed {
+				continue
+			}
 			if entity.Kind == "POINT" {
 				p := byID[entity.ID]
 				entity.Point = &SketchPoint2{p.X, p.Y}
@@ -1122,9 +1187,126 @@ func (service *Service) solveSketches(ctx context.Context, requestID string, mod
 				entity.Degree, entity.Closed = spline.Degree, spline.Closed
 			}
 		}
-		sketch.Solve = SketchSolveState{Status: result.Status, DegreesOfFreedom: result.DegreesOfFreedom, Diagnostic: result.Diagnostic, ConflictingConstraintIDs: result.ConflictingConstraintIDs, RedundantConstraintIDs: result.RedundantConstraintIDs}
+		components, err := service.solveSketchComponents(ctx, requestID+"/"+model.Features[featureIndex].ID, input, sketch)
+		if err != nil {
+			return err
+		}
+		sketch.Solve = SketchSolveState{Status: string(result.Status), DefinitionStatus: sketchDefinitionStatus(result.Status, result.DegreesOfFreedom), DegreesOfFreedom: result.DegreesOfFreedom, Diagnostic: result.Diagnostic,
+			ConflictingConstraintIDs: result.ConflictingConstraintIDs, RedundantConstraintIDs: result.RedundantConstraintIDs, Components: components}
 	}
 	return nil
+}
+
+func (service *Service) solveSketchComponents(ctx context.Context, requestID string, input geometry.SketchModel, sketch *SketchFeature) ([]SketchSolveComponent, error) {
+	parent := map[string]string{}
+	for _, entity := range sketch.Entities {
+		if !entity.Suppressed {
+			parent[entity.ID] = entity.ID
+		}
+	}
+	var find func(string) string
+	find = func(id string) string {
+		if parent[id] != id {
+			parent[id] = find(parent[id])
+		}
+		return parent[id]
+	}
+	union := func(a, b string) {
+		a, b = find(a), find(b)
+		if a != b {
+			parent[b] = a
+		}
+	}
+	for _, constraint := range sketch.Constraints {
+		if constraint.Suppressed {
+			continue
+		}
+		ids := []string{}
+		for _, ref := range constraint.References {
+			if _, ok := parent[ref.EntityID]; ok {
+				ids = append(ids, ref.EntityID)
+			}
+		}
+		for i := 1; i < len(ids); i++ {
+			union(ids[0], ids[i])
+		}
+	}
+	groups := map[string]map[string]bool{}
+	for id := range parent {
+		root := find(id)
+		if groups[root] == nil {
+			groups[root] = map[string]bool{}
+		}
+		groups[root][id] = true
+	}
+	components := []SketchSolveComponent{}
+	for root, ids := range groups {
+		model := geometry.SketchModel{}
+		for _, v := range input.Points {
+			if ids[v.ID] {
+				model.Points = append(model.Points, v)
+			}
+		}
+		for _, v := range input.Lines {
+			if ids[v.ID] {
+				model.Lines = append(model.Lines, v)
+			}
+		}
+		for _, v := range input.Circles {
+			if ids[v.ID] {
+				model.Circles = append(model.Circles, v)
+			}
+		}
+		for _, v := range input.Arcs {
+			if ids[v.ID] {
+				model.Arcs = append(model.Arcs, v)
+			}
+		}
+		for _, v := range input.Splines {
+			if ids[v.ID] {
+				model.Splines = append(model.Splines, v)
+			}
+		}
+		constraintIDs := []string{}
+		for _, v := range input.Constraints {
+			belongs := false
+			for _, ref := range v.References {
+				if ids[ref.EntityID] {
+					belongs = true
+					break
+				}
+			}
+			if belongs {
+				model.Constraints = append(model.Constraints, v)
+				constraintIDs = append(constraintIDs, v.ID)
+			}
+		}
+		result, err := service.worker.SolveSketch(ctx, requestID+"/component/"+root, model)
+		if err != nil {
+			return nil, err
+		}
+		entityIDs := make([]string, 0, len(ids))
+		for id := range ids {
+			entityIDs = append(entityIDs, id)
+		}
+		sort.Strings(entityIDs)
+		sort.Strings(constraintIDs)
+		components = append(components, SketchSolveComponent{EntityIDs: entityIDs, ConstraintIDs: constraintIDs, Status: string(result.Status), DefinitionStatus: sketchDefinitionStatus(result.Status, result.DegreesOfFreedom), DegreesOfFreedom: result.DegreesOfFreedom})
+	}
+	sort.Slice(components, func(i, j int) bool {
+		return strings.Join(components[i].EntityIDs, "/") < strings.Join(components[j].EntityIDs, "/")
+	})
+	return components, nil
+}
+
+func sketchDefinitionStatus(status geometry.SketchSolveStatus, degreesOfFreedom int) string {
+	if status == geometry.SketchSolveConflicting || status == geometry.SketchSolveInvalid || status == geometry.SketchSolveFailed {
+		return "UNRESOLVED"
+	}
+	if degreesOfFreedom == 0 {
+		return "FULLY_CONSTRAINED"
+	}
+	return "UNDER_CONSTRAINED"
 }
 
 func buildProductEvaluation(model ProductModel, revisionID, modelHash string, seeds []modelcore.DependencyKey, prior *modelcore.EvaluationManifest) (*modelcore.DependencyGraph, modelcore.EvaluationManifest, error) {
@@ -1156,7 +1338,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		var model PartModel
 		_ = json.Unmarshal(modelJSON, &model)
-		return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DegreesOfFreedom: 0}}}}, nil
+		return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
 	case "EDIT_SKETCH":
 		if documentType != "PART" {
 			break

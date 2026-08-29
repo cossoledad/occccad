@@ -12,6 +12,7 @@ import (
 	"io"
 	"math"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -153,11 +154,13 @@ type SketchEntity struct {
 	ControlPoints []SketchPoint2 `json:"controlPoints,omitempty"`
 	Degree        uint32         `json:"degree,omitempty"`
 	Closed        bool           `json:"closed,omitempty"`
+	Suppressed    bool           `json:"suppressed,omitempty"`
 }
 type SketchGeometryRef struct {
-	Target     string `json:"target"`
-	EntityID   string `json:"entityId,omitempty"`
-	SubElement string `json:"subElement"`
+	Target            string `json:"target"`
+	EntityID          string `json:"entityId,omitempty"`
+	SubElement        string `json:"subElement"`
+	ControlPointIndex *int   `json:"controlPointIndex,omitempty"`
 }
 type SketchConstraint struct {
 	ID            string              `json:"id"`
@@ -168,13 +171,23 @@ type SketchConstraint struct {
 	Unit          string              `json:"unit,omitempty"`
 	LabelPosition *SketchPoint2       `json:"labelPosition,omitempty"`
 	Internal      bool                `json:"internal,omitempty"`
+	Suppressed    bool                `json:"suppressed,omitempty"`
 }
 type SketchSolveState struct {
-	Status                   string   `json:"status"`
-	DegreesOfFreedom         int      `json:"degreesOfFreedom"`
-	Diagnostic               string   `json:"diagnostic,omitempty"`
-	ConflictingConstraintIDs []string `json:"conflictingConstraintIds,omitempty"`
-	RedundantConstraintIDs   []string `json:"redundantConstraintIds,omitempty"`
+	Status                   string                 `json:"status"`
+	DefinitionStatus         string                 `json:"definitionStatus"`
+	DegreesOfFreedom         int                    `json:"degreesOfFreedom"`
+	Diagnostic               string                 `json:"diagnostic,omitempty"`
+	ConflictingConstraintIDs []string               `json:"conflictingConstraintIds,omitempty"`
+	RedundantConstraintIDs   []string               `json:"redundantConstraintIds,omitempty"`
+	Components               []SketchSolveComponent `json:"components,omitempty"`
+}
+type SketchSolveComponent struct {
+	EntityIDs        []string `json:"entityIds"`
+	ConstraintIDs    []string `json:"constraintIds"`
+	Status           string   `json:"status"`
+	DefinitionStatus string   `json:"definitionStatus"`
+	DegreesOfFreedom int      `json:"degreesOfFreedom"`
 }
 type SketchFeature struct {
 	SchemaVersion uint32             `json:"schemaVersion"`
@@ -199,6 +212,7 @@ type SketchOperation struct {
 	SubElement        string             `json:"subElement,omitempty"`
 	ControlPointIndex *int               `json:"controlPointIndex,omitempty"`
 	Point             *SketchPoint2      `json:"point,omitempty"`
+	Suppressed        *bool              `json:"suppressed,omitempty"`
 }
 
 type Feature struct {
@@ -332,6 +346,8 @@ type DocumentStructureNode struct {
 	OwnerEntityID string                  `json:"ownerEntityId,omitempty"`
 	EntityType    string                  `json:"entityType,omitempty"`
 	Role          string                  `json:"role,omitempty"`
+	Suppressed    bool                    `json:"suppressed,omitempty"`
+	Diagnostic    string                  `json:"diagnostic,omitempty"`
 	Capabilities  []string                `json:"capabilities,omitempty"`
 	Children      []DocumentStructureNode `json:"children,omitempty"`
 }
@@ -1587,6 +1603,9 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 			}
 		}
 		for _, entity := range feature.Sketch.Entities {
+			if entity.Suppressed {
+				continue
+			}
 			primitive := VisualPrimitive{ID: entity.ID, FeatureID: feature.ID,
 				EntityType: entity.Kind, Role: entity.Role, Status: feature.Sketch.Solve.Status, Selectable: true}
 			switch entity.Kind {
@@ -1734,7 +1753,7 @@ func mutatePart(model *PartModel, request CommandRequest) error {
 		model.Features = append(model.Features, Feature{
 			ID: newID("sketch"), Type: "SKETCH",
 			Name:  numberedFeatureName(model.Features, "SKETCH", "Sketch"),
-			Plane: plane, Sketch: &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY"}},
+			Plane: plane, Sketch: &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY"}},
 		})
 	case "EDIT_SKETCH":
 		for index := range model.Features {
@@ -2448,9 +2467,9 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 		name := strings.Title(strings.ToLower(entity.Kind)) + " " + fmt.Sprint(counts[entity.Kind])
 		node := DocumentStructureNode{ID: geometry.ID + "/entity:" + entity.ID, Kind: "SKETCH_ENTITY", Name: name,
 			EntityID: entity.ID, OwnerEntityID: sketchID, EntityType: entity.Kind, Role: entity.Role,
-			DocumentID: documentID, VersionID: versionID}
+			DocumentID: documentID, VersionID: versionID, Suppressed: entity.Suppressed}
 		if editable {
-			node.Capabilities = []string{"DELETE"}
+			node.Capabilities = []string{"DELETE", "SUPPRESS"}
 		}
 		geometry.Children = append(geometry.Children, node)
 	}
@@ -2470,9 +2489,15 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 		}
 		node := DocumentStructureNode{ID: parent.ID + "/constraint:" + constraint.ID, Kind: "SKETCH_CONSTRAINT", Name: name,
 			EntityID: constraint.ID, OwnerEntityID: sketchID, EntityType: constraint.Kind,
-			DocumentID: documentID, VersionID: versionID}
+			DocumentID: documentID, VersionID: versionID, Suppressed: constraint.Suppressed}
+		if slices.Contains(sketch.Solve.ConflictingConstraintIDs, constraint.ID) {
+			node.Diagnostic = "CONFLICTING"
+		}
+		if slices.Contains(sketch.Solve.RedundantConstraintIDs, constraint.ID) {
+			node.Diagnostic = "REDUNDANT"
+		}
 		if editable {
-			node.Capabilities = []string{"DELETE"}
+			node.Capabilities = []string{"DELETE", "SUPPRESS"}
 		}
 		parent.Children = append(parent.Children, node)
 	}

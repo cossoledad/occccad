@@ -7,8 +7,10 @@ export type ToolbarLayout = { x?: number; y?: number; orientation: ToolbarOrient
 type UIPreferences = {
   inspectorOpen: boolean;
   toolbarLayouts: Record<string, ToolbarLayout>;
+  hiddenTreeKeys: string[];
   setInspectorOpen: (open: boolean) => void;
   setToolbarLayout: (id: string, layout: ToolbarLayout) => void;
+  toggleTreeVisibility: (key: string) => void;
 };
 
 export function normalizeToolbarLayout(value: unknown, fallback: ToolbarOrientation): ToolbarLayout {
@@ -24,12 +26,15 @@ export function normalizeToolbarLayout(value: unknown, fallback: ToolbarOrientat
 export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   inspectorOpen: true,
   toolbarLayouts: {},
+  hiddenTreeKeys: [],
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   setToolbarLayout: (id, layout) => set((state) => ({
     toolbarLayouts: { ...state.toolbarLayouts, [id]: normalizeToolbarLayout(layout, "horizontal") },
   })),
+  toggleTreeVisibility: (key) => set((state) => ({ hiddenTreeKeys: state.hiddenTreeKeys.includes(key)
+    ? state.hiddenTreeKeys.filter((item) => item !== key) : [...state.hiddenTreeKeys, key] })),
 }), {
   name: "occccad.ui-preferences.v1",
   version: 1,
-  partialize: (state) => ({ inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts }),
+  partialize: (state) => ({ inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts, hiddenTreeKeys: state.hiddenTreeKeys }),
 }));

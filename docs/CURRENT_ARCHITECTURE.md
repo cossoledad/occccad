@@ -158,7 +158,24 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 
 当前已不再保存 `origin + width + height` 测试矩形。Part 中的 `SKETCH` Feature 保存版本化 `SketchFeature v1`：Datum Plane support、具有稳定 ID 的 Point/Line/Circle/Arc/Spline、显式 GeometryRef、Constraint 和最近一次权威 solve 状态。线段、圆弧和开放曲线持有可稳定引用的端点；端点相接必须由 Coincident 明确表达，不能以浮点坐标接近替代模型关系。
 
-Geometry Worker 内的项目自有 `SketchSolver` 已通过 `SolveSketch` 粗粒度 RPC 接入提交链，PlaneGCS 只存在于适配层内部。当前支持 Coincident、Parallel、Fixed、Horizontal、Vertical、Perpendicular、Tangent、Equal、Distance、Length、Radius、Diameter、Angle、Concentric、PointOnObject、Midpoint 和 Symmetry；Symmetry 支持“点—直线—点”的轴对称及“点—点—点”的中心对称。维度明确携带 `mm` 或 `deg`，返回 SOLVED/UNDER_CONSTRAINED/INVALID/REDUNDANT/CONFLICTING/FAILED、DoF 和约束诊断。宏生成的 `internal` 约束仍参与求解和冲突诊断，但其纯冗余项不阻止整个原子宏提交；用户显式添加的无关冗余约束继续报告 REDUNDANT。Symmetry 属于包含两个标量方程的复合设计意图；当其基于内置 U/V 轴且其中一个方程已被同一线段的 Horizontal/Vertical/对应轴 Parallel 隐含时，适配层保留 Symmetry 并只容忍这一组关联冗余，冲突和其他冗余仍失败。当前 `Spline` 命令把采集点解释为曲线必须经过的拟合点：Web 用确定性插值折线预览与拾取，Profile Builder 用同语义采样检查区域，OCCT 用 `GeomAPI_Interpolate` 构造精确曲线；这些拟合点参与持久化、自由度与固定/端点关系，但尚未接入 PlaneGCS 的完整样条相切/曲率约束。Web 的鼠标移动预览是瞬态确定性预览；`EDIT_SKETCH` 提交后服务端求解结果才会进入不可变 Revision。
+Geometry Worker 内的项目自有 `SketchSolver` 已通过 `SolveSketch` 粗粒度 RPC 接入提交链，PlaneGCS 只存在于适配层内部。当前支持 Coincident、Parallel、Fixed、Horizontal、Vertical、Perpendicular、Tangent、Equal、Distance、Length、Radius、Angle、Concentric、PointOnObject、Midpoint 和 Symmetry。Geometry client 是唯一协议适配边界：Worker 的历史 `SOLVED`/`INVALID_MODEL` 名称在此归一为平台 `FULLY_CONSTRAINED`/`INVALID`，PlaneGCS 整数返回码不会进入服务、Revision 或用户错误。求解结果把约束程度 `FULLY_CONSTRAINED / UNDER_CONSTRAINED / UNRESOLVED` 与诊断 `REDUNDANT / CONFLICTING` 正交保存；零 DoF 的闭包即使存在冗余，几何仍显示完全约束色，只有冗余约束本身显示诊断色。宏生成的 `internal` 约束仍参与求解和冲突诊断，但其纯冗余项不阻止整个原子宏提交；用户显式添加的无关冗余约束报告 REDUNDANT。Symmetry 支持“点—直线—点”的轴对称及“点—点—点”的中心对称；当其基于内置 U/V 轴且一个方程已被同一线段的 Horizontal/Vertical/对应轴 Parallel 隐含时，适配层保留复合设计意图。当前 `Spline` 命令把采集点解释为必须经过的拟合点；尚未接入完整样条相切/曲率约束。Web 预览是瞬态状态；`EDIT_SKETCH` 提交后服务端求解结果才进入不可变 Revision。
+
+```mermaid
+stateDiagram-v2
+    [*] --> Validate
+    Validate --> INVALID: 领域引用或数值无效
+    Validate --> BackendSolve: 模型有效
+    BackendSolve --> Diagnose: success 或 non-success
+    Diagnose --> CONFLICTING: 存在冲突解释集
+    Diagnose --> REDUNDANT: 存在冗余解释集
+    Diagnose --> FULLY_CONSTRAINED: DoF = 0 且无诊断
+    Diagnose --> UNDER_CONSTRAINED: DoF > 0 且无诊断
+    Diagnose --> FAILED: 后端无法分类
+    note right of REDUNDANT
+      诊断与约束程度正交
+      DoF = 0 仍显示完全约束几何
+    end note
+```
 
 Pad 已不再调用四条轴对齐直线特判。OCCT-free Profile Builder 排除 Construction/Point，以 Coincident 等价类构建 Line/Arc/开放 Spline 端点图，并把 Circle/闭合 Spline 作为闭环；它拒绝开放端、T-junction、重叠/相交和自交，确定性遍历环，按包含深度区分外环、孔和岛，并生成稳定 ProfileLoop/ProfileRegion identity。`EvaluatePart.profile_pads` 将有向曲线和孔环送入 OCCT，后者构造 Edge/Wire/Face、执行 BRepCheck，再沿草图平面法向 Prism；一个草图中的多个偶数深度区域会一并拉伸。当前 Pad 仍以整个 Sketch 为 profile selection，尚未提供单独区域的视口选择。
 
@@ -197,13 +214,37 @@ Web 的 Part 与 Product occurrence 共用同一个 Visualization renderer 和 s
 
 Sketch Entity 的 `PROFILE`/`CONSTRUCTION` role 是持久领域状态。结构树右键可在“轮廓元素/构造元素”之间切换，操作形成普通 `EDIT_SKETCH` Transaction，经过权威求解、最终 ChangeSet 和 Undo/Redo；Profile Builder 只消费 `PROFILE`，因此构造线、构造曲线和构造点不会进入 Pad。活动 Sketch 的 U/V 轴与原点采用相同的参考几何语义，但不作为可写 Sketch Entity 持久化。权威 VisualizationManifest 为 Circle/Arc 生成中心点、为 Arc 生成端点、为 Spline 生成全部拟合点；Select 工具拖动 Arc/Circle 中心或 Spline 拟合点时只显示瞬态点预览，并在 pointerup 提交一次 `UPDATE_ENTITY_POINT`。
 
+草图选择使用一个可撤销状态机。结构树与视口只产生稳定 Selection identity；预选、持久选择、工具已保留引用分别拥有独立 overlay。每次转换先释放旧材质与 Scene overlay，再从当前状态重建。内置原点/U/V 轴只是采用专用拾取几何的参考元素，不拥有例外清理规则；文档重绘、空白点击、Esc、工具完成、退出草图和 Viewport dispose 均汇入统一清理出口。
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> Hover: pointer move / tree hover
+    Hover --> Idle: pointer leave
+    Idle --> Selected: click / tree select
+    Hover --> Selected: click
+    Selected --> Selected: Ctrl toggle or tree range
+    Selected --> Idle: blank click / clear
+    Idle --> ToolPicking: activate constraint tool
+    ToolPicking --> ToolPicking: retain reference and rebuild overlay
+    ToolPicking --> Selected: commit then finish tool
+    ToolPicking --> Idle: Esc / pointercancel / lost capture
+    Hover --> Idle: render / exit sketch / dispose
+    Selected --> Idle: render / exit sketch / dispose
+    note right of ToolPicking
+      candidate = hover overlay
+      retained = selected overlay
+      axis/origin use the same lifecycle
+    end note
+```
+
 ### 5.1 PlaneGCS 技术验证边界
 
 - 上游锁定 FreeCAD `1.0.2` commit `256fc7eff3379911ab5daf88e10182c509aa8052`；该版本原生满足仓库 C++17 基线，未为引入求解器升级全仓语言标准；
 - 构建仅从 FreeCAD 官方仓库获取审计清单内的 PlaneGCS 源文件、必要支持头和许可证，每个文件都有 SHA-256 校验，不下载/链接 FreeCAD App、GUI 或 Python；
 - PlaneGCS 编译为独立 `liboccccad_planegcs.so`，Eigen 3.4.0 与 header-only Boost 1.86.0 由 Conan 显式提供；FreeCAD 配置与日志依赖由 Worker 内窄兼容头隔离；
 - Geometry Worker 持有项目自有 `SketchSolver`，业务头文件不暴露 `GCS::*`。构建目录同时输出 `LICENSE.FreeCAD-PlaneGCS`；
-- 当前测试验证 Rectangle 宏求解、未知引用失败、Circle Radius + Line Tangent、Profile 外环/孔、Arc + Line 混合闭环、开放/T-junction 诊断，以及 OCCT 圆环 Pad 的体积和有效拓扑。拖拽 RPC、完整 B-Spline 约束和大规模 corpus conformance 仍属于后续工作。
+- 当前测试验证 Rectangle 宏求解、未知引用失败、Circle Radius + Line Tangent、Profile 外环/孔、Arc + Line 混合闭环、开放/T-junction 诊断，以及 OCCT 圆环 Pad 的体积和有效拓扑。Sketch 实体与约束支持持久抑制：被抑制项保留稳定身份，但退出 Solver、Profile、Pad 与 VisualizationManifest；实体抑制会同时抑制引用它的约束。服务端按约束引用图拆分连通闭包并分别求解，向 Web 投影组件级 status/DoF、冲突集与冗余集。拖拽 RPC、完整 B-Spline 曲率约束和大规模 corpus conformance 仍属于后续工作。
 
 ### 5.2 Geometry Worker 真实 RPC
 
@@ -307,7 +348,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 - 当前固定 OCCT 7.9.1 和 gRPC C++ 1.71.0；
 - Go module 当前声明 Go 1.26.5；
 - Web 锁定 pnpm 11.20.0，并执行 TypeScript 检查和 Vite 构建。
-- Web 的非权威界面偏好由版本化 `occccad.ui-preferences.v1` Store 持久化；当前包含 Inspector 开合和各 Toolbar 的位置/方向。模型、选择和命令状态不得进入这一客户端偏好契约。
+- Web 的非权威界面偏好由版本化 `occccad.ui-preferences.v1` Store 持久化；当前包含 Inspector 开合、各 Toolbar 的位置/方向和基于稳定结构树 path 的隐藏集合。隐藏只控制本地渲染；抑制属于 Revision 中的领域状态。模型、选择和命令状态不得进入客户端偏好契约。
 - C++ Geometry Worker 使用 Conan 固定的 spdlog 1.15.3，同时写彩色控制台和按 Worker 地址隔离的滚动文件；默认文件位于 `services/logs/`，单文件 10 MiB、保留 5 个，级别复用 `OCCCCAD_LOG_LEVEL`。
 
 测试资产现在由被测模块拥有，而不是按语言堆在仓库根目录：C++ 场景位于对应 library 的 `tests/` 并由局部 CMake 注册；Web 场景位于 `src/**/testing/*.scenario.mjs`，统一 runner 自动发现后为每个场景启动独立进程；Go 遵循工具链，将 package 白盒测试保留为邻近 `_test.go`，只有跨 package、跨进程的公共契约测试进入 `tests/go`。`models/` 只保存可被多个实现复用的 STEP/BREP 回归语料，根 `tests/` 不再作为语言分类目录。`invoke test` 构建并运行 CTest、`services/` Go package tests、独立 `tests/go` module 和 Web 场景。Web 当前使用 Vite SSR 加载真实 Tool/状态模块，覆盖完整 pointer 手势、操作批次、约束选择、尺寸输入和实时生命周期；浏览器布局、WebGL 拾取及真实后端组合 E2E 仍待补充。

@@ -55,17 +55,18 @@ export function makeSketchConstraintRenderable(
   toWorld: (point: Vec2) => THREE.Vector3,
   materials: CadMaterialFactory,
   viewport: { width: number; height: number },
+  diagnosticColor?: number,
 ): THREE.Group {
   const layout = buildSketchConstraintLayout(constraint, entities);
   const group = new THREE.Group();
   if (layout.anchors.length) {
     const glyphs = new THREE.Points(new THREE.BufferGeometry().setFromPoints(layout.anchors.map(toWorld)),
-      materials.constraintGlyph(symbolCodes[layout.symbol], CATIA_VISUAL_THEME.constraint, 17));
+      materials.constraintGlyph(symbolCodes[layout.symbol], diagnosticColor ?? CATIA_VISUAL_THEME.constraint, 17));
     glyphs.renderOrder = 84; group.add(glyphs);
   }
   if (layout.segments.length) {
     const leaders = makeOcclusionVisibleSegments(layout.segments.map(([first, second]) => [toWorld(first), toWorld(second)]),
-      CATIA_VISUAL_THEME.constraint, 1.25);
+      diagnosticColor ?? CATIA_VISUAL_THEME.constraint, 1.25);
     leaders.renderOrder = 82;
     updateHighlightLineResolution(leaders, viewport.width, viewport.height);
     group.add(leaders);

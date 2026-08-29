@@ -87,6 +87,19 @@ func TestEntityRoleUpdateIsAtomic(t *testing.T) {
 	}
 }
 
+func TestEntitySuppressionAlsoSuppressesReferencingConstraints(t *testing.T) {
+	suppressed := true
+	sketch := SketchFeature{SchemaVersion: 1,
+		Entities:    []SketchEntity{{ID: "line", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{X: 0}, End: &SketchPoint2{X: 10}}},
+		Constraints: []SketchConstraint{{ID: "horizontal", Kind: "HORIZONTAL", References: []SketchGeometryRef{{Target: "ENTITY", EntityID: "line", SubElement: "DIRECTION"}}}}}
+	if err := applySketchOperations(&sketch, []SketchOperation{{Type: "UPDATE_ENTITY_SUPPRESSION", EntityID: "line", Suppressed: &suppressed}}); err != nil {
+		t.Fatal(err)
+	}
+	if !sketch.Entities[0].Suppressed || !sketch.Constraints[0].Suppressed {
+		t.Fatalf("suppression did not cascade: %#v", sketch)
+	}
+}
+
 func TestConstraintReferenceCompatibilityRejectsUnsupportedPairs(t *testing.T) {
 	t.Parallel()
 	kinds := map[string]string{"line": "LINE", "circle": "CIRCLE", "spline": "SPLINE", "point": "POINT"}

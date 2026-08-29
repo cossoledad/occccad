@@ -434,10 +434,11 @@ type SketchGeometryRef struct {
 	// ENTITY, SKETCH_ORIGIN, SKETCH_X_AXIS, or SKETCH_Y_AXIS.
 	Target   string `protobuf:"bytes,1,opt,name=target,proto3" json:"target,omitempty"`
 	EntityId string `protobuf:"bytes,2,opt,name=entity_id,json=entityId,proto3" json:"entity_id,omitempty"`
-	// WHOLE, POINT, START, END, CENTER, or DIRECTION.
-	SubElement    string `protobuf:"bytes,3,opt,name=sub_element,json=subElement,proto3" json:"sub_element,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// WHOLE, POINT, START, END, CENTER, DIRECTION, or CONTROL.
+	SubElement        string `protobuf:"bytes,3,opt,name=sub_element,json=subElement,proto3" json:"sub_element,omitempty"`
+	ControlPointIndex uint32 `protobuf:"varint,4,opt,name=control_point_index,json=controlPointIndex,proto3" json:"control_point_index,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SketchGeometryRef) Reset() {
@@ -489,6 +490,13 @@ func (x *SketchGeometryRef) GetSubElement() string {
 		return x.SubElement
 	}
 	return ""
+}
+
+func (x *SketchGeometryRef) GetControlPointIndex() uint32 {
+	if x != nil {
+		return x.ControlPointIndex
+	}
+	return 0
 }
 
 type SketchConstraint struct {
@@ -3613,12 +3621,13 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x0econtrol_points\x18\x02 \x03(\v2\x17.occccad.worker.v1.Vec2R\rcontrolPoints\x12\x16\n" +
 	"\x06degree\x18\x03 \x01(\rR\x06degree\x12\x16\n" +
 	"\x06closed\x18\x04 \x01(\bR\x06closed\x12\x12\n" +
-	"\x04role\x18\x05 \x01(\tR\x04role\"i\n" +
+	"\x04role\x18\x05 \x01(\tR\x04role\"\x99\x01\n" +
 	"\x11SketchGeometryRef\x12\x16\n" +
 	"\x06target\x18\x01 \x01(\tR\x06target\x12\x1b\n" +
 	"\tentity_id\x18\x02 \x01(\tR\bentityId\x12\x1f\n" +
 	"\vsub_element\x18\x03 \x01(\tR\n" +
-	"subElement\"\xfc\x01\n" +
+	"subElement\x12.\n" +
+	"\x13control_point_index\x18\x04 \x01(\rR\x11controlPointIndex\"\xfc\x01\n" +
 	"\x10SketchConstraint\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12D\n" +

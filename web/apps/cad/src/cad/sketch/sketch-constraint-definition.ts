@@ -70,7 +70,7 @@ export const LOGICAL_CONSTRAINT_KINDS: readonly ToolbarConstraintKind[] = [
   "CONCENTRIC", "POINT_ON_OBJECT", "MIDPOINT", "SYMMETRY",
 ];
 
-export const OTHER_DIMENSION_CONSTRAINT_KINDS: readonly ToolbarConstraintKind[] = ["RADIUS", "DIAMETER", "ANGLE"];
+export const OTHER_DIMENSION_CONSTRAINT_KINDS: readonly ToolbarConstraintKind[] = ["RADIUS", "ANGLE"];
 export const DIMENSION_CONSTRAINT_KINDS: readonly DimensionConstraintKind[] = ["DISTANCE", "LENGTH", "RADIUS", "DIAMETER", "ANGLE"];
 
 export function isDimensionConstraintKind(kind: string): kind is DimensionConstraintKind {

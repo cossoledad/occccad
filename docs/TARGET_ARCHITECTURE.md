@@ -1104,6 +1104,19 @@ flowchart TB
 - **浏览器/WASM solver** 只能产生交互预览，服务端结果始终权威；
 - **Worker 内存** 只保存 warm start 和分解缓存，不是 SketchModel 的唯一副本。
 
+求解器适配器必须把后端返回码、异常和诊断集合封装为稳定的平台语义；Model Service 不得比较 PlaneGCS、Ceres 或未来求解器的整数状态。平台结果包含两个正交维度：`definition_status = EMPTY | FULLY_CONSTRAINED | UNDER_CONSTRAINED | UNRESOLVED` 描述约束程度，`diagnostics = REDUNDANT | CONFLICTING | INVALID | FAILED` 描述问题及解释集。冗余不推导欠约束，冲突也不能仅由一个布尔值代替解释集。更换求解器时只允许修改 Worker/Geometry client adapter 及 conformance corpus，不改变 Revision 与 Web 状态机。
+
+```mermaid
+flowchart LR
+    Raw["Backend result<br/>code, residual, rank, tags"] --> Adapter["SketchSolver adapter<br/>diagnose and normalize"]
+    Adapter --> Definition["definition status<br/>empty / full / under / unresolved"]
+    Adapter --> Diagnostics["diagnostics<br/>conflict / redundant / invalid / failed"]
+    Definition --> Model["SolvedSketch platform contract"]
+    Diagnostics --> Model
+    Model --> Service["Model Service and Revision"]
+    Model --> UI["Tree and viewport"]
+```
+
 #### 5.3.3 SketchFeature 领域模型
 
 一个 Sketch 是 Feature Graph 中的 typed node，而不是独立 Document。推荐的规范模型如下；字段名表达语义，最终以版本化 Protobuf/JSON Schema 为准。

@@ -83,12 +83,21 @@ func buildProfileRegions(feature Feature) ([]geometry.ProfileRegion, error) {
 	if feature.Sketch == nil {
 		return nil, fmt.Errorf("%w: sketch model is missing", ErrValidation)
 	}
+	if feature.Sketch.Solve.Status == "CONFLICTING" {
+		return nil, fmt.Errorf("%w: sketch constraints must be resolved before profile evaluation", ErrValidation)
+	}
 	dsu := newDisjointSet()
 	entities := map[string]SketchEntity{}
 	for _, entity := range feature.Sketch.Entities {
+		if entity.Suppressed {
+			continue
+		}
 		entities[entity.ID] = entity
 	}
 	for _, constraint := range feature.Sketch.Constraints {
+		if constraint.Suppressed {
+			continue
+		}
 		if constraint.Kind != "COINCIDENT" || len(constraint.References) != 2 {
 			continue
 		}
@@ -101,7 +110,7 @@ func buildProfileRegions(feature Feature) ([]geometry.ProfileRegion, error) {
 	edges := []profileEdge{}
 	loops := []profileLoop{}
 	for _, entity := range feature.Sketch.Entities {
-		if entity.Role != "PROFILE" || entity.Kind == "POINT" {
+		if entity.Suppressed || entity.Role != "PROFILE" || entity.Kind == "POINT" {
 			continue
 		}
 		if entity.Kind == "CIRCLE" || (entity.Kind == "SPLINE" && entity.Closed) {

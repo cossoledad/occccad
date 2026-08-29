@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"math"
+	"slices"
 	"strings"
 	"testing"
 
@@ -499,10 +500,10 @@ func TestSketchStructureProjectsEntitiesConstraintsAndDeleteCapabilities(t *test
 		t.Fatalf("constraints must be split into logical and dimension groups: %#v", sketch.Children[1])
 	}
 	constraint := sketch.Children[1].Children[0].Children[0]
-	if entity.Kind != "SKETCH_ENTITY" || entity.EntityID != "line-1" || entity.OwnerEntityID != "sketch-1" || len(entity.Capabilities) != 1 {
+	if entity.Kind != "SKETCH_ENTITY" || entity.EntityID != "line-1" || entity.OwnerEntityID != "sketch-1" || !slices.Contains(entity.Capabilities, "DELETE") || !slices.Contains(entity.Capabilities, "SUPPRESS") {
 		t.Fatalf("unexpected entity projection: %#v", entity)
 	}
-	if constraint.Kind != "SKETCH_CONSTRAINT" || constraint.EntityID != "constraint-1" || constraint.EntityType != "PARALLEL" || len(constraint.Capabilities) != 1 {
+	if constraint.Kind != "SKETCH_CONSTRAINT" || constraint.EntityID != "constraint-1" || constraint.EntityType != "PARALLEL" || !slices.Contains(constraint.Capabilities, "DELETE") || !slices.Contains(constraint.Capabilities, "SUPPRESS") {
 		t.Fatalf("unexpected constraint projection: %#v", constraint)
 	}
 	if len(children[0].Children[0].Capabilities) != 0 || len(children[0].Children[3].Capabilities) != 0 {

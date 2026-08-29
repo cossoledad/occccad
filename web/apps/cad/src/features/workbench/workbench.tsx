@@ -34,7 +34,7 @@ const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((modul
 const sketchToolCommands:WorkbenchToolID[]=["sketch.rectangle","sketch.polygon","sketch.slot","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline",
   "sketch.constraint.coincident","sketch.constraint.parallel","sketch.constraint.fixed","sketch.constraint.horizontal","sketch.constraint.vertical",
   "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.dimension.linear",
-  "sketch.constraint.radius","sketch.constraint.diameter","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint","sketch.constraint.symmetry"];
+  "sketch.constraint.radius","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint","sketch.constraint.symmetry"];
 
 function featureIcon(feature: Feature) {
   if (feature.type.toUpperCase().includes("SKETCH")) return <ScissorOutlined />;
@@ -108,10 +108,18 @@ function structureSelection(node: DocumentStructureNode, view: DocumentView): Se
 
 function mapStructureNode(node: DocumentStructureNode, view: DocumentView): SpecificationTreeNode {
   const canEdit = view.document.permission === "OWNER" || view.document.permission === "EDITOR";
+  const sketch=view.part?.features.find((feature)=>feature.id===node.ownerEntityId)?.sketch;
+  const conflictConstraints=new Set(sketch?.solve.conflictingConstraintIds??[]), conflictEntities=new Set<string>();
+  let changed=true;while(changed){changed=false;for(const constraint of sketch?.constraints??[]){if(constraint.suppressed)continue;
+    const ids=constraint.references.flatMap((reference)=>reference.entityId?[reference.entityId]:[]);
+    if(conflictConstraints.has(constraint.id)||ids.some((id)=>conflictEntities.has(id))){if(!conflictConstraints.has(constraint.id)){conflictConstraints.add(constraint.id);changed=true;}
+      for(const id of ids)if(!conflictEntities.has(id)){conflictEntities.add(id);changed=true;}}
+  }}
+	const component=node.entityId?sketch?.solve.components?.find((candidate)=>candidate.entityIds.includes(node.entityId!)):undefined;
   return { key: node.id, title: node.name, icon: structureIcon(node.kind), kind: node.kind,
     entityId: node.entityId, documentId: node.documentId, plane: node.plane, ownerEntityId: node.ownerEntityId,
-    role: node.role,
-    capabilities: canEdit ? node.capabilities : undefined,
+	role: node.role, suppressed: node.suppressed, diagnostic: node.diagnostic??(node.kind==="SKETCH_ENTITY"&&node.entityId&&conflictEntities.has(node.entityId)?"CONFLICTING":component?.definitionStatus==="FULLY_CONSTRAINED"||component?.status==="SOLVED"?"FULLY_CONSTRAINED":undefined),
+    capabilities: canEdit ? [...new Set([...(node.capabilities??[]), ...(["SKETCH","SKETCH_GEOMETRY_SET","SKETCH_CONSTRAINT_SET","SKETCH_LOGICAL_CONSTRAINT_SET","SKETCH_DIMENSION_SET"].includes(node.kind)?["SUPPRESS" as const]:[])])] : undefined,
     selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view)) };
 }
 
@@ -183,6 +191,8 @@ export function Workbench() {
   const [versionOpen, setVersionOpen] = useState(false);
   const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
+  const hiddenTreeKeys = useUIPreferences((state) => state.hiddenTreeKeys);
+  const toggleTreeVisibility = useUIPreferences((state) => state.toggleTreeVisibility);
   const [shareResource, setShareResource] = useState<ShareResource>();
   const [padForm] = Form.useForm<{ length: number }>();
   const [insertForm] = Form.useForm<{ referencedDocumentID: string; name: string }>();
@@ -243,7 +253,11 @@ export function Workbench() {
   });
   const view = document.data;
   latestDocumentVersion.current = view?.document.versionId;
-  const treeNodes = useMemo(() => view ? treeData(view) : [], [view]);
+  const treeNodes = useMemo(() => {
+    const decorate = (node: SpecificationTreeNode): SpecificationTreeNode => ({ ...node,
+      hidden: hiddenTreeKeys.includes(node.key), children: node.children?.map(decorate) });
+    return view ? treeData(view).map(decorate) : [];
+  }, [view, hiddenTreeKeys]);
   const canEdit = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
   const activeWorkbench = resolveCadWorkbench(view?.document.type ?? "PART", Boolean(store.sketchPlane));
 
@@ -388,6 +402,7 @@ export function Workbench() {
     <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view} selections={store.selections}
           preselection={store.preselection}
+          hiddenTreeKeys={hiddenTreeKeys}
           sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={store.navigationProfile}
           captureSettings={store.captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
           onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
@@ -468,6 +483,15 @@ export function Workbench() {
               } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
             }}
             onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={deleteTreeNodes}
+            onToggleVisibility={(node)=>toggleTreeVisibility(node.key)}
+            onToggleSuppression={(node)=>{
+              const leaves:SpecificationTreeNode[]=[];const visit=(item:SpecificationTreeNode)=>{if(item.kind==="SKETCH_ENTITY"||item.kind==="SKETCH_CONSTRAINT")leaves.push(item);else item.children?.forEach(visit);};visit(node);
+              const targetState=!leaves.every((item)=>item.suppressed);const bySketch=new Map<string,SketchOperation[]>();
+              for(const item of leaves){if(!item.ownerEntityId||!item.entityId)continue;const operations=bySketch.get(item.ownerEntityId)??[];
+                operations.push(item.kind==="SKETCH_ENTITY"?{type:"UPDATE_ENTITY_SUPPRESSION",entityId:item.entityId,suppressed:targetState}
+                  :{type:"UPDATE_CONSTRAINT_SUPPRESSION",constraintId:item.entityId,suppressed:targetState});bySketch.set(item.ownerEntityId,operations);}
+              for(const [sketchID,operations] of bySketch)editSketch(sketchID,operations);
+            }}
             onToggleConstruction={(node)=>{
               if(!node.ownerEntityId||!node.entityId)return;
               editSketch(node.ownerEntityId,[{type:"UPDATE_ENTITY_ROLE",entityId:node.entityId,

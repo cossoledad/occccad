@@ -25,6 +25,7 @@ type Props = {
   activeToolID: WorkbenchToolID;
   navigationProfile: NavigationProfileID;
   captureSettings: CaptureSettings;
+  hiddenTreeKeys: string[];
   onSelectionsChange: (selections: SelectionItem[]) => void;
   onPreselectionChange: (selection: Selection) => void;
   onSketchOperations: (featureID: string, operations: SketchOperation[]) => void;
@@ -68,6 +69,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.setActiveTool(callbacks.current.activeToolID);
     instance.setNavigationProfile(callbacks.current.navigationProfile);
     instance.setCaptureSettings(callbacks.current.captureSettings);
+    instance.setHiddenTreeKeys(callbacks.current.hiddenTreeKeys);
     return () => { instance.dispose(); engine.current = undefined; };
   }, [CadViewportEngine]);
 
@@ -86,6 +88,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => { engine.current?.setActiveTool(props.activeToolID); }, [props.activeToolID]);
   useEffect(() => { engine.current?.setNavigationProfile(props.navigationProfile); }, [props.navigationProfile]);
   useEffect(() => { engine.current?.setCaptureSettings(props.captureSettings); }, [props.captureSettings]);
+  useEffect(() => { engine.current?.setHiddenTreeKeys(props.hiddenTreeKeys); }, [props.hiddenTreeKeys]);
 
   useImperativeHandle(ref, () => ({
     fit: () => engine.current?.fit(),

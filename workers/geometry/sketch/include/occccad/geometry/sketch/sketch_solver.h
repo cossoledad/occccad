@@ -51,12 +51,13 @@ struct SplineEntity {
 };
 
 enum class GeometryTarget { entity, sketch_x_axis, sketch_y_axis, sketch_origin };
-enum class SubElement { whole, point, start, end, center, direction };
+enum class SubElement { whole, point, start, end, center, direction, control };
 
 struct GeometryRef {
     GeometryTarget target{GeometryTarget::entity};
     std::string entity_id;
     SubElement sub_element{SubElement::whole};
+    std::size_t control_point_index{};
 };
 
 enum class ConstraintKind {

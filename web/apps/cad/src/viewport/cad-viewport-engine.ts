@@ -79,7 +79,8 @@ function worldToLocal(plane: PlaneName, point: THREE.Vector3): Vec2 {
 function sketchDiagnosticColor(status: string | undefined, construction = false): number {
   if (construction) return CATIA_VISUAL_THEME.sketchConstruction;
   switch (status) {
-  case "SOLVED": return CATIA_VISUAL_THEME.sketchSolved;
+  case "SOLVED":
+  case "FULLY_CONSTRAINED": return CATIA_VISUAL_THEME.sketchSolved;
   case "CONFLICTING":
   case "FAILED":
   case "INVALID_MODEL": return CATIA_VISUAL_THEME.sketchInvalid;
@@ -173,6 +174,7 @@ export class CadViewportEngine {
   private activeToolID = "select";
   private navigationProfile: NavigationProfileID = "default";
   private captureSettings: CaptureSettings = DEFAULT_CAPTURE_SETTINGS;
+  private hiddenTreeKeys = new Set<string>();
   private readonly resizeObserver: ResizeObserver;
   private animationFrame = 0;
   private disposed = false;
@@ -246,7 +248,7 @@ export class CadViewportEngine {
     this.tools.register(new RegularPolygonSketchTool());
     this.tools.register(new SlotSketchTool());
     this.tools.register(new LinearDimensionSketchTool());
-    for (const kind of ["COINCIDENT","PARALLEL","FIXED","HORIZONTAL","VERTICAL","PERPENDICULAR","TANGENT","EQUAL","DISTANCE","LENGTH","RADIUS","DIAMETER","ANGLE","CONCENTRIC","POINT_ON_OBJECT","MIDPOINT","SYMMETRY"] as const)
+    for (const kind of ["COINCIDENT","PARALLEL","FIXED","HORIZONTAL","VERTICAL","PERPENDICULAR","TANGENT","EQUAL","DISTANCE","LENGTH","RADIUS","ANGLE","CONCENTRIC","POINT_ON_OBJECT","MIDPOINT","SYMMETRY"] as const)
       this.tools.register(new ConstraintSketchTool(kind));
     this.tools.activate("select");
     this.selectionController = new SelectionController(
@@ -279,6 +281,7 @@ export class CadViewportEngine {
 
   render(view: DocumentView): void {
     this.clearCommandPreview();
+	this.clearInteractionState();
     this.view = view;
     this.transform.detach();
     this.disposeGroup(this.content);
@@ -287,12 +290,10 @@ export class CadViewportEngine {
     this.selectionIndex.clear();
     this.solidBindings.clear();
     this.instanceGroups.clear();
-    this.selected = [];
-    this.preselected = null;
-    this.selectedOverlays = []; this.preselectedOverlays = []; this.highlightedRoots.clear();
     if (view.document.type === "PART") this.renderPart(view);
     else this.renderProduct(view);
     this.updateSketchContextVisibility();
+    this.applyTreeVisibility();
     this.refreshContentBounds();
     // this.frameContent();
     this.invalidate();
@@ -300,6 +301,7 @@ export class CadViewportEngine {
 
   clear(): void {
     this.clearCommandPreview();
+	this.clearInteractionState();
     this.view = undefined;
     this.transform.detach();
     this.disposeGroup(this.content);
@@ -307,10 +309,19 @@ export class CadViewportEngine {
     this.selectable.clear();
     this.instanceGroups.clear();
     this.contentBounds.makeEmpty();
-    this.selected = [];
-    this.preselected = null;
-    this.selectedOverlays = []; this.preselectedOverlays = []; this.highlightedRoots.clear();
     this.invalidate();
+  }
+
+  setHiddenTreeKeys(keys: readonly string[]): void {
+    this.hiddenTreeKeys = new Set(keys);
+    if (this.view) this.render(this.view);
+  }
+
+  private applyTreeVisibility(): void {
+    for (const root of [this.content, this.helpers]) root.traverse((object) => {
+      const key = typeof object.userData.treeNodeId === "string" ? object.userData.treeNodeId : undefined;
+      if (key && [...this.hiddenTreeKeys].some((hidden) => key === hidden || key.startsWith(`${hidden}/`))) object.visible = false;
+    });
   }
 
   beginSketch(sketchID: string, plane: PlaneName): void {
@@ -333,6 +344,7 @@ export class CadViewportEngine {
   }
 
   endSketch(): void {
+	this.clearInteractionState();
     this.sketchPlane = undefined;
     this.activeSketchID = undefined;
     this.host.classList.remove("drawing");
@@ -453,6 +465,16 @@ export class CadViewportEngine {
     for (const object of this.selectionIndex.objectsForMany(this.selected)) {
       this.applyHighlight(object, "selected"); this.highlightedRoots.add(object);
     }
+  }
+
+  private clearInteractionState(): void {
+	for (const object of this.highlightedRoots) this.applyHighlight(object, "default");
+	this.highlightedRoots.clear();
+	this.replaceTopologyOverlays("preselected", []);
+	this.replaceTopologyOverlays("selected", []);
+	this.clearReferencePreview();
+	this.selected = [];
+	this.preselected = null;
   }
 
   dispose(): void {
@@ -797,23 +819,39 @@ export class CadViewportEngine {
       ?? `document:${documentId}/body/sketch:${feature.id}`;
     const sketchSelection = { kind: "sketch" as const, id: feature.id, documentId, treeNodeId: featureTreeNode };
     const sketchEntityObjects = new Map<string, THREE.Object3D>();
+    const activeConstraints=(feature.sketch?.constraints??[]).filter((constraint)=>!constraint.suppressed);
+    const conflicting=new Set(feature.sketch?.solve.conflictingConstraintIds??[]);
+    const conflictEntities=new Set<string>();
+    let changed=true;while(changed){changed=false;for(const constraint of activeConstraints){
+      const ids=constraint.references.flatMap((reference)=>reference.entityId?[reference.entityId]:[]);
+      if(conflicting.has(constraint.id)||ids.some((id)=>conflictEntities.has(id))){
+        if(!conflicting.has(constraint.id)){conflicting.add(constraint.id);changed=true;}
+        for(const id of ids)if(!conflictEntities.has(id)){conflictEntities.add(id);changed=true;}
+      }
+    }}
     for (const entity of feature.sketch?.entities ?? []) {
+      if (entity.suppressed) continue;
       const type = entity.kind === "POINT" ? "POINT" as const : "CURVE" as const;
       const entitySelection = { kind: "visual" as const, id: `root:${feature.id}:${entity.id}`, visualType: type,
         featureId: feature.id, entityId: entity.id, role: entity.role, documentId,
         treeNodeId: `${featureTreeNode}/geometry/entity:${entity.id}` };
       let object: THREE.Object3D | undefined;
+	  const component=feature.sketch?.solve.components?.find((candidate)=>candidate.entityIds.includes(entity.id));
+	  const diagnosticStatus=component?.definitionStatus??feature.sketch?.solve.definitionStatus??component?.status??feature.sketch?.solve.status;
+      const entityColor=conflictEntities.has(entity.id)?CATIA_VISUAL_THEME.sketchInvalid:sketchDiagnosticColor(diagnosticStatus, entity.role === "CONSTRUCTION");
       if (entity.kind === "POINT" && entity.point) {
         object = new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(plane, [entity.point.x, entity.point.y])]),
-          this.materials.point(sketchDiagnosticColor(feature.sketch?.solve.status, entity.role === "CONSTRUCTION"), 9, false));
+          this.materials.point(entityColor, 9, false));
         object.renderOrder = 22;
       } else {
         const sampled=sampleSketchEntity(entity);
         if(sampled.length<2)continue;
         const positions=sampled.map((point)=>localToWorld(plane,point));
-        object = new THREE.Line(new THREE.BufferGeometry().setFromPoints(positions), new THREE.LineBasicMaterial({ color: sketchDiagnosticColor(feature.sketch?.solve.status, entity.role === "CONSTRUCTION"), depthTest: false }));
+        object = new THREE.Line(new THREE.BufferGeometry().setFromPoints(positions), new THREE.LineBasicMaterial({ color: entityColor, depthTest: false }));
         object.renderOrder = 20;
-        const markers=entity.kind==="CIRCLE"&&entity.center?[localToWorld(plane,[entity.center.x,entity.center.y])]:[positions[0],positions.at(-1)!];
+        const markers=entity.kind==="CIRCLE"&&entity.center?[localToWorld(plane,[entity.center.x,entity.center.y])]
+          :entity.kind==="SPLINE"?(entity.controlPoints??[]).map((point)=>localToWorld(plane,[point.x,point.y]))
+            :[positions[0],positions.at(-1)!];
         const endpointMarkers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(markers),
           this.materials.point(CATIA_VISUAL_THEME.vertex, 8, false));
         endpointMarkers.userData = { sketchEntityOverlay: true }; endpointMarkers.renderOrder = 21; group.add(endpointMarkers);
@@ -826,13 +864,17 @@ export class CadViewportEngine {
       this.selectionIndex.registerPick(object, () => entitySelection, type === "POINT" ? 75 : 70);
     }
     for (const constraint of feature.sketch?.constraints ?? []) {
+      if (constraint.suppressed) continue;
+      if (this.dimensionDrag?.selection.featureId === feature.id && this.dimensionDrag.constraint.id === constraint.id) continue;
       const constraintSelection = { kind: "sketch-constraint" as const,
         id: `root:${feature.id}:constraint:${constraint.id}`, featureId: feature.id,
         constraintId: constraint.id, constraintType: constraint.kind, documentId,
         treeNodeId: constraintTreeNodeID(featureTreeNode, constraint.kind, constraint.id) };
       const constraintGroup = makeSketchConstraintRenderable(constraint, feature.sketch?.entities ?? [],
         (point) => localToWorld(plane, point), this.materials,
-        { width: this.renderer.domElement.clientWidth, height: this.renderer.domElement.clientHeight });
+        { width: this.renderer.domElement.clientWidth, height: this.renderer.domElement.clientHeight },
+        feature.sketch?.solve.conflictingConstraintIds?.includes(constraint.id) ? CATIA_VISUAL_THEME.sketchInvalid
+          : feature.sketch?.solve.redundantConstraintIds?.includes(constraint.id) ? CATIA_VISUAL_THEME.sketchRedundant : undefined);
       if (constraintGroup.children.length === 0) continue;
       constraintGroup.userData = constraintSelection;
       constraintGroup.traverse((child) => { child.userData = constraintSelection;
@@ -992,7 +1034,7 @@ export class CadViewportEngine {
   private finishDimensionDrag(): void {
     const drag = this.dimensionDrag; this.dimensionDrag = undefined;
     if (!drag) return;
-    if (drag.root) drag.root.visible = true;
+    if (drag.root && !drag.position) drag.root.visible = true;
     this.clearReferencePreview();
     if (drag.position) this.callbacks.sketchOperations(drag.selection.featureId, [{ type: "UPDATE_CONSTRAINT_PLACEMENT",
       constraintId: drag.constraint.id, labelPosition: { x: drag.position[0], y: drag.position[1] } }]);
@@ -1197,6 +1239,10 @@ export class CadViewportEngine {
       const point = sketchEntityPoint(entity, reference.subElement as "POINT" | "START" | "END" | "CENTER");
       if (point) return new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane, point)]),
         this.materials.point(color, 15, false));
+    }
+    if(reference.subElement==="CONTROL"&&reference.controlPointIndex!==undefined&&entity.kind==="SPLINE"){
+      const point=entity.controlPoints?.[reference.controlPointIndex];if(point)return new THREE.Points(
+        new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane,[point.x,point.y])]),this.materials.point(color,15,false));
     }
     const sampled = sampleSketchEntity(entity);
     if (sampled.length < 2) return undefined;

@@ -263,4 +263,20 @@ TEST(PlaneGcsSketchSolver, SolvesPointToIntrinsicAxisDistance) {
     ASSERT_EQ(result.points.size(), 1U);
     EXPECT_NEAR(std::abs(result.points[0].point.y), 5.0, 1e-8);
 }
+
+TEST(PlaneGcsSketchSolver, ClassifiesConflictsWithoutLeakingBackendStatus) {
+    SketchModel model;
+    model.points = {{"point", {0.0, 0.0}}};
+    model.constraints = {
+        {"first", ConstraintKind::fixed_point, {endpoint("point", SubElement::point)}, {1.0, 2.0}},
+        {"second", ConstraintKind::fixed_point, {endpoint("point", SubElement::point)}, {4.0, 6.0}},
+    };
+
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+
+    EXPECT_EQ(result.status, SolveStatus::conflicting) << result.diagnostic;
+    EXPECT_FALSE(result.conflicting_constraint_ids.empty());
+    EXPECT_EQ(result.diagnostic.find("PlaneGCS"), std::string::npos);
+    ASSERT_EQ(result.points.size(), 1U);
+}
 }  // namespace occccad::geometry::sketch

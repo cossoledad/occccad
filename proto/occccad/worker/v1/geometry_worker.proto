@@ -91,8 +91,9 @@ message SketchGeometryRef {
     // ENTITY, SKETCH_ORIGIN, SKETCH_X_AXIS, or SKETCH_Y_AXIS.
     string target = 1;
     string entity_id = 2;
-    // WHOLE, POINT, START, END, CENTER, or DIRECTION.
+    // WHOLE, POINT, START, END, CENTER, DIRECTION, or CONTROL.
     string sub_element = 3;
+    uint32 control_point_index = 4;
 }
 
 message SketchConstraint {

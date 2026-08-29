@@ -941,6 +941,10 @@ select {
 }
 .specification-tree-node:first-child>.specification-tree-row>.specification-tree-icon { color: #79b8dc; }
 .specification-tree-label { overflow: hidden; max-width: 250px; text-overflow: ellipsis; white-space: nowrap; }
+.specification-tree-row.suppressed { opacity: .48; text-decoration: line-through; }
+.specification-tree-row.diagnostic-conflicting { color: #c94141; background: rgb(201 65 65 / 10%); }
+.specification-tree-row.diagnostic-redundant { color: #a96d1f; background: rgb(169 109 31 / 10%); }
+.specification-tree-row.diagnostic-fully_constrained { color: #202b31; font-weight: 600; }
 .specification-tree-context-menu,
 .specification-tree-context-menu .ant-dropdown-menu {
   width: 176px !important;

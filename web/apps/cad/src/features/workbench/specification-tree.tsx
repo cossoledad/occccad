@@ -1,4 +1,4 @@
-import { DeleteOutlined, SwapOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EyeInvisibleOutlined, PauseCircleOutlined, SwapOutlined } from "@ant-design/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Dropdown } from "antd";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
@@ -9,7 +9,8 @@ import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-select
 export type SpecificationTreeNode = {
   key: string; title: ReactNode; icon?: ReactNode; children?: SpecificationTreeNode[];
   kind?: string; entityId?: string; documentId?: string; plane?: string; selection?: Selection;
-  capabilities?: Array<"DELETE">; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
+  capabilities?: Array<"DELETE" | "SUPPRESS">; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
+  suppressed?: boolean; diagnostic?: string; hidden?: boolean;
 };
 
 type VisibleNode = { node: SpecificationTreeNode; depth: number; hasChildren: boolean };
@@ -44,13 +45,15 @@ function branchKeys(nodes: SpecificationTreeNode[], output = new Set<string>()):
   return output;
 }
 
-export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, onSelect, onActivate, onHover, onDelete, onToggleConstruction }: {
+export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, onSelect, onActivate, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; selectedIdentityKeys: readonly string[];
   selectionToken: string; highlightedKey?: string;
   onSelect: (nodes: SpecificationTreeNode[]) => void; onHover?: (node?: SpecificationTreeNode) => void;
   onActivate?: (node: SpecificationTreeNode) => void;
   onDelete?: (nodes: SpecificationTreeNode[]) => void;
   onToggleConstruction?: (node: SpecificationTreeNode) => void;
+  onToggleVisibility?: (node: SpecificationTreeNode) => void;
+  onToggleSuppression?: (node: SpecificationTreeNode) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const knownBranches = useRef(new Set<string>());
@@ -128,7 +131,7 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
         const deletable = selectedNodes.filter((candidate) => candidate.capabilities?.includes("DELETE"));
         const rowStyle = { transform: `translateY(${item.start}px)`, paddingLeft: depth * 31,
           "--tree-depth": depth } as CSSProperties;
-        const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${highlightedKey === node.key ? "highlighted" : ""}`}
+        const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${highlightedKey === node.key ? "highlighted" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
           role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? isExpanded : undefined}
           aria-selected={isSelected} tabIndex={0} onClick={(event) => { event.stopPropagation(); selectNode(node, eventModifiers(event)); }}
           onDoubleClick={(event) => { event.stopPropagation(); onActivate?.(node); }}
@@ -153,6 +156,11 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
               label: node.role === "CONSTRUCTION" ? "设为轮廓元素" : "设为构造元素",
               disabled: !node.capabilities?.includes("DELETE"),
               onClick: () => { setContextMenu(undefined); onToggleConstruction?.(node); } } : null,
+            { key: "visibility", icon: <EyeInvisibleOutlined />, label: node.hidden ? "显示" : "隐藏",
+              onClick: () => { setContextMenu(undefined); onToggleVisibility?.(node); } },
+            node.capabilities?.includes("SUPPRESS") ? { key: "suppress", icon: <PauseCircleOutlined />,
+              label: node.suppressed ? "解除抑制" : "抑制",
+              onClick: () => { setContextMenu(undefined); onToggleSuppression?.(node); } } : null,
             { key: "delete", icon: <DeleteOutlined />, danger: true,
             label: deletable.length > 1 ? `删除 ${deletable.length} 项` : "删除", disabled: deletable.length === 0,
             onClick: () => { setContextMenu(undefined); onDelete?.(deletable); } }] }}>{row}</Dropdown>
