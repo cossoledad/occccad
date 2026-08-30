@@ -334,6 +334,8 @@ Feature 不应继续编码为 `repeated RectangularPadSpec`。目标模型需要
 
 前端 `CommandRegistry` 继续负责 enable/visible/active 和快捷键，但持久编辑必须构造 Domain Transaction。Interaction Session 可以调用 preview API，结束时只提交一次最终意图；Compute Job 只能返回制品和诊断，不能越过 Model Service 修改 Head。
 
+工作台的 Toolbar 采用服务端维护的版本化 Presentation Catalog：目录拥有稳定 ToolbarId/CommandId、工作台与能力条件、分组/顺序、默认停靠、图标语义键、短名称和上下文帮助引用；前端按目录装配，不为每个页面复制按钮清单。该目录不是远程代码或领域命令注册表：客户端仍必须拥有对应 CommandRegistry adapter，未知命令默认不可执行，服务端权限和 Domain Command validator 仍是最终边界。普通 tooltip 只承载短命令名；“这是什么？”模式读取详细帮助且必须截断当前点击的执行链。共享目录、组织策略与用户的本地布局/可见偏好分层存储，避免把个人拖动位置写成所有人的产品配置。目录后续增加 locale、feature flag、role/capability predicate 时应提升 schema version，并以确定性契约测试保证旧客户端安全降级。
+
 ```mermaid
 flowchart LR
     Input["Input / Shortcut / Toolbar"] --> UI["UI Command Registry"]

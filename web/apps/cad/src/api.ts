@@ -1,4 +1,4 @@
-import type { AuditEvent, CommandPreview, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, SketchOperation, Team, TopologyElementProperties, User, Vec3 } from "./types";
+import type { AuditEvent, CommandPreview, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
 import { randomUUID } from "./utils/random-uuid";
 
@@ -56,6 +56,7 @@ async function executeDocumentCommand(documentId: string, command: Record<string
 
 export const restApi = {
   session: () => request<{ user: User; authenticationMode: string }>("/api/session"),
+	toolbarCatalog: () => request<ToolbarCatalog>("/api/ui/toolbars"),
   login: (email: string, password: string) => request<{ user: User }>("/api/auth/login", {
     method: "POST", body: JSON.stringify({ email, password }),
   }),

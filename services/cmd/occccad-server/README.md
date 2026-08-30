@@ -38,6 +38,8 @@ flowchart LR
 
 主要资源包括 `/api/auth/*`、`/api/session`、`/api/documents`、`/api/folders`、`/api/jobs`、`/api/teams`、`/api/users`、`/api/admin/*` 与 `/api/audit`。具体契约当前以 `services/internal/api/server.go` 为准；仓库尚未发布稳定的外部 OpenAPI。
 
+`GET /api/ui/toolbars` 返回 PostgreSQL 中启用的 Toolbar Presentation Catalog，包括工作台归属、默认布局、命令稳定 ID、短名称、详细帮助、图标语义键、分组和顺序。目录只控制展示；浏览器必须在本地 `CommandRegistry` 注册命令后才允许执行，不能把数据库内容解释为脚本。
+
 文档交换使用独立资源：`POST /api/exchange/imports?format=STEP|BREP&fileName=...` 把原始 request body 流式写入 ArtifactStore，限制 128 MiB；`POST /api/exchange/exports` 提交 `{documentId, format}`；`GET /api/jobs` 恢复当前用户最近 100 条可见任务，`POST /api/jobs/{jobID}/cancel|retry` 执行发起者或管理员动作，任务完成后从 `GET /api/jobs/{jobID}/download` 流式下载。导入不要求先创建 Part，不使用 multipart，也不让大文件经过 WebSocket 或 gRPC bytes。
 
 `GET|POST /api/documents/{documentID}/workspaces` 用于列出 Workspace 或从所属 Revision 创建 Branch。`POST /api/documents/{documentID}/commands` 是保留的 HTTP transport；Web 使用 `workspace.command.execute.v1` WebSocket 消息。二者进入同一 Workspace handler。`POST /api/documents/{documentID}/command-previews` 在当前 Head 上运行相同 command adapter、typed handler、Sketch Solver 与 Part evaluator，返回 base Revision 和精确 Artifact，但不创建 Revision、历史、Outbox 或推进 Workspace；请求受 Editor ACL、HTTP cancellation 和 15 秒 deadline 约束。`SET_PARAMETER_VALUE` 接受 `parameterId/value/unit`，`SET_PARAMETER_EXPRESSION` 接受 `parameterId/expression`。表达式在服务端绑定稳定 ParameterId，Worker 不解析用户 source text。

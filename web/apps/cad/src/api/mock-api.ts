@@ -5,6 +5,7 @@ import type {
 } from "../types";
 import { sampleSketchEntity } from "../cad/sketch/sketch-geometry";
 import { randomUUID } from "../utils/random-uuid";
+import { mockToolbarCatalog } from "./mock-toolbar-catalog";
 
 const pause = async <T>(value: T, milliseconds = 90): Promise<T> =>
   new Promise((resolve) => window.setTimeout(() => resolve(structuredClone(value)), milliseconds));
@@ -323,6 +324,7 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 }
 
 export const mockApi: CadApi = {
+	toolbarCatalog: async () => pause(mockToolbarCatalog),
   session: async () => {
     if (localStorage.getItem("occccad.mock.auth") === "false") throw new Error("authentication required");
     return pause({ user: administrator, authenticationMode: "mock" });

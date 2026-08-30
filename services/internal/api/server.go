@@ -180,6 +180,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/auth/logout", server.logout)
 	mux.HandleFunc("POST /api/auth/change-password", server.changePassword)
 	mux.HandleFunc("GET /api/session", server.session)
+	mux.HandleFunc("GET /api/ui/toolbars", server.toolbarCatalog)
 	mux.HandleFunc("GET /api/realtime", server.realtimeConnection)
 	mux.HandleFunc("GET /api/admin/users", server.adminListUsers)
 	mux.HandleFunc("POST /api/admin/users", server.adminCreateUser)

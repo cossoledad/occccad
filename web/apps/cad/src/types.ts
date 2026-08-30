@@ -1,6 +1,11 @@
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
 export type PlaneName = "XY" | "XZ" | "YZ";
+export type ToolbarCatalogItem = { commandId:string;name:string;helpText:string;iconKey:string;groupKey:string;sortOrder:number;repeatable:boolean };
+export type ToolbarCatalogEntry = { id:string;name:string;workbench:"ALL"|"PART_DESIGN"|"SKETCHER"|"ASSEMBLY_DESIGN";
+  position:"top-left"|"top-center"|"top-right"|"bottom-left"|"bottom-center"|"bottom-right";
+  orientation:"horizontal"|"vertical";styleKey:"standard"|"part"|"sketch"|"assembly"|"debug";sortOrder:number;items:ToolbarCatalogItem[] };
+export type ToolbarCatalog = { schemaVersion:1;toolbars:ToolbarCatalogEntry[] };
 
 export type MeshData = {
   vertices: Vec3[];

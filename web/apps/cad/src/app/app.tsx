@@ -1,4 +1,4 @@
-import { LogoutOutlined, SettingOutlined, UserOutlined } from "@ant-design/icons";
+import { LogoutOutlined, QuestionCircleOutlined, SettingOutlined, UserOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { App as AntApp, Avatar, Button, Dropdown, Layout, Spin } from "antd";
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -11,6 +11,7 @@ import { ActivityCenter } from "../features/activity/activity-center";
 import { DocumentCenter } from "../features/documents/document-center";
 import { DocumentOrbController } from "../features/workbench/document-orb-controller";
 import { queryKeys } from "./query-keys";
+import { UIHelpProvider, useUIHelp } from "../cad/help/ui-help-context";
 
 const AdminDrawer = lazy(() => import("../features/admin/admin-drawer").then((module) => ({ default: module.AdminDrawer })));
 const Workbench = lazy(() => import("../features/workbench/workbench").then((module) => ({ default: module.Workbench })));
@@ -20,6 +21,7 @@ function RouteLoading() {
 }
 
 function ApplicationShell() {
+	const uiHelp = useUIHelp();
   const location = useLocation();
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -60,6 +62,8 @@ function ApplicationShell() {
       <button className="brand-button" aria-label="文档中心" onClick={() => navigate("/")}><Brand /></button>
       <div className="global-header-spacer" />
       <div className="global-header-actions">
+		{inWorkbench && <Button ghost className={`context-help-button ${uiHelp.active ? "active" : ""}`} icon={<QuestionCircleOutlined />}
+		  onClick={uiHelp.toggle}>这是什么？</Button>}
         <i role="status" aria-label={isMockMode ? "Mock" : health.isSuccess ? `OCCT ${health.data.occtVersion}` : "离线"}
           className={`service-state ${isMockMode ? "mock" : health.isSuccess ? "online" : "offline"}`} />
         <ActivityCenter />
@@ -89,11 +93,11 @@ function GlobalBrowserInteractionPolicy() {
 }
 
 export function App() {
-  return <><GlobalBrowserInteractionPolicy /><Routes>
+  return <UIHelpProvider><GlobalBrowserInteractionPolicy /><Routes>
     <Route element={<ApplicationShell />}>
       <Route index element={<DocumentCenter />} />
       <Route path="documents/:documentID" element={<Suspense fallback={<RouteLoading />}><Workbench /></Suspense>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Route>
-  </Routes></>;
+  </Routes></UIHelpProvider>;
 }

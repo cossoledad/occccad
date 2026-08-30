@@ -1,6 +1,8 @@
 import { Button, Checkbox, Popover, Switch } from "antd";
 import type { CaptureSettings, SelectionCaptureKind, SketchSnapCaptureKind } from "../interaction/capture-settings";
 import { CadIcon } from "./cad-icons";
+import { useUIHelp } from "../help/ui-help-context";
+import { useState } from "react";
 
 const selectionLabels: Record<SelectionCaptureKind, string> = {
   POINT: "点 / 顶点", CURVE: "曲线 / 边", SURFACE: "曲面 / 面", BODY: "实体 / 特征",
@@ -19,6 +21,8 @@ export function CaptureSettingsButton({ settings, onEnabledChange, onSelectionTo
   onAll: () => void;
   onPointsOnly: () => void;
 }) {
+	const uiHelp = useUIHelp();
+  const [open, setOpen] = useState(false);
   const content = <div className="cad-capture-panel">
     <div className="cad-capture-heading"><strong>捕获设置</strong><Switch size="small" checked={settings.enabled}
       onChange={onEnabledChange} aria-label="启用捕获" /></div>
@@ -37,10 +41,17 @@ export function CaptureSettingsButton({ settings, onEnabledChange, onSelectionTo
     <small>过滤器只影响下一次捕获；已有选择保持不变。</small>
   </div>;
   const activeCount = settings.selection.length + settings.sketch.length;
-  return <Popover content={content} trigger="click" placement="bottomLeft">
+  return <Popover open={open} content={content} trigger="click" placement="bottomLeft" onOpenChange={(nextOpen) => {
+	if (nextOpen && uiHelp.active) {
+      setOpen(false);
+      uiHelp.explain({ toolbarName: "", commandName: "捕捉", helpText: "设置三维选择过滤和草图吸附类型。" });
+      return;
+    }
+    setOpen(nextOpen);
+  }}>
     <Button className={`cad-tool-button cad-capture-button ${settings.enabled ? "active" : ""}`}
       type={settings.enabled ? "primary" : "default"} icon={<CadIcon name="capture" />}
       aria-label="捕获设置" aria-pressed={settings.enabled}
-      title={settings.enabled ? `捕获已启用（${activeCount} 类）` : "捕获已关闭"} />
+	  data-active-count={activeCount} />
   </Popover>;
 }

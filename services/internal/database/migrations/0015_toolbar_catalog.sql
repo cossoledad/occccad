@@ -1,0 +1,80 @@
+-- Server-owned presentation catalog. Commands remain executable only when the
+-- Web CommandRegistry has a matching local implementation.
+CREATE TABLE occccad.ui_toolbars (
+    id text PRIMARY KEY,
+    name text NOT NULL,
+    workbench text NOT NULL CHECK (workbench IN ('ALL','PART_DESIGN','SKETCHER','ASSEMBLY_DESIGN')),
+    position text NOT NULL CHECK (position IN ('top-left','top-center','top-right','bottom-left','bottom-center','bottom-right')),
+    orientation text NOT NULL DEFAULT 'horizontal' CHECK (orientation IN ('horizontal','vertical')),
+    style_key text NOT NULL DEFAULT 'standard' CHECK (style_key IN ('standard','part','sketch','assembly','debug')),
+    sort_order integer NOT NULL,
+    enabled boolean NOT NULL DEFAULT true
+);
+
+CREATE TABLE occccad.ui_toolbar_items (
+    toolbar_id text NOT NULL REFERENCES occccad.ui_toolbars(id) ON DELETE CASCADE,
+    command_id text NOT NULL,
+    name text NOT NULL,
+    help_text text NOT NULL,
+    icon_key text NOT NULL,
+    group_key text NOT NULL DEFAULT 'primary',
+    sort_order integer NOT NULL,
+    repeatable boolean NOT NULL DEFAULT false,
+    PRIMARY KEY (toolbar_id, command_id),
+    UNIQUE (toolbar_id, sort_order)
+);
+
+INSERT INTO occccad.ui_toolbars(id,name,workbench,position,style_key,sort_order) VALUES
+('part-design','Part Design','PART_DESIGN','top-left','part',10),
+('sketch-geometry','草图几何','SKETCHER','top-left','sketch',20),
+('sketch-geometric-constraints','几何约束','SKETCHER','top-left','sketch',30),
+('sketch-dimensional-constraints','尺寸约束','SKETCHER','top-left','sketch',40),
+('sketch-aggregates','草图常用图形','SKETCHER','top-left','sketch',50),
+('assembly-design','Assembly Design','ASSEMBLY_DESIGN','top-left','assembly',60),
+('common-edit','编辑','ALL','top-center','standard',70),
+('view','视图','ALL','top-right','standard',80),
+('debug','Debug','ALL','bottom-right','debug',90);
+
+INSERT INTO occccad.ui_toolbar_items(toolbar_id,command_id,name,help_text,icon_key,sort_order,repeatable) VALUES
+('part-design','tool.select','选择','选择视图区或结构树中的对象。','select',10,false),
+('part-design','capture.settings','捕捉','设置三维选择过滤和草图吸附类型。','capture',15,false),
+('part-design','sketch.start','草图','选择基准面创建草图，或选择已有草图进入编辑。','sketch',20,false),
+('part-design','part.pad','拉伸','沿草图平面法向拉伸所选闭合草图。','pad',30,false),
+('sketch-geometry','tool.select','选择','选择当前活动草图中的几何和约束。','select',10,false),
+('sketch-geometry','capture.settings','捕捉','设置三维选择过滤和草图吸附类型。','capture',15,false),
+('sketch-geometry','sketch.point','点','在活动草图中创建点；双击按钮进入连续创建。','point',20,true),
+('sketch-geometry','sketch.line','直线','用起点和终点创建直线；双击按钮连续创建。','line',30,true),
+('sketch-geometry','sketch.arc','圆弧','依次指定圆心、起点和终点创建圆弧。','arc',40,true),
+('sketch-geometry','sketch.polyline','多段线','连续创建相接线段，双击或 Enter 完成。','polyline',50,true),
+('sketch-geometry','sketch.spline','过点曲线','创建经过采集点的插值曲线，双击或 Enter 完成。','spline',60,true),
+('sketch-geometry','sketch.finish','退出草图','结束当前草图编辑并返回 Part Design。','finish',70,false),
+('sketch-geometric-constraints','sketch.constraint.coincident','重合','使两个点引用重合。','coincident',10,true),
+('sketch-geometric-constraints','sketch.constraint.parallel','平行','使两条直线或直线与基准轴平行。','parallel',20,true),
+('sketch-geometric-constraints','sketch.constraint.fixed','固定','固定所选几何的当前参数。','fixed',30,true),
+('sketch-geometric-constraints','sketch.constraint.horizontal','水平','使直线平行于草图 U 轴。','horizontal',40,true),
+('sketch-geometric-constraints','sketch.constraint.vertical','垂直','使直线平行于草图 V 轴。','vertical',50,true),
+('sketch-geometric-constraints','sketch.constraint.perpendicular','垂直相交','使两条直线方向互相垂直。','perpendicular',60,true),
+('sketch-geometric-constraints','sketch.constraint.tangent','相切','使支持的直线、圆或圆弧相切。','tangent',70,true),
+('sketch-geometric-constraints','sketch.constraint.equal','相等','使两条线等长，或使圆和圆弧等半径。','equal',80,true),
+('sketch-geometric-constraints','sketch.constraint.concentric','同心','使两个圆形元素共享圆心。','concentric',90,true),
+('sketch-geometric-constraints','sketch.constraint.point_on_object','点在对象上','约束一个点位于直线、圆或圆弧上。','point-on-object',100,true),
+('sketch-geometric-constraints','sketch.constraint.midpoint','中点','约束一个点位于直线中点。','midpoint',110,true),
+('sketch-geometric-constraints','sketch.constraint.symmetry','对称','使用直线/基准轴做轴对称，或使用点/原点做中心对称。','symmetry',120,true),
+('sketch-dimensional-constraints','sketch.dimension.linear','线性尺寸','创建线长、点点距离或点线距离尺寸。','distance',10,true),
+('sketch-dimensional-constraints','sketch.constraint.radius','半径','设置圆或圆弧的半径尺寸。','radius',20,true),
+('sketch-dimensional-constraints','sketch.constraint.angle','角度','设置两条直线或直线与基准轴的夹角。','angle',30,true),
+('sketch-aggregates','sketch.rectangle','矩形','用两个对角点创建带内部连接和方向约束的矩形。','rectangle',10,true),
+('sketch-aggregates','sketch.polygon','正六边形','用中心和顶点创建正六边形。','polygon',20,true),
+('sketch-aggregates','sketch.circle','圆','用圆心和圆周点创建圆。','circle',30,true),
+('assembly-design','tool.select','选择','选择装配实例或结构节点。','select',10,false),
+('assembly-design','capture.settings','捕捉','设置三维选择过滤和草图吸附类型。','capture',15,false),
+('assembly-design','product.insert','插入','向 Product 插入 Part 或 Product 实例。','insert',20,false),
+('assembly-design','product.reference.toggle','引用模式','在跟随 Head 和固定版本之间切换实例引用。','reference',30,false),
+('common-edit','edit.undo','撤销','补偿最近一个可撤销的领域事务。','undo',10,false),
+('common-edit','edit.redo','重做','重新应用最近一个已撤销的领域事务。','redo',20,false),
+('common-edit','history.version','创建版本','为当前 Revision 创建命名版本。','version',30,false),
+('common-edit','document.share','共享','管理当前文档的访问授权。','share',40,false),
+('view','navigation.profile.toggle','导航模式','切换默认与 CATIA 导航方式。','navigation',10,false),
+('view','view.fit','适合窗口','调整相机以显示全部模型。','fit',20,false),
+('view','view.iso','等轴测','切换到等轴测标准视图。','isometric',30,false),
+('debug','debug.download','下载诊断包','导出当前文档、草图、Workspace、事务和求值诊断数据。','debug',10,false);

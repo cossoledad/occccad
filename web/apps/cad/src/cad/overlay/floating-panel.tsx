@@ -78,7 +78,7 @@ export function FloatingToolbar({ children, id, label, orientation = "horizontal
   return <section ref={toolbar} style={style} aria-label={label}
     className={`cad-floating-panel cad-floating-toolbar ${placed ? "custom-position" : position} ${layout.orientation} ${className}`.trim()}>
     <button className="cad-toolbar-handle" aria-label={`拖动${label ?? "工具栏"}；右键切换方向`}
-      title={`${label ? `${label} · ` : ""}拖动工具栏 · 右键切换横竖方向`}
+      title={label}
       onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp}
       onLostPointerCapture={pointerUp}
       onContextMenu={toggleOrientation}><span /><span /><span /></button>

@@ -22,10 +22,9 @@ import { ToolButton } from "../../cad/overlay/tool-button";
 import { CadIcon, type CadIconName } from "../../cad/overlay/cad-icons";
 import { CaptureSettingsButton } from "../../cad/overlay/capture-settings-button";
 import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
-import { constraintDefinition, LOGICAL_CONSTRAINT_KINDS, OTHER_DIMENSION_CONSTRAINT_KINDS } from "../../cad/sketch/sketch-constraint-definition";
 import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
 import { useUIPreferences } from "../../state/ui-preferences";
-import type { DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, PlaneName, Selection, SelectionItem, SketchOperation, TopologyElementProperties, Vec3 } from "../../types";
+import type { DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, PlaneName, Selection, SelectionItem, SketchOperation, ToolbarCatalogEntry, ToolbarCatalogItem, TopologyElementProperties, Vec3 } from "../../types";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { closestTreeKey } from "./tree-selection";
@@ -35,6 +34,12 @@ const sketchToolCommands:WorkbenchToolID[]=["sketch.rectangle","sketch.polygon",
   "sketch.constraint.coincident","sketch.constraint.parallel","sketch.constraint.fixed","sketch.constraint.horizontal","sketch.constraint.vertical",
   "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.dimension.linear",
   "sketch.constraint.radius","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint","sketch.constraint.symmetry"];
+
+function toolbarGroups(items: ToolbarCatalogItem[]): Array<{ key: string; items: ToolbarCatalogItem[] }> {
+  const groups = new Map<string, ToolbarCatalogItem[]>();
+  for (const item of items) groups.set(item.groupKey, [...(groups.get(item.groupKey) ?? []), item]);
+  return [...groups].map(([key, groupItems]) => ({ key, items: groupItems }));
+}
 
 function featureIcon(feature: Feature) {
   if (feature.type.toUpperCase().includes("SKETCH")) return <ScissorOutlined />;
@@ -199,6 +204,7 @@ export function Workbench() {
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
+	const toolbarCatalog = useQuery({ queryKey: ["ui", "toolbars"], queryFn: api.toolbarCatalog, staleTime: 5 * 60_000 });
   const properties = useQuery({ queryKey: queryKeys.documentProperties(documentID), queryFn: () => api.getDocumentProperties(documentID), enabled: Boolean(documentID) });
   const history = useQuery({ queryKey: queryKeys.history(documentID), queryFn: () => api.getHistory(documentID), enabled: Boolean(documentID) });
   const catalog = useQuery({ queryKey: queryKeys.documents({ workbench: true }), queryFn: () => api.listDocuments({ limit: 100, allFolders: true }) });
@@ -395,8 +401,6 @@ export function Workbench() {
     store.activeToolID, store.navigationProfile, command.isPending]);
 
   const selected = selectedFeature(view ?? {} as DocumentView, store.selection);
-  const selectedInstance = store.selection?.kind === "instance" ? view?.product?.instances.find((instance) => instance.id === store.selection!.id) : undefined;
-
   if (document.isLoading) return <div className="workbench-loading"><Spin size="large" /></div>;
   if (!view) return <Empty description="无法打开文档" />;
 
@@ -409,71 +413,18 @@ export function Workbench() {
           captureSettings={store.captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
           onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
           onInstanceMoved={moveInstance} /></Suspense>
-        {activeWorkbench === "PART_DESIGN" && <FloatingToolbar id="part-design" label="Part Design" position="top-left" className="part-design-toolbar">
-          <ToolbarGroup><ToolButton command="tool.select" icon={<CadIcon name="select" />} tooltip="选择" />
-            <CaptureSettingsButton settings={store.captureSettings} onEnabledChange={store.setCaptureEnabled}
-              onSelectionToggle={store.toggleSelectionCapture} onSketchToggle={store.toggleSketchSnap}
-              onAll={store.captureAll} onPointsOnly={store.capturePointsOnly} />
-            <ToolButton command="sketch.start" icon={<CadIcon name="sketch" />} tooltip="选择基准面创建草图，或选择已有草图进入编辑" />
-            <ToolButton command="part.pad" icon={<CadIcon name="pad" />} tooltip="拉伸所选草图" /></ToolbarGroup>
-        </FloatingToolbar>}
-        {activeWorkbench === "SKETCHER" && <>
-          <FloatingToolbar id="sketch-geometry" label="草图几何" position="top-left" className="sketcher-toolbar sketch-geometry-toolbar">
-            <ToolbarGroup><ToolButton command="tool.select" icon={<CadIcon name="select" />} tooltip="选择" />
-              <CaptureSettingsButton settings={store.captureSettings} onEnabledChange={store.setCaptureEnabled}
-                onSelectionToggle={store.toggleSelectionCapture} onSketchToggle={store.toggleSketchSnap}
-                onAll={store.captureAll} onPointsOnly={store.capturePointsOnly} />
-              <ToolButton repeatable command="sketch.point" icon={<CadIcon name="point" />} tooltip="点 · 单击绘制一次，双击连续绘制" />
-              <ToolButton repeatable command="sketch.line" icon={<CadIcon name="line" />} tooltip="直线 · 单击绘制一次，双击连续绘制" />
-              <ToolButton repeatable command="sketch.arc" icon={<CadIcon name="arc" />} tooltip="圆弧 · 单击绘制一次，双击连续绘制" />
-              <ToolButton repeatable command="sketch.polyline" icon={<CadIcon name="polyline" />} tooltip="多段线 · 双击或 Enter 完成本次绘制" />
-              <ToolButton repeatable command="sketch.spline" icon={<CadIcon name="spline" />} tooltip="过点插值曲线 · 双击或 Enter 完成本次绘制" />
-              <ToolButton command="sketch.finish" icon={<CadIcon name="finish" />} tooltip="退出草图" /></ToolbarGroup>
-          </FloatingToolbar>
-          <FloatingToolbar id="sketch-geometric-constraints" label="几何约束" position="top-left" className="sketcher-toolbar sketch-geometric-constraints-toolbar">
-            <ToolbarGroup>{LOGICAL_CONSTRAINT_KINDS.map((kind) => { const definition = constraintDefinition(kind);
-              const id = kind.toLowerCase(); return <ToolButton key={kind} repeatable command={`sketch.constraint.${id}`}
-                icon={<CadIcon name={definition.symbol.replaceAll("_", "-") as CadIconName} />}
-                tooltip={`${definition.label} · ${definition.pickLabels.join(" → ")} · 单击一次，双击连续`} />; })}</ToolbarGroup>
-          </FloatingToolbar>
-          <FloatingToolbar id="sketch-dimensional-constraints" label="尺寸约束" position="top-left" className="sketcher-toolbar sketch-dimensional-constraints-toolbar">
-            <ToolbarGroup><ToolButton repeatable command="sketch.dimension.linear" icon={<CadIcon name="distance" />}
-              tooltip="线性尺寸 · 选择直线，或依次选择两个点，然后移动放置" />
-              {OTHER_DIMENSION_CONSTRAINT_KINDS.map((kind) => { const definition=constraintDefinition(kind);const id=kind.toLowerCase();
-                return <ToolButton key={kind} repeatable command={`sketch.constraint.${id}`}
-                  icon={<CadIcon name={definition.symbol.replaceAll("_","-") as CadIconName} />}
-                  tooltip={`${definition.label}尺寸 · ${definition.pickLabels.join(" → ")} · 移动放置`} />; })}</ToolbarGroup>
-          </FloatingToolbar>
-          <FloatingToolbar id="sketch-aggregates" label="草图常用图形" position="top-left" className="sketcher-toolbar sketch-aggregates-toolbar">
-            <ToolbarGroup><ToolButton repeatable command="sketch.rectangle" icon={<CadIcon name="rectangle" />} tooltip="矩形 · 两对角点" />
-              <ToolButton repeatable command="sketch.polygon" icon={<CadIcon name="polygon" />} tooltip="正六边形 · 中心和顶点" />
-              <ToolButton repeatable command="sketch.circle" icon={<CadIcon name="circle" />} tooltip="圆 · 圆心和圆周点" /></ToolbarGroup>
-          </FloatingToolbar>
-        </>}
-        {activeWorkbench === "ASSEMBLY_DESIGN" && <FloatingToolbar id="assembly-design" label="Assembly Design" position="top-left" className="assembly-design-toolbar">
-          <ToolbarGroup><ToolButton command="tool.select" icon={<CadIcon name="select" />} tooltip="选择" />
-            <CaptureSettingsButton settings={store.captureSettings} onEnabledChange={store.setCaptureEnabled}
-              onSelectionToggle={store.toggleSelectionCapture} onSketchToggle={store.toggleSketchSnap}
-              onAll={store.captureAll} onPointsOnly={store.capturePointsOnly} />
-            <ToolButton command="product.insert" icon={<CadIcon name="insert" />} tooltip="插入 Part / Product" />
-            <ToolButton command="product.reference.toggle" icon={<CadIcon name="reference" />}
-              tooltip={selectedInstance?.referenceMode === "PINNED" ? "切换为跟随 Head" : "固定当前版本"} /></ToolbarGroup>
-        </FloatingToolbar>}
-        <FloatingToolbar id="common-edit" label="Common" position="top-center" className="common-toolbar">
-          <ToolbarGroup><ToolButton command="edit.undo" icon={<CadIcon name="undo" />} tooltip="撤销" />
-            <ToolButton command="edit.redo" icon={<CadIcon name="redo" />} tooltip="重做" />
-            <ToolButton command="history.version" icon={<CadIcon name="version" />} tooltip="创建命名版本" />
-            <ToolButton command="document.share" icon={<CadIcon name="share" />} tooltip="共享文档" /></ToolbarGroup>
-        </FloatingToolbar>
-        <FloatingToolbar id="view" label="View" position="top-right">
-          <ToolbarGroup><ToolButton command="navigation.profile.toggle" icon={<CadIcon name="navigation" />}
-            tooltip={store.navigationProfile === "default" ? "切换到 CATIA 导航" : "切换到默认导航"} />
-            <ToolButton command="view.fit" icon={<CadIcon name="fit" />} tooltip="适合窗口" />
-            <ToolButton command="view.iso" icon={<CadIcon name="isometric" />} tooltip="等轴测视图" /></ToolbarGroup>
-        </FloatingToolbar>
-		<FloatingToolbar id="debug" label="Debug" position="bottom-right" className="debug-toolbar">
-		  <ToolbarGroup><ToolButton command="debug.download" icon={<CadIcon name="debug" />} tooltip="下载诊断包" /></ToolbarGroup>
-		</FloatingToolbar>
+		{toolbarCatalog.data?.toolbars.filter((toolbar) => toolbar.workbench === "ALL" || toolbar.workbench === activeWorkbench)
+		  .map((toolbar: ToolbarCatalogEntry) => <FloatingToolbar key={toolbar.id} id={toolbar.id} label={toolbar.name}
+			position={toolbar.position} orientation={toolbar.orientation}
+			className={`${toolbar.styleKey === "part" ? "part-design-toolbar" : toolbar.styleKey === "sketch" ? "sketcher-toolbar" : toolbar.styleKey === "assembly" ? "assembly-design-toolbar" : toolbar.styleKey === "debug" ? "debug-toolbar" : "common-toolbar"} ${toolbar.id}-toolbar`}>
+			{toolbarGroups(toolbar.items).map((group) => <ToolbarGroup key={group.key}>{group.items.map((item) => item.commandId === "capture.settings"
+			  ? <CaptureSettingsButton key={item.commandId} settings={store.captureSettings} onEnabledChange={store.setCaptureEnabled}
+				  onSelectionToggle={store.toggleSelectionCapture} onSketchToggle={store.toggleSketchSnap}
+				  onAll={store.captureAll} onPointsOnly={store.capturePointsOnly} />
+			  : <ToolButton key={item.commandId} command={item.commandId} repeatable={item.repeatable}
+				  icon={<CadIcon name={item.iconKey as CadIconName} />} tooltip={item.name}
+				  toolbarName={toolbar.name} helpText={item.helpText} />)}</ToolbarGroup>)}
+		  </FloatingToolbar>)}
         <aside className="floating-structure-tree">
           <SpecificationTree nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
             selectedIdentityKeys={store.selections.map(selectionKey)}
