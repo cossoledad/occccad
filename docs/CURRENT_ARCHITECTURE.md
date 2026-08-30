@@ -208,7 +208,9 @@ sequenceDiagram
     A-->>W: updated document view
 ```
 
-GeometryId 是精确 Body B-Rep 的 SHA-256 内容标识，不绑定 Worker；`geometry_key` 标识带 evaluator 和 Part 显示语义的求值结果，因此两个结果可以共享 GeometryId，但拥有不同的可视化制品。几何输出包括 B-Rep、GLB、三角形、边折线、包围盒、拓扑计数和体积。新增几何已接入本地制品对象；历史表结构仍保留部分内联数据字段。
+GeometryId 是精确 Body B-Rep 的 SHA-256 内容标识，不绑定 Worker；`geometry_key` 标识带 evaluator 和 Part 显示语义的求值结果，因此两个结果可以共享 GeometryId，但拥有不同的可视化制品。几何输出包括 B-Rep、GLB、三角形、边折线、包围盒、拓扑计数和体积。新增几何已接入本地制品对象；历史表结构仍保留部分内联数据字段。Body 的 ADD/REMOVE/INTERSECT 在 OCCT 布尔完成后统一同域面和同域边，再进行 B-Rep 校验和内容寻址；因此相交且等高的拉伸不会把连续顶面暴露成多个共面选择区域。
+
+Router 的亲和对象是不可变 `geometry_key`/GeometryId，而不是可变 Document：拓扑等后续查询回到已经 resident 该 Body 的 Worker，新的 Revision 在 `OCCCCAD_GEOMETRY_PER_WORKER` 软容量已满时可以分配到另一 Worker。这个过程不移动参数模型或权威 B-Rep；Revision、Artifact 元数据和 ArtifactStore 仍是事实来源，Worker 只保存可丢弃缓存，所以 Undo 可以命中旧 Body 所在 Worker。当前 Part evaluator 会从完整参数模型重建特征链，并不消费父 Revision 的 resident Shape，因此强制把子 Revision 放回父 Worker 没有计算复用收益，反而会破坏按不可变制品分散内存和并行查询的能力。将来只有在 evaluator 支持带 provenance 的增量输入（父 GeometryId、dirty feature closure 和确定性回退）后，才应增加 lineage-aware placement；不能仅按 Document ID 制造状态依赖。
 
 每个 Part 求值结果还持有 schema v1 `VisualizationManifest`，并镜像到最终 GLB 的 `OCCCCAD_visualization` 扩展。Manifest 统一包含 DatumPlane/AxisSystem 和可选择的非实体 primitive；当前草图 Point 映射为 `POINTS`，Line/Circle/Arc/Spline 映射为 `POLYLINE`。全部几何约束映射为带约束类型的 `POINTS` glyph anchor；Distance/Length/Radius/Diameter/Angle 映射为 `LINE_SEGMENTS` 引线、箭头以及 label/labelPosition。约束 primitive 还携带 `relatedEntityIds`，使约束的视口/结构树 hover 和 select 同时作用于标记及全部引用草图元素。每个 primitive 保存稳定 entity/constraint ID、所属 FeatureId、类型、PROFILE/CONSTRUCTION role、求解状态和 Part 坐标。协议预留 `TRIANGLES`，供后续独立曲面显示使用，但当前尚未交付三维曲线/曲面建模命令。对象存储路径会读取 Worker 基础 GLB、注入 Manifest 后再登记最终不可变 GLB，不依赖数据库旁路元数据。
 
@@ -353,6 +355,9 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 - Go HTTP/gRPC 使用结构化日志和 OpenTelemetry Trace Context；
 - 配置 OTLP 端点时导出 Trace，未配置时仍生成关联 ID；
 - C++ Worker 记录 RPC、request ID 和 traceparent；
+- 每个 API 请求建立有界、低基数的性能 Recorder；命令路径分解为 `command-prepare / command-apply / sketch-solve / geometry-evaluate / commit`，预览、DocumentView、Artifact 和拓扑查询也记录各自阶段。阶段同时进入结构化日志的 `phases_ms` 和响应 `Server-Timing`，浏览器保留最近 200 条 API 总耗时/Server-Timing 样本并随诊断包导出；不得把 DocumentId/FeatureId 作为阶段名或指标 label。
+- `invoke performance-baseline` 对 Profile Builder 与 VisualizationManifest 热路径执行多样本、带 allocation 的邻近 Go benchmark，结果写到 `build/performance/go-workspace.txt`，可交给 `benchstat` 比较。正确性测试与性能基准分开，慢机器只影响绝对时间，不影响前后版本同机对比。
+- 当前热路径优化包括：不可变 GeometryKey 的 32 项进程内有界 Artifact 缓存、Part 拓扑授权不再构造完整 DocumentView、Document GET 不再反复写 `last_opened_at`、命令响应不再由 Web 立即重复 GET、Realtime snapshot 不再重复取文档，以及 Inspector 关闭时不请求诊断/历史/拓扑属性。
 - 数据库迁移使用 Advisory Lock、事务和 checksum；
 - C++ 由 CMake 3.30+、Conan 2、Ninja 构建，当前标准 C++17；
 - 当前固定 OCCT 7.9.1 和 gRPC C++ 1.71.0；

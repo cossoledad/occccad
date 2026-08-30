@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -23,10 +24,11 @@ import (
 	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v7"
+const evaluatorVersion = "part-solid-generators-v8"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -514,17 +516,20 @@ func (service *Service) BranchWorkspace(ctx context.Context, documentID string, 
 }
 
 type Service struct {
-	database  *pgxpool.Pool
-	worker    *geometry.Client
-	artifacts *artifactstore.Service
+	database           *pgxpool.Pool
+	worker             *geometry.Client
+	artifacts          *artifactstore.Service
+	artifactCacheMu    sync.RWMutex
+	artifactCache      map[string]Artifact
+	artifactCacheOrder []string
 }
 
 func New(database *pgxpool.Pool, worker *geometry.Client) *Service {
-	return &Service{database: database, worker: worker}
+	return &Service{database: database, worker: worker, artifactCache: map[string]Artifact{}}
 }
 
 func NewWithArtifacts(database *pgxpool.Pool, worker *geometry.Client, artifacts *artifactstore.Service) *Service {
-	return &Service{database: database, worker: worker, artifacts: artifacts}
+	return &Service{database: database, worker: worker, artifacts: artifacts, artifactCache: map[string]Artifact{}}
 }
 
 func newID(prefix string) string {
@@ -1296,10 +1301,19 @@ func (service *Service) ExchangeExportComponents(ctx context.Context, documentID
 func (service *Service) brepArtifactReference(ctx context.Context, geometryKey string) (geometry.ArtifactReference, error) {
 	var objectID *string
 	var inline []byte
-	if err := service.database.QueryRow(ctx, `SELECT brep_object_id::text,brep_data
-		FROM occccad.geometry_artifacts WHERE geometry_key=$1 AND volume>0`, geometryKey).
-		Scan(&objectID, &inline); err != nil {
+	var backend, objectKey, sha256Value, contentType *string
+	var objectSize *int64
+	if err := service.database.QueryRow(ctx, `SELECT artifact.brep_object_id::text,artifact.brep_data,
+		object.storage_backend,object.object_key,object.sha256,object.size_bytes,object.content_type
+		FROM occccad.geometry_artifacts artifact LEFT JOIN occccad.artifact_objects object
+		ON object.id=artifact.brep_object_id AND object.state='READY'
+		WHERE artifact.geometry_key=$1 AND artifact.volume>0`, geometryKey).
+		Scan(&objectID, &inline, &backend, &objectKey, &sha256Value, &objectSize, &contentType); err != nil {
 		return geometry.ArtifactReference{}, err
+	}
+	if objectID != nil && backend != nil && objectKey != nil && sha256Value != nil && objectSize != nil && contentType != nil {
+		return geometry.ArtifactReference{Backend: *backend, ObjectKey: *objectKey, SHA256: *sha256Value,
+			Size: *objectSize, ContentType: *contentType}, nil
 	}
 	if objectID == nil {
 		if service.artifacts == nil || len(inline) == 0 {
@@ -1310,19 +1324,15 @@ func (service *Service) brepArtifactReference(ctx context.Context, geometryKey s
 		if err != nil {
 			return geometry.ArtifactReference{}, err
 		}
-		objectID = &object.ID
 		if _, err := service.database.Exec(ctx, `UPDATE occccad.geometry_artifacts
 			SET brep_object_id=$2,storage_state=CASE WHEN storage_state='DATABASE' THEN 'DUAL' ELSE storage_state END
 			WHERE geometry_key=$1`, geometryKey, object.ID); err != nil {
 			return geometry.ArtifactReference{}, err
 		}
+		return geometry.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key,
+			SHA256: object.SHA256, Size: object.Size, ContentType: object.ContentType}, nil
 	}
-	object, err := service.artifacts.Get(ctx, *objectID)
-	if err != nil {
-		return geometry.ArtifactReference{}, err
-	}
-	return geometry.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key,
-		SHA256: object.SHA256, Size: object.Size, ContentType: object.ContentType}, nil
+	return geometry.ArtifactReference{}, fmt.Errorf("%w: B-Rep artifact metadata is unavailable", ErrValidation)
 }
 
 func (service *Service) CreateDocument(
@@ -1446,6 +1456,7 @@ func (service *Service) CreateDocument(
 }
 
 func (service *Service) GetDocument(ctx context.Context, documentID string, actors ...string) (DocumentView, error) {
+	finishModel := perf.Start(ctx, "document-model")
 	var summary DocumentSummary
 	var modelJSON []byte
 	var geometryKey *string
@@ -1467,21 +1478,21 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		return DocumentView{}, ErrNotFound
 	}
 	if err != nil {
+		finishModel()
 		return DocumentView{}, err
 	}
+	finishModel()
 	if len(actors) > 0 {
 		summary.CanUndo, summary.CanRedo, err = service.historyCapabilities(ctx, documentID, actors[0])
 		if err != nil {
 			return DocumentView{}, err
 		}
 	}
-	var lastOpened string
-	if err := service.database.QueryRow(ctx,
-		`UPDATE occccad.documents SET last_opened_at=now() WHERE id=$1 RETURNING last_opened_at::text`,
-		documentID).Scan(&lastOpened); err != nil {
-		return DocumentView{}, err
+	// Opening a document is a read-hot path. Touch recency at most once every
+	// five minutes instead of turning every command response and query into a write.
+	if summary.LastOpenedAt == nil {
+		_, _ = service.database.Exec(ctx, `UPDATE occccad.documents SET last_opened_at=now() WHERE id=$1 AND last_opened_at IS NULL`, documentID)
 	}
-	summary.LastOpenedAt = &lastOpened
 	view := DocumentView{Document: summary}
 	if summary.Type == "PART" {
 		var model PartModel
@@ -1506,17 +1517,22 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 			geometryKey = &key
 		}
 		if geometryKey != nil {
+			finishArtifact := perf.Start(ctx, "artifact-load")
 			if referenceErr := service.ensureArtifactVisualization(ctx, *geometryKey, model); referenceErr != nil {
+				finishArtifact()
 				return view, referenceErr
 			}
 			artifact, err := service.loadArtifact(ctx, *geometryKey)
+			finishArtifact()
 			if err != nil {
 				return view, err
 			}
 			view.Artifact = &artifact
 		}
+		finishStructure := perf.Start(ctx, "structure-project")
 		structure, err := service.buildDocumentStructure(ctx, summary.VersionID,
 			"document:"+summary.ID, summary.Name, map[string]bool{})
+		finishStructure()
 		if err != nil {
 			return view, err
 		}
@@ -2468,6 +2484,12 @@ func meshFromProto(source *workerv1.Mesh) Mesh {
 }
 
 func (service *Service) loadArtifact(ctx context.Context, key string) (Artifact, error) {
+	service.artifactCacheMu.RLock()
+	if cached, ok := service.artifactCache[key]; ok {
+		service.artifactCacheMu.RUnlock()
+		return cached, nil
+	}
+	service.artifactCacheMu.RUnlock()
 	artifact := Artifact{GeometryKey: key}
 	var meshJSON, bboxJSON, topologyJSON []byte
 	var visualizationJSON []byte
@@ -2537,6 +2559,20 @@ func (service *Service) loadArtifact(ctx context.Context, key string) (Artifact,
 	if err := json.Unmarshal(visualizationJSON, &artifact.Visualization); err != nil {
 		return artifact, err
 	}
+	service.artifactCacheMu.Lock()
+	if service.artifactCache == nil {
+		service.artifactCache = map[string]Artifact{}
+	}
+	if _, exists := service.artifactCache[key]; !exists {
+		service.artifactCache[key] = artifact
+		service.artifactCacheOrder = append(service.artifactCacheOrder, key)
+		if len(service.artifactCacheOrder) > 32 {
+			oldest := service.artifactCacheOrder[0]
+			service.artifactCacheOrder = service.artifactCacheOrder[1:]
+			delete(service.artifactCache, oldest)
+		}
+	}
+	service.artifactCacheMu.Unlock()
 	return artifact, nil
 }
 
@@ -2571,14 +2607,31 @@ func (service *Service) GetTopologyElementProperties(
 	if (kind != "FACE" && kind != "EDGE" && kind != "VERTEX") || localID == 0 {
 		return TopologyElementProperties{}, fmt.Errorf("%w: kind must be FACE, EDGE, or VERTEX and localId must be positive", ErrValidation)
 	}
-	view, err := service.GetDocument(ctx, documentID)
+	finishAuthorize := perf.Start(ctx, "topology-authorize")
+	var documentType string
+	var allowed bool
+	err := service.database.QueryRow(ctx, `SELECT d.document_type,
+		EXISTS(SELECT 1 FROM occccad.document_versions v WHERE v.id=d.head_version_id AND v.geometry_key=$2)
+		FROM occccad.documents d WHERE d.id=$1 AND d.deleted_at IS NULL`, documentID, geometryKey).Scan(&documentType, &allowed)
+	if errors.Is(err, pgx.ErrNoRows) {
+		finishAuthorize()
+		return TopologyElementProperties{}, ErrNotFound
+	}
 	if err != nil {
+		finishAuthorize()
 		return TopologyElementProperties{}, err
 	}
-	allowed := view.Artifact != nil && view.Artifact.GeometryKey == geometryKey
-	if _, exists := view.Artifacts[geometryKey]; exists {
-		allowed = true
+	if documentType == "PRODUCT" && !allowed {
+		// Product occurrence authorization still needs recursive resolution; keep
+		// that colder path correct without penalizing normal Part inspection.
+		view, viewErr := service.GetDocument(ctx, documentID)
+		if viewErr != nil {
+			finishAuthorize()
+			return TopologyElementProperties{}, viewErr
+		}
+		_, allowed = view.Artifacts[geometryKey]
 	}
+	finishAuthorize()
 	if !allowed {
 		return TopologyElementProperties{}, ErrNotFound
 	}
@@ -2590,6 +2643,7 @@ func (service *Service) GetTopologyElementProperties(
 	}
 	var response *workerv1.GetTopologyResponse
 	var servingWorkerID string
+	finishWorker := perf.Start(ctx, "topology-worker")
 	if service.artifacts != nil {
 		reference, referenceErr := service.brepArtifactReference(ctx, geometryKey)
 		if referenceErr != nil {
@@ -2605,8 +2659,10 @@ func (service *Service) GetTopologyElementProperties(
 		response, servingWorkerID, err = service.worker.GetTopology(ctx, geometryID, brep, kind, localID)
 	}
 	if err != nil {
+		finishWorker()
 		return TopologyElementProperties{}, err
 	}
+	finishWorker()
 	result := TopologyElementProperties{GeometryKey: geometryKey, GeometryID: geometryID, Kind: kind,
 		LocalID: localID, Properties: map[string]any{}, WorkerID: workerID, OCCTVersion: occtVersion}
 	if servingWorkerID != "" {

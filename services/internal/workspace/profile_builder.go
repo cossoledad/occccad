@@ -22,7 +22,29 @@ type profileLoop struct {
 	value   geometry.ProfileLoop
 	polygon []SketchPoint2
 	area    float64
+	bounds  profileBounds
 }
+type profileBounds struct{ minX, minY, maxX, maxY float64 }
+
+func polygonBounds(points []SketchPoint2) profileBounds {
+	bounds := profileBounds{minX: math.Inf(1), minY: math.Inf(1), maxX: math.Inf(-1), maxY: math.Inf(-1)}
+	for _, point := range points {
+		bounds.minX = math.Min(bounds.minX, point.X)
+		bounds.minY = math.Min(bounds.minY, point.Y)
+		bounds.maxX = math.Max(bounds.maxX, point.X)
+		bounds.maxY = math.Max(bounds.maxY, point.Y)
+	}
+	return bounds
+}
+func (bounds profileBounds) intersects(other profileBounds) bool {
+	return bounds.minX <= other.maxX+profileTolerance && bounds.maxX >= other.minX-profileTolerance &&
+		bounds.minY <= other.maxY+profileTolerance && bounds.maxY >= other.minY-profileTolerance
+}
+func (bounds profileBounds) contains(other profileBounds) bool {
+	return bounds.minX <= other.minX+profileTolerance && bounds.maxX >= other.maxX-profileTolerance &&
+		bounds.minY <= other.minY+profileTolerance && bounds.maxY >= other.maxY-profileTolerance
+}
+
 type disjointSet struct{ parent map[string]string }
 
 func newDisjointSet() *disjointSet { return &disjointSet{parent: map[string]string{}} }
@@ -240,7 +262,7 @@ func makeProfileLoop(curves []geometry.ProfileCurve) (profileLoop, error) {
 	if selfIntersects(polygon) {
 		return profileLoop{}, fmt.Errorf("%w: profile loop %s self-intersects", ErrValidation, value.ID)
 	}
-	return profileLoop{value: value, polygon: polygon, area: area}, nil
+	return profileLoop{value: value, polygon: polygon, area: area, bounds: polygonBounds(polygon)}, nil
 }
 
 func sampleProfileLoop(loop geometry.ProfileLoop) []SketchPoint2 {
@@ -394,10 +416,10 @@ func classifyProfileLoops(loops []profileLoop) ([]geometry.ProfileRegion, error)
 	}
 	for i := range loops {
 		for j := 0; j < i; j++ {
-			if polygonsIntersect(loops[i].polygon, loops[j].polygon) {
+			if loops[i].bounds.intersects(loops[j].bounds) && polygonsIntersect(loops[i].polygon, loops[j].polygon) {
 				return nil, fmt.Errorf("%w: profile loops intersect", ErrValidation)
 			}
-			if pointInPolygon(loops[i].polygon[0], loops[j].polygon) {
+			if loops[j].bounds.contains(loops[i].bounds) && pointInPolygon(loops[i].polygon[0], loops[j].polygon) {
 				parent[i] = j
 			}
 		}

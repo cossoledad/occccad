@@ -1,6 +1,7 @@
 import type { AuditEvent, CommandPreview, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
 import { randomUUID } from "./utils/random-uuid";
+import { clientPerformanceSnapshot, recordClientPerformance } from "./utils/performance";
 
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 export const apiURL = (path: string): string => `${apiBaseURL}${path}`;
@@ -11,11 +12,14 @@ const mutationHeaders = (method = "GET"): Record<string, string> =>
   method === "GET" || method === "HEAD" ? {} : { "X-CSRF-Token": cookie("occccad_csrf") };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+	const started = performance.now();
   const response = await fetch(apiURL(path), {
     ...init,
     credentials: "include",
     headers: { "Content-Type": "application/json", ...mutationHeaders(init?.method), ...init?.headers },
   });
+	recordClientPerformance({ name: `${init?.method ?? "GET"} ${path.split("?")[0]}`, durationMs: performance.now() - started,
+		status: response.status, serverTiming: response.headers.get("Server-Timing") ?? "", at: new Date().toISOString() });
   const body = await response.json().catch(() => ({})) as { error?: string };
   if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
   return body as T;
@@ -30,7 +34,8 @@ async function downloadDiagnosticBundle(documentId: string, command: Record<stri
 		body: JSON.stringify({
 			failedCommand: command, error: errorMessage,
 			client: { generatedAt: new Date().toISOString(), page: window.location.href,
-				userAgent: navigator.userAgent, language: navigator.language },
+				userAgent: navigator.userAgent, language: navigator.language,
+				performance: clientPerformanceSnapshot() },
 		}),
 	});
 	if (!response.ok) throw new Error(`diagnostic export failed with HTTP ${response.status}`);

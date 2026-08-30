@@ -311,6 +311,21 @@ def test(c, build_type=None, filter=None):
     print("[test] Done.")
 
 
+@task(help={"count": "Repeated benchmark samples for benchstat-compatible output"})
+def performance_baseline(c, count=5):
+    """Run deterministic CAD hot-path benchmarks and save a comparable baseline."""
+    output = PROJECT_ROOT / "build" / "performance"
+    output.mkdir(parents=True, exist_ok=True)
+    target = output / "go-workspace.txt"
+    with c.cd(str(PROJECT_ROOT / "services")):
+        c.run(
+            f"go test ./internal/workspace -run '^$' -bench 'Benchmark(ProfileBuilder|VisualizationManifest)' "
+            f"-benchmem -count={int(count)} | tee {target}",
+            pty=True,
+        )
+    print(f"[performance] Baseline written to {target}")
+
+
 # ---------------------------------------------------------------------------
 # run
 # ---------------------------------------------------------------------------
@@ -469,6 +484,7 @@ ns.add_task(bootstrap)
 ns.add_task(configure)
 ns.add_task(build)
 ns.add_task(test)
+ns.add_task(performance_baseline, "performance-baseline")
 ns.add_task(clean)
 ns.add_collection(run_collection)
 ns.add_collection(web_collection)

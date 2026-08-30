@@ -23,6 +23,7 @@ import (
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 	"github.com/occccad/occccad/internal/thumbnail"
 	"github.com/occccad/occccad/internal/workspace"
 	"go.opentelemetry.io/otel/trace"
@@ -838,6 +839,8 @@ func (server *Server) health(writer http.ResponseWriter, request *http.Request) 
 func (server *Server) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		started := time.Now()
+		requestContext, timing := perf.WithRecorder(request.Context())
+		request = request.WithContext(requestContext)
 		requestID := strings.TrimSpace(request.Header.Get("X-Request-ID"))
 		if requestID == "" {
 			buffer := make([]byte, 12)
@@ -867,13 +870,16 @@ func (server *Server) middleware(next http.Handler) http.Handler {
 			return
 		}
 		if strings.HasPrefix(request.URL.Path, "/api/") && !publicAPI(request.URL.Path) {
+			finishAuth := perf.Start(request.Context(), "auth")
 			cookie, err := request.Cookie(sessionCookieName)
 			if err != nil {
+				finishAuth()
 				writeError(writer, http.StatusUnauthorized, "authentication required")
 				return
 			}
 			resolved, err := server.authn.Authenticate(request.Context(), cookie.Value)
 			if err != nil {
+				finishAuth()
 				server.clearSessionCookies(writer)
 				writeError(writer, http.StatusUnauthorized, "authentication required")
 				return
@@ -884,13 +890,15 @@ func (server *Server) middleware(next http.Handler) http.Handler {
 				csrfHeader := request.Header.Get("X-CSRF-Token")
 				if cookieErr != nil || csrfHeader == "" || csrfCookie.Value != csrfHeader ||
 					server.authn.ValidateCSRF(request.Context(), cookie.Value, csrfHeader) != nil {
+					finishAuth()
 					writeError(writer, http.StatusForbidden, "invalid CSRF token")
 					return
 				}
 			}
+			finishAuth()
 		}
 		writer.Header().Set("X-Content-Type-Options", "nosniff")
-		recorder := &statusRecorder{ResponseWriter: writer, status: http.StatusOK}
+		recorder := &statusRecorder{ResponseWriter: writer, status: http.StatusOK, timing: timing}
 		next.ServeHTTP(recorder, request)
 		if recorder.status < http.StatusBadRequest && request.Method != http.MethodGet &&
 			strings.HasPrefix(request.URL.Path, "/api/") && request.URL.Path != "/api/health" {
@@ -911,7 +919,7 @@ func (server *Server) middleware(next http.Handler) http.Handler {
 			"path", request.URL.Path,
 			"status", recorder.status,
 			"bytes", recorder.bytes,
-			"duration_ms", time.Since(started).Milliseconds())
+			"duration_ms", time.Since(started).Milliseconds(), "phases_ms", timing.SnapshotMilliseconds())
 	})
 }
 
@@ -932,6 +940,7 @@ type statusRecorder struct {
 	http.ResponseWriter
 	status int
 	bytes  int
+	timing *perf.Recorder
 }
 
 func (recorder *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
@@ -945,6 +954,9 @@ func (recorder *statusRecorder) Flush() {
 func (recorder *statusRecorder) Unwrap() http.ResponseWriter { return recorder.ResponseWriter }
 
 func (recorder *statusRecorder) WriteHeader(status int) {
+	if value := recorder.timing.Header(); value != "" {
+		recorder.Header().Set("Server-Timing", value)
+	}
 	recorder.status = status
 	recorder.ResponseWriter.WriteHeader(status)
 }

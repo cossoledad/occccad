@@ -37,6 +37,7 @@
 #include <Poly_Triangulation.hxx>
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
+#include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <TColgp_Array1OfPnt.hxx>
 #include <TColgp_HArray1OfPnt.hxx>
 #include <TColStd_Array1OfInteger.hxx>
@@ -620,6 +621,15 @@ TopoDS_Shape apply_body_operation(const TopoDS_Shape& input, const TopoDS_Shape&
     } else {
         throw std::invalid_argument("unsupported body operation: " + operation);
     }
+    // OCCT boolean builders deliberately preserve section edges.  That history is
+    // useful while mapping generated topology, but it is not the canonical shape
+    // of a Part Design Body: coplanar/cotangent pieces left by overlapping pads
+    // would otherwise be exposed as several selectable faces.  Normalize the
+    // completed operation before validation and content hashing.  This keeps the
+    // B-Rep deterministic and makes a continuous planar skin one logical face.
+    ShapeUpgrade_UnifySameDomain unifier(result, Standard_True, Standard_True, Standard_False);
+    unifier.Build();
+    result = unifier.Shape();
     if (result.IsNull() || shape_volume(result) <= 1.0e-9)
         throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
     if (!BRepCheck_Analyzer(result).IsValid())

@@ -79,6 +79,8 @@ invoke test --build-type=Debug
 
 ## 性能与安全边界
 
+- API Client 记录最近 200 次请求的浏览器总耗时、状态码与 `Server-Timing`，并在手动/自动诊断导出时携带这些样本；数据只保存在内存，不形成第二套业务状态；
+- 命令返回的权威 `DocumentView` 直接进入 Query cache，不立即重复 GET。Inspector 折叠时不加载 Document Properties、History 或 Topology Properties，切换到对应页签时才按需加载；
 - 不为 Product 中每个实例重复下载相同 GeometryId 的 GLB；几何资源应去重并实例化渲染；
 - 大装配需要渐进加载、LOD、可见性裁剪和批量拾取，不能一次构造完整 DOM/Scene；
 - 任何客户端权限判断都只是体验优化，服务端必须再次鉴权；

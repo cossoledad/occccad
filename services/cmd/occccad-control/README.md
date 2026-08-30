@@ -37,7 +37,7 @@ flowchart LR
 | `OCCCCAD_GEOMETRY_WORKER_FIRST_PORT` | `51100` | Worker 起始端口 |
 | `OCCCCAD_GEOMETRY_WORKER_MIN` | `1` | 最小 Worker 数 |
 | `OCCCCAD_GEOMETRY_WORKER_MAX` | `8` | 最大 Worker 数 |
-| `OCCCCAD_GEOMETRY_PER_WORKER` | `2` | 每 Worker resident geometry 容量 |
+| `OCCCCAD_GEOMETRY_PER_WORKER` | `2` | 新 GeometryKey 的软调度容量；达到该值时优先选择/拉起其他 Worker，不迁移或删除既有不可变 Body 缓存 |
 | `OCCCCAD_GEOMETRY_WORKER_IDLE` | `5m` | 超出最小副本后的空闲回收时间 |
 | `OCCCCAD_LOG_LEVEL` | `info` | Geometry Worker 控制台与文件日志级别 |
 | `OCCCCAD_LOG_DIR` | `./logs` | Geometry Worker 滚动日志目录；相对路径以 `services/` 为基准 |

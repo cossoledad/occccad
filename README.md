@@ -95,6 +95,7 @@ occccad/
 ```
 
 `invoke test` 是 C++、Go 和 Front 单元/场景/conformance 的统一入口；测试所有权和目录规则见 [tests/README.md](tests/README.md)。
+`invoke performance-baseline` 运行当前 CAD 热路径的可重复、多样本 benchmark，并将结果写入 `build/performance/`；性能改动应在同一机器和构建类型下比较前后结果。
 
 ## 文档维护规则
 

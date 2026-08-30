@@ -75,6 +75,8 @@ RFC 6455 Upgrade、frame、Ping/Pong 由 `github.com/gorilla/websocket` v1.5.3 �
 | `OCCCCAD_ALLOWED_ORIGINS` | 空 | 逗号分隔的跨域 Origin；同源代理无需设置 |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | 空 | OTLP 导出端点；为空时仍记录 Trace ID |
 
+成功 API 响应包含 `Server-Timing` 分段；同一分段也写入结构化请求日志的 `phases_ms`。命令重点观察 `sketch-solve`、`geometry-evaluate`、`commit`，属性查询重点观察 `artifact-load` 与 `topology-worker`。阶段名保持低基数，模型 identity 只进入受控 Trace 属性。
+
 ## 运行
 
 在仓库根目录配置 `.env` 后：
@@ -102,6 +104,9 @@ invoke run.server
 ```bash
 cd services
 go test ./...
+
+# 仓库根目录生成可由 benchstat 比较的多样本基线
+invoke performance-baseline
 ```
 
 扩展业务能力优先增加 `services/internal` 模块，只有出现独立扩缩容、故障隔离、安全边界或发布节奏需求时才拆分网络服务。长期演进见项目[目标架构](../../../docs/TARGET_ARCHITECTURE.md)。

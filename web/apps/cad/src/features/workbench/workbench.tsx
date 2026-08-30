@@ -229,8 +229,10 @@ export function Workbench() {
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
 	const toolbarCatalog = useQuery({ queryKey: ["ui", "toolbars"], queryFn: api.toolbarCatalog, staleTime: 5 * 60_000 });
-  const properties = useQuery({ queryKey: queryKeys.documentProperties(documentID), queryFn: () => api.getDocumentProperties(documentID), enabled: Boolean(documentID) });
-  const history = useQuery({ queryKey: queryKeys.history(documentID), queryFn: () => api.getHistory(documentID), enabled: Boolean(documentID) });
+  const properties = useQuery({ queryKey: queryKeys.documentProperties(documentID), queryFn: () => api.getDocumentProperties(documentID),
+    enabled: Boolean(documentID && inspectorOpen && store.inspectorTab === "properties"), staleTime: 30_000 });
+  const history = useQuery({ queryKey: queryKeys.history(documentID), queryFn: () => api.getHistory(documentID),
+    enabled: Boolean(documentID && inspectorOpen && store.inspectorTab === "history"), staleTime: 10_000 });
   const catalog = useQuery({ queryKey: queryKeys.documents({ workbench: true }), queryFn: () => api.listDocuments({ limit: 100, allFolders: true }) });
   const topologySelection = store.selection && ["face", "edge", "vertex"].includes(store.selection.kind)
     ? store.selection as Extract<Exclude<Selection, null>, { kind: "face" | "edge" | "vertex" }> : undefined;
@@ -239,7 +241,7 @@ export function Workbench() {
       topologySelection.kind, topologySelection.topologyId) : ["topology-properties", "none"],
     queryFn: () => api.getTopologyProperties(documentID, topologySelection!.geometryKey!,
       topologySelection!.kind.toUpperCase() as "FACE" | "EDGE" | "VERTEX", topologySelection!.topologyId),
-    enabled: Boolean(documentID && topologySelection?.geometryKey), staleTime: 5 * 60_000,
+    enabled: Boolean(documentID && inspectorOpen && store.inspectorTab === "properties" && topologySelection?.geometryKey), staleTime: 5 * 60_000,
   });
 
   useEffect(() => {
@@ -247,8 +249,9 @@ export function Workbench() {
   }, [client, document.data]);
   const refresh = useCallback(async (view?: DocumentView) => {
     if (view) client.setQueryData(queryKeys.document(view.document.id), view);
-    await Promise.all([client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
-    client.invalidateQueries({ queryKey: queryKeys.history(documentID) }), client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID) }),
+    await Promise.all([view ? Promise.resolve() : client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
+    client.invalidateQueries({ queryKey: queryKeys.history(documentID), refetchType: "active" }),
+    client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID), refetchType: "active" }),
     client.invalidateQueries({ queryKey: ["documents"] }),
     client.invalidateQueries({ queryKey: queryKeys.openDocuments })]);
   }, [client, documentID]);
@@ -264,9 +267,9 @@ export function Workbench() {
         useWorkbenchStore.getState().setSelection(null);
       }
       void Promise.all([
-        client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
-        client.invalidateQueries({ queryKey: queryKeys.history(documentID) }),
-        client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID) }),
+        event.type === "document.snapshot.v1" ? Promise.resolve() : client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
+        client.invalidateQueries({ queryKey: queryKeys.history(documentID), refetchType: "active" }),
+        client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID), refetchType: "active" }),
         client.invalidateQueries({ queryKey: ["documents"] }),
         client.invalidateQueries({ queryKey: queryKeys.openDocuments }),
       ]);
@@ -279,7 +282,7 @@ export function Workbench() {
   }, [client, documentID, message]);
   const command = useMutation({
     mutationFn: (operation: () => Promise<DocumentView>) => operation(),
-    onSuccess: async (view) => { store.setSelection(null); await refresh(view); }, onError: (error) => message.error(error.message)
+    onSuccess: (view) => { store.setSelection(null); void refresh(view); }, onError: (error) => message.error(error.message)
   });
   const view = document.data;
   latestDocumentVersion.current = view?.document.versionId;

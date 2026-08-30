@@ -170,6 +170,11 @@ TEST(GeometryExchange, SolidFeatureChainFusesAndCutsOneBody) {
 
     const auto fused = kernel.evaluateProfilePads({base, add});
     EXPECT_EQ(kernel.getTopology(fused).solid_count, 1U);
+    // Equal-height overlapping pads form one 30 x 20 x 10 box.  A raw OCCT
+    // Fuse has the correct volume but retains section edges and exposes the top
+    // as three faces; a Body result must merge those same-domain regions.
+    EXPECT_EQ(kernel.getTopology(fused).face_count, 6U);
+    EXPECT_EQ(kernel.getTopology(fused).edge_count, 12U);
     EXPECT_NEAR(kernel.getVolume(fused), 6000.0, 1.0e-6);
     const auto cut = kernel.evaluateProfilePads({base, add, remove});
     EXPECT_EQ(kernel.getTopology(cut).solid_count, 1U);

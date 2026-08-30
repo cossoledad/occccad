@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 )
 
 const (
@@ -936,7 +937,9 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 }
 
 func (service *Service) applyDomainMutation(ctx context.Context, documentID string, request CommandRequest) error {
+	finishPrepare := perf.Start(ctx, "command-prepare")
 	prepared, err := service.prepareDomainMutation(ctx, documentID, request)
+	finishPrepare()
 	if err != nil {
 		return err
 	}
@@ -949,7 +952,9 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
+	finishApply := perf.Start(ctx, "command-apply")
 	nextJSON, changes, err := workspaceCommandRegistry.Apply(prepared.documentType, prepared.modelJSON, prepared.command)
+	finishApply()
 	if err != nil {
 		return err
 	}
@@ -968,9 +973,12 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			return err
 		}
 		normalizePartModel(&model)
+		finishSolve := perf.Start(ctx, "sketch-solve")
 		if err := service.solveSketches(ctx, prepared.requestID, &model); err != nil {
+			finishSolve()
 			return err
 		}
+		finishSolve()
 		if err := validateAndResolvePartParameters(&model); err != nil {
 			return err
 		}
@@ -980,7 +988,9 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err != nil {
 			return err
 		}
+		finishGeometry := perf.Start(ctx, "geometry-evaluate")
 		geometryKey, err = service.evaluatePart(ctx, prepared.requestID, model)
+		finishGeometry()
 		if err != nil {
 			return err
 		}
@@ -1012,6 +1022,8 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		return err
 	}
 	payloadDigest := modelcore.ValueDigest(prepared.command.Payload)
+	finishCommit := perf.Start(ctx, "commit")
+	defer finishCommit()
 	tx, err := service.database.Begin(ctx)
 	if err != nil {
 		return err
@@ -1105,7 +1117,9 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	if request.Type == "UNDO" || request.Type == "REDO" || request.Type == "RESTORE" {
 		return CommandPreview{}, fmt.Errorf("%w: history commands cannot be previewed", ErrValidation)
 	}
+	finishPrepare := perf.Start(ctx, "preview-prepare")
 	prepared, err := service.prepareDomainMutation(ctx, documentID, request)
+	finishPrepare()
 	if err != nil {
 		return CommandPreview{}, err
 	}
@@ -1121,19 +1135,26 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		return CommandPreview{}, err
 	}
 	normalizePartModel(&model)
+	finishSolve := perf.Start(ctx, "sketch-solve")
 	if err = service.solveSketches(ctx, "preview/"+prepared.requestID, &model); err != nil {
+		finishSolve()
 		return CommandPreview{}, err
 	}
+	finishSolve()
 	if err = validateAndResolvePartParameters(&model); err != nil {
 		return CommandPreview{}, err
 	}
 	nextJSON, _ = json.Marshal(model)
 	modelHash := canonicalModelHash(nextJSON)
+	finishGeometry := perf.Start(ctx, "geometry-evaluate")
 	geometryKey, err := service.evaluatePart(ctx, "preview/"+prepared.requestID, model)
+	finishGeometry()
 	if err != nil {
 		return CommandPreview{}, err
 	}
+	finishArtifact := perf.Start(ctx, "artifact-load")
 	artifact, err := service.loadArtifact(ctx, geometryKey)
+	finishArtifact()
 	if err != nil {
 		return CommandPreview{}, err
 	}
