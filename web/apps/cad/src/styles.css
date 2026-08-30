@@ -226,7 +226,6 @@ select {
 .global-header .brand-lockup small { margin-top: 4px; color: #9eacb4; font-size: 8px; line-height: 1; letter-spacing: .85px; }
 .global-header-actions { display: flex; align-items: center; gap: 9px; min-width: 0; }
 .global-header .ant-btn { width: 34px; height: 34px; padding: 0; font-size: 16px; }
-.global-header .context-help-button { width: auto; padding: 0 10px; gap: 5px; font-size: 12px; }
 .global-header .context-help-button.active { color: #18252c; border-color: #e0a22b; background: #f6cb68; }
 .global-header .ant-avatar { width: 32px; height: 32px; }
 .service-state { width: 8px; height: 8px; display: block; border-radius: 50%; background: #788790; box-shadow: 0 0 0 3px rgb(255 255 255 / 7%); }
@@ -794,7 +793,10 @@ select {
 .cad-tool-button.ant-btn:not(:disabled):hover { color: #13242d; border-color: #81929a; background: #f4f6f6; }
 .cad-tool-button.ant-btn.active { color: #17232d; border-color: #d98610; background: var(--cad-selected); }
 .ui-help-active .cad-tool-button.ant-btn { cursor: help; }
-.cad-short-tooltip .ant-tooltip-inner { min-height: 0; padding: 3px 6px; font-size: 11px; line-height: 1.25; white-space: nowrap; }
+.cad-cursor-tooltip-target { display: inline-flex; }
+.cad-cursor-tooltip { position: fixed; z-index: 1100; padding: 2px 5px; color: #27343a; border: 1px solid #c9d0d4;
+  border-radius: 1px; background: #fff; box-shadow: 0 1px 3px rgb(0 0 0 / 14%); font-size: 10px; line-height: 1.3;
+  white-space: nowrap; pointer-events: none; }
 .context-help-toolbar-name { margin-bottom: 8px; color: #6e7f88; font-size: 11px; }
 .context-help-text { margin: 0; color: #263b46; line-height: 1.65; }
 .cad-command-icon { display: block; overflow: visible; }

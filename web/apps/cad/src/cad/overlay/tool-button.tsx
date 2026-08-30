@@ -1,8 +1,9 @@
-import { Button, Tooltip } from "antd";
+import { Button } from "antd";
 import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { useCommandRegistry, useCommandState } from "../command/command-context";
 import { useUIHelp } from "../help/ui-help-context";
+import { CursorTooltip } from "./cursor-tooltip";
 
 export type ToolButtonProps = {
   command: string;
@@ -37,5 +38,5 @@ export function ToolButton({ command, icon, tooltip, toolbarName = "", helpText 
 	type={state.active ? "primary" : "default"} icon={icon} disabled={!state.enabled && !uiHelp.active} aria-pressed={state.active}
     aria-label={typeof tooltip === "string" ? tooltip.split(" · ")[0] : undefined}
     onClick={click} onDoubleClick={doubleClick} />;
-	return tooltip ? <Tooltip title={tooltip} mouseEnterDelay={0.45} overlayClassName="cad-short-tooltip">{button}</Tooltip> : button;
+	return tooltip ? <CursorTooltip title={tooltip} disabled={uiHelp.active}>{button}</CursorTooltip> : button;
 }

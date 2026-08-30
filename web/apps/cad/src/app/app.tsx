@@ -62,12 +62,12 @@ function ApplicationShell() {
       <button className="brand-button" aria-label="文档中心" onClick={() => navigate("/")}><Brand /></button>
       <div className="global-header-spacer" />
       <div className="global-header-actions">
-		{inWorkbench && <Button ghost className={`context-help-button ${uiHelp.active ? "active" : ""}`} icon={<QuestionCircleOutlined />}
-		  onClick={uiHelp.toggle}>这是什么？</Button>}
         <i role="status" aria-label={isMockMode ? "Mock" : health.isSuccess ? `OCCT ${health.data.occtVersion}` : "离线"}
           className={`service-state ${isMockMode ? "mock" : health.isSuccess ? "online" : "offline"}`} />
         <ActivityCenter />
         {user.platformRole === "ADMIN" && <Button ghost aria-label="管理" icon={<SettingOutlined />} onClick={() => setAdminOpen(true)} />}
+        {inWorkbench && <Button ghost className={`context-help-button ${uiHelp.active ? "active" : ""}`}
+          aria-label="这是什么？" aria-pressed={uiHelp.active} icon={<QuestionCircleOutlined />} onClick={uiHelp.toggle} />}
         <Dropdown menu={{ items: [
           { key: "logout", icon: <LogoutOutlined />, label: "退出登录", danger: true, onClick: () => void logout() },
         ] }}>

@@ -169,7 +169,7 @@ export class CadViewportEngine {
   private lastSketchSnap?: SketchSnapResult;
   private commandPreview?: THREE.Object3D;
   private dimensionDrag?: { selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; constraint: SketchConstraint;
-    root?: THREE.Object3D; startX: number; startY: number; position?: Vec2 };
+    root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2 };
   private suppressNextSelection = false;
   private activeToolID = "select";
   private navigationProfile: NavigationProfileID = "default";
@@ -718,9 +718,9 @@ export class CadViewportEngine {
         documentId: context.documentId,
         occurrencePath: context.occurrencePath, geometryKey: context.geometryKey, instanceId: context.instanceId,
       });
-      object.userData = { ...selection, sketchFeatureID: primitive.featureId };
+      object.userData = { ...selection, sketchFeatureID: primitive.featureId, visualizationPrimitive: true };
       object.traverse((child) => {
-        child.userData = { ...child.userData, ...selection, sketchFeatureID: primitive.featureId };
+        child.userData = { ...child.userData, ...selection, sketchFeatureID: primitive.featureId, visualizationPrimitive: true };
       });
       parent.add(object);
       if (primitive.semantic === "SKETCH_POINT" || primitive.semantic === "SKETCH_CURVE") {
@@ -799,7 +799,9 @@ export class CadViewportEngine {
     this.content.visible = !editing;
     this.sketchContext.visible = editing;
     for (const child of this.helpers.children) {
-      if (child.userData.sketchEditOverlay) {
+      if (child.userData.visualizationPrimitive) {
+        child.visible = !editing;
+      } else if (child.userData.sketchEditOverlay) {
         const active = child.userData.sketchFeatureID === this.activeSketchID;
         child.visible = editing && active;
         for (const sketchChild of child.children) {
@@ -1019,8 +1021,17 @@ export class CadViewportEngine {
     if (!this.dimensionDrag || !this.sketchPlane || !this.view) return;
     if (Math.hypot(x - this.dimensionDrag.startX, y - this.dimensionDrag.startY) < 3 && !this.dimensionDrag.position) return;
     const position = this.rawSketchPoint(x, y); if (!position) return;
+    if (!this.dimensionDrag.position) {
+      this.selectMany([]);
+      const root = this.dimensionDrag.root;
+      const parent = root?.parent;
+      if (root && parent) {
+        this.dimensionDrag.rootParent = parent;
+        this.dimensionDrag.rootIndex = parent.children.indexOf(root);
+        parent.remove(root);
+      }
+    }
     this.dimensionDrag.position = position;
-    if (this.dimensionDrag.root) this.dimensionDrag.root.visible = false;
     this.clearReferencePreview();
     const feature = this.view.part?.features.find((candidate) => candidate.id === this.dimensionDrag!.selection.featureId);
     if (!feature?.sketch) return;
@@ -1034,15 +1045,24 @@ export class CadViewportEngine {
   private finishDimensionDrag(): void {
     const drag = this.dimensionDrag; this.dimensionDrag = undefined;
     if (!drag) return;
-    if (drag.root && !drag.position) drag.root.visible = true;
     this.clearReferencePreview();
-    if (drag.position) this.callbacks.sketchOperations(drag.selection.featureId, [{ type: "UPDATE_CONSTRAINT_PLACEMENT",
-      constraintId: drag.constraint.id, labelPosition: { x: drag.position[0], y: drag.position[1] } }]);
+    if (drag.position) {
+      this.callbacks.sketchOperations(drag.selection.featureId, [{ type: "UPDATE_CONSTRAINT_PLACEMENT",
+        constraintId: drag.constraint.id, labelPosition: { x: drag.position[0], y: drag.position[1] } }]);
+      if (drag.root && !drag.root.parent) this.disposeRenderable(drag.root);
+    }
     this.invalidate();
   }
 
   private cancelDimensionDrag(): void {
-    if (this.dimensionDrag?.root) this.dimensionDrag.root.visible = true;
+    const drag = this.dimensionDrag;
+    if (drag?.root && drag.rootParent && !drag.root.parent) {
+      drag.rootParent.add(drag.root);
+      const currentIndex = drag.rootParent.children.indexOf(drag.root);
+      const targetIndex = Math.max(0, Math.min(drag.rootIndex ?? currentIndex, drag.rootParent.children.length - 1));
+      drag.rootParent.children.splice(currentIndex, 1);
+      drag.rootParent.children.splice(targetIndex, 0, drag.root);
+    }
     this.dimensionDrag = undefined; this.clearReferencePreview(); this.invalidate();
   }
 
