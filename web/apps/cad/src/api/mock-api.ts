@@ -17,9 +17,9 @@ const mockTopologyProperties = (kind: "FACE" | "EDGE" | "VERTEX"): Record<string
   return { tolerance: 1e-7 };
 };
 const datumPlanes = [
-  { id: "datum-xy", name: "XY Plane", plane: "XY" as const, origin: [0, 0, 0] as Vec3, normal: [0, 0, 1] as Vec3, size: 180 },
-  { id: "datum-xz", name: "XZ Plane", plane: "XZ" as const, origin: [0, 0, 0] as Vec3, normal: [0, 1, 0] as Vec3, size: 180 },
-  { id: "datum-yz", name: "YZ Plane", plane: "YZ" as const, origin: [0, 0, 0] as Vec3, normal: [1, 0, 0] as Vec3, size: 180 },
+  { id: "datum-xy", name: "XY Plane", plane: "XY" as const, origin: [0, 0, 0] as Vec3, normal: [0, 0, 1] as Vec3, uDirection: [1, 0, 0] as Vec3, size: 180 },
+  { id: "datum-xz", name: "XZ Plane", plane: "XZ" as const, origin: [0, 0, 0] as Vec3, normal: [0, -1, 0] as Vec3, uDirection: [1, 0, 0] as Vec3, size: 180 },
+  { id: "datum-yz", name: "YZ Plane", plane: "YZ" as const, origin: [0, 0, 0] as Vec3, normal: [1, 0, 0] as Vec3, uDirection: [0, 1, 0] as Vec3, size: 180 },
 ];
 const axisSystems = [{ id: "axis-system-default", name: "Absolute Axis System", origin: [0, 0, 0] as Vec3,
   xDirection: [1, 0, 0] as Vec3, yDirection: [0, 1, 0] as Vec3, zDirection: [0, 0, 1] as Vec3 }];
@@ -254,10 +254,16 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 	}
 	return pause(commit(documentID, commandType, (view) => {
     if (commandType === "CREATE_SKETCH" && view.part) {
-      const plane=input.plane as "XY"|"XZ"|"YZ";
+      const plane=input.plane as "XY"|"XZ"|"YZ"|"CUSTOM";
+      const datumPlaneId=String(input.datumPlaneId ?? `datum-${plane.toLowerCase()}`);
       view.part.features.push({ id: id("mock-sketch"), type: "SKETCH", name: `Sketch ${view.part.features.length + 1}`, plane,
-        sketch:{schemaVersion:1,support:{type:"DATUM_PLANE",datumPlaneId:`datum-${plane.toLowerCase()}`,plane},entities:[],constraints:[],solve:{status:"EMPTY",degreesOfFreedom:0}} });
+        sketch:{schemaVersion:1,support:{type:"DATUM_PLANE",datumPlaneId,plane},entities:[],constraints:[],solve:{status:"EMPTY",degreesOfFreedom:0}} });
     }
+    if(commandType==="CREATE_DATUM_PLANE"&&view.part){const datum={id:id("mock-plane"),name:String(input.name),plane:"CUSTOM" as const,
+      origin:input.origin as Vec3,normal:input.normal as Vec3,uDirection:input.uDirection as Vec3,size:180};
+      view.part.datumPlanes.push(datum);view.datumPlanes?.push(datum);}
+    if(commandType==="CREATE_DATUM_AXIS"&&view.part){const datum={id:id("mock-axis"),name:String(input.name),origin:input.origin as Vec3,direction:input.direction as Vec3};
+      view.part.datumAxes=[...(view.part.datumAxes??[]),datum];view.datumAxes=[...(view.datumAxes??[]),datum];}
     if (commandType === "EDIT_SKETCH" && view.part) {
       const sketch=view.part.features.find((feature)=>feature.id===input.sketchId)?.sketch;
       for (const operation of input.operations as SketchOperation[] ?? []) {
@@ -284,6 +290,14 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
       view.part.features.push({ id: id("mock-pad"), type: "PAD", name: `Extrude ${view.part.features.length + 1}`,
         profile: String(input.sketchId), length: Number(input.length), operation: "ADD" });
       if (sketch?.sketch) { const points=sketch.sketch.entities.flatMap((entity)=>sampleSketchEntity(entity));const xs=points.map((point)=>point[0]),ys=points.map((point)=>point[1]);if(points.length>0)view.artifact=boxArtifact(id("mock-shape"),[Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys),Number(input.length)]); }
+    }
+    if (commandType === "CREATE_SOLID_FEATURE" && view.part) {
+      const generator = String(input.generator) as "LINEAR_EXTRUDE" | "REVOLVE";
+      view.part.features.push({ id: id(generator === "REVOLVE" ? "mock-revolve" : "mock-extrude"), type: generator,
+        name: `${generator === "REVOLVE" ? "Revolve" : "Extrude"} ${view.part.features.length + 1}`,
+        profile: String(input.sketchId), length: Number(input.length) || undefined, angle: Number(input.angle) || undefined,
+        axisEntityId: input.axisEntityId ? String(input.axisEntityId) : undefined,
+        operation: String(input.operation) as "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT" });
     }
     if (commandType === "INSERT_INSTANCE" && view.product) {
       view.product.instances.push({ id: id("mock-instance"), name: String(input.name || "Instance"),
@@ -439,21 +453,26 @@ export const mockApi: CadApi = {
   previewCommand: async (documentID, input, signal) => {
     if (signal?.aborted) throw new DOMException("Preview cancelled", "AbortError");
     const view = getView(documentID);
-    if (input.type !== "PAD_SKETCH" || !view.part) throw new Error("Mock preview currently supports PAD_SKETCH only");
+    if ((input.type !== "PAD_SKETCH" && input.type !== "CREATE_SOLID_FEATURE") || !view.part) throw new Error("Mock preview currently supports solid generators only");
     const sketch = view.part.features.find((feature) => feature.id === input.sketchId)?.sketch;
     const points = sketch?.entities.flatMap((entity) => [entity.start, entity.end]).filter(Boolean) as Array<{x:number;y:number}>;
     if (!points?.length) throw new Error("Preview profile is empty");
     const xs = points.map((point) => point.x), ys = points.map((point) => point.y);
-    const artifact = boxArtifact(id("mock-preview"), [Math.max(...xs)-Math.min(...xs), Math.max(...ys)-Math.min(...ys), Number(input.length)]);
+    const depth = input.generator === "REVOLVE" ? Math.max(...xs)-Math.min(...xs) : Number(input.length);
+    const artifact = boxArtifact(id("mock-preview"), [Math.max(...xs)-Math.min(...xs), Math.max(...ys)-Math.min(...ys), depth]);
     return pause({ previewId: id("mock-command-preview"), baseVersionId: view.document.versionId,
       baseSequence: 0, modelHash: "mock-preview", artifact });
   },
-  createSketch: async (documentID, plane) => command(documentID, { type: "CREATE_SKETCH", plane }),
+  createSketch: async (documentID, plane, datumPlaneId) => command(documentID, { type: "CREATE_SKETCH", plane, datumPlaneId }),
   editSketch: async (documentID, sketchID, operations) => command(documentID, { type: "EDIT_SKETCH", sketchId: sketchID, operations }),
   deleteNode: async (documentID, targetKind, targetID, ownerEntityID) => command(documentID, { type: "DELETE_NODE", targetKind, targetId: targetID, ownerEntityId: ownerEntityID }),
   deleteNodes: async (documentID, targets) => command(documentID, { type: "DELETE_NODES", targets }),
   pad: async (documentID, sketchID, length, intentRequestID) => command(documentID, { type: "PAD_SKETCH", sketchId: sketchID, length,
     ...(intentRequestID ? { requestId: intentRequestID } : {}) }),
+  createSolidFeature: async (documentID, input, intentRequestID) => command(documentID, { type: "CREATE_SOLID_FEATURE", ...input,
+    ...(intentRequestID ? { requestId: intentRequestID } : {}) }),
+  createDatumPlane: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_PLANE", ...input }),
+  createDatumAxis: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_AXIS", ...input }),
   insert: async (documentID, referencedDocumentID, name) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID, name }),
   move: async (documentID, instanceID, translation) => command(documentID, { type: "MOVE_INSTANCE", instanceId: instanceID, translation }),
   setReferenceMode: async (documentID, instanceID, referenceMode) => command(documentID, { type: "SET_REFERENCE_MODE", instanceId: instanceID, referenceMode }),

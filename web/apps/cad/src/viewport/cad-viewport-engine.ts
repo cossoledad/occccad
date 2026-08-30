@@ -30,7 +30,7 @@ import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
 import { ArcSketchTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
-  Artifact, AxisSystem, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SelectionItem, SketchConstraint, SketchGeometryRef, SketchOperation, Vec2, Vec3, VisualizationManifest,
+  Artifact, AxisSystem, DatumAxis, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SelectionItem, SketchConstraint, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3, VisualizationManifest,
 } from "../types";
 
 type Callbacks = {
@@ -62,18 +62,27 @@ export type ViewportDebugState = {
   hudScreen?: { x: number; y: number };
 };
 
-const planeColors: Record<PlaneName, number> = { XY: CATIA_VISUAL_THEME.axisZ, XZ: CATIA_VISUAL_THEME.axisY, YZ: CATIA_VISUAL_THEME.axisX };
+const planeColors: Record<PlaneName | "CUSTOM", number> = { XY: CATIA_VISUAL_THEME.axisZ, XZ: CATIA_VISUAL_THEME.axisY, YZ: CATIA_VISUAL_THEME.axisX, CUSTOM: 0x42a5c6 };
 
-function localToWorld(plane: PlaneName, point: Vec2): THREE.Vector3 {
-  if (plane === "XY") return new THREE.Vector3(point[0], point[1], 0);
-  if (plane === "XZ") return new THREE.Vector3(point[0], 0, point[1]);
-  return new THREE.Vector3(0, point[0], point[1]);
+function planeFrame(plane: PlaneName | SketchPlane): { origin: THREE.Vector3; normal: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3 } {
+  if (typeof plane !== "string") {
+    const normal = new THREE.Vector3().fromArray(plane.normal).normalize();
+    const u = new THREE.Vector3().fromArray(plane.uDirection).normalize();
+    return { origin: new THREE.Vector3().fromArray(plane.origin), normal, u, v: normal.clone().cross(u).normalize() };
+  }
+  if (plane === "XY") return { origin: new THREE.Vector3(), normal: new THREE.Vector3(0, 0, 1), u: new THREE.Vector3(1, 0, 0), v: new THREE.Vector3(0, 1, 0) };
+  if (plane === "XZ") return { origin: new THREE.Vector3(), normal: new THREE.Vector3(0, -1, 0), u: new THREE.Vector3(1, 0, 0), v: new THREE.Vector3(0, 0, 1) };
+  return { origin: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0), u: new THREE.Vector3(0, 1, 0), v: new THREE.Vector3(0, 0, 1) };
 }
 
-function worldToLocal(plane: PlaneName, point: THREE.Vector3): Vec2 {
-  if (plane === "XY") return [point.x, point.y];
-  if (plane === "XZ") return [point.x, point.z];
-  return [point.y, point.z];
+function localToWorld(plane: PlaneName | SketchPlane, point: Vec2): THREE.Vector3 {
+  const frame = planeFrame(plane);
+  return frame.origin.clone().addScaledVector(frame.u, point[0]).addScaledVector(frame.v, point[1]);
+}
+
+function worldToLocal(plane: PlaneName | SketchPlane, point: THREE.Vector3): Vec2 {
+  const frame = planeFrame(plane); const relative = point.clone().sub(frame.origin);
+  return [relative.dot(frame.u), relative.dot(frame.v)];
 }
 
 function sketchDiagnosticColor(status: string | undefined, construction = false): number {
@@ -89,10 +98,9 @@ function sketchDiagnosticColor(status: string | undefined, construction = false)
   }
 }
 
-function rayPlane(plane: PlaneName): THREE.Plane {
-  if (plane === "XY") return new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
-  if (plane === "XZ") return new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-  return new THREE.Plane(new THREE.Vector3(1, 0, 0), 0);
+function rayPlane(plane: PlaneName | SketchPlane): THREE.Plane {
+  const frame = planeFrame(plane);
+  return new THREE.Plane().setFromNormalAndCoplanarPoint(frame.normal, frame.origin);
 }
 
 function constraintTreeNodeID(featureTreeNode: string, kind: ConstraintKind, constraintID: string): string {
@@ -161,7 +169,7 @@ export class CadViewportEngine {
   private preselectedOverlays: THREE.Object3D[] = [];
   private highlightedRoots = new Set<THREE.Object3D>();
   private view?: DocumentView;
-  private sketchPlane?: PlaneName;
+  private sketchPlane?: SketchPlane;
   private activeSketchID?: string;
   private preview?: THREE.Object3D;
   private referencePreview?: THREE.Object3D;
@@ -324,18 +332,16 @@ export class CadViewportEngine {
     });
   }
 
-  beginSketch(sketchID: string, plane: PlaneName): void {
+  beginSketch(sketchID: string, plane: SketchPlane): void {
     this.activeSketchID = sketchID;
     this.sketchPlane = plane;
     this.transform.detach();
-    this.select({ kind: "plane", id: `datum-${plane.toLowerCase()}`, plane });
+    this.select({ kind: "plane", id: plane.datumPlaneId, plane: plane.plane });
     this.navigation.setEnabled(true);
-    if (plane === "XY") this.camera.position.set(0, 0, 420);
-    else if (plane === "XZ") this.camera.position.set(0, -420, 0);
-    else this.camera.position.set(420, 0, 0);
-    this.navigation.target.set(0, 0, 0);
-    if (plane === "XY") this.camera.up.set(0, 1, 0);
-    else this.camera.up.set(0, 0, 1);
+    const frame = planeFrame(plane);
+    this.navigation.target.copy(frame.origin);
+    this.camera.position.copy(frame.origin).addScaledVector(frame.normal, 420);
+    this.camera.up.copy(frame.v);
     this.navigation.syncCamera();
     this.buildSketchContext();
     this.updateSketchContextVisibility();
@@ -510,6 +516,10 @@ export class CadViewportEngine {
       documentId: view.document.id, geometryKey: view.artifact?.geometryKey ?? "", occurrencePath: "",
       treeNodeId: `${rootPath}/origin/axis:${axis.id}`,
     });
+    for (const axis of view.datumAxes ?? view.part?.datumAxes ?? []) this.addDatumAxis(axis, this.helpers, {
+      documentId: view.document.id, geometryKey: view.artifact?.geometryKey ?? "", occurrencePath: "",
+      treeNodeId: `${rootPath}/origin/datum-axis:${axis.id}`,
+    });
     if (view.artifact) this.addVisualPrimitives(view.artifact.visualization, this.helpers, {
       documentId: view.document.id, geometryKey: view.artifact.geometryKey, occurrencePath: "", treeNodeId: `${rootPath}/body`,
     });
@@ -586,16 +596,15 @@ export class CadViewportEngine {
   private addDatumPlane(datum: DatumPlane, parent: THREE.Group, selectable: boolean, context?: SolidContext): void {
     const { id, plane } = datum;
     const geometry = new THREE.PlaneGeometry(datum.size || 180, datum.size || 180);
-    if (plane === "XZ") geometry.rotateX(Math.PI / 2);
-    if (plane === "YZ") geometry.rotateY(Math.PI / 2);
     const material = new THREE.MeshBasicMaterial({
       color: planeColors[plane], transparent: true, opacity: 0.075,
       side: THREE.DoubleSide, depthWrite: false,
     });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.fromArray(datum.origin);
+    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3().fromArray(datum.normal).normalize());
     const selection = {
-      kind: "plane" as const, id: `${context?.occurrencePath || "root"}:${id}`, plane,
+      kind: "plane" as const, id: `${context?.occurrencePath || "root"}:${id}`, plane, datumPlane: datum,
       treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
       geometryKey: context?.geometryKey, instanceId: context?.instanceId
     };
@@ -611,6 +620,22 @@ export class CadViewportEngine {
       this.selectionIndex.register(selection, mesh);
       this.selectionIndex.registerPick(mesh, () => selection, 8);
     }
+  }
+
+  private addDatumAxis(axis: DatumAxis, parent: THREE.Group, context?: SolidContext): void {
+    const origin = new THREE.Vector3().fromArray(axis.origin);
+    const direction = new THREE.Vector3().fromArray(axis.direction).normalize();
+    const half = 90;
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+      origin.clone().addScaledVector(direction, -half), origin.clone().addScaledVector(direction, half),
+    ]), new THREE.LineDashedMaterial({ color: 0xd89422, dashSize: 8, gapSize: 5 }));
+    line.computeLineDistances();
+    const selection = { kind: "axis" as const, axis: "DATUM" as const,
+      id: `${context?.occurrencePath || "root"}:${axis.id}`, treeNodeId: context?.treeNodeId,
+      documentId: context?.documentId, occurrencePath: context?.occurrencePath, geometryKey: context?.geometryKey,
+      instanceId: context?.instanceId };
+    line.userData = selection; parent.add(line);
+    this.selectionIndex.register(selection, line); this.selectionIndex.registerPick(line, () => selection, 48);
   }
 
   private addAxisSystem(axis: AxisSystem, parent: THREE.Group, context?: SolidContext): void {
@@ -646,6 +671,9 @@ export class CadViewportEngine {
     });
     for (const axis of reference.axisSystems ?? []) this.addAxisSystem(axis, parent, {
       ...context, treeNodeId: context.treeNodeId.replace(/\/body$/, `/origin/axis:${axis.id}`),
+    });
+    for (const axis of reference.datumAxes ?? []) this.addDatumAxis(axis, parent, {
+      ...context, treeNodeId: context.treeNodeId.replace(/\/body$/, `/origin/datum-axis:${axis.id}`),
     });
   }
 
@@ -812,7 +840,11 @@ export class CadViewportEngine {
   }
 
   private addSketch(feature: Feature, _includeEntities = true): void {
-    const plane = feature.sketch?.support.plane ?? feature.plane ?? "XY";
+    const support = feature.sketch?.support;
+    const datum = this.view?.datumPlanes?.find((candidate) => candidate.id === support?.datumPlaneId)
+      ?? this.view?.artifact?.visualization.referenceGeometry.datumPlanes?.find((candidate) => candidate.id === support?.datumPlaneId);
+    const plane: PlaneName | SketchPlane = datum ? { datumPlaneId: datum.id, plane: datum.plane, origin: datum.origin,
+      normal: datum.normal, uDirection: datum.uDirection } : (support?.plane as PlaneName ?? feature.plane ?? "XY");
     const group = new THREE.Group();
     group.userData.sketchFeatureID = feature.id;
     const documentId = this.view?.document.id ?? "";
@@ -1191,7 +1223,7 @@ export class CadViewportEngine {
     this.pointer.set((x / width) * 2 - 1, -(y / height) * 2 + 1);
   }
 
-  private drawPreview(points2: Vec2[], closed: boolean, plane: PlaneName): void {
+  private drawPreview(points2: Vec2[], closed: boolean, plane: PlaneName | SketchPlane): void {
     this.clearPreview();
     const localPoints = closed && points2.length > 0 ? [...points2, points2[0]] : points2;
     const points = localPoints.map((point) => localToWorld(plane, point));
@@ -1204,7 +1236,7 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
-  private drawPointPreview(point: Vec2, plane: PlaneName): void {
+  private drawPointPreview(point: Vec2, plane: PlaneName | SketchPlane): void {
     this.clearPreview();
     const group=new THREE.Group();const marker = new THREE.Points(
       new THREE.BufferGeometry().setFromPoints([localToWorld(plane, point)]),

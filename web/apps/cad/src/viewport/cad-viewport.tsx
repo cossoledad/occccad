@@ -4,7 +4,7 @@ import { InputDebugOverlay, type InputDebugSnapshot } from "../cad/overlay/input
 import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
 import type { WorkbenchToolID } from "../state/workbench-store";
 import { randomUUID } from "../utils/random-uuid";
-import type { Artifact, DocumentView, PlaneName, Selection, SelectionItem, SketchGeometryRef, SketchOperation, Vec2, Vec3 } from "../types";
+import type { Artifact, DocumentView, Selection, SelectionItem, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3 } from "../types";
 import { CadViewportEngine } from "./cad-viewport-engine";
 import { formatSketchDimensionValue, normalizeSketchDimensionValue } from "../cad/sketch/sketch-input-policy";
 
@@ -20,7 +20,7 @@ type Props = {
   view: DocumentView;
   selections: SelectionItem[];
   preselection: Selection;
-  sketchPlane?: PlaneName;
+  sketchPlane?: SketchPlane;
   activeSketchID?: string;
   activeToolID: WorkbenchToolID;
   navigationProfile: NavigationProfileID;

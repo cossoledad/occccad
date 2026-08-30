@@ -26,7 +26,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-profile-interpolation-v6"
+const evaluatorVersion = "part-solid-generators-v7"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -81,12 +81,13 @@ type Artifact struct {
 }
 
 type DatumPlane struct {
-	ID     string     `json:"id"`
-	Name   string     `json:"name"`
-	Plane  string     `json:"plane"`
-	Origin [3]float64 `json:"origin"`
-	Normal [3]float64 `json:"normal"`
-	Size   float64    `json:"size"`
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Plane      string     `json:"plane"`
+	Origin     [3]float64 `json:"origin"`
+	Normal     [3]float64 `json:"normal"`
+	UDirection [3]float64 `json:"uDirection"`
+	Size       float64    `json:"size"`
 }
 
 type AxisSystem struct {
@@ -98,9 +99,17 @@ type AxisSystem struct {
 	ZDirection [3]float64 `json:"zDirection"`
 }
 
+type DatumAxis struct {
+	ID        string     `json:"id"`
+	Name      string     `json:"name"`
+	Origin    [3]float64 `json:"origin"`
+	Direction [3]float64 `json:"direction"`
+}
+
 type ReferenceGeometry struct {
 	DatumPlanes []DatumPlane `json:"datumPlanes"`
 	AxisSystems []AxisSystem `json:"axisSystems"`
+	DatumAxes   []DatumAxis  `json:"datumAxes"`
 }
 
 // VisualizationManifest is the immutable display contract shared by a Part
@@ -223,7 +232,10 @@ type Feature struct {
 	Sketch       *SketchFeature `json:"sketch,omitempty"`
 	Profile      string         `json:"profile,omitempty"`
 	Length       float64        `json:"length,omitempty"`
+	Angle        float64        `json:"angle,omitempty"`
 	Operation    string         `json:"operation,omitempty"`
+	AxisEntityID string         `json:"axisEntityId,omitempty"`
+	Reversed     bool           `json:"reversed,omitempty"`
 	GeometryKey  string         `json:"geometryKey,omitempty"`
 	FileName     string         `json:"fileName,omitempty"`
 	SourceFormat string         `json:"sourceFormat,omitempty"`
@@ -233,6 +245,7 @@ type PartModel struct {
 	Units       string                          `json:"units"`
 	DatumPlanes []DatumPlane                    `json:"datumPlanes"`
 	AxisSystems []AxisSystem                    `json:"axisSystems"`
+	DatumAxes   []DatumAxis                     `json:"datumAxes"`
 	Features    []Feature                       `json:"features"`
 	Parameters  []modelcore.ParameterDefinition `json:"parameters,omitempty"`
 }
@@ -356,6 +369,7 @@ type DocumentView struct {
 	Document          DocumentSummary        `json:"document"`
 	DatumPlanes       []DatumPlane           `json:"datumPlanes,omitempty"`
 	AxisSystems       []AxisSystem           `json:"axisSystems,omitempty"`
+	DatumAxes         []DatumAxis            `json:"datumAxes,omitempty"`
 	Part              *PartModel             `json:"part,omitempty"`
 	Product           *ProductModel          `json:"product,omitempty"`
 	Artifact          *Artifact              `json:"artifact,omitempty"`
@@ -389,9 +403,19 @@ type CommandRequest struct {
 	RequestID            string             `json:"requestId"`
 	Type                 string             `json:"type"`
 	Plane                string             `json:"plane,omitempty"`
+	DatumPlaneID         string             `json:"datumPlaneId,omitempty"`
 	SketchID             string             `json:"sketchId,omitempty"`
 	Operations           []SketchOperation  `json:"operations,omitempty"`
 	Length               float64            `json:"length,omitempty"`
+	Angle                float64            `json:"angle,omitempty"`
+	Generator            string             `json:"generator,omitempty"`
+	Operation            string             `json:"operation,omitempty"`
+	AxisEntityID         string             `json:"axisEntityId,omitempty"`
+	Reversed             bool               `json:"reversed,omitempty"`
+	Origin               [3]float64         `json:"origin,omitempty"`
+	Normal               [3]float64         `json:"normal,omitempty"`
+	UDirection           [3]float64         `json:"uDirection,omitempty"`
+	Direction            [3]float64         `json:"direction,omitempty"`
 	ReferencedDocumentID string             `json:"referencedDocumentId,omitempty"`
 	Name                 string             `json:"name,omitempty"`
 	InstanceID           string             `json:"instanceId,omitempty"`
@@ -1468,6 +1492,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		view.Part = &model
 		view.DatumPlanes = model.DatumPlanes
 		view.AxisSystems = model.AxisSystems
+		view.DatumAxes = model.DatumAxes
 		if geometryKey == nil {
 			key, referenceErr := service.ensureVisualizationArtifact(ctx, model)
 			if referenceErr != nil {
@@ -1535,9 +1560,9 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 
 func datumPlanes() []DatumPlane {
 	return []DatumPlane{
-		{ID: "datum-xy", Name: "XY Plane", Plane: "XY", Normal: [3]float64{0, 0, 1}, Size: 180},
-		{ID: "datum-xz", Name: "XZ Plane", Plane: "XZ", Normal: [3]float64{0, 1, 0}, Size: 180},
-		{ID: "datum-yz", Name: "YZ Plane", Plane: "YZ", Normal: [3]float64{1, 0, 0}, Size: 180},
+		{ID: "datum-xy", Name: "XY Plane", Plane: "XY", Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}, Size: 180},
+		{ID: "datum-xz", Name: "XZ Plane", Plane: "XZ", Normal: [3]float64{0, -1, 0}, UDirection: [3]float64{1, 0, 0}, Size: 180},
+		{ID: "datum-yz", Name: "YZ Plane", Plane: "YZ", Normal: [3]float64{1, 0, 0}, UDirection: [3]float64{0, 1, 0}, Size: 180},
 	}
 }
 
@@ -1546,8 +1571,113 @@ func defaultAxisSystems() []AxisSystem {
 		XDirection: [3]float64{1, 0, 0}, YDirection: [3]float64{0, 1, 0}, ZDirection: [3]float64{0, 0, 1}}}
 }
 
+func resolveRevolveAxis(model PartModel, sketch Feature, reference string) ([2]float64, [2]float64, error) {
+	var zero [2]float64
+	if sketch.Sketch == nil {
+		return zero, zero, fmt.Errorf("%w: revolve profile is not a sketch", ErrValidation)
+	}
+	for _, entity := range sketch.Sketch.Entities {
+		if (reference == entity.ID || reference == "SKETCH:"+entity.ID) && entity.Kind == "LINE" && entity.Start != nil && entity.End != nil {
+			return [2]float64{entity.Start.X, entity.Start.Y}, [2]float64{entity.End.X, entity.End.Y}, nil
+		}
+	}
+	var origin, direction [3]float64
+	found := false
+	parts := strings.Split(reference, ":")
+	if len(parts) == 3 && parts[0] == "SKETCH_LINE" {
+		for _, source := range model.Features {
+			if source.ID != parts[1] || source.Sketch == nil {
+				continue
+			}
+			var sourceDatum *DatumPlane
+			for index := range model.DatumPlanes {
+				if model.DatumPlanes[index].ID == source.Sketch.Support.DatumPlaneID {
+					sourceDatum = &model.DatumPlanes[index]
+					break
+				}
+			}
+			if sourceDatum == nil {
+				break
+			}
+			cross := func(a, b [3]float64) [3]float64 {
+				return [3]float64{a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]}
+			}
+			v := cross(sourceDatum.Normal, sourceDatum.UDirection)
+			toWorld := func(point SketchPoint2) [3]float64 {
+				return [3]float64{
+					sourceDatum.Origin[0] + sourceDatum.UDirection[0]*point.X + v[0]*point.Y,
+					sourceDatum.Origin[1] + sourceDatum.UDirection[1]*point.X + v[1]*point.Y,
+					sourceDatum.Origin[2] + sourceDatum.UDirection[2]*point.X + v[2]*point.Y}
+			}
+			for _, entity := range source.Sketch.Entities {
+				if entity.ID == parts[2] && entity.Kind == "LINE" && entity.Start != nil && entity.End != nil {
+					origin = toWorld(*entity.Start)
+					end := toWorld(*entity.End)
+					direction = [3]float64{end[0] - origin[0], end[1] - origin[1], end[2] - origin[2]}
+					found = true
+					break
+				}
+			}
+			break
+		}
+	} else if len(parts) == 3 && parts[0] == "AXIS_SYSTEM" {
+		for _, system := range model.AxisSystems {
+			if system.ID != parts[1] {
+				continue
+			}
+			origin = system.Origin
+			switch parts[2] {
+			case "X":
+				direction = system.XDirection
+			case "Y":
+				direction = system.YDirection
+			case "Z":
+				direction = system.ZDirection
+			default:
+				continue
+			}
+			found = true
+			break
+		}
+	} else if len(parts) == 2 && parts[0] == "DATUM_AXIS" {
+		for _, axis := range model.DatumAxes {
+			if axis.ID == parts[1] {
+				origin, direction, found = axis.Origin, axis.Direction, true
+				break
+			}
+		}
+	}
+	if !found {
+		return zero, zero, fmt.Errorf("%w: revolve axis %s is missing", ErrValidation, reference)
+	}
+	var datum *DatumPlane
+	for index := range model.DatumPlanes {
+		if model.DatumPlanes[index].ID == sketch.Sketch.Support.DatumPlaneID {
+			datum = &model.DatumPlanes[index]
+			break
+		}
+	}
+	if datum == nil {
+		return zero, zero, fmt.Errorf("%w: sketch support plane is missing", ErrValidation)
+	}
+	dot := func(a, b [3]float64) float64 { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2] }
+	cross := func(a, b [3]float64) [3]float64 {
+		return [3]float64{a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]}
+	}
+	n, u := datum.Normal, datum.UDirection
+	v := cross(n, u)
+	rel := [3]float64{origin[0] - datum.Origin[0], origin[1] - datum.Origin[1], origin[2] - datum.Origin[2]}
+	if math.Abs(dot(direction, n)) > 1e-8 || math.Abs(dot(rel, n)) > 1e-6 {
+		return zero, zero, fmt.Errorf("%w: revolve axis must lie in the sketch support plane", ErrValidation)
+	}
+	start := [2]float64{dot(rel, u), dot(rel, v)}
+	endRel := [3]float64{rel[0] + direction[0], rel[1] + direction[1], rel[2] + direction[2]}
+	end := [2]float64{dot(endRel, u), dot(endRel, v)}
+	return start, end, nil
+}
+
 func newPartModel() PartModel {
-	return PartModel{Units: "mm", DatumPlanes: datumPlanes(), AxisSystems: defaultAxisSystems(), Features: []Feature{}, Parameters: []modelcore.ParameterDefinition{}}
+	return PartModel{Units: "mm", DatumPlanes: datumPlanes(), AxisSystems: defaultAxisSystems(), DatumAxes: []DatumAxis{}, Features: []Feature{}, Parameters: []modelcore.ParameterDefinition{}}
 }
 
 func normalizePartModel(model *PartModel) {
@@ -1557,8 +1687,23 @@ func normalizePartModel(model *PartModel) {
 	if len(model.DatumPlanes) == 0 {
 		model.DatumPlanes = datumPlanes()
 	}
+	for index := range model.DatumPlanes {
+		plane := &model.DatumPlanes[index]
+		if plane.UDirection != [3]float64{} {
+			continue
+		}
+		switch strings.ToUpper(plane.Plane) {
+		case "YZ":
+			plane.UDirection = [3]float64{0, 1, 0}
+		default:
+			plane.UDirection = [3]float64{1, 0, 0}
+		}
+	}
 	if len(model.AxisSystems) == 0 {
 		model.AxisSystems = defaultAxisSystems()
+	}
+	if model.DatumAxes == nil {
+		model.DatumAxes = []DatumAxis{}
 	}
 	if model.Features == nil {
 		model.Features = []Feature{}
@@ -1571,11 +1716,15 @@ func normalizePartModel(model *PartModel) {
 
 func referenceGeometry(model PartModel) ReferenceGeometry {
 	normalizePartModel(&model)
-	return ReferenceGeometry{DatumPlanes: model.DatumPlanes, AxisSystems: model.AxisSystems}
+	return ReferenceGeometry{DatumPlanes: model.DatumPlanes, AxisSystems: model.AxisSystems, DatumAxes: model.DatumAxes}
 }
 
 func visualizationManifest(model PartModel) VisualizationManifest {
 	normalizePartModel(&model)
+	datumByID := map[string]DatumPlane{}
+	for _, datum := range model.DatumPlanes {
+		datumByID[datum.ID] = datum
+	}
 	manifest := VisualizationManifest{
 		SchemaVersion:     1,
 		ReferenceGeometry: referenceGeometry(model),
@@ -1592,7 +1741,15 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 		if plane == "" {
 			plane = "XY"
 		}
+		datum, hasDatum := datumByID[feature.Sketch.Support.DatumPlaneID]
 		toWorld := func(point SketchPoint2) [3]float64 {
+			if hasDatum {
+				u, n := datum.UDirection, datum.Normal
+				v := [3]float64{n[1]*u[2] - n[2]*u[1], n[2]*u[0] - n[0]*u[2], n[0]*u[1] - n[1]*u[0]}
+				return [3]float64{datum.Origin[0] + u[0]*point.X + v[0]*point.Y,
+					datum.Origin[1] + u[1]*point.X + v[1]*point.Y,
+					datum.Origin[2] + u[2]*point.X + v[2]*point.Y}
+			}
 			switch plane {
 			case "XZ":
 				return [3]float64{point.X, 0, point.Y}
@@ -1747,13 +1904,28 @@ func mutatePart(model *PartModel, request CommandRequest) error {
 	switch request.Type {
 	case "CREATE_SKETCH":
 		plane := strings.ToUpper(request.Plane)
-		if plane != "XY" && plane != "XZ" && plane != "YZ" {
-			return fmt.Errorf("%w: select XY, XZ, or YZ plane", ErrValidation)
+		datumID := strings.TrimSpace(request.DatumPlaneID)
+		if datumID == "" {
+			if plane != "XY" && plane != "XZ" && plane != "YZ" {
+				return fmt.Errorf("%w: select a datum plane", ErrValidation)
+			}
+			datumID = "datum-" + strings.ToLower(plane)
+		} else {
+			found := false
+			for _, datum := range model.DatumPlanes {
+				if datum.ID == datumID {
+					plane, found = datum.Plane, true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("%w: selected datum plane does not exist", ErrValidation)
+			}
 		}
 		model.Features = append(model.Features, Feature{
 			ID: newID("sketch"), Type: "SKETCH",
 			Name:  numberedFeatureName(model.Features, "SKETCH", "Sketch"),
-			Plane: plane, Sketch: &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY"}},
+			Plane: plane, Sketch: &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY"}},
 		})
 	case "EDIT_SKETCH":
 		for index := range model.Features {
@@ -1782,6 +1954,38 @@ func mutatePart(model *PartModel, request CommandRequest) error {
 			Name:    numberedFeatureName(model.Features, "PAD", "Extrude"),
 			Profile: sketch.ID, Length: request.Length, Operation: "ADD",
 		})
+	case "CREATE_SOLID_FEATURE":
+		generator := strings.ToUpper(request.Generator)
+		operation := strings.ToUpper(request.Operation)
+		if generator != "LINEAR_EXTRUDE" && generator != "REVOLVE" {
+			return fmt.Errorf("%w: unsupported solid generator", ErrValidation)
+		}
+		if operation != "NEW_BODY" && operation != "ADD" && operation != "REMOVE" && operation != "INTERSECT" {
+			return fmt.Errorf("%w: invalid BodyOperation", ErrValidation)
+		}
+		var sketch *Feature
+		for index := range model.Features {
+			if model.Features[index].ID == request.SketchID && model.Features[index].Sketch != nil {
+				sketch = &model.Features[index]
+				break
+			}
+		}
+		if sketch == nil {
+			return fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
+		}
+		if generator == "REVOLVE" {
+			if _, _, err := resolveRevolveAxis(*model, *sketch, request.AxisEntityID); err != nil {
+				return err
+			}
+		}
+		label := "Extrude"
+		if generator == "REVOLVE" {
+			label = "Revolve"
+		}
+		model.Features = append(model.Features, Feature{ID: newID(strings.ToLower(label)), Type: generator,
+			Name: numberedFeatureName(model.Features, generator, label), Profile: sketch.ID,
+			Length: request.Length, Angle: request.Angle, Operation: operation,
+			AxisEntityID: request.AxisEntityID, Reversed: request.Reversed})
 	case "IMPORT_EXCHANGE":
 		if strings.TrimSpace(request.GeometryKey) == "" {
 			return fmt.Errorf("%w: imported geometry key is required", ErrValidation)
@@ -1906,7 +2110,7 @@ func (service *Service) mutateProduct(
 func (service *Service) evaluatePart(ctx context.Context, reqID string, model PartModel) (string, error) {
 	normalizePartModel(&model)
 	sketches := map[string]Feature{}
-	pads := []geometry.ProfilePad{}
+	solidFeatures := []geometry.ProfilePad{}
 	baseKey := ""
 	var canonical strings.Builder
 	canonical.WriteString(evaluatorVersion)
@@ -1920,7 +2124,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 			canonical.WriteString("|base=" + baseKey)
 		case "SKETCH":
 			sketches[feature.ID] = feature
-		case "PAD":
+		case "PAD", "LINEAR_EXTRUDE", "REVOLVE":
 			sketch, exists := sketches[feature.Profile]
 			if !exists {
 				return "", fmt.Errorf("%w: extrude profile %s is missing or follows the extrude", ErrValidation, feature.Profile)
@@ -1936,12 +2140,40 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 			if plane == "" {
 				plane = "XY"
 			}
-			pads = append(pads, geometry.ProfilePad{Regions: regions, Length: feature.Length, Plane: plane})
+			generator := "LINEAR_EXTRUDE"
+			angle := 0.0
+			axisStart, axisEnd := [2]float64{}, [2]float64{}
+			if strings.EqualFold(feature.Type, "REVOLVE") {
+				generator = "REVOLVE"
+				angle = feature.Angle * math.Pi / 180
+				axisStart, axisEnd, err = resolveRevolveAxis(model, sketch, feature.AxisEntityID)
+				if err != nil {
+					return "", err
+				}
+			}
+			operation := strings.ToUpper(feature.Operation)
+			if operation == "" {
+				operation = "ADD"
+			}
+			var planeOrigin, planeNormal, planeU [3]float64
+			if sketch.Sketch != nil {
+				for _, datum := range model.DatumPlanes {
+					if datum.ID == sketch.Sketch.Support.DatumPlaneID {
+						planeOrigin, planeNormal, planeU = datum.Origin, datum.Normal, datum.UDirection
+						break
+					}
+				}
+			}
+			solidFeatures = append(solidFeatures, geometry.ProfilePad{Regions: regions, Length: feature.Length,
+				Plane: plane, BodyOperation: operation, Generator: generator, RevolveAngle: angle,
+				AxisStart: axisStart, AxisEnd: axisEnd, Reversed: feature.Reversed,
+				PlaneOrigin: planeOrigin, PlaneNormal: planeNormal, PlaneUDirection: planeU})
 			profileJSON, _ := json.Marshal(regions)
-			fmt.Fprintf(&canonical, "|pad=%s,%s,%.9g", plane, profileJSON, feature.Length)
+			fmt.Fprintf(&canonical, "|solid=%s,%s,%s,%s,%.9g,%.9g,%v,%v,%t", generator, operation,
+				plane, profileJSON, feature.Length, angle, axisStart, axisEnd, feature.Reversed)
 		}
 	}
-	if len(pads) == 0 {
+	if len(solidFeatures) == 0 {
 		if baseKey != "" {
 			return service.ensureVisualizationVariant(ctx, baseKey, visualization)
 		}
@@ -1968,7 +2200,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 				return "", err
 			}
 		}
-		evaluation, err = service.worker.EvaluateProfilePartFromArtifact(ctx, reqID, key, pads, base,
+		evaluation, err = service.worker.EvaluateProfilePartFromArtifact(ctx, reqID, key, solidFeatures, base,
 			artifactstore.StagingKey(reqID, "shape.brep"), artifactstore.StagingKey(reqID, "mesh.glb"))
 	} else {
 		var baseBRep []byte
@@ -1977,7 +2209,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 				`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, baseKey).Scan(&baseBRep)
 		}
 		if err == nil {
-			evaluation, err = service.worker.EvaluateProfilePart(ctx, reqID, key, pads, baseBRep)
+			evaluation, err = service.worker.EvaluateProfilePart(ctx, reqID, key, solidFeatures, baseBRep)
 		}
 	}
 	if err != nil {
@@ -2439,8 +2671,10 @@ func featureStructureNode(feature Feature, path, documentID, versionID string, d
 	switch {
 	case strings.Contains(kind, "SKETCH"):
 		kind = "SKETCH"
-	case kind == "PAD":
+	case kind == "PAD", kind == "LINEAR_EXTRUDE":
 		kind = "PAD"
+	case kind == "REVOLVE":
+		kind = "REVOLVE"
 	case kind == "IMPORT_BODY":
 		kind = "IMPORT"
 	default:
@@ -2510,7 +2744,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 	planes := model.DatumPlanes
 	origin := DocumentStructureNode{ID: path + "/origin", Kind: "ORIGIN", Name: "Origin",
 		DocumentID: documentID, VersionID: versionID,
-		Children: make([]DocumentStructureNode, 0, len(planes)+len(model.AxisSystems))}
+		Children: make([]DocumentStructureNode, 0, len(planes)+len(model.AxisSystems)+len(model.DatumAxes))}
 	for _, plane := range planes {
 		origin.Children = append(origin.Children, DocumentStructureNode{
 			ID: path + "/origin/plane:" + plane.ID, Kind: "PLANE", Name: plane.Name,
@@ -2527,6 +2761,10 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			},
 		})
 	}
+	for _, axis := range model.DatumAxes {
+		origin.Children = append(origin.Children, DocumentStructureNode{ID: path + "/origin/datum-axis:" + axis.ID,
+			Kind: "DATUM_AXIS", Name: axis.Name, EntityID: axis.ID, DocumentID: documentID, VersionID: versionID})
+	}
 	sketches := make(map[string]Feature)
 	consumed := make(map[string]bool)
 	dependents := make(map[string]bool)
@@ -2534,7 +2772,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		if strings.Contains(strings.ToUpper(feature.Type), "SKETCH") {
 			sketches[feature.ID] = feature
 		}
-		if strings.EqualFold(feature.Type, "PAD") && feature.Profile != "" {
+		if isSolidGenerator(feature.Type) && feature.Profile != "" {
 			consumed[feature.Profile] = true
 			dependents[feature.Profile] = true
 		}
@@ -2546,7 +2784,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			continue
 		}
 		node := featureStructureNode(feature, body.ID, documentID, versionID, editable && !dependents[feature.ID], editable)
-		if strings.EqualFold(feature.Type, "PAD") && feature.Profile != "" {
+		if isSolidGenerator(feature.Type) && feature.Profile != "" {
 			if sketch, exists := sketches[feature.Profile]; exists {
 				node.Children = []DocumentStructureNode{featureStructureNode(sketch, node.ID, documentID, versionID, false, editable)}
 			}

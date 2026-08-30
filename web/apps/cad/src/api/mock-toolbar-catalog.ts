@@ -16,7 +16,9 @@ const toolbar = (id: string, name: string, workbench: ToolbarCatalogEntry["workb
 // The mock API stands in for the server during isolated frontend development. Production never imports this fixture.
 export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: [
   toolbar("part-design", "Part Design", "PART_DESIGN", "top-left", "part", 10, [
-    ["tool.select", "选择", "select"], ["capture.settings", "捕捉", "capture"], ["sketch.start", "草图", "sketch"], ["part.pad", "拉伸", "pad"],
+    ["tool.select", "选择", "select"], ["capture.settings", "捕捉", "capture"], ["sketch.start", "草图", "sketch"],
+    ["part.pad", "拉伸", "pad"], ["part.pocket", "切除", "pocket"], ["part.revolve", "旋转", "revolve"],
+    ["part.datum-plane", "基准面", "datum-plane"], ["part.datum-axis", "基准轴", "datum-axis"],
   ]),
   toolbar("sketch-geometry", "草图几何", "SKETCHER", "top-left", "sketch", 20, [
     ["tool.select", "选择", "select"], ["capture.settings", "捕捉", "capture"], ["sketch.point", "点", "point", undefined, true],

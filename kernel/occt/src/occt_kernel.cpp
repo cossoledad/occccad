@@ -1,5 +1,7 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <BRepAlgoAPI_Common.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
@@ -11,6 +13,7 @@
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
+#include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
@@ -50,6 +53,7 @@
 #include <TopoDS_Shape.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <TopoDS_Wire.hxx>
+#include <gp_Ax1.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
@@ -422,53 +426,60 @@ TopoDS_Shape make_rectangular_pad(const RectangularPadSpec& spec) {
     return prism.Shape();
 }
 
-struct ProfilePlane {
-    gp_Vec pad_axis;
+struct ProfileFrame {
+    gp_Pnt origin;
+    gp_Dir normal;
+    gp_Dir u_direction;
+    gp_Dir v_direction;
 };
 
-ProfilePlane profile_plane(const std::string& plane, double length) {
-    if (plane == "XY")
-        return {gp_Vec(0, 0, length)};
-    if (plane == "XZ")
-        return {gp_Vec(0, -length, 0)};
-    if (plane == "YZ")
-        return {gp_Vec(length, 0, 0)};
-    throw std::invalid_argument("plane must be XY, XZ, or YZ");
+ProfileFrame profile_frame(const ProfilePadSpec& spec) {
+    const gp_Vec explicit_normal(spec.plane_normal.x, spec.plane_normal.y, spec.plane_normal.z);
+    if (explicit_normal.Magnitude() > 1.0e-9) {
+        const gp_Vec explicit_u(spec.plane_u_direction.x, spec.plane_u_direction.y,
+                               spec.plane_u_direction.z);
+        if (explicit_u.Magnitude() <= 1.0e-9)
+            throw std::invalid_argument("explicit sketch plane requires a U direction");
+        const gp_Dir normal(explicit_normal);
+        const gp_Dir u(explicit_u);
+        if (std::abs(normal.Dot(u)) > 1.0e-8)
+            throw std::invalid_argument("sketch plane U direction must be perpendicular to normal");
+        return {{spec.plane_origin.x, spec.plane_origin.y, spec.plane_origin.z}, normal, u,
+                gp_Dir(normal.Crossed(u))};
+    }
+    if (spec.plane == "XY")
+        return {{0, 0, 0}, {0, 0, 1}, {1, 0, 0}, {0, 1, 0}};
+    if (spec.plane == "XZ")
+        return {{0, 0, 0}, {0, -1, 0}, {1, 0, 0}, {0, 0, 1}};
+    if (spec.plane == "YZ")
+        return {{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    throw std::invalid_argument("sketch support requires an explicit frame or XY/XZ/YZ datum");
 }
 
-gp_Pnt profile_point(const std::string& plane, const Vec2& point) {
-    if (plane == "XY")
-        return {point.x, point.y, 0};
-    if (plane == "XZ")
-        return {point.x, 0, point.y};
-    if (plane == "YZ")
-        return {0, point.x, point.y};
-    throw std::invalid_argument("plane must be XY, XZ, or YZ");
+gp_Pnt profile_point(const ProfileFrame& frame, const Vec2& point) {
+    return frame.origin.Translated(gp_Vec(frame.u_direction).Multiplied(point.x) +
+                                   gp_Vec(frame.v_direction).Multiplied(point.y));
 }
 
-gp_Ax2 profile_axes(const std::string& plane, const Vec2& center) {
-    const auto location = profile_point(plane, center);
-    if (plane == "XY") return {location, gp_Dir(0, 0, 1), gp_Dir(1, 0, 0)};
-    if (plane == "XZ") return {location, gp_Dir(0, -1, 0), gp_Dir(1, 0, 0)};
-    if (plane == "YZ") return {location, gp_Dir(1, 0, 0), gp_Dir(0, 1, 0)};
-    throw std::invalid_argument("plane must be XY, XZ, or YZ");
+gp_Ax2 profile_axes(const ProfileFrame& frame, const Vec2& center) {
+    return {profile_point(frame, center), frame.normal, frame.u_direction};
 }
 
-TopoDS_Edge make_profile_edge(const ProfileCurveSpec& curve, const std::string& plane) {
+TopoDS_Edge make_profile_edge(const ProfileCurveSpec& curve, const ProfileFrame& frame) {
     TopoDS_Edge edge;
     if (curve.kind == "LINE") {
-        edge = BRepBuilderAPI_MakeEdge(profile_point(plane, curve.start),
-                                       profile_point(plane, curve.end));
+        edge = BRepBuilderAPI_MakeEdge(profile_point(frame, curve.start),
+                                       profile_point(frame, curve.end));
     } else if (curve.kind == "CIRCLE") {
         validate_positive(curve.radius, "profile circle radius");
-        Handle(Geom_Circle) circle = new Geom_Circle(profile_axes(plane, curve.center), curve.radius);
+        Handle(Geom_Circle) circle = new Geom_Circle(profile_axes(frame, curve.center), curve.radius);
         edge = BRepBuilderAPI_MakeEdge(circle);
     } else if (curve.kind == "ARC") {
         validate_positive(curve.radius, "profile arc radius");
         double end = curve.end_angle;
         while (end <= curve.start_angle)
             end += 2.0 * 3.14159265358979323846;
-        Handle(Geom_Circle) circle = new Geom_Circle(profile_axes(plane, curve.center), curve.radius);
+        Handle(Geom_Circle) circle = new Geom_Circle(profile_axes(frame, curve.center), curve.radius);
         edge = BRepBuilderAPI_MakeEdge(circle, curve.start_angle, end);
     } else if (curve.kind == "SPLINE") {
         if (curve.control_points.size() < 3U)
@@ -477,7 +488,7 @@ TopoDS_Edge make_profile_edge(const ProfileCurveSpec& curve, const std::string& 
         Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, point_count);
         for (std::size_t index = 0; index < curve.control_points.size(); ++index)
             points->SetValue(static_cast<int>(index) + 1,
-                             profile_point(plane, curve.control_points[index]));
+                             profile_point(frame, curve.control_points[index]));
         GeomAPI_Interpolate interpolation(points, curve.closed, 1.0e-7);
         interpolation.Perform();
         if (!interpolation.IsDone())
@@ -492,45 +503,129 @@ TopoDS_Edge make_profile_edge(const ProfileCurveSpec& curve, const std::string& 
     return curve.reversed ? TopoDS::Edge(edge.Reversed()) : edge;
 }
 
-TopoDS_Wire make_profile_wire(const ProfileLoopSpec& loop, const std::string& plane) {
+TopoDS_Wire make_profile_wire(const ProfileLoopSpec& loop, const ProfileFrame& frame) {
     if (loop.curves.empty())
         throw std::invalid_argument("profile loop has no curves");
     BRepBuilderAPI_MakeWire builder;
     for (const auto& curve : loop.curves)
-        builder.Add(make_profile_edge(curve, plane));
+        builder.Add(make_profile_edge(curve, frame));
     if (!builder.IsDone())
         throw std::runtime_error("profile wire construction failed: " + loop.id);
     return builder.Wire();
 }
 
-TopoDS_Shape make_profile_pad(const ProfilePadSpec& spec) {
-    validate_positive(spec.pad_length, "pad_length");
+TopoDS_Shape make_profile_tool(const ProfilePadSpec& spec) {
     if (spec.regions.empty())
-        throw std::invalid_argument("profile pad requires at least one region");
-    const auto axes = profile_plane(spec.plane, spec.pad_length);
+        throw std::invalid_argument("solid feature requires at least one profile region");
+    const std::string generator = spec.generator.empty() ? "LINEAR_EXTRUDE" : spec.generator;
+    if (generator == "LINEAR_EXTRUDE") {
+        validate_positive(spec.pad_length, "extrude length");
+    } else if (generator == "REVOLVE") {
+        validate_positive(spec.revolve_angle, "revolve angle");
+        if (spec.revolve_angle > 2.0 * 3.14159265358979323846 + 1.0e-12)
+            throw std::invalid_argument("revolve angle must not exceed 2*pi");
+        if (std::hypot(spec.axis_end.x - spec.axis_start.x,
+                       spec.axis_end.y - spec.axis_start.y) <= 1.0e-9)
+            throw std::invalid_argument("revolve axis is degenerate");
+    } else {
+        throw std::invalid_argument("unsupported solid generator: " + generator);
+    }
+    const ProfileFrame frame = profile_frame(spec);
     TopoDS_Shape result;
     for (const auto& region : spec.regions) {
         BRepBuilderAPI_MakeFace face_builder(
-            make_profile_wire(region.outer, spec.plane));
+            make_profile_wire(region.outer, frame));
         for (const auto& hole : region.holes)
-            face_builder.Add(make_profile_wire(hole, spec.plane));
+            face_builder.Add(make_profile_wire(hole, frame));
         face_builder.Build();
         if (!face_builder.IsDone() || !BRepCheck_Analyzer(face_builder.Face()).IsValid())
             throw std::runtime_error("profile face is invalid: " + region.id);
-        BRepPrimAPI_MakePrism prism(face_builder.Face(), axes.pad_axis);
-        prism.Build();
-        if (!prism.IsDone() || !BRepCheck_Analyzer(prism.Shape()).IsValid())
-            throw std::runtime_error("profile prism is invalid: " + region.id);
+        TopoDS_Shape generated;
+        if (generator == "LINEAR_EXTRUDE") {
+            gp_Vec direction(frame.normal);
+            direction.Multiply(spec.reversed ? -spec.pad_length : spec.pad_length);
+            BRepPrimAPI_MakePrism prism(face_builder.Face(), direction);
+            prism.Build();
+            if (!prism.IsDone())
+                throw std::runtime_error("profile prism failed: " + region.id);
+            generated = prism.Shape();
+        } else {
+            const gp_Pnt start = profile_point(frame, spec.axis_start);
+            const gp_Pnt end = profile_point(frame, spec.axis_end);
+            gp_Dir direction(gp_Vec(start, end));
+            if (spec.reversed)
+                direction.Reverse();
+            BRepPrimAPI_MakeRevol revolve(face_builder.Face(), gp_Ax1(start, direction),
+                                          spec.revolve_angle, Standard_True);
+            revolve.Build();
+            if (!revolve.IsDone())
+                throw std::runtime_error("profile revolve failed: " + region.id);
+            generated = revolve.Shape();
+        }
+        if (generated.IsNull() || !BRepCheck_Analyzer(generated).IsValid())
+            throw std::runtime_error("generated solid tool is invalid: " + region.id);
         if (result.IsNull())
-            result = prism.Shape();
+            result = generated;
         else {
-            BRepAlgoAPI_Fuse fuse(result, prism.Shape());
+            BRepAlgoAPI_Fuse fuse(result, generated);
             fuse.Build();
             if (!fuse.IsDone())
-                throw std::runtime_error("profile region fuse failed");
+                throw std::runtime_error("profile tool region fuse failed");
             result = fuse.Shape();
         }
     }
+    return result;
+}
+
+double shape_volume(const TopoDS_Shape& shape) {
+    GProp_GProps properties;
+    BRepGProp::VolumeProperties(shape, properties);
+    return properties.Mass();
+}
+
+int solid_count(const TopoDS_Shape& shape) {
+    TopTools_IndexedMapOfShape solids;
+    TopExp::MapShapes(shape, TopAbs_SOLID, solids);
+    return solids.Extent();
+}
+
+TopoDS_Shape apply_body_operation(const TopoDS_Shape& input, const TopoDS_Shape& tool,
+                                  const std::string& requested_operation) {
+    const std::string operation = requested_operation.empty() ? "ADD" : requested_operation;
+    if (input.IsNull()) {
+        if (operation == "REMOVE" || operation == "INTERSECT")
+            throw std::invalid_argument(operation + " requires an input body");
+        return tool;  // Legacy first ADD is equivalent to NEW_BODY.
+    }
+    if (operation == "NEW_BODY")
+        throw std::invalid_argument("NEW_BODY requires an empty target body in the current single-body model");
+    TopoDS_Shape result;
+    if (operation == "ADD") {
+        BRepAlgoAPI_Fuse algorithm(input, tool);
+        algorithm.Build();
+        if (!algorithm.IsDone()) throw std::runtime_error("body fuse failed");
+        result = algorithm.Shape();
+    } else if (operation == "REMOVE") {
+        BRepAlgoAPI_Cut algorithm(input, tool);
+        algorithm.Build();
+        if (!algorithm.IsDone()) throw std::runtime_error("body cut failed");
+        result = algorithm.Shape();
+        if (shape_volume(input) - shape_volume(result) <= 1.0e-9)
+            throw std::invalid_argument("NO_MATERIAL_CHANGE: cut does not intersect the target body");
+    } else if (operation == "INTERSECT") {
+        BRepAlgoAPI_Common algorithm(input, tool);
+        algorithm.Build();
+        if (!algorithm.IsDone()) throw std::runtime_error("body common failed");
+        result = algorithm.Shape();
+    } else {
+        throw std::invalid_argument("unsupported body operation: " + operation);
+    }
+    if (result.IsNull() || shape_volume(result) <= 1.0e-9)
+        throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
+    if (!BRepCheck_Analyzer(result).IsValid())
+        throw std::runtime_error("solid operation produced invalid B-Rep");
+    if (solid_count(result) != 1)
+        throw std::invalid_argument("DISJOINT_RESULT: standard Body requires exactly one solid");
     return result;
 }
 
@@ -737,16 +832,8 @@ GeometryId OcctKernel::evaluateProfilePads(const std::vector<ProfilePadSpec>& sp
         result = impl_->find(base_id);
     }
     for (const auto& spec : specs) {
-        const TopoDS_Shape pad = make_profile_pad(spec);
-        if (result.IsNull())
-            result = pad;
-        else {
-            BRepAlgoAPI_Fuse fuse(result, pad);
-            fuse.Build();
-            if (!fuse.IsDone())
-                throw std::runtime_error("feature chain boolean fuse failed");
-            result = fuse.Shape();
-        }
+        const TopoDS_Shape tool = make_profile_tool(spec);
+        result = apply_body_operation(result, tool, spec.body_operation);
     }
     if (result.IsNull())
         throw std::invalid_argument("feature chain contains no solid geometry");

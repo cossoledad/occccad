@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 export type CadIconName =
-  | "select" | "capture" | "sketch" | "pad" | "point" | "line" | "circle" | "arc" | "polyline" | "spline" | "finish"
+  | "select" | "capture" | "sketch" | "pad" | "pocket" | "revolve" | "datum-plane" | "datum-axis" | "point" | "line" | "circle" | "arc" | "polyline" | "spline" | "finish"
   | "coincident" | "parallel" | "fixed" | "horizontal" | "vertical" | "perpendicular" | "tangent" | "equal"
   | "distance" | "length" | "radius" | "diameter" | "angle" | "concentric" | "point-on-object" | "midpoint" | "symmetry"
   | "rectangle" | "polygon" | "slot" | "insert" | "reference" | "undo" | "redo" | "version" | "share"
@@ -16,6 +16,10 @@ function glyph(name: CadIconName): ReactNode {
   case "capture": return <><P d="M4 7V4h3M13 4h3v3M16 13v3h-3M7 16H4v-3" /><C cx={10} cy={10} r={2.2} /><P d="M10 2v3M10 15v3M2 10h3M15 10h3" /></>;
   case "sketch": return <><P d="M3 16l4-11h7l3 11zM5 12h10" /><P d="M7 5l3 7 4-7" /></>;
   case "pad": return <><P d="M4 12l6 3.5 6-3.5-6-3.5zM4 12v3l6 3 6-3v-3M10 8.5V3" /><P d="M7.5 5.5L10 3l2.5 2.5" /></>;
+  case "pocket": return <><P d="M4 7l6 3.5L16 7M4 7v7l6 3 6-3V7" /><P d="M10 3v7M7.5 7.5L10 10l2.5-2.5" /></>;
+  case "revolve": return <><P d="M6 15a7 7 0 116 1M6 15V9M6 15h6" /><P d="M10 4v12" /></>;
+  case "datum-plane": return <><P d="M3 13l10-8 4 3-10 8z" /><P d="M10 3v14M6 10h8" /></>;
+  case "datum-axis": return <><P d="M3 10h14M10 3v14" /><C cx={10} cy={10} r={2} /></>;
   case "point": return <><C cx={10} cy={10} r={2.2} /><P d="M10 3v3M10 14v3M3 10h3M14 10h3" /></>;
   case "line": return <><P d="M4 16L16 4" /><C cx={4} cy={16} /><C cx={16} cy={4} /></>;
   case "circle": return <><C cx={10} cy={10} r={6} /><C cx={10} cy={10} r={1} /><P d="M10 10l4-4" /></>;

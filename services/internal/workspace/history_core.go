@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -262,6 +263,18 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 						result[change.Target], _ = json.Marshal(parameter.Source)
 					}
 				}
+			case "datum.plane":
+				for _, plane := range model.DatumPlanes {
+					if plane.ID == change.Target.EntityID {
+						result[change.Target], _ = json.Marshal(plane)
+					}
+				}
+			case "datum.axis":
+				for _, axis := range model.DatumAxes {
+					if axis.ID == change.Target.EntityID {
+						result[change.Target], _ = json.Marshal(axis)
+					}
+				}
 			case "document.model":
 				result[change.Target] = append(json.RawMessage(nil), modelJSON...)
 			}
@@ -362,6 +375,40 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 						if err := json.Unmarshal(value, &model.Parameters[i].Source); err != nil {
 							return nil, err
 						}
+					}
+				}
+			case "datum.plane":
+				index := slices.IndexFunc(model.DatumPlanes, func(item DatumPlane) bool { return item.ID == address.EntityID })
+				if len(value) == 0 || string(value) == "null" {
+					if index >= 0 {
+						model.DatumPlanes = append(model.DatumPlanes[:index], model.DatumPlanes[index+1:]...)
+					}
+				} else {
+					var plane DatumPlane
+					if err := json.Unmarshal(value, &plane); err != nil {
+						return nil, err
+					}
+					if index >= 0 {
+						model.DatumPlanes[index] = plane
+					} else {
+						model.DatumPlanes = append(model.DatumPlanes, plane)
+					}
+				}
+			case "datum.axis":
+				index := slices.IndexFunc(model.DatumAxes, func(item DatumAxis) bool { return item.ID == address.EntityID })
+				if len(value) == 0 || string(value) == "null" {
+					if index >= 0 {
+						model.DatumAxes = append(model.DatumAxes[:index], model.DatumAxes[index+1:]...)
+					}
+				} else {
+					var axis DatumAxis
+					if err := json.Unmarshal(value, &axis); err != nil {
+						return nil, err
+					}
+					if index >= 0 {
+						model.DatumAxes[index] = axis
+					} else {
+						model.DatumAxes = append(model.DatumAxes, axis)
 					}
 				}
 			}

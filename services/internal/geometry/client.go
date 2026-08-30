@@ -43,15 +43,24 @@ type ProfileRegion struct {
 	Holes []ProfileLoop
 }
 type ProfilePad struct {
-	Regions []ProfileRegion
-	Length  float64
-	Plane   string
+	Regions                                   []ProfileRegion
+	Length, RevolveAngle                      float64
+	AxisStart, AxisEnd                        [2]float64
+	PlaneOrigin, PlaneNormal, PlaneUDirection [3]float64
+	Plane, BodyOperation, Generator           string
+	Reversed                                  bool
 }
 
 func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 	result := make([]*workerv1.ProfilePadSpec, 0, len(pads))
 	for _, pad := range pads {
-		value := &workerv1.ProfilePadSpec{PadLength: pad.Length, Units: "mm", Plane: pad.Plane}
+		value := &workerv1.ProfilePadSpec{PadLength: pad.Length, Units: "mm", Plane: pad.Plane,
+			BodyOperation: pad.BodyOperation, Generator: pad.Generator, RevolveAngle: pad.RevolveAngle,
+			AxisStart: &workerv1.Vec2{X: pad.AxisStart[0], Y: pad.AxisStart[1]},
+			AxisEnd:   &workerv1.Vec2{X: pad.AxisEnd[0], Y: pad.AxisEnd[1]}, Reversed: pad.Reversed}
+		value.PlaneOrigin = &workerv1.Vec3{X: pad.PlaneOrigin[0], Y: pad.PlaneOrigin[1], Z: pad.PlaneOrigin[2]}
+		value.PlaneNormal = &workerv1.Vec3{X: pad.PlaneNormal[0], Y: pad.PlaneNormal[1], Z: pad.PlaneNormal[2]}
+		value.PlaneUDirection = &workerv1.Vec3{X: pad.PlaneUDirection[0], Y: pad.PlaneUDirection[1], Z: pad.PlaneUDirection[2]}
 		loopProto := func(loop ProfileLoop) *workerv1.ProfileLoop {
 			output := &workerv1.ProfileLoop{Id: loop.ID}
 			for _, curve := range loop.Curves {

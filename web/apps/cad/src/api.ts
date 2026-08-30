@@ -199,8 +199,8 @@ export const restApi = {
     request<CommandPreview>(`/api/documents/${documentId}/command-previews`, {
       method: "POST", signal, body: JSON.stringify({ requestId: requestId(), ...command }),
     }),
-  createSketch: (documentId: string, plane: string) =>
-    restApi.command(documentId, { type: "CREATE_SKETCH", plane }),
+  createSketch: (documentId: string, plane: string, datumPlaneId?: string) =>
+    restApi.command(documentId, { type: "CREATE_SKETCH", plane, datumPlaneId }),
   editSketch: (documentId: string, sketchId: string, operations: SketchOperation[]) =>
     restApi.command(documentId, { type: "EDIT_SKETCH", sketchId, operations }),
   deleteNode: (documentId: string, targetKind: string, targetId: string, ownerEntityId?: string) =>
@@ -210,6 +210,15 @@ export const restApi = {
   pad: (documentId: string, sketchId: string, length: number, intentRequestId?: string) =>
     restApi.command(documentId, { type: "PAD_SKETCH", sketchId, length,
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
+  createSolidFeature: (documentId: string, input: { sketchId: string; generator: "LINEAR_EXTRUDE" | "REVOLVE";
+    operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT"; length?: number; angle?: number;
+    axisEntityId?: string; reversed?: boolean }, intentRequestId?: string) =>
+    restApi.command(documentId, { type: "CREATE_SOLID_FEATURE", ...input,
+      ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
+  createDatumPlane: (documentId: string, input: { name: string; origin: Vec3; normal: Vec3; uDirection: Vec3 }) =>
+    restApi.command(documentId, { type: "CREATE_DATUM_PLANE", ...input }),
+  createDatumAxis: (documentId: string, input: { name: string; origin: Vec3; direction: Vec3 }) =>
+    restApi.command(documentId, { type: "CREATE_DATUM_AXIS", ...input }),
   insert: (documentId: string, referencedDocumentId: string, name: string) =>
     restApi.command(documentId, {
       type: "INSERT_INSTANCE", referencedDocumentId, name, translation: [0, 0, 0],

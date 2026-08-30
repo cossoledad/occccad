@@ -1,6 +1,7 @@
 export type Vec2 = [number, number];
 export type Vec3 = [number, number, number];
 export type PlaneName = "XY" | "XZ" | "YZ";
+export type SketchPlane = { datumPlaneId: string; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3 };
 export type ToolbarCatalogItem = { commandId:string;name:string;helpText:string;iconKey:string;groupKey:string;sortOrder:number;repeatable:boolean };
 export type ToolbarCatalogEntry = { id:string;name:string;workbench:"ALL"|"PART_DESIGN"|"SKETCHER"|"ASSEMBLY_DESIGN";
   position:"top-left"|"top-center"|"top-right"|"bottom-left"|"bottom-center"|"bottom-right";
@@ -40,9 +41,10 @@ export type CommandPreview = {
   artifact?: Artifact;
 };
 
-export type DatumPlane = { id: string; name: string; plane: PlaneName; origin: Vec3; normal: Vec3; size: number };
+export type DatumPlane = { id: string; name: string; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3; size: number };
+export type DatumAxis = { id: string; name: string; origin: Vec3; direction: Vec3 };
 export type AxisSystem = { id: string; name: string; origin: Vec3; xDirection: Vec3; yDirection: Vec3; zDirection: Vec3 };
-export type ReferenceGeometry = { datumPlanes: DatumPlane[]; axisSystems: AxisSystem[] };
+export type ReferenceGeometry = { datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[] };
 export type VisualPrimitive = {
   id: string; featureId: string; kind: "POINTS" | "POLYLINE" | "LINE_SEGMENTS" | "TRIANGLES";
   semantic: "SKETCH_POINT" | "SKETCH_CURVE" | "SKETCH_CONSTRAINT" | "CURVE" | "SURFACE";
@@ -66,13 +68,16 @@ export type DocumentProperties = {
 
 export type Feature = {
   id: string;
-  type: "SKETCH" | "sketch" | "PAD" | "pad" | "IMPORT_BODY";
+  type: "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY";
   name?: string;
-  plane?: PlaneName;
+  plane?: PlaneName | "CUSTOM";
   sketch?: SketchFeature;
   profile?: string;
   length?: number;
-  operation?: "NEW" | "ADD" | "REMOVE" | "INTERSECT";
+  angle?: number;
+  axisEntityId?: string;
+  reversed?: boolean;
+  operation?: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
   geometryKey?: string;
   fileName?: string;
   sourceFormat?: "STEP" | "BREP";
@@ -82,7 +87,7 @@ export type SketchPoint2 = { x: number; y: number };
 export type SketchGeometryRef = { target: "ENTITY" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL"; controlPointIndex?: number };
 export type SketchEntity = { id: string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; suppressed?: boolean; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; degree?: number; closed?: boolean };
 export type SketchConstraint = { id: string; kind: "COINCIDENT" | "PARALLEL" | "FIXED" | "FIXED_POINT" | "HORIZONTAL" | "VERTICAL" | "PERPENDICULAR" | "TANGENT" | "EQUAL" | "DISTANCE" | "LENGTH" | "RADIUS" | "DIAMETER" | "ANGLE" | "CONCENTRIC" | "POINT_ON_OBJECT" | "MIDPOINT" | "SYMMETRY"; references: SketchGeometryRef[]; suppressed?: boolean; fixedPoint?: SketchPoint2; value?: number; unit?: "mm" | "deg"; labelPosition?: SketchPoint2; internal?: boolean };
-export type SketchFeature = { schemaVersion: 1; support: { type: "DATUM_PLANE"; datumPlaneId: string; plane: PlaneName }; entities: SketchEntity[]; constraints: SketchConstraint[]; solve: { status: string; definitionStatus?: "FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED"; degreesOfFreedom: number; diagnostic?: string; conflictingConstraintIds?: string[]; redundantConstraintIds?: string[]; components?: Array<{entityIds:string[];constraintIds:string[];status:string;definitionStatus?:"FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED";degreesOfFreedom:number}> } };
+export type SketchFeature = { schemaVersion: 1; support: { type: "DATUM_PLANE"; datumPlaneId: string; plane: PlaneName | "CUSTOM" }; entities: SketchEntity[]; constraints: SketchConstraint[]; solve: { status: string; definitionStatus?: "FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED"; degreesOfFreedom: number; diagnostic?: string; conflictingConstraintIds?: string[]; redundantConstraintIds?: string[]; components?: Array<{entityIds:string[];constraintIds:string[];status:string;definitionStatus?:"FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED";degreesOfFreedom:number}> } };
 export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { type: "ADD_CONSTRAINT"; constraint: SketchConstraint }
   | { type: "UPDATE_CONSTRAINT_PLACEMENT"; constraintId: string; labelPosition: SketchPoint2 }
   | { type: "UPDATE_CONSTRAINT_VALUE"; constraintId: string; value: number }
@@ -192,13 +197,13 @@ export type ResolvedInstance = {
 
 export type DocumentStructureNode = {
   id: string;
-  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "BODY" | "SKETCH" | "PAD" | "IMPORT" | "FEATURE" | "SKETCH_GEOMETRY_SET" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "REFERENCE_CYCLE";
+  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "SKETCH_GEOMETRY_SET" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "REFERENCE_CYCLE";
   name: string;
   entityId?: string;
   documentId?: string;
   documentType?: "PART" | "PRODUCT";
   versionId?: string;
-  plane?: PlaneName;
+  plane?: PlaneName | "CUSTOM";
   axis?: "X" | "Y" | "Z";
   referenceMode?: "FOLLOW_HEAD" | "PINNED";
   ownerEntityId?: string;
@@ -214,7 +219,8 @@ export type DocumentView = {
   document: DocumentSummary;
   datumPlanes?: DatumPlane[];
   axisSystems?: AxisSystem[];
-  part?: { units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; features: Feature[] };
+  datumAxes?: DatumAxis[];
+  part?: { units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[] };
   product?: { instances: ProductInstance[] };
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;
@@ -234,9 +240,9 @@ export type SelectionIdentity = {
 };
 
 export type SelectionItem =
-  | (SelectionIdentity & { kind: "plane"; plane: PlaneName })
+  | (SelectionIdentity & { kind: "plane"; plane: PlaneName | "CUSTOM"; datumPlane?: DatumPlane })
   | (SelectionIdentity & { kind: "axis-system" })
-  | (SelectionIdentity & { kind: "axis"; axis: "X" | "Y" | "Z" })
+  | (SelectionIdentity & { kind: "axis"; axis: "X" | "Y" | "Z" | "DATUM" })
   | (SelectionIdentity & { kind: "sketch" })
   | (SelectionIdentity & { kind: "pad" })
   | (SelectionIdentity & { kind: "import" })

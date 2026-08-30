@@ -21,6 +21,9 @@ const (
 	typeCreateSketch           = "occccad://part/sketch/create"
 	typeEditSketch             = "occccad://part/sketch/edit"
 	typeCreatePad              = "occccad://part/pad/create"
+	typeCreateSolidFeature     = "occccad://part/solid-generator/create"
+	typeCreateDatumPlane       = "occccad://part/datum-plane/create"
+	typeCreateDatumAxis        = "occccad://part/datum-axis/create"
 	typeImportExchange         = "occccad://part/exchange/import"
 	typeSetParameterLiteral    = "occccad://parameter/literal/set"
 	typeSetParameterExpression = "occccad://parameter/expression/set"
@@ -53,6 +56,9 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeCreateSketch, "PART", applyCreateFeature},
 		commandHandler{typeEditSketch, "PART", applyEditSketch},
 		commandHandler{typeCreatePad, "PART", applyCreateFeature},
+		commandHandler{typeCreateSolidFeature, "PART", applyCreateFeature},
+		commandHandler{typeCreateDatumPlane, "PART", applyCreateDatumPlane},
+		commandHandler{typeCreateDatumAxis, "PART", applyCreateDatumAxis},
 		commandHandler{typeImportExchange, "PART", applyCreateFeature},
 		commandHandler{typeSetParameterLiteral, "PART", applyParameterSource},
 		commandHandler{typeSetParameterExpression, "PART", applyParameterSource},
@@ -484,6 +490,15 @@ func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) 
 	return nil
 }
 
+func isSolidGenerator(featureType string) bool {
+	switch strings.ToUpper(featureType) {
+	case "PAD", "LINEAR_EXTRUDE", "REVOLVE":
+		return true
+	default:
+		return false
+	}
+}
+
 func isDimensionalConstraint(kind string) bool {
 	return kind == "DISTANCE" || kind == "LENGTH" || kind == "RADIUS" || kind == "DIAMETER" || kind == "ANGLE"
 }
@@ -698,6 +713,55 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.Feature.ID)}}
 	next, _ := json.Marshal(model)
 	return next, set, nil
+}
+
+type createDatumPlanePayload struct {
+	Plane DatumPlane `json:"plane"`
+}
+type createDatumAxisPayload struct {
+	Axis DatumAxis `json:"axis"`
+}
+
+func applyCreateDatumPlane(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model PartModel
+	var payload createDatumPlanePayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	normalizePartModel(&model)
+	for _, plane := range model.DatumPlanes {
+		if plane.ID == payload.Plane.ID {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate datum plane identity", ErrValidation)
+		}
+	}
+	model.DatumPlanes = append(model.DatumPlanes, payload.Plane)
+	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Plane.ID, SlotID: "datum.plane"}, nil, payload.Plane)
+	next, _ := json.Marshal(model)
+	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"datum:" + modelcore.DependencyKey(payload.Plane.ID)}}, nil
+}
+
+func applyCreateDatumAxis(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model PartModel
+	var payload createDatumAxisPayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	normalizePartModel(&model)
+	for _, axis := range model.DatumAxes {
+		if axis.ID == payload.Axis.ID {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate datum axis identity", ErrValidation)
+		}
+	}
+	model.DatumAxes = append(model.DatumAxes, payload.Axis)
+	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Axis.ID, SlotID: "datum.axis"}, nil, payload.Axis)
+	next, _ := json.Marshal(model)
+	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"datum:" + modelcore.DependencyKey(payload.Axis.ID)}}, nil
 }
 
 type parameterSourcePayload struct {
@@ -1332,13 +1396,31 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PART" {
 			break
 		}
-		plane := strings.ToUpper(request.Plane)
-		if plane != "XY" && plane != "XZ" && plane != "YZ" {
-			return "", nil, fmt.Errorf("%w: select XY, XZ, or YZ plane", ErrValidation)
-		}
 		var model PartModel
-		_ = json.Unmarshal(modelJSON, &model)
-		return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		normalizePartModel(&model)
+		plane := strings.ToUpper(request.Plane)
+		datumID := strings.TrimSpace(request.DatumPlaneID)
+		if datumID == "" {
+			if plane != "XY" && plane != "XZ" && plane != "YZ" {
+				return "", nil, fmt.Errorf("%w: select a datum plane", ErrValidation)
+			}
+			datumID = "datum-" + strings.ToLower(plane)
+		} else {
+			found := false
+			for _, datum := range model.DatumPlanes {
+				if datum.ID == datumID {
+					plane, found = datum.Plane, true
+					break
+				}
+			}
+			if !found {
+				return "", nil, fmt.Errorf("%w: selected datum plane does not exist", ErrValidation)
+			}
+		}
+		return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
 	case "EDIT_SKETCH":
 		if documentType != "PART" {
 			break
@@ -1411,6 +1493,88 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
 		}
 		return typeCreatePad, createFeaturePayload{Feature: Feature{ID: commandEntityID("extrude", request.RequestID), Type: "PAD", Name: numberedFeatureName(model.Features, "PAD", "Extrude"), Profile: request.SketchID, Length: request.Length, Operation: "ADD"}}, nil
+	case "CREATE_SOLID_FEATURE":
+		if documentType != "PART" {
+			break
+		}
+		generator := strings.ToUpper(strings.TrimSpace(request.Generator))
+		if generator != "LINEAR_EXTRUDE" && generator != "REVOLVE" {
+			return "", nil, fmt.Errorf("%w: generator must be LINEAR_EXTRUDE or REVOLVE", ErrValidation)
+		}
+		operation := strings.ToUpper(strings.TrimSpace(request.Operation))
+		if operation != "NEW_BODY" && operation != "ADD" && operation != "REMOVE" && operation != "INTERSECT" {
+			return "", nil, fmt.Errorf("%w: invalid BodyOperation %s", ErrValidation, operation)
+		}
+		if generator == "LINEAR_EXTRUDE" && !positiveFinite(request.Length) {
+			return "", nil, fmt.Errorf("%w: extrude length must be a positive finite value", ErrValidation)
+		}
+		if generator == "REVOLVE" && (!positiveFinite(request.Angle) || request.Angle > 360) {
+			return "", nil, fmt.Errorf("%w: revolve angle must be in (0, 360] degrees", ErrValidation)
+		}
+		var model PartModel
+		_ = json.Unmarshal(modelJSON, &model)
+		var sketch *Feature
+		for index := range model.Features {
+			if model.Features[index].ID == request.SketchID && model.Features[index].Sketch != nil {
+				sketch = &model.Features[index]
+				break
+			}
+		}
+		if sketch == nil {
+			return "", nil, fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
+		}
+		if generator == "REVOLVE" {
+			if _, _, err := resolveRevolveAxis(model, *sketch, request.AxisEntityID); err != nil {
+				return "", nil, err
+			}
+		}
+		prefix, label := "extrude", "Extrude"
+		if generator == "REVOLVE" {
+			prefix, label = "revolve", "Revolve"
+		}
+		feature := Feature{ID: commandEntityID(prefix, request.RequestID), Type: generator,
+			Name: numberedFeatureName(model.Features, generator, label), Profile: request.SketchID,
+			Length: request.Length, Angle: request.Angle, Operation: operation,
+			AxisEntityID: request.AxisEntityID, Reversed: request.Reversed}
+		return typeCreateSolidFeature, createFeaturePayload{Feature: feature}, nil
+	case "CREATE_DATUM_PLANE":
+		if documentType != "PART" {
+			break
+		}
+		finiteVector := func(value [3]float64) bool { return finite(value[0]) && finite(value[1]) && finite(value[2]) }
+		length := func(value [3]float64) float64 {
+			return math.Sqrt(value[0]*value[0] + value[1]*value[1] + value[2]*value[2])
+		}
+		if !finiteVector(request.Origin) || !finiteVector(request.Normal) || !finiteVector(request.UDirection) ||
+			length(request.Normal) < 1e-9 || length(request.UDirection) < 1e-9 {
+			return "", nil, fmt.Errorf("%w: datum plane requires finite origin, normal and U direction", ErrValidation)
+		}
+		dot := request.Normal[0]*request.UDirection[0] + request.Normal[1]*request.UDirection[1] + request.Normal[2]*request.UDirection[2]
+		if math.Abs(dot/(length(request.Normal)*length(request.UDirection))) > 1e-8 {
+			return "", nil, fmt.Errorf("%w: datum plane U direction must be perpendicular to its normal", ErrValidation)
+		}
+		name := strings.TrimSpace(request.Name)
+		if name == "" {
+			name = "Plane"
+		}
+		plane := DatumPlane{ID: commandEntityID("plane", request.RequestID), Name: name, Plane: "CUSTOM",
+			Origin: request.Origin, Normal: request.Normal, UDirection: request.UDirection, Size: 180}
+		return typeCreateDatumPlane, createDatumPlanePayload{Plane: plane}, nil
+	case "CREATE_DATUM_AXIS":
+		if documentType != "PART" {
+			break
+		}
+		magnitude := math.Sqrt(request.Direction[0]*request.Direction[0] + request.Direction[1]*request.Direction[1] + request.Direction[2]*request.Direction[2])
+		if !finite(request.Origin[0]) || !finite(request.Origin[1]) || !finite(request.Origin[2]) || !finite(magnitude) || magnitude < 1e-9 {
+			return "", nil, fmt.Errorf("%w: datum axis requires finite origin and non-zero direction", ErrValidation)
+		}
+		name := strings.TrimSpace(request.Name)
+		if name == "" {
+			name = "Axis"
+		}
+		axis := DatumAxis{ID: commandEntityID("axis", request.RequestID), Name: name, Origin: request.Origin,
+			Direction: [3]float64{request.Direction[0] / magnitude, request.Direction[1] / magnitude, request.Direction[2] / magnitude}}
+		return typeCreateDatumAxis, createDatumAxisPayload{Axis: axis}, nil
 	case "IMPORT_EXCHANGE":
 		if documentType != "PART" {
 			break
@@ -1653,8 +1817,7 @@ func ensureFeatureParameters(model *PartModel) {
 	}
 	for _, feature := range model.Features {
 		keyPrefix := strings.NewReplacer("-", "_", ":", "_").Replace(feature.ID)
-		switch strings.ToUpper(feature.Type) {
-		case "PAD":
+		if isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE" {
 			add(feature.ID, "length", keyPrefix+"_length", feature.Length)
 		}
 	}
@@ -1707,8 +1870,7 @@ func validateAndResolvePartParameters(model *PartModel) error {
 	}
 	for index := range model.Features {
 		feature := &model.Features[index]
-		switch strings.ToUpper(feature.Type) {
-		case "PAD":
+		if isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE" {
 			feature.Length = values["parameter:"+feature.ID+":length"].SIValue * 1000
 		}
 	}
@@ -1716,6 +1878,16 @@ func validateAndResolvePartParameters(model *PartModel) error {
 }
 
 func validatePartStructure(model PartModel) error {
+	datums := map[string]struct{}{}
+	for _, datum := range model.DatumPlanes {
+		if datum.ID == "" {
+			return fmt.Errorf("%w: datum plane identity is required", ErrValidation)
+		}
+		if _, exists := datums[datum.ID]; exists {
+			return fmt.Errorf("%w: duplicate datum plane identity %s", ErrValidation, datum.ID)
+		}
+		datums[datum.ID] = struct{}{}
+	}
 	features := map[string]Feature{}
 	for _, feature := range model.Features {
 		if feature.ID == "" {
@@ -1724,10 +1896,19 @@ func validatePartStructure(model PartModel) error {
 		if _, exists := features[feature.ID]; exists {
 			return fmt.Errorf("%w: duplicate feature identity %s", ErrValidation, feature.ID)
 		}
-		if strings.EqualFold(feature.Type, "PAD") {
+		if feature.Sketch != nil && len(datums) > 0 && feature.Sketch.Support.DatumPlaneID != "" {
+			if _, exists := datums[feature.Sketch.Support.DatumPlaneID]; !exists {
+				return fmt.Errorf("%w: sketch %s references unknown datum plane %s", ErrValidation, feature.ID, feature.Sketch.Support.DatumPlaneID)
+			}
+		}
+		if isSolidGenerator(feature.Type) {
 			profile, exists := features[feature.Profile]
 			if !exists || !strings.Contains(strings.ToUpper(profile.Type), "SKETCH") {
-				return fmt.Errorf("%w: pad %s requires an earlier sketch profile %s", ErrValidation, feature.ID, feature.Profile)
+				return fmt.Errorf("%w: solid feature %s requires an earlier sketch profile %s", ErrValidation, feature.ID, feature.Profile)
+			}
+			operation := strings.ToUpper(feature.Operation)
+			if operation != "NEW_BODY" && operation != "ADD" && operation != "REMOVE" && operation != "INTERSECT" {
+				return fmt.Errorf("%w: solid feature %s has invalid BodyOperation", ErrValidation, feature.ID)
 			}
 		}
 		features[feature.ID] = feature
@@ -1741,6 +1922,10 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 	}
 	nodes := []modelcore.DependencyNode{}
 	edges := []modelcore.DependencyEdge{}
+	for _, datum := range model.DatumPlanes {
+		data, _ := json.Marshal(datum)
+		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 1, Type: "DATUM_PLANE", CanonicalInput: data})
+	}
 	for _, parameter := range model.Parameters {
 		source, _ := json.Marshal(parameter.Source)
 		key := modelcore.DependencyKey("parameter:" + parameter.ParameterID)
@@ -1761,8 +1946,11 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Target: key, Kind: modelcore.ReadValue})
 			}
 		}
-		if strings.EqualFold(feature.Type, "PAD") {
+		if isSolidGenerator(feature.Type) {
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.Profile), Target: key, Kind: modelcore.ReadGeometry})
+		}
+		if feature.Sketch != nil {
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + feature.Sketch.Support.DatumPlaneID), Target: key, Kind: modelcore.ReadGeometry})
 		}
 	}
 	graph, err := modelcore.NewDependencyGraph(nodes, edges)

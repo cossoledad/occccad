@@ -163,6 +163,42 @@ func TestPadIntentProducesStableCandidateFeatureIdentity(t *testing.T) {
 	}
 }
 
+func TestSolidGeneratorCommandUsesOneBodyOperationContract(t *testing.T) {
+	t.Parallel()
+	model := newPartModel()
+	sketch := testRectangleSketch("sketch-solid", "XY")
+	axis := SketchEntity{ID: "axis-1", Kind: "LINE", Role: "CONSTRUCTION",
+		Start: &SketchPoint2{X: 0, Y: -10}, End: &SketchPoint2{X: 0, Y: 10}}
+	sketch.Sketch.Entities = append(sketch.Sketch.Entities, axis)
+	model.Features = append(model.Features, sketch)
+	modelJSON, _ := json.Marshal(model)
+	request := CommandRequest{RequestID: "revolve-intent", Type: "CREATE_SOLID_FEATURE", SketchID: sketch.ID,
+		Generator: "REVOLVE", Operation: "NEW_BODY", Angle: 360, AxisEntityID: axis.ID}
+	commandType, payload, err := (&Service{}).adaptLegacyCommand(context.Background(), "part-1", "PART", modelJSON, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if commandType != typeCreateSolidFeature {
+		t.Fatalf("unexpected command type %s", commandType)
+	}
+	feature := payload.(createFeaturePayload).Feature
+	if feature.Type != "REVOLVE" || feature.Operation != "NEW_BODY" || feature.AxisEntityID != axis.ID {
+		t.Fatalf("solid generator intent was not preserved: %#v", feature)
+	}
+	request.AxisEntityID = sketch.Sketch.Entities[0].ID
+	if _, _, err := (&Service{}).adaptLegacyCommand(context.Background(), "part-1", "PART", modelJSON, request); err != nil {
+		t.Fatalf("revolve must accept any straight sketch line as an axis: %v", err)
+	}
+	request.AxisEntityID = "AXIS_SYSTEM:axis-system-default:X"
+	if _, _, err := (&Service{}).adaptLegacyCommand(context.Background(), "part-1", "PART", modelJSON, request); err != nil {
+		t.Fatalf("revolve must accept an axis-system direction lying in the sketch plane: %v", err)
+	}
+	request.AxisEntityID = "AXIS_SYSTEM:axis-system-default:Z"
+	if _, _, err := (&Service{}).adaptLegacyCommand(context.Background(), "part-1", "PART", modelJSON, request); err == nil {
+		t.Fatal("revolve must reject an axis-system direction normal to the sketch plane")
+	}
+}
+
 func testRectangleSketch(id, plane string) Feature {
 	operations, _ := rectangleMacro(id, SketchPoint2{0, 0}, SketchPoint2{20, 10})
 	sketch := &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}}

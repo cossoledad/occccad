@@ -93,6 +93,15 @@ struct ProfilePadSpec {
     std::vector<ProfileRegionSpec> regions;
     double pad_length{};
     std::string plane{"XY"};
+    std::string body_operation{"ADD"};
+    std::string generator{"LINEAR_EXTRUDE"};
+    double revolve_angle{};
+    Vec2 axis_start;
+    Vec2 axis_end;
+    bool reversed{};
+    Vec3 plane_origin;
+    Vec3 plane_normal;
+    Vec3 plane_u_direction;
 };
 
 // ---------------------------------------------------------------------------

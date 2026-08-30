@@ -136,6 +136,79 @@ TEST(GeometryExchange, ProfilePadBuildsClosedSplineWire) {
     EXPECT_GT(kernel.getTopology(id).solid_count, 0U);
 }
 
+ProfileRegionSpec rectangular_region(const std::string& id, double x0, double y0, double x1,
+                                     double y1) {
+    ProfileRegionSpec region;
+    region.id = id;
+    region.outer.id = id + "-outer";
+    const std::vector<Vec2> points{{x0, y0}, {x1, y0}, {x1, y1}, {x0, y1}};
+    for (std::size_t index = 0; index < points.size(); ++index) {
+        ProfileCurveSpec line;
+        line.entity_id = id + "-edge-" + std::to_string(index);
+        line.kind = "LINE";
+        line.start = points[index];
+        line.end = points[(index + 1) % points.size()];
+        region.outer.curves.push_back(line);
+    }
+    return region;
+}
+
+TEST(GeometryExchange, SolidFeatureChainFusesAndCutsOneBody) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.regions = {rectangular_region("base", 0, 0, 20, 20)};
+    base.pad_length = 10;
+    base.body_operation = "NEW_BODY";
+    ProfilePadSpec add;
+    add.regions = {rectangular_region("add", 10, 0, 30, 20)};
+    add.pad_length = 10;
+    add.body_operation = "ADD";
+    ProfilePadSpec remove;
+    remove.regions = {rectangular_region("cut", 12, 5, 18, 15)};
+    remove.pad_length = 10;
+    remove.body_operation = "REMOVE";
+
+    const auto fused = kernel.evaluateProfilePads({base, add});
+    EXPECT_EQ(kernel.getTopology(fused).solid_count, 1U);
+    EXPECT_NEAR(kernel.getVolume(fused), 6000.0, 1.0e-6);
+    const auto cut = kernel.evaluateProfilePads({base, add, remove});
+    EXPECT_EQ(kernel.getTopology(cut).solid_count, 1U);
+    EXPECT_NEAR(kernel.getVolume(cut), 5400.0, 1.0e-6);
+}
+
+TEST(GeometryExchange, RevolveBuildsSolidAroundConstructionAxis) {
+    OcctKernel kernel;
+    ProfilePadSpec revolve;
+    revolve.regions = {rectangular_region("profile", 5, -2, 10, 2)};
+    revolve.generator = "REVOLVE";
+    revolve.body_operation = "NEW_BODY";
+    revolve.revolve_angle = 2.0 * 3.14159265358979323846;
+    revolve.axis_start = {0, -10};
+    revolve.axis_end = {0, 10};
+    const auto result = kernel.evaluateProfilePads({revolve});
+    EXPECT_EQ(kernel.getTopology(result).solid_count, 1U);
+    EXPECT_NEAR(kernel.getVolume(result), 300.0 * 3.14159265358979323846, 1.0e-5);
+}
+
+TEST(GeometryExchange, ExplicitDatumFramePlacesExtrudeOffTheDefaultPlanes) {
+    OcctKernel kernel;
+    ProfilePadSpec extrude;
+    extrude.regions = {rectangular_region("offset-profile", 0, 0, 10, 5)};
+    extrude.pad_length = 8;
+    extrude.body_operation = "NEW_BODY";
+    extrude.plane_origin = {100, 20, 30};
+    extrude.plane_normal = {1, 0, 0};
+    extrude.plane_u_direction = {0, 1, 0};
+    const auto result = kernel.evaluateProfilePads({extrude});
+    const auto bounds = kernel.getBoundingBox(result);
+    EXPECT_NEAR(bounds.min.x, 100, 1.0e-6);
+    EXPECT_NEAR(bounds.max.x, 108, 1.0e-6);
+    EXPECT_NEAR(bounds.min.y, 20, 1.0e-6);
+    EXPECT_NEAR(bounds.max.y, 30, 1.0e-6);
+    EXPECT_NEAR(bounds.min.z, 30, 1.0e-6);
+    EXPECT_NEAR(bounds.max.z, 35, 1.0e-6);
+}
+
 TEST(GeometryExchange, ProductStepKeepsOneTransferableRootPerOccurrence) {
     OcctKernel kernel;
     const auto id = kernel.createRectangularPad({0.0, 0.0, 20.0, 10.0, 5.0, "XY"});

@@ -1055,7 +1055,7 @@ flowchart LR
 
 #### 5.3.1 已落地的首个纵向切片
 
-当前实现已经删除 `Feature.Rectangle` 测试模型。选择 Datum Plane 后先以 `CREATE_SKETCH` 创建空的 `SketchFeature v1`；Point/Line/Circle/Arc/插值 Spline、约束和复合工具统一形成 `EDIT_SKETCH` operation batch。当前 Spline 命令的采集点是曲线必须通过的拟合点，不能把它们误称为未来 `BSpline2` 的 poles；后续显式控制点/权重/knot 编辑仍按本章 `BSpline2` 契约作为独立结构能力演进。服务端在写 Revision 之前通过 Worker `SolveSketch` 执行权威求解并回写求解坐标、状态、DoF 与诊断。第一版 OCCT-free Profile Builder 已按 Coincident 等价类、环方向和包含深度产生外环/孔/岛，并通过 `ProfilePadSpec` 进入 OCCT Edge/Wire/Face/Prism；区域点选、独立尺寸 ParameterBinding、完整 B-Spline 约束和退化 corpus 仍按本章后续规格演进。
+当前实现已经删除 `Feature.Rectangle` 测试模型。选择 Datum Plane 后先以 `CREATE_SKETCH` 创建空的 `SketchFeature v1`；默认面和用户基准面统一使用显式原点、法向与 U 方向坐标框架。Point/Line/Circle/Arc/插值 Spline、约束和复合工具统一形成 `EDIT_SKETCH` operation batch。当前 Spline 命令的采集点是曲线必须通过的拟合点，不能把它们误称为未来 `BSpline2` 的 poles；后续显式控制点/权重/knot 编辑仍按本章 `BSpline2` 契约作为独立结构能力演进。服务端在写 Revision 之前通过 Worker `SolveSketch` 执行权威求解并回写求解坐标、状态、DoF 与诊断。第一版 OCCT-free Profile Builder 已按 Coincident 等价类、环方向和包含深度产生外环/孔/岛；线性拉伸和旋转先生成 Tool Shape，再以 BodyOperation 执行 New/Add/Remove/Intersect。区域点选、多 Body/merge scope、面支撑 PersistentSelection、独立尺寸 ParameterBinding、完整 B-Spline 约束和退化 corpus 仍按本章后续规格演进。
 
 当前链表示为：
 

@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import type { PlaneName, Selection, SelectionItem } from "../types";
+import type { Selection, SelectionItem, SketchPlane } from "../types";
 import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
 import { DEFAULT_CAPTURE_SETTINGS, normalizeCaptureSettings, type CaptureSettings,
   type SelectionCaptureKind, type SketchSnapCaptureKind } from "../cad/interaction/capture-settings";
@@ -14,7 +14,7 @@ type WorkbenchState = {
   selection: Selection;
   selections: SelectionItem[];
   preselection: Selection;
-  sketchPlane?: PlaneName;
+  sketchPlane?: SketchPlane;
   activeSketchID?: string;
   activeToolID: WorkbenchToolID;
   activeToolMode: WorkbenchToolMode;
@@ -24,7 +24,7 @@ type WorkbenchState = {
   setSelection: (selection: Selection) => void;
   setSelections: (selections: SelectionItem[]) => void;
   setPreselection: (selection: Selection) => void;
-  beginSketch: (sketchID: string, plane: PlaneName) => void;
+  beginSketch: (sketchID: string, plane: SketchPlane) => void;
   endSketch: () => void;
   setActiveTool: (tool: WorkbenchToolID, mode?: WorkbenchToolMode) => void;
   completeToolUse: () => void;

@@ -5,7 +5,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   App, Button, Descriptions, Empty, Form, Input, InputNumber, List, Segmented,
-  Select, Space, Spin, Tag,
+  Select, Space, Spin, Switch, Tag,
 } from "antd";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -24,7 +24,7 @@ import { CaptureSettingsButton } from "../../cad/overlay/capture-settings-button
 import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
 import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
 import { useUIPreferences } from "../../state/ui-preferences";
-import type { DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, PlaneName, Selection, SelectionItem, SketchOperation, ToolbarCatalogEntry, ToolbarCatalogItem, TopologyElementProperties, Vec3 } from "../../types";
+import type { DatumPlane, DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, Selection, SelectionItem, SketchOperation, SketchPlane, ToolbarCatalogEntry, ToolbarCatalogItem, TopologyElementProperties, Vec3 } from "../../types";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { closestTreeKey } from "./tree-selection";
@@ -35,6 +35,16 @@ const sketchToolCommands:WorkbenchToolID[]=["sketch.rectangle","sketch.polygon",
   "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.dimension.linear",
   "sketch.constraint.radius","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint","sketch.constraint.symmetry"];
 
+function sketchPlane(datum: DatumPlane): SketchPlane {
+  return { datumPlaneId: datum.id, plane: datum.plane, origin: datum.origin, normal: datum.normal, uDirection: datum.uDirection };
+}
+
+function featureSketchPlane(view: DocumentView, feature: Feature): SketchPlane | undefined {
+  const datum = view.datumPlanes?.find((candidate) => candidate.id === feature.sketch?.support.datumPlaneId)
+    ?? view.part?.datumPlanes.find((candidate) => candidate.id === feature.sketch?.support.datumPlaneId);
+  return datum ? sketchPlane(datum) : undefined;
+}
+
 function toolbarGroups(items: ToolbarCatalogItem[]): Array<{ key: string; items: ToolbarCatalogItem[] }> {
   const groups = new Map<string, ToolbarCatalogItem[]>();
   for (const item of items) groups.set(item.groupKey, [...(groups.get(item.groupKey) ?? []), item]);
@@ -43,13 +53,17 @@ function toolbarGroups(items: ToolbarCatalogItem[]): Array<{ key: string; items:
 
 function featureIcon(feature: Feature) {
   if (feature.type.toUpperCase().includes("SKETCH")) return <ScissorOutlined />;
-  if (feature.type.toUpperCase() === "PAD") return <InsertRowAboveOutlined />;
+  if (["PAD", "LINEAR_EXTRUDE", "REVOLVE"].includes(feature.type.toUpperCase())) return <InsertRowAboveOutlined />;
   return <CloudUploadOutlined />;
+}
+
+function isSolidFeature(feature: Feature): boolean {
+  return ["PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY"].includes(feature.type.toUpperCase());
 }
 
 function featureNode(feature: Feature): SpecificationTreeNode {
   return {
-    key: `${feature.type.toUpperCase().includes("SKETCH") ? "sketch" : feature.type.toUpperCase() === "PAD" ? "pad" : "import"}:${feature.id}`,
+    key: `${feature.type.toUpperCase().includes("SKETCH") ? "sketch" : isSolidFeature(feature) ? "solid" : "import"}:${feature.id}`,
     title: feature.name ?? feature.type, icon: featureIcon(feature),
   };
 }
@@ -66,7 +80,7 @@ function structureIcon(kind: DocumentStructureNode["kind"]) {
   if (kind === "SKETCH_ENTITY") return <NodeIndexOutlined />;
   if (kind === "SKETCH_CONSTRAINT") return <GatewayOutlined />;
   if (kind === "SKETCH_GEOMETRY_SET" || kind === "SKETCH_CONSTRAINT_SET") return <DatabaseOutlined />;
-  if (kind === "PAD") return <InsertRowAboveOutlined />;
+  if (kind === "PAD" || kind === "REVOLVE") return <InsertRowAboveOutlined />;
   return <CloudUploadOutlined />;
 }
 
@@ -84,19 +98,23 @@ function structureSelection(node: DocumentStructureNode, view: DocumentView): Se
     return { kind: "instance", id: path, visualKey: `occurrence:${path}`, ...context,
       occurrencePath: path, instanceId: path.split("/")[0] };
   }
-  if (node.kind === "PLANE" && node.entityId && node.plane) return {
-    kind: "plane", id: `${occurrencePath || "root"}:${node.entityId}`, plane: node.plane, ...context,
-  };
+  if (node.kind === "PLANE" && node.entityId && node.plane) {
+    const datumPlane = view.datumPlanes?.find((datum) => datum.id === node.entityId);
+    return { kind: "plane", id: `${occurrencePath || "root"}:${node.entityId}`, plane: node.plane, datumPlane, ...context };
+  }
   if (node.kind === "AXIS_SYSTEM" && node.entityId) return {
     kind: "axis-system", id: `${occurrencePath || "root"}:${node.entityId}`, ...context,
   };
   if (node.kind === "AXIS" && node.entityId && node.axis) return {
     kind: "axis", axis: node.axis, id: `${occurrencePath || "root"}:${node.entityId}:${node.axis}`, ...context,
   };
+  if (node.kind === "DATUM_AXIS" && node.entityId) return {
+    kind: "axis", axis: "DATUM", id: `${occurrencePath || "root"}:${node.entityId}`, ...context,
+  };
   const bodyID = `${occurrencePath || "root"}:body`;
   if (node.kind === "BODY" || node.kind === "PART") return { kind: "body", id: bodyID, ...context };
-  if (["SKETCH", "PAD", "IMPORT"].includes(node.kind) && node.entityId) return {
-    kind: node.kind.toLowerCase() as "sketch" | "pad" | "import", id: node.entityId,
+  if (["SKETCH", "PAD", "REVOLVE", "IMPORT"].includes(node.kind) && node.entityId) return {
+    kind: (node.kind === "REVOLVE" ? "pad" : node.kind.toLowerCase()) as "sketch" | "pad" | "import", id: node.entityId,
     visualKey: node.kind === "SKETCH" ? undefined : `body:${bodyID}`, ...context,
   };
   if (node.kind === "SKETCH_ENTITY" && node.entityId && node.ownerEntityId) return {
@@ -134,11 +152,11 @@ function treeData(view: DocumentView): SpecificationTreeNode[] {
     const features = view.part?.features ?? [];
     const sketches = new Map(features.filter((feature) => feature.type.toUpperCase().includes("SKETCH"))
       .map((feature) => [feature.id, feature]));
-    const consumedSketches = new Set(features.filter((feature) => feature.type.toUpperCase() === "PAD" && feature.profile)
+    const consumedSketches = new Set(features.filter((feature) => isSolidFeature(feature) && feature.profile)
       .map((feature) => feature.profile!));
     const bodyFeatures = features.filter((feature) => !consumedSketches.has(feature.id)).map((feature) => {
       const node = featureNode(feature);
-      const profile = feature.type.toUpperCase() === "PAD" && feature.profile ? sketches.get(feature.profile) : undefined;
+      const profile = isSolidFeature(feature) && feature.profile ? sketches.get(feature.profile) : undefined;
       return profile ? { ...node, children: [featureNode(profile)] } : node;
     });
     return [{ key: "document", title: view.document.name, icon: <BuildOutlined />, children: [
@@ -186,6 +204,7 @@ export function Workbench() {
   const commandRegistry = useMemo(() => new CommandRegistry(), []);
   const viewport = useRef<CadViewportHandle>(null);
   const [padOpen, setPadOpen] = useState(false);
+  const [padGenerator, setPadGenerator] = useState<"LINEAR_EXTRUDE" | "REVOLVE">("LINEAR_EXTRUDE");
   const [padSketchID, setPadSketchID] = useState<string>();
   const [padPreviewPending, setPadPreviewPending] = useState(false);
   const padPreviewAbort = useRef<AbortController | undefined>(undefined);
@@ -194,14 +213,19 @@ export function Workbench() {
   const latestDocumentVersion = useRef<string | undefined>(undefined);
   const [insertOpen, setInsertOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
+  const [datumPlaneOpen, setDatumPlaneOpen] = useState(false);
+  const [datumAxisOpen, setDatumAxisOpen] = useState(false);
   const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const hiddenTreeKeys = useUIPreferences((state) => state.hiddenTreeKeys);
   const toggleTreeVisibility = useUIPreferences((state) => state.toggleTreeVisibility);
   const [shareResource, setShareResource] = useState<ShareResource>();
-  const [padForm] = Form.useForm<{ length: number }>();
+  const [padForm] = Form.useForm<{ generator: "LINEAR_EXTRUDE" | "REVOLVE"; operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
+    length: number; angle: number; axisEntityId?: string; reversed: boolean }>();
   const [insertForm] = Form.useForm<{ referencedDocumentID: string; name: string }>();
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
+  const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
+  const [datumAxisForm] = Form.useForm<{ name: string; ox: number; oy: number; oz: number; dx: number; dy: number; dz: number }>();
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
 	const toolbarCatalog = useQuery({ queryKey: ["ui", "toolbars"], queryFn: api.toolbarCatalog, staleTime: 5 * 60_000 });
@@ -281,36 +305,48 @@ export function Workbench() {
     if (!view || !store.selection) return;
     if (store.selection.kind === "sketch") {
       const feature = view.part?.features.find((candidate) => candidate.id === store.selection!.id);
-      const plane = feature?.sketch?.support.plane ?? feature?.plane;
+      const plane = feature ? featureSketchPlane(view, feature) : undefined;
       if (feature && plane) store.beginSketch(feature.id, plane);
       return;
     }
     if (store.selection.kind !== "plane") return;
-    const plane = store.selection.plane;
-    command.mutate(() => api.createSketch(view.document.id, plane), { onSuccess: (updated) => {
+    const datum = store.selection.datumPlane ?? view.datumPlanes?.find((candidate) => store.selection?.id.endsWith(candidate.id));
+    if (!datum) return;
+    const plane = sketchPlane(datum);
+    command.mutate(() => api.createSketch(view.document.id, datum.plane, datum.id), { onSuccess: (updated) => {
       const sketch = [...(updated.part?.features ?? [])].reverse().find((feature) => feature.type.toUpperCase() === "SKETCH");
       if (sketch) store.beginSketch(sketch.id, plane);
     }});
   };
-  const padSketch = (values: { length: number }) => {
+  const padSketch = (values: { generator: "LINEAR_EXTRUDE" | "REVOLVE"; operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
+    length: number; angle: number; axisEntityId?: string; reversed: boolean }) => {
     if (!view || !padSketchID) return;
     padPreviewAbort.current?.abort();
     viewport.current?.clearCommandPreview();
-    command.mutate(() => api.pad(view.document.id, padSketchID, values.length, padIntentRequestID.current));
+    const generator = values.generator ?? padGenerator;
+    command.mutate(() => api.createSolidFeature(view.document.id, { sketchId: padSketchID, generator,
+      operation: values.operation, length: generator === "LINEAR_EXTRUDE" ? values.length : undefined,
+      angle: generator === "REVOLVE" ? values.angle : undefined,
+      axisEntityId: generator === "REVOLVE" ? values.axisEntityId : undefined, reversed: values.reversed }, padIntentRequestID.current));
     setPadOpen(false); setPadSketchID(undefined); padIntentRequestID.current = undefined;
   };
   const closePad = () => {
     padPreviewAbort.current?.abort(); padPreviewSequence.current += 1; setPadPreviewPending(false);
     viewport.current?.clearCommandPreview(); setPadOpen(false); setPadSketchID(undefined); padIntentRequestID.current = undefined;
   };
-  const requestPadPreview = async (sketchID: string, length: number) => {
-    if (!view || !Number.isFinite(length) || length <= 0) return;
+  const requestPadPreview = async (sketchID: string, generatorOverride?: "LINEAR_EXTRUDE" | "REVOLVE") => {
+    if (!view) return;
+    const values = padForm.getFieldsValue(); values.generator = generatorOverride ?? values.generator ?? padGenerator;
+    if (values.generator === "LINEAR_EXTRUDE" && (!Number.isFinite(values.length) || values.length <= 0)) return;
+    if (values.generator === "REVOLVE" && (!Number.isFinite(values.angle) || values.angle <= 0 || !values.axisEntityId)) return;
     padPreviewAbort.current?.abort();
     const abort = new AbortController(); padPreviewAbort.current = abort;
     const sequence = ++padPreviewSequence.current; const baseVersionID = view.document.versionId;
     setPadPreviewPending(true);
     try {
-      const preview = await api.previewCommand(view.document.id, { type: "PAD_SKETCH", sketchId: sketchID, length,
+      const preview = await api.previewCommand(view.document.id, { type: "CREATE_SOLID_FEATURE", sketchId: sketchID,
+        generator: values.generator, operation: values.operation, length: values.length, angle: values.angle,
+        axisEntityId: values.axisEntityId, reversed: values.reversed,
         ...(padIntentRequestID.current ? { requestId: padIntentRequestID.current } : {}) }, abort.signal);
       if (sequence !== padPreviewSequence.current || preview.baseVersionId !== baseVersionID ||
         preview.baseVersionId !== latestDocumentVersion.current || !preview.artifact) return;
@@ -322,8 +358,40 @@ export function Workbench() {
     }
   };
   const previewPad = () => {
-    if (padSketchID) void requestPadPreview(padSketchID, Number(padForm.getFieldValue("length")));
+    if (padSketchID) void requestPadPreview(padSketchID);
   };
+  const openSolidFeature = (generator: "LINEAR_EXTRUDE" | "REVOLVE", operation?: "NEW_BODY" | "ADD" | "REMOVE") => {
+    if (store.selection?.kind !== "sketch") return;
+    const hasBody = Boolean(view?.part?.features.some((feature) => feature.type === "IMPORT_BODY" ||
+      ["PAD", "LINEAR_EXTRUDE", "REVOLVE"].includes(feature.type.toUpperCase())));
+    const selectedOperation = operation ?? (hasBody ? "ADD" : "NEW_BODY");
+    const sketchID = store.selection.id;
+    padIntentRequestID.current = randomUUID(); setPadSketchID(sketchID); setPadGenerator(generator);
+    padForm.setFieldsValue({ generator, operation: selectedOperation, length: 40, angle: 360,
+      axisEntityId: undefined, reversed: false });
+    setPadOpen(true);
+  };
+  useEffect(() => {
+    if (!padOpen || !padSketchID) return;
+    void requestPadPreview(padSketchID, padGenerator);
+  }, [padOpen, padSketchID, padGenerator]);
+  useEffect(() => {
+    if (!padOpen || padGenerator !== "REVOLVE" || !padSketchID || !store.selection) return;
+    const selection = store.selection;
+    let reference: string | undefined;
+    if (selection.kind === "axis") {
+      const parts = selection.id.split(":");
+      reference = selection.axis === "DATUM"
+        ? `DATUM_AXIS:${parts.at(-1)}` : `AXIS_SYSTEM:${parts.at(-2)}:${selection.axis}`;
+    } else if (selection.kind === "visual") {
+      const selectedSketch = view?.part?.features.find((feature) => feature.id === selection.featureId)?.sketch;
+      const entity = selectedSketch?.entities.find((candidate) => candidate.id === selection.entityId);
+      if (entity?.kind === "LINE") reference = `SKETCH_LINE:${selection.featureId}:${entity.id}`;
+    }
+    if (!reference) return;
+    padForm.setFieldValue("axisEntityId", reference);
+    void requestPadPreview(padSketchID, "REVOLVE");
+  }, [padOpen, padGenerator, padSketchID, store.selection, view]);
   const insertDocument = (values: { referencedDocumentID: string; name: string }) => {
     if (!view) return; command.mutate(() => api.insert(view.document.id, values.referencedDocumentID, values.name)); setInsertOpen(false);
   };
@@ -362,14 +430,16 @@ export function Workbench() {
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit) }),
       ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,invocation?.continuous?"continuous":"once"),
         isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane),isActive:()=>store.activeToolID===toolID})),
-      commandRegistry.register({ id: "part.pad", execute: () => {
-        if (store.selection?.kind !== "sketch") return;
-        const sketchID = store.selection.id;
-        padIntentRequestID.current = randomUUID();
-        setPadSketchID(sketchID); padForm.setFieldsValue({ length: 40 }); setPadOpen(true);
-        void requestPadPreview(sketchID, 40);
-      }, isVisible: () => view?.document.type === "PART",
+      commandRegistry.register({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isVisible: () => view?.document.type === "PART",
         isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch") }),
+      commandRegistry.register({ id: "part.pocket", execute: () => openSolidFeature("LINEAR_EXTRUDE", "REMOVE"), isVisible: () => view?.document.type === "PART",
+        isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch" && view?.part?.features.some((feature) => isSolidFeature(feature))) }),
+      commandRegistry.register({ id: "part.revolve", execute: () => openSolidFeature("REVOLVE"), isVisible: () => view?.document.type === "PART",
+        isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch") }),
+      commandRegistry.register({ id: "part.datum-plane", execute: () => { datumPlaneForm.setFieldsValue({ name: "Plane", offset: 10 }); setDatumPlaneOpen(true); },
+        isVisible: () => view?.document.type === "PART", isEnabled: () => Boolean(canEdit && store.selection?.kind === "plane") }),
+      commandRegistry.register({ id: "part.datum-axis", execute: () => { datumAxisForm.setFieldsValue({ name: "Axis", ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 1 }); setDatumAxisOpen(true); },
+        isVisible: () => view?.document.type === "PART", isEnabled: () => Boolean(canEdit) }),
       commandRegistry.register({ id: "product.insert", execute: () => setInsertOpen(true), isVisible: () => view?.document.type === "PRODUCT",
         isEnabled: () => Boolean(canEdit) }),
       commandRegistry.register({ id: "product.reference.toggle", execute: () => {
@@ -435,7 +505,7 @@ export function Workbench() {
               if (!canEdit || !node.selection) return;
               if (node.selection.kind === "sketch") {
                 const feature=view?.part?.features.find((candidate)=>candidate.id===node.selection!.id);
-                const plane=feature?.sketch?.support.plane??feature?.plane;if(feature&&plane)store.beginSketch(feature.id,plane);
+                const plane=feature?featureSketchPlane(view,feature):undefined;if(feature&&plane)store.beginSketch(feature.id,plane);
               } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
             }}
             onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={deleteTreeNodes}
@@ -469,17 +539,48 @@ export function Workbench() {
             : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(view.document.id, entry.versionId))} />}</div>
         </aside>
       </section></main>
-    <CommandDialog id="pad" open={padOpen} title="拉伸草图" onClose={closePad} confirmLoading={command.isPending}
+    <CommandDialog id="solid-generator" open={padOpen} title="实体特征" onClose={closePad} confirmLoading={command.isPending}
       onConfirm={async () => padSketch(await padForm.validateFields())}>
-      <Form form={padForm} layout="vertical"><Form.Item name="length" label="拉伸长度（mm）"
-        rules={[{ required: true }, { type: "number", min: 0.1 }]}><InputNumber min={0.1} precision={2} style={{ width: "100%" }}
-          onBlur={previewPad} onPressEnter={previewPad} /></Form.Item>
+      <Form form={padForm} layout="vertical"><Form.Item name="generator" hidden><Input /></Form.Item>
+        <Form.Item name="operation" label="Body 操作" rules={[{ required: true }]}>
+        <Select onChange={previewPad} options={[{ value: "NEW_BODY", label: "新建实体" }, { value: "ADD", label: "添加材料" },
+          { value: "REMOVE", label: "移除材料" }, { value: "INTERSECT", label: "保留交集" }]} /></Form.Item>
+        <Form.Item noStyle shouldUpdate={(before, after) => before.generator !== after.generator}>{({ getFieldValue }) => getFieldValue("generator") === "REVOLVE" ? <>
+          <Form.Item name="axisEntityId" label="旋转轴" rules={[{ required: true }]}><Select onChange={previewPad}
+            placeholder="在视图区或结构树选择直线/轴"
+            options={[...(view.part?.features ?? []).flatMap((feature) => (feature.sketch?.entities ?? [])
+              .filter((entity) => entity.kind === "LINE")
+              .map((entity, index) => ({ value: `SKETCH_LINE:${feature.id}:${entity.id}`, label: `${feature.name ?? feature.id} · 直线 ${index + 1}` }))),
+              ...(view.axisSystems ?? []).flatMap((axis) => (["X","Y","Z"] as const).map((direction) => ({
+                value: `AXIS_SYSTEM:${axis.id}:${direction}`, label: `${axis.name} · ${direction}` }))),
+              ...(view.datumAxes ?? []).map((axis) => ({ value: `DATUM_AXIS:${axis.id}`, label: axis.name }))]} /></Form.Item>
+          <Form.Item name="angle" label="旋转角度（deg）" rules={[{ required: true }, { type: "number", min: 0.1, max: 360 }]}>
+            <InputNumber min={0.1} max={360} precision={2} style={{ width: "100%" }} onBlur={previewPad} onPressEnter={previewPad} /></Form.Item>
+        </> : <Form.Item name="length" label="拉伸长度（mm）" rules={[{ required: true }, { type: "number", min: 0.1 }]}>
+          <InputNumber min={0.1} precision={2} style={{ width: "100%" }} onBlur={previewPad} onPressEnter={previewPad} /></Form.Item>}</Form.Item>
+        <Form.Item name="reversed" label="反向" valuePropName="checked"><Switch onChange={previewPad} /></Form.Item>
         <small className="cad-command-hint">{padPreviewPending ? "后端正在求值预览…" : "输入后按 Enter 或点击视口可刷新后端瞬态预览；预览不会创建 Revision。"}</small></Form>
     </CommandDialog>
     <CommandDialog id="insert" open={insertOpen} title="插入 Part / Product" onClose={() => setInsertOpen(false)}
       confirmLoading={command.isPending} onConfirm={async () => insertDocument(await insertForm.validateFields())}>
       <Form form={insertForm} layout="vertical"><Form.Item name="referencedDocumentID" label="引用文档" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={(catalog.data?.documents ?? []).filter((item) => item.id !== view.document.id).map((item) => ({ value: item.id, label: `${item.name} (${item.type})` }))} /></Form.Item>
         <Form.Item name="name" label="实例名称" rules={[{ required: true }]}><Input /></Form.Item></Form>
+    </CommandDialog>
+    <CommandDialog id="datum-plane" open={datumPlaneOpen} title="创建基准面" onClose={() => setDatumPlaneOpen(false)}
+      confirmLoading={command.isPending} onConfirm={async () => {
+        const values = await datumPlaneForm.validateFields(); const selectedPlane = store.selection?.kind === "plane" ? store.selection.datumPlane : undefined;
+        if (!selectedPlane) return; const origin = selectedPlane.origin.map((value, index) => value + selectedPlane.normal[index] * values.offset) as Vec3;
+        command.mutate(() => api.createDatumPlane(view.document.id, { name: values.name, origin, normal: selectedPlane.normal, uDirection: selectedPlane.uDirection }),
+          { onSuccess: () => setDatumPlaneOpen(false) });
+      }}><Form form={datumPlaneForm} layout="vertical"><Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
+        <Form.Item name="offset" label="偏置（mm）" rules={[{ required: true }, { type: "number" }]}><InputNumber style={{ width: "100%" }} /></Form.Item></Form>
+    </CommandDialog>
+    <CommandDialog id="datum-axis" open={datumAxisOpen} title="创建基准轴" onClose={() => setDatumAxisOpen(false)}
+      confirmLoading={command.isPending} onConfirm={async () => { const v = await datumAxisForm.validateFields();
+        command.mutate(() => api.createDatumAxis(view.document.id, { name: v.name, origin: [v.ox,v.oy,v.oz], direction: [v.dx,v.dy,v.dz] }),
+          { onSuccess: () => setDatumAxisOpen(false) }); }}><Form form={datumAxisForm} layout="vertical"><Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
+        <Space><Form.Item name="ox" label="原点 X"><InputNumber /></Form.Item><Form.Item name="oy" label="Y"><InputNumber /></Form.Item><Form.Item name="oz" label="Z"><InputNumber /></Form.Item></Space>
+        <Space><Form.Item name="dx" label="方向 X"><InputNumber /></Form.Item><Form.Item name="dy" label="Y"><InputNumber /></Form.Item><Form.Item name="dz" label="Z"><InputNumber /></Form.Item></Space></Form>
     </CommandDialog>
     <CommandDialog id="version" open={versionOpen} title="创建命名版本" onClose={() => setVersionOpen(false)}
       onConfirm={async () => createVersion(await versionForm.validateFields())}>
@@ -495,7 +596,7 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
   selection: Selection;
   feature?: Feature;
   workbench: keyof typeof CAD_WORKBENCHES;
-  sketchPlane?: PlaneName;
+  sketchPlane?: SketchPlane;
   activeTool: string;
   navigationProfile: string;
   diagnostics?: DocumentProperties;
@@ -519,7 +620,7 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
         { key: "version", label: "Head Version", children: view.document.versionId.slice(0, 16) },
         { key: "tool", label: "Active Tool", children: activeTool },
         { key: "navigation", label: "Navigation", children: navigationProfile.toUpperCase() },
-        ...(sketchPlane ? [{ key: "plane", label: "Sketch Plane", children: sketchPlane }] : []),
+        ...(sketchPlane ? [{ key: "plane", label: "Sketch Plane", children: sketchPlane.plane }] : []),
         { key: "history", label: "History", children: `Undo ${view.document.canUndo ? "Yes" : "No"} · Redo ${view.document.canRedo ? "Yes" : "No"}` },
         { key: "geometry", label: "Display Geometry", children: `${geometryCount} object(s) · ${triangleCount} triangles` },
         { key: "topology", label: "Topology", children: diagnostics

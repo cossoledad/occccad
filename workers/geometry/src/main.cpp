@@ -500,6 +500,15 @@ public:
                 occccad::kernel::ProfilePadSpec pad;
                 pad.pad_length = input.pad_length();
                 pad.plane = input.plane().empty() ? "XY" : input.plane();
+                pad.body_operation = input.body_operation().empty() ? "ADD" : input.body_operation();
+                pad.generator = input.generator().empty() ? "LINEAR_EXTRUDE" : input.generator();
+                pad.revolve_angle = input.revolve_angle();
+                pad.axis_start = {input.axis_start().x(), input.axis_start().y()};
+                pad.axis_end = {input.axis_end().x(), input.axis_end().y()};
+                pad.reversed = input.reversed();
+                pad.plane_origin = {input.plane_origin().x(), input.plane_origin().y(), input.plane_origin().z()};
+                pad.plane_normal = {input.plane_normal().x(), input.plane_normal().y(), input.plane_normal().z()};
+                pad.plane_u_direction = {input.plane_u_direction().x(), input.plane_u_direction().y(), input.plane_u_direction().z()};
                 const auto read_loop = [](const worker_api::ProfileLoop& source) {
                     occccad::kernel::ProfileLoopSpec loop;
                     loop.id = source.id();

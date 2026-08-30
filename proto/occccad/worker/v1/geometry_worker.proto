@@ -179,6 +179,18 @@ message ProfilePadSpec {
     double pad_length = 2;
     string units = 3;
     string plane = 4;
+    // NEW_BODY | ADD | REMOVE | INTERSECT. Legacy senders default to ADD.
+    string body_operation = 5;
+    // LINEAR_EXTRUDE | REVOLVE. Legacy senders default to LINEAR_EXTRUDE.
+    string generator = 6;
+    double revolve_angle = 7; // radians, ignored by LINEAR_EXTRUDE
+    Vec2 axis_start = 8;      // sketch-local, required by REVOLVE
+    Vec2 axis_end = 9;
+    bool reversed = 10;
+    // Explicit sketch support frame. Zero normal keeps legacy XY/XZ/YZ mapping.
+    Vec3 plane_origin = 11;
+    Vec3 plane_normal = 12;
+    Vec3 plane_u_direction = 13;
 }
 
 message ArtifactReference {
