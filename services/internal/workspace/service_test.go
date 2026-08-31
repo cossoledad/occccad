@@ -746,6 +746,44 @@ func TestProductReferenceModeValidation(t *testing.T) {
 	}
 }
 
+func TestInstanceNameIsUniqueWithinOwningProduct(t *testing.T) {
+	t.Parallel()
+	model := ProductModel{Instances: []ProductInstance{
+		{Name: "Bracket.1"}, {Name: "bracket.3"}, {Name: "Other.1"},
+	}}
+	if got := nextInstanceName(model, "Bracket"); got != "Bracket.2" {
+		t.Fatalf("unexpected allocated instance name: %q", got)
+	}
+	if got := nextInstanceName(model, ""); got != "Component.1" {
+		t.Fatalf("unexpected empty-reference instance name: %q", got)
+	}
+}
+
+func TestInstancePathIdentityUsesStableIDsAndNamesAreDisplayOnly(t *testing.T) {
+	t.Parallel()
+	path := InstancePath{RootDocumentID: "root-document"}
+	path = appendInstancePath(path, InstancePathSegment{OwnerDocumentID: "root-document", OwnerVersionID: "root-v1",
+		InstanceID: "instance-a", InstanceName: "Assembly.1", ReferencedDocumentID: "child-product", ResolvedVersionID: "child-v2"})
+	path = appendInstancePath(path, InstancePathSegment{OwnerDocumentID: "child-product", OwnerVersionID: "child-v2",
+		InstanceID: "instance-b", InstanceName: "Bracket.1", ReferencedDocumentID: "part", ResolvedVersionID: "part-v3"})
+	if path.Canonical != "instance-a/instance-b" || path.Display != "Assembly.1/Bracket.1" {
+		t.Fatalf("unexpected instance path: %#v", path)
+	}
+	path.Segments[1].InstanceName = "Renamed.1"
+	if path.Canonical != "instance-a/instance-b" {
+		t.Fatalf("display rename changed stable occurrence identity: %q", path.Canonical)
+	}
+}
+
+func TestProductEvaluationRejectsDuplicateSiblingInstanceNames(t *testing.T) {
+	t.Parallel()
+	model := ProductModel{Instances: []ProductInstance{{ID: "instance-a", Name: "Bracket.1"},
+		{ID: "instance-b", Name: "bracket.1"}}}
+	if _, _, err := buildProductEvaluation(model, "revision", "hash", nil, nil); err == nil || !strings.Contains(err.Error(), "InstanceName") {
+		t.Fatalf("duplicate sibling names must be rejected, got %v", err)
+	}
+}
+
 func TestDocumentManagementValidation(t *testing.T) {
 	t.Parallel()
 	service := &Service{}

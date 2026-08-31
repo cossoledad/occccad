@@ -118,6 +118,22 @@ export type ProductInstance = {
   headChanged?: boolean;
 };
 
+export type InstancePathSegment = {
+  ownerDocumentId: string;
+  ownerVersionId: string;
+  instanceId: string;
+  instanceName: string;
+  referencedDocumentId: string;
+  resolvedVersionId: string;
+};
+
+export type InstancePath = {
+  rootDocumentId: string;
+  segments: InstancePathSegment[];
+  canonical: string;
+  display: string;
+};
+
 export type DocumentSummary = {
   id: string;
   name: string;
@@ -192,6 +208,7 @@ export type ResolvedInstance = {
   geometryKey: string;
   translation: Vec3;
   occurrencePath: string;
+  instancePath: InstancePath;
   bodyTreeNodeId: string;
 };
 
@@ -206,6 +223,7 @@ export type DocumentStructureNode = {
   plane?: PlaneName | "CUSTOM";
   axis?: "X" | "Y" | "Z";
   referenceMode?: "FOLLOW_HEAD" | "PINNED";
+  instancePath?: InstancePath;
   ownerEntityId?: string;
   entityType?: string;
   role?: "PROFILE" | "CONSTRUCTION";
@@ -234,6 +252,7 @@ export type SelectionIdentity = {
   expandTreeDescendants?: boolean;
   documentId?: string;
   occurrencePath?: string;
+  instancePath?: InstancePath;
   geometryKey?: string;
   instanceId?: string;
   visualKey?: string;

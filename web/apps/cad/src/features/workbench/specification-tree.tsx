@@ -3,12 +3,13 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { Dropdown } from "antd";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { selectionKey, selectionSetToken } from "../../cad/interaction/selection-identity";
-import type { Selection } from "../../types";
+import type { InstancePath, Selection } from "../../types";
 import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-selection";
 
 export type SpecificationTreeNode = {
   key: string; title: ReactNode; icon?: ReactNode; children?: SpecificationTreeNode[];
   kind?: string; entityId?: string; documentId?: string; plane?: string; selection?: Selection;
+  instancePath?: InstancePath;
   capabilities?: Array<"DELETE" | "SUPPRESS">; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
   suppressed?: boolean; diagnostic?: string; hidden?: boolean;
 };
@@ -45,9 +46,9 @@ function branchKeys(nodes: SpecificationTreeNode[], output = new Set<string>()):
   return output;
 }
 
-export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, onSelect, onActivate, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, activeDocumentId, activeInstancePath, onSelect, onActivate, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; selectedIdentityKeys: readonly string[];
-  selectionToken: string; highlightedKey?: string;
+  selectionToken: string; highlightedKey?: string; activeDocumentId?: string; activeInstancePath?: string;
   onSelect: (nodes: SpecificationTreeNode[]) => void; onHover?: (node?: SpecificationTreeNode) => void;
   onActivate?: (node: SpecificationTreeNode) => void;
   onDelete?: (nodes: SpecificationTreeNode[]) => void;
@@ -131,7 +132,10 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
         const deletable = selectedNodes.filter((candidate) => candidate.capabilities?.includes("DELETE"));
         const rowStyle = { transform: `translateY(${item.start}px)`, paddingLeft: depth * 31,
           "--tree-depth": depth } as CSSProperties;
-        const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${highlightedKey === node.key ? "highlighted" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
+        const isActiveDocument = Boolean((node.kind === "PART" || node.kind === "PRODUCT" || node.kind === "INSTANCE") &&
+          (activeInstancePath ? node.instancePath?.canonical === activeInstancePath
+            : activeDocumentId && node.documentId === activeDocumentId && !node.instancePath));
+        const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${isActiveDocument ? "active-document" : ""} ${highlightedKey === node.key ? "highlighted" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
           role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? isExpanded : undefined}
           aria-selected={isSelected} tabIndex={0} onClick={(event) => { event.stopPropagation(); selectNode(node, eventModifiers(event)); }}
           onDoubleClick={(event) => { event.stopPropagation(); onActivate?.(node); }}

@@ -899,6 +899,8 @@ select {
 .specification-tree-row.highlighted:not(.selected) { color: #dff8ff; background: rgb(87 213 255 / 20%); outline: 1px solid rgb(87 213 255 / 52%); }
 .specification-tree-row:focus-visible { border-color: rgb(255 209 102 / 82%); }
 .specification-tree-row.selected { color: #261900; background: rgb(255 166 43 / 88%); text-shadow: none; }
+.specification-tree-row.active-document:not(.selected) { box-shadow: inset 3px 0 #55b889; background: rgb(85 184 137 / 13%); }
+.specification-tree-row.active-document .specification-tree-label { font-weight: 650; }
 .specification-tree-root-anchor,
 .specification-tree-junction {
   width: 18px;

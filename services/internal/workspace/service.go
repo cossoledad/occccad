@@ -267,6 +267,65 @@ type ProductModel struct {
 	Instances []ProductInstance `json:"instances"`
 }
 
+// InstancePath is the stable occurrence identity from an opened root Product
+// to one referenced document. Names are presentation only; identity is the
+// ordered owner/InstanceId chain.
+type InstancePathSegment struct {
+	OwnerDocumentID      string `json:"ownerDocumentId"`
+	OwnerVersionID       string `json:"ownerVersionId"`
+	InstanceID           string `json:"instanceId"`
+	InstanceName         string `json:"instanceName"`
+	ReferencedDocumentID string `json:"referencedDocumentId"`
+	ResolvedVersionID    string `json:"resolvedVersionId"`
+}
+
+type InstancePath struct {
+	RootDocumentID string                `json:"rootDocumentId"`
+	Segments       []InstancePathSegment `json:"segments"`
+	Canonical      string                `json:"canonical"`
+	Display        string                `json:"display"`
+}
+
+func appendInstancePath(path InstancePath, segment InstancePathSegment) InstancePath {
+	segments := append(append([]InstancePathSegment{}, path.Segments...), segment)
+	ids, names := make([]string, 0, len(segments)), make([]string, 0, len(segments))
+	for _, item := range segments {
+		ids = append(ids, item.InstanceID)
+		names = append(names, item.InstanceName)
+	}
+	path.Segments = segments
+	path.Canonical = strings.Join(ids, "/")
+	path.Display = strings.Join(names, "/")
+	return path
+}
+
+func nextInstanceName(model ProductModel, referenceName string) string {
+	base := strings.TrimSpace(referenceName)
+	if base == "" {
+		base = "Component"
+	}
+	used := make(map[string]bool, len(model.Instances))
+	for _, instance := range model.Instances {
+		used[strings.ToLower(strings.TrimSpace(instance.Name))] = true
+	}
+	for ordinal := 1; ; ordinal++ {
+		candidate := fmt.Sprintf("%s.%d", base, ordinal)
+		if !used[strings.ToLower(candidate)] {
+			return candidate
+		}
+	}
+}
+
+func applyInstancePath(nodes []DocumentStructureNode, path *InstancePath) {
+	for index := range nodes {
+		if path != nil && nodes[index].InstancePath == nil {
+			copy := *path
+			nodes[index].InstancePath = &copy
+		}
+		applyInstancePath(nodes[index].Children, path)
+	}
+}
+
 type DocumentSummary struct {
 	ID            string  `json:"id"`
 	Name          string  `json:"name"`
@@ -335,13 +394,14 @@ type CopyDocumentRequest struct {
 }
 
 type ResolvedInstance struct {
-	ID             string     `json:"id"`
-	Name           string     `json:"name"`
-	DocumentID     string     `json:"documentId"`
-	GeometryKey    string     `json:"geometryKey"`
-	Translation    [3]float64 `json:"translation"`
-	OccurrencePath string     `json:"occurrencePath"`
-	BodyTreeNodeID string     `json:"bodyTreeNodeId"`
+	ID             string       `json:"id"`
+	Name           string       `json:"name"`
+	DocumentID     string       `json:"documentId"`
+	GeometryKey    string       `json:"geometryKey"`
+	Translation    [3]float64   `json:"translation"`
+	OccurrencePath string       `json:"occurrencePath"`
+	InstancePath   InstancePath `json:"instancePath"`
+	BodyTreeNodeID string       `json:"bodyTreeNodeId"`
 }
 
 // DocumentStructureNode is the UI-independent specification tree contract.
@@ -358,6 +418,7 @@ type DocumentStructureNode struct {
 	Plane         string                  `json:"plane,omitempty"`
 	Axis          string                  `json:"axis,omitempty"`
 	ReferenceMode string                  `json:"referenceMode,omitempty"`
+	InstancePath  *InstancePath           `json:"instancePath,omitempty"`
 	OwnerEntityID string                  `json:"ownerEntityId,omitempty"`
 	EntityType    string                  `json:"entityType,omitempty"`
 	Role          string                  `json:"role,omitempty"`
@@ -1531,7 +1592,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		}
 		finishStructure := perf.Start(ctx, "structure-project")
 		structure, err := service.buildDocumentStructure(ctx, summary.VersionID,
-			"document:"+summary.ID, summary.Name, map[string]bool{})
+			"document:"+summary.ID, summary.Name, InstancePath{RootDocumentID: summary.ID}, map[string]bool{})
 		finishStructure()
 		if err != nil {
 			return view, err
@@ -1561,12 +1622,13 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 	view.Product = &model
 	view.Artifacts = map[string]Artifact{}
 	view.ResolvedInstances = []ResolvedInstance{}
-	if err := service.resolveProduct(ctx, summary.VersionID, [3]float64{}, summary.Name, "", "document:"+summary.ID,
+	if err := service.resolveProduct(ctx, summary.VersionID, [3]float64{}, summary.Name,
+		InstancePath{RootDocumentID: summary.ID}, "document:"+summary.ID,
 		map[string]bool{}, view.Artifacts, &view.ResolvedInstances); err != nil {
 		return view, err
 	}
 	structure, err := service.buildDocumentStructure(ctx, summary.VersionID,
-		"document:"+summary.ID, summary.Name, map[string]bool{})
+		"document:"+summary.ID, summary.Name, InstancePath{RootDocumentID: summary.ID}, map[string]bool{})
 	if err != nil {
 		return view, err
 	}
@@ -2065,10 +2127,7 @@ func (service *Service) mutateProduct(
 		if createsCycle {
 			return fmt.Errorf("%w: Product reference would create a cycle", ErrValidation)
 		}
-		instanceName := strings.TrimSpace(request.Name)
-		if instanceName == "" {
-			instanceName = name
-		}
+		instanceName := nextInstanceName(*model, name)
 		model.Instances = append(model.Instances, ProductInstance{
 			ID: newID("instance"), Name: instanceName,
 			ReferencedDocumentID: referenceID, ReferencedVersionID: versionID,
@@ -2851,7 +2910,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 }
 
 func (service *Service) buildDocumentStructure(
-	ctx context.Context, versionID, path, displayName string, visiting map[string]bool,
+	ctx context.Context, versionID, path, displayName string, occurrenceIdentity InstancePath, visiting map[string]bool,
 ) (DocumentStructureNode, error) {
 	var documentID, documentType, storedName string
 	var modelJSON []byte
@@ -2866,6 +2925,9 @@ func (service *Service) buildDocumentStructure(
 	}
 	root := DocumentStructureNode{ID: path, Kind: documentType, Name: displayName,
 		DocumentID: documentID, DocumentType: documentType, VersionID: versionID}
+	if len(occurrenceIdentity.Segments) > 0 {
+		root.InstancePath = &occurrenceIdentity
+	}
 	if visiting[documentID] {
 		root.Kind = "REFERENCE_CYCLE"
 		return root, nil
@@ -2876,7 +2938,12 @@ func (service *Service) buildDocumentStructure(
 			return DocumentStructureNode{}, err
 		}
 		normalizePartModel(&model)
-		root.Children = partStructureChildren(model, path, documentID, versionID, path == "document:"+documentID)
+		// Capabilities describe domain operations, not authorization or the
+		// browser's current edit context. The client enables them only after
+		// loading the referenced document and proving Editor access.
+		root.Children = partStructureChildren(model, path, documentID, versionID, true)
+		rootPath := root.InstancePath
+		applyInstancePath(root.Children, rootPath)
 		return root, nil
 	}
 	visiting[documentID] = true
@@ -2897,27 +2964,30 @@ func (service *Service) buildDocumentStructure(
 				return DocumentStructureNode{}, err
 			}
 		}
-		instancePath := path + "/instance:" + instance.ID
-		reference, err := service.buildDocumentStructure(ctx, resolvedVersionID, instancePath+"/reference",
-			instance.Name, visiting)
+		instanceNodePath := path + "/instance:" + instance.ID
+		childIdentity := appendInstancePath(occurrenceIdentity, InstancePathSegment{
+			OwnerDocumentID: documentID, OwnerVersionID: versionID, InstanceID: instance.ID,
+			InstanceName: instance.Name, ReferencedDocumentID: instance.ReferencedDocumentID,
+			ResolvedVersionID: resolvedVersionID,
+		})
+		reference, err := service.buildDocumentStructure(ctx, resolvedVersionID, instanceNodePath+"/reference",
+			instance.Name, childIdentity, visiting)
 		if err != nil {
 			return DocumentStructureNode{}, err
 		}
 		instanceNode := DocumentStructureNode{
-			ID: instancePath, Kind: "INSTANCE", Name: instance.Name, EntityID: instance.ID,
+			ID: instanceNodePath, Kind: "INSTANCE", Name: instance.Name, EntityID: instance.ID,
 			DocumentID: reference.DocumentID, DocumentType: reference.DocumentType,
-			VersionID: resolvedVersionID, ReferenceMode: mode, Children: reference.Children,
+			VersionID: resolvedVersionID, ReferenceMode: mode, InstancePath: &childIdentity, Children: reference.Children,
 		}
-		if path == "document:"+documentID {
-			instanceNode.Capabilities = []string{"DELETE"}
-		}
+		instanceNode.Capabilities = []string{"DELETE"}
 		root.Children = append(root.Children, instanceNode)
 	}
 	return root, nil
 }
 
 func (service *Service) resolveProduct(
-	ctx context.Context, versionID string, parent [3]float64, path, occurrencePath, treePath string, visiting map[string]bool,
+	ctx context.Context, versionID string, parent [3]float64, path string, instancePath InstancePath, treePath string, visiting map[string]bool,
 	artifacts map[string]Artifact, output *[]ResolvedInstance,
 ) error {
 	var documentID, documentType, name string
@@ -2961,7 +3031,7 @@ func (service *Service) resolveProduct(
 		}
 		*output = append(*output, ResolvedInstance{
 			ID: path, Name: name, DocumentID: documentID, GeometryKey: *geometryKey, Translation: parent,
-			OccurrencePath: occurrencePath, BodyTreeNodeID: treePath + "/body",
+			OccurrencePath: instancePath.Canonical, InstancePath: instancePath, BodyTreeNodeID: treePath + "/body",
 		})
 		return nil
 	}
@@ -2981,9 +3051,14 @@ func (service *Service) resolveProduct(
 				return err
 			}
 		}
+		childPath := appendInstancePath(instancePath, InstancePathSegment{
+			OwnerDocumentID: documentID, OwnerVersionID: versionID, InstanceID: instance.ID,
+			InstanceName: instance.Name, ReferencedDocumentID: instance.ReferencedDocumentID,
+			ResolvedVersionID: resolvedVersionID,
+		})
 		if err := service.resolveProduct(ctx, resolvedVersionID, offset,
 			path+"/"+instance.ID,
-			strings.TrimPrefix(occurrencePath+"/"+instance.ID, "/"),
+			childPath,
 			treePath+"/instance:"+instance.ID+"/reference", visiting, artifacts, output); err != nil {
 			return err
 		}

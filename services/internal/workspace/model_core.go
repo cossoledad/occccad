@@ -814,6 +814,9 @@ func applyInsertInstance(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 		if instance.ID == payload.Instance.ID {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate instance identity", ErrValidation)
 		}
+		if strings.EqualFold(strings.TrimSpace(instance.Name), strings.TrimSpace(payload.Instance.Name)) {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate sibling instance name", ErrValidation)
+		}
 	}
 	model.Instances = append(model.Instances, payload.Instance)
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Instance.ID, SlotID: "entity"}, nil, payload.Instance)
@@ -1395,6 +1398,17 @@ func sketchDefinitionStatus(status geometry.SketchSolveStatus, degreesOfFreedom 
 }
 
 func buildProductEvaluation(model ProductModel, revisionID, modelHash string, seeds []modelcore.DependencyKey, prior *modelcore.EvaluationManifest) (*modelcore.DependencyGraph, modelcore.EvaluationManifest, error) {
+	instanceIDs, instanceNames := map[string]bool{}, map[string]bool{}
+	for _, instance := range model.Instances {
+		name := strings.ToLower(strings.TrimSpace(instance.Name))
+		if instance.ID == "" || instanceIDs[instance.ID] {
+			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: Product contains a duplicate or empty InstanceId", ErrValidation)
+		}
+		if name == "" || instanceNames[name] {
+			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: Product contains a duplicate or empty sibling InstanceName", ErrValidation)
+		}
+		instanceIDs[instance.ID], instanceNames[name] = true, true
+	}
 	nodes := make([]modelcore.DependencyNode, 0, len(model.Instances))
 	for _, instance := range model.Instances {
 		data, _ := json.Marshal(instance)
@@ -1669,10 +1683,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if cycle {
 			return "", nil, fmt.Errorf("%w: Product reference would create a cycle", ErrValidation)
 		}
-		instanceName := strings.TrimSpace(request.Name)
-		if instanceName == "" {
-			instanceName = name
+		var product ProductModel
+		if err := json.Unmarshal(modelJSON, &product); err != nil {
+			return "", nil, err
 		}
+		instanceName := nextInstanceName(product, name)
 		return typeInsertInstance, insertInstancePayload{Instance: ProductInstance{ID: newID("instance"), Name: instanceName, ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Translation: request.Translation, ReferenceMode: "FOLLOW_HEAD"}}, nil
 	case "MOVE_INSTANCE":
 		if documentType != "PRODUCT" {

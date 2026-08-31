@@ -28,6 +28,7 @@ import type { DatumPlane, DocumentProperties, DocumentStructureNode, DocumentVie
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { closestTreeKey } from "./tree-selection";
+import { followedDocumentIDs } from "./product-edit-context";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 const sketchToolCommands:WorkbenchToolID[]=["sketch.rectangle","sketch.polygon","sketch.slot","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline",
@@ -43,6 +44,11 @@ function featureSketchPlane(view: DocumentView, feature: Feature): SketchPlane |
   const datum = view.datumPlanes?.find((candidate) => candidate.id === feature.sketch?.support.datumPlaneId)
     ?? view.part?.datumPlanes.find((candidate) => candidate.id === feature.sketch?.support.datumPlaneId);
   return datum ? sketchPlane(datum) : undefined;
+}
+
+function occurrenceSketchPlane(plane: SketchPlane, translation?: Vec3): SketchPlane {
+  if (!translation) return plane;
+  return { ...plane, origin: plane.origin.map((value, index) => value + translation[index]) as Vec3 };
 }
 
 function toolbarGroups(items: ToolbarCatalogItem[]): Array<{ key: string; items: ToolbarCatalogItem[] }> {
@@ -85,16 +91,16 @@ function structureIcon(kind: DocumentStructureNode["kind"]) {
 }
 
 function structureSelection(node: DocumentStructureNode, view: DocumentView): Selection {
-  const resolved = [...(view.resolvedInstances ?? [])].sort((a, b) => b.bodyTreeNodeId.length - a.bodyTreeNodeId.length)
-    .find((item) => node.id.startsWith(item.bodyTreeNodeId.replace(/\/body$/, "")));
-  const occurrencePath = resolved?.occurrencePath ?? "";
+  const occurrencePath = node.instancePath?.canonical ?? "";
+  const resolved = (view.resolvedInstances ?? []).find((item) => item.instancePath?.canonical === occurrencePath);
   const geometryKey = resolved?.geometryKey ?? view.artifact?.geometryKey;
   const expands = ["PART", "PRODUCT", "INSTANCE", "ORIGIN", "BODY", "SKETCH", "SKETCH_GEOMETRY_SET", "SKETCH_CONSTRAINT_SET",
     "SKETCH_LOGICAL_CONSTRAINT_SET", "SKETCH_DIMENSION_SET"].includes(node.kind);
-  const context = { treeNodeId: node.id, expandTreeDescendants: expands || undefined, documentId: node.documentId, occurrencePath, geometryKey,
+  const context = { treeNodeId: node.id, expandTreeDescendants: expands || undefined, documentId: node.documentId,
+    instancePath: node.instancePath, occurrencePath, geometryKey,
     instanceId: occurrencePath.split("/")[0] || undefined };
   if (node.kind === "INSTANCE" && node.entityId) {
-    const path = [...node.id.matchAll(/\/instance:([^/]+)/g)].map((match) => match[1]).join("/") || node.entityId;
+    const path = occurrencePath || node.entityId;
     return { kind: "instance", id: path, visualKey: `occurrence:${path}`, ...context,
       occurrencePath: path, instanceId: path.split("/")[0] };
   }
@@ -129,9 +135,10 @@ function structureSelection(node: DocumentStructureNode, view: DocumentView): Se
   return { kind: "tree", id: node.id, ...context };
 }
 
-function mapStructureNode(node: DocumentStructureNode, view: DocumentView): SpecificationTreeNode {
-  const canEdit = view.document.permission === "OWNER" || view.document.permission === "EDITOR";
-  const sketch=view.part?.features.find((feature)=>feature.id===node.ownerEntityId)?.sketch;
+function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editingView?: DocumentView): SpecificationTreeNode {
+  const nodeView = node.documentId === editingView?.document.id ? editingView : node.documentId === view.document.id ? view : undefined;
+  const canEdit = nodeView?.document.permission === "OWNER" || nodeView?.document.permission === "EDITOR";
+  const sketch=nodeView?.part?.features.find((feature)=>feature.id===node.ownerEntityId)?.sketch;
   const conflictConstraints=new Set(sketch?.solve.conflictingConstraintIds??[]), conflictEntities=new Set<string>();
   let changed=true;while(changed){changed=false;for(const constraint of sketch?.constraints??[]){if(constraint.suppressed)continue;
     const ids=constraint.references.flatMap((reference)=>reference.entityId?[reference.entityId]:[]);
@@ -140,14 +147,15 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView): Spec
   }}
 	const component=node.entityId?sketch?.solve.components?.find((candidate)=>candidate.entityIds.includes(node.entityId!)):undefined;
   return { key: node.id, title: node.name, icon: structureIcon(node.kind), kind: node.kind,
-    entityId: node.entityId, documentId: node.documentId, plane: node.plane, ownerEntityId: node.ownerEntityId,
+    entityId: node.entityId, documentId: node.documentId, instancePath: node.instancePath,
+    plane: node.plane, ownerEntityId: node.ownerEntityId,
 	role: node.role, suppressed: node.suppressed, diagnostic: node.diagnostic??(node.kind==="SKETCH_ENTITY"&&node.entityId&&conflictEntities.has(node.entityId)?"CONFLICTING":component?.definitionStatus==="FULLY_CONSTRAINED"||component?.status==="SOLVED"?"FULLY_CONSTRAINED":undefined),
     capabilities: canEdit ? [...new Set([...(node.capabilities??[]), ...(["SKETCH","SKETCH_GEOMETRY_SET","SKETCH_CONSTRAINT_SET","SKETCH_LOGICAL_CONSTRAINT_SET","SKETCH_DIMENSION_SET"].includes(node.kind)?["SUPPRESS" as const]:[])])] : undefined,
-    selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view)) };
+    selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view, editingView)) };
 }
 
-function treeData(view: DocumentView): SpecificationTreeNode[] {
-  if (view.structureTree) return [mapStructureNode(view.structureTree, view)];
+function treeData(view: DocumentView, editingView?: DocumentView): SpecificationTreeNode[] {
+  if (view.structureTree) return [mapStructureNode(view.structureTree, view, editingView)];
   if (view.document.type === "PART") {
     const features = view.part?.features ?? [];
     const sketches = new Map(features.filter((feature) => feature.type.toUpperCase().includes("SKETCH"))
@@ -211,6 +219,8 @@ export function Workbench() {
   const padPreviewSequence = useRef(0);
   const padIntentRequestID = useRef<string | undefined>(undefined);
   const latestDocumentVersion = useRef<string | undefined>(undefined);
+  const [activeDocumentID, setActiveDocumentID] = useState(documentID);
+  const [activeInstancePath, setActiveInstancePath] = useState<string>();
   const [insertOpen, setInsertOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
   const [datumPlaneOpen, setDatumPlaneOpen] = useState(false);
@@ -222,26 +232,30 @@ export function Workbench() {
   const [shareResource, setShareResource] = useState<ShareResource>();
   const [padForm] = Form.useForm<{ generator: "LINEAR_EXTRUDE" | "REVOLVE"; operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
     length: number; angle: number; axisEntityId?: string; reversed: boolean }>();
-  const [insertForm] = Form.useForm<{ referencedDocumentID: string; name: string }>();
+  const [insertForm] = Form.useForm<{ referencedDocumentID: string }>();
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
   const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
   const [datumAxisForm] = Form.useForm<{ name: string; ox: number; oy: number; oz: number; dx: number; dy: number; dz: number }>();
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
+	useEffect(() => { setActiveDocumentID(documentID); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }, [documentID]);
+  const activeDocument = useQuery({ queryKey: queryKeys.document(activeDocumentID), queryFn: () => api.getDocument(activeDocumentID),
+    enabled: Boolean(activeDocumentID && activeDocumentID !== documentID) });
+	const activeID = activeDocumentID || documentID;
 	const toolbarCatalog = useQuery({ queryKey: ["ui", "toolbars"], queryFn: api.toolbarCatalog, staleTime: 5 * 60_000 });
-  const properties = useQuery({ queryKey: queryKeys.documentProperties(documentID), queryFn: () => api.getDocumentProperties(documentID),
-    enabled: Boolean(documentID && inspectorOpen && store.inspectorTab === "properties"), staleTime: 30_000 });
-  const history = useQuery({ queryKey: queryKeys.history(documentID), queryFn: () => api.getHistory(documentID),
-    enabled: Boolean(documentID && inspectorOpen && store.inspectorTab === "history"), staleTime: 10_000 });
+  const properties = useQuery({ queryKey: queryKeys.documentProperties(activeID), queryFn: () => api.getDocumentProperties(activeID),
+    enabled: Boolean(activeID && inspectorOpen && store.inspectorTab === "properties"), staleTime: 30_000 });
+  const history = useQuery({ queryKey: queryKeys.history(activeID), queryFn: () => api.getHistory(activeID),
+    enabled: Boolean(activeID && inspectorOpen && store.inspectorTab === "history"), staleTime: 10_000 });
   const catalog = useQuery({ queryKey: queryKeys.documents({ workbench: true }), queryFn: () => api.listDocuments({ limit: 100, allFolders: true }) });
   const topologySelection = store.selection && ["face", "edge", "vertex"].includes(store.selection.kind)
     ? store.selection as Extract<Exclude<Selection, null>, { kind: "face" | "edge" | "vertex" }> : undefined;
   const topology = useQuery({
-    queryKey: topologySelection ? queryKeys.topologyProperties(documentID, topologySelection.geometryKey ?? "",
+    queryKey: topologySelection ? queryKeys.topologyProperties(activeID, topologySelection.geometryKey ?? "",
       topologySelection.kind, topologySelection.topologyId) : ["topology-properties", "none"],
-    queryFn: () => api.getTopologyProperties(documentID, topologySelection!.geometryKey!,
+    queryFn: () => api.getTopologyProperties(activeID, topologySelection!.geometryKey!,
       topologySelection!.kind.toUpperCase() as "FACE" | "EDGE" | "VERTEX", topologySelection!.topologyId),
-    enabled: Boolean(documentID && inspectorOpen && store.inspectorTab === "properties" && topologySelection?.geometryKey), staleTime: 5 * 60_000,
+    enabled: Boolean(activeID && inspectorOpen && store.inspectorTab === "properties" && topologySelection?.geometryKey), staleTime: 5 * 60_000,
   });
 
   useEffect(() => {
@@ -249,12 +263,14 @@ export function Workbench() {
   }, [client, document.data]);
   const refresh = useCallback(async (view?: DocumentView) => {
     if (view) client.setQueryData(queryKeys.document(view.document.id), view);
-    await Promise.all([view ? Promise.resolve() : client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
-    client.invalidateQueries({ queryKey: queryKeys.history(documentID), refetchType: "active" }),
-    client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID), refetchType: "active" }),
+    const changedID = view?.document.id ?? activeID;
+    await Promise.all([view ? (changedID === documentID ? Promise.resolve() : client.invalidateQueries({ queryKey: queryKeys.document(documentID) }))
+      : client.invalidateQueries({ queryKey: queryKeys.document(changedID) }),
+    client.invalidateQueries({ queryKey: queryKeys.history(changedID), refetchType: "active" }),
+    client.invalidateQueries({ queryKey: queryKeys.documentProperties(changedID), refetchType: "active" }),
     client.invalidateQueries({ queryKey: ["documents"] }),
     client.invalidateQueries({ queryKey: queryKeys.openDocuments })]);
-  }, [client, documentID]);
+  }, [activeID, client, documentID]);
   useEffect(() => {
     if (!documentID || isMockMode) return;
     let disposed = false;
@@ -285,49 +301,74 @@ export function Workbench() {
     onSuccess: (view) => { store.setSelection(null); void refresh(view); }, onError: (error) => message.error(error.message)
   });
   const view = document.data;
-  latestDocumentVersion.current = view?.document.versionId;
+  const editingView = activeDocumentID === documentID ? view : activeDocument.data;
+  const activeResolvedInstance = activeInstancePath
+    ? view?.resolvedInstances?.find((instance) => instance.instancePath?.canonical === activeInstancePath) : undefined;
+  latestDocumentVersion.current = editingView?.document.versionId;
+  const followedIDs = useMemo(() => [...new Set([
+    ...followedDocumentIDs(view?.structureTree), ...(activeID !== documentID ? [activeID] : []),
+  ])].filter((id) => id !== documentID), [activeID, documentID, view?.structureTree]);
+  useEffect(() => {
+    if (isMockMode || !view || followedIDs.length === 0) return;
+    let disposed = false; const unsubscribers: Array<() => void> = [];
+    for (const dependencyID of followedIDs) void realtime.subscribe(dependencyID, (event) => {
+      if (event.type === "document.snapshot.v1") {
+        const snapshot = event.payload as { view: DocumentView };
+        client.setQueryData(queryKeys.document(dependencyID), snapshot.view);
+        return;
+      }
+      // The Product Revision is unchanged, but its FOLLOW_HEAD projection is not.
+      store.setSelection(null);
+      void client.invalidateQueries({ queryKey: queryKeys.document(dependencyID) });
+      void client.invalidateQueries({ queryKey: queryKeys.document(documentID) });
+      void client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID), refetchType: "active" });
+    }).then((unsubscribe) => { if (disposed) unsubscribe(); else unsubscribers.push(unsubscribe); })
+      .catch((error: Error) => { if (!disposed) message.error(`引用文档实时连接失败：${error.message}`); });
+    return () => { disposed = true; unsubscribers.forEach((unsubscribe) => unsubscribe()); };
+  }, [client, documentID, followedIDs.join("|"), message, view]);
   const treeNodes = useMemo(() => {
     const decorate = (node: SpecificationTreeNode): SpecificationTreeNode => ({ ...node,
       hidden: hiddenTreeKeys.includes(node.key), children: node.children?.map(decorate) });
-    return view ? treeData(view).map(decorate) : [];
-  }, [view, hiddenTreeKeys]);
-  const canEdit = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
-  const activeWorkbench = resolveCadWorkbench(view?.document.type ?? "PART", Boolean(store.sketchPlane));
+    return view ? treeData(view, editingView).map(decorate) : [];
+  }, [view, editingView, hiddenTreeKeys]);
+  const canEdit = editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR";
+  const activeWorkbench = resolveCadWorkbench(editingView?.document.type ?? "PART", Boolean(store.sketchPlane));
 
   const editSketch = (featureID: string, operations: SketchOperation[]) => {
-    if (!view) return;
-    command.mutate(() => api.editSketch(view.document.id, featureID, operations));
+    if (!editingView) return;
+    command.mutate(() => api.editSketch(editingView.document.id, featureID, operations));
   };
   const moveInstance = (instanceID: string, translation: Vec3) => {
-    if (view && canEdit) command.mutate(() => api.move(view.document.id, instanceID, translation));
+    if (editingView?.document.type === "PRODUCT" && canEdit) command.mutate(() => api.move(editingView.document.id, instanceID, translation));
   };
   const executeHistory = (direction: "undo" | "redo") => {
-    if (!view) return; command.mutate(() => direction === "undo" ? api.undo(view.document.id) : api.redo(view.document.id));
+    if (!editingView) return; command.mutate(() => direction === "undo" ? api.undo(editingView.document.id) : api.redo(editingView.document.id));
   };
   const startSketch = () => {
-    if (!view || !store.selection) return;
+    if (!editingView || !store.selection) return;
     if (store.selection.kind === "sketch") {
-      const feature = view.part?.features.find((candidate) => candidate.id === store.selection!.id);
-      const plane = feature ? featureSketchPlane(view, feature) : undefined;
+      const feature = editingView.part?.features.find((candidate) => candidate.id === store.selection!.id);
+      const localPlane = feature ? featureSketchPlane(editingView, feature) : undefined;
+      const plane = localPlane ? occurrenceSketchPlane(localPlane, activeResolvedInstance?.translation) : undefined;
       if (feature && plane) store.beginSketch(feature.id, plane);
       return;
     }
     if (store.selection.kind !== "plane") return;
-    const datum = store.selection.datumPlane ?? view.datumPlanes?.find((candidate) => store.selection?.id.endsWith(candidate.id));
+    const datum = store.selection.datumPlane ?? editingView.datumPlanes?.find((candidate) => store.selection?.id.endsWith(candidate.id));
     if (!datum) return;
-    const plane = sketchPlane(datum);
-    command.mutate(() => api.createSketch(view.document.id, datum.plane, datum.id), { onSuccess: (updated) => {
+    const plane = occurrenceSketchPlane(sketchPlane(datum), activeResolvedInstance?.translation);
+    command.mutate(() => api.createSketch(editingView.document.id, datum.plane, datum.id), { onSuccess: (updated) => {
       const sketch = [...(updated.part?.features ?? [])].reverse().find((feature) => feature.type.toUpperCase() === "SKETCH");
       if (sketch) store.beginSketch(sketch.id, plane);
     }});
   };
   const padSketch = (values: { generator: "LINEAR_EXTRUDE" | "REVOLVE"; operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
     length: number; angle: number; axisEntityId?: string; reversed: boolean }) => {
-    if (!view || !padSketchID) return;
+    if (!editingView || !padSketchID) return;
     padPreviewAbort.current?.abort();
     viewport.current?.clearCommandPreview();
     const generator = values.generator ?? padGenerator;
-    command.mutate(() => api.createSolidFeature(view.document.id, { sketchId: padSketchID, generator,
+    command.mutate(() => api.createSolidFeature(editingView.document.id, { sketchId: padSketchID, generator,
       operation: values.operation, length: generator === "LINEAR_EXTRUDE" ? values.length : undefined,
       angle: generator === "REVOLVE" ? values.angle : undefined,
       axisEntityId: generator === "REVOLVE" ? values.axisEntityId : undefined, reversed: values.reversed }, padIntentRequestID.current));
@@ -338,16 +379,16 @@ export function Workbench() {
     viewport.current?.clearCommandPreview(); setPadOpen(false); setPadSketchID(undefined); padIntentRequestID.current = undefined;
   };
   const requestPadPreview = async (sketchID: string, generatorOverride?: "LINEAR_EXTRUDE" | "REVOLVE") => {
-    if (!view) return;
+    if (!editingView) return;
     const values = padForm.getFieldsValue(); values.generator = generatorOverride ?? values.generator ?? padGenerator;
     if (values.generator === "LINEAR_EXTRUDE" && (!Number.isFinite(values.length) || values.length <= 0)) return;
     if (values.generator === "REVOLVE" && (!Number.isFinite(values.angle) || values.angle <= 0 || !values.axisEntityId)) return;
     padPreviewAbort.current?.abort();
     const abort = new AbortController(); padPreviewAbort.current = abort;
-    const sequence = ++padPreviewSequence.current; const baseVersionID = view.document.versionId;
+    const sequence = ++padPreviewSequence.current; const baseVersionID = editingView.document.versionId;
     setPadPreviewPending(true);
     try {
-      const preview = await api.previewCommand(view.document.id, { type: "CREATE_SOLID_FEATURE", sketchId: sketchID,
+      const preview = await api.previewCommand(editingView.document.id, { type: "CREATE_SOLID_FEATURE", sketchId: sketchID,
         generator: values.generator, operation: values.operation, length: values.length, angle: values.angle,
         axisEntityId: values.axisEntityId, reversed: values.reversed,
         ...(padIntentRequestID.current ? { requestId: padIntentRequestID.current } : {}) }, abort.signal);
@@ -365,7 +406,7 @@ export function Workbench() {
   };
   const openSolidFeature = (generator: "LINEAR_EXTRUDE" | "REVOLVE", operation?: "NEW_BODY" | "ADD" | "REMOVE") => {
     if (store.selection?.kind !== "sketch") return;
-    const hasBody = Boolean(view?.part?.features.some((feature) => feature.type === "IMPORT_BODY" ||
+    const hasBody = Boolean(editingView?.part?.features.some((feature) => feature.type === "IMPORT_BODY" ||
       ["PAD", "LINEAR_EXTRUDE", "REVOLVE"].includes(feature.type.toUpperCase())));
     const selectedOperation = operation ?? (hasBody ? "ADD" : "NEW_BODY");
     const sketchID = store.selection.id;
@@ -387,76 +428,77 @@ export function Workbench() {
       reference = selection.axis === "DATUM"
         ? `DATUM_AXIS:${parts.at(-1)}` : `AXIS_SYSTEM:${parts.at(-2)}:${selection.axis}`;
     } else if (selection.kind === "visual") {
-      const selectedSketch = view?.part?.features.find((feature) => feature.id === selection.featureId)?.sketch;
+      const selectedSketch = editingView?.part?.features.find((feature) => feature.id === selection.featureId)?.sketch;
       const entity = selectedSketch?.entities.find((candidate) => candidate.id === selection.entityId);
       if (entity?.kind === "LINE") reference = `SKETCH_LINE:${selection.featureId}:${entity.id}`;
     }
     if (!reference) return;
     padForm.setFieldValue("axisEntityId", reference);
     void requestPadPreview(padSketchID, "REVOLVE");
-  }, [padOpen, padGenerator, padSketchID, store.selection, view]);
-  const insertDocument = (values: { referencedDocumentID: string; name: string }) => {
-    if (!view) return; command.mutate(() => api.insert(view.document.id, values.referencedDocumentID, values.name)); setInsertOpen(false);
+  }, [padOpen, padGenerator, padSketchID, store.selection, editingView]);
+  const insertDocument = (values: { referencedDocumentID: string }) => {
+    if (editingView?.document.type !== "PRODUCT") return;
+    command.mutate(() => api.insert(editingView.document.id, values.referencedDocumentID)); setInsertOpen(false);
   };
   const deleteTreeNodes = (nodes: SpecificationTreeNode[]) => {
-    if (!view || !canEdit || command.isPending) return;
+    if (!editingView || !canEdit || command.isPending) return;
     const candidates = nodes.filter((node) => node.entityId && node.kind && node.capabilities?.includes("DELETE"));
     const selectedFeatures = new Set(candidates.filter((node) => !["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "INSTANCE"].includes(node.kind!))
       .map((node) => node.entityId));
-    const featureOrder = new Map((view.part?.features ?? []).map((feature, index) => [feature.id, index]));
+    const featureOrder = new Map((editingView.part?.features ?? []).map((feature, index) => [feature.id, index]));
     const targets = candidates.filter((node) => !node.ownerEntityId || !selectedFeatures.has(node.ownerEntityId)).sort((left, right) => {
       const rank = (node: SpecificationTreeNode) => node.kind === "SKETCH_CONSTRAINT" ? 0 : node.kind === "SKETCH_ENTITY" ? 1 : 2;
       const difference = rank(left) - rank(right); if (difference) return difference;
       return (featureOrder.get(right.entityId!) ?? 0) - (featureOrder.get(left.entityId!) ?? 0);
     });
     if (!targets.length) return;
-    command.mutate(() => api.deleteNodes(view.document.id, targets.map((node) => ({
+    command.mutate(() => api.deleteNodes(editingView.document.id, targets.map((node) => ({
       targetKind: ["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "INSTANCE"].includes(node.kind!) ? node.kind! : "FEATURE",
       targetId: node.entityId!, ownerEntityId: node.ownerEntityId,
     }))));
   };
   const createVersion = async (values: { name: string; description: string }) => {
-    if (!view) return; await api.createVersion(view.document.id, values.name, values.description); setVersionOpen(false);
+    if (!editingView) return; await api.createVersion(editingView.document.id, values.name, values.description); setVersionOpen(false);
     await history.refetch(); message.success("版本已创建");
   };
   useEffect(() => {
     const selectedInstance = () => {
       const selection = useWorkbenchStore.getState().selection;
-      return selection?.kind === "instance" ? view?.product?.instances.find((instance) => instance.id === selection.id) : undefined;
+      return selection?.kind === "instance" ? editingView?.product?.instances.find((instance) => instance.id === selection.id) : undefined;
     };
     const disposers = [
       commandRegistry.register({ id: "tool.select", execute: () => store.setActiveTool("select", "once"),
         isActive: () => store.activeToolID === "select" }),
       commandRegistry.register({ id: "sketch.start", execute: startSketch,
-        isVisible: () => view?.document.type === "PART", isEnabled: () => Boolean(canEdit && (store.selection?.kind === "plane" || store.selection?.kind === "sketch")) }),
+        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && (store.selection?.kind === "plane" || store.selection?.kind === "sketch")) }),
       commandRegistry.register({ id: "sketch.finish", execute: store.endSketch,
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit) }),
       ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,invocation?.continuous?"continuous":"once"),
         isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane),isActive:()=>store.activeToolID===toolID})),
-      commandRegistry.register({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isVisible: () => view?.document.type === "PART",
+      commandRegistry.register({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isVisible: () => editingView?.document.type === "PART",
         isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch") }),
-      commandRegistry.register({ id: "part.pocket", execute: () => openSolidFeature("LINEAR_EXTRUDE", "REMOVE"), isVisible: () => view?.document.type === "PART",
-        isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch" && view?.part?.features.some((feature) => isSolidFeature(feature))) }),
-      commandRegistry.register({ id: "part.revolve", execute: () => openSolidFeature("REVOLVE"), isVisible: () => view?.document.type === "PART",
+      commandRegistry.register({ id: "part.pocket", execute: () => openSolidFeature("LINEAR_EXTRUDE", "REMOVE"), isVisible: () => editingView?.document.type === "PART",
+        isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch" && editingView?.part?.features.some((feature) => isSolidFeature(feature))) }),
+      commandRegistry.register({ id: "part.revolve", execute: () => openSolidFeature("REVOLVE"), isVisible: () => editingView?.document.type === "PART",
         isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch") }),
       commandRegistry.register({ id: "part.datum-plane", execute: () => { datumPlaneForm.setFieldsValue({ name: "Plane", offset: 10 }); setDatumPlaneOpen(true); },
-        isVisible: () => view?.document.type === "PART", isEnabled: () => Boolean(canEdit && store.selection?.kind === "plane") }),
+        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && store.selection?.kind === "plane") }),
       commandRegistry.register({ id: "part.datum-axis", execute: () => { datumAxisForm.setFieldsValue({ name: "Axis", ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 1 }); setDatumAxisOpen(true); },
-        isVisible: () => view?.document.type === "PART", isEnabled: () => Boolean(canEdit) }),
-      commandRegistry.register({ id: "product.insert", execute: () => setInsertOpen(true), isVisible: () => view?.document.type === "PRODUCT",
+        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit) }),
+      commandRegistry.register({ id: "product.insert", execute: () => setInsertOpen(true), isVisible: () => editingView?.document.type === "PRODUCT",
         isEnabled: () => Boolean(canEdit) }),
       commandRegistry.register({ id: "product.reference.toggle", execute: () => {
         const instance = selectedInstance();
-        if (view && instance) command.mutate(() => api.setReferenceMode(view.document.id, instance.id,
+        if (editingView && instance) command.mutate(() => api.setReferenceMode(editingView.document.id, instance.id,
           instance.referenceMode === "PINNED" ? "FOLLOW_HEAD" : "PINNED"));
-      }, isVisible: () => view?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit && selectedInstance()) }),
+      }, isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit && selectedInstance()) }),
       commandRegistry.register({ id: "history.version", execute: () => setVersionOpen(true), isEnabled: () => Boolean(canEdit) }),
-      commandRegistry.register({ id: "document.share", execute: () => view && setShareResource({ type: "documents", id: view.document.id, name: view.document.name }),
-        isEnabled: () => view?.document.permission === "OWNER" }),
+      commandRegistry.register({ id: "document.share", execute: () => editingView && setShareResource({ type: "documents", id: editingView.document.id, name: editingView.document.name }),
+        isEnabled: () => editingView?.document.permission === "OWNER" }),
       commandRegistry.register({ id: "edit.undo", execute: () => executeHistory("undo"),
-        isEnabled: () => Boolean(canEdit && view?.document.canUndo && !command.isPending) }),
+        isEnabled: () => Boolean(canEdit && editingView?.document.canUndo && !command.isPending) }),
       commandRegistry.register({ id: "edit.redo", execute: () => executeHistory("redo"),
-        isEnabled: () => Boolean(canEdit && view?.document.canRedo && !command.isPending) }),
+        isEnabled: () => Boolean(canEdit && editingView?.document.canRedo && !command.isPending) }),
       commandRegistry.register({ id: "view.fit", execute: () => viewport.current?.fit() }),
       commandRegistry.register({ id: "view.top", execute: () => viewport.current?.setStandardView("TOP") }),
       commandRegistry.register({ id: "view.front", execute: () => viewport.current?.setStandardView("FRONT") }),
@@ -464,22 +506,25 @@ export function Workbench() {
       commandRegistry.register({ id: "view.iso", execute: () => viewport.current?.setStandardView("ISO") }),
       commandRegistry.register({ id: "navigation.profile.toggle", execute: () => store.setNavigationProfile(
         store.navigationProfile === "default" ? "catia" : "default"), isActive: () => store.navigationProfile === "catia" }),
-	  commandRegistry.register({ id: "debug.download", execute: () => view && api.downloadDiagnosticBundle(view.document.id),
-		isVisible: () => !isMockMode, isEnabled: () => Boolean(view) }),
+	  commandRegistry.register({ id: "debug.download", execute: () => editingView && api.downloadDiagnosticBundle(editingView.document.id),
+		isVisible: () => !isMockMode, isEnabled: () => Boolean(editingView) }),
     ];
     return () => { for (const dispose of disposers.reverse()) dispose(); };
-  }, [commandRegistry, view, canEdit, store.selection, store.sketchPlane, store.activeToolID, store.navigationProfile, command.isPending]);
+  }, [commandRegistry, editingView, canEdit, store.selection, store.sketchPlane, store.activeToolID, store.navigationProfile, command.isPending]);
 
-  useEffect(() => { commandRegistry.notifyStateChanged(); }, [commandRegistry, view, store.selection, store.sketchPlane,
+  useEffect(() => { commandRegistry.notifyStateChanged(); }, [commandRegistry, editingView, store.selection, store.sketchPlane,
     store.activeToolID, store.navigationProfile, command.isPending]);
 
-  const selected = selectedFeature(view ?? {} as DocumentView, store.selection);
+  const selected = selectedFeature(editingView ?? {} as DocumentView, store.selection);
   if (document.isLoading) return <div className="workbench-loading"><Spin size="large" /></div>;
   if (!view) return <Empty description="无法打开文档" />;
 
   return <CommandProvider registry={commandRegistry}><section className="cad-workbench">
     <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>
-        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view} selections={store.selections}
+        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view}
+          editingView={editingView} activeInstancePath={activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
+          activeBodyTreeNodeId={activeResolvedInstance?.bodyTreeNodeId}
+          selections={store.selections}
           preselection={store.preselection}
           hiddenTreeKeys={hiddenTreeKeys}
           sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={store.navigationProfile}
@@ -503,12 +548,20 @@ export function Workbench() {
             selectedIdentityKeys={store.selections.map(selectionKey)}
             selectionToken={selectionSetToken(store.selections)}
             highlightedKey={treeKeyForSelection(treeNodes, store.preselection)}
+            activeDocumentId={activeID}
+            activeInstancePath={activeInstancePath}
             onSelect={(nodes) => store.setSelections(nodes.flatMap((node) => node.selection ? [node.selection] : []))}
             onActivate={(node) => {
-              if (!canEdit || !node.selection) return;
+              if (node.documentId && ["PART", "PRODUCT", "INSTANCE"].includes(node.kind ?? "")) {
+                setActiveDocumentID(node.documentId); setActiveInstancePath(node.instancePath?.canonical);
+                store.endSketch(); store.setSelection(null); return;
+              }
+              if (!canEdit || !node.selection || !editingView) return;
               if (node.selection.kind === "sketch") {
-                const feature=view?.part?.features.find((candidate)=>candidate.id===node.selection!.id);
-                const plane=feature?featureSketchPlane(view,feature):undefined;if(feature&&plane)store.beginSketch(feature.id,plane);
+                const feature=editingView.part?.features.find((candidate)=>candidate.id===node.selection!.id);
+                const localPlane=feature?featureSketchPlane(editingView,feature):undefined;
+                const plane=localPlane?occurrenceSketchPlane(localPlane,activeResolvedInstance?.translation):undefined;
+                if(feature&&plane)store.beginSketch(feature.id,plane);
               } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
             }}
             onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={deleteTreeNodes}
@@ -535,11 +588,11 @@ export function Workbench() {
           <Segmented block value={store.inspectorTab} onChange={(value) => store.setInspectorTab(value as "properties" | "history")}
             options={[{ label: "属性", value: "properties" }, { label: "历史", value: "history" }]} />
           <div className="inspector-overlay-content">{store.inspectorTab === "properties"
-            ? <Properties view={view} selection={store.selection} feature={selected}
+            ? <Properties view={editingView ?? view} selection={store.selection} feature={selected}
               workbench={activeWorkbench} sketchPlane={store.sketchPlane} activeTool={store.activeToolID}
               navigationProfile={store.navigationProfile} diagnostics={properties.data}
               topology={topology.data} topologyLoading={topology.isLoading} />
-            : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(view.document.id, entry.versionId))} />}</div>
+            : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}</div>
         </aside>
       </section></main>
     <CommandDialog id="solid-generator" open={padOpen} title="实体特征" onClose={closePad} confirmLoading={command.isPending}
@@ -551,12 +604,12 @@ export function Workbench() {
         <Form.Item noStyle shouldUpdate={(before, after) => before.generator !== after.generator}>{({ getFieldValue }) => getFieldValue("generator") === "REVOLVE" ? <>
           <Form.Item name="axisEntityId" label="旋转轴" rules={[{ required: true }]}><Select onChange={previewPad}
             placeholder="在视图区或结构树选择直线/轴"
-            options={[...(view.part?.features ?? []).flatMap((feature) => (feature.sketch?.entities ?? [])
+            options={[...(editingView?.part?.features ?? []).flatMap((feature) => (feature.sketch?.entities ?? [])
               .filter((entity) => entity.kind === "LINE")
               .map((entity, index) => ({ value: `SKETCH_LINE:${feature.id}:${entity.id}`, label: `${feature.name ?? feature.id} · 直线 ${index + 1}` }))),
-              ...(view.axisSystems ?? []).flatMap((axis) => (["X","Y","Z"] as const).map((direction) => ({
+              ...(editingView?.axisSystems ?? []).flatMap((axis) => (["X","Y","Z"] as const).map((direction) => ({
                 value: `AXIS_SYSTEM:${axis.id}:${direction}`, label: `${axis.name} · ${direction}` }))),
-              ...(view.datumAxes ?? []).map((axis) => ({ value: `DATUM_AXIS:${axis.id}`, label: axis.name }))]} /></Form.Item>
+              ...(editingView?.datumAxes ?? []).map((axis) => ({ value: `DATUM_AXIS:${axis.id}`, label: axis.name }))]} /></Form.Item>
           <Form.Item name="angle" label="旋转角度（deg）" rules={[{ required: true }, { type: "number", min: 0.1, max: 360 }]}>
             <InputNumber min={0.1} max={360} precision={2} style={{ width: "100%" }} onBlur={previewPad} onPressEnter={previewPad} /></Form.Item>
         </> : <Form.Item name="length" label="拉伸长度（mm）" rules={[{ required: true }, { type: "number", min: 0.1 }]}>
@@ -566,21 +619,21 @@ export function Workbench() {
     </CommandDialog>
     <CommandDialog id="insert" open={insertOpen} title="插入 Part / Product" onClose={() => setInsertOpen(false)}
       confirmLoading={command.isPending} onConfirm={async () => insertDocument(await insertForm.validateFields())}>
-      <Form form={insertForm} layout="vertical"><Form.Item name="referencedDocumentID" label="引用文档" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={(catalog.data?.documents ?? []).filter((item) => item.id !== view.document.id).map((item) => ({ value: item.id, label: `${item.name} (${item.type})` }))} /></Form.Item>
-        <Form.Item name="name" label="实例名称" rules={[{ required: true }]}><Input /></Form.Item></Form>
+      <Form form={insertForm} layout="vertical"><Form.Item name="referencedDocumentID" label="引用文档" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={(catalog.data?.documents ?? []).filter((item) => item.id !== activeID).map((item) => ({ value: item.id, label: `${item.name} (${item.type})` }))} /></Form.Item>
+      </Form>
     </CommandDialog>
     <CommandDialog id="datum-plane" open={datumPlaneOpen} title="创建基准面" onClose={() => setDatumPlaneOpen(false)}
       confirmLoading={command.isPending} onConfirm={async () => {
         const values = await datumPlaneForm.validateFields(); const selectedPlane = store.selection?.kind === "plane" ? store.selection.datumPlane : undefined;
         if (!selectedPlane) return; const origin = selectedPlane.origin.map((value, index) => value + selectedPlane.normal[index] * values.offset) as Vec3;
-        command.mutate(() => api.createDatumPlane(view.document.id, { name: values.name, origin, normal: selectedPlane.normal, uDirection: selectedPlane.uDirection }),
+        command.mutate(() => api.createDatumPlane(activeID, { name: values.name, origin, normal: selectedPlane.normal, uDirection: selectedPlane.uDirection }),
           { onSuccess: () => setDatumPlaneOpen(false) });
       }}><Form form={datumPlaneForm} layout="vertical"><Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
         <Form.Item name="offset" label="偏置（mm）" rules={[{ required: true }, { type: "number" }]}><InputNumber style={{ width: "100%" }} /></Form.Item></Form>
     </CommandDialog>
     <CommandDialog id="datum-axis" open={datumAxisOpen} title="创建基准轴" onClose={() => setDatumAxisOpen(false)}
       confirmLoading={command.isPending} onConfirm={async () => { const v = await datumAxisForm.validateFields();
-        command.mutate(() => api.createDatumAxis(view.document.id, { name: v.name, origin: [v.ox,v.oy,v.oz], direction: [v.dx,v.dy,v.dz] }),
+        command.mutate(() => api.createDatumAxis(activeID, { name: v.name, origin: [v.ox,v.oy,v.oz], direction: [v.dx,v.dy,v.dz] }),
           { onSuccess: () => setDatumAxisOpen(false) }); }}><Form form={datumAxisForm} layout="vertical"><Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
         <Space><Form.Item name="ox" label="原点 X"><InputNumber /></Form.Item><Form.Item name="oy" label="Y"><InputNumber /></Form.Item><Form.Item name="oz" label="Z"><InputNumber /></Form.Item></Space>
         <Space><Form.Item name="dx" label="方向 X"><InputNumber /></Form.Item><Form.Item name="dy" label="Y"><InputNumber /></Form.Item><Form.Item name="dz" label="Z"><InputNumber /></Form.Item></Space></Form>

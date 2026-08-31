@@ -52,6 +52,7 @@ type SolidContext = {
 };
 
 type SolidBinding = { group: THREE.Group; mesh: THREE.Mesh; artifact: Artifact; context: SolidContext };
+export type ViewportEditContext = { view: DocumentView; occurrencePath?: string; translation?: Vec3; bodyTreeNodeId?: string };
 
 export type ViewportDebugState = {
   input: InputState;
@@ -169,6 +170,7 @@ export class CadViewportEngine {
   private preselectedOverlays: THREE.Object3D[] = [];
   private highlightedRoots = new Set<THREE.Object3D>();
   private view?: DocumentView;
+  private editContext?: ViewportEditContext;
   private sketchPlane?: SketchPlane;
   private activeSketchID?: string;
   private preview?: THREE.Object3D;
@@ -287,10 +289,11 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
-  render(view: DocumentView): void {
+  render(view: DocumentView, editContext?: ViewportEditContext): void {
     this.clearCommandPreview();
 	this.clearInteractionState();
     this.view = view;
+    this.editContext = editContext;
     this.transform.detach();
     this.disposeGroup(this.content);
     this.disposeGroup(this.helpers);
@@ -300,6 +303,14 @@ export class CadViewportEngine {
     this.instanceGroups.clear();
     if (view.document.type === "PART") this.renderPart(view);
     else this.renderProduct(view);
+    if (view.document.type === "PRODUCT" && editContext?.view.document.type === "PART") {
+      for (const feature of editContext.view.part?.features ?? []) {
+        if (feature.type.toUpperCase().includes("SKETCH")) this.addSketch(feature, false, editContext.view, {
+          documentId: editContext.view.document.id, geometryKey: editContext.view.artifact?.geometryKey ?? "",
+          occurrencePath: editContext.occurrencePath ?? "", treeNodeId: editContext.bodyTreeNodeId ?? "",
+        }, editContext.translation);
+      }
+    }
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
     this.refreshContentBounds();
@@ -391,6 +402,7 @@ export class CadViewportEngine {
     const edges = new THREE.LineSegments(makeFeatureEdges(geometry),
       new THREE.LineBasicMaterial({ color: CATIA_VISUAL_THEME.preview, transparent: true, opacity: 0.9, depthTest: false }));
     solid.renderOrder = 90; edges.renderOrder = 91; group.add(solid, edges);
+    if (this.editContext?.translation) group.position.fromArray(this.editContext.translation);
     this.scene.add(group); this.commandPreview = group; this.invalidate();
   }
 
@@ -524,7 +536,7 @@ export class CadViewportEngine {
       documentId: view.document.id, geometryKey: view.artifact.geometryKey, occurrencePath: "", treeNodeId: `${rootPath}/body`,
     });
     for (const feature of view.part?.features ?? []) {
-      if (feature.type.toUpperCase().includes("SKETCH")) this.addSketch(feature, false);
+      if (feature.type.toUpperCase().includes("SKETCH")) this.addSketch(feature, false, view);
     }
     if (view.artifact && view.artifact.mesh.triangles.length > 0) {
       const solid = this.makeSolid(view.artifact, CATIA_VISUAL_THEME.surface, {
@@ -823,8 +835,9 @@ export class CadViewportEngine {
 
   private updateSketchContextVisibility(): void {
     const editing = Boolean(this.sketchPlane && this.activeSketchID);
-    this.environment.visible = !editing;
-    this.content.visible = !editing;
+    const inContext = Boolean(this.editContext?.occurrencePath);
+    this.environment.visible = !editing || inContext;
+    this.content.visible = !editing || inContext;
     this.sketchContext.visible = editing;
     for (const child of this.helpers.children) {
       if (child.userData.visualizationPrimitive) {
@@ -839,19 +852,23 @@ export class CadViewportEngine {
     }
   }
 
-  private addSketch(feature: Feature, _includeEntities = true): void {
+  private addSketch(feature: Feature, _includeEntities = true, sourceView = this.view,
+    sourceContext?: SolidContext, translation?: Vec3): void {
     const support = feature.sketch?.support;
-    const datum = this.view?.datumPlanes?.find((candidate) => candidate.id === support?.datumPlaneId)
-      ?? this.view?.artifact?.visualization.referenceGeometry.datumPlanes?.find((candidate) => candidate.id === support?.datumPlaneId);
+    const datum = sourceView?.datumPlanes?.find((candidate) => candidate.id === support?.datumPlaneId)
+      ?? sourceView?.artifact?.visualization.referenceGeometry.datumPlanes?.find((candidate) => candidate.id === support?.datumPlaneId);
     const plane: PlaneName | SketchPlane = datum ? { datumPlaneId: datum.id, plane: datum.plane, origin: datum.origin,
       normal: datum.normal, uDirection: datum.uDirection } : (support?.plane as PlaneName ?? feature.plane ?? "XY");
     const group = new THREE.Group();
+    if (translation) group.position.fromArray(translation);
     group.userData.sketchFeatureID = feature.id;
-    const documentId = this.view?.document.id ?? "";
-    const featureTreeNode = this.featureTreeNode({ documentId, geometryKey: this.view?.artifact?.geometryKey ?? "",
-      occurrencePath: "", treeNodeId: `document:${documentId}/body` }, feature.id)
-      ?? `document:${documentId}/body/sketch:${feature.id}`;
-    const sketchSelection = { kind: "sketch" as const, id: feature.id, documentId, treeNodeId: featureTreeNode };
+    const documentId = sourceView?.document.id ?? "";
+    const context = sourceContext ?? { documentId, geometryKey: sourceView?.artifact?.geometryKey ?? "",
+      occurrencePath: "", treeNodeId: `document:${documentId}/body` };
+    const featureTreeNode = this.featureTreeNode(context, feature.id)
+      ?? `${context.treeNodeId}/sketch:${feature.id}`;
+    const sketchSelection = { kind: "sketch" as const, id: feature.id, documentId,
+      occurrencePath: context.occurrencePath, treeNodeId: featureTreeNode };
     const sketchEntityObjects = new Map<string, THREE.Object3D>();
     const activeConstraints=(feature.sketch?.constraints??[]).filter((constraint)=>!constraint.suppressed);
     const conflicting=new Set(feature.sketch?.solve.conflictingConstraintIds??[]);
@@ -866,8 +883,8 @@ export class CadViewportEngine {
     for (const entity of feature.sketch?.entities ?? []) {
       if (entity.suppressed) continue;
       const type = entity.kind === "POINT" ? "POINT" as const : "CURVE" as const;
-      const entitySelection = { kind: "visual" as const, id: `root:${feature.id}:${entity.id}`, visualType: type,
-        featureId: feature.id, entityId: entity.id, role: entity.role, documentId,
+      const entitySelection = { kind: "visual" as const, id: `${context.occurrencePath || "root"}:${feature.id}:${entity.id}`, visualType: type,
+        featureId: feature.id, entityId: entity.id, role: entity.role, documentId, occurrencePath: context.occurrencePath,
         treeNodeId: `${featureTreeNode}/geometry/entity:${entity.id}` };
       let object: THREE.Object3D | undefined;
 	  const component=feature.sketch?.solve.components?.find((candidate)=>candidate.entityIds.includes(entity.id));
@@ -901,8 +918,8 @@ export class CadViewportEngine {
       if (constraint.suppressed) continue;
       if (this.dimensionDrag?.selection.featureId === feature.id && this.dimensionDrag.constraint.id === constraint.id) continue;
       const constraintSelection = { kind: "sketch-constraint" as const,
-        id: `root:${feature.id}:constraint:${constraint.id}`, featureId: feature.id,
-        constraintId: constraint.id, constraintType: constraint.kind, documentId,
+        id: `${context.occurrencePath || "root"}:${feature.id}:constraint:${constraint.id}`, featureId: feature.id,
+        constraintId: constraint.id, constraintType: constraint.kind, documentId, occurrencePath: context.occurrencePath,
         treeNodeId: constraintTreeNodeID(featureTreeNode, constraint.kind, constraint.id) };
       const constraintGroup = makeSketchConstraintRenderable(constraint, feature.sketch?.entities ?? [],
         (point) => localToWorld(plane, point), this.materials,

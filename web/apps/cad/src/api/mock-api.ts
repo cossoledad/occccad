@@ -1,7 +1,7 @@
 import type { CadApi } from "../api";
 import type {
   Artifact, DocumentProperties, DocumentStructureNode, DocumentSummary, DocumentView, Feature, FolderSummary, HistoryEntry, Job,
-  ProductInstance, ShareGrant, SketchOperation, User, Vec3,
+  InstancePath, ProductInstance, ShareGrant, SketchOperation, User, Vec3,
 } from "../types";
 import { sampleSketchEntity } from "../cad/sketch/sketch-geometry";
 import { randomUUID } from "../utils/random-uuid";
@@ -11,6 +11,12 @@ const pause = async <T>(value: T, milliseconds = 90): Promise<T> =>
   new Promise((resolve) => window.setTimeout(() => resolve(structuredClone(value)), milliseconds));
 const now = (): string => new Date().toISOString();
 const id = (prefix: string): string => `${prefix}-${randomUUID()}`;
+const mockInstancePath = (rootDocumentId: string, instance: ProductInstance): InstancePath => ({
+  rootDocumentId, canonical: instance.id, display: instance.name, segments: [{
+    ownerDocumentId: rootDocumentId, ownerVersionId: "mock-product-v3", instanceId: instance.id,
+    instanceName: instance.name, referencedDocumentId: instance.documentId, resolvedVersionId: instance.versionId,
+  }],
+});
 const mockTopologyProperties = (kind: "FACE" | "EDGE" | "VERTEX"): Record<string, number | boolean | string | Vec3> => {
   if (kind === "FACE") return { area: 100, normal: [0, 0, 1] };
   if (kind === "EDGE") return { length: 10, direction: [1, 0, 0] };
@@ -92,8 +98,8 @@ const views = new Map<string, DocumentView>([
     ] },
     artifacts: { [partArtifact.geometryKey]: partArtifact },
     resolvedInstances: [
-      { id: "Frame Assembly/mock-instance-a/part", name: "Bracket A", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [-45, 0, 0], occurrencePath: "mock-instance-a", bodyTreeNodeId: `document:${productID}/instance:mock-instance-a/reference/body` },
-      { id: "Frame Assembly/mock-instance-b/part", name: "Bracket B", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [45, 0, 0], occurrencePath: "mock-instance-b", bodyTreeNodeId: `document:${productID}/instance:mock-instance-b/reference/body` },
+      { id: "Frame Assembly/mock-instance-a/part", name: "Bracket A", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [-45, 0, 0], occurrencePath: "mock-instance-a", instancePath: mockInstancePath(productID, { id: "mock-instance-a", name: "Bracket A", documentId: partID, versionId: "mock-part-v3", translation: [-45,0,0] }), bodyTreeNodeId: `document:${productID}/instance:mock-instance-a/reference/body` },
+      { id: "Frame Assembly/mock-instance-b/part", name: "Bracket B", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [45, 0, 0], occurrencePath: "mock-instance-b", instancePath: mockInstancePath(productID, { id: "mock-instance-b", name: "Bracket B", documentId: partID, versionId: "mock-part-v3", translation: [45,0,0] }), bodyTreeNodeId: `document:${productID}/instance:mock-instance-b/reference/body` },
     ],
   }],
 ]);
@@ -194,6 +200,7 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
       return { id: `${path}/instance:${instance.id}`, kind: "INSTANCE", name: instance.name,
         entityId: instance.id, documentId: instance.documentId, documentType: referenced?.document.type,
         versionId: instance.versionId, referenceMode: instance.referenceMode ?? "FOLLOW_HEAD",
+        instancePath: mockInstancePath(view.document.id, instance),
         capabilities: path === `document:${view.document.id}` ? ["DELETE"] : undefined, children: referenceTree?.children };
     }) };
 }
@@ -229,6 +236,7 @@ function rebuildProduct(view: DocumentView): void {
   view.resolvedInstances = (view.product?.instances ?? []).map((instance) => ({
     id: `${view.document.name}/${instance.id}/part`, name: instance.name, documentId: partID,
     geometryKey: partArtifact.geometryKey, translation: instance.translation, occurrencePath: instance.id,
+    instancePath: mockInstancePath(view.document.id, instance),
     bodyTreeNodeId: `document:${view.document.id}/instance:${instance.id}/reference/body`,
   }));
 }
@@ -300,8 +308,11 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
         operation: String(input.operation) as "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT" });
     }
     if (commandType === "INSERT_INSTANCE" && view.product) {
-      view.product.instances.push({ id: id("mock-instance"), name: String(input.name || "Instance"),
-        documentId: String(input.referencedDocumentId), versionId: getView(String(input.referencedDocumentId)).document.versionId,
+      const reference = getView(String(input.referencedDocumentId));
+      const used = new Set(view.product.instances.map((instance) => instance.name.toLocaleLowerCase()));
+      let ordinal = 1; while (used.has(`${reference.document.name}.${ordinal}`.toLocaleLowerCase())) ordinal++;
+      view.product.instances.push({ id: id("mock-instance"), name: `${reference.document.name}.${ordinal}`,
+        documentId: String(input.referencedDocumentId), versionId: reference.document.versionId,
         translation: [0, 0, 0], referenceMode: "FOLLOW_HEAD" });
       rebuildProduct(view);
     }
@@ -473,7 +484,7 @@ export const mockApi: CadApi = {
     ...(intentRequestID ? { requestId: intentRequestID } : {}) }),
   createDatumPlane: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_PLANE", ...input }),
   createDatumAxis: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_AXIS", ...input }),
-  insert: async (documentID, referencedDocumentID, name) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID, name }),
+  insert: async (documentID, referencedDocumentID) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID }),
   move: async (documentID, instanceID, translation) => command(documentID, { type: "MOVE_INSTANCE", instanceId: instanceID, translation }),
   setReferenceMode: async (documentID, instanceID, referenceMode) => command(documentID, { type: "SET_REFERENCE_MODE", instanceId: instanceID, referenceMode }),
   undo: async (documentID) => command(documentID, { type: "UNDO" }),

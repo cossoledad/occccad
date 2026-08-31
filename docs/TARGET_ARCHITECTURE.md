@@ -3704,8 +3704,11 @@ flowchart LR
 - Product 可以递归嵌套并解析到叶 Part；
 - 已生成字符串 `occurrencePath`，相同 GeometryId 的多个实例共享渲染制品；
 - 具有 `INSERT_INSTANCE`、`MOVE_INSTANCE`、`SET_REFERENCE_MODE`、Undo/Redo。
+- 浏览器具有会话级 Active Occurrence：根 Product 默认激活，双击 InstancePath 后在根装配场景中就地编辑其 Reference Workspace；Insert 以激活 Product Reference 为 owner，FOLLOW_HEAD 依赖提交会刷新打开的根 Product 投影。
 
 当前不足：Placement 只有三维平移；`occurrencePath` 只是展示字符串；实例定义、上下文 occurrence 和叶表示没有类型区分；没有旋转、配置、Publication、Assembly Constraint、柔性子装配、DOF/冲突诊断、干涉报告或仿真模型。本节所有能力均为目标设计，不代表现有代码已经实现。
+
+Active Occurrence 是客户端编辑上下文，不是 Product Revision 字段；InstancePath 决定场景 Placement 和唯一 occurrence，末段 Reference Document 决定命令目标、Workbench 和属性/历史来源。两者不能合并成 DocumentId，也不能为了保持激活状态向参数历史写空 Revision。当前仅有平移 Placement；旋转、完整 SE(3) 和持久外部几何引用仍按后续装配上下文设计推进。
 
 #### 5.6.3 Reference、Instance、Occurrence 与 Representation
 

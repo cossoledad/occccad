@@ -122,6 +122,12 @@ erDiagram
 - Product 保存对子文档的引用和实例 Transform，不展开复制完整子树；
 - 实例可以跟随被引用文档 Head，也可以固定到 Version。
 
+Product 工作台维护浏览器会话级的 Active Occurrence 编辑上下文，由 `Active InstancePath + Reference Document` 共同表达。打开 Product 时根 Product 默认激活；双击结构树中的 Product、Part 或 Instance 节点只激活该 occurrence，随后 Toolbar、属性、历史、Undo/Redo 和 Domain Command 绑定其 Reference Document 的 `main` Workspace。激活不是模型命令，不写 Revision；同一 Part Reference 的其他 occurrence 不显示为激活，但编辑 Reference 后全部 FOLLOW_HEAD occurrence 都会解析到新结果。视口始终保留根装配；活动 Part 的草图、基准和命令预览施加该 occurrence 的世界 Placement 后就地编辑，其他部件继续显示。
+
+`INSERT_INSTANCE` 的目标不再由浏览器最外层 URL 隐式决定，而是当前激活且具有 Editor 权限的 Product Reference；激活子 Product occurrence 后，插入形成该子 Product 自己的 Transaction/Revision，根 Product 仅通过 FOLLOW_HEAD 解析看到变化。InstanceName 由服务端在 owner Product 的当前候选模型中按 `ReferenceName.N` 分配首个同级可用名称，大小写不敏感且不要求云端 DocumentName 全局唯一；CAS 重试会针对新 Head 重新分配。插入不再接收用户自定义 InstanceName，重命名属于后续独立属性命令。结构树 capability 描述领域动作，实际启用仍要求客户端加载目标文档并取得 Editor 权限，服务端命令入口再次执行 ACL 校验。
+
+第一版 typed `InstancePath` 保存 RootDocumentId 和有序 segment；每段包含 owner Document/Revision、稳定 InstanceId、显示 InstanceName、ReferencedDocumentId 和 resolved Revision。`canonical` 由 InstanceId 链构成并用于选择、激活和 occurrence 资源索引，`display` 才由 InstanceName 拼接。名称修改不得改变 canonical identity，也不得作为持久引用解析键。
+
 ### 4.2 Command 与 Undo/Redo
 
 HTTP transport DTO 在 API 边界转换为 `type_uri + schema_version + typed payload`，再由进程内 handler registry 执行；持久历史只保存 Domain Command，不存在第二套旧命令语义。Handler 的模型变换无数据库、网络、系统时间和 OCCT I/O；Product 外部引用先冻结，Part 几何在数据库事务外求值，提交阶段以 `(workspace head revision, head sequence)` 做 CAS。重复 request ID 只有 payload digest 相同才返回原结果。
@@ -134,6 +140,7 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 - JSON Envelope 支持 request/response/event/ack/error、correlation ID、版本化 type、Workspace sequence 和稳定错误；当前最大消息 1 MiB；
 - Web 前端的建模命令使用 `workspace.command.execute.v1`，HTTP 命令入口仍保留并调用同一个 Workspace Service；
 - 浏览器进入工作台后订阅 Document 并获得 DocumentView 快照。其他用户提交后，事务内 Outbox 由 API 轮询并向所有本机订阅者发布 `workspace.transaction.committed.v1`，浏览器刷新 Document、History、Properties 和目录投影；
+- Product 浏览器会话还递归订阅结构树中未被 `PINNED` 边截断的 FOLLOW_HEAD Reference Document。子 Part/Product 提交不伪造父 Product Revision，而是使父 Product 的解析投影、结构树、Artifact occurrence 和属性失效并重新读取；激活文档即使位于 PINNED occurrence 下也会单独订阅，以支持该 Reference Document 自身的协同编辑；
 - 客户端按 sequence 去重和发现 gap，断线指数退避重连并重新获取快照；服务端以 Ping/Pong 检测失联，有界 128 消息队列满时断开慢消费者；
 - 当前实现多浏览器查看同一文档的提交后实时同步；presence、鼠标/选择和拖拽 preview 尚未接入 UI，多 API 实例间扇出也尚未实现。
 

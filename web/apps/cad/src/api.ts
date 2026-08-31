@@ -224,9 +224,9 @@ export const restApi = {
     restApi.command(documentId, { type: "CREATE_DATUM_PLANE", ...input }),
   createDatumAxis: (documentId: string, input: { name: string; origin: Vec3; direction: Vec3 }) =>
     restApi.command(documentId, { type: "CREATE_DATUM_AXIS", ...input }),
-  insert: (documentId: string, referencedDocumentId: string, name: string) =>
+  insert: (documentId: string, referencedDocumentId: string) =>
     restApi.command(documentId, {
-      type: "INSERT_INSTANCE", referencedDocumentId, name, translation: [0, 0, 0],
+      type: "INSERT_INSTANCE", referencedDocumentId, translation: [0, 0, 0],
     }),
   move: (documentId: string, instanceId: string, translation: Vec3) =>
     restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation }),
