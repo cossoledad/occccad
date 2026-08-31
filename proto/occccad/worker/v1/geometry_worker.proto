@@ -22,6 +22,11 @@ service GeometryWorker {
     // implementation detail of this coarse-grained boundary.
     rpc SolveSketch(SolveSketchRequest) returns (SolveSketchResponse);
 
+    // Solve one immutable 3D assembly geometry-constraint system. Product
+    // identity and persistence stay in the control plane; this boundary only
+    // carries rigid poses, local geometric descriptors and residual equations.
+    rpc SolveAssembly(SolveAssemblyRequest) returns (SolveAssemblyResponse);
+
     // Neutral CAD exchange uses immutable ArtifactReference values. Large file
     // bytes never cross this unary gRPC boundary.
     rpc InspectExchange(InspectExchangeRequest) returns (InspectExchangeResponse);
@@ -48,6 +53,76 @@ service GeometryWorker {
 message Vec2 {
     double x = 1;
     double y = 2;
+}
+
+message Quaternion {
+    double x = 1;
+    double y = 2;
+    double z = 3;
+    double w = 4;
+}
+
+message RigidPose {
+    Vec3 translation = 1;
+    Quaternion rotation = 2;
+}
+
+message AssemblyBody {
+    string id = 1;
+    RigidPose initial_pose = 2;
+}
+
+message AssemblyGeometry {
+    string id = 1;
+    string body_id = 2;
+    string kind = 3; // POINT, AXIS, PLANE, CYLINDER
+    Vec3 origin = 4;
+    Vec3 direction = 5;
+    double radius = 6;
+}
+
+message AssemblyGeometryRef {
+    string body_id = 1;
+    string geometry_id = 2;
+}
+
+message AssemblyConstraint {
+    string id = 1;
+    string kind = 2; // FIX, COINCIDENT, CONCENTRIC, ANGLE, DISTANCE
+    AssemblyGeometryRef first = 3;
+    AssemblyGeometryRef second = 4;
+    double value = 5;
+    string direction_relation = 6; // UNORIENTED, SAME, OPPOSITE
+    string distance_relation = 7; // UNSIGNED, ALONG_SECOND_NORMAL, OPPOSITE_SECOND_NORMAL
+    RigidPose fixed_pose = 8;
+}
+
+message SolveAssemblyRequest {
+    string request_id = 1;
+    repeated AssemblyBody bodies = 2;
+    repeated AssemblyGeometry geometry = 3;
+    repeated AssemblyConstraint constraints = 4;
+    double length_scale = 5;
+    double angle_scale = 6;
+}
+
+message AssemblyConstraintResidual {
+    string constraint_id = 1;
+    double normalized_norm = 2;
+}
+
+message SolvedAssemblyBody {
+    string id = 1;
+    RigidPose pose = 2;
+}
+
+message SolveAssemblyResponse {
+    string status = 1; // CONVERGED, MAX_ITERATIONS, INVALID_MODEL, NUMERICAL_FAILURE
+    repeated SolvedAssemblyBody bodies = 2;
+    repeated AssemblyConstraintResidual residuals = 3;
+    uint64 iterations = 4;
+    double normalized_residual = 5;
+    string diagnostic = 6;
 }
 
 message SketchPoint {

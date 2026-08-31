@@ -230,6 +230,10 @@ export const restApi = {
     }),
   move: (documentId: string, instanceId: string, translation: Vec3) =>
     restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation }),
+  addAssemblyConstraint: (documentId: string, input: { constraintKind: string;
+    firstAssemblyRef: Record<string, string>; secondAssemblyRef?: Record<string, string>;
+    value?: number; directionRelation?: string; distanceRelation?: string }) =>
+    restApi.command(documentId, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),
   setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_HEAD" | "PINNED") =>
     restApi.command(documentId, { type: "SET_REFERENCE_MODE", instanceId, referenceMode }),
   undo: (documentId: string) => restApi.command(documentId, { type: "UNDO" }),

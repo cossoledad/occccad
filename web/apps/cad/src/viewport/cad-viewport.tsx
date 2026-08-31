@@ -21,6 +21,7 @@ type Props = {
   editingView?: DocumentView;
   activeInstancePath?: string;
   activeInstanceTranslation?: Vec3;
+  activeInstanceRotation?: [number, number, number, number];
   activeBodyTreeNodeId?: string;
   selections: SelectionItem[];
   preselection: Selection;
@@ -67,6 +68,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.render(callbacks.current.view, callbacks.current.editingView ? {
       view: callbacks.current.editingView, occurrencePath: callbacks.current.activeInstancePath,
       translation: callbacks.current.activeInstanceTranslation, bodyTreeNodeId: callbacks.current.activeBodyTreeNodeId,
+      rotation: callbacks.current.activeInstanceRotation,
     } : undefined);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
@@ -83,10 +85,11 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => {
     const instance = engine.current; if (!instance) return;
     instance.render(props.view, props.editingView ? { view: props.editingView, occurrencePath: props.activeInstancePath,
-      translation: props.activeInstanceTranslation, bodyTreeNodeId: props.activeBodyTreeNodeId } : undefined);
+      translation: props.activeInstanceTranslation, rotation: props.activeInstanceRotation,
+      bodyTreeNodeId: props.activeBodyTreeNodeId } : undefined);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
-  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeBodyTreeNodeId]);
+  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId]);
   useEffect(() => { engine.current?.selectMany(props.selections, false); }, [props.selections]);
   useEffect(() => { engine.current?.preselect(props.preselection, false); }, [props.preselection]);
   useEffect(() => {

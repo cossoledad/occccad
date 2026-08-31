@@ -1,6 +1,7 @@
 #include <Standard_Version.hxx>
 
 #include <internal/occt_kernel.hpp>
+#include <occccad/assembly/solver.hpp>
 #include <occccad/kernel/kernel.hpp>
 #include <occccad/kernel/mesh_glb.hpp>
 
@@ -29,6 +30,7 @@
 
 namespace worker_api = occccad::worker::v1;
 namespace sketch_api = occccad::geometry::sketch;
+namespace assembly_api = occccad::assembly;
 
 namespace {
 
@@ -442,6 +444,111 @@ public:
         }
     }
 
+    grpc::Status SolveAssembly(grpc::ServerContext* context,
+                               const worker_api::SolveAssemblyRequest* request,
+                               worker_api::SolveAssemblyResponse* response) override {
+        if (context->IsCancelled())
+            return {grpc::StatusCode::CANCELLED, "request was cancelled"};
+        if (request->request_id().empty())
+            return {grpc::StatusCode::INVALID_ARGUMENT, "request_id is required"};
+        const auto vec = [](const worker_api::Vec3& value) {
+            return assembly_api::Vec3{value.x(), value.y(), value.z()};
+        };
+        const auto pose = [&](const worker_api::RigidPose& value) {
+            assembly_api::Pose result;
+            if (value.has_translation())
+                result.translation = vec(value.translation());
+            if (value.has_rotation())
+                result.rotation = {value.rotation().x(), value.rotation().y(), value.rotation().z(),
+                                   value.rotation().w()};
+            return result;
+        };
+        assembly_api::Model model;
+        for (const auto& input : request->bodies())
+            model.bodies.push_back({input.id(), pose(input.initial_pose())});
+        for (const auto& input : request->geometry()) {
+            assembly_api::Geometry geometry;
+            if (input.kind() == "POINT")
+                geometry = assembly_api::PointGeometry{vec(input.origin())};
+            else if (input.kind() == "AXIS")
+                geometry = assembly_api::AxisGeometry{vec(input.origin()), vec(input.direction())};
+            else if (input.kind() == "PLANE")
+                geometry = assembly_api::PlaneGeometry{vec(input.origin()), vec(input.direction())};
+            else if (input.kind() == "CYLINDER")
+                geometry = assembly_api::CylinderGeometry{vec(input.origin()),
+                                                          vec(input.direction()), input.radius()};
+            else
+                return {grpc::StatusCode::INVALID_ARGUMENT, "unknown assembly geometry kind"};
+            model.geometry.push_back({input.id(), input.body_id(), geometry});
+        }
+        for (const auto& input : request->constraints()) {
+            assembly_api::Constraint constraint;
+            constraint.id = input.id();
+            constraint.first = {input.first().body_id(), input.first().geometry_id()};
+            if (input.has_second())
+                constraint.second = assembly_api::GeometryRef{input.second().body_id(),
+                                                              input.second().geometry_id()};
+            constraint.value = input.value();
+            if (input.kind() == "FIX")
+                constraint.kind = assembly_api::ConstraintKind::Fix;
+            else if (input.kind() == "COINCIDENT")
+                constraint.kind = assembly_api::ConstraintKind::Coincident;
+            else if (input.kind() == "CONCENTRIC")
+                constraint.kind = assembly_api::ConstraintKind::Concentric;
+            else if (input.kind() == "ANGLE")
+                constraint.kind = assembly_api::ConstraintKind::Angle;
+            else if (input.kind() == "DISTANCE")
+                constraint.kind = assembly_api::ConstraintKind::Distance;
+            else
+                return {grpc::StatusCode::INVALID_ARGUMENT, "unknown assembly constraint kind"};
+            if (input.direction_relation() == "SAME")
+                constraint.direction_relation = assembly_api::DirectionRelation::Same;
+            else if (input.direction_relation() == "OPPOSITE")
+                constraint.direction_relation = assembly_api::DirectionRelation::Opposite;
+            if (input.distance_relation() == "ALONG_SECOND_NORMAL")
+                constraint.distance_relation = assembly_api::DistanceRelation::AlongSecondNormal;
+            else if (input.distance_relation() == "OPPOSITE_SECOND_NORMAL")
+                constraint.distance_relation = assembly_api::DistanceRelation::OppositeSecondNormal;
+            if (input.has_fixed_pose())
+                constraint.fixed_pose = pose(input.fixed_pose());
+            model.constraints.push_back(std::move(constraint));
+        }
+        assembly_api::SolverOptions options;
+        if (request->length_scale() > 0.0)
+            options.length_scale = request->length_scale();
+        if (request->angle_scale() > 0.0)
+            options.angle_scale = request->angle_scale();
+        const auto result = assembly_solver_.solve(model, options);
+        const char* status =
+            result.status == assembly_api::SolveStatus::Converged       ? "CONVERGED"
+            : result.status == assembly_api::SolveStatus::MaxIterations ? "MAX_ITERATIONS"
+            : result.status == assembly_api::SolveStatus::InvalidModel  ? "INVALID_MODEL"
+                                                                        : "NUMERICAL_FAILURE";
+        response->set_status(status);
+        response->set_iterations(result.iterations);
+        response->set_normalized_residual(result.normalized_residual);
+        response->set_diagnostic(result.diagnostic);
+        for (const auto& body : result.bodies) {
+            auto* output = response->add_bodies();
+            output->set_id(body.id);
+            auto* translation = output->mutable_pose()->mutable_translation();
+            translation->set_x(body.pose.translation.x);
+            translation->set_y(body.pose.translation.y);
+            translation->set_z(body.pose.translation.z);
+            auto* rotation = output->mutable_pose()->mutable_rotation();
+            rotation->set_x(body.pose.rotation.x);
+            rotation->set_y(body.pose.rotation.y);
+            rotation->set_z(body.pose.rotation.z);
+            rotation->set_w(body.pose.rotation.w);
+        }
+        for (const auto& residual : result.residuals) {
+            auto* output = response->add_residuals();
+            output->set_constraint_id(residual.constraint_id);
+            output->set_normalized_norm(residual.normalized_norm);
+        }
+        return grpc::Status::OK;
+    }
+
     grpc::Status EvaluatePart(grpc::ServerContext* context,
                               const worker_api::EvaluatePartRequest* request,
                               worker_api::EvaluatePartResponse* response) override {
@@ -500,15 +607,20 @@ public:
                 occccad::kernel::ProfilePadSpec pad;
                 pad.pad_length = input.pad_length();
                 pad.plane = input.plane().empty() ? "XY" : input.plane();
-                pad.body_operation = input.body_operation().empty() ? "ADD" : input.body_operation();
+                pad.body_operation =
+                    input.body_operation().empty() ? "ADD" : input.body_operation();
                 pad.generator = input.generator().empty() ? "LINEAR_EXTRUDE" : input.generator();
                 pad.revolve_angle = input.revolve_angle();
                 pad.axis_start = {input.axis_start().x(), input.axis_start().y()};
                 pad.axis_end = {input.axis_end().x(), input.axis_end().y()};
                 pad.reversed = input.reversed();
-                pad.plane_origin = {input.plane_origin().x(), input.plane_origin().y(), input.plane_origin().z()};
-                pad.plane_normal = {input.plane_normal().x(), input.plane_normal().y(), input.plane_normal().z()};
-                pad.plane_u_direction = {input.plane_u_direction().x(), input.plane_u_direction().y(), input.plane_u_direction().z()};
+                pad.plane_origin = {input.plane_origin().x(), input.plane_origin().y(),
+                                    input.plane_origin().z()};
+                pad.plane_normal = {input.plane_normal().x(), input.plane_normal().y(),
+                                    input.plane_normal().z()};
+                pad.plane_u_direction = {input.plane_u_direction().x(),
+                                         input.plane_u_direction().y(),
+                                         input.plane_u_direction().z()};
                 const auto read_loop = [](const worker_api::ProfileLoop& source) {
                     occccad::kernel::ProfileLoopSpec loop;
                     loop.id = source.id();
@@ -765,6 +877,7 @@ public:
     }
 
 private:
+    assembly_api::Solver assembly_solver_;
     void fill_evaluation(const std::string& geometry_key,
                          const occccad::kernel::GeometryId& geometry_id,
                          const double requested_linear_deflection,

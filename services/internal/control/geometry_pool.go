@@ -372,6 +372,21 @@ func (pool *GeometryPool) SolveSketch(ctx context.Context, request *workerv1.Sol
 	return response, err
 }
 
+// SolveAssembly is stateless and therefore uses the same coarse-grained pool
+// path without claiming resident B-Rep affinity.
+func (pool *GeometryPool) SolveAssembly(ctx context.Context, request *workerv1.SolveAssemblyRequest) (*workerv1.SolveAssemblyResponse, error) {
+	client, worker, err := pool.selectClient("")
+	if err != nil {
+		return nil, err
+	}
+	if worker != nil {
+		_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
+	}
+	response, err := client.SolveAssembly(outgoing(ctx), request)
+	pool.release(worker, "", err == nil)
+	return response, err
+}
+
 func (pool *GeometryPool) InspectExchange(ctx context.Context, request *workerv1.InspectExchangeRequest) (*workerv1.InspectExchangeResponse, error) {
 	client, worker, err := pool.selectClient("")
 	if err != nil {

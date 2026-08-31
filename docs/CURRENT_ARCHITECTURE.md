@@ -1,6 +1,6 @@
 # occccad 现有架构
 
-> 状态日期：2026-08-28
+> 状态日期：2026-09-01
 > 文档性质：事实基线。本文只描述当前仓库能够由源码、构建文件、数据库迁移和配置证明的行为；目标能力见[目标架构](TARGET_ARCHITECTURE.md)。
 
 ## 1. 结论
@@ -34,6 +34,7 @@ flowchart LR
 | `occccad-control` | Go HTTP/gRPC | 本地子进程管理、反向代理、Geometry Router、调试切流 |
 | `workers/geometry` | C++/gRPC/OCCT | 精确几何、STEP、拓扑与显示制品计算 |
 | `kernel/api` | C++ library | 不暴露 OCCT 类型的内核公共值类型和操作 |
+| `kernel/assembly` | C++ library | 独立三维装配几何约束算法；由 Geometry Worker 的粗粒度 `SolveAssembly` RPC 调用 |
 | `kernel/occt` | C++ library | OCCT 适配实现，只链接进 Geometry Worker |
 | `services/internal/*` | Go packages | 上述 Go 进程共享的内部模块，不是网络服务 |
 
@@ -386,7 +387,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 | 本机 Geometry 扩缩容 | 已实现 | occccad-control |
 | 跨主机 Geometry 调度 | 未实现 | 无注册中心/集群调度 |
 | 二维草图与基础约束 | 已实现基础集合 | Point/Line/Circle/Arc/插值 Spline、基本几何/尺寸/对称约束、PlaneGCS 与四组 Sketcher Toolbar |
-| 三维装配约束/运动学 | 未实现 | Product 只有 Transform |
+| 三维装配约束/运动学 | 已实现首个 Product 闭环 | Product 直接 Part 实例的基准点/轴/面支持 Fix、Coincident、Concentric、Angle、Distance；C++ 求解后原子提交 Constraint 与完整 SE(3) Pose |
 | 持久拓扑命名 | 未实现 | 当前 local ID 不可作长期 Feature 引用 |
 | S3 兼容对象存储/CDN | 未实现 | 当前仅本地目录 |
 | 实时多人同文档编辑 | 已实现首个提交同步闭环 | WebSocket request/event、Outbox、sequence、重连快照；尚无 presence/preview 与 semantic rebase |
@@ -403,6 +404,8 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 5. **长计算边界不完整**：交换文件的 HTTP 流允许 15 分钟，但同步 Part 求值仍受 Geometry client 的短 deadline 限制；复杂再生尚未全部任务化。
 6. **协议超前于实现**：部分 Proto RPC 未实现，版本化和能力协商尚未建立。
 7. **测试金字塔不完整**：缺少模型语料库、确定性回归、大装配基准和浏览器 E2E。
+
+`kernel/assembly` 当前使用有限差分 Jacobian 的阻尼最小二乘，返回收敛、迭代上限、非法模型和数值失败，以及逐约束归一化残差。Product 将 `instanceId + datum geometry ID + axis component` 作为稳定端点写入 Revision；每次提交从被引用 Part Revision 重新解析局部描述符，经 Go client、正式 Geometry Router 和 `SolveAssembly` Worker RPC 求解，Constraint 与所有改变的 Instance Pose 在同一个 ChangeSet 中提交并可一起 Undo/Redo。Assembly Design Toolbar 提供 Fix、Coincident、Concentric、Angle、Distance，角度/距离使用显式数值面板。第一版只允许根 Product 的直接 Part 实例和 Datum/AxisSystem，尚未开放任意拓扑面/圆柱、嵌套 Product 相对路径、约束删除/编辑、自由度、冗余/冲突、图分解、解析 Jacobian或全局分支选择。
 
 这些风险决定了下一阶段应先建立模型内核、拓扑命名、约束求解和可重建制品协议，而不是先增加大量微服务。
 

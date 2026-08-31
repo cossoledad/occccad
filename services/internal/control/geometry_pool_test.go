@@ -37,6 +37,12 @@ func (sketchWorkerStub) SolveSketch(_ context.Context, request *workerv1.SolveSk
 	}, nil
 }
 
+func (sketchWorkerStub) SolveAssembly(_ context.Context, request *workerv1.SolveAssemblyRequest) (*workerv1.SolveAssemblyResponse, error) {
+	return &workerv1.SolveAssemblyResponse{Status: "CONVERGED", Bodies: []*workerv1.SolvedAssemblyBody{{
+		Id: request.GetBodies()[0].GetId(), Pose: request.GetBodies()[0].GetInitialPose(),
+	}}}, nil
+}
+
 func (sketchWorkerStub) InspectExchange(_ context.Context, _ *workerv1.InspectExchangeRequest) (*workerv1.InspectExchangeResponse, error) {
 	return &workerv1.InspectExchangeResponse{DocumentType: "PART", Components: []*workerv1.ExchangeComponentInfo{{SourceIndex: 1, Name: "Part"}}}, nil
 }
@@ -87,6 +93,32 @@ func TestGeometryPoolRoutesSolveSketch(t *testing.T) {
 		t.Fatalf("SolveSketch was not routed: %v", err)
 	}
 	if response.GetStatus() != "UNDER_CONSTRAINED" || response.GetDegreesOfFreedom() != 4 {
+		t.Fatalf("unexpected routed response: %#v", response)
+	}
+}
+
+func TestGeometryPoolRoutesSolveAssembly(t *testing.T) {
+	backend := serveGeometry(t, sketchWorkerStub{})
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{})
+	if err := pool.SetDebugAddress(backend); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	router := serveGeometry(t, pool)
+	connection, err := grpc.NewClient(router, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	response, err := workerv1.NewGeometryWorkerClient(connection).SolveAssembly(t.Context(), &workerv1.SolveAssemblyRequest{
+		RequestId: "assembly-1", Bodies: []*workerv1.AssemblyBody{{Id: "part-1", InitialPose: &workerv1.RigidPose{
+			Rotation: &workerv1.Quaternion{W: 1}, Translation: &workerv1.Vec3{},
+		}}},
+	})
+	if err != nil {
+		t.Fatalf("SolveAssembly was not routed: %v", err)
+	}
+	if response.GetStatus() != "CONVERGED" || response.GetBodies()[0].GetId() != "part-1" {
 		t.Fatalf("unexpected routed response: %#v", response)
 	}
 }

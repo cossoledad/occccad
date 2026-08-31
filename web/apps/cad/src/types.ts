@@ -113,10 +113,15 @@ export type ProductInstance = {
   documentId: string;
   versionId: string;
   translation: Vec3;
+  rotation?: [number, number, number, number];
   referenceMode?: "FOLLOW_HEAD" | "PINNED";
   resolvedVersionId?: string;
   headChanged?: boolean;
 };
+
+export type AssemblyGeometryRef = { instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER"; geometryId?: string; axis?: string };
+export type AssemblyConstraint = { id: string; kind: "FIX" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE";
+  first: AssemblyGeometryRef; second?: AssemblyGeometryRef; value?: number; directionRelation?: string; distanceRelation?: string };
 
 export type InstancePathSegment = {
   ownerDocumentId: string;
@@ -207,6 +212,7 @@ export type ResolvedInstance = {
   documentId: string;
   geometryKey: string;
   translation: Vec3;
+  rotation?: [number, number, number, number];
   occurrencePath: string;
   instancePath: InstancePath;
   bodyTreeNodeId: string;
@@ -214,7 +220,7 @@ export type ResolvedInstance = {
 
 export type DocumentStructureNode = {
   id: string;
-  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "SKETCH_GEOMETRY_SET" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "REFERENCE_CYCLE";
+  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "SKETCH_GEOMETRY_SET" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
   name: string;
   entityId?: string;
   documentId?: string;
@@ -239,7 +245,7 @@ export type DocumentView = {
   axisSystems?: AxisSystem[];
   datumAxes?: DatumAxis[];
   part?: { units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[] };
-  product?: { instances: ProductInstance[] };
+  product?: { instances: ProductInstance[]; constraints?: AssemblyConstraint[] };
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;
   resolvedInstances?: ResolvedInstance[];
@@ -255,6 +261,7 @@ export type SelectionIdentity = {
   instancePath?: InstancePath;
   geometryKey?: string;
   instanceId?: string;
+  entityId?: string;
   visualKey?: string;
 };
 

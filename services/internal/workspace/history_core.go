@@ -285,6 +285,15 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 			return nil, err
 		}
 		for _, change := range set.Changes {
+			if change.Target.SlotID == "assembly-constraint.entity" {
+				for _, constraint := range model.Constraints {
+					if constraint.ID == change.Target.EntityID {
+						result[change.Target], _ = json.Marshal(constraint)
+						break
+					}
+				}
+				continue
+			}
 			for _, instance := range model.Instances {
 				if instance.ID != change.Target.EntityID {
 					continue
@@ -294,6 +303,8 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 					result[change.Target], _ = json.Marshal(instance)
 				case "instance.translation":
 					result[change.Target], _ = json.Marshal(instance.Translation)
+				case "instance.pose":
+					result[change.Target], _ = json.Marshal(InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)})
 				case "instance.reference":
 					result[change.Target], _ = json.Marshal(struct{ Mode, Version string }{instance.ReferenceMode, instance.ReferencedVersionID})
 				}
@@ -467,6 +478,38 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 			}
 			model.Instances[index].ReferenceMode = reference.Mode
 			model.Instances[index].ReferencedVersionID = reference.Version
+		case "instance.pose":
+			if index < 0 {
+				return nil, fmt.Errorf("%w: instance was deleted", ErrValidation)
+			}
+			var pose InstancePose
+			if err := json.Unmarshal(value, &pose); err != nil {
+				return nil, err
+			}
+			model.Instances[index].Translation, model.Instances[index].Rotation = pose.Translation, pose.Rotation
+		case "assembly-constraint.entity":
+			constraintIndex := -1
+			for candidate := range model.Constraints {
+				if model.Constraints[candidate].ID == address.EntityID {
+					constraintIndex = candidate
+					break
+				}
+			}
+			if len(value) == 0 || string(value) == "null" {
+				if constraintIndex >= 0 {
+					model.Constraints = append(model.Constraints[:constraintIndex], model.Constraints[constraintIndex+1:]...)
+				}
+			} else {
+				var constraint AssemblyConstraint
+				if err := json.Unmarshal(value, &constraint); err != nil {
+					return nil, err
+				}
+				if constraintIndex >= 0 {
+					model.Constraints[constraintIndex] = constraint
+				} else {
+					model.Constraints = append(model.Constraints, constraint)
+				}
+			}
 		}
 	}
 	return json.Marshal(model)

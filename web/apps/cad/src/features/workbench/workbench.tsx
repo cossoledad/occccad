@@ -31,6 +31,17 @@ import { closestTreeKey } from "./tree-selection";
 import { followedDocumentIDs } from "./product-edit-context";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
+
+type AssemblyRef = { instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE"; geometryId?: string; axis?: string };
+function assemblyRef(selection: SelectionItem | undefined): AssemblyRef | undefined {
+  if (!selection?.instanceId) return undefined;
+  if (selection.kind === "instance") return { instanceId: selection.instanceId, kind: "BODY" };
+  if (selection.kind === "plane" && selection.entityId) return { instanceId: selection.instanceId, kind: "PLANE", geometryId: selection.entityId };
+  if (selection.kind === "axis" && selection.entityId) return { instanceId: selection.instanceId, kind: "AXIS", geometryId: selection.entityId,
+    ...(selection.axis === "DATUM" ? {} : { axis: selection.axis }) };
+  if (selection.kind === "axis-system" && selection.entityId) return { instanceId: selection.instanceId, kind: "POINT", geometryId: selection.entityId };
+  return undefined;
+}
 const sketchToolCommands:WorkbenchToolID[]=["sketch.rectangle","sketch.polygon","sketch.slot","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline",
   "sketch.constraint.coincident","sketch.constraint.parallel","sketch.constraint.fixed","sketch.constraint.horizontal","sketch.constraint.vertical",
   "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.dimension.linear",
@@ -46,9 +57,14 @@ function featureSketchPlane(view: DocumentView, feature: Feature): SketchPlane |
   return datum ? sketchPlane(datum) : undefined;
 }
 
-function occurrenceSketchPlane(plane: SketchPlane, translation?: Vec3): SketchPlane {
-  if (!translation) return plane;
-  return { ...plane, origin: plane.origin.map((value, index) => value + translation[index]) as Vec3 };
+function occurrenceSketchPlane(plane: SketchPlane, translation?: Vec3, rotation: [number,number,number,number] = [0,0,0,1]): SketchPlane {
+  const rotate = (value: Vec3): Vec3 => {
+    const [x,y,z,w]=rotation,[vx,vy,vz]=value;const dot=x*vx+y*vy+z*vz,uu=x*x+y*y+z*z;
+    const cross:[number,number,number]=[y*vz-z*vy,z*vx-x*vz,x*vy-y*vx];
+    return [2*dot*x+(w*w-uu)*vx+2*w*cross[0],2*dot*y+(w*w-uu)*vy+2*w*cross[1],2*dot*z+(w*w-uu)*vz+2*w*cross[2]];
+  };
+  const origin=rotate(plane.origin);return {...plane,origin:origin.map((value,index)=>value+(translation?.[index]??0)) as Vec3,
+    normal:rotate(plane.normal),uDirection:rotate(plane.uDirection)};
 }
 
 function toolbarGroups(items: ToolbarCatalogItem[]): Array<{ key: string; items: ToolbarCatalogItem[] }> {
@@ -106,16 +122,16 @@ function structureSelection(node: DocumentStructureNode, view: DocumentView): Se
   }
   if (node.kind === "PLANE" && node.entityId && node.plane) {
     const datumPlane = view.datumPlanes?.find((datum) => datum.id === node.entityId);
-    return { kind: "plane", id: `${occurrencePath || "root"}:${node.entityId}`, plane: node.plane, datumPlane, ...context };
+    return { kind: "plane", id: `${occurrencePath || "root"}:${node.entityId}`, entityId: node.entityId, plane: node.plane, datumPlane, ...context };
   }
   if (node.kind === "AXIS_SYSTEM" && node.entityId) return {
-    kind: "axis-system", id: `${occurrencePath || "root"}:${node.entityId}`, ...context,
+    kind: "axis-system", id: `${occurrencePath || "root"}:${node.entityId}`, entityId: node.entityId, ...context,
   };
   if (node.kind === "AXIS" && node.entityId && node.axis) return {
-    kind: "axis", axis: node.axis, id: `${occurrencePath || "root"}:${node.entityId}:${node.axis}`, ...context,
+    kind: "axis", axis: node.axis, id: `${occurrencePath || "root"}:${node.entityId}:${node.axis}`, entityId: node.entityId, ...context,
   };
   if (node.kind === "DATUM_AXIS" && node.entityId) return {
-    kind: "axis", axis: "DATUM", id: `${occurrencePath || "root"}:${node.entityId}`, ...context,
+    kind: "axis", axis: "DATUM", id: `${occurrencePath || "root"}:${node.entityId}`, entityId: node.entityId, ...context,
   };
   const bodyID = `${occurrencePath || "root"}:body`;
   if (node.kind === "BODY" || node.kind === "PART") return { kind: "body", id: bodyID, ...context };
@@ -225,6 +241,7 @@ export function Workbench() {
   const [versionOpen, setVersionOpen] = useState(false);
   const [datumPlaneOpen, setDatumPlaneOpen] = useState(false);
   const [datumAxisOpen, setDatumAxisOpen] = useState(false);
+  const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: "angle" | "distance"; references: AssemblyRef[] }>();
   const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const hiddenTreeKeys = useUIPreferences((state) => state.hiddenTreeKeys);
@@ -236,6 +253,7 @@ export function Workbench() {
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
   const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
   const [datumAxisForm] = Form.useForm<{ name: string; ox: number; oy: number; oz: number; dx: number; dy: number; dz: number }>();
+  const [assemblyConstraintForm] = Form.useForm<{ value: number }>();
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
 	useEffect(() => { setActiveDocumentID(documentID); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }, [documentID]);
@@ -349,14 +367,14 @@ export function Workbench() {
     if (store.selection.kind === "sketch") {
       const feature = editingView.part?.features.find((candidate) => candidate.id === store.selection!.id);
       const localPlane = feature ? featureSketchPlane(editingView, feature) : undefined;
-      const plane = localPlane ? occurrenceSketchPlane(localPlane, activeResolvedInstance?.translation) : undefined;
+      const plane = localPlane ? occurrenceSketchPlane(localPlane, activeResolvedInstance?.translation, activeResolvedInstance?.rotation) : undefined;
       if (feature && plane) store.beginSketch(feature.id, plane);
       return;
     }
     if (store.selection.kind !== "plane") return;
     const datum = store.selection.datumPlane ?? editingView.datumPlanes?.find((candidate) => store.selection?.id.endsWith(candidate.id));
     if (!datum) return;
-    const plane = occurrenceSketchPlane(sketchPlane(datum), activeResolvedInstance?.translation);
+    const plane = occurrenceSketchPlane(sketchPlane(datum), activeResolvedInstance?.translation, activeResolvedInstance?.rotation);
     command.mutate(() => api.createSketch(editingView.document.id, datum.plane, datum.id), { onSuccess: (updated) => {
       const sketch = [...(updated.part?.features ?? [])].reverse().find((feature) => feature.type.toUpperCase() === "SKETCH");
       if (sketch) store.beginSketch(sketch.id, plane);
@@ -492,6 +510,29 @@ export function Workbench() {
         if (editingView && instance) command.mutate(() => api.setReferenceMode(editingView.document.id, instance.id,
           instance.referenceMode === "PINNED" ? "FOLLOW_HEAD" : "PINNED"));
       }, isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit && selectedInstance()) }),
+      ...(["fix", "coincident", "concentric", "angle", "distance"] as const).map((constraint) => commandRegistry.register({
+        id: `assembly.${constraint}`,
+        execute: () => {
+          if (!editingView) return;
+          const references = useWorkbenchStore.getState().selections.map(assemblyRef).filter((value): value is AssemblyRef => Boolean(value));
+          const required = constraint === "fix" ? 1 : 2;
+          if (references.length !== required) { message.warning(constraint === "fix" ? "请选择一个装配实例" : "请选择两个实例中的基准几何"); return; }
+          if (required === 2 && references[0].instanceId === references[1].instanceId) { message.warning("请选择两个不同实例中的基准几何"); return; }
+          if (constraint === "concentric" && references.some((reference) => reference.kind !== "AXIS")) { message.warning("同心约束需要选择两条基准轴"); return; }
+          if (constraint === "angle" && references.some((reference) => reference.kind !== "AXIS" && reference.kind !== "PLANE")) { message.warning("角度约束需要选择基准轴或基准面"); return; }
+          if (constraint === "angle" || constraint === "distance") {
+            assemblyConstraintForm.setFieldsValue({ value: 0 });
+            setPendingAssemblyConstraint({ kind: constraint, references });
+            return;
+          }
+          command.mutate(() => api.addAssemblyConstraint(editingView.document.id, {
+            constraintKind: constraint.toUpperCase(), firstAssemblyRef: references[0], secondAssemblyRef: references[1],
+            value: 0, directionRelation: "UNORIENTED", distanceRelation: "UNSIGNED",
+          }));
+        },
+        isVisible: () => editingView?.document.type === "PRODUCT",
+        isEnabled: () => Boolean(canEdit),
+      })),
       commandRegistry.register({ id: "history.version", execute: () => setVersionOpen(true), isEnabled: () => Boolean(canEdit) }),
       commandRegistry.register({ id: "document.share", execute: () => editingView && setShareResource({ type: "documents", id: editingView.document.id, name: editingView.document.name }),
         isEnabled: () => editingView?.document.permission === "OWNER" }),
@@ -510,7 +551,7 @@ export function Workbench() {
 		isVisible: () => !isMockMode, isEnabled: () => Boolean(editingView) }),
     ];
     return () => { for (const dispose of disposers.reverse()) dispose(); };
-  }, [commandRegistry, editingView, canEdit, store.selection, store.sketchPlane, store.activeToolID, store.navigationProfile, command.isPending]);
+  }, [commandRegistry, editingView, canEdit, store.selection, store.sketchPlane, store.activeToolID, store.navigationProfile, command.isPending, assemblyConstraintForm]);
 
   useEffect(() => { commandRegistry.notifyStateChanged(); }, [commandRegistry, editingView, store.selection, store.sketchPlane,
     store.activeToolID, store.navigationProfile, command.isPending]);
@@ -523,6 +564,7 @@ export function Workbench() {
     <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view}
           editingView={editingView} activeInstancePath={activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
+          activeInstanceRotation={activeResolvedInstance?.rotation}
           activeBodyTreeNodeId={activeResolvedInstance?.bodyTreeNodeId}
           selections={store.selections}
           preselection={store.preselection}
@@ -560,7 +602,7 @@ export function Workbench() {
               if (node.selection.kind === "sketch") {
                 const feature=editingView.part?.features.find((candidate)=>candidate.id===node.selection!.id);
                 const localPlane=feature?featureSketchPlane(editingView,feature):undefined;
-                const plane=localPlane?occurrenceSketchPlane(localPlane,activeResolvedInstance?.translation):undefined;
+                const plane=localPlane?occurrenceSketchPlane(localPlane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation):undefined;
                 if(feature&&plane)store.beginSketch(feature.id,plane);
               } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
             }}
@@ -595,6 +637,25 @@ export function Workbench() {
             : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}</div>
         </aside>
       </section></main>
+    <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)}
+      title={pendingAssemblyConstraint?.kind === "angle" ? "装配角度" : "装配距离"}
+      onClose={() => setPendingAssemblyConstraint(undefined)} confirmLoading={command.isPending}
+      onConfirm={async () => {
+        if (!editingView || !pendingAssemblyConstraint) return;
+        const { value } = await assemblyConstraintForm.validateFields();
+        const pending = pendingAssemblyConstraint;
+        command.mutate(() => api.addAssemblyConstraint(editingView.document.id, {
+          constraintKind: pending.kind.toUpperCase(), firstAssemblyRef: pending.references[0], secondAssemblyRef: pending.references[1],
+          value: pending.kind === "angle" ? value * Math.PI / 180 : value,
+          directionRelation: "UNORIENTED", distanceRelation: "UNSIGNED",
+        }), { onSuccess: () => setPendingAssemblyConstraint(undefined) });
+      }}>
+      <Form form={assemblyConstraintForm} layout="vertical"><Form.Item name="value"
+        label={pendingAssemblyConstraint?.kind === "angle" ? "角度（deg）" : "距离（mm）"}
+        rules={[{ required: true }, { type: "number", min: 0, max: pendingAssemblyConstraint?.kind === "angle" ? 180 : undefined }]}>
+        <InputNumber min={0} max={pendingAssemblyConstraint?.kind === "angle" ? 180 : undefined} precision={2} style={{ width: "100%" }} />
+      </Form.Item></Form>
+    </CommandDialog>
     <CommandDialog id="solid-generator" open={padOpen} title="实体特征" onClose={closePad} confirmLoading={command.isPending}
       onConfirm={async () => padSketch(await padForm.validateFields())}>
       <Form form={padForm} layout="vertical"><Form.Item name="generator" hidden><Input /></Form.Item>

@@ -22,6 +22,7 @@ const (
 	GeometryWorker_Ping_FullMethodName            = "/occccad.worker.v1.GeometryWorker/Ping"
 	GeometryWorker_EvaluatePart_FullMethodName    = "/occccad.worker.v1.GeometryWorker/EvaluatePart"
 	GeometryWorker_SolveSketch_FullMethodName     = "/occccad.worker.v1.GeometryWorker/SolveSketch"
+	GeometryWorker_SolveAssembly_FullMethodName   = "/occccad.worker.v1.GeometryWorker/SolveAssembly"
 	GeometryWorker_InspectExchange_FullMethodName = "/occccad.worker.v1.GeometryWorker/InspectExchange"
 	GeometryWorker_ImportExchange_FullMethodName  = "/occccad.worker.v1.GeometryWorker/ImportExchange"
 	GeometryWorker_ExportExchange_FullMethodName  = "/occccad.worker.v1.GeometryWorker/ExportExchange"
@@ -44,6 +45,10 @@ type GeometryWorkerClient interface {
 	// Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
 	// implementation detail of this coarse-grained boundary.
 	SolveSketch(ctx context.Context, in *SolveSketchRequest, opts ...grpc.CallOption) (*SolveSketchResponse, error)
+	// Solve one immutable 3D assembly geometry-constraint system. Product
+	// identity and persistence stay in the control plane; this boundary only
+	// carries rigid poses, local geometric descriptors and residual equations.
+	SolveAssembly(ctx context.Context, in *SolveAssemblyRequest, opts ...grpc.CallOption) (*SolveAssemblyResponse, error)
 	// Neutral CAD exchange uses immutable ArtifactReference values. Large file
 	// bytes never cross this unary gRPC boundary.
 	InspectExchange(ctx context.Context, in *InspectExchangeRequest, opts ...grpc.CallOption) (*InspectExchangeResponse, error)
@@ -94,6 +99,16 @@ func (c *geometryWorkerClient) SolveSketch(ctx context.Context, in *SolveSketchR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SolveSketchResponse)
 	err := c.cc.Invoke(ctx, GeometryWorker_SolveSketch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *geometryWorkerClient) SolveAssembly(ctx context.Context, in *SolveAssemblyRequest, opts ...grpc.CallOption) (*SolveAssemblyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SolveAssemblyResponse)
+	err := c.cc.Invoke(ctx, GeometryWorker_SolveAssembly_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +216,10 @@ type GeometryWorkerServer interface {
 	// Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
 	// implementation detail of this coarse-grained boundary.
 	SolveSketch(context.Context, *SolveSketchRequest) (*SolveSketchResponse, error)
+	// Solve one immutable 3D assembly geometry-constraint system. Product
+	// identity and persistence stay in the control plane; this boundary only
+	// carries rigid poses, local geometric descriptors and residual equations.
+	SolveAssembly(context.Context, *SolveAssemblyRequest) (*SolveAssemblyResponse, error)
 	// Neutral CAD exchange uses immutable ArtifactReference values. Large file
 	// bytes never cross this unary gRPC boundary.
 	InspectExchange(context.Context, *InspectExchangeRequest) (*InspectExchangeResponse, error)
@@ -235,6 +254,9 @@ func (UnimplementedGeometryWorkerServer) EvaluatePart(context.Context, *Evaluate
 }
 func (UnimplementedGeometryWorkerServer) SolveSketch(context.Context, *SolveSketchRequest) (*SolveSketchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SolveSketch not implemented")
+}
+func (UnimplementedGeometryWorkerServer) SolveAssembly(context.Context, *SolveAssemblyRequest) (*SolveAssemblyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SolveAssembly not implemented")
 }
 func (UnimplementedGeometryWorkerServer) InspectExchange(context.Context, *InspectExchangeRequest) (*InspectExchangeResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InspectExchange not implemented")
@@ -334,6 +356,24 @@ func _GeometryWorker_SolveSketch_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GeometryWorkerServer).SolveSketch(ctx, req.(*SolveSketchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GeometryWorker_SolveAssembly_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SolveAssemblyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GeometryWorkerServer).SolveAssembly(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GeometryWorker_SolveAssembly_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GeometryWorkerServer).SolveAssembly(ctx, req.(*SolveAssemblyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -518,6 +558,10 @@ var GeometryWorker_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SolveSketch",
 			Handler:    _GeometryWorker_SolveSketch_Handler,
+		},
+		{
+			MethodName: "SolveAssembly",
+			Handler:    _GeometryWorker_SolveAssembly_Handler,
 		},
 		{
 			MethodName: "InspectExchange",

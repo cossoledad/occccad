@@ -193,6 +193,81 @@ type SketchSolve struct {
 	ConflictingConstraintIDs, RedundantConstraintIDs []string
 }
 
+type AssemblyPose struct {
+	Translation [3]float64
+	Rotation    [4]float64
+}
+
+type AssemblyBody struct {
+	ID   string
+	Pose AssemblyPose
+}
+
+type AssemblyGeometry struct {
+	ID, BodyID, Kind  string
+	Origin, Direction [3]float64
+	Radius            float64
+}
+
+type AssemblyConstraint struct {
+	ID, Kind                            string
+	FirstBodyID, FirstGeometryID        string
+	SecondBodyID, SecondGeometryID      string
+	Value                               float64
+	DirectionRelation, DistanceRelation string
+	FixedPose                           *AssemblyPose
+}
+
+type AssemblySolve struct {
+	Status, Diagnostic string
+	Bodies             []AssemblyBody
+	Iterations         uint64
+	NormalizedResidual float64
+}
+
+func protoPose(value AssemblyPose) *workerv1.RigidPose {
+	return &workerv1.RigidPose{Translation: &workerv1.Vec3{X: value.Translation[0], Y: value.Translation[1], Z: value.Translation[2]},
+		Rotation: &workerv1.Quaternion{X: value.Rotation[0], Y: value.Rotation[1], Z: value.Rotation[2], W: value.Rotation[3]}}
+}
+
+func (client *Client) SolveAssembly(ctx context.Context, requestID string, bodies []AssemblyBody,
+	geometryValues []AssemblyGeometry, constraints []AssemblyConstraint) (AssemblySolve, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	request := &workerv1.SolveAssemblyRequest{RequestId: requestID, LengthScale: 1, AngleScale: 1}
+	for _, body := range bodies {
+		request.Bodies = append(request.Bodies, &workerv1.AssemblyBody{Id: body.ID, InitialPose: protoPose(body.Pose)})
+	}
+	for _, value := range geometryValues {
+		request.Geometry = append(request.Geometry, &workerv1.AssemblyGeometry{Id: value.ID, BodyId: value.BodyID, Kind: value.Kind,
+			Origin:    &workerv1.Vec3{X: value.Origin[0], Y: value.Origin[1], Z: value.Origin[2]},
+			Direction: &workerv1.Vec3{X: value.Direction[0], Y: value.Direction[1], Z: value.Direction[2]}, Radius: value.Radius})
+	}
+	for _, value := range constraints {
+		item := &workerv1.AssemblyConstraint{Id: value.ID, Kind: value.Kind, Value: value.Value,
+			DirectionRelation: value.DirectionRelation, DistanceRelation: value.DistanceRelation,
+			First: &workerv1.AssemblyGeometryRef{BodyId: value.FirstBodyID, GeometryId: value.FirstGeometryID}}
+		if value.SecondBodyID != "" {
+			item.Second = &workerv1.AssemblyGeometryRef{BodyId: value.SecondBodyID, GeometryId: value.SecondGeometryID}
+		}
+		if value.FixedPose != nil {
+			item.FixedPose = protoPose(*value.FixedPose)
+		}
+		request.Constraints = append(request.Constraints, item)
+	}
+	response, err := client.worker.SolveAssembly(ctx, request)
+	if err != nil {
+		return AssemblySolve{}, fmt.Errorf("solve assembly: %w", err)
+	}
+	result := AssemblySolve{Status: response.GetStatus(), Diagnostic: response.GetDiagnostic(), Iterations: response.GetIterations(), NormalizedResidual: response.GetNormalizedResidual()}
+	for _, body := range response.GetBodies() {
+		result.Bodies = append(result.Bodies, AssemblyBody{ID: body.GetId(), Pose: AssemblyPose{
+			Translation: [3]float64{body.GetPose().GetTranslation().GetX(), body.GetPose().GetTranslation().GetY(), body.GetPose().GetTranslation().GetZ()},
+			Rotation:    [4]float64{body.GetPose().GetRotation().GetX(), body.GetPose().GetRotation().GetY(), body.GetPose().GetRotation().GetZ(), body.GetPose().GetRotation().GetW()}}})
+	}
+	return result, nil
+}
+
 func (client *Client) SolveSketch(ctx context.Context, requestID string, model SketchModel) (SketchSolve, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

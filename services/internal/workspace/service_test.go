@@ -784,6 +784,52 @@ func TestProductEvaluationRejectsDuplicateSiblingInstanceNames(t *testing.T) {
 	}
 }
 
+func TestAssemblyConstraintAndSolvedPoseAreOneUndoableChangeSet(t *testing.T) {
+	before := ProductModel{Instances: []ProductInstance{
+		{ID: "ground", Name: "Ground.1", Rotation: [4]float64{0, 0, 0, 1}},
+		{ID: "moving", Name: "Moving.1", Translation: [3]float64{20, 0, 0}, Rotation: [4]float64{0, 0, 0, 1}},
+	}}
+	constraint := AssemblyConstraint{ID: "constraint-1", Kind: "COINCIDENT",
+		First:  AssemblyGeometryRef{InstanceID: "moving", Kind: "POINT", GeometryID: "axis-system-default"},
+		Second: &AssemblyGeometryRef{InstanceID: "ground", Kind: "POINT", GeometryID: "axis-system-default"}}
+	beforeJSON, _ := json.Marshal(before)
+	payloadJSON, _ := json.Marshal(addAssemblyConstraintPayload{Constraint: constraint})
+	candidateJSON, handler, err := applyAddAssemblyConstraint(beforeJSON, payloadJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var solved ProductModel
+	if err := json.Unmarshal(candidateJSON, &solved); err != nil {
+		t.Fatal(err)
+	}
+	solved.Instances[1].Translation = [3]float64{}
+	afterJSON, _ := json.Marshal(solved)
+	marker, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: "moving", SlotID: "instance.pose"}, nil, nil)
+	handler.Changes = append(handler.Changes, marker)
+	changes, err := reconcilePersistedChanges("PRODUCT", beforeJSON, afterJSON, handler)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes.Changes) != 2 {
+		t.Fatalf("constraint and solved pose must be one transaction: %#v", changes.Changes)
+	}
+	values := map[modelcore.PropertyAddress]json.RawMessage{}
+	for _, change := range changes.Changes {
+		values[change.Target] = change.Before
+	}
+	restored, err := applyModelValues("PRODUCT", afterJSON, values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var undo ProductModel
+	if err := json.Unmarshal(restored, &undo); err != nil {
+		t.Fatal(err)
+	}
+	if len(undo.Constraints) != 0 || undo.Instances[1].Translation[0] != 20 {
+		t.Fatalf("undo did not restore Product: %#v", undo)
+	}
+}
+
 func TestDocumentManagementValidation(t *testing.T) {
 	t.Parallel()
 	service := &Service{}

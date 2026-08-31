@@ -258,13 +258,38 @@ type ProductInstance struct {
 	ReferencedDocumentID string     `json:"documentId"`
 	ReferencedVersionID  string     `json:"versionId"`
 	Translation          [3]float64 `json:"translation"`
+	Rotation             [4]float64 `json:"rotation,omitempty"`
 	ReferenceMode        string     `json:"referenceMode,omitempty"`
 	ResolvedVersionID    string     `json:"resolvedVersionId,omitempty"`
 	HeadChanged          bool       `json:"headChanged,omitempty"`
 }
 
+type InstancePose struct {
+	Translation [3]float64 `json:"translation"`
+	Rotation    [4]float64 `json:"rotation"`
+}
+
+type AssemblyGeometryRef struct {
+	InstanceID string `json:"instanceId"`
+	Kind       string `json:"kind"`
+	GeometryID string `json:"geometryId,omitempty"`
+	Axis       string `json:"axis,omitempty"`
+}
+
+type AssemblyConstraint struct {
+	ID                string               `json:"id"`
+	Kind              string               `json:"kind"`
+	First             AssemblyGeometryRef  `json:"first"`
+	Second            *AssemblyGeometryRef `json:"second,omitempty"`
+	Value             float64              `json:"value,omitempty"`
+	DirectionRelation string               `json:"directionRelation,omitempty"`
+	DistanceRelation  string               `json:"distanceRelation,omitempty"`
+	FixedPose         *InstancePose        `json:"fixedPose,omitempty"`
+}
+
 type ProductModel struct {
-	Instances []ProductInstance `json:"instances"`
+	Instances   []ProductInstance    `json:"instances"`
+	Constraints []AssemblyConstraint `json:"constraints,omitempty"`
 }
 
 // InstancePath is the stable occurrence identity from an opened root Product
@@ -399,6 +424,7 @@ type ResolvedInstance struct {
 	DocumentID     string       `json:"documentId"`
 	GeometryKey    string       `json:"geometryKey"`
 	Translation    [3]float64   `json:"translation"`
+	Rotation       [4]float64   `json:"rotation"`
 	OccurrencePath string       `json:"occurrencePath"`
 	InstancePath   InstancePath `json:"instancePath"`
 	BodyTreeNodeID string       `json:"bodyTreeNodeId"`
@@ -463,40 +489,46 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
-	RequestID            string             `json:"requestId"`
-	Type                 string             `json:"type"`
-	Plane                string             `json:"plane,omitempty"`
-	DatumPlaneID         string             `json:"datumPlaneId,omitempty"`
-	SketchID             string             `json:"sketchId,omitempty"`
-	Operations           []SketchOperation  `json:"operations,omitempty"`
-	Length               float64            `json:"length,omitempty"`
-	Angle                float64            `json:"angle,omitempty"`
-	Generator            string             `json:"generator,omitempty"`
-	Operation            string             `json:"operation,omitempty"`
-	AxisEntityID         string             `json:"axisEntityId,omitempty"`
-	Reversed             bool               `json:"reversed,omitempty"`
-	Origin               [3]float64         `json:"origin,omitempty"`
-	Normal               [3]float64         `json:"normal,omitempty"`
-	UDirection           [3]float64         `json:"uDirection,omitempty"`
-	Direction            [3]float64         `json:"direction,omitempty"`
-	ReferencedDocumentID string             `json:"referencedDocumentId,omitempty"`
-	Name                 string             `json:"name,omitempty"`
-	InstanceID           string             `json:"instanceId,omitempty"`
-	TargetKind           string             `json:"targetKind,omitempty"`
-	TargetID             string             `json:"targetId,omitempty"`
-	OwnerEntityID        string             `json:"ownerEntityId,omitempty"`
-	Targets              []DeleteNodeTarget `json:"targets,omitempty"`
-	Translation          [3]float64         `json:"translation,omitempty"`
-	ReferenceMode        string             `json:"referenceMode,omitempty"`
-	GeometryKey          string             `json:"geometryKey,omitempty"`
-	FileName             string             `json:"fileName,omitempty"`
-	SourceFormat         string             `json:"sourceFormat,omitempty"`
-	VersionID            string             `json:"versionId,omitempty"`
-	ParameterID          string             `json:"parameterId,omitempty"`
-	Expression           string             `json:"expression,omitempty"`
-	Value                float64            `json:"value,omitempty"`
-	Unit                 string             `json:"unit,omitempty"`
-	ActorID              string             `json:"-"`
+	RequestID            string               `json:"requestId"`
+	Type                 string               `json:"type"`
+	Plane                string               `json:"plane,omitempty"`
+	DatumPlaneID         string               `json:"datumPlaneId,omitempty"`
+	SketchID             string               `json:"sketchId,omitempty"`
+	Operations           []SketchOperation    `json:"operations,omitempty"`
+	Length               float64              `json:"length,omitempty"`
+	Angle                float64              `json:"angle,omitempty"`
+	Generator            string               `json:"generator,omitempty"`
+	Operation            string               `json:"operation,omitempty"`
+	AxisEntityID         string               `json:"axisEntityId,omitempty"`
+	Reversed             bool                 `json:"reversed,omitempty"`
+	Origin               [3]float64           `json:"origin,omitempty"`
+	Normal               [3]float64           `json:"normal,omitempty"`
+	UDirection           [3]float64           `json:"uDirection,omitempty"`
+	Direction            [3]float64           `json:"direction,omitempty"`
+	ReferencedDocumentID string               `json:"referencedDocumentId,omitempty"`
+	Name                 string               `json:"name,omitempty"`
+	InstanceID           string               `json:"instanceId,omitempty"`
+	TargetKind           string               `json:"targetKind,omitempty"`
+	TargetID             string               `json:"targetId,omitempty"`
+	OwnerEntityID        string               `json:"ownerEntityId,omitempty"`
+	Targets              []DeleteNodeTarget   `json:"targets,omitempty"`
+	Translation          [3]float64           `json:"translation,omitempty"`
+	Rotation             [4]float64           `json:"rotation,omitempty"`
+	ConstraintKind       string               `json:"constraintKind,omitempty"`
+	FirstAssemblyRef     *AssemblyGeometryRef `json:"firstAssemblyRef,omitempty"`
+	SecondAssemblyRef    *AssemblyGeometryRef `json:"secondAssemblyRef,omitempty"`
+	DirectionRelation    string               `json:"directionRelation,omitempty"`
+	DistanceRelation     string               `json:"distanceRelation,omitempty"`
+	ReferenceMode        string               `json:"referenceMode,omitempty"`
+	GeometryKey          string               `json:"geometryKey,omitempty"`
+	FileName             string               `json:"fileName,omitempty"`
+	SourceFormat         string               `json:"sourceFormat,omitempty"`
+	VersionID            string               `json:"versionId,omitempty"`
+	ParameterID          string               `json:"parameterId,omitempty"`
+	Expression           string               `json:"expression,omitempty"`
+	Value                float64              `json:"value,omitempty"`
+	Unit                 string               `json:"unit,omitempty"`
+	ActorID              string               `json:"-"`
 }
 
 // CommandPreview is a non-persistent evaluation of the same typed command
@@ -1622,7 +1654,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 	view.Product = &model
 	view.Artifacts = map[string]Artifact{}
 	view.ResolvedInstances = []ResolvedInstance{}
-	if err := service.resolveProduct(ctx, summary.VersionID, [3]float64{}, summary.Name,
+	if err := service.resolveProduct(ctx, summary.VersionID, InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, summary.Name,
 		InstancePath{RootDocumentID: summary.ID}, "document:"+summary.ID,
 		map[string]bool{}, view.Artifacts, &view.ResolvedInstances); err != nil {
 		return view, err
@@ -2983,11 +3015,19 @@ func (service *Service) buildDocumentStructure(
 		instanceNode.Capabilities = []string{"DELETE"}
 		root.Children = append(root.Children, instanceNode)
 	}
+	if len(model.Constraints) > 0 {
+		group := DocumentStructureNode{ID: path + "/assembly-constraints", Kind: "ASSEMBLY_CONSTRAINT_SET", Name: "约束"}
+		for _, constraint := range model.Constraints {
+			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/constraint:" + constraint.ID,
+				Kind: "ASSEMBLY_CONSTRAINT", Name: constraint.Kind, EntityID: constraint.ID, EntityType: constraint.Kind})
+		}
+		root.Children = append(root.Children, group)
+	}
 	return root, nil
 }
 
 func (service *Service) resolveProduct(
-	ctx context.Context, versionID string, parent [3]float64, path string, instancePath InstancePath, treePath string, visiting map[string]bool,
+	ctx context.Context, versionID string, parent InstancePose, path string, instancePath InstancePath, treePath string, visiting map[string]bool,
 	artifacts map[string]Artifact, output *[]ResolvedInstance,
 ) error {
 	var documentID, documentType, name string
@@ -3030,7 +3070,7 @@ func (service *Service) resolveProduct(
 			artifacts[*geometryKey] = artifact
 		}
 		*output = append(*output, ResolvedInstance{
-			ID: path, Name: name, DocumentID: documentID, GeometryKey: *geometryKey, Translation: parent,
+			ID: path, Name: name, DocumentID: documentID, GeometryKey: *geometryKey, Translation: parent.Translation, Rotation: parent.Rotation,
 			OccurrencePath: instancePath.Canonical, InstancePath: instancePath, BodyTreeNodeID: treePath + "/body",
 		})
 		return nil
@@ -3042,7 +3082,7 @@ func (service *Service) resolveProduct(
 		return err
 	}
 	for _, instance := range model.Instances {
-		offset := [3]float64{parent[0] + instance.Translation[0], parent[1] + instance.Translation[1], parent[2] + instance.Translation[2]}
+		childPose := composeInstancePose(parent, InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)})
 		resolvedVersionID := instance.ReferencedVersionID
 		if instance.ReferenceMode == "" || instance.ReferenceMode == "FOLLOW_HEAD" {
 			if err := service.database.QueryRow(ctx,
@@ -3056,7 +3096,7 @@ func (service *Service) resolveProduct(
 			InstanceName: instance.Name, ReferencedDocumentID: instance.ReferencedDocumentID,
 			ResolvedVersionID: resolvedVersionID,
 		})
-		if err := service.resolveProduct(ctx, resolvedVersionID, offset,
+		if err := service.resolveProduct(ctx, resolvedVersionID, childPose,
 			path+"/"+instance.ID,
 			childPath,
 			treePath+"/instance:"+instance.ID+"/reference", visiting, artifacts, output); err != nil {
@@ -3064,6 +3104,20 @@ func (service *Service) resolveProduct(
 		}
 	}
 	return nil
+}
+
+func composeInstancePose(parent, child InstancePose) InstancePose {
+	rotate := func(q [4]float64, v [3]float64) [3]float64 {
+		u := [3]float64{q[0], q[1], q[2]}
+		dot := u[0]*v[0] + u[1]*v[1] + u[2]*v[2]
+		cross := [3]float64{u[1]*v[2] - u[2]*v[1], u[2]*v[0] - u[0]*v[2], u[0]*v[1] - u[1]*v[0]}
+		uu := u[0]*u[0] + u[1]*u[1] + u[2]*u[2]
+		return [3]float64{2*dot*u[0] + (q[3]*q[3]-uu)*v[0] + 2*q[3]*cross[0], 2*dot*u[1] + (q[3]*q[3]-uu)*v[1] + 2*q[3]*cross[1], 2*dot*u[2] + (q[3]*q[3]-uu)*v[2] + 2*q[3]*cross[2]}
+	}
+	rotated := rotate(normalizedInstanceRotation(parent.Rotation), child.Translation)
+	a, b := normalizedInstanceRotation(parent.Rotation), normalizedInstanceRotation(child.Rotation)
+	return InstancePose{Translation: [3]float64{parent.Translation[0] + rotated[0], parent.Translation[1] + rotated[1], parent.Translation[2] + rotated[2]}, Rotation: [4]float64{
+		a[3]*b[0] + a[0]*b[3] + a[1]*b[2] - a[2]*b[1], a[3]*b[1] - a[0]*b[2] + a[1]*b[3] + a[2]*b[0], a[3]*b[2] + a[0]*b[1] - a[1]*b[0] + a[2]*b[3], a[3]*b[3] - a[0]*b[0] - a[1]*b[1] - a[2]*b[2]}}
 }
 
 func positiveFinite(value float64) bool { return value > 0 && finite(value) }

@@ -58,6 +58,7 @@ target_link_libraries(
     PRIVATE
         occccad_occt_kernel
         occccad_kernel_api
+        occccad_assembly_solver
         occccad_worker_proto
         occccad_sketch_solver
         spdlog::spdlog

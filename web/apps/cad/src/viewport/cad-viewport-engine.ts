@@ -52,7 +52,8 @@ type SolidContext = {
 };
 
 type SolidBinding = { group: THREE.Group; mesh: THREE.Mesh; artifact: Artifact; context: SolidContext };
-export type ViewportEditContext = { view: DocumentView; occurrencePath?: string; translation?: Vec3; bodyTreeNodeId?: string };
+export type ViewportEditContext = { view: DocumentView; occurrencePath?: string; translation?: Vec3;
+  rotation?: [number, number, number, number]; bodyTreeNodeId?: string };
 
 export type ViewportDebugState = {
   input: InputState;
@@ -308,7 +309,7 @@ export class CadViewportEngine {
         if (feature.type.toUpperCase().includes("SKETCH")) this.addSketch(feature, false, editContext.view, {
           documentId: editContext.view.document.id, geometryKey: editContext.view.artifact?.geometryKey ?? "",
           occurrencePath: editContext.occurrencePath ?? "", treeNodeId: editContext.bodyTreeNodeId ?? "",
-        }, editContext.translation);
+        }, editContext.translation, editContext.rotation);
       }
     }
     this.updateSketchContextVisibility();
@@ -403,6 +404,7 @@ export class CadViewportEngine {
       new THREE.LineBasicMaterial({ color: CATIA_VISUAL_THEME.preview, transparent: true, opacity: 0.9, depthTest: false }));
     solid.renderOrder = 90; edges.renderOrder = 91; group.add(solid, edges);
     if (this.editContext?.translation) group.position.fromArray(this.editContext.translation);
+    if (this.editContext?.rotation) group.quaternion.fromArray(this.editContext.rotation);
     this.scene.add(group); this.commandPreview = group; this.invalidate();
   }
 
@@ -554,6 +556,8 @@ export class CadViewportEngine {
     for (const instance of view.product?.instances ?? []) {
       const group = new THREE.Group();
       group.position.fromArray(instance.translation);
+      const instanceRotation = new THREE.Quaternion().fromArray(instance.rotation ?? [0, 0, 0, 1]);
+      group.quaternion.copy(instanceRotation);
       const instanceSelection = {
         kind: "instance" as const, id: instance.id,
         treeNodeId: `document:${view.document.id}/instance:${instance.id}`, documentId: instance.documentId,
@@ -570,11 +574,10 @@ export class CadViewportEngine {
         const artifact = view.artifacts?.[resolved.geometryKey];
         if (!artifact) continue;
         const resolvedGroup = new THREE.Group();
-        resolvedGroup.position.set(
-          resolved.translation[0] - instance.translation[0],
-          resolved.translation[1] - instance.translation[1],
-          resolved.translation[2] - instance.translation[2],
-        );
+        resolvedGroup.position.fromArray(resolved.translation).sub(new THREE.Vector3().fromArray(instance.translation))
+          .applyQuaternion(instanceRotation.clone().invert());
+        const resolvedRotation = new THREE.Quaternion().fromArray(resolved.rotation ?? [0, 0, 0, 1]);
+        resolvedGroup.quaternion.copy(instanceRotation.clone().invert().multiply(resolvedRotation));
         if (artifact.mesh.triangles.length > 0) {
           const resultTreeNodeId = resultBodyFeatureTreeNode(this.view?.structureTree, resolved.bodyTreeNodeId) ?? resolved.bodyTreeNodeId;
           const context: SolidContext = {
@@ -616,7 +619,7 @@ export class CadViewportEngine {
     mesh.position.fromArray(datum.origin);
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3().fromArray(datum.normal).normalize());
     const selection = {
-      kind: "plane" as const, id: `${context?.occurrencePath || "root"}:${id}`, plane, datumPlane: datum,
+      kind: "plane" as const, id: `${context?.occurrencePath || "root"}:${id}`, entityId: id, plane, datumPlane: datum,
       treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
       geometryKey: context?.geometryKey, instanceId: context?.instanceId
     };
@@ -643,7 +646,7 @@ export class CadViewportEngine {
     ]), new THREE.LineDashedMaterial({ color: 0xd89422, dashSize: 8, gapSize: 5 }));
     line.computeLineDistances();
     const selection = { kind: "axis" as const, axis: "DATUM" as const,
-      id: `${context?.occurrencePath || "root"}:${axis.id}`, treeNodeId: context?.treeNodeId,
+      id: `${context?.occurrencePath || "root"}:${axis.id}`, entityId: axis.id, treeNodeId: context?.treeNodeId,
       documentId: context?.documentId, occurrencePath: context?.occurrencePath, geometryKey: context?.geometryKey,
       instanceId: context?.instanceId };
     line.userData = selection; parent.add(line);
@@ -656,6 +659,7 @@ export class CadViewportEngine {
     const system = new THREE.Group();
     const systemSelection = {
       kind: "axis-system" as const, id: `${context?.occurrencePath || "root"}:${axis.id}`,
+      entityId: axis.id,
       treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
       geometryKey: context?.geometryKey, instanceId: context?.instanceId
     };
@@ -853,7 +857,7 @@ export class CadViewportEngine {
   }
 
   private addSketch(feature: Feature, _includeEntities = true, sourceView = this.view,
-    sourceContext?: SolidContext, translation?: Vec3): void {
+    sourceContext?: SolidContext, translation?: Vec3, rotation?: [number, number, number, number]): void {
     const support = feature.sketch?.support;
     const datum = sourceView?.datumPlanes?.find((candidate) => candidate.id === support?.datumPlaneId)
       ?? sourceView?.artifact?.visualization.referenceGeometry.datumPlanes?.find((candidate) => candidate.id === support?.datumPlaneId);
@@ -861,6 +865,7 @@ export class CadViewportEngine {
       normal: datum.normal, uDirection: datum.uDirection } : (support?.plane as PlaneName ?? feature.plane ?? "XY");
     const group = new THREE.Group();
     if (translation) group.position.fromArray(translation);
+    if (rotation) group.quaternion.fromArray(rotation);
     group.userData.sketchFeatureID = feature.id;
     const documentId = sourceView?.document.id ?? "";
     const context = sourceContext ?? { documentId, geometryKey: sourceView?.artifact?.geometryKey ?? "",
