@@ -4,7 +4,7 @@ export type CadIconName =
   | "select" | "capture" | "sketch" | "pad" | "pocket" | "revolve" | "datum-plane" | "datum-axis" | "point" | "line" | "circle" | "arc" | "polyline" | "spline" | "finish"
   | "coincident" | "parallel" | "fixed" | "horizontal" | "vertical" | "perpendicular" | "tangent" | "equal"
   | "distance" | "length" | "radius" | "diameter" | "angle" | "concentric" | "point-on-object" | "midpoint" | "symmetry"
-  | "rectangle" | "polygon" | "slot" | "insert" | "reference" | "link" | "undo" | "redo" | "version" | "share"
+  | "rectangle" | "polygon" | "slot" | "insert" | "reference" | "link" | "move" | "undo" | "redo" | "version" | "share"
   | "navigation" | "fit" | "isometric" | "debug";
 
 const P = ({ d }: { d: string }) => <path d={d} />;
@@ -50,6 +50,7 @@ function glyph(name: CadIconName): ReactNode {
   case "insert": return <><P d="M4 7l6-3 6 3-6 3zM4 7v6l6 3 6-3V7" /><P d="M10 7v7M13 11h5M15.5 8.5v5" /></>;
   case "reference": return <><P d="M6 5h8v10H6zM3 8h3M14 12h3" /><P d="M3 8l2-2M3 8l2 2M17 12l-2-2M17 12l-2 2" /></>;
   case "link": return <><P d="M8 7l-1.5-1.5a3 3 0 00-4.2 4.2l2 2a3 3 0 004.2 0l2-2"/><P d="M12 13l1.5 1.5a3 3 0 004.2-4.2l-2-2a3 3 0 00-4.2 0l-2 2"/></>;
+  case "move": return <><P d="M10 2v16M2 10h16M10 2L7 5M10 2l3 3M18 10l-3-3M18 10l-3 3M10 18l-3-3M10 18l3-3M2 10l3-3M2 10l3 3"/></>;
   case "undo": return <><P d="M7 6L3 10l4 4M4 10h7a5 5 0 015 5" /></>;
   case "redo": return <><P d="M13 6l4 4-4 4M16 10H9a5 5 0 00-5 5" /></>;
   case "version": return <><P d="M5 3h8l3 3v11H5zM8 3v5h5V3M8 14h5" /></>;

@@ -845,6 +845,7 @@ func applyInsertInstance(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 type moveInstancePayload struct {
 	InstanceID  string     `json:"instanceId"`
 	Translation [3]float64 `json:"translation"`
+	Rotation    [4]float64 `json:"rotation"`
 }
 
 type addAssemblyConstraintPayload struct {
@@ -921,6 +922,7 @@ func applyMoveInstance(modelJSON, payloadJSON json.RawMessage) (json.RawMessage,
 		if model.Instances[index].ID == payload.InstanceID {
 			before := model.Instances[index].Translation
 			model.Instances[index].Translation = payload.Translation
+			model.Instances[index].Rotation = normalizedInstanceRotation(payload.Rotation)
 			change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.InstanceID, SlotID: "instance.translation"}, before, payload.Translation)
 			set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"placement:" + modelcore.DependencyKey(payload.InstanceID)}}
 			next, _ := json.Marshal(model)
@@ -1228,12 +1230,33 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	if err != nil {
 		return CommandPreview{}, err
 	}
-	if !strings.EqualFold(prepared.documentType, "PART") {
-		return CommandPreview{}, fmt.Errorf("%w: command preview currently requires a Part document", ErrValidation)
-	}
 	nextJSON, _, err := workspaceCommandRegistry.Apply(prepared.documentType, prepared.modelJSON, prepared.command)
 	if err != nil {
 		return CommandPreview{}, err
+	}
+	if strings.EqualFold(prepared.documentType, "PRODUCT") {
+		var model ProductModel
+		if err = json.Unmarshal(nextJSON, &model); err != nil {
+			return CommandPreview{}, err
+		}
+		driven := ""
+		if prepared.command.TypeURI == typeMoveInstance {
+			var payload moveInstancePayload
+			_ = json.Unmarshal(prepared.command.Payload, &payload)
+			driven = payload.InstanceID
+		}
+		if err = service.solveAssembly(ctx, documentID, "preview/"+prepared.requestID, driven, &model); err != nil {
+			return CommandPreview{}, err
+		}
+		result := CommandPreview{PreviewID: "preview:" + prepared.requestID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: canonicalModelHash(nextJSON)}
+		for _, instance := range model.Instances {
+			result.InstancePoses = append(result.InstancePoses, struct {
+				InstanceID  string     `json:"instanceId"`
+				Translation [3]float64 `json:"translation"`
+				Rotation    [4]float64 `json:"rotation"`
+			}{instance.ID, instance.Translation, normalizedInstanceRotation(instance.Rotation)})
+		}
+		return result, nil
 	}
 	var model PartModel
 	if err = json.Unmarshal(nextJSON, &model); err != nil {
@@ -1808,7 +1831,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PRODUCT" {
 			break
 		}
-		return typeMoveInstance, moveInstancePayload{request.InstanceID, request.Translation}, nil
+		return typeMoveInstance, moveInstancePayload{request.InstanceID, request.Translation, request.Rotation}, nil
 	case "ADD_ASSEMBLY_CONSTRAINT":
 		if documentType != "PRODUCT" {
 			break

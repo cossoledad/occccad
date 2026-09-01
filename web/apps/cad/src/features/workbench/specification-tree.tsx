@@ -46,6 +46,13 @@ function branchKeys(nodes: SpecificationTreeNode[], output = new Set<string>()):
   return output;
 }
 
+function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<string>()): Set<string> {
+  for (const node of nodes) if (node.children?.length && ["PRODUCT", "INSTANCE", "PART"].includes(node.kind ?? "")) {
+    output.add(node.key); initiallyExpandedKeys(node.children, output);
+  }
+  return output;
+}
+
 export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, activeDocumentId, activeInstancePath, onSelect, onActivate, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; selectedIdentityKeys: readonly string[];
   selectionToken: string; highlightedKey?: string; activeDocumentId?: string; activeInstancePath?: string;
@@ -64,21 +71,20 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
   const visible = useMemo(() => flatten(nodes, expanded), [nodes, expanded]);
   const nodeIndex = useMemo(() => indexNodes(nodes), [nodes]);
   const visibleKeys = useMemo(() => visible.map((entry) => entry.node.key), [visible]);
-  const selected = useMemo(() => new Set(selectedKeys), [selectedKeys]);
+  const selected = useMemo(() => new Set(selectedKeys.map((key) => {
+    if (visibleKeys.includes(key)) return key;
+    return [...(ancestorsOf(nodes, key) ?? [])].reverse().find((candidate) => visibleKeys.includes(candidate)) ?? key;
+  })), [nodes, selectedKeys, visibleKeys]);
   useEffect(() => {
     const available = branchKeys(nodes);
     setExpanded((current) => new Set([
       ...[...current].filter((key) => available.has(key)),
-      ...[...available].filter((key) => !knownBranches.current.has(key)),
+      ...[...initiallyExpandedKeys(nodes)].filter((key) => !knownBranches.current.has(key)),
     ]));
     knownBranches.current = available;
   // Node identity changes only when a new document view arrives.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes]);
-  useEffect(() => {
-    const ancestors = selectedKeys.flatMap((selectedKey) => ancestorsOf(nodes, selectedKey) ?? []);
-    if (ancestors.length) setExpanded((current) => new Set([...current, ...ancestors]));
-  }, [nodes, selectedKeys]);
   useEffect(() => {
     setContextMenu((current) => current && current.selectionSignature !== selectionToken ? undefined : current);
   }, [selectionToken]);

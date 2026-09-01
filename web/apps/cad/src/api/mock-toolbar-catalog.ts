@@ -43,7 +43,7 @@ export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: 
   ]),
   toolbar("assembly-design", "Assembly Design", "ASSEMBLY_DESIGN", "top-left", "assembly", 60, [
     ["tool.select", "选择", "select"], ["capture.settings", "捕捉", "capture"], ["product.insert", "插入", "insert"],
-    ["product.reference.toggle", "引用模式", "reference"], ["assembly.fix", "固定", "fixed"],
+    ["product.reference.toggle", "引用模式", "reference"], ["assembly.move", "移动组件", "move"], ["assembly.fix", "固定", "fixed"],
     ["assembly.coincident", "重合", "coincident"], ["assembly.concentric", "同心", "concentric"],
     ["assembly.angle", "角度", "angle"], ["assembly.distance", "距离", "distance"],
   ]),

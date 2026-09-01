@@ -464,6 +464,8 @@ export const mockApi: CadApi = {
   previewCommand: async (documentID, input, signal) => {
     if (signal?.aborted) throw new DOMException("Preview cancelled", "AbortError");
     const view = getView(documentID);
+    if(input.type==="MOVE_INSTANCE"&&view.product){return pause({previewId:id("mock-move-preview"),baseVersionId:view.document.versionId,baseSequence:0,modelHash:"mock-move",
+      instancePoses:view.product.instances.map((instance)=>({instanceId:instance.id,translation:instance.id===input.instanceId?input.translation as Vec3:instance.translation,rotation:instance.rotation??[0,0,0,1]}))});}
     if ((input.type !== "PAD_SKETCH" && input.type !== "CREATE_SOLID_FEATURE") || !view.part) throw new Error("Mock preview currently supports solid generators only");
     const sketch = view.part.features.find((feature) => feature.id === input.sketchId)?.sketch;
     const points = sketch?.entities.flatMap((entity) => [entity.start, entity.end]).filter(Boolean) as Array<{x:number;y:number}>;
@@ -485,7 +487,7 @@ export const mockApi: CadApi = {
   createDatumPlane: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_PLANE", ...input }),
   createDatumAxis: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_AXIS", ...input }),
   insert: async (documentID, referencedDocumentID) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID }),
-  move: async (documentID, instanceID, translation) => command(documentID, { type: "MOVE_INSTANCE", instanceId: instanceID, translation }),
+  move: async (documentID, instanceID, translation,rotation) => command(documentID, { type: "MOVE_INSTANCE", instanceId: instanceID, translation,rotation }),
   addAssemblyConstraint: async (documentID, input) => command(documentID, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),
   editAssemblyConstraint: async (documentID, constraintId, input) => command(documentID, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),
   setReferenceMode: async (documentID, instanceID, referenceMode) => command(documentID, { type: "SET_REFERENCE_MODE", instanceId: instanceID, referenceMode }),

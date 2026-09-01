@@ -388,6 +388,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 | 跨主机 Geometry 调度 | 未实现 | 无注册中心/集群调度 |
 | 二维草图与基础约束 | 已实现基础集合 | Point/Line/Circle/Arc/插值 Spline、基本几何/尺寸/对称约束、PlaneGCS 与四组 Sketcher Toolbar |
 | 三维装配约束/运动学 | 已实现首个 Product 闭环 | 支持 Fix、Rigid、Coincident、Concentric、Angle、Distance，约束创建/编辑/删除、固连集实时平移预览及松手后的权威 SE(3) 求解 |
+| Product 交互预览 | 已实现移动预览闭环 | 独立移动工具按实例包围盒中心放置操纵器；约 20Hz 请求无 Revision 的权威装配求解，序号淘汰迟到结果，pointerup 只提交一次事务 |
 | 持久拓扑命名 | 未实现 | 当前 local ID 不可作长期 Feature 引用 |
 | S3 兼容对象存储/CDN | 未实现 | 当前仅本地目录 |
 | 实时多人同文档编辑 | 已实现首个提交同步闭环 | WebSocket request/event、Outbox、sequence、重连快照；尚无 presence/preview 与 semantic rebase |

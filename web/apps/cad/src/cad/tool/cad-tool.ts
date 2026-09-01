@@ -101,6 +101,19 @@ export class SelectTool implements CadTool {
 
 export type AssemblyConstraintToolKind = "fix"|"rigid"|"coincident"|"concentric"|"angle"|"distance";
 
+export class AssemblyMoveTool implements CadTool {
+  readonly id = "assembly.move";
+  activate(context: ToolContext): void { context.viewport.setToolPrompt("移动组件：选择一个 Instance，然后使用三维操纵器"); }
+  pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
+    if (event.button !== 0 || event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
+    const selection = context.viewport.selectionAt(event.x, event.y);
+    if (!selection?.instanceId) return InputResult.Consumed;
+    const occurrence = selection.occurrencePath || selection.instanceId;
+    context.viewport.retainSelections([{ ...selection, kind: "instance", id: occurrence, visualKey: `occurrence:${occurrence}` }]);
+    return InputResult.Consumed;
+  }
+}
+
 export function assemblyGeometryRef(selection: SelectionItem): AssemblyGeometryRef | undefined {
   if (!selection.instanceId) return undefined;
   if (selection.kind === "instance") return { instanceId: selection.instanceId, kind: "BODY" };

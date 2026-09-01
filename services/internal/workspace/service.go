@@ -542,6 +542,11 @@ type CommandPreview struct {
 	BaseSequence  uint64    `json:"baseSequence"`
 	ModelHash     string    `json:"modelHash"`
 	Artifact      *Artifact `json:"artifact,omitempty"`
+	InstancePoses []struct {
+		InstanceID  string     `json:"instanceId"`
+		Translation [3]float64 `json:"translation"`
+		Rotation    [4]float64 `json:"rotation"`
+	} `json:"instancePoses,omitempty"`
 }
 
 type HistoryEntry struct {

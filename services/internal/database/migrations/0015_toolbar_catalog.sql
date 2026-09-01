@@ -74,6 +74,7 @@ INSERT INTO occccad.ui_toolbar_items(toolbar_id,command_id,name,help_text,icon_k
 ('assembly-design','capture.settings','捕捉','设置三维选择过滤和草图吸附类型。','capture',15,false),
 ('assembly-design','product.insert','插入','向 Product 插入 Part 或 Product 实例。','insert',20,false),
 ('assembly-design','product.reference.toggle','引用模式','在跟随 Head 和固定版本之间切换实例引用。','reference',30,false),
+('assembly-design','assembly.move','移动组件','选择装配实例并使用三维操纵器移动。','move',35,false),
 ('assembly-design','assembly.fix','固定','固定所选装配实例的当前刚体位置。','fixed',40,false),
 ('assembly-design','assembly.rigid','固连','保持两个装配实例之间的当前相对刚体位姿。','link',45,false),
 ('assembly-design','assembly.coincident','重合','使两个基准点、轴或平面重合。','coincident',50,false),

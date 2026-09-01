@@ -228,8 +228,8 @@ export const restApi = {
     restApi.command(documentId, {
       type: "INSERT_INSTANCE", referencedDocumentId, translation: [0, 0, 0],
     }),
-  move: (documentId: string, instanceId: string, translation: Vec3) =>
-    restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation }),
+  move: (documentId: string, instanceId: string, translation: Vec3, rotation: [number,number,number,number]) =>
+    restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation, rotation }),
   addAssemblyConstraint: (documentId: string, input: { constraintKind: string;
     firstAssemblyRef: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef;
     value?: number; directionRelation?: string; distanceRelation?: string }) =>

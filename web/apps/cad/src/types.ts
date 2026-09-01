@@ -39,6 +39,7 @@ export type CommandPreview = {
   baseSequence: number;
   modelHash: string;
   artifact?: Artifact;
+  instancePoses?: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;
 };
 
 export type DatumPlane = { id: string; name: string; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3; size: number };

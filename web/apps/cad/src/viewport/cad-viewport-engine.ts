@@ -27,7 +27,7 @@ import { measureSketchDimension } from "../cad/sketch/sketch-constraint-layout";
 import { sketchReferenceDimensions, SKETCH_INPUT_POLICY } from "../cad/sketch/sketch-input-policy";
 import { sampleSketchEntity, sketchEntityPoint } from "../cad/sketch/sketch-geometry";
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
-import { ArcSketchTool, AssemblyConstraintTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type AssemblyConstraintToolKind, type ToolViewportPort } from "../cad/tool/cad-tool";
+import { ArcSketchTool, AssemblyConstraintTool, AssemblyMoveTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type AssemblyConstraintToolKind, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
   Artifact, AssemblyGeometryRef, AxisSystem, DatumAxis, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SelectionItem, SketchConstraint, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3, VisualizationManifest,
@@ -43,7 +43,8 @@ type Callbacks = {
   dimensionCreateRequested: (request: { mode: "create"; featureId: string; kind: "DISTANCE"|"LENGTH"|"RADIUS"|"DIAMETER"|"ANGLE";
     references: SketchGeometryRef[]; labelPosition: Vec2; value: number; unit: "mm"|"deg"; x: number; y: number }) => void;
   activeToolChanged: (toolID: import("../state/workbench-store").WorkbenchToolID) => void;
-  instanceMoved: (instanceId: string, translation: Vec3) => void;
+  instanceMoved: (instanceId: string, translation: Vec3, rotation:[number,number,number,number]) => void;
+  instanceMovePreview: (instanceId:string,translation:Vec3,rotation:[number,number,number,number])=>Promise<Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>>;
   assemblyConstraintRequested: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
@@ -149,6 +150,9 @@ export class CadViewportEngine {
   private readonly materials = new CadMaterialFactory(this.shaders);
   private readonly background = new CadBackground(this.shaders);
   private readonly transform: TransformControls;
+  private readonly rotationTransform: TransformControls;
+  private readonly movePivot = new THREE.Group();
+  private moveTarget?: { group: THREE.Group; startPosition: THREE.Vector3; startQuaternion: THREE.Quaternion; startPivot: THREE.Vector3 };
   private readonly navigation: NavigationController;
   private readonly navigationHUD: CatiaNavigationHUD;
   private readonly tools: ToolManager;
@@ -184,6 +188,7 @@ export class CadViewportEngine {
     root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2 };
   private suppressNextSelection = false;
   private rigidDrag?: { driver: string; start: THREE.Vector3; members: Map<string, THREE.Vector3> };
+  private movePreviewSequence=0;private movePreviewAppliedSequence=0;private lastMovePreviewAt=0;
   private activeToolID = "select";
   private navigationProfile: NavigationProfileID = "default";
   private captureSettings: CaptureSettings = DEFAULT_CAPTURE_SETTINGS;
@@ -206,7 +211,11 @@ export class CadViewportEngine {
     this.transform = new TransformControls(this.camera, this.renderer.domElement);
     this.transform.setMode("translate");
     this.transform.setSpace("world");
+    this.scene.add(this.movePivot);
     this.scene.add(this.transform.getHelper());
+    this.rotationTransform = new TransformControls(this.camera, this.renderer.domElement);
+    this.rotationTransform.setMode("rotate"); this.rotationTransform.setSpace("world"); this.rotationTransform.setSize(0.82);
+    this.scene.add(this.rotationTransform.getHelper());
     this.transform.addEventListener("dragging-changed", (event) => {
       this.navigation.setEnabled(!Boolean(event.value));
       if (event.value) { this.suppressNextSelection = true; this.beginRigidDrag(); }
@@ -216,7 +225,10 @@ export class CadViewportEngine {
       this.commitTransform();
       window.setTimeout(() => { this.suppressNextSelection = false; }, 0);
     });
-    this.transform.addEventListener("change", () => { this.updateRigidDrag(); this.invalidate(); });
+    this.transform.addEventListener("change", () => { this.updateMoveTarget(); this.updateRigidDrag(); this.invalidate(); });
+    this.rotationTransform.addEventListener("dragging-changed",(event)=>{this.navigation.setEnabled(!Boolean(event.value));if(event.value){this.suppressNextSelection=true;this.beginRigidDrag();}else this.rigidDrag=undefined;});
+    this.rotationTransform.addEventListener("mouseUp",()=>{this.commitTransform();window.setTimeout(()=>{this.suppressNextSelection=false;},0);});
+    this.rotationTransform.addEventListener("change",()=>{this.updateMoveTarget();this.invalidate();});
 
     const groundGrid = new THREE.GridHelper(1200, 60);
     groundGrid.rotation.x = Math.PI / 2;
@@ -252,6 +264,7 @@ export class CadViewportEngine {
     this.navigationHUD = new CatiaNavigationHUD(this.shaders);
     this.tools = new ToolManager({ viewport: this.toolViewportPort() });
     this.tools.register(new SelectTool());
+    this.tools.register(new AssemblyMoveTool());
     for (const kind of ["fix", "rigid", "coincident", "concentric", "angle", "distance"] as const)
       this.tools.register(new AssemblyConstraintTool(kind));
     this.tools.register(new PointSketchTool());
@@ -277,6 +290,8 @@ export class CadViewportEngine {
     this.input.subscribe(() => this.emitDebugState());
     this.tools.subscribe((toolID) => {
       this.activeToolID = toolID ?? "select";
+      if (this.activeToolID !== "assembly.move") { this.transform.detach(); this.rotationTransform.detach(); }
+      else this.attachMoveManipulator();
       this.host.classList.toggle("drawing", Boolean(toolID?.startsWith("sketch.")) && Boolean(this.sketchPlane));
       this.callbacks.activeToolChanged(this.activeToolID as import("../state/workbench-store").WorkbenchToolID);
       this.emitDebugState();
@@ -301,6 +316,8 @@ export class CadViewportEngine {
     this.view = view;
     this.editContext = editContext;
     this.transform.detach();
+    this.rotationTransform.detach();
+    this.moveTarget = undefined;
     this.disposeGroup(this.content);
     this.disposeGroup(this.helpers);
     this.selectable.clear();
@@ -329,6 +346,7 @@ export class CadViewportEngine {
 	this.clearInteractionState();
     this.view = undefined;
     this.transform.detach();
+    this.rotationTransform.detach();
     this.disposeGroup(this.content);
     this.disposeGroup(this.helpers);
     this.selectable.clear();
@@ -353,6 +371,7 @@ export class CadViewportEngine {
     this.activeSketchID = sketchID;
     this.sketchPlane = plane;
     this.transform.detach();
+    this.rotationTransform.detach();
     this.select({ kind: "plane", id: plane.datumPlaneId, plane: plane.plane });
     this.navigation.setEnabled(true);
     const frame = planeFrame(plane);
@@ -460,13 +479,37 @@ export class CadViewportEngine {
     this.selected = unique;
     this.preselected = null;
     this.transform.detach();
+    this.rotationTransform.detach();
     this.refreshInteractionHighlights();
-    if (unique.length === 1 && unique[0].kind === "instance") {
-      const object = this.selectable.get(`instance:${unique[0].id}`);
-      if (object instanceof THREE.Group) this.transform.attach(object);
+    if (this.activeToolID === "assembly.move" && unique.length === 1 && unique[0].kind === "instance") {
+      this.attachMoveManipulator();
     }
     if (notify) this.callbacks.selectionsChanged(unique);
     this.invalidate();
+  }
+
+  private attachMoveManipulator(): void {
+    if (this.selected.length !== 1 || this.selected[0].kind !== "instance") return;
+    const object = this.selectable.get(`instance:${this.selected[0].id}`);
+    if (!(object instanceof THREE.Group)) return;
+    const center = new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3());
+    this.movePivot.position.copy(center); this.movePivot.quaternion.identity(); this.movePivot.userData.id = object.userData.id;
+    this.moveTarget = { group: object, startPosition: object.position.clone(), startQuaternion: object.quaternion.clone(), startPivot: center.clone() };
+    this.transform.attach(this.movePivot);
+    this.rotationTransform.attach(this.movePivot);
+  }
+
+  private updateMoveTarget(): void {
+    if (!this.moveTarget || (this.transform.object !== this.movePivot && this.rotationTransform.object !== this.movePivot)) return;
+    const offset=this.moveTarget.startPosition.clone().sub(this.moveTarget.startPivot).applyQuaternion(this.movePivot.quaternion);
+    this.moveTarget.group.position.copy(this.movePivot.position).add(offset);
+    this.moveTarget.group.quaternion.copy(this.movePivot.quaternion).multiply(this.moveTarget.startQuaternion);
+    const now=performance.now();if(now-this.lastMovePreviewAt<50)return;this.lastMovePreviewAt=now;const sequence=++this.movePreviewSequence;
+    const id=this.moveTarget.group.userData.id as string,position=this.moveTarget.group.position;
+    void this.callbacks.instanceMovePreview(id,[position.x,position.y,position.z],this.moveTarget.group.quaternion.toArray()).then((poses)=>{
+      if(sequence<=this.movePreviewAppliedSequence)return;this.movePreviewAppliedSequence=sequence;
+      for(const pose of poses){const group=this.instanceGroups.get(pose.instanceId);if(group){group.position.fromArray(pose.translation);group.quaternion.fromArray(pose.rotation);group.updateMatrix();group.updateMatrixWorld(true);}}
+      this.invalidate();}).catch(()=>{});
   }
 
   preselect(selection: Selection, notify = false): void {
@@ -514,6 +557,8 @@ export class CadViewportEngine {
     this.clearCommandPreview();
     this.transform.detach();
     this.transform.dispose();
+    this.rotationTransform.detach();
+    this.rotationTransform.dispose();
     this.navigationHUD.dispose();
     this.background.dispose();
     this.disposeGroup(this.environment);
@@ -541,9 +586,10 @@ export class CadViewportEngine {
     });
     if (view.artifact) this.addVisualPrimitives(view.artifact.visualization, this.helpers, {
       documentId: view.document.id, geometryKey: view.artifact.geometryKey, occurrencePath: "", treeNodeId: `${rootPath}/body`,
-    });
+    }, view.artifact.mesh.triangles.length === 0);
+    const consumedSketches = new Set((view.part?.features ?? []).flatMap((feature) => feature.profile ? [feature.profile] : []));
     for (const feature of view.part?.features ?? []) {
-      if (feature.type.toUpperCase().includes("SKETCH")) this.addSketch(feature, false, view);
+      if (feature.type.toUpperCase().includes("SKETCH") && (!consumedSketches.has(feature.id) || feature.id === this.activeSketchID)) this.addSketch(feature, false, view);
     }
     if (view.artifact && view.artifact.mesh.triangles.length > 0) {
       const solid = this.makeSolid(view.artifact, CATIA_VISUAL_THEME.surface, {
@@ -598,7 +644,7 @@ export class CadViewportEngine {
           treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id,
         };
         this.addReferenceGeometry(artifact.visualization.referenceGeometry, resolvedGroup, visualContext);
-        this.addVisualPrimitives(artifact.visualization, resolvedGroup, visualContext);
+        this.addVisualPrimitives(artifact.visualization, resolvedGroup, visualContext, false);
         if (resolvedGroup.children.length > 0) group.add(resolvedGroup);
       }
       if (group.children.length === 0) {
@@ -711,11 +757,12 @@ export class CadViewportEngine {
     return visit(this.view?.structureTree);
   }
 
-  private addVisualPrimitives(visualization: VisualizationManifest | undefined, parent: THREE.Group, context: SolidContext): void {
+  private addVisualPrimitives(visualization: VisualizationManifest | undefined, parent: THREE.Group, context: SolidContext, includeSketch = true): void {
     if (!visualization || visualization.schemaVersion !== 1) return;
     const sketchEntityObjects = new Map<string, THREE.Object3D>();
     const constraintAssociations: Array<{ selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; featureID: string; entityIDs: string[] }> = [];
     for (const primitive of visualization.primitives ?? []) {
+      if (!includeSketch && primitive.semantic.startsWith("SKETCH_")) continue;
       if (primitive.positions.length === 0) continue;
       const construction = primitive.role === "CONSTRUCTION";
       const color = primitive.semantic === "SKETCH_CONSTRAINT" ? CATIA_VISUAL_THEME.constraint
@@ -1456,10 +1503,10 @@ export class CadViewportEngine {
   }
 
   private commitTransform(): void {
-    const object = this.transform.object;
+    const object = this.moveTarget?.group ?? this.transform.object;
     if (!object?.userData.id) return;
     this.callbacks.instanceMoved(object.userData.id as string,
-      [object.position.x, object.position.y, object.position.z]);
+      [object.position.x, object.position.y, object.position.z],object.quaternion.toArray());
     this.refreshContentBounds();
   }
 

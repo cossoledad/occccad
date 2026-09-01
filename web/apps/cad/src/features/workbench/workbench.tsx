@@ -349,8 +349,8 @@ export function Workbench() {
     if (!editingView) return;
     command.mutate(() => api.editSketch(editingView.document.id, featureID, operations));
   };
-  const moveInstance = (instanceID: string, translation: Vec3) => {
-    if (editingView?.document.type === "PRODUCT" && canEdit) command.mutate(() => api.move(editingView.document.id, instanceID, translation));
+  const moveInstance = (instanceID: string, translation: Vec3, rotation:[number,number,number,number]) => {
+    if (editingView?.document.type === "PRODUCT" && canEdit) command.mutate(() => api.move(editingView.document.id, instanceID, translation,rotation));
   };
   const executeHistory = (direction: "undo" | "redo") => {
     if (!editingView) return; command.mutate(() => direction === "undo" ? api.undo(editingView.document.id) : api.redo(editingView.document.id));
@@ -480,6 +480,8 @@ export function Workbench() {
     const disposers = [
       commandRegistry.register({ id: "tool.select", execute: () => store.setActiveTool("select", "once"),
         isActive: () => store.activeToolID === "select" }),
+      commandRegistry.register({ id: "assembly.move", execute: () => store.setActiveTool("assembly.move", "continuous"),
+        isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit), isActive: () => store.activeToolID === "assembly.move" }),
       commandRegistry.register({ id: "sketch.start", execute: startSketch,
         isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && (store.selection?.kind === "plane" || store.selection?.kind === "sketch")) }),
       commandRegistry.register({ id: "sketch.finish", execute: store.endSketch,
@@ -560,6 +562,9 @@ export function Workbench() {
               constraintKind: kind.toUpperCase(), firstAssemblyRef: references[0], secondAssemblyRef: references[1],
               value: 0, directionRelation: "UNORIENTED", distanceRelation: "UNSIGNED",
             }));
+          }}
+          onInstanceMovePreview={async(instanceId,translation,rotation)=>{
+            if(editingView?.document.type!=="PRODUCT")return[];const preview=await api.previewCommand(editingView.document.id,{type:"MOVE_INSTANCE",requestId:randomUUID(),instanceId,translation,rotation});return preview.instancePoses??[];
           }}
           onInstanceMoved={moveInstance} /></Suspense>
 		{toolbarCatalog.data?.toolbars.filter((toolbar) => toolbar.workbench === "ALL" || toolbar.workbench === activeWorkbench)

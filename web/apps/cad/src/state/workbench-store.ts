@@ -6,7 +6,7 @@ import { DEFAULT_CAPTURE_SETTINGS, normalizeCaptureSettings, type CaptureSetting
   type SelectionCaptureKind, type SketchSnapCaptureKind } from "../cad/interaction/capture-settings";
 
 export type WorkbenchToolID = "select" | "sketch.point" | "sketch.line" | "sketch.circle" | "sketch.arc" | "sketch.polyline" | "sketch.spline" | "sketch.rectangle" | "sketch.polygon" | "sketch.slot"
-	| `assembly.${"fix"|"rigid"|"coincident"|"concentric"|"angle"|"distance"}`
+	| `assembly.${"move"|"fix"|"rigid"|"coincident"|"concentric"|"angle"|"distance"}`
   | "sketch.dimension.linear"
   | `sketch.constraint.${"coincident"|"parallel"|"fixed"|"horizontal"|"vertical"|"perpendicular"|"tangent"|"equal"|"distance"|"length"|"radius"|"diameter"|"angle"|"concentric"|"point_on_object"|"midpoint"|"symmetry"}`;
 export type WorkbenchToolMode = "once" | "continuous";
