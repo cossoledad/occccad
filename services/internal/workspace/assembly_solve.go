@@ -30,7 +30,7 @@ func normalizedInstanceRotation(value [4]float64) [4]float64 {
 	return value
 }
 
-func (service *Service) solveAssembly(ctx context.Context, documentID, requestID, drivenInstanceID string, model *ProductModel) error {
+func (service *Service) solveAssembly(ctx context.Context, documentID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel) error {
 	if len(model.Constraints) == 0 {
 		return nil
 	}
@@ -196,7 +196,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		if err != nil {
 			return err
 		}
-		value := geometry.AssemblyConstraint{ID: constraint.ID, Kind: constraint.Kind, FirstBodyID: constraint.First.InstanceID, FirstGeometryID: firstGeometry, Value: constraint.Value, DirectionRelation: constraint.DirectionRelation, DistanceRelation: constraint.DistanceRelation}
+		value := geometry.AssemblyConstraint{ID: constraint.ID, ConnectionID: constraint.ConnectionID, Kind: constraint.Kind, Mode: constraint.Mode, FirstBodyID: constraint.First.InstanceID, FirstGeometryID: firstGeometry, Value: constraint.Value, DirectionRelation: constraint.DirectionRelation, DistanceRelation: constraint.DistanceRelation}
 		if constraint.Kind == "FIX" || constraint.Kind == "RIGID" {
 			fixedValue := constraint.FixedPose
 			if fixedValue == nil && constraint.Kind == "FIX" {
@@ -218,7 +218,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		}
 		constraints = append(constraints, value)
 	}
-	result, err := service.worker.SolveAssembly(ctx, requestID, bodies, geometryValues, constraints)
+	result, err := service.worker.SolveAssemblyWithOptions(ctx, requestID, bodies, geometryValues, constraints, geometry.AssemblySolveOptions{Intent: intent})
 	if err != nil {
 		return err
 	}

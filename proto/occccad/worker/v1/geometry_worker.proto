@@ -95,6 +95,8 @@ message AssemblyConstraint {
     string direction_relation = 6; // UNORIENTED, SAME, OPPOSITE
     string distance_relation = 7; // UNSIGNED, ALONG_SECOND_NORMAL, OPPOSITE_SECOND_NORMAL
     RigidPose fixed_pose = 8;
+    string connection_id = 9;
+    string mode = 10; // DRIVING, MEASURED, CONTROLLED, SUPPRESSED
 }
 
 message SolveAssemblyRequest {
@@ -104,6 +106,9 @@ message SolveAssemblyRequest {
     repeated AssemblyConstraint constraints = 4;
     double length_scale = 5;
     double angle_scale = 6;
+    double rank_tolerance = 7;
+    repeated string affected_body_ids = 8;
+    AssemblySolveIntent solve_intent = 9;
 }
 
 message AssemblyConstraintResidual {
@@ -123,6 +128,12 @@ message SolveAssemblyResponse {
     uint64 iterations = 4;
     double normalized_residual = 5;
     string diagnostic = 6;
+    string classification = 7;
+    repeated AssemblyEquationResidual equation_residuals = 8;
+    repeated AssemblyComponentDof components = 9;
+    repeated string redundant_constraint_ids = 10;
+    repeated string conflicting_constraint_ids = 11;
+    repeated AssemblySolveDiagnostic diagnostics = 12;
 }
 
 message SketchPoint {
@@ -525,4 +536,38 @@ message Vec3 {
     double x = 1;
     double y = 2;
     double z = 3;
+}
+
+// Assembly M1 diagnostics are appended to keep existing message descriptor
+// indices stable while SolveAssemblyResponse references them by name.
+message AssemblyEquationResidual {
+    string equation_id = 1;
+    string connection_id = 2;
+    string constraint_id = 3;
+    uint64 equation_index = 4;
+    double normalized_value = 5;
+}
+
+message AssemblyComponentDof {
+    string component_id = 1;
+    repeated string body_ids = 2;
+    uint64 tangent_variable_count = 3;
+    uint64 jacobian_rank = 4;
+    uint64 relative_dof = 5;
+    uint64 gauge_dof = 6;
+    bool solved = 7;
+}
+
+message AssemblySolveDiagnostic {
+    string code = 1;
+    string component_id = 2;
+    repeated string body_ids = 3;
+    repeated string constraint_ids = 4;
+    string detail = 5;
+}
+
+message AssemblySolveIntent {
+    repeated string moving_body_ids = 1;
+    repeated string reference_body_ids = 2;
+    string preference_policy = 3; // MINIMUM_TOTAL_CHANGE, MOVE_FIRST_MINIMIZE_REFERENCE
 }

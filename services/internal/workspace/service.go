@@ -280,7 +280,9 @@ type AssemblyGeometryRef struct {
 
 type AssemblyConstraint struct {
 	ID                string               `json:"id"`
+	ConnectionID      string               `json:"connectionId,omitempty"`
 	Kind              string               `json:"kind"`
+	Mode              string               `json:"mode,omitempty"`
 	First             AssemblyGeometryRef  `json:"first"`
 	Second            *AssemblyGeometryRef `json:"second,omitempty"`
 	Value             float64              `json:"value,omitempty"`

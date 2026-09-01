@@ -484,6 +484,7 @@ public:
         for (const auto& input : request->constraints()) {
             assembly_api::Constraint constraint;
             constraint.id = input.id();
+            constraint.connection_id = input.connection_id();
             constraint.first = {input.first().body_id(), input.first().geometry_id()};
             if (input.has_second())
                 constraint.second = assembly_api::GeometryRef{input.second().body_id(),
@@ -513,6 +514,14 @@ public:
                 constraint.distance_relation = assembly_api::DistanceRelation::OppositeSecondNormal;
             if (input.has_fixed_pose())
                 constraint.fixed_pose = pose(input.fixed_pose());
+            if (input.mode() == "MEASURED")
+                constraint.mode = assembly_api::ConstraintMode::Measured;
+            else if (input.mode() == "CONTROLLED")
+                constraint.mode = assembly_api::ConstraintMode::Controlled;
+            else if (input.mode() == "SUPPRESSED")
+                constraint.mode = assembly_api::ConstraintMode::Suppressed;
+            else if (!input.mode().empty() && input.mode() != "DRIVING")
+                return {grpc::StatusCode::INVALID_ARGUMENT, "unknown assembly constraint mode"};
             model.constraints.push_back(std::move(constraint));
         }
         assembly_api::SolverOptions options;
@@ -520,6 +529,24 @@ public:
             options.length_scale = request->length_scale();
         if (request->angle_scale() > 0.0)
             options.angle_scale = request->angle_scale();
+        if (request->rank_tolerance() > 0.0)
+            options.rank_tolerance = request->rank_tolerance();
+        options.affected_body_ids.assign(request->affected_body_ids().begin(),
+                                         request->affected_body_ids().end());
+        if (request->has_solve_intent()) {
+            assembly_api::SolveIntent intent;
+            intent.moving_body_ids.assign(request->solve_intent().moving_body_ids().begin(),
+                                          request->solve_intent().moving_body_ids().end());
+            intent.reference_body_ids.assign(request->solve_intent().reference_body_ids().begin(),
+                                             request->solve_intent().reference_body_ids().end());
+            if (request->solve_intent().preference_policy() == "MOVE_FIRST_MINIMIZE_REFERENCE")
+                intent.policy = assembly_api::SolvePreferencePolicy::MoveFirstMinimizeReference;
+            else if (!request->solve_intent().preference_policy().empty() &&
+                     request->solve_intent().preference_policy() != "MINIMUM_TOTAL_CHANGE")
+                return {grpc::StatusCode::INVALID_ARGUMENT,
+                        "unknown assembly solve preference policy"};
+            options.solve_intent = std::move(intent);
+        }
         const auto result = assembly_solver_.solve(model, options);
         const char* status =
             result.status == assembly_api::SolveStatus::Converged       ? "CONVERGED"
@@ -527,6 +554,17 @@ public:
             : result.status == assembly_api::SolveStatus::InvalidModel  ? "INVALID_MODEL"
                                                                         : "NUMERICAL_FAILURE";
         response->set_status(status);
+        const char* classification =
+            result.classification == assembly_api::SolveClassification::SolvedFully ? "SOLVED_FULLY"
+            : result.classification == assembly_api::SolveClassification::SolvedUnderConstrained
+                ? "SOLVED_UNDER_CONSTRAINED"
+            : result.classification == assembly_api::SolveClassification::Redundant ? "REDUNDANT"
+            : result.classification == assembly_api::SolveClassification::Conflicting
+                ? "CONFLICTING"
+            : result.classification == assembly_api::SolveClassification::InvalidModel
+                ? "INVALID_MODEL"
+                : "NON_CONVERGENT";
+        response->set_classification(classification);
         response->set_iterations(result.iterations);
         response->set_normalized_residual(result.normalized_residual);
         response->set_diagnostic(result.diagnostic);
@@ -547,6 +585,39 @@ public:
             auto* output = response->add_residuals();
             output->set_constraint_id(residual.constraint_id);
             output->set_normalized_norm(residual.normalized_norm);
+        }
+        for (const auto& residual : result.equation_residuals) {
+            auto* output = response->add_equation_residuals();
+            output->set_equation_id(residual.equation_id);
+            output->set_connection_id(residual.connection_id);
+            output->set_constraint_id(residual.constraint_id);
+            output->set_equation_index(residual.equation_index);
+            output->set_normalized_value(residual.normalized_value);
+        }
+        for (const auto& component : result.components) {
+            auto* output = response->add_components();
+            output->set_component_id(component.component_id);
+            for (const auto& id : component.body_ids)
+                output->add_body_ids(id);
+            output->set_tangent_variable_count(component.tangent_variable_count);
+            output->set_jacobian_rank(component.jacobian_rank);
+            output->set_relative_dof(component.relative_dof);
+            output->set_gauge_dof(component.gauge_dof);
+            output->set_solved(component.solved);
+        }
+        for (const auto& id : result.redundant_constraint_ids)
+            response->add_redundant_constraint_ids(id);
+        for (const auto& id : result.conflicting_constraint_ids)
+            response->add_conflicting_constraint_ids(id);
+        for (const auto& diagnostic : result.diagnostics) {
+            auto* output = response->add_diagnostics();
+            output->set_code(diagnostic.code);
+            output->set_component_id(diagnostic.component_id);
+            for (const auto& id : diagnostic.body_ids)
+                output->add_body_ids(id);
+            for (const auto& id : diagnostic.constraint_ids)
+                output->add_constraint_ids(id);
+            output->set_detail(diagnostic.detail);
         }
         return grpc::Status::OK;
     }

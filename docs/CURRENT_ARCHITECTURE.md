@@ -404,9 +404,9 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 4. **控制器仅为开发工具**：进程级 Router 不是集群 Scheduler。
 5. **长计算边界不完整**：交换文件的 HTTP 流允许 15 分钟，但同步 Part 求值仍受 Geometry client 的短 deadline 限制；复杂再生尚未全部任务化。
 6. **协议超前于实现**：部分 Proto RPC 未实现，版本化和能力协商尚未建立。
-7. **测试金字塔不完整**：缺少模型语料库、确定性回归、大装配基准和浏览器 E2E。
+7. **测试金字塔仍不完整**：装配求解已有首个 DOF/冲突/退化 conformance corpus，但草图/Part 的综合模型语料、确定性长跑、大装配基准和浏览器 E2E 仍不足。
 
-`kernel/assembly` 当前使用有限差分 Jacobian 的阻尼最小二乘。Assembly Toolbar 的按钮会激活输入工具：Fix 选择一次，其余约束连续选择两个不同 occurrence 的元素，第一次选择跨 pointerup 保留。Datum 端点使用 `instanceId + datum geometry ID + axis component`；B-Rep 面当前使用 `instanceId + geometryKey + topology local ID`，服务端验证制品属于该 instance 的 resolved Revision，并从 OCCT 重新读取平面/圆柱精确参数。求解经正式 Router 的 `SolveAssembly` RPC 完成，Constraint 与全部变更 Pose 在同一个 ChangeSet 中提交，依赖图使用 `READ_GEOMETRY`。面引用仍是当前 Revision 内有效的过渡身份，尚未达到 PersistentSelection/Publication 的跨重算稳定性。
+`kernel/assembly` 先把 Rigid 关系编译为刚性 cluster，把 Fix/Ground 从自由变量消元，再按 cluster/constraint 图的 connected component 独立执行有限差分 Jacobian 的阻尼最小二乘；收敛点的 rank-revealing 分解返回 relative DOF 与全局 gauge DOF，并以稳定 Connection/Constraint/Equation 身份报告整块冗余、未满足冲突和残差。`SolveAssembly` Proto 已贯穿这些结果、affected-body 局部求解范围和 request-scoped `solve_intent`；创建二元约束时 Product 把第一选择标为 moving、第二选择标为 reference。无物理接地的 component 以 reference cluster 作为全局规约锚点，因此尽量只移动第一选择而不会持久化隐式 Fix 或破坏约束的对称语义；已经接地但仍有多个内部自由度时，严格的 reference 最小位移层级优化尚未实现。当前 Product 提交路径仍请求完整求解。Assembly Toolbar 的按钮会激活输入工具：Fix 选择一次，其余约束连续选择两个不同 occurrence 的元素，第一次选择跨 pointerup 保留。Datum 端点使用 `instanceId + datum geometry ID + axis component`；B-Rep 面当前使用 `instanceId + geometryKey + topology local ID`，服务端验证制品属于该 instance 的 resolved Revision，并从 OCCT 重新读取平面/圆柱精确参数。求解经正式 Router 的 `SolveAssembly` RPC 完成，Constraint 与全部变更 Pose 在同一个 ChangeSet 中提交，依赖图使用 `READ_GEOMETRY`。面引用仍是当前 Revision 内有效的过渡身份，尚未达到 PersistentSelection/Publication 的跨重算稳定性；当前 rank 仍来自有限差分 Jacobian，冗余解释也只达到确定性的 whole-constraint 增量 rank，而非最小冲突集或解释过的 DOF 方向。
 
 这些风险决定了下一阶段应先建立模型内核、拓扑命名、约束求解和可重建制品协议，而不是先增加大量微服务。
 

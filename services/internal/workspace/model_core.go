@@ -1081,12 +1081,18 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		}
 		finishSolve := perf.Start(ctx, "assembly-solve")
 		drivenInstanceID := ""
+		var solveIntent *geometry.AssemblySolveIntent
 		if prepared.command.TypeURI == typeMoveInstance {
 			var payload moveInstancePayload
 			_ = json.Unmarshal(prepared.command.Payload, &payload)
 			drivenInstanceID = payload.InstanceID
+		} else if prepared.command.TypeURI == typeAddAssemblyConstraint {
+			var payload addAssemblyConstraintPayload
+			if json.Unmarshal(prepared.command.Payload, &payload) == nil && payload.Constraint.Second != nil {
+				solveIntent = &geometry.AssemblySolveIntent{MovingBodyIDs: []string{payload.Constraint.First.InstanceID}, ReferenceBodyIDs: []string{payload.Constraint.Second.InstanceID}, PreferencePolicy: "MOVE_FIRST_MINIMIZE_REFERENCE"}
+			}
 		}
-		if err = service.solveAssembly(ctx, documentID, prepared.requestID, drivenInstanceID, &model); err != nil {
+		if err = service.solveAssembly(ctx, documentID, prepared.requestID, drivenInstanceID, solveIntent, &model); err != nil {
 			finishSolve()
 			return err
 		}
@@ -1240,12 +1246,18 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 			return CommandPreview{}, err
 		}
 		driven := ""
+		var solveIntent *geometry.AssemblySolveIntent
 		if prepared.command.TypeURI == typeMoveInstance {
 			var payload moveInstancePayload
 			_ = json.Unmarshal(prepared.command.Payload, &payload)
 			driven = payload.InstanceID
+		} else if prepared.command.TypeURI == typeAddAssemblyConstraint {
+			var payload addAssemblyConstraintPayload
+			if json.Unmarshal(prepared.command.Payload, &payload) == nil && payload.Constraint.Second != nil {
+				solveIntent = &geometry.AssemblySolveIntent{MovingBodyIDs: []string{payload.Constraint.First.InstanceID}, ReferenceBodyIDs: []string{payload.Constraint.Second.InstanceID}, PreferencePolicy: "MOVE_FIRST_MINIMIZE_REFERENCE"}
+			}
 		}
-		if err = service.solveAssembly(ctx, documentID, "preview/"+prepared.requestID, driven, &model); err != nil {
+		if err = service.solveAssembly(ctx, documentID, "preview/"+prepared.requestID, driven, solveIntent, &model); err != nil {
 			return CommandPreview{}, err
 		}
 		result := CommandPreview{PreviewID: "preview:" + prepared.requestID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: canonicalModelHash(nextJSON)}
@@ -1849,7 +1861,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if kind != "FIX" && request.SecondAssemblyRef != nil && request.FirstAssemblyRef.InstanceID == request.SecondAssemblyRef.InstanceID {
 			return "", nil, fmt.Errorf("%w: a binary assembly constraint requires two different instances", ErrValidation)
 		}
-		constraint := AssemblyConstraint{ID: newID("assembly-constraint"), Kind: kind, First: *request.FirstAssemblyRef,
+		constraint := AssemblyConstraint{ID: newID("assembly-constraint"), ConnectionID: newID("assembly-connection"), Kind: kind, Mode: "DRIVING", First: *request.FirstAssemblyRef,
 			Second: request.SecondAssemblyRef, Value: request.Value, DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation)}
 		if constraint.DirectionRelation == "" {
 			constraint.DirectionRelation = "UNORIENTED"

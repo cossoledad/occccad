@@ -64,9 +64,46 @@ func TestCppWorkerSolvesSimpleProductAssembly(t *testing.T) {
 	if result.Status != "CONVERGED" {
 		t.Fatalf("unexpected solve: %s %s", result.Status, result.Diagnostic)
 	}
+	if result.Classification != "SOLVED_UNDER_CONSTRAINED" {
+		t.Fatalf("unexpected classification: %s", result.Classification)
+	}
+	if len(result.Components) != 1 || result.Components[0].RelativeDof != 3 || result.Components[0].GaugeDof != 0 {
+		t.Fatalf("unexpected component DOF: %#v", result.Components)
+	}
+	if len(result.EquationResiduals) == 0 {
+		t.Fatal("assembly equation residual provenance was not returned")
+	}
 	for _, body := range result.Bodies {
 		if body.ID == "moving" && (body.Pose.Translation[0] > 1e-6 || body.Pose.Translation[0] < -1e-6) {
 			t.Fatal(fmt.Sprintf("moving body was not solved to origin: %#v", body.Pose))
+		}
+	}
+
+	intentResult, err := client.SolveAssemblyWithOptions(t.Context(), "product-intent", []AssemblyBody{
+		{ID: "moving", Pose: AssemblyPose{Translation: [3]float64{5, 0, 0}, Rotation: identity.Rotation}},
+		{ID: "reference", Pose: AssemblyPose{Translation: [3]float64{2, 0, 0}, Rotation: identity.Rotation}},
+	}, []AssemblyGeometry{
+		{ID: "moving-origin", BodyID: "moving", Kind: "POINT"},
+		{ID: "reference-origin", BodyID: "reference", Kind: "POINT"},
+	}, []AssemblyConstraint{
+		{ID: "coincident", Kind: "COINCIDENT", FirstBodyID: "moving", FirstGeometryID: "moving-origin", SecondBodyID: "reference", SecondGeometryID: "reference-origin"},
+	}, AssemblySolveOptions{Intent: &AssemblySolveIntent{
+		MovingBodyIDs:    []string{"moving"},
+		ReferenceBodyIDs: []string{"reference"},
+		PreferencePolicy: "MOVE_FIRST_MINIMIZE_REFERENCE",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if intentResult.Status != "CONVERGED" || len(intentResult.Components) != 1 || intentResult.Components[0].GaugeDof != 6 {
+		t.Fatalf("unexpected intent solve: %#v", intentResult)
+	}
+	for _, body := range intentResult.Bodies {
+		if body.ID == "reference" && body.Pose.Translation != [3]float64{2, 0, 0} {
+			t.Fatalf("reference body moved despite M1.5 gauge preference: %#v", body.Pose)
+		}
+		if body.ID == "moving" && (body.Pose.Translation[0] < 2-1e-6 || body.Pose.Translation[0] > 2+1e-6) {
+			t.Fatalf("moving body did not reach the reference: %#v", body.Pose)
 		}
 	}
 }

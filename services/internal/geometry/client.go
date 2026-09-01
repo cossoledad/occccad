@@ -210,7 +210,7 @@ type AssemblyGeometry struct {
 }
 
 type AssemblyConstraint struct {
-	ID, Kind                            string
+	ID, ConnectionID, Kind, Mode        string
 	FirstBodyID, FirstGeometryID        string
 	SecondBodyID, SecondGeometryID      string
 	Value                               float64
@@ -218,11 +218,45 @@ type AssemblyConstraint struct {
 	FixedPose                           *AssemblyPose
 }
 
+type AssemblyEquationResidual struct {
+	EquationID, ConnectionID, ConstraintID string
+	EquationIndex                          uint64
+	NormalizedValue                        float64
+}
+
+type AssemblyComponentDof struct {
+	ComponentID                        string
+	BodyIDs                            []string
+	TangentVariableCount, JacobianRank uint64
+	RelativeDof, GaugeDof              uint64
+	Solved                             bool
+}
+
+type AssemblySolveDiagnostic struct {
+	Code, ComponentID, Detail string
+	BodyIDs, ConstraintIDs    []string
+}
+
+type AssemblySolveIntent struct {
+	MovingBodyIDs, ReferenceBodyIDs []string
+	PreferencePolicy                string
+}
+
+type AssemblySolveOptions struct {
+	AffectedBodyIDs []string
+	RankTolerance   float64
+	Intent          *AssemblySolveIntent
+}
+
 type AssemblySolve struct {
-	Status, Diagnostic string
-	Bodies             []AssemblyBody
-	Iterations         uint64
-	NormalizedResidual float64
+	Status, Classification, Diagnostic               string
+	Bodies                                           []AssemblyBody
+	EquationResiduals                                []AssemblyEquationResidual
+	Components                                       []AssemblyComponentDof
+	RedundantConstraintIDs, ConflictingConstraintIDs []string
+	Diagnostics                                      []AssemblySolveDiagnostic
+	Iterations                                       uint64
+	NormalizedResidual                               float64
 }
 
 func protoPose(value AssemblyPose) *workerv1.RigidPose {
@@ -232,9 +266,17 @@ func protoPose(value AssemblyPose) *workerv1.RigidPose {
 
 func (client *Client) SolveAssembly(ctx context.Context, requestID string, bodies []AssemblyBody,
 	geometryValues []AssemblyGeometry, constraints []AssemblyConstraint) (AssemblySolve, error) {
+	return client.SolveAssemblyWithOptions(ctx, requestID, bodies, geometryValues, constraints, AssemblySolveOptions{})
+}
+
+func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID string, bodies []AssemblyBody,
+	geometryValues []AssemblyGeometry, constraints []AssemblyConstraint, options AssemblySolveOptions) (AssemblySolve, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	request := &workerv1.SolveAssemblyRequest{RequestId: requestID, LengthScale: 1, AngleScale: 1}
+	request := &workerv1.SolveAssemblyRequest{RequestId: requestID, LengthScale: 1, AngleScale: 1, RankTolerance: options.RankTolerance, AffectedBodyIds: options.AffectedBodyIDs}
+	if options.Intent != nil {
+		request.SolveIntent = &workerv1.AssemblySolveIntent{MovingBodyIds: options.Intent.MovingBodyIDs, ReferenceBodyIds: options.Intent.ReferenceBodyIDs, PreferencePolicy: options.Intent.PreferencePolicy}
+	}
 	for _, body := range bodies {
 		request.Bodies = append(request.Bodies, &workerv1.AssemblyBody{Id: body.ID, InitialPose: protoPose(body.Pose)})
 	}
@@ -245,6 +287,7 @@ func (client *Client) SolveAssembly(ctx context.Context, requestID string, bodie
 	}
 	for _, value := range constraints {
 		item := &workerv1.AssemblyConstraint{Id: value.ID, Kind: value.Kind, Value: value.Value,
+			ConnectionId: value.ConnectionID, Mode: value.Mode,
 			DirectionRelation: value.DirectionRelation, DistanceRelation: value.DistanceRelation,
 			First: &workerv1.AssemblyGeometryRef{BodyId: value.FirstBodyID, GeometryId: value.FirstGeometryID}}
 		if value.SecondBodyID != "" {
@@ -259,11 +302,20 @@ func (client *Client) SolveAssembly(ctx context.Context, requestID string, bodie
 	if err != nil {
 		return AssemblySolve{}, fmt.Errorf("solve assembly: %w", err)
 	}
-	result := AssemblySolve{Status: response.GetStatus(), Diagnostic: response.GetDiagnostic(), Iterations: response.GetIterations(), NormalizedResidual: response.GetNormalizedResidual()}
+	result := AssemblySolve{Status: response.GetStatus(), Classification: response.GetClassification(), Diagnostic: response.GetDiagnostic(), Iterations: response.GetIterations(), NormalizedResidual: response.GetNormalizedResidual(), RedundantConstraintIDs: response.GetRedundantConstraintIds(), ConflictingConstraintIDs: response.GetConflictingConstraintIds()}
 	for _, body := range response.GetBodies() {
 		result.Bodies = append(result.Bodies, AssemblyBody{ID: body.GetId(), Pose: AssemblyPose{
 			Translation: [3]float64{body.GetPose().GetTranslation().GetX(), body.GetPose().GetTranslation().GetY(), body.GetPose().GetTranslation().GetZ()},
 			Rotation:    [4]float64{body.GetPose().GetRotation().GetX(), body.GetPose().GetRotation().GetY(), body.GetPose().GetRotation().GetZ(), body.GetPose().GetRotation().GetW()}}})
+	}
+	for _, value := range response.GetEquationResiduals() {
+		result.EquationResiduals = append(result.EquationResiduals, AssemblyEquationResidual{EquationID: value.GetEquationId(), ConnectionID: value.GetConnectionId(), ConstraintID: value.GetConstraintId(), EquationIndex: value.GetEquationIndex(), NormalizedValue: value.GetNormalizedValue()})
+	}
+	for _, value := range response.GetComponents() {
+		result.Components = append(result.Components, AssemblyComponentDof{ComponentID: value.GetComponentId(), BodyIDs: value.GetBodyIds(), TangentVariableCount: value.GetTangentVariableCount(), JacobianRank: value.GetJacobianRank(), RelativeDof: value.GetRelativeDof(), GaugeDof: value.GetGaugeDof(), Solved: value.GetSolved()})
+	}
+	for _, value := range response.GetDiagnostics() {
+		result.Diagnostics = append(result.Diagnostics, AssemblySolveDiagnostic{Code: value.GetCode(), ComponentID: value.GetComponentId(), Detail: value.GetDetail(), BodyIDs: value.GetBodyIds(), ConstraintIDs: value.GetConstraintIds()})
 	}
 	return result, nil
 }

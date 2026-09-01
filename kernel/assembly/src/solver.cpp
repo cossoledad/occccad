@@ -3,12 +3,17 @@
 #include <Eigen/Cholesky>
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <Eigen/LU>
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
+#include <queue>
+#include <set>
 #include <stdexcept>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace occccad::assembly {
@@ -318,16 +323,141 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
     throw std::invalid_argument("unsupported constraint kind");
 }
 
-class Problem final {
+Pose identity_pose() {
+    return {};
+}
+
+Pose compose(const Pose& first, const Pose& second) {
+    const EigenQuaternion rotation = normalized(first.rotation) * normalized(second.rotation);
+    return {
+        value(normalized(first.rotation) * eigen(second.translation) + eigen(first.translation)),
+        value(rotation)};
+}
+
+Pose inverse(const Pose& input) {
+    const EigenQuaternion rotation = normalized(input.rotation).conjugate();
+    return {value(rotation * -eigen(input.translation)), value(rotation)};
+}
+
+Pose relative_pose(const Pose& first, const Pose& second) {
+    return compose(inverse(second), first);
+}
+
+double pose_error(const Pose& first, const Pose& second, const SolverOptions& options) {
+    const Vector3 translation =
+        (eigen(first.translation) - eigen(second.translation)) / options.length_scale;
+    const Vector3 rotation =
+        rotation_vector(normalized(second.rotation).conjugate() * normalized(first.rotation)) /
+        options.angle_scale;
+    return std::sqrt(translation.squaredNorm() + rotation.squaredNorm());
+}
+
+bool active(const Constraint& constraint) {
+    return constraint.mode == ConstraintMode::Driving ||
+           constraint.mode == ConstraintMode::Controlled;
+}
+
+class DisjointSet final {
 public:
-    Problem(const Model& model, const SolverOptions& options) : model_(model), options_(options) {
-        if (model.bodies.empty())
+    explicit DisjointSet(const std::size_t size) : parent_(size), rank_(size) {
+        std::iota(parent_.begin(), parent_.end(), 0);
+    }
+
+    std::size_t find(const std::size_t value) {
+        if (parent_[value] != value)
+            parent_[value] = find(parent_[value]);
+        return parent_[value];
+    }
+
+    void join(const std::size_t first, const std::size_t second) {
+        std::size_t a = find(first);
+        std::size_t b = find(second);
+        if (a == b)
+            return;
+        if (rank_[a] < rank_[b])
+            std::swap(a, b);
+        parent_[b] = a;
+        if (rank_[a] == rank_[b])
+            ++rank_[a];
+    }
+
+private:
+    std::vector<std::size_t> parent_;
+    std::vector<std::size_t> rank_;
+};
+
+struct RigidEdge {
+    std::size_t neighbor{};
+    Pose current_to_neighbor{};
+    std::string constraint_id;
+};
+
+struct Cluster {
+    std::string id;
+    std::vector<std::size_t> body_indices;
+    std::unordered_map<std::size_t, Pose> root_to_body;
+    Pose initial_pose{};
+    std::optional<Pose> ground_pose;
+    std::vector<std::string> ground_constraint_ids;
+};
+
+struct Component {
+    std::string id;
+    std::vector<std::size_t> cluster_indices;
+    std::vector<std::size_t> constraint_indices;
+    bool selected{true};
+};
+
+class CompiledAssembly final {
+public:
+    CompiledAssembly(const Model& model, const SolverOptions& options)
+        : model_(model), options_(options) {
+        validate_and_index();
+        build_clusters();
+        build_components();
+    }
+
+    const Model& model() const { return model_; }
+    const SolverOptions& options() const { return options_; }
+    const std::vector<Cluster>& clusters() const { return clusters_; }
+    std::vector<Cluster>& clusters() { return clusters_; }
+    const std::vector<Component>& components() const { return components_; }
+
+    const GeometryElement& geometry(const GeometryRef& reference) const {
+        const auto found =
+            geometry_index_.find(geometry_key(reference.body_id, reference.geometry_id));
+        if (found == geometry_index_.end())
+            throw std::invalid_argument("constraint references unknown geometry: " +
+                                        reference.geometry_id);
+        return *found->second;
+    }
+
+    std::size_t body_index(const std::string& id) const { return body_index_.at(id); }
+    std::size_t cluster_index(const std::string& body_id) const {
+        return body_to_cluster_.at(body_index(body_id));
+    }
+
+    std::vector<Pose> body_poses(const std::vector<Pose>& cluster_poses) const {
+        std::vector<Pose> result(model_.bodies.size());
+        for (std::size_t cluster_index = 0; cluster_index < clusters_.size(); ++cluster_index) {
+            const Cluster& cluster = clusters_[cluster_index];
+            for (const std::size_t body : cluster.body_indices)
+                result[body] = compose(cluster_poses[cluster_index], cluster.root_to_body.at(body));
+        }
+        return result;
+    }
+
+private:
+    void validate_and_index() {
+        if (model_.bodies.empty())
             throw std::invalid_argument("assembly model requires at least one body");
-        if (!(options.length_scale > 0.0) || !(options.angle_scale > 0.0) ||
-            !(options.finite_difference_step > 0.0) || !(options.initial_damping > 0.0))
-            throw std::invalid_argument("solver scales and steps must be positive");
-        for (std::size_t index = 0; index < model.bodies.size(); ++index) {
-            const Body& body = model.bodies[index];
+        if (!(options_.length_scale > 0.0) || !(options_.angle_scale > 0.0) ||
+            !(options_.finite_difference_step > 0.0) || !(options_.initial_damping > 0.0) ||
+            !(options_.rank_tolerance > 0.0))
+            throw std::invalid_argument(
+                "solver scales, steps, damping and rank tolerance must be positive");
+        for (std::size_t index = 0; index < model_.bodies.size(); ++index) {
+            const Body& body = model_.bodies[index];
             if (body.id.empty() || body_index_.count(body.id))
                 throw std::invalid_argument("body IDs must be non-empty and unique");
             if (!finite(body.initial_pose.translation) || !finite(body.initial_pose.rotation))
@@ -335,7 +465,26 @@ public:
             (void)normalized(body.initial_pose.rotation);
             body_index_[body.id] = index;
         }
-        for (const GeometryElement& element : model.geometry) {
+        for (const std::string& id : options_.affected_body_ids) {
+            if (!body_index_.count(id))
+                throw std::invalid_argument("affected body ID is unknown: " + id);
+        }
+        if (options_.solve_intent) {
+            std::unordered_set<std::string> moving;
+            for (const std::string& id : options_.solve_intent->moving_body_ids) {
+                if (!body_index_.count(id))
+                    throw std::invalid_argument("moving body ID is unknown: " + id);
+                moving.insert(id);
+            }
+            for (const std::string& id : options_.solve_intent->reference_body_ids) {
+                if (!body_index_.count(id))
+                    throw std::invalid_argument("reference body ID is unknown: " + id);
+                if (moving.count(id))
+                    throw std::invalid_argument(
+                        "one body cannot be both moving and reference in a solve intent: " + id);
+            }
+        }
+        for (const GeometryElement& element : model_.geometry) {
             if (element.id.empty() || !body_index_.count(element.body_id))
                 throw std::invalid_argument("geometry must have an ID and existing body");
             const std::string key = geometry_key(element.body_id, element.id);
@@ -365,19 +514,21 @@ public:
                 element.local_geometry);
             geometry_index_[key] = &element;
         }
-        std::unordered_map<std::string, bool> constraint_ids;
-        for (const Constraint& constraint : model.constraints) {
-            if (constraint.id.empty() || constraint_ids[constraint.id])
+        std::unordered_set<std::string> constraint_ids;
+        for (const Constraint& constraint : model_.constraints) {
+            if (constraint.id.empty() || !constraint_ids.insert(constraint.id).second)
                 throw std::invalid_argument("constraint IDs must be non-empty and unique");
-            constraint_ids[constraint.id] = true;
-            (void)body(constraint.first.body_id);
+            if (!body_index_.count(constraint.first.body_id))
+                throw std::invalid_argument("constraint references an unknown body: " +
+                                            constraint.first.body_id);
             if (constraint.kind == ConstraintKind::Fix) {
                 if (constraint.second)
                     throw std::invalid_argument("Fix must have exactly one endpoint");
             } else if (constraint.kind == ConstraintKind::Rigid) {
                 if (!constraint.second || constraint.first.body_id == constraint.second->body_id)
                     throw std::invalid_argument("Rigid requires two different bodies");
-                (void)body(constraint.second->body_id);
+                if (!body_index_.count(constraint.second->body_id))
+                    throw std::invalid_argument("Rigid references an unknown body");
                 if (!constraint.fixed_pose)
                     throw std::invalid_argument("Rigid requires a captured relative pose");
             } else {
@@ -396,13 +547,175 @@ public:
         }
     }
 
+    void build_clusters() {
+        DisjointSet sets(model_.bodies.size());
+        std::vector<std::vector<RigidEdge>> rigid_edges(model_.bodies.size());
+        for (const Constraint& constraint : model_.constraints) {
+            if (!active(constraint) || constraint.kind != ConstraintKind::Rigid)
+                continue;
+            const std::size_t first = body_index(constraint.first.body_id);
+            const std::size_t second = body_index(constraint.second->body_id);
+            sets.join(first, second);
+            rigid_edges[second].push_back({first, *constraint.fixed_pose, constraint.id});
+            rigid_edges[first].push_back({second, inverse(*constraint.fixed_pose), constraint.id});
+        }
+
+        std::unordered_map<std::size_t, std::vector<std::size_t>> members;
+        for (std::size_t body = 0; body < model_.bodies.size(); ++body)
+            members[sets.find(body)].push_back(body);
+        std::vector<std::vector<std::size_t>> ordered;
+        for (auto& [unused, values] : members) {
+            (void)unused;
+            std::sort(values.begin(), values.end(),
+                      [&](const std::size_t first, const std::size_t second) {
+                          return model_.bodies[first].id < model_.bodies[second].id;
+                      });
+            ordered.push_back(std::move(values));
+        }
+        std::sort(ordered.begin(), ordered.end(), [&](const auto& first, const auto& second) {
+            return model_.bodies[first.front()].id < model_.bodies[second.front()].id;
+        });
+
+        for (const auto& values : ordered) {
+            Cluster cluster;
+            cluster.id = "cluster/" + model_.bodies[values.front()].id;
+            cluster.body_indices = values;
+            const std::size_t root = values.front();
+            cluster.initial_pose = model_.bodies[root].initial_pose;
+            cluster.root_to_body[root] = identity_pose();
+            std::queue<std::size_t> pending;
+            pending.push(root);
+            while (!pending.empty()) {
+                const std::size_t current = pending.front();
+                pending.pop();
+                for (const RigidEdge& edge : rigid_edges[current]) {
+                    const Pose candidate =
+                        compose(cluster.root_to_body.at(current), edge.current_to_neighbor);
+                    const auto found = cluster.root_to_body.find(edge.neighbor);
+                    if (found == cluster.root_to_body.end()) {
+                        cluster.root_to_body[edge.neighbor] = candidate;
+                        pending.push(edge.neighbor);
+                    } else if (pose_error(found->second, candidate, options_) >
+                               options_.residual_tolerance) {
+                        throw std::invalid_argument("rigid constraint cycle is inconsistent: " +
+                                                    edge.constraint_id);
+                    }
+                }
+            }
+            for (const std::size_t body : values) {
+                if (!cluster.root_to_body.count(body))
+                    cluster.root_to_body[body] =
+                        relative_pose(model_.bodies[body].initial_pose, cluster.initial_pose);
+            }
+            const std::size_t cluster_index = clusters_.size();
+            clusters_.push_back(std::move(cluster));
+            for (const std::size_t body : values)
+                body_to_cluster_[body] = cluster_index;
+        }
+
+        for (const Constraint& constraint : model_.constraints) {
+            if (!active(constraint) || constraint.kind != ConstraintKind::Fix)
+                continue;
+            const std::size_t body = body_index(constraint.first.body_id);
+            Cluster& cluster = clusters_[body_to_cluster_.at(body)];
+            const Pose target = constraint.fixed_pose.value_or(model_.bodies[body].initial_pose);
+            const Pose root_target = compose(target, inverse(cluster.root_to_body.at(body)));
+            if (cluster.ground_pose && pose_error(*cluster.ground_pose, root_target, options_) >
+                                           options_.residual_tolerance)
+                throw std::invalid_argument("fixed constraints in one rigid cluster conflict");
+            cluster.ground_pose = root_target;
+            cluster.initial_pose = root_target;
+            cluster.ground_constraint_ids.push_back(constraint.id);
+        }
+    }
+
+    void build_components() {
+        DisjointSet sets(clusters_.size());
+        for (const Constraint& constraint : model_.constraints) {
+            if (!active(constraint) || constraint.kind == ConstraintKind::Fix ||
+                constraint.kind == ConstraintKind::Rigid)
+                continue;
+            const std::size_t first = cluster_index(constraint.first.body_id);
+            const std::size_t second = cluster_index(constraint.second->body_id);
+            sets.join(first, second);
+        }
+        std::unordered_map<std::size_t, std::vector<std::size_t>> cluster_groups;
+        for (std::size_t cluster = 0; cluster < clusters_.size(); ++cluster)
+            cluster_groups[sets.find(cluster)].push_back(cluster);
+        std::vector<std::vector<std::size_t>> ordered;
+        for (auto& [unused, values] : cluster_groups) {
+            (void)unused;
+            std::sort(values.begin(), values.end());
+            ordered.push_back(std::move(values));
+        }
+        std::sort(ordered.begin(), ordered.end(), [&](const auto& first, const auto& second) {
+            return clusters_[first.front()].id < clusters_[second.front()].id;
+        });
+        std::unordered_set<std::size_t> affected_clusters;
+        for (const std::string& id : options_.affected_body_ids)
+            affected_clusters.insert(cluster_index(id));
+        for (const auto& values : ordered) {
+            Component component;
+            component.id = "component/" + clusters_[values.front()].id.substr(8);
+            component.cluster_indices = values;
+            component.selected = affected_clusters.empty();
+            for (const std::size_t cluster : values)
+                component.selected = component.selected || affected_clusters.count(cluster) != 0;
+            std::unordered_set<std::size_t> in_component(values.begin(), values.end());
+            for (std::size_t index = 0; index < model_.constraints.size(); ++index) {
+                const Constraint& constraint = model_.constraints[index];
+                if (!active(constraint) || constraint.kind == ConstraintKind::Fix ||
+                    constraint.kind == ConstraintKind::Rigid)
+                    continue;
+                if (in_component.count(cluster_index(constraint.first.body_id)))
+                    component.constraint_indices.push_back(index);
+            }
+            components_.push_back(std::move(component));
+        }
+    }
+
+    const Model& model_;
+    const SolverOptions& options_;
+    std::unordered_map<std::string, std::size_t> body_index_;
+    std::unordered_map<std::string, const GeometryElement*> geometry_index_;
+    std::unordered_map<std::size_t, std::size_t> body_to_cluster_;
+    std::vector<Cluster> clusters_;
+    std::vector<Component> components_;
+};
+
+class ComponentProblem final {
+public:
+    ComponentProblem(const CompiledAssembly& assembly, const Component& component)
+        : assembly_(assembly), component_(component) {
+        for (const std::size_t cluster : component_.cluster_indices)
+            physically_grounded_ =
+                physically_grounded_ || assembly_.clusters()[cluster].ground_pose.has_value();
+        if (!physically_grounded_ && assembly_.options().solve_intent &&
+            assembly_.options().solve_intent->policy ==
+                SolvePreferencePolicy::MoveFirstMinimizeReference) {
+            for (const std::string& body_id :
+                 assembly_.options().solve_intent->reference_body_ids) {
+                const std::size_t candidate = assembly_.cluster_index(body_id);
+                if (std::find(component_.cluster_indices.begin(), component_.cluster_indices.end(),
+                              candidate) != component_.cluster_indices.end()) {
+                    gauge_anchor_cluster_ = candidate;
+                    break;
+                }
+            }
+        }
+        for (const std::size_t cluster : component_.cluster_indices) {
+            if (!assembly_.clusters()[cluster].ground_pose &&
+                (!gauge_anchor_cluster_ || *gauge_anchor_cluster_ != cluster)) {
+                free_cluster_indices_.push_back(cluster);
+            }
+        }
+    }
+
     State initial_state() const {
         State state;
-        for (const Body& body_value : model_.bodies) {
-            Pose pose = body_value.initial_pose;
-            pose.rotation = value(normalized(pose.rotation));
-            state.poses.push_back(pose);
-        }
+        state.poses.reserve(free_cluster_indices_.size());
+        for (const std::size_t cluster : free_cluster_indices_)
+            state.poses.push_back(assembly_.clusters()[cluster].initial_pose);
         return state;
     }
 
@@ -418,44 +731,29 @@ public:
         return result;
     }
 
+    std::vector<Pose> cluster_poses(const State& state) const {
+        std::vector<Pose> result;
+        result.reserve(assembly_.clusters().size());
+        for (const Cluster& cluster : assembly_.clusters())
+            result.push_back(cluster.ground_pose.value_or(cluster.initial_pose));
+        for (std::size_t index = 0; index < free_cluster_indices_.size(); ++index)
+            result[free_cluster_indices_[index]] = state.poses[index];
+        return result;
+    }
+
     std::vector<ResidualBlock> blocks(const State& state) const {
+        const std::vector<Pose> bodies = assembly_.body_poses(cluster_poses(state));
         std::vector<ResidualBlock> result;
-        for (const Constraint& constraint : model_.constraints) {
-            if (constraint.kind == ConstraintKind::Fix) {
-                const Pose& current = state.poses[body_index_.at(constraint.first.body_id)];
-                const Pose target = constraint.fixed_pose.value_or(
-                    model_.bodies[body_index_.at(constraint.first.body_id)].initial_pose);
-                Eigen::VectorXd residual(6);
-                residual << (eigen(current.translation) - eigen(target.translation)) /
-                                options_.length_scale,
-                    rotation_vector(normalized(target.rotation).conjugate() *
-                                    normalized(current.rotation)) /
-                        options_.angle_scale;
-                result.push_back({constraint.id, std::move(residual)});
-                continue;
-            }
-            if (constraint.kind == ConstraintKind::Rigid) {
-                const Pose& first = state.poses[body_index_.at(constraint.first.body_id)];
-                const Pose& second = state.poses[body_index_.at(constraint.second->body_id)];
-                const Pose target = *constraint.fixed_pose;
-                const EigenQuaternion second_rotation = normalized(second.rotation);
-                const Vector3 relative_translation = second_rotation.conjugate() *
-                    (eigen(first.translation) - eigen(second.translation));
-                const EigenQuaternion relative_rotation = second_rotation.conjugate() * normalized(first.rotation);
-                Eigen::VectorXd residual(6);
-                residual << (relative_translation - eigen(target.translation)) / options_.length_scale,
-                    rotation_vector(normalized(target.rotation).conjugate() * relative_rotation) / options_.angle_scale;
-                result.push_back({constraint.id, std::move(residual)});
-                continue;
-            }
-            const GeometryElement& first_element = geometry(constraint.first);
-            const GeometryElement& second_element = geometry(*constraint.second);
+        for (const std::size_t constraint_index : component_.constraint_indices) {
+            const Constraint& constraint = assembly_.model().constraints[constraint_index];
+            const GeometryElement& first_element = assembly_.geometry(constraint.first);
+            const GeometryElement& second_element = assembly_.geometry(*constraint.second);
             const WorldGeometry first =
-                world_geometry(first_element, state.poses[body_index_.at(first_element.body_id)]);
-            const WorldGeometry second =
-                world_geometry(second_element, state.poses[body_index_.at(second_element.body_id)]);
-            result.push_back(
-                {constraint.id, constraint_residual(constraint, first, second, options_)});
+                world_geometry(first_element, bodies[assembly_.body_index(first_element.body_id)]);
+            const WorldGeometry second = world_geometry(
+                second_element, bodies[assembly_.body_index(second_element.body_id)]);
+            result.push_back({constraint.id,
+                              constraint_residual(constraint, first, second, assembly_.options())});
         }
         return result;
     }
@@ -474,121 +772,304 @@ public:
         return result;
     }
 
-    std::size_t parameter_count() const { return model_.bodies.size() * 6; }
-    const Model& model() const { return model_; }
+    Eigen::MatrixXd jacobian(const State& state, const Vector& residual) const {
+        Eigen::MatrixXd result(residual.size(), static_cast<Eigen::Index>(parameter_count()));
+        for (Eigen::Index column = 0; column < result.cols(); ++column) {
+            Vector perturbation = Vector::Zero(result.cols());
+            perturbation[column] = assembly_.options().finite_difference_step;
+            const Vector shifted = this->residual(incremented(state, perturbation));
+            if (shifted.size() != residual.size() || !shifted.allFinite())
+                throw std::runtime_error("finite-difference residual is invalid");
+            result.col(column) = (shifted - residual) / assembly_.options().finite_difference_step;
+        }
+        return result;
+    }
+
+    std::size_t parameter_count() const { return free_cluster_indices_.size() * 6; }
+    bool physically_grounded() const { return physically_grounded_; }
+    std::size_t gauge_dof() const { return physically_grounded_ ? 0 : 6; }
+    std::size_t logical_parameter_count() const {
+        return parameter_count() + (gauge_anchor_cluster_ ? gauge_dof() : 0);
+    }
+    std::size_t relative_dof(const std::size_t rank) const {
+        const std::size_t nullity = parameter_count() >= rank ? parameter_count() - rank : 0;
+        return gauge_anchor_cluster_ ? nullity : nullity - std::min(nullity, gauge_dof());
+    }
+    const std::vector<std::size_t>& free_clusters() const { return free_cluster_indices_; }
 
 private:
-    std::size_t body(const std::string& id) const {
-        const auto found = body_index_.find(id);
-        if (found == body_index_.end())
-            throw std::invalid_argument("constraint references an unknown body: " + id);
-        return found->second;
-    }
-
-    const GeometryElement& geometry(const GeometryRef& reference) const {
-        (void)body(reference.body_id);
-        const auto found =
-            geometry_index_.find(geometry_key(reference.body_id, reference.geometry_id));
-        if (found == geometry_index_.end())
-            throw std::invalid_argument("constraint references unknown geometry: " +
-                                        reference.geometry_id);
-        return *found->second;
-    }
-
-    const Model& model_;
-    const SolverOptions& options_;
-    std::unordered_map<std::string, std::size_t> body_index_;
-    std::unordered_map<std::string, const GeometryElement*> geometry_index_;
+    const CompiledAssembly& assembly_;
+    const Component& component_;
+    std::vector<std::size_t> free_cluster_indices_;
+    std::optional<std::size_t> gauge_anchor_cluster_;
+    bool physically_grounded_{false};
 };
 
-SolveResult make_result(const Problem& problem, const State& state, const SolveStatus status,
-                        const std::size_t iterations, const std::string& diagnostic) {
-    SolveResult result;
-    result.status = status;
-    result.iterations = iterations;
-    result.diagnostic = diagnostic;
-    for (std::size_t index = 0; index < problem.model().bodies.size(); ++index)
-        result.bodies.push_back({problem.model().bodies[index].id, state.poses[index]});
-    const auto blocks = problem.blocks(state);
-    double squared = 0.0;
-    for (const auto& block : blocks) {
-        const double norm = block.values.norm();
-        result.residuals.push_back({block.id, norm});
-        squared += block.values.squaredNorm();
+struct ComponentSolution {
+    SolveStatus status{SolveStatus::Converged};
+    State state;
+    std::size_t iterations{};
+    std::string diagnostic;
+};
+
+ComponentSolution solve_component(const ComponentProblem& problem, const SolverOptions& options) {
+    ComponentSolution result;
+    result.state = problem.initial_state();
+    Vector residual = problem.residual(result.state);
+    if (!residual.allFinite())
+        return {SolveStatus::NumericalFailure, result.state, 0, "initial residual is not finite"};
+    if (residual.size() == 0 || residual.norm() <= options.residual_tolerance)
+        return {SolveStatus::Converged, result.state, 0,
+                residual.size() == 0 ? "component has no active equations"
+                                     : "constraints already satisfied"};
+    if (problem.parameter_count() == 0)
+        return {SolveStatus::MaxIterations, result.state, 0,
+                "grounded component violates an active constraint"};
+    double damping = options.initial_damping;
+    for (std::size_t iteration = 1; iteration <= options.max_iterations; ++iteration) {
+        const Eigen::MatrixXd jacobian = problem.jacobian(result.state, residual);
+        Eigen::MatrixXd normal = jacobian.transpose() * jacobian;
+        normal.diagonal().array() += damping;
+        const Vector step = normal.ldlt().solve(-jacobian.transpose() * residual);
+        if (!step.allFinite())
+            return {SolveStatus::NumericalFailure, result.state, iteration,
+                    "linear solve produced a non-finite step"};
+        if (step.norm() <= options.step_tolerance) {
+            const SolveStatus status = residual.norm() <= options.residual_tolerance
+                                           ? SolveStatus::Converged
+                                           : SolveStatus::MaxIterations;
+            return {status, result.state, iteration,
+                    status == SolveStatus::Converged ? "converged"
+                                                     : "stationary point above tolerance"};
+        }
+        const State candidate = problem.incremented(result.state, step);
+        const Vector candidate_residual = problem.residual(candidate);
+        if (candidate_residual.allFinite() &&
+            candidate_residual.squaredNorm() < residual.squaredNorm()) {
+            result.state = candidate;
+            residual = candidate_residual;
+            damping = std::max(damping * 0.25, 1.0e-12);
+            if (residual.norm() <= options.residual_tolerance)
+                return {SolveStatus::Converged, result.state, iteration, "converged"};
+        } else {
+            damping = std::min(damping * 10.0, 1.0e12);
+        }
     }
-    result.normalized_residual = std::sqrt(squared);
+    return {SolveStatus::MaxIterations, result.state, options.max_iterations,
+            "maximum iteration count reached"};
+}
+
+std::size_t matrix_rank(const Eigen::MatrixXd& matrix, const double tolerance) {
+    if (matrix.rows() == 0 || matrix.cols() == 0)
+        return 0;
+    Eigen::FullPivLU<Eigen::MatrixXd> decomposition(matrix);
+    decomposition.setThreshold(tolerance);
+    return static_cast<std::size_t>(decomposition.rank());
+}
+
+std::vector<std::string> redundant_constraints(const ComponentProblem& problem, const State& state,
+                                               const SolverOptions& options) {
+    const auto blocks = problem.blocks(state);
+    const Vector all_residuals = problem.residual(state);
+    const Eigen::MatrixXd all_jacobian = problem.jacobian(state, all_residuals);
+    std::vector<std::string> result;
+    Eigen::MatrixXd accepted(0, all_jacobian.cols());
+    std::size_t accepted_rank = 0;
+    Eigen::Index row = 0;
+    for (const ResidualBlock& block : blocks) {
+        Eigen::MatrixXd candidate(accepted.rows() + block.values.size(), accepted.cols());
+        if (accepted.rows() > 0)
+            candidate.topRows(accepted.rows()) = accepted;
+        candidate.bottomRows(block.values.size()) =
+            all_jacobian.middleRows(row, block.values.size());
+        const std::size_t candidate_rank = matrix_rank(candidate, options.rank_tolerance);
+        if (candidate_rank == accepted_rank)
+            result.push_back(block.id);
+        else {
+            accepted = std::move(candidate);
+            accepted_rank = candidate_rank;
+        }
+        row += block.values.size();
+    }
     return result;
+}
+
+ResidualBlock evaluate_constraint(const CompiledAssembly& assembly, const Constraint& constraint,
+                                  const std::vector<Pose>& body_poses) {
+    if (constraint.kind == ConstraintKind::Fix) {
+        const std::size_t body = assembly.body_index(constraint.first.body_id);
+        const Pose target =
+            constraint.fixed_pose.value_or(assembly.model().bodies[body].initial_pose);
+        Eigen::VectorXd residual(6);
+        residual << (eigen(body_poses[body].translation) - eigen(target.translation)) /
+                        assembly.options().length_scale,
+            rotation_vector(normalized(target.rotation).conjugate() *
+                            normalized(body_poses[body].rotation)) /
+                assembly.options().angle_scale;
+        return {constraint.id, std::move(residual)};
+    }
+    if (constraint.kind == ConstraintKind::Rigid) {
+        const Pose& first = body_poses[assembly.body_index(constraint.first.body_id)];
+        const Pose& second = body_poses[assembly.body_index(constraint.second->body_id)];
+        const Pose current = relative_pose(first, second);
+        const Pose target = *constraint.fixed_pose;
+        Eigen::VectorXd residual(6);
+        residual << (eigen(current.translation) - eigen(target.translation)) /
+                        assembly.options().length_scale,
+            rotation_vector(normalized(target.rotation).conjugate() *
+                            normalized(current.rotation)) /
+                assembly.options().angle_scale;
+        return {constraint.id, std::move(residual)};
+    }
+    const GeometryElement& first_element = assembly.geometry(constraint.first);
+    const GeometryElement& second_element = assembly.geometry(*constraint.second);
+    const WorldGeometry first =
+        world_geometry(first_element, body_poses[assembly.body_index(first_element.body_id)]);
+    const WorldGeometry second =
+        world_geometry(second_element, body_poses[assembly.body_index(second_element.body_id)]);
+    return {constraint.id, constraint_residual(constraint, first, second, assembly.options())};
+}
+
+std::string connection_id(const Constraint& constraint) {
+    return constraint.connection_id.empty() ? "connection/" + constraint.id
+                                            : constraint.connection_id;
 }
 
 }  // namespace
 
 SolveResult Solver::solve(const Model& model, const SolverOptions& options) const {
     try {
-        Problem problem(model, options);
-        State state = problem.initial_state();
-        Vector residual = problem.residual(state);
-        if (!residual.allFinite())
-            return make_result(problem, state, SolveStatus::NumericalFailure, 0,
-                               "initial residual is not finite");
-        if (residual.norm() <= options.residual_tolerance)
-            return make_result(problem, state, SolveStatus::Converged, 0,
-                               "constraints already satisfied");
-        if (residual.size() == 0)
-            return make_result(problem, state, SolveStatus::Converged, 0,
-                               "model has no active constraints");
+        CompiledAssembly assembly(model, options);
+        SolveResult result;
+        result.status = SolveStatus::Converged;
+        std::vector<Pose> cluster_poses;
+        std::vector<bool> selected_clusters(assembly.clusters().size(), false);
+        cluster_poses.reserve(assembly.clusters().size());
+        for (const Cluster& cluster : assembly.clusters())
+            cluster_poses.push_back(cluster.ground_pose.value_or(cluster.initial_pose));
 
-        double damping = options.initial_damping;
-        for (std::size_t iteration = 1; iteration <= options.max_iterations; ++iteration) {
-            Eigen::MatrixXd jacobian(residual.size(),
-                                     static_cast<Eigen::Index>(problem.parameter_count()));
-            for (Eigen::Index column = 0; column < jacobian.cols(); ++column) {
-                Vector perturbation = Vector::Zero(jacobian.cols());
-                perturbation[column] = options.finite_difference_step;
-                const Vector shifted = problem.residual(problem.incremented(state, perturbation));
-                if (shifted.size() != residual.size() || !shifted.allFinite())
-                    return make_result(problem, state, SolveStatus::NumericalFailure, iteration,
-                                       "finite-difference residual is invalid");
-                jacobian.col(column) = (shifted - residual) / options.finite_difference_step;
+        bool has_relative_dof = false;
+        for (const Component& component : assembly.components()) {
+            for (const std::size_t cluster : component.cluster_indices)
+                selected_clusters[cluster] = component.selected;
+            ComponentProblem problem(assembly, component);
+            ComponentSolution solution;
+            if (component.selected)
+                solution = solve_component(problem, options);
+            else {
+                solution.state = problem.initial_state();
+                solution.diagnostic = "component was outside the affected solve scope";
             }
-            Eigen::MatrixXd normal = jacobian.transpose() * jacobian;
-            normal.diagonal().array() += damping;
-            const Vector step = normal.ldlt().solve(-jacobian.transpose() * residual);
-            if (!step.allFinite())
-                return make_result(problem, state, SolveStatus::NumericalFailure, iteration,
-                                   "linear solve produced a non-finite step");
-            if (step.norm() <= options.step_tolerance) {
-                const SolveStatus status = residual.norm() <= options.residual_tolerance
-                                               ? SolveStatus::Converged
-                                               : SolveStatus::MaxIterations;
-                return make_result(problem, state, status, iteration,
-                                   status == SolveStatus::Converged
-                                       ? "converged"
-                                       : "stationary point above tolerance");
+            for (std::size_t index = 0; index < problem.free_clusters().size(); ++index)
+                cluster_poses[problem.free_clusters()[index]] = solution.state.poses[index];
+            result.iterations += solution.iterations;
+            if (solution.status == SolveStatus::NumericalFailure)
+                result.status = SolveStatus::NumericalFailure;
+            else if (solution.status == SolveStatus::MaxIterations &&
+                     result.status == SolveStatus::Converged)
+                result.status = SolveStatus::MaxIterations;
+
+            const Vector residual = problem.residual(solution.state);
+            const Eigen::MatrixXd jacobian = problem.jacobian(solution.state, residual);
+            const std::size_t rank = matrix_rank(jacobian, options.rank_tolerance);
+            const std::size_t variables = problem.logical_parameter_count();
+            const std::size_t gauge = problem.gauge_dof();
+            const std::size_t relative = problem.relative_dof(rank);
+            has_relative_dof = has_relative_dof || relative > 0;
+            ComponentDof component_dof;
+            component_dof.component_id = component.id;
+            component_dof.tangent_variable_count = variables;
+            component_dof.jacobian_rank = rank;
+            component_dof.relative_dof = relative;
+            component_dof.gauge_dof = gauge;
+            component_dof.solved = component.selected;
+            for (const std::size_t cluster_index : component.cluster_indices) {
+                for (const std::size_t body : assembly.clusters()[cluster_index].body_indices)
+                    component_dof.body_ids.push_back(model.bodies[body].id);
             }
-            const State candidate = problem.incremented(state, step);
-            const Vector candidate_residual = problem.residual(candidate);
-            if (candidate_residual.allFinite() &&
-                candidate_residual.squaredNorm() < residual.squaredNorm()) {
-                state = candidate;
-                residual = candidate_residual;
-                damping = std::max(damping * 0.25, 1.0e-12);
-                if (residual.norm() <= options.residual_tolerance)
-                    return make_result(problem, state, SolveStatus::Converged, iteration,
-                                       "converged");
-            } else {
-                damping = std::min(damping * 10.0, 1.0e12);
+            std::sort(component_dof.body_ids.begin(), component_dof.body_ids.end());
+            result.components.push_back(std::move(component_dof));
+
+            if (component.selected && solution.status == SolveStatus::Converged) {
+                const auto redundant = redundant_constraints(problem, solution.state, options);
+                result.redundant_constraint_ids.insert(result.redundant_constraint_ids.end(),
+                                                       redundant.begin(), redundant.end());
+            }
+            if (!component.selected) {
+                result.diagnostics.push_back(
+                    {"COMPONENT_NOT_SOLVED", component.id, {}, {}, solution.diagnostic});
             }
         }
-        return make_result(problem, state, SolveStatus::MaxIterations, options.max_iterations,
-                           "maximum iteration count reached");
+
+        const std::vector<Pose> body_poses = assembly.body_poses(cluster_poses);
+        for (std::size_t index = 0; index < model.bodies.size(); ++index)
+            result.bodies.push_back({model.bodies[index].id, body_poses[index]});
+
+        double squared_residual = 0.0;
+        for (const Constraint& constraint : model.constraints) {
+            if (constraint.mode == ConstraintMode::Suppressed)
+                continue;
+            const ResidualBlock block = evaluate_constraint(assembly, constraint, body_poses);
+            const double norm = block.values.norm();
+            result.residuals.push_back({constraint.id, norm});
+            if (active(constraint))
+                squared_residual += block.values.squaredNorm();
+            for (Eigen::Index equation = 0; equation < block.values.size(); ++equation) {
+                result.equation_residuals.push_back(
+                    {constraint.id + "/equation/" + std::to_string(equation),
+                     connection_id(constraint), constraint.id, static_cast<std::size_t>(equation),
+                     block.values[equation]});
+            }
+            const bool selected =
+                options.affected_body_ids.empty() ||
+                selected_clusters[assembly.cluster_index(constraint.first.body_id)];
+            if (active(constraint) && selected && norm > options.residual_tolerance)
+                result.conflicting_constraint_ids.push_back(constraint.id);
+        }
+        result.normalized_residual = std::sqrt(squared_residual);
+        std::sort(result.redundant_constraint_ids.begin(), result.redundant_constraint_ids.end());
+        result.redundant_constraint_ids.erase(std::unique(result.redundant_constraint_ids.begin(),
+                                                          result.redundant_constraint_ids.end()),
+                                              result.redundant_constraint_ids.end());
+        std::sort(result.conflicting_constraint_ids.begin(),
+                  result.conflicting_constraint_ids.end());
+
+        if (!result.conflicting_constraint_ids.empty()) {
+            result.classification = SolveClassification::Conflicting;
+            result.diagnostics.push_back({"CONFLICTING_CONSTRAINTS",
+                                          {},
+                                          {},
+                                          result.conflicting_constraint_ids,
+                                          "active constraints remain above tolerance"});
+        } else if (result.status == SolveStatus::NumericalFailure ||
+                   result.status == SolveStatus::MaxIterations) {
+            result.classification = SolveClassification::NonConvergent;
+        } else if (!result.redundant_constraint_ids.empty()) {
+            result.classification = SolveClassification::Redundant;
+            result.diagnostics.push_back({"REDUNDANT_CONSTRAINTS",
+                                          {},
+                                          {},
+                                          result.redundant_constraint_ids,
+                                          "constraints add no independent Jacobian rank"});
+        } else if (has_relative_dof) {
+            result.classification = SolveClassification::SolvedUnderConstrained;
+        } else {
+            result.classification = SolveClassification::SolvedFully;
+        }
+        result.diagnostic = result.status == SolveStatus::Converged
+                                ? "assembly components solved"
+                                : "one or more assembly components did not converge";
+        return result;
     } catch (const std::invalid_argument& error) {
         SolveResult result;
         result.status = SolveStatus::InvalidModel;
+        result.classification = SolveClassification::InvalidModel;
         result.diagnostic = error.what();
         return result;
     } catch (const std::exception& error) {
         SolveResult result;
         result.status = SolveStatus::NumericalFailure;
+        result.classification = SolveClassification::NonConvergent;
         result.diagnostic = error.what();
         return result;
     }

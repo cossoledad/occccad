@@ -43,7 +43,7 @@ flowchart LR
 
 Worker 只生成 Body 的基础实体 GLB。Part 模型拥有的 Datum、Sketch 以及未来非实体曲线/曲面由控制面的版本化 `VisualizationManifest` 表达；Artifact 管线把它注入最终 GLB 的 `OCCCCAD_visualization` 扩展。不要把完整 PartModel 或装配 occurrence 传入 OCCT Worker 来生成第二套场景：同一最终 GLB/manifest 必须同时供 Part、缩略图和 Product occurrence 使用。
 
-`SolveAssembly` 接收已经由控制面解析好的刚体初始 Pose、body-local Point/Axis/Plane/Cylinder 描述符和几何约束，不接收 Product 文档、InstancePath 或 B-Rep。Worker 调用独立的 `kernel/assembly`，返回 Pose 与逐约束残差；Product Constraint、Revision 和 Undo/Redo 仍由 Go 控制面负责。Router 必须显式代理该 RPC，不能以直连 Worker 的测试代替正式路径验证。
+`SolveAssembly` 接收已经由控制面解析好的刚体初始 Pose、body-local Point/Axis/Plane/Cylinder 描述符和几何约束，不接收 Product 文档、InstancePath 或 B-Rep。Worker 调用独立的 `kernel/assembly`，返回 Pose、逐约束/方程残差、connected component 的 rank/relative DOF/gauge DOF、冗余/冲突身份和结构化诊断；请求可用 affected body IDs 限定需要更新的连通分量，也可携带 request-scoped `solve_intent`，表达“第一选择运动、第二选择尽量保持”的交互偏好而不改变约束本身的对称语义。M1.5 仅在无物理接地时以参考 cluster 消除全局 gauge，已接地系统的严格层级最小位移仍属于 M3。Product Constraint、Revision 和 Undo/Redo 仍由 Go 控制面负责。Router 必须显式代理完整 RPC，不能以直连 Worker 的测试代替正式路径验证。
 
 当前单 Body Part 以不可变 GeometryId 作为驻留原子。首次拓扑请求可以从 B-Rep Artifact 冷恢复，但 Router 会在 RPC 前预留同一 owner，Worker 随后缓存完整 `TopologyInfo`；选择其他面、边或点只过滤缓存，不重新读取 B-Rep 或遍历整个 Shape。未来多 Body Part 应为每个 Body 生成独立 GeometryId，而装配中的相同 Part occurrence 复用 GeometryId，仅区分 InstancePath/Transform。
 

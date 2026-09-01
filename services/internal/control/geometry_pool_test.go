@@ -38,9 +38,9 @@ func (sketchWorkerStub) SolveSketch(_ context.Context, request *workerv1.SolveSk
 }
 
 func (sketchWorkerStub) SolveAssembly(_ context.Context, request *workerv1.SolveAssemblyRequest) (*workerv1.SolveAssemblyResponse, error) {
-	return &workerv1.SolveAssemblyResponse{Status: "CONVERGED", Bodies: []*workerv1.SolvedAssemblyBody{{
+	return &workerv1.SolveAssemblyResponse{Status: "CONVERGED", Classification: "SOLVED_UNDER_CONSTRAINED", Components: []*workerv1.AssemblyComponentDof{{ComponentId: "component/part-1", BodyIds: []string{"part-1"}, GaugeDof: 6, Solved: true}}, Bodies: []*workerv1.SolvedAssemblyBody{{
 		Id: request.GetBodies()[0].GetId(), Pose: request.GetBodies()[0].GetInitialPose(),
-	}}}, nil
+	}}, Diagnostic: request.GetSolveIntent().GetPreferencePolicy()}, nil
 }
 
 func (sketchWorkerStub) InspectExchange(_ context.Context, _ *workerv1.InspectExchangeRequest) (*workerv1.InspectExchangeResponse, error) {
@@ -114,11 +114,12 @@ func TestGeometryPoolRoutesSolveAssembly(t *testing.T) {
 		RequestId: "assembly-1", Bodies: []*workerv1.AssemblyBody{{Id: "part-1", InitialPose: &workerv1.RigidPose{
 			Rotation: &workerv1.Quaternion{W: 1}, Translation: &workerv1.Vec3{},
 		}}},
+		SolveIntent: &workerv1.AssemblySolveIntent{MovingBodyIds: []string{"part-1"}, ReferenceBodyIds: []string{"part-2"}, PreferencePolicy: "MOVE_FIRST_MINIMIZE_REFERENCE"},
 	})
 	if err != nil {
 		t.Fatalf("SolveAssembly was not routed: %v", err)
 	}
-	if response.GetStatus() != "CONVERGED" || response.GetBodies()[0].GetId() != "part-1" {
+	if response.GetStatus() != "CONVERGED" || response.GetBodies()[0].GetId() != "part-1" || response.GetClassification() != "SOLVED_UNDER_CONSTRAINED" || response.GetComponents()[0].GetGaugeDof() != 6 || response.GetDiagnostic() != "MOVE_FIRST_MINIMIZE_REFERENCE" {
 		t.Fatalf("unexpected routed response: %#v", response)
 	}
 }

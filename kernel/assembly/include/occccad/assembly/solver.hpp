@@ -68,6 +68,8 @@ struct GeometryRef {
 
 enum class ConstraintKind { Fix, Rigid, Coincident, Concentric, Angle, Distance };
 
+enum class ConstraintMode { Driving, Measured, Controlled, Suppressed };
+
 // Unoriented chooses the same/opposite branch nearest the current iterate.
 enum class DirectionRelation { Unoriented, Same, Opposite };
 
@@ -77,7 +79,9 @@ enum class DistanceRelation { Unsigned, AlongSecondNormal, OppositeSecondNormal 
 
 struct Constraint {
     std::string id;
+    std::string connection_id;
     ConstraintKind kind{ConstraintKind::Coincident};
+    ConstraintMode mode{ConstraintMode::Driving};
     GeometryRef first;
     std::optional<GeometryRef> second;
     double value{};  // radians for Angle, model length for Distance
@@ -93,6 +97,17 @@ struct Model {
     std::vector<Constraint> constraints;
 };
 
+enum class SolvePreferencePolicy { MinimumTotalChange, MoveFirstMinimizeReference };
+
+// Request-scoped placement intent. Endpoint order does not make the persisted
+// geometric constraint asymmetric; it only selects a deterministic solution
+// from the feasible family for this solve.
+struct SolveIntent {
+    std::vector<std::string> moving_body_ids;
+    std::vector<std::string> reference_body_ids;
+    SolvePreferencePolicy policy{SolvePreferencePolicy::MinimumTotalChange};
+};
+
 struct SolverOptions {
     std::size_t max_iterations{100};
     double residual_tolerance{1.0e-9};
@@ -101,13 +116,53 @@ struct SolverOptions {
     double initial_damping{1.0e-4};
     double length_scale{1.0};
     double angle_scale{1.0};
+    double rank_tolerance{1.0e-9};
+    // Empty solves every connected component. Otherwise only components
+    // containing at least one listed body are numerically updated.
+    std::vector<std::string> affected_body_ids;
+    std::optional<SolveIntent> solve_intent;
 };
 
 enum class SolveStatus { Converged, MaxIterations, InvalidModel, NumericalFailure };
 
+enum class SolveClassification {
+    SolvedFully,
+    SolvedUnderConstrained,
+    Redundant,
+    Conflicting,
+    InvalidModel,
+    NonConvergent
+};
+
 struct ConstraintResidual {
     std::string constraint_id;
     double normalized_norm{};
+};
+
+struct EquationResidual {
+    std::string equation_id;
+    std::string connection_id;
+    std::string constraint_id;
+    std::size_t equation_index{};
+    double normalized_value{};
+};
+
+struct ComponentDof {
+    std::string component_id;
+    std::vector<std::string> body_ids;
+    std::size_t tangent_variable_count{};
+    std::size_t jacobian_rank{};
+    std::size_t relative_dof{};
+    std::size_t gauge_dof{};
+    bool solved{true};
+};
+
+struct SolveDiagnostic {
+    std::string code;
+    std::string component_id;
+    std::vector<std::string> body_ids;
+    std::vector<std::string> constraint_ids;
+    std::string detail;
 };
 
 struct SolvedBody {
@@ -117,8 +172,14 @@ struct SolvedBody {
 
 struct SolveResult {
     SolveStatus status{SolveStatus::InvalidModel};
+    SolveClassification classification{SolveClassification::InvalidModel};
     std::vector<SolvedBody> bodies;
     std::vector<ConstraintResidual> residuals;
+    std::vector<EquationResidual> equation_residuals;
+    std::vector<ComponentDof> components;
+    std::vector<std::string> redundant_constraint_ids;
+    std::vector<std::string> conflicting_constraint_ids;
+    std::vector<SolveDiagnostic> diagnostics;
     std::size_t iterations{};
     double normalized_residual{};
     std::string diagnostic;

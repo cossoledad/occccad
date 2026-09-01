@@ -7,3 +7,18 @@ target_compile_features(occcad_assembly_solver_scenarios PRIVATE cxx_std_17)
 occccad_set_warnings(occcad_assembly_solver_scenarios PRIVATE)
 occccad_apply_sanitizers(occcad_assembly_solver_scenarios)
 gtest_discover_tests(occcad_assembly_solver_scenarios TEST_PREFIX "assembly/")
+
+add_executable(occcad_assembly_solver_corpus
+    ${PROJECT_SOURCE_DIR}/tests/assembly-corpus/assembly_corpus.cpp
+    ${PROJECT_SOURCE_DIR}/tests/assembly-corpus/assembly_corpus_test.cpp
+)
+target_include_directories(occcad_assembly_solver_corpus PRIVATE
+    ${PROJECT_SOURCE_DIR}/tests/assembly-corpus
+)
+target_link_libraries(occcad_assembly_solver_corpus
+    PRIVATE occccad_assembly_solver GTest::gtest_main
+)
+target_compile_features(occcad_assembly_solver_corpus PRIVATE cxx_std_17)
+occccad_set_warnings(occcad_assembly_solver_corpus PRIVATE)
+occccad_apply_sanitizers(occcad_assembly_solver_corpus)
+gtest_discover_tests(occcad_assembly_solver_corpus TEST_PREFIX "assembly-corpus/")
