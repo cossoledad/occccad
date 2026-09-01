@@ -4,6 +4,9 @@ The current implementation and its focused build instructions are described here
 The layered constraint-manager target, external design references and phased
 implementation plan are documented in
 [`SOLVER_ARCHITECTURE.md`](SOLVER_ARCHITECTURE.md).
+The equations, graph compilation, numerical iteration and diagnostic algorithms
+actually used by the current M1/M1.5 implementation are recorded separately in
+[`SOLVER_ALGORITHMS.md`](SOLVER_ALGORITHMS.md).
 
 `occccad_assembly_solver` is the standalone algorithm module for 3D assembly
 constraints. It consumes rigid bodies, body-local geometric elements and geometric
