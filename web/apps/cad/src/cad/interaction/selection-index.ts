@@ -63,9 +63,14 @@ export class SelectionIndex {
   selectionForTreeNode(treeNodeId: string): Selection { return this.tree.get(treeNodeId) ?? null; }
 
   pick(raycaster: THREE.Raycaster, accepts: (selection: Exclude<Selection, null>) => boolean = () => true): Selection {
-    const roots = this.picks.map((binding) => binding.root);
+    const visible = (root: THREE.Object3D) => {
+      for (let object: THREE.Object3D | null = root; object; object = object.parent) if (!object.visible) return false;
+      return true;
+    };
+    const activePicks = this.picks.filter((binding) => visible(binding.root));
+    const roots = activePicks.map((binding) => binding.root);
     if (roots.length === 0) return null;
-    const bindings = new Map(this.picks.map((binding) => [binding.root.uuid, binding]));
+    const bindings = new Map(activePicks.map((binding) => [binding.root.uuid, binding]));
     const candidates = raycaster.intersectObjects(roots, false).map((intersection) => {
       const binding = bindings.get(intersection.object.uuid);
       return binding ? { intersection, binding } : undefined;

@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { TransformControls } from "three/examples/jsm/controls/TransformControls.js";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import { InputManager } from "../cad/input/input-manager";
@@ -7,6 +6,8 @@ import type { InputState } from "../cad/input/input-types";
 import { InteractionRouter } from "../cad/interaction/interaction-router";
 import { SelectionController } from "../cad/interaction/selection-controller";
 import { SelectionIndex } from "../cad/interaction/selection-index";
+import { AssemblyManipulator } from "../cad/interaction/assembly-manipulator";
+import { selectionModeForTool, type SelectionMode } from "../cad/interaction/selection-mode";
 import { sameSelection, sameSelections, selectionKey } from "../cad/interaction/selection-identity";
 import { resultBodyFeatureTreeNode } from "../cad/interaction/selection-hierarchy";
 import { resolveSketchReference, type SketchReferencePickKind } from "../cad/interaction/sketch-reference-pick";
@@ -27,6 +28,7 @@ import { measureSketchDimension } from "../cad/sketch/sketch-constraint-layout";
 import { sketchReferenceDimensions, SKETCH_INPUT_POLICY } from "../cad/sketch/sketch-input-policy";
 import { sampleSketchEntity, sketchEntityPoint } from "../cad/sketch/sketch-geometry";
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
+import { viewportMetrics } from "../cad/rendering/viewport-metrics";
 import { ArcSketchTool, AssemblyConstraintTool, AssemblyMoveTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type AssemblyConstraintToolKind, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
@@ -149,9 +151,7 @@ export class CadViewportEngine {
   private readonly shaders = new CadShaderLibrary();
   private readonly materials = new CadMaterialFactory(this.shaders);
   private readonly background = new CadBackground(this.shaders);
-  private readonly transform: TransformControls;
-  private readonly rotationTransform: TransformControls;
-  private readonly movePivot = new THREE.Group();
+  private readonly moveManipulator: AssemblyManipulator;
   private moveTarget?: { group: THREE.Group; startPosition: THREE.Vector3; startQuaternion: THREE.Quaternion; startPivot: THREE.Vector3 };
   private readonly navigation: NavigationController;
   private readonly navigationHUD: CatiaNavigationHUD;
@@ -170,6 +170,7 @@ export class CadViewportEngine {
   private readonly selectionIndex = new SelectionIndex();
   private readonly solidBindings = new Map<string, SolidBinding>();
   private readonly instanceGroups = new Map<string, THREE.Group>();
+  private readonly assemblyConstraintReferences = new Map<string, SelectionItem[]>();
   private selected: SelectionItem[] = [];
   private preselected: Selection = null;
   private selectedOverlays: THREE.Object3D[] = [];
@@ -186,10 +187,11 @@ export class CadViewportEngine {
   private commandPreview?: THREE.Object3D;
   private dimensionDrag?: { selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; constraint: SketchConstraint;
     root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2 };
-  private suppressNextSelection = false;
-  private rigidDrag?: { driver: string; start: THREE.Vector3; members: Map<string, THREE.Vector3> };
-  private movePreviewSequence=0;private movePreviewAppliedSequence=0;private lastMovePreviewAt=0;
+  private movePreviewGeneration=0;private movePreviewInFlight=false;
+  private pendingMovePreview?:{generation:number;instanceId:string;translation:Vec3;rotation:[number,number,number,number]};
+  private desiredMovePose?:{translation:Vec3;rotation:[number,number,number,number]};
   private activeToolID = "select";
+  private selectionMode: SelectionMode = selectionModeForTool("select");
   private navigationProfile: NavigationProfileID = "default";
   private captureSettings: CaptureSettings = DEFAULT_CAPTURE_SETTINGS;
   private hiddenTreeKeys = new Set<string>();
@@ -208,27 +210,20 @@ export class CadViewportEngine {
     this.renderer.autoClear = false;
     host.appendChild(this.renderer.domElement);
 
-    this.transform = new TransformControls(this.camera, this.renderer.domElement);
-    this.transform.setMode("translate");
-    this.transform.setSpace("world");
-    this.scene.add(this.movePivot);
-    this.scene.add(this.transform.getHelper());
-    this.rotationTransform = new TransformControls(this.camera, this.renderer.domElement);
-    this.rotationTransform.setMode("rotate"); this.rotationTransform.setSpace("world"); this.rotationTransform.setSize(0.82);
-    this.scene.add(this.rotationTransform.getHelper());
-    this.transform.addEventListener("dragging-changed", (event) => {
-      this.navigation.setEnabled(!Boolean(event.value));
-      if (event.value) { this.suppressNextSelection = true; this.beginRigidDrag(); }
-      else this.rigidDrag = undefined;
+    this.moveManipulator = new AssemblyManipulator(this.shaders, {
+      dragStarted: () => { this.navigation.setEnabled(false); this.beginMovePreviewGesture(); },
+      changed: () => { this.updateMoveTarget(); this.invalidate(); },
+      dragFinished: (commit) => {
+        this.navigation.setEnabled(true); this.endMovePreviewGesture();
+        if (commit) this.commitTransform();
+        else if (this.moveTarget) {
+          this.moveTarget.group.position.copy(this.moveTarget.startPosition);
+          this.moveTarget.group.quaternion.copy(this.moveTarget.startQuaternion);
+          this.attachMoveManipulator(); this.invalidate();
+        }
+      },
     });
-    this.transform.addEventListener("mouseUp", () => {
-      this.commitTransform();
-      window.setTimeout(() => { this.suppressNextSelection = false; }, 0);
-    });
-    this.transform.addEventListener("change", () => { this.updateMoveTarget(); this.updateRigidDrag(); this.invalidate(); });
-    this.rotationTransform.addEventListener("dragging-changed",(event)=>{this.navigation.setEnabled(!Boolean(event.value));if(event.value){this.suppressNextSelection=true;this.beginRigidDrag();}else this.rigidDrag=undefined;});
-    this.rotationTransform.addEventListener("mouseUp",()=>{this.commitTransform();window.setTimeout(()=>{this.suppressNextSelection=false;},0);});
-    this.rotationTransform.addEventListener("change",()=>{this.updateMoveTarget();this.invalidate();});
+    this.scene.add(this.moveManipulator.root);
 
     const groundGrid = new THREE.GridHelper(1200, 60);
     groundGrid.rotation.x = Math.PI / 2;
@@ -290,7 +285,9 @@ export class CadViewportEngine {
     this.input.subscribe(() => this.emitDebugState());
     this.tools.subscribe((toolID) => {
       this.activeToolID = toolID ?? "select";
-      if (this.activeToolID !== "assembly.move") { this.transform.detach(); this.rotationTransform.detach(); }
+      this.selectionMode = selectionModeForTool(this.activeToolID);
+      this.preselect(null, true);
+      if (this.activeToolID !== "assembly.move") this.moveManipulator.detach();
       else this.attachMoveManipulator();
       this.host.classList.toggle("drawing", Boolean(toolID?.startsWith("sketch.")) && Boolean(this.sketchPlane));
       this.callbacks.activeToolChanged(this.activeToolID as import("../state/workbench-store").WorkbenchToolID);
@@ -311,12 +308,12 @@ export class CadViewportEngine {
   }
 
   render(view: DocumentView, editContext?: ViewportEditContext): void {
+    const retainedMoveSelection = this.activeToolID === "assembly.move" ? [...this.selected] : [];
     this.clearCommandPreview();
 	this.clearInteractionState();
     this.view = view;
     this.editContext = editContext;
-    this.transform.detach();
-    this.rotationTransform.detach();
+    this.moveManipulator.detach();
     this.moveTarget = undefined;
     this.disposeGroup(this.content);
     this.disposeGroup(this.helpers);
@@ -324,6 +321,7 @@ export class CadViewportEngine {
     this.selectionIndex.clear();
     this.solidBindings.clear();
     this.instanceGroups.clear();
+    this.assemblyConstraintReferences.clear();
     if (view.document.type === "PART") this.renderPart(view);
     else this.renderProduct(view);
     if (view.document.type === "PRODUCT" && editContext?.view.document.type === "PART") {
@@ -337,6 +335,9 @@ export class CadViewportEngine {
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
     this.refreshContentBounds();
+    const validMoveSelection = retainedMoveSelection.filter((selection) => selection.kind === "instance" &&
+      this.instanceGroups.has(selection.instanceId ?? selection.id));
+    if (validMoveSelection.length === 1) this.selectMany(validMoveSelection, false);
     // this.frameContent();
     this.invalidate();
   }
@@ -345,8 +346,8 @@ export class CadViewportEngine {
     this.clearCommandPreview();
 	this.clearInteractionState();
     this.view = undefined;
-    this.transform.detach();
-    this.rotationTransform.detach();
+    this.moveManipulator.detach();
+    this.moveTarget = undefined;
     this.disposeGroup(this.content);
     this.disposeGroup(this.helpers);
     this.selectable.clear();
@@ -370,8 +371,7 @@ export class CadViewportEngine {
   beginSketch(sketchID: string, plane: SketchPlane): void {
     this.activeSketchID = sketchID;
     this.sketchPlane = plane;
-    this.transform.detach();
-    this.rotationTransform.detach();
+    this.moveManipulator.detach();
     this.select({ kind: "plane", id: plane.datumPlaneId, plane: plane.plane });
     this.navigation.setEnabled(true);
     const frame = planeFrame(plane);
@@ -475,11 +475,13 @@ export class CadViewportEngine {
 
   selectMany(selections: readonly SelectionItem[], notify = true): void {
     const unique = [...new Map(selections.map((selection) => [selectionKey(selection), selection])).values()];
-    if (sameSelections(this.selected, unique) && !this.preselected) return;
+    if (sameSelections(this.selected, unique) && !this.preselected) {
+      if(this.activeToolID==="assembly.move"&&!this.moveManipulator.isAttached())this.attachMoveManipulator();
+      return;
+    }
     this.selected = unique;
     this.preselected = null;
-    this.transform.detach();
-    this.rotationTransform.detach();
+    this.moveManipulator.detach();
     this.refreshInteractionHighlights();
     if (this.activeToolID === "assembly.move" && unique.length === 1 && unique[0].kind === "instance") {
       this.attachMoveManipulator();
@@ -490,26 +492,35 @@ export class CadViewportEngine {
 
   private attachMoveManipulator(): void {
     if (this.selected.length !== 1 || this.selected[0].kind !== "instance") return;
-    const object = this.selectable.get(`instance:${this.selected[0].id}`);
+    const object = this.selectable.get(`instance:${this.selected[0].instanceId ?? this.selected[0].id}`);
     if (!(object instanceof THREE.Group)) return;
     const center = new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3());
-    this.movePivot.position.copy(center); this.movePivot.quaternion.identity(); this.movePivot.userData.id = object.userData.id;
+    this.moveManipulator.attach(center);
     this.moveTarget = { group: object, startPosition: object.position.clone(), startQuaternion: object.quaternion.clone(), startPivot: center.clone() };
-    this.transform.attach(this.movePivot);
-    this.rotationTransform.attach(this.movePivot);
+    this.desiredMovePose = { translation: object.position.toArray(), rotation: object.quaternion.toArray() };
   }
 
   private updateMoveTarget(): void {
-    if (!this.moveTarget || (this.transform.object !== this.movePivot && this.rotationTransform.object !== this.movePivot)) return;
-    const offset=this.moveTarget.startPosition.clone().sub(this.moveTarget.startPivot).applyQuaternion(this.movePivot.quaternion);
-    this.moveTarget.group.position.copy(this.movePivot.position).add(offset);
-    this.moveTarget.group.quaternion.copy(this.movePivot.quaternion).multiply(this.moveTarget.startQuaternion);
-    const now=performance.now();if(now-this.lastMovePreviewAt<50)return;this.lastMovePreviewAt=now;const sequence=++this.movePreviewSequence;
-    const id=this.moveTarget.group.userData.id as string,position=this.moveTarget.group.position;
-    void this.callbacks.instanceMovePreview(id,[position.x,position.y,position.z],this.moveTarget.group.quaternion.toArray()).then((poses)=>{
-      if(sequence<=this.movePreviewAppliedSequence)return;this.movePreviewAppliedSequence=sequence;
+    if (!this.moveTarget || !this.moveManipulator.isAttached()) return;
+    const pivot = this.moveManipulator.object;
+    const offset=this.moveTarget.startPosition.clone().sub(this.moveTarget.startPivot).applyQuaternion(pivot.quaternion);
+    const position=pivot.position.clone().add(offset);
+    const rotation=pivot.quaternion.clone().multiply(this.moveTarget.startQuaternion).toArray();
+    const id=this.moveTarget.group.userData.id as string;
+    this.desiredMovePose={translation:position.toArray(),rotation};
+    this.pendingMovePreview={generation:this.movePreviewGeneration,instanceId:id,translation:this.desiredMovePose.translation,rotation};
+    this.drainMovePreview();
+  }
+
+  private beginMovePreviewGesture():void{this.movePreviewGeneration+=1;this.pendingMovePreview=undefined;}
+  private endMovePreviewGesture():void{this.movePreviewGeneration+=1;this.pendingMovePreview=undefined;}
+  private drainMovePreview():void{
+    if(this.movePreviewInFlight||!this.pendingMovePreview)return;const request=this.pendingMovePreview;this.pendingMovePreview=undefined;this.movePreviewInFlight=true;
+    void this.callbacks.instanceMovePreview(request.instanceId,request.translation,request.rotation).then((poses)=>{
+      if(request.generation!==this.movePreviewGeneration)return;
       for(const pose of poses){const group=this.instanceGroups.get(pose.instanceId);if(group){group.position.fromArray(pose.translation);group.quaternion.fromArray(pose.rotation);group.updateMatrix();group.updateMatrixWorld(true);}}
-      this.invalidate();}).catch(()=>{});
+      this.invalidate();
+    }).catch(()=>{}).finally(()=>{this.movePreviewInFlight=false;if(this.pendingMovePreview?.generation===this.movePreviewGeneration)this.drainMovePreview();});
   }
 
   preselect(selection: Selection, notify = false): void {
@@ -523,13 +534,15 @@ export class CadViewportEngine {
   private refreshInteractionHighlights(): void {
     for (const object of this.highlightedRoots) this.applyHighlight(object, "default");
     this.highlightedRoots.clear();
-    this.replaceTopologyOverlays("preselected", this.preselected ? [this.preselected] : []);
+    const withAssemblyReferences = (selections: readonly SelectionItem[]) => selections.flatMap((selection) =>
+      selection.kind === "assembly-constraint" ? [selection, ...(this.assemblyConstraintReferences.get(selection.constraintId) ?? [])] : [selection]);
+    this.replaceTopologyOverlays("preselected", withAssemblyReferences(this.preselected ? [this.preselected] : []));
     if (this.preselected) {
       for (const object of this.selectionIndex.objectsFor(this.preselected)) {
         this.applyHighlight(object, "hover"); this.highlightedRoots.add(object);
       }
     }
-    this.replaceTopologyOverlays("selected", this.selected);
+    this.replaceTopologyOverlays("selected", withAssemblyReferences(this.selected));
     for (const object of this.selectionIndex.objectsForMany(this.selected)) {
       this.applyHighlight(object, "selected"); this.highlightedRoots.add(object);
     }
@@ -555,10 +568,7 @@ export class CadViewportEngine {
     this.clearReferencePreview();
     this.clearSnapPreview();
     this.clearCommandPreview();
-    this.transform.detach();
-    this.transform.dispose();
-    this.rotationTransform.detach();
-    this.rotationTransform.dispose();
+    this.moveManipulator.dispose();
     this.navigationHUD.dispose();
     this.background.dispose();
     this.disposeGroup(this.environment);
@@ -657,6 +667,89 @@ export class CadViewportEngine {
         group.add(placeholder);
       }
     }
+    this.addAssemblyConstraintMarkers(view);
+  }
+
+  private addAssemblyConstraintMarkers(view: DocumentView): void {
+    const glyphs: Record<import("../types").AssemblyConstraint["kind"], number> = {
+      FIX: 2, RIGID: 7, COINCIDENT: 0, CONCENTRIC: 13, ANGLE: 12, DISTANCE: 8,
+    };
+    for (const constraint of view.product?.constraints ?? []) {
+      const references = [constraint.first, constraint.second].filter((value): value is AssemblyGeometryRef => Boolean(value));
+      const resolved = references.map((reference) => this.resolveAssemblyConstraintReference(reference)).filter(
+        (value): value is { selection: SelectionItem; object: THREE.Object3D; anchor: THREE.Vector3 } => Boolean(value));
+      if (!resolved.length) continue;
+      const markerPosition = resolved.reduce((sum, value) => sum.add(value.anchor), new THREE.Vector3())
+        .multiplyScalar(1 / resolved.length);
+      const span = resolved.length > 1 ? resolved[0].anchor.distanceTo(resolved[1].anchor) : 0;
+      markerPosition.z += Math.max(4, span * 0.08);
+      const treeNodeId = `document:${view.document.id}/assembly-constraints/constraint:${constraint.id}`;
+      const selection: SelectionItem = { kind: "assembly-constraint", id: constraint.id, constraintId: constraint.id,
+        constraintType: constraint.kind, documentId: view.document.id, treeNodeId };
+      const group = new THREE.Group(); group.position.copy(markerPosition); group.userData = selection;
+      const pointGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]);
+      const glyph = new THREE.Points(pointGeometry, this.materials.constraintGlyph(glyphs[constraint.kind], CATIA_VISUAL_THEME.constraint, 22));
+      glyph.renderOrder = 92;
+      group.add(glyph);
+      if (resolved.some((value) => !value.anchor.equals(markerPosition))) {
+        const leaders = makeOcclusionVisibleSegments(resolved.map((value) => [value.anchor.clone().sub(markerPosition), new THREE.Vector3()]),
+          CATIA_VISUAL_THEME.constraint, 1.75);
+        leaders.renderOrder = 90; group.add(leaders);
+      }
+      this.helpers.add(group);
+      this.selectionIndex.register(selection, group);
+      this.selectionIndex.registerPick(glyph, () => selection, 90);
+      this.assemblyConstraintReferences.set(constraint.id, resolved.map((value) => value.selection));
+      for (const reference of resolved) {
+        this.selectionIndex.associate(selection, reference.object);
+        this.selectionIndex.associate(reference.selection, group);
+      }
+    }
+  }
+
+  private resolveAssemblyConstraintReference(reference: AssemblyGeometryRef):
+    { selection: SelectionItem; object: THREE.Object3D; anchor: THREE.Vector3 } | undefined {
+    const instance = this.instanceGroups.get(reference.instanceId);
+    if (!instance) return undefined;
+    const instanceSelection: SelectionItem = { kind: "instance", id: reference.instanceId, instanceId: reference.instanceId,
+      occurrencePath: reference.instanceId, visualKey: `occurrence:${reference.instanceId}` };
+    const instanceCenter = () => new THREE.Box3().setFromObject(instance).getCenter(new THREE.Vector3());
+    if (reference.kind === "BODY") return { selection: instanceSelection, object: instance, anchor: instanceCenter() };
+    const binding = [...this.solidBindings.values()].find((candidate) => candidate.context.instanceId === reference.instanceId &&
+      (!reference.geometryKey || candidate.artifact.geometryKey === reference.geometryKey));
+    if (reference.kind === "FACE" && binding && reference.topologyId) {
+      const anchor = new THREE.Vector3(); let count = 0;
+      binding.artifact.mesh.triangles.forEach((triangle, index) => {
+        if ((binding.artifact.mesh.faceIds[index] ?? -1) + 1 !== reference.topologyId) return;
+        for (const vertexIndex of triangle) { anchor.add(binding.mesh.localToWorld(new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[vertexIndex]))); count++; }
+      });
+      const selection: SelectionItem = { kind: "face", id: `${binding.context.occurrencePath}:${binding.artifact.geometryKey}:face:${reference.topologyId}`,
+        topologyId: reference.topologyId, ...binding.context };
+      return { selection, object: binding.group, anchor: count ? anchor.multiplyScalar(1 / count) : instanceCenter() };
+    }
+    if (reference.kind === "EDGE" && binding && reference.topologyId) {
+      const edge=binding.artifact.mesh.edges?.find((candidate)=>candidate.localId===reference.topologyId);
+      const anchor=new THREE.Vector3();for(const point of edge?.points??[])anchor.add(binding.mesh.localToWorld(new THREE.Vector3().fromArray(point)));
+      const selection:SelectionItem={kind:"edge",id:`${binding.context.occurrencePath}:${binding.artifact.geometryKey}:edge:${reference.topologyId}`,
+        topologyId:reference.topologyId,...binding.context};
+      return {selection,object:binding.group,anchor:edge?.points.length?anchor.multiplyScalar(1/edge.points.length):instanceCenter()};
+    }
+    if (reference.kind === "VERTEX" && binding && reference.topologyId) {
+      const vertex=binding.artifact.mesh.topologyVertices?.find((candidate)=>candidate.localId===reference.topologyId);
+      const selection:SelectionItem={kind:"vertex",id:`${binding.context.occurrencePath}:${binding.artifact.geometryKey}:vertex:${reference.topologyId}`,
+        topologyId:reference.topologyId,...binding.context};
+      return {selection,object:binding.group,anchor:vertex?binding.mesh.localToWorld(new THREE.Vector3().fromArray(vertex.point)):instanceCenter()};
+    }
+    let matched: THREE.Object3D | undefined;
+    instance.traverse((object) => {
+      if (matched || object.userData.entityId !== reference.geometryId) return;
+      if (reference.kind === "PLANE" && object.userData.kind === "plane") matched = object;
+      else if (reference.kind === "AXIS" && object.userData.kind === "axis" && (!reference.axis || object.userData.axis === reference.axis)) matched = object;
+      else if (reference.kind === "POINT" && object.userData.kind === "axis-system") matched = object;
+    });
+    const selection = matched?.userData as SelectionItem | undefined;
+    return selection && matched ? { selection, object: matched, anchor: new THREE.Box3().setFromObject(matched).getCenter(new THREE.Vector3()) }
+      : { selection: instanceSelection, object: instance, anchor: instanceCenter() };
   }
 
   private addDatumPlane(datum: DatumPlane, parent: THREE.Group, selectable: boolean, context?: SolidContext): void {
@@ -1069,8 +1162,7 @@ export class CadViewportEngine {
   }
 
   private pick(x: number, y: number, additive: boolean): void {
-    if (this.suppressNextSelection) { this.suppressNextSelection = false; return; }
-    if (this.transform.dragging) return;
+    if (this.moveManipulator.isDragging()) return;
     const hit = this.hitTest(x, y);
     if (!hit) { if (!additive) this.selectMany([]); return; }
     if (!additive) { this.selectMany([hit]); return; }
@@ -1080,7 +1172,7 @@ export class CadViewportEngine {
   }
 
   private preselectAt(x: number, y: number): void {
-    if (this.transform.dragging || this.navigation.activeAction !== "none") return;
+    if (this.moveManipulator.isDragging() || this.navigation.activeAction !== "none") return;
     if (this.activeToolID === "select") this.clearSnapPreview();
     this.preselect(this.hitTest(x, y), true);
   }
@@ -1093,8 +1185,9 @@ export class CadViewportEngine {
       Math.max(this.renderer.domElement.clientHeight, 1);
     this.raycaster.params.Line = { threshold: worldPerPixel * 5 };
     this.raycaster.params.Points = { threshold: worldPerPixel * 7 };
-    return this.selectionIndex.pick(this.raycaster,
+    const raw = this.selectionIndex.pick(this.raycaster,
       (selection) => allowsSelectionInContext(this.captureSettings, selection, this.activeSketchID));
+    return this.selectionMode.project(raw);
   }
 
   private dimensionConstraintAt(x: number, y: number) {
@@ -1464,6 +1557,9 @@ export class CadViewportEngine {
       selectionAt: (x, y) => this.hitTest(x, y),
       retainSelections: (selections) => this.selectMany(selections),
       requestAssemblyConstraint: (kind, references) => this.callbacks.assemblyConstraintRequested(kind, references),
+      moveManipulatorPointerDown: (pointerId, x, y) => this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement),
+      moveManipulatorPointerMove: (pointerId, x, y) => this.moveManipulator.pointerMove(pointerId, x, y, this.camera, this.renderer.domElement),
+      moveManipulatorPointerUp: (pointerId, commit) => this.moveManipulator.pointerUp(pointerId, commit),
     };
   }
 
@@ -1503,26 +1599,10 @@ export class CadViewportEngine {
   }
 
   private commitTransform(): void {
-    const object = this.moveTarget?.group ?? this.transform.object;
-    if (!object?.userData.id) return;
-    this.callbacks.instanceMoved(object.userData.id as string,
-      [object.position.x, object.position.y, object.position.z],object.quaternion.toArray());
+    const object = this.moveTarget?.group,pose=this.desiredMovePose;
+    if (!object?.userData.id || !pose) return;
+    this.callbacks.instanceMoved(object.userData.id as string,pose.translation,pose.rotation);
     this.refreshContentBounds();
-  }
-
-  private beginRigidDrag(): void {
-    const driver=this.transform.object?.userData.id as string|undefined;if(!driver||!this.view?.product)return;
-    const adjacency=new Map<string,string[]>();for(const constraint of this.view.product.constraints??[]){if(constraint.kind!=="RIGID"||!constraint.second)continue;
-      adjacency.set(constraint.first.instanceId,[...(adjacency.get(constraint.first.instanceId)??[]),constraint.second.instanceId]);
-      adjacency.set(constraint.second.instanceId,[...(adjacency.get(constraint.second.instanceId)??[]),constraint.first.instanceId]);}
-    const pending=[driver],visited=new Set<string>(),members=new Map<string,THREE.Vector3>();while(pending.length){const id=pending.pop()!;if(visited.has(id))continue;visited.add(id);
-      const group=this.instanceGroups.get(id);if(group)members.set(id,group.position.clone());pending.push(...(adjacency.get(id)??[]));}
-    this.rigidDrag={driver,start:this.transform.object!.position.clone(),members};
-  }
-
-  private updateRigidDrag(): void {
-    const drag=this.rigidDrag,object=this.transform.object;if(!drag||!object)return;const delta=object.position.clone().sub(drag.start);
-    for(const [id,start] of drag.members){if(id===drag.driver)continue;this.instanceGroups.get(id)?.position.copy(start.clone().add(delta));}
   }
 
   private applyHighlight(object: THREE.Object3D, state: "default" | "hover" | "selected"): void {
@@ -1637,6 +1717,13 @@ export class CadViewportEngine {
       this.animationFrame = 0;
       if (!this.disposed) {
         this.updateNavigationHUD();
+        this.moveManipulator.updateScale(this.camera, viewportMetrics(this.renderer));
+        const metrics=viewportMetrics(this.renderer);
+        this.scene.traverse((object)=>{
+          const material=(object as THREE.Points).material;
+          if(material instanceof THREE.ShaderMaterial&&material.uniforms.uPointSize&&typeof material.userData.cssPointSize==="number")
+            material.uniforms.uPointSize.value=material.userData.cssPointSize*metrics.devicePixelRatio;
+        });
         this.renderer.clear(true, true, true);
         this.background.render(this.renderer);
         this.renderer.clearDepth();

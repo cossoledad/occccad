@@ -93,9 +93,9 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		}
 		value := geometry.AssemblyGeometry{ID: key, BodyID: reference.InstanceID, Kind: reference.Kind}
 		switch reference.Kind {
-		case "FACE":
+		case "FACE", "EDGE", "VERTEX":
 			if reference.GeometryKey == "" || reference.TopologyID == 0 {
-				return "", fmt.Errorf("%w: a face reference requires geometryKey and topologyId", ErrValidation)
+				return "", fmt.Errorf("%w: a topology reference requires geometryKey and topologyId", ErrValidation)
 			}
 			part, err := resolvePart(instance)
 			if err != nil {
@@ -104,11 +104,29 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 			if part.geometryKey == "" || part.geometryKey != reference.GeometryKey {
 				return "", fmt.Errorf("%w: selected face does not belong to the resolved instance revision", ErrValidation)
 			}
-			properties, err := service.GetTopologyElementProperties(ctx, documentID, reference.GeometryKey, "FACE", reference.TopologyID)
+			properties, err := service.GetTopologyElementProperties(ctx, documentID, reference.GeometryKey, reference.Kind, reference.TopologyID)
 			if err != nil {
 				return "", err
 			}
+			if reference.Kind == "VERTEX" {
+				if properties.Point == nil {
+					return "", fmt.Errorf("%w: selected vertex is missing its exact point", ErrValidation)
+				}
+				value.Kind, value.Origin = "POINT", *properties.Point
+				break
+			}
 			origin, originOK := properties.Properties["origin"].([3]float64)
+			if reference.Kind == "EDGE" {
+				if properties.GeometryType != "LINE" {
+					return "", fmt.Errorf("%w: %s edges are not supported by this assembly constraint slice", ErrValidation, properties.GeometryType)
+				}
+				direction, ok := properties.Properties["direction"].([3]float64)
+				if !originOK || !ok {
+					return "", fmt.Errorf("%w: linear edge is missing its exact line", ErrValidation)
+				}
+				value.Kind, value.Origin, value.Direction = "AXIS", origin, direction
+				break
+			}
 			switch properties.GeometryType {
 			case "PLANE":
 				direction, ok := properties.Properties["normal"].([3]float64)
@@ -178,7 +196,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 				return "", fmt.Errorf("%w: referenced axis geometry does not exist", ErrValidation)
 			}
 		default:
-			return "", fmt.Errorf("%w: assembly references support BODY, POINT, AXIS, PLANE, and planar/cylindrical FACE", ErrValidation)
+			return "", fmt.Errorf("%w: assembly references support BODY, POINT, AXIS, PLANE, VERTEX, linear EDGE, and planar/cylindrical FACE", ErrValidation)
 		}
 		seenGeometry[key] = true
 		geometryValues = append(geometryValues, value)

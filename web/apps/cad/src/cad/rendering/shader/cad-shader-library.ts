@@ -6,6 +6,7 @@ export type CadShaderProgramID =
   | "cad.edge"
   | "cad.point"
   | "cad.constraint.glyph"
+  | "cad.manipulator"
   | "cad.overlay.line"
   | "cad.overlay.solid";
 
@@ -66,6 +67,30 @@ export class CadShaderLibrary {
   }
 
   private registerBuiltins(): void {
+    this.register("cad.manipulator", {
+      uniforms: { uColor: { value: new THREE.Color() }, uActive: { value: 0 }, uOpacity: { value: 1 } },
+      vertexShader: `
+        varying vec3 vNormal;
+        void main() {
+          vNormal = normalize(normalMatrix * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uColor;
+        uniform float uActive;
+        uniform float uOpacity;
+        varying vec3 vNormal;
+        void main() {
+          float light = 0.72 + 0.28 * abs(dot(normalize(vNormal), normalize(vec3(0.25, 0.4, 1.0))));
+          vec3 color = mix(uColor * light, vec3(1.0), uActive * 0.68);
+          gl_FragColor = vec4(color, uOpacity);
+          #include <colorspace_fragment>
+        }
+      `,
+      transparent: true, depthTest: false, depthWrite: false,
+    });
+
     this.register("cad.background", {
       uniforms: {
         uTop: { value: new THREE.Color() },

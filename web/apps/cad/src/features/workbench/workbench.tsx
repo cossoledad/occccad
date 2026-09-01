@@ -311,6 +311,8 @@ export function Workbench() {
     mutationFn: (operation: () => Promise<DocumentView>) => operation(),
     onSuccess: (view) => { store.setSelection(null); void refresh(view); }, onError: (error) => message.error(error.message)
   });
+  const moveCommand = useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),
+    onSuccess:(updated)=>{void refresh(updated);},onError:(error)=>{message.error(error.message);void refresh();}});
   const view = document.data;
   const editingView = activeDocumentID === documentID ? view : activeDocument.data;
   const activeResolvedInstance = activeInstancePath
@@ -350,7 +352,7 @@ export function Workbench() {
     command.mutate(() => api.editSketch(editingView.document.id, featureID, operations));
   };
   const moveInstance = (instanceID: string, translation: Vec3, rotation:[number,number,number,number]) => {
-    if (editingView?.document.type === "PRODUCT" && canEdit) command.mutate(() => api.move(editingView.document.id, instanceID, translation,rotation));
+    if (editingView?.document.type === "PRODUCT" && canEdit) moveCommand.mutate(() => api.move(editingView.document.id, instanceID, translation,rotation));
   };
   const executeHistory = (direction: "undo" | "redo") => {
     if (!editingView) return; command.mutate(() => direction === "undo" ? api.undo(editingView.document.id) : api.redo(editingView.document.id));

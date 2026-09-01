@@ -3998,6 +3998,19 @@ message AssemblyConstraint {
 
 约束 schema 定义允许的 geometry-kind 组合、方程数、单位和 branch。`UnsignedAngle` 与 `DirectedAngle` 是不同的 typed definition，不能用字符串选项或求值时动态翻转互相模拟。静态 Assembly Revision 只保存 modulo `2π` 的姿态语义；unwrapped angle、winding 和多圈累计属于 Interaction、Kinematics 或 Simulation 状态。客户端只能在服务端 capability 表允许的组合中建议命令；服务端仍重新验证。复杂 surface contact P0 不支持任意 NURBS-NURBS 全局接触，因为它可能多点、多分支且不适合静态定位；优先用 Datum/Connector Publication。
 
+当前第一版几何约束能力矩阵如下；横纵交换保持相同语义。拓扑 `Vertex` 解析为 Point descriptor，直线 `Edge` 解析为 Line/Axis descriptor，平面/圆柱 Face 分别解析为 Plane/Cylinder descriptor。这里的 Line-Line Coincidence 表示两条无限支撑线共线，Line-Plane 表示整条支撑线位于平面内；“两条边的交点重合”应选择已有拓扑 Vertex，未来任意曲线交点必须保存带 branch evidence 的派生 Point，不能临时选择第一个交点。
+
+| 第一元素 | 第二元素 | Coincidence | Concentric | Angle | Distance |
+|---|---|---|---|---|---|
+| Point | Point | 点点重合 | — | — | 点点距离 |
+| Point | Line/Axis | 点在线上 | — | — | 待实现点线最短距离 |
+| Point | Plane | 点在面上 | — | — | 点面距离 |
+| Line/Axis | Line/Axis | 两支撑线共线 | 两轴同轴 | 线线夹角 `[0, π]` | 线线最短距离 |
+| Line/Axis | Plane | 整条支撑线位于平面 | — | 线面法向夹角 `[0, π]` | 待实现线面距离 |
+| Plane | Plane | 两平面重合 | — | 面法向夹角 `[0, π]` | 面面有符号/无符号距离 |
+| Cylinder | Line/Axis | 圆柱轴与直线共线 | 同轴 | 轴线夹角 `[0, π]` | 轴线最短距离 |
+| Cylinder | Cylinder | 同轴且半径相等 | 同轴 | 轴线夹角 `[0, π]` | 轴线最短距离 |
+
 `CONTACT` 在 Assembly Design 中只是位置关系。动力学中的摩擦、恢复系数和接触力属于 Dynamics Contact Model，不能复用同一字段制造语义混淆。
 
 #### 5.6.13 连接类型与自由度

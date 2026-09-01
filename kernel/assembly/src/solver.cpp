@@ -255,6 +255,19 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
                 return result;
             }
         }
+        if (is_axis_like(first)) {
+            if (const auto* plane = std::get_if<WorldPlane>(&*second)) {
+                const WorldAxis axis = as_axis(first);
+                Eigen::VectorXd result(2);
+                result << axis.direction.dot(plane->normal) / options.angle_scale,
+                    (axis.origin - plane->origin).dot(plane->normal) / options.length_scale;
+                return result;
+            }
+        }
+        if (std::holds_alternative<WorldPlane>(first) && is_axis_like(*second)) {
+            Constraint swapped = constraint;
+            return constraint_residual(swapped, *second, first, options);
+        }
         throw std::invalid_argument("unsupported Coincident geometry pair");
     }
 
@@ -271,10 +284,9 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
         const Vector3 second_direction = geometry_direction(*second);
         if (constraint.direction_relation == DirectionRelation::Opposite)
             first_direction = -first_direction;
-        double cosine = std::clamp(first_direction.dot(second_direction), -1.0, 1.0);
-        if (constraint.direction_relation == DirectionRelation::Unoriented)
-            cosine = std::abs(cosine);
-        const double angle = std::acos(cosine);
+        const double cosine = std::clamp(first_direction.dot(second_direction), -1.0, 1.0);
+        const double sine = first_direction.cross(second_direction).norm();
+        const double angle = std::atan2(sine, cosine);
         return single((angle - constraint.value) / options.angle_scale);
     }
 

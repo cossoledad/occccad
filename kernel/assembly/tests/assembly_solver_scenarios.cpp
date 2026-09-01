@@ -152,6 +152,43 @@ TEST(AssemblySolver, AxisAngleSolvesToRequestedBranch) {
     EXPECT_NEAR(direction.z, 0.0, 1.0e-6);
 }
 
+TEST(AssemblySolver, PlaneAngleAboveNinetyDegreesConverges) {
+    Model model;
+    model.bodies = {{"ground", {}}, {"moving", {}}};
+    const double initial = 20.0 * kPi / 180.0;
+    model.geometry = {{"plane", "ground", PlaneGeometry{}},
+                      {"plane", "moving", PlaneGeometry{{}, {std::sin(initial), 0.0, std::cos(initial)}}}};
+    Constraint angle = binary("obtuse-angle", ConstraintKind::Angle, ref("moving", "plane"),
+                              ref("ground", "plane"));
+    angle.value = 120.0 * kPi / 180.0;
+    angle.direction_relation = DirectionRelation::Unoriented;
+    model.constraints = {fix("ground"), angle};
+
+    const SolveResult result = Solver{}.solve(model);
+
+    ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+    const Vec3 normal = rotate(pose(result, "moving").rotation,
+                               {std::sin(initial), 0.0, std::cos(initial)});
+    EXPECT_NEAR(normal.z, std::cos(120.0 * kPi / 180.0), 1.0e-6);
+}
+
+TEST(AssemblySolver, LinePlaneCoincidentPlacesTheWholeLineInThePlane) {
+    Model model;
+    model.bodies = {{"ground", {}}, {"moving", {{0.0, 0.0, 4.0}, {}}}};
+    model.geometry = {{"plane", "ground", PlaneGeometry{}},
+                      {"line", "moving", AxisGeometry{{}, {1.0, 0.0, 0.4}}}};
+    model.constraints = {fix("ground"), binary("line-on-plane", ConstraintKind::Coincident,
+                                               ref("moving", "line"), ref("ground", "plane"))};
+
+    const SolveResult result = Solver{}.solve(model);
+
+    ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+    const Pose moving = pose(result, "moving");
+    const Vec3 direction = rotate(moving.rotation, {1.0, 0.0, 0.4});
+    EXPECT_NEAR(direction.z, 0.0, 1.0e-6);
+    EXPECT_NEAR(moving.translation.z, 0.0, 1.0e-6);
+}
+
 TEST(AssemblySolver, CylinderCoincidentRejectsAnIrreconcilableRadius) {
     Model model;
     model.bodies = {{"ground", {}}, {"moving", {{1.0, 0.0, 0.0}, {}}}};

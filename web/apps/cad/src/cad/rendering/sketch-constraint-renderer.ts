@@ -5,6 +5,9 @@ import { constraintDefinition, type ConstraintKind, type ConstraintSymbol } from
 import type { CadMaterialFactory } from "./cad-material-factory";
 import { CATIA_VISUAL_THEME } from "./cad-visual-theme";
 import { makeOcclusionVisibleSegments, updateHighlightLineResolution } from "./interaction-highlight";
+import { perspectiveWorldUnitsPerCssPixel, viewportMetrics, worldUnitsPerCssPixel } from "./viewport-metrics";
+
+export const perspectiveWorldUnitsPerPixel = perspectiveWorldUnitsPerCssPixel;
 
 const symbolCodes: Record<ConstraintSymbol, number> = {
   coincident: 0, parallel: 1, fixed: 2, horizontal: 3, vertical: 4, perpendicular: 5,
@@ -14,10 +17,6 @@ const symbolCodes: Record<ConstraintSymbol, number> = {
 
 export function constraintSymbolCode(kind: ConstraintKind): number {
   return symbolCodes[constraintDefinition(kind).symbol];
-}
-
-export function perspectiveWorldUnitsPerPixel(depth: number, verticalFovDegrees: number, viewportHeight: number): number {
-  return 2*Math.abs(depth)*Math.tan(THREE.MathUtils.degToRad(verticalFovDegrees/2))/Math.max(viewportHeight,1);
 }
 
 export function makeConstraintDimensionLabel(text: string): THREE.Sprite {
@@ -35,14 +34,11 @@ export function makeConstraintDimensionLabel(text: string): THREE.Sprite {
   material.userData.baseColor = 0xffffff;
   material.userData.ownedTexture = texture;
   const sprite = new THREE.Sprite(material);
-  const screenWidth=124,screenHeight=27,worldPosition=new THREE.Vector3(),viewPosition=new THREE.Vector3();
+  const screenWidth=124,screenHeight=27,worldPosition=new THREE.Vector3();
   sprite.userData.screenSize={width:screenWidth,height:screenHeight};
   sprite.onBeforeRender=(renderer,_scene,camera) => {
-    const viewportHeight=Math.max(renderer.domElement.clientHeight,1);
-    sprite.getWorldPosition(worldPosition);viewPosition.copy(worldPosition).applyMatrix4(camera.matrixWorldInverse);
-    let worldPerPixel=1/viewportHeight;
-    if(camera instanceof THREE.PerspectiveCamera)worldPerPixel=perspectiveWorldUnitsPerPixel(viewPosition.z,camera.fov,viewportHeight);
-    else if(camera instanceof THREE.OrthographicCamera)worldPerPixel=(camera.top-camera.bottom)/(camera.zoom*viewportHeight);
+    sprite.getWorldPosition(worldPosition);
+    const worldPerPixel=worldUnitsPerCssPixel(camera,worldPosition,viewportMetrics(renderer));
     sprite.scale.set(screenWidth*worldPerPixel,screenHeight*worldPerPixel,1);
     sprite.updateMatrix();sprite.updateMatrixWorld(true);
   };

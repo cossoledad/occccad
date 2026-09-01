@@ -21,8 +21,8 @@ export class InputManager {
 
   constructor(private readonly surface: HTMLElement, private readonly sink: CadInputSink) {
     surface.style.touchAction = "none";
-    // Capture phase lets the CAD router claim a Middle-led chord before
-    // TransformControls or another canvas controller sees the same event.
+    // Capture phase lets the CAD router claim a Middle-led chord before any
+    // other canvas controller sees the same event.
     surface.addEventListener("pointerdown", this.onPointerDown, true);
     surface.addEventListener("pointermove", this.onPointerMove, true);
     surface.addEventListener("pointerup", this.onPointerUp, true);

@@ -292,6 +292,11 @@ try {
   index.registerPick(far, () => ({ kind: "vertex", id: "far", topologyId: 2 }));
   assert.equal(index.pick(new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, 0, -1)),
     (selection) => selection.kind === "vertex")?.id, "far");
+  const hiddenParent=new THREE.Group(),hiddenPick=new THREE.Mesh(new THREE.SphereGeometry(1),new THREE.MeshBasicMaterial());
+  hiddenPick.position.z=-1;hiddenParent.add(hiddenPick);hiddenParent.visible=false;
+  const hiddenIndex=new SelectionIndex();hiddenIndex.registerPick(hiddenPick,()=>({kind:"plane",id:"hidden",plane:"XY"}),100);
+  assert.equal(hiddenIndex.pick(new THREE.Raycaster(new THREE.Vector3(),new THREE.Vector3(0,0,-1))),null,
+    "a pick root with any hidden ancestor must not be selectable");
   const childObject = new THREE.Group();
   index.register({ kind: "sketch", id: "sketch-1", treeNodeId: "document/body/sketch:1" }, childObject);
   assert.equal(index.objectsFor({ kind: "face", id: "face-1", topologyId: 1,
@@ -349,7 +354,28 @@ try {
   viewport.beginDimensionDrag=()=>false;
   viewport.editDimensionAt=()=>false;
 
-  const {AssemblyConstraintTool}=await server.ssrLoadModule("/src/cad/tool/cad-tool.ts");
+  const {AssemblyConstraintTool,AssemblyMoveTool,assemblyGeometryRef}=await server.ssrLoadModule("/src/cad/tool/cad-tool.ts");
+  assert.deepEqual(assemblyGeometryRef({kind:"edge",id:"edge",instanceId:"a",geometryKey:"g",topologyId:7}),
+    {instanceId:"a",kind:"EDGE",geometryKey:"g",topologyId:7});
+  assert.deepEqual(assemblyGeometryRef({kind:"vertex",id:"vertex",instanceId:"b",geometryKey:"g",topologyId:3}),
+    {instanceId:"b",kind:"VERTEX",geometryKey:"g",topologyId:3});
+  const {selectionModeForTool}=await server.ssrLoadModule("/src/cad/interaction/selection-mode.ts");
+  const precise={kind:"face",id:"face-a",instanceId:"instance-a",occurrencePath:"root/instance-a/body",geometryKey:"g",topologyId:1};
+  assert.equal(selectionModeForTool("select").project(precise),precise,"default mode preserves exact geometry identity");
+  assert.deepEqual(selectionModeForTool("assembly.move").project(precise),{
+    kind:"instance",id:"instance-a",instanceId:"instance-a",occurrencePath:"instance-a",visualKey:"occurrence:instance-a",
+    documentId:undefined,
+  },"move mode projects geometry hits to their owning instance");
+  let manipulatorActive=true,moveSelectionCalls=0;
+  viewport.moveManipulatorPointerDown=()=>manipulatorActive;
+  viewport.moveManipulatorPointerMove=()=>false;
+  viewport.moveManipulatorPointerUp=()=>false;
+  viewport.retainSelections=()=>{moveSelectionCalls+=1;};
+  const moveTool=new AssemblyMoveTool();
+  assert.equal(moveTool.pointerDown(pointer(5,5,"down"),context),"capture","gizmo pointerdown is owned by the move tool");
+  assert.equal(moveSelectionCalls,0);
+  manipulatorActive=false;viewport.selectionAt=()=>null;
+  assert.equal(moveTool.pointerDown(pointer(5,5,"down"),context),"consumed");assert.equal(moveSelectionCalls,1,"explicit blank click clears the move target");
   const assemblySelections=[
     {kind:"face",id:"face-a",instanceId:"instance-a",geometryKey:"geometry-a",topologyId:2},
     {kind:"face",id:"face-b",instanceId:"instance-b",geometryKey:"geometry-b",topologyId:4},

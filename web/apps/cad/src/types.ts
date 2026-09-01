@@ -120,7 +120,7 @@ export type ProductInstance = {
   headChanged?: boolean;
 };
 
-export type AssemblyGeometryRef = { instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER" | "FACE";
+export type AssemblyGeometryRef = { instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER" | "FACE" | "EDGE" | "VERTEX";
   geometryId?: string; axis?: string; geometryKey?: string; topologyId?: number };
 export type AssemblyConstraint = { id: string; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE";
   first: AssemblyGeometryRef; second?: AssemblyGeometryRef; value?: number; directionRelation?: string; distanceRelation?: string };

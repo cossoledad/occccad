@@ -31,15 +31,18 @@ export class CadMaterialFactory {
     const material = this.withSharedCadUniforms(this.shaders.createMaterial("cad.point", {
       uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uPointSize: size,
     }));
+    material.userData.cssPointSize = size;
     material.depthTest = depthTest;
     if (!depthTest) material.depthWrite = false;
     return material;
   }
 
   constraintGlyph(glyph: number, color: number = this.theme.constraint, size = 17): THREE.ShaderMaterial {
-    return this.shaders.createMaterial("cad.constraint.glyph", {
+    const material = this.shaders.createMaterial("cad.constraint.glyph", {
       uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uGlyph: glyph, uPointSize: size,
     });
+    material.userData.cssPointSize = size;
+    return material;
   }
 
   setSectionPlane(enabled: boolean, plane?: THREE.Plane): void {

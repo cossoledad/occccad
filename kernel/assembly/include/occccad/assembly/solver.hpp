@@ -70,7 +70,9 @@ enum class ConstraintKind { Fix, Rigid, Coincident, Concentric, Angle, Distance 
 
 enum class ConstraintMode { Driving, Measured, Controlled, Suppressed };
 
-// Unoriented chooses the same/opposite branch nearest the current iterate.
+// For alignment constraints Unoriented chooses the nearest same/opposite branch.
+// Angle always measures the full [0, pi] separation; Same/Opposite explicitly
+// controls which endpoint direction is used before measuring it.
 enum class DirectionRelation { Unoriented, Same, Opposite };
 
 // Distance to a plane and plane-to-plane distance require an explicit side
