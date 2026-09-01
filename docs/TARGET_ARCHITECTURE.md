@@ -4068,7 +4068,7 @@ flowchart TD
 9. 求解失败不改变 Workspace；已有 Revision 仍可加载并显示 failed/broken connection；
 10. Solver 只输出 Pose/DOF/diagnostic，不生成或修改 B-Rep。
 
-当前已落地的最小算法基线位于 `kernel/assembly`：它以纯值类型表达刚体、Point/Axis/Plane/Cylinder 描述符和 Fix/Coincident/Concentric/Angle/Distance 残差，在 `SE(3)` 局部增量上执行阻尼最小二乘，并返回每条约束的归一化残差。该库仍刻意不依赖 OCCT、Product 和持久拓扑标识；首个 Product adapter 已能把直接 Part occurrence 的稳定 Datum/AxisSystem 引用解析为局部描述符，并经正式 Router 的 `SolveAssembly` RPC 提交权威 Pose。任意 B-Rep 面/圆柱仍必须等待 PersistentSelection/Publication adapter，不能由前端坐标代替。当前只覆盖上述流水线中的输入验证与单分量数值求解；有限差分 Jacobian、未消元 Fix body 和局部 branch 选择均是 A1 基线，不替代后续的解析/自动 Jacobian、刚性 cluster、图分解、秩/DOF/冲突诊断和全局候选管理。
+当前已落地的最小算法基线位于 `kernel/assembly`：它以纯值类型表达刚体、Point/Axis/Plane/Cylinder 描述符和 Fix/Coincident/Concentric/Angle/Distance 残差，在 `SE(3)` 局部增量上执行阻尼最小二乘，并返回每条约束的归一化残差。该库仍刻意不依赖 OCCT、Product 和持久拓扑标识；首个 Product adapter 已能把直接 Part occurrence 的 Datum/AxisSystem 引用以及当前 Revision 的平面/圆柱面选择解析为局部描述符，并经正式 Router 的 `SolveAssembly` RPC 提交权威 Pose。面选择目前以 geometryKey 和 topology local ID 绑定不可变制品并由服务端重新查询 OCCT 属性；它不是跨特征重算的稳定命名，仍须演进为 PersistentSelection/Publication adapter，且不能由前端坐标代替。当前只覆盖上述流水线中的输入验证与单分量数值求解；有限差分 Jacobian、未消元 Fix body 和局部 branch 选择均是 A1 基线，不替代后续的解析/自动 Jacobian、刚性 cluster、图分解、秩/DOF/冲突诊断和全局候选管理。
 
 #### 5.6.16 求解状态与诊断
 

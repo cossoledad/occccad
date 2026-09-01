@@ -24,7 +24,7 @@ import { CaptureSettingsButton } from "../../cad/overlay/capture-settings-button
 import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
 import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
 import { useUIPreferences } from "../../state/ui-preferences";
-import type { DatumPlane, DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, Selection, SelectionItem, SketchOperation, SketchPlane, ToolbarCatalogEntry, ToolbarCatalogItem, TopologyElementProperties, Vec3 } from "../../types";
+import type { AssemblyConstraint, AssemblyGeometryRef, DatumPlane, DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, Selection, SelectionItem, SketchOperation, SketchPlane, ToolbarCatalogEntry, ToolbarCatalogItem, TopologyElementProperties, Vec3 } from "../../types";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { closestTreeKey } from "./tree-selection";
@@ -32,16 +32,6 @@ import { followedDocumentIDs } from "./product-edit-context";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
-type AssemblyRef = { instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE"; geometryId?: string; axis?: string };
-function assemblyRef(selection: SelectionItem | undefined): AssemblyRef | undefined {
-  if (!selection?.instanceId) return undefined;
-  if (selection.kind === "instance") return { instanceId: selection.instanceId, kind: "BODY" };
-  if (selection.kind === "plane" && selection.entityId) return { instanceId: selection.instanceId, kind: "PLANE", geometryId: selection.entityId };
-  if (selection.kind === "axis" && selection.entityId) return { instanceId: selection.instanceId, kind: "AXIS", geometryId: selection.entityId,
-    ...(selection.axis === "DATUM" ? {} : { axis: selection.axis }) };
-  if (selection.kind === "axis-system" && selection.entityId) return { instanceId: selection.instanceId, kind: "POINT", geometryId: selection.entityId };
-  return undefined;
-}
 const sketchToolCommands:WorkbenchToolID[]=["sketch.rectangle","sketch.polygon","sketch.slot","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline",
   "sketch.constraint.coincident","sketch.constraint.parallel","sketch.constraint.fixed","sketch.constraint.horizontal","sketch.constraint.vertical",
   "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.dimension.linear",
@@ -148,6 +138,8 @@ function structureSelection(node: DocumentStructureNode, view: DocumentView): Se
     kind: "sketch-constraint", id: `${occurrencePath || "root"}:${node.ownerEntityId}:constraint:${node.entityId}`,
     featureId: node.ownerEntityId, constraintId: node.entityId, constraintType: node.entityType ?? "UNKNOWN", ...context,
   };
+  if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) return { kind: "assembly-constraint", id: node.entityId,
+    constraintId: node.entityId, constraintType: node.entityType ?? "UNKNOWN", ...context };
   return { kind: "tree", id: node.id, ...context };
 }
 
@@ -241,7 +233,8 @@ export function Workbench() {
   const [versionOpen, setVersionOpen] = useState(false);
   const [datumPlaneOpen, setDatumPlaneOpen] = useState(false);
   const [datumAxisOpen, setDatumAxisOpen] = useState(false);
-  const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: "angle" | "distance"; references: AssemblyRef[] }>();
+  const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: "angle" | "distance"; references: AssemblyGeometryRef[] }>();
+  const [editingAssemblyConstraint, setEditingAssemblyConstraint] = useState<AssemblyConstraint>();
   const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const hiddenTreeKeys = useUIPreferences((state) => state.hiddenTreeKeys);
@@ -461,7 +454,7 @@ export function Workbench() {
   const deleteTreeNodes = (nodes: SpecificationTreeNode[]) => {
     if (!editingView || !canEdit || command.isPending) return;
     const candidates = nodes.filter((node) => node.entityId && node.kind && node.capabilities?.includes("DELETE"));
-    const selectedFeatures = new Set(candidates.filter((node) => !["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "INSTANCE"].includes(node.kind!))
+    const selectedFeatures = new Set(candidates.filter((node) => !["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE"].includes(node.kind!))
       .map((node) => node.entityId));
     const featureOrder = new Map((editingView.part?.features ?? []).map((feature, index) => [feature.id, index]));
     const targets = candidates.filter((node) => !node.ownerEntityId || !selectedFeatures.has(node.ownerEntityId)).sort((left, right) => {
@@ -471,7 +464,7 @@ export function Workbench() {
     });
     if (!targets.length) return;
     command.mutate(() => api.deleteNodes(editingView.document.id, targets.map((node) => ({
-      targetKind: ["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "INSTANCE"].includes(node.kind!) ? node.kind! : "FEATURE",
+      targetKind: ["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE"].includes(node.kind!) ? node.kind! : "FEATURE",
       targetId: node.entityId!, ownerEntityId: node.ownerEntityId,
     }))));
   };
@@ -510,28 +503,12 @@ export function Workbench() {
         if (editingView && instance) command.mutate(() => api.setReferenceMode(editingView.document.id, instance.id,
           instance.referenceMode === "PINNED" ? "FOLLOW_HEAD" : "PINNED"));
       }, isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit && selectedInstance()) }),
-      ...(["fix", "coincident", "concentric", "angle", "distance"] as const).map((constraint) => commandRegistry.register({
+      ...(["fix", "rigid", "coincident", "concentric", "angle", "distance"] as const).map((constraint) => commandRegistry.register({
         id: `assembly.${constraint}`,
-        execute: () => {
-          if (!editingView) return;
-          const references = useWorkbenchStore.getState().selections.map(assemblyRef).filter((value): value is AssemblyRef => Boolean(value));
-          const required = constraint === "fix" ? 1 : 2;
-          if (references.length !== required) { message.warning(constraint === "fix" ? "请选择一个装配实例" : "请选择两个实例中的基准几何"); return; }
-          if (required === 2 && references[0].instanceId === references[1].instanceId) { message.warning("请选择两个不同实例中的基准几何"); return; }
-          if (constraint === "concentric" && references.some((reference) => reference.kind !== "AXIS")) { message.warning("同心约束需要选择两条基准轴"); return; }
-          if (constraint === "angle" && references.some((reference) => reference.kind !== "AXIS" && reference.kind !== "PLANE")) { message.warning("角度约束需要选择基准轴或基准面"); return; }
-          if (constraint === "angle" || constraint === "distance") {
-            assemblyConstraintForm.setFieldsValue({ value: 0 });
-            setPendingAssemblyConstraint({ kind: constraint, references });
-            return;
-          }
-          command.mutate(() => api.addAssemblyConstraint(editingView.document.id, {
-            constraintKind: constraint.toUpperCase(), firstAssemblyRef: references[0], secondAssemblyRef: references[1],
-            value: 0, directionRelation: "UNORIENTED", distanceRelation: "UNSIGNED",
-          }));
-        },
+        execute: (invocation) => store.setActiveTool(`assembly.${constraint}`, invocation?.continuous ? "continuous" : "once"),
         isVisible: () => editingView?.document.type === "PRODUCT",
         isEnabled: () => Boolean(canEdit),
+        isActive: () => store.activeToolID === `assembly.${constraint}`,
       })),
       commandRegistry.register({ id: "history.version", execute: () => setVersionOpen(true), isEnabled: () => Boolean(canEdit) }),
       commandRegistry.register({ id: "document.share", execute: () => editingView && setShareResource({ type: "documents", id: editingView.document.id, name: editingView.document.name }),
@@ -572,6 +549,18 @@ export function Workbench() {
           sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={store.navigationProfile}
           captureSettings={store.captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
           onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
+          onAssemblyConstraint={(kind, references) => {
+            if (!editingView) return;
+            if (kind === "angle" || kind === "distance") {
+              assemblyConstraintForm.setFieldsValue({ value: 0 });
+              setPendingAssemblyConstraint({ kind, references });
+              return;
+            }
+            command.mutate(() => api.addAssemblyConstraint(editingView.document.id, {
+              constraintKind: kind.toUpperCase(), firstAssemblyRef: references[0], secondAssemblyRef: references[1],
+              value: 0, directionRelation: "UNORIENTED", distanceRelation: "UNSIGNED",
+            }));
+          }}
           onInstanceMoved={moveInstance} /></Suspense>
 		{toolbarCatalog.data?.toolbars.filter((toolbar) => toolbar.workbench === "ALL" || toolbar.workbench === activeWorkbench)
 		  .map((toolbar: ToolbarCatalogEntry) => <FloatingToolbar key={toolbar.id} id={toolbar.id} label={toolbar.name}
@@ -594,6 +583,11 @@ export function Workbench() {
             activeInstancePath={activeInstancePath}
             onSelect={(nodes) => store.setSelections(nodes.flatMap((node) => node.selection ? [node.selection] : []))}
             onActivate={(node) => {
+              if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
+                const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
+                if (constraint) { setEditingAssemblyConstraint(constraint); assemblyConstraintForm.setFieldsValue({ value: constraint.kind === "ANGLE" ? (constraint.value ?? 0) * 180 / Math.PI : constraint.value ?? 0 }); }
+                return;
+              }
               if (node.documentId && ["PART", "PRODUCT", "INSTANCE"].includes(node.kind ?? "")) {
                 setActiveDocumentID(node.documentId); setActiveInstancePath(node.instancePath?.canonical);
                 store.endSketch(); store.setSelection(null); return;
@@ -637,6 +631,15 @@ export function Workbench() {
             : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}</div>
         </aside>
       </section></main>
+    <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="编辑装配约束"
+      onClose={() => setEditingAssemblyConstraint(undefined)} confirmLoading={command.isPending} onConfirm={async()=>{
+        if(!editingView||!editingAssemblyConstraint)return;const {value}=await assemblyConstraintForm.validateFields();const constraint=editingAssemblyConstraint;
+        command.mutate(()=>api.editAssemblyConstraint(editingView.document.id,constraint.id,{value:constraint.kind==="ANGLE"?value*Math.PI/180:value,
+          directionRelation:constraint.directionRelation??"UNORIENTED",distanceRelation:constraint.distanceRelation??"UNSIGNED"}),{onSuccess:()=>setEditingAssemblyConstraint(undefined)});
+      }}>
+      <Form form={assemblyConstraintForm} layout="vertical"><Form.Item name="value" label={editingAssemblyConstraint?.kind==="ANGLE"?"角度（deg）":"距离（mm）"}
+        rules={[{required:true}]}><InputNumber disabled={!editingAssemblyConstraint||!["ANGLE","DISTANCE"].includes(editingAssemblyConstraint.kind)} style={{width:"100%"}} /></Form.Item></Form>
+    </CommandDialog>
     <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)}
       title={pendingAssemblyConstraint?.kind === "angle" ? "装配角度" : "装配距离"}
       onClose={() => setPendingAssemblyConstraint(undefined)} confirmLoading={command.isPending}

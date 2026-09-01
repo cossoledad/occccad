@@ -491,6 +491,8 @@ public:
             constraint.value = input.value();
             if (input.kind() == "FIX")
                 constraint.kind = assembly_api::ConstraintKind::Fix;
+            else if (input.kind() == "RIGID")
+                constraint.kind = assembly_api::ConstraintKind::Rigid;
             else if (input.kind() == "COINCIDENT")
                 constraint.kind = assembly_api::ConstraintKind::Coincident;
             else if (input.kind() == "CONCENTRIC")

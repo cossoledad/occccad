@@ -181,5 +181,22 @@ TEST(AssemblySolver, InvalidGeometryIsReportedWithoutThrowing) {
     EXPECT_FALSE(result.diagnostic.empty());
 }
 
+TEST(AssemblySolver, RigidMaintainsCapturedRelativePose) {
+    Model model;
+    model.bodies = {{"ground", {}}, {"first", {{4, 2, 0}, {}}}};
+    Constraint ground = fix("ground");
+    Constraint rigid;
+    rigid.id = "rigid";
+    rigid.kind = ConstraintKind::Rigid;
+    rigid.first = {"first", {}};
+    rigid.second = GeometryRef{"ground", {}};
+    rigid.fixed_pose = Pose{{4, 2, 0}, {}};
+    model.constraints = {ground, rigid};
+    const SolveResult solved = Solver{}.solve(model);
+    ASSERT_EQ(solved.status, SolveStatus::Converged) << solved.diagnostic;
+    EXPECT_NEAR(pose(solved, "first").translation.x, 4.0, 1.0e-7);
+    EXPECT_NEAR(pose(solved, "first").translation.y, 2.0, 1.0e-7);
+}
+
 }  // namespace
 }  // namespace occccad::assembly

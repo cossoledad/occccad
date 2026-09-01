@@ -27,10 +27,10 @@ import { measureSketchDimension } from "../cad/sketch/sketch-constraint-layout";
 import { sketchReferenceDimensions, SKETCH_INPUT_POLICY } from "../cad/sketch/sketch-input-policy";
 import { sampleSketchEntity, sketchEntityPoint } from "../cad/sketch/sketch-geometry";
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
-import { ArcSketchTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type ToolViewportPort } from "../cad/tool/cad-tool";
+import { ArcSketchTool, AssemblyConstraintTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type AssemblyConstraintToolKind, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
-  Artifact, AxisSystem, DatumAxis, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SelectionItem, SketchConstraint, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3, VisualizationManifest,
+  Artifact, AssemblyGeometryRef, AxisSystem, DatumAxis, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SelectionItem, SketchConstraint, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3, VisualizationManifest,
 } from "../types";
 
 type Callbacks = {
@@ -44,6 +44,7 @@ type Callbacks = {
     references: SketchGeometryRef[]; labelPosition: Vec2; value: number; unit: "mm"|"deg"; x: number; y: number }) => void;
   activeToolChanged: (toolID: import("../state/workbench-store").WorkbenchToolID) => void;
   instanceMoved: (instanceId: string, translation: Vec3) => void;
+  assemblyConstraintRequested: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
 
@@ -182,6 +183,7 @@ export class CadViewportEngine {
   private dimensionDrag?: { selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; constraint: SketchConstraint;
     root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2 };
   private suppressNextSelection = false;
+  private rigidDrag?: { driver: string; start: THREE.Vector3; members: Map<string, THREE.Vector3> };
   private activeToolID = "select";
   private navigationProfile: NavigationProfileID = "default";
   private captureSettings: CaptureSettings = DEFAULT_CAPTURE_SETTINGS;
@@ -207,13 +209,14 @@ export class CadViewportEngine {
     this.scene.add(this.transform.getHelper());
     this.transform.addEventListener("dragging-changed", (event) => {
       this.navigation.setEnabled(!Boolean(event.value));
-      if (event.value) this.suppressNextSelection = true;
+      if (event.value) { this.suppressNextSelection = true; this.beginRigidDrag(); }
+      else this.rigidDrag = undefined;
     });
     this.transform.addEventListener("mouseUp", () => {
       this.commitTransform();
       window.setTimeout(() => { this.suppressNextSelection = false; }, 0);
     });
-    this.transform.addEventListener("change", () => this.invalidate());
+    this.transform.addEventListener("change", () => { this.updateRigidDrag(); this.invalidate(); });
 
     const groundGrid = new THREE.GridHelper(1200, 60);
     groundGrid.rotation.x = Math.PI / 2;
@@ -249,6 +252,8 @@ export class CadViewportEngine {
     this.navigationHUD = new CatiaNavigationHUD(this.shaders);
     this.tools = new ToolManager({ viewport: this.toolViewportPort() });
     this.tools.register(new SelectTool());
+    for (const kind of ["fix", "rigid", "coincident", "concentric", "angle", "distance"] as const)
+      this.tools.register(new AssemblyConstraintTool(kind));
     this.tools.register(new PointSketchTool());
     this.tools.register(new LineSketchTool());
     this.tools.register(new CircleSketchTool());
@@ -1409,6 +1414,9 @@ export class CadViewportEngine {
       clearReferencePreview: () => this.clearReferencePreview(),
       setToolPrompt: (prompt) => this.callbacks.toolPromptChanged(prompt),
       finishToolUse: () => this.callbacks.toolUseCompleted(),
+      selectionAt: (x, y) => this.hitTest(x, y),
+      retainSelections: (selections) => this.selectMany(selections),
+      requestAssemblyConstraint: (kind, references) => this.callbacks.assemblyConstraintRequested(kind, references),
     };
   }
 
@@ -1453,6 +1461,21 @@ export class CadViewportEngine {
     this.callbacks.instanceMoved(object.userData.id as string,
       [object.position.x, object.position.y, object.position.z]);
     this.refreshContentBounds();
+  }
+
+  private beginRigidDrag(): void {
+    const driver=this.transform.object?.userData.id as string|undefined;if(!driver||!this.view?.product)return;
+    const adjacency=new Map<string,string[]>();for(const constraint of this.view.product.constraints??[]){if(constraint.kind!=="RIGID"||!constraint.second)continue;
+      adjacency.set(constraint.first.instanceId,[...(adjacency.get(constraint.first.instanceId)??[]),constraint.second.instanceId]);
+      adjacency.set(constraint.second.instanceId,[...(adjacency.get(constraint.second.instanceId)??[]),constraint.first.instanceId]);}
+    const pending=[driver],visited=new Set<string>(),members=new Map<string,THREE.Vector3>();while(pending.length){const id=pending.pop()!;if(visited.has(id))continue;visited.add(id);
+      const group=this.instanceGroups.get(id);if(group)members.set(id,group.position.clone());pending.push(...(adjacency.get(id)??[]));}
+    this.rigidDrag={driver,start:this.transform.object!.position.clone(),members};
+  }
+
+  private updateRigidDrag(): void {
+    const drag=this.rigidDrag,object=this.transform.object;if(!drag||!object)return;const delta=object.position.clone().sub(drag.start);
+    for(const [id,start] of drag.members){if(id===drag.driver)continue;this.instanceGroups.get(id)?.position.copy(start.clone().add(delta));}
   }
 
   private applyHighlight(object: THREE.Object3D, state: "default" | "hover" | "selected"): void {

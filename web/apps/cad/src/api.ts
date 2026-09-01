@@ -1,4 +1,4 @@
-import type { AuditEvent, CommandPreview, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
+import type { AssemblyGeometryRef, AuditEvent, CommandPreview, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
 import { randomUUID } from "./utils/random-uuid";
 import { clientPerformanceSnapshot, recordClientPerformance } from "./utils/performance";
@@ -231,9 +231,11 @@ export const restApi = {
   move: (documentId: string, instanceId: string, translation: Vec3) =>
     restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation }),
   addAssemblyConstraint: (documentId: string, input: { constraintKind: string;
-    firstAssemblyRef: Record<string, string>; secondAssemblyRef?: Record<string, string>;
+    firstAssemblyRef: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef;
     value?: number; directionRelation?: string; distanceRelation?: string }) =>
     restApi.command(documentId, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),
+  editAssemblyConstraint: (documentId: string, constraintId: string, input: { value: number; directionRelation: string; distanceRelation: string }) =>
+    restApi.command(documentId, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),
   setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_HEAD" | "PINNED") =>
     restApi.command(documentId, { type: "SET_REFERENCE_MODE", instanceId, referenceMode }),
   undo: (documentId: string) => restApi.command(documentId, { type: "UNDO" }),

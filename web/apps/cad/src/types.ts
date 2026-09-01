@@ -119,8 +119,9 @@ export type ProductInstance = {
   headChanged?: boolean;
 };
 
-export type AssemblyGeometryRef = { instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER"; geometryId?: string; axis?: string };
-export type AssemblyConstraint = { id: string; kind: "FIX" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE";
+export type AssemblyGeometryRef = { instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER" | "FACE";
+  geometryId?: string; axis?: string; geometryKey?: string; topologyId?: number };
+export type AssemblyConstraint = { id: string; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE";
   first: AssemblyGeometryRef; second?: AssemblyGeometryRef; value?: number; directionRelation?: string; distanceRelation?: string };
 
 export type InstancePathSegment = {
@@ -278,6 +279,7 @@ export type SelectionItem =
   | (SelectionIdentity & { kind: "visual"; visualType: "POINT" | "CURVE" | "SURFACE";
       featureId: string; entityId: string; role?: "PROFILE" | "CONSTRUCTION" })
   | (SelectionIdentity & { kind: "sketch-constraint"; featureId: string; constraintId: string; constraintType: string })
+  | (SelectionIdentity & { kind: "assembly-constraint"; constraintId: string; constraintType: string })
   | (SelectionIdentity & { kind: "face" | "edge" | "vertex"; topologyId: number })
   | (SelectionIdentity & { kind: "tree" });
 export type Selection = SelectionItem | null;

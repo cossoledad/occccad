@@ -66,7 +66,7 @@ struct GeometryRef {
     std::string geometry_id;
 };
 
-enum class ConstraintKind { Fix, Coincident, Concentric, Angle, Distance };
+enum class ConstraintKind { Fix, Rigid, Coincident, Concentric, Angle, Distance };
 
 // Unoriented chooses the same/opposite branch nearest the current iterate.
 enum class DirectionRelation { Unoriented, Same, Opposite };
@@ -83,6 +83,7 @@ struct Constraint {
     double value{};  // radians for Angle, model length for Distance
     DirectionRelation direction_relation{DirectionRelation::Unoriented};
     DistanceRelation distance_relation{DistanceRelation::Unsigned};
+    // Fix: target world pose. Rigid: target pose of first relative to second.
     std::optional<Pose> fixed_pose;
 };
 

@@ -205,8 +205,8 @@ Eigen::VectorXd single(const double value) {
 Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeometry& first,
                                     const std::optional<WorldGeometry>& second,
                                     const SolverOptions& options) {
-    if (constraint.kind == ConstraintKind::Fix)
-        throw std::invalid_argument("Fix residual is evaluated from a body pose");
+    if (constraint.kind == ConstraintKind::Fix || constraint.kind == ConstraintKind::Rigid)
+        throw std::invalid_argument("rigid-body residual is evaluated from body poses");
     if (!second)
         throw std::invalid_argument("binary constraint requires a second geometry");
 
@@ -374,6 +374,12 @@ public:
             if (constraint.kind == ConstraintKind::Fix) {
                 if (constraint.second)
                     throw std::invalid_argument("Fix must have exactly one endpoint");
+            } else if (constraint.kind == ConstraintKind::Rigid) {
+                if (!constraint.second || constraint.first.body_id == constraint.second->body_id)
+                    throw std::invalid_argument("Rigid requires two different bodies");
+                (void)body(constraint.second->body_id);
+                if (!constraint.fixed_pose)
+                    throw std::invalid_argument("Rigid requires a captured relative pose");
             } else {
                 (void)geometry(constraint.first);
                 if (!constraint.second)
@@ -425,6 +431,20 @@ public:
                     rotation_vector(normalized(target.rotation).conjugate() *
                                     normalized(current.rotation)) /
                         options_.angle_scale;
+                result.push_back({constraint.id, std::move(residual)});
+                continue;
+            }
+            if (constraint.kind == ConstraintKind::Rigid) {
+                const Pose& first = state.poses[body_index_.at(constraint.first.body_id)];
+                const Pose& second = state.poses[body_index_.at(constraint.second->body_id)];
+                const Pose target = *constraint.fixed_pose;
+                const EigenQuaternion second_rotation = normalized(second.rotation);
+                const Vector3 relative_translation = second_rotation.conjugate() *
+                    (eigen(first.translation) - eigen(second.translation));
+                const EigenQuaternion relative_rotation = second_rotation.conjugate() * normalized(first.rotation);
+                Eigen::VectorXd residual(6);
+                residual << (relative_translation - eigen(target.translation)) / options_.length_scale,
+                    rotation_vector(normalized(target.rotation).conjugate() * relative_rotation) / options_.angle_scale;
                 result.push_back({constraint.id, std::move(residual)});
                 continue;
             }

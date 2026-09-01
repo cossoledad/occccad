@@ -4,7 +4,8 @@ import { InputDebugOverlay, type InputDebugSnapshot } from "../cad/overlay/input
 import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
 import type { WorkbenchToolID } from "../state/workbench-store";
 import { randomUUID } from "../utils/random-uuid";
-import type { Artifact, DocumentView, Selection, SelectionItem, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3 } from "../types";
+import type { Artifact, AssemblyGeometryRef, DocumentView, Selection, SelectionItem, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3 } from "../types";
+import type { AssemblyConstraintToolKind } from "../cad/tool/cad-tool";
 import { CadViewportEngine } from "./cad-viewport-engine";
 import { formatSketchDimensionValue, normalizeSketchDimensionValue } from "../cad/sketch/sketch-input-policy";
 
@@ -37,6 +38,7 @@ type Props = {
   onToolUseComplete: () => void;
   onActiveToolChange: (toolID: WorkbenchToolID) => void;
   onInstanceMoved: (instanceID: string, translation: Vec3) => void;
+  onAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
 };
 
 export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadViewport(props, ref) {
@@ -62,6 +64,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       activeToolChanged: (toolID) => callbacks.current.onActiveToolChange(toolID),
       toolPromptChanged: () => {},
       instanceMoved: (instanceID, translation) => callbacks.current.onInstanceMoved(instanceID, translation),
+      assemblyConstraintRequested: (kind, references) => callbacks.current.onAssemblyConstraint(kind, references),
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
     });
     engine.current = instance;

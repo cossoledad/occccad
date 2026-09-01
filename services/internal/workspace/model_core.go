@@ -31,6 +31,7 @@ const (
 	typeInsertInstance         = "occccad://product/instance/insert"
 	typeMoveInstance           = "occccad://product/instance/move"
 	typeAddAssemblyConstraint  = "occccad://product/assembly-constraint/add"
+	typeEditAssemblyConstraint = "occccad://product/assembly-constraint/edit"
 	typeSetReferenceMode       = "occccad://product/instance/reference-mode/set"
 	typeDeletePartNode         = "occccad://part/node/delete"
 	typeDeleteProductNode      = "occccad://product/node/delete"
@@ -67,6 +68,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeInsertInstance, "PRODUCT", applyInsertInstance},
 		commandHandler{typeMoveInstance, "PRODUCT", applyMoveInstance},
 		commandHandler{typeAddAssemblyConstraint, "PRODUCT", applyAddAssemblyConstraint},
+		commandHandler{typeEditAssemblyConstraint, "PRODUCT", applyEditAssemblyConstraint},
 		commandHandler{typeSetReferenceMode, "PRODUCT", applyReferenceMode},
 		commandHandler{typeDeletePartNode, "PART", applyDeletePartNode},
 		commandHandler{typeDeleteProductNode, "PRODUCT", applyDeleteProductNode},
@@ -282,8 +284,21 @@ func applyDeleteProductNode(modelJSON, payloadJSON json.RawMessage) (json.RawMes
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	if payload.TargetKind != "INSTANCE" {
+	if payload.TargetKind != "INSTANCE" && payload.TargetKind != "ASSEMBLY_CONSTRAINT" {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: node kind %s is protected from deletion", ErrValidation, payload.TargetKind)
+	}
+	if payload.TargetKind == "ASSEMBLY_CONSTRAINT" {
+		for index := range model.Constraints {
+			if model.Constraints[index].ID != payload.TargetID {
+				continue
+			}
+			before := model.Constraints[index]
+			model.Constraints = append(model.Constraints[:index], model.Constraints[index+1:]...)
+			change, _ := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: payload.TargetID, SlotID: "assembly-constraint.entity"}, before, nil)
+			next, _ := json.Marshal(model)
+			return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.TargetID)}}, nil
+		}
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected assembly constraint does not exist", ErrValidation)
 	}
 	index := -1
 	for i := range model.Instances {
@@ -836,6 +851,40 @@ type addAssemblyConstraintPayload struct {
 	Constraint AssemblyConstraint `json:"constraint"`
 }
 
+type editAssemblyConstraintPayload struct {
+	ConstraintID      string  `json:"constraintId"`
+	Value             float64 `json:"value"`
+	DirectionRelation string  `json:"directionRelation"`
+	DistanceRelation  string  `json:"distanceRelation"`
+}
+
+func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model ProductModel
+	var payload editAssemblyConstraintPayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if !finite(payload.Value) {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: constraint value must be finite", ErrValidation)
+	}
+	for index := range model.Constraints {
+		if model.Constraints[index].ID != payload.ConstraintID {
+			continue
+		}
+		before := model.Constraints[index]
+		model.Constraints[index].Value = payload.Value
+		model.Constraints[index].DirectionRelation = payload.DirectionRelation
+		model.Constraints[index].DistanceRelation = payload.DistanceRelation
+		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.ConstraintID, SlotID: "assembly-constraint.entity"}, before, model.Constraints[index])
+		next, _ := json.Marshal(model)
+		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.ConstraintID)}}, nil
+	}
+	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: assembly constraint does not exist", ErrValidation)
+}
+
 func applyAddAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
 	var model ProductModel
 	var payload addAssemblyConstraintPayload
@@ -1029,7 +1078,13 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			return err
 		}
 		finishSolve := perf.Start(ctx, "assembly-solve")
-		if err = service.solveAssembly(ctx, prepared.requestID, &model); err != nil {
+		drivenInstanceID := ""
+		if prepared.command.TypeURI == typeMoveInstance {
+			var payload moveInstancePayload
+			_ = json.Unmarshal(prepared.command.Payload, &payload)
+			drivenInstanceID = payload.InstanceID
+		}
+		if err = service.solveAssembly(ctx, documentID, prepared.requestID, drivenInstanceID, &model); err != nil {
 			finishSolve()
 			return err
 		}
@@ -1469,9 +1524,9 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		data, _ := json.Marshal(constraint)
 		key := modelcore.DependencyKey("assembly-constraint:" + constraint.ID)
 		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 2, Type: "ASSEMBLY_CONSTRAINT", CanonicalInput: data})
-		edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + constraint.First.InstanceID), Target: key, Kind: "ASSEMBLY_REFERENCE"})
+		edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + constraint.First.InstanceID), Target: key, Kind: "READ_GEOMETRY"})
 		if constraint.Second != nil {
-			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + constraint.Second.InstanceID), Target: key, Kind: "ASSEMBLY_REFERENCE"})
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + constraint.Second.InstanceID), Target: key, Kind: "READ_GEOMETRY"})
 		}
 	}
 	graph, err := modelcore.NewDependencyGraph(nodes, edges)
@@ -1759,7 +1814,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			break
 		}
 		kind := strings.ToUpper(strings.TrimSpace(request.ConstraintKind))
-		if kind != "FIX" && kind != "COINCIDENT" && kind != "CONCENTRIC" && kind != "ANGLE" && kind != "DISTANCE" {
+		if kind != "FIX" && kind != "RIGID" && kind != "COINCIDENT" && kind != "CONCENTRIC" && kind != "ANGLE" && kind != "DISTANCE" {
 			return "", nil, fmt.Errorf("%w: unsupported assembly constraint kind", ErrValidation)
 		}
 		if request.FirstAssemblyRef == nil {
@@ -1779,23 +1834,44 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if constraint.DistanceRelation == "" {
 			constraint.DistanceRelation = "UNSIGNED"
 		}
-		if kind == "FIX" {
+		if kind == "FIX" || kind == "RIGID" {
 			var product ProductModel
 			if err := json.Unmarshal(modelJSON, &product); err != nil {
 				return "", nil, err
 			}
-			for _, instance := range product.Instances {
+			var first, second *ProductInstance
+			for index := range product.Instances {
+				instance := &product.Instances[index]
 				if instance.ID == constraint.First.InstanceID {
-					pose := InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)}
-					constraint.FixedPose = &pose
-					break
+					first = instance
+				}
+				if constraint.Second != nil && instance.ID == constraint.Second.InstanceID {
+					second = instance
 				}
 			}
-			if constraint.FixedPose == nil {
+			if first == nil || (kind == "RIGID" && second == nil) {
 				return "", nil, fmt.Errorf("%w: selected instance does not exist", ErrValidation)
+			}
+			firstPose := InstancePose{Translation: first.Translation, Rotation: normalizedInstanceRotation(first.Rotation)}
+			if kind == "FIX" {
+				constraint.FixedPose = &firstPose
+			} else {
+				secondPose := InstancePose{Translation: second.Translation, Rotation: normalizedInstanceRotation(second.Rotation)}
+				relative := inverseRelativePose(firstPose, secondPose)
+				constraint.FixedPose = &relative
 			}
 		}
 		return typeAddAssemblyConstraint, addAssemblyConstraintPayload{Constraint: constraint}, nil
+	case "EDIT_ASSEMBLY_CONSTRAINT":
+		if documentType != "PRODUCT" {
+			break
+		}
+		id := strings.TrimSpace(request.TargetID)
+		if id == "" {
+			return "", nil, fmt.Errorf("%w: constraint identity is required", ErrValidation)
+		}
+		return typeEditAssemblyConstraint, editAssemblyConstraintPayload{ConstraintID: id, Value: request.Value,
+			DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation)}, nil
 	case "SET_REFERENCE_MODE":
 		if documentType != "PRODUCT" {
 			break
@@ -1838,7 +1914,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 			return typeDeletePartNode, deleteNodePayload{TargetKind: kind, TargetID: id, OwnerEntityID: owner}, nil
 		}
-		if documentType == "PRODUCT" && kind == "INSTANCE" {
+		if documentType == "PRODUCT" && (kind == "INSTANCE" || kind == "ASSEMBLY_CONSTRAINT") {
 			return typeDeleteProductNode, deleteNodePayload{TargetKind: kind, TargetID: id}, nil
 		}
 	case "DELETE_NODES":
@@ -1863,7 +1939,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				if (kind == "SKETCH_ENTITY" || kind == "SKETCH_CONSTRAINT") && owner == "" {
 					return "", nil, fmt.Errorf("%w: sketch child deletion requires its owning sketch", ErrValidation)
 				}
-			} else if documentType != "PRODUCT" || kind != "INSTANCE" {
+			} else if documentType != "PRODUCT" || (kind != "INSTANCE" && kind != "ASSEMBLY_CONSTRAINT") {
 				valid = false
 				break
 			}

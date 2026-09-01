@@ -487,6 +487,7 @@ export const mockApi: CadApi = {
   insert: async (documentID, referencedDocumentID) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID }),
   move: async (documentID, instanceID, translation) => command(documentID, { type: "MOVE_INSTANCE", instanceId: instanceID, translation }),
   addAssemblyConstraint: async (documentID, input) => command(documentID, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),
+  editAssemblyConstraint: async (documentID, constraintId, input) => command(documentID, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),
   setReferenceMode: async (documentID, instanceID, referenceMode) => command(documentID, { type: "SET_REFERENCE_MODE", instanceId: instanceID, referenceMode }),
   undo: async (documentID) => command(documentID, { type: "UNDO" }),
   redo: async (documentID) => command(documentID, { type: "REDO" }),

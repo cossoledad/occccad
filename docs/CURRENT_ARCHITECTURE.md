@@ -387,7 +387,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 | 本机 Geometry 扩缩容 | 已实现 | occccad-control |
 | 跨主机 Geometry 调度 | 未实现 | 无注册中心/集群调度 |
 | 二维草图与基础约束 | 已实现基础集合 | Point/Line/Circle/Arc/插值 Spline、基本几何/尺寸/对称约束、PlaneGCS 与四组 Sketcher Toolbar |
-| 三维装配约束/运动学 | 已实现首个 Product 闭环 | Product 直接 Part 实例的基准点/轴/面支持 Fix、Coincident、Concentric、Angle、Distance；C++ 求解后原子提交 Constraint 与完整 SE(3) Pose |
+| 三维装配约束/运动学 | 已实现首个 Product 闭环 | 支持 Fix、Rigid、Coincident、Concentric、Angle、Distance，约束创建/编辑/删除、固连集实时平移预览及松手后的权威 SE(3) 求解 |
 | 持久拓扑命名 | 未实现 | 当前 local ID 不可作长期 Feature 引用 |
 | S3 兼容对象存储/CDN | 未实现 | 当前仅本地目录 |
 | 实时多人同文档编辑 | 已实现首个提交同步闭环 | WebSocket request/event、Outbox、sequence、重连快照；尚无 presence/preview 与 semantic rebase |
@@ -405,7 +405,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 6. **协议超前于实现**：部分 Proto RPC 未实现，版本化和能力协商尚未建立。
 7. **测试金字塔不完整**：缺少模型语料库、确定性回归、大装配基准和浏览器 E2E。
 
-`kernel/assembly` 当前使用有限差分 Jacobian 的阻尼最小二乘，返回收敛、迭代上限、非法模型和数值失败，以及逐约束归一化残差。Product 将 `instanceId + datum geometry ID + axis component` 作为稳定端点写入 Revision；每次提交从被引用 Part Revision 重新解析局部描述符，经 Go client、正式 Geometry Router 和 `SolveAssembly` Worker RPC 求解，Constraint 与所有改变的 Instance Pose 在同一个 ChangeSet 中提交并可一起 Undo/Redo。Assembly Design Toolbar 提供 Fix、Coincident、Concentric、Angle、Distance，角度/距离使用显式数值面板。第一版只允许根 Product 的直接 Part 实例和 Datum/AxisSystem，尚未开放任意拓扑面/圆柱、嵌套 Product 相对路径、约束删除/编辑、自由度、冗余/冲突、图分解、解析 Jacobian或全局分支选择。
+`kernel/assembly` 当前使用有限差分 Jacobian 的阻尼最小二乘。Assembly Toolbar 的按钮会激活输入工具：Fix 选择一次，其余约束连续选择两个不同 occurrence 的元素，第一次选择跨 pointerup 保留。Datum 端点使用 `instanceId + datum geometry ID + axis component`；B-Rep 面当前使用 `instanceId + geometryKey + topology local ID`，服务端验证制品属于该 instance 的 resolved Revision，并从 OCCT 重新读取平面/圆柱精确参数。求解经正式 Router 的 `SolveAssembly` RPC 完成，Constraint 与全部变更 Pose 在同一个 ChangeSet 中提交，依赖图使用 `READ_GEOMETRY`。面引用仍是当前 Revision 内有效的过渡身份，尚未达到 PersistentSelection/Publication 的跨重算稳定性。
 
 这些风险决定了下一阶段应先建立模型内核、拓扑命名、约束求解和可重建制品协议，而不是先增加大量微服务。
 

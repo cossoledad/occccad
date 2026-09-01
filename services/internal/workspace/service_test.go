@@ -830,6 +830,51 @@ func TestAssemblyConstraintAndSolvedPoseAreOneUndoableChangeSet(t *testing.T) {
 	}
 }
 
+func TestProductAssemblyDependenciesUsePersistableGeometryEdges(t *testing.T) {
+	t.Parallel()
+	model := ProductModel{Instances: []ProductInstance{{ID: "a", Name: "A.1"}, {ID: "b", Name: "B.1"}},
+		Constraints: []AssemblyConstraint{{ID: "mate", Kind: "COINCIDENT",
+			First:  AssemblyGeometryRef{InstanceID: "a", Kind: "PLANE", GeometryID: "xy"},
+			Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "PLANE", GeometryID: "xy"}}}}
+	graph, _, err := buildProductEvaluation(model, "revision", "hash", nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, edge := range graph.Edges {
+		if edge.Kind != "READ_GEOMETRY" {
+			t.Fatalf("dependency edge cannot be persisted: %#v", edge)
+		}
+	}
+}
+
+func TestAssemblyConstraintCanBeEditedAndDeleted(t *testing.T) {
+	model := ProductModel{Instances: []ProductInstance{{ID: "a", Name: "A.1"}, {ID: "b", Name: "B.1"}}, Constraints: []AssemblyConstraint{{ID: "distance", Kind: "DISTANCE", First: AssemblyGeometryRef{InstanceID: "a", Kind: "POINT"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "POINT"}, Value: 10}}}
+	modelJSON, _ := json.Marshal(model)
+	payload, _ := json.Marshal(editAssemblyConstraintPayload{ConstraintID: "distance", Value: 25, DirectionRelation: "UNORIENTED", DistanceRelation: "UNSIGNED"})
+	edited, changes, err := applyEditAssemblyConstraint(modelJSON, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes.Changes) != 1 {
+		t.Fatalf("edit must be one change: %#v", changes)
+	}
+	var next ProductModel
+	_ = json.Unmarshal(edited, &next)
+	if next.Constraints[0].Value != 25 {
+		t.Fatalf("constraint edit was not applied: %#v", next.Constraints[0])
+	}
+	deletePayload, _ := json.Marshal(deleteNodePayload{TargetKind: "ASSEMBLY_CONSTRAINT", TargetID: "distance"})
+	deleted, _, err := applyDeleteProductNode(edited, deletePayload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	next = ProductModel{}
+	_ = json.Unmarshal(deleted, &next)
+	if len(next.Constraints) != 0 {
+		t.Fatalf("constraint delete was not applied: %#v", next.Constraints)
+	}
+}
+
 func TestDocumentManagementValidation(t *testing.T) {
 	t.Parallel()
 	service := &Service{}

@@ -349,6 +349,28 @@ try {
   viewport.beginDimensionDrag=()=>false;
   viewport.editDimensionAt=()=>false;
 
+  const {AssemblyConstraintTool}=await server.ssrLoadModule("/src/cad/tool/cad-tool.ts");
+  const assemblySelections=[
+    {kind:"face",id:"face-a",instanceId:"instance-a",geometryKey:"geometry-a",topologyId:2},
+    {kind:"face",id:"face-b",instanceId:"instance-b",geometryKey:"geometry-b",topologyId:4},
+  ];
+  let assemblyPick=0,retainedAssembly=[],assemblyRequest;
+  viewport.selectionAt=()=>assemblySelections[assemblyPick++];
+  viewport.retainSelections=(values)=>{retainedAssembly=values;};
+  viewport.requestAssemblyConstraint=(kind,references)=>{assemblyRequest={kind,references};};
+  const assemblyTool=new AssemblyConstraintTool("coincident");
+  const assemblyFirst=pointer(10,10,"down");
+  assert.equal(assemblyTool.pointerDown(assemblyFirst,context),"capture");
+  assert.equal(assemblyTool.pointerUp({...pointer(10,10,"up"),pointerId:assemblyFirst.pointerId},context),"release-capture");
+  assert.equal(retainedAssembly.length,1,"the first assembly pick must survive pointerup");
+  const assemblySecond=pointer(20,20,"down");
+  assert.equal(assemblyTool.pointerDown(assemblySecond,context),"capture");
+  assert.deepEqual(assemblyRequest,{kind:"coincident",references:[
+    {instanceId:"instance-a",kind:"FACE",geometryKey:"geometry-a",topologyId:2},
+    {instanceId:"instance-b",kind:"FACE",geometryKey:"geometry-b",topologyId:4},
+  ]});
+  assert.equal(retainedAssembly.length,2);
+
   const manager = new ToolManager(context);
   manager.register(new (await server.ssrLoadModule("/src/cad/tool/cad-tool.ts")).SelectTool());
   manager.register(new LineSketchTool());

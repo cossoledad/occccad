@@ -75,6 +75,7 @@ INSERT INTO occccad.ui_toolbar_items(toolbar_id,command_id,name,help_text,icon_k
 ('assembly-design','product.insert','插入','向 Product 插入 Part 或 Product 实例。','insert',20,false),
 ('assembly-design','product.reference.toggle','引用模式','在跟随 Head 和固定版本之间切换实例引用。','reference',30,false),
 ('assembly-design','assembly.fix','固定','固定所选装配实例的当前刚体位置。','fixed',40,false),
+('assembly-design','assembly.rigid','固连','保持两个装配实例之间的当前相对刚体位姿。','link',45,false),
 ('assembly-design','assembly.coincident','重合','使两个基准点、轴或平面重合。','coincident',50,false),
 ('assembly-design','assembly.concentric','同心','使所选两条基准轴同轴。','concentric',60,false),
 ('assembly-design','assembly.angle','角度','约束两个基准轴或平面的夹角。','angle',70,false),

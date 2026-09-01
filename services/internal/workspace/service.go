@@ -270,10 +270,12 @@ type InstancePose struct {
 }
 
 type AssemblyGeometryRef struct {
-	InstanceID string `json:"instanceId"`
-	Kind       string `json:"kind"`
-	GeometryID string `json:"geometryId,omitempty"`
-	Axis       string `json:"axis,omitempty"`
+	InstanceID  string `json:"instanceId"`
+	Kind        string `json:"kind"`
+	GeometryID  string `json:"geometryId,omitempty"`
+	Axis        string `json:"axis,omitempty"`
+	GeometryKey string `json:"geometryKey,omitempty"`
+	TopologyID  uint64 `json:"topologyId,omitempty"`
 }
 
 type AssemblyConstraint struct {
@@ -3017,9 +3019,22 @@ func (service *Service) buildDocumentStructure(
 	}
 	if len(model.Constraints) > 0 {
 		group := DocumentStructureNode{ID: path + "/assembly-constraints", Kind: "ASSEMBLY_CONSTRAINT_SET", Name: "约束"}
+		names := make(map[string]string, len(model.Instances))
+		for _, instance := range model.Instances {
+			names[instance.ID] = instance.Name
+		}
+		counts := map[string]int{}
+		labels := map[string]string{"FIX": "固定", "RIGID": "固连", "COINCIDENT": "重合", "CONCENTRIC": "同心", "ANGLE": "角度", "DISTANCE": "距离"}
 		for _, constraint := range model.Constraints {
+			counts[constraint.Kind]++
+			name := fmt.Sprintf("#%s.%d（#%s", labels[constraint.Kind], counts[constraint.Kind], names[constraint.First.InstanceID])
+			if constraint.Second != nil {
+				name += "，#" + names[constraint.Second.InstanceID]
+			}
+			name += "）"
 			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/constraint:" + constraint.ID,
-				Kind: "ASSEMBLY_CONSTRAINT", Name: constraint.Kind, EntityID: constraint.ID, EntityType: constraint.Kind})
+				Kind: "ASSEMBLY_CONSTRAINT", Name: name, EntityID: constraint.ID, EntityType: constraint.Kind,
+				DocumentID: documentID, Capabilities: []string{"DELETE"}})
 		}
 		root.Children = append(root.Children, group)
 	}
