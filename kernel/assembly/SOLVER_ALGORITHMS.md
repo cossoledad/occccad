@@ -208,7 +208,21 @@ cluster、component 及冗余/冲突 ID 集合会显式排序；Body 与方程�
 拖拽流形投影、一般曲面接触和大规模稀疏图优化。上述能力的引入顺序见架构路线图，不能从本文的 M1/M1.5 基线推断为
 已经实现。
 
-## 11. 回归验证
+## 11. 已确定的后续升级流程
+
+后续工作先修正残差和状态语义，再替换微分与线性代数实现，避免为不稳定方程编写解析 Jacobian：
+
+1. **M1.6 鲁棒性门**：Angle 改用 `atan2`，一次 solve 内冻结方向分支，区分 geometry、convergence、rank 和
+   classification tolerance，为零变量未满足等情况增加 `Unsatisfied/Inconsistent` 后端语义，并扩充极端姿态 corpus。
+2. **M2 方程与线性代数**：建立 typed equation registry 和解析 Jacobian，以中心有限差分做 differential check，使用
+   SVD 或 rank-revealing QR，并返回 null-space basis 与可解释 DOF 方向。
+3. **M3 稳定解与交互**：区分 `UnsignedAngle [0,π]` 和带 axis/sense 的 `DirectedAngle`，持久化离散 branch intent；利用
+   null space 实现 minimum-motion、minimum-reference displacement 和 Drag 投影。
+
+静态装配只保存 modulo `2π` 的姿态分支，多圈累计角属于 Interaction、Kinematics 或 Simulation 状态。MUS/minimal
+conflict set 不在近期关键路径上；当前优先保证残差连续性、分支稳定性和 DOF 可解释性。
+
+## 12. 回归验证
 
 邻近场景测试覆盖具体残差行为；[`tests/assembly-corpus`](../../tests/assembly-corpus) 覆盖 canonical DOF、刚性聚类、
 ground 消元、gauge、重复/冲突/退化输入、排列不变性、冷/热启动语义以及 M1.5 moving/reference。运行：

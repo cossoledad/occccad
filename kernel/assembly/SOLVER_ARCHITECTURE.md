@@ -429,24 +429,55 @@ projection require null-space/hierarchical optimization and remain M3 work. The
 whether an equation drives the solve, while solve intent decides how equivalent
 pose solutions are distributed.
 
+### M1.6: residual semantics and robustness gate (next)
+
+M1.6 stabilizes the mathematical problem before analytic Jacobians are written.
+It does not add new constraint families or a sparse backend.
+
+- split the current overloaded tolerance into geometry/degeneracy,
+  convergence, rank and conflict-classification tolerances;
+- replace `acos(dot)` with stable `atan2` angle residuals, including explicit
+  behavior near zero and pi;
+- choose and freeze `Same`/`Opposite`/`Unoriented` branches once per solve from
+  persisted branch intent or the nominal/warm-start pose;
+- handle parallel and nearly parallel axis distance without switching through an
+  ill-conditioned generic formula;
+- distinguish a valid but unsatisfied/inconsistent system from an iterative
+  `NonConvergent` backend result, including zero-variable components;
+- extend the corpus with near-collinear axes, near-parallel geometry, zero/pi
+  angles, tolerance boundaries and canonical-order determinism;
+- keep dense Eigen and the finite-difference reference backend during this gate.
+
+Warm start at this stage means that the caller supplies the previously accepted
+poses as the next nominal poses. It is not yet an incremental factorization cache
+or a persistent solver session.
+
 ### M2: equation registry and Jacobians
 
 - replace stringly typed worker kinds with typed definitions;
 - implement a geometry-pair capability table;
-- define independent semantic equations and generic rank;
+- define independent semantic equations and distinguish `UnsignedAngle [0, pi]`
+  from `DirectedAngle(axis, sense)`;
 - add analytic Jacobians for the existing descriptor matrix;
 - verify them against central finite differences;
-- add rank-revealing QR/SVD diagnostics.
+- add SVD or rank-revealing QR diagnostics;
+- return a null-space basis and map its vectors to explainable translational and
+  rotational DOF directions.
 
 ### M3: branch continuity and constrained interaction
 
-- persist discrete branch intent;
+- persist discrete branch intent while keeping per-solve branch state immutable;
+- use `atan2(k dot (a cross b), a dot b)` for directed angles with an explicit
+  reference axis and rotation sense;
+- keep static assembly angle intent modulo `2*pi`; winding/unwrapped multi-turn
+  state belongs to interaction, kinematics or simulation rather than placement;
 - generate multiple analytic initialization candidates;
-- use nominal pose as a secondary objective;
-- expose DOF directions and axes;
+- use the M2 null space for lexicographic minimum-motion and minimum-reference
+  displacement objectives;
 - project drag targets onto the feasible manifold;
-- add warm starts and incremental graph recompilation;
-- return small conflict and redundancy explanations.
+- add explicit warm-start/branch snapshots and incremental graph recompilation;
+- defer MUS/minimal conflict-set search until branch and motion stability are
+  established; initially return localized conflict neighborhoods.
 
 ### M4: stable Product input adapter
 

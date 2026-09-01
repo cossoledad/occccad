@@ -3968,12 +3968,13 @@ message AssemblyConstraint {
     CoincidenceConstraint coincidence = 10;
     ContactConstraint contact = 11;
     OffsetConstraint offset = 12;
-    AngleConstraint angle = 13;
+    UnsignedAngleConstraint unsigned_angle = 13;
     ParallelConstraint parallel = 14;
     PerpendicularConstraint perpendicular = 15;
     DistanceConstraint distance = 16;
     FixConstraint fix = 17;
     SymmetryConstraint symmetry = 18;
+    DirectedAngleConstraint directed_angle = 19;
   }
 }
 ```
@@ -3988,13 +3989,14 @@ message AssemblyConstraint {
 | Coincidence | point-point、axis-axis、plane-plane | 重合；需 direction/side branch |
 | Contact | plane-plane、cylinder-cylinder、sphere-surface | 零间隙接触，不自动引入力学接触 |
 | Offset | plane-plane、axis-axis、point-plane | 有符号距离，保存 side |
-| Angle | direction/axis/plane pair | 有向角与 sector branch |
+| UnsignedAngle | direction/axis/plane pair | `[0, π]` 无向夹角与 orientation branch |
+| DirectedAngle | direction/axis/plane pair + reference axis/sense | `atan2(k·(a×b), a·b)` 有向角与 sector branch |
 | Parallel | axes/planes/directions | 平行或反平行 branch 明确 |
 | Perpendicular | axes/planes/directions | 正交 |
 | Distance | point/axis/surface combinations | 最短或指定方向距离，定义 branch |
 | Symmetry | frames/occurrences + plane/axis | 对称位置，不生成镜像零件 |
 
-约束 schema 定义允许的 geometry-kind 组合、方程数、单位和 branch。客户端只能在服务端 capability 表允许的组合中建议命令；服务端仍重新验证。复杂 surface contact P0 不支持任意 NURBS-NURBS 全局接触，因为它可能多点、多分支且不适合静态定位；优先用 Datum/Connector Publication。
+约束 schema 定义允许的 geometry-kind 组合、方程数、单位和 branch。`UnsignedAngle` 与 `DirectedAngle` 是不同的 typed definition，不能用字符串选项或求值时动态翻转互相模拟。静态 Assembly Revision 只保存 modulo `2π` 的姿态语义；unwrapped angle、winding 和多圈累计属于 Interaction、Kinematics 或 Simulation 状态。客户端只能在服务端 capability 表允许的组合中建议命令；服务端仍重新验证。复杂 surface contact P0 不支持任意 NURBS-NURBS 全局接触，因为它可能多点、多分支且不适合静态定位；优先用 Datum/Connector Publication。
 
 `CONTACT` 在 Assembly Design 中只是位置关系。动力学中的摩擦、恢复系数和接触力属于 Dynamics Contact Model，不能复用同一字段制造语义混淆。
 
@@ -4030,7 +4032,7 @@ T_i(new) = Exp(δξ_i) · T_i(current)
 r_c(T_a, T_b, parameters, branch) = 0
 ```
 
-长度残差按 `length_scale`、角度残差按 `angle_scale` 归一化。硬约束不靠“无限权重”；Driving Constraint 组成等式系统，拖拽目标和首选 Pose 是二级优化目标。Measured Constraint 不增加方程。
+长度残差按 `length_scale`、角度残差按 `angle_scale` 归一化。硬约束不靠“无限权重”；Driving Constraint 组成等式系统，拖拽目标和首选 Pose 是二级优化目标。Measured Constraint 不增加方程。一次 solve 开始时从持久 branch intent 或 nominal/warm-start pose 选择 `Same/Opposite/Unoriented` 等离散分支，并在本次迭代中冻结；残差求值不得随当前迭代点动态换支。无向角和有向角分别采用适合零度、π 和周期边界的 `atan2` 表达，不能以 `acos(dot)` 作为最终工程实现。
 
 自由度/冗余诊断基于约束 Jacobian 的数值秩并结合图结构。固定 occurrence/ground rigid cluster 先从变量向量消元，剩余自由变量记为 `q_free`：
 
@@ -4038,7 +4040,7 @@ r_c(T_a, T_b, parameters, branch) = 0
 remaining_dof = dim(q_free) - rank(J_active(q_free))
 ```
 
-若连通分量没有 Ground/Fix，则 6 个整体刚体运动作为 `gauge_dof` 单独报告，而不是再从 `remaining_dof` 重复扣除。Rank tolerance 是 SolverProfile 一部分。报告必须映射回 `(ConnectionId, ConstraintId, equationIndex)`，不能只返回矩阵列号。
+若连通分量没有 Ground/Fix，则 6 个整体刚体运动作为 `gauge_dof` 单独报告，而不是再从 `remaining_dof` 重复扣除。SolverProfile 必须分别表达 geometry/degeneracy、convergence、rank 和 conflict/classification tolerance，禁止用单个 residual tolerance 同时承担几何等价、迭代终止、秩判断和业务分类。报告必须映射回 `(ConnectionId, ConstraintId, equationIndex)`，不能只返回矩阵列号；中期结果还应返回 null-space basis 并解释为平移方向、旋转轴或组合自由度。
 
 #### 5.6.15 Assembly Solver 流水线
 
@@ -4062,13 +4064,13 @@ flowchart TD
 3. Constraint graph 按连通分量拆解；不同分量可并行；
 4. 每个无 Fix/ground 的分量存在 6 个全局 gauge DOF，不能误报欠约束冲突；
 5. 平面、圆柱、球等简单组合先解析初始化，再进入数值 refinement；
-6. 保存 orientation、angle sector、contact side、轴向等 branch，防止 update 时翻转；
+6. 保存 orientation、angle sector、contact side、轴向等 branch，并在一次 solve 中冻结，防止迭代时翻转；
 7. 数值收敛后仍检查每条 constraint 的物理残差、limit 和 invalid pose；
 8. 解相对 nominal pose 选择最小变化，多个合法分支时返回候选而非随机选择；
 9. 求解失败不改变 Workspace；已有 Revision 仍可加载并显示 failed/broken connection；
 10. Solver 只输出 Pose/DOF/diagnostic，不生成或修改 B-Rep。
 
-当前已落地的最小算法基线位于 `kernel/assembly`：它以纯值类型表达刚体、Point/Axis/Plane/Cylinder 描述符和 Fix/Coincident/Concentric/Angle/Distance 残差，在 `SE(3)` 局部增量上执行阻尼最小二乘，并返回每条约束的归一化残差。该库仍刻意不依赖 OCCT、Product 和持久拓扑标识；首个 Product adapter 已能把直接 Part occurrence 的 Datum/AxisSystem 引用以及当前 Revision 的平面/圆柱面选择解析为局部描述符，并经正式 Router 的 `SolveAssembly` RPC 提交权威 Pose。面选择目前以 geometryKey 和 topology local ID 绑定不可变制品并由服务端重新查询 OCCT 属性；它不是跨特征重算的稳定命名，仍须演进为 PersistentSelection/Publication adapter，且不能由前端坐标代替。当前只覆盖上述流水线中的输入验证与单分量数值求解；有限差分 Jacobian、未消元 Fix body 和局部 branch 选择均是 A1 基线，不替代后续的解析/自动 Jacobian、刚性 cluster、图分解、秩/DOF/冲突诊断和全局候选管理。
+当前已落地的 M1/M1.5 算法基线位于 `kernel/assembly`：它以纯值类型表达刚体和 Point/Axis/Plane/Cylinder descriptor，先合并 Rigid cluster、消元 Fix/Ground，再按 constraint graph connected component 在 `SE(3)` 局部增量上执行 dense 有限差分阻尼最小二乘；结果包含 equation provenance、Jacobian rank、relative/gauge DOF、整块冗余和最终未满足诊断。request-scoped SolveIntent 可以在无物理 ground 时以第二选择的 reference cluster 消除全局 gauge，但还不是已接地系统中的严格层级最小位移。该库仍刻意不依赖 OCCT、Product 和持久拓扑标识；首个 Product adapter 已能把直接 Part occurrence 的 Datum/AxisSystem 引用以及当前 Revision 的平面/圆柱面选择解析为局部描述符，并经正式 Router 的 `SolveAssembly` RPC 提交权威 Pose。面选择目前以 geometryKey 和 topology local ID 绑定不可变制品并由服务端重新查询 OCCT 属性；它不是跨特征重算的稳定命名，仍须演进为 PersistentSelection/Publication adapter，且不能由前端坐标代替。下一门槛是 M1.6：先以 `atan2` 稳定角度残差、冻结 per-solve branch、分离四类容差、处理近平行/近共线退化并区分 `Unsatisfied/Inconsistent` 与 `NonConvergent`；之后才进入解析 Jacobian、SVD/QR rank、null-space basis 和层级 minimum-motion。近期不把 sparse backend 或 MUS 搜索置于上述正确性工作之前。
 
 #### 5.6.16 求解状态与诊断
 
@@ -4091,13 +4093,15 @@ message AssemblySolveResult {
 | `SOLVED_UNDER_CONSTRAINED` | 是 | 存在明确剩余 DOF，Pose 由 nominal 选定 |
 | `REDUNDANT` | 默认否 | 方程线性相关；可按策略转 Measured/Suppress |
 | `CONFLICTING` | 否 | 不存在满足容差的解 |
+| `UNSATISFIED` | 否 | 当前候选在 classification tolerance 下仍有未满足方程，尚未证明不存在共同可行解 |
+| `INCONSISTENT` | 否 | 符号消元、冻结分支或零自由变量系统已能证明输入条件互不相容 |
 | `BROKEN_REFERENCE` | 否 | InstancePath/Publication/Selection 无法解析 |
 | `AMBIGUOUS_BRANCH` | 否 | 多个几何解且没有 branch intent |
 | `NON_CONVERGENT` | 否 | 有效输入但数值后端未收敛 |
 | `LIMIT_VIOLATION` | 否 | Connection/joint limit 超出 |
 | `RESOURCE_LIMIT` | 否 | 超时、内存或模型上限 |
 
-欠约束不是错误；系统显示每个 connected component 的剩余平移/旋转方向和图形操纵器。冗余与冲突必须给出最小或接近最小解释集，至少能指向新增 Constraint 及其冲突邻域。
+`UNSATISFIED`、`INCONSISTENT`、`CONFLICTING` 和 `NON_CONVERGENT` 不得混用：最终残差超限只足以证明未满足，组合冲突分析才可声称不存在共同可行解，数值后端停滞则属于不收敛。欠约束不是错误；系统显示每个 connected component 的剩余平移/旋转方向和图形操纵器。近期诊断至少指向新增 Constraint 及其冲突邻域；MUS 或最小/接近最小解释集是更后阶段能力，不能作为 M1.6 数值正确性的前置条件。
 
 #### 5.6.17 交互拖拽与自动定位
 
