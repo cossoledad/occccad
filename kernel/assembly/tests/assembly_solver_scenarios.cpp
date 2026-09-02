@@ -156,8 +156,9 @@ TEST(AssemblySolver, PlaneAngleAboveNinetyDegreesConverges) {
     Model model;
     model.bodies = {{"ground", {}}, {"moving", {}}};
     const double initial = 20.0 * kPi / 180.0;
-    model.geometry = {{"plane", "ground", PlaneGeometry{}},
-                      {"plane", "moving", PlaneGeometry{{}, {std::sin(initial), 0.0, std::cos(initial)}}}};
+    model.geometry = {
+        {"plane", "ground", PlaneGeometry{}},
+        {"plane", "moving", PlaneGeometry{{}, {std::sin(initial), 0.0, std::cos(initial)}}}};
     Constraint angle = binary("obtuse-angle", ConstraintKind::Angle, ref("moving", "plane"),
                               ref("ground", "plane"));
     angle.value = 120.0 * kPi / 180.0;
@@ -167,8 +168,8 @@ TEST(AssemblySolver, PlaneAngleAboveNinetyDegreesConverges) {
     const SolveResult result = Solver{}.solve(model);
 
     ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
-    const Vec3 normal = rotate(pose(result, "moving").rotation,
-                               {std::sin(initial), 0.0, std::cos(initial)});
+    const Vec3 normal =
+        rotate(pose(result, "moving").rotation, {std::sin(initial), 0.0, std::cos(initial)});
     EXPECT_NEAR(normal.z, std::cos(120.0 * kPi / 180.0), 1.0e-6);
 }
 
@@ -238,24 +239,76 @@ TEST(AssemblySolver, RigidMaintainsCapturedRelativePose) {
 TEST(AssemblySolver, GroundedViolationIsInconsistentNotNonConvergent) {
     Model model;
     model.bodies = {{"ground", {}}, {"moving", {{2.0, 0.0, 0.0}, {}}}};
-    model.geometry = {{"point", "ground", PointGeometry{}},
-                      {"point", "moving", PointGeometry{}}};
+    model.geometry = {{"point", "ground", PointGeometry{}}, {"point", "moving", PointGeometry{}}};
     model.constraints = {fix("ground"), fix("moving"),
-                         binary("impossible", ConstraintKind::Coincident,
-                                ref("moving", "point"), ref("ground", "point"))};
+                         binary("impossible", ConstraintKind::Coincident, ref("moving", "point"),
+                                ref("ground", "point"))};
+
+    const SolveResult result = Solver{}.solve(model);
+
+    EXPECT_EQ(result.status, SolveStatus::Inconsistent);
+    EXPECT_EQ(result.classification, SolveClassification::Inconsistent);
+    EXPECT_EQ(result.conflicting_constraint_ids, std::vector<std::string>{"impossible"});
+}
+
+TEST(AssemblySolver, StationaryUnsatisfiedCandidateIsNotClaimedInconsistent) {
+    Model model;
+    model.bodies = {{"ground", {}}, {"moving", {}}};
+    model.geometry = {{"plane", "ground", PlaneGeometry{}}, {"plane", "moving", PlaneGeometry{}}};
+    Constraint first = binary("offset-3", ConstraintKind::Distance, ref("moving", "plane"),
+                              ref("ground", "plane"));
+    first.value = 3.0;
+    first.direction_relation = DirectionRelation::Same;
+    first.distance_relation = DistanceRelation::AlongSecondNormal;
+    Constraint second = first;
+    second.id = "offset-5";
+    second.value = 5.0;
+    model.constraints = {fix("ground"), first, second};
 
     const SolveResult result = Solver{}.solve(model);
 
     EXPECT_EQ(result.status, SolveStatus::Unsatisfied);
-    EXPECT_EQ(result.classification, SolveClassification::Inconsistent);
-    EXPECT_EQ(result.conflicting_constraint_ids, std::vector<std::string>{"impossible"});
+    EXPECT_EQ(result.classification, SolveClassification::Unsatisfied);
+    EXPECT_FALSE(result.unsatisfied_constraint_ids.empty());
+    EXPECT_TRUE(result.conflicting_constraint_ids.empty());
+}
+
+TEST(AssemblySolver, ClassificationToleranceIsIndependentFromConvergenceTolerance) {
+    Model model;
+    model.bodies = {{"ground", {}}, {"moving", {{5.0e-6, 0.0, 0.0}, {}}}};
+    model.geometry = {{"point", "ground", PointGeometry{}}, {"point", "moving", PointGeometry{}}};
+    model.constraints = {fix("ground"), fix("moving"),
+                         binary("coincident", ConstraintKind::Coincident, ref("moving", "point"),
+                                ref("ground", "point"))};
+    SolverOptions options;
+    options.length_tolerance = 1.0e-7;
+    options.classification_length_tolerance = 1.0e-5;
+
+    const SolveResult result = Solver{}.solve(model, options);
+
+    EXPECT_EQ(result.status, SolveStatus::Unsatisfied);
+    EXPECT_EQ(result.classification, SolveClassification::Unsatisfied);
+    EXPECT_TRUE(result.unsatisfied_constraint_ids.empty());
+    EXPECT_TRUE(result.conflicting_constraint_ids.empty());
+}
+
+TEST(AssemblySolver, ClassificationToleranceCannotBeStricterThanConvergenceTolerance) {
+    Model model;
+    model.bodies = {{"body", {}}};
+    SolverOptions options;
+    options.length_tolerance = 1.0e-5;
+    options.classification_length_tolerance = 1.0e-6;
+
+    const SolveResult result = Solver{}.solve(model, options);
+
+    EXPECT_EQ(result.status, SolveStatus::InvalidModel);
+    EXPECT_EQ(result.classification, SolveClassification::InvalidModel);
 }
 
 TEST(AssemblySolver, ExhaustedIterationBudgetIsNonConvergentNotInconsistent) {
     Model model;
     model.bodies = {{"ground", {}}, {"moving", {{100.0, 50.0, -20.0}, {}}}};
-    model.geometry = {{"point", "ground", PointGeometry{}},
-                      {"point", "moving", PointGeometry{}}};
+    model.geometry = {{"point", "ground", PointGeometry{}}, {"point", "moving", PointGeometry{}}};
     model.constraints = {fix("ground"), binary("coincident", ConstraintKind::Coincident,
                                                ref("moving", "point"), ref("ground", "point"))};
     SolverOptions options;
@@ -271,8 +324,7 @@ TEST(AssemblySolver, ExhaustedIterationBudgetIsNonConvergentNotInconsistent) {
 TEST(AssemblySolver, UnsignedPointPlaneDistanceKeepsItsInitialSide) {
     Model model;
     model.bodies = {{"ground", {}}, {"moving", {{0.0, 0.0, -6.0}, {}}}};
-    model.geometry = {{"plane", "ground", PlaneGeometry{}},
-                      {"point", "moving", PointGeometry{}}};
+    model.geometry = {{"plane", "ground", PlaneGeometry{}}, {"point", "moving", PointGeometry{}}};
     Constraint distance = binary("distance", ConstraintKind::Distance, ref("moving", "point"),
                                  ref("ground", "plane"));
     distance.value = 2.0;
@@ -307,16 +359,19 @@ TEST(AssemblySolver, LengthAndAngleTolerancesAreIndependent) {
     model.geometry = {{"plane", "ground", PlaneGeometry{}},
                       {"line", "moving", AxisGeometry{{}, {1.0, 0.0, 0.01}}}};
     model.constraints = {fix("ground"), fix("moving"),
-                         binary("line-on-plane", ConstraintKind::Coincident,
-                                ref("moving", "line"), ref("ground", "plane"))};
+                         binary("line-on-plane", ConstraintKind::Coincident, ref("moving", "line"),
+                                ref("ground", "plane"))};
     SolverOptions strict_angle;
     strict_angle.length_tolerance = 0.1;
     strict_angle.angle_tolerance = 1.0e-4;
+    strict_angle.classification_length_tolerance = strict_angle.length_tolerance;
+    strict_angle.classification_angle_tolerance = strict_angle.angle_tolerance;
     const SolveResult inconsistent = Solver{}.solve(model, strict_angle);
-    EXPECT_EQ(inconsistent.status, SolveStatus::Unsatisfied);
+    EXPECT_EQ(inconsistent.status, SolveStatus::Inconsistent);
 
     SolverOptions relaxed_angle = strict_angle;
     relaxed_angle.angle_tolerance = 0.02;
+    relaxed_angle.classification_angle_tolerance = relaxed_angle.angle_tolerance;
     const SolveResult accepted = Solver{}.solve(model, relaxed_angle);
     EXPECT_EQ(accepted.status, SolveStatus::Converged) << accepted.diagnostic;
 }
@@ -326,8 +381,8 @@ TEST(AssemblySolver, ExactZeroAndPiAnglesAreStable) {
     zero.bodies = {{"first", {}}, {"second", {}}};
     zero.geometry = {{"first-axis", "first", AxisGeometry{}},
                      {"second-axis", "second", AxisGeometry{}}};
-    Constraint zero_angle = binary("zero-angle", ConstraintKind::Angle,
-                                   ref("first", "first-axis"), ref("second", "second-axis"));
+    Constraint zero_angle = binary("zero-angle", ConstraintKind::Angle, ref("first", "first-axis"),
+                                   ref("second", "second-axis"));
     zero_angle.value = 0.0;
     zero_angle.direction_relation = DirectionRelation::Same;
     zero.constraints = {fix("first"), fix("second"), zero_angle};
@@ -340,19 +395,64 @@ TEST(AssemblySolver, ExactZeroAndPiAnglesAreStable) {
     EXPECT_EQ(Solver{}.solve(pi).status, SolveStatus::Converged);
 }
 
+TEST(AssemblySolver, UnsignedAngleConvergesIntoZeroAndPiEndpointNeighborhoods) {
+    constexpr double initial_offset = 1.0e-3;
+    for (const double target : {0.0, kPi}) {
+        Model model;
+        model.bodies = {{"ground", {}}, {"moving", {}}};
+        const double z = target == 0.0 ? std::cos(initial_offset) : -std::cos(initial_offset);
+        model.geometry = {
+            {"ground-axis", "ground", AxisGeometry{}},
+            {"moving-axis", "moving", AxisGeometry{{}, {std::sin(initial_offset), 0.0, z}}}};
+        Constraint angle = binary("angle", ConstraintKind::Angle, ref("moving", "moving-axis"),
+                                  ref("ground", "ground-axis"));
+        angle.value = target;
+        angle.direction_relation = DirectionRelation::Same;
+        model.constraints = {fix("ground"), angle};
+
+        const SolveResult result = Solver{}.solve(model);
+
+        EXPECT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+        EXPECT_NE(result.classification, SolveClassification::NonConvergent);
+    }
+}
+
 TEST(AssemblySolver, NearParallelAxisDistanceUsesDegenerateLimit) {
     Model model;
     model.bodies = {{"ground", {}}, {"moving", {{2.0, 0.0, 0.0}, {}}}};
     model.geometry = {{"axis", "ground", AxisGeometry{}},
                       {"axis", "moving", AxisGeometry{{}, {1.0e-12, 0.0, 1.0}}}};
-    Constraint distance = binary("distance", ConstraintKind::Distance, ref("moving", "axis"),
-                                 ref("ground", "axis"));
+    Constraint distance =
+        binary("distance", ConstraintKind::Distance, ref("moving", "axis"), ref("ground", "axis"));
     distance.value = 2.0;
     model.constraints = {fix("ground"), fix("moving"), distance};
 
     const SolveResult result = Solver{}.solve(model);
 
     EXPECT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+}
+
+TEST(AssemblySolver, AxisDistanceDegeneracyBlendIsFiniteAndContinuousAcrossProfileScale) {
+    std::vector<double> residuals;
+    for (const double tilt : {0.0, 0.25e-8, 0.5e-8, 1.0e-8, 2.0e-8}) {
+        Model model;
+        model.bodies = {{"ground", {}}, {"moving", {{2.0, 0.0, 0.0}, {}}}};
+        model.geometry = {{"axis", "ground", AxisGeometry{}},
+                          {"axis", "moving", AxisGeometry{{}, {tilt, 0.0, 1.0}}}};
+        Constraint distance = binary("distance", ConstraintKind::Distance, ref("moving", "axis"),
+                                     ref("ground", "axis"));
+        distance.value = 2.0;
+        model.constraints = {fix("ground"), fix("moving"), distance};
+
+        const SolveResult result = Solver{}.solve(model);
+
+        ASSERT_TRUE(std::isfinite(result.normalized_residual));
+        residuals.push_back(result.normalized_residual);
+    }
+    for (std::size_t index = 1; index < residuals.size(); ++index) {
+        EXPECT_GE(residuals[index], residuals[index - 1]);
+        EXPECT_LT(residuals[index] - residuals[index - 1], 1.0);
+    }
 }
 
 }  // namespace

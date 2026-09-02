@@ -29,10 +29,11 @@ ground elimination, affected-component solving, constraint modes and stable
 equation provenance. M1.5 scenarios verify that first-selection moving and
 second-selection reference roles remain disjoint and that an ungrounded reference
 cluster is used as a gauge anchor without losing the component's six reported
-gauge freedoms. M1.6 scenarios additionally distinguish a proven stationary or
-grounded `UNSATISFIED` result from iteration-budget `NON_CONVERGENT`, and cover
-frozen direction/side branches, independent physical tolerances, exact zero/pi
-angles and the near-parallel axis-distance limit.
+gauge freedoms. M1.6 scenarios distinguish stationary `UNSATISFIED`, zero-variable
+`INCONSISTENT` and iteration-budget `NON_CONVERGENT`; verify independent convergence
+and classification tolerances; and cover frozen direction/side branches, convergence
+into exact zero/pi angle endpoints and a near-parallel axis-distance sweep across
+the profile degeneracy scale.
 
 Run only this corpus with:
 

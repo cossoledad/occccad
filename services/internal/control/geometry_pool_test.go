@@ -38,9 +38,13 @@ func (sketchWorkerStub) SolveSketch(_ context.Context, request *workerv1.SolveSk
 }
 
 func (sketchWorkerStub) SolveAssembly(_ context.Context, request *workerv1.SolveAssemblyRequest) (*workerv1.SolveAssemblyResponse, error) {
+	diagnostic := request.GetSolveIntent().GetPreferencePolicy()
+	if request.GetSolverProfile().GetSchemaVersion() == 1 {
+		diagnostic += "/profile-v1"
+	}
 	return &workerv1.SolveAssemblyResponse{Status: "CONVERGED", Classification: "SOLVED_UNDER_CONSTRAINED", Components: []*workerv1.AssemblyComponentDof{{ComponentId: "component/part-1", BodyIds: []string{"part-1"}, GaugeDof: 6, Solved: true}}, Bodies: []*workerv1.SolvedAssemblyBody{{
 		Id: request.GetBodies()[0].GetId(), Pose: request.GetBodies()[0].GetInitialPose(),
-	}}, Diagnostic: request.GetSolveIntent().GetPreferencePolicy()}, nil
+	}}, Diagnostic: diagnostic}, nil
 }
 
 func (sketchWorkerStub) InspectExchange(_ context.Context, _ *workerv1.InspectExchangeRequest) (*workerv1.InspectExchangeResponse, error) {
@@ -115,11 +119,13 @@ func TestGeometryPoolRoutesSolveAssembly(t *testing.T) {
 			Rotation: &workerv1.Quaternion{W: 1}, Translation: &workerv1.Vec3{},
 		}}},
 		SolveIntent: &workerv1.AssemblySolveIntent{MovingBodyIds: []string{"part-1"}, ReferenceBodyIds: []string{"part-2"}, PreferencePolicy: "MOVE_FIRST_MINIMIZE_REFERENCE"},
+		SolverProfile: &workerv1.AssemblySolverProfile{SchemaVersion: 1,
+			LengthTolerance: 1e-7, ClassificationLengthTolerance: 1e-6},
 	})
 	if err != nil {
 		t.Fatalf("SolveAssembly was not routed: %v", err)
 	}
-	if response.GetStatus() != "CONVERGED" || response.GetBodies()[0].GetId() != "part-1" || response.GetClassification() != "SOLVED_UNDER_CONSTRAINED" || response.GetComponents()[0].GetGaugeDof() != 6 || response.GetDiagnostic() != "MOVE_FIRST_MINIMIZE_REFERENCE" {
+	if response.GetStatus() != "CONVERGED" || response.GetBodies()[0].GetId() != "part-1" || response.GetClassification() != "SOLVED_UNDER_CONSTRAINED" || response.GetComponents()[0].GetGaugeDof() != 6 || response.GetDiagnostic() != "MOVE_FIRST_MINIMIZE_REFERENCE/profile-v1" {
 		t.Fatalf("unexpected routed response: %#v", response)
 	}
 }

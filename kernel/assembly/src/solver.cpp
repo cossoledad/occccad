@@ -294,7 +294,14 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
         if (constraint.direction_relation == DirectionRelation::Opposite)
             first_direction = -first_direction;
         const double cosine = std::clamp(first_direction.dot(second_direction), -1.0, 1.0);
-        const double sine = first_direction.cross(second_direction).norm();
+        const Vector3 cross = first_direction.cross(second_direction);
+        if (constraint.value <= kDirectionEpsilon || kPi - constraint.value <= kDirectionEpsilon) {
+            Eigen::VectorXd result(4);
+            result << cross / options.angle_scale,
+                (cosine - std::cos(constraint.value)) / options.angle_scale;
+            return result;
+        }
+        const double sine = cross.norm();
         const double angle = std::atan2(sine, cosine);
         return single((angle - constraint.value) / options.angle_scale);
     }
@@ -322,9 +329,10 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
             return constraint_residual(swapped, *second, first, options);
         }
         if (is_axis_like(first) && is_axis_like(*second))
-            return single((line_distance(as_axis(first), as_axis(*second),
-                                         options.degeneracy_tolerance) - constraint.value) /
-                          options.length_scale);
+            return single(
+                (line_distance(as_axis(first), as_axis(*second), options.degeneracy_tolerance) -
+                 constraint.value) /
+                options.length_scale);
         if (const auto* plane_a = std::get_if<WorldPlane>(&first)) {
             if (const auto* plane_b = std::get_if<WorldPlane>(&*second)) {
                 const Vector3 normal_a = related_direction(plane_a->normal, plane_b->normal,
@@ -352,8 +360,13 @@ Eigen::VectorXd constraint_tolerances(const Constraint& constraint, const WorldG
     const double angle = options.angle_tolerance / options.angle_scale;
     if (!second)
         throw std::invalid_argument("binary constraint requires a second geometry");
-    if (constraint.kind == ConstraintKind::Angle)
-        return Eigen::VectorXd::Constant(1, angle);
+    if (constraint.kind == ConstraintKind::Angle) {
+        const Eigen::Index count =
+            constraint.value <= kDirectionEpsilon || kPi - constraint.value <= kDirectionEpsilon
+                ? 4
+                : 1;
+        return Eigen::VectorXd::Constant(count, angle);
+    }
     if (constraint.kind == ConstraintKind::Concentric) {
         Eigen::VectorXd result(6);
         result << Vector3::Constant(angle), Vector3::Constant(length);
@@ -363,7 +376,9 @@ Eigen::VectorXd constraint_tolerances(const Constraint& constraint, const WorldG
         if (std::holds_alternative<WorldPoint>(first) ||
             std::holds_alternative<WorldPoint>(*second)) {
             const Eigen::Index count = (std::holds_alternative<WorldPlane>(first) ||
-                                        std::holds_alternative<WorldPlane>(*second)) ? 1 : 3;
+                                        std::holds_alternative<WorldPlane>(*second))
+                                           ? 1
+                                           : 3;
             return Eigen::VectorXd::Constant(count, length);
         }
         if (is_axis_like(first) && is_axis_like(*second)) {
@@ -431,7 +446,8 @@ Pose relative_pose(const Pose& first, const Pose& second) {
 bool pose_satisfied(const Pose& first, const Pose& second, const SolverOptions& options) {
     const double translation = (eigen(first.translation) - eigen(second.translation)).norm();
     const double rotation =
-        rotation_vector(normalized(second.rotation).conjugate() * normalized(first.rotation)).norm();
+        rotation_vector(normalized(second.rotation).conjugate() * normalized(first.rotation))
+            .norm();
     return translation <= options.length_tolerance && rotation <= options.angle_tolerance;
 }
 
@@ -539,13 +555,18 @@ private:
             throw std::invalid_argument("assembly model requires at least one body");
         if (!(options_.length_scale > 0.0) || !(options_.angle_scale > 0.0) ||
             !(options_.length_tolerance > 0.0) || !(options_.angle_tolerance > 0.0) ||
+            !(options_.classification_length_tolerance > 0.0) ||
+            !(options_.classification_angle_tolerance > 0.0) ||
             !(options_.translation_step_tolerance > 0.0) ||
-            !(options_.rotation_step_tolerance > 0.0) ||
-            !(options_.degeneracy_tolerance > 0.0) ||
+            !(options_.rotation_step_tolerance > 0.0) || !(options_.degeneracy_tolerance > 0.0) ||
             !(options_.finite_difference_step > 0.0) || !(options_.initial_damping > 0.0) ||
             !(options_.rank_tolerance > 0.0))
             throw std::invalid_argument(
                 "solver scales, tolerances, steps, damping and rank tolerance must be positive");
+        if (options_.classification_length_tolerance < options_.length_tolerance ||
+            options_.classification_angle_tolerance < options_.angle_tolerance)
+            throw std::invalid_argument(
+                "classification tolerances must not be stricter than convergence tolerances");
         for (std::size_t index = 0; index < model_.bodies.size(); ++index) {
             const Body& body = model_.bodies[index];
             if (body.id.empty() || body_index_.count(body.id))
@@ -724,8 +745,8 @@ private:
             cluster_poses.push_back(cluster.ground_pose.value_or(cluster.initial_pose));
         const std::vector<Pose> bodies = body_poses(cluster_poses);
         for (Constraint& constraint : constraints_) {
-            if (constraint.kind == ConstraintKind::Fix || constraint.kind == ConstraintKind::Rigid ||
-                !constraint.second)
+            if (constraint.kind == ConstraintKind::Fix ||
+                constraint.kind == ConstraintKind::Rigid || !constraint.second)
                 continue;
             const GeometryElement& first_element = geometry(constraint.first);
             const GeometryElement& second_element = geometry(*constraint.second);
@@ -736,9 +757,10 @@ private:
             if (constraint.direction_relation == DirectionRelation::Unoriented &&
                 constraint.kind != ConstraintKind::Angle && has_direction(first) &&
                 has_direction(second)) {
-                constraint.direction_relation = geometry_direction(first).dot(geometry_direction(second)) < 0.0
-                                                    ? DirectionRelation::Opposite
-                                                    : DirectionRelation::Same;
+                constraint.direction_relation =
+                    geometry_direction(first).dot(geometry_direction(second)) < 0.0
+                        ? DirectionRelation::Opposite
+                        : DirectionRelation::Same;
             }
             if (constraint.kind != ConstraintKind::Distance ||
                 constraint.distance_relation != DistanceRelation::Unsigned)
@@ -882,8 +904,15 @@ public:
         return result;
     }
 
-    std::vector<ResidualBlock> blocks(const State& state) const {
+    std::vector<ResidualBlock> blocks(const State& state,
+                                      const bool use_classification_tolerance = false) const {
         const std::vector<Pose> bodies = assembly_.body_poses(cluster_poses(state));
+        SolverOptions tolerance_options = assembly_.options();
+        if (use_classification_tolerance) {
+            tolerance_options.length_tolerance =
+                assembly_.options().classification_length_tolerance;
+            tolerance_options.angle_tolerance = assembly_.options().classification_angle_tolerance;
+        }
         std::vector<ResidualBlock> result;
         for (const std::size_t constraint_index : component_.constraint_indices) {
             const Constraint& constraint = assembly_.constraint(constraint_index);
@@ -895,7 +924,7 @@ public:
                 second_element, bodies[assembly_.body_index(second_element.body_id)]);
             result.push_back({constraint.id,
                               constraint_residual(constraint, first, second, assembly_.options()),
-                              constraint_tolerances(constraint, first, second, assembly_.options())});
+                              constraint_tolerances(constraint, first, second, tolerance_options)});
         }
         return result;
     }
@@ -916,6 +945,12 @@ public:
 
     bool satisfied(const State& state) const {
         const auto values = blocks(state);
+        return std::all_of(values.begin(), values.end(),
+                           [](const ResidualBlock& block) { return block_satisfied(block); });
+    }
+
+    bool classification_satisfied(const State& state) const {
+        const auto values = blocks(state, true);
         return std::all_of(values.begin(), values.end(),
                            [](const ResidualBlock& block) { return block_satisfied(block); });
     }
@@ -970,9 +1005,15 @@ ComponentSolution solve_component(const ComponentProblem& problem, const SolverO
         return {SolveStatus::Converged, result.state, 0,
                 residual.size() == 0 ? "component has no active equations"
                                      : "constraints already satisfied"};
-    if (problem.parameter_count() == 0)
-        return {SolveStatus::Unsatisfied, result.state, 0,
-                "grounded component violates an active constraint"};
+    if (problem.parameter_count() == 0) {
+        const SolveStatus status = problem.classification_satisfied(result.state)
+                                       ? SolveStatus::Unsatisfied
+                                       : SolveStatus::Inconsistent;
+        return {status, result.state, 0,
+                status == SolveStatus::Inconsistent
+                    ? "grounded component violates classification tolerance"
+                    : "grounded component is above convergence tolerance"};
+    }
     double damping = options.initial_damping;
     for (std::size_t iteration = 1; iteration <= options.max_iterations; ++iteration) {
         const Eigen::MatrixXd jacobian = problem.jacobian(result.state, residual);
@@ -989,8 +1030,8 @@ ComponentSolution solve_component(const ComponentProblem& problem, const SolverO
                          step.segment<3>(offset + 3).norm() <= options.rotation_step_tolerance;
         }
         if (small_step) {
-            const SolveStatus status = problem.satisfied(result.state) ? SolveStatus::Converged
-                                                                        : SolveStatus::Unsatisfied;
+            const SolveStatus status =
+                problem.satisfied(result.state) ? SolveStatus::Converged : SolveStatus::Unsatisfied;
             return {status, result.state, iteration,
                     status == SolveStatus::Converged ? "converged"
                                                      : "stationary point above tolerance"};
@@ -1048,7 +1089,13 @@ std::vector<std::string> redundant_constraints(const ComponentProblem& problem, 
 }
 
 ResidualBlock evaluate_constraint(const CompiledAssembly& assembly, const Constraint& constraint,
-                                  const std::vector<Pose>& body_poses) {
+                                  const std::vector<Pose>& body_poses,
+                                  const bool use_classification_tolerance = false) {
+    SolverOptions tolerance_options = assembly.options();
+    if (use_classification_tolerance) {
+        tolerance_options.length_tolerance = assembly.options().classification_length_tolerance;
+        tolerance_options.angle_tolerance = assembly.options().classification_angle_tolerance;
+    }
     if (constraint.kind == ConstraintKind::Fix) {
         const std::size_t body = assembly.body_index(constraint.first.body_id);
         const Pose target =
@@ -1060,10 +1107,9 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly, const Constr
                             normalized(body_poses[body].rotation)) /
                 assembly.options().angle_scale;
         Eigen::VectorXd tolerances(6);
-        tolerances << Vector3::Constant(assembly.options().length_tolerance /
-                                       assembly.options().length_scale),
-            Vector3::Constant(assembly.options().angle_tolerance /
-                              assembly.options().angle_scale);
+        tolerances << Vector3::Constant(tolerance_options.length_tolerance /
+                                        assembly.options().length_scale),
+            Vector3::Constant(tolerance_options.angle_tolerance / assembly.options().angle_scale);
         return {constraint.id, std::move(residual), std::move(tolerances)};
     }
     if (constraint.kind == ConstraintKind::Rigid) {
@@ -1078,10 +1124,9 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly, const Constr
                             normalized(current.rotation)) /
                 assembly.options().angle_scale;
         Eigen::VectorXd tolerances(6);
-        tolerances << Vector3::Constant(assembly.options().length_tolerance /
-                                       assembly.options().length_scale),
-            Vector3::Constant(assembly.options().angle_tolerance /
-                              assembly.options().angle_scale);
+        tolerances << Vector3::Constant(tolerance_options.length_tolerance /
+                                        assembly.options().length_scale),
+            Vector3::Constant(tolerance_options.angle_tolerance / assembly.options().angle_scale);
         return {constraint.id, std::move(residual), std::move(tolerances)};
     }
     const GeometryElement& first_element = assembly.geometry(constraint.first);
@@ -1091,7 +1136,7 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly, const Constr
     const WorldGeometry second =
         world_geometry(second_element, body_poses[assembly.body_index(second_element.body_id)]);
     return {constraint.id, constraint_residual(constraint, first, second, assembly.options()),
-            constraint_tolerances(constraint, first, second, assembly.options())};
+            constraint_tolerances(constraint, first, second, tolerance_options)};
 }
 
 std::string connection_id(const Constraint& constraint) {
@@ -1109,6 +1154,7 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
         std::vector<Pose> cluster_poses;
         std::vector<bool> selected_clusters(assembly.clusters().size(), false);
         std::vector<bool> unsatisfied_clusters(assembly.clusters().size(), false);
+        std::vector<bool> inconsistent_clusters(assembly.clusters().size(), false);
         cluster_poses.reserve(assembly.clusters().size());
         for (const Cluster& cluster : assembly.clusters())
             cluster_poses.push_back(cluster.ground_pose.value_or(cluster.initial_pose));
@@ -1133,12 +1179,20 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
             else if (solution.status == SolveStatus::MaxIterations &&
                      result.status != SolveStatus::NumericalFailure)
                 result.status = SolveStatus::MaxIterations;
+            else if (solution.status == SolveStatus::Inconsistent &&
+                     result.status != SolveStatus::NumericalFailure &&
+                     result.status != SolveStatus::MaxIterations)
+                result.status = SolveStatus::Inconsistent;
             else if (solution.status == SolveStatus::Unsatisfied &&
                      result.status == SolveStatus::Converged)
                 result.status = SolveStatus::Unsatisfied;
             if (solution.status == SolveStatus::Unsatisfied) {
                 for (const std::size_t cluster : component.cluster_indices)
                     unsatisfied_clusters[cluster] = true;
+            }
+            if (solution.status == SolveStatus::Inconsistent) {
+                for (const std::size_t cluster : component.cluster_indices)
+                    inconsistent_clusters[cluster] = true;
             }
 
             const Vector residual = problem.residual(solution.state);
@@ -1181,7 +1235,7 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
         for (const Constraint& constraint : assembly.constraints()) {
             if (constraint.mode == ConstraintMode::Suppressed)
                 continue;
-            const ResidualBlock block = evaluate_constraint(assembly, constraint, body_poses);
+            const ResidualBlock block = evaluate_constraint(assembly, constraint, body_poses, true);
             const double norm = block.values.norm();
             result.residuals.push_back({constraint.id, norm});
             if (active(constraint))
@@ -1195,10 +1249,13 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
             const bool selected =
                 options.affected_body_ids.empty() ||
                 selected_clusters[assembly.cluster_index(constraint.first.body_id)];
-            if (active(constraint) && selected &&
-                unsatisfied_clusters[assembly.cluster_index(constraint.first.body_id)] &&
-                !block_satisfied(block))
-                result.conflicting_constraint_ids.push_back(constraint.id);
+            if (active(constraint) && selected && !block_satisfied(block)) {
+                const std::size_t cluster = assembly.cluster_index(constraint.first.body_id);
+                if (inconsistent_clusters[cluster])
+                    result.conflicting_constraint_ids.push_back(constraint.id);
+                else if (unsatisfied_clusters[cluster])
+                    result.unsatisfied_constraint_ids.push_back(constraint.id);
+            }
         }
         result.normalized_residual = std::sqrt(squared_residual);
         std::sort(result.redundant_constraint_ids.begin(), result.redundant_constraint_ids.end());
@@ -1207,17 +1264,27 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
                                               result.redundant_constraint_ids.end());
         std::sort(result.conflicting_constraint_ids.begin(),
                   result.conflicting_constraint_ids.end());
+        std::sort(result.unsatisfied_constraint_ids.begin(),
+                  result.unsatisfied_constraint_ids.end());
 
-        if (!result.conflicting_constraint_ids.empty()) {
+        if (result.status == SolveStatus::NumericalFailure ||
+            result.status == SolveStatus::MaxIterations) {
+            result.classification = SolveClassification::NonConvergent;
+        } else if (result.status == SolveStatus::Inconsistent) {
             result.classification = SolveClassification::Inconsistent;
             result.diagnostics.push_back({"CONFLICTING_CONSTRAINTS",
                                           {},
                                           {},
                                           result.conflicting_constraint_ids,
-                                          "active constraints remain above tolerance"});
-        } else if (result.status == SolveStatus::NumericalFailure ||
-                   result.status == SolveStatus::MaxIterations) {
-            result.classification = SolveClassification::NonConvergent;
+                                          "a zero-variable component violates active constraints"});
+        } else if (result.status == SolveStatus::Unsatisfied) {
+            result.classification = SolveClassification::Unsatisfied;
+            const char* detail = result.unsatisfied_constraint_ids.empty()
+                                     ? "the solver stopped above convergence tolerance; no "
+                                       "equation exceeds classification tolerance"
+                                     : "the final candidate remains above classification tolerance";
+            result.diagnostics.push_back(
+                {"UNSATISFIED_CONSTRAINTS", {}, {}, result.unsatisfied_constraint_ids, detail});
         } else if (!result.redundant_constraint_ids.empty()) {
             result.classification = SolveClassification::Redundant;
             result.diagnostics.push_back({"REDUNDANT_CONSTRAINTS",
@@ -1230,9 +1297,10 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
         } else {
             result.classification = SolveClassification::SolvedFully;
         }
-        result.diagnostic = result.status == SolveStatus::Converged
-                                ? "assembly components solved"
+        result.diagnostic = result.status == SolveStatus::Converged ? "assembly components solved"
                             : result.status == SolveStatus::Unsatisfied
+                                ? "assembly candidate does not satisfy all constraints"
+                            : result.status == SolveStatus::Inconsistent
                                 ? "assembly constraints are inconsistent"
                                 : "one or more assembly components did not converge";
         return result;

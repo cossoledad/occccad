@@ -106,9 +106,10 @@ message SolveAssemblyRequest {
     repeated AssemblyConstraint constraints = 4;
     double length_scale = 5;
     double angle_scale = 6;
-    double rank_tolerance = 7;
+    reserved 7;
     repeated string affected_body_ids = 8;
     AssemblySolveIntent solve_intent = 9;
+    AssemblySolverProfile solver_profile = 10;
 }
 
 message AssemblyConstraintResidual {
@@ -122,7 +123,7 @@ message SolvedAssemblyBody {
 }
 
 message SolveAssemblyResponse {
-    string status = 1; // CONVERGED, MAX_ITERATIONS, INVALID_MODEL, NUMERICAL_FAILURE
+    string status = 1; // CONVERGED, UNSATISFIED, INCONSISTENT, MAX_ITERATIONS, INVALID_MODEL, NUMERICAL_FAILURE
     repeated SolvedAssemblyBody bodies = 2;
     repeated AssemblyConstraintResidual residuals = 3;
     uint64 iterations = 4;
@@ -134,6 +135,7 @@ message SolveAssemblyResponse {
     repeated string redundant_constraint_ids = 10;
     repeated string conflicting_constraint_ids = 11;
     repeated AssemblySolveDiagnostic diagnostics = 12;
+    repeated string unsatisfied_constraint_ids = 13;
 }
 
 message SketchPoint {
@@ -570,4 +572,19 @@ message AssemblySolveIntent {
     repeated string moving_body_ids = 1;
     repeated string reference_body_ids = 2;
     string preference_policy = 3; // MINIMUM_TOTAL_CHANGE, MOVE_FIRST_MINIMIZE_REFERENCE
+}
+
+message AssemblySolverProfile {
+    uint32 schema_version = 1;
+    uint64 max_iterations = 2;
+    double length_tolerance = 3;
+    double angle_tolerance = 4;
+    double classification_length_tolerance = 5;
+    double classification_angle_tolerance = 6;
+    double translation_step_tolerance = 7;
+    double rotation_step_tolerance = 8;
+    double degeneracy_tolerance = 9;
+    double finite_difference_step = 10;
+    double initial_damping = 11;
+    double rank_tolerance = 12;
 }

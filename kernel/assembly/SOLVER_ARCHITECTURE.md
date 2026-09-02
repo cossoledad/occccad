@@ -432,20 +432,25 @@ pose solutions are distributed.
 ### M1.6: residual semantics and robustness gate (implemented baseline)
 
 M1.6 stabilizes the mathematical problem before analytic Jacobians are written.
-It does not add new constraint families or a sparse backend. The current baseline:
+It does not add new constraint families or a sparse backend. The accepted baseline:
 
-- splits tolerance ownership across length/angle equation acceptance,
-  translation/rotation step termination, degeneracy and rank thresholds;
-- replaces `acos(dot)` with stable `atan2` angle residuals, including explicit
-  behavior near zero and pi;
+- exposes a versioned `AssemblySolverProfile` across Proto, Worker and Go with
+  independent length/angle convergence acceptance, classification, translation/
+  rotation step, degeneracy, finite-difference, damping and rank thresholds;
+- replaces `acos(dot)` with `atan2(norm(cross), dot)` for regular unsigned angles;
+  exact zero/pi targets use a branch-preserving cross-vector plus dot residual so
+  finite differences can converge through the endpoint cusp;
 - chooses and freezes direction and unsigned distance-side branches once per solve from
   explicit request intent where available, otherwise the nominal/warm-start pose;
 - handles parallel and nearly parallel axis distance without switching through an
   ill-conditioned generic formula;
-- distinguishes a valid but unsatisfied/inconsistent system from an iterative
-  `NonConvergent` backend result, including zero-variable components;
-- extends the corpus with near-collinear axes, near-parallel geometry, zero/pi
-  angles, tolerance boundaries and canonical-order determinism;
+- keeps a stationary candidate as `Unsatisfied`, uses `Inconsistent` only when a
+  zero-variable component exceeds classification tolerance, and reserves
+  `NonConvergent` for iteration exhaustion or numerical failure;
+- reports unsatisfied constraint IDs separately from proven conflicting IDs;
+- covers frozen orientation/side, convergence-versus-classification tolerance,
+  zero/pi endpoint convergence and a deterministic near-parallel axis-distance
+  sweep in the focused corpus;
 - keeps dense Eigen and the finite-difference reference backend during this gate.
 
 Persisted branch intent and directed-angle winding remain M3 work; M1.6 freezes a

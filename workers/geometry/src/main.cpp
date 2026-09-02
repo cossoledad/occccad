@@ -529,8 +529,34 @@ public:
             options.length_scale = request->length_scale();
         if (request->angle_scale() > 0.0)
             options.angle_scale = request->angle_scale();
-        if (request->rank_tolerance() > 0.0)
-            options.rank_tolerance = request->rank_tolerance();
+        if (request->has_solver_profile()) {
+            const auto& profile = request->solver_profile();
+            if (profile.schema_version() != 1)
+                return {grpc::StatusCode::INVALID_ARGUMENT,
+                        "assembly solver profile schema_version must be 1"};
+            if (profile.max_iterations() > 0)
+                options.max_iterations = profile.max_iterations();
+            if (profile.length_tolerance() > 0.0)
+                options.length_tolerance = profile.length_tolerance();
+            if (profile.angle_tolerance() > 0.0)
+                options.angle_tolerance = profile.angle_tolerance();
+            if (profile.classification_length_tolerance() > 0.0)
+                options.classification_length_tolerance = profile.classification_length_tolerance();
+            if (profile.classification_angle_tolerance() > 0.0)
+                options.classification_angle_tolerance = profile.classification_angle_tolerance();
+            if (profile.translation_step_tolerance() > 0.0)
+                options.translation_step_tolerance = profile.translation_step_tolerance();
+            if (profile.rotation_step_tolerance() > 0.0)
+                options.rotation_step_tolerance = profile.rotation_step_tolerance();
+            if (profile.degeneracy_tolerance() > 0.0)
+                options.degeneracy_tolerance = profile.degeneracy_tolerance();
+            if (profile.finite_difference_step() > 0.0)
+                options.finite_difference_step = profile.finite_difference_step();
+            if (profile.initial_damping() > 0.0)
+                options.initial_damping = profile.initial_damping();
+            if (profile.rank_tolerance() > 0.0)
+                options.rank_tolerance = profile.rank_tolerance();
+        }
         options.affected_body_ids.assign(request->affected_body_ids().begin(),
                                          request->affected_body_ids().end());
         if (request->has_solve_intent()) {
@@ -551,6 +577,7 @@ public:
         const char* status =
             result.status == assembly_api::SolveStatus::Converged       ? "CONVERGED"
             : result.status == assembly_api::SolveStatus::Unsatisfied   ? "UNSATISFIED"
+            : result.status == assembly_api::SolveStatus::Inconsistent  ? "INCONSISTENT"
             : result.status == assembly_api::SolveStatus::MaxIterations ? "MAX_ITERATIONS"
             : result.status == assembly_api::SolveStatus::InvalidModel  ? "INVALID_MODEL"
                                                                         : "NUMERICAL_FAILURE";
@@ -560,6 +587,8 @@ public:
             : result.classification == assembly_api::SolveClassification::SolvedUnderConstrained
                 ? "SOLVED_UNDER_CONSTRAINED"
             : result.classification == assembly_api::SolveClassification::Redundant ? "REDUNDANT"
+            : result.classification == assembly_api::SolveClassification::Unsatisfied
+                ? "UNSATISFIED"
             : result.classification == assembly_api::SolveClassification::Inconsistent
                 ? "INCONSISTENT"
             : result.classification == assembly_api::SolveClassification::InvalidModel
@@ -610,6 +639,8 @@ public:
             response->add_redundant_constraint_ids(id);
         for (const auto& id : result.conflicting_constraint_ids)
             response->add_conflicting_constraint_ids(id);
+        for (const auto& id : result.unsatisfied_constraint_ids)
+            response->add_unsatisfied_constraint_ids(id);
         for (const auto& diagnostic : result.diagnostics) {
             auto* output = response->add_diagnostics();
             output->set_code(diagnostic.code);

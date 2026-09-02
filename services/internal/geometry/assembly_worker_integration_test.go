@@ -106,4 +106,49 @@ func TestCppWorkerSolvesSimpleProductAssembly(t *testing.T) {
 			t.Fatalf("moving body did not reach the reference: %#v", body.Pose)
 		}
 	}
+
+	classificationResult, err := client.SolveAssemblyWithOptions(t.Context(), "product-profile", []AssemblyBody{
+		{ID: "ground", Pose: identity},
+		{ID: "moving", Pose: AssemblyPose{Translation: [3]float64{5e-6, 0, 0}, Rotation: identity.Rotation}},
+	}, []AssemblyGeometry{
+		{ID: "ground-origin", BodyID: "ground", Kind: "POINT"},
+		{ID: "moving-origin", BodyID: "moving", Kind: "POINT"},
+	}, []AssemblyConstraint{
+		{ID: "fix-ground", Kind: "FIX", FirstBodyID: "ground", FixedPose: &identity},
+		{ID: "fix-moving", Kind: "FIX", FirstBodyID: "moving", FixedPose: &AssemblyPose{Translation: [3]float64{5e-6, 0, 0}, Rotation: identity.Rotation}},
+		{ID: "coincident", Kind: "COINCIDENT", FirstBodyID: "moving", FirstGeometryID: "moving-origin", SecondBodyID: "ground", SecondGeometryID: "ground-origin"},
+	}, AssemblySolveOptions{SolverProfile: &AssemblySolverProfile{
+		SchemaVersion:                 1,
+		LengthTolerance:               1e-7,
+		AngleTolerance:                1e-8,
+		ClassificationLengthTolerance: 1e-5,
+		ClassificationAngleTolerance:  1e-8,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if classificationResult.Status != "UNSATISFIED" || classificationResult.Classification != "UNSATISFIED" {
+		t.Fatalf("solver profile did not preserve unsatisfied semantics: %#v", classificationResult)
+	}
+	if len(classificationResult.ConflictingConstraintIDs) != 0 {
+		t.Fatalf("classification tolerance incorrectly produced a proven conflict: %#v", classificationResult)
+	}
+
+	unsatisfiedResult, err := client.SolveAssemblyWithOptions(t.Context(), "product-unsatisfied", []AssemblyBody{
+		{ID: "ground", Pose: identity},
+		{ID: "moving", Pose: AssemblyPose{Translation: [3]float64{4, 0, 0}, Rotation: identity.Rotation}},
+	}, []AssemblyGeometry{
+		{ID: "ground-origin", BodyID: "ground", Kind: "POINT"},
+		{ID: "moving-origin", BodyID: "moving", Kind: "POINT"},
+	}, []AssemblyConstraint{
+		{ID: "fix-ground", Kind: "FIX", FirstBodyID: "ground", FixedPose: &identity},
+		{ID: "distance-3", Kind: "DISTANCE", Value: 3, FirstBodyID: "moving", FirstGeometryID: "moving-origin", SecondBodyID: "ground", SecondGeometryID: "ground-origin"},
+		{ID: "distance-5", Kind: "DISTANCE", Value: 5, FirstBodyID: "moving", FirstGeometryID: "moving-origin", SecondBodyID: "ground", SecondGeometryID: "ground-origin"},
+	}, AssemblySolveOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unsatisfiedResult.Status != "UNSATISFIED" || unsatisfiedResult.Classification != "UNSATISFIED" || len(unsatisfiedResult.UnsatisfiedConstraintIDs) != 2 || len(unsatisfiedResult.ConflictingConstraintIDs) != 0 {
+		t.Fatalf("unsatisfied evidence was not preserved across the Worker RPC: %#v", unsatisfiedResult)
+	}
 }

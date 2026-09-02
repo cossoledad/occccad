@@ -114,6 +114,8 @@ struct SolverOptions {
     std::size_t max_iterations{100};
     double length_tolerance{1.0e-7};
     double angle_tolerance{1.0e-8};
+    double classification_length_tolerance{1.0e-7};
+    double classification_angle_tolerance{1.0e-8};
     double translation_step_tolerance{1.0e-9};
     double rotation_step_tolerance{1.0e-10};
     double degeneracy_tolerance{1.0e-8};
@@ -128,12 +130,20 @@ struct SolverOptions {
     std::optional<SolveIntent> solve_intent;
 };
 
-enum class SolveStatus { Converged, Unsatisfied, MaxIterations, InvalidModel, NumericalFailure };
+enum class SolveStatus {
+    Converged,
+    Unsatisfied,
+    Inconsistent,
+    MaxIterations,
+    InvalidModel,
+    NumericalFailure
+};
 
 enum class SolveClassification {
     SolvedFully,
     SolvedUnderConstrained,
     Redundant,
+    Unsatisfied,
     Inconsistent,
     InvalidModel,
     NonConvergent
@@ -183,6 +193,7 @@ struct SolveResult {
     std::vector<EquationResidual> equation_residuals;
     std::vector<ComponentDof> components;
     std::vector<std::string> redundant_constraint_ids;
+    std::vector<std::string> unsatisfied_constraint_ids;
     std::vector<std::string> conflicting_constraint_ids;
     std::vector<SolveDiagnostic> diagnostics;
     std::size_t iterations{};

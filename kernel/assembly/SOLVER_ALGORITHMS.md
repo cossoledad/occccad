@@ -35,6 +35,11 @@ t' = t+\Delta t,\qquad R'=\operatorname{Exp}(\Delta\theta)R.
 长度残差除以 `length_scale`，角度和方向残差除以 `angle_scale`，使不同量纲可以进入同一个范数。两者必须由调用方按
 模型单位和容差策略显式设置，当前默认值都是 `1.0`。
 
+RPC 使用 `AssemblySolverProfile schema_version=1` 传递求解策略；零值字段沿用 kernel 默认值。主要默认阈值为：length
+convergence/classification `10⁻⁷`、angle convergence/classification `10⁻⁸`、translation step `10⁻⁹`、rotation step
+`10⁻¹⁰`、degeneracy `10⁻⁸`、finite difference `10⁻⁷`、initial damping `10⁻⁴`、rank `10⁻⁹`。classification 可由
+调用方独立设置，不参与迭代停止，但不得严于对应 convergence tolerance，否则模型请求无效。
+
 ## 2. 总体处理流水线
 
 ```mermaid
@@ -118,7 +123,8 @@ anchor，第一选择承担相对运动，但不会生成物理 Fix。
 | Coincident / Concentric Axis-like pair | 方向差 + `((o₁-o₂)×d₂)/L` | 6 |
 | Coincident Cylinder–Cylinder | Axis-like 残差 + 半径差 | 7 |
 | Coincident Plane–Plane | 法向差 + 有符号法向距离 | 4 |
-| Angle | `(atan2(‖d₁×d₂‖, d₁·d₂)-target)/A`（应用冻结方向支） | 1 |
+| Angle，普通 `[0,π]` 目标 | `(atan2(‖d₁×d₂‖, d₁·d₂)-target)/A`（应用冻结方向支） | 1 |
+| Angle，精确 0/π 目标 | `(d₁×d₂)/A` 与 `(d₁·d₂-cos(target))/A` | 4 |
 | Distance Point–Point | `(‖p₁-p₂‖-target)/L` | 1 |
 | Distance Point–Plane | 显式 signed/unsigned side 的法向距离差 | 1 |
 | Distance Axis-like pair | 两条无限直线的最短距离差 | 1 |
@@ -157,7 +163,8 @@ J_{:,j}\approx\frac{r(x+h e_j)-r(x)}{h}.
 - 平移、旋转增量分别低于 `translation_step_tolerance`、`rotation_step_tolerance` 但方程仍超限时返回 `Unsatisfied`；
 - 默认最多 100 次迭代；非有限线性解返回 `NumericalFailure`。
 
-若 component 没有自由变量但 active residual 超限，返回 `Unsatisfied`；真正耗尽预算才返回 `MaxIterations`。
+若 component 没有自由变量且超过 convergence tolerance：同时超过 classification tolerance 时返回 `Inconsistent`，否则
+返回 `Unsatisfied`。真正耗尽迭代预算才返回 `MaxIterations`。
 
 ## 8. Rank、DOF 与 gauge
 
@@ -181,19 +188,24 @@ nullity = \max(n-\rho,0).
 冗余检测按规范输入中的 constraint block 顺序增量拼接 Jacobian 行。若加入一个完整 block 后 rank 不增加，则把该 constraint
 标为 redundant；否则接受该 block。这个算法提供确定性的 whole-constraint 诊断，但结果与顺序相关，也不是最小冗余集。
 
-求解结束后，所有非 Suppressed 约束都在最终 Body 位姿上重新计算。只有已判定为 `Unsatisfied` 的 component 才把其中
-超出逐方程物理容差的 active constraint 标为 conflicting；`MaxIterations` 和 `NumericalFailure` 不伪造冲突归因。
+求解结束后，所有非 Suppressed 约束都在最终 Body 位姿上按独立 classification tolerance 重新计算。`Unsatisfied`
+component 的超差约束进入 `unsatisfied_constraint_ids`；只有零变量且超过 classification tolerance 的 `Inconsistent`
+component 才写入 `conflicting_constraint_ids`。`MaxIterations` 和 `NumericalFailure` 不伪造任何冲突归因。
 
 最终分类优先级为：
 
-1. 已判定存在不可满足 active constraint：`Inconsistent`；
-2. 数值失败或超过迭代条件：`NonConvergent`；
-3. 存在 whole-constraint 冗余：`Redundant`；
-4. 存在 relative DOF：`SolvedUnderConstrained`；
-5. 否则：`SolvedFully`。
+1. 数值失败或超过迭代条件：`NonConvergent`；
+2. 零变量 component 超过 classification tolerance：`Inconsistent`；
+3. 一般驻点仍超过 convergence tolerance：`Unsatisfied`；
+4. 存在 whole-constraint 冗余：`Redundant`；
+5. 存在 relative DOF：`SolvedUnderConstrained`；
+6. 否则：`SolvedFully`。
 
 每个残差标量生成稳定的 `constraint-id/equation/index`，并携带 Connection 与 Constraint provenance。当前“稳定”指同一规范
 输入及残差定义下可重放；未来修改残差分解时必须考虑 equation identity 的版本化。
+
+零变量违反证明的是当前冻结分支、ground 和给定约束条件不可相容；一般非线性驻点只标记 `Unsatisfied`。当前
+`conflicting_constraint_ids` 仍不是 MUS：它是已证明不一致 component 中超差的约束邻域。
 
 ## 10. 确定性、复杂度和已知边界
 
@@ -205,7 +217,9 @@ cluster、component 及冗余/冲突 ID 集合会显式排序；Body 与方程�
 正规方程会形成 `n×n` 矩阵，因而大装配的主要成本随 component 大小快速增长。connected-component 分解和 ground/rigid
 消元是当前最主要的规模控制手段，尚未使用稀疏 Jacobian、增量因子分解或并行 component 求解。
 
-M1.6 还为近平行直线距离引入以 `degeneracy_tolerance` 为尺度的连续退化极限，避免通用公式与平行公式硬切换。
+M1.6 还为近平行直线距离引入以 `degeneracy_tolerance` 为尺度的 blended 退化极限；除极小的
+`kDirectionEpsilon` 保护分支外，它在 skew 与 parallel 公式之间连续过渡。该表达是工程正则化而非无限直线距离的唯一解析
+延拓，仍需用容差边界 sweep 验证 bias、Jacobian 和 rank。
 当前算法还不具备：解析 Jacobian、QR/SVD rank 诊断、null-space 方向、最小冲突集、全局多分支枚举、严格层级最小位移、
 拖拽流形投影、一般曲面接触和大规模稀疏图优化。上述能力的引入顺序见架构路线图，不能从本文的 M1/M1.5 基线推断为
 已经实现。
@@ -214,7 +228,8 @@ M1.6 还为近平行直线距离引入以 `degeneracy_tolerance` 为尺度的连
 
 后续工作先修正残差和状态语义，再替换微分与线性代数实现，避免为不稳定方程编写解析 Jacobian：
 
-M1.6 鲁棒性门已经落地：Angle 使用 `atan2`，一次 solve 内冻结方向和距离侧分支，并分离各类容差及失败状态。
+M1.6 鲁棒性门已经落地：Angle 使用 unsigned `atan2` 和端点对齐残差，一次 solve 内冻结方向和适用的距离侧分支；
+版本化 SolverProfile 已贯穿 Proto/Worker/Go；`Unsatisfied`、`Inconsistent` 与 `NonConvergent` 拥有不同证据边界。
 
 1. **M2 方程与线性代数**：建立 typed equation registry 和解析 Jacobian，以中心有限差分做 differential check，使用
    SVD 或 rank-revealing QR，并返回 null-space basis 与可解释 DOF 方向。

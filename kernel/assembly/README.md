@@ -70,6 +70,15 @@ analysis identifies whole redundant constraints; unsatisfied active constraints
 produce structured conflict diagnostics. Stable equation IDs map every residual
 row back to its Connection and Constraint.
 
+The M1.6 baseline uses unsigned `atan2` angle residuals with a cross-plus-dot
+endpoint formulation for exact zero/pi targets, freezes applicable direction and
+distance-side branches for one solve, and exposes a versioned SolverProfile across
+the RPC boundary. Convergence acceptance and final classification tolerances are
+independent. A stationary candidate is `Unsatisfied`; only a zero-variable
+component above classification tolerance is `Inconsistent`; iteration or numerical
+failure is `NonConvergent`. Unsatisfied and conflicting constraint IDs are reported
+separately.
+
 M1 intentionally does not yet provide analytic Jacobians, interpreted null-space
 directions, minimal conflict sets, global discrete branch candidates or a drag
 objective. Those are M2/M3 concerns. OCCT extraction and persistent topology

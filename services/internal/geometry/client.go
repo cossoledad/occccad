@@ -242,21 +242,31 @@ type AssemblySolveIntent struct {
 	PreferencePolicy                string
 }
 
+type AssemblySolverProfile struct {
+	SchemaVersion                                               uint32
+	MaxIterations                                               uint64
+	LengthTolerance, AngleTolerance                             float64
+	ClassificationLengthTolerance, ClassificationAngleTolerance float64
+	TranslationStepTolerance, RotationStepTolerance             float64
+	DegeneracyTolerance, FiniteDifferenceStep, InitialDamping   float64
+	RankTolerance                                               float64
+}
+
 type AssemblySolveOptions struct {
 	AffectedBodyIDs []string
-	RankTolerance   float64
 	Intent          *AssemblySolveIntent
+	SolverProfile   *AssemblySolverProfile
 }
 
 type AssemblySolve struct {
-	Status, Classification, Diagnostic               string
-	Bodies                                           []AssemblyBody
-	EquationResiduals                                []AssemblyEquationResidual
-	Components                                       []AssemblyComponentDof
-	RedundantConstraintIDs, ConflictingConstraintIDs []string
-	Diagnostics                                      []AssemblySolveDiagnostic
-	Iterations                                       uint64
-	NormalizedResidual                               float64
+	Status, Classification, Diagnostic                                         string
+	Bodies                                                                     []AssemblyBody
+	EquationResiduals                                                          []AssemblyEquationResidual
+	Components                                                                 []AssemblyComponentDof
+	RedundantConstraintIDs, UnsatisfiedConstraintIDs, ConflictingConstraintIDs []string
+	Diagnostics                                                                []AssemblySolveDiagnostic
+	Iterations                                                                 uint64
+	NormalizedResidual                                                         float64
 }
 
 func protoPose(value AssemblyPose) *workerv1.RigidPose {
@@ -273,9 +283,22 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 	geometryValues []AssemblyGeometry, constraints []AssemblyConstraint, options AssemblySolveOptions) (AssemblySolve, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	request := &workerv1.SolveAssemblyRequest{RequestId: requestID, LengthScale: 1, AngleScale: 1, RankTolerance: options.RankTolerance, AffectedBodyIds: options.AffectedBodyIDs}
+	request := &workerv1.SolveAssemblyRequest{RequestId: requestID, LengthScale: 1, AngleScale: 1, AffectedBodyIds: options.AffectedBodyIDs}
 	if options.Intent != nil {
 		request.SolveIntent = &workerv1.AssemblySolveIntent{MovingBodyIds: options.Intent.MovingBodyIDs, ReferenceBodyIds: options.Intent.ReferenceBodyIDs, PreferencePolicy: options.Intent.PreferencePolicy}
+	}
+	if options.SolverProfile != nil {
+		profile := options.SolverProfile
+		request.SolverProfile = &workerv1.AssemblySolverProfile{SchemaVersion: profile.SchemaVersion,
+			MaxIterations: profile.MaxIterations, LengthTolerance: profile.LengthTolerance,
+			AngleTolerance:                profile.AngleTolerance,
+			ClassificationLengthTolerance: profile.ClassificationLengthTolerance,
+			ClassificationAngleTolerance:  profile.ClassificationAngleTolerance,
+			TranslationStepTolerance:      profile.TranslationStepTolerance,
+			RotationStepTolerance:         profile.RotationStepTolerance,
+			DegeneracyTolerance:           profile.DegeneracyTolerance,
+			FiniteDifferenceStep:          profile.FiniteDifferenceStep,
+			InitialDamping:                profile.InitialDamping, RankTolerance: profile.RankTolerance}
 	}
 	for _, body := range bodies {
 		request.Bodies = append(request.Bodies, &workerv1.AssemblyBody{Id: body.ID, InitialPose: protoPose(body.Pose)})
@@ -302,7 +325,7 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 	if err != nil {
 		return AssemblySolve{}, fmt.Errorf("solve assembly: %w", err)
 	}
-	result := AssemblySolve{Status: response.GetStatus(), Classification: response.GetClassification(), Diagnostic: response.GetDiagnostic(), Iterations: response.GetIterations(), NormalizedResidual: response.GetNormalizedResidual(), RedundantConstraintIDs: response.GetRedundantConstraintIds(), ConflictingConstraintIDs: response.GetConflictingConstraintIds()}
+	result := AssemblySolve{Status: response.GetStatus(), Classification: response.GetClassification(), Diagnostic: response.GetDiagnostic(), Iterations: response.GetIterations(), NormalizedResidual: response.GetNormalizedResidual(), RedundantConstraintIDs: response.GetRedundantConstraintIds(), UnsatisfiedConstraintIDs: response.GetUnsatisfiedConstraintIds(), ConflictingConstraintIDs: response.GetConflictingConstraintIds()}
 	for _, body := range response.GetBodies() {
 		result.Bodies = append(result.Bodies, AssemblyBody{ID: body.GetId(), Pose: AssemblyPose{
 			Translation: [3]float64{body.GetPose().GetTranslation().GetX(), body.GetPose().GetTranslation().GetY(), body.GetPose().GetTranslation().GetZ()},
