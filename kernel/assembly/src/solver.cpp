@@ -295,14 +295,23 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
             first_direction = -first_direction;
         const double cosine = std::clamp(first_direction.dot(second_direction), -1.0, 1.0);
         const Vector3 cross = first_direction.cross(second_direction);
-        if (constraint.value <= kDirectionEpsilon || kPi - constraint.value <= kDirectionEpsilon) {
+        const bool directed = constraint.angle_reference_direction.has_value();
+        const double endpoint = constraint.value >= 2.0 * kPi - kDirectionEpsilon ? 0.0 : constraint.value;
+        if (endpoint <= kDirectionEpsilon || std::abs(kPi - endpoint) <= kDirectionEpsilon) {
             Eigen::VectorXd result(4);
             result << cross / options.angle_scale,
-                (cosine - std::cos(constraint.value)) / options.angle_scale;
+                (cosine - std::cos(endpoint)) / options.angle_scale;
             return result;
         }
-        const double sine = cross.norm();
-        const double angle = std::atan2(sine, cosine);
+        double sine = cross.norm();
+        if (directed) {
+            const Vector3 reference = normalized(*constraint.angle_reference_direction, "angle reference direction");
+            if (reference.dot(cross) < 0.0)
+                sine = -sine;
+        }
+        double angle = std::atan2(sine, cosine);
+        if (angle < 0.0)
+            angle += 2.0 * kPi;
         return single((angle - constraint.value) / options.angle_scale);
     }
 
@@ -361,8 +370,9 @@ Eigen::VectorXd constraint_tolerances(const Constraint& constraint, const WorldG
     if (!second)
         throw std::invalid_argument("binary constraint requires a second geometry");
     if (constraint.kind == ConstraintKind::Angle) {
+        const double endpoint = constraint.value >= 2.0 * kPi - kDirectionEpsilon ? 0.0 : constraint.value;
         const Eigen::Index count =
-            constraint.value <= kDirectionEpsilon || kPi - constraint.value <= kDirectionEpsilon
+            endpoint <= kDirectionEpsilon || std::abs(kPi - endpoint) <= kDirectionEpsilon
                 ? 4
                 : 1;
         return Eigen::VectorXd::Constant(count, angle);
@@ -653,8 +663,14 @@ private:
             if (constraint.kind == ConstraintKind::Distance && constraint.value < 0.0)
                 throw std::invalid_argument("Distance value must not be negative");
             if (constraint.kind == ConstraintKind::Angle &&
-                (constraint.value < 0.0 || constraint.value > kPi))
-                throw std::invalid_argument("Angle value must be in [0, pi]");
+                (constraint.value < 0.0 || constraint.value >
+                    (constraint.angle_reference_direction ? 2.0 * kPi : kPi)))
+                throw std::invalid_argument(constraint.angle_reference_direction
+                                                ? "Directed Angle value must be in [0, 2pi]"
+                                                : "Angle value must be in [0, pi]");
+            if (constraint.angle_reference_direction)
+                (void)normalized(*constraint.angle_reference_direction,
+                                 "angle reference direction");
         }
     }
 
@@ -922,9 +938,14 @@ public:
                 world_geometry(first_element, bodies[assembly_.body_index(first_element.body_id)]);
             const WorldGeometry second = world_geometry(
                 second_element, bodies[assembly_.body_index(second_element.body_id)]);
+            Constraint evaluated = constraint;
+            if (evaluated.angle_reference_direction)
+                evaluated.angle_reference_direction = value(
+                    normalized(bodies[assembly_.body_index(second_element.body_id)].rotation) *
+                    eigen(*evaluated.angle_reference_direction));
             result.push_back({constraint.id,
-                              constraint_residual(constraint, first, second, assembly_.options()),
-                              constraint_tolerances(constraint, first, second, tolerance_options)});
+                              constraint_residual(evaluated, first, second, assembly_.options()),
+                              constraint_tolerances(evaluated, first, second, tolerance_options)});
         }
         return result;
     }
@@ -1135,8 +1156,13 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly, const Constr
         world_geometry(first_element, body_poses[assembly.body_index(first_element.body_id)]);
     const WorldGeometry second =
         world_geometry(second_element, body_poses[assembly.body_index(second_element.body_id)]);
-    return {constraint.id, constraint_residual(constraint, first, second, assembly.options()),
-            constraint_tolerances(constraint, first, second, tolerance_options)};
+    Constraint evaluated = constraint;
+    if (evaluated.angle_reference_direction)
+        evaluated.angle_reference_direction = value(
+            normalized(body_poses[assembly.body_index(second_element.body_id)].rotation) *
+            eigen(*evaluated.angle_reference_direction));
+    return {constraint.id, constraint_residual(evaluated, first, second, assembly.options()),
+            constraint_tolerances(evaluated, first, second, tolerance_options)};
 }
 
 std::string connection_id(const Constraint& constraint) {

@@ -156,7 +156,7 @@ export class AssemblyConstraintTool implements CadTool {
     if (event.button !== 0 || this.capturedPointerID !== undefined || event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
     const selection = context.viewport.selectionAt(event.x, event.y);
     const reference = selection && assemblyGeometryRef(selection);
-    if (!selection || !reference || (this.kind === "rigid" && reference.kind !== "BODY")) return InputResult.Consumed;
+    if (!selection || !reference || (["fix", "rigid"].includes(this.kind) && reference.kind !== "BODY")) return InputResult.Consumed;
     this.capturedPointerID = event.pointerId;
     if (this.kind === "fix") {
       context.viewport.retainSelections([selection]);

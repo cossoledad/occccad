@@ -87,6 +87,9 @@ struct Constraint {
     GeometryRef first;
     std::optional<GeometryRef> second;
     double value{};  // radians for Angle, model length for Distance
+    // Optional reference direction expressed in the second body's local frame.
+    // When present, Angle is directed in [0, 2pi); otherwise it is unsigned [0, pi].
+    std::optional<Vec3> angle_reference_direction;
     DirectionRelation direction_relation{DirectionRelation::Unoriented};
     DistanceRelation distance_relation{DistanceRelation::Unsigned};
     // Fix: target world pose. Rigid: target pose of first relative to second.

@@ -4085,6 +4085,10 @@ flowchart TD
 
 当前已落地的 M1/M1.5/M1.6 算法基线位于 `kernel/assembly`：它以纯值类型表达刚体和 Point/Axis/Plane/Cylinder descriptor，先合并 Rigid cluster、消元 Fix/Ground，再按 constraint graph connected component 在 `SE(3)` 局部增量上执行 dense 有限差分阻尼最小二乘；结果包含 equation provenance、Jacobian rank、relative/gauge DOF、整块冗余和最终未满足诊断。request-scoped SolveIntent 可以在无物理 ground 时以第二选择的 reference cluster 消除全局 gauge，但还不是已接地系统中的严格层级最小位移。M1.6 使用 unsigned `atan2` 与精确 0/π 的 cross+dot 端点残差、冻结 per-solve branch、正则化近平行轴距，并以版本化 `AssemblySolverProfile` 贯穿 convergence、classification、step、degeneracy、finite-difference、damping 和 rank 阈值。一般超差驻点保持 `Unsatisfied`，只有零变量 component 超过 classification tolerance 才是 `Inconsistent`，两类约束身份分别返回。该库仍刻意不依赖 OCCT、Product 和持久拓扑标识；首个 Product adapter 已能把直接 Part occurrence 的 Datum/AxisSystem 引用以及当前 Revision 的平面/圆柱面选择解析为局部描述符，并经正式 Router 的 `SolveAssembly` RPC 提交权威 Pose。面选择目前以 geometryKey 和 topology local ID 绑定不可变制品并由服务端重新查询 OCCT 属性；它不是跨特征重算的稳定命名，仍须演进为 PersistentSelection/Publication adapter，且不能由前端坐标代替。下一门槛是 M2 的解析 Jacobian、SVD/QR rank、null-space basis 和可解释 DOF；层级 minimum-motion 与持久 branch intent 属于 M3。近期不把 sparse backend 或 MUS 搜索置于上述正确性工作之前。
 
+装配约束编辑器采用 schema-driven definition，而不是为每种约束复制一套对话框。公共区域展示支持元素、元素类型/所属 occurrence、连接状态和逐项 Reconnect；类型 schema 决定方向、side/sector、值、上下限、Driving/Measured/Controlled 等字段。支持元素替换先在临时 draft 中完成并以同一个 PreviewCommand 验证，确认后一个 Transaction 原子替换引用、参数和全部求解 Pose。树节点、约束 glyph、dimension/leader 与支持几何映射到同一 Selection relation；拓扑支持只高亮对应 subshape overlay，不能因为内部资源共享而扩大到整个 occurrence。创建时的初始值来自当前几何测量：角度取当前可定义 sector，点点/点面/轴轴距离取相应度量，非平行平面不存在常量 offset 时回退为 0 并要求用户定义。每次 draft 修改都可以请求权威预览，但鼠标轨迹和预览 Pose 不进入 Revision。
+
+Fix 和 Rigid 的支持身份必须是 occurrence/rigid body，不接受 Face/Edge 等会随引用 Part 重算失效的拓扑选择。方向字段同样由 geometry-pair schema 决定：Point-Point、Point-Line、Line-Line coincidence 没有 orientation branch；Plane-Plane coincidence/offset 必须在创建时落定 Same/Opposite，不允许长期保留会在更新时翻面的 Undefined。首个 0–360°平面角度切片可以持久保存 reference body 局部 frame 中的 reference direction，以 `atan2(k·(a×b),a·b)`区分两侧，并在整体刚体运动下保持不变；后续显式 DirectedAngle 应把自动方向升级为可选择的 Datum Axis/Publication 引用。
+
 #### 5.6.16 求解状态与诊断
 
 ```proto

@@ -24,8 +24,10 @@ export const cssPixelsToDevicePixels = (cssPixels: number, metrics: ViewportMetr
 
 export function axisDragWorldDelta(deltaCssPixels: THREE.Vector2, axisCssPixelsPerWorld: THREE.Vector2,
   translationGain: number): number {
-  const pixelsPerWorld = Math.max(axisCssPixelsPerWorld.length(), 0.001);
-  return deltaCssPixels.dot(axisCssPixelsPerWorld.clone().normalize()) / pixelsPerWorld * translationGain;
+  if (axisCssPixelsPerWorld.lengthSq() < 1.0e-12) return 0;
+  // Manipulation is an interaction scale, not a screen-to-world projection. Camera zoom
+  // changes the rendered gizmo size but must not change model displacement per CSS pixel.
+  return deltaCssPixels.dot(axisCssPixelsPerWorld.clone().normalize()) * translationGain;
 }
 
 export function angularDragDelta(currentAngle: number, startAngle: number, rotationGain: number): number {

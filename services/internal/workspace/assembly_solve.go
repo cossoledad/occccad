@@ -30,6 +30,25 @@ func normalizedInstanceRotation(value [4]float64) [4]float64 {
 	return value
 }
 
+type assemblyConstraintCapabilities struct {
+	direction     bool
+	distanceSide  bool
+	directedAngle bool
+}
+
+// assemblyCapabilities is the authoritative application-layer geometry-pair
+// matrix. It operates on exact descriptors resolved from topology, rather than
+// on the browser's FACE/EDGE pick category.
+func assemblyCapabilities(kind, firstKind, secondKind string) assemblyConstraintCapabilities {
+	planePair := firstKind == "PLANE" && secondKind == "PLANE"
+	return assemblyConstraintCapabilities{
+		direction: planePair && (kind == "COINCIDENT" || kind == "DISTANCE"),
+		distanceSide: kind == "DISTANCE" && ((firstKind == "POINT" && secondKind == "PLANE") ||
+			(firstKind == "PLANE" && secondKind == "POINT") || planePair),
+		directedAngle: kind == "ANGLE" && planePair,
+	}
+}
+
 func (service *Service) solveAssembly(ctx context.Context, documentID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel) error {
 	if len(model.Constraints) == 0 {
 		return nil
@@ -79,6 +98,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 	}
 	geometryValues := make([]geometry.AssemblyGeometry, 0)
 	seenGeometry := map[string]bool{}
+	resolvedGeometry := map[string]geometry.AssemblyGeometry{}
 	resolveRef := func(reference AssemblyGeometryRef) (string, error) {
 		instance := instances[reference.InstanceID]
 		if instance == nil {
@@ -199,6 +219,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 			return "", fmt.Errorf("%w: assembly references support BODY, POINT, AXIS, PLANE, VERTEX, linear EDGE, and planar/cylindrical FACE", ErrValidation)
 		}
 		seenGeometry[key] = true
+		resolvedGeometry[key] = value
 		geometryValues = append(geometryValues, value)
 		return key, nil
 	}
@@ -209,12 +230,14 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 			constraints = append(constraints, geometry.AssemblyConstraint{ID: "interaction-driver", Kind: "FIX", FirstBodyID: drivenInstanceID, FixedPose: &pose})
 		}
 	}
-	for _, constraint := range model.Constraints {
+	for constraintIndex := range model.Constraints {
+		constraint := &model.Constraints[constraintIndex]
 		firstGeometry, err := resolveRef(constraint.First)
 		if err != nil {
 			return err
 		}
-		value := geometry.AssemblyConstraint{ID: constraint.ID, ConnectionID: constraint.ConnectionID, Kind: constraint.Kind, Mode: constraint.Mode, FirstBodyID: constraint.First.InstanceID, FirstGeometryID: firstGeometry, Value: constraint.Value, DirectionRelation: constraint.DirectionRelation, DistanceRelation: constraint.DistanceRelation}
+		value := geometry.AssemblyConstraint{ID: constraint.ID, ConnectionID: constraint.ConnectionID, Kind: constraint.Kind, Mode: constraint.Mode, FirstBodyID: constraint.First.InstanceID, FirstGeometryID: firstGeometry, Value: constraint.Value, DirectionRelation: constraint.DirectionRelation, DistanceRelation: constraint.DistanceRelation,
+			AngleReferenceDirection: constraint.AngleReferenceDirection}
 		if constraint.Kind == "FIX" || constraint.Kind == "RIGID" {
 			fixedValue := constraint.FixedPose
 			if fixedValue == nil && constraint.Kind == "FIX" {
@@ -233,6 +256,30 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 				return resolveErr
 			}
 			value.SecondBodyID, value.SecondGeometryID = constraint.Second.InstanceID, secondGeometry
+		}
+		if constraint.Kind != "FIX" && constraint.Kind != "RIGID" {
+			firstKind := resolvedGeometry[firstGeometry].Kind
+			secondKind := resolvedGeometry[value.SecondGeometryID].Kind
+			capabilities := assemblyCapabilities(constraint.Kind, firstKind, secondKind)
+			if constraint.Kind == "ANGLE" && constraint.AngleReferenceDirection != nil {
+				constraint.DirectionRelation, value.DirectionRelation = "SAME", "SAME"
+			} else if !capabilities.direction {
+				constraint.DirectionRelation, value.DirectionRelation = "UNORIENTED", "UNORIENTED"
+			} else if constraint.DirectionRelation == "" || constraint.DirectionRelation == "UNORIENTED" {
+				// Persist a deterministic branch instead of delegating a mutable
+				// "undefined" orientation to every future solve.
+				constraint.DirectionRelation, value.DirectionRelation = "SAME", "SAME"
+			}
+			if !capabilities.distanceSide {
+				constraint.DistanceRelation, value.DistanceRelation = "UNSIGNED", "UNSIGNED"
+			}
+			if constraint.Kind == "ANGLE" && constraint.AngleReferenceDirection != nil && !capabilities.directedAngle {
+				return fmt.Errorf("%w: directed angle requires two planar supports", ErrValidation)
+			}
+			if constraint.Kind == "ANGLE" && constraint.Value > math.Pi &&
+				(!capabilities.directedAngle || constraint.AngleReferenceDirection == nil) {
+				return fmt.Errorf("%w: an angle above 180 degrees requires a persisted reference direction", ErrValidation)
+			}
 		}
 		constraints = append(constraints, value)
 	}

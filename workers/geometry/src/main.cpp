@@ -490,6 +490,8 @@ public:
                 constraint.second = assembly_api::GeometryRef{input.second().body_id(),
                                                               input.second().geometry_id()};
             constraint.value = input.value();
+            if (input.has_angle_reference_direction())
+                constraint.angle_reference_direction = vec(input.angle_reference_direction());
             if (input.kind() == "FIX")
                 constraint.kind = assembly_api::ConstraintKind::Fix;
             else if (input.kind() == "RIGID")

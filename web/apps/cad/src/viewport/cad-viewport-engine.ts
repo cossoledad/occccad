@@ -185,6 +185,7 @@ export class CadViewportEngine {
   private snapPreview?: THREE.Object3D;
   private lastSketchSnap?: SketchSnapResult;
   private commandPreview?: THREE.Object3D;
+  private assemblyPosePreview?: Map<string, { position: THREE.Vector3; rotation: THREE.Quaternion }>;
   private dimensionDrag?: { selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; constraint: SketchConstraint;
     root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2 };
   private movePreviewGeneration=0;private movePreviewInFlight=false;
@@ -433,9 +434,32 @@ export class CadViewportEngine {
   }
 
   clearCommandPreview(): void {
-    if (!this.commandPreview) return;
-    this.scene.remove(this.commandPreview); this.disposeRenderable(this.commandPreview);
-    this.commandPreview = undefined; this.invalidate();
+    if (this.commandPreview) {
+      this.scene.remove(this.commandPreview); this.disposeRenderable(this.commandPreview);
+      this.commandPreview = undefined;
+    }
+    if (this.assemblyPosePreview) {
+      for (const [id, pose] of this.assemblyPosePreview) {
+        const group = this.instanceGroups.get(id);
+        if (!group) continue;
+        group.position.copy(pose.position); group.quaternion.copy(pose.rotation); group.updateMatrixWorld(true);
+      }
+      this.assemblyPosePreview = undefined;
+    }
+    this.invalidate();
+  }
+
+  previewAssemblyPoses(poses: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>): void {
+    if (!this.assemblyPosePreview) {
+      this.assemblyPosePreview = new Map([...this.instanceGroups].map(([id, group]) =>
+        [id, { position: group.position.clone(), rotation: group.quaternion.clone() }]));
+    }
+    for (const pose of poses) {
+      const group = this.instanceGroups.get(pose.instanceId);
+      if (!group) continue;
+      group.position.fromArray(pose.translation); group.quaternion.fromArray(pose.rotation); group.updateMatrixWorld(true);
+    }
+    this.invalidate();
   }
 
   setStandardView(view: "TOP" | "FRONT" | "RIGHT" | "ISO"): void {
@@ -700,11 +724,122 @@ export class CadViewportEngine {
       this.selectionIndex.register(selection, group);
       this.selectionIndex.registerPick(glyph, () => selection, 90);
       this.assemblyConstraintReferences.set(constraint.id, resolved.map((value) => value.selection));
-      for (const reference of resolved) {
-        this.selectionIndex.associate(selection, reference.object);
+      for (const [index, reference] of resolved.entries()) {
+        // Topology references are highlighted by exact face/edge/vertex overlays. Associating
+        // their owning mesh group would incorrectly highlight the complete occurrence.
+        if (!['FACE', 'EDGE', 'VERTEX'].includes(references[index]?.kind ?? ''))
+          this.selectionIndex.associate(selection, reference.object);
         this.selectionIndex.associate(reference.selection, group);
       }
     }
+  }
+
+  measureAssemblyConstraint(kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]): number {
+    if (references.length < 2) return 0;
+    const resolved = references.slice(0, 2).map((reference) => this.resolveAssemblyConstraintReference(reference));
+    if (!resolved[0] || !resolved[1]) return 0;
+    const direction = (reference: AssemblyGeometryRef, value: NonNullable<typeof resolved[number]>): THREE.Vector3 | undefined => {
+      if (reference.kind === 'PLANE') {
+        const datum = (value.selection as Extract<SelectionItem, { kind: 'plane' }>).datumPlane;
+        return datum ? new THREE.Vector3().fromArray(datum.normal).transformDirection(value.object.matrixWorld) : undefined;
+      }
+      if (reference.kind === 'FACE') {
+        const binding = [...this.solidBindings.values()].find((candidate) => candidate.context.instanceId === reference.instanceId &&
+          candidate.artifact.geometryKey === reference.geometryKey);
+        if (!binding || !reference.topologyId) return undefined;
+        const normal = new THREE.Vector3(); let count = 0;
+        binding.artifact.mesh.triangles.forEach((triangle, index) => {
+          if ((binding.artifact.mesh.faceIds[index] ?? -1) + 1 !== reference.topologyId) return;
+          const a = new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[0]]);
+          const b = new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[1]]);
+          const c = new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[2]]);
+          normal.add(b.sub(a).cross(c.sub(a))); count++;
+        });
+        return count && normal.lengthSq() > 0 ? normal.transformDirection(binding.mesh.matrixWorld) : undefined;
+      }
+      if (reference.kind === 'AXIS' || reference.kind === 'EDGE' || reference.kind === 'CYLINDER') {
+        if (reference.kind === 'EDGE') {
+          const binding = [...this.solidBindings.values()].find((candidate) => candidate.context.instanceId === reference.instanceId &&
+            candidate.artifact.geometryKey === reference.geometryKey);
+          const edge = binding?.artifact.mesh.edges?.find((candidate) => candidate.localId === reference.topologyId);
+          if (binding && edge && edge.points.length >= 2) {
+            return new THREE.Vector3().fromArray(edge.points[edge.points.length - 1])
+              .sub(new THREE.Vector3().fromArray(edge.points[0])).transformDirection(binding.mesh.matrixWorld);
+          }
+        }
+        const geometry = (value.object as THREE.Line).geometry as THREE.BufferGeometry | undefined;
+        const positions = geometry?.getAttribute('position');
+        if (positions && positions.count >= 2) {
+          const first = new THREE.Vector3().fromBufferAttribute(positions, 0);
+          const second = new THREE.Vector3().fromBufferAttribute(positions, positions.count - 1);
+          return second.sub(first).transformDirection(value.object.matrixWorld);
+        }
+      }
+      return undefined;
+    };
+    const firstDirection = direction(references[0], resolved[0]);
+    const secondDirection = direction(references[1], resolved[1]);
+    if (kind === 'angle') {
+      if (!firstDirection || !secondDirection) return 0;
+      return Math.atan2(firstDirection.clone().cross(secondDirection).length(),
+        THREE.MathUtils.clamp(firstDirection.dot(secondDirection), -1, 1)) * 180 / Math.PI;
+    }
+    if (kind !== 'distance') return 0;
+    const firstPlane = references[0].kind === 'PLANE' || references[0].kind === 'FACE';
+    const secondPlane = references[1].kind === 'PLANE' || references[1].kind === 'FACE';
+    if (firstPlane && secondPlane) {
+      if (!firstDirection || !secondDirection || Math.abs(firstDirection.dot(secondDirection)) < 1 - 1e-6) return 0;
+      return Math.abs(resolved[0].anchor.clone().sub(resolved[1].anchor).dot(secondDirection));
+    }
+    if (firstPlane && firstDirection)
+      return Math.abs(resolved[1].anchor.clone().sub(resolved[0].anchor).dot(firstDirection));
+    if (secondPlane && secondDirection)
+      return Math.abs(resolved[0].anchor.clone().sub(resolved[1].anchor).dot(secondDirection));
+    const firstAxis = references[0].kind === 'AXIS' || references[0].kind === 'EDGE' || references[0].kind === 'CYLINDER';
+    const secondAxis = references[1].kind === 'AXIS' || references[1].kind === 'EDGE' || references[1].kind === 'CYLINDER';
+    if (firstAxis && secondAxis && firstDirection && secondDirection) {
+      const cross = firstDirection.clone().cross(secondDirection);
+      const delta = resolved[0].anchor.clone().sub(resolved[1].anchor);
+      return cross.lengthSq() < 1e-12 ? delta.cross(secondDirection).length() : Math.abs(delta.dot(cross.normalize()));
+    }
+    if (firstAxis && firstDirection) return resolved[1].anchor.clone().sub(resolved[0].anchor).cross(firstDirection).length();
+    if (secondAxis && secondDirection) return resolved[0].anchor.clone().sub(resolved[1].anchor).cross(secondDirection).length();
+    return resolved[0].anchor.distanceTo(resolved[1].anchor);
+  }
+
+  assemblyAngleReferenceDirection(references: AssemblyGeometryRef[]): Vec3 | undefined {
+    if (references.length < 2) return undefined;
+    const resolved = references.slice(0, 2).map((reference) => this.resolveAssemblyConstraintReference(reference));
+    if (!resolved[0] || !resolved[1]) return undefined;
+    const planeNormal = (reference: AssemblyGeometryRef, value: NonNullable<typeof resolved[number]>): THREE.Vector3 | undefined => {
+      if (reference.kind === "PLANE") {
+        const datum = (value.selection as Extract<SelectionItem, {kind:"plane"}>).datumPlane;
+        return datum ? new THREE.Vector3().fromArray(datum.normal).transformDirection(value.object.matrixWorld) : undefined;
+      }
+      if (reference.kind !== "FACE") return undefined;
+      const binding=[...this.solidBindings.values()].find((candidate)=>candidate.context.instanceId===reference.instanceId&&candidate.artifact.geometryKey===reference.geometryKey);
+      if(!binding||!reference.topologyId)return undefined;const normal=new THREE.Vector3();const samples:THREE.Vector3[]=[];
+      binding.artifact.mesh.triangles.forEach((triangle,index)=>{if((binding.artifact.mesh.faceIds[index]??-1)+1!==reference.topologyId)return;
+        const a=new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[0]]),b=new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[1]]),c=new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[2]]);
+        const sample=b.sub(a).cross(c.sub(a));if(sample.lengthSq()>1e-12){sample.normalize();samples.push(sample);normal.add(sample);}});
+      if(!samples.length||normal.lengthSq()<1e-12)return undefined;normal.normalize();
+      if(samples.some((sample)=>Math.abs(sample.dot(normal))<0.9999))return undefined;
+      return normal.transformDirection(binding.mesh.matrixWorld);
+    };
+    const first=planeNormal(references[0],resolved[0]),second=planeNormal(references[1],resolved[1]);
+    if(!first||!second)return undefined;
+    const worldReference=first.clone().cross(second);
+    const secondInstance=this.instanceGroups.get(references[1].instanceId);
+    if(!secondInstance)return undefined;
+    if(worldReference.lengthSq()<1e-10){
+      const candidates=[new THREE.Vector3(1,0,0),new THREE.Vector3(0,1,0),new THREE.Vector3(0,0,1)]
+        .map((axis)=>axis.applyQuaternion(secondInstance.getWorldQuaternion(new THREE.Quaternion())));
+      const candidate=candidates.sort((a,b)=>Math.abs(a.dot(second))-Math.abs(b.dot(second)))[0];
+      worldReference.copy(second).cross(candidate);
+    }
+    if(worldReference.lengthSq()<1e-12)return undefined;
+    const inverse=secondInstance.getWorldQuaternion(new THREE.Quaternion()).invert();
+    return worldReference.normalize().applyQuaternion(inverse).toArray();
   }
 
   private resolveAssemblyConstraintReference(reference: AssemblyGeometryRef):
@@ -749,7 +884,7 @@ export class CadViewportEngine {
     });
     const selection = matched?.userData as SelectionItem | undefined;
     return selection && matched ? { selection, object: matched, anchor: new THREE.Box3().setFromObject(matched).getCenter(new THREE.Vector3()) }
-      : { selection: instanceSelection, object: instance, anchor: instanceCenter() };
+      : undefined;
   }
 
   private addDatumPlane(datum: DatumPlane, parent: THREE.Group, selectable: boolean, context?: SolidContext): void {

@@ -97,6 +97,7 @@ message AssemblyConstraint {
     RigidPose fixed_pose = 8;
     string connection_id = 9;
     string mode = 10; // DRIVING, MEASURED, CONTROLLED, SUPPRESSED
+    Vec3 angle_reference_direction = 11; // optional, in second-body local coordinates
 }
 
 message SolveAssemblyRequest {

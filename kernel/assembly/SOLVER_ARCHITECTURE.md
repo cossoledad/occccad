@@ -454,7 +454,10 @@ It does not add new constraint families or a sparse backend. The accepted baseli
 - keeps dense Eigen and the finite-difference reference backend during this gate.
 
 Persisted branch intent and directed-angle winding remain M3 work; M1.6 freezes a
-deterministic request-local branch only.
+deterministic request-local branch only. The current Product integration adds one
+narrow directed plane-angle slice: a reference direction stored in the second
+body's local frame distinguishes the two sectors within one turn. Explicitly
+selectable datum-axis/sense semantics and multi-turn winding remain M3 work.
 
 Warm start at this stage means that the caller supplies the previously accepted
 poses as the next nominal poses. It is not yet an incremental factorization cache

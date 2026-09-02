@@ -412,6 +412,10 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 
 M1.6 鲁棒性基线已经落地：每次求解从 nominal pose 冻结适用的方向和无符号距离侧分支；普通无向角使用 `atan2(‖cross‖,dot)`，精确 0/π 目标使用 cross+dot 端点对齐残差；近平行直线距离使用 blended 退化极限。版本化 `AssemblySolverProfile` 已贯穿 Proto、Worker 和 Go，分别配置长度/角度 convergence acceptance、classification、平移/旋转 step、退化、有限差分、damping 与 rank 阈值。一般超差驻点返回 `Unsatisfied` 并报告 unsatisfied IDs；只有零变量 component 超过 classification tolerance 才返回 `Inconsistent` 和 conflicting IDs；迭代预算或数值失败返回 `NonConvergent` 且不伪造冲突归因。当前分支只在单次请求内冻结，持久 branch intent 仍属于 M3。
 
+装配约束创建和双击编辑现在共用非模态“约束定义”交互：显示 Supporting Elements，允许逐项重新选择，并由约束类型和几何对共同决定方向、距离方向、角度/距离控件及取值范围。Fix/Rigid/Move 使用 Instance selection mode；前后端都拒绝以可能随 Part 重算消失的 Face/Edge 作为刚体约束身份。点点、点线和线线重合不暴露方向；平面重合/Offset 才保存明确的 Same/Opposite 默认 branch。选择完成时浏览器从当前精确显示上下文预计算可定义的初值；非平行平面距离按 0 初始化。参数或支持元素改变后，前端以防抖的 `PreviewCommand` 运行与提交相同的 Product 命令和权威装配求解，统一应用响应中的全部 occurrence pose，取消时恢复预览前姿态。约束树节点、3D 标记和支持几何共享选择身份；拓扑面/边/点使用局部 overlay 高亮，不再通过所属 mesh group 把整个 Instance 染色。平面角度创建时持久保存第二 Instance 局部坐标中的 reference direction；Solver 随第二刚体变换该方向并用带符号 `atan2`计算 `[0,2π)`，因此 90° 与 270°是不同解。当前这是自动 reference direction 的首个 sector 切片，显式选择 reference axis/sense 仍属于后续 DirectedAngle UI。
+
+装配移动手柄的视觉尺寸仍按相机深度保持固定 CSS 像素，但拖拽位移改为固定模型单位/CSS 像素倍率；相机缩放只改变观察比例，不再改变同一鼠标位移产生的模型位移。
+
 这些风险决定了下一阶段应先建立模型内核、拓扑命名、约束求解和可重建制品协议，而不是先增加大量微服务。
 
 ## 12. 当前架构不变量

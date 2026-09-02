@@ -123,7 +123,8 @@ export type ProductInstance = {
 export type AssemblyGeometryRef = { instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER" | "FACE" | "EDGE" | "VERTEX";
   geometryId?: string; axis?: string; geometryKey?: string; topologyId?: number };
 export type AssemblyConstraint = { id: string; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE";
-  first: AssemblyGeometryRef; second?: AssemblyGeometryRef; value?: number; directionRelation?: string; distanceRelation?: string };
+  first: AssemblyGeometryRef; second?: AssemblyGeometryRef; value?: number; directionRelation?: string; distanceRelation?: string;
+  angleReferenceDirection?: Vec3 };
 
 export type InstancePathSegment = {
   ownerDocumentId: string;

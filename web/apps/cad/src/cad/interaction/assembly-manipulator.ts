@@ -17,7 +17,7 @@ const AXES: Record<Axis, THREE.Vector3> = {
   X: new THREE.Vector3(1, 0, 0), Y: new THREE.Vector3(0, 1, 0), Z: new THREE.Vector3(0, 0, 1),
 };
 const COLORS: Record<Axis, number> = { X: 0xd84c4c, Y: 0x55a85b, Z: 0x4384d8 };
-const TRANSLATION_GAIN = 80;
+const TRANSLATION_GAIN = 0.8;
 const ROTATION_GAIN = 0.4;
 
 /** Application-owned, world-space assembly manipulator. It deliberately has no DOM listeners. */

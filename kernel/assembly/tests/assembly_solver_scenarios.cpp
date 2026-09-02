@@ -173,6 +173,26 @@ TEST(AssemblySolver, PlaneAngleAboveNinetyDegreesConverges) {
     EXPECT_NEAR(normal.z, std::cos(120.0 * kPi / 180.0), 1.0e-6);
 }
 
+TEST(AssemblySolver, DirectedPlaneAngleDistinguishesNinetyFromTwoHundredSeventy) {
+    Model model;
+    model.bodies = {{"ground", {}}, {"moving", {}}};
+    model.geometry = {{"plane", "ground", PlaneGeometry{}},
+                      {"plane", "moving", PlaneGeometry{{}, {1.0, 0.0, 0.0}}}};
+    Constraint angle = binary("directed-angle", ConstraintKind::Angle, ref("moving", "plane"),
+                              ref("ground", "plane"));
+    angle.value = 3.0 * kPi / 2.0;
+    angle.direction_relation = DirectionRelation::Same;
+    angle.angle_reference_direction = Vec3{0.0, -1.0, 0.0};
+    model.constraints = {fix("ground"), angle};
+
+    const SolveResult result = Solver{}.solve(model);
+
+    ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+    const Vec3 normal = rotate(pose(result, "moving").rotation, {1.0, 0.0, 0.0});
+    EXPECT_NEAR(normal.x, -1.0, 1.0e-6);
+    EXPECT_NEAR(normal.z, 0.0, 1.0e-6);
+}
+
 TEST(AssemblySolver, LinePlaneCoincidentPlacesTheWholeLineInThePlane) {
     Model model;
     model.bodies = {{"ground", {}}, {"moving", {{0.0, 0.0, 4.0}, {}}}};

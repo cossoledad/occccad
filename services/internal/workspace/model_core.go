@@ -853,10 +853,29 @@ type addAssemblyConstraintPayload struct {
 }
 
 type editAssemblyConstraintPayload struct {
-	ConstraintID      string  `json:"constraintId"`
-	Value             float64 `json:"value"`
-	DirectionRelation string  `json:"directionRelation"`
-	DistanceRelation  string  `json:"distanceRelation"`
+	ConstraintID            string               `json:"constraintId"`
+	Value                   float64              `json:"value"`
+	DirectionRelation       string               `json:"directionRelation"`
+	DistanceRelation        string               `json:"distanceRelation"`
+	First                   *AssemblyGeometryRef `json:"first,omitempty"`
+	Second                  *AssemblyGeometryRef `json:"second,omitempty"`
+	AngleReferenceDirection *[3]float64          `json:"angleReferenceDirection,omitempty"`
+	FixedPose               *InstancePose        `json:"fixedPose,omitempty"`
+}
+
+func validateInstanceConstraintReferences(constraint AssemblyConstraint) error {
+	if constraint.Kind == "FIX" {
+		if constraint.First.Kind != "BODY" || constraint.Second != nil {
+			return fmt.Errorf("%w: FIX must reference exactly one instance body", ErrValidation)
+		}
+		return nil
+	}
+	if constraint.Kind == "RIGID" {
+		if constraint.First.Kind != "BODY" || constraint.Second == nil || constraint.Second.Kind != "BODY" {
+			return fmt.Errorf("%w: RIGID must reference two instance bodies", ErrValidation)
+		}
+	}
+	return nil
 }
 
 func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -876,9 +895,35 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 			continue
 		}
 		before := model.Constraints[index]
+		if before.Kind == "ANGLE" && (payload.Value < 0 || payload.Value > 2*math.Pi) {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: assembly angle must be in [0, 2pi]", ErrValidation)
+		}
 		model.Constraints[index].Value = payload.Value
 		model.Constraints[index].DirectionRelation = payload.DirectionRelation
 		model.Constraints[index].DistanceRelation = payload.DistanceRelation
+		if payload.AngleReferenceDirection != nil {
+			model.Constraints[index].AngleReferenceDirection = payload.AngleReferenceDirection
+		}
+		if payload.FixedPose != nil {
+			model.Constraints[index].FixedPose = payload.FixedPose
+		}
+		if payload.First != nil {
+			model.Constraints[index].First = *payload.First
+		}
+		if payload.Second != nil {
+			model.Constraints[index].Second = payload.Second
+		}
+		if model.Constraints[index].Kind != "FIX" {
+			if model.Constraints[index].Second == nil {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: second assembly reference is required", ErrValidation)
+			}
+			if model.Constraints[index].First.InstanceID == model.Constraints[index].Second.InstanceID {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: a binary assembly constraint requires two different instances", ErrValidation)
+			}
+		}
+		if err := validateInstanceConstraintReferences(model.Constraints[index]); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
 		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.ConstraintID, SlotID: "assembly-constraint.entity"}, before, model.Constraints[index])
 		next, _ := json.Marshal(model)
 		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.ConstraintID)}}, nil
@@ -893,6 +938,9 @@ func applyAddAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.Ra
 		return nil, modelcore.ChangeSet{}, err
 	}
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := validateInstanceConstraintReferences(payload.Constraint); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	for _, existing := range model.Constraints {
@@ -1858,11 +1906,21 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if kind != "FIX" && request.SecondAssemblyRef == nil {
 			return "", nil, fmt.Errorf("%w: second assembly reference is required", ErrValidation)
 		}
+		if (kind == "FIX" || kind == "RIGID") && request.FirstAssemblyRef.Kind != "BODY" {
+			return "", nil, fmt.Errorf("%w: %s operates on an instance body, not transient geometry", ErrValidation, kind)
+		}
+		if kind == "RIGID" && request.SecondAssemblyRef.Kind != "BODY" {
+			return "", nil, fmt.Errorf("%w: RIGID operates on two instance bodies", ErrValidation)
+		}
 		if kind != "FIX" && request.SecondAssemblyRef != nil && request.FirstAssemblyRef.InstanceID == request.SecondAssemblyRef.InstanceID {
 			return "", nil, fmt.Errorf("%w: a binary assembly constraint requires two different instances", ErrValidation)
 		}
+		if kind == "ANGLE" && (request.Value < 0 || request.Value > 2*math.Pi) {
+			return "", nil, fmt.Errorf("%w: assembly angle must be in [0, 2pi]", ErrValidation)
+		}
 		constraint := AssemblyConstraint{ID: newID("assembly-constraint"), ConnectionID: newID("assembly-connection"), Kind: kind, Mode: "DRIVING", First: *request.FirstAssemblyRef,
-			Second: request.SecondAssemblyRef, Value: request.Value, DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation)}
+			Second: request.SecondAssemblyRef, Value: request.Value, DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation),
+			AngleReferenceDirection: request.AngleReferenceDirection}
 		if constraint.DirectionRelation == "" {
 			constraint.DirectionRelation = "UNORIENTED"
 		}
@@ -1905,8 +1963,53 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if id == "" {
 			return "", nil, fmt.Errorf("%w: constraint identity is required", ErrValidation)
 		}
+		if request.FirstAssemblyRef != nil && request.SecondAssemblyRef != nil &&
+			request.FirstAssemblyRef.InstanceID == request.SecondAssemblyRef.InstanceID {
+			return "", nil, fmt.Errorf("%w: a binary assembly constraint requires two different instances", ErrValidation)
+		}
+		var editedFixedPose *InstancePose
+		var product ProductModel
+		if json.Unmarshal(modelJSON, &product) == nil {
+			for _, existing := range product.Constraints {
+				if existing.ID != id || (existing.Kind != "FIX" && existing.Kind != "RIGID") {
+					continue
+				}
+				firstRef := existing.First
+				if request.FirstAssemblyRef != nil {
+					firstRef = *request.FirstAssemblyRef
+				}
+				secondRef := existing.Second
+				if request.SecondAssemblyRef != nil {
+					secondRef = request.SecondAssemblyRef
+				}
+				var first, second *ProductInstance
+				for index := range product.Instances {
+					instance := &product.Instances[index]
+					if instance.ID == firstRef.InstanceID {
+						first = instance
+					}
+					if secondRef != nil && instance.ID == secondRef.InstanceID {
+						second = instance
+					}
+				}
+				if first == nil || (existing.Kind == "RIGID" && second == nil) {
+					return "", nil, fmt.Errorf("%w: selected instance does not exist", ErrValidation)
+				}
+				firstPose := InstancePose{Translation: first.Translation, Rotation: normalizedInstanceRotation(first.Rotation)}
+				if existing.Kind == "FIX" {
+					editedFixedPose = &firstPose
+				} else {
+					secondPose := InstancePose{Translation: second.Translation, Rotation: normalizedInstanceRotation(second.Rotation)}
+					relative := inverseRelativePose(firstPose, secondPose)
+					editedFixedPose = &relative
+				}
+				break
+			}
+		}
 		return typeEditAssemblyConstraint, editAssemblyConstraintPayload{ConstraintID: id, Value: request.Value,
-			DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation)}, nil
+			DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation),
+			First: request.FirstAssemblyRef, Second: request.SecondAssemblyRef, AngleReferenceDirection: request.AngleReferenceDirection,
+			FixedPose: editedFixedPose}, nil
 	case "SET_REFERENCE_MODE":
 		if documentType != "PRODUCT" {
 			break

@@ -850,7 +850,10 @@ func TestProductAssemblyDependenciesUsePersistableGeometryEdges(t *testing.T) {
 func TestAssemblyConstraintCanBeEditedAndDeleted(t *testing.T) {
 	model := ProductModel{Instances: []ProductInstance{{ID: "a", Name: "A.1"}, {ID: "b", Name: "B.1"}}, Constraints: []AssemblyConstraint{{ID: "distance", Kind: "DISTANCE", First: AssemblyGeometryRef{InstanceID: "a", Kind: "POINT"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "POINT"}, Value: 10}}}
 	modelJSON, _ := json.Marshal(model)
-	payload, _ := json.Marshal(editAssemblyConstraintPayload{ConstraintID: "distance", Value: 25, DirectionRelation: "UNORIENTED", DistanceRelation: "UNSIGNED"})
+	replacement := AssemblyGeometryRef{InstanceID: "b", Kind: "PLANE", GeometryID: "yz"}
+	newFirst := AssemblyGeometryRef{InstanceID: "a", Kind: "PLANE", GeometryID: "xy"}
+	payload, _ := json.Marshal(editAssemblyConstraintPayload{ConstraintID: "distance", Value: 25, DirectionRelation: "UNORIENTED", DistanceRelation: "UNSIGNED",
+		First: &newFirst, Second: &replacement})
 	edited, changes, err := applyEditAssemblyConstraint(modelJSON, payload)
 	if err != nil {
 		t.Fatal(err)
@@ -863,6 +866,9 @@ func TestAssemblyConstraintCanBeEditedAndDeleted(t *testing.T) {
 	if next.Constraints[0].Value != 25 {
 		t.Fatalf("constraint edit was not applied: %#v", next.Constraints[0])
 	}
+	if next.Constraints[0].First.GeometryID != "xy" || next.Constraints[0].Second == nil || next.Constraints[0].Second.GeometryID != "yz" {
+		t.Fatalf("supporting geometry replacement was not applied: %#v", next.Constraints[0])
+	}
 	deletePayload, _ := json.Marshal(deleteNodePayload{TargetKind: "ASSEMBLY_CONSTRAINT", TargetID: "distance"})
 	deleted, _, err := applyDeleteProductNode(edited, deletePayload)
 	if err != nil {
@@ -872,6 +878,44 @@ func TestAssemblyConstraintCanBeEditedAndDeleted(t *testing.T) {
 	_ = json.Unmarshal(deleted, &next)
 	if len(next.Constraints) != 0 {
 		t.Fatalf("constraint delete was not applied: %#v", next.Constraints)
+	}
+}
+
+func TestFixAndRigidRejectTransientGeometryReferences(t *testing.T) {
+	modelJSON, _ := json.Marshal(ProductModel{Instances: []ProductInstance{{ID: "a"}, {ID: "b"}}})
+	face := AssemblyGeometryRef{InstanceID: "a", Kind: "FACE", GeometryKey: "shape", TopologyID: 1}
+	fixPayload, _ := json.Marshal(addAssemblyConstraintPayload{Constraint: AssemblyConstraint{ID: "fix", Kind: "FIX", First: face}})
+	if _, _, err := applyAddAssemblyConstraint(modelJSON, fixPayload); err == nil {
+		t.Fatal("FIX accepted a transient face instead of an instance body")
+	}
+	body := AssemblyGeometryRef{InstanceID: "a", Kind: "BODY"}
+	rigidPayload, _ := json.Marshal(addAssemblyConstraintPayload{Constraint: AssemblyConstraint{ID: "rigid", Kind: "RIGID", First: body, Second: &face}})
+	if _, _, err := applyAddAssemblyConstraint(modelJSON, rigidPayload); err == nil {
+		t.Fatal("RIGID accepted a transient face instead of an instance body")
+	}
+}
+
+func TestAssemblyConstraintGeometryPairCapabilities(t *testing.T) {
+	tests := []struct {
+		name                                   string
+		kind, first, second                    string
+		direction, distanceSide, directedAngle bool
+	}{
+		{name: "point point coincidence", kind: "COINCIDENT", first: "POINT", second: "POINT"},
+		{name: "line line coincidence", kind: "COINCIDENT", first: "LINE", second: "LINE"},
+		{name: "plane plane coincidence", kind: "COINCIDENT", first: "PLANE", second: "PLANE", direction: true},
+		{name: "point plane distance", kind: "DISTANCE", first: "POINT", second: "PLANE", distanceSide: true},
+		{name: "plane plane distance", kind: "DISTANCE", first: "PLANE", second: "PLANE", direction: true, distanceSide: true},
+		{name: "plane plane angle", kind: "ANGLE", first: "PLANE", second: "PLANE", directedAngle: true},
+		{name: "axis axis angle remains unsigned", kind: "ANGLE", first: "LINE", second: "LINE"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := assemblyCapabilities(test.kind, test.first, test.second)
+			if got.direction != test.direction || got.distanceSide != test.distanceSide || got.directedAngle != test.directedAngle {
+				t.Fatalf("unexpected capabilities: %#v", got)
+			}
+		})
 	}
 }
 

@@ -232,9 +232,10 @@ export const restApi = {
     restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation, rotation }),
   addAssemblyConstraint: (documentId: string, input: { constraintKind: string;
     firstAssemblyRef: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef;
-    value?: number; directionRelation?: string; distanceRelation?: string }) =>
+    value?: number; directionRelation?: string; distanceRelation?: string; angleReferenceDirection?: Vec3 }) =>
     restApi.command(documentId, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),
-  editAssemblyConstraint: (documentId: string, constraintId: string, input: { value: number; directionRelation: string; distanceRelation: string }) =>
+  editAssemblyConstraint: (documentId: string, constraintId: string, input: { value: number; directionRelation: string; distanceRelation: string;
+    firstAssemblyRef?: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef; angleReferenceDirection?: Vec3 }) =>
     restApi.command(documentId, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),
   setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_HEAD" | "PINNED") =>
     restApi.command(documentId, { type: "SET_REFERENCE_MODE", instanceId, referenceMode }),

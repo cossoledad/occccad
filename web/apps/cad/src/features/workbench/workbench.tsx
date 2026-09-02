@@ -17,6 +17,7 @@ import { ShareDialog, type ShareResource } from "../../components/share-dialog";
 import { CommandProvider } from "../../cad/command/command-context";
 import { CommandRegistry } from "../../cad/command/command-registry";
 import { selectionKey, selectionSetToken } from "../../cad/interaction/selection-identity";
+import { assemblyGeometryRef, type AssemblyConstraintToolKind } from "../../cad/tool/cad-tool";
 import { CommandDialog, FloatingToolbar, ToolbarGroup } from "../../cad/overlay/floating-panel";
 import { ToolButton } from "../../cad/overlay/tool-button";
 import { CadIcon, type CadIconName } from "../../cad/overlay/cad-icons";
@@ -61,6 +62,46 @@ function toolbarGroups(items: ToolbarCatalogItem[]): Array<{ key: string; items:
   const groups = new Map<string, ToolbarCatalogItem[]>();
   for (const item of items) groups.set(item.groupKey, [...(groups.get(item.groupKey) ?? []), item]);
   return [...groups].map(([key, groupItems]) => ({ key, items: groupItems }));
+}
+
+function assemblyReferenceLabel(reference: AssemblyGeometryRef | undefined): string {
+  if (!reference) return "未选择";
+  const detail = reference.geometryId ?? (reference.topologyId ? `${reference.kind} ${reference.topologyId}` : reference.kind);
+  return `#${reference.instanceId} · ${detail}${reference.axis ? ` · ${reference.axis}` : ""}`;
+}
+
+type AssemblyConstraintUIDefinition = { supports: 1 | 2; direction: boolean; distanceDirection: boolean; value?: "angle" | "distance" };
+const assemblyConstraintUI: Record<AssemblyConstraint["kind"], AssemblyConstraintUIDefinition> = {
+  FIX: { supports: 1, direction: false, distanceDirection: false },
+  RIGID: { supports: 2, direction: false, distanceDirection: false },
+  COINCIDENT: { supports: 2, direction: true, distanceDirection: false },
+  CONCENTRIC: { supports: 2, direction: false, distanceDirection: false },
+  ANGLE: { supports: 2, direction: false, distanceDirection: false, value: "angle" },
+  DISTANCE: { supports: 2, direction: true, distanceDirection: true, value: "distance" },
+};
+
+function AssemblyConstraintFields({ kind, references, replacing, onReplace, directedAngle = false }: {
+  kind: keyof typeof assemblyConstraintUI; references: Array<AssemblyGeometryRef | undefined>;
+  replacing?: 0 | 1; onReplace: (index: 0 | 1) => void; directedAngle?: boolean;
+}) {
+  const definition = assemblyConstraintUI[kind];
+  const planePair = references.slice(0, 2).every((reference) => reference && ["PLANE", "FACE"].includes(reference.kind));
+  const directionApplicable = definition.direction && planePair;
+  const supportsDirectedAngle = kind === "ANGLE" && directedAngle;
+  const distanceDirectionApplicable = definition.distanceDirection && references.slice(0, 2)
+    .some((reference) => reference && ["PLANE", "FACE"].includes(reference.kind));
+  return <>
+    <div className="assembly-support-list"><strong>支持元素</strong>{references.slice(0, definition.supports).map((reference,index)=><div className="assembly-support-row" key={index}>
+      <span>{index+1}</span><code>{assemblyReferenceLabel(reference)}</code><Button size="small" type={replacing===index?"primary":"default"}
+        onClick={()=>onReplace(index as 0|1)}>重新选择</Button></div>)}</div>
+    {directionApplicable && <Form.Item name="directionRelation" label="方向"><Select options={[
+      {value:"UNORIENTED",label:"未定义"},{value:"SAME",label:"同向"},{value:"OPPOSITE",label:"反向"}]} /></Form.Item>}
+    {distanceDirectionApplicable && <Form.Item name="distanceRelation" label="距离方向"><Select options={[
+      {value:"UNSIGNED",label:"无符号"},{value:"ALONG_SECOND_NORMAL",label:"沿第二元素法向"},{value:"OPPOSITE_SECOND_NORMAL",label:"逆第二元素法向"}]} /></Form.Item>}
+    {definition.value && <Form.Item name="value" label={definition.value === "angle" ? "角度（deg）" : "距离（mm）"}
+      rules={[{required:true},{type:"number",min:0,max:definition.value === "angle"?(supportsDirectedAngle?360:180):undefined}]}>
+      <InputNumber min={0} max={definition.value === "angle"?(supportsDirectedAngle?360:180):undefined} precision={3} style={{width:"100%"}} /></Form.Item>}
+  </>;
 }
 
 function featureIcon(feature: Feature) {
@@ -233,8 +274,9 @@ export function Workbench() {
   const [versionOpen, setVersionOpen] = useState(false);
   const [datumPlaneOpen, setDatumPlaneOpen] = useState(false);
   const [datumAxisOpen, setDatumAxisOpen] = useState(false);
-  const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: "angle" | "distance"; references: AssemblyGeometryRef[] }>();
+  const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: AssemblyConstraintToolKind; references: AssemblyGeometryRef[]; angleReferenceDirection?: Vec3 }>();
   const [editingAssemblyConstraint, setEditingAssemblyConstraint] = useState<AssemblyConstraint>();
+  const [replacingAssemblyReference, setReplacingAssemblyReference] = useState<0 | 1>();
   const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const hiddenTreeKeys = useUIPreferences((state) => state.hiddenTreeKeys);
@@ -246,7 +288,10 @@ export function Workbench() {
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
   const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
   const [datumAxisForm] = Form.useForm<{ name: string; ox: number; oy: number; oz: number; dx: number; dy: number; dz: number }>();
-  const [assemblyConstraintForm] = Form.useForm<{ value: number }>();
+  const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string }>();
+  const assemblyValue = Form.useWatch("value", assemblyConstraintForm);
+  const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
+  const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
 	useEffect(() => { setActiveDocumentID(documentID); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }, [documentID]);
@@ -346,6 +391,59 @@ export function Workbench() {
   }, [view, editingView, hiddenTreeKeys]);
   const canEdit = editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR";
   const activeWorkbench = resolveCadWorkbench(editingView?.document.type ?? "PART", Boolean(store.sketchPlane));
+
+  useEffect(() => {
+    if (replacingAssemblyReference === undefined || !store.selection) return;
+    const reference = assemblyGeometryRef(store.selection);
+    if (!reference) return;
+    if (editingAssemblyConstraint) {
+      const other = replacingAssemblyReference === 0 ? editingAssemblyConstraint.second : editingAssemblyConstraint.first;
+      if (other?.instanceId === reference.instanceId) return;
+      setEditingAssemblyConstraint((current) => {
+        if (!current) return current;
+        const next = { ...current, ...(replacingAssemblyReference === 0 ? { first: reference } : { second: reference }) };
+        return { ...next, angleReferenceDirection: next.kind === "ANGLE" && next.second
+          ? viewport.current?.assemblyAngleReferenceDirection([next.first, next.second]) : undefined };
+      });
+    } else if (pendingAssemblyConstraint) {
+      const references = [...pendingAssemblyConstraint.references];
+      const other = references[replacingAssemblyReference === 0 ? 1 : 0];
+      if (other?.instanceId === reference.instanceId) return;
+      references[replacingAssemblyReference] = reference;
+      setPendingAssemblyConstraint({ ...pendingAssemblyConstraint, references,
+        angleReferenceDirection: pendingAssemblyConstraint.kind === "angle" ? viewport.current?.assemblyAngleReferenceDirection(references) : undefined });
+    }
+    setReplacingAssemblyReference(undefined);
+  }, [store.selection, replacingAssemblyReference, editingAssemblyConstraint, pendingAssemblyConstraint]);
+
+  useEffect(() => {
+    const constraint = editingAssemblyConstraint;
+    const pending = pendingAssemblyConstraint;
+    const references = constraint ? [constraint.first, constraint.second].filter((value): value is AssemblyGeometryRef => Boolean(value))
+      : pending?.references ?? [];
+    const kind = (constraint?.kind.toLowerCase() ?? pending?.kind) as AssemblyConstraintToolKind | undefined;
+    if (!editingView || !kind || references.length < (kind === "fix" ? 1 : 2) || replacingAssemblyReference !== undefined) return;
+    const timer = window.setTimeout(() => {
+      const value = kind === "angle" ? (assemblyValue ?? 0) * Math.PI / 180 : assemblyValue ?? 0;
+      const commandInput = constraint ? {
+        type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraint.id, value,
+        directionRelation: assemblyDirection ?? "UNORIENTED", distanceRelation: assemblyDistance ?? "UNSIGNED",
+        firstAssemblyRef: references[0], secondAssemblyRef: references[1],
+        angleReferenceDirection: constraint.angleReferenceDirection,
+      } : {
+        type: "ADD_ASSEMBLY_CONSTRAINT", constraintKind: kind.toUpperCase(), value,
+        directionRelation: assemblyDirection ?? "UNORIENTED", distanceRelation: assemblyDistance ?? "UNSIGNED",
+        firstAssemblyRef: references[0], secondAssemblyRef: references[1],
+        angleReferenceDirection: pending?.angleReferenceDirection,
+      };
+      void api.previewCommand(editingView.document.id, commandInput).then((preview) => {
+        if (preview.baseVersionId === editingView.document.versionId && preview.instancePoses)
+          viewport.current?.previewAssemblyPoses(preview.instancePoses);
+      }).catch(() => {});
+    }, 140);
+    return () => window.clearTimeout(timer);
+  }, [editingView, editingAssemblyConstraint, pendingAssemblyConstraint, replacingAssemblyReference,
+    assemblyValue, assemblyDirection, assemblyDistance]);
 
   const editSketch = (featureID: string, operations: SketchOperation[]) => {
     if (!editingView) return;
@@ -555,15 +653,12 @@ export function Workbench() {
           onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
           onAssemblyConstraint={(kind, references) => {
             if (!editingView) return;
-            if (kind === "angle" || kind === "distance") {
-              assemblyConstraintForm.setFieldsValue({ value: 0 });
-              setPendingAssemblyConstraint({ kind, references });
-              return;
-            }
-            command.mutate(() => api.addAssemblyConstraint(editingView.document.id, {
-              constraintKind: kind.toUpperCase(), firstAssemblyRef: references[0], secondAssemblyRef: references[1],
-              value: 0, directionRelation: "UNORIENTED", distanceRelation: "UNSIGNED",
-            }));
+            const value = kind === "angle" || kind === "distance" ? viewport.current?.measureAssemblyConstraint(kind, references) ?? 0 : 0;
+            const planePair=references.length===2&&references.every((reference)=>["PLANE","FACE"].includes(reference.kind));
+            assemblyConstraintForm.setFieldsValue({ value, directionRelation: kind === "angle" ? "SAME" : planePair
+              ? (viewport.current?.measureAssemblyConstraint("angle",references)??0)>90?"OPPOSITE":"SAME" : "UNORIENTED", distanceRelation: "UNSIGNED" });
+            setPendingAssemblyConstraint({ kind, references,
+              angleReferenceDirection: kind === "angle" ? viewport.current?.assemblyAngleReferenceDirection(references) : undefined });
           }}
           onInstanceMovePreview={async(instanceId,translation,rotation)=>{
             if(editingView?.document.type!=="PRODUCT")return[];const preview=await api.previewCommand(editingView.document.id,{type:"MOVE_INSTANCE",requestId:randomUUID(),instanceId,translation,rotation});return preview.instancePoses??[];
@@ -592,7 +687,14 @@ export function Workbench() {
             onActivate={(node) => {
               if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
                 const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
-                if (constraint) { setEditingAssemblyConstraint(constraint); assemblyConstraintForm.setFieldsValue({ value: constraint.kind === "ANGLE" ? (constraint.value ?? 0) * 180 / Math.PI : constraint.value ?? 0 }); }
+                if (constraint) { setEditingAssemblyConstraint({ ...constraint }); assemblyConstraintForm.setFieldsValue({
+                  value: constraint.kind === "ANGLE" ? (constraint.value ?? 0) * 180 / Math.PI : constraint.value ?? 0,
+                  directionRelation: constraint.kind === "ANGLE" && constraint.angleReferenceDirection ? "SAME"
+                    : constraint.directionRelation && constraint.directionRelation !== "UNORIENTED" ? constraint.directionRelation
+                    : constraint.second && [constraint.first,constraint.second].every((reference)=>["PLANE","FACE"].includes(reference.kind))
+                      ? (viewport.current?.measureAssemblyConstraint("angle",[constraint.first,constraint.second])??0)>90?"OPPOSITE":"SAME" : "UNORIENTED",
+                  distanceRelation: constraint.distanceRelation ?? "UNSIGNED",
+                }); }
                 return;
               }
               if (node.documentId && ["PART", "PRODUCT", "INSTANCE"].includes(node.kind ?? "")) {
@@ -638,33 +740,40 @@ export function Workbench() {
             : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}</div>
         </aside>
       </section></main>
-    <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="编辑装配约束"
-      onClose={() => setEditingAssemblyConstraint(undefined)} confirmLoading={command.isPending} onConfirm={async()=>{
-        if(!editingView||!editingAssemblyConstraint)return;const {value}=await assemblyConstraintForm.validateFields();const constraint=editingAssemblyConstraint;
-        command.mutate(()=>api.editAssemblyConstraint(editingView.document.id,constraint.id,{value:constraint.kind==="ANGLE"?value*Math.PI/180:value,
-          directionRelation:constraint.directionRelation??"UNORIENTED",distanceRelation:constraint.distanceRelation??"UNSIGNED"}),{onSuccess:()=>setEditingAssemblyConstraint(undefined)});
+    <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" width={390}
+      onClose={() => { viewport.current?.clearCommandPreview(); setReplacingAssemblyReference(undefined); setEditingAssemblyConstraint(undefined); }}
+      confirmLoading={command.isPending} onConfirm={async()=>{
+        if(!editingView||!editingAssemblyConstraint)return;const values=await assemblyConstraintForm.validateFields();const constraint=editingAssemblyConstraint;
+        command.mutate(()=>api.editAssemblyConstraint(editingView.document.id,constraint.id,{value:constraint.kind==="ANGLE"?values.value*Math.PI/180:values.value,
+          directionRelation:values.directionRelation,distanceRelation:values.distanceRelation,
+          firstAssemblyRef:constraint.first,secondAssemblyRef:constraint.second,angleReferenceDirection:constraint.angleReferenceDirection}),{onSuccess:()=>{viewport.current?.clearCommandPreview();setEditingAssemblyConstraint(undefined);}});
       }}>
-      <Form form={assemblyConstraintForm} layout="vertical"><Form.Item name="value" label={editingAssemblyConstraint?.kind==="ANGLE"?"角度（deg）":"距离（mm）"}
-        rules={[{required:true}]}><InputNumber disabled={!editingAssemblyConstraint||!["ANGLE","DISTANCE"].includes(editingAssemblyConstraint.kind)} style={{width:"100%"}} /></Form.Item></Form>
+      <Form form={assemblyConstraintForm} layout="vertical">
+        {editingAssemblyConstraint && <AssemblyConstraintFields kind={editingAssemblyConstraint.kind}
+          references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second]} replacing={replacingAssemblyReference}
+          directedAngle={Boolean(editingAssemblyConstraint.angleReferenceDirection)}
+          onReplace={(index)=>{store.setSelection(null);setReplacingAssemblyReference(index);}} />}
+      </Form>
     </CommandDialog>
-    <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)}
-      title={pendingAssemblyConstraint?.kind === "angle" ? "装配角度" : "装配距离"}
-      onClose={() => setPendingAssemblyConstraint(undefined)} confirmLoading={command.isPending}
+    <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)} title="约束定义" width={390}
+      onClose={() => { viewport.current?.clearCommandPreview(); setReplacingAssemblyReference(undefined); setPendingAssemblyConstraint(undefined); }} confirmLoading={command.isPending}
       onConfirm={async () => {
         if (!editingView || !pendingAssemblyConstraint) return;
-        const { value } = await assemblyConstraintForm.validateFields();
+        const values = await assemblyConstraintForm.validateFields();
         const pending = pendingAssemblyConstraint;
         command.mutate(() => api.addAssemblyConstraint(editingView.document.id, {
           constraintKind: pending.kind.toUpperCase(), firstAssemblyRef: pending.references[0], secondAssemblyRef: pending.references[1],
-          value: pending.kind === "angle" ? value * Math.PI / 180 : value,
-          directionRelation: "UNORIENTED", distanceRelation: "UNSIGNED",
-        }), { onSuccess: () => setPendingAssemblyConstraint(undefined) });
+          value: pending.kind === "angle" ? values.value * Math.PI / 180 : values.value,
+          directionRelation: values.directionRelation, distanceRelation: values.distanceRelation,
+          angleReferenceDirection: pending.angleReferenceDirection,
+        }), { onSuccess: () => { viewport.current?.clearCommandPreview(); setPendingAssemblyConstraint(undefined); } });
       }}>
-      <Form form={assemblyConstraintForm} layout="vertical"><Form.Item name="value"
-        label={pendingAssemblyConstraint?.kind === "angle" ? "角度（deg）" : "距离（mm）"}
-        rules={[{ required: true }, { type: "number", min: 0, max: pendingAssemblyConstraint?.kind === "angle" ? 180 : undefined }]}>
-        <InputNumber min={0} max={pendingAssemblyConstraint?.kind === "angle" ? 180 : undefined} precision={2} style={{ width: "100%" }} />
-      </Form.Item></Form>
+      <Form form={assemblyConstraintForm} layout="vertical">
+        {pendingAssemblyConstraint && <AssemblyConstraintFields kind={pendingAssemblyConstraint.kind.toUpperCase() as keyof typeof assemblyConstraintUI}
+          references={pendingAssemblyConstraint.references} replacing={replacingAssemblyReference}
+          directedAngle={Boolean(pendingAssemblyConstraint.angleReferenceDirection)}
+          onReplace={(index)=>{store.setSelection(null);setReplacingAssemblyReference(index);}} />}
+      </Form>
     </CommandDialog>
     <CommandDialog id="solid-generator" open={padOpen} title="实体特征" onClose={closePad} confirmLoading={command.isPending}
       onConfirm={async () => padSketch(await padForm.validateFields())}>

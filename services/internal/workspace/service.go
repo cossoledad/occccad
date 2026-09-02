@@ -279,16 +279,17 @@ type AssemblyGeometryRef struct {
 }
 
 type AssemblyConstraint struct {
-	ID                string               `json:"id"`
-	ConnectionID      string               `json:"connectionId,omitempty"`
-	Kind              string               `json:"kind"`
-	Mode              string               `json:"mode,omitempty"`
-	First             AssemblyGeometryRef  `json:"first"`
-	Second            *AssemblyGeometryRef `json:"second,omitempty"`
-	Value             float64              `json:"value,omitempty"`
-	DirectionRelation string               `json:"directionRelation,omitempty"`
-	DistanceRelation  string               `json:"distanceRelation,omitempty"`
-	FixedPose         *InstancePose        `json:"fixedPose,omitempty"`
+	ID                      string               `json:"id"`
+	ConnectionID            string               `json:"connectionId,omitempty"`
+	Kind                    string               `json:"kind"`
+	Mode                    string               `json:"mode,omitempty"`
+	First                   AssemblyGeometryRef  `json:"first"`
+	Second                  *AssemblyGeometryRef `json:"second,omitempty"`
+	Value                   float64              `json:"value,omitempty"`
+	DirectionRelation       string               `json:"directionRelation,omitempty"`
+	DistanceRelation        string               `json:"distanceRelation,omitempty"`
+	AngleReferenceDirection *[3]float64          `json:"angleReferenceDirection,omitempty"`
+	FixedPose               *InstancePose        `json:"fixedPose,omitempty"`
 }
 
 type ProductModel struct {
@@ -493,46 +494,47 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
-	RequestID            string               `json:"requestId"`
-	Type                 string               `json:"type"`
-	Plane                string               `json:"plane,omitempty"`
-	DatumPlaneID         string               `json:"datumPlaneId,omitempty"`
-	SketchID             string               `json:"sketchId,omitempty"`
-	Operations           []SketchOperation    `json:"operations,omitempty"`
-	Length               float64              `json:"length,omitempty"`
-	Angle                float64              `json:"angle,omitempty"`
-	Generator            string               `json:"generator,omitempty"`
-	Operation            string               `json:"operation,omitempty"`
-	AxisEntityID         string               `json:"axisEntityId,omitempty"`
-	Reversed             bool                 `json:"reversed,omitempty"`
-	Origin               [3]float64           `json:"origin,omitempty"`
-	Normal               [3]float64           `json:"normal,omitempty"`
-	UDirection           [3]float64           `json:"uDirection,omitempty"`
-	Direction            [3]float64           `json:"direction,omitempty"`
-	ReferencedDocumentID string               `json:"referencedDocumentId,omitempty"`
-	Name                 string               `json:"name,omitempty"`
-	InstanceID           string               `json:"instanceId,omitempty"`
-	TargetKind           string               `json:"targetKind,omitempty"`
-	TargetID             string               `json:"targetId,omitempty"`
-	OwnerEntityID        string               `json:"ownerEntityId,omitempty"`
-	Targets              []DeleteNodeTarget   `json:"targets,omitempty"`
-	Translation          [3]float64           `json:"translation,omitempty"`
-	Rotation             [4]float64           `json:"rotation,omitempty"`
-	ConstraintKind       string               `json:"constraintKind,omitempty"`
-	FirstAssemblyRef     *AssemblyGeometryRef `json:"firstAssemblyRef,omitempty"`
-	SecondAssemblyRef    *AssemblyGeometryRef `json:"secondAssemblyRef,omitempty"`
-	DirectionRelation    string               `json:"directionRelation,omitempty"`
-	DistanceRelation     string               `json:"distanceRelation,omitempty"`
-	ReferenceMode        string               `json:"referenceMode,omitempty"`
-	GeometryKey          string               `json:"geometryKey,omitempty"`
-	FileName             string               `json:"fileName,omitempty"`
-	SourceFormat         string               `json:"sourceFormat,omitempty"`
-	VersionID            string               `json:"versionId,omitempty"`
-	ParameterID          string               `json:"parameterId,omitempty"`
-	Expression           string               `json:"expression,omitempty"`
-	Value                float64              `json:"value,omitempty"`
-	Unit                 string               `json:"unit,omitempty"`
-	ActorID              string               `json:"-"`
+	RequestID               string               `json:"requestId"`
+	Type                    string               `json:"type"`
+	Plane                   string               `json:"plane,omitempty"`
+	DatumPlaneID            string               `json:"datumPlaneId,omitempty"`
+	SketchID                string               `json:"sketchId,omitempty"`
+	Operations              []SketchOperation    `json:"operations,omitempty"`
+	Length                  float64              `json:"length,omitempty"`
+	Angle                   float64              `json:"angle,omitempty"`
+	Generator               string               `json:"generator,omitempty"`
+	Operation               string               `json:"operation,omitempty"`
+	AxisEntityID            string               `json:"axisEntityId,omitempty"`
+	Reversed                bool                 `json:"reversed,omitempty"`
+	Origin                  [3]float64           `json:"origin,omitempty"`
+	Normal                  [3]float64           `json:"normal,omitempty"`
+	UDirection              [3]float64           `json:"uDirection,omitempty"`
+	Direction               [3]float64           `json:"direction,omitempty"`
+	ReferencedDocumentID    string               `json:"referencedDocumentId,omitempty"`
+	Name                    string               `json:"name,omitempty"`
+	InstanceID              string               `json:"instanceId,omitempty"`
+	TargetKind              string               `json:"targetKind,omitempty"`
+	TargetID                string               `json:"targetId,omitempty"`
+	OwnerEntityID           string               `json:"ownerEntityId,omitempty"`
+	Targets                 []DeleteNodeTarget   `json:"targets,omitempty"`
+	Translation             [3]float64           `json:"translation,omitempty"`
+	Rotation                [4]float64           `json:"rotation,omitempty"`
+	ConstraintKind          string               `json:"constraintKind,omitempty"`
+	FirstAssemblyRef        *AssemblyGeometryRef `json:"firstAssemblyRef,omitempty"`
+	SecondAssemblyRef       *AssemblyGeometryRef `json:"secondAssemblyRef,omitempty"`
+	DirectionRelation       string               `json:"directionRelation,omitempty"`
+	DistanceRelation        string               `json:"distanceRelation,omitempty"`
+	AngleReferenceDirection *[3]float64          `json:"angleReferenceDirection,omitempty"`
+	ReferenceMode           string               `json:"referenceMode,omitempty"`
+	GeometryKey             string               `json:"geometryKey,omitempty"`
+	FileName                string               `json:"fileName,omitempty"`
+	SourceFormat            string               `json:"sourceFormat,omitempty"`
+	VersionID               string               `json:"versionId,omitempty"`
+	ParameterID             string               `json:"parameterId,omitempty"`
+	Expression              string               `json:"expression,omitempty"`
+	Value                   float64              `json:"value,omitempty"`
+	Unit                    string               `json:"unit,omitempty"`
+	ActorID                 string               `json:"-"`
 }
 
 // CommandPreview is a non-persistent evaluation of the same typed command

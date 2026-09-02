@@ -231,9 +231,13 @@ M1.6 还为近平行直线距离引入以 `degeneracy_tolerance` 为尺度的 bl
 M1.6 鲁棒性门已经落地：Angle 使用 unsigned `atan2` 和端点对齐残差，一次 solve 内冻结方向和适用的距离侧分支；
 版本化 SolverProfile 已贯穿 Proto/Worker/Go；`Unsatisfied`、`Inconsistent` 与 `NonConvergent` 拥有不同证据边界。
 
+当前产品切片在此基础上增加了受限的有向平面角：请求携带第二刚体局部坐标中的 reference direction 时，残差用
+`atan2(k dot (a cross b), a dot b)` 保留 `[0,2*pi]` sector，因此 90 度与 270 度不再折叠。没有 reference direction
+的轴线角仍严格是 `[0,pi]` unsigned angle；多圈 winding 仍不属于静态装配 Revision。
+
 1. **M2 方程与线性代数**：建立 typed equation registry 和解析 Jacobian，以中心有限差分做 differential check，使用
    SVD 或 rank-revealing QR，并返回 null-space basis 与可解释 DOF 方向。
-2. **M3 稳定解与交互**：区分 `UnsignedAngle [0,π]` 和带 axis/sense 的 `DirectedAngle`，持久化离散 branch intent；利用
+2. **M3 稳定解与交互**：把当前自动 reference direction 的平面切片升级为可选择 axis/sense 的完整 `DirectedAngle`，持久化离散 branch intent；利用
    null space 实现 minimum-motion、minimum-reference displacement 和 Drag 投影。
 
 静态装配只保存 modulo `2π` 的姿态分支，多圈累计角属于 Interaction、Kinematics 或 Simulation 状态。MUS/minimal

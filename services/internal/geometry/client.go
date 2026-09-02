@@ -215,6 +215,7 @@ type AssemblyConstraint struct {
 	SecondBodyID, SecondGeometryID      string
 	Value                               float64
 	DirectionRelation, DistanceRelation string
+	AngleReferenceDirection             *[3]float64
 	FixedPose                           *AssemblyPose
 }
 
@@ -318,6 +319,9 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 		}
 		if value.FixedPose != nil {
 			item.FixedPose = protoPose(*value.FixedPose)
+		}
+		if value.AngleReferenceDirection != nil {
+			item.AngleReferenceDirection = &workerv1.Vec3{X: value.AngleReferenceDirection[0], Y: value.AngleReferenceDirection[1], Z: value.AngleReferenceDirection[2]}
 		}
 		request.Constraints = append(request.Constraints, item)
 	}

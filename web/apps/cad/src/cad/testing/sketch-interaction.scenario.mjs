@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(new URL("../../../package.json", import.meta.url));
 const { createServer } = await import(require.resolve("vite"));
+const THREE = await import(require.resolve("three"));
 
 const server = await createServer({
   appType: "custom",
@@ -38,6 +39,7 @@ try {
   const { formatSketchDimensionValue, sketchReferenceDimensions } = await server.ssrLoadModule("/src/cad/sketch/sketch-input-policy.ts");
   const { CadShaderLibrary } = await server.ssrLoadModule("/src/cad/rendering/shader/cad-shader-library.ts");
   const { perspectiveWorldUnitsPerPixel } = await server.ssrLoadModule("/src/cad/rendering/sketch-constraint-renderer.ts");
+  const { axisDragWorldDelta } = await server.ssrLoadModule("/src/cad/rendering/viewport-metrics.ts");
   const { makeOcclusionVisibleHighlightLine } = await server.ssrLoadModule("/src/cad/rendering/interaction-highlight.ts");
   const { defaultDocumentName } = await server.ssrLoadModule("/src/features/documents/document-utils.ts");
   const operations = [];
@@ -366,6 +368,8 @@ try {
     kind:"instance",id:"instance-a",instanceId:"instance-a",occurrencePath:"instance-a",visualKey:"occurrence:instance-a",
     documentId:undefined,
   },"move mode projects geometry hits to their owning instance");
+  assert.equal(selectionModeForTool("assembly.fix").project(precise)?.kind,"instance","fix only selects occurrences");
+  assert.equal(selectionModeForTool("assembly.rigid").project(precise)?.kind,"instance","rigid only selects occurrences");
   let manipulatorActive=true,moveSelectionCalls=0;
   viewport.moveManipulatorPointerDown=()=>manipulatorActive;
   viewport.moveManipulatorPointerMove=()=>false;
@@ -479,6 +483,9 @@ try {
   assert.equal(formatSketchDimensionValue(12.3456, "deg"), "12.3");
   assert.equal(perspectiveWorldUnitsPerPixel(200, 50, 800), perspectiveWorldUnitsPerPixel(100, 50, 800)*2,
     "sprite world scale must compensate camera depth to preserve screen pixels");
+  assert.equal(axisDragWorldDelta(new THREE.Vector2(12,0),new THREE.Vector2(2,0),0.8),
+    axisDragWorldDelta(new THREE.Vector2(12,0),new THREE.Vector2(20,0),0.8),
+    "assembly translation must not change with camera projection scale");
   const fitPoints = [[0, 0], [5, 8], [10, -2], [15, 4]];
   const interpolated = sampleInterpolatingSpline(fitPoints, false, 48);
   for (const fitPoint of fitPoints) assert.equal(interpolated.some((point) => Math.hypot(point[0]-fitPoint[0], point[1]-fitPoint[1]) < 1e-9), true);

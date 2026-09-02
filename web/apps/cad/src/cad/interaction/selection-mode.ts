@@ -25,5 +25,6 @@ export const SELECTION_MODES: Record<SelectionModeID, SelectionMode> = {
 };
 
 export function selectionModeForTool(toolID: string): SelectionMode {
-  return toolID === "assembly.move" ? SELECTION_MODES.instance : SELECTION_MODES.geometry;
+  return ["assembly.move", "assembly.fix", "assembly.rigid"].includes(toolID)
+    ? SELECTION_MODES.instance : SELECTION_MODES.geometry;
 }
