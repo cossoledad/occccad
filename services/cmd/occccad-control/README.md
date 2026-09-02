@@ -53,6 +53,7 @@ flowchart LR
 | 方法与路径 | 用途 |
 |---|---|
 | `GET /control/status` | 查看托管进程、Worker 池与调试覆盖 |
+| `GET /control/monitoring/snapshot` | 版本化只读监控快照，供 TUI 或后续展示适配器使用 |
 | `POST /control/debug/api` | 把应用代理切到请求指定的外部 API |
 | `DELETE /control/debug/api` | 恢复托管 API |
 | `POST /control/debug/geometry` | 把 Geometry Router 切到外部 Worker |

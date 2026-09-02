@@ -178,6 +178,12 @@ func (hub *realtimeHub) close() {
 	}
 }
 
+func (hub *realtimeHub) monitoringCounts() (connections, documents int) {
+	hub.mu.RLock()
+	defer hub.mu.RUnlock()
+	return len(hub.connections), len(hub.byDocument)
+}
+
 func (server *Server) realtimeConnection(writer http.ResponseWriter, request *http.Request) {
 	if !strings.Contains(request.Header.Get("Sec-WebSocket-Protocol"), realtimeProtocol) {
 		writeError(writer, http.StatusBadRequest, "Sec-WebSocket-Protocol "+realtimeProtocol+" is required")

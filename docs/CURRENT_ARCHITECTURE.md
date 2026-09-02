@@ -32,6 +32,7 @@ flowchart LR
 | `occccad-jobs` | Go | PostgreSQL 任务消费者，无监听端口 |
 | `occccad-migrate` | Go | 一次性数据库迁移任务 |
 | `occccad-control` | Go HTTP/gRPC | 本地子进程管理、反向代理、Geometry Router、调试切流 |
+| `occccad-monitor` | Go/Bubble Tea v2 | 只读 TUI；消费 Control 的版本化监控快照，不拥有采集或业务状态 |
 | `workers/geometry` | C++/gRPC/OCCT | 精确几何、STEP、拓扑与显示制品计算 |
 | `kernel/api` | C++ library | 不暴露 OCCT 类型的内核公共值类型和操作 |
 | `kernel/assembly` | C++ library | 独立三维装配几何约束算法；由 Geometry Worker 的粗粒度 `SolveAssembly` RPC 调用 |
@@ -161,6 +162,7 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 - 支持 User/Team、文件夹权限继承、文档/文件夹分享；
 - API 请求绑定 Principal，成功写操作记录 Actor、Resource、Request ID 与 Trace ID 审计；
 - Control API 没有认证，只能绑定环回地址。
+- Control API 的 `occccad.monitoring.snapshot.v1` 聚合托管进程的 Linux `/proc` 资源统计、Geometry 池负载与 API 业务计数；Control 到 API 的内部采集端点以进程启动时随机令牌保护。`occccad-monitor` 每秒消费该契约，UI 与采集模型分离；非 Linux 当前不提供 CPU/RSS 统计。
 
 ## 5. Part 几何求值链
 

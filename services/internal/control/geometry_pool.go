@@ -6,12 +6,14 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"github.com/occccad/occccad/internal/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -27,6 +29,28 @@ type GeometryPoolConfig struct {
 	MaximumWorkers   int
 	GeometryCapacity int
 	IdleTimeout      time.Duration
+}
+
+func (pool *GeometryPool) MonitoringProcesses() ([]monitoring.Process, monitoring.Geometry, string) {
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+	processes := make([]monitoring.Process, 0, len(pool.workers))
+	resident, inFlight := 0, 0
+	for _, worker := range pool.workers {
+		resident += worker.resident
+		inFlight += worker.inFlight
+		known := make([]string, 0, len(worker.known))
+		for key := range worker.known {
+			known = append(known, key)
+		}
+		sort.Strings(known)
+		processes = append(processes, monitoring.Process{ID: worker.id, Kind: "geometry",
+			PID: worker.process.PID(), Running: worker.process.Running(), Address: worker.address,
+			ResidentItems: worker.resident, InFlight: worker.inFlight, ResidentKeys: known})
+	}
+	return processes, monitoring.Geometry{Workers: len(pool.workers), Minimum: pool.config.MinimumWorkers,
+		Maximum: pool.config.MaximumWorkers, ResidentGeometry: resident, InFlight: inFlight,
+		CapacityPerWorker: pool.config.GeometryCapacity}, pool.debugAddress
 }
 
 type workerInstance struct {

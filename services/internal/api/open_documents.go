@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"sort"
 	"sync"
 
 	"github.com/occccad/occccad/internal/workspace"
@@ -71,6 +72,42 @@ func (registry *openDocumentRegistry) List(userID string) []workspace.DocumentSu
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
 	return append([]workspace.DocumentSummary(nil), registry.byUser[userID]...)
+}
+
+func (registry *openDocumentRegistry) sessionCount() int {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	total := 0
+	for _, documents := range registry.byUser {
+		total += len(documents)
+	}
+	return total
+}
+
+type monitoredOpenDocument struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	Sessions int    `json:"sessions"`
+}
+
+func (registry *openDocumentRegistry) monitoringDocuments() []monitoredOpenDocument {
+	registry.mu.RLock()
+	defer registry.mu.RUnlock()
+	byID := map[string]monitoredOpenDocument{}
+	for _, documents := range registry.byUser {
+		for _, document := range documents {
+			item := byID[document.ID]
+			item.ID, item.Name, item.Type, item.Sessions = document.ID, document.Name, document.Type, item.Sessions+1
+			byID[document.ID] = item
+		}
+	}
+	result := make([]monitoredOpenDocument, 0, len(byID))
+	for _, item := range byID {
+		result = append(result, item)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
+	return result
 }
 
 func (server *Server) listOpenDocuments(writer http.ResponseWriter, request *http.Request) {

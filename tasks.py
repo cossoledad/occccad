@@ -12,6 +12,7 @@ Provides:
     invoke run.server     — Start the Go API and Web server
     invoke run.jobs       — Start the durable background job worker
     invoke run.app        — Build and start the complete local application
+    invoke run.monitor    — Start the local TUI monitoring dashboard
     invoke data.reset     — Clear all server-side development data
     invoke web.build      — Build the current web application
     invoke info           — Print toolchain versions and paths
@@ -430,6 +431,20 @@ def run_web(c, mode="mock"):
 
 
 @task
+def run_monitor(c):
+    """Build and start the read-only local monitoring TUI."""
+    service_build = PROJECT_ROOT / "build" / "services"
+    service_build.mkdir(parents=True, exist_ok=True)
+    monitor_binary = service_build / "occccad-monitor"
+    with c.cd(str(PROJECT_ROOT / "services")):
+        c.run(f"go build -o {monitor_binary} ./cmd/occccad-monitor")
+    # A nested Invoke PTY leaves the developer's outer terminal in canonical
+    # mode, so Bubble Tea never receives individual keys such as q or arrows.
+    # Replacing Invoke gives the TUI direct ownership of the real terminal.
+    os.execv(monitor_binary, [str(monitor_binary)])
+
+
+@task
 def build_web(c):
     """Type-check and build the current web application."""
     with c.cd(str(PROJECT_ROOT / "web")):
@@ -467,6 +482,7 @@ run_collection.add_task(run_server, "server")
 run_collection.add_task(run_jobs, "jobs")
 run_collection.add_task(run_app, "app")
 run_collection.add_task(run_web, "web")
+run_collection.add_task(run_monitor, "monitor")
 
 web_collection = Collection("web")
 web_collection.add_task(build_web, "build")

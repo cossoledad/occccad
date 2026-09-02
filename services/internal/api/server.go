@@ -175,6 +175,7 @@ func (server *Server) enqueueDocumentPreviews(ctx context.Context, changed works
 
 func (server *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /internal/monitoring/snapshot", server.monitoringSnapshot)
 	mux.HandleFunc("GET /api/health", server.health)
 	mux.HandleFunc("POST /api/auth/login", server.login)
 	mux.HandleFunc("POST /api/auth/register", server.register)

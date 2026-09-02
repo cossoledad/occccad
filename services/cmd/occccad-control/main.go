@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,6 +24,7 @@ import (
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/config"
 	"github.com/occccad/occccad/internal/control"
+	"github.com/occccad/occccad/internal/monitoring"
 	"google.golang.org/grpc"
 )
 
@@ -35,6 +39,8 @@ type application struct {
 	apiTarget                       string
 	apiProcess, jobsProcess         *control.ManagedProcess
 	jobsPaused                      bool
+	monitoringToken                 string
+	processSampler                  *monitoring.ProcSampler
 }
 
 func main() {
@@ -66,6 +72,8 @@ func run() error {
 		managedAPITarget: value("OCCCCAD_API_INTERNAL_LISTEN", "127.0.0.1:18080"),
 	}
 	app.apiTarget = app.managedAPITarget
+	app.monitoringToken = randomToken()
+	app.processSampler = monitoring.NewProcSampler()
 	workerBinary := value("OCCCCAD_GEOMETRY_WORKER_BIN", filepath.Join(root, "build", "cmake",
 		strings.ToLower(value("OCCCCAD_BUILD_TYPE", "Debug")), "workers", "geometry", "occccad_geometry_worker"))
 	app.pool = control.NewGeometryPool(ctx, control.GeometryPoolConfig{
@@ -156,7 +164,8 @@ func (app *application) startAPI() error {
 	api, err := control.StartManagedProcess(app.ctx, "api", app.serverBinary, app.servicesDirectory, nil,
 		withEnvironment("OCCCCAD_SERVER_LISTEN", app.managedAPITarget,
 			"OCCCCAD_GEOMETRY_WORKER_ADDRESS", app.routerAddress,
-			"OCCCCAD_DATA_DIR", app.dataDirectory))
+			"OCCCCAD_DATA_DIR", app.dataDirectory,
+			"OCCCCAD_MONITORING_TOKEN", app.monitoringToken))
 	if err != nil {
 		return err
 	}
@@ -274,6 +283,7 @@ func (app *application) managementHandler() http.Handler {
 			"services": map[string]any{"api": processStatus(apiProcess), "jobs": processStatus(jobsProcess)},
 			"geometry": app.pool.Status()})
 	})
+	mux.HandleFunc("GET /control/monitoring/snapshot", app.monitoringSnapshot)
 	mux.HandleFunc("POST /control/debug/api", func(writer http.ResponseWriter, request *http.Request) {
 		target, ok := decodeTarget(writer, request)
 		if !ok {
@@ -337,6 +347,68 @@ func (app *application) managementHandler() http.Handler {
 		writer.WriteHeader(http.StatusNoContent)
 	})
 	return mux
+}
+
+func (app *application) monitoringSnapshot(writer http.ResponseWriter, request *http.Request) {
+	host, _, err := net.SplitHostPort(request.RemoteAddr)
+	if err != nil || net.ParseIP(host) == nil || !net.ParseIP(host).IsLoopback() {
+		writeJSON(writer, http.StatusForbidden, map[string]string{"error": "monitoring is only available on loopback"})
+		return
+	}
+	app.mu.Lock()
+	apiProcess, jobsProcess := app.apiProcess, app.jobsProcess
+	app.mu.Unlock()
+	processes := []monitoring.Process{{ID: "control", Kind: "control", PID: os.Getpid(), Running: true},
+		{ID: "api", Kind: "api", PID: processPID(apiProcess), Running: processRunning(apiProcess)},
+		{ID: "jobs", Kind: "jobs", PID: processPID(jobsProcess), Running: processRunning(jobsProcess)}}
+	geometryProcesses, geometryStatus, geometryDebug := app.pool.MonitoringProcesses()
+	processes = append(processes, geometryProcesses...)
+	warnings := []string{}
+	for index := range processes {
+		sampled, err := app.processSampler.Sample(processes[index])
+		processes[index] = sampled
+		if err != nil && processes[index].Running {
+			warnings = append(warnings, err.Error())
+		}
+	}
+	business := monitoring.Business{Counts: map[string]int{}}
+	internalRequest, _ := http.NewRequestWithContext(request.Context(), http.MethodGet,
+		"http://"+app.managedAPITarget+"/internal/monitoring/snapshot", nil)
+	internalRequest.Header.Set("X-Occccad-Monitoring-Token", app.monitoringToken)
+	response, err := (&http.Client{Timeout: 750 * time.Millisecond}).Do(internalRequest)
+	if err != nil {
+		warnings = append(warnings, "API business metrics unavailable: "+err.Error())
+	} else {
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&business) != nil {
+			warnings = append(warnings, "API business metrics unavailable")
+		}
+	}
+	parameters := map[string]string{
+		"application": value("OCCCCAD_APP_LISTEN", value("OCCCCAD_SERVER_LISTEN", "0.0.0.0:8080")),
+		"control":     value("OCCCCAD_CONTROL_LISTEN", "127.0.0.1:19090"), "api": app.managedAPITarget,
+		"geometryRouter": app.routerAddress, "dataDirectory": app.dataDirectory,
+		"geometryDebugOverride": geometryDebug,
+	}
+	writeJSON(writer, http.StatusOK, monitoring.Snapshot{Schema: monitoring.Schema, GeneratedAt: time.Now().UTC(),
+		Host:      monitoring.Host{GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, CPUs: runtime.NumCPU()},
+		Processes: processes, Geometry: geometryStatus, Business: business, Parameters: parameters, Warnings: warnings})
+}
+
+func processPID(process *control.ManagedProcess) int {
+	if process == nil {
+		return 0
+	}
+	return process.PID()
+}
+func processRunning(process *control.ManagedProcess) bool { return process != nil && process.Running() }
+
+func randomToken() string {
+	buffer := make([]byte, 32)
+	if _, err := rand.Read(buffer); err != nil {
+		panic("cannot create monitoring token: " + err.Error())
+	}
+	return hex.EncodeToString(buffer)
 }
 
 func processStatus(process *control.ManagedProcess) map[string]any {
