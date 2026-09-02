@@ -133,6 +133,30 @@ TEST(AssemblySolver, SameDirectionDoesNotAcceptAntiparallelPlanes) {
     EXPECT_NEAR(normal.z, 1.0, 1.0e-6);
 }
 
+TEST(AssemblySolver, OppositePlaneCoincidenceUsesTheSameCreationAnchorAsEditing) {
+    Model model;
+    model.bodies = {{"moving", {{-173.79051029395015, 0.0, 0.0}, {}}},
+                    {"reference", {}}};
+    model.geometry = {
+        {"plane", "moving", PlaneGeometry{{-5.0, -40.0, 5.0}, {0.0, -1.0, 0.0}}},
+        {"plane", "reference", PlaneGeometry{{-5.0, -40.0, 5.0}, {0.0, -1.0, 0.0}}},
+    };
+    Constraint coincident = binary("opposite", ConstraintKind::Coincident,
+                                   ref("moving", "plane"), ref("reference", "plane"));
+    coincident.direction_relation = DirectionRelation::Opposite;
+    model.constraints = {coincident};
+    SolverOptions options;
+    options.solve_intent = SolveIntent{{"moving"}, {"reference"},
+                                       SolvePreferencePolicy::MoveFirstMinimizeReference};
+
+    const SolveResult result = Solver{}.solve(model, options);
+
+    ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+    const Pose reference = pose(result, "reference");
+    EXPECT_NEAR(reference.translation.x, 0.0, 1.0e-9);
+    EXPECT_NEAR(reference.rotation.w, 1.0, 1.0e-9);
+}
+
 TEST(AssemblySolver, AxisAngleSolvesToRequestedBranch) {
     Model model;
     model.bodies = {{"ground", {}}, {"moving", {}}};
@@ -191,6 +215,46 @@ TEST(AssemblySolver, DirectedPlaneAngleDistinguishesNinetyFromTwoHundredSeventy)
     const Vec3 normal = rotate(pose(result, "moving").rotation, {1.0, 0.0, 0.0});
     EXPECT_NEAR(normal.x, -1.0, 1.0e-6);
     EXPECT_NEAR(normal.z, 0.0, 1.0e-6);
+}
+
+TEST(AssemblySolver, DirectedAngleCrossesPiOnAConstrainedHinge) {
+    for (const double target_degrees : {181.0, 270.0}) {
+        Model model;
+        model.bodies = {
+            {"moving", {{-169.82900867865035, -6.470427574396004, -5.553248048104228e-9},
+                        {7.668012345918533e-12, -5.907059238768305e-11,
+                         0.06176982153323116, 0.9980904213285252}}},
+            {"ground", {{-44.43828073416036, -26.5212748744714, 8.660380375883868e-9},
+                        {2.2696593137509963e-11, -5.5073654344670444e-11,
+                         -0.19865974397266659, 0.980068521137535}}}};
+        model.geometry = {
+            {"edge", "moving", AxisGeometry{{50.0, -40.0, -50.0}, {0.0, 0.0, 1.0}}},
+            {"edge", "ground", AxisGeometry{{-60.0, -40.0, 60.0}, {0.0, 0.0, -1.0}}},
+            {"point", "moving", PointGeometry{{50.0, -40.0, 60.0}}},
+            {"point", "ground", PointGeometry{{-60.0, -40.0, 60.0}}},
+            {"plane", "moving", PlaneGeometry{{-5.0, -40.0, 5.0}, {0.0, -1.0, 0.0}}},
+            {"plane", "ground", PlaneGeometry{{-5.0, -40.0, 5.0}, {0.0, -1.0, 0.0}}},
+        };
+        Constraint ground = fix("ground");
+        Constraint edges = binary("edge-coincident", ConstraintKind::Coincident,
+                                  ref("moving", "edge"), ref("ground", "edge"));
+        edges.direction_relation = DirectionRelation::Unoriented;
+        Constraint points = binary("point-coincident", ConstraintKind::Coincident,
+                                   ref("moving", "point"), ref("ground", "point"));
+        Constraint angle = binary("directed-angle", ConstraintKind::Angle,
+                                  ref("moving", "plane"), ref("ground", "plane"));
+        angle.value = target_degrees * kPi / 180.0;
+        angle.direction_relation = DirectionRelation::Same;
+        angle.angle_reference_direction = Vec3{0.0, 0.0, -1.0};
+        model.constraints = {ground, edges, points, angle};
+
+        const SolveResult result = Solver{}.solve(model);
+        EXPECT_EQ(result.status, SolveStatus::Converged)
+            << "target=" << target_degrees << ": " << result.diagnostic;
+        for (const ConstraintResidual& residual : result.residuals)
+            EXPECT_LT(residual.normalized_norm, 1.0e-6)
+                << "target=" << target_degrees << ", constraint=" << residual.constraint_id;
+    }
 }
 
 TEST(AssemblySolver, LinePlaneCoincidentPlacesTheWholeLineInThePlane) {

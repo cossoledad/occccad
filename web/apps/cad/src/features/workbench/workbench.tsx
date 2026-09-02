@@ -80,9 +80,9 @@ const assemblyConstraintUI: Record<AssemblyConstraint["kind"], AssemblyConstrain
   DISTANCE: { supports: 2, direction: true, distanceDirection: true, value: "distance" },
 };
 
-function AssemblyConstraintFields({ kind, references, replacing, onReplace, directedAngle = false }: {
+function AssemblyConstraintFields({ kind, references, replacing, onReplace, onValueCommit, directedAngle = false }: {
   kind: keyof typeof assemblyConstraintUI; references: Array<AssemblyGeometryRef | undefined>;
-  replacing?: 0 | 1; onReplace: (index: 0 | 1) => void; directedAngle?: boolean;
+  replacing?: 0 | 1; onReplace: (index: 0 | 1) => void; onValueCommit: () => void; directedAngle?: boolean;
 }) {
   const definition = assemblyConstraintUI[kind];
   const planePair = references.slice(0, 2).every((reference) => reference && ["PLANE", "FACE"].includes(reference.kind));
@@ -100,7 +100,8 @@ function AssemblyConstraintFields({ kind, references, replacing, onReplace, dire
       {value:"UNSIGNED",label:"无符号"},{value:"ALONG_SECOND_NORMAL",label:"沿第二元素法向"},{value:"OPPOSITE_SECOND_NORMAL",label:"逆第二元素法向"}]} /></Form.Item>}
     {definition.value && <Form.Item name="value" label={definition.value === "angle" ? "角度（deg）" : "距离（mm）"}
       rules={[{required:true},{type:"number",min:0,max:definition.value === "angle"?(supportsDirectedAngle?360:180):undefined}]}>
-      <InputNumber min={0} max={definition.value === "angle"?(supportsDirectedAngle?360:180):undefined} precision={3} style={{width:"100%"}} /></Form.Item>}
+      <InputNumber min={0} max={definition.value === "angle"?(supportsDirectedAngle?360:180):undefined} precision={3} style={{width:"100%"}}
+        onBlur={onValueCommit} onPressEnter={(event)=>event.currentTarget.blur()} /></Form.Item>}
   </>;
 }
 
@@ -277,6 +278,9 @@ export function Workbench() {
   const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: AssemblyConstraintToolKind; references: AssemblyGeometryRef[]; angleReferenceDirection?: Vec3 }>();
   const [editingAssemblyConstraint, setEditingAssemblyConstraint] = useState<AssemblyConstraint>();
   const [replacingAssemblyReference, setReplacingAssemblyReference] = useState<0 | 1>();
+  const [assemblyPreviewCommit, setAssemblyPreviewCommit] = useState(0);
+  const assemblyPreviewAbort = useRef<AbortController | undefined>(undefined);
+  const assemblyPreviewSequence = useRef(0);
   const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const hiddenTreeKeys = useUIPreferences((state) => state.hiddenTreeKeys);
@@ -289,7 +293,6 @@ export function Workbench() {
   const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
   const [datumAxisForm] = Form.useForm<{ name: string; ox: number; oy: number; oz: number; dx: number; dy: number; dz: number }>();
   const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string }>();
-  const assemblyValue = Form.useWatch("value", assemblyConstraintForm);
   const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
   const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
   const store = useWorkbenchStore();
@@ -423,8 +426,12 @@ export function Workbench() {
       : pending?.references ?? [];
     const kind = (constraint?.kind.toLowerCase() ?? pending?.kind) as AssemblyConstraintToolKind | undefined;
     if (!editingView || !kind || references.length < (kind === "fix" ? 1 : 2) || replacingAssemblyReference !== undefined) return;
+    const sequence=++assemblyPreviewSequence.current;
+    assemblyPreviewAbort.current?.abort();
+    const controller=new AbortController();assemblyPreviewAbort.current=controller;
     const timer = window.setTimeout(() => {
-      const value = kind === "angle" ? (assemblyValue ?? 0) * Math.PI / 180 : assemblyValue ?? 0;
+      const rawValue=Number(assemblyConstraintForm.getFieldValue("value")??0);
+      const value = kind === "angle" ? rawValue * Math.PI / 180 : rawValue;
       const commandInput = constraint ? {
         type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraint.id, value,
         directionRelation: assemblyDirection ?? "UNORIENTED", distanceRelation: assemblyDistance ?? "UNSIGNED",
@@ -436,14 +443,14 @@ export function Workbench() {
         firstAssemblyRef: references[0], secondAssemblyRef: references[1],
         angleReferenceDirection: pending?.angleReferenceDirection,
       };
-      void api.previewCommand(editingView.document.id, commandInput).then((preview) => {
-        if (preview.baseVersionId === editingView.document.versionId && preview.instancePoses)
+      void api.previewCommand(editingView.document.id, commandInput,controller.signal).then((preview) => {
+        if (sequence===assemblyPreviewSequence.current&&preview.baseVersionId === editingView.document.versionId && preview.instancePoses)
           viewport.current?.previewAssemblyPoses(preview.instancePoses);
       }).catch(() => {});
     }, 140);
-    return () => window.clearTimeout(timer);
+    return () => {window.clearTimeout(timer);controller.abort();};
   }, [editingView, editingAssemblyConstraint, pendingAssemblyConstraint, replacingAssemblyReference,
-    assemblyValue, assemblyDirection, assemblyDistance]);
+    assemblyDirection, assemblyDistance, assemblyPreviewCommit, assemblyConstraintForm]);
 
   const editSketch = (featureID: string, operations: SketchOperation[]) => {
     if (!editingView) return;
@@ -661,7 +668,7 @@ export function Workbench() {
               angleReferenceDirection: kind === "angle" ? viewport.current?.assemblyAngleReferenceDirection(references) : undefined });
           }}
           onInstanceMovePreview={async(instanceId,translation,rotation)=>{
-            if(editingView?.document.type!=="PRODUCT")return[];const preview=await api.previewCommand(editingView.document.id,{type:"MOVE_INSTANCE",requestId:randomUUID(),instanceId,translation,rotation});return preview.instancePoses??[];
+            if(editingView?.document.type!=="PRODUCT")return{poses:[],constraintLimited:true};const preview=await api.previewCommand(editingView.document.id,{type:"MOVE_INSTANCE",requestId:randomUUID(),instanceId,translation,rotation});return{poses:preview.instancePoses??[],constraintLimited:Boolean(preview.constraintLimited)};
           }}
           onInstanceMoved={moveInstance} /></Suspense>
 		{toolbarCatalog.data?.toolbars.filter((toolbar) => toolbar.workbench === "ALL" || toolbar.workbench === activeWorkbench)
@@ -752,6 +759,7 @@ export function Workbench() {
         {editingAssemblyConstraint && <AssemblyConstraintFields kind={editingAssemblyConstraint.kind}
           references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second]} replacing={replacingAssemblyReference}
           directedAngle={Boolean(editingAssemblyConstraint.angleReferenceDirection)}
+          onValueCommit={()=>setAssemblyPreviewCommit((value)=>value+1)}
           onReplace={(index)=>{store.setSelection(null);setReplacingAssemblyReference(index);}} />}
       </Form>
     </CommandDialog>
@@ -772,6 +780,7 @@ export function Workbench() {
         {pendingAssemblyConstraint && <AssemblyConstraintFields kind={pendingAssemblyConstraint.kind.toUpperCase() as keyof typeof assemblyConstraintUI}
           references={pendingAssemblyConstraint.references} replacing={replacingAssemblyReference}
           directedAngle={Boolean(pendingAssemblyConstraint.angleReferenceDirection)}
+          onValueCommit={()=>setAssemblyPreviewCommit((value)=>value+1)}
           onReplace={(index)=>{store.setSelection(null);setReplacingAssemblyReference(index);}} />}
       </Form>
     </CommandDialog>

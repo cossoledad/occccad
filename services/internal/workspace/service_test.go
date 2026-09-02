@@ -919,6 +919,41 @@ func TestAssemblyConstraintGeometryPairCapabilities(t *testing.T) {
 	}
 }
 
+func TestMovePreviewSolveFailureRestoresAuthoritativePoses(t *testing.T) {
+	base := ProductModel{Instances: []ProductInstance{{ID: "a", Translation: [3]float64{1, 2, 3}}}}
+	baseJSON, _ := json.Marshal(base)
+	preview := ProductModel{Instances: []ProductInstance{{ID: "a", Translation: [3]float64{99, 2, 3}}}}
+	restored, err := restoreMovePreviewOnSolveFailure(typeMoveInstance,
+		&assemblySolveFailure{status: "MAX_ITERATIONS", diagnostic: "unreachable drag target"}, baseJSON, &preview)
+	if err != nil || !restored {
+		t.Fatalf("move preview failure was not recovered: restored=%v err=%v", restored, err)
+	}
+	if preview.Instances[0].Translation != base.Instances[0].Translation {
+		t.Fatalf("failed move leaked its candidate pose: %#v", preview.Instances[0].Translation)
+	}
+	restored, err = restoreMovePreviewOnSolveFailure(typeEditAssemblyConstraint,
+		&assemblySolveFailure{status: "MAX_ITERATIONS"}, baseJSON, &preview)
+	if err != nil || restored {
+		t.Fatalf("non-move solver failure must remain an error: restored=%v err=%v", restored, err)
+	}
+}
+
+func TestAssemblyConstraintCreateAndEditUseTheSameSolveIntent(t *testing.T) {
+	second := AssemblyGeometryRef{InstanceID: "reference", Kind: "PLANE", GeometryID: "xy"}
+	constraint := AssemblyConstraint{ID: "angle", Kind: "ANGLE",
+		First: AssemblyGeometryRef{InstanceID: "moving", Kind: "PLANE", GeometryID: "xy"}, Second: &second}
+	addPayload, _ := json.Marshal(addAssemblyConstraintPayload{Constraint: constraint})
+	editPayload, _ := json.Marshal(editAssemblyConstraintPayload{ConstraintID: constraint.ID, Value: math.Pi})
+	model := ProductModel{Constraints: []AssemblyConstraint{constraint}}
+	created := assemblyConstraintSolveIntent(modelcore.DomainCommand{TypeURI: typeAddAssemblyConstraint, Payload: addPayload}, model)
+	edited := assemblyConstraintSolveIntent(modelcore.DomainCommand{TypeURI: typeEditAssemblyConstraint, Payload: editPayload}, model)
+	if created == nil || edited == nil || created.PreferencePolicy != edited.PreferencePolicy ||
+		!slices.Equal(created.MovingBodyIDs, edited.MovingBodyIDs) ||
+		!slices.Equal(created.ReferenceBodyIDs, edited.ReferenceBodyIDs) {
+		t.Fatalf("create/edit solve intents differ: create=%#v edit=%#v", created, edited)
+	}
+}
+
 func TestDocumentManagementValidation(t *testing.T) {
 	t.Parallel()
 	service := &Service{}

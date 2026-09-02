@@ -306,8 +306,10 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
         double sine = cross.norm();
         if (directed) {
             const Vector3 reference = normalized(*constraint.angle_reference_direction, "angle reference direction");
-            if (reference.dot(cross) < 0.0)
-                sine = -sine;
+            // k dot (a cross b) is smooth while the motion crosses pi. Using
+            // norm(cross) with a separately sampled sign creates a cusp at pi,
+            // which makes a finite-difference Jacobian stall for 181..359 deg.
+            sine = reference.dot(cross);
         }
         double angle = std::atan2(sine, cosine);
         if (angle < 0.0)
@@ -895,6 +897,7 @@ public:
         state.poses.reserve(free_cluster_indices_.size());
         for (const std::size_t cluster : free_cluster_indices_)
             state.poses.push_back(assembly_.clusters()[cluster].initial_pose);
+        seed_explicit_plane_branches(state);
         return state;
     }
 
@@ -1000,8 +1003,72 @@ public:
         return gauge_anchor_cluster_ ? nullity : nullity - std::min(nullity, gauge_dof());
     }
     const std::vector<std::size_t>& free_clusters() const { return free_cluster_indices_; }
+    bool has_directed_angle() const {
+        return std::any_of(component_.constraint_indices.begin(),
+                           component_.constraint_indices.end(), [&](const std::size_t index) {
+                               const Constraint& constraint = assembly_.constraint(index);
+                               return constraint.kind == ConstraintKind::Angle &&
+                                      constraint.angle_reference_direction.has_value();
+                           });
+    }
 
 private:
+    void seed_explicit_plane_branches(State& state) const {
+        for (const std::size_t constraint_index : component_.constraint_indices) {
+            const Constraint& constraint = assembly_.constraint(constraint_index);
+            if (constraint.kind != ConstraintKind::Coincident ||
+                constraint.direction_relation == DirectionRelation::Unoriented)
+                continue;
+            const GeometryElement& first_element = assembly_.geometry(constraint.first);
+            const GeometryElement& second_element = assembly_.geometry(*constraint.second);
+            if (!std::holds_alternative<PlaneGeometry>(first_element.local_geometry) ||
+                !std::holds_alternative<PlaneGeometry>(second_element.local_geometry))
+                continue;
+            const std::size_t moving_cluster = assembly_.cluster_index(first_element.body_id);
+            const auto free = std::find(free_cluster_indices_.begin(), free_cluster_indices_.end(),
+                                        moving_cluster);
+            if (free == free_cluster_indices_.end())
+                continue;
+            const std::vector<Pose> bodies = assembly_.body_poses(cluster_poses(state));
+            const auto first = std::get<WorldPlane>(world_geometry(
+                first_element, bodies[assembly_.body_index(first_element.body_id)]));
+            const auto second = std::get<WorldPlane>(world_geometry(
+                second_element, bodies[assembly_.body_index(second_element.body_id)]));
+            const Vector3 target = constraint.direction_relation == DirectionRelation::Same
+                                       ? second.normal
+                                       : -second.normal;
+            if (first.normal.dot(target) > -1.0 + 1.0e-10)
+                continue;
+
+            // The vector-difference objective has zero gradient at the exact
+            // antipodal branch. Seed that discrete branch geometrically by a
+            // half turn about the selected plane origin, keeping its anchor
+            // fixed. The normal solve remains responsible for every other
+            // constraint in the component.
+            const Vector3 basis = std::abs(first.normal.x()) <= std::abs(first.normal.y()) &&
+                                          std::abs(first.normal.x()) <= std::abs(first.normal.z())
+                                      ? Vector3::UnitX()
+                                  : std::abs(first.normal.y()) <= std::abs(first.normal.z())
+                                      ? Vector3::UnitY()
+                                      : Vector3::UnitZ();
+            const Vector3 axis = first.normal.cross(basis).normalized();
+            const EigenQuaternion turn(Eigen::AngleAxisd(kPi, axis));
+            Pose& cluster_pose = state.poses[static_cast<std::size_t>(
+                std::distance(free_cluster_indices_.begin(), free))];
+            const Vector3 pivot = first.origin;
+            cluster_pose.translation =
+                value(pivot + turn * (eigen(cluster_pose.translation) - pivot));
+            cluster_pose.rotation = value(turn * normalized(cluster_pose.rotation));
+
+            const std::vector<Pose> turned_bodies = assembly_.body_poses(cluster_poses(state));
+            const auto turned = std::get<WorldPlane>(world_geometry(
+                first_element, turned_bodies[assembly_.body_index(first_element.body_id)]));
+            cluster_pose.translation = value(
+                eigen(cluster_pose.translation) -
+                (turned.origin - second.origin).dot(second.normal) * second.normal);
+        }
+    }
+
     const CompiledAssembly& assembly_;
     const Component& component_;
     std::vector<std::size_t> free_cluster_indices_;
@@ -1057,12 +1124,23 @@ ComponentSolution solve_component(const ComponentProblem& problem, const SolverO
                     status == SolveStatus::Converged ? "converged"
                                                      : "stationary point above tolerance"};
         }
-        const State candidate = problem.incremented(result.state, step);
-        const Vector candidate_residual = problem.residual(candidate);
-        if (candidate_residual.allFinite() &&
-            candidate_residual.squaredNorm() < residual.squaredNorm()) {
-            result.state = candidate;
-            residual = candidate_residual;
+        std::optional<State> accepted_state;
+        Vector accepted_residual;
+        const std::size_t trials = problem.has_directed_angle() ? 12 : 1;
+        double step_scale = 1.0;
+        for (std::size_t trial = 0; trial < trials; ++trial, step_scale *= 0.5) {
+            const State candidate = problem.incremented(result.state, step_scale * step);
+            const Vector candidate_residual = problem.residual(candidate);
+            if (candidate_residual.allFinite() &&
+                candidate_residual.squaredNorm() < residual.squaredNorm()) {
+                accepted_state = candidate;
+                accepted_residual = candidate_residual;
+                break;
+            }
+        }
+        if (accepted_state) {
+            result.state = *accepted_state;
+            residual = std::move(accepted_residual);
             damping = std::max(damping * 0.25, 1.0e-12);
             if (problem.satisfied(result.state))
                 return {SolveStatus::Converged, result.state, iteration, "converged"};

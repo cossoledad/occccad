@@ -5,7 +5,8 @@ import { angularDragDelta, axisDragWorldDelta, worldUnitsPerCssPixel, type Viewp
 type Axis = "X" | "Y" | "Z";
 type Handle = { axis: Axis; operation: "translate" | "rotate"; pick: THREE.Object3D; material: THREE.ShaderMaterial };
 type Drag = { pointerId: number; handle: Handle; startX: number; startY: number; startPosition: THREE.Vector3;
-  startQuaternion: THREE.Quaternion; screenAxis: THREE.Vector2; startAngle: number };
+  startQuaternion: THREE.Quaternion; desiredPosition: THREE.Vector3; desiredQuaternion: THREE.Quaternion;
+  screenAxis: THREE.Vector2; startAngle: number };
 
 export type AssemblyManipulatorCallbacks = {
   changed(): void;
@@ -42,6 +43,14 @@ export class AssemblyManipulator {
   }
 
   attach(position: THREE.Vector3): void { this.object.position.copy(position); this.object.quaternion.identity(); this.visible = true; this.root.visible = true; }
+  setAuthoritativePose(position: THREE.Vector3, rotation: THREE.Quaternion): void {
+    this.object.position.copy(position); this.object.quaternion.copy(rotation);
+  }
+  candidatePose(): { position: THREE.Vector3; rotation: THREE.Quaternion } {
+    return this.drag
+      ? { position: this.drag.desiredPosition.clone(), rotation: this.drag.desiredQuaternion.clone() }
+      : { position: this.object.position.clone(), rotation: this.object.quaternion.clone() };
+  }
   detach(): void { this.drag = undefined; this.setHovered(undefined); this.visible = false; this.root.visible = false; }
   isAttached(): boolean { return this.visible; }
   isDragging(): boolean { return Boolean(this.drag); }
@@ -59,11 +68,11 @@ export class AssemblyManipulator {
     const drag = this.drag;
     if (drag.handle.operation === "translate") {
       const delta = axisDragWorldDelta(new THREE.Vector2(x - drag.startX, y - drag.startY), drag.screenAxis, TRANSLATION_GAIN);
-      this.object.position.copy(drag.startPosition).addScaledVector(AXES[drag.handle.axis], delta);
+      drag.desiredPosition.copy(drag.startPosition).addScaledVector(AXES[drag.handle.axis], delta);
     } else {
       const center = this.screenPoint(this.object.getWorldPosition(new THREE.Vector3()), camera, surface);
       const angle = angularDragDelta(Math.atan2(y - center.y, x - center.x), drag.startAngle, ROTATION_GAIN);
-      this.object.quaternion.setFromAxisAngle(AXES[drag.handle.axis], -angle).multiply(drag.startQuaternion);
+      drag.desiredQuaternion.setFromAxisAngle(AXES[drag.handle.axis], -angle).multiply(drag.startQuaternion);
     }
     this.callbacks.changed();
     return true;
@@ -77,7 +86,8 @@ export class AssemblyManipulator {
     const originScreen = this.screenPoint(origin, camera, surface);
     const axisScreen = this.screenPoint(origin.clone().add(AXES[handle.axis]), camera, surface).sub(originScreen);
     this.drag = { pointerId, handle, startX: x, startY: y, startPosition: this.object.position.clone(),
-      startQuaternion: this.object.quaternion.clone(), screenAxis: axisScreen,
+      startQuaternion: this.object.quaternion.clone(), desiredPosition: this.object.position.clone(),
+      desiredQuaternion: this.object.quaternion.clone(), screenAxis: axisScreen,
       startAngle: Math.atan2(y - originScreen.y, x - originScreen.x) };
     handle.material.uniforms.uActive.value = 1;
     this.callbacks.dragStarted();

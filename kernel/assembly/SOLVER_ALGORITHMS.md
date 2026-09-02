@@ -234,6 +234,12 @@ M1.6 鲁棒性门已经落地：Angle 使用 unsigned `atan2` 和端点对齐残
 当前产品切片在此基础上增加了受限的有向平面角：请求携带第二刚体局部坐标中的 reference direction 时，残差用
 `atan2(k dot (a cross b), a dot b)` 保留 `[0,2*pi]` sector，因此 90 度与 270 度不再折叠。没有 reference direction
 的轴线角仍严格是 `[0,pi]` unsigned angle；多圈 winding 仍不属于静态装配 Revision。
+其中 `k dot (a cross b)` 必须直接参与残差，不能实现成 `sign(k dot cross) * norm(cross)`，后者在 180 度产生不可微尖点。
+包含有向角的 component 对候选步使用固定上限次数的二分回溯线搜索；这允许大角度编辑在保留 Coincident 等耦合约束的
+同时逐步下降，而不改变普通约束在反平行奇异初值处已经验证过的 LM 扰动行为。
+对于显式 Same/Opposite 的 Plane-Plane Coincident，若当前法向恰好处于目标 branch 的反点，法向差目标存在零梯度鞍点。
+初始化阶段会选择与法向最不平行的规范世界轴，构造绕第一支持平面原点的确定性半周 seed，并补偿法向距离；该 seed 只决定
+离散 branch 初值，其他约束仍由同一 component 的数值求解统一满足。
 
 1. **M2 方程与线性代数**：建立 typed equation registry 和解析 Jacobian，以中心有限差分做 differential check，使用
    SVD 或 rank-revealing QR，并返回 null-space basis 与可解释 DOF 方向。

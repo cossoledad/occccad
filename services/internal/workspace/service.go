@@ -541,12 +541,13 @@ type CommandRequest struct {
 // used by ApplyCommand. The base revision lets clients reject a response that
 // arrived after the workspace head changed.
 type CommandPreview struct {
-	PreviewID     string    `json:"previewId"`
-	BaseVersionID string    `json:"baseVersionId"`
-	BaseSequence  uint64    `json:"baseSequence"`
-	ModelHash     string    `json:"modelHash"`
-	Artifact      *Artifact `json:"artifact,omitempty"`
-	InstancePoses []struct {
+	PreviewID         string    `json:"previewId"`
+	BaseVersionID     string    `json:"baseVersionId"`
+	BaseSequence      uint64    `json:"baseSequence"`
+	ModelHash         string    `json:"modelHash"`
+	Artifact          *Artifact `json:"artifact,omitempty"`
+	ConstraintLimited bool      `json:"constraintLimited,omitempty"`
+	InstancePoses     []struct {
 		InstanceID  string     `json:"instanceId"`
 		Translation [3]float64 `json:"translation"`
 		Rotation    [4]float64 `json:"rotation"`

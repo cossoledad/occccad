@@ -41,7 +41,8 @@ type Props = {
   onToolUseComplete: () => void;
   onActiveToolChange: (toolID: WorkbenchToolID) => void;
   onInstanceMoved: (instanceID: string, translation: Vec3, rotation:[number,number,number,number]) => void;
-  onInstanceMovePreview: (instanceID:string,translation:Vec3,rotation:[number,number,number,number])=>Promise<Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>>;
+  onInstanceMovePreview: (instanceID:string,translation:Vec3,rotation:[number,number,number,number])=>Promise<{
+    poses:Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;constraintLimited:boolean}>;
   onAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
 };
 

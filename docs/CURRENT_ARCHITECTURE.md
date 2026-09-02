@@ -392,7 +392,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 | 跨主机 Geometry 调度 | 未实现 | 无注册中心/集群调度 |
 | 二维草图与基础约束 | 已实现基础集合 | Point/Line/Circle/Arc/插值 Spline、基本几何/尺寸/对称约束、PlaneGCS 与四组 Sketcher Toolbar |
 | 三维装配约束/运动学 | 已实现首个 Product 闭环 | 支持 Fix、Rigid、Coincident、Concentric、Angle、Distance，约束创建/编辑/删除、固连集实时平移预览及松手后的权威 SE(3) 求解 |
-| Product 交互预览 | 已实现移动预览闭环 | 应用自有 Shader 手柄按实例包围盒中心放置三轴平移箭头与三轴旋转环，并进入统一 Tool/Input capture、cancel 生命周期；手柄作为输入反馈在浏览器内即时跟随，但不提前修改驱动 Instance，权威装配求解严格保持一个请求在途并合并为最新待处理目标，每次响应把驱动件与全部跟随件矩阵原子应用到当前帧；手势代次会丢弃 pointerup 后返回的迟到结果，pointerup 只提交一次事务，提交刷新会保留 Instance 选择与手柄，直至用户点击空白或切换工具 |
+| Product 交互预览 | 已实现移动预览闭环 | 应用自有 Shader 手柄按实例包围盒中心放置三轴平移箭头与三轴旋转环，并进入统一 Tool/Input capture、cancel 生命周期；鼠标轨迹只更新候选目标，不直接修改手柄或 Instance 矩阵。权威装配求解严格保持一个请求在途并合并为最新待处理目标，每次成功响应把驱动件、全部跟随件和手柄原子更新到同一确认帧；不可达 MOVE preview 返回 `constraintLimited` 和基线姿态，客户端保留上一确认帧，表现为受限方向“拖不动”而不是回跳或错误弹窗。手势代次会丢弃 pointerup 后返回的迟到结果，pointerup 只提交最后一个已确认姿态并形成一次事务；提交刷新会保留 Instance 选择与手柄，直至用户点击空白或切换工具 |
 | 持久拓扑命名 | 未实现 | 当前 local ID 不可作长期 Feature 引用 |
 | S3 兼容对象存储/CDN | 未实现 | 当前仅本地目录 |
 | 实时多人同文档编辑 | 已实现首个提交同步闭环 | WebSocket request/event、Outbox、sequence、重连快照；尚无 presence/preview 与 semantic rebase |
@@ -416,7 +416,9 @@ M1.6 鲁棒性基线已经落地：每次求解从 nominal pose 冻结适用的�
 
 装配约束创建和双击编辑现在共用非模态“约束定义”交互：显示 Supporting Elements，允许逐项重新选择，并由约束类型和几何对共同决定方向、距离方向、角度/距离控件及取值范围。Fix/Rigid/Move 使用 Instance selection mode；前后端都拒绝以可能随 Part 重算消失的 Face/Edge 作为刚体约束身份。点点、点线和线线重合不暴露方向；平面重合/Offset 才保存明确的 Same/Opposite 默认 branch。选择完成时浏览器从当前精确显示上下文预计算可定义的初值；非平行平面距离按 0 初始化。参数或支持元素改变后，前端以防抖的 `PreviewCommand` 运行与提交相同的 Product 命令和权威装配求解，统一应用响应中的全部 occurrence pose，取消时恢复预览前姿态。约束树节点、3D 标记和支持几何共享选择身份；拓扑面/边/点使用局部 overlay 高亮，不再通过所属 mesh group 把整个 Instance 染色。平面角度创建时持久保存第二 Instance 局部坐标中的 reference direction；Solver 随第二刚体变换该方向并用带符号 `atan2`计算 `[0,2π)`，因此 90° 与 270°是不同解。当前这是自动 reference direction 的首个 sector 切片，显式选择 reference axis/sense 仍属于后续 DirectedAngle UI。
 
-装配移动手柄的视觉尺寸仍按相机深度保持固定 CSS 像素，但拖拽位移改为固定模型单位/CSS 像素倍率；相机缩放只改变观察比例，不再改变同一鼠标位移产生的模型位移。
+装配移动手柄的视觉尺寸仍按相机深度保持固定 CSS 像素，但拖拽位移改为固定模型单位/CSS 像素倍率；相机缩放只改变观察比例，不再改变同一鼠标位移产生的模型位移。包含有向角的 C++ 阻尼最小二乘 component 使用确定性回溯线搜索，有向角直接计算连续的 `k·(a×b)`；这使带共线和点重合的真实铰链能跨越 180°收敛到 181°或 270°。
+
+装配约束创建和编辑现在都从最终候选模型提取相同的 `moving first / reference second` solve intent，不再因命令类型改变规约锚点。显式 Same/Opposite 的平面重合若从精确反向端点开始，Solver 会绕被约束平面锚点生成确定性的半周 branch seed，再执行普通 component solve，避免依赖有限差分噪声逃离零梯度鞍点。约束数值输入期间只更新本地表单；失焦或 Enter 才产生一次可取消、带 sequence 防迟到覆盖的权威预览，支持元素和方向等离散变更仍立即预览。
 
 这些风险决定了下一阶段应先建立模型内核、拓扑命名、约束求解和可重建制品协议，而不是先增加大量微服务。
 

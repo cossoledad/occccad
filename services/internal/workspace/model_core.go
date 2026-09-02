@@ -1134,11 +1134,8 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			var payload moveInstancePayload
 			_ = json.Unmarshal(prepared.command.Payload, &payload)
 			drivenInstanceID = payload.InstanceID
-		} else if prepared.command.TypeURI == typeAddAssemblyConstraint {
-			var payload addAssemblyConstraintPayload
-			if json.Unmarshal(prepared.command.Payload, &payload) == nil && payload.Constraint.Second != nil {
-				solveIntent = &geometry.AssemblySolveIntent{MovingBodyIDs: []string{payload.Constraint.First.InstanceID}, ReferenceBodyIDs: []string{payload.Constraint.Second.InstanceID}, PreferencePolicy: "MOVE_FIRST_MINIMIZE_REFERENCE"}
-			}
+		} else {
+			solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 		}
 		if err = service.solveAssembly(ctx, documentID, prepared.requestID, drivenInstanceID, solveIntent, &model); err != nil {
 			finishSolve()
@@ -1269,6 +1266,43 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	return tx.Commit(ctx)
 }
 
+func restoreMovePreviewOnSolveFailure(typeURI string, solveErr error, baseJSON []byte, model *ProductModel) (bool, error) {
+	var failure *assemblySolveFailure
+	if typeURI != typeMoveInstance || !errors.As(solveErr, &failure) {
+		return false, nil
+	}
+	if err := json.Unmarshal(baseJSON, model); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func assemblyConstraintSolveIntent(command modelcore.DomainCommand, model ProductModel) *geometry.AssemblySolveIntent {
+	var first, second string
+	switch command.TypeURI {
+	case typeAddAssemblyConstraint:
+		var payload addAssemblyConstraintPayload
+		if json.Unmarshal(command.Payload, &payload) == nil && payload.Constraint.Second != nil {
+			first, second = payload.Constraint.First.InstanceID, payload.Constraint.Second.InstanceID
+		}
+	case typeEditAssemblyConstraint:
+		var payload editAssemblyConstraintPayload
+		if json.Unmarshal(command.Payload, &payload) == nil {
+			for _, constraint := range model.Constraints {
+				if constraint.ID == payload.ConstraintID && constraint.Second != nil {
+					first, second = constraint.First.InstanceID, constraint.Second.InstanceID
+					break
+				}
+			}
+		}
+	}
+	if first == "" || second == "" {
+		return nil
+	}
+	return &geometry.AssemblySolveIntent{MovingBodyIDs: []string{first}, ReferenceBodyIDs: []string{second},
+		PreferencePolicy: "MOVE_FIRST_MINIMIZE_REFERENCE"}
+}
+
 // PreviewCommand runs the normal command adapter, typed handler, sketch solver
 // and authoritative Part evaluator without creating a Revision, advancing a
 // Workspace or appending history. Geometry artifacts remain content-addressed
@@ -1290,6 +1324,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	}
 	if strings.EqualFold(prepared.documentType, "PRODUCT") {
 		var model ProductModel
+		constraintLimited := false
 		if err = json.Unmarshal(nextJSON, &model); err != nil {
 			return CommandPreview{}, err
 		}
@@ -1299,16 +1334,25 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 			var payload moveInstancePayload
 			_ = json.Unmarshal(prepared.command.Payload, &payload)
 			driven = payload.InstanceID
-		} else if prepared.command.TypeURI == typeAddAssemblyConstraint {
-			var payload addAssemblyConstraintPayload
-			if json.Unmarshal(prepared.command.Payload, &payload) == nil && payload.Constraint.Second != nil {
-				solveIntent = &geometry.AssemblySolveIntent{MovingBodyIDs: []string{payload.Constraint.First.InstanceID}, ReferenceBodyIDs: []string{payload.Constraint.Second.InstanceID}, PreferencePolicy: "MOVE_FIRST_MINIMIZE_REFERENCE"}
-			}
+		} else {
+			solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 		}
 		if err = service.solveAssembly(ctx, documentID, "preview/"+prepared.requestID, driven, solveIntent, &model); err != nil {
-			return CommandPreview{}, err
+			restored, restoreErr := restoreMovePreviewOnSolveFailure(prepared.command.TypeURI, err, prepared.modelJSON, &model)
+			if restoreErr != nil {
+				return CommandPreview{}, restoreErr
+			}
+			if !restored {
+				return CommandPreview{}, err
+			}
+			constraintLimited = true
+			// A manipulator target is an ephemeral preference, not a new hard
+			// constraint. Until the solver exposes closest-feasible projection,
+			// an unreachable target previews the unchanged authoritative poses.
+			nextJSON = prepared.modelJSON
 		}
-		result := CommandPreview{PreviewID: "preview:" + prepared.requestID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: canonicalModelHash(nextJSON)}
+		result := CommandPreview{PreviewID: "preview:" + prepared.requestID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
+			ModelHash: canonicalModelHash(nextJSON), ConstraintLimited: constraintLimited}
 		for _, instance := range model.Instances {
 			result.InstancePoses = append(result.InstancePoses, struct {
 				InstanceID  string     `json:"instanceId"`

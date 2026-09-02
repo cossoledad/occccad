@@ -36,6 +36,17 @@ type assemblyConstraintCapabilities struct {
 	directedAngle bool
 }
 
+type assemblySolveFailure struct {
+	status     string
+	diagnostic string
+}
+
+func (failure *assemblySolveFailure) Error() string {
+	return fmt.Sprintf("assembly solve %s: %s", failure.status, failure.diagnostic)
+}
+
+func (failure *assemblySolveFailure) Unwrap() error { return ErrValidation }
+
 // assemblyCapabilities is the authoritative application-layer geometry-pair
 // matrix. It operates on exact descriptors resolved from topology, rather than
 // on the browser's FACE/EDGE pick category.
@@ -288,7 +299,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		return err
 	}
 	if result.Status != "CONVERGED" {
-		return fmt.Errorf("%w: assembly solve %s: %s", ErrValidation, result.Status, result.Diagnostic)
+		return &assemblySolveFailure{status: result.Status, diagnostic: result.Diagnostic}
 	}
 	for _, solved := range result.Bodies {
 		if instance := instances[solved.ID]; instance != nil {

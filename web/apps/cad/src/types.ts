@@ -39,6 +39,7 @@ export type CommandPreview = {
   baseSequence: number;
   modelHash: string;
   artifact?: Artifact;
+  constraintLimited?: boolean;
   instancePoses?: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;
 };
 
