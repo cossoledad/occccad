@@ -429,24 +429,27 @@ projection require null-space/hierarchical optimization and remain M3 work. The
 whether an equation drives the solve, while solve intent decides how equivalent
 pose solutions are distributed.
 
-### M1.6: residual semantics and robustness gate (next)
+### M1.6: residual semantics and robustness gate (implemented baseline)
 
 M1.6 stabilizes the mathematical problem before analytic Jacobians are written.
-It does not add new constraint families or a sparse backend.
+It does not add new constraint families or a sparse backend. The current baseline:
 
-- split the current overloaded tolerance into geometry/degeneracy,
-  convergence, rank and conflict-classification tolerances;
-- replace `acos(dot)` with stable `atan2` angle residuals, including explicit
+- splits tolerance ownership across length/angle equation acceptance,
+  translation/rotation step termination, degeneracy and rank thresholds;
+- replaces `acos(dot)` with stable `atan2` angle residuals, including explicit
   behavior near zero and pi;
-- choose and freeze `Same`/`Opposite`/`Unoriented` branches once per solve from
-  persisted branch intent or the nominal/warm-start pose;
-- handle parallel and nearly parallel axis distance without switching through an
+- chooses and freezes direction and unsigned distance-side branches once per solve from
+  explicit request intent where available, otherwise the nominal/warm-start pose;
+- handles parallel and nearly parallel axis distance without switching through an
   ill-conditioned generic formula;
-- distinguish a valid but unsatisfied/inconsistent system from an iterative
+- distinguishes a valid but unsatisfied/inconsistent system from an iterative
   `NonConvergent` backend result, including zero-variable components;
-- extend the corpus with near-collinear axes, near-parallel geometry, zero/pi
+- extends the corpus with near-collinear axes, near-parallel geometry, zero/pi
   angles, tolerance boundaries and canonical-order determinism;
-- keep dense Eigen and the finite-difference reference backend during this gate.
+- keeps dense Eigen and the finite-difference reference backend during this gate.
+
+Persisted branch intent and directed-angle winding remain M3 work; M1.6 freezes a
+deterministic request-local branch only.
 
 Warm start at this stage means that the caller supplies the previously accepted
 poses as the next nominal poses. It is not yet an incremental factorization cache

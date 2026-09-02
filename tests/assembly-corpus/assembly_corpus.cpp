@@ -209,8 +209,8 @@ ClassificationCase conflicting_offsets() {
     second.id = "offset-5";
     second.value = 5.0;
     model.constraints = {fixed("ground"), first, second};
-    return {"conflicting-plane-offsets", std::move(model), SolveStatus::MaxIterations,
-            SolveClassification::Conflicting};
+    return {"conflicting-plane-offsets", std::move(model), SolveStatus::Unsatisfied,
+            SolveClassification::Inconsistent};
 }
 
 ClassificationCase conflicting_angles() {
@@ -225,8 +225,8 @@ ClassificationCase conflicting_angles() {
     second.id = "angle-90";
     second.value = kPi / 2.0;
     model.constraints = {fixed("ground"), first, second};
-    return {"conflicting-axis-angles", std::move(model), SolveStatus::MaxIterations,
-            SolveClassification::Conflicting};
+    return {"conflicting-axis-angles", std::move(model), SolveStatus::Unsatisfied,
+            SolveClassification::Inconsistent};
 }
 
 ClassificationCase degenerate_axis() {

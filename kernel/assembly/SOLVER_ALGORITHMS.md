@@ -60,7 +60,7 @@ body 存在且 moving/reference 不重叠。无效模型返回 `InvalidModel`，
 
 `Driving` 或 `Controlled` 的 `Rigid` 约束先通过并查集合并 Body。每条 Rigid 边保存创建约束时捕获的相对位姿；从按
 Body ID 排序后选出的 cluster root 做广度优先传播，得到 `root_to_body`。若闭环通过不同路径计算出的相对位姿误差超过
-`residual_tolerance`，模型被判为不一致，而不是静默采用某一条路径。
+`length_tolerance`、`angle_tolerance`，模型被判为不一致，而不是静默采用某一条路径。
 
 cluster 的自由变量始终只有一个 `SE(3)` 位姿，因此含 N 个 Body 的刚性子装配从 `6N` 个切空间变量降为 6 个。最终
 Body 位姿由下式恢复：
@@ -104,8 +104,9 @@ anchor，第一选择承担相对运动，但不会生成物理 Fix。
 
 ## 5. 当前约束残差
 
-记世界点为 `p`，轴为 `(o,d)`，平面为 `(o,n)`，其中方向均为单位向量。`related(d₁,d₂)` 根据
-`Same/Opposite/Unoriented` 显式分支翻转第一方向；Unoriented 选择与第二方向点积非负的方向。
+记世界点为 `p`，轴为 `(o,d)`，平面为 `(o,n)`，其中方向均为单位向量。编译阶段从 nominal/warm-start pose 把
+`Unoriented` 固定为 `Same` 或 `Opposite`，并把无符号距离固定到初始侧；迭代中不再换支。Angle 的
+`Unoriented` 保留完整 `[0,π]` 语义。
 
 | 约束与几何对 | 当前残差块 | 标量行数 |
 |---|---|---:|
@@ -117,7 +118,7 @@ anchor，第一选择承担相对运动，但不会生成物理 Fix。
 | Coincident / Concentric Axis-like pair | 方向差 + `((o₁-o₂)×d₂)/L` | 6 |
 | Coincident Cylinder–Cylinder | Axis-like 残差 + 半径差 | 7 |
 | Coincident Plane–Plane | 法向差 + 有符号法向距离 | 4 |
-| Angle | `(acos(branch(dot(d₁,d₂)))-target)/A` | 1 |
+| Angle | `(atan2(‖d₁×d₂‖, d₁·d₂)-target)/A`（应用冻结方向支） | 1 |
 | Distance Point–Point | `(‖p₁-p₂‖-target)/L` | 1 |
 | Distance Point–Plane | 显式 signed/unsigned side 的法向距离差 | 1 |
 | Distance Axis-like pair | 两条无限直线的最短距离差 | 1 |
@@ -152,11 +153,11 @@ J_{:,j}\approx\frac{r(x+h e_j)-r(x)}{h}.
 - 初始 `λ = initial_damping`，默认 `10⁻⁴`；
 - 候选残差平方范数严格下降时接受步骤，并令 `λ=max(0.25λ,10⁻¹²)`；
 - 否则拒绝步骤，并令 `λ=min(10λ,10¹²)`；
-- `‖r‖ ≤ residual_tolerance` 时收敛；
-- `‖Δx‖ ≤ step_tolerance` 但残差仍超限时判为停在不可接受驻点；
+- 每个长度、角度方程分别满足 `length_tolerance`、`angle_tolerance` 时收敛；
+- 平移、旋转增量分别低于 `translation_step_tolerance`、`rotation_step_tolerance` 但方程仍超限时返回 `Unsatisfied`；
 - 默认最多 100 次迭代；非有限线性解返回 `NumericalFailure`。
 
-若 component 没有自由变量但 active residual 超限，返回 `MaxIterations`，随后由统一结果分类标记冲突或不收敛。
+若 component 没有自由变量但 active residual 超限，返回 `Unsatisfied`；真正耗尽预算才返回 `MaxIterations`。
 
 ## 8. Rank、DOF 与 gauge
 
@@ -180,12 +181,12 @@ nullity = \max(n-\rho,0).
 冗余检测按规范输入中的 constraint block 顺序增量拼接 Jacobian 行。若加入一个完整 block 后 rank 不增加，则把该 constraint
 标为 redundant；否则接受该 block。这个算法提供确定性的 whole-constraint 诊断，但结果与顺序相关，也不是最小冗余集。
 
-求解结束后，所有非 Suppressed 约束都在最终 Body 位姿上重新计算。active constraint 的残差范数超过
-`residual_tolerance` 时标为 conflicting。它表示“最终解未满足”，不是最小冲突集证明。
+求解结束后，所有非 Suppressed 约束都在最终 Body 位姿上重新计算。只有已判定为 `Unsatisfied` 的 component 才把其中
+超出逐方程物理容差的 active constraint 标为 conflicting；`MaxIterations` 和 `NumericalFailure` 不伪造冲突归因。
 
 最终分类优先级为：
 
-1. 存在未满足 active constraint：`Conflicting`；
+1. 已判定存在不可满足 active constraint：`Inconsistent`；
 2. 数值失败或超过迭代条件：`NonConvergent`；
 3. 存在 whole-constraint 冗余：`Redundant`；
 4. 存在 relative DOF：`SolvedUnderConstrained`；
@@ -204,6 +205,7 @@ cluster、component 及冗余/冲突 ID 集合会显式排序；Body 与方程�
 正规方程会形成 `n×n` 矩阵，因而大装配的主要成本随 component 大小快速增长。connected-component 分解和 ground/rigid
 消元是当前最主要的规模控制手段，尚未使用稀疏 Jacobian、增量因子分解或并行 component 求解。
 
+M1.6 还为近平行直线距离引入以 `degeneracy_tolerance` 为尺度的连续退化极限，避免通用公式与平行公式硬切换。
 当前算法还不具备：解析 Jacobian、QR/SVD rank 诊断、null-space 方向、最小冲突集、全局多分支枚举、严格层级最小位移、
 拖拽流形投影、一般曲面接触和大规模稀疏图优化。上述能力的引入顺序见架构路线图，不能从本文的 M1/M1.5 基线推断为
 已经实现。
@@ -212,11 +214,11 @@ cluster、component 及冗余/冲突 ID 集合会显式排序；Body 与方程�
 
 后续工作先修正残差和状态语义，再替换微分与线性代数实现，避免为不稳定方程编写解析 Jacobian：
 
-1. **M1.6 鲁棒性门**：Angle 改用 `atan2`，一次 solve 内冻结方向分支，区分 geometry、convergence、rank 和
-   classification tolerance，为零变量未满足等情况增加 `Unsatisfied/Inconsistent` 后端语义，并扩充极端姿态 corpus。
-2. **M2 方程与线性代数**：建立 typed equation registry 和解析 Jacobian，以中心有限差分做 differential check，使用
+M1.6 鲁棒性门已经落地：Angle 使用 `atan2`，一次 solve 内冻结方向和距离侧分支，并分离各类容差及失败状态。
+
+1. **M2 方程与线性代数**：建立 typed equation registry 和解析 Jacobian，以中心有限差分做 differential check，使用
    SVD 或 rank-revealing QR，并返回 null-space basis 与可解释 DOF 方向。
-3. **M3 稳定解与交互**：区分 `UnsignedAngle [0,π]` 和带 axis/sense 的 `DirectedAngle`，持久化离散 branch intent；利用
+2. **M3 稳定解与交互**：区分 `UnsignedAngle [0,π]` 和带 axis/sense 的 `DirectedAngle`，持久化离散 branch intent；利用
    null space 实现 minimum-motion、minimum-reference displacement 和 Drag 投影。
 
 静态装配只保存 modulo `2π` 的姿态分支，多圈累计角属于 Interaction、Kinematics 或 Simulation 状态。MUS/minimal

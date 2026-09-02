@@ -23,13 +23,16 @@ The corpus currently covers:
 
 Freedom cases now assert both black-box feasible motions and the component's M1
 Jacobian rank, relative DOF and gauge DOF. Classification cases assert structured
-`REDUNDANT`, `CONFLICTING` and invalid-model outcomes while retaining the lower
+`REDUNDANT`, `INCONSISTENT` and invalid-model outcomes while retaining the lower
 level numerical status. Focused M1 scenarios additionally cover rigid-cluster
 ground elimination, affected-component solving, constraint modes and stable
 equation provenance. M1.5 scenarios verify that first-selection moving and
 second-selection reference roles remain disjoint and that an ungrounded reference
 cluster is used as a gauge anchor without losing the component's six reported
-gauge freedoms.
+gauge freedoms. M1.6 scenarios additionally distinguish a proven stationary or
+grounded `UNSATISFIED` result from iteration-budget `NON_CONVERGENT`, and cover
+frozen direction/side branches, independent physical tolerances, exact zero/pi
+angles and the near-parallel axis-distance limit.
 
 Run only this corpus with:
 

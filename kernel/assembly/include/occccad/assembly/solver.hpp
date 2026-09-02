@@ -112,8 +112,11 @@ struct SolveIntent {
 
 struct SolverOptions {
     std::size_t max_iterations{100};
-    double residual_tolerance{1.0e-9};
-    double step_tolerance{1.0e-10};
+    double length_tolerance{1.0e-7};
+    double angle_tolerance{1.0e-8};
+    double translation_step_tolerance{1.0e-9};
+    double rotation_step_tolerance{1.0e-10};
+    double degeneracy_tolerance{1.0e-8};
     double finite_difference_step{1.0e-7};
     double initial_damping{1.0e-4};
     double length_scale{1.0};
@@ -125,13 +128,13 @@ struct SolverOptions {
     std::optional<SolveIntent> solve_intent;
 };
 
-enum class SolveStatus { Converged, MaxIterations, InvalidModel, NumericalFailure };
+enum class SolveStatus { Converged, Unsatisfied, MaxIterations, InvalidModel, NumericalFailure };
 
 enum class SolveClassification {
     SolvedFully,
     SolvedUnderConstrained,
     Redundant,
-    Conflicting,
+    Inconsistent,
     InvalidModel,
     NonConvergent
 };

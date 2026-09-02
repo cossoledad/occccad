@@ -550,6 +550,7 @@ public:
         const auto result = assembly_solver_.solve(model, options);
         const char* status =
             result.status == assembly_api::SolveStatus::Converged       ? "CONVERGED"
+            : result.status == assembly_api::SolveStatus::Unsatisfied   ? "UNSATISFIED"
             : result.status == assembly_api::SolveStatus::MaxIterations ? "MAX_ITERATIONS"
             : result.status == assembly_api::SolveStatus::InvalidModel  ? "INVALID_MODEL"
                                                                         : "NUMERICAL_FAILURE";
@@ -559,8 +560,8 @@ public:
             : result.classification == assembly_api::SolveClassification::SolvedUnderConstrained
                 ? "SOLVED_UNDER_CONSTRAINED"
             : result.classification == assembly_api::SolveClassification::Redundant ? "REDUNDANT"
-            : result.classification == assembly_api::SolveClassification::Conflicting
-                ? "CONFLICTING"
+            : result.classification == assembly_api::SolveClassification::Inconsistent
+                ? "INCONSISTENT"
             : result.classification == assembly_api::SolveClassification::InvalidModel
                 ? "INVALID_MODEL"
                 : "NON_CONVERGENT";
