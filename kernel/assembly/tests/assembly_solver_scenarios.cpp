@@ -146,6 +146,39 @@ TEST(AssemblySolver, ProductFaceFiveCoincidenceRegression) {
         EXPECT_NEAR(equation.normalized_value, 0.0, 1.0e-6) << equation.equation_id;
 }
 
+TEST(AssemblySolver, PlaneCoincidenceAnalyticJacobianAndNullSpaceAreConformant) {
+    Model model;
+    model.bodies = {{"first", {{2.0, -1.0, 4.0}, {0.1, -0.2, 0.3, 0.92}}},
+                    {"second", {{-3.0, 2.0, -1.0}, {-0.2, 0.1, -0.1, 0.96}}}};
+    model.geometry = {{"plane", "first", PlaneGeometry{{7.0, -2.0, 3.0}, {0.0, 1.0, 0.0}}},
+                      {"plane", "second", PlaneGeometry{{-4.0, 5.0, 2.0}, {0.0, 0.0, 1.0}}}};
+    Constraint coincidence = binary("plane-pair", ConstraintKind::Coincident,
+                                    ref("first", "plane"), ref("second", "plane"));
+    coincidence.direction_relation = DirectionRelation::Same;
+    model.constraints = {coincidence};
+    SolverOptions options;
+    options.verify_analytic_jacobians = true;
+    options.jacobian_check_tolerance = 2.0e-5;
+
+    const SolveResult result = Solver{}.solve(model, options);
+
+    ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+    ASSERT_EQ(result.components.size(), 1U);
+    const ComponentDof& component = result.components.front();
+    EXPECT_EQ(component.jacobian_rank, 3U);
+    EXPECT_EQ(component.relative_dof, 3U);
+    EXPECT_EQ(component.gauge_dof, 6U);
+    EXPECT_EQ(component.tangent_cluster_ids.size(), 2U);
+    EXPECT_EQ(component.null_space_basis.size(), 9U);
+    for (const auto& basis : component.null_space_basis)
+        EXPECT_EQ(basis.size(), 12U);
+    ASSERT_EQ(result.constraint_ranks.size(), 1U);
+    EXPECT_EQ(result.constraint_ranks[0].declared_generic_rank, 3U);
+    ASSERT_EQ(result.equation_residuals.size(), 4U);
+    EXPECT_EQ(result.equation_residuals[3].equation_id,
+              "plane-pair/equation/PLANE_OFFSET");
+}
+
 TEST(AssemblySolver, SameDirectionDoesNotAcceptAntiparallelPlanes) {
     Model model;
     model.bodies = {{"ground", {}}, {"moving", {}}};

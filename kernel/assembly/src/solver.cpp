@@ -4,6 +4,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <Eigen/LU>
+#include <Eigen/QR>
 #include <Eigen/SVD>
 #include <algorithm>
 #include <cmath>
@@ -50,6 +51,8 @@ struct ResidualBlock {
     Eigen::VectorXd values;
     Eigen::VectorXd tolerances;
     double satisfaction_ratio{};
+    std::vector<std::string> equation_kinds;
+    std::size_t declared_generic_rank{};
 };
 
 struct ConstraintBranchState {
@@ -173,6 +176,185 @@ bool has_direction(const WorldGeometry& geometry) {
     return is_axis_like(geometry) || std::holds_alternative<WorldPlane>(geometry);
 }
 
+enum class DescriptorKind { Point, Axis, Plane, Cylinder };
+
+DescriptorKind descriptor_kind(const WorldGeometry& geometry) {
+    if (std::holds_alternative<WorldPoint>(geometry))
+        return DescriptorKind::Point;
+    if (std::holds_alternative<WorldAxis>(geometry))
+        return DescriptorKind::Axis;
+    if (std::holds_alternative<WorldPlane>(geometry))
+        return DescriptorKind::Plane;
+    return DescriptorKind::Cylinder;
+}
+
+bool axis_descriptor(const DescriptorKind kind) {
+    return kind == DescriptorKind::Axis || kind == DescriptorKind::Cylinder;
+}
+
+struct EquationDefinition {
+    std::vector<std::string> kinds;
+    std::size_t generic_rank{};
+};
+
+Eigen::Matrix3d skew(const Vector3& value);
+
+struct DifferentialScalar {
+    double value{};
+    Eigen::RowVectorXd derivative;
+};
+
+struct DifferentialVector {
+    Vector3 value;
+    Eigen::MatrixXd derivative;
+};
+
+DifferentialScalar scalar(const double value, const Eigen::Index variables) {
+    return {value, Eigen::RowVectorXd::Zero(variables)};
+}
+
+DifferentialVector vector(const Vector3& value, const Eigen::Index variables) {
+    return {value, Eigen::MatrixXd::Zero(3, variables)};
+}
+
+DifferentialVector operator-(const DifferentialVector& a, const DifferentialVector& b) {
+    return {a.value - b.value, a.derivative - b.derivative};
+}
+DifferentialVector operator-(const DifferentialVector& input) {
+    return {-input.value, -input.derivative};
+}
+DifferentialScalar operator+(const DifferentialScalar& a, const DifferentialScalar& b) {
+    return {a.value + b.value, a.derivative + b.derivative};
+}
+DifferentialScalar operator-(const DifferentialScalar& a, const DifferentialScalar& b) {
+    return {a.value - b.value, a.derivative - b.derivative};
+}
+DifferentialScalar operator*(const DifferentialScalar& a, const DifferentialScalar& b) {
+    return {a.value * b.value, b.value * a.derivative + a.value * b.derivative};
+}
+DifferentialScalar operator/(const DifferentialScalar& a, const DifferentialScalar& b) {
+    return {a.value / b.value,
+            (b.value * a.derivative - a.value * b.derivative) / (b.value * b.value)};
+}
+DifferentialVector operator*(const DifferentialScalar& scale, const DifferentialVector& input) {
+    return {scale.value * input.value,
+            scale.value * input.derivative + input.value * scale.derivative};
+}
+DifferentialVector divided(const DifferentialVector& input, const double scale) {
+    return {input.value / scale, input.derivative / scale};
+}
+DifferentialScalar divided(const DifferentialScalar& input, const double scale) {
+    return {input.value / scale, input.derivative / scale};
+}
+DifferentialScalar dot(const DifferentialVector& a, const DifferentialVector& b) {
+    return {a.value.dot(b.value),
+            b.value.transpose() * a.derivative + a.value.transpose() * b.derivative};
+}
+DifferentialVector cross(const DifferentialVector& a, const DifferentialVector& b) {
+    return {a.value.cross(b.value), -skew(b.value) * a.derivative + skew(a.value) * b.derivative};
+}
+DifferentialScalar norm(const DifferentialVector& input) {
+    const double length = input.value.norm();
+    Eigen::RowVectorXd derivative = Eigen::RowVectorXd::Zero(input.derivative.cols());
+    if (length > kDirectionEpsilon)
+        derivative = input.value.transpose() * input.derivative / length;
+    return {length, std::move(derivative)};
+}
+DifferentialVector normalized(const DifferentialVector& input) {
+    const double length = input.value.norm();
+    if (length <= kDirectionEpsilon)
+        throw std::invalid_argument("differentiated direction is degenerate");
+    const Vector3 unit = input.value / length;
+    return {unit, (Eigen::Matrix3d::Identity() - unit * unit.transpose()) * input.derivative /
+                      length};
+}
+DifferentialScalar absolute(const DifferentialScalar& input) {
+    const double sign = input.value > 0.0 ? 1.0 : input.value < 0.0 ? -1.0 : 0.0;
+    return {std::abs(input.value), sign * input.derivative};
+}
+DifferentialScalar differentiated_atan2(const DifferentialScalar& y,
+                                        const DifferentialScalar& x) {
+    const double denominator = x.value * x.value + y.value * y.value;
+    if (denominator <= kDirectionEpsilon * kDirectionEpsilon)
+        throw std::invalid_argument("atan2 differential is degenerate");
+    return {std::atan2(y.value, x.value),
+            (x.value * y.derivative - y.value * x.derivative) / denominator};
+}
+
+struct DifferentialPoint { DifferentialVector position; };
+struct DifferentialAxis { DifferentialVector origin; DifferentialVector direction; };
+struct DifferentialPlane { DifferentialVector origin; DifferentialVector normal; };
+struct DifferentialCylinder {
+    DifferentialVector origin;
+    DifferentialVector direction;
+    double radius{};
+};
+using DifferentialGeometry =
+    std::variant<DifferentialPoint, DifferentialAxis, DifferentialPlane, DifferentialCylinder>;
+
+bool differential_axis_like(const DifferentialGeometry& geometry) {
+    return std::holds_alternative<DifferentialAxis>(geometry) ||
+           std::holds_alternative<DifferentialCylinder>(geometry);
+}
+DifferentialAxis differential_axis(const DifferentialGeometry& geometry) {
+    if (const auto* axis = std::get_if<DifferentialAxis>(&geometry))
+        return *axis;
+    const auto& cylinder = std::get<DifferentialCylinder>(geometry);
+    return {cylinder.origin, cylinder.direction};
+}
+DifferentialVector differential_direction(const DifferentialGeometry& geometry) {
+    if (differential_axis_like(geometry))
+        return differential_axis(geometry).direction;
+    return std::get<DifferentialPlane>(geometry).normal;
+}
+
+EquationDefinition equation_definition(const Constraint& constraint,
+                                       const WorldGeometry& first,
+                                       const WorldGeometry& second) {
+    const DescriptorKind a = descriptor_kind(first);
+    const DescriptorKind b = descriptor_kind(second);
+    if (constraint.kind == ConstraintKind::Coincident) {
+        if (a == DescriptorKind::Point && b == DescriptorKind::Point)
+            return {{"POSITION_X", "POSITION_Y", "POSITION_Z"}, 3};
+        if ((a == DescriptorKind::Point && axis_descriptor(b)) ||
+            (b == DescriptorKind::Point && axis_descriptor(a)))
+            return {{"POINT_LINE_X", "POINT_LINE_Y", "POINT_LINE_Z"}, 2};
+        if ((a == DescriptorKind::Point && b == DescriptorKind::Plane) ||
+            (b == DescriptorKind::Point && a == DescriptorKind::Plane))
+            return {{"POINT_PLANE_DISTANCE"}, 1};
+        if (axis_descriptor(a) && axis_descriptor(b)) {
+            std::vector<std::string> kinds{"DIRECTION_X", "DIRECTION_Y", "DIRECTION_Z",
+                                           "LINE_OFFSET_X", "LINE_OFFSET_Y", "LINE_OFFSET_Z"};
+            if (a == DescriptorKind::Cylinder && b == DescriptorKind::Cylinder)
+                kinds.push_back("CYLINDER_RADIUS");
+            return {std::move(kinds), 4};
+        }
+        if (a == DescriptorKind::Plane && b == DescriptorKind::Plane)
+            return {{"NORMAL_X", "NORMAL_Y", "NORMAL_Z", "PLANE_OFFSET"}, 3};
+        if ((axis_descriptor(a) && b == DescriptorKind::Plane) ||
+            (axis_descriptor(b) && a == DescriptorKind::Plane))
+            return {{"LINE_PLANE_DIRECTION", "LINE_PLANE_OFFSET"}, 2};
+    }
+    if (constraint.kind == ConstraintKind::Concentric && axis_descriptor(a) && axis_descriptor(b))
+        return {{"DIRECTION_X", "DIRECTION_Y", "DIRECTION_Z", "LINE_OFFSET_X",
+                 "LINE_OFFSET_Y", "LINE_OFFSET_Z"}, 4};
+    if (constraint.kind == ConstraintKind::Angle && has_direction(first) &&
+        has_direction(second))
+        return {{constraint.angle_reference_direction ? "DIRECTED_ANGLE" : "UNSIGNED_ANGLE"}, 1};
+    if (constraint.kind == ConstraintKind::Distance) {
+        if (a == DescriptorKind::Point && b == DescriptorKind::Point)
+            return {{"POINT_POINT_DISTANCE"}, 1};
+        if ((a == DescriptorKind::Point && b == DescriptorKind::Plane) ||
+            (b == DescriptorKind::Point && a == DescriptorKind::Plane))
+            return {{"POINT_PLANE_DISTANCE"}, 1};
+        if (axis_descriptor(a) && axis_descriptor(b))
+            return {{"LINE_LINE_DISTANCE"}, 1};
+        if (a == DescriptorKind::Plane && b == DescriptorKind::Plane)
+            return {{"NORMAL_X", "NORMAL_Y", "NORMAL_Z", "PLANE_DISTANCE"}, 3};
+    }
+    throw std::invalid_argument("unsupported constraint and descriptor pair");
+}
+
 Vector3 geometry_direction(const WorldGeometry& geometry) {
     if (is_axis_like(geometry))
         return as_axis(geometry).direction;
@@ -248,6 +430,13 @@ Vector3 perpendicular_to(const Vector3& direction) {
                           : std::abs(direction.y()) <= std::abs(direction.z()) ? Vector3::UnitY()
                                                                                : Vector3::UnitZ();
     return direction.cross(basis).normalized();
+}
+
+Eigen::Matrix3d skew(const Vector3& value) {
+    Eigen::Matrix3d result;
+    result << 0.0, -value.z(), value.y(), value.z(), 0.0, -value.x(), -value.y(),
+        value.x(), 0.0;
+    return result;
 }
 
 double directed_angle(const Vector3& first, const Vector3& second, const Vector3& reference,
@@ -417,6 +606,163 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
         throw std::invalid_argument("unsupported Distance geometry pair");
     }
     throw std::invalid_argument("unsupported constraint kind");
+}
+
+// Forward analytic differential primitives. They carry a value and derivatives
+// with respect to the stable free-cluster tangent ordering.
+Eigen::MatrixXd differential_residual(const Constraint& constraint,
+                                      DifferentialGeometry first,
+                                      DifferentialGeometry second,
+                                      const ConstraintBranchState& branch,
+                                      const SolverOptions& options,
+                                      const std::optional<DifferentialVector>& angle_reference,
+                                      const std::optional<DifferentialVector>& unsigned_angle_axis) {
+    const Eigen::Index variables = std::visit([](const auto& geometry) {
+        if constexpr (std::is_same_v<std::decay_t<decltype(geometry)>, DifferentialPoint>)
+            return geometry.position.derivative.cols();
+        else
+            return geometry.origin.derivative.cols();
+    }, first);
+    std::vector<DifferentialScalar> rows;
+    auto append = [&](const DifferentialVector& value) {
+        for (Eigen::Index row = 0; row < 3; ++row)
+            rows.push_back({value.value[row], value.derivative.row(row)});
+    };
+    auto related = [&](DifferentialVector value, const DifferentialVector& reference) {
+        if (branch.direction_relation == DirectionRelation::Opposite ||
+            (branch.direction_relation == DirectionRelation::Unoriented &&
+             value.value.dot(reference.value) < 0.0))
+            return -value;
+        return value;
+    };
+    auto align_axes = [&](const DifferentialAxis& a, const DifferentialAxis& b) {
+        append(divided(related(a.direction, b.direction) - b.direction, options.angle_scale));
+        append(divided(cross(a.origin - b.origin, b.direction), options.length_scale));
+    };
+    if (constraint.kind == ConstraintKind::Coincident) {
+        if (const auto* first_point = std::get_if<DifferentialPoint>(&first)) {
+            if (const auto* second_point = std::get_if<DifferentialPoint>(&second))
+                append(divided(first_point->position - second_point->position, options.length_scale));
+            else if (differential_axis_like(second)) {
+                const auto second_axis = differential_axis(second);
+                append(divided(cross(first_point->position - second_axis.origin,
+                                     second_axis.direction), options.length_scale));
+            } else {
+                const auto& second_plane = std::get<DifferentialPlane>(second);
+                rows.push_back(divided(dot(first_point->position - second_plane.origin,
+                                           second_plane.normal), options.length_scale));
+            }
+        } else if (std::holds_alternative<DifferentialPoint>(second)) {
+            return differential_residual(constraint, second, first, branch, options, angle_reference,
+                                         unsigned_angle_axis);
+        } else if (differential_axis_like(first) && differential_axis_like(second)) {
+            align_axes(differential_axis(first), differential_axis(second));
+            if (const auto* first_cylinder = std::get_if<DifferentialCylinder>(&first))
+                if (const auto* second_cylinder = std::get_if<DifferentialCylinder>(&second))
+                    rows.push_back(scalar((first_cylinder->radius - second_cylinder->radius) /
+                                              options.length_scale,
+                                          variables));
+        } else if (const auto* first_plane = std::get_if<DifferentialPlane>(&first)) {
+            if (const auto* second_plane = std::get_if<DifferentialPlane>(&second)) {
+                append(divided(related(first_plane->normal, second_plane->normal) -
+                                   second_plane->normal,
+                               options.angle_scale));
+                rows.push_back(divided(dot(first_plane->origin - second_plane->origin,
+                                           second_plane->normal), options.length_scale));
+            } else {
+                return differential_residual(constraint, second, first, branch, options,
+                                             angle_reference, unsigned_angle_axis);
+            }
+        } else {
+            const auto axis_value = differential_axis(first);
+            const auto& plane_value = std::get<DifferentialPlane>(second);
+            rows.push_back(divided(dot(axis_value.direction, plane_value.normal), options.angle_scale));
+            rows.push_back(divided(dot(axis_value.origin - plane_value.origin, plane_value.normal), options.length_scale));
+        }
+    } else if (constraint.kind == ConstraintKind::Concentric) {
+        align_axes(differential_axis(first), differential_axis(second));
+    } else if (constraint.kind == ConstraintKind::Angle) {
+        DifferentialVector a = differential_direction(first);
+        const DifferentialVector b = differential_direction(second);
+        if (branch.direction_relation == DirectionRelation::Opposite)
+            a = -a;
+        DifferentialScalar angle;
+        if (angle_reference) {
+            const DifferentialVector k = normalized(*angle_reference);
+            const DifferentialVector ap = normalized(a - dot(a, k) * k);
+            const DifferentialVector bp = normalized(b - dot(b, k) * k);
+            angle = differentiated_atan2(dot(k, cross(ap, bp)), dot(ap, bp));
+        } else {
+            const DifferentialVector product = cross(a, b);
+            const DifferentialVector k = unsigned_angle_axis
+                                             ? normalized(*unsigned_angle_axis)
+                                             : (product.value.norm() > options.degeneracy_tolerance
+                                                    ? normalized(product)
+                                                    : vector(perpendicular_to(b.value), variables));
+            angle = differentiated_atan2(dot(k, product), dot(a, b));
+        }
+        rows.push_back(divided(angle - scalar(constraint.value, variables), options.angle_scale));
+    } else if (constraint.kind == ConstraintKind::Distance) {
+        if (const auto* first_point = std::get_if<DifferentialPoint>(&first)) {
+            if (const auto* second_point = std::get_if<DifferentialPoint>(&second)) {
+                rows.push_back(divided(norm(first_point->position - second_point->position) -
+                                           scalar(constraint.value, variables), options.length_scale));
+            } else {
+                const auto& plane_value = std::get<DifferentialPlane>(second);
+                DifferentialScalar measured =
+                    dot(first_point->position - plane_value.origin, plane_value.normal);
+                if (branch.distance_relation == DistanceRelation::Unsigned)
+                    measured = absolute(measured);
+                else if (branch.distance_relation == DistanceRelation::OppositeSecondNormal)
+                    measured = scalar(0.0, variables) - measured;
+                rows.push_back(divided(measured - scalar(constraint.value, variables),
+                                       options.length_scale));
+            }
+        } else if (std::holds_alternative<DifferentialPoint>(second)) {
+            ConstraintBranchState swapped = branch;
+            if (swapped.distance_relation == DistanceRelation::AlongSecondNormal)
+                swapped.distance_relation = DistanceRelation::OppositeSecondNormal;
+            else if (swapped.distance_relation == DistanceRelation::OppositeSecondNormal)
+                swapped.distance_relation = DistanceRelation::AlongSecondNormal;
+            return differential_residual(constraint, second, first, swapped, options, angle_reference,
+                                         unsigned_angle_axis);
+        } else if (differential_axis_like(first) && differential_axis_like(second)) {
+            const auto first_axis = differential_axis(first);
+            const auto second_axis = differential_axis(second);
+            const DifferentialVector axis_cross = cross(first_axis.direction,
+                                                         second_axis.direction);
+            const DifferentialScalar cross_norm = norm(axis_cross);
+            const DifferentialVector delta = first_axis.origin - second_axis.origin;
+            const DifferentialScalar parallel = norm(cross(delta, second_axis.direction));
+            DifferentialScalar distance = parallel;
+            if (cross_norm.value > kDirectionEpsilon) {
+                const DifferentialScalar skew_distance = absolute(dot(delta, axis_cross)) / cross_norm;
+                const DifferentialScalar square = cross_norm * cross_norm;
+                const DifferentialScalar weight = square /
+                    (square + scalar(options.degeneracy_tolerance * options.degeneracy_tolerance,
+                                     variables));
+                distance = weight * skew_distance +
+                           (scalar(1.0, variables) - weight) * parallel;
+            }
+            rows.push_back(divided(distance - scalar(constraint.value, variables), options.length_scale));
+        } else {
+            const auto& first_plane = std::get<DifferentialPlane>(first);
+            const auto& second_plane = std::get<DifferentialPlane>(second);
+            append(divided(related(first_plane.normal, second_plane.normal) - second_plane.normal,
+                           options.angle_scale));
+            DifferentialScalar measured = dot(first_plane.origin - second_plane.origin,
+                                               second_plane.normal);
+            if (branch.distance_relation == DistanceRelation::Unsigned)
+                measured = absolute(measured);
+            else if (branch.distance_relation == DistanceRelation::OppositeSecondNormal)
+                measured = scalar(0.0, variables) - measured;
+            rows.push_back(divided(measured - scalar(constraint.value, variables), options.length_scale));
+        }
+    }
+    Eigen::MatrixXd result(static_cast<Eigen::Index>(rows.size()), variables);
+    for (std::size_t row = 0; row < rows.size(); ++row)
+        result.row(static_cast<Eigen::Index>(row)) = rows[row].derivative;
+    return result;
 }
 
 Eigen::VectorXd constraint_tolerances(const Constraint& constraint, const WorldGeometry& first,
@@ -1100,10 +1446,14 @@ public:
                     eigen(*branch.unsigned_angle_axis_in_second));
             Eigen::VectorXd residual =
                 constraint_residual(evaluated, first, second, assembly_.options(), &branch);
+            const EquationDefinition definition = equation_definition(evaluated, first, second);
+            if (definition.kinds.size() != static_cast<std::size_t>(residual.size()))
+                throw std::logic_error("equation registry row count does not match residual block");
             result.push_back({constraint.id, residual,
                               constraint_tolerances(evaluated, first, second, tolerance_options),
                               satisfaction_ratio(evaluated, first, second, residual,
-                                                 tolerance_options, &branch)});
+                                                 tolerance_options, &branch),
+                              definition.kinds, definition.generic_rank});
         }
         return result;
     }
@@ -1134,8 +1484,12 @@ public:
                            [](const ResidualBlock& block) { return block_satisfied(block); });
     }
 
-    Eigen::MatrixXd jacobian(const State& state, const Vector& residual) const {
+    Eigen::MatrixXd finite_difference_jacobian(const State& state, const Vector& residual) const {
         Eigen::MatrixXd result(residual.size(), static_cast<Eigen::Index>(parameter_count()));
+        std::vector<bool> periodic_rows;
+        for (const ResidualBlock& block : blocks(state))
+            for (const std::string& kind : block.equation_kinds)
+                periodic_rows.push_back(kind.find("ANGLE") != std::string::npos);
         for (Eigen::Index column = 0; column < result.cols(); ++column) {
             Vector perturbation = Vector::Zero(result.cols());
             const bool translation = column % 6 < 3;
@@ -1152,7 +1506,108 @@ public:
             if (plus.size() != residual.size() || minus.size() != residual.size() ||
                 !plus.allFinite() || !minus.allFinite())
                 throw std::runtime_error("finite-difference residual is invalid");
-            result.col(column) = (plus - minus) / (2.0 * step);
+            Vector difference = plus - minus;
+            for (Eigen::Index row = 0; row < difference.size(); ++row) {
+                if (periodic_rows[static_cast<std::size_t>(row)])
+                    difference[row] = wrapped_angle_error(
+                                          plus[row] * assembly_.options().angle_scale,
+                                          minus[row] * assembly_.options().angle_scale) /
+                                      assembly_.options().angle_scale;
+            }
+            result.col(column) = difference / (2.0 * step);
+        }
+        return result;
+    }
+
+    Eigen::MatrixXd jacobian(const State& state, const Vector& residual) const {
+        const std::vector<Pose> clusters = cluster_poses(state);
+        const std::vector<Pose> bodies = assembly_.body_poses(clusters);
+        const Eigen::Index variables = static_cast<Eigen::Index>(parameter_count());
+        auto differentiated_geometry = [&](const GeometryElement& element) -> DifferentialGeometry {
+            const WorldGeometry world = world_geometry(
+                element, bodies[assembly_.body_index(element.body_id)]);
+            auto differentiated_vector = [&](const Vector3& value, const bool point) {
+                DifferentialVector result = vector(value, variables);
+                const std::size_t cluster_index = assembly_.cluster_index(element.body_id);
+                const auto found = std::find(free_cluster_indices_.begin(),
+                                             free_cluster_indices_.end(), cluster_index);
+                if (found == free_cluster_indices_.end())
+                    return result;
+                const Eigen::Index column = static_cast<Eigen::Index>(
+                    std::distance(free_cluster_indices_.begin(), found) * 6);
+                if (point) {
+                    result.derivative.block<3, 3>(0, column).setIdentity();
+                    result.derivative.block<3, 3>(0, column + 3) =
+                        -skew(value - eigen(clusters[cluster_index].translation));
+                } else {
+                    result.derivative.block<3, 3>(0, column + 3) = -skew(value);
+                }
+                return result;
+            };
+            if (const auto* value = std::get_if<WorldPoint>(&world))
+                return DifferentialPoint{differentiated_vector(value->position, true)};
+            if (const auto* value = std::get_if<WorldAxis>(&world))
+                return DifferentialAxis{differentiated_vector(value->origin, true),
+                                        differentiated_vector(value->direction, false)};
+            if (const auto* value = std::get_if<WorldPlane>(&world))
+                return DifferentialPlane{differentiated_vector(value->origin, true),
+                                         differentiated_vector(value->normal, false)};
+            const auto& value = std::get<WorldCylinder>(world);
+            return DifferentialCylinder{differentiated_vector(value.origin, true),
+                                        differentiated_vector(value.direction, false), value.radius};
+        };
+        Eigen::MatrixXd result(residual.size(), variables);
+        Eigen::Index row = 0;
+        for (const std::size_t constraint_index : component_.constraint_indices) {
+            const Constraint& constraint = assembly_.constraint(constraint_index);
+            const GeometryElement& first_element = assembly_.geometry(constraint.first);
+            const GeometryElement& second_element = assembly_.geometry(*constraint.second);
+            const WorldGeometry first =
+                world_geometry(first_element, bodies[assembly_.body_index(first_element.body_id)]);
+            const WorldGeometry second = world_geometry(
+                second_element, bodies[assembly_.body_index(second_element.body_id)]);
+            const EquationDefinition definition = equation_definition(constraint, first, second);
+            auto local_second_direction = [&](const Vec3& local) {
+                const std::size_t second_body = assembly_.body_index(second_element.body_id);
+                const Vector3 world_value = direction(bodies[second_body], local,
+                                                      "angle branch direction");
+                DifferentialVector differentiated = vector(world_value, variables);
+                const std::size_t cluster_index = assembly_.cluster_index(second_element.body_id);
+                const auto found = std::find(free_cluster_indices_.begin(),
+                                             free_cluster_indices_.end(), cluster_index);
+                if (found != free_cluster_indices_.end()) {
+                    const Eigen::Index column = static_cast<Eigen::Index>(
+                        std::distance(free_cluster_indices_.begin(), found) * 6 + 3);
+                    differentiated.derivative.block<3, 3>(0, column) = -skew(world_value);
+                }
+                return differentiated;
+            };
+            std::optional<DifferentialVector> reference;
+            if (constraint.angle_reference_direction)
+                reference = local_second_direction(*constraint.angle_reference_direction);
+            std::optional<DifferentialVector> unsigned_axis;
+            if (assembly_.branch(constraint_index).unsigned_angle_axis_in_second)
+                unsigned_axis = local_second_direction(
+                    *assembly_.branch(constraint_index).unsigned_angle_axis_in_second);
+            const Eigen::MatrixXd block = differential_residual(
+                constraint, differentiated_geometry(first_element),
+                differentiated_geometry(second_element), assembly_.branch(constraint_index),
+                assembly_.options(), reference, unsigned_axis);
+            if (block.rows() != static_cast<Eigen::Index>(definition.kinds.size()))
+                throw std::logic_error("analytic Jacobian row count does not match equation registry");
+            result.middleRows(row, block.rows()) = block;
+            row += static_cast<Eigen::Index>(definition.kinds.size());
+        }
+        if (assembly_.options().verify_analytic_jacobians) {
+            const Eigen::MatrixXd reference = finite_difference_jacobian(state, residual);
+            if (result.size() == 0)
+                return result;
+            const double scale = std::max(1.0, reference.cwiseAbs().maxCoeff());
+            const double error = (result - reference).cwiseAbs().maxCoeff();
+            if (error > assembly_.options().jacobian_check_tolerance * scale)
+                throw std::runtime_error("analytic Jacobian differential check failed: error=" +
+                                         std::to_string(error) +
+                                         " scale=" + std::to_string(scale));
         }
         return result;
     }
@@ -1311,17 +1766,20 @@ ComponentSolution solve_component(const ComponentProblem& problem, const SolverO
         const Eigen::MatrixXd jacobian = problem.jacobian(result.state, residual);
         const Vector constraint_gradient = jacobian.transpose() * residual;
         const Vector gradient = constraint_gradient + problem.preference_gradient(result.state);
-        Eigen::MatrixXd normal = jacobian.transpose() * jacobian;
-        normal.diagonal().array() += problem.preference_diagonal().array();
-        normal.diagonal().array() += damping;
-        Eigen::LDLT<Eigen::MatrixXd> decomposition(normal);
-        if (decomposition.info() != Eigen::Success)
-            return {SolveStatus::NumericalFailure, result.state, iteration,
-                    "LM normal-equation decomposition failed"};
-        const Vector step = decomposition.solve(-gradient);
-        if (decomposition.info() != Eigen::Success)
-            return {SolveStatus::NumericalFailure, result.state, iteration,
-                    "LM normal-equation solve failed"};
+        const Vector diagonal = problem.preference_diagonal().array() + damping;
+        Eigen::MatrixXd augmented(jacobian.rows() + jacobian.cols(), jacobian.cols());
+        augmented.topRows(jacobian.rows()) = jacobian;
+        augmented.bottomRows(jacobian.cols()).setZero();
+        Vector right_hand_side(residual.size() + jacobian.cols());
+        right_hand_side.head(residual.size()) = -residual;
+        for (Eigen::Index index = 0; index < jacobian.cols(); ++index) {
+            const double scale = std::sqrt(diagonal[index]);
+            augmented(jacobian.rows() + index, index) = scale;
+            right_hand_side[residual.size() + index] =
+                -problem.preference_gradient(result.state)[index] / scale;
+        }
+        Eigen::ColPivHouseholderQR<Eigen::MatrixXd> decomposition(augmented);
+        const Vector step = decomposition.solve(right_hand_side);
         if (!step.allFinite())
             return {SolveStatus::NumericalFailure, result.state, iteration,
                     "linear solve produced a non-finite step"};
@@ -1384,6 +1842,60 @@ Eigen::MatrixXd rank_normalized(Eigen::MatrixXd matrix, const double absolute_to
     return matrix;
 }
 
+struct NullSpaceAnalysis {
+    std::size_t rank{};
+    std::vector<std::vector<double>> basis;
+    std::vector<double> singular_values;
+    double threshold{};
+};
+
+NullSpaceAnalysis analyze_null_space(const Eigen::MatrixXd& matrix,
+                                     const SolverOptions& options) {
+    NullSpaceAnalysis result;
+    if (matrix.cols() == 0)
+        return result;
+    const double absolute =
+        options.rank_tolerance > 0.0 ? options.rank_tolerance : options.rank_absolute_tolerance;
+    if (matrix.rows() == 0) {
+        result.threshold = absolute;
+        for (Eigen::Index column = 0; column < matrix.cols(); ++column) {
+            std::vector<double> vector(static_cast<std::size_t>(matrix.cols()), 0.0);
+            vector[static_cast<std::size_t>(column)] = 1.0;
+            result.basis.push_back(std::move(vector));
+        }
+        return result;
+    }
+    Eigen::VectorXd scales(matrix.cols());
+    Eigen::MatrixXd normalized_matrix = matrix;
+    for (Eigen::Index column = 0; column < matrix.cols(); ++column) {
+        scales[column] = matrix.col(column).norm();
+        if (scales[column] > absolute)
+            normalized_matrix.col(column) /= scales[column];
+        else
+            scales[column] = 1.0;
+    }
+    Eigen::JacobiSVD<Eigen::MatrixXd> decomposition(normalized_matrix, Eigen::ComputeFullV);
+    for (Eigen::Index index = 0; index < decomposition.singularValues().size(); ++index)
+        result.singular_values.push_back(decomposition.singularValues()[index]);
+    const double largest = decomposition.singularValues().size() == 0
+                               ? 0.0
+                               : decomposition.singularValues()[0];
+    result.threshold = std::max(absolute, options.rank_relative_tolerance * largest);
+    result.rank = static_cast<std::size_t>(
+        (decomposition.singularValues().array() > result.threshold).count());
+    for (Eigen::Index column = static_cast<Eigen::Index>(result.rank);
+         column < decomposition.matrixV().cols(); ++column) {
+        Eigen::VectorXd vector = decomposition.matrixV().col(column).cwiseQuotient(scales);
+        if (vector.norm() > absolute)
+            vector.normalize();
+        std::vector<double> values(static_cast<std::size_t>(vector.size()));
+        for (Eigen::Index index = 0; index < vector.size(); ++index)
+            values[static_cast<std::size_t>(index)] = vector[index];
+        result.basis.push_back(std::move(values));
+    }
+    return result;
+}
+
 std::size_t matrix_rank(const Eigen::MatrixXd& matrix, const SolverOptions& options) {
     if (matrix.rows() == 0 || matrix.cols() == 0)
         return 0;
@@ -1424,7 +1936,7 @@ std::vector<ConstraintRankInfo> constraint_rank_info(const ComponentProblem& pro
                                             ? ConstraintRankRole::PartiallyRedundant
                                             : ConstraintRankRole::Independent;
         result.push_back({block.id, static_cast<std::size_t>(block.values.size()), effective_rank,
-                          incremental_rank, role});
+                          incremental_rank, block.declared_generic_rank, role});
         if (incremental_rank != 0) {
             accepted = std::move(candidate);
             accepted_rank = candidate_rank;
@@ -1463,7 +1975,9 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly,
                          (tolerance_options.length_tolerance / assembly.options().length_scale),
                      residual.tail<3>().norm() /
                          (tolerance_options.angle_tolerance / assembly.options().angle_scale));
-        return {constraint.id, std::move(residual), std::move(tolerances), ratio};
+        return {constraint.id, std::move(residual), std::move(tolerances), ratio,
+                {"FIX_TRANSLATION_X", "FIX_TRANSLATION_Y", "FIX_TRANSLATION_Z",
+                 "FIX_ROTATION_X", "FIX_ROTATION_Y", "FIX_ROTATION_Z"}, 6};
     }
     if (constraint.kind == ConstraintKind::Rigid) {
         const Pose& first = body_poses[assembly.body_index(constraint.first.body_id)];
@@ -1485,7 +1999,9 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly,
                          (tolerance_options.length_tolerance / assembly.options().length_scale),
                      residual.tail<3>().norm() /
                          (tolerance_options.angle_tolerance / assembly.options().angle_scale));
-        return {constraint.id, std::move(residual), std::move(tolerances), ratio};
+        return {constraint.id, std::move(residual), std::move(tolerances), ratio,
+                {"RIGID_TRANSLATION_X", "RIGID_TRANSLATION_Y", "RIGID_TRANSLATION_Z",
+                 "RIGID_ROTATION_X", "RIGID_ROTATION_Y", "RIGID_ROTATION_Z"}, 6};
     }
     const GeometryElement& first_element = assembly.geometry(constraint.first);
     const GeometryElement& second_element = assembly.geometry(*constraint.second);
@@ -1505,9 +2021,13 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly,
                   eigen(*branch.unsigned_angle_axis_in_second));
     Eigen::VectorXd residual =
         constraint_residual(evaluated, first, second, assembly.options(), &branch);
+    const EquationDefinition definition = equation_definition(evaluated, first, second);
+    if (definition.kinds.size() != static_cast<std::size_t>(residual.size()))
+        throw std::logic_error("equation registry row count does not match residual block");
     return {constraint.id, residual,
             constraint_tolerances(evaluated, first, second, tolerance_options),
-            satisfaction_ratio(evaluated, first, second, residual, tolerance_options, &branch)};
+            satisfaction_ratio(evaluated, first, second, residual, tolerance_options, &branch),
+            definition.kinds, definition.generic_rank};
 }
 
 std::string connection_id(const Constraint& constraint) {
@@ -1568,7 +2088,8 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
 
             const Vector residual = problem.residual(solution.state);
             const Eigen::MatrixXd jacobian = problem.jacobian(solution.state, residual);
-            const std::size_t rank = matrix_rank(jacobian, options);
+            const NullSpaceAnalysis null_space = analyze_null_space(jacobian, options);
+            const std::size_t rank = null_space.rank;
             const std::size_t variables = problem.logical_parameter_count();
             const std::size_t gauge = problem.gauge_dof();
             const std::size_t relative = problem.relative_dof(rank);
@@ -1580,6 +2101,12 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
             component_dof.relative_dof = relative;
             component_dof.gauge_dof = gauge;
             component_dof.solved = component.selected;
+            component_dof.null_space_basis = null_space.basis;
+            component_dof.singular_values = null_space.singular_values;
+            component_dof.rank_threshold = null_space.threshold;
+            for (const std::size_t cluster_index : problem.free_clusters())
+                component_dof.tangent_cluster_ids.push_back(
+                    assembly.clusters()[cluster_index].id);
             for (const std::size_t cluster_index : component.cluster_indices) {
                 for (const std::size_t body : assembly.clusters()[cluster_index].body_indices)
                     component_dof.body_ids.push_back(model.bodies[body].id);
@@ -1619,7 +2146,7 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
                 squared_residual += block.values.squaredNorm();
             for (Eigen::Index equation = 0; equation < block.values.size(); ++equation) {
                 result.equation_residuals.push_back(
-                    {constraint.id + "/equation/" + std::to_string(equation),
+                    {constraint.id + "/equation/" + block.equation_kinds[static_cast<std::size_t>(equation)],
                      connection_id(constraint), constraint.id, static_cast<std::size_t>(equation),
                      block.values[equation]});
             }

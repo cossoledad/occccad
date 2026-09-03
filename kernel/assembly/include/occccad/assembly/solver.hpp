@@ -149,6 +149,12 @@ struct SolverOptions {
     double neutral_preference_weight{1.0e-12};
     double reference_preference_weight{1.0e-8};
     std::size_t max_conflict_probes{16};
+#ifdef NDEBUG
+    bool verify_analytic_jacobians{false};
+#else
+    bool verify_analytic_jacobians{true};
+#endif
+    double jacobian_check_tolerance{1.0e-5};
     // Empty solves every connected component. Otherwise only components
     // containing at least one listed body are numerically updated.
     std::vector<std::string> affected_body_ids;
@@ -186,6 +192,7 @@ struct ConstraintRankInfo {
     std::size_t equation_count{};
     std::size_t effective_rank{};
     std::size_t incremental_rank{};
+    std::size_t declared_generic_rank{};
     ConstraintRankRole role{ConstraintRankRole::Independent};
 };
 
@@ -210,6 +217,12 @@ struct ComponentDof {
     std::size_t relative_dof{};
     std::size_t gauge_dof{};
     bool solved{true};
+    // Stable free-cluster tangent ordering used by every basis vector. Each
+    // cluster contributes [tx, ty, tz, rx, ry, rz].
+    std::vector<std::string> tangent_cluster_ids;
+    std::vector<std::vector<double>> null_space_basis;
+    std::vector<double> singular_values;
+    double rank_threshold{};
 };
 
 struct SolveDiagnostic {

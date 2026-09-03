@@ -324,7 +324,13 @@ def performance_baseline(c, count=5):
             f"-benchmem -count={int(count)} | tee {target}",
             pty=True,
         )
+    assembly_target = "occcad_assembly_solver_benchmark"
+    c.run(f"cmake --build {_get_build_dir()} --target {assembly_target}", pty=True)
+    assembly_output = output / "assembly-solver.txt"
+    executable = _get_build_dir() / "kernel" / "assembly" / "tests" / assembly_target
+    c.run(f"{executable} | tee {assembly_output}", pty=True)
     print(f"[performance] Baseline written to {target}")
+    print(f"[performance] Assembly baseline written to {assembly_output}")
 
 
 # ---------------------------------------------------------------------------

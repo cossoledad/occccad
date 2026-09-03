@@ -5,7 +5,7 @@ The layered constraint-manager target, external design references and phased
 implementation plan are documented in
 [`SOLVER_ARCHITECTURE.md`](SOLVER_ARCHITECTURE.md).
 The equations, graph compilation, numerical iteration and diagnostic algorithms
-actually used by the current M1.7 implementation are recorded separately in
+actually used by the current M2 implementation are recorded separately in
 [`SOLVER_ALGORITHMS.md`](SOLVER_ALGORITHMS.md).
 
 `occccad_assembly_solver` is the standalone algorithm module for 3D assembly
@@ -58,14 +58,18 @@ components touched by an interaction or edit.
 constraint asymmetry. For a binary constraint the Product adapter treats the first
 selection as moving and the second as reference. `MoveFirstMinimizeReference` keeps
 a reference cluster exactly at its nominal pose when an otherwise ungrounded
-component needs a six-DOF gauge anchor; it does not create a physical `Fix`. M1.7
+component needs a six-DOF gauge anchor; it does not create a physical `Fix`. M2
 also assigns weak cluster-level motion weights in grounded or otherwise non-unique
 solutions. Strict hierarchical minimum-reference motion still requires null-space
 optimization.
 
-Each selected component uses deterministic damped least squares with separate
-translation/rotation central-difference steps. Column-normalized SVD reports
-relative and six-dimensional gauge freedom separately. Incremental block-rank
+Each selected component uses deterministic damped least squares whose linearized
+step is solved as an augmented QR problem without forming normal equations. Typed
+compiled equations provide forward analytic derivatives in the stable cluster
+tangent ordering; optional central differences are a conformance oracle. Column-
+normalized SVD reports relative and six-dimensional gauge freedom separately and
+returns the numeric null-space basis, singular values and applied threshold.
+Incremental block-rank
 analysis reports equation count, effective rank and chosen-basis incremental rank;
 failed components may run bounded single-constraint removal probes. Stable equation
 IDs map every residual row back to its Connection and Constraint. Every component
@@ -79,9 +83,10 @@ exposes wrapped/unwrapped/winding branch state. Direction, distance-side and ang
 branches are frozen outside residual evaluation. The versioned SolverProfile and
 rank/branch/suspected-conflict diagnostics cross the Proto, Worker and Go boundary.
 
-M1.7 intentionally does not yet provide analytic Jacobians, interpreted null-space
-directions, minimal conflict sets, global discrete branch candidates or a drag
-objective. Those are M2/M3 concerns. OCCT extraction and persistent topology
+M2 intentionally does not yet interpret raw null-space vectors as user-facing
+translation/rotation/screw freedoms, provide strict hierarchical pose selection,
+minimal conflict sets, global discrete branch candidates or a drag objective.
+Those are M2.5 and later concerns. OCCT extraction and persistent topology
 references remain in adapters, never in this solver library.
 
 Build and run the focused scenarios with:
@@ -100,3 +105,7 @@ and cold/warm-start equivalence. Run it independently with:
 cmake --build build/cmake/debug --target occcad_assembly_solver_corpus
 ctest --test-dir build/cmake/debug -R '^assembly-corpus/' --output-on-failure
 ```
+
+Run the deterministic dense-backend baseline with
+`invoke performance-baseline`; the assembly result is written to
+`build/performance/assembly-solver.txt`.

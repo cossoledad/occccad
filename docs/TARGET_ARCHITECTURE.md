@@ -4083,7 +4083,9 @@ flowchart TD
 9. 求解失败不改变 Workspace；已有 Revision 仍可加载并显示 failed/broken connection；
 10. Solver 只输出 Pose/DOF/diagnostic，不生成或修改 B-Rep。
 
-当前已落地的 M1/M1.5/M1.6/M1.7 算法基线位于 `kernel/assembly`：它以纯值类型表达刚体和 Point/Axis/Plane/Cylinder descriptor，先合并 Rigid cluster、消元 Fix/Ground，再按 constraint graph connected component 在 `SE(3)` 局部增量上执行 dense 阻尼最小二乘。M1.7 使用独立平移/旋转中央差分、列归一化 SVD rank、几何 satisfaction metric，并返回 equation provenance、relative/gauge DOF 以及每约束 effective/incremental rank。Directed Angle 先投影到 reference-axis 法平面，所有 Angle 在 0/π 仍保持一个标量方程并使用周期误差；request 可输入/输出 wrapped、unwrapped 与 winding branch state。SolveIntent 除无物理 ground 的 reference gauge 外，还通过 cluster 层弱运动正则影响多解运动分配，同一 rigid cluster 的 moving/reference 冲突会被拒绝。一般超差驻点保持 `Unsatisfied`；有限单约束禁用探针只返回 suspected conflict，不声称 IIS/MUS。该库仍刻意不依赖 OCCT、Product 和持久拓扑标识；首个 Product adapter 已能把直接 Part occurrence 的 Datum/AxisSystem 引用以及当前 Revision 的平面/圆柱面选择解析为局部描述符，并经正式 Router 的 `SolveAssembly` RPC 提交权威 Pose。面选择目前以 geometryKey 和 topology local ID 绑定不可变制品并由服务端重新查询 OCCT 属性；它不是跨特征重算的稳定命名，仍须演进为 PersistentSelection/Publication adapter。下一门槛是 M2 的解析 Jacobian、null-space basis 和可解释 DOF；严格层级 minimum-motion、持久 solver session、sparse backend 与工业级冲突集仍属于后续阶段。
+当前已落地的 M1 至 M2 算法基线位于 `kernel/assembly`：它以纯值类型表达刚体和 Point/Axis/Plane/Cylinder descriptor，先合并 Rigid cluster、消元 Fix/Ground，再按 constraint graph connected component 在 `SE(3)` 左增量上执行 dense 阻尼最小二乘。M2 以内部 typed equation registry 赋予当前方程 semantic equation identity 和 declared generic rank，以前向解析微分生成 Jacobian，中央有限差分仅作为可配置 conformance oracle；阻尼线性化系统由 augmented QR 直接求解，不形成 `J^T J`。列归一化 SVD 返回数值 null-space basis、稳定 cluster tangent ordering、奇异值/阈值、relative/gauge DOF 以及每约束 effective/incremental rank。Directed Angle 先投影到 reference-axis 法平面，所有 Angle 在 0/π 仍保持一个标量方程并使用周期误差；request 可输入/输出 wrapped、unwrapped 与 winding branch state。SolveIntent 除无物理 ground 的 reference gauge 外，还通过 cluster 层弱运动正则影响多解运动分配，同一 rigid cluster 的 moving/reference 冲突会被拒绝。一般超差驻点保持 `Unsatisfied`；有限单约束禁用探针只返回 suspected conflict，不声称 IIS/MUS。该库仍刻意不依赖 OCCT、Product 和持久拓扑标识；首个 Product adapter 已能把直接 Part occurrence 的 Datum/AxisSystem 引用以及当前 Revision 的平面/圆柱面选择解析为局部描述符，并经正式 Router 的 `SolveAssembly` RPC 提交权威 Pose。面选择目前以 geometryKey 和 topology local ID 绑定不可变制品并由服务端重新查询 OCCT 属性；它不是跨特征重算的稳定命名，仍须演进为 PersistentSelection/Publication adapter。
+
+M2 及以后按风险和依赖拆成七个可验证门，而不是一次替换数值后端或扩张约束枚举：M2 已建立 typed equation registry、现有能力矩阵的解析 Jacobian、中央差分 differential oracle、augmented QR 线性求解和带 provenance 的数值 null-space；M2.5 再把 null-space 稳定解释为平移/旋转/耦合自由度，并以层级零空间优化替换弱运动权重；M3 在控制面冻结包含 typed InstancePath、ResolutionSnapshot、Publication/PersistentSelection、descriptor symmetry、branch、tolerance 和 solver build 的可重放 manifest；M4 才用该稳定输入与 null-space 实现显式 DirectedAngle、preview branch snapshot 和不依赖临时 Fix 的约束流形拖拽；M5 建设局部化且证据分级的冲突解释；M6 扩展 Engineering Connection 和新几何/约束；M7 根据代表性 benchmark 决定 block-sparse、增量 factorization、可选 backend 及是否拆出独立 Assembly Worker。每一门的详细验收见 `kernel/assembly/SOLVER_ARCHITECTURE.md`。
 
 装配 LM 对所有 component 使用统一的有界二分回溯，而不是按约束种类选择是否线搜索。方向与支持点位置在 `SE(3)` 下耦合，远离 cluster 原点的 Plane 支持会使完整候选步上升，但较小步仍然下降；因此回溯是连续求解器的通用 globalization 机制，不是 Directed Angle 的特殊补丁。
 
@@ -4650,30 +4652,30 @@ occurrencePath string       -> derived display form of typed InstancePath
 
 ```mermaid
 flowchart LR
-    A0["A0 Product identity<br/>SE(3), InstancePath, snapshots"] --> A1["A1 Publications + rigid connections"]
-    A1 --> A2["A2 Assembly Solver<br/>DOF, drag, diagnostics"]
-    A2 --> A3["A3 DMU Space<br/>clash, clearance, measure, section"]
-    A3 --> A4["A4 Flexible + configuration<br/>BOM, context design"]
-    A4 --> A5["A5 Kinematics<br/>joints, laws, traces"]
-    A5 --> A6["A6 Basic Dynamics<br/>forces, contacts, FMI"]
-    A6 --> A7["A7 Large-scale validation<br/>100k+ occurrences"]
+    A0["A0 Current M2 slice<br/>direct Part + differential core"] --> A1["A1 Freedom semantics<br/>M2.5"]
+    A1 --> A2["A2 Replayable assembly input<br/>M3"]
+    A2 --> A3["A3 Constrained interaction<br/>M4 + M5"]
+    A3 --> A4["A4 Engineering Connections<br/>M6"]
+    A4 --> A5["A5 DMU + flexible/configuration"]
+    A5 --> A6["A6 Kinematics + dynamics"]
+    A6 --> A7["A7 Scale and distributed validation<br/>M7 / 100k+ occurrences"]
 ```
 
-**A0**：完整 SE(3)、typed InstancePath、ReferenceSelector/ResolutionSnapshot、递归/权限/环检查和旧 Product adapter。
+**A0（当前）**：直接 Part occurrence、完整 SE(3) Pose、Fix/Rigid/Coincident/Concentric/Angle/Distance、rigid cluster、component、typed equations、解析 Jacobian、augmented QR、数值 null-space、正式 Router、预览和原子 CAS；引用仍是 datum 或 Revision-bound topology local ID，移动目标仍通过临时 Fix。
 
-**A1**：Part/Product Publication、Connector、Fix/Coincidence/Contact/Offset/Angle、Rigid Connection 和 descriptor resolver。
+**A1**：把数值 null-space 解释为可验证的平移/旋转/耦合自由度，并实现严格层级 pose preference。此阶段不增加 Product 工具按钮。
 
-**A2**：SE(3) Solver、rigid cluster、constraint graph、DOF/rank/conflict、under-constrained drag、原子 CAS。
+**A2**：typed InstancePath、ResolutionSnapshot、Publication/PersistentSelection、descriptor symmetry/provenance 和不可变 SolveManifest；支持嵌套 rigid Product，删除当前开发期 direct-Part/topology-ID 旁路。
 
-**A3**：多精度 representations、BVH、clash/contact/clearance、exact refinement、测量、剖切、持久 issue。
+**A3**：显式 DirectedAngle branch、preview/warm-start snapshot、约束流形 Drag、allowed/blocked direction，以及有预算、证据分级的局部冲突解释。
 
-**A4**：Configuration/effectivity、BOM、Replace、in-context design、Flexible Subassembly 和 per-occurrence override。
+**A4**：Frame/Connector Publication、Offset/Parallel/Perpendicular、定位 Contact 子集，以及 rigid/revolute/prismatic/cylindrical/planar Engineering Connection；声明类型必须由实际 DOF 验证。
 
-**A5**：Mechanism、P0/P1 joints、FK/IK、closed loop、driver/law、limits、trace、swept envelope、motion DMU probes。
+**A5**：多精度 representation、BVH、clash/contact/clearance、测量/剖切/持久 issue；随后接 Configuration/effectivity、BOM、Replace、in-context design、Flexible Subassembly 与 per-occurrence override。
 
-**A6**：质量惯量、基础刚体动力学、spring/damper/contact、Run artifact 和 FMI sandbox/co-simulation。
+**A6**：Mechanism、FK/IK、closed loop、driver/law、limits、trace、swept envelope 和 motion DMU；再增加质量惯量、基础刚体动力学、spring/damper/contact、Run artifact 与 FMI sandbox/co-simulation。静态 placement 的 angle winding 不替代运动状态。
 
-**A7**：大装配流式加载、分区分析、分布式 DMU batch、长期数值稳定性和发布质量门。
+**A7**：先以代表性 connected-component benchmark 决定 block-sparse、增量 factorization 和 backend；再做大装配流式加载、分区分析、分布式 DMU batch、长期数值稳定性与发布质量门。没有负载/隔离证据前，Assembly 继续作为 Geometry Worker 内的粗粒度库调用。
 
 装配能力的 Definition of Done：typed identity/path、不可变 dependency snapshot、完整 Transform、Publication contract、Constraint 方程/Jacobian、DOF/冲突诊断、flexible semantics、幂等命令、资源/cancel、DMU fidelity、持久 issue、simulation provenance、测试 corpus 和旧数据迁移全部存在。只把零件拖到看起来正确的位置、播放一段动画或用 mesh 检出一次碰撞，不算 CATIA 级装配能力。
 
@@ -5147,18 +5149,20 @@ flowchart LR
 
 ### 19.1 当前推荐主线
 
-近期工作首先落实 4.3 的 C0–C4，并用空数据重建后的 Rectangle Sketch → Pad → Product Instance 垂直切片验证唯一基线；随后按 5.3、5.4 和 5.7 扩展通用草图、Feature 与持久拓扑身份。共享对象存储、跨主机 Scheduler 和高级装配建立在可重放 Revision/EvaluationManifest 之上，不能反过来成为模型正确性的前置大工程。
+4.3 的 C0–C4、通用 Sketch/Part 第一批能力和 Product M2 装配求解闭环已经形成当前开发基线。近期主线继续强化 5.3、5.4 和 5.7 的参数模型、Feature 与持久拓扑身份；装配算法下一门是 M2.5 自由度解释与层级解选择，但 Product 装配引用必须等待并复用 PersistentSelection/Publication，随后按 M3–M6 接入可重放 manifest、约束流形交互、诊断和 Engineering Connection。共享对象存储、跨主机 Scheduler 和稀疏/独立 Assembly Worker 都由制品共享、负载和 benchmark 证据触发，不能反过来成为模型正确性的前置大工程。
 
 ```mermaid
 flowchart LR
-    Legacy["现有可运行切片"] --> Core["Command / ChangeSet<br/>Parameter / Dependency core"]
-    Core --> Sketch["通用 Sketch + Constraint"]
-    Sketch --> Part["Typed Part Feature + Topology"]
-    Part --> Artifact["Shared artifacts + durable evaluation"]
+    Baseline["当前基线<br/>C0-C4 + Sketch/Part + Assembly M2"] --> Part["参数模型 + Feature<br/>Persistent topology"]
+    Baseline --> M2["Assembly M2.5<br/>interpreted freedoms"]
+    Part --> Manifest["Assembly M3<br/>replayable manifest"]
+    M2 --> Manifest
+    Manifest --> Interaction["Assembly M4-M6<br/>drag + diagnostics + connections"]
+    Part --> Artifact["Shared artifacts<br/>durable evaluation"]
     Artifact --> Distributed["Cross-host scheduler"]
-    Part --> Assembly["Product / Assembly / DMU"]
-    Distributed --> Assembly
-    Assembly --> Ecosystem["Drawing / CAM / CAE / Plugins"]
+    Interaction --> DMU["DMU / Flexible<br/>Kinematics / Dynamics"]
+    Distributed --> Scale["Measured scale-out<br/>Assembly M7"]
+    DMU --> Ecosystem["Drawing / CAM / CAE / Plugins"]
 ```
 
 当前未发布阶段的每一箭头直接切换到唯一实现并重建开发数据；建立发布基线后才通过兼容 adapter 逐步切换并保证旧 Revision 可读。可以并行研究后续算法和原型，但进入产品主线的数据模型不得跳过其上游平台契约。

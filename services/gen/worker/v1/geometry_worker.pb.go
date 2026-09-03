@@ -4555,14 +4555,18 @@ func (x *AssemblyEquationResidual) GetNormalizedValue() float64 {
 }
 
 type AssemblyComponentDof struct {
-	state                protoimpl.MessageState `protogen:"open.v1"`
-	ComponentId          string                 `protobuf:"bytes,1,opt,name=component_id,json=componentId,proto3" json:"component_id,omitempty"`
-	BodyIds              []string               `protobuf:"bytes,2,rep,name=body_ids,json=bodyIds,proto3" json:"body_ids,omitempty"`
-	TangentVariableCount uint64                 `protobuf:"varint,3,opt,name=tangent_variable_count,json=tangentVariableCount,proto3" json:"tangent_variable_count,omitempty"`
-	JacobianRank         uint64                 `protobuf:"varint,4,opt,name=jacobian_rank,json=jacobianRank,proto3" json:"jacobian_rank,omitempty"`
-	RelativeDof          uint64                 `protobuf:"varint,5,opt,name=relative_dof,json=relativeDof,proto3" json:"relative_dof,omitempty"`
-	GaugeDof             uint64                 `protobuf:"varint,6,opt,name=gauge_dof,json=gaugeDof,proto3" json:"gauge_dof,omitempty"`
-	Solved               bool                   `protobuf:"varint,7,opt,name=solved,proto3" json:"solved,omitempty"`
+	state                protoimpl.MessageState   `protogen:"open.v1"`
+	ComponentId          string                   `protobuf:"bytes,1,opt,name=component_id,json=componentId,proto3" json:"component_id,omitempty"`
+	BodyIds              []string                 `protobuf:"bytes,2,rep,name=body_ids,json=bodyIds,proto3" json:"body_ids,omitempty"`
+	TangentVariableCount uint64                   `protobuf:"varint,3,opt,name=tangent_variable_count,json=tangentVariableCount,proto3" json:"tangent_variable_count,omitempty"`
+	JacobianRank         uint64                   `protobuf:"varint,4,opt,name=jacobian_rank,json=jacobianRank,proto3" json:"jacobian_rank,omitempty"`
+	RelativeDof          uint64                   `protobuf:"varint,5,opt,name=relative_dof,json=relativeDof,proto3" json:"relative_dof,omitempty"`
+	GaugeDof             uint64                   `protobuf:"varint,6,opt,name=gauge_dof,json=gaugeDof,proto3" json:"gauge_dof,omitempty"`
+	Solved               bool                     `protobuf:"varint,7,opt,name=solved,proto3" json:"solved,omitempty"`
+	TangentClusterIds    []string                 `protobuf:"bytes,8,rep,name=tangent_cluster_ids,json=tangentClusterIds,proto3" json:"tangent_cluster_ids,omitempty"`
+	NullSpaceBasis       []*AssemblyTangentVector `protobuf:"bytes,9,rep,name=null_space_basis,json=nullSpaceBasis,proto3" json:"null_space_basis,omitempty"`
+	SingularValues       []float64                `protobuf:"fixed64,10,rep,packed,name=singular_values,json=singularValues,proto3" json:"singular_values,omitempty"`
+	RankThreshold        float64                  `protobuf:"fixed64,11,opt,name=rank_threshold,json=rankThreshold,proto3" json:"rank_threshold,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -4646,6 +4650,78 @@ func (x *AssemblyComponentDof) GetSolved() bool {
 	return false
 }
 
+func (x *AssemblyComponentDof) GetTangentClusterIds() []string {
+	if x != nil {
+		return x.TangentClusterIds
+	}
+	return nil
+}
+
+func (x *AssemblyComponentDof) GetNullSpaceBasis() []*AssemblyTangentVector {
+	if x != nil {
+		return x.NullSpaceBasis
+	}
+	return nil
+}
+
+func (x *AssemblyComponentDof) GetSingularValues() []float64 {
+	if x != nil {
+		return x.SingularValues
+	}
+	return nil
+}
+
+func (x *AssemblyComponentDof) GetRankThreshold() float64 {
+	if x != nil {
+		return x.RankThreshold
+	}
+	return 0
+}
+
+type AssemblyTangentVector struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []float64              `protobuf:"fixed64,1,rep,packed,name=values,proto3" json:"values,omitempty"` // [tx,ty,tz,rx,ry,rz] per tangent_cluster_ids entry
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AssemblyTangentVector) Reset() {
+	*x = AssemblyTangentVector{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[63]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssemblyTangentVector) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssemblyTangentVector) ProtoMessage() {}
+
+func (x *AssemblyTangentVector) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[63]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssemblyTangentVector.ProtoReflect.Descriptor instead.
+func (*AssemblyTangentVector) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{63}
+}
+
+func (x *AssemblyTangentVector) GetValues() []float64 {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
 type AssemblySolveDiagnostic struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Code          string                 `protobuf:"bytes,1,opt,name=code,proto3" json:"code,omitempty"`
@@ -4659,7 +4735,7 @@ type AssemblySolveDiagnostic struct {
 
 func (x *AssemblySolveDiagnostic) Reset() {
 	*x = AssemblySolveDiagnostic{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[63]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4671,7 +4747,7 @@ func (x *AssemblySolveDiagnostic) String() string {
 func (*AssemblySolveDiagnostic) ProtoMessage() {}
 
 func (x *AssemblySolveDiagnostic) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[63]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4684,7 +4760,7 @@ func (x *AssemblySolveDiagnostic) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssemblySolveDiagnostic.ProtoReflect.Descriptor instead.
 func (*AssemblySolveDiagnostic) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{63}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *AssemblySolveDiagnostic) GetCode() string {
@@ -4733,7 +4809,7 @@ type AssemblySolveIntent struct {
 
 func (x *AssemblySolveIntent) Reset() {
 	*x = AssemblySolveIntent{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[64]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4745,7 +4821,7 @@ func (x *AssemblySolveIntent) String() string {
 func (*AssemblySolveIntent) ProtoMessage() {}
 
 func (x *AssemblySolveIntent) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[64]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4758,7 +4834,7 @@ func (x *AssemblySolveIntent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssemblySolveIntent.ProtoReflect.Descriptor instead.
 func (*AssemblySolveIntent) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{64}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *AssemblySolveIntent) GetMovingBodyIds() []string {
@@ -4793,7 +4869,7 @@ type AssemblyAngleBranchState struct {
 
 func (x *AssemblyAngleBranchState) Reset() {
 	*x = AssemblyAngleBranchState{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[65]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4805,7 +4881,7 @@ func (x *AssemblyAngleBranchState) String() string {
 func (*AssemblyAngleBranchState) ProtoMessage() {}
 
 func (x *AssemblyAngleBranchState) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[65]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4818,7 +4894,7 @@ func (x *AssemblyAngleBranchState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssemblyAngleBranchState.ProtoReflect.Descriptor instead.
 func (*AssemblyAngleBranchState) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{65}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *AssemblyAngleBranchState) GetWrappedAngle() float64 {
@@ -4852,7 +4928,7 @@ type AssemblySolvedAngleBranch struct {
 
 func (x *AssemblySolvedAngleBranch) Reset() {
 	*x = AssemblySolvedAngleBranch{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[66]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[67]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4864,7 +4940,7 @@ func (x *AssemblySolvedAngleBranch) String() string {
 func (*AssemblySolvedAngleBranch) ProtoMessage() {}
 
 func (x *AssemblySolvedAngleBranch) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[66]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[67]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4877,7 +4953,7 @@ func (x *AssemblySolvedAngleBranch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssemblySolvedAngleBranch.ProtoReflect.Descriptor instead.
 func (*AssemblySolvedAngleBranch) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{66}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *AssemblySolvedAngleBranch) GetConstraintId() string {
@@ -4895,19 +4971,20 @@ func (x *AssemblySolvedAngleBranch) GetState() *AssemblyAngleBranchState {
 }
 
 type AssemblyConstraintRankInfo struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	ConstraintId    string                 `protobuf:"bytes,1,opt,name=constraint_id,json=constraintId,proto3" json:"constraint_id,omitempty"`
-	EquationCount   uint64                 `protobuf:"varint,2,opt,name=equation_count,json=equationCount,proto3" json:"equation_count,omitempty"`
-	EffectiveRank   uint64                 `protobuf:"varint,3,opt,name=effective_rank,json=effectiveRank,proto3" json:"effective_rank,omitempty"`
-	IncrementalRank uint64                 `protobuf:"varint,4,opt,name=incremental_rank,json=incrementalRank,proto3" json:"incremental_rank,omitempty"`
-	Role            string                 `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"` // INDEPENDENT, PARTIALLY_REDUNDANT, FULLY_REDUNDANT
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	state               protoimpl.MessageState `protogen:"open.v1"`
+	ConstraintId        string                 `protobuf:"bytes,1,opt,name=constraint_id,json=constraintId,proto3" json:"constraint_id,omitempty"`
+	EquationCount       uint64                 `protobuf:"varint,2,opt,name=equation_count,json=equationCount,proto3" json:"equation_count,omitempty"`
+	EffectiveRank       uint64                 `protobuf:"varint,3,opt,name=effective_rank,json=effectiveRank,proto3" json:"effective_rank,omitempty"`
+	IncrementalRank     uint64                 `protobuf:"varint,4,opt,name=incremental_rank,json=incrementalRank,proto3" json:"incremental_rank,omitempty"`
+	Role                string                 `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"` // INDEPENDENT, PARTIALLY_REDUNDANT, FULLY_REDUNDANT
+	DeclaredGenericRank uint64                 `protobuf:"varint,6,opt,name=declared_generic_rank,json=declaredGenericRank,proto3" json:"declared_generic_rank,omitempty"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *AssemblyConstraintRankInfo) Reset() {
 	*x = AssemblyConstraintRankInfo{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[67]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[68]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4919,7 +4996,7 @@ func (x *AssemblyConstraintRankInfo) String() string {
 func (*AssemblyConstraintRankInfo) ProtoMessage() {}
 
 func (x *AssemblyConstraintRankInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[67]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[68]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4932,7 +5009,7 @@ func (x *AssemblyConstraintRankInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssemblyConstraintRankInfo.ProtoReflect.Descriptor instead.
 func (*AssemblyConstraintRankInfo) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{67}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{68}
 }
 
 func (x *AssemblyConstraintRankInfo) GetConstraintId() string {
@@ -4970,6 +5047,13 @@ func (x *AssemblyConstraintRankInfo) GetRole() string {
 	return ""
 }
 
+func (x *AssemblyConstraintRankInfo) GetDeclaredGenericRank() uint64 {
+	if x != nil {
+		return x.DeclaredGenericRank
+	}
+	return 0
+}
+
 type AssemblySolverProfile struct {
 	state                           protoimpl.MessageState `protogen:"open.v1"`
 	SchemaVersion                   uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
@@ -4993,13 +5077,15 @@ type AssemblySolverProfile struct {
 	NeutralPreferenceWeight         float64                `protobuf:"fixed64,19,opt,name=neutral_preference_weight,json=neutralPreferenceWeight,proto3" json:"neutral_preference_weight,omitempty"`
 	ReferencePreferenceWeight       float64                `protobuf:"fixed64,20,opt,name=reference_preference_weight,json=referencePreferenceWeight,proto3" json:"reference_preference_weight,omitempty"`
 	MaxConflictProbes               uint64                 `protobuf:"varint,21,opt,name=max_conflict_probes,json=maxConflictProbes,proto3" json:"max_conflict_probes,omitempty"`
+	VerifyAnalyticJacobians         bool                   `protobuf:"varint,22,opt,name=verify_analytic_jacobians,json=verifyAnalyticJacobians,proto3" json:"verify_analytic_jacobians,omitempty"`
+	JacobianCheckTolerance          float64                `protobuf:"fixed64,23,opt,name=jacobian_check_tolerance,json=jacobianCheckTolerance,proto3" json:"jacobian_check_tolerance,omitempty"`
 	unknownFields                   protoimpl.UnknownFields
 	sizeCache                       protoimpl.SizeCache
 }
 
 func (x *AssemblySolverProfile) Reset() {
 	*x = AssemblySolverProfile{}
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[68]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5011,7 +5097,7 @@ func (x *AssemblySolverProfile) String() string {
 func (*AssemblySolverProfile) ProtoMessage() {}
 
 func (x *AssemblySolverProfile) ProtoReflect() protoreflect.Message {
-	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[68]
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5024,7 +5110,7 @@ func (x *AssemblySolverProfile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssemblySolverProfile.ProtoReflect.Descriptor instead.
 func (*AssemblySolverProfile) Descriptor() ([]byte, []int) {
-	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{68}
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *AssemblySolverProfile) GetSchemaVersion() uint32 {
@@ -5170,6 +5256,20 @@ func (x *AssemblySolverProfile) GetReferencePreferenceWeight() float64 {
 func (x *AssemblySolverProfile) GetMaxConflictProbes() uint64 {
 	if x != nil {
 		return x.MaxConflictProbes
+	}
+	return 0
+}
+
+func (x *AssemblySolverProfile) GetVerifyAnalyticJacobians() bool {
+	if x != nil {
+		return x.VerifyAnalyticJacobians
+	}
+	return false
+}
+
+func (x *AssemblySolverProfile) GetJacobianCheckTolerance() float64 {
+	if x != nil {
+		return x.JacobianCheckTolerance
 	}
 	return 0
 }
@@ -5589,7 +5689,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\rconnection_id\x18\x02 \x01(\tR\fconnectionId\x12#\n" +
 	"\rconstraint_id\x18\x03 \x01(\tR\fconstraintId\x12%\n" +
 	"\x0eequation_index\x18\x04 \x01(\x04R\requationIndex\x12)\n" +
-	"\x10normalized_value\x18\x05 \x01(\x01R\x0fnormalizedValue\"\x87\x02\n" +
+	"\x10normalized_value\x18\x05 \x01(\x01R\x0fnormalizedValue\"\xdb\x03\n" +
 	"\x14AssemblyComponentDof\x12!\n" +
 	"\fcomponent_id\x18\x01 \x01(\tR\vcomponentId\x12\x19\n" +
 	"\bbody_ids\x18\x02 \x03(\tR\abodyIds\x124\n" +
@@ -5597,7 +5697,14 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\rjacobian_rank\x18\x04 \x01(\x04R\fjacobianRank\x12!\n" +
 	"\frelative_dof\x18\x05 \x01(\x04R\vrelativeDof\x12\x1b\n" +
 	"\tgauge_dof\x18\x06 \x01(\x04R\bgaugeDof\x12\x16\n" +
-	"\x06solved\x18\a \x01(\bR\x06solved\"\xaa\x01\n" +
+	"\x06solved\x18\a \x01(\bR\x06solved\x12.\n" +
+	"\x13tangent_cluster_ids\x18\b \x03(\tR\x11tangentClusterIds\x12R\n" +
+	"\x10null_space_basis\x18\t \x03(\v2(.occccad.worker.v1.AssemblyTangentVectorR\x0enullSpaceBasis\x12'\n" +
+	"\x0fsingular_values\x18\n" +
+	" \x03(\x01R\x0esingularValues\x12%\n" +
+	"\x0erank_threshold\x18\v \x01(\x01R\rrankThreshold\"/\n" +
+	"\x15AssemblyTangentVector\x12\x16\n" +
+	"\x06values\x18\x01 \x03(\x01R\x06values\"\xaa\x01\n" +
 	"\x17AssemblySolveDiagnostic\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12!\n" +
 	"\fcomponent_id\x18\x02 \x01(\tR\vcomponentId\x12\x19\n" +
@@ -5614,13 +5721,15 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\awinding\x18\x03 \x01(\x03R\awinding\"\x83\x01\n" +
 	"\x19AssemblySolvedAngleBranch\x12#\n" +
 	"\rconstraint_id\x18\x01 \x01(\tR\fconstraintId\x12A\n" +
-	"\x05state\x18\x02 \x01(\v2+.occccad.worker.v1.AssemblyAngleBranchStateR\x05state\"\xce\x01\n" +
+	"\x05state\x18\x02 \x01(\v2+.occccad.worker.v1.AssemblyAngleBranchStateR\x05state\"\x82\x02\n" +
 	"\x1aAssemblyConstraintRankInfo\x12#\n" +
 	"\rconstraint_id\x18\x01 \x01(\tR\fconstraintId\x12%\n" +
 	"\x0eequation_count\x18\x02 \x01(\x04R\requationCount\x12%\n" +
 	"\x0eeffective_rank\x18\x03 \x01(\x04R\reffectiveRank\x12)\n" +
 	"\x10incremental_rank\x18\x04 \x01(\x04R\x0fincrementalRank\x12\x12\n" +
-	"\x04role\x18\x05 \x01(\tR\x04role\"\x8f\t\n" +
+	"\x04role\x18\x05 \x01(\tR\x04role\x122\n" +
+	"\x15declared_generic_rank\x18\x06 \x01(\x04R\x13declaredGenericRank\"\x85\n" +
+	"\n" +
 	"\x15AssemblySolverProfile\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12%\n" +
 	"\x0emax_iterations\x18\x02 \x01(\x04R\rmaxIterations\x12)\n" +
@@ -5643,7 +5752,9 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x18moving_preference_weight\x18\x12 \x01(\x01R\x16movingPreferenceWeight\x12:\n" +
 	"\x19neutral_preference_weight\x18\x13 \x01(\x01R\x17neutralPreferenceWeight\x12>\n" +
 	"\x1breference_preference_weight\x18\x14 \x01(\x01R\x19referencePreferenceWeight\x12.\n" +
-	"\x13max_conflict_probes\x18\x15 \x01(\x04R\x11maxConflictProbes2\xf8\t\n" +
+	"\x13max_conflict_probes\x18\x15 \x01(\x04R\x11maxConflictProbes\x12:\n" +
+	"\x19verify_analytic_jacobians\x18\x16 \x01(\bR\x17verifyAnalyticJacobians\x128\n" +
+	"\x18jacobian_check_tolerance\x18\x17 \x01(\x01R\x16jacobianCheckTolerance2\xf8\t\n" +
 	"\x0eGeometryWorker\x12G\n" +
 	"\x04Ping\x12\x1e.occccad.worker.v1.PingRequest\x1a\x1f.occccad.worker.v1.PingResponse\x12_\n" +
 	"\fEvaluatePart\x12&.occccad.worker.v1.EvaluatePartRequest\x1a'.occccad.worker.v1.EvaluatePartResponse\x12\\\n" +
@@ -5672,7 +5783,7 @@ func file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP() []byte {
 	return file_occccad_worker_v1_geometry_worker_proto_rawDescData
 }
 
-var file_occccad_worker_v1_geometry_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 69)
+var file_occccad_worker_v1_geometry_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 70)
 var file_occccad_worker_v1_geometry_worker_proto_goTypes = []any{
 	(*Vec2)(nil),                       // 0: occccad.worker.v1.Vec2
 	(*Quaternion)(nil),                 // 1: occccad.worker.v1.Quaternion
@@ -5737,12 +5848,13 @@ var file_occccad_worker_v1_geometry_worker_proto_goTypes = []any{
 	(*Vec3)(nil),                       // 60: occccad.worker.v1.Vec3
 	(*AssemblyEquationResidual)(nil),   // 61: occccad.worker.v1.AssemblyEquationResidual
 	(*AssemblyComponentDof)(nil),       // 62: occccad.worker.v1.AssemblyComponentDof
-	(*AssemblySolveDiagnostic)(nil),    // 63: occccad.worker.v1.AssemblySolveDiagnostic
-	(*AssemblySolveIntent)(nil),        // 64: occccad.worker.v1.AssemblySolveIntent
-	(*AssemblyAngleBranchState)(nil),   // 65: occccad.worker.v1.AssemblyAngleBranchState
-	(*AssemblySolvedAngleBranch)(nil),  // 66: occccad.worker.v1.AssemblySolvedAngleBranch
-	(*AssemblyConstraintRankInfo)(nil), // 67: occccad.worker.v1.AssemblyConstraintRankInfo
-	(*AssemblySolverProfile)(nil),      // 68: occccad.worker.v1.AssemblySolverProfile
+	(*AssemblyTangentVector)(nil),      // 63: occccad.worker.v1.AssemblyTangentVector
+	(*AssemblySolveDiagnostic)(nil),    // 64: occccad.worker.v1.AssemblySolveDiagnostic
+	(*AssemblySolveIntent)(nil),        // 65: occccad.worker.v1.AssemblySolveIntent
+	(*AssemblyAngleBranchState)(nil),   // 66: occccad.worker.v1.AssemblyAngleBranchState
+	(*AssemblySolvedAngleBranch)(nil),  // 67: occccad.worker.v1.AssemblySolvedAngleBranch
+	(*AssemblyConstraintRankInfo)(nil), // 68: occccad.worker.v1.AssemblyConstraintRankInfo
+	(*AssemblySolverProfile)(nil),      // 69: occccad.worker.v1.AssemblySolverProfile
 }
 var file_occccad_worker_v1_geometry_worker_proto_depIdxs = []int32{
 	60,  // 0: occccad.worker.v1.RigidPose.translation:type_name -> occccad.worker.v1.Vec3
@@ -5754,20 +5866,20 @@ var file_occccad_worker_v1_geometry_worker_proto_depIdxs = []int32{
 	5,   // 6: occccad.worker.v1.AssemblyConstraint.second:type_name -> occccad.worker.v1.AssemblyGeometryRef
 	2,   // 7: occccad.worker.v1.AssemblyConstraint.fixed_pose:type_name -> occccad.worker.v1.RigidPose
 	60,  // 8: occccad.worker.v1.AssemblyConstraint.angle_reference_direction:type_name -> occccad.worker.v1.Vec3
-	65,  // 9: occccad.worker.v1.AssemblyConstraint.angle_branch_state:type_name -> occccad.worker.v1.AssemblyAngleBranchState
+	66,  // 9: occccad.worker.v1.AssemblyConstraint.angle_branch_state:type_name -> occccad.worker.v1.AssemblyAngleBranchState
 	3,   // 10: occccad.worker.v1.SolveAssemblyRequest.bodies:type_name -> occccad.worker.v1.AssemblyBody
 	4,   // 11: occccad.worker.v1.SolveAssemblyRequest.geometry:type_name -> occccad.worker.v1.AssemblyGeometry
 	6,   // 12: occccad.worker.v1.SolveAssemblyRequest.constraints:type_name -> occccad.worker.v1.AssemblyConstraint
-	64,  // 13: occccad.worker.v1.SolveAssemblyRequest.solve_intent:type_name -> occccad.worker.v1.AssemblySolveIntent
-	68,  // 14: occccad.worker.v1.SolveAssemblyRequest.solver_profile:type_name -> occccad.worker.v1.AssemblySolverProfile
+	65,  // 13: occccad.worker.v1.SolveAssemblyRequest.solve_intent:type_name -> occccad.worker.v1.AssemblySolveIntent
+	69,  // 14: occccad.worker.v1.SolveAssemblyRequest.solver_profile:type_name -> occccad.worker.v1.AssemblySolverProfile
 	2,   // 15: occccad.worker.v1.SolvedAssemblyBody.pose:type_name -> occccad.worker.v1.RigidPose
 	9,   // 16: occccad.worker.v1.SolveAssemblyResponse.bodies:type_name -> occccad.worker.v1.SolvedAssemblyBody
 	8,   // 17: occccad.worker.v1.SolveAssemblyResponse.residuals:type_name -> occccad.worker.v1.AssemblyConstraintResidual
 	61,  // 18: occccad.worker.v1.SolveAssemblyResponse.equation_residuals:type_name -> occccad.worker.v1.AssemblyEquationResidual
 	62,  // 19: occccad.worker.v1.SolveAssemblyResponse.components:type_name -> occccad.worker.v1.AssemblyComponentDof
-	63,  // 20: occccad.worker.v1.SolveAssemblyResponse.diagnostics:type_name -> occccad.worker.v1.AssemblySolveDiagnostic
-	67,  // 21: occccad.worker.v1.SolveAssemblyResponse.constraint_ranks:type_name -> occccad.worker.v1.AssemblyConstraintRankInfo
-	66,  // 22: occccad.worker.v1.SolveAssemblyResponse.angle_branches:type_name -> occccad.worker.v1.AssemblySolvedAngleBranch
+	64,  // 20: occccad.worker.v1.SolveAssemblyResponse.diagnostics:type_name -> occccad.worker.v1.AssemblySolveDiagnostic
+	68,  // 21: occccad.worker.v1.SolveAssemblyResponse.constraint_ranks:type_name -> occccad.worker.v1.AssemblyConstraintRankInfo
+	67,  // 22: occccad.worker.v1.SolveAssemblyResponse.angle_branches:type_name -> occccad.worker.v1.AssemblySolvedAngleBranch
 	0,   // 23: occccad.worker.v1.SketchPoint.point:type_name -> occccad.worker.v1.Vec2
 	0,   // 24: occccad.worker.v1.SketchLine.start:type_name -> occccad.worker.v1.Vec2
 	0,   // 25: occccad.worker.v1.SketchLine.end:type_name -> occccad.worker.v1.Vec2
@@ -5832,38 +5944,39 @@ var file_occccad_worker_v1_geometry_worker_proto_depIdxs = []int32{
 	60,  // 84: occccad.worker.v1.EdgeInfo.render_points:type_name -> occccad.worker.v1.Vec3
 	60,  // 85: occccad.worker.v1.VertexInfo.point:type_name -> occccad.worker.v1.Vec3
 	49,  // 86: occccad.worker.v1.VertexInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
-	65,  // 87: occccad.worker.v1.AssemblySolvedAngleBranch.state:type_name -> occccad.worker.v1.AssemblyAngleBranchState
-	41,  // 88: occccad.worker.v1.GeometryWorker.Ping:input_type -> occccad.worker.v1.PingRequest
-	21,  // 89: occccad.worker.v1.GeometryWorker.EvaluatePart:input_type -> occccad.worker.v1.EvaluatePartRequest
-	19,  // 90: occccad.worker.v1.GeometryWorker.SolveSketch:input_type -> occccad.worker.v1.SolveSketchRequest
-	7,   // 91: occccad.worker.v1.GeometryWorker.SolveAssembly:input_type -> occccad.worker.v1.SolveAssemblyRequest
-	27,  // 92: occccad.worker.v1.GeometryWorker.InspectExchange:input_type -> occccad.worker.v1.InspectExchangeRequest
-	30,  // 93: occccad.worker.v1.GeometryWorker.ImportExchange:input_type -> occccad.worker.v1.ImportExchangeRequest
-	32,  // 94: occccad.worker.v1.GeometryWorker.ExportExchange:input_type -> occccad.worker.v1.ExportExchangeRequest
-	43,  // 95: occccad.worker.v1.GeometryWorker.LoadGeometry:input_type -> occccad.worker.v1.LoadGeometryRequest
-	45,  // 96: occccad.worker.v1.GeometryWorker.UnloadGeometry:input_type -> occccad.worker.v1.UnloadGeometryRequest
-	47,  // 97: occccad.worker.v1.GeometryWorker.GetTopology:input_type -> occccad.worker.v1.GetTopologyRequest
-	53,  // 98: occccad.worker.v1.GeometryWorker.Tessellate:input_type -> occccad.worker.v1.TessellateRequest
-	55,  // 99: occccad.worker.v1.GeometryWorker.CreateChamfer:input_type -> occccad.worker.v1.CreateChamferRequest
-	57,  // 100: occccad.worker.v1.GeometryWorker.CreateFillet:input_type -> occccad.worker.v1.CreateFilletRequest
-	42,  // 101: occccad.worker.v1.GeometryWorker.Ping:output_type -> occccad.worker.v1.PingResponse
-	35,  // 102: occccad.worker.v1.GeometryWorker.EvaluatePart:output_type -> occccad.worker.v1.EvaluatePartResponse
-	20,  // 103: occccad.worker.v1.GeometryWorker.SolveSketch:output_type -> occccad.worker.v1.SolveSketchResponse
-	10,  // 104: occccad.worker.v1.GeometryWorker.SolveAssembly:output_type -> occccad.worker.v1.SolveAssemblyResponse
-	29,  // 105: occccad.worker.v1.GeometryWorker.InspectExchange:output_type -> occccad.worker.v1.InspectExchangeResponse
-	35,  // 106: occccad.worker.v1.GeometryWorker.ImportExchange:output_type -> occccad.worker.v1.EvaluatePartResponse
-	33,  // 107: occccad.worker.v1.GeometryWorker.ExportExchange:output_type -> occccad.worker.v1.ExportExchangeResponse
-	44,  // 108: occccad.worker.v1.GeometryWorker.LoadGeometry:output_type -> occccad.worker.v1.LoadGeometryResponse
-	46,  // 109: occccad.worker.v1.GeometryWorker.UnloadGeometry:output_type -> occccad.worker.v1.UnloadGeometryResponse
-	48,  // 110: occccad.worker.v1.GeometryWorker.GetTopology:output_type -> occccad.worker.v1.GetTopologyResponse
-	54,  // 111: occccad.worker.v1.GeometryWorker.Tessellate:output_type -> occccad.worker.v1.TessellateResponse
-	56,  // 112: occccad.worker.v1.GeometryWorker.CreateChamfer:output_type -> occccad.worker.v1.CreateChamferResponse
-	58,  // 113: occccad.worker.v1.GeometryWorker.CreateFillet:output_type -> occccad.worker.v1.CreateFilletResponse
-	101, // [101:114] is the sub-list for method output_type
-	88,  // [88:101] is the sub-list for method input_type
-	88,  // [88:88] is the sub-list for extension type_name
-	88,  // [88:88] is the sub-list for extension extendee
-	0,   // [0:88] is the sub-list for field type_name
+	63,  // 87: occccad.worker.v1.AssemblyComponentDof.null_space_basis:type_name -> occccad.worker.v1.AssemblyTangentVector
+	66,  // 88: occccad.worker.v1.AssemblySolvedAngleBranch.state:type_name -> occccad.worker.v1.AssemblyAngleBranchState
+	41,  // 89: occccad.worker.v1.GeometryWorker.Ping:input_type -> occccad.worker.v1.PingRequest
+	21,  // 90: occccad.worker.v1.GeometryWorker.EvaluatePart:input_type -> occccad.worker.v1.EvaluatePartRequest
+	19,  // 91: occccad.worker.v1.GeometryWorker.SolveSketch:input_type -> occccad.worker.v1.SolveSketchRequest
+	7,   // 92: occccad.worker.v1.GeometryWorker.SolveAssembly:input_type -> occccad.worker.v1.SolveAssemblyRequest
+	27,  // 93: occccad.worker.v1.GeometryWorker.InspectExchange:input_type -> occccad.worker.v1.InspectExchangeRequest
+	30,  // 94: occccad.worker.v1.GeometryWorker.ImportExchange:input_type -> occccad.worker.v1.ImportExchangeRequest
+	32,  // 95: occccad.worker.v1.GeometryWorker.ExportExchange:input_type -> occccad.worker.v1.ExportExchangeRequest
+	43,  // 96: occccad.worker.v1.GeometryWorker.LoadGeometry:input_type -> occccad.worker.v1.LoadGeometryRequest
+	45,  // 97: occccad.worker.v1.GeometryWorker.UnloadGeometry:input_type -> occccad.worker.v1.UnloadGeometryRequest
+	47,  // 98: occccad.worker.v1.GeometryWorker.GetTopology:input_type -> occccad.worker.v1.GetTopologyRequest
+	53,  // 99: occccad.worker.v1.GeometryWorker.Tessellate:input_type -> occccad.worker.v1.TessellateRequest
+	55,  // 100: occccad.worker.v1.GeometryWorker.CreateChamfer:input_type -> occccad.worker.v1.CreateChamferRequest
+	57,  // 101: occccad.worker.v1.GeometryWorker.CreateFillet:input_type -> occccad.worker.v1.CreateFilletRequest
+	42,  // 102: occccad.worker.v1.GeometryWorker.Ping:output_type -> occccad.worker.v1.PingResponse
+	35,  // 103: occccad.worker.v1.GeometryWorker.EvaluatePart:output_type -> occccad.worker.v1.EvaluatePartResponse
+	20,  // 104: occccad.worker.v1.GeometryWorker.SolveSketch:output_type -> occccad.worker.v1.SolveSketchResponse
+	10,  // 105: occccad.worker.v1.GeometryWorker.SolveAssembly:output_type -> occccad.worker.v1.SolveAssemblyResponse
+	29,  // 106: occccad.worker.v1.GeometryWorker.InspectExchange:output_type -> occccad.worker.v1.InspectExchangeResponse
+	35,  // 107: occccad.worker.v1.GeometryWorker.ImportExchange:output_type -> occccad.worker.v1.EvaluatePartResponse
+	33,  // 108: occccad.worker.v1.GeometryWorker.ExportExchange:output_type -> occccad.worker.v1.ExportExchangeResponse
+	44,  // 109: occccad.worker.v1.GeometryWorker.LoadGeometry:output_type -> occccad.worker.v1.LoadGeometryResponse
+	46,  // 110: occccad.worker.v1.GeometryWorker.UnloadGeometry:output_type -> occccad.worker.v1.UnloadGeometryResponse
+	48,  // 111: occccad.worker.v1.GeometryWorker.GetTopology:output_type -> occccad.worker.v1.GetTopologyResponse
+	54,  // 112: occccad.worker.v1.GeometryWorker.Tessellate:output_type -> occccad.worker.v1.TessellateResponse
+	56,  // 113: occccad.worker.v1.GeometryWorker.CreateChamfer:output_type -> occccad.worker.v1.CreateChamferResponse
+	58,  // 114: occccad.worker.v1.GeometryWorker.CreateFillet:output_type -> occccad.worker.v1.CreateFilletResponse
+	102, // [102:115] is the sub-list for method output_type
+	89,  // [89:102] is the sub-list for method input_type
+	89,  // [89:89] is the sub-list for extension type_name
+	89,  // [89:89] is the sub-list for extension extendee
+	0,   // [0:89] is the sub-list for field type_name
 }
 
 func init() { file_occccad_worker_v1_geometry_worker_proto_init() }
@@ -5884,7 +5997,7 @@ func file_occccad_worker_v1_geometry_worker_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_occccad_worker_v1_geometry_worker_proto_rawDesc), len(file_occccad_worker_v1_geometry_worker_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   69,
+			NumMessages:   70,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

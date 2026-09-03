@@ -563,6 +563,14 @@ message AssemblyComponentDof {
     uint64 relative_dof = 5;
     uint64 gauge_dof = 6;
     bool solved = 7;
+    repeated string tangent_cluster_ids = 8;
+    repeated AssemblyTangentVector null_space_basis = 9;
+    repeated double singular_values = 10;
+    double rank_threshold = 11;
+}
+
+message AssemblyTangentVector {
+    repeated double values = 1; // [tx,ty,tz,rx,ry,rz] per tangent_cluster_ids entry
 }
 
 message AssemblySolveDiagnostic {
@@ -596,6 +604,7 @@ message AssemblyConstraintRankInfo {
     uint64 effective_rank = 3;
     uint64 incremental_rank = 4;
     string role = 5; // INDEPENDENT, PARTIALLY_REDUNDANT, FULLY_REDUNDANT
+    uint64 declared_generic_rank = 6;
 }
 
 message AssemblySolverProfile {
@@ -620,4 +629,6 @@ message AssemblySolverProfile {
     double neutral_preference_weight = 19;
     double reference_preference_weight = 20;
     uint64 max_conflict_probes = 21;
+    bool verify_analytic_jacobians = 22;
+    double jacobian_check_tolerance = 23;
 }

@@ -70,8 +70,14 @@ func TestCppWorkerSolvesSimpleProductAssembly(t *testing.T) {
 	if len(result.Components) != 1 || result.Components[0].RelativeDof != 3 || result.Components[0].GaugeDof != 0 {
 		t.Fatalf("unexpected component DOF: %#v", result.Components)
 	}
+	if len(result.Components[0].TangentClusterIDs) != 1 || len(result.Components[0].NullSpaceBasis) != 3 || result.Components[0].RankThreshold <= 0 {
+		t.Fatalf("numeric null space was not preserved across the Worker RPC: %#v", result.Components[0])
+	}
 	if len(result.EquationResiduals) == 0 {
 		t.Fatal("assembly equation residual provenance was not returned")
+	}
+	if len(result.ConstraintRanks) == 0 || result.ConstraintRanks[len(result.ConstraintRanks)-1].DeclaredGenericRank != 3 {
+		t.Fatalf("typed equation rank was not preserved across the Worker RPC: %#v", result.ConstraintRanks)
 	}
 	for _, body := range result.Bodies {
 		if body.ID == "moving" && (body.Pose.Translation[0] > 1e-6 || body.Pose.Translation[0] < -1e-6) {

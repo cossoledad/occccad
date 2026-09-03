@@ -22,3 +22,8 @@ target_compile_features(occcad_assembly_solver_corpus PRIVATE cxx_std_17)
 occccad_set_warnings(occcad_assembly_solver_corpus PRIVATE)
 occccad_apply_sanitizers(occcad_assembly_solver_corpus)
 gtest_discover_tests(occcad_assembly_solver_corpus TEST_PREFIX "assembly-corpus/")
+
+add_executable(occcad_assembly_solver_benchmark assembly_solver_benchmark.cpp)
+target_link_libraries(occcad_assembly_solver_benchmark PRIVATE occccad_assembly_solver)
+target_compile_features(occcad_assembly_solver_benchmark PRIVATE cxx_std_17)
+occccad_set_warnings(occcad_assembly_solver_benchmark PRIVATE)

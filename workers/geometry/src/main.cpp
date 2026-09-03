@@ -582,6 +582,9 @@ public:
                 options.reference_preference_weight = profile.reference_preference_weight();
             if (profile.max_conflict_probes() > 0)
                 options.max_conflict_probes = profile.max_conflict_probes();
+            options.verify_analytic_jacobians = profile.verify_analytic_jacobians();
+            if (profile.jacobian_check_tolerance() > 0.0)
+                options.jacobian_check_tolerance = profile.jacobian_check_tolerance();
         }
         options.affected_body_ids.assign(request->affected_body_ids().begin(),
                                          request->affected_body_ids().end());
@@ -660,6 +663,16 @@ public:
             output->set_relative_dof(component.relative_dof);
             output->set_gauge_dof(component.gauge_dof);
             output->set_solved(component.solved);
+            for (const auto& id : component.tangent_cluster_ids)
+                output->add_tangent_cluster_ids(id);
+            for (const auto& vector : component.null_space_basis) {
+                auto* basis = output->add_null_space_basis();
+                for (const double coefficient : vector)
+                    basis->add_values(coefficient);
+            }
+            for (const double singular_value : component.singular_values)
+                output->add_singular_values(singular_value);
+            output->set_rank_threshold(component.rank_threshold);
         }
         for (const auto& id : result.redundant_constraint_ids)
             response->add_redundant_constraint_ids(id);
@@ -675,6 +688,7 @@ public:
             output->set_equation_count(rank.equation_count);
             output->set_effective_rank(rank.effective_rank);
             output->set_incremental_rank(rank.incremental_rank);
+            output->set_declared_generic_rank(rank.declared_generic_rank);
             output->set_role(rank.role == assembly_api::ConstraintRankRole::Independent
                                  ? "INDEPENDENT"
                              : rank.role == assembly_api::ConstraintRankRole::PartiallyRedundant

@@ -26,7 +26,7 @@ cluster 使用六维切空间增量
 t' = t+\Delta t,\qquad R'=\operatorname{Exp}(\Delta\theta)R.
 \]
 
-所有 active constraint 的残差块按稳定约束顺序拼接为向量 `r(x)`。M1.7 以几何约束为主目标，并以弱运动偏好选择可行解：
+所有 active constraint 的残差块按稳定约束顺序拼接为向量 `r(x)`。M2 以几何约束为主目标，并以弱运动偏好选择可行解：
 
 \[
 \min_x \frac{1}{2}\lVert r(x)\rVert_2^2
@@ -53,9 +53,9 @@ flowchart TD
     E --> F[按 affected bodies 选择分量]
     F --> G[解析并冻结 ConstraintBranchState]
     G --> H[消元 ground 或 reference gauge]
-    H --> I[连续残差、几何 satisfaction 与中央差分 Jacobian]
-    I --> J[带弱运动偏好的阻尼最小二乘]
-    J --> K[SVD rank、DOF、冗余与受限冲突探测]
+    H --> I[typed equations、连续残差与解析 Jacobian]
+    I --> J[augmented QR 阻尼最小二乘]
+    J --> K[SVD rank、数值 null-space、DOF 与诊断]
     K --> L[恢复 Body 位姿、branch 与方程 provenance]
 ```
 
@@ -143,7 +143,14 @@ Directed Angle 先把两个方向投影到 reference axis 的法平面，再用�
 `atan2(k·(a×b),a·b)`；投影退化会明确拒绝模型。所有 Angle 使用 `atan2(sin(delta),cos(delta))` 的最短周期误差。
 `AngleBranchState` 保存 wrapped/unwrapped/winding，输入上一状态时返回最邻近的等价角；跨请求保存由调用者负责。
 
-## 6. 有限差分 Jacobian
+## 6. 解析 Jacobian 与差分 oracle
+
+当前 Point/Axis/Plane/Cylinder 能力矩阵由内部 typed equation registry 编译为带语义 equation kind、declared generic rank
+和稳定 provenance 的残差行。生产 Jacobian 使用前向解析微分值类型，在同一次方程计算中传播值及其对稳定自由 cluster
+切空间顺序的导数。点的旋转导数包含相对 cluster 原点的力臂，因此支持点偏离原点时不会漏掉旋转引起的平移。
+
+中央有限差分只作为可配置的 differential oracle：Debug 默认启用，逐列对比解析矩阵并使用 scale-aware tolerance；差异超限
+直接失败，不静默切回数值微分。周期 Angle 行在 oracle 中先计算最短周期差，避免跨 `2π` 把等价残差误判为导数错误。
 
 对每个自由 cluster 的六个切空间变量分别施加正负扰动：
 
@@ -156,14 +163,17 @@ J_{:,j}\approx\frac{r(x+h_j e_j)-r(x-h_j e_j)}{2h_j}.
 
 ## 7. 阻尼最小二乘迭代
 
-每轮构造阻尼正规方程
+每轮直接构造增广最小二乘系统
 
 \[
-(J^TJ+\lambda I)\Delta x=-J^Tr,
+\begin{bmatrix}J\\ \sqrt{\lambda}I\\ W_m\end{bmatrix}\Delta x
+=
+\begin{bmatrix}-r\\ 0\\ -W_m d_{nominal}\end{bmatrix},
 \]
 
-并使用 Eigen `LDLT` 求解，且检查分解与解状态；正规方程同时加入弱运动正则。small-step 只有在 `||J^T r||` 也低于
-`gradient_tolerance` 时才认定驻点，避免大 damping 伪造 stationary。M2 可升级为 augmented QR/SVD：
+并使用 Eigen `ColPivHouseholderQR` 求解，避免显式形成会平方条件数的 `J^T J`；同一增广系统包含弱运动正则。
+small-step 只有在 `||J^T r||` 也低于 `gradient_tolerance` 时才认定驻点，避免大 damping 伪造 stationary。SVD 只用于
+rank/null-space 分析：
 
 - 初始 `λ = initial_damping`，默认 `10⁻⁴`；
 - 每个 component 对完整候选步执行最多 12 次确定性二分回溯；候选残差平方范数严格下降时接受步骤，并令 `λ=max(0.25λ,10⁻¹²)`；
@@ -190,8 +200,9 @@ nullity = \max(n-\rho,0).
 - 使用 M1.5 reference gauge 消元：数值变量已不含这 6 维，故 `relative_dof=nullity`，但逻辑变量数和
   `gauge_dof=6` 仍单独报告。
 
-当前只报告整数 DOF 数量，不返回可解释的平移轴、转轴或 null-space basis。rank 是局部线性化结论，会受尺度、姿态、退化
-几何和阈值影响。
+结果同时返回按自由 cluster tangent 排序的数值 null-space basis、参与该排序的 cluster IDs、奇异值和实际 rank threshold。
+这些原始向量用于数值证据与后续 M2.5 输入；当前尚不把它们稳定解释为用户可见的平移轴、转轴或螺旋自由度。rank 是局部
+线性化结论，会受尺度、姿态、退化几何和阈值影响。
 
 ## 9. 冗余、冲突与分类
 
@@ -214,8 +225,9 @@ constraint；若可解性或残差显著改善，则写入 `suspected_conflictin
 5. 存在 relative DOF：`SolvedUnderConstrained`；
 6. 否则：`SolvedFully`。
 
-每个残差标量生成稳定的 `constraint-id/equation/index`，并携带 Connection 与 Constraint provenance。当前“稳定”指同一规范
-输入及残差定义下可重放；未来修改残差分解时必须考虑 equation identity 的版本化。
+每个残差标量生成稳定的 `constraint-id/equation/semantic-kind`，并携带 Connection、Constraint 与 declared generic rank
+provenance。同一 block 内 semantic kind 必须唯一；当前“稳定”指同一规范输入及残差定义下可重放，未来修改残差分解时
+必须考虑 equation identity 的版本化。
 
 零变量违反证明的是当前冻结分支、ground 和给定约束条件不可相容；一般非线性驻点只标记 `Unsatisfied`。当前
 `conflicting_constraint_ids` 仍不是 MUS：它是已证明不一致 component 中超差的约束邻域。
@@ -226,14 +238,15 @@ cluster、component 及冗余/冲突 ID 集合会显式排序；Body 与方程�
 应得到语义等价结果。该保证不意味着不同 CPU/Eigen 版本下浮点位完全一致，也不意味着未规范化的 constraint 排列会给出
 完全相同的冗余归因对象。
 
-设一个 component 有 `b` 个自由 cluster、`n=6b` 个变量、`m` 个残差标量。每轮中央差分需要约 `2n` 次残差计算；
-正规方程会形成 `n×n` 矩阵，因而大装配的主要成本随 component 大小快速增长。connected-component 分解和 ground/rigid
+设一个 component 有 `b` 个自由 cluster、`n=6b` 个变量、`m` 个残差标量。生产解析微分一次构造 dense `m×n`
+Jacobian，augmented QR 的成本仍随 component 大小快速增长；Debug differential oracle 额外需要约 `2n` 次残差计算。
+connected-component 分解和 ground/rigid
 消元是当前最主要的规模控制手段，尚未使用稀疏 Jacobian、增量因子分解或并行 component 求解。
 
 M1.6 还为近平行直线距离引入以 `degeneracy_tolerance` 为尺度的 blended 退化极限；除极小的
 `kDirectionEpsilon` 保护分支外，它在 skew 与 parallel 公式之间连续过渡。该表达是工程正则化而非无限直线距离的唯一解析
 延拓，仍需用容差边界 sweep 验证 bias、Jacobian 和 rank。
-当前算法还不具备：解析 Jacobian、null-space 方向、最小冲突集、全局多分支枚举、严格层级最小位移、
+当前算法还不具备：可解释且规范化的 null-space 自由度、最小冲突集、全局多分支枚举、严格层级最小位移、
 拖拽流形投影、一般曲面接触和大规模稀疏图优化。上述能力的引入顺序见架构路线图，不能从本文的 M1/M1.5 基线推断为
 已经实现。
 
@@ -254,13 +267,14 @@ M1.7 已把该切片修正为严格的绕轴角：先投影两个端点方向，
 初始化阶段会选择与法向最不平行的规范世界轴，构造绕第一支持平面原点的确定性半周 seed，并补偿法向距离；该 seed 只决定
 离散 branch 初值，其他约束仍由同一 component 的数值求解统一满足。
 
-1. **M2 方程与线性代数**：建立 typed equation registry 和解析 Jacobian，以当前中心有限差分做 differential check，
-   并在现有 SVD rank 基础上返回 null-space basis 与可解释 DOF 方向。
-2. **M3 稳定解与交互**：把当前自动 reference direction 的平面切片升级为可选择 axis/sense 的完整 `DirectedAngle`，持久化离散 branch intent；利用
-   null space 实现 minimum-motion、minimum-reference displacement 和 Drag 投影。
+1. **M2 方程与微分正确性（已完成）**：内部 typed equation registry 覆盖当前 Point/Axis/Plane/Cylinder 能力矩阵；前向解析微分提供左增量 Jacobian，中央有限差分作为 differential oracle。参考后端使用 augmented QR，SVD 专用于 rank、奇异值和数值 null-space。M2 没有增加 Product 约束类型。
+2. **M2.5 自由度与解选择**：将数值 null-space 在稳定 cluster tangent 顺序下解释为平移、旋转和耦合瞬时自由度；以子空间而非原始 SVD 列进行确定性验证。在可行流形内使用层级优化依次最小化 reference motion 与总 nominal change，验收后替换 M1.7 弱权重策略。
+3. **M3 可重放输入**：由控制面冻结包含 typed InstancePath、ResolutionSnapshot、Publication/PersistentSelection、descriptor symmetry/provenance、branch intent、tolerance 和 solver build 的不可变 solve manifest。当前 direct Part 与 revision-local topology ID 路径在开发期直接收敛到唯一新模型。
+4. **M4 稳定分支与交互**：把当前自动 reference direction 平面切片升级为可选择 axis/sense 的完整 `DirectedAngle`；静态 Product 只持久化 modulo `2π` branch intent，preview/kinematics session 承担 winding。利用 M2/M2.5 null space 把 Drag 目标作为二级目标投影到约束流形，返回最近可行 Pose 与 blocked directions，不再注入临时 `Fix`。
+5. **M5 以后**：先完成图局部化、带预算且证据分级的冲突解释，再扩展 Engineering Connection/几何覆盖；最后依据大装配 benchmark 决定 block-sparse、增量 factorization、可选后端与独立 Worker 部署。详细阶段门见 `SOLVER_ARCHITECTURE.md`。
 
 静态装配只保存 modulo `2π` 的姿态分支，多圈累计角属于 Interaction、Kinematics 或 Simulation 状态。MUS/minimal
-conflict set 不在近期关键路径上；当前优先保证残差连续性、分支稳定性和 DOF 可解释性。
+conflict set 不在 M2 关键路径上；当前优先保证方程、解析微分、数值子空间和可重放输入的正确性，再建设分支交互和诊断搜索。
 
 ## 12. 回归验证
 

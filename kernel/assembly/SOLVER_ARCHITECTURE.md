@@ -22,39 +22,50 @@ verification gates.
 
 ## 2. Current verified baseline
 
-The current module already provides a useful A1 numerical baseline:
+The current M2 implementation is already a graph-aware reference solver rather
+than the original single-problem A1 prototype. It provides:
 
 - immutable value types for rigid bodies and body-local `Point`, `Axis`, `Plane`
   and `Cylinder` descriptors;
-- `Fix`, `Rigid`, `Coincident`, `Concentric`, `Angle` and `Distance` constraints;
-- explicit direction and signed-distance relation fields;
-- right-handed `SE(3)` poses with local six-dimensional updates rather than
-  unconstrained addition to quaternion coefficients;
-- damped least-squares iteration and per-constraint normalized residuals;
-- no dependency on OCCT, Product documents, persistence or RPC;
-- a control-plane adapter that resolves direct Part datums and selected planar or
-  cylindrical faces, and a coarse-grained `SolveAssembly` RPC routed through the
-  formal Geometry Router path.
+- `Fix`, `Rigid`, `Coincident`, `Concentric`, `Angle` and `Distance` constraints,
+  stable connection/constraint/equation identities and four constraint modes;
+- rigid-cluster compilation, physical-ground elimination, deterministic connected
+  components and affected-component selection;
+- right-handed `SE(3)` local increments, forward analytic differentiation for the
+  current descriptor matrix, augmented dense QR and bounded backtracking;
+- frozen direction, distance-side and angle branches, including projected directed
+  angles and request-carried wrapped/unwrapped/winding state;
+- column-normalized SVD rank and numeric null-space basis, relative/gauge DOF
+  counts, per-constraint declared/effective/incremental rank, semantic equation
+  provenance, geometric satisfaction tests and bounded conflict probes;
+- a control-plane adapter that resolves direct Part datums and revision-bound exact
+  topology descriptors, then calls `SolveAssembly` through the formal Router path;
+- atomic Product command submission in which the constraint and all solved poses
+  are recorded in the final Revision and reconciled ChangeSet.
 
-The existing implementation is nevertheless a single dense numerical problem:
+The remaining boundary is equally important:
 
-- every body contributes six variables, including fixed bodies;
-- `Fix` and `Rigid` are residuals rather than elimination and rigid clustering;
-- the Jacobian is recomputed with forward finite differences over all variables;
-- the dense normal equation `J^T J` is formed and solved as one system;
-- unrelated constraint components are not separated;
-- residual row count is not distinguished from independent equation rank;
-- results contain convergence and residual information, but no component DOF,
-  gauge freedom, redundancy, conflict set, degeneracy or branch candidates;
-- constrained dragging is represented by an additional temporary `Fix`, making a
-  user target a six-DOF hard constraint;
-- Product input still uses direct `InstanceId` and revision-local topology IDs
-  rather than typed `InstancePath`, immutable resolution snapshots and
-  Publication/PersistentSelection contracts.
+- public transport constraint kinds remain enum/string based; the compatibility
+  boundary compiles them into typed internal equation definitions;
+- each component still uses dense matrices, although the production step no longer
+  forms normal equations;
+- a numeric null-space basis is returned, but it has no stable user-facing geometric
+  freedom interpretation yet;
+- weak motion weights and an ungrounded reference gauge are not a strict
+  lexicographic secondary optimization;
+- Product input is limited to direct Part instances and revision-local topology IDs;
+  it does not yet freeze typed InstancePaths, Publications/PersistentSelections or
+  nested/flexible expansion in an immutable solve manifest;
+- MOVE preview still models its target as a temporary `Fix`, so it cannot return the
+  nearest feasible point and blocked directions for an unreachable drag target;
+- conflict probes identify suspects, not a verified IIS/MUS, and solver profile,
+  branch snapshots and build provenance are not yet durable solve inputs/results;
+- cancellation, sparse/incremental factorization and representative large-assembly
+  performance gates are not implemented.
 
-These limitations are expected for the first slice. They define the migration
-boundary; they must not be hidden by adding more constraint enum values to the
-current monolithic solver.
+M2.5 and later milestones close these gaps in dependency order. They must not be
+collapsed into a larger enum surface or a backend replacement that leaves Product
+identity, branch intent and diagnostics unresolved.
 
 ## 3. Lessons from CATIA and D-Cubed
 
@@ -400,9 +411,9 @@ The baseline now provides:
 - keep the present numerical method as a reference backend.
 
 The current rank and whole-constraint redundancy analysis still use the
-finite-difference reference Jacobian. Analytic equations, interpreted null-space
-bases and localized/minimal conflict explanations remain M2/M3 work; complex
-surface constraints were deliberately not added in M1.
+finite-difference reference Jacobian. Analytic equations are M2, interpreted
+null-space bases are M2.5, and localized/minimal conflict explanations are M5;
+complex surface constraints were deliberately not added in M1.
 
 ### M1.5: request-scoped moving/reference intent (implemented baseline)
 
@@ -423,8 +434,9 @@ and reports the component's six gauge DOF.
 This is deliberately narrower than a general priority solver. If a component is
 already physically grounded but retains several feasible internal motions, the
 finite-difference backend still chooses its ordinary minimum-step update. Strict
-lexicographic minimization of reference motion, weighted body groups and drag
-projection require null-space/hierarchical optimization and remain M3 work. The
+lexicographic minimization of reference motion and weighted body groups require
+M2.5 null-space/hierarchical optimization; drag projection then uses that result in
+M4. The
 `Driving`/`Measured`/`Controlled`/`Suppressed` mode remains orthogonal: mode decides
 whether an equation drives the solve, while solve intent decides how equivalent
 pose solutions are distributed.
@@ -453,11 +465,11 @@ It does not add new constraint families or a sparse backend. The accepted baseli
   sweep in the focused corpus;
 - keeps dense Eigen and the finite-difference reference backend during this gate.
 
-Persisted branch intent and directed-angle winding remain M3 work; M1.6 freezes a
+Persisted branch intent and directed-angle session state remain M4 work; M1.6 freezes a
 deterministic request-local branch only. The current Product integration adds one
 narrow directed plane-angle slice: a reference direction stored in the second
 body's local frame distinguishes the two sectors within one turn. Explicitly
-selectable datum-axis/sense semantics and multi-turn winding remain M3 work.
+selectable datum-axis/sense semantics and multi-turn session state remain M4 work.
 
 Warm start at this stage means that the caller supplies the previously accepted
 poses as the next nominal poses. It is not yet an incremental factorization cache
@@ -485,78 +497,178 @@ incremental rank. Failed feasible-variable components receive bounded single-
 constraint removal probes and report suspected conflicts without claiming an IIS/MUS.
 Satisfaction uses grouped geometric norms for the overcomplete residual blocks.
 
-### M2: equation registry and Jacobians
+### M2: compiled equations and differential correctness (implemented baseline)
 
-- replace stringly typed worker kinds with typed definitions;
-- implement a geometry-pair capability table;
-- define independent semantic equations and distinguish `UnsignedAngle [0, pi]`
-  from `DirectedAngle(axis, sense)`;
-- add analytic Jacobians for the existing descriptor matrix;
-- verify them against central finite differences;
-- add SVD or rank-revealing QR diagnostics;
-- return a null-space basis and map its vectors to explainable translational and
-  rotational DOF directions.
+M2 is a kernel-only correctness gate. It does not add new Product
+constraint kinds, replace Eigen or claim large-assembly scalability.
 
-### M3: branch continuity and constrained interaction
+- introduce internal typed constraint definitions and an equation registry whose
+  entries declare supported descriptor pairs, semantic equation IDs, generic rank,
+  physical dimension, normalization, symmetry and degeneracy policy;
+- split unsigned and directed angles into distinct compiled definitions; preserve a
+  compatibility adapter for the current public `ConstraintKind` until all callers
+  switch atomically;
+- implement left-trivialized analytic Jacobian blocks for every currently supported
+  Point/Axis/Plane/Cylinder pair, including support-point motion under rotation;
+- retain central differences solely as a differential oracle and compare every
+  analytic block over regular, near-degenerate and branch-boundary samples;
+- solve the damped linearized problem without forming `J^T J` (augmented QR for the
+  reference backend, SVD only for rank/null-space inspection and suspect blocks);
+- return the numeric null-space basis in a deterministic cluster tangent ordering,
+  with singular values, thresholds and equation provenance.
 
-- persist discrete branch intent while keeping per-solve branch state immutable;
-- use `atan2(k dot (a cross b), a dot b)` for directed angles with an explicit
-  reference axis and rotation sense;
-- keep static assembly angle intent modulo `2*pi`; winding/unwrapped multi-turn
-  state belongs to interaction, kinematics or simulation rather than placement;
-- generate multiple analytic initialization candidates;
-- use the M2 null space for lexicographic minimum-motion and minimum-reference
-  displacement objectives;
-- project drag targets onto the feasible manifold;
-- add explicit warm-start/branch snapshots and incremental graph recompilation;
-- defer MUS/minimal conflict-set search until branch and motion stability are
-  established; initially return localized conflict neighborhoods.
+M2 acceptance gates:
 
-### M4: stable Product input adapter
+- analytic-versus-central-difference error satisfies scale-aware tolerances for the
+  full current capability matrix and randomized rigid transforms;
+- analytic and reference-derivative backends produce equivalent classification,
+  branch, rank and physical residual results on the corpus;
+- exact 0/pi angles, near-parallel axes and off-origin supports remain finite and
+  continuous; a derivative mismatch fails the test rather than silently falling
+  back in production;
+- existing Product create/edit/preview/Undo/Redo and Router tests remain unchanged;
+- benchmarks record component size, residual/Jacobian evaluations, factorization
+  time and condition evidence before any sparse-library decision.
 
-- typed `InstancePath` and immutable `ResolutionSnapshot`;
-- Publication and PersistentSelection resolution;
-- descriptor symmetry and provenance;
-- nested Product occurrences;
-- rigid and flexible subassembly expansion policies.
+### M2.5: explainable freedoms and hierarchical pose selection
 
-This is required for replayable real-world assemblies even if the numeric kernel
-is already strong.
+The raw null space is backend output, not yet a user-facing DOF contract. M2.5 adds
+the stable interpretation and secondary optimization layer:
 
-### M5: constraint and connection coverage
+- canonicalize bases deterministically despite sign, repeated singular values and
+  equivalent subspace rotations; compare subspaces, never raw SVD columns;
+- map cluster tangent bases to translation directions, rotation axes and coupled
+  screw-like instantaneous freedoms, retaining a raw basis when interpretation is
+  ambiguous;
+- verify declared canonical motion families (revolute, prismatic, cylindrical and
+  planar) against rank and interpreted freedoms without yet persisting them as
+  Engineering Connections;
+- implement lexicographic/null-space secondary optimization: constraint feasibility
+  first, then reference-motion policy, then total nominal change;
+- return blocked/allowed instantaneous directions with tolerance and linearization
+  provenance.
 
-Add capabilities in this order, gated by equation, DOF and diagnostic corpus:
+The gate is semantic stability under body/constraint permutation, global rigid
+motion, unit scaling and valid warm starts. Weak M1.7 regularization remains the
+fallback until these invariants pass; it is removed rather than kept as a second
+solution policy once M2.5 is accepted.
 
-1. `Offset`, `Parallel`, `Perpendicular`;
-2. analytic `Contact` subsets and Frame/Connector geometry;
-3. rigid, revolute, prismatic, cylindrical and planar Connections;
-4. Sphere, Cone and Circle descriptors;
+### M3: replayable Product solve manifest
+
+Stable input precedes richer interaction. The control plane freezes a versioned,
+content-digested manifest containing:
+
+- root Product Revision, typed relative `InstancePath`, immutable
+  `ResolutionSnapshot` and complete occurrence-local nominal poses;
+- Publication or PersistentSelection endpoints plus resolution evidence;
+- descriptor kind, local frame, symmetry, source geometry identity and provenance;
+- connection/constraint definitions, parameter values, branch intent, tolerance
+  profile, solver build and requested affected scope;
+- explicit rigid-subassembly expansion; flexible expansion remains a later Product
+  capability but must fit the same manifest.
+
+The solver never queries Product, PostgreSQL or B-Rep. Broken, ambiguous or
+incompatible references fail during manifest construction with stable diagnostics.
+Current direct-Part datum and `geometryKey + topology local ID` references are
+development-only inputs and are removed when the M3 path is complete; the project
+is still pre-release, so no permanent dual model is introduced.
+
+M3 is accepted only when replaying the same manifest after workspace-head changes
+produces a semantically equivalent result, nested rigid Product occurrences solve
+correctly, and changing a referenced Part either resolves the same publication or
+returns an explicit broken/ambiguous-reference result without silent rebinding.
+
+### M4: branch-stable constrained manipulation
+
+- persist static discrete branch intent in Product while keeping iteration branch
+  state immutable inside one solve;
+- use explicit Publication/Datum axis and sense for `DirectedAngle`; static assembly
+  stores modulo `2*pi`, while unwrapped/winding state belongs to a versioned preview,
+  kinematics or simulation session;
+- create a short-lived preview session bound to base workspace sequence and solve-
+  manifest digest, carrying accepted pose and branch snapshots as warm starts;
+- replace the temporary MOVE `Fix` with a secondary drag objective projected onto
+  the driving-constraint manifold using the M2/M2.5 null space;
+- return nearest feasible pose plus allowed/blocked directions when the target is
+  unreachable; cancellation, deadline and stale-sequence checks run inside solve
+  iteration as well as at RPC boundaries;
+- incrementally recompile only when graph/definition digests change; pose-only drag
+  iterations reuse the immutable compiled problem, never a hidden business state.
+
+Only pointer-up commits one Domain Transaction. Preview sessions are disposable,
+request-scoped acceleration and continuity state, not Revision authority.
+
+### M5: localized diagnostics and repair guidance
+
+- construct conflict neighborhoods from the incidence graph and changed constraint;
+- combine structural rank evidence, branch candidates and bounded deletion filtering
+  or QuickXplain-style search;
+- distinguish proven minimal, irreducible, localized-suspect and merely unsatisfied
+  results in the type contract;
+- return geometry/branch/tolerance evidence and stable connection, constraint and
+  equation IDs suitable for tree/viewport highlighting;
+- propose suppress/measure/reconnect actions, but never mutate the Product or select
+  an alternative branch without an explicit command.
+
+M5 is gated by deterministic multi-constraint conflict corpora and fault budgets;
+an exhausted diagnostic budget returns partial evidence rather than a false MUS.
+
+### M6: Engineering Connections and constraint coverage
+
+Add capabilities in dependency order, each gated by equation, Jacobian, freedom,
+branch and diagnostic corpus:
+
+1. typed `Offset`, `Parallel` and `Perpendicular` definitions over existing geometry;
+2. Frame/Connector Publications and declared rigid, revolute, prismatic,
+   cylindrical and planar Connections, verified against M2.5 freedoms;
+3. analytic plane/plane and cylinder subsets of positioning `Contact`;
+4. Circle, Sphere and Cone descriptors;
 5. bounded distance/angle and joint limits;
 6. spherical, universal and screw Connections;
-7. only then evaluate general curve/surface contact, gear and rack relationships.
+7. only then evaluate point/curve, gear, rack and general curve/surface contact.
 
 Arbitrary NURBS-to-NURBS contact is not a near-term positioning primitive. Datum
 and Connector Publications should express stable engineering intent first.
 
-## 9. First vertical slice and acceptance criteria
+### M7: scale, scheduling and backend decision
 
-The first mergeable slice should retain the current UI constraint set while adding
-rigid clustering, graph components, ground elimination and component-level DOF.
+- establish representative connected-component benchmarks before adopting sparse
+  QR/Cholesky, Ceres or another backend;
+- add block-sparse storage, symbolic-pattern caching and parallel independent
+  components only where measurements justify them;
+- enforce body/equation/iteration/time/memory limits and cooperative cancellation;
+- version solver provenance and run deterministic shadow comparisons before changing
+  the authoritative backend;
+- split an Assembly Solver Worker from the Geometry Worker only when workload,
+  isolation or scaling evidence requires a deployment boundary; keep one coarse-
+  grained immutable-manifest RPC.
 
-It is complete only when:
+M7 does not distribute one connected component across RPC calls. Mechanism time
+integration, flexible-subassembly overrides and dynamics remain Product/Kinematics
+milestones built on the same equation and identity contracts, not extensions of the
+static placement solve loop.
 
-- unrelated constraint components compile and solve independently;
-- a fixed cluster contributes no numeric variable;
-- rigid-connected bodies contribute one cluster pose;
-- an ungrounded component reports six gauge freedoms without treating them as a
-  conflict;
-- the corpus reports revolute as `1R`, prismatic as `1T` and cylindrical as
-  `1R + 1T` when expressed by supported primitive constraints;
-- duplicate equations are reported as redundant with stable IDs;
-- order permutations produce semantically equivalent results;
-- Product create/edit/delete, atomic pose submission, Undo/Redo and formal Router
-  integration continue to pass;
-- solver provenance includes build and tolerance-profile identities.
+## 9. Next vertical slice and acceptance criteria
+
+The next mergeable slice is M2.5 freedom interpretation and hierarchical pose
+selection, not a new toolbar constraint. It retains the current Product and RPC
+behavior while interpreting the M2 numeric null space and replacing weak motion
+weights only after the lexicographic policy is proven invariant.
+
+The slice is complete only when:
+
+- canonical mechanisms produce the expected translation, rotation or coupled
+  instantaneous freedom families;
+- freedom comparisons are subspace based and invariant to basis sign/rotation,
+  rigid world transforms, input permutation, unit scaling and valid warm starts;
+- constraint feasibility remains the first optimization level, followed by
+  reference motion and total nominal change;
+- weak M1.7 motion weights are removed once the hierarchical policy passes, rather
+  than retained as a competing result-selection path;
+- Product preview/commit, final ChangeSet reconciliation, repeated Undo/Redo and the
+  formal Router path pass without a second persisted schema or solver state;
+- a benchmark records evidence sufficient to decide the next equation family and
+  whether dense augmented QR remains adequate.
 
 ## 10. Explicit non-goals for the next milestone
 

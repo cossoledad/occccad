@@ -228,6 +228,7 @@ type AssemblyAngleBranchState struct {
 type AssemblyConstraintRankInfo struct {
 	ConstraintID                                  string
 	EquationCount, EffectiveRank, IncrementalRank uint64
+	DeclaredGenericRank                           uint64
 	Role                                          string
 }
 
@@ -248,6 +249,10 @@ type AssemblyComponentDof struct {
 	TangentVariableCount, JacobianRank uint64
 	RelativeDof, GaugeDof              uint64
 	Solved                             bool
+	TangentClusterIDs                  []string
+	NullSpaceBasis                     [][]float64
+	SingularValues                     []float64
+	RankThreshold                      float64
 }
 
 type AssemblySolveDiagnostic struct {
@@ -272,6 +277,8 @@ type AssemblySolverProfile struct {
 	RankAbsoluteTolerance, RankRelativeTolerance, GradientTolerance            float64
 	MovingPreferenceWeight, NeutralPreferenceWeight, ReferencePreferenceWeight float64
 	MaxConflictProbes                                                          uint64
+	VerifyAnalyticJacobians                                                    bool
+	JacobianCheckTolerance                                                     float64
 }
 
 type AssemblySolveOptions struct {
@@ -328,7 +335,8 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 			RankAbsoluteTolerance:           profile.RankAbsoluteTolerance, RankRelativeTolerance: profile.RankRelativeTolerance,
 			GradientTolerance: profile.GradientTolerance, MovingPreferenceWeight: profile.MovingPreferenceWeight,
 			NeutralPreferenceWeight: profile.NeutralPreferenceWeight, ReferencePreferenceWeight: profile.ReferencePreferenceWeight,
-			MaxConflictProbes: profile.MaxConflictProbes}
+			MaxConflictProbes: profile.MaxConflictProbes, VerifyAnalyticJacobians: profile.VerifyAnalyticJacobians,
+			JacobianCheckTolerance: profile.JacobianCheckTolerance}
 	}
 	for _, body := range bodies {
 		request.Bodies = append(request.Bodies, &workerv1.AssemblyBody{Id: body.ID, InitialPose: protoPose(body.Pose)})
@@ -371,10 +379,14 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 		result.EquationResiduals = append(result.EquationResiduals, AssemblyEquationResidual{EquationID: value.GetEquationId(), ConnectionID: value.GetConnectionId(), ConstraintID: value.GetConstraintId(), EquationIndex: value.GetEquationIndex(), NormalizedValue: value.GetNormalizedValue()})
 	}
 	for _, value := range response.GetComponents() {
-		result.Components = append(result.Components, AssemblyComponentDof{ComponentID: value.GetComponentId(), BodyIDs: value.GetBodyIds(), TangentVariableCount: value.GetTangentVariableCount(), JacobianRank: value.GetJacobianRank(), RelativeDof: value.GetRelativeDof(), GaugeDof: value.GetGaugeDof(), Solved: value.GetSolved()})
+		component := AssemblyComponentDof{ComponentID: value.GetComponentId(), BodyIDs: value.GetBodyIds(), TangentVariableCount: value.GetTangentVariableCount(), JacobianRank: value.GetJacobianRank(), RelativeDof: value.GetRelativeDof(), GaugeDof: value.GetGaugeDof(), Solved: value.GetSolved(), TangentClusterIDs: value.GetTangentClusterIds(), SingularValues: value.GetSingularValues(), RankThreshold: value.GetRankThreshold()}
+		for _, basis := range value.GetNullSpaceBasis() {
+			component.NullSpaceBasis = append(component.NullSpaceBasis, append([]float64(nil), basis.GetValues()...))
+		}
+		result.Components = append(result.Components, component)
 	}
 	for _, value := range response.GetConstraintRanks() {
-		result.ConstraintRanks = append(result.ConstraintRanks, AssemblyConstraintRankInfo{ConstraintID: value.GetConstraintId(), EquationCount: value.GetEquationCount(), EffectiveRank: value.GetEffectiveRank(), IncrementalRank: value.GetIncrementalRank(), Role: value.GetRole()})
+		result.ConstraintRanks = append(result.ConstraintRanks, AssemblyConstraintRankInfo{ConstraintID: value.GetConstraintId(), EquationCount: value.GetEquationCount(), EffectiveRank: value.GetEffectiveRank(), IncrementalRank: value.GetIncrementalRank(), DeclaredGenericRank: value.GetDeclaredGenericRank(), Role: value.GetRole()})
 	}
 	for _, value := range response.GetAngleBranches() {
 		state := value.GetState()

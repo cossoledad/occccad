@@ -6,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <set>
 #include <string>
 #include <tuple>
 #include <utility>
@@ -363,9 +364,10 @@ TEST(AssemblyCorpus, DuplicateConstraintReportsStableEquationAndConstraintIdenti
     ASSERT_EQ(result.redundant_constraint_ids.size(), 1U);
     EXPECT_EQ(result.redundant_constraint_ids[0], "coincident-b");
     ASSERT_FALSE(result.equation_residuals.empty());
+    std::set<std::string> equation_ids;
     for (const EquationResidual& equation : result.equation_residuals) {
-        EXPECT_EQ(equation.equation_id,
-                  equation.constraint_id + "/equation/" + std::to_string(equation.equation_index));
+        EXPECT_EQ(equation.equation_id.rfind(equation.constraint_id + "/equation/", 0), 0U);
+        EXPECT_TRUE(equation_ids.insert(equation.equation_id).second);
         EXPECT_FALSE(equation.connection_id.empty());
     }
 }
