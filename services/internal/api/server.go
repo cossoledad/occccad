@@ -781,6 +781,18 @@ func (server *Server) previewCommand(writer http.ResponseWriter, request *http.R
 		writeError(writer, http.StatusNotFound, err.Error())
 		return
 	}
+	var assemblyFailure interface {
+		Code() string
+		Phase() string
+		Retryable() bool
+	}
+	if errors.As(err, &assemblyFailure) {
+		writeJSON(writer, http.StatusUnprocessableEntity, map[string]any{
+			"error": err.Error(), "code": assemblyFailure.Code(),
+			"phase": assemblyFailure.Phase(), "retryable": assemblyFailure.Retryable(),
+		})
+		return
+	}
 	if errors.Is(err, workspace.ErrValidation) || errors.Is(err, modelcore.ErrInvalidCommand) || errors.Is(err, modelcore.ErrUnsupportedCommand) {
 		writeError(writer, http.StatusBadRequest, err.Error())
 		return

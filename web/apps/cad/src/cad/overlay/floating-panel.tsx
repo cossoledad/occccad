@@ -93,9 +93,9 @@ export function ToolbarGroup({ children }: PropsWithChildren) {
 export function ToolbarSeparator() { return <span className="cad-toolbar-separator" aria-hidden />; }
 
 export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmText = "确定",
-  cancelText = "取消", confirmLoading = false, width = 320 }: PropsWithChildren<{
+  cancelText = "取消", confirmLoading = false, confirmDisabled = false, width = 320 }: PropsWithChildren<{
   id: string; open: boolean; title: ReactNode; onClose: () => void; onConfirm: () => void | Promise<void>;
-  confirmText?: string; cancelText?: string; confirmLoading?: boolean; width?: number;
+  confirmText?: string; cancelText?: string; confirmLoading?: boolean; confirmDisabled?: boolean; width?: number;
 }>) {
   const storageKey = `occccad.command-dialog.${id}`;
   const [position, setPosition] = useState<{ x: number; y: number }>(() => {
@@ -141,6 +141,7 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
     </header>
     <div className="cad-command-dialog-body">{children}</div>
     <footer className="cad-command-dialog-footer"><Button onClick={onClose}>{cancelText}</Button>
-      <Button type="primary" loading={confirmLoading} onClick={() => void confirm()}>{confirmText}</Button></footer>
+      <Button type="primary" loading={confirmLoading} disabled={confirmDisabled}
+        onClick={() => void confirm()}>{confirmText}</Button></footer>
   </section>;
 }

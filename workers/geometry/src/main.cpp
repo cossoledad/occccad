@@ -492,6 +492,11 @@ public:
             constraint.value = input.value();
             if (input.has_angle_reference_direction())
                 constraint.angle_reference_direction = vec(input.angle_reference_direction());
+            if (input.has_angle_branch_state())
+                constraint.angle_branch_state =
+                    assembly_api::AngleBranchState{input.angle_branch_state().wrapped_angle(),
+                                                   input.angle_branch_state().unwrapped_angle(),
+                                                   input.angle_branch_state().winding()};
             if (input.kind() == "FIX")
                 constraint.kind = assembly_api::ConstraintKind::Fix;
             else if (input.kind() == "RIGID")
@@ -558,6 +563,25 @@ public:
                 options.initial_damping = profile.initial_damping();
             if (profile.rank_tolerance() > 0.0)
                 options.rank_tolerance = profile.rank_tolerance();
+            if (profile.translation_finite_difference_step() > 0.0)
+                options.translation_finite_difference_step =
+                    profile.translation_finite_difference_step();
+            if (profile.rotation_finite_difference_step() > 0.0)
+                options.rotation_finite_difference_step = profile.rotation_finite_difference_step();
+            if (profile.rank_absolute_tolerance() > 0.0)
+                options.rank_absolute_tolerance = profile.rank_absolute_tolerance();
+            if (profile.rank_relative_tolerance() > 0.0)
+                options.rank_relative_tolerance = profile.rank_relative_tolerance();
+            if (profile.gradient_tolerance() > 0.0)
+                options.gradient_tolerance = profile.gradient_tolerance();
+            if (profile.moving_preference_weight() > 0.0)
+                options.moving_preference_weight = profile.moving_preference_weight();
+            if (profile.neutral_preference_weight() > 0.0)
+                options.neutral_preference_weight = profile.neutral_preference_weight();
+            if (profile.reference_preference_weight() > 0.0)
+                options.reference_preference_weight = profile.reference_preference_weight();
+            if (profile.max_conflict_probes() > 0)
+                options.max_conflict_probes = profile.max_conflict_probes();
         }
         options.affected_body_ids.assign(request->affected_body_ids().begin(),
                                          request->affected_body_ids().end());
@@ -643,6 +667,28 @@ public:
             response->add_conflicting_constraint_ids(id);
         for (const auto& id : result.unsatisfied_constraint_ids)
             response->add_unsatisfied_constraint_ids(id);
+        for (const auto& id : result.suspected_conflicting_constraint_ids)
+            response->add_suspected_conflicting_constraint_ids(id);
+        for (const auto& rank : result.constraint_ranks) {
+            auto* output = response->add_constraint_ranks();
+            output->set_constraint_id(rank.constraint_id);
+            output->set_equation_count(rank.equation_count);
+            output->set_effective_rank(rank.effective_rank);
+            output->set_incremental_rank(rank.incremental_rank);
+            output->set_role(rank.role == assembly_api::ConstraintRankRole::Independent
+                                 ? "INDEPENDENT"
+                             : rank.role == assembly_api::ConstraintRankRole::PartiallyRedundant
+                                 ? "PARTIALLY_REDUNDANT"
+                                 : "FULLY_REDUNDANT");
+        }
+        for (const auto& branch : result.angle_branches) {
+            auto* output = response->add_angle_branches();
+            output->set_constraint_id(branch.constraint_id);
+            auto* state = output->mutable_state();
+            state->set_wrapped_angle(branch.state.wrapped_angle);
+            state->set_unwrapped_angle(branch.state.unwrapped_angle);
+            state->set_winding(branch.state.winding);
+        }
         for (const auto& diagnostic : result.diagnostics) {
             auto* output = response->add_diagnostics();
             output->set_code(diagnostic.code);

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"math"
 	"slices"
 	"strings"
@@ -935,6 +936,25 @@ func TestMovePreviewSolveFailureRestoresAuthoritativePoses(t *testing.T) {
 		&assemblySolveFailure{status: "MAX_ITERATIONS"}, baseJSON, &preview)
 	if err != nil || restored {
 		t.Fatalf("non-move solver failure must remain an error: restored=%v err=%v", restored, err)
+	}
+}
+
+func TestAssemblySolveWorkflowCarriesStableFailureState(t *testing.T) {
+	workflow := newAssemblySolveWorkflow()
+	if err := workflow.advance(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	err := workflow.failure(t.Context(), "MAX_ITERATIONS", "ASSEMBLY_SOLVER_NON_CONVERGENT",
+		"iteration budget exhausted", false)
+	var failure *assemblySolveFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("expected typed assembly failure, got %v", err)
+	}
+	if failure.Phase() != assemblySolveSolving || failure.Code() != "ASSEMBLY_SOLVER_NON_CONVERGENT" || failure.Retryable() {
+		t.Fatalf("unexpected failure projection: %#v", failure)
+	}
+	if workflow.machine.MustState() != assemblySolveFailed {
+		t.Fatalf("workflow did not enter FAILED: %v", workflow.machine.MustState())
 	}
 }
 

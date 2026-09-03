@@ -37,6 +37,9 @@ importers:
       three-mesh-bvh:
         specifier: ^0.9.14
         version: 0.9.14(three@0.179.1)
+      xstate:
+        specifier: 5.32.6
+        version: 5.32.6
       zustand:
         specifier: ^5.0.14
         version: 5.0.14(@types/react@19.2.18)(react@19.2.8)
@@ -808,6 +811,9 @@ packages:
       yaml:
         optional: true
 
+  xstate@5.32.6:
+    resolution: {integrity: sha512-WfA8WNrh6r9osuGwVm+aIPM4jmMW2LKHV1Yv9thYpOtL4HVF/kobh95K/O8v2jDCpDmP2EoY+6uvuqHXCZ6ZLw==}
+
   zustand@5.0.14:
     resolution: {integrity: sha512-/8tAspM5LMPr28b3fwLYrtdj77ECpfZviaP75CMTnwO8ISyaE4GDIG/9rDDYq/cH9D2Xw2A2RXglLInmVBQB/g==}
     engines: {node: '>=12.20.0'}
@@ -1547,6 +1553,8 @@ snapshots:
     optionalDependencies:
       '@types/node': 26.2.0
       fsevents: 2.3.3
+
+  xstate@5.32.6: {}
 
   zustand@5.0.14(@types/react@19.2.18)(react@19.2.8):
     optionalDependencies:

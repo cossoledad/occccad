@@ -98,6 +98,7 @@ message AssemblyConstraint {
     string connection_id = 9;
     string mode = 10; // DRIVING, MEASURED, CONTROLLED, SUPPRESSED
     Vec3 angle_reference_direction = 11; // optional, in second-body local coordinates
+    AssemblyAngleBranchState angle_branch_state = 12; // optional previous accepted branch
 }
 
 message SolveAssemblyRequest {
@@ -137,6 +138,9 @@ message SolveAssemblyResponse {
     repeated string conflicting_constraint_ids = 11;
     repeated AssemblySolveDiagnostic diagnostics = 12;
     repeated string unsatisfied_constraint_ids = 13;
+    repeated AssemblyConstraintRankInfo constraint_ranks = 14;
+    repeated AssemblySolvedAngleBranch angle_branches = 15;
+    repeated string suspected_conflicting_constraint_ids = 16;
 }
 
 message SketchPoint {
@@ -575,6 +579,25 @@ message AssemblySolveIntent {
     string preference_policy = 3; // MINIMUM_TOTAL_CHANGE, MOVE_FIRST_MINIMIZE_REFERENCE
 }
 
+message AssemblyAngleBranchState {
+    double wrapped_angle = 1;
+    double unwrapped_angle = 2;
+    int64 winding = 3;
+}
+
+message AssemblySolvedAngleBranch {
+    string constraint_id = 1;
+    AssemblyAngleBranchState state = 2;
+}
+
+message AssemblyConstraintRankInfo {
+    string constraint_id = 1;
+    uint64 equation_count = 2;
+    uint64 effective_rank = 3;
+    uint64 incremental_rank = 4;
+    string role = 5; // INDEPENDENT, PARTIALLY_REDUNDANT, FULLY_REDUNDANT
+}
+
 message AssemblySolverProfile {
     uint32 schema_version = 1;
     uint64 max_iterations = 2;
@@ -588,4 +611,13 @@ message AssemblySolverProfile {
     double finite_difference_step = 10;
     double initial_damping = 11;
     double rank_tolerance = 12;
+    double translation_finite_difference_step = 13;
+    double rotation_finite_difference_step = 14;
+    double rank_absolute_tolerance = 15;
+    double rank_relative_tolerance = 16;
+    double gradient_tolerance = 17;
+    double moving_preference_weight = 18;
+    double neutral_preference_weight = 19;
+    double reference_preference_weight = 20;
+    uint64 max_conflict_probes = 21;
 }

@@ -116,6 +116,36 @@ TEST(AssemblySolver, PlaneDistanceUsesAnExplicitSide) {
     EXPECT_NEAR(pose(result, "moving").translation.z, 3.0, 1.0e-7);
 }
 
+TEST(AssemblySolver, ProductFaceFiveCoincidenceRegression) {
+    Model model;
+    model.bodies = {{"instance-21e275df4646172218cb",
+                     {{-286.1246164637754, 50.348556618702084, 13.75259704832779},
+                      {2.6946118524417014e-11, 5.2818152615750504e-12, -0.3167324979530608,
+                       0.9485149048593884}}},
+                    {"instance-e227326d55689927ee52",
+                     {{-187.31243746150747, -54.70854797482553, 13.75259704324006},
+                      {2.47110919716094e-11, 1.2059607413355575e-11, -0.5456708354686278,
+                       0.8379996057988152}}}};
+    const PlaneGeometry face{{23.83813541685627, -40.0, -13.765954459534102}, {0.0, -1.0, 0.0}};
+    model.geometry = {{"face-5", model.bodies[0].id, face}, {"face-5", model.bodies[1].id, face}};
+    Constraint coincidence =
+        binary("face-coincident", ConstraintKind::Coincident, ref(model.bodies[0].id, "face-5"),
+               ref(model.bodies[1].id, "face-5"));
+    coincidence.direction_relation = DirectionRelation::Same;
+    model.constraints = {coincidence};
+    SolverOptions options;
+    options.solve_intent = SolveIntent{{model.bodies[0].id},
+                                       {model.bodies[1].id},
+                                       SolvePreferencePolicy::MoveFirstMinimizeReference};
+
+    const SolveResult result = Solver{}.solve(model, options);
+    EXPECT_EQ(result.status, SolveStatus::Converged)
+        << result.diagnostic << " residual=" << result.normalized_residual
+        << " iterations=" << result.iterations;
+    for (const auto& equation : result.equation_residuals)
+        EXPECT_NEAR(equation.normalized_value, 0.0, 1.0e-6) << equation.equation_id;
+}
+
 TEST(AssemblySolver, SameDirectionDoesNotAcceptAntiparallelPlanes) {
     Model model;
     model.bodies = {{"ground", {}}, {"moving", {}}};
@@ -135,19 +165,18 @@ TEST(AssemblySolver, SameDirectionDoesNotAcceptAntiparallelPlanes) {
 
 TEST(AssemblySolver, OppositePlaneCoincidenceUsesTheSameCreationAnchorAsEditing) {
     Model model;
-    model.bodies = {{"moving", {{-173.79051029395015, 0.0, 0.0}, {}}},
-                    {"reference", {}}};
+    model.bodies = {{"moving", {{-173.79051029395015, 0.0, 0.0}, {}}}, {"reference", {}}};
     model.geometry = {
         {"plane", "moving", PlaneGeometry{{-5.0, -40.0, 5.0}, {0.0, -1.0, 0.0}}},
         {"plane", "reference", PlaneGeometry{{-5.0, -40.0, 5.0}, {0.0, -1.0, 0.0}}},
     };
-    Constraint coincident = binary("opposite", ConstraintKind::Coincident,
-                                   ref("moving", "plane"), ref("reference", "plane"));
+    Constraint coincident = binary("opposite", ConstraintKind::Coincident, ref("moving", "plane"),
+                                   ref("reference", "plane"));
     coincident.direction_relation = DirectionRelation::Opposite;
     model.constraints = {coincident};
     SolverOptions options;
-    options.solve_intent = SolveIntent{{"moving"}, {"reference"},
-                                       SolvePreferencePolicy::MoveFirstMinimizeReference};
+    options.solve_intent =
+        SolveIntent{{"moving"}, {"reference"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
 
     const SolveResult result = Solver{}.solve(model, options);
 
@@ -220,13 +249,14 @@ TEST(AssemblySolver, DirectedPlaneAngleDistinguishesNinetyFromTwoHundredSeventy)
 TEST(AssemblySolver, DirectedAngleCrossesPiOnAConstrainedHinge) {
     for (const double target_degrees : {181.0, 270.0}) {
         Model model;
-        model.bodies = {
-            {"moving", {{-169.82900867865035, -6.470427574396004, -5.553248048104228e-9},
-                        {7.668012345918533e-12, -5.907059238768305e-11,
-                         0.06176982153323116, 0.9980904213285252}}},
-            {"ground", {{-44.43828073416036, -26.5212748744714, 8.660380375883868e-9},
-                        {2.2696593137509963e-11, -5.5073654344670444e-11,
-                         -0.19865974397266659, 0.980068521137535}}}};
+        model.bodies = {{"moving",
+                         {{-169.82900867865035, -6.470427574396004, -5.553248048104228e-9},
+                          {7.668012345918533e-12, -5.907059238768305e-11, 0.06176982153323116,
+                           0.9980904213285252}}},
+                        {"ground",
+                         {{-44.43828073416036, -26.5212748744714, 8.660380375883868e-9},
+                          {2.2696593137509963e-11, -5.5073654344670444e-11, -0.19865974397266659,
+                           0.980068521137535}}}};
         model.geometry = {
             {"edge", "moving", AxisGeometry{{50.0, -40.0, -50.0}, {0.0, 0.0, 1.0}}},
             {"edge", "ground", AxisGeometry{{-60.0, -40.0, 60.0}, {0.0, 0.0, -1.0}}},
@@ -241,8 +271,8 @@ TEST(AssemblySolver, DirectedAngleCrossesPiOnAConstrainedHinge) {
         edges.direction_relation = DirectionRelation::Unoriented;
         Constraint points = binary("point-coincident", ConstraintKind::Coincident,
                                    ref("moving", "point"), ref("ground", "point"));
-        Constraint angle = binary("directed-angle", ConstraintKind::Angle,
-                                  ref("moving", "plane"), ref("ground", "plane"));
+        Constraint angle = binary("directed-angle", ConstraintKind::Angle, ref("moving", "plane"),
+                                  ref("ground", "plane"));
         angle.value = target_degrees * kPi / 180.0;
         angle.direction_relation = DirectionRelation::Same;
         angle.angle_reference_direction = Vec3{0.0, 0.0, -1.0};
@@ -255,6 +285,152 @@ TEST(AssemblySolver, DirectedAngleCrossesPiOnAConstrainedHinge) {
             EXPECT_LT(residual.normalized_norm, 1.0e-6)
                 << "target=" << target_degrees << ", constraint=" << residual.constraint_id;
     }
+}
+
+TEST(AssemblySolver, DirectedAngleProjectsEndpointsAndRejectsDegenerateProjection) {
+    Model model;
+    model.bodies = {{"ground", {}}, {"moving", {}}};
+    model.geometry = {{"axis", "ground", AxisGeometry{{}, {1.0, 0.0, 1.0}}},
+                      {"axis", "moving", AxisGeometry{{}, {0.0, -1.0, 2.0}}}};
+    Constraint angle =
+        binary("angle", ConstraintKind::Angle, ref("moving", "axis"), ref("ground", "axis"));
+    angle.value = kPi / 2.0;
+    angle.angle_reference_direction = Vec3{0.0, 0.0, 1.0};
+    model.constraints = {fix("ground"), angle};
+    const SolveResult projected = Solver{}.solve(model);
+    EXPECT_EQ(projected.status, SolveStatus::Converged) << projected.diagnostic;
+
+    model.geometry[1].local_geometry = AxisGeometry{{}, {0.0, 0.0, 1.0}};
+    const SolveResult degenerate = Solver{}.solve(model);
+    EXPECT_EQ(degenerate.status, SolveStatus::InvalidModel);
+    EXPECT_NE(degenerate.diagnostic.find("parallel to its reference axis"), std::string::npos);
+}
+
+TEST(AssemblySolver, DirectedAngleReturnsNearestUnwrappedBranch) {
+    const double one_degree = kPi / 180.0;
+    Model model;
+    model.bodies = {{"ground", {}}, {"moving", {}}};
+    model.geometry = {
+        {"axis", "ground", AxisGeometry{{}, {1.0, 0.0, 0.0}}},
+        {"axis", "moving", AxisGeometry{{}, {std::cos(one_degree), -std::sin(one_degree), 0.0}}}};
+    Constraint angle =
+        binary("angle", ConstraintKind::Angle, ref("moving", "axis"), ref("ground", "axis"));
+    angle.value = one_degree;
+    angle.angle_reference_direction = Vec3{0.0, 0.0, 1.0};
+    angle.angle_branch_state = AngleBranchState{359.0 * one_degree, 359.0 * one_degree, 0};
+    model.constraints = {fix("ground"), angle};
+
+    const SolveResult result = Solver{}.solve(model);
+    ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+    ASSERT_EQ(result.angle_branches.size(), 1U);
+    EXPECT_NEAR(result.angle_branches[0].state.wrapped_angle, one_degree, 1.0e-8);
+    EXPECT_NEAR(result.angle_branches[0].state.unwrapped_angle, 361.0 * one_degree, 1.0e-8);
+    EXPECT_EQ(result.angle_branches[0].state.winding, 1);
+}
+
+TEST(AssemblySolver, DirectedAngleResidualUsesShortestPeriodicError) {
+    const double degree = kPi / 180.0;
+    for (const auto& [current_degrees, target_degrees] :
+         {std::pair{1.0, 359.0}, std::pair{359.0, 1.0}}) {
+        Model model;
+        model.bodies = {{"first", {}}, {"second", {}}};
+        const double current = current_degrees * degree;
+        model.geometry = {
+            {"axis", "first", AxisGeometry{{}, {std::cos(current), -std::sin(current), 0.0}}},
+            {"axis", "second", AxisGeometry{{}, {1.0, 0.0, 0.0}}}};
+        Constraint angle =
+            binary("angle", ConstraintKind::Angle, ref("first", "axis"), ref("second", "axis"));
+        angle.value = target_degrees * degree;
+        angle.angle_reference_direction = Vec3{0.0, 0.0, 1.0};
+        model.constraints = {fix("first"), fix("second"), angle};
+        const SolveResult result = Solver{}.solve(model);
+        ASSERT_EQ(result.residuals.size(), 3U);
+        const auto found =
+            std::find_if(result.residuals.begin(), result.residuals.end(),
+                         [](const auto& residual) { return residual.constraint_id == "angle"; });
+        ASSERT_NE(found, result.residuals.end());
+        EXPECT_NEAR(found->normalized_norm, 2.0 * degree, 1.0e-10);
+    }
+}
+
+TEST(AssemblySolver, AngleEndpointsRemainOneScalarEquationAndRank) {
+    for (const double target : {0.0, 0.001 * kPi / 180.0, 179.999 * kPi / 180.0, kPi}) {
+        Model model;
+        model.bodies = {{"ground", {}}, {"moving", {}}};
+        model.geometry = {{"axis", "ground", AxisGeometry{}}, {"axis", "moving", AxisGeometry{}}};
+        Constraint angle =
+            binary("angle", ConstraintKind::Angle, ref("moving", "axis"), ref("ground", "axis"));
+        angle.value = target;
+        model.constraints = {fix("ground"), angle};
+        const SolveResult result = Solver{}.solve(model);
+        ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+        const auto found =
+            std::find_if(result.constraint_ranks.begin(), result.constraint_ranks.end(),
+                         [](const auto& rank) { return rank.constraint_id == "angle"; });
+        ASSERT_NE(found, result.constraint_ranks.end());
+        EXPECT_EQ(found->equation_count, 1U);
+        EXPECT_LE(found->effective_rank, 1U);
+    }
+}
+
+TEST(AssemblySolver, RigidClusterRejectsConflictingMovementIntent) {
+    Model model;
+    model.bodies = {{"a", {}}, {"b", {}}};
+    Constraint rigid = binary("rigid", ConstraintKind::Rigid, ref("a", ""), ref("b", ""));
+    rigid.fixed_pose = Pose{};
+    model.constraints = {rigid};
+    SolverOptions options;
+    options.solve_intent =
+        SolveIntent{{"a"}, {"b"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
+    const SolveResult result = Solver{}.solve(model, options);
+    EXPECT_EQ(result.status, SolveStatus::InvalidModel);
+    EXPECT_NE(result.diagnostic.find("rigid cluster"), std::string::npos);
+}
+
+TEST(AssemblySolver, GroundedComponentUsesReferenceMotionPreference) {
+    Model model;
+    model.bodies = {
+        {"ground", {}}, {"reference", {{2.0, 0.0, 0.0}, {}}}, {"moving", {{4.0, 0.0, 0.0}, {}}}};
+    model.geometry = {{"point", "ground", PointGeometry{}},
+                      {"point", "reference", PointGeometry{}},
+                      {"point", "moving", PointGeometry{}}};
+    Constraint radius = binary("radius", ConstraintKind::Distance, ref("reference", "point"),
+                               ref("ground", "point"));
+    radius.value = 2.0;
+    Constraint together = binary("together", ConstraintKind::Coincident, ref("moving", "point"),
+                                 ref("reference", "point"));
+    model.constraints = {fix("ground"), radius, together};
+    SolverOptions options;
+    options.solve_intent =
+        SolveIntent{{"moving"}, {"reference"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
+
+    const SolveResult result = Solver{}.solve(model, options);
+    ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+    EXPECT_NEAR(pose(result, "reference").translation.x, 2.0, 1.0e-5);
+    EXPECT_NEAR(pose(result, "moving").translation.x, 2.0, 1.0e-5);
+}
+
+TEST(AssemblySolver, DuplicateConstraintsExposeRankBasisAndConflictProbe) {
+    Model duplicate;
+    duplicate.bodies = {{"ground", {}}, {"moving", {{10.0, 0.0, 0.0}, {}}}};
+    duplicate.geometry = {{"point", "ground", PointGeometry{}},
+                          {"point", "moving", PointGeometry{}}};
+    Constraint first = binary("distance-a", ConstraintKind::Distance, ref("moving", "point"),
+                              ref("ground", "point"));
+    first.value = 10.0;
+    Constraint second = first;
+    second.id = "distance-b";
+    duplicate.constraints = {fix("ground"), first, second};
+    const SolveResult redundant = Solver{}.solve(duplicate);
+    ASSERT_EQ(redundant.status, SolveStatus::Converged);
+    ASSERT_EQ(redundant.constraint_ranks.size(), 2U);
+    EXPECT_EQ(redundant.constraint_ranks[1].role, ConstraintRankRole::FullyRedundant);
+    EXPECT_EQ(redundant.constraint_ranks[1].incremental_rank, 0U);
+
+    duplicate.constraints[2].value = 20.0;
+    const SolveResult conflict = Solver{}.solve(duplicate);
+    EXPECT_EQ(conflict.status, SolveStatus::Unsatisfied);
+    EXPECT_FALSE(conflict.suspected_conflicting_constraint_ids.empty());
 }
 
 TEST(AssemblySolver, LinePlaneCoincidentPlacesTheWholeLineInThePlane) {

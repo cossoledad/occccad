@@ -216,7 +216,24 @@ type AssemblyConstraint struct {
 	Value                               float64
 	DirectionRelation, DistanceRelation string
 	AngleReferenceDirection             *[3]float64
+	AngleBranchState                    *AssemblyAngleBranchState
 	FixedPose                           *AssemblyPose
+}
+
+type AssemblyAngleBranchState struct {
+	WrappedAngle, UnwrappedAngle float64
+	Winding                      int64
+}
+
+type AssemblyConstraintRankInfo struct {
+	ConstraintID                                  string
+	EquationCount, EffectiveRank, IncrementalRank uint64
+	Role                                          string
+}
+
+type AssemblySolvedAngleBranch struct {
+	ConstraintID string
+	State        AssemblyAngleBranchState
 }
 
 type AssemblyEquationResidual struct {
@@ -244,13 +261,17 @@ type AssemblySolveIntent struct {
 }
 
 type AssemblySolverProfile struct {
-	SchemaVersion                                               uint32
-	MaxIterations                                               uint64
-	LengthTolerance, AngleTolerance                             float64
-	ClassificationLengthTolerance, ClassificationAngleTolerance float64
-	TranslationStepTolerance, RotationStepTolerance             float64
-	DegeneracyTolerance, FiniteDifferenceStep, InitialDamping   float64
-	RankTolerance                                               float64
+	SchemaVersion                                                              uint32
+	MaxIterations                                                              uint64
+	LengthTolerance, AngleTolerance                                            float64
+	ClassificationLengthTolerance, ClassificationAngleTolerance                float64
+	TranslationStepTolerance, RotationStepTolerance                            float64
+	DegeneracyTolerance, FiniteDifferenceStep, InitialDamping                  float64
+	RankTolerance                                                              float64
+	TranslationFiniteDifferenceStep, RotationFiniteDifferenceStep              float64
+	RankAbsoluteTolerance, RankRelativeTolerance, GradientTolerance            float64
+	MovingPreferenceWeight, NeutralPreferenceWeight, ReferencePreferenceWeight float64
+	MaxConflictProbes                                                          uint64
 }
 
 type AssemblySolveOptions struct {
@@ -260,14 +281,16 @@ type AssemblySolveOptions struct {
 }
 
 type AssemblySolve struct {
-	Status, Classification, Diagnostic                                         string
-	Bodies                                                                     []AssemblyBody
-	EquationResiduals                                                          []AssemblyEquationResidual
-	Components                                                                 []AssemblyComponentDof
-	RedundantConstraintIDs, UnsatisfiedConstraintIDs, ConflictingConstraintIDs []string
-	Diagnostics                                                                []AssemblySolveDiagnostic
-	Iterations                                                                 uint64
-	NormalizedResidual                                                         float64
+	Status, Classification, Diagnostic                                                                            string
+	Bodies                                                                                                        []AssemblyBody
+	EquationResiduals                                                                                             []AssemblyEquationResidual
+	Components                                                                                                    []AssemblyComponentDof
+	RedundantConstraintIDs, UnsatisfiedConstraintIDs, ConflictingConstraintIDs, SuspectedConflictingConstraintIDs []string
+	ConstraintRanks                                                                                               []AssemblyConstraintRankInfo
+	AngleBranches                                                                                                 []AssemblySolvedAngleBranch
+	Diagnostics                                                                                                   []AssemblySolveDiagnostic
+	Iterations                                                                                                    uint64
+	NormalizedResidual                                                                                            float64
 }
 
 func protoPose(value AssemblyPose) *workerv1.RigidPose {
@@ -299,7 +322,13 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 			RotationStepTolerance:         profile.RotationStepTolerance,
 			DegeneracyTolerance:           profile.DegeneracyTolerance,
 			FiniteDifferenceStep:          profile.FiniteDifferenceStep,
-			InitialDamping:                profile.InitialDamping, RankTolerance: profile.RankTolerance}
+			InitialDamping:                profile.InitialDamping, RankTolerance: profile.RankTolerance,
+			TranslationFiniteDifferenceStep: profile.TranslationFiniteDifferenceStep,
+			RotationFiniteDifferenceStep:    profile.RotationFiniteDifferenceStep,
+			RankAbsoluteTolerance:           profile.RankAbsoluteTolerance, RankRelativeTolerance: profile.RankRelativeTolerance,
+			GradientTolerance: profile.GradientTolerance, MovingPreferenceWeight: profile.MovingPreferenceWeight,
+			NeutralPreferenceWeight: profile.NeutralPreferenceWeight, ReferencePreferenceWeight: profile.ReferencePreferenceWeight,
+			MaxConflictProbes: profile.MaxConflictProbes}
 	}
 	for _, body := range bodies {
 		request.Bodies = append(request.Bodies, &workerv1.AssemblyBody{Id: body.ID, InitialPose: protoPose(body.Pose)})
@@ -323,13 +352,16 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 		if value.AngleReferenceDirection != nil {
 			item.AngleReferenceDirection = &workerv1.Vec3{X: value.AngleReferenceDirection[0], Y: value.AngleReferenceDirection[1], Z: value.AngleReferenceDirection[2]}
 		}
+		if value.AngleBranchState != nil {
+			item.AngleBranchState = &workerv1.AssemblyAngleBranchState{WrappedAngle: value.AngleBranchState.WrappedAngle, UnwrappedAngle: value.AngleBranchState.UnwrappedAngle, Winding: value.AngleBranchState.Winding}
+		}
 		request.Constraints = append(request.Constraints, item)
 	}
 	response, err := client.worker.SolveAssembly(ctx, request)
 	if err != nil {
 		return AssemblySolve{}, fmt.Errorf("solve assembly: %w", err)
 	}
-	result := AssemblySolve{Status: response.GetStatus(), Classification: response.GetClassification(), Diagnostic: response.GetDiagnostic(), Iterations: response.GetIterations(), NormalizedResidual: response.GetNormalizedResidual(), RedundantConstraintIDs: response.GetRedundantConstraintIds(), UnsatisfiedConstraintIDs: response.GetUnsatisfiedConstraintIds(), ConflictingConstraintIDs: response.GetConflictingConstraintIds()}
+	result := AssemblySolve{Status: response.GetStatus(), Classification: response.GetClassification(), Diagnostic: response.GetDiagnostic(), Iterations: response.GetIterations(), NormalizedResidual: response.GetNormalizedResidual(), RedundantConstraintIDs: response.GetRedundantConstraintIds(), UnsatisfiedConstraintIDs: response.GetUnsatisfiedConstraintIds(), ConflictingConstraintIDs: response.GetConflictingConstraintIds(), SuspectedConflictingConstraintIDs: response.GetSuspectedConflictingConstraintIds()}
 	for _, body := range response.GetBodies() {
 		result.Bodies = append(result.Bodies, AssemblyBody{ID: body.GetId(), Pose: AssemblyPose{
 			Translation: [3]float64{body.GetPose().GetTranslation().GetX(), body.GetPose().GetTranslation().GetY(), body.GetPose().GetTranslation().GetZ()},
@@ -340,6 +372,13 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 	}
 	for _, value := range response.GetComponents() {
 		result.Components = append(result.Components, AssemblyComponentDof{ComponentID: value.GetComponentId(), BodyIDs: value.GetBodyIds(), TangentVariableCount: value.GetTangentVariableCount(), JacobianRank: value.GetJacobianRank(), RelativeDof: value.GetRelativeDof(), GaugeDof: value.GetGaugeDof(), Solved: value.GetSolved()})
+	}
+	for _, value := range response.GetConstraintRanks() {
+		result.ConstraintRanks = append(result.ConstraintRanks, AssemblyConstraintRankInfo{ConstraintID: value.GetConstraintId(), EquationCount: value.GetEquationCount(), EffectiveRank: value.GetEffectiveRank(), IncrementalRank: value.GetIncrementalRank(), Role: value.GetRole()})
+	}
+	for _, value := range response.GetAngleBranches() {
+		state := value.GetState()
+		result.AngleBranches = append(result.AngleBranches, AssemblySolvedAngleBranch{ConstraintID: value.GetConstraintId(), State: AssemblyAngleBranchState{WrappedAngle: state.GetWrappedAngle(), UnwrappedAngle: state.GetUnwrappedAngle(), Winding: state.GetWinding()}})
 	}
 	for _, value := range response.GetDiagnostics() {
 		result.Diagnostics = append(result.Diagnostics, AssemblySolveDiagnostic{Code: value.GetCode(), ComponentID: value.GetComponentId(), Detail: value.GetDetail(), BodyIDs: value.GetBodyIds(), ConstraintIDs: value.GetConstraintIds()})

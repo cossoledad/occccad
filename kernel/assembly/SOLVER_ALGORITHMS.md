@@ -26,10 +26,11 @@ cluster 使用六维切空间增量
 t' = t+\Delta t,\qquad R'=\operatorname{Exp}(\Delta\theta)R.
 \]
 
-所有 active constraint 的残差块按稳定约束顺序拼接为向量 `r(x)`，当前后端求解
+所有 active constraint 的残差块按稳定约束顺序拼接为向量 `r(x)`。M1.7 以几何约束为主目标，并以弱运动偏好选择可行解：
 
 \[
-\min_x \frac{1}{2}\lVert r(x)\rVert_2^2.
+\min_x \frac{1}{2}\lVert r(x)\rVert_2^2
++\frac{1}{2}\lVert W_m\log(T_0^{-1}T)\rVert_2^2.
 \]
 
 长度残差除以 `length_scale`，角度和方向残差除以 `angle_scale`，使不同量纲可以进入同一个范数。两者必须由调用方按
@@ -37,7 +38,8 @@ t' = t+\Delta t,\qquad R'=\operatorname{Exp}(\Delta\theta)R.
 
 RPC 使用 `AssemblySolverProfile schema_version=1` 传递求解策略；零值字段沿用 kernel 默认值。主要默认阈值为：length
 convergence/classification `10⁻⁷`、angle convergence/classification `10⁻⁸`、translation step `10⁻⁹`、rotation step
-`10⁻¹⁰`、degeneracy `10⁻⁸`、finite difference `10⁻⁷`、initial damping `10⁻⁴`、rank `10⁻⁹`。classification 可由
+`10⁻¹⁰`、degeneracy `10⁻⁸`、translation/rotation finite difference `10⁻⁶/10⁻⁷`、initial damping `10⁻⁴`、
+rank absolute/relative `10⁻¹⁰/10⁻⁸`。classification 可由
 调用方独立设置，不参与迭代停止，但不得严于对应 convergence tolerance，否则模型请求无效。
 
 ## 2. 总体处理流水线
@@ -49,15 +51,17 @@ flowchart TD
     C --> D[将 active Fix 转换为 cluster ground pose]
     D --> E[建立 cluster/constraint 连通分量]
     E --> F[按 affected bodies 选择分量]
-    F --> G[消元 ground 或 M1.5 reference gauge]
-    G --> H[生成残差与有限差分 Jacobian]
-    H --> I[阻尼最小二乘迭代]
-    I --> J[rank、DOF、冗余与冲突分类]
-    J --> K[恢复各 Body 位姿与方程 provenance]
+    F --> G[解析并冻结 ConstraintBranchState]
+    G --> H[消元 ground 或 reference gauge]
+    H --> I[连续残差、几何 satisfaction 与中央差分 Jacobian]
+    I --> J[带弱运动偏好的阻尼最小二乘]
+    J --> K[SVD rank、DOF、冗余与受限冲突探测]
+    K --> L[恢复 Body 位姿、branch 与方程 provenance]
 ```
 
-输入校验包括稳定 ID 唯一性、引用完整性、有限数、单位方向、合法半径、距离非负、角度位于 `[0, π]`、SolveIntent
-body 存在且 moving/reference 不重叠。无效模型返回 `InvalidModel`，不会让异常越过公开求解接口。
+输入校验包括稳定 ID 唯一性、引用完整性、有限数、单位方向、合法半径、距离非负、unsigned Angle 位于 `[0, π]`、
+directed Angle 位于 `[0, 2π]`、SolveIntent body 存在且 moving/reference 在 body 与 rigid-cluster 层均不冲突。无效模型返回
+`InvalidModel`，不会让异常越过公开求解接口。
 
 ## 3. 图编译
 
@@ -94,7 +98,7 @@ grounded cluster 不进入数值变量。一个 cluster 上的多个 Fix 若不�
 `Measured` 约束不进入图和目标函数，但在最终位姿上计算残差；`Suppressed` 完全跳过；`Driving` 与 `Controlled` 当前采用
 相同的数值驱动语义。
 
-## 4. M1.5 moving/reference 规约
+## 4. M1.7 moving/reference 规约与运动偏好
 
 `SolveIntent` 是单次请求的解选择策略，不持久改变约束方向。Product 创建二元约束时将第一选择作为 moving、第二选择
 作为 reference。
@@ -103,9 +107,10 @@ grounded cluster 不进入数值变量。一个 cluster 上的多个 Fix 若不�
 该 component 中第一个 reference body 所属 cluster，将它从数值变量中移除并保持初始位姿。这样第二选择成为 gauge
 anchor，第一选择承担相对运动，但不会生成物理 Fix。
 
-该消元只是选择同一相对解族的世界坐标规约，因此结果仍报告 `gauge_dof = 6`，`tangent_variable_count` 也补回被消元的
-六个逻辑变量。若 component 已经被 Fix 物理接地，则不再使用 reference gauge；当前也尚未实现已接地系统中的严格
-词典序最小 reference 位移，这属于 M3 层级/零空间优化。
+该消元只是选择同一相对解族的世界坐标规约，因此仍报告 `gauge_dof = 6`。每个自由 cluster 还会相对 solve 初始位姿
+加入弱二次正则，权重满足 reference > neutral > moving；已接地的多解系统也会优先让 moving cluster 承担变化。它不是
+严格词典序优化，权重不得牺牲几何可满足性。Rigid 合并后在 cluster 层分配角色；同一 cluster 同时含 moving/reference
+会返回 `InvalidModel`。
 
 ## 5. 当前约束残差
 
@@ -124,7 +129,7 @@ anchor，第一选择承担相对运动，但不会生成物理 Fix。
 | Coincident Cylinder–Cylinder | Axis-like 残差 + 半径差 | 7 |
 | Coincident Plane–Plane | 法向差 + 有符号法向距离 | 4 |
 | Angle，普通 `[0,π]` 目标 | `(atan2(‖d₁×d₂‖, d₁·d₂)-target)/A`（应用冻结方向支） | 1 |
-| Angle，精确 0/π 目标 | `(d₁×d₂)/A` 与 `(d₁·d₂-cos(target))/A` | 4 |
+| Angle，含 0/π 端点 | 冻结局部转轴后的周期标量角误差 | 1 |
 | Distance Point–Point | `(‖p₁-p₂‖-target)/L` | 1 |
 | Distance Point–Plane | 显式 signed/unsigned side 的法向距离差 | 1 |
 | Distance Axis-like pair | 两条无限直线的最短距离差 | 1 |
@@ -134,16 +139,20 @@ anchor，第一选择承担相对运动，但不会生成物理 Fix。
 因此 DOF 不能用“残差行数相减”估计，而必须在求解点计算 Jacobian rank。Cylinder–Cylinder `Coincident` 检查半径相等，
 `Concentric` 刻意不约束半径。
 
+Directed Angle 先把两个方向投影到 reference axis 的法平面，再用投影单位向量计算
+`atan2(k·(a×b),a·b)`；投影退化会明确拒绝模型。所有 Angle 使用 `atan2(sin(delta),cos(delta))` 的最短周期误差。
+`AngleBranchState` 保存 wrapped/unwrapped/winding，输入上一状态时返回最邻近的等价角；跨请求保存由调用者负责。
+
 ## 6. 有限差分 Jacobian
 
-对每个自由 cluster 的六个切空间变量分别施加正向扰动 `h=finite_difference_step`：
+对每个自由 cluster 的六个切空间变量分别施加正负扰动：
 
 \[
-J_{:,j}\approx\frac{r(x+h e_j)-r(x)}{h}.
+J_{:,j}\approx\frac{r(x+h_j e_j)-r(x-h_j e_j)}{2h_j}.
 \]
 
-当前默认 `h=10^{-7}`。实现使用前向差分而不是中心差分，也没有解析或自动微分 Jacobian。扰动后的残差维数必须不变且
-全部有限，否则返回 `NumericalFailure`。几何和约束类型扩展必须保持每个残差块在一次求解中的维数稳定。
+平移和旋转使用独立默认步长 `10^-6` 与 `10^-7`。正负扰动复用已冻结 branch，残差维数必须一致且全部有限，否则返回
+`NumericalFailure`。兼容字段 `finite_difference_step` 非零时仍可覆盖两者，新调用方应使用分离字段。
 
 ## 7. 阻尼最小二乘迭代
 
@@ -153,11 +162,11 @@ J_{:,j}\approx\frac{r(x+h e_j)-r(x)}{h}.
 (J^TJ+\lambda I)\Delta x=-J^Tr,
 \]
 
-并使用 Eigen `LDLT` 求解。它是当前确定性的 Levenberg–Marquardt 风格参考实现，但没有 trust-region gain ratio 或变量
-尺度矩阵：
+并使用 Eigen `LDLT` 求解，且检查分解与解状态；正规方程同时加入弱运动正则。small-step 只有在 `||J^T r||` 也低于
+`gradient_tolerance` 时才认定驻点，避免大 damping 伪造 stationary。M2 可升级为 augmented QR/SVD：
 
 - 初始 `λ = initial_damping`，默认 `10⁻⁴`；
-- 候选残差平方范数严格下降时接受步骤，并令 `λ=max(0.25λ,10⁻¹²)`；
+- 每个 component 对完整候选步执行最多 12 次确定性二分回溯；候选残差平方范数严格下降时接受步骤，并令 `λ=max(0.25λ,10⁻¹²)`；
 - 否则拒绝步骤，并令 `λ=min(10λ,10¹²)`；
 - 每个长度、角度方程分别满足 `length_tolerance`、`angle_tolerance` 时收敛；
 - 平移、旋转增量分别低于 `translation_step_tolerance`、`rotation_step_tolerance` 但方程仍超限时返回 `Unsatisfied`；
@@ -168,7 +177,8 @@ J_{:,j}\approx\frac{r(x+h e_j)-r(x)}{h}.
 
 ## 8. Rank、DOF 与 gauge
 
-收敛后重新计算 `J`，使用 Eigen `FullPivLU` 和 `rank_tolerance`（默认 `10⁻⁹`）求数值 rank `ρ`。设参与计算的自由
+收敛后重新计算 `J`，先对非零参数列归一化，再使用 Eigen `JacobiSVD`；阈值为
+`max(rank_absolute_tolerance, rank_relative_tolerance*sigma_max)`。设参与计算的自由
 变量数为 `n`：
 
 \[
@@ -185,12 +195,15 @@ nullity = \max(n-\rho,0).
 
 ## 9. 冗余、冲突与分类
 
-冗余检测按规范输入中的 constraint block 顺序增量拼接 Jacobian 行。若加入一个完整 block 后 rank 不增加，则把该 constraint
-标为 redundant；否则接受该 block。这个算法提供确定性的 whole-constraint 诊断，但结果与顺序相关，也不是最小冗余集。
+冗余检测按 chosen basis 顺序增量拼接 Jacobian block，并为每个 constraint 返回 equation count、effective rank、
+incremental rank 与 Independent/PartiallyRedundant/FullyRedundant。旧 ID 列表仅包含 incremental rank 为零者；归因仍随
+basis 顺序变化，不声称唯一冗余来源。
 
 求解结束后，所有非 Suppressed 约束都在最终 Body 位姿上按独立 classification tolerance 重新计算。`Unsatisfied`
 component 的超差约束进入 `unsatisfied_constraint_ids`；只有零变量且超过 classification tolerance 的 `Inconsistent`
-component 才写入 `conflicting_constraint_ids`。`MaxIterations` 和 `NumericalFailure` 不伪造任何冲突归因。
+component 才写入 `conflicting_constraint_ids`。一般 `Unsatisfied` component 会在有界预算内逐个临时 Suppress active
+constraint；若可解性或残差显著改善，则写入 `suspected_conflicting_constraint_ids` 与 `LIKELY_INCONSISTENT`。这是探针，
+不是 IIS/MUS 证明。
 
 最终分类优先级为：
 
@@ -213,14 +226,14 @@ cluster、component 及冗余/冲突 ID 集合会显式排序；Body 与方程�
 应得到语义等价结果。该保证不意味着不同 CPU/Eigen 版本下浮点位完全一致，也不意味着未规范化的 constraint 排列会给出
 完全相同的冗余归因对象。
 
-设一个 component 有 `b` 个自由 cluster、`n=6b` 个变量、`m` 个残差标量。每轮前向差分需要约 `n+1` 次残差计算；
+设一个 component 有 `b` 个自由 cluster、`n=6b` 个变量、`m` 个残差标量。每轮中央差分需要约 `2n` 次残差计算；
 正规方程会形成 `n×n` 矩阵，因而大装配的主要成本随 component 大小快速增长。connected-component 分解和 ground/rigid
 消元是当前最主要的规模控制手段，尚未使用稀疏 Jacobian、增量因子分解或并行 component 求解。
 
 M1.6 还为近平行直线距离引入以 `degeneracy_tolerance` 为尺度的 blended 退化极限；除极小的
 `kDirectionEpsilon` 保护分支外，它在 skew 与 parallel 公式之间连续过渡。该表达是工程正则化而非无限直线距离的唯一解析
 延拓，仍需用容差边界 sweep 验证 bias、Jacobian 和 rank。
-当前算法还不具备：解析 Jacobian、QR/SVD rank 诊断、null-space 方向、最小冲突集、全局多分支枚举、严格层级最小位移、
+当前算法还不具备：解析 Jacobian、null-space 方向、最小冲突集、全局多分支枚举、严格层级最小位移、
 拖拽流形投影、一般曲面接触和大规模稀疏图优化。上述能力的引入顺序见架构路线图，不能从本文的 M1/M1.5 基线推断为
 已经实现。
 
@@ -231,18 +244,18 @@ M1.6 还为近平行直线距离引入以 `degeneracy_tolerance` 为尺度的 bl
 M1.6 鲁棒性门已经落地：Angle 使用 unsigned `atan2` 和端点对齐残差，一次 solve 内冻结方向和适用的距离侧分支；
 版本化 SolverProfile 已贯穿 Proto/Worker/Go；`Unsatisfied`、`Inconsistent` 与 `NonConvergent` 拥有不同证据边界。
 
-当前产品切片在此基础上增加了受限的有向平面角：请求携带第二刚体局部坐标中的 reference direction 时，残差用
-`atan2(k dot (a cross b), a dot b)` 保留 `[0,2*pi]` sector，因此 90 度与 270 度不再折叠。没有 reference direction
-的轴线角仍严格是 `[0,pi]` unsigned angle；多圈 winding 仍不属于静态装配 Revision。
-其中 `k dot (a cross b)` 必须直接参与残差，不能实现成 `sign(k dot cross) * norm(cross)`，后者在 180 度产生不可微尖点。
-包含有向角的 component 对候选步使用固定上限次数的二分回溯线搜索；这允许大角度编辑在保留 Coincident 等耦合约束的
-同时逐步下降，而不改变普通约束在反平行奇异初值处已经验证过的 LM 扰动行为。
+M1.7 已把该切片修正为严格的绕轴角：先投影两个端点方向，再计算有向角；Angle 在所有目标值都保持单标量语义，周期误差
+跨 0/2π 连续。分支结构可接收/返回 winding，但静态装配 Revision 仍只保存 modulo `2π` 的几何目标，多圈累计属于交互或
+运动状态。
+所有 component 对候选步使用固定上限次数的二分回溯线搜索。旋转不仅改变支持方向，也会改变离 cluster 原点较远的
+支持点世界位置，因此 Plane-Plane Coincident 等普通约束同样可能拒绝完整 LM 步但接受较小下降步。文档实例 FACE 5
+回归正是这一类平移/旋转强耦合问题；统一回溯后无需随机 perturb 或增加迭代预算即可收敛。
 对于显式 Same/Opposite 的 Plane-Plane Coincident，若当前法向恰好处于目标 branch 的反点，法向差目标存在零梯度鞍点。
 初始化阶段会选择与法向最不平行的规范世界轴，构造绕第一支持平面原点的确定性半周 seed，并补偿法向距离；该 seed 只决定
 离散 branch 初值，其他约束仍由同一 component 的数值求解统一满足。
 
-1. **M2 方程与线性代数**：建立 typed equation registry 和解析 Jacobian，以中心有限差分做 differential check，使用
-   SVD 或 rank-revealing QR，并返回 null-space basis 与可解释 DOF 方向。
+1. **M2 方程与线性代数**：建立 typed equation registry 和解析 Jacobian，以当前中心有限差分做 differential check，
+   并在现有 SVD rank 基础上返回 null-space basis 与可解释 DOF 方向。
 2. **M3 稳定解与交互**：把当前自动 reference direction 的平面切片升级为可选择 axis/sense 的完整 `DirectedAngle`，持久化离散 branch intent；利用
    null space 实现 minimum-motion、minimum-reference displacement 和 Drag 投影。
 

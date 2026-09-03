@@ -4,6 +4,7 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <Eigen/LU>
+#include <Eigen/SVD>
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -48,6 +49,14 @@ struct ResidualBlock {
     std::string id;
     Eigen::VectorXd values;
     Eigen::VectorXd tolerances;
+    double satisfaction_ratio{};
+};
+
+struct ConstraintBranchState {
+    DirectionRelation direction_relation{DirectionRelation::Unoriented};
+    DistanceRelation distance_relation{DistanceRelation::Unsigned};
+    std::optional<Vec3> unsigned_angle_axis_in_second;
+    std::optional<AngleBranchState> angle;
 };
 
 struct State {
@@ -172,6 +181,14 @@ Vector3 geometry_direction(const WorldGeometry& geometry) {
     throw std::invalid_argument("geometry has no direction");
 }
 
+Vector3 geometry_origin(const WorldGeometry& geometry) {
+    if (is_axis_like(geometry))
+        return as_axis(geometry).origin;
+    if (const auto* plane = std::get_if<WorldPlane>(&geometry))
+        return plane->origin;
+    throw std::invalid_argument("geometry has no direction origin");
+}
+
 Vector3 related_direction(Vector3 first, const Vector3& second, const DirectionRelation relation) {
     if (relation == DirectionRelation::Opposite)
         return -first;
@@ -187,9 +204,8 @@ Eigen::VectorXd concatenate(const Vector3& first, const Vector3& second) {
 }
 
 Eigen::VectorXd axis_alignment(const WorldAxis& first, const WorldAxis& second,
-                               const Constraint& constraint, const SolverOptions& options) {
-    const Vector3 direction_a =
-        related_direction(first.direction, second.direction, constraint.direction_relation);
+                               const DirectionRelation relation, const SolverOptions& options) {
+    const Vector3 direction_a = related_direction(first.direction, second.direction, relation);
     return concatenate(
         (direction_a - second.direction) / options.angle_scale,
         (first.origin - second.origin).cross(second.direction) / options.length_scale);
@@ -216,13 +232,47 @@ Eigen::VectorXd single(const double value) {
     return result;
 }
 
+double wrap_two_pi(double angle) {
+    angle = std::fmod(angle, 2.0 * kPi);
+    return angle < 0.0 ? angle + 2.0 * kPi : angle;
+}
+
+double wrapped_angle_error(const double current, const double target) {
+    return std::atan2(std::sin(current - target), std::cos(current - target));
+}
+
+Vector3 perpendicular_to(const Vector3& direction) {
+    const Vector3 basis = std::abs(direction.x()) <= std::abs(direction.y()) &&
+                                  std::abs(direction.x()) <= std::abs(direction.z())
+                              ? Vector3::UnitX()
+                          : std::abs(direction.y()) <= std::abs(direction.z()) ? Vector3::UnitY()
+                                                                               : Vector3::UnitZ();
+    return direction.cross(basis).normalized();
+}
+
+double directed_angle(const Vector3& first, const Vector3& second, const Vector3& reference,
+                      const double degeneracy_tolerance) {
+    const Vector3 first_projected = first - first.dot(reference) * reference;
+    const Vector3 second_projected = second - second.dot(reference) * reference;
+    if (first_projected.norm() <= degeneracy_tolerance ||
+        second_projected.norm() <= degeneracy_tolerance)
+        throw std::invalid_argument(
+            "directed angle endpoint direction is parallel to its reference axis");
+    const Vector3 a = first_projected.normalized();
+    const Vector3 b = second_projected.normalized();
+    return wrap_two_pi(std::atan2(reference.dot(a.cross(b)), a.dot(b)));
+}
+
 Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeometry& first,
                                     const std::optional<WorldGeometry>& second,
-                                    const SolverOptions& options) {
+                                    const SolverOptions& options,
+                                    const ConstraintBranchState* branch = nullptr) {
     if (constraint.kind == ConstraintKind::Fix || constraint.kind == ConstraintKind::Rigid)
         throw std::invalid_argument("rigid-body residual is evaluated from body poses");
     if (!second)
         throw std::invalid_argument("binary constraint requires a second geometry");
+    const DirectionRelation direction_relation =
+        branch ? branch->direction_relation : constraint.direction_relation;
 
     if (constraint.kind == ConstraintKind::Coincident) {
         if (const auto* point_a = std::get_if<WorldPoint>(&first)) {
@@ -239,11 +289,11 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
         }
         if (std::holds_alternative<WorldPoint>(*second)) {
             Constraint swapped = constraint;
-            return constraint_residual(swapped, *second, first, options);
+            return constraint_residual(swapped, *second, first, options, branch);
         }
         if (is_axis_like(first) && is_axis_like(*second)) {
             Eigen::VectorXd result =
-                axis_alignment(as_axis(first), as_axis(*second), constraint, options);
+                axis_alignment(as_axis(first), as_axis(*second), direction_relation, options);
             if (const auto* cylinder_a = std::get_if<WorldCylinder>(&first)) {
                 if (const auto* cylinder_b = std::get_if<WorldCylinder>(&*second)) {
                     Eigen::VectorXd with_radius(result.size() + 1);
@@ -256,8 +306,8 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
         }
         if (const auto* plane_a = std::get_if<WorldPlane>(&first)) {
             if (const auto* plane_b = std::get_if<WorldPlane>(&*second)) {
-                const Vector3 normal_a = related_direction(plane_a->normal, plane_b->normal,
-                                                           constraint.direction_relation);
+                const Vector3 normal_a =
+                    related_direction(plane_a->normal, plane_b->normal, direction_relation);
                 Eigen::VectorXd result(4);
                 result << (normal_a - plane_b->normal) / options.angle_scale,
                     (plane_a->origin - plane_b->origin).dot(plane_b->normal) / options.length_scale;
@@ -275,7 +325,7 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
         }
         if (std::holds_alternative<WorldPlane>(first) && is_axis_like(*second)) {
             Constraint swapped = constraint;
-            return constraint_residual(swapped, *second, first, options);
+            return constraint_residual(swapped, *second, first, options, branch);
         }
         throw std::invalid_argument("unsupported Coincident geometry pair");
     }
@@ -283,7 +333,7 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
     if (constraint.kind == ConstraintKind::Concentric) {
         if (!is_axis_like(first) || !is_axis_like(*second))
             throw std::invalid_argument("Concentric requires Axis or Cylinder geometry");
-        return axis_alignment(as_axis(first), as_axis(*second), constraint, options);
+        return axis_alignment(as_axis(first), as_axis(*second), direction_relation, options);
     }
 
     if (constraint.kind == ConstraintKind::Angle) {
@@ -291,30 +341,25 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
             throw std::invalid_argument("Angle requires Plane, Axis, or Cylinder geometry");
         Vector3 first_direction = geometry_direction(first);
         const Vector3 second_direction = geometry_direction(*second);
-        if (constraint.direction_relation == DirectionRelation::Opposite)
+        if (direction_relation == DirectionRelation::Opposite)
             first_direction = -first_direction;
         const double cosine = std::clamp(first_direction.dot(second_direction), -1.0, 1.0);
         const Vector3 cross = first_direction.cross(second_direction);
         const bool directed = constraint.angle_reference_direction.has_value();
-        const double endpoint = constraint.value >= 2.0 * kPi - kDirectionEpsilon ? 0.0 : constraint.value;
-        if (endpoint <= kDirectionEpsilon || std::abs(kPi - endpoint) <= kDirectionEpsilon) {
-            Eigen::VectorXd result(4);
-            result << cross / options.angle_scale,
-                (cosine - std::cos(endpoint)) / options.angle_scale;
-            return result;
-        }
-        double sine = cross.norm();
+        double angle{};
         if (directed) {
-            const Vector3 reference = normalized(*constraint.angle_reference_direction, "angle reference direction");
-            // k dot (a cross b) is smooth while the motion crosses pi. Using
-            // norm(cross) with a separately sampled sign creates a cusp at pi,
-            // which makes a finite-difference Jacobian stall for 181..359 deg.
-            sine = reference.dot(cross);
+            const Vector3 reference =
+                normalized(*constraint.angle_reference_direction, "angle reference direction");
+            angle = directed_angle(first_direction, second_direction, reference,
+                                   options.degeneracy_tolerance);
+        } else if (branch && branch->unsigned_angle_axis_in_second) {
+            const Vector3 axis =
+                normalized(*branch->unsigned_angle_axis_in_second, "unsigned angle branch axis");
+            angle = std::atan2(axis.dot(cross), cosine);
+        } else {
+            angle = std::atan2(cross.norm(), cosine);
         }
-        double angle = std::atan2(sine, cosine);
-        if (angle < 0.0)
-            angle += 2.0 * kPi;
-        return single((angle - constraint.value) / options.angle_scale);
+        return single(wrapped_angle_error(angle, constraint.value) / options.angle_scale);
     }
 
     if (constraint.kind == ConstraintKind::Distance) {
@@ -324,9 +369,11 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
                               options.length_scale);
             if (const auto* plane = std::get_if<WorldPlane>(&*second)) {
                 double measured = (point_a->position - plane->origin).dot(plane->normal);
-                if (constraint.distance_relation == DistanceRelation::Unsigned)
+                const DistanceRelation distance_relation =
+                    branch ? branch->distance_relation : constraint.distance_relation;
+                if (distance_relation == DistanceRelation::Unsigned)
                     measured = std::abs(measured);
-                if (constraint.distance_relation == DistanceRelation::OppositeSecondNormal)
+                if (distance_relation == DistanceRelation::OppositeSecondNormal)
                     measured = -measured;
                 return single((measured - constraint.value) / options.length_scale);
             }
@@ -337,7 +384,13 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
                 swapped.distance_relation = DistanceRelation::OppositeSecondNormal;
             else if (swapped.distance_relation == DistanceRelation::OppositeSecondNormal)
                 swapped.distance_relation = DistanceRelation::AlongSecondNormal;
-            return constraint_residual(swapped, *second, first, options);
+            ConstraintBranchState swapped_branch = branch ? *branch : ConstraintBranchState{};
+            if (swapped_branch.distance_relation == DistanceRelation::AlongSecondNormal)
+                swapped_branch.distance_relation = DistanceRelation::OppositeSecondNormal;
+            else if (swapped_branch.distance_relation == DistanceRelation::OppositeSecondNormal)
+                swapped_branch.distance_relation = DistanceRelation::AlongSecondNormal;
+            return constraint_residual(swapped, *second, first, options,
+                                       branch ? &swapped_branch : nullptr);
         }
         if (is_axis_like(first) && is_axis_like(*second))
             return single(
@@ -346,12 +399,14 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
                 options.length_scale);
         if (const auto* plane_a = std::get_if<WorldPlane>(&first)) {
             if (const auto* plane_b = std::get_if<WorldPlane>(&*second)) {
-                const Vector3 normal_a = related_direction(plane_a->normal, plane_b->normal,
-                                                           constraint.direction_relation);
+                const Vector3 normal_a =
+                    related_direction(plane_a->normal, plane_b->normal, direction_relation);
                 double measured = (plane_a->origin - plane_b->origin).dot(plane_b->normal);
-                if (constraint.distance_relation == DistanceRelation::Unsigned)
+                const DistanceRelation distance_relation =
+                    branch ? branch->distance_relation : constraint.distance_relation;
+                if (distance_relation == DistanceRelation::Unsigned)
                     measured = std::abs(measured);
-                if (constraint.distance_relation == DistanceRelation::OppositeSecondNormal)
+                if (distance_relation == DistanceRelation::OppositeSecondNormal)
                     measured = -measured;
                 Eigen::VectorXd result(4);
                 result << (normal_a - plane_b->normal) / options.angle_scale,
@@ -372,12 +427,7 @@ Eigen::VectorXd constraint_tolerances(const Constraint& constraint, const WorldG
     if (!second)
         throw std::invalid_argument("binary constraint requires a second geometry");
     if (constraint.kind == ConstraintKind::Angle) {
-        const double endpoint = constraint.value >= 2.0 * kPi - kDirectionEpsilon ? 0.0 : constraint.value;
-        const Eigen::Index count =
-            endpoint <= kDirectionEpsilon || std::abs(kPi - endpoint) <= kDirectionEpsilon
-                ? 4
-                : 1;
-        return Eigen::VectorXd::Constant(count, angle);
+        return Eigen::VectorXd::Constant(1, angle);
     }
     if (constraint.kind == ConstraintKind::Concentric) {
         Eigen::VectorXd result(6);
@@ -425,14 +475,51 @@ Eigen::VectorXd constraint_tolerances(const Constraint& constraint, const WorldG
     throw std::invalid_argument("unsupported constraint kind for tolerance assignment");
 }
 
-bool block_satisfied(const ResidualBlock& block) {
-    if (block.values.size() != block.tolerances.size())
-        throw std::runtime_error("residual and tolerance dimensions differ");
-    for (Eigen::Index index = 0; index < block.values.size(); ++index) {
-        if (std::abs(block.values[index]) > block.tolerances[index])
-            return false;
+double satisfaction_ratio(const Constraint& constraint, const WorldGeometry& first,
+                          const std::optional<WorldGeometry>& second,
+                          const Eigen::VectorXd& residual, const SolverOptions& options,
+                          const ConstraintBranchState* branch = nullptr) {
+    const double length = options.length_tolerance / options.length_scale;
+    const double angle = options.angle_tolerance / options.angle_scale;
+    if (!second)
+        throw std::invalid_argument("binary constraint requires a second geometry");
+    if (constraint.kind == ConstraintKind::Angle)
+        return std::abs(residual[0]) / angle;
+    if (constraint.kind == ConstraintKind::Concentric ||
+        ((constraint.kind == ConstraintKind::Coincident) && is_axis_like(first) &&
+         is_axis_like(*second))) {
+        const DirectionRelation relation =
+            branch ? branch->direction_relation : constraint.direction_relation;
+        const double direction_error = std::acos(std::clamp(
+            related_direction(geometry_direction(first), geometry_direction(*second), relation)
+                .dot(geometry_direction(*second)),
+            -1.0, 1.0));
+        double ratio = std::max((direction_error / options.angle_scale) / angle,
+                                residual.segment<3>(3).norm() / length);
+        if (residual.size() == 7)
+            ratio = std::max(ratio, std::abs(residual[6]) / length);
+        return ratio;
     }
-    return true;
+    if ((constraint.kind == ConstraintKind::Coincident ||
+         constraint.kind == ConstraintKind::Distance) &&
+        std::holds_alternative<WorldPlane>(first) && std::holds_alternative<WorldPlane>(*second)) {
+        const DirectionRelation relation =
+            branch ? branch->direction_relation : constraint.direction_relation;
+        const double direction_error = std::acos(std::clamp(
+            related_direction(geometry_direction(first), geometry_direction(*second), relation)
+                .dot(geometry_direction(*second)),
+            -1.0, 1.0));
+        return std::max((direction_error / options.angle_scale) / angle,
+                        std::abs(residual[3]) / length);
+    }
+    if (constraint.kind == ConstraintKind::Coincident && residual.size() == 2)
+        return std::max(std::abs(residual[0]) / angle, std::abs(residual[1]) / length);
+    const double tolerance = constraint.kind == ConstraintKind::Angle ? angle : length;
+    return residual.norm() / tolerance;
+}
+
+bool block_satisfied(const ResidualBlock& block) {
+    return finite(block.satisfaction_ratio) && block.satisfaction_ratio <= 1.0;
 }
 
 Pose identity_pose() {
@@ -535,6 +622,9 @@ public:
     std::vector<Cluster>& clusters() { return clusters_; }
     const std::vector<Component>& components() const { return components_; }
     const Constraint& constraint(const std::size_t index) const { return constraints_.at(index); }
+    const ConstraintBranchState& branch(const std::size_t index) const {
+        return branches_.at(index);
+    }
     const std::vector<Constraint>& constraints() const { return constraints_; }
 
     const GeometryElement& geometry(const GeometryRef& reference) const {
@@ -571,8 +661,13 @@ private:
             !(options_.classification_angle_tolerance > 0.0) ||
             !(options_.translation_step_tolerance > 0.0) ||
             !(options_.rotation_step_tolerance > 0.0) || !(options_.degeneracy_tolerance > 0.0) ||
-            !(options_.finite_difference_step > 0.0) || !(options_.initial_damping > 0.0) ||
-            !(options_.rank_tolerance > 0.0))
+            !(options_.translation_finite_difference_step > 0.0) ||
+            !(options_.rotation_finite_difference_step > 0.0) ||
+            !(options_.initial_damping > 0.0) || !(options_.rank_absolute_tolerance > 0.0) ||
+            !(options_.rank_relative_tolerance > 0.0) || !(options_.gradient_tolerance > 0.0) ||
+            !(options_.moving_preference_weight > 0.0) ||
+            !(options_.neutral_preference_weight > 0.0) ||
+            !(options_.reference_preference_weight > 0.0))
             throw std::invalid_argument(
                 "solver scales, tolerances, steps, damping and rank tolerance must be positive");
         if (options_.classification_length_tolerance < options_.length_tolerance ||
@@ -665,14 +760,18 @@ private:
             if (constraint.kind == ConstraintKind::Distance && constraint.value < 0.0)
                 throw std::invalid_argument("Distance value must not be negative");
             if (constraint.kind == ConstraintKind::Angle &&
-                (constraint.value < 0.0 || constraint.value >
-                    (constraint.angle_reference_direction ? 2.0 * kPi : kPi)))
+                (constraint.value < 0.0 ||
+                 constraint.value > (constraint.angle_reference_direction ? 2.0 * kPi : kPi)))
                 throw std::invalid_argument(constraint.angle_reference_direction
                                                 ? "Directed Angle value must be in [0, 2pi]"
                                                 : "Angle value must be in [0, pi]");
             if (constraint.angle_reference_direction)
                 (void)normalized(*constraint.angle_reference_direction,
                                  "angle reference direction");
+            if (constraint.angle_branch_state &&
+                (!finite(constraint.angle_branch_state->wrapped_angle) ||
+                 !finite(constraint.angle_branch_state->unwrapped_angle)))
+                throw std::invalid_argument("angle branch state must be finite");
         }
     }
 
@@ -754,15 +853,32 @@ private:
             cluster.initial_pose = root_target;
             cluster.ground_constraint_ids.push_back(constraint.id);
         }
+
+        if (options_.solve_intent) {
+            std::unordered_set<std::size_t> moving_clusters;
+            for (const std::string& id : options_.solve_intent->moving_body_ids)
+                moving_clusters.insert(cluster_index(id));
+            for (const std::string& id : options_.solve_intent->reference_body_ids) {
+                if (moving_clusters.count(cluster_index(id)))
+                    throw std::invalid_argument(
+                        "a rigid cluster cannot contain both moving and reference bodies");
+            }
+        }
     }
 
     void freeze_branches() {
+        branches_.resize(constraints_.size());
         std::vector<Pose> cluster_poses;
         cluster_poses.reserve(clusters_.size());
         for (const Cluster& cluster : clusters_)
             cluster_poses.push_back(cluster.ground_pose.value_or(cluster.initial_pose));
         const std::vector<Pose> bodies = body_poses(cluster_poses);
-        for (Constraint& constraint : constraints_) {
+        for (std::size_t constraint_index = 0; constraint_index < constraints_.size();
+             ++constraint_index) {
+            Constraint& constraint = constraints_[constraint_index];
+            ConstraintBranchState& branch = branches_[constraint_index];
+            branch.direction_relation = constraint.direction_relation;
+            branch.distance_relation = constraint.distance_relation;
             if (constraint.kind == ConstraintKind::Fix ||
                 constraint.kind == ConstraintKind::Rigid || !constraint.second)
                 continue;
@@ -775,35 +891,65 @@ private:
             if (constraint.direction_relation == DirectionRelation::Unoriented &&
                 constraint.kind != ConstraintKind::Angle && has_direction(first) &&
                 has_direction(second)) {
-                constraint.direction_relation =
-                    geometry_direction(first).dot(geometry_direction(second)) < 0.0
+                branch.direction_relation =
+                    geometry_direction(first).dot(geometry_direction(second)) <
+                            -options_.degeneracy_tolerance
                         ? DirectionRelation::Opposite
                         : DirectionRelation::Same;
             }
+            if (constraint.kind == ConstraintKind::Angle) {
+                Vector3 first_direction = geometry_direction(first);
+                const Vector3 second_direction = geometry_direction(second);
+                if (branch.direction_relation == DirectionRelation::Opposite)
+                    first_direction = -first_direction;
+                if (constraint.angle_reference_direction) {
+                    const Vector3 reference = direction(bodies[body_index(second_element.body_id)],
+                                                        *constraint.angle_reference_direction,
+                                                        "angle reference direction");
+                    const double wrapped = directed_angle(first_direction, second_direction,
+                                                          reference, options_.degeneracy_tolerance);
+                    const double previous = constraint.angle_branch_state
+                                                ? constraint.angle_branch_state->unwrapped_angle
+                                                : wrapped;
+                    const auto winding =
+                        static_cast<std::int64_t>(std::llround((previous - wrapped) / (2.0 * kPi)));
+                    branch.angle =
+                        AngleBranchState{wrapped, wrapped + 2.0 * kPi * winding, winding};
+                } else {
+                    Vector3 axis = first_direction.cross(second_direction);
+                    if (axis.norm() <= options_.degeneracy_tolerance)
+                        axis = perpendicular_to(second_direction);
+                    else
+                        axis.normalize();
+                    const EigenQuaternion inverse_second =
+                        normalized(bodies[body_index(second_element.body_id)].rotation).conjugate();
+                    branch.unsigned_angle_axis_in_second = value(inverse_second * axis);
+                }
+            }
             if (constraint.kind != ConstraintKind::Distance ||
-                constraint.distance_relation != DistanceRelation::Unsigned)
+                branch.distance_relation != DistanceRelation::Unsigned)
                 continue;
             if (const auto* point = std::get_if<WorldPoint>(&first)) {
                 if (const auto* plane = std::get_if<WorldPlane>(&second)) {
                     const double signed_distance =
                         (point->position - plane->origin).dot(plane->normal);
-                    constraint.distance_relation = signed_distance < 0.0
-                                                       ? DistanceRelation::OppositeSecondNormal
-                                                       : DistanceRelation::AlongSecondNormal;
+                    branch.distance_relation = signed_distance < -options_.degeneracy_tolerance
+                                                   ? DistanceRelation::OppositeSecondNormal
+                                                   : DistanceRelation::AlongSecondNormal;
                 }
             } else if (const auto* plane = std::get_if<WorldPlane>(&first)) {
                 if (const auto* second_point = std::get_if<WorldPoint>(&second)) {
                     const double signed_distance =
                         (second_point->position - plane->origin).dot(plane->normal);
-                    constraint.distance_relation = signed_distance < 0.0
-                                                       ? DistanceRelation::AlongSecondNormal
-                                                       : DistanceRelation::OppositeSecondNormal;
+                    branch.distance_relation = signed_distance < -options_.degeneracy_tolerance
+                                                   ? DistanceRelation::AlongSecondNormal
+                                                   : DistanceRelation::OppositeSecondNormal;
                 } else if (const auto* second_plane = std::get_if<WorldPlane>(&second)) {
                     const double signed_distance =
                         (plane->origin - second_plane->origin).dot(second_plane->normal);
-                    constraint.distance_relation = signed_distance < 0.0
-                                                       ? DistanceRelation::OppositeSecondNormal
-                                                       : DistanceRelation::AlongSecondNormal;
+                    branch.distance_relation = signed_distance < -options_.degeneracy_tolerance
+                                                   ? DistanceRelation::OppositeSecondNormal
+                                                   : DistanceRelation::AlongSecondNormal;
                 }
             }
         }
@@ -857,6 +1003,7 @@ private:
     const Model& model_;
     const SolverOptions& options_;
     std::vector<Constraint> constraints_;
+    std::vector<ConstraintBranchState> branches_;
     std::unordered_map<std::string, std::size_t> body_index_;
     std::unordered_map<std::string, const GeometryElement*> geometry_index_;
     std::unordered_map<std::size_t, std::size_t> body_to_cluster_;
@@ -897,7 +1044,7 @@ public:
         state.poses.reserve(free_cluster_indices_.size());
         for (const std::size_t cluster : free_cluster_indices_)
             state.poses.push_back(assembly_.clusters()[cluster].initial_pose);
-        seed_explicit_plane_branches(state);
+        initialize_singular_direction_branches(state);
         return state;
     }
 
@@ -942,13 +1089,21 @@ public:
             const WorldGeometry second = world_geometry(
                 second_element, bodies[assembly_.body_index(second_element.body_id)]);
             Constraint evaluated = constraint;
+            ConstraintBranchState branch = assembly_.branch(constraint_index);
             if (evaluated.angle_reference_direction)
                 evaluated.angle_reference_direction = value(
                     normalized(bodies[assembly_.body_index(second_element.body_id)].rotation) *
                     eigen(*evaluated.angle_reference_direction));
-            result.push_back({constraint.id,
-                              constraint_residual(evaluated, first, second, assembly_.options()),
-                              constraint_tolerances(evaluated, first, second, tolerance_options)});
+            if (branch.unsigned_angle_axis_in_second)
+                branch.unsigned_angle_axis_in_second = value(
+                    normalized(bodies[assembly_.body_index(second_element.body_id)].rotation) *
+                    eigen(*branch.unsigned_angle_axis_in_second));
+            Eigen::VectorXd residual =
+                constraint_residual(evaluated, first, second, assembly_.options(), &branch);
+            result.push_back({constraint.id, residual,
+                              constraint_tolerances(evaluated, first, second, tolerance_options),
+                              satisfaction_ratio(evaluated, first, second, residual,
+                                                 tolerance_options, &branch)});
         }
         return result;
     }
@@ -983,11 +1138,21 @@ public:
         Eigen::MatrixXd result(residual.size(), static_cast<Eigen::Index>(parameter_count()));
         for (Eigen::Index column = 0; column < result.cols(); ++column) {
             Vector perturbation = Vector::Zero(result.cols());
-            perturbation[column] = assembly_.options().finite_difference_step;
-            const Vector shifted = this->residual(incremented(state, perturbation));
-            if (shifted.size() != residual.size() || !shifted.allFinite())
+            const bool translation = column % 6 < 3;
+            const double configured = translation
+                                          ? assembly_.options().translation_finite_difference_step
+                                          : assembly_.options().rotation_finite_difference_step;
+            const double step = assembly_.options().finite_difference_step > 0.0
+                                    ? assembly_.options().finite_difference_step
+                                    : configured;
+            perturbation[column] = step;
+            const Vector plus = this->residual(incremented(state, perturbation));
+            perturbation[column] = -step;
+            const Vector minus = this->residual(incremented(state, perturbation));
+            if (plus.size() != residual.size() || minus.size() != residual.size() ||
+                !plus.allFinite() || !minus.allFinite())
                 throw std::runtime_error("finite-difference residual is invalid");
-            result.col(column) = (shifted - residual) / assembly_.options().finite_difference_step;
+            result.col(column) = (plus - minus) / (2.0 * step);
         }
         return result;
     }
@@ -1003,69 +1168,108 @@ public:
         return gauge_anchor_cluster_ ? nullity : nullity - std::min(nullity, gauge_dof());
     }
     const std::vector<std::size_t>& free_clusters() const { return free_cluster_indices_; }
-    bool has_directed_angle() const {
-        return std::any_of(component_.constraint_indices.begin(),
-                           component_.constraint_indices.end(), [&](const std::size_t index) {
-                               const Constraint& constraint = assembly_.constraint(index);
-                               return constraint.kind == ConstraintKind::Angle &&
-                                      constraint.angle_reference_direction.has_value();
-                           });
+    Vector preference_gradient(const State& state) const {
+        Vector result = Vector::Zero(static_cast<Eigen::Index>(parameter_count()));
+        for (std::size_t index = 0; index < free_cluster_indices_.size(); ++index) {
+            const Cluster& cluster = assembly_.clusters()[free_cluster_indices_[index]];
+            const double weight = preference_weight(free_cluster_indices_[index]);
+            const Eigen::Index offset = static_cast<Eigen::Index>(index * 6);
+            result.segment<3>(offset) =
+                weight *
+                (eigen(state.poses[index].translation) - eigen(cluster.initial_pose.translation)) /
+                (assembly_.options().length_scale * assembly_.options().length_scale);
+            result.segment<3>(offset + 3) =
+                weight *
+                rotation_vector(normalized(cluster.initial_pose.rotation).conjugate() *
+                                normalized(state.poses[index].rotation)) /
+                (assembly_.options().angle_scale * assembly_.options().angle_scale);
+        }
+        return result;
+    }
+
+    Vector preference_diagonal() const {
+        Vector result = Vector::Zero(static_cast<Eigen::Index>(parameter_count()));
+        for (std::size_t index = 0; index < free_cluster_indices_.size(); ++index) {
+            const double weight = preference_weight(free_cluster_indices_[index]);
+            const Eigen::Index offset = static_cast<Eigen::Index>(index * 6);
+            result.segment<3>(offset).setConstant(
+                weight / (assembly_.options().length_scale * assembly_.options().length_scale));
+            result.segment<3>(offset + 3)
+                .setConstant(weight /
+                             (assembly_.options().angle_scale * assembly_.options().angle_scale));
+        }
+        return result;
     }
 
 private:
-    void seed_explicit_plane_branches(State& state) const {
+    double preference_weight(const std::size_t cluster) const {
+        if (!assembly_.options().solve_intent ||
+            assembly_.options().solve_intent->policy == SolvePreferencePolicy::MinimumTotalChange)
+            return assembly_.options().neutral_preference_weight;
+        const SolveIntent& intent = *assembly_.options().solve_intent;
+        for (const std::string& id : intent.reference_body_ids)
+            if (assembly_.cluster_index(id) == cluster)
+                return assembly_.options().reference_preference_weight;
+        for (const std::string& id : intent.moving_body_ids)
+            if (assembly_.cluster_index(id) == cluster)
+                return assembly_.options().moving_preference_weight;
+        return assembly_.options().neutral_preference_weight;
+    }
+
+    void initialize_singular_direction_branches(State& state) const {
         for (const std::size_t constraint_index : component_.constraint_indices) {
             const Constraint& constraint = assembly_.constraint(constraint_index);
-            if (constraint.kind != ConstraintKind::Coincident ||
+            if ((constraint.kind != ConstraintKind::Coincident &&
+                 constraint.kind != ConstraintKind::Concentric) ||
                 constraint.direction_relation == DirectionRelation::Unoriented)
                 continue;
             const GeometryElement& first_element = assembly_.geometry(constraint.first);
             const GeometryElement& second_element = assembly_.geometry(*constraint.second);
-            if (!std::holds_alternative<PlaneGeometry>(first_element.local_geometry) ||
-                !std::holds_alternative<PlaneGeometry>(second_element.local_geometry))
-                continue;
             const std::size_t moving_cluster = assembly_.cluster_index(first_element.body_id);
             const auto free = std::find(free_cluster_indices_.begin(), free_cluster_indices_.end(),
                                         moving_cluster);
             if (free == free_cluster_indices_.end())
                 continue;
             const std::vector<Pose> bodies = assembly_.body_poses(cluster_poses(state));
-            const auto first = std::get<WorldPlane>(world_geometry(
-                first_element, bodies[assembly_.body_index(first_element.body_id)]));
-            const auto second = std::get<WorldPlane>(world_geometry(
-                second_element, bodies[assembly_.body_index(second_element.body_id)]));
+            const WorldGeometry first =
+                world_geometry(first_element, bodies[assembly_.body_index(first_element.body_id)]);
+            const WorldGeometry second = world_geometry(
+                second_element, bodies[assembly_.body_index(second_element.body_id)]);
+            if (!has_direction(first) || !has_direction(second))
+                continue;
+            const Vector3 first_direction = geometry_direction(first);
+            const Vector3 second_direction = geometry_direction(second);
             const Vector3 target = constraint.direction_relation == DirectionRelation::Same
-                                       ? second.normal
-                                       : -second.normal;
-            if (first.normal.dot(target) > -1.0 + 1.0e-10)
+                                       ? second_direction
+                                       : -second_direction;
+            if (first_direction.dot(target) > -1.0 + 1.0e-10)
                 continue;
 
             // The vector-difference objective has zero gradient at the exact
             // antipodal branch. Seed that discrete branch geometrically by a
-            // half turn about the selected plane origin, keeping its anchor
+            // half turn about the selected geometry origin, keeping its anchor
             // fixed. The normal solve remains responsible for every other
             // constraint in the component.
-            const Vector3 basis = std::abs(first.normal.x()) <= std::abs(first.normal.y()) &&
-                                          std::abs(first.normal.x()) <= std::abs(first.normal.z())
-                                      ? Vector3::UnitX()
-                                  : std::abs(first.normal.y()) <= std::abs(first.normal.z())
-                                      ? Vector3::UnitY()
-                                      : Vector3::UnitZ();
-            const Vector3 axis = first.normal.cross(basis).normalized();
+            const Vector3 axis = perpendicular_to(first_direction);
             const EigenQuaternion turn(Eigen::AngleAxisd(kPi, axis));
             Pose& cluster_pose = state.poses[static_cast<std::size_t>(
                 std::distance(free_cluster_indices_.begin(), free))];
-            const Vector3 pivot = first.origin;
+            const Vector3 pivot = geometry_origin(first);
             cluster_pose.translation =
                 value(pivot + turn * (eigen(cluster_pose.translation) - pivot));
             cluster_pose.rotation = value(turn * normalized(cluster_pose.rotation));
 
-            const std::vector<Pose> turned_bodies = assembly_.body_poses(cluster_poses(state));
-            const auto turned = std::get<WorldPlane>(world_geometry(
-                first_element, turned_bodies[assembly_.body_index(first_element.body_id)]));
-            cluster_pose.translation = value(
-                eigen(cluster_pose.translation) -
-                (turned.origin - second.origin).dot(second.normal) * second.normal);
+            if (std::holds_alternative<WorldPlane>(first) &&
+                std::holds_alternative<WorldPlane>(second)) {
+                const std::vector<Pose> turned_bodies = assembly_.body_poses(cluster_poses(state));
+                const auto turned = std::get<WorldPlane>(world_geometry(
+                    first_element, turned_bodies[assembly_.body_index(first_element.body_id)]));
+                const auto& second_plane = std::get<WorldPlane>(second);
+                cluster_pose.translation =
+                    value(eigen(cluster_pose.translation) -
+                          (turned.origin - second_plane.origin).dot(second_plane.normal) *
+                              second_plane.normal);
+            }
         }
     }
 
@@ -1105,9 +1309,19 @@ ComponentSolution solve_component(const ComponentProblem& problem, const SolverO
     double damping = options.initial_damping;
     for (std::size_t iteration = 1; iteration <= options.max_iterations; ++iteration) {
         const Eigen::MatrixXd jacobian = problem.jacobian(result.state, residual);
+        const Vector constraint_gradient = jacobian.transpose() * residual;
+        const Vector gradient = constraint_gradient + problem.preference_gradient(result.state);
         Eigen::MatrixXd normal = jacobian.transpose() * jacobian;
+        normal.diagonal().array() += problem.preference_diagonal().array();
         normal.diagonal().array() += damping;
-        const Vector step = normal.ldlt().solve(-jacobian.transpose() * residual);
+        Eigen::LDLT<Eigen::MatrixXd> decomposition(normal);
+        if (decomposition.info() != Eigen::Success)
+            return {SolveStatus::NumericalFailure, result.state, iteration,
+                    "LM normal-equation decomposition failed"};
+        const Vector step = decomposition.solve(-gradient);
+        if (decomposition.info() != Eigen::Success)
+            return {SolveStatus::NumericalFailure, result.state, iteration,
+                    "LM normal-equation solve failed"};
         if (!step.allFinite())
             return {SolveStatus::NumericalFailure, result.state, iteration,
                     "linear solve produced a non-finite step"};
@@ -1118,6 +1332,10 @@ ComponentSolution solve_component(const ComponentProblem& problem, const SolverO
                          step.segment<3>(offset + 3).norm() <= options.rotation_step_tolerance;
         }
         if (small_step) {
+            if (constraint_gradient.norm() > options.gradient_tolerance) {
+                damping = std::max(damping * 0.1, 1.0e-12);
+                continue;
+            }
             const SolveStatus status =
                 problem.satisfied(result.state) ? SolveStatus::Converged : SolveStatus::Unsatisfied;
             return {status, result.state, iteration,
@@ -1126,7 +1344,12 @@ ComponentSolution solve_component(const ComponentProblem& problem, const SolverO
         }
         std::optional<State> accepted_state;
         Vector accepted_residual;
-        const std::size_t trials = problem.has_directed_angle() ? 12 : 1;
+        // A rigid-body rotation changes both a support direction and its world
+        // origin. Even simple plane coincidence is therefore nonlinear when
+        // the local support origin is far from the cluster origin. Apply the
+        // same bounded descent backtracking to every component instead of only
+        // to directed-angle edits.
+        constexpr std::size_t trials = 12;
         double step_scale = 1.0;
         for (std::size_t trial = 0; trial < trials; ++trial, step_scale *= 0.5) {
             const State candidate = problem.incremented(result.state, step_scale * step);
@@ -1152,20 +1375,37 @@ ComponentSolution solve_component(const ComponentProblem& problem, const SolverO
             "maximum iteration count reached"};
 }
 
-std::size_t matrix_rank(const Eigen::MatrixXd& matrix, const double tolerance) {
-    if (matrix.rows() == 0 || matrix.cols() == 0)
-        return 0;
-    Eigen::FullPivLU<Eigen::MatrixXd> decomposition(matrix);
-    decomposition.setThreshold(tolerance);
-    return static_cast<std::size_t>(decomposition.rank());
+Eigen::MatrixXd rank_normalized(Eigen::MatrixXd matrix, const double absolute_tolerance) {
+    for (Eigen::Index column = 0; column < matrix.cols(); ++column) {
+        const double norm = matrix.col(column).norm();
+        if (norm > absolute_tolerance)
+            matrix.col(column) /= norm;
+    }
+    return matrix;
 }
 
-std::vector<std::string> redundant_constraints(const ComponentProblem& problem, const State& state,
-                                               const SolverOptions& options) {
+std::size_t matrix_rank(const Eigen::MatrixXd& matrix, const SolverOptions& options) {
+    if (matrix.rows() == 0 || matrix.cols() == 0)
+        return 0;
+    const double absolute =
+        options.rank_tolerance > 0.0 ? options.rank_tolerance : options.rank_absolute_tolerance;
+    const Eigen::MatrixXd normalized_matrix = rank_normalized(matrix, absolute);
+    Eigen::JacobiSVD<Eigen::MatrixXd> decomposition(normalized_matrix,
+                                                    Eigen::ComputeThinU | Eigen::ComputeThinV);
+    if (decomposition.singularValues().size() == 0)
+        return 0;
+    const double threshold =
+        std::max(absolute, options.rank_relative_tolerance * decomposition.singularValues()[0]);
+    return static_cast<std::size_t>((decomposition.singularValues().array() > threshold).count());
+}
+
+std::vector<ConstraintRankInfo> constraint_rank_info(const ComponentProblem& problem,
+                                                     const State& state,
+                                                     const SolverOptions& options) {
     const auto blocks = problem.blocks(state);
     const Vector all_residuals = problem.residual(state);
     const Eigen::MatrixXd all_jacobian = problem.jacobian(state, all_residuals);
-    std::vector<std::string> result;
+    std::vector<ConstraintRankInfo> result;
     Eigen::MatrixXd accepted(0, all_jacobian.cols());
     std::size_t accepted_rank = 0;
     Eigen::Index row = 0;
@@ -1175,10 +1415,17 @@ std::vector<std::string> redundant_constraints(const ComponentProblem& problem, 
             candidate.topRows(accepted.rows()) = accepted;
         candidate.bottomRows(block.values.size()) =
             all_jacobian.middleRows(row, block.values.size());
-        const std::size_t candidate_rank = matrix_rank(candidate, options.rank_tolerance);
-        if (candidate_rank == accepted_rank)
-            result.push_back(block.id);
-        else {
+        const Eigen::MatrixXd local = all_jacobian.middleRows(row, block.values.size());
+        const std::size_t effective_rank = matrix_rank(local, options);
+        const std::size_t candidate_rank = matrix_rank(candidate, options);
+        const std::size_t incremental_rank = candidate_rank - accepted_rank;
+        const ConstraintRankRole role = incremental_rank == 0 ? ConstraintRankRole::FullyRedundant
+                                        : incremental_rank < effective_rank
+                                            ? ConstraintRankRole::PartiallyRedundant
+                                            : ConstraintRankRole::Independent;
+        result.push_back({block.id, static_cast<std::size_t>(block.values.size()), effective_rank,
+                          incremental_rank, role});
+        if (incremental_rank != 0) {
             accepted = std::move(candidate);
             accepted_rank = candidate_rank;
         }
@@ -1187,9 +1434,11 @@ std::vector<std::string> redundant_constraints(const ComponentProblem& problem, 
     return result;
 }
 
-ResidualBlock evaluate_constraint(const CompiledAssembly& assembly, const Constraint& constraint,
+ResidualBlock evaluate_constraint(const CompiledAssembly& assembly,
+                                  const std::size_t constraint_index,
                                   const std::vector<Pose>& body_poses,
                                   const bool use_classification_tolerance = false) {
+    const Constraint& constraint = assembly.constraint(constraint_index);
     SolverOptions tolerance_options = assembly.options();
     if (use_classification_tolerance) {
         tolerance_options.length_tolerance = assembly.options().classification_length_tolerance;
@@ -1209,7 +1458,12 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly, const Constr
         tolerances << Vector3::Constant(tolerance_options.length_tolerance /
                                         assembly.options().length_scale),
             Vector3::Constant(tolerance_options.angle_tolerance / assembly.options().angle_scale);
-        return {constraint.id, std::move(residual), std::move(tolerances)};
+        const double ratio =
+            std::max(residual.head<3>().norm() /
+                         (tolerance_options.length_tolerance / assembly.options().length_scale),
+                     residual.tail<3>().norm() /
+                         (tolerance_options.angle_tolerance / assembly.options().angle_scale));
+        return {constraint.id, std::move(residual), std::move(tolerances), ratio};
     }
     if (constraint.kind == ConstraintKind::Rigid) {
         const Pose& first = body_poses[assembly.body_index(constraint.first.body_id)];
@@ -1226,7 +1480,12 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly, const Constr
         tolerances << Vector3::Constant(tolerance_options.length_tolerance /
                                         assembly.options().length_scale),
             Vector3::Constant(tolerance_options.angle_tolerance / assembly.options().angle_scale);
-        return {constraint.id, std::move(residual), std::move(tolerances)};
+        const double ratio =
+            std::max(residual.head<3>().norm() /
+                         (tolerance_options.length_tolerance / assembly.options().length_scale),
+                     residual.tail<3>().norm() /
+                         (tolerance_options.angle_tolerance / assembly.options().angle_scale));
+        return {constraint.id, std::move(residual), std::move(tolerances), ratio};
     }
     const GeometryElement& first_element = assembly.geometry(constraint.first);
     const GeometryElement& second_element = assembly.geometry(*constraint.second);
@@ -1236,11 +1495,19 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly, const Constr
         world_geometry(second_element, body_poses[assembly.body_index(second_element.body_id)]);
     Constraint evaluated = constraint;
     if (evaluated.angle_reference_direction)
-        evaluated.angle_reference_direction = value(
-            normalized(body_poses[assembly.body_index(second_element.body_id)].rotation) *
-            eigen(*evaluated.angle_reference_direction));
-    return {constraint.id, constraint_residual(evaluated, first, second, assembly.options()),
-            constraint_tolerances(evaluated, first, second, tolerance_options)};
+        evaluated.angle_reference_direction =
+            value(normalized(body_poses[assembly.body_index(second_element.body_id)].rotation) *
+                  eigen(*evaluated.angle_reference_direction));
+    ConstraintBranchState branch = assembly.branch(constraint_index);
+    if (branch.unsigned_angle_axis_in_second)
+        branch.unsigned_angle_axis_in_second =
+            value(normalized(body_poses[assembly.body_index(second_element.body_id)].rotation) *
+                  eigen(*branch.unsigned_angle_axis_in_second));
+    Eigen::VectorXd residual =
+        constraint_residual(evaluated, first, second, assembly.options(), &branch);
+    return {constraint.id, residual,
+            constraint_tolerances(evaluated, first, second, tolerance_options),
+            satisfaction_ratio(evaluated, first, second, residual, tolerance_options, &branch)};
 }
 
 std::string connection_id(const Constraint& constraint) {
@@ -1301,7 +1568,7 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
 
             const Vector residual = problem.residual(solution.state);
             const Eigen::MatrixXd jacobian = problem.jacobian(solution.state, residual);
-            const std::size_t rank = matrix_rank(jacobian, options.rank_tolerance);
+            const std::size_t rank = matrix_rank(jacobian, options);
             const std::size_t variables = problem.logical_parameter_count();
             const std::size_t gauge = problem.gauge_dof();
             const std::size_t relative = problem.relative_dof(rank);
@@ -1320,10 +1587,13 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
             std::sort(component_dof.body_ids.begin(), component_dof.body_ids.end());
             result.components.push_back(std::move(component_dof));
 
-            if (component.selected && solution.status == SolveStatus::Converged) {
-                const auto redundant = redundant_constraints(problem, solution.state, options);
-                result.redundant_constraint_ids.insert(result.redundant_constraint_ids.end(),
-                                                       redundant.begin(), redundant.end());
+            if (component.selected && solution.status != SolveStatus::NumericalFailure) {
+                const auto ranks = constraint_rank_info(problem, solution.state, options);
+                for (const ConstraintRankInfo& info : ranks) {
+                    if (info.role == ConstraintRankRole::FullyRedundant)
+                        result.redundant_constraint_ids.push_back(info.constraint_id);
+                    result.constraint_ranks.push_back(info);
+                }
             }
             if (!component.selected) {
                 result.diagnostics.push_back(
@@ -1336,10 +1606,13 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
             result.bodies.push_back({model.bodies[index].id, body_poses[index]});
 
         double squared_residual = 0.0;
-        for (const Constraint& constraint : assembly.constraints()) {
+        for (std::size_t constraint_index = 0; constraint_index < assembly.constraints().size();
+             ++constraint_index) {
+            const Constraint& constraint = assembly.constraint(constraint_index);
             if (constraint.mode == ConstraintMode::Suppressed)
                 continue;
-            const ResidualBlock block = evaluate_constraint(assembly, constraint, body_poses, true);
+            const ResidualBlock block =
+                evaluate_constraint(assembly, constraint_index, body_poses, true);
             const double norm = block.values.norm();
             result.residuals.push_back({constraint.id, norm});
             if (active(constraint))
@@ -1359,6 +1632,28 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
                     result.conflicting_constraint_ids.push_back(constraint.id);
                 else if (unsatisfied_clusters[cluster])
                     result.unsatisfied_constraint_ids.push_back(constraint.id);
+            }
+            if (constraint.kind == ConstraintKind::Angle && constraint.angle_reference_direction) {
+                Constraint evaluated = constraint;
+                const GeometryElement& first_element = assembly.geometry(constraint.first);
+                const GeometryElement& second_element = assembly.geometry(*constraint.second);
+                const WorldGeometry first = world_geometry(
+                    first_element, body_poses[assembly.body_index(first_element.body_id)]);
+                const WorldGeometry second = world_geometry(
+                    second_element, body_poses[assembly.body_index(second_element.body_id)]);
+                const Vector3 reference =
+                    direction(body_poses[assembly.body_index(second_element.body_id)],
+                              *constraint.angle_reference_direction, "angle reference direction");
+                const Vector3 first_direction =
+                    related_direction(geometry_direction(first), geometry_direction(second),
+                                      assembly.branch(constraint_index).direction_relation);
+                const double wrapped = directed_angle(first_direction, geometry_direction(second),
+                                                      reference, options.degeneracy_tolerance);
+                const AngleBranchState& initial = *assembly.branch(constraint_index).angle;
+                const auto winding = static_cast<std::int64_t>(
+                    std::llround((initial.unwrapped_angle - wrapped) / (2.0 * kPi)));
+                result.angle_branches.push_back(
+                    {constraint.id, {wrapped, wrapped + 2.0 * kPi * winding, winding}});
             }
         }
         result.normalized_residual = std::sqrt(squared_residual);
@@ -1407,6 +1702,34 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
                             : result.status == SolveStatus::Inconsistent
                                 ? "assembly constraints are inconsistent"
                                 : "one or more assembly components did not converge";
+        if (result.status == SolveStatus::Unsatisfied && options.max_conflict_probes > 0) {
+            std::size_t probes = 0;
+            for (std::size_t index = 0;
+                 index < model.constraints.size() && probes < options.max_conflict_probes;
+                 ++index) {
+                if (!active(model.constraints[index]))
+                    continue;
+                ++probes;
+                Model probe_model = model;
+                probe_model.constraints[index].mode = ConstraintMode::Suppressed;
+                SolverOptions probe_options = options;
+                probe_options.max_conflict_probes = 0;
+                const SolveResult probe = Solver{}.solve(probe_model, probe_options);
+                if (probe.status == SolveStatus::Converged ||
+                    (finite(probe.normalized_residual) && result.normalized_residual > 0.0 &&
+                     probe.normalized_residual < 0.5 * result.normalized_residual))
+                    result.suspected_conflicting_constraint_ids.push_back(
+                        model.constraints[index].id);
+            }
+            if (!result.suspected_conflicting_constraint_ids.empty())
+                result.diagnostics.push_back(
+                    {"LIKELY_INCONSISTENT",
+                     {},
+                     {},
+                     result.suspected_conflicting_constraint_ids,
+                     "bounded single-constraint removal probes significantly improved solvability; "
+                     "this is a suspected set, not a minimal conflict proof"});
+        }
         return result;
     } catch (const std::invalid_argument& error) {
         SolveResult result;

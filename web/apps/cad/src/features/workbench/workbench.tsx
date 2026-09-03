@@ -4,12 +4,13 @@ import {
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  App, Button, Descriptions, Empty, Form, Input, InputNumber, List, Segmented,
+  Alert, App, Button, Descriptions, Empty, Form, Input, InputNumber, List, Segmented,
   Select, Space, Spin, Switch, Tag,
 } from "antd";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, isMockMode } from "../../api/client";
+import { ApiError } from "../../api";
 import { realtime } from "../../api/realtime-client";
 import { randomUUID } from "../../utils/random-uuid";
 import { queryKeys } from "../../app/query-keys";
@@ -30,6 +31,7 @@ import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { closestTreeKey } from "./tree-selection";
 import { followedDocumentIDs } from "./product-edit-context";
+import { createAssemblyPreviewActor } from "./assembly-preview-machine";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
@@ -281,6 +283,8 @@ export function Workbench() {
   const [assemblyPreviewCommit, setAssemblyPreviewCommit] = useState(0);
   const assemblyPreviewAbort = useRef<AbortController | undefined>(undefined);
   const assemblyPreviewSequence = useRef(0);
+  const assemblyPreviewActor = useMemo(() => createAssemblyPreviewActor(), []);
+  const [assemblyPreviewSnapshot, setAssemblyPreviewSnapshot] = useState(() => assemblyPreviewActor.getSnapshot());
   const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const hiddenTreeKeys = useUIPreferences((state) => state.hiddenTreeKeys);
@@ -298,6 +302,11 @@ export function Workbench() {
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
 	useEffect(() => { setActiveDocumentID(documentID); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }, [documentID]);
+  useEffect(() => {
+    const subscription = assemblyPreviewActor.subscribe(setAssemblyPreviewSnapshot);
+    assemblyPreviewActor.start();
+    return () => { subscription.unsubscribe(); assemblyPreviewActor.stop(); };
+  }, [assemblyPreviewActor]);
   const activeDocument = useQuery({ queryKey: queryKeys.document(activeDocumentID), queryFn: () => api.getDocument(activeDocumentID),
     enabled: Boolean(activeDocumentID && activeDocumentID !== documentID) });
 	const activeID = activeDocumentID || documentID;
@@ -425,8 +434,12 @@ export function Workbench() {
     const references = constraint ? [constraint.first, constraint.second].filter((value): value is AssemblyGeometryRef => Boolean(value))
       : pending?.references ?? [];
     const kind = (constraint?.kind.toLowerCase() ?? pending?.kind) as AssemblyConstraintToolKind | undefined;
-    if (!editingView || !kind || references.length < (kind === "fix" ? 1 : 2) || replacingAssemblyReference !== undefined) return;
+    if (!editingView || !kind || references.length < (kind === "fix" ? 1 : 2) || replacingAssemblyReference !== undefined) {
+      assemblyPreviewActor.send({ type: "RESET" });
+      return;
+    }
     const sequence=++assemblyPreviewSequence.current;
+    assemblyPreviewActor.send({ type: "REQUEST", sequence });
     assemblyPreviewAbort.current?.abort();
     const controller=new AbortController();assemblyPreviewAbort.current=controller;
     const timer = window.setTimeout(() => {
@@ -444,13 +457,24 @@ export function Workbench() {
         angleReferenceDirection: pending?.angleReferenceDirection,
       };
       void api.previewCommand(editingView.document.id, commandInput,controller.signal).then((preview) => {
-        if (sequence===assemblyPreviewSequence.current&&preview.baseVersionId === editingView.document.versionId && preview.instancePoses)
-          viewport.current?.previewAssemblyPoses(preview.instancePoses);
-      }).catch(() => {});
+        if (sequence===assemblyPreviewSequence.current&&preview.baseVersionId === editingView.document.versionId) {
+          if (preview.instancePoses) viewport.current?.previewAssemblyPoses(preview.instancePoses);
+          assemblyPreviewActor.send({ type: "RESOLVE", sequence });
+        }
+      }).catch((cause: unknown) => {
+        if (controller.signal.aborted) {
+          assemblyPreviewActor.send({ type: "CANCEL", sequence });
+          return;
+        }
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        const apiError = cause instanceof ApiError ? cause : undefined;
+        assemblyPreviewActor.send({ type: "REJECT", sequence, error: error.message,
+          errorCode: apiError?.code, phase: apiError?.phase, retryable: apiError?.retryable });
+      });
     }, 140);
-    return () => {window.clearTimeout(timer);controller.abort();};
+    return () => {window.clearTimeout(timer);controller.abort();assemblyPreviewActor.send({type:"CANCEL",sequence});};
   }, [editingView, editingAssemblyConstraint, pendingAssemblyConstraint, replacingAssemblyReference,
-    assemblyDirection, assemblyDistance, assemblyPreviewCommit, assemblyConstraintForm]);
+    assemblyDirection, assemblyDistance, assemblyPreviewCommit, assemblyConstraintForm, assemblyPreviewActor]);
 
   const editSketch = (featureID: string, operations: SketchOperation[]) => {
     if (!editingView) return;
@@ -646,6 +670,13 @@ export function Workbench() {
   if (document.isLoading) return <div className="workbench-loading"><Spin size="large" /></div>;
   if (!view) return <Empty description="无法打开文档" />;
 
+  const assemblyPreviewPending = assemblyPreviewSnapshot.matches("pending");
+  const assemblyPreviewFailed = assemblyPreviewSnapshot.matches("failed");
+  const assemblyPreviewFeedback = assemblyPreviewFailed ? <Alert type="error" showIcon
+    message="约束预览求解失败"
+    description={`${assemblyPreviewSnapshot.context.errorCode ? `[${assemblyPreviewSnapshot.context.errorCode}${assemblyPreviewSnapshot.context.phase ? ` @ ${assemblyPreviewSnapshot.context.phase}` : ""}] ` : ""}${assemblyPreviewSnapshot.context.error ?? "无法生成约束预览"}`}
+  /> : undefined;
+
   return <CommandProvider registry={commandRegistry}><section className="cad-workbench">
     <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view}
@@ -749,7 +780,7 @@ export function Workbench() {
       </section></main>
     <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" width={390}
       onClose={() => { viewport.current?.clearCommandPreview(); setReplacingAssemblyReference(undefined); setEditingAssemblyConstraint(undefined); }}
-      confirmLoading={command.isPending} onConfirm={async()=>{
+      confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={assemblyPreviewFailed} onConfirm={async()=>{
         if(!editingView||!editingAssemblyConstraint)return;const values=await assemblyConstraintForm.validateFields();const constraint=editingAssemblyConstraint;
         command.mutate(()=>api.editAssemblyConstraint(editingView.document.id,constraint.id,{value:constraint.kind==="ANGLE"?values.value*Math.PI/180:values.value,
           directionRelation:values.directionRelation,distanceRelation:values.distanceRelation,
@@ -761,10 +792,12 @@ export function Workbench() {
           directedAngle={Boolean(editingAssemblyConstraint.angleReferenceDirection)}
           onValueCommit={()=>setAssemblyPreviewCommit((value)=>value+1)}
           onReplace={(index)=>{store.setSelection(null);setReplacingAssemblyReference(index);}} />}
+        {assemblyPreviewFeedback}
       </Form>
     </CommandDialog>
     <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)} title="约束定义" width={390}
-      onClose={() => { viewport.current?.clearCommandPreview(); setReplacingAssemblyReference(undefined); setPendingAssemblyConstraint(undefined); }} confirmLoading={command.isPending}
+      onClose={() => { viewport.current?.clearCommandPreview(); setReplacingAssemblyReference(undefined); setPendingAssemblyConstraint(undefined); }}
+      confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={assemblyPreviewFailed}
       onConfirm={async () => {
         if (!editingView || !pendingAssemblyConstraint) return;
         const values = await assemblyConstraintForm.validateFields();
@@ -782,6 +815,7 @@ export function Workbench() {
           directedAngle={Boolean(pendingAssemblyConstraint.angleReferenceDirection)}
           onValueCommit={()=>setAssemblyPreviewCommit((value)=>value+1)}
           onReplace={(index)=>{store.setSelection(null);setReplacingAssemblyReference(index);}} />}
+        {assemblyPreviewFeedback}
       </Form>
     </CommandDialog>
     <CommandDialog id="solid-generator" open={padOpen} title="实体特征" onClose={closePad} confirmLoading={command.isPending}

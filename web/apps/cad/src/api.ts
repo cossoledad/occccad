@@ -11,6 +11,14 @@ const cookie = (name: string): string => decodeURIComponent(document.cookie.spli
 const mutationHeaders = (method = "GET"): Record<string, string> =>
   method === "GET" || method === "HEAD" ? {} : { "X-CSRF-Token": cookie("occccad_csrf") };
 
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string,
+    readonly phase?: string, readonly retryable = false) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	const started = performance.now();
   const response = await fetch(apiURL(path), {
@@ -20,8 +28,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
 	recordClientPerformance({ name: `${init?.method ?? "GET"} ${path.split("?")[0]}`, durationMs: performance.now() - started,
 		status: response.status, serverTiming: response.headers.get("Server-Timing") ?? "", at: new Date().toISOString() });
-  const body = await response.json().catch(() => ({})) as { error?: string };
-  if (!response.ok) throw new Error(body.error ?? `HTTP ${response.status}`);
+  const body = await response.json().catch(() => ({})) as {
+    error?: string; code?: string; phase?: string; retryable?: boolean;
+  };
+  if (!response.ok) throw new ApiError(body.error ?? `HTTP ${response.status}`, response.status,
+    body.code, body.phase, Boolean(body.retryable));
   return body as T;
 }
 

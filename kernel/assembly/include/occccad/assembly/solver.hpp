@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <variant>
@@ -79,6 +80,12 @@ enum class DirectionRelation { Unoriented, Same, Opposite };
 // when sign matters. Unsigned uses the nearest absolute-distance branch.
 enum class DistanceRelation { Unsigned, AlongSecondNormal, OppositeSecondNormal };
 
+struct AngleBranchState {
+    double wrapped_angle{};
+    double unwrapped_angle{};
+    std::int64_t winding{};
+};
+
 struct Constraint {
     std::string id;
     std::string connection_id;
@@ -90,6 +97,9 @@ struct Constraint {
     // Optional reference direction expressed in the second body's local frame.
     // When present, Angle is directed in [0, 2pi); otherwise it is unsigned [0, pi].
     std::optional<Vec3> angle_reference_direction;
+    // Previous accepted directed-angle branch. The solver chooses the nearest
+    // equivalent angle and returns the updated state in SolveResult.
+    std::optional<AngleBranchState> angle_branch_state;
     DirectionRelation direction_relation{DirectionRelation::Unoriented};
     DistanceRelation distance_relation{DistanceRelation::Unsigned};
     // Fix: target world pose. Rigid: target pose of first relative to second.
@@ -122,11 +132,23 @@ struct SolverOptions {
     double translation_step_tolerance{1.0e-9};
     double rotation_step_tolerance{1.0e-10};
     double degeneracy_tolerance{1.0e-8};
-    double finite_difference_step{1.0e-7};
+    // Deprecated compatibility override. When positive it overrides both
+    // translation/rotation finite-difference steps.
+    double finite_difference_step{};
+    double translation_finite_difference_step{1.0e-6};
+    double rotation_finite_difference_step{1.0e-7};
     double initial_damping{1.0e-4};
     double length_scale{1.0};
     double angle_scale{1.0};
-    double rank_tolerance{1.0e-9};
+    // Deprecated compatibility absolute rank threshold.
+    double rank_tolerance{};
+    double rank_absolute_tolerance{1.0e-10};
+    double rank_relative_tolerance{1.0e-8};
+    double gradient_tolerance{1.0e-8};
+    double moving_preference_weight{1.0e-14};
+    double neutral_preference_weight{1.0e-12};
+    double reference_preference_weight{1.0e-8};
+    std::size_t max_conflict_probes{16};
     // Empty solves every connected component. Otherwise only components
     // containing at least one listed body are numerically updated.
     std::vector<std::string> affected_body_ids;
@@ -155,6 +177,21 @@ enum class SolveClassification {
 struct ConstraintResidual {
     std::string constraint_id;
     double normalized_norm{};
+};
+
+enum class ConstraintRankRole { Independent, PartiallyRedundant, FullyRedundant };
+
+struct ConstraintRankInfo {
+    std::string constraint_id;
+    std::size_t equation_count{};
+    std::size_t effective_rank{};
+    std::size_t incremental_rank{};
+    ConstraintRankRole role{ConstraintRankRole::Independent};
+};
+
+struct SolvedAngleBranch {
+    std::string constraint_id;
+    AngleBranchState state;
 };
 
 struct EquationResidual {
@@ -194,10 +231,13 @@ struct SolveResult {
     std::vector<SolvedBody> bodies;
     std::vector<ConstraintResidual> residuals;
     std::vector<EquationResidual> equation_residuals;
+    std::vector<ConstraintRankInfo> constraint_ranks;
+    std::vector<SolvedAngleBranch> angle_branches;
     std::vector<ComponentDof> components;
     std::vector<std::string> redundant_constraint_ids;
     std::vector<std::string> unsatisfied_constraint_ids;
     std::vector<std::string> conflicting_constraint_ids;
+    std::vector<std::string> suspected_conflicting_constraint_ids;
     std::vector<SolveDiagnostic> diagnostics;
     std::size_t iterations{};
     double normalized_residual{};

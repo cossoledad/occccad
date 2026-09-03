@@ -463,6 +463,28 @@ Warm start at this stage means that the caller supplies the previously accepted
 poses as the next nominal poses. It is not yet an incremental factorization cache
 or a persistent solver session.
 
+### M1.7: continuity, motion preference and stable local diagnostics (implemented baseline)
+
+M1.7 preserves the M1 compiler/component/LM architecture while separating geometry,
+discrete branch state and solution preference. Directed angles project both endpoint
+directions onto the reference-axis normal plane and reject a degenerate projection;
+all Angle constraints remain one scalar equation at zero and pi and use a wrapped
+periodic error. `AngleBranchState` carries wrapped, unwrapped and winding values
+between calls without making multi-turn state part of the static assembly definition.
+
+Direction, unsigned-distance side and angle branch data are compiled into an internal
+`ConstraintBranchState` and remain fixed during central-difference perturbations.
+SolveIntent assigns weak cluster-level motion weights in addition to the existing
+ungrounded reference gauge; a rigid cluster containing both roles is invalid. This is
+a weighted secondary objective, not yet lexicographic null-space optimization.
+
+Translation and rotation use separate central-difference steps. Rank analysis column-
+normalizes the Jacobian and uses SVD with absolute plus relative thresholds. Per-
+constraint diagnostics expose equation count, effective rank and chosen-basis
+incremental rank. Failed feasible-variable components receive bounded single-
+constraint removal probes and report suspected conflicts without claiming an IIS/MUS.
+Satisfaction uses grouped geometric norms for the overcomplete residual blocks.
+
 ### M2: equation registry and Jacobians
 
 - replace stringly typed worker kinds with typed definitions;

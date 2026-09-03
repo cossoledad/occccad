@@ -3,11 +3,13 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
 
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/qmuntal/stateless"
 )
 
 func inverseRelativePose(first, second InstancePose) InstancePose {
@@ -39,13 +41,58 @@ type assemblyConstraintCapabilities struct {
 type assemblySolveFailure struct {
 	status     string
 	diagnostic string
+	code       string
+	phase      string
+	retryable  bool
 }
 
 func (failure *assemblySolveFailure) Error() string {
 	return fmt.Sprintf("assembly solve %s: %s", failure.status, failure.diagnostic)
 }
 
-func (failure *assemblySolveFailure) Unwrap() error { return ErrValidation }
+func (failure *assemblySolveFailure) Unwrap() error   { return ErrValidation }
+func (failure *assemblySolveFailure) Code() string    { return failure.code }
+func (failure *assemblySolveFailure) Phase() string   { return failure.phase }
+func (failure *assemblySolveFailure) Retryable() bool { return failure.retryable }
+
+const (
+	assemblySolveResolving = "RESOLVING_GEOMETRY"
+	assemblySolveSolving   = "SOLVING"
+	assemblySolveApplying  = "APPLYING_RESULT"
+	assemblySolveCompleted = "COMPLETED"
+	assemblySolveFailed    = "FAILED"
+	assemblySolveAdvance   = "ADVANCE"
+	assemblySolveFail      = "FAIL"
+)
+
+type assemblySolveWorkflow struct{ machine *stateless.StateMachine }
+
+func newAssemblySolveWorkflow() *assemblySolveWorkflow {
+	machine := stateless.NewStateMachine(assemblySolveResolving)
+	machine.Configure(assemblySolveResolving).
+		Permit(assemblySolveAdvance, assemblySolveSolving).
+		Permit(assemblySolveFail, assemblySolveFailed)
+	machine.Configure(assemblySolveSolving).
+		Permit(assemblySolveAdvance, assemblySolveApplying).
+		Permit(assemblySolveFail, assemblySolveFailed)
+	machine.Configure(assemblySolveApplying).
+		Permit(assemblySolveAdvance, assemblySolveCompleted).
+		Permit(assemblySolveFail, assemblySolveFailed)
+	return &assemblySolveWorkflow{machine: machine}
+}
+
+func (workflow *assemblySolveWorkflow) advance(ctx context.Context) error {
+	return workflow.machine.FireCtx(ctx, assemblySolveAdvance)
+}
+
+func (workflow *assemblySolveWorkflow) failure(ctx context.Context, status, code, diagnostic string, retryable bool) error {
+	phase := fmt.Sprint(workflow.machine.MustState())
+	if err := workflow.machine.FireCtx(ctx, assemblySolveFail); err != nil {
+		return fmt.Errorf("assembly solve workflow transition from %s: %w", phase, err)
+	}
+	return &assemblySolveFailure{status: status, diagnostic: diagnostic, code: code,
+		phase: phase, retryable: retryable}
+}
 
 // assemblyCapabilities is the authoritative application-layer geometry-pair
 // matrix. It operates on exact descriptors resolved from topology, rather than
@@ -60,12 +107,31 @@ func assemblyCapabilities(kind, firstKind, secondKind string) assemblyConstraint
 	}
 }
 
-func (service *Service) solveAssembly(ctx context.Context, documentID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel) error {
+func (service *Service) solveAssembly(ctx context.Context, documentID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel) (returnErr error) {
 	if len(model.Constraints) == 0 {
 		return nil
 	}
+	workflow := newAssemblySolveWorkflow()
+	defer func() {
+		if returnErr == nil {
+			return
+		}
+		// Cancellation/deadline are request transport semantics. Preserve them so
+		// the HTTP boundary can return its established timeout response instead of
+		// misclassifying them as an assembly-model failure.
+		if errors.Is(returnErr, context.Canceled) || errors.Is(returnErr, context.DeadlineExceeded) {
+			return
+		}
+		var failure *assemblySolveFailure
+		if errors.As(returnErr, &failure) {
+			return
+		}
+		returnErr = workflow.failure(context.Background(), "INVALID_MODEL",
+			"ASSEMBLY_GEOMETRY_RESOLUTION_FAILED", returnErr.Error(), false)
+	}()
 	if service.worker == nil {
-		return fmt.Errorf("%w: assembly solver is unavailable", ErrValidation)
+		return workflow.failure(context.Background(), "NUMERICAL_FAILURE",
+			"ASSEMBLY_SOLVER_UNAVAILABLE", "assembly solver is unavailable", true)
 	}
 	instances := make(map[string]*ProductInstance, len(model.Instances))
 	bodies := make([]geometry.AssemblyBody, 0, len(model.Instances))
@@ -294,17 +360,41 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		}
 		constraints = append(constraints, value)
 	}
-	result, err := service.worker.SolveAssemblyWithOptions(ctx, requestID, bodies, geometryValues, constraints, geometry.AssemblySolveOptions{Intent: intent})
-	if err != nil {
+	if err := workflow.advance(context.Background()); err != nil {
 		return err
 	}
+	result, err := service.worker.SolveAssemblyWithOptions(ctx, requestID, bodies, geometryValues, constraints, geometry.AssemblySolveOptions{Intent: intent})
+	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return err
+		}
+		return workflow.failure(context.Background(), "NUMERICAL_FAILURE",
+			"ASSEMBLY_SOLVER_UNAVAILABLE", err.Error(), true)
+	}
 	if result.Status != "CONVERGED" {
-		return &assemblySolveFailure{status: result.Status, diagnostic: result.Diagnostic}
+		code, retryable := "ASSEMBLY_SOLVER_UNSATISFIED", false
+		switch result.Status {
+		case "MAX_ITERATIONS":
+			code = "ASSEMBLY_SOLVER_NON_CONVERGENT"
+		case "INCONSISTENT":
+			code = "ASSEMBLY_SOLVER_INCONSISTENT"
+		case "INVALID_MODEL":
+			code = "ASSEMBLY_SOLVER_INVALID_MODEL"
+		case "NUMERICAL_FAILURE":
+			code, retryable = "ASSEMBLY_SOLVER_NUMERICAL_FAILURE", true
+		}
+		return workflow.failure(context.Background(), result.Status, code, result.Diagnostic, retryable)
+	}
+	if err := workflow.advance(context.Background()); err != nil {
+		return err
 	}
 	for _, solved := range result.Bodies {
 		if instance := instances[solved.ID]; instance != nil {
 			instance.Translation, instance.Rotation = solved.Pose.Translation, solved.Pose.Rotation
 		}
+	}
+	if err := workflow.advance(context.Background()); err != nil {
+		return err
 	}
 	return nil
 }
