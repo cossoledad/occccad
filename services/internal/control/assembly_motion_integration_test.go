@@ -1,15 +1,18 @@
 package control
 
 import (
-	"github.com/occccad/occccad/internal/artifact"
-	"github.com/occccad/occccad/internal/database"
-	"github.com/occccad/occccad/internal/workspace"
+	"encoding/json"
 	"math"
 	"net"
 	"os"
 	"testing"
 
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/workspace"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 // Exercises the actual Router -> C++ Worker path, including every M2.5 field.
@@ -34,6 +37,26 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
+	fixture, err := os.ReadFile("../../../tests/assembly-corpus/face4-face6.3dreplay")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replayed, err := client.ReplayAssembly(t.Context(), fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var replay geometry.AssemblyReplay
+	if err = json.Unmarshal(replayed, &replay); err != nil {
+		t.Fatal(err)
+	}
+	var replayResult workerv1.SolveAssemblyResponse
+	if err = protojson.Unmarshal(replay.Result, &replayResult); err != nil {
+		t.Fatal(err)
+	}
+	if replayResult.Status != "CONVERGED" || replayResult.Components[0].Preference.Status != workerv1.AssemblyPreferenceStatus_PREFERENCE_CONVERGED {
+		t.Fatalf("real face replay failed: %s", replayed)
+	}
+
 	identity := geometry.AssemblyPose{Rotation: [4]float64{0, 0, 0, 1}}
 	bodies := []geometry.AssemblyBody{{ID: "a", Pose: identity}, {ID: "b", Pose: geometry.AssemblyPose{Translation: [3]float64{3, 0, 0}, Rotation: identity.Rotation}}}
 	descriptors := []geometry.AssemblyGeometry{{ID: "p", BodyID: "a", Kind: "POINT"}, {ID: "p", BodyID: "b", Kind: "POINT"}}
@@ -44,7 +67,7 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v1" || len(result.Components) != 1 {
+	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v2" || len(result.Components) != 1 {
 		t.Fatalf("invalid result: %+v", result)
 	}
 	p := result.Components[0].Preference
@@ -144,7 +167,7 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	product = apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "FIX", FirstAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: a, Kind: "BODY"}})
 	first := &workspace.AssemblyGeometryRef{InstanceID: a, Kind: "PLANE", GeometryID: "datum-xy"}
 	second := &workspace.AssemblyGeometryRef{InstanceID: b, Kind: "PLANE", GeometryID: "datum-xy"}
-	request := workspace.CommandRequest{ActorID: "00000000-0000-7000-8000-000000000001", Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "DISTANCE", FirstAssemblyRef: first, SecondAssemblyRef: second, Value: 2, DirectionRelation: "SAME", DistanceRelation: "UNSIGNED"}
+	request := workspace.CommandRequest{RequestID: "replay-" + id, ActorID: "00000000-0000-7000-8000-000000000001", Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "DISTANCE", FirstAssemblyRef: first, SecondAssemblyRef: second, Value: 2, DirectionRelation: "SAME", DistanceRelation: "UNSIGNED"}
 	preview, err := service.PreviewCommand(t.Context(), id, request)
 	if err != nil {
 		t.Fatal(err)
@@ -201,4 +224,43 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(refreshed, 4)
+	for _, key := range []string{request.RequestID, "preview/" + request.RequestID} {
+		var data []byte
+		if err = db.QueryRow(t.Context(), `SELECT replay FROM occccad.assembly_replays WHERE document_id=$1 AND request_id=$2`, id, key).Scan(&data); err != nil {
+			t.Fatal(err)
+		}
+		var file geometry.AssemblyReplay
+		if err = json.Unmarshal(data, &file); err != nil || file.Schema != geometry.AssemblyReplaySchema {
+			t.Fatalf("invalid archive: %s", data)
+		}
+		output, err := client.ReplayAssembly(t.Context(), data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = json.Unmarshal(output, &file); err != nil {
+			t.Fatal(err)
+		}
+		var result workerv1.SolveAssemblyResponse
+		if err = protojson.Unmarshal(file.Result, &result); err != nil || result.Status != "CONVERGED" {
+			t.Fatalf("archived request did not replay: %s", output)
+		}
+	}
+	failed := request
+	failed.RequestID = "failed-replay-" + id
+	failed.Value = 20
+	if _, err = service.PreviewCommand(t.Context(), id, failed); err == nil {
+		t.Fatal("conflicting preview unexpectedly succeeded")
+	}
+	var status string
+	if err = db.QueryRow(t.Context(), `SELECT replay->'result'->>'status' FROM occccad.assembly_replays WHERE document_id=$1 AND request_id=$2`, id, "preview/"+failed.RequestID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status == "CONVERGED" {
+		t.Fatal("failed replay lost failure status")
+	}
+	afterFailure, err := service.GetDocument(t.Context(), id, "00000000-0000-7000-8000-000000000001")
+	if err != nil || afterFailure.Document.VersionID != refreshed.Document.VersionID {
+		t.Fatal("archiving failed preview changed model head")
+	}
+
 }

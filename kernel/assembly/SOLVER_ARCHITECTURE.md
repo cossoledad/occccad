@@ -634,7 +634,7 @@ MOVE 的最近可行目标投影仍由 M4 实现，本门不以现有 `interacti
 
 Worker/Go/Router 携带 typed freedom/preference enums 与完整证据，Product 预览通过现有 preview actor 展示第二元素变化和自由度，
 REQUEST/RESET/CANCEL 清理旧证据，旧 sequence 的响应不覆盖新状态。提交不持久化额外求解状态机；最终 Pose 仍进入同一
-Revision/ChangeSet，连续 Undo/Redo 由原历史语义处理。当前 `solver_build=assembly-m2.5-hierarchy-v1`，profile schema 为 2。
+Revision/ChangeSet，连续 Undo/Redo 由原历史语义处理。当前 `solver_build=assembly-m2.5-hierarchy-v2`，profile schema 为 2。
 装配求解当前没有结果缓存；无需通过修改无关的 Part evaluator 来假装失效装配缓存。持久 solve manifest/provenance 是 M3。
 
 

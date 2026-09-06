@@ -1,0 +1,245 @@
+{
+  "units": "mm,rad; body-local geometry; quaternion xyzw",
+  "result": {
+    "bodies": [
+      {
+        "id": "instance-1b96b33f9c417dbc8e29",
+        "pose": {
+          "rotation": {
+            "w": 0.6923763607249893,
+            "x": -0.49930504201806913,
+            "y": -0.10488420789312632,
+            "z": -0.5102046188140453
+          },
+          "translation": {
+            "x": -252.55719832993879,
+            "y": -16.519125703773014
+          }
+        }
+      },
+      {
+        "id": "instance-0612ee0acc1795054db9",
+        "pose": {
+          "rotation": {
+            "w": 1
+          },
+          "translation": {}
+        }
+      }
+    ],
+    "status": "MAX_ITERATIONS",
+    "residuals": [
+      {
+        "constraintId": "assembly-constraint-5ea6d201b36a35ad773e"
+      },
+      {
+        "constraintId": "assembly-constraint-6f09af63a492b0ce0d64",
+        "normalizedNorm": 0.6520254353949573
+      }
+    ],
+    "components": [
+      {
+        "solved": true,
+        "bodyIds": [
+          "instance-0612ee0acc1795054db9",
+          "instance-1b96b33f9c417dbc8e29"
+        ],
+        "preference": {
+          "angleScale": 1,
+          "lengthScale": 1
+        },
+        "componentId": "component/instance-0612ee0acc1795054db9",
+        "relativeDof": "3",
+        "jacobianRank": "3",
+        "rankThreshold": 1.7319833771587695e-08,
+        "tangentClusterIds": [
+          "cluster/instance-1b96b33f9c417dbc8e29"
+        ],
+        "tangentVariableCount": "6"
+      }
+    ],
+    "diagnostic": "one or more assembly components did not converge",
+    "iterations": "100",
+    "solverBuild": "assembly-m2.5-hierarchy-v1",
+    "classification": "NON_CONVERGENT",
+    "constraintRanks": [
+      {
+        "role": "INDEPENDENT",
+        "constraintId": "assembly-constraint-6f09af63a492b0ce0d64",
+        "effectiveRank": "3",
+        "equationCount": "4",
+        "incrementalRank": "3",
+        "declaredGenericRank": "3"
+      }
+    ],
+    "equationResiduals": [
+      {
+        "equationId": "assembly-constraint-5ea6d201b36a35ad773e/equation/FIX_TRANSLATION_X",
+        "connectionId": "assembly-connection-21aaa60c149a4540a7fc",
+        "constraintId": "assembly-constraint-5ea6d201b36a35ad773e"
+      },
+      {
+        "equationId": "assembly-constraint-5ea6d201b36a35ad773e/equation/FIX_TRANSLATION_Y",
+        "connectionId": "assembly-connection-21aaa60c149a4540a7fc",
+        "constraintId": "assembly-constraint-5ea6d201b36a35ad773e",
+        "equationIndex": "1"
+      },
+      {
+        "equationId": "assembly-constraint-5ea6d201b36a35ad773e/equation/FIX_TRANSLATION_Z",
+        "connectionId": "assembly-connection-21aaa60c149a4540a7fc",
+        "constraintId": "assembly-constraint-5ea6d201b36a35ad773e",
+        "equationIndex": "2"
+      },
+      {
+        "equationId": "assembly-constraint-5ea6d201b36a35ad773e/equation/FIX_ROTATION_X",
+        "connectionId": "assembly-connection-21aaa60c149a4540a7fc",
+        "constraintId": "assembly-constraint-5ea6d201b36a35ad773e",
+        "equationIndex": "3"
+      },
+      {
+        "equationId": "assembly-constraint-5ea6d201b36a35ad773e/equation/FIX_ROTATION_Y",
+        "connectionId": "assembly-connection-21aaa60c149a4540a7fc",
+        "constraintId": "assembly-constraint-5ea6d201b36a35ad773e",
+        "equationIndex": "4"
+      },
+      {
+        "equationId": "assembly-constraint-5ea6d201b36a35ad773e/equation/FIX_ROTATION_Z",
+        "connectionId": "assembly-connection-21aaa60c149a4540a7fc",
+        "constraintId": "assembly-constraint-5ea6d201b36a35ad773e",
+        "equationIndex": "5"
+      },
+      {
+        "equationId": "assembly-constraint-6f09af63a492b0ce0d64/equation/NORMAL_X",
+        "connectionId": "assembly-connection-b5a89d508f0a0d70a0bf",
+        "constraintId": "assembly-constraint-6f09af63a492b0ce0d64",
+        "normalizedValue": -0.3642567849523877
+      },
+      {
+        "equationId": "assembly-constraint-6f09af63a492b0ce0d64/equation/NORMAL_Y",
+        "connectionId": "assembly-connection-b5a89d508f0a0d70a0bf",
+        "constraintId": "assembly-constraint-6f09af63a492b0ce0d64",
+        "equationIndex": "1",
+        "normalizedValue": 0.20156116961633164
+      },
+      {
+        "equationId": "assembly-constraint-6f09af63a492b0ce0d64/equation/NORMAL_Z",
+        "connectionId": "assembly-connection-b5a89d508f0a0d70a0bf",
+        "constraintId": "assembly-constraint-6f09af63a492b0ce0d64",
+        "equationIndex": "2",
+        "normalizedValue": -0.4793875558999313
+      },
+      {
+        "equationId": "assembly-constraint-6f09af63a492b0ce0d64/equation/PLANE_OFFSET",
+        "connectionId": "assembly-connection-b5a89d508f0a0d70a0bf",
+        "constraintId": "assembly-constraint-6f09af63a492b0ce0d64",
+        "equationIndex": "3",
+        "normalizedValue": -0.14837395044050083
+      }
+    ],
+    "normalizedResidual": 0.6520254353949573
+  },
+  "schema": "occccad.3dreplay.v1",
+  "request": {
+    "bodies": [
+      {
+        "id": "instance-1b96b33f9c417dbc8e29",
+        "initialPose": {
+          "rotation": {
+            "w": 0.9102233385553086,
+            "z": 0.41411770542833365
+          },
+          "translation": {
+            "x": -252.55719832993879
+          }
+        }
+      },
+      {
+        "id": "instance-0612ee0acc1795054db9",
+        "initialPose": {
+          "rotation": {
+            "w": 1
+          },
+          "translation": {}
+        }
+      }
+    ],
+    "geometry": [
+      {
+        "id": "instance-1b96b33f9c417dbc8e29:FACE:::sha256:b7463668def9e05859ccc30753b83cb4b71b8dc2b4869615736af0f58df0d2ec:4",
+        "kind": "PLANE",
+        "bodyId": "instance-1b96b33f9c417dbc8e29",
+        "origin": {
+          "x": 89.88533068174983,
+          "z": 38.522284577892705
+        },
+        "direction": {
+          "x": 0,
+          "y": 0,
+          "z": -1
+        }
+      },
+      {
+        "id": "instance-0612ee0acc1795054db9:FACE:::sha256:b7463668def9e05859ccc30753b83cb4b71b8dc2b4869615736af0f58df0d2ec:6",
+        "kind": "PLANE",
+        "bodyId": "instance-0612ee0acc1795054db9",
+        "origin": {
+          "x": 22.64967658052029,
+          "y": -40,
+          "z": -32.815279455242084
+        },
+        "direction": {
+          "x": 0,
+          "y": -1,
+          "z": 0
+        }
+      }
+    ],
+    "requestId": "preview/face4-face6-investigation",
+    "angleScale": 1,
+    "constraints": [
+      {
+        "id": "assembly-constraint-5ea6d201b36a35ad773e",
+        "kind": "FIX",
+        "mode": "DRIVING",
+        "first": {
+          "bodyId": "instance-0612ee0acc1795054db9"
+        },
+        "fixedPose": {
+          "rotation": {
+            "w": 1
+          },
+          "translation": {}
+        },
+        "connectionId": "assembly-connection-21aaa60c149a4540a7fc",
+        "distanceRelation": "UNSIGNED",
+        "directionRelation": "UNORIENTED"
+      },
+      {
+        "id": "assembly-constraint-6f09af63a492b0ce0d64",
+        "kind": "COINCIDENT",
+        "mode": "DRIVING",
+        "first": {
+          "bodyId": "instance-1b96b33f9c417dbc8e29",
+          "geometryId": "instance-1b96b33f9c417dbc8e29:FACE:::sha256:b7463668def9e05859ccc30753b83cb4b71b8dc2b4869615736af0f58df0d2ec:4"
+        },
+        "second": {
+          "bodyId": "instance-0612ee0acc1795054db9",
+          "geometryId": "instance-0612ee0acc1795054db9:FACE:::sha256:b7463668def9e05859ccc30753b83cb4b71b8dc2b4869615736af0f58df0d2ec:6"
+        },
+        "connectionId": "assembly-connection-b5a89d508f0a0d70a0bf",
+        "distanceRelation": "UNSIGNED",
+        "directionRelation": "SAME"
+      }
+    ],
+    "lengthScale": 1,
+    "solveIntent": {
+      "movingBodyIds": [
+        "instance-1b96b33f9c417dbc8e29"
+      ],
+      "preferencePolicy": "MOVE_FIRST_MINIMIZE_REFERENCE",
+      "referenceBodyIds": [
+        "instance-0612ee0acc1795054db9"
+      ]
+    }
+  }
+}

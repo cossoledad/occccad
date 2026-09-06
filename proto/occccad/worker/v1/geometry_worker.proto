@@ -143,6 +143,7 @@ message SolveAssemblyResponse {
     repeated AssemblySolvedAngleBranch angle_branches = 15;
     repeated string suspected_conflicting_constraint_ids = 16;
     string solver_build = 17;
+    AssemblySolverProfile effective_solver_profile = 18;
 }
 
 message SketchPoint {

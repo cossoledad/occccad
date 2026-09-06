@@ -602,6 +602,32 @@ public:
                         "unknown assembly solve preference policy"};
             options.solve_intent = std::move(intent);
         }
+        auto* effective = response->mutable_effective_solver_profile();
+        effective->set_schema_version(2);
+        effective->set_max_iterations(options.max_iterations);
+        effective->set_length_tolerance(options.length_tolerance);
+        effective->set_angle_tolerance(options.angle_tolerance);
+        effective->set_classification_length_tolerance(options.classification_length_tolerance);
+        effective->set_classification_angle_tolerance(options.classification_angle_tolerance);
+        effective->set_translation_step_tolerance(options.translation_step_tolerance);
+        effective->set_rotation_step_tolerance(options.rotation_step_tolerance);
+        effective->set_degeneracy_tolerance(options.degeneracy_tolerance);
+        effective->set_finite_difference_step(options.finite_difference_step);
+        effective->set_initial_damping(options.initial_damping);
+        effective->set_rank_tolerance(options.rank_tolerance);
+        effective->set_translation_finite_difference_step(options.translation_finite_difference_step);
+        effective->set_rotation_finite_difference_step(options.rotation_finite_difference_step);
+        effective->set_rank_absolute_tolerance(options.rank_absolute_tolerance);
+        effective->set_rank_relative_tolerance(options.rank_relative_tolerance);
+        effective->set_gradient_tolerance(options.gradient_tolerance);
+        effective->set_motion_length_scale(options.motion_length_scale);
+        effective->set_motion_angle_scale(options.motion_angle_scale);
+        effective->set_preference_tolerance(options.preference_tolerance);
+        effective->set_objective_tolerance(options.objective_tolerance);
+        effective->set_max_preference_iterations(options.max_preference_iterations);
+        effective->set_max_conflict_probes(options.max_conflict_probes);
+        effective->set_verify_analytic_jacobians(options.verify_analytic_jacobians);
+        effective->set_jacobian_check_tolerance(options.jacobian_check_tolerance);
         const auto result = assembly_solver_.solve(model, options);
         const char* status =
             result.status == assembly_api::SolveStatus::Converged       ? "CONVERGED"
@@ -610,7 +636,7 @@ public:
             : result.status == assembly_api::SolveStatus::MaxIterations ? "MAX_ITERATIONS"
             : result.status == assembly_api::SolveStatus::InvalidModel  ? "INVALID_MODEL"
                                                                         : "NUMERICAL_FAILURE";
-        response->set_solver_build("assembly-m2.5-hierarchy-v1");
+        response->set_solver_build("assembly-m2.5-hierarchy-v2");
         response->set_status(status);
         const char* classification =
             result.classification == assembly_api::SolveClassification::SolvedFully ? "SOLVED_FULLY"

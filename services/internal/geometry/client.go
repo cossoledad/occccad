@@ -289,6 +289,8 @@ type AssemblySolverProfile struct {
 }
 
 type AssemblySolveOptions struct {
+	CaptureReplay func([]byte, error)
+
 	AffectedBodyIDs []string
 	Intent          *AssemblySolveIntent
 	SolverProfile   *AssemblySolverProfile
@@ -379,6 +381,10 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 		request.Constraints = append(request.Constraints, item)
 	}
 	response, err := client.worker.SolveAssembly(ctx, request)
+	if options.CaptureReplay != nil {
+		data, captureErr := makeAssemblyReplay(request, response, err)
+		options.CaptureReplay(data, captureErr)
+	}
 	if err != nil {
 		return AssemblySolve{}, fmt.Errorf("solve assembly: %w", err)
 	}

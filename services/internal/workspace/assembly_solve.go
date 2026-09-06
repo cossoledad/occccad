@@ -363,7 +363,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 	if err := workflow.advance(context.Background()); err != nil {
 		return err
 	}
-	result, err := service.worker.SolveAssemblyWithOptions(ctx, requestID, bodies, geometryValues, constraints, geometry.AssemblySolveOptions{Intent: intent})
+	result, err := service.worker.SolveAssemblyWithOptions(ctx, requestID, bodies, geometryValues, constraints, geometry.AssemblySolveOptions{Intent: intent, CaptureReplay: service.captureAssemblyReplay(ctx, documentID, requestID)})
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return err

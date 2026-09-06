@@ -661,7 +661,7 @@ export function Workbench() {
       commandRegistry.register({ id: "view.iso", execute: () => viewport.current?.setStandardView("ISO") }),
       commandRegistry.register({ id: "navigation.profile.toggle", execute: () => store.setNavigationProfile(
         store.navigationProfile === "default" ? "catia" : "default"), isActive: () => store.navigationProfile === "catia" }),
-	  commandRegistry.register({ id: "debug.download", execute: () => editingView && api.downloadDiagnosticBundle(editingView.document.id),
+	  commandRegistry.register({ id: "debug.download", execute: () => editingView && (editingView.product ? api.downloadAssemblyReplay(editingView.document.id) : api.downloadDiagnosticBundle(editingView.document.id)),
 		isVisible: () => !isMockMode, isEnabled: () => Boolean(editingView) }),
     ];
     return () => { for (const dispose of disposers.reverse()) dispose(); };
@@ -678,7 +678,7 @@ export function Workbench() {
   const assemblyPreviewFailed = assemblyPreviewSnapshot.matches("failed");
   const motionComponents = assemblyPreviewSnapshot.matches("succeeded") ? assemblyPreviewSnapshot.context.components : undefined;
   const freedomNames = ["固定", "转动", "滑动", "圆柱", "平面", "球面", "自由", "耦合"];
-  const assemblyPreviewFeedback = assemblyPreviewFailed ? <Alert type="error" showIcon
+  const assemblyPreviewEvidence = assemblyPreviewFailed ? <Alert type="error" showIcon
     message="约束预览求解失败"
     description={`${assemblyPreviewSnapshot.context.errorCode ? `[${assemblyPreviewSnapshot.context.errorCode}${assemblyPreviewSnapshot.context.phase ? ` @ ${assemblyPreviewSnapshot.context.phase}` : ""}] ` : ""}${assemblyPreviewSnapshot.context.error ?? "无法生成约束预览"}`}
   /> : motionComponents?.length ? <div aria-label="装配求解结果">
@@ -694,6 +694,14 @@ export function Workbench() {
       </div>)}
     </div>)}
   </div> : undefined;
+  const assemblyPreviewFeedback = <>
+    {assemblyPreviewEvidence}
+    {(assemblyPreviewFailed || motionComponents?.length) ? <Button type="link" size="small"
+      onClick={() => { if (editingView) void api.downloadAssemblyReplay(editingView.document.id).catch(error => message.error(String(error))); }}>
+      下载 3dreplay
+    </Button> : null}
+  </>;
+
 
   return <CommandProvider registry={commandRegistry}><section className="cad-workbench">
     <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>

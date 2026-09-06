@@ -122,7 +122,11 @@ Run the deterministic dense-backend baseline with
 `invoke performance-baseline`; the assembly result is written to
 `build/performance/assembly-solver.txt`.
 
-The 2026-09-06 M2.5 validation passed 75 assembly/corpus tests, full Go tests,
+The 2026-09-06 validation passed 78 assembly/corpus tests, full Go tests,
 real Router/Worker Product history integration, Web scenarios and production build.
 Current dense Debug timings and browser acceptance are recorded in
 [SOLVER_ALGORITHMS.md](SOLVER_ALGORITHMS.md).
+
+The translated/rotated FACE 4 to fixed FACE 6 regression is also available as a
+[minimal 3dreplay fixture](../../tests/assembly-corpus/face4-face6.3dreplay), replayable
+through the [standalone CLI](../../services/cmd/occccad-3dreplay/README.md).

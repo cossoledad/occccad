@@ -89,3 +89,7 @@ Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用�
 ## 目标边界
 
 二维草图约束推荐作为 Part Evaluation 内的独立模块与本 Worker 同进程部署，以避免草图求解和特征重生成之间的高频网络往返；三维装配约束不进入本 Worker，应使用独立 Assembly Solver Worker。原因与拆分触发条件见项目[目标架构](../../docs/TARGET_ARCHITECTURE.md)。
+
+`SolveAssemblyResponse.effective_solver_profile` 返回本次采用的完整数值配置，供 3dreplay 冻结隐式默认值。
+当前 solver build 为 `assembly-m2.5-hierarchy-v2`，包含长力臂尺度阻尼、模型下降比与独立平移/旋转步长控制。
+3dreplay 重放复用 `SolveAssembly`，无需另设 RPC 或在 Worker 内读取业务数据库。

@@ -27,6 +27,7 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 | [occccad-control](services/cmd/occccad-control/README.md) | Go 本地控制进程 | 启动、代理、调试切流和本机 Geometry Worker 池 |
 | [occccad-monitor](services/cmd/occccad-monitor/README.md) | Go TUI | 独立显示本地进程资源、Geometry 池和业务快照 |
 | [occccad-migrate](services/cmd/occccad-migrate/README.md) | Go 一次性任务 | 执行带校验的 PostgreSQL 迁移 |
+| [occccad-3dreplay](services/cmd/occccad-3dreplay/README.md) | Go CLI | 从最小数学文件通过 Worker/Router 重放三维约束求解 |
 | [Geometry Worker](workers/geometry/README.md) | C++ gRPC Worker | OCCT 精确几何、拓扑、网格与 STEP/BREP 交换 |
 | [CAD Web](web/apps/cad/README.md) | React Web 应用 | 文档中心、CAD 工作台、交互和 Three.js 视口 |
 

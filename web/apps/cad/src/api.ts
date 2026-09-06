@@ -59,8 +59,28 @@ async function downloadDiagnosticBundle(documentId: string, command: Record<stri
 	window.setTimeout(() => URL.revokeObjectURL(link.href), 0);
 }
 
+// Exact request keys prevent a late preview or another browser's solve from
+// replacing the diagnostic requested for the current operation.
+const assemblyReplayRequests = new Map<string, string>();
+async function downloadAssemblyReplay(documentId: string): Promise<void> {
+  const key = assemblyReplayRequests.get(documentId);
+  const query = key ? `?requestId=${encodeURIComponent(key)}` : "";
+  const response = await fetch(apiURL(`/api/documents/${documentId}/assembly-replays/latest${query}`), { credentials: "include" });
+  if (!response.ok) {
+    const value = await response.json().catch(() => ({}));
+    throw new Error(value.error ?? `3dreplay download failed: HTTP ${response.status}`);
+  }
+  const blob = await response.blob();
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = response.headers.get("Content-Disposition")?.match(/filename="([^"]+)"/)?.[1] ?? "assembly.3dreplay";
+  document.body.appendChild(link); link.click(); link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(link.href), 0);
+}
+
 async function executeDocumentCommand(documentId: string, command: Record<string, unknown>): Promise<DocumentView> {
 	const commandWithID = { requestId: requestId(), ...command };
+	assemblyReplayRequests.set(documentId, String(commandWithID.requestId));
 	try {
 		return await realtime.executeCommand(documentId, commandWithID);
 	} catch (cause) {
@@ -211,10 +231,14 @@ export const restApi = {
 	command: executeDocumentCommand,
 	downloadDiagnosticBundle: (documentId: string) => downloadDiagnosticBundle(documentId,
 		{ type: "MANUAL_DIAGNOSTIC_EXPORT", requestId: requestId() }, "manual diagnostic export"),
-  previewCommand: (documentId: string, command: Record<string, unknown>, signal?: AbortSignal) =>
-    request<CommandPreview>(`/api/documents/${documentId}/command-previews`, {
-      method: "POST", signal, body: JSON.stringify({ requestId: requestId(), ...command }),
-    }),
+  downloadAssemblyReplay,
+  previewCommand: (documentId: string, command: Record<string, unknown>, signal?: AbortSignal) => {
+    const input = { requestId: requestId(), ...command };
+    assemblyReplayRequests.set(documentId, `preview/${input.requestId}`);
+    return request<CommandPreview>(`/api/documents/${documentId}/command-previews`, {
+      method: "POST", signal, body: JSON.stringify(input),
+    });
+  },
   createSketch: (documentId: string, plane: string, datumPlaneId?: string) =>
     restApi.command(documentId, { type: "CREATE_SKETCH", plane, datumPlaneId }),
   editSketch: (documentId: string, sketchId: string, operations: SketchOperation[]) =>

@@ -1800,8 +1800,16 @@ private:
                  constraint.kind != ConstraintKind::Concentric) ||
                 constraint.direction_relation == DirectionRelation::Unoriented)
                 continue;
-            const GeometryElement& first_element = assembly_.geometry(constraint.first);
-            const GeometryElement& second_element = assembly_.geometry(*constraint.second);
+            const auto& selected_first = assembly_.geometry(constraint.first);
+            const auto& selected_second = assembly_.geometry(*constraint.second);
+            const bool first_is_free =
+                std::find(free_cluster_indices_.begin(), free_cluster_indices_.end(),
+                          assembly_.cluster_index(selected_first.body_id)) !=
+                free_cluster_indices_.end();
+            // Physical Fix may eliminate the first selection. Seed the remaining
+            // free endpoint instead; a reference role is never a physical lock.
+            const auto& first_element = first_is_free ? selected_first : selected_second;
+            const auto& second_element = first_is_free ? selected_second : selected_first;
             const std::size_t moving_cluster = assembly_.cluster_index(first_element.body_id);
             const auto free = std::find(free_cluster_indices_.begin(), free_cluster_indices_.end(),
                                         moving_cluster);
@@ -1887,7 +1895,17 @@ ComponentSolution restore_component(const ComponentProblem& problem, const Solve
     for (std::size_t iteration = 1; iteration <= options.max_iterations; ++iteration) {
         const Eigen::MatrixXd jacobian = problem.jacobian(result.state, residual);
         const Vector constraint_gradient = jacobian.transpose() * residual;
-        const Vector diagonal = Vector::Constant(jacobian.cols(), damping);
+        // Scale damping by each body block's rotational lever arm. Otherwise a
+        // millimetre and a radian cost the same, and long-offset supports are
+        // corrected by large rotations instead of well-conditioned translations.
+        Vector diagonal = Vector::Constant(jacobian.cols(), damping);
+        for (Eigen::Index offset = 0; offset < jacobian.cols(); offset += 6) {
+            const double translation = std::max(1.0, jacobian.middleCols(offset, 3).squaredNorm());
+            const double rotation =
+                std::max(translation, jacobian.middleCols(offset + 3, 3).squaredNorm());
+            diagonal.segment<3>(offset).setConstant(damping * translation);
+            diagonal.segment<3>(offset + 3).setConstant(damping * rotation);
+        }
         Eigen::MatrixXd augmented(jacobian.rows() + jacobian.cols(), jacobian.cols());
         augmented.topRows(jacobian.rows()) = jacobian;
         augmented.bottomRows(jacobian.cols()).setZero();
@@ -1932,17 +1950,35 @@ ComponentSolution restore_component(const ComponentProblem& problem, const Solve
         for (std::size_t trial = 0; trial < trials; ++trial, step_scale *= 0.5) {
             const State candidate = problem.incremented(result.state, step_scale * step);
             const Vector candidate_residual = problem.residual(candidate);
-            if (candidate_residual.allFinite() &&
-                candidate_residual.squaredNorm() < residual.squaredNorm()) {
+            const double roundoff = 8.0 * std::numeric_limits<double>::epsilon() *
+                                    std::max(1.0, residual.squaredNorm());
+            const bool decreases = candidate_residual.squaredNorm() < residual.squaredNorm();
+            // Near a nonzero least-squares minimum, the cost can round to the
+            // same value while the gradient still resolves the last correction.
+            const bool resolves_stationarity =
+                candidate_residual.allFinite() && !decreases &&
+                candidate_residual.squaredNorm() <= residual.squaredNorm() + roundoff &&
+                (problem.jacobian(candidate, candidate_residual).transpose() * candidate_residual)
+                        .norm() < 0.5 * constraint_gradient.norm();
+            if (candidate_residual.allFinite() && (decreases || resolves_stationarity)) {
                 accepted_state = candidate;
                 accepted_residual = candidate_residual;
                 break;
             }
         }
         if (accepted_state) {
+            // Backtracking accepting a tiny improvement is not evidence that the
+            // linear model is trustworthy. Reduce damping only for a good model.
+            const double predicted =
+                residual.squaredNorm() - (residual + step_scale * jacobian * step).squaredNorm();
+            const double actual = residual.squaredNorm() - accepted_residual.squaredNorm();
+            const double ratio = predicted > 0.0 ? actual / predicted : 0.0;
+            damping = std::clamp(damping * (ratio < 0.25   ? 4.0
+                                            : ratio > 0.75 ? 0.5
+                                                           : 1.0),
+                                 1.0e-12, 1.0e12);
             result.state = *accepted_state;
             residual = std::move(accepted_residual);
-            damping = std::max(damping * 0.25, 1.0e-12);
             if (problem.satisfied(result.state))
                 return {SolveStatus::Converged, result.state, iteration, "converged"};
         } else {
@@ -2138,8 +2174,20 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                 step = -gradient;
             }
             // Riemannian BFGS models objective/manifold curvature without mixing priorities.
-            if (step.norm() > 1.0)
-                step /= step.norm();
+            // Translation has no angular chart boundary. A shared unit-radius
+            // cap required hundreds of iterations merely to undo a long-arm
+            // branch seed. Bound rotations independently and let the objective
+            // scale bound translation; retraction/backtracking still certifies
+            // every candidate against geometry and both priority levels.
+            double step_ratio = 1.0;
+            const double translation_radius = std::max(1.0, objective.residual.norm());
+            for (Eigen::Index offset = 0; offset < step.size(); offset += 6) {
+                step_ratio =
+                    std::max(step_ratio, step.segment<3>(offset).norm() / translation_radius);
+                step_ratio = std::max(step_ratio, step.segment<3>(offset + 3).norm() *
+                                                      options.motion_angle_scale / 0.5);
+            }
+            step /= step_ratio;
             const double slope = 2.0 * gradient.dot(step);
             const double before = objective.residual.squaredNorm();
             bool accepted = false;

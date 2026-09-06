@@ -41,3 +41,8 @@ Run only this corpus with:
 cmake --build build/cmake/debug --target occcad_assembly_solver_corpus
 ctest --test-dir build/cmake/debug -R '^assembly-corpus/' --output-on-failure
 ```
+
+`face4-face6.3dreplay` captures the original MAX_ITERATIONS result and exact numerical input
+from the translated/rotated FACE 4 to fixed FACE 6 report. The real Router integration test
+loads this file directly and expects the current solver to converge; no B-Rep or database
+is needed. See [the replay CLI](../../services/cmd/occccad-3dreplay/README.md).

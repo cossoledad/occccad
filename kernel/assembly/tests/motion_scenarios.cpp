@@ -376,3 +376,56 @@ TEST(AssemblyMotion, InvalidMotionScaleAndInconsistentRigidSeedsAreRejected) {
     EXPECT_EQ(Solver{}.solve(model).status, SolveStatus::InvalidModel);
 }
 }  // namespace
+
+Model face4_face6_regression() {
+    Model m;
+    m.bodies = {
+        {"a", {{-252.55719832993879, 0, 0}, {0, 0, 0.41411770542833365, 0.9102233385553086}}},
+        {"b", {}}};
+    m.geometry = {
+        {"face4", "a", PlaneGeometry{{89.88533068174983, 0, 38.522284577892705}, {0, 0, -1}}},
+        {"face6", "b", PlaneGeometry{{22.64967658052029, -40, -32.815279455242084}, {0, -1, 0}}}};
+    auto join = mate("join", ConstraintKind::Coincident, {"a", "face4"}, {"b", "face6"});
+    join.direction_relation = DirectionRelation::Same;
+    m.constraints = {fixed("b"), join};
+    return m;
+}
+TEST(AssemblyMotion, RotatedTranslatedFace4CoincidentWithFixedFace6) {
+    auto r = Solver{}.solve(face4_face6_regression(), intent());
+    EXPECT_EQ(r.status, SolveStatus::Converged) << r.diagnostic;
+    if (!r.components.empty()) {
+        EXPECT_EQ(r.components[0].preference.status, PreferenceStatus::Converged);
+    }
+}
+
+TEST(AssemblyMotion, FaceCoincidenceAfterTranslationAndRotationSweep) {
+    for (int axis = 0; axis < 3; ++axis) {
+        for (int degrees = 0; degrees < 360; degrees += 30) {
+            SCOPED_TRACE(::testing::Message() << "axis=" << axis << " degrees=" << degrees);
+            auto m = face4_face6_regression();
+            double half = degrees * std::acos(-1.0) / 360.0;
+            double v[3] = {0, 0, 0};
+            v[axis] = std::sin(half);
+            m.bodies[0].initial_pose.rotation = {v[0], v[1], v[2], std::cos(half)};
+            m.bodies[0].initial_pose.translation = {-252.55719832993879, 37, -81};
+            const auto r = Solver{}.solve(m, intent());
+            ASSERT_EQ(r.status, SolveStatus::Converged) << r.diagnostic;
+            ASSERT_EQ(r.components[0].preference.status, PreferenceStatus::Converged);
+        }
+    }
+}
+
+TEST(AssemblyMotion, FixedFirstAntipodalPlaneSeedsFreeReference) {
+    auto m = face4_face6_regression();
+    m.bodies[0].initial_pose.rotation = {std::sqrt(0.5), 0, 0, std::sqrt(0.5)};
+    auto& join = m.constraints.back();
+    const auto selected = join.first;
+    join.first = *join.second;
+    join.second = selected;
+    SolverOptions options;
+    options.solve_intent =
+        SolveIntent{{"b"}, {"a"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
+    const auto result = Solver{}.solve(m, options);
+    ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+    EXPECT_EQ(result.components[0].preference.status, PreferenceStatus::Converged);
+}

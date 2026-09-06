@@ -538,7 +538,8 @@ TEST(AssemblySolver, CylinderCoincidentRejectsAnIrreconcilableRadius) {
         }
     }
 
-    EXPECT_EQ(result.status, SolveStatus::MaxIterations);
+    // The pose reaches a stationary point; unequal radii remain unsatisfied.
+    EXPECT_EQ(result.status, SolveStatus::Unsatisfied);
     ASSERT_EQ(result.residuals.size(), 2U);
     EXPECT_GT(result.residuals[1].normalized_norm, 0.9);
 }

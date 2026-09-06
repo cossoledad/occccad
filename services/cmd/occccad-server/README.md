@@ -115,3 +115,10 @@ invoke performance-baseline
 服务端只接受几何满足且 preference 收敛的结果；`ASSEMBLY_PREFERENCE_NOT_CONVERGED` 与几何冲突分开报告。
 预览返回 `assemblySolverBuild` 和 `assemblyComponents`（每体位移、运动尺度、局部最优性及自由度证据），不写 Revision；
 预览 modelHash 对应求解后的候选模型。提交仍从最终求解 Pose 重建 ChangeSet，并支持连续补偿 Undo/Redo。
+
+三维求解最小诊断：`GET /api/documents/{documentID}/assembly-replays` 列出最近 50 次求解；
+`GET /api/documents/{documentID}/assembly-replays/{replayID}` 下载 `.3dreplay`。
+`latest?requestId=...`，按精确请求键选取，找不到返回 404，不能回退到其他求解。
+预览键为 `preview/<requestId>`，提交键为原 request ID。两个接口均要求该文档读权限。
+迁移 0016 新增独立 `assembly_replays` 数学证据表；成功、失败和预览留档不改模型历史。
+格式与独立重放命令见 [occccad-3dreplay](../occccad-3dreplay/README.md)。
