@@ -6,7 +6,7 @@ import type { InputState } from "../cad/input/input-types";
 import { InteractionRouter } from "../cad/interaction/interaction-router";
 import { SelectionController } from "../cad/interaction/selection-controller";
 import { SelectionIndex } from "../cad/interaction/selection-index";
-import { AssemblyManipulator } from "../cad/interaction/assembly-manipulator";
+import { AssemblyManipulator, type ManipulatorAnchor } from "../cad/interaction/assembly-manipulator";
 import { selectionModeForTool, type SelectionMode } from "../cad/interaction/selection-mode";
 import { sameSelection, sameSelections, selectionKey } from "../cad/interaction/selection-identity";
 import { resultBodyFeatureTreeNode } from "../cad/interaction/selection-hierarchy";
@@ -28,7 +28,7 @@ import { measureSketchDimension } from "../cad/sketch/sketch-constraint-layout";
 import { sketchReferenceDimensions, SKETCH_INPUT_POLICY } from "../cad/sketch/sketch-input-policy";
 import { sampleSketchEntity, sketchEntityPoint } from "../cad/sketch/sketch-geometry";
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
-import { viewportMetrics } from "../cad/rendering/viewport-metrics";
+import { manipulatorFrame, transformAroundWorldPivot, viewportMetrics, worldUnitsPerCssPixel } from "../cad/rendering/viewport-metrics";
 import { ArcSketchTool, AssemblyConstraintTool, AssemblyMoveTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type AssemblyConstraintToolKind, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
@@ -153,7 +153,11 @@ export class CadViewportEngine {
   private readonly materials = new CadMaterialFactory(this.shaders);
   private readonly background = new CadBackground(this.shaders);
   private readonly moveManipulator: AssemblyManipulator;
-  private moveTarget?: { group: THREE.Group; startPosition: THREE.Vector3; startQuaternion: THREE.Quaternion; startPivot: THREE.Vector3 };
+  private moveTarget?: { group: THREE.Group; startPosition: THREE.Vector3; startQuaternion: THREE.Quaternion;
+    startPivot: THREE.Vector3; localPivot: THREE.Vector3 };
+  private readonly manipulatorPivots = new Map<string, THREE.Vector3>();
+  private readonly manipulatorFrames = new Map<string, THREE.Quaternion>();
+  private pendingManipulatorAnchor?:{instanceId:string;anchor:ManipulatorAnchor};
   private readonly navigation: NavigationController;
   private readonly navigationHUD: CatiaNavigationHUD;
   private readonly tools: ToolManager;
@@ -190,6 +194,7 @@ export class CadViewportEngine {
   private dimensionDrag?: { selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; constraint: SketchConstraint;
     root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2 };
   private movePreviewGeneration=0;private movePreviewInFlight=false;
+  private moveCommitPending=false;
   private pendingMovePreview?:{generation:number;instanceId:string;translation:Vec3;rotation:[number,number,number,number]};
   private desiredMovePose?:{translation:Vec3;rotation:[number,number,number,number]};
   private acceptedMovePose?:{translation:Vec3;rotation:[number,number,number,number]};
@@ -215,11 +220,15 @@ export class CadViewportEngine {
 
     this.moveManipulator = new AssemblyManipulator(this.shaders, {
       dragStarted: () => { this.navigation.setEnabled(false); this.beginMovePreviewGesture(); },
-      changed: () => { this.updateMoveTarget(); this.invalidate(); },
+      snapPivot: (x, y) => this.snapManipulatorPivot(x, y),
+      pivotChanged: (anchor) => this.updateManipulatorPivot(anchor),
+      poseChanged: () => { this.updateMoveTarget(); this.invalidate(); },
+      visualChanged: () => this.invalidate(),
       dragFinished: (commit) => {
-        this.navigation.setEnabled(true); this.endMovePreviewGesture();
-        if (commit) this.commitTransform();
+        this.navigation.setEnabled(true);
+        if (commit) this.finishMovePreviewGesture();
         else if (this.moveTarget) {
+          this.cancelMovePreviewGesture();
           this.moveTarget.group.position.copy(this.moveTarget.startPosition);
           this.moveTarget.group.quaternion.copy(this.moveTarget.startQuaternion);
           this.attachMoveManipulator(); this.invalidate();
@@ -258,7 +267,8 @@ export class CadViewportEngine {
     }), () => {
       this.updateCameraClipping();
       this.invalidate();
-    }, navigationPicker, "default", import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true");
+    }, navigationPicker, () => this.visibleContentCenter(), "default",
+    import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true");
     this.navigationHUD = new CatiaNavigationHUD(this.shaders);
     this.tools = new ToolManager({ viewport: this.toolViewportPort() });
     this.tools.register(new SelectTool());
@@ -502,7 +512,7 @@ export class CadViewportEngine {
   selectMany(selections: readonly SelectionItem[], notify = true): void {
     const unique = [...new Map(selections.map((selection) => [selectionKey(selection), selection])).values()];
     if (sameSelections(this.selected, unique) && !this.preselected) {
-      if(this.activeToolID==="assembly.move"&&!this.moveManipulator.isAttached())this.attachMoveManipulator();
+      if(this.activeToolID==="assembly.move"&&(!this.moveManipulator.isAttached()||this.pendingManipulatorAnchor))this.attachMoveManipulator();
       return;
     }
     this.selected = unique;
@@ -520,27 +530,118 @@ export class CadViewportEngine {
     if (this.selected.length !== 1 || this.selected[0].kind !== "instance") return;
     const object = this.selectable.get(`instance:${this.selected[0].instanceId ?? this.selected[0].id}`);
     if (!(object instanceof THREE.Group)) return;
-    const center = new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3());
-    this.moveManipulator.attach(center);
-    this.moveTarget = { group: object, startPosition: object.position.clone(), startQuaternion: object.quaternion.clone(), startPivot: center.clone() };
+    const instanceId = this.selected[0].instanceId ?? this.selected[0].id;
+    const storedLocalPivot = this.manipulatorPivots.get(instanceId);
+    const picked=this.pendingManipulatorAnchor?.instanceId===instanceId?this.pendingManipulatorAnchor.anchor:undefined;
+    this.pendingManipulatorAnchor=undefined;
+    const center = picked?.position??(storedLocalPivot ? object.localToWorld(storedLocalPivot.clone())
+      : new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3()));
+    const localPivot = object.worldToLocal(center.clone());
+    this.manipulatorPivots.set(instanceId, localPivot.clone());
+    const orientation=picked?.orientation??this.manipulatorFrames.get(instanceId)??new THREE.Quaternion();
+    this.manipulatorFrames.set(instanceId,orientation.clone());
+    this.moveManipulator.attach(center,orientation);
+    this.moveTarget = { group: object, startPosition: object.position.clone(), startQuaternion: object.quaternion.clone(),
+      startPivot: center.clone(), localPivot };
     this.desiredMovePose = { translation: object.position.toArray(), rotation: object.quaternion.toArray() };
     this.acceptedMovePose = { translation: object.position.toArray(), rotation: object.quaternion.toArray() };
   }
 
+  private updateManipulatorPivot(anchor:ManipulatorAnchor): void {
+    const target = this.moveTarget;
+    if (!target) return;
+    const position=anchor.position;
+    target.startPivot.copy(position);
+    target.localPivot.copy(target.group.worldToLocal(position.clone()));
+    const instanceId = target.group.userData.id as string | undefined;
+    if (instanceId){
+      this.manipulatorPivots.set(instanceId, target.localPivot.clone());
+      if(anchor.orientation)this.manipulatorFrames.set(instanceId,anchor.orientation.clone());
+    }
+    this.invalidate();
+  }
+
+  private snapManipulatorPivot(x: number, y: number): ManipulatorAnchor | undefined {
+    this.updatePointer(x, y);
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const worldPerPixel = worldUnitsPerCssPixel(this.camera, this.moveManipulator.object.getWorldPosition(new THREE.Vector3()),
+      viewportMetrics(this.renderer));
+    this.raycaster.params.Line = { threshold: worldPerPixel * 8 };
+    this.raycaster.params.Points = { threshold: worldPerPixel * 11 };
+    const roots = [...this.solidBindings.values()].map((binding) => binding.group);
+    const hits = this.raycaster.intersectObjects(roots, true).filter((hit) => hit.object.visible);
+    if (hits.length === 0) return undefined;
+    const near = hits.filter((hit) => hit.distance <= hits[0].distance + worldPerPixel * 12);
+    const priority = (hit: THREE.Intersection) => hit.object instanceof THREE.Points ? 2
+      : hit.object instanceof THREE.LineSegments ? 1 : 0;
+    near.sort((left, right) => priority(right) - priority(left));
+    return this.manipulatorAnchorFromIntersection(near[0]);
+  }
+
+  private manipulatorAnchorFromIntersection(hit:THREE.Intersection):ManipulatorAnchor{
+    let direction:THREE.Vector3|undefined,kind:"line"|"plane"|undefined;
+    if(hit.object instanceof THREE.LineSegments){
+      const position=hit.object.geometry.getAttribute("position"),index=((hit.index??0)/2|0)*2;
+      if(position&&index+1<position.count){
+        const first=hit.object.localToWorld(new THREE.Vector3().fromBufferAttribute(position,index));
+        const second=hit.object.localToWorld(new THREE.Vector3().fromBufferAttribute(position,index+1));
+        direction=second.sub(first).normalize();kind="line";
+      }
+    }else if(hit.object instanceof THREE.Mesh&&hit.face){
+      direction=hit.face.normal.clone().transformDirection(hit.object.matrixWorld);kind="plane";
+    }
+    return {position:hit.point.clone(),orientation:direction?manipulatorFrame(direction,kind!):undefined};
+  }
+
   private updateMoveTarget(): void {
-    if (!this.moveTarget || !this.moveManipulator.isAttached()) return;
+    if (!this.moveTarget || !this.moveManipulator.isAttached() || !this.moveManipulator.isDragging()) return;
     const pivot = this.moveManipulator.candidatePose();
-    const offset=this.moveTarget.startPosition.clone().sub(this.moveTarget.startPivot).applyQuaternion(pivot.rotation);
-    const position=pivot.position.clone().add(offset);
-    const rotation=pivot.rotation.clone().multiply(this.moveTarget.startQuaternion).toArray();
+    const transformed=transformAroundWorldPivot(this.moveTarget.startPosition,this.moveTarget.startQuaternion,
+      this.moveTarget.startPivot,pivot.position,pivot.rotation);
+    const position=transformed.position;
+    const rotation=transformed.rotation.toArray();
     const id=this.moveTarget.group.userData.id as string;
     this.desiredMovePose={translation:position.toArray(),rotation};
     this.pendingMovePreview={generation:this.movePreviewGeneration,instanceId:id,translation:this.desiredMovePose.translation,rotation};
     this.drainMovePreview();
   }
 
-  private beginMovePreviewGesture():void{this.movePreviewGeneration+=1;this.pendingMovePreview=undefined;}
-  private endMovePreviewGesture():void{this.movePreviewGeneration+=1;this.pendingMovePreview=undefined;}
+  private beginMovePreviewGesture():void{
+    this.movePreviewGeneration+=1;this.pendingMovePreview=undefined;this.moveCommitPending=false;
+    const target=this.moveTarget;
+    if(target){
+      target.startPosition.copy(target.group.position);
+      target.startQuaternion.copy(target.group.quaternion);
+      target.startPivot.copy(this.moveManipulator.object.getWorldPosition(new THREE.Vector3()));
+      target.localPivot.copy(target.group.worldToLocal(target.startPivot.clone()));
+      this.acceptedMovePose={translation:target.startPosition.toArray(),rotation:target.startQuaternion.toArray()};
+    }
+  }
+  private cancelMovePreviewGesture():void{
+    this.movePreviewGeneration+=1;this.pendingMovePreview=undefined;this.moveCommitPending=false;
+  }
+  private finishMovePreviewGesture():void{
+    this.moveCommitPending=true;
+    if(!this.movePreviewInFlight&&!this.pendingMovePreview)this.finishAcceptedMove();
+  }
+  private finishAcceptedMove():void{
+    if(!this.moveCommitPending)return;
+    this.moveCommitPending=false;
+    const target=this.moveTarget;
+    const pose=this.acceptedMovePose;
+    if(target&&pose){
+      target.group.position.fromArray(pose.translation);
+      target.group.quaternion.fromArray(pose.rotation);
+      target.group.updateMatrix();target.group.updateMatrixWorld(true);
+      target.startPosition.copy(target.group.position);
+      target.startQuaternion.copy(target.group.quaternion);
+      const center=target.group.localToWorld(target.localPivot.clone());
+      target.startPivot.copy(center);
+      this.moveManipulator.commitPreviewFrame();
+      this.moveManipulator.setAuthoritativePose(center);
+    }
+    this.commitTransform();
+  }
   private drainMovePreview():void{
     if(this.movePreviewInFlight||!this.pendingMovePreview)return;const request=this.pendingMovePreview;this.pendingMovePreview=undefined;this.movePreviewInFlight=true;
     void this.callbacks.instanceMovePreview(request.instanceId,request.translation,request.rotation).then(({poses,constraintLimited})=>{
@@ -550,12 +651,18 @@ export class CadViewportEngine {
       const driven=poses.find((pose)=>pose.instanceId===request.instanceId),target=this.moveTarget;
       if(driven&&target){
         this.acceptedMovePose={translation:driven.translation,rotation:driven.rotation};
-        const center=new THREE.Box3().setFromObject(target.group).getCenter(new THREE.Vector3());
-        const handleRotation=target.group.quaternion.clone().multiply(target.startQuaternion.clone().invert());
-        this.moveManipulator.setAuthoritativePose(center,handleRotation);
+        const drivenRotation=new THREE.Quaternion().fromArray(driven.rotation);
+        const gestureDelta=drivenRotation.clone().multiply(target.startQuaternion.clone().invert()).normalize();
+        const manipulatorOrientation=gestureDelta.multiply(this.moveManipulator.frameQuaternion()).normalize();
+        const center=target.group.localToWorld(target.localPivot.clone());
+        this.moveManipulator.setPreviewPose(center,manipulatorOrientation);
       }
       this.invalidate();
-    }).catch(()=>{}).finally(()=>{this.movePreviewInFlight=false;if(this.pendingMovePreview?.generation===this.movePreviewGeneration)this.drainMovePreview();});
+    }).catch(()=>{}).finally(()=>{
+      this.movePreviewInFlight=false;
+      if(this.pendingMovePreview?.generation===this.movePreviewGeneration)this.drainMovePreview();
+      else if(this.moveCommitPending)this.finishAcceptedMove();
+    });
   }
 
   preselect(selection: Selection, notify = false): void {
@@ -1294,6 +1401,7 @@ export class CadViewportEngine {
       const pointGeometry = new THREE.BufferGeometry();
       pointGeometry.setAttribute("position", new THREE.Float32BufferAttribute(topologyVertices.flatMap((item) => item.point), 3));
       const points = new THREE.Points(pointGeometry, this.materials.point(CATIA_VISUAL_THEME.vertex, 7));
+      markNavigationPickable(points);
       this.selectionIndex.registerPick(points, (hit) => {
         const localID = topologyVertices[hit.index ?? 0]?.localId ?? 0;
         return {
@@ -1323,7 +1431,7 @@ export class CadViewportEngine {
     this.preselect(this.hitTest(x, y), true);
   }
 
-  private hitTest(x: number, y: number): Selection {
+  private hitTest(x: number, y: number, captureManipulatorAnchor = false): Selection {
     this.updatePointer(x, y);
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const distance = Math.max(this.camera.position.distanceTo(this.navigation.target), 1);
@@ -1331,8 +1439,12 @@ export class CadViewportEngine {
       Math.max(this.renderer.domElement.clientHeight, 1);
     this.raycaster.params.Line = { threshold: worldPerPixel * 5 };
     this.raycaster.params.Points = { threshold: worldPerPixel * 7 };
-    const raw = this.selectionIndex.pick(this.raycaster,
+    const hit = this.selectionIndex.pickWithIntersection(this.raycaster,
       (selection) => allowsSelectionInContext(this.captureSettings, selection, this.activeSketchID));
+    const raw=hit.selection;
+    if(captureManipulatorAnchor&&this.activeToolID==="assembly.move"&&raw?.instanceId&&hit.intersection){
+      this.pendingManipulatorAnchor={instanceId:raw.instanceId,anchor:this.manipulatorAnchorFromIntersection(hit.intersection)};
+    }
     return this.selectionMode.project(raw);
   }
 
@@ -1700,7 +1812,7 @@ export class CadViewportEngine {
       clearReferencePreview: () => this.clearReferencePreview(),
       setToolPrompt: (prompt) => this.callbacks.toolPromptChanged(prompt),
       finishToolUse: () => this.callbacks.toolUseCompleted(),
-      selectionAt: (x, y) => this.hitTest(x, y),
+      selectionAt: (x, y) => this.hitTest(x, y, true),
       retainSelections: (selections) => this.selectMany(selections),
       requestAssemblyConstraint: (kind, references) => this.callbacks.assemblyConstraintRequested(kind, references),
       moveManipulatorPointerDown: (pointerId, x, y) => this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement),
@@ -1831,6 +1943,18 @@ export class CadViewportEngine {
 
   private refreshContentBounds(): void {
     this.contentBounds.setFromObject(this.content);
+  }
+
+  private visibleContentCenter(): THREE.Vector3 {
+    const bounds = new THREE.Box3();
+    this.content.updateMatrixWorld(true);
+    this.content.traverseVisible((object) => {
+      if (!(object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points)) return;
+      const geometry = object.geometry;
+      if (!geometry.boundingBox) geometry.computeBoundingBox();
+      if (geometry.boundingBox) bounds.union(geometry.boundingBox.clone().applyMatrix4(object.matrixWorld));
+    });
+    return bounds.isEmpty() ? this.navigation.target.clone() : bounds.getCenter(new THREE.Vector3());
   }
 
   private disposeGroup(group: THREE.Group): void {

@@ -5,7 +5,7 @@ import {
   CatiaNavigationController, type CatiaNavigationSnapshot,
 } from "./catia-navigation-controller";
 import { CatiaNavigationState } from "./catia-navigation-state";
-import type { NavigationPicker } from "./navigation-picker";
+import type { NavigationPick, NavigationPicker } from "./navigation-picker";
 import {
   createNavigationProfile, type NavigationAction, type NavigationProfile, type NavigationProfileID,
 } from "./navigation-profile";
@@ -22,6 +22,11 @@ type NavigationListener = (
   snapshot: NavigationSnapshot,
 ) => void;
 
+export function defaultOrbitPivot(hit: NavigationPick | undefined, visibleBoundsCenter: THREE.Vector3): THREE.Vector3 {
+  if (hit && (hit.object as THREE.Points | undefined)?.isPoints) return hit.point.clone();
+  return visibleBoundsCenter.clone();
+}
+
 /** Profile facade. CATIA semantics live in its dedicated state machine. */
 export class NavigationController {
   private readonly rig: ThreeCameraRig;
@@ -37,6 +42,7 @@ export class NavigationController {
     private readonly viewportSize: () => { width: number; height: number },
     private readonly changed: () => void,
     private readonly picker: NavigationPicker,
+    private readonly visibleBoundsCenter: () => THREE.Vector3,
     profileID: NavigationProfileID = "default",
     debugTransitions = false,
   ) {
@@ -90,6 +96,10 @@ export class NavigationController {
     if (this.profile.id === "catia") return this.catia.pointerDown(event);
     const action = this.profile.pointerAction(event.state.buttons, event.state);
     if (action === "none") return InputResult.Ignored;
+    if (action === "orbit" && this.action === "none") {
+      const hit = this.picker.pickNearest(event.x, event.y);
+      this.rig.setPivot(defaultOrbitPivot(hit, this.visibleBoundsCenter()));
+    }
     this.setAction(action);
     return InputResult.Capture;
   }

@@ -111,8 +111,8 @@ export class AssemblyMoveTool implements CadTool {
     if (event.button !== 0 || event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
     if (context.viewport.moveManipulatorPointerDown(event.pointerId, event.x, event.y)) return InputResult.Capture;
     const selection = context.viewport.selectionAt(event.x, event.y);
-    if (!selection?.instanceId) { context.viewport.retainSelections([]); return InputResult.Consumed; }
-    context.viewport.retainSelections([selection]);
+    if (!selection) context.viewport.retainSelections([]);
+    else if (selection.instanceId) context.viewport.retainSelections([selection]);
     return InputResult.Consumed;
   }
   pointerMove(event: CadPointerEvent, context: ToolContext): InputResult {

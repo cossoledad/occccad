@@ -35,8 +35,18 @@ export class NavigationPicker {
     const height = Math.max(this.surface.clientHeight, 1);
     this.ndc.set((x / width) * 2 - 1, -(y / height) * 2 + 1);
     this.raycaster.setFromCamera(this.ndc, this.camera);
+    const roots = [...this.roots()];
+    const bounds = new THREE.Box3();
+    for (const root of roots) if (root.visible) bounds.expandByObject(root);
+    const distance = Math.max(this.camera.position.distanceTo(
+      bounds.isEmpty() ? new THREE.Vector3() : bounds.getCenter(new THREE.Vector3()),
+    ), 1);
+    const worldPerPixel = this.camera instanceof THREE.PerspectiveCamera
+      ? 2 * distance * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) / height
+      : (this.camera.top - this.camera.bottom) / Math.max(this.camera.zoom, 1.0e-9) / height;
+    this.raycaster.params.Points = { threshold: worldPerPixel * 9 };
 
-    const hit = this.raycaster.intersectObjects([...this.roots()], true)
+    const hit = this.raycaster.intersectObjects(roots, true)
       .filter((intersection) => this.isValidGeometry(intersection.object))
       .sort((left, right) => left.distance - right.distance)[0];
     if (!hit) return undefined;
@@ -71,7 +81,7 @@ export class NavigationPicker {
   }
 
   private isValidGeometry(object: THREE.Object3D): boolean {
-    if (!(object instanceof THREE.Mesh)) return false;
+    if (!(object instanceof THREE.Mesh || object instanceof THREE.Points)) return false;
     const materials = Array.isArray(object.material) ? object.material : [object.material];
     if (!materials.some((material) => material.visible)) return false;
     for (let current: THREE.Object3D | null = object; current; current = current.parent) {

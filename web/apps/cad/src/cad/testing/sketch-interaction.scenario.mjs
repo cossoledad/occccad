@@ -38,8 +38,12 @@ try {
   const { sampleInterpolatingSpline } = await server.ssrLoadModule("/src/cad/sketch/sketch-geometry.ts");
   const { formatSketchDimensionValue, sketchReferenceDimensions } = await server.ssrLoadModule("/src/cad/sketch/sketch-input-policy.ts");
   const { CadShaderLibrary } = await server.ssrLoadModule("/src/cad/rendering/shader/cad-shader-library.ts");
+  const { AssemblyManipulator } = await server.ssrLoadModule("/src/cad/interaction/assembly-manipulator.ts");
+  const { defaultOrbitPivot } = await server.ssrLoadModule("/src/cad/navigation/navigation-controller.ts");
   const { perspectiveWorldUnitsPerPixel } = await server.ssrLoadModule("/src/cad/rendering/sketch-constraint-renderer.ts");
-  const { axisDragWorldDelta } = await server.ssrLoadModule("/src/cad/rendering/viewport-metrics.ts");
+  const { axisDragWorldDelta, stableAxisDragWorldDelta, stableAngularDragDelta,
+    manipulatorFrame, solveScreenConstrainedParameter, transformAroundWorldPivot,
+    worldUnitsPerCssPixel } = await server.ssrLoadModule("/src/cad/rendering/viewport-metrics.ts");
   const { makeOcclusionVisibleHighlightLine } = await server.ssrLoadModule("/src/cad/rendering/interaction-highlight.ts");
   const { defaultDocumentName } = await server.ssrLoadModule("/src/features/documents/document-utils.ts");
   const operations = [];
@@ -483,9 +487,42 @@ try {
   assert.equal(formatSketchDimensionValue(12.3456, "deg"), "12.3");
   assert.equal(perspectiveWorldUnitsPerPixel(200, 50, 800), perspectiveWorldUnitsPerPixel(100, 50, 800)*2,
     "sprite world scale must compensate camera depth to preserve screen pixels");
-  assert.equal(axisDragWorldDelta(new THREE.Vector2(12,0),new THREE.Vector2(2,0),0.8),
-    axisDragWorldDelta(new THREE.Vector2(12,0),new THREE.Vector2(20,0),0.8),
-    "assembly translation must not change with camera projection scale");
+  assert.equal(axisDragWorldDelta(new THREE.Vector2(12,0),new THREE.Vector2(2,0)),6,
+    "assembly translation must reproduce the pointer displacement through the camera projection");
+  assert.equal(axisDragWorldDelta(new THREE.Vector2(12,0),new THREE.Vector2(20,0)),0.6,
+    "a zoomed projected axis needs less world displacement for the same CSS drag");
+  assert.equal(stableAxisDragWorldDelta(new THREE.Vector2(3,0),new THREE.Vector2(0.001,0),0.1),0,
+    "an axis that is nearly parallel to the view must not amplify the first pointer move");
+  assert.equal(stableAxisDragWorldDelta(new THREE.Vector2(3,0),new THREE.Vector2(10,0),0.1),0.3,
+    "a well-conditioned projected axis must reproduce incremental screen displacement");
+  assert.equal(stableAngularDragDelta(new THREE.Vector2(3,0),new THREE.Vector2(0.01,0)),0,
+    "an edge-on rotation tangent must not create a first-frame angle jump");
+  assert.ok(Math.abs(stableAngularDragDelta(new THREE.Vector2(4,0),new THREE.Vector2(80,0))-0.05)<1e-12);
+  const perspectiveAxis=(parameter)=>new THREE.Vector2(100+10*parameter/(1+0.01*parameter),50);
+  const projectedParameter=solveScreenConstrainedParameter(new THREE.Vector2(130,50),0,perspectiveAxis,0.1);
+  assert.ok(perspectiveAxis(projectedParameter).distanceTo(new THREE.Vector2(130,50))<1e-7,
+    "axis drag must solve the handle endpoint screen position as perspective depth changes");
+  const rotationCircle=(angle)=>new THREE.Vector2(200+80*Math.cos(angle),150+45*Math.sin(angle));
+  const projectedAngle=solveScreenConstrainedParameter(rotationCircle(0.32),0,rotationCircle,1e-3,8,Math.PI/8);
+  assert.ok(rotationCircle(projectedAngle).distanceTo(rotationCircle(0.32))<1e-7,
+    "rotation drag must keep the axis-end circle under the pointer on a projected ellipse");
+  const translatedPose=transformAroundWorldPivot(new THREE.Vector3(125,40,-10),new THREE.Quaternion(),
+    new THREE.Vector3(130,40,-10),new THREE.Vector3(142,40,-10),new THREE.Quaternion());
+  assert.deepEqual(translatedPose.position.toArray(),[137,40,-10],
+    "a non-origin instance must preserve its initial offset while its manipulator follows the pointer");
+  const quarterTurn=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),Math.PI/2);
+  const rotatedPose=transformAroundWorldPivot(new THREE.Vector3(125,40,-10),new THREE.Quaternion(),
+    new THREE.Vector3(120,40,-10),new THREE.Vector3(120,40,-10),quarterTurn);
+  assert.ok(rotatedPose.position.distanceTo(new THREE.Vector3(120,45,-10))<1e-10,
+    "rotation must retain the selected world pivot without an initial angle jump");
+  const faceNormal=new THREE.Vector3(0.2,-0.4,0.8).normalize();
+  const faceFrame=manipulatorFrame(faceNormal,"plane");
+  assert.ok(new THREE.Vector3(0,0,1).applyQuaternion(faceFrame).distanceTo(faceNormal)<1e-10,
+    "a face pick must align manipulator Z with the world face normal");
+  const edgeDirection=new THREE.Vector3(-0.3,0.7,0.2).normalize();
+  const edgeFrame=manipulatorFrame(edgeDirection,"line");
+  assert.ok(new THREE.Vector3(1,0,0).applyQuaternion(edgeFrame).distanceTo(edgeDirection)<1e-10,
+    "an edge pick must align manipulator X with the world edge tangent");
   const fitPoints = [[0, 0], [5, 8], [10, -2], [15, 4]];
   const interpolated = sampleInterpolatingSpline(fitPoints, false, 48);
   for (const fitPoint of fitPoints) assert.equal(interpolated.some((point) => Math.hypot(point[0]-fitPoint[0], point[1]-fitPoint[1]) < 1e-9), true);
@@ -497,6 +534,54 @@ try {
   assert.equal(constraintMaterial.depthTest, false);
   assert.equal(constraintMaterial.depthWrite, false);
   constraintMaterial.dispose();
+  const manipulatorMaterial = new CadShaderLibrary().createMaterial("cad.manipulator.glyph");
+  assert.match(manipulatorMaterial.fragmentShader, /abs\(length\(p\)-0\.30\)/,
+    "the manipulator center must be an anti-aliased hollow screen glyph");
+  assert.doesNotMatch(manipulatorMaterial.fragmentShader, /uGlyph/,
+    "only the center ring may use the camera-facing manipulator glyph shader");
+  assert.equal(manipulatorMaterial.depthTest, false);
+  manipulatorMaterial.dispose();
+  let manipulatorPoseChanges=0,manipulatorVisualChanges=0,manipulatorPivotChanges=0;
+  const manipulator=new AssemblyManipulator(new CadShaderLibrary(),{
+    poseChanged:()=>manipulatorPoseChanges++,visualChanged:()=>manipulatorVisualChanges++,pivotChanged:()=>manipulatorPivotChanges++,
+    snapPivot:()=>undefined,dragStarted:()=>{},dragFinished:()=>{},
+  });
+  const manipulatorCamera=new THREE.PerspectiveCamera(42,800/600,0.1,100);
+  manipulatorCamera.position.set(3,-4,3);manipulatorCamera.lookAt(0,0,0);manipulatorCamera.updateMatrixWorld(true);
+  manipulator.attach(new THREE.Vector3());manipulator.updateScale(manipulatorCamera,{cssWidth:800,cssHeight:600,devicePixelRatio:1});
+  assert.ok(Math.abs(manipulator.object.scale.x-worldUnitsPerCssPixel(manipulatorCamera,new THREE.Vector3(),
+    {cssWidth:800,cssHeight:600,devicePixelRatio:1})*98*1.2)<1e-12,
+  "the complete manipulator must use the requested 1.2 screen-size scale");
+  manipulator.root.updateMatrixWorld(true);
+  const fakeSurface={clientWidth:800,clientHeight:600,getBoundingClientRect:()=>({width:800,height:600})};
+  assert.equal(manipulator.pointerMove(1,400,300,manipulatorCamera,fakeSurface),true);
+  assert.equal(manipulatorPoseChanges,0,"hovering after pointerup must never issue another MOVE preview");
+  assert.equal(manipulatorVisualChanges,1);
+  const screenPoint=(point)=>{const projected=point.project(manipulatorCamera);return new THREE.Vector2(
+    (projected.x+1)*400,(1-projected.y)*300);};
+  const rotationStart=screenPoint(manipulator.object.localToWorld(new THREE.Vector3(0.88,0,0)));
+  assert.equal(manipulator.pointerDown(2,rotationStart.x,rotationStart.y,manipulatorCamera,fakeSurface),true);
+  const rotationTarget=screenPoint(manipulator.object.localToWorld(new THREE.Vector3(Math.cos(0.2)*0.88,Math.sin(0.2)*0.88,0)));
+  manipulator.pointerMove(2,rotationTarget.x,rotationTarget.y,manipulatorCamera,fakeSurface);
+  const requestedManipulatorRotation=manipulator.candidatePose().rotation;
+  assert.ok(manipulator.object.quaternion.angleTo(new THREE.Quaternion())<1e-12,
+    "pointer movement must not advance the manipulator before the authoritative preview response");
+  manipulator.setPreviewPose(new THREE.Vector3(),requestedManipulatorRotation);
+  manipulator.pointerUp(2,true);
+  const retainedManipulatorFrame=manipulator.object.quaternion.clone();
+  manipulator.commitPreviewFrame();
+  manipulator.setAuthoritativePose(new THREE.Vector3());
+  assert.ok(manipulator.object.quaternion.angleTo(retainedManipulatorFrame)<1e-12,
+    "a committed rotation must remain the manipulator frame after pointerup and authoritative pose rebasing");
+  assert.equal(manipulatorPivotChanges,1,"a committed rotation must persist the updated manipulator frame");
+  manipulator.dispose();
+  const sceneCenter=new THREE.Vector3(12,20,8),vertexPoint=new THREE.Vector3(3,4,5);
+  const topologyPoints=new THREE.Points(new THREE.BufferGeometry(),new THREE.PointsMaterial());
+  assert.deepEqual(defaultOrbitPivot({point:vertexPoint,distance:1,object:topologyPoints,source:"raycast"},sceneCenter).toArray(),
+    vertexPoint.toArray(),"a topology point must be the pivot for the current default orbit gesture");
+  assert.deepEqual(defaultOrbitPivot(undefined,sceneCenter).toArray(),sceneCenter.toArray(),
+    "the next default orbit gesture must fall back to the current visible-bounds center");
+  topologyPoints.geometry.dispose();topologyPoints.material.dispose();
   const highlightLine = makeOcclusionVisibleHighlightLine([
     new THREE.Vector3(0, 0, 0), new THREE.Vector3(10, 0, 0),
   ], 0xffa62b, 5);

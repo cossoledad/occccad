@@ -351,7 +351,7 @@ export function Workbench() {
       if (event.type === "document.snapshot.v1") {
         const snapshot = event.payload as { view: DocumentView };
         client.setQueryData(queryKeys.document(documentID), snapshot.view);
-      } else {
+      } else if (useWorkbenchStore.getState().activeToolID !== "assembly.move") {
         useWorkbenchStore.getState().setSelection(null);
       }
       void Promise.all([

@@ -10,8 +10,8 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 - Toolbar 组成、工作台归属、顺序、短名称与详细帮助由后端 Presentation Catalog 下发；hover 在鼠标右下方只显示白色紧凑命令名，上边栏纯图标“这是什么？”进入一次性上下文帮助且不会触发命令，未知命令默认不显示且不可执行；
 - Three.js 精确网格显示、基准面、集合化选择/预选与结构树联动；最终 Body 的视口选择归属最近的 Import/Extrude 节点，精确拓扑元素使用遮挡可见的面、宽边线和点 Overlay，树选父节点才展开全部后代；Specification Tree 支持 Ctrl/Meta 多选、Shift 连选和固定宽度的节点锚定右键菜单，选择变化关闭菜单，删除不确认并以一个原子 Revision 作用于当前选择集合，实体删除仍级联其引用约束；
 - 草图绘制几何/约束/常用图形三组 Toolbar；Point、Line、Circle、Arc、Polyline、Spline、Rectangle、正六边形、长圆槽以及基础几何/尺寸约束；单击执行一次后回到选择，双击连续执行；
-- 通用闭合 Profile（包含外环、孔和岛）拉伸、实例插入/移动、Undo/Redo；
-- Default/CATIA 导航 Profile、Pointer Capture、Tool 手势状态机和 Overlay；Toolbar 命令不注册快捷键，Enter/Esc 只用于多阶段手势完成/取消；
+- 通用闭合 Profile（包含外环、孔和岛）拉伸、实例插入/移动、Undo/Redo；装配移动手柄从 Instance 的原始射线命中取得锚点和局部框架，平面法向对齐 Z、直线边切向对齐 X，中心再次吸附时同步更新位置和方向，并继续复用权威 `MOVE_INSTANCE` 预览/提交；
+- Default/CATIA 导航 Profile、Pointer Capture、Tool 手势状态机和 Overlay；Default 右键旋转在每次手势开始时以全部可见内容的最小包围盒中心为基准，若指针直接命中拓扑点则仅为当前手势使用该点；Toolbar 命令不注册快捷键，Enter/Esc 只用于多阶段手势完成/取消；
 - 版本化 `ui-preferences` 本地偏好统一保存 Inspector 开合与每组 Toolbar 的位置/方向；新增纯客户端显示偏好应扩展同一 schema，不再自行散写 localStorage key；
 - 统一 CAD 语义色与 hover/selected/snap 层次；默认全开的捕获设置可分别过滤三维点、边、面、实体、草图、约束、基准面、基准轴/坐标系和实例，以及草图原点、点/端点、圆心、中点、Line/Circle/Arc/Spline 曲线投影和 10 mm 网格吸附；
 - Pad、Insert、命名版本使用可拖动非模态命令面板；Pad 数值 blur/Enter 后请求后端复用正式 typed command、Sketch Solver 与 Part evaluator 生成非持久化精确预览，提交才创建 Revision；

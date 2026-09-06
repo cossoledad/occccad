@@ -3,6 +3,7 @@ import type { Selection, SelectionItem } from "../../types";
 import { selectionKey } from "./selection-identity";
 
 export type PickResolver = (intersection: THREE.Intersection) => Selection;
+export type SelectionHit = { selection: Selection; intersection?: THREE.Intersection };
 
 type PickBinding = { root: THREE.Object3D; resolve: PickResolver; priority: number };
 
@@ -63,13 +64,18 @@ export class SelectionIndex {
   selectionForTreeNode(treeNodeId: string): Selection { return this.tree.get(treeNodeId) ?? null; }
 
   pick(raycaster: THREE.Raycaster, accepts: (selection: Exclude<Selection, null>) => boolean = () => true): Selection {
+    return this.pickWithIntersection(raycaster, accepts).selection;
+  }
+
+  pickWithIntersection(raycaster: THREE.Raycaster,
+    accepts: (selection: Exclude<Selection, null>) => boolean = () => true): SelectionHit {
     const visible = (root: THREE.Object3D) => {
       for (let object: THREE.Object3D | null = root; object; object = object.parent) if (!object.visible) return false;
       return true;
     };
     const activePicks = this.picks.filter((binding) => visible(binding.root));
     const roots = activePicks.map((binding) => binding.root);
-    if (roots.length === 0) return null;
+    if (roots.length === 0) return {selection:null};
     const bindings = new Map(activePicks.map((binding) => [binding.root.uuid, binding]));
     const candidates = raycaster.intersectObjects(roots, false).map((intersection) => {
       const binding = bindings.get(intersection.object.uuid);
@@ -79,8 +85,8 @@ export class SelectionIndex {
       ? right.binding.priority - left.binding.priority : left.intersection.distance - right.intersection.distance);
     for (const candidate of candidates) {
       const selection = candidate.binding.resolve(candidate.intersection);
-      if (selection && accepts(selection)) return selection;
+      if (selection && accepts(selection)) return {selection,intersection:candidate.intersection};
     }
-    return null;
+    return {selection:null};
   }
 }
