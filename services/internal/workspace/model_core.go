@@ -1337,7 +1337,8 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		} else {
 			solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 		}
-		if err = service.solveAssembly(ctx, documentID, "preview/"+prepared.requestID, driven, solveIntent, &model); err != nil {
+		var assemblyResult geometry.AssemblySolve
+		if err = service.solveAssembly(ctx, documentID, "preview/"+prepared.requestID, driven, solveIntent, &model, &assemblyResult); err != nil {
 			restored, restoreErr := restoreMovePreviewOnSolveFailure(prepared.command.TypeURI, err, prepared.modelJSON, &model)
 			if restoreErr != nil {
 				return CommandPreview{}, restoreErr
@@ -1351,8 +1352,14 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 			// an unreachable target previews the unchanged authoritative poses.
 			nextJSON = prepared.modelJSON
 		}
+		if !constraintLimited {
+			nextJSON, err = json.Marshal(model)
+			if err != nil {
+				return CommandPreview{}, err
+			}
+		}
 		result := CommandPreview{PreviewID: "preview:" + prepared.requestID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
-			ModelHash: canonicalModelHash(nextJSON), ConstraintLimited: constraintLimited}
+			ModelHash: canonicalModelHash(nextJSON), ConstraintLimited: constraintLimited, AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
 		for _, instance := range model.Instances {
 			result.InstancePoses = append(result.InstancePoses, struct {
 				InstanceID  string     `json:"instanceId"`

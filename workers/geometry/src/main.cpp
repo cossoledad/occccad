@@ -465,7 +465,8 @@ public:
         };
         assembly_api::Model model;
         for (const auto& input : request->bodies())
-            model.bodies.push_back({input.id(), pose(input.initial_pose())});
+            model.bodies.push_back({input.id(), pose(input.initial_pose()),
+                input.has_initial_guess() ? std::optional<assembly_api::Pose>(pose(input.initial_guess())) : std::nullopt});
         for (const auto& input : request->geometry()) {
             assembly_api::Geometry geometry;
             if (input.kind() == "POINT")
@@ -538,9 +539,9 @@ public:
             options.angle_scale = request->angle_scale();
         if (request->has_solver_profile()) {
             const auto& profile = request->solver_profile();
-            if (profile.schema_version() != 1)
+            if (profile.schema_version() != 2)
                 return {grpc::StatusCode::INVALID_ARGUMENT,
-                        "assembly solver profile schema_version must be 1"};
+                        "assembly solver profile schema_version must be 2"};
             if (profile.max_iterations() > 0)
                 options.max_iterations = profile.max_iterations();
             if (profile.length_tolerance() > 0.0)
@@ -574,12 +575,11 @@ public:
                 options.rank_relative_tolerance = profile.rank_relative_tolerance();
             if (profile.gradient_tolerance() > 0.0)
                 options.gradient_tolerance = profile.gradient_tolerance();
-            if (profile.moving_preference_weight() > 0.0)
-                options.moving_preference_weight = profile.moving_preference_weight();
-            if (profile.neutral_preference_weight() > 0.0)
-                options.neutral_preference_weight = profile.neutral_preference_weight();
-            if (profile.reference_preference_weight() > 0.0)
-                options.reference_preference_weight = profile.reference_preference_weight();
+            if (profile.motion_length_scale() != 0.0) options.motion_length_scale = profile.motion_length_scale();
+            if (profile.motion_angle_scale() != 0.0) options.motion_angle_scale = profile.motion_angle_scale();
+            if (profile.preference_tolerance() != 0.0) options.preference_tolerance = profile.preference_tolerance();
+            if (profile.objective_tolerance() != 0.0) options.objective_tolerance = profile.objective_tolerance();
+            if (profile.has_max_preference_iterations()) options.max_preference_iterations = profile.max_preference_iterations();
             if (profile.max_conflict_probes() > 0)
                 options.max_conflict_probes = profile.max_conflict_probes();
             options.verify_analytic_jacobians = profile.verify_analytic_jacobians();
@@ -610,6 +610,7 @@ public:
             : result.status == assembly_api::SolveStatus::MaxIterations ? "MAX_ITERATIONS"
             : result.status == assembly_api::SolveStatus::InvalidModel  ? "INVALID_MODEL"
                                                                         : "NUMERICAL_FAILURE";
+        response->set_solver_build("assembly-m2.5-hierarchy-v1");
         response->set_status(status);
         const char* classification =
             result.classification == assembly_api::SolveClassification::SolvedFully ? "SOLVED_FULLY"
@@ -673,6 +674,43 @@ public:
             for (const double singular_value : component.singular_values)
                 output->add_singular_values(singular_value);
             output->set_rank_threshold(component.rank_threshold);
+            auto* preference = output->mutable_preference();
+            const auto& p = component.preference;
+            preference->set_status(static_cast<worker_api::AssemblyPreferenceStatus>(p.status));
+            preference->set_geometrically_feasible(p.geometrically_feasible);
+            preference->set_reference_objective(p.reference_objective);
+            preference->set_total_objective(p.total_objective);
+            preference->set_reference_optimality(p.reference_optimality);
+            preference->set_total_optimality(p.total_optimality);
+            preference->set_length_scale(p.length_scale);
+            preference->set_angle_scale(p.angle_scale);
+            preference->set_iterations(p.iterations);
+            for (const auto& motion : p.bodies) {
+                auto* item = preference->add_bodies(); item->set_body_id(motion.body_id);
+                item->set_role(static_cast<worker_api::AssemblyMotionRole>(motion.role));
+                item->set_translation(motion.translation); item->set_rotation(motion.rotation);
+            }
+            const auto set_vec = [](worker_api::Vec3* out, const assembly_api::Vec3& v) {
+                out->set_x(v.x); out->set_y(v.y); out->set_z(v.z);
+            };
+            for (const auto& freedom : component.freedoms) {
+                auto* item = output->add_freedoms();
+                item->set_body_id(freedom.body_id); item->set_relative_to_body_id(freedom.relative_to_body_id);
+                item->set_kind(static_cast<worker_api::AssemblyFreedomKind>(freedom.kind));
+                item->set_translation_dof(freedom.translation_dof); item->set_rotation_dof(freedom.rotation_dof);
+                item->set_rank_threshold(freedom.rank_threshold);
+                set_vec(item->mutable_linearization_pose()->mutable_translation(), freedom.linearization_pose.translation);
+                auto* rotation = item->mutable_linearization_pose()->mutable_rotation();
+                rotation->set_x(freedom.linearization_pose.rotation.x); rotation->set_y(freedom.linearization_pose.rotation.y);
+                rotation->set_z(freedom.linearization_pose.rotation.z); rotation->set_w(freedom.linearization_pose.rotation.w);
+                for (const auto& basis : freedom.allowed_basis) { auto* out = item->add_allowed_basis(); for (const double v : basis) out->add_values(v); }
+                for (const auto& basis : freedom.blocked_basis) { auto* out = item->add_blocked_basis(); for (const double v : basis) out->add_values(v); }
+                for (const auto& direction : freedom.translation_directions) set_vec(item->add_translation_directions(), direction);
+                for (const auto& axis : freedom.rotations) {
+                    auto* out = item->add_rotations(); set_vec(out->mutable_direction(),axis.direction);
+                    set_vec(out->mutable_axis_point(),axis.axis_point); out->set_pitch(axis.pitch);
+                }
+            }
         }
         for (const auto& id : result.redundant_constraint_ids)
             response->add_redundant_constraint_ids(id);

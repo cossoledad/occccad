@@ -265,15 +265,14 @@ DifferentialVector normalized(const DifferentialVector& input) {
     if (length <= kDirectionEpsilon)
         throw std::invalid_argument("differentiated direction is degenerate");
     const Vector3 unit = input.value / length;
-    return {unit, (Eigen::Matrix3d::Identity() - unit * unit.transpose()) * input.derivative /
-                      length};
+    return {unit,
+            (Eigen::Matrix3d::Identity() - unit * unit.transpose()) * input.derivative / length};
 }
 DifferentialScalar absolute(const DifferentialScalar& input) {
     const double sign = input.value > 0.0 ? 1.0 : input.value < 0.0 ? -1.0 : 0.0;
     return {std::abs(input.value), sign * input.derivative};
 }
-DifferentialScalar differentiated_atan2(const DifferentialScalar& y,
-                                        const DifferentialScalar& x) {
+DifferentialScalar differentiated_atan2(const DifferentialScalar& y, const DifferentialScalar& x) {
     const double denominator = x.value * x.value + y.value * y.value;
     if (denominator <= kDirectionEpsilon * kDirectionEpsilon)
         throw std::invalid_argument("atan2 differential is degenerate");
@@ -281,9 +280,17 @@ DifferentialScalar differentiated_atan2(const DifferentialScalar& y,
             (x.value * y.derivative - y.value * x.derivative) / denominator};
 }
 
-struct DifferentialPoint { DifferentialVector position; };
-struct DifferentialAxis { DifferentialVector origin; DifferentialVector direction; };
-struct DifferentialPlane { DifferentialVector origin; DifferentialVector normal; };
+struct DifferentialPoint {
+    DifferentialVector position;
+};
+struct DifferentialAxis {
+    DifferentialVector origin;
+    DifferentialVector direction;
+};
+struct DifferentialPlane {
+    DifferentialVector origin;
+    DifferentialVector normal;
+};
 struct DifferentialCylinder {
     DifferentialVector origin;
     DifferentialVector direction;
@@ -308,8 +315,7 @@ DifferentialVector differential_direction(const DifferentialGeometry& geometry) 
     return std::get<DifferentialPlane>(geometry).normal;
 }
 
-EquationDefinition equation_definition(const Constraint& constraint,
-                                       const WorldGeometry& first,
+EquationDefinition equation_definition(const Constraint& constraint, const WorldGeometry& first,
                                        const WorldGeometry& second) {
     const DescriptorKind a = descriptor_kind(first);
     const DescriptorKind b = descriptor_kind(second);
@@ -323,7 +329,7 @@ EquationDefinition equation_definition(const Constraint& constraint,
             (b == DescriptorKind::Point && a == DescriptorKind::Plane))
             return {{"POINT_PLANE_DISTANCE"}, 1};
         if (axis_descriptor(a) && axis_descriptor(b)) {
-            std::vector<std::string> kinds{"DIRECTION_X", "DIRECTION_Y", "DIRECTION_Z",
+            std::vector<std::string> kinds{"DIRECTION_X",   "DIRECTION_Y",   "DIRECTION_Z",
                                            "LINE_OFFSET_X", "LINE_OFFSET_Y", "LINE_OFFSET_Z"};
             if (a == DescriptorKind::Cylinder && b == DescriptorKind::Cylinder)
                 kinds.push_back("CYLINDER_RADIUS");
@@ -336,10 +342,10 @@ EquationDefinition equation_definition(const Constraint& constraint,
             return {{"LINE_PLANE_DIRECTION", "LINE_PLANE_OFFSET"}, 2};
     }
     if (constraint.kind == ConstraintKind::Concentric && axis_descriptor(a) && axis_descriptor(b))
-        return {{"DIRECTION_X", "DIRECTION_Y", "DIRECTION_Z", "LINE_OFFSET_X",
-                 "LINE_OFFSET_Y", "LINE_OFFSET_Z"}, 4};
-    if (constraint.kind == ConstraintKind::Angle && has_direction(first) &&
-        has_direction(second))
+        return {{"DIRECTION_X", "DIRECTION_Y", "DIRECTION_Z", "LINE_OFFSET_X", "LINE_OFFSET_Y",
+                 "LINE_OFFSET_Z"},
+                4};
+    if (constraint.kind == ConstraintKind::Angle && has_direction(first) && has_direction(second))
         return {{constraint.angle_reference_direction ? "DIRECTED_ANGLE" : "UNSIGNED_ANGLE"}, 1};
     if (constraint.kind == ConstraintKind::Distance) {
         if (a == DescriptorKind::Point && b == DescriptorKind::Point)
@@ -434,8 +440,7 @@ Vector3 perpendicular_to(const Vector3& direction) {
 
 Eigen::Matrix3d skew(const Vector3& value) {
     Eigen::Matrix3d result;
-    result << 0.0, -value.z(), value.y(), value.z(), 0.0, -value.x(), -value.y(),
-        value.x(), 0.0;
+    result << 0.0, -value.z(), value.y(), value.z(), 0.0, -value.x(), -value.y(), value.x(), 0.0;
     return result;
 }
 
@@ -610,19 +615,19 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
 
 // Forward analytic differential primitives. They carry a value and derivatives
 // with respect to the stable free-cluster tangent ordering.
-Eigen::MatrixXd differential_residual(const Constraint& constraint,
-                                      DifferentialGeometry first,
-                                      DifferentialGeometry second,
-                                      const ConstraintBranchState& branch,
-                                      const SolverOptions& options,
-                                      const std::optional<DifferentialVector>& angle_reference,
-                                      const std::optional<DifferentialVector>& unsigned_angle_axis) {
-    const Eigen::Index variables = std::visit([](const auto& geometry) {
-        if constexpr (std::is_same_v<std::decay_t<decltype(geometry)>, DifferentialPoint>)
-            return geometry.position.derivative.cols();
-        else
-            return geometry.origin.derivative.cols();
-    }, first);
+Eigen::MatrixXd differential_residual(
+    const Constraint& constraint, DifferentialGeometry first, DifferentialGeometry second,
+    const ConstraintBranchState& branch, const SolverOptions& options,
+    const std::optional<DifferentialVector>& angle_reference,
+    const std::optional<DifferentialVector>& unsigned_angle_axis) {
+    const Eigen::Index variables = std::visit(
+        [](const auto& geometry) {
+            if constexpr (std::is_same_v<std::decay_t<decltype(geometry)>, DifferentialPoint>)
+                return geometry.position.derivative.cols();
+            else
+                return geometry.origin.derivative.cols();
+        },
+        first);
     std::vector<DifferentialScalar> rows;
     auto append = [&](const DifferentialVector& value) {
         for (Eigen::Index row = 0; row < 3; ++row)
@@ -642,33 +647,37 @@ Eigen::MatrixXd differential_residual(const Constraint& constraint,
     if (constraint.kind == ConstraintKind::Coincident) {
         if (const auto* first_point = std::get_if<DifferentialPoint>(&first)) {
             if (const auto* second_point = std::get_if<DifferentialPoint>(&second))
-                append(divided(first_point->position - second_point->position, options.length_scale));
+                append(
+                    divided(first_point->position - second_point->position, options.length_scale));
             else if (differential_axis_like(second)) {
                 const auto second_axis = differential_axis(second);
-                append(divided(cross(first_point->position - second_axis.origin,
-                                     second_axis.direction), options.length_scale));
+                append(divided(
+                    cross(first_point->position - second_axis.origin, second_axis.direction),
+                    options.length_scale));
             } else {
                 const auto& second_plane = std::get<DifferentialPlane>(second);
-                rows.push_back(divided(dot(first_point->position - second_plane.origin,
-                                           second_plane.normal), options.length_scale));
+                rows.push_back(
+                    divided(dot(first_point->position - second_plane.origin, second_plane.normal),
+                            options.length_scale));
             }
         } else if (std::holds_alternative<DifferentialPoint>(second)) {
-            return differential_residual(constraint, second, first, branch, options, angle_reference,
-                                         unsigned_angle_axis);
+            return differential_residual(constraint, second, first, branch, options,
+                                         angle_reference, unsigned_angle_axis);
         } else if (differential_axis_like(first) && differential_axis_like(second)) {
             align_axes(differential_axis(first), differential_axis(second));
             if (const auto* first_cylinder = std::get_if<DifferentialCylinder>(&first))
                 if (const auto* second_cylinder = std::get_if<DifferentialCylinder>(&second))
-                    rows.push_back(scalar((first_cylinder->radius - second_cylinder->radius) /
-                                              options.length_scale,
-                                          variables));
+                    rows.push_back(scalar(
+                        (first_cylinder->radius - second_cylinder->radius) / options.length_scale,
+                        variables));
         } else if (const auto* first_plane = std::get_if<DifferentialPlane>(&first)) {
             if (const auto* second_plane = std::get_if<DifferentialPlane>(&second)) {
-                append(divided(related(first_plane->normal, second_plane->normal) -
-                                   second_plane->normal,
-                               options.angle_scale));
-                rows.push_back(divided(dot(first_plane->origin - second_plane->origin,
-                                           second_plane->normal), options.length_scale));
+                append(divided(
+                    related(first_plane->normal, second_plane->normal) - second_plane->normal,
+                    options.angle_scale));
+                rows.push_back(
+                    divided(dot(first_plane->origin - second_plane->origin, second_plane->normal),
+                            options.length_scale));
             } else {
                 return differential_residual(constraint, second, first, branch, options,
                                              angle_reference, unsigned_angle_axis);
@@ -676,8 +685,10 @@ Eigen::MatrixXd differential_residual(const Constraint& constraint,
         } else {
             const auto axis_value = differential_axis(first);
             const auto& plane_value = std::get<DifferentialPlane>(second);
-            rows.push_back(divided(dot(axis_value.direction, plane_value.normal), options.angle_scale));
-            rows.push_back(divided(dot(axis_value.origin - plane_value.origin, plane_value.normal), options.length_scale));
+            rows.push_back(
+                divided(dot(axis_value.direction, plane_value.normal), options.angle_scale));
+            rows.push_back(divided(dot(axis_value.origin - plane_value.origin, plane_value.normal),
+                                   options.length_scale));
         }
     } else if (constraint.kind == ConstraintKind::Concentric) {
         align_axes(differential_axis(first), differential_axis(second));
@@ -706,7 +717,8 @@ Eigen::MatrixXd differential_residual(const Constraint& constraint,
         if (const auto* first_point = std::get_if<DifferentialPoint>(&first)) {
             if (const auto* second_point = std::get_if<DifferentialPoint>(&second)) {
                 rows.push_back(divided(norm(first_point->position - second_point->position) -
-                                           scalar(constraint.value, variables), options.length_scale));
+                                           scalar(constraint.value, variables),
+                                       options.length_scale));
             } else {
                 const auto& plane_value = std::get<DifferentialPlane>(second);
                 DifferentialScalar measured =
@@ -715,8 +727,8 @@ Eigen::MatrixXd differential_residual(const Constraint& constraint,
                     measured = absolute(measured);
                 else if (branch.distance_relation == DistanceRelation::OppositeSecondNormal)
                     measured = scalar(0.0, variables) - measured;
-                rows.push_back(divided(measured - scalar(constraint.value, variables),
-                                       options.length_scale));
+                rows.push_back(
+                    divided(measured - scalar(constraint.value, variables), options.length_scale));
             }
         } else if (std::holds_alternative<DifferentialPoint>(second)) {
             ConstraintBranchState swapped = branch;
@@ -724,39 +736,42 @@ Eigen::MatrixXd differential_residual(const Constraint& constraint,
                 swapped.distance_relation = DistanceRelation::OppositeSecondNormal;
             else if (swapped.distance_relation == DistanceRelation::OppositeSecondNormal)
                 swapped.distance_relation = DistanceRelation::AlongSecondNormal;
-            return differential_residual(constraint, second, first, swapped, options, angle_reference,
-                                         unsigned_angle_axis);
+            return differential_residual(constraint, second, first, swapped, options,
+                                         angle_reference, unsigned_angle_axis);
         } else if (differential_axis_like(first) && differential_axis_like(second)) {
             const auto first_axis = differential_axis(first);
             const auto second_axis = differential_axis(second);
-            const DifferentialVector axis_cross = cross(first_axis.direction,
-                                                         second_axis.direction);
+            const DifferentialVector axis_cross =
+                cross(first_axis.direction, second_axis.direction);
             const DifferentialScalar cross_norm = norm(axis_cross);
             const DifferentialVector delta = first_axis.origin - second_axis.origin;
             const DifferentialScalar parallel = norm(cross(delta, second_axis.direction));
             DifferentialScalar distance = parallel;
             if (cross_norm.value > kDirectionEpsilon) {
-                const DifferentialScalar skew_distance = absolute(dot(delta, axis_cross)) / cross_norm;
+                const DifferentialScalar skew_distance =
+                    absolute(dot(delta, axis_cross)) / cross_norm;
                 const DifferentialScalar square = cross_norm * cross_norm;
-                const DifferentialScalar weight = square /
+                const DifferentialScalar weight =
+                    square /
                     (square + scalar(options.degeneracy_tolerance * options.degeneracy_tolerance,
                                      variables));
-                distance = weight * skew_distance +
-                           (scalar(1.0, variables) - weight) * parallel;
+                distance = weight * skew_distance + (scalar(1.0, variables) - weight) * parallel;
             }
-            rows.push_back(divided(distance - scalar(constraint.value, variables), options.length_scale));
+            rows.push_back(
+                divided(distance - scalar(constraint.value, variables), options.length_scale));
         } else {
             const auto& first_plane = std::get<DifferentialPlane>(first);
             const auto& second_plane = std::get<DifferentialPlane>(second);
             append(divided(related(first_plane.normal, second_plane.normal) - second_plane.normal,
                            options.angle_scale));
-            DifferentialScalar measured = dot(first_plane.origin - second_plane.origin,
-                                               second_plane.normal);
+            DifferentialScalar measured =
+                dot(first_plane.origin - second_plane.origin, second_plane.normal);
             if (branch.distance_relation == DistanceRelation::Unsigned)
                 measured = absolute(measured);
             else if (branch.distance_relation == DistanceRelation::OppositeSecondNormal)
                 measured = scalar(0.0, variables) - measured;
-            rows.push_back(divided(measured - scalar(constraint.value, variables), options.length_scale));
+            rows.push_back(
+                divided(measured - scalar(constraint.value, variables), options.length_scale));
         }
     }
     Eigen::MatrixXd result(static_cast<Eigen::Index>(rows.size()), variables);
@@ -836,10 +851,12 @@ double satisfaction_ratio(const Constraint& constraint, const WorldGeometry& fir
          is_axis_like(*second))) {
         const DirectionRelation relation =
             branch ? branch->direction_relation : constraint.direction_relation;
-        const double direction_error = std::acos(std::clamp(
-            related_direction(geometry_direction(first), geometry_direction(*second), relation)
-                .dot(geometry_direction(*second)),
-            -1.0, 1.0));
+        const Vector3 a =
+            related_direction(geometry_direction(first), geometry_direction(*second), relation);
+        const Vector3 b = geometry_direction(*second);
+        // acos(dot) has a sqrt(epsilon) floor near alignment. It can reject an
+        // exactly feasible retraction at the default 1e-8 angular tolerance.
+        const double direction_error = std::atan2(a.cross(b).norm(), a.dot(b));
         double ratio = std::max((direction_error / options.angle_scale) / angle,
                                 residual.segment<3>(3).norm() / length);
         if (residual.size() == 7)
@@ -851,10 +868,12 @@ double satisfaction_ratio(const Constraint& constraint, const WorldGeometry& fir
         std::holds_alternative<WorldPlane>(first) && std::holds_alternative<WorldPlane>(*second)) {
         const DirectionRelation relation =
             branch ? branch->direction_relation : constraint.direction_relation;
-        const double direction_error = std::acos(std::clamp(
-            related_direction(geometry_direction(first), geometry_direction(*second), relation)
-                .dot(geometry_direction(*second)),
-            -1.0, 1.0));
+        const Vector3 a =
+            related_direction(geometry_direction(first), geometry_direction(*second), relation);
+        const Vector3 b = geometry_direction(*second);
+        // acos(dot) has a sqrt(epsilon) floor near alignment. It can reject an
+        // exactly feasible retraction at the default 1e-8 angular tolerance.
+        const double direction_error = std::atan2(a.cross(b).norm(), a.dot(b));
         return std::max((direction_error / options.angle_scale) / angle,
                         std::abs(residual[3]) / length);
     }
@@ -1011,15 +1030,27 @@ private:
             !(options_.rotation_finite_difference_step > 0.0) ||
             !(options_.initial_damping > 0.0) || !(options_.rank_absolute_tolerance > 0.0) ||
             !(options_.rank_relative_tolerance > 0.0) || !(options_.gradient_tolerance > 0.0) ||
-            !(options_.moving_preference_weight > 0.0) ||
-            !(options_.neutral_preference_weight > 0.0) ||
-            !(options_.reference_preference_weight > 0.0))
+            !(options_.motion_length_scale > 0.0) || !finite(options_.motion_length_scale) ||
+            !(options_.motion_angle_scale > 0.0) || !finite(options_.motion_angle_scale) ||
+            !(options_.preference_tolerance > 0.0) || !finite(options_.preference_tolerance) ||
+            !(options_.objective_tolerance > 0.0) || !finite(options_.objective_tolerance))
             throw std::invalid_argument(
                 "solver scales, tolerances, steps, damping and rank tolerance must be positive");
         if (options_.classification_length_tolerance < options_.length_tolerance ||
             options_.classification_angle_tolerance < options_.angle_tolerance)
             throw std::invalid_argument(
                 "classification tolerances must not be stricter than convergence tolerances");
+        for (double setting :
+             {options_.length_scale, options_.angle_scale, options_.length_tolerance,
+              options_.angle_tolerance, options_.classification_length_tolerance,
+              options_.classification_angle_tolerance, options_.translation_step_tolerance,
+              options_.rotation_step_tolerance, options_.degeneracy_tolerance,
+              options_.translation_finite_difference_step, options_.rotation_finite_difference_step,
+              options_.initial_damping, options_.rank_absolute_tolerance,
+              options_.rank_relative_tolerance, options_.gradient_tolerance,
+              options_.jacobian_check_tolerance})
+            if (!finite(setting) || setting <= 0.0)
+                throw std::invalid_argument("solver profile must be finite and positive");
         for (std::size_t index = 0; index < model_.bodies.size(); ++index) {
             const Body& body = model_.bodies[index];
             if (body.id.empty() || body_index_.count(body.id))
@@ -1027,6 +1058,12 @@ private:
             if (!finite(body.initial_pose.translation) || !finite(body.initial_pose.rotation))
                 throw std::invalid_argument("body pose must be finite");
             (void)normalized(body.initial_pose.rotation);
+            if (body.initial_guess) {
+                if (!finite(body.initial_guess->translation) ||
+                    !finite(body.initial_guess->rotation))
+                    throw std::invalid_argument("initial guess must be finite");
+                (void)normalized(body.initial_guess->rotation);
+            }
             body_index_[body.id] = index;
         }
         for (const std::string& id : options_.affected_body_ids) {
@@ -1367,14 +1404,30 @@ public:
         if (!physically_grounded_ && assembly_.options().solve_intent &&
             assembly_.options().solve_intent->policy ==
                 SolvePreferencePolicy::MoveFirstMinimizeReference) {
-            for (const std::string& body_id :
-                 assembly_.options().solve_intent->reference_body_ids) {
-                const std::size_t candidate = assembly_.cluster_index(body_id);
+            std::set<std::size_t> references;
+            for (const std::string& id : assembly_.options().solve_intent->reference_body_ids) {
+                const auto cluster = assembly_.cluster_index(id);
                 if (std::find(component_.cluster_indices.begin(), component_.cluster_indices.end(),
-                              candidate) != component_.cluster_indices.end()) {
-                    gauge_anchor_cluster_ = candidate;
-                    break;
+                              cluster) != component_.cluster_indices.end())
+                    references.insert(cluster);
+            }
+            // Gauge elimination is equivalent only for one reference cluster.
+            if (references.size() == 1) {
+                const auto index = *references.begin();
+                const auto& cluster = assembly_.clusters()[index];
+                bool nominal_consistent = true;
+                for (const auto& id : assembly_.options().solve_intent->reference_body_ids) {
+                    if (assembly_.cluster_index(id) != index)
+                        continue;
+                    const auto body = assembly_.body_index(id);
+                    nominal_consistent =
+                        nominal_consistent &&
+                        pose_satisfied(compose(cluster.initial_pose, cluster.root_to_body.at(body)),
+                                       assembly_.model().bodies[body].initial_pose,
+                                       assembly_.options());
                 }
+                if (nominal_consistent)
+                    gauge_anchor_cluster_ = index;
             }
         }
         for (const std::size_t cluster : component_.cluster_indices) {
@@ -1385,12 +1438,25 @@ public:
         }
     }
 
-    State initial_state() const {
+    State initial_state(bool initialize = true) const {
         State state;
         state.poses.reserve(free_cluster_indices_.size());
-        for (const std::size_t cluster : free_cluster_indices_)
-            state.poses.push_back(assembly_.clusters()[cluster].initial_pose);
-        initialize_singular_direction_branches(state);
+        for (const std::size_t cluster : free_cluster_indices_) {
+            const Cluster& item = assembly_.clusters()[cluster];
+            std::optional<Pose> guess;
+            for (auto body : item.body_indices) {
+                const auto& input = assembly_.model().bodies[body];
+                if (!initialize || !input.initial_guess)
+                    continue;
+                const Pose candidate =
+                    compose(*input.initial_guess, inverse(item.root_to_body.at(body)));
+                if (guess && !pose_satisfied(*guess, candidate, assembly_.options()))
+                    throw std::invalid_argument("rigid cluster initial guesses disagree");
+                guess = candidate;
+            }
+            state.poses.push_back(guess.value_or(item.initial_pose));
+        }
+        if (initialize) initialize_singular_direction_branches(state);
         return state;
     }
 
@@ -1449,11 +1515,11 @@ public:
             const EquationDefinition definition = equation_definition(evaluated, first, second);
             if (definition.kinds.size() != static_cast<std::size_t>(residual.size()))
                 throw std::logic_error("equation registry row count does not match residual block");
-            result.push_back({constraint.id, residual,
-                              constraint_tolerances(evaluated, first, second, tolerance_options),
-                              satisfaction_ratio(evaluated, first, second, residual,
-                                                 tolerance_options, &branch),
-                              definition.kinds, definition.generic_rank});
+            result.push_back(
+                {constraint.id, residual,
+                 constraint_tolerances(evaluated, first, second, tolerance_options),
+                 satisfaction_ratio(evaluated, first, second, residual, tolerance_options, &branch),
+                 definition.kinds, definition.generic_rank});
         }
         return result;
     }
@@ -1509,10 +1575,10 @@ public:
             Vector difference = plus - minus;
             for (Eigen::Index row = 0; row < difference.size(); ++row) {
                 if (periodic_rows[static_cast<std::size_t>(row)])
-                    difference[row] = wrapped_angle_error(
-                                          plus[row] * assembly_.options().angle_scale,
-                                          minus[row] * assembly_.options().angle_scale) /
-                                      assembly_.options().angle_scale;
+                    difference[row] =
+                        wrapped_angle_error(plus[row] * assembly_.options().angle_scale,
+                                            minus[row] * assembly_.options().angle_scale) /
+                        assembly_.options().angle_scale;
             }
             result.col(column) = difference / (2.0 * step);
         }
@@ -1524,8 +1590,8 @@ public:
         const std::vector<Pose> bodies = assembly_.body_poses(clusters);
         const Eigen::Index variables = static_cast<Eigen::Index>(parameter_count());
         auto differentiated_geometry = [&](const GeometryElement& element) -> DifferentialGeometry {
-            const WorldGeometry world = world_geometry(
-                element, bodies[assembly_.body_index(element.body_id)]);
+            const WorldGeometry world =
+                world_geometry(element, bodies[assembly_.body_index(element.body_id)]);
             auto differentiated_vector = [&](const Vector3& value, const bool point) {
                 DifferentialVector result = vector(value, variables);
                 const std::size_t cluster_index = assembly_.cluster_index(element.body_id);
@@ -1554,7 +1620,8 @@ public:
                                          differentiated_vector(value->normal, false)};
             const auto& value = std::get<WorldCylinder>(world);
             return DifferentialCylinder{differentiated_vector(value.origin, true),
-                                        differentiated_vector(value.direction, false), value.radius};
+                                        differentiated_vector(value.direction, false),
+                                        value.radius};
         };
         Eigen::MatrixXd result(residual.size(), variables);
         Eigen::Index row = 0;
@@ -1569,8 +1636,8 @@ public:
             const EquationDefinition definition = equation_definition(constraint, first, second);
             auto local_second_direction = [&](const Vec3& local) {
                 const std::size_t second_body = assembly_.body_index(second_element.body_id);
-                const Vector3 world_value = direction(bodies[second_body], local,
-                                                      "angle branch direction");
+                const Vector3 world_value =
+                    direction(bodies[second_body], local, "angle branch direction");
                 DifferentialVector differentiated = vector(world_value, variables);
                 const std::size_t cluster_index = assembly_.cluster_index(second_element.body_id);
                 const auto found = std::find(free_cluster_indices_.begin(),
@@ -1594,7 +1661,8 @@ public:
                 differentiated_geometry(second_element), assembly_.branch(constraint_index),
                 assembly_.options(), reference, unsigned_axis);
             if (block.rows() != static_cast<Eigen::Index>(definition.kinds.size()))
-                throw std::logic_error("analytic Jacobian row count does not match equation registry");
+                throw std::logic_error(
+                    "analytic Jacobian row count does not match equation registry");
             result.middleRows(row, block.rows()) = block;
             row += static_cast<Eigen::Index>(definition.kinds.size());
         }
@@ -1606,8 +1674,7 @@ public:
             const double error = (result - reference).cwiseAbs().maxCoeff();
             if (error > assembly_.options().jacobian_check_tolerance * scale)
                 throw std::runtime_error("analytic Jacobian differential check failed: error=" +
-                                         std::to_string(error) +
-                                         " scale=" + std::to_string(scale));
+                                         std::to_string(error) + " scale=" + std::to_string(scale));
         }
         return result;
     }
@@ -1623,54 +1690,109 @@ public:
         return gauge_anchor_cluster_ ? nullity : nullity - std::min(nullity, gauge_dof());
     }
     const std::vector<std::size_t>& free_clusters() const { return free_cluster_indices_; }
-    Vector preference_gradient(const State& state) const {
-        Vector result = Vector::Zero(static_cast<Eigen::Index>(parameter_count()));
-        for (std::size_t index = 0; index < free_cluster_indices_.size(); ++index) {
-            const Cluster& cluster = assembly_.clusters()[free_cluster_indices_[index]];
-            const double weight = preference_weight(free_cluster_indices_[index]);
-            const Eigen::Index offset = static_cast<Eigen::Index>(index * 6);
-            result.segment<3>(offset) =
-                weight *
-                (eigen(state.poses[index].translation) - eigen(cluster.initial_pose.translation)) /
-                (assembly_.options().length_scale * assembly_.options().length_scale);
-            result.segment<3>(offset + 3) =
-                weight *
-                rotation_vector(normalized(cluster.initial_pose.rotation).conjugate() *
-                                normalized(state.poses[index].rotation)) /
-                (assembly_.options().angle_scale * assembly_.options().angle_scale);
+    Vector tangent_scales() const {
+        Vector scales(parameter_count());
+        for (Eigen::Index i = 0; i < scales.size(); i += 6) {
+            scales.segment<3>(i).setConstant(assembly_.options().motion_length_scale);
+            scales.segment<3>(i + 3).setConstant(assembly_.options().motion_angle_scale);
         }
-        return result;
+        return scales;
     }
-
-    Vector preference_diagonal() const {
-        Vector result = Vector::Zero(static_cast<Eigen::Index>(parameter_count()));
-        for (std::size_t index = 0; index < free_cluster_indices_.size(); ++index) {
-            const double weight = preference_weight(free_cluster_indices_[index]);
-            const Eigen::Index offset = static_cast<Eigen::Index>(index * 6);
-            result.segment<3>(offset).setConstant(
-                weight / (assembly_.options().length_scale * assembly_.options().length_scale));
-            result.segment<3>(offset + 3)
-                .setConstant(weight /
-                             (assembly_.options().angle_scale * assembly_.options().angle_scale));
+    MotionRole role(const std::string& id) const {
+        if (assembly_.options().solve_intent) {
+            const auto& intent = *assembly_.options().solve_intent;
+            if (intent.policy == SolvePreferencePolicy::MoveFirstMinimizeReference &&
+                std::find(intent.reference_body_ids.begin(), intent.reference_body_ids.end(), id) !=
+                    intent.reference_body_ids.end())
+                return MotionRole::Reference;
+            if (std::find(intent.moving_body_ids.begin(), intent.moving_body_ids.end(), id) !=
+                intent.moving_body_ids.end())
+                return MotionRole::Moving;
         }
-        return result;
+        return MotionRole::Neutral;
     }
+    Eigen::MatrixXd body_tangent(const State& state, std::size_t body) const {
+        Eigen::MatrixXd map = Eigen::MatrixXd::Zero(6, parameter_count());
+        const auto cluster = assembly_.cluster_index(assembly_.model().bodies[body].id);
+        const auto found =
+            std::find(free_cluster_indices_.begin(), free_cluster_indices_.end(), cluster);
+        if (found == free_cluster_indices_.end())
+            return map;
+        const auto index = static_cast<std::size_t>(found - free_cluster_indices_.begin());
+        const Pose pose =
+            compose(state.poses[index], assembly_.clusters()[cluster].root_to_body.at(body));
+        map.block<3, 3>(0, index * 6).setIdentity();
+        map.block<3, 3>(0, index * 6 + 3) =
+            -skew(eigen(pose.translation) - eigen(state.poses[index].translation));
+        map.block<3, 3>(3, index * 6 + 3).setIdentity();
+        return map;
+    }
+    struct Objective {
+        Vector residual;
+        Eigen::MatrixXd jacobian;
+    };
+    Objective objective(const State& state, bool reference_only, bool verify = true) const {
+        const auto poses = assembly_.body_poses(cluster_poses(state));
+        std::vector<std::size_t> bodies;
+        for (auto cluster : component_.cluster_indices)
+            for (auto body : assembly_.clusters()[cluster].body_indices)
+                if (!reference_only ||
+                    role(assembly_.model().bodies[body].id) == MotionRole::Reference)
+                    bodies.push_back(body);
+        Objective out{Vector::Zero(bodies.size() * 6),
+                      Eigen::MatrixXd::Zero(bodies.size() * 6, parameter_count())};
+        const auto& options = assembly_.options();
+        for (std::size_t i = 0; i < bodies.size(); ++i) {
+            const auto body = bodies[i];
+            const Pose& nominal = assembly_.model().bodies[body].initial_pose;
+            const Vector3 phi = rotation_vector(normalized(nominal.rotation).conjugate() *
+                                                normalized(poses[body].rotation));
+            out.residual.segment<3>(i * 6) =
+                (eigen(poses[body].translation) - eigen(nominal.translation)) /
+                options.motion_length_scale;
+            out.residual.segment<3>(i * 6 + 3) = phi / options.motion_angle_scale;
+            const auto map = body_tangent(state, body);
+            out.jacobian.middleRows(i * 6, 3) = map.topRows(3) / options.motion_length_scale;
+            const double theta = phi.norm();
+            const auto hat = skew(phi);
+            const double coefficient =
+                theta < 1e-5 ? 1.0 / 12.0 + theta * theta / 720.0
+                             : (1.0 - 0.5 * theta / std::tan(theta * 0.5)) / (theta * theta);
+            const Eigen::Matrix3d log_derivative =
+                Eigen::Matrix3d::Identity() - 0.5 * hat + coefficient * hat * hat;
+            out.jacobian.middleRows(i * 6 + 3, 3) =
+                log_derivative * normalized(nominal.rotation).conjugate().toRotationMatrix() *
+                map.bottomRows(3) / options.motion_angle_scale;
+        }
+        if (verify && options.verify_analytic_jacobians && parameter_count()) {
+            for (Eigen::Index col = 0; col < out.jacobian.cols(); ++col) {
+                const double h = col % 6 < 3 ? options.translation_finite_difference_step
+                                             : options.rotation_finite_difference_step;
+                Vector step = Vector::Zero(parameter_count());
+                step[col] = h;
+                const Vector plus =
+                    objective(incremented(state, step), reference_only, false).residual;
+                const Vector minus =
+                    objective(incremented(state, -step), reference_only, false).residual;
+                // Log has a cut at pi; skip only rows crossing that explicit chart boundary.
+                Vector difference = plus - minus;
+                for (Eigen::Index row = 3; row < difference.size(); row += 6)
+                    if (difference.segment<3>(row).norm() > 3.0 / options.motion_angle_scale)
+                        difference.segment<3>(row) = 2 * h * out.jacobian.block(row, col, 3, 1);
+                if (difference.size() &&
+                    ((difference / (2 * h) - out.jacobian.col(col)).cwiseAbs().maxCoeff() >
+                     options.jacobian_check_tolerance *
+                         std::max(1.0, out.jacobian.col(col).norm())))
+                    throw std::runtime_error(
+                        "motion objective analytic Jacobian failed differential oracle");
+            }
+        }
+        return out;
+    }
+    const CompiledAssembly& assembly() const { return assembly_; }
+    const Component& component() const { return component_; }
 
 private:
-    double preference_weight(const std::size_t cluster) const {
-        if (!assembly_.options().solve_intent ||
-            assembly_.options().solve_intent->policy == SolvePreferencePolicy::MinimumTotalChange)
-            return assembly_.options().neutral_preference_weight;
-        const SolveIntent& intent = *assembly_.options().solve_intent;
-        for (const std::string& id : intent.reference_body_ids)
-            if (assembly_.cluster_index(id) == cluster)
-                return assembly_.options().reference_preference_weight;
-        for (const std::string& id : intent.moving_body_ids)
-            if (assembly_.cluster_index(id) == cluster)
-                return assembly_.options().moving_preference_weight;
-        return assembly_.options().neutral_preference_weight;
-    }
-
     void initialize_singular_direction_branches(State& state) const {
         for (const std::size_t constraint_index : component_.constraint_indices) {
             const Constraint& constraint = assembly_.constraint(constraint_index);
@@ -1742,7 +1864,7 @@ struct ComponentSolution {
     std::string diagnostic;
 };
 
-ComponentSolution solve_component(const ComponentProblem& problem, const SolverOptions& options) {
+ComponentSolution restore_component(const ComponentProblem& problem, const SolverOptions& options) {
     ComponentSolution result;
     result.state = problem.initial_state();
     Vector residual = problem.residual(result.state);
@@ -1765,8 +1887,7 @@ ComponentSolution solve_component(const ComponentProblem& problem, const SolverO
     for (std::size_t iteration = 1; iteration <= options.max_iterations; ++iteration) {
         const Eigen::MatrixXd jacobian = problem.jacobian(result.state, residual);
         const Vector constraint_gradient = jacobian.transpose() * residual;
-        const Vector gradient = constraint_gradient + problem.preference_gradient(result.state);
-        const Vector diagonal = problem.preference_diagonal().array() + damping;
+        const Vector diagonal = Vector::Constant(jacobian.cols(), damping);
         Eigen::MatrixXd augmented(jacobian.rows() + jacobian.cols(), jacobian.cols());
         augmented.topRows(jacobian.rows()) = jacobian;
         augmented.bottomRows(jacobian.cols()).setZero();
@@ -1775,8 +1896,7 @@ ComponentSolution solve_component(const ComponentProblem& problem, const SolverO
         for (Eigen::Index index = 0; index < jacobian.cols(); ++index) {
             const double scale = std::sqrt(diagonal[index]);
             augmented(jacobian.rows() + index, index) = scale;
-            right_hand_side[residual.size() + index] =
-                -problem.preference_gradient(result.state)[index] / scale;
+            right_hand_side[residual.size() + index] = 0.0;
         }
         Eigen::ColPivHouseholderQR<Eigen::MatrixXd> decomposition(augmented);
         const Vector step = decomposition.solve(right_hand_side);
@@ -1833,6 +1953,377 @@ ComponentSolution solve_component(const ComponentProblem& problem, const SolverO
             "maximum iteration count reached"};
 }
 
+// All optimization subspaces use dimensionless tangents and orthonormal columns.
+Eigen::MatrixXd orthogonal_kernel(const Eigen::MatrixXd& matrix, const SolverOptions& options) {
+    if (matrix.cols() == 0)
+        return Eigen::MatrixXd(0, 0);
+    if (matrix.rows() == 0)
+        return Eigen::MatrixXd::Identity(matrix.cols(), matrix.cols());
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(matrix, Eigen::ComputeFullV);
+    const double threshold = std::max(options.rank_absolute_tolerance,
+                                      options.rank_relative_tolerance * svd.singularValues()[0]);
+    const Eigen::Index rank = (svd.singularValues().array() > threshold).count();
+    return svd.matrixV().rightCols(matrix.cols() - rank);
+}
+Eigen::MatrixXd canonical_image(const Eigen::MatrixXd& matrix, const SolverOptions& options) {
+    if (!matrix.cols())
+        return Eigen::MatrixXd(matrix.rows(), 0);
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(matrix, Eigen::ComputeThinU);
+    const double threshold =
+        std::max(options.rank_absolute_tolerance,
+                 options.rank_relative_tolerance *
+                     (svd.singularValues().size() ? svd.singularValues()[0] : 0));
+    const Eigen::Index rank = (svd.singularValues().array() > threshold).count();
+    const Eigen::MatrixXd projector =
+        svd.matrixU().leftCols(rank) * svd.matrixU().leftCols(rank).transpose();
+    Eigen::MatrixXd basis = Eigen::MatrixXd::Zero(matrix.rows(), rank);
+    Eigen::Index count = 0;
+    for (Eigen::Index axis = 0; axis < matrix.rows() && count < rank; ++axis) {
+        Vector column = projector.col(axis);
+        for (int pass = 0; pass < 2; ++pass)
+            for (Eigen::Index j = 0; j < count; ++j)
+                column -= basis.col(j).dot(column) * basis.col(j);
+        if (column.norm() > 1e-7)
+            basis.col(count++) = column.normalized();
+    }
+    if (count != rank)
+        throw std::runtime_error("cannot canonicalize freedom subspace");
+    return basis;
+}
+Vector minimum_step(const Eigen::MatrixXd& matrix, const Vector& rhs,
+                    const SolverOptions& options) {
+    if (!matrix.cols())
+        return Vector(0);
+    if (!matrix.rows())
+        return Vector::Zero(matrix.cols());
+    Eigen::JacobiSVD<Eigen::MatrixXd> svd(matrix, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    const double largest = svd.singularValues()[0];
+    const double threshold =
+        std::max(options.rank_absolute_tolerance, options.rank_relative_tolerance * largest);
+    Vector projected = svd.matrixU().transpose() * rhs;
+    for (Eigen::Index i = 0; i < projected.size(); ++i)
+        projected[i] =
+            svd.singularValues()[i] > threshold ? projected[i] / svd.singularValues()[i] : 0.0;
+    return svd.matrixV() * projected;
+}
+std::vector<std::vector<double>> vectors(const Eigen::MatrixXd& matrix) {
+    std::vector<std::vector<double>> result;
+    for (Eigen::Index col = 0; col < matrix.cols(); ++col)
+        result.emplace_back(matrix.col(col).data(), matrix.col(col).data() + matrix.rows());
+    return result;
+}
+
+bool restore_feasibility(const ComponentProblem& problem, State& state,
+                         const SolverOptions& options) {
+    const Vector scales = problem.tangent_scales();
+    for (std::size_t i = 0; i < 16; ++i) {
+        const Vector r = problem.residual(state);
+        // Secondary optimization needs a tighter retraction than display acceptance;
+        // otherwise curvature error at the tolerance boundary hides its descent.
+        if (problem.satisfied(state) && r.norm() <= 1e-12)
+            return true;
+        const Eigen::MatrixXd j = problem.jacobian(state, r) * scales.asDiagonal();
+        const Vector step = scales.asDiagonal() * minimum_step(j, -r, options);
+        bool accepted = false;
+        for (double alpha = 1.0; alpha >= 1.0 / 4096; alpha *= 0.5) {
+            State candidate = problem.incremented(state, alpha * step);
+            if (problem.residual(candidate).squaredNorm() < r.squaredNorm()) {
+                state = std::move(candidate);
+                accepted = true;
+                break;
+            }
+        }
+        if (!accepted)
+            return problem.satisfied(state);
+    }
+    return problem.satisfied(state);
+}
+
+// The higher-level optimum is a scalar objective minimum, not a frozen residual
+// vector. Nonzero residual curvature can cancel Gauss-Newton curvature (e.g. a
+// reference point equally far from every point on a sphere). Keep that freedom.
+Eigen::MatrixXd preference_tangent(const ComponentProblem& problem, const State& state,
+                                  const Eigen::MatrixXd& z, const SolverOptions& options) {
+    const auto ref = problem.objective(state, true, false);
+    if (!ref.residual.size() || !z.cols()) return z;
+    const Vector scales = problem.tangent_scales();
+    if (ref.residual.squaredNorm() <= options.objective_tolerance)
+        return z * orthogonal_kernel(ref.jacobian * scales.asDiagonal() * z, options);
+    const Eigen::MatrixXd j = problem.jacobian(state, problem.residual(state)) * scales.asDiagonal();
+    const Vector gradient = scales.asDiagonal() * ref.jacobian.transpose() * ref.residual;
+    const Vector multipliers = minimum_step(j.transpose(), -gradient, options);
+    const auto lagrangian_gradient = [&](const State& candidate) -> Vector {
+        const auto objective = problem.objective(candidate, true, false);
+        return scales.asDiagonal() * (objective.jacobian.transpose() * objective.residual +
+            problem.jacobian(candidate, problem.residual(candidate)).transpose() * multipliers);
+    };
+    Eigen::MatrixXd curvature(z.cols(), z.cols());
+    for (Eigen::Index col=0; col<z.cols(); ++col) {
+        const auto difference = [&](double h) -> Vector {
+            const Vector step = scales.asDiagonal() * (h*z.col(col));
+            return (lagrangian_gradient(problem.incremented(state,step)) -
+                    lagrangian_gradient(problem.incremented(state,-step)))/(2*h);
+        };
+        // Richardson differentiation of analytic first derivatives, never of
+        // geometry residuals for the production Jacobian.
+        curvature.col(col)=z.transpose()*((4*difference(5e-4)-difference(1e-3))/3);
+    }
+    curvature=(0.5*(curvature+curvature.transpose())).eval();
+    SolverOptions threshold=options;
+    threshold.rank_absolute_tolerance=std::max(options.rank_absolute_tolerance,
+        options.rank_relative_tolerance*std::max(1.0,curvature.norm()));
+    return z * orthogonal_kernel(curvature,threshold);
+}
+
+MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
+                                 const SolverOptions& options) {
+    MotionPreference report;
+    report.length_scale = options.motion_length_scale;
+    report.angle_scale = options.motion_angle_scale;
+    report.geometrically_feasible = problem.satisfied(state);
+    if (!report.geometrically_feasible)
+        return report;
+    const Vector scales = problem.tangent_scales();
+    report.status = PreferenceStatus::Converged;
+    double reference_bound = std::numeric_limits<double>::infinity();
+    // Each phase preserves the exact linearized higher-level solution space.
+    for (int level = 0; level < 2; ++level) {
+        bool done = false;
+        Eigen::MatrixXd inverse_hessian = Eigen::MatrixXd::Identity(scales.size(), scales.size());
+        std::optional<Vector> previous_gradient, previous_step;
+        double best_energy = problem.objective(state, level == 0, false).residual.squaredNorm();
+        for (std::size_t iteration = 0; iteration < options.max_preference_iterations;
+             ++iteration) {
+            ++report.iterations;
+            const auto ref = problem.objective(state, true);
+            const auto objective = level == 0 ? ref : problem.objective(state, false);
+            const Vector residual = problem.residual(state);
+            Eigen::MatrixXd z =
+                orthogonal_kernel(problem.jacobian(state, residual) * scales.asDiagonal(), options);
+            if (level == 1) {
+                const double unrestricted = (z.transpose()*scales.asDiagonal()*objective.jacobian.transpose()*objective.residual).norm();
+                // Stationarity on the whole feasible tangent certifies every
+                // higher-priority subspace without constructing its curvature.
+                if(unrestricted<=options.preference_tolerance) { report.total_optimality=unrestricted; done=true; break; }
+                z = preference_tangent(problem,state,z,options);
+            }
+            const Eigen::MatrixXd reduced = objective.jacobian * scales.asDiagonal() * z;
+            const double optimality = (reduced.transpose() * objective.residual).norm();
+            if (level == 0)
+                report.reference_optimality = optimality;
+            else
+                report.total_optimality = optimality;
+            if (optimality <= options.preference_tolerance) {
+                done = true;
+                break;
+            }
+            const Vector gradient = z * (reduced.transpose() * objective.residual);
+            if (previous_gradient && previous_step) {
+                const Vector transported_step = z * (z.transpose() * (*previous_step));
+                const Vector difference = gradient - z * (z.transpose() * (*previous_gradient));
+                const double curvature = transported_step.dot(difference);
+                if (curvature > 1e-10 * transported_step.norm() * difference.norm() &&
+                    curvature > 1e-30) {
+                    const Eigen::MatrixXd update =
+                        Eigen::MatrixXd::Identity(scales.size(), scales.size()) -
+                        transported_step * difference.transpose() / curvature;
+                    inverse_hessian = (update * inverse_hessian * update.transpose() +
+                                       transported_step * transported_step.transpose() / curvature)
+                                          .eval();
+                }
+            }
+            Vector step = -z * (z.transpose() * inverse_hessian * gradient);
+            if (!step.allFinite() || gradient.dot(step) >= 0.0) {
+                inverse_hessian.setIdentity();
+                step = -gradient;
+            }
+            // Riemannian BFGS models objective/manifold curvature without mixing priorities.
+            if (step.norm() > 1.0)
+                step /= step.norm();
+            const double slope = 2.0 * gradient.dot(step);
+            const double before = objective.residual.squaredNorm();
+            bool accepted = false;
+            for (double alpha = 1; alpha >= 1.0 / 65536; alpha *= 0.5) {
+                State candidate = problem.incremented(state, scales.asDiagonal() * (alpha * step));
+                if (!restore_feasibility(problem, candidate, options))
+                    continue;
+                const double ref_value =
+                    problem.objective(candidate, true, false).residual.squaredNorm();
+                const double after =
+                    problem.objective(candidate, level == 0, false).residual.squaredNorm();
+                if (level == 1 && ref_value > reference_bound + options.objective_tolerance)
+                    continue;
+                bool descent = after < before && after <= before + 1e-4 * alpha * slope;
+                // At floating-point objective resolution, certify progress using the
+                // projected derivative, while keeping a non-accumulating energy bound.
+                const double roundoff =
+                    32 * std::numeric_limits<double>::epsilon() * std::max(1.0, best_energy);
+                if (!descent && after <= best_energy + roundoff) {
+                    const auto next_objective = problem.objective(candidate, level == 0, false);
+                    Eigen::MatrixXd next_z =
+                        orthogonal_kernel(problem.jacobian(candidate, problem.residual(candidate)) *
+                                              scales.asDiagonal(),
+                                          options);
+                    if (level == 1) next_z = preference_tangent(problem,candidate,next_z,options);
+                    descent = (next_z.transpose() * scales.asDiagonal() *
+                               next_objective.jacobian.transpose() * next_objective.residual)
+                                  .norm() < 0.8 * optimality;
+                }
+                if (descent) {
+                    Vector actual(scales.size());
+                    for (std::size_t body = 0; body < state.poses.size(); ++body) {
+                        actual.segment<3>(body * 6) = (eigen(candidate.poses[body].translation) -
+                                                       eigen(state.poses[body].translation)) /
+                                                      options.motion_length_scale;
+                        actual.segment<3>(body * 6 + 3) =
+                            rotation_vector(normalized(candidate.poses[body].rotation) *
+                                            normalized(state.poses[body].rotation).conjugate()) /
+                            options.motion_angle_scale;
+                    }
+                    previous_gradient = gradient;
+                    previous_step = std::move(actual);
+                    best_energy = std::min(best_energy, after);
+                    state = std::move(candidate);
+                    accepted = true;
+                    break;
+                }
+            }
+            if (!accepted) {
+                report.status = PreferenceStatus::Stalled;
+                break;
+            }
+        }
+        if (!done) {
+            if (report.status == PreferenceStatus::Converged)
+                report.status = PreferenceStatus::IterationLimit;
+            break;
+        }
+        reference_bound = problem.objective(state, true, false).residual.squaredNorm();
+    }
+    const auto ref = problem.objective(state, true, false);
+    const auto all = problem.objective(state, false, false);
+    report.reference_objective = ref.residual.squaredNorm();
+    report.total_objective = all.residual.squaredNorm();
+    const Eigen::MatrixXd final_z = orthogonal_kernel(
+        problem.jacobian(state, problem.residual(state)) * scales.asDiagonal(), options);
+    report.reference_optimality =
+        (final_z.transpose() * scales.asDiagonal() * ref.jacobian.transpose() * ref.residual)
+            .norm();
+    const double unrestricted_total = (final_z.transpose()*scales.asDiagonal()*all.jacobian.transpose()*all.residual).norm();
+    const Eigen::MatrixXd final_total_z = unrestricted_total<=options.preference_tolerance ?
+        final_z : preference_tangent(problem,state,final_z,options);
+    report.total_optimality =
+        (final_total_z.transpose() * scales.asDiagonal() * all.jacobian.transpose() * all.residual)
+            .norm();
+    if (report.status == PreferenceStatus::Converged &&
+        std::max(report.reference_optimality, report.total_optimality) >
+            options.preference_tolerance)
+        report.status = PreferenceStatus::Stalled;
+    const auto poses = problem.assembly().body_poses(problem.cluster_poses(state));
+    for (auto cluster : problem.component().cluster_indices)
+        for (auto body : problem.assembly().clusters()[cluster].body_indices) {
+            const auto& initial = problem.assembly().model().bodies[body];
+            report.bodies.push_back(
+                {initial.id, problem.role(initial.id),
+                 (eigen(poses[body].translation) - eigen(initial.initial_pose.translation)).norm(),
+                 rotation_vector(normalized(initial.initial_pose.rotation).conjugate() *
+                                 normalized(poses[body].rotation))
+                     .norm()});
+        }
+    return report;
+}
+
+std::vector<BodyFreedom> interpret_freedoms(const ComponentProblem& problem, const State& state,
+                                            const SolverOptions& options) {
+    const auto& assembly = problem.assembly();
+    const auto poses = assembly.body_poses(problem.cluster_poses(state));
+    const Vector scales = problem.tangent_scales();
+    const Eigen::MatrixXd z = orthogonal_kernel(
+        problem.jacobian(state, problem.residual(state)) * scales.asDiagonal(), options);
+    std::optional<std::size_t> anchor;
+    if (problem.gauge_dof())
+        anchor =
+            assembly.clusters()[problem.component().cluster_indices.front()].body_indices.front();
+    Eigen::Matrix<double, 6, 6> normalize = Eigen::Matrix<double, 6, 6>::Identity();
+    normalize.topLeftCorner<3, 3>() /= options.motion_length_scale;
+    normalize.bottomRightCorner<3, 3>() /= options.motion_angle_scale;
+    std::vector<BodyFreedom> result;
+    for (auto cluster : problem.component().cluster_indices)
+        for (auto body : assembly.clusters()[cluster].body_indices) {
+            BodyFreedom freedom;
+            freedom.body_id = assembly.model().bodies[body].id;
+            freedom.linearization_pose = poses[body];
+            Eigen::MatrixXd map = problem.body_tangent(state, body);
+            if (anchor) {
+                freedom.relative_to_body_id = assembly.model().bodies[*anchor].id;
+                const auto base = problem.body_tangent(state, *anchor);
+                map.topRows(3) -= base.topRows(3) - skew(eigen(poses[body].translation) -
+                                                         eigen(poses[*anchor].translation)) *
+                                                        base.bottomRows(3);
+                map.bottomRows(3) -= base.bottomRows(3);
+            }
+            const Eigen::MatrixXd allowed =
+                canonical_image(normalize * map * scales.asDiagonal() * z, options);
+            freedom.allowed_basis = vectors(allowed);
+            freedom.blocked_basis =
+                vectors(canonical_image(orthogonal_kernel(allowed.transpose(), options), options));
+            const Eigen::MatrixXd translations = canonical_image(
+                allowed * orthogonal_kernel(allowed.bottomRows(3), options), options);
+            const Eigen::MatrixXd angles = canonical_image(allowed.bottomRows(3), options);
+            freedom.translation_dof = translations.cols();
+            freedom.rotation_dof = angles.cols();
+            freedom.rank_threshold =
+                std::max(options.rank_absolute_tolerance, options.rank_relative_tolerance);
+            for (Eigen::Index i = 0; i < translations.cols(); ++i)
+                freedom.translation_directions.push_back(
+                    value(translations.col(i).head<3>().normalized()));
+            for (Eigen::Index i = 0; i < angles.cols(); ++i) {
+                const Vector tangent =
+                    allowed * minimum_step(allowed.bottomRows(3), angles.col(i), options);
+                const Vector3 omega = tangent.tail<3>() * options.motion_angle_scale;
+                const Vector3 velocity = tangent.head<3>() * options.motion_length_scale;
+                const double pitch = omega.dot(velocity) / omega.squaredNorm();
+                const Vector3 axis =
+                    eigen(poses[body].translation) + omega.cross(velocity) / omega.squaredNorm();
+                freedom.rotations.push_back({value(omega.normalized()), value(axis), pitch});
+            }
+            const auto t = freedom.translation_dof, r = freedom.rotation_dof;
+            freedom.kind = allowed.cols() == 0   ? FreedomKind::Fixed
+                           : allowed.cols() == 6 ? FreedomKind::Free
+                                                 : FreedomKind::Coupled;
+            if (t == 1 && r == 0)
+                freedom.kind = FreedomKind::Prismatic;
+            if (t == 0 && r == 1 &&
+                std::abs(freedom.rotations[0].pitch) <= options.length_tolerance)
+                freedom.kind = FreedomKind::Revolute;
+            if (t == 1 && r == 1 &&
+                std::abs(eigen(freedom.translation_directions[0])
+                             .dot(eigen(freedom.rotations[0].direction))) > 1 - 1e-7)
+                freedom.kind = FreedomKind::Cylindrical;
+            if (t == 2 && r == 1 &&
+                std::abs(eigen(freedom.translation_directions[0])
+                             .dot(eigen(freedom.rotations[0].direction))) < 1e-7 &&
+                std::abs(eigen(freedom.translation_directions[1])
+                             .dot(eigen(freedom.rotations[0].direction))) < 1e-7)
+                freedom.kind = FreedomKind::Planar;
+            if (t == 0 && r == 3) {
+                Eigen::Matrix3d velocity_map;
+                for (Eigen::Index i = 0; i < 3; ++i) {
+                    const Vector tangent =
+                        allowed * minimum_step(allowed.bottomRows(3), Vector3::Unit(i), options);
+                    velocity_map.col(i) = tangent.head<3>() * options.motion_length_scale /
+                                          options.motion_angle_scale;
+                }
+                // A spherical joint's v(omega) is one skew map, so all axes meet at
+                // one center. Three individually zero-pitch axes are insufficient.
+                if ((velocity_map + velocity_map.transpose()).norm() <= options.length_tolerance)
+                    freedom.kind = FreedomKind::Spherical;
+            }
+            result.push_back(std::move(freedom));
+        }
+    return result;
+}
+
 Eigen::MatrixXd rank_normalized(Eigen::MatrixXd matrix, const double absolute_tolerance) {
     for (Eigen::Index column = 0; column < matrix.cols(); ++column) {
         const double norm = matrix.col(column).norm();
@@ -1849,8 +2340,7 @@ struct NullSpaceAnalysis {
     double threshold{};
 };
 
-NullSpaceAnalysis analyze_null_space(const Eigen::MatrixXd& matrix,
-                                     const SolverOptions& options) {
+NullSpaceAnalysis analyze_null_space(const Eigen::MatrixXd& matrix, const SolverOptions& options) {
     NullSpaceAnalysis result;
     if (matrix.cols() == 0)
         return result;
@@ -1877,9 +2367,8 @@ NullSpaceAnalysis analyze_null_space(const Eigen::MatrixXd& matrix,
     Eigen::JacobiSVD<Eigen::MatrixXd> decomposition(normalized_matrix, Eigen::ComputeFullV);
     for (Eigen::Index index = 0; index < decomposition.singularValues().size(); ++index)
         result.singular_values.push_back(decomposition.singularValues()[index]);
-    const double largest = decomposition.singularValues().size() == 0
-                               ? 0.0
-                               : decomposition.singularValues()[0];
+    const double largest =
+        decomposition.singularValues().size() == 0 ? 0.0 : decomposition.singularValues()[0];
     result.threshold = std::max(absolute, options.rank_relative_tolerance * largest);
     result.rank = static_cast<std::size_t>(
         (decomposition.singularValues().array() > result.threshold).count());
@@ -1975,9 +2464,13 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly,
                          (tolerance_options.length_tolerance / assembly.options().length_scale),
                      residual.tail<3>().norm() /
                          (tolerance_options.angle_tolerance / assembly.options().angle_scale));
-        return {constraint.id, std::move(residual), std::move(tolerances), ratio,
-                {"FIX_TRANSLATION_X", "FIX_TRANSLATION_Y", "FIX_TRANSLATION_Z",
-                 "FIX_ROTATION_X", "FIX_ROTATION_Y", "FIX_ROTATION_Z"}, 6};
+        return {constraint.id,
+                std::move(residual),
+                std::move(tolerances),
+                ratio,
+                {"FIX_TRANSLATION_X", "FIX_TRANSLATION_Y", "FIX_TRANSLATION_Z", "FIX_ROTATION_X",
+                 "FIX_ROTATION_Y", "FIX_ROTATION_Z"},
+                6};
     }
     if (constraint.kind == ConstraintKind::Rigid) {
         const Pose& first = body_poses[assembly.body_index(constraint.first.body_id)];
@@ -1999,9 +2492,13 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly,
                          (tolerance_options.length_tolerance / assembly.options().length_scale),
                      residual.tail<3>().norm() /
                          (tolerance_options.angle_tolerance / assembly.options().angle_scale));
-        return {constraint.id, std::move(residual), std::move(tolerances), ratio,
+        return {constraint.id,
+                std::move(residual),
+                std::move(tolerances),
+                ratio,
                 {"RIGID_TRANSLATION_X", "RIGID_TRANSLATION_Y", "RIGID_TRANSLATION_Z",
-                 "RIGID_ROTATION_X", "RIGID_ROTATION_Y", "RIGID_ROTATION_Z"}, 6};
+                 "RIGID_ROTATION_X", "RIGID_ROTATION_Y", "RIGID_ROTATION_Z"},
+                6};
     }
     const GeometryElement& first_element = assembly.geometry(constraint.first);
     const GeometryElement& second_element = assembly.geometry(*constraint.second);
@@ -2024,10 +2521,12 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly,
     const EquationDefinition definition = equation_definition(evaluated, first, second);
     if (definition.kinds.size() != static_cast<std::size_t>(residual.size()))
         throw std::logic_error("equation registry row count does not match residual block");
-    return {constraint.id, residual,
+    return {constraint.id,
+            residual,
             constraint_tolerances(evaluated, first, second, tolerance_options),
             satisfaction_ratio(evaluated, first, second, residual, tolerance_options, &branch),
-            definition.kinds, definition.generic_rank};
+            definition.kinds,
+            definition.generic_rank};
 }
 
 std::string connection_id(const Constraint& constraint) {
@@ -2057,11 +2556,14 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
             ComponentProblem problem(assembly, component);
             ComponentSolution solution;
             if (component.selected)
-                solution = solve_component(problem, options);
+                solution = restore_component(problem, options);
             else {
-                solution.state = problem.initial_state();
+                solution.state = problem.initial_state(false);
                 solution.diagnostic = "component was outside the affected solve scope";
             }
+            MotionPreference preference;
+            if (component.selected && solution.status == SolveStatus::Converged)
+                preference = optimize_motion(problem, solution.state, options);
             for (std::size_t index = 0; index < problem.free_clusters().size(); ++index)
                 cluster_poses[problem.free_clusters()[index]] = solution.state.poses[index];
             result.iterations += solution.iterations;
@@ -2095,6 +2597,16 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
             const std::size_t relative = problem.relative_dof(rank);
             has_relative_dof = has_relative_dof || relative > 0;
             ComponentDof component_dof;
+            component_dof.preference = preference;
+            if (component.selected && solution.status == SolveStatus::Converged)
+                component_dof.freedoms = interpret_freedoms(problem, solution.state, options);
+            if (component.selected && preference.geometrically_feasible &&
+                preference.status != PreferenceStatus::Converged)
+                result.diagnostics.push_back({"PREFERENCE_NOT_CONVERGED",
+                                              component.id,
+                                              {},
+                                              {},
+                                              "feasible pose; local motion optimum not certified"});
             component_dof.component_id = component.id;
             component_dof.tangent_variable_count = variables;
             component_dof.jacobian_rank = rank;
@@ -2105,8 +2617,7 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
             component_dof.singular_values = null_space.singular_values;
             component_dof.rank_threshold = null_space.threshold;
             for (const std::size_t cluster_index : problem.free_clusters())
-                component_dof.tangent_cluster_ids.push_back(
-                    assembly.clusters()[cluster_index].id);
+                component_dof.tangent_cluster_ids.push_back(assembly.clusters()[cluster_index].id);
             for (const std::size_t cluster_index : component.cluster_indices) {
                 for (const std::size_t body : assembly.clusters()[cluster_index].body_indices)
                     component_dof.body_ids.push_back(model.bodies[body].id);
@@ -2146,7 +2657,8 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
                 squared_residual += block.values.squaredNorm();
             for (Eigen::Index equation = 0; equation < block.values.size(); ++equation) {
                 result.equation_residuals.push_back(
-                    {constraint.id + "/equation/" + block.equation_kinds[static_cast<std::size_t>(equation)],
+                    {constraint.id + "/equation/" +
+                         block.equation_kinds[static_cast<std::size_t>(equation)],
                      connection_id(constraint), constraint.id, static_cast<std::size_t>(equation),
                      block.values[equation]});
             }

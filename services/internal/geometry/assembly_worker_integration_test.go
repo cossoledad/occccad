@@ -124,7 +124,7 @@ func TestCppWorkerSolvesSimpleProductAssembly(t *testing.T) {
 		{ID: "fix-moving", Kind: "FIX", FirstBodyID: "moving", FixedPose: &AssemblyPose{Translation: [3]float64{5e-6, 0, 0}, Rotation: identity.Rotation}},
 		{ID: "coincident", Kind: "COINCIDENT", FirstBodyID: "moving", FirstGeometryID: "moving-origin", SecondBodyID: "ground", SecondGeometryID: "ground-origin"},
 	}, AssemblySolveOptions{SolverProfile: &AssemblySolverProfile{
-		SchemaVersion:                 1,
+		SchemaVersion:                 2,
 		LengthTolerance:               1e-7,
 		AngleTolerance:                1e-8,
 		ClassificationLengthTolerance: 1e-5,

@@ -5,7 +5,7 @@ The layered constraint-manager target, external design references and phased
 implementation plan are documented in
 [`SOLVER_ARCHITECTURE.md`](SOLVER_ARCHITECTURE.md).
 The equations, graph compilation, numerical iteration and diagnostic algorithms
-actually used by the current M2 implementation are recorded separately in
+actually used by the current M2.5 implementation are recorded separately in
 [`SOLVER_ALGORITHMS.md`](SOLVER_ALGORITHMS.md).
 
 `occccad_assembly_solver` is the standalone algorithm module for 3D assembly
@@ -54,14 +54,23 @@ cluster/constraint incidence graph is split into deterministic connected
 components; `SolverOptions.affected_body_ids` can restrict numeric updates to the
 components touched by an interaction or edit.
 
-`SolverOptions.solve_intent` is request-scoped interaction policy, not persisted
-constraint asymmetry. For a binary constraint the Product adapter treats the first
-selection as moving and the second as reference. `MoveFirstMinimizeReference` keeps
-a reference cluster exactly at its nominal pose when an otherwise ungrounded
-component needs a six-DOF gauge anchor; it does not create a physical `Fix`. M2
-also assigns weak cluster-level motion weights in grounded or otherwise non-unique
-solutions. Strict hierarchical minimum-reference motion still requires null-space
-optimization.
+`SolverOptions.solve_intent` is request-scoped placement policy. Binary constraint
+creation and editing mark the first occurrence moving and the second reference.
+M2.5 first restores all physical constraints, minimizes reference motion on that
+feasible manifold, then minimizes total occurrence motion in the reference-optimal
+subspace. Physical Fix/Rigid constraints remain authoritative: a fixed first body
+can require the unfixed reference to move. There is no weak role weighting and no
+"fix reference, fail, release and retry" path. A single consistent reference cluster
+can still eliminate the six global gauge coordinates of an ungrounded component.
+
+`Body.initial_pose` freezes nominal motion and branch intent; optional
+`initial_guess` is only a numerical seed. Motion uses occurrence origins and
+rotation Log with independent length/angle scales, including every rigid member.
+Geometric convergence and `MotionPreference.status` are separate. Product rejects
+feasible results whose preference has not converged; raw RPC callers receive both
+states and may inspect the evidence. Local stationarity is not a global nonconvex
+optimality guarantee. The algorithm and acceptance corpus are in
+`SOLVER_ALGORITHMS.md` and `tests/motion_scenarios.cpp`.
 
 Each selected component uses deterministic damped least squares whose linearized
 step is solved as an augmented QR problem without forming normal equations. Typed
@@ -83,11 +92,14 @@ exposes wrapped/unwrapped/winding branch state. Direction, distance-side and ang
 branches are frozen outside residual evaluation. The versioned SolverProfile and
 rank/branch/suspected-conflict diagnostics cross the Proto, Worker and Go boundary.
 
-M2 intentionally does not yet interpret raw null-space vectors as user-facing
-translation/rotation/screw freedoms, provide strict hierarchical pose selection,
-minimal conflict sets, global discrete branch candidates or a drag objective.
-Those are M2.5 and later concerns. OCCT extraction and persistent topology
-references remain in adapters, never in this solver library.
+M2.5 returns per-body instantaneous translation, rotation/screw and allowed/blocked
+subspaces with linearization poses, metric scales, reference frame and rank
+threshold. Canonical revolute, prismatic, cylindrical, planar and spherical families
+are inferred from subspaces; ambiguous combinations remain `Coupled`. These are
+local differential freedoms, not persisted Engineering Connections or guarantees of
+finite travel. Product previews expose this evidence in the constraint dialog.
+Persistent topology, durable solve manifests, closest-feasible MOVE dragging,
+minimal conflict sets and sparse/incremental solving remain M3 and later work.
 
 Build and run the focused scenarios with:
 
@@ -109,3 +121,8 @@ ctest --test-dir build/cmake/debug -R '^assembly-corpus/' --output-on-failure
 Run the deterministic dense-backend baseline with
 `invoke performance-baseline`; the assembly result is written to
 `build/performance/assembly-solver.txt`.
+
+The 2026-09-06 M2.5 validation passed 75 assembly/corpus tests, full Go tests,
+real Router/Worker Product history integration, Web scenarios and production build.
+Current dense Debug timings and browser acceptance are recorded in
+[SOLVER_ALGORITHMS.md](SOLVER_ALGORITHMS.md).

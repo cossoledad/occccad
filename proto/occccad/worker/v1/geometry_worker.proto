@@ -70,6 +70,7 @@ message RigidPose {
 message AssemblyBody {
     string id = 1;
     RigidPose initial_pose = 2;
+    RigidPose initial_guess = 3; // numeric seed only; initial_pose freezes nominal/branch
 }
 
 message AssemblyGeometry {
@@ -141,6 +142,7 @@ message SolveAssemblyResponse {
     repeated AssemblyConstraintRankInfo constraint_ranks = 14;
     repeated AssemblySolvedAngleBranch angle_branches = 15;
     repeated string suspected_conflicting_constraint_ids = 16;
+    string solver_build = 17;
 }
 
 message SketchPoint {
@@ -567,6 +569,8 @@ message AssemblyComponentDof {
     repeated AssemblyTangentVector null_space_basis = 9;
     repeated double singular_values = 10;
     double rank_threshold = 11;
+    AssemblyMotionPreference preference = 12;
+    repeated AssemblyBodyFreedom freedoms = 13;
 }
 
 message AssemblyTangentVector {
@@ -625,10 +629,58 @@ message AssemblySolverProfile {
     double rank_absolute_tolerance = 15;
     double rank_relative_tolerance = 16;
     double gradient_tolerance = 17;
-    double moving_preference_weight = 18;
-    double neutral_preference_weight = 19;
-    double reference_preference_weight = 20;
+    double motion_length_scale = 18;
+    double motion_angle_scale = 19;
+    double preference_tolerance = 20;
     uint64 max_conflict_probes = 21;
     bool verify_analytic_jacobians = 22;
     double jacobian_check_tolerance = 23;
+    double objective_tolerance = 24;
+    optional uint64 max_preference_iterations = 25;
+}
+
+// M2.5 local hierarchy and instantaneous freedom evidence; not persistent constraints.
+enum AssemblyPreferenceStatus {
+    PREFERENCE_NOT_EVALUATED = 0;
+    PREFERENCE_CONVERGED = 1;
+    PREFERENCE_ITERATION_LIMIT = 2;
+    PREFERENCE_STALLED = 3;
+}
+enum AssemblyMotionRole { MOTION_MOVING = 0; MOTION_REFERENCE = 1; MOTION_NEUTRAL = 2; }
+message AssemblyBodyMotion {
+    string body_id = 1;
+    AssemblyMotionRole role = 2;
+    double translation = 3;
+    double rotation = 4;
+}
+message AssemblyMotionPreference {
+    AssemblyPreferenceStatus status = 1;
+    bool geometrically_feasible = 2;
+    double reference_objective = 3;
+    double total_objective = 4;
+    double reference_optimality = 5;
+    double total_optimality = 6;
+    double length_scale = 7;
+    double angle_scale = 8;
+    uint64 iterations = 9;
+    repeated AssemblyBodyMotion bodies = 10;
+}
+enum AssemblyFreedomKind {
+    FREEDOM_FIXED = 0; FREEDOM_REVOLUTE = 1; FREEDOM_PRISMATIC = 2;
+    FREEDOM_CYLINDRICAL = 3; FREEDOM_PLANAR = 4; FREEDOM_SPHERICAL = 5;
+    FREEDOM_FREE = 6; FREEDOM_COUPLED = 7;
+}
+message AssemblyScrewFreedom { Vec3 direction = 1; Vec3 axis_point = 2; double pitch = 3; }
+message AssemblyBodyFreedom {
+    string body_id = 1;
+    string relative_to_body_id = 2;
+    RigidPose linearization_pose = 3;
+    AssemblyFreedomKind kind = 4;
+    uint64 translation_dof = 5;
+    uint64 rotation_dof = 6;
+    repeated AssemblyTangentVector allowed_basis = 7;
+    repeated AssemblyTangentVector blocked_basis = 8;
+    repeated Vec3 translation_directions = 9;
+    repeated AssemblyScrewFreedom rotations = 10;
+    double rank_threshold = 11;
 }

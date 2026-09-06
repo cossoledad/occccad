@@ -54,6 +54,8 @@ using Geometry = std::variant<PointGeometry, AxisGeometry, PlaneGeometry, Cylind
 struct Body {
     std::string id;
     Pose initial_pose{};
+    // Optional numeric seed. initial_pose remains the frozen motion/branch baseline.
+    std::optional<Pose> initial_guess{};
 };
 
 struct GeometryElement {
@@ -145,9 +147,11 @@ struct SolverOptions {
     double rank_absolute_tolerance{1.0e-10};
     double rank_relative_tolerance{1.0e-8};
     double gradient_tolerance{1.0e-8};
-    double moving_preference_weight{1.0e-14};
-    double neutral_preference_weight{1.0e-12};
-    double reference_preference_weight{1.0e-8};
+    double motion_length_scale{1.0};
+    double motion_angle_scale{1.0};
+    double preference_tolerance{1.0e-8};
+    double objective_tolerance{1.0e-12};
+    std::size_t max_preference_iterations{100};
     std::size_t max_conflict_probes{16};
 #ifdef NDEBUG
     bool verify_analytic_jacobians{false};
@@ -209,7 +213,60 @@ struct EquationResidual {
     double normalized_value{};
 };
 
+enum class PreferenceStatus { NotEvaluated, Converged, IterationLimit, Stalled };
+enum class MotionRole { Moving, Reference, Neutral };
+struct BodyMotion {
+    std::string body_id;
+    MotionRole role{MotionRole::Neutral};
+    double translation{};
+    double rotation{};
+};
+struct MotionPreference {
+    PreferenceStatus status{PreferenceStatus::NotEvaluated};
+    bool geometrically_feasible{};
+    double reference_objective{};
+    double total_objective{};
+    double reference_optimality{};
+    double total_optimality{};
+    double length_scale{1.0};
+    double angle_scale{1.0};
+    std::size_t iterations{};
+    std::vector<BodyMotion> bodies;
+};
+enum class FreedomKind {
+    Fixed,
+    Revolute,
+    Prismatic,
+    Cylindrical,
+    Planar,
+    Spherical,
+    Free,
+    Coupled
+};
+struct BodyFreedom {
+    std::string body_id;
+    // Empty means world/physical ground. Otherwise freedom is relative to this body.
+    std::string relative_to_body_id;
+    Pose linearization_pose;
+    FreedomKind kind{FreedomKind::Coupled};
+    std::size_t translation_dof{};
+    std::size_t rotation_dof{};
+    // Orthonormal dimensionless [dt/L, dw/A] subspaces at the body origin, world axes.
+    std::vector<std::vector<double>> allowed_basis;
+    std::vector<std::vector<double>> blocked_basis;
+    std::vector<Vec3> translation_directions;
+    struct Screw {
+        Vec3 direction;
+        Vec3 axis_point;
+        double pitch{};
+    };
+    std::vector<Screw> rotations;
+    double rank_threshold{};
+};
+
 struct ComponentDof {
+    MotionPreference preference;
+    std::vector<BodyFreedom> freedoms;
     std::string component_id;
     std::vector<std::string> body_ids;
     std::size_t tangent_variable_count{};

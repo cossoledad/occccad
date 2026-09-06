@@ -107,7 +107,7 @@ func assemblyCapabilities(kind, firstKind, secondKind string) assemblyConstraint
 	}
 }
 
-func (service *Service) solveAssembly(ctx context.Context, documentID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel) (returnErr error) {
+func (service *Service) solveAssembly(ctx context.Context, documentID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, evidence ...*geometry.AssemblySolve) (returnErr error) {
 	if len(model.Constraints) == 0 {
 		return nil
 	}
@@ -385,6 +385,14 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		}
 		return workflow.failure(context.Background(), result.Status, code, result.Diagnostic, retryable)
 	}
+	if err := validateAssemblyPreference(result); err != nil {
+		return workflow.failure(context.Background(), "PREFERENCE_NOT_CONVERGED", "ASSEMBLY_PREFERENCE_NOT_CONVERGED", err.Error(), false)
+	}
+	for _, target := range evidence {
+		if target != nil {
+			*target = result
+		}
+	}
 	if err := workflow.advance(context.Background()); err != nil {
 		return err
 	}
@@ -395,6 +403,19 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 	}
 	if err := workflow.advance(context.Background()); err != nil {
 		return err
+	}
+	return nil
+}
+
+// A feasible pose is insufficient for a command promising minimum reference motion.
+func validateAssemblyPreference(result geometry.AssemblySolve) error {
+	if len(result.Components) == 0 {
+		return fmt.Errorf("assembly solver returned no motion evidence")
+	}
+	for _, component := range result.Components {
+		if component.Solved && (component.Preference.Status != geometry.PreferenceConverged || !component.Preference.GeometricallyFeasible) {
+			return fmt.Errorf("component %s is geometrically feasible but motion preference did not converge", component.ComponentID)
+		}
 	}
 	return nil
 }

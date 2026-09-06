@@ -1,7 +1,7 @@
 find_package(GTest REQUIRED CONFIG)
 include(GoogleTest)
 
-add_executable(occcad_assembly_solver_scenarios assembly_solver_scenarios.cpp)
+add_executable(occcad_assembly_solver_scenarios assembly_solver_scenarios.cpp motion_scenarios.cpp)
 target_link_libraries(occcad_assembly_solver_scenarios PRIVATE occccad_assembly_solver GTest::gtest_main)
 target_compile_features(occcad_assembly_solver_scenarios PRIVATE cxx_std_17)
 occccad_set_warnings(occcad_assembly_solver_scenarios PRIVATE)

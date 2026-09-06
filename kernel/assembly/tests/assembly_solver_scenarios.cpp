@@ -139,6 +139,13 @@ TEST(AssemblySolver, ProductFaceFiveCoincidenceRegression) {
                                        SolvePreferencePolicy::MoveFirstMinimizeReference};
 
     const SolveResult result = Solver{}.solve(model, options);
+    if (result.status == SolveStatus::Converged) {
+        for (const auto& component : result.components) {
+            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged)
+                << "reference=" << component.preference.reference_optimality
+                << " total=" << component.preference.total_optimality;
+        }
+    }
     EXPECT_EQ(result.status, SolveStatus::Converged)
         << result.diagnostic << " residual=" << result.normalized_residual
         << " iterations=" << result.iterations;
@@ -161,6 +168,13 @@ TEST(AssemblySolver, PlaneCoincidenceAnalyticJacobianAndNullSpaceAreConformant) 
     options.jacobian_check_tolerance = 2.0e-5;
 
     const SolveResult result = Solver{}.solve(model, options);
+    if (result.status == SolveStatus::Converged) {
+        for (const auto& component : result.components) {
+            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged)
+                << "reference=" << component.preference.reference_optimality
+                << " total=" << component.preference.total_optimality;
+        }
+    }
 
     ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
     ASSERT_EQ(result.components.size(), 1U);
@@ -212,6 +226,13 @@ TEST(AssemblySolver, OppositePlaneCoincidenceUsesTheSameCreationAnchorAsEditing)
         SolveIntent{{"moving"}, {"reference"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
 
     const SolveResult result = Solver{}.solve(model, options);
+    if (result.status == SolveStatus::Converged) {
+        for (const auto& component : result.components) {
+            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged)
+                << "reference=" << component.preference.reference_optimality
+                << " total=" << component.preference.total_optimality;
+        }
+    }
 
     ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
     const Pose reference = pose(result, "reference");
@@ -416,6 +437,13 @@ TEST(AssemblySolver, RigidClusterRejectsConflictingMovementIntent) {
     options.solve_intent =
         SolveIntent{{"a"}, {"b"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
     const SolveResult result = Solver{}.solve(model, options);
+    if (result.status == SolveStatus::Converged) {
+        for (const auto& component : result.components) {
+            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged)
+                << "reference=" << component.preference.reference_optimality
+                << " total=" << component.preference.total_optimality;
+        }
+    }
     EXPECT_EQ(result.status, SolveStatus::InvalidModel);
     EXPECT_NE(result.diagnostic.find("rigid cluster"), std::string::npos);
 }
@@ -438,6 +466,13 @@ TEST(AssemblySolver, GroundedComponentUsesReferenceMotionPreference) {
         SolveIntent{{"moving"}, {"reference"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
 
     const SolveResult result = Solver{}.solve(model, options);
+    if (result.status == SolveStatus::Converged) {
+        for (const auto& component : result.components) {
+            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged)
+                << "reference=" << component.preference.reference_optimality
+                << " total=" << component.preference.total_optimality;
+        }
+    }
     ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
     EXPECT_NEAR(pose(result, "reference").translation.x, 2.0, 1.0e-5);
     EXPECT_NEAR(pose(result, "moving").translation.x, 2.0, 1.0e-5);
@@ -495,6 +530,13 @@ TEST(AssemblySolver, CylinderCoincidentRejectsAnIrreconcilableRadius) {
     SolverOptions options;
     options.max_iterations = 8;
     const SolveResult result = Solver{}.solve(model, options);
+    if (result.status == SolveStatus::Converged) {
+        for (const auto& component : result.components) {
+            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged)
+                << "reference=" << component.preference.reference_optimality
+                << " total=" << component.preference.total_optimality;
+        }
+    }
 
     EXPECT_EQ(result.status, SolveStatus::MaxIterations);
     ASSERT_EQ(result.residuals.size(), 2U);
@@ -578,6 +620,13 @@ TEST(AssemblySolver, ClassificationToleranceIsIndependentFromConvergenceToleranc
     options.classification_length_tolerance = 1.0e-5;
 
     const SolveResult result = Solver{}.solve(model, options);
+    if (result.status == SolveStatus::Converged) {
+        for (const auto& component : result.components) {
+            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged)
+                << "reference=" << component.preference.reference_optimality
+                << " total=" << component.preference.total_optimality;
+        }
+    }
 
     EXPECT_EQ(result.status, SolveStatus::Unsatisfied);
     EXPECT_EQ(result.classification, SolveClassification::Unsatisfied);
@@ -593,6 +642,13 @@ TEST(AssemblySolver, ClassificationToleranceCannotBeStricterThanConvergenceToler
     options.classification_length_tolerance = 1.0e-6;
 
     const SolveResult result = Solver{}.solve(model, options);
+    if (result.status == SolveStatus::Converged) {
+        for (const auto& component : result.components) {
+            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged)
+                << "reference=" << component.preference.reference_optimality
+                << " total=" << component.preference.total_optimality;
+        }
+    }
 
     EXPECT_EQ(result.status, SolveStatus::InvalidModel);
     EXPECT_EQ(result.classification, SolveClassification::InvalidModel);
@@ -608,6 +664,13 @@ TEST(AssemblySolver, ExhaustedIterationBudgetIsNonConvergentNotInconsistent) {
     options.max_iterations = 1;
 
     const SolveResult result = Solver{}.solve(model, options);
+    if (result.status == SolveStatus::Converged) {
+        for (const auto& component : result.components) {
+            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged)
+                << "reference=" << component.preference.reference_optimality
+                << " total=" << component.preference.total_optimality;
+        }
+    }
 
     EXPECT_EQ(result.status, SolveStatus::MaxIterations);
     EXPECT_EQ(result.classification, SolveClassification::NonConvergent);

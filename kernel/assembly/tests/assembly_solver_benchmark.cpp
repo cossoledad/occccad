@@ -44,6 +44,8 @@ int main() {
         const Model model = plane_chain(bodies);
         SolverOptions options;
         options.verify_analytic_jacobians = false;
+        options.solve_intent = SolveIntent{{"body-" + std::to_string(bodies-1)}, {"body-1"},
+                                          SolvePreferencePolicy::MoveFirstMinimizeReference};
         constexpr std::size_t samples = 3;
         const auto start = std::chrono::steady_clock::now();
         SolveResult result;
@@ -52,9 +54,13 @@ int main() {
         const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
                                  std::chrono::steady_clock::now() - start)
                                  .count();
-        if (result.status != SolveStatus::Converged)
+        if (result.status != SolveStatus::Converged || result.components.front().preference.status != PreferenceStatus::Converged)
             return 1;
         std::cout << "AssemblyPlaneChain" << bodies << " " << samples << " "
-                  << elapsed / static_cast<long long>(samples) << " ns/op\n";
+                  << elapsed / static_cast<long long>(samples) << " ns/op iterations=" << result.iterations
+                  << " preference_iterations=" << result.components.front().preference.iterations
+                  << " residual=" << result.normalized_residual
+                  << " reference_objective=" << result.components.front().preference.reference_objective
+                  << " reference_translation=" << result.components.front().preference.bodies[1].translation << "\n";
     }
 }

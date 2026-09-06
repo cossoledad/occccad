@@ -21,6 +21,172 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// M2.5 local hierarchy and instantaneous freedom evidence; not persistent constraints.
+type AssemblyPreferenceStatus int32
+
+const (
+	AssemblyPreferenceStatus_PREFERENCE_NOT_EVALUATED   AssemblyPreferenceStatus = 0
+	AssemblyPreferenceStatus_PREFERENCE_CONVERGED       AssemblyPreferenceStatus = 1
+	AssemblyPreferenceStatus_PREFERENCE_ITERATION_LIMIT AssemblyPreferenceStatus = 2
+	AssemblyPreferenceStatus_PREFERENCE_STALLED         AssemblyPreferenceStatus = 3
+)
+
+// Enum value maps for AssemblyPreferenceStatus.
+var (
+	AssemblyPreferenceStatus_name = map[int32]string{
+		0: "PREFERENCE_NOT_EVALUATED",
+		1: "PREFERENCE_CONVERGED",
+		2: "PREFERENCE_ITERATION_LIMIT",
+		3: "PREFERENCE_STALLED",
+	}
+	AssemblyPreferenceStatus_value = map[string]int32{
+		"PREFERENCE_NOT_EVALUATED":   0,
+		"PREFERENCE_CONVERGED":       1,
+		"PREFERENCE_ITERATION_LIMIT": 2,
+		"PREFERENCE_STALLED":         3,
+	}
+)
+
+func (x AssemblyPreferenceStatus) Enum() *AssemblyPreferenceStatus {
+	p := new(AssemblyPreferenceStatus)
+	*p = x
+	return p
+}
+
+func (x AssemblyPreferenceStatus) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AssemblyPreferenceStatus) Descriptor() protoreflect.EnumDescriptor {
+	return file_occccad_worker_v1_geometry_worker_proto_enumTypes[0].Descriptor()
+}
+
+func (AssemblyPreferenceStatus) Type() protoreflect.EnumType {
+	return &file_occccad_worker_v1_geometry_worker_proto_enumTypes[0]
+}
+
+func (x AssemblyPreferenceStatus) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AssemblyPreferenceStatus.Descriptor instead.
+func (AssemblyPreferenceStatus) EnumDescriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{0}
+}
+
+type AssemblyMotionRole int32
+
+const (
+	AssemblyMotionRole_MOTION_MOVING    AssemblyMotionRole = 0
+	AssemblyMotionRole_MOTION_REFERENCE AssemblyMotionRole = 1
+	AssemblyMotionRole_MOTION_NEUTRAL   AssemblyMotionRole = 2
+)
+
+// Enum value maps for AssemblyMotionRole.
+var (
+	AssemblyMotionRole_name = map[int32]string{
+		0: "MOTION_MOVING",
+		1: "MOTION_REFERENCE",
+		2: "MOTION_NEUTRAL",
+	}
+	AssemblyMotionRole_value = map[string]int32{
+		"MOTION_MOVING":    0,
+		"MOTION_REFERENCE": 1,
+		"MOTION_NEUTRAL":   2,
+	}
+)
+
+func (x AssemblyMotionRole) Enum() *AssemblyMotionRole {
+	p := new(AssemblyMotionRole)
+	*p = x
+	return p
+}
+
+func (x AssemblyMotionRole) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AssemblyMotionRole) Descriptor() protoreflect.EnumDescriptor {
+	return file_occccad_worker_v1_geometry_worker_proto_enumTypes[1].Descriptor()
+}
+
+func (AssemblyMotionRole) Type() protoreflect.EnumType {
+	return &file_occccad_worker_v1_geometry_worker_proto_enumTypes[1]
+}
+
+func (x AssemblyMotionRole) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AssemblyMotionRole.Descriptor instead.
+func (AssemblyMotionRole) EnumDescriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{1}
+}
+
+type AssemblyFreedomKind int32
+
+const (
+	AssemblyFreedomKind_FREEDOM_FIXED       AssemblyFreedomKind = 0
+	AssemblyFreedomKind_FREEDOM_REVOLUTE    AssemblyFreedomKind = 1
+	AssemblyFreedomKind_FREEDOM_PRISMATIC   AssemblyFreedomKind = 2
+	AssemblyFreedomKind_FREEDOM_CYLINDRICAL AssemblyFreedomKind = 3
+	AssemblyFreedomKind_FREEDOM_PLANAR      AssemblyFreedomKind = 4
+	AssemblyFreedomKind_FREEDOM_SPHERICAL   AssemblyFreedomKind = 5
+	AssemblyFreedomKind_FREEDOM_FREE        AssemblyFreedomKind = 6
+	AssemblyFreedomKind_FREEDOM_COUPLED     AssemblyFreedomKind = 7
+)
+
+// Enum value maps for AssemblyFreedomKind.
+var (
+	AssemblyFreedomKind_name = map[int32]string{
+		0: "FREEDOM_FIXED",
+		1: "FREEDOM_REVOLUTE",
+		2: "FREEDOM_PRISMATIC",
+		3: "FREEDOM_CYLINDRICAL",
+		4: "FREEDOM_PLANAR",
+		5: "FREEDOM_SPHERICAL",
+		6: "FREEDOM_FREE",
+		7: "FREEDOM_COUPLED",
+	}
+	AssemblyFreedomKind_value = map[string]int32{
+		"FREEDOM_FIXED":       0,
+		"FREEDOM_REVOLUTE":    1,
+		"FREEDOM_PRISMATIC":   2,
+		"FREEDOM_CYLINDRICAL": 3,
+		"FREEDOM_PLANAR":      4,
+		"FREEDOM_SPHERICAL":   5,
+		"FREEDOM_FREE":        6,
+		"FREEDOM_COUPLED":     7,
+	}
+)
+
+func (x AssemblyFreedomKind) Enum() *AssemblyFreedomKind {
+	p := new(AssemblyFreedomKind)
+	*p = x
+	return p
+}
+
+func (x AssemblyFreedomKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (AssemblyFreedomKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_occccad_worker_v1_geometry_worker_proto_enumTypes[2].Descriptor()
+}
+
+func (AssemblyFreedomKind) Type() protoreflect.EnumType {
+	return &file_occccad_worker_v1_geometry_worker_proto_enumTypes[2]
+}
+
+func (x AssemblyFreedomKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use AssemblyFreedomKind.Descriptor instead.
+func (AssemblyFreedomKind) EnumDescriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{2}
+}
+
 type Vec2 struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	X             float64                `protobuf:"fixed64,1,opt,name=x,proto3" json:"x,omitempty"`
@@ -197,6 +363,7 @@ type AssemblyBody struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Id            string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
 	InitialPose   *RigidPose             `protobuf:"bytes,2,opt,name=initial_pose,json=initialPose,proto3" json:"initial_pose,omitempty"`
+	InitialGuess  *RigidPose             `protobuf:"bytes,3,opt,name=initial_guess,json=initialGuess,proto3" json:"initial_guess,omitempty"` // numeric seed only; initial_pose freezes nominal/branch
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -241,6 +408,13 @@ func (x *AssemblyBody) GetId() string {
 func (x *AssemblyBody) GetInitialPose() *RigidPose {
 	if x != nil {
 		return x.InitialPose
+	}
+	return nil
+}
+
+func (x *AssemblyBody) GetInitialGuess() *RigidPose {
+	if x != nil {
+		return x.InitialGuess
 	}
 	return nil
 }
@@ -743,6 +917,7 @@ type SolveAssemblyResponse struct {
 	ConstraintRanks                   []*AssemblyConstraintRankInfo `protobuf:"bytes,14,rep,name=constraint_ranks,json=constraintRanks,proto3" json:"constraint_ranks,omitempty"`
 	AngleBranches                     []*AssemblySolvedAngleBranch  `protobuf:"bytes,15,rep,name=angle_branches,json=angleBranches,proto3" json:"angle_branches,omitempty"`
 	SuspectedConflictingConstraintIds []string                      `protobuf:"bytes,16,rep,name=suspected_conflicting_constraint_ids,json=suspectedConflictingConstraintIds,proto3" json:"suspected_conflicting_constraint_ids,omitempty"`
+	SolverBuild                       string                        `protobuf:"bytes,17,opt,name=solver_build,json=solverBuild,proto3" json:"solver_build,omitempty"`
 	unknownFields                     protoimpl.UnknownFields
 	sizeCache                         protoimpl.SizeCache
 }
@@ -887,6 +1062,13 @@ func (x *SolveAssemblyResponse) GetSuspectedConflictingConstraintIds() []string 
 		return x.SuspectedConflictingConstraintIds
 	}
 	return nil
+}
+
+func (x *SolveAssemblyResponse) GetSolverBuild() string {
+	if x != nil {
+		return x.SolverBuild
+	}
+	return ""
 }
 
 type SketchPoint struct {
@@ -4555,18 +4737,20 @@ func (x *AssemblyEquationResidual) GetNormalizedValue() float64 {
 }
 
 type AssemblyComponentDof struct {
-	state                protoimpl.MessageState   `protogen:"open.v1"`
-	ComponentId          string                   `protobuf:"bytes,1,opt,name=component_id,json=componentId,proto3" json:"component_id,omitempty"`
-	BodyIds              []string                 `protobuf:"bytes,2,rep,name=body_ids,json=bodyIds,proto3" json:"body_ids,omitempty"`
-	TangentVariableCount uint64                   `protobuf:"varint,3,opt,name=tangent_variable_count,json=tangentVariableCount,proto3" json:"tangent_variable_count,omitempty"`
-	JacobianRank         uint64                   `protobuf:"varint,4,opt,name=jacobian_rank,json=jacobianRank,proto3" json:"jacobian_rank,omitempty"`
-	RelativeDof          uint64                   `protobuf:"varint,5,opt,name=relative_dof,json=relativeDof,proto3" json:"relative_dof,omitempty"`
-	GaugeDof             uint64                   `protobuf:"varint,6,opt,name=gauge_dof,json=gaugeDof,proto3" json:"gauge_dof,omitempty"`
-	Solved               bool                     `protobuf:"varint,7,opt,name=solved,proto3" json:"solved,omitempty"`
-	TangentClusterIds    []string                 `protobuf:"bytes,8,rep,name=tangent_cluster_ids,json=tangentClusterIds,proto3" json:"tangent_cluster_ids,omitempty"`
-	NullSpaceBasis       []*AssemblyTangentVector `protobuf:"bytes,9,rep,name=null_space_basis,json=nullSpaceBasis,proto3" json:"null_space_basis,omitempty"`
-	SingularValues       []float64                `protobuf:"fixed64,10,rep,packed,name=singular_values,json=singularValues,proto3" json:"singular_values,omitempty"`
-	RankThreshold        float64                  `protobuf:"fixed64,11,opt,name=rank_threshold,json=rankThreshold,proto3" json:"rank_threshold,omitempty"`
+	state                protoimpl.MessageState    `protogen:"open.v1"`
+	ComponentId          string                    `protobuf:"bytes,1,opt,name=component_id,json=componentId,proto3" json:"component_id,omitempty"`
+	BodyIds              []string                  `protobuf:"bytes,2,rep,name=body_ids,json=bodyIds,proto3" json:"body_ids,omitempty"`
+	TangentVariableCount uint64                    `protobuf:"varint,3,opt,name=tangent_variable_count,json=tangentVariableCount,proto3" json:"tangent_variable_count,omitempty"`
+	JacobianRank         uint64                    `protobuf:"varint,4,opt,name=jacobian_rank,json=jacobianRank,proto3" json:"jacobian_rank,omitempty"`
+	RelativeDof          uint64                    `protobuf:"varint,5,opt,name=relative_dof,json=relativeDof,proto3" json:"relative_dof,omitempty"`
+	GaugeDof             uint64                    `protobuf:"varint,6,opt,name=gauge_dof,json=gaugeDof,proto3" json:"gauge_dof,omitempty"`
+	Solved               bool                      `protobuf:"varint,7,opt,name=solved,proto3" json:"solved,omitempty"`
+	TangentClusterIds    []string                  `protobuf:"bytes,8,rep,name=tangent_cluster_ids,json=tangentClusterIds,proto3" json:"tangent_cluster_ids,omitempty"`
+	NullSpaceBasis       []*AssemblyTangentVector  `protobuf:"bytes,9,rep,name=null_space_basis,json=nullSpaceBasis,proto3" json:"null_space_basis,omitempty"`
+	SingularValues       []float64                 `protobuf:"fixed64,10,rep,packed,name=singular_values,json=singularValues,proto3" json:"singular_values,omitempty"`
+	RankThreshold        float64                   `protobuf:"fixed64,11,opt,name=rank_threshold,json=rankThreshold,proto3" json:"rank_threshold,omitempty"`
+	Preference           *AssemblyMotionPreference `protobuf:"bytes,12,opt,name=preference,proto3" json:"preference,omitempty"`
+	Freedoms             []*AssemblyBodyFreedom    `protobuf:"bytes,13,rep,name=freedoms,proto3" json:"freedoms,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -4676,6 +4860,20 @@ func (x *AssemblyComponentDof) GetRankThreshold() float64 {
 		return x.RankThreshold
 	}
 	return 0
+}
+
+func (x *AssemblyComponentDof) GetPreference() *AssemblyMotionPreference {
+	if x != nil {
+		return x.Preference
+	}
+	return nil
+}
+
+func (x *AssemblyComponentDof) GetFreedoms() []*AssemblyBodyFreedom {
+	if x != nil {
+		return x.Freedoms
+	}
+	return nil
 }
 
 type AssemblyTangentVector struct {
@@ -5073,12 +5271,14 @@ type AssemblySolverProfile struct {
 	RankAbsoluteTolerance           float64                `protobuf:"fixed64,15,opt,name=rank_absolute_tolerance,json=rankAbsoluteTolerance,proto3" json:"rank_absolute_tolerance,omitempty"`
 	RankRelativeTolerance           float64                `protobuf:"fixed64,16,opt,name=rank_relative_tolerance,json=rankRelativeTolerance,proto3" json:"rank_relative_tolerance,omitempty"`
 	GradientTolerance               float64                `protobuf:"fixed64,17,opt,name=gradient_tolerance,json=gradientTolerance,proto3" json:"gradient_tolerance,omitempty"`
-	MovingPreferenceWeight          float64                `protobuf:"fixed64,18,opt,name=moving_preference_weight,json=movingPreferenceWeight,proto3" json:"moving_preference_weight,omitempty"`
-	NeutralPreferenceWeight         float64                `protobuf:"fixed64,19,opt,name=neutral_preference_weight,json=neutralPreferenceWeight,proto3" json:"neutral_preference_weight,omitempty"`
-	ReferencePreferenceWeight       float64                `protobuf:"fixed64,20,opt,name=reference_preference_weight,json=referencePreferenceWeight,proto3" json:"reference_preference_weight,omitempty"`
+	MotionLengthScale               float64                `protobuf:"fixed64,18,opt,name=motion_length_scale,json=motionLengthScale,proto3" json:"motion_length_scale,omitempty"`
+	MotionAngleScale                float64                `protobuf:"fixed64,19,opt,name=motion_angle_scale,json=motionAngleScale,proto3" json:"motion_angle_scale,omitempty"`
+	PreferenceTolerance             float64                `protobuf:"fixed64,20,opt,name=preference_tolerance,json=preferenceTolerance,proto3" json:"preference_tolerance,omitempty"`
 	MaxConflictProbes               uint64                 `protobuf:"varint,21,opt,name=max_conflict_probes,json=maxConflictProbes,proto3" json:"max_conflict_probes,omitempty"`
 	VerifyAnalyticJacobians         bool                   `protobuf:"varint,22,opt,name=verify_analytic_jacobians,json=verifyAnalyticJacobians,proto3" json:"verify_analytic_jacobians,omitempty"`
 	JacobianCheckTolerance          float64                `protobuf:"fixed64,23,opt,name=jacobian_check_tolerance,json=jacobianCheckTolerance,proto3" json:"jacobian_check_tolerance,omitempty"`
+	ObjectiveTolerance              float64                `protobuf:"fixed64,24,opt,name=objective_tolerance,json=objectiveTolerance,proto3" json:"objective_tolerance,omitempty"`
+	MaxPreferenceIterations         *uint64                `protobuf:"varint,25,opt,name=max_preference_iterations,json=maxPreferenceIterations,proto3,oneof" json:"max_preference_iterations,omitempty"`
 	unknownFields                   protoimpl.UnknownFields
 	sizeCache                       protoimpl.SizeCache
 }
@@ -5232,23 +5432,23 @@ func (x *AssemblySolverProfile) GetGradientTolerance() float64 {
 	return 0
 }
 
-func (x *AssemblySolverProfile) GetMovingPreferenceWeight() float64 {
+func (x *AssemblySolverProfile) GetMotionLengthScale() float64 {
 	if x != nil {
-		return x.MovingPreferenceWeight
+		return x.MotionLengthScale
 	}
 	return 0
 }
 
-func (x *AssemblySolverProfile) GetNeutralPreferenceWeight() float64 {
+func (x *AssemblySolverProfile) GetMotionAngleScale() float64 {
 	if x != nil {
-		return x.NeutralPreferenceWeight
+		return x.MotionAngleScale
 	}
 	return 0
 }
 
-func (x *AssemblySolverProfile) GetReferencePreferenceWeight() float64 {
+func (x *AssemblySolverProfile) GetPreferenceTolerance() float64 {
 	if x != nil {
-		return x.ReferencePreferenceWeight
+		return x.PreferenceTolerance
 	}
 	return 0
 }
@@ -5274,6 +5474,388 @@ func (x *AssemblySolverProfile) GetJacobianCheckTolerance() float64 {
 	return 0
 }
 
+func (x *AssemblySolverProfile) GetObjectiveTolerance() float64 {
+	if x != nil {
+		return x.ObjectiveTolerance
+	}
+	return 0
+}
+
+func (x *AssemblySolverProfile) GetMaxPreferenceIterations() uint64 {
+	if x != nil && x.MaxPreferenceIterations != nil {
+		return *x.MaxPreferenceIterations
+	}
+	return 0
+}
+
+type AssemblyBodyMotion struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	BodyId        string                 `protobuf:"bytes,1,opt,name=body_id,json=bodyId,proto3" json:"body_id,omitempty"`
+	Role          AssemblyMotionRole     `protobuf:"varint,2,opt,name=role,proto3,enum=occccad.worker.v1.AssemblyMotionRole" json:"role,omitempty"`
+	Translation   float64                `protobuf:"fixed64,3,opt,name=translation,proto3" json:"translation,omitempty"`
+	Rotation      float64                `protobuf:"fixed64,4,opt,name=rotation,proto3" json:"rotation,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AssemblyBodyMotion) Reset() {
+	*x = AssemblyBodyMotion{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[70]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssemblyBodyMotion) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssemblyBodyMotion) ProtoMessage() {}
+
+func (x *AssemblyBodyMotion) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[70]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssemblyBodyMotion.ProtoReflect.Descriptor instead.
+func (*AssemblyBodyMotion) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{70}
+}
+
+func (x *AssemblyBodyMotion) GetBodyId() string {
+	if x != nil {
+		return x.BodyId
+	}
+	return ""
+}
+
+func (x *AssemblyBodyMotion) GetRole() AssemblyMotionRole {
+	if x != nil {
+		return x.Role
+	}
+	return AssemblyMotionRole_MOTION_MOVING
+}
+
+func (x *AssemblyBodyMotion) GetTranslation() float64 {
+	if x != nil {
+		return x.Translation
+	}
+	return 0
+}
+
+func (x *AssemblyBodyMotion) GetRotation() float64 {
+	if x != nil {
+		return x.Rotation
+	}
+	return 0
+}
+
+type AssemblyMotionPreference struct {
+	state                 protoimpl.MessageState   `protogen:"open.v1"`
+	Status                AssemblyPreferenceStatus `protobuf:"varint,1,opt,name=status,proto3,enum=occccad.worker.v1.AssemblyPreferenceStatus" json:"status,omitempty"`
+	GeometricallyFeasible bool                     `protobuf:"varint,2,opt,name=geometrically_feasible,json=geometricallyFeasible,proto3" json:"geometrically_feasible,omitempty"`
+	ReferenceObjective    float64                  `protobuf:"fixed64,3,opt,name=reference_objective,json=referenceObjective,proto3" json:"reference_objective,omitempty"`
+	TotalObjective        float64                  `protobuf:"fixed64,4,opt,name=total_objective,json=totalObjective,proto3" json:"total_objective,omitempty"`
+	ReferenceOptimality   float64                  `protobuf:"fixed64,5,opt,name=reference_optimality,json=referenceOptimality,proto3" json:"reference_optimality,omitempty"`
+	TotalOptimality       float64                  `protobuf:"fixed64,6,opt,name=total_optimality,json=totalOptimality,proto3" json:"total_optimality,omitempty"`
+	LengthScale           float64                  `protobuf:"fixed64,7,opt,name=length_scale,json=lengthScale,proto3" json:"length_scale,omitempty"`
+	AngleScale            float64                  `protobuf:"fixed64,8,opt,name=angle_scale,json=angleScale,proto3" json:"angle_scale,omitempty"`
+	Iterations            uint64                   `protobuf:"varint,9,opt,name=iterations,proto3" json:"iterations,omitempty"`
+	Bodies                []*AssemblyBodyMotion    `protobuf:"bytes,10,rep,name=bodies,proto3" json:"bodies,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *AssemblyMotionPreference) Reset() {
+	*x = AssemblyMotionPreference{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[71]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssemblyMotionPreference) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssemblyMotionPreference) ProtoMessage() {}
+
+func (x *AssemblyMotionPreference) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[71]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssemblyMotionPreference.ProtoReflect.Descriptor instead.
+func (*AssemblyMotionPreference) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{71}
+}
+
+func (x *AssemblyMotionPreference) GetStatus() AssemblyPreferenceStatus {
+	if x != nil {
+		return x.Status
+	}
+	return AssemblyPreferenceStatus_PREFERENCE_NOT_EVALUATED
+}
+
+func (x *AssemblyMotionPreference) GetGeometricallyFeasible() bool {
+	if x != nil {
+		return x.GeometricallyFeasible
+	}
+	return false
+}
+
+func (x *AssemblyMotionPreference) GetReferenceObjective() float64 {
+	if x != nil {
+		return x.ReferenceObjective
+	}
+	return 0
+}
+
+func (x *AssemblyMotionPreference) GetTotalObjective() float64 {
+	if x != nil {
+		return x.TotalObjective
+	}
+	return 0
+}
+
+func (x *AssemblyMotionPreference) GetReferenceOptimality() float64 {
+	if x != nil {
+		return x.ReferenceOptimality
+	}
+	return 0
+}
+
+func (x *AssemblyMotionPreference) GetTotalOptimality() float64 {
+	if x != nil {
+		return x.TotalOptimality
+	}
+	return 0
+}
+
+func (x *AssemblyMotionPreference) GetLengthScale() float64 {
+	if x != nil {
+		return x.LengthScale
+	}
+	return 0
+}
+
+func (x *AssemblyMotionPreference) GetAngleScale() float64 {
+	if x != nil {
+		return x.AngleScale
+	}
+	return 0
+}
+
+func (x *AssemblyMotionPreference) GetIterations() uint64 {
+	if x != nil {
+		return x.Iterations
+	}
+	return 0
+}
+
+func (x *AssemblyMotionPreference) GetBodies() []*AssemblyBodyMotion {
+	if x != nil {
+		return x.Bodies
+	}
+	return nil
+}
+
+type AssemblyScrewFreedom struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Direction     *Vec3                  `protobuf:"bytes,1,opt,name=direction,proto3" json:"direction,omitempty"`
+	AxisPoint     *Vec3                  `protobuf:"bytes,2,opt,name=axis_point,json=axisPoint,proto3" json:"axis_point,omitempty"`
+	Pitch         float64                `protobuf:"fixed64,3,opt,name=pitch,proto3" json:"pitch,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AssemblyScrewFreedom) Reset() {
+	*x = AssemblyScrewFreedom{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[72]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssemblyScrewFreedom) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssemblyScrewFreedom) ProtoMessage() {}
+
+func (x *AssemblyScrewFreedom) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[72]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssemblyScrewFreedom.ProtoReflect.Descriptor instead.
+func (*AssemblyScrewFreedom) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{72}
+}
+
+func (x *AssemblyScrewFreedom) GetDirection() *Vec3 {
+	if x != nil {
+		return x.Direction
+	}
+	return nil
+}
+
+func (x *AssemblyScrewFreedom) GetAxisPoint() *Vec3 {
+	if x != nil {
+		return x.AxisPoint
+	}
+	return nil
+}
+
+func (x *AssemblyScrewFreedom) GetPitch() float64 {
+	if x != nil {
+		return x.Pitch
+	}
+	return 0
+}
+
+type AssemblyBodyFreedom struct {
+	state                 protoimpl.MessageState   `protogen:"open.v1"`
+	BodyId                string                   `protobuf:"bytes,1,opt,name=body_id,json=bodyId,proto3" json:"body_id,omitempty"`
+	RelativeToBodyId      string                   `protobuf:"bytes,2,opt,name=relative_to_body_id,json=relativeToBodyId,proto3" json:"relative_to_body_id,omitempty"`
+	LinearizationPose     *RigidPose               `protobuf:"bytes,3,opt,name=linearization_pose,json=linearizationPose,proto3" json:"linearization_pose,omitempty"`
+	Kind                  AssemblyFreedomKind      `protobuf:"varint,4,opt,name=kind,proto3,enum=occccad.worker.v1.AssemblyFreedomKind" json:"kind,omitempty"`
+	TranslationDof        uint64                   `protobuf:"varint,5,opt,name=translation_dof,json=translationDof,proto3" json:"translation_dof,omitempty"`
+	RotationDof           uint64                   `protobuf:"varint,6,opt,name=rotation_dof,json=rotationDof,proto3" json:"rotation_dof,omitempty"`
+	AllowedBasis          []*AssemblyTangentVector `protobuf:"bytes,7,rep,name=allowed_basis,json=allowedBasis,proto3" json:"allowed_basis,omitempty"`
+	BlockedBasis          []*AssemblyTangentVector `protobuf:"bytes,8,rep,name=blocked_basis,json=blockedBasis,proto3" json:"blocked_basis,omitempty"`
+	TranslationDirections []*Vec3                  `protobuf:"bytes,9,rep,name=translation_directions,json=translationDirections,proto3" json:"translation_directions,omitempty"`
+	Rotations             []*AssemblyScrewFreedom  `protobuf:"bytes,10,rep,name=rotations,proto3" json:"rotations,omitempty"`
+	RankThreshold         float64                  `protobuf:"fixed64,11,opt,name=rank_threshold,json=rankThreshold,proto3" json:"rank_threshold,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *AssemblyBodyFreedom) Reset() {
+	*x = AssemblyBodyFreedom{}
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[73]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AssemblyBodyFreedom) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssemblyBodyFreedom) ProtoMessage() {}
+
+func (x *AssemblyBodyFreedom) ProtoReflect() protoreflect.Message {
+	mi := &file_occccad_worker_v1_geometry_worker_proto_msgTypes[73]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssemblyBodyFreedom.ProtoReflect.Descriptor instead.
+func (*AssemblyBodyFreedom) Descriptor() ([]byte, []int) {
+	return file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP(), []int{73}
+}
+
+func (x *AssemblyBodyFreedom) GetBodyId() string {
+	if x != nil {
+		return x.BodyId
+	}
+	return ""
+}
+
+func (x *AssemblyBodyFreedom) GetRelativeToBodyId() string {
+	if x != nil {
+		return x.RelativeToBodyId
+	}
+	return ""
+}
+
+func (x *AssemblyBodyFreedom) GetLinearizationPose() *RigidPose {
+	if x != nil {
+		return x.LinearizationPose
+	}
+	return nil
+}
+
+func (x *AssemblyBodyFreedom) GetKind() AssemblyFreedomKind {
+	if x != nil {
+		return x.Kind
+	}
+	return AssemblyFreedomKind_FREEDOM_FIXED
+}
+
+func (x *AssemblyBodyFreedom) GetTranslationDof() uint64 {
+	if x != nil {
+		return x.TranslationDof
+	}
+	return 0
+}
+
+func (x *AssemblyBodyFreedom) GetRotationDof() uint64 {
+	if x != nil {
+		return x.RotationDof
+	}
+	return 0
+}
+
+func (x *AssemblyBodyFreedom) GetAllowedBasis() []*AssemblyTangentVector {
+	if x != nil {
+		return x.AllowedBasis
+	}
+	return nil
+}
+
+func (x *AssemblyBodyFreedom) GetBlockedBasis() []*AssemblyTangentVector {
+	if x != nil {
+		return x.BlockedBasis
+	}
+	return nil
+}
+
+func (x *AssemblyBodyFreedom) GetTranslationDirections() []*Vec3 {
+	if x != nil {
+		return x.TranslationDirections
+	}
+	return nil
+}
+
+func (x *AssemblyBodyFreedom) GetRotations() []*AssemblyScrewFreedom {
+	if x != nil {
+		return x.Rotations
+	}
+	return nil
+}
+
+func (x *AssemblyBodyFreedom) GetRankThreshold() float64 {
+	if x != nil {
+		return x.RankThreshold
+	}
+	return 0
+}
+
 var File_occccad_worker_v1_geometry_worker_proto protoreflect.FileDescriptor
 
 const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
@@ -5290,10 +5872,11 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x01w\x18\x04 \x01(\x01R\x01w\"\x81\x01\n" +
 	"\tRigidPose\x129\n" +
 	"\vtranslation\x18\x01 \x01(\v2\x17.occccad.worker.v1.Vec3R\vtranslation\x129\n" +
-	"\brotation\x18\x02 \x01(\v2\x1d.occccad.worker.v1.QuaternionR\brotation\"_\n" +
+	"\brotation\x18\x02 \x01(\v2\x1d.occccad.worker.v1.QuaternionR\brotation\"\xa2\x01\n" +
 	"\fAssemblyBody\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12?\n" +
-	"\finitial_pose\x18\x02 \x01(\v2\x1c.occccad.worker.v1.RigidPoseR\vinitialPose\"\xcf\x01\n" +
+	"\finitial_pose\x18\x02 \x01(\v2\x1c.occccad.worker.v1.RigidPoseR\vinitialPose\x12A\n" +
+	"\rinitial_guess\x18\x03 \x01(\v2\x1c.occccad.worker.v1.RigidPoseR\finitialGuess\"\xcf\x01\n" +
 	"\x10AssemblyGeometry\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
 	"\abody_id\x18\x02 \x01(\tR\x06bodyId\x12\x12\n" +
@@ -5338,7 +5921,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x0fnormalized_norm\x18\x02 \x01(\x01R\x0enormalizedNorm\"V\n" +
 	"\x12SolvedAssemblyBody\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x120\n" +
-	"\x04pose\x18\x02 \x01(\v2\x1c.occccad.worker.v1.RigidPoseR\x04pose\"\xfd\a\n" +
+	"\x04pose\x18\x02 \x01(\v2\x1c.occccad.worker.v1.RigidPoseR\x04pose\"\xa0\b\n" +
 	"\x15SolveAssemblyResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12=\n" +
 	"\x06bodies\x18\x02 \x03(\v2%.occccad.worker.v1.SolvedAssemblyBodyR\x06bodies\x12K\n" +
@@ -5362,7 +5945,8 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x1aunsatisfied_constraint_ids\x18\r \x03(\tR\x18unsatisfiedConstraintIds\x12X\n" +
 	"\x10constraint_ranks\x18\x0e \x03(\v2-.occccad.worker.v1.AssemblyConstraintRankInfoR\x0fconstraintRanks\x12S\n" +
 	"\x0eangle_branches\x18\x0f \x03(\v2,.occccad.worker.v1.AssemblySolvedAngleBranchR\rangleBranches\x12O\n" +
-	"$suspected_conflicting_constraint_ids\x18\x10 \x03(\tR!suspectedConflictingConstraintIds\"`\n" +
+	"$suspected_conflicting_constraint_ids\x18\x10 \x03(\tR!suspectedConflictingConstraintIds\x12!\n" +
+	"\fsolver_build\x18\x11 \x01(\tR\vsolverBuild\"`\n" +
 	"\vSketchPoint\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12-\n" +
 	"\x05point\x18\x02 \x01(\v2\x17.occccad.worker.v1.Vec2R\x05point\x12\x12\n" +
@@ -5689,7 +6273,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\rconnection_id\x18\x02 \x01(\tR\fconnectionId\x12#\n" +
 	"\rconstraint_id\x18\x03 \x01(\tR\fconstraintId\x12%\n" +
 	"\x0eequation_index\x18\x04 \x01(\x04R\requationIndex\x12)\n" +
-	"\x10normalized_value\x18\x05 \x01(\x01R\x0fnormalizedValue\"\xdb\x03\n" +
+	"\x10normalized_value\x18\x05 \x01(\x01R\x0fnormalizedValue\"\xec\x04\n" +
 	"\x14AssemblyComponentDof\x12!\n" +
 	"\fcomponent_id\x18\x01 \x01(\tR\vcomponentId\x12\x19\n" +
 	"\bbody_ids\x18\x02 \x03(\tR\abodyIds\x124\n" +
@@ -5702,7 +6286,11 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x10null_space_basis\x18\t \x03(\v2(.occccad.worker.v1.AssemblyTangentVectorR\x0enullSpaceBasis\x12'\n" +
 	"\x0fsingular_values\x18\n" +
 	" \x03(\x01R\x0esingularValues\x12%\n" +
-	"\x0erank_threshold\x18\v \x01(\x01R\rrankThreshold\"/\n" +
+	"\x0erank_threshold\x18\v \x01(\x01R\rrankThreshold\x12K\n" +
+	"\n" +
+	"preference\x18\f \x01(\v2+.occccad.worker.v1.AssemblyMotionPreferenceR\n" +
+	"preference\x12B\n" +
+	"\bfreedoms\x18\r \x03(\v2&.occccad.worker.v1.AssemblyBodyFreedomR\bfreedoms\"/\n" +
 	"\x15AssemblyTangentVector\x12\x16\n" +
 	"\x06values\x18\x01 \x03(\x01R\x06values\"\xaa\x01\n" +
 	"\x17AssemblySolveDiagnostic\x12\x12\n" +
@@ -5728,7 +6316,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x0eeffective_rank\x18\x03 \x01(\x04R\reffectiveRank\x12)\n" +
 	"\x10incremental_rank\x18\x04 \x01(\x04R\x0fincrementalRank\x12\x12\n" +
 	"\x04role\x18\x05 \x01(\tR\x04role\x122\n" +
-	"\x15declared_generic_rank\x18\x06 \x01(\x04R\x13declaredGenericRank\"\x85\n" +
+	"\x15declared_generic_rank\x18\x06 \x01(\x04R\x13declaredGenericRank\"\xf0\n" +
 	"\n" +
 	"\x15AssemblySolverProfile\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12%\n" +
@@ -5748,13 +6336,72 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x1frotation_finite_difference_step\x18\x0e \x01(\x01R\x1crotationFiniteDifferenceStep\x126\n" +
 	"\x17rank_absolute_tolerance\x18\x0f \x01(\x01R\x15rankAbsoluteTolerance\x126\n" +
 	"\x17rank_relative_tolerance\x18\x10 \x01(\x01R\x15rankRelativeTolerance\x12-\n" +
-	"\x12gradient_tolerance\x18\x11 \x01(\x01R\x11gradientTolerance\x128\n" +
-	"\x18moving_preference_weight\x18\x12 \x01(\x01R\x16movingPreferenceWeight\x12:\n" +
-	"\x19neutral_preference_weight\x18\x13 \x01(\x01R\x17neutralPreferenceWeight\x12>\n" +
-	"\x1breference_preference_weight\x18\x14 \x01(\x01R\x19referencePreferenceWeight\x12.\n" +
+	"\x12gradient_tolerance\x18\x11 \x01(\x01R\x11gradientTolerance\x12.\n" +
+	"\x13motion_length_scale\x18\x12 \x01(\x01R\x11motionLengthScale\x12,\n" +
+	"\x12motion_angle_scale\x18\x13 \x01(\x01R\x10motionAngleScale\x121\n" +
+	"\x14preference_tolerance\x18\x14 \x01(\x01R\x13preferenceTolerance\x12.\n" +
 	"\x13max_conflict_probes\x18\x15 \x01(\x04R\x11maxConflictProbes\x12:\n" +
 	"\x19verify_analytic_jacobians\x18\x16 \x01(\bR\x17verifyAnalyticJacobians\x128\n" +
-	"\x18jacobian_check_tolerance\x18\x17 \x01(\x01R\x16jacobianCheckTolerance2\xf8\t\n" +
+	"\x18jacobian_check_tolerance\x18\x17 \x01(\x01R\x16jacobianCheckTolerance\x12/\n" +
+	"\x13objective_tolerance\x18\x18 \x01(\x01R\x12objectiveTolerance\x12?\n" +
+	"\x19max_preference_iterations\x18\x19 \x01(\x04H\x00R\x17maxPreferenceIterations\x88\x01\x01B\x1c\n" +
+	"\x1a_max_preference_iterations\"\xa6\x01\n" +
+	"\x12AssemblyBodyMotion\x12\x17\n" +
+	"\abody_id\x18\x01 \x01(\tR\x06bodyId\x129\n" +
+	"\x04role\x18\x02 \x01(\x0e2%.occccad.worker.v1.AssemblyMotionRoleR\x04role\x12 \n" +
+	"\vtranslation\x18\x03 \x01(\x01R\vtranslation\x12\x1a\n" +
+	"\brotation\x18\x04 \x01(\x01R\brotation\"\xf1\x03\n" +
+	"\x18AssemblyMotionPreference\x12C\n" +
+	"\x06status\x18\x01 \x01(\x0e2+.occccad.worker.v1.AssemblyPreferenceStatusR\x06status\x125\n" +
+	"\x16geometrically_feasible\x18\x02 \x01(\bR\x15geometricallyFeasible\x12/\n" +
+	"\x13reference_objective\x18\x03 \x01(\x01R\x12referenceObjective\x12'\n" +
+	"\x0ftotal_objective\x18\x04 \x01(\x01R\x0etotalObjective\x121\n" +
+	"\x14reference_optimality\x18\x05 \x01(\x01R\x13referenceOptimality\x12)\n" +
+	"\x10total_optimality\x18\x06 \x01(\x01R\x0ftotalOptimality\x12!\n" +
+	"\flength_scale\x18\a \x01(\x01R\vlengthScale\x12\x1f\n" +
+	"\vangle_scale\x18\b \x01(\x01R\n" +
+	"angleScale\x12\x1e\n" +
+	"\n" +
+	"iterations\x18\t \x01(\x04R\n" +
+	"iterations\x12=\n" +
+	"\x06bodies\x18\n" +
+	" \x03(\v2%.occccad.worker.v1.AssemblyBodyMotionR\x06bodies\"\x9b\x01\n" +
+	"\x14AssemblyScrewFreedom\x125\n" +
+	"\tdirection\x18\x01 \x01(\v2\x17.occccad.worker.v1.Vec3R\tdirection\x126\n" +
+	"\n" +
+	"axis_point\x18\x02 \x01(\v2\x17.occccad.worker.v1.Vec3R\taxisPoint\x12\x14\n" +
+	"\x05pitch\x18\x03 \x01(\x01R\x05pitch\"\x8e\x05\n" +
+	"\x13AssemblyBodyFreedom\x12\x17\n" +
+	"\abody_id\x18\x01 \x01(\tR\x06bodyId\x12-\n" +
+	"\x13relative_to_body_id\x18\x02 \x01(\tR\x10relativeToBodyId\x12K\n" +
+	"\x12linearization_pose\x18\x03 \x01(\v2\x1c.occccad.worker.v1.RigidPoseR\x11linearizationPose\x12:\n" +
+	"\x04kind\x18\x04 \x01(\x0e2&.occccad.worker.v1.AssemblyFreedomKindR\x04kind\x12'\n" +
+	"\x0ftranslation_dof\x18\x05 \x01(\x04R\x0etranslationDof\x12!\n" +
+	"\frotation_dof\x18\x06 \x01(\x04R\vrotationDof\x12M\n" +
+	"\rallowed_basis\x18\a \x03(\v2(.occccad.worker.v1.AssemblyTangentVectorR\fallowedBasis\x12M\n" +
+	"\rblocked_basis\x18\b \x03(\v2(.occccad.worker.v1.AssemblyTangentVectorR\fblockedBasis\x12N\n" +
+	"\x16translation_directions\x18\t \x03(\v2\x17.occccad.worker.v1.Vec3R\x15translationDirections\x12E\n" +
+	"\trotations\x18\n" +
+	" \x03(\v2'.occccad.worker.v1.AssemblyScrewFreedomR\trotations\x12%\n" +
+	"\x0erank_threshold\x18\v \x01(\x01R\rrankThreshold*\x8a\x01\n" +
+	"\x18AssemblyPreferenceStatus\x12\x1c\n" +
+	"\x18PREFERENCE_NOT_EVALUATED\x10\x00\x12\x18\n" +
+	"\x14PREFERENCE_CONVERGED\x10\x01\x12\x1e\n" +
+	"\x1aPREFERENCE_ITERATION_LIMIT\x10\x02\x12\x16\n" +
+	"\x12PREFERENCE_STALLED\x10\x03*Q\n" +
+	"\x12AssemblyMotionRole\x12\x11\n" +
+	"\rMOTION_MOVING\x10\x00\x12\x14\n" +
+	"\x10MOTION_REFERENCE\x10\x01\x12\x12\n" +
+	"\x0eMOTION_NEUTRAL\x10\x02*\xc0\x01\n" +
+	"\x13AssemblyFreedomKind\x12\x11\n" +
+	"\rFREEDOM_FIXED\x10\x00\x12\x14\n" +
+	"\x10FREEDOM_REVOLUTE\x10\x01\x12\x15\n" +
+	"\x11FREEDOM_PRISMATIC\x10\x02\x12\x17\n" +
+	"\x13FREEDOM_CYLINDRICAL\x10\x03\x12\x12\n" +
+	"\x0eFREEDOM_PLANAR\x10\x04\x12\x15\n" +
+	"\x11FREEDOM_SPHERICAL\x10\x05\x12\x10\n" +
+	"\fFREEDOM_FREE\x10\x06\x12\x13\n" +
+	"\x0fFREEDOM_COUPLED\x10\a2\xf8\t\n" +
 	"\x0eGeometryWorker\x12G\n" +
 	"\x04Ping\x12\x1e.occccad.worker.v1.PingRequest\x1a\x1f.occccad.worker.v1.PingResponse\x12_\n" +
 	"\fEvaluatePart\x12&.occccad.worker.v1.EvaluatePartRequest\x1a'.occccad.worker.v1.EvaluatePartResponse\x12\\\n" +
@@ -5783,200 +6430,222 @@ func file_occccad_worker_v1_geometry_worker_proto_rawDescGZIP() []byte {
 	return file_occccad_worker_v1_geometry_worker_proto_rawDescData
 }
 
-var file_occccad_worker_v1_geometry_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 70)
+var file_occccad_worker_v1_geometry_worker_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_occccad_worker_v1_geometry_worker_proto_msgTypes = make([]protoimpl.MessageInfo, 74)
 var file_occccad_worker_v1_geometry_worker_proto_goTypes = []any{
-	(*Vec2)(nil),                       // 0: occccad.worker.v1.Vec2
-	(*Quaternion)(nil),                 // 1: occccad.worker.v1.Quaternion
-	(*RigidPose)(nil),                  // 2: occccad.worker.v1.RigidPose
-	(*AssemblyBody)(nil),               // 3: occccad.worker.v1.AssemblyBody
-	(*AssemblyGeometry)(nil),           // 4: occccad.worker.v1.AssemblyGeometry
-	(*AssemblyGeometryRef)(nil),        // 5: occccad.worker.v1.AssemblyGeometryRef
-	(*AssemblyConstraint)(nil),         // 6: occccad.worker.v1.AssemblyConstraint
-	(*SolveAssemblyRequest)(nil),       // 7: occccad.worker.v1.SolveAssemblyRequest
-	(*AssemblyConstraintResidual)(nil), // 8: occccad.worker.v1.AssemblyConstraintResidual
-	(*SolvedAssemblyBody)(nil),         // 9: occccad.worker.v1.SolvedAssemblyBody
-	(*SolveAssemblyResponse)(nil),      // 10: occccad.worker.v1.SolveAssemblyResponse
-	(*SketchPoint)(nil),                // 11: occccad.worker.v1.SketchPoint
-	(*SketchLine)(nil),                 // 12: occccad.worker.v1.SketchLine
-	(*SketchCircle)(nil),               // 13: occccad.worker.v1.SketchCircle
-	(*SketchArc)(nil),                  // 14: occccad.worker.v1.SketchArc
-	(*SketchSpline)(nil),               // 15: occccad.worker.v1.SketchSpline
-	(*SketchGeometryRef)(nil),          // 16: occccad.worker.v1.SketchGeometryRef
-	(*SketchConstraint)(nil),           // 17: occccad.worker.v1.SketchConstraint
-	(*SketchModel)(nil),                // 18: occccad.worker.v1.SketchModel
-	(*SolveSketchRequest)(nil),         // 19: occccad.worker.v1.SolveSketchRequest
-	(*SolveSketchResponse)(nil),        // 20: occccad.worker.v1.SolveSketchResponse
-	(*EvaluatePartRequest)(nil),        // 21: occccad.worker.v1.EvaluatePartRequest
-	(*ProfileCurve)(nil),               // 22: occccad.worker.v1.ProfileCurve
-	(*ProfileLoop)(nil),                // 23: occccad.worker.v1.ProfileLoop
-	(*ProfileRegion)(nil),              // 24: occccad.worker.v1.ProfileRegion
-	(*ProfilePadSpec)(nil),             // 25: occccad.worker.v1.ProfilePadSpec
-	(*ArtifactReference)(nil),          // 26: occccad.worker.v1.ArtifactReference
-	(*InspectExchangeRequest)(nil),     // 27: occccad.worker.v1.InspectExchangeRequest
-	(*ExchangeComponentInfo)(nil),      // 28: occccad.worker.v1.ExchangeComponentInfo
-	(*InspectExchangeResponse)(nil),    // 29: occccad.worker.v1.InspectExchangeResponse
-	(*ImportExchangeRequest)(nil),      // 30: occccad.worker.v1.ImportExchangeRequest
-	(*ExchangeComponent)(nil),          // 31: occccad.worker.v1.ExchangeComponent
-	(*ExportExchangeRequest)(nil),      // 32: occccad.worker.v1.ExportExchangeRequest
-	(*ExportExchangeResponse)(nil),     // 33: occccad.worker.v1.ExportExchangeResponse
-	(*RectangularPadSpec)(nil),         // 34: occccad.worker.v1.RectangularPadSpec
-	(*EvaluatePartResponse)(nil),       // 35: occccad.worker.v1.EvaluatePartResponse
-	(*Mesh)(nil),                       // 36: occccad.worker.v1.Mesh
-	(*EdgePolyline)(nil),               // 37: occccad.worker.v1.EdgePolyline
-	(*TopologyPoint)(nil),              // 38: occccad.worker.v1.TopologyPoint
-	(*Triangle)(nil),                   // 39: occccad.worker.v1.Triangle
-	(*TopologySummary)(nil),            // 40: occccad.worker.v1.TopologySummary
-	(*PingRequest)(nil),                // 41: occccad.worker.v1.PingRequest
-	(*PingResponse)(nil),               // 42: occccad.worker.v1.PingResponse
-	(*LoadGeometryRequest)(nil),        // 43: occccad.worker.v1.LoadGeometryRequest
-	(*LoadGeometryResponse)(nil),       // 44: occccad.worker.v1.LoadGeometryResponse
-	(*UnloadGeometryRequest)(nil),      // 45: occccad.worker.v1.UnloadGeometryRequest
-	(*UnloadGeometryResponse)(nil),     // 46: occccad.worker.v1.UnloadGeometryResponse
-	(*GetTopologyRequest)(nil),         // 47: occccad.worker.v1.GetTopologyRequest
-	(*GetTopologyResponse)(nil),        // 48: occccad.worker.v1.GetTopologyResponse
-	(*TopologyProperty)(nil),           // 49: occccad.worker.v1.TopologyProperty
-	(*FaceInfo)(nil),                   // 50: occccad.worker.v1.FaceInfo
-	(*EdgeInfo)(nil),                   // 51: occccad.worker.v1.EdgeInfo
-	(*VertexInfo)(nil),                 // 52: occccad.worker.v1.VertexInfo
-	(*TessellateRequest)(nil),          // 53: occccad.worker.v1.TessellateRequest
-	(*TessellateResponse)(nil),         // 54: occccad.worker.v1.TessellateResponse
-	(*CreateChamferRequest)(nil),       // 55: occccad.worker.v1.CreateChamferRequest
-	(*CreateChamferResponse)(nil),      // 56: occccad.worker.v1.CreateChamferResponse
-	(*CreateFilletRequest)(nil),        // 57: occccad.worker.v1.CreateFilletRequest
-	(*CreateFilletResponse)(nil),       // 58: occccad.worker.v1.CreateFilletResponse
-	(*BoundingBox)(nil),                // 59: occccad.worker.v1.BoundingBox
-	(*Vec3)(nil),                       // 60: occccad.worker.v1.Vec3
-	(*AssemblyEquationResidual)(nil),   // 61: occccad.worker.v1.AssemblyEquationResidual
-	(*AssemblyComponentDof)(nil),       // 62: occccad.worker.v1.AssemblyComponentDof
-	(*AssemblyTangentVector)(nil),      // 63: occccad.worker.v1.AssemblyTangentVector
-	(*AssemblySolveDiagnostic)(nil),    // 64: occccad.worker.v1.AssemblySolveDiagnostic
-	(*AssemblySolveIntent)(nil),        // 65: occccad.worker.v1.AssemblySolveIntent
-	(*AssemblyAngleBranchState)(nil),   // 66: occccad.worker.v1.AssemblyAngleBranchState
-	(*AssemblySolvedAngleBranch)(nil),  // 67: occccad.worker.v1.AssemblySolvedAngleBranch
-	(*AssemblyConstraintRankInfo)(nil), // 68: occccad.worker.v1.AssemblyConstraintRankInfo
-	(*AssemblySolverProfile)(nil),      // 69: occccad.worker.v1.AssemblySolverProfile
+	(AssemblyPreferenceStatus)(0),      // 0: occccad.worker.v1.AssemblyPreferenceStatus
+	(AssemblyMotionRole)(0),            // 1: occccad.worker.v1.AssemblyMotionRole
+	(AssemblyFreedomKind)(0),           // 2: occccad.worker.v1.AssemblyFreedomKind
+	(*Vec2)(nil),                       // 3: occccad.worker.v1.Vec2
+	(*Quaternion)(nil),                 // 4: occccad.worker.v1.Quaternion
+	(*RigidPose)(nil),                  // 5: occccad.worker.v1.RigidPose
+	(*AssemblyBody)(nil),               // 6: occccad.worker.v1.AssemblyBody
+	(*AssemblyGeometry)(nil),           // 7: occccad.worker.v1.AssemblyGeometry
+	(*AssemblyGeometryRef)(nil),        // 8: occccad.worker.v1.AssemblyGeometryRef
+	(*AssemblyConstraint)(nil),         // 9: occccad.worker.v1.AssemblyConstraint
+	(*SolveAssemblyRequest)(nil),       // 10: occccad.worker.v1.SolveAssemblyRequest
+	(*AssemblyConstraintResidual)(nil), // 11: occccad.worker.v1.AssemblyConstraintResidual
+	(*SolvedAssemblyBody)(nil),         // 12: occccad.worker.v1.SolvedAssemblyBody
+	(*SolveAssemblyResponse)(nil),      // 13: occccad.worker.v1.SolveAssemblyResponse
+	(*SketchPoint)(nil),                // 14: occccad.worker.v1.SketchPoint
+	(*SketchLine)(nil),                 // 15: occccad.worker.v1.SketchLine
+	(*SketchCircle)(nil),               // 16: occccad.worker.v1.SketchCircle
+	(*SketchArc)(nil),                  // 17: occccad.worker.v1.SketchArc
+	(*SketchSpline)(nil),               // 18: occccad.worker.v1.SketchSpline
+	(*SketchGeometryRef)(nil),          // 19: occccad.worker.v1.SketchGeometryRef
+	(*SketchConstraint)(nil),           // 20: occccad.worker.v1.SketchConstraint
+	(*SketchModel)(nil),                // 21: occccad.worker.v1.SketchModel
+	(*SolveSketchRequest)(nil),         // 22: occccad.worker.v1.SolveSketchRequest
+	(*SolveSketchResponse)(nil),        // 23: occccad.worker.v1.SolveSketchResponse
+	(*EvaluatePartRequest)(nil),        // 24: occccad.worker.v1.EvaluatePartRequest
+	(*ProfileCurve)(nil),               // 25: occccad.worker.v1.ProfileCurve
+	(*ProfileLoop)(nil),                // 26: occccad.worker.v1.ProfileLoop
+	(*ProfileRegion)(nil),              // 27: occccad.worker.v1.ProfileRegion
+	(*ProfilePadSpec)(nil),             // 28: occccad.worker.v1.ProfilePadSpec
+	(*ArtifactReference)(nil),          // 29: occccad.worker.v1.ArtifactReference
+	(*InspectExchangeRequest)(nil),     // 30: occccad.worker.v1.InspectExchangeRequest
+	(*ExchangeComponentInfo)(nil),      // 31: occccad.worker.v1.ExchangeComponentInfo
+	(*InspectExchangeResponse)(nil),    // 32: occccad.worker.v1.InspectExchangeResponse
+	(*ImportExchangeRequest)(nil),      // 33: occccad.worker.v1.ImportExchangeRequest
+	(*ExchangeComponent)(nil),          // 34: occccad.worker.v1.ExchangeComponent
+	(*ExportExchangeRequest)(nil),      // 35: occccad.worker.v1.ExportExchangeRequest
+	(*ExportExchangeResponse)(nil),     // 36: occccad.worker.v1.ExportExchangeResponse
+	(*RectangularPadSpec)(nil),         // 37: occccad.worker.v1.RectangularPadSpec
+	(*EvaluatePartResponse)(nil),       // 38: occccad.worker.v1.EvaluatePartResponse
+	(*Mesh)(nil),                       // 39: occccad.worker.v1.Mesh
+	(*EdgePolyline)(nil),               // 40: occccad.worker.v1.EdgePolyline
+	(*TopologyPoint)(nil),              // 41: occccad.worker.v1.TopologyPoint
+	(*Triangle)(nil),                   // 42: occccad.worker.v1.Triangle
+	(*TopologySummary)(nil),            // 43: occccad.worker.v1.TopologySummary
+	(*PingRequest)(nil),                // 44: occccad.worker.v1.PingRequest
+	(*PingResponse)(nil),               // 45: occccad.worker.v1.PingResponse
+	(*LoadGeometryRequest)(nil),        // 46: occccad.worker.v1.LoadGeometryRequest
+	(*LoadGeometryResponse)(nil),       // 47: occccad.worker.v1.LoadGeometryResponse
+	(*UnloadGeometryRequest)(nil),      // 48: occccad.worker.v1.UnloadGeometryRequest
+	(*UnloadGeometryResponse)(nil),     // 49: occccad.worker.v1.UnloadGeometryResponse
+	(*GetTopologyRequest)(nil),         // 50: occccad.worker.v1.GetTopologyRequest
+	(*GetTopologyResponse)(nil),        // 51: occccad.worker.v1.GetTopologyResponse
+	(*TopologyProperty)(nil),           // 52: occccad.worker.v1.TopologyProperty
+	(*FaceInfo)(nil),                   // 53: occccad.worker.v1.FaceInfo
+	(*EdgeInfo)(nil),                   // 54: occccad.worker.v1.EdgeInfo
+	(*VertexInfo)(nil),                 // 55: occccad.worker.v1.VertexInfo
+	(*TessellateRequest)(nil),          // 56: occccad.worker.v1.TessellateRequest
+	(*TessellateResponse)(nil),         // 57: occccad.worker.v1.TessellateResponse
+	(*CreateChamferRequest)(nil),       // 58: occccad.worker.v1.CreateChamferRequest
+	(*CreateChamferResponse)(nil),      // 59: occccad.worker.v1.CreateChamferResponse
+	(*CreateFilletRequest)(nil),        // 60: occccad.worker.v1.CreateFilletRequest
+	(*CreateFilletResponse)(nil),       // 61: occccad.worker.v1.CreateFilletResponse
+	(*BoundingBox)(nil),                // 62: occccad.worker.v1.BoundingBox
+	(*Vec3)(nil),                       // 63: occccad.worker.v1.Vec3
+	(*AssemblyEquationResidual)(nil),   // 64: occccad.worker.v1.AssemblyEquationResidual
+	(*AssemblyComponentDof)(nil),       // 65: occccad.worker.v1.AssemblyComponentDof
+	(*AssemblyTangentVector)(nil),      // 66: occccad.worker.v1.AssemblyTangentVector
+	(*AssemblySolveDiagnostic)(nil),    // 67: occccad.worker.v1.AssemblySolveDiagnostic
+	(*AssemblySolveIntent)(nil),        // 68: occccad.worker.v1.AssemblySolveIntent
+	(*AssemblyAngleBranchState)(nil),   // 69: occccad.worker.v1.AssemblyAngleBranchState
+	(*AssemblySolvedAngleBranch)(nil),  // 70: occccad.worker.v1.AssemblySolvedAngleBranch
+	(*AssemblyConstraintRankInfo)(nil), // 71: occccad.worker.v1.AssemblyConstraintRankInfo
+	(*AssemblySolverProfile)(nil),      // 72: occccad.worker.v1.AssemblySolverProfile
+	(*AssemblyBodyMotion)(nil),         // 73: occccad.worker.v1.AssemblyBodyMotion
+	(*AssemblyMotionPreference)(nil),   // 74: occccad.worker.v1.AssemblyMotionPreference
+	(*AssemblyScrewFreedom)(nil),       // 75: occccad.worker.v1.AssemblyScrewFreedom
+	(*AssemblyBodyFreedom)(nil),        // 76: occccad.worker.v1.AssemblyBodyFreedom
 }
 var file_occccad_worker_v1_geometry_worker_proto_depIdxs = []int32{
-	60,  // 0: occccad.worker.v1.RigidPose.translation:type_name -> occccad.worker.v1.Vec3
-	1,   // 1: occccad.worker.v1.RigidPose.rotation:type_name -> occccad.worker.v1.Quaternion
-	2,   // 2: occccad.worker.v1.AssemblyBody.initial_pose:type_name -> occccad.worker.v1.RigidPose
-	60,  // 3: occccad.worker.v1.AssemblyGeometry.origin:type_name -> occccad.worker.v1.Vec3
-	60,  // 4: occccad.worker.v1.AssemblyGeometry.direction:type_name -> occccad.worker.v1.Vec3
-	5,   // 5: occccad.worker.v1.AssemblyConstraint.first:type_name -> occccad.worker.v1.AssemblyGeometryRef
-	5,   // 6: occccad.worker.v1.AssemblyConstraint.second:type_name -> occccad.worker.v1.AssemblyGeometryRef
-	2,   // 7: occccad.worker.v1.AssemblyConstraint.fixed_pose:type_name -> occccad.worker.v1.RigidPose
-	60,  // 8: occccad.worker.v1.AssemblyConstraint.angle_reference_direction:type_name -> occccad.worker.v1.Vec3
-	66,  // 9: occccad.worker.v1.AssemblyConstraint.angle_branch_state:type_name -> occccad.worker.v1.AssemblyAngleBranchState
-	3,   // 10: occccad.worker.v1.SolveAssemblyRequest.bodies:type_name -> occccad.worker.v1.AssemblyBody
-	4,   // 11: occccad.worker.v1.SolveAssemblyRequest.geometry:type_name -> occccad.worker.v1.AssemblyGeometry
-	6,   // 12: occccad.worker.v1.SolveAssemblyRequest.constraints:type_name -> occccad.worker.v1.AssemblyConstraint
-	65,  // 13: occccad.worker.v1.SolveAssemblyRequest.solve_intent:type_name -> occccad.worker.v1.AssemblySolveIntent
-	69,  // 14: occccad.worker.v1.SolveAssemblyRequest.solver_profile:type_name -> occccad.worker.v1.AssemblySolverProfile
-	2,   // 15: occccad.worker.v1.SolvedAssemblyBody.pose:type_name -> occccad.worker.v1.RigidPose
-	9,   // 16: occccad.worker.v1.SolveAssemblyResponse.bodies:type_name -> occccad.worker.v1.SolvedAssemblyBody
-	8,   // 17: occccad.worker.v1.SolveAssemblyResponse.residuals:type_name -> occccad.worker.v1.AssemblyConstraintResidual
-	61,  // 18: occccad.worker.v1.SolveAssemblyResponse.equation_residuals:type_name -> occccad.worker.v1.AssemblyEquationResidual
-	62,  // 19: occccad.worker.v1.SolveAssemblyResponse.components:type_name -> occccad.worker.v1.AssemblyComponentDof
-	64,  // 20: occccad.worker.v1.SolveAssemblyResponse.diagnostics:type_name -> occccad.worker.v1.AssemblySolveDiagnostic
-	68,  // 21: occccad.worker.v1.SolveAssemblyResponse.constraint_ranks:type_name -> occccad.worker.v1.AssemblyConstraintRankInfo
-	67,  // 22: occccad.worker.v1.SolveAssemblyResponse.angle_branches:type_name -> occccad.worker.v1.AssemblySolvedAngleBranch
-	0,   // 23: occccad.worker.v1.SketchPoint.point:type_name -> occccad.worker.v1.Vec2
-	0,   // 24: occccad.worker.v1.SketchLine.start:type_name -> occccad.worker.v1.Vec2
-	0,   // 25: occccad.worker.v1.SketchLine.end:type_name -> occccad.worker.v1.Vec2
-	0,   // 26: occccad.worker.v1.SketchCircle.center:type_name -> occccad.worker.v1.Vec2
-	0,   // 27: occccad.worker.v1.SketchArc.center:type_name -> occccad.worker.v1.Vec2
-	0,   // 28: occccad.worker.v1.SketchSpline.control_points:type_name -> occccad.worker.v1.Vec2
-	16,  // 29: occccad.worker.v1.SketchConstraint.references:type_name -> occccad.worker.v1.SketchGeometryRef
-	0,   // 30: occccad.worker.v1.SketchConstraint.fixed_point:type_name -> occccad.worker.v1.Vec2
-	11,  // 31: occccad.worker.v1.SketchModel.points:type_name -> occccad.worker.v1.SketchPoint
-	12,  // 32: occccad.worker.v1.SketchModel.lines:type_name -> occccad.worker.v1.SketchLine
-	17,  // 33: occccad.worker.v1.SketchModel.constraints:type_name -> occccad.worker.v1.SketchConstraint
-	13,  // 34: occccad.worker.v1.SketchModel.circles:type_name -> occccad.worker.v1.SketchCircle
-	14,  // 35: occccad.worker.v1.SketchModel.arcs:type_name -> occccad.worker.v1.SketchArc
-	15,  // 36: occccad.worker.v1.SketchModel.splines:type_name -> occccad.worker.v1.SketchSpline
-	18,  // 37: occccad.worker.v1.SolveSketchRequest.sketch:type_name -> occccad.worker.v1.SketchModel
-	18,  // 38: occccad.worker.v1.SolveSketchResponse.sketch:type_name -> occccad.worker.v1.SketchModel
-	34,  // 39: occccad.worker.v1.EvaluatePartRequest.rectangular_pad:type_name -> occccad.worker.v1.RectangularPadSpec
-	34,  // 40: occccad.worker.v1.EvaluatePartRequest.rectangular_pads:type_name -> occccad.worker.v1.RectangularPadSpec
-	26,  // 41: occccad.worker.v1.EvaluatePartRequest.base_brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	25,  // 42: occccad.worker.v1.EvaluatePartRequest.profile_pads:type_name -> occccad.worker.v1.ProfilePadSpec
-	0,   // 43: occccad.worker.v1.ProfileCurve.start:type_name -> occccad.worker.v1.Vec2
-	0,   // 44: occccad.worker.v1.ProfileCurve.end:type_name -> occccad.worker.v1.Vec2
-	0,   // 45: occccad.worker.v1.ProfileCurve.center:type_name -> occccad.worker.v1.Vec2
-	0,   // 46: occccad.worker.v1.ProfileCurve.control_points:type_name -> occccad.worker.v1.Vec2
-	22,  // 47: occccad.worker.v1.ProfileLoop.curves:type_name -> occccad.worker.v1.ProfileCurve
-	23,  // 48: occccad.worker.v1.ProfileRegion.outer:type_name -> occccad.worker.v1.ProfileLoop
-	23,  // 49: occccad.worker.v1.ProfileRegion.holes:type_name -> occccad.worker.v1.ProfileLoop
-	24,  // 50: occccad.worker.v1.ProfilePadSpec.regions:type_name -> occccad.worker.v1.ProfileRegion
-	0,   // 51: occccad.worker.v1.ProfilePadSpec.axis_start:type_name -> occccad.worker.v1.Vec2
-	0,   // 52: occccad.worker.v1.ProfilePadSpec.axis_end:type_name -> occccad.worker.v1.Vec2
-	60,  // 53: occccad.worker.v1.ProfilePadSpec.plane_origin:type_name -> occccad.worker.v1.Vec3
-	60,  // 54: occccad.worker.v1.ProfilePadSpec.plane_normal:type_name -> occccad.worker.v1.Vec3
-	60,  // 55: occccad.worker.v1.ProfilePadSpec.plane_u_direction:type_name -> occccad.worker.v1.Vec3
-	26,  // 56: occccad.worker.v1.InspectExchangeRequest.source:type_name -> occccad.worker.v1.ArtifactReference
-	28,  // 57: occccad.worker.v1.InspectExchangeResponse.components:type_name -> occccad.worker.v1.ExchangeComponentInfo
-	26,  // 58: occccad.worker.v1.ImportExchangeRequest.source:type_name -> occccad.worker.v1.ArtifactReference
-	26,  // 59: occccad.worker.v1.ExchangeComponent.brep:type_name -> occccad.worker.v1.ArtifactReference
-	60,  // 60: occccad.worker.v1.ExchangeComponent.translation:type_name -> occccad.worker.v1.Vec3
-	31,  // 61: occccad.worker.v1.ExportExchangeRequest.components:type_name -> occccad.worker.v1.ExchangeComponent
-	26,  // 62: occccad.worker.v1.ExportExchangeResponse.result:type_name -> occccad.worker.v1.ArtifactReference
-	36,  // 63: occccad.worker.v1.EvaluatePartResponse.mesh:type_name -> occccad.worker.v1.Mesh
-	59,  // 64: occccad.worker.v1.EvaluatePartResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
-	40,  // 65: occccad.worker.v1.EvaluatePartResponse.topology:type_name -> occccad.worker.v1.TopologySummary
-	26,  // 66: occccad.worker.v1.EvaluatePartResponse.brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	26,  // 67: occccad.worker.v1.EvaluatePartResponse.glb_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	60,  // 68: occccad.worker.v1.Mesh.vertices:type_name -> occccad.worker.v1.Vec3
-	39,  // 69: occccad.worker.v1.Mesh.triangles:type_name -> occccad.worker.v1.Triangle
-	37,  // 70: occccad.worker.v1.Mesh.edges:type_name -> occccad.worker.v1.EdgePolyline
-	38,  // 71: occccad.worker.v1.Mesh.topology_vertices:type_name -> occccad.worker.v1.TopologyPoint
-	60,  // 72: occccad.worker.v1.EdgePolyline.points:type_name -> occccad.worker.v1.Vec3
-	60,  // 73: occccad.worker.v1.TopologyPoint.point:type_name -> occccad.worker.v1.Vec3
-	59,  // 74: occccad.worker.v1.LoadGeometryResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
-	26,  // 75: occccad.worker.v1.GetTopologyRequest.brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
-	50,  // 76: occccad.worker.v1.GetTopologyResponse.faces:type_name -> occccad.worker.v1.FaceInfo
-	51,  // 77: occccad.worker.v1.GetTopologyResponse.edges:type_name -> occccad.worker.v1.EdgeInfo
-	52,  // 78: occccad.worker.v1.GetTopologyResponse.vertices:type_name -> occccad.worker.v1.VertexInfo
-	60,  // 79: occccad.worker.v1.TopologyProperty.vector_value:type_name -> occccad.worker.v1.Vec3
-	59,  // 80: occccad.worker.v1.FaceInfo.bbox:type_name -> occccad.worker.v1.BoundingBox
-	49,  // 81: occccad.worker.v1.FaceInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
-	59,  // 82: occccad.worker.v1.EdgeInfo.bbox:type_name -> occccad.worker.v1.BoundingBox
-	49,  // 83: occccad.worker.v1.EdgeInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
-	60,  // 84: occccad.worker.v1.EdgeInfo.render_points:type_name -> occccad.worker.v1.Vec3
-	60,  // 85: occccad.worker.v1.VertexInfo.point:type_name -> occccad.worker.v1.Vec3
-	49,  // 86: occccad.worker.v1.VertexInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
-	63,  // 87: occccad.worker.v1.AssemblyComponentDof.null_space_basis:type_name -> occccad.worker.v1.AssemblyTangentVector
-	66,  // 88: occccad.worker.v1.AssemblySolvedAngleBranch.state:type_name -> occccad.worker.v1.AssemblyAngleBranchState
-	41,  // 89: occccad.worker.v1.GeometryWorker.Ping:input_type -> occccad.worker.v1.PingRequest
-	21,  // 90: occccad.worker.v1.GeometryWorker.EvaluatePart:input_type -> occccad.worker.v1.EvaluatePartRequest
-	19,  // 91: occccad.worker.v1.GeometryWorker.SolveSketch:input_type -> occccad.worker.v1.SolveSketchRequest
-	7,   // 92: occccad.worker.v1.GeometryWorker.SolveAssembly:input_type -> occccad.worker.v1.SolveAssemblyRequest
-	27,  // 93: occccad.worker.v1.GeometryWorker.InspectExchange:input_type -> occccad.worker.v1.InspectExchangeRequest
-	30,  // 94: occccad.worker.v1.GeometryWorker.ImportExchange:input_type -> occccad.worker.v1.ImportExchangeRequest
-	32,  // 95: occccad.worker.v1.GeometryWorker.ExportExchange:input_type -> occccad.worker.v1.ExportExchangeRequest
-	43,  // 96: occccad.worker.v1.GeometryWorker.LoadGeometry:input_type -> occccad.worker.v1.LoadGeometryRequest
-	45,  // 97: occccad.worker.v1.GeometryWorker.UnloadGeometry:input_type -> occccad.worker.v1.UnloadGeometryRequest
-	47,  // 98: occccad.worker.v1.GeometryWorker.GetTopology:input_type -> occccad.worker.v1.GetTopologyRequest
-	53,  // 99: occccad.worker.v1.GeometryWorker.Tessellate:input_type -> occccad.worker.v1.TessellateRequest
-	55,  // 100: occccad.worker.v1.GeometryWorker.CreateChamfer:input_type -> occccad.worker.v1.CreateChamferRequest
-	57,  // 101: occccad.worker.v1.GeometryWorker.CreateFillet:input_type -> occccad.worker.v1.CreateFilletRequest
-	42,  // 102: occccad.worker.v1.GeometryWorker.Ping:output_type -> occccad.worker.v1.PingResponse
-	35,  // 103: occccad.worker.v1.GeometryWorker.EvaluatePart:output_type -> occccad.worker.v1.EvaluatePartResponse
-	20,  // 104: occccad.worker.v1.GeometryWorker.SolveSketch:output_type -> occccad.worker.v1.SolveSketchResponse
-	10,  // 105: occccad.worker.v1.GeometryWorker.SolveAssembly:output_type -> occccad.worker.v1.SolveAssemblyResponse
-	29,  // 106: occccad.worker.v1.GeometryWorker.InspectExchange:output_type -> occccad.worker.v1.InspectExchangeResponse
-	35,  // 107: occccad.worker.v1.GeometryWorker.ImportExchange:output_type -> occccad.worker.v1.EvaluatePartResponse
-	33,  // 108: occccad.worker.v1.GeometryWorker.ExportExchange:output_type -> occccad.worker.v1.ExportExchangeResponse
-	44,  // 109: occccad.worker.v1.GeometryWorker.LoadGeometry:output_type -> occccad.worker.v1.LoadGeometryResponse
-	46,  // 110: occccad.worker.v1.GeometryWorker.UnloadGeometry:output_type -> occccad.worker.v1.UnloadGeometryResponse
-	48,  // 111: occccad.worker.v1.GeometryWorker.GetTopology:output_type -> occccad.worker.v1.GetTopologyResponse
-	54,  // 112: occccad.worker.v1.GeometryWorker.Tessellate:output_type -> occccad.worker.v1.TessellateResponse
-	56,  // 113: occccad.worker.v1.GeometryWorker.CreateChamfer:output_type -> occccad.worker.v1.CreateChamferResponse
-	58,  // 114: occccad.worker.v1.GeometryWorker.CreateFillet:output_type -> occccad.worker.v1.CreateFilletResponse
-	102, // [102:115] is the sub-list for method output_type
-	89,  // [89:102] is the sub-list for method input_type
-	89,  // [89:89] is the sub-list for extension type_name
-	89,  // [89:89] is the sub-list for extension extendee
-	0,   // [0:89] is the sub-list for field type_name
+	63,  // 0: occccad.worker.v1.RigidPose.translation:type_name -> occccad.worker.v1.Vec3
+	4,   // 1: occccad.worker.v1.RigidPose.rotation:type_name -> occccad.worker.v1.Quaternion
+	5,   // 2: occccad.worker.v1.AssemblyBody.initial_pose:type_name -> occccad.worker.v1.RigidPose
+	5,   // 3: occccad.worker.v1.AssemblyBody.initial_guess:type_name -> occccad.worker.v1.RigidPose
+	63,  // 4: occccad.worker.v1.AssemblyGeometry.origin:type_name -> occccad.worker.v1.Vec3
+	63,  // 5: occccad.worker.v1.AssemblyGeometry.direction:type_name -> occccad.worker.v1.Vec3
+	8,   // 6: occccad.worker.v1.AssemblyConstraint.first:type_name -> occccad.worker.v1.AssemblyGeometryRef
+	8,   // 7: occccad.worker.v1.AssemblyConstraint.second:type_name -> occccad.worker.v1.AssemblyGeometryRef
+	5,   // 8: occccad.worker.v1.AssemblyConstraint.fixed_pose:type_name -> occccad.worker.v1.RigidPose
+	63,  // 9: occccad.worker.v1.AssemblyConstraint.angle_reference_direction:type_name -> occccad.worker.v1.Vec3
+	69,  // 10: occccad.worker.v1.AssemblyConstraint.angle_branch_state:type_name -> occccad.worker.v1.AssemblyAngleBranchState
+	6,   // 11: occccad.worker.v1.SolveAssemblyRequest.bodies:type_name -> occccad.worker.v1.AssemblyBody
+	7,   // 12: occccad.worker.v1.SolveAssemblyRequest.geometry:type_name -> occccad.worker.v1.AssemblyGeometry
+	9,   // 13: occccad.worker.v1.SolveAssemblyRequest.constraints:type_name -> occccad.worker.v1.AssemblyConstraint
+	68,  // 14: occccad.worker.v1.SolveAssemblyRequest.solve_intent:type_name -> occccad.worker.v1.AssemblySolveIntent
+	72,  // 15: occccad.worker.v1.SolveAssemblyRequest.solver_profile:type_name -> occccad.worker.v1.AssemblySolverProfile
+	5,   // 16: occccad.worker.v1.SolvedAssemblyBody.pose:type_name -> occccad.worker.v1.RigidPose
+	12,  // 17: occccad.worker.v1.SolveAssemblyResponse.bodies:type_name -> occccad.worker.v1.SolvedAssemblyBody
+	11,  // 18: occccad.worker.v1.SolveAssemblyResponse.residuals:type_name -> occccad.worker.v1.AssemblyConstraintResidual
+	64,  // 19: occccad.worker.v1.SolveAssemblyResponse.equation_residuals:type_name -> occccad.worker.v1.AssemblyEquationResidual
+	65,  // 20: occccad.worker.v1.SolveAssemblyResponse.components:type_name -> occccad.worker.v1.AssemblyComponentDof
+	67,  // 21: occccad.worker.v1.SolveAssemblyResponse.diagnostics:type_name -> occccad.worker.v1.AssemblySolveDiagnostic
+	71,  // 22: occccad.worker.v1.SolveAssemblyResponse.constraint_ranks:type_name -> occccad.worker.v1.AssemblyConstraintRankInfo
+	70,  // 23: occccad.worker.v1.SolveAssemblyResponse.angle_branches:type_name -> occccad.worker.v1.AssemblySolvedAngleBranch
+	3,   // 24: occccad.worker.v1.SketchPoint.point:type_name -> occccad.worker.v1.Vec2
+	3,   // 25: occccad.worker.v1.SketchLine.start:type_name -> occccad.worker.v1.Vec2
+	3,   // 26: occccad.worker.v1.SketchLine.end:type_name -> occccad.worker.v1.Vec2
+	3,   // 27: occccad.worker.v1.SketchCircle.center:type_name -> occccad.worker.v1.Vec2
+	3,   // 28: occccad.worker.v1.SketchArc.center:type_name -> occccad.worker.v1.Vec2
+	3,   // 29: occccad.worker.v1.SketchSpline.control_points:type_name -> occccad.worker.v1.Vec2
+	19,  // 30: occccad.worker.v1.SketchConstraint.references:type_name -> occccad.worker.v1.SketchGeometryRef
+	3,   // 31: occccad.worker.v1.SketchConstraint.fixed_point:type_name -> occccad.worker.v1.Vec2
+	14,  // 32: occccad.worker.v1.SketchModel.points:type_name -> occccad.worker.v1.SketchPoint
+	15,  // 33: occccad.worker.v1.SketchModel.lines:type_name -> occccad.worker.v1.SketchLine
+	20,  // 34: occccad.worker.v1.SketchModel.constraints:type_name -> occccad.worker.v1.SketchConstraint
+	16,  // 35: occccad.worker.v1.SketchModel.circles:type_name -> occccad.worker.v1.SketchCircle
+	17,  // 36: occccad.worker.v1.SketchModel.arcs:type_name -> occccad.worker.v1.SketchArc
+	18,  // 37: occccad.worker.v1.SketchModel.splines:type_name -> occccad.worker.v1.SketchSpline
+	21,  // 38: occccad.worker.v1.SolveSketchRequest.sketch:type_name -> occccad.worker.v1.SketchModel
+	21,  // 39: occccad.worker.v1.SolveSketchResponse.sketch:type_name -> occccad.worker.v1.SketchModel
+	37,  // 40: occccad.worker.v1.EvaluatePartRequest.rectangular_pad:type_name -> occccad.worker.v1.RectangularPadSpec
+	37,  // 41: occccad.worker.v1.EvaluatePartRequest.rectangular_pads:type_name -> occccad.worker.v1.RectangularPadSpec
+	29,  // 42: occccad.worker.v1.EvaluatePartRequest.base_brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	28,  // 43: occccad.worker.v1.EvaluatePartRequest.profile_pads:type_name -> occccad.worker.v1.ProfilePadSpec
+	3,   // 44: occccad.worker.v1.ProfileCurve.start:type_name -> occccad.worker.v1.Vec2
+	3,   // 45: occccad.worker.v1.ProfileCurve.end:type_name -> occccad.worker.v1.Vec2
+	3,   // 46: occccad.worker.v1.ProfileCurve.center:type_name -> occccad.worker.v1.Vec2
+	3,   // 47: occccad.worker.v1.ProfileCurve.control_points:type_name -> occccad.worker.v1.Vec2
+	25,  // 48: occccad.worker.v1.ProfileLoop.curves:type_name -> occccad.worker.v1.ProfileCurve
+	26,  // 49: occccad.worker.v1.ProfileRegion.outer:type_name -> occccad.worker.v1.ProfileLoop
+	26,  // 50: occccad.worker.v1.ProfileRegion.holes:type_name -> occccad.worker.v1.ProfileLoop
+	27,  // 51: occccad.worker.v1.ProfilePadSpec.regions:type_name -> occccad.worker.v1.ProfileRegion
+	3,   // 52: occccad.worker.v1.ProfilePadSpec.axis_start:type_name -> occccad.worker.v1.Vec2
+	3,   // 53: occccad.worker.v1.ProfilePadSpec.axis_end:type_name -> occccad.worker.v1.Vec2
+	63,  // 54: occccad.worker.v1.ProfilePadSpec.plane_origin:type_name -> occccad.worker.v1.Vec3
+	63,  // 55: occccad.worker.v1.ProfilePadSpec.plane_normal:type_name -> occccad.worker.v1.Vec3
+	63,  // 56: occccad.worker.v1.ProfilePadSpec.plane_u_direction:type_name -> occccad.worker.v1.Vec3
+	29,  // 57: occccad.worker.v1.InspectExchangeRequest.source:type_name -> occccad.worker.v1.ArtifactReference
+	31,  // 58: occccad.worker.v1.InspectExchangeResponse.components:type_name -> occccad.worker.v1.ExchangeComponentInfo
+	29,  // 59: occccad.worker.v1.ImportExchangeRequest.source:type_name -> occccad.worker.v1.ArtifactReference
+	29,  // 60: occccad.worker.v1.ExchangeComponent.brep:type_name -> occccad.worker.v1.ArtifactReference
+	63,  // 61: occccad.worker.v1.ExchangeComponent.translation:type_name -> occccad.worker.v1.Vec3
+	34,  // 62: occccad.worker.v1.ExportExchangeRequest.components:type_name -> occccad.worker.v1.ExchangeComponent
+	29,  // 63: occccad.worker.v1.ExportExchangeResponse.result:type_name -> occccad.worker.v1.ArtifactReference
+	39,  // 64: occccad.worker.v1.EvaluatePartResponse.mesh:type_name -> occccad.worker.v1.Mesh
+	62,  // 65: occccad.worker.v1.EvaluatePartResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
+	43,  // 66: occccad.worker.v1.EvaluatePartResponse.topology:type_name -> occccad.worker.v1.TopologySummary
+	29,  // 67: occccad.worker.v1.EvaluatePartResponse.brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	29,  // 68: occccad.worker.v1.EvaluatePartResponse.glb_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	63,  // 69: occccad.worker.v1.Mesh.vertices:type_name -> occccad.worker.v1.Vec3
+	42,  // 70: occccad.worker.v1.Mesh.triangles:type_name -> occccad.worker.v1.Triangle
+	40,  // 71: occccad.worker.v1.Mesh.edges:type_name -> occccad.worker.v1.EdgePolyline
+	41,  // 72: occccad.worker.v1.Mesh.topology_vertices:type_name -> occccad.worker.v1.TopologyPoint
+	63,  // 73: occccad.worker.v1.EdgePolyline.points:type_name -> occccad.worker.v1.Vec3
+	63,  // 74: occccad.worker.v1.TopologyPoint.point:type_name -> occccad.worker.v1.Vec3
+	62,  // 75: occccad.worker.v1.LoadGeometryResponse.bbox:type_name -> occccad.worker.v1.BoundingBox
+	29,  // 76: occccad.worker.v1.GetTopologyRequest.brep_artifact:type_name -> occccad.worker.v1.ArtifactReference
+	53,  // 77: occccad.worker.v1.GetTopologyResponse.faces:type_name -> occccad.worker.v1.FaceInfo
+	54,  // 78: occccad.worker.v1.GetTopologyResponse.edges:type_name -> occccad.worker.v1.EdgeInfo
+	55,  // 79: occccad.worker.v1.GetTopologyResponse.vertices:type_name -> occccad.worker.v1.VertexInfo
+	63,  // 80: occccad.worker.v1.TopologyProperty.vector_value:type_name -> occccad.worker.v1.Vec3
+	62,  // 81: occccad.worker.v1.FaceInfo.bbox:type_name -> occccad.worker.v1.BoundingBox
+	52,  // 82: occccad.worker.v1.FaceInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
+	62,  // 83: occccad.worker.v1.EdgeInfo.bbox:type_name -> occccad.worker.v1.BoundingBox
+	52,  // 84: occccad.worker.v1.EdgeInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
+	63,  // 85: occccad.worker.v1.EdgeInfo.render_points:type_name -> occccad.worker.v1.Vec3
+	63,  // 86: occccad.worker.v1.VertexInfo.point:type_name -> occccad.worker.v1.Vec3
+	52,  // 87: occccad.worker.v1.VertexInfo.properties:type_name -> occccad.worker.v1.TopologyProperty
+	66,  // 88: occccad.worker.v1.AssemblyComponentDof.null_space_basis:type_name -> occccad.worker.v1.AssemblyTangentVector
+	74,  // 89: occccad.worker.v1.AssemblyComponentDof.preference:type_name -> occccad.worker.v1.AssemblyMotionPreference
+	76,  // 90: occccad.worker.v1.AssemblyComponentDof.freedoms:type_name -> occccad.worker.v1.AssemblyBodyFreedom
+	69,  // 91: occccad.worker.v1.AssemblySolvedAngleBranch.state:type_name -> occccad.worker.v1.AssemblyAngleBranchState
+	1,   // 92: occccad.worker.v1.AssemblyBodyMotion.role:type_name -> occccad.worker.v1.AssemblyMotionRole
+	0,   // 93: occccad.worker.v1.AssemblyMotionPreference.status:type_name -> occccad.worker.v1.AssemblyPreferenceStatus
+	73,  // 94: occccad.worker.v1.AssemblyMotionPreference.bodies:type_name -> occccad.worker.v1.AssemblyBodyMotion
+	63,  // 95: occccad.worker.v1.AssemblyScrewFreedom.direction:type_name -> occccad.worker.v1.Vec3
+	63,  // 96: occccad.worker.v1.AssemblyScrewFreedom.axis_point:type_name -> occccad.worker.v1.Vec3
+	5,   // 97: occccad.worker.v1.AssemblyBodyFreedom.linearization_pose:type_name -> occccad.worker.v1.RigidPose
+	2,   // 98: occccad.worker.v1.AssemblyBodyFreedom.kind:type_name -> occccad.worker.v1.AssemblyFreedomKind
+	66,  // 99: occccad.worker.v1.AssemblyBodyFreedom.allowed_basis:type_name -> occccad.worker.v1.AssemblyTangentVector
+	66,  // 100: occccad.worker.v1.AssemblyBodyFreedom.blocked_basis:type_name -> occccad.worker.v1.AssemblyTangentVector
+	63,  // 101: occccad.worker.v1.AssemblyBodyFreedom.translation_directions:type_name -> occccad.worker.v1.Vec3
+	75,  // 102: occccad.worker.v1.AssemblyBodyFreedom.rotations:type_name -> occccad.worker.v1.AssemblyScrewFreedom
+	44,  // 103: occccad.worker.v1.GeometryWorker.Ping:input_type -> occccad.worker.v1.PingRequest
+	24,  // 104: occccad.worker.v1.GeometryWorker.EvaluatePart:input_type -> occccad.worker.v1.EvaluatePartRequest
+	22,  // 105: occccad.worker.v1.GeometryWorker.SolveSketch:input_type -> occccad.worker.v1.SolveSketchRequest
+	10,  // 106: occccad.worker.v1.GeometryWorker.SolveAssembly:input_type -> occccad.worker.v1.SolveAssemblyRequest
+	30,  // 107: occccad.worker.v1.GeometryWorker.InspectExchange:input_type -> occccad.worker.v1.InspectExchangeRequest
+	33,  // 108: occccad.worker.v1.GeometryWorker.ImportExchange:input_type -> occccad.worker.v1.ImportExchangeRequest
+	35,  // 109: occccad.worker.v1.GeometryWorker.ExportExchange:input_type -> occccad.worker.v1.ExportExchangeRequest
+	46,  // 110: occccad.worker.v1.GeometryWorker.LoadGeometry:input_type -> occccad.worker.v1.LoadGeometryRequest
+	48,  // 111: occccad.worker.v1.GeometryWorker.UnloadGeometry:input_type -> occccad.worker.v1.UnloadGeometryRequest
+	50,  // 112: occccad.worker.v1.GeometryWorker.GetTopology:input_type -> occccad.worker.v1.GetTopologyRequest
+	56,  // 113: occccad.worker.v1.GeometryWorker.Tessellate:input_type -> occccad.worker.v1.TessellateRequest
+	58,  // 114: occccad.worker.v1.GeometryWorker.CreateChamfer:input_type -> occccad.worker.v1.CreateChamferRequest
+	60,  // 115: occccad.worker.v1.GeometryWorker.CreateFillet:input_type -> occccad.worker.v1.CreateFilletRequest
+	45,  // 116: occccad.worker.v1.GeometryWorker.Ping:output_type -> occccad.worker.v1.PingResponse
+	38,  // 117: occccad.worker.v1.GeometryWorker.EvaluatePart:output_type -> occccad.worker.v1.EvaluatePartResponse
+	23,  // 118: occccad.worker.v1.GeometryWorker.SolveSketch:output_type -> occccad.worker.v1.SolveSketchResponse
+	13,  // 119: occccad.worker.v1.GeometryWorker.SolveAssembly:output_type -> occccad.worker.v1.SolveAssemblyResponse
+	32,  // 120: occccad.worker.v1.GeometryWorker.InspectExchange:output_type -> occccad.worker.v1.InspectExchangeResponse
+	38,  // 121: occccad.worker.v1.GeometryWorker.ImportExchange:output_type -> occccad.worker.v1.EvaluatePartResponse
+	36,  // 122: occccad.worker.v1.GeometryWorker.ExportExchange:output_type -> occccad.worker.v1.ExportExchangeResponse
+	47,  // 123: occccad.worker.v1.GeometryWorker.LoadGeometry:output_type -> occccad.worker.v1.LoadGeometryResponse
+	49,  // 124: occccad.worker.v1.GeometryWorker.UnloadGeometry:output_type -> occccad.worker.v1.UnloadGeometryResponse
+	51,  // 125: occccad.worker.v1.GeometryWorker.GetTopology:output_type -> occccad.worker.v1.GetTopologyResponse
+	57,  // 126: occccad.worker.v1.GeometryWorker.Tessellate:output_type -> occccad.worker.v1.TessellateResponse
+	59,  // 127: occccad.worker.v1.GeometryWorker.CreateChamfer:output_type -> occccad.worker.v1.CreateChamferResponse
+	61,  // 128: occccad.worker.v1.GeometryWorker.CreateFillet:output_type -> occccad.worker.v1.CreateFilletResponse
+	116, // [116:129] is the sub-list for method output_type
+	103, // [103:116] is the sub-list for method input_type
+	103, // [103:103] is the sub-list for extension type_name
+	103, // [103:103] is the sub-list for extension extendee
+	0,   // [0:103] is the sub-list for field type_name
 }
 
 func init() { file_occccad_worker_v1_geometry_worker_proto_init() }
@@ -5991,18 +6660,20 @@ func file_occccad_worker_v1_geometry_worker_proto_init() {
 		(*TopologyProperty_TextValue)(nil),
 		(*TopologyProperty_VectorValue)(nil),
 	}
+	file_occccad_worker_v1_geometry_worker_proto_msgTypes[69].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_occccad_worker_v1_geometry_worker_proto_rawDesc), len(file_occccad_worker_v1_geometry_worker_proto_rawDesc)),
-			NumEnums:      0,
-			NumMessages:   70,
+			NumEnums:      3,
+			NumMessages:   74,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
 		GoTypes:           file_occccad_worker_v1_geometry_worker_proto_goTypes,
 		DependencyIndexes: file_occccad_worker_v1_geometry_worker_proto_depIdxs,
+		EnumInfos:         file_occccad_worker_v1_geometry_worker_proto_enumTypes,
 		MessageInfos:      file_occccad_worker_v1_geometry_worker_proto_msgTypes,
 	}.Build()
 	File_occccad_worker_v1_geometry_worker_proto = out.File

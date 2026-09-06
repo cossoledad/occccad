@@ -1,9 +1,11 @@
+import type { AssemblyComponentDof } from "../../types";
 import { assign, createActor, setup } from "xstate";
 
 export type AssemblyPreviewState = "idle" | "pending" | "succeeded" | "failed";
 
 type PreviewContext = {
   sequence: number;
+  components?: AssemblyComponentDof[];
   error?: string;
   errorCode?: string;
   phase?: string;
@@ -12,7 +14,7 @@ type PreviewContext = {
 
 type PreviewEvent =
   | { type: "REQUEST"; sequence: number }
-  | { type: "RESOLVE"; sequence: number }
+  | { type: "RESOLVE"; sequence: number; components?: AssemblyComponentDof[] }
   | { type: "REJECT"; sequence: number; error: string; errorCode?: string; phase?: string; retryable?: boolean }
   | { type: "CANCEL"; sequence: number }
   | { type: "RESET" };
@@ -25,13 +27,14 @@ export const assemblyPreviewMachine = setup({
   actions: {
     begin: assign(({ event }) => {
       if (event.type !== "REQUEST") return {};
-      return { sequence: event.sequence, error: undefined, errorCode: undefined, phase: undefined, retryable: false };
+      return { components: undefined, sequence: event.sequence, error: undefined, errorCode: undefined, phase: undefined, retryable: false };
     }),
     fail: assign(({ event }) => event.type === "REJECT" ? {
       error: event.error, errorCode: event.errorCode, phase: event.phase,
       retryable: Boolean(event.retryable),
     } : {}),
-    clear: assign({ error: undefined, errorCode: undefined, phase: undefined, retryable: false }),
+    resolve: assign(({ event }) => event.type === "RESOLVE" ? { components: event.components } : {}),
+    clear: assign({ components: undefined, error: undefined, errorCode: undefined, phase: undefined, retryable: false }),
   },
 }).createMachine({
   id: "assemblyConstraintPreview",
@@ -41,7 +44,7 @@ export const assemblyPreviewMachine = setup({
     idle: { on: { REQUEST: { target: "pending", actions: "begin" } } },
     pending: { on: {
       REQUEST: { target: "pending", reenter: true, actions: "begin" },
-      RESOLVE: { target: "succeeded", guard: "isCurrent" },
+      RESOLVE: { target: "succeeded", guard: "isCurrent", actions: "resolve" },
       REJECT: { target: "failed", guard: "isCurrent", actions: "fail" },
       CANCEL: { target: "idle", guard: "isCurrent", actions: "clear" },
       RESET: { target: "idle", actions: "clear" },

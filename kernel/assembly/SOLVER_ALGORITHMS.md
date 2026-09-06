@@ -26,17 +26,14 @@ cluster 使用六维切空间增量
 t' = t+\Delta t,\qquad R'=\operatorname{Exp}(\Delta\theta)R.
 \]
 
-所有 active constraint 的残差块按稳定约束顺序拼接为向量 `r(x)`。M2 以几何约束为主目标，并以弱运动偏好选择可行解：
-
-\[
-\min_x \frac{1}{2}\lVert r(x)\rVert_2^2
-+\frac{1}{2}\lVert W_m\log(T_0^{-1}T)\rVert_2^2.
-\]
+所有 active constraint 的残差块按稳定约束顺序拼接为向量 `r(x)`。M2.5 的几何恢复最小化
+`||r(x)||²/2`；满足硬几何语义后，按词典序最小化 `(E_ref(x), E_all(x))`。
+运动目标不与几何残差加权混合，定义与收敛条件见第 4、7 节。
 
 长度残差除以 `length_scale`，角度和方向残差除以 `angle_scale`，使不同量纲可以进入同一个范数。两者必须由调用方按
 模型单位和容差策略显式设置，当前默认值都是 `1.0`。
 
-RPC 使用 `AssemblySolverProfile schema_version=1` 传递求解策略；零值字段沿用 kernel 默认值。主要默认阈值为：length
+RPC 使用 `AssemblySolverProfile schema_version=2` 传递求解策略；普通零值字段沿用 kernel 默认值；optional `max_preference_iterations` 显式为零表示不给偏好迭代预算。主要默认阈值为：length
 convergence/classification `10⁻⁷`、angle convergence/classification `10⁻⁸`、translation step `10⁻⁹`、rotation step
 `10⁻¹⁰`、degeneracy `10⁻⁸`、translation/rotation finite difference `10⁻⁶/10⁻⁷`、initial damping `10⁻⁴`、
 rank absolute/relative `10⁻¹⁰/10⁻⁸`。classification 可由
@@ -98,19 +95,29 @@ grounded cluster 不进入数值变量。一个 cluster 上的多个 Fix 若不�
 `Measured` 约束不进入图和目标函数，但在最终位姿上计算残差；`Suppressed` 完全跳过；`Driving` 与 `Controlled` 当前采用
 相同的数值驱动语义。
 
-## 4. M1.7 moving/reference 规约与运动偏好
+## 4. M2.5 从动层级优化与名义位姿
 
-`SolveIntent` 是单次请求的解选择策略，不持久改变约束方向。Product 创建二元约束时将第一选择作为 moving、第二选择
-作为 reference。
+Product ADD/EDIT/preview/commit 共用 `assemblyConstraintSolveIntent()`：第一选择 moving、第二选择 reference。
+约束本身不增加持久主从方向。`Body.initial_pose` 是本次操作前冻结的名义位姿与分支基线，`initial_guess` 仅初始化数值变量；
+Rigid 成员提供的多个 seed 必须符合捕获的刚性关系，未选择的 affected component 不应用 seed。
 
-无物理 ground 的连通分量存在六维整体刚体运动自由度。若策略是 `MoveFirstMinimizeReference`，求解器按请求顺序找到
-该 component 中第一个 reference body 所属 cluster，将它从数值变量中移除并保持初始位姿。这样第二选择成为 gauge
-anchor，第一选择承担相对运动，但不会生成物理 Fix。
+每个连通分量严格保留 Fix/Rigid 和全部有效几何方程，按以下顺序选择解：
 
-该消元只是选择同一相对解族的世界坐标规约，因此仍报告 `gauge_dof = 6`。每个自由 cluster 还会相对 solve 初始位姿
-加入弱二次正则，权重满足 reference > neutral > moving；已接地的多解系统也会优先让 moving cluster 承担变化。它不是
-严格词典序优化，权重不得牺牲几何可满足性。Rigid 合并后在 cluster 层分配角色；同一 cluster 同时含 moving/reference
-会返回 `InvalidModel`。
+1. 恢复几何可行性；
+2. 在可行流形上最小化 reference occurrence 的名义位姿变化平方和；
+3. 在 reference 的局部最优子空间内最小化全部 occurrence 的名义变化平方和。
+
+运动度量是 `||t-t0||²/L² + ||Log(R0^T R)||²/A²`，L/A 为独立运动尺度，不是几何容差。
+目标按 occurrence 而非 cluster 代表原点计算，包含刚性成员力臂。旋转 Log Jacobian 与左旋转增量一致，Debug 有中央差分 oracle；
+π 处是旋转坐标图切口，oracle 只排除跨切口的旋转行，不将它们当普通光滑导数。
+
+无物理 ground 且只有一个 reference cluster、其 reference 名义位姿与捕获刚性关系一致时，仍可等价消去全局 gauge；
+否则保留 reference 变量。第一元素 Fix、间接接地或部分受限时，第二元素始终在同一问题内承担必要运动。
+多个 reference 联合优化，不固定列表中第一个。原 moving/neutral/reference 弱权重已删除，未增加临时 Fix 重试路径。
+
+`preference.status` 与几何 `SolveStatus` 独立：可行但偏好预算耗尽/停滞仍返回可行 Pose 和 `PREFERENCE_NOT_CONVERGED` 诊断，
+Product 拒绝将它当作从动成功提交；不会误报为几何冲突。响应包含每体角色及平移/旋转变化、两层目标值、最终投影梯度、
+迭代数和尺度。MOVE_INSTANCE 的 `interaction-driver` 临时 Fix 仍属于另一条 M4 待替换路径。
 
 ## 5. 当前约束残差
 
@@ -161,29 +168,26 @@ J_{:,j}\approx\frac{r(x+h_j e_j)-r(x-h_j e_j)}{2h_j}.
 平移和旋转使用独立默认步长 `10^-6` 与 `10^-7`。正负扰动复用已冻结 branch，残差维数必须一致且全部有限，否则返回
 `NumericalFailure`。兼容字段 `finite_difference_step` 非零时仍可覆盖两者，新调用方应使用分离字段。
 
-## 7. 阻尼最小二乘迭代
+## 7. 可行性恢复与流形上的层级迭代
 
-每轮直接构造增广最小二乘系统
+几何恢复沿用 M2 增广 `ColPivHouseholderQR` 阻尼最小二乘，不形成正规方程，也不再加入弱运动权重。
+候选必须降低真实几何残差，通过长度/角度容差检查；small-step 还检查几何梯度，避免大 damping 伪造驻点。
+方向验收改用 `atan2(||a×b||, a·b)`，消除 `acos(dot)` 在对齐附近的浮点精度底限。
 
-\[
-\begin{bmatrix}J\\ \sqrt{\lambda}I\\ W_m\end{bmatrix}\Delta x
-=
-\begin{bmatrix}-r\\ 0\\ -W_m d_{nominal}\end{bmatrix},
-\]
+几何可行后，M2.5 在无量纲切空间用同一 SVD 阈值构造正交零空间及最小范数校正。
+二级目标使用投影 BFGS 曲率更新和有界回溯；trust region 只限制步长，不与几何约束竞争。
+零空间步只有一阶可行，候选需经有界几何恢复，再检查真实容差、上级目标固定上界及当前层改善。
+可行性校正比最终显示容差更严格，以免曲率误差掩盖最后的目标下降。
 
-并使用 Eigen `ColPivHouseholderQR` 求解，避免显式形成会平方条件数的 `J^T J`；同一增广系统包含弱运动正则。
-small-step 只有在 `||J^T r||` 也低于 `gradient_tolerance` 时才认定驻点，避免大 damping 伪造 stationary。SVD 只用于
-rank/null-space 分析：
+reference 最优残差为零时，其目标保持子空间是 `null(A_ref Z)`；残差非零时不能冻结整个残差向量。
+当前 dense reference 后端对解析 Lagrangian 梯度做 Richardson 中央差分，获得包含约束曲率的 reduced Hessian，
+用其零空间保留整个局部 reference 最优集合。球面上“reference 到名义原点距离恒定”的回归验证总目标仍可沿球面优化。
+这一步是二阶曲率计算，不是将生产几何 Jacobian 降级为数值差分；后续稀疏/解析二阶优化必须与该参考结果对照。
 
-- 初始 `λ = initial_damping`，默认 `10⁻⁴`；
-- 每个 component 对完整候选步执行最多 12 次确定性二分回溯；候选残差平方范数严格下降时接受步骤，并令 `λ=max(0.25λ,10⁻¹²)`；
-- 否则拒绝步骤，并令 `λ=min(10λ,10¹²)`；
-- 每个长度、角度方程分别满足 `length_tolerance`、`angle_tolerance` 时收敛；
-- 平移、旋转增量分别低于 `translation_step_tolerance`、`rotation_step_tolerance` 但方程仍超限时返回 `Unsatisfied`；
-- 默认最多 100 次迭代；非有限线性解返回 `NumericalFailure`。
-
-若 component 没有自由变量且超过 convergence tolerance：同时超过 classification tolerance 时返回 `Inconsistent`，否则
-返回 `Unsatisfied`。真正耗尽迭代预算才返回 `MaxIterations`。
+终止检查两层在最终位姿上的投影梯度，默认 `preference_tolerance=1e-8`，每层最多 100 次。
+reference 目标上界固定为第一层终值加 `objective_tolerance`（默认 `1e-12`），不逐步累计放宽。
+当目标差接近机器精度时，只在非累积能量误差界内且投影梯度进一步下降时接受步骤，不以浮点停滞冒充最优。
+`Converged` 是冻结 branch 下的局部一阶最优性证据，不证明非凸全局最优或任意有限运动可达性。
 
 ## 8. Rank、DOF 与 gauge
 
@@ -201,7 +205,10 @@ nullity = \max(n-\rho,0).
   `gauge_dof=6` 仍单独报告。
 
 结果同时返回按自由 cluster tangent 排序的数值 null-space basis、参与该排序的 cluster IDs、奇异值和实际 rank threshold。
-这些原始向量用于数值证据与后续 M2.5 输入；当前尚不把它们稳定解释为用户可见的平移轴、转轴或螺旋自由度。rank 是局部
+原始 basis 仍作为数值证据保留。M2.5 另在无量纲 metric 中构造每个 occurrence 的正交 allowed/blocked 子空间，
+按纯平移子空间与 angular image 分解，返回平移方向、转轴点/方向/pitch、linearization pose 和 rank threshold。
+无 ground 时这些解释相对稳定 body ID 的基准 occurrence 计算，整体六维 gauge 单独报告；固定坐标规约不冒充物理接地。
+规范自由度按子空间关系识别，无法确定为标准族时返回 Coupled。rank 是局部
 线性化结论，会受尺度、姿态、退化几何和阈值影响。
 
 ## 9. 冗余、冲突与分类
@@ -246,9 +253,8 @@ connected-component 分解和 ground/rigid
 M1.6 还为近平行直线距离引入以 `degeneracy_tolerance` 为尺度的 blended 退化极限；除极小的
 `kDirectionEpsilon` 保护分支外，它在 skew 与 parallel 公式之间连续过渡。该表达是工程正则化而非无限直线距离的唯一解析
 延拓，仍需用容差边界 sweep 验证 bias、Jacobian 和 rank。
-当前算法还不具备：可解释且规范化的 null-space 自由度、最小冲突集、全局多分支枚举、严格层级最小位移、
-拖拽流形投影、一般曲面接触和大规模稀疏图优化。上述能力的引入顺序见架构路线图，不能从本文的 M1/M1.5 基线推断为
-已经实现。
+当前算法还不具备：最小冲突集、全局多分支枚举、拖拽流形投影、一般曲面接触和大规模稀疏图优化。
+M2.5 已提供局部层级运动优化和规范化瞬时自由度解释，不能由此推断全局最优或有限运动可达性。
 
 ## 11. 已确定的后续升级流程
 
@@ -268,7 +274,7 @@ M1.7 已把该切片修正为严格的绕轴角：先投影两个端点方向，
 离散 branch 初值，其他约束仍由同一 component 的数值求解统一满足。
 
 1. **M2 方程与微分正确性（已完成）**：内部 typed equation registry 覆盖当前 Point/Axis/Plane/Cylinder 能力矩阵；前向解析微分提供左增量 Jacobian，中央有限差分作为 differential oracle。参考后端使用 augmented QR，SVD 专用于 rank、奇异值和数值 null-space。M2 没有增加 Product 约束类型。
-2. **M2.5 自由度与解选择**：将数值 null-space 在稳定 cluster tangent 顺序下解释为平移、旋转和耦合瞬时自由度；以子空间而非原始 SVD 列进行确定性验证。在可行流形内使用层级优化依次最小化 reference motion 与总 nominal change，验收后替换 M1.7 弱权重策略。
+2. **M2.5 自由度与解选择（已实现）**：a 从动层级优化、b Product 贯通验收及 c 自由度解释均已落地。将数值 null-space 在稳定 cluster tangent 顺序下解释为平移、旋转和耦合瞬时自由度；以子空间而非原始 SVD 列进行确定性验证。在可行流形内使用层级优化依次最小化 reference motion 与总 nominal change，已替换 M1.7 弱权重策略。
 3. **M3 可重放输入**：由控制面冻结包含 typed InstancePath、ResolutionSnapshot、Publication/PersistentSelection、descriptor symmetry/provenance、branch intent、tolerance 和 solver build 的不可变 solve manifest。当前 direct Part 与 revision-local topology ID 路径在开发期直接收敛到唯一新模型。
 4. **M4 稳定分支与交互**：把当前自动 reference direction 平面切片升级为可选择 axis/sense 的完整 `DirectedAngle`；静态 Product 只持久化 modulo `2π` branch intent，preview/kinematics session 承担 winding。利用 M2/M2.5 null space 把 Drag 目标作为二级目标投影到约束流形，返回最近可行 Pose 与 blocked directions，不再注入临时 `Fix`。
 5. **M5 以后**：先完成图局部化、带预算且证据分级的冲突解释，再扩展 Engineering Connection/几何覆盖；最后依据大装配 benchmark 决定 block-sparse、增量 factorization、可选后端与独立 Worker 部署。详细阶段门见 `SOLVER_ARCHITECTURE.md`。
@@ -287,3 +293,23 @@ cmake --build build/cmake/debug \
 ctest --test-dir build/cmake/debug \
   -R '^(assembly|assembly-corpus)/' --output-on-failure
 ```
+
+### M2.5 验证记录（2026-09-06）
+
+重新编译 Debug 内核与 Geometry Worker 后，assembly/assembly-corpus 共 **75/75** 项通过。
+新增回归覆盖从动、非零 reference 最优解族、初值与 nominal 分离、单位/世界坐标变换、刚性成员代表选择、
+自由度子空间及偏好预算失败。Go 全仓测试通过；正式 Router 测试调用真实 Worker，并在隔离的临时 PostgreSQL
+上验证空库迁移及重复迁移、Product preview/commit、刷新、连续两次 Undo/Redo 和 capability。
+Web 场景测试及生产构建通过；浏览器真实入口验证约束面板的求解证据、取消、提交和刷新。
+预览 actor 按 effect 生命周期创建，避免 StrictMode 重挂载复用已停止 actor 而丢失响应。
+
+当前显式 moving/reference 的平面链 Debug 基准（每组 3 次）如下；该场景中 reference 必须平移 1：
+
+| Body 数 | 平均耗时 | 几何/偏好迭代 | 归一化残差 | reference 目标/平移 |
+|---|---|---|---|---|
+| 5 | 53.1 ms | 3 / 2 | 1.68e-11 | 1 / 1 |
+| 15 | 541 ms | 3 / 2 | 3.28e-8 | 1 / 1 |
+| 30 | 6.63 s | 4 / 2 | 1.77e-9 | 1 / 1 |
+
+总目标在整个可行切空间已满足驻点阈值时，直接使用该更强证据，省去不必要的 reference 二阶切空间计算。
+以上是 dense Debug 参考后端的规模证据；场景和策略已变化，不与旧 M2 时延作等价对比，也不代表生产容量承诺。

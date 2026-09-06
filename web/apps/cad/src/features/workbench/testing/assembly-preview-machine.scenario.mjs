@@ -25,3 +25,17 @@ actor.send({ type: "RESET" });
 assert.equal(actor.getSnapshot().value, "idle");
 assert.equal(actor.getSnapshot().context.error, undefined);
 actor.stop();
+
+const evidenceActor = createAssemblyPreviewActor();
+evidenceActor.start();
+evidenceActor.send({ type: "REQUEST", sequence: 10 });
+evidenceActor.send({ type: "REQUEST", sequence: 11 });
+evidenceActor.send({ type: "RESOLVE", sequence: 10, components: [{componentId:"stale"}] });
+assert.equal(evidenceActor.getSnapshot().context.components, undefined);
+evidenceActor.send({ type: "RESOLVE", sequence: 11, components: [{componentId:"current"}] });
+assert.equal(evidenceActor.getSnapshot().context.components[0].componentId, "current");
+evidenceActor.send({ type: "REQUEST", sequence: 12 });
+assert.equal(evidenceActor.getSnapshot().context.components, undefined);
+evidenceActor.send({ type: "CANCEL", sequence: 12 });
+assert.equal(evidenceActor.getSnapshot().context.components, undefined);
+evidenceActor.stop();

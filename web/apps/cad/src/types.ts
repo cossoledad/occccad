@@ -33,7 +33,27 @@ export type Artifact = {
 	visualization: VisualizationManifest;
 };
 
+export type AssemblyBodyFreedom = {
+  bodyId: string; relativeToBodyId?: string;
+  linearizationPose: { translation: Vec3; rotation: [number,number,number,number] };
+  kind: 0|1|2|3|4|5|6|7;
+  translationDof: number; rotationDof: number;
+  allowedBasis: number[][]; blockedBasis: number[][];
+  translationDirections: Vec3[];
+  rotations: Array<{direction:Vec3;axisPoint:Vec3;pitch:number}>;
+  rankThreshold: number;
+};
+export type AssemblyComponentDof = {
+  componentId: string; bodyIds: string[]; relativeDof: number; gaugeDof: number; solved: boolean;
+  preference: { status: 0|1|2|3; geometricallyFeasible: boolean;
+    referenceObjective: number; totalObjective: number; referenceOptimality: number; totalOptimality: number;
+    lengthScale: number; angleScale: number; iterations: number;
+    bodies: Array<{bodyId:string;role:0|1|2;translation:number;rotation:number}> };
+  freedoms: AssemblyBodyFreedom[];
+};
 export type CommandPreview = {
+  assemblySolverBuild?: string;
+  assemblyComponents?: AssemblyComponentDof[];
   previewId: string;
   baseVersionId: string;
   baseSequence: number;

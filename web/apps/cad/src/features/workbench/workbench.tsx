@@ -5,7 +5,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Alert, App, Button, Descriptions, Empty, Form, Input, InputNumber, List, Segmented,
-  Select, Space, Spin, Switch, Tag,
+  Select, Space, Spin, Switch, Tag, Typography,
 } from "antd";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -283,8 +283,8 @@ export function Workbench() {
   const [assemblyPreviewCommit, setAssemblyPreviewCommit] = useState(0);
   const assemblyPreviewAbort = useRef<AbortController | undefined>(undefined);
   const assemblyPreviewSequence = useRef(0);
-  const assemblyPreviewActor = useMemo(() => createAssemblyPreviewActor(), []);
-  const [assemblyPreviewSnapshot, setAssemblyPreviewSnapshot] = useState(() => assemblyPreviewActor.getSnapshot());
+  const assemblyPreviewActor = useRef<ReturnType<typeof createAssemblyPreviewActor> | undefined>(undefined);
+  const [assemblyPreviewSnapshot, setAssemblyPreviewSnapshot] = useState(() => createAssemblyPreviewActor().getSnapshot());
   const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const hiddenTreeKeys = useUIPreferences((state) => state.hiddenTreeKeys);
@@ -303,9 +303,13 @@ export function Workbench() {
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
 	useEffect(() => { setActiveDocumentID(documentID); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }, [documentID]);
   useEffect(() => {
-    const subscription = assemblyPreviewActor.subscribe(setAssemblyPreviewSnapshot);
-    assemblyPreviewActor.start();
-    return () => { subscription.unsubscribe(); assemblyPreviewActor.stop(); };
+    // A stopped XState actor cannot be restarted. Own one actor per effect
+    // lifetime so StrictMode's setup/cleanup/setup cycle retains live previews.
+    const actor = createAssemblyPreviewActor();
+    assemblyPreviewActor.current = actor;
+    const subscription = actor.subscribe(setAssemblyPreviewSnapshot);
+    actor.start();
+    return () => { assemblyPreviewActor.current = undefined; subscription.unsubscribe(); actor.stop(); };
   }, [assemblyPreviewActor]);
   const activeDocument = useQuery({ queryKey: queryKeys.document(activeDocumentID), queryFn: () => api.getDocument(activeDocumentID),
     enabled: Boolean(activeDocumentID && activeDocumentID !== documentID) });
@@ -435,11 +439,11 @@ export function Workbench() {
       : pending?.references ?? [];
     const kind = (constraint?.kind.toLowerCase() ?? pending?.kind) as AssemblyConstraintToolKind | undefined;
     if (!editingView || !kind || references.length < (kind === "fix" ? 1 : 2) || replacingAssemblyReference !== undefined) {
-      assemblyPreviewActor.send({ type: "RESET" });
+      assemblyPreviewActor.current?.send({ type: "RESET" });
       return;
     }
     const sequence=++assemblyPreviewSequence.current;
-    assemblyPreviewActor.send({ type: "REQUEST", sequence });
+    assemblyPreviewActor.current?.send({ type: "REQUEST", sequence });
     assemblyPreviewAbort.current?.abort();
     const controller=new AbortController();assemblyPreviewAbort.current=controller;
     const timer = window.setTimeout(() => {
@@ -459,20 +463,20 @@ export function Workbench() {
       void api.previewCommand(editingView.document.id, commandInput,controller.signal).then((preview) => {
         if (sequence===assemblyPreviewSequence.current&&preview.baseVersionId === editingView.document.versionId) {
           if (preview.instancePoses) viewport.current?.previewAssemblyPoses(preview.instancePoses);
-          assemblyPreviewActor.send({ type: "RESOLVE", sequence });
+          assemblyPreviewActor.current?.send({ type: "RESOLVE", sequence, components: preview.assemblyComponents });
         }
       }).catch((cause: unknown) => {
         if (controller.signal.aborted) {
-          assemblyPreviewActor.send({ type: "CANCEL", sequence });
+          assemblyPreviewActor.current?.send({ type: "CANCEL", sequence });
           return;
         }
         const error = cause instanceof Error ? cause : new Error(String(cause));
         const apiError = cause instanceof ApiError ? cause : undefined;
-        assemblyPreviewActor.send({ type: "REJECT", sequence, error: error.message,
+        assemblyPreviewActor.current?.send({ type: "REJECT", sequence, error: error.message,
           errorCode: apiError?.code, phase: apiError?.phase, retryable: apiError?.retryable });
       });
     }, 140);
-    return () => {window.clearTimeout(timer);controller.abort();assemblyPreviewActor.send({type:"CANCEL",sequence});};
+    return () => {window.clearTimeout(timer);controller.abort();assemblyPreviewActor.current?.send({type:"CANCEL",sequence});};
   }, [editingView, editingAssemblyConstraint, pendingAssemblyConstraint, replacingAssemblyReference,
     assemblyDirection, assemblyDistance, assemblyPreviewCommit, assemblyConstraintForm, assemblyPreviewActor]);
 
@@ -672,10 +676,24 @@ export function Workbench() {
 
   const assemblyPreviewPending = assemblyPreviewSnapshot.matches("pending");
   const assemblyPreviewFailed = assemblyPreviewSnapshot.matches("failed");
+  const motionComponents = assemblyPreviewSnapshot.matches("succeeded") ? assemblyPreviewSnapshot.context.components : undefined;
+  const freedomNames = ["固定", "转动", "滑动", "圆柱", "平面", "球面", "自由", "耦合"];
   const assemblyPreviewFeedback = assemblyPreviewFailed ? <Alert type="error" showIcon
     message="约束预览求解失败"
     description={`${assemblyPreviewSnapshot.context.errorCode ? `[${assemblyPreviewSnapshot.context.errorCode}${assemblyPreviewSnapshot.context.phase ? ` @ ${assemblyPreviewSnapshot.context.phase}` : ""}] ` : ""}${assemblyPreviewSnapshot.context.error ?? "无法生成约束预览"}`}
-  /> : undefined;
+  /> : motionComponents?.length ? <div aria-label="装配求解结果">
+    {motionComponents.map(component => <div key={component.componentId}>
+      <Typography.Text type="secondary">剩余相对自由度：{component.relativeDof}；整体自由度：{component.gaugeDof}</Typography.Text>
+      {component.preference.bodies.filter(body => body.role === 1).map(body => <div key={body.bodyId}>
+        第二元素变化：{body.translation.toPrecision(3)} mm / {(body.rotation * 180 / Math.PI).toPrecision(3)}°
+      </div>)}
+      {component.freedoms.filter(freedom => !freedom.relativeToBodyId || freedom.bodyId !== freedom.relativeToBodyId).map(freedom => <div key={freedom.bodyId}>
+        {editingView?.product?.instances.find(instance => instance.id === freedom.bodyId)?.name ?? freedom.bodyId}：
+        {freedomNames[freedom.kind]}（{freedom.translationDof} 平移 / {freedom.rotationDof} 转动）
+        {freedom.relativeToBodyId && `，相对 ${editingView?.product?.instances.find(instance => instance.id === freedom.relativeToBodyId)?.name ?? freedom.relativeToBodyId}`}
+      </div>)}
+    </div>)}
+  </div> : undefined;
 
   return <CommandProvider registry={commandRegistry}><section className="cad-workbench">
     <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>

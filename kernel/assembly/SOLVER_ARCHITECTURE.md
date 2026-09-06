@@ -22,7 +22,7 @@ verification gates.
 
 ## 2. Current verified baseline
 
-The current M2 implementation is already a graph-aware reference solver rather
+The current M2.5 implementation is already a graph-aware reference solver rather
 than the original single-problem A1 prototype. It provides:
 
 - immutable value types for rigid bodies and body-local `Point`, `Axis`, `Plane`
@@ -49,10 +49,10 @@ The remaining boundary is equally important:
   boundary compiles them into typed internal equation definitions;
 - each component still uses dense matrices, although the production step no longer
   forms normal equations;
-- a numeric null-space basis is returned, but it has no stable user-facing geometric
-  freedom interpretation yet;
-- weak motion weights and an ungrounded reference gauge are not a strict
-  lexicographic secondary optimization;
+- numeric null-space and interpreted instantaneous freedom subspaces are returned;
+  durable freedom/Engineering Connection identities remain later work;
+- hierarchical pose selection is local to a frozen branch; no global nonconvex
+  optimum or finite-motion reachability is claimed;
 - Product input is limited to direct Part instances and revision-local topology IDs;
   it does not yet freeze typed InstancePaths, Publications/PersistentSelections or
   nested/flexible expansion in an immutable solve manifest;
@@ -63,7 +63,7 @@ The remaining boundary is equally important:
 - cancellation, sparse/incremental factorization and representative large-assembly
   performance gates are not implemented.
 
-M2.5 and later milestones close these gaps in dependency order. They must not be
+M3 and later milestones close the remaining gaps in dependency order. They must not be
 collapsed into a larger enum surface or a backend replacement that leaves Product
 identity, branch intent and diagnostics unresolved.
 
@@ -410,8 +410,8 @@ The baseline now provides:
   diagnostics;
 - keep the present numerical method as a reference backend.
 
-The current rank and whole-constraint redundancy analysis still use the
-finite-difference reference Jacobian. Analytic equations are M2, interpreted
+At the M1 milestone, rank and whole-constraint redundancy analysis used the
+finite-difference reference Jacobian; current M2 uses analytic derivatives. Interpreted
 null-space bases are M2.5, and localized/minimal conflict explanations are M5;
 complex surface constraints were deliberately not added in M1.
 
@@ -432,10 +432,10 @@ physical `Fix`. Result reporting still uses the logical pre-gauge variable count
 and reports the component's six gauge DOF.
 
 This is deliberately narrower than a general priority solver. If a component is
-already physically grounded but retains several feasible internal motions, the
-finite-difference backend still chooses its ordinary minimum-step update. Strict
+already physically grounded but retains several feasible internal motions, M1.5
+alone provided no priority optimization; M2 added M1.7 weak regularization. Strict
 lexicographic minimization of reference motion and weighted body groups require
-M2.5 null-space/hierarchical optimization; drag projection then uses that result in
+M2.5 null-space/hierarchical optimization, now implemented; drag projection uses that result in
 M4. The
 `Driving`/`Measured`/`Controlled`/`Suppressed` mode remains orthogonal: mode decides
 whether an equation drives the solve, while solve intent decides how equivalent
@@ -486,7 +486,7 @@ between calls without making multi-turn state part of the static assembly defini
 
 Direction, unsigned-distance side and angle branch data are compiled into an internal
 `ConstraintBranchState` and remain fixed during central-difference perturbations.
-SolveIntent assigns weak cluster-level motion weights in addition to the existing
+At M1.7, SolveIntent assigned weak cluster-level motion weights in addition to the existing
 ungrounded reference gauge; a rigid cluster containing both roles is invalid. This is
 a weighted secondary objective, not yet lexicographic null-space optimization.
 
@@ -530,10 +530,10 @@ M2 acceptance gates:
 - benchmarks record component size, residual/Jacobian evaluations, factorization
   time and condition evidence before any sparse-library decision.
 
-### M2.5: explainable freedoms and hierarchical pose selection
+### M2.5: explainable freedoms and hierarchical pose selection (implemented baseline)
 
-The raw null space is backend output, not yet a user-facing DOF contract. M2.5 adds
-the stable interpretation and secondary optimization layer:
+M2.5 preserves the raw numeric basis and adds a separate instantaneous geometric
+interpretation and hierarchical pose policy. The delivered layer:
 
 - canonicalize bases deterministically despite sign, repeated singular values and
   equivalent subspace rotations; compare subspaces, never raw SVD columns;
@@ -549,9 +549,94 @@ the stable interpretation and secondary optimization layer:
   provenance.
 
 The gate is semantic stability under body/constraint permutation, global rigid
-motion, unit scaling and valid warm starts. Weak M1.7 regularization remains the
-fallback until these invariants pass; it is removed rather than kept as a second
-solution policy once M2.5 is accepted.
+motion, unit scaling and valid warm starts with the same frozen nominal poses and
+branch. The delivered slices are M2.5a pose policy, M2.5b Product integration,
+and M2.5c user-facing freedom interpretation. Numeric null-space algebra is needed
+for M2.5a; a UI classification of freedoms is not its prerequisite. The weak
+policy has been removed; there is no silent weighted or temporary-Fix fallback.
+
+#### M2.5a：从动算法语义与实现（已实现）
+
+这里的“从动”指第二选择 reference 在满足全部约束的前提下尽量保持操作前位姿；第一选择 moving 优先承担变化。
+它不是机械动力学的主从传播，也不按“约束条数多”决定固定谁。是否必须移动由整个连通分量的可行空间决定。
+第一元素已 Fix、通过 Rigid 间接接地、仅某些方向受限或被闭环约束时，第二元素仍参与同一求解问题，
+自然承担不可避免的运动。禁止“临时固定第二元素 → 失败 → 去掉固定重试”，也不能靠增大 reference 权重实现优先级。
+
+令 q 为物理 ground 消元后的 cluster 位姿，q0 为本次操作前冻结的名义位姿，F 为当前 branch 下全部有效几何约束的可行集合。
+求解目标按词典序排列：
+
+1. 满足 F；所有 Driving/Controlled、Fix/Rigid、距离侧与角度分支仍是硬语义。
+2. 在 F 内最小化 E_ref(q)，即第二选择所属 occurrence 相对 q0 的位姿变化。
+3. 在上一级最优集合内最小化 E_all(q)，减少其余 occurrence 的总名义变化。
+
+M2.5 首片采用 reference 优先、其余元素同级的总位移目标；不沿用旧 neutral > moving 权重作为隐含的第三层优先级。
+若以后需要“先移动第一元素，再移动其他非 reference 元素”的额外层级，必须显式扩展 policy 与验收，不能暗加权重。
+固定分支内只承诺有收敛证据的局部层级最优，不声称任意非凸装配的全局最小位移；跨离散分支搜索仍属于后续里程碑。
+
+位姿度量以 occurrence 的固定局部原点为平移测量点，采用
+`||t_i(q)-t_i(q0)||² / L² + ||Log(R_i(q0)^T R_i(q))||² / A²`。
+L/A 是冻结的运动度量尺度，与几何可满足性容差分离；单位换算必须同时换算 L。reference 集合按 occurrence ID 去重，
+E_all 对选定连通分量全部 occurrence 求和。Rigid 只压缩变量，目标仍从成员 occurrence 位姿计算，避免更换 cluster 代表原点改变偏好。
+旋转 Log 在 π 附近需确定性 branch/连续化与导数 oracle；必须与当前 `t += dt, R = Exp(dw) R` 更新约定一致。
+不得直接复用当前近似 preference gradient 作为精确目标 Jacobian。
+
+具体在现有 Eigen dense reference backend 内实现，不新增外部优化库：
+
+- 将冻结 nominal pose 与数值 initial guess 分开。warm start、奇异点 seed、可行性恢复均不得重置 q0。
+- 用几何 Jacobian J 求可行性恢复步 Δp，并构造其数值零空间 Z；局部步写成 `Δ = Δp + Z y`。
+  当前实现先恢复可行性，再以投影 BFGS 优化 reference。reference 残差为零时用 `null(A_ref Z)`；非零时
+  使用 reduced Lagrangian Hessian 的零空间，保留目标值最优而残差向量仍可变化的解族，再优化总名义变化。
+  二阶曲率通过解析梯度的 Richardson 差分获得；几何 Jacobian 仍是解析微分。
+  阻尼和 trust region 只控制步长、稳定分解，不能变成与硬约束竞争的运动权重。
+- 当前导出的 null-space 经列反缩放后仅逐列归一，不能假设正交，更不能直接用 `Z Z^T` 作投影。
+  在统一无量纲 tangent 度量下重新 QR/SVD 正交化，投影与梯度使用同一尺度，并复用明确的 rank threshold。
+- 非线性层使用有界 trust-region/回溯与可行性恢复。初始不可行时优先恢复约束；进入可行带后，候选需同时通过真实几何容差、
+  上级目标不劣化和当前层目标改善检查。零空间步只是一阶可行，必须重新求值并校正曲率误差，校正后再次检查全部层级。
+  用配置化 objective tolerance 定义数值上的“不劣化”，不得逐步累计放宽上级最优值。
+- 删除“几何满足即结束”的单一退出条件。分开记录 geometric feasibility 与 preference optimality；后者检查投影梯度/KKT 残差、
+  步长、目标改善和预算。可行但偏好未收敛必须显式报告，不能冒充已完成从动最优化，也不能误报模型约束冲突。
+- 仅有一个 reference cluster 且整个 component 无 ground 时，可保留现有 reference gauge 消元作为等价优化：整体刚体变换可令它
+  恢复 q0，因此 E_ref 最优值可为零。存在 ground 时 reference 必须保留为自由变量（除非它本身物理固定）；多个 reference cluster
+  不得按列表顺序固定第一个，应保留整体 gauge 供目标优化，或证明采用的规约不改变目标最优值。
+- rank 改变、退化或 branch 边界必须有诊断与有界恢复，禁止随机重启或以局部 stationary 宣称第二元素全局上“不得不移动”。
+
+#### M2.5b：调用链与验收（已实现）
+
+复用 `assemblyConstraintSolveIntent()`，让 ADD、EDIT、preview、commit 对相同基础 Revision 冻结相同 q0、branch 和 policy。
+内核/Proto/Worker/Go/Router 同步贯通运动尺度、偏好收敛状态及每个角色的平移/旋转变化证据；字段使用 typed 契约，
+不塞入自由格式 diagnostic 字符串。计算策略变化更新 solver profile/build 与求值缓存身份；当前未发布阶段直接统一调用方，
+不维护实验数据兼容路径。所有结果 Pose 与约束继续原子提交并从最终 Revision 重建 ChangeSet。
+MOVE 的最近可行目标投影仍由 M4 实现，本门不以现有 `interaction-driver` Fix 路径代替二元约束从动算法。
+
+| 已覆盖的场景 | 验收结果 |
+|---|---|
+| 两个自由元素，单 reference | 第二元素零变化（运动容差内），第一元素满足约束，仍报告 6 gauge DOF |
+| 第一元素 Fix 或经 Rigid 接地 | 第一元素严格不动，第二元素承担必要变化，不能因 reference 偏好报无解 |
+| 第三元素接地，第一元素仍可独自完成约束 | 第二元素保持 q0，避免“component 有 ground 就只能近似不动” |
+| 第一元素沿 x 滑动，第二元素沿 y 滑动，局部原点初值分别 (0,2,0)/(3,0,0)，新增点重合 | 解为 (3,2,0)，第二元素只作必要的 y 位移 2，第一元素作 x 位移 3 |
+| 闭环/多解中第二元素必须动但仍有剩余自由度 | 与小型解析最优解比较 E_ref，再比较 E_all；可行不等于最优 |
+| 几何已满足但数值初值偏离冻结 q0 | 继续二级优化，不因初始可行立即退出 |
+| 两元素都固定且约束冲突 | 保留真实冲突；不得释放 Fix 或牺牲几何容差 |
+| 多 reference、Rigid 成员换代表、输入排列 | 相同目标与解语义；不得依赖第一个 reference 或 cluster 原点 |
+| 相邻角度、π 附近、秩变化、长力臂、单位缩放 | 残差/运动连续或明确分支诊断，目标导数 oracle 通过 |
+| 同一 q0/branch 的冷启动与热启动 | 比较可行性、层级目标与已知局部解族；改变 q0 不冒充 warm-start 等价测试 |
+| 正式 Router 与 Product 生命周期 | 创建/编辑一致，preview 不写历史，提交/刷新、连续两次 Undo/Redo 与 capability 一致 |
+
+每层目标输出尺度、最终值与最优性残差；失败 fixture 固定输入与 branch，不只断言 `Converged`。
+在相同构建配置下记录 5/15/30-body 耗时、迭代数、可行性残差和 reference 位移；性能不能以降低上述优先级换取。
+#### M2.5c：瞬时自由度解释（已实现）
+
+每体 allowed 子空间来自 component 的几何零空间经 occurrence 力臂映射；blocked 是相同无量纲度量下的正交补。
+规范化通过子空间投影与确定性正交化完成，测试比较 projector，不依赖原始 SVD 列。
+纯平移空间和 angular image 分别给出平移维数/方向、旋转维数/轴点/pitch；转动、滑动、圆柱、平面及球面族需满足对应
+子空间关系（球面要求转轴共享中心），其他组合明确标为 Coupled。无 ground 时相对稳定 occurrence 解释并单列全局 gauge，
+输出 relative-to ID、linearization pose、rank threshold 和运动尺度；它不声称存在有限的自由行程。
+
+Worker/Go/Router 携带 typed freedom/preference enums 与完整证据，Product 预览通过现有 preview actor 展示第二元素变化和自由度，
+REQUEST/RESET/CANCEL 清理旧证据，旧 sequence 的响应不覆盖新状态。提交不持久化额外求解状态机；最终 Pose 仍进入同一
+Revision/ChangeSet，连续 Undo/Redo 由原历史语义处理。当前 `solver_build=assembly-m2.5-hierarchy-v1`，profile schema 为 2。
+装配求解当前没有结果缓存；无需通过修改无关的 Part evaluator 来假装失效装配缓存。持久 solve manifest/provenance 是 M3。
+
 
 ### M3: replayable Product solve manifest
 
@@ -650,25 +735,12 @@ static placement solve loop.
 
 ## 9. Next vertical slice and acceptance criteria
 
-The next mergeable slice is M2.5 freedom interpretation and hierarchical pose
-selection, not a new toolbar constraint. It retains the current Product and RPC
-behavior while interpreting the M2 numeric null space and replacing weak motion
-weights only after the lexicographic policy is proven invariant.
-
-The slice is complete only when:
-
-- canonical mechanisms produce the expected translation, rotation or coupled
-  instantaneous freedom families;
-- freedom comparisons are subspace based and invariant to basis sign/rotation,
-  rigid world transforms, input permutation, unit scaling and valid warm starts;
-- constraint feasibility remains the first optimization level, followed by
-  reference motion and total nominal change;
-- weak M1.7 motion weights are removed once the hierarchical policy passes, rather
-  than retained as a competing result-selection path;
-- Product preview/commit, final ChangeSet reconciliation, repeated Undo/Redo and the
-  formal Router path pass without a second persisted schema or solver state;
-- a benchmark records evidence sufficient to decide the next equation family and
-  whether dense augmented QR remains adequate.
+The M2.5 baseline now includes hierarchy, Product integration and instantaneous
+freedom interpretation. The next slice is M3: replayable solve inputs and stable
+Product references, reusing PersistentSelection/Publication rather than inventing
+a second topology identity. Keep the M2.5 motion, subspace and Router/history corpus
+as its compatibility gate. MOVE projection is still M4; sparse/incremental execution
+remains benchmark-led M7 work.
 
 ## 10. Explicit non-goals for the next milestone
 

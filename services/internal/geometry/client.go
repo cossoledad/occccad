@@ -194,13 +194,14 @@ type SketchSolve struct {
 }
 
 type AssemblyPose struct {
-	Translation [3]float64
-	Rotation    [4]float64
+	Translation [3]float64 `json:"translation"`
+	Rotation    [4]float64 `json:"rotation"`
 }
 
 type AssemblyBody struct {
-	ID   string
-	Pose AssemblyPose
+	ID           string
+	Pose         AssemblyPose
+	InitialGuess *AssemblyPose
 }
 
 type AssemblyGeometry struct {
@@ -244,15 +245,19 @@ type AssemblyEquationResidual struct {
 }
 
 type AssemblyComponentDof struct {
-	ComponentID                        string
-	BodyIDs                            []string
-	TangentVariableCount, JacobianRank uint64
-	RelativeDof, GaugeDof              uint64
-	Solved                             bool
-	TangentClusterIDs                  []string
-	NullSpaceBasis                     [][]float64
-	SingularValues                     []float64
-	RankThreshold                      float64
+	ComponentID          string                   `json:"componentId"`
+	BodyIDs              []string                 `json:"bodyIds"`
+	TangentVariableCount uint64                   `json:"tangentVariableCount"`
+	JacobianRank         uint64                   `json:"jacobianRank"`
+	RelativeDof          uint64                   `json:"relativeDof"`
+	GaugeDof             uint64                   `json:"gaugeDof"`
+	Solved               bool                     `json:"solved"`
+	TangentClusterIDs    []string                 `json:"tangentClusterIds"`
+	NullSpaceBasis       [][]float64              `json:"nullSpaceBasis"`
+	SingularValues       []float64                `json:"singularValues"`
+	RankThreshold        float64                  `json:"rankThreshold"`
+	Preference           AssemblyMotionPreference `json:"preference"`
+	Freedoms             []AssemblyBodyFreedom    `json:"freedoms"`
 }
 
 type AssemblySolveDiagnostic struct {
@@ -266,19 +271,21 @@ type AssemblySolveIntent struct {
 }
 
 type AssemblySolverProfile struct {
-	SchemaVersion                                                              uint32
-	MaxIterations                                                              uint64
-	LengthTolerance, AngleTolerance                                            float64
-	ClassificationLengthTolerance, ClassificationAngleTolerance                float64
-	TranslationStepTolerance, RotationStepTolerance                            float64
-	DegeneracyTolerance, FiniteDifferenceStep, InitialDamping                  float64
-	RankTolerance                                                              float64
-	TranslationFiniteDifferenceStep, RotationFiniteDifferenceStep              float64
-	RankAbsoluteTolerance, RankRelativeTolerance, GradientTolerance            float64
-	MovingPreferenceWeight, NeutralPreferenceWeight, ReferencePreferenceWeight float64
-	MaxConflictProbes                                                          uint64
-	VerifyAnalyticJacobians                                                    bool
-	JacobianCheckTolerance                                                     float64
+	SchemaVersion                                                   uint32
+	MaxIterations                                                   uint64
+	LengthTolerance, AngleTolerance                                 float64
+	ClassificationLengthTolerance, ClassificationAngleTolerance     float64
+	TranslationStepTolerance, RotationStepTolerance                 float64
+	DegeneracyTolerance, FiniteDifferenceStep, InitialDamping       float64
+	RankTolerance                                                   float64
+	TranslationFiniteDifferenceStep, RotationFiniteDifferenceStep   float64
+	RankAbsoluteTolerance, RankRelativeTolerance, GradientTolerance float64
+	MotionLengthScale, MotionAngleScale, PreferenceTolerance        float64
+	ObjectiveTolerance                                              float64
+	MaxPreferenceIterations                                         *uint64
+	MaxConflictProbes                                               uint64
+	VerifyAnalyticJacobians                                         bool
+	JacobianCheckTolerance                                          float64
 }
 
 type AssemblySolveOptions struct {
@@ -288,6 +295,7 @@ type AssemblySolveOptions struct {
 }
 
 type AssemblySolve struct {
+	SolverBuild                                                                                                   string
 	Status, Classification, Diagnostic                                                                            string
 	Bodies                                                                                                        []AssemblyBody
 	EquationResiduals                                                                                             []AssemblyEquationResidual
@@ -333,13 +341,18 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 			TranslationFiniteDifferenceStep: profile.TranslationFiniteDifferenceStep,
 			RotationFiniteDifferenceStep:    profile.RotationFiniteDifferenceStep,
 			RankAbsoluteTolerance:           profile.RankAbsoluteTolerance, RankRelativeTolerance: profile.RankRelativeTolerance,
-			GradientTolerance: profile.GradientTolerance, MovingPreferenceWeight: profile.MovingPreferenceWeight,
-			NeutralPreferenceWeight: profile.NeutralPreferenceWeight, ReferencePreferenceWeight: profile.ReferencePreferenceWeight,
+			GradientTolerance: profile.GradientTolerance, MotionLengthScale: profile.MotionLengthScale,
+			MotionAngleScale: profile.MotionAngleScale, PreferenceTolerance: profile.PreferenceTolerance,
+			ObjectiveTolerance: profile.ObjectiveTolerance, MaxPreferenceIterations: profile.MaxPreferenceIterations,
 			MaxConflictProbes: profile.MaxConflictProbes, VerifyAnalyticJacobians: profile.VerifyAnalyticJacobians,
 			JacobianCheckTolerance: profile.JacobianCheckTolerance}
 	}
 	for _, body := range bodies {
-		request.Bodies = append(request.Bodies, &workerv1.AssemblyBody{Id: body.ID, InitialPose: protoPose(body.Pose)})
+		item := &workerv1.AssemblyBody{Id: body.ID, InitialPose: protoPose(body.Pose)}
+		if body.InitialGuess != nil {
+			item.InitialGuess = protoPose(*body.InitialGuess)
+		}
+		request.Bodies = append(request.Bodies, item)
 	}
 	for _, value := range geometryValues {
 		request.Geometry = append(request.Geometry, &workerv1.AssemblyGeometry{Id: value.ID, BodyId: value.BodyID, Kind: value.Kind,
@@ -369,7 +382,7 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 	if err != nil {
 		return AssemblySolve{}, fmt.Errorf("solve assembly: %w", err)
 	}
-	result := AssemblySolve{Status: response.GetStatus(), Classification: response.GetClassification(), Diagnostic: response.GetDiagnostic(), Iterations: response.GetIterations(), NormalizedResidual: response.GetNormalizedResidual(), RedundantConstraintIDs: response.GetRedundantConstraintIds(), UnsatisfiedConstraintIDs: response.GetUnsatisfiedConstraintIds(), ConflictingConstraintIDs: response.GetConflictingConstraintIds(), SuspectedConflictingConstraintIDs: response.GetSuspectedConflictingConstraintIds()}
+	result := AssemblySolve{SolverBuild: response.GetSolverBuild(), Status: response.GetStatus(), Classification: response.GetClassification(), Diagnostic: response.GetDiagnostic(), Iterations: response.GetIterations(), NormalizedResidual: response.GetNormalizedResidual(), RedundantConstraintIDs: response.GetRedundantConstraintIds(), UnsatisfiedConstraintIDs: response.GetUnsatisfiedConstraintIds(), ConflictingConstraintIDs: response.GetConflictingConstraintIds(), SuspectedConflictingConstraintIDs: response.GetSuspectedConflictingConstraintIds()}
 	for _, body := range response.GetBodies() {
 		result.Bodies = append(result.Bodies, AssemblyBody{ID: body.GetId(), Pose: AssemblyPose{
 			Translation: [3]float64{body.GetPose().GetTranslation().GetX(), body.GetPose().GetTranslation().GetY(), body.GetPose().GetTranslation().GetZ()},
@@ -379,9 +392,31 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 		result.EquationResiduals = append(result.EquationResiduals, AssemblyEquationResidual{EquationID: value.GetEquationId(), ConnectionID: value.GetConnectionId(), ConstraintID: value.GetConstraintId(), EquationIndex: value.GetEquationIndex(), NormalizedValue: value.GetNormalizedValue()})
 	}
 	for _, value := range response.GetComponents() {
-		component := AssemblyComponentDof{ComponentID: value.GetComponentId(), BodyIDs: value.GetBodyIds(), TangentVariableCount: value.GetTangentVariableCount(), JacobianRank: value.GetJacobianRank(), RelativeDof: value.GetRelativeDof(), GaugeDof: value.GetGaugeDof(), Solved: value.GetSolved(), TangentClusterIDs: value.GetTangentClusterIds(), SingularValues: value.GetSingularValues(), RankThreshold: value.GetRankThreshold()}
+		component := AssemblyComponentDof{Freedoms: []AssemblyBodyFreedom{}, ComponentID: value.GetComponentId(), BodyIDs: value.GetBodyIds(), TangentVariableCount: value.GetTangentVariableCount(), JacobianRank: value.GetJacobianRank(), RelativeDof: value.GetRelativeDof(), GaugeDof: value.GetGaugeDof(), Solved: value.GetSolved(), TangentClusterIDs: value.GetTangentClusterIds(), SingularValues: value.GetSingularValues(), RankThreshold: value.GetRankThreshold()}
 		for _, basis := range value.GetNullSpaceBasis() {
 			component.NullSpaceBasis = append(component.NullSpaceBasis, append([]float64(nil), basis.GetValues()...))
+		}
+		if p := value.GetPreference(); p != nil {
+			component.Preference = AssemblyMotionPreference{Bodies: []AssemblyBodyMotion{}, Status: PreferenceStatus(p.GetStatus()), GeometricallyFeasible: p.GetGeometricallyFeasible(), ReferenceObjective: p.GetReferenceObjective(), TotalObjective: p.GetTotalObjective(), ReferenceOptimality: p.GetReferenceOptimality(), TotalOptimality: p.GetTotalOptimality(), LengthScale: p.GetLengthScale(), AngleScale: p.GetAngleScale(), Iterations: p.GetIterations()}
+			for _, b := range p.GetBodies() {
+				component.Preference.Bodies = append(component.Preference.Bodies, AssemblyBodyMotion{BodyID: b.GetBodyId(), Role: MotionRole(b.GetRole()), Translation: b.GetTranslation(), Rotation: b.GetRotation()})
+			}
+		}
+		for _, f := range value.GetFreedoms() {
+			freedom := AssemblyBodyFreedom{AllowedBasis: [][]float64{}, BlockedBasis: [][]float64{}, TranslationDirections: [][3]float64{}, Rotations: []AssemblyScrewFreedom{}, BodyID: f.GetBodyId(), RelativeToBodyID: f.GetRelativeToBodyId(), Kind: FreedomKind(f.GetKind()), TranslationDof: f.GetTranslationDof(), RotationDof: f.GetRotationDof(), RankThreshold: f.GetRankThreshold(), LinearizationPose: assemblyPose(f.GetLinearizationPose())}
+			for _, b := range f.GetAllowedBasis() {
+				freedom.AllowedBasis = append(freedom.AllowedBasis, append([]float64(nil), b.GetValues()...))
+			}
+			for _, b := range f.GetBlockedBasis() {
+				freedom.BlockedBasis = append(freedom.BlockedBasis, append([]float64(nil), b.GetValues()...))
+			}
+			for _, d := range f.GetTranslationDirections() {
+				freedom.TranslationDirections = append(freedom.TranslationDirections, assemblyVector(d))
+			}
+			for _, axis := range f.GetRotations() {
+				freedom.Rotations = append(freedom.Rotations, AssemblyScrewFreedom{Direction: assemblyVector(axis.GetDirection()), AxisPoint: assemblyVector(axis.GetAxisPoint()), Pitch: axis.GetPitch()})
+			}
+			component.Freedoms = append(component.Freedoms, freedom)
 		}
 		result.Components = append(result.Components, component)
 	}

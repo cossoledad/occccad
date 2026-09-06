@@ -110,3 +110,8 @@ invoke performance-baseline
 ```
 
 扩展业务能力优先增加 `services/internal` 模块，只有出现独立扩缩容、故障隔离、安全边界或发布节奏需求时才拆分网络服务。长期演进见项目[目标架构](../../../docs/TARGET_ARCHITECTURE.md)。
+
+装配 M2.5：ADD/EDIT 的预览与提交共用第一 moving、第二 reference 的 SolveIntent。
+服务端只接受几何满足且 preference 收敛的结果；`ASSEMBLY_PREFERENCE_NOT_CONVERGED` 与几何冲突分开报告。
+预览返回 `assemblySolverBuild` 和 `assemblyComponents`（每体位移、运动尺度、局部最优性及自由度证据），不写 Revision；
+预览 modelHash 对应求解后的候选模型。提交仍从最终求解 Pose 重建 ChangeSet，并支持连续补偿 Undo/Redo。

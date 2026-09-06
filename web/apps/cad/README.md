@@ -89,3 +89,6 @@ invoke test --build-type=Debug
 - WebGPU 可作为加速路径，但在兼容性与拾取语义成熟前保留 WebGL2/Three.js 基线。
 
 长期前端数据流、实时协作和大装配方案见项目[目标架构](../../../docs/TARGET_ARCHITECTURE.md)。
+
+装配约束预览面板消费 M2.5 的 `assemblyComponents`，显示第二元素平移/旋转变化和每体瞬时自由度类型。
+这些数据与预览结果共用 sequence 生命周期，新的请求、取消或关闭时清理，迟到响应不覆盖当前结果；前端不自行推断约束自由度。
