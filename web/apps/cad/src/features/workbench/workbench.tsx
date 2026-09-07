@@ -270,6 +270,7 @@ export function Workbench() {
   const padPreviewAbort = useRef<AbortController | undefined>(undefined);
   const padPreviewSequence = useRef(0);
   const padIntentRequestID = useRef<string | undefined>(undefined);
+	const padPreviewID = useRef<string | undefined>(undefined);
   const latestDocumentVersion = useRef<string | undefined>(undefined);
   const [activeDocumentID, setActiveDocumentID] = useState(documentID);
   const [activeInstancePath, setActiveInstancePath] = useState<string>();
@@ -283,6 +284,8 @@ export function Workbench() {
   const [assemblyPreviewCommit, setAssemblyPreviewCommit] = useState(0);
   const assemblyPreviewAbort = useRef<AbortController | undefined>(undefined);
   const assemblyPreviewSequence = useRef(0);
+	const assemblyPreviewID = useRef<string | undefined>(undefined);
+	const assemblyInteractionID = useRef<string>(randomUUID());
   const assemblyPreviewActor = useRef<ReturnType<typeof createAssemblyPreviewActor> | undefined>(undefined);
   const [assemblyPreviewSnapshot, setAssemblyPreviewSnapshot] = useState(() => createAssemblyPreviewActor().getSnapshot());
   const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
@@ -439,10 +442,12 @@ export function Workbench() {
       : pending?.references ?? [];
     const kind = (constraint?.kind.toLowerCase() ?? pending?.kind) as AssemblyConstraintToolKind | undefined;
     if (!editingView || !kind || references.length < (kind === "fix" ? 1 : 2) || replacingAssemblyReference !== undefined) {
+	  assemblyPreviewID.current=undefined;
       assemblyPreviewActor.current?.send({ type: "RESET" });
       return;
     }
-    const sequence=++assemblyPreviewSequence.current;
+	const sequence=++assemblyPreviewSequence.current;
+	assemblyPreviewID.current=undefined;
     assemblyPreviewActor.current?.send({ type: "REQUEST", sequence });
     assemblyPreviewAbort.current?.abort();
     const controller=new AbortController();assemblyPreviewAbort.current=controller;
@@ -460,8 +465,9 @@ export function Workbench() {
         firstAssemblyRef: references[0], secondAssemblyRef: references[1],
         angleReferenceDirection: pending?.angleReferenceDirection,
       };
-      void api.previewCommand(editingView.document.id, commandInput,controller.signal).then((preview) => {
-        if (sequence===assemblyPreviewSequence.current&&preview.baseVersionId === editingView.document.versionId) {
+	  void api.previewCommand(editingView.document.id, {...commandInput,interactionId:assemblyInteractionID.current,previewSequence:sequence},controller.signal).then((preview) => {
+		if (sequence===assemblyPreviewSequence.current&&preview.baseVersionId === editingView.document.versionId) {
+		  assemblyPreviewID.current=preview.previewId;
           if (preview.instancePoses) viewport.current?.previewAssemblyPoses(preview.instancePoses);
           assemblyPreviewActor.current?.send({ type: "RESOLVE", sequence, components: preview.assemblyComponents });
         }
@@ -484,8 +490,8 @@ export function Workbench() {
     if (!editingView) return;
     command.mutate(() => api.editSketch(editingView.document.id, featureID, operations));
   };
-  const moveInstance = (instanceID: string, translation: Vec3, rotation:[number,number,number,number]) => {
-    if (editingView?.document.type === "PRODUCT" && canEdit) moveCommand.mutate(() => api.move(editingView.document.id, instanceID, translation,rotation));
+  const moveInstance = (instanceID: string, translation: Vec3, rotation:[number,number,number,number], previewId?:string) => {
+	if (editingView?.document.type === "PRODUCT" && canEdit) moveCommand.mutate(() => api.move(editingView.document.id, instanceID, translation,rotation,previewId));
   };
   const executeHistory = (direction: "undo" | "redo") => {
     if (!editingView) return; command.mutate(() => direction === "undo" ? api.undo(editingView.document.id) : api.redo(editingView.document.id));
@@ -517,12 +523,13 @@ export function Workbench() {
     command.mutate(() => api.createSolidFeature(editingView.document.id, { sketchId: padSketchID, generator,
       operation: values.operation, length: generator === "LINEAR_EXTRUDE" ? values.length : undefined,
       angle: generator === "REVOLVE" ? values.angle : undefined,
-      axisEntityId: generator === "REVOLVE" ? values.axisEntityId : undefined, reversed: values.reversed }, padIntentRequestID.current));
-    setPadOpen(false); setPadSketchID(undefined); padIntentRequestID.current = undefined;
+	  axisEntityId: generator === "REVOLVE" ? values.axisEntityId : undefined, reversed: values.reversed,
+	  previewId: padPreviewID.current }, padIntentRequestID.current));
+	setPadOpen(false); setPadSketchID(undefined); padIntentRequestID.current = undefined; padPreviewID.current=undefined;
   };
   const closePad = () => {
     padPreviewAbort.current?.abort(); padPreviewSequence.current += 1; setPadPreviewPending(false);
-    viewport.current?.clearCommandPreview(); setPadOpen(false); setPadSketchID(undefined); padIntentRequestID.current = undefined;
+	viewport.current?.clearCommandPreview(); setPadOpen(false); setPadSketchID(undefined); padIntentRequestID.current = undefined; padPreviewID.current=undefined;
   };
   const requestPadPreview = async (sketchID: string, generatorOverride?: "LINEAR_EXTRUDE" | "REVOLVE") => {
     if (!editingView) return;
@@ -531,15 +538,17 @@ export function Workbench() {
     if (values.generator === "REVOLVE" && (!Number.isFinite(values.angle) || values.angle <= 0 || !values.axisEntityId)) return;
     padPreviewAbort.current?.abort();
     const abort = new AbortController(); padPreviewAbort.current = abort;
-    const sequence = ++padPreviewSequence.current; const baseVersionID = editingView.document.versionId;
+	const sequence = ++padPreviewSequence.current; const baseVersionID = editingView.document.versionId;
+	padPreviewID.current=undefined;
     setPadPreviewPending(true);
     try {
       const preview = await api.previewCommand(editingView.document.id, { type: "CREATE_SOLID_FEATURE", sketchId: sketchID,
         generator: values.generator, operation: values.operation, length: values.length, angle: values.angle,
         axisEntityId: values.axisEntityId, reversed: values.reversed,
         ...(padIntentRequestID.current ? { requestId: padIntentRequestID.current } : {}) }, abort.signal);
-      if (sequence !== padPreviewSequence.current || preview.baseVersionId !== baseVersionID ||
-        preview.baseVersionId !== latestDocumentVersion.current || !preview.artifact) return;
+	  if (sequence !== padPreviewSequence.current || preview.baseVersionId !== baseVersionID ||
+		preview.baseVersionId !== latestDocumentVersion.current || !preview.artifact) return;
+	  padPreviewID.current=preview.previewId;
       viewport.current?.previewArtifact(preview.artifact);
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError")) message.error(`预览失败：${(error as Error).message}`);
@@ -556,7 +565,7 @@ export function Workbench() {
       ["PAD", "LINEAR_EXTRUDE", "REVOLVE"].includes(feature.type.toUpperCase())));
     const selectedOperation = operation ?? (hasBody ? "ADD" : "NEW_BODY");
     const sketchID = store.selection.id;
-    padIntentRequestID.current = randomUUID(); setPadSketchID(sketchID); setPadGenerator(generator);
+	padIntentRequestID.current = randomUUID(); padPreviewID.current=undefined; setPadSketchID(sketchID); setPadGenerator(generator);
     padForm.setFieldsValue({ generator, operation: selectedOperation, length: 40, angle: 360,
       axisEntityId: undefined, reversed: false });
     setPadOpen(true);
@@ -715,8 +724,10 @@ export function Workbench() {
           sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={store.navigationProfile}
           captureSettings={store.captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
           onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
-          onAssemblyConstraint={(kind, references) => {
-            if (!editingView) return;
+		  onAssemblyConstraint={(kind, references) => {
+			if (!editingView) return;
+			assemblyInteractionID.current=randomUUID();
+			assemblyPreviewActor.current?.send({type:"START"});
             const value = kind === "angle" || kind === "distance" ? viewport.current?.measureAssemblyConstraint(kind, references) ?? 0 : 0;
             const planePair=references.length===2&&references.every((reference)=>["PLANE","FACE"].includes(reference.kind));
             assemblyConstraintForm.setFieldsValue({ value, directionRelation: kind === "angle" ? "SAME" : planePair
@@ -724,8 +735,8 @@ export function Workbench() {
             setPendingAssemblyConstraint({ kind, references,
               angleReferenceDirection: kind === "angle" ? viewport.current?.assemblyAngleReferenceDirection(references) : undefined });
           }}
-          onInstanceMovePreview={async(instanceId,translation,rotation)=>{
-            if(editingView?.document.type!=="PRODUCT")return{poses:[],constraintLimited:true};const preview=await api.previewCommand(editingView.document.id,{type:"MOVE_INSTANCE",requestId:randomUUID(),instanceId,translation,rotation});return{poses:preview.instancePoses??[],constraintLimited:Boolean(preview.constraintLimited)};
+		  onInstanceMovePreview={async(instanceId,translation,rotation,interactionId,previewSequence)=>{
+			if(editingView?.document.type!=="PRODUCT")return{poses:[],constraintLimited:true,previewId:""};const preview=await api.previewCommand(editingView.document.id,{type:"MOVE_INSTANCE",interactionId,previewSequence,instanceId,translation,rotation});return{poses:preview.instancePoses??[],constraintLimited:Boolean(preview.constraintLimited),previewId:preview.previewId};
           }}
           onInstanceMoved={moveInstance} /></Suspense>
 		{toolbarCatalog.data?.toolbars.filter((toolbar) => toolbar.workbench === "ALL" || toolbar.workbench === activeWorkbench)
@@ -751,7 +762,7 @@ export function Workbench() {
             onActivate={(node) => {
               if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
                 const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
-                if (constraint) { setEditingAssemblyConstraint({ ...constraint }); assemblyConstraintForm.setFieldsValue({
+				if (constraint) { assemblyInteractionID.current=randomUUID(); assemblyPreviewActor.current?.send({type:"START"});setEditingAssemblyConstraint({ ...constraint }); assemblyConstraintForm.setFieldsValue({
                   value: constraint.kind === "ANGLE" ? (constraint.value ?? 0) * 180 / Math.PI : constraint.value ?? 0,
                   directionRelation: constraint.kind === "ANGLE" && constraint.angleReferenceDirection ? "SAME"
                     : constraint.directionRelation && constraint.directionRelation !== "UNORIENTED" ? constraint.directionRelation
@@ -805,41 +816,47 @@ export function Workbench() {
         </aside>
       </section></main>
     <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" width={390}
-      onClose={() => { viewport.current?.clearCommandPreview(); setReplacingAssemblyReference(undefined); setEditingAssemblyConstraint(undefined); }}
+      onClose={() => { assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});viewport.current?.clearCommandPreview(); assemblyPreviewID.current=undefined; setReplacingAssemblyReference(undefined); setEditingAssemblyConstraint(undefined); }}
       confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={assemblyPreviewFailed} onConfirm={async()=>{
         if(!editingView||!editingAssemblyConstraint)return;const values=await assemblyConstraintForm.validateFields();const constraint=editingAssemblyConstraint;
+		assemblyPreviewActor.current?.send({type:"CONFIRM"});
         command.mutate(()=>api.editAssemblyConstraint(editingView.document.id,constraint.id,{value:constraint.kind==="ANGLE"?values.value*Math.PI/180:values.value,
-          directionRelation:values.directionRelation,distanceRelation:values.distanceRelation,
-          firstAssemblyRef:constraint.first,secondAssemblyRef:constraint.second,angleReferenceDirection:constraint.angleReferenceDirection}),{onSuccess:()=>{viewport.current?.clearCommandPreview();setEditingAssemblyConstraint(undefined);}});
+		  directionRelation:values.directionRelation,distanceRelation:values.distanceRelation,
+		  firstAssemblyRef:constraint.first,secondAssemblyRef:constraint.second,angleReferenceDirection:constraint.angleReferenceDirection,
+		  previewId:assemblyPreviewID.current}),{onSuccess:()=>{assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined;setEditingAssemblyConstraint(undefined);},
+		  onError:(cause)=>assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)})});
       }}>
       <Form form={assemblyConstraintForm} layout="vertical">
         {editingAssemblyConstraint && <AssemblyConstraintFields kind={editingAssemblyConstraint.kind}
           references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second]} replacing={replacingAssemblyReference}
           directedAngle={Boolean(editingAssemblyConstraint.angleReferenceDirection)}
-          onValueCommit={()=>setAssemblyPreviewCommit((value)=>value+1)}
+		  onValueCommit={()=>{assemblyPreviewActor.current?.send({type:"CHANGE"});setAssemblyPreviewCommit((value)=>value+1);}}
           onReplace={(index)=>{store.setSelection(null);setReplacingAssemblyReference(index);}} />}
         {assemblyPreviewFeedback}
       </Form>
     </CommandDialog>
     <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)} title="约束定义" width={390}
-      onClose={() => { viewport.current?.clearCommandPreview(); setReplacingAssemblyReference(undefined); setPendingAssemblyConstraint(undefined); }}
+      onClose={() => { assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});viewport.current?.clearCommandPreview(); assemblyPreviewID.current=undefined; setReplacingAssemblyReference(undefined); setPendingAssemblyConstraint(undefined); }}
       confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={assemblyPreviewFailed}
       onConfirm={async () => {
         if (!editingView || !pendingAssemblyConstraint) return;
         const values = await assemblyConstraintForm.validateFields();
         const pending = pendingAssemblyConstraint;
+		assemblyPreviewActor.current?.send({type:"CONFIRM"});
         command.mutate(() => api.addAssemblyConstraint(editingView.document.id, {
           constraintKind: pending.kind.toUpperCase(), firstAssemblyRef: pending.references[0], secondAssemblyRef: pending.references[1],
           value: pending.kind === "angle" ? values.value * Math.PI / 180 : values.value,
           directionRelation: values.directionRelation, distanceRelation: values.distanceRelation,
-          angleReferenceDirection: pending.angleReferenceDirection,
-        }), { onSuccess: () => { viewport.current?.clearCommandPreview(); setPendingAssemblyConstraint(undefined); } });
+		  angleReferenceDirection: pending.angleReferenceDirection,
+		  previewId:assemblyPreviewID.current,
+		}), { onSuccess: () => { assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});viewport.current?.clearCommandPreview(); assemblyPreviewID.current=undefined; setPendingAssemblyConstraint(undefined); },
+		  onError:(cause)=>assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)}) });
       }}>
       <Form form={assemblyConstraintForm} layout="vertical">
         {pendingAssemblyConstraint && <AssemblyConstraintFields kind={pendingAssemblyConstraint.kind.toUpperCase() as keyof typeof assemblyConstraintUI}
           references={pendingAssemblyConstraint.references} replacing={replacingAssemblyReference}
           directedAngle={Boolean(pendingAssemblyConstraint.angleReferenceDirection)}
-          onValueCommit={()=>setAssemblyPreviewCommit((value)=>value+1)}
+		  onValueCommit={()=>{assemblyPreviewActor.current?.send({type:"CHANGE"});setAssemblyPreviewCommit((value)=>value+1);}}
           onReplace={(index)=>{store.setSelection(null);setReplacingAssemblyReference(index);}} />}
         {assemblyPreviewFeedback}
       </Form>

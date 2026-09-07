@@ -107,7 +107,7 @@ func assemblyCapabilities(kind, firstKind, secondKind string) assemblyConstraint
 	}
 }
 
-func (service *Service) solveAssembly(ctx context.Context, documentID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, evidence ...*geometry.AssemblySolve) (returnErr error) {
+func (service *Service) solveAssembly(ctx context.Context, documentID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, warmStartKey string, evidence ...*geometry.AssemblySolve) (returnErr error) {
 	if len(model.Constraints) == 0 {
 		return nil
 	}
@@ -135,11 +135,17 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 	}
 	instances := make(map[string]*ProductInstance, len(model.Instances))
 	bodies := make([]geometry.AssemblyBody, 0, len(model.Instances))
+	warmStarts := service.assemblyWarmStarts.get(warmStartKey)
 	for index := range model.Instances {
 		instance := &model.Instances[index]
 		instance.Rotation = normalizedInstanceRotation(instance.Rotation)
 		instances[instance.ID] = instance
-		bodies = append(bodies, geometry.AssemblyBody{ID: instance.ID, Pose: geometry.AssemblyPose{Translation: instance.Translation, Rotation: instance.Rotation}})
+		body := geometry.AssemblyBody{ID: instance.ID, Pose: geometry.AssemblyPose{Translation: instance.Translation, Rotation: instance.Rotation}}
+		if warm, ok := warmStarts[instance.ID]; ok {
+			guess := geometry.AssemblyPose{Translation: warm.Translation, Rotation: warm.Rotation}
+			body.InitialGuess = &guess
+		}
+		bodies = append(bodies, body)
 	}
 	type resolvedPart struct {
 		model       PartModel
@@ -401,6 +407,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 			instance.Translation, instance.Rotation = solved.Pose.Translation, solved.Pose.Rotation
 		}
 	}
+	service.assemblyWarmStarts.put(warmStartKey, *model)
 	if err := workflow.advance(context.Background()); err != nil {
 		return err
 	}

@@ -10,6 +10,7 @@ import (
 	"math"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -1080,11 +1081,20 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	finishApply := perf.Start(ctx, "command-apply")
-	nextJSON, changes, err := workspaceCommandRegistry.Apply(prepared.documentType, prepared.modelJSON, prepared.command)
-	finishApply()
-	if err != nil {
-		return err
+	finishPromote := perf.Start(ctx, "candidate-promote")
+	candidate, promoted := service.interactionCandidates.take(request.PreviewID, documentID, prepared)
+	finishPromote()
+	var nextJSON json.RawMessage
+	var changes modelcore.ChangeSet
+	if promoted {
+		nextJSON, changes = candidate.nextJSON, candidate.changes
+	} else {
+		finishApply := perf.Start(ctx, "command-apply")
+		nextJSON, changes, err = workspaceCommandRegistry.Apply(prepared.documentType, prepared.modelJSON, prepared.command)
+		finishApply()
+		if err != nil {
+			return err
+		}
 	}
 	revisionUUID, err := uuid.NewV7()
 	if err != nil {
@@ -1092,7 +1102,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	}
 	revisionID := revisionUUID.String()
 	modelHash := canonicalModelHash(nextJSON)
-	geometryKey := ""
+	geometryKey := candidate.geometryKey
 	var graph *modelcore.DependencyGraph
 	var manifest modelcore.EvaluationManifest
 	if prepared.documentType == "PART" {
@@ -1101,12 +1111,14 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			return err
 		}
 		normalizePartModel(&model)
-		finishSolve := perf.Start(ctx, "sketch-solve")
-		if err := service.solveSketches(ctx, prepared.requestID, &model); err != nil {
+		if !promoted {
+			finishSolve := perf.Start(ctx, "sketch-solve")
+			if err := service.solveSketches(ctx, prepared.requestID, &model); err != nil {
+				finishSolve()
+				return err
+			}
 			finishSolve()
-			return err
 		}
-		finishSolve()
 		if err := validateAndResolvePartParameters(&model); err != nil {
 			return err
 		}
@@ -1116,32 +1128,36 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err != nil {
 			return err
 		}
-		finishGeometry := perf.Start(ctx, "geometry-evaluate")
-		geometryKey, err = service.evaluatePart(ctx, prepared.requestID, model)
-		finishGeometry()
-		if err != nil {
-			return err
+		if !promoted {
+			finishGeometry := perf.Start(ctx, "geometry-evaluate")
+			geometryKey, err = service.evaluatePart(ctx, prepared.requestID, model)
+			finishGeometry()
+			if err != nil {
+				return err
+			}
 		}
 	} else {
 		var model ProductModel
 		if err := json.Unmarshal(nextJSON, &model); err != nil {
 			return err
 		}
-		finishSolve := perf.Start(ctx, "assembly-solve")
-		drivenInstanceID := ""
-		var solveIntent *geometry.AssemblySolveIntent
-		if prepared.command.TypeURI == typeMoveInstance {
-			var payload moveInstancePayload
-			_ = json.Unmarshal(prepared.command.Payload, &payload)
-			drivenInstanceID = payload.InstanceID
-		} else {
-			solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
-		}
-		if err = service.solveAssembly(ctx, documentID, prepared.requestID, drivenInstanceID, solveIntent, &model); err != nil {
+		if !promoted {
+			finishSolve := perf.Start(ctx, "assembly-solve")
+			drivenInstanceID := ""
+			var solveIntent *geometry.AssemblySolveIntent
+			if prepared.command.TypeURI == typeMoveInstance {
+				var payload moveInstancePayload
+				_ = json.Unmarshal(prepared.command.Payload, &payload)
+				drivenInstanceID = payload.InstanceID
+			} else {
+				solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
+			}
+			if err = service.solveAssembly(ctx, documentID, prepared.requestID, drivenInstanceID, solveIntent, &model, ""); err != nil {
+				finishSolve()
+				return err
+			}
 			finishSolve()
-			return err
 		}
-		finishSolve()
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
 		var priorProduct ProductModel
@@ -1318,7 +1334,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	if err != nil {
 		return CommandPreview{}, err
 	}
-	nextJSON, _, err := workspaceCommandRegistry.Apply(prepared.documentType, prepared.modelJSON, prepared.command)
+	nextJSON, previewChanges, err := workspaceCommandRegistry.Apply(prepared.documentType, prepared.modelJSON, prepared.command)
 	if err != nil {
 		return CommandPreview{}, err
 	}
@@ -1338,7 +1354,11 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 			solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 		}
 		var assemblyResult geometry.AssemblySolve
-		if err = service.solveAssembly(ctx, documentID, "preview/"+prepared.requestID, driven, solveIntent, &model, &assemblyResult); err != nil {
+		warmStartKey := ""
+		if request.InteractionID != "" {
+			warmStartKey = documentID + "|" + prepared.actorID + "|" + request.InteractionID
+		}
+		if err = service.solveAssembly(ctx, documentID, "preview/"+prepared.requestID, driven, solveIntent, &model, warmStartKey, &assemblyResult); err != nil {
 			restored, restoreErr := restoreMovePreviewOnSolveFailure(prepared.command.TypeURI, err, prepared.modelJSON, &model)
 			if restoreErr != nil {
 				return CommandPreview{}, restoreErr
@@ -1358,7 +1378,14 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 				return CommandPreview{}, err
 			}
 		}
-		result := CommandPreview{PreviewID: "preview:" + prepared.requestID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
+		previewID := newID("preview")
+		if !constraintLimited {
+			service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
+				headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
+				payloadDigest: modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, changes: previewChanges,
+				expiresAt: time.Now().Add(interactionCandidateTTL)})
+		}
+		result := CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
 			ModelHash: canonicalModelHash(nextJSON), ConstraintLimited: constraintLimited, AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
 		for _, instance := range model.Instances {
 			result.InstancePoses = append(result.InstancePoses, struct {
@@ -1397,9 +1424,13 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	if err != nil {
 		return CommandPreview{}, err
 	}
-	identity := sha256.Sum256([]byte(prepared.headRevision + "|" + modelHash + "|" + geometryKey))
+	previewID := newID("preview")
+	service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
+		headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
+		payloadDigest: modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, geometryKey: geometryKey,
+		changes: previewChanges, expiresAt: time.Now().Add(interactionCandidateTTL)})
 	return CommandPreview{
-		PreviewID: "sha256:" + hex.EncodeToString(identity[:]), BaseVersionID: prepared.headRevision,
+		PreviewID: previewID, BaseVersionID: prepared.headRevision,
 		BaseSequence: prepared.headSequence, ModelHash: modelHash, Artifact: &artifact,
 	}, nil
 }

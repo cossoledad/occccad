@@ -16,6 +16,7 @@ type Config struct {
 	ListenAddress          string
 	WorkerAddress          string
 	DataDirectory          string
+	LogDirectory           string
 	AllowedOrigins         []string
 	AdminEmail             string
 	AdminName              string
@@ -109,6 +110,7 @@ func Load() Config {
 		ListenAddress:          value("OCCCCAD_SERVER_LISTEN", "0.0.0.0:8080"),
 		WorkerAddress:          value("OCCCCAD_GEOMETRY_WORKER_ADDRESS", "127.0.0.1:51001"),
 		DataDirectory:          value("OCCCCAD_DATA_DIR", "./data"),
+		LogDirectory:           value("OCCCCAD_LOG_DIR", "./logs"),
 		AllowedOrigins:         splitList(os.Getenv("OCCCCAD_ALLOWED_ORIGINS")),
 		AdminEmail:             value("OCCCCAD_ADMIN_EMAIL", "admin@occccad.local"),
 		AdminName:              value("OCCCCAD_ADMIN_DISPLAY_NAME", "Administrator"),

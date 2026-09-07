@@ -4,6 +4,9 @@ import { createAssemblyPreviewActor } from "../assembly-preview-machine.ts";
 const actor = createAssemblyPreviewActor();
 actor.start();
 
+actor.send({ type: "START" });
+assert.equal(actor.getSnapshot().value, "drafting");
+
 actor.send({ type: "REQUEST", sequence: 1 });
 assert.equal(actor.getSnapshot().value, "pending");
 
@@ -21,6 +24,11 @@ actor.send({ type: "REQUEST", sequence: 3 });
 actor.send({ type: "RESOLVE", sequence: 3 });
 assert.equal(actor.getSnapshot().value, "succeeded");
 
+actor.send({ type: "CONFIRM" });
+assert.equal(actor.getSnapshot().value, "committing");
+actor.send({ type: "COMMIT_SUCCESS" });
+assert.equal(actor.getSnapshot().value, "committed");
+
 actor.send({ type: "RESET" });
 assert.equal(actor.getSnapshot().value, "idle");
 assert.equal(actor.getSnapshot().context.error, undefined);
@@ -37,5 +45,6 @@ assert.equal(evidenceActor.getSnapshot().context.components[0].componentId, "cur
 evidenceActor.send({ type: "REQUEST", sequence: 12 });
 assert.equal(evidenceActor.getSnapshot().context.components, undefined);
 evidenceActor.send({ type: "CANCEL", sequence: 12 });
+assert.equal(evidenceActor.getSnapshot().value, "idle");
 assert.equal(evidenceActor.getSnapshot().context.components, undefined);
 evidenceActor.stop();

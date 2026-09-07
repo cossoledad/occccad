@@ -35,6 +35,9 @@ vendor/
 # Docker
 *.log
 
+# Logger
+**/logs/
+
 # Environment
 .env
 .env.local

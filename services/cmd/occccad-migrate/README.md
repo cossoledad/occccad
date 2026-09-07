@@ -24,7 +24,7 @@ go run ./cmd/occccad-migrate
 
 当前 `occccad-server` 与 `occccad-jobs` 启动时也会自动调用相同迁移器。本地开发因此通常不必单独执行；生产部署应先运行本进程，成功后再滚动应用进程，以便显式控制升级失败。
 
-当前未发布开发阶段还提供受保护的破坏性模式。它只删除固定的 PostgreSQL `occcad` schema，清空并重建 `OCCCCAD_DATA_DIR`，然后执行全部当前迁移：
+当前未发布开发阶段还提供受保护的破坏性模式。它只删除固定的 PostgreSQL `occccad` schema，清空并重建 `OCCCCAD_DATA_DIR`，然后执行全部当前迁移：
 
 ```bash
 cd services

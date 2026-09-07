@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/occccad/occccad/internal/authn"
 	"github.com/occccad/occccad/internal/config"
 	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/debugartifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/observability"
@@ -75,6 +77,11 @@ func run() error {
 	defer func() { _ = worker.Close() }()
 
 	workspaceService := workspace.NewWithArtifacts(pool, worker, artifactService)
+	debugStore, err := debugartifact.NewStore(filepath.Join(configuration.LogDirectory, "debug", "assembly-replays"), 50, 7*24*time.Hour)
+	if err != nil {
+		return err
+	}
+	workspaceService.SetDebugArtifactStore(debugStore)
 	accessService := access.New(pool)
 	apiServer := api.New(
 		pool, worker, workspaceService, accessService, authenticationService,

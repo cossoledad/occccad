@@ -79,8 +79,8 @@ async function downloadAssemblyReplay(documentId: string): Promise<void> {
 }
 
 async function executeDocumentCommand(documentId: string, command: Record<string, unknown>): Promise<DocumentView> {
-	const commandWithID = { requestId: requestId(), ...command };
-	assemblyReplayRequests.set(documentId, String(commandWithID.requestId));
+	const commandWithID: Record<string, unknown> = { requestId: requestId(), ...command };
+	if (!commandWithID.previewId) assemblyReplayRequests.set(documentId, String(commandWithID.requestId));
 	try {
 		return await realtime.executeCommand(documentId, commandWithID);
 	} catch (cause) {
@@ -251,8 +251,8 @@ export const restApi = {
     restApi.command(documentId, { type: "PAD_SKETCH", sketchId, length,
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
   createSolidFeature: (documentId: string, input: { sketchId: string; generator: "LINEAR_EXTRUDE" | "REVOLVE";
-    operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT"; length?: number; angle?: number;
-    axisEntityId?: string; reversed?: boolean }, intentRequestId?: string) =>
+	operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT"; length?: number; angle?: number;
+	axisEntityId?: string; reversed?: boolean; previewId?: string }, intentRequestId?: string) =>
     restApi.command(documentId, { type: "CREATE_SOLID_FEATURE", ...input,
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
   createDatumPlane: (documentId: string, input: { name: string; origin: Vec3; normal: Vec3; uDirection: Vec3 }) =>
@@ -263,14 +263,14 @@ export const restApi = {
     restApi.command(documentId, {
       type: "INSERT_INSTANCE", referencedDocumentId, translation: [0, 0, 0],
     }),
-  move: (documentId: string, instanceId: string, translation: Vec3, rotation: [number,number,number,number]) =>
-    restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation, rotation }),
+  move: (documentId: string, instanceId: string, translation: Vec3, rotation: [number,number,number,number], previewId?: string) =>
+	restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation, rotation, previewId }),
   addAssemblyConstraint: (documentId: string, input: { constraintKind: string;
     firstAssemblyRef: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef;
-    value?: number; directionRelation?: string; distanceRelation?: string; angleReferenceDirection?: Vec3 }) =>
+	value?: number; directionRelation?: string; distanceRelation?: string; angleReferenceDirection?: Vec3; previewId?: string }) =>
     restApi.command(documentId, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),
   editAssemblyConstraint: (documentId: string, constraintId: string, input: { value: number; directionRelation: string; distanceRelation: string;
-    firstAssemblyRef?: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef; angleReferenceDirection?: Vec3 }) =>
+	firstAssemblyRef?: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef; angleReferenceDirection?: Vec3; previewId?: string }) =>
     restApi.command(documentId, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),
   setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_HEAD" | "PINNED") =>
     restApi.command(documentId, { type: "SET_REFERENCE_MODE", instanceId, referenceMode }),

@@ -6,10 +6,12 @@ import (
 	"net"
 	"os"
 	"testing"
+	"time"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/debugartifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/workspace"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -143,6 +145,11 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := workspace.NewWithArtifacts(db, client, artifact.NewService(db, store))
+	debugStore, err := debugartifact.NewStore(t.TempDir(), 50, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.SetDebugArtifactStore(debugStore)
 	part, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: "00000000-0000-7000-8000-000000000001", Type: "PART", Name: "M25 Part"})
 	if err != nil {
 		t.Fatal(err)
@@ -182,6 +189,7 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	if refreshed.Document.VersionID != product.Document.VersionID {
 		t.Fatal("preview advanced head")
 	}
+	request.PreviewID = preview.PreviewID
 	created := apply(request)
 	check := func(view workspace.DocumentView, want float64) {
 		t.Helper()
@@ -219,14 +227,22 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	}
 	// Dependency snapshots and pose compensation must also survive a fresh service instance.
 	service = workspace.NewWithArtifacts(db, client, artifact.NewService(db, store))
+	service.SetDebugArtifactStore(debugStore)
 	refreshed, err = service.GetDocument(t.Context(), id, "00000000-0000-7000-8000-000000000001")
 	if err != nil {
 		t.Fatal(err)
 	}
 	check(refreshed, 4)
-	for _, key := range []string{request.RequestID, "preview/" + request.RequestID} {
+	for _, key := range []string{"preview/" + request.RequestID} {
 		var data []byte
-		if err = db.QueryRow(t.Context(), `SELECT replay FROM occccad.assembly_replays WHERE document_id=$1 AND request_id=$2`, id, key).Scan(&data); err != nil {
+		for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+			_, data, err = service.ReadAssemblyReplay(t.Context(), id, "latest", key)
+			if err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if err != nil {
 			t.Fatal(err)
 		}
 		var file geometry.AssemblyReplay
@@ -245,16 +261,35 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 			t.Fatalf("archived request did not replay: %s", output)
 		}
 	}
+	if _, _, err = service.ReadAssemblyReplay(t.Context(), id, "latest", request.RequestID); err == nil {
+		t.Fatal("promoted commit unexpectedly ran and archived a second solve")
+	}
 	failed := request
 	failed.RequestID = "failed-replay-" + id
 	failed.Value = 20
 	if _, err = service.PreviewCommand(t.Context(), id, failed); err == nil {
 		t.Fatal("conflicting preview unexpectedly succeeded")
 	}
-	var status string
-	if err = db.QueryRow(t.Context(), `SELECT replay->'result'->>'status' FROM occccad.assembly_replays WHERE document_id=$1 AND request_id=$2`, id, "preview/"+failed.RequestID).Scan(&status); err != nil {
+	var failedData []byte
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
+		_, failedData, err = service.ReadAssemblyReplay(t.Context(), id, "latest", "preview/"+failed.RequestID)
+		if err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
+	var failedReplay geometry.AssemblyReplay
+	if err = json.Unmarshal(failedData, &failedReplay); err != nil {
+		t.Fatal(err)
+	}
+	var failedResult workerv1.SolveAssemblyResponse
+	if err = protojson.Unmarshal(failedReplay.Result, &failedResult); err != nil {
+		t.Fatal(err)
+	}
+	status := failedResult.Status
 	if status == "CONVERGED" {
 		t.Fatal("failed replay lost failure status")
 	}

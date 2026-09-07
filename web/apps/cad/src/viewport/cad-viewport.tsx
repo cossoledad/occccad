@@ -40,9 +40,9 @@ type Props = {
   onSketchOperations: (featureID: string, operations: SketchOperation[]) => void;
   onToolUseComplete: () => void;
   onActiveToolChange: (toolID: WorkbenchToolID) => void;
-  onInstanceMoved: (instanceID: string, translation: Vec3, rotation:[number,number,number,number]) => void;
-  onInstanceMovePreview: (instanceID:string,translation:Vec3,rotation:[number,number,number,number])=>Promise<{
-    poses:Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;constraintLimited:boolean}>;
+  onInstanceMoved: (instanceID: string, translation: Vec3, rotation:[number,number,number,number], previewId?: string) => void;
+	onInstanceMovePreview: (instanceID:string,translation:Vec3,rotation:[number,number,number,number],interactionId:string,previewSequence:number)=>Promise<{
+		poses:Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;constraintLimited:boolean;previewId:string}>;
   onAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
 };
 
@@ -68,8 +68,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       dimensionCreateRequested: (request) => setDimensionEditor(request),
       activeToolChanged: (toolID) => callbacks.current.onActiveToolChange(toolID),
       toolPromptChanged: () => {},
-      instanceMoved: (instanceID, translation,rotation) => callbacks.current.onInstanceMoved(instanceID, translation,rotation),
-      instanceMovePreview: (instanceID,translation,rotation)=>callbacks.current.onInstanceMovePreview(instanceID,translation,rotation),
+		instanceMoved: (instanceID, translation,rotation,previewId) => callbacks.current.onInstanceMoved(instanceID, translation,rotation,previewId),
+		instanceMovePreview: (instanceID,translation,rotation,interactionId,previewSequence)=>callbacks.current.onInstanceMovePreview(instanceID,translation,rotation,interactionId,previewSequence),
       assemblyConstraintRequested: (kind, references) => callbacks.current.onAssemblyConstraint(kind, references),
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
     });

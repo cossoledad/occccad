@@ -42,7 +42,7 @@ func main() {
 						databaseName, err = database.ResetDevelopmentSchema(ctx, pool)
 						if err == nil {
 							slog.Warn("development data cleared", "database", databaseName,
-								"schema", "occcad", "artifact_directory", artifactDirectory)
+								"schema", "occccad", "artifact_directory", artifactDirectory)
 						}
 					}
 				}

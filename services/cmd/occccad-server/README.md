@@ -67,6 +67,7 @@ RFC 6455 Upgrade、frame、Ping/Pong 由 `github.com/gorilla/websocket` v1.5.3 �
 | `OCCCCAD_SERVER_LISTEN` | `0.0.0.0:8080` | HTTP 监听地址 |
 | `OCCCCAD_GEOMETRY_WORKER_ADDRESS` | `127.0.0.1:51001` | Geometry gRPC 地址，可指向 Router |
 | `OCCCCAD_DATA_DIR` | `./data` | 本地制品根目录，相对启动目录 |
+| `OCCCCAD_LOG_DIR` | `./logs` | 进程日志和有界调试制品根目录，相对启动目录 |
 | `OCCCCAD_ADMIN_EMAIL` | `admin@occccad.local` | 初始管理员邮箱 |
 | `OCCCCAD_ADMIN_DISPLAY_NAME` | `Administrator` | 初始管理员显示名 |
 | `OCCCCAD_ADMIN_PASSWORD` | 无 | 首次及每次启动均必须非空；不会覆盖已有密码 |
@@ -114,11 +115,11 @@ invoke performance-baseline
 装配 M2.5：ADD/EDIT 的预览与提交共用第一 moving、第二 reference 的 SolveIntent。
 服务端只接受几何满足且 preference 收敛的结果；`ASSEMBLY_PREFERENCE_NOT_CONVERGED` 与几何冲突分开报告。
 预览返回 `assemblySolverBuild` 和 `assemblyComponents`（每体位移、运动尺度、局部最优性及自由度证据），不写 Revision；
-预览 modelHash 对应求解后的候选模型。提交仍从最终求解 Pose 重建 ChangeSet，并支持连续补偿 Undo/Redo。
+预览 modelHash 对应求解后的候选模型。服务端保留 45 秒的一次性 verified candidate；提交的 `previewId` 只有在 actor、document、Head 和 typed payload 全部匹配时才能跳过重复求解，仍从最终求解 Pose 重建 ChangeSet 并执行正常 CAS，失效则自动重算。`interactionId` 只用于连续装配预览 warm start，不能成为 Revision 数据。
 
 三维求解最小诊断：`GET /api/documents/{documentID}/assembly-replays` 列出最近 50 次求解；
 `GET /api/documents/{documentID}/assembly-replays/{replayID}` 下载 `.3dreplay`。
 `latest?requestId=...`，按精确请求键选取，找不到返回 404，不能回退到其他求解。
-预览键为 `preview/<requestId>`，提交键为原 request ID。两个接口均要求该文档读权限。
-迁移 0016 新增独立 `assembly_replays` 数学证据表；成功、失败和预览留档不改模型历史。
+预览求解键为 `preview/<requestId>`，真正执行求解的提交键为原 request ID；提升 verified candidate 的提交不会伪造第二条记录。两个接口均要求该文档读权限。
+`.3dreplay` 在响应关键路径外原子写入 `OCCCCAD_LOG_DIR/debug/assembly-replays/<documentID>/`，不进入数据库；每个文档最多 50 条、最长 7 天。成功、失败和预览留档不改模型历史。
 格式与独立重放命令见 [occccad-3dreplay](../occccad-3dreplay/README.md)。

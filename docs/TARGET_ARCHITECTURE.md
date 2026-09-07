@@ -535,7 +535,9 @@ CommitInteraction(final DomainTransaction)
 CancelInteraction()
 ```
 
-Preview 结果带 `PREVIEW` 水印语义和短 TTL，不进入 Revision/Undo/Outbox。服务端可以丢弃中间 `preview_seq`，客户端 WASM/本地求解也只是非权威预测。Commit 必须包含最终值而不是鼠标轨迹，并由权威 evaluator 重算。
+Preview 结果带 `PREVIEW` 水印语义和短 TTL，不进入 Revision/Undo/Outbox。服务端可以丢弃中间 `preview_seq`，客户端 WASM/本地求解也只是非权威预测。Commit 必须包含最终值而不是鼠标轨迹。若 preview 是服务端权威 evaluator 产生的 verified candidate，且 actor、document、base revision/sequence、规范 typed command digest、依赖快照和 evaluator policy/build 全部精确匹配，Commit 可以一次性提升该候选并只执行短事务 CAS；任何字段不匹配、token 过期、进程丢失或 Head 前移都必须重新求值。客户端近似预览永远不可提升。
+
+Interaction 编排状态使用 `IDLE → DRAFTING → PREVIEWING → READY → COMMITTING → COMMITTED`，并允许从活动状态进入 `CANCELLED`、从 preview/commit 进入带 phase/code/retryable 的 `FAILED`。状态机只管理生命周期、取消、sequence 和结果采纳；Domain Command、Revision、Job 与 solver status 保持各自权威，不能混成第二套持久状态。连续 preview 可以按稳定 `interaction_id` 复用服务端 warm start，但 nominal input 与最终摘要仍取自 base Revision。
 
 连续键盘输入、spinner 和拖拽通过显式 `undo_group_id` 合并为一个 Undo 项；服务端不以“500ms 内发生”之类时间猜测用户意图。进入另一工具、改变选择或显式结束后 group 关闭。同组 Transaction 仍逐条保留审计和 sequence；Undo 时按反向顺序组合成一个 Revert 候选，只有同 actor、同 Workspace、连续祖先链且所有补偿都安全时才原子提交，不能通过分组改写既有历史。
 
@@ -4147,7 +4149,7 @@ subject to all active Driving constraints
 - fully constrained occurrence 不移动；under-constrained 只沿剩余 DOF 移动；
 - Snap suggestion（同轴、贴面、Connector）只是候选，用户接受后才创建 Connection；
 - collision-aware drag 可用 proxy 阻止明显穿透，但不能自动生成 Contact Constraint；
-- 松开鼠标时提交一次 `ACCEPT_SOLVED_PLACEMENT`，服务端重算并 CAS；
+- 松开鼠标时提交一次 `ACCEPT_SOLVED_PLACEMENT`；精确匹配的服务端 verified candidate 直接 CAS 提升，否则重算并 CAS；
 - `FREE_MOVE` 是显式模式，可暂时忽略约束做预览，但提交前必须选择 suppress、modify constraints 或恢复。
 
 #### 5.6.18 刚性与柔性子装配

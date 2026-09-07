@@ -22,6 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	artifactstore "github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/debugartifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
@@ -495,6 +496,9 @@ type DeleteNodeTarget struct {
 
 type CommandRequest struct {
 	RequestID               string               `json:"requestId"`
+	InteractionID           string               `json:"interactionId,omitempty"`
+	PreviewSequence         uint64               `json:"previewSequence,omitempty"`
+	PreviewID               string               `json:"previewId,omitempty"`
 	Type                    string               `json:"type"`
 	Plane                   string               `json:"plane,omitempty"`
 	DatumPlaneID            string               `json:"datumPlaneId,omitempty"`
@@ -623,12 +627,16 @@ func (service *Service) BranchWorkspace(ctx context.Context, documentID string, 
 }
 
 type Service struct {
-	database           *pgxpool.Pool
-	worker             *geometry.Client
-	artifacts          *artifactstore.Service
-	artifactCacheMu    sync.RWMutex
-	artifactCache      map[string]Artifact
-	artifactCacheOrder []string
+	database              *pgxpool.Pool
+	worker                *geometry.Client
+	artifacts             *artifactstore.Service
+	artifactCacheMu       sync.RWMutex
+	artifactCache         map[string]Artifact
+	artifactCacheOrder    []string
+	debugArtifacts        *debugartifact.Store
+	debugArtifactWrites   chan debugArtifactWrite
+	interactionCandidates interactionCandidateCache
+	assemblyWarmStarts    assemblyWarmStartCache
 }
 
 func New(database *pgxpool.Pool, worker *geometry.Client) *Service {

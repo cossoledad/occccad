@@ -31,7 +31,7 @@ import (
 type application struct {
 	ctx                             context.Context
 	root, servicesDirectory         string
-	dataDirectory                   string
+	dataDirectory, logDirectory     string
 	serverBinary, jobsBinary        string
 	routerAddress, managedAPITarget string
 	pool                            *control.GeometryPool
@@ -65,7 +65,7 @@ func run() error {
 	dataDirectory := resolveDataDirectory(servicesDirectory, value("OCCCCAD_DATA_DIR", "./data"))
 	logDirectory := resolveDataDirectory(servicesDirectory, value("OCCCCAD_LOG_DIR", "./logs"))
 	app := &application{
-		ctx: ctx, root: root, servicesDirectory: servicesDirectory, dataDirectory: dataDirectory,
+		ctx: ctx, root: root, servicesDirectory: servicesDirectory, dataDirectory: dataDirectory, logDirectory: logDirectory,
 		serverBinary:     value("OCCCCAD_SERVER_BIN", filepath.Join(root, "build", "services", "occccad-server")),
 		jobsBinary:       value("OCCCCAD_JOBS_BIN", filepath.Join(root, "build", "services", "occccad-jobs")),
 		routerAddress:    value("OCCCCAD_GEOMETRY_ROUTER_LISTEN", "127.0.0.1:51001"),
@@ -165,6 +165,7 @@ func (app *application) startAPI() error {
 		withEnvironment("OCCCCAD_SERVER_LISTEN", app.managedAPITarget,
 			"OCCCCAD_GEOMETRY_WORKER_ADDRESS", app.routerAddress,
 			"OCCCCAD_DATA_DIR", app.dataDirectory,
+			"OCCCCAD_LOG_DIR", app.logDirectory,
 			"OCCCCAD_MONITORING_TOKEN", app.monitoringToken))
 	if err != nil {
 		return err

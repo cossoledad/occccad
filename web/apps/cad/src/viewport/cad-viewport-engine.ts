@@ -29,6 +29,7 @@ import { sketchReferenceDimensions, SKETCH_INPUT_POLICY } from "../cad/sketch/sk
 import { sampleSketchEntity, sketchEntityPoint } from "../cad/sketch/sketch-geometry";
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
 import { manipulatorFrame, transformAroundWorldPivot, viewportMetrics, worldUnitsPerCssPixel } from "../cad/rendering/viewport-metrics";
+import { randomUUID } from "../utils/random-uuid";
 import { ArcSketchTool, AssemblyConstraintTool, AssemblyMoveTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type AssemblyConstraintToolKind, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
@@ -45,9 +46,9 @@ type Callbacks = {
   dimensionCreateRequested: (request: { mode: "create"; featureId: string; kind: "DISTANCE"|"LENGTH"|"RADIUS"|"DIAMETER"|"ANGLE";
     references: SketchGeometryRef[]; labelPosition: Vec2; value: number; unit: "mm"|"deg"; x: number; y: number }) => void;
   activeToolChanged: (toolID: import("../state/workbench-store").WorkbenchToolID) => void;
-  instanceMoved: (instanceId: string, translation: Vec3, rotation:[number,number,number,number]) => void;
-  instanceMovePreview: (instanceId:string,translation:Vec3,rotation:[number,number,number,number])=>Promise<{
-    poses:Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;constraintLimited:boolean}>;
+  instanceMoved: (instanceId: string, translation: Vec3, rotation:[number,number,number,number], previewId?:string) => void;
+	instanceMovePreview: (instanceId:string,translation:Vec3,rotation:[number,number,number,number],interactionId:string,previewSequence:number)=>Promise<{
+		poses:Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;constraintLimited:boolean;previewId:string}>;
   assemblyConstraintRequested: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
@@ -193,11 +194,12 @@ export class CadViewportEngine {
   private assemblyPosePreview?: Map<string, { position: THREE.Vector3; rotation: THREE.Quaternion }>;
   private dimensionDrag?: { selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; constraint: SketchConstraint;
     root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2 };
-  private movePreviewGeneration=0;private movePreviewInFlight=false;
+	private movePreviewGeneration=0;private movePreviewInFlight=false;
+	private moveInteractionId="";private movePreviewSequence=0;
   private moveCommitPending=false;
   private pendingMovePreview?:{generation:number;instanceId:string;translation:Vec3;rotation:[number,number,number,number]};
   private desiredMovePose?:{translation:Vec3;rotation:[number,number,number,number]};
-  private acceptedMovePose?:{translation:Vec3;rotation:[number,number,number,number]};
+	private acceptedMovePose?:{translation:Vec3;rotation:[number,number,number,number];previewId?:string};
   private activeToolID = "select";
   private selectionMode: SelectionMode = selectionModeForTool("select");
   private navigationProfile: NavigationProfileID = "default";
@@ -607,14 +609,15 @@ export class CadViewportEngine {
   }
 
   private beginMovePreviewGesture():void{
-    this.movePreviewGeneration+=1;this.pendingMovePreview=undefined;this.moveCommitPending=false;
+	this.movePreviewGeneration+=1;this.pendingMovePreview=undefined;this.moveCommitPending=false;
+	this.moveInteractionId=randomUUID();this.movePreviewSequence=0;
     const target=this.moveTarget;
     if(target){
       target.startPosition.copy(target.group.position);
       target.startQuaternion.copy(target.group.quaternion);
       target.startPivot.copy(this.moveManipulator.object.getWorldPosition(new THREE.Vector3()));
       target.localPivot.copy(target.group.worldToLocal(target.startPivot.clone()));
-      this.acceptedMovePose={translation:target.startPosition.toArray(),rotation:target.startQuaternion.toArray()};
+		this.acceptedMovePose={translation:target.startPosition.toArray(),rotation:target.startQuaternion.toArray()};
     }
   }
   private cancelMovePreviewGesture():void{
@@ -640,17 +643,18 @@ export class CadViewportEngine {
       this.moveManipulator.commitPreviewFrame();
       this.moveManipulator.setAuthoritativePose(center);
     }
-    this.commitTransform();
+	this.commitTransform(pose?.previewId);
   }
   private drainMovePreview():void{
     if(this.movePreviewInFlight||!this.pendingMovePreview)return;const request=this.pendingMovePreview;this.pendingMovePreview=undefined;this.movePreviewInFlight=true;
-    void this.callbacks.instanceMovePreview(request.instanceId,request.translation,request.rotation).then(({poses,constraintLimited})=>{
+	const previewSequence=++this.movePreviewSequence;
+	void this.callbacks.instanceMovePreview(request.instanceId,request.translation,request.rotation,this.moveInteractionId,previewSequence).then(({poses,constraintLimited,previewId})=>{
       if(request.generation!==this.movePreviewGeneration)return;
       if(constraintLimited){this.invalidate();return;}
       for(const pose of poses){const group=this.instanceGroups.get(pose.instanceId);if(group){group.position.fromArray(pose.translation);group.quaternion.fromArray(pose.rotation);group.updateMatrix();group.updateMatrixWorld(true);}}
       const driven=poses.find((pose)=>pose.instanceId===request.instanceId),target=this.moveTarget;
       if(driven&&target){
-        this.acceptedMovePose={translation:driven.translation,rotation:driven.rotation};
+		this.acceptedMovePose={translation:driven.translation,rotation:driven.rotation,previewId};
         const drivenRotation=new THREE.Quaternion().fromArray(driven.rotation);
         const gestureDelta=drivenRotation.clone().multiply(target.startQuaternion.clone().invert()).normalize();
         const manipulatorOrientation=gestureDelta.multiply(this.moveManipulator.frameQuaternion()).normalize();
@@ -1856,10 +1860,10 @@ export class CadViewportEngine {
     );
   }
 
-  private commitTransform(): void {
+  private commitTransform(previewId?:string): void {
     const object = this.moveTarget?.group,pose=this.acceptedMovePose;
     if (!object?.userData.id || !pose) return;
-    this.callbacks.instanceMoved(object.userData.id as string,pose.translation,pose.rotation);
+	this.callbacks.instanceMoved(object.userData.id as string,pose.translation,pose.rotation,previewId);
     this.refreshContentBounds();
   }
 
