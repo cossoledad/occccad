@@ -360,6 +360,8 @@ Capture 策略是独立于当前 Tool 和持久 Selection 的可恢复交互状�
 
 装配命令会话的 XState actor 已覆盖 `idle / drafting / pending / succeeded / committing / committed / cancelled / failed`，并以 sequence guard 拒绝迟到结果；Go 侧装配数值 workflow 独立覆盖 `RESOLVING_GEOMETRY / SOLVING / APPLYING_RESULT / COMPLETED / FAILED`。两者只编排生命周期，Revision 和 solver result 仍由原权威对象表达。verified candidate 与 warm-start cache 都有 45 秒 TTL 和 256 项进程上限，缓存丢失只影响性能。
 
+视口的动态 Placement 已收敛到 `TransformTransitionSystem`：Motion 13 只推进可中断的归一化进度，同一 solver 结果中的全部 occurrence 共用一个时钟；Three.js 分别对 position/scale 做向量插值、对 rotation 做归一化 quaternion slerp，不直接插值 4×4 matrix。连续 MOVE 权威预览使用 120 ms `preview` 策略并从当前渲染帧重定向，约束预览使用 200 ms `settle`，取消使用 170 ms `rollback`，同文档权威刷新使用 240 ms `reconcile`；四种策略均采用快速起步、较长减速尾段的无 overshoot 曲线，使变化更明显但不增加起步等待，MOVE 的 Instance 与操纵器在同一帧前进。收到相同 DocumentId 的新 Product `DocumentView` 时，重建后的 Group 按稳定 InstanceId 从旧渲染姿态接续到新权威姿态，提交和 Realtime 刷新不再因整棵 Scene 重建而瞬移；确认提交丢弃 preview baseline，取消才回到 baseline。指针直接操控、初次加载、跨文档切换以及 reduced-motion 环境保持即时更新，避免动画成为输入延迟或第二套模型状态。任一新目标会停止旧动画并从当前显示帧继续，所有完成路径最终精确落到权威 TRS。
+
 Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端行为或权限正确性的证明。
 
 命令出现 `sketch solve` 失败时，Web 自动调用 `POST /api/documents/{documentID}/diagnostic-bundles` 并下载 schema `occccad.cad-diagnostic-bundle.v1` JSON；工作台右下角另有可拖动、可持久化布局的 Debug Toolbar，用户可随时手动下载同一诊断包，即使问题没有触发异常。诊断包包含触发命令及 request ID、当前完整 DocumentView/Sketch、Workspace Head/sequence/policy、历史、最近事务与命令错误、evaluator manifest/digest、客户端环境和日志关联字段，足以在开发环境离线重建候选草图。接口沿用文档 ACL 与 CSRF，响应禁止缓存；Cookie、凭据、其他文档日志和 B-Rep 原始字节不进入导出。
@@ -376,7 +378,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 - C++ 由 CMake 3.30+、Conan 2、Ninja 构建，当前标准 C++17；
 - 当前固定 OCCT 7.9.1 和 gRPC C++ 1.71.0；
 - Go module 当前声明 Go 1.26.5；
-- Web 锁定 pnpm 11.20.0，并执行 TypeScript 检查和 Vite 构建。
+- Web 锁定 pnpm 11.20.0，并执行 TypeScript 检查和 Vite 构建；视口插值 adapter 使用 MIT 许可的 Motion 13.2.0。
 - Web 的非权威界面偏好由版本化 `occccad.ui-preferences.v1` Store 持久化；当前包含 Inspector 开合、各 Toolbar 的位置/方向和基于稳定结构树 path 的隐藏集合。隐藏只控制本地渲染；抑制属于 Revision 中的领域状态。模型、选择和命令状态不得进入客户端偏好契约。
 - C++ Geometry Worker 使用 Conan 固定的 spdlog 1.15.3，同时写彩色控制台和按 Worker 地址隔离的滚动文件；默认文件位于 `services/logs/`，单文件 10 MiB、保留 5 个，级别复用 `OCCCCAD_LOG_LEVEL`。
 

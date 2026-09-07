@@ -539,6 +539,8 @@ Preview 结果带 `PREVIEW` 水印语义和短 TTL，不进入 Revision/Undo/Out
 
 Interaction 编排状态使用 `IDLE → DRAFTING → PREVIEWING → READY → COMMITTING → COMMITTED`，并允许从活动状态进入 `CANCELLED`、从 preview/commit 进入带 phase/code/retryable 的 `FAILED`。状态机只管理生命周期、取消、sequence 和结果采纳；Domain Command、Revision、Job 与 solver status 保持各自权威，不能混成第二套持久状态。连续 preview 可以按稳定 `interaction_id` 复用服务端 warm start，但 nominal input 与最终摘要仍取自 base Revision。
 
+视觉连续性位于权威状态与 Render Object 之间的独立 transition 层，不进入 Interaction、Domain Model 或 Revision。指针直接操控必须逐输入帧即时响应；异步 solver preview、约束带动的其他 occurrence、取消回滚、提交和 Realtime reconciliation 才使用短时、可取消、可重定向的语义动画。同一求解结果的全部 occurrence 必须批量共享进度时钟，不能各自启动会相位漂移的大量 RAF。Placement 以稳定 occurrence identity 关联，采用 translation/scale 插值和 quaternion 最短弧插值，禁止逐元素插值 matrix。新权威目标总是从当前渲染帧接续并最终精确落点；删除、跨文档切换、初次加载和 reduced-motion 直接 snap。动画完成、取消或浏览器中断不得改变命令采纳、preview sequence、CAS 或历史结果。
+
 连续键盘输入、spinner 和拖拽通过显式 `undo_group_id` 合并为一个 Undo 项；服务端不以“500ms 内发生”之类时间猜测用户意图。进入另一工具、改变选择或显式结束后 group 关闭。同组 Transaction 仍逐条保留审计和 sequence；Undo 时按反向顺序组合成一个 Revert 候选，只有同 actor、同 Workspace、连续祖先链且所有补偿都安全时才原子提交，不能通过分组改写既有历史。
 
 #### 4.3.12 Workspace 历史模型

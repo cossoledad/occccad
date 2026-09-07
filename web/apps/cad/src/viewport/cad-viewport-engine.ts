@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import { InputManager } from "../cad/input/input-manager";
+import { snapshotTransform, TransformTransitionSystem, type TransformPose } from "../cad/animation/transform-transition";
 import type { InputState } from "../cad/input/input-types";
 import { InteractionRouter } from "../cad/interaction/interaction-router";
 import { SelectionController } from "../cad/interaction/selection-controller";
@@ -208,6 +209,7 @@ export class CadViewportEngine {
   private readonly resizeObserver: ResizeObserver;
   private animationFrame = 0;
   private disposed = false;
+  private readonly transforms = new TransformTransitionSystem(() => this.invalidate());
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: Callbacks) {
     this.scene.background = null;
@@ -231,9 +233,9 @@ export class CadViewportEngine {
         if (commit) this.finishMovePreviewGesture();
         else if (this.moveTarget) {
           this.cancelMovePreviewGesture();
-          this.moveTarget.group.position.copy(this.moveTarget.startPosition);
-          this.moveTarget.group.quaternion.copy(this.moveTarget.startQuaternion);
-          this.attachMoveManipulator(); this.invalidate();
+          const target = this.moveTarget;
+          this.transforms.apply(target.group, this.transformPose(target.startPosition, target.startQuaternion), "rollback",
+            () => this.syncMoveManipulatorToRenderedPose(target));
         }
       },
     });
@@ -323,8 +325,11 @@ export class CadViewportEngine {
   }
 
   render(view: DocumentView, editContext?: ViewportEditContext): void {
+    const previousDocumentID = this.view?.document.id;
+    const previousInstancePoses = new Map([...this.instanceGroups].map(([id, group]) => [id, snapshotTransform(group)]));
     const retainedMoveSelection = this.activeToolID === "assembly.move" ? [...this.selected] : [];
-    this.clearCommandPreview();
+	this.clearCommandPreview(false);
+	this.transforms.stopAll();
 	this.clearInteractionState();
     this.view = view;
     this.editContext = editContext;
@@ -350,6 +355,19 @@ export class CadViewportEngine {
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
     this.refreshContentBounds();
+    if (previousDocumentID === view.document.id && view.document.type === "PRODUCT") {
+      const starts: Array<{ object: THREE.Group; target: TransformPose }> = [];
+      const targets: Array<{ object: THREE.Group; target: TransformPose; frame: () => void }> = [];
+      for (const [id, group] of this.instanceGroups) {
+        const previous = previousInstancePoses.get(id);
+        if (!previous) continue;
+        const target = snapshotTransform(group);
+        starts.push({ object: group, target: previous });
+        targets.push({ object: group, target, frame: () => this.syncAttachedManipulatorPosition(group) });
+      }
+      this.transforms.applyBatch(starts, "immediate");
+      this.transforms.applyBatch(targets, "reconcile");
+    }
     const validMoveSelection = retainedMoveSelection.filter((selection) => selection.kind === "instance" &&
       this.instanceGroups.has(selection.instanceId ?? selection.id));
     if (validMoveSelection.length === 1) this.selectMany(validMoveSelection, false);
@@ -358,7 +376,8 @@ export class CadViewportEngine {
   }
 
   clear(): void {
-    this.clearCommandPreview();
+	this.clearCommandPreview(false);
+	this.transforms.stopAll();
 	this.clearInteractionState();
     this.view = undefined;
     this.moveManipulator.detach();
@@ -447,17 +466,21 @@ export class CadViewportEngine {
     this.scene.add(group); this.commandPreview = group; this.invalidate();
   }
 
-  clearCommandPreview(): void {
+  clearCommandPreview(restore = true): void {
     if (this.commandPreview) {
       this.scene.remove(this.commandPreview); this.disposeRenderable(this.commandPreview);
       this.commandPreview = undefined;
     }
     if (this.assemblyPosePreview) {
+      const targets = [];
       for (const [id, pose] of this.assemblyPosePreview) {
         const group = this.instanceGroups.get(id);
         if (!group) continue;
-        group.position.copy(pose.position); group.quaternion.copy(pose.rotation); group.updateMatrixWorld(true);
+        if (restore) targets.push({ object: group, target: this.transformPose(pose.position, pose.rotation),
+          frame: () => this.syncAttachedManipulatorPosition(group) });
+        else this.transforms.stop(group);
       }
+      if (restore) this.transforms.applyBatch(targets, "rollback");
       this.assemblyPosePreview = undefined;
     }
     this.invalidate();
@@ -468,12 +491,14 @@ export class CadViewportEngine {
       this.assemblyPosePreview = new Map([...this.instanceGroups].map(([id, group]) =>
         [id, { position: group.position.clone(), rotation: group.quaternion.clone() }]));
     }
+    const targets = [];
     for (const pose of poses) {
       const group = this.instanceGroups.get(pose.instanceId);
       if (!group) continue;
-      group.position.fromArray(pose.translation); group.quaternion.fromArray(pose.rotation); group.updateMatrixWorld(true);
+      targets.push({ object: group, target: this.transformPose(pose.translation, pose.rotation),
+        frame: () => this.syncAttachedManipulatorPosition(group) });
     }
-    this.invalidate();
+    this.transforms.applyBatch(targets, "settle");
   }
 
   setStandardView(view: "TOP" | "FRONT" | "RIGHT" | "ISO"): void {
@@ -613,6 +638,7 @@ export class CadViewportEngine {
 	this.moveInteractionId=randomUUID();this.movePreviewSequence=0;
     const target=this.moveTarget;
     if(target){
+      this.transforms.stop(target.group);
       target.startPosition.copy(target.group.position);
       target.startQuaternion.copy(target.group.quaternion);
       target.startPivot.copy(this.moveManipulator.object.getWorldPosition(new THREE.Vector3()));
@@ -633,9 +659,8 @@ export class CadViewportEngine {
     const target=this.moveTarget;
     const pose=this.acceptedMovePose;
     if(target&&pose){
-      target.group.position.fromArray(pose.translation);
-      target.group.quaternion.fromArray(pose.rotation);
-      target.group.updateMatrix();target.group.updateMatrixWorld(true);
+      this.transforms.finish(target.group);
+      this.transforms.apply(target.group, this.transformPose(pose.translation, pose.rotation), "immediate");
       target.startPosition.copy(target.group.position);
       target.startQuaternion.copy(target.group.quaternion);
       const center=target.group.localToWorld(target.localPivot.clone());
@@ -651,17 +676,17 @@ export class CadViewportEngine {
 	void this.callbacks.instanceMovePreview(request.instanceId,request.translation,request.rotation,this.moveInteractionId,previewSequence).then(({poses,constraintLimited,previewId})=>{
       if(request.generation!==this.movePreviewGeneration)return;
       if(constraintLimited){this.invalidate();return;}
-      for(const pose of poses){const group=this.instanceGroups.get(pose.instanceId);if(group){group.position.fromArray(pose.translation);group.quaternion.fromArray(pose.rotation);group.updateMatrix();group.updateMatrixWorld(true);}}
       const driven=poses.find((pose)=>pose.instanceId===request.instanceId),target=this.moveTarget;
+      const transitions=[];
+      for(const pose of poses){
+        const group=this.instanceGroups.get(pose.instanceId);if(!group)continue;
+        transitions.push({object:group,target:this.transformPose(pose.translation,pose.rotation),
+          frame:driven&&target&&group===target.group?()=>this.syncMoveManipulatorToRenderedPose(target):undefined});
+      }
+      this.transforms.applyBatch(transitions,"preview");
       if(driven&&target){
 		this.acceptedMovePose={translation:driven.translation,rotation:driven.rotation,previewId};
-        const drivenRotation=new THREE.Quaternion().fromArray(driven.rotation);
-        const gestureDelta=drivenRotation.clone().multiply(target.startQuaternion.clone().invert()).normalize();
-        const manipulatorOrientation=gestureDelta.multiply(this.moveManipulator.frameQuaternion()).normalize();
-        const center=target.group.localToWorld(target.localPivot.clone());
-        this.moveManipulator.setPreviewPose(center,manipulatorOrientation);
       }
-      this.invalidate();
     }).catch(()=>{}).finally(()=>{
       this.movePreviewInFlight=false;
       if(this.pendingMovePreview?.generation===this.movePreviewGeneration)this.drainMovePreview();
@@ -713,7 +738,8 @@ export class CadViewportEngine {
     this.clearPreview();
     this.clearReferencePreview();
     this.clearSnapPreview();
-    this.clearCommandPreview();
+    this.clearCommandPreview(false);
+    this.transforms.stopAll();
     this.moveManipulator.dispose();
     this.navigationHUD.dispose();
     this.background.dispose();
@@ -723,6 +749,30 @@ export class CadViewportEngine {
     this.disposeGroup(this.sketchContext);
     this.renderer.dispose();
     this.renderer.domElement.remove();
+  }
+
+  private transformPose(position: Vec3 | THREE.Vector3, rotation: [number, number, number, number] | THREE.Quaternion,
+    scale = new THREE.Vector3(1, 1, 1)): TransformPose {
+    return {
+      position: position instanceof THREE.Vector3 ? position.clone() : new THREE.Vector3().fromArray(position),
+      rotation: rotation instanceof THREE.Quaternion ? rotation.clone().normalize()
+        : new THREE.Quaternion().fromArray(rotation).normalize(),
+      scale: scale.clone(),
+    };
+  }
+
+  private syncAttachedManipulatorPosition(group: THREE.Group): void {
+    const target = this.moveTarget;
+    if (!target || target.group !== group || !this.moveManipulator.isAttached() || this.moveManipulator.isDragging()) return;
+    this.moveManipulator.setAuthoritativePose(group.localToWorld(target.localPivot.clone()));
+  }
+
+  private syncMoveManipulatorToRenderedPose(target: { group: THREE.Group; startPosition: THREE.Vector3;
+    startQuaternion: THREE.Quaternion; startPivot: THREE.Vector3; localPivot: THREE.Vector3 }): void {
+    if (this.moveTarget !== target || !this.moveManipulator.isAttached()) return;
+    const gestureDelta = target.group.quaternion.clone().multiply(target.startQuaternion.clone().invert()).normalize();
+    const orientation = gestureDelta.multiply(this.moveManipulator.frameQuaternion()).normalize();
+    this.moveManipulator.setPreviewPose(target.group.localToWorld(target.localPivot.clone()), orientation);
   }
 
   private renderPart(view: DocumentView): void {

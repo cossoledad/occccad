@@ -823,7 +823,7 @@ export function Workbench() {
         command.mutate(()=>api.editAssemblyConstraint(editingView.document.id,constraint.id,{value:constraint.kind==="ANGLE"?values.value*Math.PI/180:values.value,
 		  directionRelation:values.directionRelation,distanceRelation:values.distanceRelation,
 		  firstAssemblyRef:constraint.first,secondAssemblyRef:constraint.second,angleReferenceDirection:constraint.angleReferenceDirection,
-		  previewId:assemblyPreviewID.current}),{onSuccess:()=>{assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined;setEditingAssemblyConstraint(undefined);},
+		  previewId:assemblyPreviewID.current}),{onSuccess:()=>{assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});viewport.current?.clearCommandPreview(false);assemblyPreviewID.current=undefined;setEditingAssemblyConstraint(undefined);},
 		  onError:(cause)=>assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)})});
       }}>
       <Form form={assemblyConstraintForm} layout="vertical">
@@ -849,7 +849,7 @@ export function Workbench() {
           directionRelation: values.directionRelation, distanceRelation: values.distanceRelation,
 		  angleReferenceDirection: pending.angleReferenceDirection,
 		  previewId:assemblyPreviewID.current,
-		}), { onSuccess: () => { assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});viewport.current?.clearCommandPreview(); assemblyPreviewID.current=undefined; setPendingAssemblyConstraint(undefined); },
+		}), { onSuccess: () => { assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});viewport.current?.clearCommandPreview(false); assemblyPreviewID.current=undefined; setPendingAssemblyConstraint(undefined); },
 		  onError:(cause)=>assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)}) });
       }}>
       <Form form={assemblyConstraintForm} layout="vertical">

@@ -11,6 +11,7 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 - Three.js 精确网格显示、基准面、集合化选择/预选与结构树联动；最终 Body 的视口选择归属最近的 Import/Extrude 节点，精确拓扑元素使用遮挡可见的面、宽边线和点 Overlay，树选父节点才展开全部后代；Specification Tree 支持 Ctrl/Meta 多选、Shift 连选和固定宽度的节点锚定右键菜单，选择变化关闭菜单，删除不确认并以一个原子 Revision 作用于当前选择集合，实体删除仍级联其引用约束；
 - 草图绘制几何/约束/常用图形三组 Toolbar；Point、Line、Circle、Arc、Polyline、Spline、Rectangle、正六边形、长圆槽以及基础几何/尺寸约束；单击执行一次后回到选择，双击连续执行；
 - 通用闭合 Profile（包含外环、孔和岛）拉伸、实例插入/移动、Undo/Redo；装配移动手柄从 Instance 的原始射线命中取得锚点和局部框架，平面法向对齐 Z、直线边切向对齐 X，中心再次吸附时同步更新位置和方向，并继续复用权威 `MOVE_INSTANCE` 预览/提交；
+- 动态 Instance Placement 通过统一的可中断 transition 层显示：连续 MOVE 与手柄同步插值、装配约束预览平滑 settle、取消 rollback，提交或 Realtime 刷新按稳定 InstanceId 接续重建前的渲染姿态；直接指针输入和 reduced-motion 不增加动画延迟；
 - Default/CATIA 导航 Profile、Pointer Capture、Tool 手势状态机和 Overlay；Default 右键旋转在每次手势开始时以全部可见内容的最小包围盒中心为基准，若指针直接命中拓扑点则仅为当前手势使用该点；Toolbar 命令不注册快捷键，Enter/Esc 只用于多阶段手势完成/取消；
 - 版本化 `ui-preferences` 本地偏好统一保存 Inspector 开合与每组 Toolbar 的位置/方向；新增纯客户端显示偏好应扩展同一 schema，不再自行散写 localStorage key；
 - 统一 CAD 语义色与 hover/selected/snap 层次；默认全开的捕获设置可分别过滤三维点、边、面、实体、草图、约束、基准面、基准轴/坐标系和实例，以及草图原点、点/端点、圆心、中点、Line/Circle/Arc/Spline 曲线投影和 10 mm 网格吸附；
@@ -43,7 +44,7 @@ flowchart TD
 
 ## 依赖基线
 
-当前使用 React 19、TypeScript 5.9、Vite 8、Ant Design 6、React Router 7、TanStack Query 5、Zustand 5、Three.js 0.179 和 three-mesh-bvh。准确范围以本目录 `package.json` 和锁文件为准。
+当前使用 React 19、TypeScript 5.9、Vite 8、Ant Design 6、React Router 7、TanStack Query 5、Zustand 5、Three.js 0.179、three-mesh-bvh 和 Motion 13.2.0。Motion 通过本应用的 transform transition adapter 使用，不允许 Feature 或 React 页面直接持有其动画控制对象。准确范围以本目录 `package.json` 和锁文件为准。
 
 ## 运行
 
@@ -83,6 +84,7 @@ invoke test --build-type=Debug
 - API Client 记录最近 200 次请求的浏览器总耗时、状态码与 `Server-Timing`，并在手动/自动诊断导出时携带这些样本；数据只保存在内存，不形成第二套业务状态；
 - 命令返回的权威 `DocumentView` 直接进入 Query cache，不立即重复 GET。Inspector 折叠时不加载 Document Properties、History 或 Topology Properties，切换到对应页签时才按需加载；
 - 不为 Product 中每个实例重复下载相同 GeometryId 的 GLB；几何资源应去重并实例化渲染；
+- Render pose 是可丢弃的视觉状态：动态目标必须经 transition adapter，以当前显示帧重定向并在结束时精确落到权威 TRS；不得把动画中的 matrix 回写为 DocumentView 或命令 payload；
 - 大装配需要渐进加载、LOD、可见性裁剪和批量拾取，不能一次构造完整 DOM/Scene；
 - 任何客户端权限判断都只是体验优化，服务端必须再次鉴权；
 - GLB/拓扑映射是显示制品，可以淘汰并重建；参数文档才是业务真相；
