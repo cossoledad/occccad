@@ -1,4 +1,4 @@
-import { DeleteOutlined, EyeInvisibleOutlined, PauseCircleOutlined, SwapOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EditOutlined, EyeInvisibleOutlined, PauseCircleOutlined, SwapOutlined } from "@ant-design/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Dropdown } from "antd";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
@@ -10,7 +10,8 @@ export type SpecificationTreeNode = {
   key: string; title: ReactNode; icon?: ReactNode; children?: SpecificationTreeNode[];
   kind?: string; entityId?: string; documentId?: string; plane?: string; selection?: Selection;
   instancePath?: InstancePath;
-  capabilities?: Array<"DELETE" | "SUPPRESS">; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
+  capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT">; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
+  definitionDigest?: string;
   suppressed?: boolean; diagnostic?: string; hidden?: boolean;
 };
 
@@ -53,11 +54,12 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, activeDocumentId, activeInstancePath, onSelect, onActivate, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, activeDocumentId, activeInstancePath, onSelect, onActivate, onEdit, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; selectedIdentityKeys: readonly string[];
   selectionToken: string; highlightedKey?: string; activeDocumentId?: string; activeInstancePath?: string;
   onSelect: (nodes: SpecificationTreeNode[]) => void; onHover?: (node?: SpecificationTreeNode) => void;
   onActivate?: (node: SpecificationTreeNode) => void;
+  onEdit?: (node: SpecificationTreeNode) => void;
   onDelete?: (nodes: SpecificationTreeNode[]) => void;
   onToggleConstruction?: (node: SpecificationTreeNode) => void;
   onToggleVisibility?: (node: SpecificationTreeNode) => void;
@@ -166,6 +168,8 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
               label: node.role === "CONSTRUCTION" ? "设为轮廓元素" : "设为构造元素",
               disabled: !node.capabilities?.includes("DELETE"),
               onClick: () => { setContextMenu(undefined); onToggleConstruction?.(node); } } : null,
+            node.capabilities?.includes("EDIT") ? { key: "edit", icon: <EditOutlined />, label: "编辑",
+              onClick: () => { setContextMenu(undefined); onEdit?.(node); } } : null,
             { key: "visibility", icon: <EyeInvisibleOutlined />, label: node.hidden ? "显示" : "隐藏",
               onClick: () => { setContextMenu(undefined); onToggleVisibility?.(node); } },
             node.capabilities?.includes("SUPPRESS") ? { key: "suppress", icon: <PauseCircleOutlined />,

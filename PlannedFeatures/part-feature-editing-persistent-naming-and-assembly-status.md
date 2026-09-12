@@ -1,6 +1,6 @@
 # Part 特征编辑、持久拓扑命名与装配约束状态开发计划
 
-状态：实施中；P0 已完成，P1–P6 待实施
+状态：实施中；P0–P1 已完成，P2–P6 待实施
 日期：2026-09-12  
 适用基线：当前未发布、允许重建开发数据的 occccad 仓库
 
@@ -396,6 +396,8 @@ stateDiagram-v2
 验收：当前链路仍构建；新增 contract 可跨 C++/Proto/Go round-trip；测试明确暴露旧 local ID 无法跨 Revision 的问题。
 
 ### 批次 P1：Linear Extrude 基础编辑闭环
+
+实施状态：已于 2026-09-12 完成。`occccad://part/feature/edit` 以完整 Linear Extrude 候选定义和 Feature definition digest 进入 typed handler；长度只写既有 Parameter source，并通过 `pad.length` facade 参与最终 ChangeSet、依赖传播与补偿式 Undo/Redo。结构树 Edit capability、右键/双击共用编辑器、权威 preview、Enter/OK、Esc/Cancel、loading/error 已贯通。此状态不包含 topology history 或跨 Revision PersistentSelection，它们仍按 P2–P4 实施。
 
 目标：用户能可靠地把已有拉伸 20 mm 改为 40 mm。
 

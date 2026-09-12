@@ -136,6 +136,123 @@ func TestLegacyVerticalSliceUsesTypedHandlersAndStableParameterFacades(t *testin
 	}
 }
 
+func TestLinearExtrudeEditUsesPadLengthFacadeAndSupportsCompensation(t *testing.T) {
+	model := newPartModel()
+	model.Features = append(model.Features, testRectangleSketch("sketch-edit", "XY"),
+		Feature{ID: "extrude-edit", Type: "LINEAR_EXTRUDE", Name: "Extrude 1", Profile: "sketch-edit", Length: 20, Operation: "NEW_BODY"})
+	normalizePartModel(&model)
+	digest, err := featureDefinitionDigest(model, "extrude-edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	length, _ := modelcore.NewQuantity(40, "mm")
+	payload, _ := json.Marshal(editFeaturePayload{FeatureID: "extrude-edit", ExpectedFeatureDigest: digest,
+		LinearExtrude: linearExtrudeEdit{Length: length, Operation: "NEW_BODY", Profile: "sketch-edit"}})
+	before, _ := json.Marshal(model)
+	after, changes, err := workspaceCommandRegistry.Apply("PART", before, modelcore.DomainCommand{
+		CommandID: "edit-extrude", TypeURI: typeEditFeature, SchemaVersion: 1, Payload: payload})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes.Changes) != 1 || changes.Changes[0].Target != (modelcore.PropertyAddress{EntityID: "extrude-edit", SlotID: "pad.length"}) {
+		t.Fatalf("edit must expose exactly the pad.length facade: %#v", changes)
+	}
+	if !containsDependency(changes.ImpactSeeds, "parameter:parameter:extrude-edit:length") || !containsDependency(changes.ImpactSeeds, "feature:extrude-edit") {
+		t.Fatalf("edit dependency seeds = %v", changes.ImpactSeeds)
+	}
+	var edited PartModel
+	if err := json.Unmarshal(after, &edited); err != nil {
+		t.Fatal(err)
+	}
+	if edited.Features[1].Length != 40 {
+		t.Fatalf("edited length = %v, want 40", edited.Features[1].Length)
+	}
+	current, err := modelValues("PART", after, changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	undo, err := changes.Compensate(current)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restoredJSON, err := applyModelValues("PART", after, undo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored PartModel
+	if err := json.Unmarshal(restoredJSON, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.Features[1].Length != 20 {
+		t.Fatalf("undo length = %v, want 20", restored.Features[1].Length)
+	}
+	redoCurrent, err := modelValues("PART", restoredJSON, changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redo, err := changes.Reapply(redoCurrent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redoneJSON, err := applyModelValues("PART", restoredJSON, redo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(redoneJSON, &edited); err != nil {
+		t.Fatal(err)
+	}
+	if edited.Features[1].Length != 40 {
+		t.Fatalf("redo length = %v, want 40", edited.Features[1].Length)
+	}
+}
+
+func TestLinearExtrudeEditRejectsStaleAndExpressionDrivenDefinitions(t *testing.T) {
+	model := newPartModel()
+	model.Features = append(model.Features, testRectangleSketch("sketch-edit", "XY"),
+		Feature{ID: "extrude-edit", Type: "PAD", Name: "Extrude 1", Profile: "sketch-edit", Length: 20, Operation: "ADD"})
+	normalizePartModel(&model)
+	length, _ := modelcore.NewQuantity(40, "mm")
+	command := func(expected string) error {
+		payload, _ := json.Marshal(editFeaturePayload{FeatureID: "extrude-edit", ExpectedFeatureDigest: expected,
+			LinearExtrude: linearExtrudeEdit{Length: length, Operation: "ADD", Profile: "sketch-edit"}})
+		modelJSON, _ := json.Marshal(model)
+		_, _, err := workspaceCommandRegistry.Apply("PART", modelJSON, modelcore.DomainCommand{CommandID: "edit", TypeURI: typeEditFeature, SchemaVersion: 1, Payload: payload})
+		return err
+	}
+	if err := command("stale"); err == nil || !strings.Contains(err.Error(), "FEATURE_EDIT_STALE") {
+		t.Fatalf("stale edit error = %v", err)
+	}
+	parameter := &model.Parameters[0]
+	parameter.Source = modelcore.ValueSource{Expression: &modelcore.TypedExpression{SourceText: "20 mm", LanguageVersion: "expr-v1",
+		ResultType: modelcore.ValueQuantity, ResultDimension: modelcore.LengthDimension, CheckedAST: modelcore.ASTNode{Kind: "LITERAL", Quantity: parameter.Source.Literal, Dimension: modelcore.LengthDimension}}}
+	digest, err := featureDefinitionDigest(model, "extrude-edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = command(digest); err == nil || !strings.Contains(err.Error(), "FEATURE_LENGTH_EXPRESSION_DRIVEN") {
+		t.Fatalf("expression edit error = %v", err)
+	}
+}
+
+func TestLinearExtrudeStructureExposesEditCapabilityAndCurrentDigest(t *testing.T) {
+	model := newPartModel()
+	model.Features = append(model.Features, testRectangleSketch("sketch-edit", "XY"),
+		Feature{ID: "extrude-edit", Type: "LINEAR_EXTRUDE", Name: "Extrude 1", Profile: "sketch-edit", Length: 20, Operation: "NEW_BODY"})
+	normalizePartModel(&model)
+	digest, err := featureDefinitionDigest(model, "extrude-edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	children := partStructureChildren(model, "document:part", "part", "version", true)
+	if len(children) != 2 || len(children[1].Children) != 1 {
+		t.Fatalf("part structure = %#v", children)
+	}
+	node := children[1].Children[0]
+	if !slices.Contains(node.Capabilities, "EDIT") || node.DefinitionDigest != digest {
+		t.Fatalf("extrude edit contract = capabilities %v digest %q, want %q", node.Capabilities, node.DefinitionDigest, digest)
+	}
+}
+
 func TestPadIntentProducesStableCandidateFeatureIdentity(t *testing.T) {
 	t.Parallel()
 	model := newPartModel()

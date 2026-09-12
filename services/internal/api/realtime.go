@@ -430,7 +430,13 @@ func (client *realtimeClient) sendError(correlationID, code, message string, ret
 
 func (client *realtimeClient) sendDomainError(correlationID string, err error) {
 	code, retryable := "INTERNAL", true
+	var domainFailure interface {
+		Code() string
+		Retryable() bool
+	}
 	switch {
+	case errors.As(err, &domainFailure):
+		code, retryable = domainFailure.Code(), domainFailure.Retryable()
 	case strings.Contains(err.Error(), "CONFLICT"):
 		code, retryable = "CHANGESET_CONFLICT", false
 	case errors.Is(err, access.ErrForbidden):

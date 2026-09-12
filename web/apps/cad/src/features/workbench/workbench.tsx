@@ -201,7 +201,7 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
   return { key: node.id, title: node.name, icon: structureIcon(node.kind), kind: node.kind,
     entityId: node.entityId, documentId: node.documentId, instancePath: node.instancePath,
     plane: node.plane, ownerEntityId: node.ownerEntityId,
-	role: node.role, suppressed: node.suppressed, diagnostic: node.diagnostic??(node.kind==="SKETCH_ENTITY"&&node.entityId&&conflictEntities.has(node.entityId)?"CONFLICTING":component?.definitionStatus==="FULLY_CONSTRAINED"||component?.status==="SOLVED"?"FULLY_CONSTRAINED":undefined),
+	role: node.role, definitionDigest: node.definitionDigest, suppressed: node.suppressed, diagnostic: node.diagnostic??(node.kind==="SKETCH_ENTITY"&&node.entityId&&conflictEntities.has(node.entityId)?"CONFLICTING":component?.definitionStatus==="FULLY_CONSTRAINED"||component?.status==="SOLVED"?"FULLY_CONSTRAINED":undefined),
     capabilities: canEdit ? [...new Set([...(node.capabilities??[]), ...(["SKETCH","SKETCH_GEOMETRY_SET","SKETCH_CONSTRAINT_SET","SKETCH_LOGICAL_CONSTRAINT_SET","SKETCH_DIMENSION_SET"].includes(node.kind)?["SUPPRESS" as const]:[])])] : undefined,
     selection: structureSelection(node, view), children: node.children?.map((child) => mapStructureNode(child, view, editingView)) };
 }
@@ -267,6 +267,12 @@ export function Workbench() {
   const [padGenerator, setPadGenerator] = useState<"LINEAR_EXTRUDE" | "REVOLVE">("LINEAR_EXTRUDE");
   const [padSketchID, setPadSketchID] = useState<string>();
   const [padPreviewPending, setPadPreviewPending] = useState(false);
+	const [editingExtrude, setEditingExtrude] = useState<{ feature: Feature; digest: string }>();
+	const [featurePreviewPending, setFeaturePreviewPending] = useState(false);
+	const [featurePreviewError, setFeaturePreviewError] = useState<string>();
+	const featurePreviewAbort = useRef<AbortController | undefined>(undefined);
+	const featurePreviewSequence = useRef(0);
+	const featurePreviewID = useRef<string | undefined>(undefined);
   const padPreviewAbort = useRef<AbortController | undefined>(undefined);
   const padPreviewSequence = useRef(0);
   const padIntentRequestID = useRef<string | undefined>(undefined);
@@ -295,6 +301,7 @@ export function Workbench() {
   const [shareResource, setShareResource] = useState<ShareResource>();
   const [padForm] = Form.useForm<{ generator: "LINEAR_EXTRUDE" | "REVOLVE"; operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
     length: number; angle: number; axisEntityId?: string; reversed: boolean }>();
+	const [featureForm] = Form.useForm<{ length: number }>();
   const [insertForm] = Form.useForm<{ referencedDocumentID: string }>();
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
   const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
@@ -531,6 +538,41 @@ export function Workbench() {
     padPreviewAbort.current?.abort(); padPreviewSequence.current += 1; setPadPreviewPending(false);
 	viewport.current?.clearCommandPreview(); setPadOpen(false); setPadSketchID(undefined); padIntentRequestID.current = undefined; padPreviewID.current=undefined;
   };
+	const closeFeatureEditor = () => {
+		featurePreviewAbort.current?.abort(); featurePreviewSequence.current += 1;
+		viewport.current?.clearCommandPreview(); featurePreviewID.current=undefined;
+		setFeaturePreviewPending(false); setFeaturePreviewError(undefined); setEditingExtrude(undefined);
+	};
+	const openFeatureEditor = (node: SpecificationTreeNode) => {
+		if (!editingView || !node.entityId || !node.definitionDigest || !node.capabilities?.includes("EDIT")) return;
+		const feature=editingView.part?.features.find((candidate)=>candidate.id===node.entityId);
+		if (!feature || !["PAD","LINEAR_EXTRUDE"].includes(feature.type.toUpperCase())) return;
+		featureForm.setFieldsValue({length:feature.length??0}); featurePreviewID.current=undefined;
+		setFeaturePreviewError(undefined); setEditingExtrude({feature,digest:node.definitionDigest});
+	};
+	const requestFeaturePreview = async () => {
+		if (!editingView || !editingExtrude) return;
+		const {length}=await featureForm.validateFields();
+		featurePreviewAbort.current?.abort(); const abort=new AbortController(); featurePreviewAbort.current=abort;
+		const sequence=++featurePreviewSequence.current, baseVersionID=editingView.document.versionId;
+		featurePreviewID.current=undefined; setFeaturePreviewError(undefined); setFeaturePreviewPending(true);
+		try {
+			const preview=await api.previewCommand(editingView.document.id,{type:"EDIT_FEATURE",targetId:editingExtrude.feature.id,
+				expectedFeatureDigest:editingExtrude.digest,length,unit:"mm"},abort.signal);
+			if(sequence!==featurePreviewSequence.current||preview.baseVersionId!==baseVersionID||preview.baseVersionId!==latestDocumentVersion.current||!preview.artifact)return;
+			featurePreviewID.current=preview.previewId; viewport.current?.previewArtifact(preview.artifact);
+		} catch(cause) {
+			if(abort.signal.aborted)return; const error=cause instanceof Error?cause:new Error(String(cause));
+			setFeaturePreviewError(error.message);
+		} finally { if(sequence===featurePreviewSequence.current)setFeaturePreviewPending(false); }
+	};
+	const commitFeatureEdit = async () => {
+		if(!editingView||!editingExtrude)return; const {length}=await featureForm.validateFields();
+		command.mutate(()=>api.editFeature(editingView.document.id,{featureId:editingExtrude.feature.id,
+			expectedFeatureDigest:editingExtrude.digest,length,previewId:featurePreviewID.current}),{
+			onSuccess:()=>{viewport.current?.clearCommandPreview(false);featurePreviewID.current=undefined;setEditingExtrude(undefined);},
+			onError:(cause)=>setFeaturePreviewError(cause instanceof Error?cause.message:String(cause))});
+	};
   const requestPadPreview = async (sketchID: string, generatorOverride?: "LINEAR_EXTRUDE" | "REVOLVE") => {
     if (!editingView) return;
     const values = padForm.getFieldsValue(); values.generator = generatorOverride ?? values.generator ?? padGenerator;
@@ -760,6 +802,7 @@ export function Workbench() {
             activeInstancePath={activeInstancePath}
             onSelect={(nodes) => store.setSelections(nodes.flatMap((node) => node.selection ? [node.selection] : []))}
             onActivate={(node) => {
+			  if (node.capabilities?.includes("EDIT")) { openFeatureEditor(node); return; }
               if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
                 const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
 				if (constraint) { assemblyInteractionID.current=randomUUID(); assemblyPreviewActor.current?.send({type:"START"});setEditingAssemblyConstraint({ ...constraint }); assemblyConstraintForm.setFieldsValue({
@@ -784,6 +827,7 @@ export function Workbench() {
                 if(feature&&plane)store.beginSketch(feature.id,plane);
               } else if (node.selection.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
             }}
+			onEdit={openFeatureEditor}
             onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={deleteTreeNodes}
             onToggleVisibility={(node)=>toggleTreeVisibility(node.key)}
             onToggleSuppression={(node)=>{
@@ -883,6 +927,14 @@ export function Workbench() {
         <Form.Item name="reversed" label="反向" valuePropName="checked"><Switch onChange={previewPad} /></Form.Item>
         <small className="cad-command-hint">{padPreviewPending ? "后端正在求值预览…" : "输入后按 Enter 或点击视口可刷新后端瞬态预览；预览不会创建 Revision。"}</small></Form>
     </CommandDialog>
+	<CommandDialog id="linear-extrude-edit" open={Boolean(editingExtrude)} title="编辑线性拉伸" onClose={closeFeatureEditor}
+		confirmLoading={command.isPending || featurePreviewPending} confirmDisabled={Boolean(featurePreviewError)} onConfirm={commitFeatureEdit}>
+		<Form form={featureForm} layout="vertical"><Form.Item name="length" label="拉伸长度（mm）"
+			rules={[{required:true},{type:"number",min:0.1}]}><InputNumber autoFocus min={0.1} precision={2} style={{width:"100%"}}
+			onBlur={()=>void requestFeaturePreview()} onPressEnter={(event)=>{event.preventDefault();void commitFeatureEdit();}} /></Form.Item>
+		{featurePreviewError&&<Alert type="error" showIcon message="编辑预览失败" description={featurePreviewError}/>}
+		<small className="cad-command-hint">{featurePreviewPending?"后端正在求值预览…":"离开输入框刷新瞬态预览；按 Enter 或确定提交一个 Revision。"}</small></Form>
+	</CommandDialog>
     <CommandDialog id="insert" open={insertOpen} title="插入 Part / Product" onClose={() => setInsertOpen(false)}
       confirmLoading={command.isPending} onConfirm={async () => insertDocument(await insertForm.validateFields())}>
       <Form form={insertForm} layout="vertical"><Form.Item name="referencedDocumentID" label="引用文档" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={(catalog.data?.documents ?? []).filter((item) => item.id !== activeID).map((item) => ({ value: item.id, label: `${item.name} (${item.type})` }))} /></Form.Item>

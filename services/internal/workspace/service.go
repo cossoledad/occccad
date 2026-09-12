@@ -440,24 +440,25 @@ type ResolvedInstance struct {
 // IDs are path-stable within one DocumentView while EntityID preserves the
 // domain object identity used by commands and selection.
 type DocumentStructureNode struct {
-	ID            string                  `json:"id"`
-	Kind          string                  `json:"kind"`
-	Name          string                  `json:"name"`
-	EntityID      string                  `json:"entityId,omitempty"`
-	DocumentID    string                  `json:"documentId,omitempty"`
-	DocumentType  string                  `json:"documentType,omitempty"`
-	VersionID     string                  `json:"versionId,omitempty"`
-	Plane         string                  `json:"plane,omitempty"`
-	Axis          string                  `json:"axis,omitempty"`
-	ReferenceMode string                  `json:"referenceMode,omitempty"`
-	InstancePath  *InstancePath           `json:"instancePath,omitempty"`
-	OwnerEntityID string                  `json:"ownerEntityId,omitempty"`
-	EntityType    string                  `json:"entityType,omitempty"`
-	Role          string                  `json:"role,omitempty"`
-	Suppressed    bool                    `json:"suppressed,omitempty"`
-	Diagnostic    string                  `json:"diagnostic,omitempty"`
-	Capabilities  []string                `json:"capabilities,omitempty"`
-	Children      []DocumentStructureNode `json:"children,omitempty"`
+	ID               string                  `json:"id"`
+	Kind             string                  `json:"kind"`
+	Name             string                  `json:"name"`
+	EntityID         string                  `json:"entityId,omitempty"`
+	DocumentID       string                  `json:"documentId,omitempty"`
+	DocumentType     string                  `json:"documentType,omitempty"`
+	VersionID        string                  `json:"versionId,omitempty"`
+	Plane            string                  `json:"plane,omitempty"`
+	Axis             string                  `json:"axis,omitempty"`
+	ReferenceMode    string                  `json:"referenceMode,omitempty"`
+	InstancePath     *InstancePath           `json:"instancePath,omitempty"`
+	OwnerEntityID    string                  `json:"ownerEntityId,omitempty"`
+	EntityType       string                  `json:"entityType,omitempty"`
+	Role             string                  `json:"role,omitempty"`
+	Suppressed       bool                    `json:"suppressed,omitempty"`
+	Diagnostic       string                  `json:"diagnostic,omitempty"`
+	Capabilities     []string                `json:"capabilities,omitempty"`
+	DefinitionDigest string                  `json:"definitionDigest,omitempty"`
+	Children         []DocumentStructureNode `json:"children,omitempty"`
 }
 
 type DocumentView struct {
@@ -535,6 +536,7 @@ type CommandRequest struct {
 	SourceFormat            string               `json:"sourceFormat,omitempty"`
 	VersionID               string               `json:"versionId,omitempty"`
 	ParameterID             string               `json:"parameterId,omitempty"`
+	ExpectedFeatureDigest   string               `json:"expectedFeatureDigest,omitempty"`
 	Expression              string               `json:"expression,omitempty"`
 	Value                   float64              `json:"value,omitempty"`
 	Unit                    string               `json:"unit,omitempty"`
@@ -2840,7 +2842,7 @@ func insertProductInstances(ctx context.Context, tx pgx.Tx, versionID string, mo
 	return nil
 }
 
-func featureStructureNode(feature Feature, path, documentID, versionID string, deletable, childrenEditable bool) DocumentStructureNode {
+func featureStructureNode(feature Feature, path, documentID, versionID, definitionDigest string, deletable, childrenEditable bool) DocumentStructureNode {
 	kind := strings.ToUpper(feature.Type)
 	switch {
 	case strings.Contains(kind, "SKETCH"):
@@ -2856,9 +2858,12 @@ func featureStructureNode(feature Feature, path, documentID, versionID string, d
 	}
 	node := DocumentStructureNode{ID: path + "/" + strings.ToLower(kind) + ":" + feature.ID,
 		Kind: kind, Name: feature.Name, EntityID: feature.ID, EntityType: feature.Type,
-		DocumentID: documentID, VersionID: versionID}
+		DocumentID: documentID, VersionID: versionID, DefinitionDigest: definitionDigest}
 	if deletable {
 		node.Capabilities = []string{"DELETE"}
+	}
+	if childrenEditable && kind == "PAD" {
+		node.Capabilities = append(node.Capabilities, "EDIT")
 	}
 	if feature.Sketch != nil {
 		node.Children = sketchStructureChildren(*feature.Sketch, node.ID, feature.ID, documentID, versionID, childrenEditable)
@@ -2957,10 +2962,11 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		if consumed[feature.ID] {
 			continue
 		}
-		node := featureStructureNode(feature, body.ID, documentID, versionID, editable && !dependents[feature.ID], editable)
+		digest, _ := featureDefinitionDigest(model, feature.ID)
+		node := featureStructureNode(feature, body.ID, documentID, versionID, digest, editable && !dependents[feature.ID], editable)
 		if isSolidGenerator(feature.Type) && feature.Profile != "" {
 			if sketch, exists := sketches[feature.Profile]; exists {
-				node.Children = []DocumentStructureNode{featureStructureNode(sketch, node.ID, documentID, versionID, false, editable)}
+				node.Children = []DocumentStructureNode{featureStructureNode(sketch, node.ID, documentID, versionID, "", false, editable)}
 			}
 		}
 		body.Children = append(body.Children, node)

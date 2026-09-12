@@ -259,7 +259,8 @@ export type DocumentStructureNode = {
   role?: "PROFILE" | "CONSTRUCTION";
   suppressed?: boolean;
   diagnostic?: string;
-  capabilities?: Array<"DELETE" | "SUPPRESS">;
+  definitionDigest?: string;
+  capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT">;
   children?: DocumentStructureNode[];
 };
 

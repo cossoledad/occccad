@@ -1,6 +1,6 @@
 import { CloseOutlined } from "@ant-design/icons";
 import { Button } from "antd";
-import { useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent,
+import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent, type PropsWithChildren, type ReactNode } from "react";
 import { normalizeToolbarLayout, useUIPreferences, type ToolbarLayout, type ToolbarOrientation } from "../../state/ui-preferences";
 
@@ -105,6 +105,14 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
   const dialog = useRef<HTMLElement>(null);
   const positionRef = useRef(position); positionRef.current = position;
   const drag = useRef<{ pointerId: number; offsetX: number; offsetY: number } | undefined>(undefined);
+  useEffect(() => {
+    if (!open) return;
+    const keyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); onClose(); }
+    };
+    window.addEventListener("keydown", keyDown);
+    return () => window.removeEventListener("keydown", keyDown);
+  }, [open, onClose]);
   if (!open) return null;
   const pointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;

@@ -24,6 +24,7 @@ const (
 	typeEditSketch             = "occccad://part/sketch/edit"
 	typeCreatePad              = "occccad://part/pad/create"
 	typeCreateSolidFeature     = "occccad://part/solid-generator/create"
+	typeEditFeature            = "occccad://part/feature/edit"
 	typeCreateDatumPlane       = "occccad://part/datum-plane/create"
 	typeCreateDatumAxis        = "occccad://part/datum-axis/create"
 	typeImportExchange         = "occccad://part/exchange/import"
@@ -61,6 +62,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeEditSketch, "PART", applyEditSketch},
 		commandHandler{typeCreatePad, "PART", applyCreateFeature},
 		commandHandler{typeCreateSolidFeature, "PART", applyCreateFeature},
+		commandHandler{typeEditFeature, "PART", applyEditFeature},
 		commandHandler{typeCreateDatumPlane, "PART", applyCreateDatumPlane},
 		commandHandler{typeCreateDatumAxis, "PART", applyCreateDatumAxis},
 		commandHandler{typeImportExchange, "PART", applyCreateFeature},
@@ -788,6 +790,118 @@ type parameterSourcePayload struct {
 	Source      modelcore.ValueSource `json:"source"`
 }
 
+type linearExtrudeEdit struct {
+	Length    modelcore.Quantity `json:"length"`
+	Operation string             `json:"operation"`
+	Reversed  bool               `json:"reversed"`
+	Profile   string             `json:"profile"`
+}
+
+type editFeaturePayload struct {
+	FeatureID             string            `json:"featureId"`
+	ExpectedFeatureDigest string            `json:"expectedFeatureDigest"`
+	LinearExtrude         linearExtrudeEdit `json:"linearExtrude"`
+}
+
+var padLengthSlot = modelcore.PropertySlotDescriptor{
+	OwnerTypeURI: "occccad://part/feature/linear-extrude", SlotID: "pad.length",
+	ValueType: modelcore.ValueQuantity, Dimension: modelcore.LengthDimension,
+	AllowedSources: []string{"LITERAL", "EXPRESSION"}, Affects: "GEOMETRY", EvaluatorPhase: 2,
+}
+
+type featureEditFailure struct{ code string }
+
+func (failure featureEditFailure) Error() string { return failure.code }
+func (failure featureEditFailure) Unwrap() error { return ErrValidation }
+func (failure featureEditFailure) Code() string  { return failure.code }
+func (featureEditFailure) Phase() string         { return "FEATURE_EDIT" }
+func (featureEditFailure) Retryable() bool       { return false }
+
+func featureDefinitionDigest(model PartModel, featureID string) (string, error) {
+	normalizePartModel(&model)
+	for _, feature := range model.Features {
+		if feature.ID != featureID {
+			continue
+		}
+		var source modelcore.ValueSource
+		parameterID := "parameter:" + feature.ID + ":length"
+		for _, parameter := range model.Parameters {
+			if parameter.ParameterID == parameterID {
+				source = parameter.Source
+				break
+			}
+		}
+		value, err := json.Marshal(struct {
+			Feature Feature               `json:"feature"`
+			Source  modelcore.ValueSource `json:"lengthSource"`
+		}{feature, source})
+		if err != nil {
+			return "", err
+		}
+		return modelcore.ValueDigest(value), nil
+	}
+	return "", fmt.Errorf("%w: selected feature does not exist", ErrValidation)
+}
+
+func applyEditFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model PartModel
+	var payload editFeaturePayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	normalizePartModel(&model)
+	digest, err := featureDefinitionDigest(model, payload.FeatureID)
+	if err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if payload.ExpectedFeatureDigest == "" || payload.ExpectedFeatureDigest != digest {
+		return nil, modelcore.ChangeSet{}, featureEditFailure{code: "FEATURE_EDIT_STALE"}
+	}
+	var feature *Feature
+	for index := range model.Features {
+		if model.Features[index].ID == payload.FeatureID {
+			feature = &model.Features[index]
+			break
+		}
+	}
+	if feature == nil || !isSolidGenerator(feature.Type) || strings.EqualFold(feature.Type, "REVOLVE") {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: only Linear Extrude can be edited", ErrValidation)
+	}
+	definition := payload.LinearExtrude
+	if definition.Profile != feature.Profile || !strings.EqualFold(definition.Operation, feature.Operation) || definition.Reversed != feature.Reversed {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: P1 only permits Linear Extrude length edits", ErrValidation)
+	}
+	if !definition.Length.Dimension.Equal(modelcore.LengthDimension) || !positiveFinite(definition.Length.SIValue) {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: Linear Extrude length must be a positive finite length", ErrValidation)
+	}
+	parameterID := "parameter:" + feature.ID + ":length"
+	for index := range model.Parameters {
+		parameter := &model.Parameters[index]
+		if parameter.ParameterID != parameterID {
+			continue
+		}
+		if parameter.Source.Expression != nil {
+			return nil, modelcore.ChangeSet{}, featureEditFailure{code: "FEATURE_LENGTH_EXPRESSION_DRIVEN"}
+		}
+		before := parameter.Source
+		length := definition.Length
+		parameter.Source = modelcore.ValueSource{Literal: &length}
+		if err := validateAndResolvePartParameters(&model); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		change, _ := modelcore.NewChange(modelcore.ChangeUpdate,
+			modelcore.PropertyAddress{EntityID: feature.ID, SlotID: padLengthSlot.SlotID}, before, parameter.Source)
+		next, _ := json.Marshal(model)
+		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{
+			"parameter:" + modelcore.DependencyKey(parameterID), "feature:" + modelcore.DependencyKey(feature.ID),
+		}}, nil
+	}
+	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: Linear Extrude length parameter does not exist", ErrValidation)
+}
+
 func applyParameterSource(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
 	var model PartModel
 	var payload parameterSourcePayload
@@ -1411,6 +1525,10 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		return CommandPreview{}, err
 	}
 	nextJSON, _ = json.Marshal(model)
+	previewChanges, err = reconcilePersistedChanges(prepared.documentType, prepared.modelJSON, nextJSON, previewChanges)
+	if err != nil {
+		return CommandPreview{}, err
+	}
 	modelHash := canonicalModelHash(nextJSON)
 	finishGeometry := perf.Start(ctx, "geometry-evaluate")
 	geometryKey, err := service.evaluatePart(ctx, "preview/"+prepared.requestID, model)
@@ -1852,6 +1970,30 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			Length: request.Length, Angle: request.Angle, Operation: operation,
 			AxisEntityID: request.AxisEntityID, Reversed: request.Reversed}
 		return typeCreateSolidFeature, createFeaturePayload{Feature: feature}, nil
+	case "EDIT_FEATURE":
+		if documentType != "PART" {
+			break
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		var feature *Feature
+		for index := range model.Features {
+			if model.Features[index].ID == request.TargetID {
+				feature = &model.Features[index]
+				break
+			}
+		}
+		if feature == nil {
+			return "", nil, fmt.Errorf("%w: selected feature does not exist", ErrValidation)
+		}
+		quantity, err := modelcore.NewQuantity(request.Length, request.Unit)
+		if err != nil {
+			return "", nil, err
+		}
+		return typeEditFeature, editFeaturePayload{FeatureID: feature.ID, ExpectedFeatureDigest: request.ExpectedFeatureDigest,
+			LinearExtrude: linearExtrudeEdit{Length: quantity, Operation: feature.Operation, Reversed: feature.Reversed, Profile: feature.Profile}}, nil
 	case "CREATE_DATUM_PLANE":
 		if documentType != "PART" {
 			break

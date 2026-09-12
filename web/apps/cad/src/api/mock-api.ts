@@ -145,7 +145,8 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
         kind: feature.type.toUpperCase().includes("SKETCH") ? "SKETCH" : feature.type.toUpperCase() === "PAD" ? "PAD" : "IMPORT",
         name: feature.name ?? feature.type, entityId: feature.id, entityType: feature.type,
         documentId: view.document.id, versionId: view.document.versionId,
-        capabilities: deletable ? ["DELETE"] : undefined,
+        definitionDigest: feature.type.toUpperCase() === "PAD" || feature.type.toUpperCase() === "LINEAR_EXTRUDE" ? JSON.stringify(feature) : undefined,
+        capabilities: deletable ? ["DELETE", ...(["PAD","LINEAR_EXTRUDE"].includes(feature.type.toUpperCase()) ? ["EDIT" as const] : [])] : undefined,
       };
       if (feature.sketch) node.children = [
         { id: `${node.id}/geometry`, kind: "SKETCH_GEOMETRY_SET", name: "Geometry", ownerEntityId: feature.id,
@@ -307,6 +308,10 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
         axisEntityId: input.axisEntityId ? String(input.axisEntityId) : undefined,
         operation: String(input.operation) as "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT" });
     }
+	if (commandType === "EDIT_FEATURE" && view.part) {
+		const feature=view.part.features.find((candidate)=>candidate.id===input.targetId);
+		if(feature)feature.length=Number(input.length);
+	}
     if (commandType === "INSERT_INSTANCE" && view.product) {
       const reference = getView(String(input.referencedDocumentId));
       const used = new Set(view.product.instances.map((instance) => instance.name.toLocaleLowerCase()));
@@ -466,6 +471,12 @@ export const mockApi: CadApi = {
     const view = getView(documentID);
     if(input.type==="MOVE_INSTANCE"&&view.product){return pause({previewId:id("mock-move-preview"),baseVersionId:view.document.versionId,baseSequence:0,modelHash:"mock-move",
       instancePoses:view.product.instances.map((instance)=>({instanceId:instance.id,translation:instance.id===input.instanceId?input.translation as Vec3:instance.translation,rotation:instance.rotation??[0,0,0,1]}))});}
+    if (input.type === "EDIT_FEATURE" && view.part) {
+		const feature=view.part.features.find((candidate)=>candidate.id===input.targetId);
+		if(!feature)throw new Error("Feature does not exist");
+		return pause({previewId:id("mock-edit-preview"),baseVersionId:view.document.versionId,baseSequence:0,modelHash:"mock-edit",
+			artifact:boxArtifact(id("mock-preview"),[40,30,Number(input.length)])});
+	}
     if ((input.type !== "PAD_SKETCH" && input.type !== "CREATE_SOLID_FEATURE") || !view.part) throw new Error("Mock preview currently supports solid generators only");
     const sketch = view.part.features.find((feature) => feature.id === input.sketchId)?.sketch;
     const points = sketch?.entities.flatMap((entity) => [entity.start, entity.end]).filter(Boolean) as Array<{x:number;y:number}>;
@@ -484,6 +495,7 @@ export const mockApi: CadApi = {
     ...(intentRequestID ? { requestId: intentRequestID } : {}) }),
   createSolidFeature: async (documentID, input, intentRequestID) => command(documentID, { type: "CREATE_SOLID_FEATURE", ...input,
     ...(intentRequestID ? { requestId: intentRequestID } : {}) }),
+	editFeature: async (documentID, input) => command(documentID, {type:"EDIT_FEATURE",targetId:input.featureId,length:input.length}),
   createDatumPlane: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_PLANE", ...input }),
   createDatumAxis: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_AXIS", ...input }),
   insert: async (documentID, referencedDocumentID) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID }),

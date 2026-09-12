@@ -263,6 +263,14 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 						result[change.Target], _ = json.Marshal(parameter.Source)
 					}
 				}
+			case "pad.length":
+				parameterID := "parameter:" + change.Target.EntityID + ":length"
+				for _, parameter := range model.Parameters {
+					if parameter.ParameterID == parameterID {
+						result[change.Target], _ = json.Marshal(parameter.Source)
+						break
+					}
+				}
 			case "datum.plane":
 				for _, plane := range model.DatumPlanes {
 					if plane.ID == change.Target.EntityID {
@@ -387,6 +395,21 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 							return nil, err
 						}
 					}
+				}
+			case "pad.length":
+				parameterID := "parameter:" + address.EntityID + ":length"
+				found := false
+				for i := range model.Parameters {
+					if model.Parameters[i].ParameterID == parameterID {
+						if err := json.Unmarshal(value, &model.Parameters[i].Source); err != nil {
+							return nil, err
+						}
+						found = true
+						break
+					}
+				}
+				if !found {
+					return nil, fmt.Errorf("%w: Linear Extrude length parameter was deleted", ErrValidation)
 				}
 			case "datum.plane":
 				index := slices.IndexFunc(model.DatumPlanes, func(item DatumPlane) bool { return item.ID == address.EntityID })
