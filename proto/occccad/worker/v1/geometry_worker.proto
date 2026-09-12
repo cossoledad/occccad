@@ -242,6 +242,7 @@ message EvaluatePartRequest {
     string brep_output_key = 9;
     string glb_output_key = 10;
     repeated ProfilePadSpec profile_pads = 11;
+    TopologyNamingPolicy topology_policy = 12;
 }
 
 message ProfileCurve {
@@ -287,6 +288,171 @@ message ProfilePadSpec {
     Vec3 plane_origin = 11;
     Vec3 plane_normal = 12;
     Vec3 plane_u_direction = 13;
+    // Stable domain identities. These are naming inputs, never OCCT labels or
+    // topology traversal indices.
+    string feature_id = 14;
+    string body_id = 15;
+    string input_feature_id = 16;
+    string profile_feature_id = 17;
+}
+
+// ---------------------------------------------------------------------------
+// Persistent topology naming contract
+// ---------------------------------------------------------------------------
+
+enum PersistentTopologyType {
+    PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED = 0;
+    PERSISTENT_TOPOLOGY_TYPE_FACE = 1;
+    PERSISTENT_TOPOLOGY_TYPE_EDGE = 2;
+    PERSISTENT_TOPOLOGY_TYPE_VERTEX = 3;
+}
+
+enum SelectionRecipeKind {
+    SELECTION_RECIPE_UNSPECIFIED = 0;
+    SELECTION_RECIPE_DIRECT_SEMANTIC_OUTPUT = 1;
+    SELECTION_RECIPE_LINEAGE_DESCENDANT = 2;
+    SELECTION_RECIPE_INTERSECTION_OF = 3;
+    SELECTION_RECIPE_ADJACENT_TO = 4;
+    SELECTION_RECIPE_OWNED_BY_REGION_BOUNDARY = 5;
+}
+
+enum TopologyLineageKind {
+    TOPOLOGY_LINEAGE_UNSPECIFIED = 0;
+    TOPOLOGY_LINEAGE_GENERATED = 1;
+    TOPOLOGY_LINEAGE_MODIFIED = 2;
+    TOPOLOGY_LINEAGE_SPLIT = 3;
+    TOPOLOGY_LINEAGE_MERGED = 4;
+    TOPOLOGY_LINEAGE_UNCHANGED = 5;
+}
+
+enum SelectionResolutionStatus {
+    SELECTION_RESOLUTION_UNSPECIFIED = 0;
+    SELECTION_RESOLUTION_RESOLVED = 1;
+    SELECTION_RESOLUTION_MISSING = 2;
+    SELECTION_RESOLUTION_AMBIGUOUS = 3;
+    SELECTION_RESOLUTION_TYPE_MISMATCH = 4;
+    SELECTION_RESOLUTION_SOURCE_UNAVAILABLE = 5;
+    SELECTION_RESOLUTION_CONTRACT_MISMATCH = 6;
+    SELECTION_RESOLUTION_OUTSIDE_CURRENT_TIP = 7;
+}
+
+enum SupportingElementStatus {
+    SUPPORTING_ELEMENT_STATUS_UNSPECIFIED = 0;
+    SUPPORTING_ELEMENT_CONNECTED = 1;
+    SUPPORTING_ELEMENT_NOT_CONNECTED = 2;
+}
+
+enum AssemblyConstraintEvaluationStatus {
+    ASSEMBLY_CONSTRAINT_STATUS_UNSPECIFIED = 0;
+    ASSEMBLY_CONSTRAINT_NOT_UPDATED = 1;
+    ASSEMBLY_CONSTRAINT_BROKEN = 2;
+    ASSEMBLY_CONSTRAINT_IMPOSSIBLE = 3;
+    ASSEMBLY_CONSTRAINT_VERIFIED = 4;
+}
+
+message SemanticTopologyRef {
+    string feature_id = 1;
+    string output_slot = 2;
+    repeated string source_ids = 3;
+}
+
+message SelectionRecipe {
+    SelectionRecipeKind kind = 1;
+    repeated SemanticTopologyRef operands = 2;
+}
+
+message SelectionEvidence {
+    string geometry_type = 1;
+    optional double measure_si = 2;
+    Vec3 centroid = 3;
+    Vec3 origin = 4;
+    Vec3 direction = 5;
+    repeated SemanticTopologyRef adjacent = 6;
+    string evidence_digest = 7;
+    string measure_dimension = 8;
+}
+
+message PersistentSelection {
+    uint32 schema_version = 1;
+    string source_document_id = 2;
+    string source_body_id = 3;
+    SemanticTopologyRef anchor = 4;
+    PersistentTopologyType expected_type = 5;
+    SelectionRecipe selector = 6;
+    SelectionEvidence creation_evidence = 7;
+}
+
+message ResolvedTopologyElement {
+    string geometry_id = 1;
+    string geometry_key = 2;
+    PersistentTopologyType topology_type = 3;
+    uint64 local_id = 4;
+    SemanticTopologyRef semantic_ref = 5;
+    SelectionEvidence evidence = 6;
+}
+
+message SelectionResolution {
+    SelectionResolutionStatus status = 1;
+    SupportingElementStatus supporting_element_status = 2;
+    repeated ResolvedTopologyElement candidates = 3;
+    string diagnostic_code = 4;
+    string diagnostic = 5;
+    string evidence_digest = 6;
+}
+
+message TopologyLineage {
+    repeated SemanticTopologyRef sources = 1;
+    SemanticTopologyRef result = 2;
+    TopologyLineageKind kind = 3;
+    SelectionEvidence evidence = 4;
+}
+
+message TopologyTombstone {
+    SemanticTopologyRef source = 1;
+    string reason = 2;
+    SelectionEvidence evidence = 3;
+}
+
+message AmbiguousLineage {
+    repeated SemanticTopologyRef sources = 1;
+    repeated SemanticTopologyRef candidates = 2;
+    string diagnostic_code = 3;
+}
+
+message TopologyHistory {
+    uint32 schema_version = 1;
+    string feature_id = 2;
+    string input_geometry_id = 3;
+    string result_geometry_id = 4;
+    repeated TopologyLineage lineage = 5;
+    repeated TopologyTombstone deleted = 6;
+    repeated AmbiguousLineage ambiguous = 7;
+    string evidence_digest = 8;
+    string policy_digest = 9;
+}
+
+message TopologyNamingPolicy {
+    uint32 schema_version = 1;
+    string policy_id = 2;
+    string evaluator_version = 3;
+    double linear_tolerance_meters = 4;
+    double angular_tolerance_radians = 5;
+}
+
+message FeatureEvaluationIdentity {
+    string feature_id = 1;
+    string body_id = 2;
+    string input_feature_id = 3;
+    string profile_feature_id = 4;
+}
+
+message PartEvaluationManifest {
+    uint32 schema_version = 1;
+    string topology_policy_id = 2;
+    string topology_evaluator_version = 3;
+    string topology_manifest_digest = 4;
+    ArtifactReference topology_manifest_artifact = 5;
+    repeated FeatureEvaluationIdentity features = 6;
 }
 
 message ArtifactReference {
@@ -369,6 +535,7 @@ message EvaluatePartResponse {
     bytes glb_data = 10;
     ArtifactReference brep_artifact = 11;
     ArtifactReference glb_artifact = 12;
+    PartEvaluationManifest evaluation_manifest = 13;
 }
 
 message Mesh {

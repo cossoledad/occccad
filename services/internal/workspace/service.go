@@ -2241,6 +2241,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 	sketches := map[string]Feature{}
 	solidFeatures := []geometry.ProfilePad{}
 	baseKey := ""
+	bodyTipFeatureID := ""
 	var canonical strings.Builder
 	canonical.WriteString(evaluatorVersion)
 	visualization := visualizationManifest(model)
@@ -2250,6 +2251,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 		switch strings.ToUpper(feature.Type) {
 		case "IMPORT_BODY":
 			baseKey = feature.GeometryKey
+			bodyTipFeatureID = feature.ID
 			canonical.WriteString("|base=" + baseKey)
 		case "SKETCH":
 			sketches[feature.ID] = feature
@@ -2293,10 +2295,13 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 					}
 				}
 			}
-			solidFeatures = append(solidFeatures, geometry.ProfilePad{Regions: regions, Length: feature.Length,
+			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: "body-main",
+				InputFeatureID: bodyTipFeatureID, ProfileFeatureID: sketch.ID,
+				Regions: regions, Length: feature.Length,
 				Plane: plane, BodyOperation: operation, Generator: generator, RevolveAngle: angle,
 				AxisStart: axisStart, AxisEnd: axisEnd, Reversed: feature.Reversed,
 				PlaneOrigin: planeOrigin, PlaneNormal: planeNormal, PlaneUDirection: planeU})
+			bodyTipFeatureID = feature.ID
 			profileJSON, _ := json.Marshal(regions)
 			fmt.Fprintf(&canonical, "|solid=%s,%s,%s,%s,%.9g,%.9g,%v,%v,%t", generator, operation,
 				plane, profileJSON, feature.Length, angle, axisStart, axisEnd, feature.Reversed)

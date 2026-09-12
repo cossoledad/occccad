@@ -1,7 +1,9 @@
 #include <internal/occt_kernel.hpp>
+#include <occccad/kernel/topology_naming.hpp>
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
@@ -88,7 +90,11 @@ TEST(GeometryExchange, ProfilePadSupportsCircularOuterLoopAndHole) {
     region.outer = {"outer-loop", {outer}};
     region.holes = {{"hole-loop", {hole}}};
 
-    const auto id = kernel.evaluateProfilePads({{{region}, 12.0, "XY"}});
+    ProfilePadSpec pad;
+    pad.regions = {region};
+    pad.pad_length = 12.0;
+    pad.plane = "XY";
+    const auto id = kernel.evaluateProfilePads({pad});
 
     EXPECT_NEAR(kernel.getVolume(id), 3.14159265358979323846 * (400.0 - 64.0) * 12.0, 1.0e-5);
     EXPECT_GT(kernel.getTopology(id).solid_count, 0U);
@@ -112,7 +118,11 @@ TEST(GeometryExchange, ProfilePadKeepsArcAnglesInTheSketchPlane) {
     region.id = "semicircle";
     region.outer = {"semicircle-loop", {arc, diameter}};
 
-    const auto id = kernel.evaluateProfilePads({{{region}, 7.0, "XZ"}});
+    ProfilePadSpec pad;
+    pad.regions = {region};
+    pad.pad_length = 7.0;
+    pad.plane = "XZ";
+    const auto id = kernel.evaluateProfilePads({pad});
 
     EXPECT_NEAR(kernel.getVolume(id), 0.5 * 3.14159265358979323846 * 100.0 * 7.0,
                 1.0e-5);
@@ -130,7 +140,11 @@ TEST(GeometryExchange, ProfilePadBuildsClosedSplineWire) {
     region.id = "spline-region";
     region.outer = {"spline-loop", {spline}};
 
-    const auto id = kernel.evaluateProfilePads({{{region}, 5.0, "YZ"}});
+    ProfilePadSpec pad;
+    pad.regions = {region};
+    pad.pad_length = 5.0;
+    pad.plane = "YZ";
+    const auto id = kernel.evaluateProfilePads({pad});
 
     EXPECT_GT(kernel.getVolume(id), 0.0);
     EXPECT_GT(kernel.getTopology(id).solid_count, 0U);
@@ -151,6 +165,121 @@ ProfileRegionSpec rectangular_region(const std::string& id, double x0, double y0
         region.outer.curves.push_back(line);
     }
     return region;
+}
+
+std::size_t faces_on_z(const TopologyInfo& topology, const double z) {
+    return static_cast<std::size_t>(std::count_if(
+        topology.faces.begin(), topology.faces.end(), [z](const FaceInfo& face) {
+            return std::abs(face.bbox.min.z - z) < 1.0e-6 &&
+                   std::abs(face.bbox.max.z - z) < 1.0e-6;
+        }));
+}
+
+std::size_t faces_on_y(const TopologyInfo& topology, const double y) {
+    return static_cast<std::size_t>(std::count_if(
+        topology.faces.begin(), topology.faces.end(), [y](const FaceInfo& face) {
+            return std::abs(face.bbox.min.y - y) < 1.0e-6 &&
+                   std::abs(face.bbox.max.y - y) < 1.0e-6;
+        }));
+}
+
+TEST(GeometryExchange, NamingFixtureExtrudeLengthChangesGeometryButKeepsDomainIdentity) {
+    OcctKernel kernel;
+    ProfilePadSpec twenty;
+    twenty.feature_id = "extrude-1";
+    twenty.body_id = "body-main";
+    twenty.profile_feature_id = "sketch-1";
+    twenty.regions = {rectangular_region("region-1", 0, 0, 20, 10)};
+    twenty.pad_length = 20;
+    twenty.body_operation = "NEW_BODY";
+    ProfilePadSpec forty = twenty;
+    forty.pad_length = 40;
+
+    const auto twenty_id = kernel.evaluateProfilePads({twenty});
+    const auto forty_id = kernel.evaluateProfilePads({forty});
+
+    EXPECT_NE(twenty_id, forty_id);
+    EXPECT_NEAR(kernel.getBoundingBox(twenty_id).max.z, 20.0, 1.0e-6);
+    EXPECT_NEAR(kernel.getBoundingBox(forty_id).max.z, 40.0, 1.0e-6);
+    EXPECT_EQ(twenty.feature_id, forty.feature_id);
+    EXPECT_EQ(twenty.profile_feature_id, forty.profile_feature_id);
+    EXPECT_EQ(faces_on_z(kernel.getTopology(twenty_id), 20.0), 1U);
+    EXPECT_EQ(faces_on_z(kernel.getTopology(forty_id), 40.0), 1U);
+}
+
+TEST(GeometryExchange, NamingFixtureCutRetainsModifiedTopFace) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id = "extrude-1";
+    base.body_id = "body-main";
+    base.profile_feature_id = "sketch-base";
+    base.regions = {rectangular_region("base", 0, 0, 20, 20)};
+    base.pad_length = 10;
+    base.body_operation = "NEW_BODY";
+    ProfilePadSpec hole;
+    hole.feature_id = "cut-1";
+    hole.body_id = "body-main";
+    hole.input_feature_id = base.feature_id;
+    hole.profile_feature_id = "sketch-hole";
+    hole.regions = {rectangular_region("hole", 5, 5, 15, 15)};
+    hole.pad_length = 10;
+    hole.body_operation = "REMOVE";
+
+    const auto result = kernel.evaluateProfilePads({base, hole});
+    EXPECT_EQ(kernel.getTopology(result).solid_count, 1U);
+    EXPECT_NEAR(kernel.getVolume(result), 3000.0, 1.0e-6);
+    EXPECT_EQ(faces_on_z(kernel.getTopology(result), 10.0), 1U);
+}
+
+TEST(GeometryExchange, NamingFixtureCutDeletesOriginalTopFace) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.regions = {rectangular_region("base", 0, 0, 20, 20)};
+    base.pad_length = 10;
+    base.body_operation = "NEW_BODY";
+    ProfilePadSpec remove_top;
+    remove_top.regions = {rectangular_region("top-half", 0, 0, 20, 20)};
+    remove_top.pad_length = 5;
+    remove_top.body_operation = "REMOVE";
+    remove_top.plane_origin = {0, 0, 5};
+    remove_top.plane_normal = {0, 0, 1};
+    remove_top.plane_u_direction = {1, 0, 0};
+
+    const auto result = kernel.evaluateProfilePads({base, remove_top});
+    EXPECT_EQ(kernel.getTopology(result).solid_count, 1U);
+    EXPECT_NEAR(kernel.getVolume(result), 2000.0, 1.0e-6);
+    EXPECT_EQ(faces_on_z(kernel.getTopology(result), 10.0), 0U);
+    EXPECT_EQ(faces_on_z(kernel.getTopology(result), 5.0), 1U);
+}
+
+TEST(GeometryExchange, NamingFixtureSideOpeningCreatesTwoAmbiguousFaceCandidates) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.regions = {rectangular_region("base", 0, 0, 20, 20)};
+    base.pad_length = 10;
+    base.body_operation = "NEW_BODY";
+    ProfilePadSpec notch;
+    notch.regions = {rectangular_region("notch", 8, 0, 12, 5)};
+    notch.pad_length = 10;
+    notch.body_operation = "REMOVE";
+
+    const auto result = kernel.evaluateProfilePads({base, notch});
+    EXPECT_EQ(kernel.getTopology(result).solid_count, 1U);
+    EXPECT_EQ(faces_on_y(kernel.getTopology(result), 0.0), 2U);
+
+    AmbiguousLineage ambiguity;
+    ambiguity.sources = {{"extrude-1", "SIDE_FROM_PROFILE_EDGE/base-edge-0", {"base-edge-0"}}};
+    ambiguity.candidates = {
+        {"cut-1", "SPLIT_FROM/extrude-1/SIDE/a", {"base-edge-0"}},
+        {"cut-1", "SPLIT_FROM/extrude-1/SIDE/b", {"base-edge-0"}},
+    };
+    ambiguity.diagnostic_code = "SELECTION_AMBIGUOUS";
+    EXPECT_EQ(ambiguity.candidates.size(), 2U);
+    SelectionResolution resolution;
+    resolution.status = SelectionResolutionStatus::ambiguous;
+    resolution.supporting_element_status = SupportingElementStatus::not_connected;
+    EXPECT_EQ(resolution.status, SelectionResolutionStatus::ambiguous);
+    EXPECT_EQ(resolution.supporting_element_status, SupportingElementStatus::not_connected);
 }
 
 TEST(GeometryExchange, SolidFeatureChainFusesAndCutsOneBody) {

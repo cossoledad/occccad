@@ -46,6 +46,19 @@ type assemblySolveFailure struct {
 	retryable  bool
 }
 
+// validateRevisionLocalTopologyReference documents the current pre-naming
+// boundary. A topology local ID has meaning only inside its geometry key and
+// therefore cannot survive a Part regeneration by itself.
+func validateRevisionLocalTopologyReference(reference AssemblyGeometryRef, resolvedGeometryKey string) error {
+	if reference.GeometryKey == "" || reference.TopologyID == 0 {
+		return fmt.Errorf("%w: a topology reference requires geometryKey and topologyId", ErrValidation)
+	}
+	if resolvedGeometryKey == "" || reference.GeometryKey != resolvedGeometryKey {
+		return fmt.Errorf("%w: selected topology belongs to a different Part revision", ErrValidation)
+	}
+	return nil
+}
+
 func (failure *assemblySolveFailure) Error() string {
 	return fmt.Sprintf("assembly solve %s: %s", failure.status, failure.diagnostic)
 }
@@ -197,15 +210,12 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		value := geometry.AssemblyGeometry{ID: key, BodyID: reference.InstanceID, Kind: reference.Kind}
 		switch reference.Kind {
 		case "FACE", "EDGE", "VERTEX":
-			if reference.GeometryKey == "" || reference.TopologyID == 0 {
-				return "", fmt.Errorf("%w: a topology reference requires geometryKey and topologyId", ErrValidation)
-			}
 			part, err := resolvePart(instance)
 			if err != nil {
 				return "", err
 			}
-			if part.geometryKey == "" || part.geometryKey != reference.GeometryKey {
-				return "", fmt.Errorf("%w: selected face does not belong to the resolved instance revision", ErrValidation)
+			if err := validateRevisionLocalTopologyReference(reference, part.geometryKey); err != nil {
+				return "", err
 			}
 			properties, err := service.GetTopologyElementProperties(ctx, documentID, reference.GeometryKey, reference.Kind, reference.TopologyID)
 			if err != nil {

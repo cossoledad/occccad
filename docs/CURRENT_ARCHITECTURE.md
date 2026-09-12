@@ -220,6 +220,8 @@ sequenceDiagram
 
 GeometryId 是精确 Body B-Rep 的 SHA-256 内容标识，不绑定 Worker；`geometry_key` 标识带 evaluator 和 Part 显示语义的求值结果，因此两个结果可以共享 GeometryId，但拥有不同的可视化制品。几何输出包括 B-Rep、GLB、三角形、边折线、包围盒、拓扑计数和体积。新增几何已接入本地制品对象；历史表结构仍保留部分内联数据字段。Body 的 ADD/REMOVE/INTERSECT 在 OCCT 布尔完成后统一同域面和同域边，再进行 B-Rep 校验和内容寻址；因此相交且等高的拉伸不会把连续顶面暴露成多个共面选择区域。
 
+Persistent topology naming 已完成 P0 契约基线。Profile Pad 求值现在必须携带稳定的 Feature、Body、输入 Feature 和 Profile Feature identity，以及固定版本的 naming policy/evaluator 和以米、弧度表达的匹配容差；Worker 校验这些输入，并在 `PartEvaluationManifest` 回传生效策略和逐 Feature identity。公共 C++ 值类型与 Proto 已定义 `PersistentSelection`、`TopologyHistory`、唯一/缺失/歧义等 resolution、Supporting Element 的 Connected/NotConnected，以及 Assembly Constraint 的 NotUpdated/Broken/Impossible/Verified。当前 Worker 尚未从 OCCT 算法生成或持久化 lineage/history，Product 仍保存 `geometryKey + topologyId` 的 Revision-local 引用；测试明确锁定这种 local ID 在 Part 重算后不能跨 Revision 使用。P2/P3 才会接入 history 生成和 resolver，不能把本段契约视为已交付持久重命名。
+
 Router 的亲和对象是不可变 `geometry_key`/GeometryId，而不是可变 Document：拓扑等后续查询回到已经 resident 该 Body 的 Worker，新的 Revision 在 `OCCCCAD_GEOMETRY_PER_WORKER` 软容量已满时可以分配到另一 Worker。这个过程不移动参数模型或权威 B-Rep；Revision、Artifact 元数据和 ArtifactStore 仍是事实来源，Worker 只保存可丢弃缓存，所以 Undo 可以命中旧 Body 所在 Worker。当前 Part evaluator 会从完整参数模型重建特征链，并不消费父 Revision 的 resident Shape，因此强制把子 Revision 放回父 Worker 没有计算复用收益，反而会破坏按不可变制品分散内存和并行查询的能力。将来只有在 evaluator 支持带 provenance 的增量输入（父 GeometryId、dirty feature closure 和确定性回退）后，才应增加 lineage-aware placement；不能仅按 Document ID 制造状态依赖。
 
 每个 Part 求值结果还持有 schema v1 `VisualizationManifest`，并镜像到最终 GLB 的 `OCCCCAD_visualization` 扩展。Manifest 统一包含 DatumPlane/AxisSystem 和可选择的非实体 primitive；当前草图 Point 映射为 `POINTS`，Line/Circle/Arc/Spline 映射为 `POLYLINE`。全部几何约束映射为带约束类型的 `POINTS` glyph anchor；Distance/Length/Radius/Diameter/Angle 映射为 `LINE_SEGMENTS` 引线、箭头以及 label/labelPosition。约束 primitive 还携带 `relatedEntityIds`，使约束的视口/结构树 hover 和 select 同时作用于标记及全部引用草图元素。每个 primitive 保存稳定 entity/constraint ID、所属 FeatureId、类型、PROFILE/CONSTRUCTION role、求解状态和 Part 坐标。协议预留 `TRIANGLES`，供后续独立曲面显示使用，但当前尚未交付三维曲线/曲面建模命令。对象存储路径会读取 Worker 基础 GLB、注入 Manifest 后再登记最终不可变 GLB，不依赖数据库旁路元数据。
@@ -267,7 +269,7 @@ stateDiagram-v2
 | RPC | 当前状态 | 说明 |
 |---|---|---|
 | `Ping` | 已实现 | 健康与 resident 数量 |
-| `EvaluatePart` | 已实现 | ProfileRegion/孔环 Pad 链、基础 B-Rep；保留旧矩形字段作为当前开发期过渡入口 |
+| `EvaluatePart` | 已实现 | ProfileRegion/孔环 Pad 链、基础 B-Rep；Profile Pad 强制稳定 Feature/Body/source identity 与 naming policy，并回传 P0 evaluation manifest；保留旧矩形字段作为当前开发期过渡入口 |
 | `SolveSketch` | 已实现 | GeometryPool Router 转发到 Worker，执行 SketchModel v1 的权威 PlaneGCS 求解与诊断 |
 | `InspectExchange` | 已实现 | 读取 STEP/BREP 制品清单，判定 Part 或可并行根组件 Product |
 | `ImportExchange` | 已实现 | 从 ArtifactReference 导入一个 STEP 根或 BREP，输出 B-Rep/GLB 制品引用 |

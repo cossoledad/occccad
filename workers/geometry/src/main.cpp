@@ -4,6 +4,7 @@
 #include <occccad/assembly/solver.hpp>
 #include <occccad/kernel/kernel.hpp>
 #include <occccad/kernel/mesh_glb.hpp>
+#include <occccad/kernel/topology_naming.hpp>
 
 #include <grpcpp/grpcpp.h>
 #include <occccad/geometry/sketch/sketch_solver.h>
@@ -832,10 +833,31 @@ public:
             if (request->has_base_brep_artifact())
                 base_brep = read_artifact(request->base_brep_artifact());
             std::vector<occccad::kernel::ProfilePadSpec> profile_specs;
+            if (!request->profile_pads().empty()) {
+                const auto& policy = request->topology_policy();
+                if (policy.schema_version() != occccad::kernel::topology_naming_schema_version ||
+                    policy.policy_id() != occccad::kernel::topology_naming_policy_id ||
+                    policy.evaluator_version() != occccad::kernel::topology_evaluator_version ||
+                    policy.linear_tolerance_meters() !=
+                        occccad::kernel::topology_linear_tolerance_meters ||
+                    policy.angular_tolerance_radians() !=
+                        occccad::kernel::topology_angular_tolerance_radians) {
+                    throw std::invalid_argument("unsupported or incomplete topology naming policy");
+                }
+            }
             for (const auto& input : request->profile_pads()) {
                 if (input.units() != "mm")
                     throw std::invalid_argument("profile pads must use mm");
+                if (input.feature_id().empty() || input.body_id().empty() ||
+                    input.profile_feature_id().empty()) {
+                    throw std::invalid_argument(
+                        "profile pads require feature_id, body_id, and profile_feature_id");
+                }
                 occccad::kernel::ProfilePadSpec pad;
+                pad.feature_id = input.feature_id();
+                pad.body_id = input.body_id();
+                pad.input_feature_id = input.input_feature_id();
+                pad.profile_feature_id = input.profile_feature_id();
                 pad.pad_length = input.pad_length();
                 pad.plane = input.plane().empty() ? "XY" : input.plane();
                 pad.body_operation =
@@ -890,6 +912,20 @@ public:
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
                             request->glb_output_key());
+            if (!profile_specs.empty()) {
+                auto* manifest = response->mutable_evaluation_manifest();
+                manifest->set_schema_version(occccad::kernel::topology_naming_schema_version);
+                manifest->set_topology_policy_id(request->topology_policy().policy_id());
+                manifest->set_topology_evaluator_version(
+                    request->topology_policy().evaluator_version());
+                for (const auto& spec : profile_specs) {
+                    auto* identity = manifest->add_features();
+                    identity->set_feature_id(spec.feature_id);
+                    identity->set_body_id(spec.body_id);
+                    identity->set_input_feature_id(spec.input_feature_id);
+                    identity->set_profile_feature_id(spec.profile_feature_id);
+                }
+            }
 
             if (!external_outputs)
                 cache_.insert_or_assign(request->geometry_key(), *response);

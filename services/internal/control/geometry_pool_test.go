@@ -20,6 +20,19 @@ type topologyWorkerStub struct {
 	topologyCalls atomic.Int32
 }
 
+func (sketchWorkerStub) EvaluatePart(_ context.Context, request *workerv1.EvaluatePartRequest) (*workerv1.EvaluatePartResponse, error) {
+	manifest := &workerv1.PartEvaluationManifest{SchemaVersion: 1,
+		TopologyPolicyId:         request.GetTopologyPolicy().GetPolicyId(),
+		TopologyEvaluatorVersion: request.GetTopologyPolicy().GetEvaluatorVersion()}
+	for _, feature := range request.GetProfilePads() {
+		manifest.Features = append(manifest.Features, &workerv1.FeatureEvaluationIdentity{
+			FeatureId: feature.GetFeatureId(), BodyId: feature.GetBodyId(),
+			InputFeatureId: feature.GetInputFeatureId(), ProfileFeatureId: feature.GetProfileFeatureId(),
+		})
+	}
+	return &workerv1.EvaluatePartResponse{GeometryKey: request.GetGeometryKey(), GeometryId: "geometry-evaluated", EvaluationManifest: manifest}, nil
+}
+
 func (worker *topologyWorkerStub) Ping(context.Context, *workerv1.PingRequest) (*workerv1.PingResponse, error) {
 	return &workerv1.PingResponse{WorkerId: "topology-worker", ResidentGeometryCount: 1}, nil
 }
@@ -98,6 +111,37 @@ func TestGeometryPoolRoutesSolveSketch(t *testing.T) {
 	}
 	if response.GetStatus() != "UNDER_CONSTRAINED" || response.GetDegreesOfFreedom() != 4 {
 		t.Fatalf("unexpected routed response: %#v", response)
+	}
+}
+
+func TestGeometryPoolRoutesPartNamingContractWithoutDroppingIdentity(t *testing.T) {
+	backend := serveGeometry(t, sketchWorkerStub{})
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{})
+	if err := pool.SetDebugAddress(backend); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	router := serveGeometry(t, pool)
+	connection, err := grpc.NewClient(router, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	response, err := workerv1.NewGeometryWorkerClient(connection).EvaluatePart(t.Context(), &workerv1.EvaluatePartRequest{
+		RequestId: "part-contract-1", GeometryKey: "sha256:part-contract",
+		TopologyPolicy: &workerv1.TopologyNamingPolicy{SchemaVersion: 1,
+			PolicyId: "occccad.topology.naming.v1", EvaluatorVersion: "occccad.topology.contract.v1",
+			LinearToleranceMeters: 1e-7, AngularToleranceRadians: 1e-9},
+		ProfilePads: []*workerv1.ProfilePadSpec{{FeatureId: "extrude-2", BodyId: "body-main",
+			InputFeatureId: "extrude-1", ProfileFeatureId: "sketch-2"}},
+	})
+	if err != nil {
+		t.Fatalf("EvaluatePart naming contract was not routed: %v", err)
+	}
+	manifest := response.GetEvaluationManifest()
+	if manifest.GetTopologyPolicyId() != "occccad.topology.naming.v1" || len(manifest.GetFeatures()) != 1 ||
+		manifest.GetFeatures()[0].GetFeatureId() != "extrude-2" || manifest.GetFeatures()[0].GetInputFeatureId() != "extrude-1" {
+		t.Fatalf("Router dropped topology naming identity: %#v", manifest)
 	}
 }
 

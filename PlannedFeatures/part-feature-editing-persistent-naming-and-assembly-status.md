@@ -1,6 +1,6 @@
 # Part 特征编辑、持久拓扑命名与装配约束状态开发计划
 
-状态：计划，尚未实现  
+状态：实施中；P0 已完成，P1–P6 待实施
 日期：2026-09-12  
 适用基线：当前未发布、允许重建开发数据的 occccad 仓库
 
@@ -380,6 +380,8 @@ stateDiagram-v2
 每个批次限定为一次可审查的纵向交付：先读邻近实现，完成代码、必要测试和事实文档更新；不把尚未接通的 UI 或孤立 Proto 当成完成。前一批次的验收门通过后再进入下一批次。
 
 ### 批次 P0：契约冻结与回归夹具
+
+实施状态：已于 2026-09-12 完成。已冻结 C++/Proto/Go 值契约和 naming policy/evaluator 版本，稳定 identity 已贯通正式 Go Client、Pool、Router 与 C++ Worker；OCCT 回归夹具覆盖拉伸长度变化、Cut 保留面、Cut 删除面和 Split 歧义，Product 回归测试锁定旧 `geometryKey + topologyId` 不能跨 Revision。此状态不包含 lineage 提取、resolver 或 Product 状态投影，它们仍按 P2–P4 实施。
 
 目标：把当前临时身份和预期行为变成可执行基线。
 

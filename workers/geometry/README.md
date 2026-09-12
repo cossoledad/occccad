@@ -6,7 +6,7 @@ Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 g
 
 - `Ping`：返回 Worker ID、OCCT 版本和 resident geometry 数；
 - `SolveSketch`：求解版本化 Point/Line/Circle/Arc/Spline/Constraint SketchModel，返回坐标、状态、DoF 和冲突/冗余约束 ID；
-- `EvaluatePart`：求值一个矩形草图/拉伸链或在基础 B-Rep 上追加拉伸；
+- `EvaluatePart`：求值一个矩形草图/拉伸链或在基础 B-Rep 上追加拉伸；Profile Pad 请求校验稳定 Feature/Body/source identity 和版本化 topology naming policy，并回传生效策略与 Feature identity manifest；
 - `InspectExchange` / `ImportExchange` / `ExportExchange`：通过 ArtifactReference 检查、导入和导出 STEP/BREP；
 - `GetTopology`：返回面、边、点及诊断属性；
 - 生成 SHA-256 GeometryId、B-Rep、三角网格、边折线、包围盒、体积和 GLB。
@@ -42,6 +42,8 @@ flowchart LR
 调用应是“求值完整 Part”“导入一个交换根”“合成一次导出”一类粗粒度操作，不能把每个 OCCT 函数映射为远程 RPC。请求携带 `request_id` 与 `geometry_key`；Trace Context 通过 gRPC metadata 传播。B-Rep、GLB、STEP 和 BREP 交换文件通过 ArtifactReference 读写，不进入 unary gRPC bytes；当前 `LOCAL` backend 要求 Worker 与 API/Jobs 共享 `OCCCCAD_DATA_DIR`，object key 必须是根目录内的 opaque 相对键。
 
 Worker 只生成 Body 的基础实体 GLB。Part 模型拥有的 Datum、Sketch 以及未来非实体曲线/曲面由控制面的版本化 `VisualizationManifest` 表达；Artifact 管线把它注入最终 GLB 的 `OCCCCAD_visualization` 扩展。不要把完整 PartModel 或装配 occurrence 传入 OCCT Worker 来生成第二套场景：同一最终 GLB/manifest 必须同时供 Part、缩略图和 Product occurrence 使用。
+
+P0 已冻结 persistent topology naming 的公共值类型与 Proto：`PersistentSelection`、`TopologyHistory`、resolution、tombstone/ambiguity，以及 Supporting Element 和 Assembly Constraint 两个独立状态域。选择证据中的 measure 使用可选 SI 值并显式携带量纲；policy 的线性与角度容差分别使用米和弧度。当前 `PartEvaluationManifest` 只回传实际采用的 policy/evaluator 与 Feature identity，`topology_manifest_digest` 和 artifact 尚未由 Worker 填充；OCCT history 提取、制品持久化与 Product resolver 属于后续批次。
 
 `SolveAssembly` 接收已经由控制面解析好的刚体初始 Pose、body-local Point/Axis/Plane/Cylinder 描述符和几何约束，不接收 Product 文档、InstancePath 或 B-Rep。Worker 调用独立的 `kernel/assembly`，返回 Pose、逐约束/方程残差、connected component 的 rank/relative DOF/gauge DOF、冗余/冲突身份和结构化诊断；请求可用 affected body IDs 限定需要更新的连通分量，也可携带 request-scoped `solve_intent`，表达“第一选择运动、第二选择尽量保持”的交互偏好而不改变约束本身的对称语义。M2.5 已实现硬约束优先、reference 最小变化、总名义变化的层级解选择，物理接地时 reference 仍可承担必要运动；可行但偏好未收敛会返回独立状态。Product Constraint、Revision 和 Undo/Redo 仍由 Go 控制面负责。Router 必须显式代理完整 RPC，不能以直连 Worker 的测试代替正式路径验证。
 

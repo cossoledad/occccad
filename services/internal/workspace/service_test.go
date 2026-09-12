@@ -896,6 +896,19 @@ func TestFixAndRigidRejectTransientGeometryReferences(t *testing.T) {
 	}
 }
 
+func TestRevisionLocalTopologyIDCannotCrossPartRegeneration(t *testing.T) {
+	t.Parallel()
+	selectedAtTwentyMillimeters := AssemblyGeometryRef{
+		InstanceID: "part-1", Kind: "FACE", GeometryKey: "sha256:pad-20mm", TopologyID: 1,
+	}
+	if err := validateRevisionLocalTopologyReference(selectedAtTwentyMillimeters, "sha256:pad-20mm"); err != nil {
+		t.Fatalf("current-revision topology reference was rejected: %v", err)
+	}
+	if err := validateRevisionLocalTopologyReference(selectedAtTwentyMillimeters, "sha256:pad-40mm"); err == nil {
+		t.Fatal("legacy geometryKey/topologyId reference incorrectly survived Part regeneration")
+	}
+}
+
 func TestAssemblyConstraintGeometryPairCapabilities(t *testing.T) {
 	tests := []struct {
 		name                                   string

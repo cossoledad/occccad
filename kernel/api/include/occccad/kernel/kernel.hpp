@@ -102,6 +102,12 @@ struct ProfilePadSpec {
     Vec3 plane_origin;
     Vec3 plane_normal;
     Vec3 plane_u_direction;
+    // Stable domain identities used by topology naming. They do not affect the
+    // generated B-Rep and must never contain OCCT-local topology indices.
+    std::string feature_id;
+    std::string body_id;
+    std::string input_feature_id;
+    std::string profile_feature_id;
 };
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"github.com/occccad/occccad/internal/modelcore"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -43,18 +44,31 @@ type ProfileRegion struct {
 	Holes []ProfileLoop
 }
 type ProfilePad struct {
-	Regions                                   []ProfileRegion
-	Length, RevolveAngle                      float64
-	AxisStart, AxisEnd                        [2]float64
-	PlaneOrigin, PlaneNormal, PlaneUDirection [3]float64
-	Plane, BodyOperation, Generator           string
-	Reversed                                  bool
+	FeatureID, BodyID, InputFeatureID, ProfileFeatureID string
+	Regions                                             []ProfileRegion
+	Length, RevolveAngle                                float64
+	AxisStart, AxisEnd                                  [2]float64
+	PlaneOrigin, PlaneNormal, PlaneUDirection           [3]float64
+	Plane, BodyOperation, Generator                     string
+	Reversed                                            bool
+}
+
+func topologyNamingPolicyProto() *workerv1.TopologyNamingPolicy {
+	return &workerv1.TopologyNamingPolicy{
+		SchemaVersion:           modelcore.TopologyNamingSchemaVersion,
+		PolicyId:                modelcore.TopologyNamingPolicyID,
+		EvaluatorVersion:        modelcore.TopologyNamingEvaluator,
+		LinearToleranceMeters:   modelcore.TopologyNamingLinearToleranceMeters,
+		AngularToleranceRadians: modelcore.TopologyNamingAngularToleranceRadians,
+	}
 }
 
 func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 	result := make([]*workerv1.ProfilePadSpec, 0, len(pads))
 	for _, pad := range pads {
-		value := &workerv1.ProfilePadSpec{PadLength: pad.Length, Units: "mm", Plane: pad.Plane,
+		value := &workerv1.ProfilePadSpec{FeatureId: pad.FeatureID, BodyId: pad.BodyID,
+			InputFeatureId: pad.InputFeatureID, ProfileFeatureId: pad.ProfileFeatureID,
+			PadLength: pad.Length, Units: "mm", Plane: pad.Plane,
 			BodyOperation: pad.BodyOperation, Generator: pad.Generator, RevolveAngle: pad.RevolveAngle,
 			AxisStart: &workerv1.Vec2{X: pad.AxisStart[0], Y: pad.AxisStart[1]},
 			AxisEnd:   &workerv1.Vec2{X: pad.AxisEnd[0], Y: pad.AxisEnd[1]}, Reversed: pad.Reversed}
@@ -660,7 +674,8 @@ func (client *Client) EvaluateProfilePart(ctx context.Context, requestID, geomet
 	defer cancel()
 	var header metadata.MD
 	response, err := client.worker.EvaluatePart(ctx, &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
-		ProfilePads: profilePadsProto(pads), BaseBrepData: baseBRep, LinearDeflection: 0.1, AngularDeflection: 0.5}, grpc.Header(&header))
+		ProfilePads: profilePadsProto(pads), BaseBrepData: baseBRep, LinearDeflection: 0.1, AngularDeflection: 0.5,
+		TopologyPolicy: topologyNamingPolicyProto()}, grpc.Header(&header))
 	if err != nil {
 		return nil, fmt.Errorf("evaluate Part profile feature chain: %w", err)
 	}
@@ -673,6 +688,7 @@ func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, reque
 	defer cancel()
 	request := &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
 		ProfilePads: profilePadsProto(pads), LinearDeflection: 0.1, AngularDeflection: 0.5, BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey}
+	request.TopologyPolicy = topologyNamingPolicyProto()
 	if baseBRep.ObjectKey != "" {
 		request.BaseBrepArtifact = artifactProto(baseBRep)
 	}
