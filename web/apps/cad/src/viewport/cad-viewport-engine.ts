@@ -8,7 +8,7 @@ import { InteractionRouter } from "../cad/interaction/interaction-router";
 import { SelectionController } from "../cad/interaction/selection-controller";
 import { SelectionIndex } from "../cad/interaction/selection-index";
 import { AssemblyManipulator, type ManipulatorAnchor } from "../cad/interaction/assembly-manipulator";
-import { selectionModeForTool, type SelectionMode } from "../cad/interaction/selection-mode";
+import { projectSketchFeatureSelection, selectionModeForTool, sketchOverlayVisible, type SelectionMode } from "../cad/interaction/selection-mode";
 import { sameSelection, sameSelections, selectionKey } from "../cad/interaction/selection-identity";
 import { resultBodyFeatureTreeNode } from "../cad/interaction/selection-hierarchy";
 import { resolveSketchReference, type SketchReferencePickKind } from "../cad/interaction/sketch-reference-pick";
@@ -345,11 +345,12 @@ export class CadViewportEngine {
     if (view.document.type === "PART") this.renderPart(view);
     else this.renderProduct(view);
     if (view.document.type === "PRODUCT" && editContext?.view.document.type === "PART") {
+      const consumedSketches = new Set((editContext.view.part?.features ?? []).flatMap((feature) => feature.profile ? [feature.profile] : []));
       for (const feature of editContext.view.part?.features ?? []) {
-        if (feature.type.toUpperCase().includes("SKETCH")) this.addSketch(feature, false, editContext.view, {
+        if (feature.type.toUpperCase().includes("SKETCH") && (!consumedSketches.has(feature.id) || feature.id === this.activeSketchID)) this.addSketch(feature, false, editContext.view, {
           documentId: editContext.view.document.id, geometryKey: editContext.view.artifact?.geometryKey ?? "",
           occurrencePath: editContext.occurrencePath ?? "", treeNodeId: editContext.bodyTreeNodeId ?? "",
-        }, editContext.translation, editContext.rotation);
+        }, editContext.translation, editContext.rotation, !consumedSketches.has(feature.id));
       }
     }
     this.updateSketchContextVisibility();
@@ -429,6 +430,7 @@ export class CadViewportEngine {
     this.navigation.setEnabled(true);
     this.disposeGroup(this.sketchContext);
     this.updateSketchContextVisibility();
+    this.applyTreeVisibility();
     this.callbacks.toolPromptChanged("");
     this.frameContent();
   }
@@ -792,10 +794,12 @@ export class CadViewportEngine {
     });
     if (view.artifact) this.addVisualPrimitives(view.artifact.visualization, this.helpers, {
       documentId: view.document.id, geometryKey: view.artifact.geometryKey, occurrencePath: "", treeNodeId: `${rootPath}/body`,
-    }, view.artifact.mesh.triangles.length === 0);
+    }, false);
     const consumedSketches = new Set((view.part?.features ?? []).flatMap((feature) => feature.profile ? [feature.profile] : []));
     for (const feature of view.part?.features ?? []) {
-      if (feature.type.toUpperCase().includes("SKETCH") && (!consumedSketches.has(feature.id) || feature.id === this.activeSketchID)) this.addSketch(feature, false, view);
+      if (feature.type.toUpperCase().includes("SKETCH") && (!consumedSketches.has(feature.id) || feature.id === this.activeSketchID)) {
+        this.addSketch(feature, false, view, undefined, undefined, undefined, !consumedSketches.has(feature.id));
+      }
     }
     if (view.artifact && view.artifact.mesh.triangles.length > 0) {
       const solid = this.makeSolid(view.artifact, CATIA_VISUAL_THEME.surface, {
@@ -1304,16 +1308,17 @@ export class CadViewportEngine {
         child.visible = !editing;
       } else if (child.userData.sketchEditOverlay) {
         const active = child.userData.sketchFeatureID === this.activeSketchID;
-        child.visible = editing && active;
+        child.visible = sketchOverlayVisible(child.userData.sketchFeatureID, this.activeSketchID,
+          child.userData.visibleOutsideSketchEdit === true);
         for (const sketchChild of child.children) {
-          if (sketchChild.userData.sketchEntityOverlay) sketchChild.visible = editing && active;
+          if (sketchChild.userData.sketchEntityOverlay) sketchChild.visible = editing ? active : child.userData.visibleOutsideSketchEdit === true;
         }
       } else child.visible = !editing || child.userData.sketchFeatureID === this.activeSketchID;
     }
   }
 
   private addSketch(feature: Feature, _includeEntities = true, sourceView = this.view,
-    sourceContext?: SolidContext, translation?: Vec3, rotation?: [number, number, number, number]): void {
+    sourceContext?: SolidContext, translation?: Vec3, rotation?: [number, number, number, number], visibleOutsideSketchEdit = true): void {
     const support = feature.sketch?.support;
     const datum = sourceView?.datumPlanes?.find((candidate) => candidate.id === support?.datumPlaneId)
       ?? sourceView?.artifact?.visualization.referenceGeometry.datumPlanes?.find((candidate) => candidate.id === support?.datumPlaneId);
@@ -1400,7 +1405,7 @@ export class CadViewportEngine {
         if (related) this.selectionIndex.associate(constraintSelection, related);
       }
     }
-    group.userData = { ...sketchSelection, sketchFeatureID: feature.id, sketchEditOverlay: true };
+    group.userData = { ...sketchSelection, sketchFeatureID: feature.id, sketchEditOverlay: true, visibleOutsideSketchEdit };
     this.helpers.add(group);
     this.selectable.set(`sketch:${feature.id}`, group);
     this.selectionIndex.register(sketchSelection, group);
@@ -1503,7 +1508,7 @@ export class CadViewportEngine {
     if(captureManipulatorAnchor&&this.activeToolID==="assembly.move"&&raw?.instanceId&&hit.intersection){
       this.pendingManipulatorAnchor={instanceId:raw.instanceId,anchor:this.manipulatorAnchorFromIntersection(hit.intersection)};
     }
-    return this.selectionMode.project(raw);
+    return this.selectionMode.project(projectSketchFeatureSelection(raw, this.activeSketchID));
   }
 
   private dimensionConstraintAt(x: number, y: number) {

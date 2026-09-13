@@ -18,7 +18,7 @@
 4. OCCT 的 `Generated/Modified/IsDeleted` 是 lineage 的主要内核证据；Feature 语义输出是更稳定的第一层锚点；几何签名只用于验证与消歧。
 5. 不把 OCAF/TNaming 文档直接作为新的权威参数模型。occcad 已有 PostgreSQL Revision、typed Domain Command、ChangeSet、ArtifactStore 与跨语言 Proto，重复引入一套 OCAF 文档生命周期会造成双重事务和身份来源。可以复用 OCCT 的形状历史和 naming 思路，并在未来把 OCAF/TNaming 作为内核适配器评估。
 6. 支持元素的 `CONNECTED / NOT_CONNECTED` 与约束的 `NOT_UPDATED / BROKEN / IMPOSSIBLE / VERIFIED` 是两个正交状态域。
-7. 上游 Part Head 变化不静默改写不可变 Product Revision。Product Workspace 先显示 `NOT_UPDATED`，执行一次可审计的 Update References Transaction 后，才固定新的 Part Revision、解析选择并重新求解。
+7. 上游 Part Head 变化不原地改写不可变 Product Revision。当前未发布阶段的默认引用策略是 `FOLLOW_HEAD`；Web 检测到直接或嵌套依赖变化后，按叶到根自动提交同一个 typed `UPDATE_REFERENCES` Transaction，固定新快照、解析选择并重新求解。`PINNED` 和手动版本选择保留为内部能力，等文档版本交互完整后再开放。
 
 ## 2. 当前代码基线与缺口
 
@@ -288,14 +288,14 @@ ResolutionSnapshot {
 
 ### 5.2 更新策略
 
-当前 `FOLLOW_HEAD` 应在此次未发布重构中改成明确语义：
+当前未发布阶段采用以下明确语义：
 
 - `PINNED`：一直使用指定 Part Revision；上游 Head 变化不影响该 Product。
-- `FOLLOW_WORKSPACE_WITH_ACCEPT`：发现 Part Head 变化时设置 `headChanged=true` 并令相关约束 `NOT_UPDATED`；用户或明确的自动更新策略执行 `UPDATE_REFERENCES` 后，才把新 Revision 固定到新的 Product Revision。
+- `FOLLOW_HEAD`：发现 Part Head 变化时短暂设置 `headChanged=true` 并令相关约束 `NOT_UPDATED`；当前 Web 自动执行 `UPDATE_REFERENCES`，把新 Revision 固定到新的 Product Revision。内部保留 `PINNED` 和旧的接受式策略，但 UI 暂不开放版本模式切换。
 
 `UPDATE_REFERENCES` 是一个 typed Domain Command：解析所有待更新 instance，批量 resolve PersistentSelection，按 connected component 求解 Assembly，再用一个 Product Transaction 提交新的 `ResolvedVersionID`、Pose 与 evaluation manifest。失败的 topology 引用不会阻止 Product Revision 表达 Broken 状态；基础设施失败则不提交伪造的新结果。
 
-如果产品策略以后需要自动更新，后台也必须提交同一种 command，并遵守 expected Product Workspace sequence、权限和幂等键。
+后续把自动更新移到后台时仍提交同一种 command，并遵守 expected Product Workspace sequence、权限和幂等键。
 
 ### 5.3 两层状态机
 
@@ -372,7 +372,7 @@ stateDiagram-v2
 ### 6.5 Undo/Redo
 
 - Part 特征编辑 Undo 恢复 Parameter source、Feature 求值和 topology manifest；Redo 再次生成语义等价 lineage。
-- Product 不被上游 Undo 静默重写；FOLLOW_WORKSPACE_WITH_ACCEPT 的 Product 显示 NotUpdated，Update 后固定相应 Part Revision。
+- Product 不被上游 Undo 原地重写；FOLLOW_HEAD 的 Product 短暂显示 NotUpdated，自动 Update 后固定相应 Part Revision。
 - 连续两步 Undo、两步 Redo、刷新重载后，Feature 长度、结构树 capability、PersistentSelection 和 constraint status 必须一致。
 
 ## 7. 按一次 Codex gpt-5.6-sol medium 对话拆分的开发批次
@@ -454,13 +454,13 @@ stateDiagram-v2
 - 替换持久 `AssemblyGeometryRef.geometryKey/topologyId` 为 occurrence + PersistentSelection；
 - 创建约束时在服务端 bind 当前 pick；
 - 增加 ResolutionSnapshot、endpoint resolution 与 constraint evaluation summary；
-- 把 `FOLLOW_HEAD` 统一为 `FOLLOW_WORKSPACE_WITH_ACCEPT`，实现 typed `UPDATE_REFERENCES`；
+- 实现 typed `UPDATE_REFERENCES`，使引用推进、端点重解析与约束重求解形成一个 Product Transaction；
 - 解析失败约束隔离为 Broken；connected component 继续走 M2.5；
 - 贯通 API、Web model、structure tree status 和刷新重载。
 
-验收：从正式 Router 路径创建基于 Part 面的约束；Part 编辑后 Product 先 NotUpdated，Update 后引用仍 Connected 并 Verified/Impossible；删除面后 Broken；无关 component 仍可求解；状态 provenance 可重放。
+验收：从正式 Router 路径创建基于 Part 面的约束；Part 编辑后自动更新引用，仍 Connected 并 Verified/Impossible；删除面后 Broken；无关 component 仍可求解；状态 provenance 可重放。
 
-实施状态：已于 2026-09-13 完成。Product 的 Face/Edge/Vertex endpoint 在服务端提交前把视口 `geometryKey + localId` pick evidence 绑定为 occurrence + source Revision + `PersistentSelection`，持久模型不再依赖 revision-local topology ID。每个 endpoint 保存包含 source/target Revision、manifest/policy digest 和完整 resolution result 的 `ResolutionSnapshot`；Constraint 独立保存 `NOT_UPDATED/BROKEN/IMPOSSIBLE/VERIFIED` evaluation status 与诊断。引用模式统一为 `FOLLOW_WORKSPACE_WITH_ACCEPT`：Part Head 改变只投影 NotUpdated，不静默改变 Product 使用的 Revision；typed `UPDATE_REFERENCES` 批量接受 Head、重解析 endpoint，并仅把 Connected constraints 送入正式 M2.5 Router 路径，Broken component 被隔离，非基础设施求解失败持久化为 Impossible。结构树、属性面板、viewport highlight 和刷新重载均消费持久 snapshot；P5 的统一编辑器与 Reconnect 交互仍待实施。
+实施状态：已于 2026-09-13 完成。Product 的 Face/Edge/Vertex endpoint 在服务端提交前把视口 `geometryKey + localId` pick evidence 绑定为 occurrence + source Revision + `PersistentSelection`，持久模型不再依赖 revision-local topology ID。每个 endpoint 保存包含 source/target Revision、manifest/policy digest 和完整 resolution result 的 `ResolutionSnapshot`；Constraint 独立保存 `NOT_UPDATED/BROKEN/IMPOSSIBLE/VERIFIED` evaluation status 与诊断。typed `UPDATE_REFERENCES` 批量推进引用 Head、重解析 endpoint，并仅把 Connected constraints 送入正式 M2.5 Router 路径，Broken component 被隔离，非基础设施求解失败持久化为 Impossible。2026-09-13 的交互优化将新实例默认策略恢复为 `FOLLOW_HEAD`，移除未自洽的引用模式/手动接受入口；Web 在依赖变化或重新打开 stale Product 时，按嵌套 Product 的叶到根顺序自动提交相同命令，因此每次约束求解仍绑定可重放的 Product Revision 与 ResolutionSnapshot。结构树、属性面板、viewport highlight 和刷新重载均消费持久 snapshot；P5 的统一编辑器与 Reconnect 交互仍待实施。
 
 ### 批次 P5：约束编辑与 Reconnect UX
 
@@ -549,7 +549,7 @@ stateDiagram-v2
 - **模型重构过大**：先用固定 `body-main` 和现有有序链建立 FeatureResult；接口对齐目标 Body/Feature DAG，但每批只迁移当前 Linear Extrude 所需字段。
 - **状态成为第二业务真相**：status 只从 constraint definition + ResolutionSnapshot + solver evidence 派生，摘要带 digest；依赖不一致立即 NotUpdated。
 - **Impossible 归因过度**：M2.5 阶段标记 component evidence scope；没有 MUS/IIS 前不把单条约束宣传为根因。
-- **跨文档自动漂移**：使用 FOLLOW_WORKSPACE_WITH_ACCEPT 和显式 Update References Transaction；后台自动策略也提交同一命令。
+- **跨文档自动漂移**：默认 FOLLOW_HEAD 仍通过 typed Update References Transaction 固定每次 Product 求解输入；当前由打开 Product 的 Web 会话自动提交，后续多实例后台投影沿用同一命令与幂等/CAS 规则。
 - **开发数据迁移包袱**：当前尚未发布，直接统一 schema/Proto/JSON 并重建 `occccad` 开发数据，不增加 legacy adapter、双写或第二套引用状态机。
 
 ## 11. 参考资料

@@ -974,18 +974,18 @@ func TestPartCommandValidation(t *testing.T) {
 	}
 }
 
-func TestProductFollowWorkspaceWithAcceptIsUndoableModelState(t *testing.T) {
+func TestProductFollowHeadIsUndoableModelState(t *testing.T) {
 	t.Parallel()
 	model := ProductModel{Instances: []ProductInstance{{
 		ID: "instance-1", ReferencedDocumentID: "document-1", ReferencedVersionID: "version-1",
 	}}}
 	service := &Service{}
 	if err := service.mutateProduct(t.Context(), nil, "product-1", &model, CommandRequest{
-		Type: "SET_REFERENCE_MODE", InstanceID: "instance-1", ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT",
+		Type: "SET_REFERENCE_MODE", InstanceID: "instance-1", ReferenceMode: "FOLLOW_HEAD",
 	}); err != nil {
 		t.Fatalf("set follow-head reference: %v", err)
 	}
-	if model.Instances[0].ReferenceMode != "FOLLOW_WORKSPACE_WITH_ACCEPT" {
+	if model.Instances[0].ReferenceMode != "FOLLOW_HEAD" {
 		t.Fatalf("unexpected reference mode: %q", model.Instances[0].ReferenceMode)
 	}
 }
@@ -1004,7 +1004,7 @@ func TestProductReferenceModeValidation(t *testing.T) {
 
 func TestUpdateReferencesPersistsAcceptedVersionAndTwoLayerStatus(t *testing.T) {
 	selection := testSelection()
-	before := ProductModel{Instances: []ProductInstance{{ID: "a", ReferencedVersionID: "part-v1", ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"}}, Constraints: []AssemblyConstraint{{ID: "mate", Kind: "COINCIDENT", First: AssemblyGeometryRef{InstanceID: "a", Kind: "FACE", PersistentSelection: &selection, SourceVersionID: "part-v1"}, EvaluationStatus: modelcore.AssemblyConstraintNotUpdated}}}
+	before := ProductModel{Instances: []ProductInstance{{ID: "a", ReferencedVersionID: "part-v1", ReferenceMode: "FOLLOW_HEAD"}}, Constraints: []AssemblyConstraint{{ID: "mate", Kind: "COINCIDENT", First: AssemblyGeometryRef{InstanceID: "a", Kind: "FACE", PersistentSelection: &selection, SourceVersionID: "part-v1"}, EvaluationStatus: modelcore.AssemblyConstraintNotUpdated}}}
 	after := before
 	after.Instances = append([]ProductInstance(nil), before.Instances...)
 	after.Instances[0].ReferencedVersionID = "part-v2"

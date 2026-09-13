@@ -78,10 +78,10 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 	for index := range product.Instances {
 		instance := &product.Instances[index]
 		instances[instance.ID] = instance
-		if instance.ReferenceMode == "" || instance.ReferenceMode == "FOLLOW_HEAD" {
-			instance.ReferenceMode = "FOLLOW_WORKSPACE_WITH_ACCEPT"
+		if instance.ReferenceMode == "" {
+			instance.ReferenceMode = "FOLLOW_HEAD"
 		}
-		if instance.ReferenceMode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
+		if instance.ReferenceMode == "FOLLOW_HEAD" || instance.ReferenceMode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
 			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&instance.ReferencedVersionID); err != nil {
 				return err
 			}

@@ -94,8 +94,8 @@ const views = new Map<string, DocumentView>([
   }],
   [productID, {
     document: summaries[1], product: { instances: [
-      { id: "mock-instance-a", name: "Bracket A", documentId: partID, versionId: "mock-part-v3", translation: [-45, 0, 0], referenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT" },
-      { id: "mock-instance-b", name: "Bracket B", documentId: partID, versionId: "mock-part-v3", translation: [45, 0, 0], referenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT" },
+      { id: "mock-instance-a", name: "Bracket A", documentId: partID, versionId: "mock-part-v3", translation: [-45, 0, 0], referenceMode: "FOLLOW_HEAD" },
+      { id: "mock-instance-b", name: "Bracket B", documentId: partID, versionId: "mock-part-v3", translation: [45, 0, 0], referenceMode: "FOLLOW_HEAD" },
     ] },
     artifacts: { [partArtifact.geometryKey]: partArtifact },
     resolvedInstances: [
@@ -201,7 +201,7 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
       const referenceTree = referenced ? mockStructure(referenced, `${path}/instance:${instance.id}/reference`, nextVisiting) : undefined;
       return { id: `${path}/instance:${instance.id}`, kind: "INSTANCE", name: instance.name,
         entityId: instance.id, documentId: instance.documentId, documentType: referenced?.document.type,
-        versionId: instance.versionId, referenceMode: instance.referenceMode ?? "FOLLOW_WORKSPACE_WITH_ACCEPT",
+        versionId: instance.versionId, referenceMode: instance.referenceMode ?? "FOLLOW_HEAD",
         instancePath: mockInstancePath(view.document.id, instance),
         capabilities: path === `document:${view.document.id}` ? ["DELETE"] : undefined, children: referenceTree?.children };
     }) };
@@ -319,7 +319,7 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
       let ordinal = 1; while (used.has(`${reference.document.name}.${ordinal}`.toLocaleLowerCase())) ordinal++;
       view.product.instances.push({ id: id("mock-instance"), name: `${reference.document.name}.${ordinal}`,
         documentId: String(input.referencedDocumentId), versionId: reference.document.versionId,
-        translation: [0, 0, 0], referenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT" });
+        translation: [0, 0, 0], referenceMode: "FOLLOW_HEAD" });
       rebuildProduct(view);
     }
     if (commandType === "MOVE_INSTANCE" && view.product) {

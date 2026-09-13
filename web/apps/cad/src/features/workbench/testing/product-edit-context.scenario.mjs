@@ -21,4 +21,13 @@ const tree = { id: "root", kind: "PRODUCT", name: "Root", children: [
 ] };
 
 assert.deepEqual(context.followedDocumentIDs(tree).sort(), ["part-live", "product-live"]);
+const staleTree = { id: "root", kind: "PRODUCT", name: "Root", documentId: "root-product", children: [
+  { id: "sub", kind: "INSTANCE", name: "Sub", documentId: "sub-product", documentType: "PRODUCT", children: [
+    { id: "part", kind: "INSTANCE", name: "Part", documentId: "part-live", documentType: "PART", diagnostic: "NOT_UPDATED: newer revision" },
+  ] },
+  { id: "pinned", kind: "INSTANCE", name: "Pinned", documentId: "frozen-product", documentType: "PRODUCT", referenceMode: "PINNED", children: [
+    { id: "frozen-part", kind: "INSTANCE", name: "Frozen Part", documentId: "frozen-part", documentType: "PART", diagnostic: "NOT_UPDATED: ignored below pinned" },
+  ] },
+] };
+assert.deepEqual(context.staleProductDocumentIDs(staleTree), ["sub-product", "root-product"]);
 console.log("Product edit context tests passed.");

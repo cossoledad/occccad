@@ -2165,7 +2165,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, err
 		}
 		instanceName := nextInstanceName(product, name)
-		return typeInsertInstance, insertInstancePayload{Instance: ProductInstance{ID: newID("instance"), Name: instanceName, ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Translation: request.Translation, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"}}, nil
+		return typeInsertInstance, insertInstancePayload{Instance: ProductInstance{ID: newID("instance"), Name: instanceName, ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Translation: request.Translation, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: "FOLLOW_HEAD"}}, nil
 	case "MOVE_INSTANCE":
 		if documentType != "PRODUCT" {
 			break
@@ -2320,11 +2320,8 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			break
 		}
 		mode := strings.ToUpper(request.ReferenceMode)
-		if mode == "FOLLOW_HEAD" {
-			mode = "FOLLOW_WORKSPACE_WITH_ACCEPT"
-		}
-		if mode != "FOLLOW_WORKSPACE_WITH_ACCEPT" && mode != "PINNED" {
-			return "", nil, fmt.Errorf("%w: reference mode must be FOLLOW_WORKSPACE_WITH_ACCEPT or PINNED", ErrValidation)
+		if mode != "FOLLOW_HEAD" && mode != "FOLLOW_WORKSPACE_WITH_ACCEPT" && mode != "PINNED" {
+			return "", nil, fmt.Errorf("%w: reference mode must be FOLLOW_HEAD or PINNED", ErrValidation)
 		}
 		var model ProductModel
 		_ = json.Unmarshal(modelJSON, &model)

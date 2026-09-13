@@ -28,3 +28,30 @@ export function selectionModeForTool(toolID: string): SelectionMode {
   return ["assembly.move", "assembly.fix", "assembly.rigid"].includes(toolID)
     ? SELECTION_MODES.instance : SELECTION_MODES.geometry;
 }
+
+const sketchNodeMarkers = ["/geometry/", "/constraints/", "/logical-constraints/", "/dimensions/"];
+
+/** Outside Sketcher, sketch sub-elements are implementation details of one selectable feature. */
+export function projectSketchFeatureSelection(selection: Selection, activeSketchID?: string): Selection {
+  if (!selection || activeSketchID || (selection.kind !== "visual" && selection.kind !== "sketch-constraint")) {
+    return selection;
+  }
+  const marker = sketchNodeMarkers
+    .map((candidate) => selection.treeNodeId?.indexOf(candidate) ?? -1)
+    .find((index) => index >= 0);
+  return {
+    kind: "sketch",
+    id: selection.featureId,
+    documentId: selection.documentId,
+    occurrencePath: selection.occurrencePath,
+    instancePath: selection.instancePath,
+    instanceId: selection.instanceId,
+    geometryKey: selection.geometryKey,
+    treeNodeId: marker === undefined ? selection.treeNodeId : selection.treeNodeId?.slice(0, marker),
+    expandTreeDescendants: true,
+  };
+}
+
+export function sketchOverlayVisible(featureID: string, activeSketchID: string | undefined, visibleOutsideSketchEdit: boolean): boolean {
+  return activeSketchID ? featureID === activeSketchID : visibleOutsideSketchEdit;
+}

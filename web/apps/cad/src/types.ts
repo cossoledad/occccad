@@ -136,7 +136,7 @@ export type ProductInstance = {
   versionId: string;
   translation: Vec3;
   rotation?: [number, number, number, number];
-  referenceMode?: "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED";
+  referenceMode?: "FOLLOW_HEAD" | "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED";
   resolvedVersionId?: string;
   headChanged?: boolean;
 };
@@ -255,7 +255,7 @@ export type DocumentStructureNode = {
   versionId?: string;
   plane?: PlaneName | "CUSTOM";
   axis?: "X" | "Y" | "Z";
-  referenceMode?: "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED";
+  referenceMode?: "FOLLOW_HEAD" | "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED";
   instancePath?: InstancePath;
   ownerEntityId?: string;
   entityType?: string;

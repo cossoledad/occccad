@@ -31,7 +31,7 @@ import { topologyPropertyContext } from "./topology-property-context";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { closestTreeKey } from "./tree-selection";
-import { followedDocumentIDs } from "./product-edit-context";
+import { followedDocumentIDs, staleProductDocumentIDs } from "./product-edit-context";
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { parseLengthInput } from "./length-input";
 
@@ -190,6 +190,16 @@ function structureSelection(node: DocumentStructureNode, view: DocumentView): Se
   return { kind: "tree", id: node.id, ...context };
 }
 
+function findStructureEntity(node: DocumentStructureNode | undefined, entityID: string): DocumentStructureNode | undefined {
+  if (!node) return undefined;
+  if (node.entityId === entityID && ["SKETCH", "PAD", "REVOLVE", "IMPORT"].includes(node.kind)) return node;
+  for (const child of node.children ?? []) {
+    const found = findStructureEntity(child, entityID);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editingView?: DocumentView): SpecificationTreeNode {
   const nodeView = node.documentId === editingView?.document.id ? editingView : node.documentId === view.document.id ? view : undefined;
   const canEdit = nodeView?.document.permission === "OWNER" || nodeView?.document.permission === "EDITOR";
@@ -282,6 +292,7 @@ export function Workbench() {
   const padIntentRequestID = useRef<string | undefined>(undefined);
 	const padPreviewID = useRef<string | undefined>(undefined);
   const latestDocumentVersion = useRef<string | undefined>(undefined);
+  const automaticReferenceUpdate = useRef<string | undefined>(undefined);
   const [activeDocumentID, setActiveDocumentID] = useState(documentID);
   const [activeInstancePath, setActiveInstancePath] = useState<string>();
   const [insertOpen, setInsertOpen] = useState(false);
@@ -366,8 +377,6 @@ export function Workbench() {
       if (event.type === "document.snapshot.v1") {
         const snapshot = event.payload as { view: DocumentView };
         client.setQueryData(queryKeys.document(documentID), snapshot.view);
-      } else if (useWorkbenchStore.getState().activeToolID !== "assembly.move") {
-        useWorkbenchStore.getState().setSelection(null);
       }
       void Promise.all([
         event.type === "document.snapshot.v1" ? Promise.resolve() : client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
@@ -385,7 +394,7 @@ export function Workbench() {
   }, [client, documentID, message]);
   const command = useMutation({
     mutationFn: (operation: () => Promise<DocumentView>) => operation(),
-    onSuccess: (view) => { store.setSelection(null); void refresh(view); }, onError: (error) => message.error(error.message)
+    onSuccess: (updated) => { store.setSelection(null); void refresh(updated); }, onError: (error) => message.error(error.message)
   });
   const moveCommand = useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),
     onSuccess:(updated)=>{void refresh(updated);},onError:(error)=>{message.error(error.message);void refresh();}});
@@ -406,8 +415,7 @@ export function Workbench() {
         client.setQueryData(queryKeys.document(dependencyID), snapshot.view);
         return;
       }
-      // The Product Revision is unchanged, but its accepted-reference status may now be NOT_UPDATED.
-      store.setSelection(null);
+      // The root Product projection will detect this changed Head and submit UPDATE_REFERENCES.
       void client.invalidateQueries({ queryKey: queryKeys.document(dependencyID) });
       void client.invalidateQueries({ queryKey: queryKeys.document(documentID) });
       void client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID), refetchType: "active" });
@@ -422,6 +430,24 @@ export function Workbench() {
   }, [view, editingView, hiddenTreeKeys]);
   const canEdit = editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR";
   const activeWorkbench = resolveCadWorkbench(editingView?.document.type ?? "PART", Boolean(store.sketchPlane));
+
+  useEffect(() => {
+    const rootCanEdit = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
+    if (!view || view.document.type !== "PRODUCT" || !rootCanEdit || store.activeSketchID) return;
+    const owners = staleProductDocumentIDs(view.structureTree);
+    if (owners.length === 0) return;
+    const key = `${view.document.versionId}:${owners.join(",")}`;
+    if (automaticReferenceUpdate.current === key) return;
+    automaticReferenceUpdate.current = key;
+    void (async () => {
+      let updated: DocumentView | undefined;
+      for (const ownerID of owners) updated = await api.updateReferences(ownerID);
+      if (updated) await refresh(updated);
+    })().catch((cause: unknown) => {
+      automaticReferenceUpdate.current = undefined;
+      message.error(`自动更新 Product 引用失败：${cause instanceof Error ? cause.message : String(cause)}`);
+    });
+  }, [message, refresh, store.activeSketchID, view]);
 
   useEffect(() => {
     if (replacingAssemblyReference === undefined || !store.selection) return;
@@ -508,6 +534,31 @@ export function Workbench() {
   const executeHistory = (direction: "undo" | "redo") => {
     if (!editingView) return; command.mutate(() => direction === "undo" ? api.undo(editingView.document.id) : api.redo(editingView.document.id));
   };
+  const selectFeature = (sourceView: DocumentView, featureID: string) => {
+    const node = findStructureEntity(sourceView.structureTree, featureID);
+    if (!node) return;
+    const selection = structureSelection(node, sourceView);
+    if (!selection) return;
+    if (!activeInstancePath || !activeResolvedInstance) {
+      store.setSelection(selection);
+      return;
+    }
+    const bodyMarker = node.id.indexOf("/body/");
+    store.setSelection({ ...selection,
+      documentId: sourceView.document.id,
+      occurrencePath: activeInstancePath,
+      instancePath: activeResolvedInstance.instancePath,
+      instanceId: activeInstancePath.split("/")[0],
+      geometryKey: sourceView.artifact?.geometryKey,
+      treeNodeId: bodyMarker >= 0 ? `${activeResolvedInstance.bodyTreeNodeId}${node.id.slice(bodyMarker + 5)}` : selection.treeNodeId,
+      visualKey: selection.kind === "sketch" ? undefined : `body:${activeInstancePath}:body`,
+    });
+  };
+  const finishSketch = () => {
+    const sketchID = store.activeSketchID;
+    store.endSketch();
+    if (sketchID && editingView) selectFeature(editingView, sketchID);
+  };
   const startSketch = () => {
     if (!editingView || !store.selection) return;
     if (store.selection.kind === "sketch") {
@@ -536,7 +587,11 @@ export function Workbench() {
       operation: values.operation, length: generator === "LINEAR_EXTRUDE" ? values.length : undefined,
       angle: generator === "REVOLVE" ? values.angle : undefined,
 	  axisEntityId: generator === "REVOLVE" ? values.axisEntityId : undefined, reversed: values.reversed,
-	  previewId: padPreviewID.current }, padIntentRequestID.current));
+	  previewId: padPreviewID.current }, padIntentRequestID.current), { onSuccess: (updated) => {
+        const feature = [...(updated.part?.features ?? [])].reverse().find((candidate) =>
+          isSolidFeature(candidate) && candidate.profile === padSketchID);
+        if (feature) selectFeature(updated, feature.id);
+      }});
 	setPadOpen(false); setPadSketchID(undefined); padIntentRequestID.current = undefined; padPreviewID.current=undefined;
   };
   const closePad = () => {
@@ -584,7 +639,7 @@ export function Workbench() {
 		} catch { return; }
 		command.mutate(()=>api.editFeature(editingView.document.id,{featureId:editingExtrude.feature.id,
 			expectedFeatureDigest:editingExtrude.digest,length,unit,previewId:featurePreviewID.current}),{
-			onSuccess:()=>{viewport.current?.clearCommandPreview(false);featurePreviewID.current=undefined;featureInteractionID.current=undefined;setEditingExtrude(undefined);},
+			onSuccess:(updated)=>{selectFeature(updated,editingExtrude.feature.id);viewport.current?.clearCommandPreview(false);featurePreviewID.current=undefined;featureInteractionID.current=undefined;setEditingExtrude(undefined);},
 			onError:(cause)=>setFeaturePreviewError(cause instanceof Error?cause.message:String(cause))});
 	};
   const requestPadPreview = async (sketchID: string, generatorOverride?: "LINEAR_EXTRUDE" | "REVOLVE") => {
@@ -673,10 +728,6 @@ export function Workbench() {
     await history.refetch(); message.success("版本已创建");
   };
   useEffect(() => {
-    const selectedInstance = () => {
-      const selection = useWorkbenchStore.getState().selection;
-      return selection?.kind === "instance" ? editingView?.product?.instances.find((instance) => instance.id === selection.id) : undefined;
-    };
     const disposers = [
       commandRegistry.register({ id: "tool.select", execute: () => store.setActiveTool("select", "once"),
         isActive: () => store.activeToolID === "select" }),
@@ -684,7 +735,7 @@ export function Workbench() {
         isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit), isActive: () => store.activeToolID === "assembly.move" }),
       commandRegistry.register({ id: "sketch.start", execute: startSketch,
         isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && (store.selection?.kind === "plane" || store.selection?.kind === "sketch")) }),
-      commandRegistry.register({ id: "sketch.finish", execute: store.endSketch,
+      commandRegistry.register({ id: "sketch.finish", execute: finishSketch,
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit) }),
       ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,invocation?.continuous?"continuous":"once"),
         isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane),isActive:()=>store.activeToolID===toolID})),
@@ -700,11 +751,6 @@ export function Workbench() {
         isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit) }),
       commandRegistry.register({ id: "product.insert", execute: () => setInsertOpen(true), isVisible: () => editingView?.document.type === "PRODUCT",
         isEnabled: () => Boolean(canEdit) }),
-      commandRegistry.register({ id: "product.reference.toggle", execute: () => {
-        const instance = selectedInstance();
-        if (editingView && instance) command.mutate(() => api.setReferenceMode(editingView.document.id, instance.id,
-          instance.referenceMode === "PINNED" ? "FOLLOW_WORKSPACE_WITH_ACCEPT" : "PINNED"));
-      }, isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit && selectedInstance()) }),
       ...(["fix", "rigid", "coincident", "concentric", "angle", "distance"] as const).map((constraint) => commandRegistry.register({
         id: `assembly.${constraint}`,
         execute: (invocation) => store.setActiveTool(`assembly.${constraint}`, invocation?.continuous ? "continuous" : "once"),
@@ -799,7 +845,7 @@ export function Workbench() {
 		  .map((toolbar: ToolbarCatalogEntry) => <FloatingToolbar key={toolbar.id} id={toolbar.id} label={toolbar.name}
 			position={toolbar.position} orientation={toolbar.orientation}
 			className={`${toolbar.styleKey === "part" ? "part-design-toolbar" : toolbar.styleKey === "sketch" ? "sketcher-toolbar" : toolbar.styleKey === "assembly" ? "assembly-design-toolbar" : toolbar.styleKey === "debug" ? "debug-toolbar" : "common-toolbar"} ${toolbar.id}-toolbar`}>
-			{toolbarGroups(toolbar.items).map((group) => <ToolbarGroup key={group.key}>{group.items.map((item) => item.commandId === "capture.settings"
+			{toolbarGroups(toolbar.items.filter((item) => item.commandId !== "product.reference.toggle")).map((group) => <ToolbarGroup key={group.key}>{group.items.map((item) => item.commandId === "capture.settings"
 			  ? <CaptureSettingsButton key={item.commandId} settings={store.captureSettings} onEnabledChange={store.setCaptureEnabled}
 				  onSelectionToggle={store.toggleSelectionCapture} onSketchToggle={store.toggleSketchSnap}
 				  onAll={store.captureAll} onPointsOnly={store.capturePointsOnly} />
@@ -869,8 +915,7 @@ export function Workbench() {
             ? <Properties view={editingView ?? view} selection={store.selection} feature={selected}
               workbench={activeWorkbench} sketchPlane={store.sketchPlane} activeTool={store.activeToolID}
               navigationProfile={store.navigationProfile} diagnostics={properties.data}
-              topology={topology.data} topologyLoading={topology.isLoading}
-              onUpdateReferences={() => command.mutate(() => api.updateReferences(activeID))} />
+              topology={topology.data} topologyLoading={topology.isLoading} />
             : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}</div>
         </aside>
       </section></main>
@@ -981,7 +1026,7 @@ export function Workbench() {
   </section></CommandProvider>;
 }
 
-function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading, onUpdateReferences }: {
+function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading }: {
   view: DocumentView;
   selection: Selection;
   feature?: Feature;
@@ -992,7 +1037,6 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
   diagnostics?: DocumentProperties;
   topology?: TopologyElementProperties;
   topologyLoading?: boolean;
-  onUpdateReferences: () => void;
 }) {
   if (!selection) {
     const triangleCount = view.artifact?.mesh.triangles.length
@@ -1013,7 +1057,6 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
         { key: "navigation", label: "Navigation", children: navigationProfile.toUpperCase() },
         ...(sketchPlane ? [{ key: "plane", label: "Sketch Plane", children: sketchPlane.plane }] : []),
         { key: "history", label: "History", children: `Undo ${view.document.canUndo ? "Yes" : "No"} · Redo ${view.document.canRedo ? "Yes" : "No"}` },
-        ...(view.product?.instances.some((instance) => instance.headChanged) ? [{ key: "reference-update", label: "References", children: <Button size="small" onClick={onUpdateReferences}>接受并更新引用</Button> }] : []),
         { key: "geometry", label: "Display Geometry", children: `${geometryCount} object(s) · ${triangleCount} triangles` },
         { key: "topology", label: "Topology", children: diagnostics
           ? `${diagnostics.aggregate.solidCount} solid(s) · ${diagnostics.aggregate.vertexCount} vertices` : "Loading…" },
@@ -1098,9 +1141,7 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
       { key: "constraints", label: "约束", children: feature.sketch.constraints.length },
       { key: "solve", label: "求解", children: `${feature.sketch.solve.status} · ${feature.sketch.solve.degreesOfFreedom} DoF` }] : []),
     ...(feature?.length ? [{ key: "length", label: "长度", children: `${feature.length} mm` }] : []),
-    ...(instance ? [{ key: "transform", label: "位移", children: instance.translation.map((value) => value.toFixed(2)).join(", ") },
-    { key: "reference", label: "引用", children: instance.referenceMode ?? "FOLLOW_WORKSPACE_WITH_ACCEPT" },
-    ...(instance.headChanged ? [{ key: "reference-status", label: "状态", children: <Button size="small" onClick={onUpdateReferences}>NOT_UPDATED · 接受更新</Button> }] : [])] : []),
+    ...(instance ? [{ key: "transform", label: "位移", children: instance.translation.map((value) => value.toFixed(2)).join(", ") }] : []),
   ]} />;
 }
 

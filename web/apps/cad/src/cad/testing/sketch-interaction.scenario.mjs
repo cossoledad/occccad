@@ -31,6 +31,7 @@ try {
   const { SelectionIndex } = await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
   const { resultBodyFeatureTreeNode } = await server.ssrLoadModule("/src/cad/interaction/selection-hierarchy.ts");
   const { SelectionController } = await server.ssrLoadModule("/src/cad/interaction/selection-controller.ts");
+  const { projectSketchFeatureSelection, sketchOverlayVisible } = await server.ssrLoadModule("/src/cad/interaction/selection-mode.ts");
   const { closestTreeKey, resolveTreeSelection } = await server.ssrLoadModule("/src/features/workbench/tree-selection.ts");
   const { resolveSketchReference } = await server.ssrLoadModule("/src/cad/interaction/sketch-reference-pick.ts");
   const { constraintDefinition, TOOLBAR_CONSTRAINT_KINDS } = await server.ssrLoadModule("/src/cad/sketch/sketch-constraint-definition.ts");
@@ -46,6 +47,20 @@ try {
     worldUnitsPerCssPixel } = await server.ssrLoadModule("/src/cad/rendering/viewport-metrics.ts");
   const { makeOcclusionVisibleHighlightLine } = await server.ssrLoadModule("/src/cad/rendering/interaction-highlight.ts");
   const { defaultDocumentName } = await server.ssrLoadModule("/src/features/documents/document-utils.ts");
+  const sketchEntitySelection = { kind: "visual", id: "root:sketch-1:line-1", visualType: "CURVE", featureId: "sketch-1",
+    entityId: "line-1", documentId: "part-1", treeNodeId: "document:part-1/body/sketch:sketch-1/geometry/entity:line-1" };
+  assert.deepEqual(projectSketchFeatureSelection(sketchEntitySelection), {
+    kind: "sketch", id: "sketch-1", documentId: "part-1", occurrencePath: undefined, instancePath: undefined,
+    instanceId: undefined, geometryKey: undefined, treeNodeId: "document:part-1/body/sketch:sketch-1", expandTreeDescendants: true,
+  });
+  assert.equal(projectSketchFeatureSelection(sketchEntitySelection, "sketch-1"), sketchEntitySelection,
+    "Sketcher must preserve entity-level selection while the sketch is active");
+  assert.equal(sketchOverlayVisible("sketch-new", undefined, true), true,
+    "an unconsumed sketch remains visible after leaving Sketcher");
+  assert.equal(sketchOverlayVisible("sketch-consumed", undefined, false), false,
+    "a consumed profile stays hidden outside Sketcher");
+  assert.equal(sketchOverlayVisible("sketch-consumed", "sketch-consumed", false), true,
+    "editing temporarily reveals a consumed profile");
   const operations = [];
   const prompts = [];
   const previews = [];

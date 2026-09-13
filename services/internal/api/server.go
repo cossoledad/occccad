@@ -148,7 +148,7 @@ func (server *Server) enqueueDocumentPreviews(ctx context.Context, changed works
 		CROSS JOIN LATERAL jsonb_array_elements(
 			COALESCE(version.model_json->'instances','[]'::jsonb)) instance
 		WHERE instance->>'documentId'=child.document_id::text
-		  AND COALESCE(instance->>'referenceMode','FOLLOW_WORKSPACE_WITH_ACCEPT') IN ('FOLLOW_WORKSPACE_WITH_ACCEPT','FOLLOW_HEAD')
+		  AND COALESCE(instance->>'referenceMode','FOLLOW_HEAD') IN ('FOLLOW_WORKSPACE_WITH_ACCEPT','FOLLOW_HEAD')
 	)
 	SELECT document_id::text,version_id::text FROM affected`, changed.Document.ID, changed.Document.VersionID)
 	if err != nil {

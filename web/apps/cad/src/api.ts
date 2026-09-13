@@ -276,7 +276,7 @@ export const restApi = {
   editAssemblyConstraint: (documentId: string, constraintId: string, input: { value: number; directionRelation: string; distanceRelation: string;
 	firstAssemblyRef?: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef; angleReferenceDirection?: Vec3; previewId?: string }) =>
     restApi.command(documentId, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),
-  setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED") =>
+  setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_HEAD" | "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED") =>
     restApi.command(documentId, { type: "SET_REFERENCE_MODE", instanceId, referenceMode }),
   updateReferences: (documentId: string) => restApi.command(documentId, { type: "UPDATE_REFERENCES" }),
   undo: (documentId: string) => restApi.command(documentId, { type: "UNDO" }),

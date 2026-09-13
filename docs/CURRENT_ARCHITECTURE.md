@@ -122,7 +122,7 @@ erDiagram
 - Domain Transaction、typed command envelope、语义 ChangeSet、Revision parent、EvaluationRun、dependency edge 与 outbox 在 Head CAS 的同一短事务中追加；
 - Restore 创建新的状态，而不是覆写历史；
 - Product 保存对子文档的引用和实例 Transform，不展开复制完整子树；
-- 实例可以跟随被引用文档 Head，也可以固定到 Version。
+- 当前 Product UI 中的新实例固定采用 `FOLLOW_HEAD`，被引用文档变化后自动提交 `UPDATE_REFERENCES` 并重建可重放快照；`PINNED`/版本切换协议保留在内部，待文档版本选择工作流完整后再开放入口。
 
 Product 工作台维护浏览器会话级的 Active Occurrence 编辑上下文，由 `Active InstancePath + Reference Document` 共同表达。打开 Product 时根 Product 默认激活；双击结构树中的 Product、Part 或 Instance 节点只激活该 occurrence，随后 Toolbar、属性、历史、Undo/Redo 和 Domain Command 绑定其 Reference Document 的 `main` Workspace。激活不是模型命令，不写 Revision；同一 Part Reference 的其他 occurrence 不显示为激活，但编辑 Reference 后全部 FOLLOW_HEAD occurrence 都会解析到新结果。视口始终保留根装配；活动 Part 的草图、基准和命令预览施加该 occurrence 的世界 Placement 后就地编辑，其他部件继续显示。
 
@@ -142,7 +142,7 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 - JSON Envelope 支持 request/response/event/ack/error、correlation ID、版本化 type、Workspace sequence 和稳定错误；当前最大消息 1 MiB；
 - Web 前端的建模命令使用 `workspace.command.execute.v1`，HTTP 命令入口仍保留并调用同一个 Workspace Service；
 - 浏览器进入工作台后订阅 Document 并获得 DocumentView 快照。其他用户提交后，事务内 Outbox 由 API 轮询并向所有本机订阅者发布 `workspace.transaction.committed.v1`，浏览器刷新 Document、History、Properties 和目录投影；
-- Product 浏览器会话还递归订阅结构树中未被 `PINNED` 边截断的 FOLLOW_HEAD Reference Document。子 Part/Product 提交不伪造父 Product Revision，而是使父 Product 的解析投影、结构树、Artifact occurrence 和属性失效并重新读取；激活文档即使位于 PINNED occurrence 下也会单独订阅，以支持该 Reference Document 自身的协同编辑；
+- Product 浏览器会话还递归订阅结构树中未被 `PINNED` 边截断的 FOLLOW_HEAD Reference Document。子 Part/Product 提交后，客户端从变化叶节点到根 Product 自动提交 typed `UPDATE_REFERENCES`，每一级都形成正常 Revision，并重建结构树、Artifact occurrence、PersistentSelection ResolutionSnapshot 与装配求解结果；激活文档即使位于 PINNED occurrence 下也会单独订阅，以支持该 Reference Document 自身的协同编辑；
 - 客户端按 sequence 去重和发现 gap，断线指数退避重连并重新获取快照；服务端以 Ping/Pong 检测失联，有界 128 消息队列满时断开慢消费者；
 - 当前实现多浏览器查看同一文档的提交后实时同步；presence、鼠标/选择和拖拽 preview 尚未接入 UI，多 API 实例间扇出也尚未实现。
 
@@ -258,7 +258,9 @@ stateDiagram-v2
 
 P3 在上述 history 契约上增加了服务端 PersistentSelection bind/resolver。bind 只接受 source Revision 最终 Body Tip 的 local pick，并固化 semantic anchor 与 creation evidence；resolver 固定校验 source/target Revision、document/body、expected type、creation evidence、manifest digest 和 policy digest，沿 lineage 返回唯一解析、缺失、歧义、类型不符或当前 tip 外等状态，绝不以相同 local ID 或最近几何自动选面。解析缓存以 selection、target Revision、manifest/evidence/policy digest 为身份，并可从不可变 topology artifact 冷重建。右侧属性面板现在展示 semantic anchor、selection recipe、supporting-element 状态和 evidence digest。
 
-Product 装配引用已完成 P4 升级。拓扑 endpoint 持久化 occurrence、source Part Revision 和 PersistentSelection，并保存固定 target Revision、topology manifest/policy digest 与 resolution result；`geometryKey + localId` 只作为创建或 Reconnect 时的瞬时 pick evidence。Part Head 更新后，`FOLLOW_WORKSPACE_WITH_ACCEPT` occurrence 保持已接受 Revision，Product/Constraint 投影为 NotUpdated；typed `UPDATE_REFERENCES` 才批量接受新 Revision、重新解析 endpoint 并求解。Supporting Element 的 Connected/NotConnected 与 Constraint 的 NotUpdated/Broken/Impossible/Verified 是两个独立状态域：解析失败的约束不会进入 Solver，其余 connected component 仍经正式 Router 的 M2.5 路径求解。结构树和属性面板显示状态与 provenance，持久 ChangeSet 支持刷新及补偿式历史。
+Product 装配引用已完成 P4 升级。拓扑 endpoint 持久化 occurrence、source Part Revision 和 PersistentSelection，并保存固定 target Revision、topology manifest/policy digest 与 resolution result；`geometryKey + localId` 只作为创建或 Reconnect 时的瞬时 pick evidence。默认实例使用 `FOLLOW_HEAD`；Part Head 更新后短暂投影为 NotUpdated，Web 随即自动提交 typed `UPDATE_REFERENCES`，批量推进 Revision、重新解析 endpoint 并求解，toolbar 不暴露尚未闭环的引用模式或手动接受按钮。Supporting Element 的 Connected/NotConnected 与 Constraint 的 NotUpdated/Broken/Impossible/Verified 是两个独立状态域：解析失败的约束不会进入 Solver，其余 connected component 仍经正式 Router 的 M2.5 路径求解。结构树和属性面板显示状态与 provenance，持久 ChangeSet 支持刷新及补偿式历史。
+
+Part 交互在退出 Sketcher 后把选择提升为整个 Sketch Feature，并保持未被实体特征消费的草图可见；已消费 profile 仅在重新编辑时临时显示。视图区在 Sketcher 外命中草图点、线或约束时同样投影到整个草图，因此可以直接继续 Pad/Pocket/Revolve。新建实体特征成功后自动选择结果 Feature，保持“选平面→建草图→绘制→退出→拉伸”的连续操作链。
 
 ### 5.1 PlaneGCS 技术验证边界
 

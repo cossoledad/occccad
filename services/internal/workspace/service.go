@@ -1680,11 +1680,11 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 	}
 	for index := range model.Instances {
 		instance := &model.Instances[index]
-		if instance.ReferenceMode == "" || instance.ReferenceMode == "FOLLOW_HEAD" {
-			instance.ReferenceMode = "FOLLOW_WORKSPACE_WITH_ACCEPT"
+		if instance.ReferenceMode == "" {
+			instance.ReferenceMode = "FOLLOW_HEAD"
 		}
 		instance.ResolvedVersionID = instance.ReferencedVersionID
-		if instance.ReferenceMode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
+		if instance.ReferenceMode == "FOLLOW_HEAD" || instance.ReferenceMode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
 			var head string
 			if err := service.database.QueryRow(ctx,
 				`SELECT head_version_id::text FROM occccad.documents WHERE id=$1`,
@@ -2216,7 +2216,7 @@ func (service *Service) mutateProduct(
 			ID: newID("instance"), Name: instanceName,
 			ReferencedDocumentID: referenceID, ReferencedVersionID: versionID,
 			Translation:   request.Translation,
-			ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT",
+			ReferenceMode: "FOLLOW_HEAD",
 		})
 	case "MOVE_INSTANCE":
 		if !finite(request.Translation[0]) || !finite(request.Translation[1]) || !finite(request.Translation[2]) {
@@ -2235,11 +2235,8 @@ func (service *Service) mutateProduct(
 		}
 	case "SET_REFERENCE_MODE":
 		mode := strings.ToUpper(request.ReferenceMode)
-		if mode == "FOLLOW_HEAD" {
-			mode = "FOLLOW_WORKSPACE_WITH_ACCEPT"
-		}
-		if mode != "FOLLOW_WORKSPACE_WITH_ACCEPT" && mode != "PINNED" {
-			return fmt.Errorf("%w: reference mode must be FOLLOW_WORKSPACE_WITH_ACCEPT or PINNED", ErrValidation)
+		if mode != "FOLLOW_HEAD" && mode != "FOLLOW_WORKSPACE_WITH_ACCEPT" && mode != "PINNED" {
+			return fmt.Errorf("%w: reference mode must be FOLLOW_HEAD or PINNED", ErrValidation)
 		}
 		found := false
 		for index := range model.Instances {
@@ -3139,8 +3136,8 @@ func (service *Service) buildDocumentStructure(
 	for _, instance := range model.Instances {
 		resolvedVersionID := instance.ReferencedVersionID
 		mode := strings.ToUpper(instance.ReferenceMode)
-		if mode == "" || mode == "FOLLOW_HEAD" {
-			mode = "FOLLOW_WORKSPACE_WITH_ACCEPT"
+		if mode == "" {
+			mode = "FOLLOW_HEAD"
 		}
 		instanceNodePath := path + "/instance:" + instance.ID
 		childIdentity := appendInstancePath(occurrenceIdentity, InstancePathSegment{
@@ -3159,7 +3156,7 @@ func (service *Service) buildDocumentStructure(
 			VersionID: resolvedVersionID, ReferenceMode: mode, InstancePath: &childIdentity, Children: reference.Children,
 		}
 		instanceNode.Capabilities = []string{"DELETE"}
-		if mode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
+		if mode == "FOLLOW_HEAD" || mode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
 			var head string
 			if service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&head) == nil && head != instance.ReferencedVersionID {
 				staleInstances[instance.ID] = true
