@@ -17,6 +17,7 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 - 统一 CAD 语义色与 hover/selected/snap 层次；默认全开的捕获设置可分别过滤三维点、边、面、实体、草图、约束、基准面、基准轴/坐标系和实例，以及草图原点、点/端点、圆心、中点、Line/Circle/Arc/Spline 曲线投影和 10 mm 网格吸附；
 - Pad、Insert、命名版本使用可拖动非模态命令面板；Pad 数值 blur/Enter 后请求后端复用正式 typed command、Sketch Solver 与 Part evaluator 生成非持久化精确预览，提交才创建 Revision；
 - Product 约束创建和编辑共用非模态“约束定义”面板：分别显示 Constraint 的 NotUpdated/Broken/Impossible/Verified 与每个 Supporting Element 的 Connected/NotConnected；结构树双击/右键可编辑，Broken 可 Reconnect，非 Verified 可重新解析并求解。Reconnect 使用一次性视口选择，权威 preview 返回候选状态，确认以单个 `EDIT_ASSEMBLY_CONSTRAINT` Revision 提交；视口以不同 glyph 显示异常状态，并为已丢失的精确支持元素保留 instance 中心恢复标记；
+- Cut/Hole P6 场景沿用同一状态投影：贯穿 Cut 保留的面继续显示 Connected/Verified，真实删除与 split 歧义显示 NotConnected/Broken，Reconnect 的当前制品 raw pick 只作为提交证据并由服务端绑定成 PersistentSelection；
 - 草图原点和 H/V 基准轴是自动带入、可约束选择的稳定内在引用；第一次约束选择与第二候选同时高亮，点、端点、捕获点和拓扑顶点统一显示为 X 形；
 - TanStack Query 管理服务端状态，Zustand 管理工作台交互状态；
 - Mock Adapter，以及真实 REST + WebSocket 双平面 Adapter；

@@ -123,3 +123,5 @@ invoke performance-baseline
 预览求解键为 `preview/<requestId>`，真正执行求解的提交键为原 request ID；提升 verified candidate 的提交不会伪造第二条记录。两个接口均要求该文档读权限。
 `.3dreplay` 在响应关键路径外原子写入 `OCCCCAD_LOG_DIR/debug/assembly-replays/<documentID>/`，不进入数据库；每个文档最多 50 条、最长 7 天。成功、失败和预览留档不改模型历史。
 格式与独立重放命令见 [occccad-3dreplay](../occccad-3dreplay/README.md)。
+
+P6 Cut/Hole 验收位于 `internal/control/TestCutHolePersistentSelectionThroughRealRouter`。它通过正式 GeometryPool/Router 和 C++ Worker 执行 Part `REMOVE`、Product `UPDATE_REFERENCES`、Undo/Redo、Broken 隔离与 Reconnect，而不是绕过 transport 直接伪造 topology result。测试需要可丢弃 PostgreSQL 和 Worker 路径；设置 `OCCCCAD_P6_EVIDENCE_DIR` 时会额外保存逐场景 resolution JSON 与可下载、可由 `ReplayAssembly` 重放的 `.3dreplay`。

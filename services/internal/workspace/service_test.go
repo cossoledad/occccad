@@ -1162,7 +1162,7 @@ func TestProductAssemblyDependenciesUsePersistableGeometryEdges(t *testing.T) {
 }
 
 func TestAssemblyConstraintCanBeEditedAndDeleted(t *testing.T) {
-	model := ProductModel{Instances: []ProductInstance{{ID: "a", Name: "A.1"}, {ID: "b", Name: "B.1"}}, Constraints: []AssemblyConstraint{{ID: "distance", Kind: "DISTANCE", First: AssemblyGeometryRef{InstanceID: "a", Kind: "POINT"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "POINT"}, Value: 10}}}
+	model := ProductModel{Instances: []ProductInstance{{ID: "a", Name: "A.1"}, {ID: "b", Name: "B.1"}}, Constraints: []AssemblyConstraint{{ID: "distance", Kind: "DISTANCE", First: AssemblyGeometryRef{InstanceID: "a", Kind: "POINT"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "POINT"}, Value: 10, EvaluationStatus: modelcore.AssemblyConstraintBroken}}}
 	modelJSON, _ := json.Marshal(model)
 	replacement := AssemblyGeometryRef{InstanceID: "b", Kind: "PLANE", GeometryID: "yz"}
 	newFirst := AssemblyGeometryRef{InstanceID: "a", Kind: "PLANE", GeometryID: "xy"}
@@ -1182,6 +1182,9 @@ func TestAssemblyConstraintCanBeEditedAndDeleted(t *testing.T) {
 	}
 	if next.Constraints[0].First.GeometryID != "xy" || next.Constraints[0].Second == nil || next.Constraints[0].Second.GeometryID != "yz" {
 		t.Fatalf("supporting geometry replacement was not applied: %#v", next.Constraints[0])
+	}
+	if next.Constraints[0].EvaluationStatus != modelcore.AssemblyConstraintNotUpdated {
+		t.Fatalf("edited Broken constraint must re-enter evaluation as NotUpdated: %#v", next.Constraints[0])
 	}
 	deletePayload, _ := json.Marshal(deleteNodePayload{TargetKind: "ASSEMBLY_CONSTRAINT", TargetID: "distance"})
 	deleted, _, err := applyDeleteProductNode(edited, deletePayload)

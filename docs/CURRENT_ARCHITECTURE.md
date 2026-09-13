@@ -262,6 +262,8 @@ Product 装配引用已完成 P4 升级。拓扑 endpoint 持久化 occurrence�
 
 P5 已把上述状态接入实际约束恢复流程。创建和编辑使用同一非模态约束定义面板，服务端成功 preview 除 occurrence poses 和 component 诊断外，还返回候选 Constraint 状态与两个 Supporting Element 状态；已连接支持元素在 `SOLVING` 阶段的不可重试结构化失败明确投影为 Impossible，基础设施或可重试失败保持 NotUpdated，前端不从颜色或普通异常文本猜测领域状态。结构树双击/右键 Edit 打开同一编辑器，Broken 节点提供 Reconnect，非 Verified 节点提供 typed `UPDATE_REFERENCES` Refresh。Reconnect 复用一次性 Selection Tool 和现有 preview actor，替换端点后立即权威预览，确认以一个 `EDIT_ASSEMBLY_CONSTRAINT` Transaction 提交。结构树状态包含图标、文字和可访问标签；视口的 NotUpdated、Impossible、Broken 各用不同的屏幕稳定 SDF glyph，精确拓扑锚点丢失时回退到 occurrence 中心，确保 Broken 约束仍可被选择并修复。
 
+P6 已用现有 `REMOVE` Linear Extrude 建立 Cut/Hole 代表场景，而未提前增加第二套 Hole DSL。XZ 矩形贯穿 Cut 的 OCCT corpus 固定验证六个基础面语义引用继续存在并新增四个孔壁引用；同一 corpus 还覆盖保留面、删除面与侧开口 split 歧义。Go 端可执行 fixture 经真实 Workspace、PostgreSQL、ArtifactStore、GeometryPool、正式 Router 和 C++ Worker 创建 Part/Product 面约束，覆盖通孔更新、Part Undo/Redo、真实删除、Broken 隔离、Reconnect 后继续编辑以及 ambiguous 不自动选择，并重新执行保存的 `.3dreplay`。编辑任何 Broken 约束会先把 evaluation 重置为 NotUpdated，使当前命令的权威解析与求解能够恢复到 Verified；最终 Revision 才保存求值结果。fixture 可通过 `OCCCCAD_P6_EVIDENCE_DIR` 输出逐阶段 ResolutionSnapshot 摘要和 solver replay。
+
 Part 交互在退出 Sketcher 后把选择提升为整个 Sketch Feature，并保持未被实体特征消费的草图可见；已消费 profile 仅在重新编辑时临时显示。视图区在 Sketcher 外命中草图点、线或约束时同样投影到整个草图，因此可以直接继续 Pad/Pocket/Revolve。新建实体特征成功后自动选择结果 Feature，保持“选平面→建草图→绘制→退出→拉伸”的连续操作链。
 
 ### 5.1 PlaneGCS 技术验证边界

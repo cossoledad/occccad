@@ -1,6 +1,6 @@
 # Part 特征编辑、持久拓扑命名与装配约束状态开发计划
 
-状态：实施中；P0–P5 已完成，P6–P11 待实施
+状态：实施中；P0–P6 已完成，P7–P11 待实施
 日期：2026-09-12  
 适用基线：当前未发布、允许重建开发数据的 occccad 仓库
 
@@ -491,6 +491,8 @@ stateDiagram-v2
 - 清空开发数据，从空库迁移并重跑场景；同步 CURRENT/TARGET、Worker/Service/Web README。
 
 验收：C++ corpus、Go workspace/control integration、Proto Router、Web deterministic tests、production build、Playwright/浏览器人工验收全部通过；输出可保存的 resolution/solver replay 证据。
+
+实施状态：已于 2026-09-13 完成代码与可执行验收。现有 C++ OCCT corpus 明确验证 XZ 矩形贯穿 Cut 后最终实体仍有六个继承的基础面语义引用，并新增四个孔壁引用，同时覆盖保留面、真实删除与侧开口 split 歧义。新增 Go P6 fixture 从真实 Workspace Command 创建 Part/Product，经正式 GeometryPool/Router 启动 C++ Worker，建立基于 Part 面的 Coincident 约束，并依次验证通孔后 `Connected/Verified`、Part Undo/Redo 后重新解析、删除面后 `NotConnected/Broken` 且无关 Fix 仍 Verified、Reconnect 后继续编辑 Cut、撤销重连来源后 Broken，以及侧开口歧义时不自动选面。fixture 还发现并修复了 Broken 约束执行 `EDIT_ASSEMBLY_CONSTRAINT` 后没有回到 NotUpdated、因而被求解器跳过的状态转换缺口。`OCCCCAD_P6_EVIDENCE_DIR` 可保存逐场景 resolution JSON 和两次收敛求解的 `.3dreplay`，并由同一次测试重新调用正式 Router 的 `ReplayAssembly` 验证。空开发 schema/artifact 已按标准命令重建。Web deterministic 场景补充 ambiguous 与 raw-pick Reconnect 状态；当前环境没有浏览器运行时，因此生产构建已执行，Playwright/WebGL 人工验收仍保留为环境限制。
 
 ### 批次 P7：Edge/Vertex Persistent Naming 与三维约束
 

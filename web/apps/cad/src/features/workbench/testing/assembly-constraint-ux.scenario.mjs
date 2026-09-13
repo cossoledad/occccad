@@ -14,10 +14,18 @@ const connected = { instanceId: "a", kind: "FACE", persistentSelection: {}, reso
 const broken = { instanceId: "b", kind: "FACE", persistentSelection: {}, resolution: { result: {
   supportingElementStatus: "NOT_CONNECTED", status: "MISSING", diagnosticCode: "MISSING", diagnostic: "face was deleted",
 } } };
+const ambiguous = { instanceId: "b", kind: "FACE", persistentSelection: {}, resolution: { result: {
+  supportingElementStatus: "NOT_CONNECTED", status: "AMBIGUOUS", diagnosticCode: "PERSISTENT_SELECTION_AMBIGUOUS",
+  diagnostic: "lineage produced multiple valid candidates",
+} } };
+const reconnectedPick = { instanceId: "c", kind: "FACE", geometryKey: "shape-after-cut", topologyId: 7 };
 assert.equal(ux.assemblySupportPresentation(connected).label, "Connected");
 assert.deepEqual(ux.assemblySupportPresentation(broken), {
   status: "NOT_CONNECTED", label: "NotConnected", diagnosticCode: "MISSING", diagnostic: "face was deleted", evidenceDigest: undefined,
 });
+assert.equal(ux.assemblySupportPresentation(ambiguous).label, "NotConnected");
+assert.equal(ux.assemblySupportPresentation(ambiguous).diagnosticCode, "PERSISTENT_SELECTION_AMBIGUOUS");
+assert.equal(ux.assemblySupportPresentation(reconnectedPick).label, "Connected");
 assert.equal(ux.firstDisconnectedSupport({ first: connected, second: broken, evaluationStatus: "BROKEN" }), 1);
 assert.match(ux.validateReconnectCandidate({ instanceId: "a", kind: "PLANE" }, connected), /不同实例/);
 assert.equal(ux.validateReconnectCandidate({ instanceId: "c", kind: "PLANE" }, connected), undefined);

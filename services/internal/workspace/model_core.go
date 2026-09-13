@@ -1031,6 +1031,8 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 		if payload.Second != nil {
 			model.Constraints[index].Second = payload.Second
 		}
+		model.Constraints[index].EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
+		model.Constraints[index].EvaluationSummary = "constraint definition changed; awaiting authoritative solve"
 		if model.Constraints[index].Kind != "FIX" {
 			if model.Constraints[index].Second == nil {
 				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: second assembly reference is required", ErrValidation)
