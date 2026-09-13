@@ -37,6 +37,90 @@ type ResolvedTopologyProperties struct {
 	Properties *TopologyElementProperties    `json:"properties,omitempty"`
 }
 
+func (service *Service) bindAssemblyPick(ctx context.Context, product *ProductModel, reference *AssemblyGeometryRef) error {
+	if reference == nil || (reference.Kind != "FACE" && reference.Kind != "EDGE" && reference.Kind != "VERTEX") {
+		return nil
+	}
+	if reference.PersistentSelection != nil {
+		reference.GeometryKey, reference.TopologyID = "", 0
+		return reference.PersistentSelection.Validate()
+	}
+	var instance *ProductInstance
+	for index := range product.Instances {
+		if product.Instances[index].ID == reference.InstanceID {
+			instance = &product.Instances[index]
+			break
+		}
+	}
+	if instance == nil {
+		return fmt.Errorf("%w: assembly pick references an unknown instance", ErrValidation)
+	}
+	selection, err := service.BindPersistentSelection(ctx, instance.ReferencedDocumentID, BindPersistentSelectionRequest{SourceVersionID: instance.ReferencedVersionID, GeometryKey: reference.GeometryKey, Kind: reference.Kind, LocalID: reference.TopologyID})
+	if err != nil {
+		return err
+	}
+	reference.PersistentSelection, reference.SourceVersionID = &selection, instance.ReferencedVersionID
+	reference.GeometryKey, reference.TopologyID = "", 0
+	_, _, digest, err := service.topologyManifestForVersion(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID)
+	if err != nil {
+		return err
+	}
+	resolution, err := service.ResolvePersistentSelection(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{Selection: selection, SourceVersionID: instance.ReferencedVersionID, TargetVersionID: instance.ReferencedVersionID, ManifestDigest: digest, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+	if err != nil {
+		return err
+	}
+	reference.Resolution = &ResolutionSnapshot{SourceVersionID: instance.ReferencedVersionID, TargetVersionID: instance.ReferencedVersionID, ManifestDigest: digest, PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: resolution}
+	return nil
+}
+
+func (service *Service) updateProductReferences(ctx context.Context, product *ProductModel) error {
+	instances := map[string]*ProductInstance{}
+	for index := range product.Instances {
+		instance := &product.Instances[index]
+		instances[instance.ID] = instance
+		if instance.ReferenceMode == "" || instance.ReferenceMode == "FOLLOW_HEAD" {
+			instance.ReferenceMode = "FOLLOW_WORKSPACE_WITH_ACCEPT"
+		}
+		if instance.ReferenceMode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
+			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&instance.ReferencedVersionID); err != nil {
+				return err
+			}
+		}
+		instance.ResolvedVersionID, instance.HeadChanged = instance.ReferencedVersionID, false
+	}
+	resolveEndpoint := func(reference *AssemblyGeometryRef) modelcore.SelectionResolutionStatus {
+		if reference == nil || (reference.Kind != "FACE" && reference.Kind != "EDGE" && reference.Kind != "VERTEX") {
+			return modelcore.SelectionResolved
+		}
+		instance := instances[reference.InstanceID]
+		if instance == nil || reference.PersistentSelection == nil {
+			return modelcore.SelectionSourceUnavailable
+		}
+		_, _, digest, err := service.topologyManifestForVersion(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID)
+		if err != nil {
+			return modelcore.SelectionSourceUnavailable
+		}
+		resolution, err := service.ResolvePersistentSelection(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{Selection: *reference.PersistentSelection, SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, ManifestDigest: digest, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+		if err != nil {
+			return modelcore.SelectionSourceUnavailable
+		}
+		reference.Resolution = &ResolutionSnapshot{SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, ManifestDigest: digest, PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: resolution}
+		return resolution.Status
+	}
+	for index := range product.Constraints {
+		constraint := &product.Constraints[index]
+		first, second := resolveEndpoint(&constraint.First), resolveEndpoint(constraint.Second)
+		if first != modelcore.SelectionResolved || second != modelcore.SelectionResolved {
+			constraint.EvaluationStatus = modelcore.AssemblyConstraintBroken
+			constraint.EvaluationSummary = fmt.Sprintf("support resolution: first=%s second=%s", first, second)
+		} else {
+			constraint.EvaluationStatus = modelcore.AssemblyConstraintVerified
+			constraint.EvaluationSummary = "references resolved against accepted Part revisions"
+		}
+	}
+	return nil
+}
+
 func (service *Service) GetResolvedTopologyElementProperties(ctx context.Context, documentID string, request ResolvePersistentSelectionRequest) (ResolvedTopologyProperties, error) {
 	resolution, err := service.ResolvePersistentSelection(ctx, documentID, request)
 	if err != nil {
@@ -47,7 +131,7 @@ func (service *Service) GetResolvedTopologyElementProperties(ctx context.Context
 		return result, nil
 	}
 	candidate := resolution.Candidates[0]
-	properties, err := service.GetTopologyElementProperties(ctx, documentID, candidate.GeometryKey, string(candidate.Type), candidate.LocalID)
+	properties, err := service.GetTopologyElementPropertiesAtVersion(ctx, documentID, request.TargetVersionID, candidate.GeometryKey, string(candidate.Type), candidate.LocalID)
 	if err != nil {
 		return ResolvedTopologyProperties{}, err
 	}

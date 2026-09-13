@@ -1,6 +1,6 @@
 import type { DocumentStructureNode } from "../../types";
 
-// FOLLOW_HEAD belongs to an occurrence edge. A PINNED edge freezes the whole
+// FOLLOW_WORKSPACE_WITH_ACCEPT belongs to an occurrence edge. A PINNED edge freezes the whole
 // referenced subtree as projected by that Product revision.
 export function followedDocumentIDs(root?: DocumentStructureNode): string[] {
   const result = new Set<string>();

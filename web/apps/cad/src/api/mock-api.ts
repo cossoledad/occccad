@@ -94,8 +94,8 @@ const views = new Map<string, DocumentView>([
   }],
   [productID, {
     document: summaries[1], product: { instances: [
-      { id: "mock-instance-a", name: "Bracket A", documentId: partID, versionId: "mock-part-v3", translation: [-45, 0, 0], referenceMode: "FOLLOW_HEAD" },
-      { id: "mock-instance-b", name: "Bracket B", documentId: partID, versionId: "mock-part-v3", translation: [45, 0, 0], referenceMode: "FOLLOW_HEAD" },
+      { id: "mock-instance-a", name: "Bracket A", documentId: partID, versionId: "mock-part-v3", translation: [-45, 0, 0], referenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT" },
+      { id: "mock-instance-b", name: "Bracket B", documentId: partID, versionId: "mock-part-v3", translation: [45, 0, 0], referenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT" },
     ] },
     artifacts: { [partArtifact.geometryKey]: partArtifact },
     resolvedInstances: [
@@ -201,7 +201,7 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
       const referenceTree = referenced ? mockStructure(referenced, `${path}/instance:${instance.id}/reference`, nextVisiting) : undefined;
       return { id: `${path}/instance:${instance.id}`, kind: "INSTANCE", name: instance.name,
         entityId: instance.id, documentId: instance.documentId, documentType: referenced?.document.type,
-        versionId: instance.versionId, referenceMode: instance.referenceMode ?? "FOLLOW_HEAD",
+        versionId: instance.versionId, referenceMode: instance.referenceMode ?? "FOLLOW_WORKSPACE_WITH_ACCEPT",
         instancePath: mockInstancePath(view.document.id, instance),
         capabilities: path === `document:${view.document.id}` ? ["DELETE"] : undefined, children: referenceTree?.children };
     }) };
@@ -319,7 +319,7 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
       let ordinal = 1; while (used.has(`${reference.document.name}.${ordinal}`.toLocaleLowerCase())) ordinal++;
       view.product.instances.push({ id: id("mock-instance"), name: `${reference.document.name}.${ordinal}`,
         documentId: String(input.referencedDocumentId), versionId: reference.document.versionId,
-        translation: [0, 0, 0], referenceMode: "FOLLOW_HEAD" });
+        translation: [0, 0, 0], referenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT" });
       rebuildProduct(view);
     }
     if (commandType === "MOVE_INSTANCE" && view.product) {
@@ -505,6 +505,7 @@ export const mockApi: CadApi = {
   addAssemblyConstraint: async (documentID, input) => command(documentID, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),
   editAssemblyConstraint: async (documentID, constraintId, input) => command(documentID, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),
   setReferenceMode: async (documentID, instanceID, referenceMode) => command(documentID, { type: "SET_REFERENCE_MODE", instanceId: instanceID, referenceMode }),
+  updateReferences: async (documentID) => command(documentID, { type: "UPDATE_REFERENCES" }),
   undo: async (documentID) => command(documentID, { type: "UNDO" }),
   redo: async (documentID) => command(documentID, { type: "REDO" }),
   restore: async (documentID, versionID) => command(documentID, { type: "RESTORE", versionId: versionID }),

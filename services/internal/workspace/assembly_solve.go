@@ -6,9 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"strings"
 
 	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/modelcore"
 	"github.com/qmuntal/stateless"
 )
 
@@ -46,17 +46,14 @@ type assemblySolveFailure struct {
 	retryable  bool
 }
 
-// validateRevisionLocalTopologyReference documents the current pre-naming
-// boundary. A topology local ID has meaning only inside its geometry key and
-// therefore cannot survive a Part regeneration by itself.
-func validateRevisionLocalTopologyReference(reference AssemblyGeometryRef, resolvedGeometryKey string) error {
-	if reference.GeometryKey == "" || reference.TopologyID == 0 {
-		return fmt.Errorf("%w: a topology reference requires geometryKey and topologyId", ErrValidation)
+func validatePersistentAssemblyReference(reference AssemblyGeometryRef) error {
+	if reference.PersistentSelection == nil || reference.SourceVersionID == "" {
+		return fmt.Errorf("%w: persistent topology reference is required", ErrValidation)
 	}
-	if resolvedGeometryKey == "" || reference.GeometryKey != resolvedGeometryKey {
-		return fmt.Errorf("%w: selected topology belongs to a different Part revision", ErrValidation)
+	if reference.GeometryKey != "" || reference.TopologyID != 0 {
+		return fmt.Errorf("%w: revision-local pick evidence cannot be persisted", ErrValidation)
 	}
-	return nil
+	return reference.PersistentSelection.Validate()
 }
 
 func (failure *assemblySolveFailure) Error() string {
@@ -161,13 +158,12 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		bodies = append(bodies, body)
 	}
 	type resolvedPart struct {
-		model       PartModel
-		geometryKey string
+		model PartModel
 	}
 	resolved := map[string]resolvedPart{}
 	resolvePart := func(instance *ProductInstance) (resolvedPart, error) {
 		versionID := instance.ReferencedVersionID
-		if strings.EqualFold(instance.ReferenceMode, "FOLLOW_HEAD") || versionID == "" {
+		if versionID == "" {
 			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&versionID); err != nil {
 				return resolvedPart{}, err
 			}
@@ -175,9 +171,9 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		if value, ok := resolved[versionID]; ok {
 			return value, nil
 		}
-		var documentType, geometryKey string
+		var documentType string
 		var modelJSON []byte
-		if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json,COALESCE(v.geometry_key,'') FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE v.id=$1`, versionID).Scan(&documentType, &modelJSON, &geometryKey); err != nil {
+		if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE v.id=$1`, versionID).Scan(&documentType, &modelJSON); err != nil {
 			return resolvedPart{}, err
 		}
 		if documentType != "PART" {
@@ -188,7 +184,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 			return resolvedPart{}, err
 		}
 		normalizePartModel(&part)
-		value := resolvedPart{model: part, geometryKey: geometryKey}
+		value := resolvedPart{model: part}
 		resolved[versionID] = value
 		return value, nil
 	}
@@ -203,24 +199,33 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		if reference.Kind == "BODY" {
 			return "", nil
 		}
-		key := reference.InstanceID + ":" + reference.Kind + ":" + reference.GeometryID + ":" + reference.Axis + ":" + reference.GeometryKey + fmt.Sprintf(":%d", reference.TopologyID)
+		persistentKey := ""
+		if reference.PersistentSelection != nil {
+			encoded, _ := json.Marshal(reference.PersistentSelection)
+			persistentKey = string(encoded)
+		}
+		key := reference.InstanceID + ":" + reference.Kind + ":" + reference.GeometryID + ":" + reference.Axis + ":" + persistentKey
 		if seenGeometry[key] {
 			return key, nil
 		}
 		value := geometry.AssemblyGeometry{ID: key, BodyID: reference.InstanceID, Kind: reference.Kind}
 		switch reference.Kind {
 		case "FACE", "EDGE", "VERTEX":
-			part, err := resolvePart(instance)
+			_, err := resolvePart(instance)
 			if err != nil {
 				return "", err
 			}
-			if err := validateRevisionLocalTopologyReference(reference, part.geometryKey); err != nil {
+			if err := validatePersistentAssemblyReference(reference); err != nil {
 				return "", err
 			}
-			properties, err := service.GetTopologyElementProperties(ctx, documentID, reference.GeometryKey, reference.Kind, reference.TopologyID)
+			resolved, err := service.GetResolvedTopologyElementProperties(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{Selection: *reference.PersistentSelection, SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
 			if err != nil {
 				return "", err
 			}
+			if resolved.Resolution.Status != modelcore.SelectionResolved || resolved.Properties == nil {
+				return "", fmt.Errorf("%w: supporting element is %s", ErrValidation, resolved.Resolution.Status)
+			}
+			properties := *resolved.Properties
 			if reference.Kind == "VERTEX" {
 				if properties.Point == nil {
 					return "", fmt.Errorf("%w: selected vertex is missing its exact point", ErrValidation)
@@ -325,6 +330,9 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 	}
 	for constraintIndex := range model.Constraints {
 		constraint := &model.Constraints[constraintIndex]
+		if constraint.EvaluationStatus == modelcore.AssemblyConstraintBroken {
+			continue
+		}
 		firstGeometry, err := resolveRef(constraint.First)
 		if err != nil {
 			return err
@@ -376,6 +384,9 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		}
 		constraints = append(constraints, value)
 	}
+	if len(constraints) == 0 {
+		return nil
+	}
 	if err := workflow.advance(context.Background()); err != nil {
 		return err
 	}
@@ -415,6 +426,12 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 	for _, solved := range result.Bodies {
 		if instance := instances[solved.ID]; instance != nil {
 			instance.Translation, instance.Rotation = solved.Pose.Translation, solved.Pose.Rotation
+		}
+	}
+	for index := range model.Constraints {
+		if model.Constraints[index].EvaluationStatus != modelcore.AssemblyConstraintBroken {
+			model.Constraints[index].EvaluationStatus = modelcore.AssemblyConstraintVerified
+			model.Constraints[index].EvaluationSummary = "resolved supports satisfy the accepted assembly solution"
 		}
 	}
 	service.assemblyWarmStarts.put(warmStartKey, *model)

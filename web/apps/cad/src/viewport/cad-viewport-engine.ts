@@ -55,7 +55,7 @@ type Callbacks = {
 };
 
 type SolidContext = {
-  documentId: string; geometryKey: string; occurrencePath: string; treeNodeId: string; instanceId?: string;
+  documentId: string; versionId?: string; geometryKey: string; occurrencePath: string; treeNodeId: string; instanceId?: string;
 };
 
 type SolidBinding = { group: THREE.Group; mesh: THREE.Mesh; artifact: Artifact; context: SolidContext };
@@ -799,7 +799,7 @@ export class CadViewportEngine {
     }
     if (view.artifact && view.artifact.mesh.triangles.length > 0) {
       const solid = this.makeSolid(view.artifact, CATIA_VISUAL_THEME.surface, {
-        documentId: view.document.id, geometryKey: view.artifact.geometryKey, occurrencePath: "",
+        documentId: view.document.id, versionId: view.document.versionId, geometryKey: view.artifact.geometryKey, occurrencePath: "",
         treeNodeId: resultBodyFeatureTreeNode(this.view?.structureTree, bodyTreeNodeId) ?? bodyTreeNodeId,
       });
       solid.userData = { kind: "body", id: "body-1" };
@@ -838,7 +838,7 @@ export class CadViewportEngine {
         if (artifact.mesh.triangles.length > 0) {
           const resultTreeNodeId = resultBodyFeatureTreeNode(this.view?.structureTree, resolved.bodyTreeNodeId) ?? resolved.bodyTreeNodeId;
           const context: SolidContext = {
-            documentId: resolved.documentId, geometryKey: artifact.geometryKey,
+            documentId: resolved.documentId, versionId: resolved.instancePath.segments.at(-1)?.resolvedVersionId, geometryKey: artifact.geometryKey,
             occurrencePath: resolved.occurrencePath, treeNodeId: resultTreeNodeId, instanceId: instance.id
           };
           const solid = this.makeSolid(artifact, CATIA_VISUAL_THEME.productSurface, context);
@@ -1022,29 +1022,32 @@ export class CadViewportEngine {
       occurrencePath: reference.instanceId, visualKey: `occurrence:${reference.instanceId}` };
     const instanceCenter = () => new THREE.Box3().setFromObject(instance).getCenter(new THREE.Vector3());
     if (reference.kind === "BODY") return { selection: instanceSelection, object: instance, anchor: instanceCenter() };
+    const resolvedTopology = reference.resolution?.result.status === "RESOLVED" ? reference.resolution.result.candidates?.[0] : undefined;
+    const geometryKey = resolvedTopology?.geometryKey ?? reference.geometryKey;
+    const topologyId = resolvedTopology?.localId ?? reference.topologyId;
     const binding = [...this.solidBindings.values()].find((candidate) => candidate.context.instanceId === reference.instanceId &&
-      (!reference.geometryKey || candidate.artifact.geometryKey === reference.geometryKey));
-    if (reference.kind === "FACE" && binding && reference.topologyId) {
+      (!geometryKey || candidate.artifact.geometryKey === geometryKey));
+    if (reference.kind === "FACE" && binding && topologyId) {
       const anchor = new THREE.Vector3(); let count = 0;
       binding.artifact.mesh.triangles.forEach((triangle, index) => {
-        if ((binding.artifact.mesh.faceIds[index] ?? -1) + 1 !== reference.topologyId) return;
+        if ((binding.artifact.mesh.faceIds[index] ?? -1) + 1 !== topologyId) return;
         for (const vertexIndex of triangle) { anchor.add(binding.mesh.localToWorld(new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[vertexIndex]))); count++; }
       });
-      const selection: SelectionItem = { kind: "face", id: `${binding.context.occurrencePath}:${binding.artifact.geometryKey}:face:${reference.topologyId}`,
-        topologyId: reference.topologyId, ...binding.context };
+      const selection: SelectionItem = { kind: "face", id: `${binding.context.occurrencePath}:${binding.artifact.geometryKey}:face:${topologyId}`,
+        topologyId, ...binding.context };
       return { selection, object: binding.group, anchor: count ? anchor.multiplyScalar(1 / count) : instanceCenter() };
     }
-    if (reference.kind === "EDGE" && binding && reference.topologyId) {
-      const edge=binding.artifact.mesh.edges?.find((candidate)=>candidate.localId===reference.topologyId);
+    if (reference.kind === "EDGE" && binding && topologyId) {
+      const edge=binding.artifact.mesh.edges?.find((candidate)=>candidate.localId===topologyId);
       const anchor=new THREE.Vector3();for(const point of edge?.points??[])anchor.add(binding.mesh.localToWorld(new THREE.Vector3().fromArray(point)));
-      const selection:SelectionItem={kind:"edge",id:`${binding.context.occurrencePath}:${binding.artifact.geometryKey}:edge:${reference.topologyId}`,
-        topologyId:reference.topologyId,...binding.context};
+      const selection:SelectionItem={kind:"edge",id:`${binding.context.occurrencePath}:${binding.artifact.geometryKey}:edge:${topologyId}`,
+        topologyId,...binding.context};
       return {selection,object:binding.group,anchor:edge?.points.length?anchor.multiplyScalar(1/edge.points.length):instanceCenter()};
     }
-    if (reference.kind === "VERTEX" && binding && reference.topologyId) {
-      const vertex=binding.artifact.mesh.topologyVertices?.find((candidate)=>candidate.localId===reference.topologyId);
-      const selection:SelectionItem={kind:"vertex",id:`${binding.context.occurrencePath}:${binding.artifact.geometryKey}:vertex:${reference.topologyId}`,
-        topologyId:reference.topologyId,...binding.context};
+    if (reference.kind === "VERTEX" && binding && topologyId) {
+      const vertex=binding.artifact.mesh.topologyVertices?.find((candidate)=>candidate.localId===topologyId);
+      const selection:SelectionItem={kind:"vertex",id:`${binding.context.occurrencePath}:${binding.artifact.geometryKey}:vertex:${topologyId}`,
+        topologyId,...binding.context};
       return {selection,object:binding.group,anchor:vertex?binding.mesh.localToWorld(new THREE.Vector3().fromArray(vertex.point)):instanceCenter()};
     }
     let matched: THREE.Object3D | undefined;
@@ -1072,6 +1075,7 @@ export class CadViewportEngine {
     const selection = {
       kind: "plane" as const, id: `${context?.occurrencePath || "root"}:${id}`, entityId: id, plane, datumPlane: datum,
       treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
+      versionId: context?.versionId,
       geometryKey: context?.geometryKey, instanceId: context?.instanceId
     };
     mesh.userData = selection;

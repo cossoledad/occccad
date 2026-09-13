@@ -148,7 +148,7 @@ func (server *Server) enqueueDocumentPreviews(ctx context.Context, changed works
 		CROSS JOIN LATERAL jsonb_array_elements(
 			COALESCE(version.model_json->'instances','[]'::jsonb)) instance
 		WHERE instance->>'documentId'=child.document_id::text
-		  AND COALESCE(instance->>'referenceMode','FOLLOW_HEAD')='FOLLOW_HEAD'
+		  AND COALESCE(instance->>'referenceMode','FOLLOW_WORKSPACE_WITH_ACCEPT') IN ('FOLLOW_WORKSPACE_WITH_ACCEPT','FOLLOW_HEAD')
 	)
 	SELECT document_id::text,version_id::text FROM affected`, changed.Document.ID, changed.Document.VersionID)
 	if err != nil {
@@ -728,8 +728,8 @@ func (server *Server) topologyProperties(writer http.ResponseWriter, request *ht
 		writeError(writer, http.StatusBadRequest, "localId must be a positive integer")
 		return
 	}
-	result, err := server.workspace.GetTopologyElementProperties(request.Context(), request.PathValue("documentID"),
-		request.URL.Query().Get("geometryKey"), request.URL.Query().Get("kind"), localID)
+	result, err := server.workspace.GetTopologyElementPropertiesAtVersion(request.Context(), request.PathValue("documentID"),
+		request.URL.Query().Get("versionId"), request.URL.Query().Get("geometryKey"), request.URL.Query().Get("kind"), localID)
 	if err != nil {
 		if errors.Is(err, workspace.ErrNotFound) {
 			writeError(writer, http.StatusNotFound, err.Error())

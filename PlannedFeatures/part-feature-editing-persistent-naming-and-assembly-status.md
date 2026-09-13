@@ -1,6 +1,6 @@
 # Part 特征编辑、持久拓扑命名与装配约束状态开发计划
 
-状态：实施中；P0–P3 已完成，P4–P6 待实施
+状态：实施中；P0–P4 已完成，P5–P11 待实施
 日期：2026-09-12  
 适用基线：当前未发布、允许重建开发数据的 occccad 仓库
 
@@ -460,6 +460,8 @@ stateDiagram-v2
 
 验收：从正式 Router 路径创建基于 Part 面的约束；Part 编辑后 Product 先 NotUpdated，Update 后引用仍 Connected 并 Verified/Impossible；删除面后 Broken；无关 component 仍可求解；状态 provenance 可重放。
 
+实施状态：已于 2026-09-13 完成。Product 的 Face/Edge/Vertex endpoint 在服务端提交前把视口 `geometryKey + localId` pick evidence 绑定为 occurrence + source Revision + `PersistentSelection`，持久模型不再依赖 revision-local topology ID。每个 endpoint 保存包含 source/target Revision、manifest/policy digest 和完整 resolution result 的 `ResolutionSnapshot`；Constraint 独立保存 `NOT_UPDATED/BROKEN/IMPOSSIBLE/VERIFIED` evaluation status 与诊断。引用模式统一为 `FOLLOW_WORKSPACE_WITH_ACCEPT`：Part Head 改变只投影 NotUpdated，不静默改变 Product 使用的 Revision；typed `UPDATE_REFERENCES` 批量接受 Head、重解析 endpoint，并仅把 Connected constraints 送入正式 M2.5 Router 路径，Broken component 被隔离，非基础设施求解失败持久化为 Impossible。结构树、属性面板、viewport highlight 和刷新重载均消费持久 snapshot；P5 的统一编辑器与 Reconnect 交互仍待实施。
+
 ### 批次 P5：约束编辑与 Reconnect UX
 
 目标：四态和 Supporting Element 两态在实际创建/编辑对话框中可用。
@@ -488,12 +490,29 @@ stateDiagram-v2
 
 验收：C++ corpus、Go workspace/control integration、Proto Router、Web deterministic tests、production build、Playwright/浏览器人工验收全部通过；输出可保存的 resolution/solver replay 证据。
 
+### 批次 P7：Edge/Vertex Persistent Naming 与三维约束
+
+目标：边线及其端点不再只是 revision-local OCCT 元素，可以像已命名 Face 一样跨 Part Revision 参与 Product 三维约束。
+
+工作：
+
+- 扩展 Linear Extrude 的 semantic outputs：至少包含 cap boundary edge、profile edge 的 start/end vertex、vertical/generated edge，并以 profile region/loop/sketch entity/endpoint 稳定 ID 作为来源；
+- 从 Prism、Boolean 和 `ShapeUpgrade_UnifySameDomain` history 提取 Edge/Vertex 的 Generated/Modified/Unchanged/Split/Merged/Deleted，不能从最终 Shape 的遍历位置反推身份；
+- 为 curve/point 建立项目自有 evidence：curve type、长度、端点角色、参数范围、局部 frame、point position、相邻 Face/Edge semantic refs 和方向；数值签名只用于验真与消歧；
+- 把 P2 Shape gate 扩展到声明完整的 Face/Edge/Vertex 集合，校验每个 semantic result 的唯一 local ID、类型、lineage、live/tombstone 互斥和确定性 digest；
+- 扩展 P3 bind/resolver 及 topology corpus，覆盖边被合并、边分裂、顶点消失、退化短边、圆边 seam、Boolean 新交点和多候选歧义；任何歧义都返回 NotConnected；
+- 扩展 P4 Product endpoint、ResolutionSnapshot 和 descriptor adapter，使线性 Edge 解析为 Axis、Vertex 解析为 Point，并通过正式 Router 支持 Point/Line/Plane/Axis 相关装配约束；
+- 将“不支持 naming”与文档不存在、基础设施失败区分，统一返回稳定的 `PERSISTENT_SELECTION_UNAVAILABLE`、`TOPOLOGY_HISTORY_INCOMPLETE` 或具体 ambiguity/type diagnostic；几何解析前失败明确说明不会产生 3dreplay；
+- 贯通 Part/Product 属性面板、结构树、viewport highlight、Reconnect 以及刷新/Undo/Redo 后的两层状态。
+
+验收：矩形拉伸长度编辑、ADD/REMOVE、贯穿孔、侧开口、边 merge/split 和顶点删除均覆盖 C++ history corpus；Go bind/resolver 冷重建和 Product Update 覆盖 RESOLVED/MISSING/AMBIGUOUS/TYPE_MISMATCH；至少用 Vertex-Vertex、Vertex-Plane、linear Edge-Edge、linear Edge-Plane 场景经正式 Router 完成创建、更新、Broken 隔离与重连；Web production build、确定性交互测试及浏览器人工验收通过。
+
 ### 后续批次，不纳入本轮基础闭环
 
-- P7：Publication UI 与 contract；装配约束优先引用 Publication，支持替换零件自动重连。
-- P8：Revolve、面上草图、Fillet/Chamfer/Shell 的 semantic outputs 与 history。
-- P9：嵌套 Product、relative InstancePath、configuration 与正式 M3 SolveManifest。
-- P10：M5 最小冲突集，把 component-scope Impossible 细化到有证据的冲突约束集。
+- P8：Publication UI 与 contract；装配约束优先引用 Publication，支持替换零件自动重连。
+- P9：Revolve、面上草图、Fillet/Chamfer/Shell 的 semantic outputs 与 history。
+- P10：嵌套 Product、relative InstancePath、configuration 与正式 M3 SolveManifest。
+- P11：M5 最小冲突集，把 component-scope Impossible 细化到有证据的冲突约束集。
 
 ## 8. 验证矩阵
 

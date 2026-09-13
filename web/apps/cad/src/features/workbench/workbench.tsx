@@ -27,6 +27,7 @@ import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-wo
 import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
 import { useUIPreferences } from "../../state/ui-preferences";
 import type { AssemblyConstraint, AssemblyGeometryRef, DatumPlane, DocumentProperties, DocumentStructureNode, DocumentView, Feature, HistoryEntry, Selection, SelectionItem, SketchOperation, SketchPlane, ToolbarCatalogEntry, ToolbarCatalogItem, TopologyElementProperties, Vec3 } from "../../types";
+import { topologyPropertyContext } from "./topology-property-context";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { closestTreeKey } from "./tree-selection";
@@ -69,7 +70,8 @@ function toolbarGroups(items: ToolbarCatalogItem[]): Array<{ key: string; items:
 
 function assemblyReferenceLabel(reference: AssemblyGeometryRef | undefined): string {
   if (!reference) return "未选择";
-  const detail = reference.geometryId ?? (reference.topologyId ? `${reference.kind} ${reference.topologyId}` : reference.kind);
+  const resolved = reference.resolution?.result.candidates?.[0];
+  const detail = reference.geometryId ?? (resolved ? `${reference.kind} ${resolved.localId}` : reference.persistentSelection?.anchor.outputSlot ?? (reference.topologyId ? `${reference.kind} ${reference.topologyId}` : reference.kind));
   return `#${reference.instanceId} · ${detail}${reference.axis ? ` · ${reference.axis}` : ""}`;
 }
 
@@ -334,11 +336,12 @@ export function Workbench() {
   const catalog = useQuery({ queryKey: queryKeys.documents({ workbench: true }), queryFn: () => api.listDocuments({ limit: 100, allFolders: true }) });
   const topologySelection = store.selection && ["face", "edge", "vertex"].includes(store.selection.kind)
     ? store.selection as Extract<Exclude<Selection, null>, { kind: "face" | "edge" | "vertex" }> : undefined;
+  const topologyContext = topologyPropertyContext(topologySelection ?? null, activeID);
   const topology = useQuery({
-    queryKey: topologySelection ? queryKeys.topologyProperties(activeID, topologySelection.geometryKey ?? "",
-      topologySelection.kind, topologySelection.topologyId) : ["topology-properties", "none"],
-    queryFn: () => api.getTopologyProperties(activeID, topologySelection!.geometryKey!,
-      topologySelection!.kind.toUpperCase() as "FACE" | "EDGE" | "VERTEX", topologySelection!.topologyId),
+    queryKey: topologySelection ? queryKeys.topologyProperties(topologyContext.documentId, topologySelection.geometryKey ?? "",
+      topologySelection.kind, topologySelection.topologyId, topologySelection.versionId) : ["topology-properties", "none"],
+    queryFn: () => api.getTopologyProperties(topologyContext.documentId, topologySelection!.geometryKey!,
+      topologySelection!.kind.toUpperCase() as "FACE" | "EDGE" | "VERTEX", topologySelection!.topologyId, topologyContext.versionId),
     enabled: Boolean(activeID && inspectorOpen && store.inspectorTab === "properties" && topologySelection?.geometryKey), staleTime: 5 * 60_000,
   });
 
@@ -403,7 +406,7 @@ export function Workbench() {
         client.setQueryData(queryKeys.document(dependencyID), snapshot.view);
         return;
       }
-      // The Product Revision is unchanged, but its FOLLOW_HEAD projection is not.
+      // The Product Revision is unchanged, but its accepted-reference status may now be NOT_UPDATED.
       store.setSelection(null);
       void client.invalidateQueries({ queryKey: queryKeys.document(dependencyID) });
       void client.invalidateQueries({ queryKey: queryKeys.document(documentID) });
@@ -700,7 +703,7 @@ export function Workbench() {
       commandRegistry.register({ id: "product.reference.toggle", execute: () => {
         const instance = selectedInstance();
         if (editingView && instance) command.mutate(() => api.setReferenceMode(editingView.document.id, instance.id,
-          instance.referenceMode === "PINNED" ? "FOLLOW_HEAD" : "PINNED"));
+          instance.referenceMode === "PINNED" ? "FOLLOW_WORKSPACE_WITH_ACCEPT" : "PINNED"));
       }, isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit && selectedInstance()) }),
       ...(["fix", "rigid", "coincident", "concentric", "angle", "distance"] as const).map((constraint) => commandRegistry.register({
         id: `assembly.${constraint}`,
@@ -866,7 +869,8 @@ export function Workbench() {
             ? <Properties view={editingView ?? view} selection={store.selection} feature={selected}
               workbench={activeWorkbench} sketchPlane={store.sketchPlane} activeTool={store.activeToolID}
               navigationProfile={store.navigationProfile} diagnostics={properties.data}
-              topology={topology.data} topologyLoading={topology.isLoading} />
+              topology={topology.data} topologyLoading={topology.isLoading}
+              onUpdateReferences={() => command.mutate(() => api.updateReferences(activeID))} />
             : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}</div>
         </aside>
       </section></main>
@@ -977,7 +981,7 @@ export function Workbench() {
   </section></CommandProvider>;
 }
 
-function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading }: {
+function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading, onUpdateReferences }: {
   view: DocumentView;
   selection: Selection;
   feature?: Feature;
@@ -988,6 +992,7 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
   diagnostics?: DocumentProperties;
   topology?: TopologyElementProperties;
   topologyLoading?: boolean;
+  onUpdateReferences: () => void;
 }) {
   if (!selection) {
     const triangleCount = view.artifact?.mesh.triangles.length
@@ -1008,6 +1013,7 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
         { key: "navigation", label: "Navigation", children: navigationProfile.toUpperCase() },
         ...(sketchPlane ? [{ key: "plane", label: "Sketch Plane", children: sketchPlane.plane }] : []),
         { key: "history", label: "History", children: `Undo ${view.document.canUndo ? "Yes" : "No"} · Redo ${view.document.canRedo ? "Yes" : "No"}` },
+        ...(view.product?.instances.some((instance) => instance.headChanged) ? [{ key: "reference-update", label: "References", children: <Button size="small" onClick={onUpdateReferences}>接受并更新引用</Button> }] : []),
         { key: "geometry", label: "Display Geometry", children: `${geometryCount} object(s) · ${triangleCount} triangles` },
         { key: "topology", label: "Topology", children: diagnostics
           ? `${diagnostics.aggregate.solidCount} solid(s) · ${diagnostics.aggregate.vertexCount} vertices` : "Loading…" },
@@ -1074,6 +1080,16 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
     { key: "role", label: "角色", children: selection.role ?? "—" },
     { key: "reference", label: "Occurrence", children: selection.occurrencePath || "Part root" },
   ]} />;
+  if (selection.kind === "assembly-constraint") {
+    const constraint = view.product?.constraints?.find((value) => value.id === selection.constraintId);
+    return <Descriptions column={1} size="small" bordered className="property-list" items={[
+      { key: "type", label: "类型", children: constraint?.kind ?? selection.constraintType },
+      { key: "evaluation", label: "Evaluation", children: constraint?.evaluationStatus ?? "NOT_UPDATED" },
+      { key: "first-support", label: "First Support", children: constraint?.first.resolution?.result.supportingElementStatus ?? (constraint?.first.persistentSelection ? "NOT_CONNECTED" : "CONNECTED") },
+      { key: "second-support", label: "Second Support", children: constraint?.second?.resolution?.result.supportingElementStatus ?? (constraint?.second?.persistentSelection ? "NOT_CONNECTED" : "CONNECTED") },
+      { key: "diagnostic", label: "Diagnostic", children: constraint?.evaluationSummary ?? "—" },
+    ]} />;
+  }
   return <Descriptions column={1} size="small" bordered className="property-list" items={[
     { key: "type", label: "类型", children: selection.kind.toUpperCase() },
     { key: "name", label: "名称", children: feature?.name ?? instance?.name ?? selection.id },
@@ -1083,7 +1099,8 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
       { key: "solve", label: "求解", children: `${feature.sketch.solve.status} · ${feature.sketch.solve.degreesOfFreedom} DoF` }] : []),
     ...(feature?.length ? [{ key: "length", label: "长度", children: `${feature.length} mm` }] : []),
     ...(instance ? [{ key: "transform", label: "位移", children: instance.translation.map((value) => value.toFixed(2)).join(", ") },
-    { key: "reference", label: "引用", children: instance.referenceMode ?? "FOLLOW_HEAD" }] : []),
+    { key: "reference", label: "引用", children: instance.referenceMode ?? "FOLLOW_WORKSPACE_WITH_ACCEPT" },
+    ...(instance.headChanged ? [{ key: "reference-status", label: "状态", children: <Button size="small" onClick={onUpdateReferences}>NOT_UPDATED · 接受更新</Button> }] : [])] : []),
   ]} />;
 }
 

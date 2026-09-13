@@ -275,26 +275,39 @@ type InstancePose struct {
 }
 
 type AssemblyGeometryRef struct {
-	InstanceID  string `json:"instanceId"`
-	Kind        string `json:"kind"`
-	GeometryID  string `json:"geometryId,omitempty"`
-	Axis        string `json:"axis,omitempty"`
-	GeometryKey string `json:"geometryKey,omitempty"`
-	TopologyID  uint64 `json:"topologyId,omitempty"`
+	InstanceID          string                         `json:"instanceId"`
+	Kind                string                         `json:"kind"`
+	GeometryID          string                         `json:"geometryId,omitempty"`
+	Axis                string                         `json:"axis,omitempty"`
+	PersistentSelection *modelcore.PersistentSelection `json:"persistentSelection,omitempty"`
+	SourceVersionID     string                         `json:"sourceVersionId,omitempty"`
+	Resolution          *ResolutionSnapshot            `json:"resolution,omitempty"`
+	GeometryKey         string                         `json:"geometryKey,omitempty"` // transient pick evidence
+	TopologyID          uint64                         `json:"topologyId,omitempty"`  // transient pick evidence
+}
+
+type ResolutionSnapshot struct {
+	SourceVersionID string                        `json:"sourceVersionId"`
+	TargetVersionID string                        `json:"targetVersionId"`
+	ManifestDigest  string                        `json:"manifestDigest"`
+	PolicyDigest    string                        `json:"policyDigest"`
+	Result          modelcore.SelectionResolution `json:"result"`
 }
 
 type AssemblyConstraint struct {
-	ID                      string               `json:"id"`
-	ConnectionID            string               `json:"connectionId,omitempty"`
-	Kind                    string               `json:"kind"`
-	Mode                    string               `json:"mode,omitempty"`
-	First                   AssemblyGeometryRef  `json:"first"`
-	Second                  *AssemblyGeometryRef `json:"second,omitempty"`
-	Value                   float64              `json:"value,omitempty"`
-	DirectionRelation       string               `json:"directionRelation,omitempty"`
-	DistanceRelation        string               `json:"distanceRelation,omitempty"`
-	AngleReferenceDirection *[3]float64          `json:"angleReferenceDirection,omitempty"`
-	FixedPose               *InstancePose        `json:"fixedPose,omitempty"`
+	ID                      string                                       `json:"id"`
+	ConnectionID            string                                       `json:"connectionId,omitempty"`
+	Kind                    string                                       `json:"kind"`
+	Mode                    string                                       `json:"mode,omitempty"`
+	First                   AssemblyGeometryRef                          `json:"first"`
+	Second                  *AssemblyGeometryRef                         `json:"second,omitempty"`
+	Value                   float64                                      `json:"value,omitempty"`
+	DirectionRelation       string                                       `json:"directionRelation,omitempty"`
+	DistanceRelation        string                                       `json:"distanceRelation,omitempty"`
+	AngleReferenceDirection *[3]float64                                  `json:"angleReferenceDirection,omitempty"`
+	FixedPose               *InstancePose                                `json:"fixedPose,omitempty"`
+	EvaluationStatus        modelcore.AssemblyConstraintEvaluationStatus `json:"evaluationStatus"`
+	EvaluationSummary       string                                       `json:"evaluationSummary,omitempty"`
 }
 
 type ProductModel struct {
@@ -1667,17 +1680,27 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 	}
 	for index := range model.Instances {
 		instance := &model.Instances[index]
-		if instance.ReferenceMode == "" {
-			instance.ReferenceMode = "FOLLOW_HEAD"
+		if instance.ReferenceMode == "" || instance.ReferenceMode == "FOLLOW_HEAD" {
+			instance.ReferenceMode = "FOLLOW_WORKSPACE_WITH_ACCEPT"
 		}
 		instance.ResolvedVersionID = instance.ReferencedVersionID
-		if instance.ReferenceMode == "FOLLOW_HEAD" {
+		if instance.ReferenceMode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
+			var head string
 			if err := service.database.QueryRow(ctx,
 				`SELECT head_version_id::text FROM occccad.documents WHERE id=$1`,
-				instance.ReferencedDocumentID).Scan(&instance.ResolvedVersionID); err != nil {
+				instance.ReferencedDocumentID).Scan(&head); err != nil {
 				return view, err
 			}
-			instance.HeadChanged = instance.ResolvedVersionID != instance.ReferencedVersionID
+			instance.HeadChanged = head != instance.ReferencedVersionID
+		}
+		if instance.HeadChanged {
+			for constraintIndex := range model.Constraints {
+				constraint := &model.Constraints[constraintIndex]
+				if constraint.First.InstanceID == instance.ID || (constraint.Second != nil && constraint.Second.InstanceID == instance.ID) {
+					constraint.EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
+					constraint.EvaluationSummary = "referenced Part has a newer unaccepted workspace revision"
+				}
+			}
 		}
 	}
 	view.Product = &model
@@ -2193,7 +2216,7 @@ func (service *Service) mutateProduct(
 			ID: newID("instance"), Name: instanceName,
 			ReferencedDocumentID: referenceID, ReferencedVersionID: versionID,
 			Translation:   request.Translation,
-			ReferenceMode: "FOLLOW_HEAD",
+			ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT",
 		})
 	case "MOVE_INSTANCE":
 		if !finite(request.Translation[0]) || !finite(request.Translation[1]) || !finite(request.Translation[2]) {
@@ -2212,8 +2235,11 @@ func (service *Service) mutateProduct(
 		}
 	case "SET_REFERENCE_MODE":
 		mode := strings.ToUpper(request.ReferenceMode)
-		if mode != "FOLLOW_HEAD" && mode != "PINNED" {
-			return fmt.Errorf("%w: reference mode must be FOLLOW_HEAD or PINNED", ErrValidation)
+		if mode == "FOLLOW_HEAD" {
+			mode = "FOLLOW_WORKSPACE_WITH_ACCEPT"
+		}
+		if mode != "FOLLOW_WORKSPACE_WITH_ACCEPT" && mode != "PINNED" {
+			return fmt.Errorf("%w: reference mode must be FOLLOW_WORKSPACE_WITH_ACCEPT or PINNED", ErrValidation)
 		}
 		found := false
 		for index := range model.Instances {
@@ -2792,6 +2818,12 @@ func topologyProperties(source []*workerv1.TopologyProperty) map[string]any {
 func (service *Service) GetTopologyElementProperties(
 	ctx context.Context, documentID, geometryKey, kind string, localID uint64,
 ) (TopologyElementProperties, error) {
+	return service.GetTopologyElementPropertiesAtVersion(ctx, documentID, "", geometryKey, kind, localID)
+}
+
+func (service *Service) GetTopologyElementPropertiesAtVersion(
+	ctx context.Context, documentID, versionID, geometryKey, kind string, localID uint64,
+) (TopologyElementProperties, error) {
 	kind = strings.ToUpper(strings.TrimSpace(kind))
 	if (kind != "FACE" && kind != "EDGE" && kind != "VERTEX") || localID == 0 {
 		return TopologyElementProperties{}, fmt.Errorf("%w: kind must be FACE, EDGE, or VERTEX and localId must be positive", ErrValidation)
@@ -2893,11 +2925,13 @@ func (service *Service) GetTopologyElementProperties(
 		value := [3]float64{point.GetX(), point.GetY(), point.GetZ()}
 		result.Point, result.Properties = &value, topologyProperties(item.GetProperties())
 	}
-	var headVersionID string
-	if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&headVersionID); err == nil {
-		selection, bindErr := service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{SourceVersionID: headVersionID, GeometryKey: geometryKey, Kind: kind, LocalID: localID})
+	if versionID == "" {
+		_ = service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&versionID)
+	}
+	if versionID != "" {
+		selection, bindErr := service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{SourceVersionID: versionID, GeometryKey: geometryKey, Kind: kind, LocalID: localID})
 		if bindErr == nil {
-			resolution, resolveErr := service.ResolvePersistentSelection(ctx, documentID, ResolvePersistentSelectionRequest{Selection: selection, SourceVersionID: headVersionID, TargetVersionID: headVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+			resolution, resolveErr := service.ResolvePersistentSelection(ctx, documentID, ResolvePersistentSelectionRequest{Selection: selection, SourceVersionID: versionID, TargetVersionID: versionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
 			if resolveErr == nil {
 				result.PersistentSelection = &selection
 				result.NamingResolution = &resolution
@@ -3101,16 +3135,12 @@ func (service *Service) buildDocumentStructure(
 		return DocumentStructureNode{}, err
 	}
 	root.Children = make([]DocumentStructureNode, 0, len(model.Instances))
+	staleInstances := map[string]bool{}
 	for _, instance := range model.Instances {
 		resolvedVersionID := instance.ReferencedVersionID
 		mode := strings.ToUpper(instance.ReferenceMode)
 		if mode == "" || mode == "FOLLOW_HEAD" {
-			mode = "FOLLOW_HEAD"
-			if err := service.database.QueryRow(ctx,
-				`SELECT head_version_id::text FROM occccad.documents WHERE id=$1`,
-				instance.ReferencedDocumentID).Scan(&resolvedVersionID); err != nil {
-				return DocumentStructureNode{}, err
-			}
+			mode = "FOLLOW_WORKSPACE_WITH_ACCEPT"
 		}
 		instanceNodePath := path + "/instance:" + instance.ID
 		childIdentity := appendInstancePath(occurrenceIdentity, InstancePathSegment{
@@ -3129,6 +3159,14 @@ func (service *Service) buildDocumentStructure(
 			VersionID: resolvedVersionID, ReferenceMode: mode, InstancePath: &childIdentity, Children: reference.Children,
 		}
 		instanceNode.Capabilities = []string{"DELETE"}
+		if mode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
+			var head string
+			if service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&head) == nil && head != instance.ReferencedVersionID {
+				staleInstances[instance.ID] = true
+				instanceNode.Diagnostic = "NOT_UPDATED: referenced workspace has a newer revision"
+				instanceNode.Capabilities = append(instanceNode.Capabilities, "UPDATE_REFERENCES")
+			}
+		}
 		root.Children = append(root.Children, instanceNode)
 	}
 	if len(model.Constraints) > 0 {
@@ -3146,9 +3184,13 @@ func (service *Service) buildDocumentStructure(
 				name += "，#" + names[constraint.Second.InstanceID]
 			}
 			name += "）"
+			status, summary := constraint.EvaluationStatus, constraint.EvaluationSummary
+			if staleInstances[constraint.First.InstanceID] || (constraint.Second != nil && staleInstances[constraint.Second.InstanceID]) {
+				status, summary = modelcore.AssemblyConstraintNotUpdated, "referenced Part has a newer unaccepted workspace revision"
+			}
 			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/constraint:" + constraint.ID,
 				Kind: "ASSEMBLY_CONSTRAINT", Name: name, EntityID: constraint.ID, EntityType: constraint.Kind,
-				DocumentID: documentID, Capabilities: []string{"DELETE"}})
+				DocumentID: documentID, Diagnostic: string(status) + ": " + summary, Capabilities: []string{"DELETE"}})
 		}
 		root.Children = append(root.Children, group)
 	}
@@ -3213,13 +3255,6 @@ func (service *Service) resolveProduct(
 	for _, instance := range model.Instances {
 		childPose := composeInstancePose(parent, InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)})
 		resolvedVersionID := instance.ReferencedVersionID
-		if instance.ReferenceMode == "" || instance.ReferenceMode == "FOLLOW_HEAD" {
-			if err := service.database.QueryRow(ctx,
-				`SELECT head_version_id::text FROM occccad.documents WHERE id=$1`,
-				instance.ReferencedDocumentID).Scan(&resolvedVersionID); err != nil {
-				return err
-			}
-		}
 		childPath := appendInstancePath(instancePath, InstancePathSegment{
 			OwnerDocumentID: documentID, OwnerVersionID: versionID, InstanceID: instance.ID,
 			InstanceName: instance.Name, ReferencedDocumentID: instance.ReferencedDocumentID,

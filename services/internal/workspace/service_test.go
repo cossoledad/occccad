@@ -974,18 +974,18 @@ func TestPartCommandValidation(t *testing.T) {
 	}
 }
 
-func TestProductFollowHeadIsDefaultAndUndoableModelState(t *testing.T) {
+func TestProductFollowWorkspaceWithAcceptIsUndoableModelState(t *testing.T) {
 	t.Parallel()
 	model := ProductModel{Instances: []ProductInstance{{
 		ID: "instance-1", ReferencedDocumentID: "document-1", ReferencedVersionID: "version-1",
 	}}}
 	service := &Service{}
 	if err := service.mutateProduct(t.Context(), nil, "product-1", &model, CommandRequest{
-		Type: "SET_REFERENCE_MODE", InstanceID: "instance-1", ReferenceMode: "FOLLOW_HEAD",
+		Type: "SET_REFERENCE_MODE", InstanceID: "instance-1", ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT",
 	}); err != nil {
 		t.Fatalf("set follow-head reference: %v", err)
 	}
-	if model.Instances[0].ReferenceMode != "FOLLOW_HEAD" {
+	if model.Instances[0].ReferenceMode != "FOLLOW_WORKSPACE_WITH_ACCEPT" {
 		t.Fatalf("unexpected reference mode: %q", model.Instances[0].ReferenceMode)
 	}
 }
@@ -999,6 +999,33 @@ func TestProductReferenceModeValidation(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), ErrValidation.Error()) {
 		t.Fatalf("invalid reference mode should be rejected, got %v", err)
+	}
+}
+
+func TestUpdateReferencesPersistsAcceptedVersionAndTwoLayerStatus(t *testing.T) {
+	selection := testSelection()
+	before := ProductModel{Instances: []ProductInstance{{ID: "a", ReferencedVersionID: "part-v1", ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"}}, Constraints: []AssemblyConstraint{{ID: "mate", Kind: "COINCIDENT", First: AssemblyGeometryRef{InstanceID: "a", Kind: "FACE", PersistentSelection: &selection, SourceVersionID: "part-v1"}, EvaluationStatus: modelcore.AssemblyConstraintNotUpdated}}}
+	after := before
+	after.Instances = append([]ProductInstance(nil), before.Instances...)
+	after.Instances[0].ReferencedVersionID = "part-v2"
+	after.Constraints = append([]AssemblyConstraint(nil), before.Constraints...)
+	after.Constraints[0].EvaluationStatus = modelcore.AssemblyConstraintBroken
+	after.Constraints[0].EvaluationSummary = "support resolution: first=MISSING"
+	modelJSON, _ := json.Marshal(before)
+	payloadJSON, _ := json.Marshal(updateReferencesPayload{Model: after})
+	nextJSON, changes, err := applyUpdateReferences(modelJSON, payloadJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var next ProductModel
+	if err := json.Unmarshal(nextJSON, &next); err != nil {
+		t.Fatal(err)
+	}
+	if next.Instances[0].ReferencedVersionID != "part-v2" || next.Constraints[0].EvaluationStatus != modelcore.AssemblyConstraintBroken {
+		t.Fatalf("updated model = %#v", next)
+	}
+	if len(changes.Changes) != 2 {
+		t.Fatalf("reference update changes = %#v", changes.Changes)
 	}
 }
 
@@ -1151,16 +1178,18 @@ func TestFixAndRigidRejectTransientGeometryReferences(t *testing.T) {
 	}
 }
 
-func TestRevisionLocalTopologyIDCannotCrossPartRegeneration(t *testing.T) {
+func TestAssemblyTopologyReferenceRequiresPersistentSelection(t *testing.T) {
 	t.Parallel()
-	selectedAtTwentyMillimeters := AssemblyGeometryRef{
+	transient := AssemblyGeometryRef{
 		InstanceID: "part-1", Kind: "FACE", GeometryKey: "sha256:pad-20mm", TopologyID: 1,
 	}
-	if err := validateRevisionLocalTopologyReference(selectedAtTwentyMillimeters, "sha256:pad-20mm"); err != nil {
-		t.Fatalf("current-revision topology reference was rejected: %v", err)
+	if err := validatePersistentAssemblyReference(transient); err == nil {
+		t.Fatal("transient topology pick was accepted as a persistent Product reference")
 	}
-	if err := validateRevisionLocalTopologyReference(selectedAtTwentyMillimeters, "sha256:pad-40mm"); err == nil {
-		t.Fatal("legacy geometryKey/topologyId reference incorrectly survived Part regeneration")
+	selection := testSelection()
+	persistent := AssemblyGeometryRef{InstanceID: "part-1", Kind: "FACE", PersistentSelection: &selection, SourceVersionID: "part-v1"}
+	if err := validatePersistentAssemblyReference(persistent); err != nil {
+		t.Fatalf("persistent selection was rejected: %v", err)
 	}
 }
 

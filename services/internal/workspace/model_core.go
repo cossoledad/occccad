@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -35,6 +36,7 @@ const (
 	typeAddAssemblyConstraint  = "occccad://product/assembly-constraint/add"
 	typeEditAssemblyConstraint = "occccad://product/assembly-constraint/edit"
 	typeSetReferenceMode       = "occccad://product/instance/reference-mode/set"
+	typeUpdateReferences       = "occccad://product/references/update"
 	typeDeletePartNode         = "occccad://part/node/delete"
 	typeDeleteProductNode      = "occccad://product/node/delete"
 	typeDeletePartNodes        = "occccad://part/nodes/delete"
@@ -73,6 +75,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeAddAssemblyConstraint, "PRODUCT", applyAddAssemblyConstraint},
 		commandHandler{typeEditAssemblyConstraint, "PRODUCT", applyEditAssemblyConstraint},
 		commandHandler{typeSetReferenceMode, "PRODUCT", applyReferenceMode},
+		commandHandler{typeUpdateReferences, "PRODUCT", applyUpdateReferences},
 		commandHandler{typeDeletePartNode, "PART", applyDeletePartNode},
 		commandHandler{typeDeleteProductNode, "PRODUCT", applyDeleteProductNode},
 		commandHandler{typeDeletePartNodes, "PART", applyDeletePartNodes},
@@ -1127,6 +1130,44 @@ func applyReferenceMode(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected instance does not exist", ErrValidation)
 }
 
+type updateReferencesPayload struct {
+	Model ProductModel `json:"model"`
+}
+
+func applyUpdateReferences(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var before ProductModel
+	var payload updateReferencesPayload
+	if err := json.Unmarshal(modelJSON, &before); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	changes := []modelcore.ModelChange{}
+	beforeInstances := map[string]ProductInstance{}
+	for _, value := range before.Instances {
+		beforeInstances[value.ID] = value
+	}
+	for _, value := range payload.Model.Instances {
+		if old, ok := beforeInstances[value.ID]; ok && (old.ReferenceMode != value.ReferenceMode || old.ReferencedVersionID != value.ReferencedVersionID) {
+			change, _ := modelcore.NewChange(modelcore.ChangeBind, modelcore.PropertyAddress{EntityID: value.ID, SlotID: "instance.reference"}, struct{ Mode, Version string }{old.ReferenceMode, old.ReferencedVersionID}, struct{ Mode, Version string }{value.ReferenceMode, value.ReferencedVersionID})
+			changes = append(changes, change)
+		}
+	}
+	beforeConstraints := map[string]AssemblyConstraint{}
+	for _, value := range before.Constraints {
+		beforeConstraints[value.ID] = value
+	}
+	for _, value := range payload.Model.Constraints {
+		if old, ok := beforeConstraints[value.ID]; ok && !reflect.DeepEqual(old, value) {
+			change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: value.ID, SlotID: "assembly-constraint.entity"}, old, value)
+			changes = append(changes, change)
+		}
+	}
+	next, _ := json.Marshal(payload.Model)
+	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: []modelcore.DependencyKey{"product:references"}}, nil
+}
+
 type preparedDomainMutation struct {
 	workspaceID, headRevision, documentType, requestDigest, requestID, actorID string
 	headSequence                                                               uint64
@@ -1267,8 +1308,22 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 				solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 			}
 			if err = service.solveAssembly(ctx, documentID, prepared.requestID, drivenInstanceID, solveIntent, &model, ""); err != nil {
-				finishSolve()
-				return err
+				if prepared.command.TypeURI != typeUpdateReferences {
+					finishSolve()
+					return err
+				}
+				var failure *assemblySolveFailure
+				if !errors.As(err, &failure) || failure.retryable {
+					finishSolve()
+					return err
+				}
+				for index := range model.Constraints {
+					if model.Constraints[index].EvaluationStatus != modelcore.AssemblyConstraintBroken {
+						model.Constraints[index].EvaluationStatus = modelcore.AssemblyConstraintImpossible
+						model.Constraints[index].EvaluationSummary = failure.code + ": " + failure.diagnostic
+					}
+				}
+				err = nil
 			}
 			finishSolve()
 		}
@@ -2110,7 +2165,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, err
 		}
 		instanceName := nextInstanceName(product, name)
-		return typeInsertInstance, insertInstancePayload{Instance: ProductInstance{ID: newID("instance"), Name: instanceName, ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Translation: request.Translation, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: "FOLLOW_HEAD"}}, nil
+		return typeInsertInstance, insertInstancePayload{Instance: ProductInstance{ID: newID("instance"), Name: instanceName, ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Translation: request.Translation, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT"}}, nil
 	case "MOVE_INSTANCE":
 		if documentType != "PRODUCT" {
 			break
@@ -2142,9 +2197,21 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if kind == "ANGLE" && (request.Value < 0 || request.Value > 2*math.Pi) {
 			return "", nil, fmt.Errorf("%w: assembly angle must be in [0, 2pi]", ErrValidation)
 		}
+		var product ProductModel
+		if err := json.Unmarshal(modelJSON, &product); err != nil {
+			return "", nil, err
+		}
+		if err := service.bindAssemblyPick(ctx, &product, request.FirstAssemblyRef); err != nil {
+			return "", nil, err
+		}
+		if request.SecondAssemblyRef != nil {
+			if err := service.bindAssemblyPick(ctx, &product, request.SecondAssemblyRef); err != nil {
+				return "", nil, err
+			}
+		}
 		constraint := AssemblyConstraint{ID: newID("assembly-constraint"), ConnectionID: newID("assembly-connection"), Kind: kind, Mode: "DRIVING", First: *request.FirstAssemblyRef,
 			Second: request.SecondAssemblyRef, Value: request.Value, DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation),
-			AngleReferenceDirection: request.AngleReferenceDirection}
+			AngleReferenceDirection: request.AngleReferenceDirection, EvaluationStatus: modelcore.AssemblyConstraintVerified}
 		if constraint.DirectionRelation == "" {
 			constraint.DirectionRelation = "UNORIENTED"
 		}
@@ -2190,6 +2257,20 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if request.FirstAssemblyRef != nil && request.SecondAssemblyRef != nil &&
 			request.FirstAssemblyRef.InstanceID == request.SecondAssemblyRef.InstanceID {
 			return "", nil, fmt.Errorf("%w: a binary assembly constraint requires two different instances", ErrValidation)
+		}
+		var bindingModel ProductModel
+		if err := json.Unmarshal(modelJSON, &bindingModel); err != nil {
+			return "", nil, err
+		}
+		if request.FirstAssemblyRef != nil {
+			if err := service.bindAssemblyPick(ctx, &bindingModel, request.FirstAssemblyRef); err != nil {
+				return "", nil, err
+			}
+		}
+		if request.SecondAssemblyRef != nil {
+			if err := service.bindAssemblyPick(ctx, &bindingModel, request.SecondAssemblyRef); err != nil {
+				return "", nil, err
+			}
 		}
 		var editedFixedPose *InstancePose
 		var product ProductModel
@@ -2239,8 +2320,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			break
 		}
 		mode := strings.ToUpper(request.ReferenceMode)
-		if mode != "FOLLOW_HEAD" && mode != "PINNED" {
-			return "", nil, fmt.Errorf("%w: reference mode must be FOLLOW_HEAD or PINNED", ErrValidation)
+		if mode == "FOLLOW_HEAD" {
+			mode = "FOLLOW_WORKSPACE_WITH_ACCEPT"
+		}
+		if mode != "FOLLOW_WORKSPACE_WITH_ACCEPT" && mode != "PINNED" {
+			return "", nil, fmt.Errorf("%w: reference mode must be FOLLOW_WORKSPACE_WITH_ACCEPT or PINNED", ErrValidation)
 		}
 		var model ProductModel
 		_ = json.Unmarshal(modelJSON, &model)
@@ -2260,6 +2344,18 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 		}
 		return typeSetReferenceMode, referenceModePayload{request.InstanceID, mode, pinned}, nil
+	case "UPDATE_REFERENCES":
+		if documentType != "PRODUCT" {
+			break
+		}
+		var model ProductModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		if err := service.updateProductReferences(ctx, &model); err != nil {
+			return "", nil, err
+		}
+		return typeUpdateReferences, updateReferencesPayload{Model: model}, nil
 	case "DELETE_NODE":
 		kind := strings.ToUpper(strings.TrimSpace(request.TargetKind))
 		id := strings.TrimSpace(request.TargetID)

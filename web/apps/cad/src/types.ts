@@ -136,16 +136,19 @@ export type ProductInstance = {
   versionId: string;
   translation: Vec3;
   rotation?: [number, number, number, number];
-  referenceMode?: "FOLLOW_HEAD" | "PINNED";
+  referenceMode?: "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED";
   resolvedVersionId?: string;
   headChanged?: boolean;
 };
 
 export type AssemblyGeometryRef = { instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER" | "FACE" | "EDGE" | "VERTEX";
-  geometryId?: string; axis?: string; geometryKey?: string; topologyId?: number };
+  geometryId?: string; axis?: string; geometryKey?: string; topologyId?: number; sourceVersionId?: string;
+  persistentSelection?: PersistentSelection; resolution?: { sourceVersionId: string; targetVersionId: string;
+    manifestDigest: string; policyDigest: string; result: SelectionResolution } };
 export type AssemblyConstraint = { id: string; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE";
   first: AssemblyGeometryRef; second?: AssemblyGeometryRef; value?: number; directionRelation?: string; distanceRelation?: string;
-  angleReferenceDirection?: Vec3 };
+  angleReferenceDirection?: Vec3; evaluationStatus: "NOT_UPDATED" | "BROKEN" | "IMPOSSIBLE" | "VERIFIED";
+  evaluationSummary?: string };
 
 export type InstancePathSegment = {
   ownerDocumentId: string;
@@ -252,7 +255,7 @@ export type DocumentStructureNode = {
   versionId?: string;
   plane?: PlaneName | "CUSTOM";
   axis?: "X" | "Y" | "Z";
-  referenceMode?: "FOLLOW_HEAD" | "PINNED";
+  referenceMode?: "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED";
   instancePath?: InstancePath;
   ownerEntityId?: string;
   entityType?: string;
@@ -282,6 +285,7 @@ export type SelectionIdentity = {
   treeNodeId?: string;
   expandTreeDescendants?: boolean;
   documentId?: string;
+  versionId?: string;
   occurrencePath?: string;
   instancePath?: InstancePath;
   geometryKey?: string;

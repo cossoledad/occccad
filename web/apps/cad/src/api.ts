@@ -182,8 +182,9 @@ export const restApi = {
   },
   getDocument: (id: string) => request<DocumentView>(`/api/documents/${id}`),
   getDocumentProperties: (id: string) => request<DocumentProperties>(`/api/documents/${id}/properties`),
-  getTopologyProperties: (id: string, geometryKey: string, kind: "FACE" | "EDGE" | "VERTEX", localId: number) => {
+  getTopologyProperties: (id: string, geometryKey: string, kind: "FACE" | "EDGE" | "VERTEX", localId: number, versionId?: string) => {
     const query = new URLSearchParams({ geometryKey, kind, localId: String(localId) });
+    if (versionId) query.set("versionId", versionId);
     return request<TopologyElementProperties>(`/api/documents/${id}/topology-properties?${query}`);
   },
   getHistory: async (id: string): Promise<HistoryEntry[]> =>
@@ -275,8 +276,9 @@ export const restApi = {
   editAssemblyConstraint: (documentId: string, constraintId: string, input: { value: number; directionRelation: string; distanceRelation: string;
 	firstAssemblyRef?: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef; angleReferenceDirection?: Vec3; previewId?: string }) =>
     restApi.command(documentId, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),
-  setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_HEAD" | "PINNED") =>
+  setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED") =>
     restApi.command(documentId, { type: "SET_REFERENCE_MODE", instanceId, referenceMode }),
+  updateReferences: (documentId: string) => restApi.command(documentId, { type: "UPDATE_REFERENCES" }),
   undo: (documentId: string) => restApi.command(documentId, { type: "UNDO" }),
   redo: (documentId: string) => restApi.command(documentId, { type: "REDO" }),
   restore: (documentId: string, versionId: string) =>
