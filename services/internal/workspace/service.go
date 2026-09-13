@@ -564,19 +564,34 @@ type CommandRequest struct {
 // used by ApplyCommand. The base revision lets clients reject a response that
 // arrived after the workspace head changed.
 type CommandPreview struct {
-	AssemblySolverBuild string                          `json:"assemblySolverBuild,omitempty"`
-	AssemblyComponents  []geometry.AssemblyComponentDof `json:"assemblyComponents,omitempty"`
-	PreviewID           string                          `json:"previewId"`
-	BaseVersionID       string                          `json:"baseVersionId"`
-	BaseSequence        uint64                          `json:"baseSequence"`
-	ModelHash           string                          `json:"modelHash"`
-	Artifact            *Artifact                       `json:"artifact,omitempty"`
-	ConstraintLimited   bool                            `json:"constraintLimited,omitempty"`
-	InstancePoses       []struct {
+	AssemblySolverBuild  string                               `json:"assemblySolverBuild,omitempty"`
+	AssemblyComponents   []geometry.AssemblyComponentDof      `json:"assemblyComponents,omitempty"`
+	PreviewID            string                               `json:"previewId"`
+	BaseVersionID        string                               `json:"baseVersionId"`
+	BaseSequence         uint64                               `json:"baseSequence"`
+	ModelHash            string                               `json:"modelHash"`
+	Artifact             *Artifact                            `json:"artifact,omitempty"`
+	ConstraintLimited    bool                                 `json:"constraintLimited,omitempty"`
+	ConstraintEvaluation *AssemblyConstraintPreviewEvaluation `json:"constraintEvaluation,omitempty"`
+	InstancePoses        []struct {
 		InstanceID  string     `json:"instanceId"`
 		Translation [3]float64 `json:"translation"`
 		Rotation    [4]float64 `json:"rotation"`
 	} `json:"instancePoses,omitempty"`
+}
+
+type AssemblySupportPreviewEvaluation struct {
+	Status         modelcore.SupportingElementStatus `json:"status"`
+	DiagnosticCode string                            `json:"diagnosticCode,omitempty"`
+	Diagnostic     string                            `json:"diagnostic,omitempty"`
+}
+
+type AssemblyConstraintPreviewEvaluation struct {
+	ConstraintID string                                       `json:"constraintId"`
+	Status       modelcore.AssemblyConstraintEvaluationStatus `json:"status"`
+	Summary      string                                       `json:"summary,omitempty"`
+	First        AssemblySupportPreviewEvaluation             `json:"first"`
+	Second       *AssemblySupportPreviewEvaluation            `json:"second,omitempty"`
 }
 
 type HistoryEntry struct {
@@ -3185,13 +3200,29 @@ func (service *Service) buildDocumentStructure(
 			if staleInstances[constraint.First.InstanceID] || (constraint.Second != nil && staleInstances[constraint.Second.InstanceID]) {
 				status, summary = modelcore.AssemblyConstraintNotUpdated, "referenced Part has a newer unaccepted workspace revision"
 			}
+			capabilities := assemblyConstraintStructureCapabilities(constraint, status)
 			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/constraint:" + constraint.ID,
 				Kind: "ASSEMBLY_CONSTRAINT", Name: name, EntityID: constraint.ID, EntityType: constraint.Kind,
-				DocumentID: documentID, Diagnostic: string(status) + ": " + summary, Capabilities: []string{"DELETE"}})
+				DocumentID: documentID, Diagnostic: string(status) + ": " + summary, Capabilities: capabilities})
 		}
 		root.Children = append(root.Children, group)
 	}
 	return root, nil
+}
+
+func assemblyConstraintStructureCapabilities(constraint AssemblyConstraint, status modelcore.AssemblyConstraintEvaluationStatus) []string {
+	capabilities := []string{"EDIT", "DELETE"}
+	firstDisconnected := constraint.First.Resolution != nil && constraint.First.Resolution.Result.SupportingElementStatus == modelcore.SupportingElementNotConnected
+	secondDisconnected := constraint.Second != nil && constraint.Second.Resolution != nil && constraint.Second.Resolution.Result.SupportingElementStatus == modelcore.SupportingElementNotConnected
+	// BROKEN is authoritative evidence that at least one support failed even
+	// when an older snapshot has no endpoint-level resolution payload.
+	if status == modelcore.AssemblyConstraintBroken || firstDisconnected || secondDisconnected {
+		capabilities = append(capabilities, "RECONNECT")
+	}
+	if status != modelcore.AssemblyConstraintVerified {
+		capabilities = append(capabilities, "REFRESH")
+	}
+	return capabilities
 }
 
 func (service *Service) resolveProduct(

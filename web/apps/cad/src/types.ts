@@ -61,6 +61,9 @@ export type CommandPreview = {
   artifact?: Artifact;
   constraintLimited?: boolean;
   instancePoses?: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;
+  constraintEvaluation?: { constraintId: string; status: AssemblyConstraint["evaluationStatus"]; summary?: string;
+    first: { status: "CONNECTED" | "NOT_CONNECTED"; diagnosticCode?: string; diagnostic?: string };
+    second?: { status: "CONNECTED" | "NOT_CONNECTED"; diagnosticCode?: string; diagnostic?: string } };
 };
 
 export type DatumPlane = { id: string; name: string; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3; size: number };
@@ -263,7 +266,7 @@ export type DocumentStructureNode = {
   suppressed?: boolean;
   diagnostic?: string;
   definitionDigest?: string;
-  capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT">;
+  capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT" | "RECONNECT" | "REFRESH">;
   children?: DocumentStructureNode[];
 };
 

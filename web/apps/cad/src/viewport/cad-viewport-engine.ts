@@ -31,6 +31,7 @@ import { sampleSketchEntity, sketchEntityPoint } from "../cad/sketch/sketch-geom
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
 import { manipulatorFrame, transformAroundWorldPivot, viewportMetrics, worldUnitsPerCssPixel } from "../cad/rendering/viewport-metrics";
 import { randomUUID } from "../utils/random-uuid";
+import { assemblyConstraintGlyph } from "../cad/assembly/assembly-constraint-ux";
 import { ArcSketchTool, AssemblyConstraintTool, AssemblyMoveTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type AssemblyConstraintToolKind, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
@@ -874,38 +875,49 @@ export class CadViewportEngine {
     const glyphs: Record<import("../types").AssemblyConstraint["kind"], number> = {
       FIX: 2, RIGID: 7, COINCIDENT: 0, CONCENTRIC: 13, ANGLE: 12, DISTANCE: 8,
     };
+    const statusColors: Record<import("../types").AssemblyConstraint["evaluationStatus"], number> = {
+      VERIFIED: CATIA_VISUAL_THEME.constraint, NOT_UPDATED: 0xf0b44d, IMPOSSIBLE: 0xc56ad7, BROKEN: CATIA_VISUAL_THEME.sketchInvalid,
+    };
     for (const constraint of view.product?.constraints ?? []) {
       const references = [constraint.first, constraint.second].filter((value): value is AssemblyGeometryRef => Boolean(value));
-      const resolved = references.map((reference) => this.resolveAssemblyConstraintReference(reference)).filter(
-        (value): value is { selection: SelectionItem; object: THREE.Object3D; anchor: THREE.Vector3 } => Boolean(value));
-      if (!resolved.length) continue;
-      const markerPosition = resolved.reduce((sum, value) => sum.add(value.anchor), new THREE.Vector3())
-        .multiplyScalar(1 / resolved.length);
-      const span = resolved.length > 1 ? resolved[0].anchor.distanceTo(resolved[1].anchor) : 0;
+      const located = references.map((reference) => {
+        const exact = this.resolveAssemblyConstraintReference(reference);
+        if (exact) return { reference, ...exact, exact: true };
+        const instance = this.instanceGroups.get(reference.instanceId);
+        if (!instance) return undefined;
+        const selection: SelectionItem = { kind: "instance", id: reference.instanceId, instanceId: reference.instanceId,
+          occurrencePath: reference.instanceId, visualKey: `occurrence:${reference.instanceId}` };
+        return { reference, selection, object: instance, anchor: new THREE.Box3().setFromObject(instance).getCenter(new THREE.Vector3()), exact: false };
+      }).filter((value): value is NonNullable<typeof value> => Boolean(value));
+      if (!located.length) continue;
+      const markerPosition = located.reduce((sum, value) => sum.add(value.anchor), new THREE.Vector3())
+        .multiplyScalar(1 / located.length);
+      const span = located.length > 1 ? located[0].anchor.distanceTo(located[1].anchor) : 0;
       markerPosition.z += Math.max(4, span * 0.08);
       const treeNodeId = `document:${view.document.id}/assembly-constraints/constraint:${constraint.id}`;
       const selection: SelectionItem = { kind: "assembly-constraint", id: constraint.id, constraintId: constraint.id,
         constraintType: constraint.kind, documentId: view.document.id, treeNodeId };
       const group = new THREE.Group(); group.position.copy(markerPosition); group.userData = selection;
       const pointGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]);
-      const glyph = new THREE.Points(pointGeometry, this.materials.constraintGlyph(glyphs[constraint.kind], CATIA_VISUAL_THEME.constraint, 22));
+      const glyph = new THREE.Points(pointGeometry, this.materials.constraintGlyph(
+        assemblyConstraintGlyph(constraint.evaluationStatus, glyphs[constraint.kind]), statusColors[constraint.evaluationStatus], 22));
       glyph.renderOrder = 92;
       group.add(glyph);
-      if (resolved.some((value) => !value.anchor.equals(markerPosition))) {
-        const leaders = makeOcclusionVisibleSegments(resolved.map((value) => [value.anchor.clone().sub(markerPosition), new THREE.Vector3()]),
-          CATIA_VISUAL_THEME.constraint, 1.75);
+      if (located.some((value) => !value.anchor.equals(markerPosition))) {
+        const leaders = makeOcclusionVisibleSegments(located.map((value) => [value.anchor.clone().sub(markerPosition), new THREE.Vector3()]),
+          statusColors[constraint.evaluationStatus], 1.75);
         leaders.renderOrder = 90; group.add(leaders);
       }
       this.helpers.add(group);
       this.selectionIndex.register(selection, group);
       this.selectionIndex.registerPick(glyph, () => selection, 90);
-      this.assemblyConstraintReferences.set(constraint.id, resolved.map((value) => value.selection));
-      for (const [index, reference] of resolved.entries()) {
+      this.assemblyConstraintReferences.set(constraint.id, located.map((value) => value.selection));
+      for (const value of located) {
         // Topology references are highlighted by exact face/edge/vertex overlays. Associating
         // their owning mesh group would incorrectly highlight the complete occurrence.
-        if (!['FACE', 'EDGE', 'VERTEX'].includes(references[index]?.kind ?? ''))
-          this.selectionIndex.associate(selection, reference.object);
-        this.selectionIndex.associate(reference.selection, group);
+        if (!value.exact || !['FACE', 'EDGE', 'VERTEX'].includes(value.reference.kind))
+          this.selectionIndex.associate(selection, value.object);
+        this.selectionIndex.associate(value.selection, group);
       }
     }
   }
@@ -981,6 +993,19 @@ export class CadViewportEngine {
     if (firstAxis && firstDirection) return resolved[1].anchor.clone().sub(resolved[0].anchor).cross(firstDirection).length();
     if (secondAxis && secondDirection) return resolved[0].anchor.clone().sub(resolved[1].anchor).cross(secondDirection).length();
     return resolved[0].anchor.distanceTo(resolved[1].anchor);
+  }
+
+  focusAssemblyReference(reference: AssemblyGeometryRef): boolean {
+    const resolved = this.resolveAssemblyConstraintReference(reference);
+    const instance = this.instanceGroups.get(reference.instanceId);
+    const anchor = resolved?.anchor ?? (instance ? new THREE.Box3().setFromObject(instance).getCenter(new THREE.Vector3()) : undefined);
+    if (!anchor) return false;
+    const offset = this.camera.position.clone().sub(this.navigation.target);
+    this.navigation.target.copy(anchor);
+    this.camera.position.copy(anchor).add(offset);
+    this.navigation.syncCamera();
+    this.invalidate();
+    return true;
   }
 
   assemblyAngleReferenceDirection(references: AssemblyGeometryRef[]): Vec3 | undefined {

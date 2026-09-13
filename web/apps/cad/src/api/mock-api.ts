@@ -1,7 +1,7 @@
 import type { CadApi } from "../api";
 import type {
-  Artifact, DocumentProperties, DocumentStructureNode, DocumentSummary, DocumentView, Feature, FolderSummary, HistoryEntry, Job,
-  InstancePath, ProductInstance, ShareGrant, SketchOperation, User, Vec3,
+  Artifact, AssemblyConstraint, AssemblyGeometryRef, DocumentProperties, DocumentStructureNode, DocumentSummary, DocumentView,
+  Feature, FolderSummary, HistoryEntry, Job, InstancePath, ProductInstance, ShareGrant, SketchOperation, User, Vec3,
 } from "../types";
 import { sampleSketchEntity } from "../cad/sketch/sketch-geometry";
 import { randomUUID } from "../utils/random-uuid";
@@ -96,7 +96,10 @@ const views = new Map<string, DocumentView>([
     document: summaries[1], product: { instances: [
       { id: "mock-instance-a", name: "Bracket A", documentId: partID, versionId: "mock-part-v3", translation: [-45, 0, 0], referenceMode: "FOLLOW_HEAD" },
       { id: "mock-instance-b", name: "Bracket B", documentId: partID, versionId: "mock-part-v3", translation: [45, 0, 0], referenceMode: "FOLLOW_HEAD" },
-    ] },
+    ], constraints: [{ id: "mock-constraint-1", kind: "COINCIDENT",
+      first: { instanceId: "mock-instance-a", kind: "PLANE", geometryId: "datum-xy" },
+      second: { instanceId: "mock-instance-b", kind: "PLANE", geometryId: "datum-xy" },
+      directionRelation: "SAME", evaluationStatus: "VERIFIED", evaluationSummary: "mock supports resolved and solver residual is within tolerance" }] },
     artifacts: { [partArtifact.geometryKey]: partArtifact },
     resolvedInstances: [
       { id: "Frame Assembly/mock-instance-a/part", name: "Bracket A", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [-45, 0, 0], occurrencePath: "mock-instance-a", instancePath: mockInstancePath(productID, { id: "mock-instance-a", name: "Bracket A", documentId: partID, versionId: "mock-part-v3", translation: [-45,0,0] }), bodyTreeNodeId: `document:${productID}/instance:mock-instance-a/reference/body` },
@@ -195,16 +198,28 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
         { id: `${path}/body`, kind: "BODY", name: "PartBody", documentId: view.document.id, children: bodyChildren },
       ] };
   }
-  return { id: path, kind: "PRODUCT", name: view.document.name, documentId: view.document.id,
-    documentType: "PRODUCT", versionId: view.document.versionId, children: (view.product?.instances ?? []).map((instance) => {
+  const instanceNodes: DocumentStructureNode[] = (view.product?.instances ?? []).map((instance) => {
       const referenced = views.get(instance.documentId);
       const referenceTree = referenced ? mockStructure(referenced, `${path}/instance:${instance.id}/reference`, nextVisiting) : undefined;
-      return { id: `${path}/instance:${instance.id}`, kind: "INSTANCE", name: instance.name,
+      return { id: `${path}/instance:${instance.id}`, kind: "INSTANCE" as const, name: instance.name,
         entityId: instance.id, documentId: instance.documentId, documentType: referenced?.document.type,
         versionId: instance.versionId, referenceMode: instance.referenceMode ?? "FOLLOW_HEAD",
         instancePath: mockInstancePath(view.document.id, instance),
-        capabilities: path === `document:${view.document.id}` ? ["DELETE"] : undefined, children: referenceTree?.children };
-    }) };
+        capabilities: path === `document:${view.document.id}` ? ["DELETE" as const] : undefined, children: referenceTree?.children };
+    });
+  const constraints = view.product?.constraints ?? [];
+  const constraintGroup = constraints.length ? [{ id: `${path}/assembly-constraints`, kind: "ASSEMBLY_CONSTRAINT_SET" as const, name: "约束",
+    children: constraints.map((constraint, index) => {
+      const disconnected = constraint.evaluationStatus === "BROKEN" || [constraint.first, constraint.second].filter(Boolean).some((reference) =>
+        reference?.resolution?.result.supportingElementStatus === "NOT_CONNECTED");
+      return { id: `${path}/assembly-constraints/constraint:${constraint.id}`, kind: "ASSEMBLY_CONSTRAINT" as const,
+        name: `#${constraint.kind}.${index + 1}`, entityId: constraint.id, entityType: constraint.kind, documentId: view.document.id,
+        diagnostic: `${constraint.evaluationStatus}: ${constraint.evaluationSummary ?? ""}`,
+        capabilities: ["EDIT" as const, "DELETE" as const,
+          ...(disconnected ? ["RECONNECT" as const] : []), ...(constraint.evaluationStatus !== "VERIFIED" ? ["REFRESH" as const] : [])] };
+    }) }] : [];
+  return { id: path, kind: "PRODUCT", name: view.document.name, documentId: view.document.id,
+    documentType: "PRODUCT", versionId: view.document.versionId, children: [...instanceNodes, ...constraintGroup] };
 }
 
 function getView(documentID: string): DocumentView {
@@ -327,6 +342,34 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
       if (instance) instance.translation = input.translation as Vec3;
       rebuildProduct(view);
     }
+    if (commandType === "ADD_ASSEMBLY_CONSTRAINT" && view.product) {
+      view.product.constraints = [...(view.product.constraints ?? []), {
+        id: id("mock-constraint"), kind: String(input.constraintKind) as AssemblyConstraint["kind"],
+        first: input.firstAssemblyRef as AssemblyGeometryRef, second: input.secondAssemblyRef as AssemblyGeometryRef | undefined,
+        value: Number(input.value ?? 0), directionRelation: String(input.directionRelation ?? "UNORIENTED"),
+        distanceRelation: String(input.distanceRelation ?? "UNSIGNED"), angleReferenceDirection: input.angleReferenceDirection as Vec3 | undefined,
+        evaluationStatus: "VERIFIED", evaluationSummary: "mock supports resolved and solver residual is within tolerance",
+      }];
+    }
+    if (commandType === "EDIT_ASSEMBLY_CONSTRAINT" && view.product) {
+      const constraint = view.product.constraints?.find((candidate) => candidate.id === input.targetId);
+      if (constraint) Object.assign(constraint, {
+        first: input.firstAssemblyRef ?? constraint.first, second: input.secondAssemblyRef ?? constraint.second,
+        value: Number(input.value ?? constraint.value ?? 0), directionRelation: input.directionRelation ?? constraint.directionRelation,
+        distanceRelation: input.distanceRelation ?? constraint.distanceRelation,
+        angleReferenceDirection: input.angleReferenceDirection ?? constraint.angleReferenceDirection,
+        evaluationStatus: "VERIFIED", evaluationSummary: "mock supports reconnected and solver residual is within tolerance",
+      });
+    }
+    if (commandType === "UPDATE_REFERENCES" && view.product) {
+      for (const instance of view.product.instances) instance.headChanged = false;
+      for (const constraint of view.product.constraints ?? []) {
+        if (constraint.evaluationStatus === "NOT_UPDATED") {
+          constraint.evaluationStatus = "VERIFIED";
+          constraint.evaluationSummary = "mock references refreshed";
+        }
+      }
+    }
     if (commandType === "SET_REFERENCE_MODE" && view.product) {
       const instance = view.product.instances.find((candidate) => candidate.id === input.instanceId);
       if (instance) instance.referenceMode = input.referenceMode as ProductInstance["referenceMode"];
@@ -339,6 +382,8 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
         const owner = String(item.ownerEntityId ?? "");
         if (kind === "INSTANCE" && view.product) {
           view.product.instances = view.product.instances.filter((instance) => instance.id !== target); rebuildProduct(view);
+        } else if (kind === "ASSEMBLY_CONSTRAINT" && view.product) {
+          view.product.constraints = (view.product.constraints ?? []).filter((constraint) => constraint.id !== target);
         } else if (kind === "FEATURE" && view.part) {
           view.part.features = view.part.features.filter((feature) => feature.id !== target);
         } else if (view.part) {
@@ -472,6 +517,16 @@ export const mockApi: CadApi = {
     const view = getView(documentID);
     if(input.type==="MOVE_INSTANCE"&&view.product){return pause({previewId:id("mock-move-preview"),baseVersionId:view.document.versionId,baseSequence:0,modelHash:"mock-move",
       instancePoses:view.product.instances.map((instance)=>({instanceId:instance.id,translation:instance.id===input.instanceId?input.translation as Vec3:instance.translation,rotation:instance.rotation??[0,0,0,1]}))});}
+    if ((input.type === "ADD_ASSEMBLY_CONSTRAINT" || input.type === "EDIT_ASSEMBLY_CONSTRAINT") && view.product) {
+      return pause({ previewId: id("mock-assembly-preview"), baseVersionId: view.document.versionId, baseSequence: 0,
+        modelHash: "mock-assembly", assemblyComponents: [], constraintEvaluation: {
+          constraintId: String(input.targetId ?? "mock-preview-constraint"), status: "VERIFIED" as const,
+          summary: "mock supports resolved and solver residual is within tolerance",
+          first: { status: "CONNECTED" as const }, ...(input.secondAssemblyRef ? { second: { status: "CONNECTED" as const } } : {}),
+        }, instancePoses: view.product.instances.map((instance) => ({
+          instanceId: instance.id, translation: instance.translation, rotation: instance.rotation ?? [0, 0, 0, 1],
+        })) });
+    }
     if (input.type === "EDIT_FEATURE" && view.part) {
 		const feature=view.part.features.find((candidate)=>candidate.id===input.targetId);
 		if(!feature)throw new Error("Feature does not exist");

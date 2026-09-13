@@ -824,9 +824,21 @@ select {
 .cad-command-dialog .ant-form-item:last-child { margin-bottom: 8px; }
 .assembly-support-list { display: grid; gap: 7px; margin-bottom: 14px; }
 .assembly-support-list > strong { color: #526b77; font-size: 11px; font-weight: 650; text-transform: uppercase; letter-spacing: .45px; }
-.assembly-support-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; align-items: center; gap: 8px;
+.assembly-constraint-status { display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: start; gap: 9px;
+  margin-bottom: 13px; padding: 9px 10px; border: 1px solid #c4cdd1; background: #f4f6f7; }
+.assembly-status-light { width: 11px; height: 11px; margin-top: 3px; border: 2px solid rgb(255 255 255 / 84%);
+  border-radius: 50%; box-shadow: 0 0 0 1px rgb(35 52 61 / 30%); }
+.assembly-constraint-status strong, .assembly-constraint-status small { display: block; }
+.assembly-constraint-status strong { font-size: 12px; }
+.assembly-constraint-status small { margin-top: 2px; color: #5d727d; font-size: 10px; line-height: 1.35; }
+.assembly-support-row { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto auto; align-items: center; gap: 8px;
   min-height: 34px; padding: 4px 6px; border: 1px solid #c4cdd1; background: #f4f6f7; }
 .assembly-support-row > span { color: #687b84; font-size: 11px; text-align: center; }
+.assembly-support-row .assembly-support-detail { display: grid; min-width: 0; gap: 2px; text-align: left; }
+.assembly-support-detail small { display: flex; overflow: hidden; align-items: center; gap: 5px; color: #687b84;
+  font-size: 9px; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+.assembly-support-detail .ant-tag { margin: 0; font-size: 9px; line-height: 15px; }
+.assembly-support-index.status-not_connected { color: #c93636; font-weight: 700; }
 .assembly-support-row code { overflow: hidden; color: var(--cad-text); font: 11px/1.3 ui-monospace, SFMono-Regular, Consolas, monospace;
   text-overflow: ellipsis; white-space: nowrap; }
 .cad-command-hint { display: block; color: #5d727d; font-size: 10px; line-height: 1.45; }
@@ -962,6 +974,16 @@ select {
 .specification-tree-row.diagnostic-conflicting { color: #c94141; background: rgb(201 65 65 / 10%); }
 .specification-tree-row.diagnostic-redundant { color: #a96d1f; background: rgb(169 109 31 / 10%); }
 .specification-tree-row.diagnostic-fully_constrained { color: #202b31; font-weight: 600; }
+.assembly-tree-status {
+  margin-left: 7px;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .02em;
+}
+.assembly-tree-status.status-verified { color: #75dda3; }
+.assembly-tree-status.status-not_updated { color: #ffd166; }
+.assembly-tree-status.status-impossible { color: #e7a0f4; }
+.assembly-tree-status.status-broken { color: #ff8585; }
 .specification-tree-context-menu,
 .specification-tree-context-menu .ant-dropdown-menu {
   width: 176px !important;

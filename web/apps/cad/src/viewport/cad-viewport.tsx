@@ -18,6 +18,7 @@ export type CadViewportHandle = {
   measureAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => number;
   previewAssemblyPoses: (poses: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>) => void;
   assemblyAngleReferenceDirection: (references: AssemblyGeometryRef[]) => Vec3 | undefined;
+  focusAssemblyReference: (reference: AssemblyGeometryRef) => boolean;
 };
 
 type Props = {
@@ -119,6 +120,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     measureAssemblyConstraint: (kind, references) => engine.current?.measureAssemblyConstraint(kind, references) ?? 0,
     previewAssemblyPoses: (poses) => engine.current?.previewAssemblyPoses(poses),
     assemblyAngleReferenceDirection: (references) => engine.current?.assemblyAngleReferenceDirection(references),
+    focusAssemblyReference: (reference) => engine.current?.focusAssemblyReference(reference) ?? false,
   }), []);
 
   return <><div ref={host} className="cad-viewport-canvas" />

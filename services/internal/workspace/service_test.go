@@ -1029,6 +1029,37 @@ func TestUpdateReferencesPersistsAcceptedVersionAndTwoLayerStatus(t *testing.T) 
 	}
 }
 
+func TestAssemblyConstraintStructureCapabilitiesExposeRecoveryActions(t *testing.T) {
+	connected := ResolutionSnapshot{Result: modelcore.SelectionResolution{SupportingElementStatus: modelcore.SupportingElementConnected}}
+	disconnected := ResolutionSnapshot{Result: modelcore.SelectionResolution{SupportingElementStatus: modelcore.SupportingElementNotConnected}}
+	constraint := AssemblyConstraint{First: AssemblyGeometryRef{Resolution: &connected}, Second: &AssemblyGeometryRef{Resolution: &disconnected}}
+	capabilities := assemblyConstraintStructureCapabilities(constraint, modelcore.AssemblyConstraintBroken)
+	for _, expected := range []string{"EDIT", "DELETE", "RECONNECT", "REFRESH"} {
+		if !slices.Contains(capabilities, expected) {
+			t.Fatalf("missing %s capability: %#v", expected, capabilities)
+		}
+	}
+	verified := assemblyConstraintStructureCapabilities(AssemblyConstraint{First: AssemblyGeometryRef{Resolution: &connected}}, modelcore.AssemblyConstraintVerified)
+	if slices.Contains(verified, "RECONNECT") || slices.Contains(verified, "REFRESH") {
+		t.Fatalf("verified constraint must not advertise recovery actions: %#v", verified)
+	}
+	brokenWithoutSnapshot := assemblyConstraintStructureCapabilities(AssemblyConstraint{}, modelcore.AssemblyConstraintBroken)
+	if !slices.Contains(brokenWithoutSnapshot, "RECONNECT") {
+		t.Fatalf("broken constraint without endpoint snapshot must remain reconnectable: %#v", brokenWithoutSnapshot)
+	}
+}
+
+func TestAssemblySupportPreviewKeepsConnectionStateSeparateFromConstraintStatus(t *testing.T) {
+	datum := assemblySupportPreview(AssemblyGeometryRef{Kind: "PLANE"})
+	if datum.Status != modelcore.SupportingElementConnected {
+		t.Fatalf("datum support status = %s, want CONNECTED", datum.Status)
+	}
+	topology := assemblySupportPreview(AssemblyGeometryRef{Kind: "FACE"})
+	if topology.Status != modelcore.SupportingElementNotConnected || topology.DiagnosticCode != "RESOLUTION_UNAVAILABLE" {
+		t.Fatalf("topology support = %+v, want explicit disconnected diagnostic", topology)
+	}
+}
+
 func TestInstanceNameIsUniqueWithinOwningProduct(t *testing.T) {
 	t.Parallel()
 	model := ProductModel{Instances: []ProductInstance{

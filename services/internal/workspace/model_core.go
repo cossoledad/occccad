@@ -1556,6 +1556,32 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		}
 		result := CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
 			ModelHash: canonicalModelHash(nextJSON), ConstraintLimited: constraintLimited, AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
+		constraintID := ""
+		switch prepared.command.TypeURI {
+		case typeAddAssemblyConstraint:
+			var payload addAssemblyConstraintPayload
+			if json.Unmarshal(prepared.command.Payload, &payload) == nil {
+				constraintID = payload.Constraint.ID
+			}
+		case typeEditAssemblyConstraint:
+			var payload editAssemblyConstraintPayload
+			if json.Unmarshal(prepared.command.Payload, &payload) == nil {
+				constraintID = payload.ConstraintID
+			}
+		}
+		for _, constraint := range model.Constraints {
+			if constraint.ID != constraintID {
+				continue
+			}
+			preview := AssemblyConstraintPreviewEvaluation{ConstraintID: constraint.ID, Status: constraint.EvaluationStatus,
+				Summary: constraint.EvaluationSummary, First: assemblySupportPreview(constraint.First)}
+			if constraint.Second != nil {
+				second := assemblySupportPreview(*constraint.Second)
+				preview.Second = &second
+			}
+			result.ConstraintEvaluation = &preview
+			break
+		}
 		for _, instance := range model.Instances {
 			result.InstancePoses = append(result.InstancePoses, struct {
 				InstanceID  string     `json:"instanceId"`
@@ -1606,6 +1632,18 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		PreviewID: previewID, BaseVersionID: prepared.headRevision,
 		BaseSequence: prepared.headSequence, ModelHash: modelHash, Artifact: &artifact,
 	}, nil
+}
+
+func assemblySupportPreview(reference AssemblyGeometryRef) AssemblySupportPreviewEvaluation {
+	if reference.Kind != "FACE" && reference.Kind != "EDGE" && reference.Kind != "VERTEX" {
+		return AssemblySupportPreviewEvaluation{Status: modelcore.SupportingElementConnected}
+	}
+	if reference.Resolution == nil {
+		return AssemblySupportPreviewEvaluation{Status: modelcore.SupportingElementNotConnected,
+			DiagnosticCode: "RESOLUTION_UNAVAILABLE", Diagnostic: "persistent support has no resolution snapshot"}
+	}
+	return AssemblySupportPreviewEvaluation{Status: reference.Resolution.Result.SupportingElementStatus,
+		DiagnosticCode: reference.Resolution.Result.DiagnosticCode, Diagnostic: reference.Resolution.Result.Diagnostic}
 }
 
 func (service *Service) solveSketches(ctx context.Context, requestID string, model *PartModel) error {

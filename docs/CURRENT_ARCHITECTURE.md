@@ -260,6 +260,8 @@ P3 在上述 history 契约上增加了服务端 PersistentSelection bind/resolv
 
 Product 装配引用已完成 P4 升级。拓扑 endpoint 持久化 occurrence、source Part Revision 和 PersistentSelection，并保存固定 target Revision、topology manifest/policy digest 与 resolution result；`geometryKey + localId` 只作为创建或 Reconnect 时的瞬时 pick evidence。默认实例使用 `FOLLOW_HEAD`；Part Head 更新后短暂投影为 NotUpdated，Web 随即自动提交 typed `UPDATE_REFERENCES`，批量推进 Revision、重新解析 endpoint 并求解，toolbar 不暴露尚未闭环的引用模式或手动接受按钮。Supporting Element 的 Connected/NotConnected 与 Constraint 的 NotUpdated/Broken/Impossible/Verified 是两个独立状态域：解析失败的约束不会进入 Solver，其余 connected component 仍经正式 Router 的 M2.5 路径求解。结构树和属性面板显示状态与 provenance，持久 ChangeSet 支持刷新及补偿式历史。
 
+P5 已把上述状态接入实际约束恢复流程。创建和编辑使用同一非模态约束定义面板，服务端成功 preview 除 occurrence poses 和 component 诊断外，还返回候选 Constraint 状态与两个 Supporting Element 状态；已连接支持元素在 `SOLVING` 阶段的不可重试结构化失败明确投影为 Impossible，基础设施或可重试失败保持 NotUpdated，前端不从颜色或普通异常文本猜测领域状态。结构树双击/右键 Edit 打开同一编辑器，Broken 节点提供 Reconnect，非 Verified 节点提供 typed `UPDATE_REFERENCES` Refresh。Reconnect 复用一次性 Selection Tool 和现有 preview actor，替换端点后立即权威预览，确认以一个 `EDIT_ASSEMBLY_CONSTRAINT` Transaction 提交。结构树状态包含图标、文字和可访问标签；视口的 NotUpdated、Impossible、Broken 各用不同的屏幕稳定 SDF glyph，精确拓扑锚点丢失时回退到 occurrence 中心，确保 Broken 约束仍可被选择并修复。
+
 Part 交互在退出 Sketcher 后把选择提升为整个 Sketch Feature，并保持未被实体特征消费的草图可见；已消费 profile 仅在重新编辑时临时显示。视图区在 Sketcher 外命中草图点、线或约束时同样投影到整个草图，因此可以直接继续 Pad/Pocket/Revolve。新建实体特征成功后自动选择结果 Feature，保持“选平面→建草图→绘制→退出→拉伸”的连续操作链。
 
 ### 5.1 PlaneGCS 技术验证边界
@@ -403,9 +405,9 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 | 本机 Geometry 扩缩容 | 已实现 | occccad-control |
 | 跨主机 Geometry 调度 | 未实现 | 无注册中心/集群调度 |
 | 二维草图与基础约束 | 已实现基础集合 | Point/Line/Circle/Arc/插值 Spline、基本几何/尺寸/对称约束、PlaneGCS 与四组 Sketcher Toolbar |
-| 三维装配约束/运动学 | 已实现首个 Product 闭环 | 支持 Fix、Rigid、Coincident、Concentric、Angle、Distance，约束创建/编辑/删除、固连集实时平移预览及松手后的权威 SE(3) 求解 |
+| 三维装配约束/运动学 | 已实现首个 Product 闭环 | 支持 Fix、Rigid、Coincident、Concentric、Angle、Distance，约束创建/编辑/删除、四态与 Supporting Element 两态、Reconnect/Refresh、固连集实时预览及权威 SE(3) 求解 |
 | Product 交互预览 | 已实现移动预览闭环 | 应用自有三轴手柄从 Instance 投影前的真实射线命中取得锚点和局部框架：面命中以世界法向作为 Z，直线边命中以世界切向作为 X，并用确定性的世界参考轴补齐正交框架；中心再次吸附到拓扑点、边或面时同步更新位置与可用方向。只有中心空心圆使用固定像素的屏幕空间 Shader；每根轴由同一个线框几何绘制轴线和空心三角形，轴线终点严格落在三角形底边中点。轴端空心圆和两侧短弧是所在 XY、YZ 或 ZX 旋转平面内的真实线框几何，随相机自然投影而不朝向相机。每次 pointerdown 从当前确认 Placement 重新建立手势基线并记录鼠标相对控制图形的点击偏移；每个 pointermove 数值反求轴参数或旋转角，使三角形顶点或轴端圆重新投影到当前鼠标目标。视觉 hover 与姿态变化使用不同回调，非拖拽状态不能产生 MOVE preview。权威装配求解严格保持一个请求在途并合并为最新待处理目标；预览响应只更新实例，不修改进行中的鼠标锚点，pointerup 等待最终待处理预览后立即把交互基线更新到确认姿态，再提交同一姿态。不可达 MOVE preview 返回 `constraintLimited` 和基线姿态，客户端保留上一确认帧。提交刷新会保留 Instance 选择与手柄，直至用户点击空白或切换工具 |
-| 持久拓扑命名 | 已实现 history 生成，resolver 未实现 | Extrude/Boolean/unify 已输出逐 Feature lineage 与 manifest；当前 Product local ID 仍不可跨 Revision 使用 |
+| 持久拓扑命名 | 已实现首个 Linear Extrude/Boolean 闭环 | Extrude/Boolean/unify 输出逐 Feature lineage 与 manifest；服务端 bind/resolver 以 PersistentSelection 支持 Product Face/Edge/Vertex 跨 Revision 引用，Revolve/Import 等未完整命名类型仍受限 |
 | S3 兼容对象存储/CDN | 未实现 | 当前仅本地目录 |
 | 实时多人同文档编辑 | 已实现首个提交同步闭环 | WebSocket request/event、Outbox、sequence、重连快照；尚无 presence/preview 与 semantic rebase |
 | XDE/AP242 语义装配交换 | 未实现 | 当前仅按 transferable root 构建 Product，未恢复嵌套 BOM/颜色/共享实例 |
@@ -415,14 +417,14 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 ## 11. 当前主要风险
 
 1. **草图仍非完整专业实现**：基础实体、约束和 Profile Builder 已贯通，但尺寸值尚未升级为独立 ParameterBinding/表达式，Spline 尚无完整相切/曲率求解，Trim/Extend、拖拽求解、区域点选和大规模退化 corpus 尚未实现。
-2. **拓扑引用不稳定**：面/边 local ID 只适合本次结果查询，不能支撑可靠圆角、倒角和下游引用。
+2. **拓扑命名覆盖仍有限**：Linear Extrude/Boolean 的 Face/Edge/Vertex 已有首个稳定 lineage 与 resolver；Revolve、Import、圆角、倒角及更多曲面演化尚未达到同一覆盖，歧义 split 仍需用户 Reconnect。
 3. **制品无法跨主机**：本地文件系统阻止 API/Jobs/Worker 任意调度。
 4. **控制器仅为开发工具**：进程级 Router 不是集群 Scheduler。
 5. **长计算边界不完整**：交换文件的 HTTP 流允许 15 分钟，但同步 Part 求值仍受 Geometry client 的短 deadline 限制；复杂再生尚未全部任务化。
 6. **协议超前于实现**：部分 Proto RPC 未实现，版本化和能力协商尚未建立。
 7. **测试金字塔仍不完整**：装配求解已有首个 DOF/冲突/退化 conformance corpus，但草图/Part 的综合模型语料、确定性长跑、大装配基准和浏览器 E2E 仍不足。
 
-`kernel/assembly` 先把 Rigid 关系编译为刚性 cluster，把 Fix/Ground 从自由变量消元，再按 cluster/constraint 图的 connected component 独立求解。M2 已用内部 typed equation registry 编译当前 Point/Axis/Plane/Cylinder 方程，生产路径以前向解析微分生成稳定 cluster tangent 顺序的 Jacobian，并用 augmented `ColPivHouseholderQR` 求解阻尼线性化系统，不再形成正规方程；Debug 默认用中央有限差分 oracle 做 scale-aware 对照。列归一化 SVD 的 absolute/relative threshold 返回 relative DOF、全局 gauge DOF、数值 null-space basis、奇异值与实际阈值，并以稳定 Connection/Constraint/semantic Equation 身份报告 declared generic rank、equation count、effective rank、chosen-basis incremental rank、冗余和残差。`SolveAssembly` Proto 已贯穿这些结果、affected-body component 选择范围和 request-scoped `solve_intent`；创建和编辑二元约束时 Product 均通过 `assemblyConstraintSolveIntent()` 把第一选择标为 moving、第二选择标为 reference。M2.5 已用可行流形上的层级优化替换弱运动权重：先满足硬几何约束，再最小化第二选择 reference 的名义位姿变化，最后在 reference 局部最优子空间内减少总变化。第一元素 Fix、经 Rigid 接地或部分受限时，第二元素保持自由变量并承担必要运动，不使用临时固定第二元素后重试。单一且名义位姿一致的 reference cluster 仍可等价消去无 ground 分量的整体 gauge；多 reference 联合优化。nominal 与 initial guess 分离，目标按 occurrence 原点及旋转 Log 计算，避免依赖 rigid cluster 代表原点。二级迭代使用正交零空间、投影 BFGS、有界回溯及几何校正；非零 reference 最优残差使用 reduced Lagrangian 曲率保留最优集合，不能简单冻结其残差向量。独立的 preference 状态、两层目标值/最终投影梯度、每体位移和尺度贯穿 Proto/Worker/Go/Router；Product 拒绝偏好未收敛的可行结果。每体自由度解释包含允许/阻塞子空间、平移方向、转轴/pitch、线性化位姿及相对基准，标准转动/滑动/圆柱/平面/球面族之外保持 Coupled；这些是瞬时局部解释，不是全局可达性承诺。约束预览面板显示 reference 位移与自由度，证据复用现有 preview 状态机并拒绝迟到响应。MOVE 仍是独立的临时 `interaction-driver` Fix 路径，不可达 preview 恢复权威 Pose；最近可行拖拽属于 M4。Product 提交优先提升仍有效且精确匹配的权威 preview candidate，不重复 SolveAssembly；token 缺失或失效时完整求解。Assembly Toolbar 的按钮会激活输入工具：Fix 选择一次，其余约束连续选择两个不同 occurrence 的元素，第一次选择跨 pointerup 保留。Datum 端点使用 `instanceId + datum geometry ID + axis component`；B-Rep Face/Edge/Vertex 使用 `instanceId + geometryKey + topology local ID`，服务端验证制品属于该 instance 的 resolved Revision，并从 OCCT 重新读取精确 descriptor。Coincident 已覆盖 Point-Point、Point-Line、Point-Plane、Line-Line、Line-Plane 与 Plane-Plane。求解经正式 Router 的 `SolveAssembly` RPC 完成，Constraint 与全部变更 Pose 在同一个 ChangeSet 中提交。拓扑引用仍是当前 Revision 内有效的过渡身份，尚未达到 PersistentSelection/Publication；当前仍没有稀疏后端或最小冲突集。
+`kernel/assembly` 先把 Rigid 关系编译为刚性 cluster，把 Fix/Ground 从自由变量消元，再按 cluster/constraint 图的 connected component 独立求解。M2 已用内部 typed equation registry 编译当前 Point/Axis/Plane/Cylinder 方程，生产路径以前向解析微分生成稳定 cluster tangent 顺序的 Jacobian，并用 augmented `ColPivHouseholderQR` 求解阻尼线性化系统，不再形成正规方程；Debug 默认用中央有限差分 oracle 做 scale-aware 对照。列归一化 SVD 的 absolute/relative threshold 返回 relative DOF、全局 gauge DOF、数值 null-space basis、奇异值与实际阈值，并以稳定 Connection/Constraint/semantic Equation 身份报告 declared generic rank、equation count、effective rank、chosen-basis incremental rank、冗余和残差。`SolveAssembly` Proto 已贯穿这些结果、affected-body component 选择范围和 request-scoped `solve_intent`；创建和编辑二元约束时 Product 均通过 `assemblyConstraintSolveIntent()` 把第一选择标为 moving、第二选择标为 reference。M2.5 已用可行流形上的层级优化替换弱运动权重：先满足硬几何约束，再最小化第二选择 reference 的名义位姿变化，最后在 reference 局部最优子空间内减少总变化。第一元素 Fix、经 Rigid 接地或部分受限时，第二元素保持自由变量并承担必要运动，不使用临时固定第二元素后重试。单一且名义位姿一致的 reference cluster 仍可等价消去无 ground 分量的整体 gauge；多 reference 联合优化。nominal 与 initial guess 分离，目标按 occurrence 原点及旋转 Log 计算，避免依赖 rigid cluster 代表原点。二级迭代使用正交零空间、投影 BFGS、有界回溯及几何校正；非零 reference 最优残差使用 reduced Lagrangian 曲率保留最优集合，不能简单冻结其残差向量。独立的 preference 状态、两层目标值/最终投影梯度、每体位移和尺度贯穿 Proto/Worker/Go/Router；Product 拒绝偏好未收敛的可行结果。每体自由度解释包含允许/阻塞子空间、平移方向、转轴/pitch、线性化位姿及相对基准，标准转动/滑动/圆柱/平面/球面族之外保持 Coupled；这些是瞬时局部解释，不是全局可达性承诺。约束预览面板显示 reference 位移与自由度，证据复用现有 preview 状态机并拒绝迟到响应。MOVE 仍是独立的临时 `interaction-driver` Fix 路径，不可达 preview 恢复权威 Pose；最近可行拖拽属于 M4。Product 提交优先提升仍有效且精确匹配的权威 preview candidate，不重复 SolveAssembly；token 缺失或失效时完整求解。Assembly Toolbar 的按钮会激活输入工具：Fix 选择一次，其余约束连续选择两个不同 occurrence 的元素，第一次选择跨 pointerup 保留。Datum 端点使用 `instanceId + datum geometry ID + axis component`；B-Rep Face/Edge/Vertex 的视口 pick 使用 `instanceId + geometryKey + topology local ID` 作为创建证据，服务端验证制品属于该 instance 的 resolved Revision，并在提交前绑定为 `PersistentSelection`。Coincident 已覆盖 Point-Point、Point-Line、Point-Plane、Line-Line、Line-Plane 与 Plane-Plane。求解经正式 Router 的 `SolveAssembly` RPC 完成，Constraint 与全部变更 Pose 在同一个 ChangeSet 中提交。Linear Extrude/Boolean 的 topology endpoint 已达到 PersistentSelection 基线；正式 Publication、更多 Feature 的 naming 覆盖、稀疏后端和最小冲突集仍未实现。
 
 三维求解支持独立的 `occccad.3dreplay.v1` 下载：每次实际 SolveAssembly（包括 preview、成功、模型失败和已知的 RPC 失败）结束后，将精确数学请求、有效求解参数及紧凑结果在响应关键路径之外原子写入 `OCCCCAD_LOG_DIR/debug/assembly-replays/<documentID>/`。它不进入 PostgreSQL，不改变 Workspace Head/Revision，也不包含 B-Rep、网格或完整命令历史。每个文档最多保留 50 条且最长保留 7 天；文档读权限仍控制列表与下载，Web 可按真正发生求解的 request ID 下载 `.3dreplay`。文件可不依赖数据库通过 Worker/Router 重放。几何解析前失败尚未形成数值求解输入，不生成文件；本地存档失败只记录独立错误，不伪造求解状态。
 
@@ -438,7 +440,7 @@ M1.7 鲁棒性基线已经落地：方向、无符号距离侧和 Angle winding 
 
 装配约束预览具有显式的两层工作流状态。Web 使用 XState actor 管理 `idle / pending / succeeded / failed`、请求 sequence、取消和迟到响应过滤；失败会在非模态约束面板中立即显示稳定错误码、服务端阶段和诊断，并阻止提交未经成功预览的 draft。Go Workspace 使用 Stateless 管理 `RESOLVING_GEOMETRY -> SOLVING -> APPLYING_RESULT -> COMPLETED`，任一活动阶段可进入 `FAILED`；API 对求解失败返回结构化 `code / phase / retryable`，而取消与 deadline 保持传输层语义。该工作流状态不持久化，也不取代 Product Revision、Command/ChangeSet 或 Solver 数值状态。
 
-这些风险决定了下一阶段应先建立模型内核、拓扑命名、约束求解和可重建制品协议，而不是先增加大量微服务。
+这些风险要求后续继续扩展拓扑命名覆盖、约束冲突解释和可重建制品协议，并保持当前模块化控制面。
 
 ## 12. 当前架构不变量
 

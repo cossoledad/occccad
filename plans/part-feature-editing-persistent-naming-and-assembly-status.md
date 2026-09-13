@@ -1,6 +1,6 @@
 # Part 特征编辑、持久拓扑命名与装配约束状态开发计划
 
-状态：实施中；P0–P4 已完成，P5–P11 待实施
+状态：实施中；P0–P5 已完成，P6–P11 待实施
 日期：2026-09-12  
 适用基线：当前未发布、允许重建开发数据的 occccad 仓库
 
@@ -475,6 +475,8 @@ stateDiagram-v2
 - Broken/Impossible glyph、结构树图标、可访问文本与 viewport 定位。
 
 验收：真实 pointer/selection 序列、cancel/lost capture/Esc、Reconnect preview/commit、刷新后状态、浏览器重启后的视觉和交互手工验收通过。
+
+实施状态：已于 2026-09-13 完成。创建和编辑共用“约束定义”面板，面板同时消费持久 evaluation 与当前权威 preview，独立展示 Constraint 的 `NotUpdated/Broken/Impossible/Verified` traffic light、每个 Supporting Element 的 `Connected/NotConnected`、稳定诊断码和解释文本。结构树双击或右键 Edit 打开同一编辑器；Broken 节点额外提供 Reconnect，所有非 Verified 节点提供重新解析并求解。Reconnect 复用一次性 Selection Tool，拒绝无效几何和同一 instance 的二元端点，替换后立即进入带 sequence/取消保护的正式 Product preview，确认只提交一个 `EDIT_ASSEMBLY_CONSTRAINT` Revision。Refresh 继续提交 typed `UPDATE_REFERENCES`，不增加第二套状态机。结构树包含状态图标、颜色和可访问文本；视口对 NotUpdated、Impossible、Broken 使用不同 SDF glyph，并在精确支持元素丢失时回退到 instance 中心，使 Broken 约束仍可选择、定位和修复。Go preview 契约直接返回成功候选的 constraint/endpoint evaluation；已连接支持元素在 `SOLVING` 阶段的不可重试失败由稳定错误阶段投影为 Impossible，并继续禁用提交；Mock Adapter 保持同一字段形状。自动场景覆盖状态映射、断开端点选择、Reconnect 候选校验和 glyph；Go 测试覆盖恢复 capability 与 endpoint preview。完整浏览器/WebGL 自动化仍由仓库既有测试缺口限制，视觉验收需在可用浏览器环境补跑。
 
 ### 批次 P6：Cut/Hole 代表场景与完整端到端验收
 
