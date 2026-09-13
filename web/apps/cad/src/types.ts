@@ -312,4 +312,18 @@ export type TopologyElementProperties = {
   geometryKey: string; geometryId: string; kind: "FACE" | "EDGE" | "VERTEX"; localId: number;
   geometryType: string; bbox?: { min: Vec3; max: Vec3 }; point?: Vec3;
   properties: Record<string, number | boolean | string | Vec3>; workerId: string; occtVersion: string;
+  namingStatus: "RESOLVED" | "MISSING" | "AMBIGUOUS" | "TYPE_MISMATCH" | "OUTSIDE_CURRENT_TIP" | "UNAVAILABLE" | "";
+  persistentSelection?: PersistentSelection;
+  namingResolution?: SelectionResolution;
 };
+
+export type SemanticTopologyRef = { featureId: string; outputSlot: string; sourceIds?: string[] };
+export type SelectionEvidence = { geometryType?: string; measureSI?: number; measureDimension?: string;
+  centroid?: Vec3; origin?: Vec3; direction?: Vec3; adjacent?: SemanticTopologyRef[]; evidenceDigest?: string };
+export type PersistentSelection = { schemaVersion: number; sourceDocumentId: string; sourceBodyId: string;
+  anchor: SemanticTopologyRef; expectedType: "FACE" | "EDGE" | "VERTEX";
+  selector: { kind: string; operands?: SemanticTopologyRef[] }; creationEvidence: SelectionEvidence };
+export type SelectionResolution = { status: string; supportingElementStatus: "CONNECTED" | "NOT_CONNECTED";
+  candidates?: Array<{ geometryId: string; geometryKey: string; type: string; localId: number;
+    semanticRef: SemanticTopologyRef; evidence: SelectionEvidence }>;
+  diagnosticCode?: string; diagnostic?: string; evidenceDigest?: string };

@@ -1,6 +1,6 @@
 # Part 特征编辑、持久拓扑命名与装配约束状态开发计划
 
-状态：实施中；P0–P2 已完成，P3–P6 待实施
+状态：实施中；P0–P3 已完成，P4–P6 待实施
 日期：2026-09-12  
 适用基线：当前未发布、允许重建开发数据的 occccad 仓库
 
@@ -442,6 +442,8 @@ stateDiagram-v2
 - 缓存键纳入 target revision、history/evidence/policy digest。
 
 验收：20 → 40、Cut 保留、Cut 删除、Split 歧义、空缓存冷重建、Worker 重启、确定性重复求值均有测试；任何歧义都不自动挑选。
+
+实施状态：已于 2026-09-13 完成。服务端 bind 仅从 source Revision 的最终 Body Tip topology manifest 将 `geometryKey + type + localId` 绑定为带 creation evidence 的 `PersistentSelection`，不会把 local ID 写入持久引用。Resolver 固定校验 source/target Revision、document/body、schema、expected type、creation evidence、target manifest digest 与 policy digest，沿 semantic lineage 解析并返回全部明确状态；split 保留全部排序候选而不自动选择。解析缓存键覆盖 selection、target Revision、manifest digest 和 resolver policy，缓存清空或进程重启后可从不可变 protobuf artifact 冷重建。API 同时提供 bind、resolve 和 resolved topology properties；原 local-ID properties 入口只承担当前制品拾取/显示，并在右侧属性面板展示 semantic anchor、recipe、supporting-element 状态和 evidence digest。Product 持久引用升级仍属于 P4。
 
 ### 批次 P4：Product 引用升级与两层状态
 

@@ -115,6 +115,11 @@ func (selection PersistentSelection) Validate() error {
 	if selection.Selector.Kind == "" {
 		return fmt.Errorf("persistent selection recipe is required")
 	}
+	switch selection.Selector.Kind {
+	case SelectionDirectSemanticOutput, SelectionLineageDescendant, SelectionIntersectionOf, SelectionAdjacentTo, SelectionOwnedByBoundary:
+	default:
+		return fmt.Errorf("unsupported persistent selection recipe %q", selection.Selector.Kind)
+	}
 	return nil
 }
 

@@ -205,6 +205,9 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/documents/{documentID}", server.getDocument)
 	mux.HandleFunc("GET /api/documents/{documentID}/properties", server.documentProperties)
 	mux.HandleFunc("GET /api/documents/{documentID}/topology-properties", server.topologyProperties)
+	mux.HandleFunc("POST /api/documents/{documentID}/persistent-selections/bind", server.bindPersistentSelection)
+	mux.HandleFunc("POST /api/documents/{documentID}/persistent-selections/resolve", server.resolvePersistentSelection)
+	mux.HandleFunc("POST /api/documents/{documentID}/resolved-topology-properties", server.resolvedTopologyProperties)
 	mux.HandleFunc("GET /api/documents/{documentID}/preview", server.documentPreview)
 	mux.HandleFunc("PATCH /api/documents/{documentID}", server.updateDocument)
 	mux.HandleFunc("DELETE /api/documents/{documentID}", server.deleteDocument)
@@ -740,6 +743,65 @@ func (server *Server) topologyProperties(writer http.ResponseWriter, request *ht
 		return
 	}
 	writeJSON(writer, http.StatusOK, result)
+}
+
+func (server *Server) bindPersistentSelection(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	var input workspace.BindPersistentSelectionRequest
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	result, err := server.workspace.BindPersistentSelection(request.Context(), request.PathValue("documentID"), input)
+	if err != nil {
+		writeTopologySelectionError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func (server *Server) resolvePersistentSelection(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	var input workspace.ResolvePersistentSelectionRequest
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	result, err := server.workspace.ResolvePersistentSelection(request.Context(), request.PathValue("documentID"), input)
+	if err != nil {
+		writeTopologySelectionError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func (server *Server) resolvedTopologyProperties(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	var input workspace.ResolvePersistentSelectionRequest
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	result, err := server.workspace.GetResolvedTopologyElementProperties(request.Context(), request.PathValue("documentID"), input)
+	if err != nil {
+		writeTopologySelectionError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func writeTopologySelectionError(writer http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, workspace.ErrNotFound):
+		writeError(writer, http.StatusNotFound, err.Error())
+	case errors.Is(err, workspace.ErrValidation):
+		writeError(writer, http.StatusBadRequest, err.Error())
+	default:
+		writeError(writer, http.StatusInternalServerError, err.Error())
+	}
 }
 
 func (server *Server) applyCommand(writer http.ResponseWriter, request *http.Request) {

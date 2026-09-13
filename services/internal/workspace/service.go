@@ -55,16 +55,19 @@ type TopologyPoint struct {
 }
 
 type TopologyElementProperties struct {
-	GeometryKey  string         `json:"geometryKey"`
-	GeometryID   string         `json:"geometryId"`
-	Kind         string         `json:"kind"`
-	LocalID      uint64         `json:"localId"`
-	GeometryType string         `json:"geometryType"`
-	BBox         map[string]any `json:"bbox,omitempty"`
-	Point        *[3]float64    `json:"point,omitempty"`
-	Properties   map[string]any `json:"properties"`
-	WorkerID     string         `json:"workerId"`
-	OCCTVersion  string         `json:"occtVersion"`
+	GeometryKey         string                         `json:"geometryKey"`
+	GeometryID          string                         `json:"geometryId"`
+	Kind                string                         `json:"kind"`
+	LocalID             uint64                         `json:"localId"`
+	GeometryType        string                         `json:"geometryType"`
+	BBox                map[string]any                 `json:"bbox,omitempty"`
+	Point               *[3]float64                    `json:"point,omitempty"`
+	Properties          map[string]any                 `json:"properties"`
+	WorkerID            string                         `json:"workerId"`
+	OCCTVersion         string                         `json:"occtVersion"`
+	NamingStatus        string                         `json:"namingStatus"`
+	PersistentSelection *modelcore.PersistentSelection `json:"persistentSelection,omitempty"`
+	NamingResolution    *modelcore.SelectionResolution `json:"namingResolution,omitempty"`
 }
 
 type Artifact struct {
@@ -640,6 +643,7 @@ type Service struct {
 	debugArtifactWrites   chan debugArtifactWrite
 	interactionCandidates interactionCandidateCache
 	assemblyWarmStarts    assemblyWarmStartCache
+	selectionResolutions  sync.Map
 }
 
 func New(database *pgxpool.Pool, worker *geometry.Client) *Service {
@@ -2796,7 +2800,7 @@ func (service *Service) GetTopologyElementProperties(
 	var documentType string
 	var allowed bool
 	err := service.database.QueryRow(ctx, `SELECT d.document_type,
-		EXISTS(SELECT 1 FROM occccad.document_versions v WHERE v.id=d.head_version_id AND v.geometry_key=$2)
+		EXISTS(SELECT 1 FROM occccad.document_versions v WHERE v.document_id=d.id AND v.geometry_key=$2)
 		FROM occccad.documents d WHERE d.id=$1 AND d.deleted_at IS NULL`, documentID, geometryKey).Scan(&documentType, &allowed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		finishAuthorize()
@@ -2888,6 +2892,20 @@ func (service *Service) GetTopologyElementProperties(
 		point := item.GetPoint()
 		value := [3]float64{point.GetX(), point.GetY(), point.GetZ()}
 		result.Point, result.Properties = &value, topologyProperties(item.GetProperties())
+	}
+	var headVersionID string
+	if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&headVersionID); err == nil {
+		selection, bindErr := service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{SourceVersionID: headVersionID, GeometryKey: geometryKey, Kind: kind, LocalID: localID})
+		if bindErr == nil {
+			resolution, resolveErr := service.ResolvePersistentSelection(ctx, documentID, ResolvePersistentSelectionRequest{Selection: selection, SourceVersionID: headVersionID, TargetVersionID: headVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+			if resolveErr == nil {
+				result.PersistentSelection = &selection
+				result.NamingResolution = &resolution
+				result.NamingStatus = string(resolution.Status)
+			}
+		} else if errors.Is(bindErr, ErrNotFound) {
+			result.NamingStatus = "UNAVAILABLE"
+		}
 	}
 	return result, nil
 }

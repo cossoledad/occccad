@@ -89,7 +89,7 @@ invoke test --build-type=Debug
 - Render pose 是可丢弃的视觉状态：动态目标必须经 transition adapter，以当前显示帧重定向并在结束时精确落到权威 TRS；不得把动画中的 matrix 回写为 DocumentView 或命令 payload；
 - 大装配需要渐进加载、LOD、可见性裁剪和批量拾取，不能一次构造完整 DOM/Scene；
 - 任何客户端权限判断都只是体验优化，服务端必须再次鉴权；
-- GLB/拓扑映射是显示制品，可以淘汰并重建；参数文档才是业务真相；
+- GLB/拓扑映射是显示制品，可以淘汰并重建；参数文档才是业务真相。Face/Edge/Vertex 的右侧属性面板同时显示服务端绑定的 Persistent Naming 状态、semantic anchor、selection recipe、supporting-element 状态与 evidence digest；local topology ID 只标识当前显示制品；
 - WebGPU 可作为加速路径，但在兼容性与拾取语义成熟前保留 WebGL2/Three.js 基线。
 
 长期前端数据流、实时协作和大装配方案见项目[目标架构](../../../docs/TARGET_ARCHITECTURE.md)。

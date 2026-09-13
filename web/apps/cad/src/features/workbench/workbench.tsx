@@ -1037,6 +1037,13 @@ function Properties({ view, selection, feature, workbench, sketchPlane, activeTo
     return <><div className="property-context-hint">OCCT B-Rep 拓扑属性</div><Descriptions column={1} size="small"
       bordered className="property-list" items={[
         { key: "kind", label: "Topology", children: `${topology.kind} #${topology.localId}` },
+        { key: "naming-status", label: "Persistent Naming", children: topology.namingStatus || "UNAVAILABLE" },
+        ...(topology.persistentSelection ? [
+          { key: "semantic-anchor", label: "Semantic Anchor", children: `${topology.persistentSelection.anchor.featureId} · ${topology.persistentSelection.anchor.outputSlot}` },
+          { key: "selection-recipe", label: "Selection Recipe", children: topology.persistentSelection.selector.kind },
+          { key: "support-status", label: "Supporting Element", children: topology.namingResolution?.supportingElementStatus ?? "NOT_CONNECTED" },
+          { key: "evidence", label: "Evidence Digest", children: topology.namingResolution?.evidenceDigest?.slice(0, 20) ?? "—" },
+        ] : [{ key: "naming-note", label: "Naming Diagnostic", children: "当前制品未提供可绑定的完整 semantic topology history" }]),
         { key: "geometry-type", label: "Geometry", children: topology.geometryType },
         { key: "geometry-id", label: "Geometry ID", children: topology.geometryId },
         { key: "worker", label: "Worker", children: topology.workerId },

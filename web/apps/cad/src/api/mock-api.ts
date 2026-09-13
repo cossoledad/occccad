@@ -433,7 +433,7 @@ export const mockApi: CadApi = {
   getTopologyProperties: async (_documentID, geometryKey, kind, localId) => pause({
     geometryKey, geometryId: `geometry-${geometryKey}`, kind, localId,
     geometryType: kind === "FACE" ? "PLANE" : kind === "EDGE" ? "LINE" : "POINT",
-    properties: mockTopologyProperties(kind),
+    properties: mockTopologyProperties(kind), namingStatus: "UNAVAILABLE" as const,
     workerId: "mock-geometry-1", occtVersion: "mock-7.9.1",
   }),
   getHistory: async (documentID) => pause(histories.get(documentID) ?? []),
