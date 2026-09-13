@@ -4,8 +4,8 @@ import "fmt"
 
 const (
 	TopologyNamingPolicyID                = "occccad.topology.naming.v1"
-	TopologyNamingEvaluator               = "occccad.topology.contract.v1"
-	TopologyNamingPolicyDigest            = "sha256:cd1ce31324ded20c80cc37cfdff55949c179d2bc0a629bb12143cc5c29feca55"
+	TopologyNamingEvaluator               = "occccad.topology.contract.v2"
+	TopologyNamingPolicyDigest            = "sha256:d13c17a4742f44ae1687645f08e9462f40f97c9422ec4a260617c3a4d4e7bd4d"
 	TopologyNamingSchemaVersion           = uint32(1)
 	TopologyNamingLinearToleranceMeters   = 1e-7
 	TopologyNamingAngularToleranceRadians = 1e-9
@@ -82,6 +82,9 @@ type TopologySelectionEvidence struct {
 	GeometryType     string                `json:"geometryType,omitempty"`
 	MeasureSI        *float64              `json:"measureSI,omitempty"`
 	MeasureDimension string                `json:"measureDimension,omitempty"`
+	ParameterStart   *float64              `json:"parameterStart,omitempty"`
+	ParameterEnd     *float64              `json:"parameterEnd,omitempty"`
+	EndpointRole     string                `json:"endpointRole,omitempty"`
 	Centroid         [3]float64            `json:"centroid,omitempty"`
 	Origin           [3]float64            `json:"origin,omitempty"`
 	Direction        [3]float64            `json:"direction,omitempty"`

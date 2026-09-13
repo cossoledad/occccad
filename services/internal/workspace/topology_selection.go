@@ -88,28 +88,44 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 		}
 		instance.ResolvedVersionID, instance.HeadChanged = instance.ReferencedVersionID, false
 	}
-	resolveEndpoint := func(reference *AssemblyGeometryRef) modelcore.SelectionResolutionStatus {
+	resolveEndpoint := func(reference *AssemblyGeometryRef) (modelcore.SelectionResolutionStatus, error) {
 		if reference == nil || (reference.Kind != "FACE" && reference.Kind != "EDGE" && reference.Kind != "VERTEX") {
-			return modelcore.SelectionResolved
+			return modelcore.SelectionResolved, nil
 		}
 		instance := instances[reference.InstanceID]
 		if instance == nil || reference.PersistentSelection == nil {
-			return modelcore.SelectionSourceUnavailable
+			resolution := unavailableSelectionResolution("PERSISTENT_SELECTION_UNAVAILABLE", "assembly endpoint has no source instance or persistent selection")
+			reference.Resolution = &ResolutionSnapshot{SourceVersionID: reference.SourceVersionID,
+				PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: resolution}
+			return modelcore.SelectionSourceUnavailable, nil
 		}
 		_, _, digest, err := service.topologyManifestForVersion(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID)
 		if err != nil {
-			return modelcore.SelectionSourceUnavailable
+			if errors.Is(err, ErrNotFound) {
+				resolution := unavailableSelectionResolution("PERSISTENT_SELECTION_UNAVAILABLE", "target revision has no persistent topology manifest")
+				reference.Resolution = &ResolutionSnapshot{SourceVersionID: reference.SourceVersionID,
+					TargetVersionID: instance.ReferencedVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: resolution}
+				return modelcore.SelectionSourceUnavailable, nil
+			}
+			return modelcore.SelectionSourceUnavailable, err
 		}
 		resolution, err := service.ResolvePersistentSelection(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{Selection: *reference.PersistentSelection, SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, ManifestDigest: digest, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
 		if err != nil {
-			return modelcore.SelectionSourceUnavailable
+			return modelcore.SelectionSourceUnavailable, err
 		}
 		reference.Resolution = &ResolutionSnapshot{SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, ManifestDigest: digest, PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: resolution}
-		return resolution.Status
+		return resolution.Status, nil
 	}
 	for index := range product.Constraints {
 		constraint := &product.Constraints[index]
-		first, second := resolveEndpoint(&constraint.First), resolveEndpoint(constraint.Second)
+		first, err := resolveEndpoint(&constraint.First)
+		if err != nil {
+			return err
+		}
+		second, err := resolveEndpoint(constraint.Second)
+		if err != nil {
+			return err
+		}
 		if first != modelcore.SelectionResolved || second != modelcore.SelectionResolved {
 			constraint.EvaluationStatus = modelcore.AssemblyConstraintBroken
 			constraint.EvaluationSummary = fmt.Sprintf("support resolution: first=%s second=%s", first, second)
@@ -149,6 +165,15 @@ func selectionEvidence(source *workerv1.SelectionEvidence) modelcore.TopologySel
 		value := source.GetMeasureSi()
 		result.MeasureSI = &value
 	}
+	if source.ParameterStart != nil {
+		value := source.GetParameterStart()
+		result.ParameterStart = &value
+	}
+	if source.ParameterEnd != nil {
+		value := source.GetParameterEnd()
+		result.ParameterEnd = &value
+	}
+	result.EndpointRole = source.GetEndpointRole()
 	if v := source.GetCentroid(); v != nil {
 		result.Centroid = [3]float64{v.GetX(), v.GetY(), v.GetZ()}
 	}
@@ -267,6 +292,25 @@ func manifestSemanticOutput(manifest *workerv1.PartTopologyManifest, selection m
 		}
 	}
 	return nil
+}
+
+func topologyHistoryComplete(manifest *workerv1.PartTopologyManifest) bool {
+	features := manifest.GetFeatureResults()
+	if len(features) == 0 {
+		return false
+	}
+	for _, feature := range features {
+		if !feature.GetTopologyHistoryComplete() {
+			return false
+		}
+	}
+	return true
+}
+
+func unavailableSelectionResolution(code, diagnostic string) modelcore.SelectionResolution {
+	return modelcore.SelectionResolution{Status: modelcore.SelectionSourceUnavailable,
+		SupportingElementStatus: modelcore.SupportingElementNotConnected,
+		DiagnosticCode:          code, Diagnostic: diagnostic}
 }
 
 // resolveManifest follows semantic lineage only. Geometry evidence confirms and explains
@@ -404,7 +448,13 @@ func (service *Service) BindPersistentSelection(ctx context.Context, documentID 
 	}
 	manifest, geometryKey, _, err := service.topologyManifestForVersion(ctx, documentID, request.SourceVersionID)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return modelcore.PersistentSelection{}, fmt.Errorf("%w: PERSISTENT_SELECTION_UNAVAILABLE", ErrValidation)
+		}
 		return modelcore.PersistentSelection{}, err
+	}
+	if !topologyHistoryComplete(manifest) {
+		return modelcore.PersistentSelection{}, fmt.Errorf("%w: TOPOLOGY_HISTORY_INCOMPLETE", ErrValidation)
 	}
 	if geometryKey != request.GeometryKey {
 		return modelcore.PersistentSelection{}, fmt.Errorf("%w: geometryKey does not belong to source revision", ErrValidation)
@@ -430,20 +480,29 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	sourceManifest, _, _, err := service.topologyManifestForVersion(ctx, documentID, request.SourceVersionID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
-			return modelcore.SelectionResolution{Status: modelcore.SelectionSourceUnavailable, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "PERSISTENT_SELECTION_SOURCE_UNAVAILABLE"}, nil
+			return unavailableSelectionResolution("PERSISTENT_SELECTION_UNAVAILABLE", "source revision has no persistent topology manifest"), nil
 		}
 		return modelcore.SelectionResolution{}, err
 	}
+	if !topologyHistoryComplete(sourceManifest) {
+		return unavailableSelectionResolution("TOPOLOGY_HISTORY_INCOMPLETE", "source revision does not declare complete topology history"), nil
+	}
 	sourceOutput := manifestSemanticOutput(sourceManifest, request.Selection)
 	if sourceOutput == nil {
-		return modelcore.SelectionResolution{Status: modelcore.SelectionSourceUnavailable, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "PERSISTENT_SELECTION_SOURCE_UNAVAILABLE"}, nil
+		return unavailableSelectionResolution("PERSISTENT_SELECTION_UNAVAILABLE", "source semantic output is unavailable"), nil
 	}
 	if request.Selection.CreationEvidence.EvidenceDigest != "" && request.Selection.CreationEvidence.EvidenceDigest != sourceOutput.GetEvidence().GetEvidenceDigest() {
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "CREATION_EVIDENCE_MISMATCH"}, nil
 	}
 	manifest, geometryKey, digest, err := service.topologyManifestForVersion(ctx, documentID, request.TargetVersionID)
 	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return unavailableSelectionResolution("PERSISTENT_SELECTION_UNAVAILABLE", "target revision has no persistent topology manifest"), nil
+		}
 		return modelcore.SelectionResolution{}, err
+	}
+	if !topologyHistoryComplete(manifest) {
+		return unavailableSelectionResolution("TOPOLOGY_HISTORY_INCOMPLETE", "target revision does not declare complete topology history"), nil
 	}
 	if request.ManifestDigest != "" && !strings.EqualFold(request.ManifestDigest, digest) {
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "TARGET_MANIFEST_MISMATCH"}, nil

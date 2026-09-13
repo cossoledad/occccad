@@ -475,6 +475,9 @@ gp_Ax2 profile_axes(const ProfileFrame& frame, const Vec2& center) {
 TopoDS_Edge make_profile_edge(const ProfileCurveSpec& curve, const ProfileFrame& frame) {
     TopoDS_Edge edge;
     if (curve.kind == "LINE") {
+        if (std::hypot(curve.end.x - curve.start.x, curve.end.y - curve.start.y) <=
+            topology_linear_tolerance_meters * 1000.0)
+            throw std::invalid_argument("DEGENERATE_PROFILE_EDGE: line is below naming tolerance");
         edge = BRepBuilderAPI_MakeEdge(profile_point(frame, curve.start),
                                        profile_point(frame, curve.end));
     } else if (curve.kind == "CIRCLE") {
@@ -487,6 +490,9 @@ TopoDS_Edge make_profile_edge(const ProfileCurveSpec& curve, const ProfileFrame&
         double end = curve.end_angle;
         while (end <= curve.start_angle)
             end += 2.0 * 3.14159265358979323846;
+        if (curve.radius * (end - curve.start_angle) <=
+            topology_linear_tolerance_meters * 1000.0)
+            throw std::invalid_argument("DEGENERATE_PROFILE_EDGE: arc is below naming tolerance");
         Handle(Geom_Circle) circle =
             new Geom_Circle(profile_axes(frame, curve.center), curve.radius);
         edge = BRepBuilderAPI_MakeEdge(circle, curve.start_angle, end);
@@ -510,6 +516,21 @@ TopoDS_Edge make_profile_edge(const ProfileCurveSpec& curve, const ProfileFrame&
     if (edge.IsNull())
         throw std::runtime_error("profile edge construction failed");
     return curve.reversed ? TopoDS::Edge(edge.Reversed()) : edge;
+}
+
+Vec2 profile_curve_endpoint(const ProfileCurveSpec& curve, const bool start) {
+    if (curve.kind == "LINE")
+        return start ? curve.start : curve.end;
+    if (curve.kind == "ARC") {
+        const double angle = start ? curve.start_angle : curve.end_angle;
+        return {curve.center.x + curve.radius * std::cos(angle),
+                curve.center.y + curve.radius * std::sin(angle)};
+    }
+    if (curve.kind == "SPLINE" && !curve.control_points.empty())
+        return start ? curve.control_points.front() : curve.control_points.back();
+    if (curve.kind == "CIRCLE")
+        return {curve.center.x + curve.radius, curve.center.y};
+    return start ? curve.start : curve.end;
 }
 
 struct NamedShape {
@@ -542,19 +563,34 @@ template <typename Algorithm>
 std::vector<NamedShape> map_named_shapes(const std::vector<NamedShape>& sources,
                                          Algorithm& algorithm, const TopoDS_Shape& result) {
     TopTools_IndexedMapOfShape result_faces;
+    TopTools_IndexedMapOfShape result_edges;
+    TopTools_IndexedMapOfShape result_vertices;
     TopExp::MapShapes(result, TopAbs_FACE, result_faces);
+    TopExp::MapShapes(result, TopAbs_EDGE, result_edges);
+    TopExp::MapShapes(result, TopAbs_VERTEX, result_vertices);
+    const auto contains = [&](const TopoDS_Shape& shape) {
+        switch (shape.ShapeType()) {
+            case TopAbs_FACE:
+                return result_faces.Contains(shape);
+            case TopAbs_EDGE:
+                return result_edges.Contains(shape);
+            case TopAbs_VERTEX:
+                return result_vertices.Contains(shape);
+            default:
+                return false;
+        }
+    };
     std::vector<NamedShape> mapped;
     for (const auto& source : sources) {
         TopTools_ListOfShape candidates = algorithm.Modified(source.shape);
         const auto generated = algorithm.Generated(source.shape);
         for (TopTools_ListIteratorOfListOfShape it(generated); it.More(); it.Next())
             candidates.Append(it.Value());
-        if (candidates.IsEmpty() && !algorithm.IsDeleted(source.shape) &&
-            result_faces.Contains(source.shape)) {
+        if (candidates.IsEmpty() && !algorithm.IsDeleted(source.shape) && contains(source.shape)) {
             candidates.Append(source.shape);
         }
         for (TopTools_ListIteratorOfListOfShape it(candidates); it.More(); it.Next()) {
-            if (it.Value().ShapeType() == TopAbs_FACE && result_faces.Contains(it.Value()))
+            if (it.Value().ShapeType() == source.shape.ShapeType() && contains(it.Value()))
                 mapped.push_back({source.ref, it.Value()});
         }
     }
@@ -565,18 +601,33 @@ std::vector<NamedShape> map_named_history(const std::vector<NamedShape>& sources
                                           const Handle(BRepTools_History) & history,
                                           const TopoDS_Shape& result) {
     TopTools_IndexedMapOfShape result_faces;
+    TopTools_IndexedMapOfShape result_edges;
+    TopTools_IndexedMapOfShape result_vertices;
     TopExp::MapShapes(result, TopAbs_FACE, result_faces);
+    TopExp::MapShapes(result, TopAbs_EDGE, result_edges);
+    TopExp::MapShapes(result, TopAbs_VERTEX, result_vertices);
+    const auto contains = [&](const TopoDS_Shape& shape) {
+        switch (shape.ShapeType()) {
+            case TopAbs_FACE:
+                return result_faces.Contains(shape);
+            case TopAbs_EDGE:
+                return result_edges.Contains(shape);
+            case TopAbs_VERTEX:
+                return result_vertices.Contains(shape);
+            default:
+                return false;
+        }
+    };
     std::vector<NamedShape> mapped;
     for (const auto& source : sources) {
         TopTools_ListOfShape candidates = history->Modified(source.shape);
         const auto& generated = history->Generated(source.shape);
         for (TopTools_ListIteratorOfListOfShape it(generated); it.More(); it.Next())
             candidates.Append(it.Value());
-        if (candidates.IsEmpty() && !history->IsRemoved(source.shape) &&
-            result_faces.Contains(source.shape))
+        if (candidates.IsEmpty() && !history->IsRemoved(source.shape) && contains(source.shape))
             candidates.Append(source.shape);
         for (TopTools_ListIteratorOfListOfShape it(candidates); it.More(); it.Next())
-            if (it.Value().ShapeType() == TopAbs_FACE && result_faces.Contains(it.Value()))
+            if (it.Value().ShapeType() == source.shape.ShapeType() && contains(it.Value()))
                 mapped.push_back({source.ref, it.Value()});
     }
     return mapped;
@@ -659,6 +710,44 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
                 throw std::runtime_error("profile edge identity was not preserved: " + region.id);
             named_face_edges.push_back(matches.front());
         }
+        struct NamedProfileVertex {
+            TopoDS_Vertex shape;
+            std::vector<std::string> endpoint_ids;
+        };
+        std::vector<NamedProfileVertex> profile_vertices;
+        const auto add_profile_vertex = [&](const TopoDS_Vertex& vertex,
+                                            const std::string& endpoint_id) {
+            auto existing = std::find_if(profile_vertices.begin(), profile_vertices.end(),
+                                         [&](const auto& value) {
+                                             return value.shape.IsSame(vertex);
+                                         });
+            if (existing == profile_vertices.end()) {
+                profile_vertices.push_back({vertex, {endpoint_id}});
+            } else {
+                existing->endpoint_ids.push_back(endpoint_id);
+            }
+        };
+        for (std::size_t edge_index = 0; edge_index < profile_edges.size(); ++edge_index) {
+            TopoDS_Vertex first;
+            TopoDS_Vertex last;
+            TopExp::Vertices(named_face_edges[edge_index], first, last);
+            if (first.IsNull() || last.IsNull())
+                continue;
+            const auto* curve = profile_edges[edge_index].first;
+            const auto expected_start = profile_point(frame, profile_curve_endpoint(*curve, true));
+            const auto first_point = BRep_Tool::Pnt(first);
+            const auto last_point = BRep_Tool::Pnt(last);
+            const bool first_is_start = first_point.Distance(expected_start) <=
+                                        last_point.Distance(expected_start);
+            add_profile_vertex(first_is_start ? first : last, curve->entity_id + "/START");
+            add_profile_vertex(first_is_start ? last : first, curve->entity_id + "/END");
+        }
+        for (auto& vertex : profile_vertices) {
+            std::sort(vertex.endpoint_ids.begin(), vertex.endpoint_ids.end());
+            vertex.endpoint_ids.erase(
+                std::unique(vertex.endpoint_ids.begin(), vertex.endpoint_ids.end()),
+                vertex.endpoint_ids.end());
+        }
         TopoDS_Shape generated;
         if (generator == "LINEAR_EXTRUDE") {
             gp_Vec direction(frame.normal);
@@ -687,6 +776,41 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
                 for (TopTools_ListIteratorOfListOfShape it(sides); it.More(); it.Next()) {
                     append_generated(result, source_ref, side_ref, it.Value());
                 }
+                append_generated(
+                    result, source_ref,
+                    {spec.feature_id, "START_BOUNDARY_FROM_PROFILE_EDGE/" + curve->entity_id,
+                     {region.id, curve->entity_id}},
+                    prism.FirstShape(named_face_edges[edge_index]));
+                append_generated(
+                    result, source_ref,
+                    {spec.feature_id, "END_BOUNDARY_FROM_PROFILE_EDGE/" + curve->entity_id,
+                     {region.id, curve->entity_id}},
+                    prism.LastShape(named_face_edges[edge_index]));
+            }
+            for (const auto& vertex : profile_vertices) {
+                std::ostringstream identity;
+                for (const auto& endpoint : vertex.endpoint_ids)
+                    identity << endpoint << '\0';
+                const auto suffix = make_geometry_id(identity.str()).substr(7, 16);
+                const SemanticTopologyRef source_ref{
+                    spec.profile_feature_id, "PROFILE_VERTEX/" + suffix, vertex.endpoint_ids};
+                append_generated(
+                    result, source_ref,
+                    {spec.feature_id, "START_VERTEX_FROM_PROFILE_ENDPOINTS/" + suffix,
+                     vertex.endpoint_ids},
+                    prism.FirstShape(vertex.shape));
+                append_generated(
+                    result, source_ref,
+                    {spec.feature_id, "END_VERTEX_FROM_PROFILE_ENDPOINTS/" + suffix,
+                     vertex.endpoint_ids},
+                    prism.LastShape(vertex.shape));
+                const auto vertical = prism.Generated(vertex.shape);
+                for (TopTools_ListIteratorOfListOfShape it(vertical); it.More(); it.Next())
+                    append_generated(
+                        result, source_ref,
+                        {spec.feature_id, "VERTICAL_FROM_PROFILE_ENDPOINTS/" + suffix,
+                         vertex.endpoint_ids},
+                        it.Value());
             }
         } else {
             const gp_Pnt start = profile_point(frame, spec.axis_start);
@@ -782,6 +906,153 @@ SelectionEvidence face_evidence(const TopoDS_Face& face) {
               << evidence.direction.x << ',' << evidence.direction.y << ',' << evidence.direction.z;
     evidence.evidence_digest = make_geometry_id(canonical.str());
     return evidence;
+}
+
+std::string curve_geometry_type(const TopoDS_Edge& edge) {
+    switch (BRepAdaptor_Curve(edge).GetType()) {
+        case GeomAbs_Line:
+            return "LINE";
+        case GeomAbs_Circle:
+            return "CIRCLE";
+        case GeomAbs_Ellipse:
+            return "ELLIPSE";
+        case GeomAbs_BSplineCurve:
+            return "BSPLINE";
+        case GeomAbs_BezierCurve:
+            return "BEZIER";
+        case GeomAbs_Hyperbola:
+            return "HYPERBOLA";
+        case GeomAbs_Parabola:
+            return "PARABOLA";
+        case GeomAbs_OffsetCurve:
+            return "OFFSET";
+        default:
+            return "OTHER_CURVE";
+    }
+}
+
+SelectionEvidence edge_evidence(const TopoDS_Edge& edge) {
+    SelectionEvidence evidence;
+    evidence.geometry_type = curve_geometry_type(edge);
+    GProp_GProps properties;
+    BRepGProp::LinearProperties(edge, properties);
+    evidence.measure_si = properties.Mass() * 1.0e-3;
+    evidence.measure_dimension = "LENGTH";
+    evidence.centroid = to_vec3(properties.CentreOfMass());
+    BRepAdaptor_Curve curve(edge);
+    if (std::isfinite(curve.FirstParameter()))
+        evidence.parameter_start = curve.FirstParameter();
+    if (std::isfinite(curve.LastParameter()))
+        evidence.parameter_end = curve.LastParameter();
+    if (curve.GetType() == GeomAbs_Line) {
+        evidence.origin = to_vec3(curve.Line().Location());
+        const auto direction = curve.Line().Direction();
+        evidence.direction = {direction.X(), direction.Y(), direction.Z()};
+    } else if (curve.GetType() == GeomAbs_Circle) {
+        evidence.origin = to_vec3(curve.Circle().Location());
+        const auto direction = curve.Circle().Axis().Direction();
+        evidence.direction = {direction.X(), direction.Y(), direction.Z()};
+    }
+    std::ostringstream canonical;
+    canonical.precision(17);
+    canonical << evidence.geometry_type << '|' << *evidence.measure_si << '|'
+              << evidence.centroid.x << ',' << evidence.centroid.y << ','
+              << evidence.centroid.z << '|' << evidence.origin.x << ',' << evidence.origin.y
+              << ',' << evidence.origin.z << '|' << evidence.direction.x << ','
+              << evidence.direction.y << ',' << evidence.direction.z << '|'
+              << curve.FirstParameter() << ',' << curve.LastParameter();
+    evidence.evidence_digest = make_geometry_id(canonical.str());
+    return evidence;
+}
+
+SelectionEvidence vertex_evidence(const TopoDS_Vertex& vertex) {
+    SelectionEvidence evidence;
+    evidence.geometry_type = "POINT";
+    evidence.measure_dimension = "NONE";
+    evidence.centroid = to_vec3(BRep_Tool::Pnt(vertex));
+    evidence.origin = evidence.centroid;
+    std::ostringstream canonical;
+    canonical.precision(17);
+    canonical << evidence.geometry_type << '|' << evidence.centroid.x << ','
+              << evidence.centroid.y << ',' << evidence.centroid.z;
+    evidence.evidence_digest = make_geometry_id(canonical.str());
+    return evidence;
+}
+
+PersistentTopologyType persistent_topology_type(const TopoDS_Shape& shape) {
+    switch (shape.ShapeType()) {
+        case TopAbs_FACE:
+            return PersistentTopologyType::face;
+        case TopAbs_EDGE:
+            return PersistentTopologyType::edge;
+        case TopAbs_VERTEX:
+            return PersistentTopologyType::vertex;
+        default:
+            return PersistentTopologyType::unspecified;
+    }
+}
+
+SelectionEvidence topology_evidence(const TopoDS_Shape& shape) {
+    switch (shape.ShapeType()) {
+        case TopAbs_FACE:
+            return face_evidence(TopoDS::Face(shape));
+        case TopAbs_EDGE:
+            return edge_evidence(TopoDS::Edge(shape));
+        case TopAbs_VERTEX:
+            return vertex_evidence(TopoDS::Vertex(shape));
+        default:
+            throw std::runtime_error("TOPOLOGY_HISTORY_UNSUPPORTED_SHAPE_TYPE");
+    }
+}
+
+void append_semantic_role(SelectionEvidence& evidence, const SemanticTopologyRef& ref,
+                          const PersistentTopologyType type) {
+    if (type == PersistentTopologyType::edge) {
+        if (ref.output_slot.rfind("START_BOUNDARY_FROM_PROFILE_EDGE/", 0) == 0)
+            evidence.endpoint_role = "START_CAP_BOUNDARY";
+        else if (ref.output_slot.rfind("END_BOUNDARY_FROM_PROFILE_EDGE/", 0) == 0)
+            evidence.endpoint_role = "END_CAP_BOUNDARY";
+        else if (ref.output_slot.rfind("VERTICAL_FROM_PROFILE_ENDPOINTS/", 0) == 0)
+            evidence.endpoint_role = "VERTICAL_GENERATED_EDGE";
+        else
+            evidence.endpoint_role = "DERIVED_EDGE";
+    } else if (type == PersistentTopologyType::vertex) {
+        if (ref.output_slot.rfind("START_VERTEX_FROM_PROFILE_ENDPOINTS/", 0) == 0)
+            evidence.endpoint_role = "START_CAP_VERTEX";
+        else if (ref.output_slot.rfind("END_VERTEX_FROM_PROFILE_ENDPOINTS/", 0) == 0)
+            evidence.endpoint_role = "END_CAP_VERTEX";
+        else
+            evidence.endpoint_role = "DERIVED_VERTEX";
+    }
+    if (!evidence.endpoint_role.empty())
+        evidence.evidence_digest =
+            make_geometry_id(evidence.evidence_digest + "|role=" + evidence.endpoint_role);
+}
+
+bool topology_adjacent(const TopoDS_Shape& left, const TopoDS_Shape& right) {
+    if (left.ShapeType() == TopAbs_FACE && right.ShapeType() == TopAbs_FACE) {
+        TopTools_IndexedMapOfShape edges;
+        TopExp::MapShapes(left, TopAbs_EDGE, edges);
+        for (TopExp_Explorer edge(right, TopAbs_EDGE); edge.More(); edge.Next())
+            if (edges.Contains(edge.Current()))
+                return true;
+        return false;
+    }
+    if (left.ShapeType() == TopAbs_EDGE && right.ShapeType() == TopAbs_EDGE) {
+        TopTools_IndexedMapOfShape vertices;
+        TopExp::MapShapes(left, TopAbs_VERTEX, vertices);
+        for (TopExp_Explorer vertex(right, TopAbs_VERTEX); vertex.More(); vertex.Next())
+            if (vertices.Contains(vertex.Current()))
+                return true;
+        return false;
+    }
+    const TopoDS_Shape* owner = &left;
+    const TopoDS_Shape* member = &right;
+    if (static_cast<int>(owner->ShapeType()) > static_cast<int>(member->ShapeType()))
+        std::swap(owner, member);
+    TopTools_IndexedMapOfShape members;
+    TopExp::MapShapes(*owner, member->ShapeType(), members);
+    return members.Contains(*member);
 }
 
 std::string topology_policy_digest() {
@@ -1114,7 +1385,11 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         result_id = impl_->store(result);
 
         TopTools_IndexedMapOfShape final_faces;
+        TopTools_IndexedMapOfShape final_edges;
+        TopTools_IndexedMapOfShape final_vertices;
         TopExp::MapShapes(result, TopAbs_FACE, final_faces);
+        TopExp::MapShapes(result, TopAbs_EDGE, final_edges);
+        TopExp::MapShapes(result, TopAbs_VERTEX, final_vertices);
         struct OutputGroup {
             TopoDS_Shape shape;
             std::vector<SemanticTopologyRef> sources;
@@ -1140,8 +1415,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             const auto right_key = right.sources.empty() ? std::string{} : ref_key(right.sources.front());
             if (left_key != right_key)
                 return left_key < right_key;
-            return face_evidence(TopoDS::Face(left.shape)).evidence_digest <
-                   face_evidence(TopoDS::Face(right.shape)).evidence_digest;
+            return topology_evidence(left.shape).evidence_digest <
+                   topology_evidence(right.shape).evidence_digest;
         });
         for (const auto& group : groups)
             for (const auto& source : group.sources)
@@ -1204,11 +1479,26 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                         kind = TopologyLineageKind::generated;
                 }
             }
-            const auto local_id = final_faces.FindIndex(group.shape);
+            int local_id = 0;
+            switch (group.shape.ShapeType()) {
+                case TopAbs_FACE:
+                    local_id = final_faces.FindIndex(group.shape);
+                    break;
+                case TopAbs_EDGE:
+                    local_id = final_edges.FindIndex(group.shape);
+                    break;
+                case TopAbs_VERTEX:
+                    local_id = final_vertices.FindIndex(group.shape);
+                    break;
+                default:
+                    break;
+            }
             if (local_id <= 0)
                 throw std::runtime_error("TOPOLOGY_HISTORY_DANGLING_RESULT");
-            auto evidence = face_evidence(TopoDS::Face(group.shape));
-            outputs.push_back({{output_ref, PersistentTopologyType::face,
+            auto evidence = topology_evidence(group.shape);
+            const auto output_type = persistent_topology_type(group.shape);
+            append_semantic_role(evidence, output_ref, output_type);
+            outputs.push_back({{output_ref, output_type,
                                 static_cast<std::uint64_t>(local_id), evidence},
                                group.shape});
             std::vector<SemanticTopologyRef> lineage_sources = group.sources;
@@ -1239,21 +1529,18 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             }
         }
         for (std::size_t left = 0; left < outputs.size(); ++left) {
-            TopTools_IndexedMapOfShape left_edges;
-            TopExp::MapShapes(outputs[left].second, TopAbs_EDGE, left_edges);
             for (std::size_t right = 0; right < outputs.size(); ++right) {
                 if (left == right)
                     continue;
-                TopTools_IndexedMapOfShape right_edges;
-                TopExp::MapShapes(outputs[right].second, TopAbs_EDGE, right_edges);
-                bool adjacent = false;
-                for (int edge = 1; edge <= left_edges.Extent() && !adjacent; ++edge)
-                    adjacent = right_edges.Contains(left_edges(edge));
-                if (adjacent)
+                if (topology_adjacent(outputs[left].second, outputs[right].second))
                     outputs[left].first.evidence.adjacent.push_back(
                         outputs[right].first.semantic_ref);
             }
             sort_refs(outputs[left].first.evidence.adjacent);
+            outputs[left].first.evidence.adjacent.erase(
+                std::unique(outputs[left].first.evidence.adjacent.begin(),
+                            outputs[left].first.evidence.adjacent.end(), same_ref),
+                outputs[left].first.evidence.adjacent.end());
             auto lineage = std::find_if(feature.topology_history.lineage.begin(),
                                         feature.topology_history.lineage.end(), [&](const auto& value) {
                                             return same_ref(value.result, outputs[left].first.semantic_ref);
@@ -1267,10 +1554,13 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             const bool alive = std::any_of(
                 operation.named.begin(), operation.named.end(),
                 [&](const NamedShape& value) { return same_ref(value.ref, source.ref); });
-            if (!alive)
+            if (!alive) {
+                auto evidence = topology_evidence(source.shape);
+                append_semantic_role(evidence, source.ref,
+                                     persistent_topology_type(source.shape));
                 feature.topology_history.deleted.push_back(
-                    {source.ref, "OCCT_IS_DELETED_OR_OUTSIDE_RESULT",
-                     face_evidence(TopoDS::Face(source.shape))});
+                    {source.ref, "OCCT_IS_DELETED_OR_OUTSIDE_RESULT", evidence});
+            }
         }
         for (const auto& tombstone : feature.topology_history.deleted) {
             if (std::any_of(outputs.begin(), outputs.end(), [&](const auto& output) {
@@ -1279,15 +1569,18 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 throw std::runtime_error("TOPOLOGY_HISTORY_LIVE_TOMBSTONE_CONFLICT");
         }
         if (feature.topology_history_complete) {
-            if (outputs.size() != static_cast<std::size_t>(final_faces.Extent()))
+            const auto final_count = static_cast<std::size_t>(
+                final_faces.Extent() + final_edges.Extent() + final_vertices.Extent());
+            if (outputs.size() != final_count)
                 throw std::runtime_error("TOPOLOGY_HISTORY_INCOMPLETE_FINAL_SHAPE");
-            std::vector<bool> local_ids(static_cast<std::size_t>(final_faces.Extent()) + 1U, false);
+            std::vector<std::string> local_ids;
             std::vector<std::string> semantic_refs;
             for (const auto& output : outputs) {
-                if (output.first.local_id == 0U || output.first.local_id >= local_ids.size() ||
-                    local_ids[output.first.local_id])
-                    throw std::runtime_error("TOPOLOGY_HISTORY_DUPLICATE_LOCAL_ID");
-                local_ids[output.first.local_id] = true;
+                if (output.first.local_id == 0U ||
+                    output.first.topology_type == PersistentTopologyType::unspecified)
+                    throw std::runtime_error("TOPOLOGY_HISTORY_INVALID_LOCAL_ID");
+                local_ids.push_back(std::to_string(static_cast<int>(output.first.topology_type)) +
+                                    "/" + std::to_string(output.first.local_id));
                 semantic_refs.push_back(ref_key(output.first.semantic_ref));
                 const auto matches = std::count_if(
                     feature.topology_history.lineage.begin(), feature.topology_history.lineage.end(),
@@ -1295,6 +1588,9 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 if (matches != 1)
                     throw std::runtime_error("TOPOLOGY_HISTORY_LINEAGE_OUTPUT_MISMATCH");
             }
+            std::sort(local_ids.begin(), local_ids.end());
+            if (std::adjacent_find(local_ids.begin(), local_ids.end()) != local_ids.end())
+                throw std::runtime_error("TOPOLOGY_HISTORY_DUPLICATE_LOCAL_ID");
             std::sort(semantic_refs.begin(), semantic_refs.end());
             if (std::adjacent_find(semantic_refs.begin(), semantic_refs.end()) != semantic_refs.end())
                 throw std::runtime_error("TOPOLOGY_HISTORY_DUPLICATE_SEMANTIC_REF");

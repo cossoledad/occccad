@@ -130,7 +130,7 @@ func TestGeometryPoolRoutesPartNamingContractWithoutDroppingIdentity(t *testing.
 	response, err := workerv1.NewGeometryWorkerClient(connection).EvaluatePart(t.Context(), &workerv1.EvaluatePartRequest{
 		RequestId: "part-contract-1", GeometryKey: "sha256:part-contract",
 		TopologyPolicy: &workerv1.TopologyNamingPolicy{SchemaVersion: 1,
-			PolicyId: "occccad.topology.naming.v1", EvaluatorVersion: "occccad.topology.contract.v1",
+			PolicyId: "occccad.topology.naming.v1", EvaluatorVersion: "occccad.topology.contract.v2",
 			LinearToleranceMeters: 1e-7, AngularToleranceRadians: 1e-9},
 		ProfilePads: []*workerv1.ProfilePadSpec{{FeatureId: "extrude-2", BodyId: "body-main",
 			InputFeatureId: "extrude-1", ProfileFeatureId: "sketch-2"}},

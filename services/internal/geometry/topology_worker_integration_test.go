@@ -89,13 +89,14 @@ func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
 		len(manifest.GetFeatures()) != 1 || manifest.GetFeatures()[0].GetFeatureId() != "pad-1" {
 		t.Fatalf("Worker dropped the naming contract: %#v", manifest)
 	}
-	if len(manifest.GetFeatureResults()) != 1 || len(manifest.GetFeatureResults()[0].GetSemanticOutputs()) != 6 ||
-		len(manifest.GetFeatureResults()[0].GetTopologyHistory().GetLineage()) != 6 ||
+	if len(manifest.GetFeatureResults()) != 1 || len(manifest.GetFeatureResults()[0].GetSemanticOutputs()) != 26 ||
+		len(manifest.GetFeatureResults()[0].GetTopologyHistory().GetLineage()) != 26 ||
 		!manifest.GetFeatureResults()[0].GetTopologyHistoryComplete() {
 		t.Fatalf("Worker omitted Linear Extrude topology history: %#v", manifest.GetFeatureResults())
 	}
 	for _, output := range manifest.GetFeatureResults()[0].GetSemanticOutputs() {
-		if output.GetLocalId() == 0 || output.GetEvidence().GetEvidenceDigest() == "" || len(output.GetEvidence().GetAdjacent()) == 0 {
+		if output.GetTopologyType() == workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED ||
+			output.GetLocalId() == 0 || output.GetEvidence().GetEvidenceDigest() == "" || len(output.GetEvidence().GetAdjacent()) == 0 {
 			t.Fatalf("invalid semantic output evidence: %#v", output)
 		}
 	}

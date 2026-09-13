@@ -1,6 +1,6 @@
 # Part 特征编辑、持久拓扑命名与装配约束状态开发计划
 
-状态：实施中；P0–P6 已完成，P7–P11 待实施
+状态：实施中；P0–P7 已完成，P8–P11 待实施（P7 浏览器人工验收受当前环境缺少浏览器运行时限制）
 日期：2026-09-12  
 适用基线：当前未发布、允许重建开发数据的 occccad 仓库
 
@@ -510,6 +510,10 @@ stateDiagram-v2
 - 贯通 Part/Product 属性面板、结构树、viewport highlight、Reconnect 以及刷新/Undo/Redo 后的两层状态。
 
 验收：矩形拉伸长度编辑、ADD/REMOVE、贯穿孔、侧开口、边 merge/split 和顶点删除均覆盖 C++ history corpus；Go bind/resolver 冷重建和 Product Update 覆盖 RESOLVED/MISSING/AMBIGUOUS/TYPE_MISMATCH；至少用 Vertex-Vertex、Vertex-Plane、linear Edge-Edge、linear Edge-Plane 场景经正式 Router 完成创建、更新、Broken 隔离与重连；Web production build、确定性交互测试及浏览器人工验收通过。
+
+实施状态：P7A–P7C 已于 2026-09-14 完成代码与可执行验收。`LINEAR_EXTRUDE` 从稳定 profile region、curve entity 和排序后的共享 endpoint identity 生成 cap boundary Edge、纵向 Edge 与 cap Vertex；Prism、Boolean 和 same-domain unify history 按 Face/Edge/Vertex 原类型传播，不以最终遍历位置构造身份。Edge evidence 现含 SI 长度、曲线类型、原点/方向、参数区间、端点角色和跨类型邻接，Vertex evidence 含精确点、端点角色和邻接；这些数值只验真与消歧。Shape gate 覆盖最终 Shape 的全部 Face/Edge/Vertex，并校验 typed local ID、semantic result、lineage 与 live/tombstone。矩形拉伸固定输出 6/12/8，长度编辑、ADD/REMOVE、贯穿孔、侧开口 split、merge、顶点删除、圆环 seam 和容差以下短边均进入 C++ corpus。Worker/Proto 保留实际 topology type；evaluator 升为 `occccad.topology.contract.v2` 并更换 policy digest，旧缓存不能冒充新 manifest。
+
+Go bind/resolver 已覆盖 Edge/Vertex 的 RESOLVED、MISSING、AMBIGUOUS、TYPE_MISMATCH、完整 history gate 与无进程缓存冷重建；缺少 manifest 与不完整 history 分别返回 `PERSISTENT_SELECTION_UNAVAILABLE`、`TOPOLOGY_HISTORY_INCOMPLETE`。正式 GeometryPool/Router/Product fixture 用四个独立 component 验证 Vertex-Vertex、Vertex-Plane、linear Edge-Edge、linear Edge-Plane 的创建、通孔后更新、真实删除后的 NotConnected/Broken、无关 Fix 隔离、四类 Reconnect、Cut 深度再次编辑及冷服务解析。只含断开拓扑约束的 Product 在几何解析失败后不会生成 `.3dreplay`。Web 已复用统一状态/属性面板、结构树、viewport highlight 与 Reconnect 路径，并新增 Edge/Vertex Connected、history incomplete、Broken 状态确定性场景；production build 已通过。当前环境没有 Chrome/Chromium/Firefox，P7 浏览器/WebGL 人工验收仍需在具备浏览器运行时的环境复核。
 
 ### 后续批次，不纳入本轮基础闭环
 

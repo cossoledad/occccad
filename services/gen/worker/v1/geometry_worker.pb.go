@@ -2840,6 +2840,9 @@ type SelectionEvidence struct {
 	Adjacent         []*SemanticTopologyRef `protobuf:"bytes,6,rep,name=adjacent,proto3" json:"adjacent,omitempty"`
 	EvidenceDigest   string                 `protobuf:"bytes,7,opt,name=evidence_digest,json=evidenceDigest,proto3" json:"evidence_digest,omitempty"`
 	MeasureDimension string                 `protobuf:"bytes,8,opt,name=measure_dimension,json=measureDimension,proto3" json:"measure_dimension,omitempty"`
+	ParameterStart   *float64               `protobuf:"fixed64,9,opt,name=parameter_start,json=parameterStart,proto3,oneof" json:"parameter_start,omitempty"`
+	ParameterEnd     *float64               `protobuf:"fixed64,10,opt,name=parameter_end,json=parameterEnd,proto3,oneof" json:"parameter_end,omitempty"`
+	EndpointRole     string                 `protobuf:"bytes,11,opt,name=endpoint_role,json=endpointRole,proto3" json:"endpoint_role,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -2926,6 +2929,27 @@ func (x *SelectionEvidence) GetEvidenceDigest() string {
 func (x *SelectionEvidence) GetMeasureDimension() string {
 	if x != nil {
 		return x.MeasureDimension
+	}
+	return ""
+}
+
+func (x *SelectionEvidence) GetParameterStart() float64 {
+	if x != nil && x.ParameterStart != nil {
+		return *x.ParameterStart
+	}
+	return 0
+}
+
+func (x *SelectionEvidence) GetParameterEnd() float64 {
+	if x != nil && x.ParameterEnd != nil {
+		return *x.ParameterEnd
+	}
+	return 0
+}
+
+func (x *SelectionEvidence) GetEndpointRole() string {
+	if x != nil {
+		return x.EndpointRole
 	}
 	return ""
 }
@@ -7749,7 +7773,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"source_ids\x18\x03 \x03(\tR\tsourceIds\"\x91\x01\n" +
 	"\x0fSelectionRecipe\x12:\n" +
 	"\x04kind\x18\x01 \x01(\x0e2&.occccad.worker.v1.SelectionRecipeKindR\x04kind\x12B\n" +
-	"\boperands\x18\x02 \x03(\v2&.occccad.worker.v1.SemanticTopologyRefR\boperands\"\xa2\x03\n" +
+	"\boperands\x18\x02 \x03(\v2&.occccad.worker.v1.SemanticTopologyRefR\boperands\"\xc5\x04\n" +
 	"\x11SelectionEvidence\x12#\n" +
 	"\rgeometry_type\x18\x01 \x01(\tR\fgeometryType\x12\"\n" +
 	"\n" +
@@ -7759,8 +7783,14 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\tdirection\x18\x05 \x01(\v2\x17.occccad.worker.v1.Vec3R\tdirection\x12B\n" +
 	"\badjacent\x18\x06 \x03(\v2&.occccad.worker.v1.SemanticTopologyRefR\badjacent\x12'\n" +
 	"\x0fevidence_digest\x18\a \x01(\tR\x0eevidenceDigest\x12+\n" +
-	"\x11measure_dimension\x18\b \x01(\tR\x10measureDimensionB\r\n" +
-	"\v_measure_si\"\xb3\x03\n" +
+	"\x11measure_dimension\x18\b \x01(\tR\x10measureDimension\x12,\n" +
+	"\x0fparameter_start\x18\t \x01(\x01H\x01R\x0eparameterStart\x88\x01\x01\x12(\n" +
+	"\rparameter_end\x18\n" +
+	" \x01(\x01H\x02R\fparameterEnd\x88\x01\x01\x12#\n" +
+	"\rendpoint_role\x18\v \x01(\tR\fendpointRoleB\r\n" +
+	"\v_measure_siB\x12\n" +
+	"\x10_parameter_startB\x10\n" +
+	"\x0e_parameter_end\"\xb3\x03\n" +
 	"\x13PersistentSelection\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12,\n" +
 	"\x12source_document_id\x18\x02 \x01(\tR\x10sourceDocumentId\x12$\n" +

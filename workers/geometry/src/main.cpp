@@ -176,12 +176,32 @@ worker_api::TopologyLineageKind lineage_kind(const occccad::kernel::TopologyLine
     }
 }
 
+worker_api::PersistentTopologyType persistent_topology_type(
+    const occccad::kernel::PersistentTopologyType type) {
+    using Source = occccad::kernel::PersistentTopologyType;
+    switch (type) {
+        case Source::face:
+            return worker_api::PERSISTENT_TOPOLOGY_TYPE_FACE;
+        case Source::edge:
+            return worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE;
+        case Source::vertex:
+            return worker_api::PERSISTENT_TOPOLOGY_TYPE_VERTEX;
+        default:
+            return worker_api::PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED;
+    }
+}
+
 void fill_selection_evidence(const occccad::kernel::SelectionEvidence& source,
                              worker_api::SelectionEvidence* target) {
     target->set_geometry_type(source.geometry_type);
     if (source.measure_si)
         target->set_measure_si(*source.measure_si);
     target->set_measure_dimension(source.measure_dimension);
+    if (source.parameter_start)
+        target->set_parameter_start(*source.parameter_start);
+    if (source.parameter_end)
+        target->set_parameter_end(*source.parameter_end);
+    target->set_endpoint_role(source.endpoint_role);
     fill_vec3(source.centroid, target->mutable_centroid());
     fill_vec3(source.origin, target->mutable_origin());
     fill_vec3(source.direction, target->mutable_direction());
@@ -201,7 +221,7 @@ void fill_feature_result(const occccad::kernel::FeatureResult& source,
     for (const auto& output : source.semantic_outputs) {
         auto* value = target->add_semantic_outputs();
         fill_semantic_ref(output.semantic_ref, value->mutable_semantic_ref());
-        value->set_topology_type(worker_api::PERSISTENT_TOPOLOGY_TYPE_FACE);
+        value->set_topology_type(persistent_topology_type(output.topology_type));
         value->set_local_id(output.local_id);
         fill_selection_evidence(output.evidence, value->mutable_evidence());
     }

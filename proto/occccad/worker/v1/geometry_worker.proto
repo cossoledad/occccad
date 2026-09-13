@@ -370,6 +370,9 @@ message SelectionEvidence {
     repeated SemanticTopologyRef adjacent = 6;
     string evidence_digest = 7;
     string measure_dimension = 8;
+    optional double parameter_start = 9;
+    optional double parameter_end = 10;
+    string endpoint_role = 11;
 }
 
 message PersistentSelection {

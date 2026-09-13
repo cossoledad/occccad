@@ -94,10 +94,53 @@ TEST(GeometryExchange, ProfilePadSupportsCircularOuterLoopAndHole) {
     pad.regions = {region};
     pad.pad_length = 12.0;
     pad.plane = "XY";
-    const auto id = kernel.evaluateProfilePads({pad});
+    const auto evaluation = kernel.evaluateProfilePadsWithHistory({pad});
+    const auto id = evaluation.geometry_id;
 
     EXPECT_NEAR(kernel.getVolume(id), 3.14159265358979323846 * (400.0 - 64.0) * 12.0, 1.0e-5);
     EXPECT_GT(kernel.getTopology(id).solid_count, 0U);
+    ASSERT_EQ(evaluation.feature_results.size(), 1U);
+    const auto& feature = evaluation.feature_results.front();
+    EXPECT_TRUE(feature.topology_history_complete);
+    EXPECT_EQ(feature.semantic_outputs.size(), kernel.getTopology(id).face_count +
+                                                   kernel.getTopology(id).edge_count +
+                                                   kernel.getTopology(id).vertex_count);
+    EXPECT_TRUE(std::any_of(feature.semantic_outputs.begin(), feature.semantic_outputs.end(),
+                            [](const auto& output) {
+                                return output.topology_type == PersistentTopologyType::vertex &&
+                                       output.evidence.endpoint_role.find("CAP_VERTEX") !=
+                                           std::string::npos;
+                            }));
+}
+
+TEST(GeometryExchange, NamingRejectsProfileEdgesBelowPolicyTolerance) {
+    OcctKernel kernel;
+    ProfilePadSpec pad;
+    pad.feature_id = "short-edge-pad";
+    pad.body_id = "body-main";
+    pad.profile_feature_id = "short-edge-sketch";
+    ProfileRegionSpec region;
+    region.id = "short";
+    region.outer.id = "short-outer";
+    const std::vector<Vec2> points{{0, 0}, {0.00001, 0}, {0.00001, 10}, {0, 10}};
+    for (std::size_t index = 0; index < points.size(); ++index) {
+        ProfileCurveSpec line;
+        line.entity_id = "short-edge-" + std::to_string(index);
+        line.kind = "LINE";
+        line.start = points[index];
+        line.end = points[(index + 1) % points.size()];
+        region.outer.curves.push_back(line);
+    }
+    pad.regions = {region};
+    pad.pad_length = 5;
+    pad.body_operation = "NEW_BODY";
+
+    try {
+        (void)kernel.evaluateProfilePadsWithHistory({pad});
+        FAIL() << "profile edge below naming tolerance must be rejected";
+    } catch (const std::invalid_argument& error) {
+        EXPECT_NE(std::string(error.what()).find("DEGENERATE_PROFILE_EDGE"), std::string::npos);
+    }
 }
 
 TEST(GeometryExchange, ProfilePadKeepsArcAnglesInTheSketchPlane) {
@@ -233,15 +276,54 @@ TEST(GeometryExchange, TopologyHistoryKeepsExtrudeSemanticOutputsAcrossLengthEdi
     EXPECT_EQ(slots(first.feature_results.front()), slots(repeated.feature_results.front()));
     EXPECT_EQ(first.feature_results.front().topology_history.evidence_digest,
               repeated.feature_results.front().topology_history.evidence_digest);
-    EXPECT_EQ(first.feature_results.front().semantic_outputs.size(), 6U);
+    const auto& first_feature = first.feature_results.front();
+    const auto& first_topology = kernel.getTopology(first.geometry_id);
+    EXPECT_EQ(first_feature.semantic_outputs.size(), 26U);
+    EXPECT_EQ(std::count_if(first_feature.semantic_outputs.begin(),
+                            first_feature.semantic_outputs.end(), [](const auto& output) {
+                                return output.topology_type == PersistentTopologyType::face;
+                            }),
+              6);
+    EXPECT_EQ(std::count_if(first_feature.semantic_outputs.begin(),
+                            first_feature.semantic_outputs.end(), [](const auto& output) {
+                                return output.topology_type == PersistentTopologyType::edge;
+                            }),
+              12);
+    EXPECT_EQ(std::count_if(first_feature.semantic_outputs.begin(),
+                            first_feature.semantic_outputs.end(), [](const auto& output) {
+                                return output.topology_type == PersistentTopologyType::vertex;
+                            }),
+              8);
+    EXPECT_EQ(first_feature.semantic_outputs.size(), first_topology.face_count +
+                                                         first_topology.edge_count +
+                                                         first_topology.vertex_count);
     EXPECT_TRUE(first.feature_results.front().topology_history_complete);
     EXPECT_FALSE(first.feature_results.front().topology_history.evidence_digest.empty());
     for (const auto& output : second.feature_results.front().semantic_outputs) {
         EXPECT_GE(output.local_id, 1U);
-        EXPECT_LE(output.local_id, kernel.getTopology(second.geometry_id).face_count);
+        const auto& topology = kernel.getTopology(second.geometry_id);
+        if (output.topology_type == PersistentTopologyType::face)
+            EXPECT_LE(output.local_id, topology.face_count);
+        else if (output.topology_type == PersistentTopologyType::edge)
+            EXPECT_LE(output.local_id, topology.edge_count);
+        else if (output.topology_type == PersistentTopologyType::vertex)
+            EXPECT_LE(output.local_id, topology.vertex_count);
+        else
+            ADD_FAILURE() << "semantic output has unspecified topology type";
         EXPECT_FALSE(output.evidence.evidence_digest.empty());
         EXPECT_FALSE(output.evidence.adjacent.empty());
     }
+    const auto contains_slot = [&](const std::string& prefix) {
+        return std::any_of(first_feature.semantic_outputs.begin(),
+                           first_feature.semantic_outputs.end(), [&](const auto& output) {
+                               return output.semantic_ref.output_slot.rfind(prefix, 0) == 0;
+                           });
+    };
+    EXPECT_TRUE(contains_slot("START_BOUNDARY_FROM_PROFILE_EDGE/"));
+    EXPECT_TRUE(contains_slot("END_BOUNDARY_FROM_PROFILE_EDGE/"));
+    EXPECT_TRUE(contains_slot("VERTICAL_FROM_PROFILE_ENDPOINTS/"));
+    EXPECT_TRUE(contains_slot("START_VERTEX_FROM_PROFILE_ENDPOINTS/"));
+    EXPECT_TRUE(contains_slot("END_VERTEX_FROM_PROFILE_ENDPOINTS/"));
 }
 
 TEST(GeometryExchange, TopologyHistoryComposesBooleanAndSameDomainHistory) {
@@ -283,6 +365,32 @@ TEST(GeometryExchange, TopologyHistoryComposesBooleanAndSameDomainHistory) {
                             }));
     EXPECT_FALSE(cut_history.deleted.empty());
     EXPECT_TRUE(evaluation.feature_results[2].topology_history_complete);
+    const auto& final_topology = kernel.getTopology(evaluation.geometry_id);
+    const auto& final_outputs = evaluation.feature_results[2].semantic_outputs;
+    EXPECT_EQ(final_outputs.size(), final_topology.face_count + final_topology.edge_count +
+                                        final_topology.vertex_count);
+    EXPECT_EQ(std::count_if(final_outputs.begin(), final_outputs.end(), [](const auto& output) {
+                  return output.topology_type == PersistentTopologyType::edge;
+              }),
+              final_topology.edge_count);
+    EXPECT_EQ(std::count_if(final_outputs.begin(), final_outputs.end(), [](const auto& output) {
+                  return output.topology_type == PersistentTopologyType::vertex;
+              }),
+              final_topology.vertex_count);
+    const auto merged_edge = std::find_if(
+        evaluation.feature_results[1].topology_history.lineage.begin(),
+        evaluation.feature_results[1].topology_history.lineage.end(), [&](const auto& lineage) {
+            if (lineage.kind != TopologyLineageKind::merged)
+                return false;
+            return std::any_of(evaluation.feature_results[1].semantic_outputs.begin(),
+                               evaluation.feature_results[1].semantic_outputs.end(),
+                               [&](const auto& output) {
+                                   return output.topology_type == PersistentTopologyType::edge &&
+                                          output.semantic_ref.feature_id == lineage.result.feature_id &&
+                                          output.semantic_ref.output_slot == lineage.result.output_slot;
+                               });
+        });
+    EXPECT_NE(merged_edge, evaluation.feature_results[1].topology_history.lineage.end());
     EXPECT_EQ(evaluation.feature_results[1].topology_history.evidence_digest,
               repeated.feature_results[1].topology_history.evidence_digest);
     ASSERT_EQ(evaluation.feature_results[1].semantic_outputs.size(),
@@ -361,11 +469,22 @@ TEST(GeometryExchange, NamingFixtureCutDeletesOriginalTopFace) {
     remove_top.plane_normal = {0, 0, 1};
     remove_top.plane_u_direction = {1, 0, 0};
 
-    const auto result = kernel.evaluateProfilePads({base, remove_top});
-    EXPECT_EQ(kernel.getTopology(result).solid_count, 1U);
-    EXPECT_NEAR(kernel.getVolume(result), 2000.0, 1.0e-6);
-    EXPECT_EQ(faces_on_z(kernel.getTopology(result), 10.0), 0U);
-    EXPECT_EQ(faces_on_z(kernel.getTopology(result), 5.0), 1U);
+    base.feature_id = "extrude-1";
+    base.body_id = "body-main";
+    base.profile_feature_id = "sketch-base";
+    remove_top.feature_id = "cut-top";
+    remove_top.body_id = "body-main";
+    remove_top.input_feature_id = base.feature_id;
+    remove_top.profile_feature_id = "sketch-cut";
+    const auto evaluation = kernel.evaluateProfilePadsWithHistory({base, remove_top});
+    EXPECT_EQ(kernel.getTopology(evaluation.geometry_id).solid_count, 1U);
+    EXPECT_NEAR(kernel.getVolume(evaluation.geometry_id), 2000.0, 1.0e-6);
+    EXPECT_EQ(faces_on_z(kernel.getTopology(evaluation.geometry_id), 10.0), 0U);
+    EXPECT_EQ(faces_on_z(kernel.getTopology(evaluation.geometry_id), 5.0), 1U);
+    const auto& deleted = evaluation.feature_results.back().topology_history.deleted;
+    EXPECT_TRUE(std::any_of(deleted.begin(), deleted.end(), [](const auto& tombstone) {
+        return tombstone.source.output_slot.rfind("END_VERTEX_FROM_PROFILE_ENDPOINTS/", 0) == 0;
+    }));
 }
 
 TEST(GeometryExchange, NamingFixtureSideOpeningCreatesTwoAmbiguousFaceCandidates) {
@@ -402,6 +521,14 @@ TEST(GeometryExchange, NamingFixtureSideOpeningCreatesTwoAmbiguousFaceCandidates
     ASSERT_NE(ambiguity, cut.topology_history.ambiguous.end());
     EXPECT_EQ(ambiguity->diagnostic_code, "TOPOLOGY_SPLIT_AMBIGUOUS");
     EXPECT_EQ(ambiguity->candidates.size(), 2U);
+    EXPECT_TRUE(std::any_of(cut.topology_history.ambiguous.begin(),
+                            cut.topology_history.ambiguous.end(), [](const auto& value) {
+                                return !value.sources.empty() &&
+                                       (value.sources.front().output_slot.find("BOUNDARY_") !=
+                                            std::string::npos ||
+                                        value.sources.front().output_slot.find("VERTICAL_") !=
+                                            std::string::npos);
+                            }));
 }
 
 TEST(GeometryExchange, NamingFixtureXZThroughCutKeepsSixBaseFacesAndAddsFourHoleFaces) {
@@ -431,19 +558,42 @@ TEST(GeometryExchange, NamingFixtureXZThroughCutKeepsSixBaseFacesAndAddsFourHole
     EXPECT_TRUE(result.topology_history_complete);
     EXPECT_TRUE(result.diagnostics.empty());
     EXPECT_EQ(kernel.getTopology(evaluation.geometry_id).face_count, 10U);
-    ASSERT_EQ(result.semantic_outputs.size(), 10U);
+    const auto& topology = kernel.getTopology(evaluation.geometry_id);
+    ASSERT_EQ(result.semantic_outputs.size(), topology.face_count + topology.edge_count +
+                                                  topology.vertex_count);
     std::vector<std::uint64_t> local_ids;
     std::size_t base_faces = 0;
     std::size_t hole_faces = 0;
+    std::size_t named_edges = 0;
+    std::size_t named_vertices = 0;
     for (const auto& output : result.semantic_outputs) {
-        local_ids.push_back(output.local_id);
-        base_faces += output.semantic_ref.feature_id == base.feature_id ? 1U : 0U;
-        hole_faces += output.semantic_ref.feature_id == hole.feature_id ? 1U : 0U;
+        local_ids.push_back((static_cast<std::uint64_t>(output.topology_type) << 56U) |
+                            output.local_id);
+        if (output.topology_type == PersistentTopologyType::face) {
+            base_faces += output.semantic_ref.feature_id == base.feature_id ? 1U : 0U;
+            hole_faces += output.semantic_ref.feature_id == hole.feature_id ? 1U : 0U;
+        } else if (output.topology_type == PersistentTopologyType::edge) {
+            ++named_edges;
+        } else if (output.topology_type == PersistentTopologyType::vertex) {
+            ++named_vertices;
+        }
     }
     std::sort(local_ids.begin(), local_ids.end());
     EXPECT_EQ(std::adjacent_find(local_ids.begin(), local_ids.end()), local_ids.end());
     EXPECT_EQ(base_faces, 6U);
     EXPECT_EQ(hole_faces, 4U);
+    EXPECT_EQ(named_edges, topology.edge_count);
+    EXPECT_EQ(named_vertices, topology.vertex_count);
+    EXPECT_TRUE(std::any_of(result.semantic_outputs.begin(), result.semantic_outputs.end(),
+                            [&](const auto& output) {
+                                return output.topology_type == PersistentTopologyType::edge &&
+                                       output.semantic_ref.feature_id == hole.feature_id;
+                            }));
+    EXPECT_TRUE(std::any_of(result.semantic_outputs.begin(), result.semantic_outputs.end(),
+                            [&](const auto& output) {
+                                return output.topology_type == PersistentTopologyType::vertex &&
+                                       output.semantic_ref.feature_id == hole.feature_id;
+                            }));
 }
 
 TEST(GeometryExchange, SolidFeatureChainFusesAndCutsOneBody) {
