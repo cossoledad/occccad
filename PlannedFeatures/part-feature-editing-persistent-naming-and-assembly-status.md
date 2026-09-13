@@ -1,6 +1,6 @@
 # Part 特征编辑、持久拓扑命名与装配约束状态开发计划
 
-状态：实施中；P0–P1 已完成，P2–P6 待实施
+状态：实施中；P0–P2 已完成，P3–P6 待实施
 日期：2026-09-12  
 适用基线：当前未发布、允许重建开发数据的 occccad 仓库
 
@@ -412,6 +412,8 @@ stateDiagram-v2
 验收：20 → 40 mm、preview 不写 Revision、一次 OK 一个 Revision、刷新保持 40 mm、连续 Undo/Redo、stale edit、表达式驱动字段保护、`invoke web.build` 和浏览器手工验收通过。
 
 ### 批次 P2：Extrude 与 Boolean 的 TopologyHistory
+
+实施状态：已于 2026-09-12 完成。OCCT adapter 在一次 Part 求值中保留 Prism、Boolean 和 `ShapeUpgrade_UnifySameDomain` history，逐 Feature 生成 cap/side semantic outputs、Generated/Modified/Unchanged/Split/Merged lineage、tombstone、signature 与 adjacency evidence，并以最终 Shape gate 校验 local ID 和 live/tombstone 互斥。Worker 同时返回 `FeatureResult` 摘要并写入带 digest 的不可变 protobuf topology manifest；控制面将该制品纳入 ArtifactStore/geometry artifact 元数据。此状态尚不提供 PersistentSelection bind/resolver，仍按 P3 实施。
 
 目标：Worker 对每个实体 Feature 输出完整可验证 lineage。
 

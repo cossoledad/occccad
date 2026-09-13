@@ -220,7 +220,7 @@ sequenceDiagram
 
 GeometryId 是精确 Body B-Rep 的 SHA-256 内容标识，不绑定 Worker；`geometry_key` 标识带 evaluator 和 Part 显示语义的求值结果，因此两个结果可以共享 GeometryId，但拥有不同的可视化制品。几何输出包括 B-Rep、GLB、三角形、边折线、包围盒、拓扑计数和体积。新增几何已接入本地制品对象；历史表结构仍保留部分内联数据字段。Body 的 ADD/REMOVE/INTERSECT 在 OCCT 布尔完成后统一同域面和同域边，再进行 B-Rep 校验和内容寻址；因此相交且等高的拉伸不会把连续顶面暴露成多个共面选择区域。
 
-Persistent topology naming 已完成 P0 契约基线。Profile Pad 求值现在必须携带稳定的 Feature、Body、输入 Feature 和 Profile Feature identity，以及固定版本的 naming policy/evaluator 和以米、弧度表达的匹配容差；Worker 校验这些输入，并在 `PartEvaluationManifest` 回传生效策略和逐 Feature identity。公共 C++ 值类型与 Proto 已定义 `PersistentSelection`、`TopologyHistory`、唯一/缺失/歧义等 resolution、Supporting Element 的 Connected/NotConnected，以及 Assembly Constraint 的 NotUpdated/Broken/Impossible/Verified。当前 Worker 尚未从 OCCT 算法生成或持久化 lineage/history，Product 仍保存 `geometryKey + topologyId` 的 Revision-local 引用；测试明确锁定这种 local ID 在 Part 重算后不能跨 Revision 使用。P2/P3 才会接入 history 生成和 resolver，不能把本段契约视为已交付持久重命名。
+Persistent topology naming 已完成 P0–P2 契约与 history 生成。Profile Pad 求值必须携带稳定的 Feature、Body、输入 Feature 和 Profile Feature identity，以及固定版本的 naming policy/evaluator 和以米、弧度表达的匹配容差。Linear Extrude 从 profile region/entity ID 生成 start cap、end cap 和 side semantic outputs；OCCT adapter 保留 Prism、Fuse/Cut/Common 与 `ShapeUpgrade_UnifySameDomain` 的历史对象，将 Generated/Modified/Unchanged/Split/Merged/Deleted 折叠为逐 Feature `TopologyHistory`。每个 live Face 输出包含最终 GeometryId 内的 local ID、surface/area/centroid/frame signature 与相邻语义面，shape gate 拒绝悬空 result 和 live/tombstone 冲突。Worker 在 `PartEvaluationManifest` 返回 FeatureResult，并把相同结果序列化为带 SHA-256 的不可变 protobuf topology manifest；控制面把其保存到 ArtifactStore 和 `geometry_artifacts`。公共 C++ 值类型与 Proto 也已定义 `PersistentSelection`、resolution 及两层装配状态，但 P3 resolver 尚未实现；Product 仍保存 `geometryKey + topologyId` 的 Revision-local 引用，因此不能宣称跨 Revision 选择已经交付。
 
 Router 的亲和对象是不可变 `geometry_key`/GeometryId，而不是可变 Document：拓扑等后续查询回到已经 resident 该 Body 的 Worker，新的 Revision 在 `OCCCCAD_GEOMETRY_PER_WORKER` 软容量已满时可以分配到另一 Worker。这个过程不移动参数模型或权威 B-Rep；Revision、Artifact 元数据和 ArtifactStore 仍是事实来源，Worker 只保存可丢弃缓存，所以 Undo 可以命中旧 Body 所在 Worker。当前 Part evaluator 会从完整参数模型重建特征链，并不消费父 Revision 的 resident Shape，因此强制把子 Revision 放回父 Worker 没有计算复用收益，反而会破坏按不可变制品分散内存和并行查询的能力。将来只有在 evaluator 支持带 provenance 的增量输入（父 GeometryId、dirty feature closure 和确定性回退）后，才应增加 lineage-aware placement；不能仅按 Document ID 制造状态依赖。
 
@@ -269,7 +269,7 @@ stateDiagram-v2
 | RPC | 当前状态 | 说明 |
 |---|---|---|
 | `Ping` | 已实现 | 健康与 resident 数量 |
-| `EvaluatePart` | 已实现 | ProfileRegion/孔环 Pad 链、基础 B-Rep；Profile Pad 强制稳定 Feature/Body/source identity 与 naming policy，并回传 P0 evaluation manifest；保留旧矩形字段作为当前开发期过渡入口 |
+| `EvaluatePart` | 已实现 | ProfileRegion/孔环 Pad 链、基础 B-Rep；Profile Pad 强制稳定 Feature/Body/source identity 与 naming policy，回传逐 Feature semantic outputs/TopologyHistory，并输出不可变 topology manifest artifact；保留旧矩形字段作为当前开发期过渡入口 |
 | `SolveSketch` | 已实现 | GeometryPool Router 转发到 Worker，执行 SketchModel v1 的权威 PlaneGCS 求解与诊断 |
 | `InspectExchange` | 已实现 | 读取 STEP/BREP 制品清单，判定 Part 或可并行根组件 Product |
 | `ImportExchange` | 已实现 | 从 ArtifactReference 导入一个 STEP 根或 BREP，输出 B-Rep/GLB 制品引用 |
@@ -399,7 +399,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 | 二维草图与基础约束 | 已实现基础集合 | Point/Line/Circle/Arc/插值 Spline、基本几何/尺寸/对称约束、PlaneGCS 与四组 Sketcher Toolbar |
 | 三维装配约束/运动学 | 已实现首个 Product 闭环 | 支持 Fix、Rigid、Coincident、Concentric、Angle、Distance，约束创建/编辑/删除、固连集实时平移预览及松手后的权威 SE(3) 求解 |
 | Product 交互预览 | 已实现移动预览闭环 | 应用自有三轴手柄从 Instance 投影前的真实射线命中取得锚点和局部框架：面命中以世界法向作为 Z，直线边命中以世界切向作为 X，并用确定性的世界参考轴补齐正交框架；中心再次吸附到拓扑点、边或面时同步更新位置与可用方向。只有中心空心圆使用固定像素的屏幕空间 Shader；每根轴由同一个线框几何绘制轴线和空心三角形，轴线终点严格落在三角形底边中点。轴端空心圆和两侧短弧是所在 XY、YZ 或 ZX 旋转平面内的真实线框几何，随相机自然投影而不朝向相机。每次 pointerdown 从当前确认 Placement 重新建立手势基线并记录鼠标相对控制图形的点击偏移；每个 pointermove 数值反求轴参数或旋转角，使三角形顶点或轴端圆重新投影到当前鼠标目标。视觉 hover 与姿态变化使用不同回调，非拖拽状态不能产生 MOVE preview。权威装配求解严格保持一个请求在途并合并为最新待处理目标；预览响应只更新实例，不修改进行中的鼠标锚点，pointerup 等待最终待处理预览后立即把交互基线更新到确认姿态，再提交同一姿态。不可达 MOVE preview 返回 `constraintLimited` 和基线姿态，客户端保留上一确认帧。提交刷新会保留 Instance 选择与手柄，直至用户点击空白或切换工具 |
-| 持久拓扑命名 | 未实现 | 当前 local ID 不可作长期 Feature 引用 |
+| 持久拓扑命名 | 已实现 history 生成，resolver 未实现 | Extrude/Boolean/unify 已输出逐 Feature lineage 与 manifest；当前 Product local ID 仍不可跨 Revision 使用 |
 | S3 兼容对象存储/CDN | 未实现 | 当前仅本地目录 |
 | 实时多人同文档编辑 | 已实现首个提交同步闭环 | WebSocket request/event、Outbox、sequence、重连快照；尚无 presence/preview 与 semantic rebase |
 | XDE/AP242 语义装配交换 | 未实现 | 当前仅按 transferable root 构建 Product，未恢复嵌套 BOM/颜色/共享实例 |

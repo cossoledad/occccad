@@ -7,21 +7,19 @@
 #ifndef OCCCCAD_TOPOLOGY_NAMING_HPP
 #define OCCCCAD_TOPOLOGY_NAMING_HPP
 
+#include <occccad/kernel/kernel.hpp>
+
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
-#include <occccad/kernel/kernel.hpp>
-
 namespace occccad::kernel {
 
 inline constexpr std::uint32_t topology_naming_schema_version = 1;
-inline constexpr std::string_view topology_naming_policy_id =
-    "occccad.topology.naming.v1";
-inline constexpr std::string_view topology_evaluator_version =
-    "occccad.topology.contract.v1";
+inline constexpr std::string_view topology_naming_policy_id = "occccad.topology.naming.v1";
+inline constexpr std::string_view topology_evaluator_version = "occccad.topology.contract.v1";
 inline constexpr double topology_linear_tolerance_meters = 1.0e-7;
 inline constexpr double topology_angular_tolerance_radians = 1.0e-9;
 
@@ -136,6 +134,29 @@ struct TopologyHistory {
     std::vector<AmbiguousLineage> ambiguous;
     std::string evidence_digest;
     std::string policy_digest;
+};
+
+struct SemanticTopologyOutput {
+    SemanticTopologyRef semantic_ref;
+    PersistentTopologyType topology_type{PersistentTopologyType::unspecified};
+    std::uint64_t local_id{};
+    SelectionEvidence evidence;
+};
+
+struct FeatureResult {
+    std::string feature_id;
+    std::string body_id;
+    std::string input_feature_id;
+    std::string profile_feature_id;
+    GeometryId result_geometry_id;
+    std::vector<SemanticTopologyOutput> semantic_outputs;
+    TopologyHistory topology_history;
+    std::vector<std::string> diagnostics;
+};
+
+struct ProfileEvaluationResult {
+    GeometryId geometry_id;
+    std::vector<FeatureResult> feature_results;
 };
 
 }  // namespace occccad::kernel

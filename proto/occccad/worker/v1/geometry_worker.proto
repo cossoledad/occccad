@@ -453,6 +453,32 @@ message PartEvaluationManifest {
     string topology_manifest_digest = 4;
     ArtifactReference topology_manifest_artifact = 5;
     repeated FeatureEvaluationIdentity features = 6;
+    repeated FeatureResult feature_results = 7;
+}
+
+message SemanticTopologyOutput {
+    SemanticTopologyRef semantic_ref = 1;
+    PersistentTopologyType topology_type = 2;
+    uint64 local_id = 3;
+    SelectionEvidence evidence = 4;
+}
+
+message FeatureResult {
+    string feature_id = 1;
+    string result_geometry_id = 2;
+    repeated SemanticTopologyOutput semantic_outputs = 3;
+    TopologyHistory topology_history = 4;
+    repeated string diagnostics = 5;
+    string body_id = 6;
+    string input_feature_id = 7;
+    string profile_feature_id = 8;
+}
+
+message PartTopologyManifest {
+    uint32 schema_version = 1;
+    string policy_id = 2;
+    string evaluator_version = 3;
+    repeated FeatureResult feature_results = 4;
 }
 
 message ArtifactReference {

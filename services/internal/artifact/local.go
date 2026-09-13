@@ -129,6 +129,8 @@ func fileName(kind Kind) string {
 		return "shape.brep"
 	case KindGLB:
 		return "mesh.glb"
+	case KindTopologyManifest:
+		return "topology.pb"
 	case KindExchangeSource:
 		return "source.exchange"
 	case KindExchangeExport:

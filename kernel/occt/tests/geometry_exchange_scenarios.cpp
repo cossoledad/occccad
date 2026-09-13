@@ -124,8 +124,7 @@ TEST(GeometryExchange, ProfilePadKeepsArcAnglesInTheSketchPlane) {
     pad.plane = "XZ";
     const auto id = kernel.evaluateProfilePads({pad});
 
-    EXPECT_NEAR(kernel.getVolume(id), 0.5 * 3.14159265358979323846 * 100.0 * 7.0,
-                1.0e-5);
+    EXPECT_NEAR(kernel.getVolume(id), 0.5 * 3.14159265358979323846 * 100.0 * 7.0, 1.0e-5);
 }
 
 TEST(GeometryExchange, ProfilePadBuildsClosedSplineWire) {
@@ -168,18 +167,16 @@ ProfileRegionSpec rectangular_region(const std::string& id, double x0, double y0
 }
 
 std::size_t faces_on_z(const TopologyInfo& topology, const double z) {
-    return static_cast<std::size_t>(std::count_if(
-        topology.faces.begin(), topology.faces.end(), [z](const FaceInfo& face) {
-            return std::abs(face.bbox.min.z - z) < 1.0e-6 &&
-                   std::abs(face.bbox.max.z - z) < 1.0e-6;
+    return static_cast<std::size_t>(
+        std::count_if(topology.faces.begin(), topology.faces.end(), [z](const FaceInfo& face) {
+            return std::abs(face.bbox.min.z - z) < 1.0e-6 && std::abs(face.bbox.max.z - z) < 1.0e-6;
         }));
 }
 
 std::size_t faces_on_y(const TopologyInfo& topology, const double y) {
-    return static_cast<std::size_t>(std::count_if(
-        topology.faces.begin(), topology.faces.end(), [y](const FaceInfo& face) {
-            return std::abs(face.bbox.min.y - y) < 1.0e-6 &&
-                   std::abs(face.bbox.max.y - y) < 1.0e-6;
+    return static_cast<std::size_t>(
+        std::count_if(topology.faces.begin(), topology.faces.end(), [y](const FaceInfo& face) {
+            return std::abs(face.bbox.min.y - y) < 1.0e-6 && std::abs(face.bbox.max.y - y) < 1.0e-6;
         }));
 }
 
@@ -205,6 +202,93 @@ TEST(GeometryExchange, NamingFixtureExtrudeLengthChangesGeometryButKeepsDomainId
     EXPECT_EQ(twenty.profile_feature_id, forty.profile_feature_id);
     EXPECT_EQ(faces_on_z(kernel.getTopology(twenty_id), 20.0), 1U);
     EXPECT_EQ(faces_on_z(kernel.getTopology(forty_id), 40.0), 1U);
+}
+
+TEST(GeometryExchange, TopologyHistoryKeepsExtrudeSemanticOutputsAcrossLengthEdit) {
+    OcctKernel kernel;
+    ProfilePadSpec twenty;
+    twenty.feature_id = "extrude-1";
+    twenty.body_id = "body-main";
+    twenty.profile_feature_id = "sketch-1";
+    twenty.regions = {rectangular_region("region-1", 0, 0, 20, 10)};
+    twenty.pad_length = 20;
+    twenty.body_operation = "NEW_BODY";
+    auto forty = twenty;
+    forty.pad_length = 40;
+
+    const auto first = kernel.evaluateProfilePadsWithHistory({twenty});
+    const auto second = kernel.evaluateProfilePadsWithHistory({forty});
+    const auto repeated = kernel.evaluateProfilePadsWithHistory({twenty});
+    ASSERT_EQ(first.feature_results.size(), 1U);
+    ASSERT_EQ(second.feature_results.size(), 1U);
+    const auto slots = [](const FeatureResult& feature) {
+        std::vector<std::string> result;
+        for (const auto& output : feature.semantic_outputs)
+            result.push_back(output.semantic_ref.output_slot);
+        std::sort(result.begin(), result.end());
+        return result;
+    };
+    EXPECT_EQ(slots(first.feature_results.front()), slots(second.feature_results.front()));
+    EXPECT_EQ(first.geometry_id, repeated.geometry_id);
+    EXPECT_EQ(slots(first.feature_results.front()), slots(repeated.feature_results.front()));
+    EXPECT_EQ(first.feature_results.front().topology_history.evidence_digest,
+              repeated.feature_results.front().topology_history.evidence_digest);
+    EXPECT_EQ(first.feature_results.front().semantic_outputs.size(), 6U);
+    EXPECT_FALSE(first.feature_results.front().topology_history.evidence_digest.empty());
+    for (const auto& output : second.feature_results.front().semantic_outputs) {
+        EXPECT_GE(output.local_id, 1U);
+        EXPECT_LE(output.local_id, kernel.getTopology(second.geometry_id).face_count);
+        EXPECT_FALSE(output.evidence.evidence_digest.empty());
+        EXPECT_FALSE(output.evidence.adjacent.empty());
+    }
+}
+
+TEST(GeometryExchange, TopologyHistoryComposesBooleanAndSameDomainHistory) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id = "extrude-base";
+    base.body_id = "body-main";
+    base.profile_feature_id = "sketch-base";
+    base.regions = {rectangular_region("base", 0, 0, 20, 20)};
+    base.pad_length = 10;
+    base.body_operation = "NEW_BODY";
+    ProfilePadSpec add = base;
+    add.feature_id = "extrude-add";
+    add.input_feature_id = base.feature_id;
+    add.profile_feature_id = "sketch-add";
+    add.regions = {rectangular_region("add", 10, 0, 30, 20)};
+    add.body_operation = "ADD";
+    ProfilePadSpec remove = base;
+    remove.feature_id = "cut-1";
+    remove.input_feature_id = add.feature_id;
+    remove.profile_feature_id = "sketch-cut";
+    remove.regions = {rectangular_region("cut", 12, 5, 18, 15)};
+    remove.body_operation = "REMOVE";
+
+    const auto evaluation = kernel.evaluateProfilePadsWithHistory({base, add, remove});
+    ASSERT_EQ(evaluation.feature_results.size(), 3U);
+    EXPECT_EQ(kernel.getTopology(evaluation.geometry_id).solid_count, 1U);
+    EXPECT_NEAR(kernel.getVolume(evaluation.geometry_id), 5400.0, 1.0e-6);
+    const auto& add_history = evaluation.feature_results[1].topology_history;
+    const auto& cut_history = evaluation.feature_results[2].topology_history;
+    EXPECT_TRUE(std::any_of(
+        add_history.lineage.begin(), add_history.lineage.end(),
+        [](const TopologyLineage& value) { return value.kind == TopologyLineageKind::merged; }));
+    EXPECT_TRUE(std::any_of(cut_history.lineage.begin(), cut_history.lineage.end(),
+                            [](const TopologyLineage& value) {
+                                return value.kind == TopologyLineageKind::modified ||
+                                       value.kind == TopologyLineageKind::unchanged;
+                            }));
+    EXPECT_FALSE(cut_history.deleted.empty());
+    for (const auto& tombstone : cut_history.deleted) {
+        EXPECT_FALSE(
+            std::any_of(evaluation.feature_results[2].semantic_outputs.begin(),
+                        evaluation.feature_results[2].semantic_outputs.end(),
+                        [&](const SemanticTopologyOutput& output) {
+                            return output.semantic_ref.feature_id == tombstone.source.feature_id &&
+                                   output.semantic_ref.output_slot == tombstone.source.output_slot;
+                        }));
+    }
 }
 
 TEST(GeometryExchange, NamingFixtureCutRetainsModifiedTopFace) {

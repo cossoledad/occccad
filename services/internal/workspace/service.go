@@ -27,9 +27,10 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
 	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/proto"
 )
 
-const evaluatorVersion = "part-solid-generators-v8"
+const evaluatorVersion = "part-solid-generators-v9-topology-history"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -2409,7 +2410,22 @@ func (service *Service) storeEvaluation(
 		"faces": evaluation.GetTopology().GetFaceCount(), "edges": evaluation.GetTopology().GetEdgeCount(),
 		"vertices": evaluation.GetTopology().GetVertexCount(), "solids": evaluation.GetTopology().GetSolidCount(),
 	})
-	var brepObjectID, glbObjectID *string
+	var topologyManifestData []byte
+	var topologyManifestDigest string
+	if manifest := evaluation.GetEvaluationManifest(); manifest != nil && len(manifest.GetFeatureResults()) > 0 {
+		topologyManifestData, err = proto.Marshal(&workerv1.PartTopologyManifest{SchemaVersion: manifest.GetSchemaVersion(),
+			PolicyId: manifest.GetTopologyPolicyId(), EvaluatorVersion: manifest.GetTopologyEvaluatorVersion(),
+			FeatureResults: manifest.GetFeatureResults()})
+		if err != nil {
+			return fmt.Errorf("serialize topology manifest: %w", err)
+		}
+		digest := sha256.Sum256(topologyManifestData)
+		topologyManifestDigest = hex.EncodeToString(digest[:])
+		if manifest.GetTopologyManifestDigest() != "" && manifest.GetTopologyManifestDigest() != topologyManifestDigest {
+			return fmt.Errorf("topology manifest digest mismatch")
+		}
+	}
+	var brepObjectID, glbObjectID, topologyManifestObjectID *string
 	storageState := "DATABASE"
 	if service.artifacts != nil {
 		var brepObject, glbObject artifactstore.Object
@@ -2430,6 +2446,15 @@ func (service *Service) storeEvaluation(
 			return fmt.Errorf("store GLB artifact: %w", err)
 		}
 		brepObjectID, glbObjectID = &brepObject.ID, &glbObject.ID
+		if reference := evaluation.GetEvaluationManifest().GetTopologyManifestArtifact(); reference != nil {
+			topologyObject, adoptErr := service.artifacts.Adopt(ctx, artifactstore.KindTopologyManifest,
+				"application/vnd.occccad.topology-manifest.v1+protobuf", reference.GetObjectKey())
+			if adoptErr != nil {
+				return fmt.Errorf("adopt worker topology manifest: %w", adoptErr)
+			}
+			topologyManifestObjectID = &topologyObject.ID
+			topologyManifestData = nil
+		}
 		if evaluation.GetBrepArtifact() != nil || evaluation.GetGlbArtifact() != nil {
 			storageState = "OBJECT"
 		} else {
@@ -2437,6 +2462,10 @@ func (service *Service) storeEvaluation(
 		}
 	}
 	brepData, glbData := evaluation.GetBrepData(), glb
+	var topologyManifestDigestValue any
+	if topologyManifestDigest != "" {
+		topologyManifestDigestValue = topologyManifestDigest
+	}
 	if storageState == "OBJECT" {
 		brepData, glbData = nil, nil
 	}
@@ -2444,11 +2473,13 @@ func (service *Service) storeEvaluation(
 		INSERT INTO occccad.geometry_artifacts(
 			geometry_key,geometry_id,evaluator_version,occt_version,units,
 			brep_data,glb_data,mesh_json,bbox_json,topology_json,volume,
-			brep_object_id,glb_object_id,storage_state,visualization_json,worker_id)
-		VALUES($1,$2,$3,$4,'mm',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+			brep_object_id,glb_object_id,topology_manifest_object_id,topology_manifest_data,
+			topology_manifest_digest,storage_state,visualization_json,worker_id)
+		VALUES($1,$2,$3,$4,'mm',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 		ON CONFLICT (geometry_key) DO NOTHING`, key, evaluation.GetGeometryId(), evaluatorVersion,
 		evaluation.GetOcctVersion(), brepData, glbData, meshJSON,
-		bboxJSON, topologyJSON, evaluation.GetVolume(), brepObjectID, glbObjectID, storageState,
+		bboxJSON, topologyJSON, evaluation.GetVolume(), brepObjectID, glbObjectID,
+		topologyManifestObjectID, topologyManifestData, topologyManifestDigestValue, storageState,
 		visualizationJSON, workerID); err != nil {
 		return err
 	}

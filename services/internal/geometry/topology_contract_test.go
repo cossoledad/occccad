@@ -62,8 +62,16 @@ func TestPersistentSelectionAndTopologyHistoryProtoRoundTrip(t *testing.T) {
 		}},
 		PolicyDigest: "policy-digest", EvidenceDigest: "evidence-digest",
 	}
+	manifest := &workerv1.PartTopologyManifest{SchemaVersion: 1, PolicyId: modelcore.TopologyNamingPolicyID,
+		EvaluatorVersion: modelcore.TopologyNamingEvaluator, FeatureResults: []*workerv1.FeatureResult{{
+			FeatureId: "cut-1", BodyId: "body-main", InputFeatureId: "pad-1", ProfileFeatureId: "sketch-cut",
+			ResultGeometryId: "after", TopologyHistory: history, SemanticOutputs: []*workerv1.SemanticTopologyOutput{{
+				SemanticRef: history.Lineage[0].Result, TopologyType: workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_FACE,
+				LocalId: 7, Evidence: &workerv1.SelectionEvidence{GeometryType: "PLANE", EvidenceDigest: "face-evidence"},
+			}},
+		}}}
 
-	for name, message := range map[string]proto.Message{"selection": selection, "history": history} {
+	for name, message := range map[string]proto.Message{"selection": selection, "history": history, "manifest": manifest} {
 		encoded, err := proto.Marshal(message)
 		if err != nil {
 			t.Fatalf("marshal %s: %v", name, err)

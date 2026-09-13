@@ -8,11 +8,12 @@ import (
 type Kind string
 
 const (
-	KindBREP           Kind = "BREP"
-	KindGLB            Kind = "GLB"
-	KindExchangeSource Kind = "EXCHANGE_SOURCE"
-	KindExchangeExport Kind = "EXCHANGE_EXPORT"
-	KindThumbnail      Kind = "THUMBNAIL"
+	KindBREP             Kind = "BREP"
+	KindGLB              Kind = "GLB"
+	KindTopologyManifest Kind = "TOPOLOGY_MANIFEST"
+	KindExchangeSource   Kind = "EXCHANGE_SOURCE"
+	KindExchangeExport   Kind = "EXCHANGE_EXPORT"
+	KindThumbnail        Kind = "THUMBNAIL"
 )
 
 type StoredObject struct {

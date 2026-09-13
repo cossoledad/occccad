@@ -7,6 +7,7 @@
 #define INTERNAL_OCCT_KERNEL_HPP
 
 #include <occccad/kernel/kernel.hpp>
+#include <occccad/kernel/topology_naming.hpp>
 
 #include <memory>
 #include <string>
@@ -47,6 +48,8 @@ public:
                                        const std::vector<uint8_t>& base_brep = {}) override;
     GeometryId evaluateProfilePads(const std::vector<ProfilePadSpec>& specs,
                                    const std::vector<uint8_t>& base_brep = {}) override;
+    ProfileEvaluationResult evaluateProfilePadsWithHistory(
+        const std::vector<ProfilePadSpec>& specs, const std::vector<uint8_t>& base_brep = {});
 
     BoundingBox getBoundingBox(const GeometryId& id) override;
     const TopologyInfo& getTopology(const GeometryId& id) override;

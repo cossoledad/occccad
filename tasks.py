@@ -348,8 +348,8 @@ def run_geometry(c, build_type=None):
         raise Exit(f"Build dir {build_dir} not found. Run 'invoke configure build' first.")
 
     print("[run] Building geometry tests incrementally...")
-    c.run(f"cmake --build {build_dir} --target occccad_geometry_exchange_test --parallel", pty=True)
-    c.run(f"ctest --test-dir {build_dir} --output-on-failure -R GeometryExchange", pty=True)
+    c.run(f"cmake --build {build_dir} --target occcad_geometry_scenarios --parallel", pty=True)
+    c.run(f"ctest --test-dir {build_dir} --output-on-failure -R '^geometry/'", pty=True)
 
 
 @task(help={"build_type": "Debug or Release"})

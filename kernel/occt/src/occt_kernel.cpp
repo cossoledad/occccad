@@ -15,13 +15,14 @@
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepTools.hxx>
+#include <BRepTools_History.hxx>
 #include <BRep_Builder.hxx>
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
 #include <GProp_GProps.hxx>
-#include <Geom_BSplineCurve.hxx>
 #include <GeomAPI_Interpolate.hxx>
+#include <Geom_BSplineCurve.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <Geom_BezierSurface.hxx>
@@ -38,15 +39,17 @@
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
-#include <TColgp_Array1OfPnt.hxx>
-#include <TColgp_HArray1OfPnt.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
+#include <TColgp_Array1OfPnt.hxx>
+#include <TColgp_HArray1OfPnt.hxx>
 #include <TopAbs_Orientation.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
 #include <TopLoc_Location.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
+#include <TopTools_ListIteratorOfListOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Edge.hxx>
@@ -63,6 +66,7 @@
 
 #include <internal/occt_kernel.hpp>
 #include <occccad/kernel/geometry_id.hpp>
+#include <occccad/kernel/topology_naming.hpp>
 
 #include <algorithm>
 #include <atomic>
@@ -438,14 +442,16 @@ ProfileFrame profile_frame(const ProfilePadSpec& spec) {
     const gp_Vec explicit_normal(spec.plane_normal.x, spec.plane_normal.y, spec.plane_normal.z);
     if (explicit_normal.Magnitude() > 1.0e-9) {
         const gp_Vec explicit_u(spec.plane_u_direction.x, spec.plane_u_direction.y,
-                               spec.plane_u_direction.z);
+                                spec.plane_u_direction.z);
         if (explicit_u.Magnitude() <= 1.0e-9)
             throw std::invalid_argument("explicit sketch plane requires a U direction");
         const gp_Dir normal(explicit_normal);
         const gp_Dir u(explicit_u);
         if (std::abs(normal.Dot(u)) > 1.0e-8)
             throw std::invalid_argument("sketch plane U direction must be perpendicular to normal");
-        return {{spec.plane_origin.x, spec.plane_origin.y, spec.plane_origin.z}, normal, u,
+        return {{spec.plane_origin.x, spec.plane_origin.y, spec.plane_origin.z},
+                normal,
+                u,
                 gp_Dir(normal.Crossed(u))};
     }
     if (spec.plane == "XY")
@@ -473,14 +479,16 @@ TopoDS_Edge make_profile_edge(const ProfileCurveSpec& curve, const ProfileFrame&
                                        profile_point(frame, curve.end));
     } else if (curve.kind == "CIRCLE") {
         validate_positive(curve.radius, "profile circle radius");
-        Handle(Geom_Circle) circle = new Geom_Circle(profile_axes(frame, curve.center), curve.radius);
+        Handle(Geom_Circle) circle =
+            new Geom_Circle(profile_axes(frame, curve.center), curve.radius);
         edge = BRepBuilderAPI_MakeEdge(circle);
     } else if (curve.kind == "ARC") {
         validate_positive(curve.radius, "profile arc radius");
         double end = curve.end_angle;
         while (end <= curve.start_angle)
             end += 2.0 * 3.14159265358979323846;
-        Handle(Geom_Circle) circle = new Geom_Circle(profile_axes(frame, curve.center), curve.radius);
+        Handle(Geom_Circle) circle =
+            new Geom_Circle(profile_axes(frame, curve.center), curve.radius);
         edge = BRepBuilderAPI_MakeEdge(circle, curve.start_angle, end);
     } else if (curve.kind == "SPLINE") {
         if (curve.control_points.size() < 3U)
@@ -504,18 +512,75 @@ TopoDS_Edge make_profile_edge(const ProfileCurveSpec& curve, const ProfileFrame&
     return curve.reversed ? TopoDS::Edge(edge.Reversed()) : edge;
 }
 
-TopoDS_Wire make_profile_wire(const ProfileLoopSpec& loop, const ProfileFrame& frame) {
-    if (loop.curves.empty())
-        throw std::invalid_argument("profile loop has no curves");
-    BRepBuilderAPI_MakeWire builder;
-    for (const auto& curve : loop.curves)
-        builder.Add(make_profile_edge(curve, frame));
-    if (!builder.IsDone())
-        throw std::runtime_error("profile wire construction failed: " + loop.id);
-    return builder.Wire();
+struct NamedShape {
+    SemanticTopologyRef ref;
+    TopoDS_Shape shape;
+};
+
+struct ToolBuild {
+    TopoDS_Shape shape;
+    std::vector<NamedShape> named;
+    std::vector<TopologyLineage> generated;
+};
+
+SemanticTopologyRef profile_source(const ProfilePadSpec& spec, const std::string& slot,
+                                   const std::string& source_id) {
+    return {spec.profile_feature_id, slot + "/" + source_id, {source_id}};
 }
 
-TopoDS_Shape make_profile_tool(const ProfilePadSpec& spec) {
+void append_generated(ToolBuild& build, const SemanticTopologyRef& source,
+                      const SemanticTopologyRef& result, const TopoDS_Shape& shape) {
+    if (shape.IsNull())
+        return;
+    build.named.push_back({result, shape});
+    build.generated.push_back({{source}, result, TopologyLineageKind::generated, {}});
+}
+
+template <typename Algorithm>
+std::vector<NamedShape> map_named_shapes(const std::vector<NamedShape>& sources,
+                                         Algorithm& algorithm, const TopoDS_Shape& result) {
+    TopTools_IndexedMapOfShape result_faces;
+    TopExp::MapShapes(result, TopAbs_FACE, result_faces);
+    std::vector<NamedShape> mapped;
+    for (const auto& source : sources) {
+        TopTools_ListOfShape candidates = algorithm.Modified(source.shape);
+        const auto generated = algorithm.Generated(source.shape);
+        for (TopTools_ListIteratorOfListOfShape it(generated); it.More(); it.Next())
+            candidates.Append(it.Value());
+        if (candidates.IsEmpty() && !algorithm.IsDeleted(source.shape) &&
+            result_faces.Contains(source.shape)) {
+            candidates.Append(source.shape);
+        }
+        for (TopTools_ListIteratorOfListOfShape it(candidates); it.More(); it.Next()) {
+            if (it.Value().ShapeType() == TopAbs_FACE && result_faces.Contains(it.Value()))
+                mapped.push_back({source.ref, it.Value()});
+        }
+    }
+    return mapped;
+}
+
+std::vector<NamedShape> map_named_history(const std::vector<NamedShape>& sources,
+                                          const Handle(BRepTools_History) & history,
+                                          const TopoDS_Shape& result) {
+    TopTools_IndexedMapOfShape result_faces;
+    TopExp::MapShapes(result, TopAbs_FACE, result_faces);
+    std::vector<NamedShape> mapped;
+    for (const auto& source : sources) {
+        TopTools_ListOfShape candidates = history->Modified(source.shape);
+        const auto& generated = history->Generated(source.shape);
+        for (TopTools_ListIteratorOfListOfShape it(generated); it.More(); it.Next())
+            candidates.Append(it.Value());
+        if (candidates.IsEmpty() && !history->IsRemoved(source.shape) &&
+            result_faces.Contains(source.shape))
+            candidates.Append(source.shape);
+        for (TopTools_ListIteratorOfListOfShape it(candidates); it.More(); it.Next())
+            if (it.Value().ShapeType() == TopAbs_FACE && result_faces.Contains(it.Value()))
+                mapped.push_back({source.ref, it.Value()});
+    }
+    return mapped;
+}
+
+ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
     if (spec.regions.empty())
         throw std::invalid_argument("solid feature requires at least one profile region");
     const std::string generator = spec.generator.empty() ? "LINEAR_EXTRUDE" : spec.generator;
@@ -525,22 +590,73 @@ TopoDS_Shape make_profile_tool(const ProfilePadSpec& spec) {
         validate_positive(spec.revolve_angle, "revolve angle");
         if (spec.revolve_angle > 2.0 * 3.14159265358979323846 + 1.0e-12)
             throw std::invalid_argument("revolve angle must not exceed 2*pi");
-        if (std::hypot(spec.axis_end.x - spec.axis_start.x,
-                       spec.axis_end.y - spec.axis_start.y) <= 1.0e-9)
+        if (std::hypot(spec.axis_end.x - spec.axis_start.x, spec.axis_end.y - spec.axis_start.y) <=
+            1.0e-9)
             throw std::invalid_argument("revolve axis is degenerate");
     } else {
         throw std::invalid_argument("unsupported solid generator: " + generator);
     }
     const ProfileFrame frame = profile_frame(spec);
-    TopoDS_Shape result;
+    ToolBuild result;
     for (const auto& region : spec.regions) {
-        BRepBuilderAPI_MakeFace face_builder(
-            make_profile_wire(region.outer, frame));
+        std::vector<std::pair<const ProfileCurveSpec*, TopoDS_Edge>> profile_edges;
+        const auto build_wire = [&](const ProfileLoopSpec& loop) {
+            BRepBuilderAPI_MakeWire wire;
+            for (const auto& curve : loop.curves) {
+                auto edge = make_profile_edge(curve, frame);
+                wire.Add(edge);
+                profile_edges.emplace_back(&curve, edge);
+            }
+            if (!wire.IsDone())
+                throw std::runtime_error("profile wire construction failed: " + loop.id);
+            return wire.Wire();
+        };
+        BRepBuilderAPI_MakeFace face_builder(build_wire(region.outer));
         for (const auto& hole : region.holes)
-            face_builder.Add(make_profile_wire(hole, frame));
+            face_builder.Add(build_wire(hole));
         face_builder.Build();
         if (!face_builder.IsDone() || !BRepCheck_Analyzer(face_builder.Face()).IsValid())
             throw std::runtime_error("profile face is invalid: " + region.id);
+        std::vector<TopoDS_Edge> face_edges;
+        for (TopExp_Explorer edge(face_builder.Face(), TopAbs_EDGE); edge.More(); edge.Next())
+            face_edges.push_back(TopoDS::Edge(edge.Current()));
+        if (face_edges.size() != profile_edges.size())
+            throw std::runtime_error("profile face boundary identity mismatch: " + region.id);
+        std::vector<TopoDS_Edge> named_face_edges;
+        for (const auto& [curve, source_edge] : profile_edges) {
+            (void)curve;
+            Bnd_Box source_box;
+            BRepBndLib::Add(source_edge, source_box);
+            const auto source_bounds = to_bbox(source_box);
+            GProp_GProps source_properties;
+            BRepGProp::LinearProperties(source_edge, source_properties);
+            std::vector<TopoDS_Edge> matches;
+            for (const auto& candidate : face_edges) {
+                Bnd_Box candidate_box;
+                BRepBndLib::Add(candidate, candidate_box);
+                const auto bounds = to_bbox(candidate_box);
+                GProp_GProps properties;
+                BRepGProp::LinearProperties(candidate, properties);
+                const auto close = [](const double left, const double right) {
+                    return std::abs(left - right) <= 1.0e-7;
+                };
+                const auto& a = source_properties.CentreOfMass();
+                const auto& b = properties.CentreOfMass();
+                if (classify_curve(candidate) == classify_curve(source_edge) &&
+                    close(source_properties.Mass(), properties.Mass()) && close(a.X(), b.X()) &&
+                    close(a.Y(), b.Y()) && close(a.Z(), b.Z()) &&
+                    close(source_bounds.min.x, bounds.min.x) &&
+                    close(source_bounds.min.y, bounds.min.y) &&
+                    close(source_bounds.min.z, bounds.min.z) &&
+                    close(source_bounds.max.x, bounds.max.x) &&
+                    close(source_bounds.max.y, bounds.max.y) &&
+                    close(source_bounds.max.z, bounds.max.z))
+                    matches.push_back(candidate);
+            }
+            if (matches.size() != 1U)
+                throw std::runtime_error("profile edge identity was not preserved: " + region.id);
+            named_face_edges.push_back(matches.front());
+        }
         TopoDS_Shape generated;
         if (generator == "LINEAR_EXTRUDE") {
             gp_Vec direction(frame.normal);
@@ -550,6 +666,26 @@ TopoDS_Shape make_profile_tool(const ProfilePadSpec& spec) {
             if (!prism.IsDone())
                 throw std::runtime_error("profile prism failed: " + region.id);
             generated = prism.Shape();
+            const auto start_ref =
+                SemanticTopologyRef{spec.feature_id, "START_CAP/" + region.id, {region.id}};
+            const auto end_ref =
+                SemanticTopologyRef{spec.feature_id, "END_CAP/" + region.id, {region.id}};
+            append_generated(result, profile_source(spec, "PROFILE_REGION", region.id), start_ref,
+                             prism.FirstShape());
+            append_generated(result, profile_source(spec, "PROFILE_REGION", region.id), end_ref,
+                             prism.LastShape());
+            for (std::size_t edge_index = 0; edge_index < profile_edges.size(); ++edge_index) {
+                const auto* curve = profile_edges[edge_index].first;
+                const auto side_ref =
+                    SemanticTopologyRef{spec.feature_id,
+                                        "SIDE_FROM_PROFILE_EDGE/" + curve->entity_id,
+                                        {region.id, curve->entity_id}};
+                const auto source_ref = profile_source(spec, "PROFILE_EDGE", curve->entity_id);
+                const auto sides = prism.Generated(named_face_edges[edge_index]);
+                for (TopTools_ListIteratorOfListOfShape it(sides); it.More(); it.Next()) {
+                    append_generated(result, source_ref, side_ref, it.Value());
+                }
+            }
         } else {
             const gp_Pnt start = profile_point(frame, spec.axis_start);
             const gp_Pnt end = profile_point(frame, spec.axis_end);
@@ -565,14 +701,15 @@ TopoDS_Shape make_profile_tool(const ProfilePadSpec& spec) {
         }
         if (generated.IsNull() || !BRepCheck_Analyzer(generated).IsValid())
             throw std::runtime_error("generated solid tool is invalid: " + region.id);
-        if (result.IsNull())
-            result = generated;
+        if (result.shape.IsNull())
+            result.shape = generated;
         else {
-            BRepAlgoAPI_Fuse fuse(result, generated);
+            BRepAlgoAPI_Fuse fuse(result.shape, generated);
             fuse.Build();
             if (!fuse.IsDone())
                 throw std::runtime_error("profile tool region fuse failed");
-            result = fuse.Shape();
+            result.named = map_named_shapes(result.named, fuse, fuse.Shape());
+            result.shape = fuse.Shape();
         }
     }
     return result;
@@ -590,34 +727,95 @@ int solid_count(const TopoDS_Shape& shape) {
     return solids.Extent();
 }
 
-TopoDS_Shape apply_body_operation(const TopoDS_Shape& input, const TopoDS_Shape& tool,
-                                  const std::string& requested_operation) {
+struct BodyOperationResult {
+    TopoDS_Shape shape;
+    std::vector<NamedShape> named;
+};
+
+bool same_ref(const SemanticTopologyRef& left, const SemanticTopologyRef& right) {
+    return left.feature_id == right.feature_id && left.output_slot == right.output_slot &&
+           left.source_ids == right.source_ids;
+}
+
+SelectionEvidence face_evidence(const TopoDS_Face& face) {
+    SelectionEvidence evidence;
+    evidence.geometry_type = std::to_string(classify_surface(face));
+    GProp_GProps properties;
+    BRepGProp::SurfaceProperties(face, properties);
+    evidence.measure_si = properties.Mass() * 1.0e-6;
+    evidence.measure_dimension = "AREA";
+    evidence.centroid = to_vec3(properties.CentreOfMass());
+    BRepAdaptor_Surface surface(face);
+    if (surface.GetType() == GeomAbs_Plane) {
+        evidence.geometry_type = "PLANE";
+        evidence.origin = to_vec3(surface.Plane().Location());
+        const auto direction = surface.Plane().Axis().Direction();
+        evidence.direction = {direction.X(), direction.Y(), direction.Z()};
+    } else if (surface.GetType() == GeomAbs_Cylinder) {
+        evidence.geometry_type = "CYLINDER";
+        evidence.origin = to_vec3(surface.Cylinder().Location());
+        const auto direction = surface.Cylinder().Axis().Direction();
+        evidence.direction = {direction.X(), direction.Y(), direction.Z()};
+    }
+    std::ostringstream canonical;
+    canonical.precision(17);
+    canonical << evidence.geometry_type << '|' << *evidence.measure_si << '|' << evidence.centroid.x
+              << ',' << evidence.centroid.y << ',' << evidence.centroid.z << '|'
+              << evidence.origin.x << ',' << evidence.origin.y << ',' << evidence.origin.z << '|'
+              << evidence.direction.x << ',' << evidence.direction.y << ',' << evidence.direction.z;
+    evidence.evidence_digest = make_geometry_id(canonical.str());
+    return evidence;
+}
+
+std::string topology_policy_digest() {
+    std::ostringstream value;
+    value.precision(17);
+    value << topology_naming_policy_id << '|' << topology_evaluator_version << '|'
+          << topology_linear_tolerance_meters << '|' << topology_angular_tolerance_radians;
+    return make_geometry_id(value.str());
+}
+
+BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
+                                         const std::vector<NamedShape>& input_named,
+                                         const ToolBuild& tool,
+                                         const std::string& requested_operation) {
     const std::string operation = requested_operation.empty() ? "ADD" : requested_operation;
     if (input.IsNull()) {
         if (operation == "REMOVE" || operation == "INTERSECT")
             throw std::invalid_argument(operation + " requires an input body");
-        return tool;  // Legacy first ADD is equivalent to NEW_BODY.
+        return {tool.shape, tool.named};  // Legacy first ADD is equivalent to NEW_BODY.
     }
     if (operation == "NEW_BODY")
-        throw std::invalid_argument("NEW_BODY requires an empty target body in the current single-body model");
+        throw std::invalid_argument(
+            "NEW_BODY requires an empty target body in the current single-body model");
     TopoDS_Shape result;
+    std::vector<NamedShape> mapped;
+    std::vector<NamedShape> sources = input_named;
+    sources.insert(sources.end(), tool.named.begin(), tool.named.end());
     if (operation == "ADD") {
-        BRepAlgoAPI_Fuse algorithm(input, tool);
+        BRepAlgoAPI_Fuse algorithm(input, tool.shape);
         algorithm.Build();
-        if (!algorithm.IsDone()) throw std::runtime_error("body fuse failed");
+        if (!algorithm.IsDone())
+            throw std::runtime_error("body fuse failed");
         result = algorithm.Shape();
+        mapped = map_named_shapes(sources, algorithm, result);
     } else if (operation == "REMOVE") {
-        BRepAlgoAPI_Cut algorithm(input, tool);
+        BRepAlgoAPI_Cut algorithm(input, tool.shape);
         algorithm.Build();
-        if (!algorithm.IsDone()) throw std::runtime_error("body cut failed");
+        if (!algorithm.IsDone())
+            throw std::runtime_error("body cut failed");
         result = algorithm.Shape();
+        mapped = map_named_shapes(sources, algorithm, result);
         if (shape_volume(input) - shape_volume(result) <= 1.0e-9)
-            throw std::invalid_argument("NO_MATERIAL_CHANGE: cut does not intersect the target body");
+            throw std::invalid_argument(
+                "NO_MATERIAL_CHANGE: cut does not intersect the target body");
     } else if (operation == "INTERSECT") {
-        BRepAlgoAPI_Common algorithm(input, tool);
+        BRepAlgoAPI_Common algorithm(input, tool.shape);
         algorithm.Build();
-        if (!algorithm.IsDone()) throw std::runtime_error("body common failed");
+        if (!algorithm.IsDone())
+            throw std::runtime_error("body common failed");
         result = algorithm.Shape();
+        mapped = map_named_shapes(sources, algorithm, result);
     } else {
         throw std::invalid_argument("unsupported body operation: " + operation);
     }
@@ -629,6 +827,7 @@ TopoDS_Shape apply_body_operation(const TopoDS_Shape& input, const TopoDS_Shape&
     // B-Rep deterministic and makes a continuous planar skin one logical face.
     ShapeUpgrade_UnifySameDomain unifier(result, Standard_True, Standard_True, Standard_False);
     unifier.Build();
+    mapped = map_named_history(mapped, unifier.History(), unifier.Shape());
     result = unifier.Shape();
     if (result.IsNull() || shape_volume(result) <= 1.0e-9)
         throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
@@ -636,7 +835,7 @@ TopoDS_Shape apply_body_operation(const TopoDS_Shape& input, const TopoDS_Shape&
         throw std::runtime_error("solid operation produced invalid B-Rep");
     if (solid_count(result) != 1)
         throw std::invalid_argument("DISJOINT_RESULT: standard Body requires exactly one solid");
-    return result;
+    return {result, mapped};
 }
 
 std::filesystem::path temporary_step_path() {
@@ -834,22 +1033,183 @@ GeometryId OcctKernel::evaluateRectangularPads(const std::vector<RectangularPadS
     return impl_->store(result);
 }
 
-GeometryId OcctKernel::evaluateProfilePads(const std::vector<ProfilePadSpec>& specs,
-                                           const std::vector<uint8_t>& base_brep) {
+ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
+    const std::vector<ProfilePadSpec>& specs, const std::vector<uint8_t>& base_brep) {
     TopoDS_Shape result;
+    GeometryId result_id;
+    std::vector<NamedShape> live_named;
     if (!base_brep.empty()) {
         const GeometryId base_id = loadBrepr(base_brep);
         result = impl_->find(base_id);
+        result_id = base_id;
     }
+    ProfileEvaluationResult evaluation;
     for (const auto& spec : specs) {
-        const TopoDS_Shape tool = make_profile_tool(spec);
-        result = apply_body_operation(result, tool, spec.body_operation);
+        const auto input_shape = result;
+        const auto input_id = result_id;
+        const auto input_named = live_named;
+        const auto tool = make_profile_tool(spec);
+        auto operation = apply_body_operation(result, live_named, tool, spec.body_operation);
+        result = operation.shape;
+        result_id = impl_->store(result);
+
+        TopTools_IndexedMapOfShape final_faces;
+        TopExp::MapShapes(result, TopAbs_FACE, final_faces);
+        struct OutputGroup {
+            TopoDS_Shape shape;
+            std::vector<SemanticTopologyRef> sources;
+        };
+        std::vector<OutputGroup> groups;
+        for (const auto& mapped : operation.named) {
+            auto group = std::find_if(groups.begin(), groups.end(), [&](const OutputGroup& value) {
+                return value.shape.IsSame(mapped.shape);
+            });
+            if (group == groups.end()) {
+                groups.push_back({mapped.shape, {mapped.ref}});
+            } else if (std::none_of(group->sources.begin(), group->sources.end(),
+                                    [&](const auto& ref) { return same_ref(ref, mapped.ref); })) {
+                group->sources.push_back(mapped.ref);
+            }
+        }
+        std::vector<std::pair<SemanticTopologyOutput, TopoDS_Shape>> outputs;
+        std::size_t merge_index = 0;
+        std::unordered_map<std::string, std::size_t> source_counts;
+        const auto ref_key = [](const SemanticTopologyRef& ref) {
+            std::string key = ref.feature_id + "\n" + ref.output_slot;
+            for (const auto& source : ref.source_ids)
+                key += "\n" + source;
+            return key;
+        };
+        for (const auto& group : groups)
+            for (const auto& source : group.sources)
+                ++source_counts[ref_key(source)];
+        std::unordered_map<std::string, std::size_t> split_indices;
+        FeatureResult feature;
+        feature.feature_id = spec.feature_id;
+        feature.body_id = spec.body_id;
+        feature.input_feature_id = spec.input_feature_id;
+        feature.profile_feature_id = spec.profile_feature_id;
+        feature.result_geometry_id = result_id;
+        feature.topology_history.feature_id = spec.feature_id;
+        feature.topology_history.input_geometry_id = input_id;
+        feature.topology_history.result_geometry_id = result_id;
+        feature.topology_history.policy_digest = topology_policy_digest();
+        for (const auto& group : groups) {
+            SemanticTopologyRef output_ref;
+            TopologyLineageKind kind = TopologyLineageKind::modified;
+            if (group.sources.size() > 1U) {
+                output_ref = {spec.feature_id, "MERGED/" + std::to_string(++merge_index), {}};
+                kind = TopologyLineageKind::merged;
+            } else {
+                const auto& source = group.sources.front();
+                if (source_counts[ref_key(source)] > 1U) {
+                    output_ref = {spec.feature_id,
+                                  "SPLIT_FROM/" + source.feature_id + "/" + source.output_slot +
+                                      "/" + std::to_string(++split_indices[ref_key(source)]),
+                                  source.source_ids};
+                    kind = TopologyLineageKind::split;
+                } else {
+                    output_ref = source;
+                    const auto original = std::find_if(
+                        input_named.begin(), input_named.end(),
+                        [&](const NamedShape& value) { return same_ref(value.ref, source); });
+                    if (original != input_named.end() && original->shape.IsSame(group.shape))
+                        kind = TopologyLineageKind::unchanged;
+                    else if (source.feature_id == spec.feature_id)
+                        kind = TopologyLineageKind::generated;
+                }
+            }
+            const auto local_id = final_faces.FindIndex(group.shape);
+            if (local_id <= 0)
+                throw std::runtime_error("TOPOLOGY_HISTORY_DANGLING_RESULT");
+            auto evidence = face_evidence(TopoDS::Face(group.shape));
+            outputs.push_back({{output_ref, PersistentTopologyType::face,
+                                static_cast<std::uint64_t>(local_id), evidence},
+                               group.shape});
+            std::vector<SemanticTopologyRef> lineage_sources = group.sources;
+            if (kind == TopologyLineageKind::generated && group.sources.size() == 1U) {
+                const auto generated =
+                    std::find_if(tool.generated.begin(), tool.generated.end(),
+                                 [&](const TopologyLineage& value) {
+                                     return same_ref(value.result, group.sources.front());
+                                 });
+                if (generated != tool.generated.end())
+                    lineage_sources = generated->sources;
+            }
+            feature.topology_history.lineage.push_back(
+                {lineage_sources, output_ref, kind, evidence});
+            if (kind == TopologyLineageKind::split) {
+                auto ambiguity = std::find_if(
+                    feature.topology_history.ambiguous.begin(),
+                    feature.topology_history.ambiguous.end(), [&](const AmbiguousLineage& value) {
+                        return value.sources.size() == 1U &&
+                               same_ref(value.sources.front(), group.sources.front());
+                    });
+                if (ambiguity == feature.topology_history.ambiguous.end()) {
+                    feature.topology_history.ambiguous.push_back(
+                        {{group.sources.front()}, {output_ref}, "TOPOLOGY_SPLIT_AMBIGUOUS"});
+                } else {
+                    ambiguity->candidates.push_back(output_ref);
+                }
+            }
+        }
+        for (std::size_t left = 0; left < outputs.size(); ++left) {
+            TopTools_IndexedMapOfShape left_edges;
+            TopExp::MapShapes(outputs[left].second, TopAbs_EDGE, left_edges);
+            for (std::size_t right = 0; right < outputs.size(); ++right) {
+                if (left == right)
+                    continue;
+                TopTools_IndexedMapOfShape right_edges;
+                TopExp::MapShapes(outputs[right].second, TopAbs_EDGE, right_edges);
+                bool adjacent = false;
+                for (int edge = 1; edge <= left_edges.Extent() && !adjacent; ++edge)
+                    adjacent = right_edges.Contains(left_edges(edge));
+                if (adjacent)
+                    outputs[left].first.evidence.adjacent.push_back(
+                        outputs[right].first.semantic_ref);
+            }
+        }
+        std::vector<NamedShape> all_sources = input_named;
+        all_sources.insert(all_sources.end(), tool.named.begin(), tool.named.end());
+        for (const auto& source : all_sources) {
+            const bool alive = std::any_of(
+                operation.named.begin(), operation.named.end(),
+                [&](const NamedShape& value) { return same_ref(value.ref, source.ref); });
+            if (!alive)
+                feature.topology_history.deleted.push_back(
+                    {source.ref, "OCCT_IS_DELETED_OR_OUTSIDE_RESULT",
+                     face_evidence(TopoDS::Face(source.shape))});
+        }
+        for (const auto& tombstone : feature.topology_history.deleted) {
+            if (std::any_of(outputs.begin(), outputs.end(), [&](const auto& output) {
+                    return same_ref(output.first.semantic_ref, tombstone.source);
+                }))
+                throw std::runtime_error("TOPOLOGY_HISTORY_LIVE_TOMBSTONE_CONFLICT");
+        }
+        std::ostringstream history_digest;
+        for (const auto& lineage : feature.topology_history.lineage)
+            history_digest << lineage.evidence.evidence_digest << '|';
+        for (const auto& deleted : feature.topology_history.deleted)
+            history_digest << deleted.evidence.evidence_digest << '|';
+        feature.topology_history.evidence_digest = make_geometry_id(history_digest.str());
+        live_named.clear();
+        for (auto& output : outputs) {
+            feature.semantic_outputs.push_back(std::move(output.first));
+            live_named.push_back({feature.semantic_outputs.back().semantic_ref, output.second});
+        }
+        evaluation.feature_results.push_back(std::move(feature));
     }
     if (result.IsNull())
         throw std::invalid_argument("feature chain contains no solid geometry");
     if (!BRepCheck_Analyzer(result).IsValid())
         throw std::runtime_error("feature chain produced invalid B-Rep");
-    return impl_->store(result);
+    evaluation.geometry_id = result_id.empty() ? impl_->store(result) : result_id;
+    return evaluation;
+}
+
+GeometryId OcctKernel::evaluateProfilePads(const std::vector<ProfilePadSpec>& specs,
+                                           const std::vector<uint8_t>& base_brep) {
+    return evaluateProfilePadsWithHistory(specs, base_brep).geometry_id;
 }
 
 BoundingBox OcctKernel::getBoundingBox(const GeometryId& id) {

@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS occccad.artifact_objects (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
-    kind text NOT NULL CHECK (kind IN ('BREP','GLB','EXCHANGE_SOURCE','EXCHANGE_EXPORT','THUMBNAIL')),
+    kind text NOT NULL CHECK (kind IN ('BREP','GLB','TOPOLOGY_MANIFEST','EXCHANGE_SOURCE','EXCHANGE_EXPORT','THUMBNAIL')),
     sha256 char(64) NOT NULL,
     storage_backend text NOT NULL DEFAULT 'LOCAL' CHECK (storage_backend IN ('LOCAL','S3')),
     object_key text NOT NULL,
@@ -16,6 +16,9 @@ CREATE TABLE IF NOT EXISTS occccad.artifact_objects (
 ALTER TABLE occccad.geometry_artifacts
     ADD COLUMN IF NOT EXISTS brep_object_id uuid REFERENCES occccad.artifact_objects(id),
     ADD COLUMN IF NOT EXISTS glb_object_id uuid REFERENCES occccad.artifact_objects(id),
+    ADD COLUMN IF NOT EXISTS topology_manifest_object_id uuid REFERENCES occccad.artifact_objects(id),
+    ADD COLUMN IF NOT EXISTS topology_manifest_data bytea,
+    ADD COLUMN IF NOT EXISTS topology_manifest_digest char(64),
     ADD COLUMN IF NOT EXISTS storage_state text NOT NULL DEFAULT 'DATABASE'
         CHECK (storage_state IN ('DATABASE','DUAL','OBJECT'));
 

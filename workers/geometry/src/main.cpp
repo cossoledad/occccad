@@ -2,6 +2,7 @@
 
 #include <internal/occt_kernel.hpp>
 #include <occccad/assembly/solver.hpp>
+#include <occccad/kernel/geometry_id.hpp>
 #include <occccad/kernel/kernel.hpp>
 #include <occccad/kernel/mesh_glb.hpp>
 #include <occccad/kernel/topology_naming.hpp>
@@ -137,8 +138,104 @@ void write_artifact(const std::string& key, const std::vector<uint8_t>& data,
     std::filesystem::rename(temporary, path);
     output->set_backend("LOCAL");
     output->set_object_key(key);
+    const auto digest = occccad::kernel::make_geometry_id(data.data(), data.size());
+    output->set_sha256(digest.rfind("sha256:", 0) == 0 ? digest.substr(7) : digest);
     output->set_size_bytes(static_cast<uint64_t>(data.size()));
     output->set_content_type(content_type);
+}
+
+void fill_vec3(const occccad::kernel::Vec3& source, worker_api::Vec3* target) {
+    target->set_x(source.x);
+    target->set_y(source.y);
+    target->set_z(source.z);
+}
+
+void fill_semantic_ref(const occccad::kernel::SemanticTopologyRef& source,
+                       worker_api::SemanticTopologyRef* target) {
+    target->set_feature_id(source.feature_id);
+    target->set_output_slot(source.output_slot);
+    for (const auto& id : source.source_ids)
+        target->add_source_ids(id);
+}
+
+worker_api::TopologyLineageKind lineage_kind(const occccad::kernel::TopologyLineageKind kind) {
+    using Source = occccad::kernel::TopologyLineageKind;
+    switch (kind) {
+        case Source::generated:
+            return worker_api::TOPOLOGY_LINEAGE_GENERATED;
+        case Source::modified:
+            return worker_api::TOPOLOGY_LINEAGE_MODIFIED;
+        case Source::split:
+            return worker_api::TOPOLOGY_LINEAGE_SPLIT;
+        case Source::merged:
+            return worker_api::TOPOLOGY_LINEAGE_MERGED;
+        case Source::unchanged:
+            return worker_api::TOPOLOGY_LINEAGE_UNCHANGED;
+        default:
+            return worker_api::TOPOLOGY_LINEAGE_UNSPECIFIED;
+    }
+}
+
+void fill_selection_evidence(const occccad::kernel::SelectionEvidence& source,
+                             worker_api::SelectionEvidence* target) {
+    target->set_geometry_type(source.geometry_type);
+    if (source.measure_si)
+        target->set_measure_si(*source.measure_si);
+    target->set_measure_dimension(source.measure_dimension);
+    fill_vec3(source.centroid, target->mutable_centroid());
+    fill_vec3(source.origin, target->mutable_origin());
+    fill_vec3(source.direction, target->mutable_direction());
+    for (const auto& adjacent : source.adjacent)
+        fill_semantic_ref(adjacent, target->add_adjacent());
+    target->set_evidence_digest(source.evidence_digest);
+}
+
+void fill_feature_result(const occccad::kernel::FeatureResult& source,
+                         worker_api::FeatureResult* target) {
+    target->set_feature_id(source.feature_id);
+    target->set_body_id(source.body_id);
+    target->set_input_feature_id(source.input_feature_id);
+    target->set_profile_feature_id(source.profile_feature_id);
+    target->set_result_geometry_id(source.result_geometry_id);
+    for (const auto& output : source.semantic_outputs) {
+        auto* value = target->add_semantic_outputs();
+        fill_semantic_ref(output.semantic_ref, value->mutable_semantic_ref());
+        value->set_topology_type(worker_api::PERSISTENT_TOPOLOGY_TYPE_FACE);
+        value->set_local_id(output.local_id);
+        fill_selection_evidence(output.evidence, value->mutable_evidence());
+    }
+    const auto& history = source.topology_history;
+    auto* target_history = target->mutable_topology_history();
+    target_history->set_schema_version(history.schema_version);
+    target_history->set_feature_id(history.feature_id);
+    target_history->set_input_geometry_id(history.input_geometry_id);
+    target_history->set_result_geometry_id(history.result_geometry_id);
+    target_history->set_evidence_digest(history.evidence_digest);
+    target_history->set_policy_digest(history.policy_digest);
+    for (const auto& lineage : history.lineage) {
+        auto* value = target_history->add_lineage();
+        for (const auto& ref : lineage.sources)
+            fill_semantic_ref(ref, value->add_sources());
+        fill_semantic_ref(lineage.result, value->mutable_result());
+        value->set_kind(lineage_kind(lineage.kind));
+        fill_selection_evidence(lineage.evidence, value->mutable_evidence());
+    }
+    for (const auto& deleted : history.deleted) {
+        auto* value = target_history->add_deleted();
+        fill_semantic_ref(deleted.source, value->mutable_source());
+        value->set_reason(deleted.reason);
+        fill_selection_evidence(deleted.evidence, value->mutable_evidence());
+    }
+    for (const auto& ambiguous : history.ambiguous) {
+        auto* value = target_history->add_ambiguous();
+        for (const auto& ref : ambiguous.sources)
+            fill_semantic_ref(ref, value->add_sources());
+        for (const auto& ref : ambiguous.candidates)
+            fill_semantic_ref(ref, value->add_candidates());
+        value->set_diagnostic_code(ambiguous.diagnostic_code);
+    }
+    for (const auto& diagnostic : source.diagnostics)
+        target->add_diagnostics(diagnostic);
 }
 
 std::string exchange_format(std::string value) {
@@ -467,7 +564,9 @@ public:
         assembly_api::Model model;
         for (const auto& input : request->bodies())
             model.bodies.push_back({input.id(), pose(input.initial_pose()),
-                input.has_initial_guess() ? std::optional<assembly_api::Pose>(pose(input.initial_guess())) : std::nullopt});
+                                    input.has_initial_guess() ? std::optional<assembly_api::Pose>(
+                                                                    pose(input.initial_guess()))
+                                                              : std::nullopt});
         for (const auto& input : request->geometry()) {
             assembly_api::Geometry geometry;
             if (input.kind() == "POINT")
@@ -576,11 +675,16 @@ public:
                 options.rank_relative_tolerance = profile.rank_relative_tolerance();
             if (profile.gradient_tolerance() > 0.0)
                 options.gradient_tolerance = profile.gradient_tolerance();
-            if (profile.motion_length_scale() != 0.0) options.motion_length_scale = profile.motion_length_scale();
-            if (profile.motion_angle_scale() != 0.0) options.motion_angle_scale = profile.motion_angle_scale();
-            if (profile.preference_tolerance() != 0.0) options.preference_tolerance = profile.preference_tolerance();
-            if (profile.objective_tolerance() != 0.0) options.objective_tolerance = profile.objective_tolerance();
-            if (profile.has_max_preference_iterations()) options.max_preference_iterations = profile.max_preference_iterations();
+            if (profile.motion_length_scale() != 0.0)
+                options.motion_length_scale = profile.motion_length_scale();
+            if (profile.motion_angle_scale() != 0.0)
+                options.motion_angle_scale = profile.motion_angle_scale();
+            if (profile.preference_tolerance() != 0.0)
+                options.preference_tolerance = profile.preference_tolerance();
+            if (profile.objective_tolerance() != 0.0)
+                options.objective_tolerance = profile.objective_tolerance();
+            if (profile.has_max_preference_iterations())
+                options.max_preference_iterations = profile.max_preference_iterations();
             if (profile.max_conflict_probes() > 0)
                 options.max_conflict_probes = profile.max_conflict_probes();
             options.verify_analytic_jacobians = profile.verify_analytic_jacobians();
@@ -616,7 +720,8 @@ public:
         effective->set_finite_difference_step(options.finite_difference_step);
         effective->set_initial_damping(options.initial_damping);
         effective->set_rank_tolerance(options.rank_tolerance);
-        effective->set_translation_finite_difference_step(options.translation_finite_difference_step);
+        effective->set_translation_finite_difference_step(
+            options.translation_finite_difference_step);
         effective->set_rotation_finite_difference_step(options.rotation_finite_difference_step);
         effective->set_rank_absolute_tolerance(options.rank_absolute_tolerance);
         effective->set_rank_relative_tolerance(options.rank_relative_tolerance);
@@ -713,29 +818,49 @@ public:
             preference->set_angle_scale(p.angle_scale);
             preference->set_iterations(p.iterations);
             for (const auto& motion : p.bodies) {
-                auto* item = preference->add_bodies(); item->set_body_id(motion.body_id);
+                auto* item = preference->add_bodies();
+                item->set_body_id(motion.body_id);
                 item->set_role(static_cast<worker_api::AssemblyMotionRole>(motion.role));
-                item->set_translation(motion.translation); item->set_rotation(motion.rotation);
+                item->set_translation(motion.translation);
+                item->set_rotation(motion.rotation);
             }
             const auto set_vec = [](worker_api::Vec3* out, const assembly_api::Vec3& v) {
-                out->set_x(v.x); out->set_y(v.y); out->set_z(v.z);
+                out->set_x(v.x);
+                out->set_y(v.y);
+                out->set_z(v.z);
             };
             for (const auto& freedom : component.freedoms) {
                 auto* item = output->add_freedoms();
-                item->set_body_id(freedom.body_id); item->set_relative_to_body_id(freedom.relative_to_body_id);
+                item->set_body_id(freedom.body_id);
+                item->set_relative_to_body_id(freedom.relative_to_body_id);
                 item->set_kind(static_cast<worker_api::AssemblyFreedomKind>(freedom.kind));
-                item->set_translation_dof(freedom.translation_dof); item->set_rotation_dof(freedom.rotation_dof);
+                item->set_translation_dof(freedom.translation_dof);
+                item->set_rotation_dof(freedom.rotation_dof);
                 item->set_rank_threshold(freedom.rank_threshold);
-                set_vec(item->mutable_linearization_pose()->mutable_translation(), freedom.linearization_pose.translation);
+                set_vec(item->mutable_linearization_pose()->mutable_translation(),
+                        freedom.linearization_pose.translation);
                 auto* rotation = item->mutable_linearization_pose()->mutable_rotation();
-                rotation->set_x(freedom.linearization_pose.rotation.x); rotation->set_y(freedom.linearization_pose.rotation.y);
-                rotation->set_z(freedom.linearization_pose.rotation.z); rotation->set_w(freedom.linearization_pose.rotation.w);
-                for (const auto& basis : freedom.allowed_basis) { auto* out = item->add_allowed_basis(); for (const double v : basis) out->add_values(v); }
-                for (const auto& basis : freedom.blocked_basis) { auto* out = item->add_blocked_basis(); for (const double v : basis) out->add_values(v); }
-                for (const auto& direction : freedom.translation_directions) set_vec(item->add_translation_directions(), direction);
+                rotation->set_x(freedom.linearization_pose.rotation.x);
+                rotation->set_y(freedom.linearization_pose.rotation.y);
+                rotation->set_z(freedom.linearization_pose.rotation.z);
+                rotation->set_w(freedom.linearization_pose.rotation.w);
+                for (const auto& basis : freedom.allowed_basis) {
+                    auto* out = item->add_allowed_basis();
+                    for (const double v : basis)
+                        out->add_values(v);
+                }
+                for (const auto& basis : freedom.blocked_basis) {
+                    auto* out = item->add_blocked_basis();
+                    for (const double v : basis)
+                        out->add_values(v);
+                }
+                for (const auto& direction : freedom.translation_directions)
+                    set_vec(item->add_translation_directions(), direction);
                 for (const auto& axis : freedom.rotations) {
-                    auto* out = item->add_rotations(); set_vec(out->mutable_direction(),axis.direction);
-                    set_vec(out->mutable_axis_point(),axis.axis_point); out->set_pitch(axis.pitch);
+                    auto* out = item->add_rotations();
+                    set_vec(out->mutable_direction(), axis.direction);
+                    set_vec(out->mutable_axis_point(), axis.axis_point);
+                    out->set_pitch(axis.pitch);
                 }
             }
         }
@@ -906,9 +1031,13 @@ public:
                 }
                 profile_specs.push_back(std::move(pad));
             }
-            const auto geometry_id = profile_specs.empty()
-                                         ? kernel_.evaluateRectangularPads(specs, base_brep)
-                                         : kernel_.evaluateProfilePads(profile_specs, base_brep);
+            occccad::kernel::ProfileEvaluationResult profile_evaluation;
+            const auto geometry_id =
+                profile_specs.empty()
+                    ? kernel_.evaluateRectangularPads(specs, base_brep)
+                    : (profile_evaluation =
+                           kernel_.evaluateProfilePadsWithHistory(profile_specs, base_brep),
+                       profile_evaluation.geometry_id);
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
                             request->glb_output_key());
@@ -924,6 +1053,28 @@ public:
                     identity->set_body_id(spec.body_id);
                     identity->set_input_feature_id(spec.input_feature_id);
                     identity->set_profile_feature_id(spec.profile_feature_id);
+                }
+                worker_api::PartTopologyManifest topology_manifest;
+                topology_manifest.set_schema_version(
+                    occccad::kernel::topology_naming_schema_version);
+                topology_manifest.set_policy_id(request->topology_policy().policy_id());
+                topology_manifest.set_evaluator_version(
+                    request->topology_policy().evaluator_version());
+                for (const auto& feature : profile_evaluation.feature_results) {
+                    fill_feature_result(feature, manifest->add_feature_results());
+                    fill_feature_result(feature, topology_manifest.add_feature_results());
+                }
+                std::string topology_bytes;
+                if (!topology_manifest.SerializeToString(&topology_bytes))
+                    throw std::runtime_error("topology manifest serialization failed");
+                const auto topology_id = occccad::kernel::make_geometry_id(topology_bytes);
+                manifest->set_topology_manifest_digest(
+                    topology_id.rfind("sha256:", 0) == 0 ? topology_id.substr(7) : topology_id);
+                if (external_outputs) {
+                    const std::vector<uint8_t> bytes(topology_bytes.begin(), topology_bytes.end());
+                    write_artifact(request->brep_output_key() + ".topology.pb", bytes,
+                                   "application/vnd.occccad.topology-manifest.v1+protobuf",
+                                   manifest->mutable_topology_manifest_artifact());
                 }
             }
 

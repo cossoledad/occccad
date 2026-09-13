@@ -5,12 +5,14 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 func openCppWorkerForNamingContract(t *testing.T) *Client {
@@ -55,6 +57,8 @@ func openCppWorkerForNamingContract(t *testing.T) *Client {
 }
 
 func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
+	artifactRoot := t.TempDir()
+	t.Setenv("OCCCCAD_DATA_DIR", artifactRoot)
 	client := openCppWorkerForNamingContract(t)
 	pad := ProfilePad{
 		FeatureID: "pad-1", BodyID: "body-main", ProfileFeatureID: "sketch-1",
@@ -74,11 +78,44 @@ func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if response.GetOcctVersion() != "7.9.1" {
+		t.Fatalf("topology-history conformance requires OCCT 7.9.1, got %q", response.GetOcctVersion())
+	}
 	manifest := response.GetEvaluationManifest()
 	if manifest.GetTopologyPolicyId() != topologyNamingPolicyProto().GetPolicyId() ||
 		manifest.GetTopologyEvaluatorVersion() != topologyNamingPolicyProto().GetEvaluatorVersion() ||
 		len(manifest.GetFeatures()) != 1 || manifest.GetFeatures()[0].GetFeatureId() != "pad-1" {
 		t.Fatalf("Worker dropped the naming contract: %#v", manifest)
+	}
+	if len(manifest.GetFeatureResults()) != 1 || len(manifest.GetFeatureResults()[0].GetSemanticOutputs()) != 6 ||
+		len(manifest.GetFeatureResults()[0].GetTopologyHistory().GetLineage()) != 6 {
+		t.Fatalf("Worker omitted Linear Extrude topology history: %#v", manifest.GetFeatureResults())
+	}
+	for _, output := range manifest.GetFeatureResults()[0].GetSemanticOutputs() {
+		if output.GetLocalId() == 0 || output.GetEvidence().GetEvidenceDigest() == "" || len(output.GetEvidence().GetAdjacent()) == 0 {
+			t.Fatalf("invalid semantic output evidence: %#v", output)
+		}
+	}
+
+	external, err := client.EvaluateProfilePartFromArtifact(t.Context(), "naming-artifact", "naming-artifact-key",
+		[]ProfilePad{pad}, ArtifactReference{}, "parts/naming.brep", "parts/naming.glb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reference := external.GetEvaluationManifest().GetTopologyManifestArtifact()
+	if reference.GetObjectKey() == "" || reference.GetSha256() == "" || reference.GetContentType() != "application/vnd.occccad.topology-manifest.v1+protobuf" {
+		t.Fatalf("topology artifact reference = %#v", reference)
+	}
+	data, err := os.ReadFile(filepath.Join(artifactRoot, reference.GetObjectKey()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted workerv1.PartTopologyManifest
+	if err := proto.Unmarshal(data, &persisted); err != nil {
+		t.Fatal(err)
+	}
+	if len(persisted.GetFeatureResults()) != 1 || persisted.GetFeatureResults()[0].GetTopologyHistory().GetEvidenceDigest() == "" {
+		t.Fatalf("serialized topology manifest lost feature history: %#v", &persisted)
 	}
 
 	_, err = client.worker.EvaluatePart(t.Context(), &workerv1.EvaluatePartRequest{
