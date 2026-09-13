@@ -30,7 +30,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const evaluatorVersion = "part-solid-generators-v9-topology-history"
+const evaluatorVersion = "part-solid-generators-v10-topology-history-complete"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -2239,23 +2239,37 @@ func (service *Service) mutateProduct(
 	return nil
 }
 
+func partGeometryKey(baseKey string, solidFeatures []geometry.ProfilePad, visualization VisualizationManifest) (string, error) {
+	return partGeometryKeyForPolicy(modelcore.TopologyNamingPolicyDigest, baseKey, solidFeatures, visualization)
+}
+
+func partGeometryKeyForPolicy(policyDigest, baseKey string, solidFeatures []geometry.ProfilePad, visualization VisualizationManifest) (string, error) {
+	canonical, err := json.Marshal(struct {
+		EvaluatorVersion     string                `json:"evaluatorVersion"`
+		TopologyPolicyDigest string                `json:"topologyPolicyDigest"`
+		BaseGeometryKey      string                `json:"baseGeometryKey,omitempty"`
+		SolidFeatures        []geometry.ProfilePad `json:"solidFeatures"`
+		Visualization        VisualizationManifest `json:"visualization"`
+	}{evaluatorVersion, policyDigest, baseKey, solidFeatures, visualization})
+	if err != nil {
+		return "", fmt.Errorf("canonicalize Part evaluation: %w", err)
+	}
+	digest := sha256.Sum256(canonical)
+	return "sha256:" + hex.EncodeToString(digest[:]), nil
+}
+
 func (service *Service) evaluatePart(ctx context.Context, reqID string, model PartModel) (string, error) {
 	normalizePartModel(&model)
 	sketches := map[string]Feature{}
 	solidFeatures := []geometry.ProfilePad{}
 	baseKey := ""
 	bodyTipFeatureID := ""
-	var canonical strings.Builder
-	canonical.WriteString(evaluatorVersion)
 	visualization := visualizationManifest(model)
-	visualizationJSON, _ := json.Marshal(visualization)
-	canonical.WriteString("|visualization=" + string(visualizationJSON))
 	for _, feature := range model.Features {
 		switch strings.ToUpper(feature.Type) {
 		case "IMPORT_BODY":
 			baseKey = feature.GeometryKey
 			bodyTipFeatureID = feature.ID
-			canonical.WriteString("|base=" + baseKey)
 		case "SKETCH":
 			sketches[feature.ID] = feature
 		case "PAD", "LINEAR_EXTRUDE", "REVOLVE":
@@ -2305,9 +2319,6 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 				AxisStart: axisStart, AxisEnd: axisEnd, Reversed: feature.Reversed,
 				PlaneOrigin: planeOrigin, PlaneNormal: planeNormal, PlaneUDirection: planeU})
 			bodyTipFeatureID = feature.ID
-			profileJSON, _ := json.Marshal(regions)
-			fmt.Fprintf(&canonical, "|solid=%s,%s,%s,%s,%.9g,%.9g,%v,%v,%t", generator, operation,
-				plane, profileJSON, feature.Length, angle, axisStart, axisEnd, feature.Reversed)
 		}
 	}
 	if len(solidFeatures) == 0 {
@@ -2316,8 +2327,10 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 		}
 		return service.ensureVisualizationArtifact(ctx, model)
 	}
-	digest := sha256.Sum256([]byte(canonical.String()))
-	key := "sha256:" + hex.EncodeToString(digest[:])
+	key, err := partGeometryKey(baseKey, solidFeatures, visualization)
+	if err != nil {
+		return "", err
+	}
 	var exists bool
 	if err := service.database.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, key).
@@ -2328,7 +2341,6 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 		return key, nil
 	}
 	var evaluation *workerv1.EvaluatePartResponse
-	var err error
 	if service.artifacts != nil {
 		var base geometry.ArtifactReference
 		if baseKey != "" {
@@ -2413,15 +2425,21 @@ func (service *Service) storeEvaluation(
 	var topologyManifestData []byte
 	var topologyManifestDigest string
 	if manifest := evaluation.GetEvaluationManifest(); manifest != nil && len(manifest.GetFeatureResults()) > 0 {
+		if manifest.GetSchemaVersion() != modelcore.TopologyNamingSchemaVersion ||
+			manifest.GetTopologyPolicyId() != modelcore.TopologyNamingPolicyID ||
+			manifest.GetTopologyEvaluatorVersion() != modelcore.TopologyNamingEvaluator ||
+			manifest.GetTopologyPolicyDigest() != modelcore.TopologyNamingPolicyDigest {
+			return fmt.Errorf("topology manifest policy contract mismatch")
+		}
 		topologyManifestData, err = proto.Marshal(&workerv1.PartTopologyManifest{SchemaVersion: manifest.GetSchemaVersion(),
 			PolicyId: manifest.GetTopologyPolicyId(), EvaluatorVersion: manifest.GetTopologyEvaluatorVersion(),
-			FeatureResults: manifest.GetFeatureResults()})
+			FeatureResults: manifest.GetFeatureResults(), PolicyDigest: manifest.GetTopologyPolicyDigest()})
 		if err != nil {
 			return fmt.Errorf("serialize topology manifest: %w", err)
 		}
 		digest := sha256.Sum256(topologyManifestData)
 		topologyManifestDigest = hex.EncodeToString(digest[:])
-		if manifest.GetTopologyManifestDigest() != "" && manifest.GetTopologyManifestDigest() != topologyManifestDigest {
+		if manifest.GetTopologyManifestDigest() != topologyManifestDigest {
 			return fmt.Errorf("topology manifest digest mismatch")
 		}
 	}
@@ -2447,10 +2465,16 @@ func (service *Service) storeEvaluation(
 		}
 		brepObjectID, glbObjectID = &brepObject.ID, &glbObject.ID
 		if reference := evaluation.GetEvaluationManifest().GetTopologyManifestArtifact(); reference != nil {
+			if err := validateTopologyManifestDigests(topologyManifestDigest, reference.GetSha256(), ""); err != nil {
+				return err
+			}
 			topologyObject, adoptErr := service.artifacts.Adopt(ctx, artifactstore.KindTopologyManifest,
 				"application/vnd.occccad.topology-manifest.v1+protobuf", reference.GetObjectKey())
 			if adoptErr != nil {
 				return fmt.Errorf("adopt worker topology manifest: %w", adoptErr)
+			}
+			if err := validateTopologyManifestDigests(topologyManifestDigest, reference.GetSha256(), topologyObject.SHA256); err != nil {
+				return err
 			}
 			topologyManifestObjectID = &topologyObject.ID
 			topologyManifestData = nil
@@ -2482,6 +2506,16 @@ func (service *Service) storeEvaluation(
 		topologyManifestObjectID, topologyManifestData, topologyManifestDigestValue, storageState,
 		visualizationJSON, workerID); err != nil {
 		return err
+	}
+	return nil
+}
+
+func validateTopologyManifestDigests(expected, referenced, adopted string) error {
+	if expected == "" || referenced != expected {
+		return fmt.Errorf("topology manifest artifact reference digest mismatch")
+	}
+	if adopted != "" && adopted != expected {
+		return fmt.Errorf("adopted topology manifest digest mismatch")
 	}
 	return nil
 }

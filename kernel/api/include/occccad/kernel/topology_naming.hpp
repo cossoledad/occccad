@@ -22,6 +22,8 @@ inline constexpr std::string_view topology_naming_policy_id = "occccad.topology.
 inline constexpr std::string_view topology_evaluator_version = "occccad.topology.contract.v1";
 inline constexpr double topology_linear_tolerance_meters = 1.0e-7;
 inline constexpr double topology_angular_tolerance_radians = 1.0e-9;
+inline constexpr std::string_view topology_naming_policy_digest =
+    "sha256:cd1ce31324ded20c80cc37cfdff55949c179d2bc0a629bb12143cc5c29feca55";
 
 enum class PersistentTopologyType : std::uint8_t { unspecified, face, edge, vertex };
 enum class SelectionRecipeKind : std::uint8_t {
@@ -152,6 +154,7 @@ struct FeatureResult {
     std::vector<SemanticTopologyOutput> semantic_outputs;
     TopologyHistory topology_history;
     std::vector<std::string> diagnostics;
+    bool topology_history_complete{};
 };
 
 struct ProfileEvaluationResult {

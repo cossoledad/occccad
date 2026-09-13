@@ -60,6 +60,7 @@ func topologyNamingPolicyProto() *workerv1.TopologyNamingPolicy {
 		EvaluatorVersion:        modelcore.TopologyNamingEvaluator,
 		LinearToleranceMeters:   modelcore.TopologyNamingLinearToleranceMeters,
 		AngularToleranceRadians: modelcore.TopologyNamingAngularToleranceRadians,
+		PolicyDigest:            modelcore.TopologyNamingPolicyDigest,
 	}
 }
 

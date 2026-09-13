@@ -521,6 +521,8 @@ struct ToolBuild {
     TopoDS_Shape shape;
     std::vector<NamedShape> named;
     std::vector<TopologyLineage> generated;
+    bool topology_history_complete{true};
+    std::vector<std::string> diagnostics;
 };
 
 SemanticTopologyRef profile_source(const ProfilePadSpec& spec, const std::string& slot,
@@ -698,6 +700,8 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
             if (!revolve.IsDone())
                 throw std::runtime_error("profile revolve failed: " + region.id);
             generated = revolve.Shape();
+            result.topology_history_complete = false;
+            result.diagnostics.push_back("TOPOLOGY_HISTORY_UNSUPPORTED_GENERATOR:REVOLVE");
         }
         if (generated.IsNull() || !BRepCheck_Analyzer(generated).IsValid())
             throw std::runtime_error("generated solid tool is invalid: " + region.id);
@@ -737,6 +741,19 @@ bool same_ref(const SemanticTopologyRef& left, const SemanticTopologyRef& right)
            left.source_ids == right.source_ids;
 }
 
+std::string ref_key(const SemanticTopologyRef& ref) {
+    std::string key = ref.feature_id + "\n" + ref.output_slot;
+    for (const auto& source : ref.source_ids)
+        key += "\n" + source;
+    return key;
+}
+
+void sort_refs(std::vector<SemanticTopologyRef>& refs) {
+    std::sort(refs.begin(), refs.end(), [](const auto& left, const auto& right) {
+        return ref_key(left) < ref_key(right);
+    });
+}
+
 SelectionEvidence face_evidence(const TopoDS_Face& face) {
     SelectionEvidence evidence;
     evidence.geometry_type = std::to_string(classify_surface(face));
@@ -768,11 +785,52 @@ SelectionEvidence face_evidence(const TopoDS_Face& face) {
 }
 
 std::string topology_policy_digest() {
-    std::ostringstream value;
-    value.precision(17);
-    value << topology_naming_policy_id << '|' << topology_evaluator_version << '|'
-          << topology_linear_tolerance_meters << '|' << topology_angular_tolerance_radians;
-    return make_geometry_id(value.str());
+    return std::string(topology_naming_policy_digest);
+}
+
+std::string topology_history_digest(const TopologyHistory& history) {
+    std::ostringstream canonical;
+    canonical.precision(17);
+    canonical << "schema=" << history.schema_version << "|feature=" << history.feature_id
+              << "|input=" << history.input_geometry_id << "|result="
+              << history.result_geometry_id << "|policy=" << history.policy_digest;
+    auto lineage = history.lineage;
+    std::sort(lineage.begin(), lineage.end(), [](const auto& left, const auto& right) {
+        return ref_key(left.result) < ref_key(right.result);
+    });
+    for (auto& item : lineage) {
+        sort_refs(item.sources);
+        canonical << "|lineage=" << static_cast<int>(item.kind) << ':' << ref_key(item.result)
+                  << ':' << item.evidence.evidence_digest;
+        for (const auto& source : item.sources)
+            canonical << ":source=" << ref_key(source);
+        auto adjacent = item.evidence.adjacent;
+        sort_refs(adjacent);
+        for (const auto& ref : adjacent)
+            canonical << ":adjacent=" << ref_key(ref);
+    }
+    auto deleted = history.deleted;
+    std::sort(deleted.begin(), deleted.end(), [](const auto& left, const auto& right) {
+        return ref_key(left.source) < ref_key(right.source);
+    });
+    for (const auto& item : deleted)
+        canonical << "|deleted=" << ref_key(item.source) << ':' << item.reason << ':'
+                  << item.evidence.evidence_digest;
+    auto ambiguous = history.ambiguous;
+    std::sort(ambiguous.begin(), ambiguous.end(), [](const auto& left, const auto& right) {
+        return (left.sources.empty() ? std::string{} : ref_key(left.sources.front())) <
+               (right.sources.empty() ? std::string{} : ref_key(right.sources.front()));
+    });
+    for (auto& item : ambiguous) {
+        sort_refs(item.sources);
+        sort_refs(item.candidates);
+        canonical << "|ambiguous=" << item.diagnostic_code;
+        for (const auto& source : item.sources)
+            canonical << ":source=" << ref_key(source);
+        for (const auto& candidate : item.candidates)
+            canonical << ":candidate=" << ref_key(candidate);
+    }
+    return make_geometry_id(canonical.str());
 }
 
 BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
@@ -1044,11 +1102,13 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         result_id = base_id;
     }
     ProfileEvaluationResult evaluation;
+    bool topology_history_complete = base_brep.empty();
     for (const auto& spec : specs) {
         const auto input_shape = result;
         const auto input_id = result_id;
         const auto input_named = live_named;
         const auto tool = make_profile_tool(spec);
+        topology_history_complete = topology_history_complete && tool.topology_history_complete;
         auto operation = apply_body_operation(result, live_named, tool, spec.body_operation);
         result = operation.shape;
         result_id = impl_->store(result);
@@ -1072,14 +1132,17 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             }
         }
         std::vector<std::pair<SemanticTopologyOutput, TopoDS_Shape>> outputs;
-        std::size_t merge_index = 0;
         std::unordered_map<std::string, std::size_t> source_counts;
-        const auto ref_key = [](const SemanticTopologyRef& ref) {
-            std::string key = ref.feature_id + "\n" + ref.output_slot;
-            for (const auto& source : ref.source_ids)
-                key += "\n" + source;
-            return key;
-        };
+        for (auto& group : groups)
+            sort_refs(group.sources);
+        std::sort(groups.begin(), groups.end(), [](const auto& left, const auto& right) {
+            const auto left_key = left.sources.empty() ? std::string{} : ref_key(left.sources.front());
+            const auto right_key = right.sources.empty() ? std::string{} : ref_key(right.sources.front());
+            if (left_key != right_key)
+                return left_key < right_key;
+            return face_evidence(TopoDS::Face(left.shape)).evidence_digest <
+                   face_evidence(TopoDS::Face(right.shape)).evidence_digest;
+        });
         for (const auto& group : groups)
             for (const auto& source : group.sources)
                 ++source_counts[ref_key(source)];
@@ -1090,6 +1153,15 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         feature.input_feature_id = spec.input_feature_id;
         feature.profile_feature_id = spec.profile_feature_id;
         feature.result_geometry_id = result_id;
+        feature.topology_history_complete = topology_history_complete;
+        feature.diagnostics = tool.diagnostics;
+        if (!base_brep.empty() && input_named.empty()) {
+            feature.topology_history_complete = false;
+            topology_history_complete = false;
+            feature.diagnostics.push_back("TOPOLOGY_HISTORY_UNNAMED_BASE");
+        } else if (!feature.topology_history_complete && tool.topology_history_complete) {
+            feature.diagnostics.push_back("TOPOLOGY_HISTORY_INCOMPLETE_INPUT");
+        }
         feature.topology_history.feature_id = spec.feature_id;
         feature.topology_history.input_geometry_id = input_id;
         feature.topology_history.result_geometry_id = result_id;
@@ -1098,7 +1170,20 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             SemanticTopologyRef output_ref;
             TopologyLineageKind kind = TopologyLineageKind::modified;
             if (group.sources.size() > 1U) {
-                output_ref = {spec.feature_id, "MERGED/" + std::to_string(++merge_index), {}};
+                std::ostringstream merged;
+                for (const auto& source : group.sources)
+                    merged << ref_key(source) << '\0';
+                const auto merged_digest = make_geometry_id(merged.str());
+                std::vector<std::string> source_ids;
+                for (const auto& source : group.sources) {
+                    source_ids.push_back(source.feature_id + "/" + source.output_slot);
+                    source_ids.insert(source_ids.end(), source.source_ids.begin(),
+                                      source.source_ids.end());
+                }
+                std::sort(source_ids.begin(), source_ids.end());
+                source_ids.erase(std::unique(source_ids.begin(), source_ids.end()),
+                                 source_ids.end());
+                output_ref = {spec.feature_id, "MERGED_FROM/" + merged_digest.substr(7), source_ids};
                 kind = TopologyLineageKind::merged;
             } else {
                 const auto& source = group.sources.front();
@@ -1168,6 +1253,13 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                     outputs[left].first.evidence.adjacent.push_back(
                         outputs[right].first.semantic_ref);
             }
+            sort_refs(outputs[left].first.evidence.adjacent);
+            auto lineage = std::find_if(feature.topology_history.lineage.begin(),
+                                        feature.topology_history.lineage.end(), [&](const auto& value) {
+                                            return same_ref(value.result, outputs[left].first.semantic_ref);
+                                        });
+            if (lineage != feature.topology_history.lineage.end())
+                lineage->evidence = outputs[left].first.evidence;
         }
         std::vector<NamedShape> all_sources = input_named;
         all_sources.insert(all_sources.end(), tool.named.begin(), tool.named.end());
@@ -1186,12 +1278,29 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 }))
                 throw std::runtime_error("TOPOLOGY_HISTORY_LIVE_TOMBSTONE_CONFLICT");
         }
-        std::ostringstream history_digest;
-        for (const auto& lineage : feature.topology_history.lineage)
-            history_digest << lineage.evidence.evidence_digest << '|';
-        for (const auto& deleted : feature.topology_history.deleted)
-            history_digest << deleted.evidence.evidence_digest << '|';
-        feature.topology_history.evidence_digest = make_geometry_id(history_digest.str());
+        if (feature.topology_history_complete) {
+            if (outputs.size() != static_cast<std::size_t>(final_faces.Extent()))
+                throw std::runtime_error("TOPOLOGY_HISTORY_INCOMPLETE_FINAL_SHAPE");
+            std::vector<bool> local_ids(static_cast<std::size_t>(final_faces.Extent()) + 1U, false);
+            std::vector<std::string> semantic_refs;
+            for (const auto& output : outputs) {
+                if (output.first.local_id == 0U || output.first.local_id >= local_ids.size() ||
+                    local_ids[output.first.local_id])
+                    throw std::runtime_error("TOPOLOGY_HISTORY_DUPLICATE_LOCAL_ID");
+                local_ids[output.first.local_id] = true;
+                semantic_refs.push_back(ref_key(output.first.semantic_ref));
+                const auto matches = std::count_if(
+                    feature.topology_history.lineage.begin(), feature.topology_history.lineage.end(),
+                    [&](const auto& value) { return same_ref(value.result, output.first.semantic_ref); });
+                if (matches != 1)
+                    throw std::runtime_error("TOPOLOGY_HISTORY_LINEAGE_OUTPUT_MISMATCH");
+            }
+            std::sort(semantic_refs.begin(), semantic_refs.end());
+            if (std::adjacent_find(semantic_refs.begin(), semantic_refs.end()) != semantic_refs.end())
+                throw std::runtime_error("TOPOLOGY_HISTORY_DUPLICATE_SEMANTIC_REF");
+        }
+        feature.topology_history.evidence_digest =
+            topology_history_digest(feature.topology_history);
         live_named.clear();
         for (auto& output : outputs) {
             feature.semantic_outputs.push_back(std::move(output.first));

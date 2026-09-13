@@ -437,6 +437,7 @@ message TopologyNamingPolicy {
     string evaluator_version = 3;
     double linear_tolerance_meters = 4;
     double angular_tolerance_radians = 5;
+    string policy_digest = 6;
 }
 
 message FeatureEvaluationIdentity {
@@ -454,6 +455,7 @@ message PartEvaluationManifest {
     ArtifactReference topology_manifest_artifact = 5;
     repeated FeatureEvaluationIdentity features = 6;
     repeated FeatureResult feature_results = 7;
+    string topology_policy_digest = 8;
 }
 
 message SemanticTopologyOutput {
@@ -472,6 +474,7 @@ message FeatureResult {
     string body_id = 6;
     string input_feature_id = 7;
     string profile_feature_id = 8;
+    bool topology_history_complete = 9;
 }
 
 message PartTopologyManifest {
@@ -479,6 +482,7 @@ message PartTopologyManifest {
     string policy_id = 2;
     string evaluator_version = 3;
     repeated FeatureResult feature_results = 4;
+    string policy_digest = 5;
 }
 
 message ArtifactReference {

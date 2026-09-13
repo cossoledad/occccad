@@ -234,6 +234,7 @@ TEST(GeometryExchange, TopologyHistoryKeepsExtrudeSemanticOutputsAcrossLengthEdi
     EXPECT_EQ(first.feature_results.front().topology_history.evidence_digest,
               repeated.feature_results.front().topology_history.evidence_digest);
     EXPECT_EQ(first.feature_results.front().semantic_outputs.size(), 6U);
+    EXPECT_TRUE(first.feature_results.front().topology_history_complete);
     EXPECT_FALSE(first.feature_results.front().topology_history.evidence_digest.empty());
     for (const auto& output : second.feature_results.front().semantic_outputs) {
         EXPECT_GE(output.local_id, 1U);
@@ -266,6 +267,7 @@ TEST(GeometryExchange, TopologyHistoryComposesBooleanAndSameDomainHistory) {
     remove.body_operation = "REMOVE";
 
     const auto evaluation = kernel.evaluateProfilePadsWithHistory({base, add, remove});
+    const auto repeated = kernel.evaluateProfilePadsWithHistory({base, add, remove});
     ASSERT_EQ(evaluation.feature_results.size(), 3U);
     EXPECT_EQ(kernel.getTopology(evaluation.geometry_id).solid_count, 1U);
     EXPECT_NEAR(kernel.getVolume(evaluation.geometry_id), 5400.0, 1.0e-6);
@@ -280,6 +282,14 @@ TEST(GeometryExchange, TopologyHistoryComposesBooleanAndSameDomainHistory) {
                                        value.kind == TopologyLineageKind::unchanged;
                             }));
     EXPECT_FALSE(cut_history.deleted.empty());
+    EXPECT_TRUE(evaluation.feature_results[2].topology_history_complete);
+    EXPECT_EQ(evaluation.feature_results[1].topology_history.evidence_digest,
+              repeated.feature_results[1].topology_history.evidence_digest);
+    ASSERT_EQ(evaluation.feature_results[1].semantic_outputs.size(),
+              repeated.feature_results[1].semantic_outputs.size());
+    for (std::size_t index = 0; index < evaluation.feature_results[1].semantic_outputs.size(); ++index)
+        EXPECT_EQ(evaluation.feature_results[1].semantic_outputs[index].semantic_ref.output_slot,
+                  repeated.feature_results[1].semantic_outputs[index].semantic_ref.output_slot);
     for (const auto& tombstone : cut_history.deleted) {
         EXPECT_FALSE(
             std::any_of(evaluation.feature_results[2].semantic_outputs.begin(),
@@ -289,6 +299,28 @@ TEST(GeometryExchange, TopologyHistoryComposesBooleanAndSameDomainHistory) {
                                    output.semantic_ref.output_slot == tombstone.source.output_slot;
                         }));
     }
+}
+
+TEST(GeometryExchange, RevolveReportsTopologyHistoryAsIncompleteUntilItsNamingPhase) {
+    OcctKernel kernel;
+    ProfilePadSpec revolve;
+    revolve.feature_id = "revolve-1";
+    revolve.body_id = "body-main";
+    revolve.profile_feature_id = "sketch-revolve";
+    revolve.regions = {rectangular_region("section", 5, 0, 10, 5)};
+    revolve.generator = "REVOLVE";
+    revolve.revolve_angle = 2.0 * 3.14159265358979323846;
+    revolve.axis_start = {0, -10};
+    revolve.axis_end = {0, 10};
+    revolve.body_operation = "NEW_BODY";
+
+    const auto evaluation = kernel.evaluateProfilePadsWithHistory({revolve});
+    ASSERT_EQ(evaluation.feature_results.size(), 1U);
+    EXPECT_FALSE(evaluation.feature_results.front().topology_history_complete);
+    EXPECT_NE(std::find(evaluation.feature_results.front().diagnostics.begin(),
+                        evaluation.feature_results.front().diagnostics.end(),
+                        "TOPOLOGY_HISTORY_UNSUPPORTED_GENERATOR:REVOLVE"),
+              evaluation.feature_results.front().diagnostics.end());
 }
 
 TEST(GeometryExchange, NamingFixtureCutRetainsModifiedTopFace) {
@@ -339,31 +371,79 @@ TEST(GeometryExchange, NamingFixtureCutDeletesOriginalTopFace) {
 TEST(GeometryExchange, NamingFixtureSideOpeningCreatesTwoAmbiguousFaceCandidates) {
     OcctKernel kernel;
     ProfilePadSpec base;
+    base.feature_id = "extrude-1";
+    base.body_id = "body-main";
+    base.profile_feature_id = "sketch-base";
     base.regions = {rectangular_region("base", 0, 0, 20, 20)};
     base.pad_length = 10;
     base.body_operation = "NEW_BODY";
     ProfilePadSpec notch;
+    notch.feature_id = "cut-1";
+    notch.body_id = "body-main";
+    notch.input_feature_id = base.feature_id;
+    notch.profile_feature_id = "sketch-notch";
     notch.regions = {rectangular_region("notch", 8, 0, 12, 5)};
     notch.pad_length = 10;
     notch.body_operation = "REMOVE";
 
-    const auto result = kernel.evaluateProfilePads({base, notch});
-    EXPECT_EQ(kernel.getTopology(result).solid_count, 1U);
-    EXPECT_EQ(faces_on_y(kernel.getTopology(result), 0.0), 2U);
+    const auto evaluation = kernel.evaluateProfilePadsWithHistory({base, notch});
+    EXPECT_EQ(kernel.getTopology(evaluation.geometry_id).solid_count, 1U);
+    EXPECT_EQ(faces_on_y(kernel.getTopology(evaluation.geometry_id), 0.0), 2U);
+    ASSERT_EQ(evaluation.feature_results.size(), 2U);
+    const auto& cut = evaluation.feature_results.back();
+    EXPECT_TRUE(cut.topology_history_complete);
+    const auto ambiguity = std::find_if(
+        cut.topology_history.ambiguous.begin(), cut.topology_history.ambiguous.end(),
+        [](const AmbiguousLineage& value) {
+            return value.sources.size() == 1U &&
+                   value.sources.front().output_slot ==
+                       "SIDE_FROM_PROFILE_EDGE/base-edge-0";
+        });
+    ASSERT_NE(ambiguity, cut.topology_history.ambiguous.end());
+    EXPECT_EQ(ambiguity->diagnostic_code, "TOPOLOGY_SPLIT_AMBIGUOUS");
+    EXPECT_EQ(ambiguity->candidates.size(), 2U);
+}
 
-    AmbiguousLineage ambiguity;
-    ambiguity.sources = {{"extrude-1", "SIDE_FROM_PROFILE_EDGE/base-edge-0", {"base-edge-0"}}};
-    ambiguity.candidates = {
-        {"cut-1", "SPLIT_FROM/extrude-1/SIDE/a", {"base-edge-0"}},
-        {"cut-1", "SPLIT_FROM/extrude-1/SIDE/b", {"base-edge-0"}},
-    };
-    ambiguity.diagnostic_code = "SELECTION_AMBIGUOUS";
-    EXPECT_EQ(ambiguity.candidates.size(), 2U);
-    SelectionResolution resolution;
-    resolution.status = SelectionResolutionStatus::ambiguous;
-    resolution.supporting_element_status = SupportingElementStatus::not_connected;
-    EXPECT_EQ(resolution.status, SelectionResolutionStatus::ambiguous);
-    EXPECT_EQ(resolution.supporting_element_status, SupportingElementStatus::not_connected);
+TEST(GeometryExchange, NamingFixtureXZThroughCutKeepsSixBaseFacesAndAddsFourHoleFaces) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id = "extrude-base";
+    base.body_id = "body-main";
+    base.profile_feature_id = "sketch-base";
+    base.regions = {rectangular_region("base", 0, 0, 20, 20)};
+    base.pad_length = 10;
+    base.body_operation = "NEW_BODY";
+
+    ProfilePadSpec hole;
+    hole.feature_id = "cut-hole";
+    hole.body_id = "body-main";
+    hole.input_feature_id = base.feature_id;
+    hole.profile_feature_id = "sketch-hole-xz";
+    hole.regions = {rectangular_region("hole", 5, 2, 15, 8)};
+    hole.pad_length = 20;
+    hole.plane = "XZ";
+    hole.reversed = true;
+    hole.body_operation = "REMOVE";
+
+    const auto evaluation = kernel.evaluateProfilePadsWithHistory({base, hole});
+    ASSERT_EQ(evaluation.feature_results.size(), 2U);
+    const auto& result = evaluation.feature_results.back();
+    EXPECT_TRUE(result.topology_history_complete);
+    EXPECT_TRUE(result.diagnostics.empty());
+    EXPECT_EQ(kernel.getTopology(evaluation.geometry_id).face_count, 10U);
+    ASSERT_EQ(result.semantic_outputs.size(), 10U);
+    std::vector<std::uint64_t> local_ids;
+    std::size_t base_faces = 0;
+    std::size_t hole_faces = 0;
+    for (const auto& output : result.semantic_outputs) {
+        local_ids.push_back(output.local_id);
+        base_faces += output.semantic_ref.feature_id == base.feature_id ? 1U : 0U;
+        hole_faces += output.semantic_ref.feature_id == hole.feature_id ? 1U : 0U;
+    }
+    std::sort(local_ids.begin(), local_ids.end());
+    EXPECT_EQ(std::adjacent_find(local_ids.begin(), local_ids.end()), local_ids.end());
+    EXPECT_EQ(base_faces, 6U);
+    EXPECT_EQ(hole_faces, 4U);
 }
 
 TEST(GeometryExchange, SolidFeatureChainFusesAndCutsOneBody) {

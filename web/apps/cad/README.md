@@ -79,6 +79,8 @@ invoke test --build-type=Debug
 
 `invoke web.build` 执行 TypeScript 类型检查和生产构建。Front 行为场景邻近所属模块存放为 `src/**/testing/*.scenario.mjs`，`pnpm test` 自动发现并在独立进程运行，避免 fixture 和模块状态串扰；当前仍没有完整的浏览器/WebGL Playwright 套件，复杂视觉布局仍需浏览器验收。
 
+已有 Linear Extrude 可从结构树右键 Edit 或双击打开同一个编辑器。长度输入要求显式 `mm/cm/m/in` 单位；同一次编辑会话的权威预览共享稳定 `interactionId` 并使用单调 `previewSequence`，确认时携带 definition digest 和一次性 `previewId` 提交一个 Revision。
+
 ## 性能与安全边界
 
 - API Client 记录最近 200 次请求的浏览器总耗时、状态码与 `Server-Timing`，并在手动/自动诊断导出时携带这些样本；数据只保存在内存，不形成第二套业务状态；

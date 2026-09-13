@@ -87,6 +87,7 @@ var units = map[string]struct {
 }{
 	"": {1, Dimensionless}, "1": {1, Dimensionless},
 	"m": {1, LengthDimension}, "mm": {0.001, LengthDimension}, "cm": {0.01, LengthDimension},
+	"in":  {0.0254, LengthDimension},
 	"rad": {1, AngleDimension}, "deg": {math.Pi / 180, AngleDimension},
 }
 

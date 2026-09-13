@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -203,6 +204,143 @@ func TestLinearExtrudeEditUsesPadLengthFacadeAndSupportsCompensation(t *testing.
 	}
 	if edited.Features[1].Length != 40 {
 		t.Fatalf("redo length = %v, want 40", edited.Features[1].Length)
+	}
+}
+
+func TestLinearExtrudeEditSupportsTwoUndoAndRedoStepsWithUnits(t *testing.T) {
+	model := newPartModel()
+	model.Features = append(model.Features, testRectangleSketch("sketch-edit", "XY"),
+		Feature{ID: "extrude-edit", Type: "LINEAR_EXTRUDE", Profile: "sketch-edit", Length: 20, Operation: "NEW_BODY"})
+	normalizePartModel(&model)
+	current, _ := json.Marshal(model)
+	edit := func(input json.RawMessage, value float64, unit string) (json.RawMessage, modelcore.ChangeSet) {
+		var part PartModel
+		if err := json.Unmarshal(input, &part); err != nil {
+			t.Fatal(err)
+		}
+		digest, err := featureDefinitionDigest(part, "extrude-edit")
+		if err != nil {
+			t.Fatal(err)
+		}
+		length, err := modelcore.NewQuantity(value, unit)
+		if err != nil {
+			t.Fatal(err)
+		}
+		payload, _ := json.Marshal(editFeaturePayload{FeatureID: "extrude-edit", ExpectedFeatureDigest: digest,
+			LinearExtrude: linearExtrudeEdit{Length: length, Operation: "NEW_BODY", Profile: "sketch-edit"}})
+		next, changes, err := workspaceCommandRegistry.Apply("PART", input, modelcore.DomainCommand{
+			CommandID: "edit-" + unit, TypeURI: typeEditFeature, SchemaVersion: 1, Payload: payload})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return next, changes
+	}
+	lengthOf := func(value json.RawMessage) float64 {
+		var part PartModel
+		if err := json.Unmarshal(value, &part); err != nil {
+			t.Fatal(err)
+		}
+		return part.Features[1].Length
+	}
+
+	forty, first := edit(current, 4, "cm")
+	sixty, second := edit(forty, 0.06, "m")
+	if got := lengthOf(sixty); got != 60 {
+		t.Fatalf("second edit length = %v, want 60", got)
+	}
+	undoValues, err := modelValues("PART", sixty, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	undoSecond, err := second.Compensate(undoValues)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fortyAgain, err := applyModelValues("PART", sixty, undoSecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	undoValues, err = modelValues("PART", fortyAgain, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	undoFirst, err := first.Compensate(undoValues)
+	if err != nil {
+		t.Fatal(err)
+	}
+	twentyAgain, err := applyModelValues("PART", fortyAgain, undoFirst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lengthOf(twentyAgain); got != 20 {
+		t.Fatalf("two undos length = %v, want 20", got)
+	}
+
+	redoValues, err := modelValues("PART", twentyAgain, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redoFirst, err := first.Reapply(redoValues)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fortyAgain, err = applyModelValues("PART", twentyAgain, redoFirst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redoValues, err = modelValues("PART", fortyAgain, second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	redoSecond, err := second.Reapply(redoValues)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sixtyAgain, err := applyModelValues("PART", fortyAgain, redoSecond)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lengthOf(sixtyAgain); got != 60 {
+		t.Fatalf("two redos length = %v, want 60", got)
+	}
+}
+
+func TestPartGeometryKeyIncludesFeatureIdentityAndTopologyPolicy(t *testing.T) {
+	t.Parallel()
+	pad := geometry.ProfilePad{FeatureID: "extrude-a", BodyID: "body-main", ProfileFeatureID: "sketch-a",
+		Length: 20, Plane: "XY", BodyOperation: "NEW_BODY", Generator: "LINEAR_EXTRUDE"}
+	first, err := partGeometryKey("", []geometry.ProfilePad{pad}, VisualizationManifest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pad.FeatureID = "extrude-b"
+	second, err := partGeometryKey("", []geometry.ProfilePad{pad}, VisualizationManifest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("geometry key reused a topology manifest across different Feature identities")
+	}
+	otherPolicy, err := partGeometryKeyForPolicy("sha256:different-policy", "", []geometry.ProfilePad{pad}, VisualizationManifest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second == otherPolicy {
+		t.Fatal("geometry key does not include the topology naming policy digest")
+	}
+}
+
+func TestTopologyManifestArtifactDigestMustMatchInlineAndAdoptedContent(t *testing.T) {
+	t.Parallel()
+	if err := validateTopologyManifestDigests("abc", "abc", "abc"); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ expected, referenced, adopted string }{
+		{"", "abc", ""}, {"abc", "different", ""}, {"abc", "abc", "different"},
+	} {
+		if err := validateTopologyManifestDigests(test.expected, test.referenced, test.adopted); err == nil {
+			t.Fatalf("accepted inconsistent topology manifest digests: %#v", test)
+		}
 	}
 }
 

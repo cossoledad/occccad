@@ -10,6 +10,7 @@ import (
 	"time"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"github.com/occccad/occccad/internal/modelcore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -84,11 +85,13 @@ func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
 	manifest := response.GetEvaluationManifest()
 	if manifest.GetTopologyPolicyId() != topologyNamingPolicyProto().GetPolicyId() ||
 		manifest.GetTopologyEvaluatorVersion() != topologyNamingPolicyProto().GetEvaluatorVersion() ||
+		manifest.GetTopologyPolicyDigest() != topologyNamingPolicyProto().GetPolicyDigest() ||
 		len(manifest.GetFeatures()) != 1 || manifest.GetFeatures()[0].GetFeatureId() != "pad-1" {
 		t.Fatalf("Worker dropped the naming contract: %#v", manifest)
 	}
 	if len(manifest.GetFeatureResults()) != 1 || len(manifest.GetFeatureResults()[0].GetSemanticOutputs()) != 6 ||
-		len(manifest.GetFeatureResults()[0].GetTopologyHistory().GetLineage()) != 6 {
+		len(manifest.GetFeatureResults()[0].GetTopologyHistory().GetLineage()) != 6 ||
+		!manifest.GetFeatureResults()[0].GetTopologyHistoryComplete() {
 		t.Fatalf("Worker omitted Linear Extrude topology history: %#v", manifest.GetFeatureResults())
 	}
 	for _, output := range manifest.GetFeatureResults()[0].GetSemanticOutputs() {
@@ -117,11 +120,23 @@ func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
 	if len(persisted.GetFeatureResults()) != 1 || persisted.GetFeatureResults()[0].GetTopologyHistory().GetEvidenceDigest() == "" {
 		t.Fatalf("serialized topology manifest lost feature history: %#v", &persisted)
 	}
+	if persisted.GetPolicyDigest() != modelcore.TopologyNamingPolicyDigest {
+		t.Fatalf("serialized topology manifest lost policy digest: %#v", &persisted)
+	}
 
 	_, err = client.worker.EvaluatePart(t.Context(), &workerv1.EvaluatePartRequest{
 		RequestId: "naming-invalid", GeometryKey: "naming-invalid-key", ProfilePads: profilePadsProto([]ProfilePad{pad}),
 	})
 	if status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("missing naming policy must be rejected, got %v", err)
+	}
+	invalidPolicy := topologyNamingPolicyProto()
+	invalidPolicy.PolicyDigest = "sha256:wrong-policy"
+	_, err = client.worker.EvaluatePart(t.Context(), &workerv1.EvaluatePartRequest{
+		RequestId: "naming-invalid-digest", GeometryKey: "naming-invalid-digest-key",
+		ProfilePads: profilePadsProto([]ProfilePad{pad}), TopologyPolicy: invalidPolicy,
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("mismatched naming policy digest must be rejected, got %v", err)
 	}
 }

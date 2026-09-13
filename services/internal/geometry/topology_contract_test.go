@@ -22,6 +22,7 @@ func TestProfilePadProtoCarriesStableNamingIdentityAndPolicy(t *testing.T) {
 	if policy.GetSchemaVersion() != modelcore.TopologyNamingSchemaVersion ||
 		policy.GetPolicyId() != modelcore.TopologyNamingPolicyID ||
 		policy.GetEvaluatorVersion() != modelcore.TopologyNamingEvaluator ||
+		policy.GetPolicyDigest() != modelcore.TopologyNamingPolicyDigest ||
 		policy.GetLinearToleranceMeters() <= 0 || policy.GetAngularToleranceRadians() <= 0 {
 		t.Fatalf("topology naming policy is incomplete: %#v", policy)
 	}
@@ -63,9 +64,10 @@ func TestPersistentSelectionAndTopologyHistoryProtoRoundTrip(t *testing.T) {
 		PolicyDigest: "policy-digest", EvidenceDigest: "evidence-digest",
 	}
 	manifest := &workerv1.PartTopologyManifest{SchemaVersion: 1, PolicyId: modelcore.TopologyNamingPolicyID,
+		PolicyDigest:     modelcore.TopologyNamingPolicyDigest,
 		EvaluatorVersion: modelcore.TopologyNamingEvaluator, FeatureResults: []*workerv1.FeatureResult{{
 			FeatureId: "cut-1", BodyId: "body-main", InputFeatureId: "pad-1", ProfileFeatureId: "sketch-cut",
-			ResultGeometryId: "after", TopologyHistory: history, SemanticOutputs: []*workerv1.SemanticTopologyOutput{{
+			ResultGeometryId: "after", TopologyHistory: history, TopologyHistoryComplete: true, SemanticOutputs: []*workerv1.SemanticTopologyOutput{{
 				SemanticRef: history.Lineage[0].Result, TopologyType: workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_FACE,
 				LocalId: 7, Evidence: &workerv1.SelectionEvidence{GeometryType: "PLANE", EvidenceDigest: "face-evidence"},
 			}},

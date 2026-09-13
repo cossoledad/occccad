@@ -32,6 +32,7 @@ import { SpecificationTree, type SpecificationTreeNode } from "./specification-t
 import { closestTreeKey } from "./tree-selection";
 import { followedDocumentIDs } from "./product-edit-context";
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
+import { parseLengthInput } from "./length-input";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
@@ -273,6 +274,7 @@ export function Workbench() {
 	const featurePreviewAbort = useRef<AbortController | undefined>(undefined);
 	const featurePreviewSequence = useRef(0);
 	const featurePreviewID = useRef<string | undefined>(undefined);
+	const featureInteractionID = useRef<string | undefined>(undefined);
   const padPreviewAbort = useRef<AbortController | undefined>(undefined);
   const padPreviewSequence = useRef(0);
   const padIntentRequestID = useRef<string | undefined>(undefined);
@@ -301,7 +303,7 @@ export function Workbench() {
   const [shareResource, setShareResource] = useState<ShareResource>();
   const [padForm] = Form.useForm<{ generator: "LINEAR_EXTRUDE" | "REVOLVE"; operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
     length: number; angle: number; axisEntityId?: string; reversed: boolean }>();
-	const [featureForm] = Form.useForm<{ length: number }>();
+	const [featureForm] = Form.useForm<{ lengthText: string }>();
   const [insertForm] = Form.useForm<{ referencedDocumentID: string }>();
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
   const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
@@ -540,25 +542,30 @@ export function Workbench() {
   };
 	const closeFeatureEditor = () => {
 		featurePreviewAbort.current?.abort(); featurePreviewSequence.current += 1;
-		viewport.current?.clearCommandPreview(); featurePreviewID.current=undefined;
+		viewport.current?.clearCommandPreview(); featurePreviewID.current=undefined; featureInteractionID.current=undefined;
 		setFeaturePreviewPending(false); setFeaturePreviewError(undefined); setEditingExtrude(undefined);
 	};
 	const openFeatureEditor = (node: SpecificationTreeNode) => {
 		if (!editingView || !node.entityId || !node.definitionDigest || !node.capabilities?.includes("EDIT")) return;
 		const feature=editingView.part?.features.find((candidate)=>candidate.id===node.entityId);
 		if (!feature || !["PAD","LINEAR_EXTRUDE"].includes(feature.type.toUpperCase())) return;
-		featureForm.setFieldsValue({length:feature.length??0}); featurePreviewID.current=undefined;
+		featureForm.setFieldsValue({lengthText:`${feature.length??0} mm`}); featurePreviewID.current=undefined;
+		featureInteractionID.current=randomUUID();
 		setFeaturePreviewError(undefined); setEditingExtrude({feature,digest:node.definitionDigest});
 	};
 	const requestFeaturePreview = async () => {
 		if (!editingView || !editingExtrude) return;
-		const {length}=await featureForm.validateFields();
+		let length: number, unit: "mm"|"cm"|"m"|"in";
+		try {
+			const values=await featureForm.validateFields(); ({value:length,unit}=parseLengthInput(values.lengthText));
+		} catch { return; }
 		featurePreviewAbort.current?.abort(); const abort=new AbortController(); featurePreviewAbort.current=abort;
 		const sequence=++featurePreviewSequence.current, baseVersionID=editingView.document.versionId;
 		featurePreviewID.current=undefined; setFeaturePreviewError(undefined); setFeaturePreviewPending(true);
 		try {
 			const preview=await api.previewCommand(editingView.document.id,{type:"EDIT_FEATURE",targetId:editingExtrude.feature.id,
-				expectedFeatureDigest:editingExtrude.digest,length,unit:"mm"},abort.signal);
+				expectedFeatureDigest:editingExtrude.digest,length,unit,interactionId:featureInteractionID.current,
+				previewSequence:sequence},abort.signal);
 			if(sequence!==featurePreviewSequence.current||preview.baseVersionId!==baseVersionID||preview.baseVersionId!==latestDocumentVersion.current||!preview.artifact)return;
 			featurePreviewID.current=preview.previewId; viewport.current?.previewArtifact(preview.artifact);
 		} catch(cause) {
@@ -567,10 +574,14 @@ export function Workbench() {
 		} finally { if(sequence===featurePreviewSequence.current)setFeaturePreviewPending(false); }
 	};
 	const commitFeatureEdit = async () => {
-		if(!editingView||!editingExtrude)return; const {length}=await featureForm.validateFields();
+		if(!editingView||!editingExtrude)return;
+		let length: number, unit: "mm"|"cm"|"m"|"in";
+		try {
+			const values=await featureForm.validateFields(); ({value:length,unit}=parseLengthInput(values.lengthText));
+		} catch { return; }
 		command.mutate(()=>api.editFeature(editingView.document.id,{featureId:editingExtrude.feature.id,
-			expectedFeatureDigest:editingExtrude.digest,length,previewId:featurePreviewID.current}),{
-			onSuccess:()=>{viewport.current?.clearCommandPreview(false);featurePreviewID.current=undefined;setEditingExtrude(undefined);},
+			expectedFeatureDigest:editingExtrude.digest,length,unit,previewId:featurePreviewID.current}),{
+			onSuccess:()=>{viewport.current?.clearCommandPreview(false);featurePreviewID.current=undefined;featureInteractionID.current=undefined;setEditingExtrude(undefined);},
 			onError:(cause)=>setFeaturePreviewError(cause instanceof Error?cause.message:String(cause))});
 	};
   const requestPadPreview = async (sketchID: string, generatorOverride?: "LINEAR_EXTRUDE" | "REVOLVE") => {
@@ -929,8 +940,9 @@ export function Workbench() {
     </CommandDialog>
 	<CommandDialog id="linear-extrude-edit" open={Boolean(editingExtrude)} title="编辑线性拉伸" onClose={closeFeatureEditor}
 		confirmLoading={command.isPending || featurePreviewPending} confirmDisabled={Boolean(featurePreviewError)} onConfirm={commitFeatureEdit}>
-		<Form form={featureForm} layout="vertical"><Form.Item name="length" label="拉伸长度（mm）"
-			rules={[{required:true},{type:"number",min:0.1}]}><InputNumber autoFocus min={0.1} precision={2} style={{width:"100%"}}
+		<Form form={featureForm} layout="vertical"><Form.Item name="lengthText" label="拉伸长度"
+			rules={[{required:true},{validator:async(_,value)=>{try{parseLengthInput(String(value??""));}catch(cause){throw cause;}}}]}>
+			<Input autoFocus placeholder="40 mm" suffix="mm / cm / m / in"
 			onBlur={()=>void requestFeaturePreview()} onPressEnter={(event)=>{event.preventDefault();void commitFeatureEdit();}} /></Form.Item>
 		{featurePreviewError&&<Alert type="error" showIcon message="编辑预览失败" description={featurePreviewError}/>}
 		<small className="cad-command-hint">{featurePreviewPending?"后端正在求值预览…":"离开输入框刷新瞬态预览；按 Enter 或确定提交一个 Revision。"}</small></Form>

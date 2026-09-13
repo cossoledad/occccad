@@ -197,6 +197,7 @@ void fill_feature_result(const occccad::kernel::FeatureResult& source,
     target->set_input_feature_id(source.input_feature_id);
     target->set_profile_feature_id(source.profile_feature_id);
     target->set_result_geometry_id(source.result_geometry_id);
+    target->set_topology_history_complete(source.topology_history_complete);
     for (const auto& output : source.semantic_outputs) {
         auto* value = target->add_semantic_outputs();
         fill_semantic_ref(output.semantic_ref, value->mutable_semantic_ref());
@@ -966,7 +967,9 @@ public:
                     policy.linear_tolerance_meters() !=
                         occccad::kernel::topology_linear_tolerance_meters ||
                     policy.angular_tolerance_radians() !=
-                        occccad::kernel::topology_angular_tolerance_radians) {
+                        occccad::kernel::topology_angular_tolerance_radians ||
+                    policy.policy_digest() !=
+                        occccad::kernel::topology_naming_policy_digest) {
                     throw std::invalid_argument("unsupported or incomplete topology naming policy");
                 }
             }
@@ -1047,6 +1050,7 @@ public:
                 manifest->set_topology_policy_id(request->topology_policy().policy_id());
                 manifest->set_topology_evaluator_version(
                     request->topology_policy().evaluator_version());
+                manifest->set_topology_policy_digest(request->topology_policy().policy_digest());
                 for (const auto& spec : profile_specs) {
                     auto* identity = manifest->add_features();
                     identity->set_feature_id(spec.feature_id);
@@ -1060,6 +1064,7 @@ public:
                 topology_manifest.set_policy_id(request->topology_policy().policy_id());
                 topology_manifest.set_evaluator_version(
                     request->topology_policy().evaluator_version());
+                topology_manifest.set_policy_digest(request->topology_policy().policy_digest());
                 for (const auto& feature : profile_evaluation.feature_results) {
                     fill_feature_result(feature, manifest->add_feature_results());
                     fill_feature_result(feature, topology_manifest.add_feature_results());

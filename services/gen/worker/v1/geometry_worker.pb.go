@@ -3493,6 +3493,7 @@ type TopologyNamingPolicy struct {
 	EvaluatorVersion        string                 `protobuf:"bytes,3,opt,name=evaluator_version,json=evaluatorVersion,proto3" json:"evaluator_version,omitempty"`
 	LinearToleranceMeters   float64                `protobuf:"fixed64,4,opt,name=linear_tolerance_meters,json=linearToleranceMeters,proto3" json:"linear_tolerance_meters,omitempty"`
 	AngularToleranceRadians float64                `protobuf:"fixed64,5,opt,name=angular_tolerance_radians,json=angularToleranceRadians,proto3" json:"angular_tolerance_radians,omitempty"`
+	PolicyDigest            string                 `protobuf:"bytes,6,opt,name=policy_digest,json=policyDigest,proto3" json:"policy_digest,omitempty"`
 	unknownFields           protoimpl.UnknownFields
 	sizeCache               protoimpl.SizeCache
 }
@@ -3560,6 +3561,13 @@ func (x *TopologyNamingPolicy) GetAngularToleranceRadians() float64 {
 		return x.AngularToleranceRadians
 	}
 	return 0
+}
+
+func (x *TopologyNamingPolicy) GetPolicyDigest() string {
+	if x != nil {
+		return x.PolicyDigest
+	}
+	return ""
 }
 
 type FeatureEvaluationIdentity struct {
@@ -3639,6 +3647,7 @@ type PartEvaluationManifest struct {
 	TopologyManifestArtifact *ArtifactReference           `protobuf:"bytes,5,opt,name=topology_manifest_artifact,json=topologyManifestArtifact,proto3" json:"topology_manifest_artifact,omitempty"`
 	Features                 []*FeatureEvaluationIdentity `protobuf:"bytes,6,rep,name=features,proto3" json:"features,omitempty"`
 	FeatureResults           []*FeatureResult             `protobuf:"bytes,7,rep,name=feature_results,json=featureResults,proto3" json:"feature_results,omitempty"`
+	TopologyPolicyDigest     string                       `protobuf:"bytes,8,opt,name=topology_policy_digest,json=topologyPolicyDigest,proto3" json:"topology_policy_digest,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
@@ -3722,6 +3731,13 @@ func (x *PartEvaluationManifest) GetFeatureResults() []*FeatureResult {
 	return nil
 }
 
+func (x *PartEvaluationManifest) GetTopologyPolicyDigest() string {
+	if x != nil {
+		return x.TopologyPolicyDigest
+	}
+	return ""
+}
+
 type SemanticTopologyOutput struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	SemanticRef   *SemanticTopologyRef   `protobuf:"bytes,1,opt,name=semantic_ref,json=semanticRef,proto3" json:"semantic_ref,omitempty"`
@@ -3791,17 +3807,18 @@ func (x *SemanticTopologyOutput) GetEvidence() *SelectionEvidence {
 }
 
 type FeatureResult struct {
-	state            protoimpl.MessageState    `protogen:"open.v1"`
-	FeatureId        string                    `protobuf:"bytes,1,opt,name=feature_id,json=featureId,proto3" json:"feature_id,omitempty"`
-	ResultGeometryId string                    `protobuf:"bytes,2,opt,name=result_geometry_id,json=resultGeometryId,proto3" json:"result_geometry_id,omitempty"`
-	SemanticOutputs  []*SemanticTopologyOutput `protobuf:"bytes,3,rep,name=semantic_outputs,json=semanticOutputs,proto3" json:"semantic_outputs,omitempty"`
-	TopologyHistory  *TopologyHistory          `protobuf:"bytes,4,opt,name=topology_history,json=topologyHistory,proto3" json:"topology_history,omitempty"`
-	Diagnostics      []string                  `protobuf:"bytes,5,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
-	BodyId           string                    `protobuf:"bytes,6,opt,name=body_id,json=bodyId,proto3" json:"body_id,omitempty"`
-	InputFeatureId   string                    `protobuf:"bytes,7,opt,name=input_feature_id,json=inputFeatureId,proto3" json:"input_feature_id,omitempty"`
-	ProfileFeatureId string                    `protobuf:"bytes,8,opt,name=profile_feature_id,json=profileFeatureId,proto3" json:"profile_feature_id,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	state                   protoimpl.MessageState    `protogen:"open.v1"`
+	FeatureId               string                    `protobuf:"bytes,1,opt,name=feature_id,json=featureId,proto3" json:"feature_id,omitempty"`
+	ResultGeometryId        string                    `protobuf:"bytes,2,opt,name=result_geometry_id,json=resultGeometryId,proto3" json:"result_geometry_id,omitempty"`
+	SemanticOutputs         []*SemanticTopologyOutput `protobuf:"bytes,3,rep,name=semantic_outputs,json=semanticOutputs,proto3" json:"semantic_outputs,omitempty"`
+	TopologyHistory         *TopologyHistory          `protobuf:"bytes,4,opt,name=topology_history,json=topologyHistory,proto3" json:"topology_history,omitempty"`
+	Diagnostics             []string                  `protobuf:"bytes,5,rep,name=diagnostics,proto3" json:"diagnostics,omitempty"`
+	BodyId                  string                    `protobuf:"bytes,6,opt,name=body_id,json=bodyId,proto3" json:"body_id,omitempty"`
+	InputFeatureId          string                    `protobuf:"bytes,7,opt,name=input_feature_id,json=inputFeatureId,proto3" json:"input_feature_id,omitempty"`
+	ProfileFeatureId        string                    `protobuf:"bytes,8,opt,name=profile_feature_id,json=profileFeatureId,proto3" json:"profile_feature_id,omitempty"`
+	TopologyHistoryComplete bool                      `protobuf:"varint,9,opt,name=topology_history_complete,json=topologyHistoryComplete,proto3" json:"topology_history_complete,omitempty"`
+	unknownFields           protoimpl.UnknownFields
+	sizeCache               protoimpl.SizeCache
 }
 
 func (x *FeatureResult) Reset() {
@@ -3890,12 +3907,20 @@ func (x *FeatureResult) GetProfileFeatureId() string {
 	return ""
 }
 
+func (x *FeatureResult) GetTopologyHistoryComplete() bool {
+	if x != nil {
+		return x.TopologyHistoryComplete
+	}
+	return false
+}
+
 type PartTopologyManifest struct {
 	state            protoimpl.MessageState `protogen:"open.v1"`
 	SchemaVersion    uint32                 `protobuf:"varint,1,opt,name=schema_version,json=schemaVersion,proto3" json:"schema_version,omitempty"`
 	PolicyId         string                 `protobuf:"bytes,2,opt,name=policy_id,json=policyId,proto3" json:"policy_id,omitempty"`
 	EvaluatorVersion string                 `protobuf:"bytes,3,opt,name=evaluator_version,json=evaluatorVersion,proto3" json:"evaluator_version,omitempty"`
 	FeatureResults   []*FeatureResult       `protobuf:"bytes,4,rep,name=feature_results,json=featureResults,proto3" json:"feature_results,omitempty"`
+	PolicyDigest     string                 `protobuf:"bytes,5,opt,name=policy_digest,json=policyDigest,proto3" json:"policy_digest,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -3956,6 +3981,13 @@ func (x *PartTopologyManifest) GetFeatureResults() []*FeatureResult {
 		return x.FeatureResults
 	}
 	return nil
+}
+
+func (x *PartTopologyManifest) GetPolicyDigest() string {
+	if x != nil {
+		return x.PolicyDigest
+	}
+	return ""
 }
 
 type ArtifactReference struct {
@@ -7781,19 +7813,20 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\adeleted\x18\x06 \x03(\v2$.occccad.worker.v1.TopologyTombstoneR\adeleted\x12A\n" +
 	"\tambiguous\x18\a \x03(\v2#.occccad.worker.v1.AmbiguousLineageR\tambiguous\x12'\n" +
 	"\x0fevidence_digest\x18\b \x01(\tR\x0eevidenceDigest\x12#\n" +
-	"\rpolicy_digest\x18\t \x01(\tR\fpolicyDigest\"\xfb\x01\n" +
+	"\rpolicy_digest\x18\t \x01(\tR\fpolicyDigest\"\xa0\x02\n" +
 	"\x14TopologyNamingPolicy\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x1b\n" +
 	"\tpolicy_id\x18\x02 \x01(\tR\bpolicyId\x12+\n" +
 	"\x11evaluator_version\x18\x03 \x01(\tR\x10evaluatorVersion\x126\n" +
 	"\x17linear_tolerance_meters\x18\x04 \x01(\x01R\x15linearToleranceMeters\x12:\n" +
-	"\x19angular_tolerance_radians\x18\x05 \x01(\x01R\x17angularToleranceRadians\"\xab\x01\n" +
+	"\x19angular_tolerance_radians\x18\x05 \x01(\x01R\x17angularToleranceRadians\x12#\n" +
+	"\rpolicy_digest\x18\x06 \x01(\tR\fpolicyDigest\"\xab\x01\n" +
 	"\x19FeatureEvaluationIdentity\x12\x1d\n" +
 	"\n" +
 	"feature_id\x18\x01 \x01(\tR\tfeatureId\x12\x17\n" +
 	"\abody_id\x18\x02 \x01(\tR\x06bodyId\x12(\n" +
 	"\x10input_feature_id\x18\x03 \x01(\tR\x0einputFeatureId\x12,\n" +
-	"\x12profile_feature_id\x18\x04 \x01(\tR\x10profileFeatureId\"\xde\x03\n" +
+	"\x12profile_feature_id\x18\x04 \x01(\tR\x10profileFeatureId\"\x94\x04\n" +
 	"\x16PartEvaluationManifest\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12,\n" +
 	"\x12topology_policy_id\x18\x02 \x01(\tR\x10topologyPolicyId\x12<\n" +
@@ -7801,12 +7834,13 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x18topology_manifest_digest\x18\x04 \x01(\tR\x16topologyManifestDigest\x12b\n" +
 	"\x1atopology_manifest_artifact\x18\x05 \x01(\v2$.occccad.worker.v1.ArtifactReferenceR\x18topologyManifestArtifact\x12H\n" +
 	"\bfeatures\x18\x06 \x03(\v2,.occccad.worker.v1.FeatureEvaluationIdentityR\bfeatures\x12I\n" +
-	"\x0ffeature_results\x18\a \x03(\v2 .occccad.worker.v1.FeatureResultR\x0efeatureResults\"\x90\x02\n" +
+	"\x0ffeature_results\x18\a \x03(\v2 .occccad.worker.v1.FeatureResultR\x0efeatureResults\x124\n" +
+	"\x16topology_policy_digest\x18\b \x01(\tR\x14topologyPolicyDigest\"\x90\x02\n" +
 	"\x16SemanticTopologyOutput\x12I\n" +
 	"\fsemantic_ref\x18\x01 \x01(\v2&.occccad.worker.v1.SemanticTopologyRefR\vsemanticRef\x12N\n" +
 	"\rtopology_type\x18\x02 \x01(\x0e2).occccad.worker.v1.PersistentTopologyTypeR\ftopologyType\x12\x19\n" +
 	"\blocal_id\x18\x03 \x01(\x04R\alocalId\x12@\n" +
-	"\bevidence\x18\x04 \x01(\v2$.occccad.worker.v1.SelectionEvidenceR\bevidence\"\x94\x03\n" +
+	"\bevidence\x18\x04 \x01(\v2$.occccad.worker.v1.SelectionEvidenceR\bevidence\"\xd0\x03\n" +
 	"\rFeatureResult\x12\x1d\n" +
 	"\n" +
 	"feature_id\x18\x01 \x01(\tR\tfeatureId\x12,\n" +
@@ -7816,12 +7850,14 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\vdiagnostics\x18\x05 \x03(\tR\vdiagnostics\x12\x17\n" +
 	"\abody_id\x18\x06 \x01(\tR\x06bodyId\x12(\n" +
 	"\x10input_feature_id\x18\a \x01(\tR\x0einputFeatureId\x12,\n" +
-	"\x12profile_feature_id\x18\b \x01(\tR\x10profileFeatureId\"\xd2\x01\n" +
+	"\x12profile_feature_id\x18\b \x01(\tR\x10profileFeatureId\x12:\n" +
+	"\x19topology_history_complete\x18\t \x01(\bR\x17topologyHistoryComplete\"\xf7\x01\n" +
 	"\x14PartTopologyManifest\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12\x1b\n" +
 	"\tpolicy_id\x18\x02 \x01(\tR\bpolicyId\x12+\n" +
 	"\x11evaluator_version\x18\x03 \x01(\tR\x10evaluatorVersion\x12I\n" +
-	"\x0ffeature_results\x18\x04 \x03(\v2 .occccad.worker.v1.FeatureResultR\x0efeatureResults\"\xa6\x01\n" +
+	"\x0ffeature_results\x18\x04 \x03(\v2 .occccad.worker.v1.FeatureResultR\x0efeatureResults\x12#\n" +
+	"\rpolicy_digest\x18\x05 \x01(\tR\fpolicyDigest\"\xa6\x01\n" +
 	"\x11ArtifactReference\x12\x18\n" +
 	"\abackend\x18\x01 \x01(\tR\abackend\x12\x1d\n" +
 	"\n" +

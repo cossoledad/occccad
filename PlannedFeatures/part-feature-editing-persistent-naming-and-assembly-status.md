@@ -397,7 +397,7 @@ stateDiagram-v2
 
 ### 批次 P1：Linear Extrude 基础编辑闭环
 
-实施状态：已于 2026-09-12 完成。`occccad://part/feature/edit` 以完整 Linear Extrude 候选定义和 Feature definition digest 进入 typed handler；长度只写既有 Parameter source，并通过 `pad.length` facade 参与最终 ChangeSet、依赖传播与补偿式 Undo/Redo。结构树 Edit capability、右键/双击共用编辑器、权威 preview、Enter/OK、Esc/Cancel、loading/error 已贯通。此状态不包含 topology history 或跨 Revision PersistentSelection，它们仍按 P2–P4 实施。
+实施状态：已于 2026-09-13 补齐实现。`occccad://part/feature/edit` 以完整 Linear Extrude 候选定义和 Feature definition digest 进入 typed handler；长度只写既有 Parameter source，并通过 `pad.length` facade 参与最终 ChangeSet、依赖传播与补偿式 Undo/Redo。结构树 Edit capability、右键/双击共用编辑器、权威 preview、Enter/OK、Esc/Cancel、loading/error 已贯通。编辑输入支持 `mm/cm/m/in`，preview 与 commit 保留用户单位；每次打开编辑器建立稳定 `interactionId`，预览使用单调 `previewSequence`。Mock API 也保留 digest、单位和 preview candidate。自动化回归覆盖单位解析、stale/expression 保护和连续两步 Undo/Redo；当前执行环境没有浏览器运行时，浏览器手工验收仍需在可用环境执行。此状态不包含跨 Revision PersistentSelection，它仍按 P3–P4 实施。
 
 目标：用户能可靠地把已有拉伸 20 mm 改为 40 mm。
 
@@ -409,11 +409,11 @@ stateDiagram-v2
 - 结构树 Feature 增加 `EDIT` capability；右键 Edit、双击共用 Feature editor；
 - preview/commit、Enter/Esc、错误和 loading 状态接入现有 workbench 边界。
 
-验收：20 → 40 mm、preview 不写 Revision、一次 OK 一个 Revision、刷新保持 40 mm、连续 Undo/Redo、stale edit、表达式驱动字段保护、`invoke web.build` 和浏览器手工验收通过。
+验收：自动化已覆盖 20 → 40 mm、多单位、连续 Undo/Redo、stale edit、表达式驱动字段保护和生产构建。preview 不写 Revision、一次 OK 一个 Revision及刷新保持参数由既有 PreviewCommand、verified candidate、Domain Command 边界实现；浏览器手工验收在具备浏览器运行时的环境执行。
 
 ### 批次 P2：Extrude 与 Boolean 的 TopologyHistory
 
-实施状态：已于 2026-09-12 完成。OCCT adapter 在一次 Part 求值中保留 Prism、Boolean 和 `ShapeUpgrade_UnifySameDomain` history，逐 Feature 生成 cap/side semantic outputs、Generated/Modified/Unchanged/Split/Merged lineage、tombstone、signature 与 adjacency evidence，并以最终 Shape gate 校验 local ID 和 live/tombstone 互斥。Worker 同时返回 `FeatureResult` 摘要并写入带 digest 的不可变 protobuf topology manifest；控制面将该制品纳入 ArtifactStore/geometry artifact 元数据。此状态尚不提供 PersistentSelection bind/resolver，仍按 P3 实施。
+实施状态：已于 2026-09-13 补齐实现。OCCT adapter 在一次 Part 求值中保留 Prism、Boolean 和 `ShapeUpgrade_UnifySameDomain` history，逐 Feature 生成 cap/side semantic outputs、Generated/Modified/Unchanged/Split/Merged lineage、tombstone、signature 与 adjacency evidence。对于声明完整的 Linear Extrude/Boolean history，最终 Shape gate 现在验证每个 Face 恰好对应一个唯一 local ID、semantic output 和 lineage result，并校验 live/tombstone 互斥；merge identity 来自排序后的全部 source refs，split 顺序由确定性证据排序。history digest 覆盖 source/result、kind、ambiguity、deleted、evidence、adjacency 和 policy。Part 缓存键包含 Feature/Body/input/profile identity 与 policy digest；Worker/控制面同时校验 policy digest 和 topology artifact 的 inline/reference/adopted 摘要。真实 OCCT fixture 已覆盖 XZ 矩形通孔的 6 个原面引用加 4 个孔壁引用，以及侧开口产生的两个 split 候选。Revolve 和未命名导入 B-Rep 明确返回 `topology_history_complete=false` 与诊断，不能误作 P2 完整 history。此状态尚不提供 PersistentSelection bind/resolver，仍按 P3 实施。
 
 目标：Worker 对每个实体 Feature 输出完整可验证 lineage。
 
