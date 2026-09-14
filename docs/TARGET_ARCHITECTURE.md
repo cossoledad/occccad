@@ -5139,7 +5139,7 @@ flowchart LR
 - **Compatibility**：旧 Revision/Proto/Feature schema 在新 Worker 上重放；
 - **Security**：恶意 STEP、压缩炸弹、越权 signed URL、租户逃逸。
 
-验证入口应形成可升级的证据层级：具体 test match → 所属模块 → 受影响集成 → 全仓。match 只能缩小一个已知域的反馈环，不能代替公共行为的模块/集成验证。局部实现默认不承担无关语言和领域的完整成本；公共 Proto、数据库 schema、Revision/history、共享构建系统和跨语言边界必须保守升级。Agent-facing 命令成功时只保留步骤与耗时摘要，失败时必须展开原始诊断和可复制的底层命令；这只约束开发命令呈现，不降低生产/开发运行时 observability。changed-file routing 是便利层而不是正确性证明，无法确定所有权时必须升级而非猜测。
+验证入口应形成可升级的证据层级：具体 test match → 所属模块 → 受影响集成 → 全仓。match 只能缩小一个已知域的反馈环，不能代替公共行为的模块/集成验证；dry-run plan 应能解释 scope 与底层命令。局部实现默认不承担无关语言和领域的完整成本；公共 Proto、数据库 schema、Revision/history、共享构建系统和跨语言边界必须保守升级。Agent-facing 命令成功时只保留步骤与耗时摘要；失败时终端可有界提取高信号，但完整原始诊断必须保存并返回可复制的底层命令。这只约束开发命令呈现，不降低生产/开发运行时 observability。changed-file routing 是便利层而不是正确性证明，无法确定所有权时必须升级而非猜测。
 
 ## 18. 明确不做的事
 

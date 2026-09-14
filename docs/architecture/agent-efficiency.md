@@ -74,7 +74,11 @@ Proto source 是协议权威；生成代码是 output。正常路径是 proto �
 - 超过约 80 KB：职责拆分候选；
 - 超过约 120 KB：强候选。
 
-只有职责稳定、Agent 高频进入、局部任务长期加载无关区域时才物理拆分。拆职责而不是平均切行，且必须保持行为测试。当前已完成的首个 P2 拆分把 Workbench 的只读 Properties/History inspector 从主 orchestrator 移到 `workbench-inspector.tsx`；主文件由 98.3 KB 降至 87.6 KB，命令/交互任务不再加载 11.1 KB 的诊断与历史 JSX。
+只有职责稳定、Agent 高频进入、局部任务长期加载无关区域时才物理拆分。拆职责而不是平均切行，且必须保持行为测试。当前 P2 已完成：
+
+- Workbench 的 Properties/History 与 tree projection/selection mapping 分别进入 `workbench-inspector.tsx`、`workbench-tree-model.tsx`；主 orchestrator 由 98.3 KB 降至约 76 KB；
+- Workspace 的公共 model/view types、legacy command adaptation、parameter/dependency evaluation、evaluation persistence 分别进入 `model.go`、`legacy_commands.go`、`evaluation_projection.go`、`evaluation_persistence.go`；`service.go` 从约 138 KB 降至 111 KB，`model_core.go` 从 122 KB 降至 83 KB；
+- `solver.cpp` 只完成算法/依赖分析，分阶段私有拆分计划记录在 `kernel/assembly/SOLVER_ALGORITHMS.md` §13，未修改数值实现。
 
 ## 5. 验证 API
 
@@ -92,6 +96,8 @@ invoke check --scope web
 invoke check --scope all
 invoke check --scope assembly --match DirectedAngle
 invoke check --scope web --match realtime
+invoke check --changed --plan
+invoke context-audit
 ```
 
 `--match` 是 Level 1 精确验证，只允许一个非 `all` 的显式 scope：C++ 使用域前缀 + CTest regex，Go 使用 `-run`，Web 使用场景路径/文件名 substring。零匹配必须失败，不能形成假阳性。它会跳过该域的跨层集成和 production build；公共接口或行为完成后仍应升级到无 `--match` 的 module scope。
@@ -120,15 +126,19 @@ changed-file mapping 的核心规则：
 
 多域改动合并 scope；`all` 覆盖其他选择。路由只读取 Git 路径，不读取文件内容，并由 `tests/python/test_validation_routing.py` 固定。无法确定所有权时保守升级。
 
+`--plan` 不执行任何构建或测试，只打印 selected scope、changed path 数、升级原因、cwd 与底层命令。修改 mapping、公共契约或准备运行昂贵验证时先审阅 plan。
+
 ## 6. 输出契约
 
 默认执行器捕获每个子进程 stdout/stderr：
 
 - success：每步一行 `PASS + elapsed`，最后一行总计；
-- failure：完整输出、失败步骤、耗时和可复制 reproduction command；
+- failure：终端保留有界首尾和 error/fail/expected/actual 等高信号行，完整 stdout/stderr、cwd 与命令写入 `build/agent-logs/`；
 - `--verbose`：需要观察进度、warning 或卡顿时恢复流式输出。
 
 Web scenario runner 支持多个 OR substring、`--list` 和 `--verbose`。每个场景仍在独立 Node 进程运行；成功只打印总数，失败 replay 该场景输出，无匹配返回非零。
+
+`invoke context-audit` 是无索引服务的静态治理门：检查根/local guide 尺寸、必需 knowledge entry、Markdown 本地断链、已淘汰 prompt 残留、`tasks.py` 自身阈值，并统计 Git 已跟踪及未忽略文件中的 >40 KB 文本。成功只给 large/strong candidate 计数，`--verbose` 才列完整热点；热点本身不是失败，错误知识入口才失败。
 
 ## 7. 可复现指标
 
@@ -143,6 +153,7 @@ Web scenario runner 支持多个 OR substring、`--list` 和 `--verbose`。每�
 | full success output | 每个步骤一行；当前 `check all` 为约 9 行 |
 | Web success output | 一行场景计数 |
 | generated/corpus reads | 需要显式任务理由 |
+| routing governance | `context-audit` 通过；新入口无断链且 root/local guide 不越界 |
 
 典型静态演练：
 
@@ -158,14 +169,15 @@ Web scenario runner 支持多个 OR substring、`--list` 和 `--verbose`。每�
 
 ## 8. 后续计划
 
-当前路线状态：P0（根路由、排除、大文件协议）和 P1（local guides、docs router、scope/changed/quiet、Web filtering）已经落地；P2 已完成首个 Workbench inspector 职责拆分。P2 不设“一次拆完整仓”的完成门，后续以真实任务的无关读取证据逐项推进。
+当前路线状态：P0（根路由、排除、大文件协议）、P1（local guides、docs router、scope/match/changed/plan/quiet、Web filtering）和本轮 P2（Workbench/Workspace 职责拆分、focused projections、solver 拆分分析）已经落地。P2 不设“一次拆完整仓”的完成门，后续以真实任务的无关读取证据逐项推进。
 
 按实测频率推进，不以文件数或行数为 KPI：
 
 1. 为 `--changed` 增加新领域路径时同步路由单测；有跨层事故证据再细化 affected integration，不建立自定义 DSL。
-2. 观察 `workbench.tsx` 拆分后的修改模式；若 tree projection 或 command dialogs 仍经常造成无关读取，再按稳定组件边界拆分。
-3. `solver.cpp`、Workspace `service.go`/`model_core.go` 和 viewport engine 仍是高价值候选；先用变更历史/任务证据确认自然边界，再分别拆 residual/Jacobian/diagnostic、model/handler/evaluation、scene/input/rendering 职责。
-4. 逐领域建立 focused architecture projection 仅在 router 仍需频繁进入长文档时进行；projection 必须短、带 canonical section link、避免复制会漂移的当前事实。
-5. 长任务默认继续使用 Issue/会话；只有跨 session 丢失状态成为反复问题时才引入可替换的 `.agent/current-task.md`，任务完成即删除。
+2. 观察 `workbench.tsx` 拆分后的修改模式；只有 command dialogs 仍频繁造成无关读取时才继续拆分。
+3. Workspace 剩余 `service.go`/`model_core.go` 与 viewport engine 仍是候选；继续按 service orchestration/typed handlers 和 scene/input/rendering 的真实修改证据拆分。
+4. `solver.cpp` 严格按 Solver Algorithms §13 的 S0–S6 门推进，首个实施阶段只移动 equation semantics，不同时调算法。
+5. 新增 focused projection 仅在 router 仍需频繁进入长文档时进行；projection 必须短、带 canonical section link、避免复制易漂移事实。当前只维护 model-history、persistent-naming、worker-contracts 与本页。
+6. 长任务默认继续使用 Issue/会话；只有跨 session 丢失状态成为反复问题时才引入可替换的 `.agent/current-task.md`，任务完成即删除。
 
 维护完成条件：入口可发现、scope 可选择、成功安静、失败详细、共享风险会升级、知识仍完整可寻址，并且没有为 TEAA 引入第二套构建系统、索引服务或隐式状态机。

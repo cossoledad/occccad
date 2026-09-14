@@ -398,13 +398,15 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 
 测试资产现在由被测模块拥有，而不是按语言堆在仓库根目录：C++ 场景位于对应 library 的 `tests/` 并由局部 CMake 注册；Web 场景位于 `src/**/testing/*.scenario.mjs`，统一 runner 自动发现后为每个场景启动独立进程；Go 遵循工具链，将 package 白盒测试保留为邻近 `_test.go`，只有跨 package、跨进程的公共契约测试进入 `tests/go`。`models/` 只保存可被多个实现复用的 STEP/BREP 回归语料，根 `tests/` 不再作为语言分类目录。`invoke test` 保持构建并运行 CTest、`services/` Go package tests、独立 `tests/go` module 和 Web 场景的全量入口。
 
-`invoke check` 是面向局部开发与 Agent 的稳定验证 API，显式支持 `assembly / geometry / sketch / workspace / services / web / all` scope；省略 scope 时合并 tracked 与 untracked Git 工作区路径并作保守映射。公共 Proto、数据库迁移、通用 Geometry Worker/`kernel/api`、共享 build/validation 入口和未知路径升级为 `all`，纯 Markdown 不触发可执行测试。单个非 all scope 可用 `--match` 进入 Level 1：C++ 组合领域 CTest 前缀，Go 使用 `-run`，Web 使用场景 substring，并跳过跨层集成/production build。每个底层命令默认捕获 stdout/stderr，成功只报告步骤、耗时和总计，失败展开原始输出及独立复现命令；`--verbose` 恢复流式执行。全量 `invoke test` 与 `check --scope all` 都运行 changed-file routing 的 Python 单测。该层只改变开发命令输出，不削弱运行时 observability 或失败诊断。
+`invoke check` 是面向局部开发与 Agent 的稳定验证 API，显式支持 `assembly / geometry / sketch / workspace / services / web / all` scope；省略 scope 时合并 tracked 与 untracked Git 工作区路径并作保守映射。公共 Proto、数据库迁移、通用 Geometry Worker/`kernel/api`、共享 build/validation 入口和未知路径升级为 `all`，纯 Markdown 不触发可执行测试。单个非 all scope 可用 `--match` 进入 Level 1：C++ 组合领域 CTest 前缀，Go 使用 `-run`，Web 使用场景 substring，并跳过跨层集成/production build。`--plan` 只展示 scope、升级理由、cwd 和底层命令。每个底层命令默认捕获 stdout/stderr，成功只报告步骤、耗时和总计；失败在终端展示有界高信号内容，把完整 stdout/stderr 与命令写入 `build/agent-logs/`，并给出复现命令；`--verbose` 恢复流式执行。全量 `invoke test` 与 `check --scope all` 都运行 routing/output/context-audit Python 单测。该层只改变开发命令输出，不削弱运行时 observability 或失败诊断。
+
+`invoke context-audit` 当前检查根/local guide 尺寸、必需 focused knowledge、Markdown 本地断链、旧 token prompt 残留、`tasks.py` 自身阈值，并统计 Git 已跟踪及未忽略的大文本；正常成功只报告 large/strong candidate 数，`--verbose` 才列出文件。
 
 Web scenario runner 支持一个或多个路径/文件名片段的 OR 筛选、`--list` 和 `--verbose`。默认每个子进程输出被缓冲，全部成功时只输出场景计数，失败时仅展开失败场景的 stdout/stderr。Web 当前使用 Vite SSR 加载真实 Tool/状态模块，覆盖完整 pointer 手势、操作批次、约束选择、尺寸输入和实时生命周期；浏览器布局、WebGL 拾取及真实后端组合 E2E 仍待补充。
 
 Agent 上下文按根 repository router、五个高频 local `AGENTS.md` 和 `docs/README.md` 架构知识路由渐进加载。生成代码、corpus、锁文件、制品与超过阈值的大型源文件仍可按需访问，但不再是默认探索对象；两份完整架构文档继续作为事实全景与长期语义的 canonical human reference。
 
-首个基于稳定职责证据的 P2 source decomposition 已把 CAD Workbench 的只读 Properties/History inspector 从主 orchestrator 抽到邻近 `workbench-inspector.tsx`。主文件从 98.3 KB 降到 87.6 KB；命令、交互和查询生命周期未改变，属性/历史任务可以独立读取与验证。
+P2 source decomposition 已按稳定职责完成两组等价拆分。CAD Workbench 的只读 Properties/History 和 structure-tree projection/selection mapping 分别进入 `workbench-inspector.tsx` 与 `workbench-tree-model.tsx`，主 orchestrator 从 98.3 KB 降到约 76 KB；命令、交互和查询生命周期未改变。Go Workspace 将公共 model/view types、legacy command adaptation、parameter/dependency evaluation 和 evaluation/initial-transaction persistence 分别移入 `model.go`、`legacy_commands.go`、`evaluation_projection.go`、`evaluation_persistence.go`；`service.go` 从约 138 KB 降到 111 KB，`model_core.go` 从 122 KB 降到 83 KB，包内 API 与领域语义未改变。
 
 ## 10. 已实现与未实现矩阵
 

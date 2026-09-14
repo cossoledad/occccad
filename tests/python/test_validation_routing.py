@@ -1,4 +1,7 @@
+import contextlib
+import io
 import unittest
+from unittest import mock
 
 import tasks
 
@@ -45,6 +48,14 @@ class ValidationRoutingTest(unittest.TestCase):
         self.assertEqual([name for name, _, _ in web], ["Web scenarios"])
         self.assertIn("realtime", web[0][1])
 
+    def test_plan_explains_documentation_only_selection_without_running(self):
+        output = io.StringIO()
+        with mock.patch.object(tasks, "_changed_files", return_value=["docs/README.md"]):
+            with contextlib.redirect_stdout(output):
+                tasks.check.body(None, plan=True)
+        self.assertIn("PLAN scopes: docs-only", output.getvalue())
+        self.assertIn("No executable validation selected", output.getvalue())
+
     def test_go_json_output_counts_runs_and_restores_diagnostics(self):
         output = "\n".join((
             '{"Action":"run","Package":"example","Test":"TestUndo"}',
@@ -52,6 +63,18 @@ class ValidationRoutingTest(unittest.TestCase):
             '{"Action":"fail","Package":"example","Test":"TestUndo"}',
         ))
         self.assertEqual(tasks._go_test_events(output), (1, "failure detail"))
+
+    def test_failure_output_is_bounded_but_keeps_signal(self):
+        output = "\n".join(["header", *[f"noise {index}" for index in range(300)], "fatal: useful", "tail"])
+        compact = tasks._compact_failure_output(output, 80)
+        self.assertIn("fatal: useful", compact)
+        self.assertIn("lines omitted", compact)
+        self.assertLessEqual(len(compact.splitlines()), 82)
+
+    def test_current_context_architecture_passes_audit(self):
+        errors, hotspots = tasks._context_audit()
+        self.assertEqual(errors, [])
+        self.assertTrue(any(path == "kernel/assembly/src/solver.cpp" for _, path in hotspots))
 
 
 if __name__ == "__main__":

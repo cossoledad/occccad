@@ -15,7 +15,7 @@
 
 ## Context route
 
-先从 `src/**/testing/*.scenario.mjs`、具体 tool/store/adapter 的符号搜索进入。只读属性/历史面板从 `features/workbench/workbench-inspector.tsx` 进入，不加载主 orchestrator。以下大文件禁止默认整读：`viewport/cad-viewport-engine.ts`、`features/workbench/workbench.tsx`、`cad/tool/cad-tool.ts`、`api/mock-api.ts`、`styles.css`。按 selection、tool gesture、rendering、state/query 或 API 生命周期分别展开。
+先从 `src/**/testing/*.scenario.mjs`、具体 tool/store/adapter 的符号搜索进入。属性/历史面板从 `workbench-inspector.tsx` 进入，结构树 projection/selection mapping 从 `workbench-tree-model.tsx` 进入，不加载主 orchestrator。以下大文件禁止默认整读：`viewport/cad-viewport-engine.ts`、`features/workbench/workbench.tsx`、`cad/tool/cad-tool.ts`、`api/mock-api.ts`、`styles.css`。按 selection、tool gesture、rendering、state/query 或 API 生命周期分别展开。
 
 `README.md` 是当前能力和运行入口。公共领域/历史语义转到 `services/AGENTS.md`；复杂架构问题按 `../../../docs/README.md` 定位。锁文件仅用于依赖版本/解析问题。
 

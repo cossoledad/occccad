@@ -45,7 +45,7 @@ flowchart TD
 
 页面与功能层不得直接操作 Three.js Scene、Renderer 或 Controls；渲染资源通过 CAD Viewport Engine 管理。输入统一经过 CadInput/CadInteraction，避免每个工具自行注册全局事件。
 
-Workbench 主文件只编排文档、命令、查询、工具和面板生命周期；只读 Properties/History 渲染位于 `features/workbench/workbench-inspector.tsx`，属性或历史展示改动不需要加载主 orchestrator。
+Workbench 主文件只编排文档、命令、查询、工具和面板生命周期；只读 Properties/History 位于 `features/workbench/workbench-inspector.tsx`，结构树 projection/selection mapping 位于 `features/workbench/workbench-tree-model.tsx`。属性、历史或树映射改动不需要加载主 orchestrator。
 
 ## 依赖基线
 

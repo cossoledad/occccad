@@ -29,6 +29,15 @@
 | 测试、Definition of Ready/Done、架构变更 | Current 9 | Target 17、19 |
 | Agent 上下文、scoped validation、quiet output、Token 效率计划 | Current 9 | [`architecture/agent-efficiency.md`](architecture/agent-efficiency.md) |
 
+## 高频 focused reference
+
+- [Model、Command 与 History](architecture/model-history.md)：Revision、ChangeSet、Undo/Redo、依赖和最终 CAS；
+- [Persistent Naming](architecture/persistent-naming.md)：TopologyHistory、PersistentSelection、Reconnect 与歧义；
+- [Worker Contracts](architecture/worker-contracts.md)：Proto、Worker/Router、Artifact、Job 与迟到结果门禁；
+- [Agent Efficiency](architecture/agent-efficiency.md)：上下文、验证、输出、指标与后续结构优化。
+
+这些页面是面向任务的短投影。领域语义仍以表格所指向的 Target 章节为准，当前交付状态仍以 Current Architecture 和代码/测试为准。
+
 章节用标题和 `rg -n '^#{2,4} .*关键词'` 定位，不依赖易漂移行号。只有任务改变稳定身份、历史、单位、拓扑引用、公共协议、数据库或 Worker/服务一致性边界时，才继续扩展到交叉章节。
 
 ## 知识职责

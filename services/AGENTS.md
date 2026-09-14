@@ -14,7 +14,7 @@
 
 ## Context route
 
-先从所属 `internal/<package>` 的入口与 `_test.go` 搜符号。以下大文件只读命中范围：`internal/workspace/service.go`、`model_core.go`、`service_test.go`、`internal/api/server.go`、`internal/geometry/client.go`。按 Domain Command/handler、evaluation、history、projection/API adapter 的实际调用链扩展，不从文件开头顺读。
+先从所属 `internal/<package>` 的入口与 `_test.go` 搜符号。Workspace 按职责进入：公共模型/view types 看 `model.go`，typed handlers 看 `model_core.go`，旧 UI/REST 适配看 `legacy_commands.go`，参数/依赖求值看 `evaluation_projection.go`，事务/求值投影持久化看 `evaluation_persistence.go`。以下大文件只读命中范围：`internal/workspace/service.go`、`model_core.go`、`service_test.go`、`internal/api/server.go`、`internal/geometry/client.go`。按实际调用链扩展，不从文件开头顺读。
 
 公共协议先读 `../proto/`，不先读 `gen/`；生成代码仅在 codegen/API discrepancy 时打开。进程运行和配置看 `cmd/*/README.md`。跨稳定身份、Revision/history、数据库模型或公共协议时，由 `../docs/README.md` 路由到架构章节。
 

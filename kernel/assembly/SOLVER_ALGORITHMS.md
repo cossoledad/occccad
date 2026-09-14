@@ -334,3 +334,49 @@ reference 不动，归一化残差约 `2.13e-14`。未增加默认迭代预算�
 原始失败数学输入与结果见 [`face4-face6.3dreplay`](../../tests/assembly-corpus/face4-face6.3dreplay)。
 Go Router 集成测试直接读取此文件重放，并独立检查当前结果成功；原文件的旧 `MAX_ITERATIONS` 结果保留作比较证据。
 文件契约和可执行命令见 [`occccad-3dreplay`](../../services/cmd/occccad-3dreplay/README.md)。
+
+## 13. `solver.cpp` 上下文优化计划（尚未实施）
+
+`src/solver.cpp` 当前约 153 KB/2836 行，但它不是一个可以按行数平均切割的文件。源码依赖方向从前到后基本稳定：
+
+```text
+SE(3) / world geometry / differential values
+  -> equation registry + residual + analytic Jacobian rows
+  -> CompiledAssembly graph, rigid clusters and frozen branches
+  -> ComponentProblem state/residual/Jacobian/objectives
+  -> feasibility restoration + hierarchical motion optimization
+  -> null-space/rank/freedom/conflict diagnostics
+  -> Solver::solve result aggregation and bounded probes
+```
+
+审计确认的关键耦合不能被文件拆分破坏：
+
+- `constraint_residual`、`differential_residual`、`equation_definition`、tolerance 与 satisfaction ratio 必须继续来自同一 typed equation semantics；
+- `CompiledAssembly` 独占 input validation、Rigid cluster、Ground 消元、branch freeze 和 component selection，branch 不能在 residual evaluation 中重新选择；
+- `ComponentProblem` 独占稳定的 free-cluster tangent ordering、尺度、body tangent 和 analytic/finite-difference oracle 对照；
+- feasibility、reference preference、total nominal preference 使用同一 `State` 与 tangent scale，几何收敛不能被偏好收敛替代；
+- rank/DOF/freedom 必须在线性化 pose、同一 Jacobian normalization 和稳定 cluster identity 下解释；
+- `Solver::solve` 的 bounded conflict probe 会递归调用公开 solver，拆分后仍需保持 probe budget 清零和分类优先级。
+
+计划只建立 `src/detail/` 私有边界，不增加 public header 或改变 `solver.hpp`：
+
+| 阶段 | 拟拆职责 | 目标 |
+|---|---|---|
+| S0 | characterization only | 固定 equation row identity、branch、Jacobian oracle、排列/世界变换、warm/cold、分类与层级偏好 corpus |
+| S1 | `constraint_equations` | world/differential geometry、typed equation definition、residual/Jacobian row、tolerance；保持一个共享语义入口 |
+| S2 | `compiled_assembly` | validation/index、Rigid/ground、frozen branch、connected component；只暴露不可变查询 |
+| S3 | `component_problem` | State increment、residual block、analytic/finite-difference Jacobian、objective、tangent/body mappings |
+| S4 | `nonlinear_solve` | feasibility restore、trust/backtracking、reference/total hierarchy；不更改数值常量或迭代顺序 |
+| S5 | `freedom_diagnostics` | normalized SVD、rank attribution、freedom interpretation、conflict evidence |
+| S6 | thin `solver.cpp` | component orchestration、result aggregation、classification、bounded probes 和异常映射 |
+
+每阶段只移动一种职责，禁止同时调整算法、容差、Eigen decomposition、迭代顺序或数据布局。验收门：
+
+1. `assembly` 与 `assembly-corpus` 全部通过；
+2. analytic Jacobian 对 finite-difference oracle 的误差界不变；
+3. body/constraint permutation、单位/世界 frame、cold/warm-start 语义不变；
+4. M2.5 reference/total objective、preference status、rank/DOF 和稳定 equation identity 不变；
+5. representative benchmark 记录 compile time、binary size 和 runtime，结构拆分不得以明显性能回退换取上下文收益；
+6. Worker/Go/Product contract 不变，因此正常阶段只需 assembly scope；若 private boundary 被迫改变公共类型，停止并升级架构评审与全量验证。
+
+实施触发条件不是文件再次增长，而是至少两个真实任务持续需要跨越上述无关职责。首选从 S1 开始，因为 residual/Jacobian 已有最强 conformance；`CompiledAssembly` 与 `ComponentProblem` 在完成 S1 前不移动，避免一次改写匿名 namespace 中全部内部依赖。

@@ -54,7 +54,7 @@ occccad 是早期可运行的云原生参数化 CAD 垂直切片。参数模型�
 
 在任务范围内完成调用链、根因、测试和受影响文档的闭环；不顺手重写模块、升级全仓依赖或改变部署拓扑。新增外部服务、重大依赖/许可证、公开兼容承诺，或改变稳定身份、历史、单位、拓扑引用、跨文档一致性时先澄清。
 
-默认运行最小能证明正确性的验证：`invoke check --scope <domain> --match <test>` → 无 `--match` 的领域检查 → 受影响集成 → `invoke check --scope all`。`invoke check` 默认按工作区改动保守选域，成功只给摘要，失败展开完整输出和复现命令；`--verbose` 可流式显示。`invoke test` 保持全量人类/CI 入口。
+默认运行最小能证明正确性的验证：`invoke check --scope <domain> --match <test>` → 无 `--match` 的领域检查 → 受影响集成 → `invoke check --scope all`。不确定路由时先用 `--plan`。`invoke check` 默认按工作区改动保守选域，成功只给摘要，失败给高信号诊断、完整日志和复现命令；`--verbose` 可流式显示。`invoke test` 保持全量人类/CI 入口，Agent 知识入口变化后运行 `invoke context-audit`。
 
 公共 Proto、数据库迁移、共享构建系统和无法识别所有权的改动必须升级。复杂 Web 视觉/交互除测试和构建外还需重启浏览器验收；若环境不允许，明确未验证项，不虚报通过。
 

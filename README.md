@@ -104,7 +104,7 @@ occccad/
 └── docs/                    现有架构与目标架构
 ```
 
-`invoke test` 是 C++、Go 和 Front 单元/场景/conformance 的全量入口。日常局部开发优先使用 `invoke check --scope <assembly|geometry|sketch|workspace|services|web>`；可用 `--match` 先运行一个域内的精确回归，不指定 scope 时 `invoke check` 根据 Git 工作区保守选择受影响域。该入口成功时只打印步骤摘要，失败时展开原始诊断与复现命令，`--verbose` 可恢复流式输出。测试所有权和目录规则见 [tests/README.md](tests/README.md)。
+`invoke test` 是 C++、Go 和 Front 单元/场景/conformance 的全量入口。日常局部开发优先使用 `invoke check --scope <assembly|geometry|sketch|workspace|services|web>`；可用 `--match` 先运行一个域内的精确回归，不指定 scope 时 `invoke check` 根据 Git 工作区保守选择受影响域。`--plan` 只解释将运行的步骤。成功时只打印步骤摘要；失败时输出高信号诊断、完整日志路径与复现命令，`--verbose` 可恢复流式输出。`invoke context-audit` 检查 Agent 指南、知识路由和大文本热点。测试所有权和目录规则见 [tests/README.md](tests/README.md)。
 `invoke performance-baseline` 运行当前 CAD 热路径的可重复、多样本 benchmark，并将结果写入 `build/performance/`；性能改动应在同一机器和构建类型下比较前后结果。
 
 ## 文档维护规则

@@ -16,7 +16,7 @@
 
 先在 `include/occccad/assembly/solver.hpp` 搜类型或入口，再在测试与 `src/solver.cpp` 搜具体符号。`src/solver.cpp` 超过 150 KB，不要整文件读取；按 constraint residual、Jacobian、rank/freedom、hierarchy/motion 或 diagnostics 命中范围展开。
 
-当前行为看 `README.md`；数值算法看 `SOLVER_ALGORITHMS.md`；只有改变阶段边界、公共能力或长期 solver 设计时读 `SOLVER_ARCHITECTURE.md` 及目标架构 5.6。不要默认读全部三份。
+当前行为看 `README.md`；数值算法看 `SOLVER_ALGORITHMS.md`，其中第 13 节记录 `solver.cpp` 的职责拆分计划；只有改变阶段边界、公共能力或长期 solver 设计时读 `SOLVER_ARCHITECTURE.md` 及目标架构 5.6。不要默认读全部三份。
 
 ## Tests and validation
 

@@ -11,6 +11,8 @@
 
 `invoke check --scope <domain> --match <pattern>` 提供 Level 1 精确验证：Assembly/Geometry/Sketch 将 pattern 限制在所属 CTest 前缀，Workspace/Services 传给 Go `-run`，Web 作为场景路径 substring。`--match` 只接受一个非 `all` scope，并有意跳过跨层集成与 production build；行为完成后按风险升级到无 `--match` 的 domain scope。
 
+`--plan` 输出 changed paths、scope、升级原因、工作目录和底层命令但不执行。失败输出超过上下文上限时保留首尾与 error/fail/expected 等高信号行，完整 stdout/stderr 写入忽略提交的 `build/agent-logs/`；这不是删除诊断。`invoke context-audit` 验证指南尺寸、docs 断链、focused TEAA、旧提示词残留、validation tooling 大小，并只在 `--verbose` 时列出全部已跟踪及未忽略的大文本。
+
 Front runner 支持路径/文件名片段筛选，例如在 `web/apps/cad` 运行 `pnpm test -- sketch`；`--list` 只列命中场景，`--verbose` 显示成功场景的原始输出。筛选为 OR 语义，无匹配会失败而不是假装通过。
 
 测试以行为所有权分层，而不是以语言集中：pure model tests 不启动网络或数据库；interaction scenario 用新的 driver/fixture 表达完整手势；adapter conformance 复用 corpus 比较不变量；只有 transport/process boundary 才进入根目录。禁止跨场景共享可变数组、按前一测试产生的下标断言，或把多个工具串成一个依赖执行顺序的脚本。

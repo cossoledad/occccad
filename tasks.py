@@ -7,6 +7,7 @@ Provides:
     invoke build          — Build all C++ targets
     invoke test           — Run the full C++, Go, and Web test suite
     invoke check          — Run quiet scoped/changed-file validation
+    invoke context-audit  — Audit Agent guides, knowledge links, and large text hotspots
     invoke clean          — Remove build artifacts
     invoke run.geometry   — Run geometry worker smoke test
     invoke run.worker     — Start the Geometry Worker gRPC server
@@ -24,6 +25,7 @@ All commands respect OCCCCAD_BUILD_TYPE from environment (default: Debug).
 import json
 import os
 import platform
+import re
 import shlex
 import shutil
 import subprocess
@@ -497,6 +499,42 @@ def _go_test_events(output: str) -> tuple[int, str]:
     return runs, "\n".join(line for line in readable if line)
 
 
+def _compact_failure_output(output: str, limit: int = 200) -> str:
+    """Keep bounded high-signal diagnostics while the complete output stays on disk."""
+    lines = output.splitlines()
+    if len(lines) <= limit:
+        return output.rstrip()
+    signal = re.compile(r"error|fail|fatal|panic|expected|actual|warning|undefined|unimplemented", re.IGNORECASE)
+    selected = list(range(min(20, len(lines))))
+    selected.extend(index for index, line in enumerate(lines) if signal.search(line))
+    selected.extend(range(max(0, len(lines) - 80), len(lines)))
+    unique = sorted(set(selected))
+    if len(unique) > limit:
+        unique = unique[: limit // 2] + unique[-(limit - limit // 2):]
+    rendered: list[str] = []
+    previous = -1
+    for index in unique:
+        if previous >= 0 and index > previous + 1:
+            rendered.append(f"... {index - previous - 1} lines omitted; see full log ...")
+        rendered.append(lines[index])
+        previous = index
+    return "\n".join(rendered)
+
+
+def _write_failure_log(name: str, command: str, cwd: Path, stdout: str, stderr: str) -> Path:
+    log_dir = PROJECT_ROOT / "build" / "agent-logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "step"
+    suffix = time.time_ns() % 1_000_000_000
+    path = log_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-{suffix:09d}-{slug}.log"
+    path.write_text(
+        f"step: {name}\ncwd: {cwd}\ncommand: {command}\n\n--- stdout ---\n{stdout}"
+        f"\n\n--- stderr ---\n{stderr}\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def _run_quiet_step(c, name: str, command: str, cwd: Path, verbose: bool) -> None:
     started = time.monotonic()
     with c.cd(str(cwd)):
@@ -509,18 +547,24 @@ def _run_quiet_step(c, name: str, command: str, cwd: Path, verbose: bool) -> Non
         return
 
     if result.ok and go_match:
+        log_path = _write_failure_log(name, command, cwd, result.stdout.rstrip(), result.stderr.rstrip())
         print(f"\n[check] FAIL {name}: --match selected zero Go tests")
+        print(f"[check] Full log: {log_path.relative_to(PROJECT_ROOT)}")
         print(f"[check] Reproduce: cd {cwd} && {command}")
         raise Exit(code=1)
 
+    raw_stdout = result.stdout.rstrip()
+    raw_stderr = result.stderr.rstrip()
+    log_path = _write_failure_log(name, command, cwd, raw_stdout, raw_stderr)
     if not verbose:
-        stdout = go_output if go_match else result.stdout.rstrip()
-        stderr = result.stderr.rstrip()
+        stdout = go_output if go_match else raw_stdout
+        stderr = raw_stderr
         if stdout:
-            print(f"\n--- {name} stdout ---\n{stdout}")
+            print(f"\n--- {name} stdout ---\n{_compact_failure_output(stdout)}")
         if stderr:
-            print(f"\n--- {name} stderr ---\n{stderr}")
+            print(f"\n--- {name} stderr ---\n{_compact_failure_output(stderr)}")
     print(f"\n[check] FAIL {name} ({elapsed:.1f}s)")
+    print(f"[check] Full log: {log_path.relative_to(PROJECT_ROOT)}")
     print(f"[check] Reproduce: cd {cwd} && {command}")
     raise Exit(code=result.exited or 1)
 
@@ -530,9 +574,10 @@ def _run_quiet_step(c, name: str, command: str, cwd: Path, verbose: bool) -> Non
     "changed": "Select scopes conservatively from git changes (default when scope is omitted)",
     "verbose": "Stream normal subprocess output instead of success summaries",
     "match": "Run one test/scenario name regex or substring within one explicit scope",
+    "plan": "Print selected scopes and commands without executing them",
     "build_type": "Debug or Release",
 })
-def check(c, scope=None, changed=False, verbose=False, match=None, build_type=None):
+def check(c, scope=None, changed=False, verbose=False, match=None, plan=False, build_type=None):
     """Run quiet, domain-scoped validation; expand diagnostics only on failure."""
     valid_scopes = {"assembly", "geometry", "sketch", "workspace", "services", "web", "all"}
     if scope and changed:
@@ -540,6 +585,8 @@ def check(c, scope=None, changed=False, verbose=False, match=None, build_type=No
     if match and not scope:
         raise Exit("--match requires one explicit --scope.")
 
+    reasons: list[str] = []
+    paths: list[str] = []
     if scope:
         scopes = {item.strip() for item in scope.split(",") if item.strip()}
         unknown = scopes - valid_scopes
@@ -551,17 +598,33 @@ def check(c, scope=None, changed=False, verbose=False, match=None, build_type=No
         paths = _changed_files()
         scopes, reasons = _validation_scopes_for_paths(paths)
         if not paths:
+            if plan:
+                print("[check] PLAN scopes: clean workspace")
+                print("[check] No executable validation selected")
+                return
             print("[check] PASS clean workspace; no affected validation scope")
             return
-        print(f"[check] Changed paths: {len(paths)}; scopes: {', '.join(sorted(scopes)) or 'docs-only'}")
-        for reason in reasons:
-            print(f"[check] Escalation: {reason}")
-        if not scopes:
+        if not plan:
+            print(f"[check] Changed paths: {len(paths)}; scopes: {', '.join(sorted(scopes)) or 'docs-only'}")
+            for reason in reasons:
+                print(f"[check] Escalation: {reason}")
+        if not scopes and not plan:
             print("[check] PASS documentation-only changes; no executable validation selected")
             return
 
     bt = build_type or _get_build_type()
     steps = _check_steps(scopes, bt, match)
+    if plan:
+        print(f"[check] PLAN scopes: {', '.join(sorted(scopes)) or 'docs-only'}")
+        if paths:
+            print(f"[check] Changed paths: {len(paths)}")
+        for reason in reasons:
+            print(f"[check] Escalation: {reason}")
+        for index, (name, command, cwd) in enumerate(steps, start=1):
+            print(f"[check] {index}. {name}: cd {cwd} && {command}")
+        if not steps:
+            print("[check] No executable validation selected")
+        return
     if any("cmake" in command or "ctest" in command for _, command, _ in steps):
         build_dir = _get_build_dir(bt)
         if not build_dir.exists():
@@ -573,6 +636,96 @@ def check(c, scope=None, changed=False, verbose=False, match=None, build_type=No
     for name, command, cwd in steps:
         _run_quiet_step(c, name, command, cwd, verbose)
     print(f"[check] PASS {len(steps)} steps ({time.monotonic() - started:.1f}s)")
+
+
+def _context_audit() -> tuple[list[str], list[tuple[int, str]]]:
+    """Audit durable Agent entrypoints without indexing generated/runtime content."""
+    errors: list[str] = []
+    root_guide = PROJECT_ROOT / "AGENTS.md"
+    root_text = root_guide.read_text(encoding="utf-8")
+    if len(root_text.splitlines()) > 100 or root_guide.stat().st_size > 7000:
+        errors.append("root AGENTS.md exceeded 100 lines or 7 KB")
+
+    local_guides = [
+        PROJECT_ROOT / "kernel" / "assembly" / "AGENTS.md",
+        PROJECT_ROOT / "kernel" / "occt" / "AGENTS.md",
+        PROJECT_ROOT / "workers" / "geometry" / "AGENTS.md",
+        PROJECT_ROOT / "services" / "AGENTS.md",
+        PROJECT_ROOT / "web" / "apps" / "cad" / "AGENTS.md",
+    ]
+    for guide in local_guides:
+        if not guide.exists():
+            errors.append(f"missing local guide: {guide.relative_to(PROJECT_ROOT)}")
+        elif len(guide.read_text(encoding="utf-8").splitlines()) > 100 or guide.stat().st_size > 7000:
+            errors.append(f"oversized local guide: {guide.relative_to(PROJECT_ROOT)}")
+
+    required = (
+        PROJECT_ROOT / "docs" / "README.md",
+        PROJECT_ROOT / "docs" / "architecture" / "agent-efficiency.md",
+        PROJECT_ROOT / "docs" / "architecture" / "model-history.md",
+        PROJECT_ROOT / "docs" / "architecture" / "persistent-naming.md",
+        PROJECT_ROOT / "docs" / "architecture" / "worker-contracts.md",
+    )
+    for path in required:
+        if not path.exists():
+            errors.append(f"missing knowledge entry: {path.relative_to(PROJECT_ROOT)}")
+    if (PROJECT_ROOT / "save-token.md").exists() or (PROJECT_ROOT / "save-token-plan.md").exists():
+        errors.append("superseded root token prompt is present; maintain focused docs instead")
+    if Path(__file__).stat().st_size > 40000:
+        errors.append("tasks.py exceeded the 40 KB agent-large threshold; split validation tooling")
+
+    markdown_files = [root_guide, PROJECT_ROOT / "README.md", *local_guides]
+    markdown_files.extend((PROJECT_ROOT / "docs").rglob("*.md"))
+    link_pattern = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
+    for source in markdown_files:
+        if not source.exists():
+            continue
+        for target in link_pattern.findall(source.read_text(encoding="utf-8")):
+            target = target.strip().strip("<>").split("#", 1)[0]
+            if not target or "://" in target or target.startswith(("mailto:", "/")):
+                continue
+            if not (source.parent / target).resolve().exists():
+                errors.append(f"broken local link: {source.relative_to(PROJECT_ROOT)} -> {target}")
+
+    listed = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+    ).stdout.split(b"\0")
+    hotspots: list[tuple[int, str]] = []
+    binary_suffixes = {".brep", ".glb", ".ico", ".jpg", ".png", ".step", ".wasm"}
+    for encoded in listed:
+        if not encoded:
+            continue
+        relative = encoded.decode("utf-8")
+        path = PROJECT_ROOT / relative
+        if not path.is_file() or path.suffix.lower() in binary_suffixes:
+            continue
+        size = path.stat().st_size
+        if size < 40000:
+            continue
+        if b"\0" not in path.read_bytes()[:8192]:
+            hotspots.append((size, relative))
+    hotspots.sort(reverse=True)
+    return errors, hotspots
+
+
+@task(help={"verbose": "List every workspace text file above the 40 KB context threshold"})
+def context_audit(c, verbose=False):
+    """Check Agent routing/doc health and report large workspace text hotspots."""
+    del c
+    errors, hotspots = _context_audit()
+    if errors:
+        print("[context-audit] FAIL")
+        for error in errors:
+            print(f"  - {error}")
+        raise Exit(code=1)
+    strong = sum(size >= 120000 for size, _ in hotspots)
+    print(f"[context-audit] PASS guides/links; large text: {len(hotspots)}, strong candidates: {strong}")
+    if verbose:
+        for size, path in hotspots:
+            print(f"  {size:>8}  {path}")
 
 
 @task(help={"count": "Repeated benchmark samples for benchstat-compatible output"})
@@ -770,6 +923,7 @@ ns.add_task(configure)
 ns.add_task(build)
 ns.add_task(test)
 ns.add_task(check)
+ns.add_task(context_audit, "context-audit")
 ns.add_task(performance_baseline, "performance-baseline")
 ns.add_task(clean)
 ns.add_collection(run_collection)
