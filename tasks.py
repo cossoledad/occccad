@@ -5,7 +5,8 @@ Provides:
     invoke bootstrap      — Install all toolchain dependencies
     invoke configure      — Run Conan install + CMake configure
     invoke build          — Build all C++ targets
-    invoke test           — Run C++ tests
+    invoke test           — Run the full C++, Go, and Web test suite
+    invoke check          — Run quiet scoped/changed-file validation
     invoke clean          — Remove build artifacts
     invoke run.geometry   — Run geometry worker smoke test
     invoke run.worker     — Start the Geometry Worker gRPC server
@@ -20,10 +21,14 @@ Provides:
 All commands respect OCCCCAD_BUILD_TYPE from environment (default: Debug).
 """
 
+import json
 import os
 import platform
+import shlex
 import shutil
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 from invoke import Collection, Exit, task
@@ -288,6 +293,9 @@ def test(c, build_type=None, filter=None):
     if not build_dir.exists():
         raise Exit(f"Build dir {build_dir} not found. Run 'invoke configure build' first.")
 
+    print("[test] Running development tooling tests...")
+    c.run(f"{sys.executable} -m unittest tests.python.test_validation_routing", pty=True)
+
     print("[test] Building C++ tests...")
     c.run(f"cmake --build {build_dir} --parallel", pty=True)
 
@@ -310,6 +318,261 @@ def test(c, build_type=None, filter=None):
     with c.cd(str(PROJECT_ROOT / "web" / "apps" / "cad")):
         c.run("pnpm test", pty=True)
     print("[test] Done.")
+
+
+# ---------------------------------------------------------------------------
+# agent-facing validation
+# ---------------------------------------------------------------------------
+
+
+def _changed_files() -> list[str]:
+    """Return tracked and untracked workspace paths without reading their contents."""
+    commands = (
+        ["git", "diff", "--name-only", "--relative", "HEAD"],
+        ["git", "ls-files", "--others", "--exclude-standard"],
+    )
+    paths: set[str] = set()
+    for command in commands:
+        result = subprocess.run(
+            command,
+            cwd=PROJECT_ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        paths.update(line for line in result.stdout.splitlines() if line)
+    return sorted(paths)
+
+
+def _validation_scopes_for_paths(paths: list[str]) -> tuple[set[str], list[str]]:
+    """Map changed paths conservatively to stable domain validation scopes."""
+    scopes: set[str] = set()
+    reasons: list[str] = []
+    for path in paths:
+        if path.endswith(".md") or path.startswith("docs/"):
+            continue
+        if path == "tasks.py" or path.startswith("cmake/") or path == "CMakeLists.txt":
+            scopes.add("all")
+            reasons.append(f"{path}: shared build or validation entry")
+        elif path.startswith("proto/") or path.startswith("services/gen/"):
+            scopes.add("all")
+            reasons.append(f"{path}: cross-language contract")
+        elif path.startswith("services/internal/database/migrations/"):
+            scopes.add("all")
+            reasons.append(f"{path}: database schema")
+        elif path.startswith("kernel/assembly/") or path.startswith("tests/assembly-corpus/"):
+            scopes.add("assembly")
+        elif path.startswith("workers/geometry/sketch/"):
+            scopes.add("sketch")
+        elif path.startswith("kernel/occt/") or path.startswith("models/"):
+            scopes.add("geometry")
+        elif path.startswith("workers/geometry/") or path.startswith("kernel/api/"):
+            scopes.add("all")
+            reasons.append(f"{path}: shared Geometry Worker boundary")
+        elif path.startswith("services/internal/workspace/") or path.startswith("services/internal/modelcore/"):
+            scopes.add("workspace")
+        elif path.startswith("services/") or path.startswith("tests/go/"):
+            scopes.add("services")
+        elif path.startswith("tests/python/"):
+            scopes.add("all")
+            reasons.append(f"{path}: validation tooling")
+        elif path.startswith("web/"):
+            scopes.add("web")
+        else:
+            scopes.add("all")
+            reasons.append(f"{path}: no narrower ownership mapping")
+    if "all" in scopes:
+        return {"all"}, reasons
+    return scopes, reasons
+
+
+def _check_steps(scopes: set[str], build_type: str, match: str | None = None) -> list[tuple[str, str, Path]]:
+    """Expand domain scopes into deduplicated build/test commands."""
+    build_dir = _get_build_dir(build_type)
+    steps: list[tuple[str, str, Path]] = []
+
+    def add(name: str, command: str, cwd: Path = PROJECT_ROOT) -> None:
+        step = (name, command, cwd)
+        if step not in steps:
+            steps.append(step)
+
+    if "all" in scopes:
+        add(
+            "Validation routing",
+            f"{sys.executable} -m unittest tests.python.test_validation_routing",
+        )
+        add("C++ build", f"cmake --build {build_dir} --parallel")
+        add("CTest", f"ctest --test-dir {build_dir} --output-on-failure --no-tests=error")
+        add("Go packages", "go test ./...", PROJECT_ROOT / "services")
+        add("Go conformance", "go test ./...", PROJECT_ROOT / "tests" / "go")
+        add("Web scenarios", "pnpm test", PROJECT_ROOT / "web" / "apps" / "cad")
+        add("Web production build", "pnpm build", PROJECT_ROOT / "web")
+        return steps
+
+    if "assembly" in scopes:
+        add(
+            "Assembly C++ build",
+            f"cmake --build {build_dir} --target occcad_assembly_solver_scenarios "
+            "occcad_assembly_solver_corpus --parallel",
+        )
+        add(
+            "Assembly CTest",
+            f"ctest --test-dir {build_dir} --output-on-failure --no-tests=error -R "
+            f"{shlex.quote(f'^(assembly|assembly-corpus)/.*{match}' if match else '^(assembly|assembly-corpus)/')}",
+        )
+        if not match:
+            add(
+                "Assembly Go integration",
+                "go test ./internal/geometry ./internal/workspace ./internal/control",
+                PROJECT_ROOT / "services",
+            )
+            add("Assembly Web scenarios", "pnpm test -- assembly", PROJECT_ROOT / "web" / "apps" / "cad")
+    if "geometry" in scopes:
+        add(
+            "Geometry C++ build",
+            f"cmake --build {build_dir} --target occcad_geometry_scenarios --parallel",
+        )
+        add(
+            "Geometry CTest",
+            f"ctest --test-dir {build_dir} --output-on-failure --no-tests=error -R "
+            f"{shlex.quote(f'^geometry/.*{match}' if match else '^geometry/')}",
+        )
+        if not match:
+            add(
+                "Geometry Go integration",
+                "go test ./internal/geometry ./internal/control",
+                PROJECT_ROOT / "services",
+            )
+    if "sketch" in scopes:
+        add(
+            "Sketch C++ build",
+            f"cmake --build {build_dir} --target occcad_sketch_solver_scenarios --parallel",
+        )
+        add(
+            "Sketch CTest",
+            f"ctest --test-dir {build_dir} --output-on-failure --no-tests=error -R "
+            f"{shlex.quote(f'^sketch/.*{match}' if match else '^sketch/')}",
+        )
+        if not match:
+            add("Sketch workspace", "go test ./internal/workspace", PROJECT_ROOT / "services")
+            add("Sketch Web scenarios", "pnpm test -- sketch", PROJECT_ROOT / "web" / "apps" / "cad")
+    if "workspace" in scopes:
+        add(
+            "Workspace and model core",
+            ("go test -json ./internal/workspace ./internal/modelcore"
+             if match else "go test ./internal/workspace ./internal/modelcore")
+            + (f" -run {shlex.quote(match)}" if match else ""),
+            PROJECT_ROOT / "services",
+        )
+    if "services" in scopes:
+        command = "go test -json ./..." if match else "go test ./..."
+        add("Go packages", command + (f" -run {shlex.quote(match)}" if match else ""), PROJECT_ROOT / "services")
+        if not match:
+            add("Go conformance", "go test ./...", PROJECT_ROOT / "tests" / "go")
+    if "web" in scopes:
+        add(
+            "Web scenarios",
+            f"pnpm test{f' -- {shlex.quote(match)}' if match else ''}",
+            PROJECT_ROOT / "web" / "apps" / "cad",
+        )
+        if not match:
+            add("Web production build", "pnpm build", PROJECT_ROOT / "web")
+    return steps
+
+
+def _go_test_events(output: str) -> tuple[int, str]:
+    """Return the number of executed Go tests and readable output from go test -json."""
+    runs = 0
+    readable: list[str] = []
+    for line in output.splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            readable.append(line)
+            continue
+        if event.get("Action") == "run" and event.get("Test"):
+            runs += 1
+        if event.get("Action") == "output" and event.get("Output"):
+            readable.append(str(event["Output"]).rstrip("\n"))
+    return runs, "\n".join(line for line in readable if line)
+
+
+def _run_quiet_step(c, name: str, command: str, cwd: Path, verbose: bool) -> None:
+    started = time.monotonic()
+    with c.cd(str(cwd)):
+        result = c.run(command, hide=not verbose, warn=True, pty=verbose)
+    elapsed = time.monotonic() - started
+    go_match = command.startswith("go test -json ")
+    go_runs, go_output = _go_test_events(result.stdout) if go_match else (0, "")
+    if result.ok and (not go_match or go_runs > 0):
+        print(f"[check] PASS {name} ({elapsed:.1f}s)")
+        return
+
+    if result.ok and go_match:
+        print(f"\n[check] FAIL {name}: --match selected zero Go tests")
+        print(f"[check] Reproduce: cd {cwd} && {command}")
+        raise Exit(code=1)
+
+    if not verbose:
+        stdout = go_output if go_match else result.stdout.rstrip()
+        stderr = result.stderr.rstrip()
+        if stdout:
+            print(f"\n--- {name} stdout ---\n{stdout}")
+        if stderr:
+            print(f"\n--- {name} stderr ---\n{stderr}")
+    print(f"\n[check] FAIL {name} ({elapsed:.1f}s)")
+    print(f"[check] Reproduce: cd {cwd} && {command}")
+    raise Exit(code=result.exited or 1)
+
+
+@task(help={
+    "scope": "Comma-separated: assembly, geometry, sketch, workspace, services, web, all",
+    "changed": "Select scopes conservatively from git changes (default when scope is omitted)",
+    "verbose": "Stream normal subprocess output instead of success summaries",
+    "match": "Run one test/scenario name regex or substring within one explicit scope",
+    "build_type": "Debug or Release",
+})
+def check(c, scope=None, changed=False, verbose=False, match=None, build_type=None):
+    """Run quiet, domain-scoped validation; expand diagnostics only on failure."""
+    valid_scopes = {"assembly", "geometry", "sketch", "workspace", "services", "web", "all"}
+    if scope and changed:
+        raise Exit("Use either --scope or --changed, not both.")
+    if match and not scope:
+        raise Exit("--match requires one explicit --scope.")
+
+    if scope:
+        scopes = {item.strip() for item in scope.split(",") if item.strip()}
+        unknown = scopes - valid_scopes
+        if unknown:
+            raise Exit(f"Unknown validation scope(s): {', '.join(sorted(unknown))}")
+        if match and (len(scopes) != 1 or "all" in scopes):
+            raise Exit("--match requires exactly one non-all scope.")
+    else:
+        paths = _changed_files()
+        scopes, reasons = _validation_scopes_for_paths(paths)
+        if not paths:
+            print("[check] PASS clean workspace; no affected validation scope")
+            return
+        print(f"[check] Changed paths: {len(paths)}; scopes: {', '.join(sorted(scopes)) or 'docs-only'}")
+        for reason in reasons:
+            print(f"[check] Escalation: {reason}")
+        if not scopes:
+            print("[check] PASS documentation-only changes; no executable validation selected")
+            return
+
+    bt = build_type or _get_build_type()
+    steps = _check_steps(scopes, bt, match)
+    if any("cmake" in command or "ctest" in command for _, command, _ in steps):
+        build_dir = _get_build_dir(bt)
+        if not build_dir.exists():
+            raise Exit(f"Build dir {build_dir} not found. Run 'invoke configure' first.")
+
+    selection = f"; match: {match}" if match else ""
+    print(f"[check] Running scopes: {', '.join(sorted(scopes))}{selection}")
+    started = time.monotonic()
+    for name, command, cwd in steps:
+        _run_quiet_step(c, name, command, cwd, verbose)
+    print(f"[check] PASS {len(steps)} steps ({time.monotonic() - started:.1f}s)")
 
 
 @task(help={"count": "Repeated benchmark samples for benchstat-compatible output"})
@@ -506,6 +769,7 @@ ns.add_task(bootstrap)
 ns.add_task(configure)
 ns.add_task(build)
 ns.add_task(test)
+ns.add_task(check)
 ns.add_task(performance_baseline, "performance-baseline")
 ns.add_task(clean)
 ns.add_collection(run_collection)

@@ -46,7 +46,8 @@
 
 | 读者/任务 | 建议阅读顺序 |
 |---|---|
-| 新成员或 AI Agent 了解项目 | 0 → 1–4 → 5.1 → 当前任务对应的 5.x → 15 → 19 |
+| 新成员了解完整项目 | 0 → 1–4 → 5.1 → 当前任务对应的 5.x → 15 → 19 |
+| AI Agent 处理局部任务 | `docs/README.md` 路由 → 对应章节；仅在跨身份、历史、协议、数据库或 Worker 边界时扩展 |
 | 设计新 CAD Feature | 2 → 4.3 → 5.3/5.4 → 5.7 → 17 → 19 |
 | 设计装配、DMU 或仿真 | 4.3 → 5.6 → 9–10 → 12–13 → 17 |
 | 设计服务、任务或部署 | 3 → 5.1 → 6–8 → 10–13 → 16 |
@@ -5138,6 +5139,8 @@ flowchart LR
 - **Compatibility**：旧 Revision/Proto/Feature schema 在新 Worker 上重放；
 - **Security**：恶意 STEP、压缩炸弹、越权 signed URL、租户逃逸。
 
+验证入口应形成可升级的证据层级：具体 test match → 所属模块 → 受影响集成 → 全仓。match 只能缩小一个已知域的反馈环，不能代替公共行为的模块/集成验证。局部实现默认不承担无关语言和领域的完整成本；公共 Proto、数据库 schema、Revision/history、共享构建系统和跨语言边界必须保守升级。Agent-facing 命令成功时只保留步骤与耗时摘要，失败时必须展开原始诊断和可复制的底层命令；这只约束开发命令呈现，不降低生产/开发运行时 observability。changed-file routing 是便利层而不是正确性证明，无法确定所有权时必须升级而非猜测。
+
 ## 18. 明确不做的事
 
 - 不把 Worker 内存当数据库；
@@ -5270,6 +5273,9 @@ Capability / user scenario
 
 ### 19.8 文档维护与周期性复核
 
+- 根与 local `AGENTS.md` 只保存稳定行为、不变量、导航和验证入口；模块 README 保存当前职责/接口/运行；本文件保存长期领域语义与跨模块决策；短期任务状态留在 Issue/会话，不形成第三份架构书；
+- focused architecture projection 可以为高频横切主题提供短入口，但必须链接本文件或 Current Architecture 的 canonical 章节，避免复制易漂移事实；只有 router 数据证明长文档仍被反复整读时才新增；
+- AI Agent 使用 Search → Read → Expand → Architecture：先定位所属模块、符号和邻近测试，只有任务触及稳定身份、Revision/history、数据库、公共协议、Worker/服务一致性或新 CAD 领域抽象时才按 `docs/README.md` 扩展架构上下文；
 - 每次功能合并同时检查：当前事实是否应更新 `CURRENT_ARCHITECTURE.md`，目标决策是否变化，所属 README 是否变化；
 - 本文只保留仍有效的目标设计，过时方案应删除或在迁移说明中明确替代关系，不积累“历史提案坟场”；
 - Mermaid 图与正文必须表达同一边界；图只展示重要关系，不承担未说明的语义；

@@ -66,11 +66,13 @@ invoke build --build-type=Debug --target=occccad_geometry_worker
 invoke run.worker --build-type=Debug
 ```
 
-Geometry/PlaneGCS 测试源集中在根目录 `tests/cpp`。可运行全部 C++ 测试：
+Geometry 测试邻近位于 `kernel/occt/tests`，PlaneGCS 测试邻近位于 `workers/geometry/sketch/tests`。可运行全部测试：
 
 ```bash
 invoke test --build-type=Debug
 ```
+
+局部开发优先使用 `invoke check --scope geometry` 或 `invoke check --scope sketch`；公共 Proto、通用 Worker/RPC 和 Router 边界使用 `invoke check --scope all`。这些命令成功时保持摘要输出，失败时展开底层诊断。
 
 只验证几何交换回归（包括 `models/` 中的真实 STEP 语料和多 root Product round-trip）：
 

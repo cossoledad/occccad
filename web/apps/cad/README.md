@@ -45,6 +45,8 @@ flowchart TD
 
 页面与功能层不得直接操作 Three.js Scene、Renderer 或 Controls；渲染资源通过 CAD Viewport Engine 管理。输入统一经过 CadInput/CadInteraction，避免每个工具自行注册全局事件。
 
+Workbench 主文件只编排文档、命令、查询、工具和面板生命周期；只读 Properties/History 渲染位于 `features/workbench/workbench-inspector.tsx`，属性或历史展示改动不需要加载主 orchestrator。
+
 ## 依赖基线
 
 当前使用 React 19、TypeScript 5.9、Vite 8、Ant Design 6、React Router 7、TanStack Query 5、Zustand 5、Three.js 0.179、three-mesh-bvh 和 Motion 13.2.0。Motion 通过本应用的 transform transition adapter 使用，不允许 Feature 或 React 页面直接持有其动画控制对象。准确范围以本目录 `package.json` 和锁文件为准。
@@ -77,10 +79,10 @@ pnpm dev:api
 
 ```bash
 invoke web.build
-invoke test --build-type=Debug
+invoke check --scope web
 ```
 
-`invoke web.build` 执行 TypeScript 类型检查和生产构建。Front 行为场景邻近所属模块存放为 `src/**/testing/*.scenario.mjs`，`pnpm test` 自动发现并在独立进程运行，避免 fixture 和模块状态串扰；当前仍没有完整的浏览器/WebGL Playwright 套件，复杂视觉布局仍需浏览器验收。
+`invoke web.build` 执行 TypeScript 类型检查和生产构建。Front 行为场景邻近所属模块存放为 `src/**/testing/*.scenario.mjs`，`pnpm test` 自动发现并在独立进程运行，避免 fixture 和模块状态串扰；可用 `pnpm test -- sketch` 等路径/文件名片段筛选，`--list` 预览命中，`--verbose` 流式显示输出。默认成功只输出汇总，失败展开该场景诊断。当前仍没有完整的浏览器/WebGL Playwright 套件，复杂视觉布局仍需浏览器验收。
 
 已有 Linear Extrude 可从结构树右键 Edit 或双击打开同一个编辑器。长度输入要求显式 `mm/cm/m/in` 单位；同一次编辑会话的权威预览共享稳定 `interactionId` 并使用单调 `previewSequence`，确认时携带 definition digest 和一次性 `previewId` 提交一个 Revision。
 

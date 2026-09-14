@@ -12,11 +12,13 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 
 ## 文档
 
+- [架构知识路由](docs/README.md)：按任务定位最小必要的当前/目标架构章节。
+- [Agent Token 效率架构](docs/architecture/agent-efficiency.md)：上下文分层、验证路由、输出契约、指标和后续计划。
 - [现有架构](docs/CURRENT_ARCHITECTURE.md)：只描述当前仓库中可以从代码、配置和数据库迁移验证的事实。
 - [目标架构](docs/TARGET_ARCHITECTURE.md)：面向开源分布式 CAD 的长期设计、Worker 划分、调用关系、技术选型和演进路线。
-- [AI Agent 指南](AGENTS.md)：面向仓库级 AI 开发的项目上下文、平台不变量、自主判断、验证与文档责任。
+- [AI Agent 路由](AGENTS.md)：精简的全局不变量、模块导航和渐进验证规则；高频领域另有邻近指南。
 
-除根 README 与各可运行单元的 README 外，`docs/` 只维护上述两份核心文档。历史 Demo 和版本说明已经合并，不再作为有效架构依据。
+`docs/README.md` 只作入口，两份核心文档仍分别维护当前事实和长期语义。历史 Demo 和版本说明已经合并，不再作为有效架构依据。
 
 ## 可运行单元
 
@@ -102,7 +104,7 @@ occccad/
 └── docs/                    现有架构与目标架构
 ```
 
-`invoke test` 是 C++、Go 和 Front 单元/场景/conformance 的统一入口；测试所有权和目录规则见 [tests/README.md](tests/README.md)。
+`invoke test` 是 C++、Go 和 Front 单元/场景/conformance 的全量入口。日常局部开发优先使用 `invoke check --scope <assembly|geometry|sketch|workspace|services|web>`；可用 `--match` 先运行一个域内的精确回归，不指定 scope 时 `invoke check` 根据 Git 工作区保守选择受影响域。该入口成功时只打印步骤摘要，失败时展开原始诊断与复现命令，`--verbose` 可恢复流式输出。测试所有权和目录规则见 [tests/README.md](tests/README.md)。
 `invoke performance-baseline` 运行当前 CAD 热路径的可重复、多样本 benchmark，并将结果写入 `build/performance/`；性能改动应在同一机器和构建类型下比较前后结果。
 
 ## 文档维护规则

@@ -108,6 +108,8 @@ cmake --build build/cmake/debug --target occcad_assembly_solver_scenarios
 ctest --test-dir build/cmake/debug -R '^assembly/' --output-on-failure
 ```
 
+For the stable, quiet domain entry (including relevant Go integration and Web assembly scenarios), use `invoke check --scope assembly`. It prints summaries on success and expands subprocess diagnostics on failure.
+
 The executable M0 conformance corpus lives in
 [`tests/assembly-corpus`](../../tests/assembly-corpus). It records canonical
 freedoms, conflict/degeneracy baselines, permutation invariance, branch continuity
