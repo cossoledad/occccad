@@ -77,7 +77,7 @@ func TestPointLineDistanceVisualUsesPerpendicularFoot(t *testing.T) {
 }
 
 func TestEntityRoleUpdateIsAtomic(t *testing.T) {
-	sketch := SketchFeature{SchemaVersion: 1, Entities: []SketchEntity{{ID: "line", Kind: "LINE", Role: "PROFILE",
+	sketch := SketchFeature{SchemaVersion: SketchSchemaVersion, Entities: []SketchEntity{{ID: "line", Kind: "LINE", Role: "PROFILE",
 		Start: &SketchPoint2{X: 0, Y: 0}, End: &SketchPoint2{X: 10, Y: 0}}}}
 	if err := applySketchOperations(&sketch, []SketchOperation{{Type: "UPDATE_ENTITY_ROLE", EntityID: "line", Role: "CONSTRUCTION"}}); err != nil {
 		t.Fatal(err)
@@ -89,7 +89,7 @@ func TestEntityRoleUpdateIsAtomic(t *testing.T) {
 
 func TestEntitySuppressionAlsoSuppressesReferencingConstraints(t *testing.T) {
 	suppressed := true
-	sketch := SketchFeature{SchemaVersion: 1,
+	sketch := SketchFeature{SchemaVersion: SketchSchemaVersion,
 		Entities:    []SketchEntity{{ID: "line", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{X: 0}, End: &SketchPoint2{X: 10}}},
 		Constraints: []SketchConstraint{{ID: "horizontal", Kind: "HORIZONTAL", References: []SketchGeometryRef{{Target: "ENTITY", EntityID: "line", SubElement: "DIRECTION"}}}}}
 	if err := applySketchOperations(&sketch, []SketchOperation{{Type: "UPDATE_ENTITY_SUPPRESSION", EntityID: "line", Suppressed: &suppressed}}); err != nil {
@@ -122,7 +122,7 @@ func TestConstraintReferenceCompatibilityRejectsUnsupportedPairs(t *testing.T) {
 
 func TestSketchValidationEnforcesConstraintReferenceSignature(t *testing.T) {
 	t.Parallel()
-	sketch := SketchFeature{SchemaVersion: 1,
+	sketch := SketchFeature{SchemaVersion: SketchSchemaVersion,
 		Entities: []SketchEntity{
 			{ID: "line", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{X: 0, Y: 0}, End: &SketchPoint2{X: 10, Y: 0}},
 			{ID: "circle", Kind: "CIRCLE", Role: "PROFILE", Center: &SketchPoint2{X: 20, Y: 0}, Radius: 5},
@@ -161,7 +161,7 @@ func TestSymmetryAcceptsLineOrPointCenterAndRejectsCurveCenter(t *testing.T) {
 func TestSketchConstraintPlacementAndValueUpdatesAreAtomicOperations(t *testing.T) {
 	t.Parallel()
 	value := 10.0
-	sketch := SketchFeature{SchemaVersion: 1, Constraints: []SketchConstraint{{ID: "length", Kind: "LENGTH", Value: &value, Unit: "mm"}}}
+	sketch := SketchFeature{SchemaVersion: SketchSchemaVersion, Constraints: []SketchConstraint{{ID: "length", Kind: "LENGTH", Value: &value, Unit: "mm"}}}
 	updatedValue := 24.0
 	position := SketchPoint2{X: 12, Y: -8}
 	err := applySketchOperations(&sketch, []SketchOperation{

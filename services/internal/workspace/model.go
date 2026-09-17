@@ -8,6 +8,8 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
+const SketchSchemaVersion = uint32(2)
+
 type Mesh struct {
 	Vertices         [][3]float64    `json:"vertices"`
 	Triangles        [][3]uint32     `json:"triangles"`
@@ -123,9 +125,25 @@ type SketchPoint2 struct {
 	Y float64 `json:"y"`
 }
 type SketchSupport struct {
-	Type         string `json:"type"`
-	DatumPlaneID string `json:"datumPlaneId"`
-	Plane        string `json:"plane"`
+	Type                string                           `json:"type"`
+	DatumPlaneID        string                           `json:"datumPlaneId,omitempty"`
+	Plane               string                           `json:"plane"`
+	PersistentSelection *modelcore.PersistentSelection   `json:"persistentSelection,omitempty"`
+	SourceVersionID     string                           `json:"sourceVersionId,omitempty"`
+	Origin              [3]float64                       `json:"origin,omitempty"`
+	XDirection          [3]float64                       `json:"xDirection,omitempty"`
+	Normal              [3]float64                       `json:"normal,omitempty"`
+	OrientationRule     string                           `json:"orientationRule,omitempty"`
+	Status              string                           `json:"status,omitempty"`
+	DiagnosticCode      string                           `json:"diagnosticCode,omitempty"`
+	Diagnostic          string                           `json:"diagnostic,omitempty"`
+	DependencySnapshot  *SketchSupportDependencySnapshot `json:"dependencySnapshot,omitempty"`
+}
+type SketchSupportDependencySnapshot struct {
+	GeometryKey    string `json:"geometryKey"`
+	ManifestDigest string `json:"manifestDigest"`
+	PolicyDigest   string `json:"policyDigest"`
+	EvidenceDigest string `json:"evidenceDigest,omitempty"`
 }
 type SketchEntity struct {
 	ID            string         `json:"id"`
@@ -156,6 +174,7 @@ type SketchConstraint struct {
 	FixedPoint    *SketchPoint2       `json:"fixedPoint,omitempty"`
 	Value         *float64            `json:"value,omitempty"`
 	Unit          string              `json:"unit,omitempty"`
+	ParameterID   string              `json:"parameterId,omitempty"`
 	LabelPosition *SketchPoint2       `json:"labelPosition,omitempty"`
 	Internal      bool                `json:"internal,omitempty"`
 	Suppressed    bool                `json:"suppressed,omitempty"`
@@ -491,6 +510,7 @@ type CommandRequest struct {
 	Type                    string               `json:"type"`
 	Plane                   string               `json:"plane,omitempty"`
 	DatumPlaneID            string               `json:"datumPlaneId,omitempty"`
+	TopologyID              uint64               `json:"topologyId,omitempty"`
 	SketchID                string               `json:"sketchId,omitempty"`
 	Operations              []SketchOperation    `json:"operations,omitempty"`
 	Length                  float64              `json:"length,omitempty"`

@@ -10,6 +10,7 @@ import type {
   SketchPlane,
   TopologyElementProperties,
 } from "../../types";
+import { parameterDisplayValue, parameterSourceText } from "./parameter-editor";
 
 type PropertiesProps = {
   view: DocumentView;
@@ -22,9 +23,21 @@ type PropertiesProps = {
   diagnostics?: DocumentProperties;
   topology?: TopologyElementProperties;
   topologyLoading?: boolean;
+  onEditParameter?: (parameterId: string) => void;
 };
 
-export function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading }: PropertiesProps) {
+export function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading, onEditParameter }: PropertiesProps) {
+	const parameterFor = (parameterId?: string) => view.part?.parameters?.find((parameter) => parameter.parameterId === parameterId);
+	const parameterItems = (parameterId?: string) => {
+		const parameter = parameterFor(parameterId);
+		if (!parameter) return [];
+		return [
+			{ key: "parameter-id", label: "ParameterId", children: parameter.parameterId },
+			{ key: "parameter-key", label: "参数别名", children: <Space>{parameter.key}{onEditParameter && <Button size="small" onClick={() => onEditParameter(parameter.parameterId)}>编辑</Button>}</Space> },
+			{ key: "parameter-source", label: "表达式 / 输入", children: parameterSourceText(parameter) || "—" },
+			{ key: "parameter-value", label: "计算值", children: parameterDisplayValue(parameter) },
+		];
+	};
   if (!selection) {
     const triangleCount = view.artifact?.mesh.triangles.length
       ?? (view.resolvedInstances ?? []).reduce((total, instance) =>
@@ -102,6 +115,15 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
       { key: "reference", label: "引用路径", children: selection.occurrencePath || "Part root" },
     ]} />;
   }
+	if (selection.kind === "sketch-constraint") {
+		const sketch = view.part?.features.find((candidate) => candidate.id === selection.featureId)?.sketch;
+		const constraint = sketch?.constraints.find((candidate) => candidate.id === selection.constraintId);
+		return <Descriptions column={1} size="small" bordered className="property-list" items={[
+			{ key: "type", label: "约束", children: constraint?.kind ?? selection.constraintType },
+			{ key: "status", label: "求解状态", children: sketch?.solve.status ?? "—" },
+			...parameterItems(constraint?.parameterId),
+		]} />;
+	}
   const instance = selection.kind === "instance" ? view.product?.instances.find((item) => item.id === selection.id) : undefined;
   if (selection.kind === "visual") return <Descriptions column={1} size="small" bordered className="property-list" items={[
     { key: "type", label: "类型", children: selection.visualType },
@@ -126,8 +148,15 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
     ...(selection.kind === "plane" ? [{ key: "plane", label: "基准面", children: selection.plane }] : []),
     ...(feature?.sketch ? [{ key: "entities", label: "草图元素", children: feature.sketch.entities.length },
       { key: "constraints", label: "约束", children: feature.sketch.constraints.length },
-      { key: "solve", label: "求解", children: `${feature.sketch.solve.status} · ${feature.sketch.solve.degreesOfFreedom} DoF` }] : []),
+	  { key: "solve", label: "求解", children: `${feature.sketch.solve.status} · ${feature.sketch.solve.degreesOfFreedom} DoF` },
+	  { key: "support", label: "Sketch Support", children: `${feature.sketch.support.type} · ${feature.sketch.support.status ?? "—"}` },
+	  ...(feature.sketch.support.type === "PLANAR_FACE" ? [
+		{ key: "support-anchor", label: "Semantic Anchor", children: `${feature.sketch.support.persistentSelection?.anchor.featureId ?? "—"} · ${feature.sketch.support.persistentSelection?.anchor.outputSlot ?? "—"}` },
+		{ key: "support-snapshot", label: "Support Snapshot", children: feature.sketch.support.dependencySnapshot?.manifestDigest.slice(0, 20) ?? "—" },
+		{ key: "support-diagnostic", label: "Support Diagnostic", children: feature.sketch.support.diagnosticCode ?? "—" },
+	  ] : [])] : []),
     ...(feature?.length ? [{ key: "length", label: "长度", children: `${feature.length} mm` }] : []),
+	...parameterItems(feature ? `parameter:${feature.id}:length` : undefined),
     ...(instance ? [{ key: "transform", label: "位移", children: instance.translation.map((value) => value.toFixed(2)).join(", ") }] : []),
   ]} />;
 }

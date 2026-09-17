@@ -84,7 +84,7 @@ const views = new Map<string, DocumentView>([
     document: summaries[0],
     datumPlanes, axisSystems,
     part: { units: "mm", datumPlanes, axisSystems, features: [
-      { id: "mock-sketch-1", type: "SKETCH", name: "Sketch 1", plane: "XY", sketch: { schemaVersion: 1, support: { type: "DATUM_PLANE", datumPlaneId: "datum-xy", plane: "XY" }, entities: [
+      { id: "mock-sketch-1", type: "SKETCH", name: "Sketch 1", plane: "XY", sketch: { schemaVersion: 2, support: { type: "DATUM_PLANE", datumPlaneId: "datum-xy", plane: "XY", status: "CONNECTED" }, entities: [
         { id:"bottom",kind:"LINE",role:"PROFILE",start:{x:0,y:0},end:{x:72,y:0} }, { id:"right",kind:"LINE",role:"PROFILE",start:{x:72,y:0},end:{x:72,y:38} },
         { id:"top",kind:"LINE",role:"PROFILE",start:{x:72,y:38},end:{x:0,y:38} }, { id:"left",kind:"LINE",role:"PROFILE",start:{x:0,y:38},end:{x:0,y:0} },
       ], constraints: [], solve:{status:"UNDER_CONSTRAINED",degreesOfFreedom:4} } },
@@ -279,10 +279,12 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 	}
 	return pause(commit(documentID, commandType, (view) => {
     if (commandType === "CREATE_SKETCH" && view.part) {
-      const plane=input.plane as "XY"|"XZ"|"YZ"|"CUSTOM";
+      const plane=(input.targetKind === "FACE" ? "CUSTOM" : input.plane) as "XY"|"XZ"|"YZ"|"CUSTOM";
       const datumPlaneId=String(input.datumPlaneId ?? `datum-${plane.toLowerCase()}`);
       view.part.features.push({ id: id("mock-sketch"), type: "SKETCH", name: `Sketch ${view.part.features.length + 1}`, plane,
-        sketch:{schemaVersion:1,support:{type:"DATUM_PLANE",datumPlaneId,plane},entities:[],constraints:[],solve:{status:"EMPTY",degreesOfFreedom:0}} });
+        sketch:{schemaVersion:2,support:input.targetKind === "FACE"
+          ? {type:"PLANAR_FACE",plane:"CUSTOM",status:"CONNECTED",origin:[0,0,0],xDirection:[1,0,0],normal:[0,0,1]}
+          : {type:"DATUM_PLANE",datumPlaneId,plane,status:"CONNECTED"},entities:[],constraints:[],solve:{status:"EMPTY",degreesOfFreedom:0}} });
     }
     if(commandType==="CREATE_DATUM_PLANE"&&view.part){const datum={id:id("mock-plane"),name:String(input.name),plane:"CUSTOM" as const,
       origin:input.origin as Vec3,normal:input.normal as Vec3,uDirection:input.uDirection as Vec3,size:180};
@@ -543,8 +545,11 @@ export const mockApi: CadApi = {
     return pause({ previewId: id("mock-command-preview"), baseVersionId: view.document.versionId,
       baseSequence: 0, modelHash: "mock-preview", artifact });
   },
-  createSketch: async (documentID, plane, datumPlaneId) => command(documentID, { type: "CREATE_SKETCH", plane, datumPlaneId }),
+  createSketch: async (documentID, support) => command(documentID, { type: "CREATE_SKETCH", ...support }),
   editSketch: async (documentID, sketchID, operations) => command(documentID, { type: "EDIT_SKETCH", sketchId: sketchID, operations }),
+  setParameterValue: async (documentID, parameterId, value, unit) => command(documentID, { type: "SET_PARAMETER_VALUE", parameterId, value, unit }),
+  setParameterExpression: async (documentID, parameterId, expression) => command(documentID, { type: "SET_PARAMETER_EXPRESSION", parameterId, expression }),
+  renameParameter: async (documentID, parameterId, name) => command(documentID, { type: "RENAME_PARAMETER", parameterId, name }),
   deleteNode: async (documentID, targetKind, targetID, ownerEntityID) => command(documentID, { type: "DELETE_NODE", targetKind, targetId: targetID, ownerEntityId: ownerEntityID }),
   deleteNodes: async (documentID, targets) => command(documentID, { type: "DELETE_NODES", targets }),
   pad: async (documentID, sketchID, length, intentRequestID) => command(documentID, { type: "PAD_SKETCH", sketchId: sketchID, length,

@@ -542,6 +542,7 @@ struct ToolBuild {
     TopoDS_Shape shape;
     std::vector<NamedShape> named;
     std::vector<TopologyLineage> generated;
+    std::string feature_id;
     bool topology_history_complete{true};
     std::vector<std::string> diagnostics;
 };
@@ -651,6 +652,7 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
     }
     const ProfileFrame frame = profile_frame(spec);
     ToolBuild result;
+    result.feature_id = spec.feature_id;
     for (const auto& region : spec.regions) {
         std::vector<std::pair<const ProfileCurveSpec*, TopoDS_Edge>> profile_edges;
         const auto build_wire = [&](const ProfileLoopSpec& loop) {
@@ -858,6 +860,8 @@ int solid_count(const TopoDS_Shape& shape) {
 struct BodyOperationResult {
     TopoDS_Shape shape;
     std::vector<NamedShape> named;
+    std::vector<TopologyLineage> derived;
+    std::vector<std::string> diagnostics;
 };
 
 bool same_ref(const SemanticTopologyRef& left, const SemanticTopologyRef& right) {
@@ -1055,6 +1059,129 @@ bool topology_adjacent(const TopoDS_Shape& left, const TopoDS_Shape& right) {
     return members.Contains(*member);
 }
 
+bool topology_contains(const TopoDS_Shape& owner, const TopoDS_Shape& member) {
+    if (owner.ShapeType() == member.ShapeType())
+        return owner.IsSame(member);
+    TopTools_IndexedMapOfShape members;
+    TopExp::MapShapes(owner, member.ShapeType(), members);
+    return members.Contains(member);
+}
+
+std::string derived_topology_name(const TopAbs_ShapeEnum type) {
+    switch (type) {
+        case TopAbs_FACE:
+            return "FACE";
+        case TopAbs_EDGE:
+            return "EDGE";
+        case TopAbs_VERTEX:
+            return "VERTEX";
+        default:
+            throw std::runtime_error("TOPOLOGY_HISTORY_UNSUPPORTED_DERIVED_TYPE");
+    }
+}
+
+std::vector<SemanticTopologyRef> adjacent_naming_sources(
+    const TopoDS_Shape& target, const std::vector<NamedShape>& named) {
+    std::vector<SemanticTopologyRef> sources;
+    const auto collect = [&](const auto& predicate) {
+        for (const auto& candidate : named)
+            if (predicate(candidate.shape) &&
+                std::none_of(sources.begin(), sources.end(), [&](const auto& source) {
+                    return same_ref(source, candidate.ref);
+                }))
+                sources.push_back(candidate.ref);
+    };
+    // Prefer the immediate topological boundary/owner.  This gives a derived
+    // edge its incident semantic faces and a vertex its incident semantic
+    // edges, rather than coupling identity to every nearby sub-shape.
+    if (target.ShapeType() == TopAbs_FACE) {
+        collect([&](const TopoDS_Shape& candidate) {
+            return candidate.ShapeType() == TopAbs_EDGE && topology_contains(target, candidate);
+        });
+    } else if (target.ShapeType() == TopAbs_EDGE) {
+        collect([&](const TopoDS_Shape& candidate) {
+            return candidate.ShapeType() == TopAbs_FACE && topology_contains(candidate, target);
+        });
+    } else if (target.ShapeType() == TopAbs_VERTEX) {
+        collect([&](const TopoDS_Shape& candidate) {
+            return candidate.ShapeType() == TopAbs_EDGE && topology_contains(candidate, target);
+        });
+    }
+    if (sources.empty())
+        collect([&](const TopoDS_Shape& candidate) {
+            return topology_adjacent(target, candidate);
+        });
+    sort_refs(sources);
+    return sources;
+}
+
+std::vector<TopologyLineage> complete_boolean_topology_naming(
+    const TopoDS_Shape& result, std::vector<NamedShape>& named,
+    const std::string& feature_id) {
+    std::vector<TopologyLineage> derived;
+    for (const auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX}) {
+        TopTools_IndexedMapOfShape final_shapes;
+        TopExp::MapShapes(result, type, final_shapes);
+        struct Pending {
+            TopoDS_Shape shape;
+            std::vector<SemanticTopologyRef> sources;
+            SelectionEvidence evidence;
+        };
+        std::unordered_map<std::string, std::vector<Pending>> groups;
+        for (int index = 1; index <= final_shapes.Extent(); ++index) {
+            const auto& shape = final_shapes.FindKey(index);
+            const bool covered = std::any_of(named.begin(), named.end(), [&](const auto& value) {
+                return value.shape.ShapeType() == type && value.shape.IsSame(shape);
+            });
+            if (covered)
+                continue;
+            auto sources = adjacent_naming_sources(shape, named);
+            if (sources.empty())
+                throw std::runtime_error("TOPOLOGY_HISTORY_DERIVED_SOURCE_MISSING:" +
+                                         derived_topology_name(type));
+            std::ostringstream signature;
+            signature << derived_topology_name(type);
+            for (const auto& source : sources)
+                signature << '\0' << ref_key(source);
+            groups[signature.str()].push_back({shape, std::move(sources),
+                                               topology_evidence(shape)});
+        }
+        for (auto& [signature, pending] : groups) {
+            if (feature_id.empty())
+                throw std::runtime_error("TOPOLOGY_HISTORY_DERIVED_FEATURE_ID_MISSING");
+            std::sort(pending.begin(), pending.end(), [](const auto& left, const auto& right) {
+                return left.evidence.evidence_digest < right.evidence.evidence_digest;
+            });
+            for (std::size_t index = 1; index < pending.size(); ++index)
+                if (pending[index - 1].evidence.evidence_digest ==
+                    pending[index].evidence.evidence_digest)
+                    throw std::runtime_error("TOPOLOGY_HISTORY_DERIVED_AMBIGUOUS:" +
+                                             derived_topology_name(type));
+            const auto signature_digest = make_geometry_id(signature).substr(7, 16);
+            for (std::size_t index = 0; index < pending.size(); ++index) {
+                std::vector<std::string> source_ids;
+                for (const auto& source : pending[index].sources) {
+                    source_ids.push_back(source.feature_id + "/" + source.output_slot);
+                    source_ids.insert(source_ids.end(), source.source_ids.begin(),
+                                      source.source_ids.end());
+                }
+                std::sort(source_ids.begin(), source_ids.end());
+                source_ids.erase(std::unique(source_ids.begin(), source_ids.end()),
+                                 source_ids.end());
+                SemanticTopologyRef output{
+                    feature_id,
+                    "DERIVED_" + derived_topology_name(type) + "_FROM_ADJACENCY/" +
+                        signature_digest + "/" + std::to_string(index + 1),
+                    std::move(source_ids)};
+                named.push_back({output, pending[index].shape});
+                derived.push_back({pending[index].sources, output,
+                                   TopologyLineageKind::generated, pending[index].evidence});
+            }
+        }
+    }
+    return derived;
+}
+
 std::string topology_policy_digest() {
     return std::string(topology_naming_policy_digest);
 }
@@ -1112,7 +1239,7 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     if (input.IsNull()) {
         if (operation == "REMOVE" || operation == "INTERSECT")
             throw std::invalid_argument(operation + " requires an input body");
-        return {tool.shape, tool.named};  // Legacy first ADD is equivalent to NEW_BODY.
+        return {tool.shape, tool.named, {}, {}};  // Legacy first ADD is equivalent to NEW_BODY.
     }
     if (operation == "NEW_BODY")
         throw std::invalid_argument(
@@ -1164,7 +1291,12 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
         throw std::runtime_error("solid operation produced invalid B-Rep");
     if (solid_count(result) != 1)
         throw std::invalid_argument("DISJOINT_RESULT: standard Body requires exactly one solid");
-    return {result, mapped};
+    auto derived = complete_boolean_topology_naming(result, mapped, tool.feature_id);
+    std::vector<std::string> diagnostics;
+    if (!derived.empty())
+        diagnostics.push_back("TOPOLOGY_HISTORY_DERIVED_CLOSURE:" +
+                              std::to_string(derived.size()));
+    return {result, mapped, std::move(derived), std::move(diagnostics)};
 }
 
 std::filesystem::path temporary_step_path() {
@@ -1430,6 +1562,8 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         feature.result_geometry_id = result_id;
         feature.topology_history_complete = topology_history_complete;
         feature.diagnostics = tool.diagnostics;
+        feature.diagnostics.insert(feature.diagnostics.end(), operation.diagnostics.begin(),
+                                   operation.diagnostics.end());
         if (!base_brep.empty() && input_named.empty()) {
             feature.topology_history_complete = false;
             topology_history_complete = false;
@@ -1508,8 +1642,15 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                                  [&](const TopologyLineage& value) {
                                      return same_ref(value.result, group.sources.front());
                                  });
+                const auto derived =
+                    std::find_if(operation.derived.begin(), operation.derived.end(),
+                                 [&](const TopologyLineage& value) {
+                                     return same_ref(value.result, group.sources.front());
+                                 });
                 if (generated != tool.generated.end())
                     lineage_sources = generated->sources;
+                else if (derived != operation.derived.end())
+                    lineage_sources = derived->sources;
             }
             feature.topology_history.lineage.push_back(
                 {lineage_sources, output_ref, kind, evidence});
@@ -1571,8 +1712,22 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         if (feature.topology_history_complete) {
             const auto final_count = static_cast<std::size_t>(
                 final_faces.Extent() + final_edges.Extent() + final_vertices.Extent());
-            if (outputs.size() != final_count)
-                throw std::runtime_error("TOPOLOGY_HISTORY_INCOMPLETE_FINAL_SHAPE");
+            if (outputs.size() != final_count) {
+                const auto output_count = [&](const PersistentTopologyType type) {
+                    return std::count_if(outputs.begin(), outputs.end(), [&](const auto& output) {
+                        return output.first.topology_type == type;
+                    });
+                };
+                std::ostringstream diagnostic;
+                diagnostic << "TOPOLOGY_HISTORY_INCOMPLETE_FINAL_SHAPE:faces="
+                           << output_count(PersistentTopologyType::face) << '/'
+                           << final_faces.Extent() << ",edges="
+                           << output_count(PersistentTopologyType::edge) << '/'
+                           << final_edges.Extent() << ",vertices="
+                           << output_count(PersistentTopologyType::vertex) << '/'
+                           << final_vertices.Extent();
+                throw std::runtime_error(diagnostic.str());
+            }
             std::vector<std::string> local_ids;
             std::vector<std::string> semantic_refs;
             for (const auto& output : outputs) {

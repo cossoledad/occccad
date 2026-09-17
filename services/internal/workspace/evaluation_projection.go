@@ -12,26 +12,105 @@ import (
 )
 
 func ensureFeatureParameters(model *PartModel) {
-	existing := map[string]struct{}{}
-	for _, parameter := range model.Parameters {
-		existing[parameter.ParameterID] = struct{}{}
+	existing := map[string]int{}
+	for index, parameter := range model.Parameters {
+		existing[parameter.ParameterID] = index
 	}
-	add := func(featureID, slot, key string, value float64) {
+	managedPrefixes := map[string]struct{}{}
+	desired := map[string]struct{}{}
+	add := func(featureID, slot, key, label, unit string, value float64, dimension modelcore.Dimension) {
 		id := "parameter:" + featureID + ":" + slot
-		if _, exists := existing[id]; exists {
+		desired[id] = struct{}{}
+		if index, exists := existing[id]; exists {
+			parameter := &model.Parameters[index]
+			parameter.Dimension = dimension
+			parameter.ValueType = modelcore.ValueQuantity
+			parameter.DisplayUnit = unit
+			if parameter.Label == "" {
+				parameter.Label = label
+			}
 			return
 		}
-		quantity, _ := modelcore.NewQuantity(value, "mm")
-		model.Parameters = append(model.Parameters, modelcore.ParameterDefinition{ParameterID: id, Key: key, Label: key, ValueType: modelcore.ValueQuantity, Dimension: modelcore.LengthDimension, Role: "INPUT", Source: modelcore.ValueSource{Literal: &quantity}})
-		existing[id] = struct{}{}
+		quantity, _ := modelcore.NewQuantity(value, unit)
+		model.Parameters = append(model.Parameters, modelcore.ParameterDefinition{ParameterID: id, Key: key, Label: label,
+			ValueType: modelcore.ValueQuantity, Dimension: dimension, DisplayUnit: unit, Role: "INPUT",
+			Source: modelcore.ValueSource{Literal: &quantity}, EvaluatedValue: &quantity})
+		existing[id] = len(model.Parameters) - 1
 	}
 	for _, feature := range model.Features {
+		managedPrefixes["parameter:"+feature.ID+":"] = struct{}{}
 		keyPrefix := strings.NewReplacer("-", "_", ":", "_").Replace(feature.ID)
 		if isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE" {
-			add(feature.ID, "length", keyPrefix+"_length", feature.Length)
+			add(feature.ID, "length", keyPrefix+"_length", "Length", "mm", feature.Length, modelcore.LengthDimension)
+		}
+		if feature.Sketch != nil {
+			for _, constraint := range feature.Sketch.Constraints {
+				if !isDimensionalConstraint(constraint.Kind) || constraint.Value == nil {
+					continue
+				}
+				unit, dimension := sketchConstraintUnitAndDimension(constraint.Kind)
+				slot := "constraint:" + constraint.ID + ":value"
+				key := keyPrefix + "_" + strings.ToLower(constraint.Kind) + "_" + parameterKeyFragment(constraint.ID)
+				add(feature.ID, slot, key, constraint.Kind, unit, *constraint.Value, dimension)
+			}
+		}
+	}
+	filtered := model.Parameters[:0]
+	for _, parameter := range model.Parameters {
+		managed := false
+		for prefix := range managedPrefixes {
+			if strings.HasPrefix(parameter.ParameterID, prefix) {
+				managed = true
+				break
+			}
+		}
+		if managed {
+			if _, keep := desired[parameter.ParameterID]; !keep {
+				continue
+			}
+		}
+		filtered = append(filtered, parameter)
+	}
+	model.Parameters = filtered
+	for featureIndex := range model.Features {
+		feature := &model.Features[featureIndex]
+		if feature.Sketch == nil {
+			continue
+		}
+		for constraintIndex := range feature.Sketch.Constraints {
+			constraint := &feature.Sketch.Constraints[constraintIndex]
+			if isDimensionalConstraint(constraint.Kind) {
+				constraint.ParameterID = sketchConstraintParameterID(feature.ID, constraint.ID)
+			}
 		}
 	}
 	sort.Slice(model.Parameters, func(i, j int) bool { return model.Parameters[i].ParameterID < model.Parameters[j].ParameterID })
+}
+
+func parameterKeyFragment(value string) string {
+	return strings.NewReplacer("-", "_", ":", "_").Replace(value)
+}
+
+func sketchConstraintParameterID(sketchID, constraintID string) string {
+	return "parameter:" + sketchID + ":constraint:" + constraintID + ":value"
+}
+
+func sketchConstraintUnitAndDimension(kind string) (string, modelcore.Dimension) {
+	if strings.EqualFold(kind, "ANGLE") {
+		return "deg", modelcore.AngleDimension
+	}
+	return "mm", modelcore.LengthDimension
+}
+
+func quantityInDisplayUnit(value modelcore.Quantity, unit string) (float64, error) {
+	one, err := modelcore.NewQuantity(1, unit)
+	if err != nil {
+		return 0, err
+	}
+	if !one.Dimension.Equal(value.Dimension) {
+		return 0, fmt.Errorf("%w: display unit %s has the wrong dimension", modelcore.ErrUnitMismatch, unit)
+	}
+	return value.SIValue / one.SIValue, nil
 }
 
 func validateAndResolvePartParameters(model *PartModel) error {
@@ -41,22 +120,68 @@ func validateAndResolvePartParameters(model *PartModel) error {
 	nodes := make([]modelcore.DependencyNode, 0, len(model.Parameters))
 	edges := []modelcore.DependencyEdge{}
 	definitions := map[string]modelcore.ParameterDefinition{}
+	keys := map[string]string{}
 	for _, parameter := range model.Parameters {
+		if parameter.ParameterID == "" {
+			return fmt.Errorf("%w: parameter id is required", ErrValidation)
+		}
 		if _, exists := definitions[parameter.ParameterID]; exists {
 			return fmt.Errorf("%w: duplicate parameter id", ErrValidation)
 		}
+		if parameter.Key == "" || keys[parameter.Key] != "" {
+			return fmt.Errorf("%w: parameter key must be non-empty and unique", ErrValidation)
+		}
+		if (parameter.Source.Literal == nil) == (parameter.Source.Expression == nil) {
+			return fmt.Errorf("%w: parameter %s must have exactly one source", ErrValidation, parameter.ParameterID)
+		}
+		if parameter.ValueType != modelcore.ValueQuantity {
+			return fmt.Errorf("%w: %w: parameter %s is not a quantity", ErrValidation, modelcore.ErrParameterType, parameter.ParameterID)
+		}
+		if parameter.Source.Expression != nil && (!parameter.Source.Expression.ResultDimension.Equal(parameter.Dimension) ||
+			parameter.Source.Expression.ResultType != parameter.ValueType) {
+			return fmt.Errorf("%w: %w: parameter %s expression result type changed", ErrValidation, modelcore.ErrUnitMismatch, parameter.ParameterID)
+		}
+		keys[parameter.Key] = parameter.ParameterID
 		definitions[parameter.ParameterID] = parameter
 		source, _ := json.Marshal(parameter.Source)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Phase: 1, Type: "PARAMETER", CanonicalInput: source})
 		if parameter.Source.Expression != nil {
 			for _, read := range parameter.Source.Expression.Reads {
+				readID := strings.TrimPrefix(string(read), "parameter:")
+				if _, exists := definitions[readID]; !exists {
+					// Definitions may appear later in canonical order; the complete check
+					// below distinguishes that from a deleted parameter.
+					continue
+				}
+				edges = append(edges, modelcore.DependencyEdge{Source: read, Target: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Kind: modelcore.ReadValue})
+			}
+		}
+	}
+	for _, parameter := range model.Parameters {
+		if parameter.Source.Expression == nil {
+			continue
+		}
+		for _, read := range parameter.Source.Expression.Reads {
+			readID := strings.TrimPrefix(string(read), "parameter:")
+			if _, exists := definitions[readID]; !exists {
+				return fmt.Errorf("%w: %w: %s", ErrValidation, modelcore.ErrParameterMissing, readID)
+			}
+			// The earlier pass only emitted edges to definitions already seen.
+			found := false
+			for _, edge := range edges {
+				if edge.Source == read && edge.Target == modelcore.DependencyKey("parameter:"+parameter.ParameterID) {
+					found = true
+					break
+				}
+			}
+			if !found {
 				edges = append(edges, modelcore.DependencyEdge{Source: read, Target: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Kind: modelcore.ReadValue})
 			}
 		}
 	}
 	graph, err := modelcore.NewDependencyGraph(nodes, edges)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 	values := map[string]modelcore.Quantity{}
 	for _, key := range graph.TopologicalOrder() {
@@ -68,20 +193,44 @@ func validateAndResolvePartParameters(model *PartModel) error {
 		} else if parameter.Source.Expression != nil {
 			value, err = modelcore.EvaluateExpression(*parameter.Source.Expression, values)
 			if err != nil {
-				return err
+				return fmt.Errorf("%w: %w", ErrValidation, err)
 			}
 		} else {
 			return fmt.Errorf("%w: parameter %s has no source", ErrValidation, id)
 		}
 		if !value.Dimension.Equal(parameter.Dimension) {
-			return fmt.Errorf("%w: parameter %s dimension mismatch", modelcore.ErrUnitMismatch, id)
+			return fmt.Errorf("%w: %w: parameter %s dimension mismatch", ErrValidation, modelcore.ErrUnitMismatch, id)
 		}
 		values[id] = value
+		for index := range model.Parameters {
+			if model.Parameters[index].ParameterID == id {
+				resolved := value
+				model.Parameters[index].EvaluatedValue = &resolved
+				break
+			}
+		}
 	}
 	for index := range model.Features {
 		feature := &model.Features[index]
 		if isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE" {
 			feature.Length = values["parameter:"+feature.ID+":length"].SIValue * 1000
+		}
+		if feature.Sketch != nil {
+			for constraintIndex := range feature.Sketch.Constraints {
+				constraint := &feature.Sketch.Constraints[constraintIndex]
+				if !isDimensionalConstraint(constraint.Kind) {
+					continue
+				}
+				value, exists := values[constraint.ParameterID]
+				if !exists {
+					return fmt.Errorf("%w: %w: %s", ErrValidation, modelcore.ErrParameterMissing, constraint.ParameterID)
+				}
+				display, displayErr := quantityInDisplayUnit(value, constraint.Unit)
+				if displayErr != nil {
+					return fmt.Errorf("%w: %w", ErrValidation, displayErr)
+				}
+				constraint.Value = &display
+			}
 		}
 	}
 	return nil
@@ -106,9 +255,35 @@ func validatePartStructure(model PartModel) error {
 		if _, exists := features[feature.ID]; exists {
 			return fmt.Errorf("%w: duplicate feature identity %s", ErrValidation, feature.ID)
 		}
-		if feature.Sketch != nil && len(datums) > 0 && feature.Sketch.Support.DatumPlaneID != "" {
-			if _, exists := datums[feature.Sketch.Support.DatumPlaneID]; !exists {
-				return fmt.Errorf("%w: sketch %s references unknown datum plane %s", ErrValidation, feature.ID, feature.Sketch.Support.DatumPlaneID)
+		if feature.Sketch != nil {
+			if err := validateSketch(*feature.Sketch); err != nil {
+				return err
+			}
+			support := feature.Sketch.Support
+			switch support.Type {
+			case "DATUM_PLANE":
+				if _, exists := datums[support.DatumPlaneID]; !exists {
+					return fmt.Errorf("%w: sketch %s references unknown datum plane %s", ErrValidation, feature.ID, support.DatumPlaneID)
+				}
+			case "PLANAR_FACE":
+				if support.PersistentSelection == nil || support.SourceVersionID == "" {
+					return fmt.Errorf("%w: sketch %s has an incomplete PLANAR_FACE support", ErrValidation, feature.ID)
+				}
+				if err := support.PersistentSelection.Validate(); err != nil {
+					return fmt.Errorf("%w: sketch %s support: %v", ErrValidation, feature.ID, err)
+				}
+				if support.PersistentSelection.ExpectedType != modelcore.PersistentTopologyFace ||
+					support.PersistentSelection.CreationEvidence.GeometryType != "PLANE" {
+					return fmt.Errorf("%w: SUPPORT_TYPE_MISMATCH", ErrValidation)
+				}
+				if _, exists := features[support.PersistentSelection.Anchor.FeatureID]; !exists {
+					return fmt.Errorf("%w: FAILED_SUPPORT: support feature must precede sketch %s", ErrValidation, feature.ID)
+				}
+				if _, _, _, err := validatedSupportFrame(support.Origin, support.XDirection, support.Normal); err != nil {
+					return fmt.Errorf("%w: SUPPORT_FRAME_INVALID: %v", ErrValidation, err)
+				}
+			default:
+				return fmt.Errorf("%w: sketch %s has unsupported support type %s", ErrValidation, feature.ID, support.Type)
 			}
 		}
 		if isSolidGenerator(feature.Type) {
@@ -146,6 +321,7 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			}
 		}
 	}
+	bodyTipFeatureID := ""
 	for _, feature := range model.Features {
 		key := modelcore.DependencyKey("feature:" + feature.ID)
 		data, _ := json.Marshal(feature)
@@ -158,9 +334,21 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		}
 		if isSolidGenerator(feature.Type) {
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.Profile), Target: key, Kind: modelcore.ReadGeometry})
+			if bodyTipFeatureID != "" {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadGeometry})
+			}
 		}
 		if feature.Sketch != nil {
-			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + feature.Sketch.Support.DatumPlaneID), Target: key, Kind: modelcore.ReadGeometry})
+			if feature.Sketch.Support.Type == "PLANAR_FACE" && feature.Sketch.Support.PersistentSelection != nil {
+				if bodyTipFeatureID != "" {
+					edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadTopology})
+				}
+			} else {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + feature.Sketch.Support.DatumPlaneID), Target: key, Kind: modelcore.ReadGeometry})
+			}
+		}
+		if isSolidGenerator(feature.Type) {
+			bodyTipFeatureID = feature.ID
 		}
 	}
 	graph, err := modelcore.NewDependencyGraph(nodes, edges)

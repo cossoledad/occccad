@@ -24,6 +24,34 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, err
 		}
 		normalizePartModel(&model)
+		if strings.EqualFold(request.TargetKind, "FACE") {
+			sourceVersionID := strings.TrimSpace(request.VersionID)
+			if sourceVersionID == "" {
+				if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&sourceVersionID); err != nil {
+					return "", nil, err
+				}
+			}
+			selection, err := service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{
+				SourceVersionID: sourceVersionID, GeometryKey: request.GeometryKey, Kind: "FACE", LocalID: request.TopologyID,
+			})
+			if err != nil {
+				return "", nil, err
+			}
+			if selection.CreationEvidence.GeometryType != "PLANE" {
+				return "", nil, fmt.Errorf("%w: SUPPORT_TYPE_MISMATCH: selected face is not planar", ErrValidation)
+			}
+			xDirection, ok := stableSupportX(selection.CreationEvidence.Direction, [3]float64{})
+			if !ok {
+				return "", nil, fmt.Errorf("%w: SUPPORT_FRAME_INVALID", ErrValidation)
+			}
+			support := SketchSupport{Type: "PLANAR_FACE", Plane: "CUSTOM", PersistentSelection: &selection,
+				SourceVersionID: sourceVersionID, Origin: selection.CreationEvidence.Origin, XDirection: xDirection,
+				Normal: selection.CreationEvidence.Direction, OrientationRule: sketchSupportOrientationRule, Status: "CONNECTED"}
+			return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "SKETCH",
+				Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: "CUSTOM",
+				Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: support, Entities: []SketchEntity{},
+					Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
+		}
 		plane := strings.ToUpper(request.Plane)
 		datumID := strings.TrimSpace(request.DatumPlaneID)
 		if datumID == "" {
@@ -43,7 +71,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, fmt.Errorf("%w: selected datum plane does not exist", ErrValidation)
 			}
 		}
-		return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
+		return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane, Status: "CONNECTED"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
 	case "EDIT_SKETCH":
 		if documentType != "PART" {
 			break
@@ -246,7 +274,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		quantity, err := modelcore.NewQuantity(request.Value, request.Unit)
 		if err != nil {
-			return "", nil, err
+			return "", nil, fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 		return typeSetParameterLiteral, parameterSourcePayload{ParameterID: request.ParameterID, Source: modelcore.ValueSource{Literal: &quantity}}, nil
 	case "SET_PARAMETER_EXPRESSION":
@@ -272,9 +300,14 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		expression, err := modelcore.CompileExpression(request.Expression, names, expected.Dimension)
 		if err != nil {
-			return "", nil, err
+			return "", nil, fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 		return typeSetParameterExpression, parameterSourcePayload{ParameterID: request.ParameterID, Source: modelcore.ValueSource{Expression: &expression}}, nil
+	case "RENAME_PARAMETER":
+		if documentType != "PART" {
+			break
+		}
+		return typeRenameParameter, renameParameterPayload{ParameterID: request.ParameterID, Key: request.Name}, nil
 	case "INSERT_INSTANCE":
 		if documentType != "PRODUCT" {
 			break

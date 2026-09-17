@@ -1180,25 +1180,19 @@ func resolveRevolveAxis(model PartModel, sketch Feature, reference string) ([2]f
 			if source.ID != parts[1] || source.Sketch == nil {
 				continue
 			}
-			var sourceDatum *DatumPlane
-			for index := range model.DatumPlanes {
-				if model.DatumPlanes[index].ID == source.Sketch.Support.DatumPlaneID {
-					sourceDatum = &model.DatumPlanes[index]
-					break
-				}
-			}
-			if sourceDatum == nil {
+			sourceOrigin, sourceU, sourceNormal, hasFrame := supportFrame(model, source.Sketch.Support)
+			if !hasFrame {
 				break
 			}
 			cross := func(a, b [3]float64) [3]float64 {
 				return [3]float64{a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]}
 			}
-			v := cross(sourceDatum.Normal, sourceDatum.UDirection)
+			v := cross(sourceNormal, sourceU)
 			toWorld := func(point SketchPoint2) [3]float64 {
 				return [3]float64{
-					sourceDatum.Origin[0] + sourceDatum.UDirection[0]*point.X + v[0]*point.Y,
-					sourceDatum.Origin[1] + sourceDatum.UDirection[1]*point.X + v[1]*point.Y,
-					sourceDatum.Origin[2] + sourceDatum.UDirection[2]*point.X + v[2]*point.Y}
+					sourceOrigin[0] + sourceU[0]*point.X + v[0]*point.Y,
+					sourceOrigin[1] + sourceU[1]*point.X + v[1]*point.Y,
+					sourceOrigin[2] + sourceU[2]*point.X + v[2]*point.Y}
 			}
 			for _, entity := range source.Sketch.Entities {
 				if entity.ID == parts[2] && entity.Kind == "LINE" && entity.Start != nil && entity.End != nil {
@@ -1241,23 +1235,17 @@ func resolveRevolveAxis(model PartModel, sketch Feature, reference string) ([2]f
 	if !found {
 		return zero, zero, fmt.Errorf("%w: revolve axis %s is missing", ErrValidation, reference)
 	}
-	var datum *DatumPlane
-	for index := range model.DatumPlanes {
-		if model.DatumPlanes[index].ID == sketch.Sketch.Support.DatumPlaneID {
-			datum = &model.DatumPlanes[index]
-			break
-		}
-	}
-	if datum == nil {
+	frameOrigin, frameU, frameNormal, hasFrame := supportFrame(model, sketch.Sketch.Support)
+	if !hasFrame {
 		return zero, zero, fmt.Errorf("%w: sketch support plane is missing", ErrValidation)
 	}
 	dot := func(a, b [3]float64) float64 { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2] }
 	cross := func(a, b [3]float64) [3]float64 {
 		return [3]float64{a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]}
 	}
-	n, u := datum.Normal, datum.UDirection
+	n, u := frameNormal, frameU
 	v := cross(n, u)
-	rel := [3]float64{origin[0] - datum.Origin[0], origin[1] - datum.Origin[1], origin[2] - datum.Origin[2]}
+	rel := [3]float64{origin[0] - frameOrigin[0], origin[1] - frameOrigin[1], origin[2] - frameOrigin[2]}
 	if math.Abs(dot(direction, n)) > 1e-8 || math.Abs(dot(rel, n)) > 1e-6 {
 		return zero, zero, fmt.Errorf("%w: revolve axis must lie in the sketch support plane", ErrValidation)
 	}
@@ -1302,6 +1290,19 @@ func normalizePartModel(model *PartModel) {
 	if model.Parameters == nil {
 		model.Parameters = []modelcore.ParameterDefinition{}
 	}
+	for featureIndex := range model.Features {
+		feature := &model.Features[featureIndex]
+		if feature.Sketch == nil || feature.Sketch.Support.Type != "DATUM_PLANE" {
+			continue
+		}
+		if origin, xDirection, normal, ok := datumSupportFrame(*model, feature.Sketch.Support); ok {
+			feature.Sketch.Support.Origin = origin
+			feature.Sketch.Support.XDirection = xDirection
+			feature.Sketch.Support.Normal = normal
+			feature.Sketch.Support.OrientationRule = sketchSupportOrientationRule
+			feature.Sketch.Support.Status = "CONNECTED"
+		}
+	}
 	ensureFeatureParameters(model)
 }
 
@@ -1312,10 +1313,6 @@ func referenceGeometry(model PartModel) ReferenceGeometry {
 
 func visualizationManifest(model PartModel) VisualizationManifest {
 	normalizePartModel(&model)
-	datumByID := map[string]DatumPlane{}
-	for _, datum := range model.DatumPlanes {
-		datumByID[datum.ID] = datum
-	}
 	manifest := VisualizationManifest{
 		SchemaVersion:     1,
 		ReferenceGeometry: referenceGeometry(model),
@@ -1332,14 +1329,14 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 		if plane == "" {
 			plane = "XY"
 		}
-		datum, hasDatum := datumByID[feature.Sketch.Support.DatumPlaneID]
+		frameOrigin, frameU, frameNormal, hasFrame := supportFrame(model, feature.Sketch.Support)
 		toWorld := func(point SketchPoint2) [3]float64 {
-			if hasDatum {
-				u, n := datum.UDirection, datum.Normal
+			if hasFrame {
+				u, n := frameU, frameNormal
 				v := [3]float64{n[1]*u[2] - n[2]*u[1], n[2]*u[0] - n[0]*u[2], n[0]*u[1] - n[1]*u[0]}
-				return [3]float64{datum.Origin[0] + u[0]*point.X + v[0]*point.Y,
-					datum.Origin[1] + u[1]*point.X + v[1]*point.Y,
-					datum.Origin[2] + u[2]*point.X + v[2]*point.Y}
+				return [3]float64{frameOrigin[0] + u[0]*point.X + v[0]*point.Y,
+					frameOrigin[1] + u[1]*point.X + v[1]*point.Y,
+					frameOrigin[2] + u[2]*point.X + v[2]*point.Y}
 			}
 			switch plane {
 			case "XZ":
@@ -1516,7 +1513,7 @@ func mutatePart(model *PartModel, request CommandRequest) error {
 		model.Features = append(model.Features, Feature{
 			ID: newID("sketch"), Type: "SKETCH",
 			Name:  numberedFeatureName(model.Features, "SKETCH", "Sketch"),
-			Plane: plane, Sketch: &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY"}},
+			Plane: plane, Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane, Status: "CONNECTED"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY"}},
 		})
 	case "EDIT_SKETCH":
 		for index := range model.Features {
@@ -1761,11 +1758,10 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 			}
 			var planeOrigin, planeNormal, planeU [3]float64
 			if sketch.Sketch != nil {
-				for _, datum := range model.DatumPlanes {
-					if datum.ID == sketch.Sketch.Support.DatumPlaneID {
-						planeOrigin, planeNormal, planeU = datum.Origin, datum.Normal, datum.UDirection
-						break
-					}
+				var frameOK bool
+				planeOrigin, planeU, planeNormal, frameOK = supportFrame(model, sketch.Sketch.Support)
+				if !frameOK {
+					return "", fmt.Errorf("%w: FAILED_SUPPORT: sketch %s support frame is unavailable", ErrValidation, sketch.ID)
 				}
 			}
 			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: "body-main",
@@ -2409,6 +2405,12 @@ func featureStructureNode(feature Feature, path, documentID, versionID, definiti
 		node.Capabilities = append(node.Capabilities, "EDIT")
 	}
 	if feature.Sketch != nil {
+		if feature.Sketch.Support.Status == "FAILED_SUPPORT" {
+			node.Diagnostic = feature.Sketch.Support.DiagnosticCode
+			if feature.Sketch.Support.Diagnostic != "" {
+				node.Diagnostic += ": " + feature.Sketch.Support.Diagnostic
+			}
+		}
 		node.Children = sketchStructureChildren(*feature.Sketch, node.ID, feature.ID, documentID, versionID, childrenEditable)
 	}
 	return node

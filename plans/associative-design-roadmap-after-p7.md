@@ -1,9 +1,9 @@
 # P7 后关联设计、Feature 与装配演进计划
 
-状态：已规划，尚未实施  
+状态：实施中；P8A–P8C 实现完成，待浏览器人工验收
 规划基线：2026-09-15  
 前置能力：P0–P7 已完成；P7 浏览器/WebGL 人工验收已完成  
-当前 ready queue：P8A
+当前 ready queue：P8A–P8C 人工验收；通过后进入 P8D
 
 ## 1. 目标与主线判断
 
@@ -97,7 +97,7 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 ## 4. P8：Part 内关联设计基础
 
-### P8A：Sketch 驱动尺寸 ParameterBinding
+### P8A：Sketch 驱动尺寸 ParameterBinding（实现完成，待人工验收）
 
 **目标场景**：用户创建或编辑 Distance、Length、Radius、Diameter、Angle 等驱动尺寸后，尺寸拥有稳定 ParameterId，表达式文本与 SI 规范值分离，重开文档后身份不变。
 
@@ -111,7 +111,9 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **验收**：创建尺寸、20 mm → 40 mm 编辑、表达式/计算值展示、Undo/Redo、刷新和清缓存冷重建均保持同一 ParameterId；PlaneGCS 与持久 Revision 的规范值一致。
 
-### P8B：同一 Part 内的参数表达式引用
+**实施记录（2026-09-17）**：五类现有驱动尺寸均已映射到稳定 `ParameterId` 和 typed `PropertySlot`；源文本、显示单位、SI 规范值及计算值分离。`EDIT_SKETCH`、PlaneGCS 输入、ChangeSet、Undo/Redo 和右侧参数编辑器已贯通，并增加尺寸身份、20 mm → 40 mm 与表达式 tombstone 恢复测试。
+
+### P8B：同一 Part 内的参数表达式引用（实现完成，待人工验收）
 
 **目标场景**：第二个草图尺寸或 Feature 参数可写为第一个稳定参数的表达式，例如孔宽 `base_width / 2`、Pad 长度 `sketch_height * 3`。
 
@@ -125,7 +127,9 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **验收**：跨两个 Sketch/Feature 的表达式更新只重算 dirty closure；增量与全量求值等价；重命名保持引用；循环和量纲错误不会产生新 Head。
 
-### P8C：PLANAR_FACE 草图支撑
+**实施记录（2026-09-17）**：表达式继续以可读别名输入，但 checked AST 和 `READ_VALUE` edge 绑定稳定 ID；新增参数重命名命令及 AST 安全重渲染。参数求值统一前置于草图求解，缺失引用、循环、类型和量纲错误均在提交新 Head 前返回稳定诊断；服务与 Web 场景检查已通过。
+
+### P8C：PLANAR_FACE 草图支撑（实现完成，待人工验收）
 
 **目标场景**：用户选择 Pad 的稳定平面 Face 创建草图；上游 Pad 长度变化后，草图仍位于同一语义面及确定的局部坐标框架。
 
@@ -138,6 +142,10 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 - Web 支持从 viewport/tree 选择平面面创建草图，并正确显示支撑与失败状态。
 
 **验收**：上游 Pad 编辑、Undo/Redo、Worker 重启和冷重建后支撑框架确定一致；真实删除支撑面不会把草图静默移动到默认平面；浏览器完成创建、编辑和失败状态人工验收。
+
+**实施记录（2026-09-17）**：`SketchSupport` 已支持 `PLANAR_FACE`、`PersistentSelection`、确定性 frame/orientation 与 dependency snapshot；服务按 Feature 顺序、针对草图前完整 body prefix 解析支撑，并以 `READ_TOPOLOGY` 和显式 body-tip chain 进入依赖图。Viewport 面选择可直接创建草图，结构树和属性面板显示支撑状态、semantic anchor、snapshot 与诊断；自动化检查已通过，浏览器/WebGL 的创建、上游编辑、失败状态及重启/冷重建仍由本轮人工验收确认。
+
+**验收修正（2026-09-17）**：Sketcher 不再隐藏当前 Body，而是把权威制品作为不可编辑上下文层持续显示，活动草图保持前景 overlay 和独立选择域。面上 boss/pocket 暴露的 Boolean history 缺口由 `occccad.topology.contract.v3` 的 semantic adjacency closure 补齐；严格完整 Shape gate 保留，不能通过关闭 naming 检查或持久化 local ID 绕过。
 
 ### P8D：ExternalGeometry Edge/Vertex 正交投影
 

@@ -7,7 +7,7 @@ import (
 )
 
 func profileSketch(entities []SketchEntity, constraints []SketchConstraint) Feature {
-	return Feature{ID: "sketch", Type: "SKETCH", Sketch: &SketchFeature{SchemaVersion: 1,
+	return Feature{ID: "sketch", Type: "SKETCH", Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion,
 		Support:  SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "xy", Plane: "XY"},
 		Entities: entities, Constraints: constraints}}
 }

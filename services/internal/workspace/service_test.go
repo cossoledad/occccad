@@ -18,7 +18,7 @@ func TestPartVisualizationManifestAndGLBExtensionContainSelectableSketchGeometry
 	t.Parallel()
 	model := newPartModel()
 	model.Features = append(model.Features, Feature{ID: "sketch-visible", Type: "SKETCH", Plane: "XZ",
-		Sketch: &SketchFeature{SchemaVersion: 1,
+		Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion,
 			Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xz", Plane: "XZ"},
 			Entities: []SketchEntity{
 				{ID: "point-visible", Kind: "POINT", Role: "CONSTRUCTION", Point: &SketchPoint2{X: 2, Y: 3}},
@@ -457,7 +457,14 @@ func TestSolidGeneratorCommandUsesOneBodyOperationContract(t *testing.T) {
 
 func testRectangleSketch(id, plane string) Feature {
 	operations, _ := rectangleMacro(id, SketchPoint2{0, 0}, SketchPoint2{20, 10})
-	sketch := &SketchFeature{SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}}
+	var datum DatumPlane
+	for _, candidate := range datumPlanes() {
+		if candidate.Plane == plane {
+			datum = candidate
+		}
+	}
+	sketch := &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-" + strings.ToLower(plane), Plane: plane,
+		Origin: datum.Origin, XDirection: datum.UDirection, Normal: datum.Normal, OrientationRule: sketchSupportOrientationRule, Status: "CONNECTED"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}}
 	_ = applySketchOperations(sketch, operations)
 	return Feature{ID: id, Type: "SKETCH", Name: "Sketch 1", Plane: plane, Sketch: sketch}
 }
@@ -707,7 +714,7 @@ func TestRectangleMacroExpandsToStableLinesAndExplicitConstraints(t *testing.T) 
 			t.Fatal("macro constraint identity is not deterministic")
 		}
 	}
-	sketch := SketchFeature{SchemaVersion: 1, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}}
+	sketch := SketchFeature{SchemaVersion: SketchSchemaVersion, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}}
 	if err := applySketchOperations(&sketch, operations); err != nil {
 		t.Fatal(err)
 	}
@@ -728,7 +735,7 @@ func TestRectangleMacroExpandsToStableLinesAndExplicitConstraints(t *testing.T) 
 func TestVisualizationManifestIncludesCircularCentersAndSplineFitPoints(t *testing.T) {
 	model := PartModel{Features: []Feature{{
 		ID: "sketch", Type: "SKETCH", Sketch: &SketchFeature{
-			SchemaVersion: 1, Support: SketchSupport{Plane: "XY"}, Solve: SketchSolveState{Status: "UNDER_CONSTRAINED"},
+			SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xy", Plane: "XY"}, Solve: SketchSolveState{Status: "UNDER_CONSTRAINED"},
 			Entities: []SketchEntity{
 				{ID: "arc", Kind: "ARC", Role: "PROFILE", Center: &SketchPoint2{X: 5, Y: 6}, Radius: 3, StartAngle: 0, EndAngle: math.Pi},
 				{ID: "spline", Kind: "SPLINE", Role: "CONSTRUCTION", Degree: 2, ControlPoints: []SketchPoint2{{X: 0, Y: 0}, {X: 4, Y: 8}, {X: 9, Y: 2}}},
@@ -777,9 +784,9 @@ func TestPartStructureNestsConsumedSketchUnderPad(t *testing.T) {
 func TestSketchStructureProjectsEntitiesConstraintsAndDeleteCapabilities(t *testing.T) {
 	t.Parallel()
 	model := PartModel{Units: "mm", Features: []Feature{{ID: "sketch-1", Type: "SKETCH", Name: "Sketch 1", Sketch: &SketchFeature{
-		SchemaVersion: 1,
-		Entities:      []SketchEntity{{ID: "line-1", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{0, 0}, End: &SketchPoint2{10, 0}}},
-		Constraints:   []SketchConstraint{{ID: "constraint-1", Kind: "PARALLEL", References: []SketchGeometryRef{{Target: "ENTITY", EntityID: "line-1", SubElement: "DIRECTION"}, {Target: "SKETCH_X_AXIS", SubElement: "DIRECTION"}}}},
+		SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xy", Plane: "XY"},
+		Entities:    []SketchEntity{{ID: "line-1", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{0, 0}, End: &SketchPoint2{10, 0}}},
+		Constraints: []SketchConstraint{{ID: "constraint-1", Kind: "PARALLEL", References: []SketchGeometryRef{{Target: "ENTITY", EntityID: "line-1", SubElement: "DIRECTION"}, {Target: "SKETCH_X_AXIS", SubElement: "DIRECTION"}}}},
 	}}}}
 	children := partStructureChildren(model, "document:part-1", "part-1", "version-1", true)
 	sketch := children[1].Children[0]
@@ -805,7 +812,7 @@ func TestSketchStructureProjectsEntitiesConstraintsAndDeleteCapabilities(t *test
 
 func TestSketchIntrinsicGeometryUsesStableConstraintReferences(t *testing.T) {
 	t.Parallel()
-	sketch := SketchFeature{SchemaVersion: 1,
+	sketch := SketchFeature{SchemaVersion: SketchSchemaVersion,
 		Entities: []SketchEntity{{ID: "line-1", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{2, 3}, End: &SketchPoint2{12, 3}}},
 		Constraints: []SketchConstraint{
 			{ID: "coincident-origin", Kind: "COINCIDENT", References: []SketchGeometryRef{
@@ -825,7 +832,7 @@ func TestSketchIntrinsicGeometryUsesStableConstraintReferences(t *testing.T) {
 func TestDeleteSketchEntityCascadesReferencingConstraints(t *testing.T) {
 	t.Parallel()
 	model := PartModel{Units: "mm", Features: []Feature{{ID: "sketch-1", Type: "SKETCH", Name: "Sketch 1", Sketch: &SketchFeature{
-		SchemaVersion: 1,
+		SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xy", Plane: "XY"},
 		Entities: []SketchEntity{
 			{ID: "line-1", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{0, 0}, End: &SketchPoint2{10, 0}},
 			{ID: "line-2", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{10, 0}, End: &SketchPoint2{10, 10}},
@@ -871,7 +878,7 @@ func TestDeleteSketchEntityCascadesReferencingConstraints(t *testing.T) {
 func TestDeleteNodeHandlersProtectInfrastructureAndDeleteOwnedModelNodes(t *testing.T) {
 	t.Parallel()
 	part := PartModel{Units: "mm", Features: []Feature{
-		{ID: "sketch-1", Type: "SKETCH", Sketch: &SketchFeature{SchemaVersion: 1, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}}},
+		{ID: "sketch-1", Type: "SKETCH", Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xy", Plane: "XY"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}}},
 		{ID: "pad-1", Type: "PAD", Profile: "sketch-1", Length: 10},
 	}}
 	partJSON, _ := json.Marshal(part)
@@ -885,8 +892,9 @@ func TestDeleteNodeHandlersProtectInfrastructureAndDeleteOwnedModelNodes(t *test
 	}
 	padPayload, _ := json.Marshal(deleteNodePayload{TargetKind: "FEATURE", TargetID: "pad-1"})
 	withoutPad, changes, err := applyDeletePartNode(partJSON, padPayload)
-	if err != nil || len(changes.Changes) != 1 || changes.Changes[0].Kind != modelcore.ChangeDelete {
-		t.Fatalf("owned feature must produce one delete change: err=%v changes=%#v", err, changes)
+	if err != nil || len(changes.Changes) != 2 || changes.Changes[0].Kind != modelcore.ChangeDelete ||
+		changes.Changes[1].Target.SlotID != "parameter.entity" {
+		t.Fatalf("owned feature must delete its entity and parameter facade: err=%v changes=%#v", err, changes)
 	}
 	var nextPart PartModel
 	_ = json.Unmarshal(withoutPad, &nextPart)
@@ -910,7 +918,7 @@ func TestDeleteNodeHandlersProtectInfrastructureAndDeleteOwnedModelNodes(t *test
 func TestDeleteNodesIsAtomicAndProducesOneUndoableChangePerProperty(t *testing.T) {
 	t.Parallel()
 	part := PartModel{Units: "mm", Features: []Feature{{ID: "sketch-1", Type: "SKETCH", Sketch: &SketchFeature{
-		SchemaVersion: 1,
+		SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xy", Plane: "XY"},
 		Entities: []SketchEntity{
 			{ID: "line-1", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{0, 0}, End: &SketchPoint2{10, 0}},
 			{ID: "line-2", Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{10, 0}, End: &SketchPoint2{10, 10}},

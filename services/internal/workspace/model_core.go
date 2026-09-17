@@ -29,6 +29,7 @@ const (
 	typeImportExchange         = "occccad://part/exchange/import"
 	typeSetParameterLiteral    = "occccad://parameter/literal/set"
 	typeSetParameterExpression = "occccad://parameter/expression/set"
+	typeRenameParameter        = "occccad://parameter/key/rename"
 	typeInsertInstance         = "occccad://product/instance/insert"
 	typeMoveInstance           = "occccad://product/instance/move"
 	typeAddAssemblyConstraint  = "occccad://product/assembly-constraint/add"
@@ -68,6 +69,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeImportExchange, "PART", applyCreateFeature},
 		commandHandler{typeSetParameterLiteral, "PART", applyParameterSource},
 		commandHandler{typeSetParameterExpression, "PART", applyParameterSource},
+		commandHandler{typeRenameParameter, "PART", applyRenameParameter},
 		commandHandler{typeInsertInstance, "PRODUCT", applyInsertInstance},
 		commandHandler{typeMoveInstance, "PRODUCT", applyMoveInstance},
 		commandHandler{typeAddAssemblyConstraint, "PRODUCT", applyAddAssemblyConstraint},
@@ -179,6 +181,7 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 		return nil, modelcore.ChangeSet{}, err
 	}
 	normalizePartModel(&model)
+	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
 	switch payload.TargetKind {
 	case "FEATURE":
 		index := -1
@@ -195,6 +198,11 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 			if dependent.Profile == payload.TargetID {
 				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: cannot delete feature %s while feature %s depends on it", ErrValidation, payload.TargetID, dependent.ID)
 			}
+			if dependent.Sketch != nil && dependent.Sketch.Support.Type == "PLANAR_FACE" &&
+				dependent.Sketch.Support.PersistentSelection != nil &&
+				dependent.Sketch.Support.PersistentSelection.Anchor.FeatureID == payload.TargetID {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: FAILED_SUPPORT: sketch %s depends on feature %s", ErrValidation, dependent.ID, payload.TargetID)
+			}
 		}
 		before := model.Features[index]
 		model.Features = append(model.Features[:index], model.Features[index+1:]...)
@@ -205,12 +213,15 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 			}
 		}
 		model.Parameters = parameters
+		ensureFeatureParameters(&model)
 		if err := validateAndResolvePartParameters(&model); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
 		change, _ := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: payload.TargetID, SlotID: "entity"}, before, nil)
+		changes, seeds := appendParameterLifecycleChanges([]modelcore.ModelChange{change},
+			[]modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.TargetID)}, beforeParameters, model.Parameters)
 		next, _ := json.Marshal(model)
-		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.TargetID)}}, nil
+		return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
 	case "SKETCH_ENTITY", "SKETCH_CONSTRAINT":
 		for i := range model.Features {
 			feature := &model.Features[i]
@@ -266,12 +277,15 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 			if len(feature.Sketch.Entities) == 0 {
 				feature.Sketch.Solve = SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY"}
 			}
-			if err := validateSketch(*feature.Sketch); err != nil {
+			ensureFeatureParameters(&model)
+			if err := validateAndResolvePartParameters(&model); err != nil {
 				return nil, modelcore.ChangeSet{}, err
 			}
 			change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: feature.ID, SlotID: "sketch.model"}, before, *feature.Sketch)
+			changes, seeds := appendParameterLifecycleChanges([]modelcore.ModelChange{change},
+				[]modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(feature.ID)}, beforeParameters, model.Parameters)
 			next, _ := json.Marshal(model)
-			return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(feature.ID)}}, nil
+			return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
 		}
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: owning sketch does not exist", ErrValidation)
 	default:
@@ -344,18 +358,105 @@ func applyEditSketch(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, m
 		if feature.Type != "SKETCH" || feature.Sketch == nil {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected feature is not a sketch", ErrValidation)
 		}
-		before := *feature.Sketch
+		var before SketchFeature
+		beforeJSON, _ := json.Marshal(feature.Sketch)
+		_ = json.Unmarshal(beforeJSON, &before)
+		beforeSources := map[string]modelcore.ValueSource{}
+		beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
+		for _, parameter := range model.Parameters {
+			beforeSources[parameter.ParameterID] = parameter.Source
+		}
 		if err := applySketchOperations(feature.Sketch, payload.Operations); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
-		if err := validateSketch(*feature.Sketch); err != nil {
+		ensureFeatureParameters(&model)
+		for _, operation := range payload.Operations {
+			if operation.Type != "UPDATE_CONSTRAINT_VALUE" || operation.Value == nil {
+				continue
+			}
+			for parameterIndex := range model.Parameters {
+				parameter := &model.Parameters[parameterIndex]
+				if parameter.ParameterID != sketchConstraintParameterID(feature.ID, operation.ConstraintID) {
+					continue
+				}
+				unit := parameter.DisplayUnit
+				if unit == "" {
+					unit, _ = sketchConstraintUnitAndDimension(parameter.Label)
+				}
+				quantity, quantityErr := modelcore.NewQuantity(*operation.Value, unit)
+				if quantityErr != nil {
+					return nil, modelcore.ChangeSet{}, quantityErr
+				}
+				parameter.Source = modelcore.ValueSource{Literal: &quantity}
+			}
+		}
+		if err := validateAndResolvePartParameters(&model); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
 		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: feature.ID, SlotID: "sketch.model"}, before, *feature.Sketch)
+		changes := []modelcore.ModelChange{change}
+		seeds := []modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(feature.ID)}
+		changes, seeds = appendParameterLifecycleChanges(changes, seeds, beforeParameters, model.Parameters)
+		for _, parameter := range model.Parameters {
+			prior, existed := beforeSources[parameter.ParameterID]
+			if !existed || reflect.DeepEqual(prior, parameter.Source) {
+				continue
+			}
+			slot := sketchLengthDimensionSlot
+			if parameter.Dimension.Equal(modelcore.AngleDimension) {
+				slot = sketchAngleDimensionSlot
+			}
+			parameterChange, _ := modelcore.NewChange(modelcore.ChangeUpdate,
+				modelcore.PropertyAddress{EntityID: parameter.ParameterID, SlotID: slot.SlotID}, prior, parameter.Source)
+			changes = append(changes, parameterChange)
+			seeds = append(seeds, "parameter:"+modelcore.DependencyKey(parameter.ParameterID))
+		}
 		next, _ := json.Marshal(model)
-		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(feature.ID)}}, nil
+		return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
 	}
 	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
+}
+
+func appendParameterLifecycleChanges(changes []modelcore.ModelChange, seeds []modelcore.DependencyKey,
+	before, after []modelcore.ParameterDefinition) ([]modelcore.ModelChange, []modelcore.DependencyKey) {
+	beforeByID := map[string]modelcore.ParameterDefinition{}
+	afterByID := map[string]modelcore.ParameterDefinition{}
+	for _, parameter := range before {
+		beforeByID[parameter.ParameterID] = parameter
+	}
+	for _, parameter := range after {
+		afterByID[parameter.ParameterID] = parameter
+	}
+	ids := map[string]struct{}{}
+	for id := range beforeByID {
+		ids[id] = struct{}{}
+	}
+	for id := range afterByID {
+		ids[id] = struct{}{}
+	}
+	ordered := make([]string, 0, len(ids))
+	for id := range ids {
+		ordered = append(ordered, id)
+	}
+	sort.Strings(ordered)
+	for _, id := range ordered {
+		prior, hadPrior := beforeByID[id]
+		current, hasCurrent := afterByID[id]
+		if hadPrior == hasCurrent {
+			continue
+		}
+		kind := modelcore.ChangeCreate
+		var beforeValue, afterValue any
+		if hadPrior {
+			kind, beforeValue = modelcore.ChangeDelete, prior
+		} else {
+			afterValue = current
+		}
+		change, _ := modelcore.NewChange(kind, modelcore.PropertyAddress{EntityID: id, SlotID: "parameter.entity"}, beforeValue, afterValue)
+		changes = append(changes, change)
+		seeds = append(seeds, "parameter:"+modelcore.DependencyKey(id))
+	}
+	return changes, seeds
 }
 
 func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) error {
@@ -526,7 +627,7 @@ func isDimensionalConstraint(kind string) bool {
 }
 
 func validateSketch(sketch SketchFeature) error {
-	if sketch.SchemaVersion != 1 {
+	if sketch.SchemaVersion != SketchSchemaVersion {
 		return fmt.Errorf("%w: unsupported sketch schema version", ErrValidation)
 	}
 	entityKinds := map[string]string{}
@@ -606,6 +707,9 @@ func validateSketch(sketch SketchFeature) error {
 			}
 			if constraint.Unit != expectedUnit {
 				return fmt.Errorf("%w: dimensional constraint %s requires unit %s", ErrValidation, constraint.ID, expectedUnit)
+			}
+			if constraint.ParameterID == "" {
+				return fmt.Errorf("%w: dimensional constraint %s requires a stable ParameterId", ErrValidation, constraint.ID)
 			}
 		}
 		for _, reference := range constraint.References {
@@ -727,11 +831,12 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		}
 	}
 	model.Features = append(model.Features, payload.Feature)
-	ensureFeatureParameters(&model)
+	normalizePartModel(&model)
 	if err := validateAndResolvePartParameters(&model); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Feature.ID, SlotID: "entity"}, nil, payload.Feature)
+	created := model.Features[len(model.Features)-1]
+	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Feature.ID, SlotID: "entity"}, nil, created)
 	set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.Feature.ID)}}
 	next, _ := json.Marshal(model)
 	return next, set, nil
@@ -791,6 +896,11 @@ type parameterSourcePayload struct {
 	Source      modelcore.ValueSource `json:"source"`
 }
 
+type renameParameterPayload struct {
+	ParameterID string `json:"parameterId"`
+	Key         string `json:"key"`
+}
+
 type linearExtrudeEdit struct {
 	Length    modelcore.Quantity `json:"length"`
 	Operation string             `json:"operation"`
@@ -807,6 +917,18 @@ type editFeaturePayload struct {
 var padLengthSlot = modelcore.PropertySlotDescriptor{
 	OwnerTypeURI: "occccad://part/feature/linear-extrude", SlotID: "pad.length",
 	ValueType: modelcore.ValueQuantity, Dimension: modelcore.LengthDimension,
+	AllowedSources: []string{"LITERAL", "EXPRESSION"}, Affects: "GEOMETRY", EvaluatorPhase: 2,
+}
+
+var sketchLengthDimensionSlot = modelcore.PropertySlotDescriptor{
+	OwnerTypeURI: "occccad://part/sketch/constraint/dimension", SlotID: "sketch.dimension.value",
+	ValueType: modelcore.ValueQuantity, Dimension: modelcore.LengthDimension,
+	AllowedSources: []string{"LITERAL", "EXPRESSION"}, Affects: "GEOMETRY", EvaluatorPhase: 2,
+}
+
+var sketchAngleDimensionSlot = modelcore.PropertySlotDescriptor{
+	OwnerTypeURI: "occccad://part/sketch/constraint/dimension", SlotID: "sketch.dimension.value",
+	ValueType: modelcore.ValueQuantity, Dimension: modelcore.AngleDimension,
 	AllowedSources: []string{"LITERAL", "EXPRESSION"}, Affects: "GEOMETRY", EvaluatorPhase: 2,
 }
 
@@ -928,6 +1050,88 @@ func applyParameterSource(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 		return next, set, nil
 	}
 	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter does not exist", ErrValidation)
+}
+
+func applyRenameParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model PartModel
+	var payload renameParameterPayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	normalizePartModel(&model)
+	payload.Key = strings.TrimSpace(payload.Key)
+	if !validParameterKey(payload.Key) {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter key must be an ASCII identifier", ErrValidation)
+	}
+	for _, parameter := range model.Parameters {
+		if parameter.ParameterID != payload.ParameterID && parameter.Key == payload.Key {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter key %s already exists", ErrValidation, payload.Key)
+		}
+	}
+	for index := range model.Parameters {
+		parameter := &model.Parameters[index]
+		if parameter.ParameterID != payload.ParameterID {
+			continue
+		}
+		before := parameter.Key
+		beforeSources := map[string]modelcore.ValueSource{}
+		for _, current := range model.Parameters {
+			beforeSources[current.ParameterID] = current.Source
+		}
+		parameter.Key = payload.Key
+		keys := map[string]string{}
+		for _, current := range model.Parameters {
+			keys[current.ParameterID] = current.Key
+		}
+		for sourceIndex := range model.Parameters {
+			expression := model.Parameters[sourceIndex].Source.Expression
+			if expression == nil {
+				continue
+			}
+			formatted, formatErr := modelcore.FormatExpression(*expression, keys)
+			if formatErr != nil {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: %w", ErrValidation, formatErr)
+			}
+			expression.SourceText = formatted
+		}
+		if err := validateAndResolvePartParameters(&model); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		change, _ := modelcore.NewChange(modelcore.ChangeUpdate,
+			modelcore.PropertyAddress{EntityID: payload.ParameterID, SlotID: "parameter.key"}, before, payload.Key)
+		changes := []modelcore.ModelChange{change}
+		seeds := []modelcore.DependencyKey{"parameter:" + modelcore.DependencyKey(payload.ParameterID)}
+		for _, current := range model.Parameters {
+			prior := beforeSources[current.ParameterID]
+			if reflect.DeepEqual(prior, current.Source) {
+				continue
+			}
+			sourceChange, _ := modelcore.NewChange(modelcore.ChangeUpdate,
+				modelcore.PropertyAddress{EntityID: current.ParameterID, SlotID: "parameter.source"}, prior, current.Source)
+			changes = append(changes, sourceChange)
+			seeds = append(seeds, "parameter:"+modelcore.DependencyKey(current.ParameterID))
+		}
+		next, _ := json.Marshal(model)
+		return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
+	}
+	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: %s", modelcore.ErrParameterMissing, payload.ParameterID)
+}
+
+func validParameterKey(value string) bool {
+	if value == "" {
+		return false
+	}
+	for index, char := range value {
+		if (char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || char == '_' ||
+			(index > 0 && char >= '0' && char <= '9') {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 type insertInstancePayload struct {
@@ -1262,13 +1466,21 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	var manifest modelcore.EvaluationManifest
 	if prepared.documentType == "PART" {
 		var model PartModel
+		var beforeModel PartModel
 		if err := json.Unmarshal(nextJSON, &model); err != nil {
 			return err
 		}
+		if err := json.Unmarshal(prepared.modelJSON, &beforeModel); err != nil {
+			return err
+		}
 		normalizePartModel(&model)
+		normalizePartModel(&beforeModel)
 		if !promoted {
-			finishSolve := perf.Start(ctx, "sketch-solve")
-			if err := service.solveSketches(ctx, prepared.requestID, &model); err != nil {
+			if err := validateAndResolvePartParameters(&model); err != nil {
+				return err
+			}
+			finishSolve := perf.Start(ctx, "support-resolve-sketch-solve")
+			if err := service.resolveAndSolveSketches(ctx, documentID, prepared.requestID, &model); err != nil {
 				finishSolve()
 				return err
 			}
@@ -1277,6 +1489,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err := validateAndResolvePartParameters(&model); err != nil {
 			return err
 		}
+		changes = appendEvaluatedSketchChanges(changes, beforeModel, model)
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
 		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)
@@ -1592,12 +1805,20 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		return result, nil
 	}
 	var model PartModel
+	var beforeModel PartModel
 	if err = json.Unmarshal(nextJSON, &model); err != nil {
 		return CommandPreview{}, err
 	}
+	if err = json.Unmarshal(prepared.modelJSON, &beforeModel); err != nil {
+		return CommandPreview{}, err
+	}
 	normalizePartModel(&model)
-	finishSolve := perf.Start(ctx, "sketch-solve")
-	if err = service.solveSketches(ctx, "preview/"+prepared.requestID, &model); err != nil {
+	normalizePartModel(&beforeModel)
+	if err = validateAndResolvePartParameters(&model); err != nil {
+		return CommandPreview{}, err
+	}
+	finishSolve := perf.Start(ctx, "support-resolve-sketch-solve")
+	if err = service.resolveAndSolveSketches(ctx, documentID, "preview/"+prepared.requestID, &model); err != nil {
 		finishSolve()
 		return CommandPreview{}, err
 	}
@@ -1605,6 +1826,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	if err = validateAndResolvePartParameters(&model); err != nil {
 		return CommandPreview{}, err
 	}
+	previewChanges = appendEvaluatedSketchChanges(previewChanges, beforeModel, model)
 	nextJSON, _ = json.Marshal(model)
 	previewChanges, err = reconcilePersistedChanges(prepared.documentType, prepared.modelJSON, nextJSON, previewChanges)
 	if err != nil {
@@ -1648,118 +1870,125 @@ func assemblySupportPreview(reference AssemblyGeometryRef) AssemblySupportPrevie
 
 func (service *Service) solveSketches(ctx context.Context, requestID string, model *PartModel) error {
 	for featureIndex := range model.Features {
-		sketch := model.Features[featureIndex].Sketch
-		if sketch == nil || len(sketch.Entities) == 0 {
-			continue
-		}
-		if service.worker == nil {
-			return fmt.Errorf("%w: geometry worker is required to solve sketches", ErrValidation)
-		}
-		input := geometry.SketchModel{}
-		for _, entity := range sketch.Entities {
-			if entity.Suppressed {
-				continue
-			}
-			switch entity.Kind {
-			case "POINT":
-				input.Points = append(input.Points, geometry.SketchPoint{ID: entity.ID, X: entity.Point.X, Y: entity.Point.Y, Role: entity.Role})
-			case "LINE":
-				input.Lines = append(input.Lines, geometry.SketchLine{ID: entity.ID, StartX: entity.Start.X, StartY: entity.Start.Y, EndX: entity.End.X, EndY: entity.End.Y, Role: entity.Role})
-			case "CIRCLE":
-				input.Circles = append(input.Circles, geometry.SketchCircle{ID: entity.ID, CenterX: entity.Center.X, CenterY: entity.Center.Y, Radius: entity.Radius, Role: entity.Role})
-			case "ARC":
-				input.Arcs = append(input.Arcs, geometry.SketchArc{ID: entity.ID, CenterX: entity.Center.X, CenterY: entity.Center.Y, Radius: entity.Radius, StartAngle: entity.StartAngle, EndAngle: entity.EndAngle, Role: entity.Role})
-			case "SPLINE":
-				value := geometry.SketchSpline{ID: entity.ID, Degree: entity.Degree, Closed: entity.Closed, Role: entity.Role}
-				for _, point := range entity.ControlPoints {
-					value.ControlPoints = append(value.ControlPoints, [2]float64{point.X, point.Y})
-				}
-				input.Splines = append(input.Splines, value)
-			}
-		}
-		for _, constraint := range sketch.Constraints {
-			if constraint.Suppressed {
-				continue
-			}
-			value := geometry.SketchConstraint{ID: constraint.ID, Kind: constraint.Kind, Unit: constraint.Unit, Internal: constraint.Internal}
-			if constraint.Value != nil {
-				value.Value = *constraint.Value
-			}
-			if constraint.FixedPoint != nil {
-				value.FixedX, value.FixedY = constraint.FixedPoint.X, constraint.FixedPoint.Y
-			}
-			for _, reference := range constraint.References {
-				value.References = append(value.References, geometry.SketchReference{Target: reference.Target, EntityID: reference.EntityID,
-					SubElement: reference.SubElement, ControlPointIndex: reference.ControlPointIndex})
-			}
-			input.Constraints = append(input.Constraints, value)
-		}
-		if len(input.Points)+len(input.Lines)+len(input.Circles)+len(input.Arcs)+len(input.Splines) == 0 {
-			sketch.Solve = SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}
-			continue
-		}
-		result, err := service.worker.SolveSketch(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
-		if err != nil {
+		if err := service.solveSketchFeature(ctx, requestID, model, featureIndex); err != nil {
 			return err
 		}
-		if result.Status != geometry.SketchSolveFullyConstrained && result.Status != geometry.SketchSolveUnderConstrained && result.Status != geometry.SketchSolveConflicting && result.Status != geometry.SketchSolveRedundant {
-			return fmt.Errorf("%w: sketch solve %s: %s", ErrValidation, result.Status, result.Diagnostic)
-		}
-		byID := map[string]geometry.SketchPoint{}
-		lines := map[string]geometry.SketchLine{}
-		circles := map[string]geometry.SketchCircle{}
-		arcs := map[string]geometry.SketchArc{}
-		splines := map[string]geometry.SketchSpline{}
-		for _, point := range result.Model.Points {
-			byID[point.ID] = point
-		}
-		for _, line := range result.Model.Lines {
-			lines[line.ID] = line
-		}
-		for _, circle := range result.Model.Circles {
-			circles[circle.ID] = circle
-		}
-		for _, arc := range result.Model.Arcs {
-			arcs[arc.ID] = arc
-		}
-		for _, spline := range result.Model.Splines {
-			splines[spline.ID] = spline
-		}
-		for entityIndex := range sketch.Entities {
-			entity := &sketch.Entities[entityIndex]
-			if entity.Suppressed {
-				continue
-			}
-			if entity.Kind == "POINT" {
-				p := byID[entity.ID]
-				entity.Point = &SketchPoint2{p.X, p.Y}
-			} else if entity.Kind == "LINE" {
-				l := lines[entity.ID]
-				entity.Start = &SketchPoint2{l.StartX, l.StartY}
-				entity.End = &SketchPoint2{l.EndX, l.EndY}
-			} else if entity.Kind == "CIRCLE" {
-				circle := circles[entity.ID]
-				entity.Center, entity.Radius = &SketchPoint2{circle.CenterX, circle.CenterY}, circle.Radius
-			} else if entity.Kind == "ARC" {
-				arc := arcs[entity.ID]
-				entity.Center, entity.Radius = &SketchPoint2{arc.CenterX, arc.CenterY}, arc.Radius
-				entity.StartAngle, entity.EndAngle = arc.StartAngle, arc.EndAngle
-			} else if entity.Kind == "SPLINE" {
-				spline := splines[entity.ID]
-				entity.ControlPoints = entity.ControlPoints[:0]
-				for _, point := range spline.ControlPoints {
-					entity.ControlPoints = append(entity.ControlPoints, SketchPoint2{X: point[0], Y: point[1]})
-				}
-				entity.Degree, entity.Closed = spline.Degree, spline.Closed
-			}
-		}
-		components, err := service.solveSketchComponents(ctx, requestID+"/"+model.Features[featureIndex].ID, input, sketch)
-		if err != nil {
-			return err
-		}
-		sketch.Solve = SketchSolveState{Status: string(result.Status), DefinitionStatus: sketchDefinitionStatus(result.Status, result.DegreesOfFreedom), DegreesOfFreedom: result.DegreesOfFreedom, Diagnostic: result.Diagnostic,
-			ConflictingConstraintIDs: result.ConflictingConstraintIDs, RedundantConstraintIDs: result.RedundantConstraintIDs, Components: components}
 	}
+	return nil
+}
+
+func (service *Service) solveSketchFeature(ctx context.Context, requestID string, model *PartModel, featureIndex int) error {
+	sketch := model.Features[featureIndex].Sketch
+	if sketch == nil || len(sketch.Entities) == 0 {
+		return nil
+	}
+	if service.worker == nil {
+		return fmt.Errorf("%w: geometry worker is required to solve sketches", ErrValidation)
+	}
+	input := geometry.SketchModel{}
+	for _, entity := range sketch.Entities {
+		if entity.Suppressed {
+			continue
+		}
+		switch entity.Kind {
+		case "POINT":
+			input.Points = append(input.Points, geometry.SketchPoint{ID: entity.ID, X: entity.Point.X, Y: entity.Point.Y, Role: entity.Role})
+		case "LINE":
+			input.Lines = append(input.Lines, geometry.SketchLine{ID: entity.ID, StartX: entity.Start.X, StartY: entity.Start.Y, EndX: entity.End.X, EndY: entity.End.Y, Role: entity.Role})
+		case "CIRCLE":
+			input.Circles = append(input.Circles, geometry.SketchCircle{ID: entity.ID, CenterX: entity.Center.X, CenterY: entity.Center.Y, Radius: entity.Radius, Role: entity.Role})
+		case "ARC":
+			input.Arcs = append(input.Arcs, geometry.SketchArc{ID: entity.ID, CenterX: entity.Center.X, CenterY: entity.Center.Y, Radius: entity.Radius, StartAngle: entity.StartAngle, EndAngle: entity.EndAngle, Role: entity.Role})
+		case "SPLINE":
+			value := geometry.SketchSpline{ID: entity.ID, Degree: entity.Degree, Closed: entity.Closed, Role: entity.Role}
+			for _, point := range entity.ControlPoints {
+				value.ControlPoints = append(value.ControlPoints, [2]float64{point.X, point.Y})
+			}
+			input.Splines = append(input.Splines, value)
+		}
+	}
+	for _, constraint := range sketch.Constraints {
+		if constraint.Suppressed {
+			continue
+		}
+		value := geometry.SketchConstraint{ID: constraint.ID, Kind: constraint.Kind, Unit: constraint.Unit, Internal: constraint.Internal}
+		if constraint.Value != nil {
+			value.Value = *constraint.Value
+		}
+		if constraint.FixedPoint != nil {
+			value.FixedX, value.FixedY = constraint.FixedPoint.X, constraint.FixedPoint.Y
+		}
+		for _, reference := range constraint.References {
+			value.References = append(value.References, geometry.SketchReference{Target: reference.Target, EntityID: reference.EntityID,
+				SubElement: reference.SubElement, ControlPointIndex: reference.ControlPointIndex})
+		}
+		input.Constraints = append(input.Constraints, value)
+	}
+	if len(input.Points)+len(input.Lines)+len(input.Circles)+len(input.Arcs)+len(input.Splines) == 0 {
+		sketch.Solve = SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}
+		return nil
+	}
+	result, err := service.worker.SolveSketch(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
+	if err != nil {
+		return err
+	}
+	if result.Status != geometry.SketchSolveFullyConstrained && result.Status != geometry.SketchSolveUnderConstrained && result.Status != geometry.SketchSolveConflicting && result.Status != geometry.SketchSolveRedundant {
+		return fmt.Errorf("%w: sketch solve %s: %s", ErrValidation, result.Status, result.Diagnostic)
+	}
+	byID := map[string]geometry.SketchPoint{}
+	lines := map[string]geometry.SketchLine{}
+	circles := map[string]geometry.SketchCircle{}
+	arcs := map[string]geometry.SketchArc{}
+	splines := map[string]geometry.SketchSpline{}
+	for _, point := range result.Model.Points {
+		byID[point.ID] = point
+	}
+	for _, line := range result.Model.Lines {
+		lines[line.ID] = line
+	}
+	for _, circle := range result.Model.Circles {
+		circles[circle.ID] = circle
+	}
+	for _, arc := range result.Model.Arcs {
+		arcs[arc.ID] = arc
+	}
+	for _, spline := range result.Model.Splines {
+		splines[spline.ID] = spline
+	}
+	for entityIndex := range sketch.Entities {
+		entity := &sketch.Entities[entityIndex]
+		if entity.Suppressed {
+			continue
+		}
+		if entity.Kind == "POINT" {
+			p := byID[entity.ID]
+			entity.Point = &SketchPoint2{p.X, p.Y}
+		} else if entity.Kind == "LINE" {
+			l := lines[entity.ID]
+			entity.Start = &SketchPoint2{l.StartX, l.StartY}
+			entity.End = &SketchPoint2{l.EndX, l.EndY}
+		} else if entity.Kind == "CIRCLE" {
+			circle := circles[entity.ID]
+			entity.Center, entity.Radius = &SketchPoint2{circle.CenterX, circle.CenterY}, circle.Radius
+		} else if entity.Kind == "ARC" {
+			arc := arcs[entity.ID]
+			entity.Center, entity.Radius = &SketchPoint2{arc.CenterX, arc.CenterY}, arc.Radius
+			entity.StartAngle, entity.EndAngle = arc.StartAngle, arc.EndAngle
+		} else if entity.Kind == "SPLINE" {
+			spline := splines[entity.ID]
+			entity.ControlPoints = entity.ControlPoints[:0]
+			for _, point := range spline.ControlPoints {
+				entity.ControlPoints = append(entity.ControlPoints, SketchPoint2{X: point[0], Y: point[1]})
+			}
+			entity.Degree, entity.Closed = spline.Degree, spline.Closed
+		}
+	}
+	components, err := service.solveSketchComponents(ctx, requestID+"/"+model.Features[featureIndex].ID, input, sketch)
+	if err != nil {
+		return err
+	}
+	sketch.Solve = SketchSolveState{Status: string(result.Status), DefinitionStatus: sketchDefinitionStatus(result.Status, result.DegreesOfFreedom), DegreesOfFreedom: result.DegreesOfFreedom, Diagnostic: result.Diagnostic,
+		ConflictingConstraintIDs: result.ConflictingConstraintIDs, RedundantConstraintIDs: result.RedundantConstraintIDs, Components: components}
 	return nil
 }
 

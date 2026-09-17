@@ -31,7 +31,7 @@ try {
   const { SelectionIndex } = await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
   const { resultBodyFeatureTreeNode } = await server.ssrLoadModule("/src/cad/interaction/selection-hierarchy.ts");
   const { SelectionController } = await server.ssrLoadModule("/src/cad/interaction/selection-controller.ts");
-  const { projectSketchFeatureSelection, sketchOverlayVisible } = await server.ssrLoadModule("/src/cad/interaction/selection-mode.ts");
+  const { projectSketchFeatureSelection, sketchContextLayerVisibility, sketchOverlayVisible } = await server.ssrLoadModule("/src/cad/interaction/selection-mode.ts");
   const { closestTreeKey, resolveTreeSelection } = await server.ssrLoadModule("/src/features/workbench/tree-selection.ts");
   const { resolveSketchReference } = await server.ssrLoadModule("/src/cad/interaction/sketch-reference-pick.ts");
   const { constraintDefinition, TOOLBAR_CONSTRAINT_KINDS } = await server.ssrLoadModule("/src/cad/sketch/sketch-constraint-definition.ts");
@@ -61,6 +61,12 @@ try {
     "a consumed profile stays hidden outside Sketcher");
   assert.equal(sketchOverlayVisible("sketch-consumed", "sketch-consumed", false), true,
     "editing temporarily reveals a consumed profile");
+  assert.deepEqual(sketchContextLayerVisibility("sketch-consumed", false),
+    { body: true, environment: false, sketch: true },
+    "direct Part Sketcher keeps the evaluated Body visible while hiding unrelated helpers");
+  assert.deepEqual(sketchContextLayerVisibility("sketch-consumed", true),
+    { body: true, environment: true, sketch: true },
+    "in-context Product editing keeps surrounding occurrence context visible");
   const operations = [];
   const prompts = [];
   const previews = [];

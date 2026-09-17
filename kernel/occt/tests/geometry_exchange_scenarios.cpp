@@ -596,6 +596,251 @@ TEST(GeometryExchange, NamingFixtureXZThroughCutKeepsSixBaseFacesAndAddsFourHole
                             }));
 }
 
+TEST(GeometryExchange, NamingFixturePocketFromPlanarFaceCoversFinalShape) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id = "extrude-base";
+    base.body_id = "body-main";
+    base.profile_feature_id = "sketch-base";
+    base.regions = {rectangular_region("base", 0, 0, 20, 20)};
+    base.pad_length = 10;
+    base.body_operation = "NEW_BODY";
+
+    ProfilePadSpec pocket;
+    pocket.feature_id = "cut-pocket";
+    pocket.body_id = "body-main";
+    pocket.input_feature_id = base.feature_id;
+    pocket.profile_feature_id = "sketch-on-top-face";
+    pocket.regions = {rectangular_region("pocket", 5, 5, 15, 15)};
+    pocket.pad_length = 5;
+    pocket.plane_origin = {0, 0, 10};
+    pocket.plane_normal = {0, 0, 1};
+    pocket.plane_u_direction = {1, 0, 0};
+    pocket.reversed = true;
+    pocket.body_operation = "REMOVE";
+
+    const auto evaluation = kernel.evaluateProfilePadsWithHistory({base, pocket});
+    const auto repeated = kernel.evaluateProfilePadsWithHistory({base, pocket});
+    ASSERT_EQ(evaluation.feature_results.size(), 2U);
+    ASSERT_EQ(repeated.feature_results.size(), 2U);
+    const auto& result = evaluation.feature_results.back();
+    EXPECT_TRUE(result.topology_history_complete);
+    EXPECT_EQ(result.topology_history.evidence_digest,
+              repeated.feature_results.back().topology_history.evidence_digest);
+    ASSERT_EQ(result.semantic_outputs.size(),
+              repeated.feature_results.back().semantic_outputs.size());
+    const auto same_ref = [](const SemanticTopologyRef& left,
+                             const SemanticTopologyRef& right) {
+        return left.feature_id == right.feature_id &&
+               left.output_slot == right.output_slot &&
+               left.source_ids == right.source_ids;
+    };
+    for (std::size_t index = 0; index < result.semantic_outputs.size(); ++index) {
+        EXPECT_TRUE(same_ref(result.semantic_outputs[index].semantic_ref,
+                             repeated.feature_results.back()
+                                 .semantic_outputs[index]
+                                 .semantic_ref));
+    }
+    const auto& topology = kernel.getTopology(evaluation.geometry_id);
+    EXPECT_EQ(result.semantic_outputs.size(), topology.face_count + topology.edge_count +
+                                                  topology.vertex_count);
+    EXPECT_NEAR(kernel.getVolume(evaluation.geometry_id), 3500.0, 1.0e-6);
+
+    ProfileCurveSpec circle;
+    circle.entity_id = "pocket-circle";
+    circle.kind = "CIRCLE";
+    circle.center = {10, 10};
+    circle.radius = 4;
+    ProfileRegionSpec circular_region;
+    circular_region.id = "circular-pocket";
+    circular_region.outer = {"circular-pocket-loop", {circle}};
+    pocket.feature_id = "cut-circular-pocket";
+    pocket.profile_feature_id = "sketch-circle-on-top-face";
+    pocket.regions = {circular_region};
+    const auto circular = kernel.evaluateProfilePadsWithHistory({base, pocket});
+    const auto& circular_result = circular.feature_results.back();
+    const auto& circular_topology = kernel.getTopology(circular.geometry_id);
+    EXPECT_TRUE(circular_result.topology_history_complete);
+    EXPECT_EQ(circular_result.semantic_outputs.size(), circular_topology.face_count +
+                                                           circular_topology.edge_count +
+                                                           circular_topology.vertex_count);
+
+    ProfilePadSpec boss = pocket;
+    boss.feature_id = "add-boss";
+    boss.profile_feature_id = "sketch-boss-on-top-face";
+    boss.regions = {rectangular_region("boss", 5, 5, 15, 15)};
+    boss.reversed = false;
+    boss.body_operation = "ADD";
+    const auto added = kernel.evaluateProfilePadsWithHistory({base, boss});
+    const auto& added_result = added.feature_results.back();
+    const auto& added_topology = kernel.getTopology(added.geometry_id);
+    EXPECT_TRUE(added_result.topology_history_complete);
+    EXPECT_EQ(added_result.semantic_outputs.size(), added_topology.face_count +
+                                                        added_topology.edge_count +
+                                                        added_topology.vertex_count);
+
+    ProfilePadSpec side_pocket = pocket;
+    side_pocket.feature_id = "cut-side-pocket";
+    side_pocket.profile_feature_id = "sketch-side-pocket-on-top-face";
+    side_pocket.regions = {rectangular_region("side-pocket", 0, 5, 10, 15)};
+    const auto opened = kernel.evaluateProfilePadsWithHistory({base, side_pocket});
+    const auto& opened_result = opened.feature_results.back();
+    const auto& opened_topology = kernel.getTopology(opened.geometry_id);
+    EXPECT_TRUE(opened_result.topology_history_complete);
+    EXPECT_EQ(opened_result.semantic_outputs.size(), opened_topology.face_count +
+                                                         opened_topology.edge_count +
+                                                         opened_topology.vertex_count);
+
+    ProfilePadSpec side_face_pocket = pocket;
+    side_face_pocket.feature_id = "cut-from-side-face";
+    side_face_pocket.profile_feature_id = "sketch-on-side-face";
+    side_face_pocket.regions = {rectangular_region("side-face-pocket", 5, 2, 15, 8)};
+    side_face_pocket.plane_origin = {20, 0, 0};
+    side_face_pocket.plane_normal = {1, 0, 0};
+    side_face_pocket.plane_u_direction = {0, 1, 0};
+    side_face_pocket.reversed = true;
+    const auto side_cut = kernel.evaluateProfilePadsWithHistory({base, side_face_pocket});
+    const auto& side_cut_result = side_cut.feature_results.back();
+    const auto& side_cut_topology = kernel.getTopology(side_cut.geometry_id);
+    EXPECT_TRUE(side_cut_result.topology_history_complete);
+    EXPECT_EQ(side_cut_result.semantic_outputs.size(), side_cut_topology.face_count +
+                                                           side_cut_topology.edge_count +
+                                                           side_cut_topology.vertex_count);
+
+    ProfileCurveSpec annulus_outer;
+    annulus_outer.entity_id = "annulus-outer";
+    annulus_outer.kind = "CIRCLE";
+    annulus_outer.center = {10, 10};
+    annulus_outer.radius = 6;
+    ProfileCurveSpec annulus_inner = annulus_outer;
+    annulus_inner.entity_id = "annulus-inner";
+    annulus_inner.radius = 2;
+    annulus_inner.reversed = true;
+    ProfileRegionSpec annulus;
+    annulus.id = "annular-pocket";
+    annulus.outer = {"annulus-outer-loop", {annulus_outer}};
+    annulus.holes = {{"annulus-inner-loop", {annulus_inner}}};
+    ProfilePadSpec annular_pocket = pocket;
+    annular_pocket.feature_id = "cut-annular-pocket";
+    annular_pocket.profile_feature_id = "sketch-annulus-on-top-face";
+    annular_pocket.regions = {annulus};
+    const auto annular = kernel.evaluateProfilePadsWithHistory({base, annular_pocket});
+    const auto& annular_result = annular.feature_results.back();
+    const auto& annular_topology = kernel.getTopology(annular.geometry_id);
+    EXPECT_TRUE(annular_result.topology_history_complete);
+    EXPECT_EQ(annular_result.semantic_outputs.size(), annular_topology.face_count +
+                                                          annular_topology.edge_count +
+                                                          annular_topology.vertex_count);
+
+    ProfilePadSpec two_pockets = pocket;
+    two_pockets.feature_id = "cut-two-pockets";
+    two_pockets.profile_feature_id = "sketch-two-pockets-on-top-face";
+    two_pockets.regions = {rectangular_region("pocket-left", 2, 5, 7, 15),
+                           rectangular_region("pocket-right", 13, 5, 18, 15)};
+    const auto doubled = kernel.evaluateProfilePadsWithHistory({base, two_pockets});
+    const auto& doubled_result = doubled.feature_results.back();
+    const auto& doubled_topology = kernel.getTopology(doubled.geometry_id);
+    EXPECT_TRUE(doubled_result.topology_history_complete);
+    EXPECT_EQ(doubled_result.semantic_outputs.size(), doubled_topology.face_count +
+                                                          doubled_topology.edge_count +
+                                                          doubled_topology.vertex_count);
+
+    ProfileCurveSpec arc;
+    arc.entity_id = "pocket-arc";
+    arc.kind = "ARC";
+    arc.center = {10, 10};
+    arc.radius = 5;
+    arc.start_angle = 0;
+    arc.end_angle = 3.14159265358979323846;
+    ProfileCurveSpec diameter;
+    diameter.entity_id = "pocket-diameter";
+    diameter.kind = "LINE";
+    diameter.start = {5, 10};
+    diameter.end = {15, 10};
+    ProfileRegionSpec semicircle;
+    semicircle.id = "semicircle-pocket";
+    semicircle.outer = {"semicircle-pocket-loop", {arc, diameter}};
+    ProfilePadSpec arc_pocket = pocket;
+    arc_pocket.feature_id = "cut-arc-pocket";
+    arc_pocket.profile_feature_id = "sketch-arc-on-top-face";
+    arc_pocket.regions = {semicircle};
+    const auto arced = kernel.evaluateProfilePadsWithHistory({base, arc_pocket});
+    const auto& arced_result = arced.feature_results.back();
+    const auto& arced_topology = kernel.getTopology(arced.geometry_id);
+    EXPECT_TRUE(arced_result.topology_history_complete);
+    EXPECT_EQ(arced_result.semantic_outputs.size(), arced_topology.face_count +
+                                                        arced_topology.edge_count +
+                                                        arced_topology.vertex_count);
+
+    ProfileCurveSpec spline;
+    spline.entity_id = "pocket-spline";
+    spline.kind = "SPLINE";
+    spline.control_points = {{5, 10}, {8, 5}, {15, 8}, {14, 15}, {7, 15}};
+    spline.degree = 3;
+    spline.closed = true;
+    ProfileRegionSpec spline_region;
+    spline_region.id = "spline-pocket";
+    spline_region.outer = {"spline-pocket-loop", {spline}};
+    ProfilePadSpec spline_pocket = pocket;
+    spline_pocket.feature_id = "cut-spline-pocket";
+    spline_pocket.profile_feature_id = "sketch-spline-on-top-face";
+    spline_pocket.regions = {spline_region};
+    const auto splined = kernel.evaluateProfilePadsWithHistory({base, spline_pocket});
+    const auto& splined_result = splined.feature_results.back();
+    const auto& splined_topology = kernel.getTopology(splined.geometry_id);
+    EXPECT_TRUE(splined_result.topology_history_complete);
+    EXPECT_EQ(splined_result.semantic_outputs.size(), splined_topology.face_count +
+                                                          splined_topology.edge_count +
+                                                          splined_topology.vertex_count);
+}
+
+TEST(GeometryExchange, NamingFixturePocketFromObliquePlanarFaceCoversFinalShape) {
+    OcctKernel kernel;
+    const std::vector<Vec2> triangle{{0, 0}, {20, 0}, {0, 20}};
+    ProfileRegionSpec triangular_region;
+    triangular_region.id = "triangular-base";
+    triangular_region.outer.id = "triangular-base-loop";
+    for (std::size_t index = 0; index < triangle.size(); ++index) {
+        ProfileCurveSpec edge;
+        edge.entity_id = "triangle-edge-" + std::to_string(index);
+        edge.kind = "LINE";
+        edge.start = triangle[index];
+        edge.end = triangle[(index + 1) % triangle.size()];
+        triangular_region.outer.curves.push_back(edge);
+    }
+    ProfilePadSpec base;
+    base.feature_id = "extrude-triangular-base";
+    base.body_id = "body-main";
+    base.profile_feature_id = "sketch-triangular-base";
+    base.regions = {triangular_region};
+    base.pad_length = 10;
+    base.body_operation = "NEW_BODY";
+
+    const double inverse_sqrt_two = 1.0 / std::sqrt(2.0);
+    ProfilePadSpec pocket;
+    pocket.feature_id = "cut-oblique-face-pocket";
+    pocket.body_id = "body-main";
+    pocket.input_feature_id = base.feature_id;
+    pocket.profile_feature_id = "sketch-on-oblique-face";
+    pocket.regions = {rectangular_region("oblique-pocket", 5, 2, 15, 8)};
+    pocket.pad_length = 5;
+    pocket.plane_origin = {20, 0, 0};
+    pocket.plane_normal = {inverse_sqrt_two, inverse_sqrt_two, 0};
+    pocket.plane_u_direction = {-inverse_sqrt_two, inverse_sqrt_two, 0};
+    pocket.reversed = true;
+    pocket.body_operation = "REMOVE";
+
+    const auto evaluation = kernel.evaluateProfilePadsWithHistory({base, pocket});
+    ASSERT_EQ(evaluation.feature_results.size(), 2U);
+    const auto& result = evaluation.feature_results.back();
+    const auto& topology = kernel.getTopology(evaluation.geometry_id);
+    EXPECT_TRUE(result.topology_history_complete);
+    EXPECT_EQ(result.semantic_outputs.size(), topology.face_count + topology.edge_count +
+                                                  topology.vertex_count);
+    EXPECT_LT(kernel.getVolume(evaluation.geometry_id),
+              kernel.getVolume(kernel.evaluateProfilePads({base})));
+}
+
 TEST(GeometryExchange, SolidFeatureChainFusesAndCutsOneBody) {
     OcctKernel kernel;
     ProfilePadSpec base;

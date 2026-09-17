@@ -8,7 +8,7 @@ import (
 func performanceSketch(circleCount int) PartModel {
 	model := newPartModel()
 	sketch := Feature{ID: "perf-sketch", Type: "SKETCH", Plane: "XY", Sketch: &SketchFeature{
-		SchemaVersion: 1, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xy", Plane: "XY"},
+		SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xy", Plane: "XY"},
 		Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "UNDER_CONSTRAINED"},
 	}}
 	for index := 0; index < circleCount; index++ {

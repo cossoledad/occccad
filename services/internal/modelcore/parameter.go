@@ -12,9 +12,10 @@ import (
 )
 
 var (
-	ErrParameterType = errors.New("PARAMETER_TYPE_MISMATCH")
-	ErrUnitMismatch  = errors.New("UNIT_MISMATCH")
-	ErrExpression    = errors.New("EXPRESSION_INVALID")
+	ErrParameterType    = errors.New("PARAMETER_TYPE_MISMATCH")
+	ErrParameterMissing = errors.New("PARAMETER_NOT_FOUND")
+	ErrUnitMismatch     = errors.New("UNIT_MISMATCH")
+	ErrExpression       = errors.New("EXPRESSION_INVALID")
 )
 
 type Dimension struct {
@@ -99,13 +100,15 @@ const (
 )
 
 type ParameterDefinition struct {
-	ParameterID string      `json:"parameterId"`
-	Key         string      `json:"key"`
-	Label       string      `json:"label"`
-	ValueType   ValueType   `json:"valueType"`
-	Dimension   Dimension   `json:"dimension"`
-	Role        string      `json:"role"`
-	Source      ValueSource `json:"source"`
+	ParameterID    string      `json:"parameterId"`
+	Key            string      `json:"key"`
+	Label          string      `json:"label"`
+	ValueType      ValueType   `json:"valueType"`
+	Dimension      Dimension   `json:"dimension"`
+	DisplayUnit    string      `json:"displayUnit"`
+	Role           string      `json:"role"`
+	Source         ValueSource `json:"source"`
+	EvaluatedValue *Quantity   `json:"evaluatedValue,omitempty"`
 }
 
 type ValueSource struct {
@@ -183,6 +186,50 @@ func CompileExpression(source string, names map[string]ParameterBinding, expecte
 
 func EvaluateExpression(expression TypedExpression, values map[string]Quantity) (Quantity, error) {
 	return evaluateAST(&expression.CheckedAST, values)
+}
+
+// FormatExpression renders the checked, stable-ID AST with the current readable
+// parameter keys. It never rebinds names and is therefore safe after rename.
+func FormatExpression(expression TypedExpression, keys map[string]string) (string, error) {
+	var format func(*ASTNode) (string, error)
+	format = func(node *ASTNode) (string, error) {
+		if node == nil {
+			return "", fmt.Errorf("%w: missing AST node", ErrExpression)
+		}
+		switch node.Kind {
+		case "PARAMETER":
+			key := keys[node.ParameterID]
+			if key == "" {
+				return "", fmt.Errorf("%w: %s", ErrParameterMissing, node.ParameterID)
+			}
+			return key, nil
+		case "LITERAL":
+			if node.Quantity == nil {
+				return "", fmt.Errorf("%w: literal has no value", ErrExpression)
+			}
+			value, unit := node.Quantity.SIValue, ""
+			switch node.Quantity.Dimension {
+			case LengthDimension:
+				value, unit = value*1000, " mm"
+			case AngleDimension:
+				value, unit = value*180/math.Pi, " deg"
+			}
+			return strconv.FormatFloat(value, 'g', -1, 64) + unit, nil
+		case "BINARY":
+			left, err := format(node.Left)
+			if err != nil {
+				return "", err
+			}
+			right, err := format(node.Right)
+			if err != nil {
+				return "", err
+			}
+			return "(" + left + " " + node.Operator + " " + right + ")", nil
+		default:
+			return "", fmt.Errorf("%w: unsupported AST node %s", ErrExpression, node.Kind)
+		}
+	}
+	return format(&expression.CheckedAST)
 }
 
 func evaluateAST(node *ASTNode, values map[string]Quantity) (Quantity, error) {

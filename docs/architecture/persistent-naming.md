@@ -20,7 +20,7 @@ Feature / Body / profile entity stable IDs
 
 - Persistent identity never uses OCCT pointer, traversal index, mesh primitive, coordinates alone or display name.
 - A raw Face/Edge/Vertex local ID identifies only one geometry artifact and is accepted only as verified creation/reconnect evidence.
-- Semantic outputs derive from stable Feature/Profile identities and actual OCCT history. Boolean/unify lineage must preserve Generated/Modified/Unchanged/Split/Merged/Deleted meaning.
+- Semantic outputs derive from stable Feature/Profile identities and actual OCCT history. Boolean/unify first preserves Generated/Modified/Unchanged/Split/Merged/Deleted evidence; a policy-versioned closure may name only otherwise-uncovered final intersection topology from already named semantic adjacency, without rewriting primary ancestry.
 - Naming policy contains explicit length/angle tolerance and version digest. It participates in request, manifest and cache identity.
 - Complete history covers every live final topology element exactly once and rejects conflicting live/tombstone or duplicate semantic/local identities.
 - Ambiguity is a result, not permission to select the first candidate. Deleted topology remains a tombstone; repair is explicit Reconnect.

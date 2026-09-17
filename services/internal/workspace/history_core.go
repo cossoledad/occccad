@@ -257,10 +257,22 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 						result[change.Target], _ = json.Marshal(feature.Sketch)
 					}
 				}
-			case "parameter.source":
+			case "parameter.source", "sketch.dimension.value":
 				for _, parameter := range model.Parameters {
 					if parameter.ParameterID == change.Target.EntityID {
 						result[change.Target], _ = json.Marshal(parameter.Source)
+					}
+				}
+			case "parameter.entity":
+				for _, parameter := range model.Parameters {
+					if parameter.ParameterID == change.Target.EntityID {
+						result[change.Target], _ = json.Marshal(parameter)
+					}
+				}
+			case "parameter.key":
+				for _, parameter := range model.Parameters {
+					if parameter.ParameterID == change.Target.EntityID {
+						result[change.Target], _ = json.Marshal(parameter.Key)
 					}
 				}
 			case "pad.length":
@@ -388,13 +400,44 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 					return nil, err
 				}
 				model.Features[index].Sketch = &sketch
-			case "parameter.source":
+			case "parameter.source", "sketch.dimension.value":
 				for i := range model.Parameters {
 					if model.Parameters[i].ParameterID == address.EntityID {
 						if err := json.Unmarshal(value, &model.Parameters[i].Source); err != nil {
 							return nil, err
 						}
 					}
+				}
+			case "parameter.entity":
+				index := slices.IndexFunc(model.Parameters, func(item modelcore.ParameterDefinition) bool { return item.ParameterID == address.EntityID })
+				if len(value) == 0 || string(value) == "null" {
+					if index >= 0 {
+						model.Parameters = append(model.Parameters[:index], model.Parameters[index+1:]...)
+					}
+				} else {
+					var parameter modelcore.ParameterDefinition
+					if err := json.Unmarshal(value, &parameter); err != nil {
+						return nil, err
+					}
+					if index >= 0 {
+						model.Parameters[index] = parameter
+					} else {
+						model.Parameters = append(model.Parameters, parameter)
+					}
+				}
+			case "parameter.key":
+				found := false
+				for i := range model.Parameters {
+					if model.Parameters[i].ParameterID == address.EntityID {
+						if err := json.Unmarshal(value, &model.Parameters[i].Key); err != nil {
+							return nil, err
+						}
+						found = true
+						break
+					}
+				}
+				if !found {
+					return nil, fmt.Errorf("%w: parameter was deleted", ErrValidation)
 				}
 			case "pad.length":
 				parameterID := "parameter:" + address.EntityID + ":length"

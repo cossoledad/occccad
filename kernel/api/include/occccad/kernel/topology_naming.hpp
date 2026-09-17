@@ -19,14 +19,14 @@ namespace occccad::kernel {
 
 inline constexpr std::uint32_t topology_naming_schema_version = 1;
 inline constexpr std::string_view topology_naming_policy_id = "occccad.topology.naming.v1";
-inline constexpr std::string_view topology_evaluator_version = "occccad.topology.contract.v2";
+inline constexpr std::string_view topology_evaluator_version = "occccad.topology.contract.v3";
 inline constexpr double topology_linear_tolerance_meters = 1.0e-7;
 inline constexpr double topology_angular_tolerance_radians = 1.0e-9;
 // SHA-256 of:
-// schema=1|policy=occccad.topology.naming.v1|evaluator=occccad.topology.contract.v2|
+// schema=1|policy=occccad.topology.naming.v1|evaluator=occccad.topology.contract.v3|
 // linear_tolerance_meters=1e-7|angular_tolerance_radians=1e-9
 inline constexpr std::string_view topology_naming_policy_digest =
-    "sha256:d13c17a4742f44ae1687645f08e9462f40f97c9422ec4a260617c3a4d4e7bd4d";
+    "sha256:72df3713df1ae31927ec7fa8070f97f451ba573de20043a9cd65543b5c83c13b";
 
 enum class PersistentTopologyType : std::uint8_t { unspecified, face, edge, vertex };
 enum class SelectionRecipeKind : std::uint8_t {

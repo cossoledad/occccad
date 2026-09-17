@@ -240,10 +240,17 @@ export const restApi = {
       method: "POST", signal, body: JSON.stringify(input),
     });
   },
-  createSketch: (documentId: string, plane: string, datumPlaneId?: string) =>
-    restApi.command(documentId, { type: "CREATE_SKETCH", plane, datumPlaneId }),
+  createSketch: (documentId: string, support: { plane?: string; datumPlaneId?: string; targetKind?: "FACE";
+      geometryKey?: string; topologyId?: number; versionId?: string }) =>
+    restApi.command(documentId, { type: "CREATE_SKETCH", ...support }),
   editSketch: (documentId: string, sketchId: string, operations: SketchOperation[]) =>
     restApi.command(documentId, { type: "EDIT_SKETCH", sketchId, operations }),
+  setParameterValue: (documentId: string, parameterId: string, value: number, unit: string) =>
+    restApi.command(documentId, { type: "SET_PARAMETER_VALUE", parameterId, value, unit }),
+  setParameterExpression: (documentId: string, parameterId: string, expression: string) =>
+    restApi.command(documentId, { type: "SET_PARAMETER_EXPRESSION", parameterId, expression }),
+  renameParameter: (documentId: string, parameterId: string, name: string) =>
+    restApi.command(documentId, { type: "RENAME_PARAMETER", parameterId, name }),
   deleteNode: (documentId: string, targetKind: string, targetId: string, ownerEntityId?: string) =>
     restApi.command(documentId, { type: "DELETE_NODE", targetKind, targetId, ownerEntityId }),
   deleteNodes: (documentId: string, targets: Array<{ targetKind: string; targetId: string; ownerEntityId?: string }>) =>

@@ -8,7 +8,7 @@ import { InteractionRouter } from "../cad/interaction/interaction-router";
 import { SelectionController } from "../cad/interaction/selection-controller";
 import { SelectionIndex } from "../cad/interaction/selection-index";
 import { AssemblyManipulator, type ManipulatorAnchor } from "../cad/interaction/assembly-manipulator";
-import { projectSketchFeatureSelection, selectionModeForTool, sketchOverlayVisible, type SelectionMode } from "../cad/interaction/selection-mode";
+import { projectSketchFeatureSelection, selectionModeForTool, sketchContextLayerVisibility, sketchOverlayVisible, type SelectionMode } from "../cad/interaction/selection-mode";
 import { sameSelection, sameSelections, selectionKey } from "../cad/interaction/selection-identity";
 import { resultBodyFeatureTreeNode } from "../cad/interaction/selection-hierarchy";
 import { resolveSketchReference, type SketchReferencePickKind } from "../cad/interaction/sketch-reference-pick";
@@ -1325,9 +1325,10 @@ export class CadViewportEngine {
   private updateSketchContextVisibility(): void {
     const editing = Boolean(this.sketchPlane && this.activeSketchID);
     const inContext = Boolean(this.editContext?.occurrencePath);
-    this.environment.visible = !editing || inContext;
-    this.content.visible = !editing || inContext;
-    this.sketchContext.visible = editing;
+    const layers = sketchContextLayerVisibility(editing ? this.activeSketchID : undefined, inContext);
+    this.environment.visible = layers.environment;
+    this.content.visible = layers.body;
+    this.sketchContext.visible = layers.sketch;
     for (const child of this.helpers.children) {
       if (child.userData.visualizationPrimitive) {
         child.visible = !editing;
@@ -1347,8 +1348,13 @@ export class CadViewportEngine {
     const support = feature.sketch?.support;
     const datum = sourceView?.datumPlanes?.find((candidate) => candidate.id === support?.datumPlaneId)
       ?? sourceView?.artifact?.visualization.referenceGeometry.datumPlanes?.find((candidate) => candidate.id === support?.datumPlaneId);
-    const plane: PlaneName | SketchPlane = datum ? { datumPlaneId: datum.id, plane: datum.plane, origin: datum.origin,
-      normal: datum.normal, uDirection: datum.uDirection } : (support?.plane as PlaneName ?? feature.plane ?? "XY");
+    const facePlane: SketchPlane | undefined = support?.type === "PLANAR_FACE" && support.status !== "FAILED_SUPPORT" &&
+      support.origin && support.normal && support.xDirection
+      ? { datumPlaneId: `face:${support.persistentSelection?.anchor.featureId ?? feature.id}`, plane: "CUSTOM",
+          origin: support.origin, normal: support.normal, uDirection: support.xDirection }
+      : undefined;
+    const plane: PlaneName | SketchPlane = facePlane ?? (datum ? { datumPlaneId: datum.id, plane: datum.plane, origin: datum.origin,
+      normal: datum.normal, uDirection: datum.uDirection } : (support?.plane as PlaneName ?? feature.plane ?? "XY"));
     const group = new THREE.Group();
     if (translation) group.position.fromArray(translation);
     if (rotation) group.quaternion.fromArray(rotation);

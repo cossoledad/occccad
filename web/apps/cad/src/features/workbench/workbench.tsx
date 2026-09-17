@@ -32,6 +32,7 @@ import { SpecificationTree, type SpecificationTreeNode } from "./specification-t
 import { followedDocumentIDs, staleProductDocumentIDs } from "./product-edit-context";
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { parseLengthInput } from "./length-input";
+import { parameterSourceText, parseParameterSource } from "./parameter-editor";
 import { History, Properties } from "./workbench-inspector";
 import { findStructureEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
 import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
@@ -49,6 +50,11 @@ function sketchPlane(datum: DatumPlane): SketchPlane {
 }
 
 function featureSketchPlane(view: DocumentView, feature: Feature): SketchPlane | undefined {
+	const support = feature.sketch?.support;
+	if (support?.type === "PLANAR_FACE" && support.status !== "FAILED_SUPPORT" && support.origin && support.normal && support.xDirection) {
+		return { datumPlaneId: `face:${support.persistentSelection?.anchor.featureId ?? feature.id}`,
+			plane: "CUSTOM", origin: support.origin, normal: support.normal, uDirection: support.xDirection };
+	}
   const datum = view.datumPlanes?.find((candidate) => candidate.id === feature.sketch?.support.datumPlaneId)
     ?? view.part?.datumPlanes.find((candidate) => candidate.id === feature.sketch?.support.datumPlaneId);
   return datum ? sketchPlane(datum) : undefined;
@@ -165,6 +171,7 @@ export function Workbench() {
   const [versionOpen, setVersionOpen] = useState(false);
   const [datumPlaneOpen, setDatumPlaneOpen] = useState(false);
   const [datumAxisOpen, setDatumAxisOpen] = useState(false);
+  const [editingParameterID, setEditingParameterID] = useState<string>();
   const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: AssemblyConstraintToolKind; references: AssemblyGeometryRef[]; angleReferenceDirection?: Vec3 }>();
   const [editingAssemblyConstraint, setEditingAssemblyConstraint] = useState<AssemblyConstraint>();
   const [replacingAssemblyReference, setReplacingAssemblyReference] = useState<0 | 1>();
@@ -190,6 +197,7 @@ export function Workbench() {
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
   const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
   const [datumAxisForm] = Form.useForm<{ name: string; ox: number; oy: number; oz: number; dx: number; dy: number; dz: number }>();
+  const [parameterForm] = Form.useForm<{ key: string; source: string }>();
   const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string }>();
   const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
   const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
@@ -484,11 +492,22 @@ export function Workbench() {
       if (feature && plane) store.beginSketch(feature.id, plane);
       return;
     }
+    if (store.selection.kind === "face") {
+	  const selection = store.selection;
+	  if (!selection.geometryKey || !selection.topologyId) return;
+	  command.mutate(() => api.createSketch(editingView.document.id, { targetKind: "FACE", geometryKey: selection.geometryKey,
+		  topologyId: selection.topologyId, versionId: selection.versionId ?? editingView.document.versionId }), { onSuccess: (updated) => {
+		const sketch = [...(updated.part?.features ?? [])].reverse().find((candidate) => candidate.type.toUpperCase() === "SKETCH");
+		const localPlane = sketch ? featureSketchPlane(updated, sketch) : undefined;
+		if (sketch && localPlane) store.beginSketch(sketch.id, occurrenceSketchPlane(localPlane, activeResolvedInstance?.translation, activeResolvedInstance?.rotation));
+	  }});
+	  return;
+	}
     if (store.selection.kind !== "plane") return;
     const datum = store.selection.datumPlane ?? editingView.datumPlanes?.find((candidate) => store.selection?.id.endsWith(candidate.id));
     if (!datum) return;
     const plane = occurrenceSketchPlane(sketchPlane(datum), activeResolvedInstance?.translation, activeResolvedInstance?.rotation);
-    command.mutate(() => api.createSketch(editingView.document.id, datum.plane, datum.id), { onSuccess: (updated) => {
+    command.mutate(() => api.createSketch(editingView.document.id, { plane: datum.plane, datumPlaneId: datum.id }), { onSuccess: (updated) => {
       const sketch = [...(updated.part?.features ?? [])].reverse().find((feature) => feature.type.toUpperCase() === "SKETCH");
       if (sketch) store.beginSketch(sketch.id, plane);
     }});
@@ -650,7 +669,7 @@ export function Workbench() {
       commandRegistry.register({ id: "assembly.move", execute: () => store.setActiveTool("assembly.move", "continuous"),
         isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit), isActive: () => store.activeToolID === "assembly.move" }),
       commandRegistry.register({ id: "sketch.start", execute: startSketch,
-        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && (store.selection?.kind === "plane" || store.selection?.kind === "sketch")) }),
+		isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && (["plane", "sketch", "face"].includes(store.selection?.kind ?? ""))) }),
       commandRegistry.register({ id: "sketch.finish", execute: finishSketch,
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit) }),
       ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,invocation?.continuous?"continuous":"once"),
@@ -698,6 +717,25 @@ export function Workbench() {
     store.activeToolID, store.navigationProfile, command.isPending]);
 
   const selected = selectedFeature(editingView ?? {} as DocumentView, store.selection);
+  const openParameterEditor = (parameterID: string) => {
+	const parameter = editingView?.part?.parameters?.find((candidate) => candidate.parameterId === parameterID);
+	if (!parameter) return;
+	parameterForm.setFieldsValue({key:parameter.key,source:parameterSourceText(parameter)}); setEditingParameterID(parameterID);
+  };
+  const commitParameterEdit = async () => {
+	if (!editingView || !editingParameterID) return;
+	const values = await parameterForm.validateFields();
+	const current = editingView.part?.parameters?.find((candidate) => candidate.parameterId === editingParameterID);
+	command.mutate(async () => {
+		let updated = editingView;
+		if (current && current.key !== values.key) updated = await api.renameParameter(editingView.document.id, editingParameterID, values.key);
+		const source = parseParameterSource(values.source);
+		updated = source.kind === "LITERAL"
+			? await api.setParameterValue(editingView.document.id, editingParameterID, source.value, source.unit)
+			: await api.setParameterExpression(editingView.document.id, editingParameterID, source.expression);
+		return updated;
+	}, {onSuccess:()=>setEditingParameterID(undefined)});
+  };
   if (document.isLoading) return <div className="workbench-loading"><Spin size="large" /></div>;
   if (!view) return <Empty description="无法打开文档" />;
 
@@ -835,7 +873,7 @@ export function Workbench() {
             ? <Properties view={editingView ?? view} selection={store.selection} feature={selected}
               workbench={activeWorkbench} sketchPlane={store.sketchPlane} activeTool={store.activeToolID}
               navigationProfile={store.navigationProfile} diagnostics={properties.data}
-              topology={topology.data} topologyLoading={topology.isLoading} />
+			  topology={topology.data} topologyLoading={topology.isLoading} onEditParameter={openParameterEditor} />
             : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}</div>
         </aside>
       </section></main>
@@ -926,6 +964,15 @@ export function Workbench() {
 			onBlur={()=>void requestFeaturePreview()} onPressEnter={(event)=>{event.preventDefault();void commitFeatureEdit();}} /></Form.Item>
 		{featurePreviewError&&<Alert type="error" showIcon message="编辑预览失败" description={featurePreviewError}/>}
 		<small className="cad-command-hint">{featurePreviewPending?"后端正在求值预览…":"离开输入框刷新瞬态预览；按 Enter 或确定提交一个 Revision。"}</small></Form>
+	</CommandDialog>
+	<CommandDialog id="parameter-edit" open={Boolean(editingParameterID)} title="编辑参数" onClose={() => setEditingParameterID(undefined)}
+		confirmLoading={command.isPending} onConfirm={commitParameterEdit}>
+		<Form form={parameterForm} layout="vertical">
+			<Form.Item name="key" label="可读别名" rules={[{required:true,pattern:/^[A-Za-z_][A-Za-z0-9_]*$/,
+				message:"请输入 ASCII 标识符"}]}><Input /></Form.Item>
+			<Form.Item name="source" label="值或表达式" rules={[{required:true}]}><Input placeholder="40 mm 或 base_width / 2" /></Form.Item>
+			<small className="cad-command-hint">表达式按当前 Part 的参数别名编辑；提交后 AST 绑定稳定 ParameterId，后续重命名不会破坏引用。</small>
+		</Form>
 	</CommandDialog>
     <CommandDialog id="insert" open={insertOpen} title="插入 Part / Product" onClose={() => setInsertOpen(false)}
       confirmLoading={command.isPending} onConfirm={async () => insertDocument(await insertForm.validateFields())}>

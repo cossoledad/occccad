@@ -33,6 +33,7 @@
 
 - [Model、Command 与 History](architecture/model-history.md)：Revision、ChangeSet、Undo/Redo、依赖和最终 CAS；
 - [Persistent Naming](architecture/persistent-naming.md)：TopologyHistory、PersistentSelection、Reconnect 与歧义；
+- [Part Feature 求值与 Sketch 上下文](architecture/part-feature-evaluation.md)：Sketch 编辑态场景分层、BodyOperation、Boolean history closure 与完整 Shape 门禁；
 - [Worker Contracts](architecture/worker-contracts.md)：Proto、Worker/Router、Artifact、Job 与迟到结果门禁；
 - [Agent Efficiency](architecture/agent-efficiency.md)：上下文、验证、输出、指标与后续结构优化。
 
