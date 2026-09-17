@@ -19,6 +19,7 @@ try {
     LineSketchTool,
     PointSketchTool,
     PolylineSketchTool,
+    ProjectExternalGeometrySketchTool,
     RectangleSketchTool,
     SplineSketchTool,
     SlotSketchTool,
@@ -62,10 +63,10 @@ try {
   assert.equal(sketchOverlayVisible("sketch-consumed", "sketch-consumed", false), true,
     "editing temporarily reveals a consumed profile");
   assert.deepEqual(sketchContextLayerVisibility("sketch-consumed", false),
-    { body: true, environment: false, sketch: true },
+    { body: true, lighting: true, environment: false, sketch: true },
     "direct Part Sketcher keeps the evaluated Body visible while hiding unrelated helpers");
   assert.deepEqual(sketchContextLayerVisibility("sketch-consumed", true),
-    { body: true, environment: true, sketch: true },
+    { body: true, lighting: true, environment: true, sketch: true },
     "in-context Product editing keeps surrounding occurrence context visible");
   const operations = [];
   const prompts = [];
@@ -73,6 +74,7 @@ try {
   const dimensionRequests = [];
   let snapReference;
   let completions = 0;
+  const externalSelections = [];
   const references = [
     { target: "ENTITY", entityId: "line-a", subElement: "END" },
     { target: "ENTITY", entityId: "line-b", subElement: "START" },
@@ -102,6 +104,10 @@ try {
     clearReferencePreview: () => previews.push("clear-reference"),
     setToolPrompt: (value) => prompts.push(value),
     finishToolUse: () => { completions += 1; },
+    selectionAt: () => null,
+    commitExternalProjection: (selection) => externalSelections.push(selection),
+    retainSelections: () => {}, requestAssemblyConstraint: () => {},
+    moveManipulatorPointerDown:()=>false,moveManipulatorPointerMove:()=>false,moveManipulatorPointerUp:()=>false,
   };
   const context = { viewport };
   const pointer = (x, y, phase = "move") => ({
@@ -117,6 +123,14 @@ try {
     state: { buttons: { left: false, middle: false, right: false },
       modifiers: { ctrl: false, shift: false, alt: false, meta: false }, keys: new Set(), pointer: { x, y, deltaX: 0, deltaY: 0 } },
   });
+
+  const projection = new ProjectExternalGeometrySketchTool();
+  viewport.selectionAt = () => ({kind:"edge",id:"edge",topologyId:17,geometryKey:"geometry",versionId:"revision"});
+  projection.activate(context);
+  assert.equal(projection.pointerDown(pointer(4,4,"down"),context),"capture");
+  projection.pointerUp(pointer(4,4,"up"),context);
+  assert.equal(externalSelections[0].topologyId,17,"projection tool must preserve the stable topology pick for binding");
+  completions = 0;
 
   const rectangle = new RectangleSketchTool();
   rectangle.activate(context);

@@ -50,6 +50,11 @@ func (sketchWorkerStub) SolveSketch(_ context.Context, request *workerv1.SolveSk
 	}, nil
 }
 
+func (sketchWorkerStub) ProjectExternalGeometry(_ context.Context, request *workerv1.ProjectExternalGeometryRequest) (*workerv1.ProjectExternalGeometryResponse, error) {
+	return &workerv1.ProjectExternalGeometryResponse{Status: "CONNECTED", SourceDigest: request.GetSource().GetEvidence().GetEvidenceDigest(),
+		GeometryKind: "POINT", Point: &workerv1.Vec2{X: 2, Y: 3}}, nil
+}
+
 func (sketchWorkerStub) SolveAssembly(_ context.Context, request *workerv1.SolveAssemblyRequest) (*workerv1.SolveAssemblyResponse, error) {
 	diagnostic := request.GetSolveIntent().GetPreferencePolicy()
 	if request.GetSolverProfile().GetSchemaVersion() == 2 {
@@ -111,6 +116,28 @@ func TestGeometryPoolRoutesSolveSketch(t *testing.T) {
 	}
 	if response.GetStatus() != "UNDER_CONSTRAINED" || response.GetDegreesOfFreedom() != 4 {
 		t.Fatalf("unexpected routed response: %#v", response)
+	}
+}
+
+func TestGeometryPoolRoutesExternalGeometryProjection(t *testing.T) {
+	address := serveGeometry(t, sketchWorkerStub{})
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{})
+	if err := pool.SetDebugAddress(address); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	serverAddress := serveGeometry(t, pool)
+	connection, err := grpc.NewClient(serverAddress, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	response, err := workerv1.NewGeometryWorkerClient(connection).ProjectExternalGeometry(t.Context(),
+		&workerv1.ProjectExternalGeometryRequest{RequestId: "project-1", ProjectionKind: "ORTHOGONAL",
+			Source: &workerv1.ResolvedTopologyElement{Evidence: &workerv1.SelectionEvidence{EvidenceDigest: "source-1"}},
+			Frame:  &workerv1.SketchProjectionFrame{}})
+	if err != nil || response.GetStatus() != "CONNECTED" || response.GetSourceDigest() != "source-1" {
+		t.Fatalf("ProjectExternalGeometry was not routed: response=%v err=%v", response, err)
 	}
 }
 

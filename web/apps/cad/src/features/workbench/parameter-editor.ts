@@ -23,3 +23,21 @@ export function parseParameterSource(source: string):
   if (literal) return { kind: "LITERAL", value: Number(literal[1]), unit: literal[2].toLowerCase() };
   return { kind: "EXPRESSION", expression: normalized };
 }
+
+export function linearExtrudeLengthInput(source: string): { length?: number; lengthExpression?: string } {
+  const parsed = parseParameterSource(source);
+  if (parsed.kind === "EXPRESSION") {
+    if (!parsed.expression) throw new Error("请输入长度值、参数别名或表达式");
+    return { lengthExpression: parsed.expression };
+  }
+  if (!["mm", "cm", "m", "in"].includes(parsed.unit)) throw new Error("拉伸长度仅支持 mm、cm、m 或 in");
+  const millimeters = parsed.value * ({ mm: 1, cm: 10, m: 1000, in: 25.4 }[parsed.unit] ?? 1);
+  if (!Number.isFinite(millimeters) || millimeters <= 0) throw new Error("拉伸长度必须大于 0");
+  return { length: millimeters };
+}
+
+export function isLengthParameter(parameter: ParameterDefinition): boolean {
+  const dimension = parameter.dimension;
+  return dimension.Length === 1 && dimension.Mass === 0 && dimension.Time === 0 && dimension.Current === 0 &&
+    dimension.Temperature === 0 && dimension.Amount === 0 && dimension.Luminous === 0 && !dimension.Semantic;
+}

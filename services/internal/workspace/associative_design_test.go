@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -262,5 +263,98 @@ func TestPlanarFaceSupportUsesPersistentSelectionAndTopologyDependency(t *testin
 	_, repairedX, repairedNormal, err := validatedSupportFrame([3]float64{}, [3]float64{0, 0, 1}, [3]float64{0, 0, 1})
 	if err != nil || math.Abs(dot3(repairedX, repairedNormal)) > 1e-12 {
 		t.Fatalf("support orientation rule did not deterministically repair X: x=%v normal=%v err=%v", repairedX, repairedNormal, err)
+	}
+}
+
+func TestExternalGeometryRemainsSeparateSupportsConstraintsAndDetachesWithStableID(t *testing.T) {
+	selection := modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion,
+		SourceDocumentID: "part-1", SourceBodyID: "body-main",
+		Anchor:       modelcore.SemanticTopologyRef{FeatureID: "pad-base", OutputSlot: "SIDE/profile-edge"},
+		ExpectedType: modelcore.PersistentTopologyEdge, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant},
+		CreationEvidence: modelcore.TopologySelectionEvidence{GeometryType: "LINE", Origin: [3]float64{0, 0, 0}, Direction: [3]float64{1, 0, 0}}}
+	external := SketchExternalGeometry{ID: "external-edge", ProjectionKind: "ORTHOGONAL", PersistentSelection: selection,
+		SourceVersionID: "revision-source", Status: "CONNECTED", ResolvedSourceDigest: "source-digest",
+		Snapshot: &SketchExternalGeometrySnapshot{Kind: "LINE", Start: &SketchPoint2{X: 0, Y: 0}, End: &SketchPoint2{X: 20, Y: 0}}}
+	sketch := SketchFeature{SchemaVersion: SketchSchemaVersion,
+		Support:          SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xy", Plane: "XY"},
+		Entities:         []SketchEntity{{ID: "point", Kind: "POINT", Role: "CONSTRUCTION", Point: &SketchPoint2{X: 2, Y: 0}}},
+		ExternalGeometry: []SketchExternalGeometry{external}, Constraints: []SketchConstraint{{ID: "point-on-external", Kind: "POINT_ON_OBJECT",
+			References: []SketchGeometryRef{{Target: "ENTITY", EntityID: "point", SubElement: "POINT"},
+				{Target: "EXTERNAL", EntityID: external.ID, SubElement: "WHOLE"}}}}}
+	if err := validateSketch(sketch); err != nil {
+		t.Fatalf("external reference contract rejected: %v", err)
+	}
+	reconnectSketch := sketch
+	reconnectSketch.ExternalGeometry = append([]SketchExternalGeometry(nil), sketch.ExternalGeometry...)
+	replacement := external
+	replacement.ID, replacement.Status, replacement.Snapshot = "replacement-must-not-win", "PENDING", nil
+	if err := applySketchOperations(&reconnectSketch, []SketchOperation{{Type: "RECONNECT_EXTERNAL_GEOMETRY", ExternalID: external.ID,
+		ExternalGeometry: &replacement}}); err != nil {
+		t.Fatal(err)
+	}
+	if reconnectSketch.ExternalGeometry[0].ID != external.ID || reconnectSketch.ExternalGeometry[0].Snapshot == nil {
+		t.Fatalf("reconnect must preserve ExternalId and validation kind until authoritative projection: %#v", reconnectSketch.ExternalGeometry[0])
+	}
+	if err := applySketchOperations(&sketch, []SketchOperation{{Type: "DETACH_EXTERNAL_GEOMETRY", ExternalID: external.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(sketch.ExternalGeometry) != 0 || len(sketch.Entities) != 2 || sketch.Entities[1].ID != external.ID || sketch.Entities[1].Role != "CONSTRUCTION" {
+		t.Fatalf("detach did not freeze a construction entity with stable identity: %#v", sketch)
+	}
+	if reference := sketch.Constraints[0].References[1]; reference.Target != "ENTITY" || reference.EntityID != external.ID {
+		t.Fatalf("detach rewrote downstream reference incorrectly: %#v", reference)
+	}
+}
+
+func TestExternalGeometryAddsTopologyDependencyAndNeverUsesBrokenSnapshot(t *testing.T) {
+	model := newPartModel()
+	base := testRectangleSketch("sketch-base", "XY")
+	pad := Feature{ID: "pad-base", Type: "PAD", Profile: base.ID, Length: 20, Operation: "NEW_BODY"}
+	selection := modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion,
+		SourceDocumentID: "part-1", SourceBodyID: "body-main",
+		Anchor:       modelcore.SemanticTopologyRef{FeatureID: pad.ID, OutputSlot: "SIDE/profile-edge"},
+		ExpectedType: modelcore.PersistentTopologyEdge, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant}}
+	external := SketchExternalGeometry{ID: "external-broken", ProjectionKind: "ORTHOGONAL", PersistentSelection: selection,
+		SourceVersionID: "revision-source", Status: "UNRESOLVED_EXTERNAL", DiagnosticCode: "EXTERNAL_SOURCE_AMBIGUOUS"}
+	second := Feature{ID: "sketch-second", Type: "SKETCH", Plane: "XY", Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion,
+		Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: "datum-xy", Plane: "XY"}, ExternalGeometry: []SketchExternalGeometry{external}}}
+	model.Features = append(model.Features, base, pad, second)
+	normalizePartModel(&model)
+	modelJSON, _ := json.Marshal(model)
+	modelHash := canonicalModelHash(modelJSON)
+	graph, baseline, err := buildPartEvaluation(model, "revision-external", modelHash, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, edge := range graph.Edges {
+		if edge.Source == "feature:pad-base" && edge.Target == "feature:sketch-second" && edge.Kind == modelcore.ReadTopology {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("external projection topology dependency missing: %#v", graph.Edges)
+	}
+	_, incremental, err := buildPartEvaluation(model, "revision-incremental", modelHash,
+		[]modelcore.DependencyKey{"feature:pad-base"}, &baseline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, cold, err := buildPartEvaluation(model, "revision-cold", modelHash, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if baseline.DependencySnapshotDigest != cold.DependencySnapshotDigest || !reflect.DeepEqual(incremental.NodeResults, cold.NodeResults) {
+		t.Fatalf("incremental and cold evaluation diverged: incremental=%#v cold=%#v", incremental, cold)
+	}
+	broken, ok := firstUnresolvedExternal(model)
+	if !ok || broken.ID != external.ID || broken.Snapshot != nil {
+		t.Fatalf("broken external geometry must be explicit and carry no stale snapshot: %#v", broken)
+	}
+	manifest := visualizationManifest(model)
+	for _, primitive := range manifest.Primitives {
+		if primitive.ID == external.ID {
+			t.Fatal("broken external geometry leaked a stale visualization primitive")
+		}
 	}
 }

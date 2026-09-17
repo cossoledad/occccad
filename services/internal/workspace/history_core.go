@@ -648,6 +648,7 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	transactionID := transactionUUID.String()
 	modelHash := canonicalModelHash(input.modelJSON)
 	geometryKey := ""
+	revisionState, evaluationStatus := "READY", "SUCCEEDED"
 	var graph *modelcore.DependencyGraph
 	var manifest modelcore.EvaluationManifest
 	var err error
@@ -664,7 +665,14 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 		modelHash = canonicalModelHash(input.modelJSON)
 		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, input.changes.ImpactSeeds, nil)
 		if err == nil {
-			geometryKey, err = service.evaluatePart(ctx, input.requestID, model)
+			if broken, unresolved := firstUnresolvedExternal(model); unresolved {
+				revisionState, evaluationStatus = "FAILED", "FAILED"
+				if broken.DependencySnapshot != nil {
+					geometryKey = broken.DependencySnapshot.GeometryKey
+				}
+			} else {
+				geometryKey, err = service.evaluatePart(ctx, input.requestID, model)
+			}
 		}
 	} else {
 		var model ProductModel
@@ -710,7 +718,7 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	if geometryKey != "" {
 		nullableGeometry = geometryKey
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,'READY',$7,$8,$9,$10)`, revisionID, input.documentID, input.headRevision, revisionSequence, input.modelJSON, nullableGeometry, commandID, modelHash, dependencyDigest, manifestJSON); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, revisionID, input.documentID, input.headRevision, revisionSequence, input.modelJSON, nullableGeometry, revisionState, commandID, modelHash, dependencyDigest, manifestJSON); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO occccad.revision_parents(revision_id,parent_revision_id) VALUES($1,$2)`, revisionID, input.headRevision); err != nil {
@@ -739,7 +747,7 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	if _, err = tx.Exec(ctx, `INSERT INTO occccad.change_sets(transaction_id,canonical_blob,canonical_digest,write_set,impact_seeds) VALUES($1,$2,$3,$4,$5)`, transactionID, changesJSON, input.changes.CanonicalDigest, writes, input.changes.ImpactSeeds); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,'SUCCEEDED',true)`, revisionID, strings.ToLower(input.documentType), evaluatorVersion, modelHash, manifestJSON, manifestDigest); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,$7,true)`, revisionID, strings.ToLower(input.documentType), evaluatorVersion, modelHash, manifestJSON, manifestDigest, evaluationStatus); err != nil {
 		return err
 	}
 	for _, edge := range graph.Edges {

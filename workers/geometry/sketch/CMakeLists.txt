@@ -82,6 +82,7 @@ add_custom_command(TARGET occccad_planegcs POST_BUILD
 )
 
 add_library(occccad_sketch_solver STATIC
+    src/external_geometry_projector.cpp
     src/plane_gcs_sketch_solver.cpp
 )
 target_include_directories(occccad_sketch_solver

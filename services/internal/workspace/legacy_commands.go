@@ -78,6 +78,33 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		operations := make([]SketchOperation, 0, len(request.Operations)+12)
 		for index, operation := range request.Operations {
+			if operation.Type == "ADD_EXTERNAL_GEOMETRY" || operation.Type == "RECONNECT_EXTERNAL_GEOMETRY" {
+				sourceVersionID := strings.TrimSpace(operation.SourceVersionID)
+				if sourceVersionID == "" {
+					if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&sourceVersionID); err != nil {
+						return "", nil, err
+					}
+				}
+				kind := strings.ToUpper(strings.TrimSpace(operation.TopologyKind))
+				if kind != "EDGE" && kind != "VERTEX" {
+					return "", nil, fmt.Errorf("%w: external geometry source must be an edge or vertex", ErrValidation)
+				}
+				selection, err := service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{
+					SourceVersionID: sourceVersionID, GeometryKey: operation.GeometryKey, Kind: kind, LocalID: operation.TopologyID,
+				})
+				if err != nil {
+					return "", nil, err
+				}
+				externalID := strings.TrimSpace(operation.ExternalID)
+				if externalID == "" {
+					externalID = newID("external")
+				}
+				operation.ExternalID = externalID
+				operation.ExternalGeometry = &SketchExternalGeometry{ID: externalID, ProjectionKind: "ORTHOGONAL",
+					PersistentSelection: selection, SourceVersionID: sourceVersionID, Status: "PENDING"}
+				operations = append(operations, operation)
+				continue
+			}
 			if operation.Type != "ADD_RECTANGLE" {
 				operations = append(operations, operation)
 				continue
@@ -156,7 +183,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if operation != "NEW_BODY" && operation != "ADD" && operation != "REMOVE" && operation != "INTERSECT" {
 			return "", nil, fmt.Errorf("%w: invalid BodyOperation %s", ErrValidation, operation)
 		}
-		if generator == "LINEAR_EXTRUDE" && !positiveFinite(request.Length) {
+		if generator == "LINEAR_EXTRUDE" && strings.TrimSpace(request.LengthExpression) == "" && !positiveFinite(request.Length) {
 			return "", nil, fmt.Errorf("%w: extrude length must be a positive finite value", ErrValidation)
 		}
 		if generator == "REVOLVE" && (!positiveFinite(request.Angle) || request.Angle > 360) {
@@ -164,6 +191,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		var model PartModel
 		_ = json.Unmarshal(modelJSON, &model)
+		normalizePartModel(&model)
 		var sketch *Feature
 		for index := range model.Features {
 			if model.Features[index].ID == request.SketchID && model.Features[index].Sketch != nil {
@@ -187,7 +215,22 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			Name: numberedFeatureName(model.Features, generator, label), Profile: request.SketchID,
 			Length: request.Length, Angle: request.Angle, Operation: operation,
 			AxisEntityID: request.AxisEntityID, Reversed: request.Reversed}
-		return typeCreateSolidFeature, createFeaturePayload{Feature: feature}, nil
+		parameterSources := map[string]modelcore.ValueSource{}
+		if generator == "LINEAR_EXTRUDE" && strings.TrimSpace(request.LengthExpression) != "" {
+			names := map[string]modelcore.ParameterBinding{}
+			for _, parameter := range model.Parameters {
+				names[parameter.Key] = modelcore.ParameterBinding{ParameterID: parameter.ParameterID, Dimension: parameter.Dimension}
+			}
+			expression, compileErr := modelcore.CompileExpression(request.LengthExpression, names, modelcore.LengthDimension)
+			if compileErr != nil {
+				return "", nil, fmt.Errorf("%w: %w", ErrValidation, compileErr)
+			}
+			parameterSources["length"] = modelcore.ValueSource{Expression: &expression}
+			// The generated parameter is replaced by the expression in the typed handler;
+			// keep the transient feature value structurally valid until parameter evaluation.
+			feature.Length = 1
+		}
+		return typeCreateSolidFeature, createFeaturePayload{Feature: feature, ParameterSources: parameterSources}, nil
 	case "EDIT_FEATURE":
 		if documentType != "PART" {
 			break

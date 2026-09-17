@@ -92,7 +92,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
     kind: (node.kind === "REVOLVE" ? "pad" : node.kind.toLowerCase()) as "sketch" | "pad" | "import", id: node.entityId,
     visualKey: node.kind === "SKETCH" ? undefined : `body:${bodyID}`, ...context,
   };
-  if (node.kind === "SKETCH_ENTITY" && node.entityId && node.ownerEntityId) return {
+  if ((node.kind === "SKETCH_ENTITY" || node.kind === "SKETCH_EXTERNAL_GEOMETRY") && node.entityId && node.ownerEntityId) return {
     kind: "visual", id: `${occurrencePath || "root"}:${node.ownerEntityId}:${node.entityId}`,
     visualType: node.entityType === "POINT" ? "POINT" : "CURVE", featureId: node.ownerEntityId,
     entityId: node.entityId, role: node.role, ...context,
@@ -188,4 +188,3 @@ export function treeKeyForSelection(nodes: SpecificationTreeNode[], selection: S
 export function treeKeysForSelections(nodes: SpecificationTreeNode[], selections: readonly SelectionItem[]): string[] {
   return [...new Set(selections.map((selection) => treeKeyForSelection(nodes, selection)).filter((key): key is string => Boolean(key)))];
 }
-

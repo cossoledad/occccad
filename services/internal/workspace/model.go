@@ -161,6 +161,30 @@ type SketchEntity struct {
 	Closed        bool           `json:"closed,omitempty"`
 	Suppressed    bool           `json:"suppressed,omitempty"`
 }
+type SketchExternalGeometrySnapshot struct {
+	Kind   string        `json:"kind"`
+	Point  *SketchPoint2 `json:"point,omitempty"`
+	Start  *SketchPoint2 `json:"start,omitempty"`
+	End    *SketchPoint2 `json:"end,omitempty"`
+	Center *SketchPoint2 `json:"center,omitempty"`
+	Radius float64       `json:"radius,omitempty"`
+}
+type SketchExternalGeometry struct {
+	ID                       string                           `json:"id"`
+	ProjectionKind           string                           `json:"projectionKind"`
+	GeometryKind             string                           `json:"geometryKind,omitempty"`
+	PersistentSelection      modelcore.PersistentSelection    `json:"persistentSelection"`
+	SourceVersionID          string                           `json:"sourceVersionId"`
+	Status                   string                           `json:"status"`
+	DiagnosticCode           string                           `json:"diagnosticCode,omitempty"`
+	Diagnostic               string                           `json:"diagnostic,omitempty"`
+	ResolvedSourceDigest     string                           `json:"resolvedSourceDigest,omitempty"`
+	Snapshot                 *SketchExternalGeometrySnapshot  `json:"snapshot,omitempty"`
+	DependencySnapshot       *SketchSupportDependencySnapshot `json:"dependencySnapshot,omitempty"`
+	AffectedConstraintIDs    []string                         `json:"affectedConstraintIds,omitempty"`
+	AffectedProfileRegionIDs []string                         `json:"affectedProfileRegionIds,omitempty"`
+	DownstreamFeatureIDs     []string                         `json:"downstreamFeatureIds,omitempty"`
+}
 type SketchGeometryRef struct {
 	Target            string `json:"target"`
 	EntityID          string `json:"entityId,omitempty"`
@@ -196,29 +220,36 @@ type SketchSolveComponent struct {
 	DegreesOfFreedom int      `json:"degreesOfFreedom"`
 }
 type SketchFeature struct {
-	SchemaVersion uint32             `json:"schemaVersion"`
-	Support       SketchSupport      `json:"support"`
-	Entities      []SketchEntity     `json:"entities"`
-	Constraints   []SketchConstraint `json:"constraints"`
-	Solve         SketchSolveState   `json:"solve"`
+	SchemaVersion    uint32                   `json:"schemaVersion"`
+	Support          SketchSupport            `json:"support"`
+	Entities         []SketchEntity           `json:"entities"`
+	ExternalGeometry []SketchExternalGeometry `json:"externalGeometry,omitempty"`
+	Constraints      []SketchConstraint       `json:"constraints"`
+	Solve            SketchSolveState         `json:"solve"`
 }
 type SketchOperation struct {
-	Type              string             `json:"type"`
-	Entity            *SketchEntity      `json:"entity,omitempty"`
-	Constraint        *SketchConstraint  `json:"constraint,omitempty"`
-	ConstraintID      string             `json:"constraintId,omitempty"`
-	LabelPosition     *SketchPoint2      `json:"labelPosition,omitempty"`
-	Value             *float64           `json:"value,omitempty"`
-	First             *SketchPoint2      `json:"first,omitempty"`
-	Second            *SketchPoint2      `json:"second,omitempty"`
-	FirstReference    *SketchGeometryRef `json:"firstReference,omitempty"`
-	SecondReference   *SketchGeometryRef `json:"secondReference,omitempty"`
-	EntityID          string             `json:"entityId,omitempty"`
-	Role              string             `json:"role,omitempty"`
-	SubElement        string             `json:"subElement,omitempty"`
-	ControlPointIndex *int               `json:"controlPointIndex,omitempty"`
-	Point             *SketchPoint2      `json:"point,omitempty"`
-	Suppressed        *bool              `json:"suppressed,omitempty"`
+	Type              string                  `json:"type"`
+	Entity            *SketchEntity           `json:"entity,omitempty"`
+	Constraint        *SketchConstraint       `json:"constraint,omitempty"`
+	ConstraintID      string                  `json:"constraintId,omitempty"`
+	LabelPosition     *SketchPoint2           `json:"labelPosition,omitempty"`
+	Value             *float64                `json:"value,omitempty"`
+	First             *SketchPoint2           `json:"first,omitempty"`
+	Second            *SketchPoint2           `json:"second,omitempty"`
+	FirstReference    *SketchGeometryRef      `json:"firstReference,omitempty"`
+	SecondReference   *SketchGeometryRef      `json:"secondReference,omitempty"`
+	EntityID          string                  `json:"entityId,omitempty"`
+	Role              string                  `json:"role,omitempty"`
+	SubElement        string                  `json:"subElement,omitempty"`
+	ControlPointIndex *int                    `json:"controlPointIndex,omitempty"`
+	Point             *SketchPoint2           `json:"point,omitempty"`
+	Suppressed        *bool                   `json:"suppressed,omitempty"`
+	ExternalGeometry  *SketchExternalGeometry `json:"externalGeometry,omitempty"`
+	ExternalID        string                  `json:"externalId,omitempty"`
+	GeometryKey       string                  `json:"geometryKey,omitempty"`
+	TopologyID        uint64                  `json:"topologyId,omitempty"`
+	TopologyKind      string                  `json:"topologyKind,omitempty"`
+	SourceVersionID   string                  `json:"sourceVersionId,omitempty"`
 }
 
 type Feature struct {
@@ -545,6 +576,7 @@ type CommandRequest struct {
 	VersionID               string               `json:"versionId,omitempty"`
 	ParameterID             string               `json:"parameterId,omitempty"`
 	ExpectedFeatureDigest   string               `json:"expectedFeatureDigest,omitempty"`
+	LengthExpression        string               `json:"lengthExpression,omitempty"`
 	Expression              string               `json:"expression,omitempty"`
 	Value                   float64              `json:"value,omitempty"`
 	Unit                    string               `json:"unit,omitempty"`

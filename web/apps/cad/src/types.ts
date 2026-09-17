@@ -72,7 +72,7 @@ export type AxisSystem = { id: string; name: string; origin: Vec3; xDirection: V
 export type ReferenceGeometry = { datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[] };
 export type VisualPrimitive = {
   id: string; featureId: string; kind: "POINTS" | "POLYLINE" | "LINE_SEGMENTS" | "TRIANGLES";
-  semantic: "SKETCH_POINT" | "SKETCH_CURVE" | "SKETCH_CONSTRAINT" | "CURVE" | "SURFACE";
+  semantic: "SKETCH_POINT" | "SKETCH_CURVE" | "SKETCH_EXTERNAL" | "SKETCH_CONSTRAINT" | "CURVE" | "SURFACE";
   entityType?: string;
   role?: "PROFILE" | "CONSTRUCTION"; status?: string; positions: Vec3[];
   label?: string; labelPosition?: Vec3;
@@ -109,15 +109,23 @@ export type Feature = {
 };
 
 export type SketchPoint2 = { x: number; y: number };
-export type SketchGeometryRef = { target: "ENTITY" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL"; controlPointIndex?: number };
+export type SketchGeometryRef = { target: "ENTITY" | "EXTERNAL" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL"; controlPointIndex?: number };
 export type SketchEntity = { id: string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; suppressed?: boolean; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; degree?: number; closed?: boolean };
+export type SketchExternalGeometry = { id:string;projectionKind:"ORTHOGONAL";geometryKind?:"POINT"|"LINE"|"CIRCLE";persistentSelection:PersistentSelection;sourceVersionId:string;
+  status:"PENDING"|"CONNECTED"|"UNRESOLVED_EXTERNAL";diagnosticCode?:string;diagnostic?:string;resolvedSourceDigest?:string;
+  snapshot?:{kind:"POINT"|"LINE"|"CIRCLE";point?:SketchPoint2;start?:SketchPoint2;end?:SketchPoint2;center?:SketchPoint2;radius?:number};
+  dependencySnapshot?:{geometryKey:string;manifestDigest:string;policyDigest:string;evidenceDigest?:string};
+  affectedConstraintIds?:string[];affectedProfileRegionIds?:string[];downstreamFeatureIds?:string[] };
 export type SketchConstraint = { id: string; kind: "COINCIDENT" | "PARALLEL" | "FIXED" | "FIXED_POINT" | "HORIZONTAL" | "VERTICAL" | "PERPENDICULAR" | "TANGENT" | "EQUAL" | "DISTANCE" | "LENGTH" | "RADIUS" | "DIAMETER" | "ANGLE" | "CONCENTRIC" | "POINT_ON_OBJECT" | "MIDPOINT" | "SYMMETRY"; references: SketchGeometryRef[]; suppressed?: boolean; fixedPoint?: SketchPoint2; value?: number; unit?: "mm" | "deg"; parameterId?: string; labelPosition?: SketchPoint2; internal?: boolean };
 export type SketchSupport = { type: "DATUM_PLANE" | "PLANAR_FACE"; datumPlaneId?: string; plane: PlaneName | "CUSTOM";
   persistentSelection?: PersistentSelection; sourceVersionId?: string; origin?: Vec3; xDirection?: Vec3; normal?: Vec3;
   orientationRule?: string; status?: "CONNECTED" | "FAILED_SUPPORT"; diagnosticCode?: string; diagnostic?: string;
   dependencySnapshot?: { geometryKey: string; manifestDigest: string; policyDigest: string; evidenceDigest?: string } };
-export type SketchFeature = { schemaVersion: 2; support: SketchSupport; entities: SketchEntity[]; constraints: SketchConstraint[]; solve: { status: string; definitionStatus?: "FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED"; degreesOfFreedom: number; diagnostic?: string; conflictingConstraintIds?: string[]; redundantConstraintIds?: string[]; components?: Array<{entityIds:string[];constraintIds:string[];status:string;definitionStatus?:"FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED";degreesOfFreedom:number}> } };
+export type SketchFeature = { schemaVersion: 2; support: SketchSupport; entities: SketchEntity[]; externalGeometry?:SketchExternalGeometry[]; constraints: SketchConstraint[]; solve: { status: string; definitionStatus?: "FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED"; degreesOfFreedom: number; diagnostic?: string; conflictingConstraintIds?: string[]; redundantConstraintIds?: string[]; components?: Array<{entityIds:string[];constraintIds:string[];status:string;definitionStatus?:"FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED";degreesOfFreedom:number}> } };
 export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { type: "ADD_CONSTRAINT"; constraint: SketchConstraint }
+  | {type:"ADD_EXTERNAL_GEOMETRY";externalId:string;geometryKey:string;topologyId:number;topologyKind:"EDGE"|"VERTEX";sourceVersionId:string}
+  | {type:"RECONNECT_EXTERNAL_GEOMETRY";externalId:string;geometryKey:string;topologyId:number;topologyKind:"EDGE"|"VERTEX";sourceVersionId:string}
+  | {type:"DETACH_EXTERNAL_GEOMETRY";externalId:string}
   | { type: "UPDATE_CONSTRAINT_PLACEMENT"; constraintId: string; labelPosition: SketchPoint2 }
   | { type: "UPDATE_CONSTRAINT_VALUE"; constraintId: string; value: number }
   | { type: "ADD_RECTANGLE"; first: SketchPoint2; second: SketchPoint2; firstReference?: SketchGeometryRef; secondReference?: SketchGeometryRef }
@@ -254,7 +262,7 @@ export type ResolvedInstance = {
 
 export type DocumentStructureNode = {
   id: string;
-  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "SKETCH_GEOMETRY_SET" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
+  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
   name: string;
   entityId?: string;
   documentId?: string;
@@ -270,7 +278,7 @@ export type DocumentStructureNode = {
   suppressed?: boolean;
   diagnostic?: string;
   definitionDigest?: string;
-  capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT" | "RECONNECT" | "REFRESH">;
+  capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH">;
   children?: DocumentStructureNode[];
 };
 

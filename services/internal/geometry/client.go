@@ -170,6 +170,24 @@ type SketchModel struct {
 	Splines     []SketchSpline
 	Constraints []SketchConstraint
 }
+
+type ExternalProjectionFrame struct {
+	Origin, XDirection, Normal [3]float64
+}
+
+type ExternalProjectionSource struct {
+	GeometryID, GeometryKey, TopologyType, GeometryType, EvidenceDigest string
+	LocalID                                                             uint64
+	MeasureSI                                                           *float64
+	ParameterStart, ParameterEnd                                        *float64
+	Origin, Direction                                                   [3]float64
+}
+
+type ProjectedExternalGeometry struct {
+	Status, DiagnosticCode, Diagnostic, SourceDigest, Kind string
+	Point, Start, End, Center                              [2]float64
+	Radius                                                 float64
+}
 type SketchSolveStatus string
 
 const (
@@ -514,6 +532,58 @@ func (client *Client) SolveSketch(ctx context.Context, requestID string, model S
 		result.Model.Splines = append(result.Model.Splines, value)
 	}
 	result.Model.Constraints = model.Constraints
+	return result, nil
+}
+
+func (client *Client) ProjectExternalGeometry(ctx context.Context, requestID string,
+	source ExternalProjectionSource, frame ExternalProjectionFrame) (ProjectedExternalGeometry, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	topologyType := workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED
+	switch source.TopologyType {
+	case "EDGE":
+		topologyType = workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_EDGE
+	case "VERTEX":
+		topologyType = workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_VERTEX
+	}
+	vec3 := func(value [3]float64) *workerv1.Vec3 {
+		return &workerv1.Vec3{X: value[0], Y: value[1], Z: value[2]}
+	}
+	evidence := &workerv1.SelectionEvidence{GeometryType: source.GeometryType,
+		Origin: vec3(source.Origin), Direction: vec3(source.Direction), EvidenceDigest: source.EvidenceDigest}
+	if source.MeasureSI != nil {
+		evidence.MeasureSi = source.MeasureSI
+	}
+	if source.ParameterStart != nil {
+		evidence.ParameterStart = source.ParameterStart
+	}
+	if source.ParameterEnd != nil {
+		evidence.ParameterEnd = source.ParameterEnd
+	}
+	response, err := client.worker.ProjectExternalGeometry(ctx, &workerv1.ProjectExternalGeometryRequest{
+		RequestId: requestID, ProjectionKind: "ORTHOGONAL",
+		Source: &workerv1.ResolvedTopologyElement{GeometryId: source.GeometryID, GeometryKey: source.GeometryKey,
+			TopologyType: topologyType, LocalId: source.LocalID, Evidence: evidence},
+		Frame: &workerv1.SketchProjectionFrame{Origin: vec3(frame.Origin), XDirection: vec3(frame.XDirection), Normal: vec3(frame.Normal)},
+	})
+	if err != nil {
+		return ProjectedExternalGeometry{}, fmt.Errorf("project external geometry: %w", err)
+	}
+	result := ProjectedExternalGeometry{Status: response.GetStatus(), DiagnosticCode: response.GetDiagnosticCode(),
+		Diagnostic: response.GetDiagnostic(), SourceDigest: response.GetSourceDigest(), Kind: response.GetGeometryKind(),
+		Radius: response.GetRadius()}
+	if value := response.GetPoint(); value != nil {
+		result.Point = [2]float64{value.GetX(), value.GetY()}
+	}
+	if value := response.GetStart(); value != nil {
+		result.Start = [2]float64{value.GetX(), value.GetY()}
+	}
+	if value := response.GetEnd(); value != nil {
+		result.End = [2]float64{value.GetX(), value.GetY()}
+	}
+	if value := response.GetCenter(); value != nil {
+		result.Center = [2]float64{value.GetX(), value.GetY()}
+	}
 	return result, nil
 }
 

@@ -17,11 +17,12 @@ const toolbar = (id: string, name: string, workbench: ToolbarCatalogEntry["workb
 export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: [
   toolbar("part-design", "Part Design", "PART_DESIGN", "top-left", "part", 10, [
     ["tool.select", "选择", "select"], ["capture.settings", "捕捉", "capture"], ["sketch.start", "草图", "sketch"],
+    ["part.parameters", "参数", "parameters", "集中查看、编辑并复用当前 Part 的参数。"],
     ["part.pad", "拉伸", "pad"], ["part.pocket", "切除", "pocket"], ["part.revolve", "旋转", "revolve"],
     ["part.datum-plane", "基准面", "datum-plane"], ["part.datum-axis", "基准轴", "datum-axis"],
   ]),
   toolbar("sketch-geometry", "草图几何", "SKETCHER", "top-left", "sketch", 20, [
-    ["tool.select", "选择", "select"], ["capture.settings", "捕捉", "capture"], ["sketch.point", "点", "point", undefined, true],
+    ["tool.select", "选择", "select"], ["capture.settings", "捕捉", "capture"], ["sketch.project", "投影", "project", undefined, true], ["sketch.point", "点", "point", undefined, true],
     ["sketch.line", "直线", "line", undefined, true], ["sketch.arc", "圆弧", "arc", undefined, true],
     ["sketch.polyline", "多段线", "polyline", undefined, true], ["sketch.spline", "过点曲线", "spline", undefined, true], ["sketch.finish", "退出草图", "finish"],
   ]),

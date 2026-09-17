@@ -12,6 +12,7 @@ const pause = async <T>(value: T, milliseconds = 90): Promise<T> =>
 const now = (): string => new Date().toISOString();
 const id = (prefix: string): string => `${prefix}-${randomUUID()}`;
 const lengthInMillimeters = (value: unknown, unit: unknown): number => Number(value) * ({ mm: 1, cm: 10, m: 1000, in: 25.4 }[String(unit || "mm").toLowerCase()] ?? 1);
+const lengthDimension = { Length: 1, Mass: 0, Time: 0, Current: 0, Temperature: 0, Amount: 0, Luminous: 0, Semantic: "" };
 const mockInstancePath = (rootDocumentId: string, instance: ProductInstance): InstancePath => ({
   rootDocumentId, canonical: instance.id, display: instance.name, segments: [{
     ownerDocumentId: rootDocumentId, ownerVersionId: "mock-product-v3", instanceId: instance.id,
@@ -89,7 +90,10 @@ const views = new Map<string, DocumentView>([
         { id:"top",kind:"LINE",role:"PROFILE",start:{x:72,y:38},end:{x:0,y:38} }, { id:"left",kind:"LINE",role:"PROFILE",start:{x:0,y:38},end:{x:0,y:0} },
       ], constraints: [], solve:{status:"UNDER_CONSTRAINED",degreesOfFreedom:4} } },
       { id: "mock-pad-1", type: "PAD", name: "Extrude 1", profile: "mock-sketch-1", length: 16, operation: "ADD" },
-    ] },
+    ], parameters: [{ parameterId: "parameter:mock-pad-1:length", key: "mock_pad_1_length", label: "Length",
+      valueType: "QUANTITY", dimension: lengthDimension, displayUnit: "mm", role: "INPUT",
+      source: { literal: { siValue: 0.016, dimension: lengthDimension } },
+      evaluatedValue: { siValue: 0.016, dimension: lengthDimension } }] },
     artifact: partArtifact,
   }],
   [productID, {
@@ -158,6 +162,10 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
             kind: "SKETCH_ENTITY", name: `${entity.kind === "LINE" ? "Line" : "Point"} ${index + 1}`, entityId: entity.id,
             ownerEntityId: feature.id, entityType: entity.kind, role: entity.role, suppressed: entity.suppressed, documentId: view.document.id,
             capabilities: editable ? ["DELETE","SUPPRESS"] : undefined })) },
+        { id: `${node.id}/external-geometry`, kind: "SKETCH_EXTERNAL_GEOMETRY_SET", name: "External Geometry", ownerEntityId: feature.id,
+          children: (feature.sketch.externalGeometry??[]).map((external,index)=>({id:`${node.id}/external-geometry/external:${external.id}`,
+            kind:"SKETCH_EXTERNAL_GEOMETRY",name:`External ${index+1}`,entityId:external.id,ownerEntityId:feature.id,entityType:"EXTERNAL",
+            role:"CONSTRUCTION",diagnostic:external.diagnosticCode,documentId:view.document.id,capabilities:editable?["DETACH","RECONNECT"]:undefined})) },
         { id: `${node.id}/constraints`, kind: "SKETCH_CONSTRAINT_SET", name: "Constraints", ownerEntityId: feature.id,
           children: [
             { id: `${node.id}/constraints/logical`, kind: "SKETCH_LOGICAL_CONSTRAINT_SET", name: "Geometric Constraints",
@@ -306,6 +314,10 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
         }
         if(operation.type==="UPDATE_ENTITY_SUPPRESSION"&&sketch){const entity=sketch.entities.find((item)=>item.id===operation.entityId);if(entity)entity.suppressed=operation.suppressed;}
         if(operation.type==="UPDATE_CONSTRAINT_SUPPRESSION"&&sketch){const constraint=sketch.constraints.find((item)=>item.id===operation.constraintId);if(constraint)constraint.suppressed=operation.suppressed;}
+        if(operation.type==="DETACH_EXTERNAL_GEOMETRY"&&sketch){const external=sketch.externalGeometry?.find((item)=>item.id===operation.externalId);
+          if(external?.snapshot){sketch.entities.push({id:external.id,kind:external.snapshot.kind,role:"CONSTRUCTION",point:external.snapshot.point,
+            start:external.snapshot.start,end:external.snapshot.end,center:external.snapshot.center,radius:external.snapshot.radius});
+            sketch.externalGeometry=sketch.externalGeometry?.filter((item)=>item.id!==operation.externalId);}}
         if (operation.type==="ADD_RECTANGLE" && sketch) {
           const {first,second}=operation, x0=Math.min(first.x,second.x),x1=Math.max(first.x,second.x),y0=Math.min(first.y,second.y),y1=Math.max(first.y,second.y);
           sketch.entities.push({id:id("line"),kind:"LINE",role:"PROFILE",start:{x:x0,y:y0},end:{x:x1,y:y0}},{id:id("line"),kind:"LINE",role:"PROFILE",start:{x:x1,y:y0},end:{x:x1,y:y1}},{id:id("line"),kind:"LINE",role:"PROFILE",start:{x:x1,y:y1},end:{x:x0,y:y1}},{id:id("line"),kind:"LINE",role:"PROFILE",start:{x:x0,y:y1},end:{x:x0,y:y0}});
@@ -320,12 +332,38 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
     }
     if (commandType === "CREATE_SOLID_FEATURE" && view.part) {
       const generator = String(input.generator) as "LINEAR_EXTRUDE" | "REVOLVE";
-      view.part.features.push({ id: id(generator === "REVOLVE" ? "mock-revolve" : "mock-extrude"), type: generator,
+      const featureID = id(generator === "REVOLVE" ? "mock-revolve" : "mock-extrude");
+      const referenced = view.part.parameters?.find((parameter) => parameter.key === input.lengthExpression);
+      const resolvedLength = Number(input.length) || (referenced?.evaluatedValue?.siValue ?? 0.04) * 1000;
+      view.part.features.push({ id: featureID, type: generator,
         name: `${generator === "REVOLVE" ? "Revolve" : "Extrude"} ${view.part.features.length + 1}`,
-        profile: String(input.sketchId), length: Number(input.length) || undefined, angle: Number(input.angle) || undefined,
+        profile: String(input.sketchId), length: generator === "LINEAR_EXTRUDE" ? resolvedLength : undefined, angle: Number(input.angle) || undefined,
         axisEntityId: input.axisEntityId ? String(input.axisEntityId) : undefined,
         operation: String(input.operation) as "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT" });
+      if (generator === "LINEAR_EXTRUDE") view.part.parameters = [...(view.part.parameters ?? []), {
+        parameterId: `parameter:${featureID}:length`, key: `${featureID.replaceAll("-", "_")}_length`, label: "Length",
+        valueType: "QUANTITY", dimension: lengthDimension, displayUnit: "mm", role: "INPUT",
+        source: input.lengthExpression ? { expression: { sourceText: String(input.lengthExpression) } }
+          : { literal: { siValue: resolvedLength / 1000, dimension: lengthDimension } },
+        evaluatedValue: { siValue: resolvedLength / 1000, dimension: lengthDimension },
+      }];
     }
+	if (commandType === "SET_PARAMETER_VALUE" && view.part) {
+		const parameter = view.part.parameters?.find((candidate) => candidate.parameterId === input.parameterId);
+		if (parameter) {
+			const quantity = { siValue: lengthInMillimeters(input.value, input.unit) / 1000, dimension: parameter.dimension };
+			parameter.source = { literal: quantity }; parameter.evaluatedValue = quantity;
+		}
+	}
+	if (commandType === "SET_PARAMETER_EXPRESSION" && view.part) {
+		const parameter = view.part.parameters?.find((candidate) => candidate.parameterId === input.parameterId);
+		const referenced = view.part.parameters?.find((candidate) => candidate.key === input.expression);
+		if (parameter) { parameter.source = { expression: { sourceText: String(input.expression) } }; parameter.evaluatedValue = referenced?.evaluatedValue; }
+	}
+	if (commandType === "RENAME_PARAMETER" && view.part) {
+		const parameter = view.part.parameters?.find((candidate) => candidate.parameterId === input.parameterId);
+		if (parameter) parameter.key = String(input.name);
+	}
 	if (commandType === "EDIT_FEATURE" && view.part) {
 		const feature=view.part.features.find((candidate)=>candidate.id===input.targetId);
 		if(feature)feature.length=lengthInMillimeters(input.length,input.unit);
@@ -540,7 +578,9 @@ export const mockApi: CadApi = {
     const points = sketch?.entities.flatMap((entity) => [entity.start, entity.end]).filter(Boolean) as Array<{x:number;y:number}>;
     if (!points?.length) throw new Error("Preview profile is empty");
     const xs = points.map((point) => point.x), ys = points.map((point) => point.y);
-    const depth = input.generator === "REVOLVE" ? Math.max(...xs)-Math.min(...xs) : Number(input.length);
+    const referenced = view.part.parameters?.find((parameter) => parameter.key === input.lengthExpression);
+    const depth = input.generator === "REVOLVE" ? Math.max(...xs)-Math.min(...xs)
+      : Number(input.length) || (referenced?.evaluatedValue?.siValue ?? 0.04) * 1000;
     const artifact = boxArtifact(id("mock-preview"), [Math.max(...xs)-Math.min(...xs), Math.max(...ys)-Math.min(...ys), depth]);
     return pause({ previewId: id("mock-command-preview"), baseVersionId: view.document.versionId,
       baseSequence: 0, modelHash: "mock-preview", artifact });

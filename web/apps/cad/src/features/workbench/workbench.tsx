@@ -25,14 +25,14 @@ import { CaptureSettingsButton } from "../../cad/overlay/capture-settings-button
 import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
 import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
 import { useUIPreferences } from "../../state/ui-preferences";
-import type { AssemblyConstraint, AssemblyGeometryRef, CommandPreview, DatumPlane, DocumentView, Feature, Selection, SketchOperation, SketchPlane, ToolbarCatalogEntry, ToolbarCatalogItem, Vec3 } from "../../types";
+import type { AssemblyConstraint, AssemblyGeometryRef, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, Selection, SketchOperation, SketchPlane, ToolbarCatalogEntry, ToolbarCatalogItem, Vec3 } from "../../types";
 import { topologyPropertyContext } from "./topology-property-context";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { followedDocumentIDs, staleProductDocumentIDs } from "./product-edit-context";
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { parseLengthInput } from "./length-input";
-import { parameterSourceText, parseParameterSource } from "./parameter-editor";
+import { isLengthParameter, linearExtrudeLengthInput, parameterDisplayValue, parameterSourceText, parseParameterSource } from "./parameter-editor";
 import { History, Properties } from "./workbench-inspector";
 import { findStructureEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
 import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
@@ -40,7 +40,7 @@ import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusAfterPreviewFailure, assembly
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
-const sketchToolCommands:WorkbenchToolID[]=["sketch.rectangle","sketch.polygon","sketch.slot","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline",
+const sketchToolCommands:WorkbenchToolID[]=["sketch.project","sketch.rectangle","sketch.polygon","sketch.slot","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline",
   "sketch.constraint.coincident","sketch.constraint.parallel","sketch.constraint.fixed","sketch.constraint.horizontal","sketch.constraint.vertical",
   "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.dimension.linear",
   "sketch.constraint.radius","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint","sketch.constraint.symmetry"];
@@ -171,6 +171,7 @@ export function Workbench() {
   const [versionOpen, setVersionOpen] = useState(false);
   const [datumPlaneOpen, setDatumPlaneOpen] = useState(false);
   const [datumAxisOpen, setDatumAxisOpen] = useState(false);
+  const [parameterManagerOpen, setParameterManagerOpen] = useState(false);
   const [editingParameterID, setEditingParameterID] = useState<string>();
   const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: AssemblyConstraintToolKind; references: AssemblyGeometryRef[]; angleReferenceDirection?: Vec3 }>();
   const [editingAssemblyConstraint, setEditingAssemblyConstraint] = useState<AssemblyConstraint>();
@@ -191,7 +192,7 @@ export function Workbench() {
   const toggleTreeVisibility = useUIPreferences((state) => state.toggleTreeVisibility);
   const [shareResource, setShareResource] = useState<ShareResource>();
   const [padForm] = Form.useForm<{ generator: "LINEAR_EXTRUDE" | "REVOLVE"; operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
-    length: number; angle: number; axisEntityId?: string; reversed: boolean }>();
+    lengthSource: string; angle: number; axisEntityId?: string; reversed: boolean }>();
 	const [featureForm] = Form.useForm<{ lengthText: string }>();
   const [insertForm] = Form.useForm<{ referencedDocumentID: string }>();
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
@@ -513,13 +514,14 @@ export function Workbench() {
     }});
   };
   const padSketch = (values: { generator: "LINEAR_EXTRUDE" | "REVOLVE"; operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
-    length: number; angle: number; axisEntityId?: string; reversed: boolean }) => {
+    lengthSource: string; angle: number; axisEntityId?: string; reversed: boolean }) => {
     if (!editingView || !padSketchID) return;
     padPreviewAbort.current?.abort();
     viewport.current?.clearCommandPreview();
     const generator = values.generator ?? padGenerator;
+    const lengthInput = generator === "LINEAR_EXTRUDE" ? linearExtrudeLengthInput(values.lengthSource) : {};
     command.mutate(() => api.createSolidFeature(editingView.document.id, { sketchId: padSketchID, generator,
-      operation: values.operation, length: generator === "LINEAR_EXTRUDE" ? values.length : undefined,
+      operation: values.operation, ...lengthInput,
       angle: generator === "REVOLVE" ? values.angle : undefined,
 	  axisEntityId: generator === "REVOLVE" ? values.axisEntityId : undefined, reversed: values.reversed,
 	  previewId: padPreviewID.current }, padIntentRequestID.current), { onSuccess: (updated) => {
@@ -580,7 +582,10 @@ export function Workbench() {
   const requestPadPreview = async (sketchID: string, generatorOverride?: "LINEAR_EXTRUDE" | "REVOLVE") => {
     if (!editingView) return;
     const values = padForm.getFieldsValue(); values.generator = generatorOverride ?? values.generator ?? padGenerator;
-    if (values.generator === "LINEAR_EXTRUDE" && (!Number.isFinite(values.length) || values.length <= 0)) return;
+    let lengthInput: { length?: number; lengthExpression?: string } = {};
+    if (values.generator === "LINEAR_EXTRUDE") {
+      try { lengthInput = linearExtrudeLengthInput(values.lengthSource); } catch { return; }
+    }
     if (values.generator === "REVOLVE" && (!Number.isFinite(values.angle) || values.angle <= 0 || !values.axisEntityId)) return;
     padPreviewAbort.current?.abort();
     const abort = new AbortController(); padPreviewAbort.current = abort;
@@ -589,7 +594,7 @@ export function Workbench() {
     setPadPreviewPending(true);
     try {
       const preview = await api.previewCommand(editingView.document.id, { type: "CREATE_SOLID_FEATURE", sketchId: sketchID,
-        generator: values.generator, operation: values.operation, length: values.length, angle: values.angle,
+        generator: values.generator, operation: values.operation, ...lengthInput, angle: values.angle,
         axisEntityId: values.axisEntityId, reversed: values.reversed,
         ...(padIntentRequestID.current ? { requestId: padIntentRequestID.current } : {}) }, abort.signal);
 	  if (sequence !== padPreviewSequence.current || preview.baseVersionId !== baseVersionID ||
@@ -612,7 +617,7 @@ export function Workbench() {
     const selectedOperation = operation ?? (hasBody ? "ADD" : "NEW_BODY");
     const sketchID = store.selection.id;
 	padIntentRequestID.current = randomUUID(); padPreviewID.current=undefined; setPadSketchID(sketchID); setPadGenerator(generator);
-    padForm.setFieldsValue({ generator, operation: selectedOperation, length: 40, angle: 360,
+    padForm.setFieldsValue({ generator, operation: selectedOperation, lengthSource: "40 mm", angle: 360,
       axisEntityId: undefined, reversed: false });
     setPadOpen(true);
   };
@@ -680,6 +685,8 @@ export function Workbench() {
         isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch" && editingView?.part?.features.some((feature) => isSolidFeature(feature))) }),
       commandRegistry.register({ id: "part.revolve", execute: () => openSolidFeature("REVOLVE"), isVisible: () => editingView?.document.type === "PART",
         isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch") }),
+      commandRegistry.register({ id: "part.parameters", execute: () => setParameterManagerOpen(true),
+        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(editingView?.part) }),
       commandRegistry.register({ id: "part.datum-plane", execute: () => { datumPlaneForm.setFieldsValue({ name: "Plane", offset: 10 }); setDatumPlaneOpen(true); },
         isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && store.selection?.kind === "plane") }),
       commandRegistry.register({ id: "part.datum-axis", execute: () => { datumAxisForm.setFieldsValue({ name: "Axis", ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 1 }); setDatumAxisOpen(true); },
@@ -841,9 +848,22 @@ export function Workbench() {
                 if (constraint) openAssemblyConstraintEditor(constraint);
               } else openFeatureEditor(node);
             }}
-            onReconnect={(node) => {
+			onReconnect={(node) => {
+              if (node.kind === "SKETCH_EXTERNAL_GEOMETRY" && node.entityId && node.ownerEntityId && editingView) {
+                const feature = editingView.part?.features.find((candidate) => candidate.id === node.ownerEntityId);
+                const localPlane = feature ? featureSketchPlane(editingView, feature) : undefined;
+                const plane = localPlane ? occurrenceSketchPlane(localPlane, activeResolvedInstance?.translation, activeResolvedInstance?.rotation) : undefined;
+                if (plane) store.beginSketch(node.ownerEntityId, plane);
+                store.setActiveTool("sketch.project", "once");
+                viewport.current?.beginExternalReconnect(node.entityId);
+                return;
+              }
               const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
               if (constraint) openAssemblyConstraintEditor(constraint, true);
+            }}
+			onDetach={(node) => {
+              if (node.kind === "SKETCH_EXTERNAL_GEOMETRY" && node.ownerEntityId && node.entityId)
+                editSketch(node.ownerEntityId, [{type:"DETACH_EXTERNAL_GEOMETRY", externalId:node.entityId}]);
             }}
             onRefresh={(node) => refreshAssemblyConstraint(node.entityId)}
             onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={deleteTreeNodes}
@@ -951,8 +971,20 @@ export function Workbench() {
               ...(editingView?.datumAxes ?? []).map((axis) => ({ value: `DATUM_AXIS:${axis.id}`, label: axis.name }))]} /></Form.Item>
           <Form.Item name="angle" label="旋转角度（deg）" rules={[{ required: true }, { type: "number", min: 0.1, max: 360 }]}>
             <InputNumber min={0.1} max={360} precision={2} style={{ width: "100%" }} onBlur={previewPad} onPressEnter={previewPad} /></Form.Item>
-        </> : <Form.Item name="length" label="拉伸长度（mm）" rules={[{ required: true }, { type: "number", min: 0.1 }]}>
-          <InputNumber min={0.1} precision={2} style={{ width: "100%" }} onBlur={previewPad} onPressEnter={previewPad} /></Form.Item>}</Form.Item>
+        </> : <>
+          <Form.Item name="lengthSource" label="拉伸长度" rules={[{ required: true }, { validator: async (_, value) => {
+            try { linearExtrudeLengthInput(String(value ?? "")); } catch (cause) { throw cause; }
+          } }]}>
+            <Input placeholder="40 mm 或参数表达式" onBlur={previewPad} onPressEnter={previewPad} />
+          </Form.Item>
+          <Form.Item label="引用已有长度参数">
+            <Select allowClear showSearch optionFilterProp="label" placeholder="选择后绑定其稳定 ParameterId"
+              options={(editingView?.part?.parameters ?? []).filter(isLengthParameter).map((parameter) => ({
+                value: parameter.key, label: `${parameter.key} · ${parameterDisplayValue(parameter)}`,
+              }))}
+              onChange={(key) => { if (key) padForm.setFieldValue("lengthSource", key); previewPad(); }} />
+          </Form.Item>
+        </>}</Form.Item>
         <Form.Item name="reversed" label="反向" valuePropName="checked"><Switch onChange={previewPad} /></Form.Item>
         <small className="cad-command-hint">{padPreviewPending ? "后端正在求值预览…" : "输入后按 Enter 或点击视口可刷新后端瞬态预览；预览不会创建 Revision。"}</small></Form>
     </CommandDialog>
@@ -964,6 +996,20 @@ export function Workbench() {
 			onBlur={()=>void requestFeaturePreview()} onPressEnter={(event)=>{event.preventDefault();void commitFeatureEdit();}} /></Form.Item>
 		{featurePreviewError&&<Alert type="error" showIcon message="编辑预览失败" description={featurePreviewError}/>}
 		<small className="cad-command-hint">{featurePreviewPending?"后端正在求值预览…":"离开输入框刷新瞬态预览；按 Enter 或确定提交一个 Revision。"}</small></Form>
+	</CommandDialog>
+	<CommandDialog id="parameter-manager" open={parameterManagerOpen} title="参数" width={680}
+		onClose={() => setParameterManagerOpen(false)} onConfirm={() => setParameterManagerOpen(false)} confirmText="完成">
+		<div className="parameter-manager" aria-label="文档参数">
+			<div className="parameter-manager-header"><span>别名 / 稳定身份</span><span>来源</span><span>计算值</span><span /></div>
+			{(editingView?.part?.parameters ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前 Part 尚无参数" />
+				: (editingView?.part?.parameters ?? []).map((parameter: ParameterDefinition) => <div className="parameter-manager-row" key={parameter.parameterId}>
+					<span><strong>{parameter.key}</strong><Typography.Text type="secondary" copyable={{text:parameter.parameterId}}>{parameter.parameterId}</Typography.Text></span>
+					<Typography.Text ellipsis={{tooltip:parameterSourceText(parameter)}}>{parameterSourceText(parameter)}</Typography.Text>
+					<Typography.Text>{parameterDisplayValue(parameter)}</Typography.Text>
+					<Button size="small" disabled={!canEdit} onClick={() => openParameterEditor(parameter.parameterId)}>编辑</Button>
+				</div>)}
+			<small className="cad-command-hint">表达式使用可读别名输入，提交后绑定稳定 ParameterId；重命名别名不会断开已有引用。</small>
+		</div>
 	</CommandDialog>
 	<CommandDialog id="parameter-edit" open={Boolean(editingParameterID)} title="编辑参数" onClose={() => setEditingParameterID(undefined)}
 		confirmLoading={command.isPending} onConfirm={commitParameterEdit}>

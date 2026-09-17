@@ -455,6 +455,67 @@ func TestSolidGeneratorCommandUsesOneBodyOperationContract(t *testing.T) {
 	}
 }
 
+func TestSolidGeneratorCanBindLengthToExistingStableParameter(t *testing.T) {
+	t.Parallel()
+	model := newPartModel()
+	model.Features = append(model.Features,
+		testRectangleSketch("sketch-base", "XY"),
+		Feature{ID: "extrude-base", Type: "LINEAR_EXTRUDE", Name: "Extrude 1", Profile: "sketch-base", Length: 24, Operation: "NEW_BODY"},
+		testRectangleSketch("sketch-driven", "XY"),
+	)
+	normalizePartModel(&model)
+	baseID := "parameter:extrude-base:length"
+	baseKey := ""
+	for _, parameter := range model.Parameters {
+		if parameter.ParameterID == baseID {
+			baseKey = parameter.Key
+		}
+	}
+	if baseKey == "" {
+		t.Fatal("base length parameter was not created")
+	}
+	modelJSON, _ := json.Marshal(model)
+	request := CommandRequest{RequestID: "driven-extrude", Type: "CREATE_SOLID_FEATURE", SketchID: "sketch-driven",
+		Generator: "LINEAR_EXTRUDE", Operation: "ADD", LengthExpression: baseKey + " / 2"}
+	commandType, payload, err := (&Service{}).adaptLegacyCommand(context.Background(), "part-1", "PART", modelJSON, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payloadJSON, _ := json.Marshal(payload)
+	afterJSON, _, err := workspaceCommandRegistry.Apply("PART", modelJSON, modelcore.DomainCommand{
+		CommandID: "driven-extrude", TypeURI: commandType, SchemaVersion: 1, Payload: payloadJSON})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after PartModel
+	_ = json.Unmarshal(afterJSON, &after)
+	drivenID := "parameter:" + commandEntityID("extrude", "driven-extrude") + ":length"
+	var driven *modelcore.ParameterDefinition
+	for index := range after.Parameters {
+		if after.Parameters[index].ParameterID == drivenID {
+			driven = &after.Parameters[index]
+		}
+	}
+	if driven == nil || driven.Source.Expression == nil || !slices.Contains(driven.Source.Expression.Reads, modelcore.DependencyKey("parameter:"+baseID)) {
+		t.Fatalf("driven source did not bind stable parameter %s: %#v", baseID, driven)
+	}
+	if driven.EvaluatedValue == nil || math.Abs(driven.EvaluatedValue.SIValue-0.012) > 1e-12 {
+		t.Fatalf("driven value = %#v, want 12 mm", driven.EvaluatedValue)
+	}
+
+	request.RequestID = "invalid-driven-extrude"
+	request.LengthExpression = "0 mm"
+	_, invalidPayload, err := (&Service{}).adaptLegacyCommand(context.Background(), "part-1", "PART", modelJSON, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invalidJSON, _ := json.Marshal(invalidPayload)
+	if _, _, err = workspaceCommandRegistry.Apply("PART", modelJSON, modelcore.DomainCommand{
+		CommandID: "invalid-driven-extrude", TypeURI: typeCreateSolidFeature, SchemaVersion: 1, Payload: invalidJSON}); err == nil || !strings.Contains(err.Error(), "positive finite") {
+		t.Fatalf("zero expression must be rejected, got %v", err)
+	}
+}
+
 func testRectangleSketch(id, plane string) Feature {
 	operations, _ := rectangleMacro(id, SketchPoint2{0, 0}, SketchPoint2{20, 10})
 	var datum DatumPlane

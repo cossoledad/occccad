@@ -465,6 +465,58 @@ func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) 
 	}
 	for _, operation := range operations {
 		switch operation.Type {
+		case "ADD_EXTERNAL_GEOMETRY":
+			if operation.ExternalGeometry == nil {
+				return fmt.Errorf("%w: ADD_EXTERNAL_GEOMETRY requires a bound external geometry", ErrValidation)
+			}
+			sketch.ExternalGeometry = append(sketch.ExternalGeometry, *operation.ExternalGeometry)
+		case "RECONNECT_EXTERNAL_GEOMETRY":
+			if operation.ExternalGeometry == nil || operation.ExternalID == "" {
+				return fmt.Errorf("%w: RECONNECT_EXTERNAL_GEOMETRY requires a bound source and ExternalId", ErrValidation)
+			}
+			found := false
+			for index := range sketch.ExternalGeometry {
+				if sketch.ExternalGeometry[index].ID == operation.ExternalID {
+					replacement := *operation.ExternalGeometry
+					replacement.ID = operation.ExternalID
+					// Preserve only the prior kind long enough to validate existing
+					// references. Resolution runs before solve and either replaces this
+					// snapshot or clears it on failure, so it is never consumed as fresh.
+					replacement.Snapshot = sketch.ExternalGeometry[index].Snapshot
+					replacement.GeometryKind = sketch.ExternalGeometry[index].GeometryKind
+					sketch.ExternalGeometry[index] = replacement
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("%w: selected external geometry does not exist", ErrValidation)
+			}
+		case "DETACH_EXTERNAL_GEOMETRY":
+			found := -1
+			for index := range sketch.ExternalGeometry {
+				if sketch.ExternalGeometry[index].ID == operation.ExternalID {
+					found = index
+					break
+				}
+			}
+			if found < 0 || sketch.ExternalGeometry[found].Status != "CONNECTED" || sketch.ExternalGeometry[found].Snapshot == nil {
+				return fmt.Errorf("%w: only connected external geometry can be detached", ErrValidation)
+			}
+			external := sketch.ExternalGeometry[found]
+			snapshot := external.Snapshot
+			entity := SketchEntity{ID: external.ID, Kind: snapshot.Kind, Role: "CONSTRUCTION", Point: snapshot.Point,
+				Start: snapshot.Start, End: snapshot.End, Center: snapshot.Center, Radius: snapshot.Radius}
+			sketch.Entities = append(sketch.Entities, entity)
+			sketch.ExternalGeometry = append(sketch.ExternalGeometry[:found], sketch.ExternalGeometry[found+1:]...)
+			for constraintIndex := range sketch.Constraints {
+				for referenceIndex := range sketch.Constraints[constraintIndex].References {
+					reference := &sketch.Constraints[constraintIndex].References[referenceIndex]
+					if reference.Target == "EXTERNAL" && reference.EntityID == external.ID {
+						reference.Target = "ENTITY"
+					}
+				}
+			}
 		case "ADD_ENTITY":
 			if operation.Entity == nil {
 				return fmt.Errorf("%w: ADD_ENTITY requires an entity", ErrValidation)
@@ -673,6 +725,60 @@ func validateSketch(sketch SketchFeature) error {
 			return fmt.Errorf("%w: unsupported sketch entity %s", ErrValidation, entity.Kind)
 		}
 	}
+	for _, external := range sketch.ExternalGeometry {
+		if external.ID == "" || entityKinds[external.ID] != "" {
+			return fmt.Errorf("%w: sketch external ids must be unique across geometry", ErrValidation)
+		}
+		if external.ProjectionKind != "ORTHOGONAL" || external.SourceVersionID == "" {
+			return fmt.Errorf("%w: external geometry %s has an incomplete source contract", ErrValidation, external.ID)
+		}
+		if err := external.PersistentSelection.Validate(); err != nil {
+			return fmt.Errorf("%w: external geometry %s persistent selection: %v", ErrValidation, external.ID, err)
+		}
+		if external.Status != "PENDING" && external.Status != "CONNECTED" && external.Status != "UNRESOLVED_EXTERNAL" {
+			return fmt.Errorf("%w: external geometry %s has invalid status", ErrValidation, external.ID)
+		}
+		if external.Status == "CONNECTED" && external.Snapshot == nil {
+			return fmt.Errorf("%w: connected external geometry %s requires a snapshot", ErrValidation, external.ID)
+		}
+		if external.Status == "UNRESOLVED_EXTERNAL" && external.Snapshot != nil {
+			return fmt.Errorf("%w: unresolved external geometry %s cannot retain a stale snapshot", ErrValidation, external.ID)
+		}
+		kind := external.GeometryKind
+		if external.Snapshot != nil {
+			kind = external.Snapshot.Kind
+			snapshot := external.Snapshot
+			switch kind {
+			case "POINT":
+				if snapshot.Point == nil || !finite(snapshot.Point.X) || !finite(snapshot.Point.Y) {
+					return fmt.Errorf("%w: invalid projected external point", ErrValidation)
+				}
+			case "LINE":
+				if snapshot.Start == nil || snapshot.End == nil || !finite(snapshot.Start.X) || !finite(snapshot.Start.Y) || !finite(snapshot.End.X) || !finite(snapshot.End.Y) || *snapshot.Start == *snapshot.End {
+					return fmt.Errorf("%w: invalid projected external line", ErrValidation)
+				}
+			case "CIRCLE":
+				if snapshot.Center == nil || !finite(snapshot.Center.X) || !finite(snapshot.Center.Y) || !positiveFinite(snapshot.Radius) {
+					return fmt.Errorf("%w: invalid projected external circle", ErrValidation)
+				}
+			default:
+				return fmt.Errorf("%w: unsupported projected external geometry %s", ErrValidation, kind)
+			}
+		}
+		if kind == "" {
+			switch external.PersistentSelection.ExpectedType {
+			case "VERTEX":
+				kind = "POINT"
+			case "EDGE":
+				kind = "LINE"
+			}
+		}
+		if (external.PersistentSelection.ExpectedType == modelcore.PersistentTopologyVertex && kind != "POINT") ||
+			(external.PersistentSelection.ExpectedType == modelcore.PersistentTopologyEdge && kind != "LINE" && kind != "CIRCLE") {
+			return fmt.Errorf("%w: external geometry %s snapshot type does not match its topology source", ErrValidation, external.ID)
+		}
+		entityKinds[external.ID] = kind
+	}
 	constraints := map[string]bool{}
 	for _, constraint := range sketch.Constraints {
 		if constraint.ID == "" || constraints[constraint.ID] {
@@ -714,7 +820,7 @@ func validateSketch(sketch SketchFeature) error {
 		}
 		for _, reference := range constraint.References {
 			switch reference.Target {
-			case "ENTITY":
+			case "ENTITY", "EXTERNAL":
 				kind := entityKinds[reference.EntityID]
 				if kind == "" {
 					return fmt.Errorf("%w: constraint %s references unknown entity %s", ErrValidation, constraint.ID, reference.EntityID)
@@ -770,12 +876,12 @@ func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map
 	}
 	line := func(reference SketchGeometryRef) bool {
 		return (reference.Target == "SKETCH_X_AXIS" || reference.Target == "SKETCH_Y_AXIS") ||
-			(reference.Target == "ENTITY" && entityKinds[reference.EntityID] == "LINE" &&
+			((reference.Target == "ENTITY" || reference.Target == "EXTERNAL") && entityKinds[reference.EntityID] == "LINE" &&
 				(reference.SubElement == "DIRECTION" || reference.SubElement == "WHOLE"))
 	}
 	circular := func(reference SketchGeometryRef) bool {
 		kind := entityKinds[reference.EntityID]
-		return reference.Target == "ENTITY" && (kind == "CIRCLE" || kind == "ARC") && reference.SubElement == "WHOLE"
+		return (reference.Target == "ENTITY" || reference.Target == "EXTERNAL") && (kind == "CIRCLE" || kind == "ARC") && reference.SubElement == "WHOLE"
 	}
 	curve := func(reference SketchGeometryRef) bool { return line(reference) || circular(reference) }
 	refs := constraint.References
@@ -788,7 +894,7 @@ func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map
 	case "PARALLEL", "PERPENDICULAR", "ANGLE":
 		return line(refs[0]) && line(refs[1])
 	case "FIXED":
-		return refs[0].Target == "ENTITY" && refs[0].SubElement == "WHOLE"
+		return (refs[0].Target == "ENTITY" || refs[0].Target == "EXTERNAL") && refs[0].SubElement == "WHOLE"
 	case "FIXED_POINT":
 		return point(refs[0])
 	case "HORIZONTAL", "VERTICAL", "LENGTH":
@@ -812,7 +918,8 @@ func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map
 }
 
 type createFeaturePayload struct {
-	Feature Feature `json:"feature"`
+	Feature          Feature                          `json:"feature"`
+	ParameterSources map[string]modelcore.ValueSource `json:"parameterSources,omitempty"`
 }
 
 func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -825,6 +932,7 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		return nil, modelcore.ChangeSet{}, err
 	}
 	normalizePartModel(&model)
+	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
 	for _, feature := range model.Features {
 		if feature.ID == payload.Feature.ID {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate feature identity", ErrValidation)
@@ -832,12 +940,29 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	}
 	model.Features = append(model.Features, payload.Feature)
 	normalizePartModel(&model)
+	for slot, source := range payload.ParameterSources {
+		parameterID := "parameter:" + payload.Feature.ID + ":" + slot
+		found := false
+		for index := range model.Parameters {
+			if model.Parameters[index].ParameterID != parameterID {
+				continue
+			}
+			model.Parameters[index].Source = source
+			found = true
+			break
+		}
+		if !found {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: feature parameter slot %s does not exist", ErrValidation, slot)
+		}
+	}
 	if err := validateAndResolvePartParameters(&model); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	created := model.Features[len(model.Features)-1]
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Feature.ID, SlotID: "entity"}, nil, created)
-	set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.Feature.ID)}}
+	changes, seeds := appendParameterLifecycleChanges([]modelcore.ModelChange{change},
+		[]modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.Feature.ID)}, beforeParameters, model.Parameters)
+	set := modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}
 	next, _ := json.Marshal(model)
 	return next, set, nil
 }
@@ -1464,6 +1589,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	geometryKey := candidate.geometryKey
 	var graph *modelcore.DependencyGraph
 	var manifest modelcore.EvaluationManifest
+	revisionState, evaluationStatus := "READY", "SUCCEEDED"
 	if prepared.documentType == "PART" {
 		var model PartModel
 		var beforeModel PartModel
@@ -1496,7 +1622,12 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err != nil {
 			return err
 		}
-		if !promoted {
+		if broken, unresolved := firstUnresolvedExternal(model); unresolved {
+			geometryKey, revisionState, evaluationStatus = "", "FAILED", "FAILED"
+			if broken.DependencySnapshot != nil {
+				geometryKey = broken.DependencySnapshot.GeometryKey
+			}
+		} else if !promoted {
 			finishGeometry := perf.Start(ctx, "geometry-evaluate")
 			geometryKey, err = service.evaluatePart(ctx, prepared.requestID, model)
 			finishGeometry()
@@ -1607,7 +1738,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	if geometryKey != "" {
 		nullableGeometry = geometryKey
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,'READY',$7,$8,$9,$10)`, revisionID, documentID, prepared.headRevision, revisionSequence, nextJSON, nullableGeometry, auditCommandID, modelHash, dependencyDigest, manifestJSON); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, revisionID, documentID, prepared.headRevision, revisionSequence, nextJSON, nullableGeometry, revisionState, auditCommandID, modelHash, dependencyDigest, manifestJSON); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, revisionID, prepared.headRevision); err != nil {
@@ -1626,7 +1757,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	if _, err := tx.Exec(ctx, `INSERT INTO occccad.change_sets(transaction_id,canonical_blob,canonical_digest,write_set,impact_seeds) VALUES($1,$2,$3,$4,$5)`, prepared.transactionID, changesJSON, changes.CanonicalDigest, writes, changes.ImpactSeeds); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,'SUCCEEDED',true)`, revisionID, strings.ToLower(prepared.documentType), evaluatorVersion, modelHash, manifestJSON, manifestDigest); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,$7,true)`, revisionID, strings.ToLower(prepared.documentType), evaluatorVersion, modelHash, manifestJSON, manifestDigest, evaluationStatus); err != nil {
 		return err
 	}
 	for _, edge := range graph.Edges {
@@ -1662,6 +1793,20 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+func firstUnresolvedExternal(model PartModel) (SketchExternalGeometry, bool) {
+	for _, feature := range model.Features {
+		if feature.Sketch == nil {
+			continue
+		}
+		for _, external := range feature.Sketch.ExternalGeometry {
+			if external.Status != "CONNECTED" || external.Snapshot == nil {
+				return external, true
+			}
+		}
+	}
+	return SketchExternalGeometry{}, false
 }
 
 func restoreMovePreviewOnSolveFailure(typeURI string, solveErr error, baseJSON []byte, model *ProductModel) (bool, error) {
@@ -1833,6 +1978,14 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		return CommandPreview{}, err
 	}
 	modelHash := canonicalModelHash(nextJSON)
+	if _, broken := firstUnresolvedExternal(model); broken {
+		previewID := newID("preview")
+		service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
+			headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
+			payloadDigest: modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, changes: previewChanges,
+			expiresAt: time.Now().Add(interactionCandidateTTL)})
+		return CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: modelHash}, nil
+	}
 	finishGeometry := perf.Start(ctx, "geometry-evaluate")
 	geometryKey, err := service.evaluatePart(ctx, "preview/"+prepared.requestID, model)
 	finishGeometry()
@@ -1879,8 +2032,16 @@ func (service *Service) solveSketches(ctx context.Context, requestID string, mod
 
 func (service *Service) solveSketchFeature(ctx context.Context, requestID string, model *PartModel, featureIndex int) error {
 	sketch := model.Features[featureIndex].Sketch
-	if sketch == nil || len(sketch.Entities) == 0 {
+	if sketch == nil || (len(sketch.Entities) == 0 && len(sketch.ExternalGeometry) == 0) {
 		return nil
+	}
+	brokenExternal := map[string]bool{}
+	brokenDiagnostics := []string{}
+	for _, external := range sketch.ExternalGeometry {
+		if external.Status != "CONNECTED" || external.Snapshot == nil {
+			brokenExternal[external.ID] = true
+			brokenDiagnostics = append(brokenDiagnostics, strings.Trim(external.DiagnosticCode+": "+external.Diagnostic, ": "))
+		}
 	}
 	if service.worker == nil {
 		return fmt.Errorf("%w: geometry worker is required to solve sketches", ErrValidation)
@@ -1907,8 +2068,40 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 			input.Splines = append(input.Splines, value)
 		}
 	}
+	for _, external := range sketch.ExternalGeometry {
+		if brokenExternal[external.ID] {
+			continue
+		}
+		snapshot := external.Snapshot
+		switch snapshot.Kind {
+		case "POINT":
+			input.Points = append(input.Points, geometry.SketchPoint{ID: external.ID, X: snapshot.Point.X, Y: snapshot.Point.Y, Role: "CONSTRUCTION"})
+			input.Constraints = append(input.Constraints, geometry.SketchConstraint{ID: "external-fixed-" + external.ID, Kind: "FIXED_POINT", Internal: true,
+				FixedX: snapshot.Point.X, FixedY: snapshot.Point.Y, References: []geometry.SketchReference{{Target: "ENTITY", EntityID: external.ID, SubElement: "POINT"}}})
+		case "LINE":
+			input.Lines = append(input.Lines, geometry.SketchLine{ID: external.ID, StartX: snapshot.Start.X, StartY: snapshot.Start.Y,
+				EndX: snapshot.End.X, EndY: snapshot.End.Y, Role: "CONSTRUCTION"})
+			input.Constraints = append(input.Constraints, geometry.SketchConstraint{ID: "external-fixed-" + external.ID, Kind: "FIXED", Internal: true,
+				References: []geometry.SketchReference{{Target: "ENTITY", EntityID: external.ID, SubElement: "WHOLE"}}})
+		case "CIRCLE":
+			input.Circles = append(input.Circles, geometry.SketchCircle{ID: external.ID, CenterX: snapshot.Center.X, CenterY: snapshot.Center.Y,
+				Radius: snapshot.Radius, Role: "CONSTRUCTION"})
+			input.Constraints = append(input.Constraints, geometry.SketchConstraint{ID: "external-fixed-" + external.ID, Kind: "FIXED", Internal: true,
+				References: []geometry.SketchReference{{Target: "ENTITY", EntityID: external.ID, SubElement: "WHOLE"}}})
+		}
+	}
 	for _, constraint := range sketch.Constraints {
 		if constraint.Suppressed {
+			continue
+		}
+		affected := false
+		for _, reference := range constraint.References {
+			if reference.Target == "EXTERNAL" && brokenExternal[reference.EntityID] {
+				affected = true
+				break
+			}
+		}
+		if affected {
 			continue
 		}
 		value := geometry.SketchConstraint{ID: constraint.ID, Kind: constraint.Kind, Unit: constraint.Unit, Internal: constraint.Internal}
@@ -1919,13 +2112,22 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 			value.FixedX, value.FixedY = constraint.FixedPoint.X, constraint.FixedPoint.Y
 		}
 		for _, reference := range constraint.References {
-			value.References = append(value.References, geometry.SketchReference{Target: reference.Target, EntityID: reference.EntityID,
+			target := reference.Target
+			if target == "EXTERNAL" {
+				target = "ENTITY"
+			}
+			value.References = append(value.References, geometry.SketchReference{Target: target, EntityID: reference.EntityID,
 				SubElement: reference.SubElement, ControlPointIndex: reference.ControlPointIndex})
 		}
 		input.Constraints = append(input.Constraints, value)
 	}
 	if len(input.Points)+len(input.Lines)+len(input.Circles)+len(input.Arcs)+len(input.Splines) == 0 {
-		sketch.Solve = SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}
+		if len(brokenExternal) > 0 {
+			sketch.Solve = SketchSolveState{Status: "UNRESOLVED_EXTERNAL", DefinitionStatus: "UNRESOLVED", DegreesOfFreedom: -1,
+				Diagnostic: strings.Join(brokenDiagnostics, "; ")}
+		} else {
+			sketch.Solve = SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}
+		}
 		return nil
 	}
 	result, err := service.worker.SolveSketch(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
@@ -1983,21 +2185,45 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 			entity.Degree, entity.Closed = spline.Degree, spline.Closed
 		}
 	}
-	components, err := service.solveSketchComponents(ctx, requestID+"/"+model.Features[featureIndex].ID, input, sketch)
+	components, err := service.solveSketchComponents(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
 	if err != nil {
 		return err
 	}
-	sketch.Solve = SketchSolveState{Status: string(result.Status), DefinitionStatus: sketchDefinitionStatus(result.Status, result.DegreesOfFreedom), DegreesOfFreedom: result.DegreesOfFreedom, Diagnostic: result.Diagnostic,
-		ConflictingConstraintIDs: result.ConflictingConstraintIDs, RedundantConstraintIDs: result.RedundantConstraintIDs, Components: components}
+	status, definition, diagnostic := string(result.Status), sketchDefinitionStatus(result.Status, result.DegreesOfFreedom), result.Diagnostic
+	if len(brokenExternal) > 0 {
+		status, definition, diagnostic = "UNRESOLVED_EXTERNAL", "UNRESOLVED", strings.Join(brokenDiagnostics, "; ")
+	}
+	sketch.Solve = SketchSolveState{Status: status, DefinitionStatus: definition, DegreesOfFreedom: result.DegreesOfFreedom, Diagnostic: diagnostic,
+		ConflictingConstraintIDs: publicSketchConstraintIDs(result.ConflictingConstraintIDs), RedundantConstraintIDs: publicSketchConstraintIDs(result.RedundantConstraintIDs), Components: components}
 	return nil
 }
 
-func (service *Service) solveSketchComponents(ctx context.Context, requestID string, input geometry.SketchModel, sketch *SketchFeature) ([]SketchSolveComponent, error) {
-	parent := map[string]string{}
-	for _, entity := range sketch.Entities {
-		if !entity.Suppressed {
-			parent[entity.ID] = entity.ID
+func publicSketchConstraintIDs(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if !strings.HasPrefix(value, "external-fixed-") {
+			result = append(result, value)
 		}
+	}
+	return result
+}
+
+func (service *Service) solveSketchComponents(ctx context.Context, requestID string, input geometry.SketchModel) ([]SketchSolveComponent, error) {
+	parent := map[string]string{}
+	for _, value := range input.Points {
+		parent[value.ID] = value.ID
+	}
+	for _, value := range input.Lines {
+		parent[value.ID] = value.ID
+	}
+	for _, value := range input.Circles {
+		parent[value.ID] = value.ID
+	}
+	for _, value := range input.Arcs {
+		parent[value.ID] = value.ID
+	}
+	for _, value := range input.Splines {
+		parent[value.ID] = value.ID
 	}
 	var find func(string) string
 	find = func(id string) string {
@@ -2012,10 +2238,7 @@ func (service *Service) solveSketchComponents(ctx context.Context, requestID str
 			parent[b] = a
 		}
 	}
-	for _, constraint := range sketch.Constraints {
-		if constraint.Suppressed {
-			continue
-		}
+	for _, constraint := range input.Constraints {
 		ids := []string{}
 		for _, ref := range constraint.References {
 			if _, ok := parent[ref.EntityID]; ok {
@@ -2073,7 +2296,9 @@ func (service *Service) solveSketchComponents(ctx context.Context, requestID str
 			}
 			if belongs {
 				model.Constraints = append(model.Constraints, v)
-				constraintIDs = append(constraintIDs, v.ID)
+				if !strings.HasPrefix(v.ID, "external-fixed-") {
+					constraintIDs = append(constraintIDs, v.ID)
+				}
 			}
 		}
 		result, err := service.worker.SolveSketch(ctx, requestID+"/component/"+root, model)

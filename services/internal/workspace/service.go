@@ -30,7 +30,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const evaluatorVersion = "part-solid-generators-v10-topology-history-complete"
+const evaluatorVersion = "part-solid-generators-v11-external-geometry"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1416,9 +1416,48 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 					Status: feature.Sketch.Solve.Status, Positions: [][3]float64{toWorld(auxiliary.point)}, Selectable: false})
 			}
 		}
-		entities := make(map[string]SketchEntity, len(feature.Sketch.Entities))
+		for _, external := range feature.Sketch.ExternalGeometry {
+			if external.Snapshot == nil {
+				continue
+			}
+			snapshot := external.Snapshot
+			primitive := VisualPrimitive{ID: external.ID, FeatureID: feature.ID, EntityType: snapshot.Kind,
+				Role: "CONSTRUCTION", Status: external.Status, Selectable: true, Semantic: "SKETCH_EXTERNAL"}
+			switch snapshot.Kind {
+			case "POINT":
+				if snapshot.Point == nil {
+					continue
+				}
+				primitive.Kind, primitive.Positions = "POINTS", [][3]float64{toWorld(*snapshot.Point)}
+			case "LINE":
+				if snapshot.Start == nil || snapshot.End == nil {
+					continue
+				}
+				primitive.Kind, primitive.Positions = "POLYLINE", [][3]float64{toWorld(*snapshot.Start), toWorld(*snapshot.End)}
+			case "CIRCLE":
+				if snapshot.Center == nil {
+					continue
+				}
+				entity := SketchEntity{Kind: "CIRCLE", Center: snapshot.Center, Radius: snapshot.Radius}
+				primitive.Kind = "POLYLINE"
+				for _, point := range sampleProfileCurve(profileCurve(entity, false)) {
+					primitive.Positions = append(primitive.Positions, toWorld(point))
+				}
+			default:
+				continue
+			}
+			manifest.Primitives = append(manifest.Primitives, primitive)
+		}
+		entities := make(map[string]SketchEntity, len(feature.Sketch.Entities)+len(feature.Sketch.ExternalGeometry))
 		for _, entity := range feature.Sketch.Entities {
 			entities[entity.ID] = entity
+		}
+		for _, external := range feature.Sketch.ExternalGeometry {
+			if external.Snapshot != nil {
+				entities[external.ID] = SketchEntity{ID: external.ID, Kind: external.Snapshot.Kind, Role: "CONSTRUCTION",
+					Point: external.Snapshot.Point, Start: external.Snapshot.Start, End: external.Snapshot.End,
+					Center: external.Snapshot.Center, Radius: external.Snapshot.Radius}
+			}
 		}
 		for _, constraint := range feature.Sketch.Constraints {
 			visual, ok := constraintVisual(constraint, entities)
@@ -2431,6 +2470,24 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 		}
 		geometry.Children = append(geometry.Children, node)
 	}
+	externals := DocumentStructureNode{ID: path + "/external-geometry", Kind: "SKETCH_EXTERNAL_GEOMETRY_SET", Name: "External Geometry",
+		OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+	for index, external := range sketch.ExternalGeometry {
+		name := fmt.Sprintf("External %d", index+1)
+		if external.Snapshot != nil && external.Snapshot.Kind != "" {
+			name = strings.Title(strings.ToLower(external.Snapshot.Kind)) + " " + fmt.Sprint(index+1)
+		}
+		node := DocumentStructureNode{ID: externals.ID + "/external:" + external.ID, Kind: "SKETCH_EXTERNAL_GEOMETRY", Name: name,
+			EntityID: external.ID, OwnerEntityID: sketchID, EntityType: "EXTERNAL", Role: "CONSTRUCTION",
+			DocumentID: documentID, VersionID: versionID}
+		if external.Status != "CONNECTED" {
+			node.Diagnostic = strings.Trim(external.DiagnosticCode+": "+external.Diagnostic, ": ")
+		}
+		if editable {
+			node.Capabilities = []string{"DETACH", "RECONNECT"}
+		}
+		externals.Children = append(externals.Children, node)
+	}
 	constraints := DocumentStructureNode{ID: path + "/constraints", Kind: "SKETCH_CONSTRAINT_SET", Name: "Constraints",
 		OwnerEntityID: sketchID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
 	logical := DocumentStructureNode{ID: constraints.ID + "/logical", Kind: "SKETCH_LOGICAL_CONSTRAINT_SET", Name: "Geometric Constraints",
@@ -2460,6 +2517,9 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 		parent.Children = append(parent.Children, node)
 	}
 	constraints.Children = append(constraints.Children, logical, dimensions)
+	if len(externals.Children) > 0 {
+		return []DocumentStructureNode{geometry, externals, constraints}
+	}
 	return []DocumentStructureNode{geometry, constraints}
 }
 

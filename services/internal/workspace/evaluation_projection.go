@@ -214,6 +214,9 @@ func validateAndResolvePartParameters(model *PartModel) error {
 		feature := &model.Features[index]
 		if isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE" {
 			feature.Length = values["parameter:"+feature.ID+":length"].SIValue * 1000
+			if !positiveFinite(feature.Length) {
+				return fmt.Errorf("%w: extrude length must evaluate to a positive finite value", ErrValidation)
+			}
 		}
 		if feature.Sketch != nil {
 			for constraintIndex := range feature.Sketch.Constraints {
@@ -339,7 +342,8 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			}
 		}
 		if feature.Sketch != nil {
-			if feature.Sketch.Support.Type == "PLANAR_FACE" && feature.Sketch.Support.PersistentSelection != nil {
+			readsTopology := (feature.Sketch.Support.Type == "PLANAR_FACE" && feature.Sketch.Support.PersistentSelection != nil) || len(feature.Sketch.ExternalGeometry) > 0
+			if readsTopology {
 				if bodyTipFeatureID != "" {
 					edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadTopology})
 				}

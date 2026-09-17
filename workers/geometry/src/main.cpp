@@ -8,6 +8,7 @@
 #include <occccad/kernel/topology_naming.hpp>
 
 #include <grpcpp/grpcpp.h>
+#include <occccad/geometry/sketch/external_geometry_projector.h>
 #include <occccad/geometry/sketch/sketch_solver.h>
 #include <occccad/worker/v1/geometry_worker.grpc.pb.h>
 #include <spdlog/sinks/rotating_file_sink.h>
@@ -561,6 +562,82 @@ public:
         } catch (const std::exception& error) {
             return {grpc::StatusCode::INTERNAL, error.what()};
         }
+    }
+
+    grpc::Status ProjectExternalGeometry(
+        grpc::ServerContext* context,
+        const worker_api::ProjectExternalGeometryRequest* request,
+        worker_api::ProjectExternalGeometryResponse* response) override {
+        if (context->IsCancelled())
+            return {grpc::StatusCode::CANCELLED, "request was cancelled"};
+        if (request->request_id().empty() || !request->has_source() || !request->has_frame())
+            return {grpc::StatusCode::INVALID_ARGUMENT,
+                    "request_id, source and projection frame are required"};
+        if (request->projection_kind() != "ORTHOGONAL")
+            return {grpc::StatusCode::INVALID_ARGUMENT,
+                    "only ORTHOGONAL external geometry projection is supported"};
+        const auto vec = [](const worker_api::Vec3& value) {
+            return sketch_api::Vec3{value.x(), value.y(), value.z()};
+        };
+        sketch_api::ExternalProjectionSource source;
+        const auto& input = request->source();
+        const auto& evidence = input.evidence();
+        source.origin = vec(evidence.origin());
+        source.direction = vec(evidence.direction());
+        source.measure_mm = evidence.has_measure_si() ? evidence.measure_si() * 1000.0 : 0.0;
+        source.has_parameters = evidence.has_parameter_start() && evidence.has_parameter_end();
+        source.parameter_start = evidence.parameter_start();
+        source.parameter_end = evidence.parameter_end();
+        if (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_VERTEX &&
+            evidence.geometry_type() == "POINT") {
+            source.kind = sketch_api::ExternalSourceKind::point;
+        } else if (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE &&
+                   evidence.geometry_type() == "LINE") {
+            source.kind = sketch_api::ExternalSourceKind::line;
+        } else if (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE &&
+                   evidence.geometry_type() == "CIRCLE") {
+            source.kind = sketch_api::ExternalSourceKind::circle;
+        } else {
+            response->set_status("UNRESOLVED_EXTERNAL");
+            response->set_diagnostic_code("EXTERNAL_SOURCE_TYPE_MISMATCH");
+            response->set_diagnostic("only linear/circular Edge and Vertex sources are supported");
+            response->set_source_digest(evidence.evidence_digest());
+            return grpc::Status::OK;
+        }
+        const auto& frame = request->frame();
+        const auto projected = sketch_api::project_external_geometry(
+            source, {vec(frame.origin()), vec(frame.x_direction()), vec(frame.normal())});
+        response->set_source_digest(evidence.evidence_digest());
+        if (projected.status != sketch_api::ExternalProjectionStatus::connected) {
+            response->set_status("UNRESOLVED_EXTERNAL");
+            response->set_diagnostic_code(projected.diagnostic_code);
+            response->set_diagnostic(projected.diagnostic);
+            return grpc::Status::OK;
+        }
+        response->set_status("CONNECTED");
+        const auto fill = [](const sketch_api::Vec2& value, worker_api::Vec2* target) {
+            target->set_x(value.x);
+            target->set_y(value.y);
+        };
+        switch (projected.kind) {
+            case sketch_api::ProjectedGeometryKind::point:
+                response->set_geometry_kind("POINT");
+                fill(projected.point, response->mutable_point());
+                break;
+            case sketch_api::ProjectedGeometryKind::line:
+                response->set_geometry_kind("LINE");
+                fill(projected.start, response->mutable_start());
+                fill(projected.end, response->mutable_end());
+                break;
+            case sketch_api::ProjectedGeometryKind::circle:
+                response->set_geometry_kind("CIRCLE");
+                fill(projected.center, response->mutable_center());
+                response->set_radius(projected.radius);
+                break;
+            default:
+                return {grpc::StatusCode::INTERNAL, "projection returned no geometry"};
+        }
+        return grpc::Status::OK;
     }
 
     grpc::Status SolveAssembly(grpc::ServerContext* context,

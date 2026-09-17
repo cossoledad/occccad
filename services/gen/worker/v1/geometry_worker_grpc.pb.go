@@ -19,19 +19,20 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	GeometryWorker_Ping_FullMethodName            = "/occccad.worker.v1.GeometryWorker/Ping"
-	GeometryWorker_EvaluatePart_FullMethodName    = "/occccad.worker.v1.GeometryWorker/EvaluatePart"
-	GeometryWorker_SolveSketch_FullMethodName     = "/occccad.worker.v1.GeometryWorker/SolveSketch"
-	GeometryWorker_SolveAssembly_FullMethodName   = "/occccad.worker.v1.GeometryWorker/SolveAssembly"
-	GeometryWorker_InspectExchange_FullMethodName = "/occccad.worker.v1.GeometryWorker/InspectExchange"
-	GeometryWorker_ImportExchange_FullMethodName  = "/occccad.worker.v1.GeometryWorker/ImportExchange"
-	GeometryWorker_ExportExchange_FullMethodName  = "/occccad.worker.v1.GeometryWorker/ExportExchange"
-	GeometryWorker_LoadGeometry_FullMethodName    = "/occccad.worker.v1.GeometryWorker/LoadGeometry"
-	GeometryWorker_UnloadGeometry_FullMethodName  = "/occccad.worker.v1.GeometryWorker/UnloadGeometry"
-	GeometryWorker_GetTopology_FullMethodName     = "/occccad.worker.v1.GeometryWorker/GetTopology"
-	GeometryWorker_Tessellate_FullMethodName      = "/occccad.worker.v1.GeometryWorker/Tessellate"
-	GeometryWorker_CreateChamfer_FullMethodName   = "/occccad.worker.v1.GeometryWorker/CreateChamfer"
-	GeometryWorker_CreateFillet_FullMethodName    = "/occccad.worker.v1.GeometryWorker/CreateFillet"
+	GeometryWorker_Ping_FullMethodName                    = "/occccad.worker.v1.GeometryWorker/Ping"
+	GeometryWorker_EvaluatePart_FullMethodName            = "/occccad.worker.v1.GeometryWorker/EvaluatePart"
+	GeometryWorker_SolveSketch_FullMethodName             = "/occccad.worker.v1.GeometryWorker/SolveSketch"
+	GeometryWorker_ProjectExternalGeometry_FullMethodName = "/occccad.worker.v1.GeometryWorker/ProjectExternalGeometry"
+	GeometryWorker_SolveAssembly_FullMethodName           = "/occccad.worker.v1.GeometryWorker/SolveAssembly"
+	GeometryWorker_InspectExchange_FullMethodName         = "/occccad.worker.v1.GeometryWorker/InspectExchange"
+	GeometryWorker_ImportExchange_FullMethodName          = "/occccad.worker.v1.GeometryWorker/ImportExchange"
+	GeometryWorker_ExportExchange_FullMethodName          = "/occccad.worker.v1.GeometryWorker/ExportExchange"
+	GeometryWorker_LoadGeometry_FullMethodName            = "/occccad.worker.v1.GeometryWorker/LoadGeometry"
+	GeometryWorker_UnloadGeometry_FullMethodName          = "/occccad.worker.v1.GeometryWorker/UnloadGeometry"
+	GeometryWorker_GetTopology_FullMethodName             = "/occccad.worker.v1.GeometryWorker/GetTopology"
+	GeometryWorker_Tessellate_FullMethodName              = "/occccad.worker.v1.GeometryWorker/Tessellate"
+	GeometryWorker_CreateChamfer_FullMethodName           = "/occccad.worker.v1.GeometryWorker/CreateChamfer"
+	GeometryWorker_CreateFillet_FullMethodName            = "/occccad.worker.v1.GeometryWorker/CreateFillet"
 )
 
 // GeometryWorkerClient is the client API for GeometryWorker service.
@@ -45,6 +46,10 @@ type GeometryWorkerClient interface {
 	// Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
 	// implementation detail of this coarse-grained boundary.
 	SolveSketch(ctx context.Context, in *SolveSketchRequest, opts ...grpc.CallOption) (*SolveSketchResponse, error)
+	// Project one already-resolved stable topology element into an immutable
+	// sketch support frame. Document identity and naming resolution stay in
+	// the control plane; this RPC owns authoritative projection geometry.
+	ProjectExternalGeometry(ctx context.Context, in *ProjectExternalGeometryRequest, opts ...grpc.CallOption) (*ProjectExternalGeometryResponse, error)
 	// Solve one immutable 3D assembly geometry-constraint system. Product
 	// identity and persistence stay in the control plane; this boundary only
 	// carries rigid poses, local geometric descriptors and residual equations.
@@ -99,6 +104,16 @@ func (c *geometryWorkerClient) SolveSketch(ctx context.Context, in *SolveSketchR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SolveSketchResponse)
 	err := c.cc.Invoke(ctx, GeometryWorker_SolveSketch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *geometryWorkerClient) ProjectExternalGeometry(ctx context.Context, in *ProjectExternalGeometryRequest, opts ...grpc.CallOption) (*ProjectExternalGeometryResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProjectExternalGeometryResponse)
+	err := c.cc.Invoke(ctx, GeometryWorker_ProjectExternalGeometry_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -216,6 +231,10 @@ type GeometryWorkerServer interface {
 	// Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
 	// implementation detail of this coarse-grained boundary.
 	SolveSketch(context.Context, *SolveSketchRequest) (*SolveSketchResponse, error)
+	// Project one already-resolved stable topology element into an immutable
+	// sketch support frame. Document identity and naming resolution stay in
+	// the control plane; this RPC owns authoritative projection geometry.
+	ProjectExternalGeometry(context.Context, *ProjectExternalGeometryRequest) (*ProjectExternalGeometryResponse, error)
 	// Solve one immutable 3D assembly geometry-constraint system. Product
 	// identity and persistence stay in the control plane; this boundary only
 	// carries rigid poses, local geometric descriptors and residual equations.
@@ -254,6 +273,9 @@ func (UnimplementedGeometryWorkerServer) EvaluatePart(context.Context, *Evaluate
 }
 func (UnimplementedGeometryWorkerServer) SolveSketch(context.Context, *SolveSketchRequest) (*SolveSketchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SolveSketch not implemented")
+}
+func (UnimplementedGeometryWorkerServer) ProjectExternalGeometry(context.Context, *ProjectExternalGeometryRequest) (*ProjectExternalGeometryResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ProjectExternalGeometry not implemented")
 }
 func (UnimplementedGeometryWorkerServer) SolveAssembly(context.Context, *SolveAssemblyRequest) (*SolveAssemblyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SolveAssembly not implemented")
@@ -356,6 +378,24 @@ func _GeometryWorker_SolveSketch_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GeometryWorkerServer).SolveSketch(ctx, req.(*SolveSketchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GeometryWorker_ProjectExternalGeometry_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProjectExternalGeometryRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GeometryWorkerServer).ProjectExternalGeometry(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GeometryWorker_ProjectExternalGeometry_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GeometryWorkerServer).ProjectExternalGeometry(ctx, req.(*ProjectExternalGeometryRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -558,6 +598,10 @@ var GeometryWorker_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SolveSketch",
 			Handler:    _GeometryWorker_SolveSketch_Handler,
+		},
+		{
+			MethodName: "ProjectExternalGeometry",
+			Handler:    _GeometryWorker_ProjectExternalGeometry_Handler,
 		},
 		{
 			MethodName: "SolveAssembly",

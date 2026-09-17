@@ -153,7 +153,7 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 - 当前安全表达式 profile 支持数量字面量、Parameter read、括号和 `+ - * /`，在提交时完成名称绑定、单位检查、cost limit 和 dependency extraction；持久 AST 只保存 ParameterId，显示 key 重命名不破坏引用，并由 checked AST 重新生成当前可读别名文本；参数删除、缺失引用、循环和量纲错误在新 Head 前失败；
 - Design Dependency Graph 使用稳定 key 与 typed edge，提交前检查 phase 和 cycle；handler 的 impact seed 计算 transitive dirty closure；
 - 每个新模型 Revision 保存 model hash、dependency snapshot digest 和 EvaluationManifest，并投影 node input/output digest、dirty nodes 与 authoritative EvaluationRun；增量 evaluator 只在 input digest 相同才复用前一 manifest 结果，测试以清缓存冷求值为等价 oracle。
-- 参数 literal/expression 在 Sketch Solver 和 Feature evaluator 之前按同一拓扑序求值；DocumentView/属性面板显示 ParameterId、别名、source text 与规范计算值，别名和 source 编辑继续通过版本化 Domain Command、ChangeSet 与 Undo/Redo。
+- 参数 literal/expression 在 Sketch Solver 和 Feature evaluator 之前按同一拓扑序求值；DocumentView/属性面板显示 ParameterId、别名、source text 与规范计算值，Part Design 的文档级参数面板集中列出全部参数并复用同一版本化编辑命令。新建 Linear Extrude 的 length 可提交 literal 或同一 Part 的别名表达式；legacy UI command adapter 在创建前完成量纲检查和稳定 ParameterId 绑定，typed create handler 在同一个 Domain Transaction 中创建 Feature 及其参数 source，preview/commit 共用该路径且求值结果必须为正有限长度。别名和 source 编辑继续通过版本化 Domain Command、ChangeSet 与 Undo/Redo。
 
 ### 4.5 身份与访问控制
 
@@ -167,7 +167,7 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 
 ## 5. Part 几何求值链
 
-当前已不再保存 `origin + width + height` 测试矩形。Part 中的 `SKETCH` Feature 保存版本化 `SketchFeature v1`：Datum Plane support、具有稳定 ID 的 Point/Line/Circle/Arc/Spline、显式 GeometryRef、Constraint 和最近一次权威 solve 状态。线段、圆弧和开放曲线持有可稳定引用的端点；端点相接必须由 Coincident 明确表达，不能以浮点坐标接近替代模型关系。
+当前已不再保存 `origin + width + height` 测试矩形。Part 中的 `SKETCH` Feature 保存版本化 `SketchFeature v2`：Datum/PLANAR_FACE support、具有稳定 ID 的 Point/Line/Circle/Arc/Spline、独立 ExternalGeometry、显式 GeometryRef、Constraint 和最近一次权威 solve 状态。线段、圆弧和开放曲线持有可稳定引用的端点；端点相接必须由 Coincident 明确表达，不能以浮点坐标接近替代模型关系。
 
 Geometry Worker 内的项目自有 `SketchSolver` 已通过 `SolveSketch` 粗粒度 RPC 接入提交链，PlaneGCS 只存在于适配层内部。当前支持 Coincident、Parallel、Fixed、Horizontal、Vertical、Perpendicular、Tangent、Equal、Distance、Length、Radius、Angle、Concentric、PointOnObject、Midpoint 和 Symmetry。Geometry client 是唯一协议适配边界：Worker 的历史 `SOLVED`/`INVALID_MODEL` 名称在此归一为平台 `FULLY_CONSTRAINED`/`INVALID`，PlaneGCS 整数返回码不会进入服务、Revision 或用户错误。求解结果把约束程度 `FULLY_CONSTRAINED / UNDER_CONSTRAINED / UNRESOLVED` 与诊断 `REDUNDANT / CONFLICTING` 正交保存；零 DoF 的闭包即使存在冗余，几何仍显示完全约束色，只有冗余约束本身显示诊断色。宏生成的 `internal` 约束仍参与求解和冲突诊断，但其纯冗余项不阻止整个原子宏提交；用户显式添加的无关冗余约束报告 REDUNDANT。Symmetry 支持“点—直线—点”的轴对称及“点—点—点”的中心对称；当其基于内置 U/V 轴且一个方程已被同一线段的 Horizontal/Vertical/对应轴 Parallel 隐含时，适配层保留复合设计意图。当前 `Spline` 命令把采集点解释为必须经过的拟合点；尚未接入完整样条相切/曲率约束。Web 预览是瞬态状态；`EDIT_SKETCH` 提交后服务端求解结果才进入不可变 Revision。
 
@@ -193,6 +193,8 @@ PlaneGCS 适配器按 `DogLeg → Levenberg-Marquardt → BFGS` 执行确定性�
 Pad 已不再调用四条轴对齐直线特判。OCCT-free Profile Builder 排除 Construction/Point，以 Coincident 等价类构建 Line/Arc/开放 Spline 端点图，并把 Circle/闭合 Spline 作为闭环；它拒绝开放端、T-junction、重叠/相交和自交，确定性遍历环，按包含深度区分外环、孔和岛，并生成稳定 ProfileLoop/ProfileRegion identity。实体求值采用两阶段协议：`LINEAR_EXTRUDE` 或 `REVOLVE` 先从 ProfileRegion 产生临时 Tool Shape，再以 `NEW_BODY / ADD / REMOVE / INTERSECT` 对当前 Body 执行采用、Fuse、Cut 或 Common。OCCT 适配层对空结果、无材料变化、无效 B-Rep 和非单一连通 Solid 给出稳定领域诊断；连续拉伸不再各自产生互相穿透但未合并的实体。旋转轴使用稳定引用，可指向任意 Sketch Line（包括 Profile/Construction 及其他草图中的直线）、AxisSystem 的 X/Y/Z 方向或 DatumAxis；三维参考轴必须位于轮廓草图的支撑平面，服务端将其投影到草图局部框架后再交给 Worker，不能静默使用与轮廓异面的轴。旋转面板作为选择收集器保持打开并等待用户拾取直线或轴；角度、轴引用和反向意图进入 Feature 与求值 digest。当前仍是单 Body、整张 Sketch profile selection，尚未提供区域点选、多 Body 或 merge scope。
 
 Sketch support 不再由 `XY/XZ/YZ` 字符串隐式决定坐标。默认平面和用户创建的基准面保存 `origin + normal + uDirection` 右手坐标框架；`PLANAR_FACE` support 保存上游 Face 的 PersistentSelection、source Revision、origin/X direction/normal、定向规则和 dependency snapshot。提交前控制面先对草图之前的完整 body prefix 求值，再以 semantic topology history 解析当前平面，保持法向定向并把保存的 X direction 投影到新平面；缺失、歧义、类型变化和非法顺序以顶层 `FAILED_SUPPORT` 及具体 diagnostic 拒绝候选 Revision、保留旧 Head，且不会静默退回默认平面。Visualization、拾取、Sketch 编辑和 Worker Profile 构造共享同一支撑框架，依赖图显式串联顺序 body tip，并以 `READ_GEOMETRY` 连接 DatumPlane、以 `READ_TOPOLOGY` 连接面支撑与其直接上游 body tip。`CREATE_DATUM_PLANE` 与 `CREATE_DATUM_AXIS` 继续具有稳定 identity、结构树投影、显示/选择和 Undo/Redo PropertySlot。
+
+ExternalGeometry 与普通 Sketch Entity 分开持久化。每项保存稳定 ExternalId、Edge/Vertex PersistentSelection、source Revision、`ORTHOGONAL` projection kind、resolved source digest、dependency snapshot 和 Worker 生成的二维 Point/Line/Circle snapshot；Constraint 通过 `EXTERNAL + ExternalId + stable sub-element` 引用它。控制面固定按 naming resolver → Worker projection → Sketch solve → downstream Feature 顺序处理，求解边界把外部几何作为内部 fixed geometry 输入 PlaneGCS，但不会把求解结果写回它。`DETACH_EXTERNAL_GEOMETRY` 将当前已连接 snapshot 原子冻结为同 ID 的普通 Construction Entity 并改写引用；Reconnect 只替换 PersistentSelection，保留 ExternalId。来源缺失、歧义、类型变化或投影退化时清除旧 snapshot，进入 `UNRESOLVED_EXTERNAL`，列出受影响 constraint/profile/downstream Feature，并提交 FAILED Revision 供用户检查和恢复，不能以旧二维快照继续生成权威实体。
 
 草图编辑的 ChangeSet 以最终写入 Revision 的求解后 `sketch.model` 为准，而不是命令处理器产生的求解前候选值；历史投影层能够独立读取和回写该稳定属性槽。Undo/Redo 对持久 ChangeSet 先验证稳定 write-set 的 target/slot 唯一性，再从原事务不可变的 base/result Revision 重建实际 before/after 和 digest，最后执行当前值冲突检查；因此旧版本中已写入错误 digest 的求解后草图事务也能修复并回滚，但不会信任旧 ChangeSet 内容或放宽并发冲突检查。PlaneGCS 改写坐标、DoF 或诊断后，补偿和重放不会再产生候选值与 Revision 的 digest 冲突。
 
@@ -283,7 +285,8 @@ Part 交互在退出 Sketcher 后把选择提升为整个 Sketch Feature，并�
 |---|---|---|
 | `Ping` | 已实现 | 健康与 resident 数量 |
 | `EvaluatePart` | 已实现 | ProfileRegion/孔环 Pad 链、基础 B-Rep；Profile Pad 强制稳定 Feature/Body/source identity 与 naming policy，回传逐 Feature semantic outputs/TopologyHistory，并输出不可变 topology manifest artifact；保留旧矩形字段作为当前开发期过渡入口 |
-| `SolveSketch` | 已实现 | GeometryPool Router 转发到 Worker，执行 SketchModel v1 的权威 PlaneGCS 求解与诊断 |
+| `SolveSketch` | 已实现 | GeometryPool Router 转发到 Worker，执行 SketchModel v2 的权威 PlaneGCS 求解与诊断 |
+| `ProjectExternalGeometry` | 已实现 | Router 转发 Edge/Vertex evidence 与 support frame，Worker 权威生成 Point/Line/Circle 投影及稳定失败诊断 |
 | `InspectExchange` | 已实现 | 读取 STEP/BREP 制品清单，判定 Part 或可并行根组件 Product |
 | `ImportExchange` | 已实现 | 从 ArtifactReference 导入一个 STEP 根或 BREP，输出 B-Rep/GLB 制品引用 |
 | `ExportExchange` | 已实现 | 将一个或多个带放置的 B-Rep 制品合成为 STEP/BREP |
@@ -367,6 +370,8 @@ Capture 策略是独立于当前 Tool 和持久 Selection 的可恢复交互状�
 
 持久 `VisualizationManifest` 草图 primitive 与编辑态从当前 `SketchModel` 重建的 Overlay 是互斥显示层：进入 Sketcher 后隐藏 Manifest primitive，只保留实时编辑层；当前权威 Body 不属于该互斥对，始终作为只读设计上下文参与渲染、遮挡和导航，普通 Sketch 工具仍由 `activeSketchID` selection gate 禁止命中 Body topology。退出编辑后再显示持久草图层。尺寸拖动越过手势阈值时会从编辑层移除旧尺寸对象，只显示瞬态引线，避免两套来源重叠后在拖动中暴露为双引线。
 
+P8 的显式 Projection 工具是上述 selection gate 的窄例外：它只接受当前 Body 的 Edge/Vertex，并立即提交 PersistentSelection 绑定；其他草图工具仍不能修改 Body。ExternalGeometry 的 Point/Line/Circle 随后进入同一吸附、约束与高亮路径，但保持只读。场景灯光已从可隐藏的 environment/grid 分组拆出为常亮层，所以直接 Part Sketcher 隐藏环境辅助物时，Body 仍保留原材质颜色而不会变黑。
+
 选择状态由有序 `selections[]` 与最后一个主选择组成；属性面板和单目标命令读取主选择，结构树与视口高亮读取完整集合。拾取分为原始命中与显式 `SelectionMode` 语义投影：默认 `geometry` 保留 Point/Edge/Face 等精确身份，装配移动使用 `instance`，把任意子几何命中在进入 hover/select 状态前投影为所属顶层 Instance；工具不再通过选择后补丁改变身份。视口 Ctrl/Meta 点击切换集合成员，空白点击清空；结构树普通点击替换、Ctrl/Meta 点击切换、Shift 点击按当前可见顺序连续选择、Ctrl/Meta+Shift 合并区间，点击空白清空。SelectionIndex 仅对结构树发起且显式带 `expandTreeDescendants` 的父节点选择，按稳定 `treeNodeId` 前缀展开全部已注册后代渲染对象；约束 selection 额外关联其全部引用草图元素，因此 hover/select 约束会同时高亮标记、引线和相关几何。最终 Body 制品绑定到结构树中最后一个产生实体的 Import/Extrude Feature，因此视口 Face/Edge/Vertex 选择落到该 Feature，而不是笼统落到 PartBody。当前 Artifact 仍是最终 Body 粒度，尚不能显示历史中每个 Feature 的独立 Result。精确元素只高亮命中元素，结构树显示单向投影到最近现存祖先，不会反向扩大视口高亮。拓扑面、边和点的 selected/hover Overlay 均关闭 depth test/write，使被实体遮挡的选择仍可见；边使用独立 4–5 px 屏幕空间线覆盖原始黑色边线。每次状态变化先恢复旧高亮和 Overlay，再按 hover 后 selected 重建。草图尺寸的 `labelPosition` 是版本化注释属性：Select 工具拖动引线/label 时只更新瞬态 preview，pointerup 才提交一次 `UPDATE_CONSTRAINT_PLACEMENT`；双击尺寸在原位置打开内联数值框，Enter 以 `UPDATE_CONSTRAINT_VALUE` 形成一次可 Undo 的 Revision。结构树不显示行内删除按钮；右键菜单锚定节点固定位置、使用固定 `176px` 宽度并作用于当前选择集合，选择集合变化立即关闭菜单；`DELETE_NODES` 在一个 typed Domain Command 中原子删除多个节点、合并同一 PropertySlot 的 ChangeSet，并形成一次可 Undo 的 Revision，不显示确认框。
 
 装配 FIX/RIGID/COINCIDENT/CONCENTRIC/ANGLE/DISTANCE 均生成独立的屏幕稳定约束 glyph 与几何锚点引线。Face 锚点来自持久 topology local ID 对应三角形的显示中心，基准几何使用其显示对象位置，BODY/FIX 使用 Instance 包围盒中心；无法解析精确显示锚点时显式回退到 Instance 中心。结构树约束节点、视口 glyph 和约束 identity 相同；约束向前关联全部引用几何，引用几何反向关联 glyph，Face 的约束高亮还会生成精确 topology overlay。任何显示对象只要自身或任一祖先因结构树隐藏而不可见，就会在 `SelectionIndex` 射线候选阶段被排除，隐藏不再只是渲染属性。
@@ -431,7 +436,7 @@ P2 source decomposition 已按稳定职责完成两组等价拆分。CAD Workben
 
 ## 11. 当前主要风险
 
-1. **草图仍非完整专业实现**：基础实体、约束和 Profile Builder 已贯通，但尺寸值尚未升级为独立 ParameterBinding/表达式，Spline 尚无完整相切/曲率求解，Trim/Extend、拖拽求解、区域点选和大规模退化 corpus 尚未实现。
+1. **草图仍非完整专业实现**：基础实体、约束、ParameterBinding/表达式、PLANAR_FACE support、ExternalGeometry 与 Profile Builder 已贯通，但 Spline 尚无完整相切/曲率求解，Trim/Extend、拖拽求解、区域点选和大规模退化 corpus 尚未实现。
 2. **拓扑命名覆盖仍有限**：Linear Extrude/Boolean 的 Face/Edge/Vertex 已有首个稳定 lineage 与 resolver；Revolve、Import、圆角、倒角及更多曲面演化尚未达到同一覆盖，歧义 split 仍需用户 Reconnect。
 3. **制品无法跨主机**：本地文件系统阻止 API/Jobs/Worker 任意调度。
 4. **控制器仅为开发工具**：进程级 Router 不是集群 Scheduler。

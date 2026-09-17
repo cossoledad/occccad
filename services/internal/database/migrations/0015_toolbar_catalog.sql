@@ -46,6 +46,7 @@ INSERT INTO occccad.ui_toolbar_items(toolbar_id,command_id,name,help_text,icon_k
 ('part-design','part.datum-axis','基准轴','以显式原点和方向创建基准轴。','datum-axis',70,false),
 ('sketch-geometry','tool.select','选择','选择当前活动草图中的几何和约束。','select',10,false),
 ('sketch-geometry','capture.settings','捕捉','设置三维选择过滤和草图吸附类型。','capture',15,false),
+('sketch-geometry','sketch.project','投影','将已有实体的边或顶点关联投影为外部几何。','project',18,true),
 ('sketch-geometry','sketch.point','点','在活动草图中创建点；双击按钮进入连续创建。','point',20,true),
 ('sketch-geometry','sketch.line','直线','用起点和终点创建直线；双击按钮连续创建。','line',30,true),
 ('sketch-geometry','sketch.arc','圆弧','依次指定圆心、起点和终点创建圆弧。','arc',40,true),

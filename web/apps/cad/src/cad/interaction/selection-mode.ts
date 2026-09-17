@@ -29,7 +29,7 @@ export function selectionModeForTool(toolID: string): SelectionMode {
     ? SELECTION_MODES.instance : SELECTION_MODES.geometry;
 }
 
-const sketchNodeMarkers = ["/geometry/", "/constraints/", "/logical-constraints/", "/dimensions/"];
+const sketchNodeMarkers = ["/geometry/", "/external-geometry/", "/constraints/", "/logical-constraints/", "/dimensions/"];
 
 /** Outside Sketcher, sketch sub-elements are implementation details of one selectable feature. */
 export function projectSketchFeatureSelection(selection: Selection, activeSketchID?: string): Selection {
@@ -62,6 +62,7 @@ export function sketchContextLayerVisibility(activeSketchID?: string, editingOcc
     // The evaluated Body remains visible as read-only design context. Sketch
     // selection policy still limits interaction to the active sketch.
     body: true,
+    lighting: true,
     environment: !editing || editingOccurrence,
     sketch: editing,
   };

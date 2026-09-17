@@ -95,7 +95,7 @@ flowchart LR
 
 P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P9E 的 Publication/Product endpoint 合同完成后启动；P12–P14 严格沿 M3–M6 顺序推进。若只有一条串行开发线，顺序采用 P8 → P9 → P10 → P11 → P12 → P13 → P14。
 
-## 4. P8：Part 内关联设计基础
+## 4. P8：Part 内关联设计基础（实现完成，待人工验收）
 
 ### P8A：Sketch 驱动尺寸 ParameterBinding（实现完成，待人工验收）
 
@@ -147,7 +147,7 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **验收修正（2026-09-17）**：Sketcher 不再隐藏当前 Body，而是把权威制品作为不可编辑上下文层持续显示，活动草图保持前景 overlay 和独立选择域。面上 boss/pocket 暴露的 Boolean history 缺口由 `occccad.topology.contract.v3` 的 semantic adjacency closure 补齐；严格完整 Shape gate 保留，不能通过关闭 naming 检查或持久化 local ID 绕过。
 
-### P8D：ExternalGeometry Edge/Vertex 正交投影
+### P8D：ExternalGeometry Edge/Vertex 正交投影（实现完成，待人工验收）
 
 **目标场景**：在面支撑草图中选择上游 Edge 或 Vertex 执行“投影/使用外部几何”，投影结果只读但可以参加草图约束。
 
@@ -161,7 +161,9 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **验收**：Pad 面上草图投影四条边并建立受约束矩形；编辑上游长度后重新解析和投影；Detach 后上游再变化不影响普通实体；刷新和冷重建等价。
 
-### P8E：ExternalGeometry 更新、失效与 Reconnect
+**实施记录（2026-09-17）**：SketchFeature v2 增加与普通 Entity 分离的 ExternalGeometry 集合，保存稳定 ExternalId、PersistentSelection、projection kind、source/dependency digest 与二维 snapshot。Geometry Worker 新增 `ProjectExternalGeometry`，权威支持 linear Edge、完整 circular Edge 和 Vertex 的正交投影；服务端把投影作为 fixed geometry 接入现有约束求解，并提供保持 ID 的 Detach。Web 增加显式投影工具、虚线外部几何、稳定树节点及属性投影。
+
+### P8E：ExternalGeometry 更新、失效与 Reconnect（实现完成，待人工验收）
 
 **目标场景**：投影来源在 Cut、split、merge 或删除后，能够继续解析、明确进入歧义/失效状态，或由用户 Reconnect。
 
@@ -175,7 +177,9 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **验收**：覆盖保留、删除、split ambiguity、merge、类型变化和退化投影；无关 dependency component 仍可更新；Reconnect、Undo/Redo 和再次上游编辑均正确。
 
-### P8F：Part 关联设计完整验收与基线冻结
+**实施记录（2026-09-17）**：每次 Part 求值固定执行 naming resolve → projection → sketch solve → feature evaluation。缺失、歧义、类型不符和退化投影具有稳定诊断，失败项会清除旧 snapshot、列出受影响约束/profile/downstream Feature，并生成可检查和 Reconnect 的 FAILED Revision；Reconnect 重绑来源但保持 ExternalId。结构树提供 Reconnect 与“断开外部关联并冻结”。
+
+### P8F：Part 关联设计完整验收与基线冻结（实现完成，待人工验收）
 
 **目标场景**：一个 Part 中由参数驱动基础草图和 Pad，在 Pad 面上创建第二草图，投影边并 Remove；改变基础参数后整条依赖链确定性重建。
 
@@ -188,6 +192,8 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 - 将 P8 已实现事实同步到 CURRENT 与所属 README。
 
 **验收**：代表性“基体 → 面上草图 → 投影 → 孔/切除”场景在正式 Router 和浏览器中通过；任何失败均定位到稳定 Parameter/Selection/External/Feature ID；`invoke check --scope all` 通过。
+
+**实施记录（2026-09-17）**：协议、Router、Worker、Part dependency graph、Revision 状态、Visualization、结构树、属性面板和 Sketcher 工具链已贯通。自动化覆盖 Worker 点/线/圆投影及退化诊断、Router 转发、External 引用验证、READ_TOPOLOGY、Detach 稳定身份、broken snapshot 禁用和浏览器投影手势；综合检查结果记录在本次实现交付。浏览器/WebGL 的真实“基体 → 面上草图 → 四边投影 → Remove → 上游参数编辑 → Reconnect/Detach”仍留给本轮人工验收。
 
 ## 5. P9：Publication、跨文档参数与 Skeleton Pilot
 

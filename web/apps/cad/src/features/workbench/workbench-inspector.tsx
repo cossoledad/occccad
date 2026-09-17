@@ -125,13 +125,25 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
 		]} />;
 	}
   const instance = selection.kind === "instance" ? view.product?.instances.find((item) => item.id === selection.id) : undefined;
-  if (selection.kind === "visual") return <Descriptions column={1} size="small" bordered className="property-list" items={[
+  if (selection.kind === "visual") {
+    const external = view.part?.features.find((candidate)=>candidate.id===selection.featureId)?.sketch?.externalGeometry
+      ?.find((candidate)=>candidate.id===selection.entityId);
+    return <Descriptions column={1} size="small" bordered className="property-list" items={[
     { key: "type", label: "类型", children: selection.visualType },
     { key: "entity", label: "元素", children: selection.entityId },
     { key: "feature", label: "所属特征", children: selection.featureId },
     { key: "role", label: "角色", children: selection.role ?? "—" },
+    ...(external ? [
+      {key:"external-status",label:"External Status",children:external.status},
+      {key:"external-anchor",label:"Semantic Anchor",children:`${external.persistentSelection.anchor.featureId} · ${external.persistentSelection.anchor.outputSlot}`},
+      {key:"external-kind",label:"Projection",children:`${external.projectionKind} · ${external.snapshot?.kind??"—"}`},
+      {key:"external-digest",label:"Source Digest",children:external.resolvedSourceDigest?.slice(0,20)??"—"},
+      {key:"external-diagnostic",label:"External Diagnostic",children:external.diagnosticCode??"—"},
+      {key:"external-affected",label:"Affected",children:[...(external.affectedConstraintIds??[]),...(external.affectedProfileRegionIds??[]),...(external.downstreamFeatureIds??[])].join(", ")||"—"},
+    ] : []),
     { key: "reference", label: "Occurrence", children: selection.occurrencePath || "Part root" },
   ]} />;
+  }
   if (selection.kind === "assembly-constraint") {
     const constraint = view.product?.constraints?.find((value) => value.id === selection.constraintId);
     return <Descriptions column={1} size="small" bordered className="property-list" items={[
@@ -147,6 +159,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
     { key: "name", label: "名称", children: feature?.name ?? instance?.name ?? selection.id },
     ...(selection.kind === "plane" ? [{ key: "plane", label: "基准面", children: selection.plane }] : []),
     ...(feature?.sketch ? [{ key: "entities", label: "草图元素", children: feature.sketch.entities.length },
+      { key: "external", label: "外部几何", children: `${feature.sketch.externalGeometry?.length??0} · ${(feature.sketch.externalGeometry??[]).filter((item)=>item.status!=="CONNECTED").length} unresolved` },
       { key: "constraints", label: "约束", children: feature.sketch.constraints.length },
 	  { key: "solve", label: "求解", children: `${feature.sketch.solve.status} · ${feature.sketch.solve.degreesOfFreedom} DoF` },
 	  { key: "support", label: "Sketch Support", children: `${feature.sketch.support.type} · ${feature.sketch.support.status ?? "—"}` },

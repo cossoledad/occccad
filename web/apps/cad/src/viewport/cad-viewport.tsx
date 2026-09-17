@@ -19,6 +19,7 @@ export type CadViewportHandle = {
   previewAssemblyPoses: (poses: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>) => void;
   assemblyAngleReferenceDirection: (references: AssemblyGeometryRef[]) => Vec3 | undefined;
   focusAssemblyReference: (reference: AssemblyGeometryRef) => boolean;
+  beginExternalReconnect: (externalID:string) => void;
 };
 
 type Props = {
@@ -121,6 +122,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     previewAssemblyPoses: (poses) => engine.current?.previewAssemblyPoses(poses),
     assemblyAngleReferenceDirection: (references) => engine.current?.assemblyAngleReferenceDirection(references),
     focusAssemblyReference: (reference) => engine.current?.focusAssemblyReference(reference) ?? false,
+    beginExternalReconnect: (externalID) => engine.current?.beginExternalReconnect(externalID),
   }), []);
 
   return <><div ref={host} className="cad-viewport-canvas" />

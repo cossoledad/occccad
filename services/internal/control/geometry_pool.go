@@ -396,6 +396,22 @@ func (pool *GeometryPool) SolveSketch(ctx context.Context, request *workerv1.Sol
 	return response, err
 }
 
+// ProjectExternalGeometry is stateless and follows the same routed Worker
+// boundary as sketch solving. PersistentSelection resolution is deliberately
+// completed by the control plane before this geometric operation.
+func (pool *GeometryPool) ProjectExternalGeometry(ctx context.Context, request *workerv1.ProjectExternalGeometryRequest) (*workerv1.ProjectExternalGeometryResponse, error) {
+	client, worker, err := pool.selectClient("")
+	if err != nil {
+		return nil, err
+	}
+	if worker != nil {
+		_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
+	}
+	response, err := client.ProjectExternalGeometry(outgoing(ctx), request)
+	pool.release(worker, "", err == nil)
+	return response, err
+}
+
 // SolveAssembly is stateless and therefore uses the same coarse-grained pool
 // path without claiming resident B-Rep affinity.
 func (pool *GeometryPool) SolveAssembly(ctx context.Context, request *workerv1.SolveAssemblyRequest) (*workerv1.SolveAssemblyResponse, error) {

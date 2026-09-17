@@ -260,7 +260,7 @@ export const restApi = {
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
   createSolidFeature: (documentId: string, input: { sketchId: string; generator: "LINEAR_EXTRUDE" | "REVOLVE";
 	operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT"; length?: number; angle?: number;
-	axisEntityId?: string; reversed?: boolean; previewId?: string }, intentRequestId?: string) =>
+	lengthExpression?: string; axisEntityId?: string; reversed?: boolean; previewId?: string }, intentRequestId?: string) =>
     restApi.command(documentId, { type: "CREATE_SOLID_FEATURE", ...input,
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
 	editFeature: (documentId: string, input: { featureId: string; expectedFeatureDigest: string; length: number; unit: string; previewId?: string }) =>

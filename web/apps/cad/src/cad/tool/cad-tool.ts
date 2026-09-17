@@ -32,6 +32,7 @@ export type ToolViewportPort = {
   setToolPrompt(prompt: string): void;
   finishToolUse(): void;
   selectionAt(x: number, y: number): SelectionItem | null;
+  commitExternalProjection(selection: SelectionItem & {kind:"edge"|"vertex";topologyId:number}): void;
   retainSelections(selections: SelectionItem[]): void;
   requestAssemblyConstraint(kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]): void;
   moveManipulatorPointerDown(pointerId: number, x: number, y: number): boolean;
@@ -100,6 +101,35 @@ export class SelectTool implements CadTool {
     return InputResult.Consumed;
   }
   cancel(context: ToolContext): void { this.dimensionPointer = undefined;this.sketchPointPointer=undefined; this.lastDimensionClick = undefined;context.viewport.clearToolPreview(); context.viewport.cancelDimensionDrag(); }
+}
+
+export class ProjectExternalGeometrySketchTool implements CadTool {
+  readonly id = "sketch.project";
+  private capturedPointerID?: number;
+  activate(context: ToolContext): void { context.viewport.setToolPrompt("投影：选择已有实体的一条边或一个顶点；Esc 取消"); }
+  pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
+    if (event.button !== 0 || this.capturedPointerID !== undefined || event.state.buttons.middle || event.state.buttons.right)
+      return InputResult.Ignored;
+    this.capturedPointerID = event.pointerId;
+    const selection = context.viewport.selectionAt(event.x, event.y);
+    if (!selection || (selection.kind !== "edge" && selection.kind !== "vertex") || !selection.geometryKey || !selection.versionId || !selection.topologyId) {
+      context.viewport.setToolPrompt("投影只接受当前 Part 中已有实体的边或顶点");
+      return InputResult.Capture;
+    }
+    context.viewport.retainSelections([selection]);
+    context.viewport.commitExternalProjection(selection as SelectionItem & {kind:"edge"|"vertex";topologyId:number});
+    context.viewport.finishToolUse();
+    return InputResult.Capture;
+  }
+  pointerUp(event: CadPointerEvent): InputResult {
+    if (event.pointerId !== this.capturedPointerID || event.button !== 0) return InputResult.Ignored;
+    this.capturedPointerID = undefined; return InputResult.ReleaseCapture;
+  }
+  pointerCancel(event: CadPointerEvent): InputResult {
+    if (event.pointerId !== this.capturedPointerID) return InputResult.Ignored;
+    this.capturedPointerID = undefined; return InputResult.Consumed;
+  }
+  cancel(context: ToolContext): void { this.capturedPointerID = undefined; context.viewport.setToolPrompt(""); }
 }
 
 export type AssemblyConstraintToolKind = "fix"|"rigid"|"coincident"|"concentric"|"angle"|"distance";

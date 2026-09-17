@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 
+#include "occccad/geometry/sketch/external_geometry_projector.h"
 #include "occccad/geometry/sketch/sketch_solver.h"
 
 #include <cmath>
@@ -364,5 +365,59 @@ TEST(PlaneGcsSketchSolver, SolvesArcClosureAngleToIntrinsicXAxisRegression) {
 
     EXPECT_EQ(result.status, SolveStatus::solved) << result.diagnostic;
     EXPECT_EQ(result.degrees_of_freedom, 0);
+}
+
+TEST(ExternalGeometryProjector, ProjectsVertexAndLinearEdgeIntoSupportFrame) {
+    const ProjectionFrame frame{{0.0, 0.0, 10.0}, {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
+    const auto point = project_external_geometry(
+        {ExternalSourceKind::point, {3.0, 4.0, 15.0}}, frame);
+    EXPECT_EQ(point.status, ExternalProjectionStatus::connected);
+    EXPECT_EQ(point.kind, ProjectedGeometryKind::point);
+    EXPECT_NEAR(point.point.x, 3.0, 1e-12);
+    EXPECT_NEAR(point.point.y, 4.0, 1e-12);
+
+    ExternalProjectionSource line;
+    line.kind = ExternalSourceKind::line;
+    line.origin = {1.0, 2.0, 7.0};
+    line.direction = {1.0, 0.0, 0.0};
+    line.parameter_start = 2.0;
+    line.parameter_end = 8.0;
+    line.has_parameters = true;
+    const auto projected = project_external_geometry(line, frame);
+    EXPECT_EQ(projected.status, ExternalProjectionStatus::connected);
+    EXPECT_EQ(projected.kind, ProjectedGeometryKind::line);
+    EXPECT_NEAR(projected.start.x, 3.0, 1e-12);
+    EXPECT_NEAR(projected.start.y, 2.0, 1e-12);
+    EXPECT_NEAR(projected.end.x, 9.0, 1e-12);
+    EXPECT_NEAR(projected.end.y, 2.0, 1e-12);
+}
+
+TEST(ExternalGeometryProjector, ProjectsFullCircleAndRejectsDegenerateLine) {
+    const ProjectionFrame frame{{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
+    ExternalProjectionSource circle;
+    circle.kind = ExternalSourceKind::circle;
+    circle.origin = {5.0, 6.0, 4.0};
+    circle.direction = {0.0, 0.0, -1.0};
+    circle.parameter_start = 0.0;
+    circle.parameter_end = 2.0 * 3.14159265358979323846;
+    circle.measure_mm = circle.parameter_end * 3.0;
+    circle.has_parameters = true;
+    const auto projected = project_external_geometry(circle, frame);
+    EXPECT_EQ(projected.status, ExternalProjectionStatus::connected);
+    EXPECT_EQ(projected.kind, ProjectedGeometryKind::circle);
+    EXPECT_NEAR(projected.center.x, 5.0, 1e-12);
+    EXPECT_NEAR(projected.center.y, 6.0, 1e-12);
+    EXPECT_NEAR(projected.radius, 3.0, 1e-12);
+
+    ExternalProjectionSource normal_line;
+    normal_line.kind = ExternalSourceKind::line;
+    normal_line.origin = {1.0, 2.0, 0.0};
+    normal_line.direction = {0.0, 0.0, 1.0};
+    normal_line.parameter_start = 0.0;
+    normal_line.parameter_end = 5.0;
+    normal_line.has_parameters = true;
+    const auto degenerate = project_external_geometry(normal_line, frame);
+    EXPECT_EQ(degenerate.status, ExternalProjectionStatus::unresolved);
+    EXPECT_EQ(degenerate.diagnostic_code, "EXTERNAL_PROJECTION_DEGENERATE");
 }
 }  // namespace occccad::geometry::sketch
