@@ -396,6 +396,19 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 	if (commandType === "DELETE_PUBLICATION" && view.part) {
 		view.part.publications = (view.part.publications ?? []).filter((candidate) => candidate.id !== input.publicationId);
 	}
+	if (commandType === "CREATE_CONTEXT_REFERENCE" && view.part) {
+		const source = getView(String(input.sourceDocumentId));
+		const publication = source.part?.publications?.find((candidate) => candidate.id === input.publicationId);
+		if (publication) view.part.contextReferences = [...(view.part.contextReferences ?? []), {
+			id:id("mock-context"),name:String(input.name),owningWorkspace:"main",sourceDocumentId:source.document.id,
+			referenceMode:"FOLLOW_HEAD",publication:{publicationId:publication.id,expectedType:publication.type,
+				compatibilityVersion:publication.compatibilityVersion},transform:{translation:[0,0,0],rotation:[0,0,0,1]},
+			resolvedRevisionId:source.document.versionId,resolution:publication.resolution,localTargetId:String(input.parameterId??"") }];
+	}
+	if (commandType === "DETACH_CONTEXT_REFERENCE" && view.part) {
+		const reference=view.part.contextReferences?.find((candidate)=>candidate.id===input.contextReferenceId);
+		if(reference)reference.referenceMode="ISOLATED";
+	}
 	if (commandType === "SET_PARAMETER_EXTERNAL" && view.part) {
 		const parameter = view.part.parameters?.find((candidate) => candidate.parameterId === input.parameterId);
 		const source = getView(String(input.sourceDocumentId)).part?.publications?.find((candidate) => candidate.id === input.publicationId);
@@ -425,6 +438,17 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
         translation: [0, 0, 0], referenceMode: "FOLLOW_HEAD" });
       rebuildProduct(view);
     }
+	if(commandType==="REPLACE_INSTANCE"&&view.product){const instance=view.product.instances.find((item)=>item.id===input.instanceId);
+		const replacement=getView(String(input.referencedDocumentId));if(instance){instance.documentId=replacement.document.id;instance.versionId=replacement.document.versionId;rebuildProduct(view);}}
+	if (commandType === "CREATE_PRODUCT_PUBLICATION" && view.product) {
+		const instance=view.product.instances.find((candidate)=>candidate.id===input.instanceId);
+		const source=instance&&getView(instance.documentId).part?.publications?.find((candidate)=>candidate.id===input.publicationId);
+		if(instance&&source)view.product.publications=[...(view.product.publications??[]),{id:id("mock-product-publication"),name:String(input.name),
+			type:source.type,semanticPurpose:String(input.semanticPurpose??""),compatibilityVersion:source.compatibilityVersion,
+			target:{instancePath:{rootDocumentId:view.document.id,segments:[],canonical:instance.id,display:instance.name},publicationId:source.id},
+			contract:source.contract,resolution:source.resolution}];
+	}
+	if(commandType==="DELETE_PRODUCT_PUBLICATION"&&view.product)view.product.publications=(view.product.publications??[]).filter((item)=>item.id!==input.publicationId);
     if (commandType === "MOVE_INSTANCE" && view.product) {
       const instance = view.product.instances.find((candidate) => candidate.id === input.instanceId);
       if (instance) instance.translation = input.translation as Vec3;
@@ -659,6 +683,12 @@ export const mockApi: CadApi = {
   createDatumPlane: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_PLANE", ...input }),
   createDatumAxis: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_AXIS", ...input }),
   insert: async (documentID, referencedDocumentID) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID }),
+  replaceInstance: async (documentID, instanceID, referencedDocumentID) => command(documentID, {type:"REPLACE_INSTANCE",instanceId:instanceID,referencedDocumentId:referencedDocumentID}),
+  createProductPublication: async (documentID, instanceID, publicationID, name, semanticPurpose) => command(documentID,
+	{type:"CREATE_PRODUCT_PUBLICATION",instanceId:instanceID,publicationId:publicationID,name,semanticPurpose}),
+  deleteProductPublication: async (documentID, publicationID) => command(documentID,{type:"DELETE_PRODUCT_PUBLICATION",publicationId:publicationID}),
+  createContextReference: async (documentID,input) => command(documentID,{type:"CREATE_CONTEXT_REFERENCE",...input}),
+  detachContextReference: async (documentID,contextReferenceID) => command(documentID,{type:"DETACH_CONTEXT_REFERENCE",contextReferenceId:contextReferenceID}),
   move: async (documentID, instanceID, translation,rotation) => command(documentID, { type: "MOVE_INSTANCE", instanceId: instanceID, translation,rotation }),
   addAssemblyConstraint: async (documentID, input) => command(documentID, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),
   editAssemblyConstraint: async (documentID, constraintId, input) => command(documentID, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),

@@ -38,12 +38,27 @@ type ResolvedTopologyProperties struct {
 }
 
 func (service *Service) bindAssemblyPick(ctx context.Context, product *ProductModel, reference *AssemblyGeometryRef) error {
-	if reference == nil || (reference.Kind != "FACE" && reference.Kind != "EDGE" && reference.Kind != "VERTEX") {
+	if reference == nil {
+		return nil
+	}
+	if reference.PublicationRef != nil {
+		if _, err := service.resolveAssemblyPublication(ctx, product, reference); err != nil {
+			return err
+		}
+	}
+	if reference.Kind != "FACE" && reference.Kind != "EDGE" && reference.Kind != "VERTEX" {
 		return nil
 	}
 	if reference.PersistentSelection != nil {
 		reference.GeometryKey, reference.TopologyID = "", 0
-		return reference.PersistentSelection.Validate()
+		if err := reference.PersistentSelection.Validate(); err != nil {
+			return err
+		}
+		// Publication targets already carry a bound deep link but still need a
+		// resolution snapshot for the accepted instance revision.
+		if reference.PublicationRef == nil {
+			return nil
+		}
 	}
 	var instance *ProductInstance
 	for index := range product.Instances {
@@ -55,21 +70,25 @@ func (service *Service) bindAssemblyPick(ctx context.Context, product *ProductMo
 	if instance == nil {
 		return fmt.Errorf("%w: assembly pick references an unknown instance", ErrValidation)
 	}
-	selection, err := service.BindPersistentSelection(ctx, instance.ReferencedDocumentID, BindPersistentSelectionRequest{SourceVersionID: instance.ReferencedVersionID, GeometryKey: reference.GeometryKey, Kind: reference.Kind, LocalID: reference.TopologyID})
-	if err != nil {
-		return err
+	selection := reference.PersistentSelection
+	if selection == nil {
+		bound, err := service.BindPersistentSelection(ctx, instance.ReferencedDocumentID, BindPersistentSelectionRequest{SourceVersionID: instance.ReferencedVersionID, GeometryKey: reference.GeometryKey, Kind: reference.Kind, LocalID: reference.TopologyID})
+		if err != nil {
+			return err
+		}
+		selection = &bound
+		reference.PersistentSelection, reference.SourceVersionID = selection, instance.ReferencedVersionID
 	}
-	reference.PersistentSelection, reference.SourceVersionID = &selection, instance.ReferencedVersionID
 	reference.GeometryKey, reference.TopologyID = "", 0
 	_, _, digest, err := service.topologyManifestForVersion(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID)
 	if err != nil {
 		return err
 	}
-	resolution, err := service.ResolvePersistentSelection(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{Selection: selection, SourceVersionID: instance.ReferencedVersionID, TargetVersionID: instance.ReferencedVersionID, ManifestDigest: digest, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+	resolution, err := service.ResolvePersistentSelection(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{Selection: *selection, SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, ManifestDigest: digest, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
 	if err != nil {
 		return err
 	}
-	reference.Resolution = &ResolutionSnapshot{SourceVersionID: instance.ReferencedVersionID, TargetVersionID: instance.ReferencedVersionID, ManifestDigest: digest, PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: resolution}
+	reference.Resolution = &ResolutionSnapshot{SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, ManifestDigest: digest, PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: resolution}
 	return nil
 }
 
@@ -89,7 +108,26 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 		instance.ResolvedVersionID, instance.HeadChanged = instance.ReferencedVersionID, false
 	}
 	resolveEndpoint := func(reference *AssemblyGeometryRef) (modelcore.SelectionResolutionStatus, error) {
-		if reference == nil || (reference.Kind != "FACE" && reference.Kind != "EDGE" && reference.Kind != "VERTEX") {
+		if reference == nil {
+			return modelcore.SelectionResolved, nil
+		}
+		if reference.PublicationRef != nil {
+			if _, err := service.resolveAssemblyPublication(ctx, product, reference); err != nil {
+				code := "PUBLICATION_RESOLUTION_FAILED"
+				if strings.Contains(err.Error(), "PUBLICATION_MISSING") {
+					code = "PUBLICATION_MISSING"
+				}
+				if strings.Contains(err.Error(), "PUBLICATION_CONTRACT_INCOMPATIBLE") {
+					code = "PUBLICATION_CONTRACT_INCOMPATIBLE"
+				}
+				reference.PublicationResolution = &PublicationResolution{Status: "BROKEN_PUBLICATION",
+					DiagnosticCode: code, Diagnostic: err.Error()}
+				resolution := unavailableSelectionResolution(code, err.Error())
+				reference.Resolution = &ResolutionSnapshot{PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: resolution}
+				return modelcore.SelectionSourceUnavailable, nil
+			}
+		}
+		if reference.Kind != "FACE" && reference.Kind != "EDGE" && reference.Kind != "VERTEX" {
 			return modelcore.SelectionResolved, nil
 		}
 		instance := instances[reference.InstanceID]
@@ -134,6 +172,7 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 			constraint.EvaluationSummary = "references resolved against accepted Part revisions"
 		}
 	}
+	service.resolveProductPublications(ctx, product)
 	return nil
 }
 

@@ -1065,6 +1065,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		}
 		normalizePartModel(&model)
 		view.Part = &model
+		view.ReferenceUpdates = service.projectPartReferenceUpdates(ctx, model)
 		view.DatumPlanes = model.DatumPlanes
 		view.AxisSystems = model.AxisSystems
 		view.DatumAxes = model.DatumAxes
@@ -2601,10 +2602,30 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		}
 		publications.Children = append(publications.Children, node)
 	}
-	if len(publications.Children) == 0 {
-		return []DocumentStructureNode{origin, body}
+	contexts := DocumentStructureNode{ID: path + "/context-references", Kind: "CONTEXT_REFERENCE_SET", Name: "Context References",
+		DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+	for _, reference := range model.ContextReferences {
+		diagnostic := ""
+		if reference.Resolution.Status != "CONNECTED" {
+			diagnostic = strings.TrimSpace(reference.Resolution.DiagnosticCode + ": " + reference.Resolution.Diagnostic)
+		}
+		capabilities := []string{}
+		if editable && reference.ReferenceMode != "ISOLATED" {
+			capabilities = append(capabilities, "DETACH")
+		}
+		contexts.Children = append(contexts.Children, DocumentStructureNode{ID: contexts.ID + "/context:" + reference.ID,
+			Kind: "CONTEXT_REFERENCE", Name: reference.Name, EntityID: reference.ID, EntityType: reference.Publication.ExpectedType,
+			OwnerEntityID: reference.LocalTargetID, DocumentID: documentID, VersionID: versionID,
+			ReferenceMode: reference.ReferenceMode, Diagnostic: diagnostic, Capabilities: capabilities})
 	}
-	return []DocumentStructureNode{origin, body, publications}
+	result := []DocumentStructureNode{origin, body}
+	if len(contexts.Children) > 0 {
+		result = append(result, contexts)
+	}
+	if len(publications.Children) > 0 {
+		result = append(result, publications)
+	}
+	return result
 }
 
 func (service *Service) buildDocumentStructure(
@@ -2684,6 +2705,21 @@ func (service *Service) buildDocumentStructure(
 			}
 		}
 		root.Children = append(root.Children, instanceNode)
+	}
+	if len(model.Publications) > 0 {
+		group := DocumentStructureNode{ID: path + "/publications", Kind: "PRODUCT_PUBLICATION_SET", Name: "Publications",
+			DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+		for _, publication := range model.Publications {
+			copy := publication
+			diagnostic := ""
+			if publication.Resolution.Status != "CONNECTED" {
+				diagnostic = strings.TrimSpace(publication.Resolution.DiagnosticCode + ": " + publication.Resolution.Diagnostic)
+			}
+			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/publication:" + publication.ID,
+				Kind: "PRODUCT_PUBLICATION", Name: publication.Name, EntityID: publication.ID, EntityType: publication.Type,
+				DocumentID: documentID, VersionID: versionID, Diagnostic: diagnostic, ProductPublication: &copy})
+		}
+		root.Children = append(root.Children, group)
 	}
 	if len(model.Constraints) > 0 {
 		group := DocumentStructureNode{ID: path + "/assembly-constraints", Kind: "ASSEMBLY_CONSTRAINT_SET", Name: "约束"}

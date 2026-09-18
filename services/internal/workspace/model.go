@@ -236,6 +236,8 @@ type SketchExternalGeometry struct {
 	GeometryKind             string                           `json:"geometryKind,omitempty"`
 	PersistentSelection      modelcore.PersistentSelection    `json:"persistentSelection"`
 	SourceVersionID          string                           `json:"sourceVersionId"`
+	SourceDocumentID         string                           `json:"sourceDocumentId,omitempty"`
+	ContextReferenceID       string                           `json:"contextReferenceId,omitempty"`
 	Status                   string                           `json:"status"`
 	DiagnosticCode           string                           `json:"diagnosticCode,omitempty"`
 	Diagnostic               string                           `json:"diagnostic,omitempty"`
@@ -331,13 +333,57 @@ type Feature struct {
 }
 
 type PartModel struct {
-	Units        string                          `json:"units"`
-	DatumPlanes  []DatumPlane                    `json:"datumPlanes"`
-	AxisSystems  []AxisSystem                    `json:"axisSystems"`
-	DatumAxes    []DatumAxis                     `json:"datumAxes"`
-	Features     []Feature                       `json:"features"`
-	Parameters   []modelcore.ParameterDefinition `json:"parameters,omitempty"`
-	Publications []Publication                   `json:"publications,omitempty"`
+	Units             string                          `json:"units"`
+	DatumPlanes       []DatumPlane                    `json:"datumPlanes"`
+	AxisSystems       []AxisSystem                    `json:"axisSystems"`
+	DatumAxes         []DatumAxis                     `json:"datumAxes"`
+	Features          []Feature                       `json:"features"`
+	Parameters        []modelcore.ParameterDefinition `json:"parameters,omitempty"`
+	Publications      []Publication                   `json:"publications,omitempty"`
+	ContextReferences []ContextReference              `json:"contextReferences,omitempty"`
+}
+
+type PublicationRef struct {
+	PublicationID            string                         `json:"publicationId"`
+	ExpectedType             string                         `json:"expectedType"`
+	CompatibilityVersion     string                         `json:"compatibilityVersion"`
+	PersistentSelection      *modelcore.PersistentSelection `json:"persistentSelection,omitempty"`
+	SelectionSourceVersionID string                         `json:"selectionSourceVersionId,omitempty"`
+}
+
+type ProductPublicationTarget struct {
+	InstancePath  InstancePath `json:"instancePath"`
+	PublicationID string       `json:"publicationId"`
+}
+
+type ProductPublication struct {
+	ID                   string                   `json:"id"`
+	Name                 string                   `json:"name"`
+	Type                 string                   `json:"type"`
+	SemanticPurpose      string                   `json:"semanticPurpose,omitempty"`
+	CompatibilityVersion string                   `json:"compatibilityVersion"`
+	Target               ProductPublicationTarget `json:"target"`
+	Contract             PublicationContract      `json:"contract"`
+	Resolution           PublicationResolution    `json:"resolution"`
+}
+
+type ContextReference struct {
+	ID                        string                `json:"id"`
+	Name                      string                `json:"name"`
+	OwningWorkspace           string                `json:"owningWorkspace"`
+	SourceDocumentID          string                `json:"sourceDocumentId"`
+	ReferenceMode             string                `json:"referenceMode"`
+	RootProductDocumentID     string                `json:"rootProductDocumentId,omitempty"`
+	RootProductRevisionID     string                `json:"rootProductRevisionId,omitempty"`
+	RootProductSnapshotDigest string                `json:"rootProductSnapshotDigest,omitempty"`
+	SourceInstancePath        *InstancePath         `json:"sourceInstancePath,omitempty"`
+	OwningInstancePath        *InstancePath         `json:"owningInstancePath,omitempty"`
+	ContextVariantID          string                `json:"contextVariantId,omitempty"`
+	Publication               PublicationRef        `json:"publication"`
+	Transform                 InstancePose          `json:"transform"`
+	ResolvedRevisionID        string                `json:"resolvedRevisionId"`
+	Resolution                PublicationResolution `json:"resolution"`
+	LocalTargetID             string                `json:"localTargetId,omitempty"`
 }
 
 type ProductInstance struct {
@@ -358,15 +404,17 @@ type InstancePose struct {
 }
 
 type AssemblyGeometryRef struct {
-	InstanceID          string                         `json:"instanceId"`
-	Kind                string                         `json:"kind"`
-	GeometryID          string                         `json:"geometryId,omitempty"`
-	Axis                string                         `json:"axis,omitempty"`
-	PersistentSelection *modelcore.PersistentSelection `json:"persistentSelection,omitempty"`
-	SourceVersionID     string                         `json:"sourceVersionId,omitempty"`
-	Resolution          *ResolutionSnapshot            `json:"resolution,omitempty"`
-	GeometryKey         string                         `json:"geometryKey,omitempty"` // transient pick evidence
-	TopologyID          uint64                         `json:"topologyId,omitempty"`  // transient pick evidence
+	InstanceID            string                         `json:"instanceId"`
+	Kind                  string                         `json:"kind"`
+	GeometryID            string                         `json:"geometryId,omitempty"`
+	Axis                  string                         `json:"axis,omitempty"`
+	PersistentSelection   *modelcore.PersistentSelection `json:"persistentSelection,omitempty"`
+	SourceVersionID       string                         `json:"sourceVersionId,omitempty"`
+	Resolution            *ResolutionSnapshot            `json:"resolution,omitempty"`
+	GeometryKey           string                         `json:"geometryKey,omitempty"` // transient pick evidence
+	TopologyID            uint64                         `json:"topologyId,omitempty"`  // transient pick evidence
+	PublicationRef        *PublicationRef                `json:"publicationRef,omitempty"`
+	PublicationResolution *PublicationResolution         `json:"publicationResolution,omitempty"`
 }
 
 type ResolutionSnapshot struct {
@@ -394,8 +442,20 @@ type AssemblyConstraint struct {
 }
 
 type ProductModel struct {
-	Instances   []ProductInstance    `json:"instances"`
-	Constraints []AssemblyConstraint `json:"constraints,omitempty"`
+	Instances    []ProductInstance    `json:"instances"`
+	Constraints  []AssemblyConstraint `json:"constraints,omitempty"`
+	Publications []ProductPublication `json:"publications,omitempty"`
+}
+
+type ReferenceUpdate struct {
+	ConsumerKind        string `json:"consumerKind"`
+	ConsumerID          string `json:"consumerId"`
+	SourceDocumentID    string `json:"sourceDocumentId"`
+	AcceptedRevisionID  string `json:"acceptedRevisionId"`
+	CandidateRevisionID string `json:"candidateRevisionId,omitempty"`
+	Status              string `json:"status"`
+	DiagnosticCode      string `json:"diagnosticCode,omitempty"`
+	Diagnostic          string `json:"diagnostic,omitempty"`
 }
 
 // InstancePath is the stable occurrence identity from an opened root Product
@@ -540,28 +600,29 @@ type ResolvedInstance struct {
 // IDs are path-stable within one DocumentView while EntityID preserves the
 // domain object identity used by commands and selection.
 type DocumentStructureNode struct {
-	ID               string                  `json:"id"`
-	Kind             string                  `json:"kind"`
-	Name             string                  `json:"name"`
-	EntityID         string                  `json:"entityId,omitempty"`
-	DocumentID       string                  `json:"documentId,omitempty"`
-	DocumentType     string                  `json:"documentType,omitempty"`
-	VersionID        string                  `json:"versionId,omitempty"`
-	Plane            string                  `json:"plane,omitempty"`
-	Axis             string                  `json:"axis,omitempty"`
-	GeometryKey      string                  `json:"geometryKey,omitempty"`
-	TopologyID       uint64                  `json:"topologyId,omitempty"`
-	ReferenceMode    string                  `json:"referenceMode,omitempty"`
-	InstancePath     *InstancePath           `json:"instancePath,omitempty"`
-	OwnerEntityID    string                  `json:"ownerEntityId,omitempty"`
-	EntityType       string                  `json:"entityType,omitempty"`
-	Role             string                  `json:"role,omitempty"`
-	Suppressed       bool                    `json:"suppressed,omitempty"`
-	Diagnostic       string                  `json:"diagnostic,omitempty"`
-	Capabilities     []string                `json:"capabilities,omitempty"`
-	DefinitionDigest string                  `json:"definitionDigest,omitempty"`
-	Publication      *Publication            `json:"publication,omitempty"`
-	Children         []DocumentStructureNode `json:"children,omitempty"`
+	ID                 string                  `json:"id"`
+	Kind               string                  `json:"kind"`
+	Name               string                  `json:"name"`
+	EntityID           string                  `json:"entityId,omitempty"`
+	DocumentID         string                  `json:"documentId,omitempty"`
+	DocumentType       string                  `json:"documentType,omitempty"`
+	VersionID          string                  `json:"versionId,omitempty"`
+	Plane              string                  `json:"plane,omitempty"`
+	Axis               string                  `json:"axis,omitempty"`
+	GeometryKey        string                  `json:"geometryKey,omitempty"`
+	TopologyID         uint64                  `json:"topologyId,omitempty"`
+	ReferenceMode      string                  `json:"referenceMode,omitempty"`
+	InstancePath       *InstancePath           `json:"instancePath,omitempty"`
+	OwnerEntityID      string                  `json:"ownerEntityId,omitempty"`
+	EntityType         string                  `json:"entityType,omitempty"`
+	Role               string                  `json:"role,omitempty"`
+	Suppressed         bool                    `json:"suppressed,omitempty"`
+	Diagnostic         string                  `json:"diagnostic,omitempty"`
+	Capabilities       []string                `json:"capabilities,omitempty"`
+	DefinitionDigest   string                  `json:"definitionDigest,omitempty"`
+	Publication        *Publication            `json:"publication,omitempty"`
+	ProductPublication *ProductPublication     `json:"productPublication,omitempty"`
+	Children           []DocumentStructureNode `json:"children,omitempty"`
 }
 
 type DocumentView struct {
@@ -575,6 +636,7 @@ type DocumentView struct {
 	Artifacts         map[string]Artifact    `json:"artifacts,omitempty"`
 	ResolvedInstances []ResolvedInstance     `json:"resolvedInstances,omitempty"`
 	StructureTree     *DocumentStructureNode `json:"structureTree,omitempty"`
+	ReferenceUpdates  []ReferenceUpdate      `json:"referenceUpdates,omitempty"`
 }
 
 type CreateDocumentRequest struct {
@@ -651,6 +713,11 @@ type CommandRequest struct {
 	CompatibilityVersion    string               `json:"compatibilityVersion,omitempty"`
 	Axis                    string               `json:"axis,omitempty"`
 	SourceDocumentID        string               `json:"sourceDocumentId,omitempty"`
+	ContextReferenceID      string               `json:"contextReferenceId,omitempty"`
+	ContextVariantID        string               `json:"contextVariantId,omitempty"`
+	RootProductDocumentID   string               `json:"rootProductDocumentId,omitempty"`
+	InstancePath            *InstancePath        `json:"instancePath,omitempty"`
+	OwningInstancePath      *InstancePath        `json:"owningInstancePath,omitempty"`
 	ActorID                 string               `json:"-"`
 }
 

@@ -196,6 +196,9 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		if instance == nil {
 			return "", fmt.Errorf("%w: assembly constraint references an unknown instance", ErrValidation)
 		}
+		if reference.PublicationRef != nil && (reference.PublicationResolution == nil || reference.PublicationResolution.Status != "CONNECTED") {
+			return "", fmt.Errorf("%w: assembly Publication endpoint is not connected", ErrValidation)
+		}
 		if reference.Kind == "BODY" {
 			return "", nil
 		}

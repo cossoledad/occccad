@@ -516,6 +516,12 @@ func (service *Service) publicationFromRequest(ctx context.Context, documentID s
 
 func (service *Service) resolveExternalParameterRef(ctx context.Context, consumerDocumentID, sourceDocumentID,
 	sourceVersionID, publicationID string, expected modelcore.ParameterDefinition, consumerModel PartModel) (modelcore.ExternalParameterRef, error) {
+	return service.resolveExternalParameterRefWithMode(ctx, consumerDocumentID, sourceDocumentID,
+		sourceVersionID, publicationID, "PINNED", expected, consumerModel)
+}
+
+func (service *Service) resolveExternalParameterRefWithMode(ctx context.Context, consumerDocumentID, sourceDocumentID,
+	sourceVersionID, publicationID, referenceMode string, expected modelcore.ParameterDefinition, consumerModel PartModel) (modelcore.ExternalParameterRef, error) {
 	sourceDocumentID = strings.TrimSpace(sourceDocumentID)
 	publicationID = strings.TrimSpace(publicationID)
 	if sourceDocumentID == "" || publicationID == "" {
@@ -576,11 +582,20 @@ func (service *Service) resolveExternalParameterRef(ctx context.Context, consume
 		if publication.Resolution.ValueDigest != "" && publication.Resolution.ValueDigest != digest {
 			return modelcore.ExternalParameterRef{}, fmt.Errorf("%w: EXTERNAL_PARAMETER_VALUE_DIGEST_MISMATCH", ErrValidation)
 		}
+		if referenceMode == "" {
+			referenceMode = "FOLLOW_HEAD"
+		}
+		if referenceMode != "PINNED" && referenceMode != "FOLLOW_HEAD" && referenceMode != "FOLLOW_WORKSPACE_WITH_ACCEPT" {
+			return modelcore.ExternalParameterRef{}, fmt.Errorf("%w: unsupported reference mode", ErrValidation)
+		}
+		contractDigest := resolvedDigest(publication.Contract)
 		return modelcore.ExternalParameterRef{SourceDocumentID: sourceDocumentID,
-			Revision:      modelcore.ReferenceSelector{Mode: "PINNED", RevisionID: sourceVersionID},
+			Revision:      modelcore.ReferenceSelector{Mode: referenceMode, RevisionID: sourceVersionID},
 			PublicationID: publicationID, ExpectedType: expected.ValueType, ExpectedDimension: expected.Dimension,
 			ContractVersion: publication.CompatibilityVersion, ResolvedRevisionID: sourceVersionID,
-			ResolvedValue: value, ResolvedValueDigest: digest}, nil
+			ResolvedValue: value, ResolvedValueDigest: digest,
+			ResolutionSnapshot: modelcore.ReferenceResolutionSnapshot{SourceRevisionID: sourceVersionID,
+				PublicationID: publicationID, ContractDigest: contractDigest, ValueDigest: digest, Status: "CONNECTED"}}, nil
 	}
 	return modelcore.ExternalParameterRef{}, fmt.Errorf("%w: EXTERNAL_PARAMETER_PUBLICATION_MISSING", ErrValidation)
 }

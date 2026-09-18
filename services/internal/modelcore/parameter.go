@@ -126,15 +126,27 @@ type ReferenceSelector struct {
 // source Head is adopted only by the explicit P9D Update References command;
 // ordinary evaluation never queries another mutable Workspace.
 type ExternalParameterRef struct {
-	SourceDocumentID    string            `json:"sourceDocumentId"`
-	Revision            ReferenceSelector `json:"revision"`
-	PublicationID       string            `json:"publicationId"`
-	ExpectedType        ValueType         `json:"expectedType"`
-	ExpectedDimension   Dimension         `json:"expectedDimension"`
-	ContractVersion     string            `json:"contractVersion"`
-	ResolvedRevisionID  string            `json:"resolvedRevisionId"`
-	ResolvedValue       Quantity          `json:"resolvedValue"`
-	ResolvedValueDigest string            `json:"resolvedValueDigest"`
+	SourceDocumentID    string                      `json:"sourceDocumentId"`
+	Revision            ReferenceSelector           `json:"revision"`
+	PublicationID       string                      `json:"publicationId"`
+	ExpectedType        ValueType                   `json:"expectedType"`
+	ExpectedDimension   Dimension                   `json:"expectedDimension"`
+	ContractVersion     string                      `json:"contractVersion"`
+	ResolvedRevisionID  string                      `json:"resolvedRevisionId"`
+	ResolvedValue       Quantity                    `json:"resolvedValue"`
+	ResolvedValueDigest string                      `json:"resolvedValueDigest"`
+	ResolutionSnapshot  ReferenceResolutionSnapshot `json:"resolutionSnapshot"`
+}
+
+// ReferenceResolutionSnapshot is the immutable evidence accepted by one
+// consumer Revision. Availability of a newer source Head is projected
+// separately and never mutates this snapshot.
+type ReferenceResolutionSnapshot struct {
+	SourceRevisionID string `json:"sourceRevisionId"`
+	PublicationID    string `json:"publicationId"`
+	ContractDigest   string `json:"contractDigest"`
+	ValueDigest      string `json:"valueDigest"`
+	Status           string `json:"status"`
 }
 
 type PropertySlotDescriptor struct {

@@ -1,9 +1,9 @@
 # P7 后关联设计、Feature 与装配演进计划
 
-状态：实施中；P8 已于 2026-09-18 完成自动与浏览器人工验收
+状态：实施中；P8 已完成自动与浏览器人工验收，P9 已完成自动化基线并待本轮浏览器人工验收
 规划基线：2026-09-15  
 前置能力：P0–P7 已完成；P7 浏览器/WebGL 人工验收已完成  
-当前 ready queue：P9A、P11A 与 P11J 可按优先级并行领取
+当前 ready queue：P10A、P11A 与 P11J 可按优先级并行领取
 
 ## 1. 目标与主线判断
 
@@ -247,9 +247,9 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **验收**：跨文档参数驱动 Part Feature；上游 rename 不影响引用；数值更新、删除、类型变化、循环和冷重建均有确定结果。
 
-**实施记录（2026-09-18）**：PARAMETER Publication 合同包含 value type、dimension、SI unit policy、可选 bounds 与稳定 source ParameterId。消费 Part 的 ExternalParameterRef 保存来源 Document、PINNED ReferenceSelector、PublicationId、合同版本、resolved Revision、规范值和 value digest，并以独立 `EXTERNAL_PARAMETER_SNAPSHOT -> local ParameterId` 的 `READ_VALUE` edge 进入求值图；本地表达式仍只依赖本地稳定 ParameterId。绑定入口验证来源 Viewer 权限、不可变 Revision、Publication 状态、类型/量纲和值摘要，并沿实际被发布参数的依赖闭包拒绝跨文档循环。普通求值不查询来源 Head；显式更新保留给 P9D。
+**实施记录（2026-09-18）**：PARAMETER Publication 合同包含 value type、dimension、SI unit policy、可选 bounds 与稳定 source ParameterId。消费 Part 的 ExternalParameterRef 保存来源 Document、ReferenceSelector、PublicationId、合同版本、resolved Revision、规范值和 value digest，并以独立 `EXTERNAL_PARAMETER_SNAPSHOT -> local ParameterId` 的 `READ_VALUE` edge 进入求值图；本地表达式仍只依赖本地稳定 ParameterId。绑定入口验证来源 Viewer 权限、不可变 Revision、Publication 状态、类型/量纲和值摘要，并沿实际被发布参数的依赖闭包拒绝跨文档循环。P9D 随后把 selector 扩展为 PINNED/FOLLOW 并增加冻结 ResolutionSnapshot；普通求值始终不查询来源 Head。
 
-### P9D：Update References Transaction
+### P9D：Update References Transaction（已完成）
 
 **目标场景**：来源 Workspace Head 更新后，下游显示 `UPDATE_AVAILABLE`；用户打开或返回 Product/Part 时可自动触发一次显式、可审计的更新事务。
 
@@ -263,7 +263,9 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **验收**：上游连续两次编辑、下游并发编辑、重复更新请求和 stale candidate 均不会覆盖新 Head；一次成功更新形成一个可 Undo 的 ChangeSet。
 
-### P9E：Product Publication endpoint 与替换重连
+**实施记录（2026-09-18）**：Part 与 Product 现在复用 `UPDATE_REFERENCES` transport intent，并分别进入 typed update command。`ExternalParameterRef` 保存 FOLLOW/PINNED selector 与不可变 `ReferenceResolutionSnapshot`；DocumentView 只投影 `CURRENT / UPDATE_AVAILABLE / BROKEN`，不改写既有 Revision。候选在数据库事务外解析来源 Head、Publication contract、循环与影响闭包，最终仍由 Workspace Head/sequence CAS 提交；相同 request id 幂等，stale candidate 返回 `WORKSPACE_HEAD_CONFLICT`。Web 打开、返回或收到来源 realtime 事件时只提交同一个显式命令，成功更新形成单个可补偿 ChangeSet。
+
+### P9E：Product Publication endpoint 与替换重连（已完成）
 
 **目标场景**：装配约束优先连接 Part Publication；替换为合同兼容的 Part 后自动解析到新 target，不依赖旧 Part 的任意 face identity。
 
@@ -277,7 +279,9 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **验收**：基于 Plane/Axis/Point Publication 创建约束；兼容替换后 Verified，不兼容替换后 Broken；Reconnect、Undo/Redo、冷服务解析和正式 Router 通过。
 
-### P9F：最小 Skeleton/ContextReference 试点
+**实施记录（2026-09-18）**：`AssemblyGeometryRef` 已增加 typed `PublicationRef`、合同版本、解析状态与拓扑 deep link；选中子 Part Publication 创建约束时，服务端从已接受 Part Revision 重建 datum/topology descriptor，视口 pick 的 local id 不成为持久身份。`REPLACE_INSTANCE` 和 Update References 使用相同解析器：同 PublicationId 且合同兼容时重连新 target，不兼容或缺失时保存 Broken evidence。Product Revision 可用相对单层 `InstancePath` 转发子 Publication，并贯通 typed CRUD、依赖图、结构树、Undo/Redo 与管理面板；嵌套 relative path expansion 仍按 P10A 实现。
+
+### P9F：最小 Skeleton/ContextReference 试点（已完成）
 
 **目标场景**：一个普通 Part 作为 Skeleton，发布基准面、轴、主草图曲线和驱动参数；两个消费 Part 通过 Publication 构建实体，并在 Product 中保持装配关联。
 
@@ -291,7 +295,9 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **验收**：Skeleton 更新后两个消费 Part 经显式更新一致重建；循环依赖和共享 Part 的不合法 occurrence context 被拒绝；Isolate 后来源变化不再传播。
 
-### P9G：跨文档关联设计端到端验收
+**实施记录（2026-09-18）**：Skeleton 保持普通 Part。消费 Part 的 `ContextReference` 冻结 owning Workspace、root Product Revision、source/owning InstancePath、Context Variant、Publication contract、PersistentSelection、resolved Revision/descriptor 以及 source occurrence 到 owning Part frame 的刚体 Transform。PLANE/AXIS 物化为本地稳定 Datum，PARAMETER 复用 ExternalParameterRef，CURVE 进入现有权威 Sketch ExternalGeometry 投影与约束链；更新仍走 P9D 事务。文档级 DAG 与参数级闭包拒绝循环；同一源或 owning Part 多 occurrence 时要求显式 path/variant。Isolate 将参数固化为 literal、曲线固化为普通 construction sketch entity，之后不再跟随来源。
+
+### P9G：跨文档关联设计端到端验收（已完成自动化基线）
 
 **目标场景**：Skeleton 参数/几何 → 两个 Part → Product Publication 约束形成完整链；上游编辑、删除、替换和重连具有一致状态。
 
@@ -304,6 +310,8 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 - 冻结 P9 合同，成为 M3 manifest 的唯一 Publication 输入。
 
 **验收**：整条链在刷新、服务重启、缓存清空和正式 Router 后保持语义等价；删除 Publication 时下游 Part 和 Product 都能指出同一个稳定失败来源；全仓检查通过。
+
+**实施记录（2026-09-18）**：新增 P9 contract corpus 覆盖冻结更新与 Undo、Publication descriptor/兼容替换、Product forwarding、Context Datum/Curve materialization、两消费 Part 一致更新及 Isolate；Web scenario 覆盖从结构树 Publication selection 生成装配 `PublicationRef`。EvaluationManifest、PersistentSelection resolution 与既有 Assembly `.3dreplay` 分别保留 evaluate/resolve/solve evidence，P9 合同成为 P10 M3 builder 的唯一输入边界。真实浏览器的 Skeleton → 两 Part → Product 操作验收留给本批交付后的人工验证，不以 Node/build 结果冒充 WebGL 验收。
 
 ## 6. P10：Assembly M3 可重放 Product SolveManifest
 

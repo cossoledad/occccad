@@ -1,6 +1,8 @@
 import type { CadKeyboardEvent, CadPointerEvent } from "../input/input-types";
 import { InputResult } from "../input/input-types";
 import type { AssemblyGeometryRef, SelectionItem, SketchGeometryRef, SketchOperation, Vec2 } from "../../types";
+import { assemblyGeometryRef } from "../assembly/assembly-reference";
+export { assemblyGeometryRef } from "../assembly/assembly-reference";
 import type { SketchReferencePickKind } from "../interaction/sketch-reference-pick";
 import { constraintDefinition, type ConstraintKind } from "../sketch/sketch-constraint-definition";
 import { sampleInterpolatingSpline } from "../sketch/sketch-geometry";
@@ -157,30 +159,12 @@ export class AssemblyMoveTool implements CadTool {
   cancel(context: ToolContext): void { context.viewport.moveManipulatorPointerUp(-1, false); }
 }
 
-export function assemblyGeometryRef(selection: SelectionItem): AssemblyGeometryRef | undefined {
-  if (!selection.instanceId) return undefined;
-  if (selection.kind === "instance") return { instanceId: selection.instanceId, kind: "BODY" };
-  if (selection.kind === "face" && selection.geometryKey && selection.topologyId)
-    return { instanceId: selection.instanceId, kind: "FACE", geometryKey: selection.geometryKey, topologyId: selection.topologyId };
-  if (selection.kind === "edge" && selection.geometryKey && selection.topologyId)
-    return { instanceId: selection.instanceId, kind: "EDGE", geometryKey: selection.geometryKey, topologyId: selection.topologyId };
-  if (selection.kind === "vertex" && selection.geometryKey && selection.topologyId)
-    return { instanceId: selection.instanceId, kind: "VERTEX", geometryKey: selection.geometryKey, topologyId: selection.topologyId };
-  if (selection.kind === "plane" && selection.entityId)
-    return { instanceId: selection.instanceId, kind: "PLANE", geometryId: selection.entityId };
-  if (selection.kind === "axis" && selection.entityId)
-    return { instanceId: selection.instanceId, kind: "AXIS", geometryId: selection.entityId,
-      ...(selection.axis === "DATUM" ? {} : { axis: selection.axis }) };
-  if (selection.kind === "axis-system" && selection.entityId)
-    return { instanceId: selection.instanceId, kind: "POINT", geometryId: selection.entityId };
-  return undefined;
-}
-
 export class AssemblyConstraintTool implements CadTool {
   readonly id: string;
+  readonly kind: AssemblyConstraintToolKind;
   private first?: { selection: SelectionItem; reference: AssemblyGeometryRef };
   private capturedPointerID?: number;
-  constructor(readonly kind: AssemblyConstraintToolKind) { this.id = `assembly.${kind}`; }
+  constructor(kind: AssemblyConstraintToolKind) { this.kind = kind; this.id = `assembly.${kind}`; }
   activate(context: ToolContext): void { context.viewport.setToolPrompt(this.kind === "fix" ? "固定：选择一个实例" : "装配约束：依次选择两个元素"); }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
     if (event.button !== 0 || this.capturedPointerID !== undefined || event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;

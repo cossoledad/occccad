@@ -251,8 +251,9 @@ export const restApi = {
     restApi.command(documentId, { type: "SET_PARAMETER_EXPRESSION", parameterId, expression }),
   renameParameter: (documentId: string, parameterId: string, name: string) =>
     restApi.command(documentId, { type: "RENAME_PARAMETER", parameterId, name }),
-  setParameterExternal: (documentId: string, parameterId: string, sourceDocumentId: string, publicationId: string, versionId?: string) =>
-    restApi.command(documentId, { type: "SET_PARAMETER_EXTERNAL", parameterId, sourceDocumentId, publicationId, versionId }),
+  setParameterExternal: (documentId: string, parameterId: string, sourceDocumentId: string, publicationId: string, versionId?: string,
+      referenceMode:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED"="FOLLOW_HEAD") =>
+    restApi.command(documentId, { type: "SET_PARAMETER_EXTERNAL", parameterId, sourceDocumentId, publicationId, versionId, referenceMode }),
   createPublication: (documentId: string, input: { name: string; publicationType: string; semanticPurpose?: string;
       compatibilityVersion?: string; targetKind: string; targetId?: string; axis?: string; geometryKey?: string;
       topologyId?: number; versionId?: string }) =>
@@ -287,6 +288,18 @@ export const restApi = {
     restApi.command(documentId, {
       type: "INSERT_INSTANCE", referencedDocumentId, translation: [0, 0, 0],
     }),
+  replaceInstance: (documentId:string, instanceId:string, referencedDocumentId:string) =>
+    restApi.command(documentId, {type:"REPLACE_INSTANCE", instanceId, referencedDocumentId}),
+  createProductPublication: (documentId:string, instanceId:string, publicationId:string, name:string, semanticPurpose="") =>
+    restApi.command(documentId, {type:"CREATE_PRODUCT_PUBLICATION", instanceId, publicationId, name, semanticPurpose}),
+  deleteProductPublication: (documentId:string, publicationId:string) =>
+    restApi.command(documentId, {type:"DELETE_PRODUCT_PUBLICATION", publicationId}),
+  createContextReference: (documentId:string, input:{name:string;sourceDocumentId:string;publicationId:string;publicationType?:string;
+      compatibilityVersion?:string;referenceMode?:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED";parameterId?:string;
+      sketchId?:string;rootProductDocumentId?:string;instancePath?:unknown;owningInstancePath?:unknown;contextVariantId?:string}) =>
+    restApi.command(documentId, {type:"CREATE_CONTEXT_REFERENCE", ...input}),
+  detachContextReference: (documentId:string, contextReferenceId:string) =>
+    restApi.command(documentId, {type:"DETACH_CONTEXT_REFERENCE", contextReferenceId}),
   move: (documentId: string, instanceId: string, translation: Vec3, rotation: [number,number,number,number], previewId?: string) =>
 	restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation, rotation, previewId }),
   addAssemblyConstraint: (documentId: string, input: { constraintKind: string;

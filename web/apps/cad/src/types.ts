@@ -112,6 +112,7 @@ export type SketchPoint2 = { x: number; y: number };
 export type SketchGeometryRef = { target: "ENTITY" | "EXTERNAL" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL"; controlPointIndex?: number };
 export type SketchEntity = { id: string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; suppressed?: boolean; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; degree?: number; closed?: boolean };
 export type SketchExternalGeometry = { id:string;projectionKind:"ORTHOGONAL";geometryKind?:"POINT"|"LINE"|"CIRCLE";persistentSelection:PersistentSelection;sourceVersionId:string;
+  sourceDocumentId?:string;contextReferenceId?:string;
   status:"PENDING"|"CONNECTED"|"UNRESOLVED_EXTERNAL";diagnosticCode?:string;diagnostic?:string;resolvedSourceDigest?:string;
   snapshot?:{kind:"POINT"|"LINE"|"CIRCLE";point?:SketchPoint2;start?:SketchPoint2;end?:SketchPoint2;center?:SketchPoint2;radius?:number};
   dependencySnapshot?:{geometryKey:string;manifestDigest:string;policyDigest:string;evidenceDigest?:string};
@@ -159,7 +160,9 @@ export type ProductInstance = {
 export type AssemblyGeometryRef = { instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER" | "FACE" | "EDGE" | "VERTEX";
   geometryId?: string; axis?: string; geometryKey?: string; topologyId?: number; sourceVersionId?: string;
   persistentSelection?: PersistentSelection; resolution?: { sourceVersionId: string; targetVersionId: string;
-    manifestDigest: string; policyDigest: string; result: SelectionResolution } };
+    manifestDigest: string; policyDigest: string; result: SelectionResolution };
+  publicationRef?: { publicationId:string; expectedType:string; compatibilityVersion:string; persistentSelection?:PersistentSelection };
+  publicationResolution?: Publication["resolution"] };
 export type AssemblyConstraint = { id: string; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE";
   first: AssemblyGeometryRef; second?: AssemblyGeometryRef; value?: number; directionRelation?: string; distanceRelation?: string;
   angleReferenceDirection?: Vec3; evaluationStatus: "NOT_UPDATED" | "BROKEN" | "IMPOSSIBLE" | "VERIFIED";
@@ -262,7 +265,7 @@ export type ResolvedInstance = {
 
 export type DocumentStructureNode = {
   id: string;
-  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PUBLICATION_SET" | "PUBLICATION" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
+  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
   name: string;
   entityId?: string;
   documentId?: string;
@@ -281,6 +284,7 @@ export type DocumentStructureNode = {
   diagnostic?: string;
   definitionDigest?: string;
   publication?: Publication;
+  productPublication?: ProductPublication;
   capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH">;
   children?: DocumentStructureNode[];
 };
@@ -290,19 +294,24 @@ export type DocumentView = {
   datumPlanes?: DatumPlane[];
   axisSystems?: AxisSystem[];
   datumAxes?: DatumAxis[];
-  part?: { units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[] };
-  product?: { instances: ProductInstance[]; constraints?: AssemblyConstraint[] };
+  part?: { units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextReferences?:ContextReference[] };
+  product?: { instances: ProductInstance[]; constraints?: AssemblyConstraint[]; publications?:ProductPublication[] };
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;
   resolvedInstances?: ResolvedInstance[];
   structureTree?: DocumentStructureNode;
+  referenceUpdates?: ReferenceUpdate[];
 };
+
+export type ReferenceUpdate = { consumerKind:string;consumerId:string;sourceDocumentId:string;acceptedRevisionId:string;
+  candidateRevisionId?:string;status:"CURRENT"|"UPDATE_AVAILABLE"|"BROKEN";diagnosticCode?:string;diagnostic?:string };
 
 export type Dimension = { Length: number; Mass: number; Time: number; Current: number; Temperature: number; Amount: number; Luminous: number; Semantic: string };
 export type Quantity = { siValue: number; dimension: Dimension };
-export type ExternalParameterRef = { sourceDocumentId: string; revision: { mode: "PINNED"; revisionId: string };
+export type ExternalParameterRef = { sourceDocumentId: string; revision: { mode: "PINNED"|"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"; revisionId: string };
   publicationId: string; expectedType: "QUANTITY" | "REAL"; expectedDimension: Dimension; contractVersion: string;
-  resolvedRevisionId: string; resolvedValue: Quantity; resolvedValueDigest: string };
+  resolvedRevisionId: string; resolvedValue: Quantity; resolvedValueDigest: string;
+  resolutionSnapshot?:{sourceRevisionId:string;publicationId:string;contractDigest:string;valueDigest:string;status:string} };
 export type ParameterDefinition = { parameterId: string; key: string; label: string; valueType: "QUANTITY" | "REAL";
   dimension: Dimension; displayUnit: string; role: string; source: { literal?: Quantity; expression?: { sourceText: string }; external?: ExternalParameterRef };
   evaluatedValue?: Quantity };
@@ -318,6 +327,14 @@ export type Publication = { id: string; name: string; type: "POINT" | "AXIS" | "
     geometryKind?: string; symmetry?: string; localId?: number;
     origin?: Vec3; xDirection?: Vec3; yDirection?: Vec3; zDirection?: Vec3; sourceDigest?: string; value?: Quantity;
     valueDigest?: string; manifestDigest?: string; namingPolicyDigest?: string; evaluatorVersion?: string; workerId?: string; occtVersion?: string } };
+
+export type ProductPublication = { id:string;name:string;type:Publication["type"];semanticPurpose?:string;compatibilityVersion:string;
+  target:{instancePath:InstancePath;publicationId:string};contract:Publication["contract"];resolution:Publication["resolution"] };
+export type ContextReference = { id:string;name:string;owningWorkspace:string;sourceDocumentId:string;
+  referenceMode:"PINNED"|"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"ISOLATED";rootProductDocumentId?:string;rootProductRevisionId?:string;
+  rootProductSnapshotDigest?:string;
+  sourceInstancePath?:InstancePath;owningInstancePath?:InstancePath;contextVariantId?:string;publication:{publicationId:string;expectedType:string;compatibilityVersion:string;selectionSourceVersionId?:string};
+  transform:{translation:Vec3;rotation:[number,number,number,number]};resolvedRevisionId:string;resolution:Publication["resolution"];localTargetId?:string };
 
 export type SelectionIdentity = {
   id: string;

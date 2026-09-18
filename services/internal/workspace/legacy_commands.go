@@ -385,8 +385,12 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if parameter == nil {
 			return "", nil, fmt.Errorf("%w: parameter does not exist", ErrValidation)
 		}
-		reference, err := service.resolveExternalParameterRef(ctx, documentID, request.SourceDocumentID,
-			request.VersionID, request.PublicationID, *parameter, model)
+		mode := strings.ToUpper(strings.TrimSpace(request.ReferenceMode))
+		if mode == "" {
+			mode = "FOLLOW_HEAD"
+		}
+		reference, err := service.resolveExternalParameterRefWithMode(ctx, documentID, request.SourceDocumentID,
+			request.VersionID, request.PublicationID, mode, *parameter, model)
 		if err != nil {
 			return "", nil, err
 		}
@@ -427,6 +431,87 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			break
 		}
 		return typeDeletePublication, publicationDeletePayload{PublicationID: request.PublicationID}, nil
+	case "CREATE_CONTEXT_REFERENCE":
+		if documentType != "PART" {
+			break
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		mode := strings.ToUpper(strings.TrimSpace(request.ReferenceMode))
+		if mode == "" {
+			mode = "FOLLOW_HEAD"
+		}
+		reference := ContextReference{ID: newID("context-reference"), Name: strings.TrimSpace(request.Name),
+			OwningWorkspace: "main", SourceDocumentID: request.SourceDocumentID, ReferenceMode: mode,
+			RootProductDocumentID: request.RootProductDocumentID, SourceInstancePath: request.InstancePath,
+			OwningInstancePath: request.OwningInstancePath,
+			ContextVariantID:   request.ContextVariantID, LocalTargetID: request.ParameterID,
+			Publication: PublicationRef{PublicationID: request.PublicationID, ExpectedType: strings.ToUpper(request.PublicationType),
+				CompatibilityVersion: request.CompatibilityVersion}}
+		if reference.Name == "" {
+			reference.Name = "Context Reference"
+		}
+		if reference.LocalTargetID == "" {
+			reference.LocalTargetID = request.SketchID
+		}
+		resolved, err := service.resolveContextReference(ctx, documentID, reference, model, request.VersionID)
+		if err != nil {
+			return "", nil, err
+		}
+		if resolved.Publication.ExpectedType == "PARAMETER" {
+			var parameter *modelcore.ParameterDefinition
+			for index := range model.Parameters {
+				if model.Parameters[index].ParameterID == request.ParameterID {
+					parameter = &model.Parameters[index]
+					break
+				}
+			}
+			if parameter == nil {
+				return "", nil, fmt.Errorf("%w: local parameter does not exist", ErrValidation)
+			}
+			external, err := service.resolveExternalParameterRefWithMode(ctx, documentID, resolved.SourceDocumentID,
+				resolved.ResolvedRevisionID, request.PublicationID, mode, *parameter, model)
+			if err != nil {
+				return "", nil, err
+			}
+			parameter.Source = modelcore.ValueSource{External: &external}
+		}
+		if err := materializeContextReference(&model, &resolved, request.ParameterID); err != nil {
+			return "", nil, err
+		}
+		return typeCreateContextReference, contextReferencePayload{Model: model, Reference: resolved}, nil
+	case "DETACH_CONTEXT_REFERENCE", "ISOLATE_CONTEXT_REFERENCE":
+		if documentType != "PART" {
+			break
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		for index := range model.ContextReferences {
+			if model.ContextReferences[index].ID != request.ContextReferenceID {
+				continue
+			}
+			before := model.ContextReferences[index]
+			model.ContextReferences[index].ReferenceMode = "ISOLATED"
+			if err := isolateContextCurve(&model, before); err != nil {
+				return "", nil, err
+			}
+			if target := model.ContextReferences[index].LocalTargetID; target != "" {
+				for parameterIndex := range model.Parameters {
+					parameter := &model.Parameters[parameterIndex]
+					if parameter.ParameterID == target && parameter.Source.External != nil {
+						value := parameter.Source.External.ResolvedValue
+						parameter.Source = modelcore.ValueSource{Literal: &value}
+					}
+				}
+			}
+			return typeDetachContextReference, contextReferencePayload{Model: model,
+				Reference: model.ContextReferences[index], Before: &before}, nil
+		}
+		return "", nil, fmt.Errorf("%w: context reference does not exist", ErrValidation)
 	case "INSERT_INSTANCE":
 		if documentType != "PRODUCT" {
 			break
@@ -453,6 +538,71 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		instanceName := nextInstanceName(product, name)
 		return typeInsertInstance, insertInstancePayload{Instance: ProductInstance{ID: newID("instance"), Name: instanceName, ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Translation: request.Translation, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: "FOLLOW_HEAD"}}, nil
+	case "REPLACE_INSTANCE":
+		if documentType != "PRODUCT" {
+			break
+		}
+		var replacementID, replacementVersion string
+		if err := service.database.QueryRow(ctx, `SELECT id::text,head_version_id::text FROM occccad.documents
+			WHERE id=$1 AND deleted_at IS NULL`, request.ReferencedDocumentID).Scan(&replacementID, &replacementVersion); errors.Is(err, pgx.ErrNoRows) {
+			return "", nil, fmt.Errorf("%w: replacement document does not exist", ErrValidation)
+		} else if err != nil {
+			return "", nil, err
+		}
+		var product ProductModel
+		if err := json.Unmarshal(modelJSON, &product); err != nil {
+			return "", nil, err
+		}
+		found := false
+		for index := range product.Instances {
+			if product.Instances[index].ID != request.InstanceID {
+				continue
+			}
+			found = true
+			product.Instances[index].ReferencedDocumentID = replacementID
+			product.Instances[index].ReferencedVersionID = replacementVersion
+			product.Instances[index].ResolvedVersionID = replacementVersion
+		}
+		if !found {
+			return "", nil, fmt.Errorf("%w: selected instance does not exist", ErrValidation)
+		}
+		if err := service.updateProductReferences(ctx, &product); err != nil {
+			return "", nil, err
+		}
+		return typeReplaceInstance, replaceInstancePayload{InstanceID: request.InstanceID,
+			ReferencedDocumentID: replacementID, ReferencedVersionID: replacementVersion, Model: product}, nil
+	case "CREATE_PRODUCT_PUBLICATION":
+		if documentType != "PRODUCT" {
+			break
+		}
+		var product ProductModel
+		if err := json.Unmarshal(modelJSON, &product); err != nil {
+			return "", nil, err
+		}
+		var instance *ProductInstance
+		for index := range product.Instances {
+			if product.Instances[index].ID == request.InstanceID {
+				instance = &product.Instances[index]
+				break
+			}
+		}
+		if instance == nil {
+			return "", nil, fmt.Errorf("%w: forwarded occurrence does not exist", ErrValidation)
+		}
+		child, err := service.publicationAtRevision(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID, request.PublicationID)
+		if err != nil {
+			return "", nil, err
+		}
+		if child.Resolution.Status != "CONNECTED" {
+			return "", nil, fmt.Errorf("%w: child Publication is broken", ErrValidation)
+		}
+		publication := productPublicationFromChild(*instance, child, newID("product-publication"), request.Name, request.SemanticPurpose)
+		return typeCreateProductPublication, productPublicationPayload{Publication: publication}, nil
+	case "DELETE_PRODUCT_PUBLICATION":
+		if documentType != "PRODUCT" {
+			break
+		}
+		return typeDeleteProductPublication, publicationDeletePayload{PublicationID: request.PublicationID}, nil
 	case "MOVE_INSTANCE":
 		if documentType != "PRODUCT" {
 			break
@@ -629,6 +779,16 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		return typeSetReferenceMode, referenceModePayload{request.InstanceID, mode, pinned}, nil
 	case "UPDATE_REFERENCES":
+		if documentType == "PART" {
+			var model PartModel
+			if err := json.Unmarshal(modelJSON, &model); err != nil {
+				return "", nil, err
+			}
+			if err := service.updatePartReferences(ctx, documentID, &model); err != nil {
+				return "", nil, err
+			}
+			return typeUpdatePartReferences, updatePartReferencesPayload{Model: model}, nil
+		}
 		if documentType != "PRODUCT" {
 			break
 		}

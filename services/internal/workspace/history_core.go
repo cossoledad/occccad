@@ -245,6 +245,12 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 		}
 		for _, change := range set.Changes {
 			switch change.Target.SlotID {
+			case "context-reference.entity":
+				for _, reference := range model.ContextReferences {
+					if reference.ID == change.Target.EntityID {
+						result[change.Target], _ = json.Marshal(reference)
+					}
+				}
 			case "publication.entity":
 				for _, publication := range model.Publications {
 					if publication.ID == change.Target.EntityID {
@@ -311,6 +317,15 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 			return nil, err
 		}
 		for _, change := range set.Changes {
+			if change.Target.SlotID == "product-publication.entity" {
+				for _, publication := range model.Publications {
+					if publication.ID == change.Target.EntityID {
+						result[change.Target], _ = json.Marshal(publication)
+						break
+					}
+				}
+				continue
+			}
 			if change.Target.SlotID == "assembly-constraint.entity" {
 				for _, constraint := range model.Constraints {
 					if constraint.ID == change.Target.EntityID {
@@ -332,7 +347,7 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 				case "instance.pose":
 					result[change.Target], _ = json.Marshal(InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)})
 				case "instance.reference":
-					result[change.Target], _ = json.Marshal(struct{ Mode, Version string }{instance.ReferenceMode, instance.ReferencedVersionID})
+					result[change.Target], _ = json.Marshal(struct{ Mode, Version, DocumentID string }{instance.ReferenceMode, instance.ReferencedVersionID, instance.ReferencedDocumentID})
 				}
 			}
 			if change.Target.SlotID == "document.model" {
@@ -368,6 +383,23 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 						model.Publications[index] = publication
 					} else {
 						model.Publications = append(model.Publications, publication)
+					}
+				}
+			case "context-reference.entity":
+				index := slices.IndexFunc(model.ContextReferences, func(item ContextReference) bool { return item.ID == address.EntityID })
+				if len(value) == 0 || string(value) == "null" {
+					if index >= 0 {
+						model.ContextReferences = append(model.ContextReferences[:index], model.ContextReferences[index+1:]...)
+					}
+				} else {
+					var reference ContextReference
+					if err := json.Unmarshal(value, &reference); err != nil {
+						return nil, err
+					}
+					if index >= 0 {
+						model.ContextReferences[index] = reference
+					} else {
+						model.ContextReferences = append(model.ContextReferences, reference)
 					}
 				}
 			case "entity":
@@ -534,6 +566,23 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 			}
 		}
 		switch address.SlotID {
+		case "product-publication.entity":
+			publicationIndex := slices.IndexFunc(model.Publications, func(item ProductPublication) bool { return item.ID == address.EntityID })
+			if len(value) == 0 || string(value) == "null" {
+				if publicationIndex >= 0 {
+					model.Publications = append(model.Publications[:publicationIndex], model.Publications[publicationIndex+1:]...)
+				}
+			} else {
+				var publication ProductPublication
+				if err := json.Unmarshal(value, &publication); err != nil {
+					return nil, err
+				}
+				if publicationIndex >= 0 {
+					model.Publications[publicationIndex] = publication
+				} else {
+					model.Publications = append(model.Publications, publication)
+				}
+			}
 		case "entity":
 			if len(value) == 0 || string(value) == "null" {
 				if index >= 0 {
@@ -561,12 +610,15 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 			if index < 0 {
 				return nil, fmt.Errorf("%w: instance was deleted", ErrValidation)
 			}
-			var reference struct{ Mode, Version string }
+			var reference struct{ Mode, Version, DocumentID string }
 			if err := json.Unmarshal(value, &reference); err != nil {
 				return nil, err
 			}
 			model.Instances[index].ReferenceMode = reference.Mode
 			model.Instances[index].ReferencedVersionID = reference.Version
+			if reference.DocumentID != "" {
+				model.Instances[index].ReferencedDocumentID = reference.DocumentID
+			}
 		case "instance.pose":
 			if index < 0 {
 				return nil, fmt.Errorf("%w: instance was deleted", ErrValidation)

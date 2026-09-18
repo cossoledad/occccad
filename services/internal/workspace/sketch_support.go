@@ -371,18 +371,37 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 	}
 	for index := range sketch.ExternalGeometry {
 		external := &sketch.ExternalGeometry[index]
-		anchorIndex := -1
-		for candidateIndex, feature := range model.Features {
-			if feature.ID == external.PersistentSelection.Anchor.FeatureID {
-				anchorIndex = candidateIndex
-				break
+		sourceDocumentID := external.SourceDocumentID
+		if sourceDocumentID == "" {
+			sourceDocumentID = documentID
+		}
+		sourceGeometryKey := geometryKey
+		sourcePose := InstancePose{Rotation: [4]float64{0, 0, 0, 1}}
+		if external.ContextReferenceID != "" {
+			for _, reference := range model.ContextReferences {
+				if reference.ID == external.ContextReferenceID {
+					sourceGeometryKey, sourcePose = reference.Resolution.GeometryKey, reference.Transform
+					break
+				}
+			}
+		} else {
+			anchorIndex := -1
+			for candidateIndex, feature := range model.Features {
+				if feature.ID == external.PersistentSelection.Anchor.FeatureID {
+					anchorIndex = candidateIndex
+					break
+				}
+			}
+			if anchorIndex < 0 || anchorIndex >= featureIndex {
+				markBroken(external, "EXTERNAL_SOURCE_ORDER_INVALID", "external geometry must originate from an earlier feature")
+				continue
 			}
 		}
-		if anchorIndex < 0 || anchorIndex >= featureIndex {
-			markBroken(external, "EXTERNAL_SOURCE_ORDER_INVALID", "external geometry must originate from an earlier feature")
+		if sourceGeometryKey == "" {
+			markBroken(external, "EXTERNAL_SOURCE_UNAVAILABLE", "context Publication has no resolved geometry")
 			continue
 		}
-		resolution, manifestDigest, err := service.resolveSelectionAgainstGeometry(ctx, documentID, external.SourceVersionID, geometryKey, external.PersistentSelection)
+		resolution, manifestDigest, err := service.resolveSelectionAgainstGeometry(ctx, sourceDocumentID, external.SourceVersionID, sourceGeometryKey, external.PersistentSelection)
 		if err != nil {
 			return err
 		}
@@ -396,24 +415,25 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 				code = "EXTERNAL_SOURCE_UNRESOLVED"
 			}
 			markBroken(external, code, resolution.Diagnostic)
-			external.DependencySnapshot = &SketchSupportDependencySnapshot{GeometryKey: geometryKey, ManifestDigest: manifestDigest,
+			external.DependencySnapshot = &SketchSupportDependencySnapshot{GeometryKey: sourceGeometryKey, ManifestDigest: manifestDigest,
 				PolicyDigest: modelcore.TopologyNamingPolicyDigest, EvidenceDigest: resolution.EvidenceDigest}
 			continue
 		}
 		candidate := resolution.Candidates[0]
+		origin, direction := pointByPose(sourcePose, candidate.Evidence.Origin), rotateByPose(sourcePose, candidate.Evidence.Direction)
 		projected, err := service.worker.ProjectExternalGeometry(ctx, requestID+"/external/"+external.ID,
 			geometry.ExternalProjectionSource{GeometryID: candidate.GeometryID, GeometryKey: candidate.GeometryKey,
 				TopologyType: string(candidate.Type), LocalID: candidate.LocalID, GeometryType: candidate.Evidence.GeometryType,
 				EvidenceDigest: candidate.Evidence.EvidenceDigest, MeasureSI: candidate.Evidence.MeasureSI,
 				ParameterStart: candidate.Evidence.ParameterStart, ParameterEnd: candidate.Evidence.ParameterEnd,
-				Origin: candidate.Evidence.Origin, Direction: candidate.Evidence.Direction},
+				Origin: origin, Direction: direction},
 			geometry.ExternalProjectionFrame{Origin: sketch.Support.Origin, XDirection: sketch.Support.XDirection, Normal: sketch.Support.Normal})
 		if err != nil {
 			return err
 		}
 		if projected.Status != "CONNECTED" {
 			markBroken(external, projected.DiagnosticCode, projected.Diagnostic)
-			external.DependencySnapshot = &SketchSupportDependencySnapshot{GeometryKey: geometryKey, ManifestDigest: manifestDigest,
+			external.DependencySnapshot = &SketchSupportDependencySnapshot{GeometryKey: sourceGeometryKey, ManifestDigest: manifestDigest,
 				PolicyDigest: modelcore.TopologyNamingPolicyDigest, EvidenceDigest: resolution.EvidenceDigest}
 			continue
 		}
@@ -436,13 +456,13 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 		candidateSketch.ExternalGeometry[index].Snapshot = snapshot
 		if validationErr := validateSketch(candidateSketch); validationErr != nil {
 			markBroken(external, "EXTERNAL_SOURCE_TYPE_MISMATCH", validationErr.Error())
-			external.DependencySnapshot = &SketchSupportDependencySnapshot{GeometryKey: geometryKey, ManifestDigest: manifestDigest,
+			external.DependencySnapshot = &SketchSupportDependencySnapshot{GeometryKey: sourceGeometryKey, ManifestDigest: manifestDigest,
 				PolicyDigest: modelcore.TopologyNamingPolicyDigest, EvidenceDigest: resolution.EvidenceDigest}
 			continue
 		}
 		external.Status, external.GeometryKind, external.DiagnosticCode, external.Diagnostic = "CONNECTED", projected.Kind, "", ""
 		external.Snapshot, external.ResolvedSourceDigest = snapshot, projected.SourceDigest
-		external.DependencySnapshot = &SketchSupportDependencySnapshot{GeometryKey: geometryKey, ManifestDigest: manifestDigest,
+		external.DependencySnapshot = &SketchSupportDependencySnapshot{GeometryKey: sourceGeometryKey, ManifestDigest: manifestDigest,
 			PolicyDigest: modelcore.TopologyNamingPolicyDigest, EvidenceDigest: resolution.EvidenceDigest}
 		external.AffectedConstraintIDs, external.AffectedProfileRegionIDs, external.DownstreamFeatureIDs = nil, nil, nil
 	}

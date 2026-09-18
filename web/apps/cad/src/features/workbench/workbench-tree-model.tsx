@@ -43,7 +43,8 @@ function structureIcon(kind: DocumentStructureNode["kind"], diagnostic?: string)
   if (kind === "AXIS_SYSTEM") return <AimOutlined />;
   if (kind === "AXIS") return <NodeIndexOutlined />;
   if (kind === "BODY") return <DatabaseOutlined />;
-  if (kind === "PUBLICATION_SET" || kind === "PUBLICATION") return <GatewayOutlined />;
+  if (kind === "PUBLICATION_SET" || kind === "PUBLICATION" || kind === "PRODUCT_PUBLICATION_SET" || kind === "PRODUCT_PUBLICATION" ||
+      kind === "CONTEXT_REFERENCE_SET" || kind === "CONTEXT_REFERENCE") return <GatewayOutlined />;
   if (kind === "SKETCH") return <ScissorOutlined />;
   if (kind === "SKETCH_ENTITY") return <NodeIndexOutlined />;
   if (kind === "SKETCH_CONSTRAINT") return <GatewayOutlined />;
@@ -64,7 +65,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
   const occurrencePath = node.instancePath?.canonical ?? "";
   const resolved = (view.resolvedInstances ?? []).find((item) => item.instancePath?.canonical === occurrencePath);
   const geometryKey = resolved?.geometryKey ?? view.artifact?.geometryKey;
-  const expands = ["PART", "PRODUCT", "INSTANCE", "ORIGIN", "BODY", "PUBLICATION_SET", "SKETCH", "SKETCH_GEOMETRY_SET", "SKETCH_CONSTRAINT_SET",
+  const expands = ["PART", "PRODUCT", "INSTANCE", "ORIGIN", "BODY", "PUBLICATION_SET", "PRODUCT_PUBLICATION_SET", "CONTEXT_REFERENCE_SET", "SKETCH", "SKETCH_GEOMETRY_SET", "SKETCH_CONSTRAINT_SET",
     "SKETCH_LOGICAL_CONSTRAINT_SET", "SKETCH_DIMENSION_SET"].includes(node.kind);
   const context = { treeNodeId: node.id, expandTreeDescendants: expands || undefined, documentId: node.documentId,
     versionId: node.versionId, instancePath: node.instancePath, occurrencePath, geometryKey,

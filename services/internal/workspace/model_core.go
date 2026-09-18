@@ -75,7 +75,13 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeEditPublication, "PART", applyEditPublication},
 		commandHandler{typeRedirectPublication, "PART", applyRedirectPublication},
 		commandHandler{typeDeletePublication, "PART", applyDeletePublication},
+		commandHandler{typeUpdatePartReferences, "PART", applyUpdatePartReferences},
+		commandHandler{typeCreateContextReference, "PART", applyContextReferenceModel},
+		commandHandler{typeDetachContextReference, "PART", applyContextReferenceModel},
 		commandHandler{typeInsertInstance, "PRODUCT", applyInsertInstance},
+		commandHandler{typeReplaceInstance, "PRODUCT", applyReplaceInstance},
+		commandHandler{typeCreateProductPublication, "PRODUCT", applyCreateProductPublication},
+		commandHandler{typeDeleteProductPublication, "PRODUCT", applyDeleteProductPublication},
 		commandHandler{typeMoveInstance, "PRODUCT", applyMoveInstance},
 		commandHandler{typeAddAssemblyConstraint, "PRODUCT", applyAddAssemblyConstraint},
 		commandHandler{typeEditAssemblyConstraint, "PRODUCT", applyEditAssemblyConstraint},
@@ -1441,14 +1447,14 @@ func applyReferenceMode(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		if instance.ID != payload.InstanceID {
 			continue
 		}
-		before := struct{ Mode, Version string }{instance.ReferenceMode, instance.ReferencedVersionID}
+		before := struct{ Mode, Version, DocumentID string }{instance.ReferenceMode, instance.ReferencedVersionID, instance.ReferencedDocumentID}
 		instance.ReferenceMode = payload.Mode
 		if payload.Mode == "PINNED" {
 			instance.ReferencedVersionID = payload.PinnedVersionID
 		}
 		instance.ResolvedVersionID = ""
 		instance.HeadChanged = false
-		after := struct{ Mode, Version string }{instance.ReferenceMode, instance.ReferencedVersionID}
+		after := struct{ Mode, Version, DocumentID string }{instance.ReferenceMode, instance.ReferencedVersionID, instance.ReferencedDocumentID}
 		change, _ := modelcore.NewChange(modelcore.ChangeBind, modelcore.PropertyAddress{EntityID: payload.InstanceID, SlotID: "instance.reference"}, before, after)
 		set := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"reference:" + modelcore.DependencyKey(payload.InstanceID)}}
 		next, _ := json.Marshal(model)
@@ -1488,6 +1494,17 @@ func applyUpdateReferences(modelJSON, payloadJSON json.RawMessage) (json.RawMess
 	for _, value := range payload.Model.Constraints {
 		if old, ok := beforeConstraints[value.ID]; ok && !reflect.DeepEqual(old, value) {
 			change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: value.ID, SlotID: "assembly-constraint.entity"}, old, value)
+			changes = append(changes, change)
+		}
+	}
+	beforePublications := map[string]ProductPublication{}
+	for _, value := range before.Publications {
+		beforePublications[value.ID] = value
+	}
+	for _, value := range payload.Model.Publications {
+		if old, ok := beforePublications[value.ID]; ok && !reflect.DeepEqual(old, value) {
+			change, _ := modelcore.NewChange(modelcore.ChangeUpdate,
+				modelcore.PropertyAddress{EntityID: value.ID, SlotID: "product-publication.entity"}, old, value)
 			changes = append(changes, change)
 		}
 	}
@@ -1656,7 +1673,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 				solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 			}
 			if err = service.solveAssembly(ctx, documentID, prepared.requestID, drivenInstanceID, solveIntent, &model, ""); err != nil {
-				if prepared.command.TypeURI != typeUpdateReferences {
+				if prepared.command.TypeURI != typeUpdateReferences && prepared.command.TypeURI != typeReplaceInstance {
 					finishSolve()
 					return err
 				}
@@ -2365,7 +2382,7 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		}
 		instanceIDs[instance.ID], instanceNames[name] = true, true
 	}
-	nodes := make([]modelcore.DependencyNode, 0, len(model.Instances)+len(model.Constraints))
+	nodes := make([]modelcore.DependencyNode, 0, len(model.Instances)+len(model.Constraints)+len(model.Publications))
 	edges := make([]modelcore.DependencyEdge, 0, len(model.Constraints)*2)
 	for _, instance := range model.Instances {
 		data, _ := json.Marshal(instance)
@@ -2382,6 +2399,21 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		if constraint.Second != nil {
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + constraint.Second.InstanceID), Target: key, Kind: "READ_GEOMETRY"})
 		}
+	}
+	publicationIDs := map[string]bool{}
+	for _, publication := range model.Publications {
+		if publication.ID == "" || publicationIDs[publication.ID] || len(publication.Target.InstancePath.Segments) != 1 {
+			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: Product Publication identity or relative occurrence path is invalid", ErrValidation)
+		}
+		publicationIDs[publication.ID] = true
+		instanceID := publication.Target.InstancePath.Segments[0].InstanceID
+		if !instanceIDs[instanceID] {
+			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: Product Publication occurrence is missing", ErrValidation)
+		}
+		data, _ := json.Marshal(publication)
+		key := modelcore.DependencyKey("product-publication:" + publication.ID)
+		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 3, Type: "PRODUCT_PUBLICATION", CanonicalInput: data})
+		edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + instanceID), Target: key, Kind: modelcore.ReadGeometry})
 	}
 	graph, err := modelcore.NewDependencyGraph(nodes, edges)
 	if err != nil {

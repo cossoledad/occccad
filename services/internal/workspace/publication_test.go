@@ -98,7 +98,9 @@ func TestExternalParameterSnapshotDrivesLocalParameterAndDependencyGraph(t *test
 		Revision:      modelcore.ReferenceSelector{Mode: "PINNED", RevisionID: "source-revision"},
 		PublicationID: "publication-length", ExpectedType: modelcore.ValueQuantity,
 		ExpectedDimension: modelcore.LengthDimension, ContractVersion: "1.0.0",
-		ResolvedRevisionID: "source-revision", ResolvedValue: value, ResolvedValueDigest: resolvedDigest(value)}
+		ResolvedRevisionID: "source-revision", ResolvedValue: value, ResolvedValueDigest: resolvedDigest(value),
+		ResolutionSnapshot: modelcore.ReferenceResolutionSnapshot{SourceRevisionID: "source-revision",
+			PublicationID: "publication-length", ContractDigest: "contract", ValueDigest: resolvedDigest(value), Status: "CONNECTED"}}
 	model.Parameters = append(model.Parameters, modelcore.ParameterDefinition{ParameterID: "parameter:external-length",
 		Key: "external_length", Label: "External Length", ValueType: modelcore.ValueQuantity,
 		Dimension: modelcore.LengthDimension, DisplayUnit: "mm", Role: "INPUT",

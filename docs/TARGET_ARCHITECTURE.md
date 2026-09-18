@@ -320,9 +320,9 @@ Feature 不应继续编码为 `repeated RectangularPadSpec`。目标模型需要
 
 #### 4.3.2 当前实现基线与主要差距
 
-当前后端已落实 C0–C4 及 P9A–P9C 的首个垂直切片：HTTP transport DTO 在边界转换为版本化 envelope 并进入 handler registry；显式 Workspace、Transaction、ChangeSet、Revision parent、EvaluationRun、dependency edge 和 outbox 已落库；新命令在事务外完成纯模型变换与求值并以 Head/sequence CAS 提交；Undo/Redo/Restore 使用根 Transaction 与有序 Revert/Reapply action log 产生追加 Revision；Rectangle/Pad property facade、Quantity、ID-bound arithmetic AST、typed dependency graph、dirty closure 和 EvaluationManifest 已贯通现有 Part/Product 路径。Part Publication 已覆盖 Datum、拓扑、Feature output 和 Parameter 合同；ExternalParameterRef 冻结来源 Revision 与值摘要。显式更新来源及 Product Publication endpoint 继续分别由 P9D/P9E 承担。
+当前后端已落实 C0–C4 及 P9 的首个垂直切片：HTTP transport DTO 在边界转换为版本化 envelope 并进入 handler registry；显式 Workspace、Transaction、ChangeSet、Revision parent、EvaluationRun、dependency edge 和 outbox 已落库；新命令在事务外完成纯模型变换与求值并以 Head/sequence CAS 提交；Undo/Redo/Restore 使用根 Transaction 与有序 Revert/Reapply action log 产生追加 Revision；Rectangle/Pad property facade、Quantity、ID-bound arithmetic AST、typed dependency graph、dirty closure 和 EvaluationManifest 已贯通现有 Part/Product 路径。Part Publication 已覆盖 Datum、拓扑、Feature output 和 Parameter 合同，Product 可转发单层 occurrence Publication；ExternalParameterRef/ContextReference 冻结来源 Revision、合同、值或几何 descriptor，来源 Head 只产生 UPDATE_AVAILABLE，接受更新仍形成新 Revision。
 
-仍需按后续阶段扩展而不能误报为完成的边界包括：表达式 profile 尚未覆盖布尔、条件、向量和完整纯函数目录；除现有 Rectangle/Pad/Instance 外的专业 schema 尚未注册 PropertySlot；通用重排命令、多人 semantic rebase、显式跨文档更新、Product Publication endpoint、Configuration/Rule/Check 属于 C5–C6。当前没有已发布数据兼容承诺，开发 schema 直接重建并只维护这一套历史语义。
+仍需按后续阶段扩展而不能误报为完成的边界包括：表达式 profile 尚未覆盖布尔、条件、向量和完整纯函数目录；除现有 Rectangle/Pad/Instance 外的专业 schema 尚未注册 PropertySlot；嵌套 Product Publication path、可重放 SolveManifest、通用重排命令、多人 semantic rebase、Configuration/Rule/Check 属于后续阶段。当前没有已发布数据兼容承诺，开发 schema 直接重建并只维护这一套历史语义。
 
 #### 4.3.3 四种“命令”必须分层
 

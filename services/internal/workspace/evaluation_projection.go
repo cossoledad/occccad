@@ -152,7 +152,8 @@ func validateAndResolvePartParameters(model *PartModel) error {
 			return fmt.Errorf("%w: %w: parameter %s expression result type changed", ErrValidation, modelcore.ErrUnitMismatch, parameter.ParameterID)
 		}
 		if external := parameter.Source.External; external != nil {
-			if external.SourceDocumentID == "" || external.PublicationID == "" || external.ContractVersion == "" || external.Revision.Mode != "PINNED" ||
+			validMode := external.Revision.Mode == "PINNED" || external.Revision.Mode == "FOLLOW_HEAD" || external.Revision.Mode == "FOLLOW_WORKSPACE_WITH_ACCEPT"
+			if external.SourceDocumentID == "" || external.PublicationID == "" || external.ContractVersion == "" || !validMode ||
 				external.Revision.RevisionID == "" || external.ResolvedRevisionID == "" ||
 				external.Revision.RevisionID != external.ResolvedRevisionID {
 				return fmt.Errorf("%w: EXTERNAL_PARAMETER_REFERENCE_INCOMPLETE", ErrValidation)
@@ -163,6 +164,12 @@ func validateAndResolvePartParameters(model *PartModel) error {
 			}
 			if external.ResolvedValueDigest == "" || external.ResolvedValueDigest != resolvedDigest(external.ResolvedValue) {
 				return fmt.Errorf("%w: EXTERNAL_PARAMETER_VALUE_DIGEST_MISMATCH", ErrValidation)
+			}
+			snapshot := external.ResolutionSnapshot
+			if snapshot.Status != "CONNECTED" || snapshot.SourceRevisionID != external.ResolvedRevisionID ||
+				snapshot.PublicationID != external.PublicationID || snapshot.ContractDigest == "" ||
+				snapshot.ValueDigest != external.ResolvedValueDigest {
+				return fmt.Errorf("%w: EXTERNAL_PARAMETER_RESOLUTION_SNAPSHOT_INCOMPLETE", ErrValidation)
 			}
 		}
 		keys[parameter.Key] = parameter.ParameterID
@@ -336,6 +343,20 @@ func validatePartStructure(model PartModel) error {
 		}
 		features[feature.ID] = feature
 	}
+	contextIDs := map[string]bool{}
+	for _, reference := range model.ContextReferences {
+		if strings.TrimSpace(reference.ID) == "" || contextIDs[reference.ID] {
+			return fmt.Errorf("%w: context reference identity must be unique", ErrValidation)
+		}
+		contextIDs[reference.ID] = true
+		if reference.OwningWorkspace == "" || reference.SourceDocumentID == "" || reference.Publication.PublicationID == "" || reference.ResolvedRevisionID == "" {
+			return fmt.Errorf("%w: context reference %s is incomplete", ErrValidation, reference.ID)
+		}
+		if reference.ReferenceMode != "PINNED" && reference.ReferenceMode != "FOLLOW_HEAD" &&
+			reference.ReferenceMode != "FOLLOW_WORKSPACE_WITH_ACCEPT" && reference.ReferenceMode != "ISOLATED" {
+			return fmt.Errorf("%w: context reference %s has invalid mode", ErrValidation, reference.ID)
+		}
+	}
 	return validatePublicationDefinitions(model)
 }
 
@@ -371,6 +392,25 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			for _, read := range parameter.Source.Expression.Reads {
 				edges = append(edges, modelcore.DependencyEdge{Source: read, Target: key, Kind: modelcore.ReadValue})
 			}
+		}
+	}
+	for _, reference := range model.ContextReferences {
+		data, _ := json.Marshal(reference)
+		key := modelcore.DependencyKey("context-reference:" + reference.ID)
+		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 0, Type: "CONTEXT_REFERENCE_SNAPSHOT", CanonicalInput: data})
+		if reference.LocalTargetID == "" {
+			continue
+		}
+		switch reference.Publication.ExpectedType {
+		case "PARAMETER":
+			edges = append(edges, modelcore.DependencyEdge{Source: key,
+				Target: modelcore.DependencyKey("parameter:" + reference.LocalTargetID), Kind: modelcore.ReadValue})
+		case "PLANE", "AXIS":
+			edges = append(edges, modelcore.DependencyEdge{Source: key,
+				Target: modelcore.DependencyKey("datum:" + reference.LocalTargetID), Kind: modelcore.ReadGeometry})
+		case "CURVE":
+			edges = append(edges, modelcore.DependencyEdge{Source: key,
+				Target: modelcore.DependencyKey("feature:" + reference.LocalTargetID), Kind: modelcore.ReadTopology})
 		}
 	}
 	bodyTipFeatureID := ""
