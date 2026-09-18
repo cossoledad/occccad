@@ -8,7 +8,8 @@ import { InteractionRouter } from "../cad/interaction/interaction-router";
 import { SelectionController } from "../cad/interaction/selection-controller";
 import { SelectionIndex } from "../cad/interaction/selection-index";
 import { AssemblyManipulator, type ManipulatorAnchor } from "../cad/interaction/assembly-manipulator";
-import { projectSketchFeatureSelection, selectionModeForTool, sketchContextLayerVisibility, sketchOverlayVisible, type SelectionMode } from "../cad/interaction/selection-mode";
+import { projectSketchFeatureSelection, selectionModeForTool, sketchContextLayerVisibility, type SelectionMode } from "../cad/interaction/selection-mode";
+import { sketchTreeVisible, treeVisibilityOverride, type TreeVisibilityOverrides } from "../cad/interaction/tree-visibility";
 import { sameSelection, sameSelections, selectionKey } from "../cad/interaction/selection-identity";
 import { resultBodyFeatureTreeNode } from "../cad/interaction/selection-hierarchy";
 import { resolveSketchReference, type SketchReferencePickKind } from "../cad/interaction/sketch-reference-pick";
@@ -22,7 +23,7 @@ import { CadBackground } from "../cad/rendering/cad-background";
 import { CadMaterialFactory } from "../cad/rendering/cad-material-factory";
 import { visualSelection, visualType } from "../cad/rendering/visualization-render-model";
 import { CATIA_VISUAL_THEME } from "../cad/rendering/cad-visual-theme";
-import { makeOcclusionVisibleHighlightLine, makeOcclusionVisibleSegments, updateHighlightLineResolution } from "../cad/rendering/interaction-highlight";
+import { makeOcclusionVisibleHighlightLine, makeOcclusionVisibleSegments, makeSketchOverlayLine, updateHighlightLineResolution } from "../cad/rendering/interaction-highlight";
 import { constraintSymbolCode, makeConstraintDimensionLabel, makeSketchConstraintRenderable } from "../cad/rendering/sketch-constraint-renderer";
 import { isDimensionConstraintKind, type ConstraintKind } from "../cad/sketch/sketch-constraint-definition";
 import { measureSketchDimension } from "../cad/sketch/sketch-constraint-layout";
@@ -215,7 +216,7 @@ export class CadViewportEngine {
   private selectionMode: SelectionMode = selectionModeForTool("select");
   private navigationProfile: NavigationProfileID = "default";
   private captureSettings: CaptureSettings = DEFAULT_CAPTURE_SETTINGS;
-  private hiddenTreeKeys = new Set<string>();
+  private treeVisibilityOverrides: TreeVisibilityOverrides = {};
   private readonly resizeObserver: ResizeObserver;
   private animationFrame = 0;
   private disposed = false;
@@ -358,7 +359,7 @@ export class CadViewportEngine {
     if (view.document.type === "PRODUCT" && editContext?.view.document.type === "PART") {
       const consumedSketches = new Set((editContext.view.part?.features ?? []).flatMap((feature) => feature.profile ? [feature.profile] : []));
       for (const feature of editContext.view.part?.features ?? []) {
-        if (feature.type.toUpperCase().includes("SKETCH") && (!consumedSketches.has(feature.id) || feature.id === this.activeSketchID)) this.addSketch(feature, false, editContext.view, {
+        if (feature.type.toUpperCase().includes("SKETCH")) this.addSketch(feature, false, editContext.view, {
           documentId: editContext.view.document.id, geometryKey: editContext.view.artifact?.geometryKey ?? "",
           occurrencePath: editContext.occurrencePath ?? "", treeNodeId: editContext.bodyTreeNodeId ?? "",
         }, editContext.translation, editContext.rotation, !consumedSketches.has(feature.id));
@@ -402,15 +403,21 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
-  setHiddenTreeKeys(keys: readonly string[]): void {
-    this.hiddenTreeKeys = new Set(keys);
+  setTreeVisibilityOverrides(overrides: TreeVisibilityOverrides): void {
+    this.treeVisibilityOverrides = { ...overrides };
     if (this.view) this.render(this.view);
   }
 
   private applyTreeVisibility(): void {
+    const activeSketchKey = this.helpers.children.find((object) => object.userData.sketchEditOverlay === true &&
+      object.userData.sketchFeatureID === this.activeSketchID)?.userData.treeNodeId as string | undefined;
+    const activeSketchOverrides = activeSketchKey ? Object.fromEntries(Object.entries(this.treeVisibilityOverrides)
+      .filter(([candidate]) => candidate.startsWith(`${activeSketchKey}/`))) : {};
     for (const root of [this.content, this.helpers]) root.traverse((object) => {
       const key = typeof object.userData.treeNodeId === "string" ? object.userData.treeNodeId : undefined;
-      if (key && [...this.hiddenTreeKeys].some((hidden) => key === hidden || key.startsWith(`${hidden}/`))) object.visible = false;
+      const activeSketchSubtree = Boolean(key && activeSketchKey && (key === activeSketchKey || key.startsWith(`${activeSketchKey}/`)));
+      const overrides = activeSketchSubtree ? activeSketchOverrides : this.treeVisibilityOverrides;
+      if (treeVisibilityOverride(key, overrides) === false) object.visible = false;
     });
   }
 
@@ -427,6 +434,7 @@ export class CadViewportEngine {
     this.navigation.syncCamera();
     this.buildSketchContext();
     this.updateSketchContextVisibility();
+    this.applyTreeVisibility();
     this.callbacks.toolPromptChanged("选择：选择草图元素，或从工具栏启动创建命令");
     this.invalidate();
   }
@@ -814,7 +822,7 @@ export class CadViewportEngine {
     }, false);
     const consumedSketches = new Set((view.part?.features ?? []).flatMap((feature) => feature.profile ? [feature.profile] : []));
     for (const feature of view.part?.features ?? []) {
-      if (feature.type.toUpperCase().includes("SKETCH") && (!consumedSketches.has(feature.id) || feature.id === this.activeSketchID)) {
+      if (feature.type.toUpperCase().includes("SKETCH")) {
         this.addSketch(feature, false, view, undefined, undefined, undefined, !consumedSketches.has(feature.id));
       }
     }
@@ -1350,11 +1358,11 @@ export class CadViewportEngine {
       if (child.userData.visualizationPrimitive) {
         child.visible = !editing;
       } else if (child.userData.sketchEditOverlay) {
-        const active = child.userData.sketchFeatureID === this.activeSketchID;
-        child.visible = sketchOverlayVisible(child.userData.sketchFeatureID, this.activeSketchID,
-          child.userData.visibleOutsideSketchEdit === true);
+        child.visible = sketchTreeVisible({ featureID: child.userData.sketchFeatureID, treeKey: child.userData.treeNodeId,
+          activeSketchID: this.activeSketchID, defaultVisible: child.userData.visibleOutsideSketchEdit === true,
+          overrides: this.treeVisibilityOverrides });
         for (const sketchChild of child.children) {
-          if (sketchChild.userData.sketchEntityOverlay) sketchChild.visible = editing ? active : child.userData.visibleOutsideSketchEdit === true;
+          if (sketchChild.userData.sketchEntityOverlay) sketchChild.visible = child.visible;
         }
       } else child.visible = !editing || child.userData.sketchFeatureID === this.activeSketchID;
     }
@@ -1412,7 +1420,8 @@ export class CadViewportEngine {
         const sampled=sampleSketchEntity(entity);
         if(sampled.length<2)continue;
         const positions=sampled.map((point)=>localToWorld(plane,point));
-        object = new THREE.Line(new THREE.BufferGeometry().setFromPoints(positions), new THREE.LineBasicMaterial({ color: entityColor, depthTest: false }));
+        object = makeSketchOverlayLine(positions, entityColor, entity.role === "CONSTRUCTION" ? 2 : 2.5);
+        updateHighlightLineResolution(object, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
         object.renderOrder = 20;
         const markers=entity.kind==="CIRCLE"&&entity.center?[localToWorld(plane,[entity.center.x,entity.center.y])]
           :entity.kind==="SPLINE"?(entity.controlPoints??[]).map((point)=>localToWorld(plane,[point.x,point.y]))
@@ -1438,15 +1447,16 @@ export class CadViewportEngine {
         featureId: feature.id, entityId: external.id, role: "CONSTRUCTION" as const, documentId, occurrencePath: context.occurrencePath,
         treeNodeId: `${featureTreeNode}/external-geometry/external:${external.id}` };
       let object: THREE.Object3D | undefined;
-      const color = external.status === "CONNECTED" ? CATIA_VISUAL_THEME.sketchConstruction : CATIA_VISUAL_THEME.sketchInvalid;
+      const color = external.status === "CONNECTED" ? CATIA_VISUAL_THEME.sketchExternal : CATIA_VISUAL_THEME.sketchInvalid;
       if (snapshot.kind === "POINT" && snapshot.point) {
         object = new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(plane, [snapshot.point.x, snapshot.point.y])]),
           this.materials.point(color, 10, false));
       } else {
         const sampled = sampleSketchEntity(entity);
-        if (sampled.length >= 2) object = new THREE.Line(new THREE.BufferGeometry().setFromPoints(sampled.map((point) => localToWorld(plane, point))),
-          new THREE.LineDashedMaterial({ color, dashSize: 3, gapSize: 2, depthTest: false }));
-        if (object instanceof THREE.Line) object.computeLineDistances();
+        if (sampled.length >= 2) {
+          object = makeSketchOverlayLine(sampled.map((point) => localToWorld(plane, point)), color, 2.75, true);
+          updateHighlightLineResolution(object, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
+        }
       }
       if (object) {
         object.renderOrder = 23; object.userData = { ...selection, sketchEntityOverlay: true }; group.add(object);

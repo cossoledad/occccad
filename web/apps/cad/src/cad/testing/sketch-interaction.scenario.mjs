@@ -32,7 +32,8 @@ try {
   const { SelectionIndex } = await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
   const { resultBodyFeatureTreeNode } = await server.ssrLoadModule("/src/cad/interaction/selection-hierarchy.ts");
   const { SelectionController } = await server.ssrLoadModule("/src/cad/interaction/selection-controller.ts");
-  const { projectSketchFeatureSelection, sketchContextLayerVisibility, sketchOverlayVisible } = await server.ssrLoadModule("/src/cad/interaction/selection-mode.ts");
+  const { projectSketchFeatureSelection, sketchContextLayerVisibility } = await server.ssrLoadModule("/src/cad/interaction/selection-mode.ts");
+  const { sketchTreeVisible } = await server.ssrLoadModule("/src/cad/interaction/tree-visibility.ts");
   const { closestTreeKey, resolveTreeSelection } = await server.ssrLoadModule("/src/features/workbench/tree-selection.ts");
   const { resolveSketchReference } = await server.ssrLoadModule("/src/cad/interaction/sketch-reference-pick.ts");
   const { constraintDefinition, TOOLBAR_CONSTRAINT_KINDS } = await server.ssrLoadModule("/src/cad/sketch/sketch-constraint-definition.ts");
@@ -46,7 +47,7 @@ try {
   const { axisDragWorldDelta, stableAxisDragWorldDelta, stableAngularDragDelta,
     manipulatorFrame, solveScreenConstrainedParameter, transformAroundWorldPivot,
     worldUnitsPerCssPixel } = await server.ssrLoadModule("/src/cad/rendering/viewport-metrics.ts");
-  const { makeOcclusionVisibleHighlightLine } = await server.ssrLoadModule("/src/cad/rendering/interaction-highlight.ts");
+  const { makeOcclusionVisibleHighlightLine, makeSketchOverlayLine } = await server.ssrLoadModule("/src/cad/rendering/interaction-highlight.ts");
   const { defaultDocumentName } = await server.ssrLoadModule("/src/features/documents/document-utils.ts");
   const sketchEntitySelection = { kind: "visual", id: "root:sketch-1:line-1", visualType: "CURVE", featureId: "sketch-1",
     entityId: "line-1", documentId: "part-1", treeNodeId: "document:part-1/body/sketch:sketch-1/geometry/entity:line-1" };
@@ -56,11 +57,11 @@ try {
   });
   assert.equal(projectSketchFeatureSelection(sketchEntitySelection, "sketch-1"), sketchEntitySelection,
     "Sketcher must preserve entity-level selection while the sketch is active");
-  assert.equal(sketchOverlayVisible("sketch-new", undefined, true), true,
+  assert.equal(sketchTreeVisible({featureID:"sketch-new",defaultVisible:true,overrides:{}}), true,
     "an unconsumed sketch remains visible after leaving Sketcher");
-  assert.equal(sketchOverlayVisible("sketch-consumed", undefined, false), false,
+  assert.equal(sketchTreeVisible({featureID:"sketch-consumed",defaultVisible:false,overrides:{}}), false,
     "a consumed profile stays hidden outside Sketcher");
-  assert.equal(sketchOverlayVisible("sketch-consumed", "sketch-consumed", false), true,
+  assert.equal(sketchTreeVisible({featureID:"sketch-consumed",activeSketchID:"sketch-consumed",defaultVisible:false,overrides:{}}), true,
     "editing temporarily reveals a consumed profile");
   assert.deepEqual(sketchContextLayerVisibility("sketch-consumed", false),
     { body: true, lighting: true, environment: false, sketch: true },
@@ -624,6 +625,11 @@ try {
   assert.equal(highlightLine.material.depthWrite, false);
   assert.equal(highlightLine.material.linewidth, 5);
   highlightLine.geometry.dispose(); highlightLine.material.dispose();
+  const projectedLine = makeSketchOverlayLine([new THREE.Vector3(0, 0, 0), new THREE.Vector3(10, 0, 0)], 0x52c7ea, 2.75, true);
+  assert.equal(projectedLine.material.depthTest, false, "projected geometry must stay legible over coincident body edges");
+  assert.equal(projectedLine.material.dashed, true, "projected geometry keeps a distinct dashed semantic style");
+  assert.equal(projectedLine.material.linewidth, 2.75);
+  projectedLine.geometry.dispose(); projectedLine.material.dispose();
   assert.equal(defaultDocumentName("PART", [{ name: "Part1" }, { name: "part3" }]), "Part2");
   assert.equal(defaultDocumentName("PRODUCT", [{ name: "Product1" }, { name: "Product2" }]), "Product3");
   const persistedLine = { id: "line-1", featureId: "sketch-1", kind: "POLYLINE",

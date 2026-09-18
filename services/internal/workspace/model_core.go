@@ -1027,10 +1027,10 @@ type renameParameterPayload struct {
 }
 
 type linearExtrudeEdit struct {
-	Length    modelcore.Quantity `json:"length"`
-	Operation string             `json:"operation"`
-	Reversed  bool               `json:"reversed"`
-	Profile   string             `json:"profile"`
+	Source    modelcore.ValueSource `json:"source"`
+	Operation string                `json:"operation"`
+	Reversed  bool                  `json:"reversed"`
+	Profile   string                `json:"profile"`
 }
 
 type editFeaturePayload struct {
@@ -1122,21 +1122,14 @@ func applyEditFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, 
 	if definition.Profile != feature.Profile || !strings.EqualFold(definition.Operation, feature.Operation) || definition.Reversed != feature.Reversed {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: P1 only permits Linear Extrude length edits", ErrValidation)
 	}
-	if !definition.Length.Dimension.Equal(modelcore.LengthDimension) || !positiveFinite(definition.Length.SIValue) {
-		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: Linear Extrude length must be a positive finite length", ErrValidation)
-	}
 	parameterID := "parameter:" + feature.ID + ":length"
 	for index := range model.Parameters {
 		parameter := &model.Parameters[index]
 		if parameter.ParameterID != parameterID {
 			continue
 		}
-		if parameter.Source.Expression != nil {
-			return nil, modelcore.ChangeSet{}, featureEditFailure{code: "FEATURE_LENGTH_EXPRESSION_DRIVEN"}
-		}
 		before := parameter.Source
-		length := definition.Length
-		parameter.Source = modelcore.ValueSource{Literal: &length}
+		parameter.Source = definition.Source
 		if err := validateAndResolvePartParameters(&model); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}

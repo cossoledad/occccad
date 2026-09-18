@@ -366,7 +366,12 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 	}
 	if (commandType === "EDIT_FEATURE" && view.part) {
 		const feature=view.part.features.find((candidate)=>candidate.id===input.targetId);
-		if(feature)feature.length=lengthInMillimeters(input.length,input.unit);
+		const parameter=view.part.parameters?.find((candidate)=>candidate.parameterId===`parameter:${input.targetId}:length`);
+		const referenced=view.part.parameters?.find((candidate)=>candidate.key===input.lengthExpression);
+		const length=Number(input.length)||(referenced?.evaluatedValue?.siValue??parameter?.evaluatedValue?.siValue??0.04)*1000;
+		if(feature)feature.length=length;
+		if(parameter){parameter.source=input.lengthExpression?{expression:{sourceText:String(input.lengthExpression)}}
+			:{literal:{siValue:length/1000,dimension:parameter.dimension}};parameter.evaluatedValue={siValue:length/1000,dimension:parameter.dimension};}
 	}
     if (commandType === "INSERT_INSTANCE" && view.product) {
       const reference = getView(String(input.referencedDocumentId));
@@ -570,8 +575,11 @@ export const mockApi: CadApi = {
     if (input.type === "EDIT_FEATURE" && view.part) {
 		const feature=view.part.features.find((candidate)=>candidate.id===input.targetId);
 		if(!feature)throw new Error("Feature does not exist");
+		const parameter=view.part.parameters?.find((candidate)=>candidate.parameterId===`parameter:${input.targetId}:length`);
+		const referenced=view.part.parameters?.find((candidate)=>candidate.key===input.lengthExpression);
+		const length=Number(input.length)||(referenced?.evaluatedValue?.siValue??parameter?.evaluatedValue?.siValue??0.04)*1000;
 		return pause({previewId:id("mock-edit-preview"),baseVersionId:view.document.versionId,baseSequence:0,modelHash:"mock-edit",
-			artifact:boxArtifact(id("mock-preview"),[40,30,lengthInMillimeters(input.length,input.unit)])});
+			artifact:boxArtifact(id("mock-preview"),[40,30,length])});
 	}
     if ((input.type !== "PAD_SKETCH" && input.type !== "CREATE_SOLID_FEATURE") || !view.part) throw new Error("Mock preview currently supports solid generators only");
     const sketch = view.part.features.find((feature) => feature.id === input.sketchId)?.sketch;
@@ -597,7 +605,8 @@ export const mockApi: CadApi = {
   createSolidFeature: async (documentID, input, intentRequestID) => command(documentID, { type: "CREATE_SOLID_FEATURE", ...input,
     ...(intentRequestID ? { requestId: intentRequestID } : {}) }),
 	editFeature: async (documentID, input) => command(documentID, {type:"EDIT_FEATURE",targetId:input.featureId,
-		expectedFeatureDigest:input.expectedFeatureDigest,length:input.length,unit:input.unit,previewId:input.previewId}),
+		expectedFeatureDigest:input.expectedFeatureDigest,length:input.length,unit:input.length === undefined?undefined:"mm",
+		lengthExpression:input.lengthExpression,previewId:input.previewId}),
   createDatumPlane: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_PLANE", ...input }),
   createDatumAxis: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_AXIS", ...input }),
   insert: async (documentID, referencedDocumentID) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID }),

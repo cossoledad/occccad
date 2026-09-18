@@ -1,9 +1,9 @@
 # P7 后关联设计、Feature 与装配演进计划
 
-状态：实施中；P8A–P8C 实现完成，待浏览器人工验收
+状态：实施中；P8 已于 2026-09-18 完成自动与浏览器人工验收
 规划基线：2026-09-15  
 前置能力：P0–P7 已完成；P7 浏览器/WebGL 人工验收已完成  
-当前 ready queue：P8A–P8C 人工验收；通过后进入 P8D
+当前 ready queue：P9A、P11A 与 P11J 可按优先级并行领取
 
 ## 1. 目标与主线判断
 
@@ -91,13 +91,15 @@ flowchart LR
     P11F --> P11G["P11G Mirror"]
     P11G --> P11H["P11H Shell"]
     P11H --> P11I["P11I Draft"]
+    P8F --> P11J["P11J Face Boundary Projection"]
+    P11J --> P11K["P11K Section / Silhouette"]
 ```
 
 P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P9E 的 Publication/Product endpoint 合同完成后启动；P12–P14 严格沿 M3–M6 顺序推进。若只有一条串行开发线，顺序采用 P8 → P9 → P10 → P11 → P12 → P13 → P14。
 
-## 4. P8：Part 内关联设计基础（实现完成，待人工验收）
+## 4. P8：Part 内关联设计基础（已完成并通过人工验收）
 
-### P8A：Sketch 驱动尺寸 ParameterBinding（实现完成，待人工验收）
+### P8A：Sketch 驱动尺寸 ParameterBinding（已完成）
 
 **目标场景**：用户创建或编辑 Distance、Length、Radius、Diameter、Angle 等驱动尺寸后，尺寸拥有稳定 ParameterId，表达式文本与 SI 规范值分离，重开文档后身份不变。
 
@@ -113,7 +115,7 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **实施记录（2026-09-17）**：五类现有驱动尺寸均已映射到稳定 `ParameterId` 和 typed `PropertySlot`；源文本、显示单位、SI 规范值及计算值分离。`EDIT_SKETCH`、PlaneGCS 输入、ChangeSet、Undo/Redo 和右侧参数编辑器已贯通，并增加尺寸身份、20 mm → 40 mm 与表达式 tombstone 恢复测试。
 
-### P8B：同一 Part 内的参数表达式引用（实现完成，待人工验收）
+### P8B：同一 Part 内的参数表达式引用（已完成）
 
 **目标场景**：第二个草图尺寸或 Feature 参数可写为第一个稳定参数的表达式，例如孔宽 `base_width / 2`、Pad 长度 `sketch_height * 3`。
 
@@ -129,7 +131,7 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **实施记录（2026-09-17）**：表达式继续以可读别名输入，但 checked AST 和 `READ_VALUE` edge 绑定稳定 ID；新增参数重命名命令及 AST 安全重渲染。参数求值统一前置于草图求解，缺失引用、循环、类型和量纲错误均在提交新 Head 前返回稳定诊断；服务与 Web 场景检查已通过。
 
-### P8C：PLANAR_FACE 草图支撑（实现完成，待人工验收）
+### P8C：PLANAR_FACE 草图支撑（已完成）
 
 **目标场景**：用户选择 Pad 的稳定平面 Face 创建草图；上游 Pad 长度变化后，草图仍位于同一语义面及确定的局部坐标框架。
 
@@ -147,7 +149,7 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **验收修正（2026-09-17）**：Sketcher 不再隐藏当前 Body，而是把权威制品作为不可编辑上下文层持续显示，活动草图保持前景 overlay 和独立选择域。面上 boss/pocket 暴露的 Boolean history 缺口由 `occccad.topology.contract.v3` 的 semantic adjacency closure 补齐；严格完整 Shape gate 保留，不能通过关闭 naming 检查或持久化 local ID 绕过。
 
-### P8D：ExternalGeometry Edge/Vertex 正交投影（实现完成，待人工验收）
+### P8D：ExternalGeometry Edge/Vertex 正交投影（已完成）
 
 **目标场景**：在面支撑草图中选择上游 Edge 或 Vertex 执行“投影/使用外部几何”，投影结果只读但可以参加草图约束。
 
@@ -163,7 +165,7 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **实施记录（2026-09-17）**：SketchFeature v2 增加与普通 Entity 分离的 ExternalGeometry 集合，保存稳定 ExternalId、PersistentSelection、projection kind、source/dependency digest 与二维 snapshot。Geometry Worker 新增 `ProjectExternalGeometry`，权威支持 linear Edge、完整 circular Edge 和 Vertex 的正交投影；服务端把投影作为 fixed geometry 接入现有约束求解，并提供保持 ID 的 Detach。Web 增加显式投影工具、虚线外部几何、稳定树节点及属性投影。
 
-### P8E：ExternalGeometry 更新、失效与 Reconnect（实现完成，待人工验收）
+### P8E：ExternalGeometry 更新、失效与 Reconnect（已完成）
 
 **目标场景**：投影来源在 Cut、split、merge 或删除后，能够继续解析、明确进入歧义/失效状态，或由用户 Reconnect。
 
@@ -179,7 +181,7 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **实施记录（2026-09-17）**：每次 Part 求值固定执行 naming resolve → projection → sketch solve → feature evaluation。缺失、歧义、类型不符和退化投影具有稳定诊断，失败项会清除旧 snapshot、列出受影响约束/profile/downstream Feature，并生成可检查和 Reconnect 的 FAILED Revision；Reconnect 重绑来源但保持 ExternalId。结构树提供 Reconnect 与“断开外部关联并冻结”。
 
-### P8F：Part 关联设计完整验收与基线冻结（实现完成，待人工验收）
+### P8F：Part 关联设计完整验收与基线冻结（已完成）
 
 **目标场景**：一个 Part 中由参数驱动基础草图和 Pad，在 Pad 面上创建第二草图，投影边并 Remove；改变基础参数后整条依赖链确定性重建。
 
@@ -368,6 +370,14 @@ P11 在 P8 完成后可与 P9/P10 并行。每个 Feature 批次都必须同时�
 ### P11I：Draft
 
 基于稳定 neutral plane、pull direction 和 Face selection 实现常角度 Draft 子集；覆盖方向翻转、零/极限角、面删除和下游引用。Loft/Sweep 在 section 对应、seam 和 guide identity 设计完成后另立计划。
+
+### P11J：Sketch Face Boundary Projection
+
+从 Face PersistentSelection 创建具有稳定 group/member identity 的二维 ExternalGeometry 边界集合，覆盖外环、孔环、seam、split/merge/delete、Reconnect/Detach 和 Profile 闭环。它在 P8F 后即可与 P9/P11A 并行，不依赖曲面模块。
+
+### P11K：Sketch Section 与 Silhouette
+
+增加 Face/Body 与草图支撑平面的精确交线，以及沿显式方向的 silhouette；保存多结果 `solution_id`、branch evidence、方向与失败诊断，禁止使用相机方向或“最长曲线”作为持久意图。详细合同与 P16 边界见 [`sketch-projection-expansion-after-p8.md`](sketch-projection-expansion-after-p8.md)。
 
 ## 8. P12：Assembly M4 分支稳定的约束流形交互
 

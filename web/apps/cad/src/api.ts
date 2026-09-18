@@ -263,9 +263,9 @@ export const restApi = {
 	lengthExpression?: string; axisEntityId?: string; reversed?: boolean; previewId?: string }, intentRequestId?: string) =>
     restApi.command(documentId, { type: "CREATE_SOLID_FEATURE", ...input,
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
-	editFeature: (documentId: string, input: { featureId: string; expectedFeatureDigest: string; length: number; unit: string; previewId?: string }) =>
+	editFeature: (documentId: string, input: { featureId: string; expectedFeatureDigest: string; length?: number; lengthExpression?: string; previewId?: string }) =>
 		restApi.command(documentId, {type:"EDIT_FEATURE",targetId:input.featureId,expectedFeatureDigest:input.expectedFeatureDigest,
-			length:input.length,unit:input.unit,previewId:input.previewId}),
+			length:input.length,unit:input.length === undefined ? undefined : "mm",lengthExpression:input.lengthExpression,previewId:input.previewId}),
   createDatumPlane: (documentId: string, input: { name: string; origin: Vec3; normal: Vec3; uDirection: Vec3 }) =>
     restApi.command(documentId, { type: "CREATE_DATUM_PLANE", ...input }),
   createDatumAxis: (documentId: string, input: { name: string; origin: Vec3; direction: Vec3 }) =>

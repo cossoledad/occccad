@@ -52,10 +52,6 @@ export function projectSketchFeatureSelection(selection: Selection, activeSketch
   };
 }
 
-export function sketchOverlayVisible(featureID: string, activeSketchID: string | undefined, visibleOutsideSketchEdit: boolean): boolean {
-  return activeSketchID ? featureID === activeSketchID : visibleOutsideSketchEdit;
-}
-
 export function sketchContextLayerVisibility(activeSketchID?: string, editingOccurrence = false) {
   const editing = Boolean(activeSketchID);
   return {

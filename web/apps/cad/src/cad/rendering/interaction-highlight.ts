@@ -12,9 +12,24 @@ export function makeOcclusionVisibleHighlightLine(
   geometry.setPositions(points.flatMap((point) => [point.x, point.y, point.z]));
   const material = new LineMaterial({ color, linewidth, worldUnits: false, transparent: true, opacity: 0.96,
     depthTest: false, depthWrite: false, toneMapped: false });
+  material.userData.baseColor = color;
   material.resolution.set(1, 1);
   const line = new Line2(geometry, material);
   line.computeLineDistances();
+  return line;
+}
+
+export function makeSketchOverlayLine(
+  points: readonly THREE.Vector3[], color: number, linewidth = 2.25, dashed = false,
+): Line2 {
+  const line = makeOcclusionVisibleHighlightLine(points, color, linewidth);
+  if (dashed) {
+    line.material.dashed = true;
+    line.material.dashScale = 1;
+    line.material.dashSize = 3;
+    line.material.gapSize = 2;
+    line.material.needsUpdate = true;
+  }
   return line;
 }
 

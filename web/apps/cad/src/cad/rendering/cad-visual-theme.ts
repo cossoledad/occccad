@@ -9,6 +9,7 @@ export const CATIA_VISUAL_THEME = {
   vertex: 0xd5e0e4,
   sketchProfile: 0xf1f5f4,
   sketchConstruction: 0x6fa6bd,
+  sketchExternal: 0x52c7ea,
   sketchSolved: 0x63d28a,
   sketchInvalid: 0xff6b6b,
   sketchRedundant: 0xd58cff,

@@ -148,7 +148,7 @@ func TestLinearExtrudeEditUsesPadLengthFacadeAndSupportsCompensation(t *testing.
 	}
 	length, _ := modelcore.NewQuantity(40, "mm")
 	payload, _ := json.Marshal(editFeaturePayload{FeatureID: "extrude-edit", ExpectedFeatureDigest: digest,
-		LinearExtrude: linearExtrudeEdit{Length: length, Operation: "NEW_BODY", Profile: "sketch-edit"}})
+		LinearExtrude: linearExtrudeEdit{Source: modelcore.ValueSource{Literal: &length}, Operation: "NEW_BODY", Profile: "sketch-edit"}})
 	before, _ := json.Marshal(model)
 	after, changes, err := workspaceCommandRegistry.Apply("PART", before, modelcore.DomainCommand{
 		CommandID: "edit-extrude", TypeURI: typeEditFeature, SchemaVersion: 1, Payload: payload})
@@ -227,7 +227,7 @@ func TestLinearExtrudeEditSupportsTwoUndoAndRedoStepsWithUnits(t *testing.T) {
 			t.Fatal(err)
 		}
 		payload, _ := json.Marshal(editFeaturePayload{FeatureID: "extrude-edit", ExpectedFeatureDigest: digest,
-			LinearExtrude: linearExtrudeEdit{Length: length, Operation: "NEW_BODY", Profile: "sketch-edit"}})
+			LinearExtrude: linearExtrudeEdit{Source: modelcore.ValueSource{Literal: &length}, Operation: "NEW_BODY", Profile: "sketch-edit"}})
 		next, changes, err := workspaceCommandRegistry.Apply("PART", input, modelcore.DomainCommand{
 			CommandID: "edit-" + unit, TypeURI: typeEditFeature, SchemaVersion: 1, Payload: payload})
 		if err != nil {
@@ -344,7 +344,7 @@ func TestTopologyManifestArtifactDigestMustMatchInlineAndAdoptedContent(t *testi
 	}
 }
 
-func TestLinearExtrudeEditRejectsStaleAndExpressionDrivenDefinitions(t *testing.T) {
+func TestLinearExtrudeEditRejectsStaleAndCanReplaceExpressionDrivenDefinitions(t *testing.T) {
 	model := newPartModel()
 	model.Features = append(model.Features, testRectangleSketch("sketch-edit", "XY"),
 		Feature{ID: "extrude-edit", Type: "PAD", Name: "Extrude 1", Profile: "sketch-edit", Length: 20, Operation: "ADD"})
@@ -352,7 +352,7 @@ func TestLinearExtrudeEditRejectsStaleAndExpressionDrivenDefinitions(t *testing.
 	length, _ := modelcore.NewQuantity(40, "mm")
 	command := func(expected string) error {
 		payload, _ := json.Marshal(editFeaturePayload{FeatureID: "extrude-edit", ExpectedFeatureDigest: expected,
-			LinearExtrude: linearExtrudeEdit{Length: length, Operation: "ADD", Profile: "sketch-edit"}})
+			LinearExtrude: linearExtrudeEdit{Source: modelcore.ValueSource{Literal: &length}, Operation: "ADD", Profile: "sketch-edit"}})
 		modelJSON, _ := json.Marshal(model)
 		_, _, err := workspaceCommandRegistry.Apply("PART", modelJSON, modelcore.DomainCommand{CommandID: "edit", TypeURI: typeEditFeature, SchemaVersion: 1, Payload: payload})
 		return err
@@ -367,8 +367,8 @@ func TestLinearExtrudeEditRejectsStaleAndExpressionDrivenDefinitions(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = command(digest); err == nil || !strings.Contains(err.Error(), "FEATURE_LENGTH_EXPRESSION_DRIVEN") {
-		t.Fatalf("expression edit error = %v", err)
+	if err = command(digest); err != nil {
+		t.Fatalf("expression-driven definition could not be replaced: %v", err)
 	}
 }
 
@@ -501,6 +501,31 @@ func TestSolidGeneratorCanBindLengthToExistingStableParameter(t *testing.T) {
 	}
 	if driven.EvaluatedValue == nil || math.Abs(driven.EvaluatedValue.SIValue-0.012) > 1e-12 {
 		t.Fatalf("driven value = %#v, want 12 mm", driven.EvaluatedValue)
+	}
+	digest, err := featureDefinitionDigest(after, commandEntityID("extrude", "driven-extrude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	editRequest := CommandRequest{RequestID: "edit-driven-extrude", Type: "EDIT_FEATURE",
+		TargetID: commandEntityID("extrude", "driven-extrude"), ExpectedFeatureDigest: digest,
+		LengthExpression: baseKey + " / 4"}
+	editType, editPayload, err := (&Service{}).adaptLegacyCommand(context.Background(), "part-1", "PART", afterJSON, editRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	editJSON, _ := json.Marshal(editPayload)
+	editedJSON, _, err := workspaceCommandRegistry.Apply("PART", afterJSON, modelcore.DomainCommand{
+		CommandID: "edit-driven-extrude", TypeURI: editType, SchemaVersion: 1, Payload: editJSON})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var edited PartModel
+	_ = json.Unmarshal(editedJSON, &edited)
+	for _, parameter := range edited.Parameters {
+		if parameter.ParameterID == drivenID && (parameter.Source.Expression == nil || parameter.EvaluatedValue == nil ||
+			math.Abs(parameter.EvaluatedValue.SIValue-0.006) > 1e-12) {
+			t.Fatalf("edited expression source/value = %#v, want base / 4 = 6 mm", parameter)
+		}
 	}
 
 	request.RequestID = "invalid-driven-extrude"

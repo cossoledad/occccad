@@ -12,8 +12,8 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 - 草图绘制几何/约束/常用图形三组 Toolbar；Point、Line、Circle、Arc、Polyline、Spline、Rectangle、正六边形、长圆槽以及基础几何/尺寸约束；单击执行一次后回到选择，双击连续执行；
 - Distance/Length/Radius/Diameter/Angle 驱动尺寸在属性面板显示稳定 ParameterId、可读别名、literal/expression 与计算值；Part Design 的“参数”面板集中列出并编辑当前文档的全部参数。新建线性拉伸可输入带单位长度、参数别名或表达式，也可从已有长度参数中直接选择；服务端在同一个创建事务中把表达式 AST 绑定 stable ID，因此重命名不会断开引用；
 - “开始草图”可直接使用 DatumPlane 或稳定平面 Face。Face 选择只把当前 Revision 的 raw pick 作为绑定证据，返回的 Sketch 显示 PLANAR_FACE semantic anchor、support snapshot 与失败诊断；面支撑失败不会静默切回 XY；
-- Sketcher 采用 in-context 场景分层：当前权威 Body 始终以原实体材质和独立常亮光照作为只读背景显示，活动 Sketch/Grid/Constraint 作为前景 overlay；普通草图工具仍只能编辑活动 Sketch 元素，显式“投影”工具才把 Body Edge/Vertex 绑定为独立 ExternalGeometry；
-- ExternalGeometry 使用稳定 ExternalId、PersistentSelection、权威二维快照与 source digest；投影线/圆/点可参加草图约束但不能拖动或冒充普通 Entity。结构树提供“断开并冻结”和 Reconnect，属性面板显示 semantic anchor、解析状态、诊断与受影响对象；
+- Sketcher 采用 in-context 场景分层：当前权威 Body 始终以原实体材质和独立常亮光照作为只读背景显示，活动 Sketch/Grid/Constraint 作为前景 overlay；全部 Sketch 始终进入渲染树，由“未消费默认显示、已消费默认隐藏、持久用户覆盖、编辑态临时显示”的统一策略决定可见性，结构树菜单显示同一有效状态。普通草图工具仍只能编辑活动 Sketch 元素，显式“投影”工具才把 Body Edge/Vertex 绑定为独立 ExternalGeometry；
+- ExternalGeometry 使用稳定 ExternalId、PersistentSelection、权威二维快照与 source digest；投影线/圆/点可参加草图约束但不能拖动或冒充普通 Entity。活动 Sketch 曲线使用屏幕稳定宽度的遮挡可见 overlay，ExternalGeometry 使用更宽的青色虚线，因此与 Body Edge 重合时仍可辨识。结构树提供“断开并冻结”和 Reconnect，属性面板显示 semantic anchor、解析状态、诊断与受影响对象；
 - 通用闭合 Profile（包含外环、孔和岛）拉伸、实例插入/移动、Undo/Redo；装配移动手柄从 Instance 的原始射线命中取得锚点和局部框架，平面法向对齐 Z、直线边切向对齐 X，中心再次吸附时同步更新位置和方向，并继续复用权威 `MOVE_INSTANCE` 预览/提交；
 - 动态 Instance Placement 通过统一的可中断 transition 层显示：连续 MOVE 与手柄同步插值、装配约束预览平滑 settle、取消 rollback，提交或 Realtime 刷新按稳定 InstanceId 接续重建前的渲染姿态；直接指针输入和 reduced-motion 不增加动画延迟；
 - Default/CATIA 导航 Profile、Pointer Capture、Tool 手势状态机和 Overlay；Default 右键旋转在每次手势开始时以全部可见内容的最小包围盒中心为基准，若指针直接命中拓扑点则仅为当前手势使用该点；Toolbar 命令不注册快捷键，Enter/Esc 只用于多阶段手势完成/取消；
@@ -28,6 +28,7 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 - Mock Adapter，以及真实 REST + WebSocket 双平面 Adapter；
 - 工作台通过 `occccad.realtime.v1` 订阅文档，建模命令走关联请求响应，其他浏览器提交后由 Outbox event 触发权威状态刷新；
 - WebSocket 自动心跳、指数退避重连、重新订阅、sequence 去重/gap 恢复和事件确认。
+- 已有 Linear Extrude 的编辑器读取稳定 length Parameter 的 source；literal 和同一 Part 参数表达式均可原样显示、预览和提交，不再退化为求值后的数值；
 - `features/activity` 把后端来源投影成统一 ActivityItem；当前接入持久 Job，只有存在活动任务时才低频刷新进度，未来通知来源通过独立 projector 扩展。
 
 浏览器只负责交互和显示，不执行可信 B-Rep 运算，也不成为文档的权威存储。
@@ -88,7 +89,7 @@ invoke check --scope web
 
 `invoke web.build` 执行 TypeScript 类型检查和生产构建。Front 行为场景邻近所属模块存放为 `src/**/testing/*.scenario.mjs`，`pnpm test` 自动发现并在独立进程运行，避免 fixture 和模块状态串扰；可用 `pnpm test -- sketch` 等路径/文件名片段筛选，`--list` 预览命中，`--verbose` 流式显示输出。默认成功只输出汇总，失败展开该场景诊断。当前仍没有完整的浏览器/WebGL Playwright 套件，复杂视觉布局仍需浏览器验收。
 
-已有 Linear Extrude 可从结构树右键 Edit 或双击打开同一个编辑器。长度输入要求显式 `mm/cm/m/in` 单位；同一次编辑会话的权威预览共享稳定 `interactionId` 并使用单调 `previewSequence`，确认时携带 definition digest 和一次性 `previewId` 提交一个 Revision。
+已有 Linear Extrude 可从结构树右键 Edit 或双击打开同一个编辑器。长度输入接受显式 `mm/cm/m/in` 单位或同一 Part 参数表达式，并显示当前 Parameter source；同一次编辑会话的权威预览共享稳定 `interactionId` 并使用单调 `previewSequence`，确认时携带 definition digest 和一次性 `previewId` 提交一个 Revision。
 
 ## 性能与安全边界
 

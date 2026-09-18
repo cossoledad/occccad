@@ -239,6 +239,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if err := json.Unmarshal(modelJSON, &model); err != nil {
 			return "", nil, err
 		}
+		normalizePartModel(&model)
 		var feature *Feature
 		for index := range model.Features {
 			if model.Features[index].ID == request.TargetID {
@@ -249,12 +250,26 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if feature == nil {
 			return "", nil, fmt.Errorf("%w: selected feature does not exist", ErrValidation)
 		}
-		quantity, err := modelcore.NewQuantity(request.Length, request.Unit)
-		if err != nil {
-			return "", nil, err
+		var source modelcore.ValueSource
+		if strings.TrimSpace(request.LengthExpression) != "" {
+			names := map[string]modelcore.ParameterBinding{}
+			for _, parameter := range model.Parameters {
+				names[parameter.Key] = modelcore.ParameterBinding{ParameterID: parameter.ParameterID, Dimension: parameter.Dimension}
+			}
+			expression, err := modelcore.CompileExpression(request.LengthExpression, names, modelcore.LengthDimension)
+			if err != nil {
+				return "", nil, fmt.Errorf("%w: %w", ErrValidation, err)
+			}
+			source = modelcore.ValueSource{Expression: &expression}
+		} else {
+			quantity, err := modelcore.NewQuantity(request.Length, request.Unit)
+			if err != nil {
+				return "", nil, err
+			}
+			source = modelcore.ValueSource{Literal: &quantity}
 		}
 		return typeEditFeature, editFeaturePayload{FeatureID: feature.ID, ExpectedFeatureDigest: request.ExpectedFeatureDigest,
-			LinearExtrude: linearExtrudeEdit{Length: quantity, Operation: feature.Operation, Reversed: feature.Reversed, Profile: feature.Profile}}, nil
+			LinearExtrude: linearExtrudeEdit{Source: source, Operation: feature.Operation, Reversed: feature.Reversed, Profile: feature.Profile}}, nil
 	case "CREATE_DATUM_PLANE":
 		if documentType != "PART" {
 			break

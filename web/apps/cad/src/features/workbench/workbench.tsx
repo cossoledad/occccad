@@ -17,6 +17,7 @@ import { ShareDialog, type ShareResource } from "../../components/share-dialog";
 import { CommandProvider } from "../../cad/command/command-context";
 import { CommandRegistry } from "../../cad/command/command-registry";
 import { selectionKey, selectionSetToken } from "../../cad/interaction/selection-identity";
+import { sketchTreeVisible, treeVisibilityOverride } from "../../cad/interaction/tree-visibility";
 import { assemblyGeometryRef, type AssemblyConstraintToolKind } from "../../cad/tool/cad-tool";
 import { CommandDialog, FloatingToolbar, ToolbarGroup } from "../../cad/overlay/floating-panel";
 import { ToolButton } from "../../cad/overlay/tool-button";
@@ -31,7 +32,6 @@ import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { followedDocumentIDs, staleProductDocumentIDs } from "./product-edit-context";
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
-import { parseLengthInput } from "./length-input";
 import { isLengthParameter, linearExtrudeLengthInput, parameterDisplayValue, parameterSourceText, parseParameterSource } from "./parameter-editor";
 import { History, Properties } from "./workbench-inspector";
 import { findStructureEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
@@ -188,8 +188,8 @@ export function Workbench() {
   const [assemblyPreviewSnapshot, setAssemblyPreviewSnapshot] = useState(() => createAssemblyPreviewActor().getSnapshot());
   const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
-  const hiddenTreeKeys = useUIPreferences((state) => state.hiddenTreeKeys);
-  const toggleTreeVisibility = useUIPreferences((state) => state.toggleTreeVisibility);
+  const treeVisibilityOverrides = useUIPreferences((state) => state.treeVisibilityOverrides);
+  const setTreeVisibility = useUIPreferences((state) => state.setTreeVisibility);
   const [shareResource, setShareResource] = useState<ShareResource>();
   const [padForm] = Form.useForm<{ generator: "LINEAR_EXTRUDE" | "REVOLVE"; operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
     lengthSource: string; angle: number; axisEntityId?: string; reversed: boolean }>();
@@ -302,10 +302,17 @@ export function Workbench() {
     return () => { disposed = true; unsubscribers.forEach((unsubscribe) => unsubscribe()); };
   }, [client, documentID, followedIDs.join("|"), message, view]);
   const treeNodes = useMemo(() => {
-    const decorate = (node: SpecificationTreeNode): SpecificationTreeNode => ({ ...node,
-      hidden: hiddenTreeKeys.includes(node.key), children: node.children?.map(decorate) });
-    return view ? treeData(view, editingView).map(decorate) : [];
-  }, [view, editingView, hiddenTreeKeys]);
+    const consumedSketches = new Set((editingView?.part?.features ?? []).flatMap((feature) => feature.profile ? [feature.profile] : []));
+    const decorate = (node: SpecificationTreeNode, parentVisible = true): SpecificationTreeNode => {
+      const ownVisible = node.kind === "SKETCH" && node.entityId
+        ? sketchTreeVisible({ featureID: node.entityId, treeKey: node.key, activeSketchID: store.activeSketchID,
+          defaultVisible: !consumedSketches.has(node.entityId), overrides: treeVisibilityOverrides })
+        : treeVisibilityOverride(node.key, treeVisibilityOverrides) ?? true;
+      const visible = parentVisible && ownVisible;
+      return { ...node, hidden: !visible, children: node.children?.map((child) => decorate(child, visible)) };
+    };
+    return view ? treeData(view, editingView).map((node) => decorate(node)) : [];
+  }, [view, editingView, store.activeSketchID, treeVisibilityOverrides]);
   const canEdit = editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR";
   const activeWorkbench = resolveCadWorkbench(editingView?.document.type ?? "PART", Boolean(store.sketchPlane));
 
@@ -544,22 +551,23 @@ export function Workbench() {
 		if (!editingView || !node.entityId || !node.definitionDigest || !node.capabilities?.includes("EDIT")) return;
 		const feature=editingView.part?.features.find((candidate)=>candidate.id===node.entityId);
 		if (!feature || !["PAD","LINEAR_EXTRUDE"].includes(feature.type.toUpperCase())) return;
-		featureForm.setFieldsValue({lengthText:`${feature.length??0} mm`}); featurePreviewID.current=undefined;
+		const parameter=editingView.part?.parameters?.find((candidate)=>candidate.parameterId===`parameter:${feature.id}:length`);
+		featureForm.setFieldsValue({lengthText:parameter?parameterSourceText(parameter):`${feature.length??0} mm`}); featurePreviewID.current=undefined;
 		featureInteractionID.current=randomUUID();
 		setFeaturePreviewError(undefined); setEditingExtrude({feature,digest:node.definitionDigest});
 	};
 	const requestFeaturePreview = async () => {
 		if (!editingView || !editingExtrude) return;
-		let length: number, unit: "mm"|"cm"|"m"|"in";
+		let lengthInput: {length?:number;lengthExpression?:string};
 		try {
-			const values=await featureForm.validateFields(); ({value:length,unit}=parseLengthInput(values.lengthText));
+			const values=await featureForm.validateFields(); lengthInput=linearExtrudeLengthInput(values.lengthText);
 		} catch { return; }
 		featurePreviewAbort.current?.abort(); const abort=new AbortController(); featurePreviewAbort.current=abort;
 		const sequence=++featurePreviewSequence.current, baseVersionID=editingView.document.versionId;
 		featurePreviewID.current=undefined; setFeaturePreviewError(undefined); setFeaturePreviewPending(true);
 		try {
 			const preview=await api.previewCommand(editingView.document.id,{type:"EDIT_FEATURE",targetId:editingExtrude.feature.id,
-				expectedFeatureDigest:editingExtrude.digest,length,unit,interactionId:featureInteractionID.current,
+				expectedFeatureDigest:editingExtrude.digest,...lengthInput,interactionId:featureInteractionID.current,
 				previewSequence:sequence},abort.signal);
 			if(sequence!==featurePreviewSequence.current||preview.baseVersionId!==baseVersionID||preview.baseVersionId!==latestDocumentVersion.current||!preview.artifact)return;
 			featurePreviewID.current=preview.previewId; viewport.current?.previewArtifact(preview.artifact);
@@ -570,12 +578,12 @@ export function Workbench() {
 	};
 	const commitFeatureEdit = async () => {
 		if(!editingView||!editingExtrude)return;
-		let length: number, unit: "mm"|"cm"|"m"|"in";
+		let lengthInput: {length?:number;lengthExpression?:string};
 		try {
-			const values=await featureForm.validateFields(); ({value:length,unit}=parseLengthInput(values.lengthText));
+			const values=await featureForm.validateFields(); lengthInput=linearExtrudeLengthInput(values.lengthText);
 		} catch { return; }
 		command.mutate(()=>api.editFeature(editingView.document.id,{featureId:editingExtrude.feature.id,
-			expectedFeatureDigest:editingExtrude.digest,length,unit,previewId:featurePreviewID.current}),{
+			expectedFeatureDigest:editingExtrude.digest,...lengthInput,previewId:featurePreviewID.current}),{
 			onSuccess:(updated)=>{selectFeature(updated,editingExtrude.feature.id);viewport.current?.clearCommandPreview(false);featurePreviewID.current=undefined;featureInteractionID.current=undefined;setEditingExtrude(undefined);},
 			onError:(cause)=>setFeaturePreviewError(cause instanceof Error?cause.message:String(cause))});
 	};
@@ -783,7 +791,7 @@ export function Workbench() {
           activeBodyTreeNodeId={activeResolvedInstance?.bodyTreeNodeId}
           selections={store.selections}
           preselection={store.preselection}
-          hiddenTreeKeys={hiddenTreeKeys}
+          treeVisibilityOverrides={treeVisibilityOverrides}
           sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={store.navigationProfile}
           captureSettings={store.captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
           onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
@@ -867,7 +875,10 @@ export function Workbench() {
             }}
             onRefresh={(node) => refreshAssemblyConstraint(node.entityId)}
             onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={deleteTreeNodes}
-            onToggleVisibility={(node)=>toggleTreeVisibility(node.key)}
+            onToggleVisibility={(node)=>{
+              if (!node.hidden && node.kind === "SKETCH" && node.entityId === store.activeSketchID) store.endSketch();
+              setTreeVisibility(node.key, Boolean(node.hidden));
+            }}
             onToggleSuppression={(node)=>{
               const leaves:SpecificationTreeNode[]=[];const visit=(item:SpecificationTreeNode)=>{if(item.kind==="SKETCH_ENTITY"||item.kind==="SKETCH_CONSTRAINT")leaves.push(item);else item.children?.forEach(visit);};visit(node);
               const targetState=!leaves.every((item)=>item.suppressed);const bySketch=new Map<string,SketchOperation[]>();
@@ -991,8 +1002,8 @@ export function Workbench() {
 	<CommandDialog id="linear-extrude-edit" open={Boolean(editingExtrude)} title="编辑线性拉伸" onClose={closeFeatureEditor}
 		confirmLoading={command.isPending || featurePreviewPending} confirmDisabled={Boolean(featurePreviewError)} onConfirm={commitFeatureEdit}>
 		<Form form={featureForm} layout="vertical"><Form.Item name="lengthText" label="拉伸长度"
-			rules={[{required:true},{validator:async(_,value)=>{try{parseLengthInput(String(value??""));}catch(cause){throw cause;}}}]}>
-			<Input autoFocus placeholder="40 mm" suffix="mm / cm / m / in"
+			rules={[{required:true},{validator:async(_,value)=>{try{linearExtrudeLengthInput(String(value??""));}catch(cause){throw cause;}}}]}>
+			<Input autoFocus placeholder="40 mm 或参数表达式" suffix="值 / 参数 / 表达式"
 			onBlur={()=>void requestFeaturePreview()} onPressEnter={(event)=>{event.preventDefault();void commitFeatureEdit();}} /></Form.Item>
 		{featurePreviewError&&<Alert type="error" showIcon message="编辑预览失败" description={featurePreviewError}/>}
 		<small className="cad-command-hint">{featurePreviewPending?"后端正在求值预览…":"离开输入框刷新瞬态预览；按 Enter 或确定提交一个 Revision。"}</small></Form>

@@ -3,6 +3,7 @@ import type { CaptureSettings } from "../cad/interaction/capture-settings";
 import { InputDebugOverlay, type InputDebugSnapshot } from "../cad/overlay/input-debug-overlay";
 import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
 import type { WorkbenchToolID } from "../state/workbench-store";
+import type { TreeVisibilityOverrides } from "../cad/interaction/tree-visibility";
 import { randomUUID } from "../utils/random-uuid";
 import type { Artifact, AssemblyGeometryRef, DocumentView, Selection, SelectionItem, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3 } from "../types";
 import type { AssemblyConstraintToolKind } from "../cad/tool/cad-tool";
@@ -36,7 +37,7 @@ type Props = {
   activeToolID: WorkbenchToolID;
   navigationProfile: NavigationProfileID;
   captureSettings: CaptureSettings;
-  hiddenTreeKeys: string[];
+  treeVisibilityOverrides: TreeVisibilityOverrides;
   onSelectionsChange: (selections: SelectionItem[]) => void;
   onPreselectionChange: (selection: Selection) => void;
   onSketchOperations: (featureID: string, operations: SketchOperation[]) => void;
@@ -89,7 +90,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.setActiveTool(callbacks.current.activeToolID);
     instance.setNavigationProfile(callbacks.current.navigationProfile);
     instance.setCaptureSettings(callbacks.current.captureSettings);
-    instance.setHiddenTreeKeys(callbacks.current.hiddenTreeKeys);
+    instance.setTreeVisibilityOverrides(callbacks.current.treeVisibilityOverrides);
     return () => { instance.dispose(); engine.current = undefined; };
   }, [CadViewportEngine]);
 
@@ -110,7 +111,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => { engine.current?.setActiveTool(props.activeToolID); }, [props.activeToolID]);
   useEffect(() => { engine.current?.setNavigationProfile(props.navigationProfile); }, [props.navigationProfile]);
   useEffect(() => { engine.current?.setCaptureSettings(props.captureSettings); }, [props.captureSettings]);
-  useEffect(() => { engine.current?.setHiddenTreeKeys(props.hiddenTreeKeys); }, [props.hiddenTreeKeys]);
+  useEffect(() => { engine.current?.setTreeVisibilityOverrides(props.treeVisibilityOverrides); }, [props.treeVisibilityOverrides]);
 
   useImperativeHandle(ref, () => ({
     fit: () => engine.current?.fit(),

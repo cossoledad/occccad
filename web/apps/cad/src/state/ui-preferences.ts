@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { migrateTreeVisibilityOverrides, type TreeVisibilityOverrides } from "../cad/interaction/tree-visibility";
 
 export type ToolbarOrientation = "horizontal" | "vertical";
 export type ToolbarLayout = { x?: number; y?: number; orientation: ToolbarOrientation };
@@ -7,10 +8,10 @@ export type ToolbarLayout = { x?: number; y?: number; orientation: ToolbarOrient
 type UIPreferences = {
   inspectorOpen: boolean;
   toolbarLayouts: Record<string, ToolbarLayout>;
-  hiddenTreeKeys: string[];
+  treeVisibilityOverrides: TreeVisibilityOverrides;
   setInspectorOpen: (open: boolean) => void;
   setToolbarLayout: (id: string, layout: ToolbarLayout) => void;
-  toggleTreeVisibility: (key: string) => void;
+  setTreeVisibility: (key: string, visible: boolean) => void;
 };
 
 export function normalizeToolbarLayout(value: unknown, fallback: ToolbarOrientation): ToolbarLayout {
@@ -26,15 +27,21 @@ export function normalizeToolbarLayout(value: unknown, fallback: ToolbarOrientat
 export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   inspectorOpen: true,
   toolbarLayouts: {},
-  hiddenTreeKeys: [],
+  treeVisibilityOverrides: {},
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   setToolbarLayout: (id, layout) => set((state) => ({
     toolbarLayouts: { ...state.toolbarLayouts, [id]: normalizeToolbarLayout(layout, "horizontal") },
   })),
-  toggleTreeVisibility: (key) => set((state) => ({ hiddenTreeKeys: state.hiddenTreeKeys.includes(key)
-    ? state.hiddenTreeKeys.filter((item) => item !== key) : [...state.hiddenTreeKeys, key] })),
+  setTreeVisibility: (key, visible) => set((state) => ({
+    treeVisibilityOverrides: { ...state.treeVisibilityOverrides, [key]: visible },
+  })),
 }), {
   name: "occccad.ui-preferences.v1",
-  version: 1,
-  partialize: (state) => ({ inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts, hiddenTreeKeys: state.hiddenTreeKeys }),
+  version: 2,
+  migrate: (persisted) => {
+    const value = (persisted && typeof persisted === "object" ? persisted : {}) as Partial<UIPreferences> & { hiddenTreeKeys?: string[] };
+    return { ...value, treeVisibilityOverrides: migrateTreeVisibilityOverrides(value) } as UIPreferences;
+  },
+  partialize: (state) => ({ inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
+    treeVisibilityOverrides: state.treeVisibilityOverrides }),
 }));
