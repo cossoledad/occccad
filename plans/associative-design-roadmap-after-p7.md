@@ -64,11 +64,15 @@ flowchart LR
     P9E --> P9F["P9F Skeleton Pilot"]
     P9F --> P9G["P9G 跨文档验收"]
 
-    P9E --> P10A["P10A typed InstancePath"]
-    P10A --> P10B["P10B SolveManifest Builder"]
-    P10B --> P10C["P10C Replay 与 Router"]
-    P10C --> P10D["P10D M3 迁移验收"]
-    P10D --> P12A["P12A M4 Session"]
+    P9G --> P10A["P10A typed path 与命名"]
+    P10A --> P10B["P10B Product Design Session"]
+    P10B --> P10C["P10C Context Catalog"]
+    P10C --> P10D["P10D ContextBinding"]
+    P10D --> P10E["P10E Product Update Plan"]
+    P10E --> P10F["P10F SolveManifest Builder"]
+    P10F --> P10G["P10G Replay 与 M3 迁移"]
+    P10G --> P10H["P10H ToyCar Release 验收"]
+    P10H --> P12A["P12A M4 Session"]
     P12A --> P12B["P12B Null-space Drag"]
     P12B --> P12C["P12C Product UX"]
     P12C --> P12D["P12D DirectedAngle"]
@@ -313,39 +317,45 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **实施记录（2026-09-18）**：新增 P9 contract corpus 覆盖冻结更新与 Undo、Publication descriptor/兼容替换、Product forwarding、Context Datum/Curve materialization、两消费 Part 一致更新及 Isolate；Web scenario 覆盖从结构树 Publication selection 生成装配 `PublicationRef`。EvaluationManifest、PersistentSelection resolution 与既有 Assembly `.3dreplay` 分别保留 evaluate/resolve/solve evidence，P9 合同成为 P10 M3 builder 的唯一输入边界。真实浏览器的 Skeleton → 两 Part → Product 操作验收留给本批交付后的人工验证，不以 Node/build 结果冒充 WebGL 验收。
 
-## 6. P10：Assembly M3 可重放 Product SolveManifest
+## 6. P10：Product 中心的关联设计与 Assembly M3
 
-### P10A：typed relative InstancePath 与嵌套 rigid Product
+P9 验证了 Publication/ContextReference 的底层合同，但“全局选择 Document + 手填 PublicationId”只是试点入口。P10 先建立 Product Design Session、作用域名称、Context Catalog 和 Product-owned ContextBinding，再把该正式输入冻结进 M3 SolveManifest。完整领域方案、ToyCar 场景和数据边界见 [P9 后 Product 中心的关联设计方案](product-centric-associative-design-after-p9.md)。
+
+### P10A：typed relative InstancePath、嵌套 rigid Product 与命名合同
 
 **目标场景**：同一个 Part 在不同嵌套 Product 路径中出现时，约束和 Publication 精确引用 occurrence，而不是展示字符串或数组位置。
 
-**实施范围**：typed root/segment identity、稳定 member semantics、路径 canonicalization、nested rigid expansion、reparent/replace rewrite plan，以及 path cycle/depth/size gate。
+**实施范围**：typed root/segment identity、稳定 member semantics、路径 canonicalization、nested rigid expansion、reparent/replace rewrite plan、path cycle/depth/size gate；同时冻结 Instance、Publication 和 ContextInput 的作用域唯一名称、服务端默认分配、rename 命令及版本化 normalization profile。显示名不参与 canonical identity。
 
-**验收**：重复 Part、多层 Product、rename、reorder、reparent 和 replace 后路径解析确定；无法唯一重写时拒绝命令。
+**验收**：重复 Part、多层 Product、rename、reorder、reparent 和 replace 后路径解析确定；Publication rename 不破坏消费者；并发自动命名不重复；无法唯一重写时拒绝命令。
 
-### P10B：ResolutionSnapshot 与 SolveManifest Builder
+### P10B：Product Design Session 与 in-context activation
 
-**目标场景**：一次 Product 求解冻结 root Revision、完整 occurrence pose、引用解析证据、约束和 solver profile，构造不可变 manifest。
+建立 root Product session、active occurrence、breadcrumb、原位编辑，以及 `Open Definition` / `Open in This Context`。激活是会话状态，不写 Revision；命令、权限和实时订阅均从 session 与 typed InstancePath 解析。
 
-**实施范围**：manifest schema/canonical digest、Publication/PersistentSelection endpoint、descriptor kind/frame/symmetry/provenance、branch/tolerance/build/scope、rigid expansion；Broken/ambiguous/incompatible 在 builder 阶段失败。
+### P10C：Product Context Catalog 与可读引用选择
 
-**验收**：相同输入生成相同 digest；Workspace Heads 移动不改变既有 manifest；solver 不查询 Product、数据库或 B-Rep。
+引用入口只查询当前 root snapshot 中可达、授权、configuration 有效且合同兼容的 Publication。参数、ContextReference、Product Publication 和装配约束移除普通用户手填 DocumentId/PublicationId；未发布对象进入受控的 Create Publication 流程。
 
-### P10C：M3 replay、Router 与 provenance
+### P10D：ContextInput、Product ContextBinding 与多 Workspace transaction
 
-**目标场景**：下载或持久保存的 SolveManifest 可以不依赖业务数据库重放，并证明使用了同一数学问题和版本。
+Part 声明 typed ContextInput，最低共同 Product ancestor 拥有 source occurrence Publication 到 owning occurrence input 的 ContextBinding。多 Workspace 变更先在事务外求值，再对全部 Head/sequence 统一 CAS 并原子追加 Revision/ChangeSet/Outbox；不保留 P9 试点 schema 双写。
 
-**实施范围**：Worker/Router 粗粒度 RPC、manifest replay、request-specific lookup、solver result provenance、resource/deadline/cancel，以及现有 `.3dreplay` 与正式 manifest 的职责对齐。
+### P10E：Product Update Plan 与 Context Variant
 
-**验收**：跨 Worker 重启、Head 移动和缓存清空重放语义等价；未知 request 不回退其他记录；失败诊断保留 manifest identity。
+根 Product 构建几何/参数依赖 DAG、影响闭包和只读 update preview；同一共享 Part 的 occurrence-specific 输入生成显式 context variant。接受更新默认全有或全无，并分别投影 connection、currency 和 evaluation 状态。
 
-### P10D：M3 唯一路径迁移与验收
+### P10F：ResolutionSnapshot 与 SolveManifest Builder
 
-**目标场景**：所有正式 Product solve、preview 和 commit 都经 M3 builder；删除 direct-Part/topology local ID 的开发旁路。
+一次 Product 求解冻结 root Revision、完整 occurrence pose、ContextBinding/Publication/PersistentSelection 解析证据、约束和 solver profile。相同输入生成相同 digest；Workspace Heads 移动不改变既有 manifest；solver 不查询 Product、数据库或 B-Rep。
 
-**实施范围**：迁移 Product adapter、约束创建/编辑/更新、MOVE preview 和 replay；覆盖 nested rigid Product、Publication 更新、Broken/ambiguous；保留 M2.5 数值、DOF、偏好和历史 corpus。
+### P10G：M3 replay、Router 与唯一路径迁移
 
-**验收**：M3 文档中的全部 acceptance criteria 通过；旧旁路无生产调用方；正式浏览器 Product 场景和 `invoke check --scope all` 通过。
+实现 manifest replay、request-specific lookup、solver result provenance、resource/deadline/cancel；所有正式 solve、preview 和 commit 都经 M3 builder，删除 direct-Part/topology local ID 的开发旁路，并保留 M2.5 数值、DOF、偏好和历史 corpus。
+
+### P10H：ToyCar Product Version/Release 纵向验收
+
+以 Skeleton、Body、一个被复用四次的 Wheel Product、Rim 和 Tire 构建完整玩具车。参数更新经 Product Update Plan 重算所有关联零件与装配，Product Version Manifest 冻结完整 dependency closure；旧版本在 Head 移动、服务重启和缓存清空后仍可重放、求解和导出。
 
 ## 7. P11：Feature 深化与 naming 覆盖
 

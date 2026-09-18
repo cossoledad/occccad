@@ -4,3 +4,4 @@
 
 - [Part 特征编辑、持久拓扑命名与装配约束状态](part-feature-editing-persistent-naming-and-assembly-status.md)
 - [P7 后关联设计、Feature 与装配演进计划](associative-design-roadmap-after-p7.md)
+- [P9 后 Product 中心的关联设计方案](product-centric-associative-design-after-p9.md)

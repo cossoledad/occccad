@@ -861,7 +861,9 @@ message ExternalParameterRef {
 
 Published Parameter contract 包含 PublicationId、类型/量纲、单位策略、semantic purpose、bounds、compatibility version 和 source ParameterId。下游 Revision 保存实际 resolved RevisionId/value digest。上游 Head 改变只产生 `UPDATE_AVAILABLE`，不会静默让已提交下游 Revision 几何漂移；用户/流水线执行 Update References Transaction 后统一重算。
 
-跨文档写入使用 Saga/Change Proposal：先在各目标 Workspace 验证候选和权限，再按明确顺序 CAS；不能原子提交时记录 partial outcome 和补偿建议。核心建模首期限制一个 Transaction 只写一个 Document aggregate，读取任意多个冻结 Revision。
+独立 Part 对明确外部库或受控发布通道的依赖仍可使用 `ExternalParameterRef`。Product 内普通关联设计不直接把 source Document 写进共享 Part，而由 Part 的 typed `ContextInput` 与 root Product 拥有的 `ContextBinding` 表达，见 5.6.9。
+
+同一 Model Service/PostgreSQL 边界内，由一个根 Product 协调的多 Workspace 建模动作使用 `ProductDesignTransaction`：先在事务外验证候选、权限、求值和制品，再在一个短数据库事务中对所有 Workspace Head/sequence 做 CAS，并原子追加 Revision、ChangeSet 和 Outbox。任一 Head 不匹配则整体拒绝，不产生半条关联。跨 Model Service、外部 PLM 或其他无法共享原子提交边界的写入才使用 Saga/Change Proposal，并记录 partial outcome 和补偿建议。
 
 #### 4.3.32 并发合并矩阵
 
@@ -3903,29 +3905,63 @@ Publication 类型至少包括 `POINT | AXIS | PLANE | FRAME | CURVE | SURFACE |
 - 下游约束优先引用 PublicationId，而不是任意 face；
 - Publication target 改变但 contract 兼容时，下游可重算；类型、对称性或单位不兼容则标记 `BROKEN_PUBLICATION`；
 - rename 不改变 PublicationId；semantic version 用于表达合同变化，不进入显示名称；
+- Publication name 在所属 Part/Product Reference 内按版本化 normalization/case-fold profile 唯一；名称用于树、搜索和自动化查询，持久引用仍只保存 PublicationId；
+- 默认名按 target kind 分配 `Face1`、`Edge1`、`Point1`、`Plane1`、`Axis1`、`Body1` 等，参数优先采用可读 parameter key；历史序号不因删除而复用；
 - Replacement Part 必须满足被使用的 Publication contracts，才能自动替换；
 - Publication 可以隐藏内部拓扑和敏感参数，支持供应商黑盒模型；
 - 外部上下文设计只能引用已发布接口或经策略批准的 deep link；发布 Revision 默认禁止新增未治理 deep link。
 
-#### 5.6.9 装配上下文设计
+#### 5.6.9 Product 中心的装配上下文设计
 
-In-context Part Feature 使用：
+普通 in-context design 采用显式 input/output/wiring 三层，而不是让共享 Part 保存某个任意 Product occurrence 的来源：
 
 ```text
-ContextReference = owning Part Workspace
-                 + root Product Resolution Snapshot
-                 + source InstancePath
-                 + source Publication/PersistentSelection
-                 + transform into owning Part frame
+Part/Product Reference: Publication  = typed output port
+Part Reference:         ContextInput = typed input port
+Root Product Revision:  ContextBinding(source occurrence Publication,
+                                       owning occurrence ContextInput)
 ```
 
-- 上下文引用是单向依赖；Part 不反向修改 Product；
-- 创建时保存 root Product、configuration、InstancePath 和 Publication contract；
-- 更新时先解析同一 context，再把几何描述转换到 Part local frame；
-- 禁止 Part A 通过 Product 引用 Part B，同时 B 又反向引用 A；提交前对跨文档依赖 DAG 做环检测；
-- `ISOLATE_CONTEXT_REFERENCE` 固化几何快照并切断更新，保留 provenance；
-- FOLLOW_HEAD 上下文只用于 Workspace；发布 Part Revision 锁定 source snapshot；
-- 同一个 Part Reference 的两个 occurrence 可能有不同上下文，不能把 occurrence-specific 外部几何写回共享 Reference；必要时创建派生 Part Revision 或 Context Variant。
+`ContextInput` 以稳定 `ContextInputId` 声明 expected contract、消费槽位、默认/required 策略和 isolate 行为；它可以映射到 ParameterId、Datum input、Sketch ExternalGeometry input 或 Feature input，但不保存 source Document/occurrence。`ContextBinding` 由两端 occurrence 的最低共同 Product ancestor 拥有：
+
+```proto
+message ContextBinding {
+  string binding_id = 1;
+  RelativeInstancePath owning_occurrence = 2;
+  string context_input_id = 3;
+  RelativeInstancePath source_occurrence = 4;
+  string publication_id = 5;
+  InterfaceContract expected_contract = 6;
+  ReferenceSelector selector = 7;
+  BindingResolutionSnapshot accepted = 8;
+}
+```
+
+- 关联边是单向依赖；Part 不反向修改 Product，Product 也不通过 binding 改写 source Part；
+- 创建时冻结 root Product/configuration、两端 InstancePath、Publication contract 和 transform into owning Part frame；
+- 更新时在同一 root context 中解析 source，再把参数或几何描述转换到 owning Part local frame；
+- 禁止 Part A 的输出经 Product 驱动 B，而 B 的输出又反向驱动 A；提交前对参数/几何依赖 DAG 做环检测；Assembly constraint graph 可以形成闭环，不能与依赖 DAG 混淆；
+- isolate 将 accepted value/geometry 固化进消费 Part 的本地槽位并删除 Product binding，保留 provenance；
+- FOLLOW Workspace Head 只用于编辑态。Product Version/Release 必须冻结完整 binding resolution closure；
+- 同一个 Part Reference 的两个 occurrence 可以接受不同 binding set，但不得把某一 occurrence 的值写回共享 Reference。
+
+Occurrence-specific 求值使用派生 Context Variant：
+
+```text
+ContextVariantKey = hash(base Part Revision,
+                         root Product Revision/configuration,
+                         owning InstancePath,
+                         accepted binding snapshots,
+                         evaluator/policy versions)
+```
+
+相同 base Revision 与 binding digest 可以共享 GeometryId/Artifact；不同输入产生不同派生 evaluation。需要脱离上下文复用时，用户显式执行 `Derive Part from Context` 创建新的 Part Reference/Revision，系统不隐式复制文档。
+
+Product 工作台建立 `ProductDesignSession`，以 root Product Workspace、base Revision/configuration 和 active InstancePath 表达编辑上下文。激活、可见性和 selection 是会话状态，不写 Revision。双击 occurrence 默认原位编辑；独立窗口必须明确区分 `Open Definition` 与携带同一 context token 的 `Open in This Context`。
+
+跨 occurrence 引用的 picker 查询 root-snapshot-scoped `ContextCatalog`，只返回当前 Product 结构中可达、授权、configuration 有效、合同兼容且不会形成依赖环的 Publication。普通 UI 不浏览全租户 Document，也不要求用户填写 DocumentId/PublicationId。选择未发布对象时，可以由一个 `ProductDesignTransaction` 原子完成 source Publication、consumer ContextInput 和 Product ContextBinding 的创建。
+
+根 Product 的 Design Inputs 面板可以聚合并编辑被转发且标记为 `DESIGN_INPUT` 的 PARAMETER Publication，但不复制参数值。每个可编辑项仍解析到唯一 source occurrence、PublicationId 和 ParameterId；编辑 source Part 后，其他消费者只进入 `UPDATE_AVAILABLE`，直到用户接受 Product Update Plan。真正的 Product Parameter/Configuration 属于独立领域实体，不能由 UI 聚合值替代。
 
 #### 5.6.10 AssemblyGeometryRef 与几何描述符
 
