@@ -18,6 +18,7 @@ export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: 
   toolbar("part-design", "Part Design", "PART_DESIGN", "top-left", "part", 10, [
     ["tool.select", "选择", "select"], ["capture.settings", "捕捉", "capture"], ["sketch.start", "草图", "sketch"],
     ["part.parameters", "参数", "parameters", "集中查看、编辑并复用当前 Part 的参数。"],
+    ["part.publications", "发布", "parameters", "管理稳定 Publication 契约。"],
     ["part.pad", "拉伸", "pad"], ["part.pocket", "切除", "pocket"], ["part.revolve", "旋转", "revolve"],
     ["part.datum-plane", "基准面", "datum-plane"], ["part.datum-axis", "基准轴", "datum-axis"],
   ]),

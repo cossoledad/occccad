@@ -813,8 +813,12 @@ func (server *Server) applyCommand(writer http.ResponseWriter, request *http.Req
 		return
 	}
 	input.ActorID = principal(request).ID
-	if strings.EqualFold(input.Type, "INSERT_INSTANCE") && input.ReferencedDocumentID != "" {
-		if _, err := server.access.RequireDocument(request.Context(), input.ReferencedDocumentID,
+	referencedDocumentID := input.ReferencedDocumentID
+	if strings.EqualFold(input.Type, "SET_PARAMETER_EXTERNAL") {
+		referencedDocumentID = input.SourceDocumentID
+	}
+	if referencedDocumentID != "" && (strings.EqualFold(input.Type, "INSERT_INSTANCE") || strings.EqualFold(input.Type, "SET_PARAMETER_EXTERNAL")) {
+		if _, err := server.access.RequireDocument(request.Context(), referencedDocumentID,
 			principal(request).ID, access.RoleViewer); err != nil {
 			writeAccessError(writer, err)
 			return
@@ -834,6 +838,13 @@ func (server *Server) previewCommand(writer http.ResponseWriter, request *http.R
 		return
 	}
 	input.ActorID = principal(request).ID
+	if strings.EqualFold(input.Type, "SET_PARAMETER_EXTERNAL") && input.SourceDocumentID != "" {
+		if _, err := server.access.RequireDocument(request.Context(), input.SourceDocumentID,
+			principal(request).ID, access.RoleViewer); err != nil {
+			writeAccessError(writer, err)
+			return
+		}
+	}
 	ctx, cancel := context.WithTimeout(request.Context(), 15*time.Second)
 	defer cancel()
 	result, err := server.workspace.PreviewCommand(ctx, request.PathValue("documentID"), input)

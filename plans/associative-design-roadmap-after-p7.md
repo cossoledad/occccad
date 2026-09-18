@@ -201,7 +201,7 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 ## 5. P9：Publication、跨文档参数与 Skeleton Pilot
 
-### P9A：Publication 核心合同与 Datum 接口
+### P9A：Publication 核心合同与 Datum 接口（已完成）
 
 **目标场景**：Part 可以把稳定 Datum 发布为工程接口，rename 不破坏消费者，并为后续拓扑、Feature output 和参数 Publication 冻结共同合同。
 
@@ -215,7 +215,9 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **验收**：rename 保持身份；兼容重定向保持消费者；不兼容重定向明确失败或产生 `BROKEN_PUBLICATION`；Undo/Redo 和冷重建通过。
 
-### P9B：拓扑与 Feature output Publication
+**实施记录（2026-09-18）**：Publication 已作为 Part Revision 内的稳定实体，包含 PublicationId、type、semantic purpose、compatibility version、target 和 contract。POINT/AXIS/PLANE/FRAME 以 Datum/AxisSystem 为来源；创建、编辑、兼容 redirect 与删除均使用 typed Domain Command 和 `publication.entity` ChangeSet，进入 Undo/Redo、依赖快照、结构树、属性面板及实际 target 视口定位。
+
+### P9B：拓扑与 Feature output Publication（已完成）
 
 **目标场景**：Part 可以把已完成 naming 的 Edge、Face 或 Body 作为 CURVE、SURFACE、BODY 工程接口发布，消费者不需要知道内部 Feature 路径。
 
@@ -229,7 +231,9 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **验收**：上游长度编辑、Cut、split/merge、删除和 Reconnect 后 Publication 状态确定；重命名与内部 Feature reorder 不影响 PublicationId；冷重建结果一致。
 
-### P9C：Published Parameter 与 ExternalParameterRef
+**实施记录（2026-09-18）**：CURVE/SURFACE target 复用 PersistentSelection 与 Linear Extrude/Boolean topology history，BODY target 指向稳定 Feature output。每个 Part Revision 重解 geometry kind、local frame、symmetry、source/manifest/policy digest 和 evaluator provenance；既有 target 失效会持久化稳定 `BROKEN_PUBLICATION` 而不猜选候选，新建/redirect 的无效 target 原子拒绝。同合同 redirect 保持 PublicationId，类型、量纲或对称性变化明确拒绝。
+
+### P9C：Published Parameter 与 ExternalParameterRef（已完成）
 
 **目标场景**：骨架 Part 发布 `overall_width`，另一个 Part 通过 PublicationId 引用它，而不读取显示名或任意内部参数。
 
@@ -242,6 +246,8 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 - 下游表达式继续绑定自己的 stable ParameterId dependency edge。
 
 **验收**：跨文档参数驱动 Part Feature；上游 rename 不影响引用；数值更新、删除、类型变化、循环和冷重建均有确定结果。
+
+**实施记录（2026-09-18）**：PARAMETER Publication 合同包含 value type、dimension、SI unit policy、可选 bounds 与稳定 source ParameterId。消费 Part 的 ExternalParameterRef 保存来源 Document、PINNED ReferenceSelector、PublicationId、合同版本、resolved Revision、规范值和 value digest，并以独立 `EXTERNAL_PARAMETER_SNAPSHOT -> local ParameterId` 的 `READ_VALUE` edge 进入求值图；本地表达式仍只依赖本地稳定 ParameterId。绑定入口验证来源 Viewer 权限、不可变 Revision、Publication 状态、类型/量纲和值摘要，并沿实际被发布参数的依赖闭包拒绝跨文档循环。普通求值不查询来源 Head；显式更新保留给 P9D。
 
 ### P9D：Update References Transaction
 

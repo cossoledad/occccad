@@ -245,6 +245,12 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 		}
 		for _, change := range set.Changes {
 			switch change.Target.SlotID {
+			case "publication.entity":
+				for _, publication := range model.Publications {
+					if publication.ID == change.Target.EntityID {
+						result[change.Target], _ = json.Marshal(publication)
+					}
+				}
 			case "entity":
 				for _, feature := range model.Features {
 					if feature.ID == change.Target.EntityID {
@@ -347,6 +353,23 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 			switch address.SlotID {
 			case "document.model":
 				return append(json.RawMessage(nil), value...), nil
+			case "publication.entity":
+				index := slices.IndexFunc(model.Publications, func(item Publication) bool { return item.ID == address.EntityID })
+				if len(value) == 0 || string(value) == "null" {
+					if index >= 0 {
+						model.Publications = append(model.Publications[:index], model.Publications[index+1:]...)
+					}
+				} else {
+					var publication Publication
+					if err := json.Unmarshal(value, &publication); err != nil {
+						return nil, err
+					}
+					if index >= 0 {
+						model.Publications[index] = publication
+					} else {
+						model.Publications = append(model.Publications, publication)
+					}
+				}
 			case "entity":
 				index := -1
 				for i := range model.Features {
@@ -659,6 +682,9 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 		}
 		normalizePartModel(&model)
 		if err = validateAndResolvePartParameters(&model); err != nil {
+			return err
+		}
+		if err = service.resolvePartPublications(ctx, input.documentID, input.requestID, revisionID, &model); err != nil {
 			return err
 		}
 		input.modelJSON, _ = json.Marshal(model)

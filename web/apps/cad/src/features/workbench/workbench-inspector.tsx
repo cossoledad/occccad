@@ -38,6 +38,24 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
 			{ key: "parameter-value", label: "计算值", children: parameterDisplayValue(parameter) },
 		];
 	};
+  if (selection?.publicationId) {
+    const publication = selection.publication ?? view.part?.publications?.find((candidate) => candidate.id === selection.publicationId);
+    if (publication) return <><div className="property-context-hint">Publication · 稳定公开契约</div>
+      <Descriptions column={1} size="small" bordered className="property-list" items={[
+        { key: "id", label: "PublicationId", children: publication.id },
+        { key: "name", label: "名称", children: publication.name },
+        { key: "type", label: "类型", children: publication.type },
+        { key: "purpose", label: "语义用途", children: publication.semanticPurpose || "—" },
+        { key: "version", label: "兼容版本", children: publication.compatibilityVersion },
+        { key: "target", label: "目标", children: `${publication.target.kind} · ${publication.target.datumId ?? publication.target.featureId ?? publication.target.parameterId ?? publication.target.persistentSelection?.anchor.outputSlot ?? "—"}` },
+        { key: "status", label: "解析状态", children: <Tag color={publication.resolution.status === "CONNECTED" ? "success" : "error"}>{publication.resolution.status}</Tag> },
+        { key: "resolved", label: "Resolved Revision", children: publication.resolution.resolvedVersionId ?? "—" },
+        { key: "source", label: "Source Digest", children: publication.resolution.sourceDigest ?? "—" },
+        { key: "provenance", label: "Evaluator / OCCT", children: `${publication.resolution.evaluatorVersion ?? "—"} / ${publication.resolution.occtVersion ?? "—"}` },
+        { key: "diagnostic", label: "Diagnostic", children: publication.resolution.diagnosticCode
+          ? `${publication.resolution.diagnosticCode}: ${publication.resolution.diagnostic ?? ""}` : "—" },
+      ]} /></>;
+  }
   if (!selection) {
     const triangleCount = view.artifact?.mesh.triangles.length
       ?? (view.resolvedInstances ?? []).reduce((total, instance) =>

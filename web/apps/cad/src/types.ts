@@ -262,7 +262,7 @@ export type ResolvedInstance = {
 
 export type DocumentStructureNode = {
   id: string;
-  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
+  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PUBLICATION_SET" | "PUBLICATION" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
   name: string;
   entityId?: string;
   documentId?: string;
@@ -270,6 +270,8 @@ export type DocumentStructureNode = {
   versionId?: string;
   plane?: PlaneName | "CUSTOM";
   axis?: "X" | "Y" | "Z";
+  geometryKey?: string;
+  topologyId?: number;
   referenceMode?: "FOLLOW_HEAD" | "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED";
   instancePath?: InstancePath;
   ownerEntityId?: string;
@@ -278,6 +280,7 @@ export type DocumentStructureNode = {
   suppressed?: boolean;
   diagnostic?: string;
   definitionDigest?: string;
+  publication?: Publication;
   capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH">;
   children?: DocumentStructureNode[];
 };
@@ -287,7 +290,7 @@ export type DocumentView = {
   datumPlanes?: DatumPlane[];
   axisSystems?: AxisSystem[];
   datumAxes?: DatumAxis[];
-  part?: { units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[] };
+  part?: { units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[] };
   product?: { instances: ProductInstance[]; constraints?: AssemblyConstraint[] };
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;
@@ -297,9 +300,24 @@ export type DocumentView = {
 
 export type Dimension = { Length: number; Mass: number; Time: number; Current: number; Temperature: number; Amount: number; Luminous: number; Semantic: string };
 export type Quantity = { siValue: number; dimension: Dimension };
+export type ExternalParameterRef = { sourceDocumentId: string; revision: { mode: "PINNED"; revisionId: string };
+  publicationId: string; expectedType: "QUANTITY" | "REAL"; expectedDimension: Dimension; contractVersion: string;
+  resolvedRevisionId: string; resolvedValue: Quantity; resolvedValueDigest: string };
 export type ParameterDefinition = { parameterId: string; key: string; label: string; valueType: "QUANTITY" | "REAL";
-  dimension: Dimension; displayUnit: string; role: string; source: { literal?: Quantity; expression?: { sourceText: string } };
+  dimension: Dimension; displayUnit: string; role: string; source: { literal?: Quantity; expression?: { sourceText: string }; external?: ExternalParameterRef };
   evaluatedValue?: Quantity };
+
+export type Publication = { id: string; name: string; type: "POINT" | "AXIS" | "PLANE" | "FRAME" | "CURVE" | "SURFACE" | "BODY" | "PARAMETER";
+  semanticPurpose?: string; compatibilityVersion: string;
+  target: { kind: "DATUM" | "TOPOLOGY" | "FEATURE_OUTPUT" | "PARAMETER"; datumId?: string; axis?: "X" | "Y" | "Z";
+    persistentSelection?: PersistentSelection; sourceVersionId?: string; featureId?: string; outputSlot?: string; parameterId?: string };
+  contract: { geometryKind?: string; valueType?: "QUANTITY" | "REAL"; dimension?: Dimension; unitPolicy?: string;
+    bounds?: { minimum?: Quantity; maximum?: Quantity }; symmetry?: string };
+  resolution: { status: "CONNECTED" | "BROKEN_PUBLICATION" | "PENDING"; diagnosticCode?: string; diagnostic?: string;
+    resolvedVersionId?: string; geometryKey?: string; geometryId?: string; topologyKind?: "FACE" | "EDGE" | "VERTEX";
+    geometryKind?: string; symmetry?: string; localId?: number;
+    origin?: Vec3; xDirection?: Vec3; yDirection?: Vec3; zDirection?: Vec3; sourceDigest?: string; value?: Quantity;
+    valueDigest?: string; manifestDigest?: string; namingPolicyDigest?: string; evaluatorVersion?: string; workerId?: string; occtVersion?: string } };
 
 export type SelectionIdentity = {
   id: string;
@@ -313,6 +331,8 @@ export type SelectionIdentity = {
   instanceId?: string;
   entityId?: string;
   visualKey?: string;
+  publicationId?: string;
+  publication?: Publication;
 };
 
 export type SelectionItem =

@@ -12,6 +12,7 @@ export function parameterDisplayValue(parameter: ParameterDefinition): string {
 
 export function parameterSourceText(parameter: ParameterDefinition): string {
   if (parameter.source.expression) return parameter.source.expression.sourceText;
+  if (parameter.source.external) return `Publication ${parameter.source.external.publicationId} @ ${parameter.source.external.resolvedRevisionId.slice(0, 12)}`;
   if (!parameter.source.literal) return "";
   return `${parameter.source.literal.siValue * (unitScale[parameter.displayUnit] ?? 1)} ${parameter.displayUnit}`;
 }

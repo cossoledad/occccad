@@ -112,8 +112,29 @@ type ParameterDefinition struct {
 }
 
 type ValueSource struct {
-	Literal    *Quantity        `json:"literal,omitempty"`
-	Expression *TypedExpression `json:"expression,omitempty"`
+	Literal    *Quantity             `json:"literal,omitempty"`
+	Expression *TypedExpression      `json:"expression,omitempty"`
+	External   *ExternalParameterRef `json:"external,omitempty"`
+}
+
+type ReferenceSelector struct {
+	Mode       string `json:"mode"`
+	RevisionID string `json:"revisionId"`
+}
+
+// ExternalParameterRef is a frozen, read-only Publication resolution. A later
+// source Head is adopted only by the explicit P9D Update References command;
+// ordinary evaluation never queries another mutable Workspace.
+type ExternalParameterRef struct {
+	SourceDocumentID    string            `json:"sourceDocumentId"`
+	Revision            ReferenceSelector `json:"revision"`
+	PublicationID       string            `json:"publicationId"`
+	ExpectedType        ValueType         `json:"expectedType"`
+	ExpectedDimension   Dimension         `json:"expectedDimension"`
+	ContractVersion     string            `json:"contractVersion"`
+	ResolvedRevisionID  string            `json:"resolvedRevisionId"`
+	ResolvedValue       Quantity          `json:"resolvedValue"`
+	ResolvedValueDigest string            `json:"resolvedValueDigest"`
 }
 
 type PropertySlotDescriptor struct {

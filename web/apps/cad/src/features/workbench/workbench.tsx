@@ -172,6 +172,8 @@ export function Workbench() {
   const [datumPlaneOpen, setDatumPlaneOpen] = useState(false);
   const [datumAxisOpen, setDatumAxisOpen] = useState(false);
   const [parameterManagerOpen, setParameterManagerOpen] = useState(false);
+  const [publicationManagerOpen, setPublicationManagerOpen] = useState(false);
+  const [externalParameterID, setExternalParameterID] = useState<string>();
   const [editingParameterID, setEditingParameterID] = useState<string>();
   const [pendingAssemblyConstraint, setPendingAssemblyConstraint] = useState<{ kind: AssemblyConstraintToolKind; references: AssemblyGeometryRef[]; angleReferenceDirection?: Vec3 }>();
   const [editingAssemblyConstraint, setEditingAssemblyConstraint] = useState<AssemblyConstraint>();
@@ -199,6 +201,8 @@ export function Workbench() {
   const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
   const [datumAxisForm] = Form.useForm<{ name: string; ox: number; oy: number; oz: number; dx: number; dy: number; dz: number }>();
   const [parameterForm] = Form.useForm<{ key: string; source: string }>();
+  const [publicationForm] = Form.useForm<{ name: string; semanticPurpose: string }>();
+  const [externalParameterForm] = Form.useForm<{ sourceDocumentId: string; publicationId: string }>();
   const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string }>();
   const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
   const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
@@ -695,6 +699,8 @@ export function Workbench() {
         isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch") }),
       commandRegistry.register({ id: "part.parameters", execute: () => setParameterManagerOpen(true),
         isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(editingView?.part) }),
+      commandRegistry.register({ id: "part.publications", execute: () => setPublicationManagerOpen(true),
+        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(editingView?.part) }),
       commandRegistry.register({ id: "part.datum-plane", execute: () => { datumPlaneForm.setFieldsValue({ name: "Plane", offset: 10 }); setDatumPlaneOpen(true); },
         isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && store.selection?.kind === "plane") }),
       commandRegistry.register({ id: "part.datum-axis", execute: () => { datumAxisForm.setFieldsValue({ name: "Axis", ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 1 }); setDatumAxisOpen(true); },
@@ -732,6 +738,44 @@ export function Workbench() {
     store.activeToolID, store.navigationProfile, command.isPending]);
 
   const selected = selectedFeature(editingView ?? {} as DocumentView, store.selection);
+  const publicationTarget = () => {
+    const selection = store.selection;
+    if (!selection || !editingView?.part) return undefined;
+    if (selection.kind === "plane" && selection.entityId) return { publicationType: "PLANE", targetKind: "PLANE", targetId: selection.entityId };
+    if (selection.kind === "axis-system" && selection.entityId) return { publicationType: "FRAME", targetKind: "AXIS_SYSTEM", targetId: selection.entityId };
+    if (selection.kind === "axis" && selection.entityId) return { publicationType: "AXIS", targetKind: selection.axis === "DATUM" ? "DATUM_AXIS" : "AXIS",
+      targetId: selection.entityId, axis: selection.axis === "DATUM" ? undefined : selection.axis };
+    if ((selection.kind === "face" || selection.kind === "edge") && selection.geometryKey) return {
+      publicationType: selection.kind === "face" ? "SURFACE" : "CURVE", targetKind: selection.kind.toUpperCase(),
+      geometryKey: selection.geometryKey, topologyId: selection.topologyId, versionId: selection.versionId ?? editingView.document.versionId,
+    };
+    if (selection.kind === "body") {
+      const feature = [...editingView.part.features].reverse().find(isSolidFeature);
+      if (feature) return { publicationType: "BODY", targetKind: "BODY", targetId: feature.id };
+    }
+    return undefined;
+  };
+  const createSelectedPublication = async () => {
+    if (!editingView) return;
+    const target = publicationTarget();
+    if (!target) { message.warning("请先选择基准、面、边或 PartBody"); return; }
+    const values = await publicationForm.validateFields();
+    command.mutate(() => api.createPublication(editingView.document.id, { ...target, ...values }),
+      { onSuccess: () => publicationForm.resetFields() });
+  };
+  const publishParameter = (parameter: ParameterDefinition) => {
+    if (!editingView) return;
+    command.mutate(() => api.createPublication(editingView.document.id, { name: parameter.key,
+      semanticPurpose: parameter.label, publicationType: "PARAMETER", targetKind: "PARAMETER", targetId: parameter.parameterId }));
+  };
+  const redirectPublicationToSelection = (publicationId: string, publicationType: string) => {
+    if (!editingView) return;
+    const target = publicationTarget();
+    if (!target || target.publicationType !== publicationType) {
+      message.warning(`请选择与 ${publicationType} 合同兼容的目标`); return;
+    }
+    command.mutate(() => api.redirectPublication(editingView.document.id, publicationId, target));
+  };
   const openParameterEditor = (parameterID: string) => {
 	const parameter = editingView?.part?.parameters?.find((candidate) => candidate.parameterId === parameterID);
 	if (!parameter) return;
@@ -1017,10 +1061,44 @@ export function Workbench() {
 					<span><strong>{parameter.key}</strong><Typography.Text type="secondary" copyable={{text:parameter.parameterId}}>{parameter.parameterId}</Typography.Text></span>
 					<Typography.Text ellipsis={{tooltip:parameterSourceText(parameter)}}>{parameterSourceText(parameter)}</Typography.Text>
 					<Typography.Text>{parameterDisplayValue(parameter)}</Typography.Text>
-					<Button size="small" disabled={!canEdit} onClick={() => openParameterEditor(parameter.parameterId)}>编辑</Button>
+					<Space><Button size="small" disabled={!canEdit} onClick={() => publishParameter(parameter)}>发布</Button>
+					<Button size="small" disabled={!canEdit} onClick={() => { externalParameterForm.resetFields(); setExternalParameterID(parameter.parameterId); }}>引用</Button>
+					<Button size="small" disabled={!canEdit} onClick={() => openParameterEditor(parameter.parameterId)}>编辑</Button></Space>
 				</div>)}
 			<small className="cad-command-hint">表达式使用可读别名输入，提交后绑定稳定 ParameterId；重命名别名不会断开已有引用。</small>
 		</div>
+	</CommandDialog>
+	<CommandDialog id="publication-manager" open={publicationManagerOpen} title="Publications" width={760}
+		onClose={() => setPublicationManagerOpen(false)} onConfirm={() => setPublicationManagerOpen(false)} confirmText="完成">
+		<Form form={publicationForm} layout="inline" initialValues={{ name: "Published Element", semanticPurpose: "" }}>
+			<Form.Item name="name" rules={[{ required: true }]}><Input placeholder="发布名称" /></Form.Item>
+			<Form.Item name="semanticPurpose"><Input placeholder="语义用途" /></Form.Item>
+			<Form.Item><Button type="primary" disabled={!canEdit || !publicationTarget()} loading={command.isPending}
+				onClick={() => void createSelectedPublication()}>发布当前选择</Button></Form.Item>
+		</Form>
+		<div className="parameter-manager" aria-label="文档 Publications">
+			{(editingView?.part?.publications ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前 Part 尚无 Publication" />
+				: (editingView?.part?.publications ?? []).map((publication) => <div className="parameter-manager-row" key={publication.id}>
+					<span><strong>{publication.name}</strong><Typography.Text type="secondary" copyable={{text:publication.id}}>{publication.id}</Typography.Text></span>
+					<span>{publication.type} · {publication.target.kind}</span>
+					<Tag color={publication.resolution.status === "CONNECTED" ? "success" : "error"}>{publication.resolution.status}</Tag>
+					<Space><Button size="small" disabled={!canEdit} onClick={() => redirectPublicationToSelection(publication.id, publication.type)}>重定向</Button>
+					<Button danger size="small" disabled={!canEdit} onClick={() => editingView && command.mutate(() => api.deletePublication(editingView.document.id, publication.id))}>删除</Button></Space>
+				</div>)}
+			<small className="cad-command-hint">PublicationId 在兼容重定向时保持不变；断开的目标会以 BROKEN_PUBLICATION 保存在 Revision 中。</small>
+		</div>
+	</CommandDialog>
+	<CommandDialog id="external-parameter" open={Boolean(externalParameterID)} title="引用外部参数 Publication"
+		onClose={() => setExternalParameterID(undefined)} confirmLoading={command.isPending} onConfirm={async () => {
+			if (!editingView || !externalParameterID) return; const values = await externalParameterForm.validateFields();
+			command.mutate(() => api.setParameterExternal(editingView.document.id, externalParameterID, values.sourceDocumentId, values.publicationId),
+				{ onSuccess: () => setExternalParameterID(undefined) });
+		}}><Form form={externalParameterForm} layout="vertical">
+			<Form.Item name="sourceDocumentId" label="来源 Part" rules={[{required:true}]}><Select showSearch optionFilterProp="label"
+				options={(catalog.data?.documents ?? []).filter((item) => item.id !== activeID && item.type === "PART").map((item) => ({value:item.id,label:item.name}))} /></Form.Item>
+			<Form.Item name="publicationId" label="Parameter PublicationId" rules={[{required:true}]}><Input placeholder="publication-…" /></Form.Item>
+			<small className="cad-command-hint">本次绑定冻结来源 Revision、类型/量纲契约和解析值摘要；来源后续变化不会隐式改变当前 Part。</small>
+		</Form>
 	</CommandDialog>
 	<CommandDialog id="parameter-edit" open={Boolean(editingParameterID)} title="编辑参数" onClose={() => setEditingParameterID(undefined)}
 		confirmLoading={command.isPending} onConfirm={commitParameterEdit}>

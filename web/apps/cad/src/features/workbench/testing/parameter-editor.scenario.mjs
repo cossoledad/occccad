@@ -19,6 +19,8 @@ try {
   assert.equal(isLengthParameter(parameter), true);
   assert.throws(() => linearExtrudeLengthInput("90 deg"), /mm、cm、m 或 in/);
   assert.equal(parameterSourceText({ ...parameter, source: { expression: { sourceText: "base_width / 2" } } }), "base_width / 2");
+  assert.equal(parameterSourceText({ ...parameter, source: { external: { publicationId: "publication-width",
+    resolvedRevisionId: "revision-1234567890" } } }), "Publication publication-width @ revision-123");
 } finally {
   await server.close();
 }

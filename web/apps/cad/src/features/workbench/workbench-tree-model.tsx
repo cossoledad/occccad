@@ -43,6 +43,7 @@ function structureIcon(kind: DocumentStructureNode["kind"], diagnostic?: string)
   if (kind === "AXIS_SYSTEM") return <AimOutlined />;
   if (kind === "AXIS") return <NodeIndexOutlined />;
   if (kind === "BODY") return <DatabaseOutlined />;
+  if (kind === "PUBLICATION_SET" || kind === "PUBLICATION") return <GatewayOutlined />;
   if (kind === "SKETCH") return <ScissorOutlined />;
   if (kind === "SKETCH_ENTITY") return <NodeIndexOutlined />;
   if (kind === "SKETCH_CONSTRAINT") return <GatewayOutlined />;
@@ -63,11 +64,38 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
   const occurrencePath = node.instancePath?.canonical ?? "";
   const resolved = (view.resolvedInstances ?? []).find((item) => item.instancePath?.canonical === occurrencePath);
   const geometryKey = resolved?.geometryKey ?? view.artifact?.geometryKey;
-  const expands = ["PART", "PRODUCT", "INSTANCE", "ORIGIN", "BODY", "SKETCH", "SKETCH_GEOMETRY_SET", "SKETCH_CONSTRAINT_SET",
+  const expands = ["PART", "PRODUCT", "INSTANCE", "ORIGIN", "BODY", "PUBLICATION_SET", "SKETCH", "SKETCH_GEOMETRY_SET", "SKETCH_CONSTRAINT_SET",
     "SKETCH_LOGICAL_CONSTRAINT_SET", "SKETCH_DIMENSION_SET"].includes(node.kind);
   const context = { treeNodeId: node.id, expandTreeDescendants: expands || undefined, documentId: node.documentId,
-    instancePath: node.instancePath, occurrencePath, geometryKey,
+    versionId: node.versionId, instancePath: node.instancePath, occurrencePath, geometryKey,
     instanceId: occurrencePath.split("/")[0] || undefined };
+  if (node.kind === "PUBLICATION" && node.entityId) {
+    const publication = node.publication ?? view.part?.publications?.find((candidate) => candidate.id === node.entityId);
+    const publicationContext = { ...context, publicationId: node.entityId, publication };
+    if (publication?.target.kind === "TOPOLOGY" && publication.resolution.status === "CONNECTED" &&
+      publication.resolution.topologyKind && publication.resolution.localId !== undefined) {
+      return { kind: publication.resolution.topologyKind.toLowerCase() as "face" | "edge" | "vertex",
+        topologyId: publication.resolution.localId,
+        id: `${occurrencePath || "root"}:${publication.resolution.geometryKey}:${publication.resolution.topologyKind.toLowerCase()}:${publication.resolution.localId}`,
+        ...publicationContext, geometryKey: publication.resolution.geometryKey };
+    }
+    if (publication?.target.kind === "DATUM" && publication.target.datumId) {
+      if (publication.type === "PLANE") {
+        const datumPlane = view.datumPlanes?.find((datum) => datum.id === publication.target.datumId);
+        return { kind: "plane", plane: datumPlane?.plane ?? node.plane ?? "CUSTOM", datumPlane, entityId: publication.target.datumId,
+          id: `${occurrencePath || "root"}:${publication.target.datumId}`, ...publicationContext };
+      }
+      if (publication.type === "FRAME") return { kind: "axis-system", entityId: publication.target.datumId,
+        id: `${occurrencePath || "root"}:${publication.target.datumId}`, ...publicationContext };
+      if (publication.type === "AXIS") return { kind: "axis", axis: publication.target.axis ?? "DATUM",
+        entityId: publication.target.datumId,
+        id: `${occurrencePath || "root"}:${publication.target.datumId}${publication.target.axis ? `:${publication.target.axis}` : ""}`,
+        ...publicationContext };
+    }
+    if (publication?.type === "BODY") return { kind: "body", id: `${occurrencePath || "root"}:body`,
+      ...publicationContext, geometryKey: publication.resolution.geometryKey };
+    return { kind: "tree", id: node.id, ...publicationContext };
+  }
   if (node.kind === "INSTANCE" && node.entityId) {
     const path = occurrencePath || node.entityId;
     return { kind: "instance", id: path, visualKey: `occurrence:${path}`, ...context,

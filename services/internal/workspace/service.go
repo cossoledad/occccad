@@ -1256,7 +1256,7 @@ func resolveRevolveAxis(model PartModel, sketch Feature, reference string) ([2]f
 }
 
 func newPartModel() PartModel {
-	return PartModel{Units: "mm", DatumPlanes: datumPlanes(), AxisSystems: defaultAxisSystems(), DatumAxes: []DatumAxis{}, Features: []Feature{}, Parameters: []modelcore.ParameterDefinition{}}
+	return PartModel{Units: "mm", DatumPlanes: datumPlanes(), AxisSystems: defaultAxisSystems(), DatumAxes: []DatumAxis{}, Features: []Feature{}, Parameters: []modelcore.ParameterDefinition{}, Publications: []Publication{}}
 }
 
 func normalizePartModel(model *PartModel) {
@@ -1289,6 +1289,9 @@ func normalizePartModel(model *PartModel) {
 	}
 	if model.Parameters == nil {
 		model.Parameters = []modelcore.ParameterDefinition{}
+	}
+	if model.Publications == nil {
+		model.Publications = []Publication{}
 	}
 	for featureIndex := range model.Features {
 		feature := &model.Features[featureIndex]
@@ -2576,7 +2579,32 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		}
 		body.Children = append(body.Children, node)
 	}
-	return []DocumentStructureNode{origin, body}
+	publications := DocumentStructureNode{ID: path + "/publications", Kind: "PUBLICATION_SET", Name: "Publications",
+		DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+	for _, publication := range model.Publications {
+		publicationCopy := publication
+		diagnostic := ""
+		if publication.Resolution.Status != "CONNECTED" {
+			diagnostic = strings.TrimSpace(publication.Resolution.DiagnosticCode + ": " + publication.Resolution.Diagnostic)
+		}
+		node := DocumentStructureNode{ID: publications.ID + "/publication:" + publication.ID, Kind: "PUBLICATION",
+			Name: publication.Name, EntityID: publication.ID, EntityType: publication.Type, DocumentID: documentID,
+			VersionID: versionID, OwnerEntityID: publication.Target.DatumID, Axis: publication.Target.Axis,
+			GeometryKey: publication.Resolution.GeometryKey, TopologyID: publication.Resolution.LocalID,
+			Diagnostic: diagnostic, Publication: &publicationCopy}
+		if publication.Target.Kind == "DATUM" {
+			for _, plane := range model.DatumPlanes {
+				if plane.ID == publication.Target.DatumID {
+					node.Plane = plane.Plane
+				}
+			}
+		}
+		publications.Children = append(publications.Children, node)
+	}
+	if len(publications.Children) == 0 {
+		return []DocumentStructureNode{origin, body}
+	}
+	return []DocumentStructureNode{origin, body, publications}
 }
 
 func (service *Service) buildDocumentStructure(

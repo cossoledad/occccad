@@ -117,7 +117,7 @@ func validateAndResolvePartParameters(model *PartModel) error {
 	if err := validatePartStructure(*model); err != nil {
 		return err
 	}
-	nodes := make([]modelcore.DependencyNode, 0, len(model.Parameters))
+	nodes := make([]modelcore.DependencyNode, 0, len(model.Parameters)*2)
 	edges := []modelcore.DependencyEdge{}
 	definitions := map[string]modelcore.ParameterDefinition{}
 	keys := map[string]string{}
@@ -131,7 +131,17 @@ func validateAndResolvePartParameters(model *PartModel) error {
 		if parameter.Key == "" || keys[parameter.Key] != "" {
 			return fmt.Errorf("%w: parameter key must be non-empty and unique", ErrValidation)
 		}
-		if (parameter.Source.Literal == nil) == (parameter.Source.Expression == nil) {
+		sourceCount := 0
+		if parameter.Source.Literal != nil {
+			sourceCount++
+		}
+		if parameter.Source.Expression != nil {
+			sourceCount++
+		}
+		if parameter.Source.External != nil {
+			sourceCount++
+		}
+		if sourceCount != 1 {
 			return fmt.Errorf("%w: parameter %s must have exactly one source", ErrValidation, parameter.ParameterID)
 		}
 		if parameter.ValueType != modelcore.ValueQuantity {
@@ -141,10 +151,30 @@ func validateAndResolvePartParameters(model *PartModel) error {
 			parameter.Source.Expression.ResultType != parameter.ValueType) {
 			return fmt.Errorf("%w: %w: parameter %s expression result type changed", ErrValidation, modelcore.ErrUnitMismatch, parameter.ParameterID)
 		}
+		if external := parameter.Source.External; external != nil {
+			if external.SourceDocumentID == "" || external.PublicationID == "" || external.ContractVersion == "" || external.Revision.Mode != "PINNED" ||
+				external.Revision.RevisionID == "" || external.ResolvedRevisionID == "" ||
+				external.Revision.RevisionID != external.ResolvedRevisionID {
+				return fmt.Errorf("%w: EXTERNAL_PARAMETER_REFERENCE_INCOMPLETE", ErrValidation)
+			}
+			if external.ExpectedType != parameter.ValueType || !external.ExpectedDimension.Equal(parameter.Dimension) ||
+				!external.ResolvedValue.Dimension.Equal(parameter.Dimension) {
+				return fmt.Errorf("%w: EXTERNAL_PARAMETER_CONTRACT_INCOMPATIBLE", ErrValidation)
+			}
+			if external.ResolvedValueDigest == "" || external.ResolvedValueDigest != resolvedDigest(external.ResolvedValue) {
+				return fmt.Errorf("%w: EXTERNAL_PARAMETER_VALUE_DIGEST_MISMATCH", ErrValidation)
+			}
+		}
 		keys[parameter.Key] = parameter.ParameterID
 		definitions[parameter.ParameterID] = parameter
 		source, _ := json.Marshal(parameter.Source)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Phase: 1, Type: "PARAMETER", CanonicalInput: source})
+		if parameter.Source.External != nil {
+			externalKey := modelcore.DependencyKey("external-parameter:" + parameter.ParameterID)
+			nodes = append(nodes, modelcore.DependencyNode{Key: externalKey, Phase: 0, Type: "EXTERNAL_PARAMETER_SNAPSHOT", CanonicalInput: source})
+			edges = append(edges, modelcore.DependencyEdge{Source: externalKey,
+				Target: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Kind: modelcore.ReadValue})
+		}
 		if parameter.Source.Expression != nil {
 			for _, read := range parameter.Source.Expression.Reads {
 				readID := strings.TrimPrefix(string(read), "parameter:")
@@ -185,6 +215,9 @@ func validateAndResolvePartParameters(model *PartModel) error {
 	}
 	values := map[string]modelcore.Quantity{}
 	for _, key := range graph.TopologicalOrder() {
+		if strings.HasPrefix(string(key), "external-parameter:") {
+			continue
+		}
 		id := strings.TrimPrefix(string(key), "parameter:")
 		parameter := definitions[id]
 		var value modelcore.Quantity
@@ -195,6 +228,8 @@ func validateAndResolvePartParameters(model *PartModel) error {
 			if err != nil {
 				return fmt.Errorf("%w: %w", ErrValidation, err)
 			}
+		} else if parameter.Source.External != nil {
+			value = parameter.Source.External.ResolvedValue
 		} else {
 			return fmt.Errorf("%w: parameter %s has no source", ErrValidation, id)
 		}
@@ -301,7 +336,7 @@ func validatePartStructure(model PartModel) error {
 		}
 		features[feature.ID] = feature
 	}
-	return nil
+	return validatePublicationDefinitions(model)
 }
 
 func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []modelcore.DependencyKey, prior *modelcore.EvaluationManifest) (*modelcore.DependencyGraph, modelcore.EvaluationManifest, error) {
@@ -314,10 +349,24 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		data, _ := json.Marshal(datum)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 1, Type: "DATUM_PLANE", CanonicalInput: data})
 	}
+	for _, datum := range model.AxisSystems {
+		data, _ := json.Marshal(datum)
+		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 1, Type: "AXIS_SYSTEM", CanonicalInput: data})
+	}
+	for _, datum := range model.DatumAxes {
+		data, _ := json.Marshal(datum)
+		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 1, Type: "DATUM_AXIS", CanonicalInput: data})
+	}
 	for _, parameter := range model.Parameters {
 		source, _ := json.Marshal(parameter.Source)
 		key := modelcore.DependencyKey("parameter:" + parameter.ParameterID)
 		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 1, Type: "PARAMETER", CanonicalInput: source})
+		if parameter.Source.External != nil {
+			externalKey := modelcore.DependencyKey("external-parameter:" + parameter.ParameterID)
+			nodes = append(nodes, modelcore.DependencyNode{Key: externalKey, Phase: 0,
+				Type: "EXTERNAL_PARAMETER_SNAPSHOT", CanonicalInput: source})
+			edges = append(edges, modelcore.DependencyEdge{Source: externalKey, Target: key, Kind: modelcore.ReadValue})
+		}
 		if parameter.Source.Expression != nil {
 			for _, read := range parameter.Source.Expression.Reads {
 				edges = append(edges, modelcore.DependencyEdge{Source: read, Target: key, Kind: modelcore.ReadValue})
@@ -325,7 +374,9 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		}
 	}
 	bodyTipFeatureID := ""
+	featureIDs := map[string]bool{}
 	for _, feature := range model.Features {
+		featureIDs[feature.ID] = true
 		key := modelcore.DependencyKey("feature:" + feature.ID)
 		data, _ := json.Marshal(feature)
 		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 2, Type: feature.Type, CanonicalInput: data})
@@ -353,6 +404,44 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		}
 		if isSolidGenerator(feature.Type) {
 			bodyTipFeatureID = feature.ID
+		}
+	}
+	datumIDs := map[string]bool{}
+	for _, datum := range model.DatumPlanes {
+		datumIDs[datum.ID] = true
+	}
+	for _, datum := range model.AxisSystems {
+		datumIDs[datum.ID] = true
+	}
+	for _, datum := range model.DatumAxes {
+		datumIDs[datum.ID] = true
+	}
+	parameterIDs := map[string]bool{}
+	for _, parameter := range model.Parameters {
+		parameterIDs[parameter.ParameterID] = true
+	}
+	for _, publication := range model.Publications {
+		key := modelcore.DependencyKey("publication:" + publication.ID)
+		data, _ := json.Marshal(publication)
+		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 3, Type: "PUBLICATION", CanonicalInput: data})
+		switch publication.Target.Kind {
+		case "DATUM":
+			if datumIDs[publication.Target.DatumID] {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + publication.Target.DatumID), Target: key, Kind: modelcore.ReadGeometry})
+			}
+		case "PARAMETER":
+			if parameterIDs[publication.Target.ParameterID] {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("parameter:" + publication.Target.ParameterID), Target: key, Kind: modelcore.ReadValue})
+			}
+		case "FEATURE_OUTPUT":
+			if featureIDs[publication.Target.FeatureID] {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + publication.Target.FeatureID), Target: key, Kind: modelcore.ReadGeometry})
+			}
+		case "TOPOLOGY":
+			source := bodyTipFeatureID
+			if source != "" && featureIDs[source] {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + source), Target: key, Kind: modelcore.ReadTopology})
+			}
 		}
 	}
 	graph, err := modelcore.NewDependencyGraph(nodes, edges)

@@ -380,6 +380,13 @@ func (server *Server) handleRealtimeCommand(ctx context.Context, client *realtim
 			return
 		}
 	}
+	if strings.EqualFold(payload.Command.Type, "SET_PARAMETER_EXTERNAL") && payload.Command.SourceDocumentID != "" {
+		if _, err := server.access.RequireDocument(ctx, payload.Command.SourceDocumentID,
+			client.actor.ID, access.RoleViewer); err != nil {
+			client.sendDomainError(envelope.ID, err)
+			return
+		}
+	}
 	view, err := server.workspace.ApplyCommand(ctx, payload.DocumentID, payload.Command)
 	if err != nil {
 		client.sendDomainError(envelope.ID, err)

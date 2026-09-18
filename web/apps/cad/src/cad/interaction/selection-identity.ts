@@ -7,6 +7,7 @@ export const selectionSetToken = (selections: readonly SelectionItem[]): string 
 
 export function sameSelection(left: Selection, right: Selection): boolean {
   return left === right || Boolean(left && right && left.kind === right.kind && left.id === right.id &&
+    left.publicationId === right.publicationId &&
     Boolean(left.expandTreeDescendants) === Boolean(right.expandTreeDescendants));
 }
 

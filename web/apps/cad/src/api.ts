@@ -251,6 +251,19 @@ export const restApi = {
     restApi.command(documentId, { type: "SET_PARAMETER_EXPRESSION", parameterId, expression }),
   renameParameter: (documentId: string, parameterId: string, name: string) =>
     restApi.command(documentId, { type: "RENAME_PARAMETER", parameterId, name }),
+  setParameterExternal: (documentId: string, parameterId: string, sourceDocumentId: string, publicationId: string, versionId?: string) =>
+    restApi.command(documentId, { type: "SET_PARAMETER_EXTERNAL", parameterId, sourceDocumentId, publicationId, versionId }),
+  createPublication: (documentId: string, input: { name: string; publicationType: string; semanticPurpose?: string;
+      compatibilityVersion?: string; targetKind: string; targetId?: string; axis?: string; geometryKey?: string;
+      topologyId?: number; versionId?: string }) =>
+    restApi.command(documentId, { type: "CREATE_PUBLICATION", ...input }),
+  editPublication: (documentId: string, publicationId: string, input: { name: string; semanticPurpose?: string; compatibilityVersion?: string }) =>
+    restApi.command(documentId, { type: "EDIT_PUBLICATION", publicationId, ...input }),
+  redirectPublication: (documentId: string, publicationId: string, input: { publicationType: string; targetKind: string;
+      targetId?: string; axis?: string; geometryKey?: string; topologyId?: number; versionId?: string }) =>
+    restApi.command(documentId, { type: "REDIRECT_PUBLICATION", publicationId, ...input }),
+  deletePublication: (documentId: string, publicationId: string) =>
+    restApi.command(documentId, { type: "DELETE_PUBLICATION", publicationId }),
   deleteNode: (documentId: string, targetKind: string, targetId: string, ownerEntityId?: string) =>
     restApi.command(documentId, { type: "DELETE_NODE", targetKind, targetId, ownerEntityId }),
   deleteNodes: (documentId: string, targets: Array<{ targetKind: string; targetId: string; ownerEntityId?: string }>) =>

@@ -366,6 +366,67 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			break
 		}
 		return typeRenameParameter, renameParameterPayload{ParameterID: request.ParameterID, Key: request.Name}, nil
+	case "SET_PARAMETER_EXTERNAL":
+		if documentType != "PART" {
+			break
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		normalizePartModel(&model)
+		var parameter *modelcore.ParameterDefinition
+		for index := range model.Parameters {
+			if model.Parameters[index].ParameterID == request.ParameterID {
+				parameter = &model.Parameters[index]
+				break
+			}
+		}
+		if parameter == nil {
+			return "", nil, fmt.Errorf("%w: parameter does not exist", ErrValidation)
+		}
+		reference, err := service.resolveExternalParameterRef(ctx, documentID, request.SourceDocumentID,
+			request.VersionID, request.PublicationID, *parameter, model)
+		if err != nil {
+			return "", nil, err
+		}
+		return typeSetParameterExternal, parameterSourcePayload{ParameterID: request.ParameterID,
+			Source: modelcore.ValueSource{External: &reference}}, nil
+	case "CREATE_PUBLICATION", "REDIRECT_PUBLICATION":
+		if documentType != "PART" {
+			break
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		normalizePartModel(&model)
+		publicationID := strings.TrimSpace(request.PublicationID)
+		if request.Type == "CREATE_PUBLICATION" {
+			publicationID = commandEntityID("publication", request.RequestID)
+		} else if publicationID == "" {
+			return "", nil, fmt.Errorf("%w: publication id is required", ErrValidation)
+		}
+		publication, err := service.publicationFromRequest(ctx, documentID, model, request, publicationID)
+		if err != nil {
+			return "", nil, err
+		}
+		command := typeCreatePublication
+		if request.Type == "REDIRECT_PUBLICATION" {
+			command = typeRedirectPublication
+		}
+		return command, publicationPayload{Publication: publication}, nil
+	case "EDIT_PUBLICATION":
+		if documentType != "PART" {
+			break
+		}
+		return typeEditPublication, publicationEditPayload{PublicationID: request.PublicationID, Name: request.Name,
+			SemanticPurpose: request.SemanticPurpose, CompatibilityVersion: request.CompatibilityVersion}, nil
+	case "DELETE_PUBLICATION":
+		if documentType != "PART" {
+			break
+		}
+		return typeDeletePublication, publicationDeletePayload{PublicationID: request.PublicationID}, nil
 	case "INSERT_INSTANCE":
 		if documentType != "PRODUCT" {
 			break

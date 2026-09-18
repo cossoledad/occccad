@@ -1,7 +1,7 @@
 import type { CadApi } from "../api";
 import type {
   Artifact, AssemblyConstraint, AssemblyGeometryRef, DocumentProperties, DocumentStructureNode, DocumentSummary, DocumentView,
-  Feature, FolderSummary, HistoryEntry, Job, InstancePath, ProductInstance, ShareGrant, SketchOperation, User, Vec3,
+  Feature, FolderSummary, HistoryEntry, Job, InstancePath, ProductInstance, Publication, ShareGrant, SketchOperation, User, Vec3,
 } from "../types";
 import { sampleSketchEntity } from "../cad/sketch/sketch-geometry";
 import { randomUUID } from "../utils/random-uuid";
@@ -364,6 +364,49 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 		const parameter = view.part.parameters?.find((candidate) => candidate.parameterId === input.parameterId);
 		if (parameter) parameter.key = String(input.name);
 	}
+	if (commandType === "CREATE_PUBLICATION" && view.part) {
+		const publicationType = String(input.publicationType) as Publication["type"];
+		const targetKind = String(input.targetKind);
+		const publication: Publication = { id: id("mock-publication"), name: String(input.name || publicationType), type: publicationType,
+			semanticPurpose: String(input.semanticPurpose ?? ""), compatibilityVersion: String(input.compatibilityVersion || "1.0.0"),
+			target: targetKind === "PARAMETER" ? { kind: "PARAMETER", parameterId: String(input.targetId) }
+				: targetKind === "FACE" || targetKind === "EDGE" ? { kind: "TOPOLOGY", sourceVersionId: view.document.versionId }
+				: targetKind === "BODY" ? { kind: "FEATURE_OUTPUT", featureId: String(input.targetId), outputSlot: "BODY" }
+				: { kind: "DATUM", datumId: String(input.targetId), axis: input.axis as "X"|"Y"|"Z"|undefined },
+			contract: {}, resolution: { status: "CONNECTED", resolvedVersionId: view.document.versionId,
+				geometryKey: String(input.geometryKey ?? view.artifact?.geometryKey ?? "") } };
+		view.part.publications = [...(view.part.publications ?? []), publication];
+	}
+	if (commandType === "EDIT_PUBLICATION" && view.part) {
+		const publication = view.part.publications?.find((candidate) => candidate.id === input.publicationId);
+		if (publication) { publication.name = String(input.name); publication.semanticPurpose = String(input.semanticPurpose ?? ""); }
+	}
+	if (commandType === "REDIRECT_PUBLICATION" && view.part) {
+		const publication = view.part.publications?.find((candidate) => candidate.id === input.publicationId);
+		if (publication) {
+			const targetKind = String(input.targetKind);
+			publication.target = targetKind === "PARAMETER" ? { kind: "PARAMETER", parameterId: String(input.targetId) }
+				: targetKind === "FACE" || targetKind === "EDGE" ? { kind: "TOPOLOGY", sourceVersionId: view.document.versionId }
+				: targetKind === "BODY" ? { kind: "FEATURE_OUTPUT", featureId: String(input.targetId), outputSlot: "BODY" }
+				: { kind: "DATUM", datumId: String(input.targetId), axis: input.axis as "X"|"Y"|"Z"|undefined };
+			publication.resolution = { status: "CONNECTED", resolvedVersionId: view.document.versionId,
+				geometryKey: String(input.geometryKey ?? view.artifact?.geometryKey ?? "") };
+		}
+	}
+	if (commandType === "DELETE_PUBLICATION" && view.part) {
+		view.part.publications = (view.part.publications ?? []).filter((candidate) => candidate.id !== input.publicationId);
+	}
+	if (commandType === "SET_PARAMETER_EXTERNAL" && view.part) {
+		const parameter = view.part.parameters?.find((candidate) => candidate.parameterId === input.parameterId);
+		const source = getView(String(input.sourceDocumentId)).part?.publications?.find((candidate) => candidate.id === input.publicationId);
+		if (parameter && source?.resolution.value) {
+			parameter.source = { external: { sourceDocumentId: String(input.sourceDocumentId), revision: { mode: "PINNED", revisionId: source.resolution.resolvedVersionId! },
+				publicationId: source.id, expectedType: parameter.valueType, expectedDimension: parameter.dimension,
+				contractVersion: source.compatibilityVersion, resolvedRevisionId: source.resolution.resolvedVersionId!,
+				resolvedValue: source.resolution.value, resolvedValueDigest: source.resolution.valueDigest ?? "mock" } };
+			parameter.evaluatedValue = source.resolution.value;
+		}
+	}
 	if (commandType === "EDIT_FEATURE" && view.part) {
 		const feature=view.part.features.find((candidate)=>candidate.id===input.targetId);
 		const parameter=view.part.parameters?.find((candidate)=>candidate.parameterId===`parameter:${input.targetId}:length`);
@@ -598,6 +641,12 @@ export const mockApi: CadApi = {
   setParameterValue: async (documentID, parameterId, value, unit) => command(documentID, { type: "SET_PARAMETER_VALUE", parameterId, value, unit }),
   setParameterExpression: async (documentID, parameterId, expression) => command(documentID, { type: "SET_PARAMETER_EXPRESSION", parameterId, expression }),
   renameParameter: async (documentID, parameterId, name) => command(documentID, { type: "RENAME_PARAMETER", parameterId, name }),
+  setParameterExternal: async (documentID, parameterId, sourceDocumentId, publicationId, versionId) => command(documentID,
+    { type: "SET_PARAMETER_EXTERNAL", parameterId, sourceDocumentId, publicationId, versionId }),
+  createPublication: async (documentID, input) => command(documentID, { type: "CREATE_PUBLICATION", ...input }),
+  editPublication: async (documentID, publicationId, input) => command(documentID, { type: "EDIT_PUBLICATION", publicationId, ...input }),
+  redirectPublication: async (documentID, publicationId, input) => command(documentID, { type: "REDIRECT_PUBLICATION", publicationId, ...input }),
+  deletePublication: async (documentID, publicationId) => command(documentID, { type: "DELETE_PUBLICATION", publicationId }),
   deleteNode: async (documentID, targetKind, targetID, ownerEntityID) => command(documentID, { type: "DELETE_NODE", targetKind, targetId: targetID, ownerEntityId: ownerEntityID }),
   deleteNodes: async (documentID, targets) => command(documentID, { type: "DELETE_NODES", targets }),
   pad: async (documentID, sketchID, length, intentRequestID) => command(documentID, { type: "PAD_SKETCH", sketchId: sketchID, length,

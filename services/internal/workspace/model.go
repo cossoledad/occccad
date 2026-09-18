@@ -86,6 +86,67 @@ type DatumAxis struct {
 	Direction [3]float64 `json:"direction"`
 }
 
+type PublicationTarget struct {
+	Kind                string                         `json:"kind"` // DATUM | TOPOLOGY | FEATURE_OUTPUT | PARAMETER
+	DatumID             string                         `json:"datumId,omitempty"`
+	Axis                string                         `json:"axis,omitempty"`
+	PersistentSelection *modelcore.PersistentSelection `json:"persistentSelection,omitempty"`
+	SourceVersionID     string                         `json:"sourceVersionId,omitempty"`
+	FeatureID           string                         `json:"featureId,omitempty"`
+	OutputSlot          string                         `json:"outputSlot,omitempty"`
+	ParameterID         string                         `json:"parameterId,omitempty"`
+}
+
+type PublicationContract struct {
+	GeometryKind string               `json:"geometryKind,omitempty"`
+	ValueType    modelcore.ValueType  `json:"valueType,omitempty"`
+	Dimension    *modelcore.Dimension `json:"dimension,omitempty"`
+	UnitPolicy   string               `json:"unitPolicy,omitempty"`
+	Bounds       *PublicationBounds   `json:"bounds,omitempty"`
+	Symmetry     string               `json:"symmetry,omitempty"`
+}
+
+type PublicationBounds struct {
+	Minimum *modelcore.Quantity `json:"minimum,omitempty"`
+	Maximum *modelcore.Quantity `json:"maximum,omitempty"`
+}
+
+type PublicationResolution struct {
+	Status             string              `json:"status"` // CONNECTED | BROKEN_PUBLICATION
+	DiagnosticCode     string              `json:"diagnosticCode,omitempty"`
+	Diagnostic         string              `json:"diagnostic,omitempty"`
+	ResolvedVersionID  string              `json:"resolvedVersionId,omitempty"`
+	GeometryKey        string              `json:"geometryKey,omitempty"`
+	GeometryID         string              `json:"geometryId,omitempty"`
+	TopologyKind       string              `json:"topologyKind,omitempty"`
+	GeometryKind       string              `json:"geometryKind,omitempty"`
+	Symmetry           string              `json:"symmetry,omitempty"`
+	LocalID            uint64              `json:"localId,omitempty"`
+	Origin             [3]float64          `json:"origin,omitempty"`
+	XDirection         [3]float64          `json:"xDirection,omitempty"`
+	YDirection         [3]float64          `json:"yDirection,omitempty"`
+	ZDirection         [3]float64          `json:"zDirection,omitempty"`
+	SourceDigest       string              `json:"sourceDigest,omitempty"`
+	Value              *modelcore.Quantity `json:"value,omitempty"`
+	ValueDigest        string              `json:"valueDigest,omitempty"`
+	ManifestDigest     string              `json:"manifestDigest,omitempty"`
+	NamingPolicyDigest string              `json:"namingPolicyDigest,omitempty"`
+	EvaluatorVersion   string              `json:"evaluatorVersion,omitempty"`
+	WorkerID           string              `json:"workerId,omitempty"`
+	OCCTVersion        string              `json:"occtVersion,omitempty"`
+}
+
+type Publication struct {
+	ID                   string                `json:"id"`
+	Name                 string                `json:"name"`
+	Type                 string                `json:"type"`
+	SemanticPurpose      string                `json:"semanticPurpose,omitempty"`
+	CompatibilityVersion string                `json:"compatibilityVersion"`
+	Target               PublicationTarget     `json:"target"`
+	Contract             PublicationContract   `json:"contract"`
+	Resolution           PublicationResolution `json:"resolution"`
+}
+
 type ReferenceGeometry struct {
 	DatumPlanes []DatumPlane `json:"datumPlanes"`
 	AxisSystems []AxisSystem `json:"axisSystems"`
@@ -270,12 +331,13 @@ type Feature struct {
 }
 
 type PartModel struct {
-	Units       string                          `json:"units"`
-	DatumPlanes []DatumPlane                    `json:"datumPlanes"`
-	AxisSystems []AxisSystem                    `json:"axisSystems"`
-	DatumAxes   []DatumAxis                     `json:"datumAxes"`
-	Features    []Feature                       `json:"features"`
-	Parameters  []modelcore.ParameterDefinition `json:"parameters,omitempty"`
+	Units        string                          `json:"units"`
+	DatumPlanes  []DatumPlane                    `json:"datumPlanes"`
+	AxisSystems  []AxisSystem                    `json:"axisSystems"`
+	DatumAxes    []DatumAxis                     `json:"datumAxes"`
+	Features     []Feature                       `json:"features"`
+	Parameters   []modelcore.ParameterDefinition `json:"parameters,omitempty"`
+	Publications []Publication                   `json:"publications,omitempty"`
 }
 
 type ProductInstance struct {
@@ -487,6 +549,8 @@ type DocumentStructureNode struct {
 	VersionID        string                  `json:"versionId,omitempty"`
 	Plane            string                  `json:"plane,omitempty"`
 	Axis             string                  `json:"axis,omitempty"`
+	GeometryKey      string                  `json:"geometryKey,omitempty"`
+	TopologyID       uint64                  `json:"topologyId,omitempty"`
 	ReferenceMode    string                  `json:"referenceMode,omitempty"`
 	InstancePath     *InstancePath           `json:"instancePath,omitempty"`
 	OwnerEntityID    string                  `json:"ownerEntityId,omitempty"`
@@ -496,6 +560,7 @@ type DocumentStructureNode struct {
 	Diagnostic       string                  `json:"diagnostic,omitempty"`
 	Capabilities     []string                `json:"capabilities,omitempty"`
 	DefinitionDigest string                  `json:"definitionDigest,omitempty"`
+	Publication      *Publication            `json:"publication,omitempty"`
 	Children         []DocumentStructureNode `json:"children,omitempty"`
 }
 
@@ -580,6 +645,12 @@ type CommandRequest struct {
 	Expression              string               `json:"expression,omitempty"`
 	Value                   float64              `json:"value,omitempty"`
 	Unit                    string               `json:"unit,omitempty"`
+	PublicationID           string               `json:"publicationId,omitempty"`
+	PublicationType         string               `json:"publicationType,omitempty"`
+	SemanticPurpose         string               `json:"semanticPurpose,omitempty"`
+	CompatibilityVersion    string               `json:"compatibilityVersion,omitempty"`
+	Axis                    string               `json:"axis,omitempty"`
+	SourceDocumentID        string               `json:"sourceDocumentId,omitempty"`
 	ActorID                 string               `json:"-"`
 }
 

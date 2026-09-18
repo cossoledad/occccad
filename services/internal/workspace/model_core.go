@@ -70,6 +70,11 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeSetParameterLiteral, "PART", applyParameterSource},
 		commandHandler{typeSetParameterExpression, "PART", applyParameterSource},
 		commandHandler{typeRenameParameter, "PART", applyRenameParameter},
+		commandHandler{typeSetParameterExternal, "PART", applyParameterSource},
+		commandHandler{typeCreatePublication, "PART", applyCreatePublication},
+		commandHandler{typeEditPublication, "PART", applyEditPublication},
+		commandHandler{typeRedirectPublication, "PART", applyRedirectPublication},
+		commandHandler{typeDeletePublication, "PART", applyDeletePublication},
 		commandHandler{typeInsertInstance, "PRODUCT", applyInsertInstance},
 		commandHandler{typeMoveInstance, "PRODUCT", applyMoveInstance},
 		commandHandler{typeAddAssemblyConstraint, "PRODUCT", applyAddAssemblyConstraint},
@@ -1042,19 +1047,19 @@ type editFeaturePayload struct {
 var padLengthSlot = modelcore.PropertySlotDescriptor{
 	OwnerTypeURI: "occccad://part/feature/linear-extrude", SlotID: "pad.length",
 	ValueType: modelcore.ValueQuantity, Dimension: modelcore.LengthDimension,
-	AllowedSources: []string{"LITERAL", "EXPRESSION"}, Affects: "GEOMETRY", EvaluatorPhase: 2,
+	AllowedSources: []string{"LITERAL", "EXPRESSION", "EXTERNAL"}, Affects: "GEOMETRY", EvaluatorPhase: 2,
 }
 
 var sketchLengthDimensionSlot = modelcore.PropertySlotDescriptor{
 	OwnerTypeURI: "occccad://part/sketch/constraint/dimension", SlotID: "sketch.dimension.value",
 	ValueType: modelcore.ValueQuantity, Dimension: modelcore.LengthDimension,
-	AllowedSources: []string{"LITERAL", "EXPRESSION"}, Affects: "GEOMETRY", EvaluatorPhase: 2,
+	AllowedSources: []string{"LITERAL", "EXPRESSION", "EXTERNAL"}, Affects: "GEOMETRY", EvaluatorPhase: 2,
 }
 
 var sketchAngleDimensionSlot = modelcore.PropertySlotDescriptor{
 	OwnerTypeURI: "occccad://part/sketch/constraint/dimension", SlotID: "sketch.dimension.value",
 	ValueType: modelcore.ValueQuantity, Dimension: modelcore.AngleDimension,
-	AllowedSources: []string{"LITERAL", "EXPRESSION"}, Affects: "GEOMETRY", EvaluatorPhase: 2,
+	AllowedSources: []string{"LITERAL", "EXPRESSION", "EXTERNAL"}, Affects: "GEOMETRY", EvaluatorPhase: 2,
 }
 
 type featureEditFailure struct{ code string }
@@ -1611,6 +1616,12 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err := rejectExplicitUnresolvedExternal(prepared.command, model); err != nil {
 			return err
 		}
+		if err := service.resolvePartPublications(ctx, documentID, prepared.requestID, revisionID, &model); err != nil {
+			return err
+		}
+		if err := rejectExplicitBrokenPublication(prepared.command, model); err != nil {
+			return err
+		}
 		changes = appendEvaluatedSketchChanges(changes, beforeModel, model)
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
@@ -1975,6 +1986,13 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		return CommandPreview{}, err
 	}
 	if err = rejectExplicitUnresolvedExternal(prepared.command, model); err != nil {
+		return CommandPreview{}, err
+	}
+	if err = service.resolvePartPublications(ctx, documentID, "preview/"+prepared.requestID,
+		prepared.headRevision, &model); err != nil {
+		return CommandPreview{}, err
+	}
+	if err = rejectExplicitBrokenPublication(prepared.command, model); err != nil {
 		return CommandPreview{}, err
 	}
 	previewChanges = appendEvaluatedSketchChanges(previewChanges, beforeModel, model)
