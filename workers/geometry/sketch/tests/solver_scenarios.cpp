@@ -420,4 +420,21 @@ TEST(ExternalGeometryProjector, ProjectsFullCircleAndRejectsDegenerateLine) {
     EXPECT_EQ(degenerate.status, ExternalProjectionStatus::unresolved);
     EXPECT_EQ(degenerate.diagnostic_code, "EXTERNAL_PROJECTION_DEGENERATE");
 }
+
+TEST(ExternalGeometryProjector, RejectsPartialCircleUntilArcEvidenceIsAvailable) {
+    const ProjectionFrame frame{{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
+    ExternalProjectionSource arc;
+    arc.kind = ExternalSourceKind::circle;
+    arc.origin = {0.0, 0.0, 0.0};
+    arc.direction = {0.0, 0.0, 1.0};
+    arc.parameter_start = 0.0;
+    arc.parameter_end = 3.14159265358979323846;
+    arc.measure_mm = arc.parameter_end * 5.0;
+    arc.has_parameters = true;
+
+    const auto projected = project_external_geometry(arc, frame);
+
+    EXPECT_EQ(projected.status, ExternalProjectionStatus::unresolved);
+    EXPECT_EQ(projected.diagnostic_code, "EXTERNAL_PROJECTION_TYPE_UNSUPPORTED");
+}
 }  // namespace occccad::geometry::sketch

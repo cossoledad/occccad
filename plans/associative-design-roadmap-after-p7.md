@@ -181,6 +181,8 @@ P8 是近期唯一主路径。P8 完成后，P9 与 P11 可以并行；P10 在 P
 
 **实施记录（2026-09-17）**：每次 Part 求值固定执行 naming resolve → projection → sketch solve → feature evaluation。缺失、歧义、类型不符和退化投影具有稳定诊断，失败项会清除旧 snapshot、列出受影响约束/profile/downstream Feature，并生成可检查和 Reconnect 的 FAILED Revision；Reconnect 重绑来源但保持 ExternalId。结构树提供 Reconnect 与“断开外部关联并冻结”。
 
+**失效语义修正（2026-09-18）**：新建或 Reconnect 的来源若不能完成权威投影，属于当前命令的前置条件失败，命令原子拒绝且不推进 Head；FAILED Revision 只表达先前已连接依赖因上游更新而失效。失败 Revision 不复用 dependency prefix 的 geometry key，避免其他求值阶段的制品冒充当前 Part Revision。完整圆投影仍属于 P8D；布尔结果中的部分圆弧进入 P11J 的 Arc evidence/snapshot 子批次。
+
 ### P8F：Part 关联设计完整验收与基线冻结（已完成）
 
 **目标场景**：一个 Part 中由参数驱动基础草图和 Pad，在 Pad 面上创建第二草图，投影边并 Remove；改变基础参数后整条依赖链确定性重建。

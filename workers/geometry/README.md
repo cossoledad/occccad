@@ -6,7 +6,7 @@ Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 g
 
 - `Ping`：返回 Worker ID、OCCT 版本和 resident geometry 数；
 - `SolveSketch`：求解版本化 Point/Line/Circle/Arc/Spline/Constraint SketchModel，返回坐标、状态、DoF 和冲突/冗余约束 ID；
-- `ProjectExternalGeometry`：以已解析的 Edge/Vertex evidence 和草图 support frame 权威生成二维只读 Point/Line/Circle 投影；退化、类型不符和不支持的斜圆投影返回稳定诊断，不回退到浏览器近似；
+- `ProjectExternalGeometry`：以已解析的 Edge/Vertex evidence 和草图 support frame 权威生成二维只读 Point/Line/完整 Circle 投影；退化、类型不符、斜圆投影和缺少定向 evidence 的部分圆弧返回稳定诊断，不回退到浏览器近似；Arc evidence/snapshot 属于 P11J-0；
 - `EvaluatePart`：求值一个矩形草图/拉伸链或在基础 B-Rep 上追加拉伸；Profile Pad 请求校验稳定 Feature/Body/source identity 和版本化 topology naming policy，并回传逐 Feature identity、semantic topology outputs 与 TopologyHistory；
 - `InspectExchange` / `ImportExchange` / `ExportExchange`：通过 ArtifactReference 检查、导入和导出 STEP/BREP；
 - `GetTopology`：返回面、边、点及诊断属性；

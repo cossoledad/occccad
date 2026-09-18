@@ -351,10 +351,50 @@ func TestExternalGeometryAddsTopologyDependencyAndNeverUsesBrokenSnapshot(t *tes
 	if !ok || broken.ID != external.ID || broken.Snapshot != nil {
 		t.Fatalf("broken external geometry must be explicit and carry no stale snapshot: %#v", broken)
 	}
+	geometryKey, revisionState, evaluationStatus, unresolved := unresolvedExternalRevisionOutcome(model)
+	if !unresolved || geometryKey != "" || revisionState != "FAILED" || evaluationStatus != "FAILED" {
+		t.Fatalf("failed Revision must not borrow its dependency artifact: key=%q revision=%s evaluation=%s",
+			geometryKey, revisionState, evaluationStatus)
+	}
 	manifest := visualizationManifest(model)
 	for _, primitive := range manifest.Primitives {
 		if primitive.ID == external.ID {
 			t.Fatal("broken external geometry leaked a stale visualization primitive")
 		}
+	}
+}
+
+func TestExplicitExternalProjectionFailureRejectsTheCommand(t *testing.T) {
+	unresolved := SketchExternalGeometry{ID: "external-arc", Status: "UNRESOLVED_EXTERNAL",
+		DiagnosticCode: "EXTERNAL_PROJECTION_TYPE_UNSUPPORTED",
+		Diagnostic:     "partial circular edges require arc orientation evidence"}
+	model := PartModel{Features: []Feature{{ID: "sketch-face", Type: "SKETCH", Sketch: &SketchFeature{
+		ExternalGeometry: []SketchExternalGeometry{unresolved},
+	}}}}
+	payload, _ := json.Marshal(editSketchPayload{SketchID: "sketch-face", Operations: []SketchOperation{{
+		Type: "ADD_EXTERNAL_GEOMETRY", ExternalGeometry: &unresolved,
+	}}})
+	err := rejectExplicitUnresolvedExternal(modelcore.DomainCommand{TypeURI: typeEditSketch, Payload: payload}, model)
+	var failure *externalGeometryProjectionFailure
+	if !errors.As(err, &failure) {
+		t.Fatalf("explicit unsupported projection must reject the command, got %v", err)
+	}
+	if failure.Code() != "EXTERNAL_PROJECTION_TYPE_UNSUPPORTED" || failure.Phase() != "EXTERNAL_GEOMETRY_PROJECTION" || failure.Retryable() {
+		t.Fatalf("unexpected projection failure contract: code=%s phase=%s retryable=%v",
+			failure.Code(), failure.Phase(), failure.Retryable())
+	}
+
+	reconnectPayload, _ := json.Marshal(editSketchPayload{SketchID: "sketch-face", Operations: []SketchOperation{{
+		Type: "RECONNECT_EXTERNAL_GEOMETRY", ExternalID: unresolved.ID, ExternalGeometry: &unresolved,
+	}}})
+	if err := rejectExplicitUnresolvedExternal(modelcore.DomainCommand{TypeURI: typeEditSketch, Payload: reconnectPayload}, model); err == nil {
+		t.Fatal("an unresolved reconnect must retain the old Head instead of committing a failed replacement")
+	}
+
+	ordinaryPayload, _ := json.Marshal(editSketchPayload{SketchID: "sketch-face", Operations: []SketchOperation{{
+		Type: "ADD_ENTITY", Entity: &SketchEntity{ID: "point", Kind: "POINT", Role: "CONSTRUCTION", Point: &SketchPoint2{}},
+	}}})
+	if err := rejectExplicitUnresolvedExternal(modelcore.DomainCommand{TypeURI: typeEditSketch, Payload: ordinaryPayload}, model); err != nil {
+		t.Fatalf("an already-broken dependency must remain inspectable/editable: %v", err)
 	}
 }

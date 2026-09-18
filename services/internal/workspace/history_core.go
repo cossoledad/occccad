@@ -665,11 +665,8 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 		modelHash = canonicalModelHash(input.modelJSON)
 		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, input.changes.ImpactSeeds, nil)
 		if err == nil {
-			if broken, unresolved := firstUnresolvedExternal(model); unresolved {
-				revisionState, evaluationStatus = "FAILED", "FAILED"
-				if broken.DependencySnapshot != nil {
-					geometryKey = broken.DependencySnapshot.GeometryKey
-				}
+			if failedKey, failedRevision, failedEvaluation, unresolved := unresolvedExternalRevisionOutcome(model); unresolved {
+				geometryKey, revisionState, evaluationStatus = failedKey, failedRevision, failedEvaluation
 			} else {
 				geometryKey, err = service.evaluatePart(ctx, input.requestID, model)
 			}

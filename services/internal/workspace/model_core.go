@@ -1608,6 +1608,9 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err := validateAndResolvePartParameters(&model); err != nil {
 			return err
 		}
+		if err := rejectExplicitUnresolvedExternal(prepared.command, model); err != nil {
+			return err
+		}
 		changes = appendEvaluatedSketchChanges(changes, beforeModel, model)
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
@@ -1615,11 +1618,8 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err != nil {
 			return err
 		}
-		if broken, unresolved := firstUnresolvedExternal(model); unresolved {
-			geometryKey, revisionState, evaluationStatus = "", "FAILED", "FAILED"
-			if broken.DependencySnapshot != nil {
-				geometryKey = broken.DependencySnapshot.GeometryKey
-			}
+		if failedKey, failedRevision, failedEvaluation, unresolved := unresolvedExternalRevisionOutcome(model); unresolved {
+			geometryKey, revisionState, evaluationStatus = failedKey, failedRevision, failedEvaluation
 		} else if !promoted {
 			finishGeometry := perf.Start(ctx, "geometry-evaluate")
 			geometryKey, err = service.evaluatePart(ctx, prepared.requestID, model)
@@ -1802,6 +1802,16 @@ func firstUnresolvedExternal(model PartModel) (SketchExternalGeometry, bool) {
 	return SketchExternalGeometry{}, false
 }
 
+func unresolvedExternalRevisionOutcome(model PartModel) (geometryKey, revisionState, evaluationStatus string, unresolved bool) {
+	if _, unresolved = firstUnresolvedExternal(model); !unresolved {
+		return "", "", "", false
+	}
+	// A dependency snapshot key identifies the upstream prefix used for
+	// resolution; it is not the final shape of this Revision. Persisting it as
+	// the Revision artifact would violate model/visualization provenance.
+	return "", "FAILED", "FAILED", true
+}
+
 func restoreMovePreviewOnSolveFailure(typeURI string, solveErr error, baseJSON []byte, model *ProductModel) (bool, error) {
 	var failure *assemblySolveFailure
 	if typeURI != typeMoveInstance || !errors.As(solveErr, &failure) {
@@ -1962,6 +1972,9 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	}
 	finishSolve()
 	if err = validateAndResolvePartParameters(&model); err != nil {
+		return CommandPreview{}, err
+	}
+	if err = rejectExplicitUnresolvedExternal(prepared.command, model); err != nil {
 		return CommandPreview{}, err
 	}
 	previewChanges = appendEvaluatedSketchChanges(previewChanges, beforeModel, model)

@@ -2111,6 +2111,8 @@ ExternalGeometry 不复制一条“看起来相同”的普通线，而是保存
 
 上游变更时先经 Persistent Topological Naming 解析，再重新投影。来源删除、歧义或投影退化时标记 `UNRESOLVED_EXTERNAL`，所有依赖约束列出受影响 ID。External geometry 是只读变量，可以参与 Coincident/Distance/Tangent 等约束；用户若要脱离来源，必须执行显式 `DETACH_EXTERNAL_GEOMETRY` 生成普通实体。
 
+ExternalGeometry 的首次 ADD/RECONNECT 必须在提交前完成 bind、resolve、projection 与 snapshot 验证；失败是候选命令的硬前置条件错误，不能创建一个从未成功连接过的 FAILED Head。`UNRESOLVED_EXTERNAL` Revision 只表达先前有效依赖在上游更新后的失效，并可保存诊断模型，但其 visualization/geometry artifact 必须具有该 Revision 自身的 model/manifest provenance，不能借用 dependency prefix 或 parent Revision 的 key 冒充最终制品。
+
 #### 5.3.16 性能、资源限制与安全
 
 性能优化顺序：约束图分解 → dirty component → warm start → 缓存符号稀疏结构 → 避免拖拽期间 Part 重生成 → 最后才考虑并行/GPU。一个 Sketch 的耦合组件通常必须在一个 Solver 实例中求解，不跨 Worker 分割；不同 Sketch/配置可以跨 Worker 并行。

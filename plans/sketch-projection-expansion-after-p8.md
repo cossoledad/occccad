@@ -58,6 +58,17 @@ ExternalGeometry
 
 验收：选择 Pad 顶面后一次得到可辨识的外环和孔环；正常上游编辑保持成员 identity；成员拓扑变化不按数组位置错绑。
 
+### P11J-0：单 Edge 的部分圆弧合同
+
+在 Face group 之前先扩展现有单 Edge 投影，使布尔交线等 trimmed circular Edge 可以形成 `ARC` snapshot：
+
+- naming evidence 增加圆所在平面的稳定 X/Y 基向量、规范起始方向和有向 sweep，不能只用圆心、轴、长度及 OCCT 参数区间猜测端点；
+- Worker/Proto/Go/Web 同步增加 `ARC` snapshot、START/END/CENTER 子元素和 fixed geometry 约束适配；
+- 对 seam、反向参数化、跨 `0/2π`、近似整圆、镜像 frame 和投影后退化建立 corpus；
+- 单 Edge Arc 与随后 Face Boundary group 使用同一曲线表示和诊断，不增加只服务某个布尔案例的旁路。
+
+在该子批次完成前，部分圆弧必须稳定返回 `EXTERNAL_PROJECTION_TYPE_UNSUPPORTED`；新建/重连命令原子失败并保留旧 Head，不能静默创建 `UNRESOLVED_EXTERNAL` 或提交错误 artifact provenance。
+
 ## 4. P11K：Section 与 Silhouette
 
 目标：提供显式的“与草图平面求交”和“沿指定方向投影轮廓”命令。
@@ -88,4 +99,15 @@ P8 complete
 P16 Surface/3D Wire 在其表示和质量门禁就绪后独立进入
 ```
 
-若近期优先改善当前 Sketcher 工作流，可在下一批直接领取 P11J；它不会改变 P8 已冻结的单 Edge/Vertex ExternalGeometry 合同。
+若近期优先改善当前 Sketcher 工作流，可在下一批先领取 P11J-0，再进入 Face Boundary group；P11J-0 以版本化 `ARC` snapshot 扩展 P8 的单 Edge 合同，P11J 主批次复用该合同而不再建立第二套曲线表示。
+
+## 7. 能力边界与缺陷处理规则
+
+投影问题先按领域合同分类，再决定实现：
+
+1. 已声明支持的输入未产生合同结果，属于缺陷，修复必须贯通命令原子性、Revision 状态、artifact provenance、诊断和回归 corpus；
+2. 尚缺稳定表示、identity/evidence 或下游约束语义的输入，保持明确 `UNSUPPORTED` 并进入对应路线图批次，不以局部坐标猜测、浏览器折线或 OCCT local ID 临时补齐；
+3. 创建/重连失败不产生新 Head；已连接依赖在上游更新后失效，才形成可检查的 FAILED Revision；任何 Revision 都不能引用与自身模型 Manifest 不一致的制品；
+4. 当前未发布数据直接以唯一新语义重建，不为已污染的开发 Revision 增加读取 adapter、双写或兼容分支。建立发布基线后再按版本化迁移规则处理旧数据。
+
+每个缺陷修复都应证明它恢复了现有合同，或把缺失能力登记到明确批次；不得为了单个复现案例扩大持久 schema 或绕过整体 evaluator 顺序。

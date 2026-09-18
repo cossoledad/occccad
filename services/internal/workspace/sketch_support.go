@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -33,6 +34,78 @@ func (failure *sketchSupportFailure) Unwrap() error   { return ErrValidation }
 func (failure *sketchSupportFailure) Code() string    { return "FAILED_SUPPORT" }
 func (failure *sketchSupportFailure) Phase() string   { return "SKETCH_SUPPORT" }
 func (failure *sketchSupportFailure) Retryable() bool { return false }
+
+// externalGeometryProjectionFailure is returned only for an explicit ADD or
+// RECONNECT whose authoritative projection cannot be created. That command is
+// a structural precondition failure and must not advance the Workspace Head.
+// Existing connected references that become unresolved after an upstream edit
+// continue to use the persisted FAILED Revision path.
+type externalGeometryProjectionFailure struct {
+	diagnosticCode string
+	diagnostic     string
+}
+
+func (failure *externalGeometryProjectionFailure) Error() string {
+	code := strings.TrimSpace(failure.diagnosticCode)
+	if code == "" {
+		code = "EXTERNAL_GEOMETRY_UNRESOLVED"
+	}
+	detail := strings.TrimSpace(failure.diagnostic)
+	if detail == "" {
+		return "external geometry projection failed: " + code
+	}
+	return "external geometry projection failed: " + code + ": " + detail
+}
+func (failure *externalGeometryProjectionFailure) Unwrap() error { return ErrValidation }
+func (failure *externalGeometryProjectionFailure) Code() string {
+	if code := strings.TrimSpace(failure.diagnosticCode); code != "" {
+		return code
+	}
+	return "EXTERNAL_GEOMETRY_UNRESOLVED"
+}
+func (failure *externalGeometryProjectionFailure) Phase() string {
+	return "EXTERNAL_GEOMETRY_PROJECTION"
+}
+func (failure *externalGeometryProjectionFailure) Retryable() bool { return false }
+
+func rejectExplicitUnresolvedExternal(command modelcore.DomainCommand, model PartModel) error {
+	if command.TypeURI != typeEditSketch {
+		return nil
+	}
+	var payload editSketchPayload
+	if err := json.Unmarshal(command.Payload, &payload); err != nil {
+		return err
+	}
+	requested := map[string]struct{}{}
+	for _, operation := range payload.Operations {
+		switch operation.Type {
+		case "ADD_EXTERNAL_GEOMETRY":
+			if operation.ExternalGeometry != nil {
+				requested[operation.ExternalGeometry.ID] = struct{}{}
+			}
+		case "RECONNECT_EXTERNAL_GEOMETRY":
+			requested[operation.ExternalID] = struct{}{}
+		}
+	}
+	if len(requested) == 0 {
+		return nil
+	}
+	for _, feature := range model.Features {
+		if feature.ID != payload.SketchID || feature.Sketch == nil {
+			continue
+		}
+		for _, external := range feature.Sketch.ExternalGeometry {
+			if _, ok := requested[external.ID]; !ok || (external.Status == "CONNECTED" && external.Snapshot != nil) {
+				continue
+			}
+			return &externalGeometryProjectionFailure{
+				diagnosticCode: external.DiagnosticCode,
+				diagnostic:     external.Diagnostic,
+			}
+		}
+	}
+	return nil
+}
 
 func dot3(left, right [3]float64) float64 {
 	return left[0]*right[0] + left[1]*right[1] + left[2]*right[2]
