@@ -122,9 +122,11 @@ erDiagram
 - Domain Transaction、typed command envelope、语义 ChangeSet、Revision parent、EvaluationRun、dependency edge 与 outbox 在 Head CAS 的同一短事务中追加；
 - Restore 创建新的状态，而不是覆写历史；
 - Product 保存对子文档的引用和实例 Transform，不展开复制完整子树；
-- 当前 Product UI 中的新实例固定采用 `FOLLOW_HEAD`；被引用文档变化后只使 root-snapshot `ProductUpdatePlan` 失效并投影 `UPDATE_AVAILABLE`，用户显式接受带 digest 的计划后才提交 `UPDATE_REFERENCES`、重建可重放快照。`PINNED`/版本切换协议保留在内部，待文档版本选择工作流完整后再开放入口。
+- 当前 Product UI 中的新实例固定采用 `FOLLOW_HEAD`；被引用文档变化后先使 root-snapshot `ProductUpdatePlan` 失效并投影 `UPDATE_AVAILABLE`，打开 Product 的可编辑客户端随后按叶到根自动接受每一级带 digest 的计划，提交普通 `UPDATE_REFERENCES` Revision 并重建可重放快照。Instance 右键可把当前 resolved Revision 切换为 `PINNED`，也可恢复 `FOLLOW_HEAD`；任意历史版本 picker 尚未开放。
 
 Product 工作台维护浏览器会话级的 Active Occurrence 编辑上下文，由 `Active InstancePath + Reference Document` 共同表达。打开 Product 时根 Product 默认激活；双击结构树中的 Product、Part 或 Instance 节点只激活该 occurrence，随后 Toolbar、属性、历史、Undo/Redo 和 Domain Command 绑定其 Reference Document 的 `main` Workspace。激活不是模型命令，不写 Revision；同一 Part Reference 的其他 occurrence 不显示为激活，但编辑 Reference 后全部 FOLLOW_HEAD occurrence 都会解析到新结果。视口始终保留根装配；活动 Part 的草图、基准和命令预览施加该 occurrence 的世界 Placement 后就地编辑，其他部件继续显示。
+
+根 Product 场景与 Active Part 交互视图由明确的 `ViewportEditContext` 分离：实体仍来自根装配，草图实体命中、捕捉、约束、尺寸拖拽与编辑只读取激活 Part，避免 Product 的空 `part` 投影吞掉草图操作。基准轴/面是关闭深度测试的屏幕空间辅助对象：三轴从原点沿正方向延伸，XY/XZ/YZ 面只占正象限的偏移小矩形并保持固定像素尺度；基准轴使用专用虚线、低于模型拓扑的拾取优先级和 1.75 px 二次命中门，避免穿透显示演变为过度抢选。Instance 树标签使用 `ReferenceName(InstanceName)`。命中唯一 Publication 所指几何时，selection 会提升为 Publication identity，使视图区、所属 PartBody（折叠时最近可见祖先）与 Publication 节点共同高亮，装配约束面板优先展示 occurrence 和 Publication 名称而非 UUID。
 
 `INSERT_INSTANCE` 继续把既有 Part/Product Reference 插入当前激活且具有 Editor 权限的 Product；InstanceName 由服务端在 owner Product 当前候选模型中按 `ReferenceName.N` 分配首个同级可用名称，显示名不参与身份，重命名属于独立属性命令。
 
@@ -144,7 +146,7 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 - JSON Envelope 支持 request/response/event/ack/error、correlation ID、版本化 type、Workspace sequence 和稳定错误；当前最大消息 1 MiB；
 - Web 前端的建模命令使用 `workspace.command.execute.v1`，HTTP 命令入口仍保留并调用同一个 Workspace Service；
 - 浏览器进入工作台后订阅 Document 并获得 DocumentView 快照。其他用户提交后，事务内 Outbox 由 API 轮询并向所有本机订阅者发布 `workspace.transaction.committed.v1`，浏览器刷新 Document、History、Properties 和目录投影；
-- Product 浏览器会话还递归订阅结构树中未被 `PINNED` 边截断的 FOLLOW_HEAD Reference Document。子 Part/Product 提交后，客户端失效并重新读取 Product Update Plan，不自动推进任何 Product Head；显式接受时服务端以计划 digest 拒绝 stale candidate，嵌套定义更新要求从叶到根逐级接受并形成正常 Revision。激活文档即使位于 PINNED occurrence 下也会单独订阅，以支持该 Reference Document 自身的协同编辑；
+- Product 浏览器会话还递归订阅结构树中未被 `PINNED` 边截断的 FOLLOW_HEAD Reference Document。子 Part/Product 提交后，客户端失效并重新读取 Product Update Plan，再按叶到根串行自动接受；服务端仍以计划 digest 拒绝 stale candidate，每一级都形成正常不可变 Revision，失败只显示阻塞诊断而不令旧 Revision 漂移。激活文档即使位于 PINNED occurrence 下也会单独订阅，以支持该 Reference Document 自身的协同编辑；
 - 客户端按 sequence 去重和发现 gap，断线指数退避重连并重新获取快照；服务端以 Ping/Pong 检测失联，有界 128 消息队列满时断开慢消费者；
 - 当前实现多浏览器查看同一文档的提交后实时同步；presence、鼠标/选择和拖拽 preview 尚未接入 UI，多 API 实例间扇出也尚未实现。
 
@@ -263,7 +265,7 @@ stateDiagram-v2
 
 P3 在上述 history 契约上增加了服务端 PersistentSelection bind/resolver。bind 只接受 source Revision 最终 Body Tip 的 local pick，并固化 semantic anchor 与 creation evidence；resolver 固定校验 source/target Revision、document/body、expected type、creation evidence、manifest digest 和 policy digest，沿 lineage 返回唯一解析、缺失、歧义、类型不符或当前 tip 外等状态，绝不以相同 local ID 或最近几何自动选面。解析缓存以 selection、target Revision、manifest/evidence/policy digest 为身份，并可从不可变 topology artifact 冷重建。右侧属性面板现在展示 semantic anchor、selection recipe、supporting-element 状态和 evidence digest。
 
-Product 装配引用已完成 P4 升级。拓扑 endpoint 持久化 occurrence、source Part Revision 和 PersistentSelection，并保存固定 target Revision、topology manifest/policy digest 与 resolution result；`geometryKey + localId` 只作为创建或 Reconnect 时的瞬时 pick evidence。默认实例使用 `FOLLOW_HEAD`；Part Head 更新后 Product Update Plan 投影 NotUpdated/UpdateAvailable，显式接受再批量推进 Revision、重新解析 endpoint 并求解。Supporting Element 的 Connected/NotConnected 与 Constraint 的 NotUpdated/Broken/Impossible/Verified 是两个独立状态域：解析失败的约束不会进入 Solver，其余 connected component 仍经正式 Router 的 M2.5 路径求解。结构树和属性面板显示状态与 provenance，持久 ChangeSet 支持刷新及补偿式历史。
+Product 装配引用已完成 P4 升级。拓扑 endpoint 持久化 occurrence、source Part Revision 和 PersistentSelection，并保存固定 target Revision、topology manifest/policy digest 与 resolution result；`geometryKey + localId` 只作为创建或 Reconnect 时的瞬时 pick evidence。默认实例使用 `FOLLOW_HEAD`；Part Head 更新后 Product Update Plan 投影 NotUpdated/UpdateAvailable，Web 自动批量推进 Revision、重新解析 endpoint 并求解，用户可用 `PINNED` 显式截断自动跟随。Supporting Element 的 Connected/NotConnected 与 Constraint 的 NotUpdated/Broken/Impossible/Verified 是两个独立状态域：解析失败的约束不会进入 Solver，其余 connected component 仍经正式 Router 的 M2.5 路径求解。结构树和属性面板显示状态与 provenance，持久 ChangeSet 支持刷新及补偿式历史。
 
 P5 已把上述状态接入实际约束恢复流程。创建和编辑使用同一非模态约束定义面板，服务端成功 preview 除 occurrence poses 和 component 诊断外，还返回候选 Constraint 状态与两个 Supporting Element 状态；已连接支持元素在 `SOLVING` 阶段的不可重试结构化失败明确投影为 Impossible，基础设施或可重试失败保持 NotUpdated，前端不从颜色或普通异常文本猜测领域状态。结构树双击/右键 Edit 打开同一编辑器，Broken 节点提供 Reconnect，非 Verified 节点提供 typed `UPDATE_REFERENCES` Refresh。Reconnect 复用一次性 Selection Tool 和现有 preview actor，替换端点后立即权威预览，确认以一个 `EDIT_ASSEMBLY_CONSTRAINT` Transaction 提交。结构树状态包含图标、文字和可访问标签；视口的 NotUpdated、Impossible、Broken 各用不同的屏幕稳定 SDF glyph，精确拓扑锚点丢失时回退到 occurrence 中心，确保 Broken 约束仍可被选择并修复。
 
@@ -401,7 +403,8 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 - 当前固定 OCCT 7.9.1 和 gRPC C++ 1.71.0；
 - Go module 当前声明 Go 1.26.5；
 - Web 锁定 pnpm 11.20.0，并执行 TypeScript 检查和 Vite 构建；视口插值 adapter 使用 MIT 许可的 Motion 13.2.0。
-- Web 的非权威界面偏好由版本化 `occccad.ui-preferences.v1` Store 持久化；当前包含 Inspector 开合、各 Toolbar 的位置/方向和基于稳定结构树 path 的隐藏集合。隐藏只控制本地渲染；抑制属于 Revision 中的领域状态。模型、选择和命令状态不得进入客户端偏好契约。
+- Web 的非权威界面偏好由 schema 3 的 `occccad.ui-preferences.v1` Store 持久化；当前包含 Inspector 开合、各 Toolbar 的位置/方向、结构树宽度、基于稳定结构树 path 的显隐覆盖、鼠标导航模式、捕捉过滤、用户默认显示单位以及按稳定 DocumentId 的文档显示单位覆盖。显示单位只影响 UI 格式和带单位的新输入，Part 求值与几何制品继续使用规范毫米值，已有表达式不被重写；它尚不是团队共享的 Revision 属性。隐藏只控制本地渲染；抑制属于 Revision 中的领域状态。模型、选择和命令状态不得进入客户端偏好契约。结构树右缘是可拖动及键盘调宽的 separator，分支用单个圆形爆炸控件显示展开状态；文档管理入口位于全局标题栏，不再遮挡视口左下角。
+- Toolbar Presentation Catalog 当前按单一用户意图拆成独立 Toolbar，而不是在 Part/Sketch/Assembly 巨型栏内混排：选择、草图入口、实体特征、参数与接口、基准、草图会话、外部几何、基本元素、轮廓、几何约束、尺寸约束、产品结构、产品接口、组件定位、装配约束、历史、协作、视图和诊断分别拥有稳定 ToolbarId。捕捉、鼠标模式和单位属于全局偏好，不是工作台命令；默认栏按停靠位置分行，拖动后的用户布局仍优先。
 - C++ Geometry Worker 使用 Conan 固定的 spdlog 1.15.3，同时写彩色控制台和按 Worker 地址隔离的滚动文件；默认文件位于 `services/logs/`，单文件 10 MiB、保留 5 个，级别复用 `OCCCCAD_LOG_LEVEL`。
 
 测试资产现在由被测模块拥有，而不是按语言堆在仓库根目录：C++ 场景位于对应 library 的 `tests/` 并由局部 CMake 注册；Web 场景位于 `src/**/testing/*.scenario.mjs`，统一 runner 自动发现后为每个场景启动独立进程；Go 遵循工具链，将 package 白盒测试保留为邻近 `_test.go`，只有跨 package、跨进程的公共契约测试进入 `tests/go`。`models/` 只保存可被多个实现复用的 STEP/BREP 回归语料，根 `tests/` 不再作为语言分类目录。`invoke test` 保持构建并运行 CTest、`services/` Go package tests、独立 `tests/go` module 和 Web 场景的全量入口。
@@ -424,11 +427,11 @@ Part 现在声明不含具体来源的 typed `ContextInput`，root Product Revis
 
 Web 以 root Product、active occurrence 和 definition/context 模式维护非持久设计会话；`GET design-session` 与 root-snapshot-scoped `GET context-catalog` 只返回当前 Product 可达且调用者可读的 Publication，并按 expected type、连接状态和已知 ContextBinding DAG 过滤。参数与 Context binding 面板按 occurrence breadcrumb/可编辑名称选择来源；跨 Workspace 提交仍由服务端重新验证 typed path、Head 和合同。
 
-P10E 的 `ProductUpdatePlan` 从不可变 root snapshot 投影 occurrence/reference 与 ContextBinding 影响项，分别报告 connection、currency、evaluation，候选 Context Variant 会把已接受/候选 Publication 描述转换到 owning Part local frame，再复用 Part 参数、Sketch 与几何 evaluator 生成独立 GeometryKey、Publication resolution 和 EvaluationManifest。Variant identity 只包含 base Part Revision、规范化输入快照及 evaluator/policy；不包含 binding 显示名、BindingId、occurrence path、WorkerId，PARAMETER 输入也不包含无意义的 occurrence transform，因此同一定义和输入的四个 Wheel occurrence 可共享持久 variant cache；不同几何/参数输入不污染共享 Part。accepted variant 会覆盖 Product `ResolvedInstances` 的 base GeometryKey，并沿嵌套 rigid Product Publication 转发进入装配 descriptor。Web 不再实时自动接受 Head 变化，而是显示 Update Plan 并以 digest 防止接受过期计划；嵌套定义的变化按叶到根显式接受，任一候选失败都会阻止当前计划。
+P10E 的 `ProductUpdatePlan` 从不可变 root snapshot 投影 occurrence/reference 与 ContextBinding 影响项，分别报告 connection、currency、evaluation，候选 Context Variant 会把已接受/候选 Publication 描述转换到 owning Part local frame，再复用 Part 参数、Sketch 与几何 evaluator 生成独立 GeometryKey、Publication resolution 和 EvaluationManifest。Variant identity 只包含 base Part Revision、规范化输入快照及 evaluator/policy；不包含 binding 显示名、BindingId、occurrence path、WorkerId，PARAMETER 输入也不包含无意义的 occurrence transform，因此同一定义和输入的四个 Wheel occurrence 可共享持久 variant cache；不同几何/参数输入不污染共享 Part。accepted variant 会覆盖 Product `ResolvedInstances` 的 base GeometryKey，并沿嵌套 rigid Product Publication 转发进入装配 descriptor。Web 对 FOLLOW_HEAD 变化按叶到根自动接受 Update Plan，但每次仍以 digest 防止接受过期计划；任一候选失败都会阻止当前计划并保留诊断。
 
 P10F–P10G 为每次正式 assembly preview/commit 冻结 `AssemblySolveManifest`：root/candidate Revision、完整 body pose、局部几何描述符、Publication/PersistentSelection resolution evidence、约束、branch/intent、affected scope、schema 2 solver profile 与 build policy 共同形成确定 digest。Worker 只消费 manifest 中的纯值；Publication endpoint 直接使用已解析 descriptor，不再让 solver 查询 Product/B-Rep。manifest 与 request-specific result 持久化，重试复用同一结果，digest replay、request lookup、deadline/cancel 和既有 `.3dreplay` 数值证据并存。
 
-P10H 增加独立 `ProductRelease`：Release Manifest 冻结完整 occurrence typed path/Revision/pose、ContextBinding、ContextVariant GeometryKey/EvaluationManifest、Product Publication、命名/evaluator policy、成功 SolveManifest 与 gate 结果。Gate 要求引用 current、全部 occurrence/variant READY、约束 Verified 且有可重放求解证据。Release 可在 Workspace Head 移动后按 manifest replay，并从冻结 GeometryKey 提交 STEP/BREP 导出；Exchange placement 现已贯通 translation 与 quaternion rotation。Web 提供显式 Update Plan、Release 创建、Replay 和 Release 导出入口。当前不把 Configuration/Design Table、partial update、flexible subassembly 或 Derive Part from Context 冒充为 P10 能力。
+P10H 增加独立 `ProductRelease`：Release Manifest 冻结完整 occurrence typed path/Revision/pose、ContextBinding、ContextVariant GeometryKey/EvaluationManifest、Product Publication、命名/evaluator policy、成功 SolveManifest 与 gate 结果。Gate 要求引用 current、全部 occurrence/variant READY、约束 Verified 且有可重放求解证据。Release 可在 Workspace Head 移动后按 manifest replay，并从冻结 GeometryKey 提交 STEP/BREP 导出；Exchange placement 现已贯通 translation 与 quaternion rotation。Web 的“产品版本中心”只负责创建、列出和 replay 不可变里程碑，不再把 STEP/BREP 按钮混入发布流程；Exchange 保留为独立后续 UX。当前不把 Configuration/Design Table、partial update、flexible subassembly 或 Derive Part from Context 冒充为 P10 能力。
 
 ## 10. 已实现与未实现矩阵
 
@@ -444,7 +447,7 @@ P10H 增加独立 `ProductRelease`：Release Manifest 冻结完整 occurrence ty
 | 三维装配约束/运动学 | 已实现首个 Product 闭环 | 支持 Fix、Rigid、Coincident、Concentric、Angle、Distance，约束创建/编辑/删除、四态与 Supporting Element 两态、Reconnect/Refresh、固连集实时预览及权威 SE(3) 求解 |
 | Product 交互预览 | 已实现移动预览闭环 | 应用自有三轴手柄从 Instance 投影前的真实射线命中取得锚点和局部框架：面命中以世界法向作为 Z，直线边命中以世界切向作为 X，并用确定性的世界参考轴补齐正交框架；中心再次吸附到拓扑点、边或面时同步更新位置与可用方向。只有中心空心圆使用固定像素的屏幕空间 Shader；每根轴由同一个线框几何绘制轴线和空心三角形，轴线终点严格落在三角形底边中点。轴端空心圆和两侧短弧是所在 XY、YZ 或 ZX 旋转平面内的真实线框几何，随相机自然投影而不朝向相机。每次 pointerdown 从当前确认 Placement 重新建立手势基线并记录鼠标相对控制图形的点击偏移；每个 pointermove 数值反求轴参数或旋转角，使三角形顶点或轴端圆重新投影到当前鼠标目标。视觉 hover 与姿态变化使用不同回调，非拖拽状态不能产生 MOVE preview。权威装配求解严格保持一个请求在途并合并为最新待处理目标；预览响应只更新实例，不修改进行中的鼠标锚点，pointerup 等待最终待处理预览后立即把交互基线更新到确认姿态，再提交同一姿态。不可达 MOVE preview 返回 `constraintLimited` 和基线姿态，客户端保留上一确认帧。提交刷新会保留 Instance 选择与手柄，直至用户点击空白或切换工具 |
 | 持久拓扑命名 | 已实现首个 Linear Extrude/Boolean 闭环 | Extrude/Boolean/unify 输出逐 Feature lineage 与 manifest；服务端 bind/resolver 以 PersistentSelection 支持 Product Face/Edge/Vertex 跨 Revision 引用，Revolve/Import 等未完整命名类型仍受限 |
-| Publication、跨文档更新与 Skeleton | 已实现 P10 产品上下文与发布基线 | typed InstancePath/命名、Product Design Session、Context Catalog/Input/Binding、多 Workspace 创建事务、显式 Update Plan、共享 Context Variant、M3 SolveManifest/replay、Product Release gate 与冻结导出 |
+| Publication、跨文档更新与 Skeleton | 已实现 P10 产品上下文与发布基线 | typed InstancePath/命名、Product Design Session、Context Catalog/Input/Binding、多 Workspace 创建事务、FOLLOW_HEAD 自动 Update Plan、显式 PINNED、共享 Context Variant、M3 SolveManifest/replay、Product Release gate 与冻结导出 |
 | S3 兼容对象存储/CDN | 未实现 | 当前仅本地目录 |
 | 实时多人同文档编辑 | 已实现首个提交同步闭环 | WebSocket request/event、Outbox、sequence、重连快照；尚无 presence/preview 与 semantic rebase |
 | XDE/AP242 语义装配交换 | 未实现 | 当前仅按 transferable root 构建 Product，未恢复嵌套 BOM/颜色/共享实例 |

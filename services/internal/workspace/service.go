@@ -2727,7 +2727,7 @@ func (service *Service) buildDocumentStructure(
 	if displayName == "" {
 		displayName = storedName
 	}
-	root := DocumentStructureNode{ID: path, Kind: documentType, Name: displayName,
+	root := DocumentStructureNode{ID: path, Kind: documentType, Name: displayName, ReferenceName: storedName,
 		DocumentID: documentID, DocumentType: documentType, VersionID: versionID}
 	if len(occurrenceIdentity.Segments) > 0 {
 		root.InstancePath = &occurrenceIdentity
@@ -2777,11 +2777,17 @@ func (service *Service) buildDocumentStructure(
 			return DocumentStructureNode{}, err
 		}
 		instanceNode := DocumentStructureNode{
-			ID: instanceNodePath, Kind: "INSTANCE", Name: instance.Name, EntityID: instance.ID,
+			ID: instanceNodePath, Kind: "INSTANCE", Name: fmt.Sprintf("%s(%s)", reference.ReferenceName, instance.Name),
+			ReferenceName: reference.ReferenceName, InstanceName: instance.Name, EntityID: instance.ID,
 			DocumentID: reference.DocumentID, DocumentType: reference.DocumentType,
 			VersionID: resolvedVersionID, ReferenceMode: mode, InstancePath: &childIdentity, Children: reference.Children,
 		}
 		instanceNode.Capabilities = []string{"DELETE"}
+		if mode == "PINNED" {
+			instanceNode.Capabilities = append(instanceNode.Capabilities, "FOLLOW_HEAD")
+		} else {
+			instanceNode.Capabilities = append(instanceNode.Capabilities, "PIN_VERSION")
+		}
 		if reference.DocumentType == "PRODUCT" {
 			instanceNode.Capabilities = append(instanceNode.Capabilities, "CREATE_PART")
 		}

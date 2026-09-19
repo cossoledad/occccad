@@ -5,6 +5,8 @@ export type CadShaderProgramID =
   | "cad.surface"
   | "cad.edge"
   | "cad.point"
+  | "cad.datum.plane"
+  | "cad.datum.line"
   | "cad.constraint.glyph"
   | "cad.manipulator.line"
   | "cad.manipulator.glyph"
@@ -68,6 +70,32 @@ export class CadShaderLibrary {
   }
 
   private registerBuiltins(): void {
+    this.register("cad.datum.plane", {
+      uniforms: {
+        uColor: { value: new THREE.Color() }, uSelectedColor: { value: new THREE.Color() },
+        uSelected: { value: 0 }, uOpacity: { value: 0.11 },
+      },
+      vertexShader: `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+      fragmentShader: `
+        uniform vec3 uColor;uniform vec3 uSelectedColor;uniform float uSelected;uniform float uOpacity;varying vec2 vUv;
+        void main(){float border=1.0-smoothstep(0.0,0.055,min(min(vUv.x,vUv.y),min(1.0-vUv.x,1.0-vUv.y)));
+          vec3 color=mix(uColor,uSelectedColor,uSelected);gl_FragColor=vec4(color,mix(uOpacity,0.72,border));
+          #include <colorspace_fragment>}
+      `,
+      transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+    });
+
+    this.register("cad.datum.line", {
+      uniforms: { uColor: { value: new THREE.Color() }, uSelectedColor: { value: new THREE.Color() }, uSelected: { value: 0 },
+        uDashed: { value: 0 }, uDashCount: { value: 7 } },
+      vertexShader: `attribute float lineDistance;varying float vLineDistance;
+        void main(){vLineDistance=lineDistance;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+      fragmentShader: `uniform vec3 uColor;uniform vec3 uSelectedColor;uniform float uSelected;uniform float uDashed;uniform float uDashCount;
+        varying float vLineDistance;void main(){if(uDashed>0.5&&fract(vLineDistance*uDashCount)>0.62)discard;
+        gl_FragColor=vec4(mix(uColor,uSelectedColor,uSelected),1.0);#include <colorspace_fragment>}`,
+      transparent: true, depthTest: false, depthWrite: false,
+    });
+
     this.register("cad.manipulator.glyph", {
       uniforms: { uColor: { value: new THREE.Color(1, 1, 1) }, uActive: { value: 0 } },
       vertexShader: `

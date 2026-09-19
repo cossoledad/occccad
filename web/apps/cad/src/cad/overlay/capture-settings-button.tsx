@@ -24,7 +24,33 @@ export function CaptureSettingsButton({ settings, onEnabledChange, onSelectionTo
 }) {
 	const uiHelp = useUIHelp();
   const [open, setOpen] = useState(false);
-  const content = <div className="cad-capture-panel">
+  const content = <CaptureSettingsPanel settings={settings} onEnabledChange={onEnabledChange}
+    onSelectionToggle={onSelectionToggle} onSketchToggle={onSketchToggle} onAll={onAll} onPointsOnly={onPointsOnly} />;
+  const activeCount = settings.selection.length + settings.sketch.length;
+  return <CursorTooltip title="捕捉" disabled={uiHelp.active}><Popover open={open} content={content} trigger="click" placement="bottomLeft" onOpenChange={(nextOpen) => {
+	if (nextOpen && uiHelp.active) {
+      setOpen(false);
+      uiHelp.explain({ toolbarName: "", commandName: "捕捉", helpText: "设置三维选择过滤和草图吸附类型。" });
+      return;
+    }
+    setOpen(nextOpen);
+  }}>
+    <Button className={`cad-tool-button cad-capture-button ${settings.enabled ? "active" : ""}`}
+      type={settings.enabled ? "primary" : "default"} icon={<CadIcon name="capture" />}
+      aria-label="捕获设置" aria-pressed={settings.enabled}
+	  data-active-count={activeCount} />
+  </Popover></CursorTooltip>;
+}
+
+export function CaptureSettingsPanel({ settings, onEnabledChange, onSelectionToggle, onSketchToggle, onAll, onPointsOnly }: {
+  settings: CaptureSettings;
+  onEnabledChange: (enabled: boolean) => void;
+  onSelectionToggle: (kind: SelectionCaptureKind) => void;
+  onSketchToggle: (kind: SketchSnapCaptureKind) => void;
+  onAll: () => void;
+  onPointsOnly: () => void;
+}) {
+  return <div className="cad-capture-panel">
     <div className="cad-capture-heading"><strong>捕获设置</strong><Switch size="small" checked={settings.enabled}
       onChange={onEnabledChange} aria-label="启用捕获" /></div>
     <div className="cad-capture-presets"><Button size="small" onClick={onAll}>全部</Button>
@@ -41,18 +67,4 @@ export function CaptureSettingsButton({ settings, onEnabledChange, onSelectionTo
     </div></section>
     <small>过滤器只影响下一次捕获；已有选择保持不变。</small>
   </div>;
-  const activeCount = settings.selection.length + settings.sketch.length;
-  return <CursorTooltip title="捕捉" disabled={uiHelp.active}><Popover open={open} content={content} trigger="click" placement="bottomLeft" onOpenChange={(nextOpen) => {
-	if (nextOpen && uiHelp.active) {
-      setOpen(false);
-      uiHelp.explain({ toolbarName: "", commandName: "捕捉", helpText: "设置三维选择过滤和草图吸附类型。" });
-      return;
-    }
-    setOpen(nextOpen);
-  }}>
-    <Button className={`cad-tool-button cad-capture-button ${settings.enabled ? "active" : ""}`}
-      type={settings.enabled ? "primary" : "default"} icon={<CadIcon name="capture" />}
-      aria-label="捕获设置" aria-pressed={settings.enabled}
-	  data-active-count={activeCount} />
-  </Popover></CursorTooltip>;
 }

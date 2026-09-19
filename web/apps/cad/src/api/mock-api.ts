@@ -209,11 +209,15 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
   const instanceNodes: DocumentStructureNode[] = (view.product?.instances ?? []).map((instance) => {
       const referenced = views.get(instance.documentId);
       const referenceTree = referenced ? mockStructure(referenced, `${path}/instance:${instance.id}/reference`, nextVisiting) : undefined;
-      return { id: `${path}/instance:${instance.id}`, kind: "INSTANCE" as const, name: instance.name,
+      const referenceName = referenced?.document.name ?? "Reference";
+      const referenceMode = instance.referenceMode ?? "FOLLOW_HEAD";
+      return { id: `${path}/instance:${instance.id}`, kind: "INSTANCE" as const, name: `${referenceName}(${instance.name})`,
+        referenceName, instanceName: instance.name,
         entityId: instance.id, documentId: instance.documentId, documentType: referenced?.document.type,
-        versionId: instance.versionId, referenceMode: instance.referenceMode ?? "FOLLOW_HEAD",
+        versionId: instance.versionId, referenceMode,
         instancePath: mockInstancePath(view.document.id, instance),
-        capabilities: path === `document:${view.document.id}` ? ["DELETE" as const] : undefined, children: referenceTree?.children };
+        capabilities: path === `document:${view.document.id}` ? ["DELETE" as const,
+          referenceMode === "PINNED" ? "FOLLOW_HEAD" as const : "PIN_VERSION" as const] : undefined, children: referenceTree?.children };
     });
   const constraints = view.product?.constraints ?? [];
   const constraintGroup = constraints.length ? [{ id: `${path}/assembly-constraints`, kind: "ASSEMBLY_CONSTRAINT_SET" as const, name: "约束",

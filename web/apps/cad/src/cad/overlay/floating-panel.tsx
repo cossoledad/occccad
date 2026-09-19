@@ -17,8 +17,8 @@ export function FloatingPanel({ className = "", title, position = "top-left", ch
   </section>;
 }
 
-export function FloatingToolbar({ children, id, label, orientation = "horizontal", position = "top-center", className = "" }:
-  FloatingPanelProps & { id: string; label?: string; orientation?: ToolbarOrientation }) {
+export function FloatingToolbar({ children, id, label, orientation = "horizontal", position = "top-center", className = "", stackIndex = 0 }:
+  FloatingPanelProps & { id: string; label?: string; orientation?: ToolbarOrientation; stackIndex?: number }) {
   const savedLayout = useUIPreferences((state) => state.toolbarLayouts[id]);
   const saveLayout = useUIPreferences((state) => state.setToolbarLayout);
   const [layout, setLayout] = useState<ToolbarLayout>(() => normalizeToolbarLayout(savedLayout, orientation));
@@ -29,6 +29,7 @@ export function FloatingToolbar({ children, id, label, orientation = "horizontal
   const placed = layout.x !== undefined && layout.y !== undefined;
   const style = {
     "--toolbar-direction": layout.orientation === "horizontal" ? "row" : "column",
+    "--toolbar-stack-index": stackIndex,
     ...(placed ? { left: layout.x, top: layout.y, right: "auto", bottom: "auto", transform: "none" } : {}),
   } as CSSProperties;
 

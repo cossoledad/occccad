@@ -37,6 +37,19 @@ export class CadMaterialFactory {
     return material;
   }
 
+  datumPlane(color: number): THREE.ShaderMaterial {
+    return this.shaders.createMaterial("cad.datum.plane", {
+      uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uOpacity: 0.11,
+    });
+  }
+
+  datumLine(color: number, dashed = false): THREE.ShaderMaterial {
+    return this.shaders.createMaterial("cad.datum.line", {
+      uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected),
+      uDashed: dashed ? 1 : 0, uDashCount: 7,
+    });
+  }
+
   constraintGlyph(glyph: number, color: number = this.theme.constraint, size = 17): THREE.ShaderMaterial {
     const material = this.shaders.createMaterial("cad.constraint.glyph", {
       uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uGlyph: glyph, uPointSize: size,

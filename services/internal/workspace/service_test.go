@@ -1084,6 +1084,33 @@ func TestProductFollowHeadIsUndoableModelState(t *testing.T) {
 	}
 }
 
+func TestPinReferenceModePreservesAcceptedRevision(t *testing.T) {
+	t.Parallel()
+	model := ProductModel{Instances: []ProductInstance{{ID: "instance-1", ReferencedDocumentID: "part-1",
+		ReferencedVersionID: "accepted-r1", ReferenceMode: "FOLLOW_HEAD"}}}
+	modelJSON, _ := json.Marshal(model)
+	service := &Service{}
+	typeURI, payload, err := service.adaptLegacyCommand(t.Context(), "product-1", "PRODUCT", modelJSON, CommandRequest{
+		Type: "SET_REFERENCE_MODE", InstanceID: "instance-1", ReferenceMode: "PINNED",
+	})
+	if err != nil {
+		t.Fatalf("adapt pin command: %v", err)
+	}
+	if typeURI != typeSetReferenceMode {
+		t.Fatalf("unexpected command type %q", typeURI)
+	}
+	payloadJSON, _ := json.Marshal(payload)
+	nextJSON, _, err := applyReferenceMode(modelJSON, payloadJSON)
+	if err != nil {
+		t.Fatalf("apply pin command: %v", err)
+	}
+	var next ProductModel
+	_ = json.Unmarshal(nextJSON, &next)
+	if next.Instances[0].ReferenceMode != "PINNED" || next.Instances[0].ReferencedVersionID != "accepted-r1" {
+		t.Fatalf("pin must freeze the Product's accepted revision, got %#v", next.Instances[0])
+	}
+}
+
 func TestProductReferenceModeValidation(t *testing.T) {
 	t.Parallel()
 	model := ProductModel{Instances: []ProductInstance{{ID: "instance-1"}}}

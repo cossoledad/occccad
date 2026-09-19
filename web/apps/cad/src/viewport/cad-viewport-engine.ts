@@ -36,7 +36,7 @@ import { assemblyConstraintGlyph } from "../cad/assembly/assembly-constraint-ux"
 import { ArcSketchTool, AssemblyConstraintTool, AssemblyMoveTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, ProjectExternalGeometrySketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type AssemblyConstraintToolKind, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
-  Artifact, AssemblyGeometryRef, AxisSystem, DatumAxis, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, ReferenceGeometry, Selection, SelectionItem, SketchConstraint, SketchEntity, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3, VisualizationManifest,
+  Artifact, AssemblyGeometryRef, AxisSystem, DatumAxis, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, Publication, ReferenceGeometry, Selection, SelectionItem, SketchConstraint, SketchEntity, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3, VisualizationManifest,
 } from "../types";
 
 type Callbacks = {
@@ -63,6 +63,46 @@ type SolidContext = {
 type SolidBinding = { group: THREE.Group; mesh: THREE.Mesh; artifact: Artifact; context: SolidContext };
 export type ViewportEditContext = { view: DocumentView; occurrencePath?: string; translation?: Vec3;
   rotation?: [number, number, number, number]; bodyTreeNodeId?: string };
+
+// A Product viewport owns the assembly scene, while sketch interaction belongs
+// to the active occurrence's reference document. Keeping this decision in one
+// place prevents hit testing and constraint tools from accidentally reading the
+// root Product (which intentionally has no Part feature collection).
+export function sketchInteractionView(view?: DocumentView, editContext?: ViewportEditContext): DocumentView | undefined {
+  if (editContext?.view.document.type === "PART") return editContext.view;
+  return view?.document.type === "PART" ? view : undefined;
+}
+
+export function datumAxisHitAccepted(distanceToRay: number | undefined, tolerance: number): boolean {
+  return distanceToRay !== undefined && distanceToRay <= tolerance;
+}
+
+export function bindPublicationSelection(selection: SelectionItem, root?: DocumentStructureNode): SelectionItem {
+  if (!root || selection.publicationId) return selection;
+  const matches: Array<{ id: string; publication: Publication }> = [];
+  const visit = (node: DocumentStructureNode) => {
+    const source = node.publication;
+    const forwarded = node.productPublication;
+    const resolution = source?.resolution ?? forwarded?.resolution;
+    const occurrencePath = source ? node.instancePath?.canonical ?? "" : forwarded?.target.instancePath.canonical ?? "";
+    const topologyMatches = resolution?.topologyKind?.toLowerCase() === selection.kind && "topologyId" in selection &&
+      resolution.localId === selection.topologyId && (!resolution.geometryKey || !selection.geometryKey || resolution.geometryKey === selection.geometryKey);
+    const datumID = source?.target.datumId ?? resolution?.geometryId;
+    const datumMatches = (["plane", "axis", "axis-system"].includes(selection.kind) && datumID && selection.entityId === datumID);
+    if ((source || forwarded) && occurrencePath === (selection.occurrencePath ?? "") && (topologyMatches || datumMatches)) {
+      const publication: Publication = source ?? {
+        id: forwarded!.id, name: forwarded!.name, type: forwarded!.type, semanticPurpose: forwarded!.semanticPurpose,
+        compatibilityVersion: forwarded!.compatibilityVersion,
+        target: { kind: resolution?.topologyKind ? "TOPOLOGY" : "DATUM", sourceVersionId: resolution?.resolvedVersionId },
+        contract: forwarded!.contract, resolution: forwarded!.resolution,
+      };
+      matches.push({ id: source?.id ?? forwarded!.id, publication });
+    }
+    node.children?.forEach(visit);
+  };
+  visit(root);
+  return matches.length === 1 ? { ...selection, publicationId: matches[0].id, publication: matches[0].publication } : selection;
+}
 
 export type ViewportDebugState = {
   input: InputState;
@@ -188,6 +228,8 @@ export class CadViewportEngine {
   private readonly solidBindings = new Map<string, SolidBinding>();
   private readonly instanceGroups = new Map<string, THREE.Group>();
   private readonly assemblyConstraintReferences = new Map<string, SelectionItem[]>();
+  private readonly screenStableReferences = new Map<THREE.Object3D, number>();
+  private datumAxisPickToleranceWorld = 0;
   private selected: SelectionItem[] = [];
   private preselected: Selection = null;
   private selectedOverlays: THREE.Object3D[] = [];
@@ -336,6 +378,10 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
+  private sketchView(): DocumentView | undefined {
+    return sketchInteractionView(this.view, this.editContext);
+  }
+
   render(view: DocumentView, editContext?: ViewportEditContext): void {
     const previousDocumentID = this.view?.document.id;
     const previousInstancePoses = new Map([...this.instanceGroups].map(([id, group]) => [id, snapshotTransform(group)]));
@@ -354,6 +400,7 @@ export class CadViewportEngine {
     this.solidBindings.clear();
     this.instanceGroups.clear();
     this.assemblyConstraintReferences.clear();
+    this.screenStableReferences.clear();
     if (view.document.type === "PART") this.renderPart(view);
     else this.renderProduct(view);
     if (view.document.type === "PRODUCT" && editContext?.view.document.type === "PART") {
@@ -550,8 +597,9 @@ export class CadViewportEngine {
   }
 
   requestDimensionEdit(selection: Extract<SelectionItem, { kind: "sketch-constraint" }>, x?: number, y?: number): boolean {
-    if (!this.view) return false;
-    const feature = this.view.part?.features.find((candidate) => candidate.id === selection.featureId);
+    const sketchView = this.sketchView();
+    if (!sketchView) return false;
+    const feature = sketchView.part?.features.find((candidate) => candidate.id === selection.featureId);
     const constraint = feature?.sketch?.constraints.find((candidate) => candidate.id === selection.constraintId);
     if (!constraint || constraint.value === undefined || (constraint.unit !== "mm" && constraint.unit !== "deg") ||
       !isDimensionConstraintKind(constraint.kind)) return false;
@@ -1117,14 +1165,15 @@ export class CadViewportEngine {
 
   private addDatumPlane(datum: DatumPlane, parent: THREE.Group, selectable: boolean, context?: SolidContext): void {
     const { id, plane } = datum;
-    const geometry = new THREE.PlaneGeometry(datum.size || 180, datum.size || 180);
-    const material = new THREE.MeshBasicMaterial({
-      color: planeColors[plane], transparent: true, opacity: 0.075,
-      side: THREE.DoubleSide, depthWrite: false,
-    });
+    const geometry = new THREE.PlaneGeometry(0.72, 0.72);
+    geometry.translate(0.54, 0.54, 0);
+    const material = this.materials.datumPlane(planeColors[plane]);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.fromArray(datum.origin);
-    mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3().fromArray(datum.normal).normalize());
+    const normal = new THREE.Vector3().fromArray(datum.normal).normalize();
+    const u = new THREE.Vector3().fromArray(datum.uDirection).normalize();
+    mesh.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, normal.clone().cross(u).normalize(), normal));
+    mesh.renderOrder = 90;
     const selection = {
       kind: "plane" as const, id: `${context?.occurrencePath || "root"}:${id}`, entityId: id, plane, datumPlane: datum,
       treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
@@ -1132,39 +1181,40 @@ export class CadViewportEngine {
       geometryKey: context?.geometryKey, instanceId: context?.instanceId
     };
     mesh.userData = selection;
-    const edge = new THREE.LineSegments(
-      new THREE.EdgesGeometry(geometry),
-      new THREE.LineBasicMaterial({ color: planeColors[plane], transparent: true, opacity: 0.5 }),
-    );
-    mesh.add(edge);
     parent.add(mesh);
+    this.screenStableReferences.set(mesh, 46);
     if (selectable || context) {
       this.selectable.set(`plane:${selection.id}`, mesh);
       this.selectionIndex.register(selection, mesh);
-      this.selectionIndex.registerPick(mesh, () => selection, 8);
+      this.selectionIndex.registerPick(mesh, () => selection, 90);
     }
   }
 
   private addDatumAxis(axis: DatumAxis, parent: THREE.Group, context?: SolidContext): void {
     const origin = new THREE.Vector3().fromArray(axis.origin);
     const direction = new THREE.Vector3().fromArray(axis.direction).normalize();
-    const half = 90;
     const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
-      origin.clone().addScaledVector(direction, -half), origin.clone().addScaledVector(direction, half),
-    ]), new THREE.LineDashedMaterial({ color: 0xd89422, dashSize: 8, gapSize: 5 }));
+      new THREE.Vector3(), new THREE.Vector3(1, 0, 0),
+    ]), this.materials.datumLine(0xd89422, true));
     line.computeLineDistances();
+    line.position.copy(origin);
+    line.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), direction);
+    line.renderOrder = 92;
     const selection = { kind: "axis" as const, axis: "DATUM" as const,
       id: `${context?.occurrencePath || "root"}:${axis.id}`, entityId: axis.id, treeNodeId: context?.treeNodeId,
       documentId: context?.documentId, occurrencePath: context?.occurrencePath, geometryKey: context?.geometryKey,
       instanceId: context?.instanceId };
     line.userData = selection; parent.add(line);
-    this.selectionIndex.register(selection, line); this.selectionIndex.registerPick(line, () => selection, 48);
+    this.screenStableReferences.set(line, 54);
+    this.selectionIndex.register(selection, line); this.selectionIndex.registerPick(line, (hit) =>
+      datumAxisHitAccepted(hit.distanceToRay, this.datumAxisPickToleranceWorld) ? selection : null, 12);
   }
 
   private addAxisSystem(axis: AxisSystem, parent: THREE.Group, context?: SolidContext): void {
-    const length = 38;
     const origin = new THREE.Vector3().fromArray(axis.origin);
     const system = new THREE.Group();
+    system.position.copy(origin);
+    this.screenStableReferences.set(system, 54);
     const systemSelection = {
       kind: "axis-system" as const, id: `${context?.occurrencePath || "root"}:${axis.id}`,
       entityId: axis.id,
@@ -1173,16 +1223,18 @@ export class CadViewportEngine {
     };
     const definitions = [["X", axis.xDirection, 0xe62e24], ["Y", axis.yDirection, 0x29b849], ["Z", axis.zDirection, 0x3478e5]] as const;
     for (const [name, direction, color] of definitions) {
-      const geometry = new THREE.BufferGeometry().setFromPoints([origin,
-        origin.clone().add(new THREE.Vector3().fromArray(direction).multiplyScalar(length))]);
-      const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.95 }));
+      const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3().fromArray(direction)]);
+      const line = new THREE.Line(geometry, this.materials.datumLine(color));
+      line.computeLineDistances();
+      line.renderOrder = 92;
       const selection = {
         ...systemSelection, kind: "axis" as const, axis: name, id: `${systemSelection.id}:${name}`,
         treeNodeId: context?.treeNodeId ? `${context.treeNodeId}/${name.toLowerCase()}` : undefined
       };
       line.userData = selection; system.add(line);
       this.selectionIndex.register(selection, line, context?.treeNodeId);
-      this.selectionIndex.registerPick(line, () => selection, 45);
+      this.selectionIndex.registerPick(line, (hit) =>
+        datumAxisHitAccepted(hit.distanceToRay, this.datumAxisPickToleranceWorld) ? selection : null, 10);
     }
     system.userData = systemSelection; parent.add(system);
     this.selectionIndex.register(systemSelection, system);
@@ -1580,6 +1632,7 @@ export class CadViewportEngine {
   }
 
   private hitTest(x: number, y: number, captureManipulatorAnchor = false): Selection {
+    this.updateScreenStableReferences();
     this.updatePointer(x, y);
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const distance = Math.max(this.camera.position.distanceTo(this.navigation.target), 1);
@@ -1587,11 +1640,12 @@ export class CadViewportEngine {
       Math.max(this.renderer.domElement.clientHeight, 1);
     this.raycaster.params.Line = { threshold: worldPerPixel * 5 };
     this.raycaster.params.Points = { threshold: worldPerPixel * 7 };
+    this.datumAxisPickToleranceWorld = worldPerPixel * 1.75;
     const hit = this.selectionIndex.pickWithIntersection(this.raycaster, (selection) =>
       this.activeToolID === "sketch.project" && (selection.kind === "edge" || selection.kind === "vertex")
         ? allowsSelection(this.captureSettings, selection)
         : allowsSelectionInContext(this.captureSettings, selection, this.activeSketchID));
-    const raw=hit.selection;
+    const raw=hit.selection && bindPublicationSelection(hit.selection, this.view?.structureTree);
     if(captureManipulatorAnchor&&this.activeToolID==="assembly.move"&&raw?.instanceId&&hit.intersection){
       this.pendingManipulatorAnchor={instanceId:raw.instanceId,anchor:this.manipulatorAnchorFromIntersection(hit.intersection)};
     }
@@ -1600,8 +1654,9 @@ export class CadViewportEngine {
 
   private dimensionConstraintAt(x: number, y: number) {
     const selection = this.hitTest(x, y);
-    if (!selection || selection.kind !== "sketch-constraint" || !this.view) return undefined;
-    const feature = this.view.part?.features.find((candidate) => candidate.id === selection.featureId);
+    const sketchView = this.sketchView();
+    if (!selection || selection.kind !== "sketch-constraint" || !sketchView) return undefined;
+    const feature = sketchView.part?.features.find((candidate) => candidate.id === selection.featureId);
     const constraint = feature?.sketch?.constraints.find((candidate) => candidate.id === selection.constraintId);
     if (!constraint || !isDimensionConstraintKind(constraint.kind)) return undefined;
     return { selection, constraint, feature };
@@ -1625,7 +1680,8 @@ export class CadViewportEngine {
   }
 
   private updateDimensionDrag(x: number, y: number): void {
-    if (!this.dimensionDrag || !this.sketchPlane || !this.view) return;
+    const sketchView = this.sketchView();
+    if (!this.dimensionDrag || !this.sketchPlane || !sketchView) return;
     if (Math.hypot(x - this.dimensionDrag.startX, y - this.dimensionDrag.startY) < 3 && !this.dimensionDrag.position) return;
     const position = this.rawSketchPoint(x, y); if (!position) return;
     if (!this.dimensionDrag.position) {
@@ -1640,7 +1696,7 @@ export class CadViewportEngine {
     }
     this.dimensionDrag.position = position;
     this.clearReferencePreview();
-    const feature = this.view.part?.features.find((candidate) => candidate.id === this.dimensionDrag!.selection.featureId);
+    const feature = sketchView.part?.features.find((candidate) => candidate.id === this.dimensionDrag!.selection.featureId);
     if (!feature?.sketch) return;
     const previewConstraint = { ...this.dimensionDrag.constraint, labelPosition: { x: position[0], y: position[1] } };
     this.referencePreview = makeSketchConstraintRenderable(previewConstraint, sketchReferenceEntities(feature),
@@ -1692,7 +1748,7 @@ export class CadViewportEngine {
 
   private addTopologyOverlay(layer: "selected" | "preselected", selection: SelectionItem): void {
     if(selection.kind==="sketch-constraint"){
-      const constraint=this.view?.part?.features.find((feature)=>feature.id===selection.featureId)?.sketch?.constraints
+      const constraint=this.sketchView()?.part?.features.find((feature)=>feature.id===selection.featureId)?.sketch?.constraints
         .find((candidate)=>candidate.id===selection.constraintId);
       const color=layer==="selected"?CATIA_VISUAL_THEME.selected:CATIA_VISUAL_THEME.hover;
       for(const reference of constraint?.references??[]){
@@ -1750,7 +1806,7 @@ export class CadViewportEngine {
     const point = this.raycaster.ray.intersectPlane(rayPlane(this.sketchPlane), new THREE.Vector3());
     if (!point) { this.clearSnapPreview(); return null; }
     const raw = worldToLocal(this.sketchPlane, point);
-    const activeFeature = this.view?.part?.features.find((feature) => feature.id === this.activeSketchID);
+    const activeFeature = this.sketchView()?.part?.features.find((feature) => feature.id === this.activeSketchID);
     const screen = (local: Vec2) => {
       const projected = localToWorld(this.sketchPlane!, local).project(this.camera);
       return [(projected.x + 1) * this.renderer.domElement.clientWidth / 2,
@@ -1852,8 +1908,9 @@ export class CadViewportEngine {
       updateHighlightLineResolution(line, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
       return line;
     }
-    if (!this.view || !reference.entityId) return undefined;
-    const entity = sketchReferenceEntities(this.view.part?.features.find((feature) => feature.id === this.activeSketchID))
+    const sketchView = this.sketchView();
+    if (!sketchView || !reference.entityId) return undefined;
+    const entity = sketchReferenceEntities(sketchView.part?.features.find((feature) => feature.id === this.activeSketchID))
       .find((candidate) => candidate.id === reference.entityId);
     if (!entity) return undefined;
     if (entity.kind === "POINT" && entity.point) {
@@ -1894,8 +1951,9 @@ export class CadViewportEngine {
 
   private showConstraintPreview(kind: ConstraintKind, references: readonly SketchGeometryRef[], value?: number, labelPosition?: Vec2): void {
     this.clearReferencePreview();
-    if (!this.sketchPlane || !this.view) return;
-    const feature = this.view.part?.features.find((candidate) => candidate.id === this.activeSketchID);
+    const sketchView = this.sketchView();
+    if (!this.sketchPlane || !sketchView) return;
+    const feature = sketchView.part?.features.find((candidate) => candidate.id === this.activeSketchID);
     if (!feature?.sketch) return;
     const group = new THREE.Group();
     for (const reference of references) {
@@ -1923,7 +1981,7 @@ export class CadViewportEngine {
         if(!snap)return undefined;
         if(snap.kind==="ORIGIN")return {target:"SKETCH_ORIGIN",subElement:"POINT"};
         if(snap.entityId && (snap.subElement==="POINT"||snap.subElement==="START"||snap.subElement==="END"||snap.subElement==="CENTER")) {
-          const external = this.view?.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch?.externalGeometry
+          const external = this.sketchView()?.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch?.externalGeometry
             ?.some((candidate) => candidate.id === snap.entityId);
           return {target:external?"EXTERNAL":"ENTITY",entityId:snap.entityId,subElement:snap.subElement};
         }
@@ -1949,8 +2007,9 @@ export class CadViewportEngine {
       showReferencePreview: (reference, retained) => this.showReferencePreview(reference, retained),
       showConstraintPreview: (kind, references, value, labelPosition) => this.showConstraintPreview(kind, references, value, labelPosition),
       measureDimension: (kind, references) => {
-        const sketch = this.view?.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch;
-        const feature = this.view?.part?.features.find((candidate) => candidate.id === this.activeSketchID);
+        const sketchView = this.sketchView();
+        const sketch = sketchView?.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch;
+        const feature = sketchView?.part?.features.find((candidate) => candidate.id === this.activeSketchID);
         return sketch && feature ? measureSketchDimension(kind, references, sketchReferenceEntities(feature)) : undefined;
       },
       requestDimensionCreation: (kind, references, value, unit, labelPosition, x, y) => {
@@ -1984,14 +2043,15 @@ export class CadViewportEngine {
   }
 
   private sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind, retained?: SketchGeometryRef) {
-    if (!this.sketchPlane || !this.view || !this.captureSettings.enabled) return null;
+    const sketchView = this.sketchView();
+    if (!this.sketchPlane || !sketchView || !this.captureSettings.enabled) return null;
     const width = Math.max(this.renderer.domElement.clientWidth, 1);
     const height = Math.max(this.renderer.domElement.clientHeight, 1);
     const screen = (point: Vec2) => {
       const projected = localToWorld(this.sketchPlane!, point).project(this.camera);
       return { x: (projected.x + 1) * width / 2, y: (1 - projected.y) * height / 2 };
     };
-    const feature = this.view.part?.features.find((candidate) => candidate.id === this.activeSketchID);
+    const feature = sketchView.part?.features.find((candidate) => candidate.id === this.activeSketchID);
     const entities = sketchReferenceEntities(feature);
     const reference = resolveSketchReference({ x, y }, entities, screen, kind, 12, 110, retained);
     if (!reference) return null;
@@ -2152,6 +2212,7 @@ export class CadViewportEngine {
       if (!this.disposed) {
         this.updateNavigationHUD();
         this.moveManipulator.updateScale(this.camera, viewportMetrics(this.renderer));
+        this.updateScreenStableReferences();
         const metrics=viewportMetrics(this.renderer);
         this.scene.traverse((object)=>{
           const material=(object as THREE.Points).material;
@@ -2165,5 +2226,20 @@ export class CadViewportEngine {
         this.navigationHUD.render(this.renderer);
       }
     });
+  }
+
+  private updateScreenStableReferences(): void {
+    if (!this.screenStableReferences.size) return;
+    this.camera.updateMatrixWorld();
+    this.camera.matrixWorldInverse.copy(this.camera.matrixWorld).invert();
+    this.scene.updateMatrixWorld(true);
+    const metrics = viewportMetrics(this.renderer);
+    const worldPosition = new THREE.Vector3();
+    for (const [object, cssPixels] of this.screenStableReferences) {
+      object.getWorldPosition(worldPosition);
+      const scale = worldUnitsPerCssPixel(this.camera, worldPosition, metrics) * cssPixels;
+      if (Number.isFinite(scale) && scale > 0) object.scale.setScalar(scale);
+    }
+    this.scene.updateMatrixWorld(true);
   }
 }

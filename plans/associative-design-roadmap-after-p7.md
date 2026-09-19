@@ -353,9 +353,9 @@ Part 声明 typed ContextInput，最低共同 Product ancestor 拥有 source occ
 
 ### P10E：Product Update Plan 与 Context Variant
 
-根 Product 构建几何/参数依赖 DAG、影响闭包和只读 update preview；同一共享 Part 的 occurrence-specific 输入生成显式 context variant。接受更新默认全有或全无，并分别投影 connection、currency 和 evaluation 状态。
+根 Product 构建几何/参数依赖 DAG、影响闭包和只读 update preview；同一共享 Part 的 occurrence-specific 输入生成显式 context variant。单级计划接受默认全有或全无，并分别投影 connection、currency 和 evaluation 状态；FOLLOW_HEAD 的 Web 会话按叶到根自动驱动这些计划，PINNED 截断传播。
 
-**实施记录（2026-09-19）**：已增加 root-snapshot Product Update Plan、digest-guarded 显式接受和 connection/currency/evaluation 三态。候选 ContextBinding 通过现有 Part parameter/sketch/geometry evaluator 生成 Context Variant；variant key 排除显示名、BindingId 与 occurrence path，相同 base Revision/规范化输入共享 GeometryKey。嵌套定义更新明确按叶到根阻塞，不静默混合新旧 snapshot。
+**实施记录（2026-09-19）**：已增加 root-snapshot Product Update Plan、digest-guarded 接受和 connection/currency/evaluation 三态。工作台对 FOLLOW_HEAD 按叶到根串行自动接受，Instance 右键可固定当前 resolved Revision 或恢复跟随；候选 ContextBinding 通过现有 Part parameter/sketch/geometry evaluator 生成 Context Variant。variant key 排除显示名、BindingId 与 occurrence path，相同 base Revision/规范化输入共享 GeometryKey。嵌套定义更新明确按叶到根阻塞，不静默混合新旧 snapshot。
 
 ### P10F：ResolutionSnapshot 与 SolveManifest Builder
 
@@ -373,7 +373,7 @@ Part 声明 typed ContextInput，最低共同 Product ancestor 拥有 source occ
 
 以 Skeleton、Body、一个被复用四次的 Wheel Product、Rim 和 Tire 构建完整玩具车。参数更新经 Product Update Plan 重算所有关联零件与装配，Product Version Manifest 冻结完整 dependency closure；旧版本在 Head 移动、服务重启和缓存清空后仍可重放、求解和导出。
 
-**实施记录（2026-09-19）**：新增不可变 Product Release schema/API/UI，冻结 occurrence closure、ContextBinding/Variant、Publication、Evaluation/Geometry 与成功 SolveManifest；CURRENT/READY/VERIFIED/replayable gates 阻止不完整发布。Release 可按冻结 manifest replay，并从冻结 GeometryKey 提交 STEP/BREP 导出；公共 Exchange placement 已补齐 quaternion rotation。ToyCar contract corpus 固定四个稳定 Wheel path、同输入 variant 共享、SolveManifest 确定性和 release closure 不受 Workspace Head 变量影响；真实浏览器/WebGL 综合操作仍需人工验收。
+**实施记录（2026-09-19）**：新增不可变 Product Release schema/API/UI，冻结 occurrence closure、ContextBinding/Variant、Publication、Evaluation/Geometry 与成功 SolveManifest；CURRENT/READY/VERIFIED/replayable gates 阻止不完整发布。Release 可按冻结 manifest replay，并从冻结 GeometryKey 提交 STEP/BREP 导出；公共 Exchange placement 已补齐 quaternion rotation。后续工作台收敛把 FOLLOW_HEAD 改为带 digest 的叶到根自动接受并开放 Instance PINNED 右键入口，产品版本中心只呈现发布与 replay，不再混入 Exchange 按钮。ToyCar contract corpus 固定四个稳定 Wheel path、同输入 variant 共享、SolveManifest 确定性和 release closure 不受 Workspace Head 变量影响；真实浏览器/WebGL 综合操作仍需人工验收。
 
 ## 7. P11：Feature 深化与 naming 覆盖
 

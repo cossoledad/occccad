@@ -759,6 +759,9 @@ select {
 }
 
 .cad-floating-panel.top-left { top: 12px; left: 12px; }
+.cad-floating-toolbar.top-left:not(.custom-position),
+.cad-floating-toolbar.top-center:not(.custom-position),
+.cad-floating-toolbar.top-right:not(.custom-position) { top: calc(12px + var(--toolbar-stack-index, 0) * 46px); }
 .cad-floating-panel.top-center { top: 12px; left: 50%; transform: translateX(-50%); }
 .cad-floating-panel.top-right { top: 12px; right: 12px; }
 .viewport-frame.inspector-open>.cad-floating-toolbar.top-right:not(.custom-position) { right: 314px; }
@@ -781,9 +784,6 @@ select {
 .cad-floating-toolbar.vertical .cad-toolbar-handle span { box-shadow: 5px 0 #66767e, -5px 0 #66767e; }
 .part-design-toolbar .cad-toolbar-handle { box-shadow: inset 2px 0 #3c8fc0; }
 .sketcher-toolbar .cad-toolbar-handle { box-shadow: inset 2px 0 #db840f; }
-.sketch-geometric-constraints-toolbar.top-left { top: 58px; }
-.sketch-dimensional-constraints-toolbar.top-left { top: 104px; }
-.sketch-aggregates-toolbar.top-left { top: 150px; }
 .assembly-design-toolbar .cad-toolbar-handle { box-shadow: inset 2px 0 #4b9c75; }
 .cad-floating-toolbar.vertical.part-design-toolbar .cad-toolbar-handle { box-shadow: inset 0 2px #3c8fc0; }
 .cad-floating-toolbar.vertical.sketcher-toolbar .cad-toolbar-handle { box-shadow: inset 0 2px #db840f; }
@@ -809,6 +809,13 @@ select {
 .cad-capture-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; }
 .cad-capture-grid .ant-checkbox-wrapper { margin-inline-start: 0; font-size: 11px; }
 .cad-capture-panel>small { display: block; margin-top: 10px; color: #758993; }
+.user-preferences-drawer .ant-drawer-body { padding-top: 16px; }
+.preference-section > .ant-typography { margin-top: 0; margin-bottom: 8px; }
+.preference-section > .ant-typography-secondary { font-size: 11px; }
+.preference-field { display: grid; grid-template-columns: minmax(0, 1fr) 160px; align-items: center; gap: 12px; margin-top: 10px;
+  color: #334952; font-size: 12px; }
+.preference-note.ant-typography { margin-top: 12px; margin-bottom: 0; line-height: 1.55; }
+.user-preferences-drawer .cad-capture-panel { width: auto; }
 .cad-command-dialog { position: absolute; z-index: 14; overflow: hidden; color: var(--cad-text);
   border: 1px solid var(--cad-panel-edge); border-radius: 2px; background: var(--cad-panel);
   box-shadow: 0 14px 38px rgb(3 15 23 / 42%); pointer-events: auto; }
@@ -869,12 +876,27 @@ select {
   top: 60px;
   bottom: 86px;
   left: 8px;
-  width: min(330px, 34vw);
   overflow: hidden;
   pointer-events: auto;
   scrollbar-color: rgb(215 225 229 / 42%) transparent;
   scrollbar-width: thin;
 }
+
+.structure-tree-resize-handle {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 8px;
+  border: 0;
+  border-right: 2px solid transparent;
+  background: linear-gradient(90deg, transparent, rgb(225 235 239 / 42%), transparent);
+  cursor: ew-resize;
+  touch-action: none;
+}
+.structure-tree-resize-handle:hover,
+.structure-tree-resize-handle:focus-visible { border-right-color: #e09526; outline: 0; background-color: rgb(224 149 38 / 12%); }
 
 .specification-tree { min-width: max-content; height: 100%; padding: 7px 16px 22px 4px; overflow: auto; user-select: none; }
 .specification-tree-virtual-space { position: relative; min-width: 280px; }
@@ -942,8 +964,7 @@ select {
   background: transparent;
 }
 .specification-tree-junction { position: relative; cursor: default; }
-.specification-tree-junction.leaf::before,
-.specification-tree-junction.branch.collapsed::before {
+.specification-tree-junction.leaf::before {
   content: "";
   width: 5px;
   height: 5px;
@@ -953,20 +974,18 @@ select {
   box-shadow: 0 1px 2px rgb(12 31 43 / 72%);
 }
 .specification-tree-junction.leaf::before { width: 3px; height: 3px; background: #dce8ec; }
-.specification-tree-junction.branch { cursor: pointer; }
-.specification-tree-junction.branch.expanded i {
-  position: absolute;
-  width: 5px;
-  height: 5px;
-  border-color: rgb(244 248 249 / 94%);
-  border-style: solid;
-  border-width: 0;
-  filter: drop-shadow(0 1px 1px rgb(12 31 43 / 78%));
-}
-.specification-tree-junction.branch.expanded i:nth-child(1) { top: 3px; left: 2px; border-top-width: 1px; border-left-width: 1px; border-radius: 100% 0 0; }
-.specification-tree-junction.branch.expanded i:nth-child(2) { top: 3px; right: 2px; border-top-width: 1px; border-right-width: 1px; border-radius: 0 100% 0 0; }
-.specification-tree-junction.branch.expanded i:nth-child(3) { right: 2px; bottom: 3px; border-right-width: 1px; border-bottom-width: 1px; border-radius: 0 0 100%; }
-.specification-tree-junction.branch.expanded i:nth-child(4) { bottom: 3px; left: 2px; border-bottom-width: 1px; border-left-width: 1px; border-radius: 0 0 0 100%; }
+.specification-tree-junction.branch { cursor: pointer; color: rgb(238 244 246 / 92%); }
+.specification-tree-orb { position: relative; display: block; width: 12px; height: 12px; border: 1px solid currentColor;
+  border-radius: 50%; background: rgb(53 73 85 / 72%); transition: background 100ms ease, box-shadow 100ms ease; }
+.specification-tree-orb::after { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: currentColor; opacity: 0; }
+.specification-tree-orb i, .specification-tree-orb b { position: absolute; top: 50%; left: 50%; display: block; background: currentColor;
+  opacity: 0; transform: translate(-50%, -50%); }
+.specification-tree-orb i { width: 16px; height: 1px; }
+.specification-tree-orb b { width: 1px; height: 16px; }
+.specification-tree-junction.branch.expanded .specification-tree-orb { background: rgb(32 50 61 / 84%); box-shadow: 0 0 0 1px rgb(228 237 241 / 18%); }
+.specification-tree-junction.branch.expanded .specification-tree-orb::after,
+.specification-tree-junction.branch.expanded .specification-tree-orb i,
+.specification-tree-junction.branch.expanded .specification-tree-orb b { opacity: 1; }
 .specification-tree-icon { width: 20px; flex: 0 0 20px; margin-left: 3px; color: #c8d8df; text-align: center; font-size: 14px; line-height: 1; }
 .specification-tree-level.root>.specification-tree-node>.specification-tree-row>.specification-tree-icon { position: relative; }
 .specification-tree-level.root>.specification-tree-node>.specification-tree-row>.specification-tree-icon::after {
@@ -980,6 +999,10 @@ select {
 }
 .specification-tree-node:first-child>.specification-tree-row>.specification-tree-icon { color: #79b8dc; }
 .specification-tree-label { overflow: hidden; max-width: 250px; text-overflow: ellipsis; white-space: nowrap; }
+.product-release-hero { display: flex; gap: 14px; align-items: flex-start; margin-bottom: 16px; }
+.product-release-hero > .anticon { margin-top: 5px; color: #3f89b8; font-size: 28px; }
+.product-release-hero .ant-typography { margin-top: 0; margin-bottom: 4px; }
+.product-release-ok { color: #329064; font-size: 20px; }
 .specification-tree-row.suppressed { opacity: .48; text-decoration: line-through; }
 .specification-tree-row.diagnostic-conflicting { color: #c94141; background: rgb(201 65 65 / 10%); }
 .specification-tree-row.diagnostic-redundant { color: #a96d1f; background: rgb(169 109 31 / 10%); }
@@ -1040,23 +1063,28 @@ select {
 
 .inspector-toggle.open { right: 302px; }
 
-.document-orb {
-  position: fixed;
-  z-index: 12;
-  left: 14px;
-  bottom: 14px;
-  width: 38px;
-  height: 38px;
+.header-document-manager {
+  min-width: 118px;
+  max-width: min(300px, 28vw);
+  height: 34px;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  margin-left: 10px;
+  padding: 0 10px;
   border: 1px solid #7d8b93;
   border-radius: 2px;
   color: #eef2f3;
   background: #2b3a43;
   box-shadow: none;
-  font-size: 18px;
+  text-align: left;
+  font-size: 14px;
   cursor: pointer;
 }
-
-.document-orb:hover { transform: translateY(-1px); filter: brightness(1.06); }
+.header-document-manager > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.header-document-manager > small { color: #aebcc3; font-size: 8px; }
+.header-document-manager:hover { border-color: #b6c3c9; background: #354852; }
 .document-orb-menu { width: 280px; }
 .document-orb-create { width: 100%; display: flex; align-items: center; gap: 9px; padding: 9px 10px; border: 0; border-radius: 5px; color: white; background: #c56d08; cursor: pointer; }
 .document-orb-caption { padding: 10px 6px 5px; color: #7b8c95; font-size: 9px; font-weight: 700; letter-spacing: .8px; }
@@ -1137,7 +1165,9 @@ select {
     display: none;
   }
 
-  .floating-structure-tree { width: 220px; max-height: 36%; }
+  .floating-structure-tree { max-width: 55vw; max-height: 36%; }
+  .header-document-manager { min-width: 36px; width: 36px; padding: 0 8px; grid-template-columns: 20px; }
+  .header-document-manager > span, .header-document-manager > small { display: none; }
   .inspector-overlay { width: min(280px, calc(100% - 42px)); }
   .inspector-toggle.open { right: min(290px, calc(100% - 32px)); }
 }

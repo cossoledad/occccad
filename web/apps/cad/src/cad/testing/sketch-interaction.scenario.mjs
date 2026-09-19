@@ -42,6 +42,7 @@ try {
   const { formatSketchDimensionValue, sketchReferenceDimensions } = await server.ssrLoadModule("/src/cad/sketch/sketch-input-policy.ts");
   const { CadShaderLibrary } = await server.ssrLoadModule("/src/cad/rendering/shader/cad-shader-library.ts");
   const { AssemblyManipulator } = await server.ssrLoadModule("/src/cad/interaction/assembly-manipulator.ts");
+  const { datumAxisHitAccepted, sketchInteractionView } = await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
   const { defaultOrbitPivot } = await server.ssrLoadModule("/src/cad/navigation/navigation-controller.ts");
   const { perspectiveWorldUnitsPerPixel } = await server.ssrLoadModule("/src/cad/rendering/sketch-constraint-renderer.ts");
   const { axisDragWorldDelta, stableAxisDragWorldDelta, stableAngularDragDelta,
@@ -570,6 +571,20 @@ try {
   assert.equal(constraintMaterial.depthTest, false);
   assert.equal(constraintMaterial.depthWrite, false);
   constraintMaterial.dispose();
+  const datumPlaneMaterial = new CadShaderLibrary().createMaterial("cad.datum.plane");
+  assert.equal(datumPlaneMaterial.depthTest, false, "datum planes must remain visible and selectable through solids");
+  assert.equal(datumPlaneMaterial.depthWrite, false);
+  assert.match(datumPlaneMaterial.fragmentShader, /border/);
+  datumPlaneMaterial.dispose();
+  const datumLineMaterial = new CadShaderLibrary().createMaterial("cad.datum.line");
+  assert.equal(datumLineMaterial.depthTest, false, "datum axes must remain visible and selectable through solids");
+  assert.match(datumLineMaterial.fragmentShader, /uDashed/,
+    "datum axes expose a dedicated dashed visual style instead of looking like model edges");
+  assert.equal(datumAxisHitAccepted(1.7, 1.75), true);
+  assert.equal(datumAxisHitAccepted(1.8, 1.75), false,
+    "datum axes use a tighter per-pixel acceptance threshold than ordinary model edges");
+  assert.equal(datumAxisHitAccepted(undefined, 1.75), false);
+  datumLineMaterial.dispose();
   const manipulatorMaterial = new CadShaderLibrary().createMaterial("cad.manipulator.glyph");
   assert.match(manipulatorMaterial.fragmentShader, /abs\(length\(p\)-0\.30\)/,
     "the manipulator center must be an anti-aliased hollow screen glyph");
@@ -656,6 +671,12 @@ try {
     documentId: "part-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
     instanceId: "instance-a", treeNodeId: "product/instance-a/reference/body/sketch:sketch-1/constraints/logical/constraint:parallel-1",
   });
+
+  const rootProductView = { document: { id: "product", type: "PRODUCT" } };
+  const activePartView = { document: { id: "part", type: "PART" }, part: { features: [{ id: "sketch-1" }] } };
+  assert.equal(sketchInteractionView(rootProductView, { view: activePartView }), activePartView,
+    "Product in-context sketch tools must read the active occurrence's Part view");
+  assert.equal(sketchInteractionView(activePartView), activePartView);
 
   console.log("Sketch tool interaction tests passed.");
 } finally {

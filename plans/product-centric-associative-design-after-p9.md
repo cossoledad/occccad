@@ -1,6 +1,6 @@
 # P9 后 Product 中心的关联设计方案
 
-状态：设计基线，尚未代表已实现能力  
+状态：P10 已实现；工作台 UX 已收敛，待浏览器人工验收
 适用范围：P9 Publication/ContextReference 基线之后，P10 Assembly M3 与产品级版本发布之前
 
 ## 1. 结论
@@ -11,7 +11,7 @@
 - 可引用范围默认只包含该根 Product 当前冻结结构中可达、可见权限允许且合同兼容的 Publication；
 - Part/Product 继续用 `PublicationId`、`InstanceId`、`InstancePath` 和 Revision 作为权威身份，但普通用户只看可读名称和路径；
 - Part 声明可复用的输入端口与输出 Publication，根 Product 拥有 occurrence 之间的 `ContextBinding`；
-- 接受上游变化由根 Product 生成一次完整 Update Plan，按依赖 DAG 重算 Part context variant、装配引用与求解；
+- 上游变化由根 Product 生成一次完整 Update Plan；FOLLOW_HEAD 在工作台按依赖 DAG 自动接受并重算 Part context variant、装配引用与求解，PINNED 显式冻结；
 - 创建 Product Version/Release 时冻结完整依赖闭包，而不是留下会随 Workspace Head 漂移的引用。
 
 这不是把所有数据塞进 Product。Part 仍是独立可复用的参数化定义，Product 是结构、上下文连线、occurrence pose、更新决策和发布快照的协调根。
@@ -52,7 +52,7 @@ P9 已经正确建立以下不可推翻的底座：
 | 从全部 Document 中选择来源 | 脱离当前产品结构，权限、版本和语义范围过宽 | 只浏览当前 Product context 中可达 occurrence |
 | 手工输入 `PublicationId` | 对用户不可读，也容易把错误类型/版本拼进请求 | 通过名称、树和类型过滤选择，客户端提交稳定 ID |
 | ContextReference 直接属于消费 Part | 产品特定 wiring 可能污染可复用 Part Reference | Part 声明 ContextInput，Product 拥有 ContextBinding |
-| 每个 Part 各自 Update References | 不能先展示整个产品的重算顺序和失败边界 | 根 Product 生成并接受 Product Update Plan |
+| 每个 Part 各自 Update References | 不能形成整个产品的重算顺序和失败边界 | 根 Product 生成 Product Update Plan，FOLLOW_HEAD 自动接受，失败显示整体诊断 |
 | Product 只冻结若干局部 snapshot | 不能单独证明一次完整产品发布可重放 | Product Version Manifest 冻结完整依赖闭包 |
 
 ## 4. 领域模型
@@ -219,7 +219,7 @@ ContextCatalog(root snapshot, active occurrence, expected contract)
 - 用户看到 `body_length`、`wheelbase`、`wheel_outer_diameter` 等名称、单位、范围和当前值；
 - 每一项仍指向唯一的 source ParameterId/PublicationId，面板不保存第二份数值；
 - 编辑动作通过当前 Product session 定位来源 occurrence，并向 source Part Workspace 提交正常参数命令；
-- 提交后 Product 只显示 `UPDATE_AVAILABLE` 与完整 Update Plan，用户接受后才更新其余 binding snapshot；
+- 提交后 Product 短暂投影 `UPDATE_AVAILABLE` 与完整 Update Plan，FOLLOW_HEAD 自动更新其余 binding snapshot；阻塞项保留诊断，PINNED 不传播；
 - 同名参数来自不同 occurrence 时必须由 Product Publication 重新命名，不能依赖树中碰巧显示的短名称。
 
 后续若 Product 自身需要 Configuration/Design Table 参数，再增加真正的 Product Parameter entity；不能先用 UI 聚合值冒充领域模型。
@@ -316,7 +316,7 @@ Skeleton -> Wheel/Rim/Tire geometry -> Product constraints
 5. 创建一个 Wheel Product 定义后插入四次，并重命名 occurrence；
 6. 用转发 Publication 创建四组装配约束；
 7. 在 ToyCar 的 Design Inputs 面板修改 `wheel_outer_diameter`、`wheelbase` 或 `body_length`；
-8. Product 显示完整 Update Plan，接受后重算 Body、共享 Wheel variant、四个 occurrence 和 assembly solve；
+8. Product 以完整 Update Plan 自动重算 Body、共享 Wheel variant、四个 occurrence 和 assembly solve；失败时显示阻塞诊断；
 9. Release Gate 通过后创建新的 ToyCar Version；旧 Version 保持可重放。
 
 ### 8.4 必须通过的验收
@@ -390,7 +390,7 @@ Skeleton -> Wheel/Rim/Tire geometry -> Product constraints
 - 以本文件第 8 节作为浏览器、服务、Worker 和持久化综合场景；
 - 冻结成为后续 P11 Feature 扩张和 P15 Configuration/Design Table 的回归基线。
 
-**P10E–P10H 实施记录（2026-09-19）**：Product Update Plan、派生 Context Variant、M3 AssemblySolveManifest/replay/request lookup 与不可变 Product Release 已落地。更新采用 digest guard 并投影 connection/currency/evaluation；variant 对参数、基准和曲线输入复用 Part evaluator，相同 base Revision 与规范化输入共享制品。Release gate 冻结 dependency closure、成功 SolveManifest 及 evaluator/naming provenance，旧 Release 可 replay 并从冻结 GeometryKey 导出；Exchange occurrence placement 同时保留 translation/quaternion。ToyCar contract corpus 已固定四 Wheel typed path、共享 variant 和 manifest 确定性，浏览器真实 WebGL 纵向操作列为本批人工验收项。
+**P10E–P10H 实施记录（2026-09-19）**：Product Update Plan、派生 Context Variant、M3 AssemblySolveManifest/replay/request lookup 与不可变 Product Release 已落地。更新采用 digest guard 并投影 connection/currency/evaluation；工作台对 FOLLOW_HEAD 按叶到根自动接受正常 Revision，Instance 右键可固定当前版本或恢复跟随。variant 对参数、基准和曲线输入复用 Part evaluator，相同 base Revision 与规范化输入共享制品。Release gate 冻结 dependency closure、成功 SolveManifest 及 evaluator/naming provenance，旧 Release 可 replay 并从冻结 GeometryKey 导出；Exchange occurrence placement 同时保留 translation/quaternion，Exchange UX 与产品版本中心分离。ToyCar contract corpus 已固定四 Wheel typed path、共享 variant 和 manifest 确定性，浏览器真实 WebGL 纵向操作列为本批人工验收项。
 
 依赖关系：
 

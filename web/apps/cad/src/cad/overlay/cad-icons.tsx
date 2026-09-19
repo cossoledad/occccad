@@ -5,7 +5,7 @@ export type CadIconName =
   | "coincident" | "parallel" | "fixed" | "horizontal" | "vertical" | "perpendicular" | "tangent" | "equal"
   | "distance" | "length" | "radius" | "diameter" | "angle" | "concentric" | "point-on-object" | "midpoint" | "symmetry"
   | "rectangle" | "polygon" | "slot" | "insert" | "reference" | "link" | "move" | "undo" | "redo" | "version" | "share"
-  | "navigation" | "fit" | "isometric" | "parameters" | "debug";
+  | "navigation" | "fit" | "top-view" | "front-view" | "right-view" | "isometric" | "parameters" | "publication" | "release" | "debug";
 
 const P = ({ d }: { d: string }) => <path d={d} />;
 const C = ({ cx, cy, r = 1.5 }: { cx: number; cy: number; r?: number }) => <circle cx={cx} cy={cy} r={r} />;
@@ -58,8 +58,13 @@ function glyph(name: CadIconName): ReactNode {
   case "share": return <><C cx={5} cy={10} r={2} /><C cx={15} cy={5} r={2} /><C cx={15} cy={15} r={2} /><P d="M7 9l6-3M7 11l6 3" /></>;
   case "navigation": return <><C cx={10} cy={10} r={7} /><P d="M12.5 7.5l-1.5 4-4 1.5 1.5-4z" /></>;
   case "fit": return <><P d="M8 4H4v4M12 4h4v4M4 12v4h4M16 12v4h-4" /><rect x="7" y="7" width="6" height="6" /></>;
+  case "top-view": return <><rect x="4" y="4" width="12" height="12" /><P d="M7 7h6v6H7zM10 1v3M8 2l2-1 2 1" /></>;
+  case "front-view": return <><rect x="4" y="5" width="12" height="11" /><P d="M7 8h6v5H7zM10 2v3M8 3l2-1 2 1" /></>;
+  case "right-view": return <><P d="M5 4h10v12H5zM8 7h4v6H8zM18 10h-3M17 8l1 2-1 2" /></>;
   case "isometric": return <><P d="M10 3l6 3.5v7L10 17l-6-3.5v-7zM4 6.5l6 3.5 6-3.5M10 10v7" /></>;
 	case "parameters": return <><P d="M4 5h12M4 10h12M4 15h12" /><C cx={8} cy={5} /><C cx={13} cy={10} /><C cx={7} cy={15} /></>;
+	case "publication": return <><P d="M4 4h8v12H4zM7 7h6M7 10h7M7 13h5" /><P d="M13 4l3 3-3 3M16 7v7" /></>;
+	case "release": return <><P d="M10 2l6 3v5c0 4-2.5 6.5-6 8-3.5-1.5-6-4-6-8V5z" /><P d="M7 10l2 2 4-5" /></>;
 	case "debug": return <><P d="M7 7h6a3 3 0 013 3v3a6 6 0 01-12 0v-3a3 3 0 013-3zM10 7V4M7 4l3 3 3-3" /><P d="M4 10H2M18 10h-2M4 14H2M18 14h-2" /></>;
   }
 }

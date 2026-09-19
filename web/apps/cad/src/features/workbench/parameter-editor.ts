@@ -5,9 +5,10 @@ const unitScale: Record<string, number> = {
   deg: 180 / Math.PI, rad: 1,
 };
 
-export function parameterDisplayValue(parameter: ParameterDefinition): string {
+export function parameterDisplayValue(parameter: ParameterDefinition, preferredLengthUnit?: "mm" | "cm" | "m" | "in"): string {
   if (!parameter.evaluatedValue) return "—";
-  return `${(parameter.evaluatedValue.siValue * (unitScale[parameter.displayUnit] ?? 1)).toPrecision(8)} ${parameter.displayUnit}`;
+  const unit = preferredLengthUnit && isLengthParameter(parameter) ? preferredLengthUnit : parameter.displayUnit;
+  return `${(parameter.evaluatedValue.siValue * (unitScale[unit] ?? 1)).toPrecision(8)} ${unit}`;
 }
 
 export function parameterSourceText(parameter: ParameterDefinition): string {

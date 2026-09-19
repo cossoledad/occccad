@@ -320,7 +320,7 @@ Feature 不应继续编码为 `repeated RectangularPadSpec`。目标模型需要
 
 #### 4.3.2 当前实现基线与主要差距
 
-当前后端已落实 C0–C4 及 P10 的首个垂直切片：HTTP transport DTO 在边界转换为版本化 envelope 并进入 handler registry；显式 Workspace、Transaction、ChangeSet、Revision parent、EvaluationRun、dependency edge 和 outbox 已落库；新命令在事务外完成纯模型变换与求值并以 Head/sequence CAS 提交；Undo/Redo/Restore 使用根 Transaction 与有序 Revert/Reapply action log 产生追加 Revision；Rectangle/Pad property facade、Quantity、ID-bound arithmetic AST、typed dependency graph、dirty closure 和 EvaluationManifest 已贯通现有 Part/Product 路径。Part/Product Publication、嵌套 typed InstancePath、Product-owned ContextBinding、显式 Update Plan、派生 Context Variant、可重放 AssemblySolveManifest 和 Product Release 已形成基础闭环；来源 Head 只产生 UPDATE_AVAILABLE，接受更新仍形成新 Revision。
+当前后端已落实 C0–C4 及 P10 的首个垂直切片：HTTP transport DTO 在边界转换为版本化 envelope 并进入 handler registry；显式 Workspace、Transaction、ChangeSet、Revision parent、EvaluationRun、dependency edge 和 outbox 已落库；新命令在事务外完成纯模型变换与求值并以 Head/sequence CAS 提交；Undo/Redo/Restore 使用根 Transaction 与有序 Revert/Reapply action log 产生追加 Revision；Rectangle/Pad property facade、Quantity、ID-bound arithmetic AST、typed dependency graph、dirty closure 和 EvaluationManifest 已贯通现有 Part/Product 路径。Part/Product Publication、嵌套 typed InstancePath、Product-owned ContextBinding、带 digest 的 Update Plan、派生 Context Variant、可重放 AssemblySolveManifest 和 Product Release 已形成基础闭环；FOLLOW_HEAD 来源变化由打开的可编辑 Product 会话按叶到根自动接受，接受更新仍形成新 Revision，PINNED 则显式截断传播。
 
 仍需按后续阶段扩展而不能误报为完成的边界包括：表达式 profile 尚未覆盖布尔、条件、向量和完整纯函数目录；除现有 Rectangle/Pad/Instance 外的专业 schema 尚未注册 PropertySlot；通用重排、partial Product update、flexible subassembly、多人 semantic rebase、Configuration/Design Table/Rule/Check 属于后续阶段。当前没有已发布数据兼容承诺，开发 schema 直接重建并只维护这一套历史语义。
 
@@ -335,7 +335,7 @@ Feature 不应继续编码为 `repeated RectangularPadSpec`。目标模型需要
 
 前端 `CommandRegistry` 继续负责 enable/visible/active 和快捷键，但持久编辑必须构造 Domain Transaction。Interaction Session 可以调用 preview API，结束时只提交一次最终意图；Compute Job 只能返回制品和诊断，不能越过 Model Service 修改 Head。
 
-工作台的 Toolbar 采用服务端维护的版本化 Presentation Catalog：目录拥有稳定 ToolbarId/CommandId、工作台与能力条件、分组/顺序、默认停靠、图标语义键、短名称和上下文帮助引用；前端按目录装配，不为每个页面复制按钮清单。该目录不是远程代码或领域命令注册表：客户端仍必须拥有对应 CommandRegistry adapter，未知命令默认不可执行，服务端权限和 Domain Command validator 仍是最终边界。普通 tooltip 只承载短命令名；“这是什么？”模式读取详细帮助且必须截断当前点击的执行链。共享目录、组织策略与用户的本地布局/可见偏好分层存储，避免把个人拖动位置写成所有人的产品配置。目录后续增加 locale、feature flag、role/capability predicate 时应提升 schema version，并以确定性契约测试保证旧客户端安全降级。
+工作台的 Toolbar 采用服务端维护的版本化 Presentation Catalog：目录拥有稳定 ToolbarId/CommandId、工作台与能力条件、顺序、默认停靠、图标语义键、短名称和上下文帮助引用；一个 ToolbarId 对应一个可命名的用户意图类别，不在单个大型栏中依靠视觉分隔符伪造多个职责。前端按目录装配，不为每个页面复制按钮清单。该目录不是远程代码或领域命令注册表：客户端仍必须拥有对应 CommandRegistry adapter，未知命令默认不可执行，服务端权限和 Domain Command validator 仍是最终边界。普通 tooltip 只承载短命令名；“这是什么？”模式读取详细帮助且必须截断当前点击的执行链。共享目录、组织策略与用户的本地布局/可见偏好分层存储，避免把个人拖动位置写成所有人的产品配置；捕捉、输入手势和显示单位属于跨工作台用户偏好，不作为重复 Toolbar 命令。文档级单位若影响协作语义必须进入版本化文档属性与 Domain Command；用户侧按文档显示覆盖只能改变格式和新输入，不能改写模型坐标或既有表达式。目录后续增加 locale、feature flag、role/capability predicate 时应提升 schema version，并以确定性契约测试保证旧客户端安全降级。
 
 ```mermaid
 flowchart LR

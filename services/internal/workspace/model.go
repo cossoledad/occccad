@@ -739,6 +739,8 @@ type DocumentStructureNode struct {
 	ID                 string                  `json:"id"`
 	Kind               string                  `json:"kind"`
 	Name               string                  `json:"name"`
+	ReferenceName      string                  `json:"referenceName,omitempty"`
+	InstanceName       string                  `json:"instanceName,omitempty"`
 	EntityID           string                  `json:"entityId,omitempty"`
 	DocumentID         string                  `json:"documentId,omitempty"`
 	DocumentType       string                  `json:"documentType,omitempty"`

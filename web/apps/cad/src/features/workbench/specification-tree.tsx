@@ -1,4 +1,4 @@
-import { DeleteOutlined, EditOutlined, EyeInvisibleOutlined, LinkOutlined, PauseCircleOutlined, PlusOutlined, ReloadOutlined, SwapOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EditOutlined, EyeInvisibleOutlined, LinkOutlined, LockOutlined, PauseCircleOutlined, PlusOutlined, ReloadOutlined, SwapOutlined, UnlockOutlined } from "@ant-design/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Dropdown } from "antd";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
@@ -10,7 +10,7 @@ export type SpecificationTreeNode = {
   key: string; title: ReactNode; icon?: ReactNode; children?: SpecificationTreeNode[];
   kind?: string; entityId?: string; documentId?: string; documentType?: string; plane?: string; selection?: Selection;
   instancePath?: InstancePath;
-  capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART">; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
+  capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART" | "UPDATE_REFERENCES" | "PIN_VERSION" | "FOLLOW_HEAD">; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
   definitionDigest?: string;
   suppressed?: boolean; diagnostic?: string; hidden?: boolean;
 };
@@ -54,13 +54,14 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, activeDocumentId, activeInstancePath, onSelect, onActivate, onEdit, onCreatePart, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, activeDocumentId, activeInstancePath, onSelect, onActivate, onEdit, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; selectedIdentityKeys: readonly string[];
   selectionToken: string; highlightedKey?: string; activeDocumentId?: string; activeInstancePath?: string;
   onSelect: (nodes: SpecificationTreeNode[]) => void; onHover?: (node?: SpecificationTreeNode) => void;
   onActivate?: (node: SpecificationTreeNode) => void;
   onEdit?: (node: SpecificationTreeNode) => void;
   onCreatePart?: (node: SpecificationTreeNode) => void;
+  onReferenceMode?: (node: SpecificationTreeNode, mode: "PINNED" | "FOLLOW_HEAD") => void;
   onDetach?: (node: SpecificationTreeNode) => void;
   onReconnect?: (node: SpecificationTreeNode) => void;
   onRefresh?: (node: SpecificationTreeNode) => void;
@@ -157,7 +158,7 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
             ? <button className={`specification-tree-junction branch ${isExpanded ? "expanded" : "collapsed"}`}
               tabIndex={-1} aria-label={isExpanded ? "折叠" : "展开"}
               onClick={(event) => { event.stopPropagation(); toggle(node.key); }}>
-              {isExpanded && <><i /><i /><i /><i /></>}
+              <span className="specification-tree-orb" aria-hidden="true"><i /><b /></span>
             </button> : <span className="specification-tree-junction leaf" />}
           <span className="specification-tree-icon">{node.icon}</span>
           <span className="specification-tree-label">{node.title}</span>
@@ -176,6 +177,10 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
               onClick: () => { setContextMenu(undefined); onEdit?.(node); } } : null,
             node.capabilities?.includes("CREATE_PART") ? { key: "create-part", icon: <PlusOutlined />, label: "新建零件",
               onClick: () => { setContextMenu(undefined); onCreatePart?.(node); } } : null,
+            node.capabilities?.includes("PIN_VERSION") ? { key: "pin-version", icon: <LockOutlined />, label: "固定当前版本",
+              onClick: () => { setContextMenu(undefined); onReferenceMode?.(node, "PINNED"); } } : null,
+            node.capabilities?.includes("FOLLOW_HEAD") ? { key: "follow-head", icon: <UnlockOutlined />, label: "恢复跟随最新版本",
+              onClick: () => { setContextMenu(undefined); onReferenceMode?.(node, "FOLLOW_HEAD"); } } : null,
             node.capabilities?.includes("DETACH") ? { key: "detach", icon: <SwapOutlined />, label: "断开外部关联并冻结",
               onClick: () => { setContextMenu(undefined); onDetach?.(node); } } : null,
             node.capabilities?.includes("RECONNECT") ? { key: "reconnect", icon: <LinkOutlined />, label: "Reconnect 支持元素",

@@ -836,10 +836,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		var model ProductModel
 		_ = json.Unmarshal(modelJSON, &model)
-		var referenced string
+		var referenced, acceptedVersion string
 		for _, instance := range model.Instances {
 			if instance.ID == request.InstanceID {
 				referenced = instance.ReferencedDocumentID
+				acceptedVersion = instance.ReferencedVersionID
 			}
 		}
 		if referenced == "" {
@@ -847,8 +848,14 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		pinned := ""
 		if mode == "PINNED" {
-			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, referenced).Scan(&pinned); err != nil {
-				return "", nil, err
+			// Pin the revision currently accepted by this Product snapshot. Using
+			// the source Head here would make "pin" silently accept a pending
+			// update before freezing it.
+			pinned = acceptedVersion
+			if pinned == "" {
+				if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, referenced).Scan(&pinned); err != nil {
+					return "", nil, err
+				}
 			}
 		}
 		return typeSetReferenceMode, referenceModePayload{request.InstanceID, mode, pinned}, nil

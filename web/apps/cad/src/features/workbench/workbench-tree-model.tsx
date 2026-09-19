@@ -70,6 +70,37 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
   const context = { treeNodeId: node.id, expandTreeDescendants: expands || undefined, documentId: node.documentId,
     versionId: node.versionId, instancePath: node.instancePath, occurrencePath, geometryKey,
     instanceId: occurrencePath.split("/")[0] || undefined };
+  if (node.kind === "PRODUCT_PUBLICATION" && node.entityId && node.productPublication) {
+    const productPublication = node.productPublication;
+    const targetPath = productPublication.target.instancePath;
+    const targetOccurrence = targetPath.canonical;
+    const publication = {
+      id: productPublication.id, name: productPublication.name, type: productPublication.type,
+      semanticPurpose: productPublication.semanticPurpose, compatibilityVersion: productPublication.compatibilityVersion,
+      target: { kind: productPublication.resolution.topologyKind ? "TOPOLOGY" as const : "DATUM" as const,
+        sourceVersionId: productPublication.resolution.resolvedVersionId },
+      contract: productPublication.contract, resolution: productPublication.resolution,
+    };
+    const publicationContext = { ...context, occurrencePath: targetOccurrence, instancePath: targetPath,
+      instanceId: targetOccurrence.split("/")[0] || undefined, publicationId: productPublication.id, publication,
+      geometryKey: productPublication.resolution.geometryKey };
+    if (productPublication.resolution.status === "CONNECTED" && productPublication.resolution.topologyKind &&
+      productPublication.resolution.localId !== undefined) return {
+      kind: productPublication.resolution.topologyKind.toLowerCase() as "face" | "edge" | "vertex",
+      topologyId: productPublication.resolution.localId,
+      id: `${targetOccurrence}:${productPublication.resolution.geometryKey}:${productPublication.resolution.topologyKind.toLowerCase()}:${productPublication.resolution.localId}`,
+      ...publicationContext,
+    };
+    if (productPublication.type === "PLANE" && productPublication.resolution.geometryId) return {
+      kind: "plane", plane: "CUSTOM", entityId: productPublication.resolution.geometryId,
+      id: `${targetOccurrence}:${productPublication.resolution.geometryId}`, ...publicationContext,
+    };
+    if (productPublication.type === "AXIS" && productPublication.resolution.geometryId) return {
+      kind: "axis", axis: "DATUM", entityId: productPublication.resolution.geometryId,
+      id: `${targetOccurrence}:${productPublication.resolution.geometryId}`, ...publicationContext,
+    };
+    return { kind: "tree", id: node.id, ...publicationContext };
+  }
   if (node.kind === "PUBLICATION" && node.entityId) {
     const publication = node.publication ?? view.part?.publications?.find((candidate) => candidate.id === node.entityId);
     const publicationContext = { ...context, publicationId: node.entityId, publication };
@@ -146,8 +177,10 @@ export function findStructureEntity(node: DocumentStructureNode | undefined, ent
 }
 
 function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editingView?: DocumentView): SpecificationTreeNode {
+  const ownerDocumentID = node.kind === "INSTANCE" ? node.instancePath?.segments.at(-1)?.ownerDocumentId : node.documentId;
   const nodeView = node.documentId === editingView?.document.id ? editingView : node.documentId === view.document.id ? view : undefined;
-  const canEdit = nodeView?.document.permission === "OWNER" || nodeView?.document.permission === "EDITOR";
+  const capabilityView = ownerDocumentID === editingView?.document.id ? editingView : ownerDocumentID === view.document.id ? view : nodeView;
+  const canEdit = capabilityView?.document.permission === "OWNER" || capabilityView?.document.permission === "EDITOR";
   const sketch=nodeView?.part?.features.find((feature)=>feature.id===node.ownerEntityId)?.sketch;
   const conflictConstraints=new Set(sketch?.solve.conflictingConstraintIds??[]), conflictEntities=new Set<string>();
   let changed=true;while(changed){changed=false;for(const constraint of sketch?.constraints??[]){if(constraint.suppressed)continue;
@@ -217,5 +250,31 @@ export function treeKeyForSelection(nodes: SpecificationTreeNode[], selection: S
 }
 
 export function treeKeysForSelections(nodes: SpecificationTreeNode[], selections: readonly SelectionItem[]): string[] {
-  return [...new Set(selections.map((selection) => treeKeyForSelection(nodes, selection)).filter((key): key is string => Boolean(key)))];
+  const keys = new Set<string>();
+  const all: SpecificationTreeNode[] = [];
+  const visit = (items: SpecificationTreeNode[]) => items.forEach((node) => { all.push(node); if (node.children) visit(node.children); });
+  visit(nodes);
+  for (const selection of selections) {
+    const primary = treeKeyForSelection(nodes, selection);
+    if (primary) keys.add(primary);
+    const publications = all.filter((node) => (node.kind === "PUBLICATION" || node.kind === "PRODUCT_PUBLICATION") &&
+      node.selection?.publicationId && (selection.publicationId
+        ? node.selection.publicationId === selection.publicationId
+        : samePublishedGeometry(node.selection, selection)));
+    for (const publication of publications) {
+      keys.add(publication.key);
+      const body = all.find((node) => node.kind === "BODY" &&
+        (node.instancePath?.canonical ?? "") === (publication.selection?.occurrencePath ?? selection.occurrencePath ?? ""));
+      if (body) keys.add(body.key);
+    }
+  }
+  return [...keys];
+}
+
+function samePublishedGeometry(candidate: SelectionItem, selection: SelectionItem): boolean {
+  if (candidate.kind !== selection.kind || (candidate.occurrencePath ?? "") !== (selection.occurrencePath ?? "")) return false;
+  if (["face", "edge", "vertex"].includes(candidate.kind)) return "topologyId" in candidate && "topologyId" in selection &&
+    candidate.topologyId === selection.topologyId && (!candidate.geometryKey || !selection.geometryKey || candidate.geometryKey === selection.geometryKey);
+  if (["plane", "axis", "axis-system", "body"].includes(candidate.kind)) return candidate.entityId === selection.entityId || candidate.kind === "body";
+  return false;
 }

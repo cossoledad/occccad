@@ -6,7 +6,8 @@ import {
   Alert, App, Button, Divider, Empty, Form, Input, InputNumber, Segmented,
   Select, Space, Spin, Switch, Tag, Typography,
 } from "antd";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState,
+  type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useParams } from "react-router-dom";
 import { api, isMockMode } from "../../api/client";
 import { ApiError } from "../../api";
@@ -22,21 +23,24 @@ import { assemblyGeometryRef, type AssemblyConstraintToolKind } from "../../cad/
 import { CommandDialog, FloatingToolbar, ToolbarGroup } from "../../cad/overlay/floating-panel";
 import { ToolButton } from "../../cad/overlay/tool-button";
 import { CadIcon, type CadIconName } from "../../cad/overlay/cad-icons";
-import { CaptureSettingsButton } from "../../cad/overlay/capture-settings-button";
 import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
 import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
-import { useUIPreferences } from "../../state/ui-preferences";
-import type { AssemblyConstraint, AssemblyGeometryRef, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, ProductRelease, Selection, SketchOperation, SketchPlane, ToolbarCatalogEntry, ToolbarCatalogItem, Vec3 } from "../../types";
+import { displayLengthToMillimeters, effectiveLengthUnit, millimetersToDisplayLength,
+  MIN_STRUCTURE_TREE_WIDTH, useUIPreferences } from "../../state/ui-preferences";
+import { useApplicationContext } from "../../state/application-context";
+import type { AssemblyConstraint, AssemblyGeometryRef, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, ProductRelease, Selection, SketchOperation, SketchPlane, ToolbarCatalogEntry, Vec3 } from "../../types";
 import { topologyPropertyContext } from "./topology-property-context";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
-import { followedDocumentIDs } from "./product-edit-context";
+import { followedDocumentIDs, staleProductDocumentIDs } from "./product-edit-context";
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { isLengthParameter, linearExtrudeLengthInput, parameterDisplayValue, parameterSourceText, parseParameterSource } from "./parameter-editor";
 import { History, Properties } from "./workbench-inspector";
 import { findStructureEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
 import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
   firstDisconnectedSupport, validateReconnectCandidate } from "../../cad/assembly/assembly-constraint-ux";
+import { describeAssemblyReference } from "../../cad/assembly/assembly-reference-presentation";
+import { ProductReleaseCenter } from "./product-release-center";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
@@ -70,19 +74,6 @@ function occurrenceSketchPlane(plane: SketchPlane, translation?: Vec3, rotation:
     normal:rotate(plane.normal),uDirection:rotate(plane.uDirection)};
 }
 
-function toolbarGroups(items: ToolbarCatalogItem[]): Array<{ key: string; items: ToolbarCatalogItem[] }> {
-  const groups = new Map<string, ToolbarCatalogItem[]>();
-  for (const item of items) groups.set(item.groupKey, [...(groups.get(item.groupKey) ?? []), item]);
-  return [...groups].map(([key, groupItems]) => ({ key, items: groupItems }));
-}
-
-function assemblyReferenceLabel(reference: AssemblyGeometryRef | undefined): string {
-  if (!reference) return "未选择";
-  const resolved = reference.resolution?.result.candidates?.[0];
-  const detail = reference.geometryId ?? (resolved ? `${reference.kind} ${resolved.localId}` : reference.persistentSelection?.anchor.outputSlot ?? (reference.topologyId ? `${reference.kind} ${reference.topologyId}` : reference.kind));
-  return `#${reference.instanceId} · ${detail}${reference.axis ? ` · ${reference.axis}` : ""}`;
-}
-
 type AssemblyConstraintUIDefinition = { supports: 1 | 2; direction: boolean; distanceDirection: boolean; value?: "angle" | "distance" };
 const assemblyConstraintUI: Record<AssemblyConstraint["kind"], AssemblyConstraintUIDefinition> = {
   FIX: { supports: 1, direction: false, distanceDirection: false },
@@ -93,8 +84,10 @@ const assemblyConstraintUI: Record<AssemblyConstraint["kind"], AssemblyConstrain
   DISTANCE: { supports: 2, direction: true, distanceDirection: true, value: "distance" },
 };
 
-function AssemblyConstraintFields({ kind, references, constraint, previewEvaluation, dirty, replacing, onReplace, onLocate, onRefresh, onValueCommit, directedAngle = false }: {
+function AssemblyConstraintFields({ kind, references, view, lengthUnit, constraint, previewEvaluation, dirty, replacing, onReplace, onLocate, onRefresh, onValueCommit, directedAngle = false }: {
   kind: keyof typeof assemblyConstraintUI; references: Array<AssemblyGeometryRef | undefined>;
+  view?: DocumentView;
+  lengthUnit: string;
   constraint?: AssemblyConstraint; dirty?: boolean; replacing?: 0 | 1;
   previewEvaluation?: CommandPreview["constraintEvaluation"];
   onReplace: (index: 0 | 1) => void; onLocate: (reference: AssemblyGeometryRef) => void;
@@ -121,11 +114,13 @@ function AssemblyConstraintFields({ kind, references, constraint, previewEvaluat
         const support = preview ? { ...base, status: preview.status, label: preview.status === "CONNECTED" ? "Connected" as const : "NotConnected" as const,
           diagnosticCode: preview.diagnosticCode, diagnostic: preview.diagnostic } : base; return <>
         <span className={`assembly-support-index status-${support.status.toLowerCase()}`}>{index+1}</span>
-        <span className="assembly-support-detail"><code>{assemblyReferenceLabel(reference)}</code>
+        {(() => { const presentation = describeAssemblyReference(reference, view); return <span className="assembly-support-detail">
+          <strong>{presentation.primary}</strong><small>{presentation.secondary}</small>
           <small><Tag color={support.status === "CONNECTED" ? "success" : "error"}>{support.label}</Tag>
+            {presentation.publication && <Tag color="blue">Publication</Tag>}
             {support.diagnosticCode && <span>{support.diagnosticCode}</span>}</small>
           {support.diagnostic && <small title={support.evidenceDigest}>{support.diagnostic}</small>}
-        </span>
+        </span>; })()}
         {reference && <Button size="small" onClick={()=>onLocate(reference)}>定位</Button>}
         <Button size="small" type={replacing===index?"primary":"default"} onClick={()=>onReplace(index as 0|1)}>
           {support.status === "NOT_CONNECTED" ? "Reconnect" : "更换"}</Button>
@@ -134,7 +129,7 @@ function AssemblyConstraintFields({ kind, references, constraint, previewEvaluat
       {value:"UNORIENTED",label:"未定义"},{value:"SAME",label:"同向"},{value:"OPPOSITE",label:"反向"}]} /></Form.Item>}
     {distanceDirectionApplicable && <Form.Item name="distanceRelation" label="距离方向"><Select onChange={onValueCommit} options={[
       {value:"UNSIGNED",label:"无符号"},{value:"ALONG_SECOND_NORMAL",label:"沿第二元素法向"},{value:"OPPOSITE_SECOND_NORMAL",label:"逆第二元素法向"}]} /></Form.Item>}
-    {definition.value && <Form.Item name="value" label={definition.value === "angle" ? "角度（deg）" : "距离（mm）"}
+    {definition.value && <Form.Item name="value" label={definition.value === "angle" ? "角度（deg）" : `距离（${lengthUnit}）`}
       rules={[{required:true},{type:"number",min:0,max:definition.value === "angle"?(supportsDirectedAngle?360:180):undefined}]}>
       <InputNumber min={0} max={definition.value === "angle"?(supportsDirectedAngle?360:180):undefined} precision={3} style={{width:"100%"}}
         onBlur={onValueCommit} onPressEnter={(event)=>event.currentTarget.blur()} /></Form.Item>}
@@ -164,6 +159,8 @@ export function Workbench() {
   const padIntentRequestID = useRef<string | undefined>(undefined);
 	const padPreviewID = useRef<string | undefined>(undefined);
   const latestDocumentVersion = useRef<string | undefined>(undefined);
+  const automaticUpdateSignature = useRef("");
+  const automaticUpdateRunning = useRef(false);
   const [activeDocumentID, setActiveDocumentID] = useState(documentID);
   const [activeInstancePath, setActiveInstancePath] = useState<string>();
   const [definitionContextPath, setDefinitionContextPath] = useState<string>();
@@ -194,6 +191,14 @@ export function Workbench() {
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const treeVisibilityOverrides = useUIPreferences((state) => state.treeVisibilityOverrides);
   const setTreeVisibility = useUIPreferences((state) => state.setTreeVisibility);
+  const structureTreeWidth = useUIPreferences((state) => state.structureTreeWidth);
+  const setStructureTreeWidth = useUIPreferences((state) => state.setStructureTreeWidth);
+  const navigationProfile = useUIPreferences((state) => state.navigationProfile);
+  const captureSettings = useUIPreferences((state) => state.captureSettings);
+  const displayLengthUnit = useUIPreferences((state) => state.displayLengthUnit);
+  const documentLengthUnits = useUIPreferences((state) => state.documentLengthUnits);
+  const structureTreeResize = useRef<{ pointerId: number; startX: number; startWidth: number } | undefined>(undefined);
+  const setShellActiveDocumentID = useApplicationContext((state) => state.setActiveDocumentID);
   const [shareResource, setShareResource] = useState<ShareResource>();
   const [padForm] = Form.useForm<{ generator: "LINEAR_EXTRUDE" | "REVOLVE"; operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
     lengthSource: string; angle: number; axisEntityId?: string; reversed: boolean }>();
@@ -201,7 +206,6 @@ export function Workbench() {
   const [insertForm] = Form.useForm<{ referencedDocumentID: string }>();
   const [newPartForm] = Form.useForm<{ name?: string; description?: string }>();
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
-  const [releaseForm] = Form.useForm<{ name: string }>();
   const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
   const [datumAxisForm] = Form.useForm<{ name: string; ox: number; oy: number; oz: number; dx: number; dy: number; dz: number }>();
   const [parameterForm] = Form.useForm<{ key: string; source: string }>();
@@ -228,6 +232,11 @@ export function Workbench() {
   const activeDocument = useQuery({ queryKey: queryKeys.document(activeDocumentID), queryFn: () => api.getDocument(activeDocumentID),
     enabled: Boolean(activeDocumentID && activeDocumentID !== documentID) });
 	const activeID = activeDocumentID || documentID;
+	const lengthUnit = effectiveLengthUnit(displayLengthUnit, documentLengthUnits, activeID);
+	useEffect(() => {
+	  setShellActiveDocumentID(activeID);
+	  return () => setShellActiveDocumentID(undefined);
+	}, [activeID, setShellActiveDocumentID]);
 	const toolbarCatalog = useQuery({ queryKey: ["ui", "toolbars"], queryFn: api.toolbarCatalog, staleTime: 5 * 60_000 });
   const properties = useQuery({ queryKey: queryKeys.documentProperties(activeID), queryFn: () => api.getDocumentProperties(activeID),
     enabled: Boolean(activeID && inspectorOpen && store.inspectorTab === "properties"), staleTime: 30_000 });
@@ -322,7 +331,7 @@ export function Workbench() {
         client.setQueryData(queryKeys.document(dependencyID), snapshot.view);
         return;
       }
-      // The root Product projection and Update Plan refresh, but acceptance remains an explicit user action.
+      // A fresh root projection will drive the serialized leaf-to-root auto-update effect.
       void client.invalidateQueries({ queryKey: queryKeys.document(dependencyID) });
       void client.invalidateQueries({ queryKey: queryKeys.document(documentID) });
       void client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID), refetchType: "active" });
@@ -346,6 +355,37 @@ export function Workbench() {
   const canEdit = editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR";
   const canEditRoot = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
   const activeWorkbench = resolveCadWorkbench(editingView?.document.type ?? "PART", Boolean(store.sketchPlane));
+
+  useEffect(() => {
+    if (!view || view.document.type !== "PRODUCT" || !canEditRoot || automaticUpdateRunning.current) return;
+    const targets = staleProductDocumentIDs(view.structureTree);
+    if (!targets.length) { automaticUpdateSignature.current = ""; return; }
+    const signature = `${view.document.versionId}:${targets.join("|")}`;
+    if (automaticUpdateSignature.current === signature) return;
+    automaticUpdateSignature.current = signature;
+    automaticUpdateRunning.current = true;
+    let disposed = false;
+    void (async () => {
+      try {
+        for (const productID of targets) {
+          const plan = await api.getProductUpdatePlan(productID);
+          if (!plan.hasUpdates) continue;
+          if (!plan.canAccept) throw new Error(plan.entries.find((entry) => entry.diagnostic)?.diagnostic ?? "Product 自动更新被上游求值阻塞");
+          const updated = await api.acceptProductUpdatePlan(productID, plan.digest);
+          client.setQueryData(queryKeys.document(productID), updated);
+        }
+        if (!disposed) await Promise.all([
+          client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
+          client.invalidateQueries({ queryKey: ["product-update-plan", documentID] }),
+        ]);
+      } catch (cause) {
+        if (!disposed) message.error(`自动跟随最新版本失败：${cause instanceof Error ? cause.message : String(cause)}`);
+      } finally {
+        automaticUpdateRunning.current = false;
+      }
+    })();
+    return () => { disposed = true; };
+  }, [canEditRoot, client, documentID, message, view]);
 
   useEffect(() => {
     if (replacingAssemblyReference === undefined || !store.selection) return;
@@ -398,7 +438,8 @@ export function Workbench() {
     const controller=new AbortController();assemblyPreviewAbort.current=controller;
     const timer = window.setTimeout(() => {
       const rawValue=Number(assemblyConstraintForm.getFieldValue("value")??0);
-      const value = kind === "angle" ? rawValue * Math.PI / 180 : rawValue;
+      const value = kind === "angle" ? rawValue * Math.PI / 180
+        : kind === "distance" ? displayLengthToMillimeters(rawValue, lengthUnit) : rawValue;
       const commandInput = constraint ? {
         type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraint.id, value,
         directionRelation: assemblyDirection ?? "UNORIENTED", distanceRelation: assemblyDistance ?? "UNSIGNED",
@@ -440,7 +481,7 @@ export function Workbench() {
     }, 140);
     return () => {window.clearTimeout(timer);controller.abort();assemblyPreviewActor.current?.send({type:"CANCEL",sequence});};
   }, [editingView, editingAssemblyConstraint, pendingAssemblyConstraint, replacingAssemblyReference,
-    assemblyDirection, assemblyDistance, assemblyPreviewCommit, assemblyConstraintForm, assemblyPreviewActor]);
+    assemblyDirection, assemblyDistance, assemblyPreviewCommit, assemblyConstraintForm, assemblyPreviewActor, lengthUnit]);
 
   const editSketch = (featureID: string, operations: SketchOperation[]) => {
     if (!editingView) return;
@@ -462,7 +503,8 @@ export function Workbench() {
     setReplacingAssemblyReference(reconnect ? firstDisconnectedSupport(constraint) : undefined);
     if (reconnect) { store.setSelection(null); store.setActiveTool("select", "once"); }
     assemblyConstraintForm.setFieldsValue({
-      value: constraint.kind === "ANGLE" ? (constraint.value ?? 0) * 180 / Math.PI : constraint.value ?? 0,
+      value: constraint.kind === "ANGLE" ? (constraint.value ?? 0) * 180 / Math.PI
+        : constraint.kind === "DISTANCE" ? millimetersToDisplayLength(constraint.value ?? 0, lengthUnit) : constraint.value ?? 0,
       directionRelation: constraint.kind === "ANGLE" && constraint.angleReferenceDirection ? "SAME"
         : constraint.directionRelation && constraint.directionRelation !== "UNORIENTED" ? constraint.directionRelation
         : constraint.second && [constraint.first, constraint.second].every((reference) => ["PLANE", "FACE"].includes(reference.kind))
@@ -641,7 +683,7 @@ export function Workbench() {
     const selectedOperation = operation ?? (hasBody ? "ADD" : "NEW_BODY");
     const sketchID = store.selection.id;
 	padIntentRequestID.current = randomUUID(); padPreviewID.current=undefined; setPadSketchID(sketchID); setPadGenerator(generator);
-    padForm.setFieldsValue({ generator, operation: selectedOperation, lengthSource: "40 mm", angle: 360,
+    padForm.setFieldsValue({ generator, operation: selectedOperation, lengthSource: `40 ${lengthUnit}`, angle: 360,
       axisEntityId: undefined, reversed: false });
     setPadOpen(true);
   };
@@ -699,18 +741,10 @@ export function Workbench() {
     if (!editingView) return; await api.createVersion(editingView.document.id, values.name, values.description); setVersionOpen(false);
     await history.refetch(); message.success("版本已创建");
   };
-  const acceptProductUpdates = () => {
-    const plan = productUpdatePlan.data;
-    if (!plan || !plan.hasUpdates || !plan.canAccept) return;
-    command.mutate(() => api.acceptProductUpdatePlan(documentID, plan.digest), {
-      onSuccess: () => message.success("Product 更新计划已原子接受"),
-    });
-  };
-  const createRelease = async (values: { name: string }) => {
-    const release: ProductRelease = await api.createProductRelease(documentID, values.name);
-    setReleaseOpen(false); releaseForm.resetFields();
+  const createRelease = async (name: string) => {
+    const release: ProductRelease = await api.createProductRelease(documentID, name);
     await client.invalidateQueries({ queryKey: ["product-releases", documentID] });
-    message.success(`Release ${release.name} 已冻结`);
+    message.success(`产品版本 ${release.name} 已冻结`);
   };
   useEffect(() => {
     const disposers = [
@@ -742,6 +776,8 @@ export function Workbench() {
         isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit) }),
       commandRegistry.register({ id: "product.insert", execute: () => setInsertOpen(true), isVisible: () => editingView?.document.type === "PRODUCT",
         isEnabled: () => Boolean(canEdit) }),
+      commandRegistry.register({ id: "product.release", execute: () => setReleaseOpen(true), isVisible: () => view?.document.type === "PRODUCT",
+        isEnabled: () => Boolean(canEditRoot) }),
       ...(["fix", "rigid", "coincident", "concentric", "angle", "distance"] as const).map((constraint) => commandRegistry.register({
         id: `assembly.${constraint}`,
         execute: (invocation) => store.setActiveTool(`assembly.${constraint}`, invocation?.continuous ? "continuous" : "once"),
@@ -761,16 +797,15 @@ export function Workbench() {
       commandRegistry.register({ id: "view.front", execute: () => viewport.current?.setStandardView("FRONT") }),
       commandRegistry.register({ id: "view.right", execute: () => viewport.current?.setStandardView("RIGHT") }),
       commandRegistry.register({ id: "view.iso", execute: () => viewport.current?.setStandardView("ISO") }),
-      commandRegistry.register({ id: "navigation.profile.toggle", execute: () => store.setNavigationProfile(
-        store.navigationProfile === "default" ? "catia" : "default"), isActive: () => store.navigationProfile === "catia" }),
 	  commandRegistry.register({ id: "debug.download", execute: () => editingView && (editingView.product ? api.downloadAssemblyReplay(editingView.document.id) : api.downloadDiagnosticBundle(editingView.document.id)),
 		isVisible: () => !isMockMode, isEnabled: () => Boolean(editingView) }),
     ];
     return () => { for (const dispose of disposers.reverse()) dispose(); };
-  }, [commandRegistry, editingView, canEdit, store.selection, store.sketchPlane, store.activeToolID, store.navigationProfile, command.isPending, assemblyConstraintForm]);
+  }, [commandRegistry, editingView, view, canEdit, canEditRoot, store.selection, store.sketchPlane, store.activeToolID, lengthUnit,
+    command.isPending, assemblyConstraintForm]);
 
   useEffect(() => { commandRegistry.notifyStateChanged(); }, [commandRegistry, editingView, store.selection, store.sketchPlane,
-    store.activeToolID, store.navigationProfile, command.isPending]);
+    store.activeToolID, command.isPending]);
 
   const selected = selectedFeature(editingView ?? {} as DocumentView, store.selection);
   const publicationTarget = () => {
@@ -913,6 +948,26 @@ export function Workbench() {
   </>;
 
 
+  const resizeStructureTree = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const resize = structureTreeResize.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    const viewportLimit = Math.max(MIN_STRUCTURE_TREE_WIDTH, Math.min(640, window.innerWidth * 0.55));
+    setStructureTreeWidth(Math.min(viewportLimit, resize.startWidth + event.clientX - resize.startX));
+  };
+  const finishStructureTreeResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (structureTreeResize.current?.pointerId !== event.pointerId) return;
+    structureTreeResize.current = undefined;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+  const resizeStructureTreeFromKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    setStructureTreeWidth(structureTreeWidth + (event.key === "ArrowRight" ? 16 : -16));
+  };
+  const visibleToolbars = (toolbarCatalog.data?.toolbars ?? [])
+    .filter((toolbar) => toolbar.workbench === "ALL" || toolbar.workbench === activeWorkbench);
+  const defaultTopLeftToolbarCount = visibleToolbars.filter((toolbar) => toolbar.position === "top-left").length;
+
   return <CommandProvider registry={commandRegistry}><section className="cad-workbench">
     <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>
         {view.document.type === "PRODUCT" && <div style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",
@@ -924,17 +979,12 @@ export function Workbench() {
           {activeInstancePath && <Button size="small" onClick={() => { setDefinitionContextPath(activeInstancePath); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }}>
             打开定义</Button>}
           {!activeInstancePath&&definitionContextPath&&<Button size="small" onClick={()=>{setActiveInstancePath(definitionContextPath);setDefinitionContextPath(undefined);store.endSketch();store.setSelection(null);}}>在此上下文打开</Button>}
-          <Button size="small" disabled={!canEditRoot} onClick={()=>setReleaseOpen(true)}>Product Release</Button>
           {designSession.isError && <Tag color="error">上下文失效</Tag>}</Space>
         </div>}
-        {view.document.type === "PRODUCT" && productUpdatePlan.data?.hasUpdates && <Alert
+        {view.document.type === "PRODUCT" && productUpdatePlan.data?.hasUpdates && !productUpdatePlan.data.canAccept && <Alert
           style={{position:"absolute",zIndex:12,top:56,left:"50%",transform:"translateX(-50%)",minWidth:420}}
-          type={productUpdatePlan.data.canAccept ? "info" : "error"} showIcon
-          message={`Product Update Plan · ${productUpdatePlan.data.entries.filter((entry)=>entry.currency!=="CURRENT").length} 项变化`}
-          description={productUpdatePlan.data.canAccept ? "来源 Head 已变化；接受前当前 Product 仍保持已接受快照。"
-            : productUpdatePlan.data.entries.find((entry)=>entry.diagnostic)?.diagnostic ?? "更新计划被上游解析或求值失败阻塞。"}
-          action={<Button size="small" type="primary" disabled={!canEditRoot || !productUpdatePlan.data.canAccept}
-            loading={command.isPending} onClick={acceptProductUpdates}>接受全部更新</Button>} />}
+          type="error" showIcon message="自动跟随最新版本被阻塞"
+          description={productUpdatePlan.data.entries.find((entry)=>entry.diagnostic)?.diagnostic ?? "更新计划被上游解析或求值失败阻塞。"} />}
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view}
           editingView={editingView} activeInstancePath={activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
           activeInstanceRotation={activeResolvedInstance?.rotation}
@@ -942,15 +992,16 @@ export function Workbench() {
           selections={store.selections}
           preselection={store.preselection}
           treeVisibilityOverrides={treeVisibilityOverrides}
-          sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={store.navigationProfile}
-          captureSettings={store.captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
+          sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={navigationProfile}
+          captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
           onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
 		  onAssemblyConstraint={(kind, references) => {
 			if (!editingView) return;
 			assemblyInteractionID.current=randomUUID();
 			assemblyPreviewActor.current?.send({type:"START"});
             setAssemblyDefinitionDirty(true); setReconnectError(undefined); setReplacingAssemblyReference(undefined);
-            const value = kind === "angle" || kind === "distance" ? viewport.current?.measureAssemblyConstraint(kind, references) ?? 0 : 0;
+            const measuredValue = kind === "angle" || kind === "distance" ? viewport.current?.measureAssemblyConstraint(kind, references) ?? 0 : 0;
+            const value = kind === "distance" ? millimetersToDisplayLength(measuredValue, lengthUnit) : measuredValue;
             const planePair=references.length===2&&references.every((reference)=>["PLANE","FACE"].includes(reference.kind));
             assemblyConstraintForm.setFieldsValue({ value, directionRelation: kind === "angle" ? "SAME" : planePair
               ? (viewport.current?.measureAssemblyConstraint("angle",references)??0)>90?"OPPOSITE":"SAME" : "UNORIENTED", distanceRelation: "UNSIGNED" });
@@ -961,19 +1012,17 @@ export function Workbench() {
 			if(editingView?.document.type!=="PRODUCT")return{poses:[],constraintLimited:true,previewId:""};const preview=await api.previewCommand(editingView.document.id,{type:"MOVE_INSTANCE",interactionId,previewSequence,instanceId,translation,rotation});return{poses:preview.instancePoses??[],constraintLimited:Boolean(preview.constraintLimited),previewId:preview.previewId};
           }}
           onInstanceMoved={moveInstance} /></Suspense>
-		{toolbarCatalog.data?.toolbars.filter((toolbar) => toolbar.workbench === "ALL" || toolbar.workbench === activeWorkbench)
-		  .map((toolbar: ToolbarCatalogEntry) => <FloatingToolbar key={toolbar.id} id={toolbar.id} label={toolbar.name}
+		{visibleToolbars
+		  .map((toolbar: ToolbarCatalogEntry, toolbarIndex) => <FloatingToolbar key={toolbar.id} id={toolbar.id} label={toolbar.name}
 			position={toolbar.position} orientation={toolbar.orientation}
+			stackIndex={visibleToolbars.slice(0, toolbarIndex).filter((candidate) => candidate.position === toolbar.position).length}
 			className={`${toolbar.styleKey === "part" ? "part-design-toolbar" : toolbar.styleKey === "sketch" ? "sketcher-toolbar" : toolbar.styleKey === "assembly" ? "assembly-design-toolbar" : toolbar.styleKey === "debug" ? "debug-toolbar" : "common-toolbar"} ${toolbar.id}-toolbar`}>
-			{toolbarGroups(toolbar.items.filter((item) => item.commandId !== "product.reference.toggle")).map((group) => <ToolbarGroup key={group.key}>{group.items.map((item) => item.commandId === "capture.settings"
-			  ? <CaptureSettingsButton key={item.commandId} settings={store.captureSettings} onEnabledChange={store.setCaptureEnabled}
-				  onSelectionToggle={store.toggleSelectionCapture} onSketchToggle={store.toggleSketchSnap}
-				  onAll={store.captureAll} onPointsOnly={store.capturePointsOnly} />
-			  : <ToolButton key={item.commandId} command={item.commandId} repeatable={item.repeatable}
+			<ToolbarGroup>{toolbar.items.map((item) => <ToolButton key={item.commandId} command={item.commandId} repeatable={item.repeatable}
 				  icon={<CadIcon name={item.iconKey as CadIconName} />} tooltip={item.name}
-				  toolbarName={toolbar.name} helpText={item.helpText} />)}</ToolbarGroup>)}
+				  toolbarName={toolbar.name} helpText={item.helpText} />)}</ToolbarGroup>
 		  </FloatingToolbar>)}
-        <aside className="floating-structure-tree">
+        <aside className="floating-structure-tree" style={{ width: structureTreeWidth,
+          top: Math.max(60, 14 + defaultTopLeftToolbarCount * 46) } as CSSProperties}>
           <SpecificationTree nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
             selectedIdentityKeys={store.selections.map(selectionKey)}
             selectionToken={selectionSetToken(store.selections)}
@@ -1011,6 +1060,17 @@ export function Workbench() {
 			  if (node.documentType !== "PRODUCT") return;
 			  newPartForm.resetFields(); setNewPartTarget(node);
 			}}
+			onReferenceMode={(node, mode) => {
+			  const segment = node.instancePath?.segments.at(-1);
+			  if (!segment) return;
+			  command.mutate(() => api.setReferenceMode(segment.ownerDocumentId, segment.instanceId, mode), {
+			    onSuccess: async (updated) => {
+			      client.setQueryData(queryKeys.document(updated.document.id), updated);
+			      await client.invalidateQueries({ queryKey: queryKeys.document(documentID) });
+			      message.success(mode === "PINNED" ? "已固定当前引用版本" : "已恢复跟随最新版本");
+			    },
+			  });
+			}}
 			onReconnect={(node) => {
               if (node.kind === "SKETCH_EXTERNAL_GEOMETRY" && node.entityId && node.ownerEntityId && editingView) {
                 const feature = editingView.part?.features.find((candidate) => candidate.id === node.ownerEntityId);
@@ -1047,6 +1107,15 @@ export function Workbench() {
               editSketch(node.ownerEntityId,[{type:"UPDATE_ENTITY_ROLE",entityId:node.entityId,
                 role:node.role==="CONSTRUCTION"?"PROFILE":"CONSTRUCTION"}]);
             }} />
+          <div className="structure-tree-resize-handle" role="separator" aria-label="调整结构树宽度"
+            aria-orientation="vertical" aria-valuemin={220} aria-valuemax={640} aria-valuenow={structureTreeWidth}
+            tabIndex={0} onKeyDown={resizeStructureTreeFromKeyboard}
+            onPointerDown={(event) => { if (event.button !== 0) return; structureTreeResize.current = {
+              pointerId: event.pointerId, startX: event.clientX,
+              startWidth: event.currentTarget.parentElement?.getBoundingClientRect().width ?? structureTreeWidth };
+              event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault(); }}
+            onPointerMove={resizeStructureTree} onPointerUp={finishStructureTreeResize}
+            onPointerCancel={finishStructureTreeResize} onLostPointerCapture={finishStructureTreeResize} />
         </aside>
         <button className={`inspector-toggle ${inspectorOpen ? "open" : ""}`} onClick={() => setInspectorOpen(!inspectorOpen)}
           title={inspectorOpen ? "收起属性面板" : "展开属性面板"}>
@@ -1058,7 +1127,7 @@ export function Workbench() {
           <div className="inspector-overlay-content">{store.inspectorTab === "properties"
             ? <Properties view={editingView ?? view} selection={store.selection} feature={selected}
               workbench={activeWorkbench} sketchPlane={store.sketchPlane} activeTool={store.activeToolID}
-              navigationProfile={store.navigationProfile} diagnostics={properties.data}
+              navigationProfile={navigationProfile} diagnostics={properties.data}
 			  topology={topology.data} topologyLoading={topology.isLoading} onEditParameter={openParameterEditor} />
             : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}</div>
         </aside>
@@ -1068,14 +1137,15 @@ export function Workbench() {
       confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={assemblyPreviewFailed || replacingAssemblyReference !== undefined} onConfirm={async()=>{
         if(!editingView||!editingAssemblyConstraint)return;const values=await assemblyConstraintForm.validateFields();const constraint=editingAssemblyConstraint;
 		assemblyPreviewActor.current?.send({type:"CONFIRM"});
-        command.mutate(()=>api.editAssemblyConstraint(editingView.document.id,constraint.id,{value:constraint.kind==="ANGLE"?values.value*Math.PI/180:values.value,
+        command.mutate(()=>api.editAssemblyConstraint(editingView.document.id,constraint.id,{value:constraint.kind==="ANGLE"?values.value*Math.PI/180
+          :constraint.kind==="DISTANCE"?displayLengthToMillimeters(values.value,lengthUnit):values.value,
 		  directionRelation:values.directionRelation,distanceRelation:values.distanceRelation,
 		  firstAssemblyRef:constraint.first,secondAssemblyRef:constraint.second,angleReferenceDirection:constraint.angleReferenceDirection,
 		  previewId:assemblyPreviewID.current}),{onSuccess:(updated)=>{assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});viewport.current?.clearCommandPreview(false);assemblyPreviewID.current=undefined;setAssemblyDefinitionDirty(false);setReconnectError(undefined);setEditingAssemblyConstraint(undefined);store.setSelection({kind:"assembly-constraint",id:constraint.id,constraintId:constraint.id,constraintType:constraint.kind,documentId:updated.document.id,treeNodeId:`document:${updated.document.id}/assembly-constraints/constraint:${constraint.id}`});},
 		  onError:(cause)=>assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)})});
       }}>
       <Form form={assemblyConstraintForm} layout="vertical">
-        {editingAssemblyConstraint && <AssemblyConstraintFields kind={editingAssemblyConstraint.kind}
+        {editingAssemblyConstraint && <AssemblyConstraintFields kind={editingAssemblyConstraint.kind} view={editingView} lengthUnit={lengthUnit}
           references={[editingAssemblyConstraint.first, editingAssemblyConstraint.second]} replacing={replacingAssemblyReference}
           constraint={editingAssemblyConstraint} previewEvaluation={assemblyPreviewEvaluation} dirty={assemblyDefinitionDirty}
           directedAngle={Boolean(editingAssemblyConstraint.angleReferenceDirection)}
@@ -1099,7 +1169,8 @@ export function Workbench() {
 		assemblyPreviewActor.current?.send({type:"CONFIRM"});
         command.mutate(() => api.addAssemblyConstraint(editingView.document.id, {
           constraintKind: pending.kind.toUpperCase(), firstAssemblyRef: pending.references[0], secondAssemblyRef: pending.references[1],
-          value: pending.kind === "angle" ? values.value * Math.PI / 180 : values.value,
+          value: pending.kind === "angle" ? values.value * Math.PI / 180
+            : pending.kind === "distance" ? displayLengthToMillimeters(values.value, lengthUnit) : values.value,
           directionRelation: values.directionRelation, distanceRelation: values.distanceRelation,
 		  angleReferenceDirection: pending.angleReferenceDirection,
 		  previewId:assemblyPreviewID.current,
@@ -1107,7 +1178,7 @@ export function Workbench() {
 		  onError:(cause)=>assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)}) });
       }}>
       <Form form={assemblyConstraintForm} layout="vertical">
-        {pendingAssemblyConstraint && <AssemblyConstraintFields kind={pendingAssemblyConstraint.kind.toUpperCase() as keyof typeof assemblyConstraintUI}
+        {pendingAssemblyConstraint && <AssemblyConstraintFields kind={pendingAssemblyConstraint.kind.toUpperCase() as keyof typeof assemblyConstraintUI} view={editingView} lengthUnit={lengthUnit}
           references={pendingAssemblyConstraint.references} replacing={replacingAssemblyReference}
           previewEvaluation={assemblyPreviewEvaluation} dirty
           directedAngle={Boolean(pendingAssemblyConstraint.angleReferenceDirection)}
@@ -1138,15 +1209,15 @@ export function Workbench() {
           <Form.Item name="angle" label="旋转角度（deg）" rules={[{ required: true }, { type: "number", min: 0.1, max: 360 }]}>
             <InputNumber min={0.1} max={360} precision={2} style={{ width: "100%" }} onBlur={previewPad} onPressEnter={previewPad} /></Form.Item>
         </> : <>
-          <Form.Item name="lengthSource" label="拉伸长度" rules={[{ required: true }, { validator: async (_, value) => {
+          <Form.Item name="lengthSource" label={`拉伸长度（${lengthUnit}）`} rules={[{ required: true }, { validator: async (_, value) => {
             try { linearExtrudeLengthInput(String(value ?? "")); } catch (cause) { throw cause; }
           } }]}>
-            <Input placeholder="40 mm 或参数表达式" onBlur={previewPad} onPressEnter={previewPad} />
+            <Input placeholder={`40 ${lengthUnit} 或参数表达式`} onBlur={previewPad} onPressEnter={previewPad} />
           </Form.Item>
           <Form.Item label="引用已有长度参数">
             <Select allowClear showSearch optionFilterProp="label" placeholder="选择后绑定其稳定 ParameterId"
               options={(editingView?.part?.parameters ?? []).filter(isLengthParameter).map((parameter) => ({
-                value: parameter.key, label: `${parameter.key} · ${parameterDisplayValue(parameter)}`,
+                value: parameter.key, label: `${parameter.key} · ${parameterDisplayValue(parameter, lengthUnit)}`,
               }))}
               onChange={(key) => { if (key) padForm.setFieldValue("lengthSource", key); previewPad(); }} />
           </Form.Item>
@@ -1156,9 +1227,9 @@ export function Workbench() {
     </CommandDialog>
 	<CommandDialog id="linear-extrude-edit" open={Boolean(editingExtrude)} title="编辑线性拉伸" onClose={closeFeatureEditor}
 		confirmLoading={command.isPending || featurePreviewPending} confirmDisabled={Boolean(featurePreviewError)} onConfirm={commitFeatureEdit}>
-		<Form form={featureForm} layout="vertical"><Form.Item name="lengthText" label="拉伸长度"
+		<Form form={featureForm} layout="vertical"><Form.Item name="lengthText" label={`拉伸长度（${lengthUnit}）`}
 			rules={[{required:true},{validator:async(_,value)=>{try{linearExtrudeLengthInput(String(value??""));}catch(cause){throw cause;}}}]}>
-			<Input autoFocus placeholder="40 mm 或参数表达式" suffix="值 / 参数 / 表达式"
+			<Input autoFocus placeholder={`40 ${lengthUnit} 或参数表达式`} suffix="值 / 参数 / 表达式"
 			onBlur={()=>void requestFeaturePreview()} onPressEnter={(event)=>{event.preventDefault();void commitFeatureEdit();}} /></Form.Item>
 		{featurePreviewError&&<Alert type="error" showIcon message="编辑预览失败" description={featurePreviewError}/>}
 		<small className="cad-command-hint">{featurePreviewPending?"后端正在求值预览…":"离开输入框刷新瞬态预览；按 Enter 或确定提交一个 Revision。"}</small></Form>
@@ -1174,7 +1245,7 @@ export function Workbench() {
 						{editingView?.referenceUpdates?.find((item) => item.consumerKind === "EXTERNAL_PARAMETER" && item.consumerId === parameter.parameterId) && ((update) =>
 							<Tag color={update.status === "CURRENT" ? "success" : update.status === "UPDATE_AVAILABLE" ? "processing" : "error"}
 								title={update.diagnostic}>{update.status}</Tag>)(editingView.referenceUpdates.find((item) => item.consumerKind === "EXTERNAL_PARAMETER" && item.consumerId === parameter.parameterId)!)}</Space>
-					<Typography.Text>{parameterDisplayValue(parameter)}</Typography.Text>
+					<Typography.Text>{parameterDisplayValue(parameter, lengthUnit)}</Typography.Text>
 					<Space><Button size="small" disabled={!canEdit} onClick={() => publishParameter(parameter)}>发布</Button>
 					<Button size="small" disabled={!canEdit} onClick={() => { externalParameterForm.resetFields(); setExternalParameterID(parameter.parameterId); }}>引用</Button>
 					<Button size="small" disabled={!canEdit} onClick={() => openParameterEditor(parameter.parameterId)}>编辑</Button></Space>
@@ -1290,17 +1361,20 @@ export function Workbench() {
     <CommandDialog id="datum-plane" open={datumPlaneOpen} title="创建基准面" onClose={() => setDatumPlaneOpen(false)}
       confirmLoading={command.isPending} onConfirm={async () => {
         const values = await datumPlaneForm.validateFields(); const selectedPlane = store.selection?.kind === "plane" ? store.selection.datumPlane : undefined;
-        if (!selectedPlane) return; const origin = selectedPlane.origin.map((value, index) => value + selectedPlane.normal[index] * values.offset) as Vec3;
+        if (!selectedPlane) return; const offset = displayLengthToMillimeters(values.offset, lengthUnit);
+        const origin = selectedPlane.origin.map((value, index) => value + selectedPlane.normal[index] * offset) as Vec3;
         command.mutate(() => api.createDatumPlane(activeID, { name: values.name, origin, normal: selectedPlane.normal, uDirection: selectedPlane.uDirection }),
           { onSuccess: () => setDatumPlaneOpen(false) });
       }}><Form form={datumPlaneForm} layout="vertical"><Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
-        <Form.Item name="offset" label="偏置（mm）" rules={[{ required: true }, { type: "number" }]}><InputNumber style={{ width: "100%" }} /></Form.Item></Form>
+        <Form.Item name="offset" label={`偏置（${lengthUnit}）`} rules={[{ required: true }, { type: "number" }]}><InputNumber style={{ width: "100%" }} /></Form.Item></Form>
     </CommandDialog>
     <CommandDialog id="datum-axis" open={datumAxisOpen} title="创建基准轴" onClose={() => setDatumAxisOpen(false)}
       confirmLoading={command.isPending} onConfirm={async () => { const v = await datumAxisForm.validateFields();
-        command.mutate(() => api.createDatumAxis(activeID, { name: v.name, origin: [v.ox,v.oy,v.oz], direction: [v.dx,v.dy,v.dz] }),
+        command.mutate(() => api.createDatumAxis(activeID, { name: v.name,
+          origin: [displayLengthToMillimeters(v.ox,lengthUnit),displayLengthToMillimeters(v.oy,lengthUnit),displayLengthToMillimeters(v.oz,lengthUnit)],
+          direction: [v.dx,v.dy,v.dz] }),
           { onSuccess: () => setDatumAxisOpen(false) }); }}><Form form={datumAxisForm} layout="vertical"><Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
-        <Space><Form.Item name="ox" label="原点 X"><InputNumber /></Form.Item><Form.Item name="oy" label="Y"><InputNumber /></Form.Item><Form.Item name="oz" label="Z"><InputNumber /></Form.Item></Space>
+        <Space><Form.Item name="ox" label={`原点 X（${lengthUnit}）`}><InputNumber /></Form.Item><Form.Item name="oy" label="Y"><InputNumber /></Form.Item><Form.Item name="oz" label="Z"><InputNumber /></Form.Item></Space>
         <Space><Form.Item name="dx" label="方向 X"><InputNumber /></Form.Item><Form.Item name="dy" label="Y"><InputNumber /></Form.Item><Form.Item name="dz" label="Z"><InputNumber /></Form.Item></Space></Form>
     </CommandDialog>
     <CommandDialog id="version" open={versionOpen} title="创建命名版本" onClose={() => setVersionOpen(false)}
@@ -1308,28 +1382,10 @@ export function Workbench() {
       <Form form={versionForm} layout="vertical"><Form.Item name="name" label="版本名称" rules={[{ required: true }]}><Input placeholder="V1 - Initial concept" /></Form.Item>
         <Form.Item name="description" label="说明"><Input.TextArea rows={3} /></Form.Item></Form>
     </CommandDialog>
-    <CommandDialog id="product-release" open={releaseOpen} title="创建 Product Release" width={620}
-      onClose={() => setReleaseOpen(false)} onConfirm={async () => createRelease(await releaseForm.validateFields())}>
-      <Form form={releaseForm} layout="vertical">
-        <Form.Item name="name" label="Release 名称" rules={[{required:true}]}><Input placeholder="ToyCar V1" /></Form.Item>
-      </Form>
-      <Alert type="info" showIcon message="Release 会冻结完整 Product dependency closure"
-        description="只有引用均为 CURRENT、occurrence 求值 READY、装配约束 VERIFIED 且存在成功 SolveManifest 时才允许发布。" />
-      <Divider>已有 Releases</Divider>
-      {productReleases.isLoading ? <Spin /> : (productReleases.data?.length ?? 0) === 0
-        ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚无 Product Release" />
-        : productReleases.data?.map((release)=><div className="parameter-manager-row" key={release.id}>
-          <span><strong>{release.name}</strong><Typography.Text type="secondary">{release.createdAt}</Typography.Text></span>
-          <Typography.Text copyable={{text:release.manifest.digest}}>{release.manifest.digest.slice(0,12)}</Typography.Text>
-          <Tag color="success">{release.manifest.gates.length} GATES</Tag>
-          <Space><Button size="small" onClick={()=>void api.startExport(documentID,"STEP",release.id)
-            .then(()=>message.success("Release STEP 导出任务已提交")).catch((error:Error)=>message.error(error.message))}>STEP</Button>
-          <Button size="small" onClick={()=>void api.startExport(documentID,"BREP",release.id)
-            .then(()=>message.success("Release BREP 导出任务已提交")).catch((error:Error)=>message.error(error.message))}>BREP</Button>
-          <Button size="small" onClick={()=>void api.replayProductRelease(documentID,release.id)
-            .then((result)=>message.success(`Release replay: ${result.status}`)).catch((error:Error)=>message.error(error.message))}>Replay</Button></Space>
-        </div>)}
-    </CommandDialog>
+    <ProductReleaseCenter open={releaseOpen} releases={productReleases.data ?? []} loading={productReleases.isLoading}
+      creating={command.isPending} onClose={() => setReleaseOpen(false)} onCreate={createRelease}
+      onReplay={async (release) => { const result = await api.replayProductRelease(documentID, release.id);
+        message.success(`版本重放验证：${result.status}`); }} />
     <ShareDialog resource={shareResource} onClose={() => setShareResource(undefined)} />
   </section></CommandProvider>;
 }

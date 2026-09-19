@@ -1,4 +1,4 @@
-import { LogoutOutlined, QuestionCircleOutlined, SettingOutlined, UserOutlined } from "@ant-design/icons";
+import { LogoutOutlined, QuestionCircleOutlined, ToolOutlined, UserOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { App as AntApp, Avatar, Button, Dropdown, Layout, Spin } from "antd";
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -10,8 +10,10 @@ import { AuthScreen } from "../features/auth/auth-screen";
 import { ActivityCenter } from "../features/activity/activity-center";
 import { DocumentCenter } from "../features/documents/document-center";
 import { DocumentOrbController } from "../features/workbench/document-orb-controller";
+import { UserPreferencesCenter } from "../features/preferences/user-preferences-center";
 import { queryKeys } from "./query-keys";
 import { UIHelpProvider, useUIHelp } from "../cad/help/ui-help-context";
+import { useApplicationContext } from "../state/application-context";
 
 const AdminDrawer = lazy(() => import("../features/admin/admin-drawer").then((module) => ({ default: module.AdminDrawer })));
 const Workbench = lazy(() => import("../features/workbench/workbench").then((module) => ({ default: module.Workbench })));
@@ -27,6 +29,7 @@ function ApplicationShell() {
   const client = useQueryClient();
   const { message, notification } = AntApp.useApp();
   const [adminOpen, setAdminOpen] = useState(false);
+  const activeWorkbenchDocumentID = useApplicationContext((state) => state.activeDocumentID);
   const session = useQuery({ queryKey: queryKeys.session, queryFn: api.session, retry: false });
   const health = useQuery({ queryKey: queryKeys.health, queryFn: api.health, retry: false, refetchInterval: 30_000,
     enabled: Boolean(session.data) });
@@ -55,17 +58,20 @@ function ApplicationShell() {
   if (!session.data) return <AuthScreen />;
   const user = session.data.user;
   const inWorkbench = location.pathname.startsWith("/documents/");
+  const activeDocumentID = location.pathname.match(/^\/documents\/([^/]+)/)?.[1];
   const logout = async () => { realtime.stop(); await api.logout(); client.clear(); navigate("/"); };
 
   return <Layout className="application-shell">
     <Layout.Header className="global-header">
       <button className="brand-button" aria-label="文档中心" onClick={() => navigate("/")}><Brand /></button>
+      {inWorkbench && <DocumentOrbController />}
       <div className="global-header-spacer" />
       <div className="global-header-actions">
         <i role="status" aria-label={isMockMode ? "Mock" : health.isSuccess ? `OCCT ${health.data.occtVersion}` : "离线"}
           className={`service-state ${isMockMode ? "mock" : health.isSuccess ? "online" : "offline"}`} />
         <ActivityCenter />
-        {user.platformRole === "ADMIN" && <Button ghost aria-label="管理" icon={<SettingOutlined />} onClick={() => setAdminOpen(true)} />}
+        <UserPreferencesCenter activeDocumentID={activeWorkbenchDocumentID ?? activeDocumentID} />
+        {user.platformRole === "ADMIN" && <Button ghost aria-label="管理" icon={<ToolOutlined />} onClick={() => setAdminOpen(true)} />}
         {inWorkbench && <Button ghost className={`context-help-button ${uiHelp.active ? "active" : ""}`}
           aria-label="这是什么？" aria-pressed={uiHelp.active} icon={<QuestionCircleOutlined />} onClick={uiHelp.toggle} />}
         <Dropdown menu={{ items: [
@@ -78,7 +84,6 @@ function ApplicationShell() {
       </div>
     </Layout.Header>
     <Layout.Content className="application-content"><Outlet /></Layout.Content>
-    {inWorkbench && <DocumentOrbController />}
     {adminOpen && <Suspense fallback={null}><AdminDrawer open onClose={() => setAdminOpen(false)} /></Suspense>}
   </Layout>;
 }
