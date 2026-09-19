@@ -3,7 +3,7 @@
 状态：实施中；P8 已完成自动与浏览器人工验收，P9 已完成自动化基线并待本轮浏览器人工验收
 规划基线：2026-09-15  
 前置能力：P0–P7 已完成；P7 浏览器/WebGL 人工验收已完成  
-当前 ready queue：P10A、P11A 与 P11J 可按优先级并行领取
+当前 ready queue：P10E、P11A 与 P11J 可按优先级并行领取
 
 ## 1. 目标与主线判断
 
@@ -329,17 +329,25 @@ P9 验证了 Publication/ContextReference 的底层合同，但“全局选择 D
 
 **验收**：重复 Part、多层 Product、rename、reorder、reparent 和 replace 后路径解析确定；Publication rename 不破坏消费者；并发自动命名不重复；无法唯一重写时拒绝命令。
 
+**实施记录（2026-09-19）**：已完成 typed root/segment `InstancePath`、稳定 ID canonical path、嵌套 Product Publication 解析与 rigid context expansion，并加入 cycle/depth/member gate。Instance、Part/Product Publication、ContextInput 使用 `nfkc-casefold-v1` 作用域唯一名称；自动名与 rename 均经服务端 CAS，rename 不改变稳定 ID。路径 segment 与实际 owner/reference 不一致、无法唯一沿稳定 member chain 解析时拒绝，不使用显示名 fallback。
+
 ### P10B：Product Design Session 与 in-context activation
 
 建立 root Product session、active occurrence、breadcrumb、原位编辑，以及 `Open Definition` / `Open in This Context`。激活是会话状态，不写 Revision；命令、权限和实时订阅均从 session 与 typed InstancePath 解析。
+
+**实施记录（2026-09-19）**：新增 root-snapshot `ProductDesignSession` API；Web 延续根 Product 场景内的 active occurrence 编辑，并增加可见 breadcrumb、`打开定义`/`在此上下文打开` 切换。会话切换不提交 Revision，编辑目标、世界 Placement 与订阅继续由 active typed path 决定。
 
 ### P10C：Product Context Catalog 与可读引用选择
 
 引用入口只查询当前 root snapshot 中可达、授权、configuration 有效且合同兼容的 Publication。参数、ContextReference、Product Publication 和装配约束移除普通用户手填 DocumentId/PublicationId；未发布对象进入受控的 Create Publication 流程。
 
+**实施记录（2026-09-19）**：新增 root-snapshot-scoped Context Catalog，递归枚举 Product occurrence Publication，按 expected type、连接状态、ACL 与已知 ContextBinding DAG cycle feasibility 投影 selectable/diagnostic。参数与 Context binding UI 改用 `occurrence breadcrumb / publication name` picker，不再浏览全租户 Part 或手填 ID；Product Publication 与装配 endpoint 继续从结构树/三维选择取得 typed identity。
+
 ### P10D：ContextInput、Product ContextBinding 与多 Workspace transaction
 
 Part 声明 typed ContextInput，最低共同 Product ancestor 拥有 source occurrence Publication 到 owning occurrence input 的 ContextBinding。多 Workspace 变更先在事务外求值，再对全部 Head/sequence 统一 CAS 并原子追加 Revision/ChangeSet/Outbox；不保留 P9 试点 schema 双写。
+
+**实施记录（2026-09-19）**：Part model 已加入 source-independent typed ContextInput，root Product model 持有 ContextBinding、relative transform 与 accepted snapshot。`ProductDesignTransaction` 在事务外完成 path/contract/parameter/publication/evaluation 预计算，为消费 Part、嵌套 owning Product 链与 root Product 生成候选；提交时稳定加锁全部 Workspace、统一 Head/sequence CAS，并在一个数据库事务追加 Revision、ChangeSet、dependency/evaluation、Outbox 与 Head。事务组 Undo/Redo 从任一成员统一补偿全部 Workspace。新入口只写 ContextInput/ContextBinding，不与 P9 ContextReference 双写。
 
 ### P10E：Product Update Plan 与 Context Variant
 

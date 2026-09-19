@@ -1,6 +1,6 @@
 import type { CadApi } from "../api";
 import type {
-  Artifact, AssemblyConstraint, AssemblyGeometryRef, DocumentProperties, DocumentStructureNode, DocumentSummary, DocumentView,
+  Artifact, AssemblyConstraint, AssemblyGeometryRef, ContextCatalog, DocumentProperties, DocumentStructureNode, DocumentSummary, DocumentView,
   Feature, FolderSummary, HistoryEntry, Job, InstancePath, ProductInstance, Publication, ShareGrant, SketchOperation, User, Vec3,
 } from "../types";
 import { sampleSketchEntity } from "../cad/sketch/sketch-geometry";
@@ -440,15 +440,24 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
     }
 	if(commandType==="REPLACE_INSTANCE"&&view.product){const instance=view.product.instances.find((item)=>item.id===input.instanceId);
 		const replacement=getView(String(input.referencedDocumentId));if(instance){instance.documentId=replacement.document.id;instance.versionId=replacement.document.versionId;rebuildProduct(view);}}
+	if(commandType==="RENAME_INSTANCE"&&view.product){const instance=view.product.instances.find((item)=>item.id===input.instanceId);
+		if(instance)instance.name=String(input.name);rebuildProduct(view);}
 	if (commandType === "CREATE_PRODUCT_PUBLICATION" && view.product) {
 		const instance=view.product.instances.find((candidate)=>candidate.id===input.instanceId);
 		const source=instance&&getView(instance.documentId).part?.publications?.find((candidate)=>candidate.id===input.publicationId);
 		if(instance&&source)view.product.publications=[...(view.product.publications??[]),{id:id("mock-product-publication"),name:String(input.name),
 			type:source.type,semanticPurpose:String(input.semanticPurpose??""),compatibilityVersion:source.compatibilityVersion,
-			target:{instancePath:{rootDocumentId:view.document.id,segments:[],canonical:instance.id,display:instance.name},publicationId:source.id},
+			target:{instancePath:(input.instancePath as InstancePath|undefined)??mockInstancePath(view.document.id,instance),publicationId:source.id},
 			contract:source.contract,resolution:source.resolution}];
 	}
+	if(commandType==="EDIT_PRODUCT_PUBLICATION"&&view.product){const publication=view.product.publications?.find((item)=>item.id===input.publicationId);
+		if(publication){publication.name=String(input.name);publication.semanticPurpose=String(input.semanticPurpose??"");}}
 	if(commandType==="DELETE_PRODUCT_PUBLICATION"&&view.product)view.product.publications=(view.product.publications??[]).filter((item)=>item.id!==input.publicationId);
+	if(commandType==="CREATE_CONTEXT_INPUT"&&view.part){view.part.contextInputs=[...(view.part.contextInputs??[]),{
+		id:id("mock-context-input"),name:String(input.name||"ContextInput"),type:String(input.publicationType||"PARAMETER") as Publication["type"],
+		required:Boolean(input.required),target:{kind:String(input.targetKind) as "PARAMETER"|"DATUM"|"SKETCH_EXTERNAL_GEOMETRY"|"FEATURE_INPUT",targetId:String(input.targetId)},contract:{}}];}
+	if(commandType==="EDIT_CONTEXT_INPUT"&&view.part){const contextInput=view.part.contextInputs?.find((item)=>item.id===input.contextInputId);
+		if(contextInput){contextInput.name=String(input.name);contextInput.required=Boolean(input.required);}}
     if (commandType === "MOVE_INSTANCE" && view.product) {
       const instance = view.product.instances.find((candidate) => candidate.id === input.instanceId);
       if (instance) instance.translation = input.translation as Vec3;
@@ -576,6 +585,53 @@ export const mockApi: CadApi = {
   },
   deleteFolder: async (folderID) => { const index = folders.findIndex((folder) => folder.id === folderID); if (index >= 0) folders.splice(index, 1); },
   getDocument: async (documentID) => { markDocumentOpen(documentID); return pause(getView(documentID)); },
+  getProductDesignSession: async (documentID, activePath = "") => {
+    const root = getView(documentID);
+    const active = root.resolvedInstances?.find((item) => item.instancePath?.canonical === activePath);
+    const activeDocument = active ? getView(active.documentId) : root;
+    return pause({ rootProductDocumentId: documentID, rootProductRevisionId: root.document.versionId,
+      rootSnapshotDigest: `mock-snapshot:${root.document.versionId}`, activeInstancePath: active?.instancePath,
+      activeDocumentId: activeDocument.document.id, activeRevisionId: activeDocument.document.versionId,
+      contextCatalogDigest: `mock-catalog:${root.document.versionId}` });
+  },
+  getContextCatalog: async (documentID, activePath, expectedType = "") => {
+    const root = getView(documentID);
+    const publications: ContextCatalog["publications"] = [];
+    for (const occurrence of root.resolvedInstances ?? []) {
+      if (!occurrence.instancePath) continue;
+      const source = getView(occurrence.documentId);
+      for (const publication of source.part?.publications ?? []) {
+        if (expectedType && publication.type !== expectedType) continue;
+        publications.push({ instancePath: occurrence.instancePath, documentId: source.document.id,
+          revisionId: source.document.versionId, publication, displayPath: `${occurrence.instancePath.display}/${publication.name}`,
+          selectable: publication.resolution.status === "CONNECTED" });
+      }
+    }
+    const activeInstancePath = root.resolvedInstances?.find((item) => item.instancePath?.canonical === activePath)?.instancePath;
+    return pause({ rootProductDocumentId: documentID, rootProductRevisionId: root.document.versionId,
+      activeInstancePath, expectedType: expectedType || undefined, digest: `mock-catalog:${root.document.versionId}`, publications });
+  },
+  createProductContextBinding: async (documentID, input) => {
+    const ownerDocumentID = input.owningInstancePath.segments.at(-1)?.referencedDocumentId;
+    const sourceDocumentID = input.sourceInstancePath.segments.at(-1)?.referencedDocumentId;
+    if (!ownerDocumentID || !sourceDocumentID) throw new Error("context binding paths must resolve to documents");
+    const owner = await command(ownerDocumentID, { type: "CREATE_CONTEXT_INPUT", name: input.contextInputName,
+      publicationType: input.publicationType, targetKind: input.targetKind, targetId: input.targetId, required: input.required });
+    const contextInput = owner.part?.contextInputs?.at(-1);
+    const sourcePublication = getView(sourceDocumentID).part?.publications?.find((item) => item.id === input.publicationId);
+    if (!contextInput || !sourcePublication) throw new Error("context binding source or target does not exist");
+    return pause(commit(documentID, "CREATE_CONTEXT_BINDING", (root) => {
+      if (!root.product) throw new Error("root document is not a Product");
+      root.product.contextBindings = [...(root.product.contextBindings ?? []), { id: id("mock-context-binding"),
+        name: input.name || contextInput.name, owningInstancePath: input.owningInstancePath, contextInputId: contextInput.id,
+        sourceInstancePath: input.sourceInstancePath, publication: { publicationId: sourcePublication.id,
+          expectedType: sourcePublication.type, compatibilityVersion: sourcePublication.compatibilityVersion },
+        referenceMode: input.referenceMode ?? "FOLLOW_WORKSPACE_WITH_ACCEPT", transform: { translation: [0,0,0], rotation: [0,0,0,1] },
+        resolution: sourcePublication.resolution, accepted: { rootProductRevisionId: root.document.versionId,
+          sourceRevisionId: getView(sourceDocumentID).document.versionId, owningRevisionId: owner.document.versionId,
+          contractDigest: "mock-contract", sourceDigest: sourcePublication.resolution.sourceDigest, status: "ACCEPTED" } }];
+    }));
+  },
   getDocumentProperties: async (documentID): Promise<DocumentProperties> => {
     const view = getView(documentID);
     const artifacts = view.artifact ? [view.artifact] : Object.values(view.artifacts ?? {});
@@ -684,10 +740,15 @@ export const mockApi: CadApi = {
   createDatumAxis: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_AXIS", ...input }),
   insert: async (documentID, referencedDocumentID) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID }),
   replaceInstance: async (documentID, instanceID, referencedDocumentID) => command(documentID, {type:"REPLACE_INSTANCE",instanceId:instanceID,referencedDocumentId:referencedDocumentID}),
-  createProductPublication: async (documentID, instanceID, publicationID, name, semanticPurpose) => command(documentID,
-	{type:"CREATE_PRODUCT_PUBLICATION",instanceId:instanceID,publicationId:publicationID,name,semanticPurpose}),
+  renameInstance: async (documentID, instanceID, name) => command(documentID, {type:"RENAME_INSTANCE",instanceId:instanceID,name}),
+  createProductPublication: async (documentID, instanceID, publicationID, name, semanticPurpose, instancePath) => command(documentID,
+	{type:"CREATE_PRODUCT_PUBLICATION",instanceId:instanceID,publicationId:publicationID,name,semanticPurpose,instancePath}),
+  editProductPublication: async (documentID, publicationID, name, semanticPurpose) => command(documentID,
+	{type:"EDIT_PRODUCT_PUBLICATION",publicationId:publicationID,name,semanticPurpose}),
   deleteProductPublication: async (documentID, publicationID) => command(documentID,{type:"DELETE_PRODUCT_PUBLICATION",publicationId:publicationID}),
   createContextReference: async (documentID,input) => command(documentID,{type:"CREATE_CONTEXT_REFERENCE",...input}),
+  createContextInput: async (documentID,input) => command(documentID,{type:"CREATE_CONTEXT_INPUT",...input}),
+  editContextInput: async (documentID,contextInputID,name,required) => command(documentID,{type:"EDIT_CONTEXT_INPUT",contextInputId:contextInputID,name,required}),
   detachContextReference: async (documentID,contextReferenceID) => command(documentID,{type:"DETACH_CONTEXT_REFERENCE",contextReferenceId:contextReferenceID}),
   move: async (documentID, instanceID, translation,rotation) => command(documentID, { type: "MOVE_INSTANCE", instanceId: instanceID, translation,rotation }),
   addAssemblyConstraint: async (documentID, input) => command(documentID, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),

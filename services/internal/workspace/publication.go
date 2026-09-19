@@ -155,6 +155,7 @@ func publicationContractsCompatible(left, right Publication) bool {
 
 func validatePublicationDefinitions(model PartModel) error {
 	ids := map[string]bool{}
+	names := map[string]bool{}
 	for _, publication := range model.Publications {
 		if strings.TrimSpace(publication.ID) == "" || strings.TrimSpace(publication.Name) == "" || strings.TrimSpace(publication.CompatibilityVersion) == "" {
 			return fmt.Errorf("%w: publication identity, name and compatibility version are required", ErrValidation)
@@ -163,6 +164,11 @@ func validatePublicationDefinitions(model PartModel) error {
 			return fmt.Errorf("%w: duplicate PublicationId", ErrValidation)
 		}
 		ids[publication.ID] = true
+		nameKey := scopedNameKey(publication.Name)
+		if names[nameKey] {
+			return fmt.Errorf("%w: Publication name must be unique in its Part", ErrValidation)
+		}
+		names[nameKey] = true
 		switch publication.Type {
 		case "POINT", "AXIS", "PLANE", "FRAME", "CURVE", "SURFACE", "BODY", "PARAMETER":
 		default:
@@ -447,7 +453,11 @@ func (service *Service) publicationFromRequest(ctx context.Context, documentID s
 	}
 	name := strings.TrimSpace(request.Name)
 	if name == "" {
-		name = publicationType
+		existing := make([]string, 0, len(model.Publications))
+		for _, item := range model.Publications {
+			existing = append(existing, item.Name)
+		}
+		name = nextScopedName(defaultPublicationBase(request.TargetKind, publicationType), existing)
 	}
 	publication := Publication{ID: publicationID, Name: name, Type: publicationType, SemanticPurpose: strings.TrimSpace(request.SemanticPurpose), CompatibilityVersion: version, Resolution: PublicationResolution{Status: "PENDING"}}
 	switch strings.ToUpper(strings.TrimSpace(request.TargetKind)) {

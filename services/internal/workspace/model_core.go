@@ -78,10 +78,17 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeUpdatePartReferences, "PART", applyUpdatePartReferences},
 		commandHandler{typeCreateContextReference, "PART", applyContextReferenceModel},
 		commandHandler{typeDetachContextReference, "PART", applyContextReferenceModel},
+		commandHandler{typeCreateContextInput, "PART", applyCreateContextInput},
+		commandHandler{typeEditContextInput, "PART", applyEditContextInput},
+		commandHandler{typeDeleteContextInput, "PART", applyDeleteContextInput},
 		commandHandler{typeInsertInstance, "PRODUCT", applyInsertInstance},
+		commandHandler{typeRenameInstance, "PRODUCT", applyRenameInstance},
 		commandHandler{typeReplaceInstance, "PRODUCT", applyReplaceInstance},
 		commandHandler{typeCreateProductPublication, "PRODUCT", applyCreateProductPublication},
+		commandHandler{typeEditProductPublication, "PRODUCT", applyEditProductPublication},
 		commandHandler{typeDeleteProductPublication, "PRODUCT", applyDeleteProductPublication},
+		commandHandler{typeCreateContextBinding, "PRODUCT", applyCreateContextBinding},
+		commandHandler{typeDeleteContextBinding, "PRODUCT", applyDeleteContextBinding},
 		commandHandler{typeMoveInstance, "PRODUCT", applyMoveInstance},
 		commandHandler{typeAddAssemblyConstraint, "PRODUCT", applyAddAssemblyConstraint},
 		commandHandler{typeEditAssemblyConstraint, "PRODUCT", applyEditAssemblyConstraint},
@@ -2373,7 +2380,7 @@ func sketchDefinitionStatus(status geometry.SketchSolveStatus, degreesOfFreedom 
 func buildProductEvaluation(model ProductModel, revisionID, modelHash string, seeds []modelcore.DependencyKey, prior *modelcore.EvaluationManifest) (*modelcore.DependencyGraph, modelcore.EvaluationManifest, error) {
 	instanceIDs, instanceNames := map[string]bool{}, map[string]bool{}
 	for _, instance := range model.Instances {
-		name := strings.ToLower(strings.TrimSpace(instance.Name))
+		name := scopedNameKey(instance.Name)
 		if instance.ID == "" || instanceIDs[instance.ID] {
 			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: Product contains a duplicate or empty InstanceId", ErrValidation)
 		}
@@ -2382,7 +2389,7 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		}
 		instanceIDs[instance.ID], instanceNames[name] = true, true
 	}
-	nodes := make([]modelcore.DependencyNode, 0, len(model.Instances)+len(model.Constraints)+len(model.Publications))
+	nodes := make([]modelcore.DependencyNode, 0, len(model.Instances)+len(model.Constraints)+len(model.Publications)+len(model.ContextBindings))
 	edges := make([]modelcore.DependencyEdge, 0, len(model.Constraints)*2)
 	for _, instance := range model.Instances {
 		data, _ := json.Marshal(instance)
@@ -2400,12 +2407,13 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + constraint.Second.InstanceID), Target: key, Kind: "READ_GEOMETRY"})
 		}
 	}
-	publicationIDs := map[string]bool{}
+	publicationIDs, publicationNames := map[string]bool{}, map[string]bool{}
 	for _, publication := range model.Publications {
-		if publication.ID == "" || publicationIDs[publication.ID] || len(publication.Target.InstancePath.Segments) != 1 {
+		name := scopedNameKey(publication.Name)
+		if publication.ID == "" || publicationIDs[publication.ID] || name == "" || publicationNames[name] || len(publication.Target.InstancePath.Segments) == 0 || len(publication.Target.InstancePath.Segments) > instancePathMaxDepth {
 			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: Product Publication identity or relative occurrence path is invalid", ErrValidation)
 		}
-		publicationIDs[publication.ID] = true
+		publicationIDs[publication.ID], publicationNames[name] = true, true
 		instanceID := publication.Target.InstancePath.Segments[0].InstanceID
 		if !instanceIDs[instanceID] {
 			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: Product Publication occurrence is missing", ErrValidation)
@@ -2414,6 +2422,29 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		key := modelcore.DependencyKey("product-publication:" + publication.ID)
 		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 3, Type: "PRODUCT_PUBLICATION", CanonicalInput: data})
 		edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + instanceID), Target: key, Kind: modelcore.ReadGeometry})
+	}
+	bindingIDs, bindingNames, boundInputs := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	for _, binding := range model.ContextBindings {
+		name := scopedNameKey(binding.Name)
+		if binding.ID == "" || bindingIDs[binding.ID] || name == "" || bindingNames[name] ||
+			len(binding.OwningInstancePath.Segments) == 0 || len(binding.SourceInstancePath.Segments) == 0 ||
+			len(binding.OwningInstancePath.Segments) > instancePathMaxDepth || len(binding.SourceInstancePath.Segments) > instancePathMaxDepth ||
+			binding.ContextInputID == "" || binding.Publication.PublicationID == "" {
+			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: ContextBinding identity, name or endpoint is invalid", ErrValidation)
+		}
+		endpoint := binding.OwningInstancePath.Canonical + "#" + binding.ContextInputID
+		if boundInputs[endpoint] {
+			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: ContextInput has more than one Product binding", ErrValidation)
+		}
+		bindingIDs[binding.ID], bindingNames[name], boundInputs[endpoint] = true, true, true
+		ownerRoot, sourceRoot := binding.OwningInstancePath.Segments[0].InstanceID, binding.SourceInstancePath.Segments[0].InstanceID
+		if !instanceIDs[ownerRoot] || !instanceIDs[sourceRoot] {
+			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: ContextBinding occurrence is missing", ErrValidation)
+		}
+		data, _ := json.Marshal(binding)
+		key := modelcore.DependencyKey("context-binding:" + binding.ID)
+		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 2, Type: "CONTEXT_BINDING", CanonicalInput: data})
+		edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + sourceRoot), Target: key, Kind: modelcore.ReadGeometry})
 	}
 	graph, err := modelcore.NewDependencyGraph(nodes, edges)
 	if err != nil {

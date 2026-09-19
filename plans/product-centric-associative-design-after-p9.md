@@ -361,6 +361,8 @@ Skeleton -> Wheel/Rim/Tire geometry -> Product constraints
 - 完成跨 Workspace 预计算、统一 CAS、ChangeSet 和 Undo/Redo；
 - 项目未发布，直接修改唯一 schema/调用方，不保留 P9 试点双写。
 
+**P10A–P10D 实施记录（2026-09-19）**：上述四阶段已落地。稳定 occurrence identity 使用 typed segment/InstanceId chain，名称采用 `nfkc-casefold-v1` 作用域规则；Product Design Session 与 Context Catalog 以不可变 root snapshot 为边界；Part ContextInput 与 Product ContextBinding 通过 `product_design_transactions` 组织跨 Workspace Revision。创建、Undo 与 Redo 都先预计算候选，再统一锁 Head/sequence 并原子提交；嵌套 owning Product 链会自底向上产生新 Revision，FK projection 在全部 Revision 建立后统一写入。P9 ContextReference 不参与这条新提交链，也不存在双写。
+
 ### P10E：Product Update Plan 与 Context Variant
 
 - 构建产品级依赖 DAG、影响闭包和三维状态投影；

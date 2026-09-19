@@ -431,6 +431,29 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			break
 		}
 		return typeDeletePublication, publicationDeletePayload{PublicationID: request.PublicationID}, nil
+	case "CREATE_CONTEXT_INPUT":
+		if documentType != "PART" {
+			break
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		input, err := contextInputFromRequest(model, request)
+		if err != nil {
+			return "", nil, err
+		}
+		return typeCreateContextInput, contextInputPayload{Input: input}, nil
+	case "EDIT_CONTEXT_INPUT":
+		if documentType != "PART" {
+			break
+		}
+		return typeEditContextInput, contextInputEditPayload{ContextInputID: request.ContextInputID, Name: request.Name, Required: request.Required}, nil
+	case "DELETE_CONTEXT_INPUT":
+		if documentType != "PART" {
+			break
+		}
+		return typeDeleteContextInput, contextInputDeletePayload{ContextInputID: request.ContextInputID}, nil
 	case "CREATE_CONTEXT_REFERENCE":
 		if documentType != "PART" {
 			break
@@ -538,6 +561,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		instanceName := nextInstanceName(product, name)
 		return typeInsertInstance, insertInstancePayload{Instance: ProductInstance{ID: newID("instance"), Name: instanceName, ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Translation: request.Translation, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: "FOLLOW_HEAD"}}, nil
+	case "RENAME_INSTANCE":
+		if documentType != "PRODUCT" {
+			break
+		}
+		return typeRenameInstance, renameInstancePayload{InstanceID: request.InstanceID, Name: request.Name}, nil
 	case "REPLACE_INSTANCE":
 		if documentType != "PRODUCT" {
 			break
@@ -579,30 +607,76 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if err := json.Unmarshal(modelJSON, &product); err != nil {
 			return "", nil, err
 		}
-		var instance *ProductInstance
-		for index := range product.Instances {
-			if product.Instances[index].ID == request.InstanceID {
-				instance = &product.Instances[index]
-				break
+		path := InstancePath{RootDocumentID: documentID}
+		if request.InstancePath != nil {
+			path = *request.InstancePath
+		} else {
+			var rootRevisionID string
+			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&rootRevisionID); err != nil {
+				return "", nil, err
+			}
+			for _, instance := range product.Instances {
+				if instance.ID == request.InstanceID {
+					path = appendInstancePath(path, InstancePathSegment{OwnerDocumentID: documentID,
+						OwnerVersionID: rootRevisionID,
+						InstanceID:     instance.ID, InstanceName: instance.Name, ReferencedDocumentID: instance.ReferencedDocumentID,
+						ResolvedVersionID: instance.ReferencedVersionID})
+					break
+				}
 			}
 		}
-		if instance == nil {
-			return "", nil, fmt.Errorf("%w: forwarded occurrence does not exist", ErrValidation)
+		if path.RootDocumentID != documentID {
+			return "", nil, fmt.Errorf("%w: Product Publication path belongs to another root Product", ErrValidation)
 		}
-		child, err := service.publicationAtRevision(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID, request.PublicationID)
+		child, canonicalPath, err := service.publicationAtRelativePath(ctx, product, path, request.PublicationID)
 		if err != nil {
 			return "", nil, err
 		}
 		if child.Resolution.Status != "CONNECTED" {
 			return "", nil, fmt.Errorf("%w: child Publication is broken", ErrValidation)
 		}
-		publication := productPublicationFromChild(*instance, child, newID("product-publication"), request.Name, request.SemanticPurpose)
+		name := strings.TrimSpace(request.Name)
+		if name == "" {
+			existing := make([]string, 0, len(product.Publications))
+			for _, item := range product.Publications {
+				existing = append(existing, item.Name)
+			}
+			name = child.Name
+			if err := ensureUniqueScopedName(name, existing, ""); err != nil {
+				name = nextScopedName(defaultPublicationBase(child.Target.Kind, child.Type), existing)
+			}
+		}
+		publication := productPublicationFromPath(canonicalPath, child, commandEntityID("product-publication", request.RequestID), name, request.SemanticPurpose)
 		return typeCreateProductPublication, productPublicationPayload{Publication: publication}, nil
 	case "DELETE_PRODUCT_PUBLICATION":
 		if documentType != "PRODUCT" {
 			break
 		}
 		return typeDeleteProductPublication, publicationDeletePayload{PublicationID: request.PublicationID}, nil
+	case "EDIT_PRODUCT_PUBLICATION":
+		if documentType != "PRODUCT" {
+			break
+		}
+		return typeEditProductPublication, productPublicationEditPayload{PublicationID: request.PublicationID,
+			Name: request.Name, SemanticPurpose: request.SemanticPurpose}, nil
+	case "CREATE_CONTEXT_BINDING":
+		if documentType != "PRODUCT" {
+			break
+		}
+		var rootRevisionID string
+		if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1 AND document_type='PRODUCT' AND deleted_at IS NULL`, documentID).Scan(&rootRevisionID); err != nil {
+			return "", nil, err
+		}
+		binding, err := service.contextBindingFromRequest(ctx, documentID, rootRevisionID, request)
+		if err != nil {
+			return "", nil, err
+		}
+		return typeCreateContextBinding, contextBindingPayload{Binding: binding}, nil
+	case "DELETE_CONTEXT_BINDING":
+		if documentType != "PRODUCT" {
+			break
+		}
+		return typeDeleteContextBinding, contextBindingDeletePayload{ContextBindingID: request.ContextBindingID}, nil
 	case "MOVE_INSTANCE":
 		if documentType != "PRODUCT" {
 			break

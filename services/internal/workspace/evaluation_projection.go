@@ -344,6 +344,14 @@ func validatePartStructure(model PartModel) error {
 		features[feature.ID] = feature
 	}
 	contextIDs := map[string]bool{}
+	contextInputIDs, contextInputNames := map[string]bool{}, map[string]bool{}
+	for _, input := range model.ContextInputs {
+		name := scopedNameKey(input.Name)
+		if input.ID == "" || contextInputIDs[input.ID] || name == "" || contextInputNames[name] || input.Type == "" || input.Target.Kind == "" || input.Target.TargetID == "" {
+			return fmt.Errorf("%w: ContextInput identity, name, target and contract must be complete and unique", ErrValidation)
+		}
+		contextInputIDs[input.ID], contextInputNames[name] = true, true
+	}
 	for _, reference := range model.ContextReferences {
 		if strings.TrimSpace(reference.ID) == "" || contextIDs[reference.ID] {
 			return fmt.Errorf("%w: context reference identity must be unique", ErrValidation)
@@ -411,6 +419,19 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		case "CURVE":
 			edges = append(edges, modelcore.DependencyEdge{Source: key,
 				Target: modelcore.DependencyKey("feature:" + reference.LocalTargetID), Kind: modelcore.ReadTopology})
+		}
+	}
+	for _, input := range model.ContextInputs {
+		data, _ := json.Marshal(input)
+		key := modelcore.DependencyKey("context-input:" + input.ID)
+		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 0, Type: "CONTEXT_INPUT", CanonicalInput: data})
+		switch input.Target.Kind {
+		case "PARAMETER":
+			edges = append(edges, modelcore.DependencyEdge{Source: key, Target: modelcore.DependencyKey("parameter:" + input.Target.TargetID), Kind: modelcore.ReadValue})
+		case "DATUM":
+			edges = append(edges, modelcore.DependencyEdge{Source: key, Target: modelcore.DependencyKey("datum:" + input.Target.TargetID), Kind: modelcore.ReadGeometry})
+		case "SKETCH_EXTERNAL_GEOMETRY", "FEATURE_INPUT":
+			edges = append(edges, modelcore.DependencyEdge{Source: key, Target: modelcore.DependencyKey("feature:" + input.Target.TargetID), Kind: modelcore.ReadGeometry})
 		}
 	}
 	bodyTipFeatureID := ""

@@ -4,6 +4,8 @@ export const queryKeys = {
   documents: (filters: unknown = {}) => ["documents", filters] as const,
   openDocuments: ["open-documents"] as const,
   document: (id: string) => ["document", id] as const,
+  productDesignSession: (id: string, activePath = "") => ["product-design-session", id, activePath] as const,
+  contextCatalog: (id: string, activePath: string, expectedType = "") => ["context-catalog", id, activePath, expectedType] as const,
   documentProperties: (id: string) => ["document-properties", id] as const,
   topologyProperties: (id: string, key: string, kind: string, localId: number, versionId = "") => ["topology-properties", id, versionId, key, kind, localId] as const,
   history: (id: string) => ["history", id] as const,

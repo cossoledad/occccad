@@ -78,12 +78,12 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 	} else if !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	var rootTransaction, consumedRevert string
+	var rootTransaction, consumedRevert, productDesignTransaction string
 	var changeJSON []byte
 	var persistedWrites []string
 	if request.Type == "UNDO" {
 		err := service.database.QueryRow(ctx, `
-			SELECT root.id::text,cs.canonical_blob,cs.write_set
+			SELECT root.id::text,coalesce(root.product_design_transaction_id::text,''),cs.canonical_blob,cs.write_set
 			FROM occccad.domain_transactions root
 			JOIN occccad.change_sets cs ON cs.transaction_id=root.id
 			LEFT JOIN LATERAL (
@@ -94,7 +94,7 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 			WHERE root.workspace_id=$1 AND root.actor_id=$2 AND root.status='COMMITTED'
 			  AND root.kind IN ('DOMAIN','RESTORE')
 			  AND (latest.kind IS NULL OR latest.kind='REAPPLY')
-			ORDER BY root.sequence DESC LIMIT 1`, workspaceID, actor).Scan(&rootTransaction, &changeJSON, &persistedWrites)
+			ORDER BY root.sequence DESC LIMIT 1`, workspaceID, actor).Scan(&rootTransaction, &productDesignTransaction, &changeJSON, &persistedWrites)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("%w: nothing to undo for this actor", ErrValidation)
 		}
@@ -109,7 +109,7 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 				WHERE workspace_id=$1 AND actor_id=$2 AND status='COMMITTED'
 				  AND kind IN ('DOMAIN','RESTORE','CREATE')
 			)
-			SELECT root.id::text,revert_tx.id::text,cs.canonical_blob,cs.write_set
+			SELECT root.id::text,revert_tx.id::text,coalesce(root.product_design_transaction_id::text,''),cs.canonical_blob,cs.write_set
 			FROM occccad.domain_transactions revert_tx
 			JOIN occccad.domain_transactions root ON root.id=revert_tx.root_transaction_id
 			JOIN occccad.change_sets cs ON cs.transaction_id=root.id
@@ -119,13 +119,16 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 			  AND revert_tx.sequence>boundary.sequence
 			  AND NOT EXISTS (SELECT 1 FROM occccad.domain_transactions reapply
 			      WHERE reapply.reapplies_transaction_id=revert_tx.id AND reapply.status='COMMITTED')
-			ORDER BY revert_tx.sequence DESC LIMIT 1`, workspaceID, actor).Scan(&rootTransaction, &consumedRevert, &changeJSON, &persistedWrites)
+			ORDER BY revert_tx.sequence DESC LIMIT 1`, workspaceID, actor).Scan(&rootTransaction, &consumedRevert, &productDesignTransaction, &changeJSON, &persistedWrites)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("%w: REDO_NOT_AVAILABLE", ErrValidation)
 		}
 		if err != nil {
 			return err
 		}
+	}
+	if productDesignTransaction != "" {
+		return service.applyProductDesignCompensatingHistory(ctx, productDesignTransaction, request, historyDigest)
 	}
 	var original modelcore.ChangeSet
 	if err := json.Unmarshal(changeJSON, &original); err != nil {
@@ -245,6 +248,12 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 		}
 		for _, change := range set.Changes {
 			switch change.Target.SlotID {
+			case "context-input.entity":
+				for _, input := range model.ContextInputs {
+					if input.ID == change.Target.EntityID {
+						result[change.Target], _ = json.Marshal(input)
+					}
+				}
 			case "context-reference.entity":
 				for _, reference := range model.ContextReferences {
 					if reference.ID == change.Target.EntityID {
@@ -317,6 +326,15 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 			return nil, err
 		}
 		for _, change := range set.Changes {
+			if change.Target.SlotID == "context-binding.entity" {
+				for _, binding := range model.ContextBindings {
+					if binding.ID == change.Target.EntityID {
+						result[change.Target], _ = json.Marshal(binding)
+						break
+					}
+				}
+				continue
+			}
 			if change.Target.SlotID == "product-publication.entity" {
 				for _, publication := range model.Publications {
 					if publication.ID == change.Target.EntityID {
@@ -348,6 +366,8 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 					result[change.Target], _ = json.Marshal(InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)})
 				case "instance.reference":
 					result[change.Target], _ = json.Marshal(struct{ Mode, Version, DocumentID string }{instance.ReferenceMode, instance.ReferencedVersionID, instance.ReferencedDocumentID})
+				case "instance.name":
+					result[change.Target], _ = json.Marshal(instance.Name)
 				}
 			}
 			if change.Target.SlotID == "document.model" {
@@ -383,6 +403,23 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 						model.Publications[index] = publication
 					} else {
 						model.Publications = append(model.Publications, publication)
+					}
+				}
+			case "context-input.entity":
+				index := slices.IndexFunc(model.ContextInputs, func(item ContextInput) bool { return item.ID == address.EntityID })
+				if len(value) == 0 || string(value) == "null" {
+					if index >= 0 {
+						model.ContextInputs = append(model.ContextInputs[:index], model.ContextInputs[index+1:]...)
+					}
+				} else {
+					var input ContextInput
+					if err := json.Unmarshal(value, &input); err != nil {
+						return nil, err
+					}
+					if index >= 0 {
+						model.ContextInputs[index] = input
+					} else {
+						model.ContextInputs = append(model.ContextInputs, input)
 					}
 				}
 			case "context-reference.entity":
@@ -566,6 +603,23 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 			}
 		}
 		switch address.SlotID {
+		case "context-binding.entity":
+			bindingIndex := slices.IndexFunc(model.ContextBindings, func(item ContextBinding) bool { return item.ID == address.EntityID })
+			if len(value) == 0 || string(value) == "null" {
+				if bindingIndex >= 0 {
+					model.ContextBindings = append(model.ContextBindings[:bindingIndex], model.ContextBindings[bindingIndex+1:]...)
+				}
+			} else {
+				var binding ContextBinding
+				if err := json.Unmarshal(value, &binding); err != nil {
+					return nil, err
+				}
+				if bindingIndex >= 0 {
+					model.ContextBindings[bindingIndex] = binding
+				} else {
+					model.ContextBindings = append(model.ContextBindings, binding)
+				}
+			}
 		case "product-publication.entity":
 			publicationIndex := slices.IndexFunc(model.Publications, func(item ProductPublication) bool { return item.ID == address.EntityID })
 			if len(value) == 0 || string(value) == "null" {
@@ -604,6 +658,13 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 				return nil, fmt.Errorf("%w: instance was deleted", ErrValidation)
 			}
 			if err := json.Unmarshal(value, &model.Instances[index].Translation); err != nil {
+				return nil, err
+			}
+		case "instance.name":
+			if index < 0 {
+				return nil, fmt.Errorf("%w: instance was deleted", ErrValidation)
+			}
+			if err := json.Unmarshal(value, &model.Instances[index].Name); err != nil {
 				return nil, err
 			}
 		case "instance.reference":

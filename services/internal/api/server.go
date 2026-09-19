@@ -203,6 +203,9 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/folders/{folderID}", server.deleteFolder)
 	mux.HandleFunc("GET /api/folders/{folderID}/breadcrumbs", server.folderBreadcrumbs)
 	mux.HandleFunc("GET /api/documents/{documentID}", server.getDocument)
+	mux.HandleFunc("GET /api/documents/{documentID}/design-session", server.productDesignSession)
+	mux.HandleFunc("GET /api/documents/{documentID}/context-catalog", server.productContextCatalog)
+	mux.HandleFunc("POST /api/documents/{documentID}/context-bindings", server.createProductContextBinding)
 	mux.HandleFunc("GET /api/documents/{documentID}/properties", server.documentProperties)
 	mux.HandleFunc("GET /api/documents/{documentID}/topology-properties", server.topologyProperties)
 	mux.HandleFunc("POST /api/documents/{documentID}/persistent-selections/bind", server.bindPersistentSelection)
@@ -252,6 +255,74 @@ func (server *Server) Handler() http.Handler {
 		writeError(writer, http.StatusNotFound, "route not found")
 	})
 	return server.middleware(mux)
+}
+
+func (server *Server) productDesignSession(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	result, err := server.workspace.GetProductDesignSession(request.Context(), request.PathValue("documentID"), request.URL.Query().Get("activePath"))
+	if err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func (server *Server) productContextCatalog(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	result, err := server.workspace.GetContextCatalog(request.Context(), request.PathValue("documentID"),
+		request.URL.Query().Get("activePath"), request.URL.Query().Get("expectedType"))
+	if err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	filtered := result.Publications[:0]
+	for _, item := range result.Publications {
+		if _, roleErr := server.access.EffectiveDocumentRole(request.Context(), item.DocumentID, principal(request).ID); roleErr == nil {
+			filtered = append(filtered, item)
+		}
+	}
+	result.Publications = filtered
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func (server *Server) createProductContextBinding(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleEditor); !ok {
+		return
+	}
+	var input workspace.ProductContextBindingRequest
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	input.ActorID = principal(request).ID
+	if len(input.OwningInstancePath.Segments) == 0 || len(input.SourceInstancePath.Segments) == 0 {
+		writeError(writer, http.StatusBadRequest, "source and owning InstancePath are required")
+		return
+	}
+	ownerDocumentID := input.OwningInstancePath.Segments[len(input.OwningInstancePath.Segments)-1].ReferencedDocumentID
+	sourceDocumentID := input.SourceInstancePath.Segments[len(input.SourceInstancePath.Segments)-1].ReferencedDocumentID
+	owners := map[string]bool{ownerDocumentID: true}
+	for _, segment := range input.OwningInstancePath.Segments {
+		owners[segment.OwnerDocumentID] = true
+	}
+	for documentID := range owners {
+		if documentID == request.PathValue("documentID") {
+			continue
+		}
+		if _, err := server.access.RequireDocument(request.Context(), documentID, principal(request).ID, access.RoleEditor); err != nil {
+			writeAccessError(writer, err)
+			return
+		}
+	}
+	if _, err := server.access.RequireDocument(request.Context(), sourceDocumentID, principal(request).ID, access.RoleViewer); err != nil {
+		writeAccessError(writer, err)
+		return
+	}
+	result, err := server.workspace.CreateProductContextBinding(request.Context(), request.PathValue("documentID"), input)
+	server.writeDocumentResult(writer, request, result, err)
 }
 
 func (server *Server) session(writer http.ResponseWriter, request *http.Request) {

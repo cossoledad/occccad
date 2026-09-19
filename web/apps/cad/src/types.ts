@@ -265,7 +265,7 @@ export type ResolvedInstance = {
 
 export type DocumentStructureNode = {
   id: string;
-  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
+  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
   name: string;
   entityId?: string;
   documentId?: string;
@@ -285,6 +285,8 @@ export type DocumentStructureNode = {
   definitionDigest?: string;
   publication?: Publication;
   productPublication?: ProductPublication;
+  contextInput?: ContextInput;
+  contextBinding?: ContextBinding;
   capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH">;
   children?: DocumentStructureNode[];
 };
@@ -294,13 +296,14 @@ export type DocumentView = {
   datumPlanes?: DatumPlane[];
   axisSystems?: AxisSystem[];
   datumAxes?: DatumAxis[];
-  part?: { units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextReferences?:ContextReference[] };
-  product?: { instances: ProductInstance[]; constraints?: AssemblyConstraint[]; publications?:ProductPublication[] };
+  part?: { units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextInputs?:ContextInput[]; contextReferences?:ContextReference[] };
+  product?: { instances: ProductInstance[]; constraints?: AssemblyConstraint[]; publications?:ProductPublication[]; contextBindings?:ContextBinding[] };
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;
   resolvedInstances?: ResolvedInstance[];
   structureTree?: DocumentStructureNode;
   referenceUpdates?: ReferenceUpdate[];
+  designSession?: ProductDesignSession;
 };
 
 export type ReferenceUpdate = { consumerKind:string;consumerId:string;sourceDocumentId:string;acceptedRevisionId:string;
@@ -330,11 +333,24 @@ export type Publication = { id: string; name: string; type: "POINT" | "AXIS" | "
 
 export type ProductPublication = { id:string;name:string;type:Publication["type"];semanticPurpose?:string;compatibilityVersion:string;
   target:{instancePath:InstancePath;publicationId:string};contract:Publication["contract"];resolution:Publication["resolution"] };
+export type ContextInput = { id:string;name:string;type:Publication["type"];required?:boolean;
+  target:{kind:"PARAMETER"|"DATUM"|"SKETCH_EXTERNAL_GEOMETRY"|"FEATURE_INPUT";targetId:string};contract:Publication["contract"] };
+export type ContextBinding = { id:string;name:string;owningInstancePath:InstancePath;contextInputId:string;
+  sourceInstancePath:InstancePath;publication:{publicationId:string;expectedType:string;compatibilityVersion:string};
+  referenceMode:"PINNED"|"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT";transform:{translation:Vec3;rotation:[number,number,number,number]};
+  resolution:Publication["resolution"];accepted:{rootProductRevisionId:string;sourceRevisionId:string;owningRevisionId:string;
+    contractDigest:string;sourceDigest?:string;status:string} };
 export type ContextReference = { id:string;name:string;owningWorkspace:string;sourceDocumentId:string;
   referenceMode:"PINNED"|"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"ISOLATED";rootProductDocumentId?:string;rootProductRevisionId?:string;
   rootProductSnapshotDigest?:string;
   sourceInstancePath?:InstancePath;owningInstancePath?:InstancePath;contextVariantId?:string;publication:{publicationId:string;expectedType:string;compatibilityVersion:string;selectionSourceVersionId?:string};
   transform:{translation:Vec3;rotation:[number,number,number,number]};resolvedRevisionId:string;resolution:Publication["resolution"];localTargetId?:string };
+export type ProductDesignSession = { rootProductDocumentId:string;rootProductRevisionId:string;rootSnapshotDigest:string;
+  activeInstancePath?:InstancePath;activeDocumentId:string;activeRevisionId:string;contextCatalogDigest:string };
+export type ContextCatalogPublication = { instancePath:InstancePath;documentId:string;revisionId:string;publication:Publication;
+  displayPath:string;selectable:boolean;diagnostic?:string };
+export type ContextCatalog = { rootProductDocumentId:string;rootProductRevisionId:string;activeInstancePath?:InstancePath;
+  expectedType?:string;digest:string;publications:ContextCatalogPublication[] };
 
 export type SelectionIdentity = {
   id: string;

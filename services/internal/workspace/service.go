@@ -2618,7 +2618,19 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			OwnerEntityID: reference.LocalTargetID, DocumentID: documentID, VersionID: versionID,
 			ReferenceMode: reference.ReferenceMode, Diagnostic: diagnostic, Capabilities: capabilities})
 	}
+	inputs := DocumentStructureNode{ID: path + "/context-inputs", Kind: "CONTEXT_INPUT_SET", Name: "Context Inputs",
+		DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+	for _, input := range model.ContextInputs {
+		copy := input
+		inputs.Children = append(inputs.Children, DocumentStructureNode{ID: inputs.ID + "/input:" + input.ID,
+			Kind: "CONTEXT_INPUT", Name: input.Name, EntityID: input.ID, EntityType: input.Type,
+			OwnerEntityID: input.Target.TargetID, DocumentID: documentID, VersionID: versionID,
+			Capabilities: []string{"EDIT", "DELETE"}, ContextInput: &copy})
+	}
 	result := []DocumentStructureNode{origin, body}
+	if len(inputs.Children) > 0 {
+		result = append(result, inputs)
+	}
 	if len(contexts.Children) > 0 {
 		result = append(result, contexts)
 	}
@@ -2718,6 +2730,21 @@ func (service *Service) buildDocumentStructure(
 			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/publication:" + publication.ID,
 				Kind: "PRODUCT_PUBLICATION", Name: publication.Name, EntityID: publication.ID, EntityType: publication.Type,
 				DocumentID: documentID, VersionID: versionID, Diagnostic: diagnostic, ProductPublication: &copy})
+		}
+		root.Children = append(root.Children, group)
+	}
+	if len(model.ContextBindings) > 0 {
+		group := DocumentStructureNode{ID: path + "/context-bindings", Kind: "CONTEXT_BINDING_SET", Name: "Context Bindings",
+			DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+		for _, binding := range model.ContextBindings {
+			copy := binding
+			diagnostic := ""
+			if binding.Resolution.Status != "CONNECTED" {
+				diagnostic = strings.TrimSpace(binding.Resolution.DiagnosticCode + ": " + binding.Resolution.Diagnostic)
+			}
+			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/binding:" + binding.ID,
+				Kind: "CONTEXT_BINDING", Name: binding.Name, EntityID: binding.ID, EntityType: binding.Publication.ExpectedType,
+				DocumentID: documentID, VersionID: versionID, Diagnostic: diagnostic, Capabilities: []string{"DELETE"}, ContextBinding: &copy})
 		}
 		root.Children = append(root.Children, group)
 	}

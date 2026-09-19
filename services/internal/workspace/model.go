@@ -340,7 +340,24 @@ type PartModel struct {
 	Features          []Feature                       `json:"features"`
 	Parameters        []modelcore.ParameterDefinition `json:"parameters,omitempty"`
 	Publications      []Publication                   `json:"publications,omitempty"`
+	ContextInputs     []ContextInput                  `json:"contextInputs,omitempty"`
 	ContextReferences []ContextReference              `json:"contextReferences,omitempty"`
+}
+
+type ContextInputTarget struct {
+	Kind     string `json:"kind"` // PARAMETER | DATUM | SKETCH_EXTERNAL_GEOMETRY | FEATURE_INPUT
+	TargetID string `json:"targetId"`
+}
+
+// ContextInput is a reusable, source-independent input port owned by a Part.
+// The Product that instantiates the Part owns the source occurrence wiring.
+type ContextInput struct {
+	ID       string              `json:"id"`
+	Name     string              `json:"name"`
+	Type     string              `json:"type"`
+	Required bool                `json:"required,omitempty"`
+	Target   ContextInputTarget  `json:"target"`
+	Contract PublicationContract `json:"contract"`
 }
 
 type PublicationRef struct {
@@ -365,6 +382,30 @@ type ProductPublication struct {
 	Target               ProductPublicationTarget `json:"target"`
 	Contract             PublicationContract      `json:"contract"`
 	Resolution           PublicationResolution    `json:"resolution"`
+}
+
+type ContextBindingResolutionSnapshot struct {
+	RootProductRevisionID string `json:"rootProductRevisionId"`
+	SourceRevisionID      string `json:"sourceRevisionId"`
+	OwningRevisionID      string `json:"owningRevisionId"`
+	ContractDigest        string `json:"contractDigest"`
+	SourceDigest          string `json:"sourceDigest"`
+	Status                string `json:"status"`
+}
+
+// ContextBinding is Product-owned wiring between two occurrences. It never
+// uses display names as identity and does not mutate either referenced Part.
+type ContextBinding struct {
+	ID                 string                           `json:"id"`
+	Name               string                           `json:"name"`
+	OwningInstancePath InstancePath                     `json:"owningInstancePath"`
+	ContextInputID     string                           `json:"contextInputId"`
+	SourceInstancePath InstancePath                     `json:"sourceInstancePath"`
+	Publication        PublicationRef                   `json:"publication"`
+	ReferenceMode      string                           `json:"referenceMode"`
+	Transform          InstancePose                     `json:"transform"`
+	Resolution         PublicationResolution            `json:"resolution"`
+	Accepted           ContextBindingResolutionSnapshot `json:"accepted"`
 }
 
 type ContextReference struct {
@@ -442,9 +483,10 @@ type AssemblyConstraint struct {
 }
 
 type ProductModel struct {
-	Instances    []ProductInstance    `json:"instances"`
-	Constraints  []AssemblyConstraint `json:"constraints,omitempty"`
-	Publications []ProductPublication `json:"publications,omitempty"`
+	Instances       []ProductInstance    `json:"instances"`
+	Constraints     []AssemblyConstraint `json:"constraints,omitempty"`
+	Publications    []ProductPublication `json:"publications,omitempty"`
+	ContextBindings []ContextBinding     `json:"contextBindings,omitempty"`
 }
 
 type ReferenceUpdate struct {
@@ -622,6 +664,8 @@ type DocumentStructureNode struct {
 	DefinitionDigest   string                  `json:"definitionDigest,omitempty"`
 	Publication        *Publication            `json:"publication,omitempty"`
 	ProductPublication *ProductPublication     `json:"productPublication,omitempty"`
+	ContextInput       *ContextInput           `json:"contextInput,omitempty"`
+	ContextBinding     *ContextBinding         `json:"contextBinding,omitempty"`
 	Children           []DocumentStructureNode `json:"children,omitempty"`
 }
 
@@ -637,6 +681,36 @@ type DocumentView struct {
 	ResolvedInstances []ResolvedInstance     `json:"resolvedInstances,omitempty"`
 	StructureTree     *DocumentStructureNode `json:"structureTree,omitempty"`
 	ReferenceUpdates  []ReferenceUpdate      `json:"referenceUpdates,omitempty"`
+	DesignSession     *ProductDesignSession  `json:"designSession,omitempty"`
+}
+
+type ProductDesignSession struct {
+	RootProductDocumentID string        `json:"rootProductDocumentId"`
+	RootProductRevisionID string        `json:"rootProductRevisionId"`
+	RootSnapshotDigest    string        `json:"rootSnapshotDigest"`
+	ActiveInstancePath    *InstancePath `json:"activeInstancePath,omitempty"`
+	ActiveDocumentID      string        `json:"activeDocumentId"`
+	ActiveRevisionID      string        `json:"activeRevisionId"`
+	ContextCatalogDigest  string        `json:"contextCatalogDigest"`
+}
+
+type ContextCatalogPublication struct {
+	InstancePath InstancePath `json:"instancePath"`
+	DocumentID   string       `json:"documentId"`
+	RevisionID   string       `json:"revisionId"`
+	Publication  Publication  `json:"publication"`
+	DisplayPath  string       `json:"displayPath"`
+	Selectable   bool         `json:"selectable"`
+	Diagnostic   string       `json:"diagnostic,omitempty"`
+}
+
+type ContextCatalog struct {
+	RootProductDocumentID string                      `json:"rootProductDocumentId"`
+	RootProductRevisionID string                      `json:"rootProductRevisionId"`
+	ActiveInstancePath    *InstancePath               `json:"activeInstancePath,omitempty"`
+	ExpectedType          string                      `json:"expectedType,omitempty"`
+	Digest                string                      `json:"digest"`
+	Publications          []ContextCatalogPublication `json:"publications"`
 }
 
 type CreateDocumentRequest struct {
@@ -714,10 +788,14 @@ type CommandRequest struct {
 	Axis                    string               `json:"axis,omitempty"`
 	SourceDocumentID        string               `json:"sourceDocumentId,omitempty"`
 	ContextReferenceID      string               `json:"contextReferenceId,omitempty"`
+	ContextBindingID        string               `json:"contextBindingId,omitempty"`
 	ContextVariantID        string               `json:"contextVariantId,omitempty"`
 	RootProductDocumentID   string               `json:"rootProductDocumentId,omitempty"`
 	InstancePath            *InstancePath        `json:"instancePath,omitempty"`
 	OwningInstancePath      *InstancePath        `json:"owningInstancePath,omitempty"`
+	SourceInstancePath      *InstancePath        `json:"sourceInstancePath,omitempty"`
+	ContextInputID          string               `json:"contextInputId,omitempty"`
+	Required                bool                 `json:"required,omitempty"`
 	ActorID                 string               `json:"-"`
 }
 

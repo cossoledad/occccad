@@ -1,4 +1,4 @@
-import type { AssemblyGeometryRef, AuditEvent, CommandPreview, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, Job, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
+import type { AssemblyGeometryRef, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
 import { randomUUID } from "./utils/random-uuid";
 import { clientPerformanceSnapshot, recordClientPerformance } from "./utils/performance";
@@ -181,6 +181,12 @@ export const restApi = {
     }
   },
   getDocument: (id: string) => request<DocumentView>(`/api/documents/${id}`),
+  getProductDesignSession: (id:string, activePath="") => request<ProductDesignSession>(`/api/documents/${id}/design-session?activePath=${encodeURIComponent(activePath)}`),
+  getContextCatalog: (id:string, activePath:string, expectedType="") => request<ContextCatalog>(`/api/documents/${id}/context-catalog?activePath=${encodeURIComponent(activePath)}&expectedType=${encodeURIComponent(expectedType)}`),
+  createProductContextBinding: (id:string, input:{name?:string;contextInputName?:string;owningInstancePath:InstancePath;
+      sourceInstancePath:InstancePath;publicationId:string;publicationType?:string;targetKind:string;targetId:string;
+      required?:boolean;referenceMode?:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED"}) =>
+    request<DocumentView>(`/api/documents/${id}/context-bindings`, {method:"POST", body:JSON.stringify({requestId:requestId(),...input})}),
   getDocumentProperties: (id: string) => request<DocumentProperties>(`/api/documents/${id}/properties`),
   getTopologyProperties: (id: string, geometryKey: string, kind: "FACE" | "EDGE" | "VERTEX", localId: number, versionId?: string) => {
     const query = new URLSearchParams({ geometryKey, kind, localId: String(localId) });
@@ -290,14 +296,22 @@ export const restApi = {
     }),
   replaceInstance: (documentId:string, instanceId:string, referencedDocumentId:string) =>
     restApi.command(documentId, {type:"REPLACE_INSTANCE", instanceId, referencedDocumentId}),
-  createProductPublication: (documentId:string, instanceId:string, publicationId:string, name:string, semanticPurpose="") =>
-    restApi.command(documentId, {type:"CREATE_PRODUCT_PUBLICATION", instanceId, publicationId, name, semanticPurpose}),
+  renameInstance: (documentId:string, instanceId:string, name:string) =>
+    restApi.command(documentId, {type:"RENAME_INSTANCE", instanceId, name}),
+  createProductPublication: (documentId:string, instanceId:string, publicationId:string, name:string, semanticPurpose="", instancePath?:InstancePath) =>
+    restApi.command(documentId, {type:"CREATE_PRODUCT_PUBLICATION", instanceId, instancePath, publicationId, name, semanticPurpose}),
+  editProductPublication: (documentId:string, publicationId:string, name:string, semanticPurpose="") =>
+    restApi.command(documentId, {type:"EDIT_PRODUCT_PUBLICATION", publicationId, name, semanticPurpose}),
   deleteProductPublication: (documentId:string, publicationId:string) =>
     restApi.command(documentId, {type:"DELETE_PRODUCT_PUBLICATION", publicationId}),
   createContextReference: (documentId:string, input:{name:string;sourceDocumentId:string;publicationId:string;publicationType?:string;
       compatibilityVersion?:string;referenceMode?:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED";parameterId?:string;
       sketchId?:string;rootProductDocumentId?:string;instancePath?:unknown;owningInstancePath?:unknown;contextVariantId?:string}) =>
     restApi.command(documentId, {type:"CREATE_CONTEXT_REFERENCE", ...input}),
+  createContextInput: (documentId:string,input:{name?:string;targetKind:string;targetId:string;publicationType?:string;required?:boolean}) =>
+    restApi.command(documentId,{type:"CREATE_CONTEXT_INPUT",...input}),
+  editContextInput: (documentId:string, contextInputId:string, name:string, required=false) =>
+    restApi.command(documentId,{type:"EDIT_CONTEXT_INPUT",contextInputId,name,required}),
   detachContextReference: (documentId:string, contextReferenceId:string) =>
     restApi.command(documentId, {type:"DETACH_CONTEXT_REFERENCE", contextReferenceId}),
   move: (documentId: string, instanceId: string, translation: Vec3, rotation: [number,number,number,number], previewId?: string) =>

@@ -167,6 +167,7 @@ export function Workbench() {
   const automaticReferenceUpdate = useRef<string | undefined>(undefined);
   const [activeDocumentID, setActiveDocumentID] = useState(documentID);
   const [activeInstancePath, setActiveInstancePath] = useState<string>();
+  const [definitionContextPath, setDefinitionContextPath] = useState<string>();
   const [insertOpen, setInsertOpen] = useState(false);
   const [versionOpen, setVersionOpen] = useState(false);
   const [datumPlaneOpen, setDatumPlaneOpen] = useState(false);
@@ -202,16 +203,16 @@ export function Workbench() {
   const [datumAxisForm] = Form.useForm<{ name: string; ox: number; oy: number; oz: number; dx: number; dy: number; dz: number }>();
   const [parameterForm] = Form.useForm<{ key: string; source: string }>();
   const [publicationForm] = Form.useForm<{ name: string; semanticPurpose: string }>();
-  const [contextReferenceForm] = Form.useForm<{ name:string;sourceDocumentId:string;publicationId:string;
-    publicationType:string;compatibilityVersion:string;parameterId?:string;sketchId?:string }>();
+  const [contextReferenceForm] = Form.useForm<{ name:string;catalogKey:string;publicationType:string;targetId:string }>();
   const [replacementForm] = Form.useForm<{referencedDocumentId:string}>();
-  const [externalParameterForm] = Form.useForm<{ sourceDocumentId: string; publicationId: string }>();
+  const [externalParameterForm] = Form.useForm<{ catalogKey: string }>();
   const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string }>();
+  const contextPublicationType = Form.useWatch("publicationType", contextReferenceForm) ?? "PLANE";
   const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
   const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
-	useEffect(() => { setActiveDocumentID(documentID); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }, [documentID]);
+	useEffect(() => { setActiveDocumentID(documentID); setActiveInstancePath(undefined); setDefinitionContextPath(undefined); store.endSketch(); store.setSelection(null); }, [documentID]);
   useEffect(() => {
     // A stopped XState actor cannot be restarted. Own one actor per effect
     // lifetime so StrictMode's setup/cleanup/setup cycle retains live previews.
@@ -251,6 +252,8 @@ export function Workbench() {
       : client.invalidateQueries({ queryKey: queryKeys.document(changedID) }),
     client.invalidateQueries({ queryKey: queryKeys.history(changedID), refetchType: "active" }),
     client.invalidateQueries({ queryKey: queryKeys.documentProperties(changedID), refetchType: "active" }),
+    client.invalidateQueries({ queryKey: ["product-design-session", documentID] }),
+    client.invalidateQueries({ queryKey: ["context-catalog", documentID] }),
     client.invalidateQueries({ queryKey: ["documents"] }),
     client.invalidateQueries({ queryKey: queryKeys.openDocuments })]);
   }, [activeID, client, documentID]);
@@ -287,6 +290,15 @@ export function Workbench() {
   const editingView = activeDocumentID === documentID ? view : activeDocument.data;
   const activeResolvedInstance = activeInstancePath
     ? view?.resolvedInstances?.find((instance) => instance.instancePath?.canonical === activeInstancePath) : undefined;
+  const designSession = useQuery({ queryKey: queryKeys.productDesignSession(documentID, activeInstancePath ?? ""),
+    queryFn: () => api.getProductDesignSession(documentID, activeInstancePath ?? ""),
+    enabled: Boolean(view?.document.type === "PRODUCT") });
+  const contextCatalog = useQuery({ queryKey: queryKeys.contextCatalog(documentID, activeInstancePath ?? "", contextPublicationType),
+    queryFn: () => api.getContextCatalog(documentID, activeInstancePath ?? "", contextPublicationType),
+    enabled: Boolean(view?.document.type === "PRODUCT" && activeInstancePath && publicationManagerOpen) });
+  const parameterContextCatalog = useQuery({ queryKey: queryKeys.contextCatalog(documentID, activeInstancePath ?? "", "PARAMETER"),
+    queryFn: () => api.getContextCatalog(documentID, activeInstancePath ?? "", "PARAMETER"),
+    enabled: Boolean(view?.document.type === "PRODUCT" && activeInstancePath && externalParameterID) });
   latestDocumentVersion.current = editingView?.document.versionId;
   const followedIDs = useMemo(() => [...new Set([
     ...followedDocumentIDs(view?.structureTree), ...(view?.referenceUpdates ?? []).map((item) => item.sourceDocumentId),
@@ -776,13 +788,43 @@ export function Workbench() {
     }
     const values = await publicationForm.validateFields();
     command.mutate(() => api.createProductPublication(editingView.document.id, store.selection!.instanceId!,
-      store.selection!.publicationId!, values.name, values.semanticPurpose));
+      store.selection!.publicationId!, values.name, values.semanticPurpose, store.selection!.instancePath));
   };
-  const createContextReference = async () => {
-    if (!editingView?.part) return;
+  const createContextBinding = async () => {
+    if (!editingView?.part || !activeResolvedInstance?.instancePath || view?.document.type !== "PRODUCT") {
+      message.warning("请先在 Product 中激活要编辑的 Part occurrence"); return;
+    }
     const values = await contextReferenceForm.validateFields();
-    command.mutate(() => api.createContextReference(editingView.document.id, {...values, referenceMode:"FOLLOW_HEAD"}),
-      {onSuccess:()=>contextReferenceForm.resetFields()});
+    const entry = contextCatalog.data?.publications.find((item) =>
+      `${item.instancePath.canonical}::${item.publication.id}` === values.catalogKey);
+    if (!entry) { message.warning("请选择当前 Product 上下文内的 Publication"); return; }
+    const targetKind = values.publicationType === "PARAMETER" ? "PARAMETER"
+      : values.publicationType === "CURVE" ? "SKETCH_EXTERNAL_GEOMETRY"
+      : ["PLANE", "AXIS"].includes(values.publicationType) ? "DATUM" : "FEATURE_INPUT";
+    command.mutate(() => api.createProductContextBinding(documentID, { name: values.name,
+      contextInputName: `${values.name}Input`, owningInstancePath: activeResolvedInstance.instancePath!,
+      sourceInstancePath: entry.instancePath, publicationId: entry.publication.id,
+      publicationType: entry.publication.type, targetKind, targetId: values.targetId,
+      referenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT" }), { onSuccess: () => {
+        contextReferenceForm.resetFields();
+        void client.invalidateQueries({ queryKey: queryKeys.document(editingView.document.id) });
+      } });
+  };
+  const bindExternalParameter = async () => {
+    if (!editingView?.part || !externalParameterID || !activeResolvedInstance?.instancePath || view?.document.type !== "PRODUCT") {
+      message.warning("跨文档参数只能在 Product 上下文中的激活 Part 内绑定"); return;
+    }
+    const values = await externalParameterForm.validateFields();
+    const entry = parameterContextCatalog.data?.publications.find((item) =>
+      `${item.instancePath.canonical}::${item.publication.id}` === values.catalogKey);
+    if (!entry) { message.warning("请选择当前 Product 上下文内的参数 Publication"); return; }
+    const parameter = editingView.part.parameters?.find((item) => item.parameterId === externalParameterID);
+    command.mutate(() => api.createProductContextBinding(documentID, { name: `${parameter?.key ?? "Parameter"}Binding`,
+      contextInputName: `${parameter?.key ?? "Parameter"}Input`, owningInstancePath: activeResolvedInstance.instancePath!,
+      sourceInstancePath: entry.instancePath, publicationId: entry.publication.id, publicationType: "PARAMETER",
+      targetKind: "PARAMETER", targetId: externalParameterID, referenceMode: "FOLLOW_WORKSPACE_WITH_ACCEPT" }),
+    { onSuccess: () => { setExternalParameterID(undefined); externalParameterForm.resetFields();
+      void client.invalidateQueries({ queryKey: queryKeys.document(editingView.document.id) }); } });
   };
   const replaceSelectedInstance = async () => {
     if (!editingView?.product || store.selection?.kind !== "instance" || !store.selection.instanceId) {
@@ -857,6 +899,17 @@ export function Workbench() {
 
   return <CommandProvider registry={commandRegistry}><section className="cad-workbench">
     <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>
+        {view.document.type === "PRODUCT" && <div style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",
+          padding:"6px 10px",borderRadius:6,background:"rgba(22,27,34,.88)",color:"white"}}>
+          <Space size="small"><Typography.Text style={{color:"white"}}>
+            {activeInstancePath ? `上下文编辑 · ${activeResolvedInstance?.instancePath?.display ?? activeInstancePath}`
+              : activeDocumentID!==documentID ? `定义编辑 · ${editingView?.document.name??activeDocumentID}` : `Product 定义 · ${view.document.name}`}
+          </Typography.Text>
+          {activeInstancePath && <Button size="small" onClick={() => { setDefinitionContextPath(activeInstancePath); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }}>
+            打开定义</Button>}
+          {!activeInstancePath&&definitionContextPath&&<Button size="small" onClick={()=>{setActiveInstancePath(definitionContextPath);setDefinitionContextPath(undefined);store.endSketch();store.setSelection(null);}}>在此上下文打开</Button>}
+          {designSession.isError && <Tag color="error">上下文失效</Tag>}</Space>
+        </div>}
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view}
           editingView={editingView} activeInstancePath={activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
           activeInstanceRotation={activeResolvedInstance?.rotation}
@@ -912,6 +965,7 @@ export function Workbench() {
 			  if (node.capabilities?.includes("EDIT")) { openFeatureEditor(node); return; }
               if (node.documentId && ["PART", "PRODUCT", "INSTANCE"].includes(node.kind ?? "")) {
                 setActiveDocumentID(node.documentId); setActiveInstancePath(node.instancePath?.canonical);
+                setDefinitionContextPath(undefined);
                 store.endSketch(); store.setSelection(null); return;
               }
               if (!canEdit || !node.selection || !editingView) return;
@@ -1112,13 +1166,13 @@ export function Workbench() {
 			{editingView?.document.type === "PRODUCT" ? ((editingView.product?.publications ?? []).length === 0
 				? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前 Product 尚无转发 Publication" />
 				: (editingView.product?.publications ?? []).map((publication) => <div className="parameter-manager-row" key={publication.id}>
-					<span><strong>{publication.name}</strong><Typography.Text type="secondary" copyable={{text:publication.id}}>{publication.id}</Typography.Text></span>
+					<span><Typography.Text strong editable={canEdit ? {onChange:(name)=>command.mutate(()=>api.editProductPublication(editingView.document.id,publication.id,name,publication.semanticPurpose))}:false}>{publication.name}</Typography.Text><Typography.Text type="secondary" copyable={{text:publication.id}}>{publication.id}</Typography.Text></span>
 					<span>{publication.type} · {publication.target.instancePath.display}</span>
 					<Tag color={publication.resolution.status === "CONNECTED" ? "success" : "error"}>{publication.resolution.status}</Tag>
 					<Button danger size="small" disabled={!canEdit} onClick={() => command.mutate(() => api.deleteProductPublication(editingView.document.id, publication.id))}>删除</Button>
 				</div>)) : (editingView?.part?.publications ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前 Part 尚无 Publication" />
 				: (editingView?.part?.publications ?? []).map((publication) => <div className="parameter-manager-row" key={publication.id}>
-					<span><strong>{publication.name}</strong><Typography.Text type="secondary" copyable={{text:publication.id}}>{publication.id}</Typography.Text></span>
+					<span><Typography.Text strong editable={canEdit ? {onChange:(name)=>command.mutate(()=>api.editPublication(editingView.document.id,publication.id,{name,semanticPurpose:publication.semanticPurpose}))}:false}>{publication.name}</Typography.Text><Typography.Text type="secondary" copyable={{text:publication.id}}>{publication.id}</Typography.Text></span>
 					<span>{publication.type} · {publication.target.kind}</span>
 					<Tag color={publication.resolution.status === "CONNECTED" ? "success" : "error"}>{publication.resolution.status}</Tag>
 					<Space><Button size="small" disabled={!canEdit} onClick={() => redirectPublicationToSelection(publication.id, publication.type)}>重定向</Button>
@@ -1126,43 +1180,59 @@ export function Workbench() {
 				</div>)}
 			<small className="cad-command-hint">PublicationId 在兼容重定向时保持不变；断开的目标会以 BROKEN_PUBLICATION 保存在 Revision 中。</small>
 		</div>
-		{editingView?.part && <><Divider>Context References</Divider>
-			<Form form={contextReferenceForm} layout="vertical" initialValues={{name:"Context Reference",publicationType:"PLANE",compatibilityVersion:"1.0.0"}}>
+		{editingView?.part && <><Divider>Product Context Bindings</Divider>
+			<Form form={contextReferenceForm} layout="vertical" initialValues={{name:"Context Binding",publicationType:"PLANE"}}>
 				<Space align="start" wrap>
 					<Form.Item name="name" label="名称" rules={[{required:true}]}><Input /></Form.Item>
-					<Form.Item name="sourceDocumentId" label="来源 Part" rules={[{required:true}]}><Select style={{width:180}} showSearch optionFilterProp="label"
-						options={(catalog.data?.documents ?? []).filter((item)=>item.type==="PART"&&item.id!==editingView.document.id).map((item)=>({value:item.id,label:item.name}))}/></Form.Item>
-					<Form.Item name="publicationId" label="PublicationId" rules={[{required:true}]}><Input /></Form.Item>
-					<Form.Item name="publicationType" label="合同类型" rules={[{required:true}]}><Select style={{width:130}} options={["PLANE","AXIS","CURVE","SURFACE","BODY","PARAMETER"].map((value)=>({value,label:value}))}/></Form.Item>
-					<Form.Item name="compatibilityVersion" label="合同版本" rules={[{required:true}]}><Input style={{width:100}} /></Form.Item>
-					<Form.Item name="parameterId" label="本地参数（PARAMETER）"><Select allowClear style={{width:190}} options={(editingView.part.parameters??[]).map((item)=>({value:item.parameterId,label:item.key}))}/></Form.Item>
-					<Form.Item name="sketchId" label="目标草图（CURVE）"><Select allowClear style={{width:190}} options={editingView.part.features.filter((item)=>item.sketch).map((item)=>({value:item.id,label:item.name??item.id}))}/></Form.Item>
-					<Form.Item label=" "><Button disabled={!canEdit} onClick={()=>void createContextReference()}>创建 ContextReference</Button></Form.Item>
+					<Form.Item name="publicationType" label="合同类型" rules={[{required:true}]}><Select style={{width:130}}
+						onChange={()=>{contextReferenceForm.setFieldsValue({catalogKey:undefined,targetId:undefined});}}
+						options={["PLANE","AXIS","CURVE","SURFACE","BODY","PARAMETER"].map((value)=>({value,label:value}))}/></Form.Item>
+					<Form.Item name="catalogKey" label="当前 Product 中的来源" rules={[{required:true}]}><Select style={{width:310}} showSearch optionFilterProp="label"
+						loading={contextCatalog.isLoading} placeholder={activeInstancePath?"按 occurrence / 发布名称选择":"请先激活 Product 中的 Part"}
+						options={(contextCatalog.data?.publications??[]).map((item)=>({value:`${item.instancePath.canonical}::${item.publication.id}`,
+							label:`${item.displayPath} · ${item.publication.type}`,disabled:!item.selectable}))}/></Form.Item>
+					<Form.Item name="targetId" label="本地目标" rules={[{required:true}]}><Select style={{width:220}} showSearch optionFilterProp="label" options={
+						contextPublicationType==="PARAMETER"?(editingView.part.parameters??[]).map((item)=>({value:item.parameterId,label:item.key}))
+						:contextPublicationType==="CURVE"?editingView.part.features.filter((item)=>item.sketch).map((item)=>({value:item.id,label:item.name??item.id}))
+						:contextPublicationType==="PLANE"?(editingView.datumPlanes??editingView.part.datumPlanes).map((item)=>({value:item.id,label:item.name}))
+						:contextPublicationType==="AXIS"?(editingView.datumAxes??[]).map((item)=>({value:item.id,label:item.name}))
+						:editingView.part.features.map((item)=>({value:item.id,label:item.name??item.id}))}/></Form.Item>
+					<Form.Item label=" "><Button disabled={!canEdit||!activeInstancePath} onClick={()=>void createContextBinding()}>创建绑定</Button></Form.Item>
 				</Space>
 			</Form>
-			{(editingView.part.contextReferences??[]).map((reference)=><div className="parameter-manager-row" key={reference.id}>
-				<span><strong>{reference.name}</strong><Typography.Text type="secondary">{reference.id}</Typography.Text></span>
-				<span>{reference.publication.expectedType} · {reference.resolvedRevisionId.slice(0,12)}</span>
-				<Tag color={reference.referenceMode==="ISOLATED"?"default":reference.resolution.status==="CONNECTED"?"success":"error"}>{reference.referenceMode}</Tag>
-				<Button size="small" disabled={!canEdit||reference.referenceMode==="ISOLATED"} onClick={()=>command.mutate(()=>api.detachContextReference(editingView.document.id,reference.id))}>Isolate</Button>
-			</div>)}</>}
+			{(editingView.part.contextInputs??[]).map((input)=><div className="parameter-manager-row" key={input.id}>
+				<span><Typography.Text strong editable={canEdit?{onChange:(name)=>command.mutate(()=>api.editContextInput(editingView.document.id,input.id,name,Boolean(input.required)))}:false}>{input.name}</Typography.Text>
+				<Typography.Text type="secondary" copyable={{text:input.id}}>{input.id}</Typography.Text></span>
+				<span>{input.type} · {input.target.kind}</span><Tag color={input.required?"blue":"default"}>{input.required?"REQUIRED":"OPTIONAL"}</Tag><span />
+			</div>)}
+			{(view.product?.contextBindings??[]).filter((binding)=>binding.owningInstancePath.canonical===activeInstancePath).map((binding)=><div className="parameter-manager-row" key={binding.id}>
+				<span><strong>{binding.name}</strong><Typography.Text type="secondary">{binding.contextInputId}</Typography.Text></span>
+				<span>{binding.sourceInstancePath.display} / {binding.publication.expectedType}</span>
+				<Tag color={binding.resolution.status==="CONNECTED"?"success":"error"}>{binding.accepted.status}</Tag>
+				<Typography.Text type="secondary">{binding.referenceMode}</Typography.Text>
+			</div>)}
+			{view.document.type!=="PRODUCT"&&<Alert type="info" showIcon message="跨文档关联从 Product 设计会话创建" description="请在 Product 中激活该 Part，再从当前产品上下文目录选择 Publication。" />}</>}
 		{editingView?.product && <><Divider>兼容替换</Divider><Form form={replacementForm} layout="inline">
 			<Form.Item name="referencedDocumentId" rules={[{required:true}]}><Select style={{width:240}} placeholder="选择替换 Part" showSearch optionFilterProp="label"
 				options={(catalog.data?.documents??[]).filter((item)=>item.type==="PART").map((item)=>({value:item.id,label:item.name}))}/></Form.Item>
 			<Form.Item><Button disabled={!canEdit||store.selection?.kind!=="instance"} onClick={()=>void replaceSelectedInstance()}>替换所选 Instance</Button></Form.Item>
 			<small className="cad-command-hint">替换前按已使用 Publication contract 解析；兼容接口自动重连，不兼容接口保留为 Broken 供 Reconnect。</small>
-		</Form></>}
+		</Form><Divider>Instance Names</Divider>
+			{editingView.product.instances.map((instance)=><div className="parameter-manager-row" key={instance.id}>
+				<span><Typography.Text strong editable={canEdit?{onChange:(name)=>command.mutate(()=>api.renameInstance(editingView.document.id,instance.id,name))}:false}>{instance.name}</Typography.Text>
+				<Typography.Text type="secondary" copyable={{text:instance.id}}>{instance.id}</Typography.Text></span>
+				<span>{instance.documentId}</span><Tag>{instance.referenceMode??"FOLLOW_HEAD"}</Tag><span />
+			</div>)}</>}
 	</CommandDialog>
 	<CommandDialog id="external-parameter" open={Boolean(externalParameterID)} title="引用外部参数 Publication"
 		onClose={() => setExternalParameterID(undefined)} confirmLoading={command.isPending} onConfirm={async () => {
-			if (!editingView || !externalParameterID) return; const values = await externalParameterForm.validateFields();
-			command.mutate(() => api.setParameterExternal(editingView.document.id, externalParameterID, values.sourceDocumentId, values.publicationId),
-				{ onSuccess: () => setExternalParameterID(undefined) });
+			await bindExternalParameter();
 		}}><Form form={externalParameterForm} layout="vertical">
-			<Form.Item name="sourceDocumentId" label="来源 Part" rules={[{required:true}]}><Select showSearch optionFilterProp="label"
-				options={(catalog.data?.documents ?? []).filter((item) => item.id !== activeID && item.type === "PART").map((item) => ({value:item.id,label:item.name}))} /></Form.Item>
-			<Form.Item name="publicationId" label="Parameter PublicationId" rules={[{required:true}]}><Input placeholder="publication-…" /></Form.Item>
-			<small className="cad-command-hint">绑定冻结来源 Revision、合同和值摘要；FOLLOW_HEAD 检测到新 Head 后仍通过可审计的 UPDATE_REFERENCES Revision 接受，不会静默漂移。</small>
+			<Form.Item name="catalogKey" label="当前 Product 中的参数 Publication" rules={[{required:true}]}><Select showSearch optionFilterProp="label"
+				loading={parameterContextCatalog.isLoading} placeholder={activeInstancePath?"按 occurrence / 发布名称选择":"请先在 Product 中激活 Part"}
+				options={(parameterContextCatalog.data?.publications??[]).map((item)=>({value:`${item.instancePath.canonical}::${item.publication.id}`,
+					label:`${item.displayPath} · ${item.publication.name}`,disabled:!item.selectable}))} /></Form.Item>
+			<small className="cad-command-hint">来源限定在当前 Product occurrence 图中；提交会原子创建 Part ContextInput、Product ContextBinding 与接受快照。</small>
 		</Form>
 	</CommandDialog>
 	<CommandDialog id="parameter-edit" open={Boolean(editingParameterID)} title="编辑参数" onClose={() => setEditingParameterID(undefined)}
