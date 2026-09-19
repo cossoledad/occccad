@@ -126,7 +126,7 @@ erDiagram
 
 Product 工作台维护浏览器会话级的 Active Occurrence 编辑上下文，由 `Active InstancePath + Reference Document` 共同表达。打开 Product 时根 Product 默认激活；双击结构树中的 Product、Part 或 Instance 节点只激活该 occurrence，随后 Toolbar、属性、历史、Undo/Redo 和 Domain Command 绑定其 Reference Document 的 `main` Workspace。激活不是模型命令，不写 Revision；同一 Part Reference 的其他 occurrence 不显示为激活，但编辑 Reference 后全部 FOLLOW_HEAD occurrence 都会解析到新结果。视口始终保留根装配；活动 Part 的草图、基准和命令预览施加该 occurrence 的世界 Placement 后就地编辑，其他部件继续显示。
 
-根 Product 场景与 Active Part 交互视图由明确的 `ViewportEditContext` 分离：实体仍来自根装配，草图实体命中、捕捉、约束、尺寸拖拽与编辑只读取激活 Part，避免 Product 的空 `part` 投影吞掉草图操作。基准轴/面是关闭深度测试的屏幕空间辅助对象：三轴从原点沿正方向延伸，XY/XZ/YZ 面只占正象限的偏移小矩形并保持固定像素尺度；基准轴使用专用虚线、低于模型拓扑的拾取优先级和 1.75 px 二次命中门，避免穿透显示演变为过度抢选。Instance 树标签使用 `ReferenceName(InstanceName)`。命中唯一 Publication 所指几何时，selection 会提升为 Publication identity，使视图区、所属 PartBody（折叠时最近可见祖先）与 Publication 节点共同高亮，装配约束面板优先展示 occurrence 和 Publication 名称而非 UUID。
+根 Product 场景与 Active Part 交互视图由明确的 `ViewportEditContext` 分离：实体仍来自根装配，草图实体命中、捕捉、约束、尺寸拖拽与编辑只读取激活 Part，避免 Product 的空 `part` 投影吞掉草图操作。基准轴/面是关闭深度测试的屏幕空间辅助对象：三轴从原点沿正方向延伸，XY/XZ/YZ 面只占正象限的偏移小矩形并保持固定像素尺度；基准轴使用专用虚线和 1.75 px 二次命中门控制抢选概率，基准面使用增强边框。一旦通过各自命中规则，基准几何进入高于实体拓扑的独立 interaction layer，因此前景 Face 不会抢走其 hover/selection。Instance 树标签使用 `ReferenceName(InstanceName)`。命中唯一 Publication 所指几何时，selection 会提升为 Publication identity，使视图区、所属 PartBody（折叠时最近可见祖先）与 Publication 节点共同高亮，装配约束面板优先展示 occurrence 和 Publication 名称而非 UUID。
 
 `INSERT_INSTANCE` 继续把既有 Part/Product Reference 插入当前激活且具有 Editor 权限的 Product；InstanceName 由服务端在 owner Product 当前候选模型中按 `ReferenceName.N` 分配首个同级可用名称，显示名不参与身份，重命名属于独立属性命令。
 
@@ -403,7 +403,7 @@ Mock 模式完全在浏览器运行，用于 UI 调试；它不能作为后端�
 - 当前固定 OCCT 7.9.1 和 gRPC C++ 1.71.0；
 - Go module 当前声明 Go 1.26.5；
 - Web 锁定 pnpm 11.20.0，并执行 TypeScript 检查和 Vite 构建；视口插值 adapter 使用 MIT 许可的 Motion 13.2.0。
-- Web 的非权威界面偏好由 schema 3 的 `occccad.ui-preferences.v1` Store 持久化；当前包含 Inspector 开合、各 Toolbar 的位置/方向、结构树宽度、基于稳定结构树 path 的显隐覆盖、鼠标导航模式、捕捉过滤、用户默认显示单位以及按稳定 DocumentId 的文档显示单位覆盖。显示单位只影响 UI 格式和带单位的新输入，Part 求值与几何制品继续使用规范毫米值，已有表达式不被重写；它尚不是团队共享的 Revision 属性。隐藏只控制本地渲染；抑制属于 Revision 中的领域状态。模型、选择和命令状态不得进入客户端偏好契约。结构树右缘是可拖动及键盘调宽的 separator，分支用单个圆形爆炸控件显示展开状态；文档管理入口位于全局标题栏，不再遮挡视口左下角。
+- Web 的非权威界面偏好由 schema 3 的 `occccad.ui-preferences.v1` Store 持久化；当前包含 Inspector 开合、各 Toolbar 的位置/方向、结构树宽度、基于稳定结构树 path 的显隐覆盖、鼠标导航模式、捕捉过滤、用户默认显示单位以及按稳定 DocumentId 的文档显示单位覆盖。显示单位只影响 UI 格式和带单位的新输入，Part 求值与几何制品继续使用规范毫米值，已有表达式不被重写；它尚不是团队共享的 Revision 属性。隐藏只控制本地渲染；抑制属于 Revision 中的领域状态。模型、选择和命令状态不得进入客户端偏好契约。结构树透明悬浮在视口上，只有实际节点行和右上角 24 px 的 `┓` 形调宽 grip 接管 Pointer，空白区域继续进入三维视口；分支收起显示单圆环，展开由 SVG 切换为向四角移动 1.75 px 的四段四分之一圆弧，避免低分辨率 CSS 边框重新闭合成圆。文档管理入口是全局标题栏中的单图标按钮，不再遮挡视口左下角。根 Product 不显示无信息的“Product 定义”浮条，只有 occurrence 上下文编辑或独立定义编辑才显示上下文提示。
 - Toolbar Presentation Catalog 当前按单一用户意图拆成独立 Toolbar，而不是在 Part/Sketch/Assembly 巨型栏内混排：选择、草图入口、实体特征、参数与接口、基准、草图会话、外部几何、基本元素、轮廓、几何约束、尺寸约束、产品结构、产品接口、组件定位、装配约束、历史、协作、视图和诊断分别拥有稳定 ToolbarId。捕捉、鼠标模式和单位属于全局偏好，不是工作台命令；默认栏按停靠位置分行，拖动后的用户布局仍优先。
 - C++ Geometry Worker 使用 Conan 固定的 spdlog 1.15.3，同时写彩色控制台和按 Worker 地址隔离的滚动文件；默认文件位于 `services/logs/`，单文件 10 MiB、保留 5 个，级别复用 `OCCCCAD_LOG_LEVEL`。
 

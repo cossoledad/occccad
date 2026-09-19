@@ -23,7 +23,8 @@ import { CadBackground } from "../cad/rendering/cad-background";
 import { CadMaterialFactory } from "../cad/rendering/cad-material-factory";
 import { visualSelection, visualType } from "../cad/rendering/visualization-render-model";
 import { CATIA_VISUAL_THEME } from "../cad/rendering/cad-visual-theme";
-import { makeOcclusionVisibleHighlightLine, makeOcclusionVisibleSegments, makeSketchOverlayLine, updateHighlightLineResolution } from "../cad/rendering/interaction-highlight";
+import { makeDatumReferenceLine, makeOcclusionVisibleHighlightLine, makeOcclusionVisibleSegments,
+  makeSketchOverlayLine, updateHighlightLineResolution } from "../cad/rendering/interaction-highlight";
 import { constraintSymbolCode, makeConstraintDimensionLabel, makeSketchConstraintRenderable } from "../cad/rendering/sketch-constraint-renderer";
 import { isDimensionConstraintKind, type ConstraintKind } from "../cad/sketch/sketch-constraint-definition";
 import { measureSketchDimension } from "../cad/sketch/sketch-constraint-layout";
@@ -1186,28 +1187,34 @@ export class CadViewportEngine {
     if (selectable || context) {
       this.selectable.set(`plane:${selection.id}`, mesh);
       this.selectionIndex.register(selection, mesh);
-      this.selectionIndex.registerPick(mesh, () => selection, 90);
+      this.selectionIndex.registerPick(mesh, () => selection, 200, 10);
     }
   }
 
   private addDatumAxis(axis: DatumAxis, parent: THREE.Group, context?: SolidContext): void {
     const origin = new THREE.Vector3().fromArray(axis.origin);
     const direction = new THREE.Vector3().fromArray(axis.direction).normalize();
-    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+    const reference = new THREE.Group();
+    reference.position.copy(origin);
+    reference.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), direction);
+    const visibleLine = makeDatumReferenceLine([
       new THREE.Vector3(), new THREE.Vector3(1, 0, 0),
-    ]), this.materials.datumLine(0xd89422, true));
-    line.computeLineDistances();
-    line.position.copy(origin);
-    line.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), direction);
-    line.renderOrder = 92;
+    ], 0xd89422, true);
+    updateHighlightLineResolution(visibleLine, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
+    const pickLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(), new THREE.Vector3(1, 0, 0),
+    ]), new THREE.LineBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
     const selection = { kind: "axis" as const, axis: "DATUM" as const,
       id: `${context?.occurrencePath || "root"}:${axis.id}`, entityId: axis.id, treeNodeId: context?.treeNodeId,
       documentId: context?.documentId, occurrencePath: context?.occurrencePath, geometryKey: context?.geometryKey,
       instanceId: context?.instanceId };
-    line.userData = selection; parent.add(line);
-    this.screenStableReferences.set(line, 54);
-    this.selectionIndex.register(selection, line); this.selectionIndex.registerPick(line, (hit) =>
-      datumAxisHitAccepted(hit.distanceToRay, this.datumAxisPickToleranceWorld) ? selection : null, 12);
+    reference.userData = selection;
+    pickLine.userData = selection;
+    reference.add(visibleLine, pickLine);
+    parent.add(reference);
+    this.screenStableReferences.set(reference, 54);
+    this.selectionIndex.register(selection, reference); this.selectionIndex.registerPick(pickLine, (hit) =>
+      datumAxisHitAccepted(hit.distanceToRay, this.datumAxisPickToleranceWorld) ? selection : null, 200, 10);
   }
 
   private addAxisSystem(axis: AxisSystem, parent: THREE.Group, context?: SolidContext): void {
@@ -1223,18 +1230,23 @@ export class CadViewportEngine {
     };
     const definitions = [["X", axis.xDirection, 0xe62e24], ["Y", axis.yDirection, 0x29b849], ["Z", axis.zDirection, 0x3478e5]] as const;
     for (const [name, direction, color] of definitions) {
-      const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3().fromArray(direction)]);
-      const line = new THREE.Line(geometry, this.materials.datumLine(color));
-      line.computeLineDistances();
-      line.renderOrder = 92;
+      const axisReference = new THREE.Group();
+      const points = [new THREE.Vector3(), new THREE.Vector3().fromArray(direction)];
+      const visibleLine = makeDatumReferenceLine(points, color);
+      updateHighlightLineResolution(visibleLine, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
+      const pickLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
       const selection = {
         ...systemSelection, kind: "axis" as const, axis: name, id: `${systemSelection.id}:${name}`,
         treeNodeId: context?.treeNodeId ? `${context.treeNodeId}/${name.toLowerCase()}` : undefined
       };
-      line.userData = selection; system.add(line);
-      this.selectionIndex.register(selection, line, context?.treeNodeId);
-      this.selectionIndex.registerPick(line, (hit) =>
-        datumAxisHitAccepted(hit.distanceToRay, this.datumAxisPickToleranceWorld) ? selection : null, 10);
+      axisReference.userData = selection;
+      pickLine.userData = selection;
+      axisReference.add(visibleLine, pickLine);
+      system.add(axisReference);
+      this.selectionIndex.register(selection, axisReference, context?.treeNodeId);
+      this.selectionIndex.registerPick(pickLine, (hit) =>
+        datumAxisHitAccepted(hit.distanceToRay, this.datumAxisPickToleranceWorld) ? selection : null, 200, 10);
     }
     system.userData = systemSelection; parent.add(system);
     this.selectionIndex.register(systemSelection, system);

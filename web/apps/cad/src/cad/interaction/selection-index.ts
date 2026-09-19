@@ -5,7 +5,7 @@ import { selectionKey } from "./selection-identity";
 export type PickResolver = (intersection: THREE.Intersection) => Selection;
 export type SelectionHit = { selection: Selection; intersection?: THREE.Intersection };
 
-type PickBinding = { root: THREE.Object3D; resolve: PickResolver; priority: number };
+type PickBinding = { root: THREE.Object3D; resolve: PickResolver; priority: number; interactionLayer: number };
 
 // Scene objects and tree nodes share Selection identity through this index.
 // Topology elements are resolved lazily from hit indices, so the index remains
@@ -40,8 +40,8 @@ export class SelectionIndex {
     entries.add(object); this.objects.set(key, entries);
   }
 
-  registerPick(root: THREE.Object3D, resolve: PickResolver, priority = 0): void {
-    this.picks.push({ root, resolve, priority });
+  registerPick(root: THREE.Object3D, resolve: PickResolver, priority = 0, interactionLayer = 0): void {
+    this.picks.push({ root, resolve, priority, interactionLayer });
   }
 
   objectsFor(selection: Selection): readonly THREE.Object3D[] {
@@ -81,8 +81,10 @@ export class SelectionIndex {
       const binding = bindings.get(intersection.object.uuid);
       return binding ? { intersection, binding } : undefined;
     }).filter((value): value is { intersection: THREE.Intersection; binding: PickBinding } => Boolean(value));
-    candidates.sort((left, right) => Math.abs(left.intersection.distance - right.intersection.distance) < 0.75
-      ? right.binding.priority - left.binding.priority : left.intersection.distance - right.intersection.distance);
+    candidates.sort((left, right) => left.binding.interactionLayer !== right.binding.interactionLayer
+      ? right.binding.interactionLayer - left.binding.interactionLayer
+      : Math.abs(left.intersection.distance - right.intersection.distance) < 0.75
+        ? right.binding.priority - left.binding.priority : left.intersection.distance - right.intersection.distance);
     for (const candidate of candidates) {
       const selection = candidate.binding.resolve(candidate.intersection);
       if (selection && accepts(selection)) return {selection,intersection:candidate.intersection};

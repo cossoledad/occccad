@@ -33,6 +33,14 @@ export function makeSketchOverlayLine(
   return line;
 }
 
+export function makeDatumReferenceLine(
+  points: readonly THREE.Vector3[], color: number, dashed = false,
+): Line2 {
+  const line = makeSketchOverlayLine(points, color, 2.25, dashed);
+  line.renderOrder = 92;
+  return line;
+}
+
 export function makeOcclusionVisibleSegments(
   segments: readonly (readonly [THREE.Vector3, THREE.Vector3])[], color: number, linewidth = 2.5,
 ): LineSegments2 {

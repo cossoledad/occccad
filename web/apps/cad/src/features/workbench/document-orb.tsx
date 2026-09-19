@@ -20,7 +20,6 @@ export function DocumentOrb({ documents, activeID, onCreate, onSwitch, onClose }
     closeTimer.current = window.setTimeout(() => setOpen(false), 140);
   };
   const runAndClose = (operation: () => void) => { setOpen(false); operation(); };
-  const activeDocument = documents.find((document) => document.id === activeID);
   const content = <div className="document-orb-menu" onPointerEnter={keepOpen} onPointerLeave={scheduleClose}>
     <button className="document-orb-create" onClick={() => runAndClose(onCreate)}><FileAddOutlined /><span>新建文档</span></button>
     <div className="document-orb-caption">已打开文档</div>
@@ -43,8 +42,6 @@ export function DocumentOrb({ documents, activeID, onCreate, onSwitch, onClose }
     <button className="header-document-manager" aria-label="文档操作" title="新建、切换或关闭文档"
       onPointerEnter={keepOpen} onPointerLeave={scheduleClose}>
       <FolderOpenOutlined />
-      <span>{activeDocument?.name ?? "文档"}</span>
-      {activeDocument && <small>{activeDocument.type}</small>}
     </button>
   </Popover>;
 }

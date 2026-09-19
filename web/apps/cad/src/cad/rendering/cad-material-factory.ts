@@ -39,7 +39,7 @@ export class CadMaterialFactory {
 
   datumPlane(color: number): THREE.ShaderMaterial {
     return this.shaders.createMaterial("cad.datum.plane", {
-      uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uOpacity: 0.11,
+      uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uOpacity: 0.2,
     });
   }
 

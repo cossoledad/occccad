@@ -73,13 +73,13 @@ export class CadShaderLibrary {
     this.register("cad.datum.plane", {
       uniforms: {
         uColor: { value: new THREE.Color() }, uSelectedColor: { value: new THREE.Color() },
-        uSelected: { value: 0 }, uOpacity: { value: 0.11 },
+        uSelected: { value: 0 }, uOpacity: { value: 0.2 },
       },
       vertexShader: `varying vec2 vUv;void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
       fragmentShader: `
         uniform vec3 uColor;uniform vec3 uSelectedColor;uniform float uSelected;uniform float uOpacity;varying vec2 vUv;
-        void main(){float border=1.0-smoothstep(0.0,0.055,min(min(vUv.x,vUv.y),min(1.0-vUv.x,1.0-vUv.y)));
-          vec3 color=mix(uColor,uSelectedColor,uSelected);gl_FragColor=vec4(color,mix(uOpacity,0.72,border));
+        void main(){float border=1.0-smoothstep(0.0,0.075,min(min(vUv.x,vUv.y),min(1.0-vUv.x,1.0-vUv.y)));
+          vec3 color=mix(uColor,uSelectedColor,uSelected);gl_FragColor=vec4(color,mix(uOpacity,0.92,border));
           #include <colorspace_fragment>}
       `,
       transparent: true, depthTest: false, depthWrite: false, side: THREE.DoubleSide,

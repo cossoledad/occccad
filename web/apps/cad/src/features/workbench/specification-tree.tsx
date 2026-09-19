@@ -127,14 +127,9 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
     setContextMenu({ nodeKey: node.key, selectionSignature: menuSelectionSignature });
     event.currentTarget.focus();
   };
-  const clearFromBlank = (event: MouseEvent) => {
-    if (event.target !== event.currentTarget) return;
-    setContextMenu(undefined); anchorKey.current = undefined; onSelect([]);
-  };
-
   return <nav ref={scrollElement} className="specification-tree specification-tree-virtual" aria-label="Specification tree"
-    role="tree" onMouseLeave={() => onHover?.()} onClick={clearFromBlank}>
-    <div className="specification-tree-virtual-space" style={{ height: virtualizer.getTotalSize() }} onClick={clearFromBlank}>
+    role="tree" onMouseLeave={() => onHover?.()}>
+    <div className="specification-tree-virtual-space" style={{ height: virtualizer.getTotalSize() }}>
       {virtualizer.getVirtualItems().map((item) => {
         const entry = visible[item.index];
         const { node, depth, hasChildren } = entry;
@@ -153,12 +148,21 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
           aria-selected={isSelected} tabIndex={0} onClick={(event) => { event.stopPropagation(); selectNode(node, eventModifiers(event)); }}
           onDoubleClick={(event) => { event.stopPropagation(); onActivate?.(node); }}
           onContextMenu={(event) => contextSelection(event, node)}
-          onMouseEnter={() => onHover?.(node)} onKeyDown={(event) => keyboardSelect(event, entry)}>
+          onMouseEnter={() => onHover?.(node)} onMouseLeave={() => onHover?.()}
+          onKeyDown={(event) => keyboardSelect(event, entry)}>
           {depth === 0 ? <span className="specification-tree-root-anchor" /> : hasChildren
             ? <button className={`specification-tree-junction branch ${isExpanded ? "expanded" : "collapsed"}`}
               tabIndex={-1} aria-label={isExpanded ? "折叠" : "展开"}
               onClick={(event) => { event.stopPropagation(); toggle(node.key); }}>
-              <span className="specification-tree-orb" aria-hidden="true"><i /><b /></span>
+              <svg className="specification-tree-orb" viewBox="0 0 16 16" aria-hidden="true">
+                <circle className="specification-tree-orb-collapsed" cx="8" cy="8" r="5.25" />
+                <g className="specification-tree-orb-expanded">
+                  <path className="upper-left" d="M 2.75 8 A 5.25 5.25 0 0 1 8 2.75" />
+                  <path className="upper-right" d="M 8 2.75 A 5.25 5.25 0 0 1 13.25 8" />
+                  <path className="lower-right" d="M 13.25 8 A 5.25 5.25 0 0 1 8 13.25" />
+                  <path className="lower-left" d="M 8 13.25 A 5.25 5.25 0 0 1 2.75 8" />
+                </g>
+              </svg>
             </button> : <span className="specification-tree-junction leaf" />}
           <span className="specification-tree-icon">{node.icon}</span>
           <span className="specification-tree-label">{node.title}</span>

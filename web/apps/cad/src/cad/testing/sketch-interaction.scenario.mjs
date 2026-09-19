@@ -48,7 +48,8 @@ try {
   const { axisDragWorldDelta, stableAxisDragWorldDelta, stableAngularDragDelta,
     manipulatorFrame, solveScreenConstrainedParameter, transformAroundWorldPivot,
     worldUnitsPerCssPixel } = await server.ssrLoadModule("/src/cad/rendering/viewport-metrics.ts");
-  const { makeOcclusionVisibleHighlightLine, makeSketchOverlayLine } = await server.ssrLoadModule("/src/cad/rendering/interaction-highlight.ts");
+  const { makeDatumReferenceLine, makeOcclusionVisibleHighlightLine,
+    makeSketchOverlayLine } = await server.ssrLoadModule("/src/cad/rendering/interaction-highlight.ts");
   const { defaultDocumentName } = await server.ssrLoadModule("/src/features/documents/document-utils.ts");
   const sketchEntitySelection = { kind: "visual", id: "root:sketch-1:line-1", visualType: "CURVE", featureId: "sketch-1",
     entityId: "line-1", documentId: "part-1", treeNodeId: "document:part-1/body/sketch:sketch-1/geometry/entity:line-1" };
@@ -335,6 +336,13 @@ try {
   index.registerPick(far, () => ({ kind: "vertex", id: "far", topologyId: 2 }));
   assert.equal(index.pick(new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, 0, -1)),
     (selection) => selection.kind === "vertex")?.id, "far");
+  const layeredIndex = new SelectionIndex();
+  const modelFace = new THREE.Mesh(new THREE.PlaneGeometry(10, 10)); modelFace.position.z = -1; modelFace.updateMatrixWorld();
+  const datumPlane = new THREE.Mesh(new THREE.PlaneGeometry(10, 10)); datumPlane.position.z = -3; datumPlane.updateMatrixWorld();
+  layeredIndex.registerPick(modelFace, () => ({ kind: "face", id: "model-face", topologyId: 1 }), 20);
+  layeredIndex.registerPick(datumPlane, () => ({ kind: "plane", id: "datum-plane", plane: "XY" }), 200, 10);
+  assert.equal(layeredIndex.pick(new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, 0, -1)))?.id, "datum-plane",
+    "datum interaction layer must win even when model geometry is closer to the camera");
   const hiddenParent=new THREE.Group(),hiddenPick=new THREE.Mesh(new THREE.SphereGeometry(1),new THREE.MeshBasicMaterial());
   hiddenPick.position.z=-1;hiddenParent.add(hiddenPick);hiddenParent.visible=false;
   const hiddenIndex=new SelectionIndex();hiddenIndex.registerPick(hiddenPick,()=>({kind:"plane",id:"hidden",plane:"XY"}),100);
@@ -575,6 +583,8 @@ try {
   assert.equal(datumPlaneMaterial.depthTest, false, "datum planes must remain visible and selectable through solids");
   assert.equal(datumPlaneMaterial.depthWrite, false);
   assert.match(datumPlaneMaterial.fragmentShader, /border/);
+  assert.match(datumPlaneMaterial.fragmentShader, /0\.92/,
+    "datum plane outlines must remain legible over body surfaces");
   datumPlaneMaterial.dispose();
   const datumLineMaterial = new CadShaderLibrary().createMaterial("cad.datum.line");
   assert.equal(datumLineMaterial.depthTest, false, "datum axes must remain visible and selectable through solids");
@@ -645,6 +655,16 @@ try {
   assert.equal(projectedLine.material.dashed, true, "projected geometry keeps a distinct dashed semantic style");
   assert.equal(projectedLine.material.linewidth, 2.75);
   projectedLine.geometry.dispose(); projectedLine.material.dispose();
+  const datumReferenceLine = makeDatumReferenceLine([
+    new THREE.Vector3(0, 0, 0), new THREE.Vector3(1, 0, 0),
+  ], 0xd89422, true);
+  assert.equal(datumReferenceLine.material.depthTest, false,
+    "datum references use the same occlusion-visible screen-space line contract as selection overlays");
+  assert.equal(datumReferenceLine.material.worldUnits, false);
+  assert.equal(datumReferenceLine.material.linewidth, 2.25);
+  assert.equal(datumReferenceLine.material.dashed, true);
+  assert.equal(datumReferenceLine.renderOrder, 92);
+  datumReferenceLine.geometry.dispose(); datumReferenceLine.material.dispose();
   assert.equal(defaultDocumentName("PART", [{ name: "Part1" }, { name: "part3" }]), "Part2");
   assert.equal(defaultDocumentName("PRODUCT", [{ name: "Product1" }, { name: "Product2" }]), "Product3");
   const persistedLine = { id: "line-1", featureId: "sketch-1", kind: "POLYLINE",

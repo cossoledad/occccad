@@ -970,11 +970,11 @@ export function Workbench() {
 
   return <CommandProvider registry={commandRegistry}><section className="cad-workbench">
     <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>
-        {view.document.type === "PRODUCT" && <div style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",
+        {view.document.type === "PRODUCT" && (activeInstancePath || activeDocumentID !== documentID) && <div style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",
           padding:"6px 10px",borderRadius:6,background:"rgba(22,27,34,.88)",color:"white"}}>
           <Space size="small"><Typography.Text style={{color:"white"}}>
             {activeInstancePath ? `上下文编辑 · ${activeResolvedInstance?.instancePath?.display ?? activeInstancePath}`
-              : activeDocumentID!==documentID ? `定义编辑 · ${editingView?.document.name??activeDocumentID}` : `Product 定义 · ${view.document.name}`}
+              : `定义编辑 · ${editingView?.document.name??activeDocumentID}`}
           </Typography.Text>
           {activeInstancePath && <Button size="small" onClick={() => { setDefinitionContextPath(activeInstancePath); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }}>
             打开定义</Button>}
