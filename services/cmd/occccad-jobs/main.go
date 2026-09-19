@@ -147,6 +147,7 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		FolderID  string `json:"folderId"`
 		Format    string `json:"format"`
 		RequestID string `json:"requestId"`
+		ReleaseID string `json:"releaseId"`
 	}
 	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		return err
@@ -259,7 +260,12 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if job.VersionID != nil && current.Document.VersionID != *job.VersionID {
 			return errors.New("document head changed after the export job was submitted")
 		}
-		_, _, sourceComponents, err := h.workspace.ExchangeExportComponents(ctx, *job.DocumentID)
+		var sourceComponents []workspace.ExchangeExportComponent
+		if payload.ReleaseID != "" {
+			_, _, sourceComponents, err = h.workspace.ExchangeReleaseExportComponents(ctx, *job.DocumentID, payload.ReleaseID)
+		} else {
+			_, _, sourceComponents, err = h.workspace.ExchangeExportComponents(ctx, *job.DocumentID)
+		}
 		if err != nil {
 			return err
 		}
@@ -269,7 +275,7 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		components := make([]geometry.ExchangeComponent, 0, len(sourceComponents))
 		for _, component := range sourceComponents {
 			components = append(components, geometry.ExchangeComponent{Name: component.Name,
-				BRep: component.BRep, Translation: component.Translation})
+				BRep: component.BRep, Translation: component.Translation, Rotation: component.Rotation})
 		}
 		outputKey := artifact.StagingKey(job.ID, "export."+strings.ToLower(payload.Format))
 		result, err := h.geometry.ExportExchange(ctx, payload.RequestID, strings.ToUpper(payload.Format), outputKey, components)

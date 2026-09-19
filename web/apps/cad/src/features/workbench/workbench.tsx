@@ -26,11 +26,11 @@ import { CaptureSettingsButton } from "../../cad/overlay/capture-settings-button
 import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
 import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
 import { useUIPreferences } from "../../state/ui-preferences";
-import type { AssemblyConstraint, AssemblyGeometryRef, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, Selection, SketchOperation, SketchPlane, ToolbarCatalogEntry, ToolbarCatalogItem, Vec3 } from "../../types";
+import type { AssemblyConstraint, AssemblyGeometryRef, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, ProductRelease, Selection, SketchOperation, SketchPlane, ToolbarCatalogEntry, ToolbarCatalogItem, Vec3 } from "../../types";
 import { topologyPropertyContext } from "./topology-property-context";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
-import { followedDocumentIDs, staleProductDocumentIDs } from "./product-edit-context";
+import { followedDocumentIDs } from "./product-edit-context";
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { isLengthParameter, linearExtrudeLengthInput, parameterDisplayValue, parameterSourceText, parseParameterSource } from "./parameter-editor";
 import { History, Properties } from "./workbench-inspector";
@@ -164,12 +164,13 @@ export function Workbench() {
   const padIntentRequestID = useRef<string | undefined>(undefined);
 	const padPreviewID = useRef<string | undefined>(undefined);
   const latestDocumentVersion = useRef<string | undefined>(undefined);
-  const automaticReferenceUpdate = useRef<string | undefined>(undefined);
   const [activeDocumentID, setActiveDocumentID] = useState(documentID);
   const [activeInstancePath, setActiveInstancePath] = useState<string>();
   const [definitionContextPath, setDefinitionContextPath] = useState<string>();
   const [insertOpen, setInsertOpen] = useState(false);
+  const [newPartTarget, setNewPartTarget] = useState<SpecificationTreeNode>();
   const [versionOpen, setVersionOpen] = useState(false);
+  const [releaseOpen, setReleaseOpen] = useState(false);
   const [datumPlaneOpen, setDatumPlaneOpen] = useState(false);
   const [datumAxisOpen, setDatumAxisOpen] = useState(false);
   const [parameterManagerOpen, setParameterManagerOpen] = useState(false);
@@ -198,7 +199,9 @@ export function Workbench() {
     lengthSource: string; angle: number; axisEntityId?: string; reversed: boolean }>();
 	const [featureForm] = Form.useForm<{ lengthText: string }>();
   const [insertForm] = Form.useForm<{ referencedDocumentID: string }>();
+  const [newPartForm] = Form.useForm<{ name?: string; description?: string }>();
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
+  const [releaseForm] = Form.useForm<{ name: string }>();
   const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
   const [datumAxisForm] = Form.useForm<{ name: string; ox: number; oy: number; oz: number; dx: number; dy: number; dz: number }>();
   const [parameterForm] = Form.useForm<{ key: string; source: string }>();
@@ -254,6 +257,7 @@ export function Workbench() {
     client.invalidateQueries({ queryKey: queryKeys.documentProperties(changedID), refetchType: "active" }),
     client.invalidateQueries({ queryKey: ["product-design-session", documentID] }),
     client.invalidateQueries({ queryKey: ["context-catalog", documentID] }),
+    client.invalidateQueries({ queryKey: ["product-update-plan", documentID] }),
     client.invalidateQueries({ queryKey: ["documents"] }),
     client.invalidateQueries({ queryKey: queryKeys.openDocuments })]);
   }, [activeID, client, documentID]);
@@ -270,6 +274,7 @@ export function Workbench() {
         event.type === "document.snapshot.v1" ? Promise.resolve() : client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
         client.invalidateQueries({ queryKey: queryKeys.history(documentID), refetchType: "active" }),
         client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID), refetchType: "active" }),
+        client.invalidateQueries({ queryKey: ["product-update-plan", documentID] }),
         client.invalidateQueries({ queryKey: ["documents"] }),
         client.invalidateQueries({ queryKey: queryKeys.openDocuments }),
       ]);
@@ -299,6 +304,10 @@ export function Workbench() {
   const parameterContextCatalog = useQuery({ queryKey: queryKeys.contextCatalog(documentID, activeInstancePath ?? "", "PARAMETER"),
     queryFn: () => api.getContextCatalog(documentID, activeInstancePath ?? "", "PARAMETER"),
     enabled: Boolean(view?.document.type === "PRODUCT" && activeInstancePath && externalParameterID) });
+  const productUpdatePlan = useQuery({ queryKey: ["product-update-plan", documentID],
+    queryFn: () => api.getProductUpdatePlan(documentID), enabled: Boolean(view?.document.type === "PRODUCT") });
+  const productReleases = useQuery({ queryKey: ["product-releases", documentID],
+    queryFn: () => api.listProductReleases(documentID), enabled: Boolean(view?.document.type === "PRODUCT" && releaseOpen) });
   latestDocumentVersion.current = editingView?.document.versionId;
   const followedIDs = useMemo(() => [...new Set([
     ...followedDocumentIDs(view?.structureTree), ...(view?.referenceUpdates ?? []).map((item) => item.sourceDocumentId),
@@ -313,10 +322,11 @@ export function Workbench() {
         client.setQueryData(queryKeys.document(dependencyID), snapshot.view);
         return;
       }
-      // The root Product projection will detect this changed Head and submit UPDATE_REFERENCES.
+      // The root Product projection and Update Plan refresh, but acceptance remains an explicit user action.
       void client.invalidateQueries({ queryKey: queryKeys.document(dependencyID) });
       void client.invalidateQueries({ queryKey: queryKeys.document(documentID) });
       void client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID), refetchType: "active" });
+      void client.invalidateQueries({ queryKey: ["product-update-plan", documentID] });
     }).then((unsubscribe) => { if (disposed) unsubscribe(); else unsubscribers.push(unsubscribe); })
       .catch((error: Error) => { if (!disposed) message.error(`引用文档实时连接失败：${error.message}`); });
     return () => { disposed = true; unsubscribers.forEach((unsubscribe) => unsubscribe()); };
@@ -334,26 +344,8 @@ export function Workbench() {
     return view ? treeData(view, editingView).map((node) => decorate(node)) : [];
   }, [view, editingView, store.activeSketchID, treeVisibilityOverrides]);
   const canEdit = editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR";
+  const canEditRoot = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
   const activeWorkbench = resolveCadWorkbench(editingView?.document.type ?? "PART", Boolean(store.sketchPlane));
-
-  useEffect(() => {
-    const rootCanEdit = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
-    if (!view || !rootCanEdit || store.activeSketchID) return;
-    const owners = view.document.type === "PRODUCT" ? staleProductDocumentIDs(view.structureTree)
-      : (view.referenceUpdates ?? []).some((item) => item.status === "UPDATE_AVAILABLE") ? [view.document.id] : [];
-    if (owners.length === 0) return;
-    const key = `${view.document.versionId}:${owners.join(",")}`;
-    if (automaticReferenceUpdate.current === key) return;
-    automaticReferenceUpdate.current = key;
-    void (async () => {
-      let updated: DocumentView | undefined;
-      for (const ownerID of owners) updated = await api.updateReferences(ownerID);
-      if (updated) await refresh(updated);
-    })().catch((cause: unknown) => {
-      automaticReferenceUpdate.current = undefined;
-      message.error(`自动更新 Product 引用失败：${cause instanceof Error ? cause.message : String(cause)}`);
-    });
-  }, [message, refresh, store.activeSketchID, view]);
 
   useEffect(() => {
     if (replacingAssemblyReference === undefined || !store.selection) return;
@@ -481,7 +473,10 @@ export function Workbench() {
   };
   const refreshAssemblyConstraint = (constraintID?: string) => {
     if (editingView?.document.type !== "PRODUCT") return;
-    command.mutate(() => api.updateReferences(editingView.document.id), { onSuccess: (updated) => {
+    const operation = productUpdatePlan.data && editingView.document.id === documentID
+      ? () => api.acceptProductUpdatePlan(documentID, productUpdatePlan.data!.digest)
+      : () => api.updateReferences(editingView.document.id);
+    command.mutate(operation, { onSuccess: (updated) => {
       if (!constraintID) return;
       const refreshed = updated.product?.constraints?.find((constraint) => constraint.id === constraintID);
       if (refreshed) { setEditingAssemblyConstraint({ ...refreshed }); setAssemblyDefinitionDirty(false); }
@@ -675,6 +670,14 @@ export function Workbench() {
     if (editingView?.document.type !== "PRODUCT") return;
     command.mutate(() => api.insert(editingView.document.id, values.referencedDocumentID)); setInsertOpen(false);
   };
+  const createPartComponent = (values: { name?: string; description?: string }) => {
+    if (view?.document.type !== "PRODUCT" || !newPartTarget) return;
+    command.mutate(() => api.createPartComponent(view.document.id, { name: values.name?.trim() || undefined,
+      description: values.description?.trim() || undefined,
+      targetProductInstancePath: newPartTarget.instancePath }), {
+      onSuccess: () => { setNewPartTarget(undefined); newPartForm.resetFields(); message.success("零件已创建并插入 Product"); },
+    });
+  };
   const deleteTreeNodes = (nodes: SpecificationTreeNode[]) => {
     if (!editingView || !canEdit || command.isPending) return;
     const candidates = nodes.filter((node) => node.entityId && node.kind && node.capabilities?.includes("DELETE"));
@@ -695,6 +698,19 @@ export function Workbench() {
   const createVersion = async (values: { name: string; description: string }) => {
     if (!editingView) return; await api.createVersion(editingView.document.id, values.name, values.description); setVersionOpen(false);
     await history.refetch(); message.success("版本已创建");
+  };
+  const acceptProductUpdates = () => {
+    const plan = productUpdatePlan.data;
+    if (!plan || !plan.hasUpdates || !plan.canAccept) return;
+    command.mutate(() => api.acceptProductUpdatePlan(documentID, plan.digest), {
+      onSuccess: () => message.success("Product 更新计划已原子接受"),
+    });
+  };
+  const createRelease = async (values: { name: string }) => {
+    const release: ProductRelease = await api.createProductRelease(documentID, values.name);
+    setReleaseOpen(false); releaseForm.resetFields();
+    await client.invalidateQueries({ queryKey: ["product-releases", documentID] });
+    message.success(`Release ${release.name} 已冻结`);
   };
   useEffect(() => {
     const disposers = [
@@ -908,8 +924,17 @@ export function Workbench() {
           {activeInstancePath && <Button size="small" onClick={() => { setDefinitionContextPath(activeInstancePath); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }}>
             打开定义</Button>}
           {!activeInstancePath&&definitionContextPath&&<Button size="small" onClick={()=>{setActiveInstancePath(definitionContextPath);setDefinitionContextPath(undefined);store.endSketch();store.setSelection(null);}}>在此上下文打开</Button>}
+          <Button size="small" disabled={!canEditRoot} onClick={()=>setReleaseOpen(true)}>Product Release</Button>
           {designSession.isError && <Tag color="error">上下文失效</Tag>}</Space>
         </div>}
+        {view.document.type === "PRODUCT" && productUpdatePlan.data?.hasUpdates && <Alert
+          style={{position:"absolute",zIndex:12,top:56,left:"50%",transform:"translateX(-50%)",minWidth:420}}
+          type={productUpdatePlan.data.canAccept ? "info" : "error"} showIcon
+          message={`Product Update Plan · ${productUpdatePlan.data.entries.filter((entry)=>entry.currency!=="CURRENT").length} 项变化`}
+          description={productUpdatePlan.data.canAccept ? "来源 Head 已变化；接受前当前 Product 仍保持已接受快照。"
+            : productUpdatePlan.data.entries.find((entry)=>entry.diagnostic)?.diagnostic ?? "更新计划被上游解析或求值失败阻塞。"}
+          action={<Button size="small" type="primary" disabled={!canEditRoot || !productUpdatePlan.data.canAccept}
+            loading={command.isPending} onClick={acceptProductUpdates}>接受全部更新</Button>} />}
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view}
           editingView={editingView} activeInstancePath={activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
           activeInstanceRotation={activeResolvedInstance?.rotation}
@@ -982,6 +1007,10 @@ export function Workbench() {
                 if (constraint) openAssemblyConstraintEditor(constraint);
               } else openFeatureEditor(node);
             }}
+			onCreatePart={(node) => {
+			  if (node.documentType !== "PRODUCT") return;
+			  newPartForm.resetFields(); setNewPartTarget(node);
+			}}
 			onReconnect={(node) => {
               if (node.kind === "SKETCH_EXTERNAL_GEOMETRY" && node.entityId && node.ownerEntityId && editingView) {
                 const feature = editingView.part?.features.find((candidate) => candidate.id === node.ownerEntityId);
@@ -1249,6 +1278,15 @@ export function Workbench() {
       <Form form={insertForm} layout="vertical"><Form.Item name="referencedDocumentID" label="引用文档" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={(catalog.data?.documents ?? []).filter((item) => item.id !== activeID).map((item) => ({ value: item.id, label: `${item.name} (${item.type})` }))} /></Form.Item>
       </Form>
     </CommandDialog>
+    <CommandDialog id="new-part-component" open={Boolean(newPartTarget)} title="新建零件"
+      onClose={() => setNewPartTarget(undefined)} confirmLoading={command.isPending}
+      onConfirm={async () => createPartComponent(await newPartForm.validateFields())}>
+      <Form form={newPartForm} layout="vertical">
+        <Form.Item name="name" label="零件名称" rules={[{ max: 120 }]}><Input placeholder="留空自动分配 Part1、Part2…" /></Form.Item>
+        <Form.Item name="description" label="说明" rules={[{ max: 500 }]}><Input.TextArea rows={2} /></Form.Item>
+        <small className="cad-command-hint">新 Part 与 occurrence 会原子创建；默认位于所选 Product 原点，实例名按“零件名.序号”分配。</small>
+      </Form>
+    </CommandDialog>
     <CommandDialog id="datum-plane" open={datumPlaneOpen} title="创建基准面" onClose={() => setDatumPlaneOpen(false)}
       confirmLoading={command.isPending} onConfirm={async () => {
         const values = await datumPlaneForm.validateFields(); const selectedPlane = store.selection?.kind === "plane" ? store.selection.datumPlane : undefined;
@@ -1269,6 +1307,28 @@ export function Workbench() {
       onConfirm={async () => createVersion(await versionForm.validateFields())}>
       <Form form={versionForm} layout="vertical"><Form.Item name="name" label="版本名称" rules={[{ required: true }]}><Input placeholder="V1 - Initial concept" /></Form.Item>
         <Form.Item name="description" label="说明"><Input.TextArea rows={3} /></Form.Item></Form>
+    </CommandDialog>
+    <CommandDialog id="product-release" open={releaseOpen} title="创建 Product Release" width={620}
+      onClose={() => setReleaseOpen(false)} onConfirm={async () => createRelease(await releaseForm.validateFields())}>
+      <Form form={releaseForm} layout="vertical">
+        <Form.Item name="name" label="Release 名称" rules={[{required:true}]}><Input placeholder="ToyCar V1" /></Form.Item>
+      </Form>
+      <Alert type="info" showIcon message="Release 会冻结完整 Product dependency closure"
+        description="只有引用均为 CURRENT、occurrence 求值 READY、装配约束 VERIFIED 且存在成功 SolveManifest 时才允许发布。" />
+      <Divider>已有 Releases</Divider>
+      {productReleases.isLoading ? <Spin /> : (productReleases.data?.length ?? 0) === 0
+        ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="尚无 Product Release" />
+        : productReleases.data?.map((release)=><div className="parameter-manager-row" key={release.id}>
+          <span><strong>{release.name}</strong><Typography.Text type="secondary">{release.createdAt}</Typography.Text></span>
+          <Typography.Text copyable={{text:release.manifest.digest}}>{release.manifest.digest.slice(0,12)}</Typography.Text>
+          <Tag color="success">{release.manifest.gates.length} GATES</Tag>
+          <Space><Button size="small" onClick={()=>void api.startExport(documentID,"STEP",release.id)
+            .then(()=>message.success("Release STEP 导出任务已提交")).catch((error:Error)=>message.error(error.message))}>STEP</Button>
+          <Button size="small" onClick={()=>void api.startExport(documentID,"BREP",release.id)
+            .then(()=>message.success("Release BREP 导出任务已提交")).catch((error:Error)=>message.error(error.message))}>BREP</Button>
+          <Button size="small" onClick={()=>void api.replayProductRelease(documentID,release.id)
+            .then((result)=>message.success(`Release replay: ${result.status}`)).catch((error:Error)=>message.error(error.message))}>Replay</Button></Space>
+        </div>)}
     </CommandDialog>
     <ShareDialog resource={shareResource} onClose={() => setShareResource(undefined)} />
   </section></CommandProvider>;

@@ -287,7 +287,7 @@ export type DocumentStructureNode = {
   productPublication?: ProductPublication;
   contextInput?: ContextInput;
   contextBinding?: ContextBinding;
-  capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH">;
+  capabilities?: Array<"DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART">;
   children?: DocumentStructureNode[];
 };
 
@@ -304,6 +304,7 @@ export type DocumentView = {
   structureTree?: DocumentStructureNode;
   referenceUpdates?: ReferenceUpdate[];
   designSession?: ProductDesignSession;
+  contextVariants?: ContextVariantSnapshot[];
 };
 
 export type ReferenceUpdate = { consumerKind:string;consumerId:string;sourceDocumentId:string;acceptedRevisionId:string;
@@ -327,7 +328,7 @@ export type Publication = { id: string; name: string; type: "POINT" | "AXIS" | "
     bounds?: { minimum?: Quantity; maximum?: Quantity }; symmetry?: string };
   resolution: { status: "CONNECTED" | "BROKEN_PUBLICATION" | "PENDING"; diagnosticCode?: string; diagnostic?: string;
     resolvedVersionId?: string; geometryKey?: string; geometryId?: string; topologyKind?: "FACE" | "EDGE" | "VERTEX";
-    geometryKind?: string; symmetry?: string; localId?: number;
+    geometryKind?: string; symmetry?: string; localId?: number; radius?: number;
     origin?: Vec3; xDirection?: Vec3; yDirection?: Vec3; zDirection?: Vec3; sourceDigest?: string; value?: Quantity;
     valueDigest?: string; manifestDigest?: string; namingPolicyDigest?: string; evaluatorVersion?: string; workerId?: string; occtVersion?: string } };
 
@@ -351,6 +352,22 @@ export type ContextCatalogPublication = { instancePath:InstancePath;documentId:s
   displayPath:string;selectable:boolean;diagnostic?:string };
 export type ContextCatalog = { rootProductDocumentId:string;rootProductRevisionId:string;activeInstancePath?:InstancePath;
   expectedType?:string;digest:string;publications:ContextCatalogPublication[] };
+export type ContextVariantSnapshot = {variantKey:string;owningInstancePath:InstancePath;baseDocumentId:string;baseRevisionId:string;
+  bindingIds:string[];bindingDigest:string;evaluationManifestDigest?:string;geometryKey?:string;status:"READY"|"FAILED";
+  publications?:Publication[];diagnosticCode?:string;diagnostic?:string};
+export type ProductUpdatePlanEntry = {kind:"CONTEXT_BINDING"|"OCCURRENCE_REFERENCE"|"ASSEMBLY_SOLVE";bindingId:string;name:string;sourceDisplayPath:string;owningDisplayPath:string;
+  acceptedRevisionId:string;candidateRevisionId?:string;connection:"CONNECTED"|"BROKEN"|"INCOMPATIBLE";
+  currency:"CURRENT"|"UPDATE_AVAILABLE"|"UPDATE_BLOCKED";evaluation:"READY"|"FAILED"|"BLOCKED_BY_UPSTREAM";
+  diagnosticCode?:string;diagnostic?:string};
+export type ProductUpdatePlan = {rootProductDocumentId:string;rootProductRevisionId:string;digest:string;canAccept:boolean;
+  hasUpdates:boolean;entries:ProductUpdatePlanEntry[];contextVariants:ContextVariantSnapshot[];affectedConstraintIds?:string[]};
+export type ProductReleaseGate = {code:string;status:"PASSED"|"FAILED";diagnostic?:string};
+export type ProductRelease = {id:string;name:string;createdAt:string;manifest:{schemaVersion:number;digest:string;
+  rootProductDocumentId:string;rootProductRevisionId:string;rootSnapshotDigest:string;assemblySolveManifestDigest?:string;
+  gates:ProductReleaseGate[]}};
+export type AssemblySolveManifestResult = {manifestDigest:string;requestId:string;resultDigest?:string;status:string;
+  diagnostic?:string;result:unknown};
+export type ProductReleaseReplay = {releaseId:string;manifestDigest:string;status:string;assembly?:AssemblySolveManifestResult};
 
 export type SelectionIdentity = {
   id: string;

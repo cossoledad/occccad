@@ -32,6 +32,9 @@ occccad 是早期可运行的云原生参数化 CAD 垂直切片。参数模型�
 | React、工具、选择、Three.js、场景测试 | `web/apps/cad/AGENTS.md` |
 | 跨模块 conformance | `tests/README.md` |
 | 运行、进程和仓库概况 | `README.md` 与所属可执行单元 README |
+| CATIA V5 行为、术语与交互对照 | `/mnt/s/tools/DS/Catia/B33doc/English/`；先查 `control/*.viewdoc` 索引，再读其引用的 `online/*` 页面 |
+
+本机 CATIA B33 英文文档用于确认成熟 CAD 的用户流程与术语，不代表 occccad 当前能力或必须照搬的内部架构。引用其行为进行设计时，记录具体页面，并继续以本仓库代码、测试及 Current/Target Architecture 区分“已实现事实”和“目标语义”。
 
 ## 平台不变量
 

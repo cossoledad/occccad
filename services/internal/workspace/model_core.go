@@ -1668,6 +1668,17 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err := json.Unmarshal(nextJSON, &model); err != nil {
 			return err
 		}
+		if prepared.command.TypeURI == typeUpdateReferences {
+			for index := range model.ContextBindings {
+				model.ContextBindings[index].Accepted.RootProductRevisionID = revisionID
+				if len(model.ContextBindings[index].SourceInstancePath.Segments) > 0 {
+					model.ContextBindings[index].SourceInstancePath.Segments[0].OwnerVersionID = revisionID
+				}
+				if len(model.ContextBindings[index].OwningInstancePath.Segments) > 0 {
+					model.ContextBindings[index].OwningInstancePath.Segments[0].OwnerVersionID = revisionID
+				}
+			}
+		}
 		if !promoted {
 			finishSolve := perf.Start(ctx, "assembly-solve")
 			drivenInstanceID := ""
@@ -1679,7 +1690,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			} else {
 				solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 			}
-			if err = service.solveAssembly(ctx, documentID, prepared.requestID, drivenInstanceID, solveIntent, &model, ""); err != nil {
+			if err = service.solveAssembly(ctx, documentID, revisionID, prepared.requestID, drivenInstanceID, solveIntent, &model, ""); err != nil {
 				if prepared.command.TypeURI != typeUpdateReferences && prepared.command.TypeURI != typeReplaceInstance {
 					finishSolve()
 					return err
@@ -1923,7 +1934,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		if request.InteractionID != "" {
 			warmStartKey = documentID + "|" + prepared.actorID + "|" + request.InteractionID
 		}
-		if err = service.solveAssembly(ctx, documentID, "preview/"+prepared.requestID, driven, solveIntent, &model, warmStartKey, &assemblyResult); err != nil {
+		if err = service.solveAssembly(ctx, documentID, prepared.headRevision, "preview/"+prepared.requestID, driven, solveIntent, &model, warmStartKey, &assemblyResult); err != nil {
 			restored, restoreErr := restoreMovePreviewOnSolveFailure(prepared.command.TypeURI, err, prepared.modelJSON, &model)
 			if restoreErr != nil {
 				return CommandPreview{}, restoreErr

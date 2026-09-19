@@ -196,7 +196,132 @@ func (service *Service) resolveAssemblyPublication(ctx context.Context, product 
 	return publication, nil
 }
 
-func (service *Service) resolveProductPublications(ctx context.Context, product *ProductModel) {
+func (service *Service) variantPublicationForAssembly(ctx context.Context, product ProductModel, instanceID, publicationID string,
+	variants map[string]ContextVariantSnapshot) (Publication, bool, error) {
+	var rootInstance *ProductInstance
+	for index := range product.Instances {
+		if product.Instances[index].ID == instanceID {
+			rootInstance = &product.Instances[index]
+			break
+		}
+	}
+	if rootInstance == nil {
+		return Publication{}, false, fmt.Errorf("%w: assembly Publication references an unknown instance", ErrValidation)
+	}
+	if variant, ok := variants[instanceID]; ok {
+		for _, publication := range variant.Publications {
+			if publication.ID == publicationID {
+				return publication, true, nil
+			}
+		}
+	}
+	var documentType string
+	var raw []byte
+	if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v
+		JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2`, rootInstance.ReferencedDocumentID,
+		rootInstance.ReferencedVersionID).Scan(&documentType, &raw); err != nil {
+		return Publication{}, false, err
+	}
+	if documentType != "PRODUCT" {
+		return Publication{}, false, nil
+	}
+	var child ProductModel
+	if err := json.Unmarshal(raw, &child); err != nil {
+		return Publication{}, false, err
+	}
+	for _, forwarding := range child.Publications {
+		if forwarding.ID != publicationID {
+			continue
+		}
+		candidate, ok, err := service.variantPublicationAtPath(ctx, child, forwarding.Target.InstancePath,
+			forwarding.Target.PublicationID, variants, instanceID, InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, 0)
+		if err != nil || !ok {
+			return Publication{}, ok, err
+		}
+		candidate.ID, candidate.Name, candidate.Type = forwarding.ID, forwarding.Name, forwarding.Type
+		candidate.SemanticPurpose, candidate.CompatibilityVersion, candidate.Contract = forwarding.SemanticPurpose,
+			forwarding.CompatibilityVersion, forwarding.Contract
+		return candidate, true, nil
+	}
+	return Publication{}, false, nil
+}
+
+func (service *Service) variantPublicationAtPath(ctx context.Context, product ProductModel, path InstancePath, publicationID string,
+	variants map[string]ContextVariantSnapshot, prefix string, pose InstancePose, depth int) (Publication, bool, error) {
+	if depth > instancePathMaxDepth || len(path.Segments) == 0 {
+		return Publication{}, false, fmt.Errorf("%w: invalid Product Publication variant path", ErrValidation)
+	}
+	current := product
+	var finalType string
+	var finalRaw []byte
+	for segmentIndex, segment := range path.Segments {
+		var selected *ProductInstance
+		for index := range current.Instances {
+			if current.Instances[index].ID == segment.InstanceID {
+				selected = &current.Instances[index]
+				break
+			}
+		}
+		if selected == nil || selected.ReferencedDocumentID != segment.ReferencedDocumentID ||
+			selected.ReferencedVersionID != segment.ResolvedVersionID {
+			return Publication{}, false, fmt.Errorf("%w: Product Publication path disappeared", ErrValidation)
+		}
+		prefix += "/" + selected.ID
+		pose = composeInstancePose(pose, InstancePose{Translation: selected.Translation,
+			Rotation: normalizedInstanceRotation(selected.Rotation)})
+		if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v
+			JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2`, selected.ReferencedDocumentID,
+			selected.ReferencedVersionID).Scan(&finalType, &finalRaw); err != nil {
+			return Publication{}, false, err
+		}
+		if segmentIndex < len(path.Segments)-1 {
+			if finalType != "PRODUCT" {
+				return Publication{}, false, fmt.Errorf("%w: Product Publication path continues through a Part", ErrValidation)
+			}
+			if err := json.Unmarshal(finalRaw, &current); err != nil {
+				return Publication{}, false, err
+			}
+		}
+	}
+	canonical := strings.TrimPrefix(prefix, "/")
+	if finalType == "PART" {
+		variant, ok := variants[canonical]
+		if !ok {
+			return Publication{}, false, nil
+		}
+		for _, publication := range variant.Publications {
+			if publication.ID == publicationID {
+				return publicationThroughRigidPose(publication, pose), true, nil
+			}
+		}
+		return Publication{}, false, nil
+	}
+	var nested ProductModel
+	if err := json.Unmarshal(finalRaw, &nested); err != nil {
+		return Publication{}, false, err
+	}
+	for _, forwarding := range nested.Publications {
+		if forwarding.ID != publicationID {
+			continue
+		}
+		candidate, ok, err := service.variantPublicationAtPath(ctx, nested, forwarding.Target.InstancePath,
+			forwarding.Target.PublicationID, variants, canonical, pose, depth+1)
+		if err != nil || !ok {
+			return Publication{}, ok, err
+		}
+		candidate.ID, candidate.Name, candidate.Type = forwarding.ID, forwarding.Name, forwarding.Type
+		candidate.SemanticPurpose, candidate.CompatibilityVersion, candidate.Contract = forwarding.SemanticPurpose,
+			forwarding.CompatibilityVersion, forwarding.Contract
+		return candidate, true, nil
+	}
+	return Publication{}, false, nil
+}
+
+func (service *Service) resolveProductPublications(ctx context.Context, product *ProductModel, variants ...map[string]ContextVariantSnapshot) {
+	variantByInstance := map[string]ContextVariantSnapshot{}
+	if len(variants) > 0 {
+		variantByInstance = variants[0]
+	}
 	for index := range product.Publications {
 		forwarding := &product.Publications[index]
 		broken := func(code, diagnostic string) {
@@ -210,6 +335,17 @@ func (service *Service) resolveProductPublications(ctx context.Context, product 
 			}
 			broken(code, err.Error())
 			continue
+		}
+		if len(path.Segments) > 0 {
+			candidate, found, variantErr := service.variantPublicationAtPath(ctx, *product, path,
+				forwarding.Target.PublicationID, variantByInstance, "", InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, 0)
+			if variantErr != nil {
+				broken("PRODUCT_PUBLICATION_VARIANT_FAILED", variantErr.Error())
+				continue
+			}
+			if found {
+				publication = candidate
+			}
 		}
 		forwarding.Target.InstancePath = path
 		contractProbe := Publication{Type: forwarding.Type, Contract: forwarding.Contract}

@@ -1365,9 +1365,14 @@ public:
                 if (!component.has_brep())
                     throw std::invalid_argument("each export component requires a B-Rep artifact");
                 const auto id = kernel_.loadBrepr(read_artifact(component.brep()));
+                const auto rotation = component.has_rotation()
+                                          ? component.rotation()
+                                          : occccad::worker::v1::Quaternion{};
                 components.push_back({id,
                                       {component.translation().x(), component.translation().y(),
-                                       component.translation().z()}});
+                                       component.translation().z()},
+                                      {rotation.x(), rotation.y(), rotation.z(),
+                                       component.has_rotation() ? rotation.w() : 1.0}});
             }
             std::vector<uint8_t> data;
             if (format == "STEP") {
@@ -1379,7 +1384,11 @@ public:
                 const auto geometry_id = components.size() == 1U &&
                                                  components.front().translation.x == 0.0 &&
                                                  components.front().translation.y == 0.0 &&
-                                                 components.front().translation.z == 0.0
+                                                 components.front().translation.z == 0.0 &&
+                                                 components.front().rotation.x == 0.0 &&
+                                                 components.front().rotation.y == 0.0 &&
+                                                 components.front().rotation.z == 0.0 &&
+                                                 components.front().rotation.w == 1.0
                                              ? components.front().geometry_id
                                              : kernel_.combine(components);
                 data = kernel_.serializeBrepr(geometry_id);

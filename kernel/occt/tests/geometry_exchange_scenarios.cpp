@@ -920,6 +920,23 @@ TEST(GeometryExchange, ProductStepKeepsOneTransferableRootPerOccurrence) {
                 1e-6);
 }
 
+TEST(GeometryExchange, ProductStepAppliesOccurrenceRotationAndTranslation) {
+    OcctKernel kernel;
+    const auto id = kernel.createRectangularPad({0.0, 0.0, 20.0, 10.0, 5.0, "XY"});
+    constexpr double half_sqrt_two = 0.7071067811865476;
+    const std::vector<PlacedGeometry> components = {
+        {id, {30.0, 40.0, 0.0}, {0.0, 0.0, half_sqrt_two, half_sqrt_two}},
+    };
+
+    TemporaryStepFile step(kernel.serializeStepComponents(components));
+    const auto rotated = kernel.loadStepRoot(step.path().string(), 1U);
+    const auto bounds = kernel.getBoundingBox(rotated);
+    EXPECT_NEAR(bounds.min.x, 20.0, 1.0e-6);
+    EXPECT_NEAR(bounds.max.x, 30.0, 1.0e-6);
+    EXPECT_NEAR(bounds.min.y, 40.0, 1.0e-6);
+    EXPECT_NEAR(bounds.max.y, 60.0, 1.0e-6);
+}
+
 TEST(GeometryExchange, RepositoryStepFixturesContainImportableSolidGeometry) {
     OcctKernel kernel;
     const std::vector<std::filesystem::path> fixtures = {

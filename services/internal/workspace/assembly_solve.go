@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
@@ -117,7 +118,7 @@ func assemblyCapabilities(kind, firstKind, secondKind string) assemblyConstraint
 	}
 }
 
-func (service *Service) solveAssembly(ctx context.Context, documentID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, warmStartKey string, evidence ...*geometry.AssemblySolve) (returnErr error) {
+func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevisionID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, warmStartKey string, evidence ...*geometry.AssemblySolve) (returnErr error) {
 	if len(model.Constraints) == 0 {
 		return nil
 	}
@@ -156,6 +157,44 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 			body.InitialGuess = &guess
 		}
 		bodies = append(bodies, body)
+	}
+	contextVariants, err := service.contextVariantsForProductModel(ctx, *model)
+	if err != nil {
+		return err
+	}
+	applyVariantPublication := func(reference *AssemblyGeometryRef) error {
+		if reference == nil || reference.PublicationRef == nil {
+			return nil
+		}
+		publication, ok, err := service.variantPublicationForAssembly(ctx, *model, reference.InstanceID,
+			reference.PublicationRef.PublicationID, contextVariants)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+		if !publicationReferenceCompatible(*reference.PublicationRef, publication) {
+			return fmt.Errorf("%w: PUBLICATION_CONTRACT_INCOMPATIBLE", ErrValidation)
+		}
+		if err := applyPublicationDescriptor(reference, publication); err != nil {
+			return err
+		}
+		resolution := publication.Resolution
+		reference.PublicationResolution = &resolution
+		if publication.Target.PersistentSelection != nil {
+			selection := *publication.Target.PersistentSelection
+			reference.PublicationRef.PersistentSelection = &selection
+		}
+		return nil
+	}
+	for index := range model.Constraints {
+		if err := applyVariantPublication(&model.Constraints[index].First); err != nil {
+			return err
+		}
+		if err := applyVariantPublication(model.Constraints[index].Second); err != nil {
+			return err
+		}
 	}
 	type resolvedPart struct {
 		model PartModel
@@ -212,6 +251,42 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 			return key, nil
 		}
 		value := geometry.AssemblyGeometry{ID: key, BodyID: reference.InstanceID, Kind: reference.Kind}
+		if reference.PublicationRef != nil && reference.PublicationResolution != nil {
+			resolution := *reference.PublicationResolution
+			value.Origin = resolution.Origin
+			switch reference.Kind {
+			case "POINT", "VERTEX":
+				value.Kind = "POINT"
+			case "AXIS":
+				value.Kind, value.Direction = "AXIS", resolution.ZDirection
+			case "PLANE":
+				value.Kind, value.Direction = "PLANE", resolution.ZDirection
+			case "EDGE":
+				if resolution.GeometryKind != "LINE" {
+					return "", fmt.Errorf("%w: Publication curve must resolve to a line for this constraint", ErrValidation)
+				}
+				value.Kind, value.Direction = "AXIS", resolution.ZDirection
+			case "FACE":
+				switch resolution.GeometryKind {
+				case "PLANE":
+					value.Kind, value.Direction = "PLANE", resolution.ZDirection
+				case "CYLINDER":
+					value.Kind, value.Direction = "CYLINDER", resolution.ZDirection
+					if resolution.Radius <= 0 {
+						return "", fmt.Errorf("%w: cylindrical Publication is missing its exact radius", ErrValidation)
+					}
+					value.Radius = resolution.Radius
+				default:
+					return "", fmt.Errorf("%w: Publication surface geometry %s is unsupported", ErrValidation, resolution.GeometryKind)
+				}
+			default:
+				return "", fmt.Errorf("%w: Publication type is not a supported assembly endpoint", ErrValidation)
+			}
+			seenGeometry[key] = true
+			resolvedGeometry[key] = value
+			geometryValues = append(geometryValues, value)
+			return key, nil
+		}
 		switch reference.Kind {
 		case "FACE", "EDGE", "VERTEX":
 			_, err := resolvePart(instance)
@@ -325,6 +400,14 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		return key, nil
 	}
 	constraints := make([]geometry.AssemblyConstraint, 0, len(model.Constraints))
+	resolutionEvidence := make([]AssemblyResolutionEvidence, 0, len(model.Constraints)*2)
+	appendResolutionEvidence := func(constraintID, endpoint, geometryKey string, reference AssemblyGeometryRef) {
+		evidence := AssemblyResolutionEvidence{ConstraintID: constraintID, Endpoint: endpoint, InstanceID: reference.InstanceID,
+			PublicationRef: reference.PublicationRef, Publication: reference.PublicationResolution,
+			Persistent: reference.Resolution, SourceVersionID: reference.SourceVersionID,
+			DescriptorDigest: resolvedDigest(resolvedGeometry[geometryKey])}
+		resolutionEvidence = append(resolutionEvidence, evidence)
+	}
 	if drivenInstanceID != "" {
 		if driven := instances[drivenInstanceID]; driven != nil {
 			pose := geometry.AssemblyPose{Translation: driven.Translation, Rotation: normalizedInstanceRotation(driven.Rotation)}
@@ -340,6 +423,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 		if err != nil {
 			return err
 		}
+		appendResolutionEvidence(constraint.ID, "FIRST", firstGeometry, constraint.First)
 		value := geometry.AssemblyConstraint{ID: constraint.ID, ConnectionID: constraint.ConnectionID, Kind: constraint.Kind, Mode: constraint.Mode, FirstBodyID: constraint.First.InstanceID, FirstGeometryID: firstGeometry, Value: constraint.Value, DirectionRelation: constraint.DirectionRelation, DistanceRelation: constraint.DistanceRelation,
 			AngleReferenceDirection: constraint.AngleReferenceDirection}
 		if constraint.Kind == "FIX" || constraint.Kind == "RIGID" {
@@ -359,6 +443,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 			if resolveErr != nil {
 				return resolveErr
 			}
+			appendResolutionEvidence(constraint.ID, "SECOND", secondGeometry, *constraint.Second)
 			value.SecondBodyID, value.SecondGeometryID = constraint.Second.InstanceID, secondGeometry
 		}
 		if constraint.Kind != "FIX" && constraint.Kind != "RIGID" {
@@ -393,7 +478,39 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, requestID
 	if err := workflow.advance(context.Background()); err != nil {
 		return err
 	}
-	result, err := service.worker.SolveAssemblyWithOptions(ctx, requestID, bodies, geometryValues, constraints, geometry.AssemblySolveOptions{Intent: intent, CaptureReplay: service.captureAssemblyReplay(ctx, documentID, requestID)})
+	modelJSON, err := json.Marshal(model)
+	if err != nil {
+		return err
+	}
+	manifest, err := newAssemblySolveManifest(documentID, rootRevisionID, canonicalModelHash(modelJSON), bodies, geometryValues,
+		constraints, intent, nil, resolutionEvidence)
+	if err != nil {
+		return err
+	}
+	if strings.HasPrefix(requestID, "preview/") {
+		manifest.Purpose = "PREVIEW"
+		manifest.Digest = resolvedDigest(func() AssemblySolveManifest { value := manifest; value.Digest = ""; return value }())
+	}
+	if err := service.persistAssemblySolveManifest(ctx, manifest); err != nil {
+		return err
+	}
+	var result geometry.AssemblySolve
+	if existing, lookupErr := service.GetAssemblySolveResult(ctx, documentID, requestID); lookupErr == nil {
+		if existing.ManifestDigest != manifest.Digest {
+			return fmt.Errorf("%w: request id was already used for another SolveManifest", ErrValidation)
+		}
+		result = existing.Result
+		if existing.Status == "FAILED" {
+			err = fmt.Errorf("%s", existing.Diagnostic)
+		}
+	} else if !errors.Is(lookupErr, ErrNotFound) {
+		return lookupErr
+	} else {
+		result, err = service.solveFrozenManifest(ctx, requestID, manifest, service.captureAssemblyReplay(ctx, documentID, requestID))
+		if recordErr := service.recordAssemblySolveResult(ctx, manifest, requestID, result, err); recordErr != nil && err == nil {
+			return recordErr
+		}
+	}
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return err

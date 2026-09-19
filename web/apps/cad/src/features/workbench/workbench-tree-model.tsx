@@ -160,7 +160,7 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
   return { key: node.id, title: assemblyStatus ? <>{node.name}<span className={`assembly-tree-status status-${assemblyStatus.toLowerCase()}`}
     aria-label={`状态 ${ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}`}>{ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}</span></> : node.name,
     icon: structureIcon(node.kind, node.diagnostic), kind: node.kind,
-    entityId: node.entityId, documentId: node.documentId, instancePath: node.instancePath,
+    entityId: node.entityId, documentId: node.documentId, documentType: node.documentType, instancePath: node.instancePath,
     plane: node.plane, ownerEntityId: node.ownerEntityId,
 	role: node.role, definitionDigest: node.definitionDigest, suppressed: node.suppressed, diagnostic: node.diagnostic??(node.kind==="SKETCH_ENTITY"&&node.entityId&&conflictEntities.has(node.entityId)?"CONFLICTING":component?.definitionStatus==="FULLY_CONSTRAINED"||component?.status==="SOLVED"?"FULLY_CONSTRAINED":undefined),
     capabilities: canEdit ? [...new Set([...(node.capabilities??[]), ...(["SKETCH","SKETCH_GEOMETRY_SET","SKETCH_CONSTRAINT_SET","SKETCH_LOGICAL_CONSTRAINT_SET","SKETCH_DIMENSION_SET"].includes(node.kind)?["SUPPRESS" as const]:[])])] : undefined,
@@ -189,7 +189,9 @@ export function treeData(view: DocumentView, editingView?: DocumentView): Specif
       { key: "body", title: "PartBody", icon: <DatabaseOutlined />, children: bodyFeatures },
     ] }];
   }
-  return [{ key: "document", title: view.document.name, icon: <ApartmentOutlined />, children:
+  return [{ key: "document", title: view.document.name, icon: <ApartmentOutlined />, kind: "PRODUCT",
+    documentId: view.document.id, documentType: "PRODUCT", capabilities: view.document.permission === "OWNER" || view.document.permission === "EDITOR" ? ["CREATE_PART"] : undefined,
+    children:
     (view.product?.instances ?? []).map((instance) => ({
       key: `instance:${instance.id}`, title: instance.name, icon: <BuildOutlined />,
     })) }];

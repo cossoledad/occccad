@@ -320,9 +320,9 @@ Feature 不应继续编码为 `repeated RectangularPadSpec`。目标模型需要
 
 #### 4.3.2 当前实现基线与主要差距
 
-当前后端已落实 C0–C4 及 P9 的首个垂直切片：HTTP transport DTO 在边界转换为版本化 envelope 并进入 handler registry；显式 Workspace、Transaction、ChangeSet、Revision parent、EvaluationRun、dependency edge 和 outbox 已落库；新命令在事务外完成纯模型变换与求值并以 Head/sequence CAS 提交；Undo/Redo/Restore 使用根 Transaction 与有序 Revert/Reapply action log 产生追加 Revision；Rectangle/Pad property facade、Quantity、ID-bound arithmetic AST、typed dependency graph、dirty closure 和 EvaluationManifest 已贯通现有 Part/Product 路径。Part Publication 已覆盖 Datum、拓扑、Feature output 和 Parameter 合同，Product 可转发单层 occurrence Publication；ExternalParameterRef/ContextReference 冻结来源 Revision、合同、值或几何 descriptor，来源 Head 只产生 UPDATE_AVAILABLE，接受更新仍形成新 Revision。
+当前后端已落实 C0–C4 及 P10 的首个垂直切片：HTTP transport DTO 在边界转换为版本化 envelope 并进入 handler registry；显式 Workspace、Transaction、ChangeSet、Revision parent、EvaluationRun、dependency edge 和 outbox 已落库；新命令在事务外完成纯模型变换与求值并以 Head/sequence CAS 提交；Undo/Redo/Restore 使用根 Transaction 与有序 Revert/Reapply action log 产生追加 Revision；Rectangle/Pad property facade、Quantity、ID-bound arithmetic AST、typed dependency graph、dirty closure 和 EvaluationManifest 已贯通现有 Part/Product 路径。Part/Product Publication、嵌套 typed InstancePath、Product-owned ContextBinding、显式 Update Plan、派生 Context Variant、可重放 AssemblySolveManifest 和 Product Release 已形成基础闭环；来源 Head 只产生 UPDATE_AVAILABLE，接受更新仍形成新 Revision。
 
-仍需按后续阶段扩展而不能误报为完成的边界包括：表达式 profile 尚未覆盖布尔、条件、向量和完整纯函数目录；除现有 Rectangle/Pad/Instance 外的专业 schema 尚未注册 PropertySlot；嵌套 Product Publication path、可重放 SolveManifest、通用重排命令、多人 semantic rebase、Configuration/Rule/Check 属于后续阶段。当前没有已发布数据兼容承诺，开发 schema 直接重建并只维护这一套历史语义。
+仍需按后续阶段扩展而不能误报为完成的边界包括：表达式 profile 尚未覆盖布尔、条件、向量和完整纯函数目录；除现有 Rectangle/Pad/Instance 外的专业 schema 尚未注册 PropertySlot；通用重排、partial Product update、flexible subassembly、多人 semantic rebase、Configuration/Design Table/Rule/Check 属于后续阶段。当前没有已发布数据兼容承诺，开发 schema 直接重建并只维护这一套历史语义。
 
 #### 4.3.3 四种“命令”必须分层
 
@@ -3949,15 +3949,15 @@ Occurrence-specific 求值使用派生 Context Variant：
 
 ```text
 ContextVariantKey = hash(base Part Revision,
-                         root Product Revision/configuration,
-                         owning InstancePath,
-                         accepted binding snapshots,
+                         normalized accepted input snapshots,
                          evaluator/policy versions)
 ```
 
-相同 base Revision 与 binding digest 可以共享 GeometryId/Artifact；不同输入产生不同派生 evaluation。需要脱离上下文复用时，用户显式执行 `Derive Part from Context` 创建新的 Part Reference/Revision，系统不隐式复制文档。
+root Product Revision、owning InstancePath 和 BindingId 属于 provenance/traceability，不进入制品等价性的 cache key；否则同一 Wheel 定义在四个 occurrence 中即使输入完全相同也无法共享。相同 base Revision 与规范化输入 digest 可以共享 GeometryId/Artifact；不同输入产生不同派生 evaluation。需要脱离上下文复用时，用户显式执行 `Derive Part from Context` 创建新的 Part Reference/Revision，系统不隐式复制文档。
 
 Product 工作台建立 `ProductDesignSession`，以 root Product Workspace、base Revision/configuration 和 active InstancePath 表达编辑上下文。激活、可见性和 selection 是会话状态，不写 Revision。双击 occurrence 默认原位编辑；独立窗口必须明确区分 `Open Definition` 与携带同一 context token 的 `Open in This Context`。
+
+在 Product 树上执行“新建零件”是一个 Product-scoped domain intent，不是浏览器串联 `CreateDocument` 与 `InsertInstance`。请求以 root Product snapshot 和可选目标 Product InstancePath 定位 owner；系统原子创建 Part Reference 的初始 Revision、owner 中的 occurrence，并推进全部祖先 Product snapshot。默认 placement 是目标 Product 原点；以后支持“选择点作为原点”时必须作为显式、版本化 placement intent 加入同一请求，不能从瞬时选择状态暗中推断。撤销该动作移除 occurrence 和祖先引用推进，但保留已创建的 Part Reference 作为可恢复资源；删除文档是另一项显式生命周期操作。
 
 跨 occurrence 引用的 picker 查询 root-snapshot-scoped `ContextCatalog`，只返回当前 Product 结构中可达、授权、configuration 有效、合同兼容且不会形成依赖环的 Publication。普通 UI 不浏览全租户 Document，也不要求用户填写 DocumentId/PublicationId。选择未发布对象时，可以由一个 `ProductDesignTransaction` 原子完成 source Publication、consumer ContextInput 和 Product ContextBinding 的创建。
 

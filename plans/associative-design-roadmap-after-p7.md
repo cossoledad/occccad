@@ -1,9 +1,9 @@
 # P7 后关联设计、Feature 与装配演进计划
 
-状态：实施中；P8 已完成自动与浏览器人工验收，P9 已完成自动化基线并待本轮浏览器人工验收
+状态：实施中；P8 已完成自动与浏览器人工验收，P9/P10 已完成自动化基线并待浏览器人工验收
 规划基线：2026-09-15  
 前置能力：P0–P7 已完成；P7 浏览器/WebGL 人工验收已完成  
-当前 ready queue：P10E、P11A 与 P11J 可按优先级并行领取
+当前 ready queue：P11A、P11J 与 P12A 可按优先级并行领取
 
 ## 1. 目标与主线判断
 
@@ -349,21 +349,31 @@ Part 声明 typed ContextInput，最低共同 Product ancestor 拥有 source occ
 
 **实施记录（2026-09-19）**：Part model 已加入 source-independent typed ContextInput，root Product model 持有 ContextBinding、relative transform 与 accepted snapshot。`ProductDesignTransaction` 在事务外完成 path/contract/parameter/publication/evaluation 预计算，为消费 Part、嵌套 owning Product 链与 root Product 生成候选；提交时稳定加锁全部 Workspace、统一 Head/sequence CAS，并在一个数据库事务追加 Revision、ChangeSet、dependency/evaluation、Outbox 与 Head。事务组 Undo/Redo 从任一成员统一补偿全部 Workspace。新入口只写 ContextInput/ContextBinding，不与 P9 ContextReference 双写。
 
+**Product 结构创作补记（2026-09-19）**：根或嵌套 Product 节点的“新建零件”复用同一 ProductDesignTransaction 边界，原子创建 Part 初始 Revision、插入 occurrence 并推进祖先 Product 引用；默认 placement 为目标 Product 原点，Undo 删除 occurrence 但保留独立 Part 文档。该能力是 ToyCar/Product-first 工作流的结构创建前置项，不回写或扩展已经冻结的 P9 Publication 合同。
+
 ### P10E：Product Update Plan 与 Context Variant
 
 根 Product 构建几何/参数依赖 DAG、影响闭包和只读 update preview；同一共享 Part 的 occurrence-specific 输入生成显式 context variant。接受更新默认全有或全无，并分别投影 connection、currency 和 evaluation 状态。
+
+**实施记录（2026-09-19）**：已增加 root-snapshot Product Update Plan、digest-guarded 显式接受和 connection/currency/evaluation 三态。候选 ContextBinding 通过现有 Part parameter/sketch/geometry evaluator 生成 Context Variant；variant key 排除显示名、BindingId 与 occurrence path，相同 base Revision/规范化输入共享 GeometryKey。嵌套定义更新明确按叶到根阻塞，不静默混合新旧 snapshot。
 
 ### P10F：ResolutionSnapshot 与 SolveManifest Builder
 
 一次 Product 求解冻结 root Revision、完整 occurrence pose、ContextBinding/Publication/PersistentSelection 解析证据、约束和 solver profile。相同输入生成相同 digest；Workspace Heads 移动不改变既有 manifest；solver 不查询 Product、数据库或 B-Rep。
 
+**实施记录（2026-09-19）**：正式 preview/commit 共用 schema 1 `AssemblySolveManifest` builder，冻结 candidate/base root Revision、body pose、局部 descriptor、resolution evidence、constraint/intent 与 schema 2 solver profile/build policy；资源、引用与 resolution gate 在调用 Worker 前完成，manifest 以 digest 幂等持久化。
+
 ### P10G：M3 replay、Router 与唯一路径迁移
 
 实现 manifest replay、request-specific lookup、solver result provenance、resource/deadline/cancel；所有正式 solve、preview 和 commit 都经 M3 builder，删除 direct-Part/topology local ID 的开发旁路，并保留 M2.5 数值、DOF、偏好和历史 corpus。
 
+**实施记录（2026-09-19）**：新增 digest replay、request-specific result lookup/幂等复用及 result provenance；Publication endpoint 从冻结 descriptor 构建 solver geometry，Worker 不解析 Product/B-Rep。直接拓扑 pick 只在 builder 前绑定/解析为 PersistentSelection；M2.5 solver、DOF/preference 与 `.3dreplay` corpus 保持原合同。
+
 ### P10H：ToyCar Product Version/Release 纵向验收
 
 以 Skeleton、Body、一个被复用四次的 Wheel Product、Rim 和 Tire 构建完整玩具车。参数更新经 Product Update Plan 重算所有关联零件与装配，Product Version Manifest 冻结完整 dependency closure；旧版本在 Head 移动、服务重启和缓存清空后仍可重放、求解和导出。
+
+**实施记录（2026-09-19）**：新增不可变 Product Release schema/API/UI，冻结 occurrence closure、ContextBinding/Variant、Publication、Evaluation/Geometry 与成功 SolveManifest；CURRENT/READY/VERIFIED/replayable gates 阻止不完整发布。Release 可按冻结 manifest replay，并从冻结 GeometryKey 提交 STEP/BREP 导出；公共 Exchange placement 已补齐 quaternion rotation。ToyCar contract corpus 固定四个稳定 Wheel path、同输入 variant 共享、SolveManifest 确定性和 release closure 不受 Workspace Head 变量影响；真实浏览器/WebGL 综合操作仍需人工验收。
 
 ## 7. P11：Feature 深化与 naming 覆盖
 

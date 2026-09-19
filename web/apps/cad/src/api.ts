@@ -1,4 +1,4 @@
-import type { AssemblyGeometryRef, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
+import type { AssemblyGeometryRef, AssemblySolveManifestResult, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ProductRelease, ProductReleaseReplay, ProductUpdatePlan, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
 import { randomUUID } from "./utils/random-uuid";
 import { clientPerformanceSnapshot, recordClientPerformance } from "./utils/performance";
@@ -187,6 +187,23 @@ export const restApi = {
       sourceInstancePath:InstancePath;publicationId:string;publicationType?:string;targetKind:string;targetId:string;
       required?:boolean;referenceMode?:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED"}) =>
     request<DocumentView>(`/api/documents/${id}/context-bindings`, {method:"POST", body:JSON.stringify({requestId:requestId(),...input})}),
+  createPartComponent: (id:string, input:{name?:string;description?:string;targetProductInstancePath?:InstancePath}) =>
+    request<DocumentView>(`/api/documents/${id}/part-components`, {method:"POST",
+      body:JSON.stringify({requestId:requestId(),placementMode:"PRODUCT_ORIGIN",...input})}),
+  getProductUpdatePlan: (id:string) => request<ProductUpdatePlan>(`/api/documents/${id}/product-update-plan`),
+  acceptProductUpdatePlan: (id:string,digest:string) => request<DocumentView>(`/api/documents/${id}/product-update-plan/accept`,
+    {method:"POST",body:JSON.stringify({requestId:requestId(),digest})}),
+  listProductReleases: async (id:string):Promise<ProductRelease[]> =>
+    (await request<{releases:ProductRelease[]}>(`/api/documents/${id}/releases`)).releases,
+  createProductRelease: (id:string,name:string) => request<ProductRelease>(`/api/documents/${id}/releases`,
+    {method:"POST",body:JSON.stringify({requestId:requestId(),name})}),
+  replayProductRelease: (id:string,releaseId:string) => request<ProductReleaseReplay>(
+    `/api/documents/${id}/releases/${encodeURIComponent(releaseId)}/replay`,
+    {method:"POST",body:JSON.stringify({requestId:requestId()})}),
+  replayProductSolveManifest: (id:string,digest:string) => request<unknown>(`/api/documents/${id}/solve-manifests/${encodeURIComponent(digest)}/replay`,
+    {method:"POST",body:JSON.stringify({requestId:requestId()})}),
+  getProductSolveResult: (id:string,solveRequestId:string) => request<AssemblySolveManifestResult>(
+    `/api/documents/${id}/solve-results?requestId=${encodeURIComponent(solveRequestId)}`),
   getDocumentProperties: (id: string) => request<DocumentProperties>(`/api/documents/${id}/properties`),
   getTopologyProperties: (id: string, geometryKey: string, kind: "FACE" | "EDGE" | "VERTEX", localId: number, versionId?: string) => {
     const query = new URLSearchParams({ geometryKey, kind, localId: String(localId) });
@@ -345,8 +362,8 @@ export const restApi = {
     if (!response.ok) throw new Error(value.error ?? `HTTP ${response.status}`);
     return value;
   },
-  startExport: (documentId: string, format: "STEP" | "BREP"): Promise<Job> => request<Job>("/api/exchange/exports", {
-    method: "POST", headers: { "X-Request-ID": requestId() }, body: JSON.stringify({ documentId, format }),
+  startExport: (documentId: string, format: "STEP" | "BREP", releaseId?: string): Promise<Job> => request<Job>("/api/exchange/exports", {
+    method: "POST", headers: { "X-Request-ID": requestId() }, body: JSON.stringify({ documentId, format, releaseId }),
   }),
   getJob: (id: string): Promise<Job> => request<Job>(`/api/jobs/${id}`),
   listJobs: async (): Promise<Job[]> => (await request<{ jobs: Job[] }>("/api/jobs")).jobs,

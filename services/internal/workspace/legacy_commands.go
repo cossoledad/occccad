@@ -870,6 +870,21 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if err := json.Unmarshal(modelJSON, &model); err != nil {
 			return "", nil, err
 		}
+		if len(model.ContextBindings) > 0 && request.UpdatePlanDigest == "" {
+			return "", nil, fmt.Errorf("%w: PRODUCT_UPDATE_PLAN_DIGEST_REQUIRED", ErrValidation)
+		}
+		if request.UpdatePlanDigest != "" {
+			plan, err := service.GetProductUpdatePlan(ctx, documentID)
+			if err != nil {
+				return "", nil, err
+			}
+			if plan.Digest != request.UpdatePlanDigest {
+				return "", nil, fmt.Errorf("%w: PRODUCT_UPDATE_PLAN_STALE", ErrValidation)
+			}
+			if !plan.CanAccept {
+				return "", nil, fmt.Errorf("%w: PRODUCT_UPDATE_BLOCKED", ErrValidation)
+			}
+		}
 		if err := service.updateProductReferences(ctx, &model); err != nil {
 			return "", nil, err
 		}

@@ -166,7 +166,7 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if len(candidates) < 2 {
+	if len(candidates) == 0 {
 		return fmt.Errorf("%w: ProductDesignTransaction has an incomplete member set", ErrValidation)
 	}
 	groupUUID, _ := uuid.NewV7()

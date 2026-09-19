@@ -180,6 +180,8 @@ ContextVariantKey = hash(
 
 激活、视图和普通 selection 不写 Revision。真正创建 Publication、ContextInput、ContextBinding 或 Feature 时才提交 Domain Command。
 
+**实施补记（2026-09-19）**：Product 树已支持在根或嵌套 Product occurrence 上右键“新建零件”。实现参考 CATIA B33 `asmuggs07.htm` 与 `asmugbt1400.htm` 的用户语义，但使用云端原子边界：空 Part 初始 Revision、目标 occurrence 以及祖先 Product Revision 在一个 ProductDesignTransaction 中提交，默认位于所选 Product 原点；Undo 仅移除 occurrence，Part 文档作为独立资源保留。该入口补齐 ToyCar 场景的结构创建前置能力，不改变 P9 Publication 合同。
+
 ### 6.3 Product Context Catalog
 
 引用 picker 不查询全站 Document catalog，而查询：
@@ -387,6 +389,8 @@ Skeleton -> Wheel/Rim/Tire geometry -> Product constraints
 - 实现 Product Version Manifest 与最小 Release Gate；
 - 以本文件第 8 节作为浏览器、服务、Worker 和持久化综合场景；
 - 冻结成为后续 P11 Feature 扩张和 P15 Configuration/Design Table 的回归基线。
+
+**P10E–P10H 实施记录（2026-09-19）**：Product Update Plan、派生 Context Variant、M3 AssemblySolveManifest/replay/request lookup 与不可变 Product Release 已落地。更新采用 digest guard 并投影 connection/currency/evaluation；variant 对参数、基准和曲线输入复用 Part evaluator，相同 base Revision 与规范化输入共享制品。Release gate 冻结 dependency closure、成功 SolveManifest 及 evaluator/naming provenance，旧 Release 可 replay 并从冻结 GeometryKey 导出；Exchange occurrence placement 同时保留 translation/quaternion。ToyCar contract corpus 已固定四 Wheel typed path、共享 variant 和 manifest 确定性，浏览器真实 WebGL 纵向操作列为本批人工验收项。
 
 依赖关系：
 

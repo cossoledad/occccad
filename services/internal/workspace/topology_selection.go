@@ -107,6 +107,47 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 		}
 		instance.ResolvedVersionID, instance.HeadChanged = instance.ReferencedVersionID, false
 	}
+	for index := range product.ContextBindings {
+		binding := &product.ContextBindings[index]
+		owningPath, err := service.refreshProductInstancePath(ctx, *product, binding.OwningInstancePath)
+		if err != nil {
+			return err
+		}
+		sourcePath, err := service.refreshProductInstancePath(ctx, *product, binding.SourceInstancePath)
+		if err != nil {
+			return err
+		}
+		binding.OwningInstancePath, binding.SourceInstancePath = owningPath, sourcePath
+		if len(owningPath.Segments) > 0 {
+			binding.Accepted.OwningRevisionID = owningPath.Segments[len(owningPath.Segments)-1].ResolvedVersionID
+		}
+		if binding.ReferenceMode == "PINNED" || len(binding.SourceInstancePath.Segments) == 0 {
+			continue
+		}
+		sourceDocumentID := binding.SourceInstancePath.Segments[len(binding.SourceInstancePath.Segments)-1].ReferencedDocumentID
+		var sourceHead string
+		if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents
+			WHERE id=$1 AND deleted_at IS NULL`, sourceDocumentID).Scan(&sourceHead); err != nil {
+			return err
+		}
+		publication, err := service.publicationAtRevision(ctx, sourceDocumentID, sourceHead, binding.Publication.PublicationID)
+		if err != nil {
+			return err
+		}
+		if publication.Type != binding.Publication.ExpectedType ||
+			(binding.Publication.CompatibilityVersion != "" && publication.CompatibilityVersion != binding.Publication.CompatibilityVersion) ||
+			publication.Resolution.Status != "CONNECTED" {
+			return fmt.Errorf("%w: PUBLICATION_CONTRACT_INCOMPATIBLE", ErrValidation)
+		}
+		binding.SourceInstancePath.Segments[len(binding.SourceInstancePath.Segments)-1].ResolvedVersionID = sourceHead
+		binding.Publication.PersistentSelection = publication.Target.PersistentSelection
+		binding.Publication.SelectionSourceVersionID = publication.Target.SourceVersionID
+		binding.Resolution = publication.Resolution
+		binding.Accepted.SourceRevisionID = sourceHead
+		binding.Accepted.ContractDigest = resolvedDigest(publication.Contract)
+		binding.Accepted.SourceDigest = publication.Resolution.SourceDigest
+		binding.Accepted.Status = "CONNECTED"
+	}
 	resolveEndpoint := func(reference *AssemblyGeometryRef) (modelcore.SelectionResolutionStatus, error) {
 		if reference == nil {
 			return modelcore.SelectionResolved, nil
@@ -172,8 +213,57 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 			constraint.EvaluationSummary = "references resolved against accepted Part revisions"
 		}
 	}
-	service.resolveProductPublications(ctx, product)
+	variants, err := service.contextVariantsForProductModel(ctx, *product)
+	if err != nil {
+		return err
+	}
+	service.resolveProductPublications(ctx, product, variants)
 	return nil
+}
+
+func (service *Service) refreshProductInstancePath(ctx context.Context, root ProductModel, path InstancePath) (InstancePath, error) {
+	if len(path.Segments) == 0 {
+		return path, fmt.Errorf("%w: ContextBinding path is empty", ErrValidation)
+	}
+	result := InstancePath{RootDocumentID: path.RootDocumentID}
+	current := root
+	for index, old := range path.Segments {
+		var instance *ProductInstance
+		for candidate := range current.Instances {
+			if current.Instances[candidate].ID == old.InstanceID {
+				instance = &current.Instances[candidate]
+				break
+			}
+		}
+		if instance == nil {
+			return InstancePath{}, fmt.Errorf("%w: ContextBinding occurrence path disappeared", ErrValidation)
+		}
+		ownerDocumentID, ownerVersionID := old.OwnerDocumentID, old.OwnerVersionID
+		if index > 0 {
+			ownerDocumentID = result.Segments[index-1].ReferencedDocumentID
+			ownerVersionID = result.Segments[index-1].ResolvedVersionID
+		}
+		result = appendInstancePath(result, InstancePathSegment{OwnerDocumentID: ownerDocumentID, OwnerVersionID: ownerVersionID,
+			InstanceID: instance.ID, InstanceName: instance.Name, ReferencedDocumentID: instance.ReferencedDocumentID,
+			ResolvedVersionID: instance.ReferencedVersionID})
+		if index == len(path.Segments)-1 {
+			break
+		}
+		var documentType string
+		var raw []byte
+		if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v
+			JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2`, instance.ReferencedDocumentID,
+			instance.ReferencedVersionID).Scan(&documentType, &raw); err != nil {
+			return InstancePath{}, err
+		}
+		if documentType != "PRODUCT" {
+			return InstancePath{}, fmt.Errorf("%w: ContextBinding path continues through a Part", ErrValidation)
+		}
+		if err := json.Unmarshal(raw, &current); err != nil {
+			return InstancePath{}, err
+		}
+	}
+	return result, nil
 }
 
 func (service *Service) GetResolvedTopologyElementProperties(ctx context.Context, documentID string, request ResolvePersistentSelectionRequest) (ResolvedTopologyProperties, error) {

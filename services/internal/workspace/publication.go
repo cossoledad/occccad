@@ -329,9 +329,23 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 			if err != nil {
 				return err
 			}
+			properties, err := service.getTopologyElementPropertiesFromArtifact(ctx, candidate.GeometryKey, string(candidate.Type), candidate.LocalID)
+			if err != nil {
+				return err
+			}
+			var radius float64
+			if properties.GeometryType == "CYLINDER" {
+				var ok bool
+				radius, ok = properties.Properties["radius"].(float64)
+				if !ok || radius <= 0 {
+					broken("PUBLICATION_EXACT_GEOMETRY_UNAVAILABLE", "resolved cylindrical surface does not provide an exact positive radius")
+					continue
+				}
+			}
 			publication.Resolution = PublicationResolution{Status: "CONNECTED", ResolvedVersionID: revisionID,
-				GeometryKey: candidate.GeometryKey, GeometryID: candidate.GeometryID, TopologyKind: string(candidate.Type),
+				GeometryKey: candidate.GeometryKey, GeometryID: candidate.GeometryID, TopologyKind: string(candidate.Type), GeometryKind: properties.GeometryType,
 				LocalID: candidate.LocalID, Origin: evidence.Origin, XDirection: x, YDirection: cross3(z, x), ZDirection: z,
+				Radius: radius,
 				SourceDigest: resolvedDigest(struct {
 					Selection modelcore.PersistentSelection
 					Candidate modelcore.ResolvedTopologyElement
@@ -340,7 +354,9 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 				WorkerID: artifact.WorkerID, OCCTVersion: artifact.OCCTVersion}
 		}
 		if publication.Resolution.Status == "CONNECTED" {
-			publication.Resolution.GeometryKind = publication.Contract.GeometryKind
+			if publication.Target.Kind != "TOPOLOGY" {
+				publication.Resolution.GeometryKind = publication.Contract.GeometryKind
+			}
 			publication.Resolution.Symmetry = publication.Contract.Symmetry
 		}
 	}

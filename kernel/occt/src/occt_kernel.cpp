@@ -62,6 +62,7 @@
 #include <gp_Dir.hxx>
 #include <gp_Pnt.hxx>
 #include <gp_Trsf.hxx>
+#include <gp_Quaternion.hxx>
 #include <gp_Vec.hxx>
 
 #include <internal/occt_kernel.hpp>
@@ -1430,7 +1431,9 @@ GeometryId OcctKernel::combine(const std::vector<PlacedGeometry>& components) {
     builder.MakeCompound(compound);
     for (const auto& component : components) {
         gp_Trsf transform;
-        transform.SetTranslation(
+        transform.SetRotation(gp_Quaternion(component.rotation.x, component.rotation.y,
+                                            component.rotation.z, component.rotation.w));
+        transform.SetTranslationPart(
             gp_Vec(component.translation.x, component.translation.y, component.translation.z));
         builder.Add(compound, impl_->find(component.geometry_id).Moved(TopLoc_Location(transform)));
     }
@@ -1939,7 +1942,9 @@ std::vector<uint8_t> OcctKernel::serializeStepComponents(
     STEPControl_Writer writer;
     for (const auto& component : components) {
         gp_Trsf transform;
-        transform.SetTranslation(
+        transform.SetRotation(gp_Quaternion(component.rotation.x, component.rotation.y,
+                                            component.rotation.z, component.rotation.w));
+        transform.SetTranslationPart(
             gp_Vec(component.translation.x, component.translation.y, component.translation.z));
         const auto shape = impl_->find(component.geometry_id).Moved(TopLoc_Location(transform));
         if (writer.Transfer(shape, STEPControl_AsIs) != IFSelect_RetDone) {

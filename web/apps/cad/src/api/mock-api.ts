@@ -632,6 +632,73 @@ export const mockApi: CadApi = {
           contractDigest: "mock-contract", sourceDigest: sourcePublication.resolution.sourceDigest, status: "ACCEPTED" } }];
     }));
   },
+  createPartComponent: async (documentID, input) => {
+    const requested = input.name?.trim();
+    let partName = requested;
+    if (!partName) {
+      const used = new Set(summaries.filter((item) => item.type === "PART").map((item) => item.name.toLocaleLowerCase()));
+      for (let ordinal = 1; !partName; ordinal += 1) if (!used.has(`part${ordinal}`)) partName = `Part${ordinal}`;
+    }
+    const partDocument: DocumentSummary = { id: id("mock-document"), name: partName!, description: input.description ?? "", type: "PART",
+      versionId: id("mock-version"), canUndo: false, canRedo: false, createdAt: now(), lastUpdated: now(),
+      workspaceName: "Main", permission: "OWNER" };
+    const partView: DocumentView = { document: partDocument, datumPlanes, axisSystems,
+      part: { units: "mm", datumPlanes, axisSystems, features: [] } };
+    summaries.unshift(partDocument); views.set(partDocument.id, partView); histories.set(partDocument.id, []);
+    undoSnapshots.set(partDocument.id, []); redoSnapshots.set(partDocument.id, []);
+
+    const segments = input.targetProductInstancePath?.segments ?? [];
+    const targetDocumentID = segments.at(-1)?.referencedDocumentId ?? documentID;
+    let child = commit(targetDocumentID, "CREATE_PART_COMPONENT", (target) => {
+      if (!target.product) throw new Error("target document is not a Product");
+      const base = partName!;
+      const used = new Set(target.product.instances.map((instance) => instance.name.toLocaleLowerCase()));
+      let instanceName = "";
+      for (let ordinal = 1; !instanceName; ordinal += 1) if (!used.has(`${base}.${ordinal}`.toLocaleLowerCase())) instanceName = `${base}.${ordinal}`;
+      target.product.instances.push({ id: id("mock-instance"), name: instanceName, documentId: partDocument.id,
+        versionId: partDocument.versionId, resolvedVersionId: partDocument.versionId, translation: [0,0,0],
+        rotation: [0,0,0,1], referenceMode: "FOLLOW_HEAD" });
+    });
+    for (let index = segments.length - 1; index >= 0; index -= 1) {
+      const segment = segments[index];
+      child = commit(segment.ownerDocumentId, "ACCEPT_NEW_PART_REVISION", (owner) => {
+        const instance = owner.product?.instances.find((candidate) => candidate.id === segment.instanceId);
+        if (!instance) throw new Error("target Product occurrence disappeared");
+        instance.versionId = child.document.versionId;
+        instance.resolvedVersionId = child.document.versionId;
+      });
+    }
+    return pause(getView(documentID));
+  },
+  getProductUpdatePlan: async (documentID) => {
+    const root = getView(documentID);
+    const entries = (root.product?.contextBindings ?? []).map((binding) => {
+      const sourceDocumentID = binding.sourceInstancePath.segments.at(-1)?.referencedDocumentId;
+      const candidate = sourceDocumentID ? getView(sourceDocumentID).document.versionId : undefined;
+      const hasUpdate = Boolean(candidate && candidate !== binding.accepted.sourceRevisionId);
+      return { kind:"CONTEXT_BINDING" as const, bindingId: binding.id, name: binding.name, sourceDisplayPath: binding.sourceInstancePath.display,
+        owningDisplayPath: binding.owningInstancePath.display, acceptedRevisionId: binding.accepted.sourceRevisionId,
+        candidateRevisionId: candidate, connection: "CONNECTED" as const,
+        currency: hasUpdate ? "UPDATE_AVAILABLE" as const : "CURRENT" as const, evaluation: "READY" as const };
+    });
+    const hasUpdates = entries.some((entry) => entry.currency === "UPDATE_AVAILABLE");
+    return pause({ rootProductDocumentId: documentID, rootProductRevisionId: root.document.versionId,
+      digest: `mock-update-plan:${root.document.versionId}:${entries.map((entry) => entry.candidateRevisionId).join(":")}`,
+      canAccept: true, hasUpdates, entries, contextVariants: [] });
+  },
+  acceptProductUpdatePlan: async (documentID) => command(documentID, {type:"UPDATE_REFERENCES"}),
+  listProductReleases: async () => pause([]),
+  createProductRelease: async (documentID, name) => {
+    const root = getView(documentID);
+    return pause({id:id("mock-release"),name,createdAt:now(),manifest:{schemaVersion:1,
+      digest:`mock-release:${root.document.versionId}`,rootProductDocumentId:documentID,
+      rootProductRevisionId:root.document.versionId,rootSnapshotDigest:`mock-snapshot:${root.document.versionId}`,
+      gates:[{code:"MOCK_RELEASE",status:"PASSED" as const}]}});
+  },
+  replayProductRelease: async (_documentID, releaseId) => pause({releaseId,manifestDigest:"mock-release",status:"CONVERGED"}),
+  replayProductSolveManifest: async (_documentID, digest) => pause({manifestDigest:digest,status:"CONVERGED"}),
+  getProductSolveResult: async (_documentID, requestId) => pause({manifestDigest:"mock-manifest",requestId,
+    resultDigest:"mock-result",status:"CONVERGED",result:{}}),
   getDocumentProperties: async (documentID): Promise<DocumentProperties> => {
     const view = getView(documentID);
     const artifacts = view.artifact ? [view.artifact] : Object.values(view.artifacts ?? {});
@@ -771,7 +838,7 @@ export const mockApi: CadApi = {
       createdAt: now(), completedAt: now(), canCancel: false, canRetry: false, userVisible: true };
     jobs.set(job.id, job); return pause(job);
   },
-  startExport: async (documentID) => {
+  startExport: async (documentID, _format, _releaseId) => {
     const job: Job = { id: id("mock-job"), type: "EXCHANGE_EXPORT", state: "SUCCEEDED", documentId: documentID,
       progress: 100, resultObjectId: "mock-exchange", payload: { fileName: "mock.step", format: "STEP" },
       attemptCount: 1, maxAttempts: 3, createdAt: now(), completedAt: now(), canCancel: false, canRetry: false, userVisible: true };

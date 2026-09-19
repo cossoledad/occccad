@@ -829,6 +829,7 @@ type ExchangeExportComponent struct {
 	Name        string
 	BRep        geometry.ArtifactReference
 	Translation [3]float64
+	Rotation    [4]float64
 }
 
 func (service *Service) ExchangeExportComponents(ctx context.Context, documentID string) (string, string, []ExchangeExportComponent, error) {
@@ -845,7 +846,8 @@ func (service *Service) ExchangeExportComponents(ctx context.Context, documentID
 		if err != nil {
 			return "", "", nil, err
 		}
-		components = append(components, ExchangeExportComponent{Name: view.Document.Name, BRep: reference})
+		components = append(components, ExchangeExportComponent{Name: view.Document.Name, BRep: reference,
+			Rotation: [4]float64{0, 0, 0, 1}})
 	} else {
 		for _, instance := range view.ResolvedInstances {
 			reference, err := service.brepArtifactReference(ctx, instance.GeometryKey)
@@ -853,13 +855,40 @@ func (service *Service) ExchangeExportComponents(ctx context.Context, documentID
 				return "", "", nil, err
 			}
 			components = append(components, ExchangeExportComponent{Name: instance.Name,
-				BRep: reference, Translation: instance.Translation})
+				BRep: reference, Translation: instance.Translation, Rotation: instance.Rotation})
 		}
 		if len(components) == 0 {
 			return "", "", nil, fmt.Errorf("%w: Product has no resolvable Part geometry to export", ErrValidation)
 		}
 	}
 	return view.Document.Name, view.Document.Type, components, nil
+}
+
+func (service *Service) ExchangeReleaseExportComponents(ctx context.Context, documentID, releaseID string) (string, string, []ExchangeExportComponent, error) {
+	release, err := service.GetProductRelease(ctx, documentID, releaseID)
+	if err != nil {
+		return "", "", nil, err
+	}
+	components := []ExchangeExportComponent{}
+	for _, occurrence := range release.Manifest.Occurrences {
+		if occurrence.DocumentType != "PART" || occurrence.GeometryKey == "" {
+			continue
+		}
+		reference, err := service.brepArtifactReference(ctx, occurrence.GeometryKey)
+		if err != nil {
+			return "", "", nil, err
+		}
+		name := occurrence.InstancePath.Display
+		if name == "" {
+			name = occurrence.DocumentID
+		}
+		components = append(components, ExchangeExportComponent{Name: name, BRep: reference,
+			Translation: occurrence.Pose.Translation, Rotation: occurrence.Pose.Rotation})
+	}
+	if len(components) == 0 {
+		return "", "", nil, fmt.Errorf("%w: Product Release has no frozen Part geometry to export", ErrValidation)
+	}
+	return release.Name, "PRODUCT", components, nil
 }
 
 func (service *Service) brepArtifactReference(ctx context.Context, geometryKey string) (geometry.ArtifactReference, error) {
@@ -1140,6 +1169,31 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		InstancePath{RootDocumentID: summary.ID}, "document:"+summary.ID,
 		map[string]bool{}, view.Artifacts, &view.ResolvedInstances); err != nil {
 		return view, err
+	}
+	items, err := service.expandProductContext(ctx, summary.ID, summary.VersionID)
+	if err != nil {
+		return view, err
+	}
+	view.ContextVariants, err = service.acceptedContextVariants(ctx, items)
+	if err != nil {
+		return view, err
+	}
+	for _, variant := range view.ContextVariants {
+		if variant.Status != "READY" || variant.GeometryKey == "" {
+			continue
+		}
+		if _, exists := view.Artifacts[variant.GeometryKey]; !exists {
+			artifact, loadErr := service.loadArtifact(ctx, variant.GeometryKey)
+			if loadErr != nil {
+				return view, loadErr
+			}
+			view.Artifacts[variant.GeometryKey] = artifact
+		}
+		for index := range view.ResolvedInstances {
+			if view.ResolvedInstances[index].OccurrencePath == variant.OwningInstancePath.Canonical {
+				view.ResolvedInstances[index].GeometryKey = variant.GeometryKey
+			}
+		}
 	}
 	structure, err := service.buildDocumentStructure(ctx, summary.VersionID,
 		"document:"+summary.ID, summary.Name, InstancePath{RootDocumentID: summary.ID}, map[string]bool{})
@@ -2321,6 +2375,40 @@ func (service *Service) GetTopologyElementPropertiesAtVersion(
 	if !allowed {
 		return TopologyElementProperties{}, ErrNotFound
 	}
+	result, err := service.getTopologyElementPropertiesFromArtifact(ctx, geometryKey, kind, localID)
+	if err != nil {
+		return TopologyElementProperties{}, err
+	}
+	if versionID == "" {
+		_ = service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&versionID)
+	}
+	if versionID != "" {
+		selection, bindErr := service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{SourceVersionID: versionID, GeometryKey: geometryKey, Kind: kind, LocalID: localID})
+		if bindErr == nil {
+			resolution, resolveErr := service.ResolvePersistentSelection(ctx, documentID, ResolvePersistentSelectionRequest{Selection: selection, SourceVersionID: versionID, TargetVersionID: versionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+			if resolveErr == nil {
+				result.PersistentSelection = &selection
+				result.NamingResolution = &resolution
+				result.NamingStatus = string(resolution.Status)
+			}
+		} else if errors.Is(bindErr, ErrNotFound) {
+			result.NamingStatus = "UNAVAILABLE"
+		}
+	}
+	return result, nil
+}
+
+// getTopologyElementPropertiesFromArtifact reads an exact, immutable geometry
+// artifact. Authorization belongs to the public document-scoped entry point;
+// evaluators also use this after producing an artifact that is not attached to
+// a committed document revision yet.
+func (service *Service) getTopologyElementPropertiesFromArtifact(
+	ctx context.Context, geometryKey, kind string, localID uint64,
+) (TopologyElementProperties, error) {
+	kind = strings.ToUpper(strings.TrimSpace(kind))
+	if (kind != "FACE" && kind != "EDGE" && kind != "VERTEX") || localID == 0 {
+		return TopologyElementProperties{}, fmt.Errorf("%w: kind must be FACE, EDGE, or VERTEX and localId must be positive", ErrValidation)
+	}
 	var geometryID, workerID, occtVersion string
 	if err := service.database.QueryRow(ctx, `
 		SELECT geometry_id,worker_id,occt_version FROM occccad.geometry_artifacts WHERE geometry_key=$1`, geometryKey).
@@ -2329,6 +2417,7 @@ func (service *Service) GetTopologyElementPropertiesAtVersion(
 	}
 	var response *workerv1.GetTopologyResponse
 	var servingWorkerID string
+	var err error
 	finishWorker := perf.Start(ctx, "topology-worker")
 	if service.artifacts != nil {
 		reference, referenceErr := service.brepArtifactReference(ctx, geometryKey)
@@ -2389,22 +2478,6 @@ func (service *Service) GetTopologyElementPropertiesAtVersion(
 		point := item.GetPoint()
 		value := [3]float64{point.GetX(), point.GetY(), point.GetZ()}
 		result.Point, result.Properties = &value, topologyProperties(item.GetProperties())
-	}
-	if versionID == "" {
-		_ = service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&versionID)
-	}
-	if versionID != "" {
-		selection, bindErr := service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{SourceVersionID: versionID, GeometryKey: geometryKey, Kind: kind, LocalID: localID})
-		if bindErr == nil {
-			resolution, resolveErr := service.ResolvePersistentSelection(ctx, documentID, ResolvePersistentSelectionRequest{Selection: selection, SourceVersionID: versionID, TargetVersionID: versionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
-			if resolveErr == nil {
-				result.PersistentSelection = &selection
-				result.NamingResolution = &resolution
-				result.NamingStatus = string(resolution.Status)
-			}
-		} else if errors.Is(bindErr, ErrNotFound) {
-			result.NamingStatus = "UNAVAILABLE"
-		}
 	}
 	return result, nil
 }
@@ -2677,6 +2750,7 @@ func (service *Service) buildDocumentStructure(
 		applyInstancePath(root.Children, rootPath)
 		return root, nil
 	}
+	root.Capabilities = []string{"CREATE_PART"}
 	visiting[documentID] = true
 	defer delete(visiting, documentID)
 	var model ProductModel
@@ -2708,6 +2782,9 @@ func (service *Service) buildDocumentStructure(
 			VersionID: resolvedVersionID, ReferenceMode: mode, InstancePath: &childIdentity, Children: reference.Children,
 		}
 		instanceNode.Capabilities = []string{"DELETE"}
+		if reference.DocumentType == "PRODUCT" {
+			instanceNode.Capabilities = append(instanceNode.Capabilities, "CREATE_PART")
+		}
 		if mode == "FOLLOW_HEAD" || mode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
 			var head string
 			if service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&head) == nil && head != instance.ReferencedVersionID {

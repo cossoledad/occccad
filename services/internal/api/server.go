@@ -206,6 +206,14 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/documents/{documentID}/design-session", server.productDesignSession)
 	mux.HandleFunc("GET /api/documents/{documentID}/context-catalog", server.productContextCatalog)
 	mux.HandleFunc("POST /api/documents/{documentID}/context-bindings", server.createProductContextBinding)
+	mux.HandleFunc("POST /api/documents/{documentID}/part-components", server.createPartComponent)
+	mux.HandleFunc("GET /api/documents/{documentID}/product-update-plan", server.productUpdatePlan)
+	mux.HandleFunc("POST /api/documents/{documentID}/product-update-plan/accept", server.acceptProductUpdatePlan)
+	mux.HandleFunc("GET /api/documents/{documentID}/releases", server.listProductReleases)
+	mux.HandleFunc("POST /api/documents/{documentID}/releases", server.createProductRelease)
+	mux.HandleFunc("POST /api/documents/{documentID}/releases/{releaseID}/replay", server.replayProductRelease)
+	mux.HandleFunc("POST /api/documents/{documentID}/solve-manifests/{digest}/replay", server.replayProductSolveManifest)
+	mux.HandleFunc("GET /api/documents/{documentID}/solve-results", server.productSolveResult)
 	mux.HandleFunc("GET /api/documents/{documentID}/properties", server.documentProperties)
 	mux.HandleFunc("GET /api/documents/{documentID}/topology-properties", server.topologyProperties)
 	mux.HandleFunc("POST /api/documents/{documentID}/persistent-selections/bind", server.bindPersistentSelection)
@@ -323,6 +331,150 @@ func (server *Server) createProductContextBinding(writer http.ResponseWriter, re
 	}
 	result, err := server.workspace.CreateProductContextBinding(request.Context(), request.PathValue("documentID"), input)
 	server.writeDocumentResult(writer, request, result, err)
+}
+
+func (server *Server) createPartComponent(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleEditor); !ok {
+		return
+	}
+	var input workspace.CreatePartComponentRequest
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	input.ActorID = principal(request).ID
+	rootDocumentID := request.PathValue("documentID")
+	if path := input.TargetProductInstancePath; path != nil && len(path.Segments) > 0 {
+		if path.RootDocumentID != rootDocumentID {
+			writeError(writer, http.StatusBadRequest, "target Product path belongs to another root Product")
+			return
+		}
+		required := map[string]bool{}
+		for _, segment := range path.Segments {
+			required[segment.OwnerDocumentID] = true
+		}
+		required[path.Segments[len(path.Segments)-1].ReferencedDocumentID] = true
+		delete(required, rootDocumentID)
+		for documentID := range required {
+			if _, err := server.access.RequireDocument(request.Context(), documentID, principal(request).ID, access.RoleEditor); err != nil {
+				writeAccessError(writer, err)
+				return
+			}
+		}
+	}
+	result, err := server.workspace.CreatePartComponent(request.Context(), rootDocumentID, input)
+	server.writeDocumentResult(writer, request, result, err)
+}
+
+func (server *Server) productUpdatePlan(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	result, err := server.workspace.GetProductUpdatePlan(request.Context(), request.PathValue("documentID"))
+	if err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func (server *Server) acceptProductUpdatePlan(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleEditor); !ok {
+		return
+	}
+	var input struct {
+		RequestID string `json:"requestId"`
+		Digest    string `json:"digest"`
+	}
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	result, err := server.workspace.ApplyCommand(request.Context(), request.PathValue("documentID"), workspace.CommandRequest{
+		RequestID: input.RequestID, Type: "UPDATE_REFERENCES", UpdatePlanDigest: input.Digest, ActorID: principal(request).ID})
+	server.writeDocumentResult(writer, request, result, err)
+}
+
+func (server *Server) createProductRelease(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleEditor); !ok {
+		return
+	}
+	var input workspace.CreateProductReleaseRequest
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	input.ActorID = principal(request).ID
+	result, err := server.workspace.CreateProductRelease(request.Context(), request.PathValue("documentID"), input)
+	if err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func (server *Server) listProductReleases(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	result, err := server.workspace.ListProductReleases(request.Context(), request.PathValue("documentID"))
+	if err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"releases": result})
+}
+
+func (server *Server) replayProductSolveManifest(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	var input struct {
+		RequestID string `json:"requestId"`
+	}
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	result, err := server.workspace.ReplayAssemblySolveManifest(request.Context(), request.PathValue("documentID"),
+		request.PathValue("digest"), input.RequestID)
+	if err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func (server *Server) productSolveResult(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	requestID := request.URL.Query().Get("requestId")
+	if requestID == "" {
+		writeError(writer, http.StatusBadRequest, "requestId is required")
+		return
+	}
+	result, err := server.workspace.GetAssemblySolveResult(request.Context(), request.PathValue("documentID"), requestID)
+	if err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}
+
+func (server *Server) replayProductRelease(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	var input struct {
+		RequestID string `json:"requestId"`
+	}
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	result, err := server.workspace.ReplayProductRelease(request.Context(), request.PathValue("documentID"),
+		request.PathValue("releaseID"), input.RequestID)
+	if err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
 }
 
 func (server *Server) session(writer http.ResponseWriter, request *http.Request) {

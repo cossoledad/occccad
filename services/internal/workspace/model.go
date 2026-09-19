@@ -126,6 +126,7 @@ type PublicationResolution struct {
 	XDirection         [3]float64          `json:"xDirection,omitempty"`
 	YDirection         [3]float64          `json:"yDirection,omitempty"`
 	ZDirection         [3]float64          `json:"zDirection,omitempty"`
+	Radius             float64             `json:"radius,omitempty"`
 	SourceDigest       string              `json:"sourceDigest,omitempty"`
 	Value              *modelcore.Quantity `json:"value,omitempty"`
 	ValueDigest        string              `json:"valueDigest,omitempty"`
@@ -500,6 +501,99 @@ type ReferenceUpdate struct {
 	Diagnostic          string `json:"diagnostic,omitempty"`
 }
 
+type ContextVariantSnapshot struct {
+	VariantKey               string        `json:"variantKey"`
+	OwningInstancePath       InstancePath  `json:"owningInstancePath"`
+	BaseDocumentID           string        `json:"baseDocumentId"`
+	BaseRevisionID           string        `json:"baseRevisionId"`
+	BindingIDs               []string      `json:"bindingIds"`
+	BindingDigest            string        `json:"bindingDigest"`
+	EvaluationManifestDigest string        `json:"evaluationManifestDigest,omitempty"`
+	GeometryKey              string        `json:"geometryKey,omitempty"`
+	Publications             []Publication `json:"publications,omitempty"`
+	Status                   string        `json:"status"`
+	DiagnosticCode           string        `json:"diagnosticCode,omitempty"`
+	Diagnostic               string        `json:"diagnostic,omitempty"`
+}
+
+type ProductUpdatePlanEntry struct {
+	Kind                string `json:"kind"`
+	BindingID           string `json:"bindingId"`
+	Name                string `json:"name"`
+	SourceDisplayPath   string `json:"sourceDisplayPath"`
+	OwningDisplayPath   string `json:"owningDisplayPath"`
+	AcceptedRevisionID  string `json:"acceptedRevisionId"`
+	CandidateRevisionID string `json:"candidateRevisionId,omitempty"`
+	Connection          string `json:"connection"`
+	Currency            string `json:"currency"`
+	Evaluation          string `json:"evaluation"`
+	DiagnosticCode      string `json:"diagnosticCode,omitempty"`
+	Diagnostic          string `json:"diagnostic,omitempty"`
+}
+
+type ProductUpdatePlan struct {
+	RootProductDocumentID string                   `json:"rootProductDocumentId"`
+	RootProductRevisionID string                   `json:"rootProductRevisionId"`
+	Digest                string                   `json:"digest"`
+	CanAccept             bool                     `json:"canAccept"`
+	HasUpdates            bool                     `json:"hasUpdates"`
+	Entries               []ProductUpdatePlanEntry `json:"entries"`
+	ContextVariants       []ContextVariantSnapshot `json:"contextVariants"`
+	AffectedConstraintIDs []string                 `json:"affectedConstraintIds,omitempty"`
+}
+
+type CreateProductReleaseRequest struct {
+	RequestID string `json:"requestId"`
+	Name      string `json:"name"`
+	ActorID   string `json:"-"`
+}
+
+type ProductReleaseGate struct {
+	Code       string `json:"code"`
+	Status     string `json:"status"`
+	Diagnostic string `json:"diagnostic,omitempty"`
+}
+
+type ProductReleaseOccurrence struct {
+	InstancePath             InstancePath `json:"instancePath"`
+	DocumentID               string       `json:"documentId"`
+	DocumentType             string       `json:"documentType"`
+	RevisionID               string       `json:"revisionId"`
+	Pose                     InstancePose `json:"pose"`
+	GeometryKey              string       `json:"geometryKey,omitempty"`
+	EvaluationManifestDigest string       `json:"evaluationManifestDigest"`
+}
+
+type ProductReleaseManifest struct {
+	SchemaVersion         int                        `json:"schemaVersion"`
+	Digest                string                     `json:"digest"`
+	RootProductDocumentID string                     `json:"rootProductDocumentId"`
+	RootProductRevisionID string                     `json:"rootProductRevisionId"`
+	RootSnapshotDigest    string                     `json:"rootSnapshotDigest"`
+	Occurrences           []ProductReleaseOccurrence `json:"occurrences"`
+	ContextBindings       []ContextBinding           `json:"contextBindings,omitempty"`
+	ContextVariants       []ContextVariantSnapshot   `json:"contextVariants,omitempty"`
+	ProductPublications   []ProductPublication       `json:"productPublications,omitempty"`
+	AssemblySolveManifest string                     `json:"assemblySolveManifestDigest,omitempty"`
+	EvaluatorVersion      string                     `json:"evaluatorVersion"`
+	NamingPolicyDigest    string                     `json:"namingPolicyDigest"`
+	Gates                 []ProductReleaseGate       `json:"gates"`
+}
+
+type ProductRelease struct {
+	ID        string                 `json:"id"`
+	Name      string                 `json:"name"`
+	CreatedAt string                 `json:"createdAt"`
+	Manifest  ProductReleaseManifest `json:"manifest"`
+}
+
+type ProductReleaseReplay struct {
+	ReleaseID      string                       `json:"releaseId"`
+	ManifestDigest string                       `json:"manifestDigest"`
+	Status         string                       `json:"status"`
+	Assembly       *AssemblySolveManifestResult `json:"assembly,omitempty"`
+}
+
 // InstancePath is the stable occurrence identity from an opened root Product
 // to one referenced document. Names are presentation only; identity is the
 // ordered owner/InstanceId chain.
@@ -670,18 +764,19 @@ type DocumentStructureNode struct {
 }
 
 type DocumentView struct {
-	Document          DocumentSummary        `json:"document"`
-	DatumPlanes       []DatumPlane           `json:"datumPlanes,omitempty"`
-	AxisSystems       []AxisSystem           `json:"axisSystems,omitempty"`
-	DatumAxes         []DatumAxis            `json:"datumAxes,omitempty"`
-	Part              *PartModel             `json:"part,omitempty"`
-	Product           *ProductModel          `json:"product,omitempty"`
-	Artifact          *Artifact              `json:"artifact,omitempty"`
-	Artifacts         map[string]Artifact    `json:"artifacts,omitempty"`
-	ResolvedInstances []ResolvedInstance     `json:"resolvedInstances,omitempty"`
-	StructureTree     *DocumentStructureNode `json:"structureTree,omitempty"`
-	ReferenceUpdates  []ReferenceUpdate      `json:"referenceUpdates,omitempty"`
-	DesignSession     *ProductDesignSession  `json:"designSession,omitempty"`
+	Document          DocumentSummary          `json:"document"`
+	DatumPlanes       []DatumPlane             `json:"datumPlanes,omitempty"`
+	AxisSystems       []AxisSystem             `json:"axisSystems,omitempty"`
+	DatumAxes         []DatumAxis              `json:"datumAxes,omitempty"`
+	Part              *PartModel               `json:"part,omitempty"`
+	Product           *ProductModel            `json:"product,omitempty"`
+	Artifact          *Artifact                `json:"artifact,omitempty"`
+	Artifacts         map[string]Artifact      `json:"artifacts,omitempty"`
+	ResolvedInstances []ResolvedInstance       `json:"resolvedInstances,omitempty"`
+	StructureTree     *DocumentStructureNode   `json:"structureTree,omitempty"`
+	ReferenceUpdates  []ReferenceUpdate        `json:"referenceUpdates,omitempty"`
+	DesignSession     *ProductDesignSession    `json:"designSession,omitempty"`
+	ContextVariants   []ContextVariantSnapshot `json:"contextVariants,omitempty"`
 }
 
 type ProductDesignSession struct {
@@ -720,6 +815,18 @@ type CreateDocumentRequest struct {
 	Description string  `json:"description,omitempty"`
 	FolderID    *string `json:"folderId,omitempty"`
 	ActorID     string  `json:"-"`
+}
+
+// CreatePartComponentRequest models the Product-scoped "new Part" action.
+// A nil TargetProductInstancePath addresses the root Product. A non-empty path
+// addresses a nested Product occurrence inside that immutable root snapshot.
+type CreatePartComponentRequest struct {
+	RequestID                 string        `json:"requestId"`
+	Name                      string        `json:"name,omitempty"`
+	Description               string        `json:"description,omitempty"`
+	PlacementMode             string        `json:"placementMode,omitempty"`
+	TargetProductInstancePath *InstancePath `json:"targetProductInstancePath,omitempty"`
+	ActorID                   string        `json:"-"`
 }
 
 type UpdateDocumentRequest struct {
@@ -790,6 +897,7 @@ type CommandRequest struct {
 	ContextReferenceID      string               `json:"contextReferenceId,omitempty"`
 	ContextBindingID        string               `json:"contextBindingId,omitempty"`
 	ContextVariantID        string               `json:"contextVariantId,omitempty"`
+	UpdatePlanDigest        string               `json:"updatePlanDigest,omitempty"`
 	RootProductDocumentID   string               `json:"rootProductDocumentId,omitempty"`
 	InstancePath            *InstancePath        `json:"instancePath,omitempty"`
 	OwningInstancePath      *InstancePath        `json:"owningInstancePath,omitempty"`

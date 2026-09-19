@@ -119,6 +119,7 @@ type ExchangeComponent struct {
 	Name        string
 	BRep        ArtifactReference
 	Translation [3]float64
+	Rotation    [4]float64
 }
 
 func artifactProto(value ArtifactReference) *workerv1.ArtifactReference {
@@ -813,8 +814,13 @@ func (client *Client) ExportExchange(ctx context.Context, requestID, format, out
 	defer cancel()
 	request := &workerv1.ExportExchangeRequest{RequestId: requestID, Format: format, OutputKey: outputKey}
 	for _, component := range components {
+		rotation := component.Rotation
+		if rotation == [4]float64{} {
+			rotation = [4]float64{0, 0, 0, 1}
+		}
 		request.Components = append(request.Components, &workerv1.ExchangeComponent{Name: component.Name,
-			Brep: artifactProto(component.BRep), Translation: &workerv1.Vec3{X: component.Translation[0], Y: component.Translation[1], Z: component.Translation[2]}})
+			Brep: artifactProto(component.BRep), Translation: &workerv1.Vec3{X: component.Translation[0], Y: component.Translation[1], Z: component.Translation[2]},
+			Rotation: &workerv1.Quaternion{X: rotation[0], Y: rotation[1], Z: rotation[2], W: rotation[3]}})
 	}
 	response, err := client.worker.ExportExchange(ctx, request)
 	if err != nil {

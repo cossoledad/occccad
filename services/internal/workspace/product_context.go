@@ -331,6 +331,7 @@ type expandedOccurrence struct {
 	Publications    []Publication
 	ContextInputs   []ContextInput
 	ContextBindings []ContextBinding
+	ReferenceMode   string
 }
 
 func rebaseInstancePath(rootDocumentID string, prefix, relative InstancePath) InstancePath {
@@ -347,8 +348,8 @@ func rebaseInstancePath(rootDocumentID string, prefix, relative InstancePath) In
 func (service *Service) expandProductContext(ctx context.Context, rootDocumentID, rootRevisionID string) ([]expandedOccurrence, error) {
 	result := []expandedOccurrence{}
 	visiting := map[string]bool{}
-	var expand func(string, string, InstancePath, InstancePose, int) error
-	expand = func(documentID, revisionID string, path InstancePath, pose InstancePose, depth int) error {
+	var expand func(string, string, InstancePath, InstancePose, string, int) error
+	expand = func(documentID, revisionID string, path InstancePath, pose InstancePose, referenceMode string, depth int) error {
 		if depth > instancePathMaxDepth {
 			return fmt.Errorf("%w: INSTANCE_PATH_DEPTH_EXCEEDED", ErrValidation)
 		}
@@ -364,7 +365,8 @@ func (service *Service) expandProductContext(ctx context.Context, rootDocumentID
 		if err := service.database.QueryRow(ctx, `SELECT d.document_type,d.name,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2 AND d.deleted_at IS NULL`, documentID, revisionID).Scan(&documentType, &name, &raw); err != nil {
 			return err
 		}
-		item := expandedOccurrence{Path: path, DocumentID: documentID, RevisionID: revisionID, DocumentType: documentType, Name: name, Pose: pose}
+		item := expandedOccurrence{Path: path, DocumentID: documentID, RevisionID: revisionID, DocumentType: documentType, Name: name, Pose: pose,
+			ReferenceMode: referenceMode}
 		if documentType == "PART" {
 			var model PartModel
 			if err := json.Unmarshal(raw, &model); err != nil {
@@ -396,13 +398,13 @@ func (service *Service) expandProductContext(ctx context.Context, rootDocumentID
 				InstanceID: instance.ID, InstanceName: instance.Name, ReferencedDocumentID: instance.ReferencedDocumentID,
 				ResolvedVersionID: instance.ReferencedVersionID})
 			childPose := composeInstancePose(pose, InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)})
-			if err := expand(instance.ReferencedDocumentID, instance.ReferencedVersionID, childPath, childPose, depth+1); err != nil {
+			if err := expand(instance.ReferencedDocumentID, instance.ReferencedVersionID, childPath, childPose, instance.ReferenceMode, depth+1); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	if err := expand(rootDocumentID, rootRevisionID, InstancePath{RootDocumentID: rootDocumentID}, InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, 0); err != nil {
+	if err := expand(rootDocumentID, rootRevisionID, InstancePath{RootDocumentID: rootDocumentID}, InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, "PINNED", 0); err != nil {
 		return nil, err
 	}
 	return result, nil

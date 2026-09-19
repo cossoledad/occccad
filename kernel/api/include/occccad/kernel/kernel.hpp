@@ -186,6 +186,12 @@ struct TopologyInfo {
 struct PlacedGeometry {
     GeometryId geometry_id;
     Vec3 translation;
+    struct Rotation {
+        double x{0.0};
+        double y{0.0};
+        double z{0.0};
+        double w{1.0};
+    } rotation;
 };
 
 // ---------------------------------------------------------------------------

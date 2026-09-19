@@ -47,6 +47,17 @@ type atomicDomainCandidate struct {
 	changes                                             modelcore.ChangeSet
 }
 
+type initialDocumentCandidate struct {
+	documentID, revisionID, documentType, name, description string
+	folderID                                                *string
+	ownerID, requestID                                      string
+	modelJSON                                               json.RawMessage
+	geometryKey                                             *string
+	modelHash, dependencyDigest                             string
+	graph                                                   *modelcore.DependencyGraph
+	manifest                                                modelcore.EvaluationManifest
+}
+
 func (service *Service) CreateProductContextBinding(ctx context.Context, rootProductDocumentID string, request ProductContextBindingRequest) (DocumentView, error) {
 	request.RequestID = requestID(request.RequestID)
 	request.ActorID = actorID(request.ActorID)
@@ -285,6 +296,30 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 		Accepted: ContextBindingResolutionSnapshot{RootProductRevisionID: rootRevisionID, SourceRevisionID: source.RevisionID,
 			OwningRevisionID: ownerRevisionID, ContractDigest: resolvedDigest(sourcePublication.Contract),
 			SourceDigest: sourcePublication.Resolution.SourceDigest, Status: "CONNECTED"}}
+	binding.Publication.PersistentSelection = sourcePublication.Target.PersistentSelection
+	binding.Publication.SelectionSourceVersionID = sourcePublication.Target.SourceVersionID
+	derivedOwner := ownerNext
+	if err := materializeContextBindingVariant(&derivedOwner, binding); err != nil {
+		return DocumentView{}, err
+	}
+	if err := validateAndResolvePartParameters(&derivedOwner); err != nil {
+		return DocumentView{}, err
+	}
+	if err := service.resolveAndSolveSketches(ctx, owner.DocumentID, request.RequestID+"/context-variant", &derivedOwner); err != nil {
+		return DocumentView{}, err
+	}
+	if err := service.resolvePartPublications(ctx, owner.DocumentID, request.RequestID+"/context-variant",
+		ownerRevisionID+"@context-variant", &derivedOwner); err != nil {
+		return DocumentView{}, err
+	}
+	for _, publication := range derivedOwner.Publications {
+		if publication.Resolution.Status != "CONNECTED" {
+			return DocumentView{}, fmt.Errorf("%w: CONTEXT_VARIANT_PUBLICATION_BROKEN: %s", ErrValidation, publication.Resolution.Diagnostic)
+		}
+	}
+	if _, err := service.evaluatePart(ctx, request.RequestID+"/context-variant", derivedOwner); err != nil {
+		return DocumentView{}, err
+	}
 	rootOwnerInstanceID := ownerPath.Segments[0].InstanceID
 	for index := range root.Instances {
 		if root.Instances[index].ID == rootOwnerInstanceID {
@@ -299,6 +334,15 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 	}
 	refChange, _ := modelcore.NewChange(modelcore.ChangeBind, modelcore.PropertyAddress{EntityID: rootOwnerInstanceID, SlotID: "instance.reference"}, owner.Path.Segments[0].ResolvedVersionID, childRevisionID)
 	rootChanges.Changes = append(rootChanges.Changes, refChange)
+	var rootNext ProductModel
+	_ = json.Unmarshal(rootNextJSON, &rootNext)
+	for index := range rootNext.Constraints {
+		if rootNext.Constraints[index].EvaluationStatus != modelcore.AssemblyConstraintBroken {
+			rootNext.Constraints[index].EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
+			rootNext.Constraints[index].EvaluationSummary = "Context Variant changed; refresh Product references to rebuild the SolveManifest"
+		}
+	}
+	rootNextJSON, _ = json.Marshal(rootNext)
 	rootHash := canonicalModelHash(rootNextJSON)
 	var rootPrior *modelcore.EvaluationManifest
 	if len(rootManifestJSON) > 0 {
@@ -307,8 +351,6 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 			rootPrior = &value
 		}
 	}
-	var rootNext ProductModel
-	_ = json.Unmarshal(rootNextJSON, &rootNext)
 	rootGraph, rootManifest, err := buildProductEvaluation(rootNext, rootNextRevisionID, rootHash, rootChanges.ImpactSeeds, rootPrior)
 	if err != nil {
 		return DocumentView{}, err
@@ -332,7 +374,7 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 	return service.GetDocument(ctx, rootProductDocumentID, request.ActorID)
 }
 
-func (service *Service) commitProductDesignCandidates(ctx context.Context, groupID, requestIDValue, requestDigest, actor, rootDocumentID string, candidates []atomicDomainCandidate) error {
+func (service *Service) commitProductDesignCandidates(ctx context.Context, groupID, requestIDValue, requestDigest, actor, rootDocumentID string, candidates []atomicDomainCandidate, initialDocuments ...initialDocumentCandidate) error {
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].workspaceID < candidates[j].workspaceID })
 	tx, err := service.database.Begin(ctx)
 	if err != nil {
@@ -351,6 +393,12 @@ func (service *Service) commitProductDesignCandidates(ctx context.Context, group
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO occccad.product_design_transactions(id,root_product_document_id,actor_id,request_id,request_digest,status,committed_at) VALUES($1,$2,$3,$4,$5,'COMMITTED',now())`, groupID, rootDocumentID, actor, requestIDValue, requestDigest); err != nil {
 		return err
+	}
+	for index := range initialDocuments {
+		candidate := &initialDocuments[index]
+		if err := service.persistInitialDocumentCandidate(ctx, tx, candidate); err != nil {
+			return err
+		}
 	}
 	for index := range candidates {
 		candidate := &candidates[index]

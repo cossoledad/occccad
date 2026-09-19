@@ -563,6 +563,7 @@ message ExchangeComponent {
     string name = 1;
     ArtifactReference brep = 2;
     Vec3 translation = 3;
+    Quaternion rotation = 4;
 }
 
 message ExportExchangeRequest {
