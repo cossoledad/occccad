@@ -15,7 +15,7 @@ export default defineConfig({
     launchOptions: { args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] },
   },
   webServer: {
-    command: "pnpm dev:mock --port 5174",
+    command: "VITE_INPUT_DEBUG=true pnpm dev:mock --port 5174",
     url: "http://127.0.0.1:5174",
     reuseExistingServer: false,
   },

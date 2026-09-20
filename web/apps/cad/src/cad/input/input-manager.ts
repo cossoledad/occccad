@@ -21,6 +21,8 @@ export class InputManager {
 
   constructor(private readonly surface: HTMLElement, private readonly sink: CadInputSink) {
     surface.style.touchAction = "none";
+    surface.tabIndex = 0;
+    surface.setAttribute("aria-label", "三维视口");
     // Capture phase lets the CAD router claim a Middle-led chord before any
     // other canvas controller sees the same event.
     surface.addEventListener("pointerdown", this.onPointerDown, true);
@@ -28,6 +30,7 @@ export class InputManager {
     surface.addEventListener("pointerup", this.onPointerUp, true);
     surface.addEventListener("pointercancel", this.onPointerCancel, true);
     surface.addEventListener("lostpointercapture", this.onLostPointerCapture);
+    surface.addEventListener("auxclick", this.onAuxiliaryClick);
     surface.addEventListener("wheel", this.onWheel, { passive: false });
     surface.addEventListener("contextmenu", this.preventSurfaceDefault);
     surface.addEventListener("dragstart", this.preventSurfaceDefault);
@@ -53,6 +56,7 @@ export class InputManager {
     this.surface.removeEventListener("pointerup", this.onPointerUp, true);
     this.surface.removeEventListener("pointercancel", this.onPointerCancel, true);
     this.surface.removeEventListener("lostpointercapture", this.onLostPointerCapture);
+    this.surface.removeEventListener("auxclick", this.onAuxiliaryClick);
     this.surface.removeEventListener("wheel", this.onWheel);
     this.surface.removeEventListener("contextmenu", this.preventSurfaceDefault);
     this.surface.removeEventListener("dragstart", this.preventSurfaceDefault);
@@ -81,7 +85,7 @@ export class InputManager {
     const normalized = this.pointerEvent(event, "down");
     const result = this.sink.pointerDown?.(normalized) ?? InputResult.Ignored;
     this.applyCaptureResult(event.pointerId, result);
-    if (isHandled(result)) event.preventDefault();
+    if (isHandled(result)) { this.surface.focus({ preventScroll: true }); event.preventDefault(); }
     if (event.button === 1 || normalized.state.buttons.middle) event.stopImmediatePropagation();
   };
 
@@ -138,6 +142,10 @@ export class InputManager {
     this.resetInput();
   };
 
+  private onAuxiliaryClick = (event: MouseEvent): void => {
+    if (isHandled(this.sink.auxiliaryClick?.(event) ?? InputResult.Ignored) || event.button === 1) event.preventDefault();
+  };
+
   private onWheel = (event: WheelEvent): void => {
     const point = this.localPoint(event);
     const state = this.state.updatePointer(point.x, point.y, event.buttons, modifiersFromEvent(event));
@@ -151,7 +159,9 @@ export class InputManager {
     this.publishControlState(state);
     const normalized: CadKeyboardEvent = { phase: "down", key: event.key, code: event.code, repeat: event.repeat,
       editableTarget: isEditableTarget(event.target), state, originalEvent: event };
-    if (isHandled(this.sink.keyDown?.(normalized) ?? InputResult.Ignored)) event.preventDefault();
+    const result = this.sink.keyDown?.(normalized) ?? InputResult.Ignored;
+    if (result === InputResult.ReleaseCapture) this.resetInput();
+    if (isHandled(result)) event.preventDefault();
   };
 
   private onKeyUp = (event: KeyboardEvent): void => {

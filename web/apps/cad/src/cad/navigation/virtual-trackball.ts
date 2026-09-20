@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { CATIA_TRACKBALL_RADIUS_RATIO } from "./navigation-visuals";
 import type { CadCamera } from "./camera-rig";
 
 export type TrackballOptions = {
@@ -9,10 +10,10 @@ export type TrackballOptions = {
 };
 
 const DEFAULTS: Required<TrackballOptions> = {
-  radiusRatio: 0.42,
-  minRadius: 140,
-  maxStepRadians: THREE.MathUtils.degToRad(12),
-  precision: 0.82,
+  radiusRatio: CATIA_TRACKBALL_RADIUS_RATIO,
+  minRadius: 1,
+  maxStepRadians: Math.PI,
+  precision: 1,
 };
 
 /** Shoemake-style virtual sphere centered in the CAD viewport. */
@@ -60,11 +61,9 @@ export class VirtualTrackball {
     const px = (x - width / 2) / radius;
     const py = (height / 2 - y) / radius;
     const distanceSquared = px * px + py * py;
-    // Sphere/hyperbola blend avoids the hard clamp and angular jumps produced
-    // by a basic arcball when the pointer travels outside the visible sphere.
-    const z = distanceSquared <= 0.5
-      ? Math.sqrt(Math.max(1 - distanceSquared, 0))
-      : 0.5 / Math.sqrt(distanceSquared);
+    // Outside the visible sphere the vectors lie in the screen plane: roll.
+    // HUD and interaction use the same radius.
+    const z = Math.sqrt(Math.max(1 - distanceSquared, 0));
     return new THREE.Vector3(px, py, z).normalize();
   }
 }

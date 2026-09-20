@@ -36,6 +36,7 @@ type Props = {
   activeSketchID?: string;
   activeToolID: WorkbenchToolID;
   navigationProfile: NavigationProfileID;
+  catiaRotationSphereVisible: boolean;
   captureSettings: CaptureSettings;
   treeVisibilityOverrides: TreeVisibilityOverrides;
   onSelectionsChange: (selections: SelectionItem[]) => void;
@@ -89,6 +90,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     }
     instance.setActiveTool(callbacks.current.activeToolID);
     instance.setNavigationProfile(callbacks.current.navigationProfile);
+    instance.setCatiaRotationSphereVisible(callbacks.current.catiaRotationSphereVisible);
     instance.setCaptureSettings(callbacks.current.captureSettings);
     instance.setTreeVisibilityOverrides(callbacks.current.treeVisibilityOverrides);
     return () => { instance.dispose(); engine.current = undefined; };
@@ -110,6 +112,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   }, [props.sketchPlane, props.activeSketchID]);
   useEffect(() => { engine.current?.setActiveTool(props.activeToolID); }, [props.activeToolID]);
   useEffect(() => { engine.current?.setNavigationProfile(props.navigationProfile); }, [props.navigationProfile]);
+  useEffect(() => { engine.current?.setCatiaRotationSphereVisible(props.catiaRotationSphereVisible); }, [props.catiaRotationSphereVisible]);
   useEffect(() => { engine.current?.setCaptureSettings(props.captureSettings); }, [props.captureSettings]);
   useEffect(() => { engine.current?.setTreeVisibilityOverrides(props.treeVisibilityOverrides); }, [props.treeVisibilityOverrides]);
 

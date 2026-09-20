@@ -190,6 +190,7 @@ export function Workbench() {
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const treeVisibilityOverrides = useUIPreferences((state) => state.treeVisibilityOverrides);
   const setTreeVisibility = useUIPreferences((state) => state.setTreeVisibility);
+  const catiaRotationSphereVisible = useUIPreferences((state) => state.catiaRotationSphereVisible);
   const navigationProfile = useUIPreferences((state) => state.navigationProfile);
   const captureSettings = useUIPreferences((state) => state.captureSettings);
   const displayLengthUnit = useUIPreferences((state) => state.displayLengthUnit);
@@ -1045,7 +1046,7 @@ export function Workbench() {
           selections={store.selections}
           preselection={store.preselection}
           treeVisibilityOverrides={treeVisibilityOverrides}
-          sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={navigationProfile}
+          sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={navigationProfile} catiaRotationSphereVisible={catiaRotationSphereVisible}
           captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
           onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
 		  onAssemblyConstraint={(kind, references) => {

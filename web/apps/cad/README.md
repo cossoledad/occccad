@@ -19,7 +19,7 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 - ExternalGeometry 使用稳定 ExternalId、PersistentSelection、权威二维快照与 source digest；投影线/完整圆/点可参加草图约束但不能拖动或冒充普通 Entity。活动 Sketch 曲线使用屏幕稳定宽度的遮挡可见 overlay，ExternalGeometry 使用更宽的青色虚线，因此与 Body Edge 重合时仍可辨识。结构树提供“断开并冻结”和 Reconnect，属性面板显示 semantic anchor、解析状态、诊断与受影响对象；新建或重连投影若返回稳定不支持/退化诊断，命令失败且保留原 Head，不会留下空投影节点；
 - 通用闭合 Profile（包含外环、孔和岛）拉伸、实例插入/移动、Undo/Redo；装配移动手柄从 Instance 的原始射线命中取得锚点和局部框架，平面法向对齐 Z、直线边切向对齐 X，中心再次吸附时同步更新位置和方向，并继续复用权威 `MOVE_INSTANCE` 预览/提交；
 - 动态 Instance Placement 通过统一的可中断 transition 层显示：连续 MOVE 与手柄同步插值、装配约束预览平滑 settle、取消 rollback，提交或 Realtime 刷新按稳定 InstanceId 接续重建前的渲染姿态；直接指针输入和 reduced-motion 不增加动画延迟；
-- Default/CATIA 导航 Profile、Pointer Capture、Tool 手势状态机和 Overlay；Default 右键旋转在每次手势开始时以全部可见内容的最小包围盒中心为基准，若指针直接命中拓扑点则仅为当前手势使用该点；快捷键经统一 CommandRegistry 执行并遵循命令可用性；输入框、输入法组合输入及打开的命令面板不触发全局快捷键，Enter/Esc 仍用于多阶段手势完成/取消；
+- Default/3DEXPERIENCE CATIA/SOLIDWORKS 导航 Profile、Pointer Capture、Tool 手势状态机和 Overlay；Default 右键旋转在完整模型可见时以可见内容包围盒中心为基准，拓扑点命中优先；局部放大时使用当前可见几何作为旋转参考；快捷键经统一 CommandRegistry 执行并遵循命令可用性；输入框、输入法组合输入及打开的命令面板不触发全局快捷键，Enter/Esc 仍用于多阶段手势完成/取消；
 - 版本化 `ui-preferences` 本地偏好统一保存 Inspector 开合、结构树宽度、命令面板位置和浮动 Toolbar 布局；新增纯客户端显示偏好应扩展同一 schema，不再自行散写 localStorage key；
 - 统一 CAD 语义色与 hover/selected/snap 层次；默认全开的捕获设置可分别过滤三维点、边、面、实体、草图、约束、基准面、基准轴/坐标系和实例，以及草图原点、点/端点、圆心、中点、Line/Circle/Arc/Spline 曲线投影和 10 mm 网格吸附；
 - Pad、命名版本使用可拖动非模态命令面板；Pad 长度 literal/expression 在 blur/Enter 后请求后端复用正式 typed command、参数求值、Sketch Solver 与 Part evaluator 生成非持久化精确预览，提交才创建 Revision；
@@ -79,7 +79,9 @@ Workbench 主文件编排文档、命令、查询、工具和领域面板生命�
 
 交互边界：树筛选保留命中节点的祖先，命中父节点时保留其子树，不修改模型或选择身份；清空筛选恢复原展开状态。方向键/Home/End 移动树焦点，Enter/Space 选择。输入框、按钮、树与对话框中的按键不交给视口工具。浏览器原生右键仅在 CAD 视口和树节点上被接管。命令面板的持久位置统一进入 `ui-preferences` v4；旧的独立 `occccad.command-dialog.*` 键不再读取，新面板采用默认位置。
 
-设计参考：[Onshape 工具搜索](https://cad.onshape.com/help/Content/Home/search_tools.htm)、[Onshape 界面分区](https://cad.onshape.com/help/Content/Home/user_interface_basics.htm)、[3DEXPERIENCE Action Bar](https://3dswym.3dexperience.3ds.com/post/makers-made-in-3d/simplifying-cad-the-xdesign-action-bar_aibePcuuQvetpsYllKSjkA)。CATIA B33 本机参考经 `control/BasEnglishC2.viewdoc` 定位到 `online/basug_C2/basugbt0501.htm`（Specification Tree and Geometry Area）及 `basugbt0510.htm`（Finding an Object in the Tree）；这些页面用于确认结构树与几何视区、树中查找的交互概念，不代表本项目已交付相同领域能力。采用上下文分组、可发现命令、文档标签和清楚的模型/视口分区，保留现有 CATIA 导航及连续工具语义。
+设计参考：[Onshape 工具搜索](https://cad.onshape.com/help/Content/Home/search_tools.htm)、[Onshape 界面分区](https://cad.onshape.com/help/Content/Home/user_interface_basics.htm)、[3DEXPERIENCE Action Bar](https://3dswym.3dexperience.3ds.com/post/makers-made-in-3d/simplifying-cad-the-xdesign-action-bar_aibePcuuQvetpsYllKSjkA)。CATIA B33 本机参考经 `control/BasEnglishC2.viewdoc` 定位到 `online/basug_C2/basugbt0501.htm`（Specification Tree and Geometry Area）及 `basugbt0510.htm`（Finding an Object in the Tree）；这些页面用于确认结构树与几何视区、树中查找的交互概念，不代表本项目已交付相同领域能力。采用上下文分组、可发现命令、文档标签和清楚的模型/视口分区，连续工具语义独立于导航模式。
+
+鼠标导航的操作表、来源、状态机边界和未验证差异见 [导航说明](src/cad/navigation/README.md)。用户偏好可切换 3DEXPERIENCE CATIA 或 SOLIDWORKS，模式持久化到现有 UI preferences。CATIA 采用原生应用顺序组合键，旋转球默认隐藏，可在偏好中开启并持久化；SOLIDWORKS 支持 Ctrl/Shift/Alt 中键组合、中键双击适合窗口及独立的洋红色旋转参考。
 
 这些变更建立了工作台展示分层，并不表示已实现成熟 CAD 的全部能力。领域编排仍集中在 `workbench.tsx`，大型装配性能、全量真实后端浏览器回归与更深入的特征编辑会话分层仍需要独立验证和演进。
 
@@ -118,7 +120,7 @@ invoke web.build
 invoke check --scope web
 ```
 
-`invoke web.build` 执行 TypeScript 类型检查和生产构建。Front 行为场景邻近所属模块存放为 `src/**/testing/*.scenario.mjs`，`pnpm test` 自动发现并在独立进程运行，避免 fixture 和模块状态串扰；可用 `pnpm test -- sketch` 等路径/文件名片段筛选，`--list` 预览命中，`--verbose` 流式显示输出。默认成功只输出汇总，失败展开该场景诊断。`browser/workbench.spec.ts` 提供 Chromium/SwiftShader 的 Mock 浏览器回归，覆盖命令搜索/禁用态、草图工具、树过滤与键盘、面板尺寸、文档切换、1440/1024/768 布局，以及插入浏览器的分页/嵌套文件夹/检索/失败重试和历史快捷键。它不能代替真实后端几何、装配与复杂拾取验收。
+`invoke web.build` 执行 TypeScript 类型检查和生产构建。Front 行为场景邻近所属模块存放为 `src/**/testing/*.scenario.mjs`，`pnpm test` 自动发现并在独立进程运行，避免 fixture 和模块状态串扰；可用 `pnpm test -- sketch` 等路径/文件名片段筛选，`--list` 预览命中，`--verbose` 流式显示输出。默认成功只输出汇总，失败展开该场景诊断。`browser/workbench.spec.ts` 提供 Chromium/SwiftShader 的 Mock 浏览器回归，覆盖命令搜索/禁用态、草图工具、树过滤与键盘、面板尺寸、文档切换、1440/1024/768 布局，以及插入浏览器的分页/嵌套文件夹/检索/失败重试和历史快捷键。`browser/navigation.spec.ts` 另外验证 CATIA/SOLIDWORKS 的真实组合按键、临时旋转参考、失焦取消与中键双击，并保存旋转提示截图。它们不能代替真实后端几何、装配与复杂拾取验收。
 
 浏览器回归独立于默认 Node scenarios，在 `web/apps/cad/` 运行 `pnpm exec playwright install --with-deps chromium` 安装浏览器及系统依赖，然后运行 `pnpm test:browser`。测试自动在独立端口 5174 启动 Mock Vite，失败时在已忽略的 `test-results/` 保存截图和 trace；测试结束关闭该进程。
 
@@ -143,3 +145,9 @@ invoke check --scope web
 Product 的 Debug 下载动作导出当前请求的 `.3dreplay`，Part 继续使用完整诊断包。
 装配约束预览成功或失败后，面板的“下载 3dreplay”可下载该次数学输入与结果；取消面板后仍可通过 Debug 按钮下载。
 请求键在发起时确定，旧响应不改写；刷新页面后选择数据库中最近的一次记录。解析前失败或记录不存在时明确提示，不以其他请求替代。
+
+默认视口采用正交等轴测投影。快捷键 1 切换标准等轴测方向并按可见内容包围盒适合窗口；其他标准方向保留比例。独立“适合窗口”命令保留当前朝向。平移/拾取容差按当前 zoom 换算 CSS 像素。进入草图对齐支撑平面并保留比例，退出恢复进入前视图，同一草图刷新不重复对齐。相机数学与视图快照位于 `cad/navigation/orthographic-view.ts`；导航场景和浏览器用例覆盖高倍放大、等轴测重复切换、基准面/面支撑草图进入与退出。
+
+底部网格使用独立背景通道的无限 XY 平面投影，随缩放调整网格密度，不受模型 near/far 裁剪或固定网格尺寸影响。正交相机 near 为 0，far 按实际几何深度与视图大小扩展；必要时沿视线后移相机以容纳眼后几何，保持屏幕位置和比例。
+
+裁剪更新同时支持沿视线前移/后移相机；大幅缩小后重新放大时收回多余深度范围，避免裁剪范围随操作历史不断扩大。该沿视线位移不改变正交屏幕投影。

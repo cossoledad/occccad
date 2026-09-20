@@ -1,261 +1,132 @@
 import * as THREE from "three";
-import { InputResult, type CadPointerEvent, type PointerButtons } from "../input/input-types";
+import { InputResult, type CadPointerEvent } from "../input/input-types";
 import type { CameraRig } from "./camera-rig";
-import {
-  CatiaNavigationState, type CatiaAuxiliaryButton, type NavigationPivotSource,
-} from "./catia-navigation-state";
+import { CatiaNavigationState, type NavigationPivotSource } from "./catia-navigation-state";
 import type { NavigationPick, NavigationPicker } from "./navigation-picker";
 import type { NavigationAction } from "./navigation-profile";
 import { VirtualTrackball } from "./virtual-trackball";
 
-export type CatiaNavigationOptions = {
-  dragThreshold?: number;
-  auxiliaryButtons?: readonly CatiaAuxiliaryButton[];
-  debugTransitions?: boolean;
-};
-
+export type CatiaNavigationOptions = { dragThreshold?: number; debugTransitions?: boolean; detailPivot?: () => NavigationPick | undefined };
 export type CatiaNavigationSnapshot = {
-  state: CatiaNavigationState;
-  action: NavigationAction;
-  pivot: THREE.Vector3;
-  pivotSource: NavigationPivotSource;
-  hitObject?: string;
-  cameraDistance: number;
-  hudVisible: boolean;
-  showRotationCircle: boolean;
+  state: CatiaNavigationState; action: NavigationAction; pivot: THREE.Vector3;
+  pivotSource: NavigationPivotSource; hitObject?: string; cameraDistance: number;
+  hudVisible: boolean; showRotationCircle: boolean; pointer: { x: number; y: number };
 };
 
-type InitialCameraState = {
-  position: THREE.Vector3;
-  quaternion: THREE.Quaternion;
-  pivot: THREE.Vector3;
-};
-
-const AUXILIARY_BUTTON_NUMBER: Record<CatiaAuxiliaryButton, number> = { left: 0, right: 2 };
-
-/**
- * Explicit CATIA V5 Examine-mode gesture state machine.
- * InputManager owns raw button/capture state; CameraRig owns camera mathematics.
- */
+/** 3DEXPERIENCE CATIA native navigation: middle-led chord; releasing the side button latches zoom until the leader is released. */
 export class CatiaNavigationController {
+  private rotationSphereVisible = false;
+  setRotationSphereVisible(visible: boolean): void {
+    this.rotationSphereVisible = visible; this.updated(false);
+  }
   private state = CatiaNavigationState.Idle;
   private pointerId?: number;
-  private middleDown = new THREE.Vector2();
-  private candidateDown = new THREE.Vector2();
-  private middleDownTime = 0;
-  private initialCamera?: InitialCameraState;
+  private leader: "middle" | "right" = "middle";
+  private down = new THREE.Vector2();
+  private pointer = new THREE.Vector2();
   private pendingPick?: NavigationPick;
   private pivotSource: NavigationPivotSource = "existing";
   private hitObject?: string;
-  private auxiliaryButton?: CatiaAuxiliaryButton;
-  private buttons: PointerButtons = { left: false, middle: false, right: false };
-  private readonly dragThreshold: number;
-  private readonly auxiliaryButtons: ReadonlySet<CatiaAuxiliaryButton>;
-  private readonly debugTransitions: boolean;
+  private zoomLatched = false;
+  private sideDown = false;
+  private directCtrl = false;
+  private clickCandidate = false;
   private readonly trackball = new VirtualTrackball();
-
-  constructor(
-    private readonly rig: CameraRig,
-    private readonly picker: NavigationPicker,
+  constructor(private readonly rig: CameraRig, private readonly picker: NavigationPicker,
     private readonly viewportSize: () => { width: number; height: number },
-    private readonly updated: (cameraChanged: boolean) => void,
-    options: CatiaNavigationOptions = {},
-  ) {
-    this.dragThreshold = options.dragThreshold ?? 3;
-    this.auxiliaryButtons = new Set(options.auxiliaryButtons ?? ["left"]);
-    this.debugTransitions = options.debugTransitions ?? false;
-  }
-
+    private readonly updated: (cameraChanged: boolean) => void, private readonly options: CatiaNavigationOptions = {}) {}
   get currentState(): CatiaNavigationState { return this.state; }
-  get active(): boolean { return this.state !== CatiaNavigationState.Idle; }
+  get active(): boolean { return this.pointerId !== undefined; }
   get activeAction(): NavigationAction {
-    if (this.state === CatiaNavigationState.Pan) return "pan";
-    if (this.state === CatiaNavigationState.Rotate) return "orbit";
-    if (this.state === CatiaNavigationState.Zoom) return "zoom";
-    return "none";
+    return this.state === CatiaNavigationState.Pan ? "pan" : this.state === CatiaNavigationState.Rotate ? "orbit"
+      : this.state === CatiaNavigationState.Zoom || this.state === CatiaNavigationState.ZoomArmed ? "zoom" : "none";
   }
-
   get snapshot(): CatiaNavigationSnapshot {
-    const pendingCenter = this.state === CatiaNavigationState.MiddlePending ? this.pendingPick : undefined;
-    return {
-      state: this.state,
-      action: this.activeAction,
-      pivot: (pendingCenter?.point ?? this.rig.pivot).clone(),
-      pivotSource: pendingCenter?.source ?? this.pivotSource,
-      hitObject: pendingCenter?.objectLabel ?? this.hitObject,
-      cameraDistance: this.rig.distance,
-      hudVisible: this.active,
-      showRotationCircle: this.state === CatiaNavigationState.Rotate,
-    };
+    return { state: this.state, action: this.activeAction, pivot: this.rig.pivot.clone(), pivotSource: this.pivotSource,
+      hitObject: this.hitObject, cameraDistance: this.rig.distance, hudVisible: this.rotationSphereVisible && this.state === CatiaNavigationState.Rotate,
+      showRotationCircle: this.rotationSphereVisible && this.state === CatiaNavigationState.Rotate, pointer: { x: this.pointer.x, y: this.pointer.y } };
   }
-
   wantsPriority(event: CadPointerEvent): boolean {
-    return this.active || event.button === 1 || event.state.buttons.middle;
+    return this.active || event.button === 1 || event.state.buttons.middle || (event.state.modifiers.alt && event.state.buttons.right);
   }
-
   pointerDown(event: CadPointerEvent): InputResult {
-    this.buttons = { ...event.state.buttons };
-    if (this.state === CatiaNavigationState.Idle) {
-      if (event.button !== 1) return InputResult.Ignored;
-      this.beginMiddleGesture(event);
+    if (!this.active) {
+      if (event.button !== 1 && !(event.button === 2 && event.state.modifiers.alt)) return InputResult.Ignored;
+      this.leader = event.button === 1 ? "middle" : "right";
+      this.pointerId = event.pointerId; this.down.set(event.x, event.y); this.pointer.copy(this.down);
+      this.pendingPick = this.picker.pickNearest(event.x, event.y) ?? this.picker.pickViewPlane(event.x, event.y, this.rig.pivot);
+      this.directCtrl = event.state.modifiers.ctrl;
+      this.zoomLatched = this.leader === "right" && this.directCtrl; this.sideDown = false; this.clickCandidate = !event.state.modifiers.ctrl && this.leader === "middle";
+      this.transition(event.state.modifiers.ctrl ? CatiaNavigationState.Zoom : CatiaNavigationState.MiddlePending);
       return InputResult.Capture;
     }
     if (event.pointerId !== this.pointerId) return InputResult.Consumed;
-
-    const auxiliary = this.auxiliaryFromButton(event.button);
-    if (auxiliary && event.state.buttons.middle && this.auxiliaryButtons.has(auxiliary)
-      && (this.state === CatiaNavigationState.MiddlePending || this.state === CatiaNavigationState.Pan
-        || this.state === CatiaNavigationState.ZoomArmed || this.state === CatiaNavigationState.Zoom)) {
-      this.auxiliaryButton = auxiliary;
-      this.candidateDown.set(event.x, event.y);
-      const viewport = this.viewportSize();
-      this.trackball.begin(event.x, event.y, viewport.width, viewport.height);
-      this.transition(CatiaNavigationState.Rotate);
-    }
+    this.updateMode(event);
     return InputResult.Consumed;
   }
-
   pointerMove(event: CadPointerEvent): InputResult {
-    this.buttons = { ...event.state.buttons };
     if (!this.active) return InputResult.Ignored;
     if (event.pointerId !== this.pointerId) return InputResult.Consumed;
-    if (!event.state.buttons.middle) {
-      this.forceCancel();
-      return InputResult.Consumed;
+    if (!event.state.buttons[this.leader]) { this.forceCancel(); return InputResult.ReleaseCapture; }
+    this.pointer.set(event.x, event.y);
+    this.updateMode(event);
+    if (this.state === CatiaNavigationState.MiddlePending) {
+      if (this.down.distanceTo(this.pointer) < (this.options.dragThreshold ?? 3)) { this.updated(false); return InputResult.Consumed; }
+      this.clickCandidate = false; this.transition(CatiaNavigationState.Pan);
     }
-
-    switch (this.state) {
-      case CatiaNavigationState.MiddlePending:
-        if (this.distanceFrom(this.middleDown, event) >= this.dragThreshold) {
-          this.transition(CatiaNavigationState.Pan);
-          this.pan(event.deltaX, event.deltaY);
-        }
-        break;
-      case CatiaNavigationState.Pan:
-        this.pan(event.deltaX, event.deltaY);
-        break;
-      case CatiaNavigationState.Rotate:
-        if (this.auxiliaryStillDown(event)) this.rotate(event.x, event.y);
-        break;
-      case CatiaNavigationState.ZoomArmed:
-        if (this.distanceFrom(this.candidateDown, event) >= this.dragThreshold) {
-          const deltaY = event.y - this.candidateDown.y;
-          this.transition(CatiaNavigationState.Zoom);
-          this.zoom(deltaY);
-        }
-        break;
-      case CatiaNavigationState.Zoom:
-        this.zoom(event.deltaY);
-        break;
-      default:
-        break;
-    }
+    const size = this.viewportSize();
+    if (this.state === CatiaNavigationState.Pan) this.rig.panPixels(event.deltaX, event.deltaY, size.width, size.height);
+    else if (this.state === CatiaNavigationState.Rotate) {
+      const rotation = this.trackball.drag(event.x, event.y, size.width, size.height, this.rig.camera);
+      if (rotation) this.rig.orbitQuaternion(rotation);
+    } else this.rig.dollyPixels(event.deltaY);
+    this.updated(true);
     return InputResult.Consumed;
   }
-
   pointerUp(event: CadPointerEvent): InputResult {
-    this.buttons = { ...event.state.buttons };
     if (!this.active || event.pointerId !== this.pointerId) return InputResult.Ignored;
-
-    if (event.button === 1) {
-      // Only a click (no Pan/Rotate/Zoom) commits the pending screen point as
-      // the new centered viewpoint. A completed Pan already moved the viewing
-      // rig continuously and therefore needs no release-time jump.
-      if (this.state === CatiaNavigationState.MiddlePending && this.pendingPick) {
+    if (!event.state.buttons[this.leader]) {
+      if (this.clickCandidate && this.pendingPick) {
         this.rig.centerViewpointAt(this.pendingPick.point);
-        this.rig.setPivot(this.pendingPick.point);
-        this.pivotSource = this.pendingPick.source;
-        this.hitObject = this.pendingPick.objectLabel;
+        this.pivotSource = this.pendingPick.source; this.hitObject = this.pendingPick.objectLabel;
         this.updated(true);
       }
-      this.finishGesture();
-      return InputResult.ReleaseCapture;
+      this.forceCancel(); return InputResult.ReleaseCapture;
     }
-
-    const releasedAuxiliary = this.auxiliaryFromButton(event.button);
-    if (releasedAuxiliary && releasedAuxiliary === this.auxiliaryButton) {
-      if (this.state === CatiaNavigationState.Rotate) {
-        // CATIA toggles Rotate -> Zoom when the side button is released while
-        // Middle remains held, regardless of whether rotation already moved.
-        this.candidateDown.set(event.x, event.y);
-        this.auxiliaryButton = undefined;
-        this.transition(CatiaNavigationState.ZoomArmed);
-      }
-    }
-    return InputResult.Consumed;
+    this.updateMode(event); return InputResult.Consumed;
   }
-
   forceCancel(): void {
-    if (!this.active) return;
-    this.finishGesture();
+    this.pointerId = undefined; this.pendingPick = undefined; this.clickCandidate = false;
+    this.sideDown = false; this.zoomLatched = false; this.trackball.reset(); this.transition(CatiaNavigationState.Idle);
   }
-
-  private beginMiddleGesture(event: CadPointerEvent): void {
-    this.pointerId = event.pointerId;
-    this.middleDown.set(event.x, event.y);
-    this.candidateDown.copy(this.middleDown);
-    this.middleDownTime = performance.now();
-    this.initialCamera = {
-      position: this.rig.camera.position.clone(),
-      quaternion: this.rig.camera.quaternion.clone(),
-      pivot: this.rig.pivot.clone(),
-    };
-    this.pendingPick = this.picker.pickNearest(event.x, event.y)
-      ?? this.picker.pickViewPlane(event.x, event.y, this.rig.pivot);
-    this.auxiliaryButton = undefined;
-    this.transition(CatiaNavigationState.MiddlePending);
+  private updateMode(event: CadPointerEvent): void {
+    const buttons = event.state.buttons, modifiers = event.state.modifiers;
+    if (!modifiers.ctrl) this.directCtrl = false;
+    const side = this.leader === "middle" ? buttons.left || buttons.right : buttons.left || (modifiers.ctrl && !this.directCtrl);
+    // Ctrl held BEFORE the leader is the documented direct zoom alternative.
+    const directZoom = this.leader === "middle" && modifiers.ctrl;
+    if (side && !this.sideDown) {
+      this.clickCandidate = false;
+      const detail = this.options.detailPivot?.();
+      if (detail) {
+        this.rig.setPivot(detail.point);
+        this.pivotSource = detail.source; this.hitObject = detail.objectLabel;
+      }
+      const size = this.viewportSize(); this.trackball.begin(event.x, event.y, size.width, size.height);
+      this.transition(CatiaNavigationState.Rotate);
+    } else if (!side && this.sideDown) {
+      this.zoomLatched = true; this.transition(CatiaNavigationState.Zoom);
+    }
+    this.sideDown = side;
+    if (directZoom) { this.clickCandidate = false; this.transition(CatiaNavigationState.Zoom); }
+    else if (side && this.state !== CatiaNavigationState.Rotate) {
+      const size = this.viewportSize(); this.trackball.begin(event.x, event.y, size.width, size.height); this.transition(CatiaNavigationState.Rotate);
+    } else if (!side && this.zoomLatched) this.transition(CatiaNavigationState.Zoom);
+    else if (!side && this.state === CatiaNavigationState.Zoom) this.transition(CatiaNavigationState.Pan);
   }
-
-  private finishGesture(): void {
-    this.pointerId = undefined;
-    this.pendingPick = undefined;
-    this.auxiliaryButton = undefined;
-    this.initialCamera = undefined;
-    this.middleDownTime = 0;
-    this.buttons = { left: false, middle: false, right: false };
-    this.trackball.reset();
-    this.transition(CatiaNavigationState.Idle);
-  }
-
-  private pan(deltaX: number, deltaY: number): void {
-    const viewport = this.viewportSize();
-    this.rig.panPixels(deltaX, deltaY, viewport.width, viewport.height);
-    this.updated(true);
-  }
-
-  private rotate(x: number, y: number): void {
-    const viewport = this.viewportSize();
-    const rotation = this.trackball.drag(x, y, viewport.width, viewport.height, this.rig.camera);
-    if (!rotation) return;
-    this.rig.orbitQuaternion(rotation);
-    this.updated(true);
-  }
-
-  private zoom(deltaY: number): void {
-    this.rig.dollyPixels(deltaY);
-    this.updated(true);
-  }
-
-  private auxiliaryStillDown(event: CadPointerEvent): boolean {
-    return this.auxiliaryButton === "left" ? event.state.buttons.left
-      : this.auxiliaryButton === "right" ? event.state.buttons.right : false;
-  }
-
-  private auxiliaryFromButton(button: number): CatiaAuxiliaryButton | undefined {
-    return (Object.entries(AUXILIARY_BUTTON_NUMBER) as Array<[CatiaAuxiliaryButton, number]>)
-      .find(([, number]) => number === button)?.[0];
-  }
-
-  private distanceFrom(start: THREE.Vector2, event: CadPointerEvent): number {
-    return Math.hypot(event.x - start.x, event.y - start.y);
-  }
-
   private transition(next: CatiaNavigationState): void {
     if (next === this.state) return;
-    if (this.debugTransitions) {
-      console.debug(`[CATIA Navigation] ${this.state} -> ${next}`);
-    }
-    this.state = next;
-    this.updated(false);
+    if (this.options.debugTransitions) console.debug(`[CATIA Navigation] ${this.state} -> ${next}`);
+    this.state = next; this.updated(false);
   }
 }

@@ -15,6 +15,7 @@ export class InteractionRouter implements CadInputSink {
   // Without a navigation chord the active tool and click selection keep priority.
   pointerDown(event: CadPointerEvent): InputResult {
     if (this.navigation.wantsPointerPriority(event)) {
+      this.selection.cancel();
       return this.first(() => this.navigation.pointerDown(event), () => this.tools.pointerDown(event), () => this.selection.pointerDown(event));
     }
     return this.first(() => this.tools.pointerDown(event), () => this.selection.pointerDown(event), () => this.navigation.pointerDown(event));
@@ -35,9 +36,10 @@ export class InteractionRouter implements CadInputSink {
     this.tools.pointerCancel(event); this.selection.cancel(); this.navigation.cancel();
     return InputResult.Consumed;
   }
+  auxiliaryClick(event: MouseEvent): InputResult { return this.navigation.auxiliaryClick(event); }
   wheel(event: CadWheelEvent): InputResult { return this.navigation.wheel(event); }
-  keyDown(event: CadKeyboardEvent): InputResult { return this.tools.keyDown(event); }
-  keyUp(event: CadKeyboardEvent): InputResult { return this.tools.keyUp(event); }
+  keyDown(event: CadKeyboardEvent): InputResult { return this.first(() => this.navigation.keyChanged(event), () => this.tools.keyDown(event)); }
+  keyUp(event: CadKeyboardEvent): InputResult { return this.first(() => this.navigation.keyChanged(event), () => this.tools.keyUp(event)); }
   cancel(): void { this.tools.cancel(); this.selection.cancel(); this.navigation.cancel(); }
 
   private first(...handlers: Array<() => InputResult>): InputResult {

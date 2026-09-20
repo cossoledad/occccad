@@ -1,6 +1,7 @@
 import { ControlOutlined } from "@ant-design/icons";
-import { Button, Divider, Drawer, Segmented, Select, Typography } from "antd";
+import { Button, Divider, Drawer, Select, Switch, Typography } from "antd";
 import { useState } from "react";
+import type { NavigationProfileID } from "../../cad/navigation/navigation-profile";
 import { CaptureSettingsPanel } from "../../cad/overlay/capture-settings-button";
 import { effectiveLengthUnit, useUIPreferences, type DisplayLengthUnit } from "../../state/ui-preferences";
 
@@ -24,8 +25,20 @@ export function UserPreferencesCenter({ activeDocumentID }: { activeDocumentID?:
       <section className="preference-section">
         <Typography.Title level={5}>鼠标操作</Typography.Title>
         <Typography.Paragraph type="secondary">选择工作台中的平移、旋转和缩放手势。</Typography.Paragraph>
-        <Segmented block value={preferences.navigationProfile} onChange={(value) => preferences.setNavigationProfile(value as "default" | "catia")}
-          options={[{ value: "default", label: "occccad" }, { value: "catia", label: "CATIA V5" }]} />
+        <Select aria-label="鼠标操作模式" style={{ width: "100%" }} value={preferences.navigationProfile} onChange={(value) => preferences.setNavigationProfile(value as NavigationProfileID)}
+          options={[{ value: "default", label: "occccad" }, { value: "catia", label: "3DEXPERIENCE CATIA" }, { value: "solidworks", label: "SOLIDWORKS" }]} />
+        <Typography.Paragraph className="preference-note" style={{ marginTop: 16 }}>
+          {preferences.navigationProfile === "catia" ? "中键拖动：平移；先按住中键，再按住左键或右键：旋转；释放侧键并保持中键：缩放（上移放大）。中键单击：居中。Ctrl + 中键：直接缩放。原生应用配置使用上述组合键缩放。"
+            : preferences.navigationProfile === "solidworks" ? "中键拖动：旋转；Ctrl + 中键：平移；Shift + 中键：缩放；Alt + 中键：滚转。中键单击几何，再中键拖动：绕该几何旋转；双击中键：适合窗口。滚轮向后：放大到指针位置。"
+            : "右键拖动：旋转；中键拖动：平移；滚轮：缩放。"}
+        </Typography.Paragraph>
+        {preferences.navigationProfile === "catia" && <>
+          <label className="preference-field"><span>显示旋转球</span><Switch aria-label="显示旋转球"
+            checked={preferences.catiaRotationSphereVisible} onChange={preferences.setCatiaRotationSphereVisible} /></label>
+          <Typography.Paragraph type="secondary" className="preference-note">
+            采用 3DEXPERIENCE CATIA 原生应用的导航配置。旋转球默认隐藏，可开启辅助定位。
+          </Typography.Paragraph>
+        </>}
       </section>
       <Divider />
       <section className="preference-section">

@@ -48,6 +48,7 @@ export type CadKeyboardEvent = {
 };
 
 export interface CadInputSink {
+  auxiliaryClick?(event: MouseEvent): InputResult;
   pointerDown?(event: CadPointerEvent): InputResult;
   pointerMove?(event: CadPointerEvent): InputResult;
   pointerUp?(event: CadPointerEvent): InputResult;

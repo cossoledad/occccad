@@ -19,6 +19,9 @@ export function InputDebugOverlay({ snapshot }: { snapshot: InputDebugSnapshot }
     <code>L: {buttons.left ? "down" : "up"} · M: {buttons.middle ? "down" : "up"} · R: {buttons.right ? "down" : "up"}</code>
     <code>Ctrl: {String(modifiers.ctrl)} · Shift: {String(modifiers.shift)} · Alt: {String(modifiers.alt)}</code>
     <code>Tool: {snapshot.activeTool} · Nav: {snapshot.navigationProfile}/{snapshot.navigationAction}</code>
+    <code data-testid="navigation-camera">Camera: {snapshot.navigation?.cameraPosition.map((v) => v.toFixed(4)).join(",")} / {snapshot.navigation?.cameraQuaternion.map((v) => v.toFixed(4)).join(",")} / zoom {snapshot.navigation?.cameraZoom.toPrecision(10)}</code>
+      <code data-testid="navigation-projection">{snapshot.navigation?.projection} zoom: {snapshot.navigation?.cameraZoom.toPrecision(10)}</code>
+    {snapshot.navigation?.solidworks && <code>Reference: {snapshot.navigation.solidworks.reference?.highlight?.kind ?? "none"}</code>}
     {catia && <>
       <code>CATIA: {catia.state} · Pivot: {catia.pivotSource}</code>
       <code>P: {catia.pivot.x.toFixed(3)}, {catia.pivot.y.toFixed(3)}, {catia.pivot.z.toFixed(3)}</code>

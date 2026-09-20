@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { worldUnitsPerCssPixel } from "../rendering/viewport-metrics";
 
 export type CadCamera = THREE.PerspectiveCamera | THREE.OrthographicCamera;
 
@@ -46,7 +47,9 @@ export class ThreeCameraRig implements CameraRig {
   centerViewpointAt(point: THREE.Vector3): void {
     // Move the complete viewing rig. The view direction and camera-to-pivot
     // vector stay unchanged, so centering is immediate and has no camera swing.
-    const translation = point.clone().sub(this.pivot);
+    const direction = this.camera.getWorldDirection(new THREE.Vector3());
+    const depth = point.clone().sub(this.camera.position).dot(direction);
+    const translation = point.clone().sub(this.camera.position).addScaledVector(direction, -depth);
     this.camera.position.add(translation);
     this.pivot.copy(point);
     this.camera.updateMatrixWorld(true);
@@ -55,10 +58,8 @@ export class ThreeCameraRig implements CameraRig {
   panPixels(deltaX: number, deltaY: number, _viewportWidth: number, viewportHeight: number): void {
     if (deltaX === 0 && deltaY === 0) return;
     const height = Math.max(viewportHeight, 1);
-    const worldHeight = this.camera instanceof THREE.PerspectiveCamera
-      ? 2 * Math.max(this.distance, this.options.minDistance) * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2)
-      : (this.camera.top - this.camera.bottom) / Math.max(this.camera.zoom, 1.0e-9);
-    const worldPerPixel = worldHeight / height;
+    const worldPerPixel = worldUnitsPerCssPixel(this.camera, this.pivot,
+      { cssWidth: _viewportWidth, cssHeight: height, devicePixelRatio: 1 });
 
     this.camera.updateMatrixWorld(true);
     const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0).normalize();
@@ -112,7 +113,9 @@ export class ThreeCameraRig implements CameraRig {
       const nextDistance = THREE.MathUtils.clamp(
         distance * factor, this.options.minDistance, this.options.maxDistance,
       );
-      this.camera.position.copy(center).addScaledVector(offset, nextDistance / distance);
+      const scale = nextDistance / distance;
+      this.camera.position.copy(center).addScaledVector(offset, scale);
+      this.pivot.sub(center).multiplyScalar(scale).add(center);
       this.camera.updateMatrixWorld(true);
       return;
     }
@@ -126,7 +129,9 @@ export class ThreeCameraRig implements CameraRig {
     const planar = right.multiplyScalar(relative.dot(right)).add(up.multiplyScalar(relative.dot(up)));
     // Compensate the camera in its image plane so an off-centre pivot retains
     // the same screen position while orthographic zoom changes.
-    this.camera.position.addScaledVector(planar, 1 - oldZoom / nextZoom);
+    const translation = planar.multiplyScalar(1 - oldZoom / nextZoom);
+    this.camera.position.add(translation);
+    this.pivot.add(translation);
     this.camera.zoom = nextZoom;
     this.camera.updateProjectionMatrix();
     this.camera.updateMatrixWorld(true);

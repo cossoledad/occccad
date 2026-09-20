@@ -1,3 +1,5 @@
+import { InfiniteGroundGrid } from "../cad/rendering/infinite-ground-grid";
+import { fitOrthographicView, updateOrthographicClipping, orientView, restoreView, saveView, standardView, viewFocus, type SavedView } from "../cad/navigation/orthographic-view";
 import * as THREE from "three";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
@@ -16,7 +18,8 @@ import { resolveSketchReference, type SketchReferencePickKind } from "../cad/int
 import { resolveSketchSnap, type SketchSnapResult } from "../cad/interaction/sketch-snap";
 import { allowsSelection, allowsSelectionInContext, DEFAULT_CAPTURE_SETTINGS, type CaptureSettings } from "../cad/interaction/capture-settings";
 import { NavigationController, type NavigationSnapshot } from "../cad/navigation/navigation-controller";
-import { CatiaNavigationHUD } from "../cad/navigation/hud/catia-navigation-hud";
+import { navigationCursor } from "../cad/navigation/navigation-cursor";
+import { NavigationHUD } from "../cad/navigation/hud/navigation-hud";
 import { CAD_GEOMETRY_LAYER, markNavigationPickable, NavigationPicker } from "../cad/navigation/navigation-picker";
 import type { NavigationAction, NavigationProfileID } from "../cad/navigation/navigation-profile";
 import { CadBackground } from "../cad/rendering/cad-background";
@@ -199,10 +202,11 @@ function makeFeatureEdges(geometry: THREE.BufferGeometry): THREE.EdgesGeometry {
 
 export class CadViewportEngine {
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(42, 1, 0.1, 5000);
+  private readonly camera = new THREE.OrthographicCamera(-150, 150, 150, -150, 0.1, 5000);
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   private readonly shaders = new CadShaderLibrary();
   private readonly materials = new CadMaterialFactory(this.shaders);
+  private readonly groundGrid = new InfiniteGroundGrid(CATIA_VISUAL_THEME.gridMinor);
   private readonly background = new CadBackground(this.shaders);
   private readonly moveManipulator: AssemblyManipulator;
   private moveTarget?: { group: THREE.Group; startPosition: THREE.Vector3; startQuaternion: THREE.Quaternion;
@@ -211,7 +215,7 @@ export class CadViewportEngine {
   private readonly manipulatorFrames = new Map<string, THREE.Quaternion>();
   private pendingManipulatorAnchor?:{instanceId:string;anchor:ManipulatorAnchor};
   private readonly navigation: NavigationController;
-  private readonly navigationHUD: CatiaNavigationHUD;
+  private readonly navigationHUD: NavigationHUD;
   private readonly tools: ToolManager;
   private readonly selectionController: SelectionController;
   private readonly interaction: InteractionRouter;
@@ -257,6 +261,7 @@ export class CadViewportEngine {
   private activeToolID = "select";
   private reconnectExternalID?: string;
   private selectionMode: SelectionMode = selectionModeForTool("select");
+  private sketchReturnView?: SavedView;
   private navigationProfile: NavigationProfileID = "default";
   private captureSettings: CaptureSettings = DEFAULT_CAPTURE_SETTINGS;
   private treeVisibilityOverrides: TreeVisibilityOverrides = {};
@@ -267,7 +272,7 @@ export class CadViewportEngine {
 
   constructor(private readonly host: HTMLElement, private readonly callbacks: Callbacks) {
     this.scene.background = null;
-    this.camera.position.set(310, -360, 270);
+    this.camera.position.set(300, -300, 300);
     this.camera.up.set(0, 0, 1);
     this.camera.layers.enable(CAD_GEOMETRY_LAYER);
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
@@ -295,16 +300,6 @@ export class CadViewportEngine {
     });
     this.scene.add(this.moveManipulator.root);
 
-    const groundGrid = new THREE.GridHelper(1200, 60);
-    groundGrid.rotation.x = Math.PI / 2;
-    groundGrid.position.z = -0.02;
-    (groundGrid.material as THREE.Material).dispose();
-    const groundMaterial = this.materials.edge(CATIA_VISUAL_THEME.gridMinor);
-    groundMaterial.uniforms.uOpacity.value = 0.14;
-    groundMaterial.depthWrite = false;
-    groundGrid.material = groundMaterial as unknown as THREE.LineBasicMaterial;
-    groundGrid.renderOrder = -10;
-    this.environment.add(groundGrid);
     const hemisphere = new THREE.HemisphereLight(CATIA_VISUAL_THEME.lightSky, CATIA_VISUAL_THEME.lightGround, CATIA_VISUAL_THEME.hemisphereIntensity);
     const keyLight = new THREE.DirectionalLight(CATIA_VISUAL_THEME.lightKey, CATIA_VISUAL_THEME.keyIntensity);
     keyLight.position.set(-3, -4, 7);
@@ -326,8 +321,9 @@ export class CadViewportEngine {
       this.updateCameraClipping();
       this.invalidate();
     }, navigationPicker, () => this.visibleContentCenter(), "default",
-    import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true");
-    this.navigationHUD = new CatiaNavigationHUD(this.shaders);
+    import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true",
+      () => this.visibleContentBounds(), () => this.fit(), () => Boolean(this.activeSketchID));
+    this.navigationHUD = new NavigationHUD();
     this.tools = new ToolManager({ viewport: this.toolViewportPort() });
     this.tools.register(new SelectTool());
     this.tools.register(new AssemblyMoveTool());
@@ -367,6 +363,7 @@ export class CadViewportEngine {
     });
     this.navigation.subscribe((action, profile, snapshot) => {
       this.navigationProfile = profile;
+      this.renderer.domElement.style.cursor = navigationCursor(snapshot);
       this.host.classList.toggle("navigating", action !== "none" || Boolean(snapshot.catia?.hudVisible));
       if (action !== "none") this.clearSnapPreview();
       this.updateNavigationHUD(snapshot);
@@ -376,6 +373,7 @@ export class CadViewportEngine {
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(host);
+    this.resize();
     this.invalidate();
   }
 
@@ -384,7 +382,13 @@ export class CadViewportEngine {
   }
 
   render(view: DocumentView, editContext?: ViewportEditContext): void {
+    this.navigation.cancel();
     const previousDocumentID = this.view?.document.id;
+    if (previousDocumentID !== view.document.id) {
+      this.sketchReturnView = undefined;
+      this.sketchPlane = undefined; this.activeSketchID = undefined;
+      this.disposeGroup(this.sketchContext);
+    }
     const previousInstancePoses = new Map([...this.instanceGroups].map(([id, group]) => [id, snapshotTransform(group)]));
     const retainedMoveSelection = this.activeToolID === "assembly.move" ? [...this.selected] : [];
 	this.clearCommandPreview(false);
@@ -432,7 +436,10 @@ export class CadViewportEngine {
     const validMoveSelection = retainedMoveSelection.filter((selection) => selection.kind === "instance" &&
       this.instanceGroups.has(selection.instanceId ?? selection.id));
     if (validMoveSelection.length === 1) this.selectMany(validMoveSelection, false);
-    // this.frameContent();
+    if (previousDocumentID !== view.document.id) {
+      standardView(this.camera, this.navigation.target, "ISO");
+      this.frameContent();
+    }
     this.invalidate();
   }
 
@@ -441,6 +448,8 @@ export class CadViewportEngine {
 	this.transforms.stopAll();
 	this.clearInteractionState();
     this.view = undefined;
+    this.sketchReturnView = undefined;
+    this.sketchPlane = undefined; this.activeSketchID = undefined;
     this.moveManipulator.detach();
     this.moveTarget = undefined;
     this.disposeGroup(this.content);
@@ -470,16 +479,22 @@ export class CadViewportEngine {
   }
 
   beginSketch(sketchID: string, plane: SketchPlane): void {
+    const entering = this.activeSketchID !== sketchID;
+    if (entering && !this.sketchReturnView) this.sketchReturnView = saveView(this.camera, this.navigation.target);
+    this.navigation.cancel();
     this.activeSketchID = sketchID;
     this.sketchPlane = plane;
     this.moveManipulator.detach();
-    this.select({ kind: "plane", id: plane.datumPlaneId, plane: plane.plane });
+    if (entering) this.select({ kind: "plane", id: plane.datumPlaneId, plane: plane.plane });
     this.navigation.setEnabled(true);
-    const frame = planeFrame(plane);
-    this.navigation.target.copy(frame.origin);
-    this.camera.position.copy(frame.origin).addScaledVector(frame.normal, 420);
-    this.camera.up.copy(frame.v);
-    this.navigation.syncCamera();
+    if (entering) {
+      const frame = planeFrame(plane);
+      const focus = viewFocus(this.camera, this.navigation.target);
+      // Keep the region being inspected, projected onto the support plane.
+      focus.addScaledVector(frame.normal, -focus.clone().sub(frame.origin).dot(frame.normal));
+      orientView(this.camera, this.navigation.target, focus, frame.normal, frame.v);
+      this.navigation.syncCamera(false);
+    }
     this.buildSketchContext();
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
@@ -488,6 +503,8 @@ export class CadViewportEngine {
   }
 
   endSketch(): void {
+    if (!this.activeSketchID && !this.sketchReturnView) return;
+    this.navigation.cancel();
 	this.clearInteractionState();
     this.sketchPlane = undefined;
     this.activeSketchID = undefined;
@@ -499,7 +516,12 @@ export class CadViewportEngine {
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
     this.callbacks.toolPromptChanged("");
-    this.frameContent();
+    if (this.sketchReturnView) {
+      restoreView(this.camera, this.navigation.target, this.sketchReturnView);
+      this.sketchReturnView = undefined;
+      this.navigation.syncCamera(false);
+    }
+    this.invalidate();
   }
 
   setActiveTool(toolID: import("../state/workbench-store").WorkbenchToolID): void {
@@ -509,6 +531,10 @@ export class CadViewportEngine {
   beginExternalReconnect(externalID: string): void {
     this.reconnectExternalID = externalID;
     this.tools.activate("sketch.project");
+  }
+
+  setCatiaRotationSphereVisible(visible: boolean): void {
+    this.navigation.setCatiaRotationSphereVisible(visible);
   }
 
   setNavigationProfile(profile: NavigationProfileID): void {
@@ -529,6 +555,7 @@ export class CadViewportEngine {
     this.clearCommandPreview();
     if (!artifact.mesh.vertices.length || !artifact.mesh.triangles.length) return;
     const geometry = makeGeometry(artifact);
+    geometry.userData.navigationFaceIds = artifact.mesh.faceIds;
     const group = new THREE.Group();
     const solid = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({ color: CATIA_VISUAL_THEME.commandPreview,
       transparent: true, opacity: 0.34, depthWrite: false, side: THREE.DoubleSide }));
@@ -576,21 +603,10 @@ export class CadViewportEngine {
   }
 
   setStandardView(view: "TOP" | "FRONT" | "RIGHT" | "ISO"): void {
-    const box = new THREE.Box3().setFromObject(this.content);
-    if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
-    const center = box.getCenter(new THREE.Vector3());
-    const distance = this.fitDistance(box);
-    const directions = {
-      TOP: new THREE.Vector3(0, 0, 1).multiplyScalar(distance),
-      FRONT: new THREE.Vector3(0, -1, 0).multiplyScalar(distance),
-      RIGHT: new THREE.Vector3(1, 0, 0).multiplyScalar(distance),
-      ISO: new THREE.Vector3(1, -1, 1).normalize().multiplyScalar(distance),
-    };
-    this.camera.position.copy(center).add(directions[view]);
-    this.camera.up.set(0, view === "TOP" ? 1 : 0, view === "TOP" ? 0 : 1);
-    this.navigation.target.copy(center);
-    this.updateCameraClipping(box);
-    this.navigation.syncCamera();
+    this.navigation.cancel();
+    standardView(this.camera, this.navigation.target, view);
+    if (view === "ISO") this.frameContent();
+    else this.navigation.syncCamera(false);
   }
 
   select(selection: Selection, notify = true): void {
@@ -818,6 +834,7 @@ export class CadViewportEngine {
     this.moveManipulator.dispose();
     this.navigationHUD.dispose();
     this.background.dispose();
+    this.groundGrid.dispose();
     this.disposeGroup(this.environment);
     this.disposeGroup(this.lighting);
     this.disposeGroup(this.content);
@@ -1562,6 +1579,7 @@ export class CadViewportEngine {
 
   private makeSolid(artifact: Artifact, color: number, context: SolidContext): THREE.Group {
     const geometry = makeGeometry(artifact);
+    geometry.userData.navigationFaceIds = artifact.mesh.faceIds;
     const group = new THREE.Group();
     const mesh = new THREE.Mesh(geometry, this.materials.surface(color));
     mesh.raycast = acceleratedRaycast;
@@ -1595,7 +1613,9 @@ export class CadViewportEngine {
     if (edgePositions.length > 0) {
       const edgeGeometry = new THREE.BufferGeometry();
       edgeGeometry.setAttribute("position", new THREE.Float32BufferAttribute(edgePositions, 3));
+      edgeGeometry.userData.navigationEdgeIds = edgeIDs;
       const edges = new THREE.LineSegments(edgeGeometry, this.materials.edge());
+      markNavigationPickable(edges);
       this.selectionIndex.registerPick(edges, (hit) => {
         const segmentIndex = ((hit.index ?? 0) / 2) | 0;
         const localID = edgeIDs[segmentIndex] ?? 0;
@@ -1647,9 +1667,7 @@ export class CadViewportEngine {
     this.updateScreenStableReferences();
     this.updatePointer(x, y);
     this.raycaster.setFromCamera(this.pointer, this.camera);
-    const distance = Math.max(this.camera.position.distanceTo(this.navigation.target), 1);
-    const worldPerPixel = 2 * distance * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)) /
-      Math.max(this.renderer.domElement.clientHeight, 1);
+    const worldPerPixel = worldUnitsPerCssPixel(this.camera, this.navigation.target, viewportMetrics(this.renderer));
     this.raycaster.params.Line = { threshold: worldPerPixel * 5 };
     this.raycaster.params.Points = { threshold: worldPerPixel * 7 };
     this.datumAxisPickToleranceWorld = worldPerPixel * 1.75;
@@ -2085,7 +2103,7 @@ export class CadViewportEngine {
 
   private updateNavigationHUD(snapshot = this.navigation.snapshot): void {
     this.navigationHUD.update(
-      snapshot.profile === "catia" ? snapshot.catia : undefined,
+      snapshot,
       this.camera,
       this.renderer.domElement.clientWidth,
       this.renderer.domElement.clientHeight,
@@ -2116,58 +2134,24 @@ export class CadViewportEngine {
   }
 
   private frameContent(): void {
-    const box = this.contentBounds.clone();
-    if (box.isEmpty()) {
-      box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
-    }
-
-    const newCenter = box.getCenter(new THREE.Vector3());
-    const distance = this.fitDistance(box);
-
-    // Preserve the user's current viewing direction when fitting new content.
-    const viewDir = this.camera.getWorldDirection(new THREE.Vector3()).negate().normalize();
-
-    // 如果相机恰好在原 target 点上导致 viewDir 为零，给定一个默认方向 fallback
-    if (viewDir.lengthSq() === 0) {
-      viewDir.set(1, -1.2, 0.8).normalize();
-    }
-
-    this.navigation.target.copy(newCenter);
-
-    // 3. 沿原视线方向拉远/拉近相机，将位置移动到新中心偏移 distance 的地方
-    this.camera.position.copy(newCenter).addScaledVector(viewDir, distance);
-
-    this.updateCameraClipping(box);
-    this.navigation.syncCamera();
-  }
-
-  private fitDistance(box: THREE.Box3): number {
-    const sphere = box.getBoundingSphere(new THREE.Sphere());
-    const radius = Math.max(sphere.radius, 1);
-    const verticalFov = THREE.MathUtils.degToRad(this.camera.fov);
-    const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * Math.max(this.camera.aspect, 0.01));
-    return radius / Math.sin(Math.min(verticalFov, horizontalFov) / 2) * 1.15;
+    this.navigation.cancel();
+    const box = this.visibleContentBounds();
+    if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
+    fitOrthographicView(this.camera, this.navigation.target, box);
+    this.navigation.syncCamera(false);
   }
 
   private updateCameraClipping(box?: THREE.Box3): void {
-    // Geometry bounds are cached when the document changes. High-frequency
-    // navigation therefore never traverses a large Product scene per move.
-    const bounds = box ?? this.contentBounds;
-    const sphere = bounds.isEmpty()
-      ? new THREE.Sphere(this.navigation.target.clone(), 100)
-      : bounds.getBoundingSphere(new THREE.Sphere());
-    const distance = this.camera.position.distanceTo(this.navigation.target);
-    const radius = Math.max(sphere.radius, 1.0e-3);
-    this.camera.near = Math.max(1.0e-4, Math.min(radius * 1.0e-3, distance * 0.1));
-    this.camera.far = Math.max(this.camera.near * 1000, distance + radius * 20, 1000);
-    this.camera.updateProjectionMatrix();
+    updateOrthographicClipping(this.camera, box ?? this.contentBounds);
   }
 
   private resize(): void {
     const width = Math.max(this.host.clientWidth, 1);
     const height = Math.max(this.host.clientHeight, 1);
     this.renderer.setSize(width, height, false);
-    this.camera.aspect = width / height;
+    const halfHeight = (this.camera.top - this.camera.bottom) / 2;
+    this.camera.left = -halfHeight * width / height;
+    this.camera.right = halfHeight * width / height;
     this.camera.updateProjectionMatrix();
     for (const overlay of [...this.preselectedOverlays, ...this.selectedOverlays]) {
       updateHighlightLineResolution(overlay, width, height);
@@ -2181,7 +2165,7 @@ export class CadViewportEngine {
     this.contentBounds.setFromObject(this.content);
   }
 
-  private visibleContentCenter(): THREE.Vector3 {
+  private visibleContentBounds(): THREE.Box3 {
     const bounds = new THREE.Box3();
     this.content.updateMatrixWorld(true);
     this.content.traverseVisible((object) => {
@@ -2190,6 +2174,11 @@ export class CadViewportEngine {
       if (!geometry.boundingBox) geometry.computeBoundingBox();
       if (geometry.boundingBox) bounds.union(geometry.boundingBox.clone().applyMatrix4(object.matrixWorld));
     });
+    return bounds;
+  }
+
+  private visibleContentCenter(): THREE.Vector3 {
+    const bounds = this.visibleContentBounds();
     return bounds.isEmpty() ? this.navigation.target.clone() : bounds.getCenter(new THREE.Vector3());
   }
 
@@ -2233,6 +2222,7 @@ export class CadViewportEngine {
         });
         this.renderer.clear(true, true, true);
         this.background.render(this.renderer);
+        if (this.environment.visible) this.groundGrid.render(this.renderer, this.camera);
         this.renderer.clearDepth();
         this.renderer.render(this.scene, this.camera);
         this.navigationHUD.render(this.renderer);

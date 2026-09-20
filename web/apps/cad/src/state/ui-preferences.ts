@@ -22,6 +22,8 @@ type UIPreferences = {
   treeVisibilityOverrides: TreeVisibilityOverrides;
   structureTreeWidth: number;
   navigationProfile: NavigationProfileID;
+  catiaRotationSphereVisible: boolean;
+  setCatiaRotationSphereVisible: (visible: boolean) => void;
   captureSettings: CaptureSettings;
   displayLengthUnit: DisplayLengthUnit;
   documentLengthUnits: Record<string, DisplayLengthUnit>;
@@ -81,6 +83,8 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   treeVisibilityOverrides: {},
   structureTreeWidth: DEFAULT_STRUCTURE_TREE_WIDTH,
   navigationProfile: "default",
+  catiaRotationSphereVisible: false,
+  setCatiaRotationSphereVisible: (catiaRotationSphereVisible) => set({ catiaRotationSphereVisible }),
   captureSettings: { ...DEFAULT_CAPTURE_SETTINGS, selection: [...DEFAULT_CAPTURE_SETTINGS.selection], sketch: [...DEFAULT_CAPTURE_SETTINGS.sketch] },
   displayLengthUnit: "mm",
   documentLengthUnits: {},
@@ -112,7 +116,7 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   }),
 }), {
   name: "occccad.ui-preferences.v1",
-  version: 4,
+  version: 5,
   migrate: (persisted) => {
     const value = (persisted && typeof persisted === "object" ? persisted : {}) as Partial<UIPreferences> & { hiddenTreeKeys?: string[] };
     const documentLengthUnits = Object.fromEntries(Object.entries(value.documentLengthUnits ?? {})
@@ -121,12 +125,13 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
       .flatMap(([id, position]) => { const normalized = normalizePanelPosition(position); return normalized ? [[id, normalized]] : []; }));
     return { ...value, commandDialogPositions, treeVisibilityOverrides: migrateTreeVisibilityOverrides(value),
       structureTreeWidth: clampStructureTreeWidth(value.structureTreeWidth),
-      navigationProfile: value.navigationProfile === "catia" ? "catia" : "default",
+      navigationProfile: value.navigationProfile === "catia" || value.navigationProfile === "solidworks" ? value.navigationProfile : "default",
+      catiaRotationSphereVisible: value.catiaRotationSphereVisible === true,
       captureSettings: normalizeCaptureSettings(value.captureSettings),
       displayLengthUnit: normalizeDisplayLengthUnit(value.displayLengthUnit), documentLengthUnits } as UIPreferences;
   },
   partialize: (state) => ({ commandDialogPositions: state.commandDialogPositions, inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
     treeVisibilityOverrides: state.treeVisibilityOverrides, structureTreeWidth: state.structureTreeWidth,
-    navigationProfile: state.navigationProfile, captureSettings: state.captureSettings,
+    navigationProfile: state.navigationProfile, catiaRotationSphereVisible: state.catiaRotationSphereVisible, captureSettings: state.captureSettings,
     displayLengthUnit: state.displayLengthUnit, documentLengthUnits: state.documentLengthUnits }),
 }));

@@ -85,7 +85,7 @@ export class AssemblyManipulator {
     for(const arrow of this.arrowLines)this.updateArrowLine(arrow.axis,arrow.geometry,cameraLocal);
   }
 
-  pointerMove(pointerId: number, x: number, y: number, camera: THREE.PerspectiveCamera, surface: HTMLElement): boolean {
+  pointerMove(pointerId: number, x: number, y: number, camera: THREE.Camera, surface: HTMLElement): boolean {
     if (!this.visible) return false;
     if (!this.drag) { this.setHovered(this.pick(x, y, camera, surface)); return Boolean(this.hovered); }
     if (this.drag.pointerId !== pointerId) return true;
@@ -130,7 +130,7 @@ export class AssemblyManipulator {
     return true;
   }
 
-  pointerDown(pointerId: number, x: number, y: number, camera: THREE.PerspectiveCamera, surface: HTMLElement): boolean {
+  pointerDown(pointerId: number, x: number, y: number, camera: THREE.Camera, surface: HTMLElement): boolean {
     if (!this.visible || this.drag) return false;
     const handle = this.pick(x, y, camera, surface);
     if (!handle) return false;
@@ -185,7 +185,7 @@ export class AssemblyManipulator {
     this.handles.push({ axis: rotationAxis[axis], radialAxis:axis, operation: "rotate", pick: ringPick, materials: [ringMaterial] });
   }
 
-  private pick(x: number, y: number, camera: THREE.PerspectiveCamera, surface: HTMLElement): Handle | undefined {
+  private pick(x: number, y: number, camera: THREE.Camera, surface: HTMLElement): Handle | undefined {
     const rect = surface.getBoundingClientRect();
     const pointer = new THREE.Vector2(x / Math.max(rect.width, 1) * 2 - 1, 1 - y / Math.max(rect.height, 1) * 2);
     const ray = new THREE.Raycaster(); ray.setFromCamera(pointer, camera);

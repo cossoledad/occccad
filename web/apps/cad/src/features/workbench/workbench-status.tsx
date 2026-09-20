@@ -15,6 +15,6 @@ export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengt
       onSelectionToggle={preferences.toggleSelectionCapture} onSketchToggle={preferences.toggleSketchSnap}
       onAll={preferences.captureAll} onPointsOnly={preferences.capturePointsOnly} />
     <span>长度 · {lengthUnit}</span>
-    <span className="workbench-navigation-label">{preferences.navigationProfile === "catia" ? "CATIA" : "默认"} 导航</span>
+    <span className="workbench-navigation-label">{preferences.navigationProfile === "catia" ? "3DEXPERIENCE CATIA" : preferences.navigationProfile === "solidworks" ? "SOLIDWORKS" : "默认"} 导航</span>
   </footer>;
 }
