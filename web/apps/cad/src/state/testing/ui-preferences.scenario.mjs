@@ -8,6 +8,12 @@ const server = await createServer({ appType: "custom", logLevel: "silent", serve
 try {
   const { clampStructureTreeWidth, displayLengthToMillimeters, effectiveLengthUnit, millimetersToDisplayLength,
     normalizeDisplayLengthUnit, normalizeToolbarLayout } = await server.ssrLoadModule("/src/state/ui-preferences.ts");
+  const { normalizePanelPosition, clampPanelPosition } = await server.ssrLoadModule("/src/utils/panel-position.ts");
+  assert.equal(normalizePanelPosition({ x: "20", y: 30 }), undefined);
+  assert.equal(normalizePanelPosition({ x: Infinity, y: 30 }), undefined);
+  assert.deepEqual(normalizePanelPosition({ x: 20, y: 30 }), { x: 20, y: 30 });
+  assert.deepEqual(clampPanelPosition({ x: 900, y: -50 }, { width: 300, height: 200 }, { width: 800, height: 600 }), { x: 492, y: 8 });
+  assert.deepEqual(clampPanelPosition({ x: 100, y: 100 }, { width: 500, height: 500 }, { width: 300, height: 300 }), { x: 8, y: 8 });
   const { migrateTreeVisibilityOverrides, sketchTreeVisible, treeVisibilityOverride } = await server.ssrLoadModule("/src/cad/interaction/tree-visibility.ts");
   assert.deepEqual(normalizeToolbarLayout(undefined, "vertical"), { orientation: "vertical" });
   assert.deepEqual(normalizeToolbarLayout({ orientation: "horizontal", x: 18, y: 42 }, "vertical"),

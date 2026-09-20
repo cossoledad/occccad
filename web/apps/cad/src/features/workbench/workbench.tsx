@@ -1,13 +1,11 @@
-import {
-  MenuFoldOutlined, MenuUnfoldOutlined,
-} from "@ant-design/icons";
+import { InsertDocumentDialog } from "./insert-document-dialog";
+import "./workbench.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Alert, App, Button, Divider, Empty, Form, Input, InputNumber, Segmented,
+  Alert, App, Button, Divider, Empty, Form, Input, InputNumber,
   Select, Space, Spin, Switch, Tag, Typography,
 } from "antd";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState,
-  type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api, isMockMode } from "../../api/client";
 import { ApiError } from "../../api";
@@ -20,22 +18,23 @@ import { CommandRegistry } from "../../cad/command/command-registry";
 import { selectionKey, selectionSetToken } from "../../cad/interaction/selection-identity";
 import { sketchTreeVisible, treeVisibilityOverride } from "../../cad/interaction/tree-visibility";
 import { assemblyGeometryRef, type AssemblyConstraintToolKind } from "../../cad/tool/cad-tool";
-import { CommandDialog, FloatingToolbar, ToolbarGroup } from "../../cad/overlay/floating-panel";
-import { ToolButton } from "../../cad/overlay/tool-button";
-import { CadIcon, type CadIconName } from "../../cad/overlay/cad-icons";
-import { CAD_WORKBENCHES, resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
+import { CommandDialog } from "../../cad/overlay/floating-panel";
+import { resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
 import { useWorkbenchStore, type WorkbenchToolID } from "../../state/workbench-store";
 import { displayLengthToMillimeters, effectiveLengthUnit, millimetersToDisplayLength,
-  MIN_STRUCTURE_TREE_WIDTH, useUIPreferences } from "../../state/ui-preferences";
+  useUIPreferences } from "../../state/ui-preferences";
 import { useApplicationContext } from "../../state/application-context";
-import type { AssemblyConstraint, AssemblyGeometryRef, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, ProductRelease, Selection, SketchOperation, SketchPlane, ToolbarCatalogEntry, Vec3 } from "../../types";
-import { topologyPropertyContext } from "./topology-property-context";
+import type { AssemblyConstraint, AssemblyGeometryRef, CommandPreview, DatumPlane, DocumentView, Feature, ParameterDefinition, ProductRelease, Selection, SketchOperation, SketchPlane, Vec3 } from "../../types";
+import { WorkbenchLayout } from "./workbench-layout";
+import { WorkbenchCommands, WorkbenchViewControls } from "./workbench-commands";
+import { WorkbenchStatus } from "./workbench-status";
+import { contextualToolbars } from "./workbench-command-model";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { followedDocumentIDs, staleProductDocumentIDs } from "./product-edit-context";
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { isLengthParameter, linearExtrudeLengthInput, parameterDisplayValue, parameterSourceText, parseParameterSource } from "./parameter-editor";
-import { History, Properties } from "./workbench-inspector";
+import { WorkbenchInspectorPanel } from "./workbench-inspector-panel";
 import { findStructureEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
 import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
   firstDisconnectedSupport, validateReconnectCandidate } from "../../cad/assembly/assembly-constraint-ux";
@@ -191,19 +190,15 @@ export function Workbench() {
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const treeVisibilityOverrides = useUIPreferences((state) => state.treeVisibilityOverrides);
   const setTreeVisibility = useUIPreferences((state) => state.setTreeVisibility);
-  const structureTreeWidth = useUIPreferences((state) => state.structureTreeWidth);
-  const setStructureTreeWidth = useUIPreferences((state) => state.setStructureTreeWidth);
   const navigationProfile = useUIPreferences((state) => state.navigationProfile);
   const captureSettings = useUIPreferences((state) => state.captureSettings);
   const displayLengthUnit = useUIPreferences((state) => state.displayLengthUnit);
   const documentLengthUnits = useUIPreferences((state) => state.documentLengthUnits);
-  const structureTreeResize = useRef<{ pointerId: number; startX: number; startWidth: number } | undefined>(undefined);
   const setShellActiveDocumentID = useApplicationContext((state) => state.setActiveDocumentID);
   const [shareResource, setShareResource] = useState<ShareResource>();
   const [padForm] = Form.useForm<{ generator: "LINEAR_EXTRUDE" | "REVOLVE"; operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
     lengthSource: string; angle: number; axisEntityId?: string; reversed: boolean }>();
 	const [featureForm] = Form.useForm<{ lengthText: string }>();
-  const [insertForm] = Form.useForm<{ referencedDocumentID: string }>();
   const [newPartForm] = Form.useForm<{ name?: string; description?: string }>();
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
   const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
@@ -238,21 +233,7 @@ export function Workbench() {
 	  return () => setShellActiveDocumentID(undefined);
 	}, [activeID, setShellActiveDocumentID]);
 	const toolbarCatalog = useQuery({ queryKey: ["ui", "toolbars"], queryFn: api.toolbarCatalog, staleTime: 5 * 60_000 });
-  const properties = useQuery({ queryKey: queryKeys.documentProperties(activeID), queryFn: () => api.getDocumentProperties(activeID),
-    enabled: Boolean(activeID && inspectorOpen && store.inspectorTab === "properties"), staleTime: 30_000 });
-  const history = useQuery({ queryKey: queryKeys.history(activeID), queryFn: () => api.getHistory(activeID),
-    enabled: Boolean(activeID && inspectorOpen && store.inspectorTab === "history"), staleTime: 10_000 });
-  const catalog = useQuery({ queryKey: queryKeys.documents({ workbench: true }), queryFn: () => api.listDocuments({ limit: 100, allFolders: true }) });
-  const topologySelection = store.selection && ["face", "edge", "vertex"].includes(store.selection.kind)
-    ? store.selection as Extract<Exclude<Selection, null>, { kind: "face" | "edge" | "vertex" }> : undefined;
-  const topologyContext = topologyPropertyContext(topologySelection ?? null, activeID);
-  const topology = useQuery({
-    queryKey: topologySelection ? queryKeys.topologyProperties(topologyContext.documentId, topologySelection.geometryKey ?? "",
-      topologySelection.kind, topologySelection.topologyId, topologySelection.versionId) : ["topology-properties", "none"],
-    queryFn: () => api.getTopologyProperties(topologyContext.documentId, topologySelection!.geometryKey!,
-      topologySelection!.kind.toUpperCase() as "FACE" | "EDGE" | "VERTEX", topologySelection!.topologyId, topologyContext.versionId),
-    enabled: Boolean(activeID && inspectorOpen && store.inspectorTab === "properties" && topologySelection?.geometryKey), staleTime: 5 * 60_000,
-  });
+  const catalog = useQuery({ queryKey: queryKeys.documents({ workbench: true }), queryFn: () => api.listDocuments({ limit: 100, allFolders: true }), enabled: publicationManagerOpen });
 
   useEffect(() => {
     if (document.data) void client.invalidateQueries({ queryKey: queryKeys.openDocuments });
@@ -708,10 +689,6 @@ export function Workbench() {
     padForm.setFieldValue("axisEntityId", reference);
     void requestPadPreview(padSketchID, "REVOLVE");
   }, [padOpen, padGenerator, padSketchID, store.selection, editingView]);
-  const insertDocument = (values: { referencedDocumentID: string }) => {
-    if (editingView?.document.type !== "PRODUCT") return;
-    command.mutate(() => api.insert(editingView.document.id, values.referencedDocumentID)); setInsertOpen(false);
-  };
   const createPartComponent = (values: { name?: string; description?: string }) => {
     if (view?.document.type !== "PRODUCT" || !newPartTarget) return;
     command.mutate(() => api.createPartComponent(view.document.id, { name: values.name?.trim() || undefined,
@@ -739,7 +716,7 @@ export function Workbench() {
   };
   const createVersion = async (values: { name: string; description: string }) => {
     if (!editingView) return; await api.createVersion(editingView.document.id, values.name, values.description); setVersionOpen(false);
-    await history.refetch(); message.success("版本已创建");
+    await client.invalidateQueries({ queryKey: queryKeys.history(editingView.document.id) }); message.success("版本已创建");
   };
   const createRelease = async (name: string) => {
     const release: ProductRelease = await api.createProductRelease(documentID, name);
@@ -948,82 +925,17 @@ export function Workbench() {
   </>;
 
 
-  const resizeStructureTree = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const resize = structureTreeResize.current;
-    if (!resize || resize.pointerId !== event.pointerId) return;
-    const viewportLimit = Math.max(MIN_STRUCTURE_TREE_WIDTH, Math.min(640, window.innerWidth * 0.55));
-    setStructureTreeWidth(Math.min(viewportLimit, resize.startWidth + event.clientX - resize.startX));
-  };
-  const finishStructureTreeResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (structureTreeResize.current?.pointerId !== event.pointerId) return;
-    structureTreeResize.current = undefined;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-  };
-  const resizeStructureTreeFromKeyboard = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    event.preventDefault();
-    setStructureTreeWidth(structureTreeWidth + (event.key === "ArrowRight" ? 16 : -16));
-  };
-  const visibleToolbars = (toolbarCatalog.data?.toolbars ?? [])
-    .filter((toolbar) => toolbar.workbench === "ALL" || toolbar.workbench === activeWorkbench);
-  const defaultTopLeftToolbarCount = visibleToolbars.filter((toolbar) => toolbar.position === "top-left").length;
+  const visibleToolbars = contextualToolbars(toolbarCatalog.data?.toolbars ?? [], activeWorkbench);
+  const activeToolName = visibleToolbars.flatMap((toolbar) => toolbar.items)
+    .find((item) => item.commandId === store.activeToolID)?.name ?? "选择";
 
   return <CommandProvider registry={commandRegistry}><section className="cad-workbench">
-    <main className="workbench-stage"><section className={`viewport-frame ${inspectorOpen ? "inspector-open" : ""}`}>
-        {view.document.type === "PRODUCT" && (activeInstancePath || activeDocumentID !== documentID) && <div style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",
-          padding:"6px 10px",borderRadius:6,background:"rgba(22,27,34,.88)",color:"white"}}>
-          <Space size="small"><Typography.Text style={{color:"white"}}>
-            {activeInstancePath ? `上下文编辑 · ${activeResolvedInstance?.instancePath?.display ?? activeInstancePath}`
-              : `定义编辑 · ${editingView?.document.name??activeDocumentID}`}
-          </Typography.Text>
-          {activeInstancePath && <Button size="small" onClick={() => { setDefinitionContextPath(activeInstancePath); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }}>
-            打开定义</Button>}
-          {!activeInstancePath&&definitionContextPath&&<Button size="small" onClick={()=>{setActiveInstancePath(definitionContextPath);setDefinitionContextPath(undefined);store.endSketch();store.setSelection(null);}}>在此上下文打开</Button>}
-          {designSession.isError && <Tag color="error">上下文失效</Tag>}</Space>
-        </div>}
-        {view.document.type === "PRODUCT" && productUpdatePlan.data?.hasUpdates && !productUpdatePlan.data.canAccept && <Alert
-          style={{position:"absolute",zIndex:12,top:56,left:"50%",transform:"translateX(-50%)",minWidth:420}}
-          type="error" showIcon message="自动跟随最新版本被阻塞"
-          description={productUpdatePlan.data.entries.find((entry)=>entry.diagnostic)?.diagnostic ?? "更新计划被上游解析或求值失败阻塞。"} />}
-        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view}
-          editingView={editingView} activeInstancePath={activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
-          activeInstanceRotation={activeResolvedInstance?.rotation}
-          activeBodyTreeNodeId={activeResolvedInstance?.bodyTreeNodeId}
-          selections={store.selections}
-          preselection={store.preselection}
-          treeVisibilityOverrides={treeVisibilityOverrides}
-          sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={navigationProfile}
-          captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
-          onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
-		  onAssemblyConstraint={(kind, references) => {
-			if (!editingView) return;
-			assemblyInteractionID.current=randomUUID();
-			assemblyPreviewActor.current?.send({type:"START"});
-            setAssemblyDefinitionDirty(true); setReconnectError(undefined); setReplacingAssemblyReference(undefined);
-            const measuredValue = kind === "angle" || kind === "distance" ? viewport.current?.measureAssemblyConstraint(kind, references) ?? 0 : 0;
-            const value = kind === "distance" ? millimetersToDisplayLength(measuredValue, lengthUnit) : measuredValue;
-            const planePair=references.length===2&&references.every((reference)=>["PLANE","FACE"].includes(reference.kind));
-            assemblyConstraintForm.setFieldsValue({ value, directionRelation: kind === "angle" ? "SAME" : planePair
-              ? (viewport.current?.measureAssemblyConstraint("angle",references)??0)>90?"OPPOSITE":"SAME" : "UNORIENTED", distanceRelation: "UNSIGNED" });
-            setPendingAssemblyConstraint({ kind, references,
-              angleReferenceDirection: kind === "angle" ? viewport.current?.assemblyAngleReferenceDirection(references) : undefined });
-          }}
-		  onInstanceMovePreview={async(instanceId,translation,rotation,interactionId,previewSequence)=>{
-			if(editingView?.document.type!=="PRODUCT")return{poses:[],constraintLimited:true,previewId:""};const preview=await api.previewCommand(editingView.document.id,{type:"MOVE_INSTANCE",interactionId,previewSequence,instanceId,translation,rotation});return{poses:preview.instancePoses??[],constraintLimited:Boolean(preview.constraintLimited),previewId:preview.previewId};
-          }}
-          onInstanceMoved={moveInstance} /></Suspense>
-		{visibleToolbars
-		  .map((toolbar: ToolbarCatalogEntry, toolbarIndex) => <FloatingToolbar key={toolbar.id} id={toolbar.id} label={toolbar.name}
-			position={toolbar.position} orientation={toolbar.orientation}
-			stackIndex={visibleToolbars.slice(0, toolbarIndex).filter((candidate) => candidate.position === toolbar.position).length}
-			className={`${toolbar.styleKey === "part" ? "part-design-toolbar" : toolbar.styleKey === "sketch" ? "sketcher-toolbar" : toolbar.styleKey === "assembly" ? "assembly-design-toolbar" : toolbar.styleKey === "debug" ? "debug-toolbar" : "common-toolbar"} ${toolbar.id}-toolbar`}>
-			<ToolbarGroup>{toolbar.items.map((item) => <ToolButton key={item.commandId} command={item.commandId} repeatable={item.repeatable}
-				  icon={<CadIcon name={item.iconKey as CadIconName} />} tooltip={item.name}
-				  toolbarName={toolbar.name} helpText={item.helpText} />)}</ToolbarGroup>
-		  </FloatingToolbar>)}
-        <aside className="floating-structure-tree" style={{ width: structureTreeWidth,
-          top: Math.max(60, 14 + defaultTopLeftToolbarCount * 46) } as CSSProperties}>
-          <SpecificationTree nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
+    <WorkbenchLayout documentName={editingView?.document.name ?? view.document.name}
+      inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen}
+      commands={<WorkbenchCommands key={activeWorkbench} toolbars={visibleToolbars} workbench={activeWorkbench} />}
+      status={<WorkbenchStatus busy={command.isPending} canEdit={canEdit} selectionCount={store.selections.length}
+        toolName={activeToolName} lengthUnit={lengthUnit} continuous={store.activeToolMode === "continuous"} />}
+      tree={<SpecificationTree key={documentID} nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
             selectedIdentityKeys={store.selections.map(selectionKey)}
             selectionToken={selectionSetToken(store.selections)}
             highlightedKey={treeKeyForSelection(treeNodes, store.preselection)}
@@ -1106,32 +1018,55 @@ export function Workbench() {
               if(!node.ownerEntityId||!node.entityId)return;
               editSketch(node.ownerEntityId,[{type:"UPDATE_ENTITY_ROLE",entityId:node.entityId,
                 role:node.role==="CONSTRUCTION"?"PROFILE":"CONSTRUCTION"}]);
-            }} />
-          <div className="structure-tree-resize-handle" role="separator" aria-label="调整结构树宽度"
-            aria-orientation="vertical" aria-valuemin={220} aria-valuemax={640} aria-valuenow={structureTreeWidth}
-            tabIndex={0} onKeyDown={resizeStructureTreeFromKeyboard}
-            onPointerDown={(event) => { if (event.button !== 0) return; structureTreeResize.current = {
-              pointerId: event.pointerId, startX: event.clientX,
-              startWidth: event.currentTarget.parentElement?.getBoundingClientRect().width ?? structureTreeWidth };
-              event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault(); }}
-            onPointerMove={resizeStructureTree} onPointerUp={finishStructureTreeResize}
-            onPointerCancel={finishStructureTreeResize} onLostPointerCapture={finishStructureTreeResize} />
-        </aside>
-        <button className={`inspector-toggle ${inspectorOpen ? "open" : ""}`} onClick={() => setInspectorOpen(!inspectorOpen)}
-          title={inspectorOpen ? "收起属性面板" : "展开属性面板"}>
-          {inspectorOpen ? <MenuFoldOutlined /> : <MenuUnfoldOutlined />}
-        </button>
-        <aside className={`inspector-overlay ${inspectorOpen ? "open" : ""}`}>
-          <Segmented block value={store.inspectorTab} onChange={(value) => store.setInspectorTab(value as "properties" | "history")}
-            options={[{ label: "属性", value: "properties" }, { label: "历史", value: "history" }]} />
-          <div className="inspector-overlay-content">{store.inspectorTab === "properties"
-            ? <Properties view={editingView ?? view} selection={store.selection} feature={selected}
-              workbench={activeWorkbench} sketchPlane={store.sketchPlane} activeTool={store.activeToolID}
-              navigationProfile={navigationProfile} diagnostics={properties.data}
-			  topology={topology.data} topologyLoading={topology.isLoading} onEditParameter={openParameterEditor} />
-            : <History entries={history.data ?? []} onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}</div>
-        </aside>
-      </section></main>
+            }} />}
+      inspector={<WorkbenchInspectorPanel documentID={activeID} view={editingView ?? view} selection={store.selection}
+        feature={selected} workbench={activeWorkbench} sketchPlane={store.sketchPlane} activeTool={store.activeToolID}
+        navigationProfile={navigationProfile} onEditParameter={openParameterEditor} canRestore={canEdit && !command.isPending}
+        onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}>
+        {view.document.type === "PRODUCT" && (activeInstancePath || activeDocumentID !== documentID) && <div style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",
+          padding:"6px 10px",borderRadius:6,background:"rgba(22,27,34,.88)",color:"white"}}>
+          <Space size="small"><Typography.Text style={{color:"white"}}>
+            {activeInstancePath ? `上下文编辑 · ${activeResolvedInstance?.instancePath?.display ?? activeInstancePath}`
+              : `定义编辑 · ${editingView?.document.name??activeDocumentID}`}
+          </Typography.Text>
+          {activeInstancePath && <Button size="small" onClick={() => { setDefinitionContextPath(activeInstancePath); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }}>
+            打开定义</Button>}
+          {!activeInstancePath&&definitionContextPath&&<Button size="small" onClick={()=>{setActiveInstancePath(definitionContextPath);setDefinitionContextPath(undefined);store.endSketch();store.setSelection(null);}}>在此上下文打开</Button>}
+          {designSession.isError && <Tag color="error">上下文失效</Tag>}</Space>
+        </div>}
+        {view.document.type === "PRODUCT" && productUpdatePlan.data?.hasUpdates && !productUpdatePlan.data.canAccept && <Alert
+          style={{position:"absolute",zIndex:12,top:56,left:"50%",transform:"translateX(-50%)",minWidth:420}}
+          type="error" showIcon message="自动跟随最新版本被阻塞"
+          description={productUpdatePlan.data.entries.find((entry)=>entry.diagnostic)?.diagnostic ?? "更新计划被上游解析或求值失败阻塞。"} />}
+        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view}
+          editingView={editingView} activeInstancePath={activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
+          activeInstanceRotation={activeResolvedInstance?.rotation}
+          activeBodyTreeNodeId={activeResolvedInstance?.bodyTreeNodeId}
+          selections={store.selections}
+          preselection={store.preselection}
+          treeVisibilityOverrides={treeVisibilityOverrides}
+          sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={navigationProfile}
+          captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
+          onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
+		  onAssemblyConstraint={(kind, references) => {
+			if (!editingView) return;
+			assemblyInteractionID.current=randomUUID();
+			assemblyPreviewActor.current?.send({type:"START"});
+            setAssemblyDefinitionDirty(true); setReconnectError(undefined); setReplacingAssemblyReference(undefined);
+            const measuredValue = kind === "angle" || kind === "distance" ? viewport.current?.measureAssemblyConstraint(kind, references) ?? 0 : 0;
+            const value = kind === "distance" ? millimetersToDisplayLength(measuredValue, lengthUnit) : measuredValue;
+            const planePair=references.length===2&&references.every((reference)=>["PLANE","FACE"].includes(reference.kind));
+            assemblyConstraintForm.setFieldsValue({ value, directionRelation: kind === "angle" ? "SAME" : planePair
+              ? (viewport.current?.measureAssemblyConstraint("angle",references)??0)>90?"OPPOSITE":"SAME" : "UNORIENTED", distanceRelation: "UNSIGNED" });
+            setPendingAssemblyConstraint({ kind, references,
+              angleReferenceDirection: kind === "angle" ? viewport.current?.assemblyAngleReferenceDirection(references) : undefined });
+          }}
+		  onInstanceMovePreview={async(instanceId,translation,rotation,interactionId,previewSequence)=>{
+			if(editingView?.document.type!=="PRODUCT")return{poses:[],constraintLimited:true,previewId:""};const preview=await api.previewCommand(editingView.document.id,{type:"MOVE_INSTANCE",interactionId,previewSequence,instanceId,translation,rotation});return{poses:preview.instancePoses??[],constraintLimited:Boolean(preview.constraintLimited),previewId:preview.previewId};
+          }}
+          onInstanceMoved={moveInstance} /></Suspense>
+      <WorkbenchViewControls toolbars={visibleToolbars} />
+    </WorkbenchLayout>
     <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" width={390}
       onClose={() => { assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});viewport.current?.clearCommandPreview(); assemblyPreviewID.current=undefined; setAssemblyPreviewEvaluation(undefined); setReplacingAssemblyReference(undefined); setReconnectError(undefined); setAssemblyDefinitionDirty(false); setEditingAssemblyConstraint(undefined); }}
       confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={assemblyPreviewFailed || replacingAssemblyReference !== undefined} onConfirm={async()=>{
@@ -1344,11 +1279,9 @@ export function Workbench() {
 			<small className="cad-command-hint">表达式按当前 Part 的参数别名编辑；提交后 AST 绑定稳定 ParameterId，后续重命名不会破坏引用。</small>
 		</Form>
 	</CommandDialog>
-    <CommandDialog id="insert" open={insertOpen} title="插入 Part / Product" onClose={() => setInsertOpen(false)}
-      confirmLoading={command.isPending} onConfirm={async () => insertDocument(await insertForm.validateFields())}>
-      <Form form={insertForm} layout="vertical"><Form.Item name="referencedDocumentID" label="引用文档" rules={[{ required: true }]}><Select showSearch optionFilterProp="label" options={(catalog.data?.documents ?? []).filter((item) => item.id !== activeID).map((item) => ({ value: item.id, label: `${item.name} (${item.type})` }))} /></Form.Item>
-      </Form>
-    </CommandDialog>
+    {insertOpen && editingView?.document.type === "PRODUCT" && <InsertDocumentDialog key={activeID}
+      targetID={activeID} rootID={documentID} busy={command.isPending} onClose={() => setInsertOpen(false)}
+      onInsert={(referencedID) => command.mutateAsync(() => api.insert(activeID, referencedID))} />}
     <CommandDialog id="new-part-component" open={Boolean(newPartTarget)} title="新建零件"
       onClose={() => setNewPartTarget(undefined)} confirmLoading={command.isPending}
       onConfirm={async () => createPartComponent(await newPartForm.validateFields())}>

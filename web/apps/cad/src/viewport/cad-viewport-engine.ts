@@ -121,7 +121,7 @@ function sketchReferenceEntities(feature?: Feature): SketchEntity[] {
   } satisfies SketchEntity] : [])];
 }
 
-const planeColors: Record<PlaneName | "CUSTOM", number> = { XY: CATIA_VISUAL_THEME.axisZ, XZ: CATIA_VISUAL_THEME.axisY, YZ: CATIA_VISUAL_THEME.axisX, CUSTOM: 0x42a5c6 };
+const planeColors: Record<PlaneName | "CUSTOM", number> = { XY: CATIA_VISUAL_THEME.axisZ, XZ: CATIA_VISUAL_THEME.axisY, YZ: CATIA_VISUAL_THEME.axisX, CUSTOM: CATIA_VISUAL_THEME.sketchExternal };
 
 function planeFrame(plane: PlaneName | SketchPlane): { origin: THREE.Vector3; normal: THREE.Vector3; u: THREE.Vector3; v: THREE.Vector3 } {
   if (typeof plane !== "string") {
@@ -299,16 +299,16 @@ export class CadViewportEngine {
     groundGrid.rotation.x = Math.PI / 2;
     groundGrid.position.z = -0.02;
     (groundGrid.material as THREE.Material).dispose();
-    const groundMaterial = this.materials.edge(0x5c7281);
-    groundMaterial.uniforms.uOpacity.value = 0.24;
+    const groundMaterial = this.materials.edge(CATIA_VISUAL_THEME.gridMinor);
+    groundMaterial.uniforms.uOpacity.value = 0.14;
     groundMaterial.depthWrite = false;
     groundGrid.material = groundMaterial as unknown as THREE.LineBasicMaterial;
     groundGrid.renderOrder = -10;
     this.environment.add(groundGrid);
-    const hemisphere = new THREE.HemisphereLight(0xf4f7f8, 0x405261, 2.25);
-    const keyLight = new THREE.DirectionalLight(0xffffff, 2.8);
+    const hemisphere = new THREE.HemisphereLight(CATIA_VISUAL_THEME.lightSky, CATIA_VISUAL_THEME.lightGround, CATIA_VISUAL_THEME.hemisphereIntensity);
+    const keyLight = new THREE.DirectionalLight(CATIA_VISUAL_THEME.lightKey, CATIA_VISUAL_THEME.keyIntensity);
     keyLight.position.set(-3, -4, 7);
-    const fillLight = new THREE.DirectionalLight(0xadc9d8, 1.25);
+    const fillLight = new THREE.DirectionalLight(CATIA_VISUAL_THEME.lightFill, CATIA_VISUAL_THEME.fillIntensity);
     fillLight.position.set(5, 2, 3);
     this.lighting.add(hemisphere, keyLight, fillLight);
     this.sketchContext.renderOrder = 15;
@@ -949,7 +949,7 @@ export class CadViewportEngine {
       FIX: 2, RIGID: 7, COINCIDENT: 0, CONCENTRIC: 13, ANGLE: 12, DISTANCE: 8,
     };
     const statusColors: Record<import("../types").AssemblyConstraint["evaluationStatus"], number> = {
-      VERIFIED: CATIA_VISUAL_THEME.constraint, NOT_UPDATED: 0xf0b44d, IMPOSSIBLE: 0xc56ad7, BROKEN: CATIA_VISUAL_THEME.sketchInvalid,
+      VERIFIED: CATIA_VISUAL_THEME.constraint, NOT_UPDATED: CATIA_VISUAL_THEME.selected, IMPOSSIBLE: CATIA_VISUAL_THEME.sketchRedundant, BROKEN: CATIA_VISUAL_THEME.sketchInvalid,
     };
     for (const constraint of view.product?.constraints ?? []) {
       const references = [constraint.first, constraint.second].filter((value): value is AssemblyGeometryRef => Boolean(value));
@@ -1228,7 +1228,7 @@ export class CadViewportEngine {
       treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
       geometryKey: context?.geometryKey, instanceId: context?.instanceId
     };
-    const definitions = [["X", axis.xDirection, 0xe62e24], ["Y", axis.yDirection, 0x29b849], ["Z", axis.zDirection, 0x3478e5]] as const;
+    const definitions = [["X", axis.xDirection, CATIA_VISUAL_THEME.axisX], ["Y", axis.yDirection, CATIA_VISUAL_THEME.axisY], ["Z", axis.zDirection, CATIA_VISUAL_THEME.axisZ]] as const;
     for (const [name, direction, color] of definitions) {
       const axisReference = new THREE.Group();
       const points = [new THREE.Vector3(), new THREE.Vector3().fromArray(direction)];

@@ -194,11 +194,12 @@ export function DocumentCenter() {
       }} />
     </Layout.Sider>
     <Layout.Content className="library-main">
-      <header className="page-heading"><Typography.Title level={2}>文档中心</Typography.Title>
-        {!specialScope && <Space.Compact><Button title="新建文件夹" aria-label="新建文件夹" icon={<FolderAddOutlined />} disabled={!writableLocation} onClick={() => openFolderEditor()} />
-          <Button title="导入" aria-label="导入" icon={<UploadOutlined />} disabled={!writableLocation} onClick={() => setImportOpen(true)} />
+      <header className="page-heading"><div><Typography.Title level={2}>文档中心</Typography.Title>
+        <Typography.Text type="secondary">管理零件、装配与共享设计</Typography.Text></div>
+        {!specialScope && <Space.Compact><Button title="新建文件夹" aria-label="新建文件夹" icon={<FolderAddOutlined />} disabled={!writableLocation} onClick={() => openFolderEditor()}>新建文件夹</Button>
+          <Button title="导入" aria-label="导入" icon={<UploadOutlined />} disabled={!writableLocation} onClick={() => setImportOpen(true)}>导入</Button>
           <Button type="primary" title="创建文档" aria-label="创建文档" icon={<PlusOutlined />} disabled={!writableLocation}
-            onClick={() => openDocumentEditor()} /></Space.Compact>}
+            onClick={() => openDocumentEditor()}>新建文档</Button></Space.Compact>}
         {scope === "trash" && <Space.Compact><Button icon={<UndoOutlined />} onClick={restoreAllTrash}>全部还原</Button>
           <Button danger icon={<DeleteOutlined />} onClick={emptyTrash}>清空回收站</Button></Space.Compact>}</header>
       {!specialScope && <Breadcrumb className="folder-breadcrumb" items={[
@@ -207,7 +208,7 @@ export function DocumentCenter() {
       ]} />}
       <Card className="document-browser" bordered={false}>
         <div className="browser-controls">
-          <Input allowClear prefix={<SearchOutlined />} placeholder="搜索文档名称或说明" value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0); }} />
+          <Input allowClear prefix={<SearchOutlined />} aria-label="搜索文档" placeholder="搜索文档名称或说明" value={query} onChange={(event) => { setQuery(event.target.value); setOffset(0); }} />
           <Segmented value={type} onChange={(value) => { setType(String(value)); setOffset(0); }} options={[{ label: "全部", value: "" }, { label: "Part", value: "PART" }, { label: "Product", value: "PRODUCT" }]} />
           <Select value={sort} onChange={setSort} options={[{ value: "updated", label: "最近修改" }, { value: "name", label: "名称" }, { value: "created", label: "创建时间" }]} />
           <Button icon={<ReloadOutlined />} onClick={() => void documents.refetch()} />

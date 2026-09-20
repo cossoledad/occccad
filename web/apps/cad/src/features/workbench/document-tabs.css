@@ -1,0 +1,13 @@
+.document-tabs { flex: 1; display: flex; align-self: stretch; min-width: 0; align-items: center; gap: 5px; }
+.document-tabs-list { display: flex; align-items: stretch; min-width: 0; height: 100%; overflow-x: auto; scrollbar-width: none; }
+.document-tab { display: flex; align-items: center; padding: 0 7px 0 12px; gap: 6px; flex: none; min-width: 130px; max-width: 240px; border-right: 1px solid #ffffff10; border-top: 2px solid transparent; }
+.document-tab.active { background: var(--color-chrome-raised); border-top-color: #89aaff; }
+.document-tab-switch, .document-tab-close, .document-tab-create { display: flex; align-items: center; justify-content: center; border: 0; background: transparent; color: #b8c8d5; cursor: pointer; padding: 4px; line-height: 1; }
+.document-tab-switch { gap: 8px; flex: 1; min-width: 0; font-size: 12px; height: 100%; }
+.document-tab-switch > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.document-tab.active .document-tab-switch { color: #f5f9fb; }
+.document-tab-close { width: 22px; height: 22px; font-size: 10px; border-radius: 3px; }
+.document-tab-close:hover, .document-tab-create:hover { background: #ffffff18; color: white; }
+.document-tab-create { width: 28px; height: 28px; flex: none; border-radius: 3px; }
+.document-tabs button:focus-visible { outline: 2px solid #79c5df; outline-offset: -2px; }
+@media (max-width: 800px) { .document-tab { min-width: 110px; max-width: 160px; } }

@@ -1,3 +1,4 @@
+import { CATIA_VISUAL_THEME } from "../cad-visual-theme";
 import * as THREE from "three";
 
 export type CadShaderProgramID =
@@ -97,7 +98,7 @@ export class CadShaderLibrary {
     });
 
     this.register("cad.manipulator.glyph", {
-      uniforms: { uColor: { value: new THREE.Color(1, 1, 1) }, uActive: { value: 0 } },
+      uniforms: { uColor: { value: new THREE.Color(1, 1, 1) }, uActive: { value: 0 }, uActiveColor: { value: new THREE.Color(CATIA_VISUAL_THEME.navigation) } },
       vertexShader: `
         varying vec2 vGlyphPosition;
         void main() {
@@ -110,14 +111,15 @@ export class CadShaderLibrary {
       `,
       fragmentShader: `
         uniform vec3 uColor;
-        uniform float uActive;
+        uniform float uActive; uniform vec3 uActiveColor;
         varying vec2 vGlyphPosition;
         void main() {
           vec2 p=vGlyphPosition;
           float distanceField=abs(length(p)-0.30)-0.055;
-          float alpha=1.0-smoothstep(-0.012,0.012,distanceField);
+          float aa=max(fwidth(distanceField),0.004);
+          float alpha=1.0-smoothstep(-aa,aa,distanceField);
           if(alpha<=0.0)discard;
-          vec3 color=mix(uColor,vec3(1.0,0.78,0.18),clamp(uActive,0.0,1.0));
+          vec3 color=mix(uColor,uActiveColor,clamp(uActive,0.0,1.0));
           gl_FragColor=vec4(color,alpha);
           #include <colorspace_fragment>
         }
@@ -126,11 +128,11 @@ export class CadShaderLibrary {
     });
 
     this.register("cad.manipulator.line", {
-      uniforms: { uColor: { value: new THREE.Color(1, 1, 1) }, uActive: { value: 0 } },
+      uniforms: { uColor: { value: new THREE.Color(1, 1, 1) }, uActive: { value: 0 }, uActiveColor: { value: new THREE.Color(CATIA_VISUAL_THEME.navigation) } },
       vertexShader: `void main(){gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
       fragmentShader: `
-        uniform vec3 uColor; uniform float uActive;
-        void main(){gl_FragColor=vec4(mix(uColor,vec3(1.0,0.78,0.18),clamp(uActive,0.0,1.0)),1.0);
+        uniform vec3 uColor; uniform float uActive; uniform vec3 uActiveColor;
+        void main(){gl_FragColor=vec4(mix(uColor,uActiveColor,clamp(uActive,0.0,1.0)),1.0);
         #include <colorspace_fragment>}
       `,
       transparent: true, depthTest: false, depthWrite: false,
@@ -159,6 +161,9 @@ export class CadShaderLibrary {
           vec3 color = mix(uBottom, uTop, vertical);
           vec2 centered = vUv - 0.5;
           color *= 1.0 - dot(centered, centered) * uVignette;
+          // Stable subpixel dithering prevents banding without animated noise.
+          float noise = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
+          color += noise / 1024.0;
           gl_FragColor = vec4(color, 1.0);
           #include <colorspace_fragment>
         }
@@ -273,8 +278,11 @@ export class CadShaderLibrary {
           applyCadSection();
           vec2 p = gl_PointCoord - 0.5;
           float diagonal = min(abs(p.x - p.y), abs(p.x + p.y));
-          if (max(abs(p.x), abs(p.y)) > 0.48 || diagonal > 0.085) discard;
-          gl_FragColor = vec4(mix(uColor, uSelectedColor, uSelected), 1.0);
+          float aa = max(fwidth(diagonal), 0.01);
+          float alpha = (1.0 - smoothstep(0.085-aa, 0.085+aa, diagonal))
+            * (1.0 - smoothstep(0.42, 0.5, max(abs(p.x), abs(p.y))));
+          if (alpha < 0.01) discard;
+          gl_FragColor = vec4(mix(uColor, uSelectedColor, uSelected), alpha);
           #include <colorspace_fragment>
         }
       `,

@@ -9,7 +9,7 @@ const POINTER_BUTTONS = [
 
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+  return target.isContentEditable || Boolean(target.closest("input, textarea, select, button, [role='button'], [role='tree'], [role='dialog'], [contenteditable='true']"));
 }
 
 export class InputManager {

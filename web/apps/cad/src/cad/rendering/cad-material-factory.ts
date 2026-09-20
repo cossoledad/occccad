@@ -11,7 +11,7 @@ export class CadMaterialFactory {
 
   surface(color: number = this.theme.surface): THREE.MeshPhongMaterial {
     const material = new THREE.MeshPhongMaterial({
-      color, specular: 0x76848b, shininess: 46, side: THREE.DoubleSide,
+      color, specular: this.theme.surfaceSpecular, shininess: this.theme.surfaceShininess, side: THREE.DoubleSide,
       wireframe: false, depthTest: true, depthWrite: true,
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
     });
@@ -39,7 +39,7 @@ export class CadMaterialFactory {
 
   datumPlane(color: number): THREE.ShaderMaterial {
     return this.shaders.createMaterial("cad.datum.plane", {
-      uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uOpacity: 0.2,
+      uColor: new THREE.Color(color), uSelectedColor: new THREE.Color(this.theme.selected), uOpacity: this.theme.datumOpacity,
     });
   }
 

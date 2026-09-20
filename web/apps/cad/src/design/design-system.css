@@ -1,0 +1,49 @@
+:root {
+  --cad-bg-0: var(--color-chrome); --cad-bg-1: var(--color-viewport-top);
+  --cad-panel: var(--color-surface); --cad-panel-edge: var(--color-border);
+  --cad-text: var(--color-text); --cad-accent: var(--color-primary); --cad-hover: var(--color-primary-hover);
+  --cad-selected: var(--color-selected); --cad-snap: var(--color-snap);
+  --cad-success: var(--color-success); --cad-danger: var(--color-danger);
+}
+body { color: var(--color-text); background: var(--color-canvas); }
+:where(button, input, select, textarea, [tabindex]):focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+.global-header { border-bottom-color: #ffffff12; background: var(--color-chrome); }
+.global-header-actions { padding-left: 16px; }
+.global-header .ant-btn { border-color: transparent; color: #bfcddd; border-radius: 6px; }
+.global-header .ant-btn:hover { background: #ffffff12 !important; color: white !important; }
+.brand-symbol img { width: 100%; height: 100%; display: block; }
+.global-header .brand-symbol { width: 32px; height: 32px; }
+.global-header .brand-lockup strong { font-weight: 650; letter-spacing: 1px; }
+.global-header .brand-lockup small { letter-spacing: 1.4px; color: #8da2be; }
+.library-main { background: var(--color-canvas); }
+.library-sider { background: var(--color-chrome) !important; border-color: #ffffff0d; }
+.document-browser.ant-card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; }
+.document-card.ant-card, .folder-card.ant-card { border-radius: 9px; border-color: var(--color-border); box-shadow: none; }
+.document-card.ant-card:hover { border-color: #a4b9e5; box-shadow: 0 5px 20px #243b5e0d; }
+.document-card.selected { border-color: var(--color-primary); box-shadow: 0 0 0 1px var(--color-primary) !important; }
+.document-thumbnail.fallback { background: linear-gradient(145deg, #edf2fb, #dbe5f4); color: #718daf; }
+.ant-modal .ant-modal-container { box-shadow: 0 24px 80px #0e223d38; }
+.ant-modal .ant-modal-title { color: var(--color-text); font-weight: 650; }
+.cad-workbench > .cad-command-dialog { background: var(--color-surface); border-color: var(--color-border); }
+.cad-command-dialog .cad-command-dialog-header { background: var(--color-subtle); color: var(--color-text); border-bottom: 1px solid var(--color-border); height: 42px; }
+.cad-command-dialog .cad-command-dialog-header button { color: var(--color-muted); }
+.cad-command-dialog .cad-command-dialog-header button:hover { color: var(--color-danger); background: #f9e9ec; }
+.cad-command-dialog .cad-command-dialog-footer { background: var(--color-subtle); border-top: 1px solid var(--color-border); padding: 12px 16px; }
+.cad-command-dialog .cad-command-dialog-body { padding: 16px; }
+.cad-command-hint { color: var(--color-muted); font-size: 12px; line-height: 1.65; }
+.cad-cursor-tooltip { background: var(--color-chrome); color: var(--color-chrome-text); border: 1px solid #ffffff20; border-radius: 5px; padding: 5px 9px; box-shadow: 0 3px 12px #12263d25; }
+.cad-command-icon { flex: none; }
+.cad-command-icon.family-solid { color: #476ec2; }
+.cad-command-icon.family-sketch { color: #287c83; }
+.cad-command-icon.family-constraint { color: #8964aa; }
+.cad-command-icon.family-assembly { color: #487b99; }
+.cad-command-icon.family-view { color: #5b7089; }
+.cad-command-icon .icon-face { fill: currentColor; fill-opacity: .12; stroke: none; }
+.cad-tool-button.active .cad-command-icon { color: var(--color-primary); }
+.cad-tool-button:disabled .cad-command-icon { color: inherit; }
+.shortcut-list { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: center; margin: 16px 0; }
+kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--color-border); border-bottom-width: 2px; background: var(--color-subtle); padding: 3px 7px; border-radius: 4px; color: var(--color-muted); }
+.shortcut-note { font-size: 12px; line-height: 1.7; color: var(--color-muted); }
+@media (prefers-reduced-motion: reduce) { .ant-btn, .document-card { transition: none !important; } }
+.cad-cursor-tooltip { display: flex; align-items: center; gap: 12px; }
+.cad-cursor-tooltip kbd { background: #ffffff0d; border-color: #ffffff2b; color: #bccce2; }

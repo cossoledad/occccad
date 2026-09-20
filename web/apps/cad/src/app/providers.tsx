@@ -1,3 +1,4 @@
+import { palette } from "../design/visual-tokens";
 import { App as AntdApp, ConfigProvider, theme } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -13,18 +14,19 @@ export function AppProviders({ children }: PropsWithChildren) {
     <ConfigProvider locale={zhCN} theme={{
       algorithm: theme.defaultAlgorithm,
       token: {
-        colorPrimary: "#176b87", colorInfo: "#176b87", colorSuccess: "#327b5f",
-        colorWarning: "#a96d1f", colorError: "#b64b4b", borderRadius: 2, borderRadiusLG: 3,
-        colorBgLayout: "#dfe4e7", colorBorder: "#aeb8be", colorText: "#202b31",
+        colorPrimary: palette.primary, colorInfo: palette.primary, colorSuccess: palette.success,
+        colorWarning: palette.warning, colorError: palette.danger, borderRadius: 6, borderRadiusLG: 10,
+        colorBgLayout: palette.canvas, colorBgContainer: palette.surface, colorBorder: palette.border, colorText: palette.text,
+        colorTextSecondary: palette.muted, colorBgElevated: palette.surface, colorPrimaryBg: palette.primarySoft,
         fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         controlHeight: 34,
       },
       components: {
         Button: { primaryShadow: "none", fontWeight: 550 },
-        Layout: { bodyBg: "#dfe4e7", headerBg: "#17232b", siderBg: "#1d2a32" },
-        Menu: { darkItemBg: "#1d2a32", darkItemSelectedBg: "#176b87" },
-        Modal: { borderRadiusLG: 3 },
-        Tree: { nodeHoverBg: "#e9f2f7", nodeSelectedBg: "#d9edf7" },
+        Layout: { bodyBg: palette.canvas, headerBg: palette.chrome, siderBg: palette.chrome },
+        Menu: { darkItemBg: palette.chrome, darkItemSelectedBg: palette.primary },
+        Modal: { borderRadiusLG: 10 },
+        Tree: { nodeHoverBg: palette.subtle, nodeSelectedBg: palette.primarySoft },
       },
     }}>
       <AntdApp>{children}</AntdApp>

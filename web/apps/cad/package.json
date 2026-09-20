@@ -13,7 +13,8 @@
     "test": "node scripts/run-scenarios.mjs",
     "test:sketch": "node src/cad/testing/sketch-interaction.scenario.mjs",
     "test:realtime": "node src/api/testing/realtime-lifecycle.scenario.mjs",
-    "test:activity": "node src/features/activity/testing/activity-projection.scenario.mjs"
+    "test:activity": "node src/features/activity/testing/activity-projection.scenario.mjs",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "@ant-design/icons": "^6.3.2",
@@ -30,6 +31,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",

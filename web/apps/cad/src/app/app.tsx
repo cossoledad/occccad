@@ -9,7 +9,7 @@ import { Brand } from "../components/brand";
 import { AuthScreen } from "../features/auth/auth-screen";
 import { ActivityCenter } from "../features/activity/activity-center";
 import { DocumentCenter } from "../features/documents/document-center";
-import { DocumentOrbController } from "../features/workbench/document-orb-controller";
+import { DocumentTabsController } from "../features/workbench/document-tabs-controller";
 import { UserPreferencesCenter } from "../features/preferences/user-preferences-center";
 import { queryKeys } from "./query-keys";
 import { UIHelpProvider, useUIHelp } from "../cad/help/ui-help-context";
@@ -64,8 +64,8 @@ function ApplicationShell() {
   return <Layout className="application-shell">
     <Layout.Header className="global-header">
       <button className="brand-button" aria-label="文档中心" onClick={() => navigate("/")}><Brand /></button>
-      {inWorkbench && <DocumentOrbController />}
-      <div className="global-header-spacer" />
+      {inWorkbench && <DocumentTabsController />}
+      {!inWorkbench && <div className="global-header-spacer" />}
       <div className="global-header-actions">
         <i role="status" aria-label={isMockMode ? "Mock" : health.isSuccess ? `OCCT ${health.data.occtVersion}` : "离线"}
           className={`service-state ${isMockMode ? "mock" : health.isSuccess ? "online" : "offline"}`} />
@@ -88,17 +88,8 @@ function ApplicationShell() {
   </Layout>;
 }
 
-function GlobalBrowserInteractionPolicy() {
-  useEffect(() => {
-    const suppressNativeContextMenu = (event: MouseEvent) => event.preventDefault();
-    document.addEventListener("contextmenu", suppressNativeContextMenu, { capture: true });
-    return () => document.removeEventListener("contextmenu", suppressNativeContextMenu, { capture: true });
-  }, []);
-  return null;
-}
-
 export function App() {
-  return <UIHelpProvider><GlobalBrowserInteractionPolicy /><Routes>
+  return <UIHelpProvider><Routes>
     <Route element={<ApplicationShell />}>
       <Route index element={<DocumentCenter />} />
       <Route path="documents/:documentID" element={<Suspense fallback={<RouteLoading />}><Workbench /></Suspense>} />

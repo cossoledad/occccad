@@ -1,3 +1,4 @@
+import { normalizePanelPosition, type PanelPosition } from "../utils/panel-position";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { DEFAULT_CAPTURE_SETTINGS, normalizeCaptureSettings, type CaptureSettings,
@@ -15,6 +16,8 @@ export const MAX_STRUCTURE_TREE_WIDTH = 640;
 
 type UIPreferences = {
   inspectorOpen: boolean;
+  commandDialogPositions: Record<string, PanelPosition>;
+  setCommandDialogPosition: (id: string, position: PanelPosition) => void;
   toolbarLayouts: Record<string, ToolbarLayout>;
   treeVisibilityOverrides: TreeVisibilityOverrides;
   structureTreeWidth: number;
@@ -71,6 +74,10 @@ export function normalizeToolbarLayout(value: unknown, fallback: ToolbarOrientat
 export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   inspectorOpen: true,
   toolbarLayouts: {},
+  commandDialogPositions: {},
+  setCommandDialogPosition: (id, position) => set((state) => ({
+    commandDialogPositions: { ...state.commandDialogPositions, [id]: normalizePanelPosition(position) ?? { x: 360, y: 144 } },
+  })),
   treeVisibilityOverrides: {},
   structureTreeWidth: DEFAULT_STRUCTURE_TREE_WIDTH,
   navigationProfile: "default",
@@ -105,18 +112,20 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   }),
 }), {
   name: "occccad.ui-preferences.v1",
-  version: 3,
+  version: 4,
   migrate: (persisted) => {
     const value = (persisted && typeof persisted === "object" ? persisted : {}) as Partial<UIPreferences> & { hiddenTreeKeys?: string[] };
     const documentLengthUnits = Object.fromEntries(Object.entries(value.documentLengthUnits ?? {})
       .map(([id, unit]) => [id, normalizeDisplayLengthUnit(unit)]));
-    return { ...value, treeVisibilityOverrides: migrateTreeVisibilityOverrides(value),
+    const commandDialogPositions = Object.fromEntries(Object.entries(value.commandDialogPositions ?? {})
+      .flatMap(([id, position]) => { const normalized = normalizePanelPosition(position); return normalized ? [[id, normalized]] : []; }));
+    return { ...value, commandDialogPositions, treeVisibilityOverrides: migrateTreeVisibilityOverrides(value),
       structureTreeWidth: clampStructureTreeWidth(value.structureTreeWidth),
       navigationProfile: value.navigationProfile === "catia" ? "catia" : "default",
       captureSettings: normalizeCaptureSettings(value.captureSettings),
       displayLengthUnit: normalizeDisplayLengthUnit(value.displayLengthUnit), documentLengthUnits } as UIPreferences;
   },
-  partialize: (state) => ({ inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
+  partialize: (state) => ({ commandDialogPositions: state.commandDialogPositions, inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
     treeVisibilityOverrides: state.treeVisibilityOverrides, structureTreeWidth: state.structureTreeWidth,
     navigationProfile: state.navigationProfile, captureSettings: state.captureSettings,
     displayLengthUnit: state.displayLengthUnit, documentLengthUnits: state.documentLengthUnits }),

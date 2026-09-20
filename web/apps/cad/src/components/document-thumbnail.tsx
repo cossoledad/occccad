@@ -13,6 +13,6 @@ export function DocumentThumbnail({ document }: { document: DocumentSummary }) {
     </span>;
   }
   return <span className="document-thumbnail">
-    <img src={`${source}&attempt=0`} alt={`${document.name} 缩略图`} onError={() => setFailed(true)} />
+    <img loading="lazy" decoding="async" src={`${source}&attempt=0`} alt={`${document.name} 缩略图`} onError={() => setFailed(true)} />
   </span>;
 }

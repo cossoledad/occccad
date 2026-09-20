@@ -64,7 +64,21 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
       ?? (view.document.type === "PRODUCT" ? view.resolvedInstances?.length ?? 0 : view.artifact ? 1 : 0);
     const detail = diagnostics?.artifacts[0];
     const bytes = (value = 0) => value < 1024 ? `${value} B` : `${(value / 1024).toFixed(1)} KiB`;
-    return <><div className="property-context-hint">未选择对象 · 当前工作环境</div><Descriptions column={1} size="small"
+    return <><div className="inspector-document-overview">
+      <span className="inspector-eyebrow">{view.document.type === "PART" ? "零件文档" : "装配文档"}</span>
+      <h3>{view.document.name}</h3>
+      <p>选择模型或结构树中的对象，查看几何、特征和参数。</p>
+    </div>
+    <Descriptions column={1} size="small" className="property-list" items={[
+      { key: "workspace", label: "工作区", children: view.document.workspaceName ?? "Main" },
+      { key: "workbench", label: "工作台", children: CAD_WORKBENCHES[workbench].label },
+      { key: "permission", label: "访问权限", children: view.document.permission === "OWNER" ? "所有者"
+        : view.document.permission === "EDITOR" ? "可编辑" : "只读" },
+      { key: "features", label: view.document.type === "PART" ? "特征数量" : "组件数量",
+        children: view.document.type === "PART" ? view.part?.features.length ?? 0 : view.product?.instances.length ?? 0 },
+      ...(sketchPlane ? [{ key: "plane", label: "草图平面", children: sketchPlane.plane }] : []),
+    ]} />
+    <details className="inspector-diagnostics"><summary>技术详情与诊断</summary><Descriptions column={1} size="small"
       bordered className="property-list" items={[
         { key: "workbench", label: "Workbench", children: `${CAD_WORKBENCHES[workbench].label} · ${CAD_WORKBENCHES[workbench].domain}` },
         { key: "document", label: "文档", children: `${view.document.name} (${view.document.type})` },
@@ -94,7 +108,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
         { key: "rendering", label: "Rendering", children: "Phong Solid + welded feature edges" },
         { key: "features", label: view.document.type === "PART" ? "Features" : "Instances",
           children: view.document.type === "PART" ? view.part?.features.length ?? 0 : view.product?.instances.length ?? 0 },
-      ]} /></>;
+      ]} /></details></>;
   }
   if (["face", "edge", "vertex"].includes(selection.kind)) {
     const format = (value: unknown): string => Array.isArray(value)
@@ -192,8 +206,8 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
   ]} />;
 }
 
-export function History({ entries, onRestore }: { entries: HistoryEntry[]; onRestore: (entry: HistoryEntry) => void }) {
-  return <List className="history-list" dataSource={[...entries].reverse()} renderItem={(entry) => <List.Item actions={!entry.isHead ? [<Button key="restore" type="link" icon={<ExportOutlined />} onClick={() => onRestore(entry)}>恢复</Button>] : []}>
+export function History({ entries, onRestore, canRestore = true }: { entries: HistoryEntry[]; onRestore: (entry: HistoryEntry) => void; canRestore?: boolean }) {
+  return <List className="history-list" dataSource={[...entries].reverse()} renderItem={(entry) => <List.Item actions={!entry.isHead && canRestore ? [<Button key="restore" type="link" icon={<ExportOutlined />} onClick={() => onRestore(entry)}>恢复</Button>] : []}>
     <List.Item.Meta title={<Space><span>#{entry.sequence} {entry.commandType}</span>{entry.isHead && <Tag color="blue">HEAD</Tag>}</Space>}
       description={<span>{entry.versionName ?? entry.versionId.slice(0, 12)}<br />{new Date(entry.createdAt).toLocaleString()}</span>} />
   </List.Item>} />;

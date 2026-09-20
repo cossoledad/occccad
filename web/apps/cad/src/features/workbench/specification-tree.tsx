@@ -1,9 +1,10 @@
-import { DeleteOutlined, EditOutlined, EyeInvisibleOutlined, LinkOutlined, LockOutlined, PauseCircleOutlined, PlusOutlined, ReloadOutlined, SwapOutlined, UnlockOutlined } from "@ant-design/icons";
+import { SearchOutlined, DeleteOutlined, EditOutlined, EyeInvisibleOutlined, LinkOutlined, LockOutlined, PauseCircleOutlined, PlusOutlined, ReloadOutlined, SwapOutlined, UnlockOutlined } from "@ant-design/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Dropdown } from "antd";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
+import { Dropdown, Input } from "antd";
+import { isValidElement, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { selectionKey, selectionSetToken } from "../../cad/interaction/selection-identity";
 import type { InstancePath, Selection } from "../../types";
+import { filterTree } from "./tree-filter";
 import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-selection";
 
 export type SpecificationTreeNode = {
@@ -14,6 +15,13 @@ export type SpecificationTreeNode = {
   definitionDigest?: string;
   suppressed?: boolean; diagnostic?: string; hidden?: boolean;
 };
+
+function titleText(title: ReactNode): string {
+  if (typeof title === "string" || typeof title === "number") return String(title);
+  if (Array.isArray(title)) return title.map(titleText).join(" ");
+  if (isValidElement<{ children?: ReactNode }>(title)) return titleText(title.props.children);
+  return "";
+}
 
 type VisibleNode = { node: SpecificationTreeNode; depth: number; hasChildren: boolean };
 
@@ -70,12 +78,15 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
   onToggleVisibility?: (node: SpecificationTreeNode) => void;
   onToggleSuppression?: (node: SpecificationTreeNode) => void;
 }) {
+  const [query, setQuery] = useState("");
+  const [focusedKey, setFocusedKey] = useState<string>();
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const knownBranches = useRef(new Set<string>());
   const [contextMenu, setContextMenu] = useState<{ nodeKey: string; selectionSignature: string }>();
   const anchorKey = useRef<string | undefined>(undefined);
   const scrollElement = useRef<HTMLElement>(null);
-  const visible = useMemo(() => flatten(nodes, expanded), [nodes, expanded]);
+  const filteredNodes = useMemo(() => filterTree(nodes, query, (node) => titleText(node.title)), [nodes, query]);
+  const visible = useMemo(() => flatten(filteredNodes, query.trim() ? branchKeys(filteredNodes) : expanded), [filteredNodes, query, expanded]);
   const nodeIndex = useMemo(() => indexNodes(nodes), [nodes]);
   const visibleKeys = useMemo(() => visible.map((entry) => entry.node.key), [visible]);
   const selected = useMemo(() => new Set(selectedKeys.map((key) => {
@@ -109,12 +120,39 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
   };
   const eventModifiers = (event: { ctrlKey: boolean; metaKey: boolean; shiftKey: boolean }): TreeSelectionModifiers =>
     ({ ctrl: event.ctrlKey, meta: event.metaKey, shift: event.shiftKey });
-  const keyboardSelect = (event: KeyboardEvent, entry: VisibleNode) => {
-    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectNode(entry.node, eventModifiers(event)); }
-    if (event.key === "ArrowRight" && entry.hasChildren) setExpanded((current) => new Set(current).add(entry.node.key));
-    if (event.key === "ArrowLeft" && entry.hasChildren) setExpanded((current) => {
-      const next = new Set(current); next.delete(entry.node.key); return next;
+  const focusNode = (index: number) => {
+    const entry = visible[index];
+    if (!entry) return;
+    setFocusedKey(entry.node.key);
+    virtualizer.scrollToIndex(index);
+    requestAnimationFrame(() => {
+      const rows = scrollElement.current?.querySelectorAll<HTMLElement>("[data-tree-key]");
+      for (const row of rows ?? []) if (row.dataset.treeKey === entry.node.key) row.focus();
     });
+  };
+  const keyboardSelect = (event: KeyboardEvent, entry: VisibleNode) => {
+    if (["Enter", " ", "ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) event.stopPropagation();
+    const index = visible.findIndex((item) => item.node.key === entry.node.key);
+    if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectNode(entry.node, eventModifiers(event)); }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      focusNode(event.key === "Home" ? 0 : event.key === "End" ? visible.length - 1
+        : Math.max(0, Math.min(visible.length - 1, index + (event.key === "ArrowDown" ? 1 : -1))));
+    }
+    if (event.key === "ArrowRight" && entry.hasChildren) {
+      event.preventDefault();
+      if (entry.depth === 0 || expanded.has(entry.node.key) || query.trim()) focusNode(index + 1);
+      else setExpanded((current) => new Set(current).add(entry.node.key));
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      if (entry.depth > 0 && entry.hasChildren && expanded.has(entry.node.key) && !query.trim()) {
+        setExpanded((current) => { const next = new Set(current); next.delete(entry.node.key); return next; });
+      } else {
+        const parent = [...visible.slice(0, index)].reverse().find((item) => item.depth < entry.depth);
+        if (parent) focusNode(visible.indexOf(parent));
+      }
+    }
   };
   const contextSelection = (event: MouseEvent<HTMLElement>, node: SpecificationTreeNode) => {
     event.preventDefault(); event.stopPropagation();
@@ -127,25 +165,32 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
     setContextMenu({ nodeKey: node.key, selectionSignature: menuSelectionSignature });
     event.currentTarget.focus();
   };
-  return <nav ref={scrollElement} className="specification-tree specification-tree-virtual" aria-label="Specification tree"
-    role="tree" onMouseLeave={() => onHover?.()}>
+  return <div className="specification-tree-browser">
+    <div className="workbench-tree-filter"><Input size="small" allowClear prefix={<SearchOutlined />}
+      aria-label="筛选模型结构" placeholder="筛选模型结构…" value={query}
+      onChange={(event) => { setQuery(event.target.value); setContextMenu(undefined); onHover?.(); }} /></div>
+    {!visible.length && <div className="workbench-tree-empty">没有匹配的对象</div>}
+    <nav ref={scrollElement} className="specification-tree specification-tree-virtual" aria-label="Specification tree"
+    role="tree" aria-multiselectable="true" onMouseLeave={() => onHover?.()}>
     <div className="specification-tree-virtual-space" style={{ height: virtualizer.getTotalSize() }}>
       {virtualizer.getVirtualItems().map((item) => {
         const entry = visible[item.index];
         const { node, depth, hasChildren } = entry;
-        const isExpanded = hasChildren && (depth === 0 || expanded.has(node.key));
+        const isExpanded = hasChildren && (depth === 0 || expanded.has(node.key) || Boolean(query.trim()));
         const isSelected = selected.has(node.key);
         const selectedNodes = isSelected
           ? selectedKeys.map((key) => nodeIndex.get(key)).filter((candidate): candidate is SpecificationTreeNode => Boolean(candidate)) : [node];
         const deletable = selectedNodes.filter((candidate) => candidate.capabilities?.includes("DELETE"));
-        const rowStyle = { transform: `translateY(${item.start}px)`, paddingLeft: depth * 31,
+        const rowStyle = { transform: `translateY(${item.start}px)`, paddingLeft: depth * 22,
           "--tree-depth": depth } as CSSProperties;
         const isActiveDocument = Boolean((node.kind === "PART" || node.kind === "PRODUCT" || node.kind === "INSTANCE") &&
           (activeInstancePath ? node.instancePath?.canonical === activeInstancePath
             : activeDocumentId && node.documentId === activeDocumentId && !node.instancePath));
         const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${isActiveDocument ? "active-document" : ""} ${highlightedKey === node.key ? "highlighted" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
           role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? isExpanded : undefined}
-          aria-selected={isSelected} tabIndex={0} onClick={(event) => { event.stopPropagation(); selectNode(node, eventModifiers(event)); }}
+          aria-selected={isSelected} data-tree-key={node.key}
+          tabIndex={node.key === (visibleKeys.includes(focusedKey ?? "") ? focusedKey : visibleKeys[0]) ? 0 : -1}
+          onFocus={() => setFocusedKey(node.key)} onClick={(event) => { event.stopPropagation(); selectNode(node, eventModifiers(event)); }}
           onDoubleClick={(event) => { event.stopPropagation(); onActivate?.(node); }}
           onContextMenu={(event) => contextSelection(event, node)}
           onMouseEnter={() => onHover?.(node)} onMouseLeave={() => onHover?.()}
@@ -154,14 +199,8 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
             ? <button className={`specification-tree-junction branch ${isExpanded ? "expanded" : "collapsed"}`}
               tabIndex={-1} aria-label={isExpanded ? "折叠" : "展开"}
               onClick={(event) => { event.stopPropagation(); toggle(node.key); }}>
-              <svg className="specification-tree-orb" viewBox="0 0 16 16" aria-hidden="true">
-                <circle className="specification-tree-orb-collapsed" cx="8" cy="8" r="5.25" />
-                <g className="specification-tree-orb-expanded">
-                  <path className="upper-left" d="M 2.75 8 A 5.25 5.25 0 0 1 8 2.75" />
-                  <path className="upper-right" d="M 8 2.75 A 5.25 5.25 0 0 1 13.25 8" />
-                  <path className="lower-right" d="M 13.25 8 A 5.25 5.25 0 0 1 8 13.25" />
-                  <path className="lower-left" d="M 8 13.25 A 5.25 5.25 0 0 1 2.75 8" />
-                </g>
+              <svg className="specification-tree-chevron" viewBox="0 0 16 16" aria-hidden="true">
+                <path d="m6 3 5 5-5 5" />
               </svg>
             </button> : <span className="specification-tree-junction leaf" />}
           <span className="specification-tree-icon">{node.icon}</span>
@@ -169,7 +208,7 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
         </div>;
         return <div key={node.key} className={`specification-tree-virtual-row ${depth > 0 ? "nested" : "root"}`} style={rowStyle}>
           {Array.from({ length: depth }, (_, guide) => <i key={guide} className="specification-tree-depth-guide"
-            style={{ left: guide * 31 + 13 }} />)}
+            style={{ left: guide * 22 + 13 }} />)}
           <Dropdown trigger={[]} placement="bottomLeft" overlayClassName="specification-tree-context-menu"
             open={contextMenu?.nodeKey === node.key}
             onOpenChange={(open) => { if (!open) setContextMenu(undefined); }}
@@ -202,5 +241,5 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
         </div>;
       })}
     </div>
-  </nav>;
+  </nav></div>;
 }

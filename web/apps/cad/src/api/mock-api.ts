@@ -128,6 +128,8 @@ function markDocumentOpen(documentID: string): void {
   const index = openDocumentIDs.indexOf(documentID);
   if (index >= 0) openDocumentIDs.splice(index, 1);
   openDocumentIDs.unshift(documentID);
+  const summary = summaries.find((item) => item.id === documentID);
+  if (summary) summary.lastOpenedAt = now();
 }
 const folders: FolderSummary[] = [{
   id: "mock-folder", name: "Concepts", description: "Early design studies", documentCount: 0,
@@ -564,10 +566,12 @@ export const mockApi: CadApi = {
     if (options.query) documents = documents.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(options.query!.toLowerCase()));
     if (options.type) documents = documents.filter((item) => item.type === options.type);
     if (!options.allFolders) documents = documents.filter((item) => (item.folderId ?? "") === (options.folderId ?? ""));
+    if (options.recent) documents = documents.filter((item) => Boolean(item.lastOpenedAt));
     if (options.shared) documents = documents.filter((item) => item.permission !== "OWNER");
     documents = [...documents].sort((left, right) => options.sort === "name" ? left.name.localeCompare(right.name)
       : options.sort === "created" ? right.createdAt.localeCompare(left.createdAt)
-      : (right.lastOpenedAt ?? right.lastUpdated).localeCompare(left.lastOpenedAt ?? left.lastUpdated));
+      : options.sort === "recent" ? (right.lastOpenedAt ?? "").localeCompare(left.lastOpenedAt ?? "")
+      : right.lastUpdated.localeCompare(left.lastUpdated));
     const offset = options.offset ?? 0; const limit = options.limit ?? 50;
     return pause({ documents: documents.slice(offset, offset + limit), total: documents.length, offset, limit });
   },
@@ -578,7 +582,15 @@ export const mockApi: CadApi = {
     await pause(undefined);
   },
   listFolders: async (parentID = "") => pause(folders.filter((folder) => (folder.parentId ?? "") === parentID)),
-  folderBreadcrumbs: async (folderID) => pause(folders.filter((folder) => folder.id === folderID)),
+  folderBreadcrumbs: async (folderID) => {
+    const path: FolderSummary[] = []; const visited = new Set<string>();
+    let current = folders.find((folder) => folder.id === folderID);
+    while (current && !visited.has(current.id)) {
+      visited.add(current.id); path.unshift(current);
+      current = folders.find((folder) => folder.id === current!.parentId);
+    }
+    return pause(path);
+  },
   createFolder: async (name, description, parentID) => {
     const folder: FolderSummary = { id: id("mock-folder"), name, description, parentId: parentID,
       documentCount: 0, trashCount: 0, childCount: 0, createdAt: now(), updatedAt: now(), permission: "OWNER" };

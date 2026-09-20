@@ -687,7 +687,6 @@ select {
   background: var(--cad-bg-1);
 }
 
-.workbench-stage { position: absolute; inset: 0; min-width: 0; min-height: 0; }
 
 .workbench-loading {
   width: 100%;
@@ -764,7 +763,6 @@ select {
 .cad-floating-toolbar.top-right:not(.custom-position) { top: calc(12px + var(--toolbar-stack-index, 0) * 46px); }
 .cad-floating-panel.top-center { top: 12px; left: 50%; transform: translateX(-50%); }
 .cad-floating-panel.top-right { top: 12px; right: 12px; }
-.viewport-frame.inspector-open>.cad-floating-toolbar.top-right:not(.custom-position) { right: 314px; }
 .cad-floating-panel.bottom-left { bottom: 38px; left: 12px; }
 .cad-floating-panel.bottom-center { bottom: 38px; left: 50%; transform: translateX(-50%); }
 .cad-floating-panel.bottom-right { right: 12px; bottom: 38px; }
@@ -864,48 +862,16 @@ select {
 
 @media (max-width: 720px) {
   .cad-floating-toolbar.top-center { right: 8px; left: auto; transform: none; }
-  .viewport-frame.inspector-open>.cad-floating-toolbar.top-right:not(.custom-position) { right: 282px; }
   .cad-input-debug { display: none; }
   .cad-command-dialog { right: 8px; left: 8px !important; width: auto !important; }
 }
 
 
-.floating-structure-tree {
-  position: absolute;
-  z-index: 7;
-  top: 60px;
-  bottom: 86px;
-  left: 8px;
-  overflow: hidden;
-  pointer-events: none;
-  scrollbar-color: rgb(215 225 229 / 42%) transparent;
-  scrollbar-width: thin;
-}
-
-.structure-tree-resize-handle {
-  position: absolute;
-  z-index: 4;
-  top: 7px;
-  right: 0;
-  width: 24px;
-  height: 24px;
-  border: 0;
-  border-top: 2px solid rgb(225 235 239 / 46%);
-  border-right: 2px solid rgb(225 235 239 / 34%);
-  border-radius: 0 5px 0 0;
-  background: transparent;
-  cursor: ew-resize;
-  pointer-events: auto;
-  touch-action: none;
-}
-.structure-tree-resize-handle:hover,
-.structure-tree-resize-handle:focus-visible { border-color: #e09526; outline: 0; background-color: rgb(224 149 38 / 10%); }
-
 .specification-tree { min-width: max-content; height: 100%; padding: 7px 16px 22px 4px; overflow: auto; pointer-events: none; user-select: none; }
 .specification-tree-virtual-space { position: relative; min-width: 280px; pointer-events: none; }
 .specification-tree-virtual-row { position: absolute; top: 0; left: 0; width: max-content; min-width: 100%; height: 27px; }
 .specification-tree-virtual-row.nested::after { content: ""; position: absolute; z-index: -1; top: 13px;
-  left: calc(var(--tree-depth) * 31px - 18px); width: 20px; height: 1px; background: rgb(226 235 239 / 74%); }
+  left: calc(var(--tree-depth) * 22px - 18px); width: 20px; height: 1px; background: rgb(226 235 239 / 74%); }
 .specification-tree-depth-guide { position: absolute; z-index: 0; top: 0; bottom: 0; width: 1px;
   background: rgb(226 235 239 / 68%); filter: drop-shadow(0 1px 1px rgb(18 38 50 / 72%)); }
 .specification-tree-level { position: relative; padding: 0; margin: 0; list-style: none; }
@@ -979,21 +945,8 @@ select {
 }
 .specification-tree-junction.leaf::before { width: 3px; height: 3px; background: #dce8ec; }
 .specification-tree-junction.branch { cursor: pointer; color: rgb(238 244 246 / 92%); }
-.specification-tree-orb { display: block; width: 14px; height: 14px; overflow: visible; fill: none; stroke: currentColor;
-  stroke-linecap: round; stroke-width: 1.25; }
-.specification-tree-orb-collapsed { fill: rgb(53 73 85 / 72%); opacity: 1; transition: opacity 120ms ease; }
-.specification-tree-orb-expanded path { opacity: 0; transform-box: fill-box; transform-origin: center;
-  transition: opacity 120ms ease, transform 120ms ease; }
-.specification-tree-orb-expanded .upper-left { transform: translate(0, 0); }
-.specification-tree-orb-expanded .upper-right { transform: translate(0, 0); }
-.specification-tree-orb-expanded .lower-right { transform: translate(0, 0); }
-.specification-tree-orb-expanded .lower-left { transform: translate(0, 0); }
-.specification-tree-junction.branch.expanded .specification-tree-orb-collapsed { opacity: 0; }
-.specification-tree-junction.branch.expanded .specification-tree-orb-expanded path { opacity: 1; }
-.specification-tree-junction.branch.expanded .specification-tree-orb-expanded .upper-left { transform: translate(-1.75px, -1.75px); }
-.specification-tree-junction.branch.expanded .specification-tree-orb-expanded .upper-right { transform: translate(1.75px, -1.75px); }
-.specification-tree-junction.branch.expanded .specification-tree-orb-expanded .lower-right { transform: translate(1.75px, 1.75px); }
-.specification-tree-junction.branch.expanded .specification-tree-orb-expanded .lower-left { transform: translate(-1.75px, 1.75px); }
+.specification-tree-chevron { display: block; width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.5; }
+.specification-tree-junction.expanded .specification-tree-chevron { transform: rotate(90deg); }
 .specification-tree-icon { width: 20px; flex: 0 0 20px; margin-left: 3px; color: #c8d8df; text-align: center; font-size: 14px; line-height: 1; }
 .specification-tree-level.root>.specification-tree-node>.specification-tree-row>.specification-tree-icon { position: relative; }
 .specification-tree-level.root>.specification-tree-node>.specification-tree-row>.specification-tree-icon::after {
@@ -1031,78 +984,10 @@ select {
   min-width: 176px !important;
   max-width: 176px !important;
 }
-.inspector-overlay {
-  position: absolute;
-  z-index: 10;
-  top: 12px;
-  right: 10px;
-  bottom: 35px;
-  width: 292px;
-  padding: 9px;
-  overflow: hidden;
-  border: 1px solid rgb(73 92 103 / 45%);
-  border-radius: 1px;
-  background: #edf0f1;
-  box-shadow: none;
-  transform: translateX(calc(100% + 18px));
-  transition: transform 150ms ease;
-}
-
-.inspector-overlay.open { transform: translateX(0); }
-.inspector-overlay>.ant-segmented { margin-bottom: 9px; }
 .inspector-overlay-content { height: calc(100% - 41px); overflow: auto; }
 
-.inspector-toggle {
-  position: absolute;
-  z-index: 11;
-  top: 50%;
-  right: 0;
-  width: 25px;
-  height: 54px;
-  border: 1px solid #647781;
-  border-right: 0;
-  border-radius: 1px 0 0 1px;
-  color: #263841;
-  background: #e1e6e8;
-  transform: translateY(-50%);
-  cursor: pointer;
-  transition: right 150ms ease;
-}
 
-.inspector-toggle.open { right: 302px; }
 
-.header-document-manager {
-  width: 36px;
-  min-width: 36px;
-  height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: 10px;
-  padding: 0;
-  border: 1px solid #7d8b93;
-  border-radius: 2px;
-  color: #eef2f3;
-  background: #2b3a43;
-  box-shadow: none;
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-}
-.header-document-manager > .anticon { display: inline-flex; align-items: center; justify-content: center; line-height: 1; }
-.header-document-manager:hover { border-color: #b6c3c9; background: #354852; }
-.document-orb-menu { width: 280px; }
-.document-orb-create { width: 100%; display: flex; align-items: center; gap: 9px; padding: 9px 10px; border: 0; border-radius: 5px; color: white; background: #c56d08; cursor: pointer; }
-.document-orb-caption { padding: 10px 6px 5px; color: #7b8c95; font-size: 9px; font-weight: 700; letter-spacing: .8px; }
-.document-orb-list { display: grid; gap: 3px; max-height: 310px; overflow: auto; }
-.document-orb-item { display: grid; grid-template-columns: 1fr 28px; align-items: center; border-radius: 5px; }
-.document-orb-item:hover, .document-orb-item.active { background: #e9eff1; }
-.document-orb-switch { min-width: 0; display: grid; grid-template-columns: 20px 1fr auto; align-items: center; gap: 6px; padding: 7px; border: 0; text-align: left; background: transparent; cursor: pointer; }
-.document-orb-switch span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.document-orb-switch small { color: #84949c; font-size: 8px; }
-.document-orb-close { width: 25px; height: 25px; border: 0; border-radius: 4px; color: #76878f; background: transparent; cursor: pointer; }
-.document-orb-close:hover { color: #a52c23; background: #fbe7e5; }
-.document-orb-empty { padding: 18px 8px; color: #8a9aa2; text-align: center; font-size: 10px; }
 
 .property-list .ant-descriptions-item-label,
 .property-list .ant-descriptions-item-content {
@@ -1138,8 +1023,6 @@ select {
     display: none;
   }
 
-  .inspector-overlay { width: 260px; }
-  .inspector-toggle.open { right: 270px; }
 }
 
 @media (max-width: 720px) {
@@ -1171,8 +1054,4 @@ select {
     display: none;
   }
 
-  .floating-structure-tree { max-width: 55vw; max-height: 36%; }
-  .header-document-manager { margin-left: 4px; }
-  .inspector-overlay { width: min(280px, calc(100% - 42px)); }
-  .inspector-toggle.open { right: min(290px, calc(100% - 32px)); }
 }

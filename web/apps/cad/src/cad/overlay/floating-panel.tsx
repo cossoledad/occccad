@@ -1,5 +1,6 @@
+import { clampPanelPosition, normalizePanelPosition } from "../../utils/panel-position";
 import { CloseOutlined } from "@ant-design/icons";
-import { Button } from "antd";
+import { App, Button } from "antd";
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent, type PropsWithChildren, type ReactNode } from "react";
 import { normalizeToolbarLayout, useUIPreferences, type ToolbarLayout, type ToolbarOrientation } from "../../state/ui-preferences";
@@ -98,22 +99,44 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
   id: string; open: boolean; title: ReactNode; onClose: () => void; onConfirm: () => void | Promise<void>;
   confirmText?: string; cancelText?: string; confirmLoading?: boolean; confirmDisabled?: boolean; width?: number;
 }>) {
-  const storageKey = `occccad.command-dialog.${id}`;
-  const [position, setPosition] = useState<{ x: number; y: number }>(() => {
-    try { return JSON.parse(window.localStorage.getItem(storageKey) ?? "null") ?? { x: 360, y: 84 }; }
-    catch { return { x: 360, y: 84 }; }
-  });
+  const { message } = App.useApp();
+  const savedPosition = useUIPreferences((state) => state.commandDialogPositions[id]);
+  const savePosition = useUIPreferences((state) => state.setCommandDialogPosition);
+  const [position, setPosition] = useState(() => normalizePanelPosition(savedPosition) ?? { x: 360, y: 144 });
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const closeRef = useRef(onClose); closeRef.current = onClose;
   const dialog = useRef<HTMLElement>(null);
   const positionRef = useRef(position); positionRef.current = position;
   const drag = useRef<{ pointerId: number; offsetX: number; offsetY: number } | undefined>(undefined);
   useEffect(() => {
-    if (!open) return;
+    if (!open || !dialog.current?.parentElement) return;
+    const element = dialog.current;
+    const parent = element.parentElement!;
+    const keepInBounds = () => {
+      const next = clampPanelPosition(positionRef.current, element.getBoundingClientRect(), parent.getBoundingClientRect());
+      if (next.x !== positionRef.current.x || next.y !== positionRef.current.y) {
+        positionRef.current = next; setPosition(next);
+      }
+    };
+    keepInBounds();
+    const observer = new ResizeObserver(keepInBounds);
+    observer.observe(parent); observer.observe(element);
+    const previousFocus = document.activeElement;
+    element.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
     const keyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); onClose(); }
+      const topmost = [...document.querySelectorAll(".cad-command-dialog")].at(-1);
+      if (event.key === "Escape" && !event.defaultPrevented && topmost === element
+        && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
+        event.preventDefault(); closeRef.current();
+      }
     };
     window.addEventListener("keydown", keyDown);
-    return () => window.removeEventListener("keydown", keyDown);
-  }, [open, onClose]);
+    return () => {
+      observer.disconnect(); window.removeEventListener("keydown", keyDown);
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
+    };
+  }, [open]);
   if (!open) return null;
   const pointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
@@ -124,22 +147,24 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
   const pointerMove = (event: ReactPointerEvent<HTMLElement>) => {
     if (drag.current?.pointerId !== event.pointerId || !dialog.current?.parentElement) return;
     const parent = dialog.current.parentElement.getBoundingClientRect();
-    const next = { x: Math.max(8, Math.min(event.clientX - parent.left - drag.current.offsetX, parent.width - width - 8)),
-      y: Math.max(8, Math.min(event.clientY - parent.top - drag.current.offsetY, parent.height - dialog.current.offsetHeight - 32)) };
+    const next = clampPanelPosition({ x: event.clientX - parent.left - drag.current.offsetX,
+      y: event.clientY - parent.top - drag.current.offsetY }, dialog.current.getBoundingClientRect(), parent);
     positionRef.current = next; setPosition(next);
   };
   const pointerUp = (event: ReactPointerEvent<HTMLElement>) => {
     if (drag.current?.pointerId !== event.pointerId) return;
     drag.current = undefined;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    window.localStorage.setItem(storageKey, JSON.stringify(positionRef.current));
+    savePosition(id, positionRef.current);
   };
   const confirm = async () => {
+    if (submittingRef.current || confirmLoading || confirmDisabled) return;
+    submittingRef.current = true; setSubmitting(true);
     try { await onConfirm(); }
     catch (error) {
       // Ant Form owns field validation feedback; unexpected command failures remain observable.
-      if (!(error && typeof error === "object" && "errorFields" in error)) throw error;
-    }
+      if (!(error && typeof error === "object" && "errorFields" in error)) message.error(String(error));
+    } finally { submittingRef.current = false; setSubmitting(false); }
   };
   return <section ref={dialog} className="cad-command-dialog" role="dialog" aria-modal="false" aria-label={String(title)}
     style={{ left: position.x, top: position.y, width }}>
@@ -150,7 +175,7 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
     </header>
     <div className="cad-command-dialog-body">{children}</div>
     <footer className="cad-command-dialog-footer"><Button onClick={onClose}>{cancelText}</Button>
-      <Button type="primary" loading={confirmLoading} disabled={confirmDisabled}
+      <Button type="primary" loading={confirmLoading || submitting} disabled={confirmDisabled}
         onClick={() => void confirm()}>{confirmText}</Button></footer>
   </section>;
 }

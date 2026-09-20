@@ -14,9 +14,9 @@ function glyph(name: CadIconName): ReactNode {
   switch (name) {
   case "select": return <><P d="M5 3l10 8-5 .8-2.8 4.6z" /><P d="M10.2 11.8l4.2 4.2" /></>;
   case "capture": return <><P d="M4 7V4h3M13 4h3v3M16 13v3h-3M7 16H4v-3" /><C cx={10} cy={10} r={2.2} /><P d="M10 2v3M10 15v3M2 10h3M15 10h3" /></>;
-  case "sketch": return <><P d="M3 16l4-11h7l3 11zM5 12h10" /><P d="M7 5l3 7 4-7" /></>;
-  case "pad": return <><P d="M4 12l6 3.5 6-3.5-6-3.5zM4 12v3l6 3 6-3v-3M10 8.5V3" /><P d="M7.5 5.5L10 3l2.5 2.5" /></>;
-  case "pocket": return <><P d="M4 7l6 3.5L16 7M4 7v7l6 3 6-3V7" /><P d="M10 3v7M7.5 7.5L10 10l2.5-2.5" /></>;
+  case "sketch": return <><P d="M3 6v11h11M6 13l1-4 7-7 4 4-7 7-5 1ZM12 4l4 4" /></>;
+  case "pad": return <><path className="icon-face" d="m4 12 6-3.5 6 3.5-6 3.5Z" /><P d="M4 12l6 3.5 6-3.5-6-3.5zM4 12v3l6 3 6-3v-3M10 8.5V3" /><P d="M7.5 5.5L10 3l2.5 2.5" /></>;
+  case "pocket": return <><path className="icon-face" d="m4 7 6 3.5L16 7v7l-6 3-6-3Z" /><P d="M4 7l6 3.5L16 7M4 7v7l6 3 6-3V7" /><P d="M10 3v7M7.5 7.5L10 10l2.5-2.5" /></>;
   case "revolve": return <><P d="M6 15a7 7 0 116 1M6 15V9M6 15h6" /><P d="M10 4v12" /></>;
   case "datum-plane": return <><P d="M3 13l10-8 4 3-10 8z" /><P d="M10 3v14M6 10h8" /></>;
   case "datum-axis": return <><P d="M3 10h14M10 3v14" /><C cx={10} cy={10} r={2} /></>;
@@ -70,8 +70,12 @@ function glyph(name: CadIconName): ReactNode {
 }
 
 export function CadIcon({ name }: { name: CadIconName }) {
-  return <svg className="cad-command-icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"
-    fill="none" stroke="currentColor" strokeWidth="1.45" strokeLinecap="round" strokeLinejoin="round">
+  const family = ["pad", "pocket", "revolve", "datum-plane", "datum-axis", "parameters", "publication"].includes(name) ? "solid"
+    : ["sketch", "project", "point", "line", "circle", "arc", "polyline", "spline", "rectangle", "polygon", "slot", "finish"].includes(name) ? "sketch"
+    : ["coincident", "parallel", "fixed", "horizontal", "vertical", "perpendicular", "tangent", "equal", "distance", "length", "radius", "diameter", "angle", "concentric", "point-on-object", "midpoint", "symmetry"].includes(name) ? "constraint"
+    : ["insert", "reference", "link", "move", "release"].includes(name) ? "assembly" : "view";
+  return <svg className={`cad-command-icon family-${family}`} viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"
+    fill="none" stroke="currentColor" strokeWidth="1.55" strokeLinecap="round" strokeLinejoin="round">
     {glyph(name)}
   </svg>;
 }
