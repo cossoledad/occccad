@@ -1,7 +1,8 @@
+import { makeFeatureEdges } from "../cad/rendering/feature-edges";
+import { makeFeaturePreview, type FeaturePreviewOperation } from "../cad/rendering/feature-preview";
 import { InfiniteGroundGrid } from "../cad/rendering/infinite-ground-grid";
 import { fitOrthographicView, updateOrthographicClipping, orientView, restoreView, saveView, standardView, viewFocus, type SavedView } from "../cad/navigation/orthographic-view";
 import * as THREE from "three";
-import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import { InputManager } from "../cad/input/input-manager";
 import { snapshotTransform, TransformTransitionSystem, type TransformPose } from "../cad/animation/transform-transition";
@@ -187,20 +188,6 @@ function makeGeometry(artifact: Artifact): THREE.BufferGeometry {
   return geometry;
 }
 
-function makeFeatureEdges(geometry: THREE.BufferGeometry): THREE.EdgesGeometry {
-  // OCCT tessellation can repeat the same vertex for adjacent triangles/faces.
-  // EdgesGeometry interprets those repetitions as open triangle boundaries and
-  // makes a shaded solid look like a wireframe. Weld position-only geometry
-  // before extracting display edges; keep the original mesh untouched.
-  const edgeSource = new THREE.BufferGeometry();
-  edgeSource.setAttribute("position", geometry.getAttribute("position").clone());
-  if (geometry.index) edgeSource.setIndex(geometry.index.clone());
-  const welded = mergeVertices(edgeSource, 1.0e-4);
-  const edges = new THREE.EdgesGeometry(welded, 32);
-  edgeSource.dispose();
-  welded.dispose();
-  return edges;
-}
 
 export class CadViewportEngine {
   private readonly scene = new THREE.Scene();
@@ -208,7 +195,7 @@ export class CadViewportEngine {
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   private readonly shaders = new CadShaderLibrary();
   private readonly materials = new CadMaterialFactory(this.shaders);
-  private readonly sketchGrid = new InfiniteGroundGrid(CATIA_VISUAL_THEME.sketchConstruction);
+  private readonly sketchGrid = new InfiniteGroundGrid(CATIA_VISUAL_THEME.sketchGrid, "sketch");
   private readonly groundGrid = new InfiniteGroundGrid(CATIA_VISUAL_THEME.gridMinor);
   private readonly background = new CadBackground(this.shaders);
   private readonly moveManipulator: AssemblyManipulator;
@@ -252,6 +239,7 @@ export class CadViewportEngine {
   private snapPreview?: THREE.Object3D;
   private lastSketchSnap?: SketchSnapResult;
   private commandPreview?: THREE.Object3D;
+  private previewBody?: { group: THREE.Group; visible: boolean };
   private assemblyPosePreview?: Map<string, { position: THREE.Vector3; rotation: THREE.Quaternion }>;
   private dimensionDrag?: { selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; constraint: SketchConstraint;
     root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2 };
@@ -568,23 +556,29 @@ export class CadViewportEngine {
     this.frameContent();
   }
 
-  previewArtifact(artifact: Artifact): void {
+  previewArtifact(artifact: Artifact, operation: FeaturePreviewOperation = "NEW_BODY"): void {
     this.clearCommandPreview();
     if (!artifact.mesh.vertices.length || !artifact.mesh.triangles.length) return;
+    const binding = this.solidBindings.get(this.editContext?.occurrencePath || "root");
     const geometry = makeGeometry(artifact);
-    geometry.userData.navigationFaceIds = artifact.mesh.faceIds;
-    const group = new THREE.Group();
-    const solid = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({ color: CATIA_VISUAL_THEME.commandPreview,
-      transparent: true, opacity: 0.34, depthWrite: false, side: THREE.DoubleSide }));
-    const edges = new THREE.LineSegments(makeFeatureEdges(geometry),
-      new THREE.LineBasicMaterial({ color: CATIA_VISUAL_THEME.preview, transparent: true, opacity: 0.9, depthTest: false }));
-    solid.renderOrder = 90; edges.renderOrder = 91; group.add(solid, edges);
+    const group = makeFeaturePreview(geometry, operation, binding?.mesh.geometry.clone());
+    if (binding) {
+      this.previewBody = { group: binding.group, visible: binding.group.visible };
+      binding.group.visible = false;
+    }
     if (this.editContext?.translation) group.position.fromArray(this.editContext.translation);
     if (this.editContext?.rotation) group.quaternion.fromArray(this.editContext.rotation);
-    this.scene.add(group); this.commandPreview = group; this.invalidate();
+    this.scene.add(group); this.commandPreview = group;
+    this.host.dataset.featurePreview = operation;
+    this.updateCameraClipping(); this.invalidate();
   }
 
   clearCommandPreview(restore = true): void {
+    delete this.host.dataset.featurePreview;
+    if (this.previewBody) {
+      this.previewBody.group.visible = this.previewBody.visible;
+      this.previewBody = undefined;
+    }
     if (this.commandPreview) {
       this.scene.remove(this.commandPreview); this.disposeRenderable(this.commandPreview);
       this.commandPreview = undefined;
@@ -2149,7 +2143,9 @@ export class CadViewportEngine {
   }
 
   private updateCameraClipping(box?: THREE.Box3): void {
-    updateOrthographicClipping(this.camera, box ?? this.contentBounds);
+    const bounds = (box ?? this.contentBounds).clone();
+    if (this.commandPreview) bounds.union(new THREE.Box3().setFromObject(this.commandPreview));
+    updateOrthographicClipping(this.camera, bounds);
   }
 
   private resize(): void {
@@ -2181,6 +2177,7 @@ export class CadViewportEngine {
       if (!geometry.boundingBox) geometry.computeBoundingBox();
       if (geometry.boundingBox) bounds.union(geometry.boundingBox.clone().applyMatrix4(object.matrixWorld));
     });
+    if (this.commandPreview) bounds.union(new THREE.Box3().setFromObject(this.commandPreview));
     return bounds;
   }
 

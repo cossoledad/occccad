@@ -11,23 +11,30 @@ export function parameterDisplayValue(parameter: ParameterDefinition, preferredL
   return `${(parameter.evaluatedValue.siValue * (unitScale[unit] ?? 1)).toPrecision(8)} ${unit}`;
 }
 
-export function parameterSourceText(parameter: ParameterDefinition): string {
+export function parameterSourceText(parameter: ParameterDefinition, inputUnit?: string): string {
   if (parameter.source.expression) return parameter.source.expression.sourceText;
   if (parameter.source.external) return `Publication ${parameter.source.external.publicationId} @ ${parameter.source.external.resolvedRevisionId.slice(0, 12)}`;
   if (!parameter.source.literal) return "";
-  return `${parameter.source.literal.siValue * (unitScale[parameter.displayUnit] ?? 1)} ${parameter.displayUnit}`;
+  const unit = inputUnit ?? parameter.displayUnit;
+  const value = Number((parameter.source.literal.siValue * (unitScale[unit] ?? 1)).toPrecision(12));
+  return inputUnit ? String(value) : `${value} ${unit}`;
 }
 
-export function parseParameterSource(source: string):
+export function parseParameterSource(source: string, defaultUnit?: string):
   { kind: "LITERAL"; value: number; unit: string } | { kind: "EXPRESSION"; expression: string } {
   const normalized = source.trim();
   const literal = normalized.match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)\s*(mm|cm|m|in|deg|rad)$/i);
+  if (defaultUnit && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized)) {
+    const value = Number(normalized);
+    if (!Number.isFinite(value)) throw new Error("数值必须有限");
+    return { kind: "LITERAL", value, unit: defaultUnit };
+  }
   if (literal) return { kind: "LITERAL", value: Number(literal[1]), unit: literal[2].toLowerCase() };
   return { kind: "EXPRESSION", expression: normalized };
 }
 
-export function linearExtrudeLengthInput(source: string): { length?: number; lengthExpression?: string } {
-  const parsed = parseParameterSource(source);
+export function linearExtrudeLengthInput(source: string, defaultUnit = "mm"): { length?: number; lengthExpression?: string } {
+  const parsed = parseParameterSource(source, defaultUnit);
   if (parsed.kind === "EXPRESSION") {
     if (!parsed.expression) throw new Error("请输入长度值、参数别名或表达式");
     return { lengthExpression: parsed.expression };

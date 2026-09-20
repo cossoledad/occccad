@@ -70,3 +70,5 @@ SOLIDWORKS 旋转参考与正式 Selection 分离。平面/直边按显示几何
 裁剪更新同时支持沿视线前移/后移相机；大幅缩小后重新放大时收回多余深度范围，避免裁剪范围随操作历史不断扩大。该沿视线位移不改变正交屏幕投影。
 
 草图工具栏的“正对草图平面”通过 CommandRegistry 调用 `normalToSketch`，仅重新对齐当前视图，不修改草图几何、显示比例或退出时恢复的快照。背景方向参考达索 [Overloading Predefined Ambiences and Cameras](https://help-3dexperience.aesvietnam.com/English/ComUserMap/com-t-View-AmbienceOverload.htm) 的环境上方向与 Zenith/Horizon，以及 [About the Ambience Panel](https://help-3dexperience.aesvietnam.com/English/AstUserMap/ast-c-Ambience.htm) 的穹顶和 Horizon 语义（公开原文镜像）。实现用世界 Z 方向的环境采样区分天空、地平线和地面；正交视图背景使用固定角域，避免缩放改变环境方向。色值、角域和插值是应用参数，不是 CATIA 专有 shader 的复刻。
+
+3DE Profile 的平移、虚拟球角度和组合键缩放采用 1.15 输入增益，相对原实现小幅提速；平移仍按当前正交 zoom 换算，不改变其他 Profile。

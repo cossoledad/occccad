@@ -12,8 +12,8 @@ viewport composes three independent layers:
 
 1. the latest evaluated Body artifact, visible as read-only design context;
 2. the active Sketch overlay, grid, constraints and transient previews;
-3. reference/environment helpers, hidden for a direct Part edit unless they
-   are required by an occurrence editing context.
+3. reference/environment helpers, including the world ground grid retained
+   alongside the active support plane grid.
 
 Visibility and selectability are separate. The Body remains rendered and may
 participate in navigation/occlusion, while normal Sketch tools only select the

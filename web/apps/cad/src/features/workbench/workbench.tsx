@@ -1,3 +1,4 @@
+import { FeaturePreviewLegend } from "./feature-preview-legend";
 import { InsertDocumentDialog } from "./insert-document-dialog";
 import "./workbench.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -210,6 +211,7 @@ export function Workbench() {
   const [replacementForm] = Form.useForm<{referencedDocumentId:string}>();
   const [externalParameterForm] = Form.useForm<{ catalogKey: string }>();
   const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string }>();
+  const padOperation = Form.useWatch("operation", padForm) ?? "NEW_BODY";
   const contextPublicationType = Form.useWatch("publicationType", contextReferenceForm) ?? "PLANE";
   const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
   const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
@@ -566,7 +568,7 @@ export function Workbench() {
     padPreviewAbort.current?.abort();
     viewport.current?.clearCommandPreview();
     const generator = values.generator ?? padGenerator;
-    const lengthInput = generator === "LINEAR_EXTRUDE" ? linearExtrudeLengthInput(values.lengthSource) : {};
+    const lengthInput = generator === "LINEAR_EXTRUDE" ? linearExtrudeLengthInput(values.lengthSource, lengthUnit) : {};
     command.mutate(() => api.createSolidFeature(editingView.document.id, { sketchId: padSketchID, generator,
       operation: values.operation, ...lengthInput,
       angle: generator === "REVOLVE" ? values.angle : undefined,
@@ -592,7 +594,7 @@ export function Workbench() {
 		const feature=editingView.part?.features.find((candidate)=>candidate.id===node.entityId);
 		if (!feature || !["PAD","LINEAR_EXTRUDE"].includes(feature.type.toUpperCase())) return;
 		const parameter=editingView.part?.parameters?.find((candidate)=>candidate.parameterId===`parameter:${feature.id}:length`);
-		featureForm.setFieldsValue({lengthText:parameter?parameterSourceText(parameter):`${feature.length??0} mm`}); featurePreviewID.current=undefined;
+		featureForm.setFieldsValue({lengthText:parameter?parameterSourceText(parameter, lengthUnit):String(millimetersToDisplayLength(feature.length??0, lengthUnit))}); featurePreviewID.current=undefined;
 		featureInteractionID.current=randomUUID();
 		setFeaturePreviewError(undefined); setEditingExtrude({feature,digest:node.definitionDigest});
 	};
@@ -600,17 +602,17 @@ export function Workbench() {
 		if (!editingView || !editingExtrude) return;
 		let lengthInput: {length?:number;lengthExpression?:string};
 		try {
-			const values=await featureForm.validateFields(); lengthInput=linearExtrudeLengthInput(values.lengthText);
+			const values=await featureForm.validateFields(); lengthInput=linearExtrudeLengthInput(values.lengthText, lengthUnit);
 		} catch { return; }
 		featurePreviewAbort.current?.abort(); const abort=new AbortController(); featurePreviewAbort.current=abort;
 		const sequence=++featurePreviewSequence.current, baseVersionID=editingView.document.versionId;
-		featurePreviewID.current=undefined; setFeaturePreviewError(undefined); setFeaturePreviewPending(true);
+		featurePreviewID.current=undefined; viewport.current?.clearCommandPreview(); setFeaturePreviewError(undefined); setFeaturePreviewPending(true);
 		try {
 			const preview=await api.previewCommand(editingView.document.id,{type:"EDIT_FEATURE",targetId:editingExtrude.feature.id,
 				expectedFeatureDigest:editingExtrude.digest,...lengthInput,interactionId:featureInteractionID.current,
 				previewSequence:sequence},abort.signal);
 			if(sequence!==featurePreviewSequence.current||preview.baseVersionId!==baseVersionID||preview.baseVersionId!==latestDocumentVersion.current||!preview.artifact)return;
-			featurePreviewID.current=preview.previewId; viewport.current?.previewArtifact(preview.artifact);
+			featurePreviewID.current=preview.previewId; viewport.current?.previewArtifact(preview.artifact, editingExtrude.feature.operation);
 		} catch(cause) {
 			if(abort.signal.aborted)return; const error=cause instanceof Error?cause:new Error(String(cause));
 			setFeaturePreviewError(error.message);
@@ -620,7 +622,7 @@ export function Workbench() {
 		if(!editingView||!editingExtrude)return;
 		let lengthInput: {length?:number;lengthExpression?:string};
 		try {
-			const values=await featureForm.validateFields(); lengthInput=linearExtrudeLengthInput(values.lengthText);
+			const values=await featureForm.validateFields(); lengthInput=linearExtrudeLengthInput(values.lengthText, lengthUnit);
 		} catch { return; }
 		command.mutate(()=>api.editFeature(editingView.document.id,{featureId:editingExtrude.feature.id,
 			expectedFeatureDigest:editingExtrude.digest,...lengthInput,previewId:featurePreviewID.current}),{
@@ -632,13 +634,14 @@ export function Workbench() {
     const values = padForm.getFieldsValue(); values.generator = generatorOverride ?? values.generator ?? padGenerator;
     let lengthInput: { length?: number; lengthExpression?: string } = {};
     if (values.generator === "LINEAR_EXTRUDE") {
-      try { lengthInput = linearExtrudeLengthInput(values.lengthSource); } catch { return; }
+      try { lengthInput = linearExtrudeLengthInput(values.lengthSource, lengthUnit); } catch { return; }
     }
     if (values.generator === "REVOLVE" && (!Number.isFinite(values.angle) || values.angle <= 0 || !values.axisEntityId)) return;
     padPreviewAbort.current?.abort();
     const abort = new AbortController(); padPreviewAbort.current = abort;
 	const sequence = ++padPreviewSequence.current; const baseVersionID = editingView.document.versionId;
 	padPreviewID.current=undefined;
+    viewport.current?.clearCommandPreview();
     setPadPreviewPending(true);
     try {
       const preview = await api.previewCommand(editingView.document.id, { type: "CREATE_SOLID_FEATURE", sketchId: sketchID,
@@ -648,7 +651,7 @@ export function Workbench() {
 	  if (sequence !== padPreviewSequence.current || preview.baseVersionId !== baseVersionID ||
 		preview.baseVersionId !== latestDocumentVersion.current || !preview.artifact) return;
 	  padPreviewID.current=preview.previewId;
-      viewport.current?.previewArtifact(preview.artifact);
+      viewport.current?.previewArtifact(preview.artifact, values.operation);
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError")) message.error(`预览失败：${(error as Error).message}`);
     } finally {
@@ -665,7 +668,7 @@ export function Workbench() {
     const selectedOperation = operation ?? (hasBody ? "ADD" : "NEW_BODY");
     const sketchID = store.selection.id;
 	padIntentRequestID.current = randomUUID(); padPreviewID.current=undefined; setPadSketchID(sketchID); setPadGenerator(generator);
-    padForm.setFieldsValue({ generator, operation: selectedOperation, lengthSource: `40 ${lengthUnit}`, angle: 360,
+    padForm.setFieldsValue({ generator, operation: selectedOperation, lengthSource: "40", angle: 360,
       axisEntityId: undefined, reversed: false });
     setPadOpen(true);
   };
@@ -880,7 +883,7 @@ export function Workbench() {
   const openParameterEditor = (parameterID: string) => {
 	const parameter = editingView?.part?.parameters?.find((candidate) => candidate.parameterId === parameterID);
 	if (!parameter) return;
-	parameterForm.setFieldsValue({key:parameter.key,source:parameterSourceText(parameter)}); setEditingParameterID(parameterID);
+	parameterForm.setFieldsValue({key:parameter.key,source:parameterSourceText(parameter, isLengthParameter(parameter) ? lengthUnit : parameter.displayUnit)}); setEditingParameterID(parameterID);
   };
   const commitParameterEdit = async () => {
 	if (!editingView || !editingParameterID) return;
@@ -889,7 +892,7 @@ export function Workbench() {
 	command.mutate(async () => {
 		let updated = editingView;
 		if (current && current.key !== values.key) updated = await api.renameParameter(editingView.document.id, editingParameterID, values.key);
-		const source = parseParameterSource(values.source);
+		const source = parseParameterSource(values.source, current && isLengthParameter(current) ? lengthUnit : current?.displayUnit);
 		updated = source.kind === "LITERAL"
 			? await api.setParameterValue(editingView.document.id, editingParameterID, source.value, source.unit)
 			: await api.setParameterExpression(editingView.document.id, editingParameterID, source.expression);
@@ -1148,9 +1151,9 @@ export function Workbench() {
             <InputNumber min={0.1} max={360} precision={2} style={{ width: "100%" }} onBlur={previewPad} onPressEnter={previewPad} /></Form.Item>
         </> : <>
           <Form.Item name="lengthSource" label={`拉伸长度（${lengthUnit}）`} rules={[{ required: true }, { validator: async (_, value) => {
-            try { linearExtrudeLengthInput(String(value ?? "")); } catch (cause) { throw cause; }
+            try { linearExtrudeLengthInput(String(value ?? ""), lengthUnit); } catch (cause) { throw cause; }
           } }]}>
-            <Input placeholder={`40 ${lengthUnit} 或参数表达式`} onBlur={previewPad} onPressEnter={previewPad} />
+            <Input data-quantity-input="true" placeholder="40 或参数表达式" onBlur={previewPad} onPressEnter={previewPad} />
           </Form.Item>
           <Form.Item label="引用已有长度参数">
             <Select allowClear showSearch optionFilterProp="label" placeholder="选择后绑定其稳定 ParameterId"
@@ -1161,14 +1164,16 @@ export function Workbench() {
           </Form.Item>
         </>}</Form.Item>
         <Form.Item name="reversed" label="反向" valuePropName="checked"><Switch onChange={previewPad} /></Form.Item>
+        <FeaturePreviewLegend operation={padOperation} />
         <small className="cad-command-hint">{padPreviewPending ? "后端正在求值预览…" : "输入后按 Enter 或点击视口可刷新后端瞬态预览；预览不会创建 Revision。"}</small></Form>
     </CommandDialog>
 	<CommandDialog id="linear-extrude-edit" open={Boolean(editingExtrude)} title="编辑线性拉伸" onClose={closeFeatureEditor}
 		confirmLoading={command.isPending || featurePreviewPending} confirmDisabled={Boolean(featurePreviewError)} onConfirm={commitFeatureEdit}>
 		<Form form={featureForm} layout="vertical"><Form.Item name="lengthText" label={`拉伸长度（${lengthUnit}）`}
-			rules={[{required:true},{validator:async(_,value)=>{try{linearExtrudeLengthInput(String(value??""));}catch(cause){throw cause;}}}]}>
-			<Input autoFocus placeholder={`40 ${lengthUnit} 或参数表达式`} suffix="值 / 参数 / 表达式"
+			rules={[{required:true},{validator:async(_,value)=>{try{linearExtrudeLengthInput(String(value??""), lengthUnit);}catch(cause){throw cause;}}}]}>
+			<Input data-quantity-input="true" autoFocus placeholder="40 或参数表达式"
 			onBlur={()=>void requestFeaturePreview()} onPressEnter={(event)=>{event.preventDefault();void commitFeatureEdit();}} /></Form.Item>
+		<FeaturePreviewLegend operation={editingExtrude?.feature.operation ?? "NEW_BODY"} />
 		{featurePreviewError&&<Alert type="error" showIcon message="编辑预览失败" description={featurePreviewError}/>}
 		<small className="cad-command-hint">{featurePreviewPending?"后端正在求值预览…":"离开输入框刷新瞬态预览；按 Enter 或确定提交一个 Revision。"}</small></Form>
 	</CommandDialog>
@@ -1278,7 +1283,7 @@ export function Workbench() {
 		<Form form={parameterForm} layout="vertical">
 			<Form.Item name="key" label="可读别名" rules={[{required:true,pattern:/^[A-Za-z_][A-Za-z0-9_]*$/,
 				message:"请输入 ASCII 标识符"}]}><Input /></Form.Item>
-			<Form.Item name="source" label="值或表达式" rules={[{required:true}]}><Input placeholder="40 mm 或 base_width / 2" /></Form.Item>
+			<Form.Item name="source" label="值或表达式" rules={[{required:true}]}><Input data-quantity-input="true" placeholder="40 或 base_width / 2" /></Form.Item>
 			<small className="cad-command-hint">表达式按当前 Part 的参数别名编辑；提交后 AST 绑定稳定 ParameterId，后续重命名不会破坏引用。</small>
 		</Form>
 	</CommandDialog>

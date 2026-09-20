@@ -1,3 +1,4 @@
+import type { FeaturePreviewOperation } from "../cad/rendering/feature-preview";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { CaptureSettings } from "../cad/interaction/capture-settings";
 import { InputDebugOverlay, type InputDebugSnapshot } from "../cad/overlay/input-debug-overlay";
@@ -14,7 +15,7 @@ export type CadViewportHandle = {
   fit: () => void;
   normalToSketch: () => void;
   setStandardView: (view: "TOP" | "FRONT" | "RIGHT" | "ISO") => void;
-  previewArtifact: (artifact: Artifact) => void;
+  previewArtifact: (artifact: Artifact, operation?: FeaturePreviewOperation) => void;
   clearCommandPreview: (restore?: boolean) => void;
   editDimension: (selection: Extract<SelectionItem, { kind: "sketch-constraint" }>) => void;
   measureAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => number;
@@ -121,7 +122,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     fit: () => engine.current?.fit(),
     normalToSketch: () => engine.current?.normalToSketch(),
     setStandardView: (view) => engine.current?.setStandardView(view),
-    previewArtifact: (artifact) => engine.current?.previewArtifact(artifact),
+    previewArtifact: (artifact, operation) => engine.current?.previewArtifact(artifact, operation),
     clearCommandPreview: (restore) => engine.current?.clearCommandPreview(restore),
     editDimension: (selection) => engine.current?.requestDimensionEdit(selection),
     measureAssemblyConstraint: (kind, references) => engine.current?.measureAssemblyConstraint(kind, references) ?? 0,

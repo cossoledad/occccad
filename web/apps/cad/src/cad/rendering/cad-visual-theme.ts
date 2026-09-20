@@ -7,6 +7,7 @@ export const CATIA_VISUAL_THEME = {
   edge: colorNumber(palette.edge), vertex: colorNumber(palette.vertex),
   sketchProfile: colorNumber(palette.sketch), sketchConstruction: colorNumber(palette.construction), sketchExternal: colorNumber(palette.external),
   sketchSolved: colorNumber(palette.solved), sketchInvalid: colorNumber(palette.invalid), sketchRedundant: colorNumber(palette.redundant),
+  sketchGrid: colorNumber(palette.sketchGrid),
   constraint: colorNumber(palette.solved), gridMinor: colorNumber(palette.gridMinor), gridMajor: colorNumber(palette.gridMajor),
   preview: colorNumber(palette.preview), commandPreview: colorNumber(palette.preview), snap: colorNumber(palette.snap),
   hover: colorNumber(palette.hover), selected: colorNumber(palette.selected), selectedEmissive: 0x49331c,

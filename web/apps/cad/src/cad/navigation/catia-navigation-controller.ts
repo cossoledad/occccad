@@ -31,7 +31,7 @@ export class CatiaNavigationController {
   private sideDown = false;
   private directCtrl = false;
   private clickCandidate = false;
-  private readonly trackball = new VirtualTrackball();
+  private readonly trackball = new VirtualTrackball({ precision: 1.15 });
   constructor(private readonly rig: CameraRig, private readonly picker: NavigationPicker,
     private readonly viewportSize: () => { width: number; height: number },
     private readonly updated: (cameraChanged: boolean) => void, private readonly options: CatiaNavigationOptions = {}) {}
@@ -75,11 +75,11 @@ export class CatiaNavigationController {
       this.clickCandidate = false; this.transition(CatiaNavigationState.Pan);
     }
     const size = this.viewportSize();
-    if (this.state === CatiaNavigationState.Pan) this.rig.panPixels(event.deltaX, event.deltaY, size.width, size.height);
+    if (this.state === CatiaNavigationState.Pan) this.rig.panPixels(event.deltaX * 1.15, event.deltaY * 1.15, size.width, size.height);
     else if (this.state === CatiaNavigationState.Rotate) {
       const rotation = this.trackball.drag(event.x, event.y, size.width, size.height, this.rig.camera);
       if (rotation) this.rig.orbitQuaternion(rotation);
-    } else this.rig.dollyPixels(event.deltaY);
+    } else this.rig.dollyPixels(event.deltaY * 1.15);
     this.updated(true);
     return InputResult.Consumed;
   }

@@ -11,3 +11,6 @@
 .document-tab-create { width: 28px; height: 28px; flex: none; border-radius: 3px; }
 .document-tabs button:focus-visible { outline: 2px solid #79c5df; outline-offset: -2px; }
 @media (max-width: 800px) { .document-tab { min-width: 110px; max-width: 160px; } }
+.document-tab { position: relative; user-select: none; }
+.document-tab-switch { touch-action: pan-y; cursor: grab; }
+.document-tab-switch:active { cursor: grabbing; }

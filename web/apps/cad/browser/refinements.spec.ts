@@ -1,0 +1,63 @@
+import { expect, test } from "@playwright/test";
+
+test("numeric focus, unitless length and Boolean preview lifecycle", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  page.on("console", message => { if (/THREE.WebGLProgram|Shader Error/.test(message.text())) errors.push(message.text()); });
+  await page.goto("/documents/mock-part-bracket");
+  await page.getByRole("textbox", { name: "筛选模型结构" }).fill("Sketch 1");
+  await page.getByRole("treeitem").filter({hasText:"Sketch 1"}).click();
+  await page.getByRole("button", {name:"拉伸",exact:true}).click();
+  const dialog = page.getByRole("dialog", {name:"实体特征",exact:true});
+  const input = dialog.getByRole("textbox", {name:/拉伸长度/});
+  await expect(input).toHaveValue("40");
+  await input.click();
+  expect(await input.evaluate((node: HTMLInputElement) => [node.selectionStart,node.selectionEnd])).toEqual([0,2]);
+  await page.keyboard.type("20");
+  await expect(input).toHaveValue("20");
+  await input.click({position:{x:12,y:12}});
+  expect(await input.evaluate((node: HTMLInputElement) => node.selectionStart === node.selectionEnd)).toBe(true);
+  await input.press("Enter");
+  await expect(page.locator('[data-feature-preview="ADD"]')).toBeVisible();
+  await expect(dialog.locator(".ant-form-item-explain-error")).toHaveCount(0);
+  await page.screenshot({path:testInfo.outputPath("preview-add.png")});
+  await dialog.getByRole("combobox",{name:"Body 操作"}).click();
+  await page.getByText("移除材料",{exact:true}).click();
+  await expect(page.locator('[data-feature-preview="REMOVE"]')).toBeVisible();
+  await expect(dialog.getByLabel("预览图例")).toContainText("切除结果");
+  await page.screenshot({path:testInfo.outputPath("preview-remove.png")});
+  await dialog.getByRole("button",{name:/取\s*消/}).click();
+  await expect(page.locator('[data-feature-preview]')).toHaveCount(0);
+  await expect(page.getByTestId("viewport-selection")).toHaveAttribute("data-count","1");
+  expect(errors).toEqual([]);
+});
+
+test("document tab drag, keyboard order and responsive tree labels", async ({page}, testInfo) => {
+  test.setTimeout(120_000);
+  await page.goto("/documents/mock-part-bracket");
+  const label = page.getByRole("treeitem").first().locator(".specification-tree-label");
+  const before = (await label.boundingBox())!.width;
+  const separator = page.getByRole("separator",{name:"调整结构树宽度"});
+  await separator.focus();
+  for(let i=0;i<10;i++) await page.keyboard.press("ArrowRight");
+  await expect.poll(async () => (await label.boundingBox())!.width).toBeGreaterThan(before + 90);
+  expect(await label.evaluate(node => getComputedStyle(node).maxWidth)).toBe("none");
+  await page.getByRole("button",{name:"文档中心",exact:true}).click();
+  await page.locator(".document-card").filter({hasText:"Frame Assembly"}).locator(".thumbnail-button").dblclick();
+  const tabs = page.locator(".document-tab-switch");
+  await expect(tabs).toHaveCount(2);
+  const active = await page.locator('.document-tab-switch[aria-current="page"]').innerText();
+  const first = (await tabs.nth(0).boundingBox())!, second = (await tabs.nth(1).boundingBox())!;
+  const oldOrder = await tabs.allTextContents();
+  await page.mouse.move(first.x+first.width/2,first.y+first.height/2); await page.mouse.down();
+  await page.mouse.move(second.x+second.width-5,second.y+second.height/2,{steps:18}); await page.mouse.up();
+  await expect.poll(()=>tabs.allTextContents()).toEqual([...oldOrder].reverse());
+  await expect(page.locator('.document-tab-switch[aria-current="page"]')).toHaveText(active);
+  await page.screenshot({path:testInfo.outputPath("reordered-tabs.png")});
+  expect(await page.evaluate(() => JSON.parse(sessionStorage.getItem("occccad.document-tab-order")!)))
+    .toEqual([...oldOrder].reverse().map(name => name === "Frame Assembly" ? "mock-product-frame" : "mock-part-bracket"));
+  await tabs.first().focus(); await page.keyboard.press("Alt+ArrowRight");
+  await expect.poll(()=>tabs.allTextContents()).toEqual(oldOrder);
+  await page.getByRole("button",{name:"关闭 Mounting Bracket",exact:true}).click();
+  await expect(tabs).toHaveCount(1);
+});

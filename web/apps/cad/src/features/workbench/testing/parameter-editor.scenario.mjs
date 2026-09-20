@@ -16,6 +16,15 @@ try {
   assert.deepEqual(parseParameterSource("base_width / 2"), { kind: "EXPRESSION", expression: "base_width / 2" });
   assert.deepEqual(linearExtrudeLengthInput("2 cm"), { length: 20 });
   assert.deepEqual(linearExtrudeLengthInput("base_width / 2"), { lengthExpression: "base_width / 2" });
+  for (const [unit, expected] of [["mm",20],["cm",200],["m",20000],["in",508]]) {
+    assert.deepEqual(linearExtrudeLengthInput("20", unit), {length:expected});
+    assert.deepEqual(linearExtrudeLengthInput("2 cm", unit), {length:20});
+  }
+  assert.equal(parameterSourceText(parameter,"cm"), "2");
+  assert.deepEqual(parseParameterSource("90","deg"), {kind:"LITERAL",value:90,unit:"deg"});
+  assert.deepEqual(parseParameterSource("base_width / 2","cm"), {kind:"EXPRESSION",expression:"base_width / 2"});
+  assert.throws(()=>linearExtrudeLengthInput("1e999","cm"));
+  assert.throws(()=>linearExtrudeLengthInput("-20","cm"));
   assert.equal(isLengthParameter(parameter), true);
   assert.throws(() => linearExtrudeLengthInput("90 deg"), /mm、cm、m 或 in/);
   assert.equal(parameterSourceText({ ...parameter, source: { expression: { sourceText: "base_width / 2" } } }), "base_width / 2");

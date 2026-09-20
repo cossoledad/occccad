@@ -11,16 +11,16 @@ export class InfiniteGroundGrid {
   private readonly geometry = new THREE.PlaneGeometry(2, 2);
   readonly object: THREE.Mesh;
   private readonly material: THREE.ShaderMaterial;
-  constructor(color: number) {
+  constructor(color: number, style: "ground" | "sketch" = "ground") {
     this.material = new THREE.ShaderMaterial({
       depthTest: false, depthWrite: false, transparent: true,
       uniforms: { uCenter: { value: new THREE.Vector2() }, uHorizontal: { value: new THREE.Vector2() },
-        uVertical: { value: new THREE.Vector2() }, uSpacing: { value: 10 }, uColor: { value: new THREE.Color(color) } },
+        uVertical: { value: new THREE.Vector2() }, uSpacing: { value: 10 }, uSketch: { value: style === "sketch" ? 1 : 0 }, uColor: { value: new THREE.Color(color) } },
       vertexShader: `varying vec2 vScreen;
         void main() { vScreen = position.xy; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
       fragmentShader: `varying vec2 vScreen;
         uniform vec2 uCenter, uHorizontal, uVertical;
-        uniform float uSpacing;
+        uniform float uSpacing, uSketch;
         uniform vec3 uColor;
         float grid(vec2 point, float spacing) {
           vec2 p = point / spacing;
@@ -31,7 +31,13 @@ export class InfiniteGroundGrid {
         }
         void main() {
           vec2 point = uCenter + uHorizontal * vScreen.x + uVertical * vScreen.y;
-          float alpha = max(grid(point, uSpacing) * 0.13, grid(point, uSpacing * 10.0) * 0.22);
+          float minor = grid(point, uSpacing);
+          // Sketch subdivisions are dotted; world context remains continuous lines.
+          vec2 p = point / uSpacing;
+          vec2 distanceToNode = abs(fract(p + 0.5) - 0.5) / max(fwidth(p), vec2(0.000001));
+          float dots = 1.0 - smoothstep(0.8, 1.8, length(distanceToNode));
+          float alpha = mix(max(minor * 0.13, grid(point, uSpacing * 10.0) * 0.22),
+            max(dots * 0.65, grid(point, uSpacing * 10.0) * 0.30), uSketch);
           gl_FragColor = vec4(uColor, alpha);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>

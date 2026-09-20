@@ -119,3 +119,12 @@
 .workbench-structure .specification-tree-icon { color: #658297; }
 .workbench-structure .specification-tree-junction.branch { color: #6c7c8b; }
 .workbench-structure .specification-tree-junction.leaf::before { background: #adbdc9; box-shadow: none; border: 0; }
+
+/* Every virtual row fits the available panel width, including its indentation. */
+.workbench-structure .specification-tree-virtual-row { width: 100%; min-width: 0; box-sizing: border-box; }
+.workbench-structure .specification-tree-row { width: 100%; min-width: 0; box-sizing: border-box; }
+.workbench-structure .specification-tree-label { flex: 1; min-width: 0; max-width: none; }
+.feature-preview-legend { display: flex; flex-wrap: wrap; gap: 14px; padding: 10px 0; color: var(--wb-muted); font-size: 12px; }
+.feature-preview-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.feature-preview-legend i { width: 12px; height: 12px; border-radius: 3px; }
+.feature-preview-legend i.reference { border: 1px dashed; background: transparent; }

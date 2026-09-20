@@ -2,7 +2,8 @@ import { palette } from "../design/visual-tokens";
 import { App as AntdApp, ConfigProvider, theme } from "antd";
 import zhCN from "antd/locale/zh_CN";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { PropsWithChildren } from "react";
+import { useEffect, type PropsWithChildren } from "react";
+import { installNumericInputSelection } from "./numeric-input-selection";
 
 const queryClient = new QueryClient({ defaultOptions: {
   queries: { staleTime: 15_000, retry: 1, refetchOnWindowFocus: false },
@@ -10,6 +11,7 @@ const queryClient = new QueryClient({ defaultOptions: {
 } });
 
 export function AppProviders({ children }: PropsWithChildren) {
+  useEffect(() => installNumericInputSelection(document), []);
   return <QueryClientProvider client={queryClient}>
     <ConfigProvider locale={zhCN} theme={{
       algorithm: theme.defaultAlgorithm,

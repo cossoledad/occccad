@@ -7,6 +7,8 @@ export const palette = {
   viewportTop: "#293744", viewportBottom: "#526372", solid: "#c1cbd5", productSolid: "#b9c7d4",
   edge: "#172a3e", vertex: "#edf3fa", sketch: "#f0f5fc", construction: "#8facca", external: "#80cfe6",
   selected: "#f4ba62", hover: "#68d7e6", preview: "#aab9ff", snap: "#ffe099",
+  sketchGrid: "#8dc7de", previewNew: "#8bb8e8", previewAdd: "#70c9ab", previewRemove: "#ebaa84",
+  previewIntersect: "#b1a1df", previewReference: "#e1b896",
   solved: "#7edbb1", invalid: "#ff8490", redundant: "#d6a0ef",
   gridMinor: "#708495", gridMajor: "#8fa4b6", axisX: "#f28388", axisY: "#79cda6", axisZ: "#83adff",
 } as const;
