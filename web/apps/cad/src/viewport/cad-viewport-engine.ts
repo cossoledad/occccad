@@ -111,6 +111,8 @@ export function bindPublicationSelection(selection: SelectionItem, root?: Docume
 export type ViewportDebugState = {
   input: InputState;
   activeTool: string;
+  selectionKeys?: string[];
+  highlightedVisible?: number;
   navigationProfile: NavigationProfileID;
   navigationAction: NavigationAction;
   navigation?: NavigationSnapshot;
@@ -206,6 +208,7 @@ export class CadViewportEngine {
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   private readonly shaders = new CadShaderLibrary();
   private readonly materials = new CadMaterialFactory(this.shaders);
+  private readonly sketchGrid = new InfiniteGroundGrid(CATIA_VISUAL_THEME.sketchConstruction);
   private readonly groundGrid = new InfiniteGroundGrid(CATIA_VISUAL_THEME.gridMinor);
   private readonly background = new CadBackground(this.shaders);
   private readonly moveManipulator: AssemblyManipulator;
@@ -307,7 +310,8 @@ export class CadViewportEngine {
     fillLight.position.set(5, 2, 3);
     this.lighting.add(hemisphere, keyLight, fillLight);
     this.sketchContext.renderOrder = 15;
-    this.scene.add(this.environment, this.lighting, this.content, this.helpers, this.sketchContext);
+    this.scene.add(this.environment, this.lighting, this.content, this.helpers, this.sketchContext, this.sketchGrid.object);
+    this.sketchGrid.object.visible = false;
 
     const navigationPicker = new NavigationPicker(
       this.camera,
@@ -390,6 +394,7 @@ export class CadViewportEngine {
       this.disposeGroup(this.sketchContext);
     }
     const previousInstancePoses = new Map([...this.instanceGroups].map(([id, group]) => [id, snapshotTransform(group)]));
+    const retainedSelections = previousDocumentID === view.document.id ? [...this.selected] : [];
     const retainedMoveSelection = this.activeToolID === "assembly.move" ? [...this.selected] : [];
 	this.clearCommandPreview(false);
 	this.transforms.stopAll();
@@ -435,7 +440,7 @@ export class CadViewportEngine {
     }
     const validMoveSelection = retainedMoveSelection.filter((selection) => selection.kind === "instance" &&
       this.instanceGroups.has(selection.instanceId ?? selection.id));
-    if (validMoveSelection.length === 1) this.selectMany(validMoveSelection, false);
+    this.selectMany(this.activeToolID === "assembly.move" ? validMoveSelection : retainedSelections, false);
     if (previousDocumentID !== view.document.id) {
       standardView(this.camera, this.navigation.target, "ISO");
       this.frameContent();
@@ -502,10 +507,21 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
+  normalToSketch(): void {
+    if (!this.sketchPlane) return;
+    this.navigation.cancel();
+    const frame = planeFrame(this.sketchPlane);
+    const focus = viewFocus(this.camera, this.navigation.target);
+    focus.addScaledVector(frame.normal, -focus.clone().sub(frame.origin).dot(frame.normal));
+    orientView(this.camera, this.navigation.target, focus, frame.normal, frame.v);
+    this.navigation.syncCamera(false);
+  }
+
   endSketch(): void {
     if (!this.activeSketchID && !this.sketchReturnView) return;
     this.navigation.cancel();
-	this.clearInteractionState();
+	this.preselect(null, false);
+    this.clearReferencePreview();
     this.sketchPlane = undefined;
     this.activeSketchID = undefined;
     this.host.classList.remove("drawing");
@@ -515,6 +531,7 @@ export class CadViewportEngine {
     this.disposeGroup(this.sketchContext);
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
+    this.refreshInteractionHighlights();
     this.callbacks.toolPromptChanged("");
     if (this.sketchReturnView) {
       restoreView(this.camera, this.navigation.target, this.sketchReturnView);
@@ -630,10 +647,13 @@ export class CadViewportEngine {
   selectMany(selections: readonly SelectionItem[], notify = true): void {
     const unique = [...new Map(selections.map((selection) => [selectionKey(selection), selection])).values()];
     if (sameSelections(this.selected, unique) && !this.preselected) {
+      if (notify) this.callbacks.selectionsChanged(unique);
       if(this.activeToolID==="assembly.move"&&(!this.moveManipulator.isAttached()||this.pendingManipulatorAnchor))this.attachMoveManipulator();
       return;
     }
     this.selected = unique;
+    this.updateSketchContextVisibility();
+    this.applyTreeVisibility();
     this.preselected = null;
     this.moveManipulator.detach();
     this.refreshInteractionHighlights();
@@ -641,6 +661,7 @@ export class CadViewportEngine {
       this.attachMoveManipulator();
     }
     if (notify) this.callbacks.selectionsChanged(unique);
+    this.emitDebugState();
     this.invalidate();
   }
 
@@ -835,6 +856,7 @@ export class CadViewportEngine {
     this.navigationHUD.dispose();
     this.background.dispose();
     this.groundGrid.dispose();
+    this.sketchGrid.dispose();
     this.disposeGroup(this.environment);
     this.disposeGroup(this.lighting);
     this.disposeGroup(this.content);
@@ -1384,27 +1406,6 @@ export class CadViewportEngine {
   private buildSketchContext(): void {
     this.disposeGroup(this.sketchContext);
     if (!this.sketchPlane) return;
-    const minorGridPositions: number[] = [];
-    const majorGridPositions: number[] = [];
-    for (let coordinate = -100; coordinate <= 100; coordinate += 10) {
-      for (const [first, second] of [
-        [[coordinate, -100], [coordinate, 100]], [[-100, coordinate], [100, coordinate]],
-      ] as Array<[Vec2, Vec2]>) {
-        for (const point of [first, second]) {
-          const world = localToWorld(this.sketchPlane, point);
-          const target = coordinate % 50 === 0 ? majorGridPositions : minorGridPositions;
-          target.push(world.x, world.y, world.z);
-        }
-      }
-    }
-    const grid = (positions: number[], color: number, opacity: number) => {
-      const lines = new THREE.LineSegments(
-        new THREE.BufferGeometry().setAttribute("position", new THREE.Float32BufferAttribute(positions, 3)),
-        new THREE.LineBasicMaterial({ color, transparent: true, opacity, depthTest: false }));
-      lines.renderOrder = 14; this.sketchContext.add(lines);
-    };
-    grid(minorGridPositions, CATIA_VISUAL_THEME.gridMinor, 0.16);
-    grid(majorGridPositions, CATIA_VISUAL_THEME.gridMajor, 0.3);
     const axis = (first: Vec2, second: Vec2, color: number) => {
       const muted=new THREE.Color(color).lerp(new THREE.Color(CATIA_VISUAL_THEME.backgroundBottom),0.28);
       const line = new THREE.Line(
@@ -1439,7 +1440,8 @@ export class CadViewportEngine {
       if (child.userData.visualizationPrimitive) {
         child.visible = !editing;
       } else if (child.userData.sketchEditOverlay) {
-        child.visible = sketchTreeVisible({ featureID: child.userData.sketchFeatureID, treeKey: child.userData.treeNodeId,
+        child.visible = sketchTreeVisible({ selected: this.selected.some((selection) => selection.kind === "sketch" &&
+          selection.id === child.userData.sketchFeatureID && (!selection.occurrencePath || selection.occurrencePath === child.userData.occurrencePath)), featureID: child.userData.sketchFeatureID, treeKey: child.userData.treeNodeId,
           activeSketchID: this.activeSketchID, defaultVisible: child.userData.visibleOutsideSketchEdit === true,
           overrides: this.treeVisibilityOverrides });
         for (const sketchChild of child.children) {
@@ -2097,6 +2099,11 @@ export class CadViewportEngine {
     this.callbacks.debugStateChanged?.({
       input: this.input.getState(), activeTool: this.activeToolID,
       navigationProfile: this.navigationProfile, navigationAction: this.navigation.activeAction,
+      selectionKeys: this.selected.map(selectionKey),
+      highlightedVisible: [...this.highlightedRoots].filter((root) => {
+        for (let object: THREE.Object3D | null = root; object; object = object.parent) if (!object.visible) return false;
+        return true;
+      }).length,
       navigation: this.navigation.snapshot, hudScreen: this.navigationHUD.screenPosition
     });
   }
@@ -2220,8 +2227,10 @@ export class CadViewportEngine {
           if(material instanceof THREE.ShaderMaterial&&material.uniforms.uPointSize&&typeof material.userData.cssPointSize==="number")
             material.uniforms.uPointSize.value=material.userData.cssPointSize*metrics.devicePixelRatio;
         });
+        this.sketchGrid.object.visible = false;
+        if (this.sketchPlane) this.sketchGrid.update(this.camera, this.renderer.domElement.clientHeight, planeFrame(this.sketchPlane));
         this.renderer.clear(true, true, true);
-        this.background.render(this.renderer);
+        this.background.render(this.renderer, this.camera);
         if (this.environment.visible) this.groundGrid.render(this.renderer, this.camera);
         this.renderer.clearDepth();
         this.renderer.render(this.scene, this.camera);

@@ -17,7 +17,15 @@ export class CadBackground {
     this.scene.add(new THREE.Mesh(this.geometry, this.material));
   }
 
-  render(renderer: THREE.WebGLRenderer): void { renderer.render(this.scene, this.camera); }
+  render(renderer: THREE.WebGLRenderer, viewCamera: THREE.Camera): void {
+    viewCamera.updateMatrixWorld(true);
+    const uniforms = this.material.uniforms;
+    uniforms.uWorldForward.value.copy(viewCamera.getWorldDirection(new THREE.Vector3()));
+    uniforms.uWorldRight.value.setFromMatrixColumn(viewCamera.matrixWorld, 0);
+    uniforms.uWorldUp.value.setFromMatrixColumn(viewCamera.matrixWorld, 1);
+    uniforms.uAspect.value = Math.max(renderer.domElement.clientWidth, 1) / Math.max(renderer.domElement.clientHeight, 1);
+    renderer.render(this.scene, this.camera);
+  }
 
   dispose(): void {
     this.geometry.dispose();

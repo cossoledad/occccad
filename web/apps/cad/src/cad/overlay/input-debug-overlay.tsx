@@ -6,6 +6,8 @@ import { FloatingPanel } from "./floating-panel";
 export type InputDebugSnapshot = {
   input: InputState;
   activeTool: string;
+  selectionKeys?: string[];
+  highlightedVisible?: number;
   navigationProfile: NavigationProfileID;
   navigationAction: NavigationAction;
   navigation?: NavigationSnapshot;
@@ -19,6 +21,7 @@ export function InputDebugOverlay({ snapshot }: { snapshot: InputDebugSnapshot }
     <code>L: {buttons.left ? "down" : "up"} · M: {buttons.middle ? "down" : "up"} · R: {buttons.right ? "down" : "up"}</code>
     <code>Ctrl: {String(modifiers.ctrl)} · Shift: {String(modifiers.shift)} · Alt: {String(modifiers.alt)}</code>
     <code>Tool: {snapshot.activeTool} · Nav: {snapshot.navigationProfile}/{snapshot.navigationAction}</code>
+    <code data-testid="viewport-selection" data-count={snapshot.selectionKeys?.length ?? 0} data-highlighted={snapshot.highlightedVisible ?? 0}>Selection: {snapshot.selectionKeys?.join(", ") || "none"}</code>
     <code data-testid="navigation-camera">Camera: {snapshot.navigation?.cameraPosition.map((v) => v.toFixed(4)).join(",")} / {snapshot.navigation?.cameraQuaternion.map((v) => v.toFixed(4)).join(",")} / zoom {snapshot.navigation?.cameraZoom.toPrecision(10)}</code>
       <code data-testid="navigation-projection">{snapshot.navigation?.projection} zoom: {snapshot.navigation?.cameraZoom.toPrecision(10)}</code>
     {snapshot.navigation?.solidworks && <code>Reference: {snapshot.navigation.solidworks.reference?.highlight?.kind ?? "none"}</code>}

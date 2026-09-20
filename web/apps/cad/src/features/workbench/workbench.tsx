@@ -732,6 +732,8 @@ export function Workbench() {
         isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit), isActive: () => store.activeToolID === "assembly.move" }),
       commandRegistry.register({ id: "sketch.start", execute: startSketch,
 		isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && (["plane", "sketch", "face"].includes(store.selection?.kind ?? ""))) }),
+      commandRegistry.register({ id: "sketch.normal", execute: () => viewport.current?.normalToSketch(),
+        isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(store.sketchPlane) }),
       commandRegistry.register({ id: "sketch.finish", execute: finishSketch,
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit) }),
       ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,invocation?.continuous?"continuous":"once"),

@@ -15,6 +15,7 @@ try {
   assert.ok(toolbars.every((toolbar) => new Set(toolbar.items.map((item) => item.groupKey)).size <= 1),
     "one toolbar must represent one user-intent category");
   const commands = toolbars.flatMap((toolbar) => toolbar.items);
+  assert.ok(commands.some((item) => item.commandId === "sketch.normal"));
   assert.equal(commands.some((item) => item.commandId === "capture.settings"), false,
     "capture settings belong to the global preference center");
   assert.equal(commands.some((item) => item.commandId === "navigation.profile.toggle"), false,

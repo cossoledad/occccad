@@ -66,11 +66,13 @@ try {
   assert.equal(sketchTreeVisible({featureID:"sketch-consumed",activeSketchID:"sketch-consumed",defaultVisible:false,overrides:{}}), true,
     "editing temporarily reveals a consumed profile");
   assert.deepEqual(sketchContextLayerVisibility("sketch-consumed", false),
-    { body: true, lighting: true, environment: false, sketch: true },
+    { body: true, lighting: true, environment: true, sketch: true },
     "direct Part Sketcher keeps the evaluated Body visible while hiding unrelated helpers");
   assert.deepEqual(sketchContextLayerVisibility("sketch-consumed", true),
     { body: true, lighting: true, environment: true, sketch: true },
     "in-context Product editing keeps surrounding occurrence context visible");
+  assert.equal(sketchTreeVisible({featureID:"sketch-consumed",selected:true,defaultVisible:false,overrides:{}}), true,
+    "selecting a consumed sketch temporarily reveals its geometry without changing visibility preferences");
   const operations = [];
   const prompts = [];
   const previews = [];

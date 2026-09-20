@@ -142,6 +142,10 @@ export class CadShaderLibrary {
       uniforms: {
         uTop: { value: new THREE.Color() },
         uBottom: { value: new THREE.Color() },
+        uWorldForward: { value: new THREE.Vector3(0, 0, -1) },
+        uWorldRight: { value: new THREE.Vector3(1, 0, 0) },
+        uWorldUp: { value: new THREE.Vector3(0, 1, 0) },
+        uAspect: { value: 1 },
         uVignette: { value: 0.12 },
       },
       vertexShader: `
@@ -155,10 +159,18 @@ export class CadShaderLibrary {
         uniform vec3 uTop;
         uniform vec3 uBottom;
         uniform float uVignette;
+        uniform vec3 uWorldForward, uWorldRight, uWorldUp;
+        uniform float uAspect;
         varying vec2 vUv;
         void main() {
-          float vertical = smoothstep(0.0, 1.0, vUv.y);
-          vec3 color = mix(uBottom, uTop, vertical);
+          // Environment rays use a fixed angular aperture, independent of model zoom/pan.
+          vec2 screen = (vUv * 2.0 - 1.0) * vec2(uAspect, 1.0);
+          vec3 ray = normalize(uWorldForward + 0.8 * (uWorldRight * screen.x + uWorldUp * screen.y));
+          float elevation = ray.z;
+          vec3 horizon = mix(uBottom, vec3(0.38, 0.45, 0.51), 0.35);
+          vec3 nadir = mix(uTop, vec3(0.13, 0.115, 0.10), 0.30);
+          vec3 pole = elevation >= 0.0 ? uTop : nadir;
+          vec3 color = mix(horizon, pole, smoothstep(0.0, 1.0, abs(elevation)));
           vec2 centered = vUv - 0.5;
           color *= 1.0 - dot(centered, centered) * uVignette;
           // Stable subpixel dithering prevents banding without animated noise.

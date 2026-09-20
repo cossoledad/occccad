@@ -12,6 +12,7 @@ import { formatSketchDimensionValue, normalizeSketchDimensionValue } from "../ca
 
 export type CadViewportHandle = {
   fit: () => void;
+  normalToSketch: () => void;
   setStandardView: (view: "TOP" | "FRONT" | "RIGHT" | "ISO") => void;
   previewArtifact: (artifact: Artifact) => void;
   clearCommandPreview: (restore?: boolean) => void;
@@ -118,6 +119,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
 
   useImperativeHandle(ref, () => ({
     fit: () => engine.current?.fit(),
+    normalToSketch: () => engine.current?.normalToSketch(),
     setStandardView: (view) => engine.current?.setStandardView(view),
     previewArtifact: (artifact) => engine.current?.previewArtifact(artifact),
     clearCommandPreview: (restore) => engine.current?.clearCommandPreview(restore),

@@ -52,14 +52,14 @@ export function projectSketchFeatureSelection(selection: Selection, activeSketch
   };
 }
 
-export function sketchContextLayerVisibility(activeSketchID?: string, editingOccurrence = false) {
+export function sketchContextLayerVisibility(activeSketchID?: string, _editingOccurrence = false) {
   const editing = Boolean(activeSketchID);
   return {
     // The evaluated Body remains visible as read-only design context. Sketch
     // selection policy still limits interaction to the active sketch.
     body: true,
     lighting: true,
-    environment: !editing || editingOccurrence,
+    environment: true,
     sketch: editing,
   };
 }

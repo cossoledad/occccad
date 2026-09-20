@@ -14,10 +14,11 @@ export function sketchTreeVisible(input: {
   treeKey?: string;
   activeSketchID?: string;
   defaultVisible: boolean;
+  selected?: boolean;
   overrides: TreeVisibilityOverrides;
 }): boolean {
   if (input.activeSketchID) return input.featureID === input.activeSketchID;
-  return treeVisibilityOverride(input.treeKey, input.overrides) ?? input.defaultVisible;
+  return treeVisibilityOverride(input.treeKey, input.overrides) ?? (input.selected === true || input.defaultVisible);
 }
 
 export function migrateTreeVisibilityOverrides(value: unknown): TreeVisibilityOverrides {

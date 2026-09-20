@@ -65,6 +65,8 @@ SOLIDWORKS 旋转参考与正式 Selection 分离。平面/直边按显示几何
 
 `testing/orthographic-view.scenario.mjs` 验证多数量级缩放时的屏幕平移精度、缩放锚点、重复标准视图、不同宽高比/远离原点的 Fit 和草图视图往返。浏览器另外覆盖快捷键 1、局部放大及基准面/实体面支撑的草图进出（Mock 的面支撑不代表真实后端几何精度）。
 
-正交裁剪按当前几何的相机空间深度和视图尺寸自适应扩展，near 为 0；若几何在旧相机位置之后，只沿视线后移相机，保持屏幕位置/比例。far 使用覆盖实际深度的有限值，避免 Infinity 破坏投影矩阵或过大的常数降低深度精度。`InfiniteGroundGrid` 在背景通道投影无限 XY 平面，不参与模型包围盒、拾取或深度裁剪；随显示比例调整网格密度，几何正常覆盖网格。完全侧视地面时其投影面积为零，网格隐藏；草图编辑沿用独立草图网格。
+正交裁剪按当前几何的相机空间深度和视图尺寸自适应扩展，near 为 0；若几何在旧相机位置之后，只沿视线后移相机，保持屏幕位置/比例。far 使用覆盖实际深度的有限值，避免 Infinity 破坏投影矩阵或过大的常数降低深度精度。`InfiniteGroundGrid` 在背景通道投影无限 XY 平面，不参与模型包围盒、拾取或深度裁剪；随显示比例调整网格密度，几何正常覆盖网格。完全侧视地面时其投影面积为零，网格隐藏；草图编辑使用相同无限网格实现，基于活动支撑平面的 origin/u/v/normal 投影；世界网格持续保留。
 
 裁剪更新同时支持沿视线前移/后移相机；大幅缩小后重新放大时收回多余深度范围，避免裁剪范围随操作历史不断扩大。该沿视线位移不改变正交屏幕投影。
+
+草图工具栏的“正对草图平面”通过 CommandRegistry 调用 `normalToSketch`，仅重新对齐当前视图，不修改草图几何、显示比例或退出时恢复的快照。背景方向参考达索 [Overloading Predefined Ambiences and Cameras](https://help-3dexperience.aesvietnam.com/English/ComUserMap/com-t-View-AmbienceOverload.htm) 的环境上方向与 Zenith/Horizon，以及 [About the Ambience Panel](https://help-3dexperience.aesvietnam.com/English/AstUserMap/ast-c-Ambience.htm) 的穹顶和 Horizon 语义（公开原文镜像）。实现用世界 Z 方向的环境采样区分天空、地平线和地面；正交视图背景使用固定角域，避免缩放改变环境方向。色值、角域和插值是应用参数，不是 CATIA 专有 shader 的复刻。

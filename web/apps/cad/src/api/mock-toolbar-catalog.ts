@@ -13,7 +13,7 @@ const toolbar = (id: string, name: string, workbench: ToolbarCatalogEntry["workb
   id, name, workbench, position, styleKey, sortOrder, orientation: "horizontal", items: items(seeds),
 });
 
-// Keep this isolated frontend fixture aligned with migration 0023. Production
+// Keep this isolated frontend fixture aligned with migrations 0023–0024. Production
 // receives the same presentation catalog from the server.
 export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: [
   toolbar("selection", "选择", "ALL", "top-left", "standard", 0, [
@@ -34,6 +34,7 @@ export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: 
   ]),
   toolbar("sketch-lifecycle", "草图会话", "SKETCHER", "top-left", "sketch", 10, [
     ["sketch.finish", "退出草图", "finish"],
+    ["sketch.normal", "正对草图平面", "top-view", "恢复活动草图平面的正视方向，保留当前缩放和关注区域。"],
   ]),
   toolbar("sketch-projection", "外部几何", "SKETCHER", "top-left", "sketch", 20, [
     ["sketch.project", "投影", "project", undefined, true],
