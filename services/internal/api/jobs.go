@@ -266,13 +266,19 @@ func (server *Server) documentPreview(writer http.ResponseWriter, request *http.
 	writer.Header().Set("Content-Type", object.ContentType)
 	// A FOLLOW_HEAD Product can change when a referenced document changes even
 	// though the Product's own version ID remains stable.
-	writer.Header().Set("Cache-Control", "private, no-store")
+	writer.Header().Set("Cache-Control", "private, no-cache")
+	etag := `"` + object.SHA256 + `"`
+	writer.Header().Set("ETag", etag)
 	writer.Header().Set("X-OCCCCAD-Thumbnail-State", "ready")
+	if request.Header.Get("If-None-Match") == etag {
+		writer.WriteHeader(http.StatusNotModified)
+		return
+	}
 	_, _ = io.Copy(writer, reader)
 }
 
 func writeThumbnail(writer http.ResponseWriter, payload []byte, state string) {
-	writer.Header().Set("Content-Type", "image/svg+xml")
+	writer.Header().Set("Content-Type", thumbnail.ContentType)
 	writer.Header().Set("Cache-Control", "private, no-store")
 	writer.Header().Set("X-OCCCCAD-Thumbnail-State", state)
 	writer.Header().Set("Content-Length", fmt.Sprint(len(payload)))

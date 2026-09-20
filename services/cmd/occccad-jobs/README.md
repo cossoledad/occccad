@@ -8,7 +8,7 @@ occccad-jobs 是当前 PostgreSQL 持久任务的消费者进程，适合脱离 
 |---|---|---|
 | `EXCHANGE_IMPORT` | ArtifactStore 中的 STEP/BREP 对象 | 检查清单，并行导入根组件，创建带私有基准特征的 Part；多根再创建 Product |
 | `EXCHANGE_EXPORT` | Part 或 Product 当前 Head 的 B-Rep 引用 | 生成 STEP/BREP，并把结果对象 ID 写回任务 |
-| `THUMBNAIL_RENDER` | 文档与版本 | 使用 `svg-v3` 在固定 `320×200` 画布生成 SVG 缩略图并更新 `document_previews` |
+| `THUMBNAIL_RENDER` | 文档与版本 | 使用 `png-v4` 生成 `640×400` 正交等轴测 PNG 并更新 `document_previews` |
 
 Worker 不提供网络 API，不接受用户认证请求，也不是通用分布式工作流引擎。
 导入的 Part/Product 文档名统一使用清理路径后的完整上传文件名，包含 `.step`/`.brep` 后缀；客户端不再另行传入可分叉的文档名。Product STEP 导出按 occurrence 生成独立 transferable root，以保持当前展平 Product 再导入时的类型和 placement。
@@ -33,8 +33,13 @@ flowchart LR
 - 领取语义是至少一次，任务处理器必须依赖幂等键和条件写入，不能假设“恰好一次”；
 - 最终成功、最终失败或取消与 `JOB` Outbox 在同一数据库 statement 中写入；API 通过 `job.state.changed.v1` 通知任务发起用户，重试等待状态不制造失败通知；
 - 轮询为空时等待 1 秒。
-- 缩略图生成默认有 `5s` deadline，可通过 `OCCCCAD_THUMBNAIL_RENDER_TIMEOUT` 调整；超时会持久化固定尺寸默认 SVG。API 在预览尚未生成或制品不可用时也直接返回同一固定尺寸默认 SVG。
-- `svg-v3` 使用平滑顶点法线光照，并单独提取边界、轮廓和强折线；三角面不再绘制低对比度的逐面片边框，避免复杂曲面出现网格噪声。
+- 缩略图生成默认有 `5s` deadline，可通过 `OCCCCAD_THUMBNAIL_RENDER_TIMEOUT` 调整；超时或场景预算耗尽会持久化固定尺寸默认 PNG。API 在预览尚未生成或制品不可用时也返回默认 PNG；父 Job 取消直接结束渲染，不遗留后台渲染 goroutine。
+- `png-v4` 与视口共用 `(1,-1,1)` / Z-up 的正交 ISO 约定，按实际投影几何统一 Fit，应用 occurrence 完整 quaternion/translation。
+- CPU 扫描线光栅化使用逐像素深度、面内平滑法线、固定中性材质和 2× 超采样；优先绘制 B-Rep 边并做深度测试，缺少边时提取轮廓/折线。实体缩略图不绘制草图编辑覆盖层；无实体时保留 Visualization 曲线/点/面。
+- 不依赖浏览器、GPU 或新外部服务。每次渲染预算为 100 万展开三角形、300 万顶点/曲线点、1 万 occurrence；同场景相同 GeometryKey 复用法线准备结果。该边界只影响预览，不删除/简化权威模型。
+- RendererVersion 是缓存身份的一部分；迁移 `0025` 将旧图标记 STALE 并为当前 Head 排队重建，不修改文档 Revision。旧版本渲染任务会被跳过。
+- 就绪图像通过 `ETag` 和 `private, no-cache` 复用响应字节，每次重验证仍校验权限与当前 Head，包含 FOLLOW_HEAD 引用变化。
+- 渲染器、数值/遮挡测试与基准位于 `internal/thumbnail`；设置 `OCCCCAD_THUMBNAIL_GALLERY=/tmp/occccad-thumbnail-v4` 后运行 `go test ./internal/thumbnail -run TestThumbnailGallery` 可导出视觉样例。
 
 ## 依赖和配置
 

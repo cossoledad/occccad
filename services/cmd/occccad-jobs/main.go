@@ -311,15 +311,18 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if err := json.Unmarshal(job.Payload, &preview); err != nil {
 			return err
 		}
-		svg, usedDefault, err := thumbnail.RenderWithTimeout(current, h.thumbnailRenderTimeout)
+		if preview.RendererVersion != thumbnail.RendererVersion {
+			return h.queue.Succeed(ctx, job.ID, h.workerID, "")
+		}
+		payload, usedDefault, err := thumbnail.RenderContext(ctx, current, h.thumbnailRenderTimeout)
 		if err != nil {
 			return err
 		}
 		if usedDefault {
-			slog.Warn("thumbnail render exceeded deadline; storing default", "job_id", job.ID,
+			slog.Warn("thumbnail render exceeded time or scene budget; storing default", "job_id", job.ID,
 				"document_id", *job.DocumentID, "timeout", h.thumbnailRenderTimeout)
 		}
-		object, err := h.artifacts.Put(ctx, artifact.KindThumbnail, "image/svg+xml", bytes.NewReader(svg))
+		object, err := h.artifacts.Put(ctx, artifact.KindThumbnail, thumbnail.ContentType, bytes.NewReader(payload))
 		if err != nil {
 			return err
 		}
