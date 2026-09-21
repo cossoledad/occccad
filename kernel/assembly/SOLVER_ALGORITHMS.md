@@ -56,8 +56,7 @@ flowchart TD
     K --> L[恢复 Body 位姿、branch 与方程 provenance]
 ```
 
-输入校验包括稳定 ID 唯一性、引用完整性、有限数、单位方向、合法半径、无符号距离非负、unsigned Angle 位于 `[0, π]`、
-directed Angle 位于 `[0, 2π]`、SolveIntent body 存在且同一 body 不同时指定为 moving/reference。不同 body 可以经 Rigid 合并到同一 cluster；运动角色仍是 occurrence 级偏好，不构成硬约束或组之间的排他关系。无效模型返回
+输入校验包括稳定 ID 唯一性、引用完整性、有限数、单位方向、合法半径、无符号距离非负、无轴/指定轴 Angle 均位于 `[0, 2π]`、SolveIntent body 存在且同一 body 不同时指定为 moving/reference。不同 body 可以经 Rigid 合并到同一 cluster；运动角色仍是 occurrence 级偏好，不构成硬约束或组之间的排他关系。无效模型返回
 `InvalidModel`，不会让异常越过公开求解接口。
 
 ## 3. 图编译
@@ -386,3 +385,11 @@ SE(3) / world geometry / differential values
 6. Worker/Go/Product contract 不变，因此正常阶段只需 assembly scope；若 private boundary 被迫改变公共类型，停止并升级架构评审与全量验证。
 
 实施触发条件不是文件再次增长，而是至少两个真实任务持续需要跨越上述无关职责。首选从 S1 开始，因为 residual/Jacobian 已有最强 conformance；`CompiledAssembly` 与 `ComponentProblem` 在完成 S1 前不移动，避免一次改写匿名 namespace 中全部内部依赖。
+
+## 无轴空间角与指定轴投影角
+
+无轴角以 `α = atan2(||a×b||, a·b)` 测真实空间夹角；目标大于 π 时取反角 `2π−α`，残差为周期角差。解析 Jacobian 对叉积范数求导，不冻结 `a×b` 的方向，因而正常构型仅一个独立方程，允许法向在整条圆锥上运动。30°与330°（90°与270°）各自具有相同可行姿态集合；正反意图不增加参考轴方程。
+
+0/π/2π 的可行集合退化为方向对齐，驱动模式使用向量差残差，秩为二；Measured 保留标量输出。精确共线且目标不满足时，只在初始猜测阶段绕确定的临时切向转开奇异点，随后仍用全部硬方程求解，不把该切向写入约束。指定轴角仍使用投影后的 atan2，拒绝零投影，保持一个标量方程和连续分支状态。
+
+`SpatialAnglePreservesConeAndComposesWithDifferentCoincidentLines` 验证30°/330°与不同方位的线重合可组合，真实法向点积正确且总秩为五；`SpatialAngleAcceptsAllAzimuthsAndReflexValues` 验证圆锥方位自由和解析 Jacobian。

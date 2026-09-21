@@ -58,7 +58,6 @@ struct ResidualBlock {
 struct ConstraintBranchState {
     DirectionRelation direction_relation{DirectionRelation::Unoriented};
     DistanceRelation distance_relation{DistanceRelation::Unsigned};
-    std::optional<Vec3> unsigned_angle_axis_in_second;
     std::optional<AngleBranchState> angle;
 };
 
@@ -299,6 +298,16 @@ struct DifferentialCylinder {
 using DifferentialGeometry =
     std::variant<DifferentialPoint, DifferentialAxis, DifferentialPlane, DifferentialCylinder>;
 
+// Endpoint spatial angles are direction alignment (rank two), not a smooth
+// scalar angle manifold. Measured constraints retain a scalar measurement.
+bool spatial_angle_endpoint(const Constraint& c) {
+    return c.kind == ConstraintKind::Angle && !c.angle_reference_direction &&
+           c.mode != ConstraintMode::Measured &&
+           (c.value == 0.0 || c.value == kPi || c.value == 2.0 * kPi);
+}
+
+double spatial_angle_sign(const Constraint& c) { return c.value > kPi ? -1.0 : 1.0; }
+
 bool differential_axis_like(const DifferentialGeometry& geometry) {
     return std::holds_alternative<DifferentialAxis>(geometry) ||
            std::holds_alternative<DifferentialCylinder>(geometry);
@@ -351,6 +360,8 @@ EquationDefinition equation_definition(const Constraint& constraint, const World
     if (constraint.kind == ConstraintKind::Perpendicular && has_direction(first) &&
         has_direction(second))
         return {{"DIRECTION_DOT"}, 1};
+    if (spatial_angle_endpoint(constraint))
+        return {{"DIRECTION_X", "DIRECTION_Y", "DIRECTION_Z"}, 2};
     if (constraint.kind == ConstraintKind::Angle && has_direction(first) && has_direction(second))
         return {{constraint.angle_reference_direction ? "DIRECTED_ANGLE" : "UNSIGNED_ANGLE"}, 1};
     if (constraint.kind == ConstraintKind::Distance) {
@@ -559,6 +570,9 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
         const Vector3 second_direction = geometry_direction(*second);
         if (direction_relation == DirectionRelation::Opposite)
             first_direction = -first_direction;
+        if (spatial_angle_endpoint(constraint))
+            return (first_direction - (constraint.value == kPi ? -second_direction : second_direction)) /
+                   options.angle_scale;
         const double cosine = std::clamp(first_direction.dot(second_direction), -1.0, 1.0);
         const Vector3 cross = first_direction.cross(second_direction);
         const bool directed = constraint.angle_reference_direction.has_value();
@@ -568,12 +582,8 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
                 normalized(*constraint.angle_reference_direction, "angle reference direction");
             angle = directed_angle(first_direction, second_direction, reference,
                                    options.degeneracy_tolerance);
-        } else if (branch && branch->unsigned_angle_axis_in_second) {
-            const Vector3 axis =
-                normalized(*branch->unsigned_angle_axis_in_second, "unsigned angle branch axis");
-            angle = std::atan2(axis.dot(cross), cosine);
         } else {
-            angle = std::atan2(cross.norm(), cosine);
+            angle = spatial_angle_sign(constraint) * std::atan2(cross.norm(), cosine);
         }
         return single(wrapped_angle_error(angle, constraint.value) / options.angle_scale);
     }
@@ -662,8 +672,7 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
 Eigen::MatrixXd differential_residual(
     const Constraint& constraint, DifferentialGeometry first, DifferentialGeometry second,
     const ConstraintBranchState& branch, const SolverOptions& options,
-    const std::optional<DifferentialVector>& angle_reference,
-    const std::optional<DifferentialVector>& unsigned_angle_axis) {
+    const std::optional<DifferentialVector>& angle_reference) {
     const Eigen::Index variables = std::visit(
         [](const auto& geometry) {
             if constexpr (std::is_same_v<std::decay_t<decltype(geometry)>, DifferentialPoint>)
@@ -706,7 +715,7 @@ Eigen::MatrixXd differential_residual(
             }
         } else if (std::holds_alternative<DifferentialPoint>(second)) {
             return differential_residual(constraint, second, first, branch, options,
-                                         angle_reference, unsigned_angle_axis);
+                                         angle_reference);
         } else if (differential_axis_like(first) && differential_axis_like(second)) {
             align_axes(differential_axis(first), differential_axis(second));
             if (const auto* first_cylinder = std::get_if<DifferentialCylinder>(&first))
@@ -724,7 +733,7 @@ Eigen::MatrixXd differential_residual(
                             options.length_scale));
             } else {
                 return differential_residual(constraint, second, first, branch, options,
-                                             angle_reference, unsigned_angle_axis);
+                                             angle_reference);
             }
         } else {
             const auto axis_value = differential_axis(first);
@@ -748,6 +757,13 @@ Eigen::MatrixXd differential_residual(
         const DifferentialVector b = differential_direction(second);
         if (branch.direction_relation == DirectionRelation::Opposite)
             a = -a;
+        if (spatial_angle_endpoint(constraint)) {
+            append(divided(a - (constraint.value == kPi ? -b : b), options.angle_scale));
+            Eigen::MatrixXd result(static_cast<Eigen::Index>(rows.size()), variables);
+            for (std::size_t row = 0; row < rows.size(); ++row)
+                result.row(static_cast<Eigen::Index>(row)) = rows[row].derivative;
+            return result;
+        }
         DifferentialScalar angle;
         if (angle_reference) {
             const DifferentialVector k = normalized(*angle_reference);
@@ -756,12 +772,9 @@ Eigen::MatrixXd differential_residual(
             angle = differentiated_atan2(dot(k, cross(ap, bp)), dot(ap, bp));
         } else {
             const DifferentialVector product = cross(a, b);
-            const DifferentialVector k = unsigned_angle_axis
-                                             ? normalized(*unsigned_angle_axis)
-                                             : (product.value.norm() > options.degeneracy_tolerance
-                                                    ? normalized(product)
-                                                    : vector(perpendicular_to(b.value), variables));
-            angle = differentiated_atan2(dot(k, product), dot(a, b));
+            angle = differentiated_atan2(norm(product), dot(a, b));
+            if (spatial_angle_sign(constraint) < 0.0)
+                angle = scalar(0.0, variables) - angle;
         }
         rows.push_back(divided(angle - scalar(constraint.value, variables), options.angle_scale));
     } else if (constraint.kind == ConstraintKind::Distance) {
@@ -794,7 +807,7 @@ Eigen::MatrixXd differential_residual(
             else if (swapped.distance_relation == DistanceRelation::OppositeSecondNormal)
                 swapped.distance_relation = DistanceRelation::AlongSecondNormal;
             return differential_residual(constraint, second, first, swapped, options,
-                                         angle_reference, unsigned_angle_axis);
+                                         angle_reference);
         } else if (differential_axis_like(first) && differential_axis_like(second)) {
             const auto first_axis = differential_axis(first);
             const auto second_axis = differential_axis(second);
@@ -831,7 +844,7 @@ Eigen::MatrixXd differential_residual(
         } else if (std::holds_alternative<DifferentialPlane>(first) &&
                    differential_axis_like(second)) {
             return differential_residual(constraint, second, first, branch, options,
-                                         angle_reference, unsigned_angle_axis);
+                                         angle_reference);
         } else {
             const auto& first_plane = std::get<DifferentialPlane>(first);
             const auto& second_plane = std::get<DifferentialPlane>(second);
@@ -865,7 +878,7 @@ Eigen::VectorXd constraint_tolerances(const Constraint& constraint, const WorldG
     if (constraint.kind == ConstraintKind::Perpendicular)
         return Eigen::VectorXd::Constant(1, angle);
     if (constraint.kind == ConstraintKind::Angle) {
-        return Eigen::VectorXd::Constant(1, angle);
+        return Eigen::VectorXd::Constant(spatial_angle_endpoint(constraint) ? 3 : 1, angle);
     }
     if (constraint.kind == ConstraintKind::Concentric) {
         Eigen::VectorXd result(6);
@@ -933,7 +946,7 @@ double satisfaction_ratio(const Constraint& constraint, const WorldGeometry& fir
     if (constraint.kind == ConstraintKind::Distance && residual.size() == 2)
         return std::max(std::abs(residual[0]) / angle, std::abs(residual[1]) / length);
     if (constraint.kind == ConstraintKind::Angle)
-        return std::abs(residual[0]) / angle;
+        return residual.norm() / angle;
     if (constraint.kind == ConstraintKind::Concentric ||
         ((constraint.kind == ConstraintKind::Coincident) && is_axis_like(first) &&
          is_axis_like(*second))) {
@@ -1250,10 +1263,8 @@ private:
                 throw std::invalid_argument("Distance value must not be negative");
             if (constraint.kind == ConstraintKind::Angle &&
                 (constraint.value < 0.0 ||
-                 constraint.value > (constraint.angle_reference_direction ? 2.0 * kPi : kPi)))
-                throw std::invalid_argument(constraint.angle_reference_direction
-                                                ? "Directed Angle value must be in [0, 2pi]"
-                                                : "Angle value must be in [0, pi]");
+                 constraint.value > 2.0 * kPi))
+                throw std::invalid_argument("Angle value must be in [0, 2pi]");
             if (constraint.angle_reference_direction)
                 (void)normalized(*constraint.angle_reference_direction,
                                  "angle reference direction");
@@ -1398,15 +1409,6 @@ private:
                         static_cast<std::int64_t>(std::llround((previous - wrapped) / (2.0 * kPi)));
                     branch.angle =
                         AngleBranchState{wrapped, wrapped + 2.0 * kPi * winding, winding};
-                } else {
-                    Vector3 axis = first_direction.cross(second_direction);
-                    if (axis.norm() <= options_.degeneracy_tolerance)
-                        axis = perpendicular_to(second_direction);
-                    else
-                        axis.normalize();
-                    const EigenQuaternion inverse_second =
-                        normalized(bodies[body_index(second_element.body_id)].rotation).conjugate();
-                    branch.unsigned_angle_axis_in_second = value(inverse_second * axis);
                 }
             }
             if (constraint.kind != ConstraintKind::Distance ||
@@ -1606,10 +1608,6 @@ public:
                 evaluated.angle_reference_direction = value(
                     normalized(bodies[assembly_.body_index(second_element.body_id)].rotation) *
                     eigen(*evaluated.angle_reference_direction));
-            if (branch.unsigned_angle_axis_in_second)
-                branch.unsigned_angle_axis_in_second = value(
-                    normalized(bodies[assembly_.body_index(second_element.body_id)].rotation) *
-                    eigen(*branch.unsigned_angle_axis_in_second));
             Eigen::VectorXd residual =
                 constraint_residual(evaluated, first, second, assembly_.options(), &branch);
             const EquationDefinition definition = equation_definition(evaluated, first, second);
@@ -1752,14 +1750,10 @@ public:
             std::optional<DifferentialVector> reference;
             if (constraint.angle_reference_direction)
                 reference = local_second_direction(*constraint.angle_reference_direction);
-            std::optional<DifferentialVector> unsigned_axis;
-            if (assembly_.branch(constraint_index).unsigned_angle_axis_in_second)
-                unsigned_axis = local_second_direction(
-                    *assembly_.branch(constraint_index).unsigned_angle_axis_in_second);
             const Eigen::MatrixXd block = differential_residual(
                 constraint, differentiated_geometry(first_element),
                 differentiated_geometry(second_element), assembly_.branch(constraint_index),
-                assembly_.options(), reference, unsigned_axis);
+                assembly_.options(), reference);
             if (block.rows() != static_cast<Eigen::Index>(definition.kinds.size()))
                 throw std::logic_error(
                     "analytic Jacobian row count does not match equation registry");
@@ -1896,12 +1890,13 @@ private:
     void initialize_singular_direction_branches(State& state) const {
         for (const std::size_t constraint_index : component_.constraint_indices) {
             const Constraint& constraint = assembly_.constraint(constraint_index);
-            if ((constraint.kind != ConstraintKind::Coincident &&
+            const bool spatial_angle = constraint.kind == ConstraintKind::Angle && !constraint.angle_reference_direction;
+            if ((!spatial_angle && constraint.kind != ConstraintKind::Coincident &&
                  constraint.kind != ConstraintKind::Concentric &&
                  constraint.kind != ConstraintKind::Parallel &&
                  constraint.kind != ConstraintKind::Perpendicular) ||
                 (constraint.direction_relation == DirectionRelation::Unoriented &&
-                 constraint.kind != ConstraintKind::Perpendicular))
+                 constraint.kind != ConstraintKind::Perpendicular && !spatial_angle))
                 continue;
             const auto& selected_first = assembly_.geometry(constraint.first);
             const auto& selected_second = assembly_.geometry(*constraint.second);
@@ -1931,17 +1926,25 @@ private:
                                        ? second_direction
                                        : -second_direction;
             const bool perpendicular = constraint.kind == ConstraintKind::Perpendicular;
-            if (perpendicular ? std::abs(first_direction.dot(second_direction)) < 1.0 - 1.0e-10
-                              : first_direction.dot(target) > -1.0 + 1.0e-10)
+            double turn_angle = perpendicular ? (constraint.direction_relation == DirectionRelation::Opposite ? -kPi * 0.5 : kPi * 0.5) : kPi;
+            if (spatial_angle) {
+                if (first_direction.cross(second_direction).norm() > 1.0e-10)
+                    continue;
+                double desired = std::min(constraint.value, 2.0 * kPi - constraint.value);
+                if (constraint.direction_relation == DirectionRelation::Opposite)
+                    desired = kPi - desired;
+                const double current = first_direction.dot(second_direction) >= 0 ? 0.0 : kPi;
+                turn_angle = spatial_angle_sign(constraint) * (desired - current);
+                if (std::abs(turn_angle) <= assembly_.options().angle_tolerance)
+                    continue;
+            } else if (perpendicular ? std::abs(first_direction.dot(second_direction)) < 1.0 - 1.0e-10
+                                     : first_direction.dot(target) > -1.0 + 1.0e-10) {
                 continue;
-
-            // The vector-difference objective has zero gradient at the exact
-            // antipodal branch. Seed that discrete branch geometrically by a
-            // half turn about the selected geometry origin, keeping its anchor
-            // fixed. The normal solve remains responsible for every other
-            // constraint in the component.
+            }
+            // Seed only a singular initial pose. This temporary tangent is not
+            // an equation or a frozen rotation axis; every constraint is then solved.
             const Vector3 axis = perpendicular_to(first_direction);
-            const EigenQuaternion turn(Eigen::AngleAxisd(perpendicular ? kPi * 0.5 : kPi, axis));
+            const EigenQuaternion turn(Eigen::AngleAxisd(turn_angle, axis));
             Pose& cluster_pose = state.poses[static_cast<std::size_t>(
                 std::distance(free_cluster_indices_.begin(), free))];
             const Vector3 pivot = geometry_origin(first);
@@ -2666,10 +2669,7 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly,
             value(normalized(body_poses[assembly.body_index(second_element.body_id)].rotation) *
                   eigen(*evaluated.angle_reference_direction));
     ConstraintBranchState branch = assembly.branch(constraint_index);
-    if (branch.unsigned_angle_axis_in_second)
-        branch.unsigned_angle_axis_in_second =
-            value(normalized(body_poses[assembly.body_index(second_element.body_id)].rotation) *
-                  eigen(*branch.unsigned_angle_axis_in_second));
+
     Eigen::VectorXd residual =
         constraint_residual(evaluated, first, second, assembly.options(), &branch);
     const EquationDefinition definition = equation_definition(evaluated, first, second);

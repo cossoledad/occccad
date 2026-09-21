@@ -407,8 +407,8 @@ TEST(AssemblySolver, DirectedAngleResidualUsesShortestPeriodicError) {
     }
 }
 
-TEST(AssemblySolver, AngleEndpointsRemainOneScalarEquationAndRank) {
-    for (const double target : {0.0, 0.001 * kPi / 180.0, 179.999 * kPi / 180.0, kPi}) {
+TEST(AssemblySolver, SpatialAngleEndpointsHaveAlignmentRank) {
+    for (const double target : {0.0, 0.001 * kPi / 180.0, 179.999 * kPi / 180.0, kPi, 2.0 * kPi}) {
         Model model;
         model.bodies = {{"ground", {}}, {"moving", {}}};
         model.geometry = {{"axis", "ground", AxisGeometry{}}, {"axis", "moving", AxisGeometry{}}};
@@ -422,8 +422,65 @@ TEST(AssemblySolver, AngleEndpointsRemainOneScalarEquationAndRank) {
             std::find_if(result.constraint_ranks.begin(), result.constraint_ranks.end(),
                          [](const auto& rank) { return rank.constraint_id == "angle"; });
         ASSERT_NE(found, result.constraint_ranks.end());
-        EXPECT_EQ(found->equation_count, 1U);
-        EXPECT_LE(found->effective_rank, 1U);
+        const bool endpoint = target == 0.0 || target == kPi || target == 2.0 * kPi;
+        EXPECT_EQ(found->equation_count, endpoint ? 3U : 1U);
+        EXPECT_EQ(found->effective_rank, endpoint ? 2U : 1U);
+    }
+}
+
+TEST(AssemblySolver, SpatialAnglePreservesConeAndComposesWithDifferentCoincidentLines) {
+    for (double target : {kPi / 6.0, 11.0 * kPi / 6.0}) {
+        for (double azimuth : {0.0, kPi / 4.0, kPi / 2.0, kPi}) {
+            SCOPED_TRACE(std::to_string(target) + "/" + std::to_string(azimuth));
+            Model model;
+            model.bodies = {{"ground", {}}, {"moving", {{}, {std::sin(kPi/12), 0, 0, std::cos(kPi/12)}}}};
+            model.geometry = {
+                {"plane", "ground", PlaneGeometry{}}, {"plane", "moving", PlaneGeometry{}},
+                {"line", "ground", AxisGeometry{{}, {std::cos(azimuth), std::sin(azimuth), 0}}},
+                {"line", "moving", AxisGeometry{{}, {1, 0, 0}}}};
+            auto angle = binary("angle", ConstraintKind::Angle, ref("moving", "plane"), ref("ground", "plane"));
+            angle.value = target;
+            model.constraints = {fix("ground"), angle};
+            const auto free = Solver{}.solve(model);
+            ASSERT_EQ(free.status, SolveStatus::Converged) << free.diagnostic;
+            ASSERT_EQ(free.components.size(), 1U);
+            EXPECT_EQ(free.components[0].jacobian_rank, 1U);
+            auto line = binary("line", ConstraintKind::Coincident, ref("moving", "line"), ref("ground", "line"));
+            line.direction_relation = DirectionRelation::Same;
+            model.constraints.push_back(line);
+            const auto result = Solver{}.solve(model);
+            ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+            const auto rotation = pose(result, "moving").rotation;
+            const auto normal = rotate(rotation, {0, 0, 1});
+            const auto axis = rotate(rotation, {1, 0, 0});
+            EXPECT_NEAR(normal.z, std::cos(kPi / 6), 1e-7);
+            EXPECT_NEAR(axis.x, std::cos(azimuth), 1e-7);
+            EXPECT_NEAR(axis.y, std::sin(azimuth), 1e-7);
+            EXPECT_NEAR(axis.z, 0, 1e-7);
+            EXPECT_EQ(result.components[0].jacobian_rank, 5U);
+        }
+    }
+}
+
+TEST(AssemblySolver, SpatialAngleAcceptsAllAzimuthsAndReflexValues) {
+    for (double target : {kPi/6, kPi/2, 3*kPi/2, 11*kPi/6}) {
+        for (double azimuth : {0.0, 0.7, 1.7, 3.7, 5.8}) {
+            const double separation = std::min(target, 2*kPi-target);
+            Model model;
+            model.bodies = {{"ground", {}}, {"moving", {}}};
+            model.geometry = {{"plane", "ground", PlaneGeometry{}},
+                {"plane", "moving", PlaneGeometry{{}, {std::sin(separation)*std::cos(azimuth),
+                    std::sin(separation)*std::sin(azimuth), std::cos(separation)}}}};
+            auto angle = binary("angle", ConstraintKind::Angle, ref("moving", "plane"), ref("ground", "plane"));
+            angle.value = target;
+            model.constraints = {fix("ground"), angle};
+            SolverOptions options;
+            options.verify_analytic_jacobians = true;
+            const auto result = Solver{}.solve(model, options);
+            ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+            EXPECT_EQ(result.components[0].jacobian_rank, 1U);
+            EXPECT_NEAR(std::abs(pose(result, "moving").rotation.w), 1, 1e-9);
+        }
     }
 }
 

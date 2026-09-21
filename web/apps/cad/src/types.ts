@@ -163,7 +163,7 @@ export type AssemblyGeometryRef = { instanceId: string; kind: "BODY" | "POINT" |
     manifestDigest: string; policyDigest: string; result: SelectionResolution };
   publicationRef?: { publicationId:string; expectedType:string; compatibilityVersion:string; persistentSelection?:PersistentSelection };
   publicationResolution?: Publication["resolution"] };
-export type AssemblyConstraint = { id: string; fixMode?: "SPACE" | "RELATIVE"; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; angleRelation?: "DIRECTED" | "PARALLEL" | "PERPENDICULAR"; measuredValue?: number; suppressed?: boolean; mode?: "DRIVING" | "MEASURED" | "CONTROLLED"; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE";
+export type AssemblyConstraint = { id: string; fixMode?: "SPACE" | "RELATIVE"; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; angleRelation?: "FREE" | "DIRECTED" | "PARALLEL" | "PERPENDICULAR"; measuredValue?: number; suppressed?: boolean; mode?: "DRIVING" | "MEASURED" | "CONTROLLED"; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE";
   first: AssemblyGeometryRef; second?: AssemblyGeometryRef; value?: number; directionRelation?: string; distanceRelation?: string;
   angleAxis?: AssemblyGeometryRef; reverseAngleAxis?: boolean; angleReferenceDirection?: Vec3; evaluationStatus: "NOT_UPDATED" | "BROKEN" | "IMPOSSIBLE" | "VERIFIED";
   evaluationSummary?: string };

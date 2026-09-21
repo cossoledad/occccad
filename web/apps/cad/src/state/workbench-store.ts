@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 import type { Selection, SelectionItem, SketchPlane } from "../types";
 
 export type WorkbenchToolID = "select" | "sketch.project" | "sketch.point" | "sketch.line" | "sketch.circle" | "sketch.arc" | "sketch.polyline" | "sketch.spline" | "sketch.rectangle" | "sketch.polygon" | "sketch.slot"
-	| `assembly.${"move"|"fix"|"rigid"|"coincident"|"concentric"|"angle"|"distance"}`
+	| `assembly.${"move"|"fix"|"rigid"|"coincident"|"concentric"|"angle"|"parallel"|"perpendicular"|"distance"}`
   | "sketch.dimension.linear"
   | `sketch.constraint.${"coincident"|"parallel"|"fixed"|"horizontal"|"vertical"|"perpendicular"|"tangent"|"equal"|"distance"|"length"|"radius"|"diameter"|"angle"|"concentric"|"point_on_object"|"midpoint"|"symmetry"}`;
 export type WorkbenchToolMode = "once" | "continuous";

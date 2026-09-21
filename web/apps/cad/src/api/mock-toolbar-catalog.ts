@@ -72,7 +72,7 @@ export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: 
   ]),
   toolbar("assembly-constraints", "装配约束", "ASSEMBLY_DESIGN", "top-left", "assembly", 40, [
     ["assembly.fix", "固定", "fixed"], ["assembly.rigid", "固连", "link"], ["assembly.coincident", "重合", "coincident"],
-    ["assembly.concentric", "同心", "concentric"], ["assembly.angle", "角度", "angle"], ["assembly.distance", "距离", "distance"],
+    ["assembly.concentric", "同心", "concentric"], ["assembly.angle", "角度", "angle"], ["assembly.parallel", "平行", "parallel"], ["assembly.perpendicular", "垂直", "perpendicular"], ["assembly.distance", "距离", "distance"],
   ]),
   toolbar("history", "历史", "ALL", "top-center", "standard", 70, [
     ["edit.undo", "撤销", "undo"], ["edit.redo", "重做", "redo"], ["history.version", "创建版本", "version"],

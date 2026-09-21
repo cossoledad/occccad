@@ -505,6 +505,11 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
         fixMode: input.fixMode ?? constraint.fixMode, fixedPose: input.fixedPose ?? constraint.fixedPose,
         evaluationStatus: "VERIFIED", evaluationSummary: "mock supports reconnected and solver residual is within tolerance",
       });
+      if (constraint && input.angleRelation && input.angleRelation !== "DIRECTED") {
+        constraint.angleAxis = undefined;
+        constraint.angleReferenceDirection = undefined;
+        constraint.reverseAngleAxis = false;
+      }
     }
     if (commandType === "UPDATE_REFERENCES" && view.product) {
       for (const instance of view.product.instances) instance.headChanged = false;

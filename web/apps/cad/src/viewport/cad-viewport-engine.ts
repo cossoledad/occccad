@@ -320,7 +320,7 @@ export class CadViewportEngine {
     this.tools = new ToolManager({ viewport: this.toolViewportPort() });
     this.tools.register(new SelectTool());
     this.tools.register(new AssemblyMoveTool());
-    for (const kind of ["fix", "rigid", "coincident", "concentric", "angle", "distance"] as const)
+    for (const kind of ["fix", "rigid", "coincident", "concentric", "angle", "parallel", "perpendicular", "distance"] as const)
       this.tools.register(new AssemblyConstraintTool(kind));
     this.tools.register(new PointSketchTool());
     this.tools.register(new ProjectExternalGeometrySketchTool());

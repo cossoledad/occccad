@@ -1340,7 +1340,7 @@ func validateInstanceConstraintReferences(constraint AssemblyConstraint) error {
 	if constraint.FixMode != "" && (constraint.Kind != "FIX" || (constraint.FixMode != "SPACE" && constraint.FixMode != "RELATIVE")) {
 		return fmt.Errorf("%w: invalid fixed reference mode", ErrValidation)
 	}
-	if constraint.AngleRelation != "" && (constraint.Kind != "ANGLE" || (constraint.AngleRelation != "DIRECTED" && constraint.AngleRelation != "PARALLEL" && constraint.AngleRelation != "PERPENDICULAR")) {
+	if constraint.AngleRelation != "" && (constraint.Kind != "ANGLE" || (constraint.AngleRelation != "FREE" && constraint.AngleRelation != "DIRECTED" && constraint.AngleRelation != "PARALLEL" && constraint.AngleRelation != "PERPENDICULAR")) {
 		return fmt.Errorf("%w: invalid angle relation", ErrValidation)
 	}
 	if constraint.AngleAxis != nil {
@@ -1426,6 +1426,11 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 		model.Constraints[index].DistanceRelation = payload.DistanceRelation
 		if payload.AngleReferenceDirection != nil {
 			model.Constraints[index].AngleReferenceDirection = payload.AngleReferenceDirection
+		}
+		if payload.AngleRelation != "" && payload.AngleRelation != "DIRECTED" {
+			model.Constraints[index].AngleAxis = nil
+			model.Constraints[index].AngleReferenceDirection = nil
+			model.Constraints[index].ReverseAngleAxis = false
 		}
 		if payload.FixedPose != nil {
 			model.Constraints[index].FixedPose = payload.FixedPose

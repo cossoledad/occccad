@@ -79,9 +79,9 @@ Web 以 root Product、active occurrence 和 definition/context 模式维护非�
 
 SolveManifest 同时冻结完整 `definitions` 与实际编译的约束。全部停用时仍记录空活动集合的求解与可重放结果；全部活动支持断裂时不伪造空集合求解证据。断链定义保持 Broken，其余可解析约束仍可求解。Update Plan/Release 排除停用项的 Verified 要求，旧 Release 的停用状态不随新 Head 激活而改变。Product Undo/Redo 为新 Revision 生成新的求解证据，并从最终模型重建位姿和约束实体写集。
 
-新增约束 identity 按 request ID 确定，浏览器保存 preview→request 对应关系；可复用的预览提交会冻结指向新 Revision 的 COMMIT manifest 与已验证结果，不重复求解，也不让 Release 依赖 PREVIEW 记录。当前 manifest policy 为 `assembly-m3-lifecycle-v2`，Worker solver build 为 `assembly-m2.5-hierarchy-v4`。
+新增约束 identity 按 request ID 确定，浏览器保存 preview→request 对应关系；可复用的预览提交会冻结指向新 Revision 的 COMMIT manifest 与已验证结果，不重复求解，也不让 Release 依赖 PREVIEW 记录。当前 manifest policy 为 `assembly-m3-lifecycle-v3`，Worker solver build 为 `assembly-m2.5-hierarchy-v5`。
 
-Angle 定义新增 `angleRelation`：Directed、Parallel、Perpendicular；后两者分别使用独立的方向对齐/点积方程。有向角的控制面支持 Plane/Axis/Cylinder 方向对；界面要求显式选择 `angleAxis` 并可用 `reverseAngleAxis` 反向，轴来自第二支持组件的 Datum/Publication/PersistentSelection，按接受的 Revision 冷解析并随该组件运动。其 descriptor digest 以 `ANGLE_AXIS` 保存到 manifest；不接受其他组件的轴并将它静默冻结。360°在求解提交时规范为 0°，旧无轴实验定义仍可读，但编辑需补齐稳定轴。Undefined 不再永久改写为 Same。Offset 数值路径新增 Point–Axis 与 Axis–Plane，均有解析 Jacobian；零点点/点线偏移编译为重合方程，避免零范数梯度丢失其实际秩。Measured 输出独立 `measuredValue`，不改驱动值；两非平行平面等无有效常量距离的构型不显示旧数值。
+Angle 的 `angleRelation` 提供 FREE（默认无轴空间角）、DIRECTED（指定轴投影角）、PARALLEL、PERPENDICULAR 四种模式。两种数量角均接受0–360°；FREE 使用真实叉积范数/点积，不冻结旋转轴，正常构型控制一个转动自由度，0°/180°/360°驱动端点按方向对齐控制两个。大于180°保留反角意图，与对应小角具有同一可行姿态集合。DIRECTED 要求第二支持组件的稳定 `angleAxis`，可用 `reverseAngleAxis` 反向，沿既有 Datum/Publication/PersistentSelection 精确解析并将 `ANGLE_AXIS` 证据写入 manifest；仅约束投影方位角。切换到其他模式会清除旧轴及缓存方向，Undo 恢复完整定义。平行、垂直有独立工具栏入口；垂直以 `directionRelation` SAME/OPPOSITE 保存90°/270°意图，二者使用同一正交方程且不锁定轴。360°在求解提交时规范为0°。Undefined 不再永久改写为 Same。Offset 数值路径新增 Point–Axis 与 Axis–Plane，均有解析 Jacobian；零点点/点线偏移编译为重合方程，避免零范数梯度丢失其实际秩。Measured 输出独立 `measuredValue`，不改驱动值；两非平行平面等无有效常量距离的构型不显示旧数值。
 
 Fix 新增 SPACE/RELATIVE 基准：相对固定接受显式移动后的名义位姿，空间固定保留捕获位姿。编辑命令支持显式 `fixedPose`，前端提供模式切换、三个位置与三个角度编辑。角度显示采用依次绕 X/Y/Z 的外禀旋转，持久化仍用 quaternion；相对固定的显式 pose 编辑同步更新 nominal placement，补偿历史同时恢复基准与 placement。
 

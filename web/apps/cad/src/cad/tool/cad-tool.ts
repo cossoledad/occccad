@@ -134,7 +134,7 @@ export class ProjectExternalGeometrySketchTool implements CadTool {
   cancel(context: ToolContext): void { this.capturedPointerID = undefined; context.viewport.setToolPrompt(""); }
 }
 
-export type AssemblyConstraintToolKind = "fix"|"rigid"|"coincident"|"concentric"|"angle"|"distance";
+export type AssemblyConstraintToolKind = "fix"|"rigid"|"coincident"|"concentric"|"angle"|"parallel"|"perpendicular"|"distance";
 
 export class AssemblyMoveTool implements CadTool {
   readonly id = "assembly.move";

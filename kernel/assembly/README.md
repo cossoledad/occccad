@@ -92,7 +92,10 @@ candidate.
 
 The M1.7 baseline projects Directed Angle endpoints onto the reference-axis normal
 plane, uses periodic scalar angle errors at every target including zero/pi, and
-exposes wrapped/unwrapped/winding branch state. Direction, distance-side and angle
+exposes wrapped/unwrapped/winding branch state. Spatial angles without an axis
+use true separation (or its reflex) in [0, 2pi], leaving the cone azimuth free.
+Spatial endpoints 0/pi/2pi use rank-two alignment; regular angles have rank one.
+Direction, distance-side and directed-angle
 branches are frozen outside residual evaluation. The versioned SolverProfile and
 rank/branch/suspected-conflict diagnostics cross the Proto, Worker and Go boundary.
 

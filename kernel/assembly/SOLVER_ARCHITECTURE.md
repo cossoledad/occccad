@@ -484,8 +484,9 @@ or a persistent solver session.
 M1.7 preserves the M1 compiler/component/LM architecture while separating geometry,
 discrete branch state and solution preference. Directed angles project both endpoint
 directions onto the reference-axis normal plane and reject a degenerate projection;
-all Angle constraints remain one scalar equation at zero and pi and use a wrapped
-periodic error. `AngleBranchState` carries wrapped, unwrapped and winding values
+directed Angle constraints remain one scalar equation at zero and pi and use a wrapped
+periodic error. Current spatial Angle uses true separation without a frozen axis;
+its exact zero/pi/2pi driving endpoints use rank-two alignment. `AngleBranchState` carries wrapped, unwrapped and winding values
 between calls without making multi-turn state part of the static assembly definition.
 
 Direction, unsigned-distance side and angle branch data are compiled into an internal
@@ -638,7 +639,7 @@ MOVE 的最近可行目标投影仍由 M4 实现，本门不以现有 `interacti
 
 Worker/Go/Router 携带 typed freedom/preference enums 与完整证据，Product 预览通过现有 preview actor 展示第二元素变化和自由度，
 REQUEST/RESET/CANCEL 清理旧证据，旧 sequence 的响应不覆盖新状态。提交不持久化额外求解状态机；最终 Pose 仍进入同一
-Revision/ChangeSet，连续 Undo/Redo 由原历史语义处理。当前 `solver_build=assembly-m2.5-hierarchy-v4`，profile schema 为 2。
+Revision/ChangeSet，连续 Undo/Redo 由原历史语义处理。当前 `solver_build=assembly-m2.5-hierarchy-v5`，profile schema 为 2。
 M3 已持久化 solve manifest/provenance 和 request-specific result；重试复用对应请求结果，不等同于任意姿态的数值 warm-start cache。
 
 

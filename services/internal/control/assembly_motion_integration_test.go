@@ -69,7 +69,7 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v4" || len(result.Components) != 1 {
+	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v5" || len(result.Components) != 1 {
 		t.Fatalf("invalid result: %+v", result)
 	}
 	p := result.Components[0].Preference
@@ -504,6 +504,55 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 		if len(redone.Product.Constraints) != len(after.Product.Constraints) {
 			t.Fatal("rigid redo failed")
 		}
+	})
+
+	t.Run("free reflex angle composition measurement and relation history", func(t *testing.T) {
+		// Undo the preceding rigid capture, retaining the original directed angle.
+		state := apply(workspace.CommandRequest{Type: "UNDO"})
+		c := state.Product.Constraints[len(state.Product.Constraints)-1]
+		state = apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: c.ID, AngleRelation: "FREE", Value: 11 * math.Pi / 6})
+		checkAngle := func(view workspace.DocumentView, relation string, value float64) {
+			t.Helper()
+			for _, got := range view.Product.Constraints {
+				if got.ID != c.ID {
+					continue
+				}
+				if got.AngleRelation != relation || math.Abs(got.Value-value) > 1e-9 || got.AngleAxis != nil || got.AngleReferenceDirection != nil || got.EvaluationStatus != "VERIFIED" {
+					t.Fatalf("angle definition/evidence: %+v", got)
+				}
+				return
+			}
+			t.Fatal("angle missing")
+		}
+		checkAngle(state, "FREE", 11*math.Pi/6)
+		undone := apply(workspace.CommandRequest{Type: "UNDO"})
+		restored := undone.Product.Constraints[len(undone.Product.Constraints)-1]
+		if restored.AngleRelation != "DIRECTED" || restored.AngleAxis == nil {
+			t.Fatal("undo did not restore axis")
+		}
+		checkAngle(apply(workspace.CommandRequest{Type: "REDO"}), "FREE", 11*math.Pi/6)
+		state = apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "COINCIDENT", DirectionRelation: "SAME",
+			FirstAssemblyRef:  &workspace.AssemblyGeometryRef{InstanceID: a, Kind: "AXIS", GeometryID: "axis-system-default", Axis: "Z"},
+			SecondAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: b, Kind: "AXIS", GeometryID: "axis-system-default", Axis: "Z"}})
+		checkAngle(state, "FREE", 11*math.Pi/6)
+		apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: []string{c.ID}, ConstraintMode: new("MEASURED")})
+		measured := apply(workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: b, Translation: [3]float64{0, 0, 9}, Rotation: [4]float64{0, 0, math.Sin(math.Pi / 6), math.Cos(math.Pi / 6)}})
+		for _, got := range measured.Product.Constraints {
+			if got.ID == c.ID && (got.MeasuredValue == nil || math.Abs(*got.MeasuredValue-5*math.Pi/3) > 1e-6) {
+				t.Fatalf("reflex measurement: %+v", got)
+			}
+		}
+		apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: []string{c.ID}, ConstraintMode: new("DRIVING")})
+		for _, direction := range []string{"SAME", "OPPOSITE"} {
+			want := math.Pi / 2
+			if direction == "OPPOSITE" {
+				want = 3 * math.Pi / 2
+			}
+			state = apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: c.ID, AngleRelation: "PERPENDICULAR", DirectionRelation: direction})
+			checkAngle(state, "PERPENDICULAR", want)
+		}
+		state = apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: c.ID, AngleRelation: "PARALLEL", DirectionRelation: "OPPOSITE"})
+		checkAngle(state, "PARALLEL", 0)
 	})
 
 }

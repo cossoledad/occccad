@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"encoding/json"
+	"math"
 	"reflect"
 	"testing"
 
@@ -201,5 +202,100 @@ func TestRestoredFailureKeepsBrokenAndInactiveEvidence(t *testing.T) {
 	retryable.retryable = true
 	if acceptAssemblyEvaluationFailure(&model, &retryable, true) == nil {
 		t.Fatal("transient failure was recorded as deterministic history")
+	}
+}
+
+func TestFreeAngleEditClearsAxisAndCompensates(t *testing.T) {
+	c := AssemblyConstraint{ID: "angle", Kind: "ANGLE", AngleRelation: "DIRECTED", ReverseAngleAxis: true,
+		First: AssemblyGeometryRef{InstanceID: "a", Kind: "PLANE"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "PLANE"},
+		AngleAxis: &AssemblyGeometryRef{InstanceID: "b", Kind: "AXIS", GeometryID: "axis"}, AngleReferenceDirection: &[3]float64{0, 0, 1}}
+	raw, _ := json.Marshal(ProductModel{Constraints: []AssemblyConstraint{c}})
+	for _, relation := range []string{"FREE", "PARALLEL", "PERPENDICULAR"} {
+		payload, _ := json.Marshal(editAssemblyConstraintPayload{ConstraintID: "angle", AngleRelation: relation, Value: 11 * math.Pi / 6, DirectionRelation: "OPPOSITE"})
+		next, changes, err := applyEditAssemblyConstraint(raw, payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var model ProductModel
+		if err = json.Unmarshal(next, &model); err != nil {
+			t.Fatal(err)
+		}
+		got := model.Constraints[0]
+		if got.AngleAxis != nil || got.AngleReferenceDirection != nil || got.ReverseAngleAxis {
+			t.Fatalf("stale axis: %+v", got)
+		}
+		if got.AngleRelation != relation || got.DirectionRelation != "OPPOSITE" {
+			t.Fatalf("lost relation intent: %+v", got)
+		}
+		if assemblySupportsMeasurement(got) != (relation == "FREE") {
+			t.Fatal("incorrect measurement capability")
+		}
+		before, err := modelValues("PRODUCT", raw, changes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored, err := applyModelValues("PRODUCT", next, before)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var undone ProductModel
+		if err = json.Unmarshal(restored, &undone); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(undone.Constraints[0], c) {
+			t.Fatal("undo lost directed axis")
+		}
+	}
+}
+
+func TestFreeAngleRangeAndMeasurement(t *testing.T) {
+	c := AssemblyConstraint{ID: "angle", Kind: "ANGLE", AngleRelation: "FREE", Mode: "MEASURED",
+		First: AssemblyGeometryRef{InstanceID: "a", Kind: "PLANE"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "PLANE"}}
+	for _, value := range []float64{0, math.Pi / 6, math.Pi, 3 * math.Pi / 2, 2 * math.Pi} {
+		c.Value = value
+		if err := validateInstanceConstraintReferences(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, value := range []float64{-0.01, 2*math.Pi + 0.01, math.NaN()} {
+		c.Value = value
+		if validateInstanceConstraintReferences(c) == nil {
+			t.Fatal("invalid angle accepted")
+		}
+	}
+}
+
+func TestCompileAssemblyAngleRelations(t *testing.T) {
+	for _, relation := range []string{"FREE", "DIRECTED", "PARALLEL", "PERPENDICULAR"} {
+		for _, direction := range []string{"SAME", "OPPOSITE"} {
+			c := AssemblyConstraint{Kind: "ANGLE", AngleRelation: relation, Value: 11 * math.Pi / 6, DirectionRelation: direction,
+				AngleAxis: &AssemblyGeometryRef{InstanceID: "b", Kind: "AXIS"}, AngleReferenceDirection: &[3]float64{0, 0, 1}}
+			value := geometry.AssemblyConstraint{Kind: c.Kind, Value: c.Value, AngleReferenceDirection: c.AngleReferenceDirection}
+			if err := applyAssemblyAngleRelation(&c, &value); err != nil {
+				t.Fatal(err)
+			}
+			if (value.AngleReferenceDirection != nil) != (relation == "DIRECTED") {
+				t.Fatalf("axis leaked: %+v", value)
+			}
+			expectedKind := "ANGLE"
+			if relation == "PARALLEL" || relation == "PERPENDICULAR" {
+				expectedKind = relation
+			}
+			if value.Kind != expectedKind {
+				t.Fatalf("wrong equation: %+v", value)
+			}
+			if relation == "FREE" && value.Value != 11*math.Pi/6 {
+				t.Fatal("reflex value lost")
+			}
+			if relation == "PERPENDICULAR" {
+				expected := math.Pi / 2
+				if direction == "OPPOSITE" {
+					expected = 3 * math.Pi / 2
+				}
+				if c.Value != expected || !assemblyCapabilities(value.Kind, "PLANE", "PLANE").direction {
+					t.Fatal("lost perpendicular direction")
+				}
+			}
+		}
 	}
 }

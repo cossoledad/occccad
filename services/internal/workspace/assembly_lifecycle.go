@@ -157,7 +157,7 @@ func appendAssemblyEvaluationChanges(set modelcore.ChangeSet, before, after Prod
 }
 
 func assemblySupportsMeasurement(c AssemblyConstraint) bool {
-	return c.Kind == "DISTANCE" || (c.Kind == "ANGLE" && (c.AngleRelation == "" || c.AngleRelation == "DIRECTED"))
+	return c.Kind == "DISTANCE" || (c.Kind == "ANGLE" && (c.AngleRelation == "" || c.AngleRelation == "FREE" || c.AngleRelation == "DIRECTED"))
 }
 
 // Source updates and replay of an already failed Revision retain deterministic
@@ -179,4 +179,32 @@ func acceptAssemblyEvaluationFailure(model *ProductModel, err error, allow bool)
 		c.EvaluationSummary = failure.code + ": " + failure.diagnostic
 	}
 	return nil
+}
+
+// Angle relations compile to distinct equations without inventing a rotation axis.
+func applyAssemblyAngleRelation(c *AssemblyConstraint, value *geometry.AssemblyConstraint) error {
+	if c.Kind != "ANGLE" {
+		return nil
+	}
+	switch c.AngleRelation {
+	case "", "DIRECTED":
+		return nil
+	case "FREE", "PARALLEL", "PERPENDICULAR":
+		c.AngleAxis, c.AngleReferenceDirection = nil, nil
+		c.ReverseAngleAxis = false
+		value.AngleReferenceDirection = nil
+		if c.AngleRelation == "FREE" {
+			return nil
+		}
+		value.Kind, value.Value = c.AngleRelation, 0
+		if c.AngleRelation == "PERPENDICULAR" {
+			c.Value = math.Pi / 2
+			if c.DirectionRelation == "OPPOSITE" {
+				c.Value = 3 * math.Pi / 2
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("%w: unknown angle relation", ErrValidation)
+	}
 }

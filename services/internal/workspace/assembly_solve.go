@@ -114,7 +114,7 @@ func assemblyCapabilities(kind, firstKind, secondKind string) assemblyConstraint
 	axisLike := func(k string) bool { return k == "AXIS" || k == "CYLINDER" }
 	axisPair := axisLike(firstKind) && axisLike(secondKind)
 	return assemblyConstraintCapabilities{
-		direction:     (kind == "PARALLEL" && directional(firstKind) && directional(secondKind)) || (kind == "COINCIDENT" && (planePair || axisPair)) || (kind == "CONCENTRIC" && axisPair) || (kind == "DISTANCE" && planePair),
+		direction:     ((kind == "PARALLEL" || kind == "PERPENDICULAR") && directional(firstKind) && directional(secondKind)) || (kind == "COINCIDENT" && (planePair || axisPair)) || (kind == "CONCENTRIC" && axisPair) || (kind == "DISTANCE" && planePair),
 		distanceSide:  kind == "DISTANCE" && (firstKind == "PLANE" || secondKind == "PLANE"),
 		directedAngle: kind == "ANGLE" && directional(firstKind) && directional(secondKind),
 	}
@@ -446,13 +446,8 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		appendResolutionEvidence(constraint.ID, "FIRST", firstGeometry, constraint.First)
 		value := geometry.AssemblyConstraint{ID: constraint.ID, ConnectionID: constraint.ConnectionID, Kind: constraint.Kind, Mode: constraint.Mode, FirstBodyID: constraint.First.InstanceID, FirstGeometryID: firstGeometry, Value: constraint.Value, DirectionRelation: constraint.DirectionRelation, DistanceRelation: constraint.DistanceRelation,
 			AngleReferenceDirection: constraint.AngleReferenceDirection}
-		if constraint.Kind == "ANGLE" && constraint.AngleRelation != "" && constraint.AngleRelation != "DIRECTED" {
-			if constraint.AngleRelation != "PARALLEL" && constraint.AngleRelation != "PERPENDICULAR" {
-				return fmt.Errorf("%w: unknown angle relation", ErrValidation)
-			}
-			value.Kind = constraint.AngleRelation
-			value.Value = 0
-			value.AngleReferenceDirection = nil
+		if err := applyAssemblyAngleRelation(constraint, &value); err != nil {
+			return err
 		}
 		if constraint.Kind == "FIX" || constraint.Kind == "RIGID" {
 			fixedValue := constraint.FixedPose
@@ -510,10 +505,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 			if value.Kind == "ANGLE" && constraint.AngleReferenceDirection != nil && !capabilities.directedAngle {
 				return fmt.Errorf("%w: directed angle requires two directional supports", ErrValidation)
 			}
-			if value.Kind == "ANGLE" && constraint.Value > math.Pi &&
-				(!capabilities.directedAngle || constraint.AngleReferenceDirection == nil) {
-				return fmt.Errorf("%w: an angle above 180 degrees requires a persisted reference direction", ErrValidation)
-			}
+
 		}
 		if value.Kind == "ANGLE" && value.Value == 2*math.Pi {
 			constraint.Value, value.Value = 0, 0

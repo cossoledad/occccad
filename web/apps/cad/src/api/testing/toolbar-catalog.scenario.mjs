@@ -24,6 +24,9 @@ try {
   assert.equal(commands.find((item) => item.commandId === "product.release")?.iconKey, "release");
   assert.deepEqual(commands.filter((item) => item.commandId.startsWith("view.")).map((item) => item.commandId),
     ["view.fit", "view.top", "view.front", "view.right", "view.iso", "view.normal"]);
+  for (const command of ["assembly.parallel", "assembly.perpendicular"]) {
+    assert.ok(toolbars.find(toolbar => toolbar.id === "assembly-constraints").items.some(item => item.commandId === command));
+  }
   console.log("Toolbar category and preference-boundary tests passed.");
 } finally {
   await server.close();

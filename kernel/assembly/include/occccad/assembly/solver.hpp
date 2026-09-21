@@ -83,8 +83,8 @@ enum class ConstraintKind {
 enum class ConstraintMode { Driving, Measured, Controlled, Suppressed };
 
 // For alignment constraints Unoriented chooses the nearest same/opposite branch.
-// Angle always measures the full [0, pi] separation; Same/Opposite explicitly
-// controls which endpoint direction is used before measuring it.
+// Spatial Angle measures separation or its reflex according to the [0, 2pi] target.
+// Same/Opposite explicitly controls the endpoint direction before measurement.
 enum class DirectionRelation { Unoriented, Same, Opposite };
 
 // Distance to a plane and plane-to-plane distance require an explicit side
@@ -106,7 +106,8 @@ struct Constraint {
     std::optional<GeometryRef> second;
     double value{};  // radians for Angle, model length for Distance
     // Optional reference direction expressed in the second body's local frame.
-    // When present, Angle is directed in [0, 2pi); otherwise it is unsigned [0, pi].
+    // Present: projected directed angle. Absent: true spatial separation, with
+    // reflex intent for targets > pi, and no frozen rotation axis.
     std::optional<Vec3> angle_reference_direction;
     // Previous accepted directed-angle branch. The solver chooses the nearest
     // equivalent angle and returns the updated state in SolveResult.
