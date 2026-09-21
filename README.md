@@ -8,7 +8,7 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 
 仓库当前是可运行的早期垂直切片，而不是完整 CAD 产品。已经贯通浏览器工作台、Go API、PostgreSQL、持久任务、C++/OCCT Geometry Worker 和本地制品存储；当前支持通用草图、参数化特征与关联产品设计、Part/Product 文档、版本历史、Document Center 中的 STEP/BREP 文档交换、账号与 ACL 等基础能力。
 
-二维草图已接入基础几何/尺寸约束、PlaneGCS 权威求解、约束可视化和通用 Profile。Part 的第一版实体框架把线性拉伸/旋转生成器与 `NEW_BODY / ADD / REMOVE / INTERSECT` Body 操作分离，支持一个 Body 内的 Fuse/Cut/Common，并支持显式基准面坐标框架和基准轴；Linear Extrude/Boolean 已生成 Face/Edge/Vertex 拓扑历史，Product 的 Part occurrence 可以用 PersistentSelection 跨 Revision 解析这些元素，并显示与修复三维装配约束状态。代表性 Cut/Hole 回归已覆盖贯穿孔后六个原面加四个孔壁、删除面 Broken、split 歧义、Undo/Redo 和 Reconnect 后继续编辑。它们仍不是完整专业 Sketcher/Part Design/Assembly Design。尚未实现多 Body、所有 Feature 类型的稳定拓扑命名、任意拓扑装配配合、曲面/钣金/工程图/CAM/CAE、跨主机调度和对象存储。Product 已具备 typed InstancePath、Publication、ContextBinding/Variant、M3 SolveManifest 与不可变 Release，真实产品浏览器验收仍待收口。这些能力的边界与演进顺序见[目标架构](docs/TARGET_ARCHITECTURE.md)。
+二维草图已接入基础几何/尺寸约束、PlaneGCS 权威求解、约束可视化和通用 Profile。Part 的第一版实体框架把线性拉伸/旋转生成器与 `NEW_BODY / ADD / REMOVE / INTERSECT` Body 操作分离，支持一个 Body 内的 Fuse/Cut/Common，并支持显式基准面坐标框架和基准轴；Linear Extrude/Boolean 已生成 Face/Edge/Vertex 拓扑历史，Product 的 Part occurrence 可以用 PersistentSelection 跨 Revision 解析这些元素，并显示与修复三维装配约束状态。代表性 Cut/Hole 回归已覆盖贯穿孔后六个原面加四个孔壁、删除面 Broken、split 歧义、Undo/Redo 和 Reconnect 后继续编辑。它们仍不是完整专业 Sketcher/Part Design/Assembly Design。尚未实现多 Body、所有 Feature 类型的稳定拓扑命名、任意拓扑装配配合、曲面/钣金/工程图/CAM/CAE、跨主机调度和对象存储。Product 已具备 typed InstancePath、Publication、ContextBinding/Variant、M3 SolveManifest 与不可变 Release，ACCEPT-PRODUCT 已完成人工确认与标准测试收口。这些能力的边界与演进顺序见[目标架构](docs/TARGET_ARCHITECTURE.md)。
 
 ## 文档
 

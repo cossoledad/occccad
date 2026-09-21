@@ -1,6 +1,6 @@
 # occccad 当前架构
 
-> 2026-09-21 文档核对基线。代码、迁移和测试决定实现事实；本文是分层入口。目标契约见[目标架构](TARGET_ARCHITECTURE.md)，未完成工作见[统一路线](../plans/README.md)。本轮为源码/文档核对，不重新宣称历史测试或浏览器验收通过。
+> 2026-09-21 文档核对基线。代码、迁移和测试决定实现事实；本文是分层入口。目标契约见[目标架构](TARGET_ARCHITECTURE.md)，未完成工作见[统一路线](../plans/README.md)。Product 验收已完成；人工确认和本轮标准测试见[完成记录](architecture/current/product-assembly.md#accept-product-完成记录)。
 
 ## 系统结论
 
@@ -29,14 +29,14 @@
 | Part 关联 | 驱动尺寸 ParameterBinding、面支撑、Edge/Vertex 投影、更新/重连/Detach | 部分圆弧 snapshot、Face group、Section/Silhouette |
 | 产品关联 | Publication、typed InstancePath、Product Design Session、ContextInput/Binding、Variant、原子事务、Update Plan | Configuration/Design Table、partial update、flexible subassembly、Derive Part from Context |
 | 装配 | SE(3)、基础约束、自由度/层级解选择、M3 SolveManifest/request lookup/replay | M4 最近可行拖拽、M5 完整冲突解释、M6 Engineering Connection；当前 MOVE 仍用临时 Fix |
-| 产品发布 | 冻结 ProductRelease、gate、replay、按冻结几何导出 | Product 真实浏览器/WebGL 纵向验收仍待完成 |
+| 产品发布 | 冻结 ProductRelease、gate、replay、按冻结几何导出 | ACCEPT-PRODUCT 已通过；后续新增能力仍需独立验收 |
 | 交换 | STEP/BREP、transferable roots、展平 occurrence placement round-trip | XDE/AP242 嵌套 BOM、颜色、共享实例语义 |
 | 平台 | 本机扩缩容、持久 Jobs、本地制品、提交同步 | S3/CDN、跨主机 Scheduler、多 API 扇出、presence/preview 协作 |
 | 工程扩展 | 尚无完整领域实现 | Surface/3D Wire、DMU、Kinematics、钣金、工程图、CAM/CAE |
 
 ## 旧计划归并结果
 
-已完成的特征编辑/naming/装配状态、Part 内关联、Publication、Product 上下文/M3/Release 实现进入上表分册，旧 P0–P10 计划删除。其待验收部分保留为 [ACCEPT-PRODUCT](../plans/product-acceptance.md)。旧 UX 计划中的圆环树图标、24 px grip 等已被当前侧栏/分隔条设计替代，不作为待实现功能恢复。
+已完成的特征编辑/naming/装配状态、Part 内关联、Publication、Product 上下文/M3/Release 实现进入上表分册，旧 P0–P10 计划删除。ACCEPT-PRODUCT 已完成，证据归入[Product 分册](architecture/current/product-assembly.md#accept-product-完成记录)，对应待办已删除。旧 UX 计划中的圆环树图标、24 px grip 等已被当前侧栏/分隔条设计替代，不作为待实现功能恢复。
 
 ## 持续风险
 

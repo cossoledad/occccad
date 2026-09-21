@@ -4,12 +4,11 @@
 
 ## 一条主线
 
-产品主线是“可验证的关联产品设计 → 稳定装配交互 → 可解释冲突 → 工程连接”。参数、命名、Publication、Product 上下文与 M3 已是代码基线，不再作为新的开发阶段重复实施；当前先收口真实产品验收。
+产品主线是“可验证的关联产品设计 → 稳定装配交互 → 可解释冲突 → 工程连接”。参数、命名、Publication、Product 上下文与 M3 已是代码基线，不再作为新的开发阶段重复实施；ACCEPT-PRODUCT 已完成，证据见[当前 Product 架构](../docs/architecture/current/product-assembly.md#accept-product-完成记录)。
 
 ```mermaid
 flowchart LR
-    Baseline["已有：参数/命名/Publication/Product/M3"] --> Accept["ACCEPT-PRODUCT 实际产品验收"]
-    Accept --> Drag["M4 稳定约束流形交互"]
+    Baseline["已有：参数/命名/Publication/Product/M3，产品验收通过"] --> Drag["M4 稳定约束流形交互"]
     Drag --> Conflict["M5 局部冲突解释"]
     Conflict --> Connection["M6 工程连接"]
     Baseline --> Feature["FEATURE 实体特征支线"]
@@ -17,14 +16,13 @@ flowchart LR
     Connection -.进入条件.-> Future["DMU / Kinematics 等候选"]
 ```
 
-若只有一条开发线：先 ACCEPT-PRODUCT，再补齐已有 Revolve 的 naming/edit 闭环，然后 M4 → M5 → M6。其他 Feature 和 Projection 根据真实建模需求插入；它们不是 M4 的强制前置。独立研究或实现可提前进行，但不得跳过依赖路径上的产品验收。
+若只有一条开发线：先补齐已有 Revolve 的 naming/edit 闭环，然后 M4 → M5 → M6。其他 Feature 和 Projection 根据真实建模需求插入；它们不是 M4 的强制前置。独立研究或实现可提前进行，但不得跳过依赖路径上的产品验收。
 
 ## 可领取工作
 
 | 轨道 | 当前首项 | 依赖与退出门 | 详情 |
 |---|---|---|---|
-| 主线验收 | ACCEPT-PRODUCT | 已有实现；真实浏览器/后端全路径证据 | [Product 验收](product-acceptance.md) |
-| 装配主线 | ASSEMBLY-SESSION | M3 合同；主线交付前完成 ACCEPT-PRODUCT | [装配演进](assembly-evolution.md) |
+| 装配主线 | ASSEMBLY-SESSION | M3 合同与产品验收已就绪 | [装配演进](assembly-evolution.md) |
 | 实体支线 | FEATURE-REVOLVE-HISTORY | 已有 Extrude/Boolean 命名基线；完整命名 corpus | [Feature 扩张](feature-expansion.md) |
 | 草图支线 | PROJECTION-ARC | 已有 Edge/Vertex 投影；先统一 ARC snapshot | [Sketch 投影](sketch-projection.md) |
 | 工程维护 | 按证据触发 | 保持行为、验证与导航等价 | [维护支线](engineering-maintenance.md) |
@@ -42,4 +40,4 @@ flowchart LR
 
 用户场景 → typed command/schema → evaluator/solver → provenance/诊断 → UI/历史 → 验证贯通。持久模型变化覆盖 Undo/Redo、刷新/冷重建、CAS/幂等、依赖和空开发库迁移；Feature 同时覆盖 Shape gate 与 topology history。验证按精确用例 → 受影响领域 → 受影响集成升级，共享 Proto/迁移/构建必须全仓；复杂交互另做真实浏览器验收。
 
-当前文档整理只核对实现与测试入口，没有重新执行旧计划所声称的全量或人工验收。各事实分册明确列出实现与限制，具体执行结果应由实际交付记录证明。
+ACCEPT-PRODUCT 的人工确认、标准测试、修复和集成测试限制已归入当前 Product 架构；后续每项工作仍须提供自己的实际验证结果。

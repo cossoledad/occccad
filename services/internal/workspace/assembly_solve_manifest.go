@@ -112,8 +112,19 @@ func newAssemblySolveManifest(documentID, revisionID, modelHash string, bodies [
 	if err := validateAssemblySolveManifest(manifest); err != nil {
 		return AssemblySolveManifest{}, err
 	}
-	manifest.Digest = resolvedDigest(manifest)
-	return manifest, nil
+	// Freeze the same value representation that persistence/replay consumes.
+	// Slice copies above protect canonical ordering, but nested poses, branch
+	// state and resolution evidence still contain caller-owned pointers/slices.
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		return AssemblySolveManifest{}, fmt.Errorf("%w: encode assembly SolveManifest: %v", ErrValidation, err)
+	}
+	var frozen AssemblySolveManifest
+	if err := json.Unmarshal(raw, &frozen); err != nil {
+		return AssemblySolveManifest{}, fmt.Errorf("%w: freeze assembly SolveManifest: %v", ErrValidation, err)
+	}
+	frozen.Digest = resolvedDigest(frozen)
+	return frozen, nil
 }
 
 func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {

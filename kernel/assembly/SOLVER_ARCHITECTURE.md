@@ -659,7 +659,7 @@ incompatible references fail during manifest construction with stable diagnostic
 `geometryKey + topology local ID` is transient pick evidence, bound to persistent
 identity before submission. Current code and limitations are recorded in
 [Product/Assembly](../../docs/architecture/current/product-assembly.md); real
-Product browser acceptance remains tracked separately in the roadmap.
+Product acceptance is recorded in the current Product architecture.
 
 M3 is accepted only when replaying the same manifest after workspace-head changes
 produces a semantically equivalent result, nested rigid Product occurrences solve
@@ -738,8 +738,9 @@ static placement solve loop.
 
 ## 9. Next vertical slice and acceptance criteria
 
-M2.5 numerical hierarchy and M3 control-plane manifests are implemented. Complete
-[Product acceptance](../../plans/product-acceptance.md), then follow the
+M2.5 numerical hierarchy and M3 control-plane manifests are implemented.
+[Product acceptance](../../docs/architecture/current/product-assembly.md#accept-product-完成记录)
+is complete; follow the
 [assembly roadmap](../../plans/assembly-evolution.md) for M4 constrained interaction,
 M5 diagnostics and M6 connections. Keep motion, subspace and Router/history corpus
 as regression gates; sparse/incremental execution remains benchmark-led M7 work.

@@ -1,6 +1,6 @@
 # 装配主线
 
-> 状态：待实施。M3 manifest/replay 已有实现；Product 真实浏览器基线尚待[验收](product-acceptance.md)。返回[统一路线](README.md)。
+> 状态：待实施。M3 manifest/replay 已有实现；Product 基线已[完成验收](../docs/architecture/current/product-assembly.md#accept-product-完成记录)。返回[统一路线](README.md)。
 
 ## Assembly M4 分支稳定的约束流形交互
 
@@ -61,7 +61,7 @@ Connector 合同增加接口种类、frame、对称性、极性、允许 Connect
 增加有界距离、角度和 joint limit 的 active-set/branch 语义、状态与交互诊断。任意 NURBS-NURBS 接触、gear/rack 和复杂曲面接触另立后续研究计划。
 ## 依赖与验证
 
-M4：SESSION → DRAG → FEEDBACK → BRANCH；M5：CORPUS → SEARCH → UX；M6：CONSTRAINTS → FRAME → BASIC → CONTACT → DESCRIPTORS → LIMITS。阶段之间沿 M4 → M5 → M6 进入产品交付；允许独立算法 spike，但不能因此跳过上游产品验收。
+M4：SESSION → DRAG → FEEDBACK → BRANCH；M5：CORPUS → SEARCH → UX；M6：CONSTRAINTS → FRAME → BASIC → CONTACT → DESCRIPTORS → LIMITS。阶段之间沿 M4 → M5 → M6 进入产品交付；允许独立算法 spike，每一阶段仍须完成自己的产品验收。
 
 DirectedAngle 数值内核已经存在；ASSEMBLY-BRANCH 交付的是显式 Datum/Publication 轴、交互 session 和跨 branch 验收，不重新发明已有角度方程。当前拖拽仍有 `interaction-driver` Fix，不能以已有预览或 null-space 输出宣称 M4 完成。
 

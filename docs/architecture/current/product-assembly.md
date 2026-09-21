@@ -1,6 +1,6 @@
 # Product 关联设计、装配与发布
 
-> 2026-09-21 文档核对基线。返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。这里只记录实现事实；测试存在不等于本轮已经运行，验证缺口见[统一路线](../../../plans/README.md)。
+> 2026-09-21 文档核对基线。返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。ACCEPT-PRODUCT 已完成，人工与自动化证据及限制见本文末尾。
 
 - 当前 Product UI 中的新实例固定采用 `FOLLOW_HEAD`；被引用文档变化后先使 root-snapshot `ProductUpdatePlan` 失效并投影 `UPDATE_AVAILABLE`，打开 Product 的可编辑客户端随后按叶到根自动接受每一级带 digest 的计划，提交普通 `UPDATE_REFERENCES` Revision 并重建可重放快照。Instance 右键可把当前 resolved Revision 切换为 `PINNED`，也可恢复 `FOLLOW_HEAD`；任意历史版本 picker 尚未开放。
 
@@ -32,7 +32,7 @@ Web 以 root Product、active occurrence 和 definition/context 模式维护非�
 
 ## M3 SolveManifest 与 Release
 
-每次正式 assembly preview/commit 冻结 `AssemblySolveManifest`：root/candidate Revision、完整 body pose、局部几何描述符、Publication/PersistentSelection resolution evidence、约束、branch/intent、affected scope、schema 2 solver profile 与 build policy 共同形成确定 digest。Worker 只消费 manifest 中的纯值；Publication endpoint 直接使用已解析 descriptor，不再让 solver 查询 Product/B-Rep。manifest 与 request-specific result 持久化，重试复用同一结果，digest replay、request lookup、deadline/cancel 和既有 `.3dreplay` 数值证据并存。
+每次正式 assembly preview/commit 冻结 `AssemblySolveManifest`：root/candidate Revision、完整 body pose、局部几何描述符、Publication/PersistentSelection resolution evidence、约束、branch/intent、affected scope、schema 2 solver profile 与 build policy 共同形成确定 digest。构造器按持久化 JSON 表示冻结独立快照，位姿、角度分支及 Publication/PersistentSelection 证据不再共享调用方指针；后续调用方修改不改变已冻结内容与 digest。Worker 只消费 manifest 中的纯值；Publication endpoint 直接使用已解析 descriptor，不再让 solver 查询 Product/B-Rep。manifest 与 request-specific result 持久化，重试复用同一结果，digest replay、request lookup、deadline/cancel 和既有 `.3dreplay` 数值证据并存。
 
 当前保存独立 `ProductRelease`：Release Manifest 冻结完整 occurrence typed path/Revision/pose、ContextBinding、ContextVariant GeometryKey/EvaluationManifest、Product Publication、命名/evaluator policy、成功 SolveManifest 与 gate 结果。Gate 要求引用 current、全部 occurrence/variant READY、约束 Verified 且有可重放求解证据。Release 可在 Workspace Head 移动后按 manifest replay，并从冻结 GeometryKey 提交 STEP/BREP 导出；Exchange placement 现已贯通 translation 与 quaternion rotation。Web 的“产品版本中心”只负责创建、列出和 replay 不可变里程碑，不再把 STEP/BREP 按钮混入发布流程；Exchange 保留为独立后续 UX。当前不把 Configuration/Design Table、partial update、flexible subassembly 或 Derive Part from Context 列为已实现能力。
 
@@ -60,3 +60,15 @@ Web 以 root Product、active occurrence 和 definition/context 模式维护非�
 - [ToyCar/manifest corpus](../../../services/internal/workspace/p10_remaining_test.go)
 - [Publication corpus](../../../services/internal/workspace/publication_test.go)
 - [持久化迁移](../../../services/internal/database/migrations/0022_p10_product_manifests.sql)
+
+## ACCEPT-PRODUCT 完成记录
+
+状态：**已完成（2026-09-21）**。验收代码基线为 `a095288`，叠加本次 SolveManifest 快照隔离修复及其回归测试。
+
+- 人工验收：维护者在本次会话明确确认 ACCEPT-PRODUCT 通过，覆盖原验收计划的 Product 内创建/激活、Publication/ContextBinding、Variant、Follow/Pin、约束恢复、Release/replay/export 与工作台偏好路径。此结论来自维护者确认，不是 Agent 本轮重新执行浏览器操作，也未补造截图或 trace。
+- 标准测试：`GOFLAGS=-count=1 invoke check --scope all` 的 7 个步骤全部通过：验证路由、C++ 构建、116 项 CTest、Go 全包测试、Go 跨包 conformance、Web 场景、TypeScript/生产构建。Go 禁用结果缓存，实际重新执行。
+- 补充回归：[SolveManifest 输入隔离](../../../services/internal/workspace/assembly_solve_manifest_test.go) 覆盖 initial guess、fixed pose、角度轴/分支、Publication 引用/Quantity、持久解析证据、intent 和 affected bodies 共 9 个子场景。修复前 7 项失败，修复后全部通过；原 manifest 确定性测试同样通过。
+- 修复：原构造器只复制外层 slice，调用方修改嵌套指针可改变 manifest 内容而不改变 digest；现在构造器冻结独立持久化表示，保持现有 schema、字段与重放合同。
+- 限制：本轮未设置 `OCCCCAD_TEST_DATABASE_URL` 和 `OCCCCAD_TEST_GEOMETRY_WORKER`，要求专用数据库/真实 Worker 的可选 Go 集成测试按既有规则跳过；标准单元测试通过不表述为这些集成测试已重新通过。本轮未清理或重置开发数据。
+
+验收待办已移出计划；M4 稳定拖拽、M5 冲突解释和 M6 工程连接仍是后续工作，不因本次验收完成而视作交付。

@@ -1,6 +1,6 @@
 # Web 工作台与交互边界
 
-> 2026-09-21 文档核对。返回[当前架构](../../CURRENT_ARCHITECTURE.md)。本页描述实现，真实 Product/WebGL 验收仍见[待办](../../../plans/product-acceptance.md)。
+> 2026-09-21 文档核对。返回[当前架构](../../CURRENT_ARCHITECTURE.md)。本页描述实现，Product/WebGL 人工验收已由维护者确认通过，自动化测试与限制见[完成记录](product-assembly.md#accept-product-完成记录)。
 
 ## 状态与模块职责
 
