@@ -6,7 +6,7 @@ const server=await createServer({appType:"custom",logLevel:"silent",server:{midd
 try {
  const THREE=await server.ssrLoadModule("three");
  const {normalViewFrame,exactNormalViewPlane}=await server.ssrLoadModule("/src/cad/navigation/normal-view.ts");
- const {orientView}=await server.ssrLoadModule("/src/cad/navigation/orthographic-view.ts");
+ const {orientView,orientPlaneView}=await server.ssrLoadModule("/src/cad/navigation/orthographic-view.ts");
  const plane={origin:[2,3,5],normal:[1,2,3],uDirection:[2,-1,0]};
  const parent=new THREE.Matrix4().makeRotationX(.7).setPosition(8,9,10);
  const child=new THREE.Matrix4().makeRotationY(-.3).setPosition(-3,4,7);
@@ -23,6 +23,21 @@ try {
  assert.ok(camera.getWorldDirection(new THREE.Vector3()).dot(frame.normal)<-1+1e-10);
  assert.equal(normalViewFrame({...plane,normal:[0,0,0]},placement),undefined);
  assert.equal(normalViewFrame({...plane,uDirection:plane.normal},placement),undefined);
+ for (const side of [-1,1]) {
+   const n = frame.normal.clone().multiplyScalar(side);
+   camera.position.copy(frame.origin).addScaledVector(n,80).addScaledVector(frame.up,15);
+   camera.up.copy(frame.up);camera.lookAt(frame.origin);camera.rotateZ(.6);camera.updateMatrixWorld(true);
+   const before=camera.quaternion.clone();
+   const beforeDirection=camera.getWorldDirection(new THREE.Vector3());
+   const expectedTurn=Math.acos(Math.min(1,Math.abs(beforeDirection.dot(frame.normal))));
+   orientPlaneView(camera,target,frame.origin,frame.normal);
+   assert.ok(camera.getWorldDirection(new THREE.Vector3()).dot(n)<-1+1e-10);
+   assert.ok(Math.abs(before.angleTo(camera.quaternion)-expectedTurn)<1e-7);
+   assert.equal(camera.zoom,7);
+   const aligned=camera.quaternion.clone();
+   orientPlaneView(camera,target,frame.origin,frame.normal.clone().negate());
+   assert.ok(aligned.angleTo(camera.quaternion)<1e-7,"reversed support normal must not flip the view");
+ }
  const properties={geometryType:"PLANE",properties:{origin:plane.origin,normal:plane.normal,xDirection:plane.uDirection}};
  assert.deepEqual(exactNormalViewPlane(properties),plane);
  assert.equal(exactNormalViewPlane({...properties,geometryType:"CYLINDER"}),undefined);

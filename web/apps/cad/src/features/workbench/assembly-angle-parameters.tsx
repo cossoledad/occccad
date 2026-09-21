@@ -12,8 +12,8 @@ export function AssemblyAngleParameters({value,view,onChange,onPick}:{
     <Select aria-label="角度关系" value={relation} style={{width:"100%"}}
       options={[{value:"FREE",label:"空间夹角（无指定轴）"},{value:"DIRECTED",label:"绕所选轴的角"},{value:"PARALLEL",label:"平行"},{value:"PERPENDICULAR",label:"垂直"}]}
       onChange={angleRelation=>onChange(changeAngleRelation(value,angleRelation))} />
-    {relation === "FREE" && <Typography.Text type="secondary">只限制两支持方向的夹角，保留旋转轴自由度。大于 180° 表示反角，与对应的小角具有相同可行姿态。</Typography.Text>}
-    {relation === "PERPENDICULAR" && <Typography.Text type="secondary">正向90°与反向270°保存不同角度意图，均不指定旋转轴。</Typography.Text>}
+    {relation === "FREE" && <Typography.Text type="secondary">只限制两支持方向的夹角，保留旋转轴自由度。大于 180° 选择反向解；方向分支随已接受姿态更新，不固定旋转轴。</Typography.Text>}
+    {relation === "PERPENDICULAR" && <Typography.Text type="secondary">正向90°与反向270°选择相反的垂直姿态，均不指定旋转轴。</Typography.Text>}
     {relation === "DIRECTED" && <>
       <Typography.Paragraph>参考轴随第二支持元素的组件运动；平面使用法向，直线使用其方向。</Typography.Paragraph>
       <Typography.Text>{reference ? `${reference.primary} · ${reference.secondary}` : "尚未选择参考轴"}</Typography.Text>

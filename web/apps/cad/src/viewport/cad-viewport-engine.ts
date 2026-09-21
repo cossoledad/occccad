@@ -2,7 +2,7 @@ import { normalViewFrame, type NormalViewPlane } from "../cad/navigation/normal-
 import { makeFeatureEdges } from "../cad/rendering/feature-edges";
 import { makeFeaturePreview, type FeaturePreviewOperation } from "../cad/rendering/feature-preview";
 import { InfiniteGroundGrid } from "../cad/rendering/infinite-ground-grid";
-import { fitOrthographicView, updateOrthographicClipping, orientView, restoreView, saveView, standardView, viewFocus, type SavedView } from "../cad/navigation/orthographic-view";
+import { fitOrthographicView, updateOrthographicClipping, orientPlaneView, restoreView, saveView, standardView, viewFocus, type SavedView } from "../cad/navigation/orthographic-view";
 import * as THREE from "three";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import { InputManager } from "../cad/input/input-manager";
@@ -486,7 +486,7 @@ export class CadViewportEngine {
       const focus = viewFocus(this.camera, this.navigation.target);
       // Keep the region being inspected, projected onto the support plane.
       focus.addScaledVector(frame.normal, -focus.clone().sub(frame.origin).dot(frame.normal));
-      orientView(this.camera, this.navigation.target, focus, frame.normal, frame.v);
+      orientPlaneView(this.camera, this.navigation.target, focus, frame.normal);
       this.navigation.syncCamera(false);
     }
     this.buildSketchContext();
@@ -518,7 +518,7 @@ export class CadViewportEngine {
     this.navigation.cancel();
     const focus = viewFocus(this.camera,this.navigation.target);
     focus.addScaledVector(frame.normal,-focus.clone().sub(frame.origin).dot(frame.normal));
-    orientView(this.camera,this.navigation.target,focus,frame.normal,frame.up);
+    orientPlaneView(this.camera,this.navigation.target,focus,frame.normal);
     this.navigation.syncCamera(false);
     this.invalidate();
     return true;
@@ -530,7 +530,7 @@ export class CadViewportEngine {
     const frame = planeFrame(this.sketchPlane);
     const focus = viewFocus(this.camera, this.navigation.target);
     focus.addScaledVector(frame.normal, -focus.clone().sub(frame.origin).dot(frame.normal));
-    orientView(this.camera, this.navigation.target, focus, frame.normal, frame.v);
+    orientPlaneView(this.camera, this.navigation.target, focus, frame.normal);
     this.navigation.syncCamera(false);
   }
 

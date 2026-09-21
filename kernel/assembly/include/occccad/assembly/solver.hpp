@@ -109,6 +109,8 @@ struct Constraint {
     // Present: projected directed angle. Absent: true spatial separation, with
     // reflex intent for targets > pi, and no frozen rotation axis.
     std::optional<Vec3> angle_reference_direction;
+    // Selects the signed spatial-angle sector without projecting either normal.
+    std::optional<Vec3> spatial_angle_branch_direction;
     // Previous accepted directed-angle branch. The solver chooses the nearest
     // equivalent angle and returns the updated state in SolveResult.
     std::optional<AngleBranchState> angle_branch_state;

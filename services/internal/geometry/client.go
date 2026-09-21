@@ -251,6 +251,7 @@ type AssemblyConstraint struct {
 	Value                               float64
 	DirectionRelation, DistanceRelation string
 	AngleReferenceDirection             *[3]float64
+	SpatialAngleBranchDirection         *[3]float64
 	AngleBranchState                    *AssemblyAngleBranchState
 	FixedPose                           *AssemblyPose
 }
@@ -408,6 +409,9 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 		}
 		if value.AngleReferenceDirection != nil {
 			item.AngleReferenceDirection = &workerv1.Vec3{X: value.AngleReferenceDirection[0], Y: value.AngleReferenceDirection[1], Z: value.AngleReferenceDirection[2]}
+		}
+		if v := value.SpatialAngleBranchDirection; v != nil {
+			item.SpatialAngleBranchDirection = &workerv1.Vec3{X: v[0], Y: v[1], Z: v[2]}
 		}
 		if value.AngleBranchState != nil {
 			item.AngleBranchState = &workerv1.AssemblyAngleBranchState{WrappedAngle: value.AngleBranchState.WrappedAngle, UnwrappedAngle: value.AngleBranchState.UnwrappedAngle, Winding: value.AngleBranchState.Winding}

@@ -105,6 +105,7 @@ message AssemblyConstraint {
     string mode = 10; // DRIVING, MEASURED, CONTROLLED, SUPPRESSED
     Vec3 angle_reference_direction = 11; // optional, in second-body local coordinates
     AssemblyAngleBranchState angle_branch_state = 12; // optional previous accepted branch
+    Vec3 spatial_angle_branch_direction = 13; // transported sector selector in second-body local frame; not a rotation axis
 }
 
 message SolveAssemblyRequest {

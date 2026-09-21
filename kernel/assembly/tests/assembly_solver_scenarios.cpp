@@ -473,6 +473,8 @@ TEST(AssemblySolver, SpatialAngleAcceptsAllAzimuthsAndReflexValues) {
                     std::sin(separation)*std::sin(azimuth), std::cos(separation)}}}};
             auto angle = binary("angle", ConstraintKind::Angle, ref("moving", "plane"), ref("ground", "plane"));
             angle.value = target;
+            const double sense = target > kPi ? -1.0 : 1.0;
+            angle.spatial_angle_branch_direction = Vec3{sense*std::sin(azimuth), -sense*std::cos(azimuth), 0};
             model.constraints = {fix("ground"), angle};
             SolverOptions options;
             options.verify_analytic_jacobians = true;
@@ -482,6 +484,31 @@ TEST(AssemblySolver, SpatialAngleAcceptsAllAzimuthsAndReflexValues) {
             EXPECT_NEAR(std::abs(pose(result, "moving").rotation.w), 1, 1e-9);
         }
     }
+}
+
+TEST(AssemblySolver, SpatialAngleNinetyAndTwoSeventySelectOppositePoses) {
+    Model model;
+    model.bodies = {{"ground", {}}, {"moving", {}}};
+    model.geometry = {{"plane", "ground", PlaneGeometry{}}, {"plane", "moving", PlaneGeometry{}}};
+    auto angle = binary("angle", ConstraintKind::Angle, ref("moving","plane"), ref("ground","plane"));
+    angle.spatial_angle_branch_direction = Vec3{1,0,0};
+    angle.value = kPi/2;
+    model.constraints = {fix("ground"),angle};
+    const auto forward = Solver{}.solve(model);
+    ASSERT_EQ(forward.status,SolveStatus::Converged) << forward.diagnostic;
+    const auto n = rotate(pose(forward,"moving").rotation,{0,0,1});
+    EXPECT_NEAR(n.y,1,1e-7);
+    model.bodies[1].initial_pose = pose(forward,"moving");
+    model.constraints[1].value = 3*kPi/2;
+    const auto reverse = Solver{}.solve(model);
+    ASSERT_EQ(reverse.status,SolveStatus::Converged) << reverse.diagnostic;
+    const auto r = rotate(pose(reverse,"moving").rotation,{0,0,1});
+    EXPECT_NEAR(r.y,-1,1e-7);
+    EXPECT_EQ(reverse.components[0].jacobian_rank,1U);
+    model.bodies[1].initial_pose = pose(reverse,"moving");
+    const auto replay = Solver{}.solve(model);
+    ASSERT_EQ(replay.status,SolveStatus::Converged) << replay.diagnostic;
+    EXPECT_NEAR(rotate(pose(replay,"moving").rotation,{0,0,1}).y,-1,1e-7);
 }
 
 TEST(AssemblySolver, RigidClusterAllowsDistinctRolesButRejectsSameBodyOverlap) {

@@ -14,7 +14,7 @@ import (
 
 const (
 	assemblySolveManifestSchema = 1
-	assemblySolverBuildPolicy   = "assembly-m3-lifecycle-v3"
+	assemblySolverBuildPolicy   = "assembly-m3-lifecycle-v4"
 	maxManifestBodies           = 4096
 	maxManifestGeometry         = 16384
 	maxManifestConstraints      = 16384

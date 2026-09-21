@@ -1452,3 +1452,49 @@ func TestDocumentManagementValidation(t *testing.T) {
 		t.Fatalf("long description should be rejected, got %v", err)
 	}
 }
+
+func TestEditFeatureAdapterDefaultsLengthToMillimeters(t *testing.T) {
+	for _, tc := range []struct {
+		unit      string
+		value, mm float64
+	}{{"", 40, 40}, {"mm", 40, 40}, {"cm", 4, 40}, {"in", 2, 50.8}} {
+		model := newPartModel()
+		model.Features = append(model.Features, testRectangleSketch("sketch-edit", "XY"), Feature{ID: "extrude-edit", Type: "LINEAR_EXTRUDE", Profile: "sketch-edit", Length: 20, Operation: "NEW_BODY"})
+		normalizePartModel(&model)
+		raw, _ := json.Marshal(model)
+		digest, err := featureDefinitionDigest(model, "extrude-edit")
+		if err != nil {
+			t.Fatal(err)
+		}
+		kind, payload, err := (&Service{}).adaptLegacyCommand(t.Context(), "part", "PART", raw, CommandRequest{Type: "EDIT_FEATURE", TargetID: "extrude-edit", ExpectedFeatureDigest: digest, Length: tc.value, Unit: tc.unit})
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := json.Marshal(payload)
+		next, changes, err := workspaceCommandRegistry.Apply("PART", raw, modelcore.DomainCommand{CommandID: "edit", TypeURI: kind, SchemaVersion: 1, Payload: data})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got PartModel
+		if err = json.Unmarshal(next, &got); err != nil {
+			t.Fatal(err)
+		}
+		if math.Abs(got.Features[1].Length-tc.mm) > 1e-9 {
+			t.Fatalf("unit %q: %v", tc.unit, got.Features[1].Length)
+		}
+		before, err := modelValues("PART", raw, changes)
+		if err != nil {
+			t.Fatal(err)
+		}
+		restored, err := applyModelValues("PART", next, before)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = json.Unmarshal(restored, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got.Features[1].Length != 20 {
+			t.Fatal("undo lost original length")
+		}
+	}
+}

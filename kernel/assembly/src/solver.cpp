@@ -363,7 +363,7 @@ EquationDefinition equation_definition(const Constraint& constraint, const World
     if (spatial_angle_endpoint(constraint))
         return {{"DIRECTION_X", "DIRECTION_Y", "DIRECTION_Z"}, 2};
     if (constraint.kind == ConstraintKind::Angle && has_direction(first) && has_direction(second))
-        return {{constraint.angle_reference_direction ? "DIRECTED_ANGLE" : "UNSIGNED_ANGLE"}, 1};
+        return {{constraint.angle_reference_direction ? "DIRECTED_ANGLE" : "SPATIAL_ANGLE"}, 1};
     if (constraint.kind == ConstraintKind::Distance) {
         if (a == DescriptorKind::Point && b == DescriptorKind::Point)
             return {{"POINT_POINT_DISTANCE"}, 1};
@@ -583,7 +583,10 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
             angle = directed_angle(first_direction, second_direction, reference,
                                    options.degeneracy_tolerance);
         } else {
-            angle = spatial_angle_sign(constraint) * std::atan2(cross.norm(), cosine);
+            const double side = constraint.spatial_angle_branch_direction
+                ? eigen(*constraint.spatial_angle_branch_direction).dot(cross) : 1.0;
+            const double sense = std::abs(side) < 1e-12 ? spatial_angle_sign(constraint) : (side < 0 ? -1.0 : 1.0);
+            angle = sense * std::atan2(cross.norm(), cosine);
         }
         return single(wrapped_angle_error(angle, constraint.value) / options.angle_scale);
     }
@@ -773,7 +776,10 @@ Eigen::MatrixXd differential_residual(
         } else {
             const DifferentialVector product = cross(a, b);
             angle = differentiated_atan2(norm(product), dot(a, b));
-            if (spatial_angle_sign(constraint) < 0.0)
+            const double side = constraint.spatial_angle_branch_direction
+                ? eigen(*constraint.spatial_angle_branch_direction).dot(product.value) : 1.0;
+            const double sense = std::abs(side) < 1e-12 ? spatial_angle_sign(constraint) : (side < 0 ? -1.0 : 1.0);
+            if (sense < 0.0)
                 angle = scalar(0.0, variables) - angle;
         }
         rows.push_back(divided(angle - scalar(constraint.value, variables), options.angle_scale));
@@ -1265,6 +1271,8 @@ private:
                 (constraint.value < 0.0 ||
                  constraint.value > 2.0 * kPi))
                 throw std::invalid_argument("Angle value must be in [0, 2pi]");
+            if (constraint.spatial_angle_branch_direction)
+                (void)normalized(*constraint.spatial_angle_branch_direction, "spatial angle branch direction");
             if (constraint.angle_reference_direction)
                 (void)normalized(*constraint.angle_reference_direction,
                                  "angle reference direction");
@@ -1409,6 +1417,13 @@ private:
                         static_cast<std::int64_t>(std::llround((previous - wrapped) / (2.0 * kPi)));
                     branch.angle =
                         AngleBranchState{wrapped, wrapped + 2.0 * kPi * winding, winding};
+                } else if (!constraint.spatial_angle_branch_direction) {
+                    Vector3 selector = first_direction.cross(second_direction);
+                    if (selector.norm() < options_.degeneracy_tolerance)
+                        selector = direction(bodies[body_index(second_element.body_id)],
+                            value(perpendicular_to(geometry_direction(world_geometry(second_element, Pose{})))), "spatial angle seed");
+                    const auto inverse_second = normalized(bodies[body_index(second_element.body_id)].rotation).conjugate();
+                    constraint.spatial_angle_branch_direction = value(inverse_second * selector.normalized());
                 }
             }
             if (constraint.kind != ConstraintKind::Distance ||
@@ -1608,6 +1623,8 @@ public:
                 evaluated.angle_reference_direction = value(
                     normalized(bodies[assembly_.body_index(second_element.body_id)].rotation) *
                     eigen(*evaluated.angle_reference_direction));
+            if (evaluated.spatial_angle_branch_direction)
+                evaluated.spatial_angle_branch_direction = value(direction(bodies[assembly_.body_index(second_element.body_id)], *evaluated.spatial_angle_branch_direction, "spatial angle branch"));
             Eigen::VectorXd residual =
                 constraint_residual(evaluated, first, second, assembly_.options(), &branch);
             const EquationDefinition definition = equation_definition(evaluated, first, second);
@@ -1654,6 +1671,14 @@ public:
         for (const ResidualBlock& block : blocks(state))
             for (const std::string& kind : block.equation_kinds)
                 periodic_rows.push_back(kind.find("ANGLE") != std::string::npos);
+        std::vector<std::optional<double>> spatial_targets;
+        for (const auto& block : blocks(state)) {
+            const Constraint* definition = nullptr;
+            for (const auto index : component_.constraint_indices)
+                if (assembly_.constraint(index).id == block.id) definition = &assembly_.constraint(index);
+            for (const auto& kind : block.equation_kinds)
+                spatial_targets.push_back(kind == "SPATIAL_ANGLE" && definition ? std::optional<double>(definition->value) : std::nullopt);
+        }
         for (Eigen::Index column = 0; column < result.cols(); ++column) {
             Vector perturbation = Vector::Zero(result.cols());
             const bool translation = column % 6 < 3;
@@ -1672,7 +1697,16 @@ public:
                 throw std::runtime_error("finite-difference residual is invalid");
             Vector difference = plus - minus;
             for (Eigen::Index row = 0; row < difference.size(); ++row) {
-                if (periodic_rows[static_cast<std::size_t>(row)])
+                if (spatial_targets[static_cast<std::size_t>(row)]) {
+                    const double target = *spatial_targets[static_cast<std::size_t>(row)];
+                    const double scale = assembly_.options().angle_scale;
+                    const auto magnitude = [&](double r) { const double a = r*scale+target; return std::atan2(std::abs(std::sin(a)), std::cos(a)); };
+                    const double center = residual[row]*scale+target;
+                    const double sense = std::sin(center) < 0 ? -1.0 : 1.0;
+                    // Differentiate within the selected local sector. A central
+                    // perturbation across its cut is not a derivative of that chart.
+                    difference[row] = sense*(magnitude(plus[row])-magnitude(minus[row]))/scale;
+                } else if (periodic_rows[static_cast<std::size_t>(row)])
                     difference[row] =
                         wrapped_angle_error(plus[row] * assembly_.options().angle_scale,
                                             minus[row] * assembly_.options().angle_scale) /
@@ -1750,8 +1784,11 @@ public:
             std::optional<DifferentialVector> reference;
             if (constraint.angle_reference_direction)
                 reference = local_second_direction(*constraint.angle_reference_direction);
+            Constraint evaluated = constraint;
+            if (evaluated.spatial_angle_branch_direction)
+                evaluated.spatial_angle_branch_direction = value(local_second_direction(*evaluated.spatial_angle_branch_direction).value);
             const Eigen::MatrixXd block = differential_residual(
-                constraint, differentiated_geometry(first_element),
+                evaluated, differentiated_geometry(first_element),
                 differentiated_geometry(second_element), assembly_.branch(constraint_index),
                 assembly_.options(), reference);
             if (block.rows() != static_cast<Eigen::Index>(definition.kinds.size()))
@@ -1927,24 +1964,35 @@ private:
                                        : -second_direction;
             const bool perpendicular = constraint.kind == ConstraintKind::Perpendicular;
             double turn_angle = perpendicular ? (constraint.direction_relation == DirectionRelation::Opposite ? -kPi * 0.5 : kPi * 0.5) : kPi;
+            Vector3 seed_axis = perpendicular_to(first_direction);
             if (spatial_angle) {
-                if (first_direction.cross(second_direction).norm() > 1.0e-10)
-                    continue;
-                double desired = std::min(constraint.value, 2.0 * kPi - constraint.value);
-                if (constraint.direction_relation == DirectionRelation::Opposite)
-                    desired = kPi - desired;
-                const double current = first_direction.dot(second_direction) >= 0 ? 0.0 : kPi;
-                turn_angle = spatial_angle_sign(constraint) * (desired - current);
-                if (std::abs(turn_angle) <= assembly_.options().angle_tolerance)
-                    continue;
+                const auto original_a = world_geometry(selected_first, bodies[assembly_.body_index(selected_first.body_id)]);
+                const auto original_b = world_geometry(selected_second, bodies[assembly_.body_index(selected_second.body_id)]);
+                Vector3 a = geometry_direction(original_a), b = geometry_direction(original_b);
+                if (constraint.direction_relation == DirectionRelation::Opposite) a = -a;
+                const Vector3 selector = direction(bodies[assembly_.body_index(selected_second.body_id)], *constraint.spatial_angle_branch_direction, "spatial angle branch");
+                const Vector3 product = a.cross(b);
+                const double current = std::atan2(product.norm(), a.dot(b));
+                const double desired = std::min(constraint.value, 2.0*kPi-constraint.value);
+                if (product.norm() > 1e-10) {
+                    if (selector.dot(product) * spatial_angle_sign(constraint) >= -1e-12)
+                        continue;
+                    seed_axis = product.normalized();
+                } else {
+                    seed_axis = selector - selector.dot(b)*b;
+                    if (seed_axis.norm() < 1e-10) seed_axis = perpendicular_to(b);
+                    seed_axis.normalize();
+                }
+                const double sign = selector.dot(seed_axis) < 0 ? -1.0 : 1.0;
+                turn_angle = (current - spatial_angle_sign(constraint)*sign*desired) * (first_is_free ? 1.0 : -1.0);
+                if (std::abs(turn_angle) <= assembly_.options().angle_tolerance) continue;
             } else if (perpendicular ? std::abs(first_direction.dot(second_direction)) < 1.0 - 1.0e-10
                                      : first_direction.dot(target) > -1.0 + 1.0e-10) {
                 continue;
             }
             // Seed only a singular initial pose. This temporary tangent is not
             // an equation or a frozen rotation axis; every constraint is then solved.
-            const Vector3 axis = perpendicular_to(first_direction);
-            const EigenQuaternion turn(Eigen::AngleAxisd(turn_angle, axis));
+            const EigenQuaternion turn(Eigen::AngleAxisd(turn_angle, seed_axis));
             Pose& cluster_pose = state.poses[static_cast<std::size_t>(
                 std::distance(free_cluster_indices_.begin(), free))];
             const Vector3 pivot = geometry_origin(first);
@@ -2668,6 +2716,8 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly,
         evaluated.angle_reference_direction =
             value(normalized(body_poses[assembly.body_index(second_element.body_id)].rotation) *
                   eigen(*evaluated.angle_reference_direction));
+    if (evaluated.spatial_angle_branch_direction)
+        evaluated.spatial_angle_branch_direction = value(direction(body_poses[assembly.body_index(second_element.body_id)], *evaluated.spatial_angle_branch_direction, "spatial angle branch"));
     ConstraintBranchState branch = assembly.branch(constraint_index);
 
     Eigen::VectorXd residual =

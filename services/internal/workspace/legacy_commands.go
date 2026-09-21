@@ -262,7 +262,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 			source = modelcore.ValueSource{Expression: &expression}
 		} else {
-			quantity, err := modelcore.NewQuantity(request.Length, request.Unit)
+			unit := request.Unit
+			if unit == "" {
+				unit = "mm"
+			} // REST feature lengths use model millimeters.
+			quantity, err := modelcore.NewQuantity(request.Length, unit)
 			if err != nil {
 				return "", nil, err
 			}

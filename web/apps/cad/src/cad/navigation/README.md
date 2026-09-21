@@ -74,3 +74,5 @@ SOLIDWORKS 旋转参考与正式 Selection 分离。平面/直边按显示几何
 3DE Profile 的平移、虚拟球角度和组合键缩放采用 1.15 输入增益，相对原实现小幅提速；平移仍按当前正交 zoom 换算，不改变其他 Profile。
 
 通用“法线视图”（`view.normal`）位于所有工作台的视图命令组：先选择基准面或实体平面，再执行命令。实体面通过当前选中 Revision 的 topology properties 获取精确 origin/normal/xDirection，曲面明确拒绝；Viewport 将局部平面转换到 occurrence 的世界坐标（包含嵌套 placement），保留 zoom 并将当前关注点投影到平面。请求期间切换选择、文档或 Revision 会废弃旧响应。该命令只改变相机，不创建 Revision、不修改草图退出快照。
+
+平面相关命令使用 `orientPlaneView`：在 ±法向中选择当前视线最近的一侧，以最短 quaternion 旋转携带相机 up，避免进入草图或正对面时出现背面翻转/无谓滚转；不修改模型平面方向。标准 Top/Front 等固定视图仍用 `orientView`。

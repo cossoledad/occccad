@@ -9,11 +9,12 @@ import (
 )
 
 func TestAssemblySolveManifestFreezesCallerOwnedInputs(t *testing.T) {
-	for _, field := range []string{"initial guess", "fixed pose", "angle axis", "angle branch", "publication reference", "publication quantity", "persistent resolution", "intent", "affected bodies"} {
+	for _, field := range []string{"initial guess", "fixed pose", "angle axis", "angle sector", "angle branch", "publication reference", "publication quantity", "persistent resolution", "intent", "affected bodies"} {
 		t.Run(field, func(t *testing.T) {
 			pose := geometry.AssemblyPose{Rotation: [4]float64{0, 0, 0, 1}}
 			guess, fixed := pose, pose
 			axis := [3]float64{0, 0, 1}
+			sector := [3]float64{1, 0, 0}
 			branch := geometry.AssemblyAngleBranchState{WrappedAngle: 1, UnwrappedAngle: 1}
 			value, err := modelcore.NewQuantity(80, "mm")
 			if err != nil {
@@ -24,7 +25,7 @@ func TestAssemblySolveManifestFreezesCallerOwnedInputs(t *testing.T) {
 			persistent := ResolutionSnapshot{Result: modelcore.SelectionResolution{Status: modelcore.SelectionResolved, EvidenceDigest: "original"}}
 			bodies := []geometry.AssemblyBody{{ID: "wheel", Pose: pose, InitialGuess: &guess}}
 			constraints := []geometry.AssemblyConstraint{{ID: "fix", Kind: "FIX", FirstBodyID: "wheel", FixedPose: &fixed},
-				{ID: "angle", Kind: "ANGLE", FirstBodyID: "wheel", AngleReferenceDirection: &axis, AngleBranchState: &branch}}
+				{ID: "angle", Kind: "ANGLE", FirstBodyID: "wheel", AngleReferenceDirection: &axis, SpatialAngleBranchDirection: &sector, AngleBranchState: &branch}}
 			evidence := []AssemblyResolutionEvidence{{ConstraintID: "fix", Endpoint: "FIRST", DescriptorDigest: "descriptor", PublicationRef: &publication, Publication: &resolution, Persistent: &persistent}}
 			intent := &geometry.AssemblySolveIntent{MovingBodyIDs: []string{"wheel"}}
 			affected := []string{"wheel"}
@@ -43,6 +44,8 @@ func TestAssemblySolveManifestFreezesCallerOwnedInputs(t *testing.T) {
 				fixed.Translation[0] = 200
 			case "angle axis":
 				axis[0] = 1
+			case "angle sector":
+				sector[1] = 1
 			case "angle branch":
 				branch.Winding = 2
 			case "publication reference":

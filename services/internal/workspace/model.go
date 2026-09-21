@@ -468,25 +468,26 @@ type ResolutionSnapshot struct {
 }
 
 type AssemblyConstraint struct {
-	FixMode                 string                                       `json:"fixMode,omitempty"`
-	AngleRelation           string                                       `json:"angleRelation,omitempty"`
-	MeasuredValue           *float64                                     `json:"measuredValue,omitempty"`
-	Suppressed              bool                                         `json:"suppressed,omitempty"`
-	ID                      string                                       `json:"id"`
-	ConnectionID            string                                       `json:"connectionId,omitempty"`
-	Kind                    string                                       `json:"kind"`
-	Mode                    string                                       `json:"mode,omitempty"`
-	First                   AssemblyGeometryRef                          `json:"first"`
-	Second                  *AssemblyGeometryRef                         `json:"second,omitempty"`
-	Value                   float64                                      `json:"value,omitempty"`
-	DirectionRelation       string                                       `json:"directionRelation,omitempty"`
-	DistanceRelation        string                                       `json:"distanceRelation,omitempty"`
-	AngleAxis               *AssemblyGeometryRef                         `json:"angleAxis,omitempty"`
-	ReverseAngleAxis        bool                                         `json:"reverseAngleAxis,omitempty"`
-	AngleReferenceDirection *[3]float64                                  `json:"angleReferenceDirection,omitempty"`
-	FixedPose               *InstancePose                                `json:"fixedPose,omitempty"`
-	EvaluationStatus        modelcore.AssemblyConstraintEvaluationStatus `json:"evaluationStatus"`
-	EvaluationSummary       string                                       `json:"evaluationSummary,omitempty"`
+	FixMode                     string                                       `json:"fixMode,omitempty"`
+	AngleRelation               string                                       `json:"angleRelation,omitempty"`
+	MeasuredValue               *float64                                     `json:"measuredValue,omitempty"`
+	Suppressed                  bool                                         `json:"suppressed,omitempty"`
+	ID                          string                                       `json:"id"`
+	ConnectionID                string                                       `json:"connectionId,omitempty"`
+	Kind                        string                                       `json:"kind"`
+	Mode                        string                                       `json:"mode,omitempty"`
+	First                       AssemblyGeometryRef                          `json:"first"`
+	Second                      *AssemblyGeometryRef                         `json:"second,omitempty"`
+	Value                       float64                                      `json:"value,omitempty"`
+	DirectionRelation           string                                       `json:"directionRelation,omitempty"`
+	DistanceRelation            string                                       `json:"distanceRelation,omitempty"`
+	AngleAxis                   *AssemblyGeometryRef                         `json:"angleAxis,omitempty"`
+	ReverseAngleAxis            bool                                         `json:"reverseAngleAxis,omitempty"`
+	SpatialAngleBranchDirection *[3]float64                                  `json:"spatialAngleBranchDirection,omitempty"`
+	AngleReferenceDirection     *[3]float64                                  `json:"angleReferenceDirection,omitempty"`
+	FixedPose                   *InstancePose                                `json:"fixedPose,omitempty"`
+	EvaluationStatus            modelcore.AssemblyConstraintEvaluationStatus `json:"evaluationStatus"`
+	EvaluationSummary           string                                       `json:"evaluationSummary,omitempty"`
 }
 
 type ProductModel struct {

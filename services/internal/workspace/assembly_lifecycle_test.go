@@ -278,7 +278,7 @@ func TestCompileAssemblyAngleRelations(t *testing.T) {
 				t.Fatalf("axis leaked: %+v", value)
 			}
 			expectedKind := "ANGLE"
-			if relation == "PARALLEL" || relation == "PERPENDICULAR" {
+			if relation == "PARALLEL" {
 				expectedKind = relation
 			}
 			if value.Kind != expectedKind {
@@ -292,10 +292,30 @@ func TestCompileAssemblyAngleRelations(t *testing.T) {
 				if direction == "OPPOSITE" {
 					expected = 3 * math.Pi / 2
 				}
-				if c.Value != expected || !assemblyCapabilities(value.Kind, "PLANE", "PLANE").direction {
+				if c.Value != expected || value.DirectionRelation != "SAME" {
 					t.Fatal("lost perpendicular direction")
 				}
 			}
 		}
+	}
+}
+
+func TestSpatialAngleSelectorFollowsAcceptedConeMotion(t *testing.T) {
+	first, second := &ProductInstance{Rotation: [4]float64{0, 0, 0, 1}}, &ProductInstance{Rotation: [4]float64{0, 0, 0, 1}}
+	var previous *[3]float64
+	for step := 0; step <= 24; step++ {
+		az := float64(step) * math.Pi / 12
+		normal := [3]float64{.5 * math.Cos(az), .5 * math.Sin(az), math.Sqrt(3) / 2}
+		next := spatialAngleBranchDirection(normal, [3]float64{0, 0, 1}, first, second, 1)
+		if next == nil {
+			t.Fatal("lost selector")
+		}
+		if previous != nil {
+			dot := previous[0]*next[0] + previous[1]*next[1] + previous[2]*next[2]
+			if dot < .96 {
+				t.Fatal("branch discontinuity")
+			}
+		}
+		previous = next
 	}
 }

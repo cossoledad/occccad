@@ -691,6 +691,8 @@ public:
             constraint.value = input.value();
             if (input.has_angle_reference_direction())
                 constraint.angle_reference_direction = vec(input.angle_reference_direction());
+            if (input.has_spatial_angle_branch_direction())
+                constraint.spatial_angle_branch_direction = vec(input.spatial_angle_branch_direction());
             if (input.has_angle_branch_state())
                 constraint.angle_branch_state =
                     assembly_api::AngleBranchState{input.angle_branch_state().wrapped_angle(),
@@ -844,7 +846,7 @@ public:
             : result.status == assembly_api::SolveStatus::MaxIterations ? "MAX_ITERATIONS"
             : result.status == assembly_api::SolveStatus::InvalidModel  ? "INVALID_MODEL"
                                                                         : "NUMERICAL_FAILURE";
-        response->set_solver_build("assembly-m2.5-hierarchy-v5");
+        response->set_solver_build("assembly-m2.5-hierarchy-v6");
         response->set_status(status);
         const char* classification =
             result.classification == assembly_api::SolveClassification::SolvedFully ? "SOLVED_FULLY"

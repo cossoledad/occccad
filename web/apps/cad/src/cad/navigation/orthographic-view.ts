@@ -30,6 +30,19 @@ export function orientView(camera: THREE.OrthographicCamera, target: THREE.Vecto
   camera.up.copy(up); camera.lookAt(focus); camera.updateMatrixWorld(true);
 }
 
+/** Align to the nearest side with the shortest camera rotation, preserving roll.
+ * Plane orientation remains modeling truth; choosing a viewing side never flips it.
+ */
+export function orientPlaneView(camera: THREE.OrthographicCamera, target: THREE.Vector3,
+  focus: THREE.Vector3, normal: THREE.Vector3): void {
+  const back = camera.getWorldDirection(new THREE.Vector3()).negate().normalize();
+  const nearest = normal.clone().normalize();
+  if (back.dot(nearest) < 0) nearest.negate();
+  const swing = new THREE.Quaternion().setFromUnitVectors(back, nearest);
+  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).applyQuaternion(swing);
+  orientView(camera, target, focus, nearest, up);
+}
+
 /** Orientation primitive preserves scale and screen centre; ISO commands then explicitly fit. */
 export function standardView(camera: THREE.OrthographicCamera, target: THREE.Vector3, view: StandardView): void {
   const directions = { TOP: new THREE.Vector3(0, 0, 1), FRONT: new THREE.Vector3(0, -1, 0),

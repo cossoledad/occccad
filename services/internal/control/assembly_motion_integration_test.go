@@ -69,7 +69,7 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v5" || len(result.Components) != 1 {
+	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v6" || len(result.Components) != 1 {
 		t.Fatalf("invalid result: %+v", result)
 	}
 	p := result.Components[0].Preference
@@ -543,6 +543,7 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 			}
 		}
 		apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: []string{c.ID}, ConstraintMode: new("DRIVING")})
+		var forwardRotation [4]float64
 		for _, direction := range []string{"SAME", "OPPOSITE"} {
 			want := math.Pi / 2
 			if direction == "OPPOSITE" {
@@ -550,6 +551,23 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 			}
 			state = apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: c.ID, AngleRelation: "PERPENDICULAR", DirectionRelation: direction})
 			checkAngle(state, "PERPENDICULAR", want)
+			rotation := state.Product.Instances[1].Rotation
+			if direction == "SAME" {
+				forwardRotation = rotation
+			} else {
+				dot := 0.0
+				for i := range rotation {
+					dot += rotation[i] * forwardRotation[i]
+				}
+				if math.Abs(dot) > 1e-6 {
+					t.Fatalf("90 and 270 did not select opposite rotations: %v %v", forwardRotation, rotation)
+				}
+				undone := apply(workspace.CommandRequest{Type: "UNDO"})
+				if math.Abs(undone.Product.Instances[1].Rotation[2]-forwardRotation[2]) > 1e-6 {
+					t.Fatal("perpendicular undo lost pose")
+				}
+				checkAngle(apply(workspace.CommandRequest{Type: "REDO"}), "PERPENDICULAR", want)
+			}
 		}
 		state = apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: c.ID, AngleRelation: "PARALLEL", DirectionRelation: "OPPOSITE"})
 		checkAngle(state, "PARALLEL", 0)

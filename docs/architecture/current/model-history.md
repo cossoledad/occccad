@@ -73,3 +73,7 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 - [命令处理](../../../services/internal/workspace/model_core.go)
 - [参数/依赖](../../../services/internal/workspace/evaluation_projection.go)
 - [连续 Undo/Redo](../../../services/internal/workspace/history_integration_test.go)
+
+### 拉伸编辑的输入单位
+
+REST `EDIT_FEATURE` 的数值 `length` 在省略 `unit` 时按模型毫米解释，与前端 `linearExtrudeLengthInput` 输出一致；显式单位仍经 Quantity 转换，表达式保留长度量纲验证。编辑适配器先构造有量纲 Quantity，再进入统一 typed edit/evaluation/ChangeSet 路径，预览和提交共享此规则。`TestEditFeatureAdapterDefaultsLengthToMillimeters` 覆盖缺省/显式单位及补偿恢复，避免无量纲 literal 引发 `UNIT_MISMATCH`。

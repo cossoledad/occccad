@@ -445,7 +445,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		}
 		appendResolutionEvidence(constraint.ID, "FIRST", firstGeometry, constraint.First)
 		value := geometry.AssemblyConstraint{ID: constraint.ID, ConnectionID: constraint.ConnectionID, Kind: constraint.Kind, Mode: constraint.Mode, FirstBodyID: constraint.First.InstanceID, FirstGeometryID: firstGeometry, Value: constraint.Value, DirectionRelation: constraint.DirectionRelation, DistanceRelation: constraint.DistanceRelation,
-			AngleReferenceDirection: constraint.AngleReferenceDirection}
+			AngleReferenceDirection: constraint.AngleReferenceDirection, SpatialAngleBranchDirection: constraint.SpatialAngleBranchDirection}
 		if err := applyAssemblyAngleRelation(constraint, &value); err != nil {
 			return err
 		}
@@ -492,7 +492,9 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 			firstKind := resolvedGeometry[firstGeometry].Kind
 			secondKind := resolvedGeometry[value.SecondGeometryID].Kind
 			capabilities := assemblyCapabilities(value.Kind, firstKind, secondKind)
-			if value.Kind == "ANGLE" && constraint.AngleReferenceDirection != nil {
+			if constraint.AngleRelation == "PERPENDICULAR" {
+				value.DirectionRelation = "SAME"
+			} else if value.Kind == "ANGLE" && constraint.AngleReferenceDirection != nil {
 				constraint.DirectionRelation, value.DirectionRelation = "SAME", "SAME"
 			} else if !capabilities.direction {
 				constraint.DirectionRelation, value.DirectionRelation = "UNORIENTED", "UNORIENTED"
@@ -509,6 +511,13 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		}
 		if value.Kind == "ANGLE" && value.Value == 2*math.Pi {
 			constraint.Value, value.Value = 0, 0
+		}
+		if value.Kind == "ANGLE" && value.AngleReferenceDirection == nil {
+			if constraint.SpatialAngleBranchDirection == nil {
+				constraint.SpatialAngleBranchDirection = spatialAngleBranchDirection(resolvedGeometry[firstGeometry].Direction, resolvedGeometry[value.SecondGeometryID].Direction,
+					instances[constraint.First.InstanceID], instances[constraint.Second.InstanceID], 1)
+			}
+			value.SpatialAngleBranchDirection = constraint.SpatialAngleBranchDirection
 		}
 		constraints = append(constraints, value)
 	}
@@ -588,6 +597,26 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 	for _, solved := range result.Bodies {
 		if instance := instances[solved.ID]; instance != nil {
 			instance.Translation, instance.Rotation = solved.Pose.Translation, solved.Pose.Rotation
+		}
+	}
+	// Transport the sector along the accepted pose, preserving its positive sense.
+	for i := range model.Constraints {
+		c := &model.Constraints[i]
+		if c.Suppressed || c.Second == nil || c.Mode == "MEASURED" {
+			continue
+		}
+		for _, compiled := range constraints {
+			if compiled.ID != c.ID || compiled.Kind != "ANGLE" || compiled.AngleReferenceDirection != nil {
+				continue
+			}
+			sense := 1.0
+			if c.Value > math.Pi {
+				sense = -1
+			}
+			if next := spatialAngleBranchDirection(resolvedGeometry[compiled.FirstGeometryID].Direction, resolvedGeometry[compiled.SecondGeometryID].Direction,
+				instances[c.First.InstanceID], instances[c.Second.InstanceID], sense); next != nil {
+				c.SpatialAngleBranchDirection = next
+			}
 		}
 	}
 	for index := range model.Constraints {

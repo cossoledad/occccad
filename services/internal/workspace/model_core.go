@@ -1441,6 +1441,21 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 		if payload.Second != nil {
 			model.Constraints[index].Second = payload.Second
 		}
+		sameSupport := func(a, b *AssemblyGeometryRef) bool {
+			if a == nil || b == nil {
+				return a == b
+			}
+			x, y := *a, *b
+			x.Resolution, y.Resolution = nil, nil
+			x.PublicationResolution, y.PublicationResolution = nil, nil
+			x.GeometryKey, y.GeometryKey = "", ""
+			x.TopologyID, y.TopologyID = 0, 0
+			return reflect.DeepEqual(x, y)
+		}
+		after := &model.Constraints[index]
+		if payload.AngleRelation == "DIRECTED" || !sameSupport(&before.First, &after.First) || !sameSupport(before.Second, after.Second) {
+			after.SpatialAngleBranchDirection = nil
+		}
 		model.Constraints[index].EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
 		model.Constraints[index].EvaluationSummary = "constraint definition changed; awaiting authoritative solve"
 		if model.Constraints[index].Kind != "FIX" {

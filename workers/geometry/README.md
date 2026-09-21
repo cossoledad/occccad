@@ -98,7 +98,7 @@ Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用�
 二维草图约束推荐作为 Part Evaluation 内的独立模块与本 Worker 同进程部署，以避免草图求解和特征重生成之间的高频网络往返；三维装配由独立的 `kernel/assembly` 算法库实现，当前通过本 Worker 的 `SolveAssembly` RPC 承载。只有负载或隔离证据满足时才拆成独立 Worker，见[计算边界](../../docs/architecture/target/compute-boundaries.md)。
 
 `SolveAssemblyResponse.effective_solver_profile` 返回本次采用的完整数值配置，供 3dreplay 冻结隐式默认值。
-当前 solver build 为 `assembly-m2.5-hierarchy-v5`，包含长力臂尺度阻尼、模型下降比与独立平移/旋转步长控制。
+当前 solver build 为 `assembly-m2.5-hierarchy-v6`，包含长力臂尺度阻尼、模型下降比与独立平移/旋转步长控制。
 3dreplay 重放复用 `SolveAssembly`，无需另设 RPC 或在 Worker 内读取业务数据库。
 
 `SolveAssembly` 同时适配内部 `PARALLEL`/`PERPENDICULAR` 方程，并支持空约束集合求解。产品激活状态保存在 Go 模型和 M3 definitions，停用定义不作为 Worker 活动方程发送。新增点线/线面距离与方向关系由真实 Router conformance 测试覆盖。

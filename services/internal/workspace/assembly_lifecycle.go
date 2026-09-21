@@ -202,9 +202,30 @@ func applyAssemblyAngleRelation(c *AssemblyConstraint, value *geometry.AssemblyC
 			if c.DirectionRelation == "OPPOSITE" {
 				c.Value = 3 * math.Pi / 2
 			}
+			value.Kind, value.Value, value.DirectionRelation = "ANGLE", c.Value, "SAME"
 		}
 		return nil
 	default:
 		return fmt.Errorf("%w: unknown angle relation", ErrValidation)
 	}
+}
+
+// The selector follows the accepted normals; it is never an alignment equation.
+func spatialAngleBranchDirection(a, b [3]float64, first, second *ProductInstance, sense float64) *[3]float64 {
+	if first == nil || second == nil {
+		return nil
+	}
+	aw := rotateByPose(InstancePose{Rotation: first.Rotation}, a)
+	bw := rotateByPose(InstancePose{Rotation: second.Rotation}, b)
+	cross := cross3(aw, bw)
+	length := math.Sqrt(cross[0]*cross[0] + cross[1]*cross[1] + cross[2]*cross[2])
+	if length < 1e-10 {
+		return nil
+	}
+	for i := range cross {
+		cross[i] *= sense / length
+	}
+	q := normalizedInstanceRotation(second.Rotation)
+	local := rotateByPose(InstancePose{Rotation: [4]float64{-q[0], -q[1], -q[2], q[3]}}, cross)
+	return &local
 }
