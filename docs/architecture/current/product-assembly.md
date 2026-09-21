@@ -72,3 +72,9 @@ Web 以 root Product、active occurrence 和 definition/context 模式维护非�
 - 限制：本轮未设置 `OCCCCAD_TEST_DATABASE_URL` 和 `OCCCCAD_TEST_GEOMETRY_WORKER`，要求专用数据库/真实 Worker 的可选 Go 集成测试按既有规则跳过；标准单元测试通过不表述为这些集成测试已重新通过。本轮未清理或重置开发数据。
 
 验收待办已移出计划；M4 稳定拖拽、M5 冲突解释和 M6 工程连接仍是后续工作，不因本次验收完成而视作交付。
+
+## 与六类约束目标的当前差距
+
+当前底层模式包含 Driving/Measured/Controlled/Suppressed，Worker adapter 和 kernel 已识别停用；这不代表用户侧 Activate/Deactivate、原模式恢复、空活动集合、组生命周期与 Release gate 全链路完成。现有 Fix/Rigid/Coincident/Concentric/Angle/Distance 也不等价于 CATIA 的 Coincidence/Contact/Offset/Angle/Fix/Fix Together；特别是相对 Fix、多成员且组内先解的 Fix Together、Contact 矩阵和完整角度参数尚待补齐。
+
+目标角度采用统一 0–360°有向角与独立方向关系，以自洽组合能力验收，不要求复制 CATIA sector 参数；详见[目标合同](../target/assembly-constraints.md)。这些是[装配计划](../../../plans/assembly-evolution.md)中的新增目标，不改变已完成的 ACCEPT-PRODUCT 基线验收范围。底层证据见 [mode 定义](../../../kernel/assembly/include/occccad/assembly/solver.hpp)、[Worker adapter](../../../workers/geometry/src/main.cpp)和[当前能力/branch 规范化](../../../services/internal/workspace/assembly_solve.go)。

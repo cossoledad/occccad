@@ -2,6 +2,8 @@
 
 > 目标契约，不等于已交付能力。返回[目标架构目录](../../TARGET_ARCHITECTURE.md)；当前事实见[当前架构](../../CURRENT_ARCHITECTURE.md)，实施顺序只在[统一路线](../../../plans/README.md)维护。
 
+六种用户约束及参数/状态的权威目标见[六类约束合同](assembly-constraints.md)。本页描述内部方程、求解与后续 Engineering Connection；内部枚举数量不等于用户约束类型数量。
+
 ### 5.6.10 AssemblyGeometryRef 与几何描述符
 
 ```proto
@@ -44,7 +46,8 @@ message EngineeringConnection {
 
 message AssemblyConstraint {
   string constraint_id = 1;
-  ConstraintMode mode = 2; // DRIVING | MEASURED | CONTROLLED | SUPPRESSED
+  ConstraintMode mode = 2; // DRIVING | MEASURED | CONTROLLED
+  bool active = 4; // 目标草案：停用保留原 mode；实际字段按版本化实现冻结
   repeated AssemblyGeometryRef endpoints = 3;
   oneof definition {
     CoincidenceConstraint coincidence = 10;
@@ -61,18 +64,19 @@ message AssemblyConstraint {
 }
 ```
 
-`DRIVING` 进入方程；`MEASURED` 只计算当前值；`CONTROLLED` 值来自 Parameter/Law；`SUPPRESSED` 保留身份但不参与。一个 Connection 原子提交：内部任何 Constraint 不合法或产生未接受冲突，整个 Connection 不创建。
+`DRIVING` 进入方程；`MEASURED` 只计算当前值；`CONTROLLED` 值来自 Parameter/Law。激活状态独立于 mode；停用保留身份/定义和原 mode，不参与活动求解。当前内核 `SUPPRESSED` 仅是 adapter 目标，不能使再次激活丢失 Measure/Controlled 意图。一个 Connection 原子提交：内部任何 Constraint 不合法或产生未接受冲突，整个 Connection 不创建。
 
 ### 5.6.12 基础约束语义与兼容几何
 
 | Constraint | 典型输入 | 独立语义 |
 |---|---|---|
-| Fix | occurrence/frame | 将指定 body frame 固定到目标 Pose |
+| Fix | occurrence/frame | 区分空间 Fix 与相对 Fix，基准和 update 行为见六类合同 |
+| Fix Together | occurrence/group set | 多成员组；先解组内、再解组外，不能直接等同 pair Rigid |
 | Coincidence | point-point、axis-axis、plane-plane | 重合；需 direction/side branch |
-| Contact | plane-plane、cylinder-cylinder、sphere-surface | 零间隙接触，不自动引入力学接触 |
-| Offset | plane-plane、axis-axis、point-plane | 有符号距离，保存 side |
+| Contact | 定向 Plane/Cylinder/Sphere/Cone/Circle 的允许组合 | 面/线/点/环接触，以六类合同矩阵为准，不是任意 sphere-surface 接触 |
+| Offset | Point/Line/Plane 的全部六种无序组合 | 有平面才允许 signed；首选法向、模式、方向意图与 branch 分开 |
 | UnsignedAngle | direction/axis/plane pair | `[0, π]` 无向夹角与 orientation branch |
-| DirectedAngle | direction/axis/plane pair + reference axis/sense | `atan2(k·(a×b), a·b)` 有向角与 sector branch |
+| DirectedAngle | direction/axis/plane pair + reference axis/sense | 先投影到垂直于参考轴的平面，再求 0–360°有向角；定义及退化门见六类合同 |
 | Parallel | axes/planes/directions | 平行或反平行 branch 明确 |
 | Perpendicular | axes/planes/directions | 正交 |
 | Distance | point/axis/surface combinations | 最短或指定方向距离，定义 branch |
@@ -80,7 +84,7 @@ message AssemblyConstraint {
 
 约束 schema 定义允许的 geometry-kind 组合、方程数、单位和 branch。`UnsignedAngle` 与 `DirectedAngle` 是不同的 typed definition，不能用字符串选项或求值时动态翻转互相模拟。静态 Assembly Revision 只保存 modulo `2π` 的姿态语义；unwrapped angle、winding 和多圈累计属于 Interaction、Kinematics 或 Simulation 状态。客户端只能在服务端 capability 表允许的组合中建议命令；服务端仍重新验证。复杂 surface contact P0 不支持任意 NURBS-NURBS 全局接触，因为它可能多点、多分支且不适合静态定位；优先用 Datum/Connector Publication。
 
-当前第一版几何约束能力矩阵如下；横纵交换保持相同语义。拓扑 `Vertex` 解析为 Point descriptor，直线 `Edge` 解析为 Line/Axis descriptor，平面/圆柱 Face 分别解析为 Plane/Cylinder descriptor。这里的 Line-Line Coincidence 表示两条无限支撑线共线，Line-Plane 表示整条支撑线位于平面内；“两条边的交点重合”应选择已有拓扑 Vertex，未来任意曲线交点必须保存带 branch evidence 的派生 Point，不能临时选择第一个交点。
+以下为原有数值切片的组合说明，不是 CATIA 完成矩阵；完整目标与缺口以六类合同为准。横纵交换保持相同语义。拓扑 `Vertex` 解析为 Point descriptor，直线 `Edge` 解析为 Line/Axis descriptor，平面/圆柱 Face 分别解析为 Plane/Cylinder descriptor。这里的 Line-Line Coincidence 表示两条无限支撑线共线，Line-Plane 表示整条支撑线位于平面内；“两条边的交点重合”应选择已有拓扑 Vertex，未来任意曲线交点必须保存带 branch evidence 的派生 Point，不能临时选择第一个交点。
 
 | 第一元素 | 第二元素 | Coincidence | Concentric | Angle | Distance |
 |---|---|---|---|---|---|
@@ -116,7 +120,7 @@ message AssemblyConstraint {
 
 `declared_type` 不是 UI 标签：Solver 验证 constraint Jacobian 的自由度确实与 Connection contract 一致。用户自定义约束组合可保持 `USER_DEFINED`；系统可以建议识别为 Hinge/Prismatic，但转换必须显式，不能静默改变运动语义。
 
-[CATIA Engineering Connection](https://3dswym.3dexperience.3ds.com/post/3dexperience-edu-students/creating-assemblies-with-catia-3dexperience-r2022x_3AhyqEsmTOueqlaoNXes2A)同样由多条 assembly constraint 构成；CATIA 可用 constraint symbol 包含 Coincidence、Contact、Fix、Offset、Angle、Hinge、Roll、Slide 等。occcad 分阶段交付并对每种类型建立 DOF conformance corpus，而不是一次性暴露未验证的枚举。
+[3DEXPERIENCE Engineering Connection 参考](https://3dswym.3dexperience.3ds.com/post/3dexperience-edu-students/creating-assemblies-with-catia-3dexperience-r2022x_3AhyqEsmTOueqlaoNXes2A)属于后续组合层；Hinge、Roll、Slide 等不得混入本轮 CATIA V5 六种用户约束分类。每种组合仍需独立 DOF conformance corpus。
 
 ### 5.6.14 装配求解数学模型
 
@@ -135,7 +139,7 @@ r_c(T_a, T_b, parameters, branch) = 0
 remaining_dof = dim(q_free) - rank(J_active(q_free))
 ```
 
-若连通分量没有 Ground/Fix，则 6 个整体刚体运动作为 `gauge_dof` 单独报告，而不是再从 `remaining_dof` 重复扣除。SolverProfile 必须分别表达 geometry/degeneracy、convergence、rank 和 conflict/classification tolerance，禁止用单个 residual tolerance 同时承担几何等价、迭代终止、秩判断和业务分类。报告必须映射回 `(ConnectionId, ConstraintId, equationIndex)`，不能只返回矩阵列号；中期结果还应返回 null-space basis 并解释为平移方向、旋转轴或组合自由度。
+该计数在正则解邻域表示局部自由度；奇异点只报告瞬时线性零空间，不能据此承诺同维有限运动。组合能力及运动方向验收见[六类合同](assembly-constraints.md#自由度控制与组合能力)。若连通分量没有 Ground/Fix，则 6 个整体刚体运动作为 `gauge_dof` 单独报告，而不是再从 `remaining_dof` 重复扣除。SolverProfile 必须分别表达 geometry/degeneracy、convergence、rank 和 conflict/classification tolerance，禁止用单个 residual tolerance 同时承担几何等价、迭代终止、秩判断和业务分类。报告必须映射回 `(ConnectionId, ConstraintId, equationIndex)`，不能只返回矩阵列号；中期结果还应返回 null-space basis 并解释为平移方向、旋转轴或组合自由度。
 
 ### 5.6.15 Assembly Solver 流水线
 
@@ -159,7 +163,7 @@ flowchart TD
 3. Constraint graph 按连通分量拆解；不同分量可并行；
 4. 每个无 Fix/ground 的分量存在 6 个全局 gauge DOF，不能误报欠约束冲突；
 5. 平面、圆柱、球等简单组合先解析初始化，再进入数值 refinement；
-6. 保存 orientation、angle sector、contact side、轴向等 branch，并在一次 solve 中冻结，防止迭代时翻转；
+6. 保存 orientation、angle axis/sense、contact side、轴向等 branch，并在一次 solve 中冻结，防止迭代时翻转；
 7. 数值收敛后仍检查每条 constraint 的物理残差、limit 和 invalid pose；
 8. 解相对 nominal pose 选择最小变化，多个合法分支时返回候选而非随机选择；
 9. 求解失败不改变 Workspace；已有 Revision 仍可加载并显示 failed/broken connection；
@@ -172,9 +176,9 @@ flowchart TD
 
 选型边界如下：XState 适合 React 中可解释的 actor、guard 和异步事件生命周期；`qmuntal/stateless` 提供小型、typed comparable state/trigger 与可检查 transition 的 Go statechart。`looplab/fsm` 的字符串事件/回调模型可用于简单流程，但不如前者贴合当前 typed workflow；手写 switch/reducer 虽无依赖，却会继续分散合法转换、失败阶段和观测逻辑。两个库均封装在装配 preview/workspace 内部适配层；若未来替换，公共 HTTP/Proto 与持久模型不变。状态机不得成为第二业务真相：Revision、Command/ChangeSet、Job 数据库状态与数值诊断仍由原有权威模型管理。
 
-装配约束编辑器采用 schema-driven definition，而不是为每种约束复制一套对话框。公共区域展示支持元素、元素类型/所属 occurrence、连接状态和逐项 Reconnect；类型 schema 决定方向、side/sector、值、上下限、Driving/Measured/Controlled 等字段。支持元素替换先在临时 draft 中完成并以同一个 PreviewCommand 验证，确认后一个 Transaction 原子替换引用、参数和全部求解 Pose。树节点、约束 glyph、dimension/leader 与支持几何映射到同一 Selection relation；拓扑支持只高亮对应 subshape overlay，不能因为内部资源共享而扩大到整个 occurrence。创建时的初始值来自当前几何测量：角度取当前可定义 sector，点点/点面/轴轴距离取相应度量，非平行平面不存在常量 offset 时回退为 0 并要求用户定义。每次 draft 修改都可以请求权威预览，但鼠标轨迹和预览 Pose 不进入 Revision。
+装配约束编辑器采用 schema-driven definition，而不是为每种约束复制一套对话框。公共区域展示支持元素、元素类型/所属 occurrence、连接状态和逐项 Reconnect；类型 schema 决定方向、side/axis/sense、值、上下限、Driving/Measured/Controlled 等字段。支持元素替换先在临时 draft 中完成并以同一个 PreviewCommand 验证，确认后一个 Transaction 原子替换引用、参数和全部求解 Pose。树节点、约束 glyph、dimension/leader 与支持几何映射到同一 Selection relation；拓扑支持只高亮对应 subshape overlay，不能因为内部资源共享而扩大到整个 occurrence。创建时的初始值来自当前几何测量：角度取有效参考轴下的当前有向角，点点/点面/轴轴距离取相应度量，非平行平面不存在常量 offset 时回退为 0 并要求用户定义。每次 draft 修改都可以请求权威预览，但鼠标轨迹和预览 Pose 不进入 Revision。
 
-Fix 和 Rigid 的支持身份必须是 occurrence/rigid body，不接受 Face/Edge 等会随引用 Part 重算失效的拓扑选择。方向字段同样由 geometry-pair schema 决定：Point-Point、Point-Line、Line-Line coincidence 没有 orientation branch；Plane-Plane coincidence/offset 必须在创建时落定 Same/Opposite，不允许长期保留会在更新时翻面的 Undefined。首个 0–360°平面角度切片可以持久保存 reference body 局部 frame 中的 reference direction，以 `atan2(k·(a×b),a·b)`区分两侧，并在整体刚体运动下保持不变；后续显式 DirectedAngle 应把自动方向升级为可选择的 Datum Axis/Publication 引用。
+Fix 和 Rigid 的支持身份必须是 occurrence/rigid body，不接受 Face/Edge 等会随引用 Part 重算失效的拓扑选择。方向字段同样由 geometry-pair schema 决定：Point-Point、Point-Line、Line-Line coincidence 没有 orientation branch；Plane-Plane coincidence/offset 保存 Undefined/Same/Opposite 用户意图，并单独冻结 resolved branch；Undefined 不得自动改写为 Same，session 内不因迭代跳解。首个 0–360°平面角度切片可以持久保存 reference body 局部 frame 中的 reference direction，以 `atan2(k·(a×b),a·b)`区分两侧，并在整体刚体运动下保持不变；后续显式 DirectedAngle 应把自动方向升级为可选择的 Datum Axis/Publication 引用。
 
 ### 5.6.16 求解状态与诊断
 

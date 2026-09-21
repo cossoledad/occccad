@@ -57,6 +57,7 @@
 ### Product、Assembly 与工程扩展
 
 - [Product 结构、Publication 与上下文](architecture/target/product-context.md)
+- [六类约束、自由度组合与激活合同](architecture/target/assembly-constraints.md)
 - [装配约束、求解与交互](architecture/target/assembly.md)
 - [运动学、DMU 与仿真候选](architecture/target/kinematics-dmu.md)
 - [Product 求值、资源与验证](architecture/target/product-evaluation.md)

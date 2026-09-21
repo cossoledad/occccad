@@ -22,7 +22,7 @@
 | Sketch | [Part/Sketch](architecture/current/part-sketch.md) | [模型](architecture/target/sketch-model.md)、[编辑](architecture/target/sketch-editing.md)、[Solver](architecture/target/sketch-solver.md)、[集成](architecture/target/sketch-integration.md) |
 | Part Feature | [Part](architecture/current/part-sketch.md) | [模型](architecture/target/part-model.md)、[扩展](architecture/target/part-extensions.md)、[求值门](architecture/target/part-evaluation.md) |
 | Naming | [命名/重连](architecture/current/persistent-naming.md) | [拓扑命名](architecture/target/persistent-naming.md) |
-| Product/Assembly | [Product](architecture/current/product-assembly.md) | [上下文](architecture/target/product-context.md)、[装配](architecture/target/assembly.md)、[求值](architecture/target/product-evaluation.md) |
+| Product/Assembly | [Product](architecture/current/product-assembly.md) | [上下文](architecture/target/product-context.md)、[六类约束](architecture/target/assembly-constraints.md)、[装配](architecture/target/assembly.md)、[求值](architecture/target/product-evaluation.md) |
 | Surface/3D Wire | 尚无完整实现 | [模型](architecture/target/surface-model.md)、[Feature](architecture/target/surface-features.md)、[质量](architecture/target/surface-quality.md)、[集成](architecture/target/surface-integration.md) |
 | DMU/Kinematics | 尚无完整实现 | [候选合同](architecture/target/kinematics-dmu.md) |
 | Jobs/Artifact/通信 | [Jobs 与制品](architecture/current/jobs-artifacts.md) | [分布式平台](architecture/target/distributed-platform.md) |

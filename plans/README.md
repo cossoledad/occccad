@@ -4,11 +4,12 @@
 
 ## 一条主线
 
-产品主线是“可验证的关联产品设计 → 稳定装配交互 → 可解释冲突 → 工程连接”。参数、命名、Publication、Product 上下文与 M3 已是代码基线，不再作为新的开发阶段重复实施；ACCEPT-PRODUCT 已完成，证据见[当前 Product 架构](../docs/architecture/current/product-assembly.md#accept-product-完成记录)。
+产品主线是“六类约束的自洽语义、自由度组合与激活/抑制 → 稳定实时装配交互 → 可解释冲突 → 工程连接”。参数、命名、Publication、Product 上下文与 M3 已是代码基线，不再作为新的开发阶段重复实施；ACCEPT-PRODUCT 已完成，证据见[当前 Product 架构](../docs/architecture/current/product-assembly.md#accept-product-完成记录)。
 
 ```mermaid
 flowchart LR
-    Baseline["已有：参数/命名/Publication/Product/M3，产品验收通过"] --> Drag["M4 稳定约束流形交互"]
+    Baseline["已有：参数/命名/Publication/Product/M3，产品验收通过"] --> Parity["六类约束、参数与激活/抑制"]
+    Parity --> Drag["M4 稳定实时约束流形交互"]
     Drag --> Conflict["M5 局部冲突解释"]
     Conflict --> Connection["M6 工程连接"]
     Baseline --> Feature["FEATURE 实体特征支线"]
@@ -16,13 +17,13 @@ flowchart LR
     Connection -.进入条件.-> Future["DMU / Kinematics 等候选"]
 ```
 
-若只有一条开发线：先补齐已有 Revolve 的 naming/edit 闭环，然后 M4 → M5 → M6。其他 Feature 和 Projection 根据真实建模需求插入；它们不是 M4 的强制前置。独立研究或实现可提前进行，但不得跳过依赖路径上的产品验收。
+若只有一条开发线：先 CONSTRAINT-CONTRACT，按装配计划补齐六类及 Activate/Deactivate，再收口 M4 → M5 → M6。会话基础/延迟基准可在合同冻结后与类型补齐并行；最终 M4 验收必须覆盖六类和抑制组合。Revolve/其他 Feature 和 Projection 保持独立支线，不再排在装配能力补齐之前。
 
 ## 可领取工作
 
 | 轨道 | 当前首项 | 依赖与退出门 | 详情 |
 |---|---|---|---|
-| 装配主线 | ASSEMBLY-SESSION | M3 合同与产品验收已就绪 | [装配演进](assembly-evolution.md) |
+| 装配主线 | CONSTRAINT-CONTRACT | M3/产品验收已就绪；先冻结六类数学语义/组合验证/激活合同 | [装配演进](assembly-evolution.md) |
 | 实体支线 | FEATURE-REVOLVE-HISTORY | 已有 Extrude/Boolean 命名基线；完整命名 corpus | [Feature 扩张](feature-expansion.md) |
 | 草图支线 | PROJECTION-ARC | 已有 Edge/Vertex 投影；先统一 ARC snapshot | [Sketch 投影](sketch-projection.md) |
 | 工程维护 | 按证据触发 | 保持行为、验证与导航等价 | [维护支线](engineering-maintenance.md) |
@@ -34,7 +35,7 @@ flowchart LR
 
 状态只用“待实施 / 实施中 / 待验收 / 候选”。完成条目先把实现、代码/测试入口和限制归入当前架构，再从计划删除；仍有效的长期合同归入目标架构。未通过的人工验收不能跟着实现计划一起删除。历史实施记录由 Git 保存，不再复制一套归档计划。
 
-旧编号仅用于查历史：P0–P7 对应特征编辑/naming/装配状态，P8 对应 Part 内关联，P9 对应 Publication/受控外部引用，P10 对应 Product 上下文/M3/Release；上述实现已归入当前分册。P11A–I 对应 FEATURE，P11J/K 对应 PROJECTION，P12/P13/P14 分别对应 M4/M5/M6，P15–P18 与平台扩展已转为有进入条件的候选。
+旧编号仅用于查历史：P0–P7 对应特征编辑/naming/装配状态，P8 对应 Part 内关联，P9 对应 Publication/受控外部引用，P10 对应 Product 上下文/M3/Release；上述实现已归入当前分册。P11A–I 对应 FEATURE，P11J/K 对应 PROJECTION，P12/P13/P14 分别对应 M4/M5/M6，P15–P18 与平台扩展已转为有进入条件的候选。新六类能力要求将原 M6 的基础 Offset/Angle 子类型、Contact 与描述符覆盖前移；M6 只保留 Engineering Connections 等扩展，具体以装配计划为准。
 
 ## 每项工作的共同完成门
 

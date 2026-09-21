@@ -285,6 +285,8 @@ The reported DOF is:
 remaining_dof = dimension(free tangent variables) - rank(active Jacobian)
 ```
 
+At regular solutions this gives local mobility. At singular configurations it is only an instantaneous linear nullity; finite mobility requires additional analysis and continuation tests. The target contract requires a 3 + 2 + 1 pose construction and rank-zero-through-six motion corpus, not literal CATIA parameter parity.
+
 The result also contains a null-space basis interpreted as translational
 directions, rotational axes and coupled screw-like instantaneous motions.
 
@@ -668,6 +670,8 @@ returns an explicit broken/ambiguous-reference result without silent rebinding.
 
 ### M4: branch-stable constrained manipulation
 
+The Product gate now includes all [six constraint families and their DOF compositions](../../docs/architecture/target/assembly-constraints.md), their parameters and activation lifecycle. Session work may proceed after contract freeze; final M4 acceptance requires the complete composition and lifecycle corpus, including Fix Together internal-before-external solving. Activation is orthogonal to driving/measured mode and invalidates stale sessions.
+
 - persist static discrete branch intent in Product while keeping iteration branch
   state immutable inside one solve;
 - use explicit Publication/Datum axis and sense for `DirectedAngle`; static assembly
@@ -701,19 +705,21 @@ request-scoped acceleration and continuity state, not Revision authority.
 M5 is gated by deterministic multi-constraint conflict corpora and fault budgets;
 an exhausted diagnostic budget returns partial evidence rather than a false MUS.
 
-### M6: Engineering Connections and constraint coverage
+### M6: Engineering Connections beyond the six-family baseline
 
 Add capabilities in dependency order, each gated by equation, Jacobian, freedom,
 branch and diagnostic corpus:
 
-1. typed `Offset`, `Parallel` and `Perpendicular` definitions over existing geometry;
-2. Frame/Connector Publications and declared rigid, revolute, prismatic,
-   cylindrical and planar Connections, verified against M2.5 freedoms;
-3. analytic plane/plane and cylinder subsets of positioning `Contact`;
-4. Circle, Sphere and Cone descriptors;
-5. bounded distance/angle and joint limits;
-6. spherical, universal and screw Connections;
-7. only then evaluate point/curve, gear, rack and general curve/surface contact.
+1. Connector contracts and declared rigid, revolute, prismatic, cylindrical and
+   planar Connections, verified against M2.5 freedoms;
+2. bounded distance/angle and joint limits;
+3. spherical, universal and screw Connections;
+4. only then evaluate gear, rack and general curve/surface contact.
+
+Offset, Parallel/Perpendicular, the documented analytic Contact matrix,
+Circle/Sphere/Cone/Frame descriptors and allowed Coincidence point/curve/surface
+combinations have moved to the six-family Product baseline before final M4
+acceptance. Do not leave them deferred here or implement a second contract.
 
 Arbitrary NURBS-to-NURBS contact is not a near-term positioning primitive. Datum
 and Connector Publications should express stable engineering intent first.
@@ -741,7 +747,8 @@ static placement solve loop.
 M2.5 numerical hierarchy and M3 control-plane manifests are implemented.
 [Product acceptance](../../docs/architecture/current/product-assembly.md#accept-product-完成记录)
 is complete; follow the
-[assembly roadmap](../../plans/assembly-evolution.md) for M4 constrained interaction,
+[assembly roadmap](../../plans/assembly-evolution.md) for six-family semantics and composition coverage,
+activation/deactivation and M4 real-time constrained interaction,
 M5 diagnostics and M6 connections. Keep motion, subspace and Router/history corpus
 as regression gates; sparse/incremental execution remains benchmark-led M7 work.
 
