@@ -23,7 +23,7 @@ try {
   assert.equal(commands.find((item) => item.commandId === "part.publications")?.iconKey, "publication");
   assert.equal(commands.find((item) => item.commandId === "product.release")?.iconKey, "release");
   assert.deepEqual(commands.filter((item) => item.commandId.startsWith("view.")).map((item) => item.commandId),
-    ["view.fit", "view.top", "view.front", "view.right", "view.iso"]);
+    ["view.fit", "view.top", "view.front", "view.right", "view.iso", "view.normal"]);
   console.log("Toolbar category and preference-boundary tests passed.");
 } finally {
   await server.close();

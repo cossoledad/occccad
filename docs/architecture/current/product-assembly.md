@@ -38,7 +38,7 @@ Web 以 root Product、active occurrence 和 definition/context 模式维护非�
 
 ## 求解与交互的当前边界
 
-`kernel/assembly` 只消费纯值 Point/Axis/Plane/Cylinder、约束和完整 SE(3) pose。Rigid cluster、Fix/Ground 消元与 connected-component 求解先于数值迭代；生产路径使用解析 Jacobian、augmented QR 和 SVD rank/null-space。M2.5 依次满足硬约束、最小化 reference motion、最小化总 nominal motion，独立报告偏好收敛与瞬时自由度。创建/编辑以第一选择为 moving、第二选择为 reference，Constraint 与全部 solved pose 在同一 ChangeSet 提交。算法细节与 corpus 由[Solver Algorithms](../../../kernel/assembly/SOLVER_ALGORITHMS.md)维护。
+`kernel/assembly` 只消费纯值 Point/Axis/Plane/Cylinder、约束和完整 SE(3) pose。Rigid cluster、Fix/Ground 消元与 connected-component 求解先于数值迭代；生产路径使用解析 Jacobian、augmented QR 和 SVD rank/null-space。M2.5 依次满足硬约束、最小化 reference motion、最小化总 nominal motion，独立报告偏好收敛与瞬时自由度。创建/编辑以第一选择为 moving、第二选择为 reference，Constraint 与全部 solved pose 在同一 ChangeSet 提交。Rigid 捕获当前相对位姿后允许 moving/reference 两个 occurrence 属于同一刚性组，reference 最小运动作用于共享组；既有约束仍逐项验证，真实不一致不会被固连掩盖。算法细节与 corpus 由[Solver Algorithms](../../../kernel/assembly/SOLVER_ALGORITHMS.md)维护。
 
 当前 MOVE 仍注入临时 `interaction-driver` Fix；不可达预览恢复权威 pose，尚不能返回 M4 的最近可行拖拽结果。有效 preview candidate 可经 CAS 提升为提交，缺失/过期时重新权威求解。M3 已覆盖嵌套 rigid Product 与持久引用解析；flexible expansion、稀疏后端和最小冲突集尚未实现。
 
@@ -79,7 +79,7 @@ Web 以 root Product、active occurrence 和 definition/context 模式维护非�
 
 SolveManifest 同时冻结完整 `definitions` 与实际编译的约束。全部停用时仍记录空活动集合的求解与可重放结果；全部活动支持断裂时不伪造空集合求解证据。断链定义保持 Broken，其余可解析约束仍可求解。Update Plan/Release 排除停用项的 Verified 要求，旧 Release 的停用状态不随新 Head 激活而改变。Product Undo/Redo 为新 Revision 生成新的求解证据，并从最终模型重建位姿和约束实体写集。
 
-新增约束 identity 按 request ID 确定，浏览器保存 preview→request 对应关系；可复用的预览提交会冻结指向新 Revision 的 COMMIT manifest 与已验证结果，不重复求解，也不让 Release 依赖 PREVIEW 记录。当前 manifest policy 为 `assembly-m3-lifecycle-v2`，Worker solver build 为 `assembly-m2.5-hierarchy-v3`。
+新增约束 identity 按 request ID 确定，浏览器保存 preview→request 对应关系；可复用的预览提交会冻结指向新 Revision 的 COMMIT manifest 与已验证结果，不重复求解，也不让 Release 依赖 PREVIEW 记录。当前 manifest policy 为 `assembly-m3-lifecycle-v2`，Worker solver build 为 `assembly-m2.5-hierarchy-v4`。
 
 Angle 定义新增 `angleRelation`：Directed、Parallel、Perpendicular；后两者分别使用独立的方向对齐/点积方程。有向角的控制面支持 Plane/Axis/Cylinder 方向对；界面要求显式选择 `angleAxis` 并可用 `reverseAngleAxis` 反向，轴来自第二支持组件的 Datum/Publication/PersistentSelection，按接受的 Revision 冷解析并随该组件运动。其 descriptor digest 以 `ANGLE_AXIS` 保存到 manifest；不接受其他组件的轴并将它静默冻结。360°在求解提交时规范为 0°，旧无轴实验定义仍可读，但编辑需补齐稳定轴。Undefined 不再永久改写为 Same。Offset 数值路径新增 Point–Axis 与 Axis–Plane，均有解析 Jacobian；零点点/点线偏移编译为重合方程，避免零范数梯度丢失其实际秩。Measured 输出独立 `measuredValue`，不改驱动值；两非平行平面等无有效常量距离的构型不显示旧数值。
 

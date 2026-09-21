@@ -31,6 +31,7 @@ occccad 是早期可运行的云原生参数化 CAD 垂直切片。参数模型�
 | Go 命令、Revision、Jobs、API、数据库 | `services/AGENTS.md` |
 | React、工具、选择、Three.js、场景测试 | `web/apps/cad/AGENTS.md` |
 | 跨模块 conformance | `tests/README.md` |
+| 环境准备、开发资源与浏览器依赖 | `docs/development-environment.md` |
 | 运行、进程和仓库概况 | `README.md` 与所属可执行单元 README |
 | CATIA V5 行为、术语与交互对照 | `/mnt/s/tools/DS/Catia/B33doc/English/`；先查 `control/*.viewdoc` 索引，再读其引用的 `online/*` 页面 |
 
@@ -48,6 +49,8 @@ occccad 是早期可运行的云原生参数化 CAD 垂直切片。参数模型�
 - 输入文件、插件、表达式和 Worker 请求均不可信，必须限制资源、权限、网络与副作用。
 
 ## 当前开发数据边界
+
+根 `.env` 中的开发数据库及后续配置的 S3 等资源已获维护者使用授权，无需重复确认连接或凭据使用。优先复用配置，不默认另建临时数据库或下载临时浏览器库；加载规则与排障见[开发环境](docs/development-environment.md)。文档不复制密码；授权不扩大以下删除边界。
 
 项目尚未发布且没有外部持久数据承诺。需要统一 schema、命令、Revision 或 evaluator 语义时直接修正唯一实现及调用方，不为实验数据增加 adapter/双写。未发布迁移可重写，并从空库验证。
 

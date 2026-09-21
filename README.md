@@ -40,6 +40,8 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 
 推荐在 Linux 或 WSL2 中开发。需要 CMake 3.30+、C++17 编译器、Ninja、Conan 2、Python 3、Go、Node.js/pnpm 和 PostgreSQL。仓库当前固定 OCCT 7.9.1；精确版本以 `conanfile.py`、`services/go.mod` 和 `web/package.json` 为准。
 
+开发资源授权、`.env` 加载规则、PostgreSQL 与浏览器依赖见[环境准备](docs/development-environment.md)。已有 `.env` 时直接复用，不要用示例覆盖。
+
 ```bash
 sudo apt install cmake clang ninja-build build-essential
 # WSLg
@@ -54,7 +56,7 @@ invoke build --build-type=Debug
 invoke test --build-type=Debug
 ```
 
-复制 `.env.example` 为 `.env`，配置 PostgreSQL，并设置首次启动所需的 `OCCCCAD_ADMIN_PASSWORD`：
+首次配置且尚无 `.env` 时，复制 `.env.example` 为 `.env`，配置 PostgreSQL，并设置首次启动所需的 `OCCCCAD_ADMIN_PASSWORD`：
 
 ```bash
 invoke run.app --build-type=Debug

@@ -10,6 +10,7 @@
 | 长期领域语义和平台边界是什么 | [目标架构](TARGET_ARCHITECTURE.md) → `architecture/target/` |
 | 下一步做什么、主线和支线如何依赖 | [统一路线](../plans/README.md) |
 | 如何运行、配置、排障 | [根 README](../README.md) 与所属可执行单元 README |
+| 如何准备环境、复用开发数据库和浏览器依赖 | [环境准备](development-environment.md) |
 | Agent 如何获取上下文和验证 | [Agent 路由](../AGENTS.md)、[focused TEAA](architecture/agent-efficiency.md) |
 
 ## 按领域直达

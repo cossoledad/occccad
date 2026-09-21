@@ -264,6 +264,44 @@ TEST(AssemblyMotion, UnitAndWorldFrameChangesPreserveThePolicy) {
         EXPECT_NEAR(r.components[0].preference.reference_objective, 0, 1e-12);
     }
 }
+TEST(AssemblyMotion, RigidMateCanMergeMovingAndReferenceWithExistingConstraints) {
+    for (bool grounded : {false, true}) {
+        Model m;
+        m.bodies = {{"a", {{2, 0, 0}, {}}}, {"b", {}}};
+        m.geometry = {{"plane", "a", PlaneGeometry{}}, {"plane", "b", PlaneGeometry{}}};
+        auto on = mate("on", ConstraintKind::Coincident, {"a", "plane"}, {"b", "plane"});
+        auto rigid = mate("rigid", ConstraintKind::Rigid, {"a", {}}, {"b", {}});
+        rigid.fixed_pose = Pose{{2, 0, 0}, {}};
+        m.constraints = {on, rigid};
+        if (grounded)
+            m.constraints.push_back(fixed("b"));
+        auto result = Solver{}.solve(m, intent());
+        certified(result);
+        EXPECT_NEAR(pose(result, "a").translation.x, 2, 1e-8);
+        EXPECT_NEAR(pose(result, "b").translation.x, 0, 1e-8);
+        EXPECT_EQ(result.components[0].relative_dof, 0U);
+        // A conflicting hard equation must still fail, not be masked by Rigid.
+        m.constraints[0].kind = ConstraintKind::Distance;
+        m.constraints[0].value = 3;
+        EXPECT_NE(Solver{}.solve(m, intent()).status, SolveStatus::Converged);
+    }
+}
+
+TEST(AssemblyMotion, SharedRigidClusterReferenceRemainsAPreference) {
+    Model m;
+    m.bodies = {{"a", {{2, 0, 4}, {}}}, {"b", {{0, 0, 4}, {}}}, {"ground", {}}};
+    m.geometry = {{"point", "a", PlaneGeometry{}}, {"plane", "ground", PlaneGeometry{}}};
+    auto rigid = mate("rigid", ConstraintKind::Rigid, {"a", {}}, {"b", {}});
+    rigid.fixed_pose = Pose{{2, 0, 0}, {}};
+    m.constraints = {fixed("ground"), rigid,
+                     mate("on", ConstraintKind::Coincident, {"a", "point"}, {"ground", "plane"})};
+    const auto result = Solver{}.solve(m, intent());
+    certified(result);
+    EXPECT_NEAR(pose(result, "a").translation.z, 0, 1e-7);
+    EXPECT_NEAR(pose(result, "b").translation.z, 0, 1e-7);
+    EXPECT_NEAR(pose(result, "a").translation.x - pose(result, "b").translation.x, 2, 1e-7);
+}
+
 TEST(AssemblyMotion, RigidClusterRepresentativeDoesNotChangeOccurrenceObjective) {
     Model m;
     m.bodies = {{"a", {{0, 0, 4}, {}}}, {"member", {{2, 0, 4}, {}}}, {"ground", {}}};

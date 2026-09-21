@@ -57,7 +57,7 @@ flowchart TD
 ```
 
 输入校验包括稳定 ID 唯一性、引用完整性、有限数、单位方向、合法半径、无符号距离非负、unsigned Angle 位于 `[0, π]`、
-directed Angle 位于 `[0, 2π]`、SolveIntent body 存在且 moving/reference 在 body 与 rigid-cluster 层均不冲突。无效模型返回
+directed Angle 位于 `[0, 2π]`、SolveIntent body 存在且同一 body 不同时指定为 moving/reference。不同 body 可以经 Rigid 合并到同一 cluster；运动角色仍是 occurrence 级偏好，不构成硬约束或组之间的排他关系。无效模型返回
 `InvalidModel`，不会让异常越过公开求解接口。
 
 ## 3. 图编译

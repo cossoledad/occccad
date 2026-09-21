@@ -20,7 +20,7 @@ const mockInstancePath = (rootDocumentId: string, instance: ProductInstance): In
   }],
 });
 const mockTopologyProperties = (kind: "FACE" | "EDGE" | "VERTEX"): Record<string, number | boolean | string | Vec3> => {
-  if (kind === "FACE") return { area: 100, normal: [0, 0, 1] };
+  if (kind === "FACE") return { area: 100, origin: [0, 0, 0], normal: [0, 0, 1], xDirection: [1, 0, 0] };
   if (kind === "EDGE") return { length: 10, direction: [1, 0, 0] };
   return { tolerance: 1e-7 };
 };
@@ -213,13 +213,17 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
       const referenceTree = referenced ? mockStructure(referenced, `${path}/instance:${instance.id}/reference`, nextVisiting) : undefined;
       const referenceName = referenced?.document.name ?? "Reference";
       const referenceMode = instance.referenceMode ?? "FOLLOW_HEAD";
+      const instancePath = mockInstancePath(view.document.id,instance);
+      const inOccurrence = (node:DocumentStructureNode):DocumentStructureNode => ({...node,
+        instancePath:node.instancePath ?? instancePath,versionId:node.versionId ?? instance.versionId,
+        children:node.children?.map(inOccurrence)});
       return { id: `${path}/instance:${instance.id}`, kind: "INSTANCE" as const, name: `${referenceName}(${instance.name})`,
         referenceName, instanceName: instance.name,
         entityId: instance.id, documentId: instance.documentId, documentType: referenced?.document.type,
         versionId: instance.versionId, referenceMode,
         instancePath: mockInstancePath(view.document.id, instance),
         capabilities: path === `document:${view.document.id}` ? ["DELETE" as const,
-          referenceMode === "PINNED" ? "FOLLOW_HEAD" as const : "PIN_VERSION" as const] : undefined, children: referenceTree?.children };
+          referenceMode === "PINNED" ? "FOLLOW_HEAD" as const : "PIN_VERSION" as const] : undefined, children: referenceTree?.children?.map(inOccurrence) };
     });
   const constraints = view.product?.constraints ?? [];
   const constraintGroup = constraints.length ? [{ id: `${path}/assembly-constraints`, kind: "ASSEMBLY_CONSTRAINT_SET" as const, name: "约束", documentId:view.document.id, capabilities:["SUPPRESS" as const], suppressed:constraints.every(c=>c.suppressed),
@@ -266,7 +270,7 @@ function rebuildProduct(view: DocumentView): void {
   view.artifacts = { [partArtifact.geometryKey]: partArtifact };
   view.resolvedInstances = (view.product?.instances ?? []).map((instance) => ({
     id: `${view.document.name}/${instance.id}/part`, name: instance.name, documentId: partID,
-    geometryKey: partArtifact.geometryKey, translation: instance.translation, occurrencePath: instance.id,
+    geometryKey: partArtifact.geometryKey, translation: instance.translation, rotation:instance.rotation, occurrencePath: instance.id,
     instancePath: mockInstancePath(view.document.id, instance),
     bodyTreeNodeId: `document:${view.document.id}/instance:${instance.id}/reference/body`,
   }));
@@ -466,7 +470,7 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 		if(contextInput){contextInput.name=String(input.name);contextInput.required=Boolean(input.required);}}
     if (commandType === "MOVE_INSTANCE" && view.product) {
       const instance = view.product.instances.find((candidate) => candidate.id === input.instanceId);
-      if (instance) instance.translation = input.translation as Vec3;
+      if (instance) { instance.translation = input.translation as Vec3; instance.rotation = input.rotation as [number,number,number,number] ?? instance.rotation; }
       rebuildProduct(view);
     }
     if (commandType === "ADD_ASSEMBLY_CONSTRAINT" && view.product) {

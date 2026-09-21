@@ -1,3 +1,4 @@
+import type { NormalViewPlane } from "../cad/navigation/normal-view";
 import type { FeaturePreviewOperation } from "../cad/rendering/feature-preview";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { CaptureSettings } from "../cad/interaction/capture-settings";
@@ -14,6 +15,7 @@ import { formatSketchDimensionValue, normalizeSketchDimensionValue } from "../ca
 export type CadViewportHandle = {
   fit: () => void;
   normalToSketch: () => void;
+  normalToPlane: (selection:SelectionItem,plane?:NormalViewPlane) => boolean;
   setStandardView: (view: "TOP" | "FRONT" | "RIGHT" | "ISO") => void;
   previewArtifact: (artifact: Artifact, operation?: FeaturePreviewOperation) => void;
   clearCommandPreview: (restore?: boolean) => void;
@@ -121,6 +123,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useImperativeHandle(ref, () => ({
     fit: () => engine.current?.fit(),
     normalToSketch: () => engine.current?.normalToSketch(),
+    normalToPlane: (selection,plane) => engine.current?.normalToPlane(selection,plane) ?? false,
     setStandardView: (view) => engine.current?.setStandardView(view),
     previewArtifact: (artifact, operation) => engine.current?.previewArtifact(artifact, operation),
     clearCommandPreview: (restore) => engine.current?.clearCommandPreview(restore),

@@ -1,3 +1,4 @@
+import { normalViewFrame, type NormalViewPlane } from "../cad/navigation/normal-view";
 import { makeFeatureEdges } from "../cad/rendering/feature-edges";
 import { makeFeaturePreview, type FeaturePreviewOperation } from "../cad/rendering/feature-preview";
 import { InfiniteGroundGrid } from "../cad/rendering/infinite-ground-grid";
@@ -493,6 +494,34 @@ export class CadViewportEngine {
     this.applyTreeVisibility();
     this.callbacks.toolPromptChanged("选择：选择草图元素，或从工具栏启动创建命令");
     this.invalidate();
+  }
+
+  normalToPlane(selection: SelectionItem, plane?: NormalViewPlane): boolean {
+    // Datum meshes already carry their local frame; only their parent placement
+    // belongs here. Topology descriptors are in the solid's local coordinates.
+    let placement: THREE.Matrix4 | undefined;
+    if (selection.kind === "plane") {
+      const object = this.selectionIndex.objectsFor(selection).find(value=>value.userData.kind === "plane");
+      plane ??= object?.userData.datumPlane as NormalViewPlane | undefined;
+      object?.updateWorldMatrix(true,false);
+      placement = object?.parent?.matrixWorld;
+    } else if (selection.kind === "face") {
+      const binding = [...this.solidBindings.values()].find(value=>
+        value.artifact.geometryKey === selection.geometryKey &&
+        (value.context.occurrencePath ?? "") === (selection.occurrencePath ?? ""));
+      binding?.mesh.updateWorldMatrix(true,false);
+      placement = binding?.mesh.matrixWorld;
+    }
+    if (!placement || !plane) return false;
+    const frame = normalViewFrame(plane,placement);
+    if (!frame) return false;
+    this.navigation.cancel();
+    const focus = viewFocus(this.camera,this.navigation.target);
+    focus.addScaledVector(frame.normal,-focus.clone().sub(frame.origin).dot(frame.normal));
+    orientView(this.camera,this.navigation.target,focus,frame.normal,frame.up);
+    this.navigation.syncCamera(false);
+    this.invalidate();
+    return true;
   }
 
   normalToSketch(): void {

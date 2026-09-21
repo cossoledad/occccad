@@ -1343,16 +1343,10 @@ private:
             cluster.ground_constraint_ids.push_back(constraint.id);
         }
 
-        if (options_.solve_intent) {
-            std::unordered_set<std::size_t> moving_clusters;
-            for (const std::string& id : options_.solve_intent->moving_body_ids)
-                moving_clusters.insert(cluster_index(id));
-            for (const std::string& id : options_.solve_intent->reference_body_ids) {
-                if (moving_clusters.count(cluster_index(id)))
-                    throw std::invalid_argument(
-                        "a rigid cluster cannot contain both moving and reference bodies");
-            }
-        }
+        // Motion roles describe occurrence-level preferences, not disjoint
+        // physical variables. Rigid mates can merge moving and reference bodies;
+        // the existing reference objective then acts on their shared cluster.
+
     }
 
     void freeze_branches() {

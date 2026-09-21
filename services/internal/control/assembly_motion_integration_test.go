@@ -69,7 +69,7 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v3" || len(result.Components) != 1 {
+	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v4" || len(result.Components) != 1 {
 		t.Fatalf("invalid result: %+v", result)
 	}
 	p := result.Components[0].Preference
@@ -467,6 +467,43 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 			t.Fatal("axis reconnect/reactivation did not re-evaluate")
 		}
 
+	})
+
+	t.Run("rigid capture with existing mates preview commit and history", func(t *testing.T) {
+		before, err := service.GetDocument(t.Context(), id, "00000000-0000-7000-8000-000000000001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := workspace.CommandRequest{RequestID: "rigid-" + id, ActorID: "00000000-0000-7000-8000-000000000001", Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "RIGID", FirstAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: a, Kind: "BODY"}, SecondAssemblyRef: &workspace.AssemblyGeometryRef{InstanceID: b, Kind: "BODY"}}
+		preview, err := service.PreviewCommand(t.Context(), id, request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request.PreviewID = preview.PreviewID
+		after := apply(request)
+		if len(after.Product.Constraints) != len(before.Product.Constraints)+1 {
+			t.Fatal("rigid mate missing")
+		}
+		for i, instance := range after.Product.Instances {
+			for axis := range instance.Translation {
+				if math.Abs(instance.Translation[axis]-before.Product.Instances[i].Translation[axis]) > 1e-7 {
+					t.Fatal("capture moved already feasible assembly")
+				}
+			}
+		}
+		for _, c := range after.Product.Constraints {
+			if !c.Suppressed && c.EvaluationStatus != "VERIFIED" {
+				t.Fatalf("rigid capture invalidated existing constraint: %+v", c)
+			}
+		}
+		undone := apply(workspace.CommandRequest{Type: "UNDO"})
+		if len(undone.Product.Constraints) != len(before.Product.Constraints) {
+			t.Fatal("rigid undo failed")
+		}
+		redone := apply(workspace.CommandRequest{Type: "REDO"})
+		if len(redone.Product.Constraints) != len(after.Product.Constraints) {
+			t.Fatal("rigid redo failed")
+		}
 	})
 
 }

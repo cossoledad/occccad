@@ -1,3 +1,4 @@
+import { exactNormalViewPlane } from "../../cad/navigation/normal-view";
 import { AssemblyAngleParameters, angleAxisCandidateError } from "./assembly-angle-parameters";
 import { fixedPoseAngles, fixedPoseFromParameters } from "../../cad/assembly/assembly-fixed-pose";
 import { FeaturePreviewLegend } from "./feature-preview-legend";
@@ -156,6 +157,7 @@ export function Workbench() {
   const { message } = App.useApp();
   const commandRegistry = useMemo(() => new CommandRegistry(), []);
   const viewport = useRef<CadViewportHandle>(null);
+  const normalViewRequest = useRef(0);
   const [padOpen, setPadOpen] = useState(false);
   const [padGenerator, setPadGenerator] = useState<"LINEAR_EXTRUDE" | "REVOLVE">("LINEAR_EXTRUDE");
   const [padSketchID, setPadSketchID] = useState<string>();
@@ -349,6 +351,27 @@ export function Workbench() {
     };
     return view ? treeData(view, editingView).map((node) => decorate(node)) : [];
   }, [view, editingView, store.activeSketchID, treeVisibilityOverrides]);
+  useEffect(()=>{
+    normalViewRequest.current+=1;
+    return ()=>{normalViewRequest.current+=1;};
+  },[store.selection,view?.document.versionId,documentID]);
+  const normalToSelection = async () => {
+    const selection = store.selection;
+    if (!selection || !view) return;
+    const generation = ++normalViewRequest.current;
+    try {
+      const plane = selection.kind === "plane"
+        ? selection.datumPlane ?? view.datumPlanes?.find(value=>value.id===(selection.entityId ?? selection.id))
+        : selection.kind === "face" && selection.geometryKey
+          ? exactNormalViewPlane(await api.getTopologyProperties(selection.documentId ?? view.document.id,
+              selection.geometryKey,"FACE",selection.topologyId,selection.versionId)) : undefined;
+      if (generation!==normalViewRequest.current) return;
+      if (!plane && selection.kind !== "plane") { message.info("请选择基准平面或实体的平面面；曲面没有唯一法线视图。"); return; }
+      if (!viewport.current?.normalToPlane(selection,plane)) message.info("所选平面当前不可用，请重新选择。");
+    } catch (error) {
+      if (generation===normalViewRequest.current) message.error(error instanceof Error ? error.message : String(error));
+    }
+  };
   const canEdit = editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR";
   const canEditRoot = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
   const activeWorkbench = resolveCadWorkbench(editingView?.document.type ?? "PART", Boolean(store.sketchPlane));
@@ -762,6 +785,8 @@ export function Workbench() {
         isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit), isActive: () => store.activeToolID === "assembly.move" }),
       commandRegistry.register({ id: "sketch.start", execute: startSketch,
 		isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && (["plane", "sketch", "face"].includes(store.selection?.kind ?? ""))) }),
+      commandRegistry.register({ id: "view.normal", execute: normalToSelection,
+        isEnabled: () => Boolean(store.selection && ["plane","face"].includes(store.selection.kind)) }),
       commandRegistry.register({ id: "sketch.normal", execute: () => viewport.current?.normalToSketch(),
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(store.sketchPlane) }),
       commandRegistry.register({ id: "sketch.finish", execute: finishSketch,

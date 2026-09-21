@@ -13,7 +13,7 @@ const toolbar = (id: string, name: string, workbench: ToolbarCatalogEntry["workb
   id, name, workbench, position, styleKey, sortOrder, orientation: "horizontal", items: items(seeds),
 });
 
-// Keep this isolated frontend fixture aligned with migrations 0023–0024. Production
+// Keep this isolated frontend fixture aligned with migrations 0023–0026. Production
 // receives the same presentation catalog from the server.
 export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: [
   toolbar("selection", "选择", "ALL", "top-left", "standard", 0, [
@@ -81,6 +81,7 @@ export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: 
   toolbar("view-navigation", "视图", "ALL", "top-right", "standard", 90, [
     ["view.fit", "适合窗口", "fit"], ["view.top", "顶视图", "top-view"], ["view.front", "前视图", "front-view"],
     ["view.right", "右视图", "right-view"], ["view.iso", "等轴测", "isometric"],
+    ["view.normal", "法线视图", "top-view", "选择基准面或实体平面后正对该面，保留显示比例。"],
   ]),
   toolbar("debug", "诊断", "ALL", "bottom-right", "debug", 100, [["debug.download", "下载诊断包", "debug"]]),
 ] };

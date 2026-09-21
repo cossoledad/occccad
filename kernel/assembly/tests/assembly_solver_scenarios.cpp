@@ -427,7 +427,7 @@ TEST(AssemblySolver, AngleEndpointsRemainOneScalarEquationAndRank) {
     }
 }
 
-TEST(AssemblySolver, RigidClusterRejectsConflictingMovementIntent) {
+TEST(AssemblySolver, RigidClusterAllowsDistinctRolesButRejectsSameBodyOverlap) {
     Model model;
     model.bodies = {{"a", {}}, {"b", {}}};
     Constraint rigid = binary("rigid", ConstraintKind::Rigid, ref("a", ""), ref("b", ""));
@@ -437,15 +437,13 @@ TEST(AssemblySolver, RigidClusterRejectsConflictingMovementIntent) {
     options.solve_intent =
         SolveIntent{{"a"}, {"b"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
     const SolveResult result = Solver{}.solve(model, options);
-    if (result.status == SolveStatus::Converged) {
-        for (const auto& component : result.components) {
-            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged)
-                << "reference=" << component.preference.reference_optimality
-                << " total=" << component.preference.total_optimality;
-        }
-    }
-    EXPECT_EQ(result.status, SolveStatus::InvalidModel);
-    EXPECT_NE(result.diagnostic.find("rigid cluster"), std::string::npos);
+    ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+    for (const auto& component : result.components)
+        EXPECT_EQ(component.preference.status, PreferenceStatus::Converged);
+    options.solve_intent->reference_body_ids = {"a"};
+    const auto invalid = Solver{}.solve(model, options);
+    EXPECT_EQ(invalid.status, SolveStatus::InvalidModel);
+    EXPECT_NE(invalid.diagnostic.find("one body cannot be both"), std::string::npos);
 }
 
 TEST(AssemblySolver, GroundedComponentUsesReferenceMotionPreference) {

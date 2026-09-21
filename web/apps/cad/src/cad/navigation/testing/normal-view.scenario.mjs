@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require=createRequire(new URL("../../../../package.json",import.meta.url));
+const {createServer}=await import(require.resolve("vite"));
+const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
+try {
+ const THREE=await server.ssrLoadModule("three");
+ const {normalViewFrame,exactNormalViewPlane}=await server.ssrLoadModule("/src/cad/navigation/normal-view.ts");
+ const {orientView}=await server.ssrLoadModule("/src/cad/navigation/orthographic-view.ts");
+ const plane={origin:[2,3,5],normal:[1,2,3],uDirection:[2,-1,0]};
+ const parent=new THREE.Matrix4().makeRotationX(.7).setPosition(8,9,10);
+ const child=new THREE.Matrix4().makeRotationY(-.3).setPosition(-3,4,7);
+ const placement=parent.clone().multiply(child);
+ const frame=normalViewFrame(plane,placement);
+ assert.ok(frame.origin.distanceTo(new THREE.Vector3(...plane.origin).applyMatrix4(child).applyMatrix4(parent))<1e-10);
+ assert.ok(frame.normal.distanceTo(new THREE.Vector3(...plane.normal).transformDirection(placement))<1e-10);
+ assert.ok(Math.abs(frame.normal.dot(frame.up))<1e-10);
+ const camera=new THREE.OrthographicCamera(-100,100,80,-80,.01,10000);
+ camera.position.set(20,-30,50);camera.zoom=7;
+ const target=new THREE.Vector3(4,5,6);
+ orientView(camera,target,frame.origin,frame.normal,frame.up);
+ assert.equal(camera.zoom,7);
+ assert.ok(camera.getWorldDirection(new THREE.Vector3()).dot(frame.normal)<-1+1e-10);
+ assert.equal(normalViewFrame({...plane,normal:[0,0,0]},placement),undefined);
+ assert.equal(normalViewFrame({...plane,uDirection:plane.normal},placement),undefined);
+ const properties={geometryType:"PLANE",properties:{origin:plane.origin,normal:plane.normal,xDirection:plane.uDirection}};
+ assert.deepEqual(exactNormalViewPlane(properties),plane);
+ assert.equal(exactNormalViewPlane({...properties,geometryType:"CYLINDER"}),undefined);
+ assert.equal(exactNormalViewPlane({...properties,properties:{normal:[0,0,1]}}),undefined);
+} finally {await server.close();}
