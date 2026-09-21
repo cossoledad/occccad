@@ -2,8 +2,8 @@
 
 This page is the focused contract for Sketch-in-context display and the exact
 Part Feature evaluation path. Current delivery status remains in
-`docs/CURRENT_ARCHITECTURE.md`; long-term Feature semantics remain in
-`docs/TARGET_ARCHITECTURE.md` section 5.4.
+[current Part/Sketch](current/part-sketch.md); long-term Feature semantics remain in
+[Feature evaluation](target/part-evaluation.md).
 
 ## Sketch editing is an in-context view
 

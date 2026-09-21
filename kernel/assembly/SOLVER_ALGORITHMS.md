@@ -279,7 +279,7 @@ M1.7 已把该切片修正为严格的绕轴角：先投影两个端点方向，
 
 1. **M2 方程与微分正确性（已完成）**：内部 typed equation registry 覆盖当前 Point/Axis/Plane/Cylinder 能力矩阵；前向解析微分提供左增量 Jacobian，中央有限差分作为 differential oracle。参考后端使用 augmented QR，SVD 专用于 rank、奇异值和数值 null-space。M2 没有增加 Product 约束类型。
 2. **M2.5 自由度与解选择（已实现）**：a 从动层级优化、b Product 贯通验收及 c 自由度解释均已落地。将数值 null-space 在稳定 cluster tangent 顺序下解释为平移、旋转和耦合瞬时自由度；以子空间而非原始 SVD 列进行确定性验证。在可行流形内使用层级优化依次最小化 reference motion 与总 nominal change，已替换 M1.7 弱权重策略。
-3. **M3 可重放输入**：由控制面冻结包含 typed InstancePath、ResolutionSnapshot、Publication/PersistentSelection、descriptor symmetry/provenance、branch intent、tolerance 和 solver build 的不可变 solve manifest。当前 direct Part 与 revision-local topology ID 路径在开发期直接收敛到唯一新模型。
+3. **M3 可重放输入（控制面已实现）**：由控制面冻结包含 typed InstancePath、ResolutionSnapshot、Publication/PersistentSelection、descriptor symmetry/provenance、branch intent、tolerance 和 solver build 的不可变 solve manifest。当前正式路径已使用 typed nested InstancePath 与持久引用解析；local topology ID 只作瞬时 pick evidence。产品验收与后续执行顺序见[统一路线](../../plans/README.md)。
 4. **M4 稳定分支与交互**：把当前自动 reference direction 平面切片升级为可选择 axis/sense 的完整 `DirectedAngle`；静态 Product 只持久化 modulo `2π` branch intent，preview/kinematics session 承担 winding。利用 M2/M2.5 null space 把 Drag 目标作为二级目标投影到约束流形，返回最近可行 Pose 与 blocked directions，不再注入临时 `Fix`。
 5. **M5 以后**：先完成图局部化、带预算且证据分级的冲突解释，再扩展 Engineering Connection/几何覆盖；最后依据大装配 benchmark 决定 block-sparse、增量 factorization、可选后端与独立 Worker 部署。详细阶段门见 `SOLVER_ARCHITECTURE.md`。
 

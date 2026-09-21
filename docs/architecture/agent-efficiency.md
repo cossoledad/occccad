@@ -74,11 +74,7 @@ Proto source 是协议权威；生成代码是 output。正常路径是 proto �
 - 超过约 80 KB：职责拆分候选；
 - 超过约 120 KB：强候选。
 
-只有职责稳定、Agent 高频进入、局部任务长期加载无关区域时才物理拆分。拆职责而不是平均切行，且必须保持行为测试。当前 P2 已完成：
-
-- Workbench 的 Properties/History 与 tree projection/selection mapping 分别进入 `workbench-inspector.tsx`、`workbench-tree-model.tsx`；主 orchestrator 由 98.3 KB 降至约 76 KB；
-- Workspace 的公共 model/view types、legacy command adaptation、parameter/dependency evaluation、evaluation persistence 分别进入 `model.go`、`legacy_commands.go`、`evaluation_projection.go`、`evaluation_persistence.go`；`service.go` 从约 138 KB 降至 111 KB，`model_core.go` 从 122 KB 降至 83 KB；
-- `solver.cpp` 只完成算法/依赖分析，分阶段私有拆分计划记录在 `kernel/assembly/SOLVER_ALGORITHMS.md` §13，未修改数值实现。
+只有职责稳定、Agent 高频进入、局部任务长期加载无关区域时才物理拆分。拆职责而不是平均切行，且必须保持行为测试。当前实现分层见[验证与可观测性](current/validation.md)，后续候选见[工程维护支线](../../plans/engineering-maintenance.md)。
 
 ## 5. 验证 API
 
@@ -146,7 +142,7 @@ Web scenario runner 支持多个 OR substring、`--list` 和 `--verbose`。每�
 
 | 指标 | v1 基线/期望 |
 |---|---|
-| 根 persistent context | 65 行、约 5.6 KB；保持 router 量级 |
+| 根 persistent context | 保持 router 量级，以 context-audit 实测为准 |
 | 普通任务初始路径 | root + 1 local guide + 1–4 实现区间 + 1–2 tests |
 | architecture 默认读取 | 普通局部任务为 0；语义升级时只读命中章节 |
 | scoped validation | 不运行无关领域；共享契约自动升级 |
@@ -161,23 +157,12 @@ Web scenario runner 支持多个 OR substring、`--list` 和 `--verbose`。每�
 |---|---|
 | Directed Angle bug | root → Assembly guide → solver symbol/test → assembly `--match` → assembly scope |
 | Front selection bug | root → Web guide → selection/tool/scenario → web `--match` → web scope |
-| Workspace Undo bug | root → Services guide → history symbols/tests → workspace `--match` → workspace scope；必要时 Target 4.3 |
+| Workspace Undo bug | root → Services guide → history symbols/tests → workspace `--match` → workspace scope；必要时读取 [命令与历史](target/commands-history.md) |
 | Proto RPC addition | root → Worker + Services guides → proto/adapters → all；必须正式 Router 验证 |
 | Sketch constraint bug | root → Worker/Web guides（按调用面）→ constraint symbols/tests → sketch scope |
 
 若普通局部任务仍整读大 architecture/source、重复寻找入口、读取 generated output 或运行全仓，应优先修正所有权、router 或 validation mapping，而不是删除知识和测试。
 
-## 8. 后续计划
+## 8. 维护入口
 
-当前路线状态：P0（根路由、排除、大文件协议）、P1（local guides、docs router、scope/match/changed/plan/quiet、Web filtering）和本轮 P2（Workbench/Workspace 职责拆分、focused projections、solver 拆分分析）已经落地。P2 不设“一次拆完整仓”的完成门，后续以真实任务的无关读取证据逐项推进。
-
-按实测频率推进，不以文件数或行数为 KPI：
-
-1. 为 `--changed` 增加新领域路径时同步路由单测；有跨层事故证据再细化 affected integration，不建立自定义 DSL。
-2. 观察 `workbench.tsx` 拆分后的修改模式；只有 command dialogs 仍频繁造成无关读取时才继续拆分。
-3. Workspace 剩余 `service.go`/`model_core.go` 与 viewport engine 仍是候选；继续按 service orchestration/typed handlers 和 scene/input/rendering 的真实修改证据拆分。
-4. `solver.cpp` 严格按 Solver Algorithms §13 的 S0–S6 门推进，首个实施阶段只移动 equation semantics，不同时调算法。
-5. 新增 focused projection 仅在 router 仍需频繁进入长文档时进行；projection 必须短、带 canonical section link、避免复制易漂移事实。当前只维护 model-history、persistent-naming、worker-contracts 与本页。
-6. 长任务默认继续使用 Issue/会话；只有跨 session 丢失状态成为反复问题时才引入可替换的 `.agent/current-task.md`，任务完成即删除。
-
-维护完成条件：入口可发现、scope 可选择、成功安静、失败详细、共享风险会升级、知识仍完整可寻址，并且没有为 TEAA 引入第二套构建系统、索引服务或隐式状态机。
+后续工作统一进入[工程维护支线](../../plans/engineering-maintenance.md)，不在本页保留另一套 P 编号和完成日志。维护完成条件仍是入口可发现、scope 可选择、成功安静、失败详细、共享风险会升级，以及知识完整可寻址。

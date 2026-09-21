@@ -63,6 +63,6 @@ occccad 是早期可运行的云原生参数化 CAD 垂直切片。参数模型�
 
 ## 文档与交付
 
-已实现事实变化更新 `docs/CURRENT_ARCHITECTURE.md`；长期语义变化更新 `docs/TARGET_ARCHITECTURE.md`；可执行单元职责、接口或运行方式变化更新所属 README。AGENTS 只放稳定行为、路由和验证，README 放模块职责/运行，Architecture 放领域语义/跨模块决策，临时任务状态不写入长期指南。
+已实现事实变化更新 `docs/CURRENT_ARCHITECTURE.md` 所路由的当前分册；长期语义变化更新 `docs/TARGET_ARCHITECTURE.md` 所路由的目标分册；可执行单元职责、接口或运行方式变化更新所属 README。AGENTS 只放稳定行为、路由和验证，README 放模块职责/运行，Architecture 放领域语义/跨模块决策，临时任务状态不写入长期指南。
 
 交付时先写结果，再写关键判断、变更文件、实际验证和限制。区分已实现、设计、候选与未验证假设。

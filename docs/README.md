@@ -1,66 +1,44 @@
-# Architecture knowledge router
+# 文档导航
 
-本文只负责把任务路由到最小必要的架构上下文。普通局部修复先读根/局部 `AGENTS.md`、实现符号和邻近测试；不要默认通读 `CURRENT_ARCHITECTURE.md`（事实全景）或 `TARGET_ARCHITECTURE.md`（长期设计书）。
+普通修复先读最近的 `AGENTS.md`、实现和邻近测试；跨身份、历史、单位、数据库、公共协议或 Worker 边界时再进入对应架构分册。
 
-## 先判断要回答什么
+## 入口与职责
 
-| 问题 | 入口 |
+| 要回答的问题 | 唯一入口 |
 |---|---|
-| 当前代码已实现什么、进程怎样连接 | `CURRENT_ARCHITECTURE.md` 的对应章节 |
-| 长期领域语义或跨模块边界应是什么 | `TARGET_ARCHITECTURE.md` 的对应章节 |
-| 可执行单元如何运行、配置、排障 | 所属模块 README |
-| 普通局部 bug、测试或实现细节 | 局部 `AGENTS.md` → `rg` 符号 → 邻近测试，通常无需架构文档 |
+| 当前代码实现了什么、有哪些限制 | [当前架构](CURRENT_ARCHITECTURE.md) → `architecture/current/` |
+| 长期领域语义和平台边界是什么 | [目标架构](TARGET_ARCHITECTURE.md) → `architecture/target/` |
+| 下一步做什么、主线和支线如何依赖 | [统一路线](../plans/README.md) |
+| 如何运行、配置、排障 | [根 README](../README.md) 与所属可执行单元 README |
+| Agent 如何获取上下文和验证 | [Agent 路由](../AGENTS.md)、[focused TEAA](architecture/agent-efficiency.md) |
 
-## 按任务定位
+## 按领域直达
 
-| 任务 | 当前事实 | 目标语义 |
+| 领域 | 当前事实 | 目标契约 |
 |---|---|---|
-| 仓库/进程拓扑 | Current 2–3 | Target 3、5.1 |
-| Domain Command、Workspace、Revision、Undo/Redo、参数依赖 | Current 4.1–4.4 | Target 4.3 |
-| Sketch、Constraint、Profile、PlaneGCS | Current 5、5.1 | Target 5.3 |
-| Part Feature、Body、Boolean | Current 5 | Target 5.4 |
-| Surface/Wireframe | 当前尚无完整实现 | Target 5.5 |
-| Product、Assembly、DOF、DMU | Current 4、5、8 | Target 5.6；数值细节另看 `kernel/assembly/` 文档 |
-| PersistentSelection、TopologyHistory、naming | Current 5 | Target 5.7 |
-| Worker、Router、Jobs、Artifact | Current 3、5.2、6–7 | Target 5.1、6–9 |
-| Web interaction、selection、rendering、realtime | Current 8 | Target 10 与对应 CAD 领域章节 |
-| 数据库、兼容、发布边界 | Current 4、7 | Target 4、8、16、19 |
-| 安全、SLO、可观测性 | Current 9 | Target 11–13 |
-| 测试、Definition of Ready/Done、架构变更 | Current 9 | Target 17、19 |
-| Agent 上下文、scoped validation、quiet output、Token 效率计划 | Current 9 | [`architecture/agent-efficiency.md`](architecture/agent-efficiency.md) |
+| 拓扑/进程 | [运行边界](architecture/current/runtime.md) | [系统边界](architecture/target/system.md)、[计算部署](architecture/target/compute-boundaries.md) |
+| Command/Revision/Undo | [模型与历史](architecture/current/model-history.md) | [命令与历史](architecture/target/commands-history.md) |
+| Parameter/Dependency | [参数与求值](architecture/current/model-history.md) | [参数与增量](architecture/target/parameters-evaluation.md)、[接口与治理](architecture/target/model-governance.md) |
+| Sketch | [Part/Sketch](architecture/current/part-sketch.md) | [模型](architecture/target/sketch-model.md)、[编辑](architecture/target/sketch-editing.md)、[Solver](architecture/target/sketch-solver.md)、[集成](architecture/target/sketch-integration.md) |
+| Part Feature | [Part](architecture/current/part-sketch.md) | [模型](architecture/target/part-model.md)、[扩展](architecture/target/part-extensions.md)、[求值门](architecture/target/part-evaluation.md) |
+| Naming | [命名/重连](architecture/current/persistent-naming.md) | [拓扑命名](architecture/target/persistent-naming.md) |
+| Product/Assembly | [Product](architecture/current/product-assembly.md) | [上下文](architecture/target/product-context.md)、[装配](architecture/target/assembly.md)、[求值](architecture/target/product-evaluation.md) |
+| Surface/3D Wire | 尚无完整实现 | [模型](architecture/target/surface-model.md)、[Feature](architecture/target/surface-features.md)、[质量](architecture/target/surface-quality.md)、[集成](architecture/target/surface-integration.md) |
+| DMU/Kinematics | 尚无完整实现 | [候选合同](architecture/target/kinematics-dmu.md) |
+| Jobs/Artifact/通信 | [Jobs 与制品](architecture/current/jobs-artifacts.md) | [分布式平台](architecture/target/distributed-platform.md) |
+| Web | [交互架构](architecture/current/web.md) | 对应领域交互合同与[命令分层](architecture/target/commands-history.md) |
+| 安全/验证/交付 | [验证边界](architecture/current/validation.md) | [质量与扩展](architecture/target/quality-extensions.md)、[交付治理](architecture/target/delivery-governance.md) |
 
-## 高频 focused reference
+## 高频横切摘要
 
-- [Model、Command 与 History](architecture/model-history.md)：Revision、ChangeSet、Undo/Redo、依赖和最终 CAS；
-- [Persistent Naming](architecture/persistent-naming.md)：TopologyHistory、PersistentSelection、Reconnect 与歧义；
-- [Part Feature 求值与 Sketch 上下文](architecture/part-feature-evaluation.md)：Sketch 编辑态场景分层、BodyOperation、Boolean history closure 与完整 Shape 门禁；
-- [Worker Contracts](architecture/worker-contracts.md)：Proto、Worker/Router、Artifact、Job 与迟到结果门禁；
-- [Agent Efficiency](architecture/agent-efficiency.md)：上下文、验证、输出、指标与后续结构优化。
+[Model/History](architecture/model-history.md)、[Persistent Naming](architecture/persistent-naming.md)、[Part 求值与 Sketch 上下文](architecture/part-feature-evaluation.md)、[Worker Contracts](architecture/worker-contracts.md) 是短导航与跨模块约束摘要；它们链接对应分册，不另设事实基线或计划。
 
-这些页面是面向任务的短投影。领域语义仍以表格所指向的 Target 章节为准，当前交付状态仍以 Current Architecture 和代码/测试为准。
+商业 CAD 对照页定位保留在[工作流参考索引](references/cad-workflows.md)，不作为当前能力证据。
 
-章节用标题和 `rg -n '^#{2,4} .*关键词'` 定位，不依赖易漂移行号。只有任务改变稳定身份、历史、单位、拓扑引用、公共协议、数据库或 Worker/服务一致性边界时，才继续扩展到交叉章节。
+## 维护规则
 
-## 知识职责
-
-- `AGENTS.md`：稳定的 Agent 行为、模块不变量、导航和验证入口；
-- 模块 `README.md`：当前职责、公共接口、配置、运行和故障语义；
-- `CURRENT_ARCHITECTURE.md`：可由当前代码验证的系统事实；
-- `TARGET_ARCHITECTURE.md`：长期领域语义、平台边界、候选与阶段门；
-- 临时任务上下文：留在 Issue/会话，不沉积到上述长期入口。
-
-## 停止条件
-
-当所属模块、当前行为、实现位置、相关测试、最小变更和验证命令都已明确时，停止继续读架构。需要更深语义时按上表精确升级，而不是扩大为全仓扫描。
-
-## Token-efficiency 代理指标
-
-无需估算模型内部 token；定期用以下可复现信号检查本结构是否退化：
-
-- persistent context：根 `AGENTS.md` 保持 router 量级，模块细节只进入最近的 local guide；
-- discovery：普通 Assembly/Web/Workspace 局部任务的默认路径应是 root + 1 个 local guide + 命中实现/测试区间，不先读两份完整架构或生成代码；
-- validation：`invoke check --scope <domain>` 不运行无关语言/领域，`invoke check --changed` 对共享契约保守升级；路由由 `tests/python/test_validation_routing.py` 固定；
-- output：成功的每个底层步骤只产生一行 PASS，Web 全场景成功只产生一行计数；失败保留原始 stdout/stderr 和复现命令；
-- hotspots：用 `git ls-files -z | xargs -0 stat -c '%s %n' | sort -nr` 识别新增大文本，但只按稳定职责拆分。
-
-若一次普通局部任务仍需要整读大型 architecture/source、重复寻找测试入口或默认运行全仓，应先修正路由/所有权，而不是删除知识、测试或诊断。
+- `AGENTS.md` 只放稳定行为、路由、验证；README 放职责/运行；当前分册放实现事实与代码/测试入口；目标分册放仍有效契约；计划只放未完成工作。
+- 完成计划先归入事实和长期契约，再删除原条目；剩余验收单独保留。历史讨论用 Git 追溯，不复制归档计划。
+- 分册按职责边界拆分；超过约 40 KB 先检查是否混入其他领域或实施日志。不要为了篇幅缩短而删除稳定身份、失败、分支和质量门。
+- 旧架构章节号保留为语义检索标识；新增链接使用具体分册，不再指向大文件行号。开发任务使用领域标识，只有统一路线定义依赖和状态。
+- 修改入口后运行 `invoke context-audit`；普通局部任务已明确实现、测试与最小验证入口时停止扩展上下文。

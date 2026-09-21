@@ -6,9 +6,9 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 
 ## 项目状态
 
-仓库当前是可运行的早期垂直切片，而不是完整 CAD 产品。已经贯通浏览器工作台、Go API、PostgreSQL、持久任务、C++/OCCT Geometry Worker 和本地制品存储；当前支持矩形草图到拉伸、Part/Product 文档、版本历史、Document Center 中的 STEP/BREP 文档交换、账号与 ACL 等基础能力。
+仓库当前是可运行的早期垂直切片，而不是完整 CAD 产品。已经贯通浏览器工作台、Go API、PostgreSQL、持久任务、C++/OCCT Geometry Worker 和本地制品存储；当前支持通用草图、参数化特征与关联产品设计、Part/Product 文档、版本历史、Document Center 中的 STEP/BREP 文档交换、账号与 ACL 等基础能力。
 
-二维草图已接入基础几何/尺寸约束、PlaneGCS 权威求解、约束可视化和通用 Profile。Part 的第一版实体框架把线性拉伸/旋转生成器与 `NEW_BODY / ADD / REMOVE / INTERSECT` Body 操作分离，支持一个 Body 内的 Fuse/Cut/Common，并支持显式基准面坐标框架和基准轴；Linear Extrude/Boolean 已生成 Face/Edge/Vertex 拓扑历史，Product 的直接 Part occurrence 可以用 PersistentSelection 跨 Revision 解析这些元素，并显示与修复三维装配约束状态。代表性 Cut/Hole 回归已覆盖贯穿孔后六个原面加四个孔壁、删除面 Broken、split 歧义、Undo/Redo 和 Reconnect 后继续编辑。它们仍不是完整专业 Sketcher/Part Design/Assembly Design。尚未实现多 Body、所有 Feature 类型的稳定拓扑命名、任意拓扑装配配合、曲面/钣金/工程图/CAM/CAE、跨主机调度和对象存储。这些能力的边界与演进顺序见[目标架构](docs/TARGET_ARCHITECTURE.md)。
+二维草图已接入基础几何/尺寸约束、PlaneGCS 权威求解、约束可视化和通用 Profile。Part 的第一版实体框架把线性拉伸/旋转生成器与 `NEW_BODY / ADD / REMOVE / INTERSECT` Body 操作分离，支持一个 Body 内的 Fuse/Cut/Common，并支持显式基准面坐标框架和基准轴；Linear Extrude/Boolean 已生成 Face/Edge/Vertex 拓扑历史，Product 的 Part occurrence 可以用 PersistentSelection 跨 Revision 解析这些元素，并显示与修复三维装配约束状态。代表性 Cut/Hole 回归已覆盖贯穿孔后六个原面加四个孔壁、删除面 Broken、split 歧义、Undo/Redo 和 Reconnect 后继续编辑。它们仍不是完整专业 Sketcher/Part Design/Assembly Design。尚未实现多 Body、所有 Feature 类型的稳定拓扑命名、任意拓扑装配配合、曲面/钣金/工程图/CAM/CAE、跨主机调度和对象存储。Product 已具备 typed InstancePath、Publication、ContextBinding/Variant、M3 SolveManifest 与不可变 Release，真实产品浏览器验收仍待收口。这些能力的边界与演进顺序见[目标架构](docs/TARGET_ARCHITECTURE.md)。
 
 ## 文档
 
@@ -16,9 +16,10 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 - [Agent Token 效率架构](docs/architecture/agent-efficiency.md)：上下文分层、验证路由、输出契约、指标和后续计划。
 - [现有架构](docs/CURRENT_ARCHITECTURE.md)：只描述当前仓库中可以从代码、配置和数据库迁移验证的事实。
 - [目标架构](docs/TARGET_ARCHITECTURE.md)：面向开源分布式 CAD 的长期设计、Worker 划分、调用关系、技术选型和演进路线。
+- [统一开发路线](plans/README.md)：装配主线、Feature/Sketch 支线、待验收与候选进入条件。
 - [AI Agent 路由](AGENTS.md)：精简的全局不变量、模块导航和渐进验证规则；高频领域另有邻近指南。
 
-`docs/README.md` 只作入口，两份核心文档仍分别维护当前事实和长期语义。历史 Demo 和版本说明已经合并，不再作为有效架构依据。
+`docs/README.md` 只作入口，两份架构入口分别路由到 `docs/architecture/current/` 和 `docs/architecture/target/` 分册。历史 Demo 和版本说明已经合并，不再作为有效架构依据。
 
 ## 可运行单元
 

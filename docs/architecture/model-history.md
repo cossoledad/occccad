@@ -1,6 +1,6 @@
 # Model, Command and History quick reference
 
-> Canonical semantics: `TARGET_ARCHITECTURE.md` §4.3. Current facts: `CURRENT_ARCHITECTURE.md` §4.1–4.4.
+> Canonical semantics: [commands/history](target/commands-history.md) and [parameters/evaluation](target/parameters-evaluation.md). Current facts: [model/history](current/model-history.md).
 
 Use this page when changing Domain Command, Workspace, Revision, ChangeSet, dependency projection, Undo/Redo or evaluator normalization. It is a navigation projection, not a second schema specification.
 

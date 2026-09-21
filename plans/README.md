@@ -1,7 +1,45 @@
-# Plans
+# 统一开发路线
 
-此目录保存已经结合当前代码与目标架构分析过的开发计划，并在每个批次落地后记录实施状态。计划内容本身不代表已交付能力；当前事实仍以 [`docs/CURRENT_ARCHITECTURE.md`](../docs/CURRENT_ARCHITECTURE.md) 和代码、测试为准。
+> 2026-09-21 基线核对。计划只保存未完成工作；已实现事实见[当前架构](../docs/CURRENT_ARCHITECTURE.md)，长期合同见[目标架构](../docs/TARGET_ARCHITECTURE.md)。
 
-- [Part 特征编辑、持久拓扑命名与装配约束状态](part-feature-editing-persistent-naming-and-assembly-status.md)
-- [P7 后关联设计、Feature 与装配演进计划](associative-design-roadmap-after-p7.md)
-- [P9 后 Product 中心的关联设计方案](product-centric-associative-design-after-p9.md)
+## 一条主线
+
+产品主线是“可验证的关联产品设计 → 稳定装配交互 → 可解释冲突 → 工程连接”。参数、命名、Publication、Product 上下文与 M3 已是代码基线，不再作为新的开发阶段重复实施；当前先收口真实产品验收。
+
+```mermaid
+flowchart LR
+    Baseline["已有：参数/命名/Publication/Product/M3"] --> Accept["ACCEPT-PRODUCT 实际产品验收"]
+    Accept --> Drag["M4 稳定约束流形交互"]
+    Drag --> Conflict["M5 局部冲突解释"]
+    Conflict --> Connection["M6 工程连接"]
+    Baseline --> Feature["FEATURE 实体特征支线"]
+    Baseline --> Projection["PROJECTION 草图投影支线"]
+    Connection -.进入条件.-> Future["DMU / Kinematics 等候选"]
+```
+
+若只有一条开发线：先 ACCEPT-PRODUCT，再补齐已有 Revolve 的 naming/edit 闭环，然后 M4 → M5 → M6。其他 Feature 和 Projection 根据真实建模需求插入；它们不是 M4 的强制前置。独立研究或实现可提前进行，但不得跳过依赖路径上的产品验收。
+
+## 可领取工作
+
+| 轨道 | 当前首项 | 依赖与退出门 | 详情 |
+|---|---|---|---|
+| 主线验收 | ACCEPT-PRODUCT | 已有实现；真实浏览器/后端全路径证据 | [Product 验收](product-acceptance.md) |
+| 装配主线 | ASSEMBLY-SESSION | M3 合同；主线交付前完成 ACCEPT-PRODUCT | [装配演进](assembly-evolution.md) |
+| 实体支线 | FEATURE-REVOLVE-HISTORY | 已有 Extrude/Boolean 命名基线；完整命名 corpus | [Feature 扩张](feature-expansion.md) |
+| 草图支线 | PROJECTION-ARC | 已有 Edge/Vertex 投影；先统一 ARC snapshot | [Sketch 投影](sketch-projection.md) |
+| 工程维护 | 按证据触发 | 保持行为、验证与导航等价 | [维护支线](engineering-maintenance.md) |
+| 候选 | 暂不分配开发批次 | 负载、场景或领域前置条件满足后细化 | [候选方向](candidates.md) |
+
+## 编号与状态规则
+
+任务采用 `领域-动作` 稳定标识，不按对话次数、模型名称或随意追加的 P 编号排列。M3–M7 保留为 solver 成熟度门；架构分册的章节号和局部能力优先级都不是计划编号。
+
+状态只用“待实施 / 实施中 / 待验收 / 候选”。完成条目先把实现、代码/测试入口和限制归入当前架构，再从计划删除；仍有效的长期合同归入目标架构。未通过的人工验收不能跟着实现计划一起删除。历史实施记录由 Git 保存，不再复制一套归档计划。
+
+旧编号仅用于查历史：P0–P7 对应特征编辑/naming/装配状态，P8 对应 Part 内关联，P9 对应 Publication/受控外部引用，P10 对应 Product 上下文/M3/Release；上述实现已归入当前分册。P11A–I 对应 FEATURE，P11J/K 对应 PROJECTION，P12/P13/P14 分别对应 M4/M5/M6，P15–P18 与平台扩展已转为有进入条件的候选。
+
+## 每项工作的共同完成门
+
+用户场景 → typed command/schema → evaluator/solver → provenance/诊断 → UI/历史 → 验证贯通。持久模型变化覆盖 Undo/Redo、刷新/冷重建、CAS/幂等、依赖和空开发库迁移；Feature 同时覆盖 Shape gate 与 topology history。验证按精确用例 → 受影响领域 → 受影响集成升级，共享 Proto/迁移/构建必须全仓；复杂交互另做真实浏览器验收。
+
+当前文档整理只核对实现与测试入口，没有重新执行旧计划所声称的全量或人工验收。各事实分册明确列出实现与限制，具体执行结果应由实际交付记录证明。

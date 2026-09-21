@@ -17,8 +17,8 @@ part of a large occurrence graph.
 
 This document is subordinate to the platform invariants and Product/Assembly
 domain model in [`docs/TARGET_ARCHITECTURE.md`](../../docs/TARGET_ARCHITECTURE.md).
-It focuses on the internal solver architecture, implementation order and
-verification gates.
+It focuses on internal solver contracts and verification gates. Product work order
+and unfinished tasks are owned by the [unified roadmap](../../plans/README.md).
 
 ## 2. Current verified baseline
 
@@ -38,8 +38,9 @@ than the original single-problem A1 prototype. It provides:
 - column-normalized SVD rank and numeric null-space basis, relative/gauge DOF
   counts, per-constraint declared/effective/incremental rank, semantic equation
   provenance, geometric satisfaction tests and bounded conflict probes;
-- a control-plane adapter that resolves direct Part datums and revision-bound exact
-  topology descriptors, then calls `SolveAssembly` through the formal Router path;
+- a control-plane adapter that resolves nested rigid Product occurrences, typed
+  InstancePaths and Publication/PersistentSelection endpoints into immutable M3
+  manifests, then calls `SolveAssembly` through the formal Router path;
 - atomic Product command submission in which the constraint and all solved poses
   are recorded in the final Revision and reconciled ChangeSet.
 
@@ -53,17 +54,18 @@ The remaining boundary is equally important:
   durable freedom/Engineering Connection identities remain later work;
 - hierarchical pose selection is local to a frozen branch; no global nonconvex
   optimum or finite-motion reachability is claimed;
-- Product input is limited to direct Part instances and revision-local topology IDs;
-  it does not yet freeze typed InstancePaths, Publications/PersistentSelections or
-  nested/flexible expansion in an immutable solve manifest;
+- M3 freezes typed paths, resolved descriptors and nested rigid expansion; flexible
+  expansion remains unimplemented;
 - MOVE preview still models its target as a temporary `Fix`, so it cannot return the
   nearest feasible point and blocked directions for an unreachable drag target;
-- conflict probes identify suspects, not a verified IIS/MUS, and solver profile,
-  branch snapshots and build provenance are not yet durable solve inputs/results;
-- cancellation, sparse/incremental factorization and representative large-assembly
-  performance gates are not implemented.
+- conflict probes identify suspects, not a verified IIS/MUS; M3 persists solver
+  profile/build provenance and request results, while M4 interaction sessions remain
+  future work;
+- request deadline/cancel is handled by the orchestration path; this does not prove
+  fine-grained numerical interruption. Sparse/incremental factorization and
+  representative large-assembly performance gates remain future work.
 
-M3 and later milestones close the remaining gaps in dependency order. They must not be
+M4 and later milestones close the remaining gaps in dependency order. They must not be
 collapsed into a larger enum surface or a backend replacement that leaves Product
 identity, branch intent and diagnostics unresolved.
 
@@ -369,7 +371,7 @@ Diagnostics are domain data, not an English string from the numeric backend. Eac
 diagnostic needs a stable code, severity, affected identities, numeric evidence,
 tolerance/profile information and a localizable message key.
 
-## 8. Delivery plan
+## 8. Solver maturity contracts
 
 ### M0: corpus and baseline observability (implemented)
 
@@ -635,10 +637,10 @@ MOVE 的最近可行目标投影仍由 M4 实现，本门不以现有 `interacti
 Worker/Go/Router 携带 typed freedom/preference enums 与完整证据，Product 预览通过现有 preview actor 展示第二元素变化和自由度，
 REQUEST/RESET/CANCEL 清理旧证据，旧 sequence 的响应不覆盖新状态。提交不持久化额外求解状态机；最终 Pose 仍进入同一
 Revision/ChangeSet，连续 Undo/Redo 由原历史语义处理。当前 `solver_build=assembly-m2.5-hierarchy-v2`，profile schema 为 2。
-装配求解当前没有结果缓存；无需通过修改无关的 Part evaluator 来假装失效装配缓存。持久 solve manifest/provenance 是 M3。
+M3 已持久化 solve manifest/provenance 和 request-specific result；重试复用对应请求结果，不等同于任意姿态的数值 warm-start cache。
 
 
-### M3: replayable Product solve manifest
+### M3: replayable Product solve manifest (implemented control-plane baseline)
 
 Stable input precedes richer interaction. The control plane freezes a versioned,
 content-digested manifest containing:
@@ -654,9 +656,10 @@ content-digested manifest containing:
 
 The solver never queries Product, PostgreSQL or B-Rep. Broken, ambiguous or
 incompatible references fail during manifest construction with stable diagnostics.
-Current direct-Part datum and `geometryKey + topology local ID` references are
-development-only inputs and are removed when the M3 path is complete; the project
-is still pre-release, so no permanent dual model is introduced.
+`geometryKey + topology local ID` is transient pick evidence, bound to persistent
+identity before submission. Current code and limitations are recorded in
+[Product/Assembly](../../docs/architecture/current/product-assembly.md); real
+Product browser acceptance remains tracked separately in the roadmap.
 
 M3 is accepted only when replaying the same manifest after workspace-head changes
 produces a semantically equivalent result, nested rigid Product occurrences solve
@@ -735,12 +738,11 @@ static placement solve loop.
 
 ## 9. Next vertical slice and acceptance criteria
 
-The M2.5 baseline now includes hierarchy, Product integration and instantaneous
-freedom interpretation. The next slice is M3: replayable solve inputs and stable
-Product references, reusing PersistentSelection/Publication rather than inventing
-a second topology identity. Keep the M2.5 motion, subspace and Router/history corpus
-as its compatibility gate. MOVE projection is still M4; sparse/incremental execution
-remains benchmark-led M7 work.
+M2.5 numerical hierarchy and M3 control-plane manifests are implemented. Complete
+[Product acceptance](../../plans/product-acceptance.md), then follow the
+[assembly roadmap](../../plans/assembly-evolution.md) for M4 constrained interaction,
+M5 diagnostics and M6 connections. Keep motion, subspace and Router/history corpus
+as regression gates; sparse/incremental execution remains benchmark-led M7 work.
 
 ## 10. Explicit non-goals for the next milestone
 

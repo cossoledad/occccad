@@ -1,6 +1,6 @@
 # Persistent naming quick reference
 
-> Canonical semantics: `TARGET_ARCHITECTURE.md` §5.7 and relevant §5.4/§5.6 contracts. Current facts: `CURRENT_ARCHITECTURE.md` §5.
+> Canonical semantics: [persistent naming](target/persistent-naming.md), [Feature evaluation](target/part-evaluation.md), and [Product context](target/product-context.md). Current facts: [naming and recovery](current/persistent-naming.md).
 
 Use this page for topology history, PersistentSelection, Product supporting elements, Reconnect and exact topology properties.
 

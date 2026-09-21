@@ -1,8 +1,6 @@
-# P8 后 Sketch 投影能力扩展设计
+# Sketch 投影支线
 
-状态：计划；P11J 可在 P8 完成后独立启动  
-基线：P8 已实现同一 Part 内 Edge/Vertex 的正交 ExternalGeometry、更新、失效、Reconnect 与 Detach  
-路线图入口：[associative-design-roadmap-after-p7.md](associative-design-roadmap-after-p7.md)
+> 状态：待实施。现有基线是同 Part 的 Edge/Vertex 正交投影、更新、Reconnect 与 Detach。返回[统一路线](README.md)。
 
 ## 1. 为什么选择 Face 不能直接复用当前 Project
 
@@ -43,7 +41,7 @@ ExternalGeometry
 - 多曲线结果保留全部稳定 solution，用户选择的 branch 进入定义。禁止“每次取最长曲线”；
 - 更新顺序继续固定为 naming resolve → projection/section → Sketch solve → downstream Feature；失败时清除过期 snapshot，不消费旧几何。
 
-## 3. P11J：Face Boundary Projection
+## 3. PROJECTION-BOUNDARY：Face Boundary Projection
 
 目标：在活动草图中选择平面或曲面 Face，一次创建其外环/孔环的关联二维边界集合。
 
@@ -58,7 +56,7 @@ ExternalGeometry
 
 验收：选择 Pad 顶面后一次得到可辨识的外环和孔环；正常上游编辑保持成员 identity；成员拓扑变化不按数组位置错绑。
 
-### P11J-0：单 Edge 的部分圆弧合同
+### PROJECTION-ARC：单 Edge 的部分圆弧合同
 
 在 Face group 之前先扩展现有单 Edge 投影，使布尔交线等 trimmed circular Edge 可以形成 `ARC` snapshot：
 
@@ -69,7 +67,7 @@ ExternalGeometry
 
 在该子批次完成前，部分圆弧必须稳定返回 `EXTERNAL_PROJECTION_TYPE_UNSUPPORTED`；新建/重连命令原子失败并保留旧 Head，不能静默创建 `UNRESOLVED_EXTERNAL` 或提交错误 artifact provenance。
 
-## 4. P11K：Section 与 Silhouette
+## 4. PROJECTION-SECTION：Section 与 Silhouette
 
 目标：提供显式的“与草图平面求交”和“沿指定方向投影轮廓”命令。
 
@@ -81,25 +79,15 @@ ExternalGeometry
 - 增加 branch 选择、更新后的保留/失效、Reconnect/Detach 和资源预算；
 - 二维 snapshot 支持 Line/Circle/Arc/Ellipse/BSpline，并保持 3D witness 与 2D 曲线偏差报告。
 
-P11K 依赖 P11J 的 projection group、成员身份和 UI，不阻塞 P9 Publication 或 P11A Revolve naming。
+PROJECTION-SECTION 依赖 PROJECTION-BOUNDARY 的 projection group、成员身份和 UI，不阻塞 Publication 或 FEATURE-REVOLVE-HISTORY Revolve naming。
 
-## 5. 与 P16 Surface/3D Wire 的边界
+## 5. 与 Surface/3D Wire 的边界
 
-P11J/P11K 的输出属于某个 Sketch 的二维 ExternalGeometry，只服务于草图约束与 Profile。P16 的 `ProjectCurve`、`IntersectionCurve`、Boundary 和 CurveOnSurface 是独立的三维 WireFeature/SurfaceFeature，必须保存 3D curve、pcurve/UV、支撑面和多解 branch。不能把二维 Sketch snapshot 提升为权威三维曲线，也不能让 P16 反向复用浏览器显示折线。
+PROJECTION-BOUNDARY/PROJECTION-SECTION 的输出属于某个 Sketch 的二维 ExternalGeometry，只服务于草图约束与 Profile。Surface/3D Wire 的 `ProjectCurve`、`IntersectionCurve`、Boundary 和 CurveOnSurface 是独立的三维 WireFeature/SurfaceFeature，必须保存 3D curve、pcurve/UV、支撑面和多解 branch。不能把二维 Sketch snapshot 提升为权威三维曲线，也不能让 Surface/3D Wire 反向复用浏览器显示折线。
 
-## 6. 推荐执行顺序
+## 6. 执行依赖
 
-```text
-P8 complete
-  ├─ P9 Publication 主线
-  ├─ P11A Revolve naming
-  └─ P11J Face Boundary Projection
-         └─ P11K Section / Silhouette
-
-P16 Surface/3D Wire 在其表示和质量门禁就绪后独立进入
-```
-
-若近期优先改善当前 Sketcher 工作流，可在下一批先领取 P11J-0，再进入 Face Boundary group；P11J-0 以版本化 `ARC` snapshot 扩展 P8 的单 Edge 合同，P11J 主批次复用该合同而不再建立第二套曲线表示。
+PROJECTION-ARC → PROJECTION-BOUNDARY → PROJECTION-SECTION。它们复用现有 Part/naming 基线，可独立于装配主线推进；不依赖三维曲面模块。先统一单 Edge ARC snapshot，再复用到 Face group，避免为一个布尔案例添加旁路。三维曲线与曲面能力见[候选方向](candidates.md)。
 
 ## 7. 能力边界与缺陷处理规则
 

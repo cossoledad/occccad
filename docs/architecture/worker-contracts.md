@@ -1,6 +1,6 @@
 # Worker contracts focused reference
 
-本文是 Proto、Geometry Worker、Router、Artifact 与 Job 路径的短投影，用于避免为一次 RPC 或任务修改整读两份架构总览。领域边界以 `TARGET_ARCHITECTURE.md` 第 5.1、6–9 章为准；已交付能力以 `CURRENT_ARCHITECTURE.md` 第 3、5.2、6–7 章和代码为准。
+本文是 Proto、Geometry Worker、Router、Artifact 与 Job 路径的短投影，用于避免为一次 RPC 或任务修改整读两份架构总览。领域边界以[计算部署](target/compute-boundaries.md)和[分布式平台](target/distributed-platform.md)为准；已交付能力以[运行边界](current/runtime.md)、[Part RPC](current/part-sketch.md)、[Jobs/Artifact](current/jobs-artifacts.md)和代码为准。
 
 ## 权威边界
 
