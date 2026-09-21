@@ -682,6 +682,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			break
 		}
 		return typeMoveInstance, moveInstancePayload{request.InstanceID, request.Translation, request.Rotation}, nil
+	case "SET_ASSEMBLY_CONSTRAINT_STATE":
+		if documentType != "PRODUCT" {
+			break
+		}
+		return typeSetAssemblyConstraintState, assemblyConstraintStatePayload{ConstraintIDs: request.ConstraintIDs, Suppressed: request.Suppressed, Mode: request.ConstraintMode}, nil
 	case "ADD_ASSEMBLY_CONSTRAINT":
 		if documentType != "PRODUCT" {
 			break
@@ -720,9 +725,14 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, err
 			}
 		}
-		constraint := AssemblyConstraint{ID: newID("assembly-constraint"), ConnectionID: newID("assembly-connection"), Kind: kind, Mode: "DRIVING", First: *request.FirstAssemblyRef,
+		if request.AngleAxis != nil {
+			if err := service.bindAssemblyPick(ctx, &product, request.AngleAxis); err != nil {
+				return "", nil, err
+			}
+		}
+		constraint := AssemblyConstraint{ID: commandEntityID("assembly-constraint", request.RequestID), ConnectionID: commandEntityID("assembly-connection", request.RequestID), Kind: kind, FixMode: request.FixMode, AngleRelation: request.AngleRelation, Mode: "DRIVING", First: *request.FirstAssemblyRef,
 			Second: request.SecondAssemblyRef, Value: request.Value, DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation),
-			AngleReferenceDirection: request.AngleReferenceDirection, EvaluationStatus: modelcore.AssemblyConstraintVerified}
+			AngleAxis: request.AngleAxis, ReverseAngleAxis: request.ReverseAngleAxis != nil && *request.ReverseAngleAxis, AngleReferenceDirection: request.AngleReferenceDirection, EvaluationStatus: modelcore.AssemblyConstraintVerified}
 		if constraint.DirectionRelation == "" {
 			constraint.DirectionRelation = "UNORIENTED"
 		}
@@ -783,6 +793,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, err
 			}
 		}
+		if request.AngleAxis != nil {
+			if err := service.bindAssemblyPick(ctx, &bindingModel, request.AngleAxis); err != nil {
+				return "", nil, err
+			}
+		}
 		var editedFixedPose *InstancePose
 		var product ProductModel
 		if json.Unmarshal(modelJSON, &product) == nil {
@@ -822,9 +837,12 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				break
 			}
 		}
-		return typeEditAssemblyConstraint, editAssemblyConstraintPayload{ConstraintID: id, Value: request.Value,
+		if request.FixedPose != nil {
+			editedFixedPose = request.FixedPose
+		}
+		return typeEditAssemblyConstraint, editAssemblyConstraintPayload{FixMode: request.FixMode, AngleRelation: request.AngleRelation, ConstraintID: id, Value: request.Value,
 			DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation),
-			First: request.FirstAssemblyRef, Second: request.SecondAssemblyRef, AngleReferenceDirection: request.AngleReferenceDirection,
+			First: request.FirstAssemblyRef, Second: request.SecondAssemblyRef, AngleAxis: request.AngleAxis, ReverseAngleAxis: request.ReverseAngleAxis, AngleReferenceDirection: request.AngleReferenceDirection,
 			FixedPose: editedFixedPose}, nil
 	case "SET_REFERENCE_MODE":
 		if documentType != "PRODUCT" {

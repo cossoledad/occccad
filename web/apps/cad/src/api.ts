@@ -1,5 +1,7 @@
 import type { AssemblyGeometryRef, AssemblySolveManifestResult, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ProductRelease, ProductReleaseReplay, ProductUpdatePlan, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
+import { CommandPreviewIdentities } from "./api/command-preview-identity";
+const previewIdentities = new CommandPreviewIdentities();
 import { randomUUID } from "./utils/random-uuid";
 import { clientPerformanceSnapshot, recordClientPerformance } from "./utils/performance";
 
@@ -79,7 +81,7 @@ async function downloadAssemblyReplay(documentId: string): Promise<void> {
 }
 
 async function executeDocumentCommand(documentId: string, command: Record<string, unknown>): Promise<DocumentView> {
-	const commandWithID: Record<string, unknown> = { requestId: requestId(), ...command };
+	const commandWithID: Record<string, unknown> = { requestId: previewIdentities.requestFor(documentId, command.previewId) ?? requestId(), ...command };
 	if (!commandWithID.previewId) assemblyReplayRequests.set(documentId, String(commandWithID.requestId));
 	try {
 		return await realtime.executeCommand(documentId, commandWithID);
@@ -256,12 +258,14 @@ export const restApi = {
 	downloadDiagnosticBundle: (documentId: string) => downloadDiagnosticBundle(documentId,
 		{ type: "MANUAL_DIAGNOSTIC_EXPORT", requestId: requestId() }, "manual diagnostic export"),
   downloadAssemblyReplay,
-  previewCommand: (documentId: string, command: Record<string, unknown>, signal?: AbortSignal) => {
+  previewCommand: async (documentId: string, command: Record<string, unknown>, signal?: AbortSignal) => {
     const input = { requestId: requestId(), ...command };
     assemblyReplayRequests.set(documentId, `preview/${input.requestId}`);
-    return request<CommandPreview>(`/api/documents/${documentId}/command-previews`, {
+    const result = await request<CommandPreview>(`/api/documents/${documentId}/command-previews`, {
       method: "POST", signal, body: JSON.stringify(input),
     });
+    previewIdentities.remember(documentId, result.previewId, String(input.requestId));
+    return result;
   },
   createSketch: (documentId: string, support: { plane?: string; datumPlaneId?: string; targetKind?: "FACE";
       geometryKey?: string; topologyId?: number; versionId?: string }) =>
@@ -333,12 +337,12 @@ export const restApi = {
     restApi.command(documentId, {type:"DETACH_CONTEXT_REFERENCE", contextReferenceId}),
   move: (documentId: string, instanceId: string, translation: Vec3, rotation: [number,number,number,number], previewId?: string) =>
 	restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation, rotation, previewId }),
-  addAssemblyConstraint: (documentId: string, input: { constraintKind: string;
+  addAssemblyConstraint: (documentId: string, input: { constraintKind: string; angleRelation?: string;
     firstAssemblyRef: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef;
-	value?: number; directionRelation?: string; distanceRelation?: string; angleReferenceDirection?: Vec3; previewId?: string }) =>
+	value?: number; directionRelation?: string; distanceRelation?: string; angleReferenceDirection?: Vec3; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; previewId?: string }) =>
     restApi.command(documentId, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),
-  editAssemblyConstraint: (documentId: string, constraintId: string, input: { value: number; directionRelation: string; distanceRelation: string;
-	firstAssemblyRef?: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef; angleReferenceDirection?: Vec3; previewId?: string }) =>
+  editAssemblyConstraint: (documentId: string, constraintId: string, input: { value: number; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; fixMode?: string; angleRelation?: string; directionRelation: string; distanceRelation: string;
+	firstAssemblyRef?: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef; angleReferenceDirection?: Vec3; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; previewId?: string }) =>
     restApi.command(documentId, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),
   setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_HEAD" | "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED") =>
     restApi.command(documentId, { type: "SET_REFERENCE_MODE", instanceId, referenceMode }),

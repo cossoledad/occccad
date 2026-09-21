@@ -1,16 +1,18 @@
 # 装配主线：六类约束与自由度组合、激活状态与实时操纵
 
-> 状态：待实施；2026-09-21 按自洽语义与自由度控制目标更新。Product/M3 基线已[完成验收](../docs/architecture/current/product-assembly.md#accept-product-完成记录)。返回[统一路线](README.md)。
+> 状态：实施中；2026-09-21 按自洽语义与自由度控制目标更新。Product/M3 基线已[完成验收](../docs/architecture/current/product-assembly.md#accept-product-完成记录)。返回[统一路线](README.md)。
 
 ## 交付目标与当前差距
 
 先把 **Coincidence、Contact、Offset、Angle、Fix、Fix Together** 六种用户约束完整落到模型、求解、参数编辑和状态，再交付尊重约束的连续三维操纵，随后强化冲突解释与 Engineering Connections。六类的准确合同、几何矩阵及本机来源页面统一见[六类约束合同](../docs/architecture/target/assembly-constraints.md)，本页只维护工作分解、依赖与验收。
 
-当前 `COINCIDENT/CONCENTRIC/DISTANCE/ANGLE/FIX/RIGID` 不是 CATIA 六类的等价集合。Concentric 应归入 Coincidence；Distance 只能复用为 Offset 的部分方程；Rigid 不等于多成员、组内先解的 Fix Together。Contact、完整有向角/方向关系/参考轴、相对 Fix 和部分支持几何仍有缺口。Worker/kernel 已识别 `SUPPRESSED` 等模式，但不等于 Web → Domain Command → 引用解析 → active set → Release 的激活/停用闭环已交付。
+当前 `COINCIDENT/CONCENTRIC/DISTANCE/ANGLE/FIX/RIGID` 不是 CATIA 六类的等价集合。Concentric 应归入 Coincidence；Distance 只能复用为 Offset 的部分方程；Rigid 不等于多成员、组内先解的 Fix Together。Contact、多成员固联、公共六类语义收敛和部分支持几何仍有缺口。现有类型的 Web → Domain Command → 引用解析 → active set → Release 激活/停用基础链已进入代码；完整六类与组生命周期的退出门尚未满足。
 
 代码核对入口：`services/internal/workspace/assembly_solve.go`（能力/branch 规范化与临时 Fix）、`model.go`（约束及 mode）、`workers/geometry/src/main.cpp`（mode adapter）、`kernel/assembly/include/occccad/assembly/solver.hpp` 与 `src/solver.cpp`（模式/方程）。当前 MOVE 仍注入 `interaction-driver` Fix；已有 null-space 和预览不能算最近可行拖拽。
 
 ## 六类约束与生命周期补齐
+
+首批已落地独立激活状态、批量命令、原模式恢复、空活动集合 manifest、预览证据提交与 Undo/Redo 求解证据；Angle 显式稳定参考轴及平行/垂直、点线/线面偏移、Fix 基准与六参数编辑、0–6 阶及常见关节有限运动测试也已进入代码。事实与测试入口见[当前实现](../docs/architecture/current/product-assembly.md#六类约束与生命周期的首批实现)。**本阶段尚未完成，不作完成标记。** 下列批次保留的是完整退出门，不能用首批通过替代六类全矩阵验收。
 
 ### CONSTRAINT-CONTRACT：六类能力与参照 corpus 冻结
 

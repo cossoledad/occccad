@@ -813,6 +813,33 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	} else {
 		var model ProductModel
 		if err = json.Unmarshal(input.modelJSON, &model); err == nil {
+			restoresFailedRevision := false
+			for _, c := range model.Constraints {
+				restoresFailedRevision = restoresFailedRevision || c.EvaluationStatus == modelcore.AssemblyConstraintImpossible
+			}
+			if err = service.solveAssembly(ctx, input.documentID, revisionID, input.requestID, "", nil, &model, ""); err != nil {
+				if err = acceptAssemblyEvaluationFailure(&model, err, restoresFailedRevision); err != nil {
+					return err
+				}
+			}
+			var before json.RawMessage
+			if err = service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1`, input.headRevision).Scan(&before); err != nil {
+				return err
+			}
+			var previous ProductModel
+			if err = json.Unmarshal(before, &previous); err != nil {
+				return err
+			}
+			input.changes = appendAssemblyEvaluationChanges(input.changes, previous, model)
+			input.modelJSON, err = json.Marshal(model)
+			if err != nil {
+				return err
+			}
+			input.changes, err = reconcilePersistedChanges("PRODUCT", before, input.modelJSON, input.changes)
+			if err != nil {
+				return err
+			}
+			modelHash = canonicalModelHash(input.modelJSON)
 			graph, manifest, err = buildProductEvaluation(model, revisionID, modelHash, input.changes.ImpactSeeds, nil)
 		}
 	}

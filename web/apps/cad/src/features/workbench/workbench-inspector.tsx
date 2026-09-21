@@ -180,6 +180,9 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
     const constraint = view.product?.constraints?.find((value) => value.id === selection.constraintId);
     return <Descriptions column={1} size="small" bordered className="property-list" items={[
       { key: "type", label: "类型", children: constraint?.kind ?? selection.constraintType },
+      { key: "activation", label: "激活状态", children: constraint?.suppressed ? "停用" : "激活" },
+      { key: "mode", label: "模式", children: constraint?.mode ?? "DRIVING" },
+      ...(constraint?.mode === "MEASURED" ? [{key:"measurement",label:"测量值",children:constraint.measuredValue === undefined ? "不可测" : constraint.kind === "ANGLE" ? `${constraint.measuredValue*180/Math.PI}°` : `${constraint.measuredValue} mm`}] : []),
       { key: "evaluation", label: "Evaluation", children: constraint?.evaluationStatus ?? "NOT_UPDATED" },
       { key: "first-support", label: "First Support", children: constraint?.first.resolution?.result.supportingElementStatus ?? (constraint?.first.persistentSelection ? "NOT_CONNECTED" : "CONNECTED") },
       { key: "second-support", label: "Second Support", children: constraint?.second?.resolution?.result.supportingElementStatus ?? (constraint?.second?.persistentSelection ? "NOT_CONNECTED" : "CONNECTED") },

@@ -40,7 +40,11 @@ depend on OCCT, Product documents, topology naming, RPC or persistence.
 | Coincident | Point-Point, Point-Axis/Cylinder, Point-Plane, Axis/Cylinder pairs, Plane-Plane |
 | Concentric | Any Axis/Cylinder pair |
 | Angle | Any pair of Plane, Axis or Cylinder directions |
-| Distance | Point-Point, Point-Plane, Axis/Cylinder pairs, Plane-Plane |
+| Distance | Point-Point, Point-Axis/Cylinder, Point-Plane, Axis/Cylinder pairs, Axis/Cylinder-Plane, Plane-Plane |
+| Parallel | Plane/Axis/Cylinder direction pairs; generic rank 2 |
+| Perpendicular | Plane/Axis/Cylinder direction pairs; generic rank 1 |
+
+Zero driving Point-Point/Point-Axis distances compile to coincidence equations with rank 3/2; a scalar norm at zero cannot represent that manifold with a regular Jacobian. The composition corpus checks ranks zero through six, the position/direction/clocking construction and suppression.
 
 Cylinder-Cylinder `Coincident` includes equal radius; `Concentric` deliberately does
 not. Plane distance also imposes parallelism, which makes it a stable assembly mate

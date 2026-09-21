@@ -110,11 +110,13 @@ func (workflow *assemblySolveWorkflow) failure(ctx context.Context, status, code
 // on the browser's FACE/EDGE pick category.
 func assemblyCapabilities(kind, firstKind, secondKind string) assemblyConstraintCapabilities {
 	planePair := firstKind == "PLANE" && secondKind == "PLANE"
+	directional := func(k string) bool { return k == "AXIS" || k == "PLANE" || k == "CYLINDER" }
+	axisLike := func(k string) bool { return k == "AXIS" || k == "CYLINDER" }
+	axisPair := axisLike(firstKind) && axisLike(secondKind)
 	return assemblyConstraintCapabilities{
-		direction: planePair && (kind == "COINCIDENT" || kind == "DISTANCE"),
-		distanceSide: kind == "DISTANCE" && ((firstKind == "POINT" && secondKind == "PLANE") ||
-			(firstKind == "PLANE" && secondKind == "POINT") || planePair),
-		directedAngle: kind == "ANGLE" && planePair,
+		direction:     (kind == "PARALLEL" && directional(firstKind) && directional(secondKind)) || (kind == "COINCIDENT" && (planePair || axisPair)) || (kind == "CONCENTRIC" && axisPair) || (kind == "DISTANCE" && planePair),
+		distanceSide:  kind == "DISTANCE" && (firstKind == "PLANE" || secondKind == "PLANE"),
+		directedAngle: kind == "ANGLE" && directional(firstKind) && directional(secondKind),
 	}
 }
 
@@ -143,6 +145,9 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 	if service.worker == nil {
 		return workflow.failure(context.Background(), "NUMERICAL_FAILURE",
 			"ASSEMBLY_SOLVER_UNAVAILABLE", "assembly solver is unavailable", true)
+	}
+	if err := service.resolveAssemblySupports(ctx, model); err != nil {
+		return err
 	}
 	instances := make(map[string]*ProductInstance, len(model.Instances))
 	bodies := make([]geometry.AssemblyBody, 0, len(model.Instances))
@@ -189,11 +194,19 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		return nil
 	}
 	for index := range model.Constraints {
+		if model.Constraints[index].Suppressed {
+			continue
+		}
 		if err := applyVariantPublication(&model.Constraints[index].First); err != nil {
 			return err
 		}
 		if err := applyVariantPublication(model.Constraints[index].Second); err != nil {
 			return err
+		}
+		if model.Constraints[index].AngleRelation == "DIRECTED" {
+			if err := applyVariantPublication(model.Constraints[index].AngleAxis); err != nil {
+				return err
+			}
 		}
 	}
 	type resolvedPart struct {
@@ -400,6 +413,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		return key, nil
 	}
 	constraints := make([]geometry.AssemblyConstraint, 0, len(model.Constraints))
+	hasUnresolvedActiveConstraint := false
 	resolutionEvidence := make([]AssemblyResolutionEvidence, 0, len(model.Constraints)*2)
 	appendResolutionEvidence := func(constraintID, endpoint, geometryKey string, reference AssemblyGeometryRef) {
 		evidence := AssemblyResolutionEvidence{ConstraintID: constraintID, Endpoint: endpoint, InstanceID: reference.InstanceID,
@@ -416,7 +430,13 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 	}
 	for constraintIndex := range model.Constraints {
 		constraint := &model.Constraints[constraintIndex]
+		if constraint.Suppressed {
+			continue
+		}
 		if constraint.EvaluationStatus == modelcore.AssemblyConstraintBroken {
+			hasUnresolvedActiveConstraint = true
+			// Broken definitions remain in the manifest and fail the active Release
+			// gate; unrelated connected constraints can still be solved.
 			continue
 		}
 		firstGeometry, err := resolveRef(constraint.First)
@@ -426,11 +446,20 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		appendResolutionEvidence(constraint.ID, "FIRST", firstGeometry, constraint.First)
 		value := geometry.AssemblyConstraint{ID: constraint.ID, ConnectionID: constraint.ConnectionID, Kind: constraint.Kind, Mode: constraint.Mode, FirstBodyID: constraint.First.InstanceID, FirstGeometryID: firstGeometry, Value: constraint.Value, DirectionRelation: constraint.DirectionRelation, DistanceRelation: constraint.DistanceRelation,
 			AngleReferenceDirection: constraint.AngleReferenceDirection}
+		if constraint.Kind == "ANGLE" && constraint.AngleRelation != "" && constraint.AngleRelation != "DIRECTED" {
+			if constraint.AngleRelation != "PARALLEL" && constraint.AngleRelation != "PERPENDICULAR" {
+				return fmt.Errorf("%w: unknown angle relation", ErrValidation)
+			}
+			value.Kind = constraint.AngleRelation
+			value.Value = 0
+			value.AngleReferenceDirection = nil
+		}
 		if constraint.Kind == "FIX" || constraint.Kind == "RIGID" {
 			fixedValue := constraint.FixedPose
-			if fixedValue == nil && constraint.Kind == "FIX" {
+			if constraint.Kind == "FIX" && (fixedValue == nil || constraint.FixMode == "RELATIVE") {
 				instance := instances[constraint.First.InstanceID]
 				fixedValue = &InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)}
+				constraint.FixedPose = fixedValue
 			}
 			if fixedValue == nil {
 				return fmt.Errorf("%w: rigid constraint is missing its captured relative pose", ErrValidation)
@@ -446,33 +475,54 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 			appendResolutionEvidence(constraint.ID, "SECOND", secondGeometry, *constraint.Second)
 			value.SecondBodyID, value.SecondGeometryID = constraint.Second.InstanceID, secondGeometry
 		}
+		if value.Kind == "ANGLE" && constraint.AngleAxis != nil {
+			axisKey, err := resolveRef(*constraint.AngleAxis)
+			if err != nil {
+				return err
+			}
+			axis := resolvedGeometry[axisKey]
+			if axis.Kind != "AXIS" && axis.Kind != "PLANE" && axis.Kind != "CYLINDER" {
+				return fmt.Errorf("%w: reference axis has no exact direction", ErrValidation)
+			}
+			direction := axis.Direction
+			if constraint.ReverseAngleAxis {
+				for i := range direction {
+					direction[i] = -direction[i]
+				}
+			}
+			constraint.AngleReferenceDirection, value.AngleReferenceDirection = &direction, &direction
+			appendResolutionEvidence(constraint.ID, "ANGLE_AXIS", axisKey, *constraint.AngleAxis)
+		}
 		if constraint.Kind != "FIX" && constraint.Kind != "RIGID" {
 			firstKind := resolvedGeometry[firstGeometry].Kind
 			secondKind := resolvedGeometry[value.SecondGeometryID].Kind
-			capabilities := assemblyCapabilities(constraint.Kind, firstKind, secondKind)
-			if constraint.Kind == "ANGLE" && constraint.AngleReferenceDirection != nil {
+			capabilities := assemblyCapabilities(value.Kind, firstKind, secondKind)
+			if value.Kind == "ANGLE" && constraint.AngleReferenceDirection != nil {
 				constraint.DirectionRelation, value.DirectionRelation = "SAME", "SAME"
 			} else if !capabilities.direction {
 				constraint.DirectionRelation, value.DirectionRelation = "UNORIENTED", "UNORIENTED"
-			} else if constraint.DirectionRelation == "" || constraint.DirectionRelation == "UNORIENTED" {
-				// Persist a deterministic branch instead of delegating a mutable
-				// "undefined" orientation to every future solve.
-				constraint.DirectionRelation, value.DirectionRelation = "SAME", "SAME"
+			} else if constraint.DirectionRelation == "" {
+				constraint.DirectionRelation, value.DirectionRelation = "UNORIENTED", "UNORIENTED"
 			}
 			if !capabilities.distanceSide {
 				constraint.DistanceRelation, value.DistanceRelation = "UNSIGNED", "UNSIGNED"
 			}
-			if constraint.Kind == "ANGLE" && constraint.AngleReferenceDirection != nil && !capabilities.directedAngle {
-				return fmt.Errorf("%w: directed angle requires two planar supports", ErrValidation)
+			if value.Kind == "ANGLE" && constraint.AngleReferenceDirection != nil && !capabilities.directedAngle {
+				return fmt.Errorf("%w: directed angle requires two directional supports", ErrValidation)
 			}
-			if constraint.Kind == "ANGLE" && constraint.Value > math.Pi &&
+			if value.Kind == "ANGLE" && constraint.Value > math.Pi &&
 				(!capabilities.directedAngle || constraint.AngleReferenceDirection == nil) {
 				return fmt.Errorf("%w: an angle above 180 degrees requires a persisted reference direction", ErrValidation)
 			}
 		}
+		if value.Kind == "ANGLE" && value.Value == 2*math.Pi {
+			constraint.Value, value.Value = 0, 0
+		}
 		constraints = append(constraints, value)
 	}
-	if len(constraints) == 0 {
+	// A failed resolution is not an unconstrained solve. Only a genuinely
+	// empty active set receives empty-set solver evidence.
+	if len(constraints) == 0 && hasUnresolvedActiveConstraint {
 		return nil
 	}
 	if err := workflow.advance(context.Background()); err != nil {
@@ -483,7 +533,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		return err
 	}
 	manifest, err := newAssemblySolveManifest(documentID, rootRevisionID, canonicalModelHash(modelJSON), bodies, geometryValues,
-		constraints, intent, nil, resolutionEvidence)
+		constraints, intent, nil, resolutionEvidence, model.Constraints)
 	if err != nil {
 		return err
 	}
@@ -549,11 +599,12 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		}
 	}
 	for index := range model.Constraints {
-		if model.Constraints[index].EvaluationStatus != modelcore.AssemblyConstraintBroken {
+		if !model.Constraints[index].Suppressed && model.Constraints[index].EvaluationStatus != modelcore.AssemblyConstraintBroken {
 			model.Constraints[index].EvaluationStatus = modelcore.AssemblyConstraintVerified
 			model.Constraints[index].EvaluationSummary = "resolved supports satisfy the accepted assembly solution"
 		}
 	}
+	applyAssemblyMeasurements(model, result, manifest.SolverProfile)
 	service.assemblyWarmStarts.put(warmStartKey, *model)
 	if err := workflow.advance(context.Background()); err != nil {
 		return err

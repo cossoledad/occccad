@@ -222,14 +222,14 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
           referenceMode === "PINNED" ? "FOLLOW_HEAD" as const : "PIN_VERSION" as const] : undefined, children: referenceTree?.children };
     });
   const constraints = view.product?.constraints ?? [];
-  const constraintGroup = constraints.length ? [{ id: `${path}/assembly-constraints`, kind: "ASSEMBLY_CONSTRAINT_SET" as const, name: "约束",
+  const constraintGroup = constraints.length ? [{ id: `${path}/assembly-constraints`, kind: "ASSEMBLY_CONSTRAINT_SET" as const, name: "约束", documentId:view.document.id, capabilities:["SUPPRESS" as const], suppressed:constraints.every(c=>c.suppressed),
     children: constraints.map((constraint, index) => {
       const disconnected = constraint.evaluationStatus === "BROKEN" || [constraint.first, constraint.second].filter(Boolean).some((reference) =>
         reference?.resolution?.result.supportingElementStatus === "NOT_CONNECTED");
       return { id: `${path}/assembly-constraints/constraint:${constraint.id}`, kind: "ASSEMBLY_CONSTRAINT" as const,
-        name: `#${constraint.kind}.${index + 1}`, entityId: constraint.id, entityType: constraint.kind, documentId: view.document.id,
+        suppressed:constraint.suppressed, name: `#${constraint.kind}.${index + 1}`, entityId: constraint.id, entityType: constraint.kind, documentId: view.document.id,
         diagnostic: `${constraint.evaluationStatus}: ${constraint.evaluationSummary ?? ""}`,
-        capabilities: ["EDIT" as const, "DELETE" as const,
+        capabilities: ["EDIT" as const, "DELETE" as const, "SUPPRESS" as const,
           ...(disconnected ? ["RECONNECT" as const] : []), ...(constraint.evaluationStatus !== "VERIFIED" ? ["REFRESH" as const] : [])] };
     }) }] : [];
   return { id: path, kind: "PRODUCT", name: view.document.name, documentId: view.document.id,
@@ -259,7 +259,7 @@ function commit(documentID: string, commandType: string, mutate?: (view: Documen
   entries.forEach((entry) => { entry.isHead = false; });
   entries.push({ position: entries.length, versionId: versionID, sequence: entries.length + 1, commandType, createdAt: now(), isHead: true });
   histories.set(documentID, entries);
-  return view;
+  return getView(documentID);
 }
 
 function rebuildProduct(view: DocumentView): void {
@@ -474,9 +474,20 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
         id: id("mock-constraint"), kind: String(input.constraintKind) as AssemblyConstraint["kind"],
         first: input.firstAssemblyRef as AssemblyGeometryRef, second: input.secondAssemblyRef as AssemblyGeometryRef | undefined,
         value: Number(input.value ?? 0), directionRelation: String(input.directionRelation ?? "UNORIENTED"),
+        fixedPose:input.fixedPose as AssemblyConstraint["fixedPose"], fixMode:input.fixMode as AssemblyConstraint["fixMode"],
+        angleAxis:input.angleAxis as AssemblyGeometryRef | undefined, reverseAngleAxis:Boolean(input.reverseAngleAxis),
+        angleRelation:input.angleRelation as AssemblyConstraint["angleRelation"],
         distanceRelation: String(input.distanceRelation ?? "UNSIGNED"), angleReferenceDirection: input.angleReferenceDirection as Vec3 | undefined,
         evaluationStatus: "VERIFIED", evaluationSummary: "mock supports resolved and solver residual is within tolerance",
       }];
+    }
+    if (commandType === "SET_ASSEMBLY_CONSTRAINT_STATE" && view.product) {
+      for (const constraint of view.product.constraints ?? []) {
+        if (!(input.constraintIds as string[]).includes(constraint.id)) continue;
+        if (typeof input.suppressed === "boolean") constraint.suppressed = input.suppressed;
+        if (input.constraintMode) constraint.mode = input.constraintMode as AssemblyConstraint["mode"];
+        if (!constraint.suppressed) constraint.evaluationStatus = "NOT_UPDATED";
+      }
     }
     if (commandType === "EDIT_ASSEMBLY_CONSTRAINT" && view.product) {
       const constraint = view.product.constraints?.find((candidate) => candidate.id === input.targetId);
@@ -485,6 +496,9 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
         value: Number(input.value ?? constraint.value ?? 0), directionRelation: input.directionRelation ?? constraint.directionRelation,
         distanceRelation: input.distanceRelation ?? constraint.distanceRelation,
         angleReferenceDirection: input.angleReferenceDirection ?? constraint.angleReferenceDirection,
+        angleRelation: input.angleRelation ?? constraint.angleRelation,
+        angleAxis:input.angleAxis ?? constraint.angleAxis, reverseAngleAxis:input.reverseAngleAxis ?? constraint.reverseAngleAxis,
+        fixMode: input.fixMode ?? constraint.fixMode, fixedPose: input.fixedPose ?? constraint.fixedPose,
         evaluationStatus: "VERIFIED", evaluationSummary: "mock supports reconnected and solver residual is within tolerance",
       });
     }

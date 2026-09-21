@@ -17,6 +17,7 @@ const (
 // may be promoted only while its exact base and typed command still match.
 // Losing this cache is safe: commit falls back to normal evaluation.
 type interactionCandidate struct {
+	assemblyPreviewRequestID                                          string
 	id, documentID, actorID, headRevision, commandType, payloadDigest string
 	headSequence                                                      uint64
 	nextJSON                                                          json.RawMessage

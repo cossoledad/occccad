@@ -190,8 +190,8 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
   }}
 	const component=node.entityId?sketch?.solve.components?.find((candidate)=>candidate.entityIds.includes(node.entityId!)):undefined;
   const assemblyStatus = node.kind === "ASSEMBLY_CONSTRAINT" ? assemblyStatusFromDiagnostic(node.diagnostic) : undefined;
-  return { key: node.id, title: assemblyStatus ? <>{node.name}<span className={`assembly-tree-status status-${assemblyStatus.toLowerCase()}`}
-    aria-label={`状态 ${ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}`}>{ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}</span></> : node.name,
+  return { key: node.id, title: assemblyStatus ? <>{node.name}<span className={`assembly-tree-status status-${node.suppressed ? "not_updated" : assemblyStatus.toLowerCase()}`}
+    aria-label={`状态 ${node.suppressed ? "停用" : ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}`}>{node.suppressed ? "停用" : ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}</span></> : node.name,
     icon: structureIcon(node.kind, node.diagnostic), kind: node.kind,
     entityId: node.entityId, documentId: node.documentId, documentType: node.documentType, instancePath: node.instancePath,
     plane: node.plane, ownerEntityId: node.ownerEntityId,

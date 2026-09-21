@@ -468,6 +468,10 @@ type ResolutionSnapshot struct {
 }
 
 type AssemblyConstraint struct {
+	FixMode                 string                                       `json:"fixMode,omitempty"`
+	AngleRelation           string                                       `json:"angleRelation,omitempty"`
+	MeasuredValue           *float64                                     `json:"measuredValue,omitempty"`
+	Suppressed              bool                                         `json:"suppressed,omitempty"`
 	ID                      string                                       `json:"id"`
 	ConnectionID            string                                       `json:"connectionId,omitempty"`
 	Kind                    string                                       `json:"kind"`
@@ -477,6 +481,8 @@ type AssemblyConstraint struct {
 	Value                   float64                                      `json:"value,omitempty"`
 	DirectionRelation       string                                       `json:"directionRelation,omitempty"`
 	DistanceRelation        string                                       `json:"distanceRelation,omitempty"`
+	AngleAxis               *AssemblyGeometryRef                         `json:"angleAxis,omitempty"`
+	ReverseAngleAxis        bool                                         `json:"reverseAngleAxis,omitempty"`
 	AngleReferenceDirection *[3]float64                                  `json:"angleReferenceDirection,omitempty"`
 	FixedPose               *InstancePose                                `json:"fixedPose,omitempty"`
 	EvaluationStatus        modelcore.AssemblyConstraintEvaluationStatus `json:"evaluationStatus"`
@@ -844,6 +850,12 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	FixMode                 string               `json:"fixMode,omitempty"`
+	FixedPose               *InstancePose        `json:"fixedPose,omitempty"`
+	AngleRelation           string               `json:"angleRelation,omitempty"`
+	ConstraintIDs           []string             `json:"constraintIds,omitempty"`
+	Suppressed              *bool                `json:"suppressed,omitempty"`
+	ConstraintMode          *string              `json:"constraintMode,omitempty"`
 	RequestID               string               `json:"requestId"`
 	InteractionID           string               `json:"interactionId,omitempty"`
 	PreviewSequence         uint64               `json:"previewSequence,omitempty"`
@@ -878,6 +890,8 @@ type CommandRequest struct {
 	SecondAssemblyRef       *AssemblyGeometryRef `json:"secondAssemblyRef,omitempty"`
 	DirectionRelation       string               `json:"directionRelation,omitempty"`
 	DistanceRelation        string               `json:"distanceRelation,omitempty"`
+	AngleAxis               *AssemblyGeometryRef `json:"angleAxis,omitempty"`
+	ReverseAngleAxis        *bool                `json:"reverseAngleAxis,omitempty"`
 	AngleReferenceDirection *[3]float64          `json:"angleReferenceDirection,omitempty"`
 	ReferenceMode           string               `json:"referenceMode,omitempty"`
 	GeometryKey             string               `json:"geometryKey,omitempty"`

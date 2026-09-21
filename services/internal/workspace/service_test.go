@@ -1360,7 +1360,9 @@ func TestAssemblyConstraintGeometryPairCapabilities(t *testing.T) {
 		{name: "point plane distance", kind: "DISTANCE", first: "POINT", second: "PLANE", distanceSide: true},
 		{name: "plane plane distance", kind: "DISTANCE", first: "PLANE", second: "PLANE", direction: true, distanceSide: true},
 		{name: "plane plane angle", kind: "ANGLE", first: "PLANE", second: "PLANE", directedAngle: true},
-		{name: "axis axis angle remains unsigned", kind: "ANGLE", first: "LINE", second: "LINE"},
+		{name: "axis axis directed angle", kind: "ANGLE", first: "AXIS", second: "AXIS", directedAngle: true},
+		{name: "axis parallel", kind: "PARALLEL", first: "AXIS", second: "AXIS", direction: true},
+		{name: "axis plane offset", kind: "DISTANCE", first: "AXIS", second: "PLANE", distanceSide: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

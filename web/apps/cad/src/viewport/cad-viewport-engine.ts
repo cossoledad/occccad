@@ -1006,7 +1006,7 @@ export class CadViewportEngine {
       const group = new THREE.Group(); group.position.copy(markerPosition); group.userData = selection;
       const pointGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]);
       const glyph = new THREE.Points(pointGeometry, this.materials.constraintGlyph(
-        assemblyConstraintGlyph(constraint.evaluationStatus, glyphs[constraint.kind]), statusColors[constraint.evaluationStatus], 22));
+        assemblyConstraintGlyph(constraint.evaluationStatus, glyphs[constraint.kind]), constraint.suppressed ? 0x808080 : statusColors[constraint.evaluationStatus], 22));
       glyph.renderOrder = 92;
       group.add(glyph);
       if (located.some((value) => !value.anchor.equals(markerPosition))) {

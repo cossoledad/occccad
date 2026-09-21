@@ -69,7 +69,16 @@ struct GeometryRef {
     std::string geometry_id;
 };
 
-enum class ConstraintKind { Fix, Rigid, Coincident, Concentric, Angle, Distance };
+enum class ConstraintKind {
+    Fix,
+    Rigid,
+    Coincident,
+    Concentric,
+    Angle,
+    Distance,
+    Parallel,
+    Perpendicular
+};
 
 enum class ConstraintMode { Driving, Measured, Controlled, Suppressed };
 

@@ -14,7 +14,7 @@ import (
 
 const (
 	assemblySolveManifestSchema = 1
-	assemblySolverBuildPolicy   = "assembly-m3-manifest-v1"
+	assemblySolverBuildPolicy   = "assembly-m3-lifecycle-v2"
 	maxManifestBodies           = 4096
 	maxManifestGeometry         = 16384
 	maxManifestConstraints      = 16384
@@ -24,6 +24,7 @@ const (
 // receives only these frozen descriptors and never resolves Product, database,
 // Publication, PersistentSelection or B-Rep state itself.
 type AssemblySolveManifest struct {
+	Definitions           []AssemblyConstraint           `json:"definitions,omitempty"`
 	SchemaVersion         int                            `json:"schemaVersion"`
 	Digest                string                         `json:"digest"`
 	RootProductDocumentID string                         `json:"rootProductDocumentId"`
@@ -75,7 +76,7 @@ func defaultAssemblySolverProfile() geometry.AssemblySolverProfile {
 
 func newAssemblySolveManifest(documentID, revisionID, modelHash string, bodies []geometry.AssemblyBody,
 	geometryValues []geometry.AssemblyGeometry, constraints []geometry.AssemblyConstraint, intent *geometry.AssemblySolveIntent,
-	affected []string, evidence []AssemblyResolutionEvidence) (AssemblySolveManifest, error) {
+	affected []string, evidence []AssemblyResolutionEvidence, definitions ...[]AssemblyConstraint) (AssemblySolveManifest, error) {
 	bodies = append([]geometry.AssemblyBody(nil), bodies...)
 	geometryValues = append([]geometry.AssemblyGeometry(nil), geometryValues...)
 	constraints = append([]geometry.AssemblyConstraint(nil), constraints...)
@@ -109,6 +110,10 @@ func newAssemblySolveManifest(documentID, revisionID, modelHash string, bodies [
 		RootProductRevisionID: revisionID, ModelHash: modelHash, Purpose: "COMMIT", Bodies: bodies, Geometry: geometryValues,
 		Constraints: constraints, Intent: intent, AffectedBodyIDs: affected, SolverProfile: defaultAssemblySolverProfile(),
 		SolverBuildPolicy: assemblySolverBuildPolicy, ResolutionEvidence: evidence}
+	if len(definitions) > 0 {
+		manifest.Definitions = append([]AssemblyConstraint(nil), definitions[0]...)
+		sort.Slice(manifest.Definitions, func(i, j int) bool { return manifest.Definitions[i].ID < manifest.Definitions[j].ID })
+	}
 	if err := validateAssemblySolveManifest(manifest); err != nil {
 		return AssemblySolveManifest{}, err
 	}
@@ -134,7 +139,7 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 		return fmt.Errorf("%w: incomplete assembly SolveManifest identity", ErrValidation)
 	}
 	if len(manifest.Bodies) == 0 || len(manifest.Bodies) > maxManifestBodies || len(manifest.Geometry) > maxManifestGeometry ||
-		len(manifest.Constraints) == 0 || len(manifest.Constraints) > maxManifestConstraints {
+		len(manifest.Definitions) > maxManifestConstraints || len(manifest.Constraints) > maxManifestConstraints {
 		return fmt.Errorf("%w: assembly SolveManifest resource limits exceeded", ErrValidation)
 	}
 	if manifest.SolverProfile.SchemaVersion != 2 || manifest.SolverBuildPolicy != assemblySolverBuildPolicy {
@@ -263,4 +268,31 @@ func (service *Service) ReplayAssemblySolveManifest(ctx context.Context, documen
 	}
 	return AssemblySolveManifestResult{ManifestDigest: digest, RequestID: requestID,
 		ResultDigest: resolvedDigest(result), Status: result.Status, Diagnostic: result.Diagnostic, Result: result}, nil
+}
+
+// A promoted preview reuses immutable solve evidence but binds it to the new
+// committed revision. It must not leave Release dependent on a PREVIEW record.
+func (service *Service) promoteAssemblySolveManifest(ctx context.Context, documentID, revisionID, requestID, previewRequestID, modelHash string) error {
+	result, err := service.GetAssemblySolveResult(ctx, documentID, previewRequestID)
+	if err != nil {
+		return err
+	}
+	if result.Status != "CONVERGED" {
+		return fmt.Errorf("%w: only converged assembly evidence can be promoted", ErrValidation)
+	}
+	var raw []byte
+	if err = service.database.QueryRow(ctx, `SELECT manifest FROM occccad.product_solve_manifests WHERE digest=$1 AND root_product_document_id=$2`, result.ManifestDigest, documentID).Scan(&raw); err != nil {
+		return err
+	}
+	var manifest AssemblySolveManifest
+	if err = json.Unmarshal(raw, &manifest); err != nil {
+		return err
+	}
+	manifest.RootProductRevisionID, manifest.ModelHash, manifest.Purpose = revisionID, modelHash, "COMMIT"
+	manifest.Digest = ""
+	manifest.Digest = resolvedDigest(manifest)
+	if err = service.persistAssemblySolveManifest(ctx, manifest); err != nil {
+		return err
+	}
+	return service.recordAssemblySolveResult(ctx, manifest, requestID, result.Result, nil)
 }

@@ -34,7 +34,7 @@ Web 以 root Product、active occurrence 和 definition/context 模式维护非�
 
 每次正式 assembly preview/commit 冻结 `AssemblySolveManifest`：root/candidate Revision、完整 body pose、局部几何描述符、Publication/PersistentSelection resolution evidence、约束、branch/intent、affected scope、schema 2 solver profile 与 build policy 共同形成确定 digest。构造器按持久化 JSON 表示冻结独立快照，位姿、角度分支及 Publication/PersistentSelection 证据不再共享调用方指针；后续调用方修改不改变已冻结内容与 digest。Worker 只消费 manifest 中的纯值；Publication endpoint 直接使用已解析 descriptor，不再让 solver 查询 Product/B-Rep。manifest 与 request-specific result 持久化，重试复用同一结果，digest replay、request lookup、deadline/cancel 和既有 `.3dreplay` 数值证据并存。
 
-当前保存独立 `ProductRelease`：Release Manifest 冻结完整 occurrence typed path/Revision/pose、ContextBinding、ContextVariant GeometryKey/EvaluationManifest、Product Publication、命名/evaluator policy、成功 SolveManifest 与 gate 结果。Gate 要求引用 current、全部 occurrence/variant READY、约束 Verified 且有可重放求解证据。Release 可在 Workspace Head 移动后按 manifest replay，并从冻结 GeometryKey 提交 STEP/BREP 导出；Exchange placement 现已贯通 translation 与 quaternion rotation。Web 的“产品版本中心”只负责创建、列出和 replay 不可变里程碑，不再把 STEP/BREP 按钮混入发布流程；Exchange 保留为独立后续 UX。当前不把 Configuration/Design Table、partial update、flexible subassembly 或 Derive Part from Context 列为已实现能力。
+当前保存独立 `ProductRelease`：Release Manifest 冻结完整 occurrence typed path/Revision/pose、ContextBinding、ContextVariant GeometryKey/EvaluationManifest、Product Publication、命名/evaluator policy、成功 SolveManifest 与 gate 结果。Gate 要求引用 current、全部 occurrence/variant READY、活动约束 Verified 且有可重放求解证据；停用定义保留在 SolveManifest 中，不伪造 Verified，也不参与此 gate。Release 可在 Workspace Head 移动后按 manifest replay，并从冻结 GeometryKey 提交 STEP/BREP 导出；Exchange placement 现已贯通 translation 与 quaternion rotation。Web 的“产品版本中心”只负责创建、列出和 replay 不可变里程碑，不再把 STEP/BREP 按钮混入发布流程；Exchange 保留为独立后续 UX。当前不把 Configuration/Design Table、partial update、flexible subassembly 或 Derive Part from Context 列为已实现能力。
 
 ## 求解与交互的当前边界
 
@@ -73,8 +73,18 @@ Web 以 root Product、active occurrence 和 definition/context 模式维护非�
 
 验收待办已移出计划；M4 稳定拖拽、M5 冲突解释和 M6 工程连接仍是后续工作，不因本次验收完成而视作交付。
 
-## 与六类约束目标的当前差距
+## 六类约束与生命周期的首批实现
 
-当前底层模式包含 Driving/Measured/Controlled/Suppressed，Worker adapter 和 kernel 已识别停用；这不代表用户侧 Activate/Deactivate、原模式恢复、空活动集合、组生命周期与 Release gate 全链路完成。现有 Fix/Rigid/Coincident/Concentric/Angle/Distance 也不等价于 CATIA 的 Coincidence/Contact/Offset/Angle/Fix/Fix Together；特别是相对 Fix、多成员且组内先解的 Fix Together、Contact 矩阵和完整角度参数尚待补齐。
+产品约束新增独立 `suppressed`，与 `mode` 正交。`SET_ASSEMBLY_CONSTRAINT_STATE` 支持单个/批量停用、恢复及角度/距离量的 Driving/Measured 切换；实体 PropertySlot 记录完整状态，CAS、幂等与补偿历史复用正式命令路径。原模式和诊断在停用时保留；重新激活按已接受的 Part Revision 解析，不自动接受新 Head。树菜单、约束编辑面板、Inspector 与视口灰色标识可查看/切换状态。
 
-目标角度采用统一 0–360°有向角与独立方向关系，以自洽组合能力验收，不要求复制 CATIA sector 参数；详见[目标合同](../target/assembly-constraints.md)。这些是[装配计划](../../../plans/assembly-evolution.md)中的新增目标，不改变已完成的 ACCEPT-PRODUCT 基线验收范围。底层证据见 [mode 定义](../../../kernel/assembly/include/occccad/assembly/solver.hpp)、[Worker adapter](../../../workers/geometry/src/main.cpp)和[当前能力/branch 规范化](../../../services/internal/workspace/assembly_solve.go)。
+SolveManifest 同时冻结完整 `definitions` 与实际编译的约束。全部停用时仍记录空活动集合的求解与可重放结果；全部活动支持断裂时不伪造空集合求解证据。断链定义保持 Broken，其余可解析约束仍可求解。Update Plan/Release 排除停用项的 Verified 要求，旧 Release 的停用状态不随新 Head 激活而改变。Product Undo/Redo 为新 Revision 生成新的求解证据，并从最终模型重建位姿和约束实体写集。
+
+新增约束 identity 按 request ID 确定，浏览器保存 preview→request 对应关系；可复用的预览提交会冻结指向新 Revision 的 COMMIT manifest 与已验证结果，不重复求解，也不让 Release 依赖 PREVIEW 记录。当前 manifest policy 为 `assembly-m3-lifecycle-v2`，Worker solver build 为 `assembly-m2.5-hierarchy-v3`。
+
+Angle 定义新增 `angleRelation`：Directed、Parallel、Perpendicular；后两者分别使用独立的方向对齐/点积方程。有向角的控制面支持 Plane/Axis/Cylinder 方向对；界面要求显式选择 `angleAxis` 并可用 `reverseAngleAxis` 反向，轴来自第二支持组件的 Datum/Publication/PersistentSelection，按接受的 Revision 冷解析并随该组件运动。其 descriptor digest 以 `ANGLE_AXIS` 保存到 manifest；不接受其他组件的轴并将它静默冻结。360°在求解提交时规范为 0°，旧无轴实验定义仍可读，但编辑需补齐稳定轴。Undefined 不再永久改写为 Same。Offset 数值路径新增 Point–Axis 与 Axis–Plane，均有解析 Jacobian；零点点/点线偏移编译为重合方程，避免零范数梯度丢失其实际秩。Measured 输出独立 `measuredValue`，不改驱动值；两非平行平面等无有效常量距离的构型不显示旧数值。
+
+Fix 新增 SPACE/RELATIVE 基准：相对固定接受显式移动后的名义位姿，空间固定保留捕获位姿。编辑命令支持显式 `fixedPose`，前端提供模式切换、三个位置与三个角度编辑。角度显示采用依次绕 X/Y/Z 的外禀旋转，持久化仍用 quaternion；相对固定的显式 pose 编辑同步更新 nominal placement，补偿历史同时恢复基准与 placement。
+
+验证入口：[生命周期单元测试](../../../services/internal/workspace/assembly_lifecycle_test.go)、[0–6 阶、3+2+1 及常见关节有限运动测试](../../../kernel/assembly/tests/assembly_solver_scenarios.cpp)、[真实 Router/Worker、历史与 Release 集成](../../../services/internal/control/assembly_motion_integration_test.go)、[浏览器生命周期场景](../../../web/apps/cad/browser/assembly-lifecycle.spec.ts)。浏览器场景使用 Mock adapter 验证交互；权威计算另由真实 Router/Worker 与独立测试数据库验证。单项/批量激活、Measured 恢复、停用后移动、连续 Undo/Redo、空活动集重放、Release 后再激活、相对/空间 Fix 位姿行为已有真实链路回归。
+
+这些实现尚不代表“六类约束与生命周期补齐”整体完成：Contact、Circle/Sphere/Cone/Frame 等精确 descriptor、Point–Curve/Surface 完整组合、多成员且组内先解的 Fix Together、统一六类入口及新增几何族的参数/有限运动验收仍未完成。剩余任务见[装配计划](../../../plans/assembly-evolution.md)，目标语义见[六类约束合同](../target/assembly-constraints.md)。ACCEPT-PRODUCT 的已完成基线验收范围保持独立。

@@ -812,5 +812,258 @@ TEST(AssemblySolver, AxisDistanceDegeneracyBlendIsFiniteAndContinuousAcrossProfi
     }
 }
 
+TEST(AssemblyComposition, IndependentPositionDirectionClockingControlsSixDof) {
+    Model model;
+    model.bodies = {{"ground", {}}, {"moving", {}}};
+    for (const auto& body : model.bodies) {
+        model.geometry.push_back({"point", body.id, PointGeometry{}});
+        model.geometry.push_back({"axis", body.id, AxisGeometry{{}, {0, 0, 1}}});
+        model.geometry.push_back({"clock", body.id, AxisGeometry{{}, {1, 0, 0}}});
+    }
+    model.constraints = {fix("ground"), binary("anchor", ConstraintKind::Coincident,
+                                               ref("moving", "point"), ref("ground", "point"))};
+    auto check = [&](std::size_t rank) {
+        const auto result = Solver{}.solve(model);
+        ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+        ASSERT_EQ(result.components.size(), 1U);
+        EXPECT_EQ(result.components[0].jacobian_rank, rank);
+        EXPECT_EQ(result.components[0].relative_dof, 6U - rank);
+    };
+    check(3);
+    auto align =
+        binary("align", ConstraintKind::Parallel, ref("moving", "axis"), ref("ground", "axis"));
+    align.direction_relation = DirectionRelation::Same;
+    model.constraints.push_back(align);
+    check(5);
+    auto clock =
+        binary("clock", ConstraintKind::Angle, ref("moving", "clock"), ref("ground", "clock"));
+    clock.angle_reference_direction = Vec3{0, 0, 1};
+    model.constraints.push_back(clock);
+    check(6);
+    model.constraints.back().mode = ConstraintMode::Suppressed;
+    check(5);
+    model.constraints[2].mode = ConstraintMode::Suppressed;
+    check(3);
+}
+
+TEST(AssemblyComposition, OffsetPointLineAndLinePlaneUseAnalyticJacobians) {
+    for (bool linePlane : {false, true}) {
+        Model model;
+        model.bodies = {{"ground", {}}, {"moving", {{0, 0, 2}, {}}}};
+        model.geometry = {
+            {"a", "moving",
+             linePlane ? Geometry{AxisGeometry{{}, {1, 0, 0}}} : Geometry{PointGeometry{}}},
+            {"b", "ground",
+             linePlane ? Geometry{PlaneGeometry{}} : Geometry{AxisGeometry{{}, {1, 0, 0}}}}};
+        auto offset =
+            binary("offset", ConstraintKind::Distance, ref("moving", "a"), ref("ground", "b"));
+        offset.value = 2;
+        model.constraints = {fix("ground"), offset};
+        SolverOptions options;
+        options.verify_analytic_jacobians = true;
+        const auto result = Solver{}.solve(model, options);
+        ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+        ASSERT_EQ(result.components.size(), 1U);
+        EXPECT_EQ(result.components[0].jacobian_rank, linePlane ? 2U : 1U);
+        std::swap(model.constraints.back().first, *model.constraints.back().second);
+        EXPECT_EQ(Solver{}.solve(model, options).status, SolveStatus::Converged);
+    }
+}
+
+TEST(AssemblyComposition, EmptyActiveSetAndMeasuredConstraintsLeaveBodiesFree) {
+    Model model;
+    model.bodies = {{"body", {}}};
+    const auto empty = Solver{}.solve(model);
+    ASSERT_EQ(empty.status, SolveStatus::Converged) << empty.diagnostic;
+    ASSERT_EQ(empty.components.size(), 1U);
+    EXPECT_EQ(empty.components[0].gauge_dof, 6U);
+    model.constraints = {fix("body")};
+    model.constraints[0].mode = ConstraintMode::Suppressed;
+    const auto inactive = Solver{}.solve(model);
+    EXPECT_EQ(inactive.status, SolveStatus::Converged);
+    EXPECT_EQ(inactive.components[0].gauge_dof, 6U);
+    Model measured;
+    measured.bodies = {{"ground", {}}, {"moving", {{4, 0, 0}, {}}}};
+    measured.geometry = {{"point", "ground", PointGeometry{}},
+                         {"point", "moving", PointGeometry{}}};
+    auto distance =
+        binary("measure", ConstraintKind::Distance, ref("moving", "point"), ref("ground", "point"));
+    distance.mode = ConstraintMode::Measured;
+    distance.value = 10;
+    measured.constraints = {fix("ground"), distance};
+    const auto observed = Solver{}.solve(measured);
+    ASSERT_EQ(observed.status, SolveStatus::Converged) << observed.diagnostic;
+    EXPECT_NEAR(pose(observed, "moving").translation.x, 4.0, 1e-9);
+    EXPECT_TRUE(observed.unsatisfied_constraint_ids.empty());
+    std::size_t freedom = 0;
+    for (const auto& component : observed.components)
+        freedom += component.relative_dof + component.gauge_dof;
+    EXPECT_EQ(freedom, 6U);
+}
+
+TEST(AssemblyComposition, EveryRankFromZeroThroughSixHasExpectedMobility) {
+    for (std::size_t rank = 0; rank <= 6; ++rank) {
+        Model model;
+        model.bodies = {{"ground", {}}, {"moving", {}}};
+        for (const auto& body : model.bodies) {
+            model.geometry.push_back({"point", body.id, PointGeometry{}});
+            model.geometry.push_back({"axis", body.id, AxisGeometry{}});
+            model.geometry.push_back({"plane", body.id, PlaneGeometry{}});
+            model.geometry.push_back({"clock", body.id, AxisGeometry{{}, {1, 0, 0}}});
+        }
+        model.constraints = {fix("ground")};
+        if (rank == 1 || rank >= 5)
+            model.constraints.push_back(binary("height", ConstraintKind::Coincident,
+                                               ref("moving", "point"), ref("ground", "plane")));
+        if (rank == 2)
+            model.constraints.push_back(binary("direction", ConstraintKind::Parallel,
+                                               ref("moving", "axis"), ref("ground", "axis")));
+        if (rank == 3)
+            model.constraints.push_back(binary("point", ConstraintKind::Coincident,
+                                               ref("moving", "point"), ref("ground", "point")));
+        if (rank >= 4)
+            model.constraints.push_back(binary("axis", ConstraintKind::Concentric,
+                                               ref("moving", "axis"), ref("ground", "axis")));
+        if (rank == 6) {
+            auto clock = binary("clock", ConstraintKind::Angle, ref("moving", "clock"),
+                                ref("ground", "clock"));
+            clock.angle_reference_direction = Vec3{0, 0, 1};
+            model.constraints.push_back(clock);
+        }
+        const auto result = Solver{}.solve(model);
+        ASSERT_EQ(result.status, SolveStatus::Converged)
+            << "rank=" << rank << " " << result.diagnostic;
+        std::size_t actual_rank = 0, mobility = 0;
+        for (const auto& component : result.components) {
+            actual_rank += component.jacobian_rank;
+            mobility += component.relative_dof + component.gauge_dof;
+        }
+        EXPECT_EQ(actual_rank, rank);
+        EXPECT_EQ(mobility, 6U - rank);
+    }
+}
+
+TEST(AssemblyComposition, JointFamiliesPreserveAllowedFiniteMotionAndRejectBlockedTranslation) {
+    // This checks a finite path, not just the Jacobian nullity at identity.
+    const std::vector<std::pair<std::string, std::size_t>> families = {
+        {"ball", 3},     {"planar", 3},    {"cylindrical", 2},
+        {"revolute", 1}, {"prismatic", 1}, {"fixed", 0}};
+    for (const auto& [family, mobility] : families) {
+        Model model;
+        model.bodies = {{"ground", {}}, {"moving", {}}};
+        for (const auto& body : model.bodies) {
+            model.geometry.push_back({"point", body.id, PointGeometry{}});
+            model.geometry.push_back({"axis", body.id, AxisGeometry{}});
+            model.geometry.push_back({"plane", body.id, PlaneGeometry{}});
+            model.geometry.push_back({"clock", body.id, AxisGeometry{{}, {1, 0, 0}}});
+        }
+        model.constraints = {fix("ground")};
+        if (family == "ball") {
+            model.constraints.push_back(binary("point", ConstraintKind::Coincident,
+                                               ref("moving", "point"), ref("ground", "point")));
+        } else if (family == "planar") {
+            auto c = binary("plane", ConstraintKind::Coincident, ref("moving", "plane"),
+                            ref("ground", "plane"));
+            c.direction_relation = DirectionRelation::Same;
+            model.constraints.push_back(c);
+        } else {
+            auto c = binary("axis", ConstraintKind::Concentric, ref("moving", "axis"),
+                            ref("ground", "axis"));
+            c.direction_relation = DirectionRelation::Same;
+            model.constraints.push_back(c);
+            if (family == "revolute" || family == "fixed")
+                model.constraints.push_back(binary("height", ConstraintKind::Coincident,
+                                                   ref("moving", "point"), ref("ground", "plane")));
+            if (family == "prismatic" || family == "fixed") {
+                auto clock = binary("clock", ConstraintKind::Angle, ref("moving", "clock"),
+                                    ref("ground", "clock"));
+                clock.angle_reference_direction = Vec3{0, 0, 1};
+                model.constraints.push_back(clock);
+            }
+        }
+        for (int step = -6; step <= 6; ++step) {
+            const double half_angle = step * kPi / 18.0;
+            Pose target;
+            if (family == "ball")
+                target.rotation = {std::sin(half_angle), 0, 0, std::cos(half_angle)};
+            if (family == "planar" || family == "cylindrical" || family == "revolute")
+                target.rotation = {0, 0, std::sin(half_angle), std::cos(half_angle)};
+            if (family == "planar")
+                target.translation = {3.0 * step, -2.0 * step, 0};
+            if (family == "cylindrical" || family == "prismatic")
+                target.translation.z = 3.0 * step;
+            model.bodies[1].initial_pose = target;
+            const auto result = Solver{}.solve(model);
+            ASSERT_EQ(result.status, SolveStatus::Converged) << family << ": " << result.diagnostic;
+            ASSERT_EQ(result.components.size(), 1U);
+            EXPECT_EQ(result.components[0].relative_dof, mobility) << family;
+            const auto accepted = pose(result, "moving");
+            EXPECT_NEAR(accepted.translation.x, target.translation.x, 1e-7);
+            EXPECT_NEAR(accepted.translation.y, target.translation.y, 1e-7);
+            EXPECT_NEAR(accepted.translation.z, target.translation.z, 1e-7);
+            const auto& q = accepted.rotation;
+            const auto& t = target.rotation;
+            EXPECT_NEAR(std::abs(q.x * t.x + q.y * t.y + q.z * t.z + q.w * t.w), 1, 1e-7) << family;
+        }
+        // The same components must reject translation outside their allowed path.
+        model.bodies[1].initial_pose = {};
+        if (family == "planar")
+            model.bodies[1].initial_pose.translation.z = 4;
+        else
+            model.bodies[1].initial_pose.translation.x = 4;
+        const auto blocked = Solver{}.solve(model);
+        ASSERT_EQ(blocked.status, SolveStatus::Converged) << family << ": " << blocked.diagnostic;
+        EXPECT_NEAR(pose(blocked, "moving").translation.x, 0, 1e-7);
+        EXPECT_NEAR(pose(blocked, "moving").translation.z, 0, 1e-7);
+    }
+}
+
+TEST(AssemblyComposition, ZeroPointDistancesUseCoincidenceRank) {
+    for (bool axis : {false, true}) {
+        Model model;
+        model.bodies = {{"ground", {}}, {"moving", {}}};
+        model.geometry = {
+            {"point", "moving", PointGeometry{}},
+            {"support", "ground", axis ? Geometry{AxisGeometry{}} : Geometry{PointGeometry{}}}};
+        model.constraints = {fix("ground"),
+                             binary("zero", ConstraintKind::Distance, ref("moving", "point"),
+                                    ref("ground", "support"))};
+        const auto result = Solver{}.solve(model);
+        ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+        EXPECT_EQ(result.components[0].jacobian_rank, axis ? 2U : 3U);
+    }
+}
+
+TEST(AssemblyComposition, PerpendicularIsOneEquationNotProjectedClocking) {
+    Model model;
+    model.bodies = {{"ground", {}}, {"moving", {}}};
+    model.geometry = {{"axis", "ground", AxisGeometry{}},
+                      {"axis", "moving", AxisGeometry{{}, {1, 0, 0}}}};
+    model.constraints = {fix("ground"), binary("normal", ConstraintKind::Perpendicular,
+                                               ref("moving", "axis"), ref("ground", "axis"))};
+    const auto result = Solver{}.solve(model);
+    ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+    EXPECT_EQ(result.components[0].jacobian_rank, 1U);
+    EXPECT_EQ(result.components[0].relative_dof, 5U);
+}
+
+TEST(AssemblyComposition, DirectionRelationsEscapeStationaryInitialAlignment) {
+    for (const auto kind : {ConstraintKind::Parallel, ConstraintKind::Perpendicular}) {
+        Model model;
+        model.bodies = {{"ground", {}}, {"moving", {{0, 0, 7}, {}}}};
+        model.geometry = {{"plane", "ground", PlaneGeometry{}},
+                          {"plane", "moving", PlaneGeometry{}}};
+        auto relation = binary("relation", kind, ref("moving", "plane"), ref("ground", "plane"));
+        relation.direction_relation = DirectionRelation::Opposite;
+        model.constraints = {fix("ground"), relation};
+        const auto result = Solver{}.solve(model);
+        ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+        ASSERT_EQ(result.components.size(), 1U);
+        EXPECT_EQ(result.components[0].preference.status, PreferenceStatus::Converged);
+        EXPECT_EQ(result.components[0].jacobian_rank, kind == ConstraintKind::Parallel ? 2U : 1U);
+        EXPECT_NEAR(pose(result, "moving").translation.z, 7.0, 1e-7);
+    }
+}
+
 }  // namespace
 }  // namespace occccad::assembly

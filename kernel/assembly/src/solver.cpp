@@ -345,11 +345,23 @@ EquationDefinition equation_definition(const Constraint& constraint, const World
         return {{"DIRECTION_X", "DIRECTION_Y", "DIRECTION_Z", "LINE_OFFSET_X", "LINE_OFFSET_Y",
                  "LINE_OFFSET_Z"},
                 4};
+    if (constraint.kind == ConstraintKind::Parallel && has_direction(first) &&
+        has_direction(second))
+        return {{"DIRECTION_X", "DIRECTION_Y", "DIRECTION_Z"}, 2};
+    if (constraint.kind == ConstraintKind::Perpendicular && has_direction(first) &&
+        has_direction(second))
+        return {{"DIRECTION_DOT"}, 1};
     if (constraint.kind == ConstraintKind::Angle && has_direction(first) && has_direction(second))
         return {{constraint.angle_reference_direction ? "DIRECTED_ANGLE" : "UNSIGNED_ANGLE"}, 1};
     if (constraint.kind == ConstraintKind::Distance) {
         if (a == DescriptorKind::Point && b == DescriptorKind::Point)
             return {{"POINT_POINT_DISTANCE"}, 1};
+        if ((a == DescriptorKind::Point && axis_descriptor(b)) ||
+            (b == DescriptorKind::Point && axis_descriptor(a)))
+            return {{"POINT_LINE_DISTANCE"}, 1};
+        if ((axis_descriptor(a) && b == DescriptorKind::Plane) ||
+            (axis_descriptor(b) && a == DescriptorKind::Plane))
+            return {{"LINE_PLANE_DIRECTION", "LINE_PLANE_DISTANCE"}, 2};
         if ((a == DescriptorKind::Point && b == DescriptorKind::Plane) ||
             (b == DescriptorKind::Point && a == DescriptorKind::Plane))
             return {{"POINT_PLANE_DISTANCE"}, 1};
@@ -530,6 +542,16 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
         return axis_alignment(as_axis(first), as_axis(*second), direction_relation, options);
     }
 
+    if (constraint.kind == ConstraintKind::Parallel) {
+        return (related_direction(geometry_direction(first), geometry_direction(*second),
+                                  direction_relation) -
+                geometry_direction(*second)) /
+               options.angle_scale;
+    }
+    if (constraint.kind == ConstraintKind::Perpendicular)
+        return single(geometry_direction(first).dot(geometry_direction(*second)) /
+                      options.angle_scale);
+
     if (constraint.kind == ConstraintKind::Angle) {
         if (!has_direction(first) || !has_direction(*second))
             throw std::invalid_argument("Angle requires Plane, Axis, or Cylinder geometry");
@@ -561,6 +583,12 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
             if (const auto* point_b = std::get_if<WorldPoint>(&*second))
                 return single(((point_a->position - point_b->position).norm() - constraint.value) /
                               options.length_scale);
+            if (is_axis_like(*second)) {
+                const auto axis = as_axis(*second);
+                return single(((point_a->position - axis.origin).cross(axis.direction).norm() -
+                               constraint.value) /
+                              options.length_scale);
+            }
             if (const auto* plane = std::get_if<WorldPlane>(&*second)) {
                 double measured = (point_a->position - plane->origin).dot(plane->normal);
                 const DistanceRelation distance_relation =
@@ -608,6 +636,22 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
                 return result;
             }
         }
+        if (is_axis_like(first) && std::holds_alternative<WorldPlane>(*second)) {
+            const auto axis = as_axis(first);
+            const auto plane = std::get<WorldPlane>(*second);
+            double measured = (axis.origin - plane.origin).dot(plane.normal);
+            const auto side = branch ? branch->distance_relation : constraint.distance_relation;
+            if (side == DistanceRelation::Unsigned)
+                measured = std::abs(measured);
+            if (side == DistanceRelation::OppositeSecondNormal)
+                measured = -measured;
+            Eigen::VectorXd result(2);
+            result << axis.direction.dot(plane.normal) / options.angle_scale,
+                (measured - constraint.value) / options.length_scale;
+            return result;
+        }
+        if (std::holds_alternative<WorldPlane>(first) && is_axis_like(*second))
+            return constraint_residual(constraint, *second, first, options, branch);
         throw std::invalid_argument("unsupported Distance geometry pair");
     }
     throw std::invalid_argument("unsupported constraint kind");
@@ -692,6 +736,13 @@ Eigen::MatrixXd differential_residual(
         }
     } else if (constraint.kind == ConstraintKind::Concentric) {
         align_axes(differential_axis(first), differential_axis(second));
+    } else if (constraint.kind == ConstraintKind::Parallel) {
+        append(divided(related(differential_direction(first), differential_direction(second)) -
+                           differential_direction(second),
+                       options.angle_scale));
+    } else if (constraint.kind == ConstraintKind::Perpendicular) {
+        rows.push_back(divided(dot(differential_direction(first), differential_direction(second)),
+                               options.angle_scale));
     } else if (constraint.kind == ConstraintKind::Angle) {
         DifferentialVector a = differential_direction(first);
         const DifferentialVector b = differential_direction(second);
@@ -719,6 +770,12 @@ Eigen::MatrixXd differential_residual(
                 rows.push_back(divided(norm(first_point->position - second_point->position) -
                                            scalar(constraint.value, variables),
                                        options.length_scale));
+            } else if (differential_axis_like(second)) {
+                const auto axis = differential_axis(second);
+                rows.push_back(
+                    divided(norm(cross(first_point->position - axis.origin, axis.direction)) -
+                                scalar(constraint.value, variables),
+                            options.length_scale));
             } else {
                 const auto& plane_value = std::get<DifferentialPlane>(second);
                 DifferentialScalar measured =
@@ -759,6 +816,22 @@ Eigen::MatrixXd differential_residual(
             }
             rows.push_back(
                 divided(distance - scalar(constraint.value, variables), options.length_scale));
+        } else if (differential_axis_like(first) &&
+                   std::holds_alternative<DifferentialPlane>(second)) {
+            const auto axis = differential_axis(first);
+            const auto plane = std::get<DifferentialPlane>(second);
+            auto measured = dot(axis.origin - plane.origin, plane.normal);
+            if (branch.distance_relation == DistanceRelation::Unsigned)
+                measured = absolute(measured);
+            if (branch.distance_relation == DistanceRelation::OppositeSecondNormal)
+                measured = scalar(0.0, variables) - measured;
+            rows.push_back(divided(dot(axis.direction, plane.normal), options.angle_scale));
+            rows.push_back(
+                divided(measured - scalar(constraint.value, variables), options.length_scale));
+        } else if (std::holds_alternative<DifferentialPlane>(first) &&
+                   differential_axis_like(second)) {
+            return differential_residual(constraint, second, first, branch, options,
+                                         angle_reference, unsigned_angle_axis);
         } else {
             const auto& first_plane = std::get<DifferentialPlane>(first);
             const auto& second_plane = std::get<DifferentialPlane>(second);
@@ -787,6 +860,10 @@ Eigen::VectorXd constraint_tolerances(const Constraint& constraint, const WorldG
     const double angle = options.angle_tolerance / options.angle_scale;
     if (!second)
         throw std::invalid_argument("binary constraint requires a second geometry");
+    if (constraint.kind == ConstraintKind::Parallel)
+        return Eigen::VectorXd::Constant(3, angle);
+    if (constraint.kind == ConstraintKind::Perpendicular)
+        return Eigen::VectorXd::Constant(1, angle);
     if (constraint.kind == ConstraintKind::Angle) {
         return Eigen::VectorXd::Constant(1, angle);
     }
@@ -825,6 +902,12 @@ Eigen::VectorXd constraint_tolerances(const Constraint& constraint, const WorldG
         return result;
     }
     if (constraint.kind == ConstraintKind::Distance) {
+        if ((is_axis_like(first) && std::holds_alternative<WorldPlane>(*second)) ||
+            (is_axis_like(*second) && std::holds_alternative<WorldPlane>(first))) {
+            Eigen::VectorXd result(2);
+            result << angle, length;
+            return result;
+        }
         if (std::holds_alternative<WorldPlane>(first) &&
             std::holds_alternative<WorldPlane>(*second)) {
             Eigen::VectorXd result(4);
@@ -844,6 +927,11 @@ double satisfaction_ratio(const Constraint& constraint, const WorldGeometry& fir
     const double angle = options.angle_tolerance / options.angle_scale;
     if (!second)
         throw std::invalid_argument("binary constraint requires a second geometry");
+    if (constraint.kind == ConstraintKind::Parallel ||
+        constraint.kind == ConstraintKind::Perpendicular)
+        return residual.norm() / angle;
+    if (constraint.kind == ConstraintKind::Distance && residual.size() == 2)
+        return std::max(std::abs(residual[0]) / angle, std::abs(residual[1]) / length);
     if (constraint.kind == ConstraintKind::Angle)
         return std::abs(residual[0]) / angle;
     if (constraint.kind == ConstraintKind::Concentric ||
@@ -976,6 +1064,23 @@ public:
     CompiledAssembly(const Model& model, const SolverOptions& options)
         : model_(model), options_(options), constraints_(model.constraints) {
         validate_and_index();
+        // A zero point distance is a coincidence manifold, not a differentiable
+        // scalar norm equation. Preserve its true rank at the zero solution.
+        for (auto& constraint : constraints_) {
+            if (!active(constraint) || constraint.kind != ConstraintKind::Distance ||
+                constraint.value != 0.0 || !constraint.second)
+                continue;
+            const auto& first = geometry(constraint.first).local_geometry;
+            const auto& second = geometry(*constraint.second).local_geometry;
+            const auto point_or_axis = [](const Geometry& value) {
+                return std::holds_alternative<PointGeometry>(value) ||
+                       std::holds_alternative<AxisGeometry>(value) ||
+                       std::holds_alternative<CylinderGeometry>(value);
+            };
+            if ((std::holds_alternative<PointGeometry>(first) && point_or_axis(second)) ||
+                (std::holds_alternative<PointGeometry>(second) && point_or_axis(first)))
+                constraint.kind = ConstraintKind::Coincident;
+        }
         build_clusters();
         freeze_branches();
         build_components();
@@ -1140,7 +1245,8 @@ private:
             }
             if (!finite(constraint.value))
                 throw std::invalid_argument("constraint value must be finite");
-            if (constraint.kind == ConstraintKind::Distance && constraint.value < 0.0)
+            if (constraint.kind == ConstraintKind::Distance && constraint.value < 0.0 &&
+                constraint.distance_relation == DistanceRelation::Unsigned)
                 throw std::invalid_argument("Distance value must not be negative");
             if (constraint.kind == ConstraintKind::Angle &&
                 (constraint.value < 0.0 ||
@@ -1797,8 +1903,11 @@ private:
         for (const std::size_t constraint_index : component_.constraint_indices) {
             const Constraint& constraint = assembly_.constraint(constraint_index);
             if ((constraint.kind != ConstraintKind::Coincident &&
-                 constraint.kind != ConstraintKind::Concentric) ||
-                constraint.direction_relation == DirectionRelation::Unoriented)
+                 constraint.kind != ConstraintKind::Concentric &&
+                 constraint.kind != ConstraintKind::Parallel &&
+                 constraint.kind != ConstraintKind::Perpendicular) ||
+                (constraint.direction_relation == DirectionRelation::Unoriented &&
+                 constraint.kind != ConstraintKind::Perpendicular))
                 continue;
             const auto& selected_first = assembly_.geometry(constraint.first);
             const auto& selected_second = assembly_.geometry(*constraint.second);
@@ -1827,7 +1936,9 @@ private:
             const Vector3 target = constraint.direction_relation == DirectionRelation::Same
                                        ? second_direction
                                        : -second_direction;
-            if (first_direction.dot(target) > -1.0 + 1.0e-10)
+            const bool perpendicular = constraint.kind == ConstraintKind::Perpendicular;
+            if (perpendicular ? std::abs(first_direction.dot(second_direction)) < 1.0 - 1.0e-10
+                              : first_direction.dot(target) > -1.0 + 1.0e-10)
                 continue;
 
             // The vector-difference objective has zero gradient at the exact
@@ -1836,7 +1947,7 @@ private:
             // fixed. The normal solve remains responsible for every other
             // constraint in the component.
             const Vector3 axis = perpendicular_to(first_direction);
-            const EigenQuaternion turn(Eigen::AngleAxisd(kPi, axis));
+            const EigenQuaternion turn(Eigen::AngleAxisd(perpendicular ? kPi * 0.5 : kPi, axis));
             Pose& cluster_pose = state.poses[static_cast<std::size_t>(
                 std::distance(free_cluster_indices_.begin(), free))];
             const Vector3 pivot = geometry_origin(first);
@@ -1844,7 +1955,8 @@ private:
                 value(pivot + turn * (eigen(cluster_pose.translation) - pivot));
             cluster_pose.rotation = value(turn * normalized(cluster_pose.rotation));
 
-            if (std::holds_alternative<WorldPlane>(first) &&
+            if (constraint.kind == ConstraintKind::Coincident &&
+                std::holds_alternative<WorldPlane>(first) &&
                 std::holds_alternative<WorldPlane>(second)) {
                 const std::vector<Pose> turned_bodies = assembly_.body_poses(cluster_poses(state));
                 const auto turned = std::get<WorldPlane>(world_geometry(

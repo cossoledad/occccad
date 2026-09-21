@@ -148,6 +148,24 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 		binding.Accepted.SourceDigest = publication.Resolution.SourceDigest
 		binding.Accepted.Status = "CONNECTED"
 	}
+	if err := service.resolveAssemblySupports(ctx, product); err != nil {
+		return err
+	}
+	variants, err := service.contextVariantsForProductModel(ctx, *product)
+	if err != nil {
+		return err
+	}
+	service.resolveProductPublications(ctx, product, variants)
+	return nil
+}
+
+// Resolve only against accepted instance revisions; activation must not accept new Heads.
+func (service *Service) resolveAssemblySupports(ctx context.Context, product *ProductModel) error {
+	instances := map[string]*ProductInstance{}
+	for i := range product.Instances {
+		instances[product.Instances[i].ID] = &product.Instances[i]
+	}
+	acceptedParts := map[string]PartModel{}
 	resolveEndpoint := func(reference *AssemblyGeometryRef) (modelcore.SelectionResolutionStatus, error) {
 		if reference == nil {
 			return modelcore.SelectionResolved, nil
@@ -168,7 +186,31 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 				return modelcore.SelectionSourceUnavailable, nil
 			}
 		}
+		if instances[reference.InstanceID] == nil {
+			reference.Resolution = &ResolutionSnapshot{PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: unavailableSelectionResolution("INSTANCE_MISSING", "support instance no longer exists")}
+			return modelcore.SelectionSourceUnavailable, nil
+		}
 		if reference.Kind != "FACE" && reference.Kind != "EDGE" && reference.Kind != "VERTEX" {
+			if reference.Kind == "BODY" || reference.PublicationRef != nil {
+				return modelcore.SelectionResolved, nil
+			}
+			instance := instances[reference.InstanceID]
+			part, ok := acceptedParts[instance.ReferencedVersionID]
+			if !ok {
+				var raw []byte
+				if err := service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1`, instance.ReferencedVersionID).Scan(&raw); err != nil {
+					return modelcore.SelectionSourceUnavailable, err
+				}
+				if err := json.Unmarshal(raw, &part); err != nil {
+					return modelcore.SelectionSourceUnavailable, err
+				}
+				acceptedParts[instance.ReferencedVersionID] = part
+			}
+			if !datumAssemblyReferenceExists(part, *reference) {
+				reference.Resolution = &ResolutionSnapshot{TargetVersionID: instance.ReferencedVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: unavailableSelectionResolution("DATUM_SUPPORT_MISSING", "support datum or axis direction no longer exists in the accepted revision")}
+				return modelcore.SelectionSourceUnavailable, nil
+			}
+			reference.Resolution = nil
 			return modelcore.SelectionResolved, nil
 		}
 		instance := instances[reference.InstanceID]
@@ -197,27 +239,36 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 	}
 	for index := range product.Constraints {
 		constraint := &product.Constraints[index]
-		first, err := resolveEndpoint(&constraint.First)
-		if err != nil {
-			return err
+		first, firstErr := resolveEndpoint(&constraint.First)
+		second, secondErr := resolveEndpoint(constraint.Second)
+		axis, axisErr := modelcore.SelectionResolved, error(nil)
+		if constraint.Kind == "ANGLE" && (constraint.AngleRelation == "DIRECTED" || constraint.AngleRelation == "") {
+			axis, axisErr = resolveEndpoint(constraint.AngleAxis)
 		}
-		second, err := resolveEndpoint(constraint.Second)
-		if err != nil {
-			return err
+		if constraint.Suppressed {
+			if firstErr != nil || secondErr != nil || axisErr != nil || first != modelcore.SelectionResolved || second != modelcore.SelectionResolved || axis != modelcore.SelectionResolved {
+				constraint.EvaluationStatus = modelcore.AssemblyConstraintBroken
+				constraint.EvaluationSummary = fmt.Sprintf("inactive support resolution: first=%s second=%s axis=%s", first, second, axis)
+			}
+			continue
 		}
-		if first != modelcore.SelectionResolved || second != modelcore.SelectionResolved {
+		if firstErr != nil {
+			return firstErr
+		}
+		if secondErr != nil {
+			return secondErr
+		}
+		if axisErr != nil {
+			return axisErr
+		}
+		if first != modelcore.SelectionResolved || second != modelcore.SelectionResolved || axis != modelcore.SelectionResolved {
 			constraint.EvaluationStatus = modelcore.AssemblyConstraintBroken
-			constraint.EvaluationSummary = fmt.Sprintf("support resolution: first=%s second=%s", first, second)
+			constraint.EvaluationSummary = fmt.Sprintf("support resolution: first=%s second=%s axis=%s", first, second, axis)
 		} else {
-			constraint.EvaluationStatus = modelcore.AssemblyConstraintVerified
-			constraint.EvaluationSummary = "references resolved against accepted Part revisions"
+			constraint.EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
+			constraint.EvaluationSummary = "references resolved; awaiting authoritative solve"
 		}
 	}
-	variants, err := service.contextVariantsForProductModel(ctx, *product)
-	if err != nil {
-		return err
-	}
-	service.resolveProductPublications(ctx, product, variants)
 	return nil
 }
 
@@ -645,4 +696,29 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	resolution := resolveManifest(request.Selection, geometryKey, manifest)
 	service.selectionResolutions.Store(cacheKey, resolution)
 	return resolution, nil
+}
+
+func datumAssemblyReferenceExists(part PartModel, reference AssemblyGeometryRef) bool {
+	if reference.Kind == "PLANE" {
+		for _, plane := range part.DatumPlanes {
+			if plane.ID == reference.GeometryID {
+				return true
+			}
+		}
+	}
+	if reference.Kind == "AXIS" {
+		for _, axis := range part.DatumAxes {
+			if axis.ID == reference.GeometryID {
+				return true
+			}
+		}
+	}
+	if reference.Kind == "AXIS" || reference.Kind == "POINT" {
+		for _, frame := range part.AxisSystems {
+			if frame.ID == reference.GeometryID {
+				return reference.Kind == "POINT" || reference.Axis == "X" || reference.Axis == "Y" || reference.Axis == "Z"
+			}
+		}
+	}
+	return false
 }

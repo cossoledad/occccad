@@ -2832,7 +2832,7 @@ func (service *Service) buildDocumentStructure(
 		root.Children = append(root.Children, group)
 	}
 	if len(model.Constraints) > 0 {
-		group := DocumentStructureNode{ID: path + "/assembly-constraints", Kind: "ASSEMBLY_CONSTRAINT_SET", Name: "约束"}
+		group := DocumentStructureNode{ID: path + "/assembly-constraints", Kind: "ASSEMBLY_CONSTRAINT_SET", Name: "约束", DocumentID: documentID, Capabilities: []string{"SUPPRESS"}, Suppressed: true}
 		names := make(map[string]string, len(model.Instances))
 		for _, instance := range model.Instances {
 			names[instance.ID] = instance.Name
@@ -2840,6 +2840,9 @@ func (service *Service) buildDocumentStructure(
 		counts := map[string]int{}
 		labels := map[string]string{"FIX": "固定", "RIGID": "固连", "COINCIDENT": "重合", "CONCENTRIC": "同心", "ANGLE": "角度", "DISTANCE": "距离"}
 		for _, constraint := range model.Constraints {
+			if !constraint.Suppressed {
+				group.Suppressed = false
+			}
 			counts[constraint.Kind]++
 			name := fmt.Sprintf("#%s.%d（#%s", labels[constraint.Kind], counts[constraint.Kind], names[constraint.First.InstanceID])
 			if constraint.Second != nil {
@@ -2847,12 +2850,15 @@ func (service *Service) buildDocumentStructure(
 			}
 			name += "）"
 			status, summary := constraint.EvaluationStatus, constraint.EvaluationSummary
+			if constraint.Suppressed {
+				name += " [停用]"
+			}
 			if staleInstances[constraint.First.InstanceID] || (constraint.Second != nil && staleInstances[constraint.Second.InstanceID]) {
 				status, summary = modelcore.AssemblyConstraintNotUpdated, "referenced Part has a newer unaccepted workspace revision"
 			}
 			capabilities := assemblyConstraintStructureCapabilities(constraint, status)
 			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/constraint:" + constraint.ID,
-				Kind: "ASSEMBLY_CONSTRAINT", Name: name, EntityID: constraint.ID, EntityType: constraint.Kind,
+				Kind: "ASSEMBLY_CONSTRAINT", Suppressed: constraint.Suppressed, Name: name, EntityID: constraint.ID, EntityType: constraint.Kind,
 				DocumentID: documentID, Diagnostic: string(status) + ": " + summary, Capabilities: capabilities})
 		}
 		root.Children = append(root.Children, group)
@@ -2861,7 +2867,12 @@ func (service *Service) buildDocumentStructure(
 }
 
 func assemblyConstraintStructureCapabilities(constraint AssemblyConstraint, status modelcore.AssemblyConstraintEvaluationStatus) []string {
-	capabilities := []string{"EDIT", "DELETE"}
+	capabilities := []string{"EDIT", "DELETE", "SUPPRESS"}
+	if constraint.Suppressed {
+		capabilities = append(capabilities, "ACTIVATE")
+	} else {
+		capabilities = append(capabilities, "DEACTIVATE")
+	}
 	firstDisconnected := constraint.First.Resolution != nil && constraint.First.Resolution.Result.SupportingElementStatus == modelcore.SupportingElementNotConnected
 	secondDisconnected := constraint.Second != nil && constraint.Second.Resolution != nil && constraint.Second.Resolution.Result.SupportingElementStatus == modelcore.SupportingElementNotConnected
 	// BROKEN is authoritative evidence that at least one support failed even

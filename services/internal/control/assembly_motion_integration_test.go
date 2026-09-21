@@ -69,7 +69,7 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v2" || len(result.Components) != 1 {
+	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v3" || len(result.Components) != 1 {
 		t.Fatalf("invalid result: %+v", result)
 	}
 	p := result.Components[0].Preference
@@ -105,6 +105,27 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 	if result.Bodies[0].Pose.Translation[0] < 2.999999 || result.Components[0].Preference.TotalObjective > 1e-12 {
 		t.Fatalf("nominal pose overwritten by seed: %+v", result)
 	}
+	for _, test := range []struct {
+		name, kind, firstKind, secondKind            string
+		firstOrigin, firstDirection, secondDirection [3]float64
+		value                                        float64
+		rank                                         uint64
+	}{
+		{name: "parallel", kind: "PARALLEL", firstKind: "AXIS", secondKind: "AXIS", firstDirection: [3]float64{0, 0, 1}, secondDirection: [3]float64{0, 0, 1}, rank: 2},
+		{name: "perpendicular", kind: "PERPENDICULAR", firstKind: "AXIS", secondKind: "PLANE", firstDirection: [3]float64{1, 0, 0}, secondDirection: [3]float64{0, 0, 1}, rank: 1},
+		{name: "point-line offset", kind: "DISTANCE", firstKind: "POINT", secondKind: "AXIS", firstOrigin: [3]float64{2, 0, 0}, secondDirection: [3]float64{0, 0, 1}, value: 2, rank: 1},
+		{name: "line-plane offset", kind: "DISTANCE", firstKind: "AXIS", secondKind: "PLANE", firstOrigin: [3]float64{0, 0, 2}, firstDirection: [3]float64{1, 0, 0}, secondDirection: [3]float64{0, 0, 1}, value: 2, rank: 2},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := client.SolveAssembly(t.Context(), test.name, []geometry.AssemblyBody{{ID: "a", Pose: identity}, {ID: "b", Pose: identity}},
+				[]geometry.AssemblyGeometry{{ID: "first", BodyID: "b", Kind: test.firstKind, Origin: test.firstOrigin, Direction: test.firstDirection}, {ID: "second", BodyID: "a", Kind: test.secondKind, Direction: test.secondDirection}},
+				[]geometry.AssemblyConstraint{{ID: "fix", Kind: "FIX", FirstBodyID: "a", FixedPose: &identity}, {ID: "test", Kind: test.kind, FirstBodyID: "b", FirstGeometryID: "first", SecondBodyID: "a", SecondGeometryID: "second", Value: test.value}})
+			if err != nil || result.Status != "CONVERGED" || len(result.Components) != 1 || result.Components[0].JacobianRank != test.rank {
+				t.Fatalf("Router lost definition or rank: %+v %v", result, err)
+			}
+		})
+	}
+
 }
 
 func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
@@ -297,5 +318,155 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	if err != nil || afterFailure.Document.VersionID != refreshed.Document.VersionID {
 		t.Fatal("archiving failed preview changed model head")
 	}
+
+	t.Run("activation mode history and empty active set", func(t *testing.T) {
+		measured := "MEASURED"
+		measuredView := apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: []string{constraintID}, ConstraintMode: &measured})
+		if measuredView.Product.Constraints[1].Mode != "MEASURED" || measuredView.Product.Constraints[1].MeasuredValue == nil || math.Abs(*measuredView.Product.Constraints[1].MeasuredValue-4) > 1e-7 {
+			t.Fatalf("measurement missing: %+v", measuredView.Product.Constraints)
+		}
+		suppressed := true
+		ids := []string{measuredView.Product.Constraints[0].ID, constraintID}
+		disabled := apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: ids, Suppressed: &suppressed})
+		for _, c := range disabled.Product.Constraints {
+			if !c.Suppressed {
+				t.Fatal("batch suppression incomplete")
+			}
+		}
+		if disabled.Product.Constraints[1].Mode != "MEASURED" {
+			t.Fatal("suppression lost measured mode")
+		}
+		moved := apply(workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: b, Translation: [3]float64{0, 0, 9}, Rotation: [4]float64{0, 0, 0, 1}})
+		if math.Abs(moved.Product.Instances[1].Translation[2]-9) > 1e-7 {
+			t.Fatal("suppressed constraint still drives placement")
+		}
+		check(apply(workspace.CommandRequest{Type: "UNDO"}), 4)
+		restored := apply(workspace.CommandRequest{Type: "UNDO"})
+		if restored.Product.Constraints[1].Suppressed || restored.Product.Constraints[1].Mode != "MEASURED" {
+			t.Fatal("undo did not restore orthogonal state")
+		}
+		disabled = apply(workspace.CommandRequest{Type: "REDO"})
+		if !disabled.Product.Constraints[1].Suppressed {
+			t.Fatal("redo did not restore suppression")
+		}
+		plan, planErr := service.GetProductUpdatePlan(t.Context(), id)
+		if planErr != nil || !plan.CanAccept || plan.HasUpdates {
+			t.Fatalf("inactive constraints blocked update plan: %+v %v", plan, planErr)
+		}
+		var digest string
+		if err := db.QueryRow(t.Context(), `SELECT digest FROM occccad.product_solve_manifests WHERE root_product_revision_id=$1 AND manifest->>'purpose'='COMMIT' ORDER BY created_at DESC LIMIT 1`, disabled.Document.VersionID).Scan(&digest); err != nil {
+			t.Fatal(err)
+		}
+		var raw []byte
+		if err := db.QueryRow(t.Context(), `SELECT manifest FROM occccad.product_solve_manifests WHERE digest=$1`, digest).Scan(&raw); err != nil {
+			t.Fatal(err)
+		}
+		var manifest workspace.AssemblySolveManifest
+		if err := json.Unmarshal(raw, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		replay, err := service.ReplayAssemblySolveManifest(t.Context(), id, digest, "inactive-replay-"+id)
+		if err != nil || replay.Status != "CONVERGED" {
+			t.Fatalf("inactive replay failed: %+v %v", replay, err)
+		}
+		if len(manifest.Constraints) != 0 || len(manifest.Definitions) != 2 {
+			t.Fatalf("empty active set evidence incomplete: %+v", manifest)
+		}
+		release, err := service.CreateProductRelease(t.Context(), id, workspace.CreateProductReleaseRequest{RequestID: "inactive-release-" + id, Name: "Inactive constraints", ActorID: "00000000-0000-7000-8000-000000000001"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, gate := range release.Manifest.Gates {
+			if gate.Status != "PASSED" {
+				t.Fatalf("inactive constraints blocked Release: %+v", gate)
+			}
+		}
+		active := false
+		apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: ids, Suppressed: &active})
+		replayRelease, err := service.ReplayProductRelease(t.Context(), id, release.ID, "replay-release-"+id)
+		if err != nil {
+			t.Fatalf("frozen inactive release changed after activation: %+v %v", replayRelease, err)
+		}
+
+	})
+
+	t.Run("relative and space fixed baselines", func(t *testing.T) {
+		state, err := service.GetDocument(t.Context(), id, "00000000-0000-7000-8000-000000000001")
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixID := state.Product.Constraints[0].ID
+		apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: fixID, FixMode: "RELATIVE"})
+		moved := apply(workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: a, Translation: [3]float64{0, 0, 3}, Rotation: [4]float64{0, 0, 0, 1}})
+		if math.Abs(moved.Product.Instances[0].Translation[2]-3) > 1e-7 || moved.Product.Constraints[0].FixedPose == nil || math.Abs(moved.Product.Constraints[0].FixedPose.Translation[2]-3) > 1e-7 {
+			t.Fatal("relative fix did not accept explicit movement")
+		}
+		relative := apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: fixID, FixMode: "RELATIVE", FixedPose: &workspace.InstancePose{Translation: [3]float64{1, 2, 4}, Rotation: [4]float64{0, 0, 0, 1}}})
+		if relative.Product.Instances[0].Translation != ([3]float64{1, 2, 4}) {
+			t.Fatal("explicit relative fixed pose was discarded")
+		}
+		undone := apply(workspace.CommandRequest{Type: "UNDO"})
+		if math.Abs(undone.Product.Instances[0].Translation[2]-3) > 1e-7 {
+			t.Fatal("relative pose edit undo failed")
+		}
+		apply(workspace.CommandRequest{Type: "REDO"})
+		fixed := apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: fixID, FixMode: "SPACE", FixedPose: &workspace.InstancePose{Translation: [3]float64{0, 0, 5}, Rotation: [4]float64{0, 0, 0, 1}}})
+		if math.Abs(fixed.Product.Instances[0].Translation[2]-5) > 1e-7 {
+			t.Fatal("space fix pose editing failed")
+		}
+		preview, err := service.PreviewCommand(t.Context(), id, workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: a, Translation: [3]float64{0, 0, 8}, Rotation: [4]float64{0, 0, 0, 1}})
+		if err != nil || !preview.ConstraintLimited {
+			t.Fatalf("space fix unexpectedly moved: %+v %v", preview, err)
+		}
+	})
+
+	t.Run("stable angle axis and canonical turn", func(t *testing.T) {
+		first := &workspace.AssemblyGeometryRef{InstanceID: a, Kind: "PLANE", GeometryID: "datum-yz"}
+		second := &workspace.AssemblyGeometryRef{InstanceID: b, Kind: "PLANE", GeometryID: "datum-yz"}
+		axis := &workspace.AssemblyGeometryRef{InstanceID: b, Kind: "PLANE", GeometryID: "datum-xy"}
+		state := apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "ANGLE", AngleRelation: "DIRECTED", FirstAssemblyRef: first, SecondAssemblyRef: second, AngleAxis: axis, Value: 2 * math.Pi})
+		c := state.Product.Constraints[len(state.Product.Constraints)-1]
+		if c.Value != 0 || c.AngleAxis == nil || c.AngleReferenceDirection == nil || c.EvaluationStatus != "VERIFIED" {
+			t.Fatalf("angle axis/canonicalization: %+v", c)
+		}
+		state = apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: c.ID, AngleRelation: "DIRECTED", AngleAxis: axis, ReverseAngleAxis: new(true), Value: math.Pi / 2})
+		c = state.Product.Constraints[len(state.Product.Constraints)-1]
+		if c.AngleReferenceDirection == nil || c.AngleReferenceDirection[2] != -1 || c.EvaluationStatus != "VERIFIED" {
+			t.Fatalf("axis reverse: %+v", c)
+		}
+		var manifestJSON []byte
+		if err := db.QueryRow(t.Context(), `SELECT manifest FROM occccad.product_solve_manifests WHERE root_product_revision_id=$1 AND manifest->>'purpose'='COMMIT' ORDER BY created_at DESC LIMIT 1`, state.Document.VersionID).Scan(&manifestJSON); err != nil {
+			t.Fatal(err)
+		}
+		var manifest workspace.AssemblySolveManifest
+		if err := json.Unmarshal(manifestJSON, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, e := range manifest.ResolutionEvidence {
+			if e.ConstraintID == c.ID && e.Endpoint == "ANGLE_AXIS" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("stable axis omitted from replay evidence")
+		}
+		apply(workspace.CommandRequest{Type: "UNDO"})
+		apply(workspace.CommandRequest{Type: "REDO"})
+		missing := *axis
+		missing.GeometryID = "removed-axis"
+		broken := apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: c.ID, AngleAxis: &missing, Value: math.Pi / 2})
+		last := broken.Product.Constraints[len(broken.Product.Constraints)-1]
+		if last.EvaluationStatus != "BROKEN" || broken.Product.Constraints[0].EvaluationStatus != "VERIFIED" {
+			t.Fatal("missing angle axis did not isolate its broken definition")
+		}
+		apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: []string{c.ID}, Suppressed: new(true)})
+		apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: c.ID, AngleAxis: axis, Value: math.Pi / 2})
+		reconnected := apply(workspace.CommandRequest{Type: "SET_ASSEMBLY_CONSTRAINT_STATE", ConstraintIDs: []string{c.ID}, Suppressed: new(false)})
+		if reconnected.Product.Constraints[len(reconnected.Product.Constraints)-1].EvaluationStatus != "VERIFIED" {
+			t.Fatal("axis reconnect/reactivation did not re-evaluate")
+		}
+
+	})
 
 }

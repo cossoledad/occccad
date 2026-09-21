@@ -56,7 +56,7 @@ flowchart TD
     K --> L[恢复 Body 位姿、branch 与方程 provenance]
 ```
 
-输入校验包括稳定 ID 唯一性、引用完整性、有限数、单位方向、合法半径、距离非负、unsigned Angle 位于 `[0, π]`、
+输入校验包括稳定 ID 唯一性、引用完整性、有限数、单位方向、合法半径、无符号距离非负、unsigned Angle 位于 `[0, π]`、
 directed Angle 位于 `[0, 2π]`、SolveIntent body 存在且 moving/reference 在 body 与 rigid-cluster 层均不冲突。无效模型返回
 `InvalidModel`，不会让异常越过公开求解接口。
 
@@ -138,6 +138,10 @@ Product 拒绝将它当作从动成功提交；不会误报为几何冲突。响
 | Angle，普通 `[0,π]` 目标 | `(atan2(‖d₁×d₂‖, d₁·d₂)-target)/A`（应用冻结方向支） | 1 |
 | Angle，含 0/π 端点 | 冻结局部转轴后的周期标量角误差 | 1 |
 | Distance Point–Point | `(‖p₁-p₂‖-target)/L` | 1 |
+| Parallel | 冻结方向支后的单位方向差，独立秩 2 | 3 |
+| Perpendicular | 两单位方向点积，独立秩 1 | 1 |
+| Distance Point–Axis | 点到无限轴的径向距离差 | 1 |
+| Distance Axis–Plane | 轴与法向垂直 + 法向偏移差 | 2 |
 | Distance Point–Plane | 显式 signed/unsigned side 的法向距离差 | 1 |
 | Distance Axis-like pair | 两条无限直线的最短距离差 | 1 |
 | Distance Plane–Plane | 法向平行残差 + 显式 side 的距离差 | 4 |
@@ -145,6 +149,8 @@ Product 拒绝将它当作从动成功提交；不会误报为几何冲突。响
 表中 `L=length_scale`、`A=angle_scale`。某些向量残差含代数相关行，例如单位方向的三分量差并不总有三维独立 rank；
 因此 DOF 不能用“残差行数相减”估计，而必须在求解点计算 Jacobian rank。Cylinder–Cylinder `Coincident` 检查半径相等，
 `Concentric` 刻意不约束半径。
+
+零目标的驱动点点/点线 Distance 在图编译前转换为 Coincident，以保留 3/2 阶约束；Measured 保留原标量测量。显式 Parallel 的反向端点使用半周 seed，Perpendicular 从精确平行初始状态使用四分之一周 seed；两者保持支持锚点，不附加平面平移条件。
 
 Directed Angle 先把两个方向投影到 reference axis 的法平面，再用投影单位向量计算
 `atan2(k·(a×b),a·b)`；投影退化会明确拒绝模型。所有 Angle 使用 `atan2(sin(delta),cos(delta))` 的最短周期误差。

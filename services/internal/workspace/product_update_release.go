@@ -174,6 +174,9 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 		plan.ContextVariants = append(plan.ContextVariants, variant)
 	}
 	for _, constraint := range rootModel.Constraints {
+		if constraint.Suppressed {
+			continue
+		}
 		if plan.HasUpdates || constraint.EvaluationStatus != modelcore.AssemblyConstraintVerified {
 			plan.AffectedConstraintIDs = append(plan.AffectedConstraintIDs, constraint.ID)
 		}
@@ -530,7 +533,12 @@ func (service *Service) CreateProductRelease(ctx context.Context, rootDocumentID
 	_ = json.Unmarshal(rootRaw, &root)
 	manifest.ProductPublications = root.Publications
 	constraintsReady := true
+	var inactiveConstraintIDs []string
 	for _, constraint := range root.Constraints {
+		if constraint.Suppressed {
+			inactiveConstraintIDs = append(inactiveConstraintIDs, constraint.ID)
+			continue
+		}
 		if constraint.EvaluationStatus != modelcore.AssemblyConstraintVerified {
 			constraintsReady = false
 		}
@@ -539,6 +547,10 @@ func (service *Service) CreateProductRelease(ctx context.Context, rootDocumentID
 		gates = append(gates, ProductReleaseGate{Code: "ASSEMBLY_CONSTRAINTS_VERIFIED", Status: "PASSED"})
 	} else {
 		gates = append(gates, ProductReleaseGate{Code: "ASSEMBLY_CONSTRAINTS_VERIFIED", Status: "FAILED", Diagnostic: "one or more assembly constraints are not Verified"})
+	}
+	if len(inactiveConstraintIDs) > 0 {
+		sort.Strings(inactiveConstraintIDs)
+		gates = append(gates, ProductReleaseGate{Code: "ASSEMBLY_INACTIVE_DEFINITIONS", Status: "PASSED", Diagnostic: fmt.Sprintf("excluded from active verification because suppressed; definitions retained in SolveManifest: %v", inactiveConstraintIDs)})
 	}
 	if len(root.Constraints) > 0 {
 		if err := service.database.QueryRow(ctx, `SELECT digest FROM occccad.product_solve_manifests m WHERE

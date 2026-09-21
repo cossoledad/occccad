@@ -28,7 +28,7 @@
 | 持久命名 | Extrude/Boolean 完整 Face/Edge/Vertex history 与 resolver；当前 policy 为 v3 | Revolve/Import 等未达到同等覆盖；歧义需要 Reconnect |
 | Part 关联 | 驱动尺寸 ParameterBinding、面支撑、Edge/Vertex 投影、更新/重连/Detach | 部分圆弧 snapshot、Face group、Section/Silhouette |
 | 产品关联 | Publication、typed InstancePath、Product Design Session、ContextInput/Binding、Variant、原子事务、Update Plan | Configuration/Design Table、partial update、flexible subassembly、Derive Part from Context |
-| 装配 | SE(3)、基础约束、自由度/层级解选择、M3 SolveManifest/request lookup/replay | M4 最近可行拖拽、M5 完整冲突解释、M6 Engineering Connection；当前 MOVE 仍用临时 Fix |
+| 装配 | SE(3)、基础约束、平行/垂直、点线/线面偏移、激活与模式分离、M3/历史/Release 证据、0–6 阶组合测试 | 六类几何完整矩阵与多成员固联尚未完成；M4 最近可行拖拽、M5 冲突解释、M6 Engineering Connection；当前 MOVE 仍用临时 Fix |
 | 产品发布 | 冻结 ProductRelease、gate、replay、按冻结几何导出 | ACCEPT-PRODUCT 已通过；后续新增能力仍需独立验收 |
 | 交换 | STEP/BREP、transferable roots、展平 occurrence placement round-trip | XDE/AP242 嵌套 BOM、颜色、共享实例语义 |
 | 平台 | 本机扩缩容、持久 Jobs、本地制品、提交同步 | S3/CDN、跨主机 Scheduler、多 API 扇出、presence/preview 协作 |

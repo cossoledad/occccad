@@ -92,6 +92,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeMoveInstance, "PRODUCT", applyMoveInstance},
 		commandHandler{typeAddAssemblyConstraint, "PRODUCT", applyAddAssemblyConstraint},
 		commandHandler{typeEditAssemblyConstraint, "PRODUCT", applyEditAssemblyConstraint},
+		commandHandler{typeSetAssemblyConstraintState, "PRODUCT", applyAssemblyConstraintState},
 		commandHandler{typeSetReferenceMode, "PRODUCT", applyReferenceMode},
 		commandHandler{typeUpdateReferences, "PRODUCT", applyUpdateReferences},
 		commandHandler{typeDeletePartNode, "PART", applyDeletePartNode},
@@ -1309,17 +1310,71 @@ type addAssemblyConstraintPayload struct {
 }
 
 type editAssemblyConstraintPayload struct {
+	FixMode                 string               `json:"fixMode,omitempty"`
+	AngleRelation           string               `json:"angleRelation,omitempty"`
 	ConstraintID            string               `json:"constraintId"`
 	Value                   float64              `json:"value"`
 	DirectionRelation       string               `json:"directionRelation"`
 	DistanceRelation        string               `json:"distanceRelation"`
 	First                   *AssemblyGeometryRef `json:"first,omitempty"`
 	Second                  *AssemblyGeometryRef `json:"second,omitempty"`
+	AngleAxis               *AssemblyGeometryRef `json:"angleAxis,omitempty"`
+	ReverseAngleAxis        *bool                `json:"reverseAngleAxis,omitempty"`
 	AngleReferenceDirection *[3]float64          `json:"angleReferenceDirection,omitempty"`
 	FixedPose               *InstancePose        `json:"fixedPose,omitempty"`
 }
 
 func validateInstanceConstraintReferences(constraint AssemblyConstraint) error {
+	switch constraint.Kind {
+	case "FIX", "RIGID", "COINCIDENT", "CONCENTRIC", "ANGLE", "DISTANCE":
+	default:
+		return fmt.Errorf("%w: unknown assembly constraint kind", ErrValidation)
+	}
+	if !finite(constraint.Value) || (constraint.Kind == "ANGLE" && (constraint.Value < 0 || constraint.Value > 2*math.Pi)) {
+		return fmt.Errorf("%w: invalid assembly quantity", ErrValidation)
+	}
+
+	if constraint.Mode != "" && constraint.Mode != "DRIVING" && constraint.Mode != "MEASURED" && constraint.Mode != "CONTROLLED" {
+		return fmt.Errorf("%w: activation is independent of constraint mode", ErrValidation)
+	}
+	if constraint.FixMode != "" && (constraint.Kind != "FIX" || (constraint.FixMode != "SPACE" && constraint.FixMode != "RELATIVE")) {
+		return fmt.Errorf("%w: invalid fixed reference mode", ErrValidation)
+	}
+	if constraint.AngleRelation != "" && (constraint.Kind != "ANGLE" || (constraint.AngleRelation != "DIRECTED" && constraint.AngleRelation != "PARALLEL" && constraint.AngleRelation != "PERPENDICULAR")) {
+		return fmt.Errorf("%w: invalid angle relation", ErrValidation)
+	}
+	if constraint.AngleAxis != nil {
+		if constraint.Kind != "ANGLE" || constraint.Second == nil || constraint.AngleAxis.InstanceID != constraint.Second.InstanceID {
+			return fmt.Errorf("%w: angle axis must belong to the second support instance", ErrValidation)
+		}
+		if constraint.AngleAxis.Kind != "AXIS" && constraint.AngleAxis.Kind != "PLANE" && constraint.AngleAxis.Kind != "FACE" && constraint.AngleAxis.Kind != "EDGE" {
+			return fmt.Errorf("%w: angle axis requires a directional support", ErrValidation)
+		}
+	}
+	if constraint.AngleRelation == "DIRECTED" && constraint.AngleAxis == nil {
+		return fmt.Errorf("%w: directed angle requires a stable reference axis", ErrValidation)
+	}
+	if constraint.Mode == "MEASURED" && !assemblySupportsMeasurement(constraint) {
+		return fmt.Errorf("%w: relation does not support measurement", ErrValidation)
+	}
+	if constraint.FixedPose != nil {
+		for _, v := range constraint.FixedPose.Translation {
+			if !finite(v) {
+				return fmt.Errorf("%w: fixed position must be finite", ErrValidation)
+			}
+		}
+		norm := 0.0
+		for _, v := range constraint.FixedPose.Rotation {
+			if !finite(v) {
+				return fmt.Errorf("%w: fixed rotation must be finite", ErrValidation)
+			}
+			norm += v * v
+		}
+		if !finite(norm) || norm < 1e-20 {
+			return fmt.Errorf("%w: fixed rotation must be nonzero", ErrValidation)
+		}
+	}
+
 	if constraint.Kind == "FIX" {
 		if constraint.First.Kind != "BODY" || constraint.Second != nil {
 			return fmt.Errorf("%w: FIX must reference exactly one instance body", ErrValidation)
@@ -1354,6 +1409,18 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 		if before.Kind == "ANGLE" && (payload.Value < 0 || payload.Value > 2*math.Pi) {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: assembly angle must be in [0, 2pi]", ErrValidation)
 		}
+		if payload.FixMode != "" {
+			model.Constraints[index].FixMode = payload.FixMode
+		}
+		if payload.AngleAxis != nil {
+			model.Constraints[index].AngleAxis = payload.AngleAxis
+		}
+		if payload.ReverseAngleAxis != nil {
+			model.Constraints[index].ReverseAngleAxis = *payload.ReverseAngleAxis
+		}
+		if payload.AngleRelation != "" {
+			model.Constraints[index].AngleRelation = payload.AngleRelation
+		}
 		model.Constraints[index].Value = payload.Value
 		model.Constraints[index].DirectionRelation = payload.DirectionRelation
 		model.Constraints[index].DistanceRelation = payload.DistanceRelation
@@ -1383,8 +1450,25 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 			return nil, modelcore.ChangeSet{}, err
 		}
 		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.ConstraintID, SlotID: "assembly-constraint.entity"}, before, model.Constraints[index])
+		changes := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.ConstraintID)}}
+		// Explicit relative-Fix pose editing is a placement edit. Otherwise the
+		// next solve would recapture the old nominal placement and discard it.
+		c := model.Constraints[index]
+		if c.Kind == "FIX" && c.FixMode == "RELATIVE" && payload.FixedPose != nil && !c.Suppressed {
+			for i := range model.Instances {
+				instance := &model.Instances[i]
+				if instance.ID != c.First.InstanceID {
+					continue
+				}
+				old := InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)}
+				instance.Translation, instance.Rotation = c.FixedPose.Translation, c.FixedPose.Rotation
+				poseChange, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: instance.ID, SlotID: "instance.pose"}, old, *c.FixedPose)
+				changes.Changes = append(changes.Changes, poseChange)
+				changes.ImpactSeeds = append(changes.ImpactSeeds, modelcore.DependencyKey("placement:"+instance.ID))
+			}
+		}
 		next, _ := json.Marshal(model)
-		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.ConstraintID)}}, nil
+		return next, changes, nil
 	}
 	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: assembly constraint does not exist", ErrValidation)
 }
@@ -1679,6 +1763,11 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 				}
 			}
 		}
+		if promoted && len(model.Constraints) > 0 {
+			if err = service.promoteAssemblySolveManifest(ctx, documentID, revisionID, prepared.requestID, candidate.assemblyPreviewRequestID, canonicalModelHash(nextJSON)); err != nil {
+				return err
+			}
+		}
 		if !promoted {
 			finishSolve := perf.Start(ctx, "assembly-solve")
 			drivenInstanceID := ""
@@ -1691,22 +1780,11 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 				solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 			}
 			if err = service.solveAssembly(ctx, documentID, revisionID, prepared.requestID, drivenInstanceID, solveIntent, &model, ""); err != nil {
-				if prepared.command.TypeURI != typeUpdateReferences && prepared.command.TypeURI != typeReplaceInstance {
+				allowFailure := prepared.command.TypeURI == typeUpdateReferences || prepared.command.TypeURI == typeReplaceInstance
+				if err = acceptAssemblyEvaluationFailure(&model, err, allowFailure); err != nil {
 					finishSolve()
 					return err
 				}
-				var failure *assemblySolveFailure
-				if !errors.As(err, &failure) || failure.retryable {
-					finishSolve()
-					return err
-				}
-				for index := range model.Constraints {
-					if model.Constraints[index].EvaluationStatus != modelcore.AssemblyConstraintBroken {
-						model.Constraints[index].EvaluationStatus = modelcore.AssemblyConstraintImpossible
-						model.Constraints[index].EvaluationSummary = failure.code + ": " + failure.diagnostic
-					}
-				}
-				err = nil
 			}
 			finishSolve()
 		}
@@ -1714,17 +1792,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		modelHash = canonicalModelHash(nextJSON)
 		var priorProduct ProductModel
 		_ = json.Unmarshal(prepared.modelJSON, &priorProduct)
-		priorPoses := map[string]InstancePose{}
-		for _, instance := range priorProduct.Instances {
-			priorPoses[instance.ID] = InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)}
-		}
-		for _, instance := range model.Instances {
-			pose := InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)}
-			if prior, exists := priorPoses[instance.ID]; exists && prior != pose {
-				marker, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: instance.ID, SlotID: "instance.pose"}, nil, nil)
-				changes.Changes = append(changes.Changes, marker)
-			}
-		}
+		changes = appendAssemblyEvaluationChanges(changes, priorProduct, model)
 		graph, manifest, err = buildProductEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)
 		if err != nil {
 			return err
@@ -1958,7 +2026,8 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		if !constraintLimited {
 			service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
 				headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
-				payloadDigest: modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, changes: previewChanges,
+				assemblyPreviewRequestID: "preview/" + prepared.requestID,
+				payloadDigest:            modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, changes: previewChanges,
 				expiresAt: time.Now().Add(interactionCandidateTTL)})
 		}
 		result := CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
@@ -2407,12 +2476,15 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("instance:" + instance.ID), Phase: 1, Type: "PRODUCT_INSTANCE", CanonicalInput: data})
 	}
 	for _, constraint := range model.Constraints {
-		if !instanceIDs[constraint.First.InstanceID] || (constraint.Second != nil && !instanceIDs[constraint.Second.InstanceID]) {
+		if !constraint.Suppressed && (!instanceIDs[constraint.First.InstanceID] || (constraint.Second != nil && !instanceIDs[constraint.Second.InstanceID])) {
 			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: assembly constraint references an unknown instance", ErrValidation)
 		}
 		data, _ := json.Marshal(constraint)
 		key := modelcore.DependencyKey("assembly-constraint:" + constraint.ID)
 		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 2, Type: "ASSEMBLY_CONSTRAINT", CanonicalInput: data})
+		if constraint.Suppressed {
+			continue
+		}
 		edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + constraint.First.InstanceID), Target: key, Kind: "READ_GEOMETRY"})
 		if constraint.Second != nil {
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + constraint.Second.InstanceID), Target: key, Kind: "READ_GEOMETRY"})
