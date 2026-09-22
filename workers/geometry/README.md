@@ -102,3 +102,5 @@ Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用�
 3dreplay 重放复用 `SolveAssembly`，无需另设 RPC 或在 Worker 内读取业务数据库。
 
 `SolveAssembly` 同时适配内部 `PARALLEL`/`PERPENDICULAR` 方程，并支持空约束集合求解。产品激活状态保存在 Go 模型和 M3 definitions，停用定义不作为 Worker 活动方程发送。新增点线/线面距离与方向关系由真实 Router conformance 测试覆盖。
+
+平面 Face 属性和命名 evidence 使用最终 Solid 中包含 Face Orientation 的法向，闭合实体朝材料外（内腔朝空腔）。History 返回的工具面可能方向相反，输出命名前会按最终 face map 取回朝向；平面 X/Y/normal 保持右手系，供面上草图、装配 descriptor 和法线视图共享。

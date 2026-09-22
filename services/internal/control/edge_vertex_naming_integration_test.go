@@ -108,6 +108,37 @@ func TestEdgeVertexPersistentSelectionThroughRealRouter(t *testing.T) {
 	part, baseSketch := addRectangle(part.Document.ID, "XY", "", workspace.SketchPoint2{X: 0, Y: 0}, workspace.SketchPoint2{X: 20, Y: 20})
 	part = addExtrude(part.Document.ID, baseSketch, "NEW_BODY", 10, false)
 	baseFeatureID := part.Part.Features[len(part.Part.Features)-1].ID
+	// Exercise face -> sketch -> reversed pocket through the real Router on
+	// both caps and all four side faces, then restore the base for each face.
+	for _, expected := range [][3]float64{{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}} {
+		pick := findP7TopologyPick(t, service, part, "FACE", func(properties workspace.TopologyElementProperties, _ modelcore.PersistentSelection) bool {
+			n, ok := properties.Properties["normal"].([3]float64)
+			return ok && n == expected
+		})
+		part = apply(part.Document.ID, workspace.CommandRequest{Type: "CREATE_SKETCH", TargetKind: "FACE", GeometryKey: pick.GeometryKey, TopologyID: pick.LocalID, VersionID: pick.SourceVersionID})
+		feature := part.Part.Features[len(part.Part.Features)-1]
+		support := feature.Sketch.Support
+		if support.Normal != expected {
+			t.Fatalf("face sketch normal = %v, want %v", support.Normal, expected)
+		}
+		u, n := support.XDirection, support.Normal
+		v := [3]float64{n[1]*u[2] - n[2]*u[1], n[2]*u[0] - n[0]*u[2], n[0]*u[1] - n[1]*u[0]}
+		var x, y float64
+		for i := 0; i < 3; i++ {
+			delta := pick.Selection.CreationEvidence.Centroid[i] - support.Origin[i]
+			x += delta * u[i]
+			y += delta * v[i]
+		}
+		first, second := workspace.SketchPoint2{X: x - 1, Y: y - 1}, workspace.SketchPoint2{X: x + 1, Y: y + 1}
+		part = apply(part.Document.ID, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: feature.ID, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &first, Second: &second}}})
+		part = addExtrude(part.Document.ID, feature.ID, "REMOVE", 1, true)
+		if math.Abs(part.Artifact.Volume-3996) > 1e-5 {
+			t.Fatalf("pocket on %v volume = %g", expected, part.Artifact.Volume)
+		}
+		for undo := 0; undo < 3; undo++ {
+			part = apply(part.Document.ID, workspace.CommandRequest{Type: "UNDO"})
+		}
+	}
 	part = apply(part.Document.ID, workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Name: "Original top",
 		Origin: [3]float64{0, 0, 10}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
 	originalTopPlaneID := part.DatumPlanes[len(part.DatumPlanes)-1].ID
@@ -203,6 +234,25 @@ func TestEdgeVertexPersistentSelectionThroughRealRouter(t *testing.T) {
 	part = apply(part.Document.ID, workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Name: "Replacement top",
 		Origin: [3]float64{0, 0, 5}, Normal: [3]float64{0, 0, 1}, UDirection: [3]float64{1, 0, 0}})
 	replacementTopPlaneID := part.DatumPlanes[len(part.DatumPlanes)-1].ID
+	// The automatic FOLLOW_HEAD path includes a plan digest. Existing Broken
+	// constraints must neither reject the next Head nor schedule endless updates.
+	plan, err := service.GetProductUpdatePlan(t.Context(), product.Document.ID)
+	if err != nil || !plan.CanAccept || !plan.HasUpdates {
+		t.Fatalf("Broken constraints blocked new Head: %+v %v", plan, err)
+	}
+	product = apply(product.Document.ID, workspace.CommandRequest{Type: "UPDATE_REFERENCES", UpdatePlanDigest: plan.Digest})
+	for _, instance := range product.Product.Instances {
+		if instance.ReferencedDocumentID == part.Document.ID && instance.ResolvedVersionID != part.Document.VersionID {
+			t.Fatalf("instance did not accept source Head: %+v", instance)
+		}
+	}
+	for _, constraintID := range constraintIDs {
+		assertP7Constraint(t, product, constraintID, modelcore.AssemblyConstraintBroken, modelcore.SupportingElementNotConnected)
+	}
+	plan, err = service.GetProductUpdatePlan(t.Context(), product.Document.ID)
+	if err != nil || !plan.CanAccept || plan.HasUpdates {
+		t.Fatalf("Broken constraints schedule repeated updates: %+v %v", plan, err)
+	}
 	newTopEdge := findP7TopologyPick(t, service, part, "EDGE", func(properties workspace.TopologyElementProperties, selection modelcore.PersistentSelection) bool {
 		return selection.Anchor.FeatureID == deleteFeatureID && properties.GeometryType == "LINE" &&
 			math.Abs(selection.CreationEvidence.Centroid[2]-5) < 1e-9
@@ -255,7 +305,7 @@ type p7TopologyPick struct {
 func findP7TopologyPick(t *testing.T, service *workspace.Service, view workspace.DocumentView, kind string,
 	match func(workspace.TopologyElementProperties, modelcore.PersistentSelection) bool) p7TopologyPick {
 	t.Helper()
-	countKey := map[string]string{"EDGE": "edges", "VERTEX": "vertices"}[kind]
+	countKey := map[string]string{"FACE": "faces", "EDGE": "edges", "VERTEX": "vertices"}[kind]
 	count := p6TopologyCount(t, view.Artifact.Topology, countKey)
 	for localID := uint64(1); localID <= count; localID++ {
 		properties, err := service.GetTopologyElementPropertiesAtVersion(t.Context(), view.Document.ID,

@@ -173,7 +173,25 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 		}
 		plan.ContextVariants = append(plan.ContextVariants, variant)
 	}
-	for _, constraint := range rootModel.Constraints {
+	appendAssemblyUpdateDiagnostics(&plan, revisionID, rootModel.Constraints)
+
+	sort.Slice(plan.Entries, func(i, j int) bool { return plan.Entries[i].BindingID < plan.Entries[j].BindingID })
+	sort.Slice(plan.ContextVariants, func(i, j int) bool {
+		return plan.ContextVariants[i].OwningInstancePath.Canonical < plan.ContextVariants[j].OwningInstancePath.Canonical
+	})
+	plan.Digest = resolvedDigest(struct {
+		Root, Revision string
+		Entries        []ProductUpdatePlanEntry
+		Variants       []ContextVariantSnapshot
+	}{rootDocumentID, revisionID, plan.Entries, plan.ContextVariants})
+	return plan, nil
+}
+
+// Constraint failures describe the accepted assembly, not whether a source Head
+// may be accepted. Only reference changes schedule automatic updates; explicit
+// Refresh can retry a constraint without creating an automatic revision loop.
+func appendAssemblyUpdateDiagnostics(plan *ProductUpdatePlan, revisionID string, constraints []AssemblyConstraint) {
+	for _, constraint := range constraints {
 		if constraint.Suppressed {
 			continue
 		}
@@ -186,25 +204,20 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 		entry := ProductUpdatePlanEntry{Kind: "ASSEMBLY_SOLVE", BindingID: "constraint:" + constraint.ID,
 			Name: constraint.Kind + " " + constraint.ID, SourceDisplayPath: "Product assembly", OwningDisplayPath: "Product assembly",
 			AcceptedRevisionID: revisionID, CandidateRevisionID: revisionID, Connection: "CONNECTED",
-			Currency: "UPDATE_AVAILABLE", Evaluation: "READY"}
-		plan.HasUpdates = true
+			Currency: "CURRENT", Evaluation: "READY"}
+		if plan.HasUpdates {
+			entry.Currency = "UPDATE_AVAILABLE"
+		}
 		if constraint.EvaluationStatus == modelcore.AssemblyConstraintBroken {
-			entry.Connection, entry.Currency, entry.Evaluation = "BROKEN", "UPDATE_BLOCKED", "BLOCKED_BY_UPSTREAM"
+			entry.Connection, entry.Evaluation = "BROKEN", "FAILED"
 			entry.DiagnosticCode, entry.Diagnostic = "ASSEMBLY_SUPPORT_NOT_CONNECTED", constraint.EvaluationSummary
-			plan.CanAccept = false
+		}
+		if constraint.EvaluationStatus == modelcore.AssemblyConstraintImpossible {
+			entry.Evaluation = "FAILED"
+			entry.DiagnosticCode, entry.Diagnostic = "ASSEMBLY_CONSTRAINT_IMPOSSIBLE", constraint.EvaluationSummary
 		}
 		plan.Entries = append(plan.Entries, entry)
 	}
-	sort.Slice(plan.Entries, func(i, j int) bool { return plan.Entries[i].BindingID < plan.Entries[j].BindingID })
-	sort.Slice(plan.ContextVariants, func(i, j int) bool {
-		return plan.ContextVariants[i].OwningInstancePath.Canonical < plan.ContextVariants[j].OwningInstancePath.Canonical
-	})
-	plan.Digest = resolvedDigest(struct {
-		Root, Revision string
-		Entries        []ProductUpdatePlanEntry
-		Variants       []ContextVariantSnapshot
-	}{rootDocumentID, revisionID, plan.Entries, plan.ContextVariants})
-	return plan, nil
 }
 
 func (service *Service) contextVariantSnapshot(ctx context.Context, owner expandedOccurrence, bindings []ContextBinding) (ContextVariantSnapshot, error) {

@@ -1,3 +1,5 @@
+import { openDocumentTab } from "./open-document-tab";
+import { canDiscardNewSketch, defaultSolidReversed, type NewSketchSession } from "./sketch-session-policy";
 import { assemblyConstraintEntry } from "../../cad/assembly/assembly-angle";
 import { exactNormalViewPlane } from "../../cad/navigation/normal-view";
 import { AssemblyAngleParameters, angleAxisCandidateError } from "./assembly-angle-parameters";
@@ -11,7 +13,7 @@ import {
   Select, Space, Spin, Switch, Tag, Typography,
 } from "antd";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { api, isMockMode } from "../../api/client";
 import { ApiError } from "../../api";
 import { realtime } from "../../api/realtime-client";
@@ -153,6 +155,8 @@ function AssemblyConstraintFields({ kind, references, view, lengthUnit, constrai
 
 export function Workbench() {
   const { documentID = "" } = useParams();
+  const navigate = useNavigate();
+  const newSketchSession = useRef<NewSketchSession | undefined>(undefined);
   const client = useQueryClient();
   const { message } = App.useApp();
   const commandRegistry = useMemo(() => new CommandRegistry(), []);
@@ -301,6 +305,25 @@ export function Workbench() {
     onSuccess:(updated)=>{void refresh(updated);},onError:(error)=>{message.error(error.message);void refresh();}});
   const view = document.data;
   const editingView = activeDocumentID === documentID ? view : activeDocument.data;
+  const discardNewSketch = () => {
+    const session = newSketchSession.current;
+    if (!session) return;
+    newSketchSession.current = undefined;
+    const latest = client.getQueryData<DocumentView>(queryKeys.document(session.documentId));
+    if (!canDiscardNewSketch(session, latest)) return;
+    // Use the owning document, even when exit was caused by switching tabs or
+    // activating another occurrence. Do not clear the new context's selection.
+    void api.deleteNodes(session.documentId, [{ targetKind: "FEATURE", targetId: session.sketchId }])
+      .then((updated) => refresh(updated))
+      .catch((error: Error) => message.error(`放弃空草图失败：${error.message}`));
+  };
+  const discardNewSketchOnUnmount = useRef(discardNewSketch);
+  discardNewSketchOnUnmount.current = discardNewSketch;
+  useEffect(() => () => discardNewSketchOnUnmount.current(), []);
+  useEffect(() => {
+    const session = newSketchSession.current;
+    if (session && (store.activeSketchID !== session.sketchId || activeID !== session.documentId)) discardNewSketch();
+  }, [store.activeSketchID, activeID, client, refresh, message]);
   const activeResolvedInstance = activeInstancePath
     ? view?.resolvedInstances?.find((instance) => instance.instancePath?.canonical === activeInstancePath) : undefined;
   const designSession = useQuery({ queryKey: queryKeys.productDesignSession(documentID, activeInstancePath ?? ""),
@@ -390,7 +413,7 @@ export function Workbench() {
         for (const productID of targets) {
           const plan = await api.getProductUpdatePlan(productID);
           if (!plan.hasUpdates) continue;
-          if (!plan.canAccept) throw new Error(plan.entries.find((entry) => entry.diagnostic)?.diagnostic ?? "Product 自动更新被上游求值阻塞");
+          if (!plan.canAccept) throw new Error(plan.entries.find((entry) => entry.kind !== "ASSEMBLY_SOLVE" && entry.diagnostic)?.diagnostic ?? "Product 自动更新被上游求值阻塞");
           const updated = await api.acceptProductUpdatePlan(productID, plan.digest);
           client.setQueryData(queryKeys.document(productID), updated);
         }
@@ -514,6 +537,7 @@ export function Workbench() {
     assemblyDirection, assemblyDistance, assemblyPreviewCommit, assemblyConstraintForm, assemblyPreviewActor, lengthUnit]);
 
   const editSketch = (featureID: string, operations: SketchOperation[]) => {
+    if (operations.length && newSketchSession.current?.sketchId === featureID) newSketchSession.current.edited = true;
     if (!editingView) return;
     command.mutate(() => api.editSketch(editingView.document.id, featureID, operations));
   };
@@ -579,9 +603,12 @@ export function Workbench() {
     });
   };
   const finishSketch = () => {
+    if (command.isPending) return;
     const sketchID = store.activeSketchID;
+    const discard = newSketchSession.current && canDiscardNewSketch(newSketchSession.current, editingView);
     store.endSketch();
-    if (sketchID && editingView) selectFeature(editingView, sketchID);
+    if (discard) store.setSelection(null);
+    else if (sketchID && editingView) selectFeature(editingView, sketchID);
   };
   const startSketch = () => {
     if (!editingView || !store.selection) return;
@@ -599,7 +626,10 @@ export function Workbench() {
 		  topologyId: selection.topologyId, versionId: selection.versionId ?? editingView.document.versionId }), { onSuccess: (updated) => {
 		const sketch = [...(updated.part?.features ?? [])].reverse().find((candidate) => candidate.type.toUpperCase() === "SKETCH");
 		const localPlane = sketch ? featureSketchPlane(updated, sketch) : undefined;
-		if (sketch && localPlane) store.beginSketch(sketch.id, occurrenceSketchPlane(localPlane, activeResolvedInstance?.translation, activeResolvedInstance?.rotation));
+		if (sketch && localPlane) {
+          newSketchSession.current = { documentId: updated.document.id, sketchId: sketch.id, edited: false };
+          store.beginSketch(sketch.id, occurrenceSketchPlane(localPlane, activeResolvedInstance?.translation, activeResolvedInstance?.rotation));
+        }
 	  }});
 	  return;
 	}
@@ -609,7 +639,10 @@ export function Workbench() {
     const plane = occurrenceSketchPlane(sketchPlane(datum), activeResolvedInstance?.translation, activeResolvedInstance?.rotation);
     command.mutate(() => api.createSketch(editingView.document.id, { plane: datum.plane, datumPlaneId: datum.id }), { onSuccess: (updated) => {
       const sketch = [...(updated.part?.features ?? [])].reverse().find((feature) => feature.type.toUpperCase() === "SKETCH");
-      if (sketch) store.beginSketch(sketch.id, plane);
+      if (sketch) {
+        newSketchSession.current = { documentId: updated.document.id, sketchId: sketch.id, edited: false };
+        store.beginSketch(sketch.id, plane);
+      }
     }});
   };
   const padSketch = (values: { generator: "LINEAR_EXTRUDE" | "REVOLVE"; operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT";
@@ -719,7 +752,7 @@ export function Workbench() {
     const sketchID = store.selection.id;
 	padIntentRequestID.current = randomUUID(); padPreviewID.current=undefined; setPadSketchID(sketchID); setPadGenerator(generator);
     padForm.setFieldsValue({ generator, operation: selectedOperation, lengthSource: "40", angle: 360,
-      axisEntityId: undefined, reversed: false });
+      axisEntityId: undefined, reversed: defaultSolidReversed(generator, selectedOperation) });
     setPadOpen(true);
   };
   useEffect(() => {
@@ -790,7 +823,7 @@ export function Workbench() {
       commandRegistry.register({ id: "sketch.normal", execute: () => viewport.current?.normalToSketch(),
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(store.sketchPlane) }),
       commandRegistry.register({ id: "sketch.finish", execute: finishSketch,
-        isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit) }),
+        isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && !command.isPending) }),
       ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,invocation?.continuous?"continuous":"once"),
         isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane),isActive:()=>store.activeToolID===toolID})),
       commandRegistry.register({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isVisible: () => editingView?.document.type === "PART",
@@ -1000,6 +1033,10 @@ export function Workbench() {
             activeDocumentId={activeID}
             activeInstancePath={activeInstancePath}
             onSelect={(nodes) => store.setSelections(nodes.flatMap((node) => node.selection ? [node.selection] : []))}
+            onOpenDocumentTab={(node) => {
+              if (node.kind === "INSTANCE" && node.documentId) void openDocumentTab(node.documentId, client, api.getDocument, navigate)
+                .catch((error: Error) => message.error(`打开文档失败：${error.message}`));
+            }}
             onActivate={(node) => {
               if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
                 const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
@@ -1103,7 +1140,7 @@ export function Workbench() {
         {view.document.type === "PRODUCT" && productUpdatePlan.data?.hasUpdates && !productUpdatePlan.data.canAccept && <Alert
           style={{position:"absolute",zIndex:12,top:56,left:"50%",transform:"translateX(-50%)",minWidth:420}}
           type="error" showIcon message="自动跟随最新版本被阻塞"
-          description={productUpdatePlan.data.entries.find((entry)=>entry.diagnostic)?.diagnostic ?? "更新计划被上游解析或求值失败阻塞。"} />}
+          description={productUpdatePlan.data.entries.find((entry)=>entry.kind !== "ASSEMBLY_SOLVE" && entry.diagnostic)?.diagnostic ?? "更新计划被上游解析或求值失败阻塞。"} />}
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view}
           editingView={editingView} activeInstancePath={activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
           activeInstanceRotation={activeResolvedInstance?.rotation}
@@ -1230,7 +1267,10 @@ export function Workbench() {
       onConfirm={async () => padSketch(await padForm.validateFields())}>
       <Form form={padForm} layout="vertical"><Form.Item name="generator" hidden><Input /></Form.Item>
         <Form.Item name="operation" label="Body 操作" rules={[{ required: true }]}>
-        <Select onChange={previewPad} options={[{ value: "NEW_BODY", label: "新建实体" }, { value: "ADD", label: "添加材料" },
+        <Select onChange={(operation) => {
+          padForm.setFieldValue("reversed", defaultSolidReversed(padGenerator, operation));
+          previewPad();
+        }} options={[{ value: "NEW_BODY", label: "新建实体" }, { value: "ADD", label: "添加材料" },
           { value: "REMOVE", label: "移除材料" }, { value: "INTERSECT", label: "保留交集" }]} /></Form.Item>
         <Form.Item noStyle shouldUpdate={(before, after) => before.generator !== after.generator}>{({ getFieldValue }) => getFieldValue("generator") === "REVOLVE" ? <>
           <Form.Item name="axisEntityId" label="旋转轴" rules={[{ required: true }]}><Select onChange={previewPad}

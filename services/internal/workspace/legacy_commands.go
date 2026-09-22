@@ -40,13 +40,24 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			if selection.CreationEvidence.GeometryType != "PLANE" {
 				return "", nil, fmt.Errorf("%w: SUPPORT_TYPE_MISMATCH: selected face is not planar", ErrValidation)
 			}
-			xDirection, ok := stableSupportX(selection.CreationEvidence.Direction, [3]float64{})
+			// Persistent evidence identifies the face; its immutable source
+			// manifest may predate orientation fixes. Read the exact B-Rep
+			// frame for sketch placement, just as normal view does.
+			properties, err := service.getTopologyElementPropertiesFromArtifact(ctx, request.GeometryKey, "FACE", request.TopologyID)
+			if err != nil {
+				return "", nil, err
+			}
+			normal, ok := properties.Properties["normal"].([3]float64)
+			if !ok {
+				return "", nil, fmt.Errorf("%w: SUPPORT_FRAME_INVALID", ErrValidation)
+			}
+			xDirection, ok := stableSupportX(normal, [3]float64{})
 			if !ok {
 				return "", nil, fmt.Errorf("%w: SUPPORT_FRAME_INVALID", ErrValidation)
 			}
 			support := SketchSupport{Type: "PLANAR_FACE", Plane: "CUSTOM", PersistentSelection: &selection,
 				SourceVersionID: sourceVersionID, Origin: selection.CreationEvidence.Origin, XDirection: xDirection,
-				Normal: selection.CreationEvidence.Direction, OrientationRule: sketchSupportOrientationRule, Status: "CONNECTED"}
+				Normal: normal, OrientationRule: sketchSupportOrientationRule, Status: "CONNECTED"}
 			return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "SKETCH",
 				Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: "CUSTOM",
 				Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: support, Entities: []SketchEntity{},

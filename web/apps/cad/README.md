@@ -6,7 +6,7 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 
 - 登录、注册、账号管理、文档/文件夹中心、分享与常驻消息中心；Document 使用 UUID 身份并允许显示名称重复，创建时提供可编辑的 `PartN`/`ProductN` 默认名称；消息中心恢复用户可见任务，展示进度和失败原因，并提供取消、重试、下载或打开文档动作；
 - Part/Product 常驻文档标签、按上下文分组的图文命令区、可筛选的 Specification Tree、独立 WebGL 视口与可折叠 Inspector；
-- Product 打开时默认激活根 occurrence；双击树中的 Product/Part/Instance 激活 typed InstancePath，并在保留根装配和其他部件的场景中就地编辑对应 Reference。视口 breadcrumb 明确显示上下文，可在 `打开定义` 与 `在此上下文打开` 间切换而不产生 Revision。Toolbar、属性、历史和命令绑定 Reference Document，草图与预览应用 occurrence 世界 Placement。Product 节点右键“新建零件”可留空自动分配 `PartN`，并以一个 ProductDesignTransaction 原子创建 Part、按 `PartN.N` 插入 occurrence、推进嵌套祖先引用；默认放在所选 Product 原点。Undo 移除 occurrence 但保留独立 Part 文档。Insert 仍用于插入已有 Reference；默认 `FOLLOW_HEAD` 子文档通过递归实时订阅发现变化并刷新 Product Update Plan，不会静默接受 Head。用户显式“接受全部更新”后才以 plan digest 提交；嵌套定义按叶到根处理；
+- Product 打开时默认激活根 occurrence；双击树中的 Product/Part/Instance 激活 typed InstancePath，并在保留根装配和其他部件的场景中就地编辑对应 Reference。视口 breadcrumb 明确显示上下文，可在 `打开定义` 与 `在此上下文打开` 间切换而不产生 Revision。Toolbar、属性、历史和命令绑定 Reference Document，草图与预览应用 occurrence 世界 Placement。Product 节点右键“新建零件”可留空自动分配 `PartN`，并以一个 ProductDesignTransaction 原子创建 Part、按 `PartN.N` 插入 occurrence、推进嵌套祖先引用；默认放在所选 Product 原点。Undo 移除 occurrence 但保留独立 Part 文档。Instance 右键“在新标签页中打开”通过工作台内部文档 Tab 打开其 Reference Document 当前 HEAD，已打开的文档复用 Tab。Insert 仍用于插入已有 Reference；默认 `FOLLOW_HEAD` 子文档通过递归实时订阅发现变化，并按叶到根自动接受带 digest 的 Product Update Plan。Broken/Impossible 约束保留诊断但不阻塞引用更新，也不会在源 HEAD 不变时反复触发更新；
 - 命令组成、工作台归属、顺序、短名称与详细帮助由后端 Presentation Catalog 下发；命令区按建模/草图/装配、视图、文档与协作分类，撤销/重做和视图操作保留快捷入口；工具搜索包含当前工作台的已注册可见命令，不可用项可发现但不能执行；hover 使用统一深色提示显示命令名与已分配的快捷键，上边栏纯图标“这是什么？”进入一次性上下文帮助且不会触发命令，未知命令默认不显示且不可执行；
 - Three.js 精确网格显示、基准面、集合化选择/预选与结构树联动；最终 Body 的视口选择归属最近的 Import/Extrude 节点，精确拓扑元素使用遮挡可见的面、宽边线和点 Overlay，树选父节点才展开全部后代；Specification Tree 支持 Ctrl/Meta 多选、Shift 连选和固定宽度的节点锚定右键菜单，选择变化关闭菜单，删除不确认并以一个原子 Revision 作用于当前选择集合，实体删除仍级联其引用约束；
 - 草图基本元素、轮廓、几何约束和尺寸约束使用独立命令分组；Point、Line、Circle、Arc、Polyline、Spline、Rectangle、正六边形、长圆槽以及基础几何/尺寸约束；单击执行一次后回到选择，双击连续执行；
@@ -161,3 +161,5 @@ Product 的 Debug 下载动作导出当前请求的 `.3dreplay`，Part 继续使
 所有工作台的“视图”分组新增“法线视图”：选择基准面或实体平面后正对该平面，保留缩放，支持装配实例的空间变换。曲面没有唯一法线视图，会提示重新选择；操作不写模型历史。正式命令目录由迁移 `0026_normal_view.sql` 提供，与 Mock 目录一致。
 
 进入草图、正对草图及法线视图先选择当前视线最近的法向侧，再对齐平面坐标轴，在四个90°间隔的朝向中选择旋转最少的一种，避免 X/Y 轴倾斜显示。切换和退出草图采用280 ms平滑动画，保留缩放与关注区域；连续命令从当前显示帧接续，鼠标/键盘操作可中断。该视图选择不翻转草图坐标系或模型面法向。
+
+草图会话退出时，本次新建且未编辑、无几何/约束/外部投影的草图通过正常删除命令放弃；已有空草图的编辑会话不会被自动删除。直线拉伸默认沿持久草图平面法向正向，切除默认反向；切换 Body 操作时重新设置对应默认方向，用户仍可使用“反向”开关覆盖，预览和提交共用该值。

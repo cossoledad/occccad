@@ -19,7 +19,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const sketchSupportOrientationRule = "PROJECT_STORED_X_PRESERVE_NORMAL_V1"
+const sketchSupportOrientationRule = "PROJECT_STORED_X_FACE_NORMAL_V2"
 
 type sketchSupportFailure struct {
 	diagnosticCode string
@@ -304,9 +304,6 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 			return &sketchSupportFailure{diagnosticCode: support.DiagnosticCode, diagnostic: support.Diagnostic}
 		}
 		normal := evidence.Direction
-		if dot3(normal, support.Normal) < 0 {
-			normal = [3]float64{-normal[0], -normal[1], -normal[2]}
-		}
 		origin, xDirection, normal, frameErr := validatedSupportFrame(evidence.Origin, support.XDirection, normal)
 		if frameErr != nil {
 			return &sketchSupportFailure{diagnosticCode: "SUPPORT_FRAME_INVALID", diagnostic: frameErr.Error()}

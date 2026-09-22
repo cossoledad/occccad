@@ -181,6 +181,15 @@ TopologyProperty vector_property(std::string name, const gp_XYZ& value) {
     return result;
 }
 
+// A surface parameter normal ignores the owning face's orientation. Solid
+// boundary normals must include it (including walls facing into a cavity).
+gp_Dir oriented_plane_normal(const TopoDS_Face& face, const gp_Pln& plane) {
+    auto normal = plane.Axis().Direction();
+    if (face.Orientation() == TopAbs_REVERSED)
+        normal.Reverse();
+    return normal;
+}
+
 void append_surface_properties(const TopoDS_Face& face, FaceInfo& output) {
     BRepAdaptor_Surface surface(face, Standard_True);
     output.properties.push_back(number_property("uFirst", surface.FirstUParameter()));
@@ -199,11 +208,12 @@ void append_surface_properties(const TopoDS_Face& face, FaceInfo& output) {
         case GeomAbs_Plane: {
             const auto value = surface.Plane();
             output.properties.push_back(vector_property("origin", value.Location().XYZ()));
-            output.properties.push_back(vector_property("normal", value.Axis().Direction().XYZ()));
+            const auto normal = oriented_plane_normal(face, value);
+            output.properties.push_back(vector_property("normal", normal.XYZ()));
             output.properties.push_back(
                 vector_property("xDirection", value.XAxis().Direction().XYZ()));
             output.properties.push_back(
-                vector_property("yDirection", value.YAxis().Direction().XYZ()));
+                vector_property("yDirection", normal.Crossed(value.XAxis().Direction()).XYZ()));
             break;
         }
         case GeomAbs_Cylinder: {
@@ -895,7 +905,7 @@ SelectionEvidence face_evidence(const TopoDS_Face& face) {
     if (surface.GetType() == GeomAbs_Plane) {
         evidence.geometry_type = "PLANE";
         evidence.origin = to_vec3(surface.Plane().Location());
-        const auto direction = surface.Plane().Axis().Direction();
+        const auto direction = oriented_plane_normal(face, surface.Plane());
         evidence.direction = {direction.X(), direction.Y(), direction.Z()};
     } else if (surface.GetType() == GeomAbs_Cylinder) {
         evidence.geometry_type = "CYLINDER";
@@ -1543,8 +1553,18 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         }
         std::vector<std::pair<SemanticTopologyOutput, TopoDS_Shape>> outputs;
         std::unordered_map<std::string, std::size_t> source_counts;
-        for (auto& group : groups)
+        for (auto& group : groups) {
+            // OCCT history uses IsSame identity, which ignores orientation.
+            // Generated/tool faces can have the opposite orientation from the
+            // face occurrence in the final solid (notably caps and cut walls).
+            if (group.shape.ShapeType() == TopAbs_FACE) {
+                const int index = final_faces.FindIndex(group.shape);
+                if (index <= 0)
+                    throw std::runtime_error("TOPOLOGY_HISTORY_DANGLING_RESULT");
+                group.shape = final_faces(index);
+            }
             sort_refs(group.sources);
+        }
         std::sort(groups.begin(), groups.end(), [](const auto& left, const auto& right) {
             const auto left_key = left.sources.empty() ? std::string{} : ref_key(left.sources.front());
             const auto right_key = right.sources.empty() ? std::string{} : ref_key(right.sources.front());

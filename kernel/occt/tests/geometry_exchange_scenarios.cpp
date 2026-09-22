@@ -209,6 +209,93 @@ ProfileRegionSpec rectangular_region(const std::string& id, double x0, double y0
     return region;
 }
 
+Vec3 face_vector(const FaceInfo& face, const std::string& name) {
+    for (const auto& property : face.properties)
+        if (property.name == name)
+            return property.vector_value;
+    throw std::runtime_error("missing face vector: " + name);
+}
+
+TEST(GeometryExchange, OutwardFaceFramesDrivePocketAndPadOnEveryBoxFace) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id = "base";
+    base.body_id = "body";
+    base.profile_feature_id = "base-sketch";
+    base.regions = {rectangular_region("base-region", 0, 0, 20, 20)};
+    base.pad_length = 20;
+    base.body_operation = "NEW_BODY";
+    for (const bool reversed : {false, true}) {
+        base.reversed = reversed;
+        const auto evaluated = kernel.evaluateProfilePadsWithHistory({base});
+        const auto topology = kernel.getTopology(evaluated.geometry_id);
+        ASSERT_EQ(topology.faces.size(), 6U);
+        for (const auto& face : topology.faces) {
+            const auto normal = face_vector(face, "normal");
+            const auto u = face_vector(face, "xDirection");
+            const auto v = face_vector(face, "yDirection");
+            const Vec3 center{(face.bbox.min.x + face.bbox.max.x) / 2,
+                              (face.bbox.min.y + face.bbox.max.y) / 2,
+                              (face.bbox.min.z + face.bbox.max.z) / 2};
+            EXPECT_NEAR((center.x - 10) * normal.x + (center.y - 10) * normal.y +
+                        (center.z - (reversed ? -10 : 10)) * normal.z, 10, 1e-7);
+            EXPECT_NEAR(u.y * v.z - u.z * v.y, normal.x, 1e-9);
+            EXPECT_NEAR(u.z * v.x - u.x * v.z, normal.y, 1e-9);
+            EXPECT_NEAR(u.x * v.y - u.y * v.x, normal.z, 1e-9);
+            bool found = false;
+            for (const auto& output : evaluated.feature_results.back().semantic_outputs) {
+                if (output.topology_type != PersistentTopologyType::face || output.local_id != face.local_id) continue;
+                found = true;
+                EXPECT_NEAR(output.evidence.direction.x, normal.x, 1e-9);
+                EXPECT_NEAR(output.evidence.direction.y, normal.y, 1e-9);
+                EXPECT_NEAR(output.evidence.direction.z, normal.z, 1e-9);
+            }
+            EXPECT_TRUE(found);
+            for (const bool pocket : {false, true}) {
+                ProfilePadSpec feature;
+                feature.feature_id = "on-face";
+                feature.body_id = "body";
+                feature.input_feature_id = "base";
+                feature.profile_feature_id = "face-sketch";
+                feature.regions = {rectangular_region("face-region", -1, -1, 1, 1)};
+                feature.plane_origin = center;
+                feature.plane_normal = normal;
+                feature.plane_u_direction = u;
+                feature.pad_length = 2;
+                feature.body_operation = pocket ? "REMOVE" : "ADD";
+                feature.reversed = pocket;
+                const auto result = kernel.evaluateProfilePadsWithHistory({base, feature});
+                EXPECT_NEAR(kernel.getVolume(result.geometry_id), 8000 + (pocket ? -8 : 8), 1e-6);
+                // The cavity floor at depth 2 must still point out of material
+                // and into the removed volume, not away from the part center.
+                if (pocket) {
+                    const Vec3 floor{center.x - 2 * normal.x, center.y - 2 * normal.y, center.z - 2 * normal.z};
+                    bool found_floor = false;
+                    for (const auto& cut_face : kernel.getTopology(result.geometry_id).faces) {
+                        const Vec3 c{(cut_face.bbox.min.x + cut_face.bbox.max.x) / 2,
+                                     (cut_face.bbox.min.y + cut_face.bbox.max.y) / 2,
+                                     (cut_face.bbox.min.z + cut_face.bbox.max.z) / 2};
+                        if (std::abs(c.x-floor.x)+std::abs(c.y-floor.y)+std::abs(c.z-floor.z)>1e-6) continue;
+                        found_floor = true;
+                        const auto n = face_vector(cut_face, "normal");
+                        EXPECT_NEAR(n.x*normal.x+n.y*normal.y+n.z*normal.z, 1, 1e-9);
+                        bool found_evidence = false;
+                        for (const auto& output : result.feature_results.back().semantic_outputs) {
+                            if (output.topology_type != PersistentTopologyType::face ||
+                                output.local_id != cut_face.local_id) continue;
+                            found_evidence = true;
+                            const auto& direction = output.evidence.direction;
+                            EXPECT_NEAR(direction.x*n.x + direction.y*n.y + direction.z*n.z, 1, 1e-9);
+                        }
+                        EXPECT_TRUE(found_evidence);
+                    }
+                    EXPECT_TRUE(found_floor);
+                }
+            }
+        }
+    }
+}
+
 std::size_t faces_on_z(const TopologyInfo& topology, const double z) {
     return static_cast<std::size_t>(
         std::count_if(topology.faces.begin(), topology.faces.end(), [z](const FaceInfo& face) {

@@ -1,4 +1,4 @@
-import { SearchOutlined, DeleteOutlined, EditOutlined, EyeInvisibleOutlined, LinkOutlined, LockOutlined, PauseCircleOutlined, PlusOutlined, ReloadOutlined, SwapOutlined, UnlockOutlined } from "@ant-design/icons";
+import { ExportOutlined, SearchOutlined, DeleteOutlined, EditOutlined, EyeInvisibleOutlined, LinkOutlined, LockOutlined, PauseCircleOutlined, PlusOutlined, ReloadOutlined, SwapOutlined, UnlockOutlined } from "@ant-design/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Dropdown, Input } from "antd";
 import { isValidElement, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
@@ -62,11 +62,12 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, activeDocumentId, activeInstancePath, onSelect, onActivate, onEdit, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, activeDocumentId, activeInstancePath, onSelect, onActivate, onOpenDocumentTab, onEdit, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; selectedIdentityKeys: readonly string[];
   selectionToken: string; highlightedKey?: string; activeDocumentId?: string; activeInstancePath?: string;
   onSelect: (nodes: SpecificationTreeNode[]) => void; onHover?: (node?: SpecificationTreeNode) => void;
   onActivate?: (node: SpecificationTreeNode) => void;
+  onOpenDocumentTab?: (node: SpecificationTreeNode) => void;
   onEdit?: (node: SpecificationTreeNode) => void;
   onCreatePart?: (node: SpecificationTreeNode) => void;
   onReferenceMode?: (node: SpecificationTreeNode, mode: "PINNED" | "FOLLOW_HEAD") => void;
@@ -212,7 +213,10 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
           <Dropdown trigger={[]} placement="bottomLeft" overlayClassName="specification-tree-context-menu"
             open={contextMenu?.nodeKey === node.key}
             onOpenChange={(open) => { if (!open) setContextMenu(undefined); }}
-            menu={{ items: [node.kind === "SKETCH_ENTITY" ? { key: "construction", icon: <SwapOutlined />,
+            menu={{ items: [node.kind === "INSTANCE" && node.documentId && onOpenDocumentTab ? {
+              key: "open-document-tab", icon: <ExportOutlined />, label: "在新标签页中打开",
+              onClick: () => { setContextMenu(undefined); onOpenDocumentTab(node); } } : null,
+            node.kind === "SKETCH_ENTITY" ? { key: "construction", icon: <SwapOutlined />,
               label: node.role === "CONSTRUCTION" ? "设为轮廓元素" : "设为构造元素",
               disabled: !node.capabilities?.includes("DELETE"),
               onClick: () => { setContextMenu(undefined); onToggleConstruction?.(node); } } : null,

@@ -30,7 +30,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const evaluatorVersion = "part-solid-generators-v11-external-geometry"
+const evaluatorVersion = "part-solid-generators-v12-oriented-face-normal"
 
 var (
 	ErrNotFound   = errors.New("document not found")
