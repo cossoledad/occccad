@@ -38,12 +38,14 @@ type TopologyElementProperties struct {
 	Properties          map[string]any                 `json:"properties"`
 	WorkerID            string                         `json:"workerId"`
 	OCCTVersion         string                         `json:"occtVersion"`
+	NamingDiagnostic    *NamingAvailability            `json:"namingDiagnostic,omitempty"`
 	NamingStatus        string                         `json:"namingStatus"`
 	PersistentSelection *modelcore.PersistentSelection `json:"persistentSelection,omitempty"`
 	NamingResolution    *modelcore.SelectionResolution `json:"namingResolution,omitempty"`
 }
 
 type Artifact struct {
+	Naming           NamingAvailability    `json:"naming"`
 	GeometryKey      string                `json:"geometryKey"`
 	GeometryID       string                `json:"geometryId"`
 	Mesh             Mesh                  `json:"mesh"`

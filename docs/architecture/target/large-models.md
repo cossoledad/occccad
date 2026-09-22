@@ -1,6 +1,6 @@
 # 大文件导入与大模型工作集设计
 
-> 2026-09-22 设计提案，待实施与实测；不是已交付能力或性能承诺。返回[目标架构](../../TARGET_ARCHITECTURE.md)，执行依赖见[导入与大模型计划](../../../plans/import-large-models.md)。适用于外部 STEP/BREP 导入和原生 Part/Product；存储与交换基础合同仍见[分布式平台](distributed-platform.md)。
+> 2026-09-22 设计提案；IMPORT-DIAGNOSTICS 已实现，其余待实施与实测，不构成大模型能力或性能承诺。返回[目标架构](../../TARGET_ARCHITECTURE.md)，执行依赖见[导入与大模型计划](../../../plans/import-large-models.md)。适用于外部 STEP/BREP 导入和原生 Part/Product；存储与交换基础合同仍见[分布式平台](distributed-platform.md)。
 
 ## 1. 结论与边界
 
@@ -29,9 +29,9 @@
 
 ### 2.1 NULL 报错不是导入命名的完整修复
 
-`topologyManifestForVersion` 查询 `topology_manifest_digest` 并扫描到 Go `string`；迁移 `0008` 允许该列 NULL。ImportExchange 仅调用 `fill_evaluation`，没有生成 feature topology manifest；持久化代码将缺失 digest 写为 NULL。因此本次报错可由当前导入链路产生，并非只能归因于历史数据。
+原始缺陷是 `topologyManifestForVersion` 查询 `topology_manifest_digest` 并扫描到 Go `string`；迁移 `0008` 允许该列 NULL。ImportExchange 仅调用 `fill_evaluation`，没有生成 feature topology manifest；持久化代码将缺失 digest 写为 NULL。因此原报错也会由新导入产生，并非只能归因于历史数据。该读取缺陷已通过 IMPORT-DIAGNOSTICS 修复。
 
-短期正确修复是可空读取并区分“尚无 naming”“生成失败”“摘要损坏/合同不匹配”；不能把 NULL COALESCE 成空字符串后继续假装可解析，也不能吞掉全部错误。缺失 naming 的文档仍允许打开、显示、查询不依赖稳定子拓扑的属性；面上草图、持久装配引用等操作需要明确的 capability/诊断和修复入口。这里不推断所有导入操作都必然失败，应按调用路径测试。
+已实施的诊断层采用可空读取并区分“尚无 naming”“生成失败”“摘要损坏/合同不匹配”；不能把 NULL COALESCE 成空字符串后继续假装可解析，也不能吞掉全部错误。缺失 naming 的文档仍允许打开、显示、查询不依赖稳定子拓扑的属性；面上草图、持久装配引用等操作需要明确的 capability/诊断和修复入口。具体实现与测试范围见[当前架构完成记录](../current/jobs-artifacts.md#import-diagnostics-完成记录2026-09-22)，导入 naming 生成与修复入口仍待后续实施。
 
 更深一层：即使为初始导入补一份 manifest，后续 evaluator 只拿到 `base_brep`、没有导入拓扑 seed 时仍会产生 `TOPOLOGY_HISTORY_UNNAMED_BASE`。必须把 ImportBody 的完整 Face/Edge/Vertex 身份种子传入后续布尔求值，否则“能选面、不能可靠编辑”问题仍在。
 
@@ -96,7 +96,7 @@ ImportIdentityMap 绑定精确 BREP digest 与 importer policy，包含 stable I
 
 ### 4.3 已有无 manifest 的导入文档
 
-1. 立即修复可空读取，保留明确 unavailable/corrupt 区分；打开文档不因缺失可选 naming 制品崩溃。
+1. 已完成 IMPORT-DIAGNOSTICS：可空读取和明确诊断；打开文档不因缺失可选 naming 制品崩溃。
 2. 对当前导入 Head 以冻结源/精确 BREP 建立 ImportIdentityMap 与 manifest；已有有效 stable ID 不能重分配。把新的导入定义输入纳入正常命令和 Revision/ChangeSet，并覆盖 Undo/Redo。
 3. 旧快照只读时诚实显示 naming 不可用，不伪造可编辑状态；新 Head 的后续引用使用新身份。历史是否能以原输入重建需有实测，不覆盖旧 Revision。
 4. 项目未发布，采用唯一导入模型/协议演进，不增加永久双写或两套 naming resolver。开发数据重置仅遵循仓库既有授权边界，不作为设计或实施的默认前提。

@@ -16,7 +16,10 @@ export type MeshData = {
   topologyVertices: Array<{ localId: number; point: Vec3 }> | null;
 };
 
+export type NamingAvailability = { status: "READY" | "UNAVAILABLE" | "FAILED" | "CORRUPT" | "INCOMPATIBLE"; canBind: boolean; diagnosticCode?: string; diagnostic?: string };
+
 export type Artifact = {
+  naming?: NamingAvailability;
   geometryKey: string;
   geometryId: string;
   mesh: MeshData;
@@ -409,7 +412,8 @@ export type TopologyElementProperties = {
   geometryKey: string; geometryId: string; kind: "FACE" | "EDGE" | "VERTEX"; localId: number;
   geometryType: string; bbox?: { min: Vec3; max: Vec3 }; point?: Vec3;
   properties: Record<string, number | boolean | string | Vec3>; workerId: string; occtVersion: string;
-  namingStatus: "RESOLVED" | "MISSING" | "AMBIGUOUS" | "TYPE_MISMATCH" | "OUTSIDE_CURRENT_TIP" | "UNAVAILABLE" | "";
+  namingDiagnostic?: NamingAvailability;
+  namingStatus: "FAILED" | "CORRUPT" | "INCOMPATIBLE" | "RESOLVED" | "MISSING" | "AMBIGUOUS" | "TYPE_MISMATCH" | "OUTSIDE_CURRENT_TIP" | "UNAVAILABLE" | "";
   persistentSelection?: PersistentSelection;
   namingResolution?: SelectionResolution;
 };

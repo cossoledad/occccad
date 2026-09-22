@@ -2241,6 +2241,15 @@ func (service *Service) loadArtifact(ctx context.Context, key string) (Artifact,
 		&artifact.WorkerID, &artifact.StorageState, &artifact.CreatedAt, &visualizationJSON); err != nil {
 		return artifact, err
 	}
+	_, _, namingErr := service.topologyManifestForGeometryKey(ctx, key)
+	artifact.Naming = NamingAvailability{Status: "READY", CanBind: true}
+	if namingErr != nil {
+		var known bool
+		artifact.Naming, known = namingDiagnostic(namingErr)
+		if !known {
+			return artifact, namingErr
+		}
+	}
 	if err := json.Unmarshal(meshJSON, &artifact.Mesh); err != nil {
 		return artifact, err
 	}
@@ -2386,13 +2395,17 @@ func (service *Service) GetTopologyElementPropertiesAtVersion(
 		selection, bindErr := service.BindPersistentSelection(ctx, documentID, BindPersistentSelectionRequest{SourceVersionID: versionID, GeometryKey: geometryKey, Kind: kind, LocalID: localID})
 		if bindErr == nil {
 			resolution, resolveErr := service.ResolvePersistentSelection(ctx, documentID, ResolvePersistentSelectionRequest{Selection: selection, SourceVersionID: versionID, TargetVersionID: versionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
-			if resolveErr == nil {
-				result.PersistentSelection = &selection
-				result.NamingResolution = &resolution
-				result.NamingStatus = string(resolution.Status)
+			if resolveErr != nil {
+				return result, resolveErr
 			}
+			result.PersistentSelection, result.NamingResolution = &selection, &resolution
+			result.NamingStatus = string(resolution.Status)
+		} else if diagnostic, ok := namingDiagnostic(bindErr); ok {
+			result.NamingStatus, result.NamingDiagnostic = diagnostic.Status, &diagnostic
 		} else if errors.Is(bindErr, ErrNotFound) {
 			result.NamingStatus = "UNAVAILABLE"
+		} else {
+			return result, bindErr
 		}
 	}
 	return result, nil

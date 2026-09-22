@@ -108,6 +108,7 @@ func TestEdgeVertexPersistentSelectionThroughRealRouter(t *testing.T) {
 	part, baseSketch := addRectangle(part.Document.ID, "XY", "", workspace.SketchPoint2{X: 0, Y: 0}, workspace.SketchPoint2{X: 20, Y: 20})
 	part = addExtrude(part.Document.ID, baseSketch, "NEW_BODY", 10, false)
 	baseFeatureID := part.Part.Features[len(part.Part.Features)-1].ID
+	t.Run("import naming diagnostics", func(t *testing.T) { verifyImportNamingDiagnostics(t, db, client, artifactService, part) })
 	// Exercise face -> sketch -> reversed pocket through the real Router on
 	// both caps and all four side faces, then restore the base for each face.
 	for _, expected := range [][3]float64{{1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}} {

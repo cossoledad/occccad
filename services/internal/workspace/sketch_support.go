@@ -2,12 +2,9 @@ package workspace
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"reflect"
 	"strings"
@@ -16,7 +13,6 @@ import (
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
-	"google.golang.org/protobuf/proto"
 )
 
 const sketchSupportOrientationRule = "PROJECT_STORED_X_FACE_NORMAL_V2"
@@ -176,9 +172,8 @@ func supportFrame(model PartModel, support SketchSupport) ([3]float64, [3]float6
 }
 
 func (service *Service) topologyManifestForGeometryKey(ctx context.Context, geometryKey string) (*workerv1.PartTopologyManifest, string, error) {
-	var digest string
+	var digest, objectID *string
 	var inline []byte
-	var objectID *string
 	err := service.database.QueryRow(ctx, `SELECT COALESCE(topology_manifest_data,''::bytea),topology_manifest_object_id::text,topology_manifest_digest FROM occccad.geometry_artifacts WHERE geometry_key=$1`, geometryKey).Scan(&inline, &objectID, &digest)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", ErrNotFound
@@ -186,33 +181,7 @@ func (service *Service) topologyManifestForGeometryKey(ctx context.Context, geom
 	if err != nil {
 		return nil, "", err
 	}
-	data := inline
-	if len(data) == 0 && objectID != nil && service.artifacts != nil {
-		_, reader, openErr := service.artifacts.Open(ctx, *objectID)
-		if openErr != nil {
-			return nil, "", openErr
-		}
-		data, err = io.ReadAll(reader)
-		closeErr := reader.Close()
-		if err == nil {
-			err = closeErr
-		}
-		if err != nil {
-			return nil, "", err
-		}
-	}
-	if len(data) == 0 {
-		return nil, "", ErrNotFound
-	}
-	hash := sha256.Sum256(data)
-	if !strings.EqualFold(hex.EncodeToString(hash[:]), strings.TrimSpace(digest)) {
-		return nil, "", fmt.Errorf("topology manifest digest mismatch")
-	}
-	manifest := &workerv1.PartTopologyManifest{}
-	if err := proto.Unmarshal(data, manifest); err != nil {
-		return nil, "", err
-	}
-	return manifest, strings.TrimSpace(digest), nil
+	return service.readTopologyManifest(ctx, inline, objectID, digest)
 }
 
 func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, documentID, sourceVersionID, geometryKey string,

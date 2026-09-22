@@ -63,6 +63,14 @@ Exchange HTTP 提交只等待上传落盘和 Job 入队，随后立即关闭对�
 
 以下为代码阅读结论，尚无 1 GiB 级容量验收。除 API 的 128 MiB 外，Geometry Worker 的输入/输出制品还有 512 MiB 上限；`InspectExchange` 的 30 秒与 `ImportExchange` 的 5 分钟是当前客户端 deadline。STEP inspect 和每个 component 的 `loadStepRoot` 分别 ReadFile；固定最多 8 路不能视作按内存预算的调度。Jobs 在 results 中保留所有组件 EvaluatePartResponse，Worker 即使输出 BREP/GLB 对象，仍通过 gRPC 返回完整 Mesh；数据库 `mesh_json`、DocumentView 与前端完整数组构造也未实现有界工作集。
 
-当前 ImportExchange 未生成 feature topology manifest，`persistEvaluation` 可把 `topology_manifest_digest` 写为 NULL；`topologyManifestForVersion` 却扫描到 string，因此导入文档的持久子拓扑操作可能出现 `cannot scan NULL into *string`。这是当前路径的缺陷，不仅是旧数据兼容问题。后续 native evaluator 对 imported `base_brep` 也没有已有 named topology seed，会报告 `TOPOLOGY_HISTORY_UNNAMED_BASE`。修复需覆盖可空诊断、Import 根身份和后续 lineage，不能只消除数据库异常文本。
+当前 ImportExchange 未生成 feature topology manifest，后续 native evaluator 对 imported `base_brep` 也没有已有 named topology seed，会报告 `TOPOLOGY_HISTORY_UNNAMED_BASE`。可空读取及能力诊断已完成（下节），Import 根身份和后续 lineage 仍需 IMPORT-NAMING。大文件设计与分批验收见[大模型提案](../target/large-models.md)及[执行计划](../../../plans/import-large-models.md)。
 
-设计与分批验收见[大模型提案](../target/large-models.md)及[执行计划](../../../plans/import-large-models.md)；这些问题本轮仅分析和记录，未修改实现。
+## IMPORT-DIAGNOSTICS 完成记录（2026-09-22）
+
+两个 manifest 读取入口统一使用可空 digest 和内容校验，不再将 SQL NULL 扫描进 string。Artifact 暴露 `naming.status/canBind/diagnosticCode/diagnostic`：READY 可绑定；UNAVAILABLE 表示未生成命名；FAILED 表示 history 不完整；CORRUPT 表示元数据、摘要或内容损坏/丢失；INCOMPATIBLE 表示 schema/policy 不匹配。存储配置、数据库及其他 I/O 故障仍作为基础设施错误传播，不能吞成“无命名”。已知命名问题不阻止文档打开和几何属性查询，但持久子拓扑绑定明确拒绝；已有装配引用解析失败继续按 Broken 隔离，不伪造成功。
+
+前端显示具体诊断，限制当前已知不可绑定拓扑的面上草图、外部投影、发布与拓扑装配约束入口；服务端保留权威校验。显示、法线视图、基准几何及 Instance/Body 级操作不因缺少 naming 被统一禁用。这不代表导入后布尔求值已经具备完整命名。
+
+[只读审计 SQL](../../../services/scripts/audit-import-naming.sql)按 HEAD/HISTORY 汇总导入文档命名元数据。本轮回归写入测试 fixture 前的开发库基线为 2 个当前导入文档，均 NAMING_ABSENT；元数据审计不等于制品内容完整性验证，未重写已有文档。
+
+验证：workspace 包测试通过；真实数据库、Router 与 Worker 的 `TestEdgeVertexPersistentSelectionThroughRealRouter` 通过，覆盖实际 BREP ImportExchange、提交、冷重开、精确属性、禁止面上草图且 Head 不变、基准面草图，以及原生持久拓扑回归。前端类型检查与 naming capability、publication selection、assembly constraint UX、workbench command model 四组场景通过。未做浏览器、全仓或大文件验收。测试入口为 [诊断单测](../../../services/internal/workspace/topology_naming_diagnostics_test.go)与[导入集成断言](../../../services/internal/control/import_naming_diagnostics_test.go)。

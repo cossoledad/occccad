@@ -124,7 +124,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
           { key: "selection-recipe", label: "Selection Recipe", children: topology.persistentSelection.selector.kind },
           { key: "support-status", label: "Supporting Element", children: topology.namingResolution?.supportingElementStatus ?? "NOT_CONNECTED" },
           { key: "evidence", label: "Evidence Digest", children: topology.namingResolution?.evidenceDigest?.slice(0, 20) ?? "—" },
-        ] : [{ key: "naming-note", label: "Naming Diagnostic", children: "当前制品未提供可绑定的完整 semantic topology history" }]),
+        ] : [{ key: "naming-note", label: "Naming Diagnostic", children: topology.namingDiagnostic?.diagnostic ?? topology.namingResolution?.diagnostic ?? "当前制品未提供可绑定的完整 semantic topology history" }]),
         { key: "geometry-type", label: "Geometry", children: topology.geometryType },
         { key: "geometry-id", label: "Geometry ID", children: topology.geometryId },
         { key: "worker", label: "Worker", children: topology.workerId },

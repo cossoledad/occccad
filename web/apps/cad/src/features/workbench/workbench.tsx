@@ -1,3 +1,4 @@
+import { selectionNamingIssue, topologyNamingIssue } from "./topology-naming-capability";
 import { openDocumentTab } from "./open-document-tab";
 import { canDiscardNewSketch, defaultSolidReversed, type NewSketchSession } from "./sketch-session-policy";
 import { assemblyConstraintEntry } from "../../cad/assembly/assembly-angle";
@@ -305,6 +306,8 @@ export function Workbench() {
     onSuccess:(updated)=>{void refresh(updated);},onError:(error)=>{message.error(error.message);void refresh();}});
   const view = document.data;
   const editingView = activeDocumentID === documentID ? view : activeDocument.data;
+  const selectedNamingIssue = selectionNamingIssue(store.selection, editingView, view);
+  const activeNamingIssue = editingView?.artifact?.topology.faces && editingView.artifact.naming && !editingView.artifact.naming.canBind ? editingView.artifact.naming : undefined;
   const discardNewSketch = () => {
     const session = newSketchSession.current;
     if (!session) return;
@@ -537,6 +540,12 @@ export function Workbench() {
     assemblyDirection, assemblyDistance, assemblyPreviewCommit, assemblyConstraintForm, assemblyPreviewActor, lengthUnit]);
 
   const editSketch = (featureID: string, operations: SketchOperation[]) => {
+    const issue = operations.flatMap((operation) => {
+      if (operation.type !== "ADD_EXTERNAL_GEOMETRY" && operation.type !== "RECONNECT_EXTERNAL_GEOMETRY") return [];
+      const issue = topologyNamingIssue(operation.geometryKey, editingView, view);
+      return issue ? [issue] : [];
+    })[0];
+    if (issue) { message.warning(issue.diagnostic); return; }
     if (operations.length && newSketchSession.current?.sketchId === featureID) newSketchSession.current.edited = true;
     if (!editingView) return;
     command.mutate(() => api.editSketch(editingView.document.id, featureID, operations));
@@ -611,6 +620,7 @@ export function Workbench() {
     else if (sketchID && editingView) selectFeature(editingView, sketchID);
   };
   const startSketch = () => {
+    if (selectedNamingIssue) { message.warning(selectedNamingIssue.diagnostic); return; }
     if (!editingView || !store.selection) return;
     if (store.selection.kind === "sketch") {
       const feature = editingView.part?.features.find((candidate) => candidate.id === store.selection!.id);
@@ -817,7 +827,7 @@ export function Workbench() {
       commandRegistry.register({ id: "assembly.move", execute: () => store.setActiveTool("assembly.move", "continuous"),
         isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit), isActive: () => store.activeToolID === "assembly.move" }),
       commandRegistry.register({ id: "sketch.start", execute: startSketch,
-		isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && (["plane", "sketch", "face"].includes(store.selection?.kind ?? ""))) }),
+		isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && !selectedNamingIssue && (["plane", "sketch", "face"].includes(store.selection?.kind ?? ""))) }),
       commandRegistry.register({ id: "view.normal", execute: normalToSelection,
         isEnabled: () => Boolean(store.selection && ["plane","face"].includes(store.selection.kind)) }),
       commandRegistry.register({ id: "sketch.normal", execute: () => viewport.current?.normalToSketch(),
@@ -825,7 +835,7 @@ export function Workbench() {
       commandRegistry.register({ id: "sketch.finish", execute: finishSketch,
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && !command.isPending) }),
       ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,invocation?.continuous?"continuous":"once"),
-        isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane),isActive:()=>store.activeToolID===toolID})),
+        isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane&&(toolID!=="sketch.project"||!selectedNamingIssue)),isActive:()=>store.activeToolID===toolID})),
       commandRegistry.register({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isVisible: () => editingView?.document.type === "PART",
         isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch") }),
       commandRegistry.register({ id: "part.pocket", execute: () => openSolidFeature("LINEAR_EXTRUDE", "REMOVE"), isVisible: () => editingView?.document.type === "PART",
@@ -850,7 +860,7 @@ export function Workbench() {
         id: `assembly.${constraint}`,
         execute: (invocation) => store.setActiveTool(`assembly.${constraint}`, invocation?.continuous ? "continuous" : "once"),
         isVisible: () => editingView?.document.type === "PRODUCT",
-        isEnabled: () => Boolean(canEdit),
+        isEnabled: () => Boolean(canEdit && (["fix", "rigid"].includes(constraint) || !selectedNamingIssue)),
         isActive: () => store.activeToolID === `assembly.${constraint}`,
       })),
       commandRegistry.register({ id: "history.version", execute: () => setVersionOpen(true), isEnabled: () => Boolean(canEdit) }),
@@ -870,13 +880,14 @@ export function Workbench() {
     ];
     return () => { for (const dispose of disposers.reverse()) dispose(); };
   }, [commandRegistry, editingView, view, canEdit, canEditRoot, store.selection, store.sketchPlane, store.activeToolID, lengthUnit,
-    command.isPending, assemblyConstraintForm]);
+    command.isPending, assemblyConstraintForm, selectedNamingIssue]);
 
   useEffect(() => { commandRegistry.notifyStateChanged(); }, [commandRegistry, editingView, store.selection, store.sketchPlane,
     store.activeToolID, command.isPending]);
 
   const selected = selectedFeature(editingView ?? {} as DocumentView, store.selection);
   const publicationTarget = () => {
+    if (selectedNamingIssue) return;
     const selection = store.selection;
     if (!selection || !editingView?.part) return undefined;
     if (selection.kind === "plane" && selection.entityId) return { publicationType: "PLANE", targetKind: "PLANE", targetId: selection.entityId };
@@ -1141,6 +1152,10 @@ export function Workbench() {
           style={{position:"absolute",zIndex:12,top:56,left:"50%",transform:"translateX(-50%)",minWidth:420}}
           type="error" showIcon message="自动跟随最新版本被阻塞"
           description={productUpdatePlan.data.entries.find((entry)=>entry.kind !== "ASSEMBLY_SOLVE" && entry.diagnostic)?.diagnostic ?? "更新计划被上游解析或求值失败阻塞。"} />}
+        {(selectedNamingIssue ?? activeNamingIssue) && <Alert
+          style={{position:"absolute",zIndex:12,bottom:12,left:12,maxWidth:520}}
+          type="warning" showIcon message="当前几何暂不支持持久拓扑引用"
+          description={(selectedNamingIssue ?? activeNamingIssue)?.diagnostic} />}
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view}
           editingView={editingView} activeInstancePath={activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
           activeInstanceRotation={activeResolvedInstance?.rotation}
@@ -1152,6 +1167,12 @@ export function Workbench() {
           captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
           onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
 		  onAssemblyConstraint={(toolKind, references) => {
+            const issue = references.flatMap((reference) => {
+              if (!["FACE", "EDGE", "VERTEX"].includes(reference.kind)) return [];
+              const issue = topologyNamingIssue(reference.geometryKey, editingView, view);
+              return issue ? [issue] : [];
+            })[0];
+            if (issue) { message.warning(issue.diagnostic); return; }
             const { kind, angleRelation } = assemblyConstraintEntry(toolKind);
 			if (!editingView) return;
 			assemblyInteractionID.current=randomUUID();

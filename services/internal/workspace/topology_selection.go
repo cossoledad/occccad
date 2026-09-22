@@ -7,14 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"sort"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/modelcore"
-	"google.golang.org/protobuf/proto"
 )
 
 type BindPersistentSelectionRequest struct {
@@ -222,6 +220,11 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 		}
 		_, _, digest, err := service.topologyManifestForVersion(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID)
 		if err != nil {
+			if diagnostic, ok := namingDiagnostic(err); ok {
+				resolution := unavailableSelectionResolution(diagnostic.DiagnosticCode, diagnostic.Diagnostic)
+				reference.Resolution = &ResolutionSnapshot{SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: resolution}
+				return resolution.Status, nil
+			}
 			if errors.Is(err, ErrNotFound) {
 				resolution := unavailableSelectionResolution("PERSISTENT_SELECTION_UNAVAILABLE", "target revision has no persistent topology manifest")
 				reference.Resolution = &ResolutionSnapshot{SourceVersionID: reference.SourceVersionID,
@@ -579,9 +582,9 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 }
 
 func (service *Service) topologyManifestForVersion(ctx context.Context, documentID, versionID string) (*workerv1.PartTopologyManifest, string, string, error) {
-	var geometryKey, digest string
+	var geometryKey string
+	var digest, objectID *string
 	var inline []byte
-	var objectID *string
 	err := service.database.QueryRow(ctx, `SELECT v.geometry_key,COALESCE(a.topology_manifest_data,''::bytea),a.topology_manifest_object_id::text,a.topology_manifest_digest FROM occccad.document_versions v JOIN occccad.geometry_artifacts a ON a.geometry_key=v.geometry_key WHERE v.id=$2 AND v.document_id=$1`, documentID, versionID).Scan(&geometryKey, &inline, &objectID, &digest)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", "", ErrNotFound
@@ -589,36 +592,8 @@ func (service *Service) topologyManifestForVersion(ctx context.Context, document
 	if err != nil {
 		return nil, "", "", err
 	}
-	data := inline
-	if len(data) == 0 && objectID != nil && service.artifacts != nil {
-		_, reader, openErr := service.artifacts.Open(ctx, *objectID)
-		if openErr != nil {
-			return nil, "", "", openErr
-		}
-		data, err = io.ReadAll(reader)
-		closeErr := reader.Close()
-		if err == nil {
-			err = closeErr
-		}
-		if err != nil {
-			return nil, "", "", err
-		}
-	}
-	if len(data) == 0 {
-		return nil, "", "", fmt.Errorf("%w: topology manifest is unavailable", ErrNotFound)
-	}
-	hash := sha256.Sum256(data)
-	if !strings.EqualFold(hex.EncodeToString(hash[:]), strings.TrimSpace(digest)) {
-		return nil, "", "", fmt.Errorf("topology manifest digest mismatch")
-	}
-	manifest := &workerv1.PartTopologyManifest{}
-	if err := proto.Unmarshal(data, manifest); err != nil {
-		return nil, "", "", err
-	}
-	if manifest.GetSchemaVersion() != modelcore.TopologyNamingSchemaVersion || manifest.GetPolicyDigest() != modelcore.TopologyNamingPolicyDigest {
-		return nil, "", "", fmt.Errorf("topology manifest naming contract mismatch")
-	}
-	return manifest, geometryKey, strings.TrimSpace(digest), nil
+	manifest, resolvedDigest, err := service.readTopologyManifest(ctx, inline, objectID, digest)
+	return manifest, geometryKey, resolvedDigest, err
 }
 
 func (service *Service) BindPersistentSelection(ctx context.Context, documentID string, request BindPersistentSelectionRequest) (modelcore.PersistentSelection, error) {
@@ -659,6 +634,9 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	}
 	sourceManifest, _, _, err := service.topologyManifestForVersion(ctx, documentID, request.SourceVersionID)
 	if err != nil {
+		if diagnostic, ok := namingDiagnostic(err); ok {
+			return unavailableSelectionResolution(diagnostic.DiagnosticCode, diagnostic.Diagnostic), nil
+		}
 		if errors.Is(err, ErrNotFound) {
 			return unavailableSelectionResolution("PERSISTENT_SELECTION_UNAVAILABLE", "source revision has no persistent topology manifest"), nil
 		}
@@ -676,6 +654,9 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	}
 	manifest, geometryKey, digest, err := service.topologyManifestForVersion(ctx, documentID, request.TargetVersionID)
 	if err != nil {
+		if diagnostic, ok := namingDiagnostic(err); ok {
+			return unavailableSelectionResolution(diagnostic.DiagnosticCode, diagnostic.Diagnostic), nil
+		}
 		if errors.Is(err, ErrNotFound) {
 			return unavailableSelectionResolution("PERSISTENT_SELECTION_UNAVAILABLE", "target revision has no persistent topology manifest"), nil
 		}
