@@ -745,13 +745,13 @@ func (client *Client) EvaluatePartFromArtifact(
 	return response, nil
 }
 
-func (client *Client) EvaluateProfilePart(ctx context.Context, requestID, geometryKey string, pads []ProfilePad, baseBRep []byte) (*workerv1.EvaluatePartResponse, error) {
+func (client *Client) EvaluateProfilePart(ctx context.Context, requestID, geometryKey string, pads []ProfilePad, baseBRep []byte, seeds ...*workerv1.ImportTopologySeed) (*workerv1.EvaluatePartResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	var header metadata.MD
 	response, err := client.worker.EvaluatePart(ctx, &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
 		ProfilePads: profilePadsProto(pads), BaseBrepData: baseBRep, LinearDeflection: 0.1, AngularDeflection: 0.5,
-		TopologyPolicy: topologyNamingPolicyProto()}, grpc.Header(&header))
+		TopologyPolicy: topologyNamingPolicyProto(), ImportSeed: firstImportSeed(seeds)}, grpc.Header(&header))
 	if err != nil {
 		return nil, fmt.Errorf("evaluate Part profile feature chain: %w", err)
 	}
@@ -759,12 +759,13 @@ func (client *Client) EvaluateProfilePart(ctx context.Context, requestID, geomet
 	return response, nil
 }
 
-func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, requestID, geometryKey string, pads []ProfilePad, baseBRep ArtifactReference, brepOutputKey, glbOutputKey string) (*workerv1.EvaluatePartResponse, error) {
+func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, requestID, geometryKey string, pads []ProfilePad, baseBRep ArtifactReference, brepOutputKey, glbOutputKey string, seeds ...*workerv1.ImportTopologySeed) (*workerv1.EvaluatePartResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	request := &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
 		ProfilePads: profilePadsProto(pads), LinearDeflection: 0.1, AngularDeflection: 0.5, BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey}
 	request.TopologyPolicy = topologyNamingPolicyProto()
+	request.ImportSeed = firstImportSeed(seeds)
 	if baseBRep.ObjectKey != "" {
 		request.BaseBrepArtifact = artifactProto(baseBRep)
 	}
@@ -833,4 +834,11 @@ func (client *Client) ExportExchange(ctx context.Context, requestID, format, out
 	result := response.GetResult()
 	return ArtifactReference{Backend: result.GetBackend(), ObjectKey: result.GetObjectKey(),
 		SHA256: result.GetSha256(), Size: int64(result.GetSizeBytes()), ContentType: result.GetContentType()}, nil
+}
+
+func firstImportSeed(seeds []*workerv1.ImportTopologySeed) *workerv1.ImportTopologySeed {
+	if len(seeds) > 0 {
+		return seeds[0]
+	}
+	return nil
 }

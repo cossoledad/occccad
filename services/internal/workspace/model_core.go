@@ -67,6 +67,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeCreateDatumPlane, "PART", applyCreateDatumPlane},
 		commandHandler{typeCreateDatumAxis, "PART", applyCreateDatumAxis},
 		commandHandler{typeImportExchange, "PART", applyCreateFeature},
+		commandHandler{typeRepairImportNaming, "PART", applyRepairImportNaming},
 		commandHandler{typeSetParameterLiteral, "PART", applyParameterSource},
 		commandHandler{typeSetParameterExpression, "PART", applyParameterSource},
 		commandHandler{typeRenameParameter, "PART", applyRenameParameter},
@@ -1653,6 +1654,14 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	if err != nil {
 		return prepared, err
 	}
+	if command == typeImportExchange || command == typeRepairImportNaming {
+		input := payload.(createFeaturePayload)
+		input.Feature.ImportDefinitionID, err = service.allocateImportDefinition(ctx, documentID, input.Feature, request.ImportSource)
+		if err != nil {
+			return prepared, err
+		}
+		payload = input
+	}
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		return prepared, err
@@ -1676,19 +1685,28 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 }
 
 func (service *Service) applyDomainMutation(ctx context.Context, documentID string, request CommandRequest) error {
-	finishPrepare := perf.Start(ctx, "command-prepare")
-	prepared, err := service.prepareDomainMutation(ctx, documentID, request)
-	finishPrepare()
+	// Check committed intent before adapting against the new Head: import/repair
+	// preconditions intentionally cease to hold after their first successful commit.
+	request.RequestID = requestID(request.RequestID)
+	requestJSON, err := json.Marshal(request)
 	if err != nil {
 		return err
 	}
 	var storedDigest string
-	if err := service.database.QueryRow(ctx, `SELECT request_digest FROM occccad.domain_transactions WHERE workspace_id=$1 AND request_id=$2 AND status='COMMITTED'`, prepared.workspaceID, prepared.requestID).Scan(&storedDigest); err == nil {
-		if storedDigest != prepared.requestDigest {
+	err = service.database.QueryRow(ctx, `SELECT t.request_digest FROM occccad.domain_transactions t JOIN occccad.workspaces w ON w.id=t.workspace_id WHERE w.document_id=$1 AND w.name='main' AND t.request_id=$2 AND t.status='COMMITTED'`, documentID, request.RequestID).Scan(&storedDigest)
+	if err == nil {
+		if storedDigest != modelcore.ValueDigest(requestJSON) {
 			return fmt.Errorf("%w: IDEMPOTENCY_KEY_REUSED", ErrValidation)
 		}
 		return nil
-	} else if !errors.Is(err, pgx.ErrNoRows) {
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+	finishPrepare := perf.Start(ctx, "command-prepare")
+	prepared, err := service.prepareDomainMutation(ctx, documentID, request)
+	finishPrepare()
+	if err != nil {
 		return err
 	}
 	finishPromote := perf.Start(ctx, "candidate-promote")

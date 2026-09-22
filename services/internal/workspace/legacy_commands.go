@@ -323,6 +323,23 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		axis := DatumAxis{ID: commandEntityID("axis", request.RequestID), Name: name, Origin: request.Origin,
 			Direction: [3]float64{request.Direction[0] / magnitude, request.Direction[1] / magnitude, request.Direction[2] / magnitude}}
 		return typeCreateDatumAxis, createDatumAxisPayload{Axis: axis}, nil
+	case "REPAIR_IMPORT_NAMING":
+		var model PartModel
+		if documentType != "PART" {
+			break
+		}
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		for _, feature := range model.Features {
+			if feature.ID == request.TargetID && feature.Type == "IMPORT_BODY" {
+				if feature.ImportDefinitionID != "" {
+					return "", nil, fmt.Errorf("%w: import already has frozen naming", ErrValidation)
+				}
+				return typeRepairImportNaming, createFeaturePayload{Feature: feature}, nil
+			}
+		}
+		return "", nil, fmt.Errorf("%w: imported feature not found", ErrValidation)
 	case "IMPORT_EXCHANGE":
 		if documentType != "PART" {
 			break
@@ -340,7 +357,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if format != "STEP" && format != "BREP" {
 			return "", nil, fmt.Errorf("%w: exchange format must be STEP or BREP", ErrValidation)
 		}
-		return typeImportExchange, createFeaturePayload{Feature: Feature{ID: newID("import"), Type: "IMPORT_BODY", Name: "Import " + name, GeometryKey: request.GeometryKey, FileName: name, SourceFormat: format}}, nil
+		return typeImportExchange, createFeaturePayload{Feature: Feature{ID: commandEntityID("import", documentID+"/"+request.RequestID), Type: "IMPORT_BODY", Name: "Import " + name, GeometryKey: request.GeometryKey, FileName: name, SourceFormat: format}}, nil
 	case "SET_PARAMETER_VALUE":
 		if documentType != "PART" {
 			break

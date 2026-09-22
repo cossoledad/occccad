@@ -1,5 +1,6 @@
 #include <internal/occt_kernel.hpp>
 #include <occccad/kernel/topology_naming.hpp>
+#include <occccad/kernel/geometry_id.hpp>
 
 #include <gtest/gtest.h>
 
@@ -1042,6 +1043,78 @@ TEST(GeometryExchange, RepositoryStepFixturesContainImportableSolidGeometry) {
             EXPECT_GT(kernel.getTopology(imported).solid_count, 0U);
         }
     }
+}
+
+
+ImportTopologySeed imported_box_seed(OcctKernel& kernel, const std::vector<uint8_t>& bytes) {
+    ImportTopologySeed seed;
+    seed.feature_id = "import-test";
+    seed.body_id = "body-main";
+    seed.brep_sha256 = make_geometry_id(std::string(bytes.begin(), bytes.end())).substr(7);
+    const auto topology = kernel.getTopology(kernel.loadBrepr(bytes));
+    // Fixed fixture allocations stand in for independently allocated persisted IDs.
+    int allocation = 97;
+    for (const auto& face : topology.faces)
+        seed.identities.push_back({"opaque-" + std::to_string(allocation++), PersistentTopologyType::face, face.local_id});
+    for (const auto& edge : topology.edges)
+        seed.identities.push_back({"opaque-" + std::to_string(allocation++), PersistentTopologyType::edge, edge.local_id});
+    for (const auto& vertex : topology.vertices)
+        seed.identities.push_back({"opaque-" + std::to_string(allocation++), PersistentTopologyType::vertex, vertex.local_id});
+    return seed;
+}
+
+TEST(GeometryExchange, ImportedNamingSnapshotAndColdIdentity) {
+    OcctKernel kernel;
+    const auto bytes = kernel.serializeBrepr(kernel.createBox(20,20,10));
+    auto seed = imported_box_seed(kernel,bytes);
+    const auto first = kernel.evaluateProfilePadsWithHistory({},bytes,&seed);
+    ASSERT_EQ(first.feature_results.size(),1U);
+    const auto& root = first.feature_results.front();
+    EXPECT_TRUE(root.topology_history_complete);
+    EXPECT_EQ(root.semantic_outputs.size(),26U);
+    for (const auto& output : root.semantic_outputs) {
+        EXPECT_EQ(output.semantic_ref.output_slot,"import.topology");
+        EXPECT_FALSE(output.evidence.adjacent.empty());
+    }
+    OcctKernel cold;
+    std::reverse(seed.identities.begin(),seed.identities.end());
+    const auto again = cold.evaluateProfilePadsWithHistory({},bytes,&seed);
+    for (const auto& output : root.semantic_outputs) {
+        const auto& candidates = again.feature_results.front().semantic_outputs;
+        const auto found = std::find_if(candidates.begin(),candidates.end(),[&](const auto& other){return other.semantic_ref.source_ids==output.semantic_ref.source_ids;});
+        ASSERT_NE(found,candidates.end());
+        EXPECT_EQ(found->local_id,output.local_id);
+        EXPECT_EQ(found->evidence.evidence_digest,output.evidence.evidence_digest);
+    }
+    auto broken = seed;
+    broken.brep_sha256="wrong";
+    EXPECT_THROW(cold.evaluateProfilePadsWithHistory({},bytes,&broken),std::invalid_argument);
+    broken=seed;broken.identities.pop_back();
+    EXPECT_THROW(cold.evaluateProfilePadsWithHistory({},bytes,&broken),std::invalid_argument);
+    broken=seed;broken.identities[0].stable_id=broken.identities[1].stable_id;
+    EXPECT_THROW(cold.evaluateProfilePadsWithHistory({},bytes,&broken),std::invalid_argument);
+    // Even a geometrically similar symmetric snapshot cannot reuse locator mappings.
+    const auto changed = kernel.serializeBrepr(kernel.createBox(20,20,11));
+    EXPECT_THROW(cold.evaluateProfilePadsWithHistory({},changed,&seed),std::invalid_argument);
+}
+
+TEST(GeometryExchange, ImportedNamingPropagatesThroughBooleanChain) {
+    OcctKernel kernel;
+    const auto bytes=kernel.serializeBrepr(kernel.createBox(20,20,10));
+    const auto seed=imported_box_seed(kernel,bytes);
+    ProfilePadSpec add;
+    add.feature_id="add";add.body_id="body-main";add.input_feature_id=seed.feature_id;add.profile_feature_id="sketch-add";
+    add.regions={rectangular_region("add-region",10,0,30,20)};add.pad_length=10;add.body_operation="ADD";
+    ProfilePadSpec cut;
+    cut.feature_id="cut";cut.body_id="body-main";cut.input_feature_id="add";cut.profile_feature_id="sketch-cut";
+    cut.regions={rectangular_region("cut-region",12,5,18,15)};cut.pad_length=10;cut.body_operation="REMOVE";
+    const auto result=kernel.evaluateProfilePadsWithHistory({add,cut},bytes,&seed);
+    ASSERT_EQ(result.feature_results.size(),3U);
+    for(const auto& feature:result.feature_results) EXPECT_TRUE(feature.topology_history_complete);
+    const auto topology=kernel.getTopology(result.geometry_id);
+    EXPECT_EQ(result.feature_results.back().semantic_outputs.size(),topology.face_count+topology.edge_count+topology.vertex_count);
+    EXPECT_NEAR(kernel.getVolume(result.geometry_id),5400,1e-6);
+    EXPECT_TRUE(std::any_of(result.feature_results[1].topology_history.lineage.begin(),result.feature_results[1].topology_history.lineage.end(),[&](const auto& lineage){return std::any_of(lineage.sources.begin(),lineage.sources.end(),[&](const auto& source){return source.feature_id==seed.feature_id;});}));
 }
 
 }  // namespace

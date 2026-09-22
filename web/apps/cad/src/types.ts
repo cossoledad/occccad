@@ -95,6 +95,7 @@ export type DocumentProperties = {
 };
 
 export type Feature = {
+  importDefinitionId?: string;
   id: string;
   type: "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY";
   name?: string;

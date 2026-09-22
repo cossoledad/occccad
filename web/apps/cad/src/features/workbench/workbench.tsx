@@ -307,6 +307,7 @@ export function Workbench() {
   const view = document.data;
   const editingView = activeDocumentID === documentID ? view : activeDocument.data;
   const selectedNamingIssue = selectionNamingIssue(store.selection, editingView, view);
+  const repairableImport = editingView?.part?.features.find((feature) => feature.type === "IMPORT_BODY" && !feature.importDefinitionId);
   const activeNamingIssue = editingView?.artifact?.topology.faces && editingView.artifact.naming && !editingView.artifact.naming.canBind ? editingView.artifact.naming : undefined;
   const discardNewSketch = () => {
     const session = newSketchSession.current;
@@ -1155,7 +1156,8 @@ export function Workbench() {
         {(selectedNamingIssue ?? activeNamingIssue) && <Alert
           style={{position:"absolute",zIndex:12,bottom:12,left:12,maxWidth:520}}
           type="warning" showIcon message="当前几何暂不支持持久拓扑引用"
-          description={(selectedNamingIssue ?? activeNamingIssue)?.diagnostic} />}
+          description={(selectedNamingIssue ?? activeNamingIssue)?.diagnostic}
+          action={repairableImport && canEdit ? <Button size="small" loading={command.isPending} onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"REPAIR_IMPORT_NAMING",targetId:repairableImport.id}))}>建立导入命名</Button> : undefined} />}
         <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view}
           editingView={editingView} activeInstancePath={activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
           activeInstanceRotation={activeResolvedInstance?.rotation}

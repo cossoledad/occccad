@@ -275,6 +275,7 @@ message EvaluatePartRequest {
     string glb_output_key = 10;
     repeated ProfilePadSpec profile_pads = 11;
     TopologyNamingPolicy topology_policy = 12;
+    ImportTopologySeed import_seed = 13;
 }
 
 message ProfileCurve {
@@ -917,4 +918,20 @@ message AssemblyBodyFreedom {
     repeated Vec3 translation_directions = 9;
     repeated AssemblyScrewFreedom rotations = 10;
     double rank_threshold = 11;
+}
+
+// Frozen identity allocation bound to one exact normalized BREP snapshot.
+// local_id is only a locator in that digest, never the persistent identity.
+message ImportTopologySeed {
+    string feature_id = 1;
+    string body_id = 2;
+    string brep_sha256 = 3;
+    repeated ImportedTopologyIdentity identities = 4;
+    string occt_version = 5;
+    string policy_id = 6;
+}
+message ImportedTopologyIdentity {
+    string stable_id = 1;
+    PersistentTopologyType topology_type = 2;
+    uint64 local_id = 3;
 }

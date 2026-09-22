@@ -463,7 +463,7 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + feature.Sketch.Support.DatumPlaneID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		}
-		if isSolidGenerator(feature.Type) {
+		if isSolidGenerator(feature.Type) || feature.Type == "IMPORT_BODY" {
 			bodyTipFeatureID = feature.ID
 		}
 	}

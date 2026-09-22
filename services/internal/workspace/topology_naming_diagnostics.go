@@ -59,7 +59,7 @@ func decodeTopologyManifest(data []byte, digest string) (*workerv1.PartTopologyM
 
 func (service *Service) readTopologyManifest(ctx context.Context, inline []byte, objectID, digest *string) (*workerv1.PartTopologyManifest, string, error) {
 	if len(inline) == 0 && objectID == nil && (digest == nil || strings.TrimSpace(*digest) == "") {
-		return nil, "", namingError("UNAVAILABLE", "TOPOLOGY_NAMING_UNAVAILABLE", "当前几何没有拓扑命名；可继续查看和使用基准几何，面上草图、边点投影及拓扑约束需等待导入命名功能。")
+		return nil, "", namingError("UNAVAILABLE", "TOPOLOGY_NAMING_UNAVAILABLE", "当前几何没有拓扑命名；可继续查看和使用基准几何，面上草图、边点投影及拓扑约束需要先建立导入命名。")
 	}
 	if digest == nil || strings.TrimSpace(*digest) == "" {
 		return nil, "", namingError("CORRUPT", "TOPOLOGY_MANIFEST_METADATA_INVALID", "拓扑命名制品存在但缺少摘要，不能安全绑定持久引用。")

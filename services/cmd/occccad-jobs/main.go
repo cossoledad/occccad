@@ -222,7 +222,7 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 				name = fmt.Sprintf("%s - %s", baseName, result.name)
 			}
 			view, err := h.workspace.CommitImportedPart(ctx, job.RequestedBy, payload.FolderID,
-				payload.RequestID+fmt.Sprintf("/part/%d", index), name, payload.FileName, format, result.key, result.evaluation)
+				payload.RequestID+fmt.Sprintf("/part/%d", index), name, payload.FileName, format, result.key, result.evaluation, &workspace.ImportSource{ObjectID: source.ID, SHA256: source.SHA256, Format: format, ComponentIndex: inspection.Components[index].SourceIndex})
 			if err != nil {
 				return err
 			}

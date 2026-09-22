@@ -1,6 +1,6 @@
 # 大文件导入与大模型工作集设计
 
-> 2026-09-22 设计提案；IMPORT-DIAGNOSTICS 已实现，其余待实施与实测，不构成大模型能力或性能承诺。返回[目标架构](../../TARGET_ARCHITECTURE.md)，执行依赖见[导入与大模型计划](../../../plans/import-large-models.md)。适用于外部 STEP/BREP 导入和原生 Part/Product；存储与交换基础合同仍见[分布式平台](distributed-platform.md)。
+> 2026-09-22 设计提案；IMPORT-DIAGNOSTICS 与单 Solid IMPORT-NAMING 已实现，其余待实施与实测，不构成大模型能力或性能承诺。返回[目标架构](../../TARGET_ARCHITECTURE.md)，执行依赖见[导入与大模型计划](../../../plans/import-large-models.md)。适用于外部 STEP/BREP 导入和原生 Part/Product；存储与交换基础合同仍见[分布式平台](distributed-platform.md)。
 
 ## 1. 结论与边界
 
@@ -29,11 +29,11 @@
 
 ### 2.1 NULL 报错不是导入命名的完整修复
 
-原始缺陷是 `topologyManifestForVersion` 查询 `topology_manifest_digest` 并扫描到 Go `string`；迁移 `0008` 允许该列 NULL。ImportExchange 仅调用 `fill_evaluation`，没有生成 feature topology manifest；持久化代码将缺失 digest 写为 NULL。因此原报错也会由新导入产生，并非只能归因于历史数据。该读取缺陷已通过 IMPORT-DIAGNOSTICS 修复。
+原始缺陷是 `topologyManifestForVersion` 查询 `topology_manifest_digest` 并扫描到 Go `string`；迁移 `0008` 允许该列 NULL。旧导入流程在 ImportExchange 后直接提交没有 feature topology manifest 的制品，缺失 digest 写为 NULL，因此并非只能归因于历史数据。当前提交已加入冻结命名定义和带 seed 的 EvaluatePart。该读取缺陷已通过 IMPORT-DIAGNOSTICS 修复。
 
-已实施的诊断层采用可空读取并区分“尚无 naming”“生成失败”“摘要损坏/合同不匹配”；不能把 NULL COALESCE 成空字符串后继续假装可解析，也不能吞掉全部错误。缺失 naming 的文档仍允许打开、显示、查询不依赖稳定子拓扑的属性；面上草图、持久装配引用等操作需要明确的 capability/诊断和修复入口。具体实现与测试范围见[当前架构完成记录](../current/jobs-artifacts.md#import-diagnostics-完成记录2026-09-22)，导入 naming 生成与修复入口仍待后续实施。
+已实施的诊断层采用可空读取并区分“尚无 naming”“生成失败”“摘要损坏/合同不匹配”；不能把 NULL COALESCE 成空字符串后继续假装可解析，也不能吞掉全部错误。缺失 naming 的文档仍允许打开、显示、查询不依赖稳定子拓扑的属性；面上草图、持久装配引用等操作需要明确的 capability/诊断和修复入口。具体实现与测试范围见[当前架构完成记录](../current/jobs-artifacts.md#import-diagnostics-完成记录2026-09-22)，导入 naming 生成与修复入口也已实现，见[导入根命名](../current/persistent-naming.md#导入根命名import-naming-已完成2026-09-22)。
 
-更深一层：即使为初始导入补一份 manifest，后续 evaluator 只拿到 `base_brep`、没有导入拓扑 seed 时仍会产生 `TOPOLOGY_HISTORY_UNNAMED_BASE`。必须把 ImportBody 的完整 Face/Edge/Vertex 身份种子传入后续布尔求值，否则“能选面、不能可靠编辑”问题仍在。
+原链路更深一层的问题是：即使为初始导入补一份 manifest，后续 evaluator 只拿到 `base_brep`、没有导入拓扑 seed 时仍会产生 `TOPOLOGY_HISTORY_UNNAMED_BASE`。必须把 ImportBody 的完整 Face/Edge/Vertex 身份种子传入后续布尔求值，否则“能选面、不能可靠编辑”问题仍在；当前 IMPORT-NAMING 已按此补齐 seed 初始化和后续 history。
 
 ## 3. 数据面：上传、S3 与制品生命周期
 
@@ -78,6 +78,8 @@ S3 multipart 支持分片重试和独立上传；完整对象 ETag 不一定是�
 
 ### 4.1 ImportBody 的输入真相和身份
 
+本节单 Solid 冻结快照方案已落地，具体持久化形式和验证边界见[当前导入根命名](../current/persistent-naming.md#导入根命名import-naming-已完成2026-09-22)。源文件替换和内核升级的身份迁移仍属后续扩展。
+
 `IMPORT_BODY` 保存不可变源对象 digest、格式、导入器/kernel/healing/unit policy、组件定义标识、规范化精确形体与 ImportIdentityMap 的引用。没有源 CAD 的参数特征历史时，不伪造 Extrude/Fillet 历史；在导入 Body 上添加新特征、草图和约束属于正常后续建模。
 
 为各 Body、Face、Edge、Vertex 分配 opaque stable ID；逻辑引用例如 `ImportFeatureId + ImportedTopologyId`。首次建立后持久化整份身份种子，重试读取已持久化的候选种子，不重新分配。STEP entity/representation/产品关联可作为来源证据，但不是跨任意重新导出文件的唯一身份保证；裸 BREP 无业务 ID 时同样使用冻结种子。
@@ -97,7 +99,7 @@ ImportIdentityMap 绑定精确 BREP digest 与 importer policy，包含 stable I
 ### 4.3 已有无 manifest 的导入文档
 
 1. 已完成 IMPORT-DIAGNOSTICS：可空读取和明确诊断；打开文档不因缺失可选 naming 制品崩溃。
-2. 对当前导入 Head 以冻结源/精确 BREP 建立 ImportIdentityMap 与 manifest；已有有效 stable ID 不能重分配。把新的导入定义输入纳入正常命令和 Revision/ChangeSet，并覆盖 Undo/Redo。
+2. 已实现显式修复命令，对当前导入 Head 以冻结源/精确 BREP 建立 ImportIdentityMap 与 manifest；已有有效 stable ID 不能重分配。把新的导入定义输入纳入正常命令和 Revision/ChangeSet，并覆盖 Undo/Redo。
 3. 旧快照只读时诚实显示 naming 不可用，不伪造可编辑状态；新 Head 的后续引用使用新身份。历史是否能以原输入重建需有实测，不覆盖旧 Revision。
 4. 项目未发布，采用唯一导入模型/协议演进，不增加永久双写或两套 naming resolver。开发数据重置仅遵循仓库既有授权边界，不作为设计或实施的默认前提。
 

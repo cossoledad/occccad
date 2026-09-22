@@ -165,3 +165,5 @@ Product 的 Debug 下载动作导出当前请求的 `.3dreplay`，Part 继续使
 草图会话退出时，本次新建且未编辑、无几何/约束/外部投影的草图通过正常删除命令放弃；已有空草图的编辑会话不会被自动删除。直线拉伸默认沿持久草图平面法向正向，切除默认反向；切换 Body 操作时重新设置对应默认方向，用户仍可使用“反向”开关覆盖，预览和提交共用该值。
 
 工作台消费服务端 Artifact 的 `naming` 能力与属性查询的 `namingDiagnostic`，展示未生成、生成不完整、损坏和合同不匹配的具体原因。已知不可绑定的面/边/点限制面上草图、拓扑发布、外部投影及拓扑约束入口，提交仍由服务端验证；基准几何、法线视图和 Instance/Body 级选择不因缺少 naming 被统一禁用。纯逻辑回归入口为 `topology-naming-capability.scenario.mjs`。
+
+已有无命名定义的 ImportBody 在工作台告警中提供“建立导入命名”，调用正常 `REPAIR_IMPORT_NAMING` 命令并刷新权威 DocumentView；有编辑权限时可用，提交期间显示忙碌状态。修复形成新 Revision，可 Undo/Redo，未修复旧快照保持不可绑定诊断。

@@ -1022,7 +1022,7 @@ public:
             return {grpc::StatusCode::INVALID_ARGUMENT, "request_id and geometry_key are required"};
         }
         if (!request->has_rectangular_pad() && request->rectangular_pads().empty() &&
-            request->profile_pads().empty()) {
+            request->profile_pads().empty() && !request->has_import_seed()) {
             return {grpc::StatusCode::INVALID_ARGUMENT, "feature chain requires at least one pad"};
         }
 
@@ -1062,7 +1062,7 @@ public:
             if (request->has_base_brep_artifact())
                 base_brep = read_artifact(request->base_brep_artifact());
             std::vector<occccad::kernel::ProfilePadSpec> profile_specs;
-            if (!request->profile_pads().empty()) {
+            if (!request->profile_pads().empty() || request->has_import_seed()) {
                 const auto& policy = request->topology_policy();
                 if (policy.schema_version() != occccad::kernel::topology_naming_schema_version ||
                     policy.policy_id() != occccad::kernel::topology_naming_policy_id ||
@@ -1137,23 +1137,42 @@ public:
                 }
                 profile_specs.push_back(std::move(pad));
             }
+            occccad::kernel::ImportTopologySeed seed;
+            if (request->has_import_seed()) {
+                if (!specs.empty())
+                    throw std::invalid_argument("import naming seed requires the profile feature contract");
+                const auto& input = request->import_seed();
+                if (input.occt_version() != OCC_VERSION_COMPLETE || input.policy_id() != "occccad.import.frozen-brep.v1")
+                    throw std::invalid_argument("IMPORT_SEED_CONTRACT_MISMATCH");
+                seed.feature_id = input.feature_id();
+                seed.body_id = input.body_id();
+                seed.brep_sha256 = input.brep_sha256();
+                for (const auto& entry : input.identities())
+                    seed.identities.push_back({entry.stable_id(),
+                        static_cast<occccad::kernel::PersistentTopologyType>(entry.topology_type()), entry.local_id()});
+            }
             occccad::kernel::ProfileEvaluationResult profile_evaluation;
             const auto geometry_id =
-                profile_specs.empty()
+                (profile_specs.empty() && !request->has_import_seed())
                     ? kernel_.evaluateRectangularPads(specs, base_brep)
                     : (profile_evaluation =
-                           kernel_.evaluateProfilePadsWithHistory(profile_specs, base_brep),
+                           kernel_.evaluateProfilePadsWithHistory(profile_specs, base_brep, request->has_import_seed() ? &seed : nullptr),
                        profile_evaluation.geometry_id);
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
                             request->glb_output_key());
-            if (!profile_specs.empty()) {
+            if (!profile_specs.empty() || request->has_import_seed()) {
                 auto* manifest = response->mutable_evaluation_manifest();
                 manifest->set_schema_version(occccad::kernel::topology_naming_schema_version);
                 manifest->set_topology_policy_id(request->topology_policy().policy_id());
                 manifest->set_topology_evaluator_version(
                     request->topology_policy().evaluator_version());
                 manifest->set_topology_policy_digest(request->topology_policy().policy_digest());
+                if (request->has_import_seed()) {
+                    auto* identity = manifest->add_features();
+                    identity->set_feature_id(seed.feature_id);
+                    identity->set_body_id(seed.body_id);
+                }
                 for (const auto& spec : profile_specs) {
                     auto* identity = manifest->add_features();
                     identity->set_feature_id(spec.feature_id);

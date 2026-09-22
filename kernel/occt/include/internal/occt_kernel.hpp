@@ -49,7 +49,8 @@ public:
     GeometryId evaluateProfilePads(const std::vector<ProfilePadSpec>& specs,
                                    const std::vector<uint8_t>& base_brep = {}) override;
     ProfileEvaluationResult evaluateProfilePadsWithHistory(
-        const std::vector<ProfilePadSpec>& specs, const std::vector<uint8_t>& base_brep = {});
+        const std::vector<ProfilePadSpec>& specs, const std::vector<uint8_t>& base_brep = {},
+        const ImportTopologySeed* import_seed = nullptr);
 
     BoundingBox getBoundingBox(const GeometryId& id) override;
     const TopologyInfo& getTopology(const GeometryId& id) override;

@@ -23,4 +23,14 @@ Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服
 - [resolver corpus](../../../services/internal/workspace/topology_selection_test.go)
 - [正式 Router Edge/Vertex 集成](../../../services/internal/control/edge_vertex_naming_integration_test.go)
 
-导入仍未达到上述 Extrude/Boolean 的命名覆盖：ImportExchange 没有生成初始 topology manifest，且 imported base 没有把 stable topology seed 传给后续 evaluator。NULL digest 读取与缺失/失败/损坏/不兼容诊断已统一修复，完成记录和验证见[IMPORT-DIAGNOSTICS](jobs-artifacts.md#import-diagnostics-完成记录2026-09-22)。属性查询保留精确几何结果并返回 namingDiagnostic；绑定拒绝不可用命名，解析保留明确失败原因，不生成虚假 PersistentSelection。ImportIdentityMap 与后续 seed 提案见[导入与大模型设计](../target/large-models.md#21-null-报错不是导入命名的完整修复)。这里不能把“存在 IMPORT_BODY Feature”解释为导入零件已经支持完整持久选择和后续命名。
+## 导入根命名（IMPORT-NAMING 已完成，2026-09-22）
+
+有效单 Solid 的 STEP/BREP 导入现在生成完整 Face/Edge/Vertex 根命名。ImportExchange 负责规范化精确快照，提交 ImportBody 前控制面分配独立随机 topology ID，写入不可变 `import_definitions`（迁移 0028）；Feature 的 `importDefinitionId` 引用该重放输入。定义记录绑定 Feature/Body、原始源对象和组件索引（新 Jobs 导入）、精确 BREP digest、OCCT 版本、导入策略及毫米单位。旧文档修复可仅依据其已冻结的精确 BREP，不虚构已丢失的原始源文件。
+
+身份分配先按文档/Feature/策略冻结；并发或失败重试读取同一获胜记录，不能重新分配已发布身份。随机 ID 不由 local ID、数组位置或几何坐标派生。定位映射只在冻结 BREP 摘要内有效，Worker 同时校验 OCCT 版本/策略，内核校验摘要、单 Solid、覆盖、重复身份与 locator。更换输入快照不按编号或最近几何继承身份。定义表及其引用的源对象、精确几何是重放输入，不能作为显示缓存回收；几何/邻接 evidence 在由该冻结映射生成的 topology manifest 中物化。
+
+EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named topology，再复用原生 Add/Remove/Intersect、OCCT history 与同域合并传播。初始输出有完整邻接、类型、几何 evidence 和有向法向；后续 split/merge/deletion 使用同一 resolver，分裂多候选保留 Ambiguous。缓存身份包含完整 seed，依赖图将 ImportBody 作为 Body Tip，后续草图/实体读取其命名和几何。
+
+已有无定义的导入由 `REPAIR_IMPORT_NAMING`（typed URI `occccad://part/exchange/repair-naming`）显式建立命名。工作台告警提供“建立导入命名”入口。修复保留原 Feature 和 BREP，通过正常 Transaction、CAS、entity ChangeSet 和新 Revision 提交；Undo/Redo 使用同一冻结定义，旧 Revision 不改写。已命名 Feature 不能以修复操作重新分配身份；缺失定义的历史快照仍使用 [IMPORT-DIAGNOSTICS](jobs-artifacts.md#import-diagnostics-完成记录2026-09-22) 的明确诊断。
+
+针对性验证覆盖 STEP/BREP 实际 Router 导入、26 个面边点根引用、六面草图及拉伸/切除、边投影、装配及引用更新、对称槽分裂的两候选歧义、修复 Undo/Redo、已提交重试、冷加载与连续布尔。内核另验证错摘要、缺项、重复身份和更换快照拒绝。入口：[内核场景](../../../kernel/occt/tests/geometry_exchange_scenarios.cpp)、[导入集成](../../../services/internal/control/import_naming_integration_test.go)、[诊断/修复集成](../../../services/internal/control/import_naming_diagnostics_test.go)、[修复补偿单测](../../../services/internal/workspace/import_naming_test.go)。本轮未做全仓、浏览器或大文件验收；多 Solid、开放壳和混合拓扑不能冒充该单 Body 编辑能力，源文件替换/新版内核迁移也未实现自动身份对照。

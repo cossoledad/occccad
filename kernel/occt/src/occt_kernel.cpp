@@ -1508,7 +1508,8 @@ GeometryId OcctKernel::evaluateRectangularPads(const std::vector<RectangularPadS
 }
 
 ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
-    const std::vector<ProfilePadSpec>& specs, const std::vector<uint8_t>& base_brep) {
+    const std::vector<ProfilePadSpec>& specs, const std::vector<uint8_t>& base_brep,
+    const ImportTopologySeed* import_seed) {
     TopoDS_Shape result;
     GeometryId result_id;
     std::vector<NamedShape> live_named;
@@ -1519,6 +1520,68 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     }
     ProfileEvaluationResult evaluation;
     bool topology_history_complete = base_brep.empty();
+    if (import_seed) {
+        const auto& seed = *import_seed;
+        const std::string bytes(base_brep.begin(), base_brep.end());
+        if (base_brep.empty() || seed.feature_id.empty() || seed.body_id.empty() ||
+            make_geometry_id(bytes) != "sha256:" + seed.brep_sha256)
+            throw std::invalid_argument("IMPORT_SEED_SNAPSHOT_MISMATCH");
+        TopTools_IndexedMapOfShape solids, faces, edges, vertices;
+        TopExp::MapShapes(result, TopAbs_SOLID, solids);
+        TopExp::MapShapes(result, TopAbs_FACE, faces);
+        TopExp::MapShapes(result, TopAbs_EDGE, edges);
+        TopExp::MapShapes(result, TopAbs_VERTEX, vertices);
+        if (solids.Extent() != 1 || !BRepCheck_Analyzer(result).IsValid())
+            throw std::invalid_argument("IMPORT_NAMING_REQUIRES_VALID_SINGLE_SOLID");
+        TopTools_IndexedMapOfShape solid_faces, solid_edges, solid_vertices;
+        TopExp::MapShapes(solids(1), TopAbs_FACE, solid_faces);
+        TopExp::MapShapes(solids(1), TopAbs_EDGE, solid_edges);
+        TopExp::MapShapes(solids(1), TopAbs_VERTEX, solid_vertices);
+        if (faces.Extent() != solid_faces.Extent() || edges.Extent() != solid_edges.Extent() ||
+            vertices.Extent() != solid_vertices.Extent())
+            throw std::invalid_argument("IMPORT_NAMING_REQUIRES_VALID_SINGLE_SOLID");
+        if (seed.identities.size() != static_cast<std::size_t>(faces.Extent() + edges.Extent() + vertices.Extent()))
+            throw std::invalid_argument("IMPORT_SEED_COVERAGE_MISMATCH");
+        FeatureResult root;
+        root.feature_id = seed.feature_id;
+        root.body_id = seed.body_id;
+        root.result_geometry_id = result_id;
+        root.topology_history_complete = true;
+        root.topology_history.feature_id = seed.feature_id;
+        root.topology_history.result_geometry_id = result_id;
+        root.topology_history.policy_digest = topology_policy_digest();
+        std::vector<std::string> ids, locators;
+        for (const auto& entry : seed.identities) {
+            const auto* map = entry.topology_type == PersistentTopologyType::face ? &faces :
+                              entry.topology_type == PersistentTopologyType::edge ? &edges :
+                              entry.topology_type == PersistentTopologyType::vertex ? &vertices : nullptr;
+            const auto locator = std::to_string(static_cast<int>(entry.topology_type)) + "/" + std::to_string(entry.local_id);
+            if (!map || entry.local_id == 0 || entry.local_id > static_cast<std::uint64_t>(map->Extent()) ||
+                entry.stable_id.empty() || std::find(ids.begin(), ids.end(), entry.stable_id) != ids.end() ||
+                std::find(locators.begin(), locators.end(), locator) != locators.end())
+                throw std::invalid_argument("IMPORT_SEED_INVALID_IDENTITY_MAP");
+            ids.push_back(entry.stable_id);
+            locators.push_back(locator);
+            const auto shape = (*map)(static_cast<int>(entry.local_id));
+            SemanticTopologyRef ref{seed.feature_id, "import.topology", {entry.stable_id}};
+            auto evidence = topology_evidence(shape);
+            append_semantic_role(evidence, ref, entry.topology_type);
+            root.semantic_outputs.push_back({ref, entry.topology_type, entry.local_id, evidence});
+            live_named.push_back({ref, shape});
+        }
+        for (std::size_t i = 0; i < live_named.size(); ++i) {
+            auto& output = root.semantic_outputs[i];
+            for (std::size_t j = 0; j < live_named.size(); ++j)
+                if (i != j && topology_adjacent(live_named[i].shape, live_named[j].shape))
+                    output.evidence.adjacent.push_back(live_named[j].ref);
+            sort_refs(output.evidence.adjacent);
+            root.topology_history.lineage.push_back({{}, output.semantic_ref, TopologyLineageKind::generated, output.evidence});
+        }
+        root.topology_history.evidence_digest = topology_history_digest(root.topology_history);
+        evaluation.feature_results.push_back(std::move(root));
+        topology_history_complete = true;
+    }
+
     for (const auto& spec : specs) {
         const auto input_shape = result;
         const auto input_id = result_id;

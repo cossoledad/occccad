@@ -319,20 +319,21 @@ type SketchOperation struct {
 }
 
 type Feature struct {
-	ID           string         `json:"id"`
-	Type         string         `json:"type"`
-	Name         string         `json:"name"`
-	Plane        string         `json:"plane,omitempty"`
-	Sketch       *SketchFeature `json:"sketch,omitempty"`
-	Profile      string         `json:"profile,omitempty"`
-	Length       float64        `json:"length,omitempty"`
-	Angle        float64        `json:"angle,omitempty"`
-	Operation    string         `json:"operation,omitempty"`
-	AxisEntityID string         `json:"axisEntityId,omitempty"`
-	Reversed     bool           `json:"reversed,omitempty"`
-	GeometryKey  string         `json:"geometryKey,omitempty"`
-	FileName     string         `json:"fileName,omitempty"`
-	SourceFormat string         `json:"sourceFormat,omitempty"`
+	ImportDefinitionID string         `json:"importDefinitionId,omitempty"`
+	ID                 string         `json:"id"`
+	Type               string         `json:"type"`
+	Name               string         `json:"name"`
+	Plane              string         `json:"plane,omitempty"`
+	Sketch             *SketchFeature `json:"sketch,omitempty"`
+	Profile            string         `json:"profile,omitempty"`
+	Length             float64        `json:"length,omitempty"`
+	Angle              float64        `json:"angle,omitempty"`
+	Operation          string         `json:"operation,omitempty"`
+	AxisEntityID       string         `json:"axisEntityId,omitempty"`
+	Reversed           bool           `json:"reversed,omitempty"`
+	GeometryKey        string         `json:"geometryKey,omitempty"`
+	FileName           string         `json:"fileName,omitempty"`
+	SourceFormat       string         `json:"sourceFormat,omitempty"`
 }
 
 type PartModel struct {
@@ -853,6 +854,7 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	ImportSource            *ImportSource        `json:"-"`
 	FixMode                 string               `json:"fixMode,omitempty"`
 	FixedPose               *InstancePose        `json:"fixedPose,omitempty"`
 	AngleRelation           string               `json:"angleRelation,omitempty"`

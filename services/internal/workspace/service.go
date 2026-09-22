@@ -783,9 +783,16 @@ func (service *Service) CreateVersion(
 }
 
 func (service *Service) CommitImportedPart(ctx context.Context, actor, folderID, reqID, name,
-	fileName, format, geometryKey string, evaluation *workerv1.EvaluatePartResponse) (DocumentView, error) {
-	if err := service.storeEvaluation(ctx, geometryKey, evaluation, visualizationManifest(newPartModel())); err != nil {
+	fileName, format, geometryKey string, evaluation *workerv1.EvaluatePartResponse, sources ...*ImportSource) (DocumentView, error) {
+	// Adopt consumes staging objects. A retry must reuse the adopted snapshot.
+	var exists bool
+	if err := service.database.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, geometryKey).Scan(&exists); err != nil {
 		return DocumentView{}, err
+	}
+	if !exists {
+		if err := service.storeEvaluation(ctx, geometryKey, evaluation, visualizationManifest(newPartModel())); err != nil {
+			return DocumentView{}, err
+		}
 	}
 	var folder *string
 	if strings.TrimSpace(folderID) != "" {
@@ -796,9 +803,13 @@ func (service *Service) CommitImportedPart(ctx context.Context, actor, folderID,
 	if err != nil {
 		return DocumentView{}, err
 	}
+	var source *ImportSource
+	if len(sources) > 0 {
+		source = sources[0]
+	}
 	return service.ApplyCommand(ctx, view.Document.ID, CommandRequest{RequestID: reqID + "/import",
 		Type: "IMPORT_EXCHANGE", GeometryKey: geometryKey, FileName: strings.TrimSpace(fileName),
-		SourceFormat: strings.ToUpper(format), ActorID: actor})
+		SourceFormat: strings.ToUpper(format), ActorID: actor, ImportSource: source})
 }
 
 func (service *Service) CommitImportedProduct(ctx context.Context, actor, folderID, reqID, name string,
@@ -1813,6 +1824,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 	sketches := map[string]Feature{}
 	solidFeatures := []geometry.ProfilePad{}
 	baseKey := ""
+	var importSeed *workerv1.ImportTopologySeed
 	bodyTipFeatureID := ""
 	visualization := visualizationManifest(model)
 	for _, feature := range model.Features {
@@ -1820,6 +1832,13 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 		case "IMPORT_BODY":
 			baseKey = feature.GeometryKey
 			bodyTipFeatureID = feature.ID
+			if feature.ImportDefinitionID != "" {
+				var seedErr error
+				importSeed, seedErr = service.importSeed(ctx, feature)
+				if seedErr != nil {
+					return "", seedErr
+				}
+			}
 		case "SKETCH":
 			sketches[feature.ID] = feature
 		case "PAD", "LINEAR_EXTRUDE", "REVOLVE":
@@ -1870,13 +1889,19 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 			bodyTipFeatureID = feature.ID
 		}
 	}
-	if len(solidFeatures) == 0 {
+	if len(solidFeatures) == 0 && importSeed == nil {
 		if baseKey != "" {
 			return service.ensureVisualizationVariant(ctx, baseKey, visualization)
 		}
 		return service.ensureVisualizationArtifact(ctx, model)
 	}
-	key, err := partGeometryKey(baseKey, solidFeatures, visualization)
+	cacheBaseKey := baseKey
+	if importSeed != nil {
+		seedJSON, _ := json.Marshal(importSeed)
+		sum := sha256.Sum256(append([]byte(baseKey+"|"+importPolicy+"|"), seedJSON...))
+		cacheBaseKey = "sha256:" + hex.EncodeToString(sum[:])
+	}
+	key, err := partGeometryKey(cacheBaseKey, solidFeatures, visualization)
 	if err != nil {
 		return "", err
 	}
@@ -1899,7 +1924,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 			}
 		}
 		evaluation, err = service.worker.EvaluateProfilePartFromArtifact(ctx, reqID, key, solidFeatures, base,
-			artifactstore.StagingKey(reqID, "shape.brep"), artifactstore.StagingKey(reqID, "mesh.glb"))
+			artifactstore.StagingKey(reqID, "shape.brep"), artifactstore.StagingKey(reqID, "mesh.glb"), importSeed)
 	} else {
 		var baseBRep []byte
 		if baseKey != "" {
@@ -1907,7 +1932,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 				`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, baseKey).Scan(&baseBRep)
 		}
 		if err == nil {
-			evaluation, err = service.worker.EvaluateProfilePart(ctx, reqID, key, solidFeatures, baseBRep)
+			evaluation, err = service.worker.EvaluateProfilePart(ctx, reqID, key, solidFeatures, baseBRep, importSeed)
 		}
 	}
 	if err != nil {
