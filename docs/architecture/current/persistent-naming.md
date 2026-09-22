@@ -22,3 +22,5 @@ Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服
 - [bind/resolver](../../../services/internal/workspace/topology_selection.go)
 - [resolver corpus](../../../services/internal/workspace/topology_selection_test.go)
 - [正式 Router Edge/Vertex 集成](../../../services/internal/control/edge_vertex_naming_integration_test.go)
+
+导入仍未达到上述 Extrude/Boolean 的命名覆盖：ImportExchange 没有生成初始 topology manifest，且 imported base 没有把 stable topology seed 传给后续 evaluator。NULL digest 读取缺陷、修复边界与 ImportIdentityMap 提案见[导入与大模型设计](../target/large-models.md#21-null-报错不是导入命名的完整修复)。这里不能把“存在 IMPORT_BODY Feature”解释为导入零件已经支持完整持久选择和后续命名。

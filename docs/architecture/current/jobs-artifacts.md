@@ -58,3 +58,11 @@ Exchange HTTP 提交只等待上传落盘和 Job 入队，随后立即关闭对�
 - [Jobs](../../../services/internal/jobs)
 - [Artifact](../../../services/internal/artifact)
 - [Geometry 路由](../../../services/internal/control)
+
+## 大文件与导入编辑的已知限制（2026-09-22 代码核对）
+
+以下为代码阅读结论，尚无 1 GiB 级容量验收。除 API 的 128 MiB 外，Geometry Worker 的输入/输出制品还有 512 MiB 上限；`InspectExchange` 的 30 秒与 `ImportExchange` 的 5 分钟是当前客户端 deadline。STEP inspect 和每个 component 的 `loadStepRoot` 分别 ReadFile；固定最多 8 路不能视作按内存预算的调度。Jobs 在 results 中保留所有组件 EvaluatePartResponse，Worker 即使输出 BREP/GLB 对象，仍通过 gRPC 返回完整 Mesh；数据库 `mesh_json`、DocumentView 与前端完整数组构造也未实现有界工作集。
+
+当前 ImportExchange 未生成 feature topology manifest，`persistEvaluation` 可把 `topology_manifest_digest` 写为 NULL；`topologyManifestForVersion` 却扫描到 string，因此导入文档的持久子拓扑操作可能出现 `cannot scan NULL into *string`。这是当前路径的缺陷，不仅是旧数据兼容问题。后续 native evaluator 对 imported `base_brep` 也没有已有 named topology seed，会报告 `TOPOLOGY_HISTORY_UNNAMED_BASE`。修复需覆盖可空诊断、Import 根身份和后续 lineage，不能只消除数据库异常文本。
+
+设计与分批验收见[大模型提案](../target/large-models.md)及[执行计划](../../../plans/import-large-models.md)；这些问题本轮仅分析和记录，未修改实现。

@@ -149,6 +149,8 @@ Temporal 只在出现多日工作流、补偿、人工步骤、跨服务扇出�
 
 ## 8.2 S3 兼容对象存储
 
+1 GiB 级上传、导入命名、parse-once 和原生/导入模型的渐进显示见[大模型设计提案](large-models.md)。该提案进入设计支线，尚未代表 S3 或相关性能已交付。
+
 保存不可变 B-Rep、STEP、GLB、LOD、拓扑映射、缩略图、仿真与工具路径。对象键基于内容摘要；Metadata 服务管理引用、保留策略、legal hold 与 GC mark/sweep。
 
 开源自托管基线可评估 SeaweedFS 或 Ceph RGW；SeaweedFS 提供 Apache 许可的 S3/文件存储与水平扩展能力。[SeaweedFS 项目](https://github.com/seaweedfs/seaweedfs) 选择必须经过故障注入、纠删码、小对象、备份恢复和 S3 兼容测试，而不是写死供应商。

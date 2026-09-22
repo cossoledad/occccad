@@ -19,6 +19,10 @@ flowchart LR
 
 若只有一条开发线：先 CONSTRAINT-CONTRACT，按装配计划补齐六类及 Activate/Deactivate，再收口 M4 → M5 → M6。会话基础/延迟基准可在合同冻结后与类型补齐并行；最终 M4 验收必须覆盖六类和抑制组合。Revolve/其他 Feature 和 Projection 保持独立支线，不再排在装配能力补齐之前。
 
+## 当前会话优先支线
+
+维护者已提出大文件导入、导入 naming 与原生大模型容量设计需求；本轮先推进[导入与大模型支线](import-large-models.md)。它补齐导入可编辑性、S3/续传、资源预算和渐进显示，不替代上述装配长期主线。当前只有设计与代码核对，尚未进行 1 GiB 级验收。
+
 ## 可领取工作
 
 | 轨道 | 当前首项 | 依赖与退出门 | 详情 |
@@ -26,6 +30,7 @@ flowchart LR
 | 装配主线 | CONSTRAINT-CONTRACT | M3/产品验收已就绪；先冻结六类数学语义/组合验证/激活合同 | [装配演进](assembly-evolution.md) |
 | 实体支线 | FEATURE-REVOLVE-HISTORY | 已有 Extrude/Boolean 命名基线；完整命名 corpus | [Feature 扩张](feature-expansion.md) |
 | 草图支线 | PROJECTION-ARC | 已有 Edge/Vertex 投影；先统一 ARC snapshot | [Sketch 投影](sketch-projection.md) |
+| 导入与大模型支线 | IMPORT-DIAGNOSTICS / LARGE-BASELINE | 命名正确性与容量基线先行；对象存储、计算、显示共同验收 | [导入与大模型](import-large-models.md) |
 | 工程维护 | 按证据触发 | 保持行为、验证与导航等价 | [维护支线](engineering-maintenance.md) |
 | 候选 | 暂不分配开发批次 | 负载、场景或领域前置条件满足后细化 | [候选方向](candidates.md) |
 

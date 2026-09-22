@@ -65,6 +65,7 @@
 ### 分布式平台与交付治理
 
 - [调度、通信、存储与制品](architecture/target/distributed-platform.md)
+- [大文件导入、根拓扑身份与大模型工作集（设计提案）](architecture/target/large-models.md)
 - [安全、可观测性与扩展边界](architecture/target/quality-extensions.md)
 - [决策触发、验证与交付](architecture/target/delivery-governance.md)
 
