@@ -30,17 +30,30 @@ export function orientView(camera: THREE.OrthographicCamera, target: THREE.Vecto
   camera.up.copy(up); camera.lookAt(focus); camera.updateMatrixWorld(true);
 }
 
-/** Align to the nearest side with the shortest camera rotation, preserving roll.
- * Plane orientation remains modeling truth; choosing a viewing side never flips it.
+/** Keep the nearest viewing side, then choose the least-turn quarter-turn
+ * orientation aligned to the support's axes (world axes when no frame is given).
  */
 export function orientPlaneView(camera: THREE.OrthographicCamera, target: THREE.Vector3,
-  focus: THREE.Vector3, normal: THREE.Vector3): void {
+  focus: THREE.Vector3, normal: THREE.Vector3, planeUp?: THREE.Vector3): void {
   const back = camera.getWorldDirection(new THREE.Vector3()).negate().normalize();
   const nearest = normal.clone().normalize();
   if (back.dot(nearest) < 0) nearest.negate();
-  const swing = new THREE.Quaternion().setFromUnitVectors(back, nearest);
-  const up = new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).applyQuaternion(swing);
-  orientView(camera, target, focus, nearest, up);
+  const up = (planeUp ?? new THREE.Vector3(0, 1, 0)).clone();
+  up.addScaledVector(nearest, -up.dot(nearest));
+  if (up.lengthSq() < 1e-12) {
+    up.set(0, 0, 1).addScaledVector(nearest, -nearest.z);
+    if (up.lengthSq() < 1e-12) up.set(1, 0, 0).addScaledVector(nearest, -nearest.x);
+  }
+  up.normalize();
+  const across = nearest.clone().cross(up).normalize();
+  let chosen = up, best = -1;
+  for (const candidate of [up, across, up.clone().negate(), across.clone().negate()]) {
+    const rotation = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().lookAt(nearest, new THREE.Vector3(), candidate));
+    const proximity = Math.abs(rotation.dot(camera.quaternion));
+    if (proximity > best + 1e-12) { best = proximity; chosen = candidate; }
+  }
+  orientView(camera, target, focus, nearest, chosen);
 }
 
 /** Orientation primitive preserves scale and screen centre; ISO commands then explicitly fit. */

@@ -1,8 +1,9 @@
+import { ViewTransition } from "../cad/navigation/view-transition";
 import { normalViewFrame, type NormalViewPlane } from "../cad/navigation/normal-view";
 import { makeFeatureEdges } from "../cad/rendering/feature-edges";
 import { makeFeaturePreview, type FeaturePreviewOperation } from "../cad/rendering/feature-preview";
 import { InfiniteGroundGrid } from "../cad/rendering/infinite-ground-grid";
-import { fitOrthographicView, updateOrthographicClipping, orientPlaneView, restoreView, saveView, standardView, viewFocus, type SavedView } from "../cad/navigation/orthographic-view";
+import { fitOrthographicView, updateOrthographicClipping, orientPlaneView, saveView, standardView, viewFocus, type SavedView } from "../cad/navigation/orthographic-view";
 import * as THREE from "three";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import { InputManager } from "../cad/input/input-manager";
@@ -217,6 +218,8 @@ export class CadViewportEngine {
   private readonly helpers = new THREE.Group();
   private readonly sketchContext = new THREE.Group();
   private readonly environment = new THREE.Group();
+  private viewTransition!: ViewTransition;
+  private readonly interruptViewTransition = () => this.viewTransition?.cancel();
   private readonly lighting = new THREE.Group();
   private readonly contentBounds = new THREE.Box3();
   private readonly selectable = new Map<string, THREE.Object3D>();
@@ -316,6 +319,9 @@ export class CadViewportEngine {
     }, navigationPicker, () => this.visibleContentCenter(), "default",
     import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true",
       () => this.visibleContentBounds(), () => this.fit(), () => Boolean(this.activeSketchID));
+    this.viewTransition = new ViewTransition(this.camera, this.navigation.target);
+    for (const event of ["pointerdown", "wheel", "keydown"])
+      this.host.addEventListener(event, this.interruptViewTransition, true);
     this.navigationHUD = new NavigationHUD();
     this.tools = new ToolManager({ viewport: this.toolViewportPort() });
     this.tools.register(new SelectTool());
@@ -378,6 +384,7 @@ export class CadViewportEngine {
     this.navigation.cancel();
     const previousDocumentID = this.view?.document.id;
     if (previousDocumentID !== view.document.id) {
+      this.viewTransition.cancel();
       this.sketchReturnView = undefined;
       this.sketchPlane = undefined; this.activeSketchID = undefined;
       this.disposeGroup(this.sketchContext);
@@ -472,6 +479,14 @@ export class CadViewportEngine {
     });
   }
 
+  private animatePlaneView(focus: THREE.Vector3, normal: THREE.Vector3, up: THREE.Vector3): void {
+    const destination = this.camera.clone();
+    const target = this.navigation.target.clone();
+    orientPlaneView(destination, target, focus, normal, up);
+    this.viewTransition.start(saveView(destination, target), performance.now());
+    this.invalidate();
+  }
+
   beginSketch(sketchID: string, plane: SketchPlane): void {
     const entering = this.activeSketchID !== sketchID;
     if (entering && !this.sketchReturnView) this.sketchReturnView = saveView(this.camera, this.navigation.target);
@@ -486,8 +501,7 @@ export class CadViewportEngine {
       const focus = viewFocus(this.camera, this.navigation.target);
       // Keep the region being inspected, projected onto the support plane.
       focus.addScaledVector(frame.normal, -focus.clone().sub(frame.origin).dot(frame.normal));
-      orientPlaneView(this.camera, this.navigation.target, focus, frame.normal);
-      this.navigation.syncCamera(false);
+      this.animatePlaneView(focus, frame.normal, frame.v);
     }
     this.buildSketchContext();
     this.updateSketchContextVisibility();
@@ -518,8 +532,7 @@ export class CadViewportEngine {
     this.navigation.cancel();
     const focus = viewFocus(this.camera,this.navigation.target);
     focus.addScaledVector(frame.normal,-focus.clone().sub(frame.origin).dot(frame.normal));
-    orientPlaneView(this.camera,this.navigation.target,focus,frame.normal);
-    this.navigation.syncCamera(false);
+    this.animatePlaneView(focus, frame.normal, frame.up);
     this.invalidate();
     return true;
   }
@@ -530,8 +543,7 @@ export class CadViewportEngine {
     const frame = planeFrame(this.sketchPlane);
     const focus = viewFocus(this.camera, this.navigation.target);
     focus.addScaledVector(frame.normal, -focus.clone().sub(frame.origin).dot(frame.normal));
-    orientPlaneView(this.camera, this.navigation.target, focus, frame.normal);
-    this.navigation.syncCamera(false);
+    this.animatePlaneView(focus, frame.normal, frame.v);
   }
 
   endSketch(): void {
@@ -551,7 +563,7 @@ export class CadViewportEngine {
     this.refreshInteractionHighlights();
     this.callbacks.toolPromptChanged("");
     if (this.sketchReturnView) {
-      restoreView(this.camera, this.navigation.target, this.sketchReturnView);
+      this.viewTransition.start(this.sketchReturnView, performance.now());
       this.sketchReturnView = undefined;
       this.navigation.syncCamera(false);
     }
@@ -643,6 +655,7 @@ export class CadViewportEngine {
   }
 
   setStandardView(view: "TOP" | "FRONT" | "RIGHT" | "ISO"): void {
+    this.viewTransition.cancel();
     this.navigation.cancel();
     standardView(this.camera, this.navigation.target, view);
     if (view === "ISO") this.frameContent();
@@ -867,6 +880,9 @@ export class CadViewportEngine {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.viewTransition.cancel();
+    for (const event of ["pointerdown", "wheel", "keydown"])
+      this.host.removeEventListener(event, this.interruptViewTransition, true);
     cancelAnimationFrame(this.animationFrame);
     this.resizeObserver.disconnect();
     this.input.dispose();
@@ -1135,6 +1151,7 @@ export class CadViewportEngine {
     const instance = this.instanceGroups.get(reference.instanceId);
     const anchor = resolved?.anchor ?? (instance ? new THREE.Box3().setFromObject(instance).getCenter(new THREE.Vector3()) : undefined);
     if (!anchor) return false;
+    this.viewTransition.cancel();
     const offset = this.camera.position.clone().sub(this.navigation.target);
     this.navigation.target.copy(anchor);
     this.camera.position.copy(anchor).add(offset);
@@ -2164,6 +2181,7 @@ export class CadViewportEngine {
   }
 
   private frameContent(): void {
+    this.viewTransition.cancel();
     this.navigation.cancel();
     const box = this.visibleContentBounds();
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
@@ -2241,9 +2259,10 @@ export class CadViewportEngine {
 
   private invalidate(): void {
     if (this.disposed || this.animationFrame) return;
-    this.animationFrame = requestAnimationFrame(() => {
+    this.animationFrame = requestAnimationFrame((now) => {
       this.animationFrame = 0;
       if (!this.disposed) {
+        if (this.viewTransition.update(now)) this.navigation.syncCamera(false);
         this.updateNavigationHUD();
         this.moveManipulator.updateScale(this.camera, viewportMetrics(this.renderer));
         this.updateScreenStableReferences();
@@ -2261,6 +2280,7 @@ export class CadViewportEngine {
         this.renderer.clearDepth();
         this.renderer.render(this.scene, this.camera);
         this.navigationHUD.render(this.renderer);
+        if (this.viewTransition.active) this.invalidate();
       }
     });
   }

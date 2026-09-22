@@ -27,17 +27,58 @@ try {
    const n = frame.normal.clone().multiplyScalar(side);
    camera.position.copy(frame.origin).addScaledVector(n,80).addScaledVector(frame.up,15);
    camera.up.copy(frame.up);camera.lookAt(frame.origin);camera.rotateZ(.6);camera.updateMatrixWorld(true);
-   const before=camera.quaternion.clone();
-   const beforeDirection=camera.getWorldDirection(new THREE.Vector3());
-   const expectedTurn=Math.acos(Math.min(1,Math.abs(beforeDirection.dot(frame.normal))));
-   orientPlaneView(camera,target,frame.origin,frame.normal);
+   orientPlaneView(camera,target,frame.origin,frame.normal,frame.up);
    assert.ok(camera.getWorldDirection(new THREE.Vector3()).dot(n)<-1+1e-10);
-   assert.ok(Math.abs(before.angleTo(camera.quaternion)-expectedTurn)<1e-7);
+   const screenUp=new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion);
+   assert.ok(Math.max(Math.abs(screenUp.dot(frame.up)),Math.abs(screenUp.dot(frame.normal.clone().cross(frame.up))))>1-1e-10,
+     "plane axes must be horizontal/vertical, including rotated occurrences");
    assert.equal(camera.zoom,7);
    const aligned=camera.quaternion.clone();
-   orientPlaneView(camera,target,frame.origin,frame.normal.clone().negate());
+   orientPlaneView(camera,target,frame.origin,frame.normal.clone().negate(),frame.up);
    assert.ok(aligned.angleTo(camera.quaternion)<1e-7,"reversed support normal must not flip the view");
  }
+ // An XY sketch should remove arbitrary roll but keep the closest quarter turn.
+ for (const roll of [.4,1.4,2.9,-1.2]) {
+   camera.position.set(0,0,80);camera.up.set(0,1,0);camera.lookAt(0,0,0);camera.rotateZ(roll);camera.updateMatrixWorld(true);
+   const before=camera.quaternion.clone();
+   orientPlaneView(camera,target,new THREE.Vector3(),new THREE.Vector3(0,0,1),new THREE.Vector3(0,1,0));
+   const up=new THREE.Vector3(0,1,0).applyQuaternion(camera.quaternion);
+   assert.ok(Math.max(Math.abs(up.x),Math.abs(up.y))>1-1e-10);
+   assert.ok(before.angleTo(camera.quaternion)<=Math.PI/4+1e-10);
+ }
+ const {ViewTransition}=await server.ssrLoadModule("/src/cad/navigation/view-transition.ts");
+ const {saveView}=await server.ssrLoadModule("/src/cad/navigation/orthographic-view.ts");
+ camera.position.set(40,-60,70);camera.up.set(0,0,1);target.set(1,2,3);camera.lookAt(target);camera.zoom=7;camera.updateMatrixWorld(true);
+ const original=saveView(camera,target);
+ const destination=camera.clone(), endTarget=target.clone();
+ orientPlaneView(destination,endTarget,new THREE.Vector3(1,2,0),new THREE.Vector3(0,0,1),new THREE.Vector3(0,1,0));
+ const end=saveView(destination,endTarget);
+ const transition=new ViewTransition(camera,target);
+ transition.start(end,0,280);
+ assert.ok(camera.position.equals(original.position),"starting animation must not jump to the destination");
+ transition.update(140);
+ assert.ok(transition.active);
+ assert.ok(camera.quaternion.angleTo(original.rotation)>1e-3);
+ assert.ok(camera.quaternion.angleTo(end.rotation)>1e-3);
+ assert.ok(Math.abs(camera.zoom-7)<1e-10);
+ assert.ok(camera.position.distanceTo(target)>50,"orbit must not cut through the model focus");
+ // A new command starts exactly at the current rendered frame.
+ const halfway=saveView(camera,target);
+ transition.start(original,140,280);transition.update(140);
+ assert.ok(camera.position.distanceTo(halfway.position)<1e-10);
+ assert.ok(camera.quaternion.angleTo(halfway.rotation)<1e-7);
+ transition.update(420);
+ assert.equal(transition.active,false);
+ assert.ok(camera.position.equals(original.position));
+ assert.ok(target.equals(original.target));
+ transition.start(end,500);transition.update(600);transition.cancel();
+ const interrupted=saveView(camera,target);
+ assert.equal(transition.update(1000),false);
+ assert.ok(camera.position.equals(interrupted.position),"cancelled animation cannot overwrite user navigation");
+ transition.start(end,1000,0);
+ assert.equal(transition.active,false);
+ assert.ok(camera.position.equals(end.position));
+ assert.ok(camera.quaternion.angleTo(end.rotation)<1e-7);
  const properties={geometryType:"PLANE",properties:{origin:plane.origin,normal:plane.normal,xDirection:plane.uDirection}};
  assert.deepEqual(exactNormalViewPlane(properties),plane);
  assert.equal(exactNormalViewPlane({...properties,geometryType:"CYLINDER"}),undefined);
