@@ -373,19 +373,9 @@ func (server *Server) handleRealtimeCommand(ctx context.Context, client *realtim
 	if payload.Command.RequestID == "" {
 		payload.Command.RequestID = envelope.ID
 	}
-	if strings.EqualFold(payload.Command.Type, "INSERT_INSTANCE") && payload.Command.ReferencedDocumentID != "" {
-		if _, err := server.access.RequireDocument(ctx, payload.Command.ReferencedDocumentID,
-			client.actor.ID, access.RoleViewer); err != nil {
-			client.sendDomainError(envelope.ID, err)
-			return
-		}
-	}
-	if strings.EqualFold(payload.Command.Type, "SET_PARAMETER_EXTERNAL") && payload.Command.SourceDocumentID != "" {
-		if _, err := server.access.RequireDocument(ctx, payload.Command.SourceDocumentID,
-			client.actor.ID, access.RoleViewer); err != nil {
-			client.sendDomainError(envelope.ID, err)
-			return
-		}
+	if err := server.requireCommandReferences(ctx, client.actor.ID, payload.DocumentID, payload.Command); err != nil {
+		client.sendDomainError(envelope.ID, err)
+		return
 	}
 	view, err := server.workspace.ApplyCommand(ctx, payload.DocumentID, payload.Command)
 	if err != nil {

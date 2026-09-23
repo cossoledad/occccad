@@ -61,7 +61,7 @@ export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: 
     ["sketch.constraint.angle", "角度", "angle", undefined, true],
   ]),
   toolbar("product-structure", "产品结构", "ASSEMBLY_DESIGN", "top-left", "assembly", 10, [
-    ["product.insert", "插入", "insert"],
+    ["product.insert", "插入", "insert"], ["product.pattern", "多实例化", "pattern", "沿坐标轴重复所选组件并实时预览。"],
   ]),
   toolbar("product-interface", "产品接口", "ASSEMBLY_DESIGN", "top-left", "assembly", 20, [
     ["product.publications", "发布", "publication", "转发子 Part Publication。"],

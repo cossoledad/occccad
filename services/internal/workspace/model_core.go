@@ -31,6 +31,7 @@ const (
 	typeSetParameterExpression = "occccad://parameter/expression/set"
 	typeRenameParameter        = "occccad://parameter/key/rename"
 	typeInsertInstance         = "occccad://product/instance/insert"
+	typeInsertInstances        = "occccad://product/instance/insert-many"
 	typeMoveInstance           = "occccad://product/instance/move"
 	typeAddAssemblyConstraint  = "occccad://product/assembly-constraint/add"
 	typeEditAssemblyConstraint = "occccad://product/assembly-constraint/edit"
@@ -83,6 +84,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeEditContextInput, "PART", applyEditContextInput},
 		commandHandler{typeDeleteContextInput, "PART", applyDeleteContextInput},
 		commandHandler{typeInsertInstance, "PRODUCT", applyInsertInstance},
+		commandHandler{typeInsertInstances, "PRODUCT", applyInsertInstances},
 		commandHandler{typeRenameInstance, "PRODUCT", applyRenameInstance},
 		commandHandler{typeReplaceInstance, "PRODUCT", applyReplaceInstance},
 		commandHandler{typeCreateProductPublication, "PRODUCT", applyCreateProductPublication},
@@ -1274,6 +1276,49 @@ func validParameterKey(value string) bool {
 
 type insertInstancePayload struct {
 	Instance ProductInstance `json:"instance"`
+}
+
+type insertInstancesPayload struct {
+	Instances []ProductInstance `json:"instances"`
+}
+
+func applyInsertInstances(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model ProductModel
+	var payload insertInstancesPayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if len(payload.Instances) == 0 || len(payload.Instances) > 128 {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: instance batch must contain 1..128 items", ErrValidation)
+	}
+	ids, names := map[string]bool{}, map[string]bool{}
+	for _, instance := range model.Instances {
+		ids[instance.ID] = true
+		names[strings.ToLower(strings.TrimSpace(instance.Name))] = true
+	}
+	changes := make([]modelcore.ModelChange, 0, len(payload.Instances))
+	seeds := make([]modelcore.DependencyKey, 0, len(payload.Instances))
+	for _, instance := range payload.Instances {
+		name := strings.ToLower(strings.TrimSpace(instance.Name))
+		if instance.ID == "" || instance.ReferencedDocumentID == "" || name == "" || ids[instance.ID] || names[name] {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate or incomplete instance identity", ErrValidation)
+		}
+		for _, coordinate := range instance.Translation {
+			if math.IsNaN(coordinate) || math.IsInf(coordinate, 0) {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: non-finite instance translation", ErrValidation)
+			}
+		}
+		ids[instance.ID], names[name] = true, true
+		model.Instances = append(model.Instances, instance)
+		change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: instance.ID, SlotID: "entity"}, nil, instance)
+		changes = append(changes, change)
+		seeds = append(seeds, "instance:"+modelcore.DependencyKey(instance.ID))
+	}
+	next, err := json.Marshal(model)
+	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, err
 }
 
 func applyInsertInstance(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {

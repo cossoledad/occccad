@@ -15,6 +15,8 @@ Worker 不提供网络 API，不接受用户认证请求，也不是通用分布
 
 ## 执行模型
 
+单个进程默认同时运行 2 个独立 Job 领取循环，`OCCCCAD_JOB_CONCURRENCY` 可设为 1–8。每个循环持有独立 lease owner 和 Workspace 缓存；共享 PostgreSQL 池、ArtifactStore 与 Geometry Router，多个导入文件可由不同 Geometry Worker 进程处理。每个文件仍是独立可重试任务，批次中的一个失败不会撤销其他文件。
+
 ```mermaid
 flowchart LR
     API["occccad-server"] -->|"INSERT with idempotency key"| Queue[(PostgreSQL jobs)]

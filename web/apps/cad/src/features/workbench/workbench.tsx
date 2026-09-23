@@ -7,6 +7,8 @@ import { AssemblyAngleParameters, angleAxisCandidateError } from "./assembly-ang
 import { fixedPoseAngles, fixedPoseFromParameters } from "../../cad/assembly/assembly-fixed-pose";
 import { FeaturePreviewLegend } from "./feature-preview-legend";
 import { InsertDocumentDialog } from "./insert-document-dialog";
+import { InstancePatternDialog } from "./instance-pattern-dialog";
+import type { InstancePatternPreview } from "./instance-pattern";
 import "./workbench.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -185,6 +187,8 @@ export function Workbench() {
   const [activeInstancePath, setActiveInstancePath] = useState<string>();
   const [definitionContextPath, setDefinitionContextPath] = useState<string>();
   const [insertOpen, setInsertOpen] = useState(false);
+  const [patternOpen, setPatternOpen] = useState(false);
+  const previewInsertPattern = useCallback((input?: InstancePatternPreview) => viewport.current?.previewInsertPattern(input), []);
   const [newPartTarget, setNewPartTarget] = useState<SpecificationTreeNode>();
   const [versionOpen, setVersionOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
@@ -238,6 +242,7 @@ export function Workbench() {
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
 	useEffect(() => { setActiveDocumentID(documentID); setActiveInstancePath(undefined); setDefinitionContextPath(undefined); store.endSketch(); store.setSelection(null); }, [documentID]);
+  useEffect(() => { setPatternOpen(false); previewInsertPattern(); }, [activeDocumentID, activeInstancePath, previewInsertPattern]);
   useEffect(() => {
     // A stopped XState actor cannot be restarted. Own one actor per effect
     // lifetime so StrictMode's setup/cleanup/setup cycle retains live previews.
@@ -855,6 +860,8 @@ export function Workbench() {
         isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit) }),
       commandRegistry.register({ id: "product.insert", execute: () => setInsertOpen(true), isVisible: () => editingView?.document.type === "PRODUCT",
         isEnabled: () => Boolean(canEdit) }),
+      commandRegistry.register({ id: "product.pattern", execute: () => setPatternOpen(true),
+        isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(canEdit) }),
       commandRegistry.register({ id: "product.release", execute: () => setReleaseOpen(true), isVisible: () => view?.document.type === "PRODUCT",
         isEnabled: () => Boolean(canEditRoot) }),
       ...(["fix", "rigid", "coincident", "concentric", "angle", "parallel", "perpendicular", "distance"] as const).map((constraint) => commandRegistry.register({
@@ -1445,8 +1452,16 @@ export function Workbench() {
 		</Form>
 	</CommandDialog>
     {insertOpen && editingView?.document.type === "PRODUCT" && <InsertDocumentDialog key={activeID}
-      targetID={activeID} rootID={documentID} busy={command.isPending} onClose={() => setInsertOpen(false)}
-      onInsert={(referencedID) => command.mutateAsync(() => api.insert(activeID, referencedID))} />}
+      targetID={activeID} rootID={documentID} busy={command.isPending}
+      onClose={() => setInsertOpen(false)}
+      onInsertDocuments={(ids) => command.mutateAsync(() => api.insertMany(activeID, ids))} />}
+    {patternOpen && editingView?.document.type === "PRODUCT" && <InstancePatternDialog
+      sourceInstance={editingView.product?.instances.find((instance) => instance.id ===
+        (store.selection?.kind === "instance" ? store.selection.instanceId : undefined))}
+      parentOccurrencePath={activeInstancePath} parentRotation={activeResolvedInstance?.rotation}
+      busy={command.isPending} onPreview={previewInsertPattern}
+      onClose={() => { previewInsertPattern(); setPatternOpen(false); }}
+      onApply={(input) => command.mutateAsync(() => api.patternInstances(activeID, input))} />}
     <CommandDialog id="new-part-component" open={Boolean(newPartTarget)} title="新建零件"
       onClose={() => setNewPartTarget(undefined)} confirmLoading={command.isPending}
       onConfirm={async () => createPartComponent(await newPartForm.validateFields())}>

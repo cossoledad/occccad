@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/occccad/occccad/internal/geometry"
@@ -653,6 +654,18 @@ func nextInstanceName(model ProductModel, referenceName string) string {
 	}
 }
 
+// Instance names are ReferenceName.N; an existing instance's display name is
+// never the base for another instance's ordinal.
+func instanceReferenceName(instanceName string) string {
+	index := strings.LastIndexByte(instanceName, '.')
+	if index > 0 && index < len(instanceName)-1 {
+		if _, err := strconv.Atoi(instanceName[index+1:]); err == nil {
+			return instanceName[:index]
+		}
+	}
+	return instanceName
+}
+
 func applyInstancePath(nodes []DocumentStructureNode, path *InstancePath) {
 	for index := range nodes {
 		if path != nil && nodes[index].InstancePath == nil {
@@ -704,6 +717,7 @@ type FolderSummary struct {
 	ChildCount    int     `json:"childCount"`
 	CreatedAt     string  `json:"createdAt"`
 	UpdatedAt     string  `json:"updatedAt"`
+	DeletedAt     *string `json:"deletedAt,omitempty"`
 	Permission    string  `json:"permission"`
 }
 
@@ -882,6 +896,11 @@ type CommandRequest struct {
 	UDirection              [3]float64           `json:"uDirection,omitempty"`
 	Direction               [3]float64           `json:"direction,omitempty"`
 	ReferencedDocumentID    string               `json:"referencedDocumentId,omitempty"`
+	ReferencedDocumentIDs   []string             `json:"referencedDocumentIds,omitempty"`
+	PatternAxis             string               `json:"patternAxis,omitempty"`
+	PatternCount            int                  `json:"patternCount,omitempty"`
+	PatternSpacing          float64              `json:"patternSpacing,omitempty"`
+	PatternReversed         bool                 `json:"patternReversed,omitempty"`
 	Name                    string               `json:"name,omitempty"`
 	InstanceID              string               `json:"instanceId,omitempty"`
 	TargetKind              string               `json:"targetKind,omitempty"`

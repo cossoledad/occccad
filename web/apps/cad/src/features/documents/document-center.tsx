@@ -5,7 +5,7 @@ import {
 } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  App, Breadcrumb, Button, Card, Dropdown, Empty, Form, Input, Layout, Menu, Modal, Pagination,
+  App, Breadcrumb, Button, Card, Checkbox, Dropdown, Empty, Form, Input, Layout, Menu, Modal, Pagination,
   Segmented, Select, Space, Spin, Tag, Typography, Upload,
 } from "antd";
 import { useState } from "react";
@@ -16,6 +16,7 @@ import { DocumentThumbnail } from "../../components/document-thumbnail";
 import { ShareDialog, type ShareResource } from "../../components/share-dialog";
 import { defaultDocumentName, flattenFolderTree, relativeDate, type LibraryScope } from "./document-utils";
 import type { DocumentSummary, FolderSummary } from "../../types";
+import { submitImportBatch, type ImportFile } from "./import-batch";
 
 type DocumentForm = { name: string; description?: string; type: "PART" | "PRODUCT" };
 type FolderForm = { name: string; description?: string };
@@ -32,14 +33,16 @@ export function DocumentCenter() {
   const [sort, setSort] = useState<"updated" | "name" | "created">("updated");
   const [offset, setOffset] = useState(0);
   const [currentFolderID, setCurrentFolderID] = useState("");
-  const [selectedID, setSelectedID] = useState("");
+  const [selectedDocuments, setSelectedDocuments] = useState<DocumentSummary[]>([]);
+  const [selectionBusy, setSelectionBusy] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<DocumentSummary>();
   const [folderEditor, setFolderEditor] = useState<FolderSummary | "new">();
   const [operation, setOperation] = useState<DocumentOperation>();
   const [shareResource, setShareResource] = useState<ShareResource>();
   const [importOpen, setImportOpen] = useState(false);
-  const [importFile, setImportFile] = useState<File>();
+  const [importFiles, setImportFiles] = useState<ImportFile[]>([]);
+  const [importProgress, setImportProgress] = useState(0);
   const [exportDocument, setExportDocument] = useState<DocumentSummary>();
   const [exportFormat, setExportFormat] = useState<"STEP" | "BREP">("STEP");
   const [documentForm] = Form.useForm<DocumentForm>();
@@ -61,6 +64,7 @@ export function DocumentCenter() {
     queryKey: queryKeys.folders(`${scope}:${currentFolderID}`),
     queryFn: () => api.listFolders(currentFolderID, scope === "shared"), enabled: scope === "active" || scope === "parts" || scope === "products" || scope === "shared"
   });
+  const trashedFolders = useQuery({ queryKey: ["folders", "trash"], queryFn: () => api.listTrashedFolders(), enabled: scope === "trash" });
   const breadcrumbs = useQuery({ queryKey: ["folder-breadcrumbs", currentFolderID], queryFn: () => api.folderBreadcrumbs(currentFolderID), enabled: Boolean(currentFolderID) });
   const folderTree = useQuery({ queryKey: ["folder-options"], queryFn: () => flattenFolderTree((parentID) => api.listFolders(parentID)), staleTime: 10_000 });
   const currentPermission = breadcrumbs.data?.at(-1)?.permission;
@@ -102,15 +106,19 @@ export function DocumentCenter() {
   });
   const importDocument = useMutation({
     mutationFn: async () => {
-      if (!importFile) throw new Error("请选择需要导入的 STEP 或 BREP 文件");
-      if (importFile.size > 128 * 1024 * 1024) throw new Error("文件不能超过 128 MiB");
-      return api.importDocument(importFile, currentFolderID);
+      if (importFiles.length === 0) throw new Error("请选择需要导入的 STEP 或 BREP 文件");
+      setImportProgress(0);
+      return submitImportBatch(importFiles, (file) => api.importDocument(file, currentFolderID), 3,
+        (finished) => setImportProgress(finished));
     },
-    onSuccess: async (job) => {
-      setImportOpen(false); setImportFile(undefined);
+    onSuccess: async ({ submitted, failures }) => {
       await client.invalidateQueries({ queryKey: queryKeys.jobs });
-      if (isMockMode && job.state === "SUCCEEDED") await invalidateDocuments();
-      message.info(isMockMode ? "文档导入完成" : "导入任务已提交，完成后会通知你");
+      if (isMockMode && submitted.length > 0) await invalidateDocuments();
+      if (submitted.length > 0) message.info(isMockMode ? `已导入 ${submitted.length} 个文件` : `已提交 ${submitted.length} 个导入任务，可在任务中心查看进度`);
+      if (failures.length > 0) {
+        setImportFiles((previous) => previous.filter(({ uid }) => failures.some((item) => item.uid === uid)));
+        message.error(`${failures.length} 个文件提交失败：${failures.map(({ name, reason }) => `${name} (${reason})`).join("；")}`);
+      } else { setImportOpen(false); setImportFiles([]); }
     },
     onError: (error) => message.error(error.message),
   });
@@ -140,15 +148,62 @@ export function DocumentCenter() {
   const removeDocument = (document: DocumentSummary) => modal.confirm({
     title: `将“${document.name}”移入回收站？`,
     content: "历史、几何制品和 Product 引用将继续保留。", okText: "移入回收站", okButtonProps: { danger: true },
-    onOk: async () => { await api.deleteDocument(document.id); await invalidateDocuments(); message.success("文档已移入回收站"); }
+    onOk: async () => { await api.deleteDocument(document.id); setSelectedDocuments((current) => current.filter((item) => item.id !== document.id));
+      await invalidateDocuments(); message.success("文档已移入回收站"); }
   });
   const restoreDocument = async (document: DocumentSummary) => { await api.restoreDocument(document.id); await invalidateDocuments(); message.success("文档已恢复"); };
   const removeFolder = (folder: FolderSummary) => modal.confirm({
-    title: `删除文件夹“${folder.name}”？`, content: "只有不包含文档和子文件夹时才能删除。", okButtonProps: { danger: true },
+    title: `将文件夹“${folder.name}”移入回收站？`, content: "文件夹及其中仍在使用的子文件夹、文档会一同移入回收站，可整体恢复。", okButtonProps: { danger: true },
     onOk: async () => {
-      try { await api.deleteFolder(folder.id); await invalidateFolders(); message.success("文件夹已删除"); }
+      try { await api.deleteFolder(folder.id); setSelectedDocuments([]); await Promise.all([invalidateFolders(), invalidateDocuments()]); message.success("文件夹已移入回收站"); }
       catch (error) { message.error(error instanceof Error ? error.message : "文件夹删除失败"); }
     }
+  });
+  const restoreFolder = async (folder: FolderSummary) => {
+    try { await api.restoreFolder(folder.id); await Promise.all([invalidateFolders(), invalidateDocuments()]); message.success("文件夹及其内容已恢复"); }
+    catch (error) { message.error(error instanceof Error ? error.message : "文件夹恢复失败"); }
+  };
+  const addSelected = (items: DocumentSummary[]) => setSelectedDocuments((current) => {
+    const byID = new Map(current.map((item) => [item.id, item]));
+    for (const item of items) if (canEdit(item.permission) && !item.deletedAt) byID.set(item.id, item);
+    return [...byID.values()];
+  });
+  const toggleSelected = (document: DocumentSummary) => setSelectedDocuments((current) => current.some((item) => item.id === document.id)
+    ? current.filter((item) => item.id !== document.id) : canEdit(document.permission) && !document.deletedAt ? [...current, document] : current);
+  const selectAllResults = async () => {
+    setSelectionBusy(true);
+    try {
+      const all: DocumentSummary[] = [];
+      for (let next = 0; ; next += 200) {
+        const page = await api.listDocuments({ scope: "active", query, type: type || (scope === "parts" ? "PART" : scope === "products" ? "PRODUCT" : ""),
+          folderId: specialScope || query ? undefined : currentFolderID, recent: scope === "recent", shared: scope === "shared",
+          allFolders: specialScope || Boolean(query), sort: scope === "recent" ? "recent" : sort, limit: 200, offset: next });
+        all.push(...page.documents);
+        if (all.length >= page.total || page.documents.length === 0) break;
+      }
+      addSelected(all);
+    } catch (error) { message.error(error instanceof Error ? error.message : "全选失败"); }
+    finally { setSelectionBusy(false); }
+  };
+  const removeSelected = () => modal.confirm({
+    title: `将选中的 ${selectedDocuments.length} 个文档移入回收站？`,
+    content: "已成功移入回收站的文档会从选择中移除；失败项保留以便重试。", okText: "批量移入回收站", okButtonProps: { danger: true },
+    onOk: async () => {
+      const items = [...selectedDocuments]; let cursor = 0;
+      const succeeded = new Set<string>(), failed: string[] = [];
+      await Promise.all(Array.from({ length: Math.min(4, items.length) }, async () => {
+        for (;;) {
+          const index = cursor++;
+          if (index >= items.length) return;
+          try { await api.deleteDocument(items[index].id); succeeded.add(items[index].id); }
+          catch (error) { failed.push(`${items[index].name}（${error instanceof Error ? error.message : String(error)}）`); }
+        }
+      }));
+      setSelectedDocuments((current) => current.filter((item) => !succeeded.has(item.id)));
+      await invalidateDocuments();
+      failed.length ? message.warning(`已删除 ${succeeded.size} 个，失败 ${failed.length} 个：${failed.join("、")}`)
+        : message.success(`已将 ${succeeded.size} 个文档移入回收站`);
+    },
   });
   const listAllTrash = async () => {
     const result: DocumentSummary[] = [];
@@ -186,11 +241,12 @@ export function DocumentCenter() {
     { key: "products", icon: <ApartmentOutlined />, label: "产品" }, { key: "trash", icon: <DeleteOutlined />, label: "回收站" },
   ];
   const folderOptions = [{ value: "", label: "我的文档（根目录）" }, ...(folderTree.data ?? []).map((item) => ({ value: item.id, label: item.label }))];
+  const selectablePage = (documents.data?.documents ?? []).filter((item) => canEdit(item.permission));
 
   return <Layout className="document-center-layout">
     <Layout.Sider width={224} className="library-sider">
       <Menu mode="inline" theme="dark" selectedKeys={[scope]} items={navItems} onSelect={({ key }) => {
-        setScope(key as LibraryScope); setCurrentFolderID(""); setSelectedID(""); setOffset(0);
+        setScope(key as LibraryScope); setCurrentFolderID(""); if (key === "trash") setSelectedDocuments([]); setOffset(0);
       }} />
     </Layout.Sider>
     <Layout.Content className="library-main">
@@ -201,7 +257,7 @@ export function DocumentCenter() {
           <Button type="primary" title="创建文档" aria-label="创建文档" icon={<PlusOutlined />} disabled={!writableLocation}
             onClick={() => openDocumentEditor()}>新建文档</Button></Space.Compact>}
         {scope === "trash" && <Space.Compact><Button icon={<UndoOutlined />} onClick={restoreAllTrash}>全部还原</Button>
-          <Button danger icon={<DeleteOutlined />} onClick={emptyTrash}>清空回收站</Button></Space.Compact>}</header>
+          <Button danger icon={<DeleteOutlined />} onClick={emptyTrash}>清空文档</Button></Space.Compact>}</header>
       {!specialScope && <Breadcrumb className="folder-breadcrumb" items={[
         { title: <Button type="link" onClick={() => enterFolder("")}>我的文档</Button> },
         ...(breadcrumbs.data ?? []).map((folder) => ({ title: <Button type="link" onClick={() => enterFolder(folder.id)}>{folder.name}</Button> })),
@@ -213,6 +269,21 @@ export function DocumentCenter() {
           <Select value={sort} onChange={setSort} options={[{ value: "updated", label: "最近修改" }, { value: "name", label: "名称" }, { value: "created", label: "创建时间" }]} />
           <Button icon={<ReloadOutlined />} onClick={() => void documents.refetch()} />
         </div>
+        {scope !== "trash" && <div className="browser-selection-controls">
+          <Checkbox disabled={!selectablePage.length} checked={selectablePage.length > 0 && selectablePage.every((item) => selectedDocuments.some((selected) => selected.id === item.id))}
+            onChange={(event) => event.target.checked ? addSelected(documents.data?.documents ?? [])
+              : setSelectedDocuments((current) => current.filter((item) => !documents.data?.documents.some((visible) => visible.id === item.id)))}>
+            全选当前页</Checkbox>
+          <Button size="small" loading={selectionBusy} onClick={() => void selectAllResults()}>全选筛选结果</Button>
+          <span>已选择 {selectedDocuments.length} 个</span>
+          <Button size="small" disabled={!selectedDocuments.length} onClick={() => setSelectedDocuments([])}>取消选择</Button>
+          <Button size="small" danger icon={<DeleteOutlined />} disabled={!selectedDocuments.length} onClick={removeSelected}>批量移入回收站</Button>
+        </div>}
+        {scope === "trash" && trashedFolders.data?.length ? <div className="folder-grid">{trashedFolders.data.map((folder) =>
+          <Card key={folder.id} size="small" className="folder-card"><div className="folder-card-content">
+            <FolderOpenOutlined /><span><strong>{folder.name}</strong><small>文件夹及其内容 · {relativeDate(folder.deletedAt ?? folder.updatedAt)}</small></span>
+            <Button size="small" disabled={!canEdit(folder.permission)} onClick={() => void restoreFolder(folder)}>恢复</Button>
+          </div></Card>)}</div> : null}
         {folders.data?.length ? <div className="folder-grid">{folders.data.map((folder) => <Card key={folder.id} size="small" hoverable
           className="folder-card" onDoubleClick={() => enterFolder(folder.id)}>
           <div className="folder-card-content"><FolderOpenOutlined /><span><strong>{folder.name}</strong><small>{folder.documentCount} 文档 · {folder.childCount} 子文件夹</small></span>
@@ -220,7 +291,7 @@ export function DocumentCenter() {
               items: [
                 ...(folder.permission === "OWNER" ? [{ key: "share", icon: <ShareAltOutlined />, label: "共享" }] : []),
                 ...(canEdit(folder.permission) ? [{ key: "edit", icon: <EditOutlined />, label: "编辑" },
-                { key: "delete", icon: <DeleteOutlined />, label: "删除", danger: true }] : []),
+                { key: "delete", icon: <DeleteOutlined />, label: "移入回收站", danger: true }] : []),
               ], onClick: ({ key, domEvent }) => {
                 domEvent.stopPropagation(); if (key === "share") setShareResource({ type: "folders", id: folder.id, name: folder.name });
                 else if (key === "edit") openFolderEditor(folder); else removeFolder(folder);
@@ -237,10 +308,12 @@ export function DocumentCenter() {
               { key: "export", icon: <DownloadOutlined />, label: "导出" },
               ...(canEdit(document.permission) ? [{ key: "delete", danger: true, icon: <DeleteOutlined />, label: "移入回收站" }] : []),
             ];
-            return <Card key={document.id} hoverable className={`document-card${selectedID === document.id ? " selected" : ""}`}
-              cover={<button className="thumbnail-button" onClick={() => setSelectedID(document.id)} onDoubleClick={() => openDocument(document)}
+            const selected = selectedDocuments.some((item) => item.id === document.id);
+            return <Card key={document.id} hoverable className={`document-card${selected ? " selected" : ""}`}
+              cover={<button className="thumbnail-button" onClick={() => toggleSelected(document)} onDoubleClick={() => openDocument(document)}
                 onKeyDown={(event) => { if (event.key === "Enter") openDocument(document); }}><DocumentThumbnail document={document} /></button>}>
-              <Card.Meta title={<span className="document-title"><span>{document.name}</span><Tag color={document.type === "PART" ? "blue" : "cyan"}>{document.type}</Tag></span>}
+              <Card.Meta title={<span className="document-title">{scope !== "trash" && <Checkbox aria-label={`选择 ${document.name}`} checked={selected}
+                disabled={!canEdit(document.permission)} onChange={() => toggleSelected(document)} />}<span>{document.name}</span><Tag color={document.type === "PART" ? "blue" : "cyan"}>{document.type}</Tag></span>}
                 description={<><span className="document-description">{document.description || "暂无说明"}</span><small>{document.workspaceName ?? "Main"} · {document.permission} · {relativeDate(document.lastUpdated)}</small></>} />
               <Dropdown trigger={["click"]} menu={{
                 items: menuItems, onClick: ({ key }) => {
@@ -251,7 +324,7 @@ export function DocumentCenter() {
                 }
               }}><Button className="card-menu" type="text" icon={<MoreOutlined />} /></Dropdown>
             </Card>;
-          })}</div> : <Empty description="没有找到文档" />}
+          })}</div> : scope === "trash" && trashedFolders.data?.length ? null : <Empty description="没有找到文档" />}
         <Pagination current={Math.floor(offset / 24) + 1} pageSize={24} total={documents.data?.total ?? 0} hideOnSinglePage onChange={(page) => setOffset((page - 1) * 24)} />
       </Card>
     </Layout.Content>
@@ -278,13 +351,20 @@ export function DocumentCenter() {
         <Form.Item name="folderID" label="目标文件夹"><Select showSearch optionFilterProp="label" options={folderOptions} /></Form.Item>
       </Form>
     </Modal>
-    <Modal title="导入文档" open={importOpen} okText="开始导入" confirmLoading={importDocument.isPending}
-      okButtonProps={{ disabled: !importFile }} onOk={() => importDocument.mutate()}
-      onCancel={() => { if (!importDocument.isPending) { setImportOpen(false); setImportFile(undefined); } }} destroyOnHidden>
-      <Typography.Paragraph type="secondary">支持 STEP/STP 与 BREP/BRP，单个文件最大 128 MiB。装配会创建 Product，并为可独立处理的组件创建 Part。</Typography.Paragraph>
-      <Upload.Dragger accept=".step,.stp,.brep,.brp" maxCount={1} fileList={importFile ? [{ uid: "exchange", name: importFile.name, status: "done", size: importFile.size }] : []}
-        beforeUpload={(file) => { setImportFile(file); return false; }} onRemove={() => { setImportFile(undefined); return true; }}>
-        <p className="ant-upload-drag-icon"><InboxOutlined /></p><p className="ant-upload-text">拖入文件，或点击打开文件资源管理器</p>
+    <Modal title="导入文档" open={importOpen} okText={importDocument.isPending ? `已提交 ${importProgress}/${importFiles.length}` : `开始导入（${importFiles.length}）`} confirmLoading={importDocument.isPending}
+      okButtonProps={{ disabled: importFiles.length === 0 }} onOk={() => importDocument.mutate()}
+      onCancel={() => { if (!importDocument.isPending) { setImportOpen(false); setImportFiles([]); } }} destroyOnHidden>
+      <Typography.Paragraph type="secondary">支持一次选择或拖入多个 STEP/STP、BREP/BRP 文件，单个文件最大 128 MiB。每个文件独立创建导入任务；装配文件可生成 Product 和多个 Part。</Typography.Paragraph>
+      <Upload.Dragger accept=".step,.stp,.brep,.brp" multiple disabled={importDocument.isPending}
+        fileList={importFiles.map(({ uid, file }) => ({ uid, name: file.name, status: "done" as const, size: file.size }))}
+        beforeUpload={(file) => {
+          if (!/\.(step|stp|brep|brp)$/i.test(file.name)) { message.error(`${file.name}：仅支持 STEP/STP、BREP/BRP`); return false; }
+          if (file.size === 0 || file.size > 128 * 1024 * 1024) { message.error(`${file.name}：文件需大于 0 且不超过 128 MiB`); return false; }
+          setImportFiles((previous) => previous.some((entry) => entry.uid === file.uid) ? previous
+            : previous.length >= 32 ? (message.warning("一次最多选择 32 个文件"), previous) : [...previous, { uid: file.uid, file }]);
+          return false;
+        }} onRemove={(file) => { setImportFiles((previous) => previous.filter((entry) => entry.uid !== file.uid)); return true; }}>
+        <p className="ant-upload-drag-icon"><InboxOutlined /></p><p className="ant-upload-text">拖入多个文件，或点击一次选择多个文件</p>
       </Upload.Dragger>
     </Modal>
     <Modal title={`导出${exportDocument ? `“${exportDocument.name}”` : "文档"}`} open={Boolean(exportDocument)} okText="导出并下载"

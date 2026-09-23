@@ -483,6 +483,8 @@ select {
   gap: 10px;
   margin-bottom: 16px;
 }
+.browser-selection-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 0 0 16px; }
+.browser-selection-controls > span { color: var(--color-muted); font-size: 12px; }
 
 .folder-grid {
   display: grid;

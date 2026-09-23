@@ -128,3 +128,6 @@
 .feature-preview-legend span { display: inline-flex; align-items: center; gap: 6px; }
 .feature-preview-legend i { width: 12px; height: 12px; border-radius: 3px; }
 .feature-preview-legend i.reference { border: 1px dashed; background: transparent; }
+.instance-pattern-fields { display: flex; flex-direction: column; gap: 14px; }
+.instance-pattern-fields p { margin: 0; color: var(--color-muted); font-size: 12px; }
+.instance-pattern-fields label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

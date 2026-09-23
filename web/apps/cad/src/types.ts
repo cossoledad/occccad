@@ -225,6 +225,7 @@ export type FolderSummary = {
   childCount: number;
   createdAt: string;
   updatedAt: string;
+  deletedAt?: string;
   permission: "OWNER" | "EDITOR" | "VIEWER";
 };
 

@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -64,18 +65,39 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	artifactService := artifact.NewService(pool, store)
 	geometryClient, err := geometry.Open(configuration.WorkerAddress)
 	if err != nil {
 		return err
 	}
 	defer geometryClient.Close()
 	hostname, _ := os.Hostname()
-	workerID := fmt.Sprintf("%s-%d", hostname, os.Getpid())
-	artifactService := artifact.NewService(pool, store)
-	h := handler{workerID: workerID, thumbnailRenderTimeout: configuration.ThumbnailRenderTimeout, database: pool, queue: jobs.New(pool), artifacts: artifactService,
-		access: access.New(pool), geometry: geometryClient,
-		workspace: workspace.NewWithArtifacts(pool, geometryClient, artifactService)}
-	slog.Info("job worker started", "worker_id", workerID, "artifact_backend", "LOCAL", "data_directory", store.Root())
+	concurrency := jobConcurrency(os.Getenv("OCCCCAD_JOB_CONCURRENCY"))
+	slog.Info("job workers started", "workers", concurrency, "artifact_backend", "LOCAL", "data_directory", store.Root())
+	group, groupContext := errgroup.WithContext(ctx)
+	for index := 0; index < concurrency; index++ {
+		workerID := fmt.Sprintf("%s-%d-%d", hostname, os.Getpid(), index)
+		group.Go(func() error {
+			h := handler{workerID: workerID, thumbnailRenderTimeout: configuration.ThumbnailRenderTimeout, database: pool, queue: jobs.New(pool), artifacts: artifactService, access: access.New(pool), geometry: geometryClient, workspace: workspace.NewWithArtifacts(pool, geometryClient, artifactService)}
+			return h.runJobLoop(groupContext)
+		})
+	}
+	return group.Wait()
+}
+
+func jobConcurrency(value string) int {
+	parsed, err := strconv.Atoi(value)
+	if value == "" {
+		return 2
+	}
+	if err != nil || parsed < 1 || parsed > 8 {
+		return 2
+	}
+	return parsed
+}
+
+func (h handler) runJobLoop(ctx context.Context) error {
+	workerID := h.workerID
 	for ctx.Err() == nil {
 		job, err := h.queue.Claim(ctx, workerID, 2*time.Minute)
 		if errors.Is(err, pgx.ErrNoRows) {

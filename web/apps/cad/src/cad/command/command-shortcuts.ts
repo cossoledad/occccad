@@ -4,6 +4,7 @@ export const COMMAND_SHORTCUTS: readonly CommandShortcut[] = [
   { command: "edit.redo", label: "重做", key: "y", modifier: true, display: "Ctrl / ⌘ + Y", aria: "Control+y Meta+y" },
   { command: "edit.redo", label: "重做（另一组合）", key: "z", modifier: true, shift: true, display: "Ctrl / ⌘ + Shift + Z", aria: "Control+Shift+z Meta+Shift+z" },
   { command: "ui.command-search", label: "搜索工具", key: "k", modifier: true, display: "Ctrl / ⌘ + K", aria: "Control+k Meta+k" },
+  { command: "product.pattern", label: "多实例化", key: "e", modifier: true, display: "Ctrl / ⌘ + E", aria: "Control+e Meta+e" },
   { command: "tool.select", label: "选择工具", key: "v", display: "V", aria: "v" },
   { command: "view.fit", label: "适合窗口", key: "f", display: "F", aria: "f" },
   { command: "view.iso", label: "等轴测", key: "1", display: "1", aria: "1" },

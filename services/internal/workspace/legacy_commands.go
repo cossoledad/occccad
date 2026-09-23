@@ -567,6 +567,92 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				Reference: model.ContextReferences[index], Before: &before}, nil
 		}
 		return "", nil, fmt.Errorf("%w: context reference does not exist", ErrValidation)
+	case "INSERT_INSTANCES":
+		if documentType != "PRODUCT" {
+			break
+		}
+		var product ProductModel
+		if err := json.Unmarshal(modelJSON, &product); err != nil {
+			return "", nil, err
+		}
+		selected := request.InstanceID != ""
+		if selected == (len(request.ReferencedDocumentIDs) > 0) {
+			return "", nil, fmt.Errorf("%w: select documents or one source instance", ErrValidation)
+		}
+		result := insertInstancesPayload{Instances: make([]ProductInstance, 0)}
+		if selected {
+			var source *ProductInstance
+			for i := range product.Instances {
+				if product.Instances[i].ID == request.InstanceID {
+					source = &product.Instances[i]
+					break
+				}
+			}
+			if source == nil {
+				return "", nil, fmt.Errorf("%w: source instance does not exist", ErrValidation)
+			}
+			axis := strings.ToUpper(request.PatternAxis)
+			if request.PatternCount < 2 || request.PatternCount > 128 || !(axis == "X" || axis == "Y" || axis == "Z") || math.IsNaN(request.PatternSpacing) || math.IsInf(request.PatternSpacing, 0) || request.PatternSpacing <= 0 || request.PatternSpacing > 1e6 {
+				return "", nil, fmt.Errorf("%w: pattern requires X/Y/Z, total count 2..128 and positive finite spacing", ErrValidation)
+			}
+			coordinate := map[string]int{"X": 0, "Y": 1, "Z": 2}[axis]
+			baseName := source.Name
+			if service.database != nil {
+				if err := service.database.QueryRow(ctx, `SELECT name FROM occccad.documents WHERE id=$1`, source.ReferencedDocumentID).Scan(&baseName); err != nil {
+					return "", nil, err
+				}
+			} else {
+				baseName = instanceReferenceName(source.Name)
+			}
+			sign := 1.0
+			if request.PatternReversed {
+				sign = -1
+			}
+			for i := 1; i < request.PatternCount; i++ {
+				clone := *source
+				clone.ID = newID("instance")
+				clone.Name = nextInstanceName(product, baseName)
+				clone.Translation[coordinate] += sign * float64(i) * request.PatternSpacing
+				clone.ResolvedVersionID = ""
+				clone.HeadChanged = false
+				product.Instances = append(product.Instances, clone)
+				result.Instances = append(result.Instances, clone)
+			}
+		} else {
+			if len(request.ReferencedDocumentIDs) > 128 {
+				return "", nil, fmt.Errorf("%w: at most 128 documents can be inserted", ErrValidation)
+			}
+			seen := map[string]bool{}
+			for _, id := range request.ReferencedDocumentIDs {
+				if seen[id] {
+					return "", nil, fmt.Errorf("%w: duplicate selected document", ErrValidation)
+				}
+				seen[id] = true
+				var referenceID, versionID, name string
+				err := service.database.QueryRow(ctx, `SELECT id::text,head_version_id::text,name FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, id).Scan(&referenceID, &versionID, &name)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return "", nil, fmt.Errorf("%w: referenced document does not exist", ErrValidation)
+				}
+				if err != nil {
+					return "", nil, err
+				}
+				if referenceID == documentID {
+					return "", nil, fmt.Errorf("%w: a Product cannot contain itself", ErrValidation)
+				}
+				var cycle bool
+				err = service.database.QueryRow(ctx, `WITH RECURSIVE graph(document_id) AS (SELECT $1::uuid UNION SELECT pi.referenced_document_id FROM graph g JOIN occccad.documents d ON d.id=g.document_id JOIN occccad.product_instances pi ON pi.product_version_id=d.head_version_id) SELECT EXISTS(SELECT 1 FROM graph WHERE document_id=$2::uuid)`, referenceID, documentID).Scan(&cycle)
+				if err != nil {
+					return "", nil, err
+				}
+				if cycle {
+					return "", nil, fmt.Errorf("%w: Product reference would create a cycle", ErrValidation)
+				}
+				instance := ProductInstance{ID: newID("instance"), Name: nextInstanceName(product, name), ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: "FOLLOW_HEAD"}
+				product.Instances = append(product.Instances, instance)
+				result.Instances = append(result.Instances, instance)
+			}
+		}
+		return typeInsertInstances, result, nil
 	case "INSERT_INSTANCE":
 		if documentType != "PRODUCT" {
 			break

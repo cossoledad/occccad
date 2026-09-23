@@ -165,6 +165,8 @@ export const restApi = {
     if (shared) parameters.set("shared", "true");
     return (await request<{ folders: FolderSummary[] }>(`/api/folders?${parameters}`)).folders;
   },
+  listTrashedFolders: async (): Promise<FolderSummary[]> =>
+    (await request<{ folders: FolderSummary[] }>("/api/folders?scope=trash")).folders,
   folderBreadcrumbs: async (id: string): Promise<FolderSummary[]> =>
     (await request<{ folders: FolderSummary[] }>(`/api/folders/${id}/breadcrumbs`)).folders,
   createFolder: (name: string, description: string, parentId?: string) =>
@@ -177,6 +179,13 @@ export const restApi = {
     }),
   deleteFolder: async (id: string): Promise<void> => {
     const response = await fetch(apiURL(`/api/folders/${id}`), { method: "DELETE", credentials: "include", headers: mutationHeaders("DELETE") });
+    if (!response.ok) {
+      const value = await response.json().catch(() => ({})) as { error?: string };
+      throw new Error(value.error ?? `HTTP ${response.status}`);
+    }
+  },
+  restoreFolder: async (id: string): Promise<void> => {
+    const response = await fetch(apiURL(`/api/folders/${id}/restore`), { method: "POST", credentials: "include", headers: mutationHeaders("POST") });
     if (!response.ok) {
       const value = await response.json().catch(() => ({})) as { error?: string };
       throw new Error(value.error ?? `HTTP ${response.status}`);
@@ -315,6 +324,13 @@ export const restApi = {
     restApi.command(documentId, {
       type: "INSERT_INSTANCE", referencedDocumentId, translation: [0, 0, 0],
     }),
+  insertMany: (documentId: string, referencedDocumentIds: string[]) =>
+    restApi.command(documentId, { type: "INSERT_INSTANCES", referencedDocumentIds }),
+  patternInstances: (documentId: string, input: { sourceInstanceId: string; axis: "X" | "Y" | "Z";
+    count: number; spacing: number; reversed: boolean }) =>
+    restApi.command(documentId, { type: "INSERT_INSTANCES", instanceId: input.sourceInstanceId,
+      patternAxis: input.axis, patternCount: input.count, patternSpacing: input.spacing,
+      patternReversed: input.reversed }),
   replaceInstance: (documentId:string, instanceId:string, referencedDocumentId:string) =>
     restApi.command(documentId, {type:"REPLACE_INSTANCE", instanceId, referencedDocumentId}),
   renameInstance: (documentId:string, instanceId:string, name:string) =>

@@ -1,3 +1,4 @@
+import { instancePatternOffsets, type InstancePatternPreview } from "../features/workbench/instance-pattern";
 import { ViewTransition } from "../cad/navigation/view-transition";
 import { normalViewFrame, type NormalViewPlane } from "../cad/navigation/normal-view";
 import { makeFeatureEdges } from "../cad/rendering/feature-edges";
@@ -226,6 +227,7 @@ export class CadViewportEngine {
   private readonly selectionIndex = new SelectionIndex();
   private readonly solidBindings = new Map<string, SolidBinding>();
   private readonly instanceGroups = new Map<string, THREE.Group>();
+  private insertPatternPreview?: THREE.Group;
   private readonly assemblyConstraintReferences = new Map<string, SelectionItem[]>();
   private readonly screenStableReferences = new Map<THREE.Object3D, number>();
   private datumAxisPickToleranceWorld = 0;
@@ -381,6 +383,7 @@ export class CadViewportEngine {
   }
 
   render(view: DocumentView, editContext?: ViewportEditContext): void {
+    this.clearInsertPatternPreview();
     this.navigation.cancel();
     const previousDocumentID = this.view?.document.id;
     if (previousDocumentID !== view.document.id) {
@@ -445,6 +448,7 @@ export class CadViewportEngine {
   }
 
   clear(): void {
+    this.clearInsertPatternPreview();
 	this.clearCommandPreview(false);
 	this.transforms.stopAll();
 	this.clearInteractionState();
@@ -636,6 +640,63 @@ export class CadViewportEngine {
       if (restore) this.transforms.applyBatch(targets, "rollback");
       this.assemblyPosePreview = undefined;
     }
+    this.invalidate();
+  }
+
+  clearInsertPatternPreview(): void {
+    const preview=this.insertPatternPreview;
+    if (!preview) return;
+    this.scene.remove(preview);
+    preview.traverse((object) => {
+      const renderable=object as THREE.Mesh;
+      const materials=Array.isArray(renderable.material)?renderable.material:[renderable.material];
+      materials.forEach((material) => material?.dispose()); // Geometry and textures belong to the live instance.
+    });
+    this.insertPatternPreview=undefined;
+    this.invalidate();
+  }
+
+  previewInsertPattern(input?: InstancePatternPreview): void {
+    this.clearInsertPatternPreview();
+    if (!input) return;
+    let source: THREE.Group | undefined;
+    if (input.parentOccurrencePath) {
+      const prefix = `${input.parentOccurrencePath}/${input.sourceInstanceId}`;
+      const assembly = new THREE.Group();
+      this.content.updateMatrixWorld(true);
+      for (const root of this.instanceGroups.values()) for (const child of root.children) {
+        const path = child.userData.occurrencePath as string | undefined;
+        if (path !== prefix && !path?.startsWith(`${prefix}/`)) continue;
+        const copy = child.clone(true);
+        child.matrixWorld.decompose(copy.position, copy.quaternion, copy.scale);
+        assembly.add(copy);
+      }
+      if (assembly.children.length > 0) source = assembly;
+    } else source = this.instanceGroups.get(input.sourceInstanceId);
+    if (!source) return;
+    const offsets=instancePatternOffsets(input);
+    if (offsets.length===0) return;
+    const preview=new THREE.Group();
+    preview.name="instance-pattern-preview";
+    for (const offset of offsets) {
+      const ghost=source.clone(true);
+      const displacement = new THREE.Vector3().fromArray(offset);
+      if (input.parentRotation) displacement.applyQuaternion(new THREE.Quaternion().fromArray(input.parentRotation));
+      ghost.position.add(displacement);
+      ghost.traverse((object) => {
+        object.userData={};
+        const renderable=object as THREE.Mesh;
+        if (!renderable.material) return;
+        const decorate=(material:THREE.Material) => {
+          const copy=material.clone();copy.transparent=true;copy.opacity=.38;copy.depthWrite=false;
+          return copy;
+        };
+        renderable.material=Array.isArray(renderable.material)?renderable.material.map(decorate):decorate(renderable.material);
+      });
+      preview.add(ghost);
+    }
+    this.scene.add(preview);
+    this.insertPatternPreview=preview;
     this.invalidate();
   }
 
@@ -878,6 +939,7 @@ export class CadViewportEngine {
   }
 
   dispose(): void {
+    this.clearInsertPatternPreview();
     if (this.disposed) return;
     this.disposed = true;
     this.viewTransition.cancel();
@@ -987,6 +1049,7 @@ export class CadViewportEngine {
         const artifact = view.artifacts?.[resolved.geometryKey];
         if (!artifact) continue;
         const resolvedGroup = new THREE.Group();
+        resolvedGroup.userData = { occurrencePath: resolved.occurrencePath };
         resolvedGroup.position.fromArray(resolved.translation).sub(new THREE.Vector3().fromArray(instance.translation))
           .applyQuaternion(instanceRotation.clone().invert());
         const resolvedRotation = new THREE.Quaternion().fromArray(resolved.rotation ?? [0, 0, 0, 1]);

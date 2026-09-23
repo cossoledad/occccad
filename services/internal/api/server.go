@@ -201,6 +201,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/folders", server.createFolder)
 	mux.HandleFunc("PATCH /api/folders/{folderID}", server.updateFolder)
 	mux.HandleFunc("DELETE /api/folders/{folderID}", server.deleteFolder)
+	mux.HandleFunc("POST /api/folders/{folderID}/restore", server.restoreFolder)
 	mux.HandleFunc("GET /api/folders/{folderID}/breadcrumbs", server.folderBreadcrumbs)
 	mux.HandleFunc("GET /api/documents/{documentID}", server.getDocument)
 	mux.HandleFunc("GET /api/documents/{documentID}/design-session", server.productDesignSession)
@@ -699,6 +700,15 @@ func queryInteger(request *http.Request, name string, fallback int) (int, error)
 }
 
 func (server *Server) listFolders(writer http.ResponseWriter, request *http.Request) {
+	if request.URL.Query().Get("scope") == "trash" {
+		folders, err := server.workspace.ListTrashedFolders(request.Context(), principal(request).ID)
+		if err != nil {
+			writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]any{"folders": folders})
+		return
+	}
 	folders, err := server.workspace.ListFolders(request.Context(), request.URL.Query().Get("parentId"),
 		principal(request).ID, request.URL.Query().Get("shared") == "true")
 	if err != nil {
@@ -755,6 +765,17 @@ func (server *Server) deleteFolder(writer http.ResponseWriter, request *http.Req
 		return
 	}
 	if err := server.workspace.DeleteFolder(request.Context(), request.PathValue("folderID")); err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	writer.WriteHeader(http.StatusNoContent)
+}
+
+func (server *Server) restoreFolder(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireFolder(writer, request, access.RoleEditor); !ok {
+		return
+	}
+	if err := server.workspace.RestoreFolder(request.Context(), request.PathValue("folderID")); err != nil {
 		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
 		return
 	}
@@ -1036,16 +1057,9 @@ func (server *Server) applyCommand(writer http.ResponseWriter, request *http.Req
 		return
 	}
 	input.ActorID = principal(request).ID
-	referencedDocumentID := input.ReferencedDocumentID
-	if strings.EqualFold(input.Type, "SET_PARAMETER_EXTERNAL") {
-		referencedDocumentID = input.SourceDocumentID
-	}
-	if referencedDocumentID != "" && (strings.EqualFold(input.Type, "INSERT_INSTANCE") || strings.EqualFold(input.Type, "SET_PARAMETER_EXTERNAL")) {
-		if _, err := server.access.RequireDocument(request.Context(), referencedDocumentID,
-			principal(request).ID, access.RoleViewer); err != nil {
-			writeAccessError(writer, err)
-			return
-		}
+	if err := server.requireCommandReferences(request.Context(), principal(request).ID, request.PathValue("documentID"), input); err != nil {
+		writeAccessError(writer, err)
+		return
 	}
 	result, err := server.workspace.ApplyCommand(
 		request.Context(), request.PathValue("documentID"), input)
@@ -1061,12 +1075,9 @@ func (server *Server) previewCommand(writer http.ResponseWriter, request *http.R
 		return
 	}
 	input.ActorID = principal(request).ID
-	if strings.EqualFold(input.Type, "SET_PARAMETER_EXTERNAL") && input.SourceDocumentID != "" {
-		if _, err := server.access.RequireDocument(request.Context(), input.SourceDocumentID,
-			principal(request).ID, access.RoleViewer); err != nil {
-			writeAccessError(writer, err)
-			return
-		}
+	if err := server.requireCommandReferences(request.Context(), principal(request).ID, request.PathValue("documentID"), input); err != nil {
+		writeAccessError(writer, err)
+		return
 	}
 	ctx, cancel := context.WithTimeout(request.Context(), 15*time.Second)
 	defer cancel()

@@ -1,3 +1,4 @@
+import type { InstancePatternPreview } from "../features/workbench/instance-pattern";
 import type { NormalViewPlane } from "../cad/navigation/normal-view";
 import type { FeaturePreviewOperation } from "../cad/rendering/feature-preview";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
@@ -22,6 +23,7 @@ export type CadViewportHandle = {
   editDimension: (selection: Extract<SelectionItem, { kind: "sketch-constraint" }>) => void;
   measureAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => number;
   previewAssemblyPoses: (poses: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>) => void;
+  previewInsertPattern: (input?: InstancePatternPreview) => void;
   assemblyAngleReferenceDirection: (references: AssemblyGeometryRef[]) => Vec3 | undefined;
   focusAssemblyReference: (reference: AssemblyGeometryRef) => boolean;
   beginExternalReconnect: (externalID:string) => void;
@@ -57,6 +59,7 @@ type Props = {
 export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadViewport(props, ref) {
   const host = useRef<HTMLDivElement>(null);
   const engine = useRef<CadViewportEngine | undefined>(undefined);
+  const patternPreview = useRef<InstancePatternPreview | undefined>(undefined);
   const callbacks = useRef(props);
   const [debug, setDebug] = useState<InputDebugSnapshot>();
   const [dimensionEditor, setDimensionEditor] = useState<
@@ -87,6 +90,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       translation: callbacks.current.activeInstanceTranslation, bodyTreeNodeId: callbacks.current.activeBodyTreeNodeId,
       rotation: callbacks.current.activeInstanceRotation,
     } : undefined);
+    instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
     if (callbacks.current.sketchPlane && callbacks.current.activeSketchID) {
@@ -105,6 +109,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.render(props.view, props.editingView ? { view: props.editingView, occurrencePath: props.activeInstancePath,
       translation: props.activeInstanceTranslation, rotation: props.activeInstanceRotation,
       bodyTreeNodeId: props.activeBodyTreeNodeId } : undefined);
+    instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
   }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId]);
@@ -130,6 +135,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     editDimension: (selection) => engine.current?.requestDimensionEdit(selection),
     measureAssemblyConstraint: (kind, references) => engine.current?.measureAssemblyConstraint(kind, references) ?? 0,
     previewAssemblyPoses: (poses) => engine.current?.previewAssemblyPoses(poses),
+    previewInsertPattern: (input) => { patternPreview.current = input; engine.current?.previewInsertPattern(input); },
     assemblyAngleReferenceDirection: (references) => engine.current?.assemblyAngleReferenceDirection(references),
     focusAssemblyReference: (reference) => engine.current?.focusAssemblyReference(reference) ?? false,
     beginExternalReconnect: (externalID) => engine.current?.beginExternalReconnect(externalID),

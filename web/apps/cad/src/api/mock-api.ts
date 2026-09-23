@@ -135,6 +135,7 @@ const folders: FolderSummary[] = [{
   id: "mock-folder", name: "Concepts", description: "Early design studies", documentCount: 0,
   trashCount: 0, childCount: 0, createdAt: now(), updatedAt: now(), permission: "OWNER",
 }];
+const folderTrashRoots = new Map<string, string>();
 const shares: ShareGrant[] = [];
 const jobs = new Map<string, Job>();
 
@@ -448,6 +449,33 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
         translation: [0, 0, 0], referenceMode: "FOLLOW_HEAD" });
       rebuildProduct(view);
     }
+    if (commandType === "INSERT_INSTANCES" && view.product) {
+      const used = new Set(view.product.instances.map((instance) => instance.name.toLocaleLowerCase()));
+      const uniqueName = (base: string) => {
+        let ordinal = 1;
+        while (used.has(`${base}.${ordinal}`.toLocaleLowerCase())) ordinal++;
+        const name = `${base}.${ordinal}`;
+        used.add(name.toLocaleLowerCase());
+        return name;
+      };
+      const source = view.product.instances.find((instance) => instance.id === input.instanceId);
+      if (source) {
+        const axis = { X: 0, Y: 1, Z: 2 }[String(input.patternAxis) as "X" | "Y" | "Z"];
+        if (axis === undefined) throw new Error("无效的阵列方向");
+        for (let index = 1; index < Number(input.patternCount); index++) {
+          const translation = [...source.translation] as [number, number, number];
+          translation[axis] += index * Number(input.patternSpacing) * (input.patternReversed ? -1 : 1);
+          view.product.instances.push({ ...source, id: id("mock-instance"), name: uniqueName(getView(source.documentId).document.name), translation });
+        }
+      } else {
+        for (const documentID of input.referencedDocumentIds as string[] ?? []) {
+          const reference = getView(documentID);
+          view.product.instances.push({ id: id("mock-instance"), name: uniqueName(reference.document.name),
+            documentId: documentID, versionId: reference.document.versionId, translation: [0, 0, 0], referenceMode: "FOLLOW_HEAD" });
+        }
+      }
+      rebuildProduct(view);
+    }
 	if(commandType==="REPLACE_INSTANCE"&&view.product){const instance=view.product.instances.find((item)=>item.id===input.instanceId);
 		const replacement=getView(String(input.referencedDocumentId));if(instance){instance.documentId=replacement.document.id;instance.versionId=replacement.document.versionId;rebuildProduct(view);}}
 	if(commandType==="RENAME_INSTANCE"&&view.product){const instance=view.product.instances.find((item)=>item.id===input.instanceId);
@@ -585,7 +613,8 @@ export const mockApi: CadApi = {
   listAudit: async () => pause([]),
   health: async () => pause({ status: "ok", occtVersion: "Mock 7.9.1" }),
   listDocuments: async (options = {}) => {
-    let documents = summaries.filter((item) => options.scope === "trash" ? item.deletedAt : !item.deletedAt);
+    let documents = summaries.filter((item) => (options.scope === "trash" ? item.deletedAt : !item.deletedAt)
+      && (!item.folderId || !folders.find((folder) => folder.id === item.folderId)?.deletedAt));
     if (options.query) documents = documents.filter((item) => `${item.name} ${item.description}`.toLowerCase().includes(options.query!.toLowerCase()));
     if (options.type) documents = documents.filter((item) => item.type === options.type);
     if (!options.allFolders) documents = documents.filter((item) => (item.folderId ?? "") === (options.folderId ?? ""));
@@ -604,7 +633,9 @@ export const mockApi: CadApi = {
     if (index >= 0) openDocumentIDs.splice(index, 1);
     await pause(undefined);
   },
-  listFolders: async (parentID = "") => pause(folders.filter((folder) => (folder.parentId ?? "") === parentID)),
+  listFolders: async (parentID = "") => pause(folders.filter((folder) => !folder.deletedAt && (folder.parentId ?? "") === parentID)),
+  listTrashedFolders: async () => pause(folders.filter((folder) => folder.deletedAt && folderTrashRoots.get(folder.id) === folder.id
+    && (!folder.parentId || !folders.find((parent) => parent.id === folder.parentId)?.deletedAt))),
   folderBreadcrumbs: async (folderID) => {
     const path: FolderSummary[] = []; const visited = new Set<string>();
     let current = folders.find((folder) => folder.id === folderID);
@@ -622,7 +653,23 @@ export const mockApi: CadApi = {
   updateFolder: async (folderID, name, description) => {
     const folder = folders.find((candidate) => candidate.id === folderID)!; Object.assign(folder, { name, description }); return pause(folder);
   },
-  deleteFolder: async (folderID) => { const index = folders.findIndex((folder) => folder.id === folderID); if (index >= 0) folders.splice(index, 1); },
+  deleteFolder: async (folderID) => {
+    const descendants = new Set([folderID]);
+    for (let changed = true; changed;) {
+      changed = false;
+      for (const folder of folders) if (folder.parentId && descendants.has(folder.parentId) && !descendants.has(folder.id)) {
+        descendants.add(folder.id); changed = true;
+      }
+    }
+    for (const folder of folders) if (descendants.has(folder.id) && !folder.deletedAt) {
+      folder.deletedAt = now(); folderTrashRoots.set(folder.id, folderID);
+    }
+  },
+  restoreFolder: async (folderID) => {
+    for (const folder of folders) if (folderTrashRoots.get(folder.id) === folderID) {
+      folder.deletedAt = undefined; folderTrashRoots.delete(folder.id);
+    }
+  },
   getDocument: async (documentID) => { markDocumentOpen(documentID); return pause(getView(documentID)); },
   getProductDesignSession: async (documentID, activePath = "") => {
     const root = getView(documentID);
@@ -845,6 +892,9 @@ export const mockApi: CadApi = {
   createDatumPlane: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_PLANE", ...input }),
   createDatumAxis: async (documentID, input) => command(documentID, { type: "CREATE_DATUM_AXIS", ...input }),
   insert: async (documentID, referencedDocumentID) => command(documentID, { type: "INSERT_INSTANCE", referencedDocumentId: referencedDocumentID }),
+  insertMany: async (documentID, referencedDocumentIds) => command(documentID, { type: "INSERT_INSTANCES", referencedDocumentIds }),
+  patternInstances: async (documentID, input) => command(documentID, { type: "INSERT_INSTANCES", instanceId: input.sourceInstanceId,
+    patternAxis: input.axis, patternCount: input.count, patternSpacing: input.spacing, patternReversed: input.reversed }),
   replaceInstance: async (documentID, instanceID, referencedDocumentID) => command(documentID, {type:"REPLACE_INSTANCE",instanceId:instanceID,referencedDocumentId:referencedDocumentID}),
   renameInstance: async (documentID, instanceID, name) => command(documentID, {type:"RENAME_INSTANCE",instanceId:instanceID,name}),
   createProductPublication: async (documentID, instanceID, publicationID, name, semanticPurpose, instancePath) => command(documentID,

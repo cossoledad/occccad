@@ -162,6 +162,8 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 		SELECT count(*) FROM occccad.documents d
 		WHERE ($1='all' OR ($1='active' AND d.deleted_at IS NULL) OR
 		       ($1='trash' AND d.deleted_at IS NOT NULL))
+		  AND ($1='all' OR d.folder_id IS NULL OR EXISTS(
+		       SELECT 1 FROM occccad.folders parent WHERE parent.id=d.folder_id AND parent.deleted_at IS NULL))
 		  AND ($2='' OR d.name ILIKE '%' || $2 || '%' OR d.description ILIKE '%' || $2 || '%')
 		  AND ($3='' OR d.document_type=$3)
 		  AND ($6 OR (($4='' AND d.folder_id IS NULL) OR ($4<>'' AND d.folder_id=$4::uuid)))
@@ -180,6 +182,8 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 		FROM occccad.documents d
 		WHERE ($1='all' OR ($1='active' AND d.deleted_at IS NULL) OR
 		       ($1='trash' AND d.deleted_at IS NOT NULL))
+		  AND ($1='all' OR d.folder_id IS NULL OR EXISTS(
+		       SELECT 1 FROM occccad.folders parent WHERE parent.id=d.folder_id AND parent.deleted_at IS NULL))
 		  AND ($2='' OR d.name ILIKE '%' || $2 || '%' OR d.description ILIKE '%' || $2 || '%')
 		  AND ($3='' OR d.document_type=$3)
 		  AND ($6 OR (($4='' AND d.folder_id IS NULL) OR ($4<>'' AND d.folder_id=$4::uuid)))
@@ -248,13 +252,14 @@ func (service *Service) ListFolders(ctx context.Context, parentIDValue, principa
 		SELECT f.id::text,f.parent_id::text,f.name,f.description,
 		       (SELECT count(*) FROM occccad.documents d WHERE d.folder_id=f.id AND d.deleted_at IS NULL),
 		       (SELECT count(*) FROM occccad.documents d WHERE d.folder_id=f.id AND d.deleted_at IS NOT NULL),
-		       (SELECT count(*) FROM occccad.folders child WHERE child.parent_id=f.id),
+		       (SELECT count(*) FROM occccad.folders child WHERE child.parent_id=f.id AND child.deleted_at IS NULL),
 		       f.created_at::text,f.updated_at::text,
 		       occccad.role_name(occccad.effective_folder_role(f.id,$2))
 		FROM occccad.folders f
 		WHERE ((NOT $3 AND (($1::text IS NULL AND f.parent_id IS NULL) OR f.parent_id=$1::uuid)) OR
 		       ($3 AND occccad.effective_folder_role(f.id,$2) BETWEEN 10 AND 29 AND
 		        (f.parent_id IS NULL OR occccad.effective_folder_role(f.parent_id,$2) NOT BETWEEN 10 AND 29)))
+		  AND f.deleted_at IS NULL
 		  AND occccad.effective_folder_role(f.id,$2) >= 10
 		ORDER BY lower(f.name)`, normalized, actorID(principalID), shared)
 	if err != nil {
@@ -320,7 +325,7 @@ func (service *Service) CreateFolder(ctx context.Context, request CreateFolderRe
 	if parentID != nil {
 		var exists bool
 		if err := service.database.QueryRow(ctx,
-			`SELECT EXISTS(SELECT 1 FROM occccad.folders WHERE id=$1)`, *parentID).Scan(&exists); err != nil {
+			`SELECT EXISTS(SELECT 1 FROM occccad.folders WHERE id=$1 AND deleted_at IS NULL)`, *parentID).Scan(&exists); err != nil {
 			return FolderSummary{}, err
 		}
 		if !exists {
@@ -349,7 +354,7 @@ func (service *Service) UpdateFolder(
 	}
 	var result FolderSummary
 	err = service.database.QueryRow(ctx, `
-		UPDATE occccad.folders SET name=$1,description=$2,updated_at=now() WHERE id=$3
+		UPDATE occccad.folders SET name=$1,description=$2,updated_at=now() WHERE id=$3 AND deleted_at IS NULL
 		RETURNING id::text,parent_id::text,name,description,
 		  (SELECT count(*) FROM occccad.documents d WHERE d.folder_id=$3 AND d.deleted_at IS NULL),
 		  (SELECT count(*) FROM occccad.documents d WHERE d.folder_id=$3 AND d.deleted_at IS NOT NULL),
@@ -372,30 +377,75 @@ func (service *Service) DeleteFolder(ctx context.Context, folderID string) error
 		return err
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	if _, err := tx.Exec(ctx, `DELETE FROM occccad.resource_grants
-		WHERE resource_type='FOLDER' AND resource_id=$1`, folderID); err != nil {
+	var active bool
+	if err := tx.QueryRow(ctx, `SELECT deleted_at IS NULL FROM occccad.folders WHERE id=$1 FOR UPDATE`, folderID).Scan(&active); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
 		return err
 	}
-	result, err := tx.Exec(ctx, `
-		DELETE FROM occccad.folders f WHERE f.id=$1
-		AND NOT EXISTS(SELECT 1 FROM occccad.folders child WHERE child.parent_id=f.id)
-		AND NOT EXISTS(SELECT 1 FROM occccad.documents d WHERE d.folder_id=f.id)`, folderID)
+	if !active {
+		return fmt.Errorf("%w: folder is already in the trash", ErrValidation)
+	}
+	if _, err := tx.Exec(ctx, `WITH RECURSIVE tree(id) AS (
+		SELECT id FROM occccad.folders WHERE id=$1
+		UNION ALL SELECT child.id FROM occccad.folders child JOIN tree ON child.parent_id=tree.id
+	) UPDATE occccad.folders SET deleted_at=now(),trashed_by_folder_id=$1
+	  WHERE id IN (SELECT id FROM tree) AND deleted_at IS NULL`, folderID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (service *Service) RestoreFolder(ctx context.Context, folderID string) error {
+	tx, err := service.database.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	if result.RowsAffected() == 1 {
-		return tx.Commit(ctx)
-	}
-	_ = tx.Rollback(ctx)
-	var exists bool
-	if err := service.database.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM occccad.folders WHERE id=$1)`, folderID).Scan(&exists); err != nil {
+	defer func() { _ = tx.Rollback(ctx) }()
+	var root bool
+	if err := tx.QueryRow(ctx, `SELECT f.deleted_at IS NOT NULL AND f.trashed_by_folder_id=f.id
+		AND (f.parent_id IS NULL OR EXISTS(SELECT 1 FROM occccad.folders parent WHERE parent.id=f.parent_id AND parent.deleted_at IS NULL))
+		FROM occccad.folders f WHERE f.id=$1 FOR UPDATE`, folderID).Scan(&root); errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	} else if err != nil {
 		return err
 	}
-	if !exists {
-		return ErrNotFound
+	if !root {
+		return fmt.Errorf("%w: folder is not a trash root", ErrValidation)
 	}
-	return fmt.Errorf("%w: folder must be empty before deletion", ErrValidation)
+	if _, err := tx.Exec(ctx, `UPDATE occccad.folders SET deleted_at=NULL,trashed_by_folder_id=NULL
+		WHERE trashed_by_folder_id=$1`, folderID); err != nil {
+		if isUniqueViolation(err) {
+			return fmt.Errorf("%w: a folder with this name already exists here", ErrValidation)
+		}
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (service *Service) ListTrashedFolders(ctx context.Context, principalID string) ([]FolderSummary, error) {
+	rows, err := service.database.Query(ctx, `SELECT f.id::text,f.parent_id::text,f.name,f.description,
+		(SELECT count(*) FROM occccad.documents d WHERE d.folder_id=f.id AND d.deleted_at IS NULL),
+		0,(SELECT count(*) FROM occccad.folders child WHERE child.parent_id=f.id),
+		f.created_at::text,f.updated_at::text,f.deleted_at::text,
+		occccad.role_name(occccad.effective_folder_role(f.id,$1))
+		FROM occccad.folders f WHERE f.deleted_at IS NOT NULL AND f.trashed_by_folder_id=f.id
+		AND (f.parent_id IS NULL OR EXISTS(SELECT 1 FROM occccad.folders parent WHERE parent.id=f.parent_id AND parent.deleted_at IS NULL))
+		AND occccad.effective_folder_role(f.id,$1) >= 10 ORDER BY f.deleted_at DESC`, actorID(principalID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []FolderSummary{}
+	for rows.Next() {
+		var item FolderSummary
+		if err := rows.Scan(&item.ID, &item.ParentID, &item.Name, &item.Description, &item.DocumentCount,
+			&item.TrashCount, &item.ChildCount, &item.CreatedAt, &item.UpdatedAt, &item.DeletedAt, &item.Permission); err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, rows.Err()
 }
 
 func isUniqueViolation(err error) bool {
