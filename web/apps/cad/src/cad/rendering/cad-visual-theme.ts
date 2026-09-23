@@ -13,7 +13,8 @@ export const CATIA_VISUAL_THEME = {
   hover: colorNumber(palette.hover), selected: colorNumber(palette.selected), selectedEmissive: 0x49331c,
   axisX: colorNumber(palette.axisX), axisY: colorNumber(palette.axisY), axisZ: colorNumber(palette.axisZ),
   navigation: colorNumber(palette.selected), navigationHighlight: colorNumber(palette.snap),
-  surfaceSpecular: 0x343c47, surfaceShininess: 22, datumOpacity: 0.09,
-  lightSky: 0xf1f5fc, lightGround: 0x667381, lightKey: 0xffffff, lightFill: 0xdae5f2,
-  hemisphereIntensity: 1.7, keyIntensity: 1.7, fillIntensity: 0.7,
+  // Satin dielectric: broad highlights must not exaggerate tessellation normals.
+  surfaceRoughness: 0.5, surfaceMetalness: 0.04, surfaceEnvironmentIntensity: 0.36, datumOpacity: 0.09,
+  lightSky: 0xf1f5fc, lightGround: 0x667381, lightKey: 0xffffff, lightFill: 0xdae5f2, lightRim: 0xe4edff,
+  hemisphereIntensity: 0.5, keyIntensity: 1.0, fillIntensity: 0.25, rimIntensity: 0.26,
 } as const;

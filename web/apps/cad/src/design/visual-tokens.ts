@@ -4,7 +4,7 @@ export const palette = {
   chrome: "#172333", chromeRaised: "#24364b", chromeText: "#e4edf8",
   canvas: "#f1f4f8", surface: "#ffffff", subtle: "#f7f9fc", border: "#dce3ed",
   text: "#24334a", muted: "#687b93", success: "#25846a", warning: "#a56a19", danger: "#c44658",
-  viewportTop: "#293744", viewportBottom: "#526372", solid: "#c1cbd5", productSolid: "#b9c7d4",
+  viewportTop: "#293744", viewportBottom: "#526372", solid: "#98a8b8", productSolid: "#94a6b8",
   edge: "#172a3e", vertex: "#edf3fa", sketch: "#f0f5fc", construction: "#8facca", external: "#80cfe6",
   selected: "#f4ba62", hover: "#68d7e6", preview: "#aab9ff", snap: "#ffe099",
   sketchGrid: "#8dc7de", previewNew: "#8bb8e8", previewAdd: "#70c9ab", previewRemove: "#ebaa84",

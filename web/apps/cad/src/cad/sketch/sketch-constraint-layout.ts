@@ -3,7 +3,7 @@ import { sampleSketchEntity, sketchEntityPoint } from "./sketch-geometry";
 import { constraintDefinition } from "./sketch-constraint-definition";
 import { formatSketchDimensionValue } from "./sketch-input-policy";
 
-export type ConstraintSegment = readonly [Vec2, Vec2];
+export type ConstraintSegment = readonly [Vec2, Vec2] & { screenAnchor?: Vec2 };
 export type SketchConstraintLayout = {
   symbol: ReturnType<typeof constraintDefinition>["symbol"];
   anchors: Vec2[];
@@ -46,7 +46,7 @@ function linePoints(reference: SketchGeometryRef, entities: ReadonlyMap<string, 
 function arrow(tip: Vec2, direction: Vec2, size = 3): ConstraintSegment[] {
   const unit = normalize(direction), normal: Vec2 = [-unit[1], unit[0]];
   const base = add(tip, scale(unit, size));
-  return [[tip, add(base, scale(normal, size * 0.45))], [tip, add(base, scale(normal, -size * 0.45))]];
+  return [1, -1].map(sign => Object.assign([tip, add(base, scale(normal, size * 0.45 * sign))] as const, { screenAnchor: tip }));
 }
 
 function linearDimension(a: Vec2, b: Vec2, text: string, placement?: Vec2): Pick<SketchConstraintLayout, "segments" | "label"> {

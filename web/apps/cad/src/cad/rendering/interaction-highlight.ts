@@ -1,3 +1,4 @@
+import { registerScreenLineUpdate, updateScreenDashDistances } from "./screen-space-lines";
 import * as THREE from "three";
 import { Line2 } from "three/addons/lines/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
@@ -26,8 +27,11 @@ export function makeSketchOverlayLine(
   if (dashed) {
     line.material.dashed = true;
     line.material.dashScale = 1;
-    line.material.dashSize = 3;
-    line.material.gapSize = 2;
+    line.material.dashSize = 7;
+    line.material.gapSize = 4;
+    registerScreenLineUpdate(line, (camera, width, height) => {
+      updateScreenDashDistances(line, camera, width, height);
+    });
     line.material.needsUpdate = true;
   }
   return line;

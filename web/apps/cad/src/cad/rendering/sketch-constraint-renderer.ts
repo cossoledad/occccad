@@ -1,3 +1,4 @@
+import { registerScreenLineUpdate, screenSpaceEndpoint } from "./screen-space-lines";
 import * as THREE from "three";
 import type { SketchConstraint, SketchEntity, Vec2 } from "../../types";
 import { buildSketchConstraintLayout } from "../sketch/sketch-constraint-layout";
@@ -61,11 +62,28 @@ export function makeSketchConstraintRenderable(
     glyphs.renderOrder = 84; group.add(glyphs);
   }
   if (layout.segments.length) {
-    const leaders = makeOcclusionVisibleSegments(layout.segments.map(([first, second]) => [toWorld(first), toWorld(second)]),
+    const leaders = makeOcclusionVisibleSegments(layout.segments.filter(segment => !segment.screenAnchor).map(([first, second]) => [toWorld(first), toWorld(second)]),
       diagnosticColor ?? CATIA_VISUAL_THEME.constraint, 1.25);
     leaders.renderOrder = 82;
     updateHighlightLineResolution(leaders, viewport.width, viewport.height);
     group.add(leaders);
+  }
+  for (const segment of layout.segments.filter(segment => segment.screenAnchor)) {
+    const anchor = toWorld(segment[0]), toward = toWorld(segment[1]);
+    const arrow = makeOcclusionVisibleSegments([[anchor, toward]], diagnosticColor ?? CATIA_VISUAL_THEME.constraint, 1.25);
+    arrow.frustumCulled = false;
+    arrow.renderOrder = 83;
+    registerScreenLineUpdate(arrow, (camera, cssWidth, cssHeight) => {
+      arrow.material.resolution.set(cssWidth, cssHeight);
+      const worldAnchor = anchor.clone().applyMatrix4(arrow.matrixWorld);
+      const worldToward = toward.clone().applyMatrix4(arrow.matrixWorld);
+      const end = arrow.worldToLocal(screenSpaceEndpoint(worldAnchor, worldToward, camera, cssWidth, cssHeight, 9));
+      const ends = arrow.geometry.getAttribute("instanceEnd");
+      ends.setXYZ(0, end.x, end.y, end.z); ends.needsUpdate = true;
+      arrow.geometry.computeBoundingBox(); arrow.geometry.computeBoundingSphere();
+    });
+    updateHighlightLineResolution(arrow, viewport.width, viewport.height);
+    group.add(arrow);
   }
   if (layout.label) {
     const label = makeConstraintDimensionLabel(layout.label.text); label.position.copy(toWorld(layout.label.position)); label.renderOrder = 86;

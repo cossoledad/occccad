@@ -1,3 +1,4 @@
+import type { ReferenceVisibility, RenderMode } from "../cad/rendering/display-settings";
 import type { InstancePatternPreview } from "../features/workbench/instance-pattern";
 import type { NormalViewPlane } from "../cad/navigation/normal-view";
 import type { FeaturePreviewOperation } from "../cad/rendering/feature-preview";
@@ -44,6 +45,8 @@ type Props = {
   navigationProfile: NavigationProfileID;
   catiaRotationSphereVisible: boolean;
   captureSettings: CaptureSettings;
+  referenceVisibility: ReferenceVisibility;
+  renderMode: RenderMode;
   treeVisibilityOverrides: TreeVisibilityOverrides;
   onSelectionsChange: (selections: SelectionItem[]) => void;
   onPreselectionChange: (selection: Selection) => void;
@@ -99,6 +102,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.setActiveTool(callbacks.current.activeToolID);
     instance.setNavigationProfile(callbacks.current.navigationProfile);
     instance.setCatiaRotationSphereVisible(callbacks.current.catiaRotationSphereVisible);
+    instance.setDisplaySettings(callbacks.current.referenceVisibility, callbacks.current.renderMode);
     instance.setCaptureSettings(callbacks.current.captureSettings);
     instance.setTreeVisibilityOverrides(callbacks.current.treeVisibilityOverrides);
     return () => { instance.dispose(); engine.current = undefined; };
@@ -122,6 +126,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => { engine.current?.setActiveTool(props.activeToolID); }, [props.activeToolID]);
   useEffect(() => { engine.current?.setNavigationProfile(props.navigationProfile); }, [props.navigationProfile]);
   useEffect(() => { engine.current?.setCatiaRotationSphereVisible(props.catiaRotationSphereVisible); }, [props.catiaRotationSphereVisible]);
+  useEffect(() => { engine.current?.setDisplaySettings(props.referenceVisibility, props.renderMode); }, [props.referenceVisibility, props.renderMode]);
   useEffect(() => { engine.current?.setCaptureSettings(props.captureSettings); }, [props.captureSettings]);
   useEffect(() => { engine.current?.setTreeVisibilityOverrides(props.treeVisibilityOverrides); }, [props.treeVisibilityOverrides]);
 

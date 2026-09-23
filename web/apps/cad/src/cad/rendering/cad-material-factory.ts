@@ -9,9 +9,10 @@ export class CadMaterialFactory {
 
   constructor(readonly shaders: CadShaderLibrary, readonly theme = CATIA_VISUAL_THEME) {}
 
-  surface(color: number = this.theme.surface): THREE.MeshPhongMaterial {
-    const material = new THREE.MeshPhongMaterial({
-      color, specular: this.theme.surfaceSpecular, shininess: this.theme.surfaceShininess, side: THREE.DoubleSide,
+  surface(color: number = this.theme.surface): THREE.MeshStandardMaterial {
+    const material = new THREE.MeshStandardMaterial({
+      color, roughness: this.theme.surfaceRoughness, metalness: this.theme.surfaceMetalness, side: THREE.DoubleSide,
+      envMapIntensity: this.theme.surfaceEnvironmentIntensity,
       wireframe: false, depthTest: true, depthWrite: true,
       polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
     });
@@ -73,7 +74,7 @@ export class CadMaterialFactory {
       if (!("material" in renderable) || !renderable.material) return;
       const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material];
       for (const material of materials) {
-        if (material instanceof THREE.MeshPhongMaterial && material.userData.cadMaterial === "surface") {
+        if (material instanceof THREE.MeshStandardMaterial && material.userData.cadMaterial === "surface") {
           const baseColor = Number(material.userData.baseColor ?? this.theme.surface);
           material.color.setHex(state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : baseColor);
           material.emissive.setHex(state === "selected" ? this.theme.selectedEmissive : 0x000000);

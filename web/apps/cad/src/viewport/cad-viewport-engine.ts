@@ -1,3 +1,8 @@
+import { createStudioEnvironment } from "../cad/rendering/studio-environment";
+import { raycastDatumAxis } from "../cad/interaction/datum-axis-picking";
+import { applySolidRenderMode } from "../cad/rendering/solid-render-mode";
+import { updateScreenLines } from "../cad/rendering/screen-space-lines";
+import { DEFAULT_REFERENCE_VISIBILITY, referenceCategory, type ReferenceVisibility, type RenderMode } from "../cad/rendering/display-settings";
 import { instancePatternOffsets, type InstancePatternPreview } from "../features/workbench/instance-pattern";
 import { ViewTransition } from "../cad/navigation/view-transition";
 import { normalViewFrame, type NormalViewPlane } from "../cad/navigation/normal-view";
@@ -220,6 +225,7 @@ export class CadViewportEngine {
   private readonly helpers = new THREE.Group();
   private readonly sketchContext = new THREE.Group();
   private readonly environment = new THREE.Group();
+  private readonly studioEnvironment: THREE.WebGLRenderTarget;
   private viewTransition!: ViewTransition;
   private readonly interruptViewTransition = () => this.viewTransition?.cancel();
   private readonly lighting = new THREE.Group();
@@ -230,6 +236,8 @@ export class CadViewportEngine {
   private readonly instanceGroups = new Map<string, THREE.Group>();
   private insertPatternPreview?: THREE.Group;
   private readonly assemblyConstraintReferences = new Map<string, SelectionItem[]>();
+  private referenceVisibility: ReferenceVisibility = { ...DEFAULT_REFERENCE_VISIBILITY };
+  private renderMode: RenderMode = "default";
   private readonly screenStableReferences = new Map<THREE.Object3D, number>();
   private datumAxisPickToleranceWorld = 0;
   private selected: SelectionItem[] = [];
@@ -277,6 +285,8 @@ export class CadViewportEngine {
     this.renderer.shadowMap.enabled = false;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.autoClear = false;
+    this.studioEnvironment = createStudioEnvironment(this.renderer);
+    this.scene.environment = this.studioEnvironment.texture;
     host.appendChild(this.renderer.domElement);
 
     this.moveManipulator = new AssemblyManipulator(this.shaders, {
@@ -303,7 +313,9 @@ export class CadViewportEngine {
     keyLight.position.set(-3, -4, 7);
     const fillLight = new THREE.DirectionalLight(CATIA_VISUAL_THEME.lightFill, CATIA_VISUAL_THEME.fillIntensity);
     fillLight.position.set(5, 2, 3);
-    this.lighting.add(hemisphere, keyLight, fillLight);
+    const rimLight = new THREE.DirectionalLight(CATIA_VISUAL_THEME.lightRim, CATIA_VISUAL_THEME.rimIntensity);
+    rimLight.position.set(-4, 6, 3);
+    this.lighting.add(hemisphere, keyLight, fillLight, rimLight);
     this.sketchContext.renderOrder = 15;
     this.scene.add(this.environment, this.lighting, this.content, this.helpers, this.sketchContext, this.sketchGrid.object);
     this.sketchGrid.object.visible = false;
@@ -466,6 +478,15 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
+  setDisplaySettings(references: ReferenceVisibility, mode: RenderMode): void {
+    this.referenceVisibility = { ...references };
+    this.renderMode = mode;
+    this.applyTreeVisibility();
+    for (const { group } of this.solidBindings.values()) applySolidRenderMode(group, mode);
+    this.preselect(null, true);
+    this.invalidate();
+  }
+
   setTreeVisibilityOverrides(overrides: TreeVisibilityOverrides): void {
     this.treeVisibilityOverrides = { ...overrides };
     if (this.view) this.render(this.view);
@@ -480,6 +501,9 @@ export class CadViewportEngine {
       const key = typeof object.userData.treeNodeId === "string" ? object.userData.treeNodeId : undefined;
       const activeSketchSubtree = Boolean(key && activeSketchKey && (key === activeSketchKey || key.startsWith(`${activeSketchKey}/`)));
       const overrides = activeSketchSubtree ? activeSketchOverrides : this.treeVisibilityOverrides;
+      const category = referenceCategory(object.userData.kind, object.userData.axis);
+      if (category) object.visible = this.referenceVisibility[category] &&
+        !(root === this.helpers && this.sketchPlane) && treeVisibilityOverride(key, overrides) !== false;
       if (treeVisibilityOverride(key, overrides) === false) object.visible = false;
     });
   }
@@ -964,6 +988,8 @@ export class CadViewportEngine {
     this.disposeGroup(this.content);
     this.disposeGroup(this.helpers);
     this.disposeGroup(this.sketchContext);
+    this.scene.environment = null;
+    this.studioEnvironment.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -1355,13 +1381,14 @@ export class CadViewportEngine {
       id: `${context?.occurrencePath || "root"}:${axis.id}`, entityId: axis.id, treeNodeId: context?.treeNodeId,
       documentId: context?.documentId, occurrencePath: context?.occurrencePath, geometryKey: context?.geometryKey,
       instancePath: context?.instancePath, instanceId: context?.instanceId };
+    pickLine.raycast = raycastDatumAxis;
     reference.userData = selection;
     pickLine.userData = selection;
     reference.add(visibleLine, pickLine);
     parent.add(reference);
     this.screenStableReferences.set(reference, 54);
     this.selectionIndex.register(selection, reference); this.selectionIndex.registerPick(pickLine, (hit) =>
-      datumAxisHitAccepted(hit.distanceToRay, this.datumAxisPickToleranceWorld) ? selection : null, 200, 10);
+      datumAxisHitAccepted(this.raycaster.ray.distanceToPoint(hit.point), this.datumAxisPickToleranceWorld) ? selection : null, 200, 10);
   }
 
   private addAxisSystem(axis: AxisSystem, parent: THREE.Group, context?: SolidContext): void {
@@ -1387,13 +1414,14 @@ export class CadViewportEngine {
         ...systemSelection, kind: "axis" as const, axis: name, id: `${systemSelection.id}:${name}`,
         treeNodeId: context?.treeNodeId ? `${context.treeNodeId}/${name.toLowerCase()}` : undefined
       };
+      pickLine.raycast = raycastDatumAxis;
       axisReference.userData = selection;
       pickLine.userData = selection;
       axisReference.add(visibleLine, pickLine);
       system.add(axisReference);
       this.selectionIndex.register(selection, axisReference, context?.treeNodeId);
       this.selectionIndex.registerPick(pickLine, (hit) =>
-        datumAxisHitAccepted(hit.distanceToRay, this.datumAxisPickToleranceWorld) ? selection : null, 200, 10);
+        datumAxisHitAccepted(this.raycaster.ray.distanceToPoint(hit.point), this.datumAxisPickToleranceWorld) ? selection : null, 200, 10);
     }
     system.userData = systemSelection; parent.add(system);
     this.selectionIndex.register(systemSelection, system);
@@ -1462,7 +1490,9 @@ export class CadViewportEngine {
       } else if (primitive.kind === "POINTS") {
         object = new THREE.Points(geometry, this.materials.point(color, 9, false));
       } else if (primitive.kind === "POLYLINE") {
-        object = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, depthTest: false }));
+        geometry.dispose();
+        object = makeSketchOverlayLine(points, color, 2.25, construction);
+        updateHighlightLineResolution(object, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
       } else if (primitive.kind === "LINE_SEGMENTS") {
         object = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({ color: CATIA_VISUAL_THEME.constraint, depthTest: false }));
       } else {
@@ -1611,7 +1641,7 @@ export class CadViewportEngine {
         const sampled=sampleSketchEntity(entity);
         if(sampled.length<2)continue;
         const positions=sampled.map((point)=>localToWorld(plane,point));
-        object = makeSketchOverlayLine(positions, entityColor, entity.role === "CONSTRUCTION" ? 2 : 2.5);
+        object = makeSketchOverlayLine(positions, entityColor, entity.role === "CONSTRUCTION" ? 2 : 2.5, entity.role === "CONSTRUCTION");
         updateHighlightLineResolution(object, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
         object.renderOrder = 20;
         const markers=entity.kind==="CIRCLE"&&entity.center?[localToWorld(plane,[entity.center.x,entity.center.y])]
@@ -1753,6 +1783,7 @@ export class CadViewportEngine {
       }, 50);
       group.add(points);
     }
+    applySolidRenderMode(group, this.renderMode);
     this.solidBindings.set(context.occurrencePath || "root", { group, mesh, artifact, context });
     return group;
   }
@@ -1775,6 +1806,8 @@ export class CadViewportEngine {
 
   private hitTest(x: number, y: number, captureManipulatorAnchor = false): Selection {
     this.updateScreenStableReferences();
+    const metrics = viewportMetrics(this.renderer);
+    updateScreenLines(this.scene, this.camera, metrics.cssWidth, metrics.cssHeight);
     this.updatePointer(x, y);
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const worldPerPixel = worldUnitsPerCssPixel(this.camera, this.navigation.target, viewportMetrics(this.renderer));
@@ -2335,6 +2368,7 @@ export class CadViewportEngine {
         this.moveManipulator.updateScale(this.camera, viewportMetrics(this.renderer));
         this.updateScreenStableReferences();
         const metrics=viewportMetrics(this.renderer);
+        updateScreenLines(this.scene, this.camera, metrics.cssWidth, metrics.cssHeight);
         this.scene.traverse((object)=>{
           const material=(object as THREE.Points).material;
           if(material instanceof THREE.ShaderMaterial&&material.uniforms.uPointSize&&typeof material.userData.cssPointSize==="number")
