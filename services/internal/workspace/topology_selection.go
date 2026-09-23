@@ -58,15 +58,9 @@ func (service *Service) bindAssemblyPick(ctx context.Context, product *ProductMo
 			return nil
 		}
 	}
-	var instance *ProductInstance
-	for index := range product.Instances {
-		if product.Instances[index].ID == reference.InstanceID {
-			instance = &product.Instances[index]
-			break
-		}
-	}
-	if instance == nil {
-		return fmt.Errorf("%w: assembly pick references an unknown instance", ErrValidation)
+	instance, _, occurrenceErr := service.assemblyReferenceOccurrence(ctx, *product, *reference)
+	if occurrenceErr != nil {
+		return occurrenceErr
 	}
 	selection := reference.PersistentSelection
 	if selection == nil {
@@ -158,7 +152,7 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 }
 
 // Resolve only against accepted instance revisions; activation must not accept new Heads.
-func (service *Service) resolveAssemblySupports(ctx context.Context, product *ProductModel) error {
+func (service *Service) resolveAssemblySupports(ctx context.Context, product *ProductModel, exclusions ...map[string]bool) error {
 	instances := map[string]*ProductInstance{}
 	for i := range product.Instances {
 		instances[product.Instances[i].ID] = &product.Instances[i]
@@ -184,6 +178,14 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 				return modelcore.SelectionSourceUnavailable, nil
 			}
 		}
+		instance, _, occurrenceErr := service.assemblyReferenceOccurrence(ctx, *product, *reference)
+		if occurrenceErr != nil {
+			if !errors.Is(occurrenceErr, ErrValidation) {
+				return modelcore.SelectionSourceUnavailable, occurrenceErr
+			}
+			reference.Resolution = &ResolutionSnapshot{PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: unavailableSelectionResolution("INSTANCE_MISSING", occurrenceErr.Error())}
+			return modelcore.SelectionSourceUnavailable, nil
+		}
 		if instances[reference.InstanceID] == nil {
 			reference.Resolution = &ResolutionSnapshot{PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: unavailableSelectionResolution("INSTANCE_MISSING", "support instance no longer exists")}
 			return modelcore.SelectionSourceUnavailable, nil
@@ -192,7 +194,6 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 			if reference.Kind == "BODY" || reference.PublicationRef != nil {
 				return modelcore.SelectionResolved, nil
 			}
-			instance := instances[reference.InstanceID]
 			part, ok := acceptedParts[instance.ReferencedVersionID]
 			if !ok {
 				var raw []byte
@@ -211,7 +212,6 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 			reference.Resolution = nil
 			return modelcore.SelectionResolved, nil
 		}
-		instance := instances[reference.InstanceID]
 		if instance == nil || reference.PersistentSelection == nil {
 			resolution := unavailableSelectionResolution("PERSISTENT_SELECTION_UNAVAILABLE", "assembly endpoint has no source instance or persistent selection")
 			reference.Resolution = &ResolutionSnapshot{SourceVersionID: reference.SourceVersionID,
@@ -242,6 +242,9 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 	}
 	for index := range product.Constraints {
 		constraint := &product.Constraints[index]
+		if len(exclusions) > 0 && exclusions[0][constraint.ID] {
+			continue
+		}
 		first, firstErr := resolveEndpoint(&constraint.First)
 		second, secondErr := resolveEndpoint(constraint.Second)
 		axis, axisErr := modelcore.SelectionResolved, error(nil)
@@ -267,7 +270,7 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 		if first != modelcore.SelectionResolved || second != modelcore.SelectionResolved || axis != modelcore.SelectionResolved {
 			constraint.EvaluationStatus = modelcore.AssemblyConstraintBroken
 			constraint.EvaluationSummary = fmt.Sprintf("support resolution: first=%s second=%s axis=%s", first, second, axis)
-		} else {
+		} else if constraint.EvaluationStatus != modelcore.AssemblyConstraintVerified {
 			constraint.EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
 			constraint.EvaluationSummary = "references resolved; awaiting authoritative solve"
 		}

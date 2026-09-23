@@ -383,6 +383,7 @@ TEST(AssemblyMotion, NonzeroReferenceMinimumPreservesItsWholeOptimalSet) {
     auto options = intent();
     options.solve_intent->moving_body_ids = {"c"};
     const auto result = Solver{}.solve(model, options);
+    ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
     certified(result);
     EXPECT_NEAR(result.components[0].preference.reference_objective, 1, 1e-8);
     EXPECT_NEAR(pose(result, "b").translation.y, 1, 1e-6);
@@ -466,4 +467,29 @@ TEST(AssemblyMotion, FixedFirstAntipodalPlaneSeedsFreeReference) {
     const auto result = Solver{}.solve(m, options);
     ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
     EXPECT_EQ(result.components[0].preference.status, PreferenceStatus::Converged);
+}
+
+TEST(AssemblyMotion, OffsetPerpendicularCylindersPreserveReferenceAndConverge) {
+    for (const double offset : {25.0, 250.0, 1000.0}) {
+        for (const bool reverse_roles : {false, true}) {
+            SCOPED_TRACE(offset);
+            SCOPED_TRACE(reverse_roles);
+            Model model;
+            model.bodies = {{"a", {}}, {"b", {}}};
+            model.geometry = {{"c", "a", CylinderGeometry{{0, -offset, 10}, {-1, 0, 0}, 74.15842513149224}},
+                              {"c", "b", CylinderGeometry{{}, {0, 0, -1}, 28.284271247461902}}};
+            auto c = mate("concentric", ConstraintKind::Concentric, {"a", "c"}, {"b", "c"});
+            c.direction_relation = DirectionRelation::Unoriented;
+            model.constraints = {c};
+            auto options = intent();
+            if (reverse_roles)
+                options.solve_intent = SolveIntent{{"b"}, {"a"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
+            const auto result = Solver{}.solve(model, options);
+            ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+            certified(result);
+            EXPECT_NEAR(result.components[0].preference.reference_objective, 0.0, 1e-12);
+            EXPECT_NEAR(result.components[0].preference.total_objective,
+                        offset * offset + 100 + std::pow(std::acos(-1.0) / 2, 2), 1e-7);
+        }
+    }
 }

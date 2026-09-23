@@ -33,7 +33,7 @@ than the original single-problem A1 prototype. It provides:
   components and affected-component selection;
 - right-handed `SE(3)` local increments, forward analytic differentiation for the
   current descriptor matrix, augmented dense QR and bounded backtracking;
-- frozen direction, distance-side and angle branches, including projected directed
+- explicit direction, frozen distance-side and angle branches, including projected directed
   angles and request-carried wrapped/unwrapped/winding state;
 - column-normalized SVD rank and numeric null-space basis, relative/gauge DOF
   counts, per-constraint declared/effective/incremental rank, semantic equation
@@ -52,7 +52,7 @@ The remaining boundary is equally important:
   forms normal equations;
 - numeric null-space and interpreted instantaneous freedom subspaces are returned;
   durable freedom/Engineering Connection identities remain later work;
-- hierarchical pose selection is local to a frozen branch; no global nonconvex
+- hierarchical pose selection is local to a feasible branch; bounded unoriented retries are not global nonconvex
   optimum or finite-motion reachability is claimed;
 - M3 freezes typed paths, resolved descriptors and nested rigid expansion; flexible
   expansion remains unimplemented;
@@ -456,7 +456,7 @@ It does not add new constraint families or a sparse backend. The accepted baseli
 - replaces `acos(dot)` with `atan2(norm(cross), dot)` for regular unsigned angles;
   exact zero/pi targets use a branch-preserving cross-vector plus dot residual so
   finite differences can converge through the endpoint cusp;
-- chooses and freezes direction and unsigned distance-side branches once per solve from
+- evaluates unoriented alignment signs at each iterate; freezes unsigned distance-side branches from
   explicit request intent where available, otherwise the nominal/warm-start pose;
 - handles parallel and nearly parallel axis distance without switching through an
   ill-conditioned generic formula;
@@ -639,7 +639,7 @@ MOVE 的最近可行目标投影仍由 M4 实现，本门不以现有 `interacti
 
 Worker/Go/Router 携带 typed freedom/preference enums 与完整证据，Product 预览通过现有 preview actor 展示第二元素变化和自由度，
 REQUEST/RESET/CANCEL 清理旧证据，旧 sequence 的响应不覆盖新状态。提交不持久化额外求解状态机；最终 Pose 仍进入同一
-Revision/ChangeSet，连续 Undo/Redo 由原历史语义处理。当前 `solver_build=assembly-m2.5-hierarchy-v6`，profile schema 为 2。
+Revision/ChangeSet，连续 Undo/Redo 由原历史语义处理。当前 `solver_build=assembly-m2.5-hierarchy-v8`，profile schema 为 2。
 M3 已持久化 solve manifest/provenance 和 request-specific result；重试复用对应请求结果，不等同于任意姿态的数值 warm-start cache。
 
 

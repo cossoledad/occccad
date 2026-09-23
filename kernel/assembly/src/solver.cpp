@@ -1390,15 +1390,9 @@ private:
                 world_geometry(first_element, bodies[body_index(first_element.body_id)]);
             const WorldGeometry second =
                 world_geometry(second_element, bodies[body_index(second_element.body_id)]);
-            if (constraint.direction_relation == DirectionRelation::Unoriented &&
-                constraint.kind != ConstraintKind::Angle && has_direction(first) &&
-                has_direction(second)) {
-                branch.direction_relation =
-                    geometry_direction(first).dot(geometry_direction(second)) <
-                            -options_.degeneracy_tolerance
-                        ? DirectionRelation::Opposite
-                        : DirectionRelation::Same;
-            }
+            // Unoriented alignment is a union of both branches. Evaluate the
+            // nearest sign at the current iterate, including its analytic Jacobian.
+            // A later directed constraint may require the other branch.
             if (constraint.kind == ConstraintKind::Angle) {
                 Vector3 first_direction = geometry_direction(first);
                 const Vector3 second_direction = geometry_direction(second);
@@ -1600,7 +1594,8 @@ public:
     }
 
     std::vector<ResidualBlock> blocks(const State& state,
-                                      const bool use_classification_tolerance = false) const {
+                                      const bool use_classification_tolerance = false,
+                                      const State* branch_reference = nullptr) const {
         const std::vector<Pose> bodies = assembly_.body_poses(cluster_poses(state));
         SolverOptions tolerance_options = assembly_.options();
         if (use_classification_tolerance) {
@@ -1619,6 +1614,14 @@ public:
                 second_element, bodies[assembly_.body_index(second_element.body_id)]);
             Constraint evaluated = constraint;
             ConstraintBranchState branch = assembly_.branch(constraint_index);
+            if (branch_reference && branch.direction_relation == DirectionRelation::Unoriented &&
+                constraint.kind != ConstraintKind::Angle && has_direction(first) && has_direction(second)) {
+                const auto nominal = assembly_.body_poses(cluster_poses(*branch_reference));
+                const auto a = world_geometry(first_element, nominal[assembly_.body_index(first_element.body_id)]);
+                const auto b = world_geometry(second_element, nominal[assembly_.body_index(second_element.body_id)]);
+                branch.direction_relation = geometry_direction(a).dot(geometry_direction(b)) < 0
+                    ? DirectionRelation::Opposite : DirectionRelation::Same;
+            }
             if (evaluated.angle_reference_direction)
                 evaluated.angle_reference_direction = value(
                     normalized(bodies[assembly_.body_index(second_element.body_id)].rotation) *
@@ -1639,8 +1642,8 @@ public:
         return result;
     }
 
-    Vector residual(const State& state) const {
-        const auto values = blocks(state);
+    Vector residual(const State& state, const State* branch_reference = nullptr) const {
+        const auto values = blocks(state, false, branch_reference);
         Eigen::Index size = 0;
         for (const auto& block : values)
             size += block.values.size();
@@ -1689,9 +1692,9 @@ public:
                                     ? assembly_.options().finite_difference_step
                                     : configured;
             perturbation[column] = step;
-            const Vector plus = this->residual(incremented(state, perturbation));
+            const Vector plus = this->residual(incremented(state, perturbation), &state);
             perturbation[column] = -step;
-            const Vector minus = this->residual(incremented(state, perturbation));
+            const Vector minus = this->residual(incremented(state, perturbation), &state);
             if (plus.size() != residual.size() || minus.size() != residual.size() ||
                 !plus.allFinite() || !minus.allFinite())
                 throw std::runtime_error("finite-difference residual is invalid");
@@ -2268,6 +2271,43 @@ Eigen::MatrixXd preference_tangent(const ComponentProblem& problem, const State&
     return z * orthogonal_kernel(curvature,threshold);
 }
 
+// Curvature of the objective restricted to the feasible manifold. A long
+// geometric lever arm can make an identity BFGS metric miss all representable
+// descent; use the Lagrangian Hessian for a safeguarded second search direction.
+Eigen::MatrixXd motion_curvature(const ComponentProblem& problem, const State& state,
+                                const Eigen::MatrixXd& z, bool reference_only,
+                                const SolverOptions& options) {
+    const Vector scales = problem.tangent_scales();
+    const auto objective = problem.objective(state, reference_only, false);
+    auto equations = [&](const State& at) -> Eigen::MatrixXd {
+        Eigen::MatrixXd j = problem.jacobian(at, problem.residual(at));
+        if (!reference_only) {
+            const auto ref = problem.objective(at, true, false);
+            const auto rows = j.rows();
+            j.conservativeResize(rows + ref.jacobian.rows(), j.cols());
+            j.bottomRows(ref.jacobian.rows()) = ref.jacobian;
+        }
+        return j * scales.asDiagonal();
+    };
+    const Vector gradient = scales.asDiagonal() * objective.jacobian.transpose() * objective.residual;
+    const Vector multipliers = minimum_step(equations(state).transpose(), -gradient, options);
+    auto lagrangian = [&](const State& at) -> Vector {
+        const auto value = problem.objective(at, reference_only, false);
+        return scales.asDiagonal() * value.jacobian.transpose() * value.residual +
+            equations(at).transpose() * multipliers;
+    };
+    Eigen::MatrixXd curvature(z.cols(), z.cols());
+    for (Eigen::Index col = 0; col < z.cols(); ++col) {
+        auto difference = [&](double h) -> Vector {
+            const Vector step = scales.asDiagonal() * (h * z.col(col));
+            return (lagrangian(problem.incremented(state, step)) -
+                    lagrangian(problem.incremented(state, -step))) / (2 * h);
+        };
+        curvature.col(col) = z.transpose() * ((4 * difference(5e-4) - difference(1e-3)) / 3);
+    }
+    return (0.5 * (curvature + curvature.transpose())).eval();
+}
+
 MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                                  const SolverOptions& options) {
     MotionPreference report;
@@ -2325,72 +2365,84 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                                           .eval();
                 }
             }
-            Vector step = -z * (z.transpose() * inverse_hessian * gradient);
-            if (!step.allFinite() || gradient.dot(step) >= 0.0) {
-                inverse_hessian.setIdentity();
-                step = -gradient;
-            }
-            // Riemannian BFGS models objective/manifold curvature without mixing priorities.
-            // Translation has no angular chart boundary. A shared unit-radius
-            // cap required hundreds of iterations merely to undo a long-arm
-            // branch seed. Bound rotations independently and let the objective
-            // scale bound translation; retraction/backtracking still certifies
-            // every candidate against geometry and both priority levels.
-            double step_ratio = 1.0;
-            const double translation_radius = std::max(1.0, objective.residual.norm());
-            for (Eigen::Index offset = 0; offset < step.size(); offset += 6) {
-                step_ratio =
-                    std::max(step_ratio, step.segment<3>(offset).norm() / translation_radius);
-                step_ratio = std::max(step_ratio, step.segment<3>(offset + 3).norm() *
-                                                      options.motion_angle_scale / 0.5);
-            }
-            step /= step_ratio;
-            const double slope = 2.0 * gradient.dot(step);
-            const double before = objective.residual.squaredNorm();
             bool accepted = false;
-            for (double alpha = 1; alpha >= 1.0 / 65536; alpha *= 0.5) {
-                State candidate = problem.incremented(state, scales.asDiagonal() * (alpha * step));
-                if (!restore_feasibility(problem, candidate, options))
-                    continue;
-                const double ref_value =
-                    problem.objective(candidate, true, false).residual.squaredNorm();
-                const double after =
-                    problem.objective(candidate, level == 0, false).residual.squaredNorm();
-                if (level == 1 && ref_value > reference_bound + options.objective_tolerance)
-                    continue;
-                bool descent = after < before && after <= before + 1e-4 * alpha * slope;
-                // At floating-point objective resolution, certify progress using the
-                // projected derivative, while keeping a non-accumulating energy bound.
-                const double roundoff =
-                    32 * std::numeric_limits<double>::epsilon() * std::max(1.0, best_energy);
-                if (!descent && after <= best_energy + roundoff) {
-                    const auto next_objective = problem.objective(candidate, level == 0, false);
-                    Eigen::MatrixXd next_z =
-                        orthogonal_kernel(problem.jacobian(candidate, problem.residual(candidate)) *
-                                              scales.asDiagonal(),
-                                          options);
-                    if (level == 1) next_z = preference_tangent(problem,candidate,next_z,options);
-                    descent = (next_z.transpose() * scales.asDiagonal() *
-                               next_objective.jacobian.transpose() * next_objective.residual)
-                                  .norm() < 0.8 * optimality;
+            for (int direction_attempt = 0; direction_attempt < 2 && !accepted; ++direction_attempt) {
+                Vector step = -z * (z.transpose() * inverse_hessian * gradient);
+                if (!step.allFinite() || gradient.dot(step) >= 0.0) {
+                    inverse_hessian.setIdentity();
+                    step = -gradient;
                 }
-                if (descent) {
-                    Vector actual(scales.size());
-                    for (std::size_t body = 0; body < state.poses.size(); ++body) {
-                        actual.segment<3>(body * 6) = (eigen(candidate.poses[body].translation) -
-                                                       eigen(state.poses[body].translation)) /
-                                                      options.motion_length_scale;
-                        actual.segment<3>(body * 6 + 3) =
-                            rotation_vector(normalized(candidate.poses[body].rotation) *
-                                            normalized(state.poses[body].rotation).conjugate()) /
-                            options.motion_angle_scale;
+                if (direction_attempt == 1) {
+                    // Nonzero reference minima have their own curvature manifold;
+                    // leave those to the existing hierarchical BFGS path.
+                    if (level == 1 && ref.residual.squaredNorm() > options.objective_tolerance) break;
+                    const auto curvature = motion_curvature(problem, state, z, level == 0, options);
+                    const Eigen::LDLT<Eigen::MatrixXd> factor(curvature);
+                    if (factor.info() != Eigen::Success || !factor.isPositive()) break;
+                    step = -z * factor.solve(reduced.transpose() * objective.residual);
+                    if (!step.allFinite() || gradient.dot(step) >= 0) break;
+                }
+                // Riemannian BFGS models objective/manifold curvature without mixing priorities.
+                // Translation has no angular chart boundary. A shared unit-radius
+                // cap required hundreds of iterations merely to undo a long-arm
+                // branch seed. Bound rotations independently and let the objective
+                // scale bound translation; retraction/backtracking still certifies
+                // every candidate against geometry and both priority levels.
+                double step_ratio = 1.0;
+                const double translation_radius = std::max(1.0, objective.residual.norm());
+                for (Eigen::Index offset = 0; offset < step.size(); offset += 6) {
+                    step_ratio =
+                        std::max(step_ratio, step.segment<3>(offset).norm() / translation_radius);
+                    step_ratio = std::max(step_ratio, step.segment<3>(offset + 3).norm() *
+                                                          options.motion_angle_scale / 0.5);
+                }
+                step /= step_ratio;
+                const double slope = 2.0 * gradient.dot(step);
+                const double before = objective.residual.squaredNorm();
+                for (double alpha = 1; alpha >= 1.0 / 65536; alpha *= 0.5) {
+                    State candidate = problem.incremented(state, scales.asDiagonal() * (alpha * step));
+                    if (!restore_feasibility(problem, candidate, options))
+                        continue;
+                    const double ref_value =
+                        problem.objective(candidate, true, false).residual.squaredNorm();
+                    const double after =
+                        problem.objective(candidate, level == 0, false).residual.squaredNorm();
+                    if (level == 1 && ref_value > reference_bound + options.objective_tolerance)
+                        continue;
+                    bool descent = after < before && after <= before + 1e-4 * alpha * slope;
+                    // At floating-point objective resolution, certify progress using the
+                    // projected derivative, while keeping a non-accumulating energy bound.
+                    const double roundoff =
+                        32 * std::numeric_limits<double>::epsilon() * std::max(1.0, best_energy);
+                    if (!descent && after <= best_energy + roundoff) {
+                        const auto next_objective = problem.objective(candidate, level == 0, false);
+                        Eigen::MatrixXd next_z =
+                            orthogonal_kernel(problem.jacobian(candidate, problem.residual(candidate)) *
+                                                  scales.asDiagonal(),
+                                              options);
+                        if (level == 1) next_z = preference_tangent(problem,candidate,next_z,options);
+                        descent = (next_z.transpose() * scales.asDiagonal() *
+                                   next_objective.jacobian.transpose() * next_objective.residual)
+                                      .norm() < 0.8 * optimality;
                     }
-                    previous_gradient = gradient;
-                    previous_step = std::move(actual);
-                    best_energy = std::min(best_energy, after);
-                    state = std::move(candidate);
-                    accepted = true;
-                    break;
+                    if (descent) {
+                        Vector actual(scales.size());
+                        for (std::size_t body = 0; body < state.poses.size(); ++body) {
+                            actual.segment<3>(body * 6) = (eigen(candidate.poses[body].translation) -
+                                                           eigen(state.poses[body].translation)) /
+                                                          options.motion_length_scale;
+                            actual.segment<3>(body * 6 + 3) =
+                                rotation_vector(normalized(candidate.poses[body].rotation) *
+                                                normalized(state.poses[body].rotation).conjugate()) /
+                                options.motion_angle_scale;
+                        }
+                        previous_gradient = gradient;
+                        previous_step = std::move(actual);
+                        best_energy = std::min(best_energy, after);
+                        state = std::move(candidate);
+                        accepted = true;
+                        break;
+                    }
                 }
             }
             if (!accepted) {
@@ -2740,7 +2792,7 @@ std::string connection_id(const Constraint& constraint) {
 
 }  // namespace
 
-SolveResult Solver::solve(const Model& model, const SolverOptions& options) const {
+static SolveResult solve_model(const Model& model, const SolverOptions& options, bool explore_directions) {
     try {
         CompiledAssembly assembly(model, options);
         SolveResult result;
@@ -2945,6 +2997,49 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
                             : result.status == SolveStatus::Inconsistent
                                 ? "assembly constraints are inconsistent"
                                 : "one or more assembly components did not converge";
+        // Sign-symmetric residuals can cancel a directed residual at a stationary
+        // point in the wrong hemisphere. Probe the other branch using guesses
+        // only: nominal poses, physical Fix, intent and all equations stay intact.
+        if (explore_directions && (result.status == SolveStatus::Unsatisfied ||
+                                   result.status == SolveStatus::MaxIterations)) {
+            std::size_t probes = 0;
+            constexpr std::size_t max_direction_probes = 16;
+            for (const Constraint& constraint : model.constraints) {
+                if (!active(constraint) || constraint.direction_relation != DirectionRelation::Unoriented ||
+                    (constraint.kind != ConstraintKind::Concentric &&
+                     constraint.kind != ConstraintKind::Coincident && constraint.kind != ConstraintKind::Parallel) ||
+                    !constraint.second) continue;
+                const auto& first = assembly.geometry(constraint.first);
+                const auto& second = assembly.geometry(*constraint.second);
+                const auto a = world_geometry(first, model.bodies[assembly.body_index(first.body_id)].initial_pose);
+                const auto b = world_geometry(second, model.bodies[assembly.body_index(second.body_id)].initial_pose);
+                if (!has_direction(a) || !has_direction(b)) continue;
+                for (const auto* endpoint : {&first, &second}) {
+                    const auto& cluster = assembly.clusters()[assembly.cluster_index(endpoint->body_id)];
+                    if (cluster.ground_pose || probes >= max_direction_probes) continue;
+                    ++probes;
+                    Model trial = model;
+                    const auto world = world_geometry(*endpoint, model.bodies[assembly.body_index(endpoint->body_id)].initial_pose);
+                    const Vector3 pivot = geometry_origin(world);
+                    const EigenQuaternion turn(Eigen::AngleAxisd(kPi, perpendicular_to(geometry_direction(world))));
+                    for (const auto body : cluster.body_indices) {
+                        Pose guess = model.bodies[body].initial_pose;
+                        guess.translation = value(pivot + turn * (eigen(guess.translation) - pivot));
+                        guess.rotation = value(turn * normalized(guess.rotation));
+                        trial.bodies[body].initial_guess = guess;
+                    }
+                    SolverOptions trial_options = options;
+                    trial_options.max_conflict_probes = 0;
+                    auto candidate = solve_model(trial, trial_options, false);
+                    if (candidate.status == SolveStatus::Converged) {
+                        candidate.diagnostics.push_back({"UNORIENTED_BRANCH_RECOVERED", {}, {}, {constraint.id},
+                            "alternate direction initial guess satisfies the original constraint system"});
+                        return candidate;
+                    }
+                }
+                if (probes >= max_direction_probes) break;
+            }
+        }
         if (result.status == SolveStatus::Unsatisfied && options.max_conflict_probes > 0) {
             std::size_t probes = 0;
             for (std::size_t index = 0;
@@ -2957,7 +3052,7 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
                 probe_model.constraints[index].mode = ConstraintMode::Suppressed;
                 SolverOptions probe_options = options;
                 probe_options.max_conflict_probes = 0;
-                const SolveResult probe = Solver{}.solve(probe_model, probe_options);
+                const SolveResult probe = solve_model(probe_model, probe_options, false);
                 if (probe.status == SolveStatus::Converged ||
                     (finite(probe.normalized_residual) && result.normalized_residual > 0.0 &&
                      probe.normalized_residual < 0.5 * result.normalized_residual))
@@ -2987,6 +3082,10 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
         result.diagnostic = error.what();
         return result;
     }
+}
+
+SolveResult Solver::solve(const Model& model, const SolverOptions& options) const {
+    return solve_model(model, options, true);
 }
 
 }  // namespace occccad::assembly

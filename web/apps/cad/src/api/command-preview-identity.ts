@@ -4,6 +4,7 @@ export class CommandPreviewIdentities {
   private readonly values = new Map<string, { documentId: string; requestId: string; expires: number }>();
 
   remember(documentId: string, previewId: string, requestId: string, now = Date.now()): void {
+    if (!previewId) return;
     for (const [key, value] of this.values) if (value.expires <= now) this.values.delete(key);
     this.values.delete(previewId);
     while (this.values.size >= 256) this.values.delete(this.values.keys().next().value!);
@@ -11,7 +12,7 @@ export class CommandPreviewIdentities {
   }
 
   requestFor(documentId: string, previewId: unknown, now = Date.now()): string | undefined {
-    if (typeof previewId !== "string") return undefined;
+    if (typeof previewId !== "string" || !previewId) return undefined;
     const value = this.values.get(previewId);
     if (!value || value.expires <= now || value.documentId !== documentId) return undefined;
     return value.requestId;

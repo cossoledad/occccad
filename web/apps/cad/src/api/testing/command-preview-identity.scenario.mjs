@@ -10,3 +10,5 @@ assert.equal(ids.requestFor("product", "preview", 45_100), undefined);
 for (let i = 0; i < 257; ++i) ids.remember("product", `p${i}`, `r${i}`, 200);
 assert.equal(ids.requestFor("product", "p0", 201), undefined);
 assert.equal(ids.requestFor("product", "p256", 201), "r256");
+ids.remember("product", "", "failed-preview-request", 300);
+assert.equal(ids.requestFor("product", "", 301), undefined, "non-promotable preview must not reuse an empty identity");

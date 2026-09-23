@@ -846,7 +846,7 @@ public:
             : result.status == assembly_api::SolveStatus::MaxIterations ? "MAX_ITERATIONS"
             : result.status == assembly_api::SolveStatus::InvalidModel  ? "INVALID_MODEL"
                                                                         : "NUMERICAL_FAILURE";
-        response->set_solver_build("assembly-m2.5-hierarchy-v6");
+        response->set_solver_build("assembly-m2.5-hierarchy-v8");
         response->set_status(status);
         const char* classification =
             result.classification == assembly_api::SolveClassification::SolvedFully ? "SOLVED_FULLY"

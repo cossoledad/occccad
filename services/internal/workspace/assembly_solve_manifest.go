@@ -14,7 +14,7 @@ import (
 
 const (
 	assemblySolveManifestSchema = 1
-	assemblySolverBuildPolicy   = "assembly-m3-lifecycle-v4"
+	assemblySolverBuildPolicy   = "assembly-m3-lifecycle-v7"
 	maxManifestBodies           = 4096
 	maxManifestGeometry         = 16384
 	maxManifestConstraints      = 16384
@@ -135,7 +135,7 @@ func newAssemblySolveManifest(documentID, revisionID, modelHash string, bodies [
 func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 	if manifest.SchemaVersion != assemblySolveManifestSchema || manifest.RootProductDocumentID == "" ||
 		manifest.RootProductRevisionID == "" || manifest.ModelHash == "" ||
-		(manifest.Purpose != "COMMIT" && manifest.Purpose != "PREVIEW") {
+		(manifest.Purpose != "COMMIT" && manifest.Purpose != "PREVIEW" && manifest.Purpose != "PROBE") {
 		return fmt.Errorf("%w: incomplete assembly SolveManifest identity", ErrValidation)
 	}
 	if len(manifest.Bodies) == 0 || len(manifest.Bodies) > maxManifestBodies || len(manifest.Geometry) > maxManifestGeometry ||

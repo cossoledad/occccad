@@ -65,6 +65,7 @@ type Callbacks = {
 };
 
 type SolidContext = {
+  instancePath?: SelectionItem["instancePath"];
   documentId: string; versionId?: string; geometryKey: string; occurrencePath: string; treeNodeId: string; instanceId?: string;
 };
 
@@ -1058,7 +1059,7 @@ export class CadViewportEngine {
           const resultTreeNodeId = resultBodyFeatureTreeNode(this.view?.structureTree, resolved.bodyTreeNodeId) ?? resolved.bodyTreeNodeId;
           const context: SolidContext = {
             documentId: resolved.documentId, versionId: resolved.instancePath.segments.at(-1)?.resolvedVersionId, geometryKey: artifact.geometryKey,
-            occurrencePath: resolved.occurrencePath, treeNodeId: resultTreeNodeId, instanceId: instance.id
+            instancePath: resolved.instancePath, occurrencePath: resolved.occurrencePath, treeNodeId: resultTreeNodeId, instanceId: instance.id
           };
           const solid = this.makeSolid(artifact, CATIA_VISUAL_THEME.productSurface, context);
           solid.userData = { kind: "instance", id: instance.id };
@@ -1147,6 +1148,7 @@ export class CadViewportEngine {
       }
       if (reference.kind === 'FACE') {
         const binding = [...this.solidBindings.values()].find((candidate) => candidate.context.instanceId === reference.instanceId &&
+      (!reference.instancePath || candidate.context.occurrencePath === reference.instancePath.canonical) &&
           candidate.artifact.geometryKey === reference.geometryKey);
         if (!binding || !reference.topologyId) return undefined;
         const normal = new THREE.Vector3(); let count = 0;
@@ -1162,6 +1164,7 @@ export class CadViewportEngine {
       if (reference.kind === 'AXIS' || reference.kind === 'EDGE' || reference.kind === 'CYLINDER') {
         if (reference.kind === 'EDGE') {
           const binding = [...this.solidBindings.values()].find((candidate) => candidate.context.instanceId === reference.instanceId &&
+      (!reference.instancePath || candidate.context.occurrencePath === reference.instancePath.canonical) &&
             candidate.artifact.geometryKey === reference.geometryKey);
           const edge = binding?.artifact.mesh.edges?.find((candidate) => candidate.localId === reference.topologyId);
           if (binding && edge && edge.points.length >= 2) {
@@ -1270,6 +1273,7 @@ export class CadViewportEngine {
     const geometryKey = resolvedTopology?.geometryKey ?? reference.geometryKey;
     const topologyId = resolvedTopology?.localId ?? reference.topologyId;
     const binding = [...this.solidBindings.values()].find((candidate) => candidate.context.instanceId === reference.instanceId &&
+      (!reference.instancePath || candidate.context.occurrencePath === reference.instancePath.canonical) &&
       (!geometryKey || candidate.artifact.geometryKey === geometryKey));
     if (reference.kind === "FACE" && binding && topologyId) {
       const anchor = new THREE.Vector3(); let count = 0;
@@ -1296,7 +1300,8 @@ export class CadViewportEngine {
     }
     let matched: THREE.Object3D | undefined;
     instance.traverse((object) => {
-      if (matched || object.userData.entityId !== reference.geometryId) return;
+      if (matched || object.userData.entityId !== reference.geometryId ||
+        (reference.instancePath && object.userData.occurrencePath !== reference.instancePath.canonical)) return;
       if (reference.kind === "PLANE" && object.userData.kind === "plane") matched = object;
       else if (reference.kind === "AXIS" && object.userData.kind === "axis" && (!reference.axis || object.userData.axis === reference.axis)) matched = object;
       else if (reference.kind === "POINT" && object.userData.kind === "axis-system") matched = object;
@@ -1321,7 +1326,7 @@ export class CadViewportEngine {
       kind: "plane" as const, id: `${context?.occurrencePath || "root"}:${id}`, entityId: id, plane, datumPlane: datum,
       treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
       versionId: context?.versionId,
-      geometryKey: context?.geometryKey, instanceId: context?.instanceId
+      geometryKey: context?.geometryKey, instancePath: context?.instancePath, instanceId: context?.instanceId
     };
     mesh.userData = selection;
     parent.add(mesh);
@@ -1349,7 +1354,7 @@ export class CadViewportEngine {
     const selection = { kind: "axis" as const, axis: "DATUM" as const,
       id: `${context?.occurrencePath || "root"}:${axis.id}`, entityId: axis.id, treeNodeId: context?.treeNodeId,
       documentId: context?.documentId, occurrencePath: context?.occurrencePath, geometryKey: context?.geometryKey,
-      instanceId: context?.instanceId };
+      instancePath: context?.instancePath, instanceId: context?.instanceId };
     reference.userData = selection;
     pickLine.userData = selection;
     reference.add(visibleLine, pickLine);
@@ -1368,7 +1373,7 @@ export class CadViewportEngine {
       kind: "axis-system" as const, id: `${context?.occurrencePath || "root"}:${axis.id}`,
       entityId: axis.id,
       treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
-      geometryKey: context?.geometryKey, instanceId: context?.instanceId
+      geometryKey: context?.geometryKey, instancePath: context?.instancePath, instanceId: context?.instanceId
     };
     const definitions = [["X", axis.xDirection, CATIA_VISUAL_THEME.axisX], ["Y", axis.yDirection, CATIA_VISUAL_THEME.axisY], ["Z", axis.zDirection, CATIA_VISUAL_THEME.axisZ]] as const;
     for (const [name, direction, color] of definitions) {

@@ -69,3 +69,24 @@ func TestAssemblySolveManifestFreezesCallerOwnedInputs(t *testing.T) {
 		})
 	}
 }
+
+func TestAssemblyManifestSeparatesQuarantinedDefinitionsFromEquations(t *testing.T) {
+	pose := geometry.AssemblyPose{Rotation: [4]float64{0, 0, 0, 1}}
+	manifest, err := newAssemblySolveManifest("product", "revision", "model",
+		[]geometry.AssemblyBody{{ID: "body", Pose: pose}}, nil,
+		[]geometry.AssemblyConstraint{{ID: "accepted", Kind: "FIX", FirstBodyID: "body", FixedPose: &pose}},
+		nil, nil, nil, []AssemblyConstraint{
+			{ID: "accepted", Kind: "FIX", EvaluationStatus: modelcore.AssemblyConstraintVerified},
+			{ID: "pending", Kind: "FIX", EvaluationStatus: modelcore.AssemblyConstraintNotUpdated},
+		})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(manifest.Definitions) != 2 || len(manifest.Constraints) != 1 || manifest.Constraints[0].ID != "accepted" {
+		t.Fatal("manifest lost quarantine distinction", manifest)
+	}
+	manifest.Purpose = "PROBE"
+	if err := validateAssemblySolveManifest(manifest); err != nil {
+		t.Fatal("admission evidence cannot be replayed", err)
+	}
+}

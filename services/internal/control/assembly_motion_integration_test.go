@@ -69,7 +69,7 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v6" || len(result.Components) != 1 {
+	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v8" || len(result.Components) != 1 {
 		t.Fatalf("invalid result: %+v", result)
 	}
 	p := result.Components[0].Preference

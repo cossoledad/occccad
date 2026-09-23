@@ -79,3 +79,5 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 REST `EDIT_FEATURE` 的数值 `length` 在省略 `unit` 时按模型毫米解释，与前端 `linearExtrudeLengthInput` 输出一致；显式单位仍经 Quantity 转换，表达式保留长度量纲验证。编辑适配器先构造有量纲 Quantity，再进入统一 typed edit/evaluation/ChangeSet 路径，预览和提交共享此规则。`TestEditFeatureAdapterDefaultsLengthToMillimeters` 覆盖缺省/显式单位及补偿恢复，避免无量纲 literal 引发 `UNIT_MISMATCH`。
 
 导入 Feature 使用 `importDefinitionId` 引用独立冻结的重放输入，包含 BREP 摘要、策略与随机拓扑身份映射；它不是可丢弃的求值缓存。`REPAIR_IMPORT_NAMING` 通过现有 entity PropertySlot 更新引用并生成新 Revision，支持正常补偿。命令重试在依据当前 Head 检查创建/修复前置条件之前核对已提交 request digest，避免成功后因前置条件已变化而错误拒绝重复请求；相同 request ID 的不同 payload 仍拒绝。
+
+装配历史恢复不能隐式执行“重新计算”：历史中的 NotUpdated/Impossible/Broken 及位姿属于当时的不可变结果。Product Undo/Redo 恢复精确字段；已成功快照仅在副本上生成验证证据，验证不得移动组件。反向操作的字段冲突前置条件来自实际最近一次补偿 Revision，恢复目标来自原命令，不能仅假设上次补偿未经过 evaluator 规范化。

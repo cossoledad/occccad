@@ -82,7 +82,7 @@ enum class ConstraintKind {
 
 enum class ConstraintMode { Driving, Measured, Controlled, Suppressed };
 
-// For alignment constraints Unoriented chooses the nearest same/opposite branch.
+// For alignment constraints Unoriented admits both same/opposite branches, choosing the nearest at each iterate.
 // Spatial Angle measures separation or its reflex according to the [0, 2pi] target.
 // Same/Opposite explicitly controls the endpoint direction before measurement.
 enum class DirectionRelation { Unoriented, Same, Opposite };

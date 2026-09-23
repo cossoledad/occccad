@@ -450,6 +450,7 @@ type InstancePose struct {
 }
 
 type AssemblyGeometryRef struct {
+	InstancePath          *InstancePath                  `json:"instancePath,omitempty"`
 	InstanceID            string                         `json:"instanceId"`
 	Kind                  string                         `json:"kind"`
 	GeometryID            string                         `json:"geometryId,omitempty"`

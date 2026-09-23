@@ -81,11 +81,14 @@ func applyAssemblyConstraintState(modelJSON, payloadJSON json.RawMessage) (json.
 }
 
 // Measurement is evidence about the accepted pose, never a driving value.
-func applyAssemblyMeasurements(model *ProductModel, result geometry.AssemblySolve, profile geometry.AssemblySolverProfile) {
+func applyAssemblyMeasurements(model *ProductModel, result geometry.AssemblySolve, profile geometry.AssemblySolverProfile, exclusions ...map[string]bool) {
 	for i := range model.Constraints {
 		c := &model.Constraints[i]
+		if len(exclusions) > 0 && exclusions[0][c.ID] {
+			continue
+		}
 		c.MeasuredValue = nil
-		if c.Suppressed || c.Mode != "MEASURED" {
+		if c.Suppressed || c.Mode != "MEASURED" || c.EvaluationStatus == modelcore.AssemblyConstraintImpossible || c.EvaluationStatus == modelcore.AssemblyConstraintBroken {
 			continue
 		}
 		valid, found := true, false
@@ -170,13 +173,18 @@ func acceptAssemblyEvaluationFailure(model *ProductModel, err error, allow bool)
 	if !allow || !errors.As(err, &failure) || failure.retryable {
 		return err
 	}
+	retained := false
 	for i := range model.Constraints {
 		c := &model.Constraints[i]
-		if c.Suppressed || c.EvaluationStatus == modelcore.AssemblyConstraintBroken {
+		if c.Suppressed || c.EvaluationStatus == modelcore.AssemblyConstraintVerified || c.EvaluationStatus == modelcore.AssemblyConstraintBroken || c.EvaluationStatus == modelcore.AssemblyConstraintImpossible {
 			continue
 		}
-		c.EvaluationStatus = modelcore.AssemblyConstraintImpossible
+		retained = true
+		c.EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
 		c.EvaluationSummary = failure.code + ": " + failure.diagnostic
+	}
+	if !retained {
+		return err
 	}
 	return nil
 }
@@ -228,4 +236,39 @@ func spatialAngleBranchDirection(a, b [3]float64, first, second *ProductInstance
 	q := normalizedInstanceRotation(second.Rotation)
 	local := rotateByPose(InstancePose{Rotation: [4]float64{-q[0], -q[1], -q[2], q[3]}}, cross)
 	return &local
+}
+
+func retainsAssemblyDefinition(commandType string) bool {
+	return commandType == typeAddAssemblyConstraint || commandType == typeEditAssemblyConstraint || commandType == typeSetAssemblyConstraintState || commandType == typeDeleteProductNode || commandType == typeDeleteProductNodes
+}
+
+// Intrinsic support incompatibility is local to this definition. It is rechecked
+// on every evaluation, unlike a transport error or a conflict between constraints.
+func markAssemblyImpossible(c *AssemblyConstraint, err error) bool {
+	if !errors.Is(err, ErrValidation) {
+		return false
+	}
+	c.EvaluationStatus = modelcore.AssemblyConstraintImpossible
+	c.EvaluationSummary = err.Error()
+	return true
+}
+
+func incompatibleAssemblyGeometry(c geometry.AssemblyConstraint, a, b geometry.AssemblyGeometry) string {
+	axis := func(k string) bool { return k == "AXIS" || k == "CYLINDER" }
+	direction := func(k string) bool { return axis(k) || k == "PLANE" }
+	switch c.Kind {
+	case "CONCENTRIC":
+		if !axis(a.Kind) || !axis(b.Kind) {
+			return "CONCENTRIC requires two axes or cylinders"
+		}
+	case "ANGLE", "PARALLEL", "PERPENDICULAR":
+		if !direction(a.Kind) || !direction(b.Kind) {
+			return "angular constraint requires directional supports"
+		}
+	case "COINCIDENT":
+		if a.Kind == "CYLINDER" && b.Kind == "CYLINDER" && math.Abs(a.Radius-b.Radius) > defaultAssemblySolverProfile().LengthTolerance {
+			return "coincident cylinder surfaces require equal radii; use concentric for unequal radii"
+		}
+	}
+	return ""
 }

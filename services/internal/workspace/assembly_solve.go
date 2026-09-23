@@ -120,7 +120,7 @@ func assemblyCapabilities(kind, firstKind, secondKind string) assemblyConstraint
 	}
 }
 
-func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevisionID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, warmStartKey string, evidence ...*geometry.AssemblySolve) (returnErr error) {
+func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRevisionID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, warmStartKey string, excluded map[string]bool, probe bool, evidence ...*geometry.AssemblySolve) (returnErr error) {
 	if len(model.Constraints) == 0 {
 		return nil
 	}
@@ -139,14 +139,15 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		if errors.As(returnErr, &failure) {
 			return
 		}
+		deterministic := errors.Is(returnErr, ErrValidation) || errors.Is(returnErr, ErrNotFound)
 		returnErr = workflow.failure(context.Background(), "INVALID_MODEL",
-			"ASSEMBLY_GEOMETRY_RESOLUTION_FAILED", returnErr.Error(), false)
+			"ASSEMBLY_GEOMETRY_RESOLUTION_FAILED", returnErr.Error(), !deterministic)
 	}()
 	if service.worker == nil {
 		return workflow.failure(context.Background(), "NUMERICAL_FAILURE",
 			"ASSEMBLY_SOLVER_UNAVAILABLE", "assembly solver is unavailable", true)
 	}
-	if err := service.resolveAssemblySupports(ctx, model); err != nil {
+	if err := service.resolveAssemblySupports(ctx, model, excluded); err != nil {
 		return err
 	}
 	instances := make(map[string]*ProductInstance, len(model.Instances))
@@ -194,7 +195,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		return nil
 	}
 	for index := range model.Constraints {
-		if model.Constraints[index].Suppressed {
+		if model.Constraints[index].Suppressed || excluded[model.Constraints[index].ID] {
 			continue
 		}
 		if err := applyVariantPublication(&model.Constraints[index].First); err != nil {
@@ -244,9 +245,9 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 	seenGeometry := map[string]bool{}
 	resolvedGeometry := map[string]geometry.AssemblyGeometry{}
 	resolveRef := func(reference AssemblyGeometryRef) (string, error) {
-		instance := instances[reference.InstanceID]
-		if instance == nil {
-			return "", fmt.Errorf("%w: assembly constraint references an unknown instance", ErrValidation)
+		instance, localPose, occurrenceErr := service.assemblyReferenceOccurrence(ctx, *model, reference)
+		if occurrenceErr != nil {
+			return "", occurrenceErr
 		}
 		if reference.PublicationRef != nil && (reference.PublicationResolution == nil || reference.PublicationResolution.Status != "CONNECTED") {
 			return "", fmt.Errorf("%w: assembly Publication endpoint is not connected", ErrValidation)
@@ -259,7 +260,8 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 			encoded, _ := json.Marshal(reference.PersistentSelection)
 			persistentKey = string(encoded)
 		}
-		key := reference.InstanceID + ":" + reference.Kind + ":" + reference.GeometryID + ":" + reference.Axis + ":" + persistentKey
+		pathKey, _ := json.Marshal(reference.InstancePath)
+		key := reference.InstanceID + ":" + string(pathKey) + ":" + reference.Kind + ":" + reference.GeometryID + ":" + reference.Axis + ":" + persistentKey
 		if seenGeometry[key] {
 			return key, nil
 		}
@@ -407,6 +409,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		default:
 			return "", fmt.Errorf("%w: assembly references support BODY, POINT, AXIS, PLANE, VERTEX, linear EDGE, and planar/cylindrical FACE", ErrValidation)
 		}
+		value = assemblyGeometryInBody(value, localPose)
 		seenGeometry[key] = true
 		resolvedGeometry[key] = value
 		geometryValues = append(geometryValues, value)
@@ -430,7 +433,7 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 	}
 	for constraintIndex := range model.Constraints {
 		constraint := &model.Constraints[constraintIndex]
-		if constraint.Suppressed {
+		if constraint.Suppressed || excluded[constraint.ID] {
 			continue
 		}
 		if constraint.EvaluationStatus == modelcore.AssemblyConstraintBroken {
@@ -441,6 +444,10 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		}
 		firstGeometry, err := resolveRef(constraint.First)
 		if err != nil {
+			if markAssemblyImpossible(constraint, err) {
+				hasUnresolvedActiveConstraint = true
+				continue
+			}
 			return err
 		}
 		appendResolutionEvidence(constraint.ID, "FIRST", firstGeometry, constraint.First)
@@ -465,6 +472,10 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		if constraint.Kind != "FIX" && constraint.Second != nil {
 			secondGeometry, resolveErr := resolveRef(*constraint.Second)
 			if resolveErr != nil {
+				if markAssemblyImpossible(constraint, resolveErr) {
+					hasUnresolvedActiveConstraint = true
+					continue
+				}
 				return resolveErr
 			}
 			appendResolutionEvidence(constraint.ID, "SECOND", secondGeometry, *constraint.Second)
@@ -473,11 +484,17 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		if value.Kind == "ANGLE" && constraint.AngleAxis != nil {
 			axisKey, err := resolveRef(*constraint.AngleAxis)
 			if err != nil {
+				if markAssemblyImpossible(constraint, err) {
+					hasUnresolvedActiveConstraint = true
+					continue
+				}
 				return err
 			}
 			axis := resolvedGeometry[axisKey]
 			if axis.Kind != "AXIS" && axis.Kind != "PLANE" && axis.Kind != "CYLINDER" {
-				return fmt.Errorf("%w: reference axis has no exact direction", ErrValidation)
+				markAssemblyImpossible(constraint, fmt.Errorf("%w: reference axis has no exact direction", ErrValidation))
+				hasUnresolvedActiveConstraint = true
+				continue
 			}
 			direction := axis.Direction
 			if constraint.ReverseAngleAxis {
@@ -519,6 +536,12 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 			}
 			value.SpatialAngleBranchDirection = constraint.SpatialAngleBranchDirection
 		}
+		if reason := incompatibleAssemblyGeometry(value, resolvedGeometry[value.FirstGeometryID], resolvedGeometry[value.SecondGeometryID]); reason != "" {
+			constraint.EvaluationStatus = modelcore.AssemblyConstraintImpossible
+			constraint.EvaluationSummary = reason
+			hasUnresolvedActiveConstraint = true
+			continue
+		}
 		constraints = append(constraints, value)
 	}
 	// A failed resolution is not an unconstrained solve. Only a genuinely
@@ -533,13 +556,27 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 	if err != nil {
 		return err
 	}
+	included := map[string]bool{}
+	for _, c := range constraints {
+		included[c.ID] = true
+	}
+	filteredEvidence := resolutionEvidence[:0]
+	for _, e := range resolutionEvidence {
+		if included[e.ConstraintID] {
+			filteredEvidence = append(filteredEvidence, e)
+		}
+	}
+	resolutionEvidence = filteredEvidence
 	manifest, err := newAssemblySolveManifest(documentID, rootRevisionID, canonicalModelHash(modelJSON), bodies, geometryValues,
 		constraints, intent, nil, resolutionEvidence, model.Constraints)
 	if err != nil {
 		return err
 	}
-	if strings.HasPrefix(requestID, "preview/") {
+	if probe || strings.HasPrefix(requestID, "preview/") {
 		manifest.Purpose = "PREVIEW"
+		if probe {
+			manifest.Purpose = "PROBE"
+		}
 		manifest.Digest = resolvedDigest(func() AssemblySolveManifest { value := manifest; value.Digest = ""; return value }())
 	}
 	if err := service.persistAssemblySolveManifest(ctx, manifest); err != nil {
@@ -620,12 +657,12 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 		}
 	}
 	for index := range model.Constraints {
-		if !model.Constraints[index].Suppressed && model.Constraints[index].EvaluationStatus != modelcore.AssemblyConstraintBroken {
+		if !excluded[model.Constraints[index].ID] && !model.Constraints[index].Suppressed && model.Constraints[index].EvaluationStatus != modelcore.AssemblyConstraintBroken && model.Constraints[index].EvaluationStatus != modelcore.AssemblyConstraintImpossible {
 			model.Constraints[index].EvaluationStatus = modelcore.AssemblyConstraintVerified
 			model.Constraints[index].EvaluationSummary = "resolved supports satisfy the accepted assembly solution"
 		}
 	}
-	applyAssemblyMeasurements(model, result, manifest.SolverProfile)
+	applyAssemblyMeasurements(model, result, manifest.SolverProfile, excluded)
 	service.assemblyWarmStarts.put(warmStartKey, *model)
 	if err := workflow.advance(context.Background()); err != nil {
 		return err

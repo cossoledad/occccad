@@ -195,7 +195,7 @@ func TestRestoredFailureKeepsBrokenAndInactiveEvidence(t *testing.T) {
 	if err := acceptAssemblyEvaluationFailure(&model, failure, true); err != nil {
 		t.Fatal(err)
 	}
-	if model.Constraints[0].EvaluationStatus != modelcore.AssemblyConstraintImpossible || model.Constraints[1].EvaluationStatus != modelcore.AssemblyConstraintBroken || model.Constraints[2].EvaluationStatus != modelcore.AssemblyConstraintVerified {
+	if model.Constraints[0].EvaluationStatus != modelcore.AssemblyConstraintNotUpdated || model.Constraints[1].EvaluationStatus != modelcore.AssemblyConstraintBroken || model.Constraints[2].EvaluationStatus != modelcore.AssemblyConstraintVerified {
 		t.Fatal("failure evidence lost orthogonal state")
 	}
 	retryable := *failure
@@ -317,5 +317,57 @@ func TestSpatialAngleSelectorFollowsAcceptedConeMotion(t *testing.T) {
 			}
 		}
 		previous = next
+	}
+}
+
+func TestAssemblyFailedDefinitionCanBeSavedSuppressedAndUndone(t *testing.T) {
+	before := ProductModel{Instances: []ProductInstance{{ID: "a", Name: "A.1", Translation: [3]float64{4, 0, 0}}, {ID: "b", Name: "B.1"}}}
+	raw, _ := json.Marshal(before)
+	c := AssemblyConstraint{ID: "pending", Kind: "COINCIDENT", First: AssemblyGeometryRef{InstanceID: "a", Kind: "PLANE", GeometryID: "xy"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "PLANE", GeometryID: "xy"}}
+	payload, _ := json.Marshal(addAssemblyConstraintPayload{Constraint: c})
+	candidate, changes, err := applyAddAssemblyConstraint(raw, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var model ProductModel
+	_ = json.Unmarshal(candidate, &model)
+	err = acceptAssemblyEvaluationFailure(&model, &assemblySolveFailure{status: "INCONSISTENT", code: "CONFLICT"}, retainsAssemblyDefinition(typeAddAssemblyConstraint))
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := json.Marshal(model)
+	changes = appendAssemblyEvaluationChanges(changes, before, model)
+	changes, err = reconcilePersistedChanges("PRODUCT", raw, after, changes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if model.Constraints[0].EvaluationStatus != modelcore.AssemblyConstraintNotUpdated || model.Instances[0].Translation != before.Instances[0].Translation {
+		t.Fatal(model)
+	}
+	disabled, _, err := applyAssemblyConstraintState(after, json.RawMessage(`{"constraintIds":["pending"],"suppressed":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled, _, err := applyAssemblyConstraintState(disabled, json.RawMessage(`{"constraintIds":["pending"],"suppressed":false}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var active ProductModel
+	_ = json.Unmarshal(enabled, &active)
+	if active.Constraints[0].Suppressed || active.Constraints[0].EvaluationStatus != modelcore.AssemblyConstraintNotUpdated {
+		t.Fatal(active)
+	}
+	values := map[modelcore.PropertyAddress]json.RawMessage{}
+	for _, change := range changes.Changes {
+		values[change.Target] = change.Before
+	}
+	restored, err := applyModelValues("PRODUCT", after, values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var undo ProductModel
+	_ = json.Unmarshal(restored, &undo)
+	if len(undo.Constraints) != 0 || undo.Instances[0].Translation != before.Instances[0].Translation {
+		t.Fatal(undo)
 	}
 }

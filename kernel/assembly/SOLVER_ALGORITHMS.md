@@ -120,9 +120,8 @@ Product 拒绝将它当作从动成功提交；不会误报为几何冲突。响
 
 ## 5. 当前约束残差
 
-记世界点为 `p`，轴为 `(o,d)`，平面为 `(o,n)`，其中方向均为单位向量。编译阶段从 nominal/warm-start pose 把
-`Unoriented` 固定为 `Same` 或 `Opposite`，并把无符号距离固定到初始侧；迭代中不再换支。Angle 的
-`Unoriented` 保留完整 `[0,π]` 语义。
+记世界点为 `p`，轴为 `(o,d)`，平面为 `(o,n)`，其中方向均为单位向量。无向对齐 `Unoriented` 在当前迭代选择最近的 `Same`/`Opposite` 分支，残差与解析 Jacobian 使用同一符号；初始姿态不排除另一个可行分支。无符号距离仍固定到初始侧。Angle 的
+`Unoriented` 保留完整 `[0,π]` 语义。无向对齐的错误半球驻点通过最多16次刚性 cluster 半周初值探测恢复；探测仅改 initial_guess，不改 nominal、硬约束或 motion intent，成功后仍做完整偏好优化，失败保留原诊断。
 
 | 约束与几何对 | 当前残差块 | 标量行数 |
 |---|---|---:|
@@ -393,3 +392,5 @@ SE(3) / world geometry / differential values
 0/π/2π 的可行集合退化为方向对齐，驱动模式使用向量差残差，秩为二；Measured 保留标量输出。精确共线且目标不满足时，只在初始猜测阶段绕确定的临时切向转开奇异点，随后仍用全部硬方程求解；分支方向是选解证据，不是额外对齐方程。指定轴角仍使用投影后的 atan2，拒绝零投影，保持一个标量方程和连续分支状态。
 
 `SpatialAnglePreservesConeAndComposesWithDifferentCoincidentLines` 验证30°/330°与不同方位的线重合可组合，真实法向点积正确且总秩为五；`SpatialAngleAcceptsAllAzimuthsAndReflexValues` 验证圆锥方位自由和解析 Jacobian。
+
+偏好阶段采用 BFGS 主搜索方向；线搜索停滞时，在零参考目标的可行子空间计算目标及硬约束的 Lagrangian Hessian，以正定 LDLT 给出第二方向。曲率由解析一阶导数的 Richardson 差分构造，不替代生产残差 Jacobian；仍要求原几何容差、参考目标界、下降或可证明的投影梯度下降，不把 Stalled 改名为 Converged。中央差分 oracle 在无向对齐的方向切换边界沿基点同一分支检查局部导数。

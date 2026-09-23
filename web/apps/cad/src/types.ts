@@ -161,7 +161,7 @@ export type ProductInstance = {
   headChanged?: boolean;
 };
 
-export type AssemblyGeometryRef = { instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER" | "FACE" | "EDGE" | "VERTEX";
+export type AssemblyGeometryRef = { instancePath?: InstancePath; instanceId: string; kind: "BODY" | "POINT" | "AXIS" | "PLANE" | "CYLINDER" | "FACE" | "EDGE" | "VERTEX";
   geometryId?: string; axis?: string; geometryKey?: string; topologyId?: number; sourceVersionId?: string;
   persistentSelection?: PersistentSelection; resolution?: { sourceVersionId: string; targetVersionId: string;
     manifestDigest: string; policyDigest: string; result: SelectionResolution };

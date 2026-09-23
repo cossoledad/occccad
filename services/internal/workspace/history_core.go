@@ -155,6 +155,31 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 		return err
 	}
 	original = reconciled
+	if documentType == "PRODUCT" {
+		var actualOutcome json.RawMessage
+		if request.Type == "REDO" {
+			err = service.database.QueryRow(ctx, `SELECT v.model_json FROM occccad.domain_transactions t
+            JOIN occccad.document_versions v ON v.id=t.result_revision_id
+            WHERE t.id=$1 AND t.workspace_id=$2 AND t.status='COMMITTED' AND t.kind='REVERT'`, consumedRevert, workspaceID).Scan(&actualOutcome)
+		} else {
+			err = service.database.QueryRow(ctx, `SELECT v.model_json FROM occccad.domain_transactions t
+            JOIN occccad.document_versions v ON v.id=t.result_revision_id
+            WHERE t.root_transaction_id=$1 AND t.workspace_id=$2 AND t.status='COMMITTED' AND t.kind='REAPPLY'
+            ORDER BY t.sequence DESC LIMIT 1`, rootTransaction, workspaceID).Scan(&actualOutcome)
+			if errors.Is(err, pgx.ErrNoRows) {
+				err = nil
+			}
+		}
+		if err != nil {
+			return err
+		}
+		if len(actualOutcome) > 0 {
+			original, err = historyChangeSetAgainstOutcome(documentType, original, actualOutcome, request.Type == "UNDO")
+			if err != nil {
+				return err
+			}
+		}
+	}
 	current, err := modelValues(documentType, modelJSON, original)
 	if err != nil {
 		return err
@@ -813,14 +838,8 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	} else {
 		var model ProductModel
 		if err = json.Unmarshal(input.modelJSON, &model); err == nil {
-			restoresFailedRevision := false
-			for _, c := range model.Constraints {
-				restoresFailedRevision = restoresFailedRevision || c.EvaluationStatus == modelcore.AssemblyConstraintImpossible
-			}
-			if err = service.solveAssembly(ctx, input.documentID, revisionID, input.requestID, "", nil, &model, ""); err != nil {
-				if err = acceptAssemblyEvaluationFailure(&model, err, restoresFailedRevision); err != nil {
-					return err
-				}
+			if err = service.verifyAssemblyHistory(ctx, input.documentID, revisionID, input.requestID, model); err != nil {
+				return err
 			}
 			var before json.RawMessage
 			if err = service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1`, input.headRevision).Scan(&before); err != nil {

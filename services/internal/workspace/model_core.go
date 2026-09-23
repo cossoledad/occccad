@@ -1863,7 +1863,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 				solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 			}
 			if err = service.solveAssembly(ctx, documentID, revisionID, prepared.requestID, drivenInstanceID, solveIntent, &model, ""); err != nil {
-				allowFailure := prepared.command.TypeURI == typeUpdateReferences || prepared.command.TypeURI == typeReplaceInstance
+				allowFailure := retainsAssemblyDefinition(prepared.command.TypeURI) || prepared.command.TypeURI == typeUpdateReferences || prepared.command.TypeURI == typeReplaceInstance
 				if err = acceptAssemblyEvaluationFailure(&model, err, allowFailure); err != nil {
 					finishSolve()
 					return err
@@ -2081,23 +2081,28 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 			solveIntent = assemblyConstraintSolveIntent(prepared.command, model)
 		}
 		var assemblyResult geometry.AssemblySolve
+		retainedFailure := false
 		warmStartKey := ""
 		if request.InteractionID != "" {
 			warmStartKey = documentID + "|" + prepared.actorID + "|" + request.InteractionID
 		}
 		if err = service.solveAssembly(ctx, documentID, prepared.headRevision, "preview/"+prepared.requestID, driven, solveIntent, &model, warmStartKey, &assemblyResult); err != nil {
-			restored, restoreErr := restoreMovePreviewOnSolveFailure(prepared.command.TypeURI, err, prepared.modelJSON, &model)
-			if restoreErr != nil {
-				return CommandPreview{}, restoreErr
+			if retained := acceptAssemblyEvaluationFailure(&model, err, retainsAssemblyDefinition(prepared.command.TypeURI)); retained == nil {
+				retainedFailure = true
+			} else {
+				restored, restoreErr := restoreMovePreviewOnSolveFailure(prepared.command.TypeURI, err, prepared.modelJSON, &model)
+				if restoreErr != nil {
+					return CommandPreview{}, restoreErr
+				}
+				if !restored {
+					return CommandPreview{}, err
+				}
+				constraintLimited = true
+				// A manipulator target is an ephemeral preference, not a new hard
+				// constraint. Until the solver exposes closest-feasible projection,
+				// an unreachable target previews the unchanged authoritative poses.
+				nextJSON = prepared.modelJSON
 			}
-			if !restored {
-				return CommandPreview{}, err
-			}
-			constraintLimited = true
-			// A manipulator target is an ephemeral preference, not a new hard
-			// constraint. Until the solver exposes closest-feasible projection,
-			// an unreachable target previews the unchanged authoritative poses.
-			nextJSON = prepared.modelJSON
 		}
 		if !constraintLimited {
 			nextJSON, err = json.Marshal(model)
@@ -2106,7 +2111,10 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 			}
 		}
 		previewID := newID("preview")
-		if !constraintLimited {
+		if retainedFailure || assemblyResult.Status != "CONVERGED" {
+			previewID = ""
+		}
+		if !constraintLimited && previewID != "" {
 			service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
 				headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
 				assemblyPreviewRequestID: "preview/" + prepared.requestID,

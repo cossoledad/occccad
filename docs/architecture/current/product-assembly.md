@@ -48,7 +48,7 @@ Web 以 root Product、active occurrence 和 definition/context 模式维护非�
 
 装配约束创建和编辑现在都从最终候选模型提取相同的 `moving first / reference second` solve intent，不再因命令类型改变规约锚点。显式 Same/Opposite 的平面重合若从精确反向端点开始，Solver 会绕被约束平面锚点生成确定性的半周 branch seed，再执行普通 component solve，避免依赖有限差分噪声逃离零梯度鞍点。约束数值输入期间只更新本地表单；失焦或 Enter 才产生一次可取消、带 sequence 防迟到覆盖的权威预览，支持元素和方向等离散变更仍立即预览。
 
-装配约束预览具有显式的两层工作流状态。Web 使用 XState actor 管理 `idle / pending / succeeded / failed`、请求 sequence、取消和迟到响应过滤；失败会在非模态约束面板中立即显示稳定错误码、服务端阶段和诊断，并阻止提交未经成功预览的 draft。Go Workspace 使用 Stateless 管理 `RESOLVING_GEOMETRY -> SOLVING -> APPLYING_RESULT -> COMPLETED`，任一活动阶段可进入 `FAILED`；API 对求解失败返回结构化 `code / phase / retryable`，而取消与 deadline 保持传输层语义。该工作流状态不持久化，也不取代 Product Revision、Command/ChangeSet 或 Solver 数值状态。
+装配约束预览具有显式的两层工作流状态。Web 使用 XState actor 管理 `idle / pending / succeeded / failed`、请求 sequence、取消和迟到响应过滤；传输、基础设施或非法命令失败会显示错误并阻止提交；可解析的约束定义即使数值求解失败，也会返回带 NotUpdated/Impossible 诊断的预览并允许保存。失败预览不作为已收敛候选提升，提交重新求解且不接受失败候选姿态。Go Workspace 使用 Stateless 管理 `RESOLVING_GEOMETRY -> SOLVING -> APPLYING_RESULT -> COMPLETED`，任一活动阶段可进入 `FAILED`；API 对求解失败返回结构化 `code / phase / retryable`，而取消与 deadline 保持传输层语义。该工作流状态不持久化，也不取代 Product Revision、Command/ChangeSet 或 Solver 数值状态。
 
 ## 实现与验证入口
 
@@ -79,9 +79,9 @@ Web 以 root Product、active occurrence 和 definition/context 模式维护非�
 
 产品约束新增独立 `suppressed`，与 `mode` 正交。`SET_ASSEMBLY_CONSTRAINT_STATE` 支持单个/批量停用、恢复及角度/距离量的 Driving/Measured 切换；实体 PropertySlot 记录完整状态，CAS、幂等与补偿历史复用正式命令路径。原模式和诊断在停用时保留；重新激活按已接受的 Part Revision 解析，不自动接受新 Head。树菜单、约束编辑面板、Inspector 与视口灰色标识可查看/切换状态。
 
-SolveManifest 同时冻结完整 `definitions` 与实际编译的约束。全部停用时仍记录空活动集合的求解与可重放结果；全部活动支持断裂时不伪造空集合求解证据。断链定义保持 Broken，其余可解析约束仍可求解。Update Plan/Release 排除停用项的 Verified 要求，旧 Release 的停用状态不随新 Head 激活而改变。Product Undo/Redo 为新 Revision 生成新的求解证据，并从最终模型重建位姿和约束实体写集。
+SolveManifest 同时冻结完整 `definitions` 与实际编译的约束。全部停用时仍记录空活动集合的求解与可重放结果；全部活动定义被隔离时可记录已接纳空集合的结果，但完整定义仍保留失败状态，不表示全部约束满足。断链定义保持 Broken，其余可解析约束仍可求解。Update Plan/Release 排除停用项的 Verified 要求，旧 Release 的停用状态不随新 Head 激活而改变。Product Undo/Redo 恢复事务的原始位姿、定义与评价状态。已 Verified 的快照在副本上验证并生成新求解证据，禁止借验证移动组件或重写历史字段；包含活动未解决定义的历史快照直接保留原失败结果，重新计算是独立 Domain Command。
 
-新增约束 identity 按 request ID 确定，浏览器保存 preview→request 对应关系；可复用的预览提交会冻结指向新 Revision 的 COMMIT manifest 与已验证结果，不重复求解，也不让 Release 依赖 PREVIEW 记录。当前 manifest policy 为 `assembly-m3-lifecycle-v4`，Worker solver build 为 `assembly-m2.5-hierarchy-v6`。
+新增约束 identity 按 request ID 确定，浏览器保存 preview→request 对应关系；可复用的预览提交会冻结指向新 Revision 的 COMMIT manifest 与已验证结果，不重复求解，也不让 Release 依赖 PREVIEW 记录。当前 manifest policy 为 `assembly-m3-lifecycle-v7`，Worker solver build 为 `assembly-m2.5-hierarchy-v8`。
 
 Angle 的 `angleRelation` 提供 FREE（默认无轴空间角）、DIRECTED（指定轴投影角）、PARALLEL、PERPENDICULAR 四种模式。两种数量角均接受0–360°；FREE 使用真实叉积范数/点积，不冻结旋转轴，正常构型控制一个转动自由度，0°/180°/360°驱动端点按方向对齐控制两个。无轴角保存第二组件局部坐标中的 `spatialAngleBranchDirection`，用叉积相对于该分支的符号区分正反解；分支只选择夹角扇区，不投影法向或添加对齐方程。首次从名义姿态建立，成功求解后沿已接受姿态运输，冻结到 manifest 并随 Undo/Redo 恢复；大于180°选择相反解，重复更新不翻回。DIRECTED 要求第二支持组件的稳定 `angleAxis`，可用 `reverseAngleAxis` 反向，沿既有 Datum/Publication/PersistentSelection 精确解析并将 `ANGLE_AXIS` 证据写入 manifest；仅约束投影方位角。切换到其他模式会清除旧轴及缓存方向，Undo 恢复完整定义。平行、垂直有独立工具栏入口；垂直以 `directionRelation` SAME/OPPOSITE 保存90°/270°意图，二者编译为带分支的空间角方程，实际选择相反姿态且不锁定轴。360°在求解提交时规范为0°。Undefined 不再永久改写为 Same。Offset 数值路径新增 Point–Axis 与 Axis–Plane，均有解析 Jacobian；零点点/点线偏移编译为重合方程，避免零范数梯度丢失其实际秩。Measured 输出独立 `measuredValue`，不改驱动值；两非平行平面等无有效常量距离的构型不显示旧数值。
 
@@ -90,3 +90,25 @@ Fix 新增 SPACE/RELATIVE 基准：相对固定接受显式移动后的名义位
 验证入口：[生命周期单元测试](../../../services/internal/workspace/assembly_lifecycle_test.go)、[0–6 阶、3+2+1 及常见关节有限运动测试](../../../kernel/assembly/tests/assembly_solver_scenarios.cpp)、[真实 Router/Worker、历史与 Release 集成](../../../services/internal/control/assembly_motion_integration_test.go)、[浏览器生命周期场景](../../../web/apps/cad/browser/assembly-lifecycle.spec.ts)。浏览器场景使用 Mock adapter 验证交互；权威计算另由真实 Router/Worker 与独立测试数据库验证。单项/批量激活、Measured 恢复、停用后移动、连续 Undo/Redo、空活动集重放、Release 后再激活、相对/空间 Fix 位姿行为已有真实链路回归。
 
 这些实现尚不代表“六类约束与生命周期补齐”整体完成：Contact、Circle/Sphere/Cone/Frame 等精确 descriptor、Point–Curve/Surface 完整组合、多成员且组内先解的 Fix Together、统一六类入口及新增几何族的参数/有限运动验收仍未完成。剩余任务见[装配计划](../../../plans/assembly-evolution.md)，目标语义见[六类约束合同](../target/assembly-constraints.md)。ACCEPT-PRODUCT 的已完成基线验收范围保持独立。
+
+### 嵌套支持与可修复的约束状态
+
+装配几何引用携带既有 typed `InstancePath`，按当前已接受的逐层 Product Revision 查找叶 Part 的 PersistentSelection；精确点/轴/面转换到直接子 Product 的 body-local frame。根装配求解仍将子 Product 视为刚体，不改变子 Product 内部自由度。几何键、显示名与网格编号不作为持久 occurrence 身份；路径消失产生 Broken。
+
+状态采用 CATIA 手册 `cfyugasm_C2/cfyugasmut1500.htm`（Analyzing Constraints）与 `cfyugasmut0316.htm`（Inconsistent or Over-constrained Assemblies）的区分：Verified 表示满足；Broken 表示支持引用失效；Impossible 表示单个约束与支持几何不兼容（例如不同半径圆柱表面重合）；NotUpdated 表示待更新或当前组合尚未解出，包含冲突、过约束与不收敛。数值失败不能证明几何不可能。重复但满足的冗余约束仍可 Verified，并保留 rank 冗余证据。
+
+添加、编辑、删除、抑制/激活允许保留可修复定义与失败诊断；抑制项、Broken、Impossible 及未获接纳的 NotUpdated 定义不进入已解方程集合。定义修改、激活/抑制、删除与显式重算会重新检查并尝试接纳；拖动只求解已接纳集合，不重试隔离项。失败试算不提交候选姿态；Undo/Redo 可恢复未满足定义；Release 仍要求所有活动约束 Verified。网络/Worker 不可用等可重试故障不伪装成模型结果。
+
+无向对齐保留同向与反向两个解，残差/Jacobian 在同一当前分支求值。如果方向残差在错误半球相互抵消，最多尝试16个替代半周初值，保留原 nominal、Fix、Rigid 和所有约束；收敛才接受。该有界数值策略不宣称证明所有非线性系统可解或不可解。
+
+偏好优化的普通 BFGS 方向若不能下降，会在参考目标为零的层级上使用约束流形的 Lagrangian 曲率作为第二搜索方向；保留几何恢复、参考优先级、能量回溯及原始收敛容差，解决长力臂圆柱同心约束的微小曲率停滞。无向关系切换边界的差分 oracle 固定基点局部分支，避免跨不连续点的中央差分被误判为解析 Jacobian 错误。
+
+Product 补偿冲突检查使用实际最近 REVERT/REAPPLY 结果 Revision 的字段作为预期值，恢复目标仍来自原命令 before/after；后续第三方或用户字段修改仍产生 CHANGESET_CONFLICT。不修改历史记录或清空 Undo/Redo 栈。
+
+### 已解集合与待接纳定义
+
+装配求值先验证既有 Verified 集合，再按持久约束顺序逐个试加入新增、修改或待恢复定义。某项与已解集合冲突或不收敛时，仅该项记为 NotUpdated 并隔离；此前已解项保持 Verified，之后独立项仍可接纳。如果上游几何变化使原集合整体失效，则按持久顺序重建已解集合。该策略是本系统的确定性接纳顺序，不宣称 NotUpdated 等价于证明“无解”；可满足的冗余约束仍由数值求解器判断。
+
+鼠标拖动的 MOVE_INSTANCE（含 preview/commit）只使用已接纳方程和交互 driver。隔离定义不参与支持解析、方程、自由度计算或测量更新；拖动不可为了成功而丢弃已有 Verified 约束。抑制/激活、删除、修改或显式重算会再次尝试隔离项，恢复后重新参与运动。
+
+每次接纳试算保留命令入口的 nominal pose；失败不污染姿态、warm start 或其他约束状态。网络、取消与基础设施故障使整次操作失败，不记为约束冲突。试算使用独立请求及 `PROBE` SolveManifest，最终 COMMIT/PREVIEW manifest 同时记录全部定义和实际接纳的方程集合；Release 不使用探测试算证据，活动隔离项仍阻止 Release。

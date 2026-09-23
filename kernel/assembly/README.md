@@ -96,8 +96,9 @@ exposes wrapped/unwrapped/winding branch state. Spatial angles without an axis
 use true separation in [0, 2pi] with a transported sector selector, distinguishing
 90 from 270 without projecting onto a fixed rotation axis.
 Spatial endpoints 0/pi/2pi use rank-two alignment; regular angles have rank one.
-Direction, distance-side and directed-angle
-branches are frozen outside residual evaluation. The versioned SolverProfile and
+Explicit direction, distance-side and directed-angle branches preserve intent.
+Unoriented alignment admits both directions; differential checks stay in the
+local branch selected at the base point. The versioned SolverProfile and
 rank/branch/suspected-conflict diagnostics cross the Proto, Worker and Go boundary.
 
 M2.5 returns per-body instantaneous translation, rotation/screw and allowed/blocked
@@ -140,3 +141,8 @@ Current dense Debug timings and browser acceptance are recorded in
 The translated/rotated FACE 4 to fixed FACE 6 regression is also available as a
 [minimal 3dreplay fixture](../../tests/assembly-corpus/face4-face6.3dreplay), replayable
 through the [standalone CLI](../../services/cmd/occccad-3dreplay/README.md).
+
+When the BFGS preference direction stalls, a positive Lagrangian-curvature
+fallback retries the line search without relaxing geometry, motion priorities or
+convergence tolerances. The total-motion fallback applies at a zero reference
+minimum; nonzero reference minima keep their existing hierarchical manifold.

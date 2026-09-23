@@ -139,7 +139,7 @@ Activate/Deactivate（抑制）控制该定义是否参与更新，作用于六�
 - 保留稳定 ID、完整参数、支持元素、组成员和原 Driving/Measured/Controlled 模式。持久激活状态与求解模式分开表达；若内部仍使用 `SUPPRESSED` 枚举，adapter 必须无损保存恢复前模式，不能激活后一律 Driving。
 - 单个/批量切换通过 versioned Domain Command、原子 ChangeSet、CAS、幂等和 Undo/Redo；不触发零件 Feature 重算，只使受影响装配 component、DOF、manifest/结果证据失效。
 - 非激活约束不进入硬方程、rigid-cluster 合并、rank/DOF 限制或活动冲突集合。组停用释放其组关系，但不删除或自动抑制组内独立定义的约束。
-- 停用对象保留可检查的引用状态；来源缺失仍可显示 NotConnected，但不以其 Broken 阻止其余活动约束求解。激活前重新解析当前快照，不能复用停用前 Verified。恢复时的失败遵循现有命令/失败 Revision 合同，清楚报告 Broken/Impossible，不假报成功。
+- 停用对象保留可检查的引用状态；来源缺失仍可显示 NotConnected，但不以其 Broken 阻止其余活动约束求解。激活前重新解析当前快照，不能复用停用前 Verified。恢复时重新检查支持与兼容性；允许保存 Broken/Impossible/NotUpdated 定义，失败不写入候选姿态，后续抑制、重连或编辑可恢复。
 - Deactivated、Connected/NotConnected、NotUpdated/Broken/Impossible/Verified、Measure 是不同维度。树、属性、视口符号和分析计数都需显示停用；停用标记不抹去诊断证据。
 - M3/Release 冻结全部定义与激活状态，参与 solver 的 active set 可重建。Release gate 对活动约束要求 Verified，对停用定义显式记录排除理由；停用不伪造 Verified，也不使旧 Release 随新激活状态变化。
 
@@ -148,3 +148,7 @@ Activate/Deactivate（抑制）控制该定义是否参与更新，作用于六�
 对标 `ut0403` 的轴向平移、平面平移、轴向旋转和由几何指定方向/轴。默认受约束编辑只在所有活动硬约束允许的流形上移动，固定/固联/抑制/测量模式都参与正确的自由度解释。
 
 实时不是每个 pointermove 提交 Revision。浏览器响应手势，服务端用不可变 M3 输入和 session branch/warm start 连续求解；请求合并、取消、背压和过期响应门保持有效。不可达目标返回最近可行 pose 与 blocked feedback；基础设施失败保留最后确认帧，不显示假成功。pointerup 等待最终确认，只形成一次版本化移动，Esc/cancel 不提交。具体交互性能预算与测量场景由[装配主线](../../../plans/assembly-evolution.md)维护。
+
+约束定义的合法性与求解可满足性分离：Impossible 仅用于几何与单个约束定义不兼容；组合冲突、过约束或数值未收敛使用 NotUpdated 并保留求解证据。结构树允许保存这些定义，抑制与激活可用于修复；旧失败状态不得永久阻止重新参与求值。无向关系允许两个方向分支，不能以首次添加时的姿态冻结其可行解集。
+
+已求解约束集合与待接纳定义分离。添加或修改导致组合冲突时保留原已解集合，仅将不能接纳的定义置为 NotUpdated 并排除出运动方程；已有可满足的冗余方程无需仅因秩冗余而失败。拖动不承担重试隔离定义的职责；显式重算、定义修改、删除、抑制/激活后按确定顺序重新尝试接纳。用户 Suppressed 与求值隔离是两个维度，不通过偷偷抑制来实现过滤。

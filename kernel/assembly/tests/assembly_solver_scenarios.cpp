@@ -776,7 +776,7 @@ TEST(AssemblySolver, UnsignedPointPlaneDistanceKeepsItsInitialSide) {
     EXPECT_NEAR(pose(result, "moving").translation.z, -2.0, 1.0e-6);
 }
 
-TEST(AssemblySolver, UnorientedPlaneCoincidenceFreezesTheInitialOppositeBranch) {
+TEST(AssemblySolver, UnorientedPlaneCoincidencePrefersTheInitialOppositeBranch) {
     Model model;
     model.bodies = {{"ground", {}}, {"moving", {{0.0, 0.0, 3.0}, {}}}};
     model.geometry = {{"plane", "ground", PlaneGeometry{}},
@@ -1148,4 +1148,33 @@ TEST(AssemblyComposition, DirectionRelationsEscapeStationaryInitialAlignment) {
 }
 
 }  // namespace
+
+TEST(AssemblySolver, UnorientedConcentricCanReverseForLaterPlaneCoincidence) {
+    for (const bool grounded : {false, true}) {
+    for (const bool reverse_order : {false, true}) {
+      for (const double initial_angle : {0.0, 0.2, 1.4, 1.8, 3.141592653589793}) {
+        Model model;
+        model.bodies = {{"ground", {}}, {"pin", {{}, {0, std::sin(initial_angle/2), 0, std::cos(initial_angle/2)}}}};
+        model.geometry = {{"axis", "ground", CylinderGeometry{{}, {0,0,1}, 2}},
+                          {"axis", "pin", CylinderGeometry{{}, {0,0,1}, 1}},
+                          {"end", "ground", PlaneGeometry{}},
+                          {"end", "pin", PlaneGeometry{}}};
+        auto concentric = binary("concentric", ConstraintKind::Concentric, ref("pin", "axis"), ref("ground", "axis"));
+        auto contact = binary("contact", ConstraintKind::Coincident, ref("pin", "end"), ref("ground", "end"));
+        contact.direction_relation = DirectionRelation::Opposite;
+        model.constraints = {fix("ground"), concentric, contact};
+        if (reverse_order) std::swap(model.constraints[1], model.constraints[2]);
+                if (!grounded) model.constraints.erase(model.constraints.begin());
+        SolverOptions options;
+        options.solve_intent = SolveIntent{{"pin"}, {"ground"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
+        const auto result = Solver{}.solve(model, options);
+        ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+        EXPECT_NEAR(rotate(pose(result, "pin").rotation, {0,0,1}).z, -1.0, 1e-7);
+        for (const auto& component : result.components)
+            EXPECT_EQ(component.preference.status, PreferenceStatus::Converged);
+      }
+    }
+    }
+}
+
 }  // namespace occccad::assembly

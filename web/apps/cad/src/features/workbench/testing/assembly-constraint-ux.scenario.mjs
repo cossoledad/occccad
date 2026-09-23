@@ -52,7 +52,18 @@ assert.equal(ux.assemblyConstraintGlyph("VERIFIED", 12), 12);
 assert.equal(ux.assemblyConstraintGlyph("BROKEN", 12), 20);
 assert.equal(ux.assemblyStatusFromDiagnostic("IMPOSSIBLE: conflicting component"), "IMPOSSIBLE");
 assert.equal(ux.assemblyStatusFromDiagnostic(undefined), "NOT_UPDATED");
-assert.equal(ux.assemblyStatusAfterPreviewFailure("SOLVING", false, [ux.assemblySupportPresentation(connected)]), "IMPOSSIBLE");
+assert.equal(ux.assemblyStatusAfterPreviewFailure("SOLVING", false, [ux.assemblySupportPresentation(connected)]), "NOT_UPDATED");
 assert.equal(ux.assemblyStatusAfterPreviewFailure("SOLVING", false, [ux.assemblySupportPresentation(broken)]), "BROKEN");
 assert.equal(ux.assemblyStatusAfterPreviewFailure("SOLVING", true, [ux.assemblySupportPresentation(connected)]), "NOT_UPDATED");
 console.log("Assembly constraint UX tests passed.");
+
+const referenceSource = await readFile(new URL("../../../cad/assembly/assembly-reference.ts", import.meta.url), "utf8");
+const referenceOutput = ts.transpileModule(referenceSource, { compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 } }).outputText;
+const { assemblyGeometryRef } = await import(`data:text/javascript;base64,${Buffer.from(referenceOutput).toString("base64")}`);
+const nestedPath = { rootDocumentId: "root", canonical: "sub/leaf", segments: [
+  { instanceId: "sub", referencedDocumentId: "product" }, { instanceId: "leaf", referencedDocumentId: "part" }
+] };
+assert.deepEqual(assemblyGeometryRef({ kind: "face", id: "face", instanceId: "sub", instancePath: nestedPath,
+  geometryKey: "leaf-geometry", topologyId: 3 }), {
+  instanceId: "sub", instancePath: nestedPath, kind: "FACE", geometryKey: "leaf-geometry", topologyId: 3
+});

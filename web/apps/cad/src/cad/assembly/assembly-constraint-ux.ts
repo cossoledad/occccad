@@ -6,8 +6,8 @@ export const ASSEMBLY_CONSTRAINT_STATUS: Record<AssemblyConstraintStatus, {
   label: string; color: string; glyph: number; description: string;
 }> = {
   VERIFIED: { label: "Verified", color: "#238b57", glyph: 17, description: "支持元素已连接，约束求解满足容差。" },
-  NOT_UPDATED: { label: "NotUpdated", color: "#ad6800", glyph: 18, description: "定义或依赖已变化，等待重新解析和求解。" },
-  IMPOSSIBLE: { label: "Impossible", color: "#9c36b5", glyph: 19, description: "支持元素已连接，但当前约束组合无法求解。" },
+  NOT_UPDATED: { label: "NotUpdated", color: "#ad6800", glyph: 18, description: "定义或依赖已变化，或当前约束系统冲突，等待更新。" },
+  IMPOSSIBLE: { label: "Impossible", color: "#9c36b5", glyph: 19, description: "支持元素已连接，但几何与该约束定义不兼容。" },
   BROKEN: { label: "Broken", color: "#c93636", glyph: 20, description: "至少一个支持元素无法连接，需要 Reconnect。" },
 };
 
@@ -61,6 +61,6 @@ export function assemblyStatusFromDiagnostic(diagnostic?: string): AssemblyConst
 export function assemblyStatusAfterPreviewFailure(phase: string | undefined, retryable: boolean,
   supports: readonly AssemblySupportPresentation[]): AssemblyConstraintStatus {
   if (supports.some((support) => support.status === "NOT_CONNECTED")) return "BROKEN";
-  if (phase === "SOLVING" && !retryable) return "IMPOSSIBLE";
+  // A failed solve alone does not prove intrinsic geometric incompatibility.
   return "NOT_UPDATED";
 }
