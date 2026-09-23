@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -423,12 +424,9 @@ func (service *Service) commitProductDesignCandidates(ctx context.Context, group
 		if err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,'READY',$7,$8,$9,$10)`, candidate.revisionID, candidate.documentID, candidate.headRevision, revisionSequence, candidate.nextJSON, geometry, auditCommandID, candidate.modelHash, dependencyDigest, manifestJSON); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, candidate.revisionID, candidate.headRevision); err != nil {
-			return err
-		}
+		batch := &pgx.Batch{}
+		batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,'READY',$7,$8,$9,$10)`, candidate.revisionID, candidate.documentID, candidate.headRevision, revisionSequence, candidate.nextJSON, geometry, auditCommandID, candidate.modelHash, dependencyDigest, manifestJSON)
+		batch.Queue(`INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, candidate.revisionID, candidate.headRevision)
 		requestJSON, _ := json.Marshal(candidate.request)
 		individualDigest := modelcore.ValueDigest(requestJSON)
 		kind := candidate.kind
@@ -444,50 +442,39 @@ func (service *Service) commitProductDesignCandidates(ctx context.Context, group
 		} else if kind == "REAPPLY" {
 			reappliesTransaction = candidate.consumedRevert
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO occccad.domain_transactions(id,workspace_id,sequence,actor_id,request_id,request_digest,kind,status,base_revision_id,result_revision_id,root_transaction_id,reverts_transaction_id,reapplies_transaction_id,product_design_transaction_id,committed_at) VALUES($1,$2,$3,$4,$5,$6,$7,'COMMITTED',$8,$9,$10,$11,$12,$13,now())`, candidate.transactionID, candidate.workspaceID, candidate.headSequence+1, actor, candidate.request.RequestID, individualDigest, kind, candidate.headRevision, candidate.revisionID, rootTransaction, revertsTransaction, reappliesTransaction, groupID); err != nil {
-			return err
-		}
+		batch.Queue(`INSERT INTO occccad.domain_transactions(id,workspace_id,sequence,actor_id,request_id,request_digest,kind,status,base_revision_id,result_revision_id,root_transaction_id,reverts_transaction_id,reapplies_transaction_id,product_design_transaction_id,committed_at) VALUES($1,$2,$3,$4,$5,$6,$7,'COMMITTED',$8,$9,$10,$11,$12,$13,now())`, candidate.transactionID, candidate.workspaceID, candidate.headSequence+1, actor, candidate.request.RequestID, individualDigest, kind, candidate.headRevision, candidate.revisionID, rootTransaction, revertsTransaction, reappliesTransaction, groupID)
 		payloadDigest := modelcore.ValueDigest(candidate.command.Payload)
-		if _, err := tx.Exec(ctx, `INSERT INTO occccad.transaction_commands(transaction_id,ordinal,command_id,type_uri,schema_version,payload,payload_digest) VALUES($1,0,$2,$3,$4,$5,$6)`, candidate.transactionID, candidate.command.CommandID, candidate.command.TypeURI, candidate.command.SchemaVersion, candidate.command.Payload, payloadDigest); err != nil {
-			return err
-		}
+		batch.Queue(`INSERT INTO occccad.transaction_commands(transaction_id,ordinal,command_id,type_uri,schema_version,payload,payload_digest) VALUES($1,0,$2,$3,$4,$5,$6)`, candidate.transactionID, candidate.command.CommandID, candidate.command.TypeURI, candidate.command.SchemaVersion, candidate.command.Payload, payloadDigest)
 		changesJSON, _ := json.Marshal(candidate.changes)
 		writes := make([]string, 0, len(candidate.changes.Changes))
 		for _, change := range candidate.changes.Changes {
 			writes = append(writes, change.Target.Key())
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO occccad.change_sets(transaction_id,canonical_blob,canonical_digest,write_set,impact_seeds) VALUES($1,$2,$3,$4,$5)`, candidate.transactionID, changesJSON, candidate.changes.CanonicalDigest, writes, candidate.changes.ImpactSeeds); err != nil {
-			return err
-		}
+		batch.Queue(`INSERT INTO occccad.change_sets(transaction_id,canonical_blob,canonical_digest,write_set,impact_seeds) VALUES($1,$2,$3,$4,$5)`, candidate.transactionID, changesJSON, candidate.changes.CanonicalDigest, writes, candidate.changes.ImpactSeeds)
 		manifestDigest := modelcore.ValueDigest(manifestJSON)
-		if _, err := tx.Exec(ctx, `INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,'SUCCEEDED',true)`, candidate.revisionID, strings.ToLower(candidate.documentType), evaluatorVersion, candidate.modelHash, manifestJSON, manifestDigest); err != nil {
-			return err
-		}
+		batch.Queue(`INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,'SUCCEEDED',true)`, candidate.revisionID, strings.ToLower(candidate.documentType), evaluatorVersion, candidate.modelHash, manifestJSON, manifestDigest)
 		for _, edge := range candidate.graph.Edges {
-			if _, err := tx.Exec(ctx, `INSERT INTO occccad.dependency_edges(revision_id,source_key,target_key,edge_kind) VALUES($1,$2,$3,$4)`, candidate.revisionID, edge.Source, edge.Target, edge.Kind); err != nil {
-				return err
-			}
+			batch.Queue(`INSERT INTO occccad.dependency_edges(revision_id,source_key,target_key,edge_kind) VALUES($1,$2,$3,$4)`, candidate.revisionID, edge.Source, edge.Target, edge.Kind)
 		}
 		eventPayload, _ := json.Marshal(map[string]any{"workspaceId": candidate.workspaceID, "sequence": candidate.headSequence + 1, "revisionId": candidate.revisionID, "transactionId": candidate.transactionID, "productDesignTransactionId": groupID, "modelHash": candidate.modelHash, "changeDigest": candidate.changes.CanonicalDigest})
-		if _, err := tx.Exec(ctx, `INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload) VALUES('WORKSPACE',$1,'workspace.transaction.committed.v1',1,$2)`, candidate.workspaceID, eventPayload); err != nil {
+		batch.Queue(`INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload) VALUES('WORKSPACE',$1,'workspace.transaction.committed.v1',1,$2)`, candidate.workspaceID, eventPayload)
+		if err := database.ExecBatch(ctx, tx, batch); err != nil {
 			return err
 		}
+
 		var position int
 		if err := tx.QueryRow(ctx, `SELECT coalesce(max(position),-1)+1 FROM occccad.document_history WHERE document_id=$1`, candidate.documentID).Scan(&position); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_history(document_id,position,version_id,command_id) VALUES($1,$2,$3,$4)`, candidate.documentID, position, candidate.revisionID, auditCommandID); err != nil {
+		batch = &pgx.Batch{}
+		batch.Queue(`INSERT INTO occccad.document_history(document_id,position,version_id,command_id) VALUES($1,$2,$3,$4)`, candidate.documentID, position, candidate.revisionID, auditCommandID)
+		batch.Queue(`INSERT INTO occccad.document_changes(document_id,version_id,command_id,change_type) VALUES($1,$2,$3,$4)`, candidate.documentID, candidate.revisionID, auditCommandID, candidate.request.Type)
+		batch.Queue(`UPDATE occccad.workspaces SET head_revision_id=$1,head_sequence=$2,updated_at=now() WHERE id=$3`, candidate.revisionID, candidate.headSequence+1, candidate.workspaceID)
+		batch.Queue(`UPDATE occccad.documents SET head_version_id=$1,updated_at=now() WHERE id=$2`, candidate.revisionID, candidate.documentID)
+		if err := database.ExecBatch(ctx, tx, batch); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_changes(document_id,version_id,command_id,change_type) VALUES($1,$2,$3,$4)`, candidate.documentID, candidate.revisionID, auditCommandID, candidate.request.Type); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `UPDATE occccad.workspaces SET head_revision_id=$1,head_sequence=$2,updated_at=now() WHERE id=$3`, candidate.revisionID, candidate.headSequence+1, candidate.workspaceID); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(ctx, `UPDATE occccad.documents SET head_version_id=$1,updated_at=now() WHERE id=$2`, candidate.revisionID, candidate.documentID); err != nil {
-			return err
-		}
+
 	}
 	// Product instance rows carry FKs to referenced revisions. Insert them only
 	// after every member revision exists; workspace lock order must not leak into

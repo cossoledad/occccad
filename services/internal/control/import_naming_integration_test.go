@@ -5,14 +5,14 @@ import (
 	"math"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
-func verifyImportedNaming(t *testing.T, db *pgxpool.Pool, client *geometry.Client, artifacts *artifact.Service, initial workspace.DocumentView) {
+func verifyImportedNaming(t *testing.T, db *database.Pool, client *geometry.Client, artifacts *artifact.Service, initial workspace.DocumentView) {
 	t.Helper()
 	service := workspace.NewWithArtifacts(db, client, artifacts)
 	part, err := service.GetDocument(t.Context(), initial.Document.ID)

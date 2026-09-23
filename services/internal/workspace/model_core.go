@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
@@ -1928,53 +1929,39 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	if geometryKey != "" {
 		nullableGeometry = geometryKey
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, revisionID, documentID, prepared.headRevision, revisionSequence, nextJSON, nullableGeometry, revisionState, auditCommandID, modelHash, dependencyDigest, manifestJSON); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, revisionID, prepared.headRevision); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO occccad.domain_transactions(id,workspace_id,sequence,actor_id,request_id,request_digest,kind,status,base_revision_id,result_revision_id,committed_at) VALUES($1,$2,$3,$4,$5,$6,'DOMAIN','COMMITTED',$7,$8,now())`, prepared.transactionID, prepared.workspaceID, currentSequence+1, prepared.actorID, prepared.requestID, prepared.requestDigest, prepared.headRevision, revisionID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO occccad.transaction_commands(transaction_id,ordinal,command_id,type_uri,schema_version,payload,payload_digest) VALUES($1,0,$2,$3,$4,$5,$6)`, prepared.transactionID, prepared.command.CommandID, prepared.command.TypeURI, prepared.command.SchemaVersion, prepared.command.Payload, payloadDigest); err != nil {
-		return err
-	}
+	batch := &pgx.Batch{}
+	batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, revisionID, documentID, prepared.headRevision, revisionSequence, nextJSON, nullableGeometry, revisionState, auditCommandID, modelHash, dependencyDigest, manifestJSON)
+	batch.Queue(`INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, revisionID, prepared.headRevision)
+	batch.Queue(`INSERT INTO occccad.domain_transactions(id,workspace_id,sequence,actor_id,request_id,request_digest,kind,status,base_revision_id,result_revision_id,committed_at) VALUES($1,$2,$3,$4,$5,$6,'DOMAIN','COMMITTED',$7,$8,now())`, prepared.transactionID, prepared.workspaceID, currentSequence+1, prepared.actorID, prepared.requestID, prepared.requestDigest, prepared.headRevision, revisionID)
+	batch.Queue(`INSERT INTO occccad.transaction_commands(transaction_id,ordinal,command_id,type_uri,schema_version,payload,payload_digest) VALUES($1,0,$2,$3,$4,$5,$6)`, prepared.transactionID, prepared.command.CommandID, prepared.command.TypeURI, prepared.command.SchemaVersion, prepared.command.Payload, payloadDigest)
 	writes := make([]string, 0, len(changes.Changes))
 	for _, change := range changes.Changes {
 		writes = append(writes, change.Target.Key())
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO occccad.change_sets(transaction_id,canonical_blob,canonical_digest,write_set,impact_seeds) VALUES($1,$2,$3,$4,$5)`, prepared.transactionID, changesJSON, changes.CanonicalDigest, writes, changes.ImpactSeeds); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,$7,true)`, revisionID, strings.ToLower(prepared.documentType), evaluatorVersion, modelHash, manifestJSON, manifestDigest, evaluationStatus); err != nil {
-		return err
-	}
+	batch.Queue(`INSERT INTO occccad.change_sets(transaction_id,canonical_blob,canonical_digest,write_set,impact_seeds) VALUES($1,$2,$3,$4,$5)`, prepared.transactionID, changesJSON, changes.CanonicalDigest, writes, changes.ImpactSeeds)
+	batch.Queue(`INSERT INTO occccad.evaluation_runs(revision_id,capability,evaluator_digest,input_digest,manifest,manifest_digest,status,authoritative) VALUES($1,$2,$3,$4,$5,$6,$7,true)`, revisionID, strings.ToLower(prepared.documentType), evaluatorVersion, modelHash, manifestJSON, manifestDigest, evaluationStatus)
 	for _, edge := range graph.Edges {
-		if _, err := tx.Exec(ctx, `INSERT INTO occccad.dependency_edges(revision_id,source_key,target_key,edge_kind) VALUES($1,$2,$3,$4)`, revisionID, edge.Source, edge.Target, edge.Kind); err != nil {
-			return err
-		}
+		batch.Queue(`INSERT INTO occccad.dependency_edges(revision_id,source_key,target_key,edge_kind) VALUES($1,$2,$3,$4)`, revisionID, edge.Source, edge.Target, edge.Kind)
 	}
 	eventPayload, _ := json.Marshal(map[string]any{"workspaceId": prepared.workspaceID, "sequence": currentSequence + 1, "revisionId": revisionID, "transactionId": prepared.transactionID, "modelHash": modelHash, "changeDigest": changes.CanonicalDigest})
-	if _, err := tx.Exec(ctx, `INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload) VALUES('WORKSPACE',$1,'workspace.transaction.committed.v1',1,$2)`, prepared.workspaceID, eventPayload); err != nil {
+	batch.Queue(`INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload) VALUES('WORKSPACE',$1,'workspace.transaction.committed.v1',1,$2)`, prepared.workspaceID, eventPayload)
+	if err := database.ExecBatch(ctx, tx, batch); err != nil {
 		return err
 	}
+
 	var position int
 	if err := tx.QueryRow(ctx, `SELECT coalesce(max(position),-1)+1 FROM occccad.document_history WHERE document_id=$1`, documentID).Scan(&position); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_history(document_id,position,version_id,command_id) VALUES($1,$2,$3,$4)`, documentID, position, revisionID, auditCommandID); err != nil {
+	batch = &pgx.Batch{}
+	batch.Queue(`INSERT INTO occccad.document_history(document_id,position,version_id,command_id) VALUES($1,$2,$3,$4)`, documentID, position, revisionID, auditCommandID)
+	batch.Queue(`INSERT INTO occccad.document_changes(document_id,version_id,command_id,change_type) VALUES($1,$2,$3,$4)`, documentID, revisionID, auditCommandID, request.Type)
+	batch.Queue(`UPDATE occccad.workspaces SET head_revision_id=$1,head_sequence=$2,updated_at=now() WHERE id=$3`, revisionID, currentSequence+1, prepared.workspaceID)
+	batch.Queue(`UPDATE occccad.documents SET head_version_id=$1,updated_at=now() WHERE id=$2`, revisionID, documentID)
+	if err := database.ExecBatch(ctx, tx, batch); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_changes(document_id,version_id,command_id,change_type) VALUES($1,$2,$3,$4)`, documentID, revisionID, auditCommandID, request.Type); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE occccad.workspaces SET head_revision_id=$1,head_sequence=$2,updated_at=now() WHERE id=$3`, revisionID, currentSequence+1, prepared.workspaceID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec(ctx, `UPDATE occccad.documents SET head_version_id=$1,updated_at=now() WHERE id=$2`, revisionID, documentID); err != nil {
-		return err
-	}
+
 	if prepared.documentType == "PRODUCT" {
 		var model ProductModel
 		_ = json.Unmarshal(nextJSON, &model)

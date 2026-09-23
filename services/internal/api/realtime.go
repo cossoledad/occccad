@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/occccad/occccad/internal/access"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
@@ -432,6 +433,8 @@ func (client *realtimeClient) sendDomainError(correlationID string, err error) {
 		Retryable() bool
 	}
 	switch {
+	case errors.Is(err, database.ErrBusy):
+		code, retryable = "DATABASE_BUSY", true
 	case errors.As(err, &domainFailure):
 		code, retryable = domainFailure.Code(), domainFailure.Retryable()
 	case strings.Contains(err.Error(), "CONFLICT"):
@@ -471,6 +474,7 @@ func newRealtimeEnvelope(kind, messageType, correlationID string, sequence *uint
 }
 
 func (server *Server) dispatchRealtimeOutbox(ctx context.Context) {
+	ctx = database.Background(ctx)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {

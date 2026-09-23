@@ -6,15 +6,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
 // Called by the real Router fixture after producing a native BREP. ImportExchange
 // has a frozen naming definition; the legacy fixture below intentionally omits it.
-func verifyImportNamingDiagnostics(t *testing.T, db *pgxpool.Pool, client *geometry.Client, artifacts *artifact.Service, source workspace.DocumentView) {
+func verifyImportNamingDiagnostics(t *testing.T, db *database.Pool, client *geometry.Client, artifacts *artifact.Service, source workspace.DocumentView) {
 	t.Helper()
 	if source.Artifact.Naming.Status != "READY" || !source.Artifact.Naming.CanBind {
 		t.Fatalf("native capability regressed: %+v", source.Artifact.Naming)

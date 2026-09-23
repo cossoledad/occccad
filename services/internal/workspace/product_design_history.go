@@ -52,17 +52,26 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 	}
 	defer rows.Close()
 
+	type historyRow struct {
+		originalTransaction, workspaceID, documentID, documentType, headRevision string
+		headSequence                                                             uint64
+		currentJSON, baseJSON, resultJSON, changeJSON                            []byte
+		geometryKey                                                              *string
+		persistedWrites                                                          []string
+	}
+	inputs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (historyRow, error) {
+		var v historyRow
+		err := row.Scan(&v.originalTransaction, &v.workspaceID, &v.documentID, &v.documentType, &v.headRevision, &v.headSequence, &v.currentJSON, &v.geometryKey, &v.baseJSON, &v.resultJSON, &v.changeJSON, &v.persistedWrites)
+		return v, err
+	})
+	if err != nil {
+		return err
+	}
 	candidates := []atomicDomainCandidate{}
-	for rows.Next() {
-		var originalTransaction, workspaceID, documentID, documentType, headRevision string
-		var headSequence uint64
-		var currentJSON, baseJSON, resultJSON, changeJSON []byte
-		var geometryKey *string
-		var persistedWrites []string
-		if err := rows.Scan(&originalTransaction, &workspaceID, &documentID, &documentType, &headRevision, &headSequence,
-			&currentJSON, &geometryKey, &baseJSON, &resultJSON, &changeJSON, &persistedWrites); err != nil {
-			return err
-		}
+	for _, v := range inputs {
+		originalTransaction, workspaceID, documentID, documentType, headRevision := v.originalTransaction, v.workspaceID, v.documentID, v.documentType, v.headRevision
+		headSequence, currentJSON, baseJSON, resultJSON, changeJSON, geometryKey, persistedWrites := v.headSequence, v.currentJSON, v.baseJSON, v.resultJSON, v.changeJSON, v.geometryKey, v.persistedWrites
+
 		consumedRevert := ""
 		if request.Type == "UNDO" {
 			var latest string

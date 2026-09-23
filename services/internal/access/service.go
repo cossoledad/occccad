@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/occccad/occccad/internal/database"
 )
 
 const DefaultUserID = "00000000-0000-7000-8000-000000000001"
@@ -90,9 +90,9 @@ type AuditEvent struct {
 	CreatedAt    string         `json:"createdAt"`
 }
 
-type Service struct{ database *pgxpool.Pool }
+type Service struct{ database *database.Pool }
 
-func New(database *pgxpool.Pool) *Service { return &Service{database: database} }
+func New(database *database.Pool) *Service { return &Service{database: database} }
 
 type principalContextKey struct{}
 

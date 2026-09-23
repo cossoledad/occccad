@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/occccad/occccad/internal/database"
 )
 
 // This test uses an explicitly supplied disposable database. It validates the
@@ -18,7 +18,7 @@ func TestHistoryCapabilitiesAcrossTwoUndoAndRedoSteps(t *testing.T) {
 		t.Skip("OCCCCAD_TEST_DATABASE_URL is not set")
 	}
 	ctx := context.Background()
-	pool, err := pgxpool.New(ctx, url)
+	pool, err := database.Open(ctx, url)
 	if err != nil {
 		t.Fatal(err)
 	}

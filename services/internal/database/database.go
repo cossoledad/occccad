@@ -6,7 +6,9 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -16,7 +18,7 @@ import (
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
-func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+func Open(ctx context.Context, databaseURL string) (*Pool, error) {
 	config, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse database configuration: %w", err)
@@ -24,10 +26,38 @@ func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	config.ConnConfig.RuntimeParams["search_path"] = "occccad,public"
 	config.ConnConfig.RuntimeParams["statement_timeout"] = "15000"
 	config.ConnConfig.RuntimeParams["idle_in_transaction_session_timeout"] = "15000"
-	pool, err := pgxpool.NewWithConfig(ctx, config)
+	// Connection capacity comes from pgx's pool_max_conns setting. Bound pending
+	// work separately; explicit scheduler settings do not create more connections.
+	concurrent := int(config.MaxConns)
+	queued := 64
+	background := max(1, concurrent/4)
+	backgroundQueued := 16
+	wait := 2000
+	for name, target := range map[string]*int{"OCCCCAD_DB_CONCURRENCY": &concurrent, "OCCCCAD_DB_QUEUE_CAPACITY": &queued, "OCCCCAD_DB_BACKGROUND_CONCURRENCY": &background, "OCCCCAD_DB_BACKGROUND_QUEUE_CAPACITY": &backgroundQueued, "OCCCCAD_DB_QUEUE_TIMEOUT_MS": &wait} {
+		if raw := os.Getenv(name); raw != "" {
+			value, parseErr := strconv.Atoi(raw)
+			if parseErr != nil {
+				return nil, fmt.Errorf("invalid %s", name)
+			}
+			*target = value
+		}
+	}
+	if os.Getenv("OCCCCAD_DB_BACKGROUND_CONCURRENCY") == "" {
+		background = max(1, concurrent/4)
+	}
+	limits := Limits{Concurrent: concurrent, Queued: queued, BackgroundConcurrent: background, BackgroundQueued: backgroundQueued, WaitTimeout: time.Duration(wait) * time.Millisecond}
+	if err := limits.validate(); err != nil {
+		return nil, err
+	}
+	if concurrent > int(config.MaxConns) {
+		return nil, fmt.Errorf("database concurrency exceeds pool_max_conns")
+	}
+	config.ConnConfig.Tracer = timingTracer{}
+	rawPool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return nil, fmt.Errorf("create database pool: %w", err)
 	}
+	pool := &Pool{raw: rawPool, backend: rawPool, scheduler: newScheduler(limits)}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("ping database: %w", err)
@@ -38,8 +68,8 @@ func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 // ResetDevelopmentSchema removes every occccad-owned PostgreSQL object. It is
 // intentionally separate from Migrate so callers must opt into the destructive
 // development workflow before rebuilding the current schema baseline.
-func ResetDevelopmentSchema(ctx context.Context, pool *pgxpool.Pool) (string, error) {
-	connection, err := pool.Acquire(ctx)
+func ResetDevelopmentSchema(ctx context.Context, pool *Pool) (string, error) {
+	connection, err := pool.raw.Acquire(ctx)
 	if err != nil {
 		return "", fmt.Errorf("acquire development reset connection: %w", err)
 	}
@@ -60,8 +90,8 @@ func ResetDevelopmentSchema(ctx context.Context, pool *pgxpool.Pool) (string, er
 	return databaseName, nil
 }
 
-func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
-	connection, err := pool.Acquire(ctx)
+func Migrate(ctx context.Context, pool *Pool) error {
+	connection, err := pool.raw.Acquire(ctx)
 	if err != nil {
 		return fmt.Errorf("acquire migration connection: %w", err)
 	}

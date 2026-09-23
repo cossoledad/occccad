@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/occccad/occccad/internal/access"
+	"github.com/occccad/occccad/internal/database"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -61,11 +61,11 @@ type UpdateUserRequest struct {
 }
 
 type Service struct {
-	database        *pgxpool.Pool
+	database        *database.Pool
 	sessionDuration time.Duration
 }
 
-func New(database *pgxpool.Pool, sessionDuration time.Duration) *Service {
+func New(database *database.Pool, sessionDuration time.Duration) *Service {
 	if sessionDuration <= 0 {
 		sessionDuration = 12 * time.Hour
 	}

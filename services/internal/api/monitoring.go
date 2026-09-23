@@ -4,6 +4,8 @@ import (
 	"crypto/subtle"
 	"net/http"
 	"os"
+
+	"github.com/occccad/occccad/internal/database"
 )
 
 func (server *Server) monitoringSnapshot(writer http.ResponseWriter, request *http.Request) {
@@ -14,24 +16,20 @@ func (server *Server) monitoringSnapshot(writer http.ResponseWriter, request *ht
 		return
 	}
 	connections, subscribed := server.realtime.monitoringCounts()
-	counts := map[string]int{}
-	queries := map[string]string{
-		"documents":  `SELECT count(*) FROM occccad.documents WHERE deleted_at IS NULL`,
-		"revisions":  `SELECT count(*) FROM occccad.document_versions`,
-		"jobsQueued": `SELECT count(*) FROM occccad.jobs WHERE state IN ('QUEUED','RUNNING','RETRY_WAIT')`,
-		"artifacts":  `SELECT count(*) FROM occccad.artifact_objects`,
+	var documents, revisions, jobsQueued, artifacts int
+	if err := server.database.QueryRow(database.Background(request.Context()), `SELECT
+  (SELECT count(*) FROM occccad.documents WHERE deleted_at IS NULL),
+  (SELECT count(*) FROM occccad.document_versions),
+  (SELECT count(*) FROM occccad.jobs WHERE state IN ('QUEUED','RUNNING','RETRY_WAIT')),
+  (SELECT count(*) FROM occccad.artifact_objects)`).Scan(&documents, &revisions, &jobsQueued, &artifacts); err != nil {
+		writeError(writer, http.StatusServiceUnavailable, "monitoring query failed")
+		return
 	}
-	for name, query := range queries {
-		var count int
-		if err := server.database.QueryRow(request.Context(), query).Scan(&count); err != nil {
-			writeError(writer, http.StatusServiceUnavailable, "monitoring query failed")
-			return
-		}
-		counts[name] = count
-	}
+	counts := map[string]int{"documents": documents, "revisions": revisions, "jobsQueued": jobsQueued, "artifacts": artifacts}
 	writeJSON(writer, http.StatusOK, map[string]any{
 		"realtimeConnections": connections, "subscribedDocuments": subscribed,
 		"openDocumentSessions": server.openDocuments.sessionCount(), "counts": counts,
 		"openDocuments": server.openDocuments.monitoringDocuments(),
+		"database":      server.database.Snapshot(),
 	})
 }

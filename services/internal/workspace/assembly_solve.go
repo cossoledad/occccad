@@ -8,6 +8,7 @@ import (
 	"math"
 	"strings"
 
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
@@ -140,7 +141,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		// Cancellation/deadline are request transport semantics. Preserve them so
 		// the HTTP boundary can return its established timeout response instead of
 		// misclassifying them as an assembly-model failure.
-		if errors.Is(returnErr, context.Canceled) || errors.Is(returnErr, context.DeadlineExceeded) {
+		if errors.Is(returnErr, context.Canceled) || errors.Is(returnErr, context.DeadlineExceeded) || errors.Is(returnErr, database.ErrBusy) {
 			return
 		}
 		var failure *assemblySolveFailure

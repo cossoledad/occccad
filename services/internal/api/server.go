@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/authn"
@@ -30,7 +30,7 @@ import (
 )
 
 type Server struct {
-	database       *pgxpool.Pool
+	database       *database.Pool
 	worker         *geometry.Client
 	workspace      *workspace.Service
 	access         *access.Service
@@ -45,7 +45,7 @@ type Server struct {
 }
 
 func New(
-	database *pgxpool.Pool,
+	database *database.Pool,
 	worker *geometry.Client,
 	workspaceService *workspace.Service,
 	accessService *access.Service,
@@ -107,6 +107,9 @@ func (server *Server) requireFolder(writer http.ResponseWriter, request *http.Re
 }
 
 func writeAccessError(writer http.ResponseWriter, err error) {
+	if writeDatabaseBusy(writer, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, access.ErrUnauthorized):
 		writeError(writer, http.StatusUnauthorized, err.Error())
@@ -155,11 +158,20 @@ func (server *Server) enqueueDocumentPreviews(ctx context.Context, changed works
 		return err
 	}
 	defer rows.Close()
+	var affected [][2]string
 	for rows.Next() {
 		var documentID, versionID string
 		if err := rows.Scan(&documentID, &versionID); err != nil {
 			return err
 		}
+		affected = append(affected, [2]string{documentID, versionID})
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, item := range affected {
+		documentID, versionID := item[0], item[1]
 		digest := sha256.Sum256([]byte(documentID + ":" + versionID + ":" +
 			changed.Document.ID + ":" + changed.Document.VersionID + ":" + thumbnail.RendererVersion))
 		identity := hex.EncodeToString(digest[:])
@@ -1086,6 +1098,9 @@ func (server *Server) previewCommand(writer http.ResponseWriter, request *http.R
 		writeJSON(writer, http.StatusOK, result)
 		return
 	}
+	if writeDatabaseBusy(writer, err) {
+		return
+	}
 	if errors.Is(err, workspace.ErrNotFound) {
 		writeError(writer, http.StatusNotFound, err.Error())
 		return
@@ -1125,6 +1140,9 @@ func decodeJSON(writer http.ResponseWriter, request *http.Request, value any) bo
 }
 
 func writeWorkspaceResult(writer http.ResponseWriter, result workspace.DocumentView, err error) {
+	if writeDatabaseBusy(writer, err) {
+		return
+	}
 	if err == nil {
 		writeJSON(writer, http.StatusOK, result)
 		return
@@ -1202,6 +1220,9 @@ func (server *Server) middleware(next http.Handler) http.Handler {
 			resolved, err := server.authn.Authenticate(request.Context(), cookie.Value)
 			if err != nil {
 				finishAuth()
+				if writeDatabaseBusy(writer, err) {
+					return
+				}
 				server.clearSessionCookies(writer)
 				writeError(writer, http.StatusUnauthorized, "authentication required")
 				return
@@ -1210,8 +1231,16 @@ func (server *Server) middleware(next http.Handler) http.Handler {
 			if request.Method != http.MethodGet && request.Method != http.MethodHead {
 				csrfCookie, cookieErr := request.Cookie(csrfCookieName)
 				csrfHeader := request.Header.Get("X-CSRF-Token")
-				if cookieErr != nil || csrfHeader == "" || csrfCookie.Value != csrfHeader ||
-					server.authn.ValidateCSRF(request.Context(), cookie.Value, csrfHeader) != nil {
+				var csrfErr error
+				if cookieErr == nil && csrfHeader != "" && csrfCookie.Value == csrfHeader {
+					csrfErr = server.authn.ValidateCSRF(request.Context(), cookie.Value, csrfHeader)
+					if errors.Is(csrfErr, database.ErrBusy) {
+						finishAuth()
+						writeDatabaseBusy(writer, csrfErr)
+						return
+					}
+				}
+				if cookieErr != nil || csrfHeader == "" || csrfCookie.Value != csrfHeader || csrfErr != nil {
 					finishAuth()
 					writeError(writer, http.StatusForbidden, "invalid CSRF token")
 					return
@@ -1306,4 +1335,13 @@ func writeJSON(writer http.ResponseWriter, status int, value any) {
 
 func writeError(writer http.ResponseWriter, status int, message string) {
 	writeJSON(writer, status, map[string]string{"error": message})
+}
+
+func writeDatabaseBusy(writer http.ResponseWriter, err error) bool {
+	if !errors.Is(err, database.ErrBusy) {
+		return false
+	}
+	writer.Header().Set("Retry-After", "1")
+	writeJSON(writer, http.StatusServiceUnavailable, map[string]any{"error": "database is busy; retry with the same request ID", "code": "DATABASE_BUSY", "retryable": true})
+	return true
 }

@@ -213,6 +213,9 @@ func (server *Server) adminStats(writer http.ResponseWriter, request *http.Reque
 }
 
 func writeAuthError(writer http.ResponseWriter, err error) {
+	if writeDatabaseBusy(writer, err) {
+		return
+	}
 	switch {
 	case errors.Is(err, authn.ErrUnauthorized):
 		writeError(writer, http.StatusUnauthorized, err.Error())

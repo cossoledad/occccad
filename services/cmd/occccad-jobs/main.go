@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
@@ -34,7 +33,7 @@ import (
 type handler struct {
 	workerID               string
 	thumbnailRenderTimeout time.Duration
-	database               *pgxpool.Pool
+	database               *database.Pool
 	queue                  *jobs.Service
 	access                 *access.Service
 	artifacts              *artifact.Service

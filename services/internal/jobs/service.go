@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/occccad/occccad/internal/database"
 )
 
 var ErrNotFound = errors.New("job not found")
@@ -45,9 +45,9 @@ type EnqueueRequest struct {
 	UserVisible                                                  bool
 }
 
-type Service struct{ database *pgxpool.Pool }
+type Service struct{ database *database.Pool }
 
-func New(database *pgxpool.Pool) *Service { return &Service{database: database} }
+func New(database *database.Pool) *Service { return &Service{database: database} }
 
 func (service *Service) Enqueue(ctx context.Context, request EnqueueRequest) (Job, error) {
 	payload, err := json.Marshal(request.Payload)

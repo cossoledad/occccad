@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/occccad/occccad/internal/database"
 )
 
 type Object struct {
@@ -22,11 +22,11 @@ type Object struct {
 }
 
 type Service struct {
-	database *pgxpool.Pool
+	database *database.Pool
 	store    Store
 }
 
-func NewService(database *pgxpool.Pool, store Store) *Service {
+func NewService(database *database.Pool, store Store) *Service {
 	return &Service{database: database, store: store}
 }
 

@@ -16,10 +16,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/occccad/occccad/internal/database"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/debugartifact"
@@ -75,7 +75,7 @@ func (service *Service) BranchWorkspace(ctx context.Context, documentID string, 
 }
 
 type Service struct {
-	database              *pgxpool.Pool
+	database              *database.Pool
 	worker                *geometry.Client
 	artifacts             *artifactstore.Service
 	artifactCacheMu       sync.RWMutex
@@ -88,11 +88,11 @@ type Service struct {
 	selectionResolutions  sync.Map
 }
 
-func New(database *pgxpool.Pool, worker *geometry.Client) *Service {
+func New(database *database.Pool, worker *geometry.Client) *Service {
 	return &Service{database: database, worker: worker, artifactCache: map[string]Artifact{}}
 }
 
-func NewWithArtifacts(database *pgxpool.Pool, worker *geometry.Client, artifacts *artifactstore.Service) *Service {
+func NewWithArtifacts(database *database.Pool, worker *geometry.Client, artifacts *artifactstore.Service) *Service {
 	return &Service{database: database, worker: worker, artifacts: artifacts, artifactCache: map[string]Artifact{}}
 }
 
@@ -206,12 +206,17 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 			&item.WorkspaceName, &item.Permission); err != nil {
 			return DocumentPage{}, err
 		}
-		item.CanUndo, item.CanRedo, err = service.historyCapabilities(ctx, item.ID, options.ActorID)
-		if err != nil {
-			return DocumentPage{}, err
-		}
+
 		result = append(result, item)
 	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return DocumentPage{}, err
+	}
+	if err := service.populateHistoryCapabilities(ctx, result, options.ActorID); err != nil {
+		return DocumentPage{}, err
+	}
+
 	return DocumentPage{Documents: result, Total: total, Limit: limit, Offset: options.Offset}, rows.Err()
 }
 
@@ -2593,18 +2598,17 @@ func (service *Service) loadTopologyElementPropertiesFromArtifact(
 }
 
 func insertProductInstances(ctx context.Context, tx pgx.Tx, versionID string, model ProductModel) error {
+	batch := &pgx.Batch{}
 	for _, instance := range model.Instances {
-		if _, err := tx.Exec(ctx, `
+		batch.Queue(`
 			INSERT INTO occccad.product_instances(
 				product_version_id,instance_key,display_name,referenced_document_id,
 				referenced_version_id,translation_x,translation_y,translation_z)
 			VALUES($1,$2,$3,$4,$5,$6,$7,$8)`, versionID, instance.ID, instance.Name,
 			instance.ReferencedDocumentID, instance.ReferencedVersionID,
-			instance.Translation[0], instance.Translation[1], instance.Translation[2]); err != nil {
-			return err
-		}
+			instance.Translation[0], instance.Translation[1], instance.Translation[2])
 	}
-	return nil
+	return database.ExecBatch(ctx, tx, batch)
 }
 
 func featureStructureNode(feature Feature, path, documentID, versionID, definitionDigest string, deletable, childrenEditable bool) DocumentStructureNode {

@@ -131,3 +131,5 @@ invoke performance-baseline
 格式与独立重放命令见 [occccad-3dreplay](../occccad-3dreplay/README.md)。
 
 P6 Cut/Hole 验收位于 `internal/control/TestCutHolePersistentSelectionThroughRealRouter`。它通过正式 GeometryPool/Router 和 C++ Worker 执行 Part `REMOVE`、Product `UPDATE_REFERENCES`、Undo/Redo、Broken 隔离与 Reconnect，而不是绕过 transport 直接伪造 topology result。测试需要可丢弃 PostgreSQL 和 Worker 路径；设置 `OCCCCAD_P6_EVIDENCE_DIR` 时会额外保存逐场景 resolution JSON 与可下载、可由 `ReplayAssembly` 重放的 `.3dreplay`。
+
+数据库连接由统一的进程内访问层调度，支持有界等待和后台轮询预算；参数与一致性说明见 [database README](../../internal/database/README.md)。队列满时命令/预览返回可重试的 DATABASE_BUSY，客户端重试须保持 request ID。HTTP 耗时阶段新增 db-queue-wait / db-pool-wait / db-query / db-batch / db-transaction；阶段存在包含关系。
