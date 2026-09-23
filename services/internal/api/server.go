@@ -1233,6 +1233,13 @@ func (server *Server) middleware(next http.Handler) http.Handler {
 				}
 			}
 		}
+		elapsed := time.Since(started)
+		// The monitor polls every second. Keep failed or slow samples visible,
+		// but omit healthy polling traffic from the normal access log.
+		if request.Method == http.MethodGet && request.URL.Path == "/internal/monitoring/snapshot" &&
+			recorder.status >= http.StatusOK && recorder.status < http.StatusMultipleChoices && elapsed < time.Second {
+			return
+		}
 		slog.InfoContext(request.Context(), "http request",
 			"request_id", requestID,
 			"trace_id", spanContext.TraceID().String(),
@@ -1241,7 +1248,7 @@ func (server *Server) middleware(next http.Handler) http.Handler {
 			"path", request.URL.Path,
 			"status", recorder.status,
 			"bytes", recorder.bytes,
-			"duration_ms", time.Since(started).Milliseconds(), "phases_ms", timing.SnapshotMilliseconds())
+			"duration_ms", elapsed.Milliseconds(), "phases_ms", timing.SnapshotMilliseconds())
 	})
 }
 

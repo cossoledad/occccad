@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 )
 
 const (
@@ -178,6 +179,7 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 }
 
 func (service *Service) persistAssemblySolveManifest(ctx context.Context, manifest AssemblySolveManifest) error {
+	defer perf.Start(ctx, "assembly-manifest-write")()
 	stored := manifest
 	stored.Digest = ""
 	raw, err := json.Marshal(stored)
@@ -193,6 +195,7 @@ func (service *Service) persistAssemblySolveManifest(ctx context.Context, manife
 
 func (service *Service) recordAssemblySolveResult(ctx context.Context, manifest AssemblySolveManifest, requestID string,
 	result geometry.AssemblySolve, solveErr error) error {
+	defer perf.Start(ctx, "assembly-result-write")()
 	status, diagnostic, solverBuild := result.Status, result.Diagnostic, result.SolverBuild
 	if solveErr != nil {
 		status, diagnostic = "FAILED", solveErr.Error()
@@ -208,6 +211,7 @@ func (service *Service) recordAssemblySolveResult(ctx context.Context, manifest 
 
 func (service *Service) solveFrozenManifest(ctx context.Context, requestID string, manifest AssemblySolveManifest,
 	capture func([]byte, error)) (geometry.AssemblySolve, error) {
+	defer perf.Start(ctx, "assembly-worker")()
 	if err := validateAssemblySolveManifest(manifest); err != nil {
 		return geometry.AssemblySolve{}, err
 	}
@@ -217,6 +221,7 @@ func (service *Service) solveFrozenManifest(ctx context.Context, requestID strin
 }
 
 func (service *Service) GetAssemblySolveResult(ctx context.Context, documentID, requestID string) (AssemblySolveManifestResult, error) {
+	defer perf.Start(ctx, "assembly-result-read")()
 	var value AssemblySolveManifestResult
 	var raw []byte
 	if err := service.database.QueryRow(ctx, `SELECT r.manifest_digest,r.request_id,r.result_digest,r.status,

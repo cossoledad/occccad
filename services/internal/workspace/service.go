@@ -953,6 +953,12 @@ func (service *Service) ExchangeReleaseExportComponents(ctx context.Context, doc
 }
 
 func (service *Service) brepArtifactReference(ctx context.Context, geometryKey string) (geometry.ArtifactReference, error) {
+	return assemblyRead(ctx, assemblyReadKey{"brep-reference", geometryKey, ""}, func() (geometry.ArtifactReference, error) {
+		return service.loadBrepArtifactReference(ctx, geometryKey)
+	})
+}
+
+func (service *Service) loadBrepArtifactReference(ctx context.Context, geometryKey string) (geometry.ArtifactReference, error) {
 	var objectID *string
 	var inline []byte
 	var backend, objectKey, sha256Value, contentType *string
@@ -2493,39 +2499,55 @@ func (service *Service) GetTopologyElementPropertiesAtVersion(
 func (service *Service) getTopologyElementPropertiesFromArtifact(
 	ctx context.Context, geometryKey, kind string, localID uint64,
 ) (TopologyElementProperties, error) {
+	return assemblyRead(ctx, assemblyTopologyKey{geometryKey, kind, localID}, func() (TopologyElementProperties, error) {
+		return service.loadTopologyElementPropertiesFromArtifact(ctx, geometryKey, kind, localID)
+	})
+}
+
+func (service *Service) loadTopologyElementPropertiesFromArtifact(
+	ctx context.Context, geometryKey, kind string, localID uint64,
+) (TopologyElementProperties, error) {
+	defer perf.Start(ctx, "topology-properties")()
+
 	kind = strings.ToUpper(strings.TrimSpace(kind))
 	if (kind != "FACE" && kind != "EDGE" && kind != "VERTEX") || localID == 0 {
 		return TopologyElementProperties{}, fmt.Errorf("%w: kind must be FACE, EDGE, or VERTEX and localId must be positive", ErrValidation)
 	}
-	var geometryID, workerID, occtVersion string
-	if err := service.database.QueryRow(ctx, `
-		SELECT geometry_id,worker_id,occt_version FROM occccad.geometry_artifacts WHERE geometry_key=$1`, geometryKey).
-		Scan(&geometryID, &workerID, &occtVersion); err != nil {
+	type metadata struct{ geometryID, workerID, occtVersion string }
+	artifact, err := assemblyRead(ctx, assemblyReadKey{"topology-metadata", geometryKey, ""}, func() (metadata, error) {
+		var value metadata
+		err := service.database.QueryRow(ctx, `SELECT geometry_id,worker_id,occt_version FROM occccad.geometry_artifacts WHERE geometry_key=$1`, geometryKey).Scan(&value.geometryID, &value.workerID, &value.occtVersion)
+		return value, err
+	})
+	if err != nil {
 		return TopologyElementProperties{}, err
 	}
+	geometryID, workerID, occtVersion := artifact.geometryID, artifact.workerID, artifact.occtVersion
 	var response *workerv1.GetTopologyResponse
 	var servingWorkerID string
-	var err error
 	finishWorker := perf.Start(ctx, "topology-worker")
+	defer finishWorker()
 	if service.artifacts != nil {
 		reference, referenceErr := service.brepArtifactReference(ctx, geometryKey)
 		if referenceErr != nil {
 			return TopologyElementProperties{}, referenceErr
 		}
+		finishRPC := perf.Start(ctx, "topology-rpc")
 		response, servingWorkerID, err = service.worker.GetTopologyFromArtifact(ctx, geometryID, reference, kind, localID)
+		finishRPC()
 	} else {
 		var brep []byte
 		if queryErr := service.database.QueryRow(ctx,
 			`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, geometryKey).Scan(&brep); queryErr != nil {
 			return TopologyElementProperties{}, queryErr
 		}
+		finishRPC := perf.Start(ctx, "topology-rpc")
 		response, servingWorkerID, err = service.worker.GetTopology(ctx, geometryID, brep, kind, localID)
+		finishRPC()
 	}
 	if err != nil {
-		finishWorker()
 		return TopologyElementProperties{}, err
 	}
-	finishWorker()
 	result := TopologyElementProperties{GeometryKey: geometryKey, GeometryID: geometryID, Kind: kind,
 		LocalID: localID, Properties: map[string]any{}, WorkerID: workerID, OCCTVersion: occtVersion}
 	if servingWorkerID != "" {

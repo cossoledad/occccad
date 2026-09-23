@@ -40,6 +40,10 @@ Web 以 root Product、active occurrence 和 definition/context 模式维护非�
 
 ## 求解与交互的当前边界
 
+一次 `solveAssembly`（含 accepted/candidate 准入试算与最终求解）共享操作内读取缓存：按 document/revision 复用拓扑清单与嵌套 Product 模型，按 GeometryKey 复用制品元数据/B-Rep 引用，按 GeometryKey/type/local ID 复用精确属性。local ID 仅是已验证不可变制品内的查询键，不成为持久身份。命名解析仍检查源证据、目标 manifest 与 policy；已解析的目标直接查询精确制品，不再重复执行交互拾取的授权/绑定/重解析流程。文档存活性每次求解检查，用户权限仍由请求边界验证；缓存不跨请求、不保存 HEAD、根 occurrence pose、失败读取或求解结果，不改变准入隔离、名义姿态和结果持久化。
+
+HTTP `phases_ms` 增加 `assembly-total`、`assembly-prepare`、`assembly-worker`、`assembly-manifest-write`、`assembly-result-read/write`，以及 `topology-manifest-read`、`topology-properties`、`topology-rpc`。同名阶段累加所有试算；阶段存在包含关系，不能相加当作总耗时。`assembly-worker` 包含 RPC/排队/求解，`topology-worker` 保留制品准备及 RPC 耗时，`topology-rpc` 单独计量 RPC；Worker 自身日志才是几何查询内部耗时。高延迟数据库下优先比较清单读取、准备和持久化与 Worker 阶段，而不是依据 `cache_hit` 推断端到端成本。拖拽前端仅保留一个在途权威预览并合并待处理姿态，因此每次 HTTP 延迟直接限制权威预览更新频率。跨请求缓存、批量预取和大系统数值优化尚未实现，应由这些阶段及 `.3dreplay` 测量决定。
+
 `kernel/assembly` 只消费纯值 Point/Axis/Plane/Cylinder、约束和完整 SE(3) pose。Rigid cluster、Fix/Ground 消元与 connected-component 求解先于数值迭代；生产路径使用解析 Jacobian、augmented QR 和 SVD rank/null-space。M2.5 依次满足硬约束、最小化 reference motion、最小化总 nominal motion，独立报告偏好收敛与瞬时自由度。创建/编辑以第一选择为 moving、第二选择为 reference，Constraint 与全部 solved pose 在同一 ChangeSet 提交。Rigid 捕获当前相对位姿后允许 moving/reference 两个 occurrence 属于同一刚性组，reference 最小运动作用于共享组；既有约束仍逐项验证，真实不一致不会被固连掩盖。算法细节与 corpus 由[Solver Algorithms](../../../kernel/assembly/SOLVER_ALGORITHMS.md)维护。
 
 当前 MOVE 仍注入临时 `interaction-driver` Fix；不可达预览恢复权威 pose，尚不能返回 M4 的最近可行拖拽结果。有效 preview candidate 可经 CAS 提升为提交，缺失/过期时重新权威求解。M3 已覆盖嵌套 rigid Product 与持久引用解析；flexible expansion、稀疏后端和最小冲突集尚未实现。

@@ -10,6 +10,7 @@ import (
 
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 	"github.com/qmuntal/stateless"
 )
 
@@ -124,6 +125,13 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	if len(model.Constraints) == 0 {
 		return nil
 	}
+	finishPrepare := perf.Start(ctx, "assembly-prepare")
+	preparing := true
+	defer func() {
+		if preparing {
+			finishPrepare()
+		}
+	}()
 	workflow := newAssemblySolveWorkflow()
 	defer func() {
 		if returnErr == nil {
@@ -311,7 +319,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			if err := validatePersistentAssemblyReference(reference); err != nil {
 				return "", err
 			}
-			resolved, err := service.GetResolvedTopologyElementProperties(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{Selection: *reference.PersistentSelection, SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
+			resolved, err := service.resolvedAssemblyTopologyProperties(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{Selection: *reference.PersistentSelection, SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
 			if err != nil {
 				return "", err
 			}
@@ -579,6 +587,8 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		}
 		manifest.Digest = resolvedDigest(func() AssemblySolveManifest { value := manifest; value.Digest = ""; return value }())
 	}
+	finishPrepare()
+	preparing = false
 	if err := service.persistAssemblySolveManifest(ctx, manifest); err != nil {
 		return err
 	}

@@ -12,17 +12,19 @@ import (
 // Geometry belongs to the leaf Part, while motion belongs to the direct child body.
 func (service *Service) assemblyReferenceOccurrence(ctx context.Context, product ProductModel, reference AssemblyGeometryRef) (*ProductInstance, InstancePose, error) {
 	return resolveAssemblyOccurrence(product, reference, func(selected ProductInstance) (ProductModel, error) {
-		var kind string
-		var raw []byte
-		if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2`, selected.ReferencedDocumentID, selected.ReferencedVersionID).Scan(&kind, &raw); err != nil {
-			return ProductModel{}, err
-		}
-		if kind != "PRODUCT" {
-			return ProductModel{}, fmt.Errorf("%w: assembly occurrence traverses a Part", ErrValidation)
-		}
-		var child ProductModel
-		err := json.Unmarshal(raw, &child)
-		return child, err
+		return assemblyRead(ctx, assemblyReadKey{"occurrence-product", selected.ReferencedDocumentID, selected.ReferencedVersionID}, func() (ProductModel, error) {
+			var kind string
+			var raw []byte
+			if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2`, selected.ReferencedDocumentID, selected.ReferencedVersionID).Scan(&kind, &raw); err != nil {
+				return ProductModel{}, err
+			}
+			if kind != "PRODUCT" {
+				return ProductModel{}, fmt.Errorf("%w: assembly occurrence traverses a Part", ErrValidation)
+			}
+			var child ProductModel
+			err := json.Unmarshal(raw, &child)
+			return child, err
+		})
 	})
 }
 

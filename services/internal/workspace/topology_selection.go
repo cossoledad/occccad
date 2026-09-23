@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 )
 
 type BindPersistentSelectionRequest struct {
@@ -341,6 +342,40 @@ func (service *Service) GetResolvedTopologyElementProperties(ctx context.Context
 	return result, nil
 }
 
+// The resolver verifies both document-scoped revisions, policy, creation evidence
+// and target membership. Do not route its exact candidate through the interactive
+// pick API, which authorizes and binds that same topology all over again.
+func (service *Service) resolvedAssemblyTopologyProperties(ctx context.Context, documentID string, request ResolvePersistentSelectionRequest) (ResolvedTopologyProperties, error) {
+	// Match the inspection API's live-document guard once per solve. User
+	// authorization remains at the request boundary and is never cached here.
+	if request.Selection.SourceDocumentID != documentID {
+		return ResolvedTopologyProperties{}, fmt.Errorf("%w: selection document mismatch", ErrValidation)
+	}
+	_, err := assemblyRead(ctx, assemblyReadKey{"live-document", documentID, ""}, func() (bool, error) {
+		var live bool
+		err := service.database.QueryRow(ctx, `SELECT true FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, documentID).Scan(&live)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, ErrNotFound
+		}
+		return live, err
+	})
+	if err != nil {
+		return ResolvedTopologyProperties{}, err
+	}
+	resolution, err := service.ResolvePersistentSelection(ctx, documentID, request)
+	result := ResolvedTopologyProperties{Resolution: resolution}
+	if err != nil || resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) != 1 {
+		return result, err
+	}
+	candidate := resolution.Candidates[0]
+	properties, err := service.getTopologyElementPropertiesFromArtifact(ctx, candidate.GeometryKey, string(candidate.Type), candidate.LocalID)
+	if err != nil {
+		return result, err
+	}
+	result.Properties = &properties
+	return result, nil
+}
+
 func semanticRef(source *workerv1.SemanticTopologyRef) modelcore.SemanticTopologyRef {
 	return modelcore.SemanticTopologyRef{FeatureID: source.GetFeatureId(), OutputSlot: source.GetOutputSlot(), SourceIDs: append([]string(nil), source.GetSourceIds()...)}
 }
@@ -585,6 +620,16 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 }
 
 func (service *Service) topologyManifestForVersion(ctx context.Context, documentID, versionID string) (*workerv1.PartTopologyManifest, string, string, error) {
+	value, err := assemblyRead(ctx, assemblyReadKey{"manifest", documentID, versionID}, func() (assemblyManifestRead, error) {
+		manifest, geometry, digest, err := service.loadTopologyManifestForVersion(ctx, documentID, versionID)
+		return assemblyManifestRead{manifest, geometry, digest}, err
+	})
+	return value.manifest, value.geometry, value.digest, err
+}
+
+func (service *Service) loadTopologyManifestForVersion(ctx context.Context, documentID, versionID string) (*workerv1.PartTopologyManifest, string, string, error) {
+	defer perf.Start(ctx, "topology-manifest-read")()
+
 	var geometryKey string
 	var digest, objectID *string
 	var inline []byte

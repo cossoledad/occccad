@@ -8,6 +8,7 @@ import (
 
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	perf "github.com/occccad/occccad/internal/performance"
 )
 
 type assemblySetEvaluator func(stage string, candidate *ProductModel, excluded map[string]bool) error
@@ -132,6 +133,8 @@ func (service *Service) solveAssembly(ctx context.Context, documentID, rootRevis
 	if len(model.Constraints) == 0 {
 		return nil
 	}
+	ctx = withAssemblyReadCache(ctx)
+	defer perf.Start(ctx, "assembly-total")()
 	return evaluateAssemblyAdmission(model, drivenInstanceID != "", func(stage string, candidate *ProductModel, excluded map[string]bool) error {
 		id, warm := requestID, warmStartKey
 		targets := evidence

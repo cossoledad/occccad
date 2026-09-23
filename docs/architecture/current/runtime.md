@@ -88,7 +88,7 @@ sequenceDiagram
 - 支持 User/Team、文件夹权限继承、文档/文件夹分享；
 - API 请求绑定 Principal，成功写操作记录 Actor、Resource、Request ID 与 Trace ID 审计；
 - Control API 没有认证，只能绑定环回地址。
-- Control API 的 `occccad.monitoring.snapshot.v1` 聚合托管进程的 Linux `/proc` 资源统计、Geometry 池负载与 API 业务计数；Control 到 API 的内部采集端点以进程启动时随机令牌保护。`occccad-monitor` 每秒消费该契约，UI 与采集模型分离；非 Linux 当前不提供 CPU/RSS 统计。
+- Control API 的 `occccad.monitoring.snapshot.v1` 聚合托管进程的 Linux `/proc` 资源统计、Geometry 池负载与 API 业务计数；Control 到 API 的内部采集端点以进程启动时随机令牌保护。`occccad-monitor` 每秒消费该契约，UI 与采集模型分离；API 不记录内部快照端点的正常访问日志（GET、2xx 且耗时小于 1 秒），非 2xx 或耗时达到 1 秒的请求仍保留，采集和响应不受影响；非 Linux 当前不提供 CPU/RSS 统计。
 
 ## 实现与验证入口
 
