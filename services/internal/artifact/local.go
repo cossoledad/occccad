@@ -27,6 +27,8 @@ func NewLocalStore(root string) (*LocalStore, error) {
 	return &LocalStore{root: absolute}, nil
 }
 
+func (*LocalStore) Backend() string { return "LOCAL" }
+
 func (store *LocalStore) Root() string { return store.root }
 
 func (store *LocalStore) Put(ctx context.Context, kind Kind, contentType string, source io.Reader) (StoredObject, error) {
@@ -45,7 +47,7 @@ func (store *LocalStore) Put(ctx context.Context, kind Kind, contentType string,
 	defer func() { _ = os.Remove(temporaryName) }()
 
 	hash := sha256.New()
-	size, err := io.Copy(io.MultiWriter(temporary, hash), source)
+	size, err := io.Copy(io.MultiWriter(temporary, hash), contextReader{ctx, source})
 	if err != nil {
 		_ = temporary.Close()
 		return StoredObject{}, err

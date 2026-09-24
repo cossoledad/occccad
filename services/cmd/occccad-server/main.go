@@ -32,6 +32,9 @@ func main() {
 }
 
 func run() error {
+	if _, err := config.LoadProjectEnv(); err != nil {
+		return err
+	}
 	configuration := config.Load()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -63,14 +66,14 @@ func run() error {
 		configuration.AdminName, configuration.AdminPassword); err != nil {
 		return err
 	}
-	localArtifactStore, err := artifact.NewLocalStore(configuration.DataDirectory)
+	store, localArtifactStore, err := artifact.OpenConfigured(ctx, configuration.DataDirectory)
 	if err != nil {
 		return err
 	}
-	artifactService := artifact.NewService(pool, localArtifactStore)
+	artifactService := artifact.NewService(pool, store, localArtifactStore)
 	jobService := jobs.New(pool)
 
-	worker, err := geometry.Open(configuration.WorkerAddress)
+	worker, err := geometry.Open(configuration.WorkerAddress, geometry.ArtifactStaging(store, localArtifactStore))
 	if err != nil {
 		return err
 	}
@@ -91,8 +94,8 @@ func run() error {
 		Addr:              configuration.ListenAddress,
 		Handler:           observability.HTTPHandler(apiServer.Handler()),
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Minute,
-		WriteTimeout:      15 * time.Minute,
+		ReadTimeout:       2 * time.Hour,
+		WriteTimeout:      2 * time.Hour,
 		IdleTimeout:       60 * time.Second,
 	}
 
@@ -106,7 +109,7 @@ func run() error {
 	slog.Info("occccad server listening",
 		"address", configuration.ListenAddress,
 		"worker", configuration.WorkerAddress,
-		"artifact_backend", "LOCAL",
+		"artifact_backend", store.Backend(),
 		"data_directory", localArtifactStore.Root())
 	err = httpServer.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {

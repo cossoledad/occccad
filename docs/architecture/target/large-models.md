@@ -4,7 +4,7 @@
 
 ## 1. 结论与边界
 
-建议现在引入 S3 兼容 ArtifactStore 与可续传上传协议，但它只解决大对象存取、传输恢复和跨主机共享。1 GiB 文件能够上传，不等于它能够解析、编辑或在浏览器完整驻留。交付能力应分别声明：上传完成、精确几何可用、可显示、可持久选择、可编辑、可发布。
+S3 兼容 ArtifactStore 已实现；按当前实施范围暂不做续传，后续可按需要引入可续传上传协议，但它只解决大对象存取、传输恢复和跨主机共享。1 GiB 文件能够上传，不等于它能够解析、编辑或在浏览器完整驻留。交付能力应分别声明：上传完成、精确几何可用、可显示、可持久选择、可编辑、可发布。
 
 保留现有模块化控制面、PostgreSQL Jobs、不可变 Revision、ArtifactReference 和 Geometry Router；本轮不要求同时引入 Kubernetes、消息总线或独立网络微服务。大模型精确求值需要异步任务和资源隔离，并不意味着每个小命令都变成后台任务。
 
@@ -16,9 +16,9 @@
 
 | 位置 | 当前事实 | 影响 |
 |---|---|---|
-| `services/internal/api/jobs.go` | raw body 上传限制 `128 << 20`，上传以 Reader 写本地 Store | 当前 HTTP 入口不接受 1 GiB；已有流式写入基础 |
-| `workers/geometry/src/main.cpp` | `kMaximumExchangeBytes = 512 MiB`，输入和输出均受限制；BREP `read_artifact` 返回整个 vector | 仅提高 API 上限仍失败；文件流入磁盘不代表几何求值流式化 |
-| `services/internal/artifact/store.go`、`local.go` | Store 只有 Put/Open/Delete；LOCAL 内容寻址、SHA-256、共享目录 | 还缺 multipart session、签名访问、Range、租约和对象验证能力 |
+| `services/internal/api/jobs.go` | raw body 上传限制由 `OCCCCAD_EXCHANGE_MAX_BYTES` 控制，默认 16 GiB，Reader 写 LOCAL/S3 Store | 已具备大文件流式传输；完整几何能力需分别验收 |
+| `workers/geometry/src/main.cpp` | 同一环境变量限制输入/输出，默认 16 GiB，输入和输出均受限制；BREP `read_artifact` 返回整个 vector | 仅提高 API 上限仍失败；文件流入磁盘不代表几何求值流式化 |
+| `services/internal/artifact/store.go`、`local.go` | Store 提供 Backend/Put/Open/Delete；LOCAL/S3 内容寻址和 SHA-256；Worker 使用本机 scratch | 还缺 multipart session、签名访问、Range、租约和对象验证能力 |
 | `services/cmd/occccad-jobs/main.go` | inspect 后最多 8 路导入，`results` 持有各组件的 EvaluatePartResponse；最后逐文档提交 | 并发按数量，未按内存；批量结果堆积；70% 后禁止取消不等于跨文档原子可见 |
 | `kernel/occt/src/occt_kernel.cpp` | `inspectStepRootCount` 和每次 `loadStepRoot` 均 `ReadFile` | 多 root 重复解析整份 STEP；并发会放大 CPU/RSS/I/O |
 | Worker `fill_evaluation` | 同时准备完整 topology、mesh、BREP、GLB；即使大制品外置，仍填充 protobuf mesh | 大数据仍可能穿过 unary gRPC，并在多个进程复制 |
@@ -67,7 +67,7 @@ S3 multipart 支持分片重试和独立上传；完整对象 ETag 不一定是�
 
 ### 3.2 Store 边界与安全
 
-- LOCAL 保留用于开发/受限单机；生产实现一个 S3 兼容后端，供应商、SDK 和部署方式尚未选定。1 GiB 本身不强制某家云，也不强制 Ceph 等集群。
+- LOCAL 保留用于开发/受限单机；已实现基于 MinIO Go SDK 的 S3 兼容后端，支持配置 HTTP/HTTPS endpoint。1 GiB 本身不强制某家云，也不强制 Ceph 等集群。
 - Put/Open/Delete 继续作为基础接口；上传 session、对象 Stat/Range、签名访问、Complete/Abort 作为明确能力扩展，不把 AWS SDK 类型泄漏到领域模型。
 - ArtifactReference 仍只保存 opaque key、摘要、大小、媒体类型及 backend identity；签名 URL 是短期 transport credential，不进 Revision/长期 manifest。Worker 由受信 resolver 获得授权下载，不能接受任意 URL 抓取。
 - 上传先进入会话隔离的 staging key；验证后再绑定内容寻址对象。S3 没有本地 rename 的等价物，明确选择受控复制到 digest key 或元数据绑定，核算大对象复制成本；不在验证前信任客户端报告的 SHA-256。

@@ -382,6 +382,7 @@ export const restApi = {
     if (!response.ok) throw new Error(value.error ?? `HTTP ${response.status}`);
     return value;
   },
+  exchangeCapabilities: (): Promise<{ maxUploadBytes: number }> => request("/api/exchange/capabilities"),
   startExport: (documentId: string, format: "STEP" | "BREP", releaseId?: string): Promise<Job> => request<Job>("/api/exchange/exports", {
     method: "POST", headers: { "X-Request-ID": requestId() }, body: JSON.stringify({ documentId, format, releaseId }),
   }),

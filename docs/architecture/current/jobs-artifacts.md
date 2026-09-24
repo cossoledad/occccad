@@ -44,13 +44,27 @@ stateDiagram-v2
 
 用户可通过 `POST /api/jobs/{jobID}/cancel` 取消自己发起的排队或运行任务，并通过 `POST /api/jobs/{jobID}/retry` 让最终失败或已取消任务重新排队。运行任务每秒检查取消请求并取消其 Geometry 上下文；成功提交条件同时拒绝带取消请求的迟到结果。导入在进度 70% 进入正式文档提交阶段，此后不再开放取消，避免产生用户可见的半提交组件集合。Worker 在检查、几何转换、文档提交和制品登记等阶段单调更新进度。
 
+### Geometry RPC 消息预算
+
+API/Jobs Geometry client、Router 的接收/发送端和 Worker 连接（包括 debug override）、C++ Worker 统一使用 128 MiB 的单消息上限；Go 配置集中于 `internal/geometryrpc`，C++ 使用相同常量。此上限与 16 GiB 文件上传上限分开：源文件、BREP 和 GLB 使用 ArtifactReference，但 EvaluatePartResponse 仍内联完整 Mesh，拓扑和命名响应也走 unary gRPC。原默认 4 MiB 会拒绝约 27.6 MiB 的正常 STEP 导入响应。当前保持明确的有限预算，不宣称任意大模型可经 unary RPC 传输；完整网格外置/小摘要响应仍属于 LARGE-COMPUTE。
+
+定向回归：`TestGeometryRouterLargeRequestAndMeshResponse` 验证 >4 MiB 双向请求/响应并保留旧默认接收器的拒绝对照；`TestLargeSTEPImportThroughManagedRouter` 使用实际 `LD200 torsen v7.step`（17,031,606 字节），经 S3 → 受管理 Router → C++ Worker 返回 28,893,147 字节响应，包含 310,731 顶点、404,796 三角形、114 Solid，通过。该测试覆盖计算与传输，不创建业务文档；未进行浏览器或全量测试。
+
 ### ArtifactStore
 
-本地后端按 SHA-256 内容寻址并原子写入 `OCCCCAD_DATA_DIR`。数据库保存对象元数据、大小、媒体类型和引用。`occccad-control` 以 `services/` 为相对路径基准，将该目录规范化为绝对路径并显式传给 API、Jobs 和每个动态 Geometry Worker；不能让子进程按各自 working directory 重新解释 `./data`。因此本地后端仍不能直接支撑无共享盘的多主机部署。
+`artifact.Store` 以 `Backend/Put/Open/Delete` 隔离存储供应商，当前提供 LOCAL 和 S3。所有已登记业务文件（源文件、导出结果、BREP、GLB、拓扑 manifest、缩略图）通过同一接口存取；数据库保存稳定对象 ID、SHA-256、大小、媒体类型与后端 key。S3 使用 MinIO Go SDK v7（Apache-2.0），配置来自 `.env` 的 `OCCCCAD_ARTIFACT_BACKEND` 与 `OCCCCAD_S3_*`，凭据不进入 Worker 或浏览器协议。
 
-Document Center 的 `POST /api/exchange/imports` 接收原始 HTTP body，使用 `MaxBytesReader` 限制为 128 MiB，并直接以 `io.Reader` 流入 ArtifactStore；不使用 multipart、`ReadAll`、WebSocket 或 gRPC bytes 字段。`POST /api/exchange/exports` 只提交文档 ID、Head 和格式，`GET /api/jobs/{jobID}/download` 以流式响应下载结果。Geometry gRPC 只交换 opaque object key、digest、大小和媒体类型；当前 Worker 与 API/Jobs 通过相同 `OCCCCAD_DATA_DIR` 模拟对象存储。生产替换为 S3 signed upload/download 时，领域任务与 Worker 契约保持 ArtifactReference，不传本机绝对路径。
+LOCAL 按 SHA-256 内容寻址并原子写入。S3 上传先以有界内存写临时文件并计算完整 SHA-256，再对内容寻址 key 执行顺序 multipart；分片由 SDK 传输，单次异常失败，不做续传或请求重试。失败使用独立 10 秒 deadline 撤销本次 upload ID，服务不可达时记录清理失败；进程崩溃/对象存储持续不可达后的孤儿回收仍需后续 GC。只有完整上传成功后才写 READY 元数据；数据库失败可能留下未引用对象，不会让引用指向未完成上传。下载直接从 Store reader 流入 HTTP，不在 API 缓冲整个文件。
 
-Exchange HTTP 提交只等待上传落盘和 Job 入队，随后立即关闭对话框；浏览器不会让提交请求等待几何处理。Jobs 在最终 `SUCCEEDED`、最终 `FAILED` 或 `CANCELED` 状态转换的同一 SQL statement 中写入 `JOB` Outbox，API 将 `job.state.changed.v1` 仅推送给任务发起用户。若该用户没有可接收的 WebSocket 会话，事件保持 unpublished，直到至少一个会话接受。Web 顶部消息中心同时从 `GET /api/jobs` 恢复最近 100 条用户可见任务，因此错过瞬时通知或重新登录后仍能看到状态、失败原因、进度和下载/打开入口；仅在存在活动任务时每 2.5 秒刷新进度，终态仍由 WebSocket 立即提示。前端把持久 Job 投影为通用 ActivityItem，任务类型展示与动作注册集中在 activity 模块，未来其他持久消息来源可增加独立 projector 后合并，而不复制 Drawer 或任务状态机。
+`POST /api/exchange/imports` 仍接收原始 HTTP body，经 `MaxBytesReader` 校验 `OCCCCAD_EXCHANGE_MAX_BYTES`（默认 16 GiB）；Web 从 capabilities 获取同一限制。导出下载使用浏览器原生下载，不构造完整 Blob。HTTP 与制品相关几何 RPC 最长 2 小时，调用方取消仍生效。上传成功只表示文件已完整存储及任务入队，不表示几何计算完成。
+
+OCCT 使用文件接口：Go Geometry client 将远端引用按 RPC 下载到独立 scratch，校验大小和 SHA-256，并在调用完成/失败后清理；同 RPC 内相同输入只暂存一次。Worker 输出通过 `Adopt` 上传并登记后清理 staging。`occccad-control` 仍以 `services/` 为相对目录基准将 `OCCCCAD_DATA_DIR` 规范化并传给各进程，所以 API、Jobs 和本机 Worker 仍共享计算暂存目录；这不是跨主机 Worker 数据传输的交付。永久业务制品由 S3 保存，临时盘仍需覆盖并发上传和几何计算工作集。
+
+`occccad-artifacts --migrate-local` 分批迁移旧 LOCAL 对象及尚无对象引用的数据库 bytea；bytea 按 1 MiB 查询块读取。复制和校验成功后更新对象位置，保留 ID、Revision 和原始备份，不在网络传输期间占用数据库事务。允许重复运行；切换过程中仍可读取旧 LOCAL 引用。初始化桶和迁移命令见[存储运维](../../../services/cmd/occccad-artifacts/README.md)。
+
+2026-09-24 定向验证：真实 MinIO 的 1 GiB 往返及完整 SHA-256 通过；取消分片独立清理、HTTP chunked 超限拒绝、Worker 输入校验/清理、小模型 STEP/BREP 交换链通过；Go 相关包定向测试、C++ Worker 构建及 Web 类型检查通过。开发库迁移了 408 个 LOCAL 对象并补齐 19 处 embedded 引用（内容去重），最终 409 个 READY 对象均在 S3 完成逐对象大小与摘要核验。原件保留，未做浏览器或全量测试。
+
+Exchange HTTP 提交只等待完整上传和 Job 入队，随后立即关闭对话框；浏览器不会让提交请求等待几何处理。Jobs 在最终 `SUCCEEDED`、最终 `FAILED` 或 `CANCELED` 状态转换的同一 SQL statement 中写入 `JOB` Outbox，API 将 `job.state.changed.v1` 仅推送给任务发起用户。若该用户没有可接收的 WebSocket 会话，事件保持 unpublished，直到至少一个会话接受。Web 顶部消息中心同时从 `GET /api/jobs` 恢复最近 100 条用户可见任务，因此错过瞬时通知或重新登录后仍能看到状态、失败原因、进度和下载/打开入口；仅在存在活动任务时每 2.5 秒刷新进度，终态仍由 WebSocket 立即提示。前端把持久 Job 投影为通用 ActivityItem，任务类型展示与动作注册集中在 activity 模块，未来其他持久消息来源可增加独立 projector 后合并，而不复制 Drawer 或任务状态机。
 
 当前 STEP 装配识别以 OCCT transferable root 为并行边界，能保存多根文件为 Product/Part 引用并保留根 Shape 自带放置；Product 导出同样保持“每个 occurrence 一个 transferable root”的当前对称契约。这只保证展平 Product 的类型和 placement round-trip；尚未使用 STEPCAF/XDE 恢复嵌套层级、名称、颜色、单位和共享实例关系，因此不能宣称完整 AP242 装配交换。
 
@@ -62,7 +76,7 @@ Exchange HTTP 提交只等待上传落盘和 Job 入队，随后立即关闭对�
 
 ## 大文件与导入编辑的已知限制（2026-09-22 代码核对）
 
-以下为代码阅读结论，尚无 1 GiB 级容量验收。除 API 的 128 MiB 外，Geometry Worker 的输入/输出制品还有 512 MiB 上限；`InspectExchange` 的 30 秒与 `ImportExchange` 的 5 分钟是当前客户端 deadline。STEP inspect 和每个 component 的 `loadStepRoot` 分别 ReadFile；固定最多 8 路不能视作按内存预算的调度。Jobs 在 results 中保留所有组件 EvaluatePartResponse，Worker 即使输出 BREP/GLB 对象，仍通过 gRPC 返回完整 Mesh；数据库 `mesh_json`、DocumentView 与前端完整数组构造也未实现有界工作集。
+存储层已通过真实 MinIO 的 1 GiB 上传/下载 SHA-256 往返，以及小模型 S3 → C++ Worker → S3 的 STEP/BREP 验证；尚无 1 GiB 几何/显示容量验收。API 与 Worker 文件上限默认 16 GiB，制品 RPC deadline 为 2 小时。STEP inspect 和每个 component 的 `loadStepRoot` 分别 ReadFile；固定最多 8 路不能视作按内存预算的调度。Jobs 在 results 中保留所有组件 EvaluatePartResponse，Worker 即使输出 BREP/GLB 对象，仍通过 gRPC 返回完整 Mesh；数据库 `mesh_json`、DocumentView 与前端完整数组构造也未实现有界工作集。
 
 ImportExchange 先生成精确快照，CommitImportedPart 再冻结导入定义并通过带 seed 的 EvaluatePart 生成根 manifest；后续 evaluator 传播 imported base 的已有命名。单 Solid 的命名/编辑链与旧 Head 显式修复已完成，见[导入根命名](persistent-naming.md#导入根命名import-naming-已完成2026-09-22)。没有定义的旧快照仍报告命名不可用。大文件设计与分批验收见[大模型提案](../target/large-models.md)及[执行计划](../../../plans/import-large-models.md)。
 

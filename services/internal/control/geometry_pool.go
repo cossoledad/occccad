@@ -13,6 +13,7 @@ import (
 	"time"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"github.com/occccad/occccad/internal/geometryrpc"
 	"github.com/occccad/occccad/internal/monitoring"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -133,7 +134,7 @@ func (pool *GeometryPool) SetDebugAddress(address string) error {
 	if address == "" {
 		return nil
 	}
-	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()), geometryrpc.ClientOptions())
 	if err != nil {
 		return err
 	}
@@ -180,7 +181,7 @@ func (pool *GeometryPool) spawnLocked() (*workerInstance, error) {
 	if err != nil {
 		return nil, err
 	}
-	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	connection, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()), geometryrpc.ClientOptions())
 	if err != nil {
 		_ = process.Stop(2 * time.Second)
 		return nil, err

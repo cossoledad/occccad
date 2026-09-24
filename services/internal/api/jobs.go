@@ -7,7 +7,9 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/occccad/occccad/internal/access"
@@ -18,7 +20,13 @@ import (
 	"github.com/occccad/occccad/internal/workspace"
 )
 
-const maxExchangeUploadBytes int64 = 128 << 20
+func exchangeUploadLimit() int64 {
+	raw := os.Getenv("OCCCCAD_EXCHANGE_MAX_BYTES")
+	if n, err := strconv.ParseInt(raw, 10, 64); err == nil && n > 0 && strings.Trim(raw, "0123456789") == "" {
+		return n
+	}
+	return 16 << 30
+}
 
 func exchangeFormat(value string) (string, string, string, bool) {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
@@ -34,7 +42,7 @@ func exchangeFormat(value string) (string, string, string, bool) {
 func (server *Server) exchangeCapabilities(writer http.ResponseWriter, _ *http.Request) {
 	writeJSON(writer, http.StatusOK, map[string]any{
 		"formats": []string{"STEP", "BREP"}, "documentTypes": []string{"PART", "PRODUCT"},
-		"maxUploadBytes": maxExchangeUploadBytes,
+		"maxUploadBytes": exchangeUploadLimit(),
 	})
 }
 
@@ -50,8 +58,8 @@ func (server *Server) startExchangeImport(writer http.ResponseWriter, request *h
 		writeError(writer, http.StatusBadRequest, "exchange file is empty")
 		return
 	}
-	if request.ContentLength > maxExchangeUploadBytes {
-		writeError(writer, http.StatusRequestEntityTooLarge, "exchange file exceeds the 128 MiB limit")
+	if request.ContentLength > exchangeUploadLimit() {
+		writeError(writer, http.StatusRequestEntityTooLarge, fmt.Sprintf("exchange file exceeds the %d byte limit", exchangeUploadLimit()))
 		return
 	}
 	fileName := exchange.ImportedDocumentName(request.URL.Query().Get("fileName"))
@@ -66,12 +74,12 @@ func (server *Server) startExchangeImport(writer http.ResponseWriter, request *h
 			return
 		}
 	}
-	request.Body = http.MaxBytesReader(writer, request.Body, maxExchangeUploadBytes)
+	request.Body = http.MaxBytesReader(writer, request.Body, exchangeUploadLimit())
 	stored, err := server.artifacts.Put(request.Context(), artifact.KindExchangeSource, contentType, request.Body)
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			writeError(writer, http.StatusRequestEntityTooLarge, "exchange file exceeds the 128 MiB limit")
+			writeError(writer, http.StatusRequestEntityTooLarge, fmt.Sprintf("exchange file exceeds the %d byte limit", exchangeUploadLimit()))
 			return
 		}
 		writeError(writer, http.StatusInternalServerError, "store exchange source: "+err.Error())

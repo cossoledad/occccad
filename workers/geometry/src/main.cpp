@@ -37,7 +37,19 @@ namespace assembly_api = occccad::assembly;
 
 namespace {
 
-constexpr std::uintmax_t kMaximumExchangeBytes = 512ULL * 1024ULL * 1024ULL;
+std::uintmax_t maximum_exchange_bytes() {
+    const char* configured = std::getenv("OCCCCAD_EXCHANGE_MAX_BYTES");
+    if (configured != nullptr) {
+        const std::string value(configured);
+        if (!value.empty() && value.find_first_not_of("0123456789") == std::string::npos) {
+            try { const auto bytes = std::stoull(value); if (bytes > 0 && bytes <= 9223372036854775807ULL) return bytes; }
+            catch (const std::exception&) {}
+        }
+    }
+    return 16ULL * 1024ULL * 1024ULL * 1024ULL;
+}
+// Same bounded transport budget as services/internal/geometryrpc/limits.go.
+constexpr int kGeometryRpcMaxMessageBytes = 128 * 1024 * 1024;
 constexpr std::size_t kLogFileBytes = 10ULL * 1024ULL * 1024ULL;
 constexpr std::size_t kLogFileCount = 5U;
 
@@ -106,10 +118,10 @@ std::filesystem::path artifact_path(const std::string& key, const bool create_pa
 
 std::filesystem::path validate_artifact(const worker_api::ArtifactReference& reference) {
     if (reference.backend() != "LOCAL")
-        throw std::invalid_argument("only LOCAL artifacts are available in the current deployment");
+        throw std::invalid_argument("worker requires a materialized LOCAL scratch reference");
     const auto path = artifact_path(reference.object_key());
     const auto size = std::filesystem::file_size(path);
-    if (size == 0U || size > kMaximumExchangeBytes) {
+    if (size == 0U || size > maximum_exchange_bytes()) {
         throw std::invalid_argument("artifact size is outside the worker exchange limit");
     }
     return path;
@@ -125,7 +137,7 @@ std::vector<uint8_t> read_artifact(const worker_api::ArtifactReference& referenc
 
 void write_artifact(const std::string& key, const std::vector<uint8_t>& data,
                     const std::string& content_type, worker_api::ArtifactReference* output) {
-    if (data.empty() || data.size() > kMaximumExchangeBytes)
+    if (data.empty() || data.size() > maximum_exchange_bytes())
         throw std::invalid_argument("artifact output is outside the worker exchange limit");
     const auto path = artifact_path(key, true);
     const auto temporary = path.string() + ".tmp";
@@ -1525,6 +1537,8 @@ int main() {
 
         GeometryWorkerService service;
         grpc::ServerBuilder builder;
+        builder.SetMaxReceiveMessageSize(kGeometryRpcMaxMessageBytes);
+        builder.SetMaxSendMessageSize(kGeometryRpcMaxMessageBytes);
         builder.AddListeningPort(address, grpc::InsecureServerCredentials());
         builder.RegisterService(&service);
         std::unique_ptr<grpc::Server> server = builder.BuildAndStart();

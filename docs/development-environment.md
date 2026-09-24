@@ -10,7 +10,7 @@
 - `invoke` 在加载根目录 `tasks.py` 时读取根 `.env`，已导出的环境变量优先。加载器接受简单的 `KEY=VALUE`、可选 `export` 前缀及成对引号，不执行 shell 表达式。排障时先检查是否有旧的导出变量覆盖配置。
 - 服务端优先使用 `OCCCCAD_DATABASE_URL`；未设置时使用 `OCCCCAD_POSTGRES_HOST`、`PORT`、`USER`、`PASSWORD`、`DB`（均带 `OCCCCAD_POSTGRES_` 前缀）。正常业务使用数据库中的 `occccad` schema。
 - 直接执行 `psql`、`go test` 等命令时，不要假定它们会自动读取项目 `.env`；显式加载所需配置或使用已有项目入口。诊断输出只需连接是否成功和错误原因，不必回显完整连接串。
-- 当前 ArtifactStore 只实现 LOCAL，以 `OCCCCAD_DATA_DIR` 配置；API 与 Jobs 必须访问同一物理目录。后续 S3 的资源使用授权已明确，但配置变量、适配器和验证方式应随实际实现补充，不能把授权视为 S3 已交付。
+- ArtifactStore 支持 LOCAL/S3，使用根 `.env` 的 `OCCCCAD_ARTIFACT_BACKEND`、`OCCCCAD_S3_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY/SECURE`。HTTP MinIO 设置 `SECURE=false`，endpoint 不含协议前缀。`OCCCCAD_DATA_DIR` 在 S3 模式保留为计算暂存目录，API/Jobs/本机 Worker 共享；配置和迁移见[存储运维](../services/cmd/occccad-artifacts/README.md)。原始密码只保留在未跟踪的 `.env`。
 
 ## PostgreSQL
 

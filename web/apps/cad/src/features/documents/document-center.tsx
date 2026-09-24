@@ -49,6 +49,8 @@ export function DocumentCenter() {
   const [folderForm] = Form.useForm<FolderForm>();
   const [operationForm] = Form.useForm<{ name?: string; folderID?: string }>();
 
+  const exchangeCapabilities = useQuery({ queryKey: ["exchange-capabilities"], queryFn: () => api.exchangeCapabilities(), enabled: importOpen });
+  const uploadLimit = exchangeCapabilities.data?.maxUploadBytes;
   const specialScope = scope === "recent" || scope === "shared" || scope === "trash";
   const filters = { scope, query, type, sort, offset, currentFolderID };
   const documents = useQuery({
@@ -354,12 +356,12 @@ export function DocumentCenter() {
     <Modal title="导入文档" open={importOpen} okText={importDocument.isPending ? `已提交 ${importProgress}/${importFiles.length}` : `开始导入（${importFiles.length}）`} confirmLoading={importDocument.isPending}
       okButtonProps={{ disabled: importFiles.length === 0 }} onOk={() => importDocument.mutate()}
       onCancel={() => { if (!importDocument.isPending) { setImportOpen(false); setImportFiles([]); } }} destroyOnHidden>
-      <Typography.Paragraph type="secondary">支持一次选择或拖入多个 STEP/STP、BREP/BRP 文件，单个文件最大 128 MiB。每个文件独立创建导入任务；装配文件可生成 Product 和多个 Part。</Typography.Paragraph>
+      <Typography.Paragraph type="secondary">支持一次选择或拖入多个 STEP/STP、BREP/BRP 文件，单个文件最大 {uploadLimit ? `${(uploadLimit / 1024 ** 3).toFixed(1)} GiB` : "加载中"}。每个文件独立创建导入任务；装配文件可生成 Product 和多个 Part。</Typography.Paragraph>
       <Upload.Dragger accept=".step,.stp,.brep,.brp" multiple disabled={importDocument.isPending}
         fileList={importFiles.map(({ uid, file }) => ({ uid, name: file.name, status: "done" as const, size: file.size }))}
         beforeUpload={(file) => {
           if (!/\.(step|stp|brep|brp)$/i.test(file.name)) { message.error(`${file.name}：仅支持 STEP/STP、BREP/BRP`); return false; }
-          if (file.size === 0 || file.size > 128 * 1024 * 1024) { message.error(`${file.name}：文件需大于 0 且不超过 128 MiB`); return false; }
+          if (!uploadLimit || file.size === 0 || file.size > uploadLimit) { message.error(`${file.name}：文件大小不符合限制，或尚未获取上传限制`); return false; }
           setImportFiles((previous) => previous.some((entry) => entry.uid === file.uid) ? previous
             : previous.length >= 32 ? (message.warning("一次最多选择 32 个文件"), previous) : [...previous, { uid: file.uid, file }]);
           return false;

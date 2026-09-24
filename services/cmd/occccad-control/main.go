@@ -24,6 +24,7 @@ import (
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/config"
 	"github.com/occccad/occccad/internal/control"
+	"github.com/occccad/occccad/internal/geometryrpc"
 	"github.com/occccad/occccad/internal/monitoring"
 	"google.golang.org/grpc"
 )
@@ -94,7 +95,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("listen geometry router: %w", err)
 	}
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(geometryrpc.ServerOptions()...)
 	workerv1.RegisterGeometryWorkerServer(grpcServer, app.pool)
 	go func() {
 		if err := grpcServer.Serve(routerListener); err != nil {
@@ -126,7 +127,7 @@ func run() error {
 	proxy := &http.Server{
 		Addr:    value("OCCCCAD_APP_LISTEN", value("OCCCCAD_SERVER_LISTEN", "0.0.0.0:8080")),
 		Handler: app.proxy(), ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout: 15 * time.Minute, WriteTimeout: 15 * time.Minute, IdleTimeout: 60 * time.Second,
+		ReadTimeout: 2 * time.Hour, WriteTimeout: 2 * time.Hour, IdleTimeout: 60 * time.Second,
 	}
 	go func() {
 		<-ctx.Done()

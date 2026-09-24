@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"github.com/occccad/occccad/internal/geometryrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -83,7 +84,7 @@ func serveGeometry(t *testing.T, service workerv1.GeometryWorkerServer) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	server := grpc.NewServer()
+	server := grpc.NewServer(geometryrpc.ServerOptions()...)
 	workerv1.RegisterGeometryWorkerServer(server, service)
 	go func() { _ = server.Serve(listener) }()
 	t.Cleanup(func() {

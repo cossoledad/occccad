@@ -914,6 +914,7 @@ export const mockApi: CadApi = {
   undo: async (documentID) => command(documentID, { type: "UNDO" }),
   redo: async (documentID) => command(documentID, { type: "REDO" }),
   restore: async (documentID, versionID) => command(documentID, { type: "RESTORE", versionId: versionID }),
+  exchangeCapabilities: async () => ({ maxUploadBytes: 16 * 1024 ** 3 }),
   importDocument: async (file, folderID) => {
     const documentID = id("mock-document"); const name = file.name;
     const document: DocumentSummary = { id: documentID, name, description: "", type: "PART", versionId: id("mock-version"),

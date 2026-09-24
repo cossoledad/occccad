@@ -40,7 +40,7 @@ flowchart LR
 - 默认监听：`127.0.0.1:51001`
 - 配置：`OCCCCAD_GEOMETRY_WORKER_LISTEN`
 
-调用应是“求值完整 Part”“导入一个交换根”“合成一次导出”一类粗粒度操作，不能把每个 OCCT 函数映射为远程 RPC。请求携带 `request_id` 与 `geometry_key`；Trace Context 通过 gRPC metadata 传播。B-Rep、GLB、STEP 和 BREP 交换文件通过 ArtifactReference 读写，不进入 unary gRPC bytes；当前 `LOCAL` backend 要求 Worker 与 API/Jobs 共享 `OCCCCAD_DATA_DIR`，object key 必须是根目录内的 opaque 相对键。
+调用应是“求值完整 Part”“导入一个交换根”“合成一次导出”一类粗粒度操作，不能把每个 OCCT 函数映射为远程 RPC。请求携带 `request_id` 与 `geometry_key`；Trace Context 通过 gRPC metadata 传播。B-Rep、GLB、STEP 和 BREP 交换文件通过 ArtifactReference 读写，不进入 unary gRPC bytes；持久存储支持 LOCAL/S3；Go client 将远端输入校验并暂存为 LOCAL scratch，Worker 输出由 Adopt 上传；计算暂存仍要求 Worker 与 API/Jobs 共享 `OCCCCAD_DATA_DIR`，object key 必须是根目录内的 opaque 相对键。
 
 Worker 只生成 Body 的基础实体 GLB。Part 模型拥有的 Datum、Sketch 以及未来非实体曲线/曲面由控制面的版本化 `VisualizationManifest` 表达；Artifact 管线把它注入最终 GLB 的 `OCCCCAD_visualization` 扩展。不要把完整 PartModel 或装配 occurrence 传入 OCCT Worker 来生成第二套场景：同一最终 GLB/manifest 必须同时供 Part、缩略图和 Product occurrence 使用。
 
@@ -90,7 +90,7 @@ Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用�
 - resident geometry 只存在于进程内；Worker 退出后必须能从持久 B-Rep 或参数模型重建；
 - GeometryId 基于内容，不得包含 Worker 地址；
 - 同一个 Worker 内的 OCCT 操作当前由互斥边界保护，扩展吞吐优先增加进程而不是假设所有 OCCT 路径线程安全；
-- 输入 STEP/BREP 是不可信复杂文件；当前 Worker 拒绝空对象、越界 object key 和超过 512 MiB 的制品，生产环境仍需要更严格的时间、内存、实体数量和进程级隔离；
+- 输入 STEP/BREP 是不可信复杂文件；当前 Worker 拒绝空对象、越界 object key 和超过 `OCCCCAD_EXCHANGE_MAX_BYTES`（默认 16 GiB）的制品，生产环境仍需要更严格的时间、内存、实体数量和进程级隔离；
 - 计算请求必须可重试，调用方不能把 Worker 局部状态当成唯一副本。
 
 ## 目标边界
@@ -106,3 +106,5 @@ Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用�
 平面 Face 属性和命名 evidence 使用最终 Solid 中包含 Face Orientation 的法向，闭合实体朝材料外（内腔朝空腔）。History 返回的工具面可能方向相反，输出命名前会按最终 face map 取回朝向；平面 X/Y/normal 保持右手系，供面上草图、装配 descriptor 和法线视图共享。
 
 EvaluatePart 支持 `ImportTopologySeed`：控制面传入冻结 BREP 摘要、OCCT 版本、导入策略、Feature/Body 和独立稳定 ID 映射。Worker 验证合同，OCCT 校验快照摘要及完整单 Solid 覆盖；允许仅 seed 的根求值，也允许 seed 加 profile 布尔链。返回的根 FeatureResult/manifest 与原生命名共用合同，Worker 不分配业务身份、不读取业务数据库。
+
+Geometry RPC 发送和接收均限制为 128 MiB，与 Go `internal/geometryrpc` 保持一致。文件上限独立；EvaluatePartResponse 中的 Mesh 仍为内联数据，超过 RPC 预算的网格需要后续制品外置。

@@ -49,6 +49,9 @@ func main() {
 }
 
 func run() error {
+	if _, err := config.LoadProjectEnv(); err != nil {
+		return err
+	}
 	configuration := config.Load()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -60,19 +63,19 @@ func run() error {
 	if err := database.Migrate(ctx, pool); err != nil {
 		return err
 	}
-	store, err := artifact.NewLocalStore(configuration.DataDirectory)
+	store, localArtifactStore, err := artifact.OpenConfigured(ctx, configuration.DataDirectory)
 	if err != nil {
 		return err
 	}
-	artifactService := artifact.NewService(pool, store)
-	geometryClient, err := geometry.Open(configuration.WorkerAddress)
+	artifactService := artifact.NewService(pool, store, localArtifactStore)
+	geometryClient, err := geometry.Open(configuration.WorkerAddress, geometry.ArtifactStaging(store, localArtifactStore))
 	if err != nil {
 		return err
 	}
 	defer geometryClient.Close()
 	hostname, _ := os.Hostname()
 	concurrency := jobConcurrency(os.Getenv("OCCCCAD_JOB_CONCURRENCY"))
-	slog.Info("job workers started", "workers", concurrency, "artifact_backend", "LOCAL", "data_directory", store.Root())
+	slog.Info("job workers started", "workers", concurrency, "artifact_backend", store.Backend(), "data_directory", localArtifactStore.Root())
 	group, groupContext := errgroup.WithContext(ctx)
 	for index := 0; index < concurrency; index++ {
 		workerID := fmt.Sprintf("%s-%d-%d", hostname, os.Getpid(), index)

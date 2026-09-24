@@ -16,12 +16,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/occccad/occccad/internal/database"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	artifactstore "github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/debugartifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
@@ -2114,11 +2114,16 @@ func (service *Service) storeEvaluation(
 			topologyManifestObjectID = &topologyObject.ID
 			topologyManifestData = nil
 		}
-		if evaluation.GetBrepArtifact() != nil || evaluation.GetGlbArtifact() != nil {
-			storageState = "OBJECT"
-		} else {
-			storageState = "DUAL"
+
+		if topologyManifestObjectID == nil && len(topologyManifestData) > 0 {
+			topologyObject, err := service.artifacts.Put(ctx, artifactstore.KindTopologyManifest, "application/vnd.occccad.topology-manifest.v1+protobuf", bytes.NewReader(topologyManifestData))
+			if err != nil {
+				return fmt.Errorf("store topology manifest: %w", err)
+			}
+			topologyManifestObjectID = &topologyObject.ID
+			topologyManifestData = nil
 		}
+		storageState = "OBJECT"
 	}
 	brepData, glbData := evaluation.GetBrepData(), glb
 	var topologyManifestDigestValue any

@@ -82,3 +82,5 @@ go test ./...
 交换导入提交保留原始输入对象、摘要、格式和组件索引，由 Workspace 冻结 ImportDefinition/拓扑身份并完成根命名求值，再提交普通 Part Revision。重试复用已采用的精确几何快照与身份分配，避免再次读取已移走的暂存制品。当前可编辑命名范围为有效单 Solid；大文件传输与分块显示仍以独立计划为准。
 
 Jobs 同样使用 [统一数据库访问层](../../internal/database/README.md)，本进程的任务循环共享有界数据库调度预算；该预算独立于 API 进程，配置连接上限时应计算两者总和。持久 Job 租约、重试和提交语义保持不变，调度等待不代表任务成功。
+
+制品通过 `artifact.Store` 使用配置的 LOCAL/S3 后端。源文件输入经 Geometry client 下载到独立 Worker scratch，输出经 Adopt 上传后才提交业务引用。API、Jobs 与本机 Worker 仍共享计算暂存目录；[配置与迁移](../occccad-artifacts/README.md)。

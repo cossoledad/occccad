@@ -26,7 +26,21 @@ type StoredObject struct {
 // Store is the storage boundary used by CAD services. Object keys are relative,
 // backend-independent identifiers; callers never receive an operating-system path.
 type Store interface {
+	Backend() string
 	Put(context.Context, Kind, string, io.Reader) (StoredObject, error)
 	Open(context.Context, string) (io.ReadCloser, error)
 	Delete(context.Context, string) error
+}
+
+// contextReader prevents continued spooling after cancellation.
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
 }

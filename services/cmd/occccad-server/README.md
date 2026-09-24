@@ -40,7 +40,7 @@ flowchart LR
 
 `GET /api/ui/toolbars` 返回 PostgreSQL 中启用的 Toolbar Presentation Catalog，包括工作台归属、默认布局、命令稳定 ID、短名称、详细帮助、图标语义键、分组和顺序。目录只控制展示；浏览器必须在本地 `CommandRegistry` 注册命令后才允许执行，不能把数据库内容解释为脚本。
 
-文档交换使用独立资源：`POST /api/exchange/imports?format=STEP|BREP&fileName=...` 把原始 request body 流式写入 ArtifactStore，限制 128 MiB；`POST /api/exchange/exports` 提交 `{documentId, format, releaseId?}`，带 ReleaseId 时从冻结 Release GeometryKey 导出而不要求当前 Head 未移动；Product occurrence placement 保留 translation 和 quaternion rotation。`GET /api/jobs` 恢复当前用户最近 100 条可见任务，`POST /api/jobs/{jobID}/cancel|retry` 执行发起者或管理员动作，任务完成后从 `GET /api/jobs/{jobID}/download` 流式下载。导入不要求先创建 Part，不使用 multipart，也不让大文件经过 WebSocket 或 gRPC bytes。
+文档交换使用独立资源：`POST /api/exchange/imports?format=STEP|BREP&fileName=...` 把原始 request body 流式写入 ArtifactStore，限制由 `OCCCCAD_EXCHANGE_MAX_BYTES` 配置（默认 16 GiB）；`POST /api/exchange/exports` 提交 `{documentId, format, releaseId?}`，带 ReleaseId 时从冻结 Release GeometryKey 导出而不要求当前 Head 未移动；Product occurrence placement 保留 translation 和 quaternion rotation。`GET /api/jobs` 恢复当前用户最近 100 条可见任务，`POST /api/jobs/{jobID}/cancel|retry` 执行发起者或管理员动作，任务完成后从 `GET /api/jobs/{jobID}/download` 流式下载。导入不要求先创建 Part，不使用 multipart，也不让大文件经过 WebSocket 或 gRPC bytes。
 
 `GET|POST /api/documents/{documentID}/workspaces` 用于列出 Workspace 或从所属 Revision 创建 Branch。`POST /api/documents/{documentID}/commands` 是保留的 HTTP transport；Web 使用 `workspace.command.execute.v1` WebSocket 消息。二者进入同一 Workspace handler。`POST /api/documents/{documentID}/command-previews` 在当前 Head 上运行相同 command adapter、typed handler、参数求值、Sketch Solver 与 Part evaluator，返回 base Revision 和精确 Artifact，但不创建 Revision、历史、Outbox 或推进 Workspace；请求受 Editor ACL、HTTP cancellation 和 15 秒 deadline 约束。`SET_PARAMETER_VALUE` 接受 `parameterId/value/unit`，`SET_PARAMETER_EXPRESSION` 接受 `parameterId/expression`，`RENAME_PARAMETER` 接受 `parameterId/name`。表达式在服务端绑定稳定 ParameterId，Worker 不解析用户 source text。草图五类驱动尺寸与 Linear Extrude length 使用同一参数/依赖合同。
 
@@ -103,7 +103,7 @@ invoke run.server
 - 当前是无生产数据的新项目阶段；C0–C4 schema 变更要求重建开发数据库，不提供旧 cursor/history adapter。
 - 后台任务具有幂等键；API 返回任务后不保证任务已完成。
 - WebSocket 事件按 Workspace sequence 去重；断线、gap 或慢消费者被断开后，浏览器重新订阅并获取权威快照。当前 Hub 只覆盖单个 API 进程，多实例需要事件总线扇出。
-- HTTP header 超时为 5 秒；为支持受限的 128 MiB 流式上传下载，body 读写超时为 15 分钟。几何解析等长操作仍必须进入任务系统，不能占用 HTTP 请求。
+- HTTP header 超时为 5 秒；为支持大文件流式上传下载，body 读写超时为 2 小时。几何解析等长操作仍必须进入任务系统，不能占用 HTTP 请求。
 - 进程重启会丢失内存中的“已打开文档”注册表，但不会丢失持久文档。
 
 ## 验证与扩展边界
@@ -133,3 +133,5 @@ invoke performance-baseline
 P6 Cut/Hole 验收位于 `internal/control/TestCutHolePersistentSelectionThroughRealRouter`。它通过正式 GeometryPool/Router 和 C++ Worker 执行 Part `REMOVE`、Product `UPDATE_REFERENCES`、Undo/Redo、Broken 隔离与 Reconnect，而不是绕过 transport 直接伪造 topology result。测试需要可丢弃 PostgreSQL 和 Worker 路径；设置 `OCCCCAD_P6_EVIDENCE_DIR` 时会额外保存逐场景 resolution JSON 与可下载、可由 `ReplayAssembly` 重放的 `.3dreplay`。
 
 数据库连接由统一的进程内访问层调度，支持有界等待和后台轮询预算；参数与一致性说明见 [database README](../../internal/database/README.md)。队列满时命令/预览返回可重试的 DATABASE_BUSY，客户端重试须保持 request ID。HTTP 耗时阶段新增 db-queue-wait / db-pool-wait / db-query / db-batch / db-transaction；阶段存在包含关系。
+
+存储后端通过根 `.env` 的 `OCCCCAD_ARTIFACT_BACKEND` 选择 LOCAL/S3。S3 配置、桶初始化和旧制品迁移见[存储运维](../occccad-artifacts/README.md)。业务层只依赖 Store；Geometry Worker 使用共享本地 scratch。

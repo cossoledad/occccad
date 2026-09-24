@@ -11,12 +11,13 @@ import (
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/modelcore"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
-func openCppWorkerForNamingContract(t *testing.T) *Client {
+func openCppWorkerForNamingContract(t *testing.T, options ...grpc.DialOption) *Client {
 	t.Helper()
 	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
 	if binary == "" {
@@ -38,7 +39,7 @@ func openCppWorkerForNamingContract(t *testing.T) *Client {
 	var client *Client
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		client, err = Open(address)
+		client, err = Open(address, options...)
 		if err == nil {
 			pingContext, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
 			_, err = client.Ping(pingContext)

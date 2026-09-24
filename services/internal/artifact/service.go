@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -24,10 +25,15 @@ type Object struct {
 type Service struct {
 	database *database.Pool
 	store    Store
+	staging  Store
 }
 
-func NewService(database *database.Pool, store Store) *Service {
-	return &Service{database: database, store: store}
+func NewService(database *database.Pool, store Store, staging ...Store) *Service {
+	local := store
+	if len(staging) > 0 {
+		local = staging[0]
+	}
+	return &Service{database: database, store: store, staging: local}
 }
 
 func (service *Service) Put(ctx context.Context, kind Kind, contentType string, reader io.Reader) (Object, error) {
@@ -38,10 +44,10 @@ func (service *Service) Put(ctx context.Context, kind Kind, contentType string, 
 	var result Object
 	err = service.database.QueryRow(ctx, `INSERT INTO occccad.artifact_objects(
 		kind,sha256,storage_backend,object_key,content_type,size_bytes,state,verified_at)
-		VALUES($1,$2,'LOCAL',$3,$4,$5,'READY',now())
-		ON CONFLICT(kind,sha256) DO UPDATE SET verified_at=now()
+		VALUES($1,$2,$6,$3,$4,$5,'READY',now())
+		ON CONFLICT(kind,sha256) DO UPDATE SET verified_at=now(),storage_backend=EXCLUDED.storage_backend,object_key=EXCLUDED.object_key
 		RETURNING id::text,kind,sha256,storage_backend,object_key,content_type,size_bytes`,
-		kind, stored.SHA256, stored.Key, contentType, stored.Size).Scan(&result.ID, &result.Kind,
+		kind, stored.SHA256, stored.Key, contentType, stored.Size, service.store.Backend()).Scan(&result.ID, &result.Kind,
 		&result.SHA256, &result.Backend, &result.Key, &result.ContentType, &result.Size)
 	return result, err
 }
@@ -55,7 +61,14 @@ func (service *Service) Open(ctx context.Context, objectID string) (Object, io.R
 	if err != nil {
 		return Object{}, nil, err
 	}
-	reader, err := service.store.Open(ctx, result.Key)
+	backend := service.store
+	if result.Backend != backend.Backend() {
+		backend = service.staging
+		if result.Backend != backend.Backend() {
+			return Object{}, nil, fmt.Errorf("unconfigured artifact backend %s", result.Backend)
+		}
+	}
+	reader, err := backend.Open(ctx, result.Key)
 	return result, reader, err
 }
 
@@ -72,7 +85,7 @@ func (service *Service) Get(ctx context.Context, objectID string) (Object, error
 // metadata path as an HTTP upload. The Worker only knows an opaque object key;
 // it never writes PostgreSQL metadata or receives an operating-system path.
 func (service *Service) Adopt(ctx context.Context, kind Kind, contentType, stagingKey string) (Object, error) {
-	reader, err := service.store.Open(ctx, stagingKey)
+	reader, err := service.staging.Open(ctx, stagingKey)
 	if err != nil {
 		return Object{}, err
 	}
@@ -84,7 +97,7 @@ func (service *Service) Adopt(ctx context.Context, kind Kind, contentType, stagi
 	if closeErr != nil {
 		return Object{}, closeErr
 	}
-	if err := service.store.Delete(ctx, stagingKey); err != nil {
+	if err := service.staging.Delete(ctx, stagingKey); err != nil {
 		return Object{}, err
 	}
 	return result, nil

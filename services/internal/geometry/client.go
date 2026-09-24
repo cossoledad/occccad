@@ -7,6 +7,7 @@ import (
 	"time"
 
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"github.com/occccad/occccad/internal/geometryrpc"
 	"github.com/occccad/occccad/internal/modelcore"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
@@ -592,12 +593,13 @@ func (client *Client) ProjectExternalGeometry(ctx context.Context, requestID str
 	return result, nil
 }
 
-func Open(address string) (*Client, error) {
-	connection, err := grpc.NewClient(
-		address,
+func Open(address string, options ...grpc.DialOption) (*Client, error) {
+	options = append(options,
+		geometryrpc.ClientOptions(),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	)
+	connection, err := grpc.NewClient(address, options...)
 	if err != nil {
 		return nil, fmt.Errorf("create geometry worker client: %w", err)
 	}
@@ -644,7 +646,7 @@ func (client *Client) GetTopology(
 func (client *Client) GetTopologyFromArtifact(
 	ctx context.Context, geometryID string, brep ArtifactReference, topologyType string, localID uint64,
 ) (*workerv1.GetTopologyResponse, string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
 	var header metadata.MD
 	response, err := client.worker.GetTopology(ctx, &workerv1.GetTopologyRequest{
@@ -721,7 +723,7 @@ func (client *Client) EvaluatePartFromArtifact(
 	ctx context.Context, requestID, geometryKey string, pads []RectangularPad,
 	baseBRep ArtifactReference, brepOutputKey, glbOutputKey string,
 ) (*workerv1.EvaluatePartResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
 	protoPads := make([]*workerv1.RectangularPadSpec, 0, len(pads))
 	for _, pad := range pads {
@@ -760,7 +762,7 @@ func (client *Client) EvaluateProfilePart(ctx context.Context, requestID, geomet
 }
 
 func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, requestID, geometryKey string, pads []ProfilePad, baseBRep ArtifactReference, brepOutputKey, glbOutputKey string, seeds ...*workerv1.ImportTopologySeed) (*workerv1.EvaluatePartResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
 	request := &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
 		ProfilePads: profilePadsProto(pads), LinearDeflection: 0.1, AngularDeflection: 0.5, BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey}
@@ -779,7 +781,7 @@ func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, reque
 }
 
 func (client *Client) InspectExchange(ctx context.Context, requestID, format string, source ArtifactReference) (ExchangeInspection, error) {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
 	response, err := client.worker.InspectExchange(ctx, &workerv1.InspectExchangeRequest{
 		RequestId: requestID, Format: format, Source: artifactProto(source),
@@ -798,7 +800,7 @@ func (client *Client) InspectExchange(ctx context.Context, requestID, format str
 
 func (client *Client) ImportExchange(ctx context.Context, requestID, geometryKey, format string,
 	source ArtifactReference, sourceIndex uint32, brepOutputKey, glbOutputKey string) (*workerv1.EvaluatePartResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
 	var header metadata.MD
 	response, err := client.worker.ImportExchange(ctx, &workerv1.ImportExchangeRequest{
@@ -815,7 +817,7 @@ func (client *Client) ImportExchange(ctx context.Context, requestID, geometryKey
 
 func (client *Client) ExportExchange(ctx context.Context, requestID, format, outputKey string,
 	components []ExchangeComponent) (ArtifactReference, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
 	request := &workerv1.ExportExchangeRequest{RequestId: requestID, Format: format, OutputKey: outputKey}
 	for _, component := range components {
