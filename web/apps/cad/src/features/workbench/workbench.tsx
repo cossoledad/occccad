@@ -218,7 +218,7 @@ export function Workbench() {
   const catiaRotationSphereVisible = useUIPreferences((state) => state.catiaRotationSphereVisible);
   const navigationProfile = useUIPreferences((state) => state.navigationProfile);
   const referenceVisibility = useUIPreferences((state) => state.referenceVisibility);
-  const renderMode = useUIPreferences((state) => state.renderMode);
+  const solidDisplay = useUIPreferences((state) => state.solidDisplay);
   const captureSettings = useUIPreferences((state) => state.captureSettings);
   const displayLengthUnit = useUIPreferences((state) => state.displayLengthUnit);
   const documentLengthUnits = useUIPreferences((state) => state.documentLengthUnits);
@@ -1053,7 +1053,10 @@ export function Workbench() {
             highlightedKey={treeKeyForSelection(treeNodes, store.preselection)}
             activeDocumentId={activeID}
             activeInstancePath={activeInstancePath}
-            onSelect={(nodes) => store.setSelections(nodes.flatMap((node) => node.selection ? [node.selection] : []))}
+            onSelect={(nodes) => {
+              const selections = nodes.flatMap(node => node.selection ? [node.selection] : []);
+              if (!viewport.current?.captureToolSelections(selections)) store.setSelections(selections);
+            }}
             onOpenDocumentTab={(node) => {
               if (node.kind === "INSTANCE" && node.documentId) void openDocumentTab(node.documentId, client, api.getDocument, navigate)
                 .catch((error: Error) => message.error(`打开文档失败：${error.message}`));
@@ -1175,7 +1178,7 @@ export function Workbench() {
           preselection={store.preselection}
           treeVisibilityOverrides={treeVisibilityOverrides}
           sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={navigationProfile} catiaRotationSphereVisible={catiaRotationSphereVisible}
-          referenceVisibility={referenceVisibility} renderMode={renderMode}
+          referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}
           captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
           onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
 		  onAssemblyConstraint={(toolKind, references) => {

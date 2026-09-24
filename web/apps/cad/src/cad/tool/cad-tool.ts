@@ -1,3 +1,4 @@
+import { selectionModeForTool } from "../interaction/selection-mode";
 import type { CadKeyboardEvent, CadPointerEvent } from "../input/input-types";
 import { InputResult } from "../input/input-types";
 import type { AssemblyGeometryRef, SelectionItem, SketchGeometryRef, SketchOperation, Vec2 } from "../../types";
@@ -35,6 +36,7 @@ export type ToolViewportPort = {
   finishToolUse(): void;
   selectionAt(x: number, y: number): SelectionItem | null;
   commitExternalProjection(selection: SelectionItem & {kind:"edge"|"vertex";topologyId:number}): void;
+  currentSelections?(): readonly SelectionItem[];
   retainSelections(selections: SelectionItem[]): void;
   requestAssemblyConstraint(kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]): void;
   moveManipulatorPointerDown(pointerId: number, x: number, y: number): boolean;
@@ -48,6 +50,7 @@ const sameSketchReference = (left: SketchGeometryRef, right: SketchGeometryRef):
 export interface CadTool {
   readonly id: string;
   activate?(context: ToolContext): void;
+  selectionInput?(selections: readonly SelectionItem[], context: ToolContext): void;
   deactivate?(context: ToolContext): void;
   pointerDown?(event: CadPointerEvent, context: ToolContext): InputResult;
   pointerMove?(event: CadPointerEvent, context: ToolContext): InputResult;
@@ -165,30 +168,41 @@ export class AssemblyConstraintTool implements CadTool {
   private first?: { selection: SelectionItem; reference: AssemblyGeometryRef };
   private capturedPointerID?: number;
   constructor(kind: AssemblyConstraintToolKind) { this.kind = kind; this.id = `assembly.${kind}`; }
-  activate(context: ToolContext): void { context.viewport.setToolPrompt(this.kind === "fix" ? "固定：选择一个实例" : "装配约束：依次选择两个元素"); }
+  activate(context: ToolContext): void {
+    context.viewport.setToolPrompt(this.kind === "fix" ? "固定：选择一个实例" : "装配约束：依次选择两个元素");
+  }
+  selectionInput(selections: readonly SelectionItem[], context: ToolContext): void {
+    for (const candidate of selections) {
+      const selection = selectionModeForTool(this.id).project(candidate);
+      const reference = selection && assemblyGeometryRef(selection);
+      if (!selection || !reference || (["fix", "rigid"].includes(this.kind) && reference.kind !== "BODY")) continue;
+      if (this.kind === "fix") {
+        context.viewport.retainSelections([selection]);
+        context.viewport.requestAssemblyConstraint(this.kind, [reference]);
+        context.viewport.finishToolUse();
+        return;
+      }
+      if (!this.first) {
+        this.first = { selection, reference };
+        context.viewport.retainSelections([selection]);
+        context.viewport.setToolPrompt("装配约束：选择另一个实例上的元素；Esc 取消");
+        continue;
+      }
+      const occurrence = (ref: AssemblyGeometryRef) => ref.instancePath?.canonical ?? ref.instanceId;
+      if (occurrence(this.first.reference) === occurrence(reference)) continue;
+      const first = this.first; this.first = undefined;
+      context.viewport.retainSelections([first.selection, selection]);
+      context.viewport.requestAssemblyConstraint(this.kind, [first.reference, reference]);
+      context.viewport.finishToolUse();
+      return;
+    }
+  }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
     if (event.button !== 0 || this.capturedPointerID !== undefined || event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
     const selection = context.viewport.selectionAt(event.x, event.y);
-    const reference = selection && assemblyGeometryRef(selection);
-    if (!selection || !reference || (["fix", "rigid"].includes(this.kind) && reference.kind !== "BODY")) return InputResult.Consumed;
+    if (!selection) return InputResult.Consumed;
     this.capturedPointerID = event.pointerId;
-    if (this.kind === "fix") {
-      context.viewport.retainSelections([selection]);
-      context.viewport.requestAssemblyConstraint(this.kind, [reference]);
-      context.viewport.finishToolUse();
-      return InputResult.Capture;
-    }
-    if (!this.first) {
-      this.first = { selection, reference };
-      context.viewport.retainSelections([selection]);
-      context.viewport.setToolPrompt("装配约束：选择另一个实例上的元素；Esc 取消");
-      return InputResult.Capture;
-    }
-    if (this.first.reference.instanceId === reference.instanceId) return InputResult.Capture;
-    const first = this.first; this.first = undefined;
-    context.viewport.retainSelections([first.selection, selection]);
-    context.viewport.requestAssemblyConstraint(this.kind, [first.reference, reference]);
-    context.viewport.finishToolUse();
+    this.selectionInput([selection], context);
     return InputResult.Capture;
   }
   pointerUp(event: CadPointerEvent): InputResult {

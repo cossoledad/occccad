@@ -1,4 +1,4 @@
-import { DEFAULT_REFERENCE_VISIBILITY, normalizeReferenceVisibility, normalizeRenderMode, type ReferenceVisibility, type RenderMode } from "../cad/rendering/display-settings";
+import { DEFAULT_SOLID_DISPLAY, DEFAULT_REFERENCE_VISIBILITY, normalizeReferenceVisibility, normalizeSolidDisplaySettings, type ReferenceVisibility, type SolidDisplaySettings } from "../cad/rendering/display-settings";
 import { normalizePanelPosition, type PanelPosition } from "../utils/panel-position";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -17,9 +17,9 @@ export const MAX_STRUCTURE_TREE_WIDTH = 640;
 
 type UIPreferences = {
   referenceVisibility: ReferenceVisibility;
-  renderMode: RenderMode;
+  solidDisplay: SolidDisplaySettings;
   setReferenceVisibility: (value: ReferenceVisibility) => void;
-  setRenderMode: (value: RenderMode) => void;
+  setSolidDisplay: (value: SolidDisplaySettings) => void;
   inspectorOpen: boolean;
   commandDialogPositions: Record<string, PanelPosition>;
   setCommandDialogPosition: (id: string, position: PanelPosition) => void;
@@ -80,9 +80,9 @@ export function normalizeToolbarLayout(value: unknown, fallback: ToolbarOrientat
 
 export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   referenceVisibility: { ...DEFAULT_REFERENCE_VISIBILITY },
-  renderMode: "default",
+  solidDisplay: { ...DEFAULT_SOLID_DISPLAY },
   setReferenceVisibility: (value) => set({ referenceVisibility: normalizeReferenceVisibility(value) }),
-  setRenderMode: (value) => set({ renderMode: normalizeRenderMode(value) }),
+  setSolidDisplay: (value) => set({ solidDisplay: normalizeSolidDisplaySettings(value) }),
   inspectorOpen: true,
   toolbarLayouts: {},
   commandDialogPositions: {},
@@ -125,21 +125,21 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
   }),
 }), {
   name: "occccad.ui-preferences.v1",
-  version: 6,
+  version: 7,
   migrate: (persisted) => {
-    const value = (persisted && typeof persisted === "object" ? persisted : {}) as Partial<UIPreferences> & { hiddenTreeKeys?: string[] };
+    const value = (persisted && typeof persisted === "object" ? persisted : {}) as Partial<UIPreferences> & { hiddenTreeKeys?: string[]; renderMode?: string };
     const documentLengthUnits = Object.fromEntries(Object.entries(value.documentLengthUnits ?? {})
       .map(([id, unit]) => [id, normalizeDisplayLengthUnit(unit)]));
     const commandDialogPositions = Object.fromEntries(Object.entries(value.commandDialogPositions ?? {})
       .flatMap(([id, position]) => { const normalized = normalizePanelPosition(position); return normalized ? [[id, normalized]] : []; }));
-    return { ...value, referenceVisibility: normalizeReferenceVisibility(value.referenceVisibility), renderMode: normalizeRenderMode(value.renderMode), commandDialogPositions, treeVisibilityOverrides: migrateTreeVisibilityOverrides(value),
+    return { ...value, referenceVisibility: normalizeReferenceVisibility(value.referenceVisibility), solidDisplay: normalizeSolidDisplaySettings(value.solidDisplay ?? value.renderMode), commandDialogPositions, treeVisibilityOverrides: migrateTreeVisibilityOverrides(value),
       structureTreeWidth: clampStructureTreeWidth(value.structureTreeWidth),
       navigationProfile: value.navigationProfile === "catia" || value.navigationProfile === "solidworks" ? value.navigationProfile : "default",
       catiaRotationSphereVisible: value.catiaRotationSphereVisible === true,
       captureSettings: normalizeCaptureSettings(value.captureSettings),
       displayLengthUnit: normalizeDisplayLengthUnit(value.displayLengthUnit), documentLengthUnits } as UIPreferences;
   },
-  partialize: (state) => ({ referenceVisibility: state.referenceVisibility, renderMode: state.renderMode, commandDialogPositions: state.commandDialogPositions, inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
+  partialize: (state) => ({ referenceVisibility: state.referenceVisibility, solidDisplay: state.solidDisplay, commandDialogPositions: state.commandDialogPositions, inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
     treeVisibilityOverrides: state.treeVisibilityOverrides, structureTreeWidth: state.structureTreeWidth,
     navigationProfile: state.navigationProfile, catiaRotationSphereVisible: state.catiaRotationSphereVisible, captureSettings: state.captureSettings,
     displayLengthUnit: state.displayLengthUnit, documentLengthUnits: state.documentLengthUnits }),

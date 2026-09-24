@@ -4,6 +4,14 @@ export type InfiniteGridFrame = { origin: THREE.Vector3; normal: THREE.Vector3; 
 const WORLD_FRAME: InfiniteGridFrame = { origin: new THREE.Vector3(0,0,-0.02), normal: new THREE.Vector3(0,0,1),
   u: new THREE.Vector3(1,0,0), v: new THREE.Vector3(0,1,0) };
 
+/** Shared by the drawn grid and sketch snapping, in document units. */
+export function adaptiveGridSpacing(camera: THREE.OrthographicCamera, height: number): number {
+  const requested = (camera.top - camera.bottom) / camera.zoom / Math.max(height, 1) * 32;
+  const decade = Math.pow(10, Math.floor(Math.log10(requested)));
+  const ratio = requested / decade;
+  return decade * (ratio <= 1 ? 1 : ratio <= 2 ? 2 : ratio <= 5 ? 5 : 10);
+}
+
 /** Project an unbounded plane into a background pass, independent of model clipping. */
 export class InfiniteGroundGrid {
   private readonly scene = new THREE.Scene();
@@ -59,10 +67,7 @@ export class InfiniteGroundGrid {
     if (!this.object.visible) return;
     const halfHeight = (camera.top - camera.bottom) / (2 * camera.zoom);
     const halfWidth = (camera.right - camera.left) / (2 * camera.zoom);
-    const requestedSpacing = halfHeight * 2 / Math.max(height, 1) * 32;
-    const decade = Math.pow(10, Math.floor(Math.log10(requestedSpacing)));
-    const ratio = requestedSpacing / decade;
-    const spacing = decade * (ratio <= 1 ? 1 : ratio <= 2 ? 2 : ratio <= 5 ? 5 : 10);
+    const spacing = adaptiveGridSpacing(camera, height);
     const center = camera.position.clone().addScaledVector(direction, frame.origin.clone().sub(camera.position).dot(frame.normal) / denominator).sub(frame.origin);
     const projectAxis = (column: number, extent: number) => {
       const axis = new THREE.Vector3().setFromMatrixColumn(camera.matrixWorld, column);

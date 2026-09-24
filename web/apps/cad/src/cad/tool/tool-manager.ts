@@ -25,12 +25,21 @@ export class ToolManager {
     this.active = next;
     this.active?.activate?.(this.context);
     for (const listener of this.listeners) listener(this.active?.id);
+    // Publish activation before consuming a seed: completing a seeded tool may
+    // synchronously return the workbench to Select.
+    if (this.active === next) this.active?.selectionInput?.(this.context.viewport.currentSelections?.() ?? [], this.context);
   }
 
   get activeToolID(): string | undefined { return this.active?.id; }
   subscribe(listener: (toolID: string | undefined) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  selectionInput(selections: readonly import("../../types").SelectionItem[]): boolean {
+    if (!this.active?.selectionInput) return false;
+    this.active.selectionInput(selections, this.context);
+    return true;
   }
 
   pointerDown(event: CadPointerEvent): InputResult { return this.active?.pointerDown?.(event, this.context) ?? InputResult.Ignored; }

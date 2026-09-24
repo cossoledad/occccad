@@ -14,8 +14,9 @@ const segmentDistance = (point: ScreenPoint, start: ScreenPoint, end: ScreenPoin
 // Intrinsic origin/axes and user geometry participate in one typed picking
 // policy. The returned reference is stable model identity, never a render ID.
 export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEntity[], project: (point: Vec2) => ScreenPoint,
-  kind: SketchReferencePickKind, thresholdPixels = 12, axisExtent = 110, retained?: SketchGeometryRef): SketchGeometryRef | null {
+  kind: SketchReferencePickKind, thresholdPixels = 12, axisExtent: number | Vec2 = 110, retained?: SketchGeometryRef): SketchGeometryRef | null {
   const mode = kind;
+  const [extentX, extentY] = typeof axisExtent === "number" ? [axisExtent, axisExtent] : axisExtent;
   let best: { distance: number; priority: number; reference: SketchGeometryRef } | undefined;
   const consider = (distance: number, reference: SketchGeometryRef, priority = 0) => {
     if (distance >= thresholdPixels) return;
@@ -78,9 +79,9 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
   const retainedKind = retained?.entityId ? entities.find((candidate) => candidate.id === retained.entityId)?.kind : undefined;
   if (["LINE", "LINEAR_DIMENSION", "SOLVER_CURVE", "TANGENT_CURVE", "SYMMETRY_CENTER"].includes(mode) &&
       !(mode === "TANGENT_CURVE" && (retainedKind === "LINE" || retained?.target === "SKETCH_X_AXIS" || retained?.target === "SKETCH_Y_AXIS"))) {
-    consider(segmentDistance(cursor, project([-axisExtent, 0]), project([axisExtent, 0])),
+    if (extentX > 0) consider(segmentDistance(cursor, project([-extentX, 0]), project([extentX, 0])),
       { target: "SKETCH_X_AXIS", subElement: "DIRECTION" });
-    consider(segmentDistance(cursor, project([0, -axisExtent]), project([0, axisExtent])),
+    if (extentY > 0) consider(segmentDistance(cursor, project([0, -extentY]), project([0, extentY])),
       { target: "SKETCH_Y_AXIS", subElement: "DIRECTION" });
   }
   return best?.reference ?? null;

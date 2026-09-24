@@ -3,8 +3,8 @@ import { createServer } from "vite";
 const server = await createServer({ server: { middlewareMode: true }, appType: "custom", logLevel: "silent" });
 try {
   const THREE = await server.ssrLoadModule("three");
-  const { applySolidRenderMode } = await server.ssrLoadModule("/src/cad/rendering/solid-render-mode.ts");
-  const { normalizeReferenceVisibility, normalizeRenderMode, referenceCategory } =
+  const { applySolidDisplaySettings } = await server.ssrLoadModule("/src/cad/rendering/solid-render-mode.ts");
+  const { normalizeReferenceVisibility, normalizeSolidDisplaySettings, referenceCategory } =
     await server.ssrLoadModule("/src/cad/rendering/display-settings.ts");
   const { raycastDatumAxis } = await server.ssrLoadModule("/src/cad/interaction/datum-axis-picking.ts");
   const { SelectionIndex } = await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
@@ -15,7 +15,10 @@ try {
 
   assert.deepEqual(normalizeReferenceVisibility(undefined), { planes:true, axes:true, coordinateSystems:true });
   assert.deepEqual(normalizeReferenceVisibility({axes:false}), { planes:true, axes:false, coordinateSystems:true });
-  assert.equal(normalizeRenderMode("obsolete"), "default");
+  assert.deepEqual(normalizeSolidDisplaySettings("obsolete"), {mode:"shaded",edges:true,vertices:true});
+  assert.deepEqual(normalizeSolidDisplaySettings("smooth"), {mode:"shaded",edges:false,vertices:false});
+  assert.deepEqual(normalizeSolidDisplaySettings("wireframe"), {mode:"wireframe",edges:true,vertices:false});
+  assert.deepEqual(normalizeSolidDisplaySettings({mode:"shaded",edges:false,vertices:true}), {mode:"shaded",edges:false,vertices:true});
   assert.equal(referenceCategory("axis", "DATUM"), "axes");
   assert.equal(referenceCategory("axis", "X"), "coordinateSystems");
   assert.equal(referenceCategory("plane"), "planes");
@@ -29,12 +32,18 @@ try {
   const originalColor = mesh.material.color.getHex();
   factory.setSelected(mesh, true); factory.setSelected(mesh, false);
   assert.equal(mesh.material.color.getHex(), originalColor);
-  for (const [mode, expected] of [["smooth",[true,false,false]],["wireframe",[false,true,false]],["default",[true,true,true]]]) {
+  for (const [settings, expected] of [
+    [{mode:"shaded",edges:false,vertices:false},[true,false,false]],
+    [{mode:"shaded",edges:false,vertices:true},[true,false,true]],
+    [{mode:"wireframe",edges:false,vertices:true},[false,true,true]],
+    [{mode:"shaded",edges:true,vertices:false},[true,true,false]],
+    [{mode:"shaded",edges:true,vertices:true},[true,true,true]],
+  ]) {
     solid.visible = false;
-    applySolidRenderMode(solid, mode);
+    applySolidDisplaySettings(solid, settings);
     assert.equal(solid.visible, false, "mode must preserve tree hiding");
     assert.deepEqual(solid.children.map(object => object.visible), expected);
-    assert.equal(edges.material.depthTest, mode !== "wireframe");
+    assert.equal(edges.material.depthTest, settings.mode !== "wireframe");
   }
 
   solid.visible = true;

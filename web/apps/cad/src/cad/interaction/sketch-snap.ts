@@ -37,12 +37,13 @@ function projectToCurve(point: Vec2, sampled: Vec2[]): Vec2 | undefined {
 
 export function resolveSketchSnap(raw: Vec2, entities: SketchEntity[], pixelsPerUnit: number,
   gridSpacing = 10, thresholdPixels = 11,
-  enabled: readonly SketchSnapCaptureKind[] = ["GRID", "ORIGIN", "POINT", "ENDPOINT", "CENTER", "MIDPOINT", "CURVE"]): SketchSnapResult | undefined {
+  enabled: readonly SketchSnapCaptureKind[] = ["GRID", "ORIGIN", "POINT", "ENDPOINT", "CENTER", "MIDPOINT", "CURVE"],
+  project?: (point: Vec2) => Vec2): SketchSnapResult | undefined {
   const scale = Math.max(pixelsPerUnit, 1.0e-6);
   const candidates: Candidate[] = [];
   const offer = (point: Vec2, kind: SketchSnapKind, priority: number, entityId?: string,
     subElement?: SketchSnapResult["subElement"], threshold = thresholdPixels) => {
-    const distancePixels = distance(raw, point) * scale;
+    const distancePixels = project ? distance(project(raw), project(point)) : distance(raw, point) * scale;
     if (distancePixels <= threshold) candidates.push({ point, kind, priority, distancePixels, entityId, subElement });
   };
 

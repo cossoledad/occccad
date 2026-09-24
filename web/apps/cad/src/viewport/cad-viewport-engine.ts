@@ -1,14 +1,15 @@
+import { makeSketchReferenceAxis, sketchAxisEndpoints } from "../cad/rendering/sketch-reference-axis";
 import { createStudioEnvironment } from "../cad/rendering/studio-environment";
 import { raycastDatumAxis } from "../cad/interaction/datum-axis-picking";
-import { applySolidRenderMode } from "../cad/rendering/solid-render-mode";
+import { applySolidDisplaySettings } from "../cad/rendering/solid-render-mode";
 import { updateScreenLines } from "../cad/rendering/screen-space-lines";
-import { DEFAULT_REFERENCE_VISIBILITY, referenceCategory, type ReferenceVisibility, type RenderMode } from "../cad/rendering/display-settings";
+import { DEFAULT_SOLID_DISPLAY, DEFAULT_REFERENCE_VISIBILITY, referenceCategory, type ReferenceVisibility, type SolidDisplaySettings } from "../cad/rendering/display-settings";
 import { instancePatternOffsets, type InstancePatternPreview } from "../features/workbench/instance-pattern";
 import { ViewTransition } from "../cad/navigation/view-transition";
 import { normalViewFrame, type NormalViewPlane } from "../cad/navigation/normal-view";
 import { makeFeatureEdges } from "../cad/rendering/feature-edges";
 import { makeFeaturePreview, type FeaturePreviewOperation } from "../cad/rendering/feature-preview";
-import { InfiniteGroundGrid } from "../cad/rendering/infinite-ground-grid";
+import { adaptiveGridSpacing, InfiniteGroundGrid } from "../cad/rendering/infinite-ground-grid";
 import { fitOrthographicView, updateOrthographicClipping, orientPlaneView, saveView, standardView, viewFocus, type SavedView } from "../cad/navigation/orthographic-view";
 import * as THREE from "three";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
@@ -237,7 +238,7 @@ export class CadViewportEngine {
   private insertPatternPreview?: THREE.Group;
   private readonly assemblyConstraintReferences = new Map<string, SelectionItem[]>();
   private referenceVisibility: ReferenceVisibility = { ...DEFAULT_REFERENCE_VISIBILITY };
-  private renderMode: RenderMode = "default";
+  private solidDisplay: SolidDisplaySettings = { ...DEFAULT_SOLID_DISPLAY };
   private readonly screenStableReferences = new Map<THREE.Object3D, number>();
   private datumAxisPickToleranceWorld = 0;
   private selected: SelectionItem[] = [];
@@ -478,11 +479,11 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
-  setDisplaySettings(references: ReferenceVisibility, mode: RenderMode): void {
+  setDisplaySettings(references: ReferenceVisibility, display: SolidDisplaySettings): void {
     this.referenceVisibility = { ...references };
-    this.renderMode = mode;
+    this.solidDisplay = { ...display };
     this.applyTreeVisibility();
-    for (const { group } of this.solidBindings.values()) applySolidRenderMode(group, mode);
+    for (const { group } of this.solidBindings.values()) applySolidDisplaySettings(group, display);
     this.preselect(null, true);
     this.invalidate();
   }
@@ -597,6 +598,10 @@ export class CadViewportEngine {
       this.navigation.syncCamera(false);
     }
     this.invalidate();
+  }
+
+  captureToolSelections(selections: readonly SelectionItem[]): boolean {
+    return this.tools.selectionInput(selections);
   }
 
   setActiveTool(toolID: import("../state/workbench-store").WorkbenchToolID): void {
@@ -1544,20 +1549,12 @@ export class CadViewportEngine {
   private buildSketchContext(): void {
     this.disposeGroup(this.sketchContext);
     if (!this.sketchPlane) return;
-    const axis = (first: Vec2, second: Vec2, color: number) => {
-      const muted=new THREE.Color(color).lerp(new THREE.Color(CATIA_VISUAL_THEME.backgroundBottom),0.28);
-      const line = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane!, first), localToWorld(this.sketchPlane!, second)]),
-        new THREE.LineBasicMaterial({ color:muted, depthTest:false, depthWrite:false }),
-      );
-      // Transparent axes are deferred until after opaque sketch curves and can
-      // cover coincident highlighted geometry. Keep the baseline in the early
-      // opaque pass; explicit axis hover/selection uses a separate overlay.
-      line.renderOrder = 12;
-      this.sketchContext.add(line);
-    };
-    axis([-110, 0], [110, 0], CATIA_VISUAL_THEME.axisX);
-    axis([0, -110], [0, 110], CATIA_VISUAL_THEME.axisY);
+    const anchor = localToWorld(this.sketchPlane, [0, 0]);
+    for (const [endpoint, color] of [[[1, 0], CATIA_VISUAL_THEME.axisX], [[0, 1], CATIA_VISUAL_THEME.axisY]] as const) {
+      const direction = localToWorld(this.sketchPlane, [...endpoint]).sub(anchor);
+      const muted = new THREE.Color(color).lerp(new THREE.Color(CATIA_VISUAL_THEME.backgroundBottom), 0.28);
+      this.sketchContext.add(makeSketchReferenceAxis(anchor, direction, muted));
+    }
     const origin = new THREE.Points(
       new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane, [0, 0])]),
       this.materials.point(CATIA_VISUAL_THEME.sketchProfile, 11, false),
@@ -1783,7 +1780,7 @@ export class CadViewportEngine {
       }, 50);
       group.add(points);
     }
-    applySolidRenderMode(group, this.renderMode);
+    applySolidDisplaySettings(group, this.solidDisplay);
     this.solidBindings.set(context.occurrencePath || "root", { group, mesh, artifact, context });
     return group;
   }
@@ -1988,8 +1985,8 @@ export class CadViewportEngine {
     const first = screen(raw), second = screen([raw[0] + 1, raw[1]]);
     const pixelsPerUnit = Math.max(Math.hypot(second[0] - first[0], second[1] - first[1]), 1.0e-6);
     const snap = this.captureSettings.enabled
-      ? resolveSketchSnap(raw, sketchReferenceEntities(activeFeature), pixelsPerUnit, SKETCH_INPUT_POLICY.gridSpacing,
-        SKETCH_INPUT_POLICY.snapThresholdPixels, this.captureSettings.sketch) : undefined;
+      ? resolveSketchSnap(raw, sketchReferenceEntities(activeFeature), pixelsPerUnit, adaptiveGridSpacing(this.camera, this.renderer.domElement.clientHeight),
+        SKETCH_INPUT_POLICY.snapThresholdPixels, this.captureSettings.sketch, screen) : undefined;
     this.lastSketchSnap = snap;
     if (snap) this.showSnapPreview(snap, 8 / pixelsPerUnit); else this.clearSnapPreview();
     return snap?.point ?? raw;
@@ -2075,9 +2072,9 @@ export class CadViewportEngine {
       );
     }
     if (reference.target === "SKETCH_X_AXIS" || reference.target === "SKETCH_Y_AXIS") {
-      const points: [Vec2, Vec2] = reference.target === "SKETCH_X_AXIS"
-        ? [[-110, 0], [110, 0]] : [[0, -110], [0, 110]];
-      const line = makeOcclusionVisibleHighlightLine(points.map((point) => localToWorld(this.sketchPlane!, point)), color, 4);
+      const origin = localToWorld(this.sketchPlane, [0, 0]);
+      const direction = localToWorld(this.sketchPlane, reference.target === "SKETCH_X_AXIS" ? [1, 0] : [0, 1]).sub(origin);
+      const line = makeSketchReferenceAxis(origin, direction, new THREE.Color(color), 4);
       updateHighlightLineResolution(line, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
       return line;
     }
@@ -2207,6 +2204,7 @@ export class CadViewportEngine {
         this.callbacks.sketchOperations(this.activeSketchID, [{ type, externalId: externalID, geometryKey: selection.geometryKey,
           topologyId: selection.topologyId, topologyKind: selection.kind.toUpperCase() as "EDGE"|"VERTEX", sourceVersionId: selection.versionId }]);
       },
+      currentSelections: () => [...this.selected],
       retainSelections: (selections) => this.selectMany(selections),
       requestAssemblyConstraint: (kind, references) => this.callbacks.assemblyConstraintRequested(kind, references),
       moveManipulatorPointerDown: (pointerId, x, y) => this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement),
@@ -2226,7 +2224,12 @@ export class CadViewportEngine {
     };
     const feature = sketchView.part?.features.find((candidate) => candidate.id === this.activeSketchID);
     const entities = sketchReferenceEntities(feature);
-    const reference = resolveSketchReference({ x, y }, entities, screen, kind, 12, 110, retained);
+    const origin = localToWorld(this.sketchPlane, [0, 0]);
+    const extents = ([[1, 0], [0, 1]] as Vec2[]).map(axis => {
+      const ends = sketchAxisEndpoints(this.camera, origin, localToWorld(this.sketchPlane!, axis).sub(origin), width, height);
+      return ends ? ends[1].distanceTo(origin) : 0;
+    }) as Vec2;
+    const reference = resolveSketchReference({ x, y }, entities, screen, kind, 12, extents, retained);
     if (!reference) return null;
     if (reference.entityId && feature?.sketch?.externalGeometry?.some((external) => external.id === reference.entityId)) reference.target = "EXTERNAL";
     const captureKind = reference.target === "SKETCH_ORIGIN" ? "ORIGIN"
@@ -2292,6 +2295,20 @@ export class CadViewportEngine {
 
   private updateCameraClipping(box?: THREE.Box3): void {
     const bounds = (box ?? this.contentBounds).clone();
+    // A sketch can exist without a solid. Include its geometry and fixed-pixel
+    // references, otherwise zooming produces a far plane in front of the sketch.
+    for (const root of [this.helpers, this.sketchContext, this.preview, this.referencePreview, this.snapPreview]) {
+      if (!root) continue;
+      root.updateMatrixWorld(true);
+      root.traverseVisible(object => {
+        const geometry = (object as THREE.Mesh).geometry;
+        if (!geometry) return;
+        if (!geometry.boundingBox) geometry.computeBoundingBox();
+        if (geometry.boundingBox) bounds.union(geometry.boundingBox.clone().applyMatrix4(object.matrixWorld));
+      });
+    }
+    if (this.sketchPlane) bounds.expandByPoint(localToWorld(this.sketchPlane, [0, 0]));
+    if (bounds.isEmpty()) bounds.expandByPoint(this.navigation.target);
     if (this.commandPreview) bounds.union(new THREE.Box3().setFromObject(this.commandPreview));
     updateOrthographicClipping(this.camera, bounds);
   }
@@ -2369,6 +2386,7 @@ export class CadViewportEngine {
         this.updateScreenStableReferences();
         const metrics=viewportMetrics(this.renderer);
         updateScreenLines(this.scene, this.camera, metrics.cssWidth, metrics.cssHeight);
+        this.updateCameraClipping();
         this.scene.traverse((object)=>{
           const material=(object as THREE.Points).material;
           if(material instanceof THREE.ShaderMaterial&&material.uniforms.uPointSize&&typeof material.userData.cssPointSize==="number")

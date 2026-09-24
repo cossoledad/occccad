@@ -2,7 +2,7 @@ import { ControlOutlined } from "@ant-design/icons";
 import { Button, Divider, Drawer, Select, Switch, Typography } from "antd";
 import { useState } from "react";
 import type { NavigationProfileID } from "../../cad/navigation/navigation-profile";
-import { CaptureSettingsPanel } from "../../cad/overlay/capture-settings-button";
+import { CaptureSettingsPanel } from "../../cad/overlay/capture-settings-panel";
 import { effectiveLengthUnit, useUIPreferences, type DisplayLengthUnit } from "../../state/ui-preferences";
 
 const unitOptions = [
