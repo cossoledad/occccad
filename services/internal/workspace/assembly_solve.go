@@ -241,11 +241,10 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		if documentType != "PART" {
 			return resolvedPart{}, fmt.Errorf("%w: assembly geometry currently requires a direct Part instance", ErrValidation)
 		}
-		var part PartModel
-		if err := json.Unmarshal(modelJSON, &part); err != nil {
+		part, err := decodeAssemblyPartModel(modelJSON)
+		if err != nil {
 			return resolvedPart{}, err
 		}
-		normalizePartModel(&part)
 		value := resolvedPart{model: part}
 		resolved[versionID] = value
 		return value, nil

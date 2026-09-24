@@ -41,7 +41,7 @@ import { WorkbenchStatus } from "./workbench-status";
 import { contextualToolbars } from "./workbench-command-model";
 import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
-import { followedDocumentIDs, staleProductDocumentIDs } from "./product-edit-context";
+import { followedDocumentIDs, staleProductDocumentIDs, followProductUpdates } from "./product-edit-context";
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { isLengthParameter, linearExtrudeLengthInput, parameterDisplayValue, parameterSourceText, parseParameterSource } from "./parameter-editor";
 import { WorkbenchInspectorPanel } from "./workbench-inspector-panel";
@@ -183,6 +183,7 @@ export function Workbench() {
   const latestDocumentVersion = useRef<string | undefined>(undefined);
   const automaticUpdateSignature = useRef("");
   const automaticUpdateRunning = useRef(false);
+  const [automaticUpdateEpoch, setAutomaticUpdateEpoch] = useState(0);
   const [activeDocumentID, setActiveDocumentID] = useState(documentID);
   const [activeInstancePath, setActiveInstancePath] = useState<string>();
   const [definitionContextPath, setDefinitionContextPath] = useState<string>();
@@ -421,13 +422,8 @@ export function Workbench() {
     let disposed = false;
     void (async () => {
       try {
-        for (const productID of targets) {
-          const plan = await api.getProductUpdatePlan(productID);
-          if (!plan.hasUpdates) continue;
-          if (!plan.canAccept) throw new Error(plan.entries.find((entry) => entry.kind !== "ASSEMBLY_SOLVE" && entry.diagnostic)?.diagnostic ?? "Product 自动更新被上游求值阻塞");
-          const updated = await api.acceptProductUpdatePlan(productID, plan.digest);
-          client.setQueryData(queryKeys.document(productID), updated);
-        }
+        const updatedViews = await followProductUpdates(view, api);
+        if (!disposed) for (const updated of updatedViews) client.setQueryData(queryKeys.document(updated.document.id), updated);
         if (!disposed) await Promise.all([
           client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
           client.invalidateQueries({ queryKey: ["product-update-plan", documentID] }),
@@ -436,10 +432,14 @@ export function Workbench() {
         if (!disposed) message.error(`自动跟随最新版本失败：${cause instanceof Error ? cause.message : String(cause)}`);
       } finally {
         automaticUpdateRunning.current = false;
+        // A new view/document may have arrived while the previous wave ran.
+        // Reconsider it after releasing the single-flight guard.
+        setAutomaticUpdateEpoch((value) => value + 1);
+        if (disposed) void client.invalidateQueries({ queryKey: queryKeys.document(documentID) });
       }
     })();
     return () => { disposed = true; };
-  }, [canEditRoot, client, documentID, message, view]);
+  }, [canEditRoot, client, documentID, message, view, automaticUpdateEpoch]);
 
   useEffect(() => {
     if (replacingAssemblyReference === undefined || !store.selection) return;

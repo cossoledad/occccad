@@ -345,7 +345,7 @@ func rebaseInstancePath(rootDocumentID string, prefix, relative InstancePath) In
 	return result
 }
 
-func (service *Service) expandProductContext(ctx context.Context, rootDocumentID, rootRevisionID string) ([]expandedOccurrence, error) {
+func (service *Service) expandProductContext(ctx context.Context, rootDocumentID, rootRevisionID string, candidate ...ProductModel) ([]expandedOccurrence, error) {
 	result := []expandedOccurrence{}
 	visiting := map[string]bool{}
 	var expand func(string, string, InstancePath, InstancePose, string, int) error
@@ -379,6 +379,9 @@ func (service *Service) expandProductContext(ctx context.Context, rootDocumentID
 		var model ProductModel
 		if err := json.Unmarshal(raw, &model); err != nil {
 			return err
+		}
+		if depth == 0 && len(candidate) > 0 {
+			model = candidate[0]
 		}
 		for _, publication := range model.Publications {
 			item.Publications = append(item.Publications, Publication{ID: publication.ID, Name: publication.Name, Type: publication.Type,

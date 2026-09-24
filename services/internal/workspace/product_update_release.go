@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/occccad/occccad/internal/modelcore"
@@ -31,45 +32,31 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 		return ProductUpdatePlan{}, err
 	}
 	variantBindings := map[string][]ContextBinding{}
-	candidateOccurrenceRevisions := map[string]string{}
-	for _, occurrence := range items {
-		if len(occurrence.Path.Segments) == 0 || occurrence.ReferenceMode == "PINNED" {
-			continue
-		}
-		entry := ProductUpdatePlanEntry{Kind: "OCCURRENCE_REFERENCE", BindingID: "occurrence:" + occurrence.Path.Canonical,
-			Name: occurrence.Name, SourceDisplayPath: occurrence.Path.Display, OwningDisplayPath: occurrence.Path.Display,
-			AcceptedRevisionID: occurrence.RevisionID, Connection: "CONNECTED", Currency: "CURRENT", Evaluation: "READY"}
+	candidateOccurrenceRevisions := appendDirectReferenceUpdates(&plan, items, func(documentID string) (string, error) {
 		var head string
-		if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents
-			WHERE id=$1 AND deleted_at IS NULL`, occurrence.DocumentID).Scan(&head); err != nil {
-			entry.Connection, entry.Currency, entry.Evaluation = "BROKEN", "UPDATE_BLOCKED", "BLOCKED_BY_UPSTREAM"
-			entry.DiagnosticCode, entry.Diagnostic = "REFERENCE_SOURCE_MISSING", "referenced occurrence Head is unavailable"
-			plan.CanAccept = false
-		} else {
-			entry.CandidateRevisionID = head
-			if head != occurrence.RevisionID {
-				entry.Currency, plan.HasUpdates = "UPDATE_AVAILABLE", true
-				if len(occurrence.Path.Segments) > 1 {
-					entry.Currency, entry.Evaluation = "UPDATE_BLOCKED", "BLOCKED_BY_UPSTREAM"
-					entry.DiagnosticCode, entry.Diagnostic = "NESTED_REFERENCE_UPDATE_REQUIRED", "accept the nested Product definition update before accepting the root occurrence"
-					plan.CanAccept = false
-				} else {
-					candidateOccurrenceRevisions[occurrence.Path.Canonical] = head
-				}
-			}
-		}
-		plan.Entries = append(plan.Entries, entry)
-	}
+		err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, documentID).Scan(&head)
+		return head, err
+	})
 	for index := range rootModel.Instances {
 		if candidate := candidateOccurrenceRevisions[rootModel.Instances[index].ID]; candidate != "" {
 			rootModel.Instances[index].ReferencedVersionID = candidate
 			rootModel.Instances[index].ResolvedVersionID = candidate
 		}
 	}
+	// Each Product accepts only its own occurrence edges. Re-expand candidate
+	// child revisions before checking paths, never compare new children against
+	// the old accepted subtree. Nested Products update through their own plans.
+	if len(candidateOccurrenceRevisions) > 0 {
+		items, err = service.expandProductContext(ctx, rootDocumentID, revisionID, rootModel)
+		if err != nil {
+			return ProductUpdatePlan{}, err
+		}
+	}
 	bindings := []ContextBinding{}
 	for _, item := range items {
 		bindings = append(bindings, item.ContextBindings...)
 	}
+
 	if len(bindings) > maxProductUpdateBindings {
 		return ProductUpdatePlan{}, fmt.Errorf("%w: PRODUCT_UPDATE_BINDING_LIMIT_EXCEEDED", ErrValidation)
 	}
@@ -510,13 +497,30 @@ func (service *Service) CreateProductRelease(ctx context.Context, rootDocumentID
 	for _, variant := range plan.ContextVariants {
 		variantsByPath[variant.OwningInstancePath.Canonical] = variant
 	}
+	// Update plans own direct edges; Release still checks currency through the
+	// entire followed tree. PINNED freezes its subtree, including live inner edges.
+	referencesCurrent := true
+	followed := map[string]bool{"": true}
 	for _, item := range items {
+		follows := true
+		if item.Path.Canonical != "" {
+			parent := ""
+			if slash := strings.LastIndex(item.Path.Canonical, "/"); slash >= 0 {
+				parent = item.Path.Canonical[:slash]
+			}
+			follows = followed[parent] && item.ReferenceMode != "PINNED"
+			followed[item.Path.Canonical] = follows
+		}
+		var head string
 		var geometryKey *string
 		var evaluationJSON []byte
 		var state string
-		if err := service.database.QueryRow(ctx, `SELECT geometry_key,evaluation_manifest,state FROM occccad.document_versions
-			WHERE id=$1 AND document_id=$2`, item.RevisionID, item.DocumentID).Scan(&geometryKey, &evaluationJSON, &state); err != nil {
+		if err := service.database.QueryRow(ctx, `SELECT v.geometry_key,v.evaluation_manifest,v.state,d.head_version_id::text FROM occccad.document_versions v
+            JOIN occccad.documents d ON d.id=v.document_id WHERE v.id=$1 AND v.document_id=$2`, item.RevisionID, item.DocumentID).Scan(&geometryKey, &evaluationJSON, &state, &head); err != nil {
 			return ProductRelease{}, err
+		}
+		if follows && head != item.RevisionID {
+			referencesCurrent = false
 		}
 		occurrence := ProductReleaseOccurrence{InstancePath: item.Path, DocumentID: item.DocumentID, DocumentType: item.DocumentType,
 			RevisionID: item.RevisionID, Pose: item.Pose, EvaluationManifestDigest: modelcore.ValueDigest(evaluationJSON)}
@@ -533,7 +537,7 @@ func (service *Service) CreateProductRelease(ctx context.Context, rootDocumentID
 		}
 		manifest.ContextBindings = append(manifest.ContextBindings, item.ContextBindings...)
 	}
-	if !plan.CanAccept || plan.HasUpdates {
+	if !plan.CanAccept || plan.HasUpdates || !referencesCurrent {
 		gates = append(gates, ProductReleaseGate{Code: "PRODUCT_REFERENCES_CURRENT", Status: "FAILED", Diagnostic: "Product Update Plan must be current and unblocked"})
 	} else {
 		gates = append(gates, ProductReleaseGate{Code: "PRODUCT_REFERENCES_CURRENT", Status: "PASSED"})
@@ -650,4 +654,32 @@ func (service *Service) ReplayProductRelease(ctx context.Context, rootDocumentID
 	}
 	result.Status, result.Assembly = solve.Status, &solve
 	return result, nil
+}
+
+// The owning Product commits only its direct reference edges. Descendant
+// definitions are accepted by their own owners before this plan is requested.
+func appendDirectReferenceUpdates(plan *ProductUpdatePlan, items []expandedOccurrence, loadHead func(string) (string, error)) map[string]string {
+	candidateOccurrenceRevisions := map[string]string{}
+	for _, occurrence := range items {
+		if len(occurrence.Path.Segments) != 1 || occurrence.ReferenceMode == "PINNED" {
+			continue
+		}
+		entry := ProductUpdatePlanEntry{Kind: "OCCURRENCE_REFERENCE", BindingID: "occurrence:" + occurrence.Path.Canonical,
+			Name: occurrence.Name, SourceDisplayPath: occurrence.Path.Display, OwningDisplayPath: occurrence.Path.Display,
+			AcceptedRevisionID: occurrence.RevisionID, Connection: "CONNECTED", Currency: "CURRENT", Evaluation: "READY"}
+		head, err := loadHead(occurrence.DocumentID)
+		if err != nil {
+			entry.Connection, entry.Currency, entry.Evaluation = "BROKEN", "UPDATE_BLOCKED", "BLOCKED_BY_UPSTREAM"
+			entry.DiagnosticCode, entry.Diagnostic = "REFERENCE_SOURCE_MISSING", "referenced occurrence Head is unavailable"
+			plan.CanAccept = false
+		} else {
+			entry.CandidateRevisionID = head
+			if head != occurrence.RevisionID {
+				entry.Currency, plan.HasUpdates = "UPDATE_AVAILABLE", true
+				candidateOccurrenceRevisions[occurrence.Path.Canonical] = head
+			}
+		}
+		plan.Entries = append(plan.Entries, entry)
+	}
+	return candidateOccurrenceRevisions
 }

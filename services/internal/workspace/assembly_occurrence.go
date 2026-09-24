@@ -82,3 +82,14 @@ func assemblyGeometryInBody(value geometry.AssemblyGeometry, pose InstancePose) 
 	value.Direction = rotateByPose(pose, value.Direction)
 	return value
 }
+
+// All assembly consumers use the same normalized Part representation as the
+// view. Default datums are implicit in some accepted/imported Part models.
+func decodeAssemblyPartModel(raw []byte) (PartModel, error) {
+	var part PartModel
+	if err := json.Unmarshal(raw, &part); err != nil {
+		return PartModel{}, err
+	}
+	normalizePartModel(&part)
+	return part, nil
+}

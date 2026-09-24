@@ -198,11 +198,19 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 			part, ok := acceptedParts[instance.ReferencedVersionID]
 			if !ok {
 				var raw []byte
-				if err := service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1`, instance.ReferencedVersionID).Scan(&raw); err != nil {
+				var documentType string
+				if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v
+                    JOIN occccad.documents d ON d.id=v.document_id WHERE v.id=$1 AND v.document_id=$2`, instance.ReferencedVersionID, instance.ReferencedDocumentID).Scan(&documentType, &raw); err != nil {
 					return modelcore.SelectionSourceUnavailable, err
 				}
-				if err := json.Unmarshal(raw, &part); err != nil {
-					return modelcore.SelectionSourceUnavailable, err
+				if documentType != "PART" {
+					reference.Resolution = &ResolutionSnapshot{TargetVersionID: instance.ReferencedVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: unavailableSelectionResolution("DATUM_SUPPORT_MISSING", "datum reference must identify its owning Part occurrence")}
+					return modelcore.SelectionSourceUnavailable, nil
+				}
+				var decodeErr error
+				part, decodeErr = decodeAssemblyPartModel(raw)
+				if decodeErr != nil {
+					return modelcore.SelectionSourceUnavailable, decodeErr
 				}
 				acceptedParts[instance.ReferencedVersionID] = part
 			}

@@ -30,7 +30,7 @@ Web 以 root Product、active occurrence 和 definition/context 模式维护非�
 
 ## 更新计划与派生 Variant
 
-`ProductUpdatePlan` 从不可变 root snapshot 投影 occurrence/reference 与 ContextBinding 影响项，分别报告 connection、currency、evaluation，候选 Context Variant 会把已接受/候选 Publication 描述转换到 owning Part local frame，再复用 Part 参数、Sketch 与几何 evaluator 生成独立 GeometryKey、Publication resolution 和 EvaluationManifest。Variant identity 只包含 base Part Revision、规范化输入快照及 evaluator/policy；不包含 binding 显示名、BindingId、occurrence path、WorkerId，PARAMETER 输入也不包含无意义的 occurrence transform，因此同一定义和输入的四个 Wheel occurrence 可共享持久 variant cache；不同几何/参数输入不污染共享 Part。accepted variant 会覆盖 Product `ResolvedInstances` 的 base GeometryKey，并沿嵌套 rigid Product Publication 转发进入装配 descriptor。Web 对 FOLLOW_HEAD 变化按叶到根自动接受 Update Plan，但每次仍以 digest 防止接受过期计划；Context Variant 等上游候选求值失败仍会阻止当前计划；装配约束 Broken/Impossible 仅作为诊断，不阻止引用接受。`HasUpdates` 由引用/上下文变化决定，失效约束本身不触发自动更新循环；显式 Refresh 仍可重新解析求解。接受新 HEAD 后支持元素解析失败的约束保留 Broken 并隔离，其余约束继续求解；Release 仍独立要求活动约束全部 Verified。
+`ProductUpdatePlan` 从不可变 root snapshot 投影 occurrence/reference 与 ContextBinding 影响项，分别报告 connection、currency、evaluation，候选 Context Variant 会把已接受/候选 Publication 描述转换到 owning Part local frame，再复用 Part 参数、Sketch 与几何 evaluator 生成独立 GeometryKey、Publication resolution 和 EvaluationManifest。Variant identity 只包含 base Part Revision、规范化输入快照及 evaluator/policy；不包含 binding 显示名、BindingId、occurrence path、WorkerId，PARAMETER 输入也不包含无意义的 occurrence transform，因此同一定义和输入的四个 Wheel occurrence 可共享持久 variant cache；不同几何/参数输入不污染共享 Part。accepted variant 会覆盖 Product `ResolvedInstances` 的 base GeometryKey，并沿嵌套 rigid Product Publication 转发进入装配 descriptor。Update Plan 的 occurrence 更新项只属于当前 Product 的直属引用边；子 Product 通过自己的计划提交新 Revision，再由父 Product 接受。候选直属版本变化后，计划先按候选子版本重新展开路径，避免用旧子树阻塞父级接受。Web 对 FOLLOW_HEAD 变化按 Product 依赖顺序从叶到根自动接受，先读取待跟随子 Product 的最新定义，再处理新定义中引入的待更新后代；共享子 Product 按依赖排序，PINNED 边阻断遍历。每轮后重新读取当前 Product，深度和更新轮数均有界；每次仍以 digest 防止接受过期计划。Release 独立检查整棵非 PINNED 跟随树的版本状态，不因更新计划只处理直属引用而放松发布要求；Context Variant 等上游候选求值失败仍会阻止当前计划；装配约束 Broken/Impossible 仅作为诊断，不阻止引用接受。`HasUpdates` 由引用/上下文变化决定，失效约束本身不触发自动更新循环；显式 Refresh 仍可重新解析求解。接受新 HEAD 后支持元素解析失败的约束保留 Broken 并隔离，其余约束继续求解；Release 仍独立要求活动约束全部 Verified。
 
 ## M3 SolveManifest 与 Release
 
@@ -116,3 +116,5 @@ Product 补偿冲突检查使用实际最近 REVERT/REAPPLY 结果 Revision 的�
 鼠标拖动的 MOVE_INSTANCE（含 preview/commit）只使用已接纳方程和交互 driver。隔离定义不参与支持解析、方程、自由度计算或测量更新；拖动不可为了成功而丢弃已有 Verified 约束。抑制/激活、删除、修改或显式重算会再次尝试隔离项，恢复后重新参与运动。
 
 每次接纳试算保留命令入口的 nominal pose；失败不污染姿态、warm start 或其他约束状态。网络、取消与基础设施故障使整次操作失败，不记为约束冲突。试算使用独立请求及 `PROBE` SolveManifest，最终 COMMIT/PREVIEW manifest 同时记录全部定义和实际接纳的方程集合；Release 不使用探测试算证据，活动隔离项仍阻止 Release。
+
+嵌套 Part 的基准面、轴系原点/方向和自定义基准轴在视口拾取时与实体拓扑一样携带完整 InstancePath；直属 InstanceId 仍标识参与运动的子 Product，路径末端标识基准所属 Part 的已接受版本。支持检查和求解描述符读取统一规范化 Part 默认基准面/轴系，隐式默认基准可解析，删除的自定义基准仍返回 Broken。定向回归入口为 `nested_product_update_test.go`、`product-edit-context.scenario.mjs` 和 `nested-datum-selection.scenario.mjs`。

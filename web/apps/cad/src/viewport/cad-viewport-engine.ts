@@ -1097,8 +1097,9 @@ export class CadViewportEngine {
           resolvedGroup.add(solid);
         }
         const visualContext = {
-          documentId: resolved.documentId, geometryKey: artifact.geometryKey, occurrencePath: resolved.occurrencePath,
-          treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id,
+          documentId: resolved.documentId, versionId: resolved.instancePath.segments.at(-1)?.resolvedVersionId,
+          geometryKey: artifact.geometryKey, occurrencePath: resolved.occurrencePath,
+          instancePath: resolved.instancePath, treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id,
         };
         this.addReferenceGeometry(artifact.visualization.referenceGeometry, resolvedGroup, visualContext);
         this.addVisualPrimitives(artifact.visualization, resolvedGroup, visualContext, false);
