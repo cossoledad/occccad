@@ -30,7 +30,7 @@ func (largeMeshWorker) EvaluatePart(_ context.Context, r *workerv1.EvaluatePartR
 	for i := 0; i < 200000; i++ {
 		mesh.Vertices = append(mesh.Vertices, &workerv1.Vec3{X: 1, Y: 2, Z: 3})
 	}
-	return &workerv1.EvaluatePartResponse{GeometryKey: r.GeometryKey, Mesh: mesh}, nil
+	return &workerv1.EvaluatePartResponse{GeometryKey: r.GeometryKey, PreviewMesh: mesh, RepresentationKind: "TRANSIENT_PREVIEW"}, nil
 }
 func TestGeometryRouterLargeRequestAndMeshResponse(t *testing.T) {
 	backend := serveGeometry(t, largeMeshWorker{})
@@ -51,7 +51,7 @@ func TestGeometryRouterLargeRequestAndMeshResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	size := proto.Size(response)
-	if size <= 4<<20 || size >= geometryrpc.MaxMessageBytes || len(response.GetMesh().GetVertices()) != 200000 {
+	if size <= 4<<20 || size >= geometryrpc.MaxMessageBytes || len(response.GetPreviewMesh().GetVertices()) != 200000 {
 		t.Fatalf("unexpected response size or mesh: %d", size)
 	}
 	// Demonstrate this payload still fails for an unconfigured 4 MiB receiver.

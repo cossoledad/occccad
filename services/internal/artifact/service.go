@@ -1,6 +1,7 @@
 package artifact
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -110,4 +111,40 @@ func StagingKey(requestID, fileName string) string {
 		base = "object.bin"
 	}
 	return filepath.ToSlash(filepath.Join("exchange", "staging", hex.EncodeToString(digest[:]), base))
+}
+
+// AdoptTransformed decorates a staged result before publication. In particular,
+// adding business visualization metadata must not publish a second, unused GLB.
+func (service *Service) AdoptTransformed(ctx context.Context, kind Kind, contentType, key, digest string, size int64, transform func([]byte) ([]byte, error)) (Object, error) {
+	if size < 0 || size == int64(^uint64(0)>>1) {
+		return Object{}, fmt.Errorf("invalid staged object size")
+	}
+	reader, err := service.staging.Open(ctx, key)
+	if err != nil {
+		return Object{}, err
+	}
+	data, err := io.ReadAll(io.LimitReader(reader, size+1))
+	closeErr := reader.Close()
+	if err != nil {
+		return Object{}, err
+	}
+	if closeErr != nil {
+		return Object{}, closeErr
+	}
+	hash := sha256.Sum256(data)
+	if int64(len(data)) != size || hex.EncodeToString(hash[:]) != digest {
+		return Object{}, fmt.Errorf("staged artifact integrity mismatch")
+	}
+	output, err := transform(data)
+	if err != nil {
+		return Object{}, err
+	}
+	object, err := service.Put(ctx, kind, contentType, bytes.NewReader(output))
+	if err != nil {
+		return Object{}, err
+	}
+	if err := service.staging.Delete(ctx, key); err != nil {
+		return Object{}, err
+	}
+	return object, nil
 }

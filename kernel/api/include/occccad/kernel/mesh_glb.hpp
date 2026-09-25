@@ -8,7 +8,7 @@
 
 namespace occccad::kernel {
 
-[[nodiscard]] std::vector<uint8_t> make_glb(const TessellationResult& mesh);
+[[nodiscard]] std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string& topology_ids_json = "{}");
 
 }  // namespace occccad::kernel
 

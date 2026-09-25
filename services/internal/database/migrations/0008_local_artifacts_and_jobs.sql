@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS occccad.artifact_objects (
     id uuid PRIMARY KEY DEFAULT uuidv7(),
-    kind text NOT NULL CHECK (kind IN ('BREP','GLB','TOPOLOGY_MANIFEST','EXCHANGE_SOURCE','EXCHANGE_EXPORT','THUMBNAIL')),
+    kind text NOT NULL CHECK (length(kind)>0),
     sha256 char(64) NOT NULL,
     storage_backend text NOT NULL DEFAULT 'LOCAL' CHECK (storage_backend IN ('LOCAL','S3')),
     object_key text NOT NULL,
@@ -9,26 +9,16 @@ CREATE TABLE IF NOT EXISTS occccad.artifact_objects (
     state text NOT NULL DEFAULT 'READY' CHECK (state IN ('STAGING','READY','QUARANTINED','DELETING')),
     created_at timestamptz NOT NULL DEFAULT now(),
     verified_at timestamptz,
-    UNIQUE(kind,sha256),
-    UNIQUE(storage_backend,object_key)
+    UNIQUE(kind,sha256)
 );
 
-ALTER TABLE occccad.geometry_artifacts
-    ADD COLUMN IF NOT EXISTS brep_object_id uuid REFERENCES occccad.artifact_objects(id),
-    ADD COLUMN IF NOT EXISTS glb_object_id uuid REFERENCES occccad.artifact_objects(id),
-    ADD COLUMN IF NOT EXISTS topology_manifest_object_id uuid REFERENCES occccad.artifact_objects(id),
-    ADD COLUMN IF NOT EXISTS topology_manifest_data bytea,
-    ADD COLUMN IF NOT EXISTS topology_manifest_digest char(64),
-    ADD COLUMN IF NOT EXISTS storage_state text NOT NULL DEFAULT 'DATABASE'
-        CHECK (storage_state IN ('DATABASE','DUAL','OBJECT'));
-
-ALTER TABLE occccad.geometry_artifacts
-    ALTER COLUMN brep_data DROP NOT NULL,
-    ALTER COLUMN glb_data DROP NOT NULL,
-    ADD CONSTRAINT geometry_artifacts_storage_payload_check CHECK (
-        (storage_state <> 'DATABASE' OR (brep_data IS NOT NULL AND glb_data IS NOT NULL))
-        AND (storage_state <> 'OBJECT' OR (brep_object_id IS NOT NULL AND glb_object_id IS NOT NULL))
-    );
+CREATE TABLE occccad.geometry_representations (
+    geometry_key text NOT NULL REFERENCES occccad.geometry_artifacts(geometry_key) ON DELETE CASCADE,
+    role text NOT NULL,
+    schema_version integer NOT NULL CHECK (schema_version > 0),
+    object_id uuid NOT NULL REFERENCES occccad.artifact_objects(id),
+    PRIMARY KEY (geometry_key,role)
+);
 
 CREATE TABLE IF NOT EXISTS occccad.jobs (
     id uuid PRIMARY KEY DEFAULT uuidv7(),

@@ -22,6 +22,7 @@
 | Parameter/Dependency | [参数与求值](architecture/current/model-history.md) | [参数与增量](architecture/target/parameters-evaluation.md)、[接口与治理](architecture/target/model-governance.md) |
 | Sketch | [Part/Sketch](architecture/current/part-sketch.md) | [模型](architecture/target/sketch-model.md)、[编辑](architecture/target/sketch-editing.md)、[Solver](architecture/target/sketch-solver.md)、[集成](architecture/target/sketch-integration.md) |
 | Part Feature | [Part](architecture/current/part-sketch.md) | [模型](architecture/target/part-model.md)、[扩展](architecture/target/part-extensions.md)、[求值门](architecture/target/part-evaluation.md) |
+| Part 几何/显示数据 | [几何制品](architecture/current/geometry-representations.md) | [大模型数据面](architecture/target/large-models.md) |
 | Naming | [命名/重连](architecture/current/persistent-naming.md) | [拓扑命名](architecture/target/persistent-naming.md) |
 | Product/Assembly | [Product](architecture/current/product-assembly.md) | [上下文](architecture/target/product-context.md)、[六类约束](architecture/target/assembly-constraints.md)、[装配](architecture/target/assembly.md)、[求值](architecture/target/product-evaluation.md) |
 | Surface/3D Wire | 尚无完整实现 | [模型](architecture/target/surface-model.md)、[Feature](architecture/target/surface-features.md)、[质量](architecture/target/surface-quality.md)、[集成](architecture/target/surface-integration.md) |

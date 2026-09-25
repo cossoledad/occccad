@@ -7,7 +7,7 @@ Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 g
 - `Ping`：返回 Worker ID、OCCT 版本和 resident geometry 数；
 - `SolveSketch`：求解版本化 Point/Line/Circle/Arc/Spline/Constraint SketchModel，返回坐标、状态、DoF 和冲突/冗余约束 ID；
 - `ProjectExternalGeometry`：以已解析的 Edge/Vertex evidence 和草图 support frame 权威生成二维只读 Point/Line/完整 Circle 投影；退化、类型不符、斜圆投影和缺少定向 evidence 的部分圆弧返回稳定诊断，不回退到浏览器近似；Arc evidence/snapshot 属于 P11J-0；
-- `EvaluatePart`：求值一个矩形草图/拉伸链或在基础 B-Rep 上追加拉伸；Profile Pad 请求校验稳定 Feature/Body/source identity 和版本化 topology naming policy，并回传逐 Feature identity、semantic topology outputs 与 TopologyHistory；
+- `EvaluatePart`：求值一个矩形草图/拉伸链或在基础 B-Rep 上追加拉伸；Profile Pad 请求校验稳定 Feature/Body/source identity 和版本化 topology naming policy，仅回传逐 Feature identity、摘要与 ArtifactReference，完整 semantic topology outputs 和 TopologyHistory 写入 `naming.pb`；
 - `InspectExchange` / `ImportExchange` / `ExportExchange`：通过 ArtifactReference 检查、导入和导出 STEP/BREP；
 - `GetTopology`：返回面、边、点及诊断属性；
 - 生成 SHA-256 GeometryId、B-Rep、三角网格、边折线、包围盒、体积和 GLB。
@@ -105,9 +105,9 @@ Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用�
 
 平面 Face 属性和命名 evidence 使用最终 Solid 中包含 Face Orientation 的法向，闭合实体朝材料外（内腔朝空腔）。History 返回的工具面可能方向相反，输出命名前会按最终 face map 取回朝向；平面 X/Y/normal 保持右手系，供面上草图、装配 descriptor 和法线视图共享。
 
-EvaluatePart 支持 `ImportTopologySeed`：控制面传入冻结 BREP 摘要、OCCT 版本、导入策略、Feature/Body 和独立稳定 ID 映射。Worker 验证合同，OCCT 校验快照摘要及完整单 Solid 覆盖；允许仅 seed 的根求值，也允许 seed 加 profile 布尔链。返回的根 FeatureResult/manifest 与原生命名共用合同，Worker 不分配业务身份、不读取业务数据库。
+EvaluatePart 支持 `ImportTopologySeed`：控制面传入冻结 BREP 摘要、Feature/Body 及 identity Artifact 引用，完整 OCCT 版本、导入策略和独立稳定 ID 映射由 Worker 读取并校验。Worker 验证合同，OCCT 校验快照摘要及完整单 Solid 覆盖；允许仅 seed 的根求值，也允许 seed 加 profile 布尔链。`naming.pb` 内的根 FeatureResult/manifest 与原生命名共用合同，Worker 不分配业务身份、不读取业务数据库。
 
-Geometry RPC 发送和接收均限制为 128 MiB，与 Go `internal/geometryrpc` 保持一致。文件上限独立；EvaluatePartResponse 中的 Mesh 仍为内联数据，超过 RPC 预算的网格需要后续制品外置。
+Geometry RPC 发送和接收均限制为 128 MiB，与 Go `internal/geometryrpc` 保持一致。文件上限独立；持久 EvaluatePartResponse 只含结果摘要及 BREP、VISUAL、NAMING 引用；只有显式 `TRANSIENT_PREVIEW` 可携带 `preview_mesh`。GLB 的 `OCCCCAD_cad` 扩展包含面索引、边折线、顶点和稳定锚点映射，详见[几何表示合同](../../docs/architecture/current/geometry-representations.md)。
 
 `InspectExchange.component_output_prefix` 启用一次解析、按 Solid occurrence 物化单实体 BREP 的准备模式；返回 `prepared_brep`，供独立 Worker 并行处理。无 prefix 仍为只读根检查。BREP ImportExchange 对单实体进行有效性检查和命名前的受限 ShapeFix，并对参数坐标系一致、仅共享一条边的异常圆柱面片恢复周期边界闭合；修复后仍须满足有效单实体门禁，不能修复的实体明确失败；业务 Part 拆分由 Jobs 协调，Worker 不写数据库或创建文档。
 

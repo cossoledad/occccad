@@ -3,13 +3,11 @@ package workspace
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"reflect"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
@@ -172,16 +170,11 @@ func supportFrame(model PartModel, support SketchSupport) ([3]float64, [3]float6
 }
 
 func (service *Service) topologyManifestForGeometryKey(ctx context.Context, geometryKey string) (*workerv1.PartTopologyManifest, string, error) {
-	var digest, objectID *string
-	var inline []byte
-	err := service.database.QueryRow(ctx, `SELECT COALESCE(topology_manifest_data,''::bytea),topology_manifest_object_id::text,topology_manifest_digest FROM occccad.geometry_artifacts WHERE geometry_key=$1`, geometryKey).Scan(&inline, &objectID, &digest)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, "", ErrNotFound
-	}
+	objectID, digest, err := service.namingReference(ctx, geometryKey)
 	if err != nil {
 		return nil, "", err
 	}
-	return service.readTopologyManifest(ctx, inline, objectID, digest)
+	return service.readTopologyManifest(ctx, nil, objectID, digest)
 }
 
 func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, documentID, sourceVersionID, geometryKey string,

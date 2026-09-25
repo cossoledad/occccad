@@ -639,17 +639,15 @@ func (service *Service) loadTopologyManifestForVersion(ctx context.Context, docu
 	defer perf.Start(ctx, "topology-manifest-read")()
 
 	var geometryKey string
-	var digest, objectID *string
-	var inline []byte
-	err := service.database.QueryRow(ctx, `SELECT v.geometry_key,COALESCE(a.topology_manifest_data,''::bytea),a.topology_manifest_object_id::text,a.topology_manifest_digest FROM occccad.document_versions v JOIN occccad.geometry_artifacts a ON a.geometry_key=v.geometry_key WHERE v.id=$2 AND v.document_id=$1`, documentID, versionID).Scan(&geometryKey, &inline, &objectID, &digest)
+	err := service.database.QueryRow(ctx, `SELECT geometry_key FROM occccad.document_versions WHERE id=$2 AND document_id=$1`, documentID, versionID).Scan(&geometryKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", "", ErrNotFound
 	}
 	if err != nil {
 		return nil, "", "", err
 	}
-	manifest, resolvedDigest, err := service.readTopologyManifest(ctx, inline, objectID, digest)
-	return manifest, geometryKey, resolvedDigest, err
+	manifest, digest, err := service.topologyManifestForGeometryKey(ctx, geometryKey)
+	return manifest, geometryKey, digest, err
 }
 
 func (service *Service) BindPersistentSelection(ctx context.Context, documentID string, request BindPersistentSelectionRequest) (modelcore.PersistentSelection, error) {

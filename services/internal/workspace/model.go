@@ -7,26 +7,14 @@ import (
 
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
+	"github.com/occccad/occccad/internal/visual"
 )
 
 const SketchSchemaVersion = uint32(2)
 
-type Mesh struct {
-	Vertices         [][3]float64    `json:"vertices"`
-	Triangles        [][3]uint32     `json:"triangles"`
-	FaceIDs          []uint32        `json:"faceIds"`
-	Edges            []MeshEdge      `json:"edges"`
-	TopologyVertices []TopologyPoint `json:"topologyVertices"`
-}
-
-type MeshEdge struct {
-	LocalID uint64       `json:"localId"`
-	Points  [][3]float64 `json:"points"`
-}
-type TopologyPoint struct {
-	LocalID uint64     `json:"localId"`
-	Point   [3]float64 `json:"point"`
-}
+type Mesh = visual.Mesh
+type MeshEdge = visual.Edge
+type TopologyPoint = visual.Point
 
 type TopologyElementProperties struct {
 	GeometryKey         string                         `json:"geometryKey"`
@@ -46,21 +34,26 @@ type TopologyElementProperties struct {
 }
 
 type Artifact struct {
-	Naming           NamingAvailability    `json:"naming"`
-	GeometryKey      string                `json:"geometryKey"`
-	GeometryID       string                `json:"geometryId"`
-	Mesh             Mesh                  `json:"mesh"`
-	BBox             map[string]any        `json:"bbox"`
-	Topology         map[string]any        `json:"topology"`
-	Volume           float64               `json:"volume"`
-	OCCTVersion      string                `json:"occtVersion"`
-	GLBBytes         int                   `json:"glbBytes"`
-	BRepBytes        int                   `json:"brepBytes"`
-	EvaluatorVersion string                `json:"evaluatorVersion"`
-	WorkerID         string                `json:"workerId"`
-	StorageState     string                `json:"storageState"`
-	CreatedAt        string                `json:"createdAt"`
-	Visualization    VisualizationManifest `json:"visualization"`
+	PreviewMesh        *Mesh                     `json:"previewMesh,omitempty"`
+	Naming             NamingAvailability        `json:"naming"`
+	GeometryKey        string                    `json:"geometryKey"`
+	GeometryID         string                    `json:"geometryId"`
+	Mesh               Mesh                      `json:"-"` // decoded consumer-local GLB data, never DocumentView JSON
+	Representations    map[string]Representation `json:"representations"`
+	TriangleCount      uint64                    `json:"triangleCount"`
+	DisplayVertexCount uint64                    `json:"displayVertexCount"`
+	RepresentationKind string                    `json:"representationKind"`
+	BBox               map[string]any            `json:"bbox"`
+	Topology           map[string]any            `json:"topology"`
+	Volume             float64                   `json:"volume"`
+	OCCTVersion        string                    `json:"occtVersion"`
+	GLBBytes           int                       `json:"glbBytes"`
+	BRepBytes          int                       `json:"brepBytes"`
+	EvaluatorVersion   string                    `json:"evaluatorVersion"`
+	WorkerID           string                    `json:"workerId"`
+	StorageState       string                    `json:"storageState"`
+	CreatedAt          string                    `json:"createdAt"`
+	Visualization      VisualizationManifest     `json:"visualization"`
 }
 
 type DatumPlane struct {
@@ -1009,4 +1002,13 @@ type WorkspaceSummary struct {
 	HeadRevisionID string `json:"headRevisionId"`
 	HeadSequence   uint64 `json:"headSequence"`
 	BaseRevisionID string `json:"baseRevisionId"`
+}
+
+// Extensible roles: BREP, VISUAL, NAMING, and future LOD/material/PMI outputs.
+type Representation struct {
+	ObjectID      string `json:"objectId"`
+	Digest        string `json:"digest"`
+	SchemaVersion int    `json:"schemaVersion"`
+	Size          int64  `json:"size"`
+	ContentType   string `json:"contentType"`
 }

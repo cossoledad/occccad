@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/authn"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/modelcore"
@@ -216,6 +216,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/folders/{folderID}/restore", server.restoreFolder)
 	mux.HandleFunc("GET /api/folders/{folderID}/breadcrumbs", server.folderBreadcrumbs)
 	mux.HandleFunc("GET /api/documents/{documentID}", server.getDocument)
+	mux.HandleFunc("GET /api/documents/{documentID}/representations/{objectID}", server.downloadRepresentation)
 	mux.HandleFunc("GET /api/documents/{documentID}/design-session", server.productDesignSession)
 	mux.HandleFunc("GET /api/documents/{documentID}/context-catalog", server.productContextCatalog)
 	mux.HandleFunc("POST /api/documents/{documentID}/context-bindings", server.createProductContextBinding)
@@ -948,8 +949,8 @@ func (server *Server) documentProperties(writer http.ResponseWriter, request *ht
 	}
 	triangles, vertices, solids, glbBytes, brepBytes := 0, 0, 0, 0, 0
 	for _, item := range artifacts {
-		triangles += len(item.Mesh.Triangles)
-		vertices += len(item.Mesh.Vertices)
+		triangles += int(item.TriangleCount)
+		vertices += int(item.DisplayVertexCount)
 		if value, ok := item.Topology["solids"].(float64); ok {
 			solids += int(value)
 		}

@@ -1,3 +1,4 @@
+import { encodeMeshGLB } from "../cad/visual/mesh-glb";
 import type { CadApi } from "../api";
 import type {
   Artifact, AssemblyConstraint, AssemblyGeometryRef, ContextCatalog, DocumentProperties, DocumentStructureNode, DocumentSummary, DocumentView,
@@ -44,7 +45,8 @@ const users: User[] = [administrator, {
 function boxArtifact(key: string, size: Vec3): Artifact {
   const [x, y, z] = size;
   const vertices: Vec3[] = [[0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0], [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]];
-  return {
+  const display:Artifact & {mesh: import("../types").MeshData} = {
+    representationKind:"PERSISTENT",representations:{},triangleCount:12,displayVertexCount:8,
     geometryKey: key, geometryId: `geometry-${key}`,
     mesh: {
       vertices,
@@ -59,9 +61,15 @@ function boxArtifact(key: string, size: Vec3): Artifact {
     bbox: { min: [0, 0, 0], max: size },
     topology: { faces: 6, edges: 12, vertices: 8, solids: 1 },
     volume: x * y * z, occtVersion: "mock-7.9.1", glbBytes: 4096, brepBytes: 2048,
-    evaluatorVersion: "mock-v1", workerId: "mock-geometry-1", storageState: "DATABASE", createdAt: now(),
+    evaluatorVersion: "mock-v1", workerId: "mock-geometry-1", storageState: "OBJECT", createdAt: now(),
     visualization: { schemaVersion: 1, referenceGeometry: { datumPlanes, axisSystems }, primitives: [] },
   };
+  const glb=encodeMeshGLB(display.mesh,display.visualization);
+  const url=URL.createObjectURL(new Blob([glb],{type:"model/gltf-binary"}));
+  const {mesh,...descriptor}=display;
+  descriptor.representations={VISUAL:{objectId:key,digest:key,schemaVersion:1,size:glb.byteLength,contentType:"model/gltf-binary",url}};
+  if(key.startsWith("mock-preview")){descriptor.representationKind="TRANSIENT_PREVIEW";descriptor.previewMesh=mesh;}
+  return descriptor;
 }
 
 const partID = "mock-part-bracket";
@@ -789,8 +797,8 @@ export const mockApi: CadApi = {
     const view = getView(documentID);
     const artifacts = view.artifact ? [view.artifact] : Object.values(view.artifacts ?? {});
     return pause({ documentId: documentID, versionId: view.document.versionId, documentType: view.document.type, units: "mm", artifacts,
-      aggregate: { artifactCount: artifacts.length, triangleCount: artifacts.reduce((sum, item) => sum + item.mesh.triangles.length, 0),
-        vertexCount: artifacts.reduce((sum, item) => sum + item.mesh.vertices.length, 0),
+      aggregate: { artifactCount: artifacts.length, triangleCount: artifacts.reduce((sum, item) => sum + item.triangleCount, 0),
+        vertexCount: artifacts.reduce((sum, item) => sum + item.displayVertexCount, 0),
         solidCount: artifacts.reduce((sum, item) => sum + item.topology.solids, 0),
         glbBytes: artifacts.reduce((sum, item) => sum + item.glbBytes, 0), brepBytes: artifacts.reduce((sum, item) => sum + item.brepBytes, 0),
         resolvedInstanceCount: view.resolvedInstances?.length ?? 0 },

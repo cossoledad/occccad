@@ -33,7 +33,7 @@ export function ActivityCenter() {
     <Badge count={activeCount} size="small" offset={[-2, 3]}>
       <Button ghost aria-label="打开消息中心" icon={<BellOutlined />} onClick={() => setOpen(true)} />
     </Badge>
-    <Drawer title={<Space><BellOutlined /><span>消息中心</span></Space>} placement="right" width={420} open={open}
+    <Drawer title={<Space><BellOutlined /><span>消息中心</span></Space>} placement="right" size={420} open={open}
       onClose={() => setOpen(false)} extra={<Button type="text" icon={<ReloadOutlined />} onClick={() => void jobs.refetch()} />}
       className="activity-center">
       {jobs.isLoading ? <div className="activity-center-loading"><Spin /></div> : items.length === 0

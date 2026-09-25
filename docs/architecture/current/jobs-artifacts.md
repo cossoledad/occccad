@@ -48,9 +48,7 @@ stateDiagram-v2
 
 ### Geometry RPC 消息预算
 
-API/Jobs Geometry client、Router 的接收/发送端和 Worker 连接（包括 debug override）、C++ Worker 统一使用 128 MiB 的单消息上限；Go 配置集中于 `internal/geometryrpc`，C++ 使用相同常量。此上限与 16 GiB 文件上传上限分开：源文件、BREP 和 GLB 使用 ArtifactReference，但 EvaluatePartResponse 仍内联完整 Mesh，拓扑和命名响应也走 unary gRPC。原默认 4 MiB 会拒绝约 27.6 MiB 的正常 STEP 导入响应。当前保持明确的有限预算，不宣称任意大模型可经 unary RPC 传输；完整网格外置/小摘要响应仍属于 LARGE-COMPUTE。
-
-定向回归：`TestGeometryRouterLargeRequestAndMeshResponse` 验证 >4 MiB 双向请求/响应并保留旧默认接收器的拒绝对照；`TestLargeSTEPImportThroughManagedRouter` 使用实际 `LD200 torsen v7.step`（17,031,606 字节），经 S3 → 受管理 Router → C++ Worker 返回 28,893,147 字节响应，包含 310,731 顶点、404,796 三角形、114 Solid，通过。该测试覆盖计算与传输，不创建业务文档；未进行浏览器或全量测试。
+API/Jobs、Router 和 C++ Worker 保留 128 MiB 的有限 RPC 预算，但持久 `EvaluatePartResponse` 已不再传完整 Mesh、BREP/GLB 字节或完整 Naming。大载荷通过 ArtifactReference；GLB 取代数据库和 DocumentView 的 Mesh。独立 transient preview 可携带 preview_mesh。当前合同与验证入口见[几何制品](geometry-representations.md)。文件上传上限仍独立于 RPC 单消息预算。
 
 ### ArtifactStore
 
@@ -62,7 +60,7 @@ LOCAL 按 SHA-256 内容寻址并原子写入。S3 上传先以有界内存写�
 
 OCCT 使用文件接口：Go Geometry client 将远端引用按 RPC 下载到独立 scratch，校验大小和 SHA-256，并在调用完成/失败后清理；同 RPC 内相同输入只暂存一次。Worker 输出通过 `Adopt` 上传并登记后清理 staging。`occccad-control` 仍以 `services/` 为相对目录基准将 `OCCCCAD_DATA_DIR` 规范化并传给各进程，所以 API、Jobs 和本机 Worker 仍共享计算暂存目录；这不是跨主机 Worker 数据传输的交付。永久业务制品由 S3 保存，临时盘仍需覆盖并发上传和几何计算工作集。开发重置通过独立的 `DevelopmentResetter` 管理能力清空当前 S3 桶全部对象版本、删除标记和未完成分片，保留桶；不扩张普通 `Store` 的业务接口。必须停止写入，跨存储删除无法原子回滚，失败不报告成功，可修复后重跑。
 
-`occccad-artifacts --migrate-local` 分批迁移旧 LOCAL 对象及尚无对象引用的数据库 bytea；bytea 按 1 MiB 查询块读取。复制和校验成功后更新对象位置，保留 ID、Revision 和原始备份，不在网络传输期间占用数据库事务。允许重复运行；切换过程中仍可读取旧 LOCAL 引用。初始化桶和迁移命令见[存储运维](../../../services/cmd/occccad-artifacts/README.md)。
+`occccad-artifacts --migrate-local` 可复制并核验已有 LOCAL 对象后切换索引。旧 bytea 内联迁移/回退已移除；当前未发布数据架构通过开发 reset 重建，不能继续使用旧 schema。初始化桶和配置见[存储运维](../../../services/cmd/occccad-artifacts/README.md)。
 
 2026-09-24 定向验证：真实 MinIO 的 1 GiB 往返及完整 SHA-256 通过；取消分片独立清理、HTTP chunked 超限拒绝、Worker 输入校验/清理、小模型 STEP/BREP 交换链通过；Go 相关包定向测试、C++ Worker 构建及 Web 类型检查通过。开发库迁移了 408 个 LOCAL 对象并补齐 19 处 embedded 引用（内容去重），最终 409 个 READY 对象均在 S3 完成逐对象大小与摘要核验。原件保留，未做浏览器或全量测试。
 
@@ -93,7 +91,7 @@ Exchange HTTP 提交只等待完整上传和 Job 入队，随后立即关闭对�
 
 ## 大文件与导入编辑的已知限制（2026-09-24 代码核对）
 
-存储层已通过真实 MinIO 的 1 GiB 上传/下载 SHA-256 往返，以及小模型 S3 → C++ Worker → S3 的 STEP/BREP 验证；尚无 1 GiB 几何/显示容量验收。API 与 Worker 文件上限默认 16 GiB，制品 RPC deadline 为 2 小时。Jobs 使用 InspectExchange 的准备模式（`component_output_prefix`）一次读取、Transfer 源文件，后续只传每个组件的 `prepared_brep`，不逐组件重读 STEP。无 prefix 的 InspectExchange 仍可只读检查 transferable roots；它不是业务拆分结果。有界并发尚不等于按内存预算准入。Jobs 在 results 中保留所有组件 EvaluatePartResponse，Worker 即使输出 BREP/GLB 对象，仍通过 gRPC 返回完整 Mesh；数据库 `mesh_json`、DocumentView 与前端完整数组构造也未实现有界工作集。
+存储层已通过真实 MinIO 的 1 GiB 上传/下载 SHA-256 往返，以及小模型 S3 → C++ Worker → S3 的 STEP/BREP 验证；尚无 1 GiB 几何/显示容量验收。API 与 Worker 文件上限默认 16 GiB，制品 RPC deadline 为 2 小时。Jobs 使用 InspectExchange 的准备模式（`component_output_prefix`）一次读取、Transfer 源文件，后续只传每个组件的 `prepared_brep`，不逐组件重读 STEP。无 prefix 的 InspectExchange 仍可只读检查 transferable roots；它不是业务拆分结果。有界并发尚不等于按内存预算准入。Jobs 在 results 中只保留组件摘要和 ArtifactReference；数据库与 DocumentView 不含完整显示数组。GLB 解码、OCCT 及前端 BVH 仍未实现按字节预算的有界工作集。
 
 ImportExchange 先生成精确快照，CommitImportedPart 再冻结导入定义并通过带 seed 的 EvaluatePart 生成根 manifest；后续 evaluator 传播 imported base 的已有命名。单 Solid 的命名/编辑链与旧 Head 显式修复已完成，见[导入根命名](persistent-naming.md#导入根命名import-naming-已完成2026-09-22)。没有定义的旧快照仍报告命名不可用。大文件设计与分批验收见[大模型提案](../target/large-models.md)及[执行计划](../../../plans/import-large-models.md)。
 

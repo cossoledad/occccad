@@ -167,3 +167,5 @@ Product 的 Debug 下载动作导出当前请求的 `.3dreplay`，Part 继续使
 工作台消费服务端 Artifact 的 `naming` 能力与属性查询的 `namingDiagnostic`，展示未生成、生成不完整、损坏和合同不匹配的具体原因。已知不可绑定的面/边/点限制面上草图、拓扑发布、外部投影及拓扑约束入口，提交仍由服务端验证；基准几何、法线视图和 Instance/Body 级选择不因缺少 naming 被统一禁用。纯逻辑回归入口为 `topology-naming-capability.scenario.mjs`。
 
 已有无命名定义的 ImportBody 在工作台告警中提供“建立导入命名”，调用正常 `REPAIR_IMPORT_NAMING` 命令并刷新权威 DocumentView；有编辑权限时可用，提交期间显示忙碌状态。修复形成新 Revision，可 Undo/Redo，未修复旧快照保持不可绑定诊断。
+
+持久实体显示仅来自 `*.mesh.glb`，DocumentView 的 Artifact 只含摘要和角色引用。`cad/visual/visual-repository.ts` 负责鉴权下载、摘要校验、并发限制和按对象摘要去重；`mesh-glb.ts` 解码 `OCCCCAD_cad` 拾取映射。解码数据属于 viewport，不回写 API/Query 状态。临时预览以 `TRANSIENT_PREVIEW` 和 `previewMesh` 明确区分。合同与当前内存限制见[几何表示](../../../docs/architecture/current/geometry-representations.md)。

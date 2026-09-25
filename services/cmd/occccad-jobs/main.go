@@ -250,6 +250,9 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 		if preview.RendererVersion != thumbnail.RendererVersion {
 			return h.queue.Succeed(ctx, job.ID, h.workerID, "")
 		}
+		if err := h.workspace.HydrateDisplay(ctx, &current); err != nil {
+			return err
+		}
 		payload, usedDefault, err := thumbnail.RenderContext(ctx, current, h.thumbnailRenderTimeout)
 		if err != nil {
 			return err

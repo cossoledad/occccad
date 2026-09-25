@@ -2209,6 +2209,14 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
 		payloadDigest: modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, geometryKey: geometryKey,
 		changes: previewChanges, expiresAt: time.Now().Add(interactionCandidateTTL)})
+	previewView := DocumentView{Artifact: &artifact}
+	if err := service.HydrateDisplay(ctx, &previewView); err != nil {
+		return CommandPreview{}, err
+	}
+	artifact = *previewView.Artifact
+	artifact.RepresentationKind = "TRANSIENT_PREVIEW"
+	artifact.PreviewMesh = &artifact.Mesh
+
 	return CommandPreview{
 		PreviewID: previewID, BaseVersionID: prepared.headRevision,
 		BaseSequence: prepared.headSequence, ModelHash: modelHash, Artifact: &artifact,

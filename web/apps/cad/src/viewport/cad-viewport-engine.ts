@@ -1,3 +1,4 @@
+import { VisualRepository, type DisplayArtifact as Artifact, type DisplayDocumentView as DocumentView } from "../cad/visual/visual-repository";
 import { makeSketchReferenceAxis, sketchAxisEndpoints } from "../cad/rendering/sketch-reference-axis";
 import { createStudioEnvironment } from "../cad/rendering/studio-environment";
 import { raycastDatumAxis } from "../cad/interaction/datum-axis-picking";
@@ -50,7 +51,7 @@ import { assemblyConstraintGlyph } from "../cad/assembly/assembly-constraint-ux"
 import { ArcSketchTool, AssemblyConstraintTool, AssemblyMoveTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, ProjectExternalGeometrySketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type AssemblyConstraintToolKind, type ToolViewportPort } from "../cad/tool/cad-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
-  Artifact, AssemblyGeometryRef, AxisSystem, DatumAxis, DatumPlane, DocumentStructureNode, DocumentView, Feature, PlaneName, Publication, ReferenceGeometry, Selection, SelectionItem, SketchConstraint, SketchEntity, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3, VisualizationManifest,
+  Artifact as ArtifactDescriptor, AssemblyGeometryRef, AxisSystem, DatumAxis, DatumPlane, DocumentStructureNode, DocumentView as DocumentDescriptor, Feature, PlaneName, Publication, ReferenceGeometry, Selection, SelectionItem, SketchConstraint, SketchEntity, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3, VisualizationManifest,
 } from "../types";
 
 type Callbacks = {
@@ -76,14 +77,14 @@ type SolidContext = {
 };
 
 type SolidBinding = { group: THREE.Group; mesh: THREE.Mesh; artifact: Artifact; context: SolidContext };
-export type ViewportEditContext = { view: DocumentView; occurrencePath?: string; translation?: Vec3;
+export type ViewportEditContext = { view: DocumentDescriptor; occurrencePath?: string; translation?: Vec3;
   rotation?: [number, number, number, number]; bodyTreeNodeId?: string };
 
 // A Product viewport owns the assembly scene, while sketch interaction belongs
 // to the active occurrence's reference document. Keeping this decision in one
 // place prevents hit testing and constraint tools from accidentally reading the
 // root Product (which intentionally has no Part feature collection).
-export function sketchInteractionView(view?: DocumentView, editContext?: ViewportEditContext): DocumentView | undefined {
+export function sketchInteractionView(view?: DocumentDescriptor, editContext?: ViewportEditContext): DocumentDescriptor | undefined {
   if (editContext?.view.document.type === "PART") return editContext.view;
   return view?.document.type === "PART" ? view : undefined;
 }
@@ -392,11 +393,59 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
-  private sketchView(): DocumentView | undefined {
+  private sketchView(): DocumentDescriptor | undefined {
     return sketchInteractionView(this.view, this.editContext);
   }
 
-  render(view: DocumentView, editContext?: ViewportEditContext): void {
+  private visuals = new VisualRepository();
+  private visualGeneration = 0;
+  private visualError?: HTMLDivElement;
+  render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
+    const generation = ++this.visualGeneration;
+    if (this.view?.document.id !== view.document.id) {
+      this.navigation.cancel();
+      this.viewTransition.cancel();
+      this.transforms.stopAll();
+      this.moveManipulator.detach();
+      this.clearInsertPatternPreview();
+      this.clearCommandPreview();
+      this.clearInteractionState();
+      this.disposeGroup(this.content);
+      this.disposeGroup(this.helpers);
+      this.disposeGroup(this.sketchContext);
+      this.solidBindings.clear();
+      this.instanceGroups.clear();
+      this.selectable.clear();
+      this.selectionIndex.clear();
+      this.view = undefined;
+      this.editContext = undefined;
+      this.invalidate();
+    }
+    void Promise.all([
+      this.visuals.hydrate(view),
+      editContext ? this.visuals.hydrate(editContext.view) : Promise.resolve(undefined),
+    ]).then(([display, editing]) => {
+      if (generation !== this.visualGeneration) return;
+      this.visualError?.remove();
+      this.visualError = undefined;
+      this.visuals.retain([view, ...(editContext ? [editContext.view] : [])]);
+      this.renderReady(display, editContext && editing ? { ...editContext, view: editing } : undefined);
+    }).catch(error => {
+      if (generation !== this.visualGeneration) return;
+      this.visualError?.remove();
+      const message = document.createElement("div");
+      message.setAttribute("role", "alert");
+      message.textContent = `几何显示加载失败：${error instanceof Error ? error.message : String(error)}`;
+      Object.assign(message.style, {
+        position: "absolute", top: "48px", left: "12px", zIndex: "20",
+        background: "white", padding: "8px", color: "#b42318",
+      });
+      this.host.append(message);
+      this.visualError = message;
+    });
+  }
+
+  private renderReady(view: DocumentView, editContext?: Omit<ViewportEditContext,"view"> & {view:DocumentView}): void {
     this.clearInsertPatternPreview();
     this.navigation.cancel();
     const previousDocumentID = this.view?.document.id;
@@ -631,8 +680,10 @@ export class CadViewportEngine {
     this.frameContent();
   }
 
-  previewArtifact(artifact: Artifact, operation: FeaturePreviewOperation = "NEW_BODY"): void {
+  previewArtifact(descriptor: ArtifactDescriptor, operation: FeaturePreviewOperation = "NEW_BODY"): void {
     this.clearCommandPreview();
+    if(descriptor.representationKind!=="TRANSIENT_PREVIEW"||!descriptor.previewMesh)return;
+    const artifact:Artifact={...descriptor,mesh:descriptor.previewMesh};
     if (!artifact.mesh.vertices.length || !artifact.mesh.triangles.length) return;
     const binding = this.solidBindings.get(this.editContext?.occurrencePath || "root");
     const geometry = makeGeometry(artifact);
@@ -969,6 +1020,9 @@ export class CadViewportEngine {
   }
 
   dispose(): void {
+    this.visualGeneration++;
+    this.visuals.dispose();
+    this.visualError?.remove();
     this.clearInsertPatternPreview();
     if (this.disposed) return;
     this.disposed = true;

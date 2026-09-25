@@ -74,11 +74,6 @@ func run() error {
 		}
 		service := artifact.NewService(db, store, local)
 		if *migrate {
-			embedded, err := service.MigrateEmbedded(ctx)
-			if err != nil {
-				return err
-			}
-			fmt.Printf("materialized %d embedded artifacts; database originals retained\n", embedded)
 			count, err := service.MigrateLocal(ctx)
 			fmt.Printf("migrated %d artifacts; local originals retained\n", count)
 			if err != nil {

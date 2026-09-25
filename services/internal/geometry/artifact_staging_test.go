@@ -1,7 +1,6 @@
 package geometry
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"github.com/occccad/occccad/internal/config"
@@ -89,11 +88,16 @@ func TestS3WorkerExchangeRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := openCppWorkerForNamingContract(t, ArtifactStaging(store, local))
-	evaluation, err := client.EvaluateRectangularPad(t.Context(), "s3-test", "s3-test-geometry", 0, 0, 13.7319+float64(time.Now().UnixNano()%1000000)/1000000, 22.1377, 19.1927, "XY")
+	evaluation, err := client.EvaluatePartFromArtifact(t.Context(), "s3-test", "s3-test-geometry", []RectangularPad{{Width: 13.7319 + float64(time.Now().UnixNano()%1000000)/1000000, Height: 22.1377, Length: 19.1927, Plane: "XY"}}, ArtifactReference{}, "tests/source.brep", "tests/source.mesh.glb")
 	if err != nil {
 		t.Fatal(err)
 	}
-	source, err := store.Put(t.Context(), artifact.KindBREP, "application/vnd.opencascade.brep", bytes.NewReader(evaluation.GetBrepData()))
+	sourceReader, err := local.Open(t.Context(), evaluation.GetBrepArtifact().GetObjectKey())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sourceReader.Close()
+	source, err := store.Put(t.Context(), artifact.KindBREP, "application/vnd.opencascade.brep", sourceReader)
 	if err != nil {
 		t.Fatal(err)
 	}

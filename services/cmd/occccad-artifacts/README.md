@@ -12,7 +12,7 @@ go run ./cmd/occccad-artifacts --migrate-local
 go run ./cmd/occccad-artifacts --verify-target
 ```
 
-初始化仅在配置桶不存在时创建。迁移先外置缺少对象引用的历史 bytea，再迁移 LOCAL；上传成功并校验后切换元数据，不改对象 ID 或历史 Revision。重复运行安全；中途失败可重新执行整个命令，已完成对象会跳过。保留本地和数据库原始备份，不删除旧文件。正常服务使用配置后端写新对象；迁移期间可继续读旧 LOCAL 对象。迁移前让运行服务使用相同后端，避免旧配置进程继续写 LOCAL。
+初始化仅在配置桶不存在时创建。迁移仅处理已登记的 LOCAL Artifact；数据库不再存储 bytea 几何或完整 Mesh/Naming。上传成功并校验后切换元数据，不改对象 ID 或历史 Revision。重复运行安全；中途失败可重新执行整个命令，已完成对象会跳过。不删除迁移源文件。旧实验 schema 不提供兼容迁移，升级本轮数据结构需要停止服务后执行 `invoke data.reset --yes`。正常服务使用配置后端写新对象；迁移期间可继续读旧 LOCAL 对象。迁移前让运行服务使用相同后端，避免旧配置进程继续写 LOCAL。
 
 `OCCCCAD_DATA_DIR` 仍需是 API、Jobs 和受管理本机 Worker 共同可见的目录，供上传 hash spool、远端输入下载和几何输出使用。需要足够临时盘，S3 不消除 OCCT 和 GLB 组装的内存工作集。`OCCCCAD_EXCHANGE_MAX_BYTES` 默认 17179869184（16 GiB），API capabilities 和 Worker 使用同一配置。
 

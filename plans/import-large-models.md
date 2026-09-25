@@ -20,8 +20,8 @@ flowchart LR
 |---|---|---|
 | LARGE-BASELINE | 阶段计时/RSS/临时盘/网格规模指标；真实/生成 corpus 和冷/热基准命令 | 能定位 API、Jobs、Worker、数据库、浏览器各阶段成本；记录配置的文件上限、临时盘和失败阶段，不宣称压力测试成功 |
 | IMPORT-TRANSPORT（剩余） | 已交付基础转入当前架构；续传暂缓，后续按需求补上传会话、直传授权、GC 与跨主机 Worker 数据面 | 1/2 GiB 字节传输、断线/刷新/取消/重复 Complete/跨用户隔离；API 不缓冲整文件；LOCAL/S3 同一制品合同 |
-| LARGE-COMPUTE（剩余） | 已交付 parse-once、Solid 拆分与有界并发；剩余组件 checkpoint、小摘要响应、精确/显示分阶段、预算调度与进程隔离；原生长求值 Jobs | 不再每 root 重读源；无全量 mesh RPC/结果数组积压；OOM/取消/重领/CAS/隐藏候选发布；不超资源预算 |
-| LARGE-DISPLAY | 轻量 DocumentView、表示 manifest、LOD/chunk、共享 buffers、Worker 解码/BVH、按需边点和局部交点 | 导入/原生同一加载链；LOD/淘汰不改选择身份；过时请求丢弃；指定硬件下首屏、交互及 CPU/GPU 预算通过 |
+| LARGE-COMPUTE（剩余） | 已交付 parse-once、Solid 拆分与有界并发；已交付小摘要响应与 BREP/GLB/Naming Artifact；剩余组件 checkpoint、精确/显示分阶段、预算调度与进程隔离；原生长求值 Jobs | 不再每 root 重读源；无全量 mesh RPC/结果数组积压；OOM/取消/重领/CAS/隐藏候选发布；不超资源预算 |
+| LARGE-DISPLAY（剩余） | 已交付轻量 DocumentView 与统一 GLB 角色索引；剩余 LOD/chunk、共享 buffers、Worker 解码/BVH、按需边点和局部交点 | 导入/原生同一加载链；LOD/淘汰不改选择身份；过时请求丢弃；指定硬件下首屏、交互及 CPU/GPU 预算通过 |
 | LARGE-ACCEPT | 指定硬件上的真实 1 GiB+、单大 Body/大装配/原生大模型、并发和故障注入 | 发布可复现能力矩阵、已测上限与超限诊断；包含真实浏览器，不以 Node 或上传成功代替几何/WebGL 验收 |
 
 完整 STEP XDE/AP242 层级、颜色与共享定义语义在 parse-once 后设独立 conformance 批次；第一轮可以保留现有展平交换合同，但不得靠把多根导入称作完整装配交换完成此项。

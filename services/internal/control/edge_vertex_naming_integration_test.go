@@ -1,8 +1,11 @@
 package control
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"google.golang.org/protobuf/encoding/protojson"
 	"math"
 	"net"
 	"os"
@@ -108,6 +111,7 @@ func TestEdgeVertexPersistentSelectionThroughRealRouter(t *testing.T) {
 	part, baseSketch := addRectangle(part.Document.ID, "XY", "", workspace.SketchPoint2{X: 0, Y: 0}, workspace.SketchPoint2{X: 20, Y: 20})
 	part = addExtrude(part.Document.ID, baseSketch, "NEW_BODY", 10, false)
 	baseFeatureID := part.Part.Features[len(part.Part.Features)-1].ID
+	t.Run("artifact contract", func(t *testing.T) { verifyGeometryRepresentations(t, db, service, artifactService, part) })
 	t.Run("import naming diagnostics", func(t *testing.T) { verifyImportNamingDiagnostics(t, db, client, artifactService, part) })
 	// Exercise face -> sketch -> reversed pocket through the real Router on
 	// both caps and all four side faces, then restore the base for each face.
@@ -228,8 +232,24 @@ func TestEdgeVertexPersistentSelectionThroughRealRouter(t *testing.T) {
 	isolationRequestID := runID + "-p7-resolution-failed-before-solve"
 	isolationProduct = apply(isolationProduct.Document.ID, workspace.CommandRequest{RequestID: "p7-resolution-failed-before-solve", Type: "UPDATE_REFERENCES"})
 	assertP7Constraint(t, isolationProduct, isolatedConstraintID, modelcore.AssemblyConstraintBroken, modelcore.SupportingElementNotConnected)
-	if _, _, replayErr := service.ReadAssemblyReplay(t.Context(), isolationProduct.Document.ID, "latest", isolationRequestID); !errors.Is(replayErr, workspace.ErrNotFound) {
-		t.Fatalf("resolution failure produced a solver replay: %v", replayErr)
+	// Current lifecycle keeps Broken definitions but filters them from solver input.
+	// A replay for the remaining (possibly unconstrained) bodies is legitimate.
+	if _, data, replayErr := service.ReadAssemblyReplay(t.Context(), isolationProduct.Document.ID, "latest", isolationRequestID); replayErr == nil {
+		var replay geometry.AssemblyReplay
+		if err := json.Unmarshal(data, &replay); err != nil {
+			t.Fatal(err)
+		}
+		var request workerv1.SolveAssemblyRequest
+		if err := protojson.Unmarshal(replay.Request, &request); err != nil {
+			t.Fatal(err)
+		}
+		for _, constraint := range request.Constraints {
+			if constraint.Id == isolatedConstraintID {
+				t.Fatal("broken constraint reached solver")
+			}
+		}
+	} else if !errors.Is(replayErr, workspace.ErrNotFound) {
+		t.Fatal(replayErr)
 	}
 
 	part = apply(part.Document.ID, workspace.CommandRequest{Type: "CREATE_DATUM_PLANE", Name: "Replacement top",

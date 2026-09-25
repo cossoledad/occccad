@@ -98,3 +98,5 @@ OCCCCAD_TEST_IMPORT_DATABASE=1 OCCCCAD_TEST_GEOMETRY_WORKER=/absolute/path/occcc
 ```
 
 默认期望 114 个可命名 Part 和一个 Product，可通过 `OCCCCAD_TEST_EXPECTED_SOLIDS` 指定其他样本的数量。测试检查单实体、冻结命名定义、全部 Part 的面绑定、PINNED 装配引用和进度单调性；保留命中去重的源对象，不删除业务共享制品。
+
+Part 求值结果仅携带摘要和 BREP/VISUAL/NAMING 引用，导入 identity seed 另存 Artifact。缩略图通过 `HydrateDisplay` 读取与前端相同的 GLB，不读取数据库 Mesh；仅在渲染调用范围内解码，DocumentView 不包含完整网格。详见[几何表示](../../../docs/architecture/current/geometry-representations.md)。

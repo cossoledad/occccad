@@ -8,6 +8,8 @@
 #include <occccad/kernel/topology_naming.hpp>
 
 #include <grpcpp/grpcpp.h>
+#include <google/protobuf/struct.pb.h>
+#include <google/protobuf/util/json_util.h>
 #include <occccad/geometry/sketch/external_geometry_projector.h>
 #include <occccad/geometry/sketch/sketch_solver.h>
 #include <occccad/worker/v1/geometry_worker.grpc.pb.h>
@@ -133,7 +135,11 @@ std::vector<uint8_t> read_artifact(const worker_api::ArtifactReference& referenc
     std::ifstream stream(path, std::ios::binary);
     if (!stream)
         throw std::runtime_error("cannot open artifact input");
-    return {(std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>()};
+    std::vector<uint8_t> data{std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+    if (data.size() != reference.size_bytes() ||
+        occccad::kernel::make_geometry_id(data.data(), data.size()) != "sha256:" + reference.sha256())
+        throw std::invalid_argument("artifact input integrity mismatch");
+    return data;
 }
 
 void write_artifact(const std::string& key, const std::vector<uint8_t>& data,
@@ -1043,6 +1049,8 @@ public:
             return {grpc::StatusCode::INVALID_ARGUMENT, "feature chain requires at least one pad"};
         }
 
+        if (request->brep_output_key().empty() != request->glb_output_key().empty())
+            return {grpc::StatusCode::INVALID_ARGUMENT, "persistent evaluation requires both BREP and visual output keys"};
         std::lock_guard<std::mutex> lock(mutex_);
         const bool external_outputs =
             !request->brep_output_key().empty() || !request->glb_output_key().empty();
@@ -1158,7 +1166,14 @@ public:
             if (request->has_import_seed()) {
                 if (!specs.empty())
                     throw std::invalid_argument("import naming seed requires the profile feature contract");
-                const auto& input = request->import_seed();
+                auto input = request->import_seed();
+                if (input.has_identity_artifact()) {
+                    const auto data = read_artifact(input.identity_artifact());
+                    worker_api::ImportTopologySeed full;
+                    if (!full.ParseFromArray(data.data(), static_cast<int>(data.size())) || full.feature_id()!=input.feature_id() || full.brep_sha256()!=input.brep_sha256())
+                        throw std::invalid_argument("IMPORT_SEED_ARTIFACT_MISMATCH");
+                    input = std::move(full);
+                }
                 if (input.occt_version() != OCC_VERSION_COMPLETE || input.policy_id() != "occccad.import.frozen-brep.v1")
                     throw std::invalid_argument("IMPORT_SEED_CONTRACT_MISMATCH");
                 seed.feature_id = input.feature_id();
@@ -1175,9 +1190,22 @@ public:
                     : (profile_evaluation =
                            kernel_.evaluateProfilePadsWithHistory(profile_specs, base_brep, request->has_import_seed() ? &seed : nullptr),
                        profile_evaluation.geometry_id);
+            google::protobuf::Struct stable_ids;
+            for (const auto& result : profile_evaluation.feature_results) {
+                if (result.result_geometry_id != geometry_id) continue;
+                worker_api::FeatureResult output;
+                fill_feature_result(result, &output);
+                for (const auto& entry : output.semantic_outputs()) {
+                    const auto id = occccad::kernel::make_geometry_id(entry.semantic_ref().SerializeAsString());
+                    (*stable_ids.mutable_fields())[std::to_string(entry.topology_type()) + ":" + std::to_string(entry.local_id())].set_string_value(id);
+                }
+            }
+            std::string mapping;
+            if (!google::protobuf::util::MessageToJsonString(stable_ids, &mapping).ok())
+                throw std::runtime_error("GLB topology map serialization failed");
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
-                            request->glb_output_key());
+                            request->glb_output_key(), mapping);
             if (!profile_specs.empty() || request->has_import_seed()) {
                 auto* manifest = response->mutable_evaluation_manifest();
                 manifest->set_schema_version(occccad::kernel::topology_naming_schema_version);
@@ -1205,7 +1233,7 @@ public:
                     request->topology_policy().evaluator_version());
                 topology_manifest.set_policy_digest(request->topology_policy().policy_digest());
                 for (const auto& feature : profile_evaluation.feature_results) {
-                    fill_feature_result(feature, manifest->add_feature_results());
+
                     fill_feature_result(feature, topology_manifest.add_feature_results());
                 }
                 std::string topology_bytes;
@@ -1216,7 +1244,7 @@ public:
                     topology_id.rfind("sha256:", 0) == 0 ? topology_id.substr(7) : topology_id);
                 if (external_outputs) {
                     const std::vector<uint8_t> bytes(topology_bytes.begin(), topology_bytes.end());
-                    write_artifact(request->brep_output_key() + ".topology.pb", bytes,
+                    write_artifact(request->brep_output_key() + ".naming.pb", bytes,
                                    "application/vnd.occccad.topology-manifest.v1+protobuf",
                                    manifest->mutable_topology_manifest_artifact());
                 }
@@ -1475,7 +1503,8 @@ private:
                          const double requested_angular_deflection,
                          worker_api::EvaluatePartResponse* response,
                          const std::string& brep_output_key = {},
-                         const std::string& glb_output_key = {}) {
+                         const std::string& glb_output_key = {},
+                         const std::string& topology_ids_json = "{}") {
         const auto bbox = kernel_.getBoundingBox(geometry_id);
         const auto& topology = kernel_.getTopology(geometry_id);
         topology_cached_.insert(geometry_id);
@@ -1485,20 +1514,18 @@ private:
             requested_angular_deflection > 0.0 ? requested_angular_deflection : 0.5;
         const auto mesh = kernel_.tessellate(geometry_id, linear_deflection, angular_deflection);
         const auto brep = kernel_.serializeBrepr(geometry_id);
-        const auto glb = occccad::kernel::make_glb(mesh);
+        const auto glb = occccad::kernel::make_glb(mesh, topology_ids_json);
 
         response->set_geometry_id(geometry_id);
         response->set_geometry_key(geometry_key);
         if (!brep_output_key.empty())
             write_artifact(brep_output_key, brep, "application/vnd.opencascade.brep",
                            response->mutable_brep_artifact());
-        else
-            response->set_brep_data(brep.data(), brep.size());
+
         if (!glb_output_key.empty())
             write_artifact(glb_output_key, glb, "model/gltf-binary",
                            response->mutable_glb_artifact());
-        else
-            response->set_glb_data(glb.data(), glb.size());
+
         fill_bbox(bbox, response->mutable_bbox());
         response->set_volume(kernel_.getVolume(geometry_id));
         response->set_cache_hit(false);
@@ -1508,7 +1535,11 @@ private:
         summary->set_edge_count(topology.edge_count);
         summary->set_vertex_count(topology.vertex_count);
         summary->set_solid_count(topology.solid_count);
-        auto* output_mesh = response->mutable_mesh();
+        response->set_triangle_count(mesh.triangles.size());
+        response->set_display_vertex_count(mesh.vertices.size());
+        response->set_representation_kind(brep_output_key.empty() ? "TRANSIENT_PREVIEW" : "PERSISTENT");
+        if (!brep_output_key.empty()) return;
+        auto* output_mesh = response->mutable_preview_mesh();
         for (const auto& vertex : mesh.vertices) {
             auto* output_vertex = output_mesh->add_vertices();
             output_vertex->set_x(vertex.x);

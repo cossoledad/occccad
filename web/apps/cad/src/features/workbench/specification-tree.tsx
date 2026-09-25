@@ -210,7 +210,7 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
         return <div key={node.key} className={`specification-tree-virtual-row ${depth > 0 ? "nested" : "root"}`} style={rowStyle}>
           {Array.from({ length: depth }, (_, guide) => <i key={guide} className="specification-tree-depth-guide"
             style={{ left: guide * 22 + 13 }} />)}
-          <Dropdown trigger={[]} placement="bottomLeft" overlayClassName="specification-tree-context-menu"
+          <Dropdown trigger={[]} placement="bottomLeft" classNames={{ root: "specification-tree-context-menu" }}
             open={contextMenu?.nodeKey === node.key}
             onOpenChange={(open) => { if (!open) setContextMenu(undefined); }}
             menu={{ items: [node.kind === "INSTANCE" && node.documentId && onOpenDocumentTab ? {

@@ -4,7 +4,7 @@
 
 ## 系统结论
 
-当前是模块化 Go 控制面、PostgreSQL 持久任务、C++ Geometry Worker 与 React/Three.js Web 组成的可运行 CAD 垂直切片。参数模型与不可变 Revision 是业务真相；精确 B-Rep、显示制品、Variant 和求解证据带 provenance，可从权威输入重建。Geometry Router 只管理本机 Worker，ArtifactStore 仍是共享本地目录。
+当前是模块化 Go 控制面、PostgreSQL 持久任务、C++ Geometry Worker 与 React/Three.js Web 组成的可运行 CAD 垂直切片。参数模型与不可变 Revision 是业务真相；精确 B-Rep、显示制品、Variant 和求解证据带 provenance，可从权威输入重建。Geometry Router 只管理本机 Worker，ArtifactStore 支持 LOCAL/S3，Worker 使用共享本机暂存目录。
 
 ## 事实分册
 
@@ -13,9 +13,10 @@
 | [运行与边界](architecture/current/runtime.md) | 进程、启动拓扑、认证、ACL、Control/Monitor |
 | [模型与历史](architecture/current/model-history.md) | Workspace、Transaction/ChangeSet、Undo/Redo、参数、依赖、实时提交同步 |
 | [Part 与 Sketch](architecture/current/part-sketch.md) | PlaneGCS、Profile、BodyOperation、面支撑、ExternalGeometry、Worker RPC |
+| [几何结果与显示制品](architecture/current/geometry-representations.md) | 数据库摘要/角色索引、BREP/GLB/Naming、轻量 DocumentView、临时预览 |
 | [持久命名](architecture/current/persistent-naming.md) | Extrude/Boolean Face/Edge/Vertex history、resolver、状态与 Reconnect |
 | [Product 与 Assembly](architecture/current/product-assembly.md) | Publication、typed path、ContextBinding/Variant、多 Workspace 事务、M3、Release |
-| [Jobs 与制品](architecture/current/jobs-artifacts.md) | Router、租约、取消、交换、缩略图、本地 ArtifactStore |
+| [Jobs 与制品](architecture/current/jobs-artifacts.md) | Router、租约、取消、交换、缩略图、LOCAL/S3 ArtifactStore |
 | [Web 与交互](architecture/current/web.md) | 根场景/编辑上下文、选择、preview、偏好、Toolbar、工作台 |
 | [验证与可观测性](architecture/current/validation.md) | 日志/trace、性能、scoped checks、Mock 浏览器与真实验收边界 |
 

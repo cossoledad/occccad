@@ -90,22 +90,14 @@ func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
 		len(manifest.GetFeatures()) != 1 || manifest.GetFeatures()[0].GetFeatureId() != "pad-1" {
 		t.Fatalf("Worker dropped the naming contract: %#v", manifest)
 	}
-	if len(manifest.GetFeatureResults()) != 1 || len(manifest.GetFeatureResults()[0].GetSemanticOutputs()) != 26 ||
-		len(manifest.GetFeatureResults()[0].GetTopologyHistory().GetLineage()) != 26 ||
-		!manifest.GetFeatureResults()[0].GetTopologyHistoryComplete() {
-		t.Fatalf("Worker omitted Linear Extrude topology history: %#v", manifest.GetFeatureResults())
-	}
-	for _, output := range manifest.GetFeatureResults()[0].GetSemanticOutputs() {
-		if output.GetTopologyType() == workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED ||
-			output.GetLocalId() == 0 || output.GetEvidence().GetEvidenceDigest() == "" || len(output.GetEvidence().GetAdjacent()) == 0 {
-			t.Fatalf("invalid semantic output evidence: %#v", output)
-		}
-	}
 
 	external, err := client.EvaluateProfilePartFromArtifact(t.Context(), "naming-artifact", "naming-artifact-key",
 		[]ProfilePad{pad}, ArtifactReference{}, "parts/naming.brep", "parts/naming.glb")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if external.GetPreviewMesh() != nil || external.GetRepresentationKind() != "PERSISTENT" || proto.Size(external) > 16384 {
+		t.Fatal("persistent RPC leaked large data")
 	}
 	reference := external.GetEvaluationManifest().GetTopologyManifestArtifact()
 	if reference.GetObjectKey() == "" || reference.GetSha256() == "" || reference.GetContentType() != "application/vnd.occccad.topology-manifest.v1+protobuf" {
@@ -119,6 +111,18 @@ func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
 	if err := proto.Unmarshal(data, &persisted); err != nil {
 		t.Fatal(err)
 	}
+	if len(persisted.GetFeatureResults()) != 1 || len(persisted.GetFeatureResults()[0].GetSemanticOutputs()) != 26 ||
+		len(persisted.GetFeatureResults()[0].GetTopologyHistory().GetLineage()) != 26 ||
+		!persisted.GetFeatureResults()[0].GetTopologyHistoryComplete() {
+		t.Fatalf("Worker omitted Linear Extrude topology history: %#v", persisted.GetFeatureResults())
+	}
+	for _, output := range persisted.GetFeatureResults()[0].GetSemanticOutputs() {
+		if output.GetTopologyType() == workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED ||
+			output.GetLocalId() == 0 || output.GetEvidence().GetEvidenceDigest() == "" || len(output.GetEvidence().GetAdjacent()) == 0 {
+			t.Fatalf("invalid semantic output evidence: %#v", output)
+		}
+	}
+
 	if len(persisted.GetFeatureResults()) != 1 || persisted.GetFeatureResults()[0].GetTopologyHistory().GetEvidenceDigest() == "" {
 		t.Fatalf("serialized topology manifest lost feature history: %#v", &persisted)
 	}

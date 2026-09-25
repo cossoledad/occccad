@@ -1,6 +1,6 @@
 # 大文件导入与大模型工作集设计
 
-> 2026-09-22 设计提案；IMPORT-DIAGNOSTICS 与单 Solid IMPORT-NAMING 已实现，其余待实施与实测，不构成大模型能力或性能承诺。返回[目标架构](../../TARGET_ARCHITECTURE.md)，执行依赖见[导入与大模型计划](../../../plans/import-large-models.md)。适用于外部 STEP/BREP 导入和原生 Part/Product；存储与交换基础合同仍见[分布式平台](distributed-platform.md)。
+> 2026-09-25 更新；IMPORT-DIAGNOSTICS、IMPORT-NAMING、parse-once 导入与 Artifact 表示已实现，工作集和容量目标待实施与实测，不构成大模型能力或性能承诺。返回[目标架构](../../TARGET_ARCHITECTURE.md)，执行依赖见[导入与大模型计划](../../../plans/import-large-models.md)。适用于外部 STEP/BREP 导入和原生 Part/Product；存储与交换基础合同仍见[分布式平台](distributed-platform.md)。
 
 ## 1. 结论与边界
 
@@ -19,13 +19,12 @@ S3 兼容 ArtifactStore 已实现；按当前实施范围暂不做续传，后�
 | `services/internal/api/jobs.go` | raw body 上传限制由 `OCCCCAD_EXCHANGE_MAX_BYTES` 控制，默认 16 GiB，Reader 写 LOCAL/S3 Store | 已具备大文件流式传输；完整几何能力需分别验收 |
 | `workers/geometry/src/main.cpp` | 同一环境变量限制输入/输出，默认 16 GiB，输入和输出均受限制；BREP `read_artifact` 返回整个 vector | 仅提高 API 上限仍失败；文件流入磁盘不代表几何求值流式化 |
 | `services/internal/artifact/store.go`、`local.go` | Store 提供 Backend/Put/Open/Delete；LOCAL/S3 内容寻址和 SHA-256；Worker 使用本机 scratch | 还缺 multipart session、签名访问、Range、租约和对象验证能力 |
-| `services/cmd/occccad-jobs/main.go` | inspect 后最多 8 路导入，`results` 持有各组件的 EvaluatePartResponse；最后逐文档提交 | 并发按数量，未按内存；批量结果堆积；70% 后禁止取消不等于跨文档原子可见 |
-| `kernel/occt/src/occt_kernel.cpp` | `inspectStepRootCount` 和每次 `loadStepRoot` 均 `ReadFile` | 多 root 重复解析整份 STEP；并发会放大 CPU/RSS/I/O |
-| Worker `fill_evaluation` | 同时准备完整 topology、mesh、BREP、GLB；即使大制品外置，仍填充 protobuf mesh | 大数据仍可能穿过 unary gRPC，并在多个进程复制 |
-| `services/internal/workspace/service.go` | `mesh_json` 存入数据库，读取时整份反序列化；Web Artifact 带 mesh | 数据库、API 响应和浏览器仍承担完整显示数组；当前主路径不是 GLB 分块加载 |
-| `web/apps/cad/src/viewport/cad-viewport-engine.ts` | `.flat()` 转换完整数组，同步构建 BVH；makeSolid 构造所有边线与拓扑点 | 主线程长任务、CPU/GPU 内存放大；单文件 gzip 或单一 GLB 不能根治 |
-| OCCT `evaluateProfilePadsWithHistory` | output adjacency 使用嵌套两两循环 | 拓扑规模扩大后有平方级扫描风险，需要 incidence 索引 |
-| Geometry client | InspectExchange 为 30 秒，ImportExchange 为 5 分钟 deadline | 是当前配置事实，不是 1 GiB 的性能能力或合理 SLA |
+| `services/cmd/occccad-jobs/main.go` | 导入共享可配置并发额度（默认 4），响应只含摘要和引用；最后逐文档提交 | 尚无 RSS 预算准入与跨文档原子发布 |
+| STEP 导入准备阶段 | 每个 attempt 只解析一次，拆分带位置的 Solid 快照后并行求值 | 不恢复 XDE 层级或共享定义，完整解析仍占用内存 |
+| Worker `fill_evaluation` | 持久结果将 BREP、GLB、完整 Naming 外置，仅返回摘要与引用 | unary 响应不再携带大网格；Worker 内仍需组装完整数据 |
+| `services/internal/workspace/geometry_artifacts.go` | 数据库仅存摘要、业务参考几何及通用角色索引；完整 identity seed 外置 | DocumentView 不再携带 Mesh；详见[当前表示合同](../current/geometry-representations.md) |
+| `web/apps/cad/src/cad/visual` | 唯一实体显示源为 GLB，有下载并发限制与同对象去重 | 解码、BVH、GPU 上传仍处理完整实体，没有 LOD 或分块预算 |
+| Geometry client / Router | 分阶段超时与进程容量由配置和路由管理；长运算不再用短探活推断死亡 | 超时上限不是大文件性能承诺，仍需真实 corpus 测量 |
 
 ### 2.1 NULL 报错不是导入命名的完整修复
 
@@ -109,7 +108,7 @@ ImportIdentityMap 绑定精确 BREP digest 与 importer policy，包含 stable I
 
 建议导入 Job 分阶段：SOURCE_VERIFIED → INSPECTING → TRANSFERRING → NAMING → EXACT_READY → DISPLAY_BUILDING → COMMITTING → SUCCEEDED。恢复依据持久 stage/component manifest，不仅依据进度百分数。
 
-当前业务导入已在同一 attempt 对 STEP 只 ReadFile/Transfer 一次，并拆为带位置的单 Solid 快照，再并行求值与建立命名；阶段/组件数量和跨重试进度高水位已持久化。其余 checkpoint 和小摘要目标仍待实施。目标进一步要求：完成的规范化组件 BREP/identity seed 立即写不可变 checkpoint，再由独立任务生成显示制品。初期可在专用进程内保留解析器，重启时允许重读源文件，但不能每个 root 都重新解析整份文件。结果数组只持有组件摘要和对象引用，不能累计所有 Mesh/GLB/protobuf response。
+当前业务导入已在同一 attempt 对 STEP 只 ReadFile/Transfer 一次，并拆为带位置的单 Solid 快照，再并行求值与建立命名；阶段/组件数量和跨重试进度高水位已持久化。持久求值的小摘要/制品引用已实施，其余 checkpoint 目标仍待实施。目标进一步要求：完成的规范化组件 BREP/identity seed 立即写不可变 checkpoint，再由独立任务生成显示制品。初期可在专用进程内保留解析器，重启时允许重读源文件，但不能每个 root 都重新解析整份文件。结果数组只持有组件摘要和对象引用，不能累计完整 Mesh/GLB；当前结果已经是轻量 protobuf 摘要响应。
 
 长远装配语义采用 XDE/STEPCAF 恢复 definition/occurrence、共享引用、层级、placement、颜色/名称；嵌套装配不按 transferable root 数量猜测。OCCT 官方说明 XDE 支持扩展结构与属性，STEPCAF 可转入文档；是否降低本项目内存必须实测，XDE 并非 out-of-core 保证。[OCCT XDE](https://github.com/Open-Cascade-SAS/OCCT/wiki/xde)。首批 parse-once 优化可先保持当前展平交换合同，完整 XDE 另设 conformance 门。
 
@@ -156,7 +155,7 @@ DocumentView 只携带必要模型/结构信息、分页或按子树查询入口
 
 ## 7. 验证与是否承诺 1 GiB
 
-本轮没有运行大文件测试，也没有证明当前硬件可处理某个 1 GiB 模型。下面是待实施验收矩阵。
+现有真实 STEP 定向测试不能证明当前硬件可处理某个 1 GiB 模型。下面是待实施验收矩阵。
 
 | 维度 | corpus / 场景 | 必须记录 |
 |---|---|---|

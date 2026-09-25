@@ -69,10 +69,10 @@ func TestLargeSTEPImportThroughManagedRouter(t *testing.T) {
 		}
 		size := proto.Size(response)
 		largest = max(largest, size)
-		if size > geometryrpc.MaxMessageBytes || response.GetVolume() <= 0 || len(response.GetMesh().GetTriangles()) == 0 {
+		if size > geometryrpc.MaxMessageBytes || response.GetVolume() <= 0 || response.GetTriangleCount() == 0 {
 			t.Fatalf("invalid component %d result", component.SourceIndex)
 		}
-		if len(response.GetBrepData()) != 0 || len(response.GetGlbData()) != 0 {
+		if response.GetPreviewMesh() != nil || response.GetRepresentationKind() != "PERSISTENT" {
 			t.Fatal("files leaked into gRPC response")
 		}
 		for _, key := range []string{response.GetBrepArtifact().GetObjectKey(), response.GetGlbArtifact().GetObjectKey()} {
@@ -82,10 +82,10 @@ func TestLargeSTEPImportThroughManagedRouter(t *testing.T) {
 			}
 			r.Close()
 		}
-		t.Logf("component=%d response_bytes=%d vertices=%d triangles=%d solids=%d", component.SourceIndex, size, len(response.GetMesh().GetVertices()), len(response.GetMesh().GetTriangles()), response.GetTopology().GetSolidCount())
+		t.Logf("component=%d response_bytes=%d vertices=%d triangles=%d solids=%d", component.SourceIndex, size, response.GetDisplayVertexCount(), response.GetTriangleCount(), response.GetTopology().GetSolidCount())
 	}
-	if largest <= 4<<20 {
-		t.Fatalf("corpus did not exercise old receive limit: largest=%d", largest)
+	if largest > 64<<10 {
+		t.Fatalf("persistent response is not bounded: largest=%d", largest)
 	}
 	t.Logf("imported %d components through %s and managed Router; largest response=%d bytes", len(inspection.Components), store.Backend(), largest)
 }

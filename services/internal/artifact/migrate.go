@@ -4,9 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5"
 	"io"
 )
 
@@ -65,76 +63,6 @@ func (s *Service) MigrateLocal(ctx context.Context) (int, error) {
 	}
 }
 
-// MigrateEmbedded materializes legacy bytea payloads through bounded SQL chunks.
-// Existing columns remain as non-authoritative backups; no Revision is changed.
-func (s *Service) MigrateEmbedded(ctx context.Context) (int, error) {
-	total := 0
-	for _, field := range []struct {
-		data, id    string
-		kind        Kind
-		contentType string
-	}{
-		{"brep_data", "brep_object_id", KindBREP, "application/vnd.opencascade.brep"},
-		{"glb_data", "glb_object_id", KindGLB, "model/gltf-binary"},
-		{"topology_manifest_data", "topology_manifest_object_id", KindTopologyManifest, "application/vnd.occccad.topology-manifest.v1+protobuf"},
-	} {
-		// Column names are closed constants above, never caller input.
-		for {
-			var key string
-			err := s.database.QueryRow(ctx, `SELECT geometry_key FROM occccad.geometry_artifacts WHERE `+field.id+` IS NULL AND `+field.data+` IS NOT NULL ORDER BY geometry_key LIMIT 1`).Scan(&key)
-			if errors.Is(err, pgx.ErrNoRows) {
-				break
-			}
-			if err != nil {
-				return total, err
-			}
-			reader := &legacyPayloadReader{ctx: ctx, service: s, key: key, column: field.data}
-			object, err := s.Put(ctx, field.kind, field.contentType, reader)
-			if err != nil {
-				return total, err
-			}
-			result, err := s.database.Exec(ctx, `UPDATE occccad.geometry_artifacts SET `+field.id+`=$1 WHERE geometry_key=$2 AND `+field.id+` IS NULL`, object.ID, key)
-			if err != nil {
-				return total, err
-			}
-			total += int(result.RowsAffected())
-		}
-	}
-	return total, nil
-}
-
-type legacyPayloadReader struct {
-	ctx         context.Context
-	service     *Service
-	key, column string
-	offset      int
-	buffer      []byte
-	done        bool
-}
-
-func (r *legacyPayloadReader) Read(p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	if len(r.buffer) == 0 {
-		if r.done {
-			return 0, io.EOF
-		}
-		if err := r.service.database.QueryRow(r.ctx, `SELECT substring(`+r.column+` from $2 for 1048576) FROM occccad.geometry_artifacts WHERE geometry_key=$1`, r.key, r.offset+1).Scan(&r.buffer); err != nil {
-			return 0, err
-		}
-		r.offset += len(r.buffer)
-		r.done = len(r.buffer) < 1048576
-		if len(r.buffer) == 0 {
-			return 0, io.EOF
-		}
-	}
-	n := copy(p, r.buffer)
-	r.buffer = r.buffer[n:]
-	return n, nil
-}
-
-// VerifyTarget checks the persisted references against actual object contents.
 func (s *Service) VerifyTarget(ctx context.Context) (int, error) {
 	total := 0
 	after := ""

@@ -57,9 +57,9 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
       ]} /></>;
   }
   if (!selection) {
-    const triangleCount = view.artifact?.mesh.triangles.length
+    const triangleCount = view.artifact?.triangleCount
       ?? (view.resolvedInstances ?? []).reduce((total, instance) =>
-        total + (view.artifacts?.[instance.geometryKey]?.mesh.triangles.length ?? 0), 0);
+        total + (view.artifacts?.[instance.geometryKey]?.triangleCount ?? 0), 0);
     const geometryCount = diagnostics?.aggregate.artifactCount
       ?? (view.document.type === "PRODUCT" ? view.resolvedInstances?.length ?? 0 : view.artifact ? 1 : 0);
     const detail = diagnostics?.artifacts[0];
@@ -104,7 +104,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
         { key: "occt", label: "OCCT", children: diagnostics?.worker.occtVersion ?? detail?.occtVersion ?? "—" },
         { key: "reference", label: "Reference Geometry", children: detail
           ? `${detail.visualization.referenceGeometry.datumPlanes.length} planes · ${detail.visualization.referenceGeometry.axisSystems.length} axis system(s)` : "—" },
-        { key: "visual-primitives", label: "Non-solid Geometry", children: detail?.visualization.primitives.length ?? 0 },
+        { key: "visual-primitives", label: "Non-solid Geometry", children: detail?.visualization.primitives?.length ?? "按需从 GLB 加载" },
         { key: "rendering", label: "Rendering", children: "Phong Solid + welded feature edges" },
         { key: "features", label: view.document.type === "PART" ? "Features" : "Instances",
           children: view.document.type === "PART" ? view.part?.features.length ?? 0 : view.product?.instances.length ?? 0 },

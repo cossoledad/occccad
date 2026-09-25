@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -9,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"reflect"
 	"slices"
@@ -27,10 +25,9 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
 	"go.opentelemetry.io/otel/trace"
-	"google.golang.org/protobuf/proto"
 )
 
-const evaluatorVersion = "part-solid-generators-v12-oriented-face-normal"
+const evaluatorVersion = "part-solid-generators-v13-artifact-representations"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -968,41 +965,12 @@ func (service *Service) brepArtifactReference(ctx context.Context, geometryKey s
 	})
 }
 
-func (service *Service) loadBrepArtifactReference(ctx context.Context, geometryKey string) (geometry.ArtifactReference, error) {
-	var objectID *string
-	var inline []byte
-	var backend, objectKey, sha256Value, contentType *string
-	var objectSize *int64
-	if err := service.database.QueryRow(ctx, `SELECT artifact.brep_object_id::text,artifact.brep_data,
-		object.storage_backend,object.object_key,object.sha256,object.size_bytes,object.content_type
-		FROM occccad.geometry_artifacts artifact LEFT JOIN occccad.artifact_objects object
-		ON object.id=artifact.brep_object_id AND object.state='READY'
-		WHERE artifact.geometry_key=$1 AND artifact.volume>0`, geometryKey).
-		Scan(&objectID, &inline, &backend, &objectKey, &sha256Value, &objectSize, &contentType); err != nil {
+func (service *Service) loadBrepArtifactReference(ctx context.Context, key string) (geometry.ArtifactReference, error) {
+	object, err := service.representationObject(ctx, key, "BREP")
+	if err != nil {
 		return geometry.ArtifactReference{}, err
 	}
-	if objectID != nil && backend != nil && objectKey != nil && sha256Value != nil && objectSize != nil && contentType != nil {
-		return geometry.ArtifactReference{Backend: *backend, ObjectKey: *objectKey, SHA256: *sha256Value,
-			Size: *objectSize, ContentType: *contentType}, nil
-	}
-	if objectID == nil {
-		if service.artifacts == nil || len(inline) == 0 {
-			return geometry.ArtifactReference{}, fmt.Errorf("%w: B-Rep artifact is unavailable", ErrValidation)
-		}
-		object, err := service.artifacts.Put(ctx, artifactstore.KindBREP,
-			"application/vnd.opencascade.brep", bytes.NewReader(inline))
-		if err != nil {
-			return geometry.ArtifactReference{}, err
-		}
-		if _, err := service.database.Exec(ctx, `UPDATE occccad.geometry_artifacts
-			SET brep_object_id=$2,storage_state=CASE WHEN storage_state='DATABASE' THEN 'DUAL' ELSE storage_state END
-			WHERE geometry_key=$1`, geometryKey, object.ID); err != nil {
-			return geometry.ArtifactReference{}, err
-		}
-		return geometry.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key,
-			SHA256: object.SHA256, Size: object.Size, ContentType: object.ContentType}, nil
-	}
-	return geometry.ArtifactReference{}, fmt.Errorf("%w: B-Rep artifact metadata is unavailable", ErrValidation)
+	return geometry.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key, SHA256: object.SHA256, Size: object.Size, ContentType: object.ContentType}, nil
 }
 
 func (service *Service) CreateDocument(
@@ -1992,14 +1960,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 		evaluation, err = service.worker.EvaluateProfilePartFromArtifact(ctx, reqID, key, solidFeatures, base,
 			artifactstore.StagingKey(reqID, "shape.brep"), artifactstore.StagingKey(reqID, "mesh.glb"), importSeed)
 	} else {
-		var baseBRep []byte
-		if baseKey != "" {
-			err = service.database.QueryRow(ctx,
-				`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, baseKey).Scan(&baseBRep)
-		}
-		if err == nil {
-			evaluation, err = service.worker.EvaluateProfilePart(ctx, reqID, key, solidFeatures, baseBRep, importSeed)
-		}
+		return "", fmt.Errorf("persistent evaluation requires ArtifactStore")
 	}
 	if err != nil {
 		return "", err
@@ -2008,151 +1969,6 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 		return "", err
 	}
 	return key, nil
-}
-
-func (service *Service) storeEvaluation(
-	ctx context.Context, key string, evaluation *workerv1.EvaluatePartResponse, visualization VisualizationManifest,
-) error {
-	if evaluation.GetTopology().GetSolidCount() == 0 || evaluation.GetVolume() <= 0 {
-		return fmt.Errorf("%w: imported/evaluated shape must contain solid geometry", ErrValidation)
-	}
-	glb := evaluation.GetGlbData()
-	if reference := evaluation.GetGlbArtifact(); reference != nil {
-		if service.artifacts == nil {
-			return fmt.Errorf("GLB artifact response requires an ArtifactStore")
-		}
-		baseObject, err := service.artifacts.Adopt(ctx, artifactstore.KindGLB,
-			"model/gltf-binary", reference.GetObjectKey())
-		if err != nil {
-			return fmt.Errorf("adopt worker GLB artifact: %w", err)
-		}
-		_, reader, err := service.artifacts.Open(ctx, baseObject.ID)
-		if err != nil {
-			return fmt.Errorf("open worker GLB artifact: %w", err)
-		}
-		glb, err = io.ReadAll(reader)
-		closeErr := reader.Close()
-		if err != nil {
-			return fmt.Errorf("read worker GLB artifact: %w", err)
-		}
-		if closeErr != nil {
-			return fmt.Errorf("close worker GLB artifact: %w", closeErr)
-		}
-	}
-	var err error
-	glb, err = glbWithVisualization(glb, visualization)
-	if err != nil {
-		return fmt.Errorf("add visualization manifest to GLB: %w", err)
-	}
-	visualizationJSON, _ := json.Marshal(visualization)
-	workerID := service.worker.WorkerFor(key)
-	if workerID == "" {
-		workerID = "geometry-worker"
-		if worker, pingErr := service.worker.Ping(ctx); pingErr == nil && worker.GetWorkerId() != "" {
-			workerID = worker.GetWorkerId()
-		}
-	}
-	mesh := meshFromProto(evaluation.GetMesh())
-	meshJSON, _ := json.Marshal(mesh)
-	bboxJSON, _ := json.Marshal(map[string]any{
-		"min": []float64{evaluation.GetBbox().GetMinX(), evaluation.GetBbox().GetMinY(), evaluation.GetBbox().GetMinZ()},
-		"max": []float64{evaluation.GetBbox().GetMaxX(), evaluation.GetBbox().GetMaxY(), evaluation.GetBbox().GetMaxZ()},
-	})
-	topologyJSON, _ := json.Marshal(map[string]any{
-		"faces": evaluation.GetTopology().GetFaceCount(), "edges": evaluation.GetTopology().GetEdgeCount(),
-		"vertices": evaluation.GetTopology().GetVertexCount(), "solids": evaluation.GetTopology().GetSolidCount(),
-	})
-	var topologyManifestData []byte
-	var topologyManifestDigest string
-	if manifest := evaluation.GetEvaluationManifest(); manifest != nil && len(manifest.GetFeatureResults()) > 0 {
-		if manifest.GetSchemaVersion() != modelcore.TopologyNamingSchemaVersion ||
-			manifest.GetTopologyPolicyId() != modelcore.TopologyNamingPolicyID ||
-			manifest.GetTopologyEvaluatorVersion() != modelcore.TopologyNamingEvaluator ||
-			manifest.GetTopologyPolicyDigest() != modelcore.TopologyNamingPolicyDigest {
-			return fmt.Errorf("topology manifest policy contract mismatch")
-		}
-		topologyManifestData, err = proto.Marshal(&workerv1.PartTopologyManifest{SchemaVersion: manifest.GetSchemaVersion(),
-			PolicyId: manifest.GetTopologyPolicyId(), EvaluatorVersion: manifest.GetTopologyEvaluatorVersion(),
-			FeatureResults: manifest.GetFeatureResults(), PolicyDigest: manifest.GetTopologyPolicyDigest()})
-		if err != nil {
-			return fmt.Errorf("serialize topology manifest: %w", err)
-		}
-		digest := sha256.Sum256(topologyManifestData)
-		topologyManifestDigest = hex.EncodeToString(digest[:])
-		if manifest.GetTopologyManifestDigest() != topologyManifestDigest {
-			return fmt.Errorf("topology manifest digest mismatch")
-		}
-	}
-	var brepObjectID, glbObjectID, topologyManifestObjectID *string
-	storageState := "DATABASE"
-	if service.artifacts != nil {
-		var brepObject, glbObject artifactstore.Object
-		var err error
-		if reference := evaluation.GetBrepArtifact(); reference != nil {
-			brepObject, err = service.artifacts.Adopt(ctx, artifactstore.KindBREP,
-				"application/vnd.opencascade.brep", reference.GetObjectKey())
-		} else {
-			brepObject, err = service.artifacts.Put(ctx, artifactstore.KindBREP,
-				"application/vnd.opencascade.brep", bytes.NewReader(evaluation.GetBrepData()))
-		}
-		if err != nil {
-			return fmt.Errorf("store B-Rep artifact: %w", err)
-		}
-		glbObject, err = service.artifacts.Put(ctx, artifactstore.KindGLB,
-			"model/gltf-binary", bytes.NewReader(glb))
-		if err != nil {
-			return fmt.Errorf("store GLB artifact: %w", err)
-		}
-		brepObjectID, glbObjectID = &brepObject.ID, &glbObject.ID
-		if reference := evaluation.GetEvaluationManifest().GetTopologyManifestArtifact(); reference != nil {
-			if err := validateTopologyManifestDigests(topologyManifestDigest, reference.GetSha256(), ""); err != nil {
-				return err
-			}
-			topologyObject, adoptErr := service.artifacts.Adopt(ctx, artifactstore.KindTopologyManifest,
-				"application/vnd.occccad.topology-manifest.v1+protobuf", reference.GetObjectKey())
-			if adoptErr != nil {
-				return fmt.Errorf("adopt worker topology manifest: %w", adoptErr)
-			}
-			if err := validateTopologyManifestDigests(topologyManifestDigest, reference.GetSha256(), topologyObject.SHA256); err != nil {
-				return err
-			}
-			topologyManifestObjectID = &topologyObject.ID
-			topologyManifestData = nil
-		}
-
-		if topologyManifestObjectID == nil && len(topologyManifestData) > 0 {
-			topologyObject, err := service.artifacts.Put(ctx, artifactstore.KindTopologyManifest, "application/vnd.occccad.topology-manifest.v1+protobuf", bytes.NewReader(topologyManifestData))
-			if err != nil {
-				return fmt.Errorf("store topology manifest: %w", err)
-			}
-			topologyManifestObjectID = &topologyObject.ID
-			topologyManifestData = nil
-		}
-		storageState = "OBJECT"
-	}
-	brepData, glbData := evaluation.GetBrepData(), glb
-	var topologyManifestDigestValue any
-	if topologyManifestDigest != "" {
-		topologyManifestDigestValue = topologyManifestDigest
-	}
-	if storageState == "OBJECT" {
-		brepData, glbData = nil, nil
-	}
-	if _, err := service.database.Exec(ctx, `
-		INSERT INTO occccad.geometry_artifacts(
-			geometry_key,geometry_id,evaluator_version,occt_version,units,
-			brep_data,glb_data,mesh_json,bbox_json,topology_json,volume,
-			brep_object_id,glb_object_id,topology_manifest_object_id,topology_manifest_data,
-			topology_manifest_digest,storage_state,visualization_json,worker_id)
-		VALUES($1,$2,$3,$4,'mm',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
-		ON CONFLICT (geometry_key) DO NOTHING`, key, evaluation.GetGeometryId(), evaluatorVersion,
-		evaluation.GetOcctVersion(), brepData, glbData, meshJSON,
-		bboxJSON, topologyJSON, evaluation.GetVolume(), brepObjectID, glbObjectID,
-		topologyManifestObjectID, topologyManifestData, topologyManifestDigestValue, storageState,
-		visualizationJSON, workerID); err != nil {
-		return err
-	}
-	return nil
 }
 
 func validateTopologyManifestDigests(expected, referenced, adopted string) error {
@@ -2165,254 +1981,20 @@ func validateTopologyManifestDigests(expected, referenced, adopted string) error
 	return nil
 }
 
-func (service *Service) ensureVisualizationArtifact(ctx context.Context, model PartModel) (string, error) {
-	visualization := visualizationManifest(model)
-	visualizationJSON, _ := json.Marshal(visualization)
-	digest := sha256.Sum256(append([]byte(evaluatorVersion+"|visualization-only|"), visualizationJSON...))
-	key := "sha256:" + hex.EncodeToString(digest[:])
-	var exists bool
-	if err := service.database.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, key).Scan(&exists); err != nil {
-		return "", err
-	}
-	if exists {
-		return key, nil
-	}
-	glb, err := glbWithVisualization(nil, visualization)
-	if err != nil {
-		return "", err
-	}
-	meshJSON, _ := json.Marshal(Mesh{Vertices: [][3]float64{}, Triangles: [][3]uint32{}, FaceIDs: []uint32{}})
-	bboxJSON := []byte(`{"min":[-90,-90,-90],"max":[90,90,90]}`)
-	topologyJSON := []byte(`{"faces":0,"edges":0,"vertices":0,"solids":0}`)
-	var glbObjectID *string
-	storageState := "DATABASE"
-	if service.artifacts != nil {
-		object, putErr := service.artifacts.Put(ctx, artifactstore.KindGLB, "model/gltf-binary", bytes.NewReader(glb))
-		if putErr != nil {
-			return "", fmt.Errorf("store visualization GLB: %w", putErr)
-		}
-		glbObjectID, storageState = &object.ID, "DUAL"
-	}
-	_, err = service.database.Exec(ctx, `
-		INSERT INTO occccad.geometry_artifacts(
-			geometry_key,geometry_id,evaluator_version,occt_version,units,brep_data,glb_data,
-			mesh_json,bbox_json,topology_json,volume,glb_object_id,storage_state,
-			visualization_json,worker_id)
-		VALUES($1,$2,$3,'none','mm','',$4,$5,$6,$7,0,$8,$9,$10,'metadata-service')
-		ON CONFLICT (geometry_key) DO NOTHING`, key, "visualization:"+hex.EncodeToString(digest[:]), evaluatorVersion,
-		glb, meshJSON, bboxJSON, topologyJSON, glbObjectID, storageState, visualizationJSON)
-	return key, err
-}
-
-func (service *Service) ensureVisualizationVariant(
-	ctx context.Context, baseKey string, visualization VisualizationManifest,
-) (string, error) {
-	visualizationJSON, _ := json.Marshal(visualization)
-	digest := sha256.Sum256(append([]byte(evaluatorVersion+"|base="+baseKey+"|visualization="), visualizationJSON...))
-	key := "sha256:" + hex.EncodeToString(digest[:])
-	var exists bool
-	if err := service.database.QueryRow(ctx,
-		`SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, key).Scan(&exists); err != nil {
-		return "", err
-	}
-	if exists {
-		return key, nil
-	}
-	var sourceGLB []byte
-	var sourceGLBObjectID *string
-	var storageState string
-	if err := service.database.QueryRow(ctx, `
-		SELECT glb_data,glb_object_id::text,storage_state
-		FROM occccad.geometry_artifacts WHERE geometry_key=$1`, baseKey).
-		Scan(&sourceGLB, &sourceGLBObjectID, &storageState); err != nil {
-		return "", err
-	}
-	if len(sourceGLB) == 0 {
-		if service.artifacts == nil || sourceGLBObjectID == nil {
-			return "", fmt.Errorf("%w: base visualization GLB is unavailable", ErrValidation)
-		}
-		_, reader, err := service.artifacts.Open(ctx, *sourceGLBObjectID)
-		if err != nil {
-			return "", err
-		}
-		sourceGLB, err = io.ReadAll(reader)
-		closeErr := reader.Close()
-		if err != nil {
-			return "", err
-		}
-		if closeErr != nil {
-			return "", closeErr
-		}
-	}
-	composed, err := glbWithVisualization(sourceGLB, visualization)
-	if err != nil {
-		return "", err
-	}
-	var glbObjectID *string
-	if service.artifacts != nil {
-		object, putErr := service.artifacts.Put(ctx, artifactstore.KindGLB, "model/gltf-binary", bytes.NewReader(composed))
-		if putErr != nil {
-			return "", putErr
-		}
-		glbObjectID = &object.ID
-	}
-	glbData := composed
-	if storageState == "OBJECT" {
-		glbData = nil
-	}
-	_, err = service.database.Exec(ctx, `
-		INSERT INTO occccad.geometry_artifacts(
-			geometry_key,geometry_id,evaluator_version,occt_version,units,brep_data,glb_data,
-			mesh_json,bbox_json,topology_json,volume,evaluation_count,brep_object_id,glb_object_id,
-			storage_state,visualization_json,worker_id)
-		SELECT $1,geometry_id,$2,occt_version,units,brep_data,$3,mesh_json,bbox_json,topology_json,
-		       volume,evaluation_count,brep_object_id,$4,storage_state,$5,worker_id
-		FROM occccad.geometry_artifacts WHERE geometry_key=$6
-		ON CONFLICT (geometry_key) DO NOTHING`, key, evaluatorVersion, glbData, glbObjectID,
-		visualizationJSON, baseKey)
-	return key, err
-}
-
 func (service *Service) ensureArtifactVisualization(ctx context.Context, key string, model PartModel) error {
 	var stored []byte
 	if err := service.database.QueryRow(ctx, `
-		SELECT visualization_json FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).
+		SELECT reference_geometry_json FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).
 		Scan(&stored); err != nil {
 		return err
 	}
 	var current VisualizationManifest
-	if json.Unmarshal(stored, &current) != nil || !reflect.DeepEqual(current, visualizationManifest(model)) {
+	expected := visualizationManifest(model)
+	expected.Primitives = nil
+	if json.Unmarshal(stored, &current) != nil || !reflect.DeepEqual(current, expected) {
 		return fmt.Errorf("%w: visualization artifact does not match the Part revision", ErrValidation)
 	}
 	return nil
-}
-
-func meshFromProto(source *workerv1.Mesh) Mesh {
-	result := Mesh{Vertices: make([][3]float64, 0, len(source.GetVertices())),
-		Triangles: make([][3]uint32, 0, len(source.GetTriangles())), FaceIDs: append([]uint32{}, source.GetFaceIds()...),
-		Edges: make([]MeshEdge, 0, len(source.GetEdges())), TopologyVertices: make([]TopologyPoint, 0, len(source.GetTopologyVertices()))}
-	for _, vertex := range source.GetVertices() {
-		result.Vertices = append(result.Vertices, [3]float64{vertex.GetX(), vertex.GetY(), vertex.GetZ()})
-	}
-	for _, triangle := range source.GetTriangles() {
-		result.Triangles = append(result.Triangles, [3]uint32{triangle.GetV0(), triangle.GetV1(), triangle.GetV2()})
-	}
-	for _, edge := range source.GetEdges() {
-		item := MeshEdge{LocalID: edge.GetLocalId(), Points: make([][3]float64, 0, len(edge.GetPoints()))}
-		for _, point := range edge.GetPoints() {
-			item.Points = append(item.Points, [3]float64{point.GetX(), point.GetY(), point.GetZ()})
-		}
-		result.Edges = append(result.Edges, item)
-	}
-	for _, vertex := range source.GetTopologyVertices() {
-		point := vertex.GetPoint()
-		result.TopologyVertices = append(result.TopologyVertices, TopologyPoint{LocalID: vertex.GetLocalId(),
-			Point: [3]float64{point.GetX(), point.GetY(), point.GetZ()}})
-	}
-	return result
-}
-
-func (service *Service) loadArtifact(ctx context.Context, key string) (Artifact, error) {
-	service.artifactCacheMu.RLock()
-	if cached, ok := service.artifactCache[key]; ok {
-		service.artifactCacheMu.RUnlock()
-		return cached, nil
-	}
-	service.artifactCacheMu.RUnlock()
-	artifact := Artifact{GeometryKey: key}
-	var meshJSON, bboxJSON, topologyJSON []byte
-	var visualizationJSON []byte
-	if err := service.database.QueryRow(ctx, `
-		SELECT geometry_id,mesh_json,bbox_json,topology_json,volume,occt_version,
-		       COALESCE(octet_length(glb_data),glb_object.size_bytes,0),
-		       COALESCE(octet_length(brep_data),brep_object.size_bytes,0),evaluator_version,worker_id,
-		       storage_state,artifact.created_at::text,visualization_json
-		FROM occccad.geometry_artifacts artifact
-		LEFT JOIN occccad.artifact_objects glb_object ON glb_object.id=artifact.glb_object_id
-		LEFT JOIN occccad.artifact_objects brep_object ON brep_object.id=artifact.brep_object_id
-		WHERE geometry_key=$1`, key).Scan(
-		&artifact.GeometryID, &meshJSON, &bboxJSON, &topologyJSON, &artifact.Volume,
-		&artifact.OCCTVersion, &artifact.GLBBytes, &artifact.BRepBytes, &artifact.EvaluatorVersion,
-		&artifact.WorkerID, &artifact.StorageState, &artifact.CreatedAt, &visualizationJSON); err != nil {
-		return artifact, err
-	}
-	_, _, namingErr := service.topologyManifestForGeometryKey(ctx, key)
-	artifact.Naming = NamingAvailability{Status: "READY", CanBind: true}
-	if namingErr != nil {
-		var known bool
-		artifact.Naming, known = namingDiagnostic(namingErr)
-		if !known {
-			return artifact, namingErr
-		}
-	}
-	if err := json.Unmarshal(meshJSON, &artifact.Mesh); err != nil {
-		return artifact, err
-	}
-	if artifact.Volume > 0 && (len(artifact.Mesh.Edges) == 0 || len(artifact.Mesh.TopologyVertices) == 0) {
-		var response *workerv1.GetTopologyResponse
-		var topologyErr error
-		if service.artifacts != nil {
-			reference, referenceErr := service.brepArtifactReference(ctx, key)
-			if referenceErr != nil {
-				return artifact, referenceErr
-			}
-			response, _, topologyErr = service.worker.GetTopologyFromArtifact(ctx, artifact.GeometryID, reference, "", 0)
-		} else {
-			var brep []byte
-			if err := service.database.QueryRow(ctx,
-				`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, key).Scan(&brep); err != nil {
-				return artifact, err
-			}
-			response, _, topologyErr = service.worker.GetTopology(ctx, artifact.GeometryID, brep, "", 0)
-		}
-		if topologyErr != nil {
-			return artifact, topologyErr
-		}
-		artifact.Mesh.Edges = make([]MeshEdge, 0, len(response.GetEdges()))
-		for _, edge := range response.GetEdges() {
-			item := MeshEdge{LocalID: edge.GetLocalId(), Points: make([][3]float64, 0, len(edge.GetRenderPoints()))}
-			for _, point := range edge.GetRenderPoints() {
-				item.Points = append(item.Points, [3]float64{point.GetX(), point.GetY(), point.GetZ()})
-			}
-			artifact.Mesh.Edges = append(artifact.Mesh.Edges, item)
-		}
-		artifact.Mesh.TopologyVertices = make([]TopologyPoint, 0, len(response.GetVertices()))
-		for _, vertex := range response.GetVertices() {
-			point := vertex.GetPoint()
-			artifact.Mesh.TopologyVertices = append(artifact.Mesh.TopologyVertices,
-				TopologyPoint{LocalID: vertex.GetLocalId(), Point: [3]float64{point.GetX(), point.GetY(), point.GetZ()}})
-		}
-		updatedMesh, _ := json.Marshal(artifact.Mesh)
-		if _, err := service.database.Exec(ctx,
-			`UPDATE occccad.geometry_artifacts SET mesh_json=$2 WHERE geometry_key=$1`, key, updatedMesh); err != nil {
-			return artifact, err
-		}
-	}
-	if err := json.Unmarshal(bboxJSON, &artifact.BBox); err != nil {
-		return artifact, err
-	}
-	if err := json.Unmarshal(topologyJSON, &artifact.Topology); err != nil {
-		return artifact, err
-	}
-	if err := json.Unmarshal(visualizationJSON, &artifact.Visualization); err != nil {
-		return artifact, err
-	}
-	service.artifactCacheMu.Lock()
-	if service.artifactCache == nil {
-		service.artifactCache = map[string]Artifact{}
-	}
-	if _, exists := service.artifactCache[key]; !exists {
-		service.artifactCache[key] = artifact
-		service.artifactCacheOrder = append(service.artifactCacheOrder, key)
-		if len(service.artifactCacheOrder) > 32 {
-			oldest := service.artifactCacheOrder[0]
-			service.artifactCacheOrder = service.artifactCacheOrder[1:]
-			delete(service.artifactCache, oldest)
-		}
-	}
-	service.artifactCacheMu.Unlock()
-	return artifact, nil
 }
 
 func protoBBox(source *workerv1.BoundingBox) map[string]any {
@@ -2551,14 +2133,7 @@ func (service *Service) loadTopologyElementPropertiesFromArtifact(
 		response, servingWorkerID, err = service.worker.GetTopologyFromArtifact(ctx, geometryID, reference, kind, localID)
 		finishRPC()
 	} else {
-		var brep []byte
-		if queryErr := service.database.QueryRow(ctx,
-			`SELECT brep_data FROM occccad.geometry_artifacts WHERE geometry_key=$1`, geometryKey).Scan(&brep); queryErr != nil {
-			return TopologyElementProperties{}, queryErr
-		}
-		finishRPC := perf.Start(ctx, "topology-rpc")
-		response, servingWorkerID, err = service.worker.GetTopology(ctx, geometryID, brep, kind, localID)
-		finishRPC()
+		return TopologyElementProperties{}, fmt.Errorf("geometry requires ArtifactStore")
 	}
 	if err != nil {
 		return TopologyElementProperties{}, err

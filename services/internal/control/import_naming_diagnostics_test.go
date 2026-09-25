@@ -20,7 +20,7 @@ func verifyImportNamingDiagnostics(t *testing.T, db *database.Pool, client *geom
 		t.Fatalf("native capability regressed: %+v", source.Artifact.Naming)
 	}
 	var objectID string
-	if err := db.QueryRow(t.Context(), `SELECT brep_object_id::text FROM occccad.geometry_artifacts WHERE geometry_key=$1`, source.Artifact.GeometryKey).Scan(&objectID); err != nil {
+	if err := db.QueryRow(t.Context(), `SELECT object_id::text FROM occccad.geometry_representations WHERE geometry_key=$1 AND role='BREP'`, source.Artifact.GeometryKey).Scan(&objectID); err != nil {
 		t.Fatal(err)
 	}
 	object, err := artifacts.Get(t.Context(), objectID)

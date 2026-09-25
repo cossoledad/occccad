@@ -490,7 +490,7 @@ message PartEvaluationManifest {
     string topology_manifest_digest = 4;
     ArtifactReference topology_manifest_artifact = 5;
     repeated FeatureEvaluationIdentity features = 6;
-    repeated FeatureResult feature_results = 7;
+    reserved 7; // Full results exist only in naming.pb.
     string topology_policy_digest = 8;
 }
 
@@ -596,17 +596,20 @@ message RectangularPadSpec {
 message EvaluatePartResponse {
     string geometry_id = 1;
     string geometry_key = 2;
-    bytes brep_data = 3;
-    Mesh mesh = 4;
+    reserved 3;
+    Mesh preview_mesh = 4; // Only transient preview responses may contain this.
     BoundingBox bbox = 5;
     TopologySummary topology = 6;
     double volume = 7;
     bool cache_hit = 8;
     string occt_version = 9;
-    bytes glb_data = 10;
+    reserved 10;
     ArtifactReference brep_artifact = 11;
     ArtifactReference glb_artifact = 12;
     PartEvaluationManifest evaluation_manifest = 13;
+    string representation_kind = 14; // PERSISTENT | TRANSIENT_PREVIEW
+    uint64 triangle_count = 15;
+    uint64 display_vertex_count = 16;
 }
 
 message Mesh {
@@ -738,9 +741,10 @@ message TessellateRequest {
 }
 
 message TessellateResponse {
-    bytes glb_data = 1;
-    bytes topology_pb = 2;
-    bytes edge_data = 3;
+    reserved 1, 2, 3;
+    ArtifactReference visual_artifact = 4;
+    BoundingBox bbox = 5;
+    TopologySummary topology = 6;
 }
 
 // ---------------------------------------------------------------------------
@@ -933,6 +937,7 @@ message ImportTopologySeed {
     repeated ImportedTopologyIdentity identities = 4;
     string occt_version = 5;
     string policy_id = 6;
+    ArtifactReference identity_artifact = 7; // Full ImportTopologySeed protobuf; identities omitted in RPC.
 }
 message ImportedTopologyIdentity {
     string stable_id = 1;

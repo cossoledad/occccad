@@ -9,6 +9,7 @@ export type ToolbarCatalogEntry = { id:string;name:string;workbench:"ALL"|"PART_
 export type ToolbarCatalog = { schemaVersion:1;toolbars:ToolbarCatalogEntry[] };
 
 export type MeshData = {
+  stableIds?: Record<string,string>;
   vertices: Vec3[];
   triangles: [number, number, number][];
   faceIds: number[];
@@ -22,7 +23,11 @@ export type Artifact = {
   naming?: NamingAvailability;
   geometryKey: string;
   geometryId: string;
-  mesh: MeshData;
+  previewMesh?: MeshData;
+  representationKind: "PERSISTENT" | "TRANSIENT_PREVIEW";
+  representations: Record<string,{objectId:string;digest:string;schemaVersion:number;size:number;contentType:string;url?:string}>;
+  triangleCount:number;
+  displayVertexCount:number;
   bbox: { min: Vec3; max: Vec3 };
   topology: { faces: number; edges: number; vertices: number; solids: number };
   volume: number;
@@ -31,7 +36,7 @@ export type Artifact = {
 	brepBytes: number;
 	evaluatorVersion: string;
 	workerId: string;
-	storageState: "DATABASE" | "DUAL" | "OBJECT";
+	storageState: "OBJECT";
 	createdAt: string;
 	visualization: VisualizationManifest;
 };
@@ -83,7 +88,9 @@ export type VisualPrimitive = {
   indices?: number[]; selectable: boolean;
 };
 export type VisualizationManifest = {
-  schemaVersion: 1; referenceGeometry: ReferenceGeometry; primitives: VisualPrimitive[];
+  schemaVersion: 1; referenceGeometry: ReferenceGeometry;
+  // Lightweight Artifact descriptors omit display primitives; GLB owns the full payload.
+  primitives?: VisualPrimitive[] | null;
 };
 
 export type DocumentProperties = {
