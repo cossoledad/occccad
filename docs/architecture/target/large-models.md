@@ -109,7 +109,7 @@ ImportIdentityMap 绑定精确 BREP digest 与 importer policy，包含 stable I
 
 建议导入 Job 分阶段：SOURCE_VERIFIED → INSPECTING → TRANSFERRING → NAMING → EXACT_READY → DISPLAY_BUILDING → COMMITTING → SUCCEEDED。恢复依据持久 stage/component manifest，不仅依据进度百分数。
 
-同一 attempt 对 STEP 只 ReadFile 一次，逐根 transfer；完成的规范化组件 BREP/identity seed 立即写不可变 checkpoint，再由独立任务生成显示制品。初期可在专用进程内保留解析器，重启时允许重读源文件，但不能每个 root 都重新解析整份文件。结果数组只持有组件摘要和对象引用，不能累计所有 Mesh/GLB/protobuf response。
+当前业务导入已在同一 attempt 对 STEP 只 ReadFile/Transfer 一次，并拆为带位置的单 Solid 快照，再并行求值与建立命名；阶段/组件数量和跨重试进度高水位已持久化。其余 checkpoint 和小摘要目标仍待实施。目标进一步要求：完成的规范化组件 BREP/identity seed 立即写不可变 checkpoint，再由独立任务生成显示制品。初期可在专用进程内保留解析器，重启时允许重读源文件，但不能每个 root 都重新解析整份文件。结果数组只持有组件摘要和对象引用，不能累计所有 Mesh/GLB/protobuf response。
 
 长远装配语义采用 XDE/STEPCAF 恢复 definition/occurrence、共享引用、层级、placement、颜色/名称；嵌套装配不按 transferable root 数量猜测。OCCT 官方说明 XDE 支持扩展结构与属性，STEPCAF 可转入文档；是否降低本项目内存必须实测，XDE 并非 out-of-core 保证。[OCCT XDE](https://github.com/Open-Cascade-SAS/OCCT/wiki/xde)。首批 parse-once 优化可先保持当前展平交换合同，完整 XDE 另设 conformance 门。
 

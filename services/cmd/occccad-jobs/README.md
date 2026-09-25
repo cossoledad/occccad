@@ -6,7 +6,7 @@ occccad-jobs 是当前 PostgreSQL 持久任务的消费者进程，适合脱离 
 
 | 任务类型 | 输入 | 输出/副作用 |
 |---|---|---|
-| `EXCHANGE_IMPORT` | ArtifactStore 中的 STEP/BREP 对象 | 检查清单，并行导入根组件，创建带私有基准特征的 Part；多根再创建 Product |
+| `EXCHANGE_IMPORT` | ArtifactStore 中的 STEP/BREP 对象 | 一次解析并拆分 Solid，并行校验/修复/求值和命名创建 Part；多 Solid 创建固定版本引用的 Product |
 | `EXCHANGE_EXPORT` | Part 或 Product 当前 Head 的 B-Rep 引用 | 生成 STEP/BREP，并把结果对象 ID 写回任务 |
 | `THUMBNAIL_RENDER` | 文档与版本 | 使用 `png-v4` 生成 `640×400` 正交等轴测 PNG 并更新 `document_previews` |
 
@@ -22,13 +22,13 @@ flowchart LR
     API["occccad-server"] -->|"INSERT with idempotency key"| Queue[(PostgreSQL jobs)]
     Jobs["occccad-jobs"] -->|"FOR UPDATE SKIP LOCKED"| Queue
     Jobs --> DB[(Domain tables)]
-    Jobs --> Store["Local ArtifactStore"]
+    Jobs --> Store["ArtifactStore（S3 / Local）"]
     Jobs --> Geometry["Geometry gRPC"]
 ```
 
 - 任务使用租约领取，默认租约 2 分钟，每 30 秒续约；
 - 进程崩溃后，租约过期的 `RUNNING` 任务可被其他 Worker 重新领取；
-- 失败任务在达到最大次数前进入 `RETRY_WAIT`；
+- 暂态失败在达到最大次数前进入 `RETRY_WAIT`；导入域校验或 Worker `INVALID_ARGUMENT` 直接失败，避免确定性失败反复占用计算资源；
 - 用户取消排队任务时立即进入 `CANCELED`；运行任务每秒观察取消请求、取消正在进行的 Geometry 调用并由当前 lease owner 确认终态；
 - Worker 按持久阶段单调写入 0–100 进度；导入进入正式文档提交阶段后关闭取消能力，避免形成半提交的组件集合；
 - 最终失败或取消任务可在同一 Job identity 上手动重试，继续递增 attempt，不覆盖尝试历史；
@@ -45,9 +45,9 @@ flowchart LR
 
 ## 依赖和配置
 
-依赖 PostgreSQL、与 API 相同的 ArtifactStore 根目录，以及可用的 Geometry gRPC 地址。使用与 [occccad-server](../occccad-server/README.md) 相同的数据库、`OCCCCAD_DATA_DIR`、`OCCCCAD_GEOMETRY_WORKER_ADDRESS` 和 OTLP 配置。
+依赖 PostgreSQL、与 API 相同的 ArtifactStore 配置，以及可用的 Geometry gRPC 地址。使用与 [occccad-server](../occccad-server/README.md) 相同的数据库、`OCCCCAD_DATA_DIR`、`OCCCCAD_GEOMETRY_WORKER_ADDRESS` 和 OTLP 配置。
 
-在多进程或多主机部署中，所有实例必须看到同一套对象存储。当前本地目录后端不满足跨主机共享要求，因此当前 Jobs 只适合与 API 共享文件系统的部署。
+持久文件支持 S3 和本地后端。当前 Geometry Worker 仍通过 LOCAL 暂存目录交付输出，因此 Jobs、Router 与 Worker 需要共享该暂存目录；S3 持久化不意味着 Worker 暂存已支持跨主机传递。
 
 ## 运行
 
@@ -70,7 +70,7 @@ invoke run.app --build-type=Debug
 
 ## 扩缩容与验证
 
-多个实例可以并行消费，`SKIP LOCKED` 防止同时领取同一行。单个 Product 导入内部最多并行处理 8 个独立 root，正式 Geometry Router 可把它们分配给不同 Worker；最终 Product 组装与交换文件写出仍是确定性的 reduce 阶段。扩容前要确认 Geometry Worker 与共享制品存储容量；当前没有按任务类型隔离队列，耗时交换工作可能影响缩略图延迟。
+多个实例可以并行消费，`SKIP LOCKED` 防止同时领取同一行。源文件解析一次，按 Solid occurrence 生成独立快照；单个导入默认并行处理 4 个组件（`OCCCCAD_IMPORT_CONCURRENCY`：1–8），正式 Geometry Router 可把它们分配给不同 Worker；最终 Product 组装与交换文件写出仍是确定性的 reduce 阶段。扩容前要确认 Geometry Worker 与共享制品存储容量；当前没有按任务类型隔离队列，耗时交换工作可能影响缩略图延迟。
 
 ```bash
 cd services
@@ -84,3 +84,17 @@ go test ./...
 Jobs 同样使用 [统一数据库访问层](../../internal/database/README.md)，本进程的任务循环共享有界数据库调度预算；该预算独立于 API 进程，配置连接上限时应计算两者总和。持久 Job 租约、重试和提交语义保持不变，调度等待不代表任务成功。
 
 制品通过 `artifact.Store` 使用配置的 LOCAL/S3 后端。源文件输入经 Geometry client 下载到独立 Worker scratch，输出经 Adopt 上传后才提交业务引用。API、Jobs 与本机 Worker 仍共享计算暂存目录；[配置与迁移](../occccad-artifacts/README.md)。
+
+## 单实体拆分与进度
+
+`OCCCCAD_IMPORT_CONCURRENCY` 控制每个文件的组件求值和 Part 创建并发，默认 4、范围 1–8，实际进程数受 Geometry Router 预算限制。输入只解析一次，每个带位置 Solid 生成 BREP 快照；必要的有效性修复在单实体 Worker 内并行执行，不能修复的组件明确失败。原始根数量不再决定业务文档数量，不恢复 XDE 层级/共享定义。
+
+进度显示解析拆分、组件求值、零件命名/创建、装配创建；已完成数量来自真实完成回调。70% 起进入文档提交区，保持原取消边界。重试/租约重领不清零总进度，新 attempt 显示实际阶段及尝试次数；每个阶段结束只记录一条包含耗时和组件数的日志。确定性校验失败不自动反复重跑。
+
+完整导入的定向验证（独立测试账号和文件夹，结束移入回收站，不重置开发库）：
+
+```sh
+OCCCCAD_TEST_IMPORT_DATABASE=1 OCCCCAD_TEST_GEOMETRY_WORKER=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP='/absolute/path/LD200 torsen v7.step' go test ./cmd/occccad-jobs -run '^TestMultiSolidImportCreatesNamedPartsAndProduct$' -count=1 -v -timeout 20m
+```
+
+默认期望 114 个可命名 Part 和一个 Product，可通过 `OCCCCAD_TEST_EXPECTED_SOLIDS` 指定其他样本的数量。测试检查单实体、冻结命名定义、全部 Part 的面绑定、PINNED 装配引用和进度单调性；保留命中去重的源对象，不删除业务共享制品。

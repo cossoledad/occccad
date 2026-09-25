@@ -622,6 +622,13 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			if len(request.ReferencedDocumentIDs) > 128 {
 				return "", nil, fmt.Errorf("%w: at most 128 documents can be inserted", ErrValidation)
 			}
+			mode := request.ReferenceMode
+			if mode == "" {
+				mode = "FOLLOW_HEAD"
+			}
+			if mode != "FOLLOW_HEAD" && mode != "PINNED" {
+				return "", nil, fmt.Errorf("%w: invalid reference mode", ErrValidation)
+			}
 			seen := map[string]bool{}
 			for _, id := range request.ReferencedDocumentIDs {
 				if seen[id] {
@@ -647,7 +654,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				if cycle {
 					return "", nil, fmt.Errorf("%w: Product reference would create a cycle", ErrValidation)
 				}
-				instance := ProductInstance{ID: newID("instance"), Name: nextInstanceName(product, name), ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: "FOLLOW_HEAD"}
+				instance := ProductInstance{ID: newID("instance"), Name: nextInstanceName(product, name), ReferencedDocumentID: referenceID, ReferencedVersionID: versionID, Rotation: [4]float64{0, 0, 0, 1}, ReferenceMode: mode}
 				product.Instances = append(product.Instances, instance)
 				result.Instances = append(result.Instances, instance)
 			}

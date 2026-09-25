@@ -107,8 +107,9 @@ type ArtifactReference struct {
 }
 
 type ExchangeComponentInfo struct {
-	SourceIndex uint32
-	Name        string
+	SourceIndex  uint32
+	Name         string
+	PreparedBRep ArtifactReference
 }
 
 type ExchangeInspection struct {
@@ -780,11 +781,15 @@ func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, reque
 	return response, nil
 }
 
-func (client *Client) InspectExchange(ctx context.Context, requestID, format string, source ArtifactReference) (ExchangeInspection, error) {
+func (client *Client) InspectExchange(ctx context.Context, requestID, format string, source ArtifactReference, outputPrefix ...string) (ExchangeInspection, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
+	prefix := ""
+	if len(outputPrefix) > 0 {
+		prefix = outputPrefix[0]
+	}
 	response, err := client.worker.InspectExchange(ctx, &workerv1.InspectExchangeRequest{
-		RequestId: requestID, Format: format, Source: artifactProto(source),
+		RequestId: requestID, Format: format, Source: artifactProto(source), ComponentOutputPrefix: prefix,
 	})
 	if err != nil {
 		return ExchangeInspection{}, fmt.Errorf("inspect %s exchange: %w", format, err)
@@ -793,6 +798,7 @@ func (client *Client) InspectExchange(ctx context.Context, requestID, format str
 	for _, component := range response.GetComponents() {
 		result.Components = append(result.Components, ExchangeComponentInfo{
 			SourceIndex: component.GetSourceIndex(), Name: component.GetName(),
+			PreparedBRep: ArtifactReference{Backend: component.GetPreparedBrep().GetBackend(), ObjectKey: component.GetPreparedBrep().GetObjectKey(), SHA256: component.GetPreparedBrep().GetSha256(), Size: int64(component.GetPreparedBrep().GetSizeBytes()), ContentType: component.GetPreparedBrep().GetContentType()},
 		})
 	}
 	return result, nil

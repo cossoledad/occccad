@@ -535,16 +535,20 @@ message InspectExchangeRequest {
     string request_id = 1;
     string format = 2; // STEP | BREP
     ArtifactReference source = 3;
+    // When set, parse once and materialize one BREP per Solid under this opaque key prefix.
+    string component_output_prefix = 4;
 }
 
 message ExchangeComponentInfo {
     uint32 source_index = 1;
     string name = 2;
+    // Prepared single-Solid snapshot; placement is baked into its BREP.
+    ArtifactReference prepared_brep = 3;
 }
 
 message InspectExchangeResponse {
-    // PART for one transferable root; PRODUCT when roots can be evaluated in
-    // parallel and assembled as referenced Part documents.
+    // Prepared mode: PART for one Solid, PRODUCT for multiple Solid occurrences.
+    // Read-only inspection reports transferable root count.
     string document_type = 1;
     repeated ExchangeComponentInfo components = 2;
 }

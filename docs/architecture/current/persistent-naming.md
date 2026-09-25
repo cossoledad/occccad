@@ -25,9 +25,9 @@ Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服
 
 ## 导入根命名（IMPORT-NAMING 已完成，2026-09-22）
 
-有效单 Solid 的 STEP/BREP 导入现在生成完整 Face/Edge/Vertex 根命名。ImportExchange 负责规范化精确快照，提交 ImportBody 前控制面分配独立随机 topology ID，写入不可变 `import_definitions`（迁移 0028）；Feature 的 `importDefinitionId` 引用该重放输入。定义记录绑定 Feature/Body、原始源对象和组件索引（新 Jobs 导入）、精确 BREP digest、OCCT 版本、导入策略及毫米单位。旧文档修复可仅依据其已冻结的精确 BREP，不虚构已丢失的原始源文件。
+有效单 Solid 的 STEP/BREP 导入现在生成完整 Face/Edge/Vertex 根命名。业务多 Solid 源在命名前拆成多个单 Solid Part 并形成展平 Product；不会让一个多 Solid Part 绕过单 Body 命名门禁。导入单实体先检查有效性，必要时在拷贝上运行 ShapeFix（mm：precision 1e-6、min 1e-7、max 1e-3），针对相邻圆柱面拆分造成的周期参数边界未闭合，仅在参数坐标系一致、两面各只有一条三维闭合边界且仅共享一条边时合并面片；不拼接近似同轴曲面。修复后再次检查有效单 Solid 且无游离拓扑，再冻结实际 BREP SHA-256；修复失败返回组件诊断，不丢弃坏实体。准备与修复发生在身份分配之前，已冻结的历史快照不重写。ImportExchange 负责规范化精确快照，提交 ImportBody 前控制面分配独立随机 topology ID，写入不可变 `import_definitions`（迁移 0028）；Feature 的 `importDefinitionId` 引用该重放输入。定义记录绑定 Feature/Body、原始源对象和组件索引（新 Jobs 导入）、精确 BREP digest、OCCT 版本、导入策略及毫米单位。旧文档修复可仅依据其已冻结的精确 BREP，不虚构已丢失的原始源文件。
 
-身份分配先按文档/Feature/策略冻结；并发或失败重试读取同一获胜记录，不能重新分配已发布身份。随机 ID 不由 local ID、数组位置或几何坐标派生。定位映射只在冻结 BREP 摘要内有效，Worker 同时校验 OCCT 版本/策略，内核校验摘要、单 Solid、覆盖、重复身份与 locator。更换输入快照不按编号或最近几何继承身份。定义表及其引用的源对象、精确几何是重放输入，不能作为显示缓存回收；几何/邻接 evidence 在由该冻结映射生成的 topology manifest 中物化。
+身份分配先按文档/Feature/策略冻结；并发或失败重试读取同一获胜记录，不能重新分配已发布身份。随机 ID 不由 local ID、数组位置或几何坐标派生。定位映射只在冻结 BREP 摘要内有效，Worker 同时校验 OCCT 版本/策略，内核校验摘要、单 Solid、覆盖、重复身份与 locator。更换输入快照不按编号或最近几何继承身份。定义表及其引用的源对象、精确几何是重放输入，不能作为显示缓存回收；几何/邻接 evidence 在由该冻结映射生成的 topology manifest 中物化。导入根的邻接以 Face→Edge、Face→Vertex、Edge→Vertex 的包含索引，以及共享边/顶点的反向索引生成，避免对全部拓扑做两两扫描；身份覆盖/重复检查使用集合，输出仍按原 canonical 顺序排列，不改变引用与历史语义。
 
 EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named topology，再复用原生 Add/Remove/Intersect、OCCT history 与同域合并传播。初始输出有完整邻接、类型、几何 evidence 和有向法向；后续 split/merge/deletion 使用同一 resolver，分裂多候选保留 Ambiguous。缓存身份包含完整 seed，依赖图将 ImportBody 作为 Body Tip，后续草图/实体读取其命名和几何。
 

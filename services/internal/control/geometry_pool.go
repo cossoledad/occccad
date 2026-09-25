@@ -55,15 +55,17 @@ func (pool *GeometryPool) MonitoringProcesses() ([]monitoring.Process, monitorin
 }
 
 type workerInstance struct {
-	id         string
-	address    string
-	process    *ManagedProcess
-	connection *grpc.ClientConn
-	client     workerv1.GeometryWorkerClient
-	resident   int
-	inFlight   int
-	known      map[string]bool
-	lastUsed   time.Time
+	healthMu     sync.Mutex
+	failedProbes int
+	id           string
+	address      string
+	process      *ManagedProcess
+	connection   *grpc.ClientConn
+	client       workerv1.GeometryWorkerClient
+	resident     int
+	inFlight     int
+	known        map[string]bool
+	lastUsed     time.Time
 }
 
 type GeometryPool struct {
@@ -225,25 +227,33 @@ func (pool *GeometryPool) selectClient(geometryKey string) (workerv1.GeometryWor
 	if geometryKey != "" {
 		selected = pool.affinity[geometryKey]
 	}
-	for _, worker := range pool.workers {
-		if selected != nil {
-			break
-		}
-		if geometryKey != "" && worker.known[geometryKey] {
-			selected = worker
-			break
-		}
-		if worker.resident+worker.inFlight < pool.config.GeometryCapacity &&
-			(selected == nil || worker.inFlight < selected.inFlight) {
-			selected = worker
+	if selected == nil && geometryKey != "" {
+		for _, worker := range pool.workers {
+			if worker.known[geometryKey] {
+				selected = worker
+				break
+			}
 		}
 	}
-	if selected == nil && len(pool.workers) < pool.config.MaximumWorkers {
-		worker, err := pool.spawnLocked()
-		if err != nil {
-			return nil, nil, err
+	if selected == nil {
+		var available *workerInstance
+		for _, worker := range pool.workers {
+			if worker.resident+worker.inFlight < pool.config.GeometryCapacity &&
+				(available == nil || worker.inFlight < available.inFlight) {
+				available = worker
+			}
 		}
-		selected = worker
+		// OCCT work is serialized inside each process. Cache capacity (e.g.
+		// 100 resident geometries) is not a concurrency budget of 100 RPCs.
+		if (available == nil || available.inFlight > 0) && len(pool.workers) < pool.config.MaximumWorkers {
+			worker, err := pool.spawnLocked()
+			if err != nil {
+				return nil, nil, err
+			}
+			selected = worker
+		} else {
+			selected = available
+		}
 	}
 	if selected == nil {
 		for _, worker := range pool.workers {
@@ -271,21 +281,51 @@ func (pool *GeometryPool) release(worker *workerInstance, geometryKey string, su
 	}
 	pool.mu.Lock()
 	worker.inFlight--
+	if !pool.registeredLocked(worker) {
+		pool.mu.Unlock()
+		return
+	}
 	if successful && geometryKey != "" {
 		worker.known[geometryKey] = true
 		pool.affinity[geometryKey] = worker
 	}
 	pool.mu.Unlock()
+	// Keep probe results ordered and refresh residency after the last completion.
+	worker.healthMu.Lock()
+	defer worker.healthMu.Unlock()
 	ctx, cancel := context.WithTimeout(pool.ctx, time.Second)
 	response, err := worker.client.Ping(ctx, &workerv1.PingRequest{})
 	cancel()
-	if err == nil {
-		pool.mu.Lock()
-		worker.resident = int(response.GetResidentGeometryCount())
+	pool.mu.Lock()
+	if !pool.registeredLocked(worker) || pool.ctx.Err() != nil {
 		pool.mu.Unlock()
 		return
 	}
+	if err == nil {
+		worker.resident = int(response.GetResidentGeometryCount())
+		worker.failedProbes = 0
+		pool.mu.Unlock()
+		return
+	}
+	worker.failedProbes++
+	failures := worker.failedProbes
+	dead := worker.process != nil && !worker.process.Running()
+	pool.mu.Unlock()
+	if !dead && failures < 3 {
+		slog.Warn("geometry worker probe failed", "worker", worker.id, "consecutive_failures", failures, "error", err)
+		return
+	}
 	pool.removeFailedWorker(worker, err)
+}
+
+// pool.mu must be held. Late RPC completions cannot resurrect evicted owners.
+func (pool *GeometryPool) registeredLocked(worker *workerInstance) bool {
+	for _, candidate := range pool.workers {
+		if candidate == worker {
+			return true
+		}
+	}
+	return false
 }
 
 func (pool *GeometryPool) remember(worker *workerInstance, identifiers ...string) {
@@ -294,6 +334,9 @@ func (pool *GeometryPool) remember(worker *workerInstance, identifiers ...string
 	}
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
+	if !pool.registeredLocked(worker) {
+		return
+	}
 	for _, identifier := range identifiers {
 		if identifier != "" {
 			worker.known[identifier] = true

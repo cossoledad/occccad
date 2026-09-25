@@ -4,12 +4,25 @@
 
 #include <gtest/gtest.h>
 
+#include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
+#include <TopExp.hxx>
+#include <TopTools_IndexedMapOfShape.hxx>
+#include <BRepTools.hxx>
+#include <BRep_Builder.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS_Shell.hxx>
+#include <TopoDS_Solid.hxx>
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
+#include <sstream>
+#include <set>
 #include <vector>
 
 namespace occccad::kernel {
@@ -990,6 +1003,71 @@ TEST(GeometryExchange, ExplicitDatumFramePlacesExtrudeOffTheDefaultPlanes) {
     EXPECT_NEAR(bounds.max.z, 35, 1.0e-6);
 }
 
+TEST(GeometryExchange, ImportedSolidRepairRejectsMissingFace) {
+    const auto box = BRepPrimAPI_MakeBox(10, 20, 30).Shape();
+    BRep_Builder builder;
+    TopoDS_Shell shell;
+    builder.MakeShell(shell);
+    TopExp_Explorer faces(box, TopAbs_FACE);
+    ASSERT_TRUE(faces.More());
+    faces.Next(); // A real hole must not be hidden by normalization.
+    for (; faces.More(); faces.Next()) builder.Add(shell, faces.Current());
+    TopoDS_Solid solid;
+    builder.MakeSolid(solid);
+    builder.Add(solid, shell);
+    std::ostringstream stream;
+    BRepTools::Write(solid, stream);
+    const auto serialized = stream.str();
+    OcctKernel kernel;
+    const auto original = kernel.loadBrepr({serialized.begin(), serialized.end()});
+    const auto frozen = kernel.serializeBrepr(original);
+    EXPECT_THROW(kernel.repairImportedSolid(original), std::invalid_argument);
+    EXPECT_EQ(kernel.serializeBrepr(original), frozen);
+}
+
+TEST(GeometryExchange, ImportedSolidRepairCorpus) {
+    const char* path = std::getenv("OCCCCAD_TEST_IMPORT_BREP");
+    if (!path) GTEST_SKIP() << "set OCCCCAD_TEST_IMPORT_BREP for a repair corpus";
+    std::ifstream file(path, std::ios::binary);
+    ASSERT_TRUE(file.good());
+    const std::vector<uint8_t> bytes{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    OcctKernel kernel;
+    const auto original = kernel.loadBrepr(bytes);
+    const auto frozen = kernel.serializeBrepr(original);
+    const auto repaired = kernel.repairImportedSolid(original);
+    EXPECT_EQ(kernel.serializeBrepr(original), frozen);
+    EXPECT_EQ(kernel.getTopology(repaired).solid_count, 1U);
+    EXPECT_GT(kernel.getVolume(repaired), 0.0);
+    EXPECT_EQ(kernel.repairImportedSolid(repaired), repaired);
+    EXPECT_EQ(kernel.repairImportedSolid(original), repaired); // Deterministic retry; input stays immutable.
+}
+
+TEST(GeometryExchange, SplitCompoundSolidsPreservesPlacementAndOccurrences) {
+    OcctKernel kernel;
+    const auto box = kernel.createRectangularPad({0, 0, 20, 10, 5, "XY"});
+    const auto compound = kernel.combine({{box, {0, 0, 0}, {0, 0, 0, 1}},
+        {box, {50, 0, 0}, {0, 0, 0, 1}}, {box, {50, 0, 0}, {0, 0, 0, 1}},
+        {box, {50, 0, 0}, {0, 0, std::sqrt(0.5), std::sqrt(0.5)}}});
+    const auto solids = kernel.splitSolids(compound);
+    ASSERT_EQ(solids.size(), 4U); // Coincident occurrences must not be deduplicated.
+    for (const auto& solid : solids) {
+        EXPECT_EQ(kernel.getTopology(solid).solid_count, 1U);
+        EXPECT_NEAR(kernel.getVolume(solid), 1000, 1e-6);
+    }
+    EXPECT_NEAR(kernel.getBoundingBox(solids[1]).min.x, 50, 1e-6);
+    TemporaryStepFile step(kernel.serializeStep(compound));
+    EXPECT_EQ(kernel.inspectStepRootCount(step.path().string()), 1U);
+    const auto parsed = kernel.loadStep(step.path().string());
+    const auto split = kernel.splitSolids(parsed);
+    ASSERT_EQ(split.size(), 4U);
+    EXPECT_NEAR(kernel.getBoundingBox(split[1]).min.x, 50, 1e-6);
+    EXPECT_NEAR(kernel.getBoundingBox(split[3]).min.x, 40, 1e-6);
+    EXPECT_NEAR(kernel.getBoundingBox(split[3]).max.y, 20, 1e-6);
+    EXPECT_EQ(kernel.splitSolids(box).size(), 1U);
+    EXPECT_EQ(kernel.repairImportedSolid(box), box);
+    EXPECT_THROW(kernel.repairImportedSolid(compound), std::invalid_argument);
+}
+
 TEST(GeometryExchange, ProductStepKeepsOneTransferableRootPerOccurrence) {
     OcctKernel kernel;
     const auto id = kernel.createRectangularPad({0.0, 0.0, 20.0, 10.0, 5.0, "XY"});
@@ -1061,6 +1139,63 @@ ImportTopologySeed imported_box_seed(OcctKernel& kernel, const std::vector<uint8
     for (const auto& vertex : topology.vertices)
         seed.identities.push_back({"opaque-" + std::to_string(allocation++), PersistentTopologyType::vertex, vertex.local_id});
     return seed;
+}
+
+TEST(GeometryExchange, ImportedNamingAdjacencyMatchesTopologicalOracle) {
+    for (const auto& shape : {BRepPrimAPI_MakeBox(20, 30, 40).Shape(), BRepPrimAPI_MakeCylinder(10, 20).Shape()}) {
+        std::ostringstream stream;
+        BRepTools::Write(shape, stream);
+        const auto serialized = stream.str();
+        const std::vector<uint8_t> bytes(serialized.begin(), serialized.end());
+        OcctKernel kernel;
+        auto seed = imported_box_seed(kernel, bytes);
+        std::reverse(seed.identities.begin(), seed.identities.end());
+        const auto evaluation = kernel.evaluateProfilePadsWithHistory({}, bytes, &seed);
+        const auto& outputs = evaluation.feature_results.front().semantic_outputs;
+        TopoDS_Shape restored;
+        BRep_Builder builder;
+        std::istringstream input(serialized);
+        BRepTools::Read(restored, input, builder);
+        TopTools_IndexedMapOfShape faces, edges, vertices;
+        TopExp::MapShapes(restored, TopAbs_FACE, faces);
+        TopExp::MapShapes(restored, TopAbs_EDGE, edges);
+        TopExp::MapShapes(restored, TopAbs_VERTEX, vertices);
+        const auto resolve = [&](const auto& output) {
+            const auto& map = output.topology_type == PersistentTopologyType::face ? faces :
+                output.topology_type == PersistentTopologyType::edge ? edges : vertices;
+            return map(static_cast<int>(output.local_id));
+        };
+        // Independent pairwise oracle: same-dimensional objects share a
+        // boundary; different dimensions require actual containment.
+        const auto adjacent = [](const TopoDS_Shape& a, const TopoDS_Shape& b) {
+            if (a.ShapeType() == b.ShapeType()) {
+                const auto boundary = a.ShapeType() == TopAbs_FACE ? TopAbs_EDGE : TopAbs_VERTEX;
+                TopTools_IndexedMapOfShape left, right;
+                TopExp::MapShapes(a, boundary, left);
+                TopExp::MapShapes(b, boundary, right);
+                for (int index = 1; index <= left.Extent(); ++index)
+                    if (right.Contains(left(index))) return true;
+                return false;
+            }
+            const auto& owner = a.ShapeType() < b.ShapeType() ? a : b;
+            const auto& member = a.ShapeType() < b.ShapeType() ? b : a;
+            TopTools_IndexedMapOfShape children;
+            TopExp::MapShapes(owner, member.ShapeType(), children);
+            return children.Contains(member);
+        };
+        for (std::size_t i = 0; i < outputs.size(); ++i) {
+            std::set<std::string> expected, actual;
+            for (std::size_t j = 0; j < outputs.size(); ++j)
+                if (i != j && adjacent(resolve(outputs[i]), resolve(outputs[j])))
+                    expected.insert(outputs[j].semantic_ref.source_ids.front());
+            for (const auto& neighbor : outputs[i].evidence.adjacent) {
+                EXPECT_EQ(neighbor.feature_id, seed.feature_id);
+                actual.insert(neighbor.source_ids.front());
+            }
+            EXPECT_EQ(actual.size(), outputs[i].evidence.adjacent.size());
+            EXPECT_EQ(actual, expected);
+        }
+    }
 }
 
 TEST(GeometryExchange, ImportedNamingSnapshotAndColdIdentity) {

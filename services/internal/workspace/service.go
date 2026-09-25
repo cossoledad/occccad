@@ -878,11 +878,16 @@ func (service *Service) CommitImportedProduct(ctx context.Context, actor, folder
 	if err != nil {
 		return DocumentView{}, err
 	}
-	for index, part := range parts {
+
+	for offset := 0; offset < len(parts); offset += 128 {
+		end := min(offset+128, len(parts))
+		ids := make([]string, 0, end-offset)
+		for _, part := range parts[offset:end] {
+			ids = append(ids, part.Document.ID)
+		}
 		view, err = service.ApplyCommand(ctx, view.Document.ID, CommandRequest{
-			RequestID: reqID + fmt.Sprintf("/instance/%d", index), Type: "INSERT_INSTANCE",
-			ReferencedDocumentID: part.Document.ID, Name: part.Document.Name,
-			ReferenceMode: "PINNED", ActorID: actor,
+			RequestID: reqID + fmt.Sprintf("/instances/%d", offset), Type: "INSERT_INSTANCES",
+			ReferencedDocumentIDs: ids, ReferenceMode: "PINNED", ActorID: actor,
 		})
 		if err != nil {
 			return DocumentView{}, err

@@ -17,12 +17,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/config"
 	"github.com/occccad/occccad/internal/database"
-	"github.com/occccad/occccad/internal/exchange"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/thumbnail"
@@ -127,6 +125,9 @@ func (h handler) runJobLoop(ctx context.Context) error {
 				_ = h.queue.AcknowledgeCanceled(finishContext, job.ID, workerID)
 			} else if ctx.Err() == nil {
 				slog.Error("execute job", "job_id", job.ID, "type", job.Type, "error", err)
+				if job.Type == "EXCHANGE_IMPORT" && !retryableImportError(err) {
+					job.MaxAttempts = job.AttemptCount
+				}
 				_ = h.queue.Fail(finishContext, job, workerID, "PROCESSING_FAILED", err.Error())
 			}
 			finishCancel()
@@ -178,98 +179,7 @@ func (h handler) execute(ctx context.Context, job jobs.Job) error {
 	}
 	switch job.Type {
 	case "EXCHANGE_IMPORT":
-		if job.InputObjectID == nil {
-			return errors.New("exchange import has no source object")
-		}
-		if payload.FolderID != "" {
-			if _, err := h.access.RequireFolder(ctx, payload.FolderID, job.RequestedBy, access.RoleEditor); err != nil {
-				return fmt.Errorf("import destination access changed: %w", err)
-			}
-		}
-		source, err := h.artifacts.Get(ctx, *job.InputObjectID)
-		if err != nil {
-			return err
-		}
-		if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 15); err != nil {
-			return err
-		}
-		format := strings.ToUpper(payload.Format)
-		reference := geometry.ArtifactReference{Backend: source.Backend, ObjectKey: source.Key,
-			SHA256: source.SHA256, Size: source.Size, ContentType: source.ContentType}
-		inspection, err := h.geometry.InspectExchange(ctx, payload.RequestID+"/inspect", format, reference)
-		if err != nil {
-			return err
-		}
-		if len(inspection.Components) == 0 {
-			return errors.New("exchange source contains no importable components")
-		}
-		if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 30); err != nil {
-			return err
-		}
-		type imported struct {
-			name, key  string
-			evaluation *workerv1.EvaluatePartResponse
-		}
-		results := make([]imported, len(inspection.Components))
-		group, groupContext := errgroup.WithContext(ctx)
-		group.SetLimit(8)
-		for index, component := range inspection.Components {
-			index, component := index, component
-			group.Go(func() error {
-				digest := sha256.Sum256([]byte("exchange-v1\x00" + source.SHA256 + fmt.Sprintf("/%d", component.SourceIndex)))
-				key := "sha256:" + hex.EncodeToString(digest[:])
-				prefix := fmt.Sprintf("%s/component-%d", job.ID, component.SourceIndex)
-				evaluation, err := h.geometry.ImportExchange(groupContext, payload.RequestID+fmt.Sprintf("/component/%d", component.SourceIndex),
-					key, format, reference, component.SourceIndex,
-					artifact.StagingKey(prefix, "shape.brep"), artifact.StagingKey(prefix, "mesh.glb"))
-				if err != nil {
-					return err
-				}
-				results[index] = imported{name: component.Name, key: key, evaluation: evaluation}
-				return nil
-			})
-		}
-		if err := group.Wait(); err != nil {
-			return err
-		}
-		if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 70); err != nil {
-			return err
-		}
-		baseName := exchange.ImportedDocumentName(payload.FileName)
-		parts := make([]workspace.DocumentView, 0, len(results))
-		for index, result := range results {
-			if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 70+(index*20)/len(results)); err != nil {
-				return err
-			}
-			name := baseName
-			if len(results) > 1 {
-				name = fmt.Sprintf("%s - %s", baseName, result.name)
-			}
-			view, err := h.workspace.CommitImportedPart(ctx, job.RequestedBy, payload.FolderID,
-				payload.RequestID+fmt.Sprintf("/part/%d", index), name, payload.FileName, format, result.key, result.evaluation, &workspace.ImportSource{ObjectID: source.ID, SHA256: source.SHA256, Format: format, ComponentIndex: inspection.Components[index].SourceIndex})
-			if err != nil {
-				return err
-			}
-			parts = append(parts, view)
-			if err := h.enqueuePreview(ctx, job.RequestedBy, view); err != nil {
-				slog.Warn("enqueue imported document preview", "job_id", job.ID, "error", err)
-			}
-		}
-		root := parts[0]
-		if inspection.DocumentType == "PRODUCT" {
-			root, err = h.workspace.CommitImportedProduct(ctx, job.RequestedBy, payload.FolderID,
-				payload.RequestID+"/product", baseName, parts)
-			if err != nil {
-				return err
-			}
-			if err := h.enqueuePreview(ctx, job.RequestedBy, root); err != nil {
-				slog.Warn("enqueue imported Product preview", "job_id", job.ID, "error", err)
-			}
-		}
-		if err := h.queue.UpdateProgress(ctx, job.ID, h.workerID, 95); err != nil {
-			return err
-		}
-		return h.queue.SucceedImport(ctx, job.ID, h.workerID, root.Document.ID)
+		return h.executeImport(ctx, job, payload.FileName, payload.FolderID, payload.Format, payload.RequestID)
 	case "EXCHANGE_EXPORT":
 		if job.DocumentID == nil {
 			return errors.New("exchange export has no document")

@@ -121,7 +121,7 @@ func (service *Service) Claim(ctx context.Context, workerID string, lease time.D
 		ORDER BY priority DESC,created_at FOR UPDATE SKIP LOCKED LIMIT 1
 	), claimed AS (
 		UPDATE occccad.jobs j SET state='RUNNING',lease_owner=$1,lease_expires_at=now()+$2::interval,
-			heartbeat_at=now(),started_at=COALESCE(started_at,now()),attempt_count=attempt_count+1,progress=0
+			heartbeat_at=now(),started_at=COALESCE(started_at,now()),attempt_count=attempt_count+1
 		FROM candidate WHERE j.id=candidate.id
 		RETURNING j.*
 	)
@@ -203,15 +203,40 @@ func (service *Service) Heartbeat(ctx context.Context, jobID, workerID string, l
 	return nil
 }
 
+type ProgressDetail struct {
+	Phase     string `json:"phase"`
+	Completed int    `json:"completed"`
+	Total     int    `json:"total"`
+}
+
 func (service *Service) UpdateProgress(ctx context.Context, jobID, workerID string, progress int) error {
+	return service.UpdateProgressDetail(ctx, jobID, workerID, progress, nil)
+}
+
+// Keep the high-water mark across retry/lease reclamation, and never let an
+// older phase replace details belonging to a more advanced phase in that attempt.
+// A new attempt reports its actual phase while the overall percentage stays put.
+func (service *Service) UpdateProgressDetail(ctx context.Context, jobID, workerID string, progress int, detail *ProgressDetail) error {
 	if progress < 0 {
 		progress = 0
 	}
 	if progress > 99 {
 		progress = 99
 	}
-	command, err := service.database.Exec(ctx, `UPDATE occccad.jobs SET progress=GREATEST(progress,$3)
-		WHERE id=$1 AND state='RUNNING' AND lease_owner=$2 AND cancel_requested_at IS NULL`, jobID, workerID, progress)
+	var value any
+	if detail != nil {
+		encoded, err := json.Marshal(detail)
+		if err != nil {
+			return err
+		}
+		value = encoded
+	}
+	command, err := service.database.Exec(ctx, `UPDATE occccad.jobs SET progress=GREATEST(progress,$3),
+ payload=CASE WHEN $4::jsonb IS NOT NULL AND (
+ COALESCE((payload#>>'{progressDetail,attempt}')::int,-1)<attempt_count OR
+ $3>=COALESCE((payload#>>'{progressDetail,phaseProgress}')::int,progress))
+ THEN jsonb_set(payload,'{progressDetail}',$4::jsonb || jsonb_build_object('attempt',attempt_count,'phaseProgress',$3)) ELSE payload END
+ WHERE id=$1 AND state='RUNNING' AND lease_owner=$2 AND cancel_requested_at IS NULL`, jobID, workerID, progress, value)
 	if err != nil {
 		return err
 	}
@@ -289,7 +314,7 @@ func (service *Service) AcknowledgeCanceled(ctx context.Context, jobID, workerID
 
 func (service *Service) Retry(ctx context.Context, jobID, userID string, isAdmin bool) (Job, error) {
 	row := service.database.QueryRow(ctx, `WITH changed AS (
-		UPDATE occccad.jobs SET state='QUEUED',available_at=now(),progress=0,completed_at=NULL,
+		UPDATE occccad.jobs SET state='QUEUED',available_at=now(),completed_at=NULL,
 			cancel_requested_at=NULL,error_code=NULL,error_message=NULL,
 			max_attempts=GREATEST(max_attempts,attempt_count+3)
 		WHERE id=$1 AND ($3 OR requested_by_user_id=$2) AND state IN ('FAILED','CANCELED')

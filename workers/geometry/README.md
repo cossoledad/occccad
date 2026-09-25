@@ -108,3 +108,7 @@ Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用�
 EvaluatePart 支持 `ImportTopologySeed`：控制面传入冻结 BREP 摘要、OCCT 版本、导入策略、Feature/Body 和独立稳定 ID 映射。Worker 验证合同，OCCT 校验快照摘要及完整单 Solid 覆盖；允许仅 seed 的根求值，也允许 seed 加 profile 布尔链。返回的根 FeatureResult/manifest 与原生命名共用合同，Worker 不分配业务身份、不读取业务数据库。
 
 Geometry RPC 发送和接收均限制为 128 MiB，与 Go `internal/geometryrpc` 保持一致。文件上限独立；EvaluatePartResponse 中的 Mesh 仍为内联数据，超过 RPC 预算的网格需要后续制品外置。
+
+`InspectExchange.component_output_prefix` 启用一次解析、按 Solid occurrence 物化单实体 BREP 的准备模式；返回 `prepared_brep`，供独立 Worker 并行处理。无 prefix 仍为只读根检查。BREP ImportExchange 对单实体进行有效性检查和命名前的受限 ShapeFix，并对参数坐标系一致、仅共享一条边的异常圆柱面片恢复周期边界闭合；修复后仍须满足有效单实体门禁，不能修复的实体明确失败；业务 Part 拆分由 Jobs 协调，Worker 不写数据库或创建文档。
+
+健康检查 `Ping` 不等待耗时几何运算的互斥锁；锁可用时更新驻留数，否则返回上次采样的原子快照。驻留数是调度遥测，忙碌时允许滞后，不能用健康探测超时替代几何任务自身的 deadline。

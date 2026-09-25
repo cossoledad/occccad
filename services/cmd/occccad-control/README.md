@@ -21,9 +21,9 @@ flowchart LR
 - 启动和停止 API、Jobs 与最小数量的 C++ Geometry Worker；
 - 在稳定地址代理浏览器流量到托管 API 或外部调试 API；
 - 实现 GeometryWorker gRPC 代理，以不可变 Body GeometryId 建立原子 owner 亲和，再按 resident geometry 和 in-flight 负载选 Worker；
-- 容量不足且未达上限时拉起 Worker；只有没有 resident geometry 的额外 Worker 才在空闲超时后缩容；
+- 容量不足或可选 Worker 均忙碌且未达上限时拉起 Worker；只有没有 resident geometry 的额外 Worker 才在空闲超时后缩容；
 - 将相对 `OCCCCAD_DATA_DIR` 以 `services/` 为唯一基准解析成绝对路径，并传给 API、Jobs 与所有 Geometry Worker，保证本地 ArtifactReference 指向同一对象；
-- Worker 失联后移除并维持最小副本数；
+- Worker 完成请求后探测健康，连续三次失败才驱逐；已确认本地进程退出时立即驱逐，并维持最小副本数；
 - 为 API、Jobs、Geometry 提供调试切流。
 
 ## 地址与配置
@@ -37,7 +37,7 @@ flowchart LR
 | `OCCCCAD_GEOMETRY_WORKER_FIRST_PORT` | `51100` | Worker 起始端口 |
 | `OCCCCAD_GEOMETRY_WORKER_MIN` | `1` | 最小 Worker 数 |
 | `OCCCCAD_GEOMETRY_WORKER_MAX` | `8` | 最大 Worker 数 |
-| `OCCCCAD_GEOMETRY_PER_WORKER` | `2` | 新 GeometryKey 的软调度容量；达到该值时优先选择/拉起其他 Worker，不迁移或删除既有不可变 Body 缓存 |
+| `OCCCCAD_GEOMETRY_PER_WORKER` | `2` | 新 GeometryKey 的驻留软调度容量，不是原生计算并行槽数；达到该值时优先选择/拉起其他 Worker，不迁移或删除既有不可变 Body 缓存 |
 | `OCCCCAD_GEOMETRY_WORKER_IDLE` | `5m` | 超出最小副本后的空闲回收时间 |
 | `OCCCCAD_LOG_LEVEL` | `info` | Geometry Worker 控制台与文件日志级别 |
 | `OCCCCAD_LOG_DIR` | `./logs` | Geometry Worker 滚动日志目录；相对路径以 `services/` 为基准 |
@@ -87,3 +87,11 @@ OCCCCAD_TEST_GEOMETRY_WORKER=/absolute/path/occccad_geometry_worker OCCCCAD_TEST
 ```
 
 第二项读取 `.env` 选择实际存储后端，要求样本产生超过 4 MiB 的响应，逐组件记录响应字节数及网格/实体数量；输入为内容寻址对象，可能与业务导入共享，测试不删除源对象。Worker 和计算暂存目录独立，不创建业务文档。
+
+忙碌存活与真实崩溃恢复回归（只需 Worker 和大型 STEP，无数据库）：
+
+```sh
+OCCCCAD_TEST_GEOMETRY_WORKER=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP=/absolute/path/large-model.step go test ./internal/control -run '^TestGeometryWorkerRemainsHealthyDuringSTEPTransfer$' -count=1 -v -timeout 7m
+```
+
+此测试强制单 Worker、驻留容量 100，在 STEP 解析期间交错 Ping 与短 RPC，随后终止测试自己的 Worker 验证恢复。

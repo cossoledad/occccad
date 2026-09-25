@@ -15,6 +15,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
@@ -543,10 +544,14 @@ class GeometryWorkerService final : public worker_api::GeometryWorker::Service {
 public:
     grpc::Status Ping(grpc::ServerContext* /*context*/, const worker_api::PingRequest* /*request*/,
                       worker_api::PingResponse* response) override {
-        std::lock_guard<std::mutex> lock(mutex_);
+        // Liveness must not queue behind a long OCCT operation. Resident
+        // count is a telemetry snapshot and may lag while geometry is busy.
+        std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
+        if (lock.owns_lock())
+            resident_snapshot_.store(static_cast<uint32_t>(kernel_.resident_count()), std::memory_order_relaxed);
         response->set_worker_id("geometry-worker-local-1");
         response->set_occt_version(OCC_VERSION_COMPLETE);
-        response->set_resident_geometry_count(static_cast<uint32_t>(kernel_.resident_count()));
+        response->set_resident_geometry_count(resident_snapshot_.load(std::memory_order_relaxed));
         return grpc::Status::OK;
     }
 
@@ -1239,6 +1244,26 @@ public:
                 throw std::invalid_argument("exchange source artifact is required");
             std::lock_guard<std::mutex> lock(mutex_);
             const auto source = validate_artifact(request->source());
+            if (!request->component_output_prefix().empty()) {
+                // Dedicated scratch kernel releases the parsed assembly after snapshots
+                // are written. Subsequent workers only read the small component BREP.
+                occccad::kernel::OcctKernel preparation;
+                const auto root = format == "STEP" ? preparation.loadStep(source.string())
+                    : preparation.loadBrepr(read_artifact(request->source()));
+                const auto solids = preparation.splitSolids(root);
+                response->set_document_type(solids.size() > 1U ? "PRODUCT" : "PART");
+                for (std::size_t index = 0; index < solids.size(); ++index) {
+                    if (context->IsCancelled())
+                        return {grpc::StatusCode::CANCELLED, "exchange preparation cancelled"};
+                    auto* component = response->add_components();
+                    component->set_source_index(static_cast<uint32_t>(index + 1));
+                    component->set_name(solids.size() > 1U ? "Component " + std::to_string(index + 1) : "Part");
+                    write_artifact(request->component_output_prefix() + "/" + std::to_string(index + 1) + ".brep",
+                        preparation.serializeBrepr(solids[index]), "application/vnd.opencascade.brep",
+                        component->mutable_prepared_brep());
+                }
+                return grpc::Status::OK;
+            }
             const uint32_t count =
                 format == "STEP" ? kernel_.inspectStepRootCount(source.string()) : 1U;
             response->set_document_type(count > 1U ? "PRODUCT" : "PART");
@@ -1277,7 +1302,7 @@ public:
             if (format == "STEP") {
                 geometry_id = kernel_.loadStepRoot(source.string(), request->source_index());
             } else {
-                geometry_id = kernel_.loadBrepr(read_artifact(request->source()));
+                geometry_id = kernel_.repairImportedSolid(kernel_.loadBrepr(read_artifact(request->source())));
             }
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
@@ -1518,6 +1543,7 @@ private:
         }
     }
 
+    std::atomic<uint32_t> resident_snapshot_{0};
     std::mutex mutex_;
     occccad::kernel::OcctKernel kernel_;
     std::unique_ptr<occccad::geometry::sketch::SketchSolver> sketch_solver_ =

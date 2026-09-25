@@ -42,4 +42,16 @@ const feed = activity.buildActivityFeed([
 assert.equal(feed[0].sourceType, "FUTURE_TASK");
 assert.equal(feed[0].title, "后台任务");
 
+
+const splitImport = activity.projectJobActivity({ ...baseJob, type: "EXCHANGE_IMPORT", progress: 45,
+  payload: { fileName: "assembly.step", progressDetail: { phase: "EVALUATING", completed: 60, total: 114 } } });
+assert.match(splitImport.description, /生成零件几何（60\/114）/);
+const retryWaiting = activity.projectJobActivity({ ...baseJob, state: "RETRY_WAIT", progress: 70 });
+assert.equal(retryWaiting.progress, 70);
+assert.match(retryWaiting.description, /等待重试，保留已完成进度/);
+const retrying = activity.projectJobActivity({ ...baseJob, type: "EXCHANGE_IMPORT", attemptCount: 2, progress: 70,
+  payload: { progressDetail: { phase: "CREATING_PARTS", completed: 0, total: 114 } } });
+assert.equal(retrying.progress, 70);
+assert.match(retrying.description, /第 2 次尝试.*创建零件与拓扑命名（0\/114）/);
+
 console.log("Activity center model tests passed.");

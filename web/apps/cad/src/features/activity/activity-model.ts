@@ -48,6 +48,16 @@ export function projectJobActivity(job: Job): ActivityItem {
     : status === "FAILED" ? (job.errorMessage || presentation.failed)
       : status === "CANCELED" ? "任务已取消"
         : job.cancelRequestedAt ? "正在取消任务" : presentation.running;
+  if (status === "RUNNING" && !job.cancelRequestedAt) {
+    const detail = job.payload.progressDetail as { phase?: string; completed?: number; total?: number } | undefined;
+    const phases: Record<string, string> = { PREPARING: "解析文件并拆分实体", EVALUATING: "生成零件几何", CREATING_PARTS: "创建零件与拓扑命名", ASSEMBLING: "创建装配" };
+    if (detail?.phase && phases[detail.phase]) {
+      description = phases[detail.phase];
+      if (typeof detail.total === "number" && detail.total > 0) description += `（${detail.completed ?? 0}/${detail.total}）`;
+    }
+    if (job.attemptCount > 1) description = `第 ${job.attemptCount} 次尝试 · ${description}`;
+  }
+  if (job.state === "RETRY_WAIT") description = "等待重试，保留已完成进度";
   if (fileName) description = `${fileName} · ${description}`;
   const actions: ActivityAction[] = [];
   if (job.canCancel) actions.push("CANCEL");

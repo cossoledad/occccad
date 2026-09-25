@@ -207,6 +207,9 @@ public:
     virtual GeometryId loadStep(const std::string& path) = 0;
     virtual uint32_t inspectStepRootCount(const std::string& path) = 0;
     virtual GeometryId loadStepRoot(const std::string& path, uint32_t root_index) = 0;
+    // Preserve each located Solid occurrence; component ordinal is not a persistent topology ID.
+    virtual std::vector<GeometryId> splitSolids(const GeometryId& id) = 0;
+    virtual GeometryId repairImportedSolid(const GeometryId& id) = 0;
     virtual GeometryId combine(const std::vector<PlacedGeometry>& components) = 0;
     virtual void unload(const GeometryId& id) = 0;
 

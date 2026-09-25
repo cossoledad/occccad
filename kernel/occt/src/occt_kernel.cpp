@@ -9,6 +9,9 @@
 #include <BRepBuilderAPI_MakePolygon.hxx>
 #include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepCheck_Analyzer.hxx>
+#include <BRepCheck_Wire.hxx>
+#include <BRepCheck_Result.hxx>
+#include <BRepCheck_ListIteratorOfListOfStatus.hxx>
 #include <BRepGProp.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
@@ -39,6 +42,10 @@
 #include <STEPControl_Reader.hxx>
 #include <STEPControl_Writer.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
+#include <ShapeFix_Shape.hxx>
+#include <ShapeFix_Face.hxx>
+#include <ShapeBuild_ReShape.hxx>
+#include <BRepBuilderAPI_Copy.hxx>
 #include <TColStd_Array1OfInteger.hxx>
 #include <TColStd_Array1OfReal.hxx>
 #include <TColgp_Array1OfPnt.hxx>
@@ -48,6 +55,8 @@
 #include <TopExp_Explorer.hxx>
 #include <TopLoc_Location.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopTools_MapOfShape.hxx>
 #include <TopTools_ListIteratorOfListOfShape.hxx>
 #include <TopTools_ListOfShape.hxx>
 #include <TopoDS.hxx>
@@ -80,6 +89,7 @@
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -1070,6 +1080,45 @@ bool topology_adjacent(const TopoDS_Shape& left, const TopoDS_Shape& right) {
     return members.Contains(*member);
 }
 
+// Root imports cover every unique Face/Edge/Vertex once. Index containment
+// and shared boundaries instead of rebuilding subshape maps for every pair.
+std::vector<std::vector<std::size_t>> imported_adjacency(const std::vector<NamedShape>& named) {
+    TopTools_IndexedMapOfShape index;
+    for (const auto& item : named) index.Add(item.shape);
+    std::vector<std::vector<std::size_t>> adjacent(named.size()), faceOwners(named.size()), edgeOwners(named.size());
+    const auto connect = [&](std::size_t a, std::size_t b) {
+        if (a == b) return;
+        adjacent[a].push_back(b);
+        adjacent[b].push_back(a);
+    };
+    for (std::size_t owner = 0; owner < named.size(); ++owner) {
+        const auto type = named[owner].shape.ShapeType();
+        for (const auto memberType : {TopAbs_EDGE, TopAbs_VERTEX}) {
+            if (type >= memberType) continue;
+            TopTools_IndexedMapOfShape members;
+            TopExp::MapShapes(named[owner].shape, memberType, members);
+            for (int item = 1; item <= members.Extent(); ++item) {
+                const int located = index.FindIndex(members(item));
+                if (located == 0) continue;
+                const auto member = static_cast<std::size_t>(located - 1);
+                connect(owner, member);
+                if (type == TopAbs_FACE && memberType == TopAbs_EDGE) faceOwners[member].push_back(owner);
+                if (type == TopAbs_EDGE && memberType == TopAbs_VERTEX) edgeOwners[member].push_back(owner);
+            }
+        }
+    }
+    for (const auto* owners : {&faceOwners, &edgeOwners}) {
+        for (const auto& shared : *owners)
+            for (std::size_t a = 0; a < shared.size(); ++a)
+                for (std::size_t b = a + 1; b < shared.size(); ++b) connect(shared[a], shared[b]);
+    }
+    for (auto& neighbors : adjacent) {
+        std::sort(neighbors.begin(), neighbors.end());
+        neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
+    }
+    return adjacent;
+}
+
 bool topology_contains(const TopoDS_Shape& owner, const TopoDS_Shape& member) {
     if (owner.ShapeType() == member.ShapeType())
         return owner.IsSame(member);
@@ -1310,6 +1359,89 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     return {result, mapped, std::move(derived), std::move(diagnostics)};
 }
 
+// Some STEP writers split a cylindrical thread band into neighboring faces
+// whose individual wires wind once around the periodic surface. The 3D wires
+// close, but their UV boundaries do not. Join only two such invalid faces with
+// matching parameter frames and exactly one shared edge. No new material,
+// boundary curves or approximate replacement surfaces are introduced.
+TopoDS_Shape repair_split_cylindrical_faces(const TopoDS_Shape& shape) {
+    TopTools_MapOfShape candidates, consumed;
+    BRepCheck_Analyzer analysis(shape);
+    for (TopExp_Explorer faces(shape, TopAbs_FACE); faces.More(); faces.Next()) {
+        const auto face = TopoDS::Face(faces.Current());
+        if (analysis.IsValid(face) || BRepAdaptor_Surface(face).GetType() != GeomAbs_Cylinder) continue;
+        TopExp_Explorer wires(face, TopAbs_WIRE);
+        if (!wires.More()) continue;
+        const auto wire = TopoDS::Wire(wires.Current());
+        wires.Next();
+        if (wires.More()) continue;
+        BRepCheck_Wire check(wire);
+        if (check.Closed() == BRepCheck_NoError && check.Closed2d(face) == BRepCheck_NotClosed)
+            candidates.Add(face);
+    }
+    Handle(ShapeBuild_ReShape) replacements = new ShapeBuild_ReShape;
+    TopTools_IndexedDataMapOfShapeListOfShape adjacency;
+    TopExp::MapShapesAndAncestors(shape, TopAbs_EDGE, TopAbs_FACE, adjacency);
+    for (int index = 1; index <= adjacency.Extent(); ++index) {
+        const auto& neighbors = adjacency(index);
+        if (neighbors.Extent() != 2) continue;
+        auto first = TopoDS::Face(neighbors.First()), second = TopoDS::Face(neighbors.Last());
+        if (first.IsSame(second) || !candidates.Contains(first) || !candidates.Contains(second) ||
+            consumed.Contains(first) || consumed.Contains(second) || first.Orientation() != second.Orientation()) continue;
+        const auto a = BRepAdaptor_Surface(first).Cylinder(), b = BRepAdaptor_Surface(second).Cylinder();
+        // Numerical equality of the full frame is needed to reuse UV curves;
+        // merely coaxial or approximately coincident cylinders are insufficient.
+        if (a.Location().Distance(b.Location()) > 1e-9 || std::abs(a.Radius() - b.Radius()) > 1e-9 ||
+            (a.Axis().Direction().XYZ() - b.Axis().Direction().XYZ()).Modulus() > 1e-12 ||
+            (a.Position().XDirection().XYZ() - b.Position().XDirection().XYZ()).Modulus() > 1e-12 ||
+            (a.Position().YDirection().XYZ() - b.Position().YDirection().XYZ()).Modulus() > 1e-12) continue;
+        TopTools_IndexedMapOfShape firstEdges, secondEdges;
+        TopExp::MapShapes(first, TopAbs_EDGE, firstEdges);
+        TopExp::MapShapes(second, TopAbs_EDGE, secondEdges);
+        int shared = 0;
+        for (int edge = 1; edge <= firstEdges.Extent(); ++edge)
+            if (secondEdges.Contains(firstEdges(edge))) ++shared;
+        if (shared != 1) continue;
+        const auto orientation = first.Orientation();
+        first.Orientation(TopAbs_FORWARD);
+        second.Orientation(TopAbs_FORWARD);
+        TopoDS_Face merged = TopoDS::Face(first.EmptyCopied());
+        TopoDS_Wire boundary;
+        BRep_Builder builder;
+        builder.MakeWire(boundary);
+        for (const auto& face : {first, second}) {
+            for (TopExp_Explorer edges(face, TopAbs_EDGE); edges.More(); edges.Next()) {
+                const auto edge = TopoDS::Edge(edges.Current());
+                if (edge.IsSame(adjacency.FindKey(index))) continue;
+                double start, end;
+                const auto curve = BRep_Tool::CurveOnSurface(edge, face, start, end);
+                if (curve.IsNull()) throw std::invalid_argument("IMPORT_SOLID_REPAIR_MISSING_PCURVE");
+                builder.UpdateEdge(edge, curve, merged, BRep_Tool::Tolerance(edge));
+                builder.Range(edge, merged, start, end);
+                builder.Add(boundary, edge);
+            }
+        }
+        builder.Add(merged, boundary);
+        ShapeFix_Face fix(merged);
+        fix.SetContext(replacements);
+        fix.SetPrecision(1e-6);
+        fix.SetMinTolerance(1e-7);
+        fix.SetMaxTolerance(1e-3);
+        fix.Perform();
+        auto result = fix.Result();
+        if (result.ShapeType() != TopAbs_FACE || !BRepCheck_Analyzer(result).IsValid())
+            throw std::invalid_argument("IMPORT_SOLID_REPAIR_PERIODIC_FACE_FAILED");
+        first.Orientation(orientation);
+        second.Orientation(orientation);
+        result.Orientation(orientation);
+        replacements->Replace(first, result);
+        replacements->Remove(second);
+        consumed.Add(first);
+        consumed.Add(second);
+    }
+    return replacements->Apply(shape);
+}
+
 std::filesystem::path temporary_step_path() {
     static std::atomic<uint64_t> sequence{0};
     const auto stamp = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -1432,6 +1564,68 @@ GeometryId OcctKernel::loadStepRoot(const std::string& path, const uint32_t root
     return impl_->store(shape);
 }
 
+std::vector<GeometryId> OcctKernel::splitSolids(const GeometryId& id) {
+    // Copy the handle before store() grows the unordered map.
+    const TopoDS_Shape shape = impl_->find(id);
+    for (const auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX}) {
+        if (TopExp_Explorer(shape, type, TopAbs_SOLID).More())
+            throw std::invalid_argument("IMPORT_UNSUPPORTED_NON_SOLID_GEOMETRY");
+    }
+    std::vector<GeometryId> result;
+    for (TopExp_Explorer explorer(shape, TopAbs_SOLID); explorer.More(); explorer.Next()) {
+        const auto solid = explorer.Current();
+        result.push_back(impl_->store(solid));
+    }
+    if (result.empty())
+        throw std::invalid_argument("IMPORT_REQUIRES_SOLID_GEOMETRY");
+    return result;
+}
+
+GeometryId OcctKernel::repairImportedSolid(const GeometryId& id) {
+    const TopoDS_Shape original = impl_->find(id);
+    TopTools_IndexedMapOfShape solids;
+    TopExp::MapShapes(original, TopAbs_SOLID, solids);
+    if (solids.Extent() != 1)
+        throw std::invalid_argument("IMPORT_REQUIRES_SINGLE_SOLID_SNAPSHOT");
+    if (BRepCheck_Analyzer(original).IsValid())
+        return id;
+    // Heal before allocating persistent naming, on a copy of immutable input.
+    // Internal length units are mm: precision 1e-6, maximum repair tolerance 1e-3.
+    ShapeFix_Shape fix(BRepBuilderAPI_Copy(original, true, false).Shape());
+    fix.SetPrecision(1e-6);
+    fix.SetMinTolerance(1e-7);
+    fix.SetMaxTolerance(1e-3);
+    fix.Perform();
+    TopoDS_Shape repaired = fix.Shape();
+    if (!BRepCheck_Analyzer(repaired).IsValid()) {
+        repaired = repair_split_cylindrical_faces(repaired);
+    }
+    solids.Clear();
+    TopExp::MapShapes(repaired, TopAbs_SOLID, solids);
+    BRepCheck_Analyzer analysis(repaired);
+    if (solids.Extent() != 1 || !analysis.IsValid()) {
+        std::string diagnostic;
+        TopTools_IndexedMapOfShape shapes;
+        TopExp::MapShapes(repaired, shapes);
+        for (int index = 1; index <= shapes.Extent(); ++index) {
+            const auto result = analysis.Result(shapes(index));
+            if (result.IsNull()) continue;
+            for (result->InitContextIterator(); result->MoreShapeInContext(); result->NextShapeInContext()) {
+                for (BRepCheck_ListIteratorOfListOfStatus status(result->StatusOnShape()); status.More(); status.Next()) {
+                    if (status.Value() != BRepCheck_NoError && diagnostic.size() < 512)
+                        diagnostic += " shape=" + std::to_string(index) + " type=" + std::to_string(shapes(index).ShapeType()) + " contextIndex=" + std::to_string(shapes.FindIndex(result->ContextualShape())) + " status=" + std::to_string(status.Value());
+                }
+            }
+        }
+        throw std::invalid_argument("IMPORT_SOLID_REPAIR_FAILED:" + diagnostic);
+    }
+    for (const auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX}) {
+        if (TopExp_Explorer(repaired, type, TopAbs_SOLID).More())
+            throw std::invalid_argument("IMPORT_SOLID_REPAIR_LEFT_LOOSE_TOPOLOGY");
+    }
+    return impl_->store(repaired);
+}
+
 GeometryId OcctKernel::combine(const std::vector<PlacedGeometry>& components) {
     if (components.empty()) {
         throw std::invalid_argument("exchange export requires at least one component");
@@ -1550,18 +1744,18 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         root.topology_history.feature_id = seed.feature_id;
         root.topology_history.result_geometry_id = result_id;
         root.topology_history.policy_digest = topology_policy_digest();
-        std::vector<std::string> ids, locators;
+        std::unordered_set<std::string> ids, locators;
+        ids.reserve(seed.identities.size());
+        locators.reserve(seed.identities.size());
         for (const auto& entry : seed.identities) {
             const auto* map = entry.topology_type == PersistentTopologyType::face ? &faces :
                               entry.topology_type == PersistentTopologyType::edge ? &edges :
                               entry.topology_type == PersistentTopologyType::vertex ? &vertices : nullptr;
             const auto locator = std::to_string(static_cast<int>(entry.topology_type)) + "/" + std::to_string(entry.local_id);
             if (!map || entry.local_id == 0 || entry.local_id > static_cast<std::uint64_t>(map->Extent()) ||
-                entry.stable_id.empty() || std::find(ids.begin(), ids.end(), entry.stable_id) != ids.end() ||
-                std::find(locators.begin(), locators.end(), locator) != locators.end())
+                entry.stable_id.empty() || !ids.insert(entry.stable_id).second ||
+                !locators.insert(locator).second)
                 throw std::invalid_argument("IMPORT_SEED_INVALID_IDENTITY_MAP");
-            ids.push_back(entry.stable_id);
-            locators.push_back(locator);
             const auto shape = (*map)(static_cast<int>(entry.local_id));
             SemanticTopologyRef ref{seed.feature_id, "import.topology", {entry.stable_id}};
             auto evidence = topology_evidence(shape);
@@ -1569,11 +1763,11 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             root.semantic_outputs.push_back({ref, entry.topology_type, entry.local_id, evidence});
             live_named.push_back({ref, shape});
         }
+        const auto adjacency = imported_adjacency(live_named);
         for (std::size_t i = 0; i < live_named.size(); ++i) {
             auto& output = root.semantic_outputs[i];
-            for (std::size_t j = 0; j < live_named.size(); ++j)
-                if (i != j && topology_adjacent(live_named[i].shape, live_named[j].shape))
-                    output.evidence.adjacent.push_back(live_named[j].ref);
+            for (const auto neighbor : adjacency[i])
+                output.evidence.adjacent.push_back(live_named[neighbor].ref);
             sort_refs(output.evidence.adjacent);
             root.topology_history.lineage.push_back({{}, output.semantic_ref, TopologyLineageKind::generated, output.evidence});
         }
