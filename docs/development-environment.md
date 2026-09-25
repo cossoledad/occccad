@@ -24,7 +24,7 @@ sudo apt install postgresql
 
 部分集成测试使用显式的 `OCCCCAD_TEST_DATABASE_URL`，不会自动使用应用的数据库配置。运行前读对应测试对迁移、空库和清理的要求：可兼容现有数据的测试可复用已授权开发数据库；要求可丢弃数据库的测试使用隔离测试库，并按测试入口准备迁移。不要为使测试执行而把所有测试无差别指向开发库。
 
-数据重置仍遵循[根 AGENTS 的开发数据边界](../AGENTS.md#当前开发数据边界)：先停止占用进程，仅通过 `invoke data.reset --yes` 或 `invoke run.app --reset-data` 删除命令报告的 `occccad` schema 与本地 ArtifactStore，并在交付中说明。资源使用授权不包括任意清空其他数据库、schema 或 S3 bucket。
+数据重置仍遵循[根 AGENTS 的开发数据边界](../AGENTS.md#当前开发数据边界)：先停止占用进程，仅通过 `invoke data.reset --yes` 或 `invoke run.app --reset-data` 删除命令报告的 `occccad` schema、本地 ArtifactStore/暂存目录，以及 S3 模式下当前配置的专用桶全部对象（含版本和未完成分片，保留桶），并在交付中说明。资源使用授权不包括清空其他数据库、schema 或 S3 bucket。S3 与 PostgreSQL 不构成跨存储事务：清理失败直接报错，可能已部分删除，停止写入后可重新执行。
 
 ## Chromium 与浏览器验证
 

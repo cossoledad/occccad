@@ -73,7 +73,7 @@ invoke run.app --build-type=Debug
 invoke run.app --reset-data --build-type=Debug
 ```
 
-重置会删除数据库中固定的 `occcad` schema 与 `OCCCCAD_DATA_DIR` 本地制品目录，再执行当前迁移。它要求旧的 occccad 进程已经停止，且不能用于已发布或需要保留外部数据的环境。
+重置会删除数据库中固定的 `occcad` schema 与 `OCCCCAD_DATA_DIR` 本地制品/暂存目录；S3 模式还清空当前配置的专用桶全部对象、版本和未完成分片（保留桶），再执行当前迁移。它要求旧的 occccad 进程已经停止，且不能用于已发布或需要保留外部数据的环境。
 
 Router 的 owner 映射不持久化；重启后的第一个 GeometryId 请求会从 Artifact 冷恢复并重新绑定。首次请求在发往 Worker 前完成 owner 预留，所以同一 Body 的并发面查询不会因容量为 1 而分裂；后续请求优先命中 owner，不受普通容量筛选影响。它只管理本机子进程，没有跨主机注册、认证、配额、租户隔离或 Kubernetes 集成。生产目标中的 Scheduler/Registry 不能把本进程原样搬进集群，演进方案见[目标架构](../../../docs/TARGET_ARCHITECTURE.md)。
 

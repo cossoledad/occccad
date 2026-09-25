@@ -48,3 +48,32 @@ func TestResetArtifactDirectoryClearsAndRecreatesTarget(t *testing.T) {
 		t.Fatalf("artifact directory contains %d entries after reset", len(entries))
 	}
 }
+
+func TestResetConfiguredArtifactsLocalAndInvalidBackend(t *testing.T) {
+	for _, backend := range []string{"LOCAL", "UNKNOWN"} {
+		t.Run(backend, func(t *testing.T) {
+			t.Setenv("OCCCCAD_ARTIFACT_BACKEND", backend)
+			directory := t.TempDir()
+			path := filepath.Join(directory, "retained-until-backend-valid")
+			if err := os.WriteFile(path, []byte("data"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			err := resetConfiguredArtifacts(t.Context(), directory)
+			if backend == "UNKNOWN" {
+				if err == nil {
+					t.Fatal("unknown backend accepted")
+				}
+				if _, err := os.Stat(path); err != nil {
+					t.Fatal("local data deleted before backend validation", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Stat(path); !os.IsNotExist(err) {
+					t.Fatal("local data retained", err)
+				}
+			}
+		})
+	}
+}

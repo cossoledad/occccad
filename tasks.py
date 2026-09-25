@@ -796,8 +796,8 @@ def run_jobs(c):
 
 
 def _reset_development_data(c):
-    """Clear the fixed PostgreSQL schema and local ArtifactStore, then migrate."""
-    print("[data.reset] Clearing PostgreSQL schema 'occccad' and the local ArtifactStore...")
+    """Clear the fixed PostgreSQL schema, configured ArtifactStore and staging, then migrate."""
+    print("[data.reset] Clearing PostgreSQL schema 'occccad', configured ArtifactStore (including S3) and local staging...")
     with c.cd(str(PROJECT_ROOT / "services")):
         c.run(
             "go run ./cmd/occccad-migrate --reset-development-data",

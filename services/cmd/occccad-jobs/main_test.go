@@ -19,7 +19,7 @@ func TestJobConcurrencyBounds(t *testing.T) {
 }
 
 func TestImportConcurrencyAndPermanentFailures(t *testing.T) {
-	for raw, want := range map[string]int{"": 4, "2": 2, "8": 8, "0": 4, "9": 4} {
+	for raw, want := range map[string]int{"": 4, "2": 2, "8": 8, "0": 4, "9": 9, "32": 32} {
 		if got := importConcurrency(raw); got != want {
 			t.Fatalf("%q: %d", raw, got)
 		}

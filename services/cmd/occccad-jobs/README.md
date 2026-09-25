@@ -70,7 +70,7 @@ invoke run.app --build-type=Debug
 
 ## 扩缩容与验证
 
-多个实例可以并行消费，`SKIP LOCKED` 防止同时领取同一行。源文件解析一次，按 Solid occurrence 生成独立快照；单个导入默认并行处理 4 个组件（`OCCCCAD_IMPORT_CONCURRENCY`：1–8），正式 Geometry Router 可把它们分配给不同 Worker；最终 Product 组装与交换文件写出仍是确定性的 reduce 阶段。扩容前要确认 Geometry Worker 与共享制品存储容量；当前没有按任务类型隔离队列，耗时交换工作可能影响缩略图延迟。
+多个实例可以并行消费，`SKIP LOCKED` 防止同时领取同一行。源文件解析一次，按 Solid occurrence 生成独立快照；同一 Jobs 进程的所有导入共享最多 4 个并行工作额度（`OCCCCAD_IMPORT_CONCURRENCY`：正整数，默认 4），正式 Geometry Router 可把它们分配给不同 Worker；最终 Product 组装与交换文件写出仍是确定性的 reduce 阶段。扩容前要确认 Geometry Worker 与共享制品存储容量；当前没有按任务类型隔离队列，耗时交换工作可能影响缩略图延迟。
 
 ```bash
 cd services
@@ -87,7 +87,7 @@ Jobs 同样使用 [统一数据库访问层](../../internal/database/README.md)�
 
 ## 单实体拆分与进度
 
-`OCCCCAD_IMPORT_CONCURRENCY` 控制每个文件的组件求值和 Part 创建并发，默认 4、范围 1–8，实际进程数受 Geometry Router 预算限制。输入只解析一次，每个带位置 Solid 生成 BREP 快照；必要的有效性修复在单实体 Worker 内并行执行，不能修复的组件明确失败。原始根数量不再决定业务文档数量，不恢复 XDE 层级/共享定义。
+`OCCCCAD_IMPORT_CONCURRENCY` 控制同一 Jobs 进程所有导入共享的最大活动工作数，默认 4、可设置任意正整数；每个文件的组件求值和 Part 创建按 `min(组件数, 配置上限)` 调度，准备解析也占用一个额度。空闲额度可由其他文件使用，等待可取消，失败自动释放；多个文件不会各自再获得一整套额度。额度限制活动计算，不限制已经驻留缓存的进程；Router 的 `OCCCCAD_GEOMETRY_WORKER_MAX` 才是所有操作共享的进程总数硬上限。若希望整个应用最多 8 个 Worker，设置两项为 8；多个独立 Jobs 进程各有导入额度，但仍受同一 Router 的总进程上限限制。输入只解析一次，每个带位置 Solid 生成 BREP 快照；必要的有效性修复在单实体 Worker 内并行执行，不能修复的组件明确失败。原始根数量不再决定业务文档数量，不恢复 XDE 层级/共享定义。
 
 进度显示解析拆分、组件求值、零件命名/创建、装配创建；已完成数量来自真实完成回调。70% 起进入文档提交区，保持原取消边界。重试/租约重领不清零总进度，新 attempt 显示实际阶段及尝试次数；每个阶段结束只记录一条包含耗时和组件数的日志。确定性校验失败不自动反复重跑。
 

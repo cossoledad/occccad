@@ -115,7 +115,7 @@ func TestMultiSolidImportCreatesNamedPartsAndProduct(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := handler{workerID: owner, database: db, queue: queue, artifacts: artifacts, access: access.New(db), geometry: client, workspace: service}
+	h := handler{importBudget: newImportBudget(importConcurrency(os.Getenv("OCCCCAD_IMPORT_CONCURRENCY"))), workerID: owner, database: db, queue: queue, artifacts: artifacts, access: access.New(db), geometry: client, workspace: service}
 	poll, stop := context.WithCancel(t.Context())
 	var monitor sync.WaitGroup
 	monitor.Add(1)

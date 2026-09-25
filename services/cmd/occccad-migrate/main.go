@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/config"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/observability"
@@ -16,7 +17,7 @@ import (
 
 func main() {
 	resetDevelopmentData := flag.Bool("reset-development-data", false,
-		"delete the occccad schema and local ArtifactStore before migrating")
+		"delete the occccad schema, local staging and configured ArtifactStore before migrating")
 	flag.Parse()
 	ctx := context.Background()
 	shutdown, err := observability.Initialize(ctx, "occccad-migrate")
@@ -25,6 +26,10 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = shutdown(context.Background()) }()
+	if _, err := config.LoadProjectEnv(); err != nil {
+		slog.Error("load environment", "error", err)
+		os.Exit(1)
+	}
 	configuration := config.Load()
 	pool, err := database.Open(ctx, configuration.DatabaseURL)
 	if err == nil {
@@ -36,7 +41,7 @@ func main() {
 				var artifactDirectory string
 				artifactDirectory, err = validateArtifactDirectory(configuration.DataDirectory)
 				if err == nil {
-					err = resetArtifactDirectory(artifactDirectory)
+					err = resetConfiguredArtifacts(ctx, artifactDirectory)
 					if err == nil {
 						var databaseName string
 						databaseName, err = database.ResetDevelopmentSchema(ctx, pool)
@@ -97,4 +102,23 @@ func resetArtifactDirectory(directory string) error {
 		return fmt.Errorf("recreate local ArtifactStore %q: %w", directory, err)
 	}
 	return nil
+}
+
+func resetConfiguredArtifacts(ctx context.Context, directory string) error {
+	store, _, err := artifact.OpenConfigured(ctx, directory)
+	if err != nil {
+		return err
+	}
+	slog.Warn("development reset targets", "schema", "occccad", "local_directory", directory, "artifact_backend", store.Backend())
+	if store.Backend() != "LOCAL" {
+		resetter, ok := store.(artifact.DevelopmentResetter)
+		if !ok {
+			return fmt.Errorf("artifact backend %s does not support development reset", store.Backend())
+		}
+		slog.Warn("clearing development object storage", "target", resetter.DevelopmentResetTarget())
+		if err := resetter.ResetDevelopment(ctx); err != nil {
+			return err
+		}
+	}
+	return resetArtifactDirectory(directory)
 }

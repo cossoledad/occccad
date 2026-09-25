@@ -54,7 +54,7 @@ occccad 是早期可运行的云原生参数化 CAD 垂直切片。参数模型�
 
 项目尚未发布且没有外部持久数据承诺。需要统一 schema、命令、Revision 或 evaluator 语义时直接修正唯一实现及调用方，不为实验数据增加 adapter/双写。未发布迁移可重写，并从空库验证。
 
-仅可用 `invoke data.reset --yes` 或 `invoke run.app --reset-data` 删除命令明确报告的 `occccad` schema 与本地 ArtifactStore；先停止占用进程，并在交付中说明。不得扩大到其他 schema、数据库、目录或外部存储。维护者宣布发布基线或必须保留的外部数据后，此豁免终止，迁移只追加且旧 Revision 必须可读。
+仅可用 `invoke data.reset --yes` 或 `invoke run.app --reset-data` 删除命令明确报告的 `occccad` schema、本地 ArtifactStore/暂存目录，以及 S3 模式下当前配置的专用 `OCCCCAD_S3_BUCKET` 全部对象（含历史版本、删除标记和未完成分片，保留桶）；先停止占用进程，并在交付中说明。不得扩大到其他 schema、数据库、目录或其他桶。维护者宣布发布基线或必须保留的外部数据后，此豁免终止，迁移只追加且旧 Revision 必须可读。
 
 ## 变更与验证
 

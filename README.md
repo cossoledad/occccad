@@ -68,7 +68,7 @@ invoke run.app --build-type=Debug
 invoke run.app --reset-data --build-type=Debug
 ```
 
-该选项只删除配置数据库中的 `occccad` schema 和 `OCCCCAD_DATA_DIR` 指向的本地 ArtifactStore，随后从当前迁移重建 schema；进程内 Router/Worker 状态随新进程自然清空。若只清理和迁移而不启动，使用 `invoke data.reset --yes`。命令不可用于已经承诺保留数据的发布环境。
+该选项只删除配置数据库中的 `occccad` schema 、`OCCCCAD_DATA_DIR` 指向的本地 ArtifactStore/暂存目录；S3 模式还清空 `OCCCCAD_S3_BUCKET` 全部对象、历史版本、删除标记和未完成分片（保留桶），随后从当前迁移重建 schema；进程内 Router/Worker 状态随新进程自然清空。若只清理和迁移而不启动，使用 `invoke data.reset --yes`。命令不可用于已经承诺保留数据的发布环境。
 
 另开终端启动连接真实 API 的前端：
 

@@ -57,7 +57,7 @@ flowchart LR
 5. 在 `0.0.0.0:8080` 提供稳定 HTTP 代理入口；
 6. 在 `127.0.0.1:19090` 提供无认证的本机 Control API。
 
-`invoke run.app --reset-data` 在启动控制进程前运行受保护的开发重置：删除配置数据库中固定的 `occcad` schema，清空 `OCCCCAD_DATA_DIR` 对应的本地 ArtifactStore，再从嵌入迁移重建 schema。该命令只面向当前未发布开发数据；Router、Worker resident geometry 和其他进程内状态由新进程自然重建。
+`invoke run.app --reset-data` 在启动控制进程前运行受保护的开发重置：删除配置数据库中固定的 `occcad` schema，清空 `OCCCCAD_DATA_DIR` 对应的本地 ArtifactStore/暂存目录；S3 模式还清空当前配置专用桶中的全部对象、历史版本、删除标记和未完成分片（保留桶），再从嵌入迁移重建 schema。必须先停止写入进程；跨存储删除不具备原子回滚，失败后可修复并重跑。该命令只面向当前未发布开发数据；Router、Worker resident geometry 和其他进程内状态由新进程自然重建。
 
 ```mermaid
 sequenceDiagram

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,16 +20,35 @@ import (
 	"github.com/occccad/occccad/internal/jobs"
 	"github.com/occccad/occccad/internal/workspace"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 func importConcurrency(raw string) int {
 	value, err := strconv.Atoi(raw)
-	if err != nil || value < 1 || value > 8 {
+	if err != nil || value < 1 {
 		return 4
 	}
 	return value
+}
+
+// Shared by every import in one Jobs process. Limits active work, not cached
+// Router processes; the Router separately enforces its global process budget.
+type importBudget struct {
+	maximum int
+	slots   *semaphore.Weighted
+}
+
+func newImportBudget(maximum int) *importBudget {
+	return &importBudget{maximum: maximum, slots: semaphore.NewWeighted(int64(maximum))}
+}
+func (b *importBudget) run(ctx context.Context, operation func() error) error {
+	if err := b.slots.Acquire(ctx, 1); err != nil {
+		return err
+	}
+	defer b.slots.Release(1)
+	return operation()
 }
 func retryableImportError(err error) bool {
 	return !errors.Is(err, workspace.ErrValidation) && status.Code(err) != codes.InvalidArgument
@@ -68,12 +86,20 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 		return err
 	}
 	ref := geometry.ArtifactReference{Backend: source.Backend, ObjectKey: source.Key, SHA256: source.SHA256, Size: source.Size, ContentType: source.ContentType}
+	budget := h.importBudget
+	if budget == nil {
+		return errors.New("import scheduler is not configured")
+	}
+	if err := budget.slots.Acquire(ctx, 1); err != nil {
+		return err
+	}
 	inspection, err := h.geometry.InspectExchange(ctx, requestID+"/prepare", format, ref, artifact.StagingKey(job.ID, "components"))
+	budget.slots.Release(1)
 	if err != nil {
 		return err
 	}
 	count := len(inspection.Components)
-	slog.Info("exchange preparation completed", "job_id", job.ID, "components", count, "duration_ms", time.Since(phaseStarted).Milliseconds())
+	slog.Info("exchange preparation completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	phaseStarted = time.Now()
 	if count == 0 {
 		return errors.New("exchange source contains no importable solids")
@@ -87,42 +113,44 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	}
 	results := make([]imported, count)
 	group, groupContext := errgroup.WithContext(ctx)
-	group.SetLimit(importConcurrency(os.Getenv("OCCCCAD_IMPORT_CONCURRENCY")))
+	group.SetLimit(min(count, budget.maximum))
 	evaluated := h.importProgress(groupContext, job, "EVALUATING", 15, 65, count)
 	for index, component := range inspection.Components {
 		group.Go(func() error {
-			if err := groupContext.Err(); err != nil {
-				return err
-			}
-			if component.PreparedBRep.ObjectKey == "" {
-				return errors.New("worker did not prepare single-Solid import snapshots")
-			}
-			snapshot, err := h.artifacts.Adopt(groupContext, artifact.KindBREP, "application/vnd.opencascade.brep", component.PreparedBRep.ObjectKey)
-			if err != nil {
-				return err
-			}
-			if snapshot.SHA256 != component.PreparedBRep.SHA256 || snapshot.Size != component.PreparedBRep.Size {
-				return errors.New("prepared component integrity mismatch")
-			}
-			input := geometry.ArtifactReference{Backend: snapshot.Backend, ObjectKey: snapshot.Key, SHA256: snapshot.SHA256, Size: snapshot.Size, ContentType: snapshot.ContentType}
-			digest := sha256.Sum256([]byte("exchange-solids-heal-1um-v2\x00" + source.SHA256 + fmt.Sprintf("/%d", component.SourceIndex)))
-			key := "sha256:" + hex.EncodeToString(digest[:])
-			prefix := fmt.Sprintf("%s/component-%d", job.ID, component.SourceIndex)
-			evaluation, err := h.geometry.ImportExchange(groupContext, requestID+fmt.Sprintf("/component/%d", component.SourceIndex), key, "BREP", input, 1, artifact.StagingKey(prefix, "shape.brep"), artifact.StagingKey(prefix, "mesh.glb"))
-			if err != nil {
-				return fmt.Errorf("component %d (%s): %w", component.SourceIndex, component.Name, err)
-			}
-			if evaluation.GetTopology().GetSolidCount() != 1 {
-				return fmt.Errorf("%w: prepared component is not a single Solid", workspace.ErrValidation)
-			}
-			results[index] = imported{key, evaluation}
-			return evaluated()
+			return budget.run(groupContext, func() error {
+				if err := groupContext.Err(); err != nil {
+					return err
+				}
+				if component.PreparedBRep.ObjectKey == "" {
+					return errors.New("worker did not prepare single-Solid import snapshots")
+				}
+				snapshot, err := h.artifacts.Adopt(groupContext, artifact.KindBREP, "application/vnd.opencascade.brep", component.PreparedBRep.ObjectKey)
+				if err != nil {
+					return err
+				}
+				if snapshot.SHA256 != component.PreparedBRep.SHA256 || snapshot.Size != component.PreparedBRep.Size {
+					return errors.New("prepared component integrity mismatch")
+				}
+				input := geometry.ArtifactReference{Backend: snapshot.Backend, ObjectKey: snapshot.Key, SHA256: snapshot.SHA256, Size: snapshot.Size, ContentType: snapshot.ContentType}
+				digest := sha256.Sum256([]byte("exchange-solids-heal-1um-v2\x00" + source.SHA256 + fmt.Sprintf("/%d", component.SourceIndex)))
+				key := "sha256:" + hex.EncodeToString(digest[:])
+				prefix := fmt.Sprintf("%s/component-%d", job.ID, component.SourceIndex)
+				evaluation, err := h.geometry.ImportExchange(groupContext, requestID+fmt.Sprintf("/component/%d", component.SourceIndex), key, "BREP", input, 1, artifact.StagingKey(prefix, "shape.brep"), artifact.StagingKey(prefix, "mesh.glb"))
+				if err != nil {
+					return fmt.Errorf("component %d (%s): %w", component.SourceIndex, component.Name, err)
+				}
+				if evaluation.GetTopology().GetSolidCount() != 1 {
+					return fmt.Errorf("%w: prepared component is not a single Solid", workspace.ErrValidation)
+				}
+				results[index] = imported{key, evaluation}
+				return evaluated()
+			})
 		})
 	}
 	if err := group.Wait(); err != nil {
 		return err
 	}
-	slog.Info("exchange component evaluation completed", "job_id", job.ID, "components", count, "duration_ms", time.Since(phaseStarted).Milliseconds())
+	slog.Info("exchange component evaluation completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	phaseStarted = time.Now()
 	// Preserve the existing cancellation boundary before any document is created.
 	if err := h.queue.UpdateProgressDetail(ctx, job.ID, h.workerID, 70, &jobs.ProgressDetail{Phase: "CREATING_PARTS", Total: count}); err != nil {
@@ -131,34 +159,36 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	parts := make([]workspace.DocumentView, count)
 	baseName := exchange.ImportedDocumentName(fileName)
 	group, groupContext = errgroup.WithContext(ctx)
-	group.SetLimit(importConcurrency(os.Getenv("OCCCCAD_IMPORT_CONCURRENCY")))
+	group.SetLimit(min(count, budget.maximum))
 	committed := h.importProgress(groupContext, job, "CREATING_PARTS", 70, 94, count)
 	for index, result := range results {
 		group.Go(func() error {
-			if err := groupContext.Err(); err != nil {
-				return err
-			}
-			name := baseName
-			if count > 1 {
-				name = fmt.Sprintf("%s - %s", baseName, inspection.Components[index].Name)
-			}
-			view, err := h.workspace.CommitImportedPart(groupContext, job.RequestedBy, folderID, requestID+fmt.Sprintf("/part/%d", index), name, fileName, format, result.key, result.evaluation, &workspace.ImportSource{ObjectID: source.ID, SHA256: source.SHA256, Format: format, ComponentIndex: inspection.Components[index].SourceIndex})
-			if err != nil {
-				return err
-			}
-			// Product construction needs identity, not another copy of each mesh.
-			parts[index] = workspace.DocumentView{Document: view.Document}
-			results[index].evaluation = nil
-			if err := h.enqueuePreview(groupContext, job.RequestedBy, view); err != nil {
-				slog.Warn("enqueue imported document preview", "job_id", job.ID, "error", err)
-			}
-			return committed()
+			return budget.run(groupContext, func() error {
+				if err := groupContext.Err(); err != nil {
+					return err
+				}
+				name := baseName
+				if count > 1 {
+					name = fmt.Sprintf("%s - %s", baseName, inspection.Components[index].Name)
+				}
+				view, err := h.workspace.CommitImportedPart(groupContext, job.RequestedBy, folderID, requestID+fmt.Sprintf("/part/%d", index), name, fileName, format, result.key, result.evaluation, &workspace.ImportSource{ObjectID: source.ID, SHA256: source.SHA256, Format: format, ComponentIndex: inspection.Components[index].SourceIndex})
+				if err != nil {
+					return err
+				}
+				// Product construction needs identity, not another copy of each mesh.
+				parts[index] = workspace.DocumentView{Document: view.Document}
+				results[index].evaluation = nil
+				if err := h.enqueuePreview(groupContext, job.RequestedBy, view); err != nil {
+					slog.Warn("enqueue imported document preview", "job_id", job.ID, "error", err)
+				}
+				return committed()
+			})
 		})
 	}
 	if err := group.Wait(); err != nil {
 		return err
 	}
-	slog.Info("exchange Part creation completed", "job_id", job.ID, "components", count, "duration_ms", time.Since(phaseStarted).Milliseconds())
+	slog.Info("exchange Part creation completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	phaseStarted = time.Now()
 	root := parts[0]
 	if count > 1 {
@@ -173,6 +203,6 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 			slog.Warn("enqueue imported Product preview", "job_id", job.ID, "error", err)
 		}
 	}
-	slog.Info("exchange assembly completed", "job_id", job.ID, "components", count, "duration_ms", time.Since(phaseStarted).Milliseconds())
+	slog.Info("exchange assembly completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	return h.queue.SucceedImport(ctx, job.ID, h.workerID, root.Document.ID)
 }

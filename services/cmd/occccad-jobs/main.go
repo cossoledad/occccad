@@ -29,6 +29,7 @@ import (
 )
 
 type handler struct {
+	importBudget           *importBudget
 	workerID               string
 	thumbnailRenderTimeout time.Duration
 	database               *database.Pool
@@ -72,13 +73,14 @@ func run() error {
 	}
 	defer geometryClient.Close()
 	hostname, _ := os.Hostname()
+	budget := newImportBudget(importConcurrency(os.Getenv("OCCCCAD_IMPORT_CONCURRENCY")))
 	concurrency := jobConcurrency(os.Getenv("OCCCCAD_JOB_CONCURRENCY"))
-	slog.Info("job workers started", "workers", concurrency, "artifact_backend", store.Backend(), "data_directory", localArtifactStore.Root())
+	slog.Info("job workers started", "workers", concurrency, "import_concurrency_max", budget.maximum, "artifact_backend", store.Backend(), "data_directory", localArtifactStore.Root())
 	group, groupContext := errgroup.WithContext(ctx)
 	for index := 0; index < concurrency; index++ {
 		workerID := fmt.Sprintf("%s-%d-%d", hostname, os.Getpid(), index)
 		group.Go(func() error {
-			h := handler{workerID: workerID, thumbnailRenderTimeout: configuration.ThumbnailRenderTimeout, database: pool, queue: jobs.New(pool), artifacts: artifactService, access: access.New(pool), geometry: geometryClient, workspace: workspace.NewWithArtifacts(pool, geometryClient, artifactService)}
+			h := handler{importBudget: budget, workerID: workerID, thumbnailRenderTimeout: configuration.ThumbnailRenderTimeout, database: pool, queue: jobs.New(pool), artifacts: artifactService, access: access.New(pool), geometry: geometryClient, workspace: workspace.NewWithArtifacts(pool, geometryClient, artifactService)}
 			return h.runJobLoop(groupContext)
 		})
 	}
