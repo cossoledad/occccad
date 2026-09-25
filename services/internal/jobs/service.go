@@ -58,13 +58,16 @@ func (service *Service) Enqueue(ctx context.Context, request EnqueueRequest) (Jo
 	if request.InputObjectID != "" {
 		input = &request.InputObjectID
 	}
-	row := service.database.QueryRow(ctx, `INSERT INTO occccad.jobs(job_type,document_id,version_id,
+	row := service.database.QueryRow(ctx, `WITH queued AS (INSERT INTO occccad.jobs(job_type,document_id,version_id,
 		requested_by_user_id,input_object_id,payload,idempotency_key,user_visible)
 		VALUES($1,NULLIF($2,'')::uuid,$3,$4,NULLIF($5,'')::uuid,$6,$7,$8)
 		ON CONFLICT(job_type,idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
-		RETURNING id::text,job_type,state,document_id::text,version_id::text,requested_by_user_id::text,
+        RETURNING *), notified AS (
+        INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
+        SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state',state) FROM queued)
+        SELECT id::text,job_type,state,document_id::text,version_id::text,requested_by_user_id::text,
 		input_object_id::text,result_object_id::text,payload,attempt_count,max_attempts,progress,
-		error_code,error_message,created_at::text,started_at::text,completed_at::text,cancel_requested_at::text,user_visible`, request.Type, request.DocumentID,
+		error_code,error_message,created_at::text,started_at::text,completed_at::text,cancel_requested_at::text,user_visible FROM queued`, request.Type, request.DocumentID,
 		request.VersionID, request.RequestedBy, input, payload, request.IdempotencyKey, request.UserVisible)
 	return scan(row)
 }
@@ -124,7 +127,10 @@ func (service *Service) Claim(ctx context.Context, workerID string, lease time.D
 			heartbeat_at=now(),started_at=COALESCE(started_at,now()),attempt_count=attempt_count+1
 		FROM candidate WHERE j.id=candidate.id
 		RETURNING j.*
-	)
+    ), notified AS (
+      INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
+      SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state',state) FROM claimed
+    )
 	SELECT id::text,job_type,state,document_id::text,version_id::text,requested_by_user_id::text,
 		input_object_id::text,result_object_id::text,payload,attempt_count,max_attempts,progress,
 		error_code,error_message,created_at::text,started_at::text,completed_at::text,
@@ -155,7 +161,7 @@ func (service *Service) Succeed(ctx context.Context, jobID, workerID, resultObje
 		FROM finished WHERE a.job_id=finished.id AND a.attempt=finished.attempt_count RETURNING a.job_id), notified AS (
 		INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
 		SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state','SUCCEEDED')
-		FROM finished WHERE job_type IN ('EXCHANGE_IMPORT','EXCHANGE_EXPORT') RETURNING id)
+		FROM finished RETURNING id)
 	SELECT count(*) FROM finished`, jobID, workerID, resultObjectID).Scan(&updated)
 	if err != nil {
 		return err
@@ -231,12 +237,14 @@ func (service *Service) UpdateProgressDetail(ctx context.Context, jobID, workerI
 		}
 		value = encoded
 	}
-	command, err := service.database.Exec(ctx, `UPDATE occccad.jobs SET progress=GREATEST(progress,$3),
+	command, err := service.database.Exec(ctx, `WITH changed AS (UPDATE occccad.jobs SET progress=GREATEST(progress,$3),
  payload=CASE WHEN $4::jsonb IS NOT NULL AND (
  COALESCE((payload#>>'{progressDetail,attempt}')::int,-1)<attempt_count OR
  $3>=COALESCE((payload#>>'{progressDetail,phaseProgress}')::int,progress))
  THEN jsonb_set(payload,'{progressDetail}',$4::jsonb || jsonb_build_object('attempt',attempt_count,'phaseProgress',$3)) ELSE payload END
- WHERE id=$1 AND state='RUNNING' AND lease_owner=$2 AND cancel_requested_at IS NULL`, jobID, workerID, progress, value)
+ WHERE id=$1 AND state='RUNNING' AND lease_owner=$2 AND cancel_requested_at IS NULL RETURNING id)
+ INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
+ SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id) FROM changed`, jobID, workerID, progress, value)
 	if err != nil {
 		return err
 	}
@@ -271,8 +279,8 @@ func (service *Service) RequestCancel(ctx context.Context, jobID, userID string,
 		RETURNING *
 	), notified AS (
 		INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
-		SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state','CANCELED')
-		FROM changed WHERE state='CANCELED' AND job_type IN ('EXCHANGE_IMPORT','EXCHANGE_EXPORT')
+		SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state',state)
+		FROM changed
 	)
 	SELECT id::text,job_type,state,document_id::text,version_id::text,requested_by_user_id::text,
 		input_object_id::text,result_object_id::text,payload,attempt_count,max_attempts,progress,
@@ -300,7 +308,7 @@ func (service *Service) AcknowledgeCanceled(ctx context.Context, jobID, workerID
 	), notified AS (
 		INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
 		SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state','CANCELED')
-		FROM finished WHERE job_type IN ('EXCHANGE_IMPORT','EXCHANGE_EXPORT') RETURNING id
+		FROM finished RETURNING id
 	)
 	SELECT count(*) FROM finished`, jobID, workerID).Scan(&updated)
 	if err != nil {
@@ -319,7 +327,10 @@ func (service *Service) Retry(ctx context.Context, jobID, userID string, isAdmin
 			max_attempts=GREATEST(max_attempts,attempt_count+3)
 		WHERE id=$1 AND ($3 OR requested_by_user_id=$2) AND state IN ('FAILED','CANCELED')
 		RETURNING *
-	)
+    ), notified AS (
+      INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
+      SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state',state) FROM changed
+    )
 	SELECT id::text,job_type,state,document_id::text,version_id::text,requested_by_user_id::text,
 		input_object_id::text,result_object_id::text,payload,attempt_count,max_attempts,progress,
 		error_code,error_message,created_at::text,started_at::text,completed_at::text,cancel_requested_at::text,user_visible
@@ -348,7 +359,7 @@ func (service *Service) Fail(ctx context.Context, job Job, workerID, code, messa
 		FROM finished WHERE a.job_id=finished.id AND a.attempt=finished.attempt_count RETURNING a.job_id)
 	INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
 	SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state',state)
-	FROM finished WHERE state='FAILED' AND job_type IN ('EXCHANGE_IMPORT','EXCHANGE_EXPORT')`,
+	FROM finished`,
 		job.ID, workerID, state, code, message, delay)
 	return err
 }

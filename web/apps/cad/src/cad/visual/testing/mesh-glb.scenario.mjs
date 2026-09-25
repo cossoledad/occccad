@@ -28,9 +28,40 @@ try{
  assert.equal(calls,1,"deduplicate artifact downloads");assert.equal(first.artifact.mesh,second.artifact.mesh);
  assert.equal(view.artifact.mesh,undefined,"keep server/query state lightweight");assert.deepEqual(first.artifact.mesh,mesh);
  repository.dispose();
+ // A verified preview can become the committed display without another GET or
+ // decode, even after its transient download scope has been disposed.
+ const main=new VisualRepository();
+ const preview=main.previewRepository();
+ const before=calls;
+ const displayed=await preview.hydrate(view);
+ preview.dispose();
+ const committed=await main.hydrate(view);
+ assert.equal(calls-before,1,"promotion reuses verified preview bytes");
+ assert.equal(displayed.artifact.mesh,committed.artifact.mesh,"promotion reuses decoded geometry");
+ main.dispose();
+ const bounded=new VisualRepository();
+ for(const objectId of ["older","newer"]){
+  const scope=bounded.previewRepository();
+  await scope.hydrate({...view,artifact:{...descriptor,representations:{VISUAL:{...descriptor.representations.VISUAL,objectId}}}});
+  scope.dispose();
+ }
+ const boundedBefore=calls;
+ await bounded.hydrate({...view,artifact:{...descriptor,representations:{VISUAL:{...descriptor.representations.VISUAL,objectId:"older"}}}});
+ assert.equal(calls,boundedBefore+1,"retain only latest preview, not drag history");
+ bounded.dispose();
  let fail=true;globalThis.fetch=async()=>{calls++;return fail?new Response("failed",{status:503}):new Response(glb)};
  const retry=new VisualRepository();await assert.rejects(retry.hydrate(view),/503/);fail=false;
  assert.deepEqual((await retry.hydrate(view)).artifact.mesh,mesh,"failed downloads can retry");retry.dispose();
+ // Transient preview display uses the same GLB decoder but a cancellable file
+ // request. Clearing the viewport aborts bytes, not merely the control response.
+ const previewRepository=new VisualRepository();
+ globalThis.fetch=(url,options)=>new Promise((resolve,reject)=>{
+  assert.equal(url,"/api/documents/part/representations/object?previewId=candidate");
+  assert.equal(options.credentials,"include");
+  options.signal.addEventListener("abort",()=>reject(new DOMException("Aborted","AbortError")),{once:true});
+ });
+ const pending=previewRepository.hydrate({...view,artifact:{...descriptor,representationKind:"TRANSIENT_PREVIEW",representations:{VISUAL:{...descriptor.representations.VISUAL,url:"/api/documents/part/representations/object?previewId=candidate"}}}});
+ const canceled=assert.rejects(pending,error=>error.name==="AbortError");previewRepository.dispose();await canceled;
 }finally{globalThis.fetch=originalFetch}
 if(process.env.OCCCCAD_TEST_GLB_FIXTURE){
  const bytes=await readFile(process.env.OCCCCAD_TEST_GLB_FIXTURE);

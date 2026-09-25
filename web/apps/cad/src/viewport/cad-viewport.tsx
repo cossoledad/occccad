@@ -55,7 +55,7 @@ type Props = {
   onToolUseComplete: () => void;
   onActiveToolChange: (toolID: WorkbenchToolID) => void;
   onInstanceMoved: (instanceID: string, translation: Vec3, rotation:[number,number,number,number], previewId?: string) => void;
-	onInstanceMovePreview: (instanceID:string,translation:Vec3,rotation:[number,number,number,number],interactionId:string,previewSequence:number)=>Promise<{
+	onInstanceMovePreview: (instanceID:string,translation:Vec3,rotation:[number,number,number,number],interactionId:string,previewSequence:number,signal?:AbortSignal)=>Promise<{
 		poses:Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;constraintLimited:boolean;previewId:string}>;
   onAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
 };
@@ -84,7 +84,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       activeToolChanged: (toolID) => callbacks.current.onActiveToolChange(toolID),
       toolPromptChanged: () => {},
 		instanceMoved: (instanceID, translation,rotation,previewId) => callbacks.current.onInstanceMoved(instanceID, translation,rotation,previewId),
-		instanceMovePreview: (instanceID,translation,rotation,interactionId,previewSequence)=>callbacks.current.onInstanceMovePreview(instanceID,translation,rotation,interactionId,previewSequence),
+		instanceMovePreview: (instanceID,translation,rotation,interactionId,previewSequence,signal)=>callbacks.current.onInstanceMovePreview(instanceID,translation,rotation,interactionId,previewSequence,signal),
       assemblyConstraintRequested: (kind, references) => callbacks.current.onAssemblyConstraint(kind, references),
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
     });

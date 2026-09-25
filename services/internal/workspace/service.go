@@ -1592,29 +1592,40 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 	return manifest
 }
 
-func (service *Service) ApplyCommand(
-	ctx context.Context, documentID string, request CommandRequest,
-) (DocumentView, error) {
-	if err := service.requireActiveDocument(ctx, documentID); err != nil {
-		return DocumentView{}, err
-	}
-	request.Type = strings.ToUpper(strings.TrimSpace(request.Type))
-	if request.Type == "UNDO" || request.Type == "REDO" {
-		if err := service.applyCompensatingHistory(ctx, documentID, request); err != nil {
-			return DocumentView{}, err
-		}
-		return service.GetDocument(ctx, documentID, request.ActorID)
-	}
-	if request.Type == "RESTORE" {
-		if err := service.applyRestoreRevision(ctx, documentID, request); err != nil {
-			return DocumentView{}, err
-		}
-		return service.GetDocument(ctx, documentID, request.ActorID)
-	}
-	if err := service.applyDomainMutation(ctx, documentID, request); err != nil {
+// ApplyCommand is the in-process convenience boundary for callers that also
+// need a full projection. Realtime returns a receipt and queries that projection
+// separately, so it does not construct and discard a second DocumentView.
+func (service *Service) ApplyCommand(ctx context.Context, documentID string, request CommandRequest) (DocumentView, error) {
+	if err := service.ExecuteCommand(ctx, documentID, request); err != nil {
 		return DocumentView{}, err
 	}
 	return service.GetDocument(ctx, documentID, request.ActorID)
+}
+
+func (service *Service) ExecuteCommand(ctx context.Context, documentID string, request CommandRequest) error {
+	if err := service.requireActiveDocument(ctx, documentID); err != nil {
+		return err
+	}
+	request.Type = strings.ToUpper(strings.TrimSpace(request.Type))
+	var applyErr error
+	switch request.Type {
+	case "UNDO", "REDO":
+		applyErr = service.applyCompensatingHistory(ctx, documentID, request)
+	case "RESTORE":
+		applyErr = service.applyRestoreRevision(ctx, documentID, request)
+	default:
+		applyErr = service.applyDomainMutation(ctx, documentID, request)
+	}
+	if applyErr != nil {
+		// A concurrent retry can observe the pre-commit Head and then fail adaptation
+		// after the first attempt commits. Resolve only this exact committed intent;
+		// never rebase or retry an uncommitted command automatically.
+		if !service.committedRequestMatches(ctx, documentID, request) {
+			return applyErr
+		}
+	}
+
+	return nil
 }
 
 func (service *Service) requireActiveDocument(ctx context.Context, documentID string) error {
@@ -1957,8 +1968,11 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 				return "", err
 			}
 		}
+		// An intent ID may be reused by successive previews or by a lost-ack
+		// retry. Staging belongs to this evaluation attempt, not that intent.
+		attempt := reqID + "/" + newID("artifact-attempt")
 		evaluation, err = service.worker.EvaluateProfilePartFromArtifact(ctx, reqID, key, solidFeatures, base,
-			artifactstore.StagingKey(reqID, "shape.brep"), artifactstore.StagingKey(reqID, "mesh.glb"), importSeed)
+			artifactstore.StagingKey(attempt, "shape.brep"), artifactstore.StagingKey(attempt, "mesh.glb"), importSeed)
 	} else {
 		return "", fmt.Errorf("persistent evaluation requires ArtifactStore")
 	}

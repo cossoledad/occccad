@@ -65,7 +65,7 @@ type Callbacks = {
     references: SketchGeometryRef[]; labelPosition: Vec2; value: number; unit: "mm"|"deg"; x: number; y: number }) => void;
   activeToolChanged: (toolID: import("../state/workbench-store").WorkbenchToolID) => void;
   instanceMoved: (instanceId: string, translation: Vec3, rotation:[number,number,number,number], previewId?:string) => void;
-	instanceMovePreview: (instanceId:string,translation:Vec3,rotation:[number,number,number,number],interactionId:string,previewSequence:number)=>Promise<{
+	instanceMovePreview: (instanceId:string,translation:Vec3,rotation:[number,number,number,number],interactionId:string,previewSequence:number,signal?:AbortSignal)=>Promise<{
 		poses:Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;constraintLimited:boolean;previewId:string}>;
   assemblyConstraintRequested: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
@@ -261,6 +261,7 @@ export class CadViewportEngine {
   private dimensionDrag?: { selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; constraint: SketchConstraint;
     root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2 };
 	private movePreviewGeneration=0;private movePreviewInFlight=false;
+	private movePreviewAbort?: AbortController;
 	private moveInteractionId="";private movePreviewSequence=0;
   private moveCommitPending=false;
   private pendingMovePreview?:{generation:number;instanceId:string;translation:Vec3;rotation:[number,number,number,number]};
@@ -403,6 +404,7 @@ export class CadViewportEngine {
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
     const generation = ++this.visualGeneration;
     if (this.view?.document.id !== view.document.id) {
+      this.visuals.clearReusablePreview();
       this.navigation.cancel();
       this.viewTransition.cancel();
       this.transforms.stopAll();
@@ -680,10 +682,24 @@ export class CadViewportEngine {
     this.frameContent();
   }
 
+  private previewVisualGeneration = 0;
+  private previewVisuals?: VisualRepository;
   previewArtifact(descriptor: ArtifactDescriptor, operation: FeaturePreviewOperation = "NEW_BODY"): void {
     this.clearCommandPreview();
-    if(descriptor.representationKind!=="TRANSIENT_PREVIEW"||!descriptor.previewMesh)return;
-    const artifact:Artifact={...descriptor,mesh:descriptor.previewMesh};
+    const generation = this.previewVisualGeneration;
+    if (descriptor.representationKind !== "TRANSIENT_PREVIEW" || !this.view) return;
+    const view = { ...this.view, artifact: descriptor, artifacts: {} };
+    this.previewVisuals = this.visuals.previewRepository();
+    void this.previewVisuals.hydrate(view).then(display => {
+      if (generation !== this.previewVisualGeneration || this.disposed || !display.artifact) return;
+      this.showPreviewArtifact(display.artifact, operation);
+    }).catch(error => {
+      if (generation !== this.previewVisualGeneration || this.disposed) return;
+      this.callbacks.toolPromptChanged(`预览显示加载失败：${error instanceof Error ? error.message : String(error)}`);
+    });
+  }
+
+  private showPreviewArtifact(artifact: Artifact, operation: FeaturePreviewOperation): void {
     if (!artifact.mesh.vertices.length || !artifact.mesh.triangles.length) return;
     const binding = this.solidBindings.get(this.editContext?.occurrencePath || "root");
     const geometry = makeGeometry(artifact);
@@ -700,6 +716,9 @@ export class CadViewportEngine {
   }
 
   clearCommandPreview(restore = true): void {
+    this.previewVisualGeneration++;
+    this.previewVisuals?.dispose();
+    this.previewVisuals = undefined;
     delete this.host.dataset.featurePreview;
     if (this.previewBody) {
       this.previewBody.group.visible = this.previewBody.visible;
@@ -924,6 +943,7 @@ export class CadViewportEngine {
   }
 
   private beginMovePreviewGesture():void{
+    this.movePreviewAbort?.abort();this.movePreviewAbort=new AbortController();
 	this.movePreviewGeneration+=1;this.pendingMovePreview=undefined;this.moveCommitPending=false;
 	this.moveInteractionId=randomUUID();this.movePreviewSequence=0;
     const target=this.moveTarget;
@@ -937,6 +957,7 @@ export class CadViewportEngine {
     }
   }
   private cancelMovePreviewGesture():void{
+    this.movePreviewAbort?.abort();
     this.movePreviewGeneration+=1;this.pendingMovePreview=undefined;this.moveCommitPending=false;
   }
   private finishMovePreviewGesture():void{
@@ -963,7 +984,7 @@ export class CadViewportEngine {
   private drainMovePreview():void{
     if(this.movePreviewInFlight||!this.pendingMovePreview)return;const request=this.pendingMovePreview;this.pendingMovePreview=undefined;this.movePreviewInFlight=true;
 	const previewSequence=++this.movePreviewSequence;
-	void this.callbacks.instanceMovePreview(request.instanceId,request.translation,request.rotation,this.moveInteractionId,previewSequence).then(({poses,constraintLimited,previewId})=>{
+	void this.callbacks.instanceMovePreview(request.instanceId,request.translation,request.rotation,this.moveInteractionId,previewSequence,this.movePreviewAbort?.signal).then(({poses,constraintLimited,previewId})=>{
       if(request.generation!==this.movePreviewGeneration)return;
       if(constraintLimited){this.invalidate();return;}
       const driven=poses.find((pose)=>pose.instanceId===request.instanceId),target=this.moveTarget;
@@ -1020,6 +1041,7 @@ export class CadViewportEngine {
   }
 
   dispose(): void {
+    this.movePreviewAbort?.abort();
     this.visualGeneration++;
     this.visuals.dispose();
     this.visualError?.remove();

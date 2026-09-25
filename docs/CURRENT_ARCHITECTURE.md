@@ -17,6 +17,7 @@
 | [持久命名](architecture/current/persistent-naming.md) | Extrude/Boolean Face/Edge/Vertex history、resolver、状态与 Reconnect |
 | [Product 与 Assembly](architecture/current/product-assembly.md) | Publication、typed path、ContextBinding/Variant、多 Workspace 事务、M3、Release |
 | [Jobs 与制品](architecture/current/jobs-artifacts.md) | Router、租约、取消、交换、缩略图、LOCAL/S3 ArtifactStore |
+| [CAD realtime 控制面](architecture/current/realtime.md) | 命令、Preview 生命周期、幂等恢复、快照与文件通道边界 |
 | [Web 与交互](architecture/current/web.md) | 根场景/编辑上下文、选择、preview、偏好、Toolbar、工作台 |
 | [验证与可观测性](architecture/current/validation.md) | 日志/trace、性能、scoped checks、Mock 浏览器与真实验收边界 |
 
@@ -32,7 +33,7 @@
 | 装配 | SE(3)、基础约束、平行/垂直、点线/线面偏移、激活与模式分离、M3/历史/Release 证据、0–6 阶组合测试 | 六类几何完整矩阵与多成员固联尚未完成；M4 最近可行拖拽、M5 冲突解释、M6 Engineering Connection；当前 MOVE 仍用临时 Fix |
 | 产品发布 | 冻结 ProductRelease、gate、replay、按冻结几何导出 | ACCEPT-PRODUCT 已通过；后续新增能力仍需独立验收 |
 | 交换 | STEP/BREP、transferable roots、展平 occurrence placement round-trip | XDE/AP242 嵌套 BOM、颜色、共享实例语义 |
-| 平台 | 本机扩缩容、持久 Jobs、本地制品、提交同步 | S3/CDN、跨主机 Scheduler、多 API 扇出、presence/preview 协作 |
+| 平台 | 本机扩缩容、持久 Jobs、LOCAL/S3 制品、realtime Command/Preview 与状态同步 | CDN、跨主机 Scheduler、多 API 扇出、presence/preview 协作 |
 | 工程扩展 | 尚无完整领域实现 | Surface/3D Wire、DMU、Kinematics、钣金、工程图、CAM/CAE |
 
 ## 旧计划归并结果

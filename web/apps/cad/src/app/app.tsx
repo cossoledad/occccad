@@ -38,7 +38,7 @@ function ApplicationShell() {
     const unsubscribe = realtime.onJobEvent((job) => {
       if (job.type !== "EXCHANGE_IMPORT" && job.type !== "EXCHANGE_EXPORT") return;
       void client.invalidateQueries({ queryKey: queryKeys.jobs });
-      if (job.type === "EXCHANGE_IMPORT") void client.invalidateQueries({ queryKey: ["documents"] });
+      if (job.type === "EXCHANGE_IMPORT" && ["SUCCEEDED", "FAILED", "CANCELED"].includes(job.state)) void client.invalidateQueries({ queryKey: ["documents"] });
       if (job.state === "SUCCEEDED" && job.type === "EXCHANGE_IMPORT") {
         notification.success({ key: job.id, message: "文档导入完成", description: "导入结果已写入文档中心。",
           btn: job.documentId ? <Button type="primary" onClick={() => { notification.destroy(job.id); navigate(`/documents/${job.documentId}`); }}>打开文档</Button> : undefined });
@@ -50,8 +50,9 @@ function ApplicationShell() {
           description: job.errorMessage ?? "后台任务执行失败" });
       }
     });
+    const recover = realtime.onRecovery(() => { void client.invalidateQueries({ queryKey: queryKeys.jobs }); });
     realtime.start();
-    return () => { unsubscribe(); realtime.stop(); };
+    return () => { unsubscribe(); recover(); realtime.stop(); };
   }, [client, message, navigate, notification, session.data]);
 
   if (session.isLoading) return <div className="application-loading"><Brand /><Spin size="large" /></div>;

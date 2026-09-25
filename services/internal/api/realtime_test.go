@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/occccad/occccad/internal/access"
+	"github.com/occccad/occccad/internal/workspace"
 )
 
 func TestRealtimeEnvelopeCarriesVersionAndCorrelation(t *testing.T) {
@@ -131,5 +134,51 @@ func TestRealtimeOriginPolicy(t *testing.T) {
 	crossOrigin.Header.Set("Origin", "https://cad.example")
 	if !configured.realtimeOriginAllowed(crossOrigin) {
 		t.Fatal("configured websocket origin was rejected")
+	}
+}
+
+func TestRealtimeResponseSizeIsBounded(t *testing.T) {
+	hub := newRealtimeHub()
+	client := &realtimeClient{hub: hub, send: make(chan []byte, 1), done: make(chan struct{})}
+	client.sendResponse("request", "workspace.preview.ready.v1", map[string]string{"invalid": strings.Repeat("x", realtimeMaxBytes)})
+	message := <-client.send
+	if len(message) > realtimeMaxBytes {
+		t.Fatal("response size limit exceeded")
+	}
+	var envelope realtimeEnvelope
+	if err := json.Unmarshal(message, &envelope); err != nil || envelope.Error == nil || envelope.Error.Code != "MESSAGE_TOO_LARGE" || envelope.CorrelationID != "request" {
+		t.Fatalf("missing correlated failure: %s", message)
+	}
+}
+
+func TestRealtimeUnsubscribeCancelsPendingPreview(t *testing.T) {
+	hub := newRealtimeHub()
+	ctx, cancel := context.WithCancel(context.Background())
+	discarded := ""
+	client := &realtimeClient{hub: hub, send: make(chan []byte, 4), done: make(chan struct{}), subscriptions: map[string]string{}, previews: map[string]*realtimePreview{
+		"doc/interaction": {sequence: 2, requestID: "request", previewID: "candidate", cancel: cancel, discard: func(id string) { discarded = id }},
+	}}
+	client.subscribe("doc", "workspace")
+	client.unsubscribe("doc")
+	if ctx.Err() == nil || discarded != "candidate" || len(client.previews) != 0 {
+		t.Fatal("unsubscribe retained preview authority")
+	}
+	var envelope realtimeEnvelope
+	if err := json.Unmarshal(<-client.send, &envelope); err != nil || envelope.Type != "workspace.preview.canceled.v1" || envelope.CorrelationID != "request" {
+		t.Fatal("pending preview did not receive cancellation")
+	}
+}
+
+func TestRealtimeInlineViewHasIndependentByteBudget(t *testing.T) {
+	view := workspace.DocumentView{Document: workspace.DocumentSummary{ID: "doc"}}
+	if realtimeInlineView(view) == nil {
+		t.Fatal("small snapshot rejected")
+	}
+	view.Document.Name = strings.Repeat("界", realtimeInlineViewBytes/2)
+	if realtimeInlineView(view) != nil {
+		t.Fatal("oversize UTF-8 snapshot accepted")
+	}
+	if realtimeMaxBytes != 1<<20 {
+		t.Fatal("realtime message budget changed")
 	}
 }

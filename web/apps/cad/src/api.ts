@@ -270,9 +270,7 @@ export const restApi = {
   previewCommand: async (documentId: string, command: Record<string, unknown>, signal?: AbortSignal) => {
     const input = { requestId: requestId(), ...command };
     assemblyReplayRequests.set(documentId, `preview/${input.requestId}`);
-    const result = await request<CommandPreview>(`/api/documents/${documentId}/command-previews`, {
-      method: "POST", signal, body: JSON.stringify(input),
-    });
+    const result = await realtime.previewCommand(documentId, input, signal);
     previewIdentities.remember(documentId, result.previewId, String(input.requestId));
     return result;
   },

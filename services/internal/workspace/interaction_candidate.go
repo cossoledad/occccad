@@ -22,6 +22,7 @@ type interactionCandidate struct {
 	headSequence                                                      uint64
 	nextJSON                                                          json.RawMessage
 	geometryKey                                                       string
+	visualObjectID                                                    string
 	changes                                                           modelcore.ChangeSet
 	expiresAt                                                         time.Time
 }
@@ -149,4 +150,35 @@ func cloneCandidateChanges(value modelcore.ChangeSet) modelcore.ChangeSet {
 		return value
 	}
 	return result
+}
+
+// DiscardPreview revokes both promotion and transient artifact access.
+func (service *Service) DiscardPreview(documentID, actorID, id string) {
+	cache := &service.interactionCandidates
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if value, ok := cache.values[id]; ok && value.documentID == documentID && value.actorID == actorID {
+		delete(cache.values, id)
+	}
+}
+
+func (service *Service) PreviewGeometryKey(documentID, actorID, id string) (string, bool) {
+	cache := &service.interactionCandidates
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	value, ok := cache.values[id]
+	if !ok || value.documentID != documentID || value.actorID != actorID || time.Now().After(value.expiresAt) {
+		return "", false
+	}
+	return value.geometryKey, value.geometryKey != ""
+}
+
+// PreviewVisualAllowed uses the immutable evaluated candidate, avoiding a
+// second database lookup for geometry membership on every preview download.
+func (service *Service) PreviewVisualAllowed(documentID, actorID, id, objectID string) bool {
+	cache := &service.interactionCandidates
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	value, ok := cache.values[id]
+	return ok && objectID != "" && value.visualObjectID == objectID && value.documentID == documentID && value.actorID == actorID && time.Now().Before(value.expiresAt)
 }

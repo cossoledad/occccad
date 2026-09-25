@@ -19,7 +19,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { useNavigate, useParams } from "react-router-dom";
 import { api, isMockMode } from "../../api/client";
 import { ApiError } from "../../api";
-import { realtime } from "../../api/realtime-client";
+import { realtime, RealtimeError } from "../../api/realtime-client";
 import { randomUUID } from "../../utils/random-uuid";
 import { queryKeys } from "../../app/query-keys";
 import { ShareDialog, type ShareResource } from "../../components/share-dialog";
@@ -528,7 +528,7 @@ export function Workbench() {
           return;
         }
         const error = cause instanceof Error ? cause : new Error(String(cause));
-        const apiError = cause instanceof ApiError ? cause : undefined;
+        const apiError = cause instanceof ApiError || cause instanceof RealtimeError ? cause : undefined;
 		if (sequence === assemblyPreviewSequence.current) {
 		  const supports = references.map((reference) => assemblySupportPresentation(reference));
 		  setAssemblyPreviewEvaluation({
@@ -1201,8 +1201,8 @@ export function Workbench() {
             setPendingAssemblyConstraint({ kind, references,
               angleRelation });
           }}
-		  onInstanceMovePreview={async(instanceId,translation,rotation,interactionId,previewSequence)=>{
-			if(editingView?.document.type!=="PRODUCT")return{poses:[],constraintLimited:true,previewId:""};const preview=await api.previewCommand(editingView.document.id,{type:"MOVE_INSTANCE",interactionId,previewSequence,instanceId,translation,rotation});return{poses:preview.instancePoses??[],constraintLimited:Boolean(preview.constraintLimited),previewId:preview.previewId};
+		  onInstanceMovePreview={async(instanceId,translation,rotation,interactionId,previewSequence,signal)=>{
+			if(editingView?.document.type!=="PRODUCT")return{poses:[],constraintLimited:true,previewId:""};const preview=await api.previewCommand(editingView.document.id,{type:"MOVE_INSTANCE",interactionId,previewSequence,instanceId,translation,rotation},signal);return{poses:preview.instancePoses??[],constraintLimited:Boolean(preview.constraintLimited),previewId:preview.previewId};
           }}
           onInstanceMoved={moveInstance} /></Suspense>
       <WorkbenchViewControls toolbars={visibleToolbars} />

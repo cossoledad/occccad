@@ -64,7 +64,7 @@ OCCT 使用文件接口：Go Geometry client 将远端引用按 RPC 下载到独
 
 2026-09-24 定向验证：真实 MinIO 的 1 GiB 往返及完整 SHA-256 通过；取消分片独立清理、HTTP chunked 超限拒绝、Worker 输入校验/清理、小模型 STEP/BREP 交换链通过；Go 相关包定向测试、C++ Worker 构建及 Web 类型检查通过。开发库迁移了 408 个 LOCAL 对象并补齐 19 处 embedded 引用（内容去重），最终 409 个 READY 对象均在 S3 完成逐对象大小与摘要核验。原件保留，未做浏览器或全量测试。
 
-Exchange HTTP 提交只等待完整上传和 Job 入队，随后立即关闭对话框；浏览器不会让提交请求等待几何处理。Jobs 在最终 `SUCCEEDED`、最终 `FAILED` 或 `CANCELED` 状态转换的同一 SQL statement 中写入 `JOB` Outbox，API 将 `job.state.changed.v1` 仅推送给任务发起用户。若该用户没有可接收的 WebSocket 会话，事件保持 unpublished，直到至少一个会话接受。Web 顶部消息中心同时从 `GET /api/jobs` 恢复最近 100 条用户可见任务，因此错过瞬时通知或重新登录后仍能看到状态、失败原因、进度和下载/打开入口；仅在存在活动任务时每 2.5 秒刷新进度，终态仍由 WebSocket 立即提示。前端把持久 Job 投影为通用 ActivityItem，任务类型展示与动作注册集中在 activity 模块，未来其他持久消息来源可增加独立 projector 后合并，而不复制 Drawer 或任务状态机。
+Exchange HTTP 提交只等待完整上传和 Job 入队，随后立即关闭对话框；浏览器不会让提交请求等待几何处理。Jobs 在排队、领取、进度、重试与取消等生命周期状态转换的同一 SQL statement 或领取事务中写入 `JOB` Outbox，API 将 `job.state.changed.v1` 仅推送给任务发起用户。若该用户没有可接收的 WebSocket 会话，事件保持 unpublished，直到至少一个会话接受。Web 顶部消息中心同时从 `GET /api/jobs` 恢复最近 100 条用户可见任务，因此错过瞬时通知或重新登录后仍能看到状态、失败原因、进度和下载/打开入口；仅在存在活动任务时每 2.5 秒刷新进度，终态仍由 WebSocket 立即提示。前端把持久 Job 投影为通用 ActivityItem，任务类型展示与动作注册集中在 activity 模块，未来其他持久消息来源可增加独立 projector 后合并，而不复制 Drawer 或任务状态机。
 
 当前业务导入以 Solid occurrence 为拆分和并行边界，一个 transferable root 中的多个 Solid 也生成多个 Part 和一个 Product；Solid 的位置保留在冻结 BREP 中，装配以 identity placement 引用这些 Part，重合 occurrence 不去重；Product 导出同样保持“每个 occurrence 一个 transferable root”的当前对称契约。这只保证展平 Product 的类型和 placement round-trip；尚未使用 STEPCAF/XDE 恢复嵌套层级、名称、颜色、单位和共享实例关系，因此不能宣称完整 AP242 装配交换。
 
@@ -104,3 +104,5 @@ ImportExchange 先生成精确快照，CommitImportedPart 再冻结导入定义�
 [只读审计 SQL](../../../services/scripts/audit-import-naming.sql)按 HEAD/HISTORY 汇总导入文档命名元数据。本轮回归写入测试 fixture 前的开发库基线为 2 个当前导入文档，均 NAMING_ABSENT；元数据审计不等于制品内容完整性验证，未重写已有文档。
 
 验证：workspace 包测试通过；真实数据库、Router 与 Worker 的 `TestEdgeVertexPersistentSelectionThroughRealRouter` 通过，覆盖实际 BREP ImportExchange、提交、冷重开、精确属性、禁止面上草图且 Head 不变、基准面草图，以及原生持久拓扑回归。前端类型检查与 naming capability、publication selection、assembly constraint UX、workbench command model 四组场景通过。未做浏览器、全仓或大文件验收。测试入口为 [诊断单测](../../../services/internal/workspace/topology_naming_diagnostics_test.go)与[导入集成断言](../../../services/internal/control/import_naming_diagnostics_test.go)。
+
+CAD Command/Preview 与轻量 Job 事件协议见[realtime 控制面](realtime.md)；API 合并同一 Job 的待发提示，不将大型导入结果 payload 放入 WebSocket。

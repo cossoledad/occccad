@@ -28,6 +28,7 @@
 | Surface/3D Wire | 尚无完整实现 | [模型](architecture/target/surface-model.md)、[Feature](architecture/target/surface-features.md)、[质量](architecture/target/surface-quality.md)、[集成](architecture/target/surface-integration.md) |
 | DMU/Kinematics | 尚无完整实现 | [候选合同](architecture/target/kinematics-dmu.md) |
 | 大文件导入/原生大模型 | [交换现状与限制](architecture/current/jobs-artifacts.md) | [工作集与导入设计提案](architecture/target/large-models.md)、[实施支线](../plans/import-large-models.md) |
+| CAD realtime | [实时控制面](architecture/current/realtime.md) | [命令与历史](architecture/target/commands-history.md) |
 | Jobs/Artifact/通信 | [Jobs 与制品](architecture/current/jobs-artifacts.md) | [分布式平台](architecture/target/distributed-platform.md) |
 | Web | [交互架构](architecture/current/web.md) | 对应领域交互合同与[命令分层](architecture/target/commands-history.md) |
 | 安全/验证/交付 | [验证边界](architecture/current/validation.md) | [质量与扩展](architecture/target/quality-extensions.md)、[交付治理](architecture/target/delivery-governance.md) |

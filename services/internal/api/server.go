@@ -22,7 +22,6 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
-	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
 	"github.com/occccad/occccad/internal/thumbnail"
 	"github.com/occccad/occccad/internal/workspace"
@@ -244,8 +243,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/documents/{documentID}/workspaces", server.listDocumentWorkspaces)
 	mux.HandleFunc("POST /api/documents/{documentID}/workspaces", server.branchDocumentWorkspace)
 	mux.HandleFunc("POST /api/documents/{documentID}/versions", server.createVersion)
-	mux.HandleFunc("POST /api/documents/{documentID}/commands", server.applyCommand)
-	mux.HandleFunc("POST /api/documents/{documentID}/command-previews", server.previewCommand)
+	mux.HandleFunc("GET /api/documents/{documentID}/realtime-snapshot", server.realtimeSnapshot)
 	mux.HandleFunc("GET /api/documents/{documentID}/assembly-replays", server.listAssemblyReplays)
 	mux.HandleFunc("GET /api/documents/{documentID}/assembly-replays/{replayID}", server.downloadAssemblyReplay)
 	mux.HandleFunc("POST /api/documents/{documentID}/diagnostic-bundles", server.downloadDiagnosticBundle)
@@ -1059,74 +1057,6 @@ func writeTopologySelectionError(writer http.ResponseWriter, err error) {
 	default:
 		writeError(writer, http.StatusInternalServerError, err.Error())
 	}
-}
-
-func (server *Server) applyCommand(writer http.ResponseWriter, request *http.Request) {
-	if _, ok := server.requireDocument(writer, request, access.RoleEditor); !ok {
-		return
-	}
-	var input workspace.CommandRequest
-	if !decodeJSON(writer, request, &input) {
-		return
-	}
-	input.ActorID = principal(request).ID
-	if err := server.requireCommandReferences(request.Context(), principal(request).ID, request.PathValue("documentID"), input); err != nil {
-		writeAccessError(writer, err)
-		return
-	}
-	result, err := server.workspace.ApplyCommand(
-		request.Context(), request.PathValue("documentID"), input)
-	server.writeDocumentResult(writer, request, result, err)
-}
-
-func (server *Server) previewCommand(writer http.ResponseWriter, request *http.Request) {
-	if _, ok := server.requireDocument(writer, request, access.RoleEditor); !ok {
-		return
-	}
-	var input workspace.CommandRequest
-	if !decodeJSON(writer, request, &input) {
-		return
-	}
-	input.ActorID = principal(request).ID
-	if err := server.requireCommandReferences(request.Context(), principal(request).ID, request.PathValue("documentID"), input); err != nil {
-		writeAccessError(writer, err)
-		return
-	}
-	ctx, cancel := context.WithTimeout(request.Context(), 15*time.Second)
-	defer cancel()
-	result, err := server.workspace.PreviewCommand(ctx, request.PathValue("documentID"), input)
-	if err == nil {
-		writeJSON(writer, http.StatusOK, result)
-		return
-	}
-	if writeDatabaseBusy(writer, err) {
-		return
-	}
-	if errors.Is(err, workspace.ErrNotFound) {
-		writeError(writer, http.StatusNotFound, err.Error())
-		return
-	}
-	var assemblyFailure interface {
-		Code() string
-		Phase() string
-		Retryable() bool
-	}
-	if errors.As(err, &assemblyFailure) {
-		writeJSON(writer, http.StatusUnprocessableEntity, map[string]any{
-			"error": err.Error(), "code": assemblyFailure.Code(),
-			"phase": assemblyFailure.Phase(), "retryable": assemblyFailure.Retryable(),
-		})
-		return
-	}
-	if errors.Is(err, workspace.ErrValidation) || errors.Is(err, modelcore.ErrInvalidCommand) || errors.Is(err, modelcore.ErrUnsupportedCommand) {
-		writeError(writer, http.StatusBadRequest, err.Error())
-		return
-	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		writeError(writer, http.StatusGatewayTimeout, "command preview timed out")
-		return
-	}
-	writeError(writer, http.StatusInternalServerError, err.Error())
 }
 
 func decodeJSON(writer http.ResponseWriter, request *http.Request, value any) bool {

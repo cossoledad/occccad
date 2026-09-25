@@ -168,4 +168,6 @@ Product 的 Debug 下载动作导出当前请求的 `.3dreplay`，Part 继续使
 
 已有无命名定义的 ImportBody 在工作台告警中提供“建立导入命名”，调用正常 `REPAIR_IMPORT_NAMING` 命令并刷新权威 DocumentView；有编辑权限时可用，提交期间显示忙碌状态。修复形成新 Revision，可 Undo/Redo，未修复旧快照保持不可绑定诊断。
 
-持久实体显示仅来自 `*.mesh.glb`，DocumentView 的 Artifact 只含摘要和角色引用。`cad/visual/visual-repository.ts` 负责鉴权下载、摘要校验、并发限制和按对象摘要去重；`mesh-glb.ts` 解码 `OCCCCAD_cad` 拾取映射。解码数据属于 viewport，不回写 API/Query 状态。临时预览以 `TRANSIENT_PREVIEW` 和 `previewMesh` 明确区分。合同与当前内存限制见[几何表示](../../../docs/architecture/current/geometry-representations.md)。
+持久实体显示仅来自 `*.mesh.glb`，DocumentView 的 Artifact 只含摘要和角色引用。`cad/visual/visual-repository.ts` 负责鉴权下载、摘要校验、并发限制和按对象摘要去重；`mesh-glb.ts` 解码 `OCCCCAD_cad` 拾取映射。解码数据属于 viewport，不回写 API/Query 状态。临时预览以 `TRANSIENT_PREVIEW` 明确区分，同样只从 Artifact 引用加载 GLB。合同与当前内存限制见[几何表示](../../../docs/architecture/current/geometry-representations.md)。
+
+CAD Command/Preview 使用 `api` 门面进入 `RealtimeClient`；取消由 AbortSignal 转为 preview cancel，断线不重放旧鼠标轨迹。订阅仅返回身份；命令可内联最多 64 KiB 的轻量业务快照，较大文档通过 HTTP snapshot 的一致 sequence 恢复权威状态。详见[realtime 控制面](../../../docs/architecture/current/realtime.md)。

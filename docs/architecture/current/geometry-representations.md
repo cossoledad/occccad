@@ -52,7 +52,7 @@ local ID 和三角形序号仍只是该 GeometryKey 的临时拾取定位。持�
 
 Naming 在 bind/resolver 时按需读取并校验摘要；普通 DocumentView 加载仅查询索引，不下载完整拓扑图。Naming 索引 READY 表示已登记可用制品，实际内容或策略损坏仍由解析门明确拒绝。
 
-预览响应标记 `TRANSIENT_PREVIEW`，通过独立 `previewMesh` 表达临时消费者数据。当前 PreviewCommand 暂时仍复用原有求值/候选提交流程，可能生成可复用持久制品；本阶段没有实现预览独立暂存生命周期，但模型允许后续仅返回 transient representation，而不要求它有正式 Artifact 引用。
+预览响应标记 `TRANSIENT_PREVIEW`，只返回 Artifact 引用；`previewMesh` 已从前后端 Artifact 模型移除。PreviewCommand 仍复用求值和 verified candidate，GLB 经候选限定授权从 HTTP 文件路由获取。取消/覆盖/断线撤销候选和读取授权，独立加载器避免迟到 GLB 覆盖当前视图；完整协议见[realtime 控制面](realtime.md)。底层内部 Worker 的临时 `preview_mesh` 不作为 Web realtime 输出。
 
 ## 验证与边界
 
@@ -60,4 +60,4 @@ Naming 在 bind/resolver 时按需读取并校验摘要；普通 DocumentView �
 
 2026-09-25 定向验证：空 schema 下 Router 的 Cut/Hole、Face/Edge/Vertex、导入命名与 Undo/Redo 通过；下载权限、嵌套 Product 及历史 Revision 归属通过；C++ GLB 的 Go/TypeScript 解码和拾取映射通过。`LD200 torsen v7.step` 经 S3 和真实 Router 的交换导入结果包含 114 Solid、310,731 显示顶点、404,796 三角形，响应为 594 字节，整项测试约 139 秒。这是交换层回归，不等同于多文档 Jobs 导入或浏览器显示性能验收。
 
-这次是数据职责收敛，不是 1 GiB 几何容量验收。OCCT 求值、GLB 合成/解码及 BVH 仍可能持有完整工作集；LOD、chunk、按字节预算、跨主机 Worker 数据面尚未实现。GLB 容器有 32 位长度上限，写入超限会失败。STEP XDE/AP242 结构和 WebSocket 协议未改造。未发布 schema/Proto 直接修正，切换前需停止旧进程并通过 `invoke data.reset --yes` 重建数据；不支持旧内联数据回退。
+这次是数据职责收敛，不是 1 GiB 几何容量验收。OCCT 求值、GLB 合成/解码及 BVH 仍可能持有完整工作集；LOD、chunk、按字节预算、跨主机 Worker 数据面尚未实现。GLB 容器有 32 位长度上限，写入超限会失败。STEP XDE/AP242 结构未改造；WebSocket 控制面见独立分册。未发布 schema/Proto 直接修正，切换前需停止旧进程并通过 `invoke data.reset --yes` 重建数据；不支持旧内联数据回退。

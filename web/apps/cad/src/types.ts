@@ -23,7 +23,6 @@ export type Artifact = {
   naming?: NamingAvailability;
   geometryKey: string;
   geometryId: string;
-  previewMesh?: MeshData;
   representationKind: "PERSISTENT" | "TRANSIENT_PREVIEW";
   representations: Record<string,{objectId:string;digest:string;schemaVersion:number;size:number;contentType:string;url?:string}>;
   triangleCount:number;

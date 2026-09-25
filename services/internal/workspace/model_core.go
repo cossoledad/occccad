@@ -1738,10 +1738,10 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	if err != nil {
 		return err
 	}
-	var storedDigest string
-	err = service.database.QueryRow(ctx, `SELECT t.request_digest FROM occccad.domain_transactions t JOIN occccad.workspaces w ON w.id=t.workspace_id WHERE w.document_id=$1 AND w.name='main' AND t.request_id=$2 AND t.status='COMMITTED'`, documentID, request.RequestID).Scan(&storedDigest)
+	var storedDigest, storedActor string
+	err = service.database.QueryRow(ctx, `SELECT t.request_digest,t.actor_id::text FROM occccad.domain_transactions t JOIN occccad.workspaces w ON w.id=t.workspace_id WHERE w.document_id=$1 AND w.name='main' AND t.request_id=$2 AND t.status='COMMITTED'`, documentID, request.RequestID).Scan(&storedDigest, &storedActor)
 	if err == nil {
-		if storedDigest != modelcore.ValueDigest(requestJSON) {
+		if storedActor != actorID(request.ActorID) || storedDigest != modelcore.ValueDigest(requestJSON) {
 			return fmt.Errorf("%w: IDEMPOTENCY_KEY_REUSED", ErrValidation)
 		}
 		return nil
@@ -1913,6 +1913,18 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		return err
 	}
 	if currentHead != prepared.headRevision || currentSequence != prepared.headSequence {
+		var completedDigest, completedActor string
+		completedErr := tx.QueryRow(ctx, `SELECT request_digest,actor_id::text FROM occccad.domain_transactions WHERE workspace_id=$1 AND request_id=$2 AND status='COMMITTED'`, prepared.workspaceID, prepared.requestID).Scan(&completedDigest, &completedActor)
+		if completedErr == nil {
+			if completedActor != prepared.actorID || completedDigest != prepared.requestDigest {
+				return fmt.Errorf("%w: IDEMPOTENCY_KEY_REUSED", ErrValidation)
+			}
+			return nil
+		}
+		if !errors.Is(completedErr, pgx.ErrNoRows) {
+			return completedErr
+		}
+
 		return fmt.Errorf("%w: WORKSPACE_HEAD_CONFLICT", ErrValidation)
 	}
 	var revisionSequence uint64
@@ -2207,15 +2219,9 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	previewID := newID("preview")
 	service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
 		headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
-		payloadDigest: modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, geometryKey: geometryKey,
+		payloadDigest: modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, geometryKey: geometryKey, visualObjectID: artifact.Representations["VISUAL"].ObjectID,
 		changes: previewChanges, expiresAt: time.Now().Add(interactionCandidateTTL)})
-	previewView := DocumentView{Artifact: &artifact}
-	if err := service.HydrateDisplay(ctx, &previewView); err != nil {
-		return CommandPreview{}, err
-	}
-	artifact = *previewView.Artifact
 	artifact.RepresentationKind = "TRANSIENT_PREVIEW"
-	artifact.PreviewMesh = &artifact.Mesh
 
 	return CommandPreview{
 		PreviewID: previewID, BaseVersionID: prepared.headRevision,

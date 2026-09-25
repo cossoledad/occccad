@@ -46,7 +46,7 @@ EditSketchCommand
 
 | 接口 | 语义 |
 |---|---|
-| `POST /api/documents/{id}/commands` | 提交 `CREATE_SKETCH` / `EDIT_SKETCH`，求解后 CAS 形成新 Revision |
+| `workspace.command.execute.v1`（WebSocket） | 提交 `CREATE_SKETCH` / `EDIT_SKETCH`，求解后 CAS 形成新 Revision |
 | `POST /api/documents/{id}/sketches/{sketchId}:solve` | 对完整候选 Snapshot 做权威预览求解，不写数据库 |
 | `GET /api/documents/{id}/sketches/{sketchId}/diagnostics` | 获取当前 Revision 的缓存诊断；缺失时可重算 |
 

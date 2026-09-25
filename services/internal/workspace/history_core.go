@@ -99,9 +99,9 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 	actor := actorID(request.ActorID)
 	historyPayload, _ := json.Marshal(map[string]string{"type": request.Type, "versionId": request.VersionID})
 	historyDigest := modelcore.ValueDigest(historyPayload)
-	var storedDigest string
-	if err := service.database.QueryRow(ctx, `SELECT request_digest FROM occccad.domain_transactions WHERE workspace_id=$1 AND request_id=$2 AND status='COMMITTED'`, workspaceID, request.RequestID).Scan(&storedDigest); err == nil {
-		if storedDigest != historyDigest {
+	var storedDigest, storedActor string
+	if err := service.database.QueryRow(ctx, `SELECT request_digest,actor_id::text FROM occccad.domain_transactions WHERE workspace_id=$1 AND request_id=$2 AND status='COMMITTED'`, workspaceID, request.RequestID).Scan(&storedDigest, &storedActor); err == nil {
+		if storedActor != actorID(request.ActorID) || storedDigest != historyDigest {
 			return fmt.Errorf("%w: IDEMPOTENCY_KEY_REUSED", ErrValidation)
 		}
 		return nil
@@ -277,9 +277,9 @@ func (service *Service) applyRestoreRevision(ctx context.Context, documentID str
 	}
 	historyPayload, _ := json.Marshal(map[string]string{"type": "RESTORE", "versionId": request.VersionID})
 	historyDigest := modelcore.ValueDigest(historyPayload)
-	var storedDigest string
-	if err := service.database.QueryRow(ctx, `SELECT request_digest FROM occccad.domain_transactions WHERE workspace_id=$1 AND request_id=$2 AND status='COMMITTED'`, workspaceID, request.RequestID).Scan(&storedDigest); err == nil {
-		if storedDigest != historyDigest {
+	var storedDigest, storedActor string
+	if err := service.database.QueryRow(ctx, `SELECT request_digest,actor_id::text FROM occccad.domain_transactions WHERE workspace_id=$1 AND request_id=$2 AND status='COMMITTED'`, workspaceID, request.RequestID).Scan(&storedDigest, &storedActor); err == nil {
+		if storedActor != actorID(request.ActorID) || storedDigest != historyDigest {
 			return fmt.Errorf("%w: IDEMPOTENCY_KEY_REUSED", ErrValidation)
 		}
 		return nil
@@ -915,6 +915,18 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 		return err
 	}
 	if currentHead != input.headRevision || currentSequence != input.headSequence {
+		var completedDigest, completedActor string
+		completedErr := tx.QueryRow(ctx, `SELECT request_digest,actor_id::text FROM occccad.domain_transactions WHERE workspace_id=$1 AND request_id=$2 AND status='COMMITTED'`, input.workspaceID, input.requestID).Scan(&completedDigest, &completedActor)
+		if completedErr == nil {
+			if completedActor != input.actorID || completedDigest != requestDigest {
+				return fmt.Errorf("%w: IDEMPOTENCY_KEY_REUSED", ErrValidation)
+			}
+			return nil
+		}
+		if !errors.Is(completedErr, pgx.ErrNoRows) {
+			return completedErr
+		}
+
 		return fmt.Errorf("%w: WORKSPACE_HEAD_CONFLICT", ErrValidation)
 	}
 	var revisionSequence uint64

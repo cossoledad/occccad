@@ -16,13 +16,15 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/database"
+	perf "github.com/occccad/occccad/internal/performance"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
 const (
-	realtimeProtocol  = "occccad.realtime.v1"
-	realtimeQueueSize = 128
-	realtimeMaxBytes  = 1 << 20
+	realtimeProtocol        = "occccad.realtime.v1"
+	realtimeQueueSize       = 128
+	realtimeMaxBytes        = 1 << 20
+	realtimeInlineViewBytes = 64 << 10
 )
 
 type realtimeEnvelope struct {
@@ -38,6 +40,7 @@ type realtimeEnvelope struct {
 }
 
 type realtimeError struct {
+	Phase     string `json:"phase,omitempty"`
 	Code      string `json:"code"`
 	Message   string `json:"message"`
 	Retryable bool   `json:"retryable"`
@@ -55,11 +58,22 @@ type realtimeClient struct {
 	mu            sync.RWMutex
 	subscriptions map[string]string
 	acknowledged  map[string]uint64
+	previews      map[string]*realtimePreview
+	previewSlots  chan struct{}
 }
 
 func (client *realtimeClient) close() {
 	client.closeOnce.Do(func() {
 		close(client.done)
+		go func() {
+			client.mu.Lock()
+			defer client.mu.Unlock()
+			for _, p := range client.previews {
+				p.cancel()
+				p.discard(p.previewID)
+			}
+			client.previews = nil
+		}()
 		if client.conn != nil {
 			_ = client.conn.Close()
 		}
@@ -76,6 +90,16 @@ func (client *realtimeClient) subscribe(documentID, workspaceID string) {
 func (client *realtimeClient) unsubscribe(documentID string) {
 	client.mu.Lock()
 	delete(client.subscriptions, documentID)
+	for key, p := range client.previews {
+		if strings.HasPrefix(key, documentID+"/") {
+			p.cancel()
+			p.discard(p.previewID)
+			if p.requestID != "" {
+				client.sendResponse(p.requestID, "workspace.preview.canceled.v1", map[string]any{"documentId": documentID, "previewSequence": p.sequence})
+			}
+			delete(client.previews, key)
+		}
+	}
 	client.mu.Unlock()
 	client.hub.unsubscribe(documentID, client)
 }
@@ -136,6 +160,10 @@ func (hub *realtimeHub) broadcast(documentID string, message []byte) {
 	}
 	hub.mu.RUnlock()
 	for _, client := range clients {
+		if len(message) > realtimeMaxBytes {
+			hub.remove(client)
+			continue
+		}
 		select {
 		case client.send <- message:
 		default:
@@ -157,6 +185,10 @@ func (hub *realtimeHub) broadcastUser(userID string, message []byte) int {
 	hub.mu.RUnlock()
 	delivered := 0
 	for _, client := range clients {
+		if len(message) > realtimeMaxBytes {
+			hub.remove(client)
+			continue
+		}
 		select {
 		case client.send <- message:
 			delivered++
@@ -236,6 +268,30 @@ func (client *realtimeClient) readLoop(server *Server, request *http.Request) {
 	if !client.initialize(server, request) {
 		return
 	}
+	ctx, cancel := context.WithCancel(request.Context())
+	defer cancel()
+	type queuedRequest struct {
+		envelope realtimeEnvelope
+		deadline time.Time
+	}
+	queue := make(chan queuedRequest, 16)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case item := <-queue:
+				operation, finish := context.WithDeadline(ctx, item.deadline)
+				if operation.Err() != nil {
+					client.sendDomainError(item.envelope.ID, operation.Err())
+					finish()
+					continue
+				}
+				client.handleRequest(server, operation, item.envelope)
+				finish()
+			}
+		}
+	}()
 	for {
 		var envelope realtimeEnvelope
 		if err := client.conn.ReadJSON(&envelope); err != nil {
@@ -250,7 +306,18 @@ func (client *realtimeClient) readLoop(server *Server, request *http.Request) {
 			client.handleAcknowledgement(envelope)
 			continue
 		}
-		client.handleRequest(server, request.Context(), envelope)
+		switch envelope.Type {
+		case "workspace.preview.request.v1":
+			client.startPreview(server, ctx, envelope)
+		case "workspace.preview.cancel.v1":
+			client.cancelPreview(envelope)
+		default:
+			select {
+			case queue <- queuedRequest{envelope: envelope, deadline: time.Now().Add(2 * time.Minute)}:
+			default:
+				client.sendError(envelope.ID, "REALTIME_BUSY", "realtime command queue is full", true)
+			}
+		}
 	}
 }
 
@@ -327,71 +394,82 @@ func (server *Server) handleRealtimeSubscribe(ctx context.Context, client *realt
 		client.sendError(envelope.ID, "INVALID_PAYLOAD", "documentId is required", false)
 		return
 	}
-	role, err := server.access.RequireDocument(ctx, payload.DocumentID, client.actor.ID, access.RoleViewer)
+	_, err := server.access.RequireDocument(ctx, payload.DocumentID, client.actor.ID, access.RoleViewer)
 	if err != nil {
 		client.sendDomainError(envelope.ID, err)
 		return
 	}
-	var workspaceID string
-	var sequence uint64
-	if err := server.database.QueryRow(ctx, `SELECT id::text,head_sequence FROM occccad.workspaces
-		WHERE document_id=$1 AND name='main'`, payload.DocumentID).Scan(&workspaceID, &sequence); err != nil {
-		client.sendDomainError(envelope.ID, err)
-		return
-	}
-	client.subscribe(payload.DocumentID, workspaceID)
-	view, err := server.workspace.GetDocument(ctx, payload.DocumentID, client.actor.ID)
+	client.subscribe(payload.DocumentID, "")
+	head, err := server.realtimeHead(ctx, payload.DocumentID)
 	if err != nil {
 		client.unsubscribe(payload.DocumentID)
 		client.sendDomainError(envelope.ID, err)
 		return
 	}
-	view.Document.Permission = string(role)
-	// Read the sequence after the view. Because registration happens first,
-	// any commit racing with this snapshot is also delivered as an event and
-	// the client can invalidate the snapshot without a lost-update window.
-	_ = server.database.QueryRow(ctx, `SELECT head_sequence FROM occccad.workspaces WHERE id=$1`,
-		workspaceID).Scan(&sequence)
-	client.sendResponse(envelope.ID, "document.subscribed.v1", map[string]any{
-		"documentId": payload.DocumentID, "workspaceId": workspaceID, "sequence": sequence, "view": view,
-	})
+	client.subscribe(payload.DocumentID, head.WorkspaceID)
+	client.sendResponse(envelope.ID, "document.subscribed.v1", head)
 }
 
 func (server *Server) handleRealtimeCommand(ctx context.Context, client *realtimeClient, envelope realtimeEnvelope) {
+	ctx, finishTiming := realtimeOperationTiming(ctx, envelope)
+	defer finishTiming()
 	var payload struct {
-		DocumentID string                   `json:"documentId"`
-		Command    workspace.CommandRequest `json:"command"`
+		DocumentID     string                   `json:"documentId"`
+		InlineSnapshot *bool                    `json:"inlineSnapshot,omitempty"`
+		Command        workspace.CommandRequest `json:"command"`
 	}
-	if json.Unmarshal(envelope.Payload, &payload) != nil || payload.DocumentID == "" || payload.Command.Type == "" {
-		client.sendError(envelope.ID, "INVALID_PAYLOAD", "documentId and command.type are required", false)
+	if json.Unmarshal(envelope.Payload, &payload) != nil || payload.DocumentID == "" || payload.Command.Type == "" || payload.Command.RequestID == "" {
+		client.sendError(envelope.ID, "INVALID_PAYLOAD", "documentId and command requestId/type are required", false)
 		return
 	}
-	if _, err := server.access.RequireDocument(ctx, payload.DocumentID, client.actor.ID, access.RoleEditor); err != nil {
-		client.sendDomainError(envelope.ID, err)
-		return
-	}
-	payload.Command.ActorID = client.actor.ID
-	if payload.Command.RequestID == "" {
-		payload.Command.RequestID = envelope.ID
-	}
-	if err := server.requireCommandReferences(ctx, client.actor.ID, payload.DocumentID, payload.Command); err != nil {
-		client.sendDomainError(envelope.ID, err)
-		return
-	}
-	view, err := server.workspace.ApplyCommand(ctx, payload.DocumentID, payload.Command)
+	role, err := server.access.RequireDocument(ctx, payload.DocumentID, client.actor.ID, access.RoleEditor)
 	if err != nil {
 		client.sendDomainError(envelope.ID, err)
 		return
 	}
-	role, _ := server.access.EffectiveDocumentRole(ctx, payload.DocumentID, client.actor.ID)
-	view.Document.Permission = string(role)
-	server.openDocuments.Update(client.actor.ID, view.Document)
-	if err := server.enqueueDocumentPreviews(ctx, view, client.actor.ID); err != nil {
+	payload.Command.ActorID = client.actor.ID
+	if err := server.requireCommandReferences(ctx, client.actor.ID, payload.DocumentID, payload.Command); err != nil {
+		client.sendDomainError(envelope.ID, err)
+		return
+	}
+	finishExecute := perf.Start(ctx, "command-execute")
+	executeErr := server.workspace.ExecuteCommand(ctx, payload.DocumentID, payload.Command)
+	finishExecute()
+	if err := executeErr; err != nil {
+		client.sendDomainError(envelope.ID, err)
+		return
+	}
+	var sequence uint64
+	var committedRevision string
+	if err := server.database.QueryRow(ctx, `SELECT t.sequence,t.result_revision_id::text FROM occccad.domain_transactions t JOIN occccad.workspaces w ON w.id=t.workspace_id WHERE w.document_id=$1 AND t.request_id=$2 AND t.status='COMMITTED'`, payload.DocumentID, payload.Command.RequestID).Scan(&sequence, &committedRevision); err != nil {
+		client.sendDomainError(envelope.ID, err)
+		return
+	}
+	finishSnapshot := perf.Start(ctx, "command-snapshot")
+	completion := map[string]any{
+		"documentId": payload.DocumentID, "requestId": payload.Command.RequestID, "versionId": committedRevision, "sequence": sequence,
+	}
+	// Small business snapshots avoid a second authenticated HTTP roundtrip.
+	// A receipt can be old (idempotent retry): never label a newer view with it.
+	if payload.InlineSnapshot == nil || *payload.InlineSnapshot {
+		if view, err := server.workspace.GetDocument(ctx, payload.DocumentID, client.actor.ID); err == nil && view.Document.VersionID == committedRevision {
+			view.Document.Permission = string(role)
+			if encoded := realtimeInlineView(view); encoded != nil {
+				if head, err := server.realtimeHead(ctx, payload.DocumentID); err == nil && head.Sequence == sequence && head.VersionID == committedRevision {
+					completion["view"] = json.RawMessage(encoded)
+					server.openDocuments.Update(client.actor.ID, view.Document)
+				}
+			}
+		}
+	}
+	finishSnapshot()
+	// The transaction and receipt are authoritative already. Thumbnail scheduling
+	// remains in this bounded executor, but is not on the response critical path.
+	client.sendResponse(envelope.ID, "workspace.command.completed.v1", completion)
+	finishTiming()
+	if err := server.enqueueDocumentPreviews(ctx, workspace.DocumentView{Document: workspace.DocumentSummary{ID: payload.DocumentID, VersionID: committedRevision}}, client.actor.ID); err != nil {
 		slog.ErrorContext(ctx, "enqueue realtime document previews", "error", err)
 	}
-	client.sendResponse(envelope.ID, "workspace.command.completed.v1", map[string]any{
-		"documentId": payload.DocumentID, "requestId": payload.Command.RequestID, "view": view,
-	})
 }
 
 func (client *realtimeClient) writeLoop() {
@@ -427,12 +505,21 @@ func (client *realtimeClient) sendError(correlationID, code, message string, ret
 }
 
 func (client *realtimeClient) sendDomainError(correlationID string, err error) {
+	failure := realtimeDomainError(err)
+	client.enqueue(newRealtimeEnvelope("error", "request.failed.v1", correlationID, nil, nil, &failure))
+}
+
+func realtimeDomainError(err error) realtimeError {
 	code, retryable := "INTERNAL", true
 	var domainFailure interface {
 		Code() string
 		Retryable() bool
 	}
 	switch {
+	case errors.Is(err, context.Canceled):
+		code, retryable = "CANCELED", false
+	case errors.Is(err, context.DeadlineExceeded):
+		code, retryable = "TIMEOUT", true
 	case errors.Is(err, database.ErrBusy):
 		code, retryable = "DATABASE_BUSY", true
 	case errors.As(err, &domainFailure):
@@ -446,13 +533,21 @@ func (client *realtimeClient) sendDomainError(correlationID string, err error) {
 	case errors.Is(err, access.ErrValidation), errors.Is(err, workspace.ErrValidation):
 		code, retryable = "VALIDATION_FAILED", false
 	}
-	client.sendError(correlationID, code, err.Error(), retryable)
+	failure := realtimeError{Code: code, Message: err.Error(), Retryable: retryable}
+	var phased interface{ Phase() string }
+	if errors.As(err, &phased) {
+		failure.Phase = phased.Phase()
+	}
+	return failure
 }
 
 func (client *realtimeClient) enqueue(envelope realtimeEnvelope) {
 	message, err := json.Marshal(envelope)
 	if err != nil {
 		return
+	}
+	if len(message) > realtimeMaxBytes {
+		message, _ = json.Marshal(newRealtimeEnvelope("error", "request.failed.v1", envelope.CorrelationID, nil, nil, &realtimeError{Code: "MESSAGE_TOO_LARGE", Message: "realtime response exceeds control-plane limit", Retryable: false}))
 	}
 	select {
 	case client.send <- message:
@@ -493,18 +588,21 @@ func (server *Server) dispatchRealtimeOutbox(ctx context.Context) {
 }
 
 func (server *Server) publishJobRealtimeBatch(ctx context.Context) error {
-	rows, err := server.database.Query(ctx, `SELECT e.id::text,e.aggregate_id::text,j.requested_by_user_id::text
+	rows, err := server.database.Query(ctx, `SELECT array_agg(e.id::text),e.aggregate_id::text,j.requested_by_user_id::text
 		FROM occccad.outbox_events e JOIN occccad.jobs j ON j.id=e.aggregate_id
 		WHERE e.aggregate_type='JOB' AND e.published_at IS NULL
-		ORDER BY e.created_at,e.id LIMIT 100`)
+		GROUP BY e.aggregate_id,j.requested_by_user_id ORDER BY min(e.created_at) LIMIT 100`)
 	if err != nil {
 		return err
 	}
-	type event struct{ id, jobID, userID string }
+	type event struct {
+		ids           []string
+		jobID, userID string
+	}
 	events := []event{}
 	for rows.Next() {
 		var item event
-		if err := rows.Scan(&item.id, &item.jobID, &item.userID); err != nil {
+		if err := rows.Scan(&item.ids, &item.jobID, &item.userID); err != nil {
 			rows.Close()
 			return err
 		}
@@ -519,6 +617,7 @@ func (server *Server) publishJobRealtimeBatch(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		job.Payload = nil // Large import result lists are fetched through the Jobs resource.
 		envelope := newRealtimeEnvelope("event", "job.state.changed.v1", "", nil,
 			map[string]any{"job": job}, nil)
 		encoded, _ := json.Marshal(envelope)
@@ -528,7 +627,7 @@ func (server *Server) publishJobRealtimeBatch(ctx context.Context) error {
 			continue
 		}
 		if _, err := server.database.Exec(ctx, `UPDATE occccad.outbox_events SET published_at=now()
-			WHERE id=$1 AND published_at IS NULL`, item.id); err != nil {
+			WHERE id::text=ANY($1) AND published_at IS NULL`, item.ids); err != nil {
 			return err
 		}
 	}
@@ -581,4 +680,27 @@ func (server *Server) publishRealtimeBatch(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// Each operation gets its own recorder, rather than accumulating phases for
+// the lifetime of the upgraded connection. Log only slow control operations.
+func realtimeOperationTiming(ctx context.Context, envelope realtimeEnvelope) (context.Context, func()) {
+	ctx, recorder := perf.WithRecorder(ctx)
+	started := time.Now()
+	var once sync.Once
+	return ctx, func() {
+		once.Do(func() {
+			if elapsed := time.Since(started); elapsed >= 250*time.Millisecond {
+				slog.InfoContext(ctx, "slow realtime operation", "type", envelope.Type, "correlation_id", envelope.ID, "duration_ms", elapsed.Milliseconds(), "phases_ms", recorder.SnapshotMilliseconds())
+			}
+		})
+	}
+}
+
+func realtimeInlineView(view workspace.DocumentView) json.RawMessage {
+	encoded, err := json.Marshal(view)
+	if err != nil || len(encoded) > realtimeInlineViewBytes {
+		return nil
+	}
+	return encoded
 }

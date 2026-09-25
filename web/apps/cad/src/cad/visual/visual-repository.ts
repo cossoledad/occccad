@@ -1,5 +1,7 @@
 import type { Artifact, DocumentView, MeshData } from "../../types";
 import { decodeMeshGLB, type DecodedVisual } from "./mesh-glb";
+const apiBaseURL = (import.meta.env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+
 export type DisplayArtifact = Artifact & {
     mesh: MeshData;
 };
@@ -11,6 +13,12 @@ export type DisplayDocumentView = Omit<DocumentView, "artifact" | "artifacts"> &
 export class VisualRepository {
     private entries = new Map<string, Promise<DecodedVisual>>();
     private abort = new AbortController();
+    // Only a completed, verified preview crosses the cancellation boundary.
+    // Keep at most one; pending downloads remain owned by their preview.
+    private reusablePreview?: { key: string; decoded: DecodedVisual };
+    constructor(private readonly owner?: VisualRepository) {}
+    previewRepository(): VisualRepository { return new VisualRepository(this); }
+    clearReusablePreview(): void { this.reusablePreview = undefined; }
     async hydrate(view: DocumentView): Promise<DisplayDocumentView> {
         const load = async (a: Artifact): Promise<DisplayArtifact> => {
             const ref = a.representations.VISUAL;
@@ -22,9 +30,15 @@ export class VisualRepository {
                 throw new Error("Invalid visual artifact digest");
             const key = `${ref.objectId}:${ref.digest}`;
             let pending = this.entries.get(key);
+            const reuse = (this.owner ?? this).reusablePreview;
+            if (!pending && reuse?.key === key) {
+                pending = Promise.resolve(reuse.decoded);
+                this.entries.set(key, pending);
+            }
             if (!pending) {
                 pending = (async () => {
-                    const response = await fetch(ref.url ?? `/api/documents/${encodeURIComponent(view.document.id)}/representations/${encodeURIComponent(ref.objectId)}?versionId=${encodeURIComponent(view.document.versionId)}`, { credentials: "same-origin", signal: this.abort.signal });
+                    const path = ref.url ?? `/api/documents/${encodeURIComponent(view.document.id)}/representations/${encodeURIComponent(ref.objectId)}?versionId=${encodeURIComponent(view.document.versionId)}`;
+                    const response = await fetch(path.startsWith("/") ? `${apiBaseURL}${path}` : path, { credentials: "include", signal: this.abort.signal });
                     if (!response.ok)
                         throw new Error(`Display artifact download failed (${response.status})`);
                     const buffer = await response.arrayBuffer();
@@ -36,7 +50,10 @@ export class VisualRepository {
                         if (hash !== ref.digest)
                             throw new Error("Display artifact digest mismatch");
                     }
-                    return decodeMeshGLB(buffer);
+                    const decoded = decodeMeshGLB(buffer);
+                    if (this.abort.signal.aborted) throw new DOMException("Preview canceled", "AbortError");
+                    if (this.owner) this.owner.reusablePreview = { key, decoded };
+                    return decoded;
                 })();
                 this.entries.set(key, pending);
                 pending.catch(() => { if (this.entries.get(key) === pending)
@@ -62,5 +79,5 @@ export class VisualRepository {
             if (!active.has(key))
                 this.entries.delete(key);
     }
-    dispose(): void { this.abort.abort(); this.entries.clear(); }
+    dispose(): void { this.abort.abort(); this.entries.clear(); this.clearReusablePreview(); }
 }

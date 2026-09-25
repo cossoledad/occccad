@@ -68,7 +68,7 @@ function boxArtifact(key: string, size: Vec3): Artifact {
   const url=URL.createObjectURL(new Blob([glb],{type:"model/gltf-binary"}));
   const {mesh,...descriptor}=display;
   descriptor.representations={VISUAL:{objectId:key,digest:key,schemaVersion:1,size:glb.byteLength,contentType:"model/gltf-binary",url}};
-  if(key.startsWith("mock-preview")){descriptor.representationKind="TRANSIENT_PREVIEW";descriptor.previewMesh=mesh;}
+  if(key.startsWith("mock-preview")){descriptor.representationKind="TRANSIENT_PREVIEW";}
   return descriptor;
 }
 

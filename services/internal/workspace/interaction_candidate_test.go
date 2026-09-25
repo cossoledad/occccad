@@ -41,3 +41,48 @@ func TestInteractionCandidatePromotionRequiresExactAuthorityBoundary(t *testing.
 		t.Fatal("expired candidate was promoted")
 	}
 }
+
+func TestPreviewAccessAndCancellationAreActorScoped(t *testing.T) {
+	service := &Service{}
+	value := interactionCandidate{id: "preview", documentID: "doc", actorID: "actor", geometryKey: "geometry", expiresAt: time.Now().Add(time.Minute)}
+	service.interactionCandidates.put(value)
+	if _, ok := service.PreviewGeometryKey("doc", "other", "preview"); ok {
+		t.Fatal("preview grant crossed actor")
+	}
+	service.DiscardPreview("doc", "other", "preview")
+	if key, ok := service.PreviewGeometryKey("doc", "actor", "preview"); !ok || key != "geometry" {
+		t.Fatal("other actor revoked preview")
+	}
+	service.DiscardPreview("doc", "actor", "preview")
+	if _, ok := service.PreviewGeometryKey("doc", "actor", "preview"); ok {
+		t.Fatal("canceled preview grant remained")
+	}
+	value.expiresAt = time.Now().Add(-time.Second)
+	service.interactionCandidates.put(value)
+	if _, ok := service.PreviewGeometryKey("doc", "actor", "preview"); ok {
+		t.Fatal("expired preview grant remained")
+	}
+}
+
+func TestPreviewVisualMembershipIsExactAndRevocable(t *testing.T) {
+	service := &Service{}
+	value := interactionCandidate{id: "preview", documentID: "doc", actorID: "actor", visualObjectID: "visual", expiresAt: time.Now().Add(time.Minute)}
+	service.interactionCandidates.put(value)
+	if !service.PreviewVisualAllowed("doc", "actor", "preview", "visual") {
+		t.Fatal("valid visual rejected")
+	}
+	for _, args := range [][4]string{{"doc", "other", "preview", "visual"}, {"other", "actor", "preview", "visual"}, {"doc", "actor", "other", "visual"}, {"doc", "actor", "preview", "brep"}, {"doc", "actor", "preview", ""}} {
+		if service.PreviewVisualAllowed(args[0], args[1], args[2], args[3]) {
+			t.Fatal("invalid visual grant", args)
+		}
+	}
+	service.DiscardPreview("doc", "actor", "preview")
+	if service.PreviewVisualAllowed("doc", "actor", "preview", "visual") {
+		t.Fatal("canceled grant remained")
+	}
+	value.expiresAt = time.Now().Add(-time.Second)
+	service.interactionCandidates.put(value)
+	if service.PreviewVisualAllowed("doc", "actor", "preview", "visual") {
+		t.Fatal("expired grant remained")
+	}
+}

@@ -50,13 +50,10 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 
 ### 实时消息与同文档同步
 
-- `GET /api/realtime` 使用 `occccad.realtime.v1` WebSocket 子协议；现有 session cookie 负责身份，首条 `connection.initialize.v1` 再验证 CSRF token 和 Origin；
-- JSON Envelope 支持 request/response/event/ack/error、correlation ID、版本化 type、Workspace sequence 和稳定错误；当前最大消息 1 MiB；
-- Web 前端的建模命令使用 `workspace.command.execute.v1`，HTTP 命令入口仍保留并调用同一个 Workspace Service；
-- 浏览器进入工作台后订阅 Document 并获得 DocumentView 快照。其他用户提交后，事务内 Outbox 由 API 轮询并向所有本机订阅者发布 `workspace.transaction.committed.v1`，浏览器刷新 Document、History、Properties 和目录投影；
-- Product 浏览器会话还递归订阅结构树中未被 `PINNED` 边截断的 FOLLOW_HEAD Reference Document。子 Part/Product 提交后，客户端失效并重新读取 Product Update Plan，再按叶到根串行自动接受；服务端仍以计划 digest 拒绝 stale candidate，每一级都形成正常不可变 Revision，失败只显示阻塞诊断而不令旧 Revision 漂移。激活文档即使位于 PINNED occurrence 下也会单独订阅，以支持该 Reference Document 自身的协同编辑；
-- 客户端按 sequence 去重和发现 gap，断线指数退避重连并重新获取快照；服务端以 Ping/Pong 检测失联，有界 128 消息队列满时断开慢消费者；
-- 当前实现多浏览器查看同一文档的提交后实时同步；presence、鼠标/选择和拖拽 preview 尚未接入 UI，多 API 实例间扇出也尚未实现。
+- `GET /api/realtime` 沿用 `occccad.realtime.v1`、session cookie、CSRF 和 Origin 校验；CAD 正式命令及 Preview 统一进入 realtime 控制面，资源查询和文件保持 HTTP。
+- 事务 Outbox 发布 Workspace sequence，订阅和命令完成仅携带身份/回执；权威快照通过 HTTP 一致性读取门恢复，避免完整业务树扩大 WebSocket 消息。
+- Preview 覆盖/取消、候选提升、同 requestId 断线重试、sequence gap 与 Job 进度的完整合同见[realtime 控制面](realtime.md)。
+- 活动文档及 FOLLOW_HEAD 引用继续使用原订阅集合；presence 和跨 API 实例扇出未实现。
 
 ### 参数、依赖与增量求值
 
@@ -76,7 +73,7 @@ Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更�
 
 ### 拉伸编辑的输入单位
 
-REST `EDIT_FEATURE` 的数值 `length` 在省略 `unit` 时按模型毫米解释，与前端 `linearExtrudeLengthInput` 输出一致；显式单位仍经 Quantity 转换，表达式保留长度量纲验证。编辑适配器先构造有量纲 Quantity，再进入统一 typed edit/evaluation/ChangeSet 路径，预览和提交共享此规则。`TestEditFeatureAdapterDefaultsLengthToMillimeters` 覆盖缺省/显式单位及补偿恢复，避免无量纲 literal 引发 `UNIT_MISMATCH`。
+Domain Command `EDIT_FEATURE` 的数值 `length` 在省略 `unit` 时按模型毫米解释，与前端 `linearExtrudeLengthInput` 输出一致；显式单位仍经 Quantity 转换，表达式保留长度量纲验证。编辑适配器先构造有量纲 Quantity，再进入统一 typed edit/evaluation/ChangeSet 路径，预览和提交共享此规则。`TestEditFeatureAdapterDefaultsLengthToMillimeters` 覆盖缺省/显式单位及补偿恢复，避免无量纲 literal 引发 `UNIT_MISMATCH`。
 
 导入 Feature 使用 `importDefinitionId` 引用独立冻结的重放输入，包含 BREP 摘要、策略与随机拓扑身份映射；它不是可丢弃的求值缓存。`REPAIR_IMPORT_NAMING` 通过现有 entity PropertySlot 更新引用并生成新 Revision，支持正常补偿。命令重试在依据当前 Head 检查创建/修复前置条件之前核对已提交 request digest，避免成功后因前置条件已变化而错误拒绝重复请求；相同 request ID 的不同 payload 仍拒绝。
 

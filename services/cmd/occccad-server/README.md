@@ -42,7 +42,7 @@ flowchart LR
 
 文档交换使用独立资源：`POST /api/exchange/imports?format=STEP|BREP&fileName=...` 把原始 request body 流式写入 ArtifactStore，限制由 `OCCCCAD_EXCHANGE_MAX_BYTES` 配置（默认 16 GiB）；`POST /api/exchange/exports` 提交 `{documentId, format, releaseId?}`，带 ReleaseId 时从冻结 Release GeometryKey 导出而不要求当前 Head 未移动；Product occurrence placement 保留 translation 和 quaternion rotation。`GET /api/jobs` 恢复当前用户最近 100 条可见任务，`POST /api/jobs/{jobID}/cancel|retry` 执行发起者或管理员动作，任务完成后从 `GET /api/jobs/{jobID}/download` 流式下载。导入不要求先创建 Part，不使用 multipart，也不让大文件经过 WebSocket 或 gRPC bytes。
 
-`GET|POST /api/documents/{documentID}/workspaces` 用于列出 Workspace 或从所属 Revision 创建 Branch。`POST /api/documents/{documentID}/commands` 是保留的 HTTP transport；Web 使用 `workspace.command.execute.v1` WebSocket 消息。二者进入同一 Workspace handler。`POST /api/documents/{documentID}/command-previews` 在当前 Head 上运行相同 command adapter、typed handler、参数求值、Sketch Solver 与 Part evaluator，返回 base Revision 和精确 Artifact，但不创建 Revision、历史、Outbox 或推进 Workspace；请求受 Editor ACL、HTTP cancellation 和 15 秒 deadline 约束。`SET_PARAMETER_VALUE` 接受 `parameterId/value/unit`，`SET_PARAMETER_EXPRESSION` 接受 `parameterId/expression`，`RENAME_PARAMETER` 接受 `parameterId/name`。表达式在服务端绑定稳定 ParameterId，Worker 不解析用户 source text。草图五类驱动尺寸与 Linear Extrude length 使用同一参数/依赖合同。
+`GET|POST /api/documents/{documentID}/workspaces` 用于列出 Workspace 或从所属 Revision 创建 Branch。CAD 编辑只使用 `workspace.command.execute.v1` 与 `workspace.preview.request.v1` / `workspace.preview.cancel.v1`；旧 HTTP commands/command-previews 路由已删除。Preview 共用 adapter、typed handler 和求值，返回 base Revision、候选身份及 Artifact 引用，受 Editor ACL、显式取消和 15 秒 deadline 约束，不推进 Workspace。`SET_PARAMETER_VALUE` 接受 `parameterId/value/unit`，`SET_PARAMETER_EXPRESSION` 接受 `parameterId/expression`，`RENAME_PARAMETER` 接受 `parameterId/name`。表达式在服务端绑定稳定 ParameterId，Worker 不解析用户 source text。草图五类驱动尺寸与 Linear Extrude length 使用同一参数/依赖合同。
 
 `POST /api/documents/{rootProductId}/part-components` 实现 Product 树“新建零件”：可用 typed `targetProductInstancePath` 指向嵌套 Product，空名称由服务端分配 `PartN`。Part 初始 Revision、目标 occurrence 和祖先 Product Revision 以一个 ProductDesignTransaction 原子提交；当前唯一 placement mode 为 `PRODUCT_ORIGIN`。
 
@@ -52,7 +52,7 @@ P10 Product API 包括 `GET|POST /api/documents/{rootProductId}/product-update-p
 
 `POST /api/documents/{documentID}/diagnostic-bundles` 为具有文档读取权限的用户生成不可缓存的 `occccad.cad-diagnostic-bundle.v1` JSON 下载。Web 在草图求解命令失败时自动提交失败命令和客户端环境，也允许通过 Debug Toolbar 手动导出当前状态；服务端补充当前文档、草图、Workspace、历史、最近事务/命令错误及 evaluator provenance。该接口不导出 Cookie、密码、其他文档日志或 B-Rep 原始字节。
 
-WebSocket 首条消息必须是携带 CSRF token 的 `connection.initialize.v1`。之后可发送 `document.subscribe.v1`、`document.unsubscribe.v1`、`workspace.command.execute.v1` 与 `stream.ack.v1`；服务端返回 correlation response/error，并从事务 Outbox 发布 `workspace.transaction.committed.v1`。单消息限制 1 MiB，大制品仍走 HTTP/ArtifactStore。
+WebSocket 首条消息必须是携带 CSRF token 的 `connection.initialize.v1`。之后可发送 `document.subscribe.v1`、`document.unsubscribe.v1`、`workspace.command.execute.v1`、`workspace.preview.request.v1`、`workspace.preview.cancel.v1` 与 `stream.ack.v1`；服务端返回 correlation response/error，并从事务 Outbox 发布 `workspace.transaction.committed.v1`。单消息限制 1 MiB，大制品仍走 HTTP/ArtifactStore。
 
 后台 Exchange 到达最终状态时发布用户级 `job.state.changed.v1`。事件只发送到 `requested_by_user_id` 对应的连接；没有在线连接时保持在 Outbox，不能因一次空广播丢失完成通知。前端提交后立即返回 Document Center，导出结果只在用户点击通知中的下载动作时走流式 HTTP。
 
@@ -135,3 +135,5 @@ P6 Cut/Hole 验收位于 `internal/control/TestCutHolePersistentSelectionThrough
 数据库连接由统一的进程内访问层调度，支持有界等待和后台轮询预算；参数与一致性说明见 [database README](../../internal/database/README.md)。队列满时命令/预览返回可重试的 DATABASE_BUSY，客户端重试须保持 request ID。HTTP 耗时阶段新增 db-queue-wait / db-pool-wait / db-query / db-batch / db-transaction；阶段存在包含关系。
 
 存储后端通过根 `.env` 的 `OCCCCAD_ARTIFACT_BACKEND` 选择 LOCAL/S3。S3 配置、桶初始化和旧制品迁移见[存储运维](../occccad-artifacts/README.md)。业务层只依赖 Store；Geometry Worker 使用共享本地 scratch。
+
+订阅携带 versionId、sequence 等控制信息；完成消息可附带不超过 64 KiB 且匹配提交 sequence 的轻量业务快照，否则客户端通过 `GET /api/documents/{documentID}/realtime-snapshot` 获取同一 Head/sequence 的权威轻量业务快照。Preview GLB 通过既有 representations 路由和短期 previewId 授权读取。协议、恢复、队列和定向验证见[realtime 控制面](../../../docs/architecture/current/realtime.md)。

@@ -34,7 +34,6 @@ type TopologyElementProperties struct {
 }
 
 type Artifact struct {
-	PreviewMesh        *Mesh                     `json:"previewMesh,omitempty"`
 	Naming             NamingAvailability        `json:"naming"`
 	GeometryKey        string                    `json:"geometryKey"`
 	GeometryID         string                    `json:"geometryId"`
@@ -1006,6 +1005,7 @@ type WorkspaceSummary struct {
 
 // Extensible roles: BREP, VISUAL, NAMING, and future LOD/material/PMI outputs.
 type Representation struct {
+	URL           string `json:"url,omitempty"`
 	ObjectID      string `json:"objectId"`
 	Digest        string `json:"digest"`
 	SchemaVersion int    `json:"schemaVersion"`
