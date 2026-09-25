@@ -14,7 +14,7 @@ Router 实现与 GeometryWorker 相同的 gRPC 服务并转发请求。当前 Pa
 
 `GetTopology` 从 Artifact 恢复 B-Rep 后会立即把请求 GeometryId 绑定到实际 Worker；后续元素查询即使 `OCCCCAD_GEOMETRY_PER_WORKER=1` 也绕过普通容量选择并命中同一 owner。Worker 对每个 GeometryId 缓存完整 `TopologyInfo`，单面查询只过滤缓存结果，不再重复遍历并分析整个 OCCT Shape。Worker 完成后 Router 通过 `Ping` 刷新 resident 数。`Ping` 不等待 OCCT 运算锁：空闲时读取准确驻留数，忙碌时返回原子快照，避免长时间 STEP 解析/导入阻塞存活探测。Router 按 Worker 串行处理探测结果，单次失败不驱逐；连续三次探测失败，或探测失败且本地进程已退出，才移除并补足最小副本。成功探测重置失败计数；已移除 Worker 的迟到完成不能恢复 owner 映射。超出最小副本且 `resident=0` 的空 Worker 才会在超时后回收，驻留 Body 不会被空闲缩容静默丢弃。
 
-定向验证：真实 Worker 在单进程、驻留容量 100 下完成 114 组件 STEP 解析，期间 676 次并发健康探测及短 RPC 通过；随后主动终止测试进程，确认替换与 owner 清理通过。完整 Jobs 导入另以驻留容量 100、并发 4 验证，启动 4 个 Worker，生成 114 个可编辑命名 Part 与 Product，所有 Part 的 FACE 持久绑定及进度单调性通过。此次并行运行压力回归，不作为耗时基准；未运行浏览器或全量测试。
+定向健康探测回归验证长时间 STEP 解析期间并发 Ping/短 RPC 正常，主动终止测试进程后替换与 owner 清理正常。XDE 共享定义和完整 Jobs 导入验证见本页末尾；这些正确性回归不作为耗时基准。
 
 局限：所有注册和缓存亲和信息均在内存中；只会拉起本机进程；没有持久租约、跨节点资源报告、优先级、公平调度或租户预算。
 
@@ -42,7 +42,7 @@ stateDiagram-v2
     RUNNING --> RUNNING: expired lease reclaimed
 ```
 
-当前任务类型为 `EXCHANGE_IMPORT`、`EXCHANGE_EXPORT` 和 `THUMBNAIL_RENDER`。任务可显式标记为用户可见；自动缩略图不进入消息中心。`THUMBNAIL_RENDER` 使用 `png-v4` 生成 `640×400`（`8:5`）PNG：与视口一致的 `(1,-1,1)` / Z-up 正交 ISO、完整 occurrence 旋转/平移、投影范围 Fit、CPU 扫描线深度缓冲、面内平滑光照和 2× 超采样；固定中性材质不随 GeometryKey 改色，B-Rep 边经过深度测试，缺边时提取轮廓/折线。实体缩略图排除草图编辑覆盖，草图/线框文档使用 Visualization primitives。渲染不依赖 GPU 或浏览器，同场景按 GeometryKey 复用法线准备。默认 `5s` deadline 可由 `OCCCCAD_THUMBNAIL_RENDER_TIMEOUT` 调整；超时或超过场景预算（100 万展开三角形、300 万顶点/曲线点、1 万 occurrence）返回缓存默认 PNG；父任务取消同步结束，无遗留渲染 goroutine。API 在任务未完成或制品不可用时返回同尺寸默认 PNG；就绪图片提供 ETag 私有重验证，仍核对权限/当前 Head。迁移 `0025` 仅回填可重建预览任务，RendererVersion 隔离旧 SVG 缓存和旧任务。Exchange 导入准备阶段只解析一次源 STEP/BREP，并按带位置的 Solid occurrence 拆为单实体 BREP 快照。每个 Solid 经有效性检查、必要的受限修复后形成带默认 DatumPlane、AxisSystem 和可扩展 `IMPORT_BODY` Feature 的 Part，多 Solid 形成引用这些 Part 的 Product。几何求值与 Part 命名/创建分两阶段有界并行，`OCCCCAD_IMPORT_CONCURRENCY` 默认 4、正整数，作为同一 Jobs 进程所有导入共享的活动工作上限；准备解析也占额度，各文件组件并发取组件数与上限的较小值，任务结束/失败释放额度，Router 总进程数仍由 `OCCCCAD_GEOMETRY_WORKER_MAX` 限制；Product 每批最多 128 个实例以一个命令插入并固定到已导入版本，避免逐实例重复解析整棵装配。导入文档名使用经路径清理后的完整文件名，保留 `.step`/`.brep` 后缀。创建文档和后续命令共享稳定 request ID，任务重领会复用已提交文档/命令，但组件计算尚无持久 checkpoint，仍可能重做。导出支持 Part 和展平后的 Product occurrence，最终格式为 STEP 或 BREP。Product STEP 导出对每个 occurrence 单独 Transfer 一个带 placement 的 root，因此当前展平 Product 导出再导入仍被识别为 Product，而不会因先合并为 compound 而退化为 Part。语义是至少一次，不是恰好一次；过时缩略图会被安全跳过，文档 Head 已改变的导出任务会失败以避免输出混合版本。
+当前任务类型为 `EXCHANGE_IMPORT`、`EXCHANGE_EXPORT` 和 `THUMBNAIL_RENDER`。任务可显式标记为用户可见；自动缩略图不进入消息中心。`THUMBNAIL_RENDER` 使用 `png-v4` 生成 `640×400`（`8:5`）PNG：与视口一致的 `(1,-1,1)` / Z-up 正交 ISO、完整 occurrence 旋转/平移、投影范围 Fit、CPU 扫描线深度缓冲、面内平滑光照和 2× 超采样；固定中性材质不随 GeometryKey 改色，B-Rep 边经过深度测试，缺边时提取轮廓/折线。实体缩略图排除草图编辑覆盖，草图/线框文档使用 Visualization primitives。渲染不依赖 GPU 或浏览器，同场景按 GeometryKey 复用法线准备。默认 `5s` deadline 可由 `OCCCCAD_THUMBNAIL_RENDER_TIMEOUT` 调整；超时或超过场景预算（100 万展开三角形、300 万顶点/曲线点、1 万 occurrence）返回缓存默认 PNG；父任务取消同步结束，无遗留渲染 goroutine。API 在任务未完成或制品不可用时返回同尺寸默认 PNG；就绪图片提供 ETag 私有重验证，仍核对权限/当前 Head。迁移 `0025` 仅回填可重建预览任务，RendererVersion 隔离旧 SVG 缓存和旧任务。Exchange 导入准备阶段只解析一次 STEP/XDE，输出 Definition/Occurrence graph 和 definition-local BREP 快照。每个唯一 Part Definition 经有效性检查、必要的受限修复后形成带默认 DatumPlane、AxisSystem 和可扩展 `IMPORT_BODY` Feature 的 Part，Product Definition 按源图引用 Part/Sub Product。几何求值与 Part 命名/创建分两阶段有界并行，`OCCCCAD_IMPORT_CONCURRENCY` 默认 4、正整数，作为同一 Jobs 进程所有导入共享的活动工作上限；准备解析也占额度，各文件组件并发取组件数与上限的较小值，任务结束/失败释放额度，Router 总进程数仍由 `OCCCCAD_GEOMETRY_WORKER_MAX` 限制；Product 每批最多 128 个实例以一个命令插入并固定到已导入版本，避免逐实例重复解析整棵装配。导入优先保留 STEP 源名称，缺失时使用上传文件名。创建文档和后续命令共享稳定 request ID，任务重领会复用已提交文档/命令，但组件计算尚无持久 checkpoint，仍可能重做。导出支持共享/嵌套 Product，STEP 通过 XDE Definition/Occurrence 图写出，BREP 仍合成为 Compound。语义是至少一次，不是恰好一次；过时缩略图会被安全跳过，文档 Head 已改变的导出任务会失败以避免输出混合版本。
 
 用户可通过 `POST /api/jobs/{jobID}/cancel` 取消自己发起的排队或运行任务，并通过 `POST /api/jobs/{jobID}/retry` 让最终失败或已取消任务重新排队。运行任务每秒检查取消请求并取消其 Geometry 上下文；成功提交条件同时拒绝带取消请求的迟到结果。导入在进度 70% 进入正式文档提交阶段，此后不再开放取消，避免产生用户可见的半提交组件集合。进度为 PREPARING（5%）、EVALUATING（15–65%，按组件完成数）、CREATING_PARTS（70–94%，按命名/文档完成数）、ASSEMBLING（95%）、成功（100%）。`payload.progressDetail` 记录阶段、完成/总数、attempt 与阶段进度；百分比跨自动重试、人工重试和租约重领保留高水位，同一 attempt 的迟到阶段不覆盖新阶段，新 attempt 可显示实际重做阶段。界面明确标注等待重试/尝试次数。确定性的域校验、Worker INVALID_ARGUMENT 不自动重试；基础设施暂态失败保留重试。组件并发不改变按文档的事务/CAS/幂等语义，也不构成整个导入集的原子发布。
 
@@ -66,7 +66,15 @@ OCCT 使用文件接口：Go Geometry client 将远端引用按 RPC 下载到独
 
 Exchange HTTP 提交只等待完整上传和 Job 入队，随后立即关闭对话框；浏览器不会让提交请求等待几何处理。Jobs 在排队、领取、进度、重试与取消等生命周期状态转换的同一 SQL statement 或领取事务中写入 `JOB` Outbox，API 将 `job.state.changed.v1` 仅推送给任务发起用户。若该用户没有可接收的 WebSocket 会话，事件保持 unpublished，直到至少一个会话接受。Web 顶部消息中心同时从 `GET /api/jobs` 恢复最近 100 条用户可见任务，因此错过瞬时通知或重新登录后仍能看到状态、失败原因、进度和下载/打开入口；仅在存在活动任务时每 2.5 秒刷新进度，终态仍由 WebSocket 立即提示。前端把持久 Job 投影为通用 ActivityItem，任务类型展示与动作注册集中在 activity 模块，未来其他持久消息来源可增加独立 projector 后合并，而不复制 Drawer 或任务状态机。
 
-当前业务导入以 Solid occurrence 为拆分和并行边界，一个 transferable root 中的多个 Solid 也生成多个 Part 和一个 Product；Solid 的位置保留在冻结 BREP 中，装配以 identity placement 引用这些 Part，重合 occurrence 不去重；Product 导出同样保持“每个 occurrence 一个 transferable root”的当前对称契约。这只保证展平 Product 的类型和 placement round-trip；尚未使用 STEPCAF/XDE 恢复嵌套层级、名称、颜色、单位和共享实例关系，因此不能宣称完整 AP242 装配交换。
+STEP 交换使用 `STEPCAFControl_Reader/Writer` 和 XDE document。Definition identity 来自源 XDE label（仅在这份源文件的导入过程有效），不由几何 hash 推断；同一 Part/Sub Product 的多个 occurrence 引用同一文档。名称、局部平移/单位四元数、嵌套层级和共享引用进入已有 ProductInstance/PINNED Revision/typed InstancePath。几何内容寻址只复用 Artifact；相同几何的不同源 Definition 仍是不同 Part 文档与独立 Naming 身份。
+
+`InspectExchange` 返回临时 `ExchangeGraph`：definitions 含 id/name/kind、PART 的 BREP 引用或 PRODUCT 的 children；roots/children 含 occurrence id、definitionId、name 和 local placement。准备阶段每个唯一 Part 只写一份本地坐标 BREP，Jobs 仅对这些 Definition 并行求值和创建 Naming/Part，然后按依赖顺序提交 Product。根为一个单位 placement 的 Definition 时直接返回该文档；多个根或非单位根 placement 用源容器 Product 表达。图不是独立的长期业务模型。同级源名称冲突时，内部 InstanceName 添加确定性后缀保持已有唯一性规则，并以 importedName 保存源名与分配名；未被用户重命名的实例导出恢复源名。实例引用仍依赖 typed stable ID。
+
+`ImportExchange.definition_id` 选择 STEP Part Definition；空 ID 只接受唯一 Part 的图，不再按 transferable root ordinal 选择业务 Part。BREP 没有装配身份，作为一个 Part/合法 Solid Compound 导入，不伪造 Product；多 Solid Definition 的有效性、无散落拓扑、Naming 全覆盖与修复前后 Solid 数保持均受检验。
+
+导出从根 Revision 递归读取已接受的 Part/Product 引用，保留局部 placement；按 document + revision + 实际上下文几何/子定义结果复用 Definition。同一业务 Definition 的上下文变体必要时分开表达，避免互相覆盖。Release 导出使用冻结根 Revision 和冻结几何，不查询子文档最新 Head。XDE writer 使用显式独立 label 创建业务定义，不用 AddShape 的几何匹配替代身份；BREP 导出仍将图合成为几何 Compound。
+
+图验证拒绝缺失/重复身份、悬空引用、环、非法 pose、不可达定义及超限；深度最多 128、定义最多 100000、定义内总引用最多 1000000，业务上下文现有展开上限仍独立生效。STEP 外部文件引用在 Transfer 前拒绝，避免访问未授权路径。共享定义不表示 OCCT/XDE 已实现 out-of-core；颜色、材质、层、PMI 和完整 AP242 尚未交付。
 
 ## 实现与验证入口
 
@@ -74,35 +82,8 @@ Exchange HTTP 提交只等待完整上传和 Job 入队，随后立即关闭对�
 - [Artifact](../../../services/internal/artifact)
 - [Geometry 路由](../../../services/internal/control)
 
-### 多实体导入定向验证（2026-09-24）
+### XDE 定向验证
 
-`LD200 torsen v7.step` 经真实开发 PostgreSQL、MinIO、正式 Geometry Router 和 4 个 Worker 完整导入，得到 114 个带冻结命名定义的单 Solid Part 和一个 PINNED 引用的展平 Product；全部 Part 的 FACE 绑定成功，进度未回退。该文件只有一个 STEP transferable root；其中一个实体还存在三对圆柱面片的周期参数边界闭合问题，修复后通过单实体有效性门禁，未删除异常组件。C++ 回归同时验证缺面实体仍拒绝、修复重放确定性、拆分保留平移/旋转/重合 occurrence，以及索引邻接与独立两两拓扑检查的等价性。
+内核测试覆盖 100 次 Part 引用、重复 Sub Product、同几何不同 Definition、名称/平移/旋转、两轮 XDE round-trip、文件体积和 Solid Compound Naming。Jobs 集成通过真实 PostgreSQL、ArtifactStore、Router 和 Worker 验证唯一文档创建、冻结命名、显式 placement、Undo/Redo 与导出后重新导入。入口：`GeometryExchange.Xde*`、`TestXdeImportSharedDefinitionsAndRoundTrip`。这些测试不代表 1 GiB 几何容量或浏览器验收。
 
-本机本次观测（不是严格冷缓存性能基准，前次运行已留下可复用源快照制品）：
-
-| 阶段 | 耗时 |
-|---|---:|
-| 解析与拆分 | 53.8 s |
-| 并行几何求值 | 76.3 s |
-| 并行命名与 Part 创建 | 144.4 s |
-| 批量装配创建 | 10.2 s |
-
-四阶段合计约 285 s，含全部 Part 面绑定验证约 307 s。同机修复拆分后、邻接索引优化前的命名阶段观测为 285.1 s；索引优化消除了导入根命名的全拓扑两两扫描，未改变身份分配或邻接语义。Job 阶段结束日志保留组件数和耗时，供部署环境复测。Go 数据库回归覆盖总进度高水位、重试阶段重置、过期 owner 拒写和手动重试；前端阶段计数/重试文案场景及 typecheck 通过。未执行浏览器和全量单测；本结果不代表 1 GiB 级几何/显示容量验收。
-
-## 大文件与导入编辑的已知限制（2026-09-24 代码核对）
-
-存储层已通过真实 MinIO 的 1 GiB 上传/下载 SHA-256 往返，以及小模型 S3 → C++ Worker → S3 的 STEP/BREP 验证；尚无 1 GiB 几何/显示容量验收。API 与 Worker 文件上限默认 16 GiB，制品 RPC deadline 为 2 小时。Jobs 使用 InspectExchange 的准备模式（`component_output_prefix`）一次读取、Transfer 源文件，后续只传每个组件的 `prepared_brep`，不逐组件重读 STEP。无 prefix 的 InspectExchange 仍可只读检查 transferable roots；它不是业务拆分结果。有界并发尚不等于按内存预算准入。Jobs 在 results 中只保留组件摘要和 ArtifactReference；数据库与 DocumentView 不含完整显示数组。GLB 解码、OCCT 及前端 BVH 仍未实现按字节预算的有界工作集。
-
-ImportExchange 先生成精确快照，CommitImportedPart 再冻结导入定义并通过带 seed 的 EvaluatePart 生成根 manifest；后续 evaluator 传播 imported base 的已有命名。单 Solid 的命名/编辑链与旧 Head 显式修复已完成，见[导入根命名](persistent-naming.md#导入根命名import-naming-已完成2026-09-22)。没有定义的旧快照仍报告命名不可用。大文件设计与分批验收见[大模型提案](../target/large-models.md)及[执行计划](../../../plans/import-large-models.md)。
-
-## IMPORT-DIAGNOSTICS 完成记录（2026-09-22）
-
-两个 manifest 读取入口统一使用可空 digest 和内容校验，不再将 SQL NULL 扫描进 string。Artifact 暴露 `naming.status/canBind/diagnosticCode/diagnostic`：READY 可绑定；UNAVAILABLE 表示未生成命名；FAILED 表示 history 不完整；CORRUPT 表示元数据、摘要或内容损坏/丢失；INCOMPATIBLE 表示 schema/policy 不匹配。存储配置、数据库及其他 I/O 故障仍作为基础设施错误传播，不能吞成“无命名”。已知命名问题不阻止文档打开和几何属性查询，但持久子拓扑绑定明确拒绝；已有装配引用解析失败继续按 Broken 隔离，不伪造成功。
-
-前端显示具体诊断，限制当前已知不可绑定拓扑的面上草图、外部投影、发布与拓扑装配约束入口；服务端保留权威校验。显示、法线视图、基准几何及 Instance/Body 级操作不因缺少 naming 被统一禁用。该诊断层自身不补命名；后续 IMPORT-NAMING 已补齐受支持单 Solid 的编辑链。
-
-[只读审计 SQL](../../../services/scripts/audit-import-naming.sql)按 HEAD/HISTORY 汇总导入文档命名元数据。本轮回归写入测试 fixture 前的开发库基线为 2 个当前导入文档，均 NAMING_ABSENT；元数据审计不等于制品内容完整性验证，未重写已有文档。
-
-验证：workspace 包测试通过；真实数据库、Router 与 Worker 的 `TestEdgeVertexPersistentSelectionThroughRealRouter` 通过，覆盖实际 BREP ImportExchange、提交、冷重开、精确属性、禁止面上草图且 Head 不变、基准面草图，以及原生持久拓扑回归。前端类型检查与 naming capability、publication selection、assembly constraint UX、workbench command model 四组场景通过。未做浏览器、全仓或大文件验收。测试入口为 [诊断单测](../../../services/internal/workspace/topology_naming_diagnostics_test.go)与[导入集成断言](../../../services/internal/control/import_naming_diagnostics_test.go)。
-
-CAD Command/Preview 与轻量 Job 事件协议见[realtime 控制面](realtime.md)；API 合并同一 Job 的待发提示，不将大型导入结果 payload 放入 WebSocket。
+真实 `data/LD200 torsen v7.step` 在独立测试 PostgreSQL、LOCAL ArtifactStore 和正式 Router/4 Worker 链路通过导入、全部唯一 Part FACE 绑定及 STEP 导出回读：16 个 Part + 7 个 Product Definition，60 个展开 Part occurrence，总 Solid 数仍为 114。此前按 Solid 展平为 114 个 Part；此处多 Solid 源 Definition 保持单 Part，未丢弃实体。实测为该语料正确性回归，不构成 1 GiB 容量或跨环境性能承诺。

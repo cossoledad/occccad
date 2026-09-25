@@ -19,10 +19,10 @@ const typeRepairImportNaming = "occccad://part/exchange/repair-naming"
 
 // Source describes the original exchange object, not a display artifact.
 type ImportSource struct {
-	ObjectID       string `json:"objectId"`
-	SHA256         string `json:"sha256"`
-	Format         string `json:"format"`
-	ComponentIndex uint32 `json:"componentIndex"`
+	ObjectID     string `json:"objectId"`
+	SHA256       string `json:"sha256"`
+	Format       string `json:"format"`
+	DefinitionID string `json:"definitionId,omitempty"`
 }
 type importedIdentity struct {
 	ID      string `json:"id"`
@@ -62,8 +62,8 @@ func (service *Service) allocateImportDefinition(ctx context.Context, documentID
 	if err = json.Unmarshal(topologyJSON, &topology); err != nil {
 		return "", err
 	}
-	if topology.Solids != 1 || topology.Faces == 0 {
-		return "", fmt.Errorf("%w: IMPORT_NAMING_REQUIRES_VALID_SINGLE_SOLID", ErrValidation)
+	if topology.Solids < 1 || topology.Faces == 0 {
+		return "", fmt.Errorf("%w: IMPORT_NAMING_REQUIRES_VALID_SOLID_DEFINITION", ErrValidation)
 	}
 	if digest == nil {
 		return "", fmt.Errorf("IMPORT_BREP_UNAVAILABLE")

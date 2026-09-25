@@ -1065,42 +1065,94 @@ TEST(GeometryExchange, SplitCompoundSolidsPreservesPlacementAndOccurrences) {
     EXPECT_NEAR(kernel.getBoundingBox(split[3]).max.y, 20, 1e-6);
     EXPECT_EQ(kernel.splitSolids(box).size(), 1U);
     EXPECT_EQ(kernel.repairImportedSolid(box), box);
-    EXPECT_THROW(kernel.repairImportedSolid(compound), std::invalid_argument);
+    EXPECT_EQ(kernel.repairImportedSolid(compound),compound);
 }
 
-TEST(GeometryExchange, ProductStepKeepsOneTransferableRootPerOccurrence) {
+TEST(GeometryExchange, XdeSharedDefinitionsNestedPlacementRoundTrip) {
     OcctKernel kernel;
-    const auto id = kernel.createRectangularPad({0.0, 0.0, 20.0, 10.0, 5.0, "XY"});
-    const std::vector<PlacedGeometry> components = {
-        {id, {0.0, 0.0, 0.0}},
-        {id, {50.0, 0.0, 0.0}},
-    };
-
-    TemporaryStepFile step(kernel.serializeStepComponents(components));
-    ASSERT_EQ(kernel.inspectStepRootCount(step.path().string()), 2U);
-    const auto first = kernel.loadStepRoot(step.path().string(), 1U);
-    const auto second = kernel.loadStepRoot(step.path().string(), 2U);
-    EXPECT_NEAR(kernel.getVolume(first), kernel.getVolume(id), 1e-6);
-    EXPECT_NEAR(kernel.getVolume(second), kernel.getVolume(id), 1e-6);
-    EXPECT_NEAR(kernel.getBoundingBox(second).min.x - kernel.getBoundingBox(first).min.x, 50.0,
-                1e-6);
+    const auto box=kernel.createBox(20,10,5);
+    occccad::kernel::ExchangeGraph graph;
+    graph.definitions.push_back({"part","Part 名称","PART",box,{}});
+    graph.definitions.push_back({"distinct","Distinct business Part","PART",box,{}});
+    occccad::kernel::ExchangeDefinition sub{"sub","Sub Assembly","PRODUCT","",{}};
+    constexpr double q=0.7071067811865476;
+    for(int i=0;i<100;++i) sub.children.push_back({"instance/"+std::to_string(i),"part","Pin "+std::to_string(i),{"",{double(i)*30,2,3},{0,0,q,q}}});
+    graph.definitions.push_back(sub);
+    graph.definitions.push_back({"root","Root Assembly","PRODUCT","",{
+        {"sub1","sub","Sub.1",{"",{1,2,3},{0,0,0,1}}},
+        {"sub2","sub","Sub.2",{"",{4,5,6},{0,0,q,q}}},
+        {"other","distinct","Different Part",{}}
+    }});
+    graph.roots.push_back({"root","root","Root Assembly",{}});
+    const auto bytes=kernel.writeStepGraph(graph);
+    TemporaryStepFile file(bytes);
+    auto imported=kernel.readStepGraph(file.path().string());
+    for(int cycle=0;cycle<2;++cycle) {
+        ASSERT_EQ(imported.definitions.size(),4U);
+        ASSERT_EQ(imported.roots.size(),1U);
+        size_t parts=0,products=0;
+        std::string shared;
+        for(const auto& def:imported.definitions) {
+            if(def.kind=="PART") {
+                ++parts;
+                EXPECT_TRUE(def.name=="Part 名称" || def.name=="Distinct business Part");
+                EXPECT_NEAR(kernel.getBoundingBox(def.geometry_id).min.x,0,1e-6);
+                EXPECT_NEAR(kernel.getVolume(def.geometry_id),1000,1e-6);
+            }else {
+                ++products;
+                if(def.name=="Sub Assembly") {
+                    ASSERT_EQ(def.children.size(),100U);
+                    shared=def.children[0].definition_id;
+                    for(size_t i=0;i<100;++i) {
+                        EXPECT_EQ(def.children[i].definition_id,shared);
+                        EXPECT_EQ(def.children[i].name,"Pin "+std::to_string(i));
+                        EXPECT_NEAR(def.children[i].placement.translation.x,double(i)*30,1e-6);
+                        EXPECT_NEAR(std::abs(def.children[i].placement.rotation.z),q,1e-6);
+                        EXPECT_NEAR(std::abs(def.children[i].placement.rotation.z*q+def.children[i].placement.rotation.w*q),1,1e-6);
+                    }
+                }else {
+                    EXPECT_EQ(def.name,"Root Assembly"); ASSERT_EQ(def.children.size(),3U);
+                    EXPECT_EQ(def.children[0].definition_id,def.children[1].definition_id);
+                    EXPECT_NEAR(def.children[1].placement.translation.x,4,1e-6);
+                }
+            }
+        }
+        EXPECT_EQ(parts,2U);EXPECT_EQ(products,2U);EXPECT_FALSE(shared.empty());
+        TemporaryStepFile again(kernel.writeStepGraph(imported));
+        imported=kernel.readStepGraph(again.path().string());
+    }
+    auto one=graph;
+    one.definitions[2].children.resize(1);
+    const auto small=kernel.writeStepGraph(one);
+    EXPECT_LT(bytes.size(),small.size()*15U); // 100 references must not copy 100 B-Reps.
 }
 
-TEST(GeometryExchange, ProductStepAppliesOccurrenceRotationAndTranslation) {
+TEST(GeometryExchange, XdeMultipleRootsPreserveSharedReferences) {
     OcctKernel kernel;
-    const auto id = kernel.createRectangularPad({0.0, 0.0, 20.0, 10.0, 5.0, "XY"});
-    constexpr double half_sqrt_two = 0.7071067811865476;
-    const std::vector<PlacedGeometry> components = {
-        {id, {30.0, 40.0, 0.0}, {0.0, 0.0, half_sqrt_two, half_sqrt_two}},
-    };
+    occccad::kernel::ExchangeGraph graph;
+    graph.definitions.push_back({"part","Part","PART",kernel.createBox(1,2,3),{}});
+    graph.roots={{"a","part","first",{}},{"b","part","second",{"",{10,0,0},{0,0,0,1}}}};
+    TemporaryStepFile file(kernel.writeStepGraph(graph));
+    const auto read=kernel.readStepGraph(file.path().string());
+    ASSERT_EQ(read.definitions.size(),2U);
+    for(const auto& def:read.definitions) if(def.kind=="PRODUCT") {
+        ASSERT_EQ(def.children.size(),2U);
+        EXPECT_EQ(def.children[0].definition_id,def.children[1].definition_id);
+        EXPECT_EQ(def.children[1].name,"second");
+        EXPECT_NEAR(def.children[1].placement.translation.x,10,1e-6);
+    }
+}
 
-    TemporaryStepFile step(kernel.serializeStepComponents(components));
-    const auto rotated = kernel.loadStepRoot(step.path().string(), 1U);
-    const auto bounds = kernel.getBoundingBox(rotated);
-    EXPECT_NEAR(bounds.min.x, 20.0, 1.0e-6);
-    EXPECT_NEAR(bounds.max.x, 30.0, 1.0e-6);
-    EXPECT_NEAR(bounds.min.y, 40.0, 1.0e-6);
-    EXPECT_NEAR(bounds.max.y, 60.0, 1.0e-6);
+TEST(GeometryExchange, XdeRejectsCyclicAndInvalidPlacementGraphs) {
+    OcctKernel kernel;
+    occccad::kernel::ExchangeGraph graph;
+    graph.definitions.push_back({"p","P","PRODUCT","",{{"self","p","self",{}}}});
+    graph.roots.push_back({"root","p","P",{}});
+    EXPECT_THROW(kernel.writeStepGraph(graph),std::invalid_argument);
+    graph.definitions[0].children.clear();
+    graph.definitions[0].kind="PART";graph.definitions[0].geometry_id=kernel.createBox(1,2,3);
+    graph.roots[0].placement.rotation.w=2;
+    EXPECT_THROW(kernel.writeStepGraph(graph),std::invalid_argument);
 }
 
 TEST(GeometryExchange, RepositoryStepFixturesContainImportableSolidGeometry) {
@@ -1139,6 +1191,24 @@ ImportTopologySeed imported_box_seed(OcctKernel& kernel, const std::vector<uint8
     for (const auto& vertex : topology.vertices)
         seed.identities.push_back({"opaque-" + std::to_string(allocation++), PersistentTopologyType::vertex, vertex.local_id});
     return seed;
+}
+
+TEST(GeometryExchange, XdeSolidCompoundIsOneNamedPartDefinition) {
+    OcctKernel kernel;
+    const auto box=kernel.createBox(2,3,4);
+    const auto compound=kernel.combine({{box,{0,0,0},{0,0,0,1}},{box,{10,0,0},{0,0,0,1}}});
+    occccad::kernel::ExchangeGraph graph;
+    graph.definitions.push_back({"multi","Multisolid Part","PART",compound,{}});
+    graph.roots.push_back({"root","multi","Multisolid Part",{}});
+    TemporaryStepFile file(kernel.writeStepGraph(graph));
+    const auto imported=kernel.readStepGraph(file.path().string());
+    ASSERT_EQ(imported.definitions.size(),1U);
+    const auto id=kernel.repairImportedSolid(imported.definitions[0].geometry_id);
+    EXPECT_EQ(kernel.getTopology(id).solid_count,2U);
+    const auto bytes=kernel.serializeBrepr(id);
+    const auto seed=imported_box_seed(kernel,bytes);
+    const auto result=kernel.evaluateProfilePadsWithHistory({},bytes,&seed);
+    EXPECT_EQ(kernel.getTopology(result.geometry_id).solid_count,2U);
 }
 
 TEST(GeometryExchange, ImportedNamingAdjacencyMatchesTopologicalOracle) {

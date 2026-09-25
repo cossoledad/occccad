@@ -424,16 +424,22 @@ type ContextReference struct {
 	LocalTargetID             string                `json:"localTargetId,omitempty"`
 }
 
+type ImportedOccurrenceName struct {
+	Source   string `json:"source"`
+	Assigned string `json:"assigned"`
+}
+
 type ProductInstance struct {
-	ID                   string     `json:"id"`
-	Name                 string     `json:"name"`
-	ReferencedDocumentID string     `json:"documentId"`
-	ReferencedVersionID  string     `json:"versionId"`
-	Translation          [3]float64 `json:"translation"`
-	Rotation             [4]float64 `json:"rotation,omitempty"`
-	ReferenceMode        string     `json:"referenceMode,omitempty"`
-	ResolvedVersionID    string     `json:"resolvedVersionId,omitempty"`
-	HeadChanged          bool       `json:"headChanged,omitempty"`
+	ImportedName         *ImportedOccurrenceName `json:"importedName,omitempty"`
+	ID                   string                  `json:"id"`
+	Name                 string                  `json:"name"`
+	ReferencedDocumentID string                  `json:"documentId"`
+	ReferencedVersionID  string                  `json:"versionId"`
+	Translation          [3]float64              `json:"translation"`
+	Rotation             [4]float64              `json:"rotation,omitempty"`
+	ReferenceMode        string                  `json:"referenceMode,omitempty"`
+	ResolvedVersionID    string                  `json:"resolvedVersionId,omitempty"`
+	HeadChanged          bool                    `json:"headChanged,omitempty"`
 }
 
 type InstancePose struct {
@@ -861,6 +867,8 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	importInstances         []ProductInstance
+	ImportGraphDigest       string               `json:"importGraphDigest,omitempty"`
 	ImportSource            *ImportSource        `json:"-"`
 	FixMode                 string               `json:"fixMode,omitempty"`
 	FixedPose               *InstancePose        `json:"fixedPose,omitempty"`

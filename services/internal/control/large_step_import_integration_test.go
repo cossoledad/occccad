@@ -53,24 +53,27 @@ func TestLargeSTEPImportThroughManagedRouter(t *testing.T) {
 	}
 	// Content-addressed source may already belong to a user's import: never delete.
 	ref := geometry.ArtifactReference{Backend: store.Backend(), ObjectKey: source.Key, SHA256: source.SHA256, Size: source.Size, ContentType: source.ContentType}
-	inspection, err := client.InspectExchange(t.Context(), "large-step-inspect", "STEP", ref)
+	inspection, err := client.InspectExchange(t.Context(), "large-step-inspect", "STEP", ref, artifact.StagingKey("large-step-inspect", "definitions"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inspection.Components) == 0 {
+	if len(inspection.Definitions) == 0 {
 		t.Fatal("no components")
 	}
 	largest := 0
-	for _, component := range inspection.Components {
-		prefix := fmt.Sprintf("large-step-%d", component.SourceIndex)
-		response, err := client.ImportExchange(t.Context(), prefix, prefix, "STEP", ref, component.SourceIndex, artifact.StagingKey(prefix, "shape.brep"), artifact.StagingKey(prefix, "mesh.glb"))
+	for index, component := range inspection.Definitions {
+		if component.Kind != "PART" {
+			continue
+		}
+		prefix := fmt.Sprintf("large-step-%d", index+1)
+		response, err := client.ImportExchange(t.Context(), prefix, prefix, "BREP", geometry.ArtifactReference{Backend: component.Brep.Backend, ObjectKey: component.Brep.ObjectKey, SHA256: component.Brep.Sha256, Size: int64(component.Brep.SizeBytes), ContentType: component.Brep.ContentType}, "", artifact.StagingKey(prefix, "shape.brep"), artifact.StagingKey(prefix, "mesh.glb"))
 		if err != nil {
-			t.Fatalf("component %d: %v", component.SourceIndex, err)
+			t.Fatalf("component %d: %v", index+1, err)
 		}
 		size := proto.Size(response)
 		largest = max(largest, size)
 		if size > geometryrpc.MaxMessageBytes || response.GetVolume() <= 0 || response.GetTriangleCount() == 0 {
-			t.Fatalf("invalid component %d result", component.SourceIndex)
+			t.Fatalf("invalid component %d result", index+1)
 		}
 		if response.GetPreviewMesh() != nil || response.GetRepresentationKind() != "PERSISTENT" {
 			t.Fatal("files leaked into gRPC response")
@@ -82,10 +85,10 @@ func TestLargeSTEPImportThroughManagedRouter(t *testing.T) {
 			}
 			r.Close()
 		}
-		t.Logf("component=%d response_bytes=%d vertices=%d triangles=%d solids=%d", component.SourceIndex, size, response.GetDisplayVertexCount(), response.GetTriangleCount(), response.GetTopology().GetSolidCount())
+		t.Logf("component=%d response_bytes=%d vertices=%d triangles=%d solids=%d", index+1, size, response.GetDisplayVertexCount(), response.GetTriangleCount(), response.GetTopology().GetSolidCount())
 	}
 	if largest > 64<<10 {
 		t.Fatalf("persistent response is not bounded: largest=%d", largest)
 	}
-	t.Logf("imported %d components through %s and managed Router; largest response=%d bytes", len(inspection.Components), store.Backend(), largest)
+	t.Logf("imported %d components through %s and managed Router; largest response=%d bytes", len(inspection.Definitions), store.Backend(), largest)
 }

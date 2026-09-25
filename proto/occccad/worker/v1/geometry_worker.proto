@@ -535,22 +535,31 @@ message InspectExchangeRequest {
     string request_id = 1;
     string format = 2; // STEP | BREP
     ArtifactReference source = 3;
-    // When set, parse once and materialize one BREP per Solid under this opaque key prefix.
+    // When set, parse once and materialize one local BREP per unique Part Definition under this opaque key prefix.
     string component_output_prefix = 4;
 }
 
-message ExchangeComponentInfo {
-    uint32 source_index = 1;
-    string name = 2;
-    // Prepared single-Solid snapshot; placement is baked into its BREP.
-    ArtifactReference prepared_brep = 3;
+// Temporary exchange graph; identities refer to source definitions, not hashes.
+message ExchangeOccurrence {
+    string id = 1;
+    string definition_id = 2;
+    string name = 3;
+    Vec3 translation = 4;
+    Quaternion rotation = 5;
 }
-
+message ExchangeDefinition {
+    string id = 1;
+    string name = 2;
+    string kind = 3; // PART | PRODUCT
+    ArtifactReference brep = 4; // PART only, definition-local
+    repeated ExchangeOccurrence children = 5;
+}
+message ExchangeGraph {
+    repeated ExchangeDefinition definitions = 1;
+    repeated ExchangeOccurrence roots = 2;
+}
 message InspectExchangeResponse {
-    // Prepared mode: PART for one Solid, PRODUCT for multiple Solid occurrences.
-    // Read-only inspection reports transferable root count.
-    string document_type = 1;
-    repeated ExchangeComponentInfo components = 2;
+    ExchangeGraph graph = 1;
 }
 
 message ImportExchangeRequest {
@@ -558,24 +567,17 @@ message ImportExchangeRequest {
     string geometry_key = 2;
     string format = 3;
     ArtifactReference source = 4;
-    uint32 source_index = 5;
+    string definition_id = 5; // STEP source label identity; empty only for a single Part graph.
     string brep_output_key = 6;
     string glb_output_key = 7;
     double linear_deflection = 8;
     double angular_deflection = 9;
 }
 
-message ExchangeComponent {
-    string name = 1;
-    ArtifactReference brep = 2;
-    Vec3 translation = 3;
-    Quaternion rotation = 4;
-}
-
 message ExportExchangeRequest {
     string request_id = 1;
     string format = 2; // STEP | BREP
-    repeated ExchangeComponent components = 3;
+    ExchangeGraph graph = 3;
     string output_key = 4;
 }
 

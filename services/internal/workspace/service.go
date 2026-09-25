@@ -864,99 +864,28 @@ func (service *Service) CommitImportedPart(ctx context.Context, actor, folderID,
 		SourceFormat: strings.ToUpper(format), ActorID: actor, ImportSource: source})
 }
 
+// CommitImportedProduct uses the same typed instance command, CAS and history
+// path as interactive insertion. Only the trusted import coordinator can supply
+// explicit reference versions and occurrence identities.
 func (service *Service) CommitImportedProduct(ctx context.Context, actor, folderID, reqID, name string,
-	parts []DocumentView) (DocumentView, error) {
+	instances []ProductInstance) (DocumentView, error) {
 	var folder *string
-	if strings.TrimSpace(folderID) != "" {
+	if folderID != "" {
 		folder = &folderID
 	}
-	view, err := service.CreateDocument(ctx, CreateDocumentRequest{RequestID: reqID + "/document",
-		Name: name, Type: "PRODUCT", FolderID: folder, ActorID: actor})
+	view, err := service.CreateDocument(ctx, CreateDocumentRequest{RequestID: reqID + "/document", Name: name, Type: "PRODUCT", FolderID: folder, ActorID: actor})
 	if err != nil {
 		return DocumentView{}, err
 	}
-
-	for offset := 0; offset < len(parts); offset += 128 {
-		end := min(offset+128, len(parts))
-		ids := make([]string, 0, end-offset)
-		for _, part := range parts[offset:end] {
-			ids = append(ids, part.Document.ID)
-		}
-		view, err = service.ApplyCommand(ctx, view.Document.ID, CommandRequest{
-			RequestID: reqID + fmt.Sprintf("/instances/%d", offset), Type: "INSERT_INSTANCES",
-			ReferencedDocumentIDs: ids, ReferenceMode: "PINNED", ActorID: actor,
-		})
+	for offset := 0; offset < len(instances); offset += 128 {
+		batch := instances[offset:min(offset+128, len(instances))]
+		encoded, _ := json.Marshal(batch)
+		view, err = service.ApplyCommand(ctx, view.Document.ID, CommandRequest{RequestID: fmt.Sprintf("%s/instances/%d", reqID, offset), Type: "IMPORT_PRODUCT_INSTANCES", ActorID: actor, importInstances: batch, ImportGraphDigest: modelcore.ValueDigest(encoded)})
 		if err != nil {
 			return DocumentView{}, err
 		}
 	}
 	return view, nil
-}
-
-type ExchangeExportComponent struct {
-	Name        string
-	BRep        geometry.ArtifactReference
-	Translation [3]float64
-	Rotation    [4]float64
-}
-
-func (service *Service) ExchangeExportComponents(ctx context.Context, documentID string) (string, string, []ExchangeExportComponent, error) {
-	view, err := service.GetDocument(ctx, documentID)
-	if err != nil {
-		return "", "", nil, err
-	}
-	components := []ExchangeExportComponent{}
-	if view.Document.Type == "PART" {
-		if view.Artifact == nil || view.Artifact.Volume <= 0 {
-			return "", "", nil, fmt.Errorf("%w: Part has no solid geometry to export", ErrValidation)
-		}
-		reference, err := service.brepArtifactReference(ctx, view.Artifact.GeometryKey)
-		if err != nil {
-			return "", "", nil, err
-		}
-		components = append(components, ExchangeExportComponent{Name: view.Document.Name, BRep: reference,
-			Rotation: [4]float64{0, 0, 0, 1}})
-	} else {
-		for _, instance := range view.ResolvedInstances {
-			reference, err := service.brepArtifactReference(ctx, instance.GeometryKey)
-			if err != nil {
-				return "", "", nil, err
-			}
-			components = append(components, ExchangeExportComponent{Name: instance.Name,
-				BRep: reference, Translation: instance.Translation, Rotation: instance.Rotation})
-		}
-		if len(components) == 0 {
-			return "", "", nil, fmt.Errorf("%w: Product has no resolvable Part geometry to export", ErrValidation)
-		}
-	}
-	return view.Document.Name, view.Document.Type, components, nil
-}
-
-func (service *Service) ExchangeReleaseExportComponents(ctx context.Context, documentID, releaseID string) (string, string, []ExchangeExportComponent, error) {
-	release, err := service.GetProductRelease(ctx, documentID, releaseID)
-	if err != nil {
-		return "", "", nil, err
-	}
-	components := []ExchangeExportComponent{}
-	for _, occurrence := range release.Manifest.Occurrences {
-		if occurrence.DocumentType != "PART" || occurrence.GeometryKey == "" {
-			continue
-		}
-		reference, err := service.brepArtifactReference(ctx, occurrence.GeometryKey)
-		if err != nil {
-			return "", "", nil, err
-		}
-		name := occurrence.InstancePath.Display
-		if name == "" {
-			name = occurrence.DocumentID
-		}
-		components = append(components, ExchangeExportComponent{Name: name, BRep: reference,
-			Translation: occurrence.Pose.Translation, Rotation: occurrence.Pose.Rotation})
-	}
-	if len(components) == 0 {
-		return "", "", nil, fmt.Errorf("%w: Product Release has no frozen Part geometry to export", ErrValidation)
-	}
-	return release.Name, "PRODUCT", components, nil
 }
 
 func (service *Service) brepArtifactReference(ctx context.Context, geometryKey string) (geometry.ArtifactReference, error) {

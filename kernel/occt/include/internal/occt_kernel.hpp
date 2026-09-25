@@ -37,6 +37,8 @@ public:
     // ICadKernel
     GeometryId loadBrepr(const std::vector<uint8_t>& data) override;
     GeometryId loadStep(const std::string& path) override;
+    ExchangeGraph readStepGraph(const std::string& path);
+    std::vector<uint8_t> writeStepGraph(const ExchangeGraph& graph);
     uint32_t inspectStepRootCount(const std::string& path) override;
     GeometryId loadStepRoot(const std::string& path, uint32_t root_index) override;
     // Preserve each located Solid occurrence; component ordinal is not a persistent topology ID.
@@ -71,8 +73,6 @@ public:
     std::vector<uint8_t> serializeBrepr(const GeometryId& id) override;
     GeometryId loadStepData(const std::vector<uint8_t>& data) override;
     std::vector<uint8_t> serializeStep(const GeometryId& id) override;
-    std::vector<uint8_t> serializeStepComponents(
-        const std::vector<PlacedGeometry>& components) override;
 
     // Additional accessors
     size_t resident_count() const noexcept;

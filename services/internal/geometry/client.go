@@ -106,23 +106,8 @@ type ArtifactReference struct {
 	Size                                    int64
 }
 
-type ExchangeComponentInfo struct {
-	SourceIndex  uint32
-	Name         string
-	PreparedBRep ArtifactReference
-}
-
-type ExchangeInspection struct {
-	DocumentType string
-	Components   []ExchangeComponentInfo
-}
-
-type ExchangeComponent struct {
-	Name        string
-	BRep        ArtifactReference
-	Translation [3]float64
-	Rotation    [4]float64
-}
+// ExchangeGraph is an ephemeral worker contract, not persisted business state.
+type ExchangeGraph = workerv1.ExchangeGraph
 
 func artifactProto(value ArtifactReference) *workerv1.ArtifactReference {
 	return &workerv1.ArtifactReference{Backend: value.Backend, ObjectKey: value.ObjectKey,
@@ -781,7 +766,7 @@ func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, reque
 	return response, nil
 }
 
-func (client *Client) InspectExchange(ctx context.Context, requestID, format string, source ArtifactReference, outputPrefix ...string) (ExchangeInspection, error) {
+func (client *Client) InspectExchange(ctx context.Context, requestID, format string, source ArtifactReference, outputPrefix ...string) (*ExchangeGraph, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
 	prefix := ""
@@ -792,26 +777,19 @@ func (client *Client) InspectExchange(ctx context.Context, requestID, format str
 		RequestId: requestID, Format: format, Source: artifactProto(source), ComponentOutputPrefix: prefix,
 	})
 	if err != nil {
-		return ExchangeInspection{}, fmt.Errorf("inspect %s exchange: %w", format, err)
+		return nil, fmt.Errorf("inspect %s exchange: %w", format, err)
 	}
-	result := ExchangeInspection{DocumentType: response.GetDocumentType()}
-	for _, component := range response.GetComponents() {
-		result.Components = append(result.Components, ExchangeComponentInfo{
-			SourceIndex: component.GetSourceIndex(), Name: component.GetName(),
-			PreparedBRep: ArtifactReference{Backend: component.GetPreparedBrep().GetBackend(), ObjectKey: component.GetPreparedBrep().GetObjectKey(), SHA256: component.GetPreparedBrep().GetSha256(), Size: int64(component.GetPreparedBrep().GetSizeBytes()), ContentType: component.GetPreparedBrep().GetContentType()},
-		})
-	}
-	return result, nil
+	return response.GetGraph(), nil
 }
 
 func (client *Client) ImportExchange(ctx context.Context, requestID, geometryKey, format string,
-	source ArtifactReference, sourceIndex uint32, brepOutputKey, glbOutputKey string) (*workerv1.EvaluatePartResponse, error) {
+	source ArtifactReference, definitionID string, brepOutputKey, glbOutputKey string) (*workerv1.EvaluatePartResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
 	var header metadata.MD
 	response, err := client.worker.ImportExchange(ctx, &workerv1.ImportExchangeRequest{
 		RequestId: requestID, GeometryKey: geometryKey, Format: format, Source: artifactProto(source),
-		SourceIndex: sourceIndex, BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey,
+		DefinitionId: definitionID, BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey,
 		LinearDeflection: 0.1, AngularDeflection: 0.5,
 	}, grpc.Header(&header))
 	if err != nil {
@@ -822,19 +800,13 @@ func (client *Client) ImportExchange(ctx context.Context, requestID, geometryKey
 }
 
 func (client *Client) ExportExchange(ctx context.Context, requestID, format, outputKey string,
-	components []ExchangeComponent) (ArtifactReference, error) {
+	graph *ExchangeGraph) (ArtifactReference, error) {
 	ctx, cancel := context.WithTimeout(ctx, 2*time.Hour)
 	defer cancel()
-	request := &workerv1.ExportExchangeRequest{RequestId: requestID, Format: format, OutputKey: outputKey}
-	for _, component := range components {
-		rotation := component.Rotation
-		if rotation == [4]float64{} {
-			rotation = [4]float64{0, 0, 0, 1}
-		}
-		request.Components = append(request.Components, &workerv1.ExchangeComponent{Name: component.Name,
-			Brep: artifactProto(component.BRep), Translation: &workerv1.Vec3{X: component.Translation[0], Y: component.Translation[1], Z: component.Translation[2]},
-			Rotation: &workerv1.Quaternion{X: rotation[0], Y: rotation[1], Z: rotation[2], W: rotation[3]}})
+	if err := ValidateExchangeGraph(graph); err != nil {
+		return ArtifactReference{}, err
 	}
+	request := &workerv1.ExportExchangeRequest{RequestId: requestID, Format: format, OutputKey: outputKey, Graph: graph}
 	response, err := client.worker.ExportExchange(ctx, request)
 	if err != nil {
 		return ArtifactReference{}, fmt.Errorf("export %s exchange: %w", format, err)

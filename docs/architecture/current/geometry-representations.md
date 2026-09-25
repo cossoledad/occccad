@@ -60,4 +60,4 @@ Naming 在 bind/resolver 时按需读取并校验摘要；普通 DocumentView �
 
 2026-09-25 定向验证：空 schema 下 Router 的 Cut/Hole、Face/Edge/Vertex、导入命名与 Undo/Redo 通过；下载权限、嵌套 Product 及历史 Revision 归属通过；C++ GLB 的 Go/TypeScript 解码和拾取映射通过。`LD200 torsen v7.step` 经 S3 和真实 Router 的交换导入结果包含 114 Solid、310,731 显示顶点、404,796 三角形，响应为 594 字节，整项测试约 139 秒。这是交换层回归，不等同于多文档 Jobs 导入或浏览器显示性能验收。
 
-这次是数据职责收敛，不是 1 GiB 几何容量验收。OCCT 求值、GLB 合成/解码及 BVH 仍可能持有完整工作集；LOD、chunk、按字节预算、跨主机 Worker 数据面尚未实现。GLB 容器有 32 位长度上限，写入超限会失败。STEP XDE/AP242 结构未改造；WebSocket 控制面见独立分册。未发布 schema/Proto 直接修正，切换前需停止旧进程并通过 `invoke data.reset --yes` 重建数据；不支持旧内联数据回退。
+这次是数据职责收敛，不是 1 GiB 几何容量验收。OCCT 求值、GLB 合成/解码及 BVH 仍可能持有完整工作集；LOD、chunk、按字节预算、跨主机 Worker 数据面尚未实现。GLB 容器有 32 位长度上限，写入超限会失败。STEP XDE 基础结构已改造，颜色/PMI 等完整 AP242 扩展尚未交付；WebSocket 控制面见独立分册。未发布 schema/Proto 直接修正，切换前需停止旧进程并通过 `invoke data.reset --yes` 重建数据；不支持旧内联数据回退。

@@ -567,6 +567,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				Reference: model.ContextReferences[index], Before: &before}, nil
 		}
 		return "", nil, fmt.Errorf("%w: context reference does not exist", ErrValidation)
+	case "IMPORT_PRODUCT_INSTANCES":
+		if documentType != "PRODUCT" || len(request.importInstances) == 0 {
+			return "", nil, fmt.Errorf("%w: internal import instances required", ErrValidation)
+		}
+		return typeInsertInstances, insertInstancesPayload{Instances: request.importInstances}, nil
 	case "INSERT_INSTANCES":
 		if documentType != "PRODUCT" {
 			break

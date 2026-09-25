@@ -30,13 +30,13 @@ func verifyImportNamingDiagnostics(t *testing.T, db *database.Pool, client *geom
 	ref := geometry.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key, SHA256: object.SHA256, Size: object.Size, ContentType: object.ContentType}
 	requestID := "import-diagnostics-" + source.Document.ID
 	key := "diagnostics-" + source.Artifact.GeometryKey
-	evaluation, err := client.ImportExchange(t.Context(), requestID, key, "BREP", ref, 1, artifact.StagingKey(requestID, "shape.brep"), artifact.StagingKey(requestID, "mesh.glb"))
+	evaluation, err := client.ImportExchange(t.Context(), requestID, key, "BREP", ref, "", artifact.StagingKey(requestID, "shape.brep"), artifact.StagingKey(requestID, "mesh.glb"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	service := workspace.NewWithArtifacts(db, client, artifacts)
 	// Exercise actual STEP normalization as well as BREP import.
-	exported, err := client.ExportExchange(t.Context(), requestID+"/step-export", "STEP", artifact.StagingKey(requestID, "fixture.step"), []geometry.ExchangeComponent{{Name: "fixture", BRep: ref}})
+	exported, err := client.ExportExchange(t.Context(), requestID+"/step-export", "STEP", artifact.StagingKey(requestID, "fixture.step"), geometry.SinglePartExchangeGraph("fixture", ref))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,18 +45,18 @@ func verifyImportNamingDiagnostics(t *testing.T, db *database.Pool, client *geom
 		t.Fatal(err)
 	}
 	stepRef := geometry.ArtifactReference{Backend: stepObject.Backend, ObjectKey: stepObject.Key, SHA256: stepObject.SHA256, Size: stepObject.Size, ContentType: stepObject.ContentType}
-	stepEvaluation, err := client.ImportExchange(t.Context(), requestID+"/step", key+"-step", "STEP", stepRef, 1, artifact.StagingKey(requestID, "step-shape.brep"), artifact.StagingKey(requestID, "step-mesh.glb"))
+	stepEvaluation, err := client.ImportExchange(t.Context(), requestID+"/step", key+"-step", "STEP", stepRef, "", artifact.StagingKey(requestID, "step-shape.brep"), artifact.StagingKey(requestID, "step-mesh.glb"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	stepPart, err := service.CommitImportedPart(t.Context(), p6Actor, "", requestID+"/step", "STEP naming", "fixture.step", "STEP", key+"-step", stepEvaluation, &workspace.ImportSource{ObjectID: stepObject.ID, SHA256: stepObject.SHA256, Format: "STEP", ComponentIndex: 1})
+	stepPart, err := service.CommitImportedPart(t.Context(), p6Actor, "", requestID+"/step", "STEP naming", "fixture.step", "STEP", key+"-step", stepEvaluation, &workspace.ImportSource{ObjectID: stepObject.ID, SHA256: stepObject.SHA256, Format: "STEP"})
 	if err != nil || !stepPart.Artifact.Naming.CanBind {
 		t.Fatalf("STEP naming: %v", err)
 	}
 	if _, err = service.BindPersistentSelection(t.Context(), stepPart.Document.ID, workspace.BindPersistentSelectionRequest{SourceVersionID: stepPart.Document.VersionID, GeometryKey: stepPart.Artifact.GeometryKey, Kind: "FACE", LocalID: 1}); err != nil {
 		t.Fatal(err)
 	}
-	imported, err := service.CommitImportedPart(t.Context(), p6Actor, "", requestID, "Import diagnostics", "fixture.brep", "BREP", key, evaluation, &workspace.ImportSource{ObjectID: object.ID, SHA256: object.SHA256, Format: "BREP", ComponentIndex: 1})
+	imported, err := service.CommitImportedPart(t.Context(), p6Actor, "", requestID, "Import diagnostics", "fixture.brep", "BREP", key, evaluation, &workspace.ImportSource{ObjectID: object.ID, SHA256: object.SHA256, Format: "BREP"})
 	if err != nil {
 		t.Fatal(err)
 	}

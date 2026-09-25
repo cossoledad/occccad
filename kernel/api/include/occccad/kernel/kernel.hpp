@@ -195,6 +195,21 @@ struct PlacedGeometry {
 };
 
 // ---------------------------------------------------------------------------
+// Exchange-only graph. IDs are source definition/occurrence identities, never geometry hashes.
+struct ExchangeOccurrence {
+    std::string id, definition_id, name;
+    PlacedGeometry placement;
+};
+struct ExchangeDefinition {
+    std::string id, name, kind; // PART | PRODUCT
+    GeometryId geometry_id; // definition-local, PART only
+    std::vector<ExchangeOccurrence> children;
+};
+struct ExchangeGraph {
+    std::vector<ExchangeDefinition> definitions;
+    std::vector<ExchangeOccurrence> roots;
+};
+
 // Abstract Kernel Interface
 // ---------------------------------------------------------------------------
 
@@ -241,8 +256,6 @@ public:
     virtual std::vector<uint8_t> serializeBrepr(const GeometryId& id) = 0;
     virtual GeometryId loadStepData(const std::vector<uint8_t>& data) = 0;
     virtual std::vector<uint8_t> serializeStep(const GeometryId& id) = 0;
-    virtual std::vector<uint8_t> serializeStepComponents(
-        const std::vector<PlacedGeometry>& components) = 0;
 };
 
 }  // namespace occccad::kernel

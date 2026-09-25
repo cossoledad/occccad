@@ -10,7 +10,7 @@
 | HTTP 普通资源 | 登录/权限、文档目录与搜索、文件夹/管理、历史与属性查询、权威业务快照 |
 | HTTP / ArtifactStore | 导入上传、导出下载、BREP/GLB/Naming 等文件数据 |
 
-旧 `POST /api/documents/{id}/commands` 和 `command-previews` 路由已删除；Web 的既有 `api.command` / `api.previewCommand` 门面统一进入 realtime client。管理操作继续保留 HTTP，不把文件或所有查询改成 WebSocket。STEP/XDE/AP242 未改造。
+旧 `POST /api/documents/{id}/commands` 和 `command-previews` 路由已删除；Web 的既有 `api.command` / `api.previewCommand` 门面统一进入 realtime client。管理操作继续保留 HTTP，不把文件或所有查询改成 WebSocket。STEP/XDE 交换演进见[Jobs 与交换](jobs-artifacts.md)，不改变这里的控制面边界。
 
 ## Envelope 与消息
 
@@ -69,7 +69,7 @@ Preview Artifact 标记 `TRANSIENT_PREVIEW`，不含 `previewMesh`；完整显�
 - `pnpm test -- realtime-control`：客户端 requestId 重试、correlation、gap/快照、Preview 覆盖/取消/超时、结构化错误、消息上限。
 - `mesh-glb`、`assembly-preview-machine`、`command-preview-identity` 场景及 TypeScript 检查，分别覆盖显示、交互状态和候选身份。
 
-本阶段未做浏览器验收、全量单测或 STEP/XDE 重构；无需数据迁移，前后端需一起更新协议调用边界。
+realtime 验证未做浏览器验收或全量单测；无需数据迁移，前后端需一起更新协议调用边界。
 
 ## 交互关键路径
 

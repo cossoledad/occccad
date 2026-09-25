@@ -67,7 +67,7 @@ func (sketchWorkerStub) SolveAssembly(_ context.Context, request *workerv1.Solve
 }
 
 func (sketchWorkerStub) InspectExchange(_ context.Context, _ *workerv1.InspectExchangeRequest) (*workerv1.InspectExchangeResponse, error) {
-	return &workerv1.InspectExchangeResponse{DocumentType: "PART", Components: []*workerv1.ExchangeComponentInfo{{SourceIndex: 1, Name: "Part"}}}, nil
+	return &workerv1.InspectExchangeResponse{Graph: &workerv1.ExchangeGraph{Definitions: []*workerv1.ExchangeDefinition{{Id: "part", Name: "Part", Kind: "PART"}}}}, nil
 }
 
 func (sketchWorkerStub) ImportExchange(_ context.Context, request *workerv1.ImportExchangeRequest) (*workerv1.EvaluatePartResponse, error) {
@@ -217,7 +217,7 @@ func TestGeometryPoolRoutesEveryExchangeRPC(t *testing.T) {
 	t.Cleanup(func() { _ = connection.Close() })
 	client := workerv1.NewGeometryWorkerClient(connection)
 	inspection, err := client.InspectExchange(t.Context(), &workerv1.InspectExchangeRequest{RequestId: "inspect"})
-	if err != nil || inspection.GetDocumentType() != "PART" {
+	if err != nil || len(inspection.GetGraph().GetDefinitions()) != 1 {
 		t.Fatalf("InspectExchange was not routed: %#v, %v", inspection, err)
 	}
 	imported, err := client.ImportExchange(t.Context(), &workerv1.ImportExchangeRequest{RequestId: "import", GeometryKey: "key"})

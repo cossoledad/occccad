@@ -118,3 +118,7 @@ Product 补偿冲突检查使用实际最近 REVERT/REAPPLY 结果 Revision 的�
 每次接纳试算保留命令入口的 nominal pose；失败不污染姿态、warm start 或其他约束状态。网络、取消与基础设施故障使整次操作失败，不记为约束冲突。试算使用独立请求及 `PROBE` SolveManifest，最终 COMMIT/PREVIEW manifest 同时记录全部定义和实际接纳的方程集合；Release 不使用探测试算证据，活动隔离项仍阻止 Release。
 
 嵌套 Part 的基准面、轴系原点/方向和自定义基准轴在视口拾取时与实体拓扑一样携带完整 InstancePath；直属 InstanceId 仍标识参与运动的子 Product，路径末端标识基准所属 Part 的已接受版本。支持检查和求解描述符读取统一规范化 Part 默认基准面/轴系，隐式默认基准可解析，删除的自定义基准仍返回 Broken。定向回归入口为 `nested_product_update_test.go`、`product-edit-context.scenario.mjs` 和 `nested-datum-selection.scenario.mjs`。
+
+## STEP Definition / Occurrence 交换
+
+STEP/XDE 导入复用既有 ProductInstance 与 typed InstancePath：每个源 Part/Product Definition 对应一个文档，多个 occurrence 通过 PINNED Revision 和独立 local placement 引用；BREP 不包含实例变换。图仅为导入/导出中间表示。同级源 Instance 名称冲突时按确定性后缀维持内部唯一性，`importedName` 记录源名与分配名；没有用户重命名时，STEP 导出恢复源名。命令历史保存完整 typed instance entity，Undo/Redo 保留名称来源及 pose。具体边界与验证见[交换架构](jobs-artifacts.md)。

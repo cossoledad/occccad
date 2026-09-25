@@ -6,12 +6,12 @@ occccad-jobs 是当前 PostgreSQL 持久任务的消费者进程，适合脱离 
 
 | 任务类型 | 输入 | 输出/副作用 |
 |---|---|---|
-| `EXCHANGE_IMPORT` | ArtifactStore 中的 STEP/BREP 对象 | 一次解析并拆分 Solid，并行校验/修复/求值和命名创建 Part；多 Solid 创建固定版本引用的 Product |
+| `EXCHANGE_IMPORT` | ArtifactStore 中的 STEP/BREP 对象 | 一次解析 XDE Definition/Occurrence graph；唯一 Part 并行求值/命名，按依赖创建共享、嵌套 Product |
 | `EXCHANGE_EXPORT` | Part 或 Product 当前 Head 的 B-Rep 引用 | 生成 STEP/BREP，并把结果对象 ID 写回任务 |
 | `THUMBNAIL_RENDER` | 文档与版本 | 使用 `png-v4` 生成 `640×400` 正交等轴测 PNG 并更新 `document_previews` |
 
 Worker 不提供网络 API，不接受用户认证请求，也不是通用分布式工作流引擎。
-导入的 Part/Product 文档名统一使用清理路径后的完整上传文件名，包含 `.step`/`.brep` 后缀；客户端不再另行传入可分叉的文档名。Product STEP 导出按 occurrence 生成独立 transferable root，以保持当前展平 Product 再导入时的类型和 placement。
+STEP 优先保留 Definition/Occurrence 名称；无源名称时使用上传文件名。Product STEP 导出通过 XDE 共享 Definition 和 reference + local placement，保留嵌套层级。BREP 保持单 Part/Compound 语义。
 
 ## 执行模型
 
@@ -70,7 +70,7 @@ invoke run.app --build-type=Debug
 
 ## 扩缩容与验证
 
-多个实例可以并行消费，`SKIP LOCKED` 防止同时领取同一行。源文件解析一次，按 Solid occurrence 生成独立快照；同一 Jobs 进程的所有导入共享最多 4 个并行工作额度（`OCCCCAD_IMPORT_CONCURRENCY`：正整数，默认 4），正式 Geometry Router 可把它们分配给不同 Worker；最终 Product 组装与交换文件写出仍是确定性的 reduce 阶段。扩容前要确认 Geometry Worker 与共享制品存储容量；当前没有按任务类型隔离队列，耗时交换工作可能影响缩略图延迟。
+多个实例可以并行消费，`SKIP LOCKED` 防止同时领取同一行。源文件解析一次，按唯一 Part Definition 生成本地坐标快照；同一 Jobs 进程的所有导入共享最多 4 个并行工作额度（`OCCCCAD_IMPORT_CONCURRENCY`：正整数，默认 4），正式 Geometry Router 可把它们分配给不同 Worker；最终 Product 组装与交换文件写出仍是确定性的 reduce 阶段。扩容前要确认 Geometry Worker 与共享制品存储容量；当前没有按任务类型隔离队列，耗时交换工作可能影响缩略图延迟。
 
 ```bash
 cd services
@@ -79,24 +79,26 @@ go test ./...
 
 当任务出现多阶段补偿、跨天计时、人工审批或复杂扇出时，再按[目标架构](../../../docs/TARGET_ARCHITECTURE.md)引入工作流引擎；不要因任务数量增加就立即替换当前简单队列。
 
-交换导入提交保留原始输入对象、摘要、格式和组件索引，由 Workspace 冻结 ImportDefinition/拓扑身份并完成根命名求值，再提交普通 Part Revision。重试复用已采用的精确几何快照与身份分配，避免再次读取已移走的暂存制品。当前可编辑命名范围为有效单 Solid；大文件传输与分块显示仍以独立计划为准。
+交换导入提交保留原始输入对象、摘要、格式和源 Definition ID，由 Workspace 冻结 ImportDefinition/拓扑身份并完成根命名求值，再提交普通 Part Revision。重试复用已采用的精确几何快照与身份分配，避免再次读取已移走的暂存制品。当前根命名范围为有效 Solid/Compound Definition；大文件传输与分块显示仍以独立计划为准。
 
 Jobs 同样使用 [统一数据库访问层](../../internal/database/README.md)，本进程的任务循环共享有界数据库调度预算；该预算独立于 API 进程，配置连接上限时应计算两者总和。持久 Job 租约、重试和提交语义保持不变，调度等待不代表任务成功。
 
 制品通过 `artifact.Store` 使用配置的 LOCAL/S3 后端。源文件输入经 Geometry client 下载到独立 Worker scratch，输出经 Adopt 上传后才提交业务引用。API、Jobs 与本机 Worker 仍共享计算暂存目录；[配置与迁移](../occccad-artifacts/README.md)。
 
-## 单实体拆分与进度
+## 唯一 Definition 求值与进度
 
-`OCCCCAD_IMPORT_CONCURRENCY` 控制同一 Jobs 进程所有导入共享的最大活动工作数，默认 4、可设置任意正整数；每个文件的组件求值和 Part 创建按 `min(组件数, 配置上限)` 调度，准备解析也占用一个额度。空闲额度可由其他文件使用，等待可取消，失败自动释放；多个文件不会各自再获得一整套额度。额度限制活动计算，不限制已经驻留缓存的进程；Router 的 `OCCCCAD_GEOMETRY_WORKER_MAX` 才是所有操作共享的进程总数硬上限。若希望整个应用最多 8 个 Worker，设置两项为 8；多个独立 Jobs 进程各有导入额度，但仍受同一 Router 的总进程上限限制。输入只解析一次，每个带位置 Solid 生成 BREP 快照；必要的有效性修复在单实体 Worker 内并行执行，不能修复的组件明确失败。原始根数量不再决定业务文档数量，不恢复 XDE 层级/共享定义。
+`OCCCCAD_IMPORT_CONCURRENCY` 控制同一 Jobs 进程所有导入共享的最大活动工作数，默认 4、可设置任意正整数；每个文件的组件求值和 Part 创建按 `min(组件数, 配置上限)` 调度，准备解析也占用一个额度。空闲额度可由其他文件使用，等待可取消，失败自动释放；多个文件不会各自再获得一整套额度。额度限制活动计算，不限制已经驻留缓存的进程；Router 的 `OCCCCAD_GEOMETRY_WORKER_MAX` 才是所有操作共享的进程总数硬上限。若希望整个应用最多 8 个 Worker，设置两项为 8；多个独立 Jobs 进程各有导入额度，但仍受同一 Router 的总进程上限限制。输入只解析一次，每个唯一 Part Definition 生成本地坐标 BREP；有效性修复在 Worker 内并行执行。Occurrence 的名称和 placement 保存在实例中，不烘焙进 Part 几何；相同几何的不同 Definition 不合并业务文档。
 
 进度显示解析拆分、组件求值、零件命名/创建、装配创建；已完成数量来自真实完成回调。70% 起进入文档提交区，保持原取消边界。重试/租约重领不清零总进度，新 attempt 显示实际阶段及尝试次数；每个阶段结束只记录一条包含耗时和组件数的日志。确定性校验失败不自动反复重跑。
 
 完整导入的定向验证（独立测试账号和文件夹，结束移入回收站，不重置开发库）：
 
 ```sh
-OCCCCAD_TEST_IMPORT_DATABASE=1 OCCCCAD_TEST_GEOMETRY_WORKER=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP='/absolute/path/LD200 torsen v7.step' go test ./cmd/occccad-jobs -run '^TestMultiSolidImportCreatesNamedPartsAndProduct$' -count=1 -v -timeout 20m
+OCCCCAD_TEST_IMPORT_DATABASE=1 OCCCCAD_TEST_GEOMETRY_WORKER=/absolute/path/occccad_geometry_worker OCCCCAD_TEST_EXCHANGE_STEP='/absolute/path/LD200 torsen v7.step' go test ./cmd/occccad-jobs -run '^TestXdeImportSharedDefinitionsAndRoundTrip$' -count=1 -v -timeout 20m
 ```
 
-默认期望 114 个可命名 Part 和一个 Product，可通过 `OCCCCAD_TEST_EXPECTED_SOLIDS` 指定其他样本的数量。测试检查单实体、冻结命名定义、全部 Part 的面绑定、PINNED 装配引用和进度单调性；保留命中去重的源对象，不删除业务共享制品。
+测试检查源 Definition 数量、共享/嵌套引用、冻结命名、全部 Part 面绑定和进度单调性；保留命中去重的源对象，不删除业务共享制品。
 
 Part 求值结果仅携带摘要和 BREP/VISUAL/NAMING 引用，导入 identity seed 另存 Artifact。缩略图通过 `HydrateDisplay` 读取与前端相同的 GLB，不读取数据库 Mesh；仅在渲染调用范围内解码，DocumentView 不包含完整网格。详见[几何表示](../../../docs/architecture/current/geometry-representations.md)。
+
+不提供 STEP 样本、配置 `OCCCCAD_TEST_DATABASE_URL` 与 Worker 时，上述集成测试生成共享 100 次 Part、共享子装配及同形不同定义的 fixture，并验证导出重新导入；使用独立测试库。协议细节见[交换架构](../../../docs/architecture/current/jobs-artifacts.md)。

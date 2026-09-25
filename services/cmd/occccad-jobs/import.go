@@ -98,7 +98,16 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	if err != nil {
 		return err
 	}
-	count := len(inspection.Components)
+	if err := workspace.ValidateImportGraph(inspection); err != nil {
+		return err
+	}
+	components := []*workerv1.ExchangeDefinition{}
+	for _, def := range inspection.Definitions {
+		if def.Kind == "PART" {
+			components = append(components, def)
+		}
+	}
+	count := len(components)
 	slog.Info("exchange preparation completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	phaseStarted = time.Now()
 	if count == 0 {
@@ -115,32 +124,32 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	group, groupContext := errgroup.WithContext(ctx)
 	group.SetLimit(min(count, budget.maximum))
 	evaluated := h.importProgress(groupContext, job, "EVALUATING", 15, 65, count)
-	for index, component := range inspection.Components {
+	for index, component := range components {
 		group.Go(func() error {
 			return budget.run(groupContext, func() error {
 				if err := groupContext.Err(); err != nil {
 					return err
 				}
-				if component.PreparedBRep.ObjectKey == "" {
-					return errors.New("worker did not prepare single-Solid import snapshots")
+				if component.GetBrep().GetObjectKey() == "" {
+					return errors.New("worker did not prepare definition-local import snapshots")
 				}
-				snapshot, err := h.artifacts.Adopt(groupContext, artifact.KindBREP, "application/vnd.opencascade.brep", component.PreparedBRep.ObjectKey)
+				snapshot, err := h.artifacts.Adopt(groupContext, artifact.KindBREP, "application/vnd.opencascade.brep", component.GetBrep().GetObjectKey())
 				if err != nil {
 					return err
 				}
-				if snapshot.SHA256 != component.PreparedBRep.SHA256 || snapshot.Size != component.PreparedBRep.Size {
+				if snapshot.SHA256 != component.GetBrep().GetSha256() || snapshot.Size != int64(component.GetBrep().GetSizeBytes()) {
 					return errors.New("prepared component integrity mismatch")
 				}
 				input := geometry.ArtifactReference{Backend: snapshot.Backend, ObjectKey: snapshot.Key, SHA256: snapshot.SHA256, Size: snapshot.Size, ContentType: snapshot.ContentType}
-				digest := sha256.Sum256([]byte("exchange-solids-heal-1um-v2\x00" + source.SHA256 + fmt.Sprintf("/%d", component.SourceIndex)))
+				digest := sha256.Sum256([]byte("exchange-xde-local-v1\x00" + source.SHA256 + "/" + component.Id))
 				key := "sha256:" + hex.EncodeToString(digest[:])
-				prefix := fmt.Sprintf("%s/component-%d", job.ID, component.SourceIndex)
-				evaluation, err := h.geometry.ImportExchange(groupContext, requestID+fmt.Sprintf("/component/%d", component.SourceIndex), key, "BREP", input, 1, artifact.StagingKey(prefix, "shape.brep"), artifact.StagingKey(prefix, "mesh.glb"))
+				prefix := fmt.Sprintf("%s/component-%d", job.ID, index+1)
+				evaluation, err := h.geometry.ImportExchange(groupContext, requestID+fmt.Sprintf("/component/%d", index+1), key, "BREP", input, "", artifact.StagingKey(prefix, "shape.brep"), artifact.StagingKey(prefix, "mesh.glb"))
 				if err != nil {
-					return fmt.Errorf("component %d (%s): %w", component.SourceIndex, component.Name, err)
+					return fmt.Errorf("component %d (%s): %w", index+1, component.Name, err)
 				}
-				if evaluation.GetTopology().GetSolidCount() != 1 {
-					return fmt.Errorf("%w: prepared component is not a single Solid", workspace.ErrValidation)
+				if evaluation.GetTopology().GetSolidCount() < 1 {
+					return fmt.Errorf("%w: prepared definition has no Solid", workspace.ErrValidation)
 				}
 				results[index] = imported{key, evaluation}
 				return evaluated()
@@ -167,11 +176,11 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 				if err := groupContext.Err(); err != nil {
 					return err
 				}
-				name := baseName
-				if count > 1 {
-					name = fmt.Sprintf("%s - %s", baseName, inspection.Components[index].Name)
+				name := components[index].Name
+				if strings.TrimSpace(name) == "" {
+					name = baseName
 				}
-				view, err := h.workspace.CommitImportedPart(groupContext, job.RequestedBy, folderID, requestID+fmt.Sprintf("/part/%d", index), name, fileName, format, result.key, result.evaluation, &workspace.ImportSource{ObjectID: source.ID, SHA256: source.SHA256, Format: format, ComponentIndex: inspection.Components[index].SourceIndex})
+				view, err := h.workspace.CommitImportedPart(groupContext, job.RequestedBy, folderID, requestID+"/definition/"+components[index].Id, name, fileName, format, result.key, result.evaluation, &workspace.ImportSource{ObjectID: source.ID, SHA256: source.SHA256, Format: format, DefinitionID: components[index].Id})
 				if err != nil {
 					return err
 				}
@@ -190,19 +199,21 @@ func (h handler) executeImport(ctx context.Context, job jobs.Job, fileName, fold
 	}
 	slog.Info("exchange Part creation completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	phaseStarted = time.Now()
-	root := parts[0]
-	if count > 1 {
-		if err := h.queue.UpdateProgressDetail(ctx, job.ID, h.workerID, 95, &jobs.ProgressDetail{Phase: "ASSEMBLING", Completed: count, Total: count}); err != nil {
-			return err
-		}
-		root, err = h.workspace.CommitImportedProduct(ctx, job.RequestedBy, folderID, requestID+"/product", baseName, parts)
-		if err != nil {
-			return err
-		}
-		if err := h.enqueuePreview(ctx, job.RequestedBy, root); err != nil {
-			slog.Warn("enqueue imported Product preview", "job_id", job.ID, "error", err)
-		}
+	documents := map[string]workspace.DocumentView{}
+	for i, def := range components {
+		documents[def.Id] = parts[i]
 	}
+	if err := h.queue.UpdateProgressDetail(ctx, job.ID, h.workerID, 95, &jobs.ProgressDetail{Phase: "ASSEMBLING", Completed: count, Total: count}); err != nil {
+		return err
+	}
+	root, err := h.workspace.CommitImportedGraph(ctx, job.RequestedBy, folderID, requestID, baseName, inspection, documents)
+	if err != nil {
+		return err
+	}
+	if err := h.enqueuePreview(ctx, job.RequestedBy, root); err != nil {
+		slog.Warn("enqueue imported Product preview", "job_id", job.ID, "error", err)
+	}
+
 	slog.Info("exchange assembly completed", "job_id", job.ID, "components", count, "concurrency_limit", min(count, budget.maximum), "duration_ms", time.Since(phaseStarted).Milliseconds())
 	return h.queue.SucceedImport(ctx, job.ID, h.workerID, root.Document.ID)
 }

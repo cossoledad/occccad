@@ -29,12 +29,12 @@ func TestArtifactStagingNestedReferencesAndCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	original := &workerv1.ArtifactReference{Backend: "TEST", ObjectKey: o.Key, Sha256: o.SHA256, SizeBytes: uint64(o.Size)}
-	request := &workerv1.ExportExchangeRequest{Components: []*workerv1.ExchangeComponent{{Brep: original}, {Brep: original}}}
+	request := &workerv1.ExportExchangeRequest{Graph: &workerv1.ExchangeGraph{Definitions: []*workerv1.ExchangeDefinition{{Brep: original}, {Brep: original}}}}
 	failure := errors.New("worker failed")
 	interceptor := artifactStagingInterceptor(remote, local)
 	err = interceptor(ctx, "ExportExchange", request, nil, nil, func(ctx context.Context, _ string, req, reply any, _ *grpc.ClientConn, _ ...grpc.CallOption) error {
 		value := req.(*workerv1.ExportExchangeRequest)
-		for _, c := range value.Components {
+		for _, c := range value.Graph.Definitions {
 			if c.Brep.Backend != "LOCAL" {
 				t.Fatal("not localized")
 			}
@@ -108,17 +108,17 @@ func TestS3WorkerExchangeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(inspection.Components) != 1 {
+	if len(inspection.Definitions) != 1 {
 		t.Fatal("unexpected component count")
 	}
-	imported, err := client.ImportExchange(t.Context(), "s3-import", "s3-import-geometry", "BREP", reference, 0, "exchange/test/import.brep", "exchange/test/import.glb")
+	imported, err := client.ImportExchange(t.Context(), "s3-import", "s3-import-geometry", "BREP", reference, "", "exchange/test/import.brep", "exchange/test/import.glb")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if imported.GetVolume() <= 0 {
 		t.Fatal("missing solid")
 	}
-	exported, err := client.ExportExchange(t.Context(), "s3-export", "STEP", "exchange/test/export.step", []ExchangeComponent{{Name: "test", BRep: reference}})
+	exported, err := client.ExportExchange(t.Context(), "s3-export", "STEP", "exchange/test/export.step", SinglePartExchangeGraph("test", reference))
 	if err != nil {
 		t.Fatal(err)
 	}

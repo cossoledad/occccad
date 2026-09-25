@@ -20,7 +20,7 @@ S3 兼容 ArtifactStore 已实现；按当前实施范围暂不做续传，后�
 | `workers/geometry/src/main.cpp` | 同一环境变量限制输入/输出，默认 16 GiB，输入和输出均受限制；BREP `read_artifact` 返回整个 vector | 仅提高 API 上限仍失败；文件流入磁盘不代表几何求值流式化 |
 | `services/internal/artifact/store.go`、`local.go` | Store 提供 Backend/Put/Open/Delete；LOCAL/S3 内容寻址和 SHA-256；Worker 使用本机 scratch | 还缺 multipart session、签名访问、Range、租约和对象验证能力 |
 | `services/cmd/occccad-jobs/main.go` | 导入共享可配置并发额度（默认 4），响应只含摘要和引用；最后逐文档提交 | 尚无 RSS 预算准入与跨文档原子发布 |
-| STEP 导入准备阶段 | 每个 attempt 只解析一次，拆分带位置的 Solid 快照后并行求值 | 不恢复 XDE 层级或共享定义，完整解析仍占用内存 |
+| STEP 导入准备阶段 | 每个 attempt 只解析一次，提取唯一 Definition 的本地 BREP 后并行求值 | 已恢复基础 XDE 层级和共享引用，完整解析仍占用内存 |
 | Worker `fill_evaluation` | 持久结果将 BREP、GLB、完整 Naming 外置，仅返回摘要与引用 | unary 响应不再携带大网格；Worker 内仍需组装完整数据 |
 | `services/internal/workspace/geometry_artifacts.go` | 数据库仅存摘要、业务参考几何及通用角色索引；完整 identity seed 外置 | DocumentView 不再携带 Mesh；详见[当前表示合同](../current/geometry-representations.md) |
 | `web/apps/cad/src/cad/visual` | 唯一实体显示源为 GLB，有下载并发限制与同对象去重 | 解码、BVH、GPU 上传仍处理完整实体，没有 LOD 或分块预算 |
@@ -108,9 +108,9 @@ ImportIdentityMap 绑定精确 BREP digest 与 importer policy，包含 stable I
 
 建议导入 Job 分阶段：SOURCE_VERIFIED → INSPECTING → TRANSFERRING → NAMING → EXACT_READY → DISPLAY_BUILDING → COMMITTING → SUCCEEDED。恢复依据持久 stage/component manifest，不仅依据进度百分数。
 
-当前业务导入已在同一 attempt 对 STEP 只 ReadFile/Transfer 一次，并拆为带位置的单 Solid 快照，再并行求值与建立命名；阶段/组件数量和跨重试进度高水位已持久化。持久求值的小摘要/制品引用已实施，其余 checkpoint 目标仍待实施。目标进一步要求：完成的规范化组件 BREP/identity seed 立即写不可变 checkpoint，再由独立任务生成显示制品。初期可在专用进程内保留解析器，重启时允许重读源文件，但不能每个 root 都重新解析整份文件。结果数组只持有组件摘要和对象引用，不能累计完整 Mesh/GLB；当前结果已经是轻量 protobuf 摘要响应。
+当前业务导入已在同一 attempt 对 STEP 只 ReadFile/Transfer 一次，并按唯一 Part Definition 准备本地坐标 BREP，再并行求值与建立命名；阶段/组件数量和跨重试进度高水位已持久化。持久求值的小摘要/制品引用已实施，其余 checkpoint 目标仍待实施。目标进一步要求：完成的规范化组件 BREP/identity seed 立即写不可变 checkpoint，再由独立任务生成显示制品。初期可在专用进程内保留解析器，重启时允许重读源文件，但不能每个 root 都重新解析整份文件。结果数组只持有组件摘要和对象引用，不能累计完整 Mesh/GLB；当前结果已经是轻量 protobuf 摘要响应。
 
-长远装配语义采用 XDE/STEPCAF 恢复 definition/occurrence、共享引用、层级、placement、颜色/名称；嵌套装配不按 transferable root 数量猜测。OCCT 官方说明 XDE 支持扩展结构与属性，STEPCAF 可转入文档；是否降低本项目内存必须实测，XDE 并非 out-of-core 保证。[OCCT XDE](https://github.com/Open-Cascade-SAS/OCCT/wiki/xde)。首批 parse-once 优化可先保持当前展平交换合同，完整 XDE 另设 conformance 门。
+装配已采用 XDE/STEPCAF 恢复 definition/occurrence、共享引用、层级、placement 和名称；后续扩展颜色/材质/层/PMI；嵌套装配不按 transferable root 数量猜测。OCCT 官方说明 XDE 支持扩展结构与属性，STEPCAF 可转入文档；是否降低本项目内存必须实测，XDE 并非 out-of-core 保证。[OCCT XDE](https://github.com/Open-Cascade-SAS/OCCT/wiki/xde)。基础 XDE round-trip 已有定向 conformance；完整 AP242 与大模型容量仍须独立验收。
 
 ### 5.2 资源与失败隔离
 

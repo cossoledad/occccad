@@ -76,10 +76,10 @@ func TestGeometryWorkerRemainsHealthyDuringSTEPTransfer(t *testing.T) {
 			if result.err != nil {
 				t.Fatal(result.err)
 			}
-			if len(result.response.GetComponents()) < 2 || probes < 5 {
-				t.Fatalf("large fixture required: components=%d probes=%d", len(result.response.GetComponents()), probes)
+			if len(result.response.GetGraph().GetDefinitions()) < 2 || probes < 5 {
+				t.Fatalf("large fixture required: components=%d probes=%d", len(result.response.GetGraph().GetDefinitions()), probes)
 			}
-			t.Logf("STEP transfer completed with %d components and %d successful concurrent health probes", len(result.response.GetComponents()), probes)
+			t.Logf("STEP transfer completed with %d components and %d successful concurrent health probes", len(result.response.GetGraph().GetDefinitions()), probes)
 			goto transferred
 		case <-ticker.C:
 			probeCtx, stop := context.WithTimeout(ctx, time.Second)

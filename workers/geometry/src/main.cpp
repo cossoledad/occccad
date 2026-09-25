@@ -1272,34 +1272,46 @@ public:
                 throw std::invalid_argument("exchange source artifact is required");
             std::lock_guard<std::mutex> lock(mutex_);
             const auto source = validate_artifact(request->source());
-            if (!request->component_output_prefix().empty()) {
-                // Dedicated scratch kernel releases the parsed assembly after snapshots
-                // are written. Subsequent workers only read the small component BREP.
-                occccad::kernel::OcctKernel preparation;
-                const auto root = format == "STEP" ? preparation.loadStep(source.string())
-                    : preparation.loadBrepr(read_artifact(request->source()));
-                const auto solids = preparation.splitSolids(root);
-                response->set_document_type(solids.size() > 1U ? "PRODUCT" : "PART");
-                for (std::size_t index = 0; index < solids.size(); ++index) {
-                    if (context->IsCancelled())
-                        return {grpc::StatusCode::CANCELLED, "exchange preparation cancelled"};
-                    auto* component = response->add_components();
-                    component->set_source_index(static_cast<uint32_t>(index + 1));
-                    component->set_name(solids.size() > 1U ? "Component " + std::to_string(index + 1) : "Part");
-                    write_artifact(request->component_output_prefix() + "/" + std::to_string(index + 1) + ".brep",
-                        preparation.serializeBrepr(solids[index]), "application/vnd.opencascade.brep",
-                        component->mutable_prepared_brep());
-                }
-                return grpc::Status::OK;
+            occccad::kernel::OcctKernel preparation;
+            occccad::kernel::ExchangeGraph graph;
+            if (format == "STEP")
+                graph = preparation.readStepGraph(source.string());
+            else {
+                auto id = preparation.loadBrepr(read_artifact(request->source()));
+                graph.definitions.push_back({"brep", "", "PART", id, {}});
+                graph.roots.push_back({"root", "brep", "", {}});
             }
-            const uint32_t count =
-                format == "STEP" ? kernel_.inspectStepRootCount(source.string()) : 1U;
-            response->set_document_type(count > 1U ? "PRODUCT" : "PART");
-            for (uint32_t index = 1; index <= count; ++index) {
-                auto* component = response->add_components();
-                component->set_source_index(index);
-                component->set_name(count > 1U ? "Component " + std::to_string(index) : "Part");
+            auto* output = response->mutable_graph();
+            auto occurrence = [](const auto& from, auto* to) {
+                to->set_id(from.id);
+                to->set_definition_id(from.definition_id);
+                to->set_name(from.name);
+                to->mutable_translation()->set_x(from.placement.translation.x);
+                to->mutable_translation()->set_y(from.placement.translation.y);
+                to->mutable_translation()->set_z(from.placement.translation.z);
+                to->mutable_rotation()->set_x(from.placement.rotation.x);
+                to->mutable_rotation()->set_y(from.placement.rotation.y);
+                to->mutable_rotation()->set_z(from.placement.rotation.z);
+                to->mutable_rotation()->set_w(from.placement.rotation.w);
+            };
+            size_t ordinal = 0;
+            for (const auto& def : graph.definitions) {
+                if (context->IsCancelled())
+                    return {grpc::StatusCode::CANCELLED, "exchange preparation cancelled"};
+                auto* item = output->add_definitions();
+                item->set_id(def.id);
+                item->set_name(def.name);
+                item->set_kind(def.kind);
+                for (const auto& child : def.children)
+                    occurrence(child, item->add_children());
+                if (def.kind == "PART" && !request->component_output_prefix().empty())
+                    write_artifact(request->component_output_prefix() + "/" +
+                                       std::to_string(++ordinal) + ".brep",
+                                   preparation.serializeBrepr(def.geometry_id),
+                                   "application/vnd.opencascade.brep", item->mutable_brep());
             }
+            for (const auto& root : graph.roots)
+                occurrence(root, output->add_roots());
             return grpc::Status::OK;
         } catch (const std::invalid_argument& error) {
             return {grpc::StatusCode::INVALID_ARGUMENT, error.what()};
@@ -1328,9 +1340,19 @@ public:
             const auto source = validate_artifact(request->source());
             occccad::kernel::GeometryId geometry_id;
             if (format == "STEP") {
-                geometry_id = kernel_.loadStepRoot(source.string(), request->source_index());
+                const auto graph = kernel_.readStepGraph(source.string());
+                for (const auto& def : graph.definitions) {
+                    if (def.kind == "PART" &&
+                        (def.id == request->definition_id() ||
+                         (request->definition_id().empty() && graph.definitions.size() == 1)))
+                        geometry_id = def.geometry_id;
+                }
+                if (geometry_id.empty())
+                    throw std::invalid_argument("STEP_PART_DEFINITION_REQUIRED");
+                geometry_id = kernel_.repairImportedSolid(geometry_id);
             } else {
-                geometry_id = kernel_.repairImportedSolid(kernel_.loadBrepr(read_artifact(request->source())));
+                geometry_id = kernel_.repairImportedSolid(
+                    kernel_.loadBrepr(read_artifact(request->source())));
             }
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
@@ -1441,47 +1463,87 @@ public:
         if (context->IsCancelled()) {
             return {grpc::StatusCode::CANCELLED, "request was cancelled"};
         }
-        if (request->request_id().empty() || request->components_size() == 0 ||
+        if (request->request_id().empty() || !request->has_graph() ||
             request->output_key().empty()) {
             return {grpc::StatusCode::INVALID_ARGUMENT,
-                    "request_id, components, and output_key are required"};
+                    "request_id, graph, and output_key are required"};
         }
         std::lock_guard<std::mutex> lock(mutex_);
         try {
             const auto format = exchange_format(request->format());
-            std::vector<occccad::kernel::PlacedGeometry> components;
-            components.reserve(static_cast<size_t>(request->components_size()));
-            for (const auto& component : request->components()) {
-                if (!component.has_brep())
-                    throw std::invalid_argument("each export component requires a B-Rep artifact");
-                const auto id = kernel_.loadBrepr(read_artifact(component.brep()));
-                const auto rotation = component.has_rotation()
-                                          ? component.rotation()
-                                          : occccad::worker::v1::Quaternion{};
-                components.push_back({id,
-                                      {component.translation().x(), component.translation().y(),
-                                       component.translation().z()},
-                                      {rotation.x(), rotation.y(), rotation.z(),
-                                       component.has_rotation() ? rotation.w() : 1.0}});
+            occccad::kernel::OcctKernel preparation;
+            occccad::kernel::ExchangeGraph graph;
+            auto occurrence = [](const auto& from) {
+                occccad::kernel::ExchangeOccurrence to;
+                to.id = from.id();
+                to.definition_id = from.definition_id();
+                to.name = from.name();
+                to.placement.translation = {from.translation().x(), from.translation().y(),
+                                            from.translation().z()};
+                to.placement.rotation = {from.rotation().x(), from.rotation().y(),
+                                         from.rotation().z(),
+                                         from.has_rotation() ? from.rotation().w() : 1.0};
+                const auto& q=to.placement.rotation;
+                const double norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
+                if(!std::isfinite(norm) || std::abs(norm-1.0)>1e-6 || !std::isfinite(to.placement.translation.x) || !std::isfinite(to.placement.translation.y) || !std::isfinite(to.placement.translation.z))
+                    throw std::invalid_argument("EXCHANGE_INVALID_PLACEMENT");
+                return to;
+            };
+            if(request->graph().definitions_size()==0 || request->graph().definitions_size()>100000 || request->graph().roots_size()==0 || request->graph().roots_size()>100000)
+                throw std::invalid_argument("EXCHANGE_GRAPH_LIMIT");
+            std::set<std::string> definitionIds;
+            for (const auto& def : request->graph().definitions()) {
+                if(def.id().empty() || !definitionIds.insert(def.id()).second || (def.kind()!="PART" && def.kind()!="PRODUCT"))
+                    throw std::invalid_argument("EXCHANGE_INVALID_DEFINITION");
+                occccad::kernel::ExchangeDefinition item;
+                item.id = def.id();
+                item.name = def.name();
+                item.kind = def.kind();
+                if (item.kind == "PART")
+                    item.geometry_id = preparation.loadBrepr(read_artifact(def.brep()));
+                for (const auto& child : def.children())
+                    item.children.push_back(occurrence(child));
+                graph.definitions.push_back(std::move(item));
             }
+            for (const auto& root : request->graph().roots())
+                graph.roots.push_back(occurrence(root));
             std::vector<uint8_t> data;
-            if (format == "STEP") {
-                // One transferable root per occurrence is the current flat
-                // Product exchange contract. Collapsing them into a compound
-                // makes a subsequent import indistinguishable from a Part.
-                data = kernel_.serializeStepComponents(components);
-            } else {
-                const auto geometry_id = components.size() == 1U &&
-                                                 components.front().translation.x == 0.0 &&
-                                                 components.front().translation.y == 0.0 &&
-                                                 components.front().translation.z == 0.0 &&
-                                                 components.front().rotation.x == 0.0 &&
-                                                 components.front().rotation.y == 0.0 &&
-                                                 components.front().rotation.z == 0.0 &&
-                                                 components.front().rotation.w == 1.0
-                                             ? components.front().geometry_id
-                                             : kernel_.combine(components);
-                data = kernel_.serializeBrepr(geometry_id);
+            if (format == "STEP")
+                data = preparation.writeStepGraph(graph);
+            else {
+                std::map<std::string, occccad::kernel::GeometryId> resolved;
+                std::set<std::string> visiting;
+                std::function<occccad::kernel::GeometryId(const std::string&)> resolve;
+                resolve = [&](const std::string& id) -> occccad::kernel::GeometryId {
+                    if (resolved.count(id))
+                        return resolved.at(id);
+                    if (visiting.size() > 128 || !visiting.insert(id).second)
+                        throw std::invalid_argument("EXCHANGE_REFERENCE_CYCLE");
+                    for (const auto& def : graph.definitions)
+                        if (def.id == id) {
+                            auto geometry = def.geometry_id;
+                            if (def.kind == "PRODUCT") {
+                                std::vector<occccad::kernel::PlacedGeometry> parts;
+                                for (const auto& child : def.children) {
+                                    auto p = child.placement;
+                                    p.geometry_id = resolve(child.definition_id);
+                                    parts.push_back(p);
+                                }
+                                geometry = preparation.combine(parts);
+                            }
+                            visiting.erase(id);
+                            resolved[id] = geometry;
+                            return geometry;
+                        }
+                    throw std::invalid_argument("EXCHANGE_MISSING_DEFINITION");
+                };
+                std::vector<occccad::kernel::PlacedGeometry> roots;
+                for (const auto& root : graph.roots) {
+                    auto p = root.placement;
+                    p.geometry_id = resolve(root.definition_id);
+                    roots.push_back(p);
+                }
+                data = preparation.serializeBrepr(preparation.combine(roots));
             }
             write_artifact(request->output_key(), data,
                            format == "STEP" ? "model/step" : "application/vnd.opencascade.brep",

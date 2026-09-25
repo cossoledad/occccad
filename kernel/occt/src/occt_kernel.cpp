@@ -40,7 +40,6 @@
 #include <IFSelect_ReturnStatus.hxx>
 #include <Poly_Triangulation.hxx>
 #include <STEPControl_Reader.hxx>
-#include <STEPControl_Writer.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <ShapeFix_Face.hxx>
@@ -1585,8 +1584,12 @@ GeometryId OcctKernel::repairImportedSolid(const GeometryId& id) {
     const TopoDS_Shape original = impl_->find(id);
     TopTools_IndexedMapOfShape solids;
     TopExp::MapShapes(original, TopAbs_SOLID, solids);
-    if (solids.Extent() != 1)
-        throw std::invalid_argument("IMPORT_REQUIRES_SINGLE_SOLID_SNAPSHOT");
+    if (solids.Extent() < 1)
+        throw std::invalid_argument("IMPORT_REQUIRES_SOLID_DEFINITION");
+    for (const auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX})
+        if (TopExp_Explorer(original, type, TopAbs_SOLID).More())
+            throw std::invalid_argument("IMPORT_UNSUPPORTED_NON_SOLID_GEOMETRY");
+    const auto original_solid_count=solids.Extent();
     if (BRepCheck_Analyzer(original).IsValid())
         return id;
     // Heal before allocating persistent naming, on a copy of immutable input.
@@ -1603,7 +1606,7 @@ GeometryId OcctKernel::repairImportedSolid(const GeometryId& id) {
     solids.Clear();
     TopExp::MapShapes(repaired, TopAbs_SOLID, solids);
     BRepCheck_Analyzer analysis(repaired);
-    if (solids.Extent() != 1 || !analysis.IsValid()) {
+    if (solids.Extent() != original_solid_count || !analysis.IsValid()) {
         std::string diagnostic;
         TopTools_IndexedMapOfShape shapes;
         TopExp::MapShapes(repaired, shapes);
@@ -1725,15 +1728,11 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         TopExp::MapShapes(result, TopAbs_FACE, faces);
         TopExp::MapShapes(result, TopAbs_EDGE, edges);
         TopExp::MapShapes(result, TopAbs_VERTEX, vertices);
-        if (solids.Extent() != 1 || !BRepCheck_Analyzer(result).IsValid())
-            throw std::invalid_argument("IMPORT_NAMING_REQUIRES_VALID_SINGLE_SOLID");
-        TopTools_IndexedMapOfShape solid_faces, solid_edges, solid_vertices;
-        TopExp::MapShapes(solids(1), TopAbs_FACE, solid_faces);
-        TopExp::MapShapes(solids(1), TopAbs_EDGE, solid_edges);
-        TopExp::MapShapes(solids(1), TopAbs_VERTEX, solid_vertices);
-        if (faces.Extent() != solid_faces.Extent() || edges.Extent() != solid_edges.Extent() ||
-            vertices.Extent() != solid_vertices.Extent())
-            throw std::invalid_argument("IMPORT_NAMING_REQUIRES_VALID_SINGLE_SOLID");
+        if (solids.Extent() < 1 || !BRepCheck_Analyzer(result).IsValid())
+            throw std::invalid_argument("IMPORT_NAMING_REQUIRES_VALID_SOLID_DEFINITION");
+        for (const auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX})
+            if (TopExp_Explorer(result, type, TopAbs_SOLID).More())
+                throw std::invalid_argument("IMPORT_NAMING_REQUIRES_VALID_SOLID_DEFINITION");
         if (seed.identities.size() != static_cast<std::size_t>(faces.Extent() + edges.Extent() + vertices.Extent()))
             throw std::invalid_argument("IMPORT_SEED_COVERAGE_MISMATCH");
         FeatureResult root;
@@ -2208,40 +2207,10 @@ std::vector<uint8_t> OcctKernel::serializeBrepr(const GeometryId& id) {
 }
 
 std::vector<uint8_t> OcctKernel::serializeStep(const GeometryId& id) {
-    return serializeStepComponents({{id, {0.0, 0.0, 0.0}}});
-}
-
-std::vector<uint8_t> OcctKernel::serializeStepComponents(
-    const std::vector<PlacedGeometry>& components) {
-    if (components.empty()) {
-        throw std::invalid_argument("STEP export requires at least one component");
-    }
-    STEPControl_Writer writer;
-    for (const auto& component : components) {
-        gp_Trsf transform;
-        transform.SetRotation(gp_Quaternion(component.rotation.x, component.rotation.y,
-                                            component.rotation.z, component.rotation.w));
-        transform.SetTranslationPart(
-            gp_Vec(component.translation.x, component.translation.y, component.translation.z));
-        const auto shape = impl_->find(component.geometry_id).Moved(TopLoc_Location(transform));
-        if (writer.Transfer(shape, STEPControl_AsIs) != IFSelect_RetDone) {
-            throw std::runtime_error("STEP component transfer failed");
-        }
-    }
-    ScopedFile temporary(temporary_step_path());
-    if (writer.Write(temporary.path.string().c_str()) != IFSelect_RetDone) {
-        throw std::runtime_error("STEP write failed");
-    }
-    std::ifstream stream(temporary.path, std::ios::binary);
-    if (!stream.is_open()) {
-        throw std::runtime_error("cannot open temporary STEP output");
-    }
-    std::vector<uint8_t> data((std::istreambuf_iterator<char>(stream)),
-                              std::istreambuf_iterator<char>());
-    if (data.empty()) {
-        throw std::runtime_error("cannot read temporary STEP output");
-    }
-    return data;
+    ExchangeGraph graph;
+    graph.definitions.push_back({"part","Part","PART",id,{}});
+    graph.roots.push_back({"root","part","Part",{}});
+    return writeStepGraph(graph);
 }
 
 }  // namespace occccad::kernel

@@ -32,7 +32,7 @@
 | 产品关联 | Publication、typed InstancePath、Product Design Session、ContextInput/Binding、Variant、原子事务、Update Plan | Configuration/Design Table、partial update、flexible subassembly、Derive Part from Context |
 | 装配 | SE(3)、基础约束、平行/垂直、点线/线面偏移、激活与模式分离、M3/历史/Release 证据、0–6 阶组合测试 | 六类几何完整矩阵与多成员固联尚未完成；M4 最近可行拖拽、M5 冲突解释、M6 Engineering Connection；当前 MOVE 仍用临时 Fix |
 | 产品发布 | 冻结 ProductRelease、gate、replay、按冻结几何导出 | ACCEPT-PRODUCT 已通过；后续新增能力仍需独立验收 |
-| 交换 | STEP/BREP、transferable roots、展平 occurrence placement round-trip | XDE/AP242 嵌套 BOM、颜色、共享实例语义 |
+| 交换 | STEP/XDE 共享 Definition、嵌套 Product、名称与局部 placement round-trip；BREP Solid/Compound | AP242 颜色、材质、层、PMI；大模型容量验收 |
 | 平台 | 本机扩缩容、持久 Jobs、LOCAL/S3 制品、realtime Command/Preview 与状态同步 | CDN、跨主机 Scheduler、多 API 扇出、presence/preview 协作 |
 | 工程扩展 | 尚无完整领域实现 | Surface/3D Wire、DMU、Kinematics、钣金、工程图、CAM/CAE |
 
