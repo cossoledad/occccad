@@ -2,6 +2,8 @@
 
 返回[当前架构](../../CURRENT_ARCHITECTURE.md)。本文描述当前唯一持久数据链，不提供旧数据库内联载荷兼容层。
 
+Part Revision 通过 `bodies[].geometryKey` 引用独立 Body 结果，DocumentView 的 `artifacts` 按 GeometryKey 提供轻量描述；没有 Part 级合并 GLB 或唯一 geometryKey。属性面板按 Body 展示当前 Revision 的 BREP / mesh.glb / naming.pb 索引、字节大小、schema 与 digest，并通过受权限保护的 HTTP 文件接口逐项下载。请求的 `bodyId`（若提供）也必须匹配该 Revision 的真实归属；历史 Revision 与冻结 Product 子树同样可验证。
+
 ## 所有权与数据流
 
 参数模型、Feature、Revision、稳定引用、导入 identity 分配和状态属于业务真相。Geometry Worker 只接收冻结输入并输出计算制品；PostgreSQL 保存业务模型及几何摘要，ArtifactStore 保存大载荷。LOCAL/S3 使用同一 Store 接口。
@@ -46,17 +48,19 @@ local ID 和三角形序号仍只是该 GeometryKey 的临时拾取定位。持�
 
 ## Naming、RPC 与预览
 
-完整 `PartTopologyManifest` 只存在 `naming.pb`，采用共享 SemanticRef/Evidence 表、逐 Feature transition 与显式 Body Tip locator 索引；历史 Feature 不再持久保存完整快照。`PartEvaluationManifest` 只携带策略摘要、轻量 Feature identity 及 Naming ArtifactReference，不再重复传完整 FeatureResults。导入重放 RPC 传 identity ArtifactReference，Worker 校验并读取 seed，而非让大型 identities 数组再次穿过请求。
+每个 Body 的完整 `PartTopologyManifest` 只存在自己的 `naming.pb`，采用共享 SemanticRef/Evidence 表、逐 Feature transition 与显式 Body Tip locator 索引；历史 Feature 不再持久保存完整快照。`PartEvaluationManifest` 只携带策略摘要、轻量 Feature identity 及 Naming ArtifactReference，不再重复传完整 FeatureResults。导入重放 RPC 传 identity ArtifactReference，Worker 校验并读取 seed，而非让大型 identities 数组再次穿过请求。
 
 `EvaluatePartResponse` 的持久结果标记为 `PERSISTENT`，只返回几何摘要、计数及 ArtifactReference；移除了 BREP/GLB 内联字段，`preview_mesh` 只允许临时预览。声明中的 Tessellate 输出也只使用引用，不再定义三套内联字节载荷；这不代表独立 Tessellate RPC 已实现。
 
-Naming 在 bind/resolver 时按需读取并校验摘要；普通 DocumentView 加载仅查询索引，不下载完整拓扑图。Naming 索引 READY 表示已登记可用制品，实际内容或策略损坏仍由解析门明确拒绝。
+Naming 在 bind/resolver 时按 sourceBodyId 定位，按需读取并校验摘要、GeometryId 和 BREP SHA-256；普通 DocumentView 加载仅查询索引，不下载完整拓扑图。Naming 索引 READY 表示已登记可用制品，实际内容或策略损坏仍由解析门明确拒绝。
 
-预览响应标记 `TRANSIENT_PREVIEW`，只返回 Artifact 引用；`previewMesh` 已从前后端 Artifact 模型移除。PreviewCommand 仍复用求值和 verified candidate，GLB 经候选限定授权从 HTTP 文件路由获取。取消/覆盖/断线撤销候选和读取授权，独立加载器避免迟到 GLB 覆盖当前视图；完整协议见[realtime 控制面](realtime.md)。底层内部 Worker 的临时 `preview_mesh` 不作为 Web realtime 输出。
+预览响应标记 `TRANSIENT_PREVIEW`，只返回 Artifact 引用；`previewMesh` 已从前后端 Artifact 模型移除。PreviewCommand 仅求值目标 Body，返回 bodyId，视口只替换对应 occurrence/Body；提交时各 Body 按输入缓存复用 candidate 或求值，不无条件重建其他 Body。PreviewCommand 复用 verified candidate，GLB 经候选限定授权从 HTTP 文件路由获取。取消/覆盖/断线撤销候选和读取授权，独立加载器避免迟到 GLB 覆盖当前视图；完整协议见[realtime 控制面](realtime.md)。底层内部 Worker 的临时 `preview_mesh` 不作为 Web realtime 输出。
 
 ## 验证与边界
 
-定向入口包括真实 Router 的 Cut/Hole 和 Face/Edge/Vertex/导入命名历史回归、`TestRepresentationDownloadAuthorizationAndSnapshot`、`TestCppWorkerAcceptsPartNamingContract`、`TestS3WorkerExchangeRoundTrip`，以及前端 `mesh-glb` 场景。真实 C++ GLB 可通过 `OCCCCAD_TEST_GLB_FIXTURE` 同时交给 Go 缩略图与 TypeScript 解码器核对拾取映射。
+Multi-Body 定向入口为 `TestMultiBodyIndependentGeometryAndHistory`（双 Body、ADD/REMOVE、Naming 隔离、Preview promotion、Undo/Redo、装配展开与 STEP 导出），前端 `multi-body.scenario.mjs` 和 `workbench-inspector.scenario.mjs` 验证场景绑定及文件面板。
+
+其他定向入口包括真实 Router 的 Cut/Hole 和 Face/Edge/Vertex/导入命名历史回归、`TestRepresentationDownloadAuthorizationAndSnapshot`、`TestCppWorkerAcceptsPartNamingContract`、`TestS3WorkerExchangeRoundTrip`，以及前端 `mesh-glb` 场景。真实 C++ GLB 可通过 `OCCCCAD_TEST_GLB_FIXTURE` 同时交给 Go 缩略图与 TypeScript 解码器核对拾取映射。
 
 2026-09-25 定向验证：空 schema 下 Router 的 Cut/Hole、Face/Edge/Vertex、导入命名与 Undo/Redo 通过；下载权限、嵌套 Product 及历史 Revision 归属通过；C++ GLB 的 Go/TypeScript 解码和拾取映射通过。`LD200 torsen v7.step` 经 S3 和真实 Router 的交换导入结果包含 114 Solid、310,731 显示顶点、404,796 三角形，响应为 594 字节，整项测试约 139 秒。这是交换层回归，不等同于多文档 Jobs 导入或浏览器显示性能验收。
 

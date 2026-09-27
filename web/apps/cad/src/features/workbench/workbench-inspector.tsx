@@ -1,5 +1,5 @@
 import { ExportOutlined } from "@ant-design/icons";
-import { Button, Descriptions, List, Space, Spin, Tag } from "antd";
+import { Button, Descriptions, List, Space, Spin, Tag, Typography } from "antd";
 import { CAD_WORKBENCHES } from "../../cad/workbench/cad-workbench";
 import type {
   DocumentProperties,
@@ -23,17 +23,16 @@ type PropertiesProps = {
   diagnostics?: DocumentProperties;
   topology?: TopologyElementProperties;
   topologyLoading?: boolean;
-  onEditParameter?: (parameterId: string) => void;
 };
 
-export function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading, onEditParameter }: PropertiesProps) {
+export function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading }: PropertiesProps) {
 	const parameterFor = (parameterId?: string) => view.part?.parameters?.find((parameter) => parameter.parameterId === parameterId);
 	const parameterItems = (parameterId?: string) => {
 		const parameter = parameterFor(parameterId);
 		if (!parameter) return [];
 		return [
 			{ key: "parameter-id", label: "ParameterId", children: parameter.parameterId },
-			{ key: "parameter-key", label: "参数别名", children: <Space>{parameter.key}{onEditParameter && <Button size="small" onClick={() => onEditParameter(parameter.parameterId)}>编辑</Button>}</Space> },
+			{ key: "parameter-key", label: "参数别名", children: parameter.key },
 			{ key: "parameter-source", label: "表达式 / 输入", children: parameterSourceText(parameter) || "—" },
 			{ key: "parameter-value", label: "计算值", children: parameterDisplayValue(parameter) },
 		];
@@ -57,11 +56,9 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
       ]} /></>;
   }
   if (!selection) {
-    const triangleCount = view.artifact?.triangleCount
-      ?? (view.resolvedInstances ?? []).reduce((total, instance) =>
-        total + (view.artifacts?.[instance.geometryKey]?.triangleCount ?? 0), 0);
+    const triangleCount = Object.values(view.artifacts ?? {}).reduce((total,a)=>total+a.triangleCount,0);
     const geometryCount = diagnostics?.aggregate.artifactCount
-      ?? (view.document.type === "PRODUCT" ? view.resolvedInstances?.length ?? 0 : view.artifact ? 1 : 0);
+      ?? (view.document.type === "PRODUCT" ? view.resolvedInstances?.length ?? 0 : view.part?.bodies.length ?? 0);
     const detail = diagnostics?.artifacts[0];
     const bytes = (value = 0) => value < 1024 ? `${value} B` : `${(value / 1024).toFixed(1)} KiB`;
     return <><div className="inspector-document-overview">
@@ -78,6 +75,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
         children: view.document.type === "PART" ? view.part?.features.length ?? 0 : view.product?.instances.length ?? 0 },
       ...(sketchPlane ? [{ key: "plane", label: "草图平面", children: sketchPlane.plane }] : []),
     ]} />
+    <PartBodies view={view} />
     <details className="inspector-diagnostics"><summary>技术详情与诊断</summary><Descriptions column={1} size="small"
       bordered className="property-list" items={[
         { key: "workbench", label: "Workbench", children: `${CAD_WORKBENCHES[workbench].label} · ${CAD_WORKBENCHES[workbench].domain}` },
@@ -110,6 +108,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
           children: view.document.type === "PART" ? view.part?.features.length ?? 0 : view.product?.instances.length ?? 0 },
       ]} /></details></>;
   }
+  if (selection.kind === "body") return <PartBodies view={view} />;
   if (["face", "edge", "vertex"].includes(selection.kind)) {
     const format = (value: unknown): string => Array.isArray(value)
       ? value.map((entry) => typeof entry === "number" ? Number(entry).toPrecision(7) : String(entry)).join(", ")
@@ -214,4 +213,22 @@ export function History({ entries, onRestore, canRestore = true }: { entries: Hi
     <List.Item.Meta title={<Space><span>#{entry.sequence} {entry.commandType}</span>{entry.isHead && <Tag color="blue">HEAD</Tag>}</Space>}
       description={<span>{entry.versionName ?? entry.versionId.slice(0, 12)}<br />{new Date(entry.createdAt).toLocaleString()}</span>} />
   </List.Item>} />;
+}
+
+export function PartBodies({view}:{view:DocumentView}) {
+  if (!view.part) return null;
+  const base=(import.meta.env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+  return <section aria-label="Part Files"><strong>实体与文件 / Part Files</strong>
+    {view.part.bodies.map(body=><div key={body.id} style={{marginTop:12}}>
+      <Typography.Text strong>{body.name}</Typography.Text>
+      <Space wrap>{body.id===view.part!.activeBodyId && <Tag>活动实体</Tag>}
+        <Tag>{body.visible ? "可见" : "隐藏"}</Tag></Space>
+      {Object.entries(view.artifacts?.[body.geometryKey??""]?.representations??{}).map(([role,ref])=><div key={role}>
+        <Space wrap><span>{role==="VISUAL"?"mesh.glb":role==="NAMING"?"naming.pb":role}</span>
+          <small>{ref.size.toLocaleString()} B · v{ref.schemaVersion}</small>
+          <a download href={`${base}/api/documents/${encodeURIComponent(view.document.id)}/representations/${encodeURIComponent(ref.objectId)}?versionId=${encodeURIComponent(view.document.versionId)}&bodyId=${encodeURIComponent(body.id)}&download=1`}>Download</a></Space>
+        <div title={ref.digest}><Typography.Text type="secondary">{ref.digest.slice(0,20)}…</Typography.Text></div>
+      </div>)}
+    </div>)}
+  </section>;
 }

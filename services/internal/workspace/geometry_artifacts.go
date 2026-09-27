@@ -119,8 +119,15 @@ func (s *Service) storeEvaluation(ctx context.Context, key string, e *workerv1.E
 func (s *Service) ensureVisualizationArtifact(ctx context.Context, model PartModel) (string, error) {
 	v := visualizationManifest(model)
 	raw, _ := json.Marshal(v)
-	sum := sha256.Sum256(append([]byte(evaluatorVersion), raw...))
+	sum := sha256.Sum256(append([]byte(evaluatorVersion+"|body="+model.ActiveBodyID+"|"), raw...))
 	key := "sha256:" + hex.EncodeToString(sum[:])
+	var exists bool
+	if err := s.database.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM occccad.geometry_artifacts WHERE geometry_key=$1)`, key).Scan(&exists); err != nil {
+		return "", err
+	}
+	if exists {
+		return key, nil
+	}
 	glb, err := glbWithVisualization(nil, v, map[string]string{"geometryId": key})
 	if err != nil {
 		return "", err
@@ -226,16 +233,16 @@ func (s *Service) loadArtifact(ctx context.Context, key string) (Artifact, error
 }
 
 // Naming stays lazy: opening a document never downloads the full topology graph.
-func (s *Service) namingReference(ctx context.Context, key string) (*string, *string, string, error) {
-	var id, digest, geometryID string
-	err := s.database.QueryRow(ctx, `SELECT o.id::text,o.sha256,g.geometry_id FROM occccad.geometry_representations r JOIN occccad.artifact_objects o ON o.id=r.object_id JOIN occccad.geometry_artifacts g ON g.geometry_key=r.geometry_key WHERE r.geometry_key=$1 AND r.role='NAMING'`, key).Scan(&id, &digest, &geometryID)
+func (s *Service) namingReference(ctx context.Context, key string) (*string, *string, string, string, error) {
+	var id, digest, geometryID, brepDigest string
+	err := s.database.QueryRow(ctx, `SELECT o.id::text,o.sha256,g.geometry_id,b.sha256 FROM occccad.geometry_representations r JOIN occccad.artifact_objects o ON o.id=r.object_id JOIN occccad.geometry_artifacts g ON g.geometry_key=r.geometry_key JOIN occccad.geometry_representations br ON br.geometry_key=r.geometry_key AND br.role='BREP' JOIN occccad.artifact_objects b ON b.id=br.object_id WHERE r.geometry_key=$1 AND r.role='NAMING'`, key).Scan(&id, &digest, &geometryID, &brepDigest)
 	if err == pgx.ErrNoRows {
-		return nil, nil, "", nil
+		return nil, nil, "", "", nil
 	}
 	if err != nil {
-		return nil, nil, "", err
+		return nil, nil, "", "", err
 	}
-	return &id, &digest, geometryID, nil
+	return &id, &digest, geometryID, brepDigest, nil
 }
 
 // HydrateDisplay is explicitly consumer-local (thumbnail/preview), never called

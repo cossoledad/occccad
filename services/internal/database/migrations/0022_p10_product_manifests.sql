@@ -5,7 +5,7 @@ CREATE TABLE occccad.product_context_variants (
     binding_digest text NOT NULL,
     evaluator_version text NOT NULL,
     evaluation_manifest_digest text NOT NULL,
-    geometry_key text NOT NULL,
+    bodies jsonb NOT NULL,
     publications jsonb NOT NULL DEFAULT '[]'::jsonb,
     created_at timestamptz NOT NULL DEFAULT now()
 );

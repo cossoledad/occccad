@@ -282,6 +282,34 @@ func validateAndResolvePartParameters(model *PartModel) error {
 }
 
 func validatePartStructure(model PartModel) error {
+	bodies := map[string]bool{}
+	for _, b := range model.Bodies {
+		if b.ID == "" || bodies[b.ID] || strings.TrimSpace(b.Name) == "" {
+			return fmt.Errorf("%w: invalid Body definition", ErrValidation)
+		}
+		if b.CreatedByFeatureID != "" {
+			found := false
+			for _, f := range model.Features {
+				if f.ID == b.CreatedByFeatureID && f.BodyID == b.ID && isSolidGenerator(f.Type) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return fmt.Errorf("%w: Body %s has no creating solid feature", ErrValidation, b.ID)
+			}
+		}
+		bodies[b.ID] = true
+	}
+	if len(bodies) > 0 && !bodies[model.ActiveBodyID] {
+		return fmt.Errorf("%w: active Body is missing", ErrValidation)
+	}
+	for _, f := range model.Features {
+		if !bodies[f.BodyID] {
+			return fmt.Errorf("%w: feature %s has no owning Body", ErrValidation, f.ID)
+		}
+	}
+
 	datums := map[string]struct{}{}
 	for _, datum := range model.DatumPlanes {
 		if datum.ID == "" {
@@ -434,10 +462,15 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			edges = append(edges, modelcore.DependencyEdge{Source: key, Target: modelcore.DependencyKey("feature:" + input.Target.TargetID), Kind: modelcore.ReadGeometry})
 		}
 	}
-	bodyTipFeatureID := ""
+	bodyTips := map[string]string{}
+	for _, body := range model.Bodies {
+		data, _ := json.Marshal(bodyDefinition(body))
+		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("body:" + body.ID), Phase: 0, Type: "BODY", CanonicalInput: data})
+	}
 	featureIDs := map[string]bool{}
 	for _, feature := range model.Features {
 		featureIDs[feature.ID] = true
+		bodyTipFeatureID := bodyTips[feature.BodyID]
 		key := modelcore.DependencyKey("feature:" + feature.ID)
 		data, _ := json.Marshal(feature)
 		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 2, Type: feature.Type, CanonicalInput: data})
@@ -454,17 +487,26 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			}
 		}
 		if feature.Sketch != nil {
-			readsTopology := (feature.Sketch.Support.Type == "PLANAR_FACE" && feature.Sketch.Support.PersistentSelection != nil) || len(feature.Sketch.ExternalGeometry) > 0
-			if readsTopology {
-				if bodyTipFeatureID != "" {
-					edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadTopology})
+			sources := map[string]bool{}
+			if support := feature.Sketch.Support; support.Type == "PLANAR_FACE" && support.PersistentSelection != nil {
+				sources[support.PersistentSelection.SourceBodyID] = true
+			}
+			for _, external := range feature.Sketch.ExternalGeometry {
+				if external.ContextReferenceID == "" {
+					sources[external.PersistentSelection.SourceBodyID] = true
 				}
-			} else {
+			}
+			for bodyID := range sources {
+				if tip := bodyTips[bodyID]; tip != "" {
+					edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + tip), Target: key, Kind: modelcore.ReadTopology})
+				}
+			}
+			if feature.Sketch.Support.Type == "DATUM_PLANE" {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + feature.Sketch.Support.DatumPlaneID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		}
 		if isSolidGenerator(feature.Type) || feature.Type == "IMPORT_BODY" {
-			bodyTipFeatureID = feature.ID
+			bodyTips[feature.BodyID] = feature.ID
 		}
 	}
 	datumIDs := map[string]bool{}
@@ -499,7 +541,10 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + publication.Target.FeatureID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		case "TOPOLOGY":
-			source := bodyTipFeatureID
+			source := ""
+			if publication.Target.PersistentSelection != nil {
+				source = bodyTips[publication.Target.PersistentSelection.SourceBodyID]
+			}
 			if source != "" && featureIDs[source] {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + source), Target: key, Kind: modelcore.ReadTopology})
 			}

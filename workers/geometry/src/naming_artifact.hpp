@@ -2,6 +2,7 @@
 #include <occccad/worker/v1/geometry_worker.pb.h>
 
 #include <map>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -9,6 +10,9 @@ namespace occccad::worker {
 // FeatureResult is evaluator working memory. Only this interned v2 representation is persisted.
 inline void pack_naming(const std::vector<v1::FeatureResult>& features,
                         v1::PartTopologyManifest& out) {
+    if (features.empty() || features.front().body_id().empty()) throw std::invalid_argument("NAMING_REQUIRES_ONE_BODY");
+    for (const auto& feature : features)
+        if (feature.body_id()!=features.front().body_id()) throw std::invalid_argument("NAMING_CROSS_BODY_TRANSITION");
     out.set_schema_version(2);
     out.set_coordinate_space("PART_LOCAL");
     out.set_length_unit("mm");

@@ -303,6 +303,15 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 		}
 		for _, change := range set.Changes {
 			switch change.Target.SlotID {
+			case "body.entity":
+				for _, b := range model.Bodies {
+					if b.ID == change.Target.EntityID {
+						result[change.Target], _ = json.Marshal(bodyDefinition(b))
+					}
+				}
+			case "active-body":
+				result[change.Target], _ = json.Marshal(model.ActiveBodyID)
+
 			case "context-input.entity":
 				for _, input := range model.ContextInputs {
 					if input.ID == change.Target.EntityID {
@@ -441,6 +450,29 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 		}
 		for address, value := range values {
 			switch address.SlotID {
+			case "active-body":
+				if err := json.Unmarshal(value, &model.ActiveBodyID); err != nil {
+					return nil, err
+				}
+			case "body.entity":
+				index := bodyIndex(model, address.EntityID)
+				if len(value) == 0 || string(value) == "null" {
+					if index >= 0 {
+						model.Bodies = append(model.Bodies[:index], model.Bodies[index+1:]...)
+					}
+				} else {
+					var b PartBody
+					if err := json.Unmarshal(value, &b); err != nil {
+						return nil, err
+					}
+					if index >= 0 {
+						b.GeometryKey = model.Bodies[index].GeometryKey
+						model.Bodies[index] = b
+					} else {
+						model.Bodies = append(model.Bodies, b)
+					}
+				}
+
 			case "document.model":
 				return append(json.RawMessage(nil), value...), nil
 			case "publication.entity":
@@ -505,6 +537,9 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 					if index >= 0 {
 						for _, dependent := range model.Features {
 							if dependent.Profile == address.EntityID {
+								if pending, ok := values[modelcore.PropertyAddress{EntityID: dependent.ID, SlotID: "entity"}]; ok && (len(pending) == 0 || string(pending) == "null") {
+									continue
+								}
 								return nil, fmt.Errorf("%w: cannot remove %s while feature %s depends on it", ErrValidation, address.EntityID, dependent.ID)
 							}
 						}
@@ -637,6 +672,8 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 				}
 			}
 		}
+		slices.SortStableFunc(model.Features, func(a, b Feature) int { return a.Order - b.Order })
+		slices.SortStableFunc(model.Bodies, func(a, b PartBody) int { return a.Order - b.Order })
 		normalizePartModel(&model)
 		if err := validateAndResolvePartParameters(&model); err != nil {
 			return nil, err
@@ -838,7 +875,6 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	revisionID := revisionUUID.String()
 	transactionID := transactionUUID.String()
 	modelHash := canonicalModelHash(input.modelJSON)
-	geometryKey := ""
 	revisionState, evaluationStatus := "READY", "SUCCEEDED"
 	var graph *modelcore.DependencyGraph
 	var manifest modelcore.EvaluationManifest
@@ -855,15 +891,18 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 		if err = service.resolvePartPublications(ctx, input.documentID, input.requestID, revisionID, &model); err != nil {
 			return err
 		}
-		input.modelJSON, _ = json.Marshal(model)
-		modelHash = canonicalModelHash(input.modelJSON)
-		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, input.changes.ImpactSeeds, nil)
-		if err == nil {
-			if failedKey, failedRevision, failedEvaluation, unresolved := unresolvedExternalRevisionOutcome(model); unresolved {
-				geometryKey, revisionState, evaluationStatus = failedKey, failedRevision, failedEvaluation
-			} else {
-				geometryKey, err = service.evaluatePart(ctx, input.requestID, model)
+		if _, failedRevision, failedEvaluation, unresolved := unresolvedExternalRevisionOutcome(model); unresolved {
+			revisionState, evaluationStatus = failedRevision, failedEvaluation
+			for i := range model.Bodies {
+				model.Bodies[i].GeometryKey = ""
 			}
+		} else {
+			err = service.evaluatePartBodies(ctx, input.requestID, &model)
+		}
+		if err == nil {
+			input.modelJSON, _ = json.Marshal(model)
+			modelHash = canonicalModelHash(input.modelJSON)
+			graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, input.changes.ImpactSeeds, nil)
 		}
 	} else {
 		var model ProductModel
@@ -938,12 +977,8 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	if err = tx.QueryRow(ctx, `INSERT INTO occccad.commands(request_id,command_type,document_id,payload,status,completed_at,trace_id,span_id) VALUES($1,$2,$3,$4,'SUCCEEDED',now(),$5,$6) RETURNING id::text`, input.requestID, input.kind, input.documentID, payload, traceID, spanID).Scan(&commandID); err != nil {
 		return err
 	}
-	var nullableGeometry any
-	if geometryKey != "" {
-		nullableGeometry = geometryKey
-	}
 	batch := &pgx.Batch{}
-	batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, revisionID, input.documentID, input.headRevision, revisionSequence, input.modelJSON, nullableGeometry, revisionState, commandID, modelHash, dependencyDigest, manifestJSON)
+	batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, revisionID, input.documentID, input.headRevision, revisionSequence, input.modelJSON, revisionState, commandID, modelHash, dependencyDigest, manifestJSON)
 	batch.Queue(`INSERT INTO occccad.revision_parents(revision_id,parent_revision_id) VALUES($1,$2)`, revisionID, input.headRevision)
 	var revertID, reapplyID any
 	var rootID any

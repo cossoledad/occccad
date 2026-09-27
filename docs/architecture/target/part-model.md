@@ -280,3 +280,7 @@ message RevolveExtent {
 - `operation` 仍使用统一 NEW/ADD/REMOVE/INTERSECT，因此旋转切除无需单独 schema。
 
 语义输出包括 `REVOLVE_START_CAP`、`REVOLVE_END_CAP`（FULL 时不存在）、`REVOLVED_FACE_FROM_PROFILE_EDGE` 和 `AXIS_CONTACT`. 全周回转的周期面使用 profile edge lineage、axis、周期参数区间共同命名。
+
+## Multi-Body 制品边界
+
+Part Revision 组织 N 个独立 Body，每个 Body 是独立 Geometry/BREP/Visual/Naming 求值原子，全部使用 Part-local 坐标。Naming 必须 per-Body，局部 locator 无需升级为全 Part 编号；PersistentSelection.sourceBodyId 固定业务 Body 身份。基础 CRUD、Active Body、Body 内生成/Boolean、历史和显示已实现，见[当前 Part](../current/part-sketch.md)。Body 间 Boolean 应在后续设计为独立 Feature，不混入本阶段 Body 内操作。

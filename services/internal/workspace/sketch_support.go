@@ -169,7 +169,7 @@ func supportFrame(model PartModel, support SketchSupport) ([3]float64, [3]float6
 }
 
 func (service *Service) topologyManifestForGeometryKey(ctx context.Context, geometryKey string) (*topologyManifest, string, error) {
-	objectID, digest, geometryID, err := service.namingReference(ctx, geometryKey)
+	objectID, digest, geometryID, brepDigest, err := service.namingReference(ctx, geometryKey)
 	if err != nil {
 		return nil, "", err
 	}
@@ -177,7 +177,7 @@ func (service *Service) topologyManifestForGeometryKey(ctx context.Context, geom
 	if err != nil {
 		return nil, "", err
 	}
-	if manifest.GeometryID != geometryID {
+	if manifest.GeometryID != geometryID || manifest.BRepSHA256 != brepDigest {
 		return nil, "", namingError("CORRUPT", "TOPOLOGY_MANIFEST_GEOMETRY_MISMATCH", "Naming artifact belongs to a different frozen geometry")
 	}
 	return manifest, actualDigest, nil
@@ -185,7 +185,7 @@ func (service *Service) topologyManifestForGeometryKey(ctx context.Context, geom
 
 func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, documentID, sourceVersionID, geometryKey string,
 	selection modelcore.PersistentSelection) (modelcore.SelectionResolution, string, error) {
-	source, _, _, err := service.topologyManifestForVersion(ctx, documentID, sourceVersionID)
+	source, _, _, err := service.topologyManifestForVersion(ctx, documentID, sourceVersionID, selection.SourceBodyID)
 	if err != nil {
 		return modelcore.SelectionResolution{}, "", err
 	}
@@ -251,7 +251,7 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 		// since been modified by intervening Boolean operations.
 		prefix := *model
 		prefix.Features = append([]Feature(nil), model.Features[:index]...)
-		geometryKey, err := service.evaluatePart(ctx, requestID+"/support/"+feature.ID, prefix)
+		geometryKey, err := service.evaluateBodyPrefix(ctx, requestID+"/support/"+feature.ID, prefix, support.PersistentSelection.SourceBodyID)
 		if err != nil {
 			return err
 		}
@@ -302,14 +302,9 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 	if service.worker == nil {
 		return fmt.Errorf("%w: geometry worker is required to project external geometry", ErrValidation)
 	}
-	if geometryKey == "" {
-		prefix := *model
-		prefix.Features = append([]Feature(nil), model.Features[:featureIndex]...)
-		var err error
-		geometryKey, err = service.evaluatePart(ctx, requestID+"/external-source/"+model.Features[featureIndex].ID, prefix)
-		if err != nil {
-			return err
-		}
+	bodyGeometries := map[string]string{}
+	if geometryKey != "" && sketch.Support.PersistentSelection != nil {
+		bodyGeometries[sketch.Support.PersistentSelection.SourceBodyID] = geometryKey
 	}
 	markBroken := func(external *SketchExternalGeometry, code, diagnostic string) {
 		external.Status, external.DiagnosticCode, external.Diagnostic = "UNRESOLVED_EXTERNAL", code, diagnostic
@@ -361,6 +356,19 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 				markBroken(external, "EXTERNAL_SOURCE_ORDER_INVALID", "external geometry must originate from an earlier feature")
 				continue
 			}
+			bodyID := external.PersistentSelection.SourceBodyID
+			sourceGeometryKey = bodyGeometries[bodyID]
+			if sourceGeometryKey == "" {
+				prefix := *model
+				prefix.Features = append([]Feature(nil), model.Features[:featureIndex]...)
+				var err error
+				sourceGeometryKey, err = service.evaluateBodyPrefix(ctx, requestID+"/external-source/"+external.ID, prefix, bodyID)
+				if err != nil {
+					return err
+				}
+				bodyGeometries[bodyID] = sourceGeometryKey
+			}
+
 		}
 		if sourceGeometryKey == "" {
 			markBroken(external, "EXTERNAL_SOURCE_UNAVAILABLE", "context Publication has no resolved geometry")

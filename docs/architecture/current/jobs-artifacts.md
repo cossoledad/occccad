@@ -4,7 +4,7 @@
 
 ## Geometry Router 与本机扩缩容
 
-Router 实现与 GeometryWorker 相同的 gRPC 服务并转发请求。当前 Part 只有一个权威求值 Body，因此其 `GeometryId` 就是驻留原子；同一 Part 的面/边/点查询以及 Product occurrence 引用复用这个原子。未来多 Body Part 必须为每个 Body 产生独立不可变 GeometryId/Artifact，不能以文档 ID 把多个 Body 强制绑在一起。选择规则为：
+Router 实现与 GeometryWorker 相同的 gRPC 服务并转发请求。Part 的每个 Body 独立拥有权威 Geometry/Artifact，Body `GeometryId` 是驻留原子；同一 Body 的面/边/点查询与 Product occurrence 引用复用该原子，不能以 Part 文档 ID 将多个 Body 强制绑在一起。选择规则为：
 
 1. 如果设置调试覆盖，所有请求发往调试 Worker；
 2. 优先选择已拥有目标 `GeometryId`/`geometryKey` 的 Worker；首次冷请求在发出 RPC 前即预留 owner，因此并发请求不会把同一 Body 加载到多个 Worker；

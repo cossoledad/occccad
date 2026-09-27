@@ -68,7 +68,7 @@ func (service *Service) allocateImportDefinition(ctx context.Context, documentID
 	if digest == nil {
 		return "", fmt.Errorf("IMPORT_BREP_UNAVAILABLE")
 	}
-	def := importDefinition{FeatureID: feature.ID, BodyID: "body-main", GeometryKey: feature.GeometryKey, BRepSHA256: *digest, Policy: importPolicy, OCCTVersion: occt, Units: "mm", Source: source}
+	def := importDefinition{FeatureID: feature.ID, BodyID: feature.BodyID, GeometryKey: feature.GeometryKey, BRepSHA256: *digest, Policy: importPolicy, OCCTVersion: occt, Units: "mm", Source: source}
 	for _, group := range []struct {
 		kind  string
 		count int

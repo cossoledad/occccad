@@ -91,7 +91,7 @@ func (service *Service) CommitImportedGraph(ctx context.Context, actor, folderID
 // render list. Geometry overrides carry existing context/release evaluation.
 func (service *Service) ExchangeExportGraph(ctx context.Context, documentID, releaseID string, expectedRevision ...string) (*geometry.ExchangeGraph, error) {
 	var revision string
-	overrides := map[string]string{}
+	overrides := map[string][]PartBody{}
 	if releaseID != "" {
 		release, err := service.GetProductRelease(ctx, documentID, releaseID)
 		if err != nil {
@@ -99,8 +99,8 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID, rel
 		}
 		revision = release.Manifest.RootProductRevisionID
 		for _, o := range release.Manifest.Occurrences {
-			if o.GeometryKey != "" {
-				overrides[o.InstancePath.Canonical] = o.GeometryKey
+			if len(o.Bodies) > 0 {
+				overrides[o.InstancePath.Canonical] = o.Bodies
 			}
 		}
 	} else {
@@ -111,21 +111,18 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID, rel
 		if len(expectedRevision) > 0 && expectedRevision[0] != "" && view.Document.VersionID != expectedRevision[0] {
 			return nil, fmt.Errorf("%w: export Head changed", ErrValidation)
 		}
-		if view.Document.Type == "PART" && (view.Artifact == nil || view.Artifact.Volume <= 0) {
-			return nil, fmt.Errorf("%w: Part has no solid geometry to export", ErrValidation)
-		}
 		revision = view.Document.VersionID
-		if view.Artifact != nil {
-			overrides[""] = view.Artifact.GeometryKey
+		if view.Part != nil {
+			overrides[""] = view.Part.Bodies
 		}
 		for _, o := range view.ResolvedInstances {
-			overrides[o.InstancePath.Canonical] = o.GeometryKey
+			overrides[o.InstancePath.Canonical] = append(overrides[o.InstancePath.Canonical], PartBody{ID: o.BodyID, GeometryKey: o.GeometryKey})
 		}
 	}
 	graph := &geometry.ExchangeGraph{}
 	type snapshot struct {
-		name, kind, key string
-		model           []byte
+		name, kind string
+		model      []byte
 	}
 	snapshots := map[string]snapshot{}
 	built := map[string]bool{}
@@ -140,7 +137,7 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID, rel
 		defer delete(visiting, identity)
 		value, ok := snapshots[identity]
 		if !ok {
-			err := service.database.QueryRow(ctx, `SELECT d.name,d.document_type,v.model_json,COALESCE(v.geometry_key,'') FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2`, docID, rev).Scan(&value.name, &value.kind, &value.model, &value.key)
+			err := service.database.QueryRow(ctx, `SELECT d.name,d.document_type,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2`, docID, rev).Scan(&value.name, &value.kind, &value.model)
 			if err != nil {
 				return "", err
 			}
@@ -148,20 +145,37 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID, rel
 		}
 		def := &workerv1.ExchangeDefinition{Id: identity, Name: value.name, Kind: value.kind}
 		if value.kind == "PART" {
-			key := value.key
-			if override := overrides[path]; override != "" {
-				key = override
+			var part PartModel
+			if err := json.Unmarshal(value.model, &part); err != nil {
+				return "", err
 			}
-			if key == "" {
-				return "", fmt.Errorf("%w: Part has no exportable geometry", ErrValidation)
+			bodies := part.Bodies
+			if override, ok := overrides[path]; ok {
+				bodies = override
 			}
-			def.Id += "/" + key
+			encoded, _ := json.Marshal(bodies)
+			def.Id += "/" + modelcore.ValueDigest(encoded)
 			if !built[def.Id] {
-				ref, err := service.brepArtifactReference(ctx, key)
-				if err != nil {
-					return "", err
+				for _, body := range bodies {
+					if body.GeometryKey == "" {
+						continue
+					}
+					a, err := service.loadArtifact(ctx, body.GeometryKey)
+					if err != nil {
+						return "", err
+					}
+					if a.Volume <= 0 {
+						continue
+					}
+					ref, err := service.brepArtifactReference(ctx, body.GeometryKey)
+					if err != nil {
+						return "", err
+					}
+					def.BodyBreps = append(def.BodyBreps, &workerv1.ArtifactReference{Backend: ref.Backend, ObjectKey: ref.ObjectKey, Sha256: ref.SHA256, SizeBytes: uint64(ref.Size), ContentType: ref.ContentType})
 				}
-				def.Brep = &workerv1.ArtifactReference{Backend: ref.Backend, ObjectKey: ref.ObjectKey, Sha256: ref.SHA256, SizeBytes: uint64(ref.Size), ContentType: ref.ContentType}
+				if len(def.BodyBreps) == 0 {
+					return "", fmt.Errorf("%w: Part has no exportable Body", ErrValidation)
+				}
 			}
 		} else {
 			var model ProductModel

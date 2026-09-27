@@ -160,7 +160,7 @@ func TestCutHolePersistentSelectionThroughRealRouter(t *testing.T) {
 	// walls. The original top-face selection must still resolve uniquely.
 	part, throughSketch := addRectangle(part.Document.ID, "XZ", "", workspace.SketchPoint2{X: 5, Y: 2}, workspace.SketchPoint2{X: 15, Y: 8})
 	part = addExtrude(part.Document.ID, throughSketch, "REMOVE", 20, true)
-	if got := p6TopologyCount(t, part.Artifact.Topology, "faces"); got != 10 {
+	if got := p6TopologyCount(t, activeBodyArtifact(t, part).Topology, "faces"); got != 10 {
 		t.Fatalf("through-cut faces = %d, want six inherited plus four hole faces", got)
 	}
 	modifiedRequestID := runID + "-p6-update-modified"
@@ -271,15 +271,15 @@ type p6FacePick struct {
 func findP6FacePick(t *testing.T, service *workspace.Service, view workspace.DocumentView,
 	match func(modelcore.PersistentSelection) bool) p6FacePick {
 	t.Helper()
-	count := p6TopologyCount(t, view.Artifact.Topology, "faces")
+	count := p6TopologyCount(t, activeBodyArtifact(t, view).Topology, "faces")
 	for localID := uint64(1); localID <= count; localID++ {
 		properties, err := service.GetTopologyElementPropertiesAtVersion(t.Context(), view.Document.ID, view.Document.VersionID,
-			view.Artifact.GeometryKey, "FACE", localID)
+			activeBodyArtifact(t, view).GeometryKey, "FACE", localID)
 		if err == nil && properties.PersistentSelection != nil && match(*properties.PersistentSelection) {
 			if properties.NamingResolution == nil || properties.NamingResolution.Status != modelcore.SelectionResolved {
 				t.Fatalf("matching face %d cannot resolve in its creation revision: %#v", localID, properties.NamingResolution)
 			}
-			return p6FacePick{GeometryKey: view.Artifact.GeometryKey, LocalID: localID, Selection: *properties.PersistentSelection}
+			return p6FacePick{GeometryKey: activeBodyArtifact(t, view).GeometryKey, LocalID: localID, Selection: *properties.PersistentSelection}
 		}
 	}
 	t.Fatal("matching face was not found in the authoritative topology manifest")

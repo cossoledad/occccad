@@ -9,6 +9,7 @@ import (
 // Consumer-local domain view, never marshaled to an artifact or database.
 // Historical features carry transitions only; full output locators exist at explicit body tips.
 type topologyManifest struct {
+	BRepSHA256     string
 	GeometryID     string
 	Locators       map[string]namingLocator
 	FeatureResults []*workerv1.FeatureResult
@@ -29,10 +30,10 @@ func (m *topologyManifest) GetFeatureResults() []*workerv1.FeatureResult {
 func (m *topologyManifest) bodyTips() map[string]*workerv1.FeatureResult { return m.Tips }
 
 func unpackNaming(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
-	if m.GeometryId == "" || m.SchemaVersion != 2 || m.CoordinateSpace != "PART_LOCAL" || m.LengthUnit != "mm" {
+	if len(m.Bodies) != 1 || m.Bodies[0].BodyId == "" || m.GeometryId == "" || m.SchemaVersion != 2 || m.CoordinateSpace != "PART_LOCAL" || m.LengthUnit != "mm" {
 		return nil, fmt.Errorf("unsupported naming artifact contract")
 	}
-	out := &topologyManifest{GeometryID: m.GeometryId, Locators: map[string]namingLocator{}, Tips: map[string]*workerv1.FeatureResult{}}
+	out := &topologyManifest{GeometryID: m.GeometryId, BRepSHA256: m.BrepSha256, Locators: map[string]namingLocator{}, Tips: map[string]*workerv1.FeatureResult{}}
 	var failure error
 	ref := func(id uint32) *workerv1.SemanticTopologyRef {
 		if id == 0 || uint64(id) > uint64(len(m.SemanticRefs)) {
@@ -106,6 +107,9 @@ func unpackNaming(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
 		return evidence[id-1]
 	}
 	for _, t := range m.Transitions {
+		if t.BodyId != m.Bodies[0].BodyId {
+			return nil, fmt.Errorf("cross-body naming transition")
+		}
 		h := &workerv1.TopologyHistory{SchemaVersion: 1, FeatureId: t.FeatureId, InputGeometryId: t.InputGeometryId, ResultGeometryId: t.ResultGeometryId, EvidenceDigest: t.EvidenceDigest, PolicyDigest: m.PolicyDigest}
 		for _, l := range t.Lineage {
 			v := &workerv1.TopologyLineage{Result: ref(l.Result), Kind: l.Kind, Evidence: ev(l.Evidence)}

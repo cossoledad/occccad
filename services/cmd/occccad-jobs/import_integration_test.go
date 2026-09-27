@@ -243,10 +243,10 @@ func TestXdeImportSharedDefinitionsAndRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if part.Artifact == nil || !part.Artifact.Naming.CanBind {
+		if len(part.Part.Bodies) != 1 || !part.Artifacts[part.Part.Bodies[0].GeometryKey].Naming.CanBind {
 			t.Fatal("missing import naming")
 		}
-		if _, err := service.BindPersistentSelection(t.Context(), id, workspace.BindPersistentSelectionRequest{SourceVersionID: part.Document.VersionID, GeometryKey: part.Artifact.GeometryKey, Kind: "FACE", LocalID: 1}); err != nil {
+		if _, err := service.BindPersistentSelection(t.Context(), id, workspace.BindPersistentSelectionRequest{SourceVersionID: part.Document.VersionID, GeometryKey: part.Part.Bodies[0].GeometryKey, Kind: "FACE", LocalID: 1}); err != nil {
 			t.Fatal(err)
 		}
 	}

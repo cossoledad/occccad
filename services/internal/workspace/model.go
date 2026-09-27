@@ -34,6 +34,7 @@ type TopologyElementProperties struct {
 }
 
 type Artifact struct {
+	BodyID             string                    `json:"bodyId,omitempty"`
 	Naming             NamingAvailability        `json:"naming"`
 	GeometryKey        string                    `json:"geometryKey"`
 	GeometryID         string                    `json:"geometryId"`
@@ -312,6 +313,8 @@ type SketchOperation struct {
 }
 
 type Feature struct {
+	Order              int            `json:"order"`
+	BodyID             string         `json:"bodyId"`
 	ImportDefinitionID string         `json:"importDefinitionId,omitempty"`
 	ID                 string         `json:"id"`
 	Type               string         `json:"type"`
@@ -330,6 +333,8 @@ type Feature struct {
 }
 
 type PartModel struct {
+	Bodies            []PartBody                      `json:"bodies"`
+	ActiveBodyID      string                          `json:"activeBodyId"`
 	Units             string                          `json:"units"`
 	DatumPlanes       []DatumPlane                    `json:"datumPlanes"`
 	AxisSystems       []AxisSystem                    `json:"axisSystems"`
@@ -519,7 +524,7 @@ type ContextVariantSnapshot struct {
 	BindingIDs               []string      `json:"bindingIds"`
 	BindingDigest            string        `json:"bindingDigest"`
 	EvaluationManifestDigest string        `json:"evaluationManifestDigest,omitempty"`
-	GeometryKey              string        `json:"geometryKey,omitempty"`
+	Bodies                   []PartBody    `json:"bodies"`
 	Publications             []Publication `json:"publications,omitempty"`
 	Status                   string        `json:"status"`
 	DiagnosticCode           string        `json:"diagnosticCode,omitempty"`
@@ -570,7 +575,7 @@ type ProductReleaseOccurrence struct {
 	DocumentType             string       `json:"documentType"`
 	RevisionID               string       `json:"revisionId"`
 	Pose                     InstancePose `json:"pose"`
-	GeometryKey              string       `json:"geometryKey,omitempty"`
+	Bodies                   []PartBody   `json:"bodies,omitempty"`
 	EvaluationManifestDigest string       `json:"evaluationManifestDigest"`
 }
 
@@ -744,6 +749,8 @@ type CopyDocumentRequest struct {
 }
 
 type ResolvedInstance struct {
+	BodyID         string       `json:"bodyId"`
+	BodyVisible    bool         `json:"bodyVisible"`
 	ID             string       `json:"id"`
 	Name           string       `json:"name"`
 	DocumentID     string       `json:"documentId"`
@@ -867,6 +874,8 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	BodyID                  string `json:"bodyId,omitempty"`
+	Visible                 bool   `json:"visible,omitempty"`
 	importInstances         []ProductInstance
 	ImportGraphDigest       string               `json:"importGraphDigest,omitempty"`
 	ImportSource            *ImportSource        `json:"-"`

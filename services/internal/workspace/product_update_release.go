@@ -223,11 +223,14 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 	variant := ContextVariantSnapshot{OwningInstancePath: owner.Path, BaseDocumentID: owner.DocumentID,
 		BaseRevisionID: owner.RevisionID, BindingIDs: ids, BindingDigest: bindingDigest, Status: "READY"}
 	variant.VariantKey = contextVariantKey(owner.RevisionID, bindingDigest)
-	var cachedPublications []byte
-	if err := service.database.QueryRow(ctx, `SELECT evaluation_manifest_digest,geometry_key,publications
+	var cachedPublications, cachedBodies []byte
+	if err := service.database.QueryRow(ctx, `SELECT evaluation_manifest_digest,bodies,publications
 		FROM occccad.product_context_variants WHERE variant_key=$1 AND base_document_id=$2 AND base_revision_id=$3
 		AND binding_digest=$4 AND evaluator_version=$5`, variant.VariantKey, owner.DocumentID, owner.RevisionID,
-		bindingDigest, evaluatorVersion).Scan(&variant.EvaluationManifestDigest, &variant.GeometryKey, &cachedPublications); err == nil {
+		bindingDigest, evaluatorVersion).Scan(&variant.EvaluationManifestDigest, &cachedBodies, &cachedPublications); err == nil {
+		if err := json.Unmarshal(cachedBodies, &variant.Bodies); err != nil {
+			return ContextVariantSnapshot{}, err
+		}
 		if err := json.Unmarshal(cachedPublications, &variant.Publications); err != nil {
 			return ContextVariantSnapshot{}, err
 		}
@@ -268,7 +271,7 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 			return variant, nil
 		}
 	}
-	geometryKey, err := service.evaluatePart(ctx, "context-variant/"+variant.VariantKey, model)
+	err := service.evaluatePartBodies(ctx, "context-variant/"+variant.VariantKey, &model)
 	if err != nil {
 		variant.Status, variant.DiagnosticCode, variant.Diagnostic = "FAILED", "CONTEXT_VARIANT_GEOMETRY_EVALUATION_FAILED", err.Error()
 		return variant, nil
@@ -281,29 +284,31 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 		return variant, nil
 	}
 	manifestJSON, _ := json.Marshal(manifest)
-	variant.GeometryKey = geometryKey
+	variant.Bodies = model.Bodies
+	bodiesJSON, _ := json.Marshal(variant.Bodies)
 	variant.EvaluationManifestDigest = modelcore.ValueDigest(manifestJSON)
 	variant.Publications = model.Publications
 	publicationsJSON, _ := json.Marshal(variant.Publications)
 	if _, err := service.database.Exec(ctx, `INSERT INTO occccad.product_context_variants(
 		variant_key,base_document_id,base_revision_id,binding_digest,evaluator_version,
-		evaluation_manifest_digest,geometry_key,publications) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+		evaluation_manifest_digest,bodies,publications) VALUES($1,$2,$3,$4,$5,$6,$7,$8)
 		ON CONFLICT (variant_key) DO NOTHING`, variant.VariantKey, owner.DocumentID, owner.RevisionID,
-		variant.BindingDigest, evaluatorVersion, variant.EvaluationManifestDigest, variant.GeometryKey, publicationsJSON); err != nil {
+		variant.BindingDigest, evaluatorVersion, variant.EvaluationManifestDigest, bodiesJSON, publicationsJSON); err != nil {
 		return ContextVariantSnapshot{}, err
 	}
-	var storedManifest, storedGeometry string
+	var storedManifest string
+	var storedBodies []byte
 	var storedPublications []byte
-	if err := service.database.QueryRow(ctx, `SELECT evaluation_manifest_digest,geometry_key,publications
+	if err := service.database.QueryRow(ctx, `SELECT evaluation_manifest_digest,bodies,publications
 		FROM occccad.product_context_variants WHERE variant_key=$1`, variant.VariantKey).
-		Scan(&storedManifest, &storedGeometry, &storedPublications); err != nil {
+		Scan(&storedManifest, &storedBodies, &storedPublications); err != nil {
 		return ContextVariantSnapshot{}, err
 	}
 	var stored []Publication
 	if err := json.Unmarshal(storedPublications, &stored); err != nil {
 		return ContextVariantSnapshot{}, err
 	}
-	if storedManifest != variant.EvaluationManifestDigest || storedGeometry != variant.GeometryKey ||
+	if storedManifest != variant.EvaluationManifestDigest || canonicalModelHash(storedBodies) != canonicalModelHash(bodiesJSON) ||
 		resolvedDigest(stored) != resolvedDigest(variant.Publications) {
 		return ContextVariantSnapshot{}, fmt.Errorf("%w: CONTEXT_VARIANT_NONDETERMINISTIC", ErrValidation)
 	}
@@ -512,11 +517,11 @@ func (service *Service) CreateProductRelease(ctx context.Context, rootDocumentID
 			followed[item.Path.Canonical] = follows
 		}
 		var head string
-		var geometryKey *string
+		var partJSON []byte
 		var evaluationJSON []byte
 		var state string
-		if err := service.database.QueryRow(ctx, `SELECT v.geometry_key,v.evaluation_manifest,v.state,d.head_version_id::text FROM occccad.document_versions v
-            JOIN occccad.documents d ON d.id=v.document_id WHERE v.id=$1 AND v.document_id=$2`, item.RevisionID, item.DocumentID).Scan(&geometryKey, &evaluationJSON, &state, &head); err != nil {
+		if err := service.database.QueryRow(ctx, `SELECT v.model_json,v.evaluation_manifest,v.state,d.head_version_id::text FROM occccad.document_versions v
+            JOIN occccad.documents d ON d.id=v.document_id WHERE v.id=$1 AND v.document_id=$2`, item.RevisionID, item.DocumentID).Scan(&partJSON, &evaluationJSON, &state, &head); err != nil {
 			return ProductRelease{}, err
 		}
 		if follows && head != item.RevisionID {
@@ -524,11 +529,15 @@ func (service *Service) CreateProductRelease(ctx context.Context, rootDocumentID
 		}
 		occurrence := ProductReleaseOccurrence{InstancePath: item.Path, DocumentID: item.DocumentID, DocumentType: item.DocumentType,
 			RevisionID: item.RevisionID, Pose: item.Pose, EvaluationManifestDigest: modelcore.ValueDigest(evaluationJSON)}
-		if geometryKey != nil {
-			occurrence.GeometryKey = *geometryKey
+		if item.DocumentType == "PART" {
+			var part PartModel
+			if err := json.Unmarshal(partJSON, &part); err != nil {
+				return ProductRelease{}, err
+			}
+			occurrence.Bodies = part.Bodies
 		}
 		if variant, ok := variantsByPath[item.Path.Canonical]; ok {
-			occurrence.GeometryKey = variant.GeometryKey
+			occurrence.Bodies = variant.Bodies
 			occurrence.EvaluationManifestDigest = variant.EvaluationManifestDigest
 		}
 		manifest.Occurrences = append(manifest.Occurrences, occurrence)

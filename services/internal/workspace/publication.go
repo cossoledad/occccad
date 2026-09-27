@@ -243,7 +243,6 @@ func resolvedDigest(value any) string {
 }
 
 func (service *Service) resolvePartPublications(ctx context.Context, documentID, requestID, revisionID string, model *PartModel) error {
-	var finalGeometryKey string
 	for index := range model.Publications {
 		publication := &model.Publications[index]
 		broken := func(code, diagnostic string) {
@@ -289,7 +288,7 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 				broken("PUBLICATION_FEATURE_OUTPUT_MISSING", "published feature output no longer exists")
 				continue
 			}
-			key, err := service.evaluatePart(ctx, requestID+"/publication/"+publication.ID, prefix)
+			key, err := service.evaluateBodyPrefix(ctx, requestID+"/publication/"+publication.ID, prefix, prefix.Features[len(prefix.Features)-1].BodyID)
 			if err != nil {
 				return err
 			}
@@ -302,12 +301,9 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 				SourceDigest:     resolvedDigest(struct{ Feature, Key string }{publication.Target.FeatureID, key}),
 				EvaluatorVersion: artifact.EvaluatorVersion, WorkerID: artifact.WorkerID, OCCTVersion: artifact.OCCTVersion}
 		case "TOPOLOGY":
-			if finalGeometryKey == "" {
-				var err error
-				finalGeometryKey, err = service.evaluatePart(ctx, requestID+"/publication-body", *model)
-				if err != nil {
-					return err
-				}
+			finalGeometryKey, err := service.evaluateBodyPrefix(ctx, requestID+"/publication-body", *model, publication.Target.PersistentSelection.SourceBodyID)
+			if err != nil {
+				return err
 			}
 			resolution, manifestDigest, err := service.resolveSelectionAgainstGeometry(ctx, documentID, publication.Target.SourceVersionID, finalGeometryKey, *publication.Target.PersistentSelection)
 			if err != nil {

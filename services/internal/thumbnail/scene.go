@@ -208,15 +208,22 @@ func collectScene(ctx context.Context, view workspace.DocumentView) (*renderScen
 		instances := append([]workspace.ResolvedInstance(nil), view.ResolvedInstances...)
 		sort.SliceStable(instances, func(i, j int) bool { return instances[i].ID < instances[j].ID })
 		for _, instance := range instances {
-			if a, ok := view.Artifacts[instance.GeometryKey]; ok {
+			if a, ok := view.Artifacts[instance.GeometryKey]; ok && (instance.BodyID == "" || instance.BodyVisible) {
 				if err := appendArtifact(a, newPose(instance.Translation, instance.Rotation)); err != nil {
 					return nil, err
 				}
 			}
 		}
-	} else if view.Artifact != nil {
-		if err := appendArtifact(*view.Artifact, newPose(vec{}, [4]float64{})); err != nil {
-			return nil, err
+	} else if view.Part != nil && len(view.Part.Bodies) > 0 {
+		for _, body := range view.Part.Bodies {
+			if !body.Visible {
+				continue
+			}
+			if a, ok := view.Artifacts[body.GeometryKey]; ok {
+				if err := appendArtifact(a, newPose(vec{}, [4]float64{})); err != nil {
+					return nil, err
+				}
+			}
 		}
 	} else if view.Part != nil {
 		if err := appendSketchFallback(ctx, s, view.Part.Features); err != nil {

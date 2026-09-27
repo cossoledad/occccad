@@ -137,8 +137,8 @@ func TestEdgeVertexPersistentSelectionThroughRealRouter(t *testing.T) {
 		first, second := workspace.SketchPoint2{X: x - 1, Y: y - 1}, workspace.SketchPoint2{X: x + 1, Y: y + 1}
 		part = apply(part.Document.ID, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: feature.ID, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &first, Second: &second}}})
 		part = addExtrude(part.Document.ID, feature.ID, "REMOVE", 1, true)
-		if math.Abs(part.Artifact.Volume-3996) > 1e-5 {
-			t.Fatalf("pocket on %v volume = %g", expected, part.Artifact.Volume)
+		if math.Abs(activeBodyArtifact(t, part).Volume-3996) > 1e-5 {
+			t.Fatalf("pocket on %v volume = %g", expected, activeBodyArtifact(t, part).Volume)
 		}
 		for undo := 0; undo < 3; undo++ {
 			part = apply(part.Document.ID, workspace.CommandRequest{Type: "UNDO"})
@@ -327,12 +327,12 @@ func findP7TopologyPick(t *testing.T, service *workspace.Service, view workspace
 	match func(workspace.TopologyElementProperties, modelcore.PersistentSelection) bool) p7TopologyPick {
 	t.Helper()
 	countKey := map[string]string{"FACE": "faces", "EDGE": "edges", "VERTEX": "vertices"}[kind]
-	count := p6TopologyCount(t, view.Artifact.Topology, countKey)
+	count := p6TopologyCount(t, activeBodyArtifact(t, view).Topology, countKey)
 	for localID := uint64(1); localID <= count; localID++ {
 		properties, err := service.GetTopologyElementPropertiesAtVersion(t.Context(), view.Document.ID,
-			view.Document.VersionID, view.Artifact.GeometryKey, kind, localID)
+			view.Document.VersionID, activeBodyArtifact(t, view).GeometryKey, kind, localID)
 		if err == nil && properties.PersistentSelection != nil && match(properties, *properties.PersistentSelection) {
-			return p7TopologyPick{Kind: kind, GeometryKey: view.Artifact.GeometryKey, LocalID: localID,
+			return p7TopologyPick{Kind: kind, GeometryKey: activeBodyArtifact(t, view).GeometryKey, LocalID: localID,
 				SourceVersionID: view.Document.VersionID, Selection: *properties.PersistentSelection}
 		}
 	}

@@ -238,7 +238,7 @@ export function Workbench() {
   const [replacementForm] = Form.useForm<{referencedDocumentId:string}>();
   const [externalParameterForm] = Form.useForm<{ catalogKey: string }>();
   const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string; fixedTranslation:Vec3; fixedAngles:Vec3 }>();
-  const padOperation = Form.useWatch("operation", padForm) ?? "NEW_BODY";
+  const padOperation = Form.useWatch("operation", padForm) ?? "ADD";
   const contextPublicationType = Form.useWatch("publicationType", contextReferenceForm) ?? "PLANE";
   const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
   const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
@@ -316,7 +316,7 @@ export function Workbench() {
   const editingView = activeDocumentID === documentID ? view : activeDocument.data;
   const selectedNamingIssue = selectionNamingIssue(store.selection, editingView, view);
   const repairableImport = editingView?.part?.features.find((feature) => feature.type === "IMPORT_BODY" && !feature.importDefinitionId);
-  const activeNamingIssue = editingView?.artifact?.topology.faces && editingView.artifact.naming && !editingView.artifact.naming.canBind ? editingView.artifact.naming : undefined;
+  const activeNamingIssue = Object.values(editingView?.artifacts??{}).find(a=>a.topology.faces>0 && a.naming && !a.naming.canBind)?.naming;
   const discardNewSketch = () => {
     const session = newSketchSession.current;
     if (!session) return;
@@ -608,15 +608,15 @@ export function Workbench() {
       store.setSelection(selection);
       return;
     }
-    const bodyMarker = node.id.indexOf("/body/");
+    const bodyMarker = node.id.indexOf("/body:");
     store.setSelection({ ...selection,
       documentId: sourceView.document.id,
       occurrencePath: activeInstancePath,
       instancePath: activeResolvedInstance.instancePath,
       instanceId: activeInstancePath.split("/")[0],
-      geometryKey: sourceView.artifact?.geometryKey,
-      treeNodeId: bodyMarker >= 0 ? `${activeResolvedInstance.bodyTreeNodeId}${node.id.slice(bodyMarker + 5)}` : selection.treeNodeId,
-      visualKey: selection.kind === "sketch" ? undefined : `body:${activeInstancePath}:body`,
+      geometryKey: selection.geometryKey,
+      treeNodeId: bodyMarker >= 0 ? `${activeResolvedInstance.bodyTreeNodeId.slice(0,activeResolvedInstance.bodyTreeNodeId.lastIndexOf("/body:"))}${node.id.slice(bodyMarker)}` : selection.treeNodeId,
+      visualKey: selection.kind === "sketch" ? undefined : `body:${activeInstancePath}:body:${selection.bodyId}`,
     });
   };
   const finishSketch = () => {
@@ -766,7 +766,7 @@ export function Workbench() {
     if (store.selection?.kind !== "sketch") return;
     const hasBody = Boolean(editingView?.part?.features.some((feature) => feature.type === "IMPORT_BODY" ||
       ["PAD", "LINEAR_EXTRUDE", "REVOLVE"].includes(feature.type.toUpperCase())));
-    const selectedOperation = operation ?? (hasBody ? "ADD" : "NEW_BODY");
+    const selectedOperation = operation ?? "ADD";
     const sketchID = store.selection.id;
 	padIntentRequestID.current = randomUUID(); padPreviewID.current=undefined; setPadSketchID(sketchID); setPadGenerator(generator);
     padForm.setFieldsValue({ generator, operation: selectedOperation, lengthSource: "40", angle: 360,
@@ -1148,7 +1148,7 @@ export function Workbench() {
             }} />}
       inspector={<WorkbenchInspectorPanel documentID={activeID} view={editingView ?? view} selection={store.selection}
         feature={selected} workbench={activeWorkbench} sketchPlane={store.sketchPlane} activeTool={store.activeToolID}
-        navigationProfile={navigationProfile} onEditParameter={openParameterEditor} canRestore={canEdit && !command.isPending}
+        navigationProfile={navigationProfile} canRestore={canEdit && !command.isPending}
         onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}>
         {view.document.type === "PRODUCT" && (activeInstancePath || activeDocumentID !== documentID) && <div style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",
           padding:"6px 10px",borderRadius:6,background:"rgba(22,27,34,.88)",color:"white"}}>

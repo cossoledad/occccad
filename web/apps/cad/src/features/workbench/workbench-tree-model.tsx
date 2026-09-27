@@ -64,7 +64,8 @@ function structureIcon(kind: DocumentStructureNode["kind"], diagnostic?: string)
 export function structureSelection(node: DocumentStructureNode, view: DocumentView): Selection {
   const occurrencePath = node.instancePath?.canonical ?? "";
   const resolved = (view.resolvedInstances ?? []).find((item) => item.instancePath?.canonical === occurrencePath);
-  const geometryKey = resolved?.geometryKey ?? view.artifact?.geometryKey;
+  const bodyId = node.kind==="BODY" ? node.entityId : node.id.match(/\/body:([^/]+)/)?.[1];
+  const geometryKey = node.geometryKey ?? view.part?.bodies.find(b=>b.id===bodyId)?.geometryKey ?? view.resolvedInstances?.find(r=>r.occurrencePath===occurrencePath && r.bodyId===bodyId)?.geometryKey;
   const expands = ["PART", "PRODUCT", "INSTANCE", "ORIGIN", "BODY", "PUBLICATION_SET", "PRODUCT_PUBLICATION_SET", "CONTEXT_REFERENCE_SET", "SKETCH", "SKETCH_GEOMETRY_SET", "SKETCH_CONSTRAINT_SET",
     "SKETCH_LOGICAL_CONSTRAINT_SET", "SKETCH_DIMENSION_SET"].includes(node.kind);
   const context = { treeNodeId: node.id, expandTreeDescendants: expands || undefined, documentId: node.documentId,
@@ -146,11 +147,11 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
   if (node.kind === "DATUM_AXIS" && node.entityId) return {
     kind: "axis", axis: "DATUM", id: `${occurrencePath || "root"}:${node.entityId}`, entityId: node.entityId, ...context,
   };
-  const bodyID = `${occurrencePath || "root"}:body`;
-  if (node.kind === "BODY" || node.kind === "PART") return { kind: "body", id: bodyID, ...context };
+  const bodyID = occurrencePath ? `${occurrencePath}:body:${bodyId}` : bodyId ?? "body";
+  if (node.kind === "BODY" || node.kind === "PART") return { kind: "body", id: bodyID, bodyId, ...context };
   if (["SKETCH", "PAD", "REVOLVE", "IMPORT"].includes(node.kind) && node.entityId) return {
     kind: (node.kind === "REVOLVE" ? "pad" : node.kind.toLowerCase()) as "sketch" | "pad" | "import", id: node.entityId,
-    visualKey: node.kind === "SKETCH" ? undefined : `body:${bodyID}`, ...context,
+    visualKey: node.kind === "SKETCH" ? undefined : `body:${bodyID}`, bodyId, ...context,
   };
   if ((node.kind === "SKETCH_ENTITY" || node.kind === "SKETCH_EXTERNAL_GEOMETRY") && node.entityId && node.ownerEntityId) return {
     kind: "visual", id: `${occurrencePath || "root"}:${node.ownerEntityId}:${node.entityId}`,

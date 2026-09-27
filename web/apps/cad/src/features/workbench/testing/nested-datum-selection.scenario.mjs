@@ -14,7 +14,7 @@ try{
  engine.addDatumAxis=(datum,parent,context)=>add("axis",datum,parent,context,"DATUM");
  const path={rootDocumentId:"root",canonical:"sub/leaf",segments:[{instanceId:"sub",referencedDocumentId:"child",resolvedVersionId:"child-v1"},{instanceId:"leaf",referencedDocumentId:"part",resolvedVersionId:"part-v1"}]};
  engine.renderProduct({document:{id:"root",name:"Root"},product:{instances:[{id:"sub",documentId:"child",translation:[0,0,0]}]},
-  resolvedInstances:[{id:"Root/sub/leaf",documentId:"part",geometryKey:"geometry",translation:[10,0,0],instancePath:path,occurrencePath:path.canonical,bodyTreeNodeId:"leaf/body"}],
+  resolvedInstances:[{id:"Root/sub/leaf/body:body-main",bodyId:"body-main",bodyVisible:true,documentId:"part",geometryKey:"geometry",translation:[10,0,0],instancePath:path,occurrencePath:path.canonical,bodyTreeNodeId:"leaf/body"}],
   artifacts:{geometry:{geometryKey:"geometry",mesh:{triangles:[]},visualization:{referenceGeometry:{datumPlanes:[{id:"datum-xy"}],axisSystems:[{id:"axis-system-default"}],datumAxes:[{id:"custom-axis"}]}}}}});
  assert.equal(selections.length,6);
  for(const selection of selections){

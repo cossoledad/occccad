@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v14-artifact-schema-v2"
+const evaluatorVersion = "part-solid-generators-v15-body-evaluation"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -578,13 +578,13 @@ func (service *Service) CopyDocument(
 		return DocumentView{}, err
 	}
 	var documentType, description string
-	var sourceFolderID, sourceGeometryKey *string
+	var sourceFolderID *string
 	var modelJSON []byte
 	if err := service.database.QueryRow(ctx, `
-		SELECT d.document_type,d.description,d.folder_id::text,v.model_json,v.geometry_key
+		SELECT d.document_type,d.description,d.folder_id::text,v.model_json
 		FROM occccad.documents d JOIN occccad.document_versions v ON v.id=d.head_version_id
 		WHERE d.id=$1 AND d.deleted_at IS NULL`, sourceDocumentID).Scan(
-		&documentType, &description, &sourceFolderID, &modelJSON, &sourceGeometryKey); errors.Is(err, pgx.ErrNoRows) {
+		&documentType, &description, &sourceFolderID, &modelJSON); errors.Is(err, pgx.ErrNoRows) {
 		return DocumentView{}, ErrNotFound
 	} else if err != nil {
 		return DocumentView{}, err
@@ -636,9 +636,9 @@ func (service *Service) CopyDocument(
 		return DocumentView{}, err
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO occccad.document_versions(id,document_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash)
-		VALUES($1,$2,1,$3,$4,'READY',$5,$6)`,
-		versionID, documentID, modelJSON, sourceGeometryKey, commandID, modelHash); err != nil {
+		INSERT INTO occccad.document_versions(id,document_id,sequence,model_json,state,created_by_command_id,model_hash)
+		VALUES($1,$2,1,$3,'READY',$4,$5)`,
+		versionID, documentID, modelJSON, commandID, modelHash); err != nil {
 		return DocumentView{}, err
 	}
 	if documentType == "PRODUCT" {
@@ -939,9 +939,9 @@ func (service *Service) CreateDocument(
 			return DocumentView{}, ErrNotFound
 		}
 	}
-	partModel := newPartModel()
+	request.RequestID = requestID(request.RequestID)
+	partModel := newPartModelFor(request.RequestID)
 	model := any(partModel)
-	var initialGeometryKey *string
 	if documentType == "PRODUCT" {
 		model = ProductModel{Instances: []ProductInstance{}}
 	} else {
@@ -949,7 +949,8 @@ func (service *Service) CreateDocument(
 		if artifactErr != nil {
 			return DocumentView{}, artifactErr
 		}
-		initialGeometryKey = &key
+		partModel.Bodies[0].GeometryKey = key
+		model = partModel
 	}
 	modelJSON, err := json.Marshal(model)
 	if err != nil {
@@ -984,9 +985,9 @@ func (service *Service) CreateDocument(
 		return DocumentView{}, err
 	}
 	if _, err := tx.Exec(ctx, `
-		INSERT INTO occccad.document_versions(id,document_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash)
-		VALUES($1,$2,1,$3,$4,'READY',$5,$6)`,
-		versionID, documentID, modelJSON, initialGeometryKey, commandID, modelHash); err != nil {
+		INSERT INTO occccad.document_versions(id,document_id,sequence,model_json,state,created_by_command_id,model_hash)
+		VALUES($1,$2,1,$3,'READY',$4,$5)`,
+		versionID, documentID, modelJSON, commandID, modelHash); err != nil {
 		return DocumentView{}, err
 	}
 	if _, err := tx.Exec(ctx,
@@ -1026,13 +1027,12 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 	finishModel := perf.Start(ctx, "document-model")
 	var summary DocumentSummary
 	var modelJSON []byte
-	var geometryKey *string
 	err := service.database.QueryRow(ctx, `
 		SELECT d.id::text,d.name,d.description,d.document_type,d.head_version_id::text,
 		       d.created_at::text,
 		       d.updated_at::text,d.deleted_at::text,d.folder_id::text,d.last_opened_at::text,
 		       d.copied_from_document_id::text,d.workspace_name,
-		       v.model_json,v.geometry_key
+		       v.model_json
 		FROM occccad.documents d
 		JOIN occccad.document_versions v ON v.id=d.head_version_id
 		WHERE d.id=$1 AND d.deleted_at IS NULL`, documentID).Scan(
@@ -1040,7 +1040,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		&summary.CreatedAt, &summary.LastUpdated,
 		&summary.DeletedAt, &summary.FolderID, &summary.LastOpenedAt, &summary.CopiedFromID,
 		&summary.WorkspaceName,
-		&modelJSON, &geometryKey)
+		&modelJSON)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return DocumentView{}, ErrNotFound
 	}
@@ -1072,30 +1072,9 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		view.DatumPlanes = model.DatumPlanes
 		view.AxisSystems = model.AxisSystems
 		view.DatumAxes = model.DatumAxes
-		if geometryKey == nil {
-			key, referenceErr := service.ensureVisualizationArtifact(ctx, model)
-			if referenceErr != nil {
-				return view, referenceErr
-			}
-			if _, updateErr := service.database.Exec(ctx,
-				`UPDATE occccad.document_versions SET geometry_key=$1 WHERE id=$2 AND geometry_key IS NULL`,
-				key, summary.VersionID); updateErr != nil {
-				return view, updateErr
-			}
-			geometryKey = &key
-		}
-		if geometryKey != nil {
-			finishArtifact := perf.Start(ctx, "artifact-load")
-			if referenceErr := service.ensureArtifactVisualization(ctx, *geometryKey, model); referenceErr != nil {
-				finishArtifact()
-				return view, referenceErr
-			}
-			artifact, err := service.loadArtifact(ctx, *geometryKey)
-			finishArtifact()
-			if err != nil {
-				return view, err
-			}
-			view.Artifact = &artifact
+		view.Artifacts, err = service.bodyArtifacts(ctx, model)
+		if err != nil {
+			return view, err
 		}
 		finishStructure := perf.Start(ctx, "structure-project")
 		structure, err := service.buildDocumentStructure(ctx, summary.VersionID,
@@ -1153,19 +1132,25 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		return view, err
 	}
 	for _, variant := range view.ContextVariants {
-		if variant.Status != "READY" || variant.GeometryKey == "" {
+		if variant.Status != "READY" {
 			continue
 		}
-		if _, exists := view.Artifacts[variant.GeometryKey]; !exists {
-			artifact, loadErr := service.loadArtifact(ctx, variant.GeometryKey)
-			if loadErr != nil {
-				return view, loadErr
+		for _, body := range variant.Bodies {
+			if body.GeometryKey == "" {
+				continue
 			}
-			view.Artifacts[variant.GeometryKey] = artifact
-		}
-		for index := range view.ResolvedInstances {
-			if view.ResolvedInstances[index].OccurrencePath == variant.OwningInstancePath.Canonical {
-				view.ResolvedInstances[index].GeometryKey = variant.GeometryKey
+			if _, exists := view.Artifacts[body.GeometryKey]; !exists {
+				artifact, err := service.loadArtifact(ctx, body.GeometryKey)
+				if err != nil {
+					return view, err
+				}
+				artifact.BodyID = body.ID
+				view.Artifacts[body.GeometryKey] = artifact
+			}
+			for i := range view.ResolvedInstances {
+				if view.ResolvedInstances[i].OccurrencePath == variant.OwningInstancePath.Canonical && view.ResolvedInstances[i].BodyID == body.ID {
+					view.ResolvedInstances[i].GeometryKey = body.GeometryKey
+				}
 			}
 		}
 	}
@@ -1284,11 +1269,19 @@ func resolveRevolveAxis(model PartModel, sketch Feature, reference string) ([2]f
 	return start, end, nil
 }
 
+func newPartModelFor(identity string) PartModel {
+	model := newPartModel()
+	model.Bodies[0].ID = commandEntityID("body", identity)
+	model.ActiveBodyID = model.Bodies[0].ID
+	return model
+}
+
 func newPartModel() PartModel {
-	return PartModel{Units: "mm", DatumPlanes: datumPlanes(), AxisSystems: defaultAxisSystems(), DatumAxes: []DatumAxis{}, Features: []Feature{}, Parameters: []modelcore.ParameterDefinition{}, Publications: []Publication{}}
+	return PartModel{Bodies: []PartBody{{Order: 1, ID: "body-main", Name: "Body.1", Visible: true}}, ActiveBodyID: "body-main", Units: "mm", DatumPlanes: datumPlanes(), AxisSystems: defaultAxisSystems(), DatumAxes: []DatumAxis{}, Features: []Feature{}, Parameters: []modelcore.ParameterDefinition{}, Publications: []Publication{}}
 }
 
 func normalizePartModel(model *PartModel) {
+	normalizeBodies(model)
 	if model.Units == "" {
 		model.Units = "mm"
 	}
@@ -1793,7 +1786,7 @@ func partGeometryKeyForPolicy(policyDigest, baseKey string, solidFeatures []geom
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
-func (service *Service) evaluatePart(ctx context.Context, reqID string, model PartModel) (string, error) {
+func (service *Service) evaluateBody(ctx context.Context, reqID string, model PartModel) (string, error) {
 	normalizePartModel(&model)
 	sketches := map[string]Feature{}
 	solidFeatures := []geometry.ProfilePad{}
@@ -1854,7 +1847,7 @@ func (service *Service) evaluatePart(ctx context.Context, reqID string, model Pa
 					return "", fmt.Errorf("%w: FAILED_SUPPORT: sketch %s support frame is unavailable", ErrValidation, sketch.ID)
 				}
 			}
-			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: "body-main",
+			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID,
 				InputFeatureID: bodyTipFeatureID, ProfileFeatureID: sketch.ID,
 				Regions: regions, Length: feature.Length,
 				Plane: plane, BodyOperation: operation, Generator: generator, RevolveAngle: angle,
@@ -1981,7 +1974,7 @@ func (service *Service) GetTopologyElementPropertiesAtVersion(
 	var documentType string
 	var allowed bool
 	err := service.database.QueryRow(ctx, `SELECT d.document_type,
-		EXISTS(SELECT 1 FROM occccad.document_versions v WHERE v.document_id=d.id AND v.geometry_key=$2)
+		EXISTS(SELECT 1 FROM occccad.document_versions v CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') body WHERE v.document_id=d.id AND body->>'geometryKey'=$2)
 		FROM occccad.documents d WHERE d.id=$1 AND d.deleted_at IS NULL`, documentID, geometryKey).Scan(&documentType, &allowed)
 	if errors.Is(err, pgx.ErrNoRows) {
 		finishAuthorize()
@@ -2280,20 +2273,24 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			dependents[feature.Profile] = true
 		}
 	}
-	body := DocumentStructureNode{ID: path + "/body", Kind: "BODY", Name: "PartBody",
-		DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
-	for _, feature := range model.Features {
-		if consumed[feature.ID] {
-			continue
-		}
-		digest, _ := featureDefinitionDigest(model, feature.ID)
-		node := featureStructureNode(feature, body.ID, documentID, versionID, digest, editable && !dependents[feature.ID], editable)
-		if isSolidGenerator(feature.Type) && feature.Profile != "" {
-			if sketch, exists := sketches[feature.Profile]; exists {
-				node.Children = []DocumentStructureNode{featureStructureNode(sketch, node.ID, documentID, versionID, "", false, editable)}
+	bodies := []DocumentStructureNode{}
+	for _, definition := range model.Bodies {
+		body := DocumentStructureNode{ID: path + "/body:" + definition.ID, Kind: "BODY", Name: definition.Name, EntityID: definition.ID, GeometryKey: definition.GeometryKey,
+			DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+		for _, feature := range model.Features {
+			if feature.BodyID != definition.ID || consumed[feature.ID] {
+				continue
 			}
+			digest, _ := featureDefinitionDigest(model, feature.ID)
+			node := featureStructureNode(feature, body.ID, documentID, versionID, digest, editable && !dependents[feature.ID], editable)
+			if isSolidGenerator(feature.Type) && feature.Profile != "" {
+				if sketch, exists := sketches[feature.Profile]; exists {
+					node.Children = []DocumentStructureNode{featureStructureNode(sketch, node.ID, documentID, versionID, "", false, editable)}
+				}
+			}
+			body.Children = append(body.Children, node)
 		}
-		body.Children = append(body.Children, node)
+		bodies = append(bodies, body)
 	}
 	publications := DocumentStructureNode{ID: path + "/publications", Kind: "PUBLICATION_SET", Name: "Publications",
 		DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
@@ -2342,7 +2339,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			OwnerEntityID: input.Target.TargetID, DocumentID: documentID, VersionID: versionID,
 			Capabilities: []string{"EDIT", "DELETE"}, ContextInput: &copy})
 	}
-	result := []DocumentStructureNode{origin, body}
+	result := append([]DocumentStructureNode{origin}, bodies...)
 	if len(inputs.Children) > 0 {
 		result = append(result, inputs)
 	}
@@ -2534,11 +2531,10 @@ func (service *Service) resolveProduct(
 ) error {
 	var documentID, documentType, name string
 	var modelJSON []byte
-	var geometryKey *string
 	if err := service.database.QueryRow(ctx, `
-		SELECT d.id::text,d.document_type,d.name,v.model_json,v.geometry_key
+		SELECT d.id::text,d.document_type,d.name,v.model_json
 		FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id
-		WHERE v.id=$1`, versionID).Scan(&documentID, &documentType, &name, &modelJSON, &geometryKey); err != nil {
+		WHERE v.id=$1`, versionID).Scan(&documentID, &documentType, &name, &modelJSON); err != nil {
 		return err
 	}
 	if visiting[documentID] {
@@ -2550,31 +2546,25 @@ func (service *Service) resolveProduct(
 			return err
 		}
 		normalizePartModel(&model)
-		if geometryKey == nil {
-			key, err := service.ensureVisualizationArtifact(ctx, model)
-			if err != nil {
-				return err
+		for _, body := range model.Bodies {
+			if body.GeometryKey == "" {
+				continue
 			}
-			if _, err := service.database.Exec(ctx,
-				`UPDATE occccad.document_versions SET geometry_key=$1 WHERE id=$2 AND geometry_key IS NULL`, key, versionID); err != nil {
-				return err
+			if _, exists := artifacts[body.GeometryKey]; !exists {
+				artifact, err := service.loadArtifact(ctx, body.GeometryKey)
+				if err != nil {
+					return err
+				}
+				artifact.BodyID = body.ID
+				artifacts[body.GeometryKey] = artifact
 			}
-			geometryKey = &key
+			*output = append(*output, ResolvedInstance{
+				ID: path + "/body:" + body.ID, Name: name, DocumentID: documentID,
+				BodyID: body.ID, BodyVisible: body.Visible, GeometryKey: body.GeometryKey,
+				Translation: parent.Translation, Rotation: parent.Rotation,
+				OccurrencePath: instancePath.Canonical, InstancePath: instancePath, BodyTreeNodeID: treePath + "/body:" + body.ID,
+			})
 		}
-		if err := service.ensureArtifactVisualization(ctx, *geometryKey, model); err != nil {
-			return err
-		}
-		if _, exists := artifacts[*geometryKey]; !exists {
-			artifact, err := service.loadArtifact(ctx, *geometryKey)
-			if err != nil {
-				return err
-			}
-			artifacts[*geometryKey] = artifact
-		}
-		*output = append(*output, ResolvedInstance{
-			ID: path, Name: name, DocumentID: documentID, GeometryKey: *geometryKey, Translation: parent.Translation, Rotation: parent.Rotation,
-			OccurrencePath: instancePath.Canonical, InstancePath: instancePath, BodyTreeNodeID: treePath + "/body",
-		})
 		return nil
 	}
 	visiting[documentID] = true

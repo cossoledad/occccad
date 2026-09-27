@@ -48,7 +48,6 @@ CREATE TABLE IF NOT EXISTS occccad.document_versions (
     parent_version_id uuid REFERENCES occccad.document_versions(id),
     sequence integer NOT NULL CHECK (sequence > 0),
     model_json jsonb NOT NULL,
-    geometry_key text REFERENCES occccad.geometry_artifacts(geometry_key),
     state text NOT NULL CHECK (state IN ('PENDING', 'EVALUATING', 'READY', 'FAILED')),
     created_by_command_id uuid REFERENCES occccad.commands(id),
     created_at timestamptz NOT NULL DEFAULT now(),

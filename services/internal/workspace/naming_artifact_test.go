@@ -17,6 +17,13 @@ func TestNamingV2TablesBodyTipsAndHistory(t *testing.T) {
 			{FeatureId: "cut", BodyId: "body-main", Complete: true, Lineage: []*workerv1.NamingLineage{{Sources: []uint32{1}, Result: 2, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_SPLIT}, {Sources: []uint32{1}, Result: 3, Evidence: 1, Kind: workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_SPLIT}}, Ambiguous: []*workerv1.NamingAmbiguous{{Sources: []uint32{1}, Candidates: []uint32{2, 3}, DiagnosticCode: "SPLIT"}}},
 			{FeatureId: "other-body", BodyId: "body-b", Complete: true, Lineage: []*workerv1.NamingLineage{{Result: 4, Evidence: 1}}}},
 		Bodies: []*workerv1.NamingBody{{BodyId: "body-main", Transitions: []uint32{1, 2}, TipTransition: 2, Tip: []*workerv1.NamingTopologyLocator{{TopologyType: 1, LocalId: 2, SemanticRef: 2, Evidence: 1}, {TopologyType: 1, LocalId: 3, SemanticRef: 3, Evidence: 1}}}, {BodyId: "body-b", Transitions: []uint32{3}, TipTransition: 3, Tip: []*workerv1.NamingTopologyLocator{{TopologyType: 1, LocalId: 4, SemanticRef: 4, Evidence: 1}}}}}
+	// Each body is now its own authoritative artifact.
+	crossBody := proto.Clone(m).(*workerv1.PartTopologyManifest)
+	if _, err := unpackNaming(crossBody); err == nil {
+		t.Fatal("cross-body naming accepted")
+	}
+	m.Transitions = m.Transitions[:2]
+	m.Bodies = m.Bodies[:1]
 	data, err := proto.Marshal(m)
 	if err != nil {
 		t.Fatal(err)
@@ -36,7 +43,7 @@ func TestNamingV2TablesBodyTipsAndHistory(t *testing.T) {
 	if body != "body-main" || !proto.Equal(out.SemanticRef, refs[1]) || !proto.Equal(out.Evidence.Adjacent[0], refs[3]) {
 		t.Fatal("tip index/table reconstruction")
 	}
-	if domain.FeatureResults[1].SemanticOutputs[0].Evidence != domain.FeatureResults[2].SemanticOutputs[0].Evidence {
+	if domain.FeatureResults[1].SemanticOutputs[0].Evidence != domain.FeatureResults[1].SemanticOutputs[1].Evidence {
 		t.Fatal("shared evidence expanded redundantly")
 	}
 	selection := testSelection()
@@ -67,7 +74,7 @@ func TestNamingV2TablesBodyTipsAndHistory(t *testing.T) {
 	if got := resolveManifest(selection, "key", domain); got.Status != modelcore.SelectionMissing {
 		t.Fatalf("deleted: %+v", got)
 	}
-	for name, mutate := range map[string]func(*workerv1.PartTopologyManifest){"bad ref": func(m *workerv1.PartTopologyManifest) { m.Bodies[0].Tip[0].SemanticRef = 99 }, "bad evidence": func(m *workerv1.PartTopologyManifest) { m.Bodies[0].Tip[0].Evidence = 0 }, "wrong body": func(m *workerv1.PartTopologyManifest) { m.Bodies[0].TipTransition = 3 }, "duplicate locator": func(m *workerv1.PartTopologyManifest) { m.Bodies[1].Tip[0].LocalId = 2 }, "unknown unit": func(m *workerv1.PartTopologyManifest) { m.LengthUnit = "m" }} {
+	for name, mutate := range map[string]func(*workerv1.PartTopologyManifest){"bad ref": func(m *workerv1.PartTopologyManifest) { m.Bodies[0].Tip[0].SemanticRef = 99 }, "bad evidence": func(m *workerv1.PartTopologyManifest) { m.Bodies[0].Tip[0].Evidence = 0 }, "wrong body": func(m *workerv1.PartTopologyManifest) { m.Bodies[0].TipTransition = 3 }, "duplicate locator": func(m *workerv1.PartTopologyManifest) { m.Bodies[0].Tip[1].LocalId = 2 }, "unknown unit": func(m *workerv1.PartTopologyManifest) { m.LengthUnit = "m" }} {
 		t.Run(name, func(t *testing.T) {
 			bad := proto.Clone(m).(*workerv1.PartTopologyManifest)
 			mutate(bad)
@@ -94,7 +101,7 @@ func TestNamingV2NativeRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(domain.Tips) != 2 {
+	if len(domain.Tips) != 1 {
 		t.Fatal("lost native body tips")
 	}
 	o, body := manifestOutput(domain, modelcore.PersistentTopologyFace, 2)

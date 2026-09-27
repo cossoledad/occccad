@@ -16,11 +16,11 @@ import (
 // has a frozen naming definition; the legacy fixture below intentionally omits it.
 func verifyImportNamingDiagnostics(t *testing.T, db *database.Pool, client *geometry.Client, artifacts *artifact.Service, source workspace.DocumentView) {
 	t.Helper()
-	if source.Artifact.Naming.Status != "READY" || !source.Artifact.Naming.CanBind {
-		t.Fatalf("native capability regressed: %+v", source.Artifact.Naming)
+	if activeBodyArtifact(t, source).Naming.Status != "READY" || !activeBodyArtifact(t, source).Naming.CanBind {
+		t.Fatalf("native capability regressed: %+v", activeBodyArtifact(t, source).Naming)
 	}
 	var objectID string
-	if err := db.QueryRow(t.Context(), `SELECT object_id::text FROM occccad.geometry_representations WHERE geometry_key=$1 AND role='BREP'`, source.Artifact.GeometryKey).Scan(&objectID); err != nil {
+	if err := db.QueryRow(t.Context(), `SELECT object_id::text FROM occccad.geometry_representations WHERE geometry_key=$1 AND role='BREP'`, activeBodyArtifact(t, source).GeometryKey).Scan(&objectID); err != nil {
 		t.Fatal(err)
 	}
 	object, err := artifacts.Get(t.Context(), objectID)
@@ -29,7 +29,7 @@ func verifyImportNamingDiagnostics(t *testing.T, db *database.Pool, client *geom
 	}
 	ref := geometry.ArtifactReference{Backend: object.Backend, ObjectKey: object.Key, SHA256: object.SHA256, Size: object.Size, ContentType: object.ContentType}
 	requestID := "import-diagnostics-" + source.Document.ID
-	key := "diagnostics-" + source.Artifact.GeometryKey
+	key := "diagnostics-" + activeBodyArtifact(t, source).GeometryKey
 	evaluation, err := client.ImportExchange(t.Context(), requestID, key, "BREP", ref, "", artifact.StagingKey(requestID, "shape.brep"), artifact.StagingKey(requestID, "mesh.glb"))
 	if err != nil {
 		t.Fatal(err)
@@ -50,10 +50,10 @@ func verifyImportNamingDiagnostics(t *testing.T, db *database.Pool, client *geom
 		t.Fatal(err)
 	}
 	stepPart, err := service.CommitImportedPart(t.Context(), p6Actor, "", requestID+"/step", "STEP naming", "fixture.step", "STEP", key+"-step", stepEvaluation, &workspace.ImportSource{ObjectID: stepObject.ID, SHA256: stepObject.SHA256, Format: "STEP"})
-	if err != nil || !stepPart.Artifact.Naming.CanBind {
+	if err != nil || !activeBodyArtifact(t, stepPart).Naming.CanBind {
 		t.Fatalf("STEP naming: %v", err)
 	}
-	if _, err = service.BindPersistentSelection(t.Context(), stepPart.Document.ID, workspace.BindPersistentSelectionRequest{SourceVersionID: stepPart.Document.VersionID, GeometryKey: stepPart.Artifact.GeometryKey, Kind: "FACE", LocalID: 1}); err != nil {
+	if _, err = service.BindPersistentSelection(t.Context(), stepPart.Document.ID, workspace.BindPersistentSelectionRequest{SourceVersionID: stepPart.Document.VersionID, GeometryKey: activeBodyArtifact(t, stepPart).GeometryKey, Kind: "FACE", LocalID: 1}); err != nil {
 		t.Fatal(err)
 	}
 	imported, err := service.CommitImportedPart(t.Context(), p6Actor, "", requestID, "Import diagnostics", "fixture.brep", "BREP", key, evaluation, &workspace.ImportSource{ObjectID: object.ID, SHA256: object.SHA256, Format: "BREP"})
@@ -71,18 +71,18 @@ func verifyImportNamingDiagnostics(t *testing.T, db *database.Pool, client *geom
 	}
 	// Isolated pre-naming fixture: simulate the historical serialized model and raw
 	// artifact. Only this newly created test document is changed, never user data.
-	if _, err = db.Exec(t.Context(), `UPDATE occccad.document_versions SET model_json=jsonb_set(model_json,'{features,0}',jsonb_set((model_json->'features'->0)-'importDefinitionId','{id}',to_jsonb($3::text))),geometry_key=$2 WHERE id=$1`, imported.Document.VersionID, key, "legacy-"+imported.Part.Features[0].ID); err != nil {
+	if _, err = db.Exec(t.Context(), `UPDATE occccad.document_versions SET model_json=jsonb_set(jsonb_set(model_json,'{features,0}',jsonb_set((model_json->'features'->0)-'importDefinitionId','{id}',to_jsonb($3::text))),'{bodies,0,geometryKey}',to_jsonb($2::text)) WHERE id=$1`, imported.Document.VersionID, key, "legacy-"+imported.Part.Features[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	// A fresh service must read the nullable digest from PostgreSQL, not a cached
 	// projection retained from the import transaction.
 	cold := workspace.NewWithArtifacts(db, client, artifacts)
 	opened, err := cold.GetDocument(t.Context(), imported.Document.ID)
-	if err != nil || opened.Artifact == nil {
+	if err != nil || len(opened.Artifacts) == 0 {
 		t.Fatalf("open imported part: %v", err)
 	}
-	key = opened.Artifact.GeometryKey // ImportBody evaluation may wrap the source with visualization.
-	naming := opened.Artifact.Naming
+	key = activeBodyArtifact(t, opened).GeometryKey // ImportBody evaluation may wrap the source with visualization.
+	naming := activeBodyArtifact(t, opened).Naming
 	if naming.Status != "UNAVAILABLE" || naming.CanBind || naming.DiagnosticCode != "TOPOLOGY_NAMING_UNAVAILABLE" {
 		t.Fatalf("import capability: %+v", naming)
 	}
@@ -107,7 +107,7 @@ func verifyImportNamingDiagnostics(t *testing.T, db *database.Pool, client *geom
 		t.Fatalf("datum sketch incorrectly blocked: %v", err)
 	}
 	repaired, err := cold.ApplyCommand(t.Context(), opened.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: requestID + "/repair", Type: "REPAIR_IMPORT_NAMING", TargetID: opened.Part.Features[0].ID})
-	if err != nil || !repaired.Artifact.Naming.CanBind {
+	if err != nil || !activeBodyArtifact(t, repaired).Naming.CanBind {
 		t.Fatalf("legacy naming repair: %v", err)
 	}
 	repeatedRepair, err := cold.ApplyCommand(t.Context(), opened.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: requestID + "/repair", Type: "REPAIR_IMPORT_NAMING", TargetID: opened.Part.Features[0].ID})
@@ -119,7 +119,7 @@ func verifyImportNamingDiagnostics(t *testing.T, db *database.Pool, client *geom
 		t.Fatalf("undo repair: %v", err)
 	}
 	redone, err := cold.ApplyCommand(t.Context(), opened.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: requestID + "/redo-repair", Type: "REDO"})
-	if err != nil || redone.Part.Features[0].ImportDefinitionID != repaired.Part.Features[0].ImportDefinitionID || !redone.Artifact.Naming.CanBind {
+	if err != nil || redone.Part.Features[0].ImportDefinitionID != repaired.Part.Features[0].ImportDefinitionID || !activeBodyArtifact(t, redone).Naming.CanBind {
 		t.Fatalf("redo repair: %v", err)
 	}
 	t.Log(fmt.Sprintf("import diagnostics: %s; cold open, topology inspection, unchanged rejected Head, datum sketch verified", naming.Status))

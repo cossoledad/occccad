@@ -31,7 +31,9 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
  UNION
  SELECT p.referenced_version_id FROM occccad.product_instances p JOIN reachable r ON p.product_version_id=r.id
  ) SELECT EXISTS(SELECT 1 FROM reachable r JOIN occccad.document_versions v ON v.id=r.id
- JOIN occccad.geometry_representations a ON a.geometry_key=v.geometry_key WHERE a.object_id=$3)`, r.PathValue("documentID"), version, id).Scan(&allowed)
+ CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') body
+ JOIN occccad.geometry_representations a ON a.geometry_key=body->>'geometryKey' WHERE a.object_id=$3
+ AND ($4='' OR body->>'id'=$4))`, r.PathValue("documentID"), version, id, r.URL.Query().Get("bodyId")).Scan(&allowed)
 	}
 	if err != nil {
 		writeError(w, http.StatusNotFound, "representation unavailable")
@@ -43,6 +45,9 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 		view, err := s.workspace.GetDocument(r.Context(), r.PathValue("documentID"))
 		if err == nil && (version == "" || view.Document.VersionID == version) {
 			contains := func(a workspace.Artifact) bool {
+				if bodyID := r.URL.Query().Get("bodyId"); bodyID != "" && a.BodyID != bodyID {
+					return false
+				}
 				for _, ref := range a.Representations {
 					if ref.ObjectID == id {
 						return true
@@ -84,6 +89,10 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 	case "TOPOLOGY_MANIFEST":
 		filename = "naming.pb"
 	}
-	w.Header().Set("Content-Disposition", `inline; filename="`+filename+`"`)
+	disposition := "inline"
+	if r.URL.Query().Get("download") == "1" {
+		disposition = "attachment"
+	}
+	w.Header().Set("Content-Disposition", disposition+`; filename="`+filename+`"`)
 	_, _ = io.Copy(w, reader)
 }

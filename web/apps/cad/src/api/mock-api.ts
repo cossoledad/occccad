@@ -92,7 +92,7 @@ const views = new Map<string, DocumentView>([
   [partID, {
     document: summaries[0],
     datumPlanes, axisSystems,
-    part: { units: "mm", datumPlanes, axisSystems, features: [
+    part: { bodies:[{id:"body-main",name:"Body.1",visible:true,geometryKey:partArtifact.geometryKey}],activeBodyId:"body-main",units: "mm", datumPlanes, axisSystems, features: [
       { id: "mock-sketch-1", type: "SKETCH", name: "Sketch 1", plane: "XY", sketch: { schemaVersion: 2, support: { type: "DATUM_PLANE", datumPlaneId: "datum-xy", plane: "XY", status: "CONNECTED" }, entities: [
         { id:"bottom",kind:"LINE",role:"PROFILE",start:{x:0,y:0},end:{x:72,y:0} }, { id:"right",kind:"LINE",role:"PROFILE",start:{x:72,y:0},end:{x:72,y:38} },
         { id:"top",kind:"LINE",role:"PROFILE",start:{x:72,y:38},end:{x:0,y:38} }, { id:"left",kind:"LINE",role:"PROFILE",start:{x:0,y:38},end:{x:0,y:0} },
@@ -102,7 +102,7 @@ const views = new Map<string, DocumentView>([
       valueType: "QUANTITY", dimension: lengthDimension, displayUnit: "mm", role: "INPUT",
       source: { literal: { siValue: 0.016, dimension: lengthDimension } },
       evaluatedValue: { siValue: 0.016, dimension: lengthDimension } }] },
-    artifact: partArtifact,
+    artifacts: {[partArtifact.geometryKey]:{...partArtifact,bodyId:"body-main"}},
   }],
   [productID, {
     document: summaries[1], product: { instances: [
@@ -114,8 +114,8 @@ const views = new Map<string, DocumentView>([
       directionRelation: "SAME", evaluationStatus: "VERIFIED", evaluationSummary: "mock supports resolved and solver residual is within tolerance" }] },
     artifacts: { [partArtifact.geometryKey]: partArtifact },
     resolvedInstances: [
-      { id: "Frame Assembly/mock-instance-a/part", name: "Bracket A", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [-45, 0, 0], occurrencePath: "mock-instance-a", instancePath: mockInstancePath(productID, { id: "mock-instance-a", name: "Bracket A", documentId: partID, versionId: "mock-part-v3", translation: [-45,0,0] }), bodyTreeNodeId: `document:${productID}/instance:mock-instance-a/reference/body` },
-      { id: "Frame Assembly/mock-instance-b/part", name: "Bracket B", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [45, 0, 0], occurrencePath: "mock-instance-b", instancePath: mockInstancePath(productID, { id: "mock-instance-b", name: "Bracket B", documentId: partID, versionId: "mock-part-v3", translation: [45,0,0] }), bodyTreeNodeId: `document:${productID}/instance:mock-instance-b/reference/body` },
+      { id: "Frame Assembly/mock-instance-a/part", name: "Bracket A", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [-45, 0, 0], occurrencePath: "mock-instance-a", instancePath: mockInstancePath(productID, { id: "mock-instance-a", name: "Bracket A", documentId: partID, versionId: "mock-part-v3", translation: [-45,0,0] }), bodyId:"body-main",bodyVisible:true,bodyTreeNodeId: `document:${productID}/instance:mock-instance-a/reference/body` },
+      { id: "Frame Assembly/mock-instance-b/part", name: "Bracket B", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [45, 0, 0], occurrencePath: "mock-instance-b", instancePath: mockInstancePath(productID, { id: "mock-instance-b", name: "Bracket B", documentId: partID, versionId: "mock-part-v3", translation: [45,0,0] }), bodyId:"body-main",bodyVisible:true,bodyTreeNodeId: `document:${productID}/instance:mock-instance-b/reference/body` },
     ],
   }],
 ]);
@@ -197,12 +197,8 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
       ];
       return node;
     };
-    const bodyChildren = features.filter((feature) => !consumed.has(feature.id)).map((feature) => {
-      const node = featureNode(feature, `${path}/body`, editable && !consumed.has(feature.id));
-      const sketch = feature.profile ? sketches.get(feature.profile) : undefined;
-      if (sketch) node.children = [featureNode(sketch, node.id, false)];
-      return node;
-    });
+    const bodyNodes:DocumentStructureNode[]=(view.part?.bodies??[]).map(body=>({id:`${path}/body:${body.id}`,kind:"BODY",name:body.name,entityId:body.id,geometryKey:body.geometryKey,documentId:view.document.id,
+      children:features.filter(f=>f.bodyId===body.id && !consumed.has(f.id)).map(feature=>{const node=featureNode(feature,`${path}/body:${body.id}`,editable);const sketch=feature.profile?sketches.get(feature.profile):undefined;if(sketch)node.children=[featureNode(sketch,node.id,false)];return node;})}));
     return { id: path, kind: "PART", name: view.document.name, documentId: view.document.id,
       documentType: "PART", versionId: view.document.versionId, children: [
         { id: `${path}/origin`, kind: "ORIGIN", name: "Origin", documentId: view.document.id, children: [
@@ -214,7 +210,7 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
               entityId: axis.id, axis: name, documentId: view.document.id,
             })) })),
         ] },
-        { id: `${path}/body`, kind: "BODY", name: "PartBody", documentId: view.document.id, children: bodyChildren },
+        ...bodyNodes,
       ] };
   }
   const instanceNodes: DocumentStructureNode[] = (view.product?.instances ?? []).map((instance) => {
@@ -249,9 +245,12 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
     documentType: "PRODUCT", versionId: view.document.versionId, children: [...instanceNodes, ...constraintGroup] };
 }
 
+function setBodyArtifact(view:DocumentView, artifact:Artifact) {const body=view.part?.bodies.find(b=>b.id===view.part?.activeBodyId);if(!body)return;body.geometryKey=artifact.geometryKey;(view.artifacts??={})[artifact.geometryKey]={...artifact,bodyId:body.id};}
+
 function getView(documentID: string): DocumentView {
   const view = views.get(documentID);
   if (!view) throw new Error("文档不存在");
+  if(view.part)for(const f of view.part.features)f.bodyId??=view.part.activeBodyId;
   view.structureTree = mockStructure(view);
   return view;
 }
@@ -281,7 +280,7 @@ function rebuildProduct(view: DocumentView): void {
     id: `${view.document.name}/${instance.id}/part`, name: instance.name, documentId: partID,
     geometryKey: partArtifact.geometryKey, translation: instance.translation, rotation:instance.rotation, occurrencePath: instance.id,
     instancePath: mockInstancePath(view.document.id, instance),
-    bodyTreeNodeId: `document:${view.document.id}/instance:${instance.id}/reference/body`,
+    bodyId:"body-main",bodyVisible:true,bodyTreeNodeId: `document:${view.document.id}/instance:${instance.id}/reference/body`,
   }));
 }
 
@@ -305,6 +304,14 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 		return pause(getView(documentID));
 	}
 	return pause(commit(documentID, commandType, (view) => {
+    if(view.part) {
+      const part=view.part,body=part.bodies.find(b=>b.id===input.bodyId);
+      if(commandType==="CREATE_BODY"){const body={id:id("body"),name:String(input.name??`Body.${part.bodies.length+1}`),visible:true};part.bodies.push(body);part.activeBodyId=body.id;}
+      if(body && commandType==="DELETE_BODY"){part.bodies=part.bodies.filter(b=>b!==body);part.features=part.features.filter(f=>f.bodyId!==body.id);if(part.activeBodyId===body.id)part.activeBodyId=part.bodies[0]?.id??"";if(body.geometryKey)delete view.artifacts?.[body.geometryKey];}
+      if(body && commandType==="RENAME_BODY")body.name=String(input.name);
+      if(body && commandType==="SET_ACTIVE_BODY")part.activeBodyId=body.id;
+      if(body && commandType==="SET_BODY_VISIBILITY")body.visible=Boolean(input.visible);
+    }
     if (commandType === "CREATE_SKETCH" && view.part) {
       const plane=(input.targetKind === "FACE" ? "CUSTOM" : input.plane) as "XY"|"XZ"|"YZ"|"CUSTOM";
       const datumPlaneId=String(input.datumPlaneId ?? `datum-${plane.toLowerCase()}`);
@@ -347,7 +354,7 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
       const sketch = view.part.features.find((feature) => feature.id === input.sketchId);
       view.part.features.push({ id: id("mock-pad"), type: "PAD", name: `Extrude ${view.part.features.length + 1}`,
         profile: String(input.sketchId), length: Number(input.length), operation: "ADD" });
-      if (sketch?.sketch) { const points=sketch.sketch.entities.flatMap((entity)=>sampleSketchEntity(entity));const xs=points.map((point)=>point[0]),ys=points.map((point)=>point[1]);if(points.length>0)view.artifact=boxArtifact(id("mock-shape"),[Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys),Number(input.length)]); }
+      if (sketch?.sketch) { const points=sketch.sketch.entities.flatMap((entity)=>sampleSketchEntity(entity));const xs=points.map((point)=>point[0]),ys=points.map((point)=>point[1]);if(points.length>0)setBodyArtifact(view,boxArtifact(id("mock-shape"),[Math.max(...xs)-Math.min(...xs),Math.max(...ys)-Math.min(...ys),Number(input.length)])); }
     }
     if (commandType === "CREATE_SOLID_FEATURE" && view.part) {
       const generator = String(input.generator) as "LINEAR_EXTRUDE" | "REVOLVE";
@@ -393,7 +400,7 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 				: targetKind === "BODY" ? { kind: "FEATURE_OUTPUT", featureId: String(input.targetId), outputSlot: "BODY" }
 				: { kind: "DATUM", datumId: String(input.targetId), axis: input.axis as "X"|"Y"|"Z"|undefined },
 			contract: {}, resolution: { status: "CONNECTED", resolvedVersionId: view.document.versionId,
-				geometryKey: String(input.geometryKey ?? view.artifact?.geometryKey ?? "") } };
+				geometryKey: String(input.geometryKey ?? view.part?.bodies.find(b=>b.id===view.part?.activeBodyId)?.geometryKey ?? "") } };
 		view.part.publications = [...(view.part.publications ?? []), publication];
 	}
 	if (commandType === "EDIT_PUBLICATION" && view.part) {
@@ -409,7 +416,7 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 				: targetKind === "BODY" ? { kind: "FEATURE_OUTPUT", featureId: String(input.targetId), outputSlot: "BODY" }
 				: { kind: "DATUM", datumId: String(input.targetId), axis: input.axis as "X"|"Y"|"Z"|undefined };
 			publication.resolution = { status: "CONNECTED", resolvedVersionId: view.document.versionId,
-				geometryKey: String(input.geometryKey ?? view.artifact?.geometryKey ?? "") };
+				geometryKey: String(input.geometryKey ?? view.part?.bodies.find(b=>b.id===view.part?.activeBodyId)?.geometryKey ?? "") };
 		}
 	}
 	if (commandType === "DELETE_PUBLICATION" && view.part) {
@@ -737,7 +744,7 @@ export const mockApi: CadApi = {
       versionId: id("mock-version"), canUndo: false, canRedo: false, createdAt: now(), lastUpdated: now(),
       workspaceName: "Main", permission: "OWNER" };
     const partView: DocumentView = { document: partDocument, datumPlanes, axisSystems,
-      part: { units: "mm", datumPlanes, axisSystems, features: [] } };
+      part: { bodies:[{id:"body-main",name:"Body.1",visible:true}],activeBodyId:"body-main",units: "mm", datumPlanes, axisSystems, features: [] } };
     summaries.unshift(partDocument); views.set(partDocument.id, partView); histories.set(partDocument.id, []);
     undoSnapshots.set(partDocument.id, []); redoSnapshots.set(partDocument.id, []);
 
@@ -795,7 +802,7 @@ export const mockApi: CadApi = {
     resultDigest:"mock-result",status:"CONVERGED",result:{}}),
   getDocumentProperties: async (documentID): Promise<DocumentProperties> => {
     const view = getView(documentID);
-    const artifacts = view.artifact ? [view.artifact] : Object.values(view.artifacts ?? {});
+    const artifacts = Object.values(view.artifacts ?? {});
     return pause({ documentId: documentID, versionId: view.document.versionId, documentType: view.document.type, units: "mm", artifacts,
       aggregate: { artifactCount: artifacts.length, triangleCount: artifacts.reduce((sum, item) => sum + item.triangleCount, 0),
         vertexCount: artifacts.reduce((sum, item) => sum + item.displayVertexCount, 0),
@@ -820,7 +827,7 @@ export const mockApi: CadApi = {
       canUndo: false, canRedo: false, createdAt: now(), lastUpdated: now(), folderId: folderID,
       workspaceName: "Main", permission: "OWNER" };
     const view: DocumentView = type === "PART" ? { document, datumPlanes, axisSystems,
-      part: { units: "mm", datumPlanes, axisSystems, features: [] } }
+      part: { bodies:[{id:"body-main",name:"Body.1",visible:true}],activeBodyId:"body-main",units: "mm", datumPlanes, axisSystems, features: [] } }
       : { document, product: { instances: [] }, artifacts: {}, resolvedInstances: [] };
     summaries.unshift(document); views.set(document.id, view); histories.set(document.id, []); undoSnapshots.set(document.id, []); redoSnapshots.set(document.id, []); markDocumentOpen(document.id); return pause(view);
   },
@@ -928,8 +935,9 @@ export const mockApi: CadApi = {
     const document: DocumentSummary = { id: documentID, name, description: "", type: "PART", versionId: id("mock-version"),
       canUndo: true, canRedo: false, createdAt: now(), lastUpdated: now(), folderId: folderID || undefined,
       workspaceName: "Main", permission: "OWNER" };
-    const view: DocumentView = { document, datumPlanes, axisSystems, part: { units: "mm", datumPlanes, axisSystems,
-      features: [{ id: id("mock-import"), type: "IMPORT_BODY", fileName: file.name }] }, artifact: boxArtifact(id("mock-exchange"), [48, 32, 26]) };
+    const view: DocumentView = { document, datumPlanes, axisSystems, part: { bodies:[{id:"body-main",name:"Body.1",visible:true}],activeBodyId:"body-main",units: "mm", datumPlanes, axisSystems,
+      features: [{ id: id("mock-import"), type: "IMPORT_BODY", fileName: file.name }] } };
+    setBodyArtifact(view,boxArtifact(id("mock-exchange"), [48, 32, 26]));
     summaries.unshift(document); views.set(documentID, view); histories.set(documentID, []);
     const job: Job = { id: id("mock-job"), type: "EXCHANGE_IMPORT", state: "SUCCEEDED", documentId: documentID,
       progress: 100, payload: { fileName: file.name, format: "STEP" }, attemptCount: 1, maxAttempts: 3,

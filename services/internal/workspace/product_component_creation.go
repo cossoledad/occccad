@@ -98,11 +98,12 @@ func (service *Service) CreatePartComponent(ctx context.Context, rootProductDocu
 	partDocumentUUID, _ := uuid.NewV7()
 	partRevisionUUID, _ := uuid.NewV7()
 	partDocumentID, partRevisionID := partDocumentUUID.String(), partRevisionUUID.String()
-	partModel := newPartModel()
+	partModel := newPartModelFor(partDocumentID)
 	geometryKey, err := service.ensureVisualizationArtifact(ctx, partModel)
 	if err != nil {
 		return DocumentView{}, err
 	}
+	partModel.Bodies[0].GeometryKey = geometryKey
 	partJSON, _ := json.Marshal(partModel)
 	partJSON, partHash, partGraph, partManifest, dependencyDigest, err := prepareInitialEvaluation("PART", partRevisionID, partJSON)
 	if err != nil {
@@ -110,7 +111,7 @@ func (service *Service) CreatePartComponent(ctx context.Context, rootProductDocu
 	}
 	initialPart := initialDocumentCandidate{documentID: partDocumentID, revisionID: partRevisionID, documentType: "PART",
 		name: partName, description: description, ownerID: request.ActorID, requestID: request.RequestID + "/part-document",
-		modelJSON: partJSON, geometryKey: &geometryKey, modelHash: partHash, dependencyDigest: dependencyDigest,
+		modelJSON: partJSON, modelHash: partHash, dependencyDigest: dependencyDigest,
 		graph: partGraph, manifest: partManifest}
 
 	instance := ProductInstance{ID: commandEntityID("instance", request.RequestID), ReferencedDocumentID: partDocumentID,
@@ -301,13 +302,8 @@ func (service *Service) persistInitialDocumentCandidate(ctx context.Context, tx 
 		candidate.documentID, candidate.modelJSON, traceID, spanID).Scan(&commandID); err != nil {
 		return err
 	}
-	var geometry any
-	if candidate.geometryKey != nil && *candidate.geometryKey != "" {
-		geometry = *candidate.geometryKey
-	}
-	if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_versions(id,document_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash)
-		VALUES($1,$2,1,$3,$4,'READY',$5,$6)`, candidate.revisionID, candidate.documentID, candidate.modelJSON,
-		geometry, commandID, candidate.modelHash); err != nil {
+	if _, err := tx.Exec(ctx, `INSERT INTO occccad.document_versions(id,document_id,sequence,model_json,state,created_by_command_id,model_hash)
+		VALUES($1,$2,1,$3,'READY',$4,$5)`, candidate.revisionID, candidate.documentID, candidate.modelJSON, commandID, candidate.modelHash); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE occccad.documents SET head_version_id=$1,updated_at=now() WHERE id=$2`,

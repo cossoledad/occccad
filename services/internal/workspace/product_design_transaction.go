@@ -41,7 +41,6 @@ type atomicDomainCandidate struct {
 	request                                             CommandRequest
 	command                                             modelcore.DomainCommand
 	nextJSON                                            json.RawMessage
-	geometryKey                                         string
 	modelHash                                           string
 	graph                                               *modelcore.DependencyGraph
 	manifest                                            modelcore.EvaluationManifest
@@ -53,7 +52,6 @@ type initialDocumentCandidate struct {
 	folderID                                                *string
 	ownerID, requestID                                      string
 	modelJSON                                               json.RawMessage
-	geometryKey                                             *string
 	modelHash, dependencyDigest                             string
 	graph                                                   *modelcore.DependencyGraph
 	manifest                                                modelcore.EvaluationManifest
@@ -135,9 +133,8 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 	var ownerWorkspaceID, ownerHead string
 	var ownerSequence uint64
 	var ownerJSON []byte
-	var ownerGeometry *string
 	var ownerManifestJSON []byte
-	if err := service.database.QueryRow(ctx, `SELECT w.id::text,w.head_revision_id::text,w.head_sequence,v.model_json,v.geometry_key,v.evaluation_manifest FROM occccad.workspaces w JOIN occccad.documents d ON d.id=w.document_id JOIN occccad.document_versions v ON v.id=w.head_revision_id WHERE d.id=$1 AND d.document_type='PART' AND d.deleted_at IS NULL AND w.name='main'`, owner.DocumentID).Scan(&ownerWorkspaceID, &ownerHead, &ownerSequence, &ownerJSON, &ownerGeometry, &ownerManifestJSON); err != nil {
+	if err := service.database.QueryRow(ctx, `SELECT w.id::text,w.head_revision_id::text,w.head_sequence,v.model_json,v.evaluation_manifest FROM occccad.workspaces w JOIN occccad.documents d ON d.id=w.document_id JOIN occccad.document_versions v ON v.id=w.head_revision_id WHERE d.id=$1 AND d.document_type='PART' AND d.deleted_at IS NULL AND w.name='main'`, owner.DocumentID).Scan(&ownerWorkspaceID, &ownerHead, &ownerSequence, &ownerJSON, &ownerManifestJSON); err != nil {
 		return DocumentView{}, err
 	}
 	if ownerHead != owner.RevisionID {
@@ -206,9 +203,6 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 	ownerCandidate := atomicDomainCandidate{documentID: owner.DocumentID, workspaceID: ownerWorkspaceID, headRevision: ownerHead,
 		headSequence: ownerSequence, documentType: "PART", revisionID: ownerRevisionID, request: inputRequest, command: inputCommand,
 		nextJSON: ownerNextJSON, modelHash: ownerHash, graph: ownerGraph, manifest: ownerManifest, changes: ownerChanges}
-	if ownerGeometry != nil {
-		ownerCandidate.geometryKey = *ownerGeometry
-	}
 	productCandidates := []atomicDomainCandidate{}
 	childRevisionID := ownerRevisionID
 	seenDocuments := map[string]bool{owner.DocumentID: true, rootProductDocumentID: true}
@@ -318,7 +312,7 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 			return DocumentView{}, fmt.Errorf("%w: CONTEXT_VARIANT_PUBLICATION_BROKEN: %s", ErrValidation, publication.Resolution.Diagnostic)
 		}
 	}
-	if _, err := service.evaluatePart(ctx, request.RequestID+"/context-variant", derivedOwner); err != nil {
+	if err := service.evaluatePartBodies(ctx, request.RequestID+"/context-variant", &derivedOwner); err != nil {
 		return DocumentView{}, err
 	}
 	rootOwnerInstanceID := ownerPath.Segments[0].InstanceID
@@ -415,17 +409,13 @@ func (service *Service) commitProductDesignCandidates(ctx context.Context, group
 		if err := tx.QueryRow(ctx, `INSERT INTO occccad.commands(request_id,command_type,document_id,payload,status,completed_at,trace_id,span_id) VALUES($1,$2,$3,$4,'SUCCEEDED',now(),$5,$6) RETURNING id::text`, candidate.request.RequestID, candidate.request.Type, candidate.documentID, transportPayload, traceID, spanID).Scan(&auditCommandID); err != nil {
 			return err
 		}
-		var geometry any
-		if candidate.geometryKey != "" {
-			geometry = candidate.geometryKey
-		}
 		manifestJSON, _ := json.Marshal(candidate.manifest)
 		dependencyDigest, err := candidate.graph.Digest()
 		if err != nil {
 			return err
 		}
 		batch := &pgx.Batch{}
-		batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,'READY',$7,$8,$9,$10)`, candidate.revisionID, candidate.documentID, candidate.headRevision, revisionSequence, candidate.nextJSON, geometry, auditCommandID, candidate.modelHash, dependencyDigest, manifestJSON)
+		batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,'READY',$6,$7,$8,$9)`, candidate.revisionID, candidate.documentID, candidate.headRevision, revisionSequence, candidate.nextJSON, auditCommandID, candidate.modelHash, dependencyDigest, manifestJSON)
 		batch.Queue(`INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, candidate.revisionID, candidate.headRevision)
 		requestJSON, _ := json.Marshal(candidate.request)
 		individualDigest := modelcore.ValueDigest(requestJSON)

@@ -582,6 +582,7 @@ message PartTopologyManifest {
     string geometry_id = 10;
     string coordinate_space = 11; // PART_LOCAL
     string length_unit = 12; // mm (positions); measures explicitly SI.
+    string brep_sha256 = 13; // Exact frozen Body BREP artifact association.
     string policy_digest = 5;
 }
 
@@ -617,6 +618,7 @@ message ExchangeDefinition {
     string kind = 3; // PART | PRODUCT
     ArtifactReference brep = 4; // PART only, definition-local
     repeated ExchangeOccurrence children = 5;
+    repeated ArtifactReference body_breps = 6; // Export-only Part-local bodies; combined only in exchange output.
 }
 message ExchangeGraph {
     repeated ExchangeDefinition definitions = 1;

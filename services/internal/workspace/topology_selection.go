@@ -17,6 +17,7 @@ import (
 )
 
 type BindPersistentSelectionRequest struct {
+	BodyID          string `json:"bodyId"`
 	SourceVersionID string `json:"sourceVersionId"`
 	GeometryKey     string `json:"geometryKey"`
 	Kind            string `json:"kind"`
@@ -73,7 +74,7 @@ func (service *Service) bindAssemblyPick(ctx context.Context, product *ProductMo
 		reference.PersistentSelection, reference.SourceVersionID = selection, instance.ReferencedVersionID
 	}
 	reference.GeometryKey, reference.TopologyID = "", 0
-	_, _, digest, err := service.topologyManifestForVersion(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID)
+	_, _, digest, err := service.topologyManifestForVersion(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID, reference.PersistentSelection.SourceBodyID)
 	if err != nil {
 		return err
 	}
@@ -227,7 +228,7 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 				PolicyDigest: modelcore.TopologyNamingPolicyDigest, Result: resolution}
 			return modelcore.SelectionSourceUnavailable, nil
 		}
-		_, _, digest, err := service.topologyManifestForVersion(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID)
+		_, _, digest, err := service.topologyManifestForVersion(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID, reference.PersistentSelection.SourceBodyID)
 		if err != nil {
 			if diagnostic, ok := namingDiagnostic(err); ok {
 				resolution := unavailableSelectionResolution(diagnostic.DiagnosticCode, diagnostic.Diagnostic)
@@ -644,19 +645,21 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 	return result
 }
 
-func (service *Service) topologyManifestForVersion(ctx context.Context, documentID, versionID string) (*topologyManifest, string, string, error) {
-	value, err := assemblyRead(ctx, assemblyReadKey{"manifest", documentID, versionID}, func() (assemblyManifestRead, error) {
-		manifest, geometry, digest, err := service.loadTopologyManifestForVersion(ctx, documentID, versionID)
+func (service *Service) topologyManifestForVersion(ctx context.Context, documentID, versionID, bodyID string) (*topologyManifest, string, string, error) {
+	value, err := assemblyRead(ctx, assemblyReadKey{"manifest", documentID, versionID + "/" + bodyID}, func() (assemblyManifestRead, error) {
+		manifest, geometry, digest, err := service.loadTopologyManifestForVersion(ctx, documentID, versionID, bodyID)
 		return assemblyManifestRead{manifest, geometry, digest}, err
 	})
 	return value.manifest, value.geometry, value.digest, err
 }
 
-func (service *Service) loadTopologyManifestForVersion(ctx context.Context, documentID, versionID string) (*topologyManifest, string, string, error) {
+func (service *Service) loadTopologyManifestForVersion(ctx context.Context, documentID, versionID, bodyID string) (*topologyManifest, string, string, error) {
 	defer perf.Start(ctx, "topology-manifest-read")()
 
 	var geometryKey string
-	err := service.database.QueryRow(ctx, `SELECT geometry_key FROM occccad.document_versions WHERE id=$2 AND document_id=$1`, documentID, versionID).Scan(&geometryKey)
+	err := service.database.QueryRow(ctx, `SELECT body->>'geometryKey' FROM occccad.document_versions v
+ CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') body
+ WHERE v.id=$2 AND v.document_id=$1 AND body->>'id'=$3 AND COALESCE(body->>'geometryKey','')<>''`, documentID, versionID, bodyID).Scan(&geometryKey)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, "", "", ErrNotFound
 	}
@@ -664,6 +667,9 @@ func (service *Service) loadTopologyManifestForVersion(ctx context.Context, docu
 		return nil, "", "", err
 	}
 	manifest, digest, err := service.topologyManifestForGeometryKey(ctx, geometryKey)
+	if err == nil && (manifest == nil || manifest.Tips[bodyID] == nil) {
+		return nil, "", "", fmt.Errorf("%w: Naming does not belong to Body", ErrValidation)
+	}
 	return manifest, geometryKey, digest, err
 }
 
@@ -672,7 +678,18 @@ func (service *Service) BindPersistentSelection(ctx context.Context, documentID 
 	if request.SourceVersionID == "" || request.GeometryKey == "" || request.LocalID == 0 {
 		return modelcore.PersistentSelection{}, fmt.Errorf("%w: sourceVersionId, geometryKey and localId are required", ErrValidation)
 	}
-	manifest, geometryKey, _, err := service.topologyManifestForVersion(ctx, documentID, request.SourceVersionID)
+	if request.BodyID == "" {
+		err := service.database.QueryRow(ctx, `SELECT body->>'id' FROM occccad.document_versions v
+        CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') body
+        WHERE v.id=$2 AND v.document_id=$1 AND body->>'geometryKey'=$3`, documentID, request.SourceVersionID, request.GeometryKey).Scan(&request.BodyID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return modelcore.PersistentSelection{}, ErrNotFound
+		}
+		if err != nil {
+			return modelcore.PersistentSelection{}, err
+		}
+	}
+	manifest, geometryKey, _, err := service.topologyManifestForVersion(ctx, documentID, request.SourceVersionID, request.BodyID)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return modelcore.PersistentSelection{}, fmt.Errorf("%w: PERSISTENT_SELECTION_UNAVAILABLE", ErrValidation)
@@ -686,7 +703,7 @@ func (service *Service) BindPersistentSelection(ctx context.Context, documentID 
 		return modelcore.PersistentSelection{}, fmt.Errorf("%w: geometryKey does not belong to source revision", ErrValidation)
 	}
 	output, bodyID := manifestOutput(manifest, kind, request.LocalID)
-	if output == nil {
+	if output == nil || bodyID != request.BodyID {
 		return modelcore.PersistentSelection{}, ErrNotFound
 	}
 	selection := modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion, SourceDocumentID: documentID, SourceBodyID: bodyID, Anchor: semanticRef(output.GetSemanticRef()), ExpectedType: kind, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant}, CreationEvidence: selectionEvidence(output.GetEvidence())}
@@ -703,7 +720,7 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	if request.PolicyDigest != modelcore.TopologyNamingPolicyDigest {
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "RESOLVER_POLICY_MISMATCH"}, nil
 	}
-	sourceManifest, _, _, err := service.topologyManifestForVersion(ctx, documentID, request.SourceVersionID)
+	sourceManifest, _, _, err := service.topologyManifestForVersion(ctx, documentID, request.SourceVersionID, request.Selection.SourceBodyID)
 	if err != nil {
 		if diagnostic, ok := namingDiagnostic(err); ok {
 			return unavailableSelectionResolution(diagnostic.DiagnosticCode, diagnostic.Diagnostic), nil
@@ -723,7 +740,7 @@ func (service *Service) ResolvePersistentSelection(ctx context.Context, document
 	if request.Selection.CreationEvidence.EvidenceDigest != "" && request.Selection.CreationEvidence.EvidenceDigest != sourceOutput.GetEvidence().GetEvidenceDigest() {
 		return modelcore.SelectionResolution{Status: modelcore.SelectionContractMismatch, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "CREATION_EVIDENCE_MISMATCH"}, nil
 	}
-	manifest, geometryKey, digest, err := service.topologyManifestForVersion(ctx, documentID, request.TargetVersionID)
+	manifest, geometryKey, digest, err := service.topologyManifestForVersion(ctx, documentID, request.TargetVersionID, request.Selection.SourceBodyID)
 	if err != nil {
 		if diagnostic, ok := namingDiagnostic(err); ok {
 			return unavailableSelectionResolution(diagnostic.DiagnosticCode, diagnostic.Diagnostic), nil

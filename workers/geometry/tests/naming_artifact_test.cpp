@@ -15,10 +15,10 @@ TEST(NamingArtifact, InternsEvidenceAndKeepsExplicitBodyTips) {
     evidence.mutable_direction()->set_z(1);
     evidence.mutable_adjacent()->Add()->set_feature_id("adjacency-feature");
     evidence.mutable_adjacent(0)->set_output_slot("edge");
-    std::vector<api::FeatureResult> features(3);
+    std::vector<api::FeatureResult> features(2);
     for (size_t i = 0; i < features.size(); ++i) {
         auto& f = features[i];
-        f.set_body_id(i == 2 ? "body-b" : "body-a");
+        f.set_body_id("body-a");
         f.set_feature_id("feature-" + std::to_string(i));
         f.set_result_geometry_id("geometry");
         f.set_topology_history_complete(true);
@@ -42,13 +42,11 @@ TEST(NamingArtifact, InternsEvidenceAndKeepsExplicitBodyTips) {
     occccad::worker::pack_naming(features, packed);
     EXPECT_EQ(packed.schema_version(), 2);
     EXPECT_EQ(packed.evidence_size(), 1);
-    ASSERT_EQ(packed.bodies_size(), 2);
+    ASSERT_EQ(packed.bodies_size(), 1);
     EXPECT_EQ(packed.bodies(0).tip_transition(), 2);
-    EXPECT_EQ(packed.bodies(1).tip_transition(), 3);
     EXPECT_EQ(packed.bodies(0).tip_size(), 1);
     EXPECT_EQ(packed.bodies(0).tip(0).local_id(), 2);
-    EXPECT_EQ(packed.bodies(1).tip(0).local_id(), 3);
-    EXPECT_EQ(packed.semantic_refs_size(), 4);  // 3 feature identities + shared adjacency
+    EXPECT_EQ(packed.semantic_refs_size(), 3);  // 2 feature identities + shared adjacency
     for (const auto& t : packed.transitions())
         EXPECT_EQ(t.lineage(0).evidence(), 1);
     api::PartTopologyManifest decoded;
@@ -99,4 +97,10 @@ TEST(NamingArtifact, TypedEvidenceAndExplicitCurveParameters) {
     EXPECT_EQ(m.evidence(5).spline().range().convention(), "NATIVE_CURVE_PARAMETER");
     EXPECT_EQ(m.evidence(6).spline().family(), "BEZIER");
     EXPECT_EQ(m.evidence(7).other().range().convention(), "ANGLE_RADIANS");
+}
+
+TEST(NamingArtifact, RejectsCrossBodyArtifact) {
+ std::vector<api::FeatureResult> features(2);features[0].set_body_id("a");features[1].set_body_id("b");
+ api::PartTopologyManifest out;
+ EXPECT_THROW(occccad::worker::pack_naming(features,out),std::invalid_argument);
 }

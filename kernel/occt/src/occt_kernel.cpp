@@ -1348,8 +1348,14 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
         throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
     if (!BRepCheck_Analyzer(result).IsValid())
         throw std::runtime_error("solid operation produced invalid B-Rep");
-    if (solid_count(result) != 1)
+    if (solid_count(result) != 1) {
+        // The coordinator may allocate an independent Body only for this precise
+        // ADD outcome. Cuts/intersections and invalid B-Reps must still fail.
+        if (operation == "ADD")
+            throw std::invalid_argument("DISJOINT_ADD[" + tool.feature_id +
+                                        "]: standard Body requires exactly one solid");
         throw std::invalid_argument("DISJOINT_RESULT: standard Body requires exactly one solid");
+    }
     auto derived = complete_boolean_topology_naming(result, mapped, tool.feature_id);
     std::vector<std::string> diagnostics;
     if (!derived.empty())

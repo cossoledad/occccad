@@ -43,10 +43,11 @@ func TestRepresentationDownloadAuthorizationAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref := view.Artifact.Representations["VISUAL"]
+	ref := view.Artifacts[view.Part.Bodies[0].GeometryKey].Representations["VISUAL"]
 	server := &Server{database: db, workspace: domain, access: access.New(db), artifacts: objects}
+	bodyScope := ""
 	get := func(user, object, version, etag string) *httptest.ResponseRecorder {
-		request := httptest.NewRequest(http.MethodGet, "/representation?versionId="+version, nil)
+		request := httptest.NewRequest(http.MethodGet, "/representation?versionId="+version+"&bodyId="+bodyScope, nil)
 		request.SetPathValue("documentID", view.Document.ID)
 		request.SetPathValue("objectID", object)
 		request = request.WithContext(access.WithPrincipal(request.Context(), access.User{ID: user}))
@@ -71,6 +72,37 @@ func TestRepresentationDownloadAuthorizationAndSnapshot(t *testing.T) {
 	if result := get(actor, ref.ObjectID, "00000000-0000-7000-8000-000000000099", ""); result.Code != 404 {
 		t.Fatalf("foreign revision accepted: %d", result.Code)
 	}
+
+	view, err = domain.ApplyCommand(t.Context(), view.Document.ID, workspace.CommandRequest{ActorID: actor, RequestID: view.Document.ID + "-body", Type: "CREATE_BODY"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{"BREP", "NAMING"} {
+		kind := artifact.KindBREP
+		contentType := "application/vnd.opencascade.brep"
+		if role == "NAMING" {
+			kind = artifact.KindTopologyManifest
+			contentType = "application/x-protobuf"
+		}
+		data := []byte("authorization fixture " + role)
+		object, e := objects.Put(t.Context(), kind, contentType, bytes.NewReader(data))
+		if e != nil {
+			t.Fatal(e)
+		}
+		_, e = db.Exec(t.Context(), `INSERT INTO occccad.geometry_representations(geometry_key,role,schema_version,object_id) VALUES($1,$2,2,$3)`, view.Part.Bodies[1].GeometryKey, role, object.ID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		bodyScope = view.Part.Bodies[1].ID
+		if response := get(actor, object.ID, view.Document.VersionID, ""); response.Code != 200 || !bytes.Equal(response.Body.Bytes(), data) {
+			t.Fatalf("%s download: %d %s", role, response.Code, response.Body.String())
+		}
+		bodyScope = view.Part.Bodies[0].ID
+		if response := get(actor, object.ID, view.Document.VersionID, ""); response.Code != 404 {
+			t.Fatalf("cross Body %s download accepted: %d", role, response.Code)
+		}
+	}
+	bodyScope = ""
 	// Follow nested frozen snapshots, including after the root Head changes.
 	child := view
 	for depth := 0; depth < 2; depth++ {

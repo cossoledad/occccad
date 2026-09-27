@@ -7,7 +7,7 @@ Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 g
 - `Ping`：返回 Worker ID、OCCT 版本和 resident geometry 数；
 - `SolveSketch`：求解版本化 Point/Line/Circle/Arc/Spline/Constraint SketchModel，返回坐标、状态、DoF 和冲突/冗余约束 ID；
 - `ProjectExternalGeometry`：以已解析的 Edge/Vertex evidence 和草图 support frame 权威生成二维只读 Point/Line/完整 Circle 投影；退化、类型不符、斜圆投影和缺少定向 evidence 的部分圆弧返回稳定诊断，不回退到浏览器近似；Arc evidence/snapshot 属于 P11J-0；
-- `EvaluatePart`：求值一个矩形草图/拉伸链或在基础 B-Rep 上追加拉伸；Profile Pad 请求校验稳定 Feature/Body/source identity 和版本化 topology naming policy，仅回传逐 Feature identity、摘要与 ArtifactReference，完整 semantic topology outputs 和 TopologyHistory 写入 `naming.pb`；
+- `EvaluatePart`：每次仅求值一个 Body 的矩形草图/拉伸链或在基础 B-Rep 上追加拉伸；Profile Pad 请求校验稳定 Feature/Body/source identity 和版本化 topology naming policy，仅回传逐 Feature identity、摘要与 ArtifactReference，完整 semantic topology outputs 和 TopologyHistory 写入 `naming.pb`；
 - `InspectExchange` / `ImportExchange` / `ExportExchange`：通过 ArtifactReference 检查、导入和导出 STEP/BREP；
 - `GetTopology`：返回面、边、点及诊断属性；
 - 生成 SHA-256 GeometryId、B-Rep、三角网格、边折线、包围盒、体积和 GLB。
@@ -40,7 +40,7 @@ flowchart LR
 - 默认监听：`127.0.0.1:51001`
 - 配置：`OCCCCAD_GEOMETRY_WORKER_LISTEN`
 
-调用应是“求值完整 Part”“导入一个交换根”“合成一次导出”一类粗粒度操作，不能把每个 OCCT 函数映射为远程 RPC。请求携带 `request_id` 与 `geometry_key`；Trace Context 通过 gRPC metadata 传播。B-Rep、GLB、STEP 和 BREP 交换文件通过 ArtifactReference 读写，不进入 unary gRPC bytes；持久存储支持 LOCAL/S3；Go client 将远端输入校验并暂存为 LOCAL scratch，Worker 输出由 Adopt 上传；计算暂存仍要求 Worker 与 API/Jobs 共享 `OCCCCAD_DATA_DIR`，object key 必须是根目录内的 opaque 相对键。
+调用应是“求值一个 Body 的完整 Feature chain”“导入一个交换根”“合成一次导出”一类粗粒度操作，不能把每个 OCCT 函数映射为远程 RPC。请求携带 `request_id` 与 `geometry_key`；Trace Context 通过 gRPC metadata 传播。B-Rep、GLB、STEP 和 BREP 交换文件通过 ArtifactReference 读写，不进入 unary gRPC bytes；持久存储支持 LOCAL/S3；Go client 将远端输入校验并暂存为 LOCAL scratch，Worker 输出由 Adopt 上传；计算暂存仍要求 Worker 与 API/Jobs 共享 `OCCCCAD_DATA_DIR`，object key 必须是根目录内的 opaque 相对键。
 
 Worker 只生成 Body 的基础实体 GLB。Part 模型拥有的 Datum、Sketch 以及未来非实体曲线/曲面由控制面的版本化 `VisualizationManifest` 表达；Artifact 管线把它注入最终 GLB 的 `OCCCCAD_visualization` 扩展。不要把完整 PartModel 或装配 occurrence 传入 OCCT Worker 来生成第二套场景：同一最终 GLB/manifest 必须同时供 Part、缩略图和 Product occurrence 使用。
 
@@ -114,3 +114,5 @@ Geometry RPC 发送和接收均限制为 128 MiB，与 Go `internal/geometryrpc`
 `ExportExchange.graph` 经 XDE document / STEPCAFControl_Writer 保留共享定义、嵌套引用、名称和局部 placement；BREP 输出仍是几何 Compound。图为短期交换合同，持久大数据继续通过 ArtifactReference。当前合同及限制见[交换架构](../../docs/architecture/current/jobs-artifacts.md)。
 
 Visual/Naming 制品使用 [v2 schema](../../docs/architecture/visual-naming-artifact-v2.md)：GLB 通过标准 primitive/accessor 表达面边点与统一 1-based locator；`naming.pb` 由 `src/naming_artifact.hpp` 将 evaluator 工作对象 intern 为共享表、transitions 和显式 Body Tips，不写入逐 Feature 完整快照。文件 schemaVersion 与 Naming policy 版本独立。定向 serializer 测试：`worker/NamingArtifact.InternsEvidenceAndKeepsExplicitBodyTips`。
+
+Multi-Body 由 Workspace 协调独立调用；一个 `naming.pb` 只允许一个 Body 的 transitions/tip，并关联 GeometryId 与 BREP digest。STEP 导出的 `ExchangeDefinition.body_breps` 允许同一 Part Definition 接收多个 Part-local Body BREP，只在交换输出内组合；业务 Definition/Occurrence 图保持不变。

@@ -19,7 +19,10 @@ export type MeshData = {
 
 export type NamingAvailability = { status: "READY" | "UNAVAILABLE" | "FAILED" | "CORRUPT" | "INCOMPATIBLE"; canBind: boolean; diagnosticCode?: string; diagnostic?: string };
 
+export type PartBody = { id: string; name: string; visible: boolean; geometryKey?: string; createdByFeatureId?: string };
+
 export type Artifact = {
+  bodyId?: string;
   naming?: NamingAvailability;
   geometryKey: string;
   geometryId: string;
@@ -101,6 +104,7 @@ export type DocumentProperties = {
 };
 
 export type Feature = {
+  bodyId?: string;
   importDefinitionId?: string;
   id: string;
   type: "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY";
@@ -263,6 +267,7 @@ export type Job = {
 };
 
 export type ResolvedInstance = {
+  bodyId: string; bodyVisible: boolean;
   id: string;
   name: string;
   documentId: string;
@@ -309,7 +314,7 @@ export type DocumentView = {
   datumPlanes?: DatumPlane[];
   axisSystems?: AxisSystem[];
   datumAxes?: DatumAxis[];
-  part?: { units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextInputs?:ContextInput[]; contextReferences?:ContextReference[] };
+  part?: { bodies: PartBody[]; activeBodyId: string; units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextInputs?:ContextInput[]; contextReferences?:ContextReference[] };
   product?: { instances: ProductInstance[]; constraints?: AssemblyConstraint[]; publications?:ProductPublication[]; contextBindings?:ContextBinding[] };
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;
@@ -366,7 +371,7 @@ export type ContextCatalogPublication = { instancePath:InstancePath;documentId:s
 export type ContextCatalog = { rootProductDocumentId:string;rootProductRevisionId:string;activeInstancePath?:InstancePath;
   expectedType?:string;digest:string;publications:ContextCatalogPublication[] };
 export type ContextVariantSnapshot = {variantKey:string;owningInstancePath:InstancePath;baseDocumentId:string;baseRevisionId:string;
-  bindingIds:string[];bindingDigest:string;evaluationManifestDigest?:string;geometryKey?:string;status:"READY"|"FAILED";
+  bindingIds:string[];bindingDigest:string;evaluationManifestDigest?:string;bodies:PartBody[];status:"READY"|"FAILED";
   publications?:Publication[];diagnosticCode?:string;diagnostic?:string};
 export type ProductUpdatePlanEntry = {kind:"CONTEXT_BINDING"|"OCCURRENCE_REFERENCE"|"ASSEMBLY_SOLVE";bindingId:string;name:string;sourceDisplayPath:string;owningDisplayPath:string;
   acceptedRevisionId:string;candidateRevisionId?:string;connection:"CONNECTED"|"BROKEN"|"INCOMPATIBLE";
@@ -383,6 +388,7 @@ export type AssemblySolveManifestResult = {manifestDigest:string;requestId:strin
 export type ProductReleaseReplay = {releaseId:string;manifestDigest:string;status:string;assembly?:AssemblySolveManifestResult};
 
 export type SelectionIdentity = {
+  bodyId?: string;
   id: string;
   treeNodeId?: string;
   expandTreeDescendants?: boolean;

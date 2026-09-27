@@ -61,6 +61,7 @@ var workspaceCommandRegistry = mustWorkspaceRegistry()
 
 func mustWorkspaceRegistry() *modelcore.Registry {
 	registry, err := modelcore.NewRegistry(
+		commandHandler{typeBodyCommand, "PART", applyBodyCommand},
 		commandHandler{typeCreateSketch, "PART", applyCreateFeature},
 		commandHandler{typeEditSketch, "PART", applyEditSketch},
 		commandHandler{typeCreatePad, "PART", applyCreateFeature},
@@ -229,6 +230,10 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 		}
 		before := model.Features[index]
 		model.Features = append(model.Features[:index], model.Features[index+1:]...)
+		bodyChanges, err := removeFeatureBody(&model, payload.TargetID)
+		if err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
 		parameters := model.Parameters[:0]
 		for _, parameter := range model.Parameters {
 			if !strings.HasPrefix(parameter.ParameterID, "parameter:"+payload.TargetID+":") {
@@ -241,7 +246,7 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 			return nil, modelcore.ChangeSet{}, err
 		}
 		change, _ := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: payload.TargetID, SlotID: "entity"}, before, nil)
-		changes, seeds := appendParameterLifecycleChanges([]modelcore.ModelChange{change},
+		changes, seeds := appendParameterLifecycleChanges(append(bodyChanges, change),
 			[]modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.TargetID)}, beforeParameters, model.Parameters)
 		next, _ := json.Marshal(model)
 		return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
@@ -955,11 +960,28 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		return nil, modelcore.ChangeSet{}, err
 	}
 	normalizePartModel(&model)
+	payload.Feature.Order = 1
+	for _, f := range model.Features {
+		if f.Order >= payload.Feature.Order {
+			payload.Feature.Order = f.Order + 1
+		}
+	}
+
 	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
 	for _, feature := range model.Features {
 		if feature.ID == payload.Feature.ID {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate feature identity", ErrValidation)
 		}
+	}
+	var bodyChanges []modelcore.ModelChange
+	if payload.Feature.BodyID == "" {
+		payload.Feature.BodyID = model.ActiveBodyID
+	}
+	if isSolidGenerator(payload.Feature.Type) && payload.Feature.Operation == "NEW_BODY" {
+		bodyChanges = createFeatureBody(&model, &payload.Feature)
+	}
+	if bodyIndex(model, payload.Feature.BodyID) < 0 {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: target Body does not exist", ErrValidation)
 	}
 	model.Features = append(model.Features, payload.Feature)
 	normalizePartModel(&model)
@@ -983,7 +1005,7 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	}
 	created := model.Features[len(model.Features)-1]
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Feature.ID, SlotID: "entity"}, nil, created)
-	changes, seeds := appendParameterLifecycleChanges([]modelcore.ModelChange{change},
+	changes, seeds := appendParameterLifecycleChanges(append(bodyChanges, change),
 		[]modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.Feature.ID)}, beforeParameters, model.Parameters)
 	set := modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}
 	next, _ := json.Marshal(model)
@@ -1702,6 +1724,12 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	}
 	if command == typeImportExchange || command == typeRepairImportNaming {
 		input := payload.(createFeaturePayload)
+		if input.Feature.BodyID == "" {
+			var m PartModel
+			_ = json.Unmarshal(prepared.modelJSON, &m)
+			normalizePartModel(&m)
+			input.Feature.BodyID = m.ActiveBodyID
+		}
 		input.Feature.ImportDefinitionID, err = service.allocateImportDefinition(ctx, documentID, input.Feature, request.ImportSource)
 		if err != nil {
 			return prepared, err
@@ -1776,7 +1804,6 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	}
 	revisionID := revisionUUID.String()
 	modelHash := canonicalModelHash(nextJSON)
-	geometryKey := candidate.geometryKey
 	var graph *modelcore.DependencyGraph
 	var manifest modelcore.EvaluationManifest
 	revisionState, evaluationStatus := "READY", "SUCCEEDED"
@@ -1815,21 +1842,27 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			return err
 		}
 		changes = appendEvaluatedSketchChanges(changes, beforeModel, model)
+		if _, failedRevision, failedEvaluation, unresolved := unresolvedExternalRevisionOutcome(model); unresolved {
+			revisionState, evaluationStatus = failedRevision, failedEvaluation
+			for i := range model.Bodies {
+				model.Bodies[i].GeometryKey = ""
+			}
+		} else {
+			finishGeometry := perf.Start(ctx, "geometry-evaluate")
+			err = service.routeNewSolidBody(ctx, prepared.requestID, beforeModel, &model, &changes)
+			if err == nil {
+				err = service.evaluatePartBodies(ctx, prepared.requestID, &model)
+			}
+			finishGeometry()
+			if err != nil {
+				return err
+			}
+		}
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
 		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)
 		if err != nil {
 			return err
-		}
-		if failedKey, failedRevision, failedEvaluation, unresolved := unresolvedExternalRevisionOutcome(model); unresolved {
-			geometryKey, revisionState, evaluationStatus = failedKey, failedRevision, failedEvaluation
-		} else if !promoted {
-			finishGeometry := perf.Start(ctx, "geometry-evaluate")
-			geometryKey, err = service.evaluatePart(ctx, prepared.requestID, model)
-			finishGeometry()
-			if err != nil {
-				return err
-			}
 		}
 	} else {
 		var model ProductModel
@@ -1937,12 +1970,8 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	if err := tx.QueryRow(ctx, `INSERT INTO occccad.commands(request_id,command_type,document_id,payload,status,completed_at,trace_id,span_id) VALUES($1,$2,$3,$4,'SUCCEEDED',now(),$5,$6) RETURNING id::text`, prepared.requestID, request.Type, documentID, transportPayload, traceID, spanID).Scan(&auditCommandID); err != nil {
 		return err
 	}
-	var nullableGeometry any
-	if geometryKey != "" {
-		nullableGeometry = geometryKey
-	}
 	batch := &pgx.Batch{}
-	batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,geometry_key,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, revisionID, documentID, prepared.headRevision, revisionSequence, nextJSON, nullableGeometry, revisionState, auditCommandID, modelHash, dependencyDigest, manifestJSON)
+	batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, revisionID, documentID, prepared.headRevision, revisionSequence, nextJSON, revisionState, auditCommandID, modelHash, dependencyDigest, manifestJSON)
 	batch.Queue(`INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, revisionID, prepared.headRevision)
 	batch.Queue(`INSERT INTO occccad.domain_transactions(id,workspace_id,sequence,actor_id,request_id,request_digest,kind,status,base_revision_id,result_revision_id,committed_at) VALUES($1,$2,$3,$4,$5,$6,'DOMAIN','COMMITTED',$7,$8,now())`, prepared.transactionID, prepared.workspaceID, currentSequence+1, prepared.actorID, prepared.requestID, prepared.requestDigest, prepared.headRevision, revisionID)
 	batch.Queue(`INSERT INTO occccad.transaction_commands(transaction_id,ordinal,command_id,type_uri,schema_version,payload,payload_digest) VALUES($1,0,$2,$3,$4,$5,$6)`, prepared.transactionID, prepared.command.CommandID, prepared.command.TypeURI, prepared.command.SchemaVersion, prepared.command.Payload, payloadDigest)
@@ -2190,6 +2219,12 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		return CommandPreview{}, err
 	}
 	previewChanges = appendEvaluatedSketchChanges(previewChanges, beforeModel, model)
+	if _, broken := firstUnresolvedExternal(model); !broken {
+		if err = service.routeNewSolidBody(ctx, "preview/"+prepared.requestID, beforeModel, &model, &previewChanges); err != nil {
+			return CommandPreview{}, err
+		}
+	}
+
 	nextJSON, _ = json.Marshal(model)
 	previewChanges, err = reconcilePersistedChanges(prepared.documentType, prepared.modelJSON, nextJSON, previewChanges)
 	if err != nil {
@@ -2205,7 +2240,8 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		return CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: modelHash}, nil
 	}
 	finishGeometry := perf.Start(ctx, "geometry-evaluate")
-	geometryKey, err := service.evaluatePart(ctx, "preview/"+prepared.requestID, model)
+	bodyID := previewBodyID(prepared.command.Payload, model)
+	geometryKey, err := service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID, model, bodyID)
 	finishGeometry()
 	if err != nil {
 		return CommandPreview{}, err
@@ -2216,6 +2252,12 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	if err != nil {
 		return CommandPreview{}, err
 	}
+	artifact.BodyID = bodyID
+	if index := bodyIndex(model, bodyID); index >= 0 {
+		model.Bodies[index].GeometryKey = geometryKey
+	}
+	nextJSON, _ = json.Marshal(model)
+	modelHash = canonicalModelHash(nextJSON)
 	previewID := newID("preview")
 	service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
 		headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,

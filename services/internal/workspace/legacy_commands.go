@@ -15,6 +15,17 @@ import (
 
 func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, documentType string, modelJSON json.RawMessage, request CommandRequest) (string, any, error) {
 	switch request.Type {
+	case "CREATE_BODY", "DELETE_BODY", "RENAME_BODY", "SET_ACTIVE_BODY", "SET_BODY_VISIBILITY":
+		if documentType != "PART" {
+			break
+		}
+		action := map[string]string{"CREATE_BODY": "CREATE", "DELETE_BODY": "DELETE", "RENAME_BODY": "RENAME", "SET_ACTIVE_BODY": "ACTIVATE", "SET_BODY_VISIBILITY": "VISIBILITY"}[request.Type]
+		id := request.BodyID
+		if request.Type == "CREATE_BODY" {
+			id = commandEntityID("body", request.RequestID)
+		}
+		return typeBodyCommand, bodyCommand{Action: action, BodyID: id, Name: request.Name, Visible: request.Visible}, nil
+
 	case "CREATE_SKETCH":
 		if documentType != "PART" {
 			break
@@ -58,7 +69,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			support := SketchSupport{Type: "PLANAR_FACE", Plane: "CUSTOM", PersistentSelection: &selection,
 				SourceVersionID: sourceVersionID, Origin: selection.CreationEvidence.Origin, XDirection: xDirection,
 				Normal: normal, OrientationRule: sketchSupportOrientationRule, Status: "CONNECTED"}
-			return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "SKETCH",
+			return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: newID("sketch"), Type: "SKETCH",
 				Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: "CUSTOM",
 				Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: support, Entities: []SketchEntity{},
 					Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
@@ -82,7 +93,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, fmt.Errorf("%w: selected datum plane does not exist", ErrValidation)
 			}
 		}
-		return typeCreateSketch, createFeaturePayload{Feature: Feature{ID: newID("sketch"), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane, Status: "CONNECTED"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
+		return typeCreateSketch, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: newID("sketch"), Type: "SKETCH", Name: numberedFeatureName(model.Features, "SKETCH", "Sketch"), Plane: plane, Sketch: &SketchFeature{SchemaVersion: SketchSchemaVersion, Support: SketchSupport{Type: "DATUM_PLANE", DatumPlaneID: datumID, Plane: plane, Status: "CONNECTED"}, Entities: []SketchEntity{}, Constraints: []SketchConstraint{}, Solve: SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}}}}, nil
 	case "EDIT_SKETCH":
 		if documentType != "PART" {
 			break
@@ -181,7 +192,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if !found {
 			return "", nil, fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
 		}
-		return typeCreatePad, createFeaturePayload{Feature: Feature{ID: commandEntityID("extrude", request.RequestID), Type: "PAD", Name: numberedFeatureName(model.Features, "PAD", "Extrude"), Profile: request.SketchID, Length: request.Length, Operation: "ADD"}}, nil
+		return typeCreatePad, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("extrude", request.RequestID), Type: "PAD", Name: numberedFeatureName(model.Features, "PAD", "Extrude"), Profile: request.SketchID, Length: request.Length, Operation: "ADD"}}, nil
 	case "CREATE_SOLID_FEATURE":
 		if documentType != "PART" {
 			break
@@ -222,7 +233,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if generator == "REVOLVE" {
 			prefix, label = "revolve", "Revolve"
 		}
-		feature := Feature{ID: commandEntityID(prefix, request.RequestID), Type: generator,
+		feature := Feature{BodyID: request.BodyID, ID: commandEntityID(prefix, request.RequestID), Type: generator,
 			Name: numberedFeatureName(model.Features, generator, label), Profile: request.SketchID,
 			Length: request.Length, Angle: request.Angle, Operation: operation,
 			AxisEntityID: request.AxisEntityID, Reversed: request.Reversed}
@@ -357,7 +368,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if format != "STEP" && format != "BREP" {
 			return "", nil, fmt.Errorf("%w: exchange format must be STEP or BREP", ErrValidation)
 		}
-		return typeImportExchange, createFeaturePayload{Feature: Feature{ID: commandEntityID("import", documentID+"/"+request.RequestID), Type: "IMPORT_BODY", Name: "Import " + name, GeometryKey: request.GeometryKey, FileName: name, SourceFormat: format}}, nil
+		return typeImportExchange, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("import", documentID+"/"+request.RequestID), Type: "IMPORT_BODY", Name: "Import " + name, GeometryKey: request.GeometryKey, FileName: name, SourceFormat: format}}, nil
 	case "SET_PARAMETER_VALUE":
 		if documentType != "PART" {
 			break

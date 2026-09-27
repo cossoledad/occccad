@@ -16,8 +16,8 @@ func verifyImportedNaming(t *testing.T, db *database.Pool, client *geometry.Clie
 	t.Helper()
 	service := workspace.NewWithArtifacts(db, client, artifacts)
 	part, err := service.GetDocument(t.Context(), initial.Document.ID)
-	if err != nil || !part.Artifact.Naming.CanBind || part.Part.Features[0].ImportDefinitionID == "" {
-		t.Fatalf("cold imported naming: %v %+v", err, part.Artifact)
+	if err != nil || !activeBodyArtifact(t, part).Naming.CanBind || part.Part.Features[0].ImportDefinitionID == "" {
+		t.Fatalf("cold imported naming: %v %+v", err, activeBodyArtifact(t, part))
 	}
 	base := part
 	sequence := 0
@@ -39,7 +39,7 @@ func verifyImportedNaming(t *testing.T, db *database.Pool, client *geometry.Clie
 		count int
 	}{{"FACE", 6}, {"EDGE", 12}, {"VERTEX", 8}} {
 		for i := 1; i <= group.count; i++ {
-			selection, err := service.BindPersistentSelection(t.Context(), part.Document.ID, workspace.BindPersistentSelectionRequest{SourceVersionID: part.Document.VersionID, GeometryKey: part.Artifact.GeometryKey, Kind: group.kind, LocalID: uint64(i)})
+			selection, err := service.BindPersistentSelection(t.Context(), part.Document.ID, workspace.BindPersistentSelectionRequest{SourceVersionID: part.Document.VersionID, GeometryKey: activeBodyArtifact(t, part).GeometryKey, Kind: group.kind, LocalID: uint64(i)})
 			if err != nil || len(selection.Anchor.SourceIDs) != 1 {
 				t.Fatalf("bind imported %s %d: %+v %v", group.kind, i, selection, err)
 			}
@@ -73,12 +73,12 @@ func verifyImportedNaming(t *testing.T, db *database.Pool, client *geometry.Clie
 			first, second := workspace.SketchPoint2{X: x - 1, Y: y - 1}, workspace.SketchPoint2{X: x + 1, Y: y + 1}
 			part = apply(part.Document.ID, workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: sketch.ID, Operations: []workspace.SketchOperation{{Type: "ADD_RECTANGLE", First: &first, Second: &second}}})
 			part = apply(part.Document.ID, workspace.CommandRequest{Type: "CREATE_SOLID_FEATURE", Generator: "LINEAR_EXTRUDE", SketchID: sketch.ID, Operation: operation, Length: 1, Reversed: operation == "REMOVE"})
-			expected := base.Artifact.Volume + 4
+			expected := activeBodyArtifact(t, base).Volume + 4
 			if operation == "REMOVE" {
-				expected = base.Artifact.Volume - 4
+				expected = activeBodyArtifact(t, base).Volume - 4
 			}
-			if !part.Artifact.Naming.CanBind || math.Abs(part.Artifact.Volume-expected) > 1e-5 {
-				t.Fatalf("%s on %v: volume %g naming %+v", operation, normal, part.Artifact.Volume, part.Artifact.Naming)
+			if !activeBodyArtifact(t, part).Naming.CanBind || math.Abs(activeBodyArtifact(t, part).Volume-expected) > 1e-5 {
+				t.Fatalf("%s on %v: volume %g naming %+v", operation, normal, activeBodyArtifact(t, part).Volume, activeBodyArtifact(t, part).Naming)
 			}
 			resolution, err := service.ResolvePersistentSelection(t.Context(), part.Document.ID, workspace.ResolvePersistentSelectionRequest{Selection: pick.Selection, SourceVersionID: pick.SourceVersionID, TargetVersionID: part.Document.VersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
 			if err != nil || resolution.Status != modelcore.SelectionResolved {

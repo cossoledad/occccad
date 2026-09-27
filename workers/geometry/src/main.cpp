@@ -1227,6 +1227,7 @@ public:
                 }
                 occccad::worker::pack_naming(working_results, topology_manifest);
                 topology_manifest.set_geometry_id(geometry_id);
+                topology_manifest.set_brep_sha256(response->brep_artifact().sha256());
                 std::string topology_bytes;
                 if (!topology_manifest.SerializeToString(&topology_bytes))
                     throw std::runtime_error("topology manifest serialization failed");
@@ -1490,8 +1491,17 @@ public:
                 item.id = def.id();
                 item.name = def.name();
                 item.kind = def.kind();
-                if (item.kind == "PART")
-                    item.geometry_id = preparation.loadBrepr(read_artifact(def.brep()));
+                if (item.kind == "PART") {
+                    if (def.body_breps_size() > 0) {
+                        std::vector<occccad::kernel::PlacedGeometry> bodies;
+                        for (const auto& ref : def.body_breps()) {
+                            occccad::kernel::PlacedGeometry body;
+                            body.geometry_id = preparation.loadBrepr(read_artifact(ref));
+                            bodies.push_back(body);
+                        }
+                        item.geometry_id = bodies.size()==1 ? bodies.front().geometry_id : preparation.combine(bodies);
+                    } else item.geometry_id = preparation.loadBrepr(read_artifact(def.brep()));
+                }
                 for (const auto& child : def.children())
                     item.children.push_back(occurrence(child));
                 graph.definitions.push_back(std::move(item));

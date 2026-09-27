@@ -14,7 +14,7 @@ function load(file) {
   if (modules.has(file)) return modules.get(file).exports;
   const module = { exports: {} };
   modules.set(file, module);
-  const js = ts.transpileModule(readFileSync(file, "utf8"), {
+  const js = ts.transpileModule(readFileSync(file, "utf8").replaceAll("import.meta.env", "({})"), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true },
     fileName: file,
   }).outputText;
@@ -30,7 +30,7 @@ function load(file) {
 }
 const { Properties } = load(fileURLToPath(new URL("../workbench-inspector.tsx", import.meta.url)));
 const { CAD_WORKBENCHES } = load(fileURLToPath(new URL("../../../cad/workbench/cad-workbench.ts", import.meta.url)));
-const view = { document: { id: "part", type: "PART", name: "New Part", versionId: "revision", permission: "OWNER" }, part: { features: [] } };
+const view = { document: { id: "part", type: "PART", name: "New Part", versionId: "revision", permission: "OWNER" }, part: { bodies:[], activeBodyId:"", features: [] } };
 for (const primitives of [null, undefined, []]) {
   const diagnostics = {
     artifacts: [{ visualization: { schemaVersion: 1, referenceGeometry: { datumPlanes: [], axisSystems: [] }, primitives } }],
@@ -44,3 +44,14 @@ for (const primitives of [null, undefined, []]) {
   if (primitives == null) assert.ok(html.includes("按需从 GLB 加载"), "unloaded data must not be reported as zero primitives");
 }
 console.log("Properties renders lightweight Artifact descriptors with null, omitted and empty primitives");
+
+const { PartBodies }=load(fileURLToPath(new URL("../workbench-inspector.tsx",import.meta.url)));
+view.part.bodies=[{id:"a",name:"Body.1",visible:true,geometryKey:"ga"},{id:"b",name:"Body.2",visible:false,geometryKey:"gb"}];view.part.activeBodyId="a";
+view.artifacts=Object.fromEntries(["ga","gb"].map(key=>[key,{representations:Object.fromEntries(["BREP","VISUAL","NAMING"].map(role=>[role,{objectId:`${key}-${role}`,digest:"d".repeat(64),schemaVersion:2,size:123}]))}]));
+const files=renderToStaticMarkup(React.createElement(PartBodies,{view}));
+for(const text of ["Body.1","Body.2","mesh.glb","naming.pb","BREP","123 B"]) assert.ok(files.includes(text));
+assert.equal((files.match(/>Download</g)??[]).length,6);
+assert.ok(files.includes("versionId=revision&amp;bodyId=b"));
+console.log("Part Files lists both frozen Body artifact groups and scoped download links");
+
+assert.ok(!/<button|<input|contenteditable|ant-typography-edit/.test(files), "Body properties must be read-only");

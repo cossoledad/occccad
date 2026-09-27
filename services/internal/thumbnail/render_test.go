@@ -50,7 +50,7 @@ func ringMesh(segments int) workspace.Mesh {
 	return m
 }
 func partView(m workspace.Mesh) workspace.DocumentView {
-	return workspace.DocumentView{Document: workspace.DocumentSummary{Type: "PART"}, Artifact: &workspace.Artifact{GeometryKey: "fixture", Mesh: m}}
+	return workspace.DocumentView{Document: workspace.DocumentSummary{Type: "PART"}, Part: &workspace.PartModel{Bodies: []workspace.PartBody{{ID: "body", Visible: true, GeometryKey: "fixture"}}}, Artifacts: map[string]workspace.Artifact{"fixture": {GeometryKey: "fixture", Mesh: m}}}
 }
 func decode(t *testing.T, payload []byte) image.Image {
 	t.Helper()
@@ -73,7 +73,11 @@ func TestRenderPNGAndStableMaterial(t *testing.T) {
 	if len(first) > 250_000 {
 		t.Fatalf("thumbnail too large: %d", len(first))
 	}
-	view.Artifact.GeometryKey = "new-revision-same-shape"
+	a := view.Artifacts["fixture"]
+	a.GeometryKey = "new-revision-same-shape"
+	view.Artifacts[a.GeometryKey] = a
+	delete(view.Artifacts, "fixture")
+	view.Part.Bodies[0].GeometryKey = a.GeometryKey
 	second, err := Render(view)
 	if err != nil {
 		t.Fatal(err)
@@ -198,8 +202,10 @@ func TestSketchAndVisualizationPose(t *testing.T) {
 }
 func TestInvalidGeometryAndCancellation(t *testing.T) {
 	view := partView(boxMesh(10, 10, 10))
-	view.Artifact.Mesh.Triangles = append(view.Artifact.Mesh.Triangles, [3]uint32{999, 1, 2})
-	view.Artifact.Mesh.Vertices = append(view.Artifact.Mesh.Vertices, vec{math.NaN(), 0, 0})
+	a := view.Artifacts["fixture"]
+	a.Mesh.Triangles = append(a.Mesh.Triangles, [3]uint32{999, 1, 2})
+	a.Mesh.Vertices = append(a.Mesh.Vertices, vec{math.NaN(), 0, 0})
+	view.Artifacts["fixture"] = a
 	result, err := Render(view)
 	if err != nil {
 		t.Fatal(err)

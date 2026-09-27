@@ -37,7 +37,7 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 
 	rows, err := service.database.Query(ctx, `
 		SELECT original.id::text,w.id::text,w.document_id::text,d.document_type,
-		       w.head_revision_id::text,w.head_sequence,current.model_json,current.geometry_key,
+		       w.head_revision_id::text,w.head_sequence,current.model_json,
 		       base.model_json,result.model_json,cs.canonical_blob,cs.write_set
 		FROM occccad.domain_transactions original
 		JOIN occccad.workspaces w ON w.id=original.workspace_id
@@ -56,12 +56,11 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 		originalTransaction, workspaceID, documentID, documentType, headRevision string
 		headSequence                                                             uint64
 		currentJSON, baseJSON, resultJSON, changeJSON                            []byte
-		geometryKey                                                              *string
 		persistedWrites                                                          []string
 	}
 	inputs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (historyRow, error) {
 		var v historyRow
-		err := row.Scan(&v.originalTransaction, &v.workspaceID, &v.documentID, &v.documentType, &v.headRevision, &v.headSequence, &v.currentJSON, &v.geometryKey, &v.baseJSON, &v.resultJSON, &v.changeJSON, &v.persistedWrites)
+		err := row.Scan(&v.originalTransaction, &v.workspaceID, &v.documentID, &v.documentType, &v.headRevision, &v.headSequence, &v.currentJSON, &v.baseJSON, &v.resultJSON, &v.changeJSON, &v.persistedWrites)
 		return v, err
 	})
 	if err != nil {
@@ -70,7 +69,7 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 	candidates := []atomicDomainCandidate{}
 	for _, v := range inputs {
 		originalTransaction, workspaceID, documentID, documentType, headRevision := v.originalTransaction, v.workspaceID, v.documentID, v.documentType, v.headRevision
-		headSequence, currentJSON, baseJSON, resultJSON, changeJSON, geometryKey, persistedWrites := v.headSequence, v.currentJSON, v.baseJSON, v.resultJSON, v.changeJSON, v.geometryKey, v.persistedWrites
+		headSequence, currentJSON, baseJSON, resultJSON, changeJSON, persistedWrites := v.headSequence, v.currentJSON, v.baseJSON, v.resultJSON, v.changeJSON, v.persistedWrites
 
 		consumedRevert := ""
 		if request.Type == "UNDO" {
@@ -167,9 +166,6 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 			command:  modelcore.DomainCommand{CommandID: newID("command"), TypeURI: typeURI, SchemaVersion: 1, Payload: payload},
 			nextJSON: nextJSON, modelHash: modelHash, graph: graph, manifest: manifest, changes: reverse,
 			kind: kind, rootTransaction: originalTransaction, consumedRevert: consumedRevert}
-		if geometryKey != nil {
-			candidate.geometryKey = *geometryKey
-		}
 		candidates = append(candidates, candidate)
 	}
 	if err := rows.Err(); err != nil {
