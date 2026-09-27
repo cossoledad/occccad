@@ -70,6 +70,11 @@ struct SemanticTopologyRef {
     std::vector<std::string> source_ids;
 };
 
+// Evaluator working values (not the persisted naming.pb layout).
+// Coordinates/centroid/origin: Part-local millimetres. Direction: dimensionless.
+// measure_si: AREA m^2, LENGTH m, NONE dimensionless. Curve parameters are
+// millimetres for LINE, radians for CIRCLE/ELLIPSE, native curve domain otherwise.
+// The Artifact serializer interns these values and emits typed evidence v2.
 struct SelectionEvidence {
     std::string geometry_type;
     std::optional<double> measure_si;

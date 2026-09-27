@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 )
@@ -169,12 +168,19 @@ func supportFrame(model PartModel, support SketchSupport) ([3]float64, [3]float6
 	return datumSupportFrame(model, support)
 }
 
-func (service *Service) topologyManifestForGeometryKey(ctx context.Context, geometryKey string) (*workerv1.PartTopologyManifest, string, error) {
-	objectID, digest, err := service.namingReference(ctx, geometryKey)
+func (service *Service) topologyManifestForGeometryKey(ctx context.Context, geometryKey string) (*topologyManifest, string, error) {
+	objectID, digest, geometryID, err := service.namingReference(ctx, geometryKey)
 	if err != nil {
 		return nil, "", err
 	}
-	return service.readTopologyManifest(ctx, nil, objectID, digest)
+	manifest, actualDigest, err := service.readTopologyManifest(ctx, nil, objectID, digest)
+	if err != nil {
+		return nil, "", err
+	}
+	if manifest.GeometryID != geometryID {
+		return nil, "", namingError("CORRUPT", "TOPOLOGY_MANIFEST_GEOMETRY_MISMATCH", "Naming artifact belongs to a different frozen geometry")
+	}
+	return manifest, actualDigest, nil
 }
 
 func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, documentID, sourceVersionID, geometryKey string,

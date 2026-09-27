@@ -72,3 +72,12 @@ target_compile_features(
     PRIVATE
         cxx_std_17
 )
+
+if(OCCCCAD_BUILD_TESTS)
+    find_package(GTest REQUIRED CONFIG)
+    include(GoogleTest)
+    add_executable(occccad_naming_artifact_tests tests/naming_artifact_test.cpp)
+    target_link_libraries(occccad_naming_artifact_tests PRIVATE occccad_worker_proto GTest::gtest_main)
+    target_compile_features(occccad_naming_artifact_tests PRIVATE cxx_std_17)
+    gtest_discover_tests(occccad_naming_artifact_tests TEST_PREFIX "worker/")
+endif()

@@ -52,9 +52,9 @@ func TestAssemblyResolvedTopologyUsesValidatedRevision(t *testing.T) {
 	selection := testSelection()
 	ref := testRef(selection.Anchor.FeatureID, selection.Anchor.OutputSlot)
 	seed := func(version, geometry string, localID uint64) {
-		manifest := &workerv1.PartTopologyManifest{FeatureResults: []*workerv1.FeatureResult{{FeatureId: "extrude-1", BodyId: "body-main", ResultGeometryId: geometry, TopologyHistoryComplete: true, SemanticOutputs: []*workerv1.SemanticTopologyOutput{testOutput(ref, localID, workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_FACE)}}}}
+		manifest := &topologyManifest{FeatureResults: []*workerv1.FeatureResult{{FeatureId: "extrude-1", BodyId: "body-main", ResultGeometryId: geometry, TopologyHistoryComplete: true, SemanticOutputs: []*workerv1.SemanticTopologyOutput{testOutput(ref, localID, workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_FACE)}}}}
 		_, err := assemblyRead(ctx, assemblyReadKey{"manifest", "part-1", version}, func() (assemblyManifestRead, error) {
-			return assemblyManifestRead{manifest, geometry, "digest-" + version}, nil
+			return assemblyManifestRead{testBodyTips(manifest), geometry, "digest-" + version}, nil
 		})
 		if err != nil {
 			t.Fatal(err)

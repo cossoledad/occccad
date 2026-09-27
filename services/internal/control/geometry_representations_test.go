@@ -6,11 +6,13 @@ import (
 	"os"
 	"testing"
 
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/thumbnail"
 	"github.com/occccad/occccad/internal/visual"
 	"github.com/occccad/occccad/internal/workspace"
+	"google.golang.org/protobuf/proto"
 )
 
 func verifyGeometryRepresentations(t *testing.T, db *database.Pool, service *workspace.Service, store *artifact.Service, view workspace.DocumentView) {
@@ -47,8 +49,48 @@ func verifyGeometryRepresentations(t *testing.T, db *database.Pool, service *wor
 	if err != nil {
 		t.Fatal(err)
 	}
-	if uint64(len(mesh.Triangles)) != view.Artifact.TriangleCount || len(mesh.FaceIDs) != len(mesh.Triangles) || len(mesh.Edges) != 12 || len(mesh.TopologyVertices) != 8 || len(mesh.StableIDs) != 26 {
-		t.Fatalf("display mapping lost: triangles=%d edges=%d vertices=%d anchors=%d", len(mesh.Triangles), len(mesh.Edges), len(mesh.TopologyVertices), len(mesh.StableIDs))
+	if uint64(len(mesh.Triangles)) != view.Artifact.TriangleCount || len(mesh.FaceIDs) != len(mesh.Triangles) || len(mesh.Edges) != 12 || len(mesh.TopologyVertices) != 8 {
+		t.Fatalf("display mapping lost: triangles=%d edges=%d vertices=%d", len(mesh.Triangles), len(mesh.Edges), len(mesh.TopologyVertices))
+	}
+	if mesh.Association.GeometryID != view.Artifact.GeometryID || mesh.Association.NamingDigest != view.Artifact.Representations["NAMING"].Digest {
+		t.Fatal("Visual/Naming association missing or mismatched")
+	}
+	_, namingReader, err := store.Open(t.Context(), view.Artifact.Representations["NAMING"].ObjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	namingBytes, err := io.ReadAll(namingReader)
+	namingReader.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	naming := &workerv1.PartTopologyManifest{}
+	if err = proto.Unmarshal(namingBytes, naming); err != nil {
+		t.Fatal(err)
+	}
+	if naming.SchemaVersion != 2 || naming.GeometryId != view.Artifact.GeometryID {
+		t.Fatal("Naming geometry/version association")
+	}
+	locators := map[workerv1.PersistentTopologyType]map[uint64]bool{1: {}, 2: {}, 3: {}}
+	for _, body := range naming.Bodies {
+		for _, o := range body.Tip {
+			locators[o.TopologyType][o.LocalId] = true
+		}
+	}
+	for _, id := range mesh.FaceIDs {
+		if !locators[1][uint64(id)] {
+			t.Fatalf("visual face %d absent from Naming", id)
+		}
+	}
+	for _, edge := range mesh.Edges {
+		if !locators[2][edge.LocalID] {
+			t.Fatalf("visual edge %d absent from Naming", edge.LocalID)
+		}
+	}
+	for _, point := range mesh.TopologyVertices {
+		if !locators[3][point.LocalID] {
+			t.Fatalf("visual vertex %d absent from Naming", point.LocalID)
+		}
 	}
 	for _, kind := range []string{"FACE", "EDGE", "VERTEX"} {
 		if _, err := service.BindPersistentSelection(t.Context(), view.Document.ID, workspace.BindPersistentSelectionRequest{SourceVersionID: view.Document.VersionID, GeometryKey: view.Artifact.GeometryKey, Kind: kind, LocalID: 1}); err != nil {

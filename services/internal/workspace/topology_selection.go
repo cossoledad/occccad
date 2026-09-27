@@ -496,26 +496,19 @@ func containsString(values []string, expected string) bool {
 	return false
 }
 
-func manifestOutput(manifest *workerv1.PartTopologyManifest, kind modelcore.PersistentTopologyType, localID uint64) (*workerv1.SemanticTopologyOutput, string) {
-	features := manifest.GetFeatureResults()
-	if len(features) == 0 {
+func manifestOutput(manifest *topologyManifest, kind modelcore.PersistentTopologyType, localID uint64) (*workerv1.SemanticTopologyOutput, string) {
+	entry, ok := manifest.Locators[fmt.Sprintf("%d:%d", namingTopologyType(kind), localID)]
+	if !ok {
 		return nil, ""
 	}
-	feature := features[len(features)-1]
-	for _, output := range feature.GetSemanticOutputs() {
-		if topologyType(output.GetTopologyType()) == kind && output.GetLocalId() == localID {
-			return output, feature.GetBodyId()
-		}
-	}
-	return nil, ""
+	return entry.Output, entry.BodyID
 }
-
-func manifestSemanticOutput(manifest *workerv1.PartTopologyManifest, selection modelcore.PersistentSelection) *workerv1.SemanticTopologyOutput {
-	features := manifest.GetFeatureResults()
-	if len(features) == 0 || features[len(features)-1].GetBodyId() != selection.SourceBodyID {
+func manifestSemanticOutput(manifest *topologyManifest, selection modelcore.PersistentSelection) *workerv1.SemanticTopologyOutput {
+	tip := manifest.bodyTips()[selection.SourceBodyID]
+	if tip == nil {
 		return nil
 	}
-	for _, output := range features[len(features)-1].GetSemanticOutputs() {
+	for _, output := range tip.SemanticOutputs {
 		if topologyType(output.GetTopologyType()) == selection.ExpectedType && sameSemanticRef(semanticRef(output.GetSemanticRef()), selection.Anchor) {
 			return output
 		}
@@ -523,7 +516,7 @@ func manifestSemanticOutput(manifest *workerv1.PartTopologyManifest, selection m
 	return nil
 }
 
-func topologyHistoryComplete(manifest *workerv1.PartTopologyManifest) bool {
+func topologyHistoryComplete(manifest *topologyManifest) bool {
 	features := manifest.GetFeatureResults()
 	if len(features) == 0 {
 		return false
@@ -544,7 +537,7 @@ func unavailableSelectionResolution(code, diagnostic string) modelcore.Selection
 
 // resolveManifest follows semantic lineage only. Geometry evidence confirms and explains
 // candidates; it is never used as a nearest-shape identity fallback.
-func resolveManifest(selection modelcore.PersistentSelection, geometryKey string, manifest *workerv1.PartTopologyManifest) modelcore.SelectionResolution {
+func resolveManifest(selection modelcore.PersistentSelection, geometryKey string, manifest *topologyManifest) modelcore.SelectionResolution {
 	result := modelcore.SelectionResolution{Status: modelcore.SelectionMissing, SupportingElementStatus: modelcore.SupportingElementNotConnected, DiagnosticCode: "PERSISTENT_SELECTION_MISSING", Diagnostic: "semantic anchor has no result in the target body tip"}
 	current := map[string]modelcore.SemanticTopologyRef{refKey(selection.Anchor): selection.Anchor}
 	seenAnchor := false
@@ -553,6 +546,9 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 			continue
 		}
 		for _, lineage := range feature.GetTopologyHistory().GetLineage() {
+			if sameSemanticRef(semanticRef(lineage.GetResult()), selection.Anchor) {
+				seenAnchor = true
+			}
 			matched := false
 			for _, source := range lineage.GetSources() {
 				if _, ok := current[refKey(semanticRef(source))]; ok {
@@ -566,12 +562,33 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 				current[refKey(ref)] = ref
 			}
 		}
+		for _, ambiguous := range feature.GetTopologyHistory().GetAmbiguous() {
+			matched := false
+			for _, source := range ambiguous.GetSources() {
+				if _, ok := current[refKey(semanticRef(source))]; ok {
+					matched = true
+					seenAnchor = true
+				}
+			}
+			if matched {
+				for _, candidate := range ambiguous.GetCandidates() {
+					ref := semanticRef(candidate)
+					current[refKey(ref)] = ref
+				}
+			}
+		}
 		for _, deleted := range feature.GetTopologyHistory().GetDeleted() {
+			if sameSemanticRef(semanticRef(deleted.GetSource()), selection.Anchor) {
+				seenAnchor = true
+			}
 			delete(current, refKey(semanticRef(deleted.GetSource())))
 		}
 	}
 	if !seenAnchor {
 		for _, feature := range manifest.GetFeatureResults() {
+			if feature.BodyId != selection.SourceBodyID {
+				continue
+			}
 			for _, output := range feature.GetSemanticOutputs() {
 				if sameSemanticRef(semanticRef(output.GetSemanticRef()), selection.Anchor) {
 					seenAnchor = true
@@ -585,11 +602,11 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 		result.Diagnostic = "anchor feature is not part of the target body tip"
 		return result
 	}
-	last := manifest.GetFeatureResults()
-	if len(last) == 0 {
+	tip := manifest.bodyTips()[selection.SourceBodyID]
+	if tip == nil {
 		return result
 	}
-	for _, output := range last[len(last)-1].GetSemanticOutputs() {
+	for _, output := range tip.GetSemanticOutputs() {
 		ref := semanticRef(output.GetSemanticRef())
 		if _, ok := current[refKey(ref)]; !ok {
 			continue
@@ -603,7 +620,7 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 		if !candidateMatchesRecipe(selection, ref, evidence) {
 			continue
 		}
-		result.Candidates = append(result.Candidates, modelcore.ResolvedTopologyElement{GeometryID: last[len(last)-1].GetResultGeometryId(), GeometryKey: geometryKey, Type: selection.ExpectedType, LocalID: output.GetLocalId(), SemanticRef: ref, Evidence: evidence})
+		result.Candidates = append(result.Candidates, modelcore.ResolvedTopologyElement{GeometryID: manifest.GeometryID, GeometryKey: geometryKey, Type: selection.ExpectedType, LocalID: output.GetLocalId(), SemanticRef: ref, Evidence: evidence})
 	}
 	sort.Slice(result.Candidates, func(i, j int) bool {
 		return refKey(result.Candidates[i].SemanticRef) < refKey(result.Candidates[j].SemanticRef)
@@ -627,7 +644,7 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 	return result
 }
 
-func (service *Service) topologyManifestForVersion(ctx context.Context, documentID, versionID string) (*workerv1.PartTopologyManifest, string, string, error) {
+func (service *Service) topologyManifestForVersion(ctx context.Context, documentID, versionID string) (*topologyManifest, string, string, error) {
 	value, err := assemblyRead(ctx, assemblyReadKey{"manifest", documentID, versionID}, func() (assemblyManifestRead, error) {
 		manifest, geometry, digest, err := service.loadTopologyManifestForVersion(ctx, documentID, versionID)
 		return assemblyManifestRead{manifest, geometry, digest}, err
@@ -635,7 +652,7 @@ func (service *Service) topologyManifestForVersion(ctx context.Context, document
 	return value.manifest, value.geometry, value.digest, err
 }
 
-func (service *Service) loadTopologyManifestForVersion(ctx context.Context, documentID, versionID string) (*workerv1.PartTopologyManifest, string, string, error) {
+func (service *Service) loadTopologyManifestForVersion(ctx context.Context, documentID, versionID string) (*topologyManifest, string, string, error) {
 	defer perf.Start(ctx, "topology-manifest-read")()
 
 	var geometryKey string
@@ -756,4 +773,16 @@ func datumAssemblyReferenceExists(part PartModel, reference AssemblyGeometryRef)
 		}
 	}
 	return false
+}
+
+func namingTopologyType(kind modelcore.PersistentTopologyType) int {
+	switch kind {
+	case modelcore.PersistentTopologyFace:
+		return 1
+	case modelcore.PersistentTopologyEdge:
+		return 2
+	case modelcore.PersistentTopologyVertex:
+		return 3
+	}
+	return 0
 }

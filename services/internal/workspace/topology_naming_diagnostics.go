@@ -39,17 +39,21 @@ func namingDiagnostic(err error) (NamingAvailability, bool) {
 	return NamingAvailability{}, false
 }
 
-func decodeTopologyManifest(data []byte, digest string) (*workerv1.PartTopologyManifest, error) {
+func decodeTopologyManifest(data []byte, digest string) (*topologyManifest, error) {
 	sum := sha256.Sum256(data)
 	if !strings.EqualFold(hex.EncodeToString(sum[:]), strings.TrimSpace(digest)) {
 		return nil, namingError("CORRUPT", "TOPOLOGY_MANIFEST_DIGEST_MISMATCH", "拓扑命名制品摘要不匹配，需要重新生成制品。")
 	}
-	manifest := &workerv1.PartTopologyManifest{}
-	if err := proto.Unmarshal(data, manifest); err != nil {
+	stored := &workerv1.PartTopologyManifest{}
+	if err := proto.Unmarshal(data, stored); err != nil {
 		return nil, namingError("CORRUPT", "TOPOLOGY_MANIFEST_INVALID", "拓扑命名制品无法解码，需要重新生成制品。")
 	}
-	if manifest.GetSchemaVersion() != modelcore.TopologyNamingSchemaVersion || manifest.GetPolicyDigest() != modelcore.TopologyNamingPolicyDigest {
+	if stored.GetSchemaVersion() != 2 || stored.GetPolicyDigest() != modelcore.TopologyNamingPolicyDigest {
 		return nil, namingError("INCOMPATIBLE", "TOPOLOGY_MANIFEST_CONTRACT_MISMATCH", "拓扑命名制品与当前求值合同不匹配，需要重新求值。")
+	}
+	manifest, err := unpackNaming(stored)
+	if err != nil {
+		return nil, namingError("CORRUPT", "TOPOLOGY_MANIFEST_INVALID", err.Error())
 	}
 	if !topologyHistoryComplete(manifest) {
 		return nil, namingError("FAILED", "TOPOLOGY_HISTORY_INCOMPLETE", "当前几何未生成完整拓扑命名，暂不支持持久面、边、点引用。")
@@ -57,7 +61,7 @@ func decodeTopologyManifest(data []byte, digest string) (*workerv1.PartTopologyM
 	return manifest, nil
 }
 
-func (service *Service) readTopologyManifest(ctx context.Context, inline []byte, objectID, digest *string) (*workerv1.PartTopologyManifest, string, error) {
+func (service *Service) readTopologyManifest(ctx context.Context, inline []byte, objectID, digest *string) (*topologyManifest, string, error) {
 	if len(inline) == 0 && objectID == nil && (digest == nil || strings.TrimSpace(*digest) == "") {
 		return nil, "", namingError("UNAVAILABLE", "TOPOLOGY_NAMING_UNAVAILABLE", "当前几何没有拓扑命名；可继续查看和使用基准几何，面上草图、边点投影及拓扑约束需要先建立导入命名。")
 	}

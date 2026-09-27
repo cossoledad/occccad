@@ -9,7 +9,7 @@ export type ToolbarCatalogEntry = { id:string;name:string;workbench:"ALL"|"PART_
 export type ToolbarCatalog = { schemaVersion:1;toolbars:ToolbarCatalogEntry[] };
 
 export type MeshData = {
-  stableIds?: Record<string,string>;
+  normals?: Vec3[];
   vertices: Vec3[];
   triangles: [number, number, number][];
   faceIds: number[];

@@ -28,3 +28,5 @@ flowchart LR
 ```
 
 发生歧义时必须显式失败并让用户重新绑定，不能静默选择“看起来最近”的边。
+
+制品职责与单位、typed evidence、共享表和 Body Tip 的当前落地契约见 [Visual/Naming Artifact v2](../visual-naming-artifact-v2.md)。后续 Multi-Body/检查点扩展沿该结构演进；Visual locator 不升级为持久拓扑身份，完整 Naming 仍只有一个权威 Artifact。

@@ -2134,13 +2134,13 @@ TessellationResult OcctKernel::tessellate(const GeometryId& id, const double lin
 
     TessellationResult result;
     result.bbox = getBoundingBox(id);
-    uint32_t face_id = 0;
-    for (TopExp_Explorer explorer(shape, TopAbs_FACE); explorer.More(); explorer.Next()) {
-        const TopoDS_Face& face = TopoDS::Face(explorer.Current());
+    TopTools_IndexedMapOfShape face_map;
+    TopExp::MapShapes(shape, TopAbs_FACE, face_map);
+    for (int face_id = 1; face_id <= face_map.Extent(); ++face_id) {
+        const TopoDS_Face& face = TopoDS::Face(face_map(face_id));
         TopLoc_Location location;
         const Handle(Poly_Triangulation) triangulation = BRep_Tool::Triangulation(face, location);
         if (triangulation.IsNull()) {
-            ++face_id;
             continue;
         }
 
@@ -2164,7 +2164,6 @@ TessellationResult OcctKernel::tessellate(const GeometryId& id, const double lin
             });
             result.face_ids.push_back(face_id);
         }
-        ++face_id;
     }
     TopTools_IndexedMapOfShape edge_map;
     TopTools_IndexedMapOfShape vertex_map;

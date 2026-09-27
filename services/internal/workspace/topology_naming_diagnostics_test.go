@@ -12,10 +12,10 @@ import (
 )
 
 func TestTopologyManifestDiagnostics(t *testing.T) {
-	ready := &workerv1.PartTopologyManifest{SchemaVersion: modelcore.TopologyNamingSchemaVersion, PolicyDigest: modelcore.TopologyNamingPolicyDigest, FeatureResults: []*workerv1.FeatureResult{{FeatureId: "extrude", TopologyHistoryComplete: true}}}
+	ready := &workerv1.PartTopologyManifest{GeometryId: "geometry", SchemaVersion: 2, PolicyDigest: modelcore.TopologyNamingPolicyDigest, CoordinateSpace: "PART_LOCAL", LengthUnit: "mm", Transitions: []*workerv1.NamingTransition{{FeatureId: "extrude", BodyId: "body-main", Complete: true}}, Bodies: []*workerv1.NamingBody{{BodyId: "body-main", Transitions: []uint32{1}, TipTransition: 1}}}
 	valid, _ := proto.Marshal(ready)
 	incomplete := proto.Clone(ready).(*workerv1.PartTopologyManifest)
-	incomplete.FeatureResults[0].TopologyHistoryComplete = false
+	incomplete.Transitions[0].Complete = false
 	failed, _ := proto.Marshal(incomplete)
 	incompatible := proto.Clone(ready).(*workerv1.PartTopologyManifest)
 	incompatible.PolicyDigest = "other-policy"

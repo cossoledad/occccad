@@ -100,7 +100,7 @@ func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
 		t.Fatal("persistent RPC leaked large data")
 	}
 	reference := external.GetEvaluationManifest().GetTopologyManifestArtifact()
-	if reference.GetObjectKey() == "" || reference.GetSha256() == "" || reference.GetContentType() != "application/vnd.occccad.topology-manifest.v1+protobuf" {
+	if reference.GetObjectKey() == "" || reference.GetSha256() == "" || reference.GetContentType() != "application/vnd.occccad.topology-manifest.v2+protobuf" {
 		t.Fatalf("topology artifact reference = %#v", reference)
 	}
 	data, err := os.ReadFile(filepath.Join(artifactRoot, reference.GetObjectKey()))
@@ -111,19 +111,19 @@ func TestCppWorkerAcceptsPartNamingContract(t *testing.T) {
 	if err := proto.Unmarshal(data, &persisted); err != nil {
 		t.Fatal(err)
 	}
-	if len(persisted.GetFeatureResults()) != 1 || len(persisted.GetFeatureResults()[0].GetSemanticOutputs()) != 26 ||
-		len(persisted.GetFeatureResults()[0].GetTopologyHistory().GetLineage()) != 26 ||
-		!persisted.GetFeatureResults()[0].GetTopologyHistoryComplete() {
-		t.Fatalf("Worker omitted Linear Extrude topology history: %#v", persisted.GetFeatureResults())
+	if len(persisted.GetTransitions()) != 1 || len(persisted.GetBodies()[0].GetTip()) != 26 ||
+		len(persisted.GetTransitions()[0].GetLineage()) != 26 ||
+		!persisted.GetTransitions()[0].GetComplete() {
+		t.Fatalf("Worker omitted Linear Extrude topology history: %#v", persisted.GetTransitions())
 	}
-	for _, output := range persisted.GetFeatureResults()[0].GetSemanticOutputs() {
+	for _, output := range persisted.GetBodies()[0].GetTip() {
 		if output.GetTopologyType() == workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED ||
-			output.GetLocalId() == 0 || output.GetEvidence().GetEvidenceDigest() == "" || len(output.GetEvidence().GetAdjacent()) == 0 {
+			output.GetLocalId() == 0 || persisted.Evidence[output.GetEvidence()-1].GetEvidenceDigest() == "" || len(persisted.Evidence[output.GetEvidence()-1].GetAdjacent()) == 0 {
 			t.Fatalf("invalid semantic output evidence: %#v", output)
 		}
 	}
 
-	if len(persisted.GetFeatureResults()) != 1 || persisted.GetFeatureResults()[0].GetTopologyHistory().GetEvidenceDigest() == "" {
+	if len(persisted.GetTransitions()) != 1 || persisted.GetTransitions()[0].GetEvidenceDigest() == "" {
 		t.Fatalf("serialized topology manifest lost feature history: %#v", &persisted)
 	}
 	if persisted.GetPolicyDigest() != modelcore.TopologyNamingPolicyDigest {

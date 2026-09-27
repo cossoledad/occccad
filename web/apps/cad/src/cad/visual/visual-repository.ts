@@ -24,7 +24,7 @@ export class VisualRepository {
             const ref = a.representations.VISUAL;
             if (!ref)
                 throw new Error("Missing visual artifact");
-            if (ref.schemaVersion !== 1 || ref.contentType !== "model/gltf-binary")
+            if (ref.schemaVersion !== 2 || ref.contentType !== "model/gltf-binary")
                 throw new Error("Unsupported visual artifact contract");
             if (!ref.url && !/^[a-f0-9]{64}$/.test(ref.digest))
                 throw new Error("Invalid visual artifact digest");
@@ -60,6 +60,8 @@ export class VisualRepository {
                     this.entries.delete(key); });
             }
             const decoded = await pending;
+            if (decoded.association?.geometryId && decoded.association.geometryId !== a.geometryId) throw new Error("Visual geometry identity mismatch");
+            if (decoded.association?.namingDigest && decoded.association.namingDigest !== a.representations.NAMING?.digest) throw new Error("Visual Naming digest mismatch");
             return { ...a, mesh: decoded.mesh, visualization: decoded.visualization ?? a.visualization };
         };
         const artifact = view.artifact ? await load(view.artifact) : undefined;

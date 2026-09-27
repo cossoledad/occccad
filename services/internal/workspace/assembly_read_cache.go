@@ -3,8 +3,6 @@ package workspace
 import (
 	"context"
 	"sync"
-
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
 
 // One solve (including admission probes) shares immutable reads. Never cache
@@ -21,7 +19,7 @@ type assemblyTopologyKey struct {
 	localID        uint64
 }
 type assemblyManifestRead struct {
-	manifest         *workerv1.PartTopologyManifest
+	manifest         *topologyManifest
 	geometry, digest string
 }
 

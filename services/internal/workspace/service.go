@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v13-artifact-representations"
+const evaluatorVersion = "part-solid-generators-v14-artifact-schema-v2"
 
 var (
 	ErrNotFound   = errors.New("document not found")

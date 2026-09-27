@@ -63,15 +63,7 @@ func TestPersistentSelectionAndTopologyHistoryProtoRoundTrip(t *testing.T) {
 		}},
 		PolicyDigest: "policy-digest", EvidenceDigest: "evidence-digest",
 	}
-	manifest := &workerv1.PartTopologyManifest{SchemaVersion: 1, PolicyId: modelcore.TopologyNamingPolicyID,
-		PolicyDigest:     modelcore.TopologyNamingPolicyDigest,
-		EvaluatorVersion: modelcore.TopologyNamingEvaluator, FeatureResults: []*workerv1.FeatureResult{{
-			FeatureId: "cut-1", BodyId: "body-main", InputFeatureId: "pad-1", ProfileFeatureId: "sketch-cut",
-			ResultGeometryId: "after", TopologyHistory: history, TopologyHistoryComplete: true, SemanticOutputs: []*workerv1.SemanticTopologyOutput{{
-				SemanticRef: history.Lineage[0].Result, TopologyType: workerv1.PersistentTopologyType_PERSISTENT_TOPOLOGY_TYPE_FACE,
-				LocalId: 7, Evidence: &workerv1.SelectionEvidence{GeometryType: "PLANE", EvidenceDigest: "face-evidence"},
-			}},
-		}}}
+	manifest := &workerv1.PartTopologyManifest{SchemaVersion: 2, PolicyId: modelcore.TopologyNamingPolicyID, PolicyDigest: modelcore.TopologyNamingPolicyDigest, CoordinateSpace: "PART_LOCAL", LengthUnit: "mm", SemanticRefs: []*workerv1.SemanticTopologyRef{selection.Anchor}, Bodies: []*workerv1.NamingBody{{BodyId: "body-main", TipTransition: 1, Transitions: []uint32{1}}}, Transitions: []*workerv1.NamingTransition{{FeatureId: "cut", BodyId: "body-main", Complete: true}}}
 
 	for name, message := range map[string]proto.Message{"selection": selection, "history": history, "manifest": manifest} {
 		encoded, err := proto.Marshal(message)

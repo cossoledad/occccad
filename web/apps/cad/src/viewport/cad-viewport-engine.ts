@@ -188,7 +188,8 @@ function makeGeometry(artifact: Artifact): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(artifact.mesh.vertices.flat(), 3));
   geometry.setIndex(artifact.mesh.triangles.flat());
-  geometry.computeVertexNormals();
+  if (artifact.mesh.normals) geometry.setAttribute("normal", new THREE.Float32BufferAttribute(artifact.mesh.normals.flat(),3));
+  else geometry.computeVertexNormals();
   geometry.computeBoundingSphere();
   const accelerated = geometry as THREE.BufferGeometry & {
     computeBoundsTree: typeof computeBoundsTree; disposeBoundsTree: typeof disposeBoundsTree;
@@ -1261,7 +1262,7 @@ export class CadViewportEngine {
         if (!binding || !reference.topologyId) return undefined;
         const normal = new THREE.Vector3(); let count = 0;
         binding.artifact.mesh.triangles.forEach((triangle, index) => {
-          if ((binding.artifact.mesh.faceIds[index] ?? -1) + 1 !== reference.topologyId) return;
+          if ((binding.artifact.mesh.faceIds[index] ?? -1) !== reference.topologyId) return;
           const a = new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[0]]);
           const b = new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[1]]);
           const c = new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[2]]);
@@ -1346,7 +1347,7 @@ export class CadViewportEngine {
       if (reference.kind !== "FACE") return undefined;
       const binding=[...this.solidBindings.values()].find((candidate)=>candidate.context.instanceId===reference.instanceId&&candidate.artifact.geometryKey===reference.geometryKey);
       if(!binding||!reference.topologyId)return undefined;const normal=new THREE.Vector3();const samples:THREE.Vector3[]=[];
-      binding.artifact.mesh.triangles.forEach((triangle,index)=>{if((binding.artifact.mesh.faceIds[index]??-1)+1!==reference.topologyId)return;
+      binding.artifact.mesh.triangles.forEach((triangle,index)=>{if((binding.artifact.mesh.faceIds[index]??-1)!==reference.topologyId)return;
         const a=new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[0]]),b=new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[1]]),c=new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[triangle[2]]);
         const sample=b.sub(a).cross(c.sub(a));if(sample.lengthSq()>1e-12){sample.normalize();samples.push(sample);normal.add(sample);}});
       if(!samples.length||normal.lengthSq()<1e-12)return undefined;normal.normalize();
@@ -1386,7 +1387,7 @@ export class CadViewportEngine {
     if (reference.kind === "FACE" && binding && topologyId) {
       const anchor = new THREE.Vector3(); let count = 0;
       binding.artifact.mesh.triangles.forEach((triangle, index) => {
-        if ((binding.artifact.mesh.faceIds[index] ?? -1) + 1 !== topologyId) return;
+        if ((binding.artifact.mesh.faceIds[index] ?? -1) !== topologyId) return;
         for (const vertexIndex of triangle) { anchor.add(binding.mesh.localToWorld(new THREE.Vector3().fromArray(binding.artifact.mesh.vertices[vertexIndex]))); count++; }
       });
       const selection: SelectionItem = { kind: "face", id: `${binding.context.occurrencePath}:${binding.artifact.geometryKey}:face:${topologyId}`,
@@ -1810,7 +1811,7 @@ export class CadViewportEngine {
     this.selectable.set(`body:${bodySelection.id}`, group);
     this.selectionIndex.registerPick(mesh, (hit) => {
       const triangle = hit.faceIndex ?? -1;
-      const localID = triangle >= 0 ? (artifact.mesh.faceIds[triangle] ?? 0) + 1 : 0;
+      const localID = triangle >= 0 ? (artifact.mesh.faceIds[triangle] ?? 0) : 0;
       return localID > 0 ? {
         kind: "face", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:face:${localID}`,
         topologyId: localID, ...context
@@ -2014,7 +2015,7 @@ export class CadViewportEngine {
     if (selection.kind === "face") {
       const positions: number[] = [];
       binding.artifact.mesh.triangles.forEach((triangle, index) => {
-        if ((binding.artifact.mesh.faceIds[index] ?? -1) + 1 !== selection.topologyId) return;
+        if ((binding.artifact.mesh.faceIds[index] ?? -1) !== selection.topologyId) return;
         for (const vertex of triangle) positions.push(...binding.artifact.mesh.vertices[vertex]);
       });
       if (positions.length > 0) {

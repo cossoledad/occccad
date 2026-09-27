@@ -74,7 +74,7 @@ func (s *Service) persistGeometry(ctx context.Context, key string, a Artifact, o
 		return err
 	}
 	for role, o := range objects {
-		_, err = tx.Exec(ctx, `INSERT INTO occccad.geometry_representations(geometry_key,role,schema_version,object_id) VALUES($1,$2,1,$3) ON CONFLICT(geometry_key,role) DO NOTHING`, key, role, o.ID)
+		_, err = tx.Exec(ctx, `INSERT INTO occccad.geometry_representations(geometry_key,role,schema_version,object_id) VALUES($1,$2,$4,$3) ON CONFLICT(geometry_key,role) DO NOTHING`, key, role, o.ID, representationSchema(role))
 		if err != nil {
 			return err
 		}
@@ -93,7 +93,9 @@ func (s *Service) storeEvaluation(ctx context.Context, key string, e *workerv1.E
 	if ref == nil || ref.GetSizeBytes() > uint64(^uint64(0)>>1) {
 		return fmt.Errorf("visual ArtifactReference required")
 	}
-	visual, err := s.artifacts.AdoptTransformed(ctx, artifactstore.KindGLB, "model/gltf-binary", ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes), func(data []byte) ([]byte, error) { return glbWithVisualization(data, v) })
+	visual, err := s.artifacts.AdoptTransformed(ctx, artifactstore.KindGLB, "model/gltf-binary", ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes), func(data []byte) ([]byte, error) {
+		return glbWithVisualization(data, v, map[string]string{"geometryId": e.GeometryId, "namingDigest": e.GetEvaluationManifest().GetTopologyManifestDigest()})
+	})
 	if err != nil {
 		return err
 	}
@@ -119,7 +121,7 @@ func (s *Service) ensureVisualizationArtifact(ctx context.Context, model PartMod
 	raw, _ := json.Marshal(v)
 	sum := sha256.Sum256(append([]byte(evaluatorVersion), raw...))
 	key := "sha256:" + hex.EncodeToString(sum[:])
-	glb, err := glbWithVisualization(nil, v)
+	glb, err := glbWithVisualization(nil, v, map[string]string{"geometryId": key})
 	if err != nil {
 		return "", err
 	}
@@ -224,16 +226,16 @@ func (s *Service) loadArtifact(ctx context.Context, key string) (Artifact, error
 }
 
 // Naming stays lazy: opening a document never downloads the full topology graph.
-func (s *Service) namingReference(ctx context.Context, key string) (*string, *string, error) {
-	var id, digest string
-	err := s.database.QueryRow(ctx, `SELECT o.id::text,o.sha256 FROM occccad.geometry_representations r JOIN occccad.artifact_objects o ON o.id=r.object_id WHERE r.geometry_key=$1 AND r.role='NAMING'`, key).Scan(&id, &digest)
+func (s *Service) namingReference(ctx context.Context, key string) (*string, *string, string, error) {
+	var id, digest, geometryID string
+	err := s.database.QueryRow(ctx, `SELECT o.id::text,o.sha256,g.geometry_id FROM occccad.geometry_representations r JOIN occccad.artifact_objects o ON o.id=r.object_id JOIN occccad.geometry_artifacts g ON g.geometry_key=r.geometry_key WHERE r.geometry_key=$1 AND r.role='NAMING'`, key).Scan(&id, &digest, &geometryID)
 	if err == pgx.ErrNoRows {
-		return nil, nil, nil
+		return nil, nil, "", nil
 	}
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
-	return &id, &digest, nil
+	return &id, &digest, geometryID, nil
 }
 
 // HydrateDisplay is explicitly consumer-local (thumbnail/preview), never called
@@ -246,6 +248,9 @@ func (s *Service) HydrateDisplay(ctx context.Context, view *DocumentView) error 
 		}
 		mesh, metadata, err := visual.Decode(data)
 		if err != nil {
+			return err
+		}
+		if err := mesh.Association.Validate(a.GeometryID, a.Representations["NAMING"].Digest); err != nil {
 			return err
 		}
 		a.Mesh = mesh
@@ -272,4 +277,11 @@ func (s *Service) HydrateDisplay(ctx context.Context, view *DocumentView) error 
 	}
 	view.Artifacts = hydrated
 	return nil
+}
+
+func representationSchema(role string) int {
+	if role == "VISUAL" || role == "NAMING" {
+		return 2
+	}
+	return 1
 }

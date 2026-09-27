@@ -131,7 +131,7 @@ struct TopologyPoint {
 struct TessellationResult {
     std::vector<Vec3> vertices;
     std::vector<Triangle> triangles;
-    std::vector<uint32_t> face_ids;  // triangle -> face index
+    std::vector<uint32_t> face_ids;  // triangle -> 1-based frozen face local ID
     std::vector<EdgePolyline> edges;
     std::vector<TopologyPoint> topology_vertices;
     BoundingBox bbox;

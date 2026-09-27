@@ -112,3 +112,5 @@ Geometry RPC 发送和接收均限制为 128 MiB，与 Go `internal/geometryrpc`
 `InspectExchange.component_output_prefix` 启用 XDE parse-once：返回 Definition/Occurrence graph，为每个唯一 Part Definition 物化 definition-local BREP；无 prefix 只返回图元数据。`ImportExchange.definition_id` 可选择源 STEP 的 Part Definition，Jobs 通常直接并行求值已准备 BREP。Solid Compound 保持同一 Part；有效性修复不能减少 Solid，Naming 覆盖所有 Face/Edge/Vertex。Worker 不创建业务文档。STEP 外部文件引用在 Transfer 前拒绝。
 
 `ExportExchange.graph` 经 XDE document / STEPCAFControl_Writer 保留共享定义、嵌套引用、名称和局部 placement；BREP 输出仍是几何 Compound。图为短期交换合同，持久大数据继续通过 ArtifactReference。当前合同及限制见[交换架构](../../docs/architecture/current/jobs-artifacts.md)。
+
+Visual/Naming 制品使用 [v2 schema](../../docs/architecture/visual-naming-artifact-v2.md)：GLB 通过标准 primitive/accessor 表达面边点与统一 1-based locator；`naming.pb` 由 `src/naming_artifact.hpp` 将 evaluator 工作对象 intern 为共享表、transitions 和显式 Body Tips，不写入逐 Feature 完整快照。文件 schemaVersion 与 Naming policy 版本独立。定向 serializer 测试：`worker/NamingArtifact.InternsEvidenceAndKeepsExplicitBodyTips`。

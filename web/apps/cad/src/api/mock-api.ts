@@ -52,7 +52,7 @@ function boxArtifact(key: string, size: Vec3): Artifact {
       vertices,
       triangles: [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
         [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]],
-      faceIds: [0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5],
+      faceIds: [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6],
       edges: [
         [0, 1], [1, 2], [2, 3], [3, 0], [4, 5], [5, 6], [6, 7], [7, 4], [0, 4], [1, 5], [2, 6], [3, 7],
       ].map(([a, b], index) => ({ localId: index + 1, points: [vertices[a], vertices[b]] })),
@@ -67,7 +67,7 @@ function boxArtifact(key: string, size: Vec3): Artifact {
   const glb=encodeMeshGLB(display.mesh,display.visualization);
   const url=URL.createObjectURL(new Blob([glb],{type:"model/gltf-binary"}));
   const {mesh,...descriptor}=display;
-  descriptor.representations={VISUAL:{objectId:key,digest:key,schemaVersion:1,size:glb.byteLength,contentType:"model/gltf-binary",url}};
+  descriptor.representations={VISUAL:{objectId:key,digest:key,schemaVersion:2,size:glb.byteLength,contentType:"model/gltf-binary",url}};
   if(key.startsWith("mock-preview")){descriptor.representationKind="TRANSIENT_PREVIEW";}
   return descriptor;
 }

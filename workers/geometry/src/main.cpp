@@ -1,4 +1,5 @@
 #include <Standard_Version.hxx>
+#include "naming_artifact.hpp"
 
 #include <internal/occt_kernel.hpp>
 #include <occccad/assembly/solver.hpp>
@@ -1190,22 +1191,9 @@ public:
                     : (profile_evaluation =
                            kernel_.evaluateProfilePadsWithHistory(profile_specs, base_brep, request->has_import_seed() ? &seed : nullptr),
                        profile_evaluation.geometry_id);
-            google::protobuf::Struct stable_ids;
-            for (const auto& result : profile_evaluation.feature_results) {
-                if (result.result_geometry_id != geometry_id) continue;
-                worker_api::FeatureResult output;
-                fill_feature_result(result, &output);
-                for (const auto& entry : output.semantic_outputs()) {
-                    const auto id = occccad::kernel::make_geometry_id(entry.semantic_ref().SerializeAsString());
-                    (*stable_ids.mutable_fields())[std::to_string(entry.topology_type()) + ":" + std::to_string(entry.local_id())].set_string_value(id);
-                }
-            }
-            std::string mapping;
-            if (!google::protobuf::util::MessageToJsonString(stable_ids, &mapping).ok())
-                throw std::runtime_error("GLB topology map serialization failed");
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
-                            request->glb_output_key(), mapping);
+                            request->glb_output_key());
             if (!profile_specs.empty() || request->has_import_seed()) {
                 auto* manifest = response->mutable_evaluation_manifest();
                 manifest->set_schema_version(occccad::kernel::topology_naming_schema_version);
@@ -1232,10 +1220,13 @@ public:
                 topology_manifest.set_evaluator_version(
                     request->topology_policy().evaluator_version());
                 topology_manifest.set_policy_digest(request->topology_policy().policy_digest());
+                std::vector<worker_api::FeatureResult> working_results;
                 for (const auto& feature : profile_evaluation.feature_results) {
-
-                    fill_feature_result(feature, topology_manifest.add_feature_results());
+                    working_results.emplace_back();
+                    fill_feature_result(feature, &working_results.back());
                 }
+                occccad::worker::pack_naming(working_results, topology_manifest);
+                topology_manifest.set_geometry_id(geometry_id);
                 std::string topology_bytes;
                 if (!topology_manifest.SerializeToString(&topology_bytes))
                     throw std::runtime_error("topology manifest serialization failed");
@@ -1245,7 +1236,7 @@ public:
                 if (external_outputs) {
                     const std::vector<uint8_t> bytes(topology_bytes.begin(), topology_bytes.end());
                     write_artifact(request->brep_output_key() + ".naming.pb", bytes,
-                                   "application/vnd.occccad.topology-manifest.v1+protobuf",
+                                   "application/vnd.occccad.topology-manifest.v2+protobuf",
                                    manifest->mutable_topology_manifest_artifact());
                 }
             }
@@ -1565,8 +1556,7 @@ private:
                          const double requested_angular_deflection,
                          worker_api::EvaluatePartResponse* response,
                          const std::string& brep_output_key = {},
-                         const std::string& glb_output_key = {},
-                         const std::string& topology_ids_json = "{}") {
+                         const std::string& glb_output_key = {}) {
         const auto bbox = kernel_.getBoundingBox(geometry_id);
         const auto& topology = kernel_.getTopology(geometry_id);
         topology_cached_.insert(geometry_id);
@@ -1576,7 +1566,11 @@ private:
             requested_angular_deflection > 0.0 ? requested_angular_deflection : 0.5;
         const auto mesh = kernel_.tessellate(geometry_id, linear_deflection, angular_deflection);
         const auto brep = kernel_.serializeBrepr(geometry_id);
-        const auto glb = occccad::kernel::make_glb(mesh, topology_ids_json);
+        google::protobuf::Struct association;
+        (*association.mutable_fields())["geometryId"].set_string_value(geometry_id);
+        std::string association_json;
+        if(!google::protobuf::util::MessageToJsonString(association,&association_json).ok()) throw std::runtime_error("GLB association serialization failed");
+        const auto glb = occccad::kernel::make_glb(mesh, association_json);
 
         response->set_geometry_id(geometry_id);
         response->set_geometry_key(geometry_key);

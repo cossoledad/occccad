@@ -17,8 +17,8 @@ func TestDecodeRejectsCorruptCADBuffers(t *testing.T) {
 				map[string]any{"bufferView": 0, "byteOffset": 12, "count": 3, "type": "SCALAR", "componentType": 5125},
 				map[string]any{"bufferView": 0, "byteOffset": 24, "count": 1, "type": "SCALAR", "componentType": 5125},
 			},
-			"meshes":     []any{map[string]any{"primitives": []any{map[string]any{"attributes": map[string]any{"POSITION": 0}, "indices": 1}}}},
-			"extensions": map[string]any{"OCCCCAD_cad": map[string]any{"schemaVersion": 1, "units": units, "coordinateSpace": "PART_LOCAL", "faceIds": 2}},
+			"meshes":     []any{map[string]any{"primitives": []any{map[string]any{"attributes": map[string]any{"POSITION": 0}, "indices": 1, "extensions": map[string]any{"OCCCCAD_cad": map[string]any{"kind": "FACE", "localIds": 2}}}}}},
+			"extensions": map[string]any{"OCCCCAD_cad": map[string]any{"schemaVersion": 2, "units": units, "coordinateSpace": "PART_LOCAL", "faceIds": 2}},
 		}
 		raw, _ := json.Marshal(document)
 		for len(raw)%4 != 0 {
@@ -29,6 +29,7 @@ func TestDecodeRejectsCorruptCADBuffers(t *testing.T) {
 			binary.LittleEndian.PutUint32(result[offset:], value)
 		}
 		copy(result[20:], raw)
+		binary.LittleEndian.PutUint32(result[28+len(raw)+24:], 1)
 		return result
 	}
 	if mesh, _, err := Decode(fixture(1, 0, "mm")); err != nil || len(mesh.Triangles) != 1 {

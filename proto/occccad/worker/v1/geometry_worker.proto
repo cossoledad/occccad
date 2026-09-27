@@ -513,11 +513,75 @@ message FeatureResult {
     bool topology_history_complete = 9;
 }
 
+// v2 storage contract. Domain SelectionEvidence remains a transient RPC/value object.
+message NamingFrame { Vec3 origin = 1; Vec3 direction = 2; }
+message NamingPoint { Vec3 position = 1; }
+message NamingCurveRange {
+    optional double start = 1;
+    optional double end = 2;
+    string convention = 3; // LINE_MM | ANGLE_RADIANS | NATIVE_CURVE_PARAMETER
+}
+message NamingCurve { NamingFrame frame = 1; NamingCurveRange range = 2; string family = 3; }
+message NamingOtherGeometry { string family = 1; NamingFrame frame = 2; NamingCurveRange range = 3; }
+message NamingEvidence {
+    Vec3 centroid = 1;
+    optional double measure_si = 2;
+    string measure_dimension = 3; // AREA=m^2, LENGTH=m, NONE
+    repeated uint32 adjacent = 4;
+    string evidence_digest = 5;
+    string endpoint_role = 6;
+    oneof geometry {
+        NamingFrame plane = 10;
+        NamingFrame cylinder = 11;
+        NamingCurve line = 12;
+        NamingCurve circle = 13;
+        NamingPoint point = 14;
+        NamingCurve spline = 15;
+        NamingOtherGeometry other = 16;
+    }
+}
+message NamingTopologyLocator {
+    PersistentTopologyType topology_type = 1;
+    uint64 local_id = 2; // 1-based, scoped to frozen manifest geometry_id and type.
+    uint32 semantic_ref = 3;
+    uint32 evidence = 4;
+}
+message NamingLineage { repeated uint32 sources = 1; uint32 result = 2; TopologyLineageKind kind = 3; uint32 evidence = 4; }
+message NamingDeleted { uint32 source = 1; string reason = 2; uint32 evidence = 3; }
+message NamingAmbiguous { repeated uint32 sources = 1; repeated uint32 candidates = 2; string diagnostic_code = 3; }
+message NamingTransition {
+    string feature_id = 1;
+    string body_id = 2;
+    string input_feature_id = 3;
+    string profile_feature_id = 4;
+    string input_geometry_id = 5;
+    string result_geometry_id = 6;
+    repeated NamingLineage lineage = 7;
+    repeated NamingDeleted deleted = 8;
+    repeated NamingAmbiguous ambiguous = 9;
+    string evidence_digest = 10;
+    bool complete = 11;
+    repeated string diagnostics = 12;
+}
+message NamingBody {
+    string body_id = 1;
+    repeated uint32 transitions = 2; // 1-based transition table IDs in evaluation order.
+    uint32 tip_transition = 3;
+    repeated NamingTopologyLocator tip = 4; // Only current tip has a full locator snapshot.
+}
+
 message PartTopologyManifest {
     uint32 schema_version = 1;
     string policy_id = 2;
     string evaluator_version = 3;
-    repeated FeatureResult feature_results = 4;
+    reserved 4; // v1 per-feature snapshots are not persisted.
+    repeated SemanticTopologyRef semantic_refs = 6; // 1-based table IDs; 0 means absent.
+    repeated NamingEvidence evidence = 7;
+    repeated NamingTransition transitions = 8;
+    repeated NamingBody bodies = 9;
+    string geometry_id = 10;
+    string coordinate_space = 11; // PART_LOCAL
+    string length_unit = 12; // mm (positions); measures explicitly SI.
     string policy_digest = 5;
 }
 

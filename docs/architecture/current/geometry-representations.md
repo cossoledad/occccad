@@ -31,12 +31,12 @@ Worker 输出通过摘要/长度验证后登记 READY 对象；GLB 业务显示�
 
 ## 唯一显示载荷
 
-持久实体显示只读取 `mesh.glb`，没有 protobuf Mesh → 数据库 JSON → DocumentView Mesh 的第二条路径。GLB 保留标准三角形 POSITION/indices，并使用 `OCCCCAD_cad` schema 1 扩展提供：
+持久实体显示只读取 `mesh.glb`，没有 protobuf Mesh → 数据库 JSON → DocumentView Mesh 的第二条路径。当前为 [Visual/Naming v2 契约](../visual-naming-artifact-v2.md)：
 
-- 明确的毫米单位和 Part 局部坐标系；
-- 每三角形对应的 Face local pick index，二进制 accessor；
-- Edge local pick ID 与二进制折线 accessor、Vertex local pick ID 与坐标；
-- `拓扑类型:localId → semantic anchor 摘要` 映射，支持在同一冻结结果中把显示元素对应到稳定语义身份。
+- 标准 glTF POSITION/NORMAL/indices，加上多个 mesh/primitive；
+- FACE 三角形、EDGE 折线、VERTEX 点统一使用 1-based topology localId，mapping 与数值均为 binary accessor；
+- `OCCCCAD_cad.schemaVersion=2` 只保留单位、坐标空间、轻量 Geometry/Naming 关联；删除旧语义哈希 `stableIds`；
+- `OCCCCAD_visualization.schemaVersion=2` 的 positions/indices 使用 accessor，辅助显示也生成标准 glTF primitive。显示变体替换自己拥有的二进制后缀，不累计历史草图数组。
 
 local ID 和三角形序号仍只是该 GeometryKey 的临时拾取定位。持久选择继续走 source Revision + GeometryKey + local pick 的服务器 bind 门，形成 PersistentSelection；不能把显示 ID 当成跨 Revision 的拓扑身份或替代 lineage resolver。
 
@@ -46,7 +46,7 @@ local ID 和三角形序号仍只是该 GeometryKey 的临时拾取定位。持�
 
 ## Naming、RPC 与预览
 
-完整 `PartTopologyManifest` 只存在 `naming.pb`，其中包含 FeatureResults、semantic outputs、lineage 和 evidence。`PartEvaluationManifest` 只携带策略摘要、轻量 Feature identity 及 Naming ArtifactReference，不再重复传完整 FeatureResults。导入重放 RPC 传 identity ArtifactReference，Worker 校验并读取 seed，而非让大型 identities 数组再次穿过请求。
+完整 `PartTopologyManifest` 只存在 `naming.pb`，采用共享 SemanticRef/Evidence 表、逐 Feature transition 与显式 Body Tip locator 索引；历史 Feature 不再持久保存完整快照。`PartEvaluationManifest` 只携带策略摘要、轻量 Feature identity 及 Naming ArtifactReference，不再重复传完整 FeatureResults。导入重放 RPC 传 identity ArtifactReference，Worker 校验并读取 seed，而非让大型 identities 数组再次穿过请求。
 
 `EvaluatePartResponse` 的持久结果标记为 `PERSISTENT`，只返回几何摘要、计数及 ArtifactReference；移除了 BREP/GLB 内联字段，`preview_mesh` 只允许临时预览。声明中的 Tessellate 输出也只使用引用，不再定义三套内联字节载荷；这不代表独立 Tessellate RPC 已实现。
 

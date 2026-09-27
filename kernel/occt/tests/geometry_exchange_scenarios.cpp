@@ -1,6 +1,7 @@
 #include <internal/occt_kernel.hpp>
 #include <occccad/kernel/topology_naming.hpp>
 #include <occccad/kernel/geometry_id.hpp>
+#include <occccad/kernel/mesh_glb.hpp>
 
 #include <gtest/gtest.h>
 
@@ -48,6 +49,28 @@ public:
 private:
     std::filesystem::path path_;
 };
+
+TEST(GeometryExchange, VisualV2LocatorsMatchExactTopology) {
+    OcctKernel kernel;
+    const auto id=kernel.createRectangularPad({0,0,100,60,40,"XY"});
+    const auto& topology=kernel.getTopology(id);
+    const auto mesh=kernel.tessellate(id);
+    ASSERT_EQ(mesh.triangles.size(),mesh.face_ids.size());
+    for(size_t i=0;i<mesh.triangles.size();++i){
+        const auto local=mesh.face_ids[i];ASSERT_GT(local,0U);ASSERT_LE(local,topology.faces.size());
+        const auto& face=topology.faces[local-1];EXPECT_EQ(face.local_id,local);
+        for(const auto index:{mesh.triangles[i].v0,mesh.triangles[i].v1,mesh.triangles[i].v2}){
+            const auto& p=mesh.vertices[index];
+            EXPECT_GE(p.x,face.bbox.min.x-1e-6);EXPECT_LE(p.x,face.bbox.max.x+1e-6);
+            EXPECT_GE(p.y,face.bbox.min.y-1e-6);EXPECT_LE(p.y,face.bbox.max.y+1e-6);
+            EXPECT_GE(p.z,face.bbox.min.z-1e-6);EXPECT_LE(p.z,face.bbox.max.z+1e-6);
+        }
+    }
+    for(const auto& e:mesh.edges){ASSERT_GT(e.local_id,0U);ASSERT_LE(e.local_id,topology.edges.size());EXPECT_EQ(topology.edges[e.local_id-1].local_id,e.local_id);}
+    for(const auto& p:mesh.topology_vertices){ASSERT_GT(p.local_id,0U);ASSERT_LE(p.local_id,topology.vertices.size());EXPECT_EQ(topology.vertices[p.local_id-1].point.x,p.point.x);}
+    EXPECT_FALSE(make_glb(mesh).empty());
+    auto invalid=mesh;invalid.face_ids[0]=0;EXPECT_THROW((void)make_glb(invalid),std::invalid_argument);
+}
 
 TEST(GeometryExchange, RectanglePadProducesSelectableTopologyAndRoundTrips) {
     OcctKernel kernel;
