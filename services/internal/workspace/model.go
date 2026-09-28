@@ -765,9 +765,41 @@ type ResolvedInstance struct {
 // DocumentStructureNode is the UI-independent specification tree contract.
 // IDs are path-stable within one DocumentView while EntityID preserves the
 // domain object identity used by commands and selection.
+type StructureEntityRef struct {
+	DocumentID string `json:"documentId"`
+	EntityKind string `json:"entityKind"`
+	EntityID   string `json:"entityId"`
+}
+
+type StructureOccurrenceRef struct {
+	RootDocumentID string       `json:"rootDocumentId"`
+	InstancePath   InstancePath `json:"instancePath"`
+}
+
+type StructureSnapshotScope struct {
+	RevisionID        string `json:"revisionId"`
+	ContextVariantKey string `json:"contextVariantKey,omitempty"`
+	GeometryKey       string `json:"geometryKey,omitempty"`
+}
+
 type DocumentStructureNode struct {
 	ID                 string                  `json:"id"`
 	Kind               string                  `json:"kind"`
+	Subject            *StructureEntityRef     `json:"subject,omitempty"`
+	Occurrence         *StructureOccurrenceRef `json:"occurrence,omitempty"`
+	Snapshot           *StructureSnapshotScope `json:"snapshot,omitempty"`
+	PresentationRole   string                  `json:"presentationRole,omitempty"`
+	OwnerDocumentID    string                  `json:"ownerDocumentId,omitempty"`
+	BodyID             string                  `json:"bodyId,omitempty"`
+	ChildrenState      string                  `json:"childrenState,omitempty"`
+	ConnectionStatus   string                  `json:"connectionStatus,omitempty"`
+	CurrencyStatus     string                  `json:"currencyStatus,omitempty"`
+	EvaluationStatus   string                  `json:"evaluationStatus,omitempty"`
+	ResolutionStatus   string                  `json:"resolutionStatus,omitempty"`
+	ContextVariantKey  string                  `json:"contextVariantKey,omitempty"`
+	SourceDocumentID   string                  `json:"sourceDocumentId,omitempty"`
+	SourceRevisionID   string                  `json:"sourceRevisionId,omitempty"`
+	SourceDisplayPath  string                  `json:"sourceDisplayPath,omitempty"`
 	Name               string                  `json:"name"`
 	ReferenceName      string                  `json:"referenceName,omitempty"`
 	InstanceName       string                  `json:"instanceName,omitempty"`
@@ -783,6 +815,7 @@ type DocumentStructureNode struct {
 	InstancePath       *InstancePath           `json:"instancePath,omitempty"`
 	OwnerEntityID      string                  `json:"ownerEntityId,omitempty"`
 	EntityType         string                  `json:"entityType,omitempty"`
+	Operation          string                  `json:"operation,omitempty"`
 	Role               string                  `json:"role,omitempty"`
 	Suppressed         bool                    `json:"suppressed,omitempty"`
 	Diagnostic         string                  `json:"diagnostic,omitempty"`
@@ -796,19 +829,21 @@ type DocumentStructureNode struct {
 }
 
 type DocumentView struct {
-	Document          DocumentSummary          `json:"document"`
-	DatumPlanes       []DatumPlane             `json:"datumPlanes,omitempty"`
-	AxisSystems       []AxisSystem             `json:"axisSystems,omitempty"`
-	DatumAxes         []DatumAxis              `json:"datumAxes,omitempty"`
-	Part              *PartModel               `json:"part,omitempty"`
-	Product           *ProductModel            `json:"product,omitempty"`
-	Artifact          *Artifact                `json:"artifact,omitempty"`
-	Artifacts         map[string]Artifact      `json:"artifacts,omitempty"`
-	ResolvedInstances []ResolvedInstance       `json:"resolvedInstances,omitempty"`
-	StructureTree     *DocumentStructureNode   `json:"structureTree,omitempty"`
-	ReferenceUpdates  []ReferenceUpdate        `json:"referenceUpdates,omitempty"`
-	DesignSession     *ProductDesignSession    `json:"designSession,omitempty"`
-	ContextVariants   []ContextVariantSnapshot `json:"contextVariants,omitempty"`
+	Document            DocumentSummary          `json:"document"`
+	DatumPlanes         []DatumPlane             `json:"datumPlanes,omitempty"`
+	AxisSystems         []AxisSystem             `json:"axisSystems,omitempty"`
+	DatumAxes           []DatumAxis              `json:"datumAxes,omitempty"`
+	Part                *PartModel               `json:"part,omitempty"`
+	Product             *ProductModel            `json:"product,omitempty"`
+	Artifact            *Artifact                `json:"artifact,omitempty"`
+	Artifacts           map[string]Artifact      `json:"artifacts,omitempty"`
+	ResolvedInstances   []ResolvedInstance       `json:"resolvedInstances,omitempty"`
+	StructureTree       *DocumentStructureNode   `json:"structureTree,omitempty"`
+	ReferenceUpdates    []ReferenceUpdate        `json:"referenceUpdates,omitempty"`
+	FollowedDocumentIDs []string                 `json:"followedDocumentIds,omitempty"`
+	FollowedProductIDs  []string                 `json:"followedProductIds,omitempty"`
+	DesignSession       *ProductDesignSession    `json:"designSession,omitempty"`
+	ContextVariants     []ContextVariantSnapshot `json:"contextVariants,omitempty"`
 }
 
 type ProductDesignSession struct {
@@ -968,6 +1003,9 @@ type CommandPreview struct {
 	BaseSequence         uint64                               `json:"baseSequence"`
 	ModelHash            string                               `json:"modelHash"`
 	Artifact             *Artifact                            `json:"artifact,omitempty"`
+	ResultBodyID         string                               `json:"resultBodyId,omitempty"`
+	ResultBodyName       string                               `json:"resultBodyName,omitempty"`
+	BodyAssignment       string                               `json:"bodyAssignment,omitempty"`
 	ConstraintLimited    bool                                 `json:"constraintLimited,omitempty"`
 	ConstraintEvaluation *AssemblyConstraintPreviewEvaluation `json:"constraintEvaluation,omitempty"`
 	InstancePoses        []struct {

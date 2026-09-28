@@ -8,14 +8,22 @@ export type SelectionMode = {
 };
 
 const instanceSelection = (selection: SelectionItem): Selection => {
-  if (!selection.instanceId) return null;
+  const direct = selection.instancePath?.segments[0];
+  const instanceId = direct?.instanceId ?? selection.instanceId;
+  if (!instanceId) return null;
+  const instancePath = direct ? {
+    rootDocumentId: selection.instancePath!.rootDocumentId,
+    canonical: direct.instanceId, display: direct.instanceName, segments: [direct],
+  } : undefined;
   return {
     kind: "instance",
-    id: selection.instanceId,
-    instanceId: selection.instanceId,
-    occurrencePath: selection.instanceId,
-    visualKey: `occurrence:${selection.instanceId}`,
-    documentId: selection.documentId,
+    id: instanceId,
+    instanceId,
+    occurrencePath: instanceId,
+    ...(instancePath ? { instancePath, rootDocumentId: instancePath.rootDocumentId,
+      versionId: direct!.resolvedVersionId } : {}),
+    visualKey: `occurrence:${instanceId}`,
+    documentId: direct?.referencedDocumentId ?? selection.documentId,
   };
 };
 
@@ -42,7 +50,13 @@ export function projectSketchFeatureSelection(selection: Selection, activeSketch
   return {
     kind: "sketch",
     id: selection.featureId,
+    entityId: selection.featureId,
     documentId: selection.documentId,
+    ownerDocumentId: selection.ownerDocumentId,
+    bodyId: selection.bodyId,
+    versionId: selection.versionId,
+    contextVariantKey: selection.contextVariantKey,
+    rootDocumentId: selection.rootDocumentId,
     occurrencePath: selection.occurrencePath,
     instancePath: selection.instancePath,
     instanceId: selection.instanceId,

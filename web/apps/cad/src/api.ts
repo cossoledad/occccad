@@ -274,7 +274,7 @@ export const restApi = {
     previewIdentities.remember(documentId, result.previewId, String(input.requestId));
     return result;
   },
-  createSketch: (documentId: string, support: { plane?: string; datumPlaneId?: string; targetKind?: "FACE";
+  createSketch: (documentId: string, support: { bodyId?: string; plane?: string; datumPlaneId?: string; targetKind?: "FACE";
       geometryKey?: string; topologyId?: number; versionId?: string }) =>
     restApi.command(documentId, { type: "CREATE_SKETCH", ...support }),
   editSketch: (documentId: string, sketchId: string, operations: SketchOperation[]) =>
@@ -307,7 +307,7 @@ export const restApi = {
     restApi.command(documentId, { type: "PAD_SKETCH", sketchId, length,
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
   createSolidFeature: (documentId: string, input: { sketchId: string; generator: "LINEAR_EXTRUDE" | "REVOLVE";
-	operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT"; length?: number; angle?: number;
+	operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT"; bodyId?: string; length?: number; angle?: number;
 	lengthExpression?: string; axisEntityId?: string; reversed?: boolean; previewId?: string }, intentRequestId?: string) =>
     restApi.command(documentId, { type: "CREATE_SOLID_FEATURE", ...input,
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
@@ -347,6 +347,10 @@ export const restApi = {
     restApi.command(documentId,{type:"CREATE_CONTEXT_INPUT",...input}),
   editContextInput: (documentId:string, contextInputId:string, name:string, required=false) =>
     restApi.command(documentId,{type:"EDIT_CONTEXT_INPUT",contextInputId,name,required}),
+  deleteContextInput: (documentId:string, contextInputId:string) =>
+    restApi.command(documentId,{type:"DELETE_CONTEXT_INPUT",contextInputId}),
+  deleteContextBinding: (documentId:string, contextBindingId:string) =>
+    restApi.command(documentId,{type:"DELETE_CONTEXT_BINDING",contextBindingId}),
   detachContextReference: (documentId:string, contextReferenceId:string) =>
     restApi.command(documentId, {type:"DETACH_CONTEXT_REFERENCE", contextReferenceId}),
   move: (documentId: string, instanceId: string, translation: Vec3, rotation: [number,number,number,number], previewId?: string) =>

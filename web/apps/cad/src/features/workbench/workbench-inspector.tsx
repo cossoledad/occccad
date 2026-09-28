@@ -108,7 +108,35 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
           children: view.document.type === "PART" ? view.part?.features.length ?? 0 : view.product?.instances.length ?? 0 },
       ]} /></details></>;
   }
-  if (selection.kind === "body") return <PartBodies view={view} />;
+  if (selection.kind === "body") {
+    const sameDefinitionSnapshot = selection.documentId === view.document.id &&
+      selection.versionId === view.document.versionId;
+    const body = sameDefinitionSnapshot ? view.part?.bodies.find((candidate) => candidate.id === selection.bodyId) : undefined;
+    const resolved = view.resolvedInstances?.find((candidate) =>
+      candidate.documentId === selection.documentId && candidate.bodyId === selection.bodyId &&
+      candidate.occurrencePath === (selection.occurrencePath ?? "") &&
+      candidate.instancePath.segments.at(-1)?.resolvedVersionId === selection.versionId);
+    const geometryKey = resolved?.geometryKey ?? body?.geometryKey ?? selection.geometryKey;
+    const artifact = geometryKey ? view.artifacts?.[geometryKey] : undefined;
+    const base = (import.meta.env?.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+    return <><Descriptions column={1} size="small" bordered className="property-list" items={[
+      { key: "body", label: "Body", children: body?.name ?? resolved?.name ?? selection.bodyId ?? "—" },
+      { key: "owner", label: "所属 Part", children: selection.documentId ?? "—" },
+      { key: "occurrence", label: "Occurrence", children: selection.instancePath?.display ?? "Part root" },
+      { key: "revision", label: "Revision", children: selection.versionId ?? view.document.versionId },
+      { key: "visibility", label: "定义显隐", children: body ? body.visible ? "可见" : "隐藏"
+        : resolved ? resolved.bodyVisible ? "可见" : "隐藏" : "—" },
+      { key: "geometry", label: "Geometry Key", children: geometryKey ?? "—" },
+    ]} />
+      {artifact && selection.documentId && selection.versionId && selection.bodyId &&
+        <section aria-label="Part Files"><strong>实体与文件 / Part Files</strong>
+          {Object.entries(artifact.representations ?? {}).map(([role, reference]) =>
+            <div key={role}><Space wrap><span>{role === "VISUAL" ? "mesh.glb" : role === "NAMING" ? "naming.pb" : role}</span>
+              <small>{reference.size.toLocaleString()} B · v{reference.schemaVersion}</small>
+              <a download href={`${base}/api/documents/${encodeURIComponent(selection.documentId!)}/representations/${encodeURIComponent(reference.objectId)}?versionId=${encodeURIComponent(selection.versionId!)}&bodyId=${encodeURIComponent(selection.bodyId!)}&download=1`}>Download</a>
+            </Space></div>)}
+        </section>}</>;
+  }
   if (["face", "edge", "vertex"].includes(selection.kind)) {
     const format = (value: unknown): string => Array.isArray(value)
       ? value.map((entry) => typeof entry === "number" ? Number(entry).toPrecision(7) : String(entry)).join(", ")
@@ -191,6 +219,8 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
   return <Descriptions column={1} size="small" bordered className="property-list" items={[
     { key: "type", label: "类型", children: selection.kind.toUpperCase() },
     { key: "name", label: "名称", children: feature?.name ?? instance?.name ?? selection.id },
+    ...(["pad", "import", "feature"].includes(selection.kind) ? [{ key: "contribution", label: "当前结果中的贡献",
+      children: "尚无可靠的 Feature 贡献定位；选择保留在设计历史中，不将整个 Body 视为该 Feature 的几何结果。" }] : []),
     ...(selection.kind === "plane" ? [{ key: "plane", label: "基准面", children: selection.plane }] : []),
     ...(feature?.sketch ? [{ key: "entities", label: "草图元素", children: feature.sketch.entities.length },
       { key: "external", label: "外部几何", children: `${feature.sketch.externalGeometry?.length??0} · ${(feature.sketch.externalGeometry??[]).filter((item)=>item.status!=="CONNECTED").length} unresolved` },

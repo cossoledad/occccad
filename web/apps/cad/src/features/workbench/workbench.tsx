@@ -45,7 +45,7 @@ import { followedDocumentIDs, staleProductDocumentIDs, followProductUpdates } fr
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { isLengthParameter, linearExtrudeLengthInput, parameterDisplayValue, parameterSourceText, parseParameterSource } from "./parameter-editor";
 import { WorkbenchInspectorPanel } from "./workbench-inspector-panel";
-import { findStructureEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
+import { ancestorHintKeysForSelections, findStructureEntity, findStructureOccurrenceEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
 import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
   firstDisconnectedSupport, validateReconnectCandidate } from "../../cad/assembly/assembly-constraint-ux";
 import { describeAssemblyReference } from "../../cad/assembly/assembly-reference-presentation";
@@ -168,7 +168,11 @@ export function Workbench() {
   const [padOpen, setPadOpen] = useState(false);
   const [padGenerator, setPadGenerator] = useState<"LINEAR_EXTRUDE" | "REVOLVE">("LINEAR_EXTRUDE");
   const [padSketchID, setPadSketchID] = useState<string>();
+  const [workingBodyOverride, setWorkingBodyOverride] = useState<string>();
   const [padPreviewPending, setPadPreviewPending] = useState(false);
+  const [padPreviewPlacement, setPadPreviewPlacement] = useState<{
+    bodyId: string; bodyName: string; assignment: CommandPreview["bodyAssignment"];
+  }>();
 	const [editingExtrude, setEditingExtrude] = useState<{ feature: Feature; digest: string }>();
 	const [featurePreviewPending, setFeaturePreviewPending] = useState(false);
 	const [featurePreviewError, setFeaturePreviewError] = useState<string>();
@@ -314,6 +318,9 @@ export function Workbench() {
     onSuccess:(updated)=>{void refresh(updated);},onError:(error)=>{message.error(error.message);void refresh();}});
   const view = document.data;
   const editingView = activeDocumentID === documentID ? view : activeDocument.data;
+  const workingBodyID = editingView?.part?.bodies.some((body) => body.id === workingBodyOverride)
+    ? workingBodyOverride : editingView?.part?.activeBodyId;
+  useEffect(() => setWorkingBodyOverride(undefined), [activeID, activeInstancePath]);
   const selectedNamingIssue = selectionNamingIssue(store.selection, editingView, view);
   const repairableImport = editingView?.part?.features.find((feature) => feature.type === "IMPORT_BODY" && !feature.importDefinitionId);
   const activeNamingIssue = Object.values(editingView?.artifacts??{}).find(a=>a.topology.faces>0 && a.naming && !a.naming.canBind)?.naming;
@@ -353,9 +360,9 @@ export function Workbench() {
     queryFn: () => api.listProductReleases(documentID), enabled: Boolean(view?.document.type === "PRODUCT" && releaseOpen) });
   latestDocumentVersion.current = editingView?.document.versionId;
   const followedIDs = useMemo(() => [...new Set([
-    ...followedDocumentIDs(view?.structureTree), ...(view?.referenceUpdates ?? []).map((item) => item.sourceDocumentId),
+    ...followedDocumentIDs(view), ...(view?.referenceUpdates ?? []).map((item) => item.sourceDocumentId),
     ...(activeID !== documentID ? [activeID] : []),
-  ])].filter((id) => id !== documentID), [activeID, documentID, view?.structureTree, view?.referenceUpdates]);
+  ])].filter((id) => id !== documentID), [activeID, documentID, view?.followedDocumentIds, view?.product?.instances, view?.referenceUpdates]);
   useEffect(() => {
     if (isMockMode || !view || followedIDs.length === 0) return;
     let disposed = false; const unsubscribers: Array<() => void> = [];
@@ -376,13 +383,13 @@ export function Workbench() {
   }, [client, documentID, followedIDs.join("|"), message, view]);
   const treeNodes = useMemo(() => {
     const consumedSketches = new Set((editingView?.part?.features ?? []).flatMap((feature) => feature.profile ? [feature.profile] : []));
-    const decorate = (node: SpecificationTreeNode, parentVisible = true): SpecificationTreeNode => {
+    const decorate = (node: SpecificationTreeNode): SpecificationTreeNode => {
+      const visibilityKey = node.selection ? selectionKey(node.selection) : node.key;
       const ownVisible = node.kind === "SKETCH" && node.entityId
-        ? sketchTreeVisible({ featureID: node.entityId, treeKey: node.key, activeSketchID: store.activeSketchID,
+        ? sketchTreeVisible({ featureID: node.entityId, treeKey: visibilityKey, activeSketchID: store.activeSketchID,
           defaultVisible: !consumedSketches.has(node.entityId), overrides: treeVisibilityOverrides })
-        : treeVisibilityOverride(node.key, treeVisibilityOverrides) ?? true;
-      const visible = parentVisible && ownVisible;
-      return { ...node, hidden: !visible, children: node.children?.map((child) => decorate(child, visible)) };
+        : treeVisibilityOverride(visibilityKey, treeVisibilityOverrides) ?? true;
+      return { ...node, hidden: !ownVisible, children: node.children?.map(decorate) };
     };
     return view ? treeData(view, editingView).map((node) => decorate(node)) : [];
   }, [view, editingView, store.activeSketchID, treeVisibilityOverrides]);
@@ -413,9 +420,8 @@ export function Workbench() {
 
   useEffect(() => {
     if (!view || view.document.type !== "PRODUCT" || !canEditRoot || automaticUpdateRunning.current) return;
-    const targets = staleProductDocumentIDs(view.structureTree);
-    if (!targets.length) { automaticUpdateSignature.current = ""; return; }
-    const signature = `${view.document.versionId}:${targets.join("|")}`;
+    if (!productUpdatePlan.dataUpdatedAt && !staleProductDocumentIDs(view).length) return;
+    const signature = `${view.document.versionId}:${productUpdatePlan.dataUpdatedAt}`;
     if (automaticUpdateSignature.current === signature) return;
     automaticUpdateSignature.current = signature;
     automaticUpdateRunning.current = true;
@@ -424,7 +430,7 @@ export function Workbench() {
       try {
         const updatedViews = await followProductUpdates(view, api);
         if (!disposed) for (const updated of updatedViews) client.setQueryData(queryKeys.document(updated.document.id), updated);
-        if (!disposed) await Promise.all([
+        if (!disposed && updatedViews.length) await Promise.all([
           client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
           client.invalidateQueries({ queryKey: ["product-update-plan", documentID] }),
         ]);
@@ -439,7 +445,7 @@ export function Workbench() {
       }
     })();
     return () => { disposed = true; };
-  }, [canEditRoot, client, documentID, message, view, automaticUpdateEpoch]);
+  }, [canEditRoot, client, documentID, message, view, productUpdatePlan.dataUpdatedAt, automaticUpdateEpoch]);
 
   useEffect(() => {
     if (replacingAssemblyReference === undefined || !store.selection) return;
@@ -600,24 +606,13 @@ export function Workbench() {
     }});
   };
   const selectFeature = (sourceView: DocumentView, featureID: string) => {
-    const node = findStructureEntity(sourceView.structureTree, featureID);
+    const sourceNode = findStructureEntity(sourceView.structureTree, featureID);
+    const node = activeInstancePath ? findStructureOccurrenceEntity(view?.structureTree, featureID,
+      activeInstancePath, sourceNode?.bodyId) : sourceNode;
     if (!node) return;
-    const selection = structureSelection(node, sourceView);
+    const selection = structureSelection(node, activeInstancePath && view ? view : sourceView);
     if (!selection) return;
-    if (!activeInstancePath || !activeResolvedInstance) {
-      store.setSelection(selection);
-      return;
-    }
-    const bodyMarker = node.id.indexOf("/body:");
-    store.setSelection({ ...selection,
-      documentId: sourceView.document.id,
-      occurrencePath: activeInstancePath,
-      instancePath: activeResolvedInstance.instancePath,
-      instanceId: activeInstancePath.split("/")[0],
-      geometryKey: selection.geometryKey,
-      treeNodeId: bodyMarker >= 0 ? `${activeResolvedInstance.bodyTreeNodeId.slice(0,activeResolvedInstance.bodyTreeNodeId.lastIndexOf("/body:"))}${node.id.slice(bodyMarker)}` : selection.treeNodeId,
-      visualKey: selection.kind === "sketch" ? undefined : `body:${activeInstancePath}:body:${selection.bodyId}`,
-    });
+    store.setSelection(selection);
   };
   const finishSketch = () => {
     if (command.isPending) return;
@@ -641,7 +636,8 @@ export function Workbench() {
 	  const selection = store.selection;
 	  if (!selection.geometryKey || !selection.topologyId) return;
 	  command.mutate(() => api.createSketch(editingView.document.id, { targetKind: "FACE", geometryKey: selection.geometryKey,
-		  topologyId: selection.topologyId, versionId: selection.versionId ?? editingView.document.versionId }), { onSuccess: (updated) => {
+		  topologyId: selection.topologyId, versionId: selection.versionId ?? editingView.document.versionId,
+          bodyId: workingBodyID ?? selection.bodyId }), { onSuccess: (updated) => {
 		const sketch = [...(updated.part?.features ?? [])].reverse().find((candidate) => candidate.type.toUpperCase() === "SKETCH");
 		const localPlane = sketch ? featureSketchPlane(updated, sketch) : undefined;
 		if (sketch && localPlane) {
@@ -655,7 +651,8 @@ export function Workbench() {
     const datum = store.selection.datumPlane ?? editingView.datumPlanes?.find((candidate) => store.selection?.id.endsWith(candidate.id));
     if (!datum) return;
     const plane = occurrenceSketchPlane(sketchPlane(datum), activeResolvedInstance?.translation, activeResolvedInstance?.rotation);
-    command.mutate(() => api.createSketch(editingView.document.id, { plane: datum.plane, datumPlaneId: datum.id }), { onSuccess: (updated) => {
+    command.mutate(() => api.createSketch(editingView.document.id, { plane: datum.plane, datumPlaneId: datum.id,
+      bodyId: workingBodyID }), { onSuccess: (updated) => {
       const sketch = [...(updated.part?.features ?? [])].reverse().find((feature) => feature.type.toUpperCase() === "SKETCH");
       if (sketch) {
         newSketchSession.current = { documentId: updated.document.id, sketchId: sketch.id, edited: false };
@@ -671,7 +668,7 @@ export function Workbench() {
     const generator = values.generator ?? padGenerator;
     const lengthInput = generator === "LINEAR_EXTRUDE" ? linearExtrudeLengthInput(values.lengthSource, lengthUnit) : {};
     command.mutate(() => api.createSolidFeature(editingView.document.id, { sketchId: padSketchID, generator,
-      operation: values.operation, ...lengthInput,
+      operation: values.operation, bodyId: workingBodyID, ...lengthInput,
       angle: generator === "REVOLVE" ? values.angle : undefined,
 	  axisEntityId: generator === "REVOLVE" ? values.axisEntityId : undefined, reversed: values.reversed,
 	  previewId: padPreviewID.current }, padIntentRequestID.current), { onSuccess: (updated) => {
@@ -683,6 +680,7 @@ export function Workbench() {
   };
   const closePad = () => {
     padPreviewAbort.current?.abort(); padPreviewSequence.current += 1; setPadPreviewPending(false);
+	setPadPreviewPlacement(undefined);
 	viewport.current?.clearCommandPreview(); setPadOpen(false); setPadSketchID(undefined); padIntentRequestID.current = undefined; padPreviewID.current=undefined;
   };
 	const closeFeatureEditor = () => {
@@ -742,16 +740,20 @@ export function Workbench() {
     const abort = new AbortController(); padPreviewAbort.current = abort;
 	const sequence = ++padPreviewSequence.current; const baseVersionID = editingView.document.versionId;
 	padPreviewID.current=undefined;
+    setPadPreviewPlacement(undefined);
     viewport.current?.clearCommandPreview();
     setPadPreviewPending(true);
     try {
       const preview = await api.previewCommand(editingView.document.id, { type: "CREATE_SOLID_FEATURE", sketchId: sketchID,
-        generator: values.generator, operation: values.operation, ...lengthInput, angle: values.angle,
+        generator: values.generator, operation: values.operation, bodyId: workingBodyID,
+        ...lengthInput, angle: values.angle,
         axisEntityId: values.axisEntityId, reversed: values.reversed,
         ...(padIntentRequestID.current ? { requestId: padIntentRequestID.current } : {}) }, abort.signal);
 	  if (sequence !== padPreviewSequence.current || preview.baseVersionId !== baseVersionID ||
 		preview.baseVersionId !== latestDocumentVersion.current || !preview.artifact) return;
 	  padPreviewID.current=preview.previewId;
+      setPadPreviewPlacement({ bodyId: preview.resultBodyId ?? preview.artifact.bodyId ?? "",
+        bodyName: preview.resultBodyName ?? "", assignment: preview.bodyAssignment });
       viewport.current?.previewArtifact(preview.artifact, values.operation);
     } catch (error) {
       if (!(error instanceof DOMException && error.name === "AbortError")) message.error(`预览失败：${(error as Error).message}`);
@@ -804,7 +806,8 @@ export function Workbench() {
   };
   const deleteTreeNodes = (nodes: SpecificationTreeNode[]) => {
     if (!editingView || !canEdit || command.isPending) return;
-    const candidates = nodes.filter((node) => node.entityId && node.kind && node.capabilities?.includes("DELETE"));
+    const candidates = [...new Map(nodes.filter((node) => node.entityId && node.kind && node.capabilities?.includes("DELETE") &&
+      node.presentationRole !== "INPUT_REFERENCE").map((node) => [`${node.documentId}:${node.kind}:${node.entityId}`, node])).values()];
     const selectedFeatures = new Set(candidates.filter((node) => !["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE"].includes(node.kind!))
       .map((node) => node.entityId));
     const featureOrder = new Map((editingView.part?.features ?? []).map((feature, index) => [feature.id, index]));
@@ -814,6 +817,22 @@ export function Workbench() {
       return (featureOrder.get(right.entityId!) ?? 0) - (featureOrder.get(left.entityId!) ?? 0);
     });
     if (!targets.length) return;
+    const ownerIDs = new Set(targets.map((node) => node.kind === "INSTANCE" ? node.ownerDocumentId : node.documentId));
+    if (ownerIDs.size !== 1 || !ownerIDs.has(editingView.document.id)) {
+      message.warning("请先激活同一所有者文档，再删除这些对象。");
+      return;
+    }
+    if (targets.length === 1) {
+      const node = targets[0], id = node.entityId!, documentId = editingView.document.id;
+      if (node.kind === "PUBLICATION") { command.mutate(() => api.deletePublication(documentId, id)); return; }
+      if (node.kind === "PRODUCT_PUBLICATION") { command.mutate(() => api.deleteProductPublication(documentId, id)); return; }
+      if (node.kind === "CONTEXT_INPUT") { command.mutate(() => api.deleteContextInput(documentId, id)); return; }
+      if (node.kind === "CONTEXT_BINDING") { command.mutate(() => api.deleteContextBinding(documentId, id)); return; }
+    }
+    if (targets.some((node) => ["PUBLICATION", "PRODUCT_PUBLICATION", "CONTEXT_INPUT", "CONTEXT_BINDING"].includes(node.kind ?? ""))) {
+      message.warning("请分别删除 Publication、上下文输入和绑定。");
+      return;
+    }
     command.mutate(() => api.deleteNodes(editingView.document.id, targets.map((node) => ({
       targetKind: ["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE"].includes(node.kind!) ? node.kind! : "FEATURE",
       targetId: node.entityId!, ownerEntityId: node.ownerEntityId,
@@ -1048,20 +1067,26 @@ export function Workbench() {
       status={<WorkbenchStatus busy={command.isPending} canEdit={canEdit} selectionCount={store.selections.length}
         toolName={activeToolName} lengthUnit={lengthUnit} continuous={store.activeToolMode === "continuous"} />}
       tree={<SpecificationTree key={documentID} nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
-            selectedIdentityKeys={store.selections.map(selectionKey)}
+            ancestorHintKeys={ancestorHintKeysForSelections(treeNodes, store.selections)}
             selectionToken={selectionSetToken(store.selections)}
             highlightedKey={treeKeyForSelection(treeNodes, store.preselection)}
             activeDocumentId={activeID}
             activeInstancePath={activeInstancePath}
+            workingBodyId={workingBodyID}
             onSelect={(nodes) => {
-              const selections = nodes.flatMap(node => node.selection ? [node.selection] : []);
+              const selections = [...new Map(nodes.flatMap((node) => node.selection ? [[selectionKey(node.selection), node.selection] as const] : [])).values()];
               if (!viewport.current?.captureToolSelections(selections)) store.setSelections(selections);
             }}
             onOpenDocumentTab={(node) => {
-              if (node.kind === "INSTANCE" && node.documentId) void openDocumentTab(node.documentId, client, api.getDocument, navigate)
+              const targetDocumentId = node.kind === "INSTANCE" ? node.documentId : node.sourceDocumentId;
+              if (targetDocumentId) void openDocumentTab(targetDocumentId, client, api.getDocument, navigate)
                 .catch((error: Error) => message.error(`打开文档失败：${error.message}`));
             }}
             onActivate={(node) => {
+              if (node.kind === "BODY" && node.documentId === editingView?.document.id && node.bodyId) {
+                setWorkingBodyOverride(node.bodyId);
+                return;
+              }
               if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
                 const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
                 if (constraint) openAssemblyConstraintEditor(constraint);
@@ -1116,14 +1141,24 @@ export function Workbench() {
               if (constraint) openAssemblyConstraintEditor(constraint, true);
             }}
 			onDetach={(node) => {
+              if (node.kind === "CONTEXT_REFERENCE" && node.entityId && node.documentId) {
+                command.mutate(() => api.detachContextReference(node.documentId!, node.entityId!));
+                return;
+              }
               if (node.kind === "SKETCH_EXTERNAL_GEOMETRY" && node.ownerEntityId && node.entityId)
                 editSketch(node.ownerEntityId, [{type:"DETACH_EXTERNAL_GEOMETRY", externalId:node.entityId}]);
             }}
-            onRefresh={(node) => refreshAssemblyConstraint(node.entityId)}
+            onRefresh={(node) => {
+              if (node.kind === "CONTEXT_REFERENCE" && node.documentId) {
+                command.mutate(() => api.updateReferences(node.documentId!));
+                return;
+              }
+              refreshAssemblyConstraint(node.entityId);
+            }}
             onHover={(node) => store.setPreselection(node?.selection ?? null)} onDelete={deleteTreeNodes}
             onToggleVisibility={(node)=>{
               if (!node.hidden && node.kind === "SKETCH" && node.entityId === store.activeSketchID) store.endSketch();
-              setTreeVisibility(node.key, Boolean(node.hidden));
+              setTreeVisibility(node.selection ? selectionKey(node.selection) : node.key, Boolean(node.hidden));
             }}
             onToggleSuppression={(node)=>{
               if(node.kind==="ASSEMBLY_CONSTRAINT"||node.kind==="ASSEMBLY_CONSTRAINT_SET") {
@@ -1335,6 +1370,9 @@ export function Workbench() {
         </>}</Form.Item>
         <Form.Item name="reversed" label="反向" valuePropName="checked"><Switch onChange={previewPad} /></Form.Item>
         <FeaturePreviewLegend operation={padOperation} />
+        {padPreviewPlacement?.bodyId && <small className="cad-command-hint">最终归属：{padPreviewPlacement.bodyName || padPreviewPlacement.bodyId}
+          {padPreviewPlacement.assignment === "AUTO_DISJOINT_ADD" ? "（ADD 结果不连通，自动创建 Body）" :
+            padPreviewPlacement.assignment === "EXPLICIT_NEW_BODY" ? "（显式新建 Body）" : "（现有目标 Body）"}</small>}
         <small className="cad-command-hint">{padPreviewPending ? "后端正在求值预览…" : "输入后按 Enter 或点击视口可刷新后端瞬态预览；预览不会创建 Revision。"}</small></Form>
     </CommandDialog>
 	<CommandDialog id="linear-extrude-edit" open={Boolean(editingExtrude)} title="编辑线性拉伸" onClose={closeFeatureEditor}

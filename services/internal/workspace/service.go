@@ -1083,6 +1083,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		if err != nil {
 			return view, err
 		}
+		bindStructureReferenceCurrency(&structure, view.ReferenceUpdates)
 		view.StructureTree = &structure
 		return view, nil
 	}
@@ -1116,6 +1117,10 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		}
 	}
 	view.Product = &model
+	view.FollowedDocumentIDs, view.FollowedProductIDs, err = service.followedProductDocuments(ctx, model)
+	if err != nil {
+		return view, err
+	}
 	view.Artifacts = map[string]Artifact{}
 	view.ResolvedInstances = []ResolvedInstance{}
 	if err := service.resolveProduct(ctx, summary.VersionID, InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, summary.Name,
@@ -1159,6 +1164,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 	if err != nil {
 		return view, err
 	}
+	bindStructureVariants(&structure, view.ContextVariants)
 	view.StructureTree = &structure
 	return view, nil
 }
@@ -2148,7 +2154,14 @@ func featureStructureNode(feature Feature, path, documentID, versionID, definiti
 	}
 	node := DocumentStructureNode{ID: path + "/" + strings.ToLower(kind) + ":" + feature.ID,
 		Kind: kind, Name: feature.Name, EntityID: feature.ID, EntityType: feature.Type,
-		DocumentID: documentID, VersionID: versionID, DefinitionDigest: definitionDigest}
+		DocumentID: documentID, VersionID: versionID, DefinitionDigest: definitionDigest,
+		BodyID: feature.BodyID, Operation: feature.Operation}
+	if node.Name == "" {
+		node.Name = strings.Title(strings.ToLower(kind))
+	}
+	if kind == "PAD" && feature.Operation == "REMOVE" && (feature.Name == "" || strings.HasPrefix(feature.Name, "Pad")) {
+		node.Name = strings.Replace(node.Name, "Pad", "Pocket", 1)
+	}
 	if deletable {
 		node.Capabilities = []string{"DELETE"}
 	}
@@ -2262,6 +2275,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			Kind: "DATUM_AXIS", Name: axis.Name, EntityID: axis.ID, DocumentID: documentID, VersionID: versionID})
 	}
 	sketches := make(map[string]Feature)
+	uses := make(map[string][]Feature)
 	consumed := make(map[string]bool)
 	dependents := make(map[string]bool)
 	for _, feature := range model.Features {
@@ -2269,9 +2283,13 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			sketches[feature.ID] = feature
 		}
 		if isSolidGenerator(feature.Type) && feature.Profile != "" {
-			consumed[feature.Profile] = true
+			uses[feature.Profile] = append(uses[feature.Profile], feature)
 			dependents[feature.Profile] = true
 		}
+	}
+	for sketchID, consumers := range uses {
+		sketch, exists := sketches[sketchID]
+		consumed[sketchID] = exists && len(consumers) == 1 && consumers[0].BodyID == sketch.BodyID
 	}
 	bodies := []DocumentStructureNode{}
 	for _, definition := range model.Bodies {
@@ -2285,7 +2303,16 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			node := featureStructureNode(feature, body.ID, documentID, versionID, digest, editable && !dependents[feature.ID], editable)
 			if isSolidGenerator(feature.Type) && feature.Profile != "" {
 				if sketch, exists := sketches[feature.Profile]; exists {
-					node.Children = []DocumentStructureNode{featureStructureNode(sketch, node.ID, documentID, versionID, "", false, editable)}
+					if consumed[sketch.ID] {
+						child := featureStructureNode(sketch, node.ID, documentID, versionID, "", false, editable)
+						child.PresentationRole = "FEATURE_INPUT"
+						node.Children = []DocumentStructureNode{child}
+					} else {
+						node.Children = []DocumentStructureNode{{ID: node.ID + "/input-sketch:" + sketch.ID,
+							Kind: "SKETCH_INPUT_REFERENCE", Name: sketch.Name, EntityID: sketch.ID,
+							BodyID: sketch.BodyID, DocumentID: documentID, VersionID: versionID,
+							OwnerEntityID: feature.ID, PresentationRole: "INPUT_REFERENCE"}}
+					}
 				}
 			}
 			body.Children = append(body.Children, node)
@@ -2304,7 +2331,12 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			Name: publication.Name, EntityID: publication.ID, EntityType: publication.Type, DocumentID: documentID,
 			VersionID: versionID, OwnerEntityID: publication.Target.DatumID, Axis: publication.Target.Axis,
 			GeometryKey: publication.Resolution.GeometryKey, TopologyID: publication.Resolution.LocalID,
-			Diagnostic: diagnostic, Publication: &publicationCopy}
+			Diagnostic: diagnostic, ResolutionStatus: publication.Resolution.Status,
+			ConnectionStatus: publication.Resolution.Status,
+			SourceRevisionID: publication.Resolution.ResolvedVersionID, Publication: &publicationCopy}
+		if editable {
+			node.Capabilities = []string{"DELETE"}
+		}
 		if publication.Target.Kind == "DATUM" {
 			for _, plane := range model.DatumPlanes {
 				if plane.ID == publication.Target.DatumID {
@@ -2313,6 +2345,17 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			}
 		}
 		publications.Children = append(publications.Children, node)
+	}
+	parameters := DocumentStructureNode{ID: path + "/parameters", Kind: "PARAMETER_SET", Name: "Parameters / Relations",
+		DocumentID: documentID, VersionID: versionID}
+	for _, parameter := range model.Parameters {
+		name := parameter.Label
+		if name == "" {
+			name = parameter.Key
+		}
+		parameters.Children = append(parameters.Children, DocumentStructureNode{ID: parameters.ID + "/parameter:" + parameter.ParameterID,
+			Kind: "PARAMETER", Name: name, EntityID: parameter.ParameterID,
+			DocumentID: documentID, VersionID: versionID})
 	}
 	contexts := DocumentStructureNode{ID: path + "/context-references", Kind: "CONTEXT_REFERENCE_SET", Name: "Context References",
 		DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
@@ -2323,12 +2366,21 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		}
 		capabilities := []string{}
 		if editable && reference.ReferenceMode != "ISOLATED" {
-			capabilities = append(capabilities, "DETACH")
+			capabilities = append(capabilities, "DETACH", "REFRESH")
 		}
 		contexts.Children = append(contexts.Children, DocumentStructureNode{ID: contexts.ID + "/context:" + reference.ID,
 			Kind: "CONTEXT_REFERENCE", Name: reference.Name, EntityID: reference.ID, EntityType: reference.Publication.ExpectedType,
 			OwnerEntityID: reference.LocalTargetID, DocumentID: documentID, VersionID: versionID,
-			ReferenceMode: reference.ReferenceMode, Diagnostic: diagnostic, Capabilities: capabilities})
+			ReferenceMode: reference.ReferenceMode, ResolutionStatus: reference.Resolution.Status,
+			ConnectionStatus: reference.Resolution.Status,
+			SourceDocumentID: reference.SourceDocumentID, SourceRevisionID: reference.ResolvedRevisionID,
+			SourceDisplayPath: func() string {
+				if reference.SourceInstancePath != nil {
+					return reference.SourceInstancePath.Display
+				}
+				return ""
+			}(),
+			Diagnostic: diagnostic, Capabilities: capabilities})
 	}
 	inputs := DocumentStructureNode{ID: path + "/context-inputs", Kind: "CONTEXT_INPUT_SET", Name: "Context Inputs",
 		DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
@@ -2340,6 +2392,9 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			Capabilities: []string{"EDIT", "DELETE"}, ContextInput: &copy})
 	}
 	result := append([]DocumentStructureNode{origin}, bodies...)
+	if len(parameters.Children) > 0 {
+		result = append(result, parameters)
+	}
 	if len(inputs.Children) > 0 {
 		result = append(result, inputs)
 	}
@@ -2387,6 +2442,7 @@ func (service *Service) buildDocumentStructure(
 		root.Children = partStructureChildren(model, path, documentID, versionID, true)
 		rootPath := root.InstancePath
 		applyInstancePath(root.Children, rootPath)
+		annotateStructure(&root, documentID, "")
 		return root, nil
 	}
 	root.Capabilities = []string{"CREATE_PART"}
@@ -2419,7 +2475,9 @@ func (service *Service) buildDocumentStructure(
 			ID: instanceNodePath, Kind: "INSTANCE", Name: fmt.Sprintf("%s(%s)", reference.ReferenceName, instance.Name),
 			ReferenceName: reference.ReferenceName, InstanceName: instance.Name, EntityID: instance.ID,
 			DocumentID: reference.DocumentID, DocumentType: reference.DocumentType,
-			VersionID: resolvedVersionID, ReferenceMode: mode, InstancePath: &childIdentity, Children: reference.Children,
+			VersionID: resolvedVersionID, ReferenceMode: mode, InstancePath: &childIdentity,
+			Children:        []DocumentStructureNode{reference},
+			OwnerDocumentID: documentID, ConnectionStatus: "CONNECTED", CurrencyStatus: "CURRENT",
 		}
 		instanceNode.Capabilities = []string{"DELETE"}
 		if mode == "PINNED" {
@@ -2434,6 +2492,7 @@ func (service *Service) buildDocumentStructure(
 			var head string
 			if service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&head) == nil && head != instance.ReferencedVersionID {
 				staleInstances[instance.ID] = true
+				instanceNode.CurrencyStatus = "UPDATE_AVAILABLE"
 				instanceNode.Diagnostic = "NOT_UPDATED: referenced workspace has a newer revision"
 				instanceNode.Capabilities = append(instanceNode.Capabilities, "UPDATE_REFERENCES")
 			}
@@ -2445,13 +2504,23 @@ func (service *Service) buildDocumentStructure(
 			DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
 		for _, publication := range model.Publications {
 			copy := publication
+			sourceDocumentID := ""
+			if segments := publication.Target.InstancePath.Segments; len(segments) > 0 {
+				sourceDocumentID = segments[len(segments)-1].ReferencedDocumentID
+			}
 			diagnostic := ""
 			if publication.Resolution.Status != "CONNECTED" {
 				diagnostic = strings.TrimSpace(publication.Resolution.DiagnosticCode + ": " + publication.Resolution.Diagnostic)
 			}
 			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/publication:" + publication.ID,
 				Kind: "PRODUCT_PUBLICATION", Name: publication.Name, EntityID: publication.ID, EntityType: publication.Type,
-				DocumentID: documentID, VersionID: versionID, Diagnostic: diagnostic, ProductPublication: &copy})
+				DocumentID: documentID, VersionID: versionID, Diagnostic: diagnostic,
+				ResolutionStatus:  publication.Resolution.Status,
+				ConnectionStatus:  publication.Resolution.Status,
+				SourceDocumentID:  sourceDocumentID,
+				SourceRevisionID:  publication.Resolution.ResolvedVersionID,
+				SourceDisplayPath: publication.Target.InstancePath.Display,
+				Capabilities:      []string{"DELETE"}, ProductPublication: &copy})
 		}
 		root.Children = append(root.Children, group)
 	}
@@ -2460,13 +2529,22 @@ func (service *Service) buildDocumentStructure(
 			DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
 		for _, binding := range model.ContextBindings {
 			copy := binding
+			sourceDocumentID := ""
+			if segments := binding.SourceInstancePath.Segments; len(segments) > 0 {
+				sourceDocumentID = segments[len(segments)-1].ReferencedDocumentID
+			}
 			diagnostic := ""
 			if binding.Resolution.Status != "CONNECTED" {
 				diagnostic = strings.TrimSpace(binding.Resolution.DiagnosticCode + ": " + binding.Resolution.Diagnostic)
 			}
 			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/binding:" + binding.ID,
 				Kind: "CONTEXT_BINDING", Name: binding.Name, EntityID: binding.ID, EntityType: binding.Publication.ExpectedType,
-				DocumentID: documentID, VersionID: versionID, Diagnostic: diagnostic, Capabilities: []string{"DELETE"}, ContextBinding: &copy})
+				DocumentID: documentID, VersionID: versionID, Diagnostic: diagnostic,
+				ResolutionStatus: binding.Resolution.Status, ConnectionStatus: binding.Resolution.Status,
+				Capabilities:      []string{"DELETE", "REFRESH"},
+				SourceDocumentID:  sourceDocumentID,
+				SourceRevisionID:  binding.Accepted.SourceRevisionID,
+				SourceDisplayPath: binding.SourceInstancePath.Display, ContextBinding: &copy})
 		}
 		root.Children = append(root.Children, group)
 	}
@@ -2498,11 +2576,186 @@ func (service *Service) buildDocumentStructure(
 			capabilities := assemblyConstraintStructureCapabilities(constraint, status)
 			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/constraint:" + constraint.ID,
 				Kind: "ASSEMBLY_CONSTRAINT", Suppressed: constraint.Suppressed, Name: name, EntityID: constraint.ID, EntityType: constraint.Kind,
-				DocumentID: documentID, Diagnostic: string(status) + ": " + summary, Capabilities: capabilities})
+				DocumentID: documentID, EvaluationStatus: string(status),
+				Diagnostic: string(status) + ": " + summary, Capabilities: capabilities})
 		}
 		root.Children = append(root.Children, group)
 	}
+	annotateStructure(&root, documentID, "")
 	return root, nil
+}
+
+func bindStructureReferenceCurrency(root *DocumentStructureNode, updates []ReferenceUpdate) {
+	byConsumer := make(map[string]ReferenceUpdate, len(updates))
+	for _, update := range updates {
+		byConsumer[update.ConsumerKind+":"+update.ConsumerID] = update
+	}
+	var visit func(*DocumentStructureNode)
+	visit = func(node *DocumentStructureNode) {
+		kind := ""
+		switch node.Kind {
+		case "CONTEXT_REFERENCE":
+			kind = "CONTEXT_REFERENCE"
+		case "PARAMETER":
+			kind = "EXTERNAL_PARAMETER"
+		}
+		if update, exists := byConsumer[kind+":"+node.EntityID]; kind != "" && exists {
+			node.CurrencyStatus = update.Status
+			if update.Status == "BROKEN" {
+				node.ConnectionStatus = "BROKEN"
+			}
+		}
+		for index := range node.Children {
+			visit(&node.Children[index])
+		}
+	}
+	visit(root)
+}
+
+// The projection carries identity independently of its display path. This also
+// covers children of a referenced Part without creating a second Part builder.
+func annotateStructure(node *DocumentStructureNode, ownerDocumentID, bodyID string) {
+	if node.DocumentID != "" {
+		ownerDocumentID = node.DocumentID
+	}
+	if node.Kind == "BODY" {
+		bodyID = node.EntityID
+	}
+	if node.BodyID != "" {
+		bodyID = node.BodyID
+	}
+	if node.OwnerDocumentID == "" {
+		node.OwnerDocumentID = ownerDocumentID
+	}
+	if node.BodyID == "" && bodyID != "" {
+		node.BodyID = bodyID
+	}
+	entityID, subjectDocumentID, subjectKind := node.EntityID, node.DocumentID, node.Kind
+	if node.Kind == "PART" || node.Kind == "PRODUCT" {
+		entityID = node.DocumentID
+	}
+	if node.Kind == "INSTANCE" {
+		subjectDocumentID = node.OwnerDocumentID
+	}
+	if node.Kind == "SKETCH_INPUT_REFERENCE" {
+		subjectKind = "SKETCH"
+	}
+	if entityID != "" && subjectDocumentID != "" {
+		node.Subject = &StructureEntityRef{DocumentID: subjectDocumentID, EntityKind: subjectKind, EntityID: entityID}
+	}
+	if node.InstancePath != nil && len(node.InstancePath.Segments) > 0 {
+		node.Occurrence = &StructureOccurrenceRef{RootDocumentID: node.InstancePath.RootDocumentID,
+			InstancePath: *node.InstancePath}
+	}
+	if node.VersionID != "" {
+		node.Snapshot = &StructureSnapshotScope{RevisionID: node.VersionID,
+			ContextVariantKey: node.ContextVariantKey, GeometryKey: node.GeometryKey}
+	}
+	if node.PresentationRole == "" {
+		if strings.HasSuffix(node.Kind, "_SET") || node.Kind == "ORIGIN" {
+			node.PresentationRole = "GROUP"
+		} else {
+			node.PresentationRole = "DEFINITION"
+		}
+	}
+	if len(node.Children) > 0 {
+		node.ChildrenState = "COMPLETE"
+	} else {
+		node.ChildrenState = "EMPTY"
+	}
+	for index := range node.Children {
+		annotateStructure(&node.Children[index], ownerDocumentID, bodyID)
+	}
+}
+
+func bindStructureVariants(root *DocumentStructureNode, variants []ContextVariantSnapshot) {
+	byOccurrence := make(map[string]ContextVariantSnapshot, len(variants))
+	for _, variant := range variants {
+		byOccurrence[variant.OwningInstancePath.Canonical] = variant
+	}
+	var visit func(*DocumentStructureNode)
+	visit = func(node *DocumentStructureNode) {
+		if node.InstancePath != nil {
+			if variant, exists := byOccurrence[node.InstancePath.Canonical]; exists {
+				node.ContextVariantKey = variant.VariantKey
+				if node.Kind == "BODY" && variant.Status == "READY" {
+					for _, body := range variant.Bodies {
+						if body.ID == node.BodyID {
+							node.GeometryKey = body.GeometryKey
+							break
+						}
+					}
+				}
+				if node.Snapshot != nil {
+					node.Snapshot.ContextVariantKey = node.ContextVariantKey
+					node.Snapshot.GeometryKey = node.GeometryKey
+				}
+			}
+		}
+		for index := range node.Children {
+			visit(&node.Children[index])
+		}
+	}
+	visit(root)
+}
+
+// Follow subscriptions come from Product reference edges at current Heads,
+// independent of which structure-tree branches the client has opened.
+func (service *Service) followedProductDocuments(ctx context.Context, root ProductModel) ([]string, []string, error) {
+	result := map[string]bool{}
+	visited := map[string]bool{}
+	productIDs := []string{}
+	var visit func(ProductModel, int) error
+	visit = func(model ProductModel, depth int) error {
+		if depth > 32 {
+			return fmt.Errorf("%w: Product reference nesting exceeds 32", ErrValidation)
+		}
+		for _, instance := range model.Instances {
+			if instance.ReferenceMode == "PINNED" {
+				continue
+			}
+			id := instance.ReferencedDocumentID
+			result[id] = true
+			if visited[id] {
+				continue
+			}
+			visited[id] = true
+			var documentType string
+			var raw []byte
+			err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.documents d
+				JOIN occccad.document_versions v ON v.id=d.head_version_id
+				WHERE d.id=$1 AND d.deleted_at IS NULL`, id).Scan(&documentType, &raw)
+			if errors.Is(err, pgx.ErrNoRows) {
+				// Keep the reference in the subscription projection. The accepted
+				// revision remains inspectable even if its source is now unavailable.
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if documentType != "PRODUCT" {
+				continue
+			}
+			var child ProductModel
+			if err := json.Unmarshal(raw, &child); err != nil {
+				return err
+			}
+			if err := visit(child, depth+1); err != nil {
+				return err
+			}
+			productIDs = append(productIDs, id)
+		}
+		return nil
+	}
+	if err := visit(root, 0); err != nil {
+		return nil, nil, err
+	}
+	ids := make([]string, 0, len(result))
+	for id := range result {
+		ids = append(ids, id)
+	}
+	slices.Sort(ids)
+	return ids, productIDs, nil
 }
 
 func assemblyConstraintStructureCapabilities(constraint AssemblyConstraint, status modelcore.AssemblyConstraintEvaluationStatus) []string {

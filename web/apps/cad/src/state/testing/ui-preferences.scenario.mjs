@@ -31,7 +31,7 @@ try {
   assert.equal(millimetersToDisplayLength(63.5, "in"), 2.5);
   assert.deepEqual(migrateTreeVisibilityOverrides({ hiddenTreeKeys: ["document:a/body/sketch:s1"] }),
     { "document:a/body/sketch:s1": false }, "v1 hidden keys migrate to explicit hidden overrides");
-  assert.equal(treeVisibilityOverride("document:a/body/sketch:s1/geometry", { "document:a/body/sketch:s1": false }), false);
+  assert.equal(treeVisibilityOverride("document:a/body/sketch:s1/geometry", { "document:a/body/sketch:s1": false }), undefined);
   assert.equal(sketchTreeVisible({ featureID: "s1", treeKey: "sketch:s1", defaultVisible: false,
     overrides: { "sketch:s1": true } }), true, "a remembered visible override reveals a consumed sketch");
   assert.equal(sketchTreeVisible({ featureID: "s1", treeKey: "sketch:s1", activeSketchID: "s1", defaultVisible: false,

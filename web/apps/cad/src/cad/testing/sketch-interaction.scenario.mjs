@@ -54,7 +54,9 @@ try {
   const sketchEntitySelection = { kind: "visual", id: "root:sketch-1:line-1", visualType: "CURVE", featureId: "sketch-1",
     entityId: "line-1", documentId: "part-1", treeNodeId: "document:part-1/body/sketch:sketch-1/geometry/entity:line-1" };
   assert.deepEqual(projectSketchFeatureSelection(sketchEntitySelection), {
-    kind: "sketch", id: "sketch-1", documentId: "part-1", occurrencePath: undefined, instancePath: undefined,
+    kind: "sketch", id: "sketch-1", entityId: "sketch-1", documentId: "part-1", ownerDocumentId: undefined,
+    bodyId: undefined, versionId: undefined, contextVariantKey: undefined, rootDocumentId: undefined,
+    occurrencePath: undefined, instancePath: undefined,
     instanceId: undefined, geometryKey: undefined, treeNodeId: "document:part-1/body/sketch:sketch-1", expandTreeDescendants: true,
   });
   assert.equal(projectSketchFeatureSelection(sketchEntitySelection, "sketch-1"), sketchEntitySelection,
@@ -673,24 +675,26 @@ try {
     semantic: "SKETCH_CURVE", role: "PROFILE", positions: [[0, 0, 0], [2, 0, 0]], selectable: true };
   assert.equal(visualType(persistedLine), "CURVE");
   assert.deepEqual(visualSelection(persistedLine, {
-    documentId: "part-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
+    documentId: "part-1", bodyId: "body-a", versionId: "revision-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
     instanceId: "instance-a", treeNodeId: "product/instance-a/reference/body/sketch:sketch-1",
   }), {
     kind: "visual", id: "instance-a:sketch-1:line-1", visualType: "CURVE",
     featureId: "sketch-1", entityId: "line-1", role: "PROFILE",
-    documentId: "part-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
+    documentId: "part-1", bodyId: "body-a", versionId: "revision-1", contextVariantKey: undefined,
+    instancePath: undefined, geometryKey: "geometry-1", occurrencePath: "instance-a",
     instanceId: "instance-a", treeNodeId: "product/instance-a/reference/body/sketch:sketch-1",
   });
   const persistedConstraint = { id: "parallel-1", featureId: "sketch-1", kind: "LINE_SEGMENTS",
     semantic: "SKETCH_CONSTRAINT", entityType: "PARALLEL", positions: [[0, 0, 0], [0, 2, 0]], selectable: true };
   assert.equal(visualType(persistedConstraint), "CURVE");
   assert.deepEqual(visualSelection(persistedConstraint, {
-    documentId: "part-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
+    documentId: "part-1", bodyId: "body-a", versionId: "revision-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
     instanceId: "instance-a", treeNodeId: "product/instance-a/reference/body/sketch:sketch-1/constraints/logical/constraint:parallel-1",
   }), {
     kind: "sketch-constraint", id: "instance-a:sketch-1:constraint:parallel-1",
     featureId: "sketch-1", constraintId: "parallel-1", constraintType: "PARALLEL",
-    documentId: "part-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
+    documentId: "part-1", bodyId: "body-a", versionId: "revision-1", contextVariantKey: undefined,
+    instancePath: undefined, geometryKey: "geometry-1", occurrencePath: "instance-a",
     instanceId: "instance-a", treeNodeId: "product/instance-a/reference/body/sketch:sketch-1/constraints/logical/constraint:parallel-1",
   });
 

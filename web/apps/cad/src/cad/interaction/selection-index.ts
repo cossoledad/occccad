@@ -48,13 +48,15 @@ export class SelectionIndex {
     if (!selection) return [];
     const direct = this.objects.get(selectionKey(selection));
     const visual = selection.visualKey ? this.objects.get(selection.visualKey) : undefined;
+    const related = selection.kind === "publication" && selection.highlightTarget
+      ? this.objectsFor(selection.highlightTarget) : [];
     const descendants: THREE.Object3D[] = [];
     if (selection.treeNodeId && selection.expandTreeDescendants) {
       for (const [treeNodeId, objects] of this.treeObjects) {
         if (treeNodeId === selection.treeNodeId || treeNodeId.startsWith(`${selection.treeNodeId}/`)) descendants.push(...objects);
       }
     }
-    return [...new Set([...(direct ?? []), ...(visual ?? []), ...descendants])];
+    return [...new Set([...(direct ?? []), ...(visual ?? []), ...related, ...descendants])];
   }
 
   objectsForMany(selections: readonly SelectionItem[]): readonly THREE.Object3D[] {

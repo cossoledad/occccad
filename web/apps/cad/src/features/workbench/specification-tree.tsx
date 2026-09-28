@@ -2,14 +2,21 @@ import { ExportOutlined, SearchOutlined, DeleteOutlined, EditOutlined, EyeInvisi
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Dropdown, Input } from "antd";
 import { isValidElement, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
-import { selectionKey, selectionSetToken } from "../../cad/interaction/selection-identity";
+import { selectionSetToken } from "../../cad/interaction/selection-identity";
 import type { InstancePath, Selection } from "../../types";
 import { filterTree } from "./tree-filter";
 import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-selection";
+import { canToggleNodeVisibility } from "./tree-node-descriptors";
 
 export type SpecificationTreeNode = {
   key: string; title: ReactNode; icon?: ReactNode; children?: SpecificationTreeNode[];
   kind?: string; entityId?: string; documentId?: string; documentType?: string; plane?: string; selection?: Selection;
+  ownerDocumentId?: string; bodyId?: string;
+  presentationRole?: "DEFINITION" | "FEATURE_INPUT" | "INPUT_REFERENCE" | "GROUP";
+  childrenState?: "COMPLETE" | "EMPTY" | "UNLOADED" | "LOADING" | "FAILED";
+  connectionStatus?: string; currencyStatus?: string; evaluationStatus?: string;
+  resolutionStatus?: string;
+  sourceDocumentId?: string; sourceRevisionId?: string; sourceDisplayPath?: string;
   instancePath?: InstancePath;
   capabilities?: Array<"ACTIVATE" | "DEACTIVATE" | "DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART" | "UPDATE_REFERENCES" | "PIN_VERSION" | "FOLLOW_HEAD">; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
   definitionDigest?: string;
@@ -56,15 +63,14 @@ function branchKeys(nodes: SpecificationTreeNode[], output = new Set<string>()):
 }
 
 function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<string>()): Set<string> {
-  for (const node of nodes) if (node.children?.length && ["PRODUCT", "INSTANCE", "PART"].includes(node.kind ?? "")) {
-    output.add(node.key); initiallyExpandedKeys(node.children, output);
-  }
+  // The root row is always open; occurrence and Part history branches open on demand.
+  void nodes;
   return output;
 }
 
-export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, selectionToken, highlightedKey, activeDocumentId, activeInstancePath, onSelect, onActivate, onOpenDocumentTab, onEdit, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
-  nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; selectedIdentityKeys: readonly string[];
-  selectionToken: string; highlightedKey?: string; activeDocumentId?: string; activeInstancePath?: string;
+export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onEdit, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+  nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
+  selectionToken: string; highlightedKey?: string; activeDocumentId?: string; activeInstancePath?: string; workingBodyId?: string;
   onSelect: (nodes: SpecificationTreeNode[]) => void; onHover?: (node?: SpecificationTreeNode) => void;
   onActivate?: (node: SpecificationTreeNode) => void;
   onOpenDocumentTab?: (node: SpecificationTreeNode) => void;
@@ -90,10 +96,12 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
   const visible = useMemo(() => flatten(filteredNodes, query.trim() ? branchKeys(filteredNodes) : expanded), [filteredNodes, query, expanded]);
   const nodeIndex = useMemo(() => indexNodes(nodes), [nodes]);
   const visibleKeys = useMemo(() => visible.map((entry) => entry.node.key), [visible]);
-  const selected = useMemo(() => new Set(selectedKeys.map((key) => {
-    if (visibleKeys.includes(key)) return key;
-    return [...(ancestorsOf(nodes, key) ?? [])].reverse().find((candidate) => visibleKeys.includes(candidate)) ?? key;
-  })), [nodes, selectedKeys, visibleKeys]);
+  const selected = useMemo(() => new Set(selectedKeys), [selectedKeys]);
+  const descendantHints = useMemo(() => {
+    const hints = new Set(ancestorHintKeys ?? []);
+    for (const key of selectedKeys) for (const parent of ancestorsOf(nodes, key) ?? []) hints.add(parent);
+    return hints;
+  }, [ancestorHintKeys, nodes, selectedKeys]);
   useEffect(() => {
     const available = branchKeys(nodes);
     setExpanded((current) => new Set([
@@ -157,7 +165,7 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
   };
   const contextSelection = (event: MouseEvent<HTMLElement>, node: SpecificationTreeNode) => {
     event.preventDefault(); event.stopPropagation();
-    const exactNodeSelected = Boolean(node.selection && selectedIdentityKeys.includes(selectionKey(node.selection)));
+    const exactNodeSelected = selectedKeys.includes(node.key);
     const menuSelectionSignature = exactNodeSelected ? selectionToken : node.selection ? selectionSetToken([node.selection]) : "";
     if (!exactNodeSelected) {
       anchorKey.current = node.key;
@@ -179,15 +187,17 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
         const { node, depth, hasChildren } = entry;
         const isExpanded = hasChildren && (depth === 0 || expanded.has(node.key) || Boolean(query.trim()));
         const isSelected = selected.has(node.key);
-        const selectedNodes = isSelected
+        const selectedNodes = isSelected && node.presentationRole !== "INPUT_REFERENCE"
           ? selectedKeys.map((key) => nodeIndex.get(key)).filter((candidate): candidate is SpecificationTreeNode => Boolean(candidate)) : [node];
-        const deletable = selectedNodes.filter((candidate) => candidate.capabilities?.includes("DELETE"));
+        const deletable = selectedNodes.filter((candidate) => candidate.presentationRole !== "INPUT_REFERENCE" && candidate.capabilities?.includes("DELETE"));
         const rowStyle = { transform: `translateY(${item.start}px)`, paddingLeft: depth * 22,
           "--tree-depth": depth } as CSSProperties;
         const isActiveDocument = Boolean((node.kind === "PART" || node.kind === "PRODUCT" || node.kind === "INSTANCE") &&
           (activeInstancePath ? node.instancePath?.canonical === activeInstancePath
             : activeDocumentId && node.documentId === activeDocumentId && !node.instancePath));
-        const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${isActiveDocument ? "active-document" : ""} ${highlightedKey === node.key ? "highlighted" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
+        const isWorkingBody = node.kind === "BODY" && node.bodyId === workingBodyId &&
+          node.documentId === activeDocumentId && (node.instancePath?.canonical ?? "") === (activeInstancePath ?? "");
+        const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${descendantHints.has(node.key) && !isSelected ? "selected-descendant" : ""} ${isActiveDocument ? "active-document" : ""} ${isWorkingBody ? "working-body" : ""} ${highlightedKey === node.key ? "highlighted" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
           role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? isExpanded : undefined}
           aria-selected={isSelected} data-tree-key={node.key}
           tabIndex={node.key === (visibleKeys.includes(focusedKey ?? "") ? focusedKey : visibleKeys[0]) ? 0 : -1}
@@ -205,7 +215,7 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
               </svg>
             </button> : <span className="specification-tree-junction leaf" />}
           <span className="specification-tree-icon">{node.icon}</span>
-          <span className="specification-tree-label">{node.title}</span>
+          <span className="specification-tree-label">{node.title}{isWorkingBody ? " · 工作中" : ""}</span>
         </div>;
         return <div key={node.key} className={`specification-tree-virtual-row ${depth > 0 ? "nested" : "root"}`} style={rowStyle}>
           {Array.from({ length: depth }, (_, guide) => <i key={guide} className="specification-tree-depth-guide"
@@ -216,6 +226,11 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
             menu={{ items: [node.kind === "INSTANCE" && node.documentId && onOpenDocumentTab ? {
               key: "open-document-tab", icon: <ExportOutlined />, label: "在新标签页中打开",
               onClick: () => { setContextMenu(undefined); onOpenDocumentTab(node); } } : null,
+            node.sourceDocumentId && onOpenDocumentTab ? {
+              key: "open-source", icon: <ExportOutlined />, label: "打开来源",
+              onClick: () => { setContextMenu(undefined); onOpenDocumentTab(node); } } : null,
+            node.kind === "BODY" && onActivate ? { key: "activate-body", label: "设为当前工作 Body",
+              onClick: () => { setContextMenu(undefined); onActivate(node); } } : null,
             node.kind === "SKETCH_ENTITY" ? { key: "construction", icon: <SwapOutlined />,
               label: node.role === "CONSTRUCTION" ? "设为轮廓元素" : "设为构造元素",
               disabled: !node.capabilities?.includes("DELETE"),
@@ -234,8 +249,8 @@ export function SpecificationTree({ nodes, selectedKeys, selectedIdentityKeys, s
               onClick: () => { setContextMenu(undefined); onReconnect?.(node); } } : null,
             node.capabilities?.includes("REFRESH") ? { key: "refresh", icon: <ReloadOutlined />, label: "重新解析并求解",
               onClick: () => { setContextMenu(undefined); onRefresh?.(node); } } : null,
-            { key: "visibility", icon: <EyeInvisibleOutlined />, label: node.hidden ? "显示" : "隐藏",
-              onClick: () => { setContextMenu(undefined); onToggleVisibility?.(node); } },
+            canToggleNodeVisibility(node.kind) ? { key: "visibility", icon: <EyeInvisibleOutlined />, label: node.hidden ? "显示" : "隐藏",
+              onClick: () => { setContextMenu(undefined); onToggleVisibility?.(node); } } : null,
             node.capabilities?.includes("SUPPRESS") ? { key: "suppress", icon: <PauseCircleOutlined />,
               label: node.suppressed ? "解除抑制" : "抑制",
               onClick: () => { setContextMenu(undefined); onToggleSuppression?.(node); } } : null,

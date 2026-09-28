@@ -9,7 +9,8 @@ try {
   const view = {
     document: { id: "part", type: "PART", versionId: "revision-2" },
     datumPlanes: [{ id: "datum-xy", plane: "XY", name: "XY", origin: [0, 0, 0], normal: [0, 0, 1], uDirection: [1, 0, 0], size: 100 }],
-    part: { units: "mm", datumPlanes: [], axisSystems: [], features: [], publications: [{
+    part: { units: "mm", datumPlanes: [], axisSystems: [], features: [],
+      bodies: [{ id: "body-a", geometryKey: "geometry-key" }], publications: [{
       id: "publication-face", name: "Mounting Surface", type: "SURFACE", compatibilityVersion: "1.0.0",
       target: { kind: "TOPOLOGY", sourceVersionId: "revision-1" }, contract: { geometryKind: "SURFACE" },
       resolution: { status: "CONNECTED", resolvedVersionId: "revision-2", topologyKind: "FACE", localId: 7,
@@ -22,15 +23,17 @@ try {
   };
   const face = structureSelection({ id: "tree/publication-face", kind: "PUBLICATION", name: "Mounting Surface",
     entityId: "publication-face", documentId: "part", versionId: "revision-2" }, view);
-  assert.equal(face.kind, "face");
-  assert.equal(face.topologyId, 7);
-  assert.equal(face.geometryKey, "geometry-key");
+  assert.equal(face.kind, "publication");
+  assert.equal(face.highlightTarget.kind, "face");
+  assert.equal(face.highlightTarget.topologyId, 7);
+  assert.equal(face.highlightTarget.geometryKey, "geometry-key");
   assert.equal(face.publicationId, "publication-face");
 
   const plane = structureSelection({ id: "tree/publication-plane", kind: "PUBLICATION", name: "Base Plane",
     entityId: "publication-plane", documentId: "part", versionId: "revision-2" }, view);
-  assert.equal(plane.kind, "plane");
-  assert.equal(plane.entityId, "datum-xy");
+  assert.equal(plane.kind, "publication");
+  assert.equal(plane.highlightTarget.kind, "plane");
+  assert.equal(plane.highlightTarget.entityId, "datum-xy");
   assert.equal(plane.publicationId, "publication-plane");
 
   const instancePath = { rootDocumentId: "product", canonical: "instance-a", display: "Part1.1",
@@ -39,18 +42,20 @@ try {
   view.structureTree = { id: "product", kind: "PRODUCT", name: "Product1", documentId: "product", documentType: "PRODUCT",
     children: [{ id: "product/instance:instance-a", kind: "INSTANCE", name: "Part1(Part1.1)", referenceName: "Part1",
       instanceName: "Part1.1", entityId: "instance-a", documentId: "part", documentType: "PART", instancePath,
-      children: [{ id: "product/instance:instance-a/reference/body", kind: "BODY", name: "PartBody", documentId: "part", instancePath },
+      children: [{ id: "product/instance:instance-a/reference/body", kind: "BODY", name: "PartBody", documentId: "part", bodyId: "body-a",
+        geometryKey: "geometry-key", versionId: "revision-2", instancePath },
         { id: "product/instance:instance-a/reference/publications/publication:publication-face", kind: "PUBLICATION",
           name: "Mounting Surface", entityId: "publication-face", documentId: "part", instancePath,
           publication: view.part.publications[0] }] }] };
-  view.resolvedInstances = [{ id: "instance-a", documentId: "part", geometryKey: "geometry-key", instancePath }];
-  const rawFace = { kind: "face", id: "pick", topologyId: 7, geometryKey: "geometry-key", occurrencePath: "instance-a",
-    instanceId: "instance-a", documentId: "part" };
+  view.resolvedInstances = [{ id: "instance-a", documentId: "part", bodyId: "body-a",
+    occurrencePath: "instance-a", geometryKey: "geometry-key", instancePath }];
+  const rawFace = { kind: "face", id: "pick", topologyId: 7, geometryKey: "geometry-key", versionId: "revision-2", occurrencePath: "instance-a",
+    instanceId: "instance-a", documentId: "part", bodyId: "body-a" };
   const promoted = bindPublicationSelection(rawFace, view.structureTree);
   assert.equal(promoted.publicationId, "publication-face", "viewport picks should acquire the unique Publication identity");
   const nodes = treeData(view, view);
   const selectedKeys = treeKeysForSelections(nodes, [promoted]);
-  assert(selectedKeys.includes("product/instance:instance-a/reference/body"), "the owning PartBody should be highlighted");
+  assert(!selectedKeys.includes("product/instance:instance-a/reference/body"), "published topology must not select a Body");
   assert(selectedKeys.includes("product/instance:instance-a/reference/publications/publication:publication-face"), "the Publication node should be highlighted");
   const presentation = describeAssemblyReference({ instanceId: "instance-a", kind: "FACE", geometryKey: "geometry-key",
     topologyId: 7, publicationRef: { publicationId: "publication-face", expectedType: "SURFACE", compatibilityVersion: "1.0.0" } }, view);

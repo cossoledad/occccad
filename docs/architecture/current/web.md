@@ -32,7 +32,11 @@ Part 求值输出 schema v1 `VisualizationManifest` 并写入 GLB 的 `OCCCCAD_v
 
 InputManager、Tool、Selection 和 Overlay 共用完整 pointer down/move/up/cancel、capture/lost capture、Esc/blur 生命周期。hover、正式选择和工具保留引用独立呈现；切换状态先释放旧覆盖再重建。隐藏对象及其子孙退出拾取候选。工具声明 geometry/instance 选择模式，在 hover/select 之前完成语义投影；树和视口按稳定 identity 同步，树祖先高亮不反向扩大精确拓扑选择。装配约束工具通过同一 selectionInput 消费视口点击、结构树节点和启动前选择集；固定/刚性先执行 instance 投影，再转换为 AssemblyGeometryRef。一个有效支持保留等待第二项，两个不同 occurrence 的支持进入现有约束定义和预览流程；重复支持不重复提交。工具激活先发布状态再消费预选，避免完成后又被激活通知覆盖。
 
-各 Body 的 GLB 独立下载/缓存，视口以 occurrence + Body 绑定显示与拾取；Body 选择、显隐与目标 Body Preview 不影响兄弟 Body。属性面板只读展示 Body 名称、活动/显隐状态与按 Revision 索引分组的 Part Files 下载，不提供 Body 创建/删除/重命名/激活/显隐或参数编辑入口；编辑通过正式业务命令执行。最终 Body 制品绑定该 Body；当前没有历史中每个 Feature 的独立可视 Result。`geometryKey + local topology ID` 只用于当前制品拾取证据，持久引用仍由服务端绑定。Publication 同时关联视口、所属树节点及发布节点；无法解析约束显示锚点时回退 occurrence 中心，保持 Broken 可选、可修复。
+各 Body 的 GLB 独立下载/缓存，视口以 occurrence + Body 绑定显示与拾取；Body 选择、显隐与目标 Body Preview 不影响兄弟 Body。属性面板只读展示 Body 名称、活动/显隐状态与按 Revision 索引分组的 Part Files 下载，Product occurrence 中的 Body 属性也按其 resolved Revision 查询；编辑通过正式业务命令执行。最终 Body 制品绑定该 Body；当前没有历史中每个 Feature 的独立可视 Result。`BodyId + Revision + geometryKey + local topology ID` 只用于当前制品拾取证据，持久引用仍由服务端绑定。Publication 树入口选择保持 Publication 业务身份，只有同 Body、Revision、Geometry 范围内可唯一解析的目标才关联几何高亮；无法解析约束显示锚点时回退 occurrence 中心，保持 Broken 可选、可修复。
+
+结构树消费服务端 `DocumentStructureNode`：Product 的 Instance 下保留独立 Part/Product 定义根，Part 与 Product 内 Part 共用 Body/Feature/Sketch 投影；被多个 Feature 使用的 Sketch 保留一个定义入口和多个只读输入引用。节点显式携带 `EntityRef`、`OccurrenceRef`、`SnapshotScope`、owner、Body、能力，以及可分别读取的连接、时效、求值、子节点加载状态；树路径只标识当前投影入口。选择键包含文档、完整 occurrence、Revision/variant、Body 与几何范围；折叠祖先只显示后代提示，不变更精确命令目标。行虚拟化保留，Product/Part 历史分支默认按需展开；目前服务端仍构造完整结构快照，尚未实现分页获取子树。更多设计与 CATIA 对照见[语义结构树与交互上下文](../semantic-tree-interaction.md)。
+
+单击树节点只选择；双击或菜单显式激活 Body、进入 Sketch 编辑或切换 Part/Product 编辑上下文。会话工作 Body 覆盖持久 `activeBodyId` 默认值，仅本标签生效；选择、展开和临时显隐不写入 Revision。Feature 选择保持设计步骤身份，当前缺少可证明的贡献拓扑索引，属性面板说明降级，视口不把整个 Body 伪装成 Feature 结果。Product 自动更新订阅来自服务端的非 PINNED 领域引用投影，并继续通过 UpdatePlan 按叶到根接受；过滤和展开状态不参与更新决策。
 
 捕捉过滤与 Selection 独立。三维类型过滤、草图网格/端点/中心/中点/曲线投影共用候选排序；禁用候选不能遮挡后方可用对象。显示折线上的投影仅是交互近似。命中稳定点时，同一编辑批次显式添加 Coincident，不能只保存相同坐标。
 

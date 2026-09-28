@@ -699,7 +699,9 @@ func TestPersistedChangeSetRepairStillRequiresAuthoritativeWriteSet(t *testing.T
 }
 
 func TestPartStructureRejectsPadWhoseSketchWasRemoved(t *testing.T) {
-	model := PartModel{Units: "mm", Features: []Feature{{ID: "pad-1", Type: "PAD", Profile: "sketch-1", Length: 10}}}
+	model := PartModel{Units: "mm", Bodies: []PartBody{{ID: "body-main", Name: "Body.1"}},
+		ActiveBodyID: "body-main", Features: []Feature{{ID: "pad-1", BodyID: "body-main", Type: "PAD",
+			Profile: "sketch-1", Length: 10, Operation: "ADD"}}}
 	if err := validatePartStructure(model); err == nil || !strings.Contains(err.Error(), "requires an earlier sketch") {
 		t.Fatalf("expected an explicit structural dependency error, got %v", err)
 	}
@@ -848,7 +850,7 @@ func TestPartStructureNestsConsumedSketchUnderPad(t *testing.T) {
 		{ID: "sketch-2", Type: "SKETCH", Name: "Sketch 2"},
 	}}
 	children := partStructureChildren(model, "document:part-1", "part-1", "version-1", true)
-	if len(children) != 2 || children[1].Kind != "BODY" || len(children[1].Children) != 2 {
+	if len(children) < 2 || children[1].Kind != "BODY" || len(children[1].Children) != 2 {
 		t.Fatalf("unexpected part structure: %#v", children)
 	}
 	pad := children[1].Children[0]

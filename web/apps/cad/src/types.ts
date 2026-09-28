@@ -69,6 +69,9 @@ export type CommandPreview = {
   baseSequence: number;
   modelHash: string;
   artifact?: Artifact;
+  resultBodyId?: string;
+  resultBodyName?: string;
+  bodyAssignment?: "TARGET_BODY" | "EXPLICIT_NEW_BODY" | "AUTO_DISJOINT_ADD";
   constraintLimited?: boolean;
   instancePoses?: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;
   constraintEvaluation?: { constraintId: string; status: AssemblyConstraint["evaluationStatus"]; summary?: string;
@@ -279,9 +282,28 @@ export type ResolvedInstance = {
   bodyTreeNodeId: string;
 };
 
+export type EntityRef = { documentId: string; entityKind: string; entityId: string };
+export type OccurrenceRef = { rootDocumentId: string; instancePath: InstancePath };
+export type SnapshotScope = { revisionId: string; contextVariantKey?: string; geometryKey?: string };
+
 export type DocumentStructureNode = {
   id: string;
-  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
+  subject?: EntityRef;
+  occurrence?: OccurrenceRef;
+  snapshot?: SnapshotScope;
+  kind: "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
+  presentationRole?: "DEFINITION" | "FEATURE_INPUT" | "INPUT_REFERENCE" | "GROUP";
+  ownerDocumentId?: string;
+  bodyId?: string;
+  childrenState?: "COMPLETE" | "EMPTY" | "UNLOADED" | "LOADING" | "FAILED";
+  connectionStatus?: string;
+  currencyStatus?: string;
+  evaluationStatus?: string;
+  resolutionStatus?: string;
+  contextVariantKey?: string;
+  sourceDocumentId?: string;
+  sourceRevisionId?: string;
+  sourceDisplayPath?: string;
   name: string;
   referenceName?: string;
   instanceName?: string;
@@ -293,10 +315,11 @@ export type DocumentStructureNode = {
   axis?: "X" | "Y" | "Z";
   geometryKey?: string;
   topologyId?: number;
-  referenceMode?: "FOLLOW_HEAD" | "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED";
+  referenceMode?: "FOLLOW_HEAD" | "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED" | "ISOLATED";
   instancePath?: InstancePath;
   ownerEntityId?: string;
   entityType?: string;
+  operation?: Feature["operation"];
   role?: "PROFILE" | "CONSTRUCTION";
   suppressed?: boolean;
   diagnostic?: string;
@@ -321,6 +344,8 @@ export type DocumentView = {
   resolvedInstances?: ResolvedInstance[];
   structureTree?: DocumentStructureNode;
   referenceUpdates?: ReferenceUpdate[];
+  followedDocumentIds?: string[];
+  followedProductIds?: string[];
   designSession?: ProductDesignSession;
   contextVariants?: ContextVariantSnapshot[];
 };
@@ -388,8 +413,16 @@ export type AssemblySolveManifestResult = {manifestDigest:string;requestId:strin
 export type ProductReleaseReplay = {releaseId:string;manifestDigest:string;status:string;assembly?:AssemblySolveManifestResult};
 
 export type SelectionIdentity = {
+  entityRef?: EntityRef;
+  occurrenceRef?: OccurrenceRef;
+  snapshotScope?: SnapshotScope;
   bodyId?: string;
   id: string;
+  entityKind?: string;
+  ownerDocumentId?: string;
+  rootDocumentId?: string;
+  contextVariantKey?: string;
+  highlightTarget?: SelectionItem;
   treeNodeId?: string;
   expandTreeDescendants?: boolean;
   documentId?: string;
@@ -405,6 +438,7 @@ export type SelectionIdentity = {
 };
 
 export type SelectionItem =
+  | (SelectionIdentity & { kind: "part" | "product" | "feature" | "publication" | "external-reference" | "context-input" | "context-binding" | "parameter" })
   | (SelectionIdentity & { kind: "plane"; plane: PlaneName | "CUSTOM"; datumPlane?: DatumPlane })
   | (SelectionIdentity & { kind: "axis-system" })
   | (SelectionIdentity & { kind: "axis"; axis: "X" | "Y" | "Z" | "DATUM" })

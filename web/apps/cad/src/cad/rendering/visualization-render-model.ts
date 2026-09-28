@@ -1,7 +1,11 @@
-import type { Selection, VisualPrimitive } from "../../types";
+import type { InstancePath, Selection, VisualPrimitive } from "../../types";
 
 export type VisualOccurrenceContext = {
   documentId: string;
+  versionId?: string;
+  bodyId?: string;
+  contextVariantKey?: string;
+  instancePath?: InstancePath;
   geometryKey: string;
   occurrencePath: string;
   treeNodeId?: string;
@@ -26,6 +30,10 @@ export function visualSelection(
     constraintType: primitive.entityType ?? "UNKNOWN",
     treeNodeId: context.treeNodeId,
     documentId: context.documentId,
+    versionId: context.versionId,
+    bodyId: context.bodyId,
+    contextVariantKey: context.contextVariantKey,
+    instancePath: context.instancePath,
     occurrencePath: context.occurrencePath,
     geometryKey: context.geometryKey,
     instanceId: context.instanceId,
@@ -39,6 +47,10 @@ export function visualSelection(
     role: primitive.role,
     treeNodeId: context.treeNodeId,
     documentId: context.documentId,
+    versionId: context.versionId,
+    bodyId: context.bodyId,
+    contextVariantKey: context.contextVariantKey,
+    instancePath: context.instancePath,
     occurrencePath: context.occurrencePath,
     geometryKey: context.geometryKey,
     instanceId: context.instanceId,

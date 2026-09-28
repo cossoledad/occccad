@@ -16,6 +16,8 @@ Product 结构树的 Product 节点另提供“新建零件”。`POST /api/docu
 
 第一版 typed `InstancePath` 保存 RootDocumentId 和有序 segment；每段包含 owner Document/Revision、稳定 InstanceId、显示 InstanceName、ReferencedDocumentId 和 resolved Revision。`canonical` 由 InstanceId 链构成并用于选择、激活和 occurrence 资源索引，`display` 才由 InstanceName 拼接。名称修改不得改变 canonical identity，也不得作为持久引用解析键。
 
+DocumentView 另外投影由 Product 领域引用边确定的 `followedDocumentIds/followedProductIds`，跳过 PINNED 边，供 Web 实时订阅和叶到根 UpdatePlan 接受。该依赖集合与树是否展开、过滤、加载无关。Product 中的 Part 复用独立 Part 的结构投影，occurrence 追加完整 InstancePath、已解析 Revision 和 ContextVariant；相同 Part 在不同 occurrence 或固定版本中拥有不同选择与几何范围。模型刷新不会无条件复制选择；打开来源或激活实例是显式交互。未来机制仿真刚体引用 occurrence，临时位姿不写入 Product Revision；装配体原位建模的 Part 定义修改与上下文结果生成仍须使用不同命令边界。
+
 ## Publication 与受控外部引用
 
 Publication 保存在 Part/Product Revision 中。Datum POINT/AXIS/PLANE/FRAME、PersistentSelection CURVE/SURFACE、Feature output BODY 与 PARAMETER 共用稳定 PublicationId、兼容版本、typed CRUD、ChangeSet、Undo/Redo 和 dependency graph；拓扑 target 随 Part 求值按 naming 重解，失效后保存 `BROKEN_PUBLICATION`。Parameter Publication 固定 value type、dimension、SI unit policy、可选 bounds 与 source ParameterId；消费 Part 的 `ExternalParameterRef` 保存来源 Document、FOLLOW/PINNED selector、PublicationId、期望合同与冻结 `ReferenceResolutionSnapshot`。DocumentView 对来源 Head 只投影 `UPDATE_AVAILABLE/BROKEN`，显式 Update References 在事务外解析完整候选并以 Workspace sequence CAS 提交，普通重算不读取来源 Head。Assembly endpoint 优先保存 PublicationRef 与 PersistentSelection deep link；兼容 Replace/Update 重连新 target，Product Publication 可转发一个相对 occurrence 的子 Publication。

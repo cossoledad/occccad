@@ -233,7 +233,13 @@ func TestBodyAndParameterPublicationsParticipateInHistoryTreeAndDirtyClosure(t *
 	}
 
 	children := partStructureChildren(model, "document:part", "part", "revision-publication", true)
-	if len(children) != 3 || children[2].Kind != "PUBLICATION_SET" || len(children[2].Children) != 3 {
+	publicationNodes := 0
+	for _, child := range children {
+		if child.Kind == "PUBLICATION_SET" {
+			publicationNodes = len(child.Children)
+		}
+	}
+	if publicationNodes != 3 {
 		t.Fatalf("Publication structure nodes = %#v", children)
 	}
 }

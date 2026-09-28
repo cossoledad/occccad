@@ -10,6 +10,10 @@ Part Revision 的 `model_json` 保存显式 `bodies[]`、`activeBodyId` 和带 `
 
 `CREATE_BODY / DELETE_BODY / RENAME_BODY / SET_ACTIVE_BODY / SET_BODY_VISIBILITY` 经现有 realtime Domain Command、ChangeSet、CAS 和 Undo/Redo 执行。Sketch/Extrude 可传 `bodyId`，省略时使用 Active Body。`NEW_BODY` 原子创建新的 Body 并将生成 Feature 归入该 Body，链内记录 ADD。普通新增 ADD 若经精确 BREP Fuse 确认为不连通（`DISJOINT_ADD[featureId]`），协调器自动创建独立 Body，再为它求值；其他错误及 REMOVE/INTERSECT 不走该分支。Preview 与提交使用同一确定性 Body 身份和路由。已有 Feature 编辑保持其 Body 归属，不因编辑重分配持久身份。删除 Body 同时删除其 Feature/参数；跨 Body profile 依赖禁止悬空删除。
 
+工作台在会话中可显式指定当前工作 Body，创建 Sketch/实体 Feature/Preview 均传目标 `bodyId`，不会因切换工作 Body 改写保存的 `activeBodyId`。Preview 返回最终 `resultBodyId/resultBodyName/bodyAssignment`，区分既有目标 Body、显式 `NEW_BODY` 与不连通 ADD 的自动分配。该自动分配仍是当前产品规则；目标 Body 与操作由表单明确给出，最终归属在提交前可见。
+
+建模树只把 Body 作为建模历史与独立求值单元、Feature 作为设计步骤；Solid 是几何结果，不自动成为业务树节点。未使用 Sketch 留在所属 Body；同 Body 单个生成 Feature 消费时可以收纳为其输入；多次或跨 Body 使用时保留唯一 Sketch 定义和只读输入引用入口。树上的收纳不改变 `Feature.BodyID`、`Profile`、求值顺序或删除依赖验证；当前没有从树入口单独移除 Profile 关系的命令。
+
 由实体 Feature 创建的 Body 保存 `createdByFeatureId`，删除该 Feature 时同一 ChangeSet 删除对应 Body 并调整 Active Body，独立 profile Sketch 保留；若 Body 内还有其他 Feature，先拒绝删除以避免静默丢失后续操作。创建、删除及其 Undo/Redo 同时恢复 Feature、Body、参数及独立制品引用。属性面板只展示信息与文件下载，业务编辑经正式命令执行。
 
 协调器为每个 Body 构建独立 Feature chain，只附带其实际引用的 Sketch profile/轴输入。Body 独立求值、Naming 和缓存；未变化的输入命中原有 Geometry/Artifact。草图支撑和外部投影按 PersistentSelection 的 SourceBodyId 求值对应前缀。当前没有 Body 间 Boolean、Body local transform 或复杂 Feature DAG。所有 Body 的几何坐标均为 Part-local。

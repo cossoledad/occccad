@@ -1,12 +1,7 @@
 export type TreeVisibilityOverrides = Record<string, boolean>;
 
 export function treeVisibilityOverride(key: string | undefined, overrides: TreeVisibilityOverrides): boolean | undefined {
-  if (!key) return undefined;
-  let selected: string | undefined;
-  for (const candidate of Object.keys(overrides)) {
-    if ((key === candidate || key.startsWith(`${candidate}/`)) && (!selected || candidate.length > selected.length)) selected = candidate;
-  }
-  return selected === undefined ? undefined : overrides[selected];
+  return key === undefined ? undefined : overrides[key];
 }
 
 export function sketchTreeVisible(input: {

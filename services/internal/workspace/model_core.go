@@ -2253,8 +2253,20 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		return CommandPreview{}, err
 	}
 	artifact.BodyID = bodyID
+	bodyName := ""
+	bodyAssignment := "TARGET_BODY"
 	if index := bodyIndex(model, bodyID); index >= 0 {
 		model.Bodies[index].GeometryKey = geometryKey
+		bodyName = model.Bodies[index].Name
+		if bodyIndex(beforeModel, bodyID) < 0 {
+			bodyAssignment = "AUTO_DISJOINT_ADD"
+			var input struct {
+				Feature Feature `json:"feature"`
+			}
+			if json.Unmarshal(prepared.command.Payload, &input) == nil && input.Feature.Operation == "NEW_BODY" {
+				bodyAssignment = "EXPLICIT_NEW_BODY"
+			}
+		}
 	}
 	nextJSON, _ = json.Marshal(model)
 	modelHash = canonicalModelHash(nextJSON)
@@ -2268,6 +2280,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	return CommandPreview{
 		PreviewID: previewID, BaseVersionID: prepared.headRevision,
 		BaseSequence: prepared.headSequence, ModelHash: modelHash, Artifact: &artifact,
+		ResultBodyID: bodyID, ResultBodyName: bodyName, BodyAssignment: bodyAssignment,
 	}, nil
 }
 

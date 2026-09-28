@@ -32,6 +32,7 @@ flowchart LR
 | 草图支线 | PROJECTION-ARC | 已有 Edge/Vertex 投影；先统一 ARC snapshot | [Sketch 投影](sketch-projection.md) |
 | 导入与大模型支线 | LARGE-BASELINE | 命名正确性与容量基线先行；对象存储、计算、显示共同验收 | [导入与大模型](import-large-models.md) |
 | 工程维护 | 按证据触发 | 保持行为、验证与导航等价 | [维护支线](engineering-maintenance.md) |
+| 语义树后续 | Feature 贡献索引、引用重连与子树按需查询 | 当前入口、选择和依赖投影已建立；需服务端 provenance 查询、重连命令与大树基准后扩展 | [现状与边界](../docs/architecture/semantic-tree-interaction.md) |
 | 候选 | 暂不分配开发批次 | 负载、场景或领域前置条件满足后细化 | [候选方向](candidates.md) |
 
 ## 编号与状态规则

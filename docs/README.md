@@ -31,6 +31,7 @@
 | CAD realtime | [实时控制面](architecture/current/realtime.md) | [命令与历史](architecture/target/commands-history.md) |
 | Jobs/Artifact/通信 | [Jobs 与制品](architecture/current/jobs-artifacts.md) | [分布式平台](architecture/target/distributed-platform.md) |
 | Web | [交互架构](architecture/current/web.md) | 对应领域交互合同与[命令分层](architecture/target/commands-history.md) |
+| 语义结构树/选择上下文 | [实现状态](architecture/current/web.md)、[设计与边界](architecture/semantic-tree-interaction.md) | [Part 模型](architecture/target/part-model.md)、[Product 上下文](architecture/target/product-context.md) |
 | 安全/验证/交付 | [验证边界](architecture/current/validation.md) | [质量与扩展](architecture/target/quality-extensions.md)、[交付治理](architecture/target/delivery-governance.md) |
 
 ## 高频横切摘要
