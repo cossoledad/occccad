@@ -111,7 +111,6 @@ message TopologyLineage {
 | `INVALID_EXTENT` | Extrude/Revolve | 长度、角度或限制面不合法 |
 | `PROFILE_CROSSES_AXIS` | Revolve | 截面跨越回转轴 |
 | `NO_MATERIAL_CHANGE` | ADD/REMOVE/INTERSECT | Tool 未产生预期材料变化 |
-| `DISJOINT_RESULT` | ADD/New | 标准 Body 得到多个不连通 Solid |
 | `EMPTY_RESULT` | REMOVE/INTERSECT | Body 被完全删除或交集为空 |
 | `OFFSET_SELF_INTERSECTION` | Shell | 偏置发生自交/塌陷 |
 | `THICKNESS_TOO_LARGE` | Shell | 局部几何无法容纳厚度 |

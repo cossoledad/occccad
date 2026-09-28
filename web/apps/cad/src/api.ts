@@ -288,7 +288,7 @@ export const restApi = {
   setParameterExternal: (documentId: string, parameterId: string, sourceDocumentId: string, publicationId: string, versionId?: string,
       referenceMode:"FOLLOW_HEAD"|"FOLLOW_WORKSPACE_WITH_ACCEPT"|"PINNED"="FOLLOW_HEAD") =>
     restApi.command(documentId, { type: "SET_PARAMETER_EXTERNAL", parameterId, sourceDocumentId, publicationId, versionId, referenceMode }),
-  createPublication: (documentId: string, input: { name: string; publicationType: string; semanticPurpose?: string;
+  createPublication: (documentId: string, input: { name?: string; publicationType: string; semanticPurpose?: string;
       compatibilityVersion?: string; targetKind: string; targetId?: string; axis?: string; geometryKey?: string;
       topologyId?: number; versionId?: string }) =>
     restApi.command(documentId, { type: "CREATE_PUBLICATION", ...input }),

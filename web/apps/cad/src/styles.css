@@ -969,6 +969,7 @@ select {
 .product-release-hero .ant-typography { margin-top: 0; margin-bottom: 4px; }
 .product-release-ok { color: #329064; font-size: 20px; }
 .specification-tree-row.suppressed { opacity: .48; text-decoration: line-through; }
+.specification-tree-row.display-hidden:not(.suppressed) { opacity: .56; }
 .specification-tree-row.diagnostic-conflicting { color: #c94141; background: rgb(201 65 65 / 10%); }
 .specification-tree-row.diagnostic-redundant { color: #a96d1f; background: rgb(169 109 31 / 10%); }
 .specification-tree-row.diagnostic-fully_constrained { color: #202b31; font-weight: 600; }

@@ -23,30 +23,36 @@ type PropertiesProps = {
   diagnostics?: DocumentProperties;
   topology?: TopologyElementProperties;
   topologyLoading?: boolean;
+  onEditParameter?: (id:string) => void;
+  onEditPublication?: (id:string,kind:"PART"|"PRODUCT") => void;
 };
 
-export function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading }: PropertiesProps) {
+export function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading,
+  onEditParameter, onEditPublication }: PropertiesProps) {
 	const parameterFor = (parameterId?: string) => view.part?.parameters?.find((parameter) => parameter.parameterId === parameterId);
 	const parameterItems = (parameterId?: string) => {
 		const parameter = parameterFor(parameterId);
 		if (!parameter) return [];
 		return [
 			{ key: "parameter-id", label: "ParameterId", children: parameter.parameterId },
-			{ key: "parameter-key", label: "参数别名", children: parameter.key },
+			{ key: "parameter-name", label: "参数", children: parameter.qualifiedDisplayPath ?? parameter.displayName ?? parameter.label },
+			...(parameter.displayAlias ? [{key:"parameter-alias",label:"别名",children:parameter.displayAlias}] : []),
 			{ key: "parameter-source", label: "表达式 / 输入", children: parameterSourceText(parameter) || "—" },
 			{ key: "parameter-value", label: "计算值", children: parameterDisplayValue(parameter) },
+			...(onEditParameter ? [{key:"parameter-edit",label:"操作",children:<Button size="small" onClick={()=>onEditParameter(parameter.parameterId)}>编辑参数</Button>}] : []),
 		];
 	};
   if (selection?.publicationId) {
     const publication = selection.publication ?? view.part?.publications?.find((candidate) => candidate.id === selection.publicationId);
     if (publication) return <><div className="property-context-hint">Publication · 稳定公开契约</div>
+      {onEditPublication && <Button size="small" onClick={()=>onEditPublication(publication.id, view.document.type === "PRODUCT" ? "PRODUCT" : "PART")}>编辑 Publication</Button>}
       <Descriptions column={1} size="small" bordered className="property-list" items={[
         { key: "id", label: "PublicationId", children: publication.id },
         { key: "name", label: "名称", children: publication.name },
         { key: "type", label: "类型", children: publication.type },
         { key: "purpose", label: "语义用途", children: publication.semanticPurpose || "—" },
         { key: "version", label: "兼容版本", children: publication.compatibilityVersion },
-        { key: "target", label: "目标", children: `${publication.target.kind} · ${publication.target.datumId ?? publication.target.featureId ?? publication.target.parameterId ?? publication.target.persistentSelection?.anchor.outputSlot ?? "—"}` },
+        { key: "target", label: "目标", children: `${publication.target.kind} · ${publication.target.bodyId ?? publication.target.datumId ?? publication.target.featureId ?? publication.target.parameterId ?? publication.target.persistentSelection?.anchor.outputSlot ?? "—"}` },
         { key: "status", label: "解析状态", children: <Tag color={publication.resolution.status === "CONNECTED" ? "success" : "error"}>{publication.resolution.status}</Tag> },
         { key: "resolved", label: "Resolved Revision", children: publication.resolution.resolvedVersionId ?? "—" },
         { key: "source", label: "Source Digest", children: publication.resolution.sourceDigest ?? "—" },

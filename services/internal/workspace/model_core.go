@@ -25,12 +25,18 @@ const (
 	typeCreatePad              = "occccad://part/pad/create"
 	typeCreateSolidFeature     = "occccad://part/solid-generator/create"
 	typeEditFeature            = "occccad://part/feature/edit"
+	typeRenameFeature          = "occccad://part/feature/rename"
 	typeCreateDatumPlane       = "occccad://part/datum-plane/create"
 	typeCreateDatumAxis        = "occccad://part/datum-axis/create"
 	typeImportExchange         = "occccad://part/exchange/import"
 	typeSetParameterLiteral    = "occccad://parameter/literal/set"
 	typeSetParameterExpression = "occccad://parameter/expression/set"
 	typeRenameParameter        = "occccad://parameter/key/rename"
+	typeDefinitionVisibility   = "occccad://part/display/visibility/set"
+	typeOccurrenceVisibility   = "occccad://product/display/visibility/set"
+	typeEditParameter          = "occccad://parameter/edit"
+	typeCreateUserParameter    = "occccad://parameter/user/create"
+	typeDeleteParameter        = "occccad://parameter/delete"
 	typeInsertInstance         = "occccad://product/instance/insert"
 	typeInsertInstances        = "occccad://product/instance/insert-many"
 	typeMoveInstance           = "occccad://product/instance/move"
@@ -62,11 +68,14 @@ var workspaceCommandRegistry = mustWorkspaceRegistry()
 func mustWorkspaceRegistry() *modelcore.Registry {
 	registry, err := modelcore.NewRegistry(
 		commandHandler{typeBodyCommand, "PART", applyBodyCommand},
+		commandHandler{typeDefinitionVisibility, "PART", applyDefinitionVisibility},
+		commandHandler{typeOccurrenceVisibility, "PRODUCT", applyOccurrenceVisibility},
 		commandHandler{typeCreateSketch, "PART", applyCreateFeature},
 		commandHandler{typeEditSketch, "PART", applyEditSketch},
 		commandHandler{typeCreatePad, "PART", applyCreateFeature},
 		commandHandler{typeCreateSolidFeature, "PART", applyCreateFeature},
 		commandHandler{typeEditFeature, "PART", applyEditFeature},
+		commandHandler{typeRenameFeature, "PART", applyRenameFeature},
 		commandHandler{typeCreateDatumPlane, "PART", applyCreateDatumPlane},
 		commandHandler{typeCreateDatumAxis, "PART", applyCreateDatumAxis},
 		commandHandler{typeImportExchange, "PART", applyCreateFeature},
@@ -74,6 +83,9 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeSetParameterLiteral, "PART", applyParameterSource},
 		commandHandler{typeSetParameterExpression, "PART", applyParameterSource},
 		commandHandler{typeRenameParameter, "PART", applyRenameParameter},
+		commandHandler{typeEditParameter, "PART", applyEditParameter},
+		commandHandler{typeCreateUserParameter, "PART", applyCreateUserParameter},
+		commandHandler{typeDeleteParameter, "PART", applyDeleteParameter},
 		commandHandler{typeSetParameterExternal, "PART", applyParameterSource},
 		commandHandler{typeCreatePublication, "PART", applyCreatePublication},
 		commandHandler{typeEditPublication, "PART", applyEditPublication},
@@ -90,6 +102,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeRenameInstance, "PRODUCT", applyRenameInstance},
 		commandHandler{typeReplaceInstance, "PRODUCT", applyReplaceInstance},
 		commandHandler{typeCreateProductPublication, "PRODUCT", applyCreateProductPublication},
+		commandHandler{typeRedirectProductPublication, "PRODUCT", applyRedirectProductPublication},
 		commandHandler{typeEditProductPublication, "PRODUCT", applyEditProductPublication},
 		commandHandler{typeDeleteProductPublication, "PRODUCT", applyDeleteProductPublication},
 		commandHandler{typeCreateContextBinding, "PRODUCT", applyCreateContextBinding},
@@ -217,6 +230,16 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 		}
 		if index < 0 {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected feature does not exist", ErrValidation)
+		}
+		publishedBodyID := ""
+		for _, body := range model.Bodies {
+			if body.CreatedByFeatureID == payload.TargetID {
+				publishedBodyID = body.ID
+				break
+			}
+		}
+		if err := rejectPublicationTargetRemoval(model, publishedBodyID, map[string]bool{payload.TargetID: true}); err != nil {
+			return nil, modelcore.ChangeSet{}, err
 		}
 		for _, dependent := range model.Features {
 			if dependent.Profile == payload.TargetID {
@@ -976,6 +999,14 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	var bodyChanges []modelcore.ModelChange
 	if payload.Feature.BodyID == "" {
 		payload.Feature.BodyID = model.ActiveBodyID
+		if isSolidGenerator(payload.Feature.Type) && payload.Feature.Profile != "" {
+			for _, feature := range model.Features {
+				if feature.ID == payload.Feature.Profile && feature.Sketch != nil {
+					payload.Feature.BodyID = feature.BodyID
+					break
+				}
+			}
+		}
 	}
 	if isSolidGenerator(payload.Feature.Type) && payload.Feature.Operation == "NEW_BODY" {
 		bodyChanges = createFeatureBody(&model, &payload.Feature)
@@ -1127,7 +1158,7 @@ func featureDefinitionDigest(model PartModel, featureID string) (string, error) 
 		value, err := json.Marshal(struct {
 			Feature Feature               `json:"feature"`
 			Source  modelcore.ValueSource `json:"lengthSource"`
-		}{feature, source})
+		}{geometryFeatureDefinition(feature), source})
 		if err != nil {
 			return "", err
 		}
@@ -1213,6 +1244,77 @@ func applyParameterSource(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 		return next, set, nil
 	}
 	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter does not exist", ErrValidation)
+}
+
+type editParameterPayload struct {
+	ParameterID string                `json:"parameterId"`
+	Key         string                `json:"key"`
+	Source      modelcore.ValueSource `json:"source"`
+}
+
+// Alias and source share one revision and one validation boundary. Expressions
+// retain bound ParameterIds while their readable source text follows aliases.
+func applyEditParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model PartModel
+	var payload editParameterPayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	normalizePartModel(&model)
+	payload.Key = strings.TrimSpace(payload.Key)
+	if !validParameterKey(payload.Key) {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter alias must be an ASCII identifier", ErrValidation)
+	}
+	index := -1
+	before := map[string]modelcore.ParameterDefinition{}
+	for i, parameter := range model.Parameters {
+		before[parameter.ParameterID] = parameter
+		if parameter.ParameterID == payload.ParameterID {
+			index = i
+		} else if parameter.Key == payload.Key {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter alias %s already exists", ErrValidation, payload.Key)
+		}
+	}
+	if index < 0 {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter does not exist", ErrValidation)
+	}
+	model.Parameters[index].Key = payload.Key
+	model.Parameters[index].Source = payload.Source
+	keys := map[string]string{}
+	for _, parameter := range model.Parameters {
+		keys[parameter.ParameterID] = parameter.Key
+	}
+	for i := range model.Parameters {
+		if expression := model.Parameters[i].Source.Expression; expression != nil {
+			formatted, err := modelcore.FormatExpression(*expression, keys)
+			if err != nil {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: %w", ErrValidation, err)
+			}
+			expression.SourceText = formatted
+		}
+	}
+	if err := validateAndResolvePartParameters(&model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	changes := []modelcore.ModelChange{}
+	seeds := []modelcore.DependencyKey{"parameter:" + modelcore.DependencyKey(payload.ParameterID)}
+	for _, parameter := range model.Parameters {
+		prior := before[parameter.ParameterID]
+		if prior.Key != parameter.Key {
+			change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: parameter.ParameterID, SlotID: "parameter.key"}, prior.Key, parameter.Key)
+			changes = append(changes, change)
+		}
+		if !reflect.DeepEqual(prior.Source, parameter.Source) {
+			change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: parameter.ParameterID, SlotID: "parameter.source"}, prior.Source, parameter.Source)
+			changes = append(changes, change)
+			seeds = append(seeds, "parameter:"+modelcore.DependencyKey(parameter.ParameterID))
+		}
+	}
+	next, _ := json.Marshal(model)
+	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
 }
 
 func applyRenameParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -1701,6 +1803,17 @@ type preparedDomainMutation struct {
 	priorManifest                                                              *modelcore.EvaluationManifest
 }
 
+func isPartMetadataCommand(command modelcore.DomainCommand) bool {
+	if command.TypeURI == typeDefinitionVisibility || command.TypeURI == typeRenameFeature {
+		return true
+	}
+	if command.TypeURI != typeBodyCommand {
+		return false
+	}
+	var payload bodyCommand
+	return json.Unmarshal(command.Payload, &payload) == nil && (payload.Action == "RENAME" || payload.Action == "VISIBILITY")
+}
+
 func (service *Service) prepareDomainMutation(ctx context.Context, documentID string, request CommandRequest) (preparedDomainMutation, error) {
 	var prepared preparedDomainMutation
 	request.RequestID = requestID(request.RequestID)
@@ -1818,7 +1931,8 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		}
 		normalizePartModel(&model)
 		normalizePartModel(&beforeModel)
-		if !promoted {
+		metadataOnly := isPartMetadataCommand(prepared.command)
+		if !promoted && !metadataOnly {
 			if err := validateAndResolvePartParameters(&model); err != nil {
 				return err
 			}
@@ -1829,14 +1943,18 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			}
 			finishSolve()
 		}
-		if err := validateAndResolvePartParameters(&model); err != nil {
-			return err
+		if !metadataOnly {
+			if err := validateAndResolvePartParameters(&model); err != nil {
+				return err
+			}
 		}
 		if err := rejectExplicitUnresolvedExternal(prepared.command, model); err != nil {
 			return err
 		}
-		if err := service.resolvePartPublications(ctx, documentID, prepared.requestID, revisionID, &model); err != nil {
-			return err
+		if !metadataOnly {
+			if err := service.resolvePartPublications(ctx, documentID, prepared.requestID, revisionID, &model); err != nil {
+				return err
+			}
 		}
 		if err := rejectExplicitBrokenPublication(prepared.command, model); err != nil {
 			return err
@@ -1847,12 +1965,20 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			for i := range model.Bodies {
 				model.Bodies[i].GeometryKey = ""
 			}
+		} else if metadataOnly {
+			// Display metadata and readable names do not change geometry inputs.
+			// Keep the frozen per-Body results without entering the evaluator.
+			for i := range model.Bodies {
+				for _, previous := range beforeModel.Bodies {
+					if previous.ID == model.Bodies[i].ID {
+						model.Bodies[i].GeometryKey = previous.GeometryKey
+						break
+					}
+				}
+			}
 		} else {
 			finishGeometry := perf.Start(ctx, "geometry-evaluate")
-			err = service.routeNewSolidBody(ctx, prepared.requestID, beforeModel, &model, &changes)
-			if err == nil {
-				err = service.evaluatePartBodies(ctx, prepared.requestID, &model)
-			}
+			err = service.evaluatePartBodies(ctx, prepared.requestID, &model)
 			finishGeometry()
 			if err != nil {
 				return err
@@ -1885,7 +2011,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 				return err
 			}
 		}
-		if !promoted {
+		if !promoted && prepared.command.TypeURI != typeOccurrenceVisibility {
 			finishSolve := perf.Start(ctx, "assembly-solve")
 			drivenInstanceID := ""
 			var solveIntent *geometry.AssemblySolveIntent
@@ -2219,12 +2345,6 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		return CommandPreview{}, err
 	}
 	previewChanges = appendEvaluatedSketchChanges(previewChanges, beforeModel, model)
-	if _, broken := firstUnresolvedExternal(model); !broken {
-		if err = service.routeNewSolidBody(ctx, "preview/"+prepared.requestID, beforeModel, &model, &previewChanges); err != nil {
-			return CommandPreview{}, err
-		}
-	}
-
 	nextJSON, _ = json.Marshal(model)
 	previewChanges, err = reconcilePersistedChanges(prepared.documentType, prepared.modelJSON, nextJSON, previewChanges)
 	if err != nil {
@@ -2259,13 +2379,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		model.Bodies[index].GeometryKey = geometryKey
 		bodyName = model.Bodies[index].Name
 		if bodyIndex(beforeModel, bodyID) < 0 {
-			bodyAssignment = "AUTO_DISJOINT_ADD"
-			var input struct {
-				Feature Feature `json:"feature"`
-			}
-			if json.Unmarshal(prepared.command.Payload, &input) == nil && input.Feature.Operation == "NEW_BODY" {
-				bodyAssignment = "EXPLICIT_NEW_BODY"
-			}
+			bodyAssignment = "EXPLICIT_NEW_BODY"
 		}
 	}
 	nextJSON, _ = json.Marshal(model)

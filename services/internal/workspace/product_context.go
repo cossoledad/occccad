@@ -77,26 +77,43 @@ func nextScopedName(base string, existing []string) string {
 func defaultPublicationBase(targetKind, publicationType string) string {
 	switch strings.ToUpper(strings.TrimSpace(targetKind)) {
 	case "FACE":
-		return "Face"
+		return "Face."
 	case "EDGE":
-		return "Edge"
+		return "Edge."
 	case "VERTEX", "POINT":
-		return "Point"
+		return "Point."
 	case "PLANE":
-		return "Plane"
+		return "Plane."
 	case "AXIS", "DATUM_AXIS":
-		return "Axis"
+		return "Axis."
 	case "AXIS_SYSTEM", "FRAME":
-		return "Frame"
-	case "BODY":
-		return "Body"
+		return "Frame."
+	case "BODY", "BODY_RESULT", "FEATURE_OUTPUT":
+		return "Body."
 	case "PARAMETER":
-		return "Parameter"
+		return "Parameter."
 	}
 	if publicationType != "" {
-		return strings.ToUpper(publicationType[:1]) + strings.ToLower(publicationType[1:])
+		switch strings.ToUpper(publicationType) {
+		case "SURFACE":
+			return "Face."
+		case "CURVE":
+			return "Edge."
+		case "POINT":
+			return "Point."
+		case "PLANE":
+			return "Plane."
+		case "AXIS":
+			return "Axis."
+		case "FRAME":
+			return "Frame."
+		case "BODY":
+			return "Body."
+		case "PARAMETER":
+			return "Parameter."
+		}
 	}
-	return "Publication"
+	return "Publication."
 }
 
 type renameInstancePayload struct {

@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v15-body-evaluation"
+const evaluatorVersion = "part-solid-generators-v16-multi-solid-body"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1067,6 +1067,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 			return view, err
 		}
 		normalizePartModel(&model)
+		presentParameters(&model)
 		view.Part = &model
 		view.ReferenceUpdates = service.projectPartReferenceUpdates(ctx, model)
 		view.DatumPlanes = model.DatumPlanes
@@ -1382,7 +1383,7 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 			if entity.Suppressed {
 				continue
 			}
-			primitive := VisualPrimitive{ID: entity.ID, FeatureID: feature.ID,
+			primitive := VisualPrimitive{ID: entity.ID, DisplayEntityID: entity.ID, FeatureID: feature.ID,
 				EntityType: entity.Kind, Role: entity.Role, Status: feature.Sketch.Solve.Status, Selectable: true}
 			switch entity.Kind {
 			case "POINT":
@@ -1442,7 +1443,7 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 				}
 			}
 			for _, auxiliary := range auxiliaryPoints {
-				manifest.Primitives = append(manifest.Primitives, VisualPrimitive{ID: entity.ID + ":" + auxiliary.suffix, FeatureID: feature.ID,
+				manifest.Primitives = append(manifest.Primitives, VisualPrimitive{ID: entity.ID + ":" + auxiliary.suffix, DisplayEntityID: entity.ID, FeatureID: feature.ID,
 					Kind: "POINTS", Semantic: "SKETCH_POINT", EntityType: "REFERENCE_POINT", Role: entity.Role,
 					Status: feature.Sketch.Solve.Status, Positions: [][3]float64{toWorld(auxiliary.point)}, Selectable: false})
 			}
@@ -2156,6 +2157,10 @@ func featureStructureNode(feature Feature, path, documentID, versionID, definiti
 		Kind: kind, Name: feature.Name, EntityID: feature.ID, EntityType: feature.Type,
 		DocumentID: documentID, VersionID: versionID, DefinitionDigest: definitionDigest,
 		BodyID: feature.BodyID, Operation: feature.Operation}
+	if kind == "SKETCH" {
+		visible := visibleOrDefault(feature.Visible)
+		node.LocalVisible = &visible
+	}
 	if node.Name == "" {
 		node.Name = strings.Title(strings.ToLower(kind))
 	}
@@ -2190,6 +2195,8 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 		node := DocumentStructureNode{ID: geometry.ID + "/entity:" + entity.ID, Kind: "SKETCH_ENTITY", Name: name,
 			EntityID: entity.ID, OwnerEntityID: sketchID, EntityType: entity.Kind, Role: entity.Role,
 			DocumentID: documentID, VersionID: versionID, Suppressed: entity.Suppressed}
+		visible := visibleOrDefault(entity.Visible)
+		node.LocalVisible = &visible
 		if editable {
 			node.Capabilities = []string{"DELETE", "SUPPRESS"}
 		}
@@ -2295,6 +2302,8 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 	for _, definition := range model.Bodies {
 		body := DocumentStructureNode{ID: path + "/body:" + definition.ID, Kind: "BODY", Name: definition.Name, EntityID: definition.ID, GeometryKey: definition.GeometryKey,
 			DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
+		visible := definition.Visible
+		body.LocalVisible = &visible
 		for _, feature := range model.Features {
 			if feature.BodyID != definition.ID || consumed[feature.ID] {
 				continue
@@ -2305,6 +2314,10 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 				if sketch, exists := sketches[feature.Profile]; exists {
 					if consumed[sketch.ID] {
 						child := featureStructureNode(sketch, node.ID, documentID, versionID, "", false, editable)
+						if sketch.Visible == nil {
+							hidden := false
+							child.LocalVisible = &hidden
+						}
 						child.PresentationRole = "FEATURE_INPUT"
 						node.Children = []DocumentStructureNode{child}
 					} else {
@@ -2335,7 +2348,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			ConnectionStatus: publication.Resolution.Status,
 			SourceRevisionID: publication.Resolution.ResolvedVersionID, Publication: &publicationCopy}
 		if editable {
-			node.Capabilities = []string{"DELETE"}
+			node.Capabilities = []string{"EDIT", "DELETE"}
 		}
 		if publication.Target.Kind == "DATUM" {
 			for _, plane := range model.DatumPlanes {
@@ -2349,13 +2362,14 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 	parameters := DocumentStructureNode{ID: path + "/parameters", Kind: "PARAMETER_SET", Name: "Parameters / Relations",
 		DocumentID: documentID, VersionID: versionID}
 	for _, parameter := range model.Parameters {
-		name := parameter.Label
-		if name == "" {
-			name = parameter.Key
+		name := parameterPresentation(model, parameter).QualifiedDisplayPath
+		capabilities := []string{"EDIT"}
+		if parameter.Lifecycle == "USER" {
+			capabilities = append(capabilities, "DELETE")
 		}
 		parameters.Children = append(parameters.Children, DocumentStructureNode{ID: parameters.ID + "/parameter:" + parameter.ParameterID,
 			Kind: "PARAMETER", Name: name, EntityID: parameter.ParameterID,
-			DocumentID: documentID, VersionID: versionID})
+			DocumentID: documentID, VersionID: versionID, Capabilities: capabilities})
 	}
 	contexts := DocumentStructureNode{ID: path + "/context-references", Kind: "CONTEXT_REFERENCE_SET", Name: "Context References",
 		DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
@@ -2520,7 +2534,7 @@ func (service *Service) buildDocumentStructure(
 				SourceDocumentID:  sourceDocumentID,
 				SourceRevisionID:  publication.Resolution.ResolvedVersionID,
 				SourceDisplayPath: publication.Target.InstancePath.Display,
-				Capabilities:      []string{"DELETE"}, ProductPublication: &copy})
+				Capabilities:      []string{"EDIT", "DELETE"}, ProductPublication: &copy})
 		}
 		root.Children = append(root.Children, group)
 	}
@@ -2582,7 +2596,28 @@ func (service *Service) buildDocumentStructure(
 		root.Children = append(root.Children, group)
 	}
 	annotateStructure(&root, documentID, "")
+	applyOccurrenceVisibilityProjection(&root, model.VisibilityOverrides)
 	return root, nil
+}
+
+func applyOccurrenceVisibilityProjection(root *DocumentStructureNode, overrides []OccurrenceVisibility) {
+	if len(overrides) == 0 {
+		return
+	}
+	byAddress := make(map[string]string, len(overrides))
+	for _, override := range overrides {
+		byAddress[override.InstancePath.Canonical+"\x00"+override.EntityKind+"\x00"+override.EntityID] = override.Mode
+	}
+	var visit func(*DocumentStructureNode)
+	visit = func(node *DocumentStructureNode) {
+		if node.InstancePath != nil && node.EntityID != "" {
+			node.VisibilityMode = byAddress[node.InstancePath.Canonical+"\x00"+node.Kind+"\x00"+node.EntityID]
+		}
+		for i := range node.Children {
+			visit(&node.Children[i])
+		}
+	}
+	visit(root)
 }
 
 func bindStructureReferenceCurrency(root *DocumentStructureNode, updates []ReferenceUpdate) {
@@ -2813,7 +2848,7 @@ func (service *Service) resolveProduct(
 			}
 			*output = append(*output, ResolvedInstance{
 				ID: path + "/body:" + body.ID, Name: name, DocumentID: documentID,
-				BodyID: body.ID, BodyVisible: body.Visible, GeometryKey: body.GeometryKey,
+				BodyID: body.ID, BodyVisible: body.Visible, OwnedSketchIDs: ownedSketchIDs(model, body.ID), GeometryKey: body.GeometryKey,
 				Translation: parent.Translation, Rotation: parent.Rotation,
 				OccurrencePath: instancePath.Canonical, InstancePath: instancePath, BodyTreeNodeID: treePath + "/body:" + body.ID,
 			})

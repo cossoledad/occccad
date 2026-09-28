@@ -21,6 +21,8 @@ export type SpecificationTreeNode = {
   capabilities?: Array<"ACTIVATE" | "DEACTIVATE" | "DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART" | "UPDATE_REFERENCES" | "PIN_VERSION" | "FOLLOW_HEAD">; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
   definitionDigest?: string;
   suppressed?: boolean; diagnostic?: string; hidden?: boolean;
+  localVisible?: boolean; visibilityMode?: "SHOW" | "HIDE" | "INHERIT";
+  hiddenByAncestor?: boolean; visibilityBlocker?: string;
 };
 
 function titleText(title: ReactNode): string {
@@ -68,13 +70,14 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onEdit, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onEdit, onRename, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
   selectionToken: string; highlightedKey?: string; activeDocumentId?: string; activeInstancePath?: string; workingBodyId?: string;
   onSelect: (nodes: SpecificationTreeNode[]) => void; onHover?: (node?: SpecificationTreeNode) => void;
   onActivate?: (node: SpecificationTreeNode) => void;
   onOpenDocumentTab?: (node: SpecificationTreeNode) => void;
   onEdit?: (node: SpecificationTreeNode) => void;
+  onRename?: (node: SpecificationTreeNode) => void;
   onCreatePart?: (node: SpecificationTreeNode) => void;
   onReferenceMode?: (node: SpecificationTreeNode, mode: "PINNED" | "FOLLOW_HEAD") => void;
   onDetach?: (node: SpecificationTreeNode) => void;
@@ -82,7 +85,7 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
   onRefresh?: (node: SpecificationTreeNode) => void;
   onDelete?: (nodes: SpecificationTreeNode[]) => void;
   onToggleConstruction?: (node: SpecificationTreeNode) => void;
-  onToggleVisibility?: (node: SpecificationTreeNode) => void;
+  onToggleVisibility?: (node: SpecificationTreeNode, scope: "DEFINITION" | "OCCURRENCE" | "SESSION", mode?: "SHOW" | "HIDE" | "INHERIT") => void;
   onToggleSuppression?: (node: SpecificationTreeNode) => void;
 }) {
   const [query, setQuery] = useState("");
@@ -197,9 +200,10 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
             : activeDocumentId && node.documentId === activeDocumentId && !node.instancePath));
         const isWorkingBody = node.kind === "BODY" && node.bodyId === workingBodyId &&
           node.documentId === activeDocumentId && (node.instancePath?.canonical ?? "") === (activeInstancePath ?? "");
-        const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${descendantHints.has(node.key) && !isSelected ? "selected-descendant" : ""} ${isActiveDocument ? "active-document" : ""} ${isWorkingBody ? "working-body" : ""} ${highlightedKey === node.key ? "highlighted" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
+        const row = <div className={`specification-tree-row ${isSelected ? "selected" : ""} ${descendantHints.has(node.key) && !isSelected ? "selected-descendant" : ""} ${isActiveDocument ? "active-document" : ""} ${isWorkingBody ? "working-body" : ""} ${highlightedKey === node.key ? "highlighted" : ""} ${node.hidden ? "display-hidden" : ""} ${node.suppressed ? "suppressed" : ""} ${node.diagnostic ? `diagnostic-${node.diagnostic.toLowerCase()}` : ""}`}
           role="treeitem" aria-level={depth + 1} aria-expanded={hasChildren ? isExpanded : undefined}
           aria-selected={isSelected} data-tree-key={node.key}
+          title={node.hiddenByAncestor ? `被上级隐藏：${node.visibilityBlocker}` : node.hidden ? "本地隐藏" : undefined}
           tabIndex={node.key === (visibleKeys.includes(focusedKey ?? "") ? focusedKey : visibleKeys[0]) ? 0 : -1}
           onFocus={() => setFocusedKey(node.key)} onClick={(event) => { event.stopPropagation(); selectNode(node, eventModifiers(event)); }}
           onDoubleClick={(event) => { event.stopPropagation(); onActivate?.(node); }}
@@ -237,6 +241,8 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
               onClick: () => { setContextMenu(undefined); onToggleConstruction?.(node); } } : null,
             node.capabilities?.includes("EDIT") ? { key: "edit", icon: <EditOutlined />, label: "编辑",
               onClick: () => { setContextMenu(undefined); onEdit?.(node); } } : null,
+            onRename && ["BODY", "SKETCH", "PAD", "REVOLVE", "IMPORT"].includes(node.kind ?? "") && node.documentId === activeDocumentId
+              ? { key: "rename", label: "重命名", onClick: () => { setContextMenu(undefined); onRename(node); } } : null,
             node.capabilities?.includes("CREATE_PART") ? { key: "create-part", icon: <PlusOutlined />, label: "新建零件",
               onClick: () => { setContextMenu(undefined); onCreatePart?.(node); } } : null,
             node.capabilities?.includes("PIN_VERSION") ? { key: "pin-version", icon: <LockOutlined />, label: "固定当前版本",
@@ -249,8 +255,20 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
               onClick: () => { setContextMenu(undefined); onReconnect?.(node); } } : null,
             node.capabilities?.includes("REFRESH") ? { key: "refresh", icon: <ReloadOutlined />, label: "重新解析并求解",
               onClick: () => { setContextMenu(undefined); onRefresh?.(node); } } : null,
-            canToggleNodeVisibility(node.kind) ? { key: "visibility", icon: <EyeInvisibleOutlined />, label: node.hidden ? "显示" : "隐藏",
-              onClick: () => { setContextMenu(undefined); onToggleVisibility?.(node); } } : null,
+            canToggleNodeVisibility(node.kind) && node.instancePath?.canonical && ["INSTANCE", "BODY", "SKETCH", "SKETCH_ENTITY"].includes(node.kind ?? "")
+              ? {key:"occurrence-visibility",icon:<EyeInvisibleOutlined />,
+                label:`${node.visibilityMode === "HIDE" || node.visibilityMode !== "SHOW" && node.localVisible === false ? "显示" : "隐藏"}（当前实例）`,
+                onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"OCCURRENCE",
+                  node.visibilityMode === "HIDE" || node.visibilityMode !== "SHOW" && node.localVisible === false ? "SHOW" : "HIDE");}} : null,
+            canToggleNodeVisibility(node.kind) && node.instancePath?.canonical && node.visibilityMode && node.visibilityMode !== "INHERIT"
+              ? {key:"restore-visibility",label:"恢复实例继承",onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"OCCURRENCE","INHERIT");}} : null,
+            canToggleNodeVisibility(node.kind) && ["BODY", "SKETCH", "SKETCH_ENTITY"].includes(node.kind ?? "") &&
+              (!node.instancePath?.canonical || node.documentId === activeDocumentId)
+              ? {key:"definition-visibility",icon:<EyeInvisibleOutlined />,label:`${node.localVisible ? "隐藏" : "显示"}（零件定义）`,
+                onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"DEFINITION");}} : null,
+            canToggleNodeVisibility(node.kind) && !["INSTANCE", "BODY", "SKETCH", "SKETCH_ENTITY"].includes(node.kind ?? "")
+              ? { key: "session-visibility", icon: <EyeInvisibleOutlined />, label: node.hidden ? "显示（临时）" : "隐藏（临时）",
+                onClick: () => { setContextMenu(undefined); onToggleVisibility?.(node,"SESSION"); } } : null,
             node.capabilities?.includes("SUPPRESS") ? { key: "suppress", icon: <PauseCircleOutlined />,
               label: node.suppressed ? "解除抑制" : "抑制",
               onClick: () => { setContextMenu(undefined); onToggleSuppression?.(node); } } : null,

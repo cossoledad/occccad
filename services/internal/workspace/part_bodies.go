@@ -80,6 +80,18 @@ func bodyModel(m PartModel, id string) PartModel {
 	}
 	return out
 }
+
+// A Body artifact may also contain sketches borrowed as inputs by features in
+// this Body. Only these IDs are display-owned here in a Product occurrence.
+func ownedSketchIDs(m PartModel, bodyID string) []string {
+	var ids []string
+	for _, feature := range m.Features {
+		if feature.BodyID == bodyID && feature.Sketch != nil {
+			ids = append(ids, feature.ID)
+		}
+	}
+	return ids
+}
 func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *PartModel) error {
 	normalizePartModel(m)
 	for i := range m.Bodies {
@@ -176,6 +188,9 @@ func applyBodyCommand(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, 
 					removed[f.ID] = true
 				}
 			}
+			if err := rejectPublicationTargetRemoval(m, p.BodyID, removed); err != nil {
+				return nil, modelcore.ChangeSet{}, err
+			}
 			for _, f := range m.Features {
 				if f.BodyID != p.BodyID && removed[f.Profile] {
 					return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: Body is used by feature %s", ErrValidation, f.ID)
@@ -251,8 +266,8 @@ func previewBodyID(payload json.RawMessage, m PartModel) string {
 	return m.ActiveBodyID
 }
 
-// createFeatureBody records structural ownership in the same command as the
-// feature. Geometry classification happens before the short commit transaction.
+// createFeatureBody records the explicit NEW_BODY intent in the same command
+// as the feature. One command creates one Body, regardless of its solid count.
 func createFeatureBody(m *PartModel, f *Feature) []modelcore.ModelChange {
 	order := 1
 	for _, b := range m.Bodies {
@@ -268,42 +283,6 @@ func createFeatureBody(m *PartModel, f *Feature) []modelcore.ModelChange {
 	f.BodyID = b.ID
 	f.Operation = "ADD"
 	return []modelcore.ModelChange{created, active}
-}
-
-// Only a newly added solid may allocate a Body automatically. Existing feature
-// edits retain their Body identity; REMOVE/INTERSECT never change target Body.
-// The kernel's feature-qualified diagnostic follows a valid exact BREP fuse.
-func (s *Service) routeNewSolidBody(ctx context.Context, requestID string, before PartModel, m *PartModel, changes *modelcore.ChangeSet) error {
-	existing := map[string]bool{}
-	for _, f := range before.Features {
-		existing[f.ID] = true
-	}
-	for i := range m.Features {
-		f := &m.Features[i]
-		if existing[f.ID] || !isSolidGenerator(f.Type) || f.Operation != "ADD" {
-			continue
-		}
-		b := bodyIndex(*m, f.BodyID)
-		if b < 0 || m.Bodies[b].CreatedByFeatureID == f.ID {
-			continue
-		}
-		hasInput := slices.ContainsFunc(before.Features, func(input Feature) bool {
-			return input.BodyID == f.BodyID && (isSolidGenerator(input.Type) || input.Type == "IMPORT_BODY")
-		})
-		if !hasInput {
-			continue
-		}
-		_, err := s.evaluateBodyPrefix(ctx, requestID+"/classify-add", *m, f.BodyID)
-		if err == nil {
-			continue
-		}
-		if !strings.Contains(err.Error(), "DISJOINT_ADD["+f.ID+"]:") {
-			return err
-		}
-		changes.Changes = append(changes.Changes, createFeatureBody(m, f)...)
-		changes.ImpactSeeds = append(changes.ImpactSeeds, modelcore.DependencyKey("body:"+f.BodyID))
-	}
-	return nil
 }
 
 // A feature-owned Body disappears with its originating feature. Do not silently

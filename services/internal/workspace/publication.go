@@ -208,6 +208,10 @@ func validatePublicationDefinitions(model PartModel) error {
 			if publication.Type != "BODY" || publication.Contract.GeometryKind != "BODY" {
 				return fmt.Errorf("%w: feature output publication contract is incompatible", ErrValidation)
 			}
+		case "BODY_RESULT":
+			if publication.Target.BodyID == "" || publication.Type != "BODY" || publication.Contract.GeometryKind != "BODY" {
+				return fmt.Errorf("%w: Body result publication target is incomplete", ErrValidation)
+			}
 		case "PARAMETER":
 			if publication.Target.ParameterID == "" || publication.Type != "PARAMETER" {
 				return fmt.Errorf("%w: parameter publication target is incomplete", ErrValidation)
@@ -249,6 +253,31 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 			publication.Resolution = PublicationResolution{Status: "BROKEN_PUBLICATION", DiagnosticCode: code, Diagnostic: diagnostic}
 		}
 		switch publication.Target.Kind {
+		case "BODY_RESULT":
+			if bodyIndex(*model, publication.Target.BodyID) < 0 {
+				broken("PUBLICATION_BODY_MISSING", "published Body no longer exists")
+				continue
+			}
+			key, err := service.evaluateBodyPrefix(ctx, requestID+"/publication/"+publication.ID, *model, publication.Target.BodyID)
+			if err != nil {
+				return err
+			}
+			if key == "" {
+				broken("PUBLICATION_BODY_EMPTY", "published Body has no geometry result")
+				continue
+			}
+			artifact, err := service.loadArtifact(ctx, key)
+			if err != nil {
+				return err
+			}
+			if artifact.Volume <= 1.0e-9 {
+				broken("PUBLICATION_BODY_EMPTY", "published Body has no solid result")
+				continue
+			}
+			publication.Resolution = PublicationResolution{Status: "CONNECTED", ResolvedVersionID: revisionID,
+				GeometryKey: key, GeometryID: artifact.GeometryID,
+				SourceDigest:     resolvedDigest(struct{ Body, Key string }{publication.Target.BodyID, key}),
+				EvaluatorVersion: artifact.EvaluatorVersion, WorkerID: artifact.WorkerID, OCCTVersion: artifact.OCCTVersion}
 		case "DATUM":
 			if !resolveDatumPublication(model, publication, revisionID) {
 				broken("PUBLICATION_TARGET_MISSING", "datum target no longer exists")
@@ -513,6 +542,18 @@ func (service *Service) publicationFromRequest(ctx context.Context, documentID s
 	case "BODY":
 		if publicationType != "BODY" {
 			return Publication{}, fmt.Errorf("%w: BODY output requires BODY publication type", ErrValidation)
+		}
+		if bodyIndex(model, request.TargetID) < 0 {
+			return Publication{}, fmt.Errorf("%w: published Body does not exist", ErrValidation)
+		}
+		publication.Target = PublicationTarget{Kind: "BODY_RESULT", BodyID: request.TargetID}
+		publication.Contract = PublicationContract{GeometryKind: "BODY", Symmetry: "NONE"}
+	case "FEATURE_OUTPUT":
+		if publicationType != "BODY" {
+			return Publication{}, fmt.Errorf("%w: feature output requires BODY publication type", ErrValidation)
+		}
+		if _, ok := publicationFeaturePrefix(model, request.TargetID); !ok {
+			return Publication{}, fmt.Errorf("%w: published feature output does not exist", ErrValidation)
 		}
 		publication.Target = PublicationTarget{Kind: "FEATURE_OUTPUT", FeatureID: request.TargetID, OutputSlot: "BODY"}
 		publication.Contract = PublicationContract{GeometryKind: "BODY", Symmetry: "NONE"}

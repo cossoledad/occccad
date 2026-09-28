@@ -100,15 +100,21 @@ const (
 )
 
 type ParameterDefinition struct {
-	ParameterID    string      `json:"parameterId"`
-	Key            string      `json:"key"`
-	Label          string      `json:"label"`
-	ValueType      ValueType   `json:"valueType"`
-	Dimension      Dimension   `json:"dimension"`
-	DisplayUnit    string      `json:"displayUnit"`
-	Role           string      `json:"role"`
-	Source         ValueSource `json:"source"`
-	EvaluatedValue *Quantity   `json:"evaluatedValue,omitempty"`
+	ParameterID          string      `json:"parameterId"`
+	OwnerFeatureID       string      `json:"ownerFeatureId,omitempty"`
+	PropertySlot         string      `json:"propertySlot,omitempty"`
+	Lifecycle            string      `json:"lifecycle,omitempty"`
+	DisplayName          string      `json:"displayName,omitempty"`
+	DisplayAlias         string      `json:"displayAlias,omitempty"`
+	QualifiedDisplayPath string      `json:"qualifiedDisplayPath,omitempty"`
+	Key                  string      `json:"key"`
+	Label                string      `json:"label"`
+	ValueType            ValueType   `json:"valueType"`
+	Dimension            Dimension   `json:"dimension"`
+	DisplayUnit          string      `json:"displayUnit"`
+	Role                 string      `json:"role"`
+	Source               ValueSource `json:"source"`
+	EvaluatedValue       *Quantity   `json:"evaluatedValue,omitempty"`
 }
 
 type ValueSource struct {

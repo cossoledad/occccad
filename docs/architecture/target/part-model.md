@@ -185,9 +185,9 @@ flowchart TD
 1. 输入先经快速 Shape 检查；非法 B-Rep 不进入布尔；
 2. 默认不启用 fuzzy tolerance；确需使用时它属于版本化 `ToleranceProfile` 和 FeatureEvaluationKey；
 3. `SimplifyResult` 会合并边/面并改变拓扑身份，只能由 evaluator policy 明确启用，且必须吸收其历史；
-4. `ADD` 对标准 Body 默认拒绝互不接触的多个 Solid，错误为 `DISJOINT_RESULT`；
+4. `ADD` 保留同一 Body 中合法且互不接触的多个 Solid；相交几何仍执行真实 Fuse 和同域合并；
 5. `REMOVE` 默认要求体积减少超过质量容差，零相交返回 `NO_MATERIAL_CHANGE`；
-6. `INTERSECT` 空结果为失败；任何操作得到多个 Solid 时按 Body policy 处理，绝不只取第一个；
+6. `INTERSECT` 空结果为失败；任何操作得到多个合法 Solid 时保留全部结果，绝不只取第一个；
 7. `REMOVE` 删除整个 Body 默认失败，未来可用显式 `allow_empty_result` 支持工具性工作流；
 8. OCCT warnings 进入 Diagnostic；可疑但可接受的 warning policy 必须版本化，不能只写日志。
 

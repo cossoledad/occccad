@@ -58,7 +58,7 @@ const users: User[] = [administrator, {
   status: "ACTIVE", platformRole: "MEMBER", createdAt: now(),
 }];
 
-function boxArtifact(key: string, size: Vec3): Artifact {
+function boxArtifact(key: string, size: Vec3, sketchFeatureId?: string): Artifact {
   const [x, y, z] = size;
   const vertices: Vec3[] = [[0, 0, 0], [x, 0, 0], [x, y, 0], [0, y, 0], [0, 0, z], [x, 0, z], [x, y, z], [0, y, z]];
   const display:Artifact & {mesh: import("../types").MeshData} = {
@@ -78,7 +78,13 @@ function boxArtifact(key: string, size: Vec3): Artifact {
     topology: { faces: 6, edges: 12, vertices: 8, solids: 1 },
     volume: x * y * z, occtVersion: "mock-7.9.1", glbBytes: 4096, brepBytes: 2048,
     evaluatorVersion: "mock-v1", workerId: "mock-geometry-1", storageState: "OBJECT", createdAt: now(),
-    visualization: { schemaVersion: 1, referenceGeometry: { datumPlanes, axisSystems }, primitives: [] },
+    visualization: { schemaVersion: 1, referenceGeometry: { datumPlanes, axisSystems }, primitives:
+      sketchFeatureId ? [
+        {id:"bottom",featureId:sketchFeatureId,kind:"POLYLINE",semantic:"SKETCH_CURVE",entityType:"LINE",role:"PROFILE",status:"UNDER_CONSTRAINED",positions:[[0,0,0],[x,0,0]],selectable:true},
+        {id:"right",featureId:sketchFeatureId,kind:"POLYLINE",semantic:"SKETCH_CURVE",entityType:"LINE",role:"PROFILE",status:"UNDER_CONSTRAINED",positions:[[x,0,0],[x,y,0]],selectable:true},
+        {id:"top",featureId:sketchFeatureId,kind:"POLYLINE",semantic:"SKETCH_CURVE",entityType:"LINE",role:"PROFILE",status:"UNDER_CONSTRAINED",positions:[[x,y,0],[0,y,0]],selectable:true},
+        {id:"left",featureId:sketchFeatureId,kind:"POLYLINE",semantic:"SKETCH_CURVE",entityType:"LINE",role:"PROFILE",status:"UNDER_CONSTRAINED",positions:[[0,y,0],[0,0,0]],selectable:true},
+      ] : [] },
   };
   const glb=encodeMeshGLB(display.mesh,display.visualization);
   const url=URL.createObjectURL(new Blob([glb],{type:"model/gltf-binary"}));
@@ -90,7 +96,7 @@ function boxArtifact(key: string, size: Vec3): Artifact {
 
 const partID = "mock-part-bracket";
 const productID = "mock-product-frame";
-const partArtifact = boxArtifact("mock-bracket-v3", [72, 38, 16]);
+const partArtifact = boxArtifact("mock-bracket-v3", [72, 38, 16], "mock-sketch-1");
 const summaries: DocumentSummary[] = [
   {
     id: partID, name: "Mounting Bracket", description: "参数化安装支架", type: "PART",
@@ -130,8 +136,8 @@ const views = new Map<string, DocumentView>([
       directionRelation: "SAME", evaluationStatus: "VERIFIED", evaluationSummary: "mock supports resolved and solver residual is within tolerance" }] },
     artifacts: { [partArtifact.geometryKey]: partArtifact },
     resolvedInstances: [
-      { id: "Frame Assembly/mock-instance-a/part", name: "Bracket A", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [-45, 0, 0], occurrencePath: "mock-instance-a", instancePath: mockInstancePath(productID, { id: "mock-instance-a", name: "Bracket A", documentId: partID, versionId: "mock-part-v3", translation: [-45,0,0] }), bodyId:"body-main",bodyVisible:true,bodyTreeNodeId: `document:${productID}/instance:mock-instance-a/reference/body:body-main` },
-      { id: "Frame Assembly/mock-instance-b/part", name: "Bracket B", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [45, 0, 0], occurrencePath: "mock-instance-b", instancePath: mockInstancePath(productID, { id: "mock-instance-b", name: "Bracket B", documentId: partID, versionId: "mock-part-v3", translation: [45,0,0] }), bodyId:"body-main",bodyVisible:true,bodyTreeNodeId: `document:${productID}/instance:mock-instance-b/reference/body:body-main` },
+      { id: "Frame Assembly/mock-instance-a/part", name: "Bracket A", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [-45, 0, 0], occurrencePath: "mock-instance-a", instancePath: mockInstancePath(productID, { id: "mock-instance-a", name: "Bracket A", documentId: partID, versionId: "mock-part-v3", translation: [-45,0,0] }), bodyId:"body-main",bodyVisible:true,ownedSketchIds:["mock-sketch-1"],bodyTreeNodeId: `document:${productID}/instance:mock-instance-a/reference/body:body-main` },
+      { id: "Frame Assembly/mock-instance-b/part", name: "Bracket B", documentId: partID, geometryKey: partArtifact.geometryKey, translation: [45, 0, 0], occurrencePath: "mock-instance-b", instancePath: mockInstancePath(productID, { id: "mock-instance-b", name: "Bracket B", documentId: partID, versionId: "mock-part-v3", translation: [45,0,0] }), bodyId:"body-main",bodyVisible:true,ownedSketchIds:["mock-sketch-1"],bodyTreeNodeId: `document:${productID}/instance:mock-instance-b/reference/body:body-main` },
     ],
   }],
 ]);
@@ -190,7 +196,7 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
         kind: feature.type.toUpperCase().includes("SKETCH") ? "SKETCH" : feature.type.toUpperCase() === "PAD" ? "PAD" : "IMPORT",
         name: feature.name ?? feature.type, entityId: feature.id, entityType: feature.type,
         documentId: view.document.id, versionId: view.document.versionId,
-        bodyId: feature.bodyId, operation: feature.operation,
+        bodyId: feature.bodyId, operation: feature.operation, localVisible: feature.sketch ? feature.visible ?? !consumed.has(feature.id) : undefined,
         definitionDigest: feature.type.toUpperCase() === "PAD" || feature.type.toUpperCase() === "LINEAR_EXTRUDE" ? JSON.stringify(feature) : undefined,
         capabilities: deletable ? ["DELETE", ...(["PAD","LINEAR_EXTRUDE"].includes(feature.type.toUpperCase()) ? ["EDIT" as const] : [])] : undefined,
       };
@@ -198,7 +204,7 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
         { id: `${node.id}/geometry`, kind: "SKETCH_GEOMETRY_SET", name: "Geometry", ownerEntityId: feature.id,
           children: feature.sketch.entities.map((entity, index) => ({ id: `${node.id}/geometry/entity:${entity.id}`,
             kind: "SKETCH_ENTITY", name: `${entity.kind === "LINE" ? "Line" : "Point"} ${index + 1}`, entityId: entity.id,
-            ownerEntityId: feature.id, entityType: entity.kind, role: entity.role, suppressed: entity.suppressed, documentId: view.document.id,
+            ownerEntityId: feature.id, entityType: entity.kind, role: entity.role, suppressed: entity.suppressed, localVisible: entity.visible ?? true, documentId: view.document.id,
             capabilities: editable ? ["DELETE","SUPPRESS"] : undefined })) },
         { id: `${node.id}/external-geometry`, kind: "SKETCH_EXTERNAL_GEOMETRY_SET", name: "External Geometry", ownerEntityId: feature.id,
           children: (feature.sketch.externalGeometry??[]).map((external,index)=>({id:`${node.id}/external-geometry/external:${external.id}`,
@@ -224,19 +230,19 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
       ];
       return node;
     };
-    const bodyNodes:DocumentStructureNode[]=(view.part?.bodies??[]).map(body=>({id:`${path}/body:${body.id}`,kind:"BODY",name:body.name,entityId:body.id,bodyId:body.id,geometryKey:body.geometryKey,documentId:view.document.id,
+    const bodyNodes:DocumentStructureNode[]=(view.part?.bodies??[]).map(body=>({id:`${path}/body:${body.id}`,kind:"BODY",name:body.name,entityId:body.id,bodyId:body.id,geometryKey:body.geometryKey,localVisible:body.visible,documentId:view.document.id,
       children:features.filter(f=>f.bodyId===body.id && !consumed.has(f.id)).map(feature=>{const node=featureNode(feature,`${path}/body:${body.id}`,editable && !uses.has(feature.id));const sketch=feature.profile?sketches.get(feature.profile):undefined;
         if(sketch)node.children=consumed.has(sketch.id)?[{...featureNode(sketch,node.id,false),presentationRole:"FEATURE_INPUT"}]
           :[{id:`${node.id}/input-sketch:${sketch.id}`,kind:"SKETCH_INPUT_REFERENCE",name:sketch.name??"Sketch",entityId:sketch.id,
             bodyId:sketch.bodyId,ownerEntityId:feature.id,presentationRole:"INPUT_REFERENCE",documentId:view.document.id,versionId:view.document.versionId}];return node;})}));
     const parameters:DocumentStructureNode[]=(view.part?.parameters?.length??0)>0?[{id:`${path}/parameters`,kind:"PARAMETER_SET",name:"Parameters / Relations",documentId:view.document.id,
       children:(view.part?.parameters??[]).map(parameter=>({id:`${path}/parameters/parameter:${parameter.parameterId}`,kind:"PARAMETER",
-        name:parameter.label||parameter.key,entityId:parameter.parameterId,documentId:view.document.id,versionId:view.document.versionId}))}]:[];
+        name:parameter.qualifiedDisplayPath||parameter.displayName||parameter.label,entityId:parameter.parameterId,documentId:view.document.id,versionId:view.document.versionId,capabilities:["EDIT"]}))}]:[];
     const publications:DocumentStructureNode[]=(view.part?.publications?.length??0)>0?[{id:`${path}/publications`,kind:"PUBLICATION_SET",name:"Publications",documentId:view.document.id,
       children:(view.part?.publications??[]).map(publication=>({id:`${path}/publications/publication:${publication.id}`,kind:"PUBLICATION",
         name:publication.name,entityId:publication.id,documentId:view.document.id,versionId:view.document.versionId,
         resolutionStatus:publication.resolution.status,sourceRevisionId:publication.resolution.resolvedVersionId,
-        publication,capabilities:["DELETE"]}))}]:[];
+        publication,capabilities:["EDIT","DELETE"]}))}]:[];
     const references:DocumentStructureNode[]=(view.part?.contextReferences?.length??0)>0?[{id:`${path}/context-references`,kind:"CONTEXT_REFERENCE_SET",name:"Context References",documentId:view.document.id,
       children:(view.part?.contextReferences??[]).map(reference=>({id:`${path}/context-references/context:${reference.id}`,kind:"CONTEXT_REFERENCE",
         name:reference.name,entityId:reference.id,documentId:view.document.id,versionId:view.document.versionId,
@@ -288,7 +294,7 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
   const publicationGroup:DocumentStructureNode[]=(view.product?.publications?.length??0)>0?[{id:`${path}/publications`,kind:"PRODUCT_PUBLICATION_SET",name:"Publications",documentId:view.document.id,
     children:(view.product?.publications??[]).map(publication=>({id:`${path}/publications/publication:${publication.id}`,kind:"PRODUCT_PUBLICATION",
       name:publication.name,entityId:publication.id,documentId:view.document.id,versionId:view.document.versionId,
-      productPublication:publication,resolutionStatus:publication.resolution.status,capabilities:["DELETE"]}))}]:[];
+      productPublication:publication,resolutionStatus:publication.resolution.status,capabilities:["EDIT","DELETE"]}))}]:[];
   const bindingGroup:DocumentStructureNode[]=(view.product?.contextBindings?.length??0)>0?[{id:`${path}/context-bindings`,kind:"CONTEXT_BINDING_SET",name:"Context Bindings",documentId:view.document.id,
     children:(view.product?.contextBindings??[]).map(binding=>({id:`${path}/context-bindings/binding:${binding.id}`,kind:"CONTEXT_BINDING",
       name:binding.name,entityId:binding.id,documentId:view.document.id,versionId:view.document.versionId,
@@ -337,6 +343,16 @@ function getView(documentID: string): DocumentView {
   if(view.part)for(const f of view.part.features)f.bodyId??=view.part.activeBodyId;
   view.structureTree = mockStructure(view);
   annotateMockStructure(view.structureTree, view.document.id);
+  if (view.product?.visibilityOverrides?.length) {
+    const overrides = new Map(view.product.visibilityOverrides.map((item) =>
+      [`${item.instancePath.canonical}\u0000${item.entityKind}\u0000${item.entityId}`, item.mode] as const));
+    const visitVisibility = (node: DocumentStructureNode) => {
+      if (node.entityId && node.instancePath) node.visibilityMode = overrides.get(
+        `${node.instancePath.canonical}\u0000${node.kind}\u0000${node.entityId}`);
+      node.children?.forEach(visitVisibility);
+    };
+    visitVisibility(view.structureTree);
+  }
   if (view.product) {
     const documents = new Set<string>(), visited = new Set<string>(), products: string[] = [];
     const visit = (product: DocumentView, depth: number) => {
@@ -382,7 +398,7 @@ function rebuildProduct(view: DocumentView): void {
     id: `${view.document.name}/${instance.id}/part`, name: instance.name, documentId: partID,
     geometryKey: partArtifact.geometryKey, translation: instance.translation, rotation:instance.rotation, occurrencePath: instance.id,
     instancePath: mockInstancePath(view.document.id, instance),
-    bodyId:"body-main",bodyVisible:true,bodyTreeNodeId: `document:${view.document.id}/instance:${instance.id}/reference/body:body-main`,
+    bodyId:"body-main",bodyVisible:true,ownedSketchIds:["mock-sketch-1"],bodyTreeNodeId: `document:${view.document.id}/instance:${instance.id}/reference/body:body-main`,
   }));
 }
 
@@ -411,8 +427,32 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
       if(commandType==="CREATE_BODY"){const body={id:id("body"),name:String(input.name??`Body.${part.bodies.length+1}`),visible:true};part.bodies.push(body);part.activeBodyId=body.id;}
       if(body && commandType==="DELETE_BODY"){part.bodies=part.bodies.filter(b=>b!==body);part.features=part.features.filter(f=>f.bodyId!==body.id);if(part.activeBodyId===body.id)part.activeBodyId=part.bodies[0]?.id??"";if(body.geometryKey)delete view.artifacts?.[body.geometryKey];}
       if(body && commandType==="RENAME_BODY")body.name=String(input.name);
+      if(commandType==="RENAME_FEATURE") { const feature=part.features.find((item)=>item.id===input.targetId);if(feature)feature.name=String(input.name); }
       if(body && commandType==="SET_ACTIVE_BODY")part.activeBodyId=body.id;
       if(body && commandType==="SET_BODY_VISIBILITY")body.visible=Boolean(input.visible);
+      if(commandType==="CREATE_PARAMETER") {
+        const unit=String(input.unit??"mm"),number=Number(input.value??0),alias=String(input.name||`Parameter${(part.parameters?.length??0)+1}`);
+        const dimension={Length:unit==="mm"?1:0,Mass:0,Time:0,Current:0,Temperature:0,Amount:0,Luminous:0,Semantic:unit==="deg"?"ANGLE":""};
+        const quantity={siValue:unit==="mm"?number/1000:unit==="deg"?number*Math.PI/180:number,dimension};
+        part.parameters=[...(part.parameters??[]),{parameterId:id("parameter"),key:alias,label:String(input.name||`Parameter.${(part.parameters?.length??0)+1}`),
+          lifecycle:"USER",valueType:"QUANTITY",dimension,displayUnit:unit,role:"DESIGN_INPUT",source:{literal:quantity},evaluatedValue:quantity}];
+      }
+      if(commandType==="DELETE_PARAMETER") part.parameters=(part.parameters??[]).filter((item)=>item.parameterId!==input.parameterId);
+      if(commandType==="SET_DEFINITION_VISIBILITY") {
+        const targetKind=String(input.targetKind),targetID=String(input.targetId);
+        if(targetKind==="BODY") { const target=part.bodies.find((item)=>item.id===targetID);if(target)target.visible=Boolean(input.visible); }
+        else if(targetKind==="SKETCH") { const target=part.features.find((item)=>item.id===targetID&&item.sketch);if(target)target.visible=Boolean(input.visible); }
+        else if(targetKind==="SKETCH_ENTITY") { const owner=part.features.find((item)=>item.id===input.ownerEntityId);const target=owner?.sketch?.entities.find((item)=>item.id===targetID);if(target)target.visible=Boolean(input.visible); }
+        else throw new Error("此对象没有独立显示结果");
+      }
+    }
+    if(commandType==="SET_OCCURRENCE_VISIBILITY"&&view.product) {
+      const path=input.instancePath as InstancePath;
+      const kind=String(input.targetKind),targetID=String(input.targetId),mode=String(input.visibilityMode);
+      const overrides=(view.product.visibilityOverrides??=[]);
+      const index=overrides.findIndex((item)=>item.instancePath.canonical===path.canonical&&item.entityKind===kind&&item.entityId===targetID);
+      if(index>=0)overrides.splice(index,1);
+      if(mode!=="INHERIT")overrides.push({instancePath:path,entityKind:kind,entityId:targetID,mode:mode as "SHOW"|"HIDE"});
     }
     if (commandType === "CREATE_SKETCH" && view.part) {
       const plane=(input.targetKind === "FACE" ? "CUSTOM" : input.plane) as "XY"|"XZ"|"YZ"|"CUSTOM";
@@ -462,7 +502,8 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
     if (commandType === "CREATE_SOLID_FEATURE" && view.part) {
       const generator = String(input.generator) as "LINEAR_EXTRUDE" | "REVOLVE";
       const featureID = id(generator === "REVOLVE" ? "mock-revolve" : "mock-extrude");
-      let bodyId = String(input.bodyId ?? view.part.activeBodyId);
+      const sketchBodyID=view.part.features.find((feature)=>feature.id===input.sketchId)?.bodyId;
+      let bodyId = String(input.bodyId ?? sketchBodyID ?? view.part.activeBodyId);
       if (input.operation === "NEW_BODY") {
         bodyId = `body-${featureID}`;
         view.part.bodies.push({ id: bodyId, name: `Body.${view.part.bodies.length + 1}`, visible: true,
@@ -500,14 +541,32 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 		const parameter = view.part.parameters?.find((candidate) => candidate.parameterId === input.parameterId);
 		if (parameter) parameter.key = String(input.name);
 	}
+	if (commandType === "EDIT_PARAMETER" && view.part) {
+		const parameter = view.part.parameters?.find((candidate) => candidate.parameterId === input.parameterId);
+		if (parameter) {
+			const nextKey = String(input.name ?? "").trim();
+			if (!/^[A-Za-z_][A-Za-z_0-9]*$/.test(nextKey) || view.part.parameters?.some((candidate) => candidate.parameterId !== parameter.parameterId && candidate.key === nextKey))
+				throw new Error("参数别名无效或已存在");
+			if (input.expression) {
+				const referenced = view.part.parameters?.find((candidate) => candidate.key === input.expression);
+				if (!referenced?.evaluatedValue) throw new Error("参数表达式无法解析");
+				parameter.source = { expression: { sourceText: String(input.expression) } }; parameter.evaluatedValue = referenced.evaluatedValue;
+			} else {
+				const quantity = { siValue: lengthInMillimeters(input.value, input.unit) / 1000, dimension: parameter.dimension };
+				parameter.source = { literal: quantity }; parameter.evaluatedValue = quantity;
+			}
+			parameter.key = nextKey;
+		}
+	}
 	if (commandType === "CREATE_PUBLICATION" && view.part) {
 		const publicationType = String(input.publicationType) as Publication["type"];
 		const targetKind = String(input.targetKind);
-		const publication: Publication = { id: id("mock-publication"), name: String(input.name || publicationType), type: publicationType,
+		const publication: Publication = { id: id("mock-publication"), name: String(input.name || `${targetKind === "BODY" ? "Body" : targetKind === "PARAMETER" ? "Parameter" : publicationType}.1`), type: publicationType,
 			semanticPurpose: String(input.semanticPurpose ?? ""), compatibilityVersion: String(input.compatibilityVersion || "1.0.0"),
 			target: targetKind === "PARAMETER" ? { kind: "PARAMETER", parameterId: String(input.targetId) }
 				: targetKind === "FACE" || targetKind === "EDGE" ? { kind: "TOPOLOGY", sourceVersionId: view.document.versionId }
-				: targetKind === "BODY" ? { kind: "FEATURE_OUTPUT", featureId: String(input.targetId), outputSlot: "BODY" }
+				: targetKind === "BODY" ? { kind: "BODY_RESULT", bodyId: String(input.targetId) }
+				: targetKind === "FEATURE_OUTPUT" ? { kind: "FEATURE_OUTPUT", featureId: String(input.targetId), outputSlot: "BODY" }
 				: { kind: "DATUM", datumId: String(input.targetId), axis: input.axis as "X"|"Y"|"Z"|undefined },
 			contract: {}, resolution: { status: "CONNECTED", resolvedVersionId: view.document.versionId,
 				geometryKey: String(input.geometryKey ?? view.part?.bodies.find(b=>b.id===view.part?.activeBodyId)?.geometryKey ?? "") } };
@@ -619,6 +678,10 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 	}
 	if(commandType==="EDIT_PRODUCT_PUBLICATION"&&view.product){const publication=view.product.publications?.find((item)=>item.id===input.publicationId);
 		if(publication){publication.name=String(input.name);publication.semanticPurpose=String(input.semanticPurpose??"");}}
+	if(commandType==="REDIRECT_PRODUCT_PUBLICATION"&&view.product){const publication=view.product.publications?.find((item)=>item.id===input.publicationId);
+		const path=input.instancePath as InstancePath|undefined;const sourceDocumentID=path?.segments.at(-1)?.referencedDocumentId;
+		const source=sourceDocumentID?getView(sourceDocumentID).part?.publications?.find((item)=>item.id===input.targetId):undefined;
+		if(publication&&path&&source&&publication.type===source.type){publication.target={instancePath:path,publicationId:source.id};publication.resolution=source.resolution;}}
 	if(commandType==="DELETE_PRODUCT_PUBLICATION"&&view.product)view.product.publications=(view.product.publications??[]).filter((item)=>item.id!==input.publicationId);
 	if(commandType==="CREATE_CONTEXT_INPUT"&&view.part){view.part.contextInputs=[...(view.part.contextInputs??[]),{
 		id:id("mock-context-input"),name:String(input.name||"ContextInput"),type:String(input.publicationType||"PARAMETER") as Publication["type"],

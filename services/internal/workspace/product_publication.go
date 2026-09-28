@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	typeReplaceInstance          = "occccad://product/instance/replace"
-	typeCreateProductPublication = "occccad://product/publication/create"
-	typeDeleteProductPublication = "occccad://product/publication/delete"
+	typeReplaceInstance            = "occccad://product/instance/replace"
+	typeCreateProductPublication   = "occccad://product/publication/create"
+	typeRedirectProductPublication = "occccad://product/publication/redirect"
+	typeDeleteProductPublication   = "occccad://product/publication/delete"
 )
 
 type replaceInstancePayload struct {
@@ -64,6 +65,35 @@ func applyCreateProductPublication(modelJSON, payloadJSON json.RawMessage) (json
 		modelcore.PropertyAddress{EntityID: payload.Publication.ID, SlotID: "product-publication.entity"}, nil, payload.Publication)
 	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change},
 		ImpactSeeds: []modelcore.DependencyKey{"product-publication:" + modelcore.DependencyKey(payload.Publication.ID)}}, nil
+}
+
+func applyRedirectProductPublication(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
+	var model ProductModel
+	var payload productPublicationPayload
+	if err := json.Unmarshal(modelJSON, &model); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	for i, current := range model.Publications {
+		if current.ID != payload.Publication.ID {
+			continue
+		}
+		replacement := payload.Publication
+		if current.Type != replacement.Type || current.CompatibilityVersion != replacement.CompatibilityVersion ||
+			resolvedDigest(current.Contract) != resolvedDigest(replacement.Contract) {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: PUBLICATION_CONTRACT_INCOMPATIBLE", ErrValidation)
+		}
+		replacement.Name, replacement.SemanticPurpose = current.Name, current.SemanticPurpose
+		model.Publications[i] = replacement
+		change, _ := modelcore.NewChange(modelcore.ChangeBind,
+			modelcore.PropertyAddress{EntityID: current.ID, SlotID: "product-publication.entity"}, current, replacement)
+		next, _ := json.Marshal(model)
+		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change},
+			ImpactSeeds: []modelcore.DependencyKey{"product-publication:" + modelcore.DependencyKey(current.ID)}}, nil
+	}
+	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: Product Publication does not exist", ErrValidation)
 }
 
 func applyDeleteProductPublication(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {

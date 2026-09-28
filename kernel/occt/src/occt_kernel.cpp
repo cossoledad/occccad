@@ -877,6 +877,18 @@ int solid_count(const TopoDS_Shape& shape) {
     return solids.Extent();
 }
 
+void validate_body_solid_set(const TopoDS_Shape& shape) {
+    if (shape.IsNull() || solid_count(shape) == 0 || shape_volume(shape) <= 1.0e-9)
+        throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
+    if (!BRepCheck_Analyzer(shape).IsValid())
+        throw std::runtime_error("INVALID_RESULT: solid operation produced invalid B-Rep");
+    // A compound of several solids is legal. Loose faces, edges and vertices are
+    // not Body material, even when the compound also contains valid solids.
+    for (const auto type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX})
+        if (TopExp_Explorer(shape, type, TopAbs_SOLID).More())
+            throw std::invalid_argument("INVALID_RESULT: body contains topology outside solids");
+}
+
 struct BodyOperationResult {
     TopoDS_Shape shape;
     std::vector<NamedShape> named;
@@ -1298,11 +1310,12 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     if (input.IsNull()) {
         if (operation == "REMOVE" || operation == "INTERSECT")
             throw std::invalid_argument(operation + " requires an input body");
-        return {tool.shape, tool.named, {}, {}};  // Legacy first ADD is equivalent to NEW_BODY.
+        validate_body_solid_set(tool.shape);
+        return {tool.shape, tool.named, {}, {}};
     }
     if (operation == "NEW_BODY")
         throw std::invalid_argument(
-            "NEW_BODY requires an empty target body in the current single-body model");
+            "NEW_BODY requires an empty target body");
     TopoDS_Shape result;
     std::vector<NamedShape> mapped;
     std::vector<NamedShape> sources = input_named;
@@ -1314,6 +1327,8 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
             throw std::runtime_error("body fuse failed");
         result = algorithm.Shape();
         mapped = map_named_shapes(sources, algorithm, result);
+        if (shape_volume(result) - shape_volume(input) <= 1.0e-9)
+            throw std::invalid_argument("NO_MATERIAL_CHANGE: add does not change the target body");
     } else if (operation == "REMOVE") {
         BRepAlgoAPI_Cut algorithm(input, tool.shape);
         algorithm.Build();
@@ -1331,9 +1346,14 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
             throw std::runtime_error("body common failed");
         result = algorithm.Shape();
         mapped = map_named_shapes(sources, algorithm, result);
+        if (!result.IsNull() && shape_volume(input) - shape_volume(result) <= 1.0e-9)
+            throw std::invalid_argument(
+                "NO_MATERIAL_CHANGE: intersection does not change the target body");
     } else {
         throw std::invalid_argument("unsupported body operation: " + operation);
     }
+    if (result.IsNull() || solid_count(result) == 0)
+        throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
     // OCCT boolean builders deliberately preserve section edges.  That history is
     // useful while mapping generated topology, but it is not the canonical shape
     // of a Part Design Body: coplanar/cotangent pieces left by overlapping pads
@@ -1344,18 +1364,7 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     unifier.Build();
     mapped = map_named_history(mapped, unifier.History(), unifier.Shape());
     result = unifier.Shape();
-    if (result.IsNull() || shape_volume(result) <= 1.0e-9)
-        throw std::invalid_argument("EMPTY_RESULT: solid operation produced no material");
-    if (!BRepCheck_Analyzer(result).IsValid())
-        throw std::runtime_error("solid operation produced invalid B-Rep");
-    if (solid_count(result) != 1) {
-        // The coordinator may allocate an independent Body only for this precise
-        // ADD outcome. Cuts/intersections and invalid B-Reps must still fail.
-        if (operation == "ADD")
-            throw std::invalid_argument("DISJOINT_ADD[" + tool.feature_id +
-                                        "]: standard Body requires exactly one solid");
-        throw std::invalid_argument("DISJOINT_RESULT: standard Body requires exactly one solid");
-    }
+    validate_body_solid_set(result);
     auto derived = complete_boolean_topology_naming(result, mapped, tool.feature_id);
     std::vector<std::string> diagnostics;
     if (!derived.empty())

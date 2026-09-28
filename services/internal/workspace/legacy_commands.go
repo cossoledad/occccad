@@ -15,16 +15,126 @@ import (
 
 func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, documentType string, modelJSON json.RawMessage, request CommandRequest) (string, any, error) {
 	switch request.Type {
-	case "CREATE_BODY", "DELETE_BODY", "RENAME_BODY", "SET_ACTIVE_BODY", "SET_BODY_VISIBILITY":
+	case "SET_DEFINITION_VISIBILITY":
 		if documentType != "PART" {
 			break
 		}
-		action := map[string]string{"CREATE_BODY": "CREATE", "DELETE_BODY": "DELETE", "RENAME_BODY": "RENAME", "SET_ACTIVE_BODY": "ACTIVATE", "SET_BODY_VISIBILITY": "VISIBILITY"}[request.Type]
+		return typeDefinitionVisibility, definitionVisibilityPayload{EntityKind: request.TargetKind, EntityID: request.TargetID,
+			OwnerEntityID: request.OwnerEntityID, Visible: request.Visible}, nil
+	case "SET_BODY_VISIBILITY":
+		if documentType != "PART" {
+			break
+		}
+		return typeDefinitionVisibility, definitionVisibilityPayload{EntityKind: "BODY", EntityID: request.BodyID, Visible: request.Visible}, nil
+	case "SET_OCCURRENCE_VISIBILITY":
+		if documentType != "PRODUCT" {
+			break
+		}
+		if request.InstancePath == nil {
+			return "", nil, fmt.Errorf("%w: occurrence display requires InstancePath", ErrValidation)
+		}
+		if err := validateNonRootInstancePath(*request.InstancePath, documentID); err != nil {
+			return "", nil, err
+		}
+		var model ProductModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		var head string
+		if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&head); err != nil {
+			return "", nil, err
+		}
+		occurrences, err := service.expandProductContext(ctx, documentID, head, model)
+		if err != nil {
+			return "", nil, err
+		}
+		resolved, ok := occurrenceByCanonical(occurrences, request.InstancePath.Canonical)
+		if !ok {
+			return "", nil, fmt.Errorf("%w: occurrence does not exist", ErrValidation)
+		}
+		if err := validateResolvedInstancePath(*request.InstancePath, resolved.Path); err != nil {
+			return "", nil, err
+		}
+		if request.TargetKind == "INSTANCE" {
+			if request.TargetID != resolved.Path.Segments[len(resolved.Path.Segments)-1].InstanceID {
+				return "", nil, fmt.Errorf("%w: display target is not this occurrence", ErrValidation)
+			}
+		} else if resolved.DocumentType != "PART" {
+			return "", nil, fmt.Errorf("%w: display target must be a Part occurrence", ErrValidation)
+		} else {
+			var raw []byte
+			if err := service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1`, resolved.RevisionID).Scan(&raw); err != nil {
+				return "", nil, err
+			}
+			var part PartModel
+			if err := json.Unmarshal(raw, &part); err != nil {
+				return "", nil, err
+			}
+			if !definitionVisibilityTargetExists(part, request.TargetKind, request.TargetID, request.OwnerEntityID) {
+				return "", nil, fmt.Errorf("%w: display target does not exist in resolved Part revision", ErrValidation)
+			}
+		}
+		return typeOccurrenceVisibility, occurrenceVisibilityPayload{InstancePath: *request.InstancePath,
+			EntityKind: strings.ToUpper(request.TargetKind), EntityID: request.TargetID, Mode: strings.ToUpper(request.VisibilityMode)}, nil
+	case "CREATE_BODY", "DELETE_BODY", "RENAME_BODY", "SET_ACTIVE_BODY":
+		if documentType != "PART" {
+			break
+		}
+		action := map[string]string{"CREATE_BODY": "CREATE", "DELETE_BODY": "DELETE", "RENAME_BODY": "RENAME", "SET_ACTIVE_BODY": "ACTIVATE"}[request.Type]
 		id := request.BodyID
 		if request.Type == "CREATE_BODY" {
 			id = commandEntityID("body", request.RequestID)
 		}
 		return typeBodyCommand, bodyCommand{Action: action, BodyID: id, Name: request.Name, Visible: request.Visible}, nil
+	case "RENAME_FEATURE":
+		if documentType != "PART" {
+			break
+		}
+		return typeRenameFeature, renameFeaturePayload{FeatureID: request.TargetID, Name: request.Name}, nil
+	case "CREATE_PARAMETER":
+		if documentType != "PART" {
+			break
+		}
+		quantity, err := modelcore.NewQuantity(request.Value, request.Unit)
+		if err != nil {
+			return "", nil, fmt.Errorf("%w: %v", ErrValidation, err)
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		alias := strings.TrimSpace(request.Name)
+		if alias == "" {
+			for n := 1; ; n++ {
+				candidate := fmt.Sprintf("Parameter%d", n)
+				found := false
+				for _, current := range model.Parameters {
+					if current.Key == candidate {
+						found = true
+						break
+					}
+				}
+				if !found {
+					alias = candidate
+					break
+				}
+			}
+		}
+		if !validParameterKey(alias) {
+			return "", nil, fmt.Errorf("%w: parameter alias must be an ASCII identifier", ErrValidation)
+		}
+		displayName := strings.TrimSpace(request.Name)
+		if displayName == "" {
+			existing := make([]string, 0, len(model.Parameters))
+			for _, current := range model.Parameters {
+				existing = append(existing, current.Label)
+			}
+			displayName = nextScopedName("Parameter.", existing)
+		}
+		parameter := modelcore.ParameterDefinition{ParameterID: commandEntityID("parameter", request.RequestID), Key: alias,
+			Label: displayName, Lifecycle: "USER", ValueType: modelcore.ValueQuantity, Dimension: quantity.Dimension,
+			DisplayUnit: request.Unit, Role: "DESIGN_INPUT", Source: modelcore.ValueSource{Literal: &quantity}}
+		return typeCreateUserParameter, createUserParameterPayload{Parameter: parameter}, nil
 
 	case "CREATE_SKETCH":
 		if documentType != "PART" {
@@ -243,7 +353,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			for _, parameter := range model.Parameters {
 				names[parameter.Key] = modelcore.ParameterBinding{ParameterID: parameter.ParameterID, Dimension: parameter.Dimension}
 			}
-			expression, compileErr := modelcore.CompileExpression(request.LengthExpression, names, modelcore.LengthDimension)
+			source, resolveErr := resolveQualifiedParameterSource(model, request.LengthExpression)
+			if resolveErr != nil {
+				return "", nil, resolveErr
+			}
+			expression, compileErr := modelcore.CompileExpression(source, names, modelcore.LengthDimension)
 			if compileErr != nil {
 				return "", nil, fmt.Errorf("%w: %w", ErrValidation, compileErr)
 			}
@@ -378,6 +492,51 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 		return typeSetParameterLiteral, parameterSourcePayload{ParameterID: request.ParameterID, Source: modelcore.ValueSource{Literal: &quantity}}, nil
+	case "EDIT_PARAMETER":
+		if documentType != "PART" {
+			break
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		normalizePartModel(&model)
+		var expected *modelcore.ParameterDefinition
+		names := map[string]modelcore.ParameterBinding{}
+		for i := range model.Parameters {
+			parameter := &model.Parameters[i]
+			names[parameter.Key] = modelcore.ParameterBinding{ParameterID: parameter.ParameterID, Dimension: parameter.Dimension}
+			if parameter.ParameterID == request.ParameterID {
+				expected = parameter
+			}
+		}
+		if expected == nil {
+			return "", nil, fmt.Errorf("%w: parameter does not exist", ErrValidation)
+		}
+		payload := editParameterPayload{ParameterID: request.ParameterID, Key: request.Name}
+		if strings.TrimSpace(request.Expression) != "" {
+			source, err := resolveQualifiedParameterSource(model, request.Expression)
+			if err != nil {
+				return "", nil, err
+			}
+			expression, err := modelcore.CompileExpression(source, names, expected.Dimension)
+			if err != nil {
+				return "", nil, fmt.Errorf("%w: %w", ErrValidation, err)
+			}
+			payload.Source.Expression = &expression
+		} else {
+			quantity, err := modelcore.NewQuantity(request.Value, request.Unit)
+			if err != nil {
+				return "", nil, fmt.Errorf("%w: %w", ErrValidation, err)
+			}
+			payload.Source.Literal = &quantity
+		}
+		return typeEditParameter, payload, nil
+	case "DELETE_PARAMETER":
+		if documentType != "PART" {
+			break
+		}
+		return typeDeleteParameter, deleteParameterPayload{ParameterID: request.ParameterID}, nil
 	case "SET_PARAMETER_EXPRESSION":
 		if documentType != "PART" {
 			break
@@ -399,7 +558,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if expected == nil {
 			return "", nil, fmt.Errorf("%w: parameter does not exist", ErrValidation)
 		}
-		expression, err := modelcore.CompileExpression(request.Expression, names, expected.Dimension)
+		source, err := resolveQualifiedParameterSource(model, request.Expression)
+		if err != nil {
+			return "", nil, err
+		}
+		expression, err := modelcore.CompileExpression(source, names, expected.Dimension)
 		if err != nil {
 			return "", nil, fmt.Errorf("%w: %w", ErrValidation, err)
 		}
@@ -472,6 +635,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 	case "DELETE_PUBLICATION":
 		if documentType != "PART" {
 			break
+		}
+		if err := service.ensurePublicationUnused(ctx, documentID, request.PublicationID); err != nil {
+			return "", nil, err
 		}
 		return typeDeletePublication, publicationDeletePayload{PublicationID: request.PublicationID}, nil
 	case "CREATE_CONTEXT_INPUT":
@@ -782,10 +948,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			for _, item := range product.Publications {
 				existing = append(existing, item.Name)
 			}
-			name = child.Name
-			if err := ensureUniqueScopedName(name, existing, ""); err != nil {
-				name = nextScopedName(defaultPublicationBase(child.Target.Kind, child.Type), existing)
-			}
+			name = nextScopedName(defaultPublicationBase(child.Target.Kind, child.Type), existing)
 		}
 		publication := productPublicationFromPath(canonicalPath, child, commandEntityID("product-publication", request.RequestID), name, request.SemanticPurpose)
 		return typeCreateProductPublication, productPublicationPayload{Publication: publication}, nil
@@ -793,7 +956,39 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PRODUCT" {
 			break
 		}
+		if err := service.ensurePublicationUnused(ctx, documentID, request.PublicationID); err != nil {
+			return "", nil, err
+		}
 		return typeDeleteProductPublication, publicationDeletePayload{PublicationID: request.PublicationID}, nil
+	case "REDIRECT_PRODUCT_PUBLICATION":
+		if documentType != "PRODUCT" {
+			break
+		}
+		if request.InstancePath == nil || request.TargetID == "" {
+			return "", nil, fmt.Errorf("%w: source Publication path and identity required", ErrValidation)
+		}
+		var product ProductModel
+		if err := json.Unmarshal(modelJSON, &product); err != nil {
+			return "", nil, err
+		}
+		if request.InstancePath.RootDocumentID != documentID {
+			return "", nil, fmt.Errorf("%w: source belongs to another Product", ErrValidation)
+		}
+		child, path, err := service.publicationAtRelativePath(ctx, product, *request.InstancePath, request.TargetID)
+		if err != nil {
+			return "", nil, err
+		}
+		if child.Resolution.Status != "CONNECTED" {
+			return "", nil, fmt.Errorf("%w: source Publication is broken", ErrValidation)
+		}
+		for _, current := range product.Publications {
+			if current.ID != request.PublicationID {
+				continue
+			}
+			replacement := productPublicationFromPath(path, child, current.ID, current.Name, current.SemanticPurpose)
+			return typeRedirectProductPublication, productPublicationPayload{Publication: replacement}, nil
+		}
+		return "", nil, fmt.Errorf("%w: Product Publication does not exist", ErrValidation)
 	case "EDIT_PRODUCT_PUBLICATION":
 		if documentType != "PRODUCT" {
 			break

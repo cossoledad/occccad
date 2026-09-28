@@ -382,12 +382,19 @@ func TestLinearExtrudeStructureExposesEditCapabilityAndCurrentDigest(t *testing.
 		t.Fatal(err)
 	}
 	children := partStructureChildren(model, "document:part", "part", "version", true)
-	if len(children) != 2 || len(children[1].Children) != 1 {
-		t.Fatalf("part structure = %#v", children)
+	var extrude *DocumentStructureNode
+	var visit func([]DocumentStructureNode)
+	visit = func(nodes []DocumentStructureNode) {
+		for index := range nodes {
+			if nodes[index].EntityID == "extrude-edit" && nodes[index].Kind == "PAD" {
+				extrude = &nodes[index]
+			}
+			visit(nodes[index].Children)
+		}
 	}
-	node := children[1].Children[0]
-	if !slices.Contains(node.Capabilities, "EDIT") || node.DefinitionDigest != digest {
-		t.Fatalf("extrude edit contract = capabilities %v digest %q, want %q", node.Capabilities, node.DefinitionDigest, digest)
+	visit(children)
+	if extrude == nil || !slices.Contains(extrude.Capabilities, "EDIT") || extrude.DefinitionDigest != digest {
+		t.Fatalf("extrude edit contract = node %+v, want digest %q", extrude, digest)
 	}
 }
 

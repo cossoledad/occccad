@@ -22,7 +22,8 @@ import { SelectionController } from "../cad/interaction/selection-controller";
 import { SelectionIndex } from "../cad/interaction/selection-index";
 import { AssemblyManipulator, type ManipulatorAnchor } from "../cad/interaction/assembly-manipulator";
 import { projectSketchFeatureSelection, selectionModeForTool, sketchContextLayerVisibility, type SelectionMode } from "../cad/interaction/selection-mode";
-import { sketchTreeVisible, treeVisibilityOverride, type TreeVisibilityOverrides } from "../cad/interaction/tree-visibility";
+import { treeVisibilityOverride, type TreeVisibilityOverrides } from "../cad/interaction/tree-visibility";
+import { visibilityResolverForView, type DisplayAddress, type VisibilityResolver } from "../cad/interaction/visibility-resolver";
 import { sameSelection, sameSelections, selectionKey } from "../cad/interaction/selection-identity";
 import { resolveSketchReference, type SketchReferencePickKind } from "../cad/interaction/sketch-reference-pick";
 import { resolveSketchSnap, type SketchSnapResult } from "../cad/interaction/sketch-snap";
@@ -265,6 +266,7 @@ export class CadViewportEngine {
   private preselectedOverlays: THREE.Object3D[] = [];
   private highlightedRoots = new Set<THREE.Object3D>();
   private view?: DocumentView;
+  private renderGeometrySignature?: string;
   private editContext?: ViewportEditContext;
   private sketchPlane?: SketchPlane;
   private activeSketchID?: string;
@@ -291,6 +293,7 @@ export class CadViewportEngine {
   private navigationProfile: NavigationProfileID = "default";
   private captureSettings: CaptureSettings = DEFAULT_CAPTURE_SETTINGS;
   private treeVisibilityOverrides: TreeVisibilityOverrides = {};
+  private visibilityResolver?: VisibilityResolver;
   private readonly resizeObserver: ResizeObserver;
   private animationFrame = 0;
   private disposed = false;
@@ -419,7 +422,21 @@ export class CadViewportEngine {
   private visualGeneration = 0;
   private pendingVisualSnapshot = false;
   private visualError?: HTMLDivElement;
+  private geometrySignature(view: DocumentDescriptor, editContext?: ViewportEditContext): string {
+    const part = (value?: DocumentDescriptor) => value?.part?.bodies.map((body) => [body.id, body.geometryKey]);
+    return JSON.stringify([view.document.id, view.document.type, part(view),
+      view.resolvedInstances?.map((resolved) => [resolved.id, resolved.geometryKey, resolved.translation, resolved.rotation,
+        resolved.instancePath.segments.at(-1)?.resolvedVersionId, resolved.ownedSketchIds]),
+      view.product?.instances.map((instance) => [instance.id, instance.translation, instance.rotation]),
+      view.contextVariants?.map((variant) => [variant.owningInstancePath.canonical, variant.variantKey]),
+      editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view)]);
+  }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
+    const signature = this.geometrySignature(view, editContext);
+    if (this.renderGeometrySignature === signature && !this.pendingVisualSnapshot && this.view) {
+      this.updateDisplayProjection(view);
+      return;
+    }
     const generation = ++this.visualGeneration;
     const scope = (display?: DocumentDescriptor, editing?: ViewportEditContext) => JSON.stringify([
       display?.document.id, display?.document.versionId,
@@ -455,6 +472,7 @@ export class CadViewportEngine {
       this.visualError = undefined;
       this.visuals.retain([view, ...(editContext ? [editContext.view] : [])]);
       this.renderReady(display, editContext && editing ? { ...editContext, view: editing } : undefined);
+      this.renderGeometrySignature = signature;
       this.pendingVisualSnapshot = false;
     }).catch(error => {
       if (generation !== this.visualGeneration) return;
@@ -488,6 +506,7 @@ export class CadViewportEngine {
 	this.transforms.stopAll();
 	this.clearInteractionState();
     this.view = view;
+    this.visibilityResolver = visibilityResolverForView(view);
     this.editContext = editContext;
     this.moveManipulator.detach();
     this.moveTarget = undefined;
@@ -565,23 +584,67 @@ export class CadViewportEngine {
 
   setTreeVisibilityOverrides(overrides: TreeVisibilityOverrides): void {
     this.treeVisibilityOverrides = { ...overrides };
-    if (this.view) this.render(this.view);
+    this.updateSketchContextVisibility();
+    this.applyTreeVisibility();
+    this.invalidate();
+  }
+
+  updateDisplayProjection(view: DocumentDescriptor): void {
+    if (!this.view || this.view.document.id !== view.document.id) return;
+    this.view = {...this.view, structureTree: view.structureTree, part: view.part, product: view.product};
+    this.visibilityResolver = visibilityResolverForView(view);
+    this.updateSketchContextVisibility();
+    this.applyTreeVisibility();
+    this.invalidate();
+  }
+
+  private editingSketchScope(): {id:string; occurrencePath:string} | undefined {
+    return this.activeSketchID ? {id:this.activeSketchID, occurrencePath:this.editContext?.occurrencePath ?? ""} : undefined;
+  }
+
+  private semanticVisibilityAddress(entry: Partial<SelectionItem>): DisplayAddress | undefined {
+    const documentId = entry.documentId;
+    const occurrencePath = entry.occurrencePath ?? "";
+    if (!documentId) return undefined;
+    if (entry.kind === "body" && entry.bodyId) return {documentId, occurrencePath, kind:"BODY", entityId:entry.bodyId};
+    if (entry.kind === "sketch" && entry.id) return {documentId, occurrencePath, kind:"SKETCH", entityId:entry.id, bodyId:entry.bodyId};
+    if (entry.kind === "visual" && entry.featureId && entry.entityId) return {documentId, occurrencePath,
+      kind:"SKETCH_ENTITY", entityId:entry.entityId, ownerEntityId:entry.featureId, bodyId:entry.bodyId};
+    if (entry.kind === "sketch-constraint" && entry.featureId) return {documentId, occurrencePath,
+      kind:"SKETCH", entityId:entry.featureId, bodyId:entry.bodyId};
+    if (entry.kind === "instance" && entry.instanceId) {
+      const node = this.view?.structureTree?.children?.find((candidate) => candidate.kind === "INSTANCE" && candidate.entityId === entry.instanceId);
+      return {documentId: node?.ownerDocumentId ?? this.view?.document.id ?? documentId,
+        occurrencePath: entry.occurrencePath ?? entry.instanceId, kind:"INSTANCE", entityId:entry.instanceId};
+    }
+    return undefined;
   }
 
   private applyTreeVisibility(): void {
     for (const root of [this.content, this.helpers]) root.traverse((object) => {
-      const entry = object.userData as Partial<SelectionItem>;
+      const entry = object.userData as Partial<SelectionItem> & {visualizationPrimitive?: boolean; sketchFeatureID?: string};
       const semanticKey = typeof entry.kind === "string" && typeof entry.id === "string"
         ? selectionKey(entry as SelectionItem) : undefined;
       const legacyKey = typeof entry.treeNodeId === "string" ? entry.treeNodeId : undefined;
       const hidden = treeVisibilityOverride(semanticKey, this.treeVisibilityOverrides) ??
         treeVisibilityOverride(legacyKey, this.treeVisibilityOverrides);
-      const activeSketch = entry.kind === "sketch" && entry.id === this.activeSketchID;
+      const address = this.semanticVisibilityAddress(entry);
+      const semanticVisible = address ? this.visibilityResolver?.resolve(address, this.editingSketchScope()).effectiveVisible : undefined;
+      const editingOverlayReplacesPrimitive = Boolean(this.editContext && this.activeSketchID && entry.visualizationPrimitive &&
+        entry.sketchFeatureID === this.activeSketchID && entry.occurrencePath === this.editContext.occurrencePath);
       const category = referenceCategory(object.userData.kind, object.userData.axis);
       if (category) object.visible = this.referenceVisibility[category] &&
         !(root === this.helpers && this.sketchPlane) && hidden !== false;
-      if (hidden === false && !activeSketch) object.visible = false;
+      else if (editingOverlayReplacesPrimitive) object.visible = false;
+      else if (semanticVisible !== undefined) object.visible = semanticVisible;
+      else if (hidden === false) object.visible = false;
     });
+    this.refreshInteractionHighlights();
+  }
+
+  private objectVisible(object: THREE.Object3D): boolean {
+    for (let current: THREE.Object3D | null = object; current; current = current.parent) if (!current.visible) return false;
+    return true;
   }
 
   private animatePlaneView(focus: THREE.Vector3, normal: THREE.Vector3, up: THREE.Vector3): void {
@@ -1047,11 +1110,13 @@ export class CadViewportEngine {
     this.replaceTopologyOverlays("preselected", withAssemblyReferences(this.preselected ? [this.preselected] : []));
     if (this.preselected) {
       for (const object of this.selectionIndex.objectsFor(this.preselected)) {
+        if (!this.objectVisible(object)) continue;
         this.applyHighlight(object, "hover"); this.highlightedRoots.add(object);
       }
     }
     this.replaceTopologyOverlays("selected", withAssemblyReferences(this.selected));
     for (const object of this.selectionIndex.objectsForMany(this.selected)) {
+      if (!this.objectVisible(object)) continue;
       this.applyHighlight(object, "selected"); this.highlightedRoots.add(object);
     }
   }
@@ -1144,7 +1209,7 @@ export class CadViewportEngine {
     });
     for (const body of view.part?.bodies ?? []) {
       const artifact = body.geometryKey ? view.artifacts?.[body.geometryKey] : undefined;
-      if (!artifact || !body.visible) continue;
+      if (!artifact) continue;
       const bodyTreeNodeId = `${rootPath}/body:${body.id}`;
       const context: SolidContext = { bodyId:body.id, documentId:view.document.id,versionId:view.document.versionId,
         geometryKey:artifact.geometryKey,occurrencePath:"",treeNodeId:bodyTreeNodeId };
@@ -1156,7 +1221,7 @@ export class CadViewportEngine {
     }
     const consumedSketches = new Set((view.part?.features ?? []).flatMap((feature) => feature.profile ? [feature.profile] : []));
     for (const feature of view.part?.features ?? []) {
-      if (feature.type.toUpperCase().includes("SKETCH") && view.part?.bodies.find(b=>b.id===feature.bodyId)?.visible !== false) {
+      if (feature.type.toUpperCase().includes("SKETCH")) {
         this.addSketch(feature, false, view, undefined, undefined, undefined, !consumedSketches.has(feature.id));
       }
     }
@@ -1194,7 +1259,7 @@ export class CadViewportEngine {
           .applyQuaternion(instanceRotation.clone().invert());
         const resolvedRotation = new THREE.Quaternion().fromArray(resolved.rotation ?? [0, 0, 0, 1]);
         resolvedGroup.quaternion.copy(instanceRotation.clone().invert().multiply(resolvedRotation));
-        if (resolved.bodyVisible && artifact.mesh.triangles.length > 0) {
+        if (artifact.mesh.triangles.length > 0) {
           const context: SolidContext = {
             bodyId:resolved.bodyId, documentId: resolved.documentId, versionId: resolved.instancePath.segments.at(-1)?.resolvedVersionId, geometryKey: artifact.geometryKey,
             contextVariantKey: view.contextVariants?.find((variant) => variant.owningInstancePath.canonical === resolved.occurrencePath)?.variantKey,
@@ -1210,7 +1275,8 @@ export class CadViewportEngine {
           instancePath: resolved.instancePath, treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id,
         };
         if (!referencedOccurrences.has(resolved.occurrencePath)) { this.addReferenceGeometry(artifact.visualization.referenceGeometry, resolvedGroup, visualContext); referencedOccurrences.add(resolved.occurrencePath); }
-        if (resolved.bodyVisible) this.addVisualPrimitives(artifact.visualization, resolvedGroup, visualContext, false);
+        this.addVisualPrimitives(artifact.visualization, resolvedGroup, visualContext, true,
+          new Set(resolved.ownedSketchIds ?? []));
         if (resolvedGroup.children.length > 0) group.add(resolvedGroup);
       }
       if (group.children.length === 0) {
@@ -1567,12 +1633,16 @@ export class CadViewportEngine {
     return visit(this.view?.structureTree);
   }
 
-  private addVisualPrimitives(visualization: VisualizationManifest | undefined, parent: THREE.Group, context: SolidContext, includeSketch = true): void {
-    if (!visualization || visualization.schemaVersion !== 1) return;
+  private addVisualPrimitives(visualization: VisualizationManifest | undefined, parent: THREE.Group, context: SolidContext,
+    includeSketch = true, ownedSketchIds?: ReadonlySet<string>): void {
+    if (!visualization || (visualization.schemaVersion !== 1 && visualization.schemaVersion !== 2)) return;
     const sketchEntityObjects = new Map<string, THREE.Object3D>();
+    const sketchGroups = new Map<string, THREE.Group>();
+    const featureTreeNodes = new Map<string, string | undefined>();
     const constraintAssociations: Array<{ selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; featureID: string; entityIDs: string[] }> = [];
     for (const primitive of visualization.primitives ?? []) {
-      if (!includeSketch && primitive.semantic.startsWith("SKETCH_")) continue;
+      const isSketch = primitive.semantic.startsWith("SKETCH_");
+      if (isSketch && (!includeSketch || ownedSketchIds && !ownedSketchIds.has(primitive.featureId))) continue;
       if (primitive.positions.length === 0) continue;
       const construction = primitive.role === "CONSTRUCTION";
       const color = primitive.semantic === "SKETCH_CONSTRAINT" ? CATIA_VISUAL_THEME.constraint
@@ -1618,7 +1688,24 @@ export class CadViewportEngine {
         }));
       }
       if (primitive.semantic !== "SKETCH_CONSTRAINT") object.renderOrder = primitive.kind === "POINTS" ? 22 : 20;
-      const featureTreeNode = this.featureTreeNode(context, primitive.featureId);
+      if (!featureTreeNodes.has(primitive.featureId)) featureTreeNodes.set(primitive.featureId, this.featureTreeNode(context, primitive.featureId));
+      const featureTreeNode = featureTreeNodes.get(primitive.featureId);
+      let objectParent = parent;
+      if (isSketch && ownedSketchIds) {
+        let group = sketchGroups.get(primitive.featureId);
+        if (!group) {
+          group = new THREE.Group();
+          const sketchSelection = {kind:"sketch" as const, id:primitive.featureId, entityId:primitive.featureId,
+            documentId:context.documentId, bodyId:context.bodyId, versionId:context.versionId,
+            contextVariantKey:context.contextVariantKey, instancePath:context.instancePath,
+            occurrencePath:context.occurrencePath, treeNodeId:featureTreeNode};
+          group.userData = {...sketchSelection, sketchFeatureID:primitive.featureId, visualizationPrimitive:true};
+          parent.add(group);
+          this.selectionIndex.register(sketchSelection, group, featureTreeNode);
+          sketchGroups.set(primitive.featureId, group);
+        }
+        objectParent = group;
+      }
       const selection = visualSelection(primitive, {
         treeNodeId: featureTreeNode ? primitive.semantic === "SKETCH_CONSTRAINT"
           ? constraintTreeNodeID(featureTreeNode, primitive.entityType as ConstraintKind, primitive.id) : `${featureTreeNode}/geometry/entity:${primitive.id}`
@@ -1628,11 +1715,13 @@ export class CadViewportEngine {
         instancePath: context.instancePath, occurrencePath: context.occurrencePath,
         geometryKey: context.geometryKey, instanceId: context.instanceId,
       });
-      object.userData = { ...selection, sketchFeatureID: primitive.featureId, visualizationPrimitive: true };
+      object.userData = { ...selection, entityId: primitive.displayEntityId ?? ("entityId" in selection ? selection.entityId : undefined),
+        sketchFeatureID: primitive.featureId, visualizationPrimitive: true };
       object.traverse((child) => {
-        child.userData = { ...child.userData, ...selection, sketchFeatureID: primitive.featureId, visualizationPrimitive: true };
+        child.userData = { ...child.userData, ...selection, entityId: primitive.displayEntityId ?? ("entityId" in selection ? selection.entityId : undefined),
+          sketchFeatureID: primitive.featureId, visualizationPrimitive: true };
       });
-      parent.add(object);
+      objectParent.add(object);
       if (primitive.semantic === "SKETCH_POINT" || primitive.semantic === "SKETCH_CURVE") {
         sketchEntityObjects.set(`${primitive.featureId}:${primitive.id}`, object);
       }
@@ -1686,12 +1775,13 @@ export class CadViewportEngine {
       if (child.userData.visualizationPrimitive) {
         child.visible = !editing;
       } else if (child.userData.sketchEditOverlay) {
-        child.visible = sketchTreeVisible({ selected: this.selected.some((selection) => selection.kind === "sketch" &&
-          selection.id === child.userData.sketchFeatureID && (!selection.occurrencePath || selection.occurrencePath === child.userData.occurrencePath)), featureID: child.userData.sketchFeatureID, treeKey: child.userData.treeNodeId,
-          activeSketchID: this.activeSketchID, defaultVisible: child.userData.visibleOutsideSketchEdit === true,
-          overrides: this.treeVisibilityOverrides });
+        const address = this.semanticVisibilityAddress(child.userData as Partial<SelectionItem>);
+        child.visible = address ? this.visibilityResolver?.resolve(address, this.editingSketchScope()).effectiveVisible ?? true : true;
         for (const sketchChild of child.children) {
-          if (sketchChild.userData.sketchEntityOverlay) sketchChild.visible = child.visible;
+          if (sketchChild.userData.sketchEntityOverlay) {
+            const entityAddress = this.semanticVisibilityAddress(sketchChild.userData as Partial<SelectionItem>);
+            sketchChild.visible = Boolean(child.visible && (entityAddress ? this.visibilityResolver?.resolve(entityAddress, this.editingSketchScope()).effectiveVisible : true));
+          }
         }
       } else child.visible = !editing || child.userData.sketchFeatureID === this.activeSketchID;
     }
@@ -1763,7 +1853,7 @@ export class CadViewportEngine {
             :[positions[0],positions.at(-1)!];
         const endpointMarkers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(markers),
           this.materials.point(CATIA_VISUAL_THEME.vertex, 8, false));
-        endpointMarkers.userData = { sketchEntityOverlay: true }; endpointMarkers.renderOrder = 21; group.add(endpointMarkers);
+        endpointMarkers.userData = { ...entitySelection, sketchEntityOverlay: true }; endpointMarkers.renderOrder = 21; group.add(endpointMarkers);
       }
       if (!object) continue;
       object.userData = { ...entitySelection, sketchEntityOverlay: true }; group.add(object);
@@ -2105,6 +2195,10 @@ export class CadViewportEngine {
     if (!point) { this.clearSnapPreview(); return null; }
     const raw = worldToLocal(this.sketchPlane, point);
     const activeFeature = this.sketchView()?.part?.features.find((feature) => feature.id === this.activeSketchID);
+    const snapEntities = sketchReferenceEntities(activeFeature).filter((entity) => !activeFeature ||
+      this.visibilityResolver?.resolve({documentId:this.sketchView()?.document.id ?? "",
+        occurrencePath:this.editContext?.occurrencePath ?? "",kind:"SKETCH_ENTITY",entityId:entity.id,
+        ownerEntityId:activeFeature.id,bodyId:activeFeature.bodyId},this.editingSketchScope()).effectiveVisible !== false);
     const screen = (local: Vec2) => {
       const projected = localToWorld(this.sketchPlane!, local).project(this.camera);
       return [(projected.x + 1) * this.renderer.domElement.clientWidth / 2,
@@ -2113,7 +2207,7 @@ export class CadViewportEngine {
     const first = screen(raw), second = screen([raw[0] + 1, raw[1]]);
     const pixelsPerUnit = Math.max(Math.hypot(second[0] - first[0], second[1] - first[1]), 1.0e-6);
     const snap = this.captureSettings.enabled
-      ? resolveSketchSnap(raw, sketchReferenceEntities(activeFeature), pixelsPerUnit, adaptiveGridSpacing(this.camera, this.renderer.domElement.clientHeight),
+      ? resolveSketchSnap(raw, snapEntities, pixelsPerUnit, adaptiveGridSpacing(this.camera, this.renderer.domElement.clientHeight),
         SKETCH_INPUT_POLICY.snapThresholdPixels, this.captureSettings.sketch, screen) : undefined;
     this.lastSketchSnap = snap;
     if (snap) this.showSnapPreview(snap, 8 / pixelsPerUnit); else this.clearSnapPreview();

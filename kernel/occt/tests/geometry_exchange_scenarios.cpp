@@ -993,6 +993,61 @@ TEST(GeometryExchange, SolidFeatureChainFusesAndCutsOneBody) {
     EXPECT_NEAR(kernel.getVolume(cut), 5400.0, 1.0e-6);
 }
 
+TEST(GeometryExchange, OneBodyCanContainSeveralSolidsAndKeepBooleanHistory) {
+    OcctKernel kernel;
+    ProfilePadSpec first;
+    first.feature_id = "pad-first";
+    first.body_id = "body-stable";
+    first.profile_feature_id = "sketch-first";
+    first.regions = {rectangular_region("first", 0, 0, 10, 10)};
+    first.pad_length = 10;
+    first.body_operation = "NEW_BODY";
+
+    ProfilePadSpec second = first;
+    second.feature_id = "pad-second";
+    second.profile_feature_id = "sketch-second";
+    second.regions = {rectangular_region("second", 20, 0, 30, 10)};
+    second.body_operation = "ADD";
+    auto separated = kernel.evaluateProfilePadsWithHistory({first, second});
+    EXPECT_EQ(kernel.getTopology(separated.geometry_id).solid_count, 2U);
+    EXPECT_EQ(separated.feature_results.size(), 2U);
+    EXPECT_EQ(separated.feature_results.back().body_id, "body-stable");
+    EXPECT_TRUE(separated.feature_results.back().topology_history_complete);
+
+    ProfilePadSpec bridge = first;
+    bridge.feature_id = "pad-bridge";
+    bridge.profile_feature_id = "sketch-bridge";
+    bridge.regions = {rectangular_region("bridge", 8, 0, 22, 10)};
+    bridge.body_operation = "ADD";
+    auto joined = kernel.evaluateProfilePadsWithHistory({first, second, bridge});
+    EXPECT_EQ(kernel.getTopology(joined.geometry_id).solid_count, 1U);
+    EXPECT_EQ(joined.feature_results.back().body_id, "body-stable");
+
+    ProfilePadSpec split = first;
+    split.feature_id = "pocket-split";
+    split.profile_feature_id = "sketch-split";
+    split.regions = {rectangular_region("split", 14, -1, 16, 11)};
+    split.body_operation = "REMOVE";
+    auto cut = kernel.evaluateProfilePadsWithHistory({first, second, bridge, split});
+    EXPECT_EQ(kernel.getTopology(cut.geometry_id).solid_count, 2U);
+    EXPECT_EQ(cut.feature_results.back().body_id, "body-stable");
+    EXPECT_TRUE(cut.feature_results.back().topology_history_complete);
+
+    ProfilePadSpec two_regions = first;
+    two_regions.feature_id = "pad-two-regions";
+    two_regions.regions = {first.regions.front(), second.regions.front()};
+    EXPECT_EQ(kernel.getTopology(kernel.evaluateProfilePads({two_regions})).solid_count, 2U);
+
+    ProfilePadSpec no_change = first;
+    no_change.feature_id = "pad-no-change";
+    no_change.body_operation = "ADD";
+    EXPECT_THROW(kernel.evaluateProfilePads({first, no_change}), std::invalid_argument);
+    no_change.body_operation = "INTERSECT";
+    EXPECT_THROW(kernel.evaluateProfilePads({first, no_change}), std::invalid_argument);
+    no_change.body_operation = "REMOVE";
+    EXPECT_THROW(kernel.evaluateProfilePads({first, no_change}), std::invalid_argument);
+}
+
 TEST(GeometryExchange, RevolveBuildsSolidAroundConstructionAxis) {
     OcctKernel kernel;
     ProfilePadSpec revolve;

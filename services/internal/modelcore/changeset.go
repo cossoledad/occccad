@@ -92,6 +92,11 @@ func (set *ChangeSet) Finalize() error {
 	if err := set.ValidateStructure(); err != nil {
 		return err
 	}
+	// An empty impact set is a JSON array, not SQL NULL. PostgreSQL stores
+	// impact_seeds as non-null jsonb and the canonical blob must agree with it.
+	if set.ImpactSeeds == nil {
+		set.ImpactSeeds = []DependencyKey{}
+	}
 	for index := range set.Changes {
 		change := &set.Changes[index]
 		if change.BeforeDigest != ValueDigest(change.Before) || change.AfterDigest != ValueDigest(change.After) {

@@ -22,7 +22,7 @@ const descriptors: Partial<Record<Kind, Descriptor>> = {
   SKETCH: { icon: <ScissorOutlined />, visibility: true },
   SKETCH_INPUT_REFERENCE: { icon: <GatewayOutlined /> },
   SKETCH_ENTITY: { icon: <NodeIndexOutlined />, visibility: true },
-  SKETCH_CONSTRAINT: { icon: <GatewayOutlined />, visibility: true },
+  SKETCH_CONSTRAINT: { icon: <GatewayOutlined /> },
   SKETCH_GEOMETRY_SET: { icon: <DatabaseOutlined /> },
   SKETCH_CONSTRAINT_SET: { icon: <DatabaseOutlined /> },
   PARAMETER_SET: { icon: <DatabaseOutlined /> },

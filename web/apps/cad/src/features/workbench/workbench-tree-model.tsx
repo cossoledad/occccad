@@ -80,7 +80,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
       const targetOccurrence = targetPath?.canonical ?? "";
       const targetVariantKey = view.contextVariants?.find((variant) =>
         variant.owningInstancePath.canonical === targetOccurrence)?.variantKey;
-      const resolvedTargetBody = source?.target.persistentSelection?.sourceBodyId;
+      const resolvedTargetBody = source?.target.bodyId ?? source?.target.persistentSelection?.sourceBodyId;
       const matchingBodies = view.resolvedInstances?.filter((candidate) =>
         candidate.occurrencePath === targetOccurrence && candidate.geometryKey === resolution?.geometryKey) ?? [];
       const matchingPartBodies = !targetOccurrence ? view.part?.bodies?.filter((body) =>
@@ -97,6 +97,12 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
           occurrencePath: targetOccurrence, geometryKey: resolution.geometryKey,
           contextVariantKey: targetVariantKey,
           versionId: resolution.resolvedVersionId };
+      } else if (resolution?.status === "CONNECTED" && source?.target.kind === "BODY_RESULT" && targetBodyId) {
+        highlightTarget = {kind:"body", id:targetOccurrence ? `${targetOccurrence}:body:${targetBodyId}` : targetBodyId,
+          documentId:node.sourceDocumentId ?? node.documentId, bodyId:targetBodyId,
+          instancePath:targetPath, occurrencePath:targetOccurrence,
+          geometryKey:resolution.geometryKey, versionId:resolution.resolvedVersionId,
+          visualKey:`body:${targetOccurrence ? `${targetOccurrence}:body:${targetBodyId}` : targetBodyId}`};
       } else if (resolution?.status === "CONNECTED" && source?.target.datumId) {
         const targetId = source.target.datumId;
         if (source.type === "PLANE") highlightTarget = { kind: "plane", plane: node.plane ?? "CUSTOM",
@@ -160,6 +166,7 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
     icon: treeNodeIcon(node), kind: node.kind,
     entityId: node.entityId, documentId: node.documentId, documentType: node.documentType, instancePath: node.instancePath,
     ownerDocumentId: node.ownerDocumentId, bodyId: node.bodyId, presentationRole: node.presentationRole,
+    localVisible: node.localVisible, visibilityMode: node.visibilityMode,
     childrenState: node.childrenState, resolutionStatus: node.resolutionStatus,
     connectionStatus: node.connectionStatus, currencyStatus: node.currencyStatus,
     evaluationStatus: node.evaluationStatus,

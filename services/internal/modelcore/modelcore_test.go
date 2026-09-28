@@ -1,6 +1,7 @@
 package modelcore
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -62,6 +63,35 @@ func TestChangeSetCompensationDetectsLaterEdit(t *testing.T) {
 	later, _ := json.Marshal(30)
 	if _, err = set.Compensate(map[PropertyAddress]json.RawMessage{address: later}); !errors.Is(err, ErrChangeConflict) {
 		t.Fatalf("expected conflict, got %v", err)
+	}
+}
+
+func TestChangeSetWithoutImpactSeedsPersistsEmptyJSONArray(t *testing.T) {
+	change, err := NewChange(ChangeUpdate, PropertyAddress{EntityID: "body-1", SlotID: "body.entity"},
+		map[string]any{"visible": true}, map[string]any{"visible": false})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := ChangeSet{Changes: []ModelChange{change}}
+	if err := set.Finalize(); err != nil {
+		t.Fatal(err)
+	}
+	if set.ImpactSeeds == nil {
+		t.Fatal("empty impact seeds would be bound as SQL NULL")
+	}
+	encoded, err := json.Marshal(set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(encoded) || !bytes.Contains(encoded, []byte(`"impactSeeds":[]`)) {
+		t.Fatalf("empty impact seeds must be a JSON array: %s", encoded)
+	}
+	withEmpty := ChangeSet{Changes: []ModelChange{change}, ImpactSeeds: []DependencyKey{}}
+	if err := withEmpty.Finalize(); err != nil {
+		t.Fatal(err)
+	}
+	if set.CanonicalDigest != withEmpty.CanonicalDigest {
+		t.Fatal("nil and empty seeds must have the same canonical digest")
 	}
 }
 

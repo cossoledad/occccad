@@ -20,9 +20,14 @@ func ensureFeatureParameters(model *PartModel) {
 	desired := map[string]struct{}{}
 	add := func(featureID, slot, key, label, unit string, value float64, dimension modelcore.Dimension) {
 		id := "parameter:" + featureID + ":" + slot
+		lifecycle := "FEATURE_REQUIRED"
+		if strings.HasPrefix(slot, "constraint:") {
+			lifecycle = "SKETCH_DIMENSION"
+		}
 		desired[id] = struct{}{}
 		if index, exists := existing[id]; exists {
 			parameter := &model.Parameters[index]
+			parameter.OwnerFeatureID, parameter.PropertySlot, parameter.Lifecycle = featureID, slot, lifecycle
 			parameter.Dimension = dimension
 			parameter.ValueType = modelcore.ValueQuantity
 			parameter.DisplayUnit = unit
@@ -32,7 +37,7 @@ func ensureFeatureParameters(model *PartModel) {
 			return
 		}
 		quantity, _ := modelcore.NewQuantity(value, unit)
-		model.Parameters = append(model.Parameters, modelcore.ParameterDefinition{ParameterID: id, Key: key, Label: label,
+		model.Parameters = append(model.Parameters, modelcore.ParameterDefinition{ParameterID: id, OwnerFeatureID: featureID, PropertySlot: slot, Lifecycle: lifecycle, Key: key, Label: label,
 			ValueType: modelcore.ValueQuantity, Dimension: dimension, DisplayUnit: unit, Role: "INPUT",
 			Source: modelcore.ValueSource{Literal: &quantity}, EvaluatedValue: &quantity})
 		existing[id] = len(model.Parameters) - 1
@@ -85,6 +90,20 @@ func ensureFeatureParameters(model *PartModel) {
 		}
 	}
 	sort.Slice(model.Parameters, func(i, j int) bool { return model.Parameters[i].ParameterID < model.Parameters[j].ParameterID })
+}
+
+func geometryFeatureDefinition(feature Feature) Feature {
+	feature.Visible = nil
+	feature.Name = ""
+	if feature.Sketch != nil {
+		copySketch := *feature.Sketch
+		copySketch.Entities = append([]SketchEntity(nil), copySketch.Entities...)
+		for i := range copySketch.Entities {
+			copySketch.Entities[i].Visible = nil
+		}
+		feature.Sketch = &copySketch
+	}
+	return feature
 }
 
 func parameterKeyFragment(value string) string {
@@ -464,7 +483,10 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 	}
 	bodyTips := map[string]string{}
 	for _, body := range model.Bodies {
-		data, _ := json.Marshal(bodyDefinition(body))
+		definition := bodyDefinition(body)
+		definition.Visible = true // display metadata never changes geometry evaluation identity
+		definition.Name = ""
+		data, _ := json.Marshal(definition)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("body:" + body.ID), Phase: 0, Type: "BODY", CanonicalInput: data})
 	}
 	featureIDs := map[string]bool{}
@@ -472,7 +494,7 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		featureIDs[feature.ID] = true
 		bodyTipFeatureID := bodyTips[feature.BodyID]
 		key := modelcore.DependencyKey("feature:" + feature.ID)
-		data, _ := json.Marshal(feature)
+		data, _ := json.Marshal(geometryFeatureDefinition(feature))
 		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 2, Type: feature.Type, CanonicalInput: data})
 		prefix := "parameter:" + feature.ID + ":"
 		for _, parameter := range model.Parameters {

@@ -9,7 +9,7 @@ import (
 
 func TestRepairImportNamingPreservesFeatureAndCompensates(t *testing.T) {
 	model := newPartModel()
-	original := Feature{ID: "import-root", Type: "IMPORT_BODY", Name: "Original", GeometryKey: "frozen-brep", SourceFormat: "BREP"}
+	original := Feature{Order: 1, ID: "import-root", BodyID: model.ActiveBodyID, Type: "IMPORT_BODY", Name: "Original", GeometryKey: "frozen-brep", SourceFormat: "BREP"}
 	model.Features = append(model.Features, original)
 	before, _ := json.Marshal(model)
 	repaired := original

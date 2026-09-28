@@ -71,7 +71,7 @@ export type CommandPreview = {
   artifact?: Artifact;
   resultBodyId?: string;
   resultBodyName?: string;
-  bodyAssignment?: "TARGET_BODY" | "EXPLICIT_NEW_BODY" | "AUTO_DISJOINT_ADD";
+  bodyAssignment?: "TARGET_BODY" | "EXPLICIT_NEW_BODY";
   constraintLimited?: boolean;
   instancePoses?: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;
   constraintEvaluation?: { constraintId: string; status: AssemblyConstraint["evaluationStatus"]; summary?: string;
@@ -84,7 +84,7 @@ export type DatumAxis = { id: string; name: string; origin: Vec3; direction: Vec
 export type AxisSystem = { id: string; name: string; origin: Vec3; xDirection: Vec3; yDirection: Vec3; zDirection: Vec3 };
 export type ReferenceGeometry = { datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[] };
 export type VisualPrimitive = {
-  id: string; featureId: string; kind: "POINTS" | "POLYLINE" | "LINE_SEGMENTS" | "TRIANGLES";
+  id: string; displayEntityId?: string; featureId: string; kind: "POINTS" | "POLYLINE" | "LINE_SEGMENTS" | "TRIANGLES";
   semantic: "SKETCH_POINT" | "SKETCH_CURVE" | "SKETCH_EXTERNAL" | "SKETCH_CONSTRAINT" | "CURVE" | "SURFACE";
   entityType?: string;
   role?: "PROFILE" | "CONSTRUCTION"; status?: string; positions: Vec3[];
@@ -93,7 +93,7 @@ export type VisualPrimitive = {
   indices?: number[]; selectable: boolean;
 };
 export type VisualizationManifest = {
-  schemaVersion: 1; referenceGeometry: ReferenceGeometry;
+  schemaVersion: 1 | 2; referenceGeometry: ReferenceGeometry;
   // Lightweight Artifact descriptors omit display primitives; GLB owns the full payload.
   primitives?: VisualPrimitive[] | null;
 };
@@ -108,6 +108,7 @@ export type DocumentProperties = {
 
 export type Feature = {
   bodyId?: string;
+  visible?: boolean;
   importDefinitionId?: string;
   id: string;
   type: "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY";
@@ -127,7 +128,7 @@ export type Feature = {
 
 export type SketchPoint2 = { x: number; y: number };
 export type SketchGeometryRef = { target: "ENTITY" | "EXTERNAL" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL"; controlPointIndex?: number };
-export type SketchEntity = { id: string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; suppressed?: boolean; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; degree?: number; closed?: boolean };
+export type SketchEntity = { id: string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; visible?: boolean; suppressed?: boolean; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; degree?: number; closed?: boolean };
 export type SketchExternalGeometry = { id:string;projectionKind:"ORTHOGONAL";geometryKind?:"POINT"|"LINE"|"CIRCLE";persistentSelection:PersistentSelection;sourceVersionId:string;
   sourceDocumentId?:string;contextReferenceId?:string;
   status:"PENDING"|"CONNECTED"|"UNRESOLVED_EXTERNAL";diagnosticCode?:string;diagnostic?:string;resolvedSourceDigest?:string;
@@ -271,6 +272,7 @@ export type Job = {
 
 export type ResolvedInstance = {
   bodyId: string; bodyVisible: boolean;
+  ownedSketchIds?: string[];
   id: string;
   name: string;
   documentId: string;
@@ -295,6 +297,8 @@ export type DocumentStructureNode = {
   presentationRole?: "DEFINITION" | "FEATURE_INPUT" | "INPUT_REFERENCE" | "GROUP";
   ownerDocumentId?: string;
   bodyId?: string;
+  localVisible?: boolean;
+  visibilityMode?: "SHOW" | "HIDE";
   childrenState?: "COMPLETE" | "EMPTY" | "UNLOADED" | "LOADING" | "FAILED";
   connectionStatus?: string;
   currencyStatus?: string;
@@ -338,7 +342,8 @@ export type DocumentView = {
   axisSystems?: AxisSystem[];
   datumAxes?: DatumAxis[];
   part?: { bodies: PartBody[]; activeBodyId: string; units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextInputs?:ContextInput[]; contextReferences?:ContextReference[] };
-  product?: { instances: ProductInstance[]; constraints?: AssemblyConstraint[]; publications?:ProductPublication[]; contextBindings?:ContextBinding[] };
+  product?: { instances: ProductInstance[]; constraints?: AssemblyConstraint[]; publications?:ProductPublication[]; contextBindings?:ContextBinding[];
+    visibilityOverrides?: Array<{instancePath:InstancePath;entityKind:string;entityId:string;mode:"SHOW"|"HIDE"}> };
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;
   resolvedInstances?: ResolvedInstance[];
@@ -359,13 +364,15 @@ export type ExternalParameterRef = { sourceDocumentId: string; revision: { mode:
   publicationId: string; expectedType: "QUANTITY" | "REAL"; expectedDimension: Dimension; contractVersion: string;
   resolvedRevisionId: string; resolvedValue: Quantity; resolvedValueDigest: string;
   resolutionSnapshot?:{sourceRevisionId:string;publicationId:string;contractDigest:string;valueDigest:string;status:string} };
-export type ParameterDefinition = { parameterId: string; key: string; label: string; valueType: "QUANTITY" | "REAL";
+export type ParameterDefinition = { parameterId: string; key: string; label: string; ownerFeatureId?: string; propertySlot?: string;
+  lifecycle?: "FEATURE_REQUIRED" | "SKETCH_DIMENSION" | "USER"; displayName?: string; displayAlias?: string; qualifiedDisplayPath?: string;
+  valueType: "QUANTITY" | "REAL";
   dimension: Dimension; displayUnit: string; role: string; source: { literal?: Quantity; expression?: { sourceText: string }; external?: ExternalParameterRef };
   evaluatedValue?: Quantity };
 
 export type Publication = { id: string; name: string; type: "POINT" | "AXIS" | "PLANE" | "FRAME" | "CURVE" | "SURFACE" | "BODY" | "PARAMETER";
   semanticPurpose?: string; compatibilityVersion: string;
-  target: { kind: "DATUM" | "TOPOLOGY" | "FEATURE_OUTPUT" | "PARAMETER"; datumId?: string; axis?: "X" | "Y" | "Z";
+  target: { kind: "DATUM" | "TOPOLOGY" | "BODY_RESULT" | "FEATURE_OUTPUT" | "PARAMETER"; bodyId?: string; datumId?: string; axis?: "X" | "Y" | "Z";
     persistentSelection?: PersistentSelection; sourceVersionId?: string; featureId?: string; outputSlot?: string; parameterId?: string };
   contract: { geometryKind?: string; valueType?: "QUANTITY" | "REAL"; dimension?: Dimension; unitPolicy?: string;
     bounds?: { minimum?: Quantity; maximum?: Quantity }; symmetry?: string };

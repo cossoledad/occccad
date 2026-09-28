@@ -83,7 +83,8 @@ type DatumAxis struct {
 }
 
 type PublicationTarget struct {
-	Kind                string                         `json:"kind"` // DATUM | TOPOLOGY | FEATURE_OUTPUT | PARAMETER
+	Kind                string                         `json:"kind"` // DATUM | TOPOLOGY | BODY_RESULT | FEATURE_OUTPUT | PARAMETER
+	BodyID              string                         `json:"bodyId,omitempty"`
 	DatumID             string                         `json:"datumId,omitempty"`
 	Axis                string                         `json:"axis,omitempty"`
 	PersistentSelection *modelcore.PersistentSelection `json:"persistentSelection,omitempty"`
@@ -164,6 +165,7 @@ type VisualizationManifest struct {
 // future wire/curve/surface modules without leaking OCCT types.
 type VisualPrimitive struct {
 	ID               string       `json:"id"`
+	DisplayEntityID  string       `json:"displayEntityId,omitempty"`
 	FeatureID        string       `json:"featureId"`
 	Kind             string       `json:"kind"`
 	Semantic         string       `json:"semantic"`
@@ -205,6 +207,7 @@ type SketchSupportDependencySnapshot struct {
 }
 type SketchEntity struct {
 	ID            string         `json:"id"`
+	Visible       *bool          `json:"visible,omitempty"`
 	Kind          string         `json:"kind"`
 	Role          string         `json:"role"`
 	Point         *SketchPoint2  `json:"point,omitempty"`
@@ -314,6 +317,7 @@ type SketchOperation struct {
 
 type Feature struct {
 	Order              int            `json:"order"`
+	Visible            *bool          `json:"visible,omitempty"`
 	BodyID             string         `json:"bodyId"`
 	ImportDefinitionID string         `json:"importDefinitionId,omitempty"`
 	ID                 string         `json:"id"`
@@ -499,10 +503,18 @@ type AssemblyConstraint struct {
 }
 
 type ProductModel struct {
-	Instances       []ProductInstance    `json:"instances"`
-	Constraints     []AssemblyConstraint `json:"constraints,omitempty"`
-	Publications    []ProductPublication `json:"publications,omitempty"`
-	ContextBindings []ContextBinding     `json:"contextBindings,omitempty"`
+	Instances           []ProductInstance      `json:"instances"`
+	VisibilityOverrides []OccurrenceVisibility `json:"visibilityOverrides,omitempty"`
+	Constraints         []AssemblyConstraint   `json:"constraints,omitempty"`
+	Publications        []ProductPublication   `json:"publications,omitempty"`
+	ContextBindings     []ContextBinding       `json:"contextBindings,omitempty"`
+}
+
+type OccurrenceVisibility struct {
+	InstancePath InstancePath `json:"instancePath"`
+	EntityKind   string       `json:"entityKind"`
+	EntityID     string       `json:"entityId"`
+	Mode         string       `json:"mode"` // SHOW | HIDE; INHERIT removes the override
 }
 
 type ReferenceUpdate struct {
@@ -751,6 +763,7 @@ type CopyDocumentRequest struct {
 type ResolvedInstance struct {
 	BodyID         string       `json:"bodyId"`
 	BodyVisible    bool         `json:"bodyVisible"`
+	OwnedSketchIDs []string     `json:"ownedSketchIds,omitempty"`
 	ID             string       `json:"id"`
 	Name           string       `json:"name"`
 	DocumentID     string       `json:"documentId"`
@@ -791,6 +804,8 @@ type DocumentStructureNode struct {
 	PresentationRole   string                  `json:"presentationRole,omitempty"`
 	OwnerDocumentID    string                  `json:"ownerDocumentId,omitempty"`
 	BodyID             string                  `json:"bodyId,omitempty"`
+	LocalVisible       *bool                   `json:"localVisible,omitempty"`
+	VisibilityMode     string                  `json:"visibilityMode,omitempty"`
 	ChildrenState      string                  `json:"childrenState,omitempty"`
 	ConnectionStatus   string                  `json:"connectionStatus,omitempty"`
 	CurrencyStatus     string                  `json:"currencyStatus,omitempty"`
@@ -911,6 +926,7 @@ type DeleteNodeTarget struct {
 type CommandRequest struct {
 	BodyID                  string `json:"bodyId,omitempty"`
 	Visible                 bool   `json:"visible,omitempty"`
+	VisibilityMode          string `json:"visibilityMode,omitempty"`
 	importInstances         []ProductInstance
 	ImportGraphDigest       string               `json:"importGraphDigest,omitempty"`
 	ImportSource            *ImportSource        `json:"-"`
