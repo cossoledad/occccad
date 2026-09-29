@@ -256,7 +256,7 @@ ContextVariantKey = hash(base Part Revision,
 
 root Product Revision、owning InstancePath 和 BindingId 属于 provenance/traceability，不进入制品等价性的 cache key；否则同一 Wheel 定义在四个 occurrence 中即使输入完全相同也无法共享。相同 base Revision 与规范化输入 digest 可以共享 GeometryId/Artifact；不同输入产生不同派生 evaluation。需要脱离上下文复用时，用户显式执行 `Derive Part from Context` 创建新的 Part Reference/Revision，系统不隐式复制文档。
 
-Product 工作台建立 `ProductDesignSession`，以 root Product Workspace、base Revision/configuration 和 active InstancePath 表达编辑上下文。激活、可见性和 selection 是会话状态，不写 Revision。双击 occurrence 默认原位编辑；独立窗口必须明确区分 `Open Definition` 与携带同一 context token 的 `Open in This Context`。
+Product 工作台建立 `ProductDesignSession`，以 root Product Workspace、base Revision/configuration 和 active InstancePath 表达编辑上下文。激活、可见性和 selection 是会话状态，不写 Revision。双击 occurrence 默认原位编辑；Product 内的 Part/Product Edit Target 必须携带完整 occurrence，不提供脱离 occurrence 的定义编辑模式。显式打开独立 Part 标签会建立另一个宿主工作空间并编辑共享定义，不沿用当前 Product 的模式切换状态。
 
 在 Product 树上执行“新建零件”是一个 Product-scoped domain intent，不是浏览器串联 `CreateDocument` 与 `InsertInstance`。请求以 root Product snapshot 和可选目标 Product InstancePath 定位 owner；系统原子创建 Part Reference 的初始 Revision、owner 中的 occurrence，并推进全部祖先 Product snapshot。默认 placement 是目标 Product 原点；以后支持“选择点作为原点”时必须作为显式、版本化 placement intent 加入同一请求，不能从瞬时选择状态暗中推断。撤销该动作移除 occurrence 和祖先引用推进，但保留已创建的 Part Reference 作为可恢复资源；删除文档是另一项显式生命周期操作。
 

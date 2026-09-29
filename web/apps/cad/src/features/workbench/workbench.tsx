@@ -1,5 +1,7 @@
 import { selectionNamingIssue, topologyNamingIssue } from "./topology-naming-capability";
-import { openDocumentTab } from "./open-document-tab";
+import { openDocumentTab, registerDocumentTab, updateOpenDocumentSummary } from "./open-document-tab";
+import { EditActivationGate, prepareOccurrenceEditSession, rootEditSession,
+  withWorkingBody, type EditSession } from "./edit-session";
 import { canDiscardNewSketch, defaultSolidReversed, type NewSketchSession } from "./sketch-session-policy";
 import { assemblyConstraintEntry } from "../../cad/assembly/assembly-angle";
 import { exactNormalViewPlane } from "../../cad/navigation/normal-view";
@@ -170,7 +172,6 @@ export function Workbench() {
   const [renameTarget, setRenameTarget] = useState<SpecificationTreeNode>();
   const [padGenerator, setPadGenerator] = useState<"LINEAR_EXTRUDE" | "REVOLVE">("LINEAR_EXTRUDE");
   const [padSketchID, setPadSketchID] = useState<string>();
-  const [workingBodyOverride, setWorkingBodyOverride] = useState<string>();
   const [padPreviewPending, setPadPreviewPending] = useState(false);
   const [padPreviewPlacement, setPadPreviewPlacement] = useState<{
     bodyId: string; bodyName: string; assignment: CommandPreview["bodyAssignment"];
@@ -190,9 +191,9 @@ export function Workbench() {
   const automaticUpdateSignature = useRef("");
   const automaticUpdateRunning = useRef(false);
   const [automaticUpdateEpoch, setAutomaticUpdateEpoch] = useState(0);
-  const [activeDocumentID, setActiveDocumentID] = useState(documentID);
-  const [activeInstancePath, setActiveInstancePath] = useState<string>();
-  const [definitionContextPath, setDefinitionContextPath] = useState<string>();
+  const [productUpdateFailure, setProductUpdateFailure] = useState<string>();
+  const [editSession, setEditSession] = useState<EditSession>();
+  const activationGate = useRef(new EditActivationGate());
   const [insertOpen, setInsertOpen] = useState(false);
   const [patternOpen, setPatternOpen] = useState(false);
   const previewInsertPattern = useCallback((input?: InstancePatternPreview) => viewport.current?.previewInsertPattern(input), []);
@@ -254,8 +255,17 @@ export function Workbench() {
   const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
-	useEffect(() => { setActiveDocumentID(documentID); setActiveInstancePath(undefined); setDefinitionContextPath(undefined); store.endSketch(); store.setSelection(null); }, [documentID]);
-  useEffect(() => { setPatternOpen(false); previewInsertPattern(); }, [activeDocumentID, activeInstancePath, previewInsertPattern]);
+	useEffect(() => {
+	  activationGate.current.invalidate(); setEditSession(undefined); store.endSketch(); store.setSelection(null);
+	  if (!documentID) return;
+	  void registerDocumentTab(documentID, client, api.openDocument)
+	    .catch((error: Error) => message.error(`打开工作空间失败：${error.message}`));
+	// Route changes are the explicit open lifecycle. Interaction state changes
+	// must never register, reorder, or reopen a tab.
+	// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [client, documentID]);
+  useEffect(() => { setPatternOpen(false); previewInsertPattern(); }, [editSession?.editTarget.documentId,
+    editSession?.editTarget.instancePath?.canonical, previewInsertPattern]);
   useEffect(() => {
     // A stopped XState actor cannot be restarted. Own one actor per effect
     // lifetime so StrictMode's setup/cleanup/setup cycle retains live previews.
@@ -265,9 +275,10 @@ export function Workbench() {
     actor.start();
     return () => { assemblyPreviewActor.current = undefined; subscription.unsubscribe(); actor.stop(); };
   }, [assemblyPreviewActor]);
-  const activeDocument = useQuery({ queryKey: queryKeys.document(activeDocumentID), queryFn: () => api.getDocument(activeDocumentID),
-    enabled: Boolean(activeDocumentID && activeDocumentID !== documentID) });
-	const activeID = activeDocumentID || documentID;
+	const activeID = editSession?.editTarget.documentId ?? documentID;
+	const activeInstancePath = editSession?.editTarget.instancePath?.canonical;
+  const activeDocument = useQuery({ queryKey: queryKeys.document(activeID), queryFn: () => api.getDocument(activeID),
+    enabled: Boolean(editSession && activeID !== documentID) });
 	const lengthUnit = effectiveLengthUnit(displayLengthUnit, documentLengthUnits, activeID);
 	useEffect(() => {
 	  setShellActiveDocumentID(activeID);
@@ -276,11 +287,19 @@ export function Workbench() {
 	const toolbarCatalog = useQuery({ queryKey: ["ui", "toolbars"], queryFn: api.toolbarCatalog, staleTime: 5 * 60_000 });
   const catalog = useQuery({ queryKey: queryKeys.documents({ workbench: true }), queryFn: () => api.listDocuments({ limit: 100, allFolders: true }), enabled: publicationManagerOpen });
 
-  useEffect(() => {
-    if (document.data) void client.invalidateQueries({ queryKey: queryKeys.openDocuments });
-  }, [client, document.data]);
   const refresh = useCallback(async (view?: DocumentView) => {
-    if (view) client.setQueryData(queryKeys.document(view.document.id), view);
+    if (view) {
+      client.setQueryData(queryKeys.document(view.document.id), view);
+      updateOpenDocumentSummary(client, view.document);
+      setEditSession((current) => current && current.hostDocumentId === documentID ? {
+        ...current,
+        snapshot: {
+          ...current.snapshot,
+          ...(view.document.id === current.hostDocumentId ? { hostRevisionId: view.document.versionId } : {}),
+          ...(view.document.id === current.editTarget.documentId ? { targetRevisionId: view.document.versionId } : {}),
+        },
+      } : current);
+    }
     const changedID = view?.document.id ?? activeID;
     await Promise.all([view ? (changedID === documentID ? Promise.resolve() : client.invalidateQueries({ queryKey: queryKeys.document(documentID) }))
       : client.invalidateQueries({ queryKey: queryKeys.document(changedID) }),
@@ -289,8 +308,7 @@ export function Workbench() {
     client.invalidateQueries({ queryKey: ["product-design-session", documentID] }),
     client.invalidateQueries({ queryKey: ["context-catalog", documentID] }),
     client.invalidateQueries({ queryKey: ["product-update-plan", documentID] }),
-    client.invalidateQueries({ queryKey: ["documents"] }),
-    client.invalidateQueries({ queryKey: queryKeys.openDocuments })]);
+    client.invalidateQueries({ queryKey: ["documents"] })]);
   }, [activeID, client, documentID]);
   useEffect(() => {
     if (!documentID || isMockMode) return;
@@ -300,14 +318,16 @@ export function Workbench() {
       if (event.type === "document.snapshot.v1") {
         const snapshot = event.payload as { view: DocumentView };
         client.setQueryData(queryKeys.document(documentID), snapshot.view);
+        updateOpenDocumentSummary(client, snapshot.view.document);
       }
       void Promise.all([
-        event.type === "document.snapshot.v1" ? Promise.resolve() : client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
+        event.type === "document.snapshot.v1" ? Promise.resolve() : client.invalidateQueries({ queryKey: queryKeys.document(documentID) })
+          .then(() => { const fresh = client.getQueryData<DocumentView>(queryKeys.document(documentID));
+            if (fresh) updateOpenDocumentSummary(client, fresh.document); }),
         client.invalidateQueries({ queryKey: queryKeys.history(documentID), refetchType: "active" }),
         client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID), refetchType: "active" }),
         client.invalidateQueries({ queryKey: ["product-update-plan", documentID] }),
         client.invalidateQueries({ queryKey: ["documents"] }),
-        client.invalidateQueries({ queryKey: queryKeys.openDocuments }),
       ]);
     }).then((dispose) => {
       if (disposed) dispose(); else unsubscribe = dispose;
@@ -323,10 +343,42 @@ export function Workbench() {
   const moveCommand = useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),
     onSuccess:(updated)=>{void refresh(updated);},onError:(error)=>{message.error(error.message);void refresh();}});
   const view = document.data;
-  const editingView = activeDocumentID === documentID ? view : activeDocument.data;
-  const workingBodyID = editingView?.part?.bodies.some((body) => body.id === workingBodyOverride)
-    ? workingBodyOverride : editingView?.part?.activeBodyId;
-  useEffect(() => setWorkingBodyOverride(undefined), [activeID, activeInstancePath]);
+  useEffect(() => {
+    if (!view || editSession?.hostDocumentId === view.document.id) return;
+    setEditSession(rootEditSession(view, activationGate.current.begin()));
+  }, [editSession?.hostDocumentId, view]);
+  const editingView = activeID === documentID ? view : activeDocument.data;
+  const workingBodyID = editingView?.part?.bodies.some((body) => body.id === editSession?.workingBodyId)
+    ? editSession?.workingBodyId : editingView?.part?.activeBodyId;
+  useEffect(() => {
+    if (!view || !editSession || editSession.hostDocumentId !== view.document.id ||
+        editSession.snapshot.hostRevisionId === view.document.versionId) return;
+    if (!editSession.editTarget.instancePath?.canonical) {
+      setEditSession((current) => current?.hostDocumentId === view.document.id && !current.editTarget.instancePath?.canonical
+        ? { ...current, snapshot: { ...current.snapshot, hostRevisionId: view.document.versionId,
+          targetRevisionId: view.document.versionId } } : current);
+      return;
+    }
+    const target = editSession.editTarget;
+    const generation = activationGate.current.begin();
+    void prepareOccurrenceEditSession({ host: view,
+      node: { kind: target.documentType, documentId: target.documentId, documentType: target.documentType,
+        instancePath: target.instancePath }, activationGeneration: generation,
+      getDesignSession: api.getProductDesignSession,
+      getDocument: (id) => client.fetchQuery({ queryKey: queryKeys.document(id), queryFn: () => api.getDocument(id) }),
+    }).then((prepared) => {
+      if (!activationGate.current.isCurrent(generation)) return;
+      client.setQueryData(queryKeys.document(prepared.targetView.document.id), prepared.targetView);
+      setEditSession((current) => current && current.editTarget.documentId === target.documentId &&
+        current.editTarget.instancePath?.canonical === target.instancePath?.canonical
+        ? { ...prepared.session, workingBodyId: current.workingBodyId } : current);
+    }).catch((error) => {
+      if (activationGate.current.isCurrent(generation)) setProductUpdateFailure(
+        `编辑上下文快照无法同步：${error instanceof Error ? error.message : String(error)}`);
+    });
+  // Re-resolve only when the host snapshot changes; target changes have their own activation flow.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, documentID, view?.document.versionId]);
   const selectedNamingIssue = selectionNamingIssue(store.selection, editingView, view);
   const repairableImport = editingView?.part?.features.find((feature) => feature.type === "IMPORT_BODY" && !feature.importDefinitionId);
   const activeNamingIssue = Object.values(editingView?.artifacts??{}).find(a=>a.topology.faces>0 && a.naming && !a.naming.canBind)?.naming;
@@ -351,9 +403,6 @@ export function Workbench() {
   }, [store.activeSketchID, activeID, client, refresh, message]);
   const activeResolvedInstance = activeInstancePath
     ? view?.resolvedInstances?.find((instance) => instance.instancePath?.canonical === activeInstancePath) : undefined;
-  const designSession = useQuery({ queryKey: queryKeys.productDesignSession(documentID, activeInstancePath ?? ""),
-    queryFn: () => api.getProductDesignSession(documentID, activeInstancePath ?? ""),
-    enabled: Boolean(view?.document.type === "PRODUCT") });
   const contextCatalog = useQuery({ queryKey: queryKeys.contextCatalog(documentID, activeInstancePath ?? "", contextPublicationType),
     queryFn: () => api.getContextCatalog(documentID, activeInstancePath ?? "", contextPublicationType),
     enabled: Boolean(view?.document.type === "PRODUCT" && activeInstancePath && publicationManagerOpen) });
@@ -376,10 +425,14 @@ export function Workbench() {
       if (event.type === "document.snapshot.v1") {
         const snapshot = event.payload as { view: DocumentView };
         client.setQueryData(queryKeys.document(dependencyID), snapshot.view);
+        updateOpenDocumentSummary(client, snapshot.view.document);
         return;
       }
       // A fresh root projection will drive the serialized leaf-to-root auto-update effect.
-      void client.invalidateQueries({ queryKey: queryKeys.document(dependencyID) });
+      void client.invalidateQueries({ queryKey: queryKeys.document(dependencyID) }).then(() => {
+        const fresh = client.getQueryData<DocumentView>(queryKeys.document(dependencyID));
+        if (fresh) updateOpenDocumentSummary(client, fresh.document);
+      });
       void client.invalidateQueries({ queryKey: queryKeys.document(documentID) });
       void client.invalidateQueries({ queryKey: queryKeys.documentProperties(documentID), refetchType: "active" });
       void client.invalidateQueries({ queryKey: ["product-update-plan", documentID] });
@@ -443,17 +496,25 @@ export function Workbench() {
     if (automaticUpdateSignature.current === signature) return;
     automaticUpdateSignature.current = signature;
     automaticUpdateRunning.current = true;
+    setProductUpdateFailure(undefined);
     let disposed = false;
     void (async () => {
       try {
         const updatedViews = await followProductUpdates(view, api);
-        if (!disposed) for (const updated of updatedViews) client.setQueryData(queryKeys.document(updated.document.id), updated);
+        if (!disposed) for (const updated of updatedViews) {
+          client.setQueryData(queryKeys.document(updated.document.id), updated);
+          updateOpenDocumentSummary(client, updated.document);
+        }
         if (!disposed && updatedViews.length) await Promise.all([
           client.invalidateQueries({ queryKey: queryKeys.document(documentID) }),
           client.invalidateQueries({ queryKey: ["product-update-plan", documentID] }),
         ]);
       } catch (cause) {
-        if (!disposed) message.error(`自动跟随最新版本失败：${cause instanceof Error ? cause.message : String(cause)}`);
+        if (!disposed) {
+          const diagnostic = cause instanceof Error ? cause.message : String(cause);
+          setProductUpdateFailure(diagnostic);
+          message.error(`自动跟随最新版本失败：${diagnostic}`);
+        }
       } finally {
         automaticUpdateRunning.current = false;
         // A new view/document may have arrived while the previous wave ran.
@@ -1064,6 +1125,43 @@ export function Workbench() {
 		name: values.key.trim() || current?.key, ...(source.kind === "LITERAL" ? { value: source.value, unit: source.unit } : { expression: source.expression })}),
 		{onSuccess:()=>setEditingParameterID(undefined)});
   };
+  const endInteractionForActivation = () => {
+    padPreviewAbort.current?.abort(); padPreviewSequence.current += 1; padPreviewID.current = undefined;
+    featurePreviewAbort.current?.abort(); featurePreviewSequence.current += 1; featurePreviewID.current = undefined;
+    assemblyPreviewActor.current?.send({ type: "CANCEL", sequence: assemblyPreviewSequence.current });
+    assemblyPreviewAbort.current?.abort(); assemblyPreviewSequence.current += 1; assemblyPreviewID.current = undefined;
+    viewport.current?.clearCommandPreview();
+    store.endSketch(); store.setSelection(null);
+  };
+  const activateDocumentNode = async (node: SpecificationTreeNode) => {
+    if (!view || !node.documentId || !node.documentType ||
+        !["PART", "PRODUCT", "INSTANCE"].includes(node.kind ?? "")) return;
+    const generation = activationGate.current.begin();
+    if (!node.instancePath?.canonical && node.documentId === view.document.id &&
+        (node.kind === "PART" || node.kind === "PRODUCT")) {
+      endInteractionForActivation();
+      activationGate.current.commit(generation, rootEditSession(view, generation), setEditSession);
+      return;
+    }
+    try {
+      const prepared = await prepareOccurrenceEditSession({
+        host: view,
+        node: { kind: node.kind as "PART" | "PRODUCT" | "INSTANCE", documentId: node.documentId,
+          documentType: node.documentType as "PART" | "PRODUCT", instancePath: node.instancePath },
+        activationGeneration: generation,
+        getDesignSession: api.getProductDesignSession,
+        getDocument: (id) => client.fetchQuery({ queryKey: queryKeys.document(id), queryFn: () => api.getDocument(id) }),
+      });
+      if (!activationGate.current.isCurrent(generation)) return;
+      client.setQueryData(queryKeys.document(prepared.targetView.document.id), prepared.targetView);
+      endInteractionForActivation();
+      activationGate.current.commit(generation, prepared.session, setEditSession);
+    } catch (error) {
+      if (activationGate.current.isCurrent(generation)) {
+        message.error(`无法进入上下文编辑：${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  };
   if (document.isLoading) return <div className="workbench-loading"><Spin size="large" /></div>;
   if (!view) return <Empty description="无法打开文档" />;
 
@@ -1110,6 +1208,7 @@ export function Workbench() {
             ancestorHintKeys={ancestorHintKeysForSelections(treeNodes, store.selections)}
             selectionToken={selectionSetToken(store.selections)}
             highlightedKey={treeKeyForSelection(treeNodes, store.preselection)}
+            editSession={editSession}
             activeDocumentId={activeID}
             activeInstancePath={activeInstancePath}
             workingBodyId={workingBodyID}
@@ -1119,12 +1218,12 @@ export function Workbench() {
             }}
             onOpenDocumentTab={(node) => {
               const targetDocumentId = node.kind === "INSTANCE" ? node.documentId : node.sourceDocumentId;
-              if (targetDocumentId) void openDocumentTab(targetDocumentId, client, api.getDocument, navigate)
+              if (targetDocumentId) void openDocumentTab(targetDocumentId, client, api.openDocument, navigate)
                 .catch((error: Error) => message.error(`打开文档失败：${error.message}`));
             }}
             onActivate={(node) => {
               if (node.kind === "BODY" && node.documentId === editingView?.document.id && node.bodyId) {
-                setWorkingBodyOverride(node.bodyId);
+                setEditSession((current) => current ? withWorkingBody(current, node.bodyId!) : current);
                 return;
               }
               if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
@@ -1132,11 +1231,9 @@ export function Workbench() {
                 if (constraint) openAssemblyConstraintEditor(constraint);
                 return;
               }
-			  if (node.capabilities?.includes("EDIT")) { openFeatureEditor(node); return; }
+              if (node.capabilities?.includes("EDIT")) { openFeatureEditor(node); return; }
               if (node.documentId && ["PART", "PRODUCT", "INSTANCE"].includes(node.kind ?? "")) {
-                setActiveDocumentID(node.documentId); setActiveInstancePath(node.instancePath?.canonical);
-                setDefinitionContextPath(undefined);
-                store.endSketch(); store.setSelection(null); return;
+                void activateDocumentNode(node); return;
               }
               if (!canEdit || !node.selection || !editingView) return;
               if (node.selection.kind === "sketch") {
@@ -1245,21 +1342,12 @@ export function Workbench() {
         onEditParameter={openParameterEditor} onEditPublication={openPublicationEditor}
         navigationProfile={navigationProfile} canRestore={canEdit && !command.isPending}
         onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}>
-        {view.document.type === "PRODUCT" && (activeInstancePath || activeDocumentID !== documentID) && <div style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",
-          padding:"6px 10px",borderRadius:6,background:"rgba(22,27,34,.88)",color:"white"}}>
-          <Space size="small"><Typography.Text style={{color:"white"}}>
-            {activeInstancePath ? `上下文编辑 · ${activeResolvedInstance?.instancePath?.display ?? activeInstancePath}`
-              : `定义编辑 · ${editingView?.document.name??activeDocumentID}`}
-          </Typography.Text>
-          {activeInstancePath && <Button size="small" onClick={() => { setDefinitionContextPath(activeInstancePath); setActiveInstancePath(undefined); store.endSketch(); store.setSelection(null); }}>
-            打开定义</Button>}
-          {!activeInstancePath&&definitionContextPath&&<Button size="small" onClick={()=>{setActiveInstancePath(definitionContextPath);setDefinitionContextPath(undefined);store.endSketch();store.setSelection(null);}}>在此上下文打开</Button>}
-          {designSession.isError && <Tag color="error">上下文失效</Tag>}</Space>
-        </div>}
-        {view.document.type === "PRODUCT" && productUpdatePlan.data?.hasUpdates && !productUpdatePlan.data.canAccept && <Alert
-          style={{position:"absolute",zIndex:12,top:56,left:"50%",transform:"translateX(-50%)",minWidth:420}}
+        {view.document.type === "PRODUCT" && (productUpdateFailure || productUpdatePlan.data?.hasUpdates && !productUpdatePlan.data.canAccept) && <Alert
+          style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",minWidth:420}}
           type="error" showIcon message="自动跟随最新版本被阻塞"
-          description={productUpdatePlan.data.entries.find((entry)=>entry.kind !== "ASSEMBLY_SOLVE" && entry.diagnostic)?.diagnostic ?? "更新计划被上游解析或求值失败阻塞。"} />}
+          description={productUpdateFailure ?? productUpdatePlan.data?.entries.find((entry)=>entry.kind !== "ASSEMBLY_SOLVE" && entry.diagnostic)?.diagnostic ?? "更新计划被上游解析或求值失败阻塞。"}
+          action={<Button size="small" onClick={() => { setProductUpdateFailure(undefined); automaticUpdateSignature.current = "";
+            void productUpdatePlan.refetch().finally(() => setAutomaticUpdateEpoch((value) => value + 1)); }}>重试</Button>} />}
         {(selectedNamingIssue ?? activeNamingIssue) && <Alert
           style={{position:"absolute",zIndex:12,bottom:12,left:12,maxWidth:520}}
           type="warning" showIcon message="当前几何暂不支持持久拓扑引用"

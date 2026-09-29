@@ -1055,11 +1055,6 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 			return DocumentView{}, err
 		}
 	}
-	// Opening a document is a read-hot path. Touch recency at most once every
-	// five minutes instead of turning every command response and query into a write.
-	if summary.LastOpenedAt == nil {
-		_, _ = service.database.Exec(ctx, `UPDATE occccad.documents SET last_opened_at=now() WHERE id=$1 AND last_opened_at IS NULL`, documentID)
-	}
 	view := DocumentView{Document: summary}
 	if summary.Type == "PART" {
 		var model PartModel
@@ -1168,6 +1163,14 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 	bindStructureVariants(&structure, view.ContextVariants)
 	view.StructureTree = &structure
 	return view, nil
+}
+
+// MarkDocumentOpened belongs to the explicit navigation lifecycle. Resource
+// reads and dependency resolution must not change recent-document state.
+func (service *Service) MarkDocumentOpened(ctx context.Context, documentID string) error {
+	_, err := service.database.Exec(ctx, `UPDATE occccad.documents SET last_opened_at=now()
+		WHERE id=$1 AND deleted_at IS NULL AND (last_opened_at IS NULL OR last_opened_at < now()-interval '5 minutes')`, documentID)
+	return err
 }
 
 func datumPlanes() []DatumPlane {

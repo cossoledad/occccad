@@ -4,7 +4,7 @@
 
 `PartModel` 保存 Body、Feature、Sketch 输入、Publication 与 ContextReference；`ProductModel` 保存 occurrence、版本策略、Publication、Binding 和约束。`workspace.Service.buildDocumentStructure` 从已解析 Revision 生成 `DocumentStructureNode`；`DocumentView` 同时提供模型摘要、per-Body Artifact 索引、resolved occurrence 和引用更新。前端 `treeData` 适配为虚拟行，`structureSelection` 转换树入口；视口从 Body 几何和 GLB 拾取，`Workbench` 将树/视口选择交给工具、属性和命令。实时事件更新 Query 缓存，Product 的接受更新仍使用服务端 `UpdatePlan`。
 
-TREE-01 已修复树路径、Part/Body/Feature 与 occurrence 选择身份、Sketch 多入口、Publication 独立选择及 Product 更新依赖。TREE-02 进一步修复建模归属和基础显隐，详见[当前实现](current/tree02-model-display.md)。仍需完成跨工作区并发依赖保证与完整引用查看、更多参数类型与生命周期、Feature 贡献高亮和服务端子树按需查询。
+TREE-01 已修复树路径、Part/Body/Feature 与 occurrence 选择身份、Sketch 多入口、Publication 独立选择及 Product 更新依赖。TREE-02 进一步修复建模归属和基础显隐，详见[当前实现](current/tree02-model-display.md)。TREE-03 收敛 Product 唯一上下文编辑、标签导航边界和菜单布局，详见[编辑会话与标签](current/tree03-product-edit-tabs.md)。仍需完成跨工作区并发依赖保证与完整引用查看、更多参数类型与生命周期、Feature 贡献高亮和服务端子树按需查询。
 
 ## 领域与投影合同
 
@@ -20,13 +20,13 @@ Part 独立打开与 Product 内 Part 使用同一个投影函数。Product 追�
 
 精确选择是命令目标；祖先只提示存在选中后代。折叠、过滤、滚动定位、自动展开不改选择集合。树入口选择返回语义对象，Publication 选择仍是 Publication；其解析目标可作关联高亮和定位。选择 Body 高亮 Body；选择 Feature 优先查询当前结果中的命名/provenance 贡献，无可靠定位时仅突出树入口并提示贡献不可定位，不能伪装整个 Body 为精确 Feature 高亮。历史结果和设为历史工作位置须显式命令。
 
-单击选择，双击/菜单编辑或激活。Selection/Hover、编辑文档及 occurrence、会话工作 Body、In Work Object、临时显隐、持久 suppression 是不同状态。`ActiveBodyID` 继续作为旧 Revision 可读的建模默认值，会话工作 Body 不改写它；定义级 Body/Sketch/SketchEntity 显隐与 Product occurrence 覆盖是可保存的显示元数据，临时隔离仍留在前端。普通选择和树展开不写 Revision；正式定义/occurrence 显隐命令会写入元数据 Revision，但不重算几何。删除、抑制、重排由服务端领域命令验证；未实现的 Feature 顺序编辑和 occurrence 顺序编辑禁用。
+单击选择，双击/菜单编辑或激活。Selection/Hover、宿主文档、唯一 Edit Target、完整 occurrence、会话工作 Body、In Work Object、临时显隐、持久 suppression 是不同状态。Instance 双击只是激活其下文档根的快捷入口；真正编辑态只属于一个精确 Part/Product 根。`ActiveBodyID` 继续作为旧 Revision 可读的建模默认值，会话工作 Body 不改写它；定义级 Body/Sketch/SketchEntity 显隐与 Product occurrence 覆盖是可保存的显示元数据，临时隔离仍留在前端。普通选择和树展开不写 Revision；正式定义/occurrence 显隐命令会写入元数据 Revision，但不重算几何。删除、抑制、重排由服务端领域命令验证；未实现的 Feature 顺序编辑和 occurrence 顺序编辑禁用。
 
 Product 更新依赖必须由 `ProductModel.instances` 和服务端 UpdatePlan 提供，不得由树是否加载或诊断文字决定。普通模型刷新不传播 selection；“定位 occurrence”或“新标签打开”才传选择意图。ContextReference、ContextInput、ContextBinding 和 Publication 是明确的可检查入口，断裂后仍保留；连接、时效、求值和加载状态分别表达。
 
 ## 本阶段与后续
 
-本阶段落实现有 Part/Product 类型的投影、身份、选择、更新和可用命令闭环；不声称任意历史插入、完整 Feature 贡献查询、任意拖拽重排、断裂外部引用原位重连、机制仿真或装配体原位建模已交付。当前结构快照仍由服务端整体构造，前端按需展开和虚拟渲染；服务端子树分页/复用 Definition 缓存待大树基准后实施。未来 Feature 类型只扩展描述器与领域命令；Mechanism/Joint/Driver 引用 occurrence，位姿是临时覆盖；跨 Body Boolean 记录消耗关系，不以树节点搬家代替；Product 上下文结果与 Part 定义编辑使用不同命令边界。
+本阶段落实现有 Part/Product 类型的投影、身份、选择、更新和可用命令闭环；不声称任意历史插入、完整 Feature 贡献查询、任意拖拽重排、断裂外部引用原位重连、机制仿真或装配体特征已交付。当前结构快照仍由服务端整体构造，前端按需展开和虚拟渲染；服务端子树分页/复用 Definition 缓存待大树基准后实施。未来 Feature 类型只扩展描述器与领域命令；Mechanism/Joint/Driver 引用 occurrence，位姿是临时覆盖；跨 Body Boolean 记录消耗关系，不以树节点搬家代替。Product 内普通 Part 建模修改共享定义，但会话始终携带 occurrence 上下文；独立 Part 标签是另一个宿主工作空间。
 
 ## 参照与有意差异
 

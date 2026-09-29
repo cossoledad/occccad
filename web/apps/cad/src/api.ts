@@ -8,8 +8,21 @@ import { clientPerformanceSnapshot, recordClientPerformance } from "./utils/perf
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 export const apiURL = (path: string): string => `${apiBaseURL}${path}`;
 
+const workspaceSessionID = (() => {
+  if (typeof sessionStorage === "undefined") return "server-render";
+  const created = randomUUID();
+  try {
+    const key = "occccad.workspace-session-id";
+    const existing = sessionStorage.getItem(key);
+    if (existing) return existing;
+    sessionStorage.setItem(key, created);
+  } catch { /* Storage is optional; keep one ID for this loaded page. */ }
+  return created;
+})();
+
 const cookie = (name: string): string => decodeURIComponent(document.cookie.split("; ")
   .find((item) => item.startsWith(`${name}=`))?.split("=").slice(1).join("=") ?? "");
+const workspaceHeaders = (): Record<string, string> => ({ "X-OCCCCAD-Workspace-ID": workspaceSessionID });
 const mutationHeaders = (method = "GET"): Record<string, string> =>
   method === "GET" || method === "HEAD" ? {} : { "X-CSRF-Token": cookie("occccad_csrf") };
 
@@ -149,10 +162,13 @@ export const restApi = {
     return request<DocumentPage>(`/api/documents?${parameters}`);
   },
   listOpenDocuments: async (): Promise<DocumentSummary[]> =>
-    (await request<{ documents: DocumentSummary[] }>("/api/open-documents")).documents,
+    (await request<{ documents: DocumentSummary[] }>("/api/open-documents", { headers: workspaceHeaders() })).documents,
+  openDocument: (id: string) => request<DocumentView>(`/api/open-documents/${id}`, {
+    method: "POST", headers: workspaceHeaders(),
+  }),
   closeOpenDocument: async (id: string): Promise<void> => {
     const response = await fetch(apiURL(`/api/open-documents/${id}`), {
-      method: "DELETE", credentials: "include", headers: mutationHeaders("DELETE"),
+      method: "DELETE", credentials: "include", headers: { ...mutationHeaders("DELETE"), ...workspaceHeaders() },
     });
     if (!response.ok) {
       const value = await response.json().catch(() => ({})) as { error?: string };
@@ -229,7 +245,8 @@ export const restApi = {
     })).history,
   createDocument: (type: "PART" | "PRODUCT", name: string, description = "", folderId?: string) =>
     request<DocumentView>("/api/documents", {
-      method: "POST", body: JSON.stringify({ requestId: requestId(), type, name, description, folderId: folderId || null }),
+      method: "POST", headers: workspaceHeaders(),
+      body: JSON.stringify({ requestId: requestId(), type, name, description, folderId: folderId || null }),
     }),
   updateDocument: (id: string, name: string, description: string) =>
     request<DocumentView>(`/api/documents/${id}`, {

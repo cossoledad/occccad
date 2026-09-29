@@ -19,6 +19,7 @@
 | [Jobs 与制品](architecture/current/jobs-artifacts.md) | Router、租约、取消、交换、缩略图、LOCAL/S3 ArtifactStore |
 | [CAD realtime 控制面](architecture/current/realtime.md) | 命令、Preview 生命周期、幂等恢复、快照与文件通道边界 |
 | [Web 与交互](architecture/current/web.md) | 根场景/编辑上下文、选择、preview、偏好、Toolbar、工作台 |
+| [TREE-03 编辑会话与标签](architecture/current/tree03-product-edit-tabs.md) | Product 唯一上下文编辑、宿主标签、显式打开、窗口内顺序、右键菜单槽 |
 | [验证与可观测性](architecture/current/validation.md) | 日志/trace、性能、scoped checks、Mock 浏览器与真实验收边界 |
 
 ## 能力与限制

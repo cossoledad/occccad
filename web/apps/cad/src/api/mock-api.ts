@@ -161,9 +161,7 @@ const histories = new Map<string, HistoryEntry[]>([
 const openDocumentIDs: string[] = [];
 
 function markDocumentOpen(documentID: string): void {
-  const index = openDocumentIDs.indexOf(documentID);
-  if (index >= 0) openDocumentIDs.splice(index, 1);
-  openDocumentIDs.unshift(documentID);
+  if (!openDocumentIDs.includes(documentID)) openDocumentIDs.push(documentID);
   const summary = summaries.find((item) => item.id === documentID);
   if (summary) summary.lastOpenedAt = now();
 }
@@ -820,6 +818,7 @@ export const mockApi: CadApi = {
     return pause({ documents: documents.slice(offset, offset + limit), total: documents.length, offset, limit });
   },
   listOpenDocuments: async () => pause(openDocumentIDs.map((documentID) => getView(documentID).document)),
+  openDocument: async (documentID) => { markDocumentOpen(documentID); return pause(getView(documentID)); },
   closeOpenDocument: async (documentID) => {
     const index = openDocumentIDs.indexOf(documentID);
     if (index >= 0) openDocumentIDs.splice(index, 1);
@@ -862,7 +861,7 @@ export const mockApi: CadApi = {
       folder.deletedAt = undefined; folderTrashRoots.delete(folder.id);
     }
   },
-  getDocument: async (documentID) => { markDocumentOpen(documentID); return pause(getView(documentID)); },
+  getDocument: async (documentID) => pause(getView(documentID)),
   getProductDesignSession: async (documentID, activePath = "") => {
     const root = getView(documentID);
     const active = root.resolvedInstances?.find((item) => item.instancePath?.canonical === activePath);

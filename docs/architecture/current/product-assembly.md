@@ -2,9 +2,9 @@
 
 > 2026-09-21 文档核对基线。返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。ACCEPT-PRODUCT 已完成，人工与自动化证据及限制见本文末尾。
 
-- 当前 Product UI 中的新实例固定采用 `FOLLOW_HEAD`；被引用文档变化后先使 root-snapshot `ProductUpdatePlan` 失效并投影 `UPDATE_AVAILABLE`，打开 Product 的可编辑客户端随后按叶到根自动接受每一级带 digest 的计划，提交普通 `UPDATE_REFERENCES` Revision 并重建可重放快照。Instance 右键可把当前 resolved Revision 切换为 `PINNED`，也可恢复 `FOLLOW_HEAD`；任意历史版本 picker 尚未开放。Instance 右键“在新标签页中打开”显式读取所引用文档以登记服务端 open document，更新并刷新 Tab 列表后通过工作台内部文档 Tab 打开所引用的 Part/Product 文档（当前 HEAD），已打开的文档直接切换到对应 Tab；嵌套实例同样打开其 Reference Document，不改变原装配的固定版本。
+- 当前 Product UI 中的新实例固定采用 `FOLLOW_HEAD`；被引用文档变化后先使 root-snapshot `ProductUpdatePlan` 失效并投影 `UPDATE_AVAILABLE`，打开 Product 的可编辑客户端随后按叶到根自动接受每一级带 digest 的计划，提交普通 `UPDATE_REFERENCES` Revision 并重建可重放快照。Instance 右键可把当前 resolved Revision 切换为 `PINNED`，也可恢复 `FOLLOW_HEAD`；任意历史版本 picker 尚未开放。Instance 右键“在新标签页中打开”调用显式 open-document 生命周期并进入独立 Reference Document 工作空间；普通 GET、依赖读取和更新广播只更新缓存或已打开摘要，不创建、置顶或激活标签。具体边界见 [TREE-03](tree03-product-edit-tabs.md)。
 
-Product 工作台维护浏览器会话级的 Active Occurrence 编辑上下文，由 `Active InstancePath + Reference Document` 共同表达。打开 Product 时根 Product 默认激活；双击结构树中的 Product、Part 或 Instance 节点只激活该 occurrence，随后 Toolbar、属性、历史、Undo/Redo 和 Domain Command 绑定其 Reference Document 的 `main` Workspace。激活不是模型命令，不写 Revision；同一 Part Reference 的其他 occurrence 不显示为激活，但编辑 Reference 后全部 FOLLOW_HEAD occurrence 都会解析到新结果。视口始终保留根装配；活动 Part 的草图、基准和命令预览施加该 occurrence 的世界 Placement 后就地编辑，其他部件继续显示。
+Product 工作台维护浏览器窗口级 `EditSession`，明确区分宿主 Product、唯一 Edit Target、root/target 快照基线、工作 Body 和激活代次。打开 Product 时根 Product 默认激活；双击结构树中的 Product、Part 或 Instance 节点解析并校验完整 occurrence，准备成功后一次切换 Toolbar、属性、历史、Undo/Redo 和 Domain Command 的 Reference Workspace。激活不是模型命令，不写 Revision；同一 Part Reference 的其他 occurrence 不显示为激活。普通建模命令修改共享 Part 定义，不隐式复制文档或生成 occurrence 专属几何；FOLLOW_HEAD 引用通过 UpdatePlan 更新，PINNED 路径进入修改前必须显式恢复。视口始终保留根装配；活动 Part 的草图、基准和命令预览施加该 occurrence 的世界 Placement 后就地编辑，其他部件继续显示。
 
 根 Product 场景与 Active Part 交互视图由 `ViewportEditContext` 分离，命令/草图选择只读取激活 Part。Publication 与基准几何的显示/拾取规则见[Web 交互](web.md)。
 

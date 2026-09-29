@@ -32,7 +32,7 @@ flowchart LR
 | 草图支线 | PROJECTION-ARC | 已有 Edge/Vertex 投影；先统一 ARC snapshot | [Sketch 投影](sketch-projection.md) |
 | 导入与大模型支线 | LARGE-BASELINE | 命名正确性与容量基线先行；对象存储、计算、显示共同验收 | [导入与大模型](import-large-models.md) |
 | 工程维护 | 按证据触发 | 保持行为、验证与导航等价 | [维护支线](engineering-maintenance.md) |
-| 语义树后续 | Publication 跨工作区并发依赖索引与引用查看、Feature 贡献索引、引用重连与子树按需查询 | TREE-02 已统一 Body 归属、基础定义/occurrence 显隐、参数编辑及 Body 发布目标；跨工作区并发依赖保证、更多参数类型与生命周期与大树基准仍需闭环 | [TREE-02 当前边界](../docs/architecture/current/tree02-model-display.md)、[语义树设计](../docs/architecture/semantic-tree-interaction.md) |
+| 语义树后续 | Publication 跨工作区并发依赖索引与引用查看、Feature 贡献索引、引用重连与子树按需查询 | Body/显隐和 Product 编辑会话/标签边界已有当前实现；跨工作区并发依赖保证、更多参数类型与生命周期与大树基准仍需闭环 | [当前边界](../docs/architecture/current/tree03-product-edit-tabs.md)、[语义树设计](../docs/architecture/semantic-tree-interaction.md) |
 | 候选 | 暂不分配开发批次 | 负载、场景或领域前置条件满足后细化 | [候选方向](candidates.md) |
 
 ## 编号与状态规则

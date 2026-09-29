@@ -207,6 +207,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/documents", server.listDocuments)
 	mux.HandleFunc("POST /api/documents", server.createDocument)
 	mux.HandleFunc("GET /api/open-documents", server.listOpenDocuments)
+	mux.HandleFunc("POST /api/open-documents/{documentID}", server.openDocument)
 	mux.HandleFunc("DELETE /api/open-documents/{documentID}", server.closeOpenDocument)
 	mux.HandleFunc("GET /api/folders", server.listFolders)
 	mux.HandleFunc("POST /api/folders", server.createFolder)
@@ -824,7 +825,7 @@ func (server *Server) deleteDocument(writer http.ResponseWriter, request *http.R
 		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
 		return
 	}
-	server.openDocuments.Close(principal(request).ID, request.PathValue("documentID"))
+	server.openDocuments.CloseDocument(principal(request).ID, request.PathValue("documentID"))
 	writer.WriteHeader(http.StatusNoContent)
 }
 
@@ -845,7 +846,7 @@ func (server *Server) purgeDocument(writer http.ResponseWriter, request *http.Re
 		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
 		return
 	}
-	server.openDocuments.Close(principal(request).ID, request.PathValue("documentID"))
+	server.openDocuments.CloseDocument(principal(request).ID, request.PathValue("documentID"))
 	writer.WriteHeader(http.StatusNoContent)
 }
 
@@ -911,7 +912,8 @@ func (server *Server) createDocument(writer http.ResponseWriter, request *http.R
 	result, err := server.workspace.CreateDocument(request.Context(), input)
 	if err == nil {
 		result.Document.Permission = string(access.RoleOwner)
-		server.openDocuments.Open(principal(request).ID, result.Document)
+		server.openDocuments.Open(principal(request).ID, openDocumentWorkspaceID(request), result.Document)
+		_ = server.workspace.MarkDocumentOpened(request.Context(), result.Document.ID)
 	}
 	server.writeDocumentResult(writer, request, result, err)
 }
@@ -924,7 +926,6 @@ func (server *Server) getDocument(writer http.ResponseWriter, request *http.Requ
 	result, err := server.workspace.GetDocument(request.Context(), request.PathValue("documentID"), principal(request).ID)
 	if err == nil {
 		result.Document.Permission = string(role)
-		server.openDocuments.Open(principal(request).ID, result.Document)
 	}
 	server.writeDocumentResult(writer, request, result, err)
 }
@@ -1125,7 +1126,7 @@ func (server *Server) middleware(next http.Handler) http.Handler {
 		if spanContext.IsValid() {
 			writer.Header().Set("Trace-ID", spanContext.TraceID().String())
 		}
-		writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, X-CSRF-Token, Traceparent, Tracestate")
+		writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Request-ID, X-CSRF-Token, X-OCCCCAD-Workspace-ID, Traceparent, Tracestate")
 		writer.Header().Set("Access-Control-Allow-Methods", "GET,POST,PATCH,DELETE,OPTIONS")
 		if origin := strings.TrimSpace(request.Header.Get("Origin")); origin != "" && len(server.allowedOrigins) > 0 {
 			if _, allowed := server.allowedOrigins[origin]; !allowed {

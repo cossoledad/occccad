@@ -5,6 +5,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/workspace"
 )
 
@@ -12,43 +13,56 @@ import (
 // separate from durable document history and can later be replaced by a
 // distributed presence service without changing the HTTP contract.
 type openDocumentRegistry struct {
-	mu     sync.RWMutex
-	byUser map[string][]workspace.DocumentSummary
+	mu      sync.RWMutex
+	byScope map[openDocumentScope][]workspace.DocumentSummary
+}
+
+type openDocumentScope struct {
+	userID      string
+	workspaceID string
 }
 
 func newOpenDocumentRegistry() *openDocumentRegistry {
-	return &openDocumentRegistry{byUser: make(map[string][]workspace.DocumentSummary)}
+	return &openDocumentRegistry{byScope: make(map[openDocumentScope][]workspace.DocumentSummary)}
 }
 
-func (registry *openDocumentRegistry) Open(userID string, document workspace.DocumentSummary) {
+func (registry *openDocumentRegistry) Open(userID, workspaceID string, document workspace.DocumentSummary) {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	current := registry.byUser[userID]
-	next := make([]workspace.DocumentSummary, 0, len(current)+1)
-	next = append(next, document)
-	for _, candidate := range current {
-		if candidate.ID != document.ID {
-			next = append(next, candidate)
+	scope := openDocumentScope{userID: userID, workspaceID: workspaceID}
+	current := registry.byScope[scope]
+	for index := range current {
+		if current[index].ID == document.ID {
+			current[index] = document
+			registry.byScope[scope] = current
+			return
 		}
 	}
-	registry.byUser[userID] = next
+	registry.byScope[scope] = append(current, document)
 }
 
 func (registry *openDocumentRegistry) Update(userID string, document workspace.DocumentSummary) {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	for index := range registry.byUser[userID] {
-		if registry.byUser[userID][index].ID == document.ID {
-			registry.byUser[userID][index] = document
-			return
+	for scope, documents := range registry.byScope {
+		if scope.userID != userID {
+			continue
+		}
+		for index := range documents {
+			if documents[index].ID == document.ID {
+				documents[index] = document
+				registry.byScope[scope] = documents
+				break
+			}
 		}
 	}
 }
 
-func (registry *openDocumentRegistry) Close(userID, documentID string) {
+func (registry *openDocumentRegistry) Close(userID, workspaceID, documentID string) {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	current := registry.byUser[userID]
+	scope := openDocumentScope{userID: userID, workspaceID: workspaceID}
+	current := registry.byScope[scope]
 	next := current[:0]
 	for _, candidate := range current {
 		if candidate.ID != documentID {
@@ -56,29 +70,54 @@ func (registry *openDocumentRegistry) Close(userID, documentID string) {
 		}
 	}
 	if len(next) == 0 {
-		delete(registry.byUser, userID)
+		delete(registry.byScope, scope)
 		return
 	}
-	registry.byUser[userID] = next
+	registry.byScope[scope] = next
+}
+
+func (registry *openDocumentRegistry) CloseDocument(userID, documentID string) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	for scope, current := range registry.byScope {
+		if scope.userID != userID {
+			continue
+		}
+		next := current[:0]
+		for _, candidate := range current {
+			if candidate.ID != documentID {
+				next = append(next, candidate)
+			}
+		}
+		if len(next) == 0 {
+			delete(registry.byScope, scope)
+		} else {
+			registry.byScope[scope] = next
+		}
+	}
 }
 
 func (registry *openDocumentRegistry) CloseAll(userID string) {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
-	delete(registry.byUser, userID)
+	for scope := range registry.byScope {
+		if scope.userID == userID {
+			delete(registry.byScope, scope)
+		}
+	}
 }
 
-func (registry *openDocumentRegistry) List(userID string) []workspace.DocumentSummary {
+func (registry *openDocumentRegistry) List(userID, workspaceID string) []workspace.DocumentSummary {
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
-	return append([]workspace.DocumentSummary(nil), registry.byUser[userID]...)
+	return append([]workspace.DocumentSummary(nil), registry.byScope[openDocumentScope{userID: userID, workspaceID: workspaceID}]...)
 }
 
 func (registry *openDocumentRegistry) sessionCount() int {
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
 	total := 0
-	for _, documents := range registry.byUser {
+	for _, documents := range registry.byScope {
 		total += len(documents)
 	}
 	return total
@@ -95,7 +134,7 @@ func (registry *openDocumentRegistry) monitoringDocuments() []monitoredOpenDocum
 	registry.mu.RLock()
 	defer registry.mu.RUnlock()
 	byID := map[string]monitoredOpenDocument{}
-	for _, documents := range registry.byUser {
+	for _, documents := range registry.byScope {
 		for _, document := range documents {
 			item := byID[document.ID]
 			item.ID, item.Name, item.Type, item.Sessions = document.ID, document.Name, document.Type, item.Sessions+1
@@ -112,12 +151,13 @@ func (registry *openDocumentRegistry) monitoringDocuments() []monitoredOpenDocum
 
 func (server *Server) listOpenDocuments(writer http.ResponseWriter, request *http.Request) {
 	userID := principal(request).ID
-	documents := server.openDocuments.List(userID)
+	workspaceID := openDocumentWorkspaceID(request)
+	documents := server.openDocuments.List(userID, workspaceID)
 	visible := make([]workspace.DocumentSummary, 0, len(documents))
 	for _, document := range documents {
 		role, err := server.access.EffectiveDocumentRole(request.Context(), document.ID, userID)
 		if err != nil {
-			server.openDocuments.Close(userID, document.ID)
+			server.openDocuments.Close(userID, workspaceID, document.ID)
 			continue
 		}
 		document.Permission = string(role)
@@ -128,7 +168,30 @@ func (server *Server) listOpenDocuments(writer http.ResponseWriter, request *htt
 	})
 }
 
+func (server *Server) openDocument(writer http.ResponseWriter, request *http.Request) {
+	role, ok := server.requireDocument(writer, request, access.RoleViewer)
+	if !ok {
+		return
+	}
+	result, err := server.workspace.GetDocument(request.Context(), request.PathValue("documentID"), principal(request).ID)
+	if err == nil {
+		result.Document.Permission = string(role)
+		server.openDocuments.Open(principal(request).ID, openDocumentWorkspaceID(request), result.Document)
+		_ = server.workspace.MarkDocumentOpened(request.Context(), result.Document.ID)
+	}
+	writeWorkspaceResult(writer, result, err)
+}
+
 func (server *Server) closeOpenDocument(writer http.ResponseWriter, request *http.Request) {
-	server.openDocuments.Close(principal(request).ID, request.PathValue("documentID"))
+	server.openDocuments.Close(principal(request).ID, openDocumentWorkspaceID(request), request.PathValue("documentID"))
 	writer.WriteHeader(http.StatusNoContent)
+}
+
+func openDocumentWorkspaceID(request *http.Request) string {
+	const fallback = "default"
+	workspaceID := request.Header.Get("X-OCCCCAD-Workspace-ID")
+	if workspaceID == "" || len(workspaceID) > 128 {
+		return fallback
+	}
+	return workspaceID
 }

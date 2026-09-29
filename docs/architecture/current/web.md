@@ -18,11 +18,11 @@ flowchart TD
 
 页面通过 Viewport Engine 操作视口，不直接拥有 Three.js Scene/Renderer。模型、权限、Revision 与最终求值属于服务端；camera、hover、selection、工具采集和渲染插值是可丢弃状态。Mock 用于 UI 调试，不证明后端权限或几何正确性。
 
-工作台由独立结构树、视口和属性/历史面板组成。树筛选保留祖先与 stable key，虚拟树支持键盘和集合选择；Inspector 关闭时卸载，按页签请求数据，读取失败明确报错。Document tabs 位于全局标题栏，支持切换、关闭、新建、排序及会话恢复。
+工作台由独立结构树、视口和属性/历史面板组成。树筛选保留祖先与 stable key，虚拟树支持键盘和集合选择；Inspector 关闭时卸载，按页签请求数据，读取失败明确报错。Document tabs 位于全局标题栏，支持切换、关闭、新建、排序及窗口会话恢复。普通文档读取和依赖刷新不打开或重排标签；显式打开生命周期与窗口内稳定顺序见 [TREE-03](tree03-product-edit-tabs.md)。
 
 ## 根场景与编辑上下文
 
-Product 始终显示根装配场景，Active Occurrence 的 Reference Workspace 决定命令、历史和属性目标。`ViewportEditContext`/`editingView` 将活动 Part 草图的拾取、约束、尺寸拖拽和编辑从根 Product 投影中分离；切换激活状态不产生空 Revision。创建 Part、Context Catalog、Pin/Follow 和产品版本中心的领域行为见[Product 架构](product-assembly.md)。
+Product 始终显示根装配场景，宿主 Product 决定路由与活动标签，唯一 Edit Target 的 Reference Workspace 决定工作台、命令、历史和属性目标。Product 内只有携带完整 occurrence 路径的上下文编辑，不存在脱离 occurrence 的定义编辑切换；独立 Part 标签是另一个宿主工作空间。`ViewportEditContext`/`editingView` 将活动 Part 草图的拾取、约束、尺寸拖拽和编辑从根 Product 投影中分离；切换激活状态不产生空 Revision。创建 Part、Context Catalog、Pin/Follow 和产品版本中心的领域行为见[Product 架构](product-assembly.md)。
 
 进入 Sketcher 保留权威 Body 作为只读环境，活动 Sketch、约束与预览叠加其上。普通工具只接受活动 Sketch；显式 Projection 才能进入上游 Body Edge/Vertex 选择并绑定 PersistentSelection。ExternalGeometry 独立、只读，使用同一捕捉/约束路径。退出后选择提升为 Sketch Feature；未消费草图保持可见，已消费草图在选择或重新编辑时临时显示。
 
@@ -36,7 +36,7 @@ InputManager、Tool、Selection 和 Overlay 共用完整 pointer down/move/up/ca
 
 结构树消费服务端 `DocumentStructureNode`：Product 的 Instance 下保留独立 Part/Product 定义根，Part 与 Product 内 Part 共用 Body/Feature/Sketch 投影；被多个 Feature 使用的 Sketch 保留一个定义入口和多个只读输入引用。节点显式携带 `EntityRef`、`OccurrenceRef`、`SnapshotScope`、owner、Body、能力，以及可分别读取的连接、时效、求值、子节点加载状态；树路径只标识当前投影入口。选择键包含文档、完整 occurrence、Revision/variant、Body 与几何范围；折叠祖先只显示后代提示，不变更精确命令目标。行虚拟化保留，Product/Part 历史分支默认按需展开；目前服务端仍构造完整结构快照，尚未实现分页获取子树。更多设计与 CATIA 对照见[语义结构树与交互上下文](../semantic-tree-interaction.md)。
 
-单击树节点只选择；双击或菜单显式激活 Body、进入 Sketch 编辑或切换 Part/Product 编辑上下文。会话工作 Body 覆盖持久 `activeBodyId` 默认值，仅本标签生效；选择、展开和临时显隐不写入 Revision。Feature 选择保持设计步骤身份，当前缺少可证明的贡献拓扑索引，属性面板说明降级，视口不把整个 Body 伪装成 Feature 结果。Product 自动更新订阅来自服务端的非 PINNED 领域引用投影，并继续通过 UpdatePlan 按叶到根接受；过滤和展开状态不参与更新决策。
+单击树节点只选择，不改变编辑目标。双击 Instance 是激活其下 Part/Product 根的快捷方式；双击定义根得到同一目标，双击根 Product 返回装配编辑。只有类型、DocumentId 与完整 InstancePath 均匹配的 Part/Product 根显示文档编辑态，Instance 行不共用该标记。激活 Body 只改变会话工作 Body，覆盖持久 `activeBodyId` 默认值；选择、展开和临时显隐不写入 Revision。Feature 选择保持设计步骤身份，当前缺少可证明的贡献拓扑索引，属性面板说明降级，视口不把整个 Body 伪装成 Feature 结果。Product 自动更新订阅来自服务端的非 PINNED 领域引用投影，并继续通过 UpdatePlan 按叶到根接受；过滤和展开状态不参与更新决策。
 
 捕捉过滤与 Selection 独立。三维类型过滤、草图网格/端点/中心/中点/曲线投影共用候选排序；禁用候选不能遮挡后方可用对象。显示折线上的投影仅是交互近似。命中稳定点时，同一编辑批次显式添加 Coincident，不能只保存相同坐标。
 

@@ -989,6 +989,15 @@ select {
   min-width: 176px !important;
   max-width: 176px !important;
 }
+.specification-tree-context-menu .context-menu-icon-slot {
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.specification-tree-context-menu .context-menu-icon-slot > .anticon { margin: 0; }
 .inspector-overlay-content { height: calc(100% - 41px); overflow: auto; }
 
 

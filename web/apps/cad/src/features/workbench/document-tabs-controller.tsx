@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Form, Input, Modal, Segmented } from "antd";
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { api } from "../../api/client";
 import { queryKeys } from "../../app/query-keys";
@@ -16,6 +16,7 @@ export function DocumentTabsController() {
   const { message } = App.useApp();
   const [creating, setCreating] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const visibleOrder = useRef<string[]>([]);
   const [createForm] = Form.useForm<CreateDocumentValues>();
   const opened = useQuery({ queryKey: queryKeys.openDocuments, queryFn: api.listOpenDocuments });
   const catalog = useQuery({ queryKey: queryKeys.documents({ defaultNames: true }),
@@ -39,9 +40,11 @@ export function DocumentTabsController() {
   const closeDocument = async (id: string) => {
     try {
       await api.closeOpenDocument(id);
-      await client.invalidateQueries({ queryKey: queryKeys.openDocuments });
+      client.setQueryData(queryKeys.openDocuments, (current: Awaited<ReturnType<typeof api.listOpenDocuments>> | undefined) =>
+        current?.filter((document) => document.id !== id) ?? []);
       if (id === activeID) {
-        const next = opened.data?.find((document) => document.id !== id)?.id;
+        const index = visibleOrder.current.indexOf(id);
+        const next = visibleOrder.current[index + 1] ?? visibleOrder.current[index - 1];
         navigate(next ? `/documents/${next}` : "/");
       }
     } catch (error) { message.error((error as Error).message); }
@@ -51,9 +54,11 @@ export function DocumentTabsController() {
     setCreateOpen(true);
   };
 
+  const updateVisibleOrder = useCallback((ids: string[]) => { visibleOrder.current = ids; }, []);
+  const productHostID = opened.data?.find((document) => document.id === activeID && document.type === "PRODUCT")?.id;
   return <>
     <DocumentTabs documents={(opened.data ?? []).map(({ id, name, type }) => ({ id, name, type }))}
-      activeID={activeID} onCreate={openCreateDocument}
+      activeID={activeID} productHostID={productHostID} onVisibleOrderChange={updateVisibleOrder} onCreate={openCreateDocument}
       onSwitch={(id) => navigate(`/documents/${id}`)} onClose={(id) => void closeDocument(id)} />
     <Modal title="新建文档" open={createOpen} onCancel={() => { setCreateOpen(false); createForm.resetFields(); }} footer={null} destroyOnHidden>
       <Form form={createForm} layout="vertical" onFinish={(values) => void createDocument(values)}>
