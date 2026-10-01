@@ -1,6 +1,6 @@
 # 统一开发路线
 
-> 2026-09-30 状态核对：`main` / `ebbf37a9eb2ca1d3d9777624ec1a6967b753e8a5`。计划只保存未完成工作；已实现事实见[当前架构](../docs/CURRENT_ARCHITECTURE.md)，长期合同见[目标架构](../docs/TARGET_ARCHITECTURE.md)。
+> 2026-10-01 状态核对：`main` / `b8b07fcdf16e366079b14f4d5bf38f43dc0fa6b5`，加本轮 CONSTRAINT-CONTRACT 工作区变更。计划只保存未完成工作；已实现事实见[当前架构](../docs/CURRENT_ARCHITECTURE.md)，长期合同见[目标架构](../docs/TARGET_ARCHITECTURE.md)。
 
 ## 一条主线
 
@@ -10,8 +10,7 @@
 
 ```mermaid
 flowchart LR
-    Baseline["已有：数据面/XDE/Multi-Body/语义树及 Product/M3"] --> Contract["CONSTRAINT-CONTRACT 能力矩阵与验收基线"]
-    Contract --> Parity["六类约束、组合与激活/抑制"]
+    Baseline["已有：数据面/XDE/Multi-Body/语义树/Product/M3及可执行合同"] --> Parity["六类约束、组合与激活/抑制；下一项 OFFSET"]
     Parity --> Drag["M4 稳定实时约束流形交互"]
     Drag --> Conflict["M5 局部冲突解释"]
     Conflict --> Connection["M6 工程连接"]
@@ -20,19 +19,19 @@ flowchart LR
     Connection -.进入条件.-> Future["DMU / Kinematics 等候选"]
 ```
 
-若只有一条开发线：先 CONSTRAINT-CONTRACT，按装配计划补齐六类及 Activate/Deactivate，再收口 M4 → M5 → M6。会话基础/延迟基准可在合同冻结后与类型补齐并行；最终 M4 验收必须覆盖六类和抑制组合。Revolve/其他 Feature 和 Projection 保持独立支线，不再排在装配能力补齐之前。
+若只有一条开发线：先 CONSTRAINT-OFFSET，依据可执行合同差距补齐六类及生命周期组合，再收口 M4 → M5 → M6。会话基础/延迟基准可在合同明确后与类型补齐并行；最终 M4 验收必须覆盖六类和抑制组合。Revolve/其他 Feature 和 Projection 保持独立支线，不再排在装配能力补齐之前。
 
 ## 当前决策与下一主任务
 
-本轮基础整改及路线图状态校准收口后，下一主任务恢复为 **CONSTRAINT-CONTRACT：六类装配约束能力矩阵可执行化、既有实现对照与验收基线**（待实施）。本次只确定范围与退出门，未启动该任务或 M4。Feature、Projection、大模型及工程维护保留各自队列，只有明确的新需求才调整执行优先级；已完成基础整改不默认阻塞装配主线。
+CONSTRAINT-CONTRACT 已交付机器可读目录、真实测试 adapter、回归门及覆盖/差距报告，设施和实际验证见[当前 Product](../docs/architecture/current/product-assembly.md#六类约束可执行合同目录)。这不等于六类全矩阵、CONSTRAINT-COMPOSITION 或 M4 完成。下一主任务为 **CONSTRAINT-OFFSET：第一选择法向符号意图、交换与模式/历史闭环**（待实施）；本轮未开始它。Feature、Projection、大模型及工程维护保留各自队列，只有明确的新需求才调整执行优先级。
 
-交付一份可执行或可直接驱动参数化测试的能力矩阵：逐组合列出支持几何、参数域、方向/符号、branch、Driving/Measured、正常秩和退化行为，对照代码标明已支持、部分支持、尚未支持、尚缺验证，并映射现有测试与实际执行证据。退出时须形成准确剩余工作及可领取的 CONSTRAINT-* 批次和退出条件。复用既有能力，descriptor 与几何组合按消费场景逐批贯通；不先建立庞大通用框架，不把完整 Contact、Fix Together、M4/M5 实现塞入此任务，也不再写一份六类介绍。详细分解见[装配计划](assembly-evolution.md#constraint-contract六类能力矩阵与验收基线)。
+现有六对 Offset 数值几何/秩及共享生命周期已有执行证据，优先复用。下一项先解决 `offset.plane-plane.first-normal-editor` 暴露的第二法向入口与第一法向目标差异，再验证符号到方程、选择交换、表达式/Measured、Undo/冷 replay；退出时目标失败 case 转为基线且既有秩/几何不退化。其他 partial、未实现、缺测试与数据库环境阻塞由[目录和报告](../tests/assembly-contract/README.md)持续生成，按[装配计划](assembly-evolution.md)领取；descriptor 仍按消费场景贯通，不先建立庞大通用框架。
 
 ## 可领取工作
 
 | 轨道 | 当前首项 | 依赖与退出门 | 详情 |
 |---|---|---|---|
-| 装配主线 | CONSTRAINT-CONTRACT（待实施） | 既定目标合同 → 可执行能力矩阵、代码/测试对照、剩余批次与退出门；随后六类/生命周期组合 → M4 → M5 → M6 | [装配演进](assembly-evolution.md) |
+| 装配主线 | CONSTRAINT-OFFSET（待实施） | 第一法向符号/交换/模式历史门；复用六对基础数值链，随后六类/生命周期组合 → M4 → M5 → M6 | [装配演进](assembly-evolution.md) |
 | 实体支线 | FEATURE-REVOLVE-HISTORY | 已有 Extrude/Boolean 命名基线；完整命名 corpus | [Feature 扩张](feature-expansion.md) |
 | 草图支线 | PROJECTION-ARC | 已有 Edge/Vertex 投影；先统一 ARC snapshot | [Sketch 投影](sketch-projection.md) |
 | 导入与大模型支线 | LARGE-BASELINE | 命名正确性与容量基线先行；对象存储、计算、显示共同验收 | [导入与大模型](import-large-models.md) |

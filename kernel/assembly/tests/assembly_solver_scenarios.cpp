@@ -425,6 +425,128 @@ TEST(AssemblySolver, SpatialAngleEndpointsHaveAlignmentRank) {
         const bool endpoint = target == 0.0 || target == kPi || target == 2.0 * kPi;
         EXPECT_EQ(found->equation_count, endpoint ? 3U : 1U);
         EXPECT_EQ(found->effective_rank, endpoint ? 2U : 1U);
+        // Independent geometric oracle: rank/status alone cannot certify angle.
+        const auto direction = rotate(pose(result, "moving").rotation, {0, 0, 1});
+        EXPECT_NEAR(direction.z, std::cos(target), SolverOptions{}.angle_tolerance);
+        const double measured = std::atan2(std::hypot(direction.x, direction.y), direction.z);
+        EXPECT_NEAR(measured, target == 2 * kPi ? 0 : target, SolverOptions{}.angle_tolerance);
+    }
+}
+
+TEST(AssemblyContract, ProjectedZeroAndNinetyAreNotSpatialRelations) {
+    for (const double target : {0.0, kPi / 2}) {
+        Model model;
+        model.bodies = {{"ground", {}}, {"moving", {}}};
+        // Both supports have a nonzero component along k. Projection clocking
+        // does not constrain those inclinations or imply Parallel/Perpendicular.
+        const double s = std::sqrt(0.5);
+        const Vec3 reference{s, 0, s};
+        const Vec3 moving{s * std::cos(target), s * std::sin(target), s};
+        model.geometry = {{"axis", "ground", AxisGeometry{{}, reference}},
+                          {"axis", "moving", AxisGeometry{{}, moving}}};
+        auto angle = binary("angle", ConstraintKind::Angle, ref("ground", "axis"), ref("moving", "axis"));
+        angle.value = target;
+        angle.angle_reference_direction = Vec3{0, 0, 1};
+        model.constraints = {fix("ground"), angle};
+        const auto result = Solver{}.solve(model);
+        ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+        ASSERT_EQ(result.components.size(), 1U);
+        EXPECT_EQ(result.components[0].jacobian_rank, 1U);
+        const auto a = rotate(pose(result, "ground").rotation, reference);
+        const auto b = rotate(pose(result, "moving").rotation, moving);
+        const double clock = std::atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y);
+        EXPECT_NEAR(clock, target, SolverOptions{}.angle_tolerance);
+        const double spatial_dot = a.x * b.x + a.y * b.y + a.z * b.z;
+        if (target == kPi / 2) {
+            EXPECT_NEAR(spatial_dot, 0.5, SolverOptions{}.angle_tolerance);
+        }
+        // At projected zero, choose a different inclination and preserve clocking.
+        if (target == 0) {
+            model.geometry[1].local_geometry = AxisGeometry{{}, {std::sqrt(0.75), 0, 0.5}};
+            const auto unequal = Solver{}.solve(model);
+            ASSERT_EQ(unequal.status, SolveStatus::Converged) << unequal.diagnostic;
+            const auto d = rotate(pose(unequal, "moving").rotation, {std::sqrt(0.75), 0, 0.5});
+            EXPECT_NEAR(std::atan2(d.y, d.x), 0, SolverOptions{}.angle_tolerance);
+            EXPECT_LT(reference.x * d.x + reference.z * d.z, 0.99);
+            EXPECT_EQ(unequal.components[0].jacobian_rank, 1U);
+        }
+    }
+}
+
+TEST(AssemblyContract, ProjectedAngleExchangeTransformsTarget) {
+    for (const bool swapped : {false, true}) {
+        for (const bool reverse_axis : {false, true}) {
+            Model model;
+            model.bodies = {{"ground", {}}, {"moving", {}}};
+            model.geometry = {{"axis", "ground", AxisGeometry{{}, {1, 0, 0}}},
+                              {"axis", "moving", AxisGeometry{{}, {0, 1, 0}}}};
+            auto c = binary("angle", ConstraintKind::Angle,
+                            ref(swapped ? "moving" : "ground", "axis"),
+                            ref(swapped ? "ground" : "moving", "axis"));
+            const double axis_sign = reverse_axis ? -1 : 1;
+            c.angle_reference_direction = Vec3{0, 0, axis_sign};
+            c.value = swapped != reverse_axis ? 3 * kPi / 2 : kPi / 2;
+            model.constraints = {fix("ground"), c};
+            const auto result = Solver{}.solve(model);
+            ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+            const auto a = rotate(pose(result, "ground").rotation, {1, 0, 0});
+            const auto b = rotate(pose(result, "moving").rotation, {0, 1, 0});
+            // Check invariant feasible geometry in the original support order;
+            // never require exchanged moving/reference preference to pick same pose.
+            EXPECT_NEAR(std::atan2(a.x * b.y - a.y * b.x, a.x * b.x + a.y * b.y), kPi / 2,
+                        SolverOptions{}.angle_tolerance);
+            EXPECT_EQ(result.components[0].jacobian_rank, 1U);
+            EXPECT_LE(result.normalized_residual, SolverOptions{}.angle_tolerance);
+        }
+    }
+}
+
+TEST(AssemblyContract, OffsetRegularGeometryAndRank) {
+    for (const std::string pair : {"point-point", "point-axis", "point-plane", "axis-axis", "axis-plane", "plane-plane"}) {
+        for (const bool exchange : {false, true}) {
+            Model model;
+            Pose nominal;
+            nominal.translation = pair == "axis-axis" ? Vec3{0, 2, 0}
+                                : pair == "point-point" || pair == "point-axis" ? Vec3{2, 0, 0}
+                                : Vec3{0, 0, 2};
+            model.bodies = {{"ground", {}}, {"moving", nominal}};
+            Geometry first = PointGeometry{}, second = PointGeometry{};
+            if (pair == "point-axis") second = AxisGeometry{};
+            if (pair == "point-plane") second = PlaneGeometry{};
+            if (pair == "axis-axis" || pair == "axis-plane") first = AxisGeometry{{}, {1, 0, 0}};
+            if (pair == "axis-axis") second = AxisGeometry{};
+            if (pair == "axis-plane") second = PlaneGeometry{};
+            if (pair == "plane-plane") { first = PlaneGeometry{}; second = PlaneGeometry{}; }
+            model.geometry = {{"support", "moving", first}, {"support", "ground", second}};
+            auto c = binary("offset", ConstraintKind::Distance, ref("moving", "support"), ref("ground", "support"));
+            c.value = 2;
+            if (exchange) { std::swap(c.first, *c.second); }
+            model.constraints = {fix("ground"), c};
+            const auto result = Solver{}.solve(model);
+            ASSERT_EQ(result.status, SolveStatus::Converged) << pair << ": " << result.diagnostic;
+            ASSERT_EQ(result.components.size(), 1U);
+            EXPECT_EQ(result.components[0].jacobian_rank, pair == "plane-plane" ? 3U : pair == "axis-plane" ? 2U : 1U);
+            const auto p = pose(result, "moving");
+            double distance = 0;
+            if (pair == "point-point") distance = std::hypot(p.translation.x, p.translation.y, p.translation.z);
+            if (pair == "point-axis") distance = std::hypot(p.translation.x, p.translation.y);
+            if (pair == "point-plane" || pair == "axis-plane" || pair == "plane-plane") distance = std::abs(p.translation.z);
+            if (pair == "axis-axis") {
+                const auto d = rotate(p.rotation, {1, 0, 0});
+                // Shortest distance between the infinite lines, independent of
+                // the solver's reported status/residual and preferred pose.
+                const double n = std::hypot(d.x, d.y);
+                ASSERT_GT(n, SolverOptions{}.degeneracy_tolerance);
+                distance = std::abs(p.translation.x * d.y - p.translation.y * d.x) / n;
+            }
+            EXPECT_NEAR(distance, 2, SolverOptions{}.length_tolerance);
+            if (pair == "axis-plane") {
+                EXPECT_NEAR(rotate(p.rotation, {1, 0, 0}).z, 0, SolverOptions{}.angle_tolerance);
+            }
+            if (pair == "plane-plane") {
+                EXPECT_NEAR(std::abs(rotate(p.rotation, {0, 0, 1}).z), 1, SolverOptions{}.angle_tolerance);
+            }
+        }
     }
 }
 

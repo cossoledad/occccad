@@ -2,7 +2,7 @@
 
 > 状态：待实施（剩余容量与验收批次）。IMPORT-DIAGNOSTICS 与 IMPORT-NAMING 基础整改已移出待办；当前 Jobs/导入链见[实现与验证入口](../docs/architecture/current/jobs-artifacts.md#实现与验证入口)，根命名证据见[导入命名](../docs/architecture/current/persistent-naming.md#导入根命名import-naming-已完成2026-09-22)。S3 存储基础、流式传输、Worker staging、制品外置及 XDE 共享定义与嵌套结构/parse-once/并行命名与阶段进度已实现，见[当前存储](../docs/architecture/current/jobs-artifacts.md#artifactstore)和[数据面](../docs/architecture/current/geometry-representations.md)。本阶段按用户要求不做续传；实际大模型几何/显示验收仍待实施。返回[统一路线](README.md)；唯一详细设计见[大文件导入与大模型工作集](../docs/architecture/target/large-models.md)，不在计划复制一套架构。
 
-本支线保留独立队列，首项 LARGE-BASELINE；当前下一主任务是 CONSTRAINT-CONTRACT。只有明确的新需求才调整执行优先级。剩余目标是导入和原生大模型的 checkpoint、资源预算、分阶段计算与渐进显示，不重复实施数据面基础。
+本支线保留独立队列，首项 LARGE-BASELINE；当前下一主任务是 CONSTRAINT-OFFSET。只有明确的新需求才调整执行优先级。剩余目标是导入和原生大模型的 checkpoint、资源预算、分阶段计算与渐进显示，不重复实施数据面基础。
 
 ```mermaid
 flowchart LR

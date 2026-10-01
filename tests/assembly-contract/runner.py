@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+"""Execute catalog-selected existing implementations; never infer PASS from coverage."""
+from __future__ import annotations
+
+import argparse
+from collections import Counter
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import re
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+ROOT = Path(__file__).resolve().parents[2]
+HERE = Path(__file__).resolve().parent
+LAYERS = {"ui", "domain", "resolution", "workerSolver", "lifecycle", "historyReplay"}
+ADAPTERS = {"cpp", "go", "go-flags", "web", "web-catalog", "integration"}
+STATES = {"implemented", "partial", "missing", "unknown"}
+
+
+def digest(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+
+
+def frozen_contract(catalog):
+    # A reviewable regression lock, not another coverage matrix. New IDs may be added;
+    # deleting IDs, changing target expectations or lowering a coverage floor fails.
+    return {
+        "schemaVersion": catalog["schemaVersion"],
+        "contractVersion": catalog["contractVersion"],
+        "semantics": digest({k: catalog[k] for k in ("families", "layers", "descriptors", "derivedSupports", "policies", "failurePolicies", "tolerances")}),
+        "capabilities": {c["capabilityId"]: digest({k: v for k, v in c.items() if k not in ("caseIds", "implementationProfile", "implementationOverrides")}) for c in catalog["capabilities"]},
+        "cases": {c["caseId"]: digest(c) for c in catalog["cases"]},
+        "assertions": {c["caseId"]: digest(assertion_source(c)) for c in catalog["cases"]},
+        "coverageFloor": {c["capabilityId"]: {layer: value["state"] for layer, value in implementation(c, catalog).items()} for c in catalog["capabilities"]},
+    }
+
+
+def assertion_source(case):
+    source = (ROOT / case["fixture"]["source"]).read_text()
+    if case["adapter"] == "cpp":
+        suite, test = case["selector"].split(".")
+        start = re.search(r"TEST\(\s*" + re.escape(suite) + r"\s*,\s*" + re.escape(test) + r"\s*\)", source)
+        return re.split(r"\nTEST\(", source[start.start():], maxsplit=1)[0]
+    if case["adapter"] in {"go", "go-flags", "integration"}:
+        start = source.index("func " + case["selector"].split("/")[0] + "(")
+        return re.split(r"\nfunc ", source[start:], maxsplit=1)[0]
+    return source
+
+
+def implementation(capability, catalog):
+    return {**catalog["implementationProfiles"][capability["implementationProfile"]], **capability.get("implementationOverrides", {})}
+
+
+def validate(catalog, root=ROOT, lock=None):
+    def require(condition, message):
+        if not condition:
+            raise ValueError(message)
+
+    require(catalog["schemaVersion"] == 1, "unknown schemaVersion")
+    require(bool(catalog["contractVersion"]), "missing contractVersion")
+    require(set(catalog["families"]) == {"Coincidence", "Contact", "Offset", "Angle", "Fix", "FixTogether"}, "six families required")
+    require(set(catalog["layers"]) == LAYERS, "coverage layers incomplete")
+    require((root / catalog["target"]).is_file(), "missing target contract")
+    target = (root / catalog["target"]).read_text()
+    slug = lambda s: re.sub(r"[^\w\s-]", "", s.lower()).replace(" ", "-")
+    anchors = {slug(h) for h in re.findall(r"^#{1,6}\s+(.+)$", target, re.M)}
+    caps, cases = catalog["capabilities"], catalog["cases"]
+    require(bool(caps) and bool(cases), "empty catalog")
+    cap_ids = [c["capabilityId"] for c in caps]
+    case_ids = [c["caseId"] for c in cases]
+    require(len(set(cap_ids)) == len(cap_ids), "duplicate capabilityId")
+    require(len(set(case_ids)) == len(case_ids), "duplicate caseId")
+    require(all(re.fullmatch(r"[a-z][a-z0-9.-]+", i) for i in cap_ids + case_ids), "invalid stable ID")
+    for name, descriptor in catalog["descriptors"].items():
+        require(descriptor["fields"] and descriptor["preconditions"], f"descriptor {name} incomplete")
+        require(set(descriptor["fields"]) == set(descriptor["units"]), f"descriptor {name} unit fields missing")
+    tasks = (root / "plans/assembly-evolution.md").read_text()
+    for policy in catalog["failurePolicies"].values():
+        require(len({f["category"] for f in policy}) == len(policy), "duplicate failure category")
+        require(all(all(k in f for k in ("category", "phase", "saveDefinition", "advanceHead", "adoptCandidatePose", "evaluation", "recovery")) for f in policy), "incomplete failure semantics")
+    for support in catalog["derivedSupports"]:
+        require(support["sourceDescriptor"] in catalog["descriptors"] and support["resultDescriptor"] in catalog["descriptors"] and support["precondition"] and support["task"] in tasks, "invalid derived support")
+    for c in caps:
+        ident = c["capabilityId"]
+        require(c["family"] in catalog["families"] and c["subtype"], f"{ident}: invalid family/subtype")
+        require(c["targetAnchor"] in anchors, f"{ident}: invalid target anchor")
+        require(c["arity"]["kind"] in {"unary", "binary", "group"}, f"{ident}: invalid arity")
+        require(c["arity"]["min"] >= 1 and c["roles"], f"{ident}: missing roles")
+        require(all(r["descriptor"] in catalog["descriptors"] and r["role"] for r in c["roles"]), f"{ident}: invalid descriptor")
+        policy = catalog["policies"][c["policy"]]
+        for key in ("direction", "sign", "exchange", "branch", "modes", "otherModes", "activation", "failurePolicy"):
+            require(bool(policy[key]), f"{ident}: missing {key}")
+        for p in policy["parameters"]:
+            require(all(p.get(k) for k in ("name", "type", "unit", "domain", "dependsOn")), f"{ident}: missing parameter semantics")
+        require(policy["failurePolicy"] in catalog["failurePolicies"], f"{ident}: failure policy missing")
+        require(c["rank"]["configuration"] and (c["rank"]["normal"] is None or 0 <= c["rank"]["normal"] <= 6), f"{ident}: rank missing")
+        require(c["rank"]["normal"] is not None or c.get("openQuestions") or c["rank"]["special"], f"{ident}: unknown rank has no boundary")
+        require(c["followupTasks"] and all(t in tasks for t in c["followupTasks"]), f"{ident}: invalid followup task")
+        require(all(i in case_ids for i in c["caseIds"]), f"{ident}: invalid test mapping")
+        coverage = implementation(c, catalog)
+        require(set(coverage) == LAYERS, f"{ident}: incomplete coverage")
+        for layer, state in coverage.items():
+            require(state["state"] in STATES and state["reason"], f"{ident}: invalid coverage")
+            if state.get("source"):
+                require((root / state["source"]).is_file(), f"{ident}: missing implementation source")
+            if state["state"] == "implemented":
+                require(any(t["caseId"] in c["caseIds"] and t["layer"] == layer and t.get("purpose") != "unsupported-rejection" for t in cases), f"{ident}: implemented {layer} has no executable test")
+    for t in cases:
+        ident = t["caseId"]
+        require(t["adapter"] in ADAPTERS and t["layer"] in LAYERS, f"{ident}: invalid adapter/layer")
+        require(t["capabilityIds"] and all(i in cap_ids for i in t["capabilityIds"]), f"{ident}: invalid capability reference")
+        require(t["expectation"] and t["selector"], f"{ident}: empty assertion/selector")
+        require(t["fixture"]["symbol"] == t["selector"], f"{ident}: invalid fixture symbol")
+        require(t["evidenceScope"] in {"specific-combination", "representative-shared-foundation"} and t["evidenceKind"], f"{ident}: missing evidence level")
+        source = root / t["fixture"]["source"]
+        require(source.is_file(), f"{ident}: missing fixture")
+        contents = source.read_text()
+        if t["adapter"] == "cpp":
+            suite, test = t["selector"].split(".")
+            require(re.search(r"TEST\(\s*" + re.escape(suite) + r"\s*,\s*" + re.escape(test) + r"\s*\)", contents), f"{ident}: missing C++ test")
+            body = assertion_source(t)
+            require(re.search(r"(?:ASSERT|EXPECT)_", body), f"{ident}: empty C++ assertion body")
+        elif t["adapter"] in {"go", "integration", "go-flags"}:
+            require(re.search(r"func " + re.escape(t["selector"].split("/")[0]) + r"\(", contents), f"{ident}: missing Go test")
+            require(t["package"].startswith("./internal/"), f"{ident}: invalid Go package")
+            body = re.split(r"\nfunc ", contents.split("func " + t["selector"].split("/")[0] + "(", 1)[1], maxsplit=1)[0]
+            require(re.search(r"t\.(Fatal|Error|Fail)", body), f"{ident}: empty Go assertion body")
+            if t["adapter"] == "go-flags":
+                require(set(t["expected"]) == {"direction", "distanceSide", "directedAngle"} and all(isinstance(v, bool) for v in t["expected"].values()), f"{ident}: invalid expected flags")
+                require(set(t["input"]) == {"kind", "first", "second"}, f"{ident}: invalid capability inputs")
+        elif t["adapter"] == "web-catalog":
+            require(t["selector"] in {"entry", "clear-axis", "offset-normal"} and t["input"] and t["expected"], f"{ident}: invalid web adapter")
+        else:
+            require(t["selector"] == t["fixture"]["source"], f"{ident}: invalid web path")
+        for c in caps:
+            require((ident in c["caseIds"]) == (c["capabilityId"] in t["capabilityIds"]), f"{ident}: nonreciprocal mapping")
+    if lock is not None:
+        now = frozen_contract(catalog)
+        for field in ("schemaVersion", "contractVersion", "semantics"):
+            require(now[field] == lock[field], f"regression lock changed: {field}")
+        for field in ("capabilities", "cases", "assertions"):
+            for ident, expected in lock[field].items():
+                require(now[field].get(ident) == expected, f"regression lock: removed/changed {ident}")
+        weight = {"missing": 0, "unknown": 0, "partial": 1, "implemented": 2}
+        for ident, layers in lock["coverageFloor"].items():
+            for layer, state in layers.items():
+                require(weight[now["coverageFloor"][ident][layer]] >= weight[state], f"coverage lowered: {ident}/{layer}")
+
+
+def select(catalog, capability=None, family=None, layer=None, case=None):
+    caps = catalog["capabilities"]
+    for value, choices, label in ((capability, [c["capabilityId"] for c in caps], "capabilityId"), (family, catalog["families"], "family"), (layer, catalog["layers"], "layer"), (case, [t["caseId"] for t in catalog["cases"]], "caseId")):
+        if value and value not in choices:
+            raise ValueError(f"unknown {label}: {value}")
+    picked = [c for c in caps if (not capability or c["capabilityId"] == capability) and (not family or c["family"] == family)]
+    ids = {c["capabilityId"] for c in picked}
+    tests = [t for t in catalog["cases"] if ids.intersection(t["capabilityIds"]) and (not layer or t["layer"] == layer) and (not case or t["caseId"] == case)]
+    if not picked or ((case or layer) and not tests):
+        raise ValueError("execution selection is empty")
+    return picked, tests
+
+
+def command(argv, cwd, env, log):
+    try:
+        process = subprocess.run(argv, cwd=cwd, env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=300)
+        output, code = process.stdout, process.returncode
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        output, code = str(exc), -1
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text(output)
+    return code, output
+
+
+def go_verdict(events, selector, code):
+    matching = [e for e in events if e.get("Test") == selector]
+    # Parent PASS cannot hide a skipped descendant (including integration subtests).
+    descendants = [e for e in events if e.get("Test", "").startswith(selector + "/")]
+    if code or any(e["Action"] == "fail" for e in matching + descendants):
+        return "FAIL", "Go assertion/build/process failed"
+    if any(e["Action"] == "skip" for e in matching + descendants):
+        return "ENVIRONMENT_BLOCKED", "Go test or descendant skipped; not PASS"
+    if not any(e["Action"] == "run" for e in matching) or not any(e["Action"] == "pass" for e in matching):
+        return "FAIL", "mapped Go test did not execute (zero tests or stale mapping)"
+    return "PASS", "actual Go assertions passed"
+
+
+def run_cases(cases, output, build_type, adapters):
+    results = {}
+    env = os.environ.copy()
+    env["OCCCCAD_ASSEMBLY_CONTRACT_CASES"] = json.dumps([t["caseId"] for t in cases])
+    commands = []
+    def record(t, status, reason, argv=None, log=None):
+        results[t["caseId"]] = {"caseId": t["caseId"], "status": status, "observed": reason, "command": argv, "log": str(log.relative_to(ROOT)) if log and log.is_relative_to(ROOT) else str(log) if log else None}
+    pending = []
+    for t in cases:
+        if t["adapter"] not in adapters:
+            record(t, "NOT_RUN", "adapter excluded by execution scope")
+        elif any(not env.get(key) for key in t.get("requires", [])):
+            record(t, "ENVIRONMENT_BLOCKED", "required environment missing: " + ", ".join(key for key in t["requires"] if not env.get(key)))
+        else:
+            pending.append(t)
+    cpp = [t for t in pending if t["adapter"] == "cpp"]
+    if cpp:
+        build_dir = ROOT / "build/cmake" / build_type.lower()
+        argv = ["cmake", "--build", str(build_dir), "--target", "occcad_assembly_solver_scenarios", "--parallel", "2"]
+        commands.append(argv)
+        log = output / "cpp-build.log"
+        code, _ = command(argv, ROOT, env, log)
+        if code:
+            for t in cpp:
+                record(t, "FAIL", "C++ build failed; inspect build log", argv, log)
+        else:
+            xml = output / "cpp.xml"
+            if xml.exists():
+                xml.unlink()  # Only this runner-owned previous result, never accept stale XML.
+            argv = [str(build_dir / "kernel/assembly/tests/occcad_assembly_solver_scenarios"), "--gtest_filter=" + ":".join(sorted({t["selector"] for t in cpp})), "--gtest_output=xml:" + str(xml)]
+            commands.append(argv)
+            log = output / "cpp.log"
+            code, _ = command(argv, ROOT, env, log)
+            actual = {e.attrib["classname"] + "." + e.attrib["name"]: e for e in ET.parse(xml).iter("testcase")} if xml.is_file() else {}
+            for t in cpp:
+                e = actual.get(t["selector"])
+                if e is None:
+                    record(t, "FAIL", "mapped C++ test did not execute", argv, log)
+                elif e.find("failure") is not None:
+                    record(t, "FAIL", e.find("failure").attrib.get("message", "assertion failed"), argv, log)
+                elif e.attrib.get("status") != "run" or e.find("skipped") is not None:
+                    record(t, "NOT_RUN", "C++ test skipped", argv, log)
+                elif code:
+                    record(t, "FAIL", "C++ process failed (another assertion or crash)", argv, log)
+                else:
+                    record(t, "PASS", "actual C++ geometry/rank assertions passed", argv, log)
+    packages = sorted({t["package"] for t in pending if t["adapter"] in {"go", "go-flags", "integration"}})
+    for package in packages:
+        batch = [t for t in pending if t.get("package") == package]
+        names = sorted({t["selector"].split("/")[0] for t in batch})
+        argv = ["go", "test", "-json", "-count=1", "-timeout=240s", package, "-run", "^(" + "|".join(map(re.escape, names)) + ")$"]
+        commands.append(argv)
+        log = output / (package.rsplit("/", 1)[1] + ".log")
+        code, raw = command(argv, ROOT / "services", env, log)
+        events = []
+        for line in raw.splitlines():
+            try:
+                events.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+        for t in batch:
+            verdict, reason = go_verdict(events, t["selector"], code)
+            evidence = "".join(e.get("Output", "") for e in events if e.get("Test", "").startswith(t["selector"]))
+            record(t, verdict, reason + (": " + evidence[-2500:] if verdict != "PASS" else ""), argv, log)
+            results[t["caseId"]]["evidence"] = evidence[-6000:]
+    paths = sorted({t["fixture"]["source"] for t in pending if t["adapter"] in {"web", "web-catalog"}})
+    for index, source in enumerate(paths):
+        batch = [t for t in pending if t["fixture"]["source"] == source]
+        relative = str((ROOT / source).relative_to(ROOT / "web/apps/cad"))
+        argv = ["pnpm", "test", "--", "--verbose", relative]
+        commands.append(argv)
+        log = output / f"web-{index}.log"
+        code, raw = command(argv, ROOT / "web/apps/cad", env, log)
+        # The normal scenario runner rejects empty selection. The catalog adapter also
+        # emits a per-case marker; success exit without that marker cannot certify it.
+        for t in batch:
+            if t["adapter"] == "web-catalog" and "CONTRACT_PASS " + t["caseId"] in raw:
+                record(t, "PASS", "actual per-case TypeScript assertions passed", argv, log)
+            elif code:
+                record(t, "FAIL", raw[-2500:], argv, log)
+            elif t["adapter"] == "web-catalog" and "CONTRACT_PASS " + t["caseId"] not in raw:
+                record(t, "FAIL", "missing actual per-case web assertion evidence", argv, log)
+            elif not re.search(r"PASS|passed", raw, re.I):
+                record(t, "FAIL", "scenario runner returned no execution evidence", argv, log)
+            else:
+                record(t, "PASS", "actual TypeScript interaction/model assertions passed", argv, log)
+    return results, commands
+
+
+def make_report(catalog, caps, cases, results, commands, purpose, argv):
+    git = lambda *args: subprocess.check_output(["git", *args], cwd=ROOT, text=True).strip()
+    rows = []
+    for c in caps:
+        selected = [t for t in cases if c["capabilityId"] in t["capabilityIds"]]
+        evidence = [{**t, "result": results[t["caseId"]]} for t in selected]
+        coverage = implementation(c, catalog)
+        unresolved = [layer for layer, state in coverage.items() if state["state"] != "implemented"]
+        goal = "TARGET_NOT_IMPLEMENTED" if c["implementationProfile"] in {"missing", "group", "boundary"} else "PARTIAL"
+        layer_evidence = {layer: [t["caseId"] for t in selected if t["layer"] == layer and results[t["caseId"]]["status"] == "PASS" and t.get("purpose") != "unsupported-rejection"] for layer in sorted(LAYERS)}
+        rows.append({"capabilityId": c["capabilityId"], "family": c["family"], "target": {**c, "policy": catalog["policies"][c["policy"]]}, "implementation": coverage, "targetStatus": goal, "unresolvedLayers": unresolved, "verifiedCaseIdsByLayer": layer_evidence, "verification": evidence, "missingTestLayers": [layer for layer in LAYERS if not any(t["layer"] == layer and t.get("purpose") != "unsupported-rejection" for t in catalog["cases"] if c["capabilityId"] in t["capabilityIds"])], "testStatus": "MISSING_TEST" if not any(t.get("purpose") != "unsupported-rejection" for t in catalog["cases"] if c["capabilityId"] in t["capabilityIds"]) else "MAPPED", "followupTasks": c["followupTasks"]})
+    native = {t["fixture"]["source"] + "::" + (t["caseId"] if t["adapter"] == "web-catalog" else t["selector"]) for t in cases if results[t["caseId"]]["status"] == "PASS"}
+    sources = {"tests/assembly-contract/catalog.json", "tests/assembly-contract/runner.py", "tests/assembly-contract/baseline.json"} | {t["fixture"]["source"] for t in cases}
+    return {"schemaVersion": catalog["schemaVersion"], "contractVersion": catalog["contractVersion"], "catalogDigest": digest(catalog), "purpose": purpose, "baselineMeaning": "selected executed existing abilities only; NOT six-family product acceptance", "commit": git("rev-parse", "HEAD"), "worktree": git("status", "--short"), "worktreeDiffDigest": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"], cwd=ROOT)).hexdigest(), "inputDigests": {source: hashlib.sha256((ROOT / source).read_bytes()).hexdigest() for source in sorted(sources)}, "invocation": argv, "selectedCaseIds": [t["caseId"] for t in cases], "environment": {"platform": platform.platform(), "python": platform.python_version(), "integrationVariablesPresent": {k: bool(os.getenv(k)) for k in ("OCCCCAD_TEST_DATABASE_URL", "OCCCCAD_TEST_GEOMETRY_WORKER")}}, "commands": commands, "results": list(results.values()), "counts": dict(Counter(r["status"] for r in results.values())), "uniquePassedTestMappings": len(native), "targetCounts": dict(Counter(r["targetStatus"] for r in rows)), "capabilities": rows}
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("purpose", choices=["baseline", "gaps", "validate"])
+    parser.add_argument("--capability")
+    parser.add_argument("--family")
+    parser.add_argument("--layer")
+    parser.add_argument("--case")
+    parser.add_argument("--adapters", default="cpp,go,go-flags,web,web-catalog,integration")
+    parser.add_argument("--build-type", choices=["Debug", "Release"], default="Debug")
+    parser.add_argument("--output", type=Path, default=ROOT / "build/assembly-contract")
+    args = parser.parse_args(argv)
+    catalog = json.loads((HERE / "catalog.json").read_text())
+    validate(catalog, lock=json.loads((HERE / "baseline.json").read_text()))
+    caps, cases = select(catalog, args.capability, args.family, args.layer, args.case)
+    if args.purpose == "validate":
+        print(f"Catalog/lock PASS: {len(catalog['capabilities'])} capabilities, {len(catalog['cases'])} cases; no implementation tests executed")
+        return 0
+    adapters = set(args.adapters.split(","))
+    if not adapters or adapters - ADAPTERS:
+        raise ValueError("unknown/empty adapter selection")
+    output = args.output.resolve()
+    scheduled = cases if args.purpose == "gaps" else [t for t in cases if t["baseline"]]
+    results, commands = run_cases(scheduled, output, args.build_type, adapters)
+    for t in cases:
+        if t["caseId"] not in results:
+            results[t["caseId"]] = {"caseId": t["caseId"], "status": "NOT_RUN", "observed": "target-only assertion excluded from the verified existing baseline; run gaps", "command": None, "log": None}
+    report = make_report(catalog, caps, cases, results, commands, args.purpose, sys.argv if argv is None else argv)
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False) + "\n")
+    counts = report["counts"]
+    summary = ["# Assembly constraint contract report", "", f"Commit: `{report['commit']}`; contract `{catalog['contractVersion']}`", "", "Execution: " + json.dumps(counts, sort_keys=True), "", "Target coverage: " + json.dumps(report["targetCounts"], sort_keys=True), "", "Baseline checks only selected executed abilities; target gaps are not PASS.", "", "| Case requiring attention | Execution verdict | Evidence |", "|---|---|---|"]
+    for case in cases:
+        result = results[case["caseId"]]
+        if result["status"] != "PASS":
+            summary.append(f"| {case['caseId']} | {result['status']} | {result['log'] or result['observed']} |")
+    summary += ["", "| Capability | Target | Missing/partial layers | Followup |", "|---|---|---|---|"]
+    for row in report["capabilities"]:
+        summary.append(f"| {row['capabilityId']} | {row['targetStatus']} | {', '.join(row['unresolvedLayers'])} | {', '.join(row['followupTasks'])} |")
+    summary += ["", "See report.json for case expectations, actual verdicts, logs and per-layer evidence."]
+    (output / "summary.md").write_text("\n".join(summary) + "\n")
+    print("Executed contract cases: " + json.dumps(counts, sort_keys=True))
+    print(f"Reports: {output / 'report.json'} and summary.md")
+    if counts.get("FAIL"):
+        return 1
+    if not counts.get("PASS"):
+        print("No actual assertions passed; cannot report green baseline", file=sys.stderr)
+        return 2
+    if args.purpose == "baseline" and any(t["baseline"] and t["adapter"] != "integration" and results[t["caseId"]]["status"] != "PASS" for t in cases):
+        print("Selected baseline contains unexecuted cases", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (ValueError, KeyError, ET.ParseError) as exc:
+        print(f"Contract error: {exc}", file=sys.stderr)
+        sys.exit(2)

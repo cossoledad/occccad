@@ -1,6 +1,6 @@
 # 装配主线：六类约束与自由度组合、激活状态与实时操纵
 
-> 状态：实施中（整体主线）；2026-09-30 状态校准，下一任务 CONSTRAINT-CONTRACT 待实施。Product/M3 基线已[完成验收](../docs/architecture/current/product-assembly.md#accept-product-完成记录)。返回[统一路线](README.md)。
+> 状态：实施中（整体主线）；CONSTRAINT-CONTRACT 设施与验证已归入[当前架构](../docs/architecture/current/product-assembly.md#六类约束可执行合同目录)。下一项 CONSTRAINT-OFFSET 待实施；六类完整组合仍未验收。Product/M3 基线已[完成验收](../docs/architecture/current/product-assembly.md#accept-product-完成记录)。返回[统一路线](README.md)。
 
 ## 交付目标与当前差距
 
@@ -14,15 +14,7 @@
 
 首批已落地独立激活状态、批量命令、原模式恢复、空活动集合 manifest、预览证据提交与 Undo/Redo 求解证据；Angle 无轴空间角、显式轴投影角及平行/垂直、点线/线面偏移、Fix 基准与六参数编辑、0–6 阶及常见关节有限运动测试也已进入代码。事实与测试入口见[当前实现](../docs/architecture/current/product-assembly.md#六类约束与生命周期的首批实现)。**本阶段尚未完成，不作完成标记。** 下列批次保留的是完整退出门，不能用首批通过替代六类全矩阵验收。
 
-### CONSTRAINT-CONTRACT：六类能力矩阵与验收基线
-
-- 将既有目标合同落实为可执行或可直接驱动参数化测试的矩阵；每行明确用户定义、typed solver definition、exact descriptor、支持几何、参数域、方向/符号、branch、Driving/Measured、正常秩及退化行为，并覆盖选择交换、创建/编辑/类型切换。
-- 对照代码逐行标记已支持、部分支持、尚未支持和尚缺验证；关联具体测试/fixture，区分测试存在、明确执行记录和维护者验收，不能用测试文件存在填成已通过。
-- 复用 Concentric/Distance/Rigid 等既有数值方程及 suppressed/mode、SPACE/RELATIVE Fix、空活动集合、Angle 与 Offset 基础链；列出公共六类入口收敛和组合差距，交给后续批次实施，不在本任务改写持久模型或数值算法。
-- 采用目标合同既定决策（球锥环相切及交换对称、Frame 显式子元素、0–360°空间角/指定轴投影角），映射 `3 + 2 + 1`、0–6 秩和常见关节既有 corpus，补列正常、退化、不可行、上游失效与有限运动的缺失用例。记录已有来源和设计理由，不重写六类介绍或改变数学合同。
-- 输出可领取的 CONSTRAINT-* 剩余批次、依赖和退出条件；菜单/Toolbar/属性/query 的统一能力消费列入对应批次。descriptor 与具体几何组合按消费场景逐批贯通，不要求先建立庞大通用框架。
-
-退出门：矩阵每行可驱动验收，代码/测试对应及证据等级准确，剩余任务无重复基础实现且各有退出门；版本化类型、依赖、失败提交和验证策略明确。完整 Contact、Fix Together、M4、M5 实现不属于此任务；本轮文档校准未开始本任务。
+剩余差距以[可执行目录与派生报告](../tests/assembly-contract/README.md)为领取依据，不另维护手工全矩阵。下一项优先 CONSTRAINT-OFFSET：修正已复现的第一/第二选择法向入口差异，补齐符号/交换与模式/历史证据；六对基础数值方程和既有状态链不重复开发。Contact 未冻结秩、Curve/Surface 子类与 group 先内后外等开放边界在消费它们的对应批次细化，不改变既定数学合同。
 
 ### CONSTRAINT-ACTIVATION：激活/取消激活（抑制）完整闭环
 
@@ -48,6 +40,8 @@
 ### CONSTRAINT-OFFSET：完整偏移与测量模式
 
 在已有 Point–Axis（点—轴）、Axis–Plane（轴—平面）等 Offset 数值能力和 Measured 独立输出上补齐 Point/Line/Plane 六种无序组合的产品合同与验收。核对有平面时的有符号偏移、首选平面法向及 Undefined/Same/Opposite；无平面组合不显示无意义的 signed 控件。补齐 Quantity/表达式、Driving/Measured、不可测诊断、编辑/绑定/抑制/历史组合；复用非平行双平面不显示过期值的既有处理。
+
+首个可领取切片：`offset.plane-plane.first-normal-editor` 已复现编辑器使用第二元素法向而目标要求第一选择法向。先贯通用户符号意图到内部方程的转换（不批量改名数值类型），覆盖 Same/Opposite、正负值、选择交换和反转法向，再补真实 Product 的表达式/Measured/Undo/冷 replay。退出门：目标专用失败 case 通过且纳入基线；现有六对无符号距离/秩及零距离特殊秩不退化；完整链路的环境阻塞明确解除，不能以 UI 文案修改代替符号求解验收。
 
 ### CONSTRAINT-ANGLE：角度参数族
 
@@ -124,8 +118,8 @@ Session 绑定 Workspace Head/sequence、M3 digest、完整激活集合/模式�
 
 ## 执行依赖与验证
 
-推荐串行顺序：CONTRACT → ACTIVATION → GEOMETRY → COINCIDENCE → OFFSET → ANGLE → FIX → FIX-TOGETHER → CONTACT → COMPOSITION → SESSION → DRAG → FEEDBACK → LATENCY → BRANCH → M5 → M6。
+基于当前实际差距的领取顺序：OFFSET（已定位符号入口/链路门）→ COINCIDENCE（已有支持的方向/组合/历史门）→ GEOMETRY（按下游消费补 descriptor）→ ANGLE → FIX → FIX-TOGETHER → CONTACT → ACTIVATION（新类型/组的生命周期组合）→ COMPOSITION → SESSION → DRAG → FEEDBACK → LATENCY → BRANCH → M5 → M6。
 
-这是默认领取顺序，不是所有算法的硬依赖：CONTRACT 完成后 SESSION/延迟基准可与六类补齐并行；几何族可按消费方分批贯通，Fix/activation 不必等全部曲面 descriptor；但 CONSTRAINT-COMPOSITION 必须等六类与生命周期全部通过，M4 最终验收必须等 COMPOSITION。Feature/Revolve 和 Sketch 投影不是这条主线的强制前置。
+这是默认领取顺序，不是所有算法的硬依赖：合同设施已就绪，SESSION/延迟基准可与六类补齐并行；新增 Frame/解析接触等消费者需先满足对应 GEOMETRY 门，既有支持的 OFFSET/COINCIDENCE 不必等全套曲面 descriptor。已有 activation 基础不重做，新增类型交付时同步纳入生命周期矩阵；CONSTRAINT-COMPOSITION 必须等六类与生命周期全部通过，M4 最终验收必须等 COMPOSITION。Feature/Revolve 和 Sketch 投影不是这条主线的强制前置。
 
 每批按具体测试 → assembly/workspace/web 受影响域 → 集成升级，公共 Proto/迁移/Router 修改运行全仓并验证空开发 schema。必须覆盖正常/退化/失败、方向/选择顺序、单位、确定性、Jacobian/rank/DOF、Undo/Redo、冷重放和迟到结果；交互另做重启后的真实浏览器验收。完成事实归入当前架构，计划删除已完成条目。

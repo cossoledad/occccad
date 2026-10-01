@@ -124,3 +124,17 @@ Product 补偿冲突检查使用实际最近 REVERT/REAPPLY 结果 Revision 的�
 ## STEP Definition / Occurrence 交换
 
 STEP/XDE 导入复用既有 ProductInstance 与 typed InstancePath：每个源 Part/Product Definition 对应一个文档，多个 occurrence 通过 PINNED Revision 和独立 local placement 引用；BREP 不包含实例变换。图仅为导入/导出中间表示。同级源 Instance 名称冲突时按确定性后缀维持内部唯一性，`importedName` 记录源名与分配名；没有用户重命名时，STEP 导出恢复源名。命令历史保存完整 typed instance entity，Undo/Redo 保留名称来源及 pose。具体边界与验证见[交换架构](jobs-artifacts.md)。
+
+## 六类约束可执行合同目录
+
+CONSTRAINT-CONTRACT 交付共享 [catalog.json](../../../tests/assembly-contract/catalog.json)（schema 1、`assembly-six-families-v1`）、[执行器](../../../tests/assembly-contract/runner.py)和[使用说明](../../../tests/assembly-contract/README.md)。58 个 capability 与 87 个 case 按稳定 ID 组织，目标语义、各层实现声明、测试映射和实际 verdict 分离。Coincidence/Contact/Offset/Angle/Fix/Fix Together 是用户族；Concentric/Distance/Parallel/Perpendicular/pair Rigid 仅作内部映射，不构成完整六类交付。未知 Contact 秩、Curve/Surface 子类边界显式登记，未用当前输出反写目标预期。
+
+执行器按 capability/family/layer/case 选择，读取唯一目录，调用现有 C++ GTest、Go 包测试与 TypeScript 规则；Go/TS 新 adapter 也直接读取它。C++ 新断言补充六种非零 Offset 的解析距离、秩和选择交换，空间角端点的独立几何检查，以及指定轴0°/90°不等于空间平行/垂直、交换支持/反转轴的角度变换。既有 3+2+1、0–6 秩、六种关节有限运动、冗余和子空间 projector corpus 通过目录映射复用，不复制求解器。
+
+`baseline` 只检查已纳入既有验证基线的 case；`gaps` 另执行目标断言。回归锁固定目标/案例、实现声明下限与既有断言源摘要；目录/fixture/测试引用不完整、空选择、零执行或断言放宽会失败。报告自动生成 JSON 与简明摘要，记录 commit/工作区、输入摘要、命令/环境、预期/观察、测试证据层级与剩余任务。源码/UI 检查、纯模型/编排 test double、真实 kernel 数学测试和 Router/Worker 集成各有明确证据种类，不能互相代替。
+
+2026-10-01 实际执行基线：`main / b8b07fcdf16e366079b14f4d5bf38f43dc0fa6b5` 加本次未提交的目录/adapter/测试改动。目录/回归锁校验通过，10 个工具完整性测试通过。指定当前 Debug Worker 后，既有能力 `baseline` 为 **85 PASS、1 ENVIRONMENT_BLOCKED、1 NOT_RUN**，去重后 83 个通过测试映射；NOT_RUN 是下述目标专用断言，非跳过后计为通过。C++、Go（`-count=1`）、TypeScript 均实际执行，正式 Router→Worker 测试通过。全目录 `gaps` 为 **85 PASS、1 FAIL、1 ENVIRONMENT_BLOCKED**；每个通过 case 的具体范围、期望、观察与日志由执行器报告，不在 Markdown 手工复制全矩阵。
+
+实际差异：`offset.plane-plane.first-normal-editor` 的源码/UI 断言失败。双平面正号目标使用第一选择法向，当前编辑器选项为“沿/逆第二元素法向”。复现为 `python tests/assembly-contract/runner.py gaps --case offset.plane-plane.first-normal-editor`。它证明编辑器表达与目标合同的差异，不是浏览器使用验收，也不将内部 `AlongSecondNormal` 数值类型直接判错；完整符号、交换、表达式/Measured、历史的贯通进入 CONSTRAINT-OFFSET。
+
+限制：目录中 40 项仍是分层 partial，18 项目标未实现；未实现项的明确拒绝测试通过不等于产品能力通过。Contact 分支、Frame/派生几何、Point–Curve/Surface 明确子类、多成员组生命周期与内部先解仍有缺口；部分几何组合只有共享基础或参数可用性证据，不能称作完整组合验收。CAS/数据库事务、冷解析、manifest/replay 与冻结 Release 的完整链路仍需专用数据库验证；本次未配置可丢弃的 `OCCCCAD_TEST_DATABASE_URL`，对应集成 case 显式 ENVIRONMENT_BLOCKED，未改用 Mock 或应用开发库。未运行浏览器、全量单测、性能基准；未修改数值/持久模型、policy、制品或开发数据。完成 CONSTRAINT-CONTRACT 不等于 CONSTRAINT-COMPOSITION 或 M4 完成，MOVE 仍用 `interaction-driver` Fix。

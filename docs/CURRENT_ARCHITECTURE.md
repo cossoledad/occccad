@@ -32,7 +32,7 @@
 | 持久命名 | Extrude/Boolean 完整 Face/Edge/Vertex history 与 resolver；导入根命名已有实现；具体 policy 见命名分册 | Revolve 完整 history/corpus 未收口；导入不冒充参数化 Feature history；歧义需要 Reconnect |
 | Part 关联 | 驱动尺寸 ParameterBinding、面支撑、Edge/Vertex 投影、更新/重连/Detach | 部分圆弧 snapshot、Face group、Section/Silhouette |
 | 产品关联 | Publication、typed InstancePath、Product Design Session、ContextInput/Binding、Variant、原子事务、Update Plan | Configuration/Design Table、partial update、flexible subassembly、Derive Part from Context |
-| 装配 | SE(3)、基础约束、平行/垂直、点线/线面偏移、激活与模式分离、M3/历史/Release 证据、0–6 阶组合测试 | 六类几何完整矩阵与多成员固联尚未完成；M4 最近可行拖拽、M5 冲突解释、M6 Engineering Connection；当前 MOVE 仍用临时 Fix |
+| 装配 | SE(3)、基础约束、平行/垂直、点线/线面偏移、激活与模式分离、M3/历史/Release 证据、0–6 阶组合测试；[六类可执行合同与分层报告](architecture/current/product-assembly.md#六类约束可执行合同目录) | 六类几何完整矩阵与多成员固联尚未完成；双平面 Offset 符号入口有目标差异；M4 最近可行拖拽、M5 冲突解释、M6 Engineering Connection；当前 MOVE 仍用临时 Fix |
 | 产品发布 | 冻结 ProductRelease、gate、replay、按冻结几何导出 | ACCEPT-PRODUCT 已通过；后续新增能力仍需独立验收 |
 | 交换 | STEP/XDE 共享 Definition、嵌套 Product、名称与局部 placement round-trip；BREP Solid/Compound | AP242 颜色、材质、层、PMI；大模型容量验收 |
 | 平台 | 本机扩缩容、持久 Jobs、LOCAL/S3 制品、realtime Command/Preview 与状态同步 | CDN、跨主机 Scheduler、多 API 扇出、presence/preview 协作 |
