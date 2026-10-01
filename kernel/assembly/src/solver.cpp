@@ -1,4 +1,5 @@
 #include <occccad/assembly/solver.hpp>
+#include "contact.hpp"
 
 #include <Eigen/Cholesky>
 #include <Eigen/Core>
@@ -43,8 +44,14 @@ struct WorldCylinder {
     Vector3 origin;
     Vector3 direction;
     double radius;
+    int material_side{1};
 };
-using WorldGeometry = std::variant<WorldPoint, WorldAxis, WorldPlane, WorldCylinder>;
+struct WorldCircle { Vector3 origin,direction; double radius; };
+struct WorldSphere { Vector3 origin; double radius; int material_side; };
+struct WorldCone { Vector3 origin,direction; double half_angle; int leaf,material_side; };
+struct WorldFrame { Vector3 origin; Eigen::Matrix3d rotation; };
+using WorldGeometry = std::variant<WorldPoint, WorldAxis, WorldPlane, WorldCylinder,
+                                   WorldCircle,WorldSphere,WorldCone,WorldFrame>;
 
 struct ResidualBlock {
     std::string id;
@@ -59,6 +66,14 @@ struct ConstraintBranchState {
     DirectionRelation direction_relation{DirectionRelation::Unoriented};
     DistanceRelation distance_relation{DistanceRelation::Unsigned};
     std::optional<AngleBranchState> angle;
+    enum class ZeroLineBranch { None, ParallelCoincidence, Intersection };
+    ZeroLineBranch zero_line_branch{ZeroLineBranch::None};
+    // A differential oracle stays inside the selected nonsmooth chart; actual
+    // feasibility always evaluates the current exact infinite-line relation.
+    bool zero_line_parallel_differential{};
+    // Equivalent two positional rows are valid on the explicitly constrained
+    // parallel manifold. This never adds Parallel to an unconstrained pair.
+    bool zero_line_parallel_coupled{};
 };
 
 struct State {
@@ -149,10 +164,19 @@ WorldGeometry world_geometry(const GeometryElement& element, const Pose& pose) {
             } else if constexpr (std::is_same_v<T, PlaneGeometry>) {
                 return WorldPlane{position(pose, local.origin),
                                   direction(pose, local.normal, "plane")};
-            } else {
+            } else if constexpr (std::is_same_v<T, CylinderGeometry>) {
                 return WorldCylinder{position(pose, local.axis_origin),
                                      direction(pose, local.axis_direction, "cylinder"),
-                                     local.radius};
+                                     local.radius,local.material_side};
+            } else if constexpr (std::is_same_v<T,CircleGeometry>) {
+                return WorldCircle{position(pose,local.center),direction(pose,local.normal,"circle"),local.radius};
+            } else if constexpr (std::is_same_v<T,SphereGeometry>) {
+                return WorldSphere{position(pose,local.center),local.radius,local.material_side};
+            } else if constexpr (std::is_same_v<T,ConeGeometry>) {
+                return WorldCone{position(pose,local.apex),direction(pose,local.axis_direction,"cone"),local.half_angle,local.leaf,local.material_side};
+            } else {
+                return WorldFrame{position(pose,local.frame.translation),
+                    (normalized(pose.rotation)*normalized(local.frame.rotation)).toRotationMatrix()};
             }
         },
         element.local_geometry);
@@ -170,12 +194,21 @@ WorldAxis as_axis(const WorldGeometry& geometry) {
         return {cylinder->origin, cylinder->direction};
     throw std::invalid_argument("geometry is not axis-like");
 }
-
-bool has_direction(const WorldGeometry& geometry) {
-    return is_axis_like(geometry) || std::holds_alternative<WorldPlane>(geometry);
+bool engineering_axis_like(const WorldGeometry& g) {
+    return is_axis_like(g)||std::holds_alternative<WorldCircle>(g)||std::holds_alternative<WorldCone>(g);
+}
+WorldAxis engineering_axis(const WorldGeometry& g) {
+    if(const auto* c=std::get_if<WorldCircle>(&g)) return {c->origin,c->direction};
+    if(const auto* c=std::get_if<WorldCone>(&g)) return {c->origin,c->direction};
+    return as_axis(g);
 }
 
-enum class DescriptorKind { Point, Axis, Plane, Cylinder };
+bool has_direction(const WorldGeometry& geometry) {
+    return is_axis_like(geometry) || std::holds_alternative<WorldPlane>(geometry) ||
+        std::holds_alternative<WorldCircle>(geometry) || std::holds_alternative<WorldCone>(geometry);
+}
+
+enum class DescriptorKind { Point, Axis, Plane, Cylinder, Circle, Sphere, Cone, Frame };
 
 DescriptorKind descriptor_kind(const WorldGeometry& geometry) {
     if (std::holds_alternative<WorldPoint>(geometry))
@@ -184,7 +217,11 @@ DescriptorKind descriptor_kind(const WorldGeometry& geometry) {
         return DescriptorKind::Axis;
     if (std::holds_alternative<WorldPlane>(geometry))
         return DescriptorKind::Plane;
-    return DescriptorKind::Cylinder;
+    if (std::holds_alternative<WorldCylinder>(geometry)) return DescriptorKind::Cylinder;
+    if (std::holds_alternative<WorldCircle>(geometry)) return DescriptorKind::Circle;
+    if (std::holds_alternative<WorldSphere>(geometry)) return DescriptorKind::Sphere;
+    if (std::holds_alternative<WorldCone>(geometry)) return DescriptorKind::Cone;
+    return DescriptorKind::Frame;
 }
 
 bool axis_descriptor(const DescriptorKind kind) {
@@ -294,14 +331,20 @@ struct DifferentialCylinder {
     DifferentialVector origin;
     DifferentialVector direction;
     double radius{};
+    int material_side{1};
 };
+struct DifferentialCircle { DifferentialVector origin,direction; double radius; };
+struct DifferentialSphere { DifferentialVector origin; double radius; int material_side; };
+struct DifferentialCone { DifferentialVector origin,direction; double half_angle; int leaf,material_side; };
+struct DifferentialFrame { DifferentialVector origin; std::array<DifferentialVector,3> axes; };
 using DifferentialGeometry =
-    std::variant<DifferentialPoint, DifferentialAxis, DifferentialPlane, DifferentialCylinder>;
+    std::variant<DifferentialPoint, DifferentialAxis, DifferentialPlane, DifferentialCylinder,
+                 DifferentialCircle,DifferentialSphere,DifferentialCone,DifferentialFrame>;
 
 // Endpoint spatial angles are direction alignment (rank two), not a smooth
 // scalar angle manifold. Measured constraints retain a scalar measurement.
 bool spatial_angle_endpoint(const Constraint& c) {
-    return c.kind == ConstraintKind::Angle && !c.angle_reference_direction &&
+    return c.kind == ConstraintKind::Angle && !c.angle_reference_direction && !c.angle_reference_geometry &&
            c.mode != ConstraintMode::Measured &&
            (c.value == 0.0 || c.value == kPi || c.value == 2.0 * kPi);
 }
@@ -321,13 +364,82 @@ DifferentialAxis differential_axis(const DifferentialGeometry& geometry) {
 DifferentialVector differential_direction(const DifferentialGeometry& geometry) {
     if (differential_axis_like(geometry))
         return differential_axis(geometry).direction;
+    if (const auto* c=std::get_if<DifferentialCircle>(&geometry)) return c->direction;
+    if (const auto* c=std::get_if<DifferentialCone>(&geometry)) return c->direction;
     return std::get<DifferentialPlane>(geometry).normal;
+}
+
+Vector3 perpendicular_to(const Vector3& direction);
+analytic_contact::Support contact_support(const WorldGeometry& geometry) {
+    namespace ac=analytic_contact;
+    ac::Support result;
+    if (const auto* p=std::get_if<WorldPlane>(&geometry)) {
+        result.kind=ac::SupportKind::Plane; result.origin=p->origin; result.axis=p->normal;
+    } else if (const auto* p=std::get_if<WorldCylinder>(&geometry)) {
+        result.kind=ac::SupportKind::Cylinder; result.origin=p->origin; result.axis=p->direction;
+        result.radius=p->radius; result.material_side=p->material_side;
+    } else if (const auto* p=std::get_if<WorldSphere>(&geometry)) {
+        result.kind=ac::SupportKind::Sphere; result.origin=p->origin; result.radius=p->radius; result.material_side=p->material_side;
+    } else if (const auto* p=std::get_if<WorldCone>(&geometry)) {
+        result.kind=ac::SupportKind::Cone; result.origin=p->origin; result.axis=p->direction;
+        result.half_angle=p->half_angle; result.cone_leaf=p->leaf; result.material_side=p->material_side;
+    } else if (const auto* p=std::get_if<WorldCircle>(&geometry)) {
+        result.kind=ac::SupportKind::Circle; result.origin=p->origin; result.axis=p->direction; result.radius=p->radius;
+    } else throw std::invalid_argument("CONTACT_UNSUPPORTED_SUPPORT");
+    return result;
+}
+analytic_contact::Definition contact_definition(const Constraint& c) {
+    return {static_cast<analytic_contact::ContactKind>(c.contact_kind),
+            static_cast<analytic_contact::ContactSide>(c.contact_side),c.contact_branch};
+}
+analytic_contact::Evaluation contact_evaluation(const Constraint& c,const WorldGeometry& a,
+                                               const WorldGeometry& b,bool metadata=false) {
+    auto first=contact_support(a),second=contact_support(b);
+    auto result=analytic_contact::evaluate(contact_definition(c),first,second);
+    if (metadata && !result.valid) {
+        // Singular initial poses are legal definitions. Registry/preflight use
+        // a regular representative only to obtain immutable equation identity;
+        // no such pose becomes an accepted result or execution evidence.
+        if (result.diagnostic=="CONTACT_RADIAL_BRANCH_DEGENERATE") {
+            second.origin+=perpendicular_to(first.axis)*(first.radius+second.radius);
+        } else if (result.diagnostic=="CONTACT_CONE_GENERATOR_DEGENERATE") {
+            const bool ext=(c.contact_side==ContactSide::External)==(first.material_side*second.material_side>0);
+            const double beta=ext ? first.half_angle+second.half_angle : std::abs(first.half_angle-second.half_angle);
+            if (beta>0) second.axis=Eigen::AngleAxisd(beta,perpendicular_to(first.axis))*
+                (static_cast<double>(first.cone_leaf*second.cone_leaf)*first.axis);
+        } else throw std::invalid_argument(result.diagnostic);
+        result=analytic_contact::evaluate(contact_definition(c),first,second);
+    }
+    if (!result.valid) throw std::invalid_argument(result.diagnostic);
+    return result;
+}
+bool exact_point_incidence(const Constraint& c,const WorldGeometry& a,const WorldGeometry& b) {
+    if (c.kind!=ConstraintKind::Coincident && c.kind!=ConstraintKind::SurfaceIncidence) return false;
+    const WorldGeometry* surface=nullptr;
+    if (std::holds_alternative<WorldPoint>(a)) surface=&b;
+    if (std::holds_alternative<WorldPoint>(b)) surface=&a;
+    return surface && (std::holds_alternative<WorldCircle>(*surface) ||
+        std::holds_alternative<WorldSphere>(*surface) || std::holds_alternative<WorldCone>(*surface) ||
+        (c.kind==ConstraintKind::SurfaceIncidence && std::holds_alternative<WorldCylinder>(*surface)));
 }
 
 EquationDefinition equation_definition(const Constraint& constraint, const WorldGeometry& first,
                                        const WorldGeometry& second) {
     const DescriptorKind a = descriptor_kind(first);
     const DescriptorKind b = descriptor_kind(second);
+    if (constraint.kind==ConstraintKind::Contact) {
+        const auto e=contact_evaluation(constraint,first,second,true);
+        return {e.rowKinds,static_cast<std::size_t>(e.generalRank)};
+    }
+    if (exact_point_incidence(constraint,first,second)) {
+        if (a==DescriptorKind::Circle || b==DescriptorKind::Circle)
+            return {{"POINT_CIRCLE_PLANE","POINT_CIRCLE_RADIUS"},2};
+        return {{"POINT_EXACT_SURFACE"},1};
+    }
+    if (constraint.kind==ConstraintKind::Coincident && a==DescriptorKind::Frame && b==DescriptorKind::Frame)
+        return {{"FRAME_POSITION_X","FRAME_POSITION_Y","FRAME_POSITION_Z",
+                 "FRAME_X_X","FRAME_X_Y","FRAME_X_Z","FRAME_Y_X","FRAME_Y_Y","FRAME_Y_Z",
+                 "FRAME_Z_X","FRAME_Z_Y","FRAME_Z_Z"},6};
     if (constraint.kind == ConstraintKind::Coincident) {
         if (a == DescriptorKind::Point && b == DescriptorKind::Point)
             return {{"POSITION_X", "POSITION_Y", "POSITION_Z"}, 3};
@@ -350,7 +462,7 @@ EquationDefinition equation_definition(const Constraint& constraint, const World
             (axis_descriptor(b) && a == DescriptorKind::Plane))
             return {{"LINE_PLANE_DIRECTION", "LINE_PLANE_OFFSET"}, 2};
     }
-    if (constraint.kind == ConstraintKind::Concentric && axis_descriptor(a) && axis_descriptor(b))
+    if (constraint.kind == ConstraintKind::Concentric && engineering_axis_like(first) && engineering_axis_like(second))
         return {{"DIRECTION_X", "DIRECTION_Y", "DIRECTION_Z", "LINE_OFFSET_X", "LINE_OFFSET_Y",
                  "LINE_OFFSET_Z"},
                 4};
@@ -363,7 +475,7 @@ EquationDefinition equation_definition(const Constraint& constraint, const World
     if (spatial_angle_endpoint(constraint))
         return {{"DIRECTION_X", "DIRECTION_Y", "DIRECTION_Z"}, 2};
     if (constraint.kind == ConstraintKind::Angle && has_direction(first) && has_direction(second))
-        return {{constraint.angle_reference_direction ? "DIRECTED_ANGLE" : "SPATIAL_ANGLE"}, 1};
+        return {{(constraint.angle_reference_direction || constraint.angle_reference_geometry) ? "DIRECTED_ANGLE" : "SPATIAL_ANGLE"}, 1};
     if (constraint.kind == ConstraintKind::Distance) {
         if (a == DescriptorKind::Point && b == DescriptorKind::Point)
             return {{"POINT_POINT_DISTANCE"}, 1};
@@ -376,6 +488,8 @@ EquationDefinition equation_definition(const Constraint& constraint, const World
         if ((a == DescriptorKind::Point && b == DescriptorKind::Plane) ||
             (b == DescriptorKind::Point && a == DescriptorKind::Plane))
             return {{"POINT_PLANE_DISTANCE"}, 1};
+        if (axis_descriptor(a) && axis_descriptor(b) && constraint.value == 0.0)
+            return {{"LINE_INTERSECTION_X", "LINE_INTERSECTION_Y", "LINE_INTERSECTION_Z"}, 1};
         if (axis_descriptor(a) && axis_descriptor(b))
             return {{"LINE_LINE_DISTANCE"}, 1};
         if (a == DescriptorKind::Plane && b == DescriptorKind::Plane)
@@ -389,6 +503,8 @@ Vector3 geometry_direction(const WorldGeometry& geometry) {
         return as_axis(geometry).direction;
     if (const auto* plane = std::get_if<WorldPlane>(&geometry))
         return plane->normal;
+    if (const auto* c=std::get_if<WorldCircle>(&geometry)) return c->direction;
+    if (const auto* c=std::get_if<WorldCone>(&geometry)) return c->direction;
     throw std::invalid_argument("geometry has no direction");
 }
 
@@ -397,6 +513,10 @@ Vector3 geometry_origin(const WorldGeometry& geometry) {
         return as_axis(geometry).origin;
     if (const auto* plane = std::get_if<WorldPlane>(&geometry))
         return plane->origin;
+    if (const auto* p=std::get_if<WorldCircle>(&geometry)) return p->origin;
+    if (const auto* p=std::get_if<WorldSphere>(&geometry)) return p->origin;
+    if (const auto* p=std::get_if<WorldCone>(&geometry)) return p->origin;
+    if (const auto* p=std::get_if<WorldFrame>(&geometry)) return p->origin;
     throw std::invalid_argument("geometry has no direction origin");
 }
 
@@ -491,6 +611,43 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
     const DirectionRelation direction_relation =
         branch ? branch->direction_relation : constraint.direction_relation;
 
+    if (constraint.kind==ConstraintKind::Contact) {
+        auto e=contact_evaluation(constraint,first,*second);
+        for (Eigen::Index i=0;i<e.residual.size();++i)
+            e.residual[i]/=e.angularRows[static_cast<std::size_t>(i)] ? options.angle_scale : options.length_scale;
+        return e.residual;
+    }
+    if (exact_point_incidence(constraint,first,*second)) {
+        const bool pointFirst=std::holds_alternative<WorldPoint>(first);
+        const auto& p=std::get<WorldPoint>(pointFirst ? first : *second);
+        const auto& surface=pointFirst ? *second : first;
+        if (const auto* c=std::get_if<WorldCircle>(&surface)) {
+            const Vector3 delta=p.position-c->origin;
+            Eigen::VectorXd result(2);
+            result << delta.dot(c->direction)/options.length_scale,
+                ((delta-delta.dot(c->direction)*c->direction).norm()-c->radius)/options.length_scale;
+            return result;
+        }
+        if (const auto* s=std::get_if<WorldSphere>(&surface))
+            return single(((p.position-s->origin).norm()-s->radius)/options.length_scale);
+        if (const auto* c=std::get_if<WorldCone>(&surface)) {
+            const Vector3 delta=p.position-c->origin;
+            const double height=delta.dot(c->leaf*c->direction);
+            return single(((delta-height*c->leaf*c->direction).norm()-height*std::tan(c->half_angle))/options.length_scale);
+        }
+        const auto& c=std::get<WorldCylinder>(surface);
+        const Vector3 delta=p.position-c.origin;
+        return single(((delta-delta.dot(c.direction)*c.direction).norm()-c.radius)/options.length_scale);
+    }
+    if (constraint.kind==ConstraintKind::Coincident &&
+        std::holds_alternative<WorldFrame>(first) && std::holds_alternative<WorldFrame>(*second)) {
+        const auto& a=std::get<WorldFrame>(first); const auto& b=std::get<WorldFrame>(*second);
+        Eigen::VectorXd result(12);
+        result.head<3>()=(a.origin-b.origin)/options.length_scale;
+        for(int i=0;i<3;++i) result.segment<3>(3+3*i)=(a.rotation.col(i)-b.rotation.col(i))/options.angle_scale;
+        return result;
+    }
+
     if (constraint.kind == ConstraintKind::Coincident) {
         if (const auto* point_a = std::get_if<WorldPoint>(&first)) {
             if (const auto* point_b = std::get_if<WorldPoint>(&*second))
@@ -548,9 +705,9 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
     }
 
     if (constraint.kind == ConstraintKind::Concentric) {
-        if (!is_axis_like(first) || !is_axis_like(*second))
-            throw std::invalid_argument("Concentric requires Axis or Cylinder geometry");
-        return axis_alignment(as_axis(first), as_axis(*second), direction_relation, options);
+        if (!engineering_axis_like(first) || !engineering_axis_like(*second))
+            throw std::invalid_argument("Concentric requires exact axis-bearing geometry");
+        return axis_alignment(engineering_axis(first), engineering_axis(*second), direction_relation, options);
     }
 
     if (constraint.kind == ConstraintKind::Parallel) {
@@ -628,6 +785,15 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
                 swapped_branch.distance_relation = DistanceRelation::AlongSecondNormal;
             return constraint_residual(swapped, *second, first, options,
                                        branch ? &swapped_branch : nullptr);
+        }
+        if (is_axis_like(first) && is_axis_like(*second) && constraint.value == 0.0) {
+            const auto a = as_axis(first), b = as_axis(*second);
+            const Vector3 normal = a.direction.cross(b.direction);
+            const Vector3 delta = a.origin - b.origin;
+            if ((branch && (branch->zero_line_parallel_differential || branch->zero_line_parallel_coupled)) ||
+                normal.norm() <= kDirectionEpsilon)
+                return delta.cross(b.direction) / options.length_scale;
+            return normal * (delta.dot(normal) / normal.squaredNorm()) / options.length_scale;
         }
         if (is_axis_like(first) && is_axis_like(*second))
             return single(
@@ -711,7 +877,80 @@ Eigen::MatrixXd differential_residual(
         append(divided(related(a.direction, b.direction) - b.direction, options.angle_scale));
         append(divided(cross(a.origin - b.origin, b.direction), options.length_scale));
     };
-    if (constraint.kind == ConstraintKind::Coincident) {
+    const bool framePair=constraint.kind==ConstraintKind::Coincident &&
+        std::holds_alternative<DifferentialFrame>(first) && std::holds_alternative<DifferentialFrame>(second);
+    const bool incidence=(constraint.kind==ConstraintKind::Coincident || constraint.kind==ConstraintKind::SurfaceIncidence) &&
+        ((std::holds_alternative<DifferentialPoint>(first) &&
+          (std::holds_alternative<DifferentialCircle>(second)||std::holds_alternative<DifferentialSphere>(second)||
+           std::holds_alternative<DifferentialCone>(second)||
+           (constraint.kind==ConstraintKind::SurfaceIncidence && std::holds_alternative<DifferentialCylinder>(second))))||
+         (std::holds_alternative<DifferentialPoint>(second) &&
+          (std::holds_alternative<DifferentialCircle>(first)||std::holds_alternative<DifferentialSphere>(first)||
+           std::holds_alternative<DifferentialCone>(first)||
+           (constraint.kind==ConstraintKind::SurfaceIncidence && std::holds_alternative<DifferentialCylinder>(first)))));
+    if (constraint.kind==ConstraintKind::Contact) {
+        auto supportAndChain=[&](const DifferentialGeometry& input) {
+            analytic_contact::Support s;
+            Eigen::MatrixXd chain=Eigen::MatrixXd::Zero(6,variables);
+            std::visit([&](const auto& g) {
+                using T=std::decay_t<decltype(g)>;
+                if constexpr(std::is_same_v<T,DifferentialPoint> || std::is_same_v<T,DifferentialAxis> || std::is_same_v<T,DifferentialFrame>)
+                    throw std::invalid_argument("CONTACT_UNSUPPORTED_SUPPORT");
+                else {
+                    s.origin=g.origin.value; chain.topRows(3)=g.origin.derivative;
+                    if constexpr(std::is_same_v<T,DifferentialPlane>) {
+                        s.kind=analytic_contact::SupportKind::Plane; s.axis=g.normal.value; chain.bottomRows(3)=g.normal.derivative;
+                    } else if constexpr(std::is_same_v<T,DifferentialSphere>) {
+                        s.kind=analytic_contact::SupportKind::Sphere; s.radius=g.radius; s.material_side=g.material_side;
+                    } else {
+                        s.axis=g.direction.value; chain.bottomRows(3)=g.direction.derivative;
+                        if constexpr(std::is_same_v<T,DifferentialCylinder>) {
+                            s.kind=analytic_contact::SupportKind::Cylinder; s.radius=g.radius; s.material_side=g.material_side;
+                        } else if constexpr(std::is_same_v<T,DifferentialCircle>) {
+                            s.kind=analytic_contact::SupportKind::Circle; s.radius=g.radius;
+                        } else {
+                            s.kind=analytic_contact::SupportKind::Cone; s.half_angle=g.half_angle; s.cone_leaf=g.leaf; s.material_side=g.material_side;
+                        }
+                    }
+                }
+            },input);
+            return std::make_pair(s,chain);
+        };
+        const auto a=supportAndChain(first),b=supportAndChain(second);
+        const auto e=analytic_contact::evaluate(contact_definition(constraint),a.first,b.first);
+        if(!e.valid) throw std::invalid_argument(e.diagnostic);
+        Eigen::MatrixXd chain(12,variables); chain.topRows(6)=a.second; chain.bottomRows(6)=b.second;
+        Eigen::MatrixXd result=e.derivatives*chain;
+        for(Eigen::Index i=0;i<result.rows();++i)
+            result.row(i)/=e.angularRows[static_cast<std::size_t>(i)] ? options.angle_scale : options.length_scale;
+        return result;
+    } else if(framePair) {
+        const auto& a=std::get<DifferentialFrame>(first); const auto& b=std::get<DifferentialFrame>(second);
+        append(divided(a.origin-b.origin,options.length_scale));
+        for(int i=0;i<3;++i) append(divided(a.axes[i]-b.axes[i],options.angle_scale));
+    } else if(incidence) {
+        const bool pointFirst=std::holds_alternative<DifferentialPoint>(first);
+        const auto& p=std::get<DifferentialPoint>(pointFirst ? first : second);
+        const auto& surface=pointFirst ? second : first;
+        if(const auto* c=std::get_if<DifferentialCircle>(&surface)) {
+            const auto delta=p.position-c->origin;
+            const auto height=dot(delta,c->direction);
+            rows.push_back(divided(height,options.length_scale));
+            rows.push_back(divided(norm(delta-height*c->direction)-scalar(c->radius,variables),options.length_scale));
+        } else if(const auto* c=std::get_if<DifferentialSphere>(&surface)) {
+            rows.push_back(divided(norm(p.position-c->origin)-scalar(c->radius,variables),options.length_scale));
+        } else if(const auto* c=std::get_if<DifferentialCone>(&surface)) {
+            const auto delta=p.position-c->origin;
+            const auto axis=scalar(c->leaf,variables)*c->direction;
+            const auto height=dot(delta,axis);
+            rows.push_back(divided(norm(delta-height*axis)-height*scalar(std::tan(c->half_angle),variables),options.length_scale));
+        } else {
+            const auto& cylinder=std::get<DifferentialCylinder>(surface);
+            const auto delta=p.position-cylinder.origin;
+            const auto height=dot(delta,cylinder.direction);
+            rows.push_back(divided(norm(delta-height*cylinder.direction)-scalar(cylinder.radius,variables),options.length_scale));
+        }
+    } else if (constraint.kind == ConstraintKind::Coincident) {
         if (const auto* first_point = std::get_if<DifferentialPoint>(&first)) {
             if (const auto* second_point = std::get_if<DifferentialPoint>(&second))
                 append(
@@ -758,7 +997,12 @@ Eigen::MatrixXd differential_residual(
                                    options.length_scale));
         }
     } else if (constraint.kind == ConstraintKind::Concentric) {
-        align_axes(differential_axis(first), differential_axis(second));
+        auto axis=[](const DifferentialGeometry& g) {
+            if(const auto* c=std::get_if<DifferentialCircle>(&g)) return DifferentialAxis{c->origin,c->direction};
+            if(const auto* c=std::get_if<DifferentialCone>(&g)) return DifferentialAxis{c->origin,c->direction};
+            return differential_axis(g);
+        };
+        align_axes(axis(first),axis(second));
     } else if (constraint.kind == ConstraintKind::Parallel) {
         append(divided(related(differential_direction(first), differential_direction(second)) -
                            differential_direction(second),
@@ -833,20 +1077,28 @@ Eigen::MatrixXd differential_residual(
                 cross(first_axis.direction, second_axis.direction);
             const DifferentialScalar cross_norm = norm(axis_cross);
             const DifferentialVector delta = first_axis.origin - second_axis.origin;
-            const DifferentialScalar parallel = norm(cross(delta, second_axis.direction));
-            DifferentialScalar distance = parallel;
-            if (cross_norm.value > kDirectionEpsilon) {
-                const DifferentialScalar skew_distance =
-                    absolute(dot(delta, axis_cross)) / cross_norm;
-                const DifferentialScalar square = cross_norm * cross_norm;
-                const DifferentialScalar weight =
-                    square /
-                    (square + scalar(options.degeneracy_tolerance * options.degeneracy_tolerance,
-                                     variables));
-                distance = weight * skew_distance + (scalar(1.0, variables) - weight) * parallel;
+            if (constraint.value == 0.0) {
+                if (branch.zero_line_parallel_coupled || cross_norm.value <= kDirectionEpsilon)
+                    append(divided(cross(delta, second_axis.direction), options.length_scale));
+                else
+                    append(divided((dot(delta, axis_cross) / dot(axis_cross, axis_cross)) *
+                                       axis_cross, options.length_scale));
+            } else {
+                const DifferentialScalar parallel = norm(cross(delta, second_axis.direction));
+                DifferentialScalar distance = parallel;
+                if (cross_norm.value > kDirectionEpsilon) {
+                    const DifferentialScalar skew_distance =
+                        absolute(dot(delta, axis_cross)) / cross_norm;
+                    const DifferentialScalar square = cross_norm * cross_norm;
+                    const DifferentialScalar weight =
+                        square /
+                        (square + scalar(options.degeneracy_tolerance * options.degeneracy_tolerance,
+                                         variables));
+                    distance = weight * skew_distance + (scalar(1.0, variables) - weight) * parallel;
+                }
+                rows.push_back(
+                    divided(distance - scalar(constraint.value, variables), options.length_scale));
             }
-            rows.push_back(
-                divided(distance - scalar(constraint.value, variables), options.length_scale));
         } else if (differential_axis_like(first) &&
                    std::holds_alternative<DifferentialPlane>(second)) {
             const auto axis = differential_axis(first);
@@ -895,6 +1147,17 @@ Eigen::VectorXd constraint_tolerances(const Constraint& constraint, const WorldG
     const double angle = options.angle_tolerance / options.angle_scale;
     if (!second)
         throw std::invalid_argument("binary constraint requires a second geometry");
+    if(constraint.kind==ConstraintKind::Contact) {
+        const auto e=contact_evaluation(constraint,first,*second,true);
+        Eigen::VectorXd result(e.residual.size());
+        for(Eigen::Index i=0;i<result.size();++i) result[i]=e.angularRows[static_cast<std::size_t>(i)] ? angle : length;
+        return result;
+    }
+    if(exact_point_incidence(constraint,first,*second))
+        return Eigen::VectorXd::Constant((std::holds_alternative<WorldCircle>(first)||std::holds_alternative<WorldCircle>(*second)) ? 2 : 1,length);
+    if(constraint.kind==ConstraintKind::Coincident && std::holds_alternative<WorldFrame>(first) && std::holds_alternative<WorldFrame>(*second)) {
+        Eigen::VectorXd result(12); result.head<3>().setConstant(length); result.tail<9>().setConstant(angle); return result;
+    }
     if (constraint.kind == ConstraintKind::Parallel)
         return Eigen::VectorXd::Constant(3, angle);
     if (constraint.kind == ConstraintKind::Perpendicular)
@@ -937,6 +1200,8 @@ Eigen::VectorXd constraint_tolerances(const Constraint& constraint, const WorldG
         return result;
     }
     if (constraint.kind == ConstraintKind::Distance) {
+        if (constraint.value == 0.0 && is_axis_like(first) && is_axis_like(*second))
+            return Eigen::VectorXd::Constant(3, length);
         if ((is_axis_like(first) && std::holds_alternative<WorldPlane>(*second)) ||
             (is_axis_like(*second) && std::holds_alternative<WorldPlane>(first))) {
             Eigen::VectorXd result(2);
@@ -962,6 +1227,25 @@ double satisfaction_ratio(const Constraint& constraint, const WorldGeometry& fir
     const double angle = options.angle_tolerance / options.angle_scale;
     if (!second)
         throw std::invalid_argument("binary constraint requires a second geometry");
+    if(constraint.kind==ConstraintKind::Contact) {
+        const auto e=contact_evaluation(constraint,first,*second,true);
+        double ratio=0;
+        for(Eigen::Index i=0;i<residual.size();++i) {
+            const auto index=static_cast<std::size_t>(i);
+            const double tolerance=e.angularRows[index] ? angle : length;
+            const bool vectorStart=e.rowKinds[index].size()>2 &&
+                e.rowKinds[index].substr(e.rowKinds[index].size()-2)=="_0" && i+2<residual.size();
+            if(vectorStart) { ratio=std::max(ratio,residual.segment<3>(i).norm()/tolerance); i+=2; }
+            else ratio=std::max(ratio,std::abs(residual[i])/tolerance);
+        }
+        return ratio;
+    }
+    if(exact_point_incidence(constraint,first,*second)) return residual.norm()/length;
+    if(constraint.kind==ConstraintKind::Coincident && std::holds_alternative<WorldFrame>(first) && std::holds_alternative<WorldFrame>(*second)) {
+        double ratio=residual.head<3>().norm()/length;
+        for(int i=0;i<3;++i) ratio=std::max(ratio,residual.segment<3>(3+3*i).norm()/angle);
+        return ratio;
+    }
     if (constraint.kind == ConstraintKind::Parallel ||
         constraint.kind == ConstraintKind::Perpendicular)
         return residual.norm() / angle;
@@ -1245,11 +1529,33 @@ private:
                         if (!finite(geometry.origin))
                             throw std::invalid_argument("plane origin must be finite");
                         (void)normalized(geometry.normal, "plane");
-                    } else {
+                    } else if constexpr(std::is_same_v<T,CylinderGeometry>) {
                         if (!finite(geometry.axis_origin) || !finite(geometry.radius) ||
                             geometry.radius <= 0.0)
                             throw std::invalid_argument("cylinder origin and radius are invalid");
                         (void)normalized(geometry.axis_direction, "cylinder");
+                        if(geometry.material_side!=1 && geometry.material_side!=-1)
+                            throw std::invalid_argument("cylinder material side must be signed");
+                    } else if constexpr(std::is_same_v<T,CircleGeometry>) {
+                        if(!finite(geometry.center)||!finite(geometry.radius)||geometry.radius<=0)
+                            throw std::invalid_argument("circle center and radius are invalid");
+                        const auto n=normalized(geometry.normal,"circle normal");
+                        const auto x=normalized(geometry.x_direction,"circle x direction");
+                        if(std::abs(n.dot(x))>1e-10)
+                            throw std::invalid_argument("circle x direction is not in its plane");
+                    } else if constexpr(std::is_same_v<T,SphereGeometry>) {
+                        if(!finite(geometry.center)||!finite(geometry.radius)||geometry.radius<=0||
+                           (geometry.material_side!=1 && geometry.material_side!=-1))
+                            throw std::invalid_argument("sphere descriptor is invalid");
+                    } else if constexpr(std::is_same_v<T,ConeGeometry>) {
+                        if(!finite(geometry.apex)||!finite(geometry.half_angle)||geometry.half_angle<=0||geometry.half_angle>=kPi/2||
+                           (geometry.leaf!=1 && geometry.leaf!=-1)||
+                           (geometry.material_side!=1 && geometry.material_side!=-1))
+                            throw std::invalid_argument("cone descriptor is invalid");
+                        (void)normalized(geometry.axis_direction,"cone axis");
+                    } else {
+                        if(!finite(geometry.frame.translation)) throw std::invalid_argument("frame origin must be finite");
+                        (void)normalized(geometry.frame.rotation);
                     }
                 },
                 element.local_geometry);
@@ -1280,6 +1586,13 @@ private:
             }
             if (!finite(constraint.value))
                 throw std::invalid_argument("constraint value must be finite");
+            if(constraint.kind==ConstraintKind::Contact) {
+                if(constraint.mode==ConstraintMode::Measured)
+                    throw std::invalid_argument("CONTACT_MEASURED_MODE_UNAVAILABLE");
+                const auto a=world_geometry(geometry(constraint.first),model_.bodies[body_index(constraint.first.body_id)].initial_pose);
+                const auto b=world_geometry(geometry(*constraint.second),model_.bodies[body_index(constraint.second->body_id)].initial_pose);
+                (void)contact_evaluation(constraint,a,b,true);
+            }
             if (constraint.kind == ConstraintKind::Distance && constraint.distance_relation == DistanceRelation::SelectedPlaneNormal &&
                 !std::holds_alternative<PlaneGeometry>(geometry(constraint.first).local_geometry) &&
                 !std::holds_alternative<PlaneGeometry>(geometry(*constraint.second).local_geometry))
@@ -1296,6 +1609,13 @@ private:
             if (constraint.angle_reference_direction)
                 (void)normalized(*constraint.angle_reference_direction,
                                  "angle reference direction");
+            if(constraint.angle_reference_geometry) {
+                if(constraint.kind!=ConstraintKind::Angle || constraint.angle_reference_direction)
+                    throw std::invalid_argument("angle reference geometry requires an unambiguous Angle definition");
+                const auto& axis=geometry(*constraint.angle_reference_geometry);
+                const auto world=world_geometry(axis,model_.bodies[body_index(axis.body_id)].initial_pose);
+                if(!has_direction(world)) throw std::invalid_argument("angle reference geometry has no exact direction");
+            }
             if (constraint.angle_branch_state &&
                 (!finite(constraint.angle_branch_state->wrapped_angle) ||
                  !finite(constraint.angle_branch_state->unwrapped_angle)))
@@ -1410,6 +1730,24 @@ private:
                 world_geometry(first_element, bodies[body_index(first_element.body_id)]);
             const WorldGeometry second =
                 world_geometry(second_element, bodies[body_index(second_element.body_id)]);
+            if (constraint.kind == ConstraintKind::Distance && constraint.value == 0.0 &&
+                is_axis_like(first) && is_axis_like(second)) {
+                branch.zero_line_branch =
+                    as_axis(first).direction.cross(as_axis(second).direction).norm() <=
+                            kDirectionEpsilon
+                        ? ConstraintBranchState::ZeroLineBranch::ParallelCoincidence
+                        : ConstraintBranchState::ZeroLineBranch::Intersection;
+                auto same=[](const GeometryRef& a,const GeometryRef& b) {
+                    return a.body_id==b.body_id && a.geometry_id==b.geometry_id;
+                };
+                branch.zero_line_parallel_coupled=std::any_of(constraints_.begin(),constraints_.end(),[&](const Constraint& other) {
+                    return active(other) && other.kind==ConstraintKind::Parallel && other.second &&
+                        ((same(other.first,constraint.first) && same(*other.second,*constraint.second)) ||
+                         (same(other.first,*constraint.second) && same(*other.second,constraint.first)));
+                });
+                if(branch.zero_line_parallel_coupled)
+                    branch.zero_line_branch=ConstraintBranchState::ZeroLineBranch::ParallelCoincidence;
+            }
             // Unoriented alignment is a union of both branches. Evaluate the
             // nearest sign at the current iterate, including its analytic Jacobian.
             // A later directed constraint may require the other branch.
@@ -1418,10 +1756,14 @@ private:
                 const Vector3 second_direction = geometry_direction(second);
                 if (branch.direction_relation == DirectionRelation::Opposite)
                     first_direction = -first_direction;
-                if (constraint.angle_reference_direction) {
-                    const Vector3 reference = direction(bodies[body_index(second_element.body_id)],
-                                                        *constraint.angle_reference_direction,
-                                                        "angle reference direction");
+                if (constraint.angle_reference_direction || constraint.angle_reference_geometry) {
+                    Vector3 reference;
+                    if(constraint.angle_reference_geometry) {
+                        const auto& axis=geometry(*constraint.angle_reference_geometry);
+                        reference=geometry_direction(world_geometry(axis,bodies[body_index(axis.body_id)]));
+                        if(constraint.reverse_angle_reference) reference=-reference;
+                    } else reference=direction(bodies[body_index(second_element.body_id)],
+                                                        *constraint.angle_reference_direction,"angle reference direction");
                     const double wrapped = directed_angle(first_direction, second_direction,
                                                           reference, options_.degeneracy_tolerance);
                     const double previous = constraint.angle_branch_state
@@ -1478,6 +1820,8 @@ private:
             const std::size_t first = cluster_index(constraint.first.body_id);
             const std::size_t second = cluster_index(constraint.second->body_id);
             sets.join(first, second);
+            if(constraint.angle_reference_geometry)
+                sets.join(first,cluster_index(constraint.angle_reference_geometry->body_id));
         }
         std::unordered_map<std::size_t, std::vector<std::size_t>> cluster_groups;
         for (std::size_t cluster = 0; cluster < clusters_.size(); ++cluster)
@@ -1588,6 +1932,7 @@ public:
             state.poses.push_back(guess.value_or(item.initial_pose));
         }
         if (initialize) {
+            initialize_contact_seed(state);
             initialize_singular_direction_branches(state);
             initialize_parallel_distance_seed(state);
         }
@@ -1645,7 +1990,20 @@ public:
                 branch.direction_relation = geometry_direction(a).dot(geometry_direction(b)) < 0
                     ? DirectionRelation::Opposite : DirectionRelation::Same;
             }
-            if (evaluated.angle_reference_direction)
+            if (branch_reference && constraint.kind == ConstraintKind::Distance &&
+                constraint.value == 0.0 && is_axis_like(first) && is_axis_like(second)) {
+                const auto nominal = assembly_.body_poses(cluster_poses(*branch_reference));
+                const auto a = world_geometry(first_element, nominal[assembly_.body_index(first_element.body_id)]);
+                const auto b = world_geometry(second_element, nominal[assembly_.body_index(second_element.body_id)]);
+                branch.zero_line_parallel_differential =
+                    as_axis(a).direction.cross(as_axis(b).direction).norm() <= kDirectionEpsilon;
+            }
+            if(evaluated.angle_reference_geometry) {
+                const auto& axis=assembly_.geometry(*evaluated.angle_reference_geometry);
+                Vector3 axisDirection=geometry_direction(world_geometry(axis,bodies[assembly_.body_index(axis.body_id)]));
+                if(evaluated.reverse_angle_reference) axisDirection=-axisDirection;
+                evaluated.angle_reference_direction=value(axisDirection);
+            } else if (evaluated.angle_reference_direction)
                 evaluated.angle_reference_direction = value(
                     normalized(bodies[assembly_.body_index(second_element.body_id)].rotation) *
                     eigen(*evaluated.angle_reference_direction));
@@ -1776,10 +2134,17 @@ public:
             if (const auto* value = std::get_if<WorldPlane>(&world))
                 return DifferentialPlane{differentiated_vector(value->origin, true),
                                          differentiated_vector(value->normal, false)};
-            const auto& value = std::get<WorldCylinder>(world);
-            return DifferentialCylinder{differentiated_vector(value.origin, true),
-                                        differentiated_vector(value.direction, false),
-                                        value.radius};
+            if(const auto* value=std::get_if<WorldCylinder>(&world))
+                return DifferentialCylinder{differentiated_vector(value->origin,true),differentiated_vector(value->direction,false),value->radius,value->material_side};
+            if(const auto* value=std::get_if<WorldCircle>(&world))
+                return DifferentialCircle{differentiated_vector(value->origin,true),differentiated_vector(value->direction,false),value->radius};
+            if(const auto* value=std::get_if<WorldSphere>(&world))
+                return DifferentialSphere{differentiated_vector(value->origin,true),value->radius,value->material_side};
+            if(const auto* value=std::get_if<WorldCone>(&world))
+                return DifferentialCone{differentiated_vector(value->origin,true),differentiated_vector(value->direction,false),value->half_angle,value->leaf,value->material_side};
+            const auto& value=std::get<WorldFrame>(world);
+            return DifferentialFrame{differentiated_vector(value.origin,true),
+                {differentiated_vector(value.rotation.col(0),false),differentiated_vector(value.rotation.col(1),false),differentiated_vector(value.rotation.col(2),false)}};
         };
         Eigen::MatrixXd result(residual.size(), variables);
         Eigen::Index row = 0;
@@ -1808,7 +2173,11 @@ public:
                 return differentiated;
             };
             std::optional<DifferentialVector> reference;
-            if (constraint.angle_reference_direction)
+            if(constraint.angle_reference_geometry) {
+                const auto& axis=assembly_.geometry(*constraint.angle_reference_geometry);
+                reference=differential_direction(differentiated_geometry(axis));
+                if(constraint.reverse_angle_reference) reference=-*reference;
+            } else if (constraint.angle_reference_direction)
                 reference = local_second_direction(*constraint.angle_reference_direction);
             Constraint evaluated = constraint;
             if (evaluated.spatial_angle_branch_direction)
@@ -1847,12 +2216,8 @@ public:
         return gauge_anchor_cluster_ ? nullity : nullity - std::min(nullity, gauge_dof());
     }
     const std::vector<std::size_t>& free_clusters() const { return free_cluster_indices_; }
-    Eigen::MatrixXd motion_jacobian(const State& state, const Vector& residual) const {
-        Eigen::MatrixXd result = jacobian(state, residual);
-        // An isolated parallel-line distance has a nonsmooth stratum. During
-        // preference optimization use its parallel chart, not the fictitious
-        // smooth tangent of a skew line at an infinitesimal angle. These rows
-        // are NOT assembly equations and never enter physical rank/DOF.
+    std::vector<std::size_t> parallel_distance_charts(const State& state) const {
+        std::vector<std::size_t> result;
         if (free_cluster_indices_.size() != 1)
             return result;
         const auto bodies = assembly_.body_poses(cluster_poses(state));
@@ -1860,8 +2225,11 @@ public:
             const auto& constraint = assembly_.constraint(index);
             if (constraint.kind != ConstraintKind::Distance ||
                 constraint.mode == ConstraintMode::Measured ||
-                constraint.distance_relation != DistanceRelation::Unsigned ||
-                constraint.value <= assembly_.options().length_tolerance)
+                constraint.distance_relation != DistanceRelation::Unsigned)
+                continue;
+            if (constraint.value == 0.0 &&
+                assembly_.branch(index).zero_line_branch !=
+                    ConstraintBranchState::ZeroLineBranch::ParallelCoincidence)
                 continue;
             if (!std::all_of(component_.constraint_indices.begin(),
                              component_.constraint_indices.end(), [&](auto other) {
@@ -1878,10 +2246,54 @@ public:
                 continue;
             if (as_axis(a).direction.cross(as_axis(b).direction).norm() > kDirectionEpsilon)
                 continue;
+            result.push_back(index);
+        }
+        return result;
+    }
+    Eigen::MatrixXd motion_jacobian(const State& state, const Vector& residual) const {
+        Eigen::MatrixXd result = jacobian(state, residual);
+        // Infinite-line distance is discontinuous across the parallel stratum.
+        // These explicitly reported local-branch rows belong to preference,
+        // not physical equations/rank/DOF. Coupled or nonparallel configurations
+        // fall back to the exact physical tangent without these rows.
+        const auto bodies = assembly_.body_poses(cluster_poses(state));
+        for (const auto index : parallel_distance_charts(state)) {
+            const auto& constraint = assembly_.constraint(index);
+            const auto& first = assembly_.geometry(constraint.first);
+            const auto a = world_geometry(first, bodies[assembly_.body_index(first.body_id)]);
             const auto rows = result.rows();
             result.conservativeResize(rows + 3, result.cols());
             result.bottomRows(3).setZero();
             result.block<3, 3>(rows, 3) = -skew(as_axis(a).direction);
+        }
+        return result;
+    }
+    std::vector<SolveDiagnostic> zero_line_diagnostics(const State& state) const {
+        std::vector<SolveDiagnostic> result;
+        const auto charts = parallel_distance_charts(state);
+        const auto bodies = assembly_.body_poses(cluster_poses(state));
+        for (const auto index : charts) {
+            const auto& constraint = assembly_.constraint(index);
+            if (constraint.value != 0.0)
+                result.push_back({"OFFSET_PARALLEL_LOCAL_CHART", component_.id, {}, {constraint.id},
+                                  "parallel distance branch; preference evaluated within the explicit parallel chart; physical rank and DOF exclude its temporary direction rows"});
+        }
+        for (const auto index : component_.constraint_indices) {
+            const auto& constraint = assembly_.constraint(index);
+            if (constraint.kind != ConstraintKind::Distance || constraint.value != 0.0)
+                continue;
+            const auto& first = assembly_.geometry(constraint.first);
+            const auto& second = assembly_.geometry(*constraint.second);
+            const auto a = world_geometry(first, bodies[assembly_.body_index(first.body_id)]);
+            const auto b = world_geometry(second, bodies[assembly_.body_index(second.body_id)]);
+            if (!is_axis_like(a) || !is_axis_like(b))
+                continue;
+            const bool parallel = as_axis(a).direction.cross(as_axis(b).direction).norm() <= kDirectionEpsilon;
+            const bool chart = std::find(charts.begin(), charts.end(), index) != charts.end();
+            result.push_back({parallel ? "OFFSET_ZERO_PARALLEL_COINCIDENCE" : "OFFSET_ZERO_INTERSECTION",
+                              component_.id, {}, {constraint.id},
+                              chart ? "parallel coincidence branch; preference evaluated within the explicit parallel chart, not across the nonclosed intersection branches"
+                                    : "infinite-line intersection branch; physical tangent used without a parallel preference chart"});
         }
         return result;
     }
@@ -1988,6 +2400,152 @@ public:
     const Component& component() const { return component_; }
 
 private:
+    void initialize_contact_seed(State& state) const {
+        for(const auto index:component_.constraint_indices) {
+            const auto& c=assembly_.constraint(index);
+            if((c.kind==ConstraintKind::Coincident || c.kind==ConstraintKind::SurfaceIncidence) && c.second) {
+                const auto& ea=assembly_.geometry(c.first); const auto& eb=assembly_.geometry(*c.second);
+                const auto bodies=assembly_.body_poses(cluster_poses(state));
+                const auto a=world_geometry(ea,bodies[assembly_.body_index(ea.body_id)]);
+                const auto b=world_geometry(eb,bodies[assembly_.body_index(eb.body_id)]);
+                if(exact_point_incidence(c,a,b)) {
+                    const bool firstPoint=std::holds_alternative<WorldPoint>(a);
+                    const auto& point=std::get<WorldPoint>(firstPoint ? a : b);
+                    const auto& surface=firstPoint ? b : a;
+                    const auto& pointElement=firstPoint ? ea : eb;
+                    const auto& surfaceElement=firstPoint ? eb : ea;
+                    Vector3 shift=Vector3::Zero();
+                    if(const auto* sphere=std::get_if<WorldSphere>(&surface)) {
+                        if((point.position-sphere->origin).norm()<=kDirectionEpsilon)
+                            shift=sphere->radius*direction(bodies[assembly_.body_index(surfaceElement.body_id)],Vec3{1,0,0},"sphere incidence seed");
+                    } else {
+                        const Vector3 axis=geometry_direction(surface);
+                        const Vector3 delta=point.position-geometry_origin(surface);
+                        const double height=delta.dot(axis);
+                        const Vector3 radial=delta-height*axis;
+                        if(radial.norm()<=kDirectionEpsilon) {
+                            double radius=0;
+                            if(const auto* circle=std::get_if<WorldCircle>(&surface)) radius=circle->radius;
+                            else if(const auto* cylinder=std::get_if<WorldCylinder>(&surface)) radius=cylinder->radius;
+                            else if(const auto* cone=std::get_if<WorldCone>(&surface))
+                                radius=std::abs(height)*std::tan(cone->half_angle);
+                            Vector3 ray=direction(bodies[assembly_.body_index(surfaceElement.body_id)],Vec3{1,0,0},"incidence radial seed");
+                            ray-=ray.dot(axis)*axis;
+                            if(ray.norm()<=kDirectionEpsilon) ray=perpendicular_to(axis);
+                            shift=radius*ray.normalized();
+                        }
+                    }
+                    if(shift.norm()>kDirectionEpsilon) {
+                        auto moving=std::find(free_cluster_indices_.begin(),free_cluster_indices_.end(),assembly_.cluster_index(pointElement.body_id));
+                        double sign=1;
+                        if(moving==free_cluster_indices_.end()) {
+                            moving=std::find(free_cluster_indices_.begin(),free_cluster_indices_.end(),assembly_.cluster_index(surfaceElement.body_id)); sign=-1;
+                        }
+                        if(moving!=free_cluster_indices_.end()) {
+                            auto& guess=state.poses[static_cast<std::size_t>(moving-free_cluster_indices_.begin())];
+                            guess.translation=value(eigen(guess.translation)+sign*shift);
+                        }
+                    }
+                    continue;
+                }
+            }
+            if(c.kind==ConstraintKind::Coincident && c.second) {
+                const auto& first=assembly_.geometry(c.first); const auto& second=assembly_.geometry(*c.second);
+                if(std::holds_alternative<FrameGeometry>(first.local_geometry) && std::holds_alternative<FrameGeometry>(second.local_geometry)) {
+                    const auto bodies=assembly_.body_poses(cluster_poses(state));
+                    auto moving=std::find(free_cluster_indices_.begin(),free_cluster_indices_.end(),assembly_.cluster_index(second.body_id));
+                    bool secondMoves=true;
+                    if(moving==free_cluster_indices_.end()) {
+                        moving=std::find(free_cluster_indices_.begin(),free_cluster_indices_.end(),assembly_.cluster_index(first.body_id)); secondMoves=false;
+                    }
+                    if(moving!=free_cluster_indices_.end()) {
+                        const auto a=std::get<WorldFrame>(world_geometry(first,bodies[assembly_.body_index(first.body_id)]));
+                        const auto b=std::get<WorldFrame>(world_geometry(second,bodies[assembly_.body_index(second.body_id)]));
+                        const auto& current=secondMoves ? b : a; const auto& target=secondMoves ? a : b;
+                        const EigenQuaternion turn(target.rotation*current.rotation.transpose());
+                        auto& guess=state.poses[static_cast<std::size_t>(moving-free_cluster_indices_.begin())];
+                        guess.translation=value(target.origin+turn*(eigen(guess.translation)-current.origin));
+                        guess.rotation=value(turn*normalized(guess.rotation));
+                    }
+                    continue;
+                }
+            }
+            if(c.kind!=ConstraintKind::Contact) continue;
+            const auto& ea=assembly_.geometry(c.first); const auto& eb=assembly_.geometry(*c.second);
+            const auto bodies=assembly_.body_poses(cluster_poses(state));
+            const auto a=contact_support(world_geometry(ea,bodies[assembly_.body_index(ea.body_id)]));
+            const auto b=contact_support(world_geometry(eb,bodies[assembly_.body_index(eb.body_id)]));
+            const auto evaluated=analytic_contact::evaluate(contact_definition(c),a,b);
+            auto moving=std::find(free_cluster_indices_.begin(),free_cluster_indices_.end(),assembly_.cluster_index(eb.body_id));
+            bool moveSecond=true;
+            if(moving==free_cluster_indices_.end()) {
+                moving=std::find(free_cluster_indices_.begin(),free_cluster_indices_.end(),assembly_.cluster_index(ea.body_id));
+                moveSecond=false;
+            }
+            if(moving==free_cluster_indices_.end()) continue;
+            auto& pose=state.poses[static_cast<std::size_t>(moving-free_cluster_indices_.begin())];
+            if(c.contact_kind==ContactKind::Face && a.kind==analytic_contact::SupportKind::Plane &&
+               b.kind==analytic_contact::SupportKind::Plane) {
+                const auto& movable=moveSecond ? b : a;
+                const auto& reference=moveSecond ? a : b;
+                const Vector3 target=(c.contact_side==ContactSide::External ? -1.0 : 1.0)*reference.axis;
+                if(movable.axis.dot(target)<=-1.0+kDirectionEpsilon) {
+                    // Vector alignment is stationary at its antipode. Rotate
+                    // the whole free cluster about the selected plane anchor;
+                    // captured group relations and all internal equations stay
+                    // intact, and the ordinary solve still checks every row.
+                    const EigenQuaternion turn=EigenQuaternion::FromTwoVectors(movable.axis,target);
+                    pose.translation=value(movable.origin+turn*(eigen(pose.translation)-movable.origin));
+                    pose.rotation=value(turn*normalized(pose.rotation));
+                    continue;
+                }
+            }
+            const bool planeCylinder=c.contact_kind==ContactKind::Line &&
+                ((a.kind==analytic_contact::SupportKind::Plane && b.kind==analytic_contact::SupportKind::Cylinder) ||
+                 (b.kind==analytic_contact::SupportKind::Plane && a.kind==analytic_contact::SupportKind::Cylinder));
+            if(planeCylinder && a.axis.cross(b.axis).norm()<=kDirectionEpsilon) {
+                // Axis parallel to the plane normal is a stationary maximum
+                // of the required perpendicularity equation. It is a legal
+                // starting pose, not an unsupported contact. Seed only the
+                // trial chart, preserving the captured/nominal placement.
+                const auto& movable=moveSecond ? b : a;
+                const auto& reference=moveSecond ? a : b;
+                const auto& element=moveSecond ? eb : ea;
+                Vector3 target=direction(bodies[assembly_.body_index(element.body_id)],Vec3{1,0,0},"plane cylinder contact seed");
+                target-=target.dot(reference.axis)*reference.axis;
+                if(target.norm()<=kDirectionEpsilon) target=perpendicular_to(reference.axis);
+                const EigenQuaternion turn=EigenQuaternion::FromTwoVectors(movable.axis,target.normalized());
+                pose.translation=value(movable.origin+turn*(eigen(pose.translation)-movable.origin));
+                pose.rotation=value(turn*normalized(pose.rotation));
+                continue;
+            }
+            if(evaluated.valid) continue;
+            if(evaluated.diagnostic=="CONTACT_RADIAL_BRANCH_DEGENERATE") {
+                const bool ext=(c.contact_side==ContactSide::External)==(a.material_side*b.material_side>0);
+                const double distance=ext ? a.radius+b.radius : std::abs(a.radius-b.radius);
+                const auto& movingElement=moveSecond ? eb : ea;
+                const auto& body=bodies[assembly_.body_index(movingElement.body_id)];
+                Vector3 radial=direction(body,Vec3{1,0,0},"contact radial seed");
+                radial-=radial.dot(a.axis)*a.axis;
+                if(radial.norm()<=kDirectionEpsilon) radial=perpendicular_to(a.axis);
+                pose.translation=value(eigen(pose.translation)+distance*radial.normalized());
+            } else if(evaluated.diagnostic=="CONTACT_CONE_GENERATOR_DEGENERATE") {
+                const auto& movingSupport=moveSecond ? b : a;
+                const auto& reference=moveSecond ? a : b;
+                const bool ext=(c.contact_side==ContactSide::External)==(a.material_side*b.material_side>0);
+                const double beta=ext ? a.half_angle+b.half_angle : std::abs(a.half_angle-b.half_angle);
+                const Vector3 referenceAxis=reference.cone_leaf*reference.axis;
+                const auto& element=moveSecond ? eb : ea;
+                Vector3 radial=direction(bodies[assembly_.body_index(element.body_id)],Vec3{1,0,0},"contact cone seed");
+                radial-=radial.dot(referenceAxis)*referenceAxis;
+                if(radial.norm()<=kDirectionEpsilon) radial=perpendicular_to(referenceAxis);
+                const Vector3 target=std::cos(beta)*referenceAxis+std::sin(beta)*radial.normalized();
+                const EigenQuaternion turn=EigenQuaternion::FromTwoVectors(movingSupport.cone_leaf*movingSupport.axis,target);
+                pose.translation=value(movingSupport.origin+turn*(eigen(pose.translation)-movingSupport.origin));
+                pose.rotation=value(turn*normalized(pose.rotation));
+            }
+        }
+    }
     void initialize_parallel_distance_seed(State& state) const {
         for (const auto index : component_.constraint_indices) {
             const auto& constraint = assembly_.constraint(index);
@@ -2039,7 +2597,16 @@ private:
         for (const std::size_t constraint_index : component_.constraint_indices) {
             const Constraint& constraint = assembly_.constraint(constraint_index);
             const bool spatial_angle =
-                constraint.kind == ConstraintKind::Angle && !constraint.angle_reference_direction;
+                constraint.kind == ConstraintKind::Angle && !constraint.angle_reference_direction && !constraint.angle_reference_geometry;
+            const auto& selected_first = assembly_.geometry(constraint.first);
+            const auto& selected_second = assembly_.geometry(*constraint.second);
+            const auto local_axis=[](const Geometry& g) {
+                return std::holds_alternative<AxisGeometry>(g) || std::holds_alternative<CylinderGeometry>(g);
+            };
+            const bool axis_plane_perpendicular =
+                (constraint.kind==ConstraintKind::Coincident || constraint.kind==ConstraintKind::Distance) &&
+                ((local_axis(selected_first.local_geometry) && std::holds_alternative<PlaneGeometry>(selected_second.local_geometry)) ||
+                 (local_axis(selected_second.local_geometry) && std::holds_alternative<PlaneGeometry>(selected_first.local_geometry)));
             const bool signed_plane_offset =
                 constraint.kind == ConstraintKind::Distance &&
                 constraint.distance_relation == DistanceRelation::SelectedPlaneNormal &&
@@ -2051,12 +2618,10 @@ private:
             if ((!spatial_angle && constraint.kind != ConstraintKind::Coincident &&
                 constraint.kind != ConstraintKind::Concentric &&
                 constraint.kind != ConstraintKind::Parallel &&
-                constraint.kind != ConstraintKind::Perpendicular && !signed_plane_offset) ||
+                constraint.kind != ConstraintKind::Perpendicular && !signed_plane_offset && !axis_plane_perpendicular) ||
                 (constraint.direction_relation == DirectionRelation::Unoriented &&
-                 constraint.kind != ConstraintKind::Perpendicular && !spatial_angle))
+                 constraint.kind != ConstraintKind::Perpendicular && !spatial_angle && !axis_plane_perpendicular))
                 continue;
-            const auto& selected_first = assembly_.geometry(constraint.first);
-            const auto& selected_second = assembly_.geometry(*constraint.second);
             const bool first_is_free =
                 std::find(free_cluster_indices_.begin(), free_cluster_indices_.end(),
                           assembly_.cluster_index(selected_first.body_id)) !=
@@ -2082,7 +2647,7 @@ private:
             const Vector3 target = constraint.direction_relation == DirectionRelation::Same
                                        ? second_direction
                                        : -second_direction;
-            const bool perpendicular = constraint.kind == ConstraintKind::Perpendicular;
+            const bool perpendicular = constraint.kind == ConstraintKind::Perpendicular || axis_plane_perpendicular;
             double turn_angle = perpendicular ? (constraint.direction_relation == DirectionRelation::Opposite ? -kPi * 0.5 : kPi * 0.5) : kPi;
             Vector3 seed_axis = perpendicular_to(first_direction);
             if (spatial_angle) {
@@ -2177,7 +2742,12 @@ ComponentSolution restore_component(const ComponentProblem& problem, const Solve
         // corrected by large rotations instead of well-conditioned translations.
         Vector diagonal = Vector::Constant(jacobian.cols(), damping);
         for (Eigen::Index offset = 0; offset < jacobian.cols(); offset += 6) {
-            const double translation = std::max(1.0, jacobian.middleCols(offset, 3).squaredNorm());
+            // Damping must transform with the configured length unit/scale.
+            // A unit floor penalizes translation by L^2 relative to rotation
+            // when length residuals are divided by L; non-origin supports then
+            // rotate around a least-squares plateau instead of translating.
+            const double translation = std::max(1.0 / (options.length_scale * options.length_scale),
+                                               jacobian.middleCols(offset, 3).squaredNorm());
             const double rotation =
                 std::max(translation, jacobian.middleCols(offset + 3, 3).squaredNorm());
             diagonal.segment<3>(offset).setConstant(damping * translation);
@@ -2435,6 +3005,14 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
     report.geometrically_feasible = problem.satisfied(state);
     if (!report.geometrically_feasible)
         return report;
+    // Establish the same tight manifold used by preference candidates before
+    // freezing their energy bound. A display-tolerance feasible initial point
+    // can have a slightly LOWER energy than any exact feasible point; comparing
+    // exact retractions against that infeasible bound falsely reports Stalled.
+    if (!restore_feasibility(problem,state,options)) {
+        report.geometrically_feasible=false;
+        return report;
+    }
     const Vector scales = problem.tangent_scales();
     report.status = PreferenceStatus::Converged;
     double reference_bound = std::numeric_limits<double>::infinity();
@@ -2883,7 +3461,12 @@ ResidualBlock evaluate_constraint(const CompiledAssembly& assembly,
     const WorldGeometry second =
         world_geometry(second_element, body_poses[assembly.body_index(second_element.body_id)]);
     Constraint evaluated = constraint;
-    if (evaluated.angle_reference_direction)
+    if(evaluated.angle_reference_geometry) {
+        const auto& axis=assembly.geometry(*evaluated.angle_reference_geometry);
+        Vector3 axisDirection=geometry_direction(world_geometry(axis,body_poses[assembly.body_index(axis.body_id)]));
+        if(evaluated.reverse_angle_reference) axisDirection=-axisDirection;
+        evaluated.angle_reference_direction=value(axisDirection);
+    } else if (evaluated.angle_reference_direction)
         evaluated.angle_reference_direction =
             value(normalized(body_poses[assembly.body_index(second_element.body_id)].rotation) *
                   eigen(*evaluated.angle_reference_direction));
@@ -2973,6 +3556,8 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
             has_relative_dof = has_relative_dof || relative > 0;
             ComponentDof component_dof;
             component_dof.preference = preference;
+            for (const auto& evidence : problem.zero_line_diagnostics(solution.state))
+                result.diagnostics.push_back(evidence);
             if (component.selected && solution.status == SolveStatus::Converged)
                 component_dof.freedoms = interpret_freedoms(problem, solution.state, options);
             if (component.selected && preference.geometrically_feasible &&
@@ -3047,7 +3632,7 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
                 else if (unsatisfied_clusters[cluster])
                     result.unsatisfied_constraint_ids.push_back(constraint.id);
             }
-            if (constraint.kind == ConstraintKind::Angle && constraint.angle_reference_direction) {
+            if (constraint.kind == ConstraintKind::Angle && (constraint.angle_reference_direction || constraint.angle_reference_geometry)) {
                 Constraint evaluated = constraint;
                 const GeometryElement& first_element = assembly.geometry(constraint.first);
                 const GeometryElement& second_element = assembly.geometry(*constraint.second);
@@ -3055,9 +3640,13 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
                     first_element, body_poses[assembly.body_index(first_element.body_id)]);
                 const WorldGeometry second = world_geometry(
                     second_element, body_poses[assembly.body_index(second_element.body_id)]);
-                const Vector3 reference =
-                    direction(body_poses[assembly.body_index(second_element.body_id)],
-                              *constraint.angle_reference_direction, "angle reference direction");
+                Vector3 reference;
+                if(constraint.angle_reference_geometry) {
+                    const auto& axis=assembly.geometry(*constraint.angle_reference_geometry);
+                    reference=geometry_direction(world_geometry(axis,body_poses[assembly.body_index(axis.body_id)]));
+                    if(constraint.reverse_angle_reference) reference=-reference;
+                } else reference=direction(body_poses[assembly.body_index(second_element.body_id)],
+                              *constraint.angle_reference_direction,"angle reference direction");
                 const Vector3 first_direction =
                     related_direction(geometry_direction(first), geometry_direction(second),
                                       assembly.branch(constraint_index).direction_relation);

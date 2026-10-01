@@ -83,7 +83,9 @@ func TestOffsetParallelPartEdgesThroughRouter(t *testing.T) {
 		t.Helper()
 		seq++
 		req.ActorID = actor
-		req.RequestID = fmt.Sprintf("%s-edge-%d", id, seq)
+		if req.RequestID == "" {
+			req.RequestID = fmt.Sprintf("%s-edge-%d", id, seq)
+		}
 		product, err = service.ApplyCommand(t.Context(), id, req)
 		if err != nil {
 			t.Fatal(req.Type, err)
@@ -184,7 +186,7 @@ func TestOffsetParallelPartEdgesThroughRouter(t *testing.T) {
 			t.Fatalf("wrong evaluation/support identity: %+v", c)
 		}
 	}
-	request := workspace.CommandRequest{ActorID: actor, Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "DISTANCE", FirstAssemblyRef: &refs[1], SecondAssemblyRef: &refs[0], Value: 30, DistanceRelation: "UNSIGNED"}
+	request := workspace.CommandRequest{ActorID: actor, RequestID: id + "-edge-offset-preview", Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "DISTANCE", FirstAssemblyRef: &refs[1], SecondAssemblyRef: &refs[0], Value: 30, DistanceRelation: "UNSIGNED"}
 	preview, err := service.PreviewCommand(t.Context(), id, request)
 	if err != nil {
 		t.Fatal(err)

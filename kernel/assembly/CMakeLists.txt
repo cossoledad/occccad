@@ -2,6 +2,7 @@ find_package(Eigen3 REQUIRED)
 
 add_library(occccad_assembly_solver STATIC
     src/solver.cpp
+    src/contact.cpp
 )
 
 target_include_directories(occccad_assembly_solver PUBLIC include)

@@ -232,6 +232,8 @@ export const restApi = {
   getProductSolveResult: (id:string,solveRequestId:string) => request<AssemblySolveManifestResult>(
     `/api/documents/${id}/solve-results?requestId=${encodeURIComponent(solveRequestId)}`),
   getDocumentProperties: (id: string) => request<DocumentProperties>(`/api/documents/${id}/properties`),
+  assemblyCapabilities: () => request<{contractVersion:string;capabilities:Array<{capabilityId:string;family:string;subtype:string;roles:Array<{role:string;descriptor:string}>}>}>("/api/assembly/capabilities"),
+  inspectAssemblySupports: (id:string,references:AssemblyGeometryRef[],signal?:AbortSignal) => request<{documentId:string;versionId:string;supports:Array<{reference:AssemblyGeometryRef;exactType?:string;status:string;diagnostic?:string;diagnosticCode?:string;constraintEligible:boolean;constraintDiagnosticCode?:string;constraintDiagnostic?:string}>}>(`/api/documents/${id}/assembly-supports/inspect`,{method:"POST",body:JSON.stringify({references}),signal}),
   getTopologyProperties: (id: string, geometryKey: string, kind: "FACE" | "EDGE" | "VERTEX", localId: number, versionId?: string) => {
     const query = new URLSearchParams({ geometryKey, kind, localId: String(localId) });
     if (versionId) query.set("versionId", versionId);
@@ -372,11 +374,13 @@ export const restApi = {
     restApi.command(documentId, {type:"DETACH_CONTEXT_REFERENCE", contextReferenceId}),
   move: (documentId: string, instanceId: string, translation: Vec3, rotation: [number,number,number,number], previewId?: string) =>
 	restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation, rotation, previewId }),
-  addAssemblyConstraint: (documentId: string, input: { constraintKind: string; angleRelation?: string;
-    firstAssemblyRef: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef;
+  addAssemblyConstraint: (documentId: string, input: { constraintKind: string; fixMode?:"SPACE"|"RELATIVE"; angleRelation?: string;
+	constraintFamily?:string;constraintSubtype?:string;contactKind?:string;contactSide?:string;contactBranch?:number;groupName?:string;groupMembers?:Array<{instanceId?:string;instancePath?:import("./types").InstancePath;groupId?:string}>;quantityExpression?:string;quantityKey?:string;
+    firstAssemblyRef?: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef;
 	value?: number; directionRelation?: string; distanceRelation?: string; offsetExpression?:string;offsetKey?:string;constraintMode?:string; angleReferenceDirection?: Vec3; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; previewId?: string }) =>
     restApi.command(documentId, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),
-  editAssemblyConstraint: (documentId: string, constraintId: string, input: { value: number; offsetExpression?:string;offsetKey?:string;constraintMode?:string; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; fixMode?: string; angleRelation?: string; directionRelation: string; distanceRelation: string;
+  editAssemblyConstraint: (documentId: string, constraintId: string, input: { value?: number; offsetExpression?:string;offsetKey?:string;constraintMode?:string; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; fixMode?: string; angleRelation?: string; directionRelation?: string; distanceRelation?: string;
+	constraintFamily?:string;constraintSubtype?:string;contactKind?:string;contactSide?:string;contactBranch?:number;groupName?:string;groupMembers?:Array<{instanceId?:string;instancePath?:import("./types").InstancePath;groupId?:string}>;quantityExpression?:string;quantityKey?:string;
 	firstAssemblyRef?: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef; angleReferenceDirection?: Vec3; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; previewId?: string }) =>
     restApi.command(documentId, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),
   setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_HEAD" | "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED") =>

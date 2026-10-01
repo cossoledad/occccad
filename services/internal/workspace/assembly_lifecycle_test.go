@@ -85,7 +85,7 @@ func TestAssemblyManifestEmptyActiveSetFreezesInactiveDefinitions(t *testing.T) 
 	}
 	digest := manifest.Digest
 	manifest.Digest = ""
-	if digest != resolvedDigest(manifest) {
+	if digest != assemblyManifestDigest(manifest) {
 		t.Fatal("definition change escaped manifest digest")
 	}
 }

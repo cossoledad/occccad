@@ -22,6 +22,6 @@ export function assemblyGeometryRef(selection: SelectionItem): AssemblyGeometryR
     return { instanceId: selection.instanceId, kind: "AXIS", geometryId: selection.entityId,
       ...(selection.axis === "DATUM" ? {} : { axis: selection.axis }), ...path, ...publicationRef };
   if (selection.kind === "axis-system" && selection.entityId)
-    return { instanceId: selection.instanceId, kind: "POINT", geometryId: selection.entityId, ...path, ...publicationRef };
+    return { instanceId: selection.instanceId, kind: "FRAME", geometryId: selection.entityId, ...path, ...publicationRef };
   return undefined;
 }

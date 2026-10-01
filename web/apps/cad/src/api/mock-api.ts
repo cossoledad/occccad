@@ -768,6 +768,8 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 }
 
 export const mockApi: CadApi = {
+	assemblyCapabilities: async () => { throw new Error("Exact assembly capabilities require the real server"); },
+	inspectAssemblySupports: async () => { throw new Error("Exact support inspection requires the real Worker; mock geometry is not authoritative"); },
 	toolbarCatalog: async () => pause(mockToolbarCatalog),
   session: async () => {
     if (localStorage.getItem("occccad.mock.auth") === "false") throw new Error("authentication required");

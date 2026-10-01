@@ -226,12 +226,24 @@ type AssemblyBody struct {
 }
 
 type AssemblyGeometry struct {
-	ID, BodyID, Kind  string
-	Origin, Direction [3]float64
-	Radius            float64
+	ID, BodyID, Kind             string
+	Origin, Direction            [3]float64
+	Radius                       float64
+	HalfAngle                    float64
+	ConeLeaf, MaterialSide       int32
+	Rotation                     [4]float64
+	XDirection                   [3]float64
+	ParameterStart, ParameterEnd *float64
+	LengthUnit                   string
 }
 
 type AssemblyConstraint struct {
+	AngleReferenceBodyID                string `json:"AngleReferenceBodyID,omitempty"`
+	AngleReferenceGeometryID            string `json:"AngleReferenceGeometryID,omitempty"`
+	ReverseAngleReference               bool   `json:"ReverseAngleReference,omitempty"`
+	GroupID                             string `json:"groupId,omitempty"`
+	ContactKind, ContactSide            string
+	ContactBranch                       int32
 	ID, ConnectionID, Kind, Mode        string
 	FirstBodyID, FirstGeometryID        string
 	SecondBodyID, SecondGeometryID      string
@@ -319,6 +331,7 @@ type AssemblySolveOptions struct {
 }
 
 type AssemblySolve struct {
+	GroupEvidence                                                                                                 []AssemblyGroupSolveEvidence `json:"groupEvidence,omitempty"`
 	SolverBuild                                                                                                   string
 	Status, Classification, Diagnostic                                                                            string
 	Bodies                                                                                                        []AssemblyBody
@@ -330,6 +343,19 @@ type AssemblySolve struct {
 	Diagnostics                                                                                                   []AssemblySolveDiagnostic
 	Iterations                                                                                                    uint64
 	NormalizedResidual                                                                                            float64
+}
+
+type AssemblyGroupSolvedRelation struct {
+	InstanceID   string
+	RelativePose AssemblyPose
+}
+
+type AssemblyGroupSolveEvidence struct {
+	GroupID, InputDigest                       string
+	MemberIDs, InternalConstraintIDs           []string
+	Relations                                  []AssemblyGroupSolvedRelation
+	StageStatus, StageBuild, StageResultDigest string
+	CompiledConstraints                        []AssemblyConstraint
 }
 
 func protoPose(value AssemblyPose) *workerv1.RigidPose {
@@ -380,16 +406,25 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 	}
 	for _, value := range geometryValues {
 		request.Geometry = append(request.Geometry, &workerv1.AssemblyGeometry{Id: value.ID, BodyId: value.BodyID, Kind: value.Kind,
+			HalfAngle: value.HalfAngle, ConeLeaf: value.ConeLeaf, MaterialSide: value.MaterialSide,
+			Rotation:       &workerv1.Quaternion{X: value.Rotation[0], Y: value.Rotation[1], Z: value.Rotation[2], W: value.Rotation[3]},
+			XDirection:     &workerv1.Vec3{X: value.XDirection[0], Y: value.XDirection[1], Z: value.XDirection[2]},
+			ParameterStart: value.ParameterStart, ParameterEnd: value.ParameterEnd, LengthUnit: value.LengthUnit,
 			Origin:    &workerv1.Vec3{X: value.Origin[0], Y: value.Origin[1], Z: value.Origin[2]},
 			Direction: &workerv1.Vec3{X: value.Direction[0], Y: value.Direction[1], Z: value.Direction[2]}, Radius: value.Radius})
 	}
 	for _, value := range constraints {
 		item := &workerv1.AssemblyConstraint{Id: value.ID, Kind: value.Kind, Value: value.Value,
+			ContactKind: value.ContactKind, ContactSide: value.ContactSide, ContactBranch: value.ContactBranch, GroupId: value.GroupID,
 			ConnectionId: value.ConnectionID, Mode: value.Mode,
 			DirectionRelation: value.DirectionRelation, DistanceRelation: value.DistanceRelation,
 			First: &workerv1.AssemblyGeometryRef{BodyId: value.FirstBodyID, GeometryId: value.FirstGeometryID}}
 		if value.SecondBodyID != "" {
 			item.Second = &workerv1.AssemblyGeometryRef{BodyId: value.SecondBodyID, GeometryId: value.SecondGeometryID}
+		}
+		if value.AngleReferenceGeometryID != "" {
+			item.AngleReference = &workerv1.AssemblyGeometryRef{BodyId: value.AngleReferenceBodyID, GeometryId: value.AngleReferenceGeometryID}
+			item.ReverseAngleReference = value.ReverseAngleReference
 		}
 		if value.FixedPose != nil {
 			item.FixedPose = protoPose(*value.FixedPose)

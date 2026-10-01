@@ -221,11 +221,20 @@ func TestMultiBodyIndependentGeometryAndHistory(t *testing.T) {
 		t.Fatal("generator deletion redo retained Body")
 	}
 
-	// An ordinary ADD, not NEW_BODY, must route a disconnected exact solid.
+	// A new generator-owned Body requires explicit NEW_BODY intent. An
+	// ordinary ADD keeps TARGET_BODY even for a disconnected solid; it must not
+	// infer a new business Body from geometric connectivity.
 	isolatedSketch := rectangle(first, 80, 0, 4, 4)
 	firstKey := part.Part.Bodies[0].GeometryKey
 	seq++
-	autoRequest := workspace.CommandRequest{ActorID: p6Actor, RequestID: fmt.Sprintf("%s-%d", part.Document.ID, seq), Type: "CREATE_SOLID_FEATURE", BodyID: first, SketchID: isolatedSketch, Generator: "LINEAR_EXTRUDE", Operation: "ADD", Length: 5}
+	autoRequest := workspace.CommandRequest{ActorID: p6Actor, RequestID: fmt.Sprintf("%s-%d", part.Document.ID, seq), Type: "CREATE_SOLID_FEATURE", BodyID: first, SketchID: isolatedSketch, Generator: "LINEAR_EXTRUDE", Operation: "NEW_BODY", Length: 5}
+	ordinary := autoRequest
+	ordinary.RequestID += "-target-body"
+	ordinary.Operation = "ADD"
+	ordinaryPreview, e := service.PreviewCommand(t.Context(), part.Document.ID, ordinary)
+	if e != nil || ordinaryPreview.Artifact == nil || ordinaryPreview.Artifact.BodyID != first {
+		t.Fatalf("ordinary ADD inferred a new CAD Body: %+v %v", ordinaryPreview, e)
+	}
 	autoPreview, e := service.PreviewCommand(t.Context(), part.Document.ID, autoRequest)
 	if e != nil || autoPreview.Artifact == nil || autoPreview.Artifact.BodyID == first {
 		t.Fatalf("disconnected preview: %+v %v", autoPreview, e)
@@ -238,7 +247,7 @@ func TestMultiBodyIndependentGeometryAndHistory(t *testing.T) {
 	autoBody := part.Part.Bodies[len(part.Part.Bodies)-1]
 	autoFeature := part.Part.Features[len(part.Part.Features)-1]
 	if len(part.Part.Bodies) != 3 || autoBody.ID != autoPreview.Artifact.BodyID || autoFeature.BodyID != autoBody.ID || autoBody.CreatedByFeatureID != autoFeature.ID || part.Part.Bodies[0].GeometryKey != firstKey {
-		t.Fatal("automatic Body identity or sibling geometry changed")
+		t.Fatal("explicit generated Body identity or sibling geometry changed")
 	}
 	if len(part.Artifacts[autoBody.GeometryKey].Representations) != 3 {
 		t.Fatal("auto Body lacks authoritative artifacts")
@@ -267,10 +276,10 @@ func TestMultiBodyIndependentGeometryAndHistory(t *testing.T) {
 	if len(part.Part.Bodies) != 2 {
 		t.Fatal("auto delete redo")
 	}
-	// The non-preview path uses the same classification and keeps REMOVE failures.
-	extrude(first, isolatedSketch, "ADD", 5)
+	// The non-preview path uses the same explicit intent and keeps REMOVE failures.
+	extrude(first, isolatedSketch, "NEW_BODY", 5)
 	if len(part.Part.Bodies) != 3 {
-		t.Fatal("direct ADD did not create Body")
+		t.Fatal("direct NEW_BODY did not create Body")
 	}
 	seq++
 	_, e = service.ApplyCommand(t.Context(), part.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: fmt.Sprintf("%s-%d", part.Document.ID, seq), Type: "CREATE_SOLID_FEATURE", BodyID: first, SketchID: isolatedSketch, Generator: "LINEAR_EXTRUDE", Operation: "REMOVE", Length: 5})

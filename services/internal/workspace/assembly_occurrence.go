@@ -80,6 +80,10 @@ func assemblyGeometryInBody(value geometry.AssemblyGeometry, pose InstancePose) 
 		value.Origin[i] += pose.Translation[i]
 	}
 	value.Direction = rotateByPose(pose, value.Direction)
+	value.XDirection = rotateByPose(pose, value.XDirection)
+	if value.Kind == "FRAME" {
+		value.Rotation = composeInstancePose(pose, InstancePose{Rotation: value.Rotation}).Rotation
+	}
 	return value
 }
 

@@ -18,7 +18,8 @@ const actual = await import(`data:text/javascript;base64,${Buffer.from(output).t
 const catalog = JSON.parse(await readFile(resolve("../../../tests/assembly-contract/catalog.json"), "utf8"));
 const selection = process.env.OCCCCAD_ASSEMBLY_CONTRACT_CASES
   ? JSON.parse(process.env.OCCCCAD_ASSEMBLY_CONTRACT_CASES) : undefined;
-const cases = catalog.cases.filter(c => c.adapter === "web-catalog" && (selection ? selection.includes(c.caseId) : c.baseline));
+const fixturePath = "web/apps/cad/src/cad/assembly/testing/assembly-contract.scenario.mjs";
+const cases = catalog.cases.filter(c => c.adapter === "web-catalog" && c.fixture.source === fixturePath && (selection ? selection.includes(c.caseId) : c.baseline));
 assert.ok(cases.length, "no actual catalog web cases selected");
 for (const c of cases) {
   if (c.selector === "entry") {

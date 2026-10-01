@@ -6,8 +6,9 @@ export function offsetCommandFields(fields:OffsetFields):OffsetFields {
   return {offsetExpression:fields.offsetExpression ?? "", offsetKey:fields.offsetKey?.trim() || undefined,
     constraintMode:fields.constraintMode ?? "DRIVING"};
 }
-export function offsetInitialFields(constraint?:AssemblyConstraint, references:AssemblyGeometryRef[]=[]):OffsetFields & {distanceRelation:string} {
-  return {offsetExpression:constraint?.offsetParameter?.source.expression?.sourceText ?? "",
-    offsetKey:constraint?.offsetParameter?.key ?? "", constraintMode:constraint?.mode ?? "DRIVING",
-    distanceRelation:constraint?.distanceRelation ?? (references.some(r=>["PLANE","FACE"].includes(r.kind)) ? "SELECTED_PLANE_NORMAL_V1" : "UNSIGNED")};
+export function offsetInitialFields(constraint?:AssemblyConstraint, references:AssemblyGeometryRef[]=[], exactTypes?:string[]):OffsetFields & {distanceRelation:string} {
+  const parameter=constraint?.quantityParameter ?? constraint?.offsetParameter;
+  return {offsetExpression:parameter?.source.expression?.sourceText ?? "",
+    offsetKey:parameter?.key ?? "", constraintMode:constraint?.mode ?? "DRIVING",
+    distanceRelation:constraint?.distanceRelation ?? ((exactTypes ?? references.map(r=>r.kind)).includes("PLANE") ? "SELECTED_PLANE_NORMAL_V1" : "UNSIGNED")};
 }

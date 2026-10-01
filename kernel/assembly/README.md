@@ -19,30 +19,47 @@ depend on OCCT, Product documents, topology naming, RPC or persistence.
 - A body pose is an `SE(3)` transform mapping local coordinates to world coordinates
   as `R * p + t`. Solver updates are six-dimensional local increments.
 - Geometry is an immutable value descriptor owned by one body: `Point`, `Axis`,
-  `Plane` or `Cylinder`. An eventual Product adapter must resolve stable
-  `InstancePath`/persistent selections into these descriptors before solving.
+  `Plane`, `Cylinder`, `Circle`, `Sphere`, `Cone` or `Frame`. The Product adapter
+  resolves frozen stable `InstancePath`/Publication/persistent selections and
+  explicit derived roles before solving. One solver body is an occurrence motion
+  unit, not each CAD Body inside a multi-Body Part.
 - Constraints refer to geometry by `(body_id, geometry_id)`. `Fix` refers to a body
   and preserves its initial pose unless an explicit target pose is supplied.
 - Constraints have stable connection identity and `Driving`, `Measured`,
   `Controlled` or `Suppressed` mode. Driving and Controlled constraints enter the
   equation system; Measured constraints are evaluated without moving bodies.
-- Angles use radians and distances use the caller's model-length unit. Length and
-  angular residuals are normalized independently through `SolverOptions`.
+- Angles use radians; descriptor coordinates, lengths and radii use millimeters.
+  Quantity source values use SI and convert once in the Domain compilation
+  boundary, not independently inside each equation. Length and angular residuals
+  are normalized independently through `SolverOptions`.
 - Direction and signed-distance branches are explicit. `Unoriented` is convenient
   for symmetric geometric entities, while `Same`/`Opposite` and plane-side options
   preserve user intent when a result has multiple branches.
 
-## First supported constraint matrix
+## Native primitives and public compilation
+
+The unique production capability source is
+[`services/internal/assemblycontract/catalog.json`](../../services/internal/assemblycontract/catalog.json)
+(`schemaVersion=1`, `assembly-six-families-v2`). The contract test directory uses
+a symlink to it; no independent C++/Go/Web product matrix is maintained. Public
+definition v2 uses Coincidence, Contact, Offset, Angle, Fix and Fix Together;
+Concentric/Distance/Parallel/Perpendicular/Rigid are numeric primitives or explicit
+shortcuts. Product availability comes from that semantic contract and exact server
+validation, never a test-report PASS count. The native module receives compiled
+values rather than interpreting the public JSON catalog or persistent commands.
 
 | Constraint | Supported geometry |
 |---|---|
 | Fix | Body pose |
 | Coincident | Point-Point, Point-Axis/Cylinder, Point-Plane, Axis/Cylinder pairs, Plane-Plane |
+| Exact Coincident | Point-Circle, Point-Sphere, Point-selected-leaf Cone; full Frame-Frame pose |
+| SurfaceIncidence | Explicit Point-Cylinder surface, rank 1; legacy Coincident Point-Cylinder still means axis incidence, rank 2 |
 | Concentric | Any Axis/Cylinder pair |
 | Angle | Any pair of Plane, Axis or Cylinder directions |
 | Distance | Point-Point, Point-Axis/Cylinder, Point-Plane, Axis/Cylinder pairs, Axis/Cylinder-Plane, Plane-Plane |
 | Parallel | Plane/Axis/Cylinder direction pairs; generic rank 2 |
 | Perpendicular | Plane/Axis/Cylinder direction pairs; generic rank 1 |
+| Contact | Plane-Plane face; Plane-Cylinder line; Plane-Sphere point; Cylinder-Cylinder line/face; Sphere-Sphere face; Sphere-Cone/Sphere-Circle ring; Cone-Cone line/face; Cone-Circle ring |
 
 Zero driving Point-Point/Point-Axis distances compile to coincidence equations with rank 3/2; a scalar norm at zero cannot represent that manifold with a regular Jacobian. The composition corpus checks ranks zero through six, the position/direction/clocking construction and suppression.
 
@@ -51,6 +68,20 @@ Zero driving Point-Point/Point-Axis distances compile to coincidence equations w
 Cylinder-Cylinder `Coincident` includes equal radius; `Concentric` deliberately does
 not. Plane distance also imposes parallelism, which makes it a stable assembly mate
 rather than a closest-point measurement between arbitrary planes.
+
+Curve support here means an exact infinite Line or explicit underlying Circle;
+surface incidence is Plane/Cylinder/Sphere/selected-leaf Cone, not arbitrary NURBS
+or browser polylines. Frame relationships outside full Frame-Frame use explicit
+origin/axis/plane roles. Contact uses its analytic support/material equations, not
+zero Distance, finite-face overlap or mesh collision. Its 11 branches, ranks,
+degeneracies and side semantics are documented in
+[Solver Algorithms](SOLVER_ALGORITHMS.md#51-解析-contact).
+
+Fix Together retains Domain group identity and membership. Frozen manifest
+`groupStages` solves member-internal constraints first, captures successful
+relative relationships, then supplies compiled Rigid links to the outer solve.
+Native Rigid alone is not a multi-member group implementation. Failed internal or
+outer results cannot promote captured relationships or candidate poses.
 
 ## Graph compilation and numerical implementation
 
@@ -83,9 +114,19 @@ initial recovery uses a radial translation. With one free cluster, preference
 optimization stays in the local parallel chart instead of differentiating
 through the nonsmooth skew-line limit. Chart rows do not affect physical
 equations, rank or DOF; this is not an added Parallel constraint or a global
-minimum-motion guarantee. Zero-distance intersection and coupled combinations
-remain separate validation/development gaps. Regression:
+minimum-motion guarantee. Zero-distance intersection keeps its physical crossing
+manifold; the parallel local chart and explicit Parallel coupling have dedicated
+rank, finite-motion and physical-Fix-conflict regressions. The chart never adds a
+hidden persistent Parallel/Fix. Regression:
 `AssemblyOffset.ParallelOffOriginEdgesMoveToRequestedDistance`.
+
+The feasibility LM translation damping floor scales as `1/length_scale^2`, avoiding
+over-penalized translation of off-origin supports. Preference energy bounds are
+frozen after the same strict feasibility retraction used for candidates. Legal
+stationary initial directions use trial-only seeds: 90 degrees for Plane-Cylinder
+Contact and Axis-Plane Coincidence/Offset, 180 degrees for antipodal Plane-Plane
+Contact. These preserve nominal/Fix/captured-group data, physical equations, rank,
+motion priorities and tolerances.
 
 Each selected component uses deterministic damped least squares whose linearized
 step is solved as an augmented QR problem without forming normal equations. Typed
@@ -112,14 +153,22 @@ Unoriented alignment admits both directions; differential checks stay in the
 local branch selected at the base point. The versioned SolverProfile and
 rank/branch/suspected-conflict diagnostics cross the Proto, Worker and Go boundary.
 
+Modern DIRECTED Angle resolves `angle_reference_geometry` in its own body, which
+may be an independent third occurrence and participates in the component/Jacobian.
+`reverse_angle_reference` is explicit; selection exchange does not change that
+owner. Legacy `angle_reference_direction` retains its second-body-local frozen
+interpretation. New inputs use `assembly-six-families-composition-v10`; the
+control-plane manifest schema remains 1 and SolverProfile schema remains 2.
+
 M2.5 returns per-body instantaneous translation, rotation/screw and allowed/blocked
 subspaces with linearization poses, metric scales, reference frame and rank
 threshold. Canonical revolute, prismatic, cylindrical, planar and spherical families
 are inferred from subspaces; ambiguous combinations remain `Coupled`. These are
 local differential freedoms, not persisted Engineering Connections or guarantees of
 finite travel. Product previews expose this evidence in the constraint dialog.
-Persistent topology, durable solve manifests, closest-feasible MOVE dragging,
-minimal conflict sets and sparse/incremental solving remain M3 and later work.
+Persistent topology and durable solve manifests are provided by the current
+Product/Worker boundary, not queried by this module. Closest-feasible M4 MOVE
+dragging, minimal conflict sets and sparse/incremental solving remain future work.
 
 Build and run the focused scenarios with:
 
@@ -148,6 +197,25 @@ The 2026-09-06 validation passed 78 assembly/corpus tests, full Go tests,
 real Router/Worker Product history integration, Web scenarios and production build.
 Current dense Debug timings and browser acceptance are recorded in
 [SOLVER_ALGORITHMS.md](SOLVER_ALGORITHMS.md).
+
+That is an earlier-stage record, not new six-family evidence. The current native
+run passed **177/177 scenarios and 21/21 corpus tests**, including independent
+Contact support/material assertions, exact incidence, per-capability numeric
+matrix, third-axis projected angles, zero-distance branches and the two stationary
+initial-pose fixes. Output is in
+`build/constraint-composition/native-composition-final.xml` and
+`native-corpus-final.xml`. The six joint finite-motion corpus checks 13 analytic
+poses plus one blocked-motion recovery per family, rather than certifying finite
+travel from an instantaneous kernel alone.
+
+For cross-layer acceptance, use the shared
+[contract runner](../../tests/assembly-contract/README.md). `composition` requires
+every selected capability's mandatory implementation layers and specific actual
+evidence to be ACCEPTED; blocked database/Worker/fixture evidence is not green.
+Native success alone does not certify Web/Domain/history/Release or the complete
+milestone. The README there also provides analytic FixtureExport and maintainer
+manual checks. Only the earlier OFFSET work has maintainer use confirmation;
+new interactions await manual acceptance, and M4 dragging has not been implemented.
 
 The translated/rotated FACE 4 to fixed FACE 6 regression is also available as a
 [minimal 3dreplay fixture](../../tests/assembly-corpus/face4-face6.3dreplay), replayable

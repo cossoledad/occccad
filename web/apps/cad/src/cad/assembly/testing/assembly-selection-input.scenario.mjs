@@ -4,6 +4,8 @@ const server=await createServer({appType:"custom",logLevel:"silent",server:{midd
 try {
   const { ToolManager }=await server.ssrLoadModule("/src/cad/tool/tool-manager.ts");
   const { AssemblyConstraintTool, SelectTool }=await server.ssrLoadModule("/src/cad/tool/cad-tool.ts");
+  const {assemblyGeometryRef}=await server.ssrLoadModule("/src/cad/assembly/assembly-reference.ts");
+  assert.equal(assemblyGeometryRef({kind:"axis-system",id:"frame",entityId:"stable-frame",instanceId:"a"}).kind,"FRAME","whole Frame must not silently become its origin point");
   const face=(id)=>({kind:"face",id:"face-"+id,instanceId:id,geometryKey:"mesh-"+id,topologyId:2});
   const axis=(id)=>({kind:"axis",axis:"DATUM",id:"axis-"+id,entityId:"datum-"+id,instanceId:id});
   let selected=[],requests=[],pick=null,events=[];
@@ -19,7 +21,7 @@ try {
   };
   manager=new ToolManager({viewport});
   manager.register(new SelectTool());
-  for(const kind of ["fix","coincident","rigid"]) manager.register(new AssemblyConstraintTool(kind));
+  for(const kind of ["fix","coincident","rigid","fix_together","contact"]) manager.register(new AssemblyConstraintTool(kind));
   manager.subscribe(id=>events.push(id));
   selected=[face("a"),face("b")]; manager.activate("assembly.coincident");
   assert.equal(requests.length,1);assert.equal(requests[0].references.length,2);
@@ -41,6 +43,11 @@ try {
   assert.deepEqual(requests.at(-1),{kind:"fix",references:[{instanceId:"a",kind:"BODY"}]});
   selected=[face("b")]; manager.activate("assembly.fix");
   assert.deepEqual(requests.at(-1),{kind:"fix",references:[{instanceId:"b",kind:"BODY"}]},"preselected geometry is promoted for Fix");
+  selected=[face("a"),face("b")];manager.activate("assembly.fix_together");
+  assert.deepEqual(requests.at(-1),{kind:"fix_together",references:[{instanceId:"a",kind:"BODY"},{instanceId:"b",kind:"BODY"}]},"group creation seeds motion occurrences, never CAD face bodies");
+  selected=[face("a"),face("b")];manager.activate("assembly.contact");
+  assert.equal(requests.at(-1).kind,"contact");
+  assert.deepEqual(requests.at(-1).references.map(r=>r.kind),["FACE","FACE"],"Contact preserves unresolved source picks for authoritative exact inspection");
 
   selected=[face("a")];manager.activate("assembly.coincident");
   manager.activate("select");

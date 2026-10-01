@@ -81,10 +81,18 @@ message AssemblyBody {
 message AssemblyGeometry {
     string id = 1;
     string body_id = 2;
-    string kind = 3; // POINT, AXIS, PLANE, CYLINDER
+    string kind = 3; // POINT, AXIS, PLANE, CYLINDER, CIRCLE, SPHERE, CONE, FRAME
     Vec3 origin = 4;
     Vec3 direction = 5;
     double radius = 6;
+    double half_angle = 7; // radians; exact cone 0 < angle < pi/2
+    int32 cone_leaf = 8; // +/-1; axis reversal also reverses leaf
+    int32 material_side = 9; // +/-1 analytic outward normal / cavity
+    Quaternion rotation = 10; // body-local right-handed Frame orientation
+    Vec3 x_direction = 11; // Circle oriented local transverse direction
+    optional double parameter_start = 12;
+    optional double parameter_end = 13; // circle radians, underlying support explicit
+    string length_unit = 14; // MM; absent only in legacy mm-valued manifests
 }
 
 message AssemblyGeometryRef {
@@ -106,6 +114,12 @@ message AssemblyConstraint {
     Vec3 angle_reference_direction = 11; // optional, in second-body local coordinates
     AssemblyAngleBranchState angle_branch_state = 12; // optional previous accepted branch
     Vec3 spatial_angle_branch_direction = 13; // transported sector selector in second-body local frame; not a rotation axis
+    string contact_kind = 14; // FACE, LINE, POINT, RING
+    string contact_side = 15; // EXTERNAL, INTERNAL; not Same/Opposite
+    int32 contact_branch = 16; // +/-1 directed side/height branch
+	string group_id = 17; // stable public Fix Together provenance on compiled primitives
+    AssemblyGeometryRef angle_reference = 18; // frozen exact axis source, including independent owning body
+    bool reverse_angle_reference = 19;
 }
 
 message SolveAssemblyRequest {
@@ -406,6 +420,11 @@ message SelectionEvidence {
     optional double parameter_start = 9;
     optional double parameter_end = 10;
     string endpoint_role = 11;
+    optional double radius_mm = 12;
+    optional double half_angle_radians = 13;
+    optional int32 cone_leaf = 14;
+    optional int32 material_side = 15;
+    Vec3 x_direction = 16;
 }
 
 message PersistentSelection {
@@ -530,6 +549,11 @@ message NamingEvidence {
     repeated uint32 adjacent = 4;
     string evidence_digest = 5;
     string endpoint_role = 6;
+    optional double radius_mm = 7;
+    optional double half_angle_radians = 8;
+    optional int32 cone_leaf = 9;
+    optional int32 material_side = 17;
+    Vec3 x_direction = 18;
     oneof geometry {
         NamingFrame plane = 10;
         NamingFrame cylinder = 11;

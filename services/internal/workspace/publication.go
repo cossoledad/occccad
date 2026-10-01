@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -343,13 +344,6 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 				continue
 			}
 			candidate := resolution.Candidates[0]
-			evidence := candidate.Evidence
-			x, xOK := stableSupportX(evidence.Direction, [3]float64{})
-			z, zOK := normalize3(evidence.Direction)
-			if !xOK || !zOK {
-				broken("PUBLICATION_LOCAL_FRAME_UNAVAILABLE", "resolved topology does not provide a stable local frame")
-				continue
-			}
 			artifact, err := service.loadArtifact(ctx, candidate.GeometryKey)
 			if err != nil {
 				return err
@@ -358,19 +352,25 @@ func (service *Service) resolvePartPublications(ctx context.Context, documentID,
 			if err != nil {
 				return err
 			}
-			var radius float64
-			if properties.GeometryType == "CYLINDER" {
-				var ok bool
-				radius, ok = properties.Properties["radius"].(float64)
-				if !ok || radius <= 0 {
-					broken("PUBLICATION_EXACT_GEOMETRY_UNAVAILABLE", "resolved cylindrical surface does not provide an exact positive radius")
-					continue
-				}
+			exact, descriptorErr := assemblyGeometryFromProperties(geometry.AssemblyGeometry{}, properties)
+			if descriptorErr != nil {
+				broken("PUBLICATION_EXACT_GEOMETRY_UNAVAILABLE", descriptorErr.Error())
+				continue
+			}
+			z := exact.Direction
+			if exact.Kind == "SPHERE" {
+				z = [3]float64{0, 0, 1}
+			} // Cosmetic local frame, not a sphere axis.
+			x, xOK := stableSupportX(z, exact.XDirection)
+			if !xOK {
+				broken("PUBLICATION_LOCAL_FRAME_UNAVAILABLE", "resolved topology does not provide a stable local frame")
+				continue
 			}
 			publication.Resolution = PublicationResolution{Status: "CONNECTED", ResolvedVersionID: revisionID,
 				GeometryKey: candidate.GeometryKey, GeometryID: candidate.GeometryID, TopologyKind: string(candidate.Type), GeometryKind: properties.GeometryType,
-				LocalID: candidate.LocalID, Origin: evidence.Origin, XDirection: x, YDirection: cross3(z, x), ZDirection: z,
-				Radius: radius,
+				LocalID: candidate.LocalID, Origin: exact.Origin, XDirection: x, YDirection: cross3(z, x), ZDirection: z,
+				Radius: exact.Radius, HalfAngle: exact.HalfAngle, ConeLeaf: exact.ConeLeaf, MaterialSide: exact.MaterialSide,
+				ParameterStart: exact.ParameterStart, ParameterEnd: exact.ParameterEnd, LengthUnit: exact.LengthUnit,
 				SourceDigest: resolvedDigest(struct {
 					Selection modelcore.PersistentSelection
 					Candidate modelcore.ResolvedTopologyElement

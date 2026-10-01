@@ -47,9 +47,33 @@ struct CylinderGeometry {
     Vec3 axis_origin{};
     Vec3 axis_direction{0.0, 0.0, 1.0};
     double radius{1.0};
+    int material_side{1}; // analytic outward normal (+1) / cavity (-1)
 };
 
-using Geometry = std::variant<PointGeometry, AxisGeometry, PlaneGeometry, CylinderGeometry>;
+// All exact descriptor lengths use the same millimetre model unit as Pose.
+// Quantity SI conversion belongs to the Domain boundary, not these equations.
+struct CircleGeometry {
+    Vec3 center{};
+    Vec3 normal{0.0, 0.0, 1.0};
+    double radius{1.0};
+    Vec3 x_direction{1.0, 0.0, 0.0};
+};
+struct SphereGeometry {
+    Vec3 center{};
+    double radius{1.0};
+    int material_side{1};
+};
+struct ConeGeometry {
+    Vec3 apex{};
+    Vec3 axis_direction{0.0, 0.0, 1.0};
+    double half_angle{0.25}; // radians, 0 < angle < pi/2
+    int leaf{1};
+    int material_side{1};
+};
+struct FrameGeometry { Pose frame{}; }; // right-handed, body-local SE(3)
+
+using Geometry = std::variant<PointGeometry, AxisGeometry, PlaneGeometry, CylinderGeometry,
+                              CircleGeometry, SphereGeometry, ConeGeometry, FrameGeometry>;
 
 struct Body {
     std::string id;
@@ -77,8 +101,14 @@ enum class ConstraintKind {
     Angle,
     Distance,
     Parallel,
-    Perpendicular
+    Perpendicular,
+    Contact,
+    // Explicit point-on-exact-surface; legacy Point-Cylinder Coincident is axis incidence.
+    SurfaceIncidence
 };
+
+enum class ContactKind { Face, Line, Point, Ring };
+enum class ContactSide { External, Internal };
 
 enum class ConstraintMode { Driving, Measured, Controlled, Suppressed };
 
@@ -111,6 +141,10 @@ struct Constraint {
     // Present: projected directed angle. Absent: true spatial separation, with
     // reflex intent for targets > pi, and no frozen rotation axis.
     std::optional<Vec3> angle_reference_direction;
+    // Modern projected-angle axis retains independent body ownership.
+    // Legacy angle_reference_direction remains second-body-local for replay.
+    std::optional<GeometryRef> angle_reference_geometry;
+    bool reverse_angle_reference{};
     // Selects the signed spatial-angle sector without projecting either normal.
     std::optional<Vec3> spatial_angle_branch_direction;
     // Previous accepted directed-angle branch. The solver chooses the nearest
@@ -120,6 +154,9 @@ struct Constraint {
     DistanceRelation distance_relation{DistanceRelation::Unsigned};
     // Fix: target world pose. Rigid: target pose of first relative to second.
     std::optional<Pose> fixed_pose;
+    ContactKind contact_kind{ContactKind::Face};
+    ContactSide contact_side{ContactSide::External};
+    int contact_branch{1}; // selected directed side/height; not Same/Opposite
 };
 
 struct Model {

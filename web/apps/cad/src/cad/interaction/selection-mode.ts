@@ -33,7 +33,7 @@ export const SELECTION_MODES: Record<SelectionModeID, SelectionMode> = {
 };
 
 export function selectionModeForTool(toolID: string): SelectionMode {
-  return ["assembly.move", "assembly.fix", "assembly.rigid"].includes(toolID)
+  return ["assembly.move", "assembly.fix", "assembly.rigid", "assembly.fix_together"].includes(toolID)
     ? SELECTION_MODES.instance : SELECTION_MODES.geometry;
 }
 

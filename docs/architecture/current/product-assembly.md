@@ -1,6 +1,6 @@
 # Product 关联设计、装配与发布
 
-> 2026-09-21 文档核对基线。返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。ACCEPT-PRODUCT 已完成，人工与自动化证据及限制见本文末尾。
+> 本轮六族代码核对基线：`main / c1becfd` 加 CONSTRAINT-COMPOSITION 工作区变更（2026-10-01）。返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。各旧阶段保留自己的执行基线，人工与自动化证据分别记录。
 
 - 当前 Product UI 中的新实例固定采用 `FOLLOW_HEAD`；被引用文档变化后先使 root-snapshot `ProductUpdatePlan` 失效并投影 `UPDATE_AVAILABLE`，打开 Product 的可编辑客户端随后按叶到根自动接受每一级带 digest 的计划，提交普通 `UPDATE_REFERENCES` Revision 并重建可重放快照。Instance 右键可把当前 resolved Revision 切换为 `PINNED`，也可恢复 `FOLLOW_HEAD`；任意历史版本 picker 尚未开放。Instance 右键“在新标签页中打开”调用显式 open-document 生命周期并进入独立 Reference Document 工作空间；普通 GET、依赖读取和更新广播只更新缓存或已打开摘要，不创建、置顶或激活标签。具体边界见 [TREE-03](tree03-product-edit-tabs.md)。
 
@@ -38,6 +38,8 @@ Web 以宿主 root Product 和唯一 occurrence 编辑目标维护非持久设�
 
 每次正式 assembly preview/commit 冻结 `AssemblySolveManifest`：root/candidate Revision、完整 body pose、局部几何描述符、Publication/PersistentSelection resolution evidence、约束、branch/intent、affected scope、schema 2 solver profile 与 build policy 共同形成确定 digest。构造器按持久化 JSON 表示冻结独立快照，位姿、角度分支及 Publication/PersistentSelection 证据不再共享调用方指针；后续调用方修改不改变已冻结内容与 digest。Worker 只消费 manifest 中的纯值；Publication endpoint 直接使用已解析 descriptor，不再让 solver 查询 Product/B-Rep。manifest 与 request-specific result 持久化，重试复用同一结果，digest replay、request lookup、deadline/cancel 和既有 `.3dreplay` 数值证据并存。
 
+当前新输入使用 `assembly-six-families-composition-v10` policy/build，manifest schema 1、solver profile schema 2 不变，新增公共 definition v2、Quantity、八类 descriptor、独立角度轴与 `groupStages`。新 manifest 的 `digestPolicy=CANONICAL_JSON_V1` 针对 JSONB 的对象顺序与负零表示规范化；它只版本化本 manifest 身份，不改变单位、参数或引用语义。[摘要兼容入口](../../../services/internal/workspace/assembly_manifest_digest.go)读取旧空 policy 记录时按原冻结字段形状验证旧摘要，不能因新 Go struct 增加默认字段而使旧记录失效，也不能忽略被篡改的旧字段。v7/v8/v9 冻结记录继续校验其旧语义；新六族定义/解析 descriptor 不能伪装旧 policy。replay 记录当前真实 build，保证语义重放而非旧二进制逐位复现，不改写原 Revision、SolveManifest 或 Release。
+
 当前保存独立 `ProductRelease`：Release Manifest 冻结完整 occurrence typed path/Revision/pose、ContextBinding、ContextVariant GeometryKey/EvaluationManifest、Product Publication、命名/evaluator policy、成功 SolveManifest 与 gate 结果。Gate 要求引用 current、全部 occurrence/variant READY、活动约束 Verified 且有可重放求解证据；停用定义保留在 SolveManifest 中，不伪造 Verified，也不参与此 gate。Release 可在 Workspace Head 移动后按 manifest replay，并从冻结 GeometryKey 提交 STEP/BREP 导出；Exchange placement 现已贯通 translation 与 quaternion rotation。Web 的“产品版本中心”只负责创建、列出和 replay 不可变里程碑，不再把 STEP/BREP 按钮混入发布流程；Exchange 保留为独立后续 UX。当前不把 Configuration/Design Table、partial update、flexible subassembly 或 Derive Part from Context 列为已实现能力。
 
 ## 求解与交互的当前边界
@@ -46,9 +48,9 @@ Web 以宿主 root Product 和唯一 occurrence 编辑目标维护非持久设�
 
 HTTP `phases_ms` 增加 `assembly-total`、`assembly-prepare`、`assembly-worker`、`assembly-manifest-write`、`assembly-result-read/write`，以及 `topology-manifest-read`、`topology-properties`、`topology-rpc`。同名阶段累加所有试算；阶段存在包含关系，不能相加当作总耗时。`assembly-worker` 包含 RPC/排队/求解，`topology-worker` 保留制品准备及 RPC 耗时，`topology-rpc` 单独计量 RPC；Worker 自身日志才是几何查询内部耗时。高延迟数据库下优先比较清单读取、准备和持久化与 Worker 阶段，而不是依据 `cache_hit` 推断端到端成本。拖拽前端仅保留一个在途权威预览并合并待处理姿态，因此每次 HTTP 延迟直接限制权威预览更新频率。跨请求缓存、批量预取和大系统数值优化尚未实现，应由这些阶段及 `.3dreplay` 测量决定。
 
-`kernel/assembly` 只消费纯值 Point/Axis/Plane/Cylinder、约束和完整 SE(3) pose。Rigid cluster、Fix/Ground 消元与 connected-component 求解先于数值迭代；生产路径使用解析 Jacobian、augmented QR 和 SVD rank/null-space。M2.5 依次满足硬约束、最小化 reference motion、最小化总 nominal motion，独立报告偏好收敛与瞬时自由度。创建/编辑以第一选择为 moving、第二选择为 reference，Constraint 与全部 solved pose 在同一 ChangeSet 提交。Rigid 捕获当前相对位姿后允许 moving/reference 两个 occurrence 属于同一刚性组，reference 最小运动作用于共享组；既有约束仍逐项验证，真实不一致不会被固连掩盖。算法细节与 corpus 由[Solver Algorithms](../../../kernel/assembly/SOLVER_ALGORITHMS.md)维护。
+`kernel/assembly` 只消费纯值 Point/Axis/Plane/Cylinder/Circle/Sphere/Cone/Frame、内部约束原语和完整 SE(3) pose。多 Body Part occurrence 仍是一个装配运动单元；支持可定位任意 CAD Body，不能据此拆分 solver body。Rigid cluster、Fix/Ground 消元与 connected-component 求解先于数值迭代；生产路径使用解析 Jacobian、augmented QR 和 SVD rank/null-space。M2.5 依次满足硬约束、最小化 reference motion、最小化总 nominal motion，独立报告偏好收敛与瞬时自由度。创建/编辑以第一选择为 moving、第二选择为 reference，Constraint 与全部 solved pose 在同一 ChangeSet 提交。Rigid 捕获当前相对位姿后允许 moving/reference 两个 occurrence 属于同一刚性组，reference 最小运动作用于共享组；既有约束仍逐项验证，真实不一致不会被固连掩盖。算法细节与 corpus 由[Solver Algorithms](../../../kernel/assembly/SOLVER_ALGORITHMS.md)维护。
 
-当前 MOVE 仍注入临时 `interaction-driver` Fix；不可达预览恢复权威 pose，尚不能返回 M4 的最近可行拖拽结果。有效 preview candidate 可经 CAS 提升为提交，缺失/过期时重新权威求解。M3 已覆盖嵌套 rigid Product 与持久引用解析；flexible expansion、稀疏后端和最小冲突集尚未实现。
+当前 MOVE 仍注入临时 `interaction-driver` Fix；不可达预览恢复权威 pose，尚不能返回 M4 的最近可行拖拽结果。有效 preview candidate 可经完整身份与 CAS 校验提升为提交；未提供 PreviewID 的命令走权威求解，明确提供但已过期或不匹配的 candidate 返回 `PREVIEW_CANDIDATE_STALE_OR_MISMATCHED`，不能静默重新求解后采用另一结果。M3 已覆盖嵌套 rigid Product 与持久引用解析；flexible expansion、稀疏后端和最小冲突集尚未实现。
 
 三维求解支持独立的 `occccad.3dreplay.v1` 下载：每次实际 SolveAssembly（包括 preview、成功、模型失败和已知的 RPC 失败）结束后，将精确数学请求、有效求解参数及紧凑结果在响应关键路径之外原子写入 `OCCCCAD_LOG_DIR/debug/assembly-replays/<documentID>/`。它不进入 PostgreSQL，不改变 Workspace Head/Revision，也不包含 B-Rep、网格或完整命令历史。每个文档最多保留 50 条且最长保留 7 天；文档读权限仍控制列表与下载，Web 可按真正发生求解的 request ID 下载 `.3dreplay`。文件可不依赖数据库通过 Worker/Router 重放。几何解析前失败尚未形成数值求解输入，不生成文件；本地存档失败只记录独立错误，不伪造求解状态。
 
@@ -81,21 +83,33 @@ HTTP `phases_ms` 增加 `assembly-total`、`assembly-prepare`、`assembly-worker
 
 验收待办已移出计划；M4 稳定拖拽、M5 冲突解释和 M6 工程连接仍是后续工作，不因本次验收完成而视作交付。
 
-## 六类约束与生命周期的首批实现
+## 六类公共定义、精确支持与生命周期
 
-产品约束新增独立 `suppressed`，与 `mode` 正交。`SET_ASSEMBLY_CONSTRAINT_STATE` 支持单个/批量停用、恢复及角度/距离量的 Driving/Measured 切换；实体 PropertySlot 记录完整状态，CAS、幂等与补偿历史复用正式命令路径。原模式和诊断在停用时保留；重新激活按已接受的 Part Revision 解析，不自动接受新 Head。树菜单、约束编辑面板、Inspector 与视口灰色标识可查看/切换状态。
+新建和显式编辑写入唯一公共 `definitionVersion=2` 的 `family/subtype`：Coincidence、Contact、Offset、Angle、Fix、FixTogether。Concentric/Distance/Parallel/Perpendicular/Rigid 是编译原语或快捷入口；Parallel/Perpendicular 归 Angle，双体 Rigid 不冒充领域固联组。生产能力声明来自 [assemblycontract](../../../services/internal/assemblycontract/catalog.json)，服务端查询/精确验证与 Web 能力适配消费该来源；[测试目录](../../../tests/assembly-contract/catalog.json)关联声明及证据，不以报告 PASS 数量开放功能。FACE/EDGE/VERTEX 仅是拾取类别，未精确解析不能默认当作 Plane/Line。服务端校验仍是权威，完整 occurrence、已接受 Revision、稳定源及显式派生角色参与解析。
+
+精确描述符现有八类，长度/半径/坐标为 mm，角度/锥半角为 rad，旋转是右手正交帧；Quantity 源值保持 SI，只在公共数量编译边界转换。Point–Curve 明确覆盖无限 Line/underlying Circle；Point–Surface 为 Plane/Cylinder/Sphere/选定叶 Cone，不声明任意曲线或曲面。修剪 Arc 使用 underlying-circle 须显式选择并保留参数域/provenance。球心、圆心、圆柱轴、锥顶/锥轴以及 Frame 原点/轴/平面使用稳定源加派生角色，不保存 mesh 推测或拓扑数组身份。Frame–Frame 是完整相对位姿六秩；其他 Frame 组合显式使用子元素。嵌套刚性 Product 在 owning Product 边界应用一次变换，共享 Part occurrence 不共用放置或支持身份。
+
+只读支持 inspection 分离 `status=RESOLVED` 与 `constraintEligible`/适用性诊断。修剪圆弧仍保持 CIRCLE 类型和原参数域，但未显式选择 underlying-circle 时不能用于完整圆数学关系；[公共编译与 inspection 共用判定](../../../services/internal/workspace/assembly_public.go)，Web 只对实际派生目标检查显式适用性，未知响应禁止 Preview/确认，不复制 2π/容差算法。来源半段的修剪诊断不阻塞合法圆心/轴/平面或 underlying-circle 派生，也不把不适用支持伪装为 Broken。真实导入球面 seam 的[完整链路回归](../../../services/internal/control/assembly_arc_eligibility_integration_test.go)覆盖非法提交无 Revision/solve、显式整圆的实际运动与独立几何、参数域冻结、Undo/Redo、冷 replay 和 Release 后激活状态隔离。
+
+Contact 的 11 个解析分支通过 [contact helper](../../../kernel/assembly/src/contact.cpp)进入同一 native 求解/解析 Jacobian，而非零距离近似或显示网格碰撞：Plane–Plane face、Plane–Cylinder line、Plane–Sphere point、Cylinder–Cylinder line/face、Sphere–Sphere face、Sphere–Cone ring、Sphere–Circle ring、Cone–Cone line/face、Cone–Circle ring。一般独立秩依次为 3/2/1/3/4/3/3/3/3/5/5；常量半径/锥角不兼容、材料侧不兼容和可恢复初态退化分别诊断。Plane 法向已经是材料外法向，不重复乘符号；其他曲面规范径向法向乘材料符号，External 相反、Internal 同向。整圆支撑不额外虚构材料相切门；Sphere–Sphere face 不是球球外切。精确公式/退化见[目标合同](../target/assembly-constraints.md#contact)，实现公式与微分见[求解算法](../../../kernel/assembly/SOLVER_ALGORITHMS.md#51-解析-contact)。
+
+多成员 Fix Together 保存稳定组 ID、名称、成员/嵌套组及捕获关系，不是无管理的 N 条 pair Rigid。[组编排](../../../services/internal/workspace/assembly_groups.go)冻结确定性的 `GroupStages`，重叠成员进入共同内部阶段、循环明确拒绝；先用成员内部有效约束求解，再从成功内部结果构造组关系，最后参与外部求解。关系变更/成员变更显式触发重新捕获，普通读取不重新捕获；组停用不删除或停用内部独立约束。内部或外部数值/偏好失败不晋升组捕获证据和候选姿态；完整阶段、成员、内部约束、关系与 solver build/result digest 进入 manifest/result，冷重放不查询新 Head。
+
+数量参数统一为可选 `quantityParameter`，复用同一 checked AST、维度/循环检查与稳定参数引用：Offset 为长度，FREE/DIRECTED Angle 为角度，稳定 ID 分别沿用 `offset:<id>`、`angle:<id>`。Worker 投影是 mm/rad，源 Quantity 是 SI；旧 `offsetParameter` 只在旧记录读取时保留，显式编辑迁入同一 v2 定义，不双写两套活跃模型。参数、关系、模式和支持替换在同一命令原子提交；无数量的关系拒绝表达式参数，Measured 保留 Driving 源值/表达式而不改位姿或 Fix 基准。
+
+产品约束具有独立 `suppressed`，与 `mode` 正交。`SET_ASSEMBLY_CONSTRAINT_STATE` 支持单个/批量停用、恢复及适用角度/距离量的 Driving/Measured 切换；Contact/Fix/组的不可用模式在能力查询中禁用并由服务端拒绝。实体 PropertySlot 记录完整状态，CAS、幂等与补偿历史复用正式命令路径。原模式和诊断在停用时保留；重新激活按已接受的 Part Revision 解析，不自动接受新 Head。树菜单、约束编辑面板、Inspector 与视口灰色标识可查看/切换状态。
 
 SolveManifest 同时冻结完整 `definitions` 与实际编译的约束。全部停用时仍记录空活动集合的求解与可重放结果；全部活动定义被隔离时可记录已接纳空集合的结果，但完整定义仍保留失败状态，不表示全部约束满足。断链定义保持 Broken，其余可解析约束仍可求解。Update Plan/Release 排除停用项的 Verified 要求，旧 Release 的停用状态不随新 Head 激活而改变。Product Undo/Redo 恢复事务的原始位姿、定义与评价状态。已 Verified 的快照在副本上验证并生成新求解证据，禁止借验证移动组件或重写历史字段；包含活动未解决定义的历史快照直接保留原失败结果，重新计算是独立 Domain Command。
 
-新增约束 identity 按 request ID 确定，浏览器保存 preview→request 对应关系；可复用的预览提交会冻结指向新 Revision 的 COMMIT manifest 与已验证结果，不重复求解，也不让 Release 依赖 PREVIEW 记录。当前 manifest policy 为 `assembly-m3-lifecycle-v7`，Worker solver build 为 `assembly-m2.5-hierarchy-v8`。
+新增约束 identity 按 request ID 确定，浏览器保存 preview→request 对应关系；可复用的预览提交会冻结指向新 Revision 的 COMMIT manifest 与已验证结果，不重复求解，也不让 Release 依赖 PREVIEW 记录。支持顺序、精确来源、方向、模式、数量定义、快照及 CAS 任一变化都会使旧 candidate 不可晋升；当前 policy/build 见上文 v10，旧阶段记录保留自己的版本。
 
-Angle 的 `angleRelation` 提供 FREE（默认无轴空间角）、DIRECTED（指定轴投影角）、PARALLEL、PERPENDICULAR 四种模式。两种数量角均接受0–360°；FREE 使用真实叉积范数/点积，不冻结旋转轴，正常构型控制一个转动自由度，0°/180°/360°驱动端点按方向对齐控制两个。无轴角保存第二组件局部坐标中的 `spatialAngleBranchDirection`，用叉积相对于该分支的符号区分正反解；分支只选择夹角扇区，不投影法向或添加对齐方程。首次从名义姿态建立，成功求解后沿已接受姿态运输，冻结到 manifest 并随 Undo/Redo 恢复；大于180°选择相反解，重复更新不翻回。DIRECTED 要求第二支持组件的稳定 `angleAxis`，可用 `reverseAngleAxis` 反向，沿既有 Datum/Publication/PersistentSelection 精确解析并将 `ANGLE_AXIS` 证据写入 manifest；仅约束投影方位角。切换到其他模式会清除旧轴及缓存方向，Undo 恢复完整定义。平行、垂直有独立工具栏入口；垂直以 `directionRelation` SAME/OPPOSITE 保存90°/270°意图，二者编译为带分支的空间角方程，实际选择相反姿态且不锁定轴。360°在求解提交时规范为0°。Undefined 不再永久改写为 Same。Offset 数值路径新增 Point–Axis 与 Axis–Plane，均有解析 Jacobian；零点点/点线偏移编译为重合方程，避免零范数梯度丢失其实际秩。Measured 输出独立 `measuredValue`，不改驱动值；两非平行平面等无有效常量距离的构型不显示旧数值。
+Angle 的 `angleRelation` 提供 FREE（默认无轴空间角）、DIRECTED（指定轴投影角）、PARALLEL、PERPENDICULAR 四种模式。两种数量角均接受0–360°；FREE 使用真实叉积范数/点积，不冻结旋转轴，正常构型控制一个转动自由度，0°/180°/360°驱动端点按方向对齐控制两个。无轴角保存第二组件局部坐标中的 `spatialAngleBranchDirection`，用叉积相对于该分支的符号区分正反解；分支只选择夹角扇区，不投影法向或添加对齐方程。首次从名义姿态建立，成功求解后沿已接受姿态运输，冻结到 manifest 并随 Undo/Redo 恢复；大于180°选择相反解，重复更新不翻回。DIRECTED 要求显式独立来源的稳定 `angleAxis`（可以属于第三 occurrence），可用 `reverseAngleAxis` 反向，沿既有 Datum/Publication/PersistentSelection 精确解析，冻结 `angle_reference_geometry` 的 owning body；该 body 进入 connected component 和解析微分变量。旧 `angle_reference_direction` 仍按第二 body-local 历史语义读取，不因选择交换悄悄换参考轴；反轴或交换按目标角规则显式转换，并将 `ANGLE_AXIS` 证据写入 manifest；仅约束投影方位角。切换到其他模式会清除旧轴及缓存方向，Undo 恢复完整定义。平行、垂直有独立工具栏入口；垂直以 `directionRelation` SAME/OPPOSITE 保存90°/270°意图，二者编译为带分支的空间角方程，实际选择相反姿态且不锁定轴。360°在求解提交时规范为0°。Undefined 不再永久改写为 Same。Offset 数值路径新增 Point–Axis 与 Axis–Plane，均有解析 Jacobian；零点点/点线偏移编译为重合方程，避免零范数梯度丢失其实际秩。Measured 输出独立 `measuredValue`，不改驱动值；两非平行平面等无有效常量距离的构型不显示旧数值。
 
 Fix 新增 SPACE/RELATIVE 基准：相对固定接受显式移动后的名义位姿，空间固定保留捕获位姿。编辑命令支持显式 `fixedPose`，前端提供模式切换、三个位置与三个角度编辑。角度显示采用依次绕 X/Y/Z 的外禀旋转，持久化仍用 quaternion；相对固定的显式 pose 编辑同步更新 nominal placement，补偿历史同时恢复基准与 placement。
 
 验证入口：[生命周期单元测试](../../../services/internal/workspace/assembly_lifecycle_test.go)、[0–6 阶、3+2+1 及常见关节有限运动测试](../../../kernel/assembly/tests/assembly_solver_scenarios.cpp)、[真实 Router/Worker、历史与 Release 集成](../../../services/internal/control/assembly_motion_integration_test.go)、[浏览器生命周期场景](../../../web/apps/cad/browser/assembly-lifecycle.spec.ts)。浏览器场景使用 Mock adapter 验证交互；权威计算测试走真实 Router/Worker 与独立测试数据库。单项/批量激活、Measured 恢复、停用后移动、连续 Undo/Redo、空活动集重放、Release 后再激活、相对/空间 Fix 位姿行为已有真实链路回归用例。2026-09-30 文档核对确认代码和测试入口存在，未重跑这些测试；此处未列出这些新增用例的逐项执行记录，不能借 ACCEPT-PRODUCT 的较早记录推断它们已执行通过。
 
-这些实现尚不代表“六类约束与生命周期补齐”整体完成：Contact、Circle/Sphere/Cone/Frame 等精确 descriptor、Point–Curve/Surface 完整组合、多成员且组内先解的 Fix Together、统一六类入口及新增几何族的参数/有限运动验收仍未完成。剩余任务见[装配计划](../../../plans/assembly-evolution.md)，目标语义见[六类约束合同](../target/assembly-constraints.md)。ACCEPT-PRODUCT 的已完成基线验收范围保持独立。
+上述新增实现不以旧阶段测试入口或 ACCEPT-PRODUCT 验收代替本轮 CONSTRAINT-COMPOSITION 的实际结果。目录逐 capability 区分实现层、专用数学/领域/UI/真实数据库证据及未运行/阻塞；本轮整体自动化收口以派生报告为准，不在此永久维护另一张状态矩阵。维护者只明确反馈本轮之前 OFFSET 改造人工使用验证通过，此反馈不能扩大到新 Contact、固联、全部来源/历史组合；本轮新增交互仍待维护者实机验收，未运行浏览器测试。M4 最近可行拖拽、M5/M6 均未实施；TREE-03 编辑会话不是约束求解 Session。
 
 ### 嵌套支持与可修复的约束状态
 
@@ -109,7 +123,7 @@ Fix 新增 SPACE/RELATIVE 基准：相对固定接受显式移动后的名义位
 
 偏好优化的普通 BFGS 方向若不能下降，会在参考目标为零的层级上使用约束流形的 Lagrangian 曲率作为第二搜索方向；保留几何恢复、参考优先级、能量回溯及原始收敛容差，解决长力臂圆柱同心约束的微小曲率停滞。无向关系切换边界的差分 oracle 固定基点局部分支，避免跨不连续点的中央差分被误判为解析 Jacobian 错误。
 
-Product 补偿冲突检查使用实际最近 REVERT/REAPPLY 结果 Revision 的字段作为预期值，恢复目标仍来自原命令 before/after；后续第三方或用户字段修改仍产生 CHANGESET_CONFLICT。不修改历史记录或清空 Undo/Redo 栈。
+Product 与 Part 补偿冲突检查使用实际最近 REVERT/REAPPLY 结果 Revision 的字段作为预期值，恢复目标仍来自原命令 before/after；Part Publication Redirect 的 Undo 会重新评价来源，因此不能用原始 before 中的旧评价 Revision 作为 Redo 前提。后续第三方或用户业务字段、评价字段修改仍产生 CHANGESET_CONFLICT。不修改历史记录或清空 Undo/Redo 栈。
 
 ### 已解集合与待接纳定义
 
@@ -127,7 +141,7 @@ STEP/XDE 导入复用既有 ProductInstance 与 typed InstancePath：每个源 P
 
 ## 六类约束可执行合同目录
 
-CONSTRAINT-CONTRACT 交付共享 [catalog.json](../../../tests/assembly-contract/catalog.json)（schema 1、`assembly-six-families-v1`）、[执行器](../../../tests/assembly-contract/runner.py)和[使用说明](../../../tests/assembly-contract/README.md)。当前 58 个 capability 与 100 个 case 按稳定 ID 组织，目标语义、各层实现声明、测试映射和实际 verdict 分离。Coincidence/Contact/Offset/Angle/Fix/Fix Together 是用户族；Concentric/Distance/Parallel/Perpendicular/pair Rigid 仅作内部映射，不构成完整六类交付。未知 Contact 秩、Curve/Surface 子类边界显式登记，未用当前输出反写目标预期。
+CONSTRAINT-CONTRACT 交付共享 [catalog.json](../../../tests/assembly-contract/catalog.json)（schema 1、当前 `assembly-six-families-v2`；初始交付为 v1）、[执行器](../../../tests/assembly-contract/runner.py)和[使用说明](../../../tests/assembly-contract/README.md)。稳定 capability 与具体 case 按稳定 ID 组织，目标语义、各层实现声明、测试映射和实际 verdict 分离。Coincidence/Contact/Offset/Angle/Fix/Fix Together 是用户族；Concentric/Distance/Parallel/Perpendicular/pair Rigid 仅作内部映射，不增加新的公共用户族。Contact 解析秩及有限 Curve/Surface 子类已按目标公式冻结；测试不得用当前输出反写目标预期。
 
 执行器按 capability/family/layer/case 选择，读取唯一目录，调用现有 C++ GTest、Go 包测试与 TypeScript 规则；Go/TS 新 adapter 也直接读取它。C++ 新断言补充六种非零 Offset 的解析距离、秩和选择交换，空间角端点的独立几何检查，以及指定轴0°/90°不等于空间平行/垂直、交换支持/反转轴的角度变换。既有 3+2+1、0–6 秩、六种关节有限运动、冗余和子空间 projector corpus 通过目录映射复用，不复制求解器。
 
@@ -137,9 +151,11 @@ CONSTRAINT-CONTRACT 交付共享 [catalog.json](../../../tests/assembly-contract
 
 上述 CONSTRAINT-CONTRACT 执行时的差异是 `offset.plane-plane.first-normal-editor`：第一选择法向目标与第二法向编辑入口不一致。CONSTRAINT-OFFSET 本批已保持其目标与断言不变地修复，并补充下述真实数学/领域/数据库链路；旧执行结果不是当前仍失败的声明。
 
-CONSTRAINT-CONTRACT 当时未配置专用数据库，历史/Release case 是 ENVIRONMENT_BLOCKED，不能借本批结果倒填当时的验收。未实现项的明确拒绝测试通过不等于产品能力通过。Contact 分支、Frame/派生几何、Point–Curve/Surface 明确子类、多成员组生命周期与内部先解仍有缺口；共享基础测试不等于具体组合验收。完成 CONSTRAINT-CONTRACT 不等于 CONSTRAINT-COMPOSITION 或 M4 完成，MOVE 仍用 `interaction-driver` Fix。
+CONSTRAINT-CONTRACT 当时未配置专用数据库，历史/Release case 是 ENVIRONMENT_BLOCKED，不能借本批结果倒填当时的验收。未实现项的明确拒绝测试通过不等于产品能力通过。该阶段曾缺少 Contact、Frame/派生几何、明确 Point–Curve/Surface 与组内先解；本轮新增实现见上文，不能倒填当时结果。共享基础测试不等于具体组合验收。完成 CONSTRAINT-CONTRACT 不等于 CONSTRAINT-COMPOSITION 或 M4 完成，MOVE 仍用 `interaction-driver` Fix。
 
 ### Offset 有符号纵向切片
+
+下述切片与平行 EDGE 小节保留各自实施时的版本和实际测试记录；最新公共 v2/Quantity/v10 实现及本轮原生验证见上文和末段，不把旧能力统计当作当前覆盖状态。
 
 实现基线 `main / 4ceda79` 加本批工作区（2026-10-01）。新增符号意图 `SELECTED_PLANE_NORMAL_V1`，精确支持经 [Workspace 编译边界](../../../services/internal/workspace/assembly_offset.go)验证后保留端点、值和 moving/reference 顺序，经既有 Worker string 字段映射到 native `SelectedPlaneNormal`。公式是 `d = n·(p_first-p_second)`，双平面选第一法向，否则选唯一平面；Datum 是持久法向，FACE 是解析后的材料外法向，按完整 occurrence 帧变换。双平面 Same/Opposite 与符号正交，Undefined 不被回填为 Same。无平面保持非负无限支撑距离；原六对方程、零距离特殊秩和解析 Jacobian 复用。真实 Same→Opposite 用例发现错误半球驻点，新增符号双平面 Driving 复用既有 cluster seed 探测，不改 nominal、运动偏好、容差或求解层级。
 
@@ -153,16 +169,32 @@ Measured 不发驱动方程；双平面测量仅要求实际法向平行（任�
 
 有符号首切片执行结果：目录/锁通过，12 个执行设施测试通过；Offset baseline 与 gaps 均 **47 PASS**（44 个去重映射），受影响的六族合同 baseline **98 PASS**（94 个去重映射），没有环境跳过冒充通过。报告的能力覆盖仍为 44 PARTIAL、14 TARGET_NOT_IMPLEMENTED，Offset 六项均 PARTIAL。`invoke check --scope assembly` 四个步骤通过（C++ 构建/CTest、Go、Web 场景），TypeScript 无输出编译与共享 modelcore 包测试通过，`invoke context-audit` 通过。旧共享数据库历史测试的错误“抛错/数值子集失败”断言已替换为上述完整失败定义/试算隔离与无候选/无位姿/无 Head 变化断言，并真实通过；锁变更理由见测试 README。后续平行 EDGE 修复记录见下节，前述数字不是新增 case 的执行证据。
 
-报告按必需层与适用专用测试推导实现覆盖、执行完整性和验收状态；共享基础/拒绝测试不能认证组合，缺测/未运行/阻塞仍显示缺口。双平面 UI/domain 仅按已交付的窄链提升；resolution/lifecycle/history 完整组合仍 partial。剩余六组合的精确 UI 消费、来源更新/断裂重连、CAS/幂等及完整生命周期组合、浏览器/实机交互验收继续进入 [CONSTRAINT-OFFSET](../../../plans/assembly-evolution.md#constraint-offset完整偏移与测量模式)，不把整批标完成。未运行浏览器、无差别全量单测、性能/容量基准；未实现 Contact、Fix Together、M4/M5，TREE-03 与数据面边界不变。
+报告按必需层与适用专用测试推导实现覆盖、执行完整性和验收状态；共享基础/拒绝测试不能认证组合，缺测/未运行/阻塞仍显示缺口。当时双平面 UI/domain 仅按已交付的窄链提升，resolution/lifecycle/history 完整组合仍 partial，不把该首切片当作整个 Offset 已完成。该阶段列出的六组合精确 UI、来源恢复和生命周期缺口已进入本轮实现/目录验收，当前收口记录见下节，实机交互仍待验证，人工出口见 [CONSTRAINT-OFFSET](../../../plans/assembly-evolution.md#constraint-offset完整偏移与测量模式)。未运行浏览器、无差别全量单测、性能/容量基准；此旧阶段未实现 Contact/Fix Together；本轮已新增前两者，M4/M5 仍未实施，TREE-03 与数据面边界不变。
 
 ### 平行 EDGE 距离恢复
 
 维护者报告两个 Part 插入 Product 后选两个边线做 Distance 被隔离为 NotUpdated。只读核对应用库试算输入，确认 EDGE 已精确解析为 AXIS，典型目标 30 mm，初始无限线距离约 28.284271 mm；两个偏离原点的平行线支撑，reference 已旋转且非零平移。这不是 UI 文案、符号转换或解析失败。旧 native 试算复现 NON_CONVERGENT；修复初值后又确认几何可行不等于偏好收敛，没有将二者合并或强行 Verified。
 
-[solver](../../../kernel/assembly/src/solver.cpp) 增加径向初值恢复；孤立非零无符号平行线 Distance、一个自由 cluster 的偏好迭代/可行性校正使用局部平行 chart，避免跨入不光滑的异面线距离分支。chart 不进入物理方程、秩/DOF 或持久 Constraint，也不是隐藏 Parallel/Fix，不修改 nominal、容差或 moving/reference。证据是局部选定分支上的偏好收敛，不是跨分支全局最短运动。当前 Worker build 为 `assembly-m2.5-hierarchy-v9`，新 manifest policy 为 v9；实际运行的旧 Worker 须重启后才会采用修复。
+[solver](../../../kernel/assembly/src/solver.cpp) 增加径向初值恢复；孤立非零无符号平行线 Distance、一个自由 cluster 的偏好迭代/可行性校正使用局部平行 chart，避免跨入不光滑的异面线距离分支。chart 不进入物理方程、秩/DOF 或持久 Constraint，也不是隐藏 Parallel/Fix，不修改 nominal、容差或 moving/reference。证据是局部选定分支上的偏好收敛，不是跨分支全局最短运动。此阶段使用 v9；本轮在其基础上加入零目标/显式平行耦合与尺度修复，新 policy/build 为 v10，旧记录不重标版本。
 
 新增 native 12 个目标 10/30/50、交换/Fix 构型，独立最终无限线距离、reference 不动、偏好收敛及物理秩 1/相对 DOF 5 均断言。新增 [真实两 Part 集成](../../../services/internal/control/assembly_edge_offset_integration_test.go) 使用各自生成的 B-Rep 和持久 EDGE 引用，经 Router/Worker/专用数据库完成 Preview、提交 30、编辑 35、UndoRedo、冷读与独立几何验证。两个专用 case 进入同一目录和基线；没有把数学层当作完整 UI 验收。
 
 实际执行（同一 `4ceda79` 加本轮工作区）：目录/锁与 12 个设施测试通过；Offset baseline/gaps 各 **49 PASS**（46 个去重映射），受影响六族 baseline **100 PASS**（96 个去重映射），能力声明仍为 44 PARTIAL/14 TARGET_NOT_IMPLEMENTED。记录在 `build/edge-offset-verified-{baseline,gaps}/report.json` 与 `build/edge-offset-affected-baseline/report.json`，环境为显式 `occccad_offset_contract_test` 和当前 v9 Debug Worker，没有集成 skip。首次并发重链接 Worker 导致 6 个映射启动失败，原记录保留在 `build/edge-offset-baseline/`；完成构建后重跑上述正式检查，不把启动失败计为产品通过。`invoke check --scope assembly` 四步骤、定向 Workspace Offset、`invoke performance-baseline --count=1`、`invoke context-audit` 和 diff 空白检查通过；性能采样不作容量或跨版本无退化保证。未执行浏览器与无差别全量单测。
 
-探索性零目标测试仍有偏好停滞，已明确进入 axis-axis verificationGaps 与 CONSTRAINT-OFFSET 的优先剩余项；不把正距离修复扩大为零值/交线、耦合多约束或整个 Offset 验收。应用数据库只读诊断，未清理或修改用户数据，未运行浏览器。
+该阶段探索性零目标偏好停滞已在本轮原生回归处理：非平行零目标保持精确交线方程；平行零目标使用限定局部 chart；同支持的显式 Parallel 使用等价位置残差，未隐藏附加平行/Fix。`ZeroIntersectionIsExactAndInvariantUnderSupportOriginChanges`、`ZeroDistanceAllowsFiniteIntersectionRotationWithoutHiddenParallel`、`ZeroDistanceAndExplicitParallelKeepCoupledRankAndPreference` 和 `ZeroDistanceCannotHidePhysicalFixConflict` 独立检查原点改变、有限转动、耦合秩/偏好及物理 Fix 冲突。177 项 native 与 21 项 corpus 本轮实际通过，正式输出 `build/constraint-composition/native-composition-final.xml`、`native-corpus-final.xml`；其中六关节有限运动为每类 13 个解析有限姿态和一次受阻恢复，共 84 次真实求解，不仅检查瞬时零空间。此证据不替代数据库/来源/Release 或人工验收，整体状态由本轮合同报告给出。应用库无清理，未运行浏览器。
+
+### CONSTRAINT-COMPOSITION 本轮收口
+
+核对/执行基线是 `main / c1becfdc2a569f14468f29ca2b643b303f005213` 加本轮工作区，公共 definition v2、contract `assembly-six-families-v2`、schema 1、统一 Debug Worker v10。专用可丢弃数据库为 `occccad_offset_contract_test`，真实 Router→Worker 与数据库事务执行，不使用应用开发库或 Mock 替代。报告记录执行输入/断言摘要、准确 Worker 可执行文件 SHA256、命令与证据类型，且不记录数据库凭据。
+
+初次完整 `gaps-verified/report.json` 已实际 **610 PASS，332 个去重映射，58 个 capability 实现层及必需专用证据齐全**，无环境阻塞或 skip。新增案例据此进入同一 baseline 锁，原 100 个 case ID 保留；动态组秩仍为 `6·(N−1)`，DAG、重叠阶段及全 incident bodies 的内外边界已冻结。最终交叉审查补齐圆弧适用性门禁，另 7 个 case 在 `arc-targeted/<caseId>/report.json` 实际通过后纳入基线；完整目录为 617 项。最终独立重跑结果使用 `build/constraint-composition/final-{baseline,gaps,composition}/report.json`，未生成的报告不推定通过，不另维护手工全矩阵。
+
+最终实际结果：上述完整 **baseline/gaps/composition 各 617 PASS、335 个去重映射、58 个 capability 自动 ACCEPTED**，无 FAIL/NOT_RUN/MISSING_TEST/ENVIRONMENT_BLOCKED，执行输入摘要与收口源码一致。`GOFLAGS=-count=1 invoke check --scope assembly --verbose` 四步骤通过，日志 `build/constraint-composition/final-assembly-domain.log`：177 scenarios + 21 corpus 共 198 CTest、Go geometry/workspace/control、Web assembly 10 场景。另实际执行 20 项目录/runner 完整性测试、全 Go 包 `-run '^$'` 编译检查、api/modelcore/assemblycontract 包、TypeScript/生产构建、TREE-03 相关四场景、context-audit 与 diff 空白检查。`invoke performance-baseline --count=1` 只保存当前样本，不认证容量或跨版本性能无退化。
+
+共享几何回归为 37 PASS / 1 SKIP，`GeometryExchange.ImportedSolidRepairCorpus` 缺少 `OCCCCAD_TEST_IMPORT_BREP`，原日志保留于 `geometry-shared-final.log`。Go 装配领域检查的两个通用大型 STEP/传输健康用例也因未配置 `OCCCCAD_TEST_EXCHANGE_STEP` 未执行；不能由包级 PASS 推断大模型容量通过。它们均不属于这 617 个合同 case；本轮合同内真实数据库/Worker/历史没有降级或跳过。
+
+真实链路覆盖四族 47 个明确几何子组合、逐 Contact 分支创建/编辑/来源恢复和历史、Datum 参数更新、共享多 Body Part 的不同 occurrence 与嵌套 Product、独立第三角度轴、SPACE/RELATIVE owning-frame、2/3/N 组及内外求解、单项/批量激活、Measured/全停用空集合、Broken 重解析、Preview 身份/CAS、Undo/Redo、冷重放和 Release 冻结。具体 case 与执行范围以派生报告为准，不把代表性来源场景解释为任意模型、任意来源变化的笛卡尔积验证。
+
+首轮真实失败报告 `gaps/`、`gaps-final/` 及定向复现日志保留：显式 Contact branch=0 曾被默认成合法分支；Part Publication Redirect 的 Redo 前提使用了旧评价字段；第三轴位于组外时曾错误进入内部阶段；DIRECTED 结果曾污染切回 FREE 的扇区。修复真实生产路径后重新验证，保留非法输入拒绝、严格历史冲突检查、原测量期望和物理容差。旧 Offset 回归测试适配唯一 Quantity v2 字段，Preview 保留同一 request ID；旧 Multi-Body 回归按既有 NEW_BODY 命令测试新建独立 Body，未借此改变 CAD Body 生命周期。
+
+维护者反馈此前 OFFSET 使用验证通过，是维护者反馈而非本次 Agent 浏览器执行；未提供人工准确版本、日期或逐项清单。本轮新六族/Contact/固联交互仍为 `PENDING_MAINTAINER`，自动报告明确限定 `AUTOMATED_CONTRACT_ONLY`，人工场景和检查步骤见[合同设施 README](../../../tests/assembly-contract/README.md#维护者实机验收)。未运行浏览器、无差别全仓单测、容量验收或 M4/M5/M6；没有清理应用数据库或 S3、迁移重写历史或批量重建制品。

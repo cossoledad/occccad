@@ -3,6 +3,7 @@ package workspace
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/occccad/occccad/internal/geometry"
@@ -33,20 +34,67 @@ func compileAssemblyOffset(c AssemblyConstraint, value *geometry.AssemblyConstra
 	return nil
 }
 
-// Constraint-owned Quantity parameters: references are checked stable IDs, not
-// component names or evaluated floats. This is not a Configuration/Rule system.
+// Legacy Offset commands adapt to the same production Quantity implementation.
 func editOffsetParameter(model *ProductModel, index int, expression *string, key string, literalMM float64) error {
+	return editAssemblyQuantity(model, index, expression, key, literalMM)
+}
+
+func assemblyQuantityParameter(c AssemblyConstraint) *modelcore.ParameterDefinition {
+	if c.QuantityParameter != nil {
+		return c.QuantityParameter
+	}
+	return c.OffsetParameter // Frozen pre-v2 definitions remain readable, not rewritten.
+}
+
+type assemblyQuantitySpec struct {
+	prefix, label, unit string
+	dimension           modelcore.Dimension
+}
+
+func assemblyQuantityInputs(kind string, expression *string, key string, offsetExpression *string, offsetKey string) (*string, string, error) {
+	if (offsetExpression != nil || offsetKey != "") && kind != "DISTANCE" {
+		return nil, "", fmt.Errorf("%w: legacy Offset inputs require DISTANCE", ErrValidation)
+	}
+	if expression != nil && offsetExpression != nil && *expression != *offsetExpression ||
+		key != "" && offsetKey != "" && key != offsetKey {
+		return nil, "", fmt.Errorf("%w: conflicting Quantity and Offset inputs", ErrValidation)
+	}
+	if expression == nil {
+		expression = offsetExpression
+	}
+	if key == "" {
+		key = offsetKey
+	}
+	return expression, key, nil
+}
+
+func assemblyQuantitySpecification(c AssemblyConstraint) (assemblyQuantitySpec, bool) {
+	if c.Kind == "DISTANCE" {
+		return assemblyQuantitySpec{"offset:", "Offset", "mm", modelcore.LengthDimension}, true
+	}
+	if c.Kind == "ANGLE" && (c.AngleRelation == "" || c.AngleRelation == "FREE" || c.AngleRelation == "DIRECTED") {
+		return assemblyQuantitySpec{"angle:", "Angle", "rad", modelcore.AngleDimension}, true
+	}
+	return assemblyQuantitySpec{}, false
+}
+
+// One AST/evaluator for length and angle, bound to same-Product stable IDs.
+// Literals enter in Worker units (mm/rad); Quantity itself retains SI values.
+func editAssemblyQuantity(model *ProductModel, index int, expression *string, key string, literal float64) error {
 	c := &model.Constraints[index]
-	if c.Kind != "DISTANCE" {
+	spec, supported := assemblyQuantitySpecification(*c)
+	if !supported {
 		if expression != nil || key != "" {
-			return fmt.Errorf("%w: Offset parameters require DISTANCE", ErrValidation)
+			return fmt.Errorf("%w: relation has no editable Quantity parameter", ErrValidation)
 		}
+		// A legal relation switch drops its now-inapplicable parameter atomically.
+		c.QuantityParameter, c.OffsetParameter = nil, nil
 		return nil
 	}
-	parameter := modelcore.ParameterDefinition{ParameterID: "offset:" + c.ID, Key: "Offset_" + parameterKeyFragment(c.ID),
-		Label: "Offset", ValueType: modelcore.ValueQuantity, Dimension: modelcore.LengthDimension, DisplayUnit: "mm", Role: "DRIVING", PropertySlot: "assembly-constraint.entity"}
-	if c.OffsetParameter != nil {
-		raw, _ := json.Marshal(c.OffsetParameter)
+	parameter := modelcore.ParameterDefinition{ParameterID: spec.prefix + c.ID, Key: spec.label + "_" + parameterKeyFragment(c.ID),
+		Label: spec.label, ValueType: modelcore.ValueQuantity, Dimension: spec.dimension, DisplayUnit: spec.unit, Role: "DRIVING", PropertySlot: "assembly-constraint.entity"}
+	if existing := assemblyQuantityParameter(*c); existing != nil {
+		raw, _ := json.Marshal(existing)
 		if err := json.Unmarshal(raw, &parameter); err != nil {
 			return err
 		}
@@ -55,38 +103,45 @@ func editOffsetParameter(model *ProductModel, index int, expression *string, key
 		parameter.Key = key
 	}
 	if !validParameterKey(parameter.Key) {
-		return fmt.Errorf("%w: offset key must be an ASCII identifier", ErrValidation)
+		return fmt.Errorf("%w: Quantity key must be an ASCII identifier", ErrValidation)
 	}
-	c.OffsetParameter = &parameter
+	c.QuantityParameter, c.OffsetParameter, c.DefinitionVersion = &parameter, nil, 2
 	if expression != nil && strings.TrimSpace(*expression) != "" {
 		names := map[string]modelcore.ParameterBinding{}
 		for _, other := range model.Constraints {
-			if p := other.OffsetParameter; p != nil {
+			if p := assemblyQuantityParameter(other); p != nil {
 				names[p.Key] = modelcore.ParameterBinding{ParameterID: p.ParameterID, Dimension: p.Dimension}
 			}
 		}
-		compiled, err := modelcore.CompileExpression(*expression, names, modelcore.LengthDimension)
+		compiled, err := modelcore.CompileExpression(*expression, names, spec.dimension)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 		parameter.Source = modelcore.ValueSource{Expression: &compiled}
 	} else if expression != nil || parameter.Source.Expression == nil {
-		q, err := modelcore.NewQuantity(literalMM, "mm")
+		q, err := modelcore.NewQuantity(literal, spec.unit)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 		parameter.Source = modelcore.ValueSource{Literal: &q}
 	}
-	return resolveOffsetParameters(model)
+	return resolveAssemblyQuantities(model)
 }
 
 func resolveOffsetParameters(model *ProductModel) error {
+	return resolveAssemblyQuantities(model)
+}
+
+func resolveAssemblyQuantities(model *ProductModel) error {
 	// Reuse the existing Quantity evaluator, dimension/dependency checks and
 	// cycle gate; the temporary input has parameters only, no Part/CAD bodies.
 	input := PartModel{}
 	keys := map[string]string{}
 	for _, c := range model.Constraints {
-		if p := c.OffsetParameter; p != nil {
+		if c.QuantityParameter != nil && c.OffsetParameter != nil {
+			return fmt.Errorf("%w: duplicate active Quantity definitions", ErrValidation)
+		}
+		if p := assemblyQuantityParameter(c); p != nil {
 			input.Parameters = append(input.Parameters, *p)
 			keys[p.ParameterID] = p.Key
 		}
@@ -113,18 +168,34 @@ func resolveOffsetParameters(model *ProductModel) error {
 	}
 	for i := range model.Constraints {
 		c := &model.Constraints[i]
-		if c.OffsetParameter == nil {
+		parameter := assemblyQuantityParameter(*c)
+		if parameter == nil {
 			continue
 		}
-		if c.Kind != "DISTANCE" || c.OffsetParameter.ParameterID != "offset:"+c.ID || !c.OffsetParameter.Dimension.Equal(modelcore.LengthDimension) {
-			return fmt.Errorf("%w: invalid Offset parameter ownership/dimension", ErrValidation)
+		spec, supported := assemblyQuantitySpecification(*c)
+		if !supported || parameter.ParameterID != spec.prefix+c.ID || !parameter.Dimension.Equal(spec.dimension) ||
+			(c.OffsetParameter != nil && c.Kind != "DISTANCE") {
+			return fmt.Errorf("%w: invalid assembly Quantity ownership/dimension", ErrValidation)
 		}
-		p := byID[c.OffsetParameter.ParameterID]
-		value, err := quantityInDisplayUnit(*p.EvaluatedValue, "mm")
+		p := byID[parameter.ParameterID]
+		value, err := quantityInDisplayUnit(*p.EvaluatedValue, spec.unit)
 		if err != nil || !finite(value) {
-			return fmt.Errorf("%w: Offset must evaluate to finite length", ErrValidation)
+			return fmt.Errorf("%w: assembly Quantity must evaluate to finite %s", ErrValidation, spec.dimension.Semantic)
 		}
-		c.Value, c.OffsetParameter = value, &p
+		if c.Kind == "ANGLE" {
+			if value < 0 || value > 2*math.Pi {
+				return fmt.Errorf("%w: angle Quantity must be in [0, 2pi]", ErrValidation)
+			}
+			if value == 2*math.Pi {
+				value = 0
+			} // Static canonical angle; AST/literal stays intact.
+		}
+		c.Value = value
+		if c.QuantityParameter != nil {
+			c.QuantityParameter = &p
+		} else {
+			c.OffsetParameter = &p
+		}
 		if err := validateInstanceConstraintReferences(*c); err != nil {
 			return err
 		}

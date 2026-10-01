@@ -1,4 +1,5 @@
 import { VisualRepository, type DisplayArtifact as Artifact, type DisplayDocumentView as DocumentView } from "../cad/visual/visual-repository";
+import { assemblyConstraintReferences } from "../cad/assembly/assembly-capability";
 import { makeSketchReferenceAxis, sketchAxisEndpoints } from "../cad/rendering/sketch-reference-axis";
 import { createStudioEnvironment } from "../cad/rendering/studio-environment";
 import { raycastDatumAxis } from "../cad/interaction/datum-axis-picking";
@@ -364,7 +365,7 @@ export class CadViewportEngine {
     this.tools = new ToolManager({ viewport: this.toolViewportPort() });
     this.tools.register(new SelectTool());
     this.tools.register(new AssemblyMoveTool());
-    for (const kind of ["fix", "rigid", "coincident", "concentric", "angle", "parallel", "perpendicular", "distance"] as const)
+    for (const kind of ["fix", "rigid", "fix_together", "contact", "coincident", "concentric", "angle", "parallel", "perpendicular", "distance"] as const)
       this.tools.register(new AssemblyConstraintTool(kind));
     this.tools.register(new PointSketchTool());
     this.tools.register(new ProjectExternalGeometrySketchTool());
@@ -1294,13 +1295,13 @@ export class CadViewportEngine {
 
   private addAssemblyConstraintMarkers(view: DocumentView): void {
     const glyphs: Record<import("../types").AssemblyConstraint["kind"], number> = {
-      FIX: 2, RIGID: 7, COINCIDENT: 0, CONCENTRIC: 13, ANGLE: 12, DISTANCE: 8,
+      FIX: 2, RIGID: 7, FIX_TOGETHER:7, CONTACT:6, COINCIDENT: 0, CONCENTRIC: 13, ANGLE: 12, DISTANCE: 8,
     };
     const statusColors: Record<import("../types").AssemblyConstraint["evaluationStatus"], number> = {
       VERIFIED: CATIA_VISUAL_THEME.constraint, NOT_UPDATED: CATIA_VISUAL_THEME.selected, IMPOSSIBLE: CATIA_VISUAL_THEME.sketchRedundant, BROKEN: CATIA_VISUAL_THEME.sketchInvalid,
     };
     for (const constraint of view.product?.constraints ?? []) {
-      const references = [constraint.first, constraint.second].filter((value): value is AssemblyGeometryRef => Boolean(value));
+      const references = assemblyConstraintReferences(constraint, view.product?.constraints ?? []);
       const located = references.map((reference) => {
         const exact = this.resolveAssemblyConstraintReference(reference);
         if (exact) return { reference, ...exact, exact: true };

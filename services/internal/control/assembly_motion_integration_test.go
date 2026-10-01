@@ -69,7 +69,7 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v9" || len(result.Components) != 1 {
+	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-six-families-composition-v10" || len(result.Components) != 1 {
 		t.Fatalf("invalid result: %+v", result)
 	}
 	p := result.Components[0].Preference
@@ -462,12 +462,12 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 		axis := &workspace.AssemblyGeometryRef{InstanceID: b, Kind: "PLANE", GeometryID: "datum-xy"}
 		state := apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "ANGLE", AngleRelation: "DIRECTED", FirstAssemblyRef: first, SecondAssemblyRef: second, AngleAxis: axis, Value: 2 * math.Pi})
 		c := state.Product.Constraints[len(state.Product.Constraints)-1]
-		if c.Value != 0 || c.AngleAxis == nil || c.AngleReferenceDirection == nil || c.EvaluationStatus != "VERIFIED" {
+		if c.Value != 0 || c.AngleAxis == nil || c.AngleReferenceDirection != nil || c.DefinitionVersion != 2 || c.EvaluationStatus != "VERIFIED" {
 			t.Fatalf("angle axis/canonicalization: %+v", c)
 		}
 		state = apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: c.ID, AngleRelation: "DIRECTED", AngleAxis: axis, ReverseAngleAxis: new(true), Value: math.Pi / 2})
 		c = state.Product.Constraints[len(state.Product.Constraints)-1]
-		if c.AngleReferenceDirection == nil || c.AngleReferenceDirection[2] != -1 || c.EvaluationStatus != "VERIFIED" {
+		if c.AngleReferenceDirection != nil || c.SpatialAngleBranchDirection != nil || !c.ReverseAngleAxis || c.EvaluationStatus != "VERIFIED" {
 			t.Fatalf("axis reverse: %+v", c)
 		}
 		var manifestJSON []byte
@@ -486,6 +486,18 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 		}
 		if !found {
 			t.Fatal("stable axis omitted from replay evidence")
+		}
+		compiled := false
+		for _, primitive := range manifest.Constraints {
+			if primitive.ID == c.ID {
+				compiled = true
+				if primitive.AngleReferenceBodyID != b || primitive.AngleReferenceGeometryID == "" || !primitive.ReverseAngleReference || primitive.AngleReferenceDirection != nil {
+					t.Fatal("modern axis lost owning occurrence, reversal or exact source", primitive)
+				}
+			}
+		}
+		if !compiled {
+			t.Fatal("directed primitive missing from frozen manifest")
 		}
 		apply(workspace.CommandRequest{Type: "UNDO"})
 		apply(workspace.CommandRequest{Type: "REDO"})
@@ -575,6 +587,9 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 		measured := apply(workspace.CommandRequest{Type: "MOVE_INSTANCE", InstanceID: b, Translation: [3]float64{0, 0, 9}, Rotation: [4]float64{0, 0, math.Sin(math.Pi / 6), math.Cos(math.Pi / 6)}})
 		for _, got := range measured.Product.Constraints {
 			if got.ID == c.ID && (got.MeasuredValue == nil || math.Abs(*got.MeasuredValue-5*math.Pi/3) > 1e-6) {
+				if got.MeasuredValue != nil {
+					t.Logf("actual measured angle %.15g; poses %+v; branch %+v", *got.MeasuredValue, measured.Product.Instances, got.SpatialAngleBranchDirection)
+				}
 				t.Fatalf("reflex measurement: %+v", got)
 			}
 		}

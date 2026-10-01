@@ -194,6 +194,10 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 		}
 		if reference.Kind != "FACE" && reference.Kind != "EDGE" && reference.Kind != "VERTEX" {
 			if reference.Kind == "BODY" || reference.PublicationRef != nil {
+				// Connected value/Datum Publications have fresh frozen evidence.
+				// Do not carry an earlier Broken topology snapshot across a source
+				// restoration; topology Publications continue through exact resolve.
+				reference.Resolution = nil
 				return modelcore.SelectionResolved, nil
 			}
 			part, ok := acceptedParts[instance.ReferencedVersionID]
@@ -252,6 +256,22 @@ func (service *Service) resolveAssemblySupports(ctx context.Context, product *Pr
 	}
 	for index := range product.Constraints {
 		constraint := &product.Constraints[index]
+		if isAssemblyGroup(*constraint) {
+			valid := true
+			for _, member := range constraint.GroupMembers {
+				if member.GroupID != "" {
+					continue
+				}
+				unit, err := groupMemberUnit(member)
+				if err != nil || instances[unit] == nil {
+					valid = false
+				}
+			}
+			if !valid {
+				constraint.EvaluationStatus, constraint.EvaluationSummary = modelcore.AssemblyConstraintBroken, "GROUP_MEMBER_MISSING"
+			}
+			continue
+		}
 		if len(exclusions) > 0 && exclusions[0][constraint.ID] {
 			continue
 		}
@@ -391,6 +411,10 @@ func semanticRef(source *workerv1.SemanticTopologyRef) modelcore.SemanticTopolog
 
 func selectionEvidence(source *workerv1.SelectionEvidence) modelcore.TopologySelectionEvidence {
 	result := modelcore.TopologySelectionEvidence{GeometryType: source.GetGeometryType(), MeasureDimension: source.GetMeasureDimension(), EvidenceDigest: source.GetEvidenceDigest()}
+	result.RadiusMM, result.HalfAngleRadians, result.ConeLeaf, result.MaterialSide = source.RadiusMm, source.HalfAngleRadians, source.ConeLeaf, source.MaterialSide
+	if x := source.GetXDirection(); x != nil {
+		result.XDirection = [3]float64{x.X, x.Y, x.Z}
+	}
 	if source.MeasureSi != nil {
 		value := source.GetMeasureSi()
 		result.MeasureSI = &value
@@ -782,10 +806,10 @@ func datumAssemblyReferenceExists(part PartModel, reference AssemblyGeometryRef)
 			}
 		}
 	}
-	if reference.Kind == "AXIS" || reference.Kind == "POINT" {
+	if reference.Kind == "AXIS" || reference.Kind == "POINT" || reference.Kind == "FRAME" {
 		for _, frame := range part.AxisSystems {
 			if frame.ID == reference.GeometryID {
-				return reference.Kind == "POINT" || reference.Axis == "X" || reference.Axis == "Y" || reference.Axis == "Z"
+				return reference.Kind == "POINT" || reference.Kind == "FRAME" || reference.Axis == "X" || reference.Axis == "Y" || reference.Axis == "Z"
 			}
 		}
 	}

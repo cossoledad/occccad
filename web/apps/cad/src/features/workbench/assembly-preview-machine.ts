@@ -45,6 +45,7 @@ export const assemblyPreviewMachine = setup({
   id: "assemblyConstraintPreview",
   initial: "idle",
   context: { sequence: 0, retryable: false },
+  on: { START: { target: ".drafting", actions: "clear" } },
   states: {
 	idle: { on: { START: { target: "drafting", actions: "clear" }, REQUEST: { target: "pending", actions: "begin" } } },
 	drafting: { on: {
@@ -53,6 +54,7 @@ export const assemblyPreviewMachine = setup({
 	  RESET: { target: "idle", actions: "clear" },
 	} },
     pending: { on: {
+      CHANGE: { target: "drafting", actions: "clear" },
       REQUEST: { target: "pending", reenter: true, actions: "begin" },
       RESOLVE: { target: "succeeded", guard: "isCurrent", actions: "resolve" },
       REJECT: { target: "failed", guard: "isCurrent", actions: "fail" },

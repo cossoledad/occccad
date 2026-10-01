@@ -15,7 +15,7 @@ import (
 
 const (
 	assemblySolveManifestSchema = 1
-	assemblySolverBuildPolicy   = "assembly-offset-parallel-line-v9"
+	assemblySolverBuildPolicy   = "assembly-six-families-composition-v10"
 	maxManifestBodies           = 4096
 	maxManifestGeometry         = 16384
 	maxManifestConstraints      = 16384
@@ -25,6 +25,8 @@ const (
 // receives only these frozen descriptors and never resolves Product, database,
 // Publication, PersistentSelection or B-Rep state itself.
 type AssemblySolveManifest struct {
+	DigestPolicy          string                         `json:"digestPolicy,omitempty"`
+	GroupStages           []AssemblyGroupStage           `json:"groupStages,omitempty"`
 	Definitions           []AssemblyConstraint           `json:"definitions,omitempty"`
 	SchemaVersion         int                            `json:"schemaVersion"`
 	Digest                string                         `json:"digest"`
@@ -110,7 +112,7 @@ func newAssemblySolveManifest(documentID, revisionID, modelHash string, bodies [
 	manifest := AssemblySolveManifest{SchemaVersion: assemblySolveManifestSchema, RootProductDocumentID: documentID,
 		RootProductRevisionID: revisionID, ModelHash: modelHash, Purpose: "COMMIT", Bodies: bodies, Geometry: geometryValues,
 		Constraints: constraints, Intent: intent, AffectedBodyIDs: affected, SolverProfile: defaultAssemblySolverProfile(),
-		SolverBuildPolicy: assemblySolverBuildPolicy, ResolutionEvidence: evidence}
+		SolverBuildPolicy: assemblySolverBuildPolicy, ResolutionEvidence: evidence, DigestPolicy: assemblyManifestCanonicalJSON}
 	if len(definitions) > 0 {
 		manifest.Definitions = append([]AssemblyConstraint(nil), definitions[0]...)
 		sort.Slice(manifest.Definitions, func(i, j int) bool { return manifest.Definitions[i].ID < manifest.Definitions[j].ID })
@@ -129,11 +131,14 @@ func newAssemblySolveManifest(documentID, revisionID, modelHash string, bodies [
 	if err := json.Unmarshal(raw, &frozen); err != nil {
 		return AssemblySolveManifest{}, fmt.Errorf("%w: freeze assembly SolveManifest: %v", ErrValidation, err)
 	}
-	frozen.Digest = resolvedDigest(frozen)
+	frozen.Digest = assemblyManifestDigest(frozen)
 	return frozen, nil
 }
 
 func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
+	if manifest.DigestPolicy != "" && manifest.DigestPolicy != assemblyManifestCanonicalJSON {
+		return fmt.Errorf("%w: unknown assembly manifest digest policy", ErrValidation)
+	}
 	if manifest.SchemaVersion != assemblySolveManifestSchema || manifest.RootProductDocumentID == "" ||
 		manifest.RootProductRevisionID == "" || manifest.ModelHash == "" ||
 		(manifest.Purpose != "COMMIT" && manifest.Purpose != "PREVIEW" && manifest.Purpose != "PROBE") {
@@ -143,8 +148,20 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 		len(manifest.Definitions) > maxManifestConstraints || len(manifest.Constraints) > maxManifestConstraints {
 		return fmt.Errorf("%w: assembly SolveManifest resource limits exceeded", ErrValidation)
 	}
-	if manifest.SolverProfile.SchemaVersion != 2 || (manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-offset-selected-plane-v8" && manifest.SolverBuildPolicy != "assembly-m3-lifecycle-v7") {
+	if manifest.SolverProfile.SchemaVersion != 2 || (manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-offset-parallel-line-v9" && manifest.SolverBuildPolicy != "assembly-offset-selected-plane-v8" && manifest.SolverBuildPolicy != "assembly-m3-lifecycle-v7") {
 		return fmt.Errorf("%w: unsupported assembly solver profile or build policy", ErrValidation)
+	}
+	if manifest.SolverBuildPolicy != assemblySolverBuildPolicy {
+		for _, c := range manifest.Definitions {
+			if c.DefinitionVersion >= 2 || c.QuantityParameter != nil || c.Kind == "CONTACT" || c.Kind == "FIX_TOGETHER" {
+				return fmt.Errorf("%w: six-family definition requires v10 policy", ErrValidation)
+			}
+		}
+		for _, g := range manifest.Geometry {
+			if g.Kind == "CIRCLE" || g.Kind == "SPHERE" || g.Kind == "CONE" || g.Kind == "FRAME" {
+				return fmt.Errorf("%w: analytic descriptor requires v10 policy", ErrValidation)
+			}
+		}
 	}
 	if manifest.SolverBuildPolicy == "assembly-m3-lifecycle-v7" {
 		for _, c := range manifest.Constraints {
@@ -177,6 +194,9 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 			(constraint.FirstGeometryID != "" && !geometryIDs[constraint.FirstGeometryID]) ||
 			(constraint.SecondGeometryID != "" && !geometryIDs[constraint.SecondGeometryID]) {
 			return fmt.Errorf("%w: invalid constraint reference in SolveManifest", ErrValidation)
+		}
+		if constraint.AngleReferenceGeometryID != "" && (!geometryIDs[constraint.AngleReferenceGeometryID] || !bodies[constraint.AngleReferenceBodyID] || constraint.Kind != "ANGLE" || manifest.SolverBuildPolicy != assemblySolverBuildPolicy) {
+			return fmt.Errorf("%w: invalid or unversioned directed-axis reference", ErrValidation)
 		}
 		constraints[constraint.ID] = true
 	}
@@ -227,6 +247,9 @@ func (service *Service) solveFrozenManifest(ctx context.Context, requestID strin
 	if err := validateAssemblySolveManifest(manifest); err != nil {
 		return geometry.AssemblySolve{}, err
 	}
+	if len(manifest.GroupStages) > 0 {
+		return service.solveFrozenAssemblyGroups(ctx, requestID, manifest, capture)
+	}
 	return service.worker.SolveAssemblyWithOptions(ctx, requestID, manifest.Bodies, manifest.Geometry, manifest.Constraints,
 		geometry.AssemblySolveOptions{Intent: manifest.Intent, AffectedBodyIDs: manifest.AffectedBodyIDs,
 			SolverProfile: &manifest.SolverProfile, CaptureReplay: capture})
@@ -264,7 +287,7 @@ func (service *Service) ReplayAssemblySolveManifest(ctx context.Context, documen
 		return AssemblySolveManifestResult{}, err
 	}
 	manifest.Digest = digest
-	if resolvedDigest(func() AssemblySolveManifest { value := manifest; value.Digest = ""; return value }()) != digest {
+	if !storedAssemblyManifestDigestMatches(raw, manifest, digest) {
 		return AssemblySolveManifestResult{}, fmt.Errorf("%w: SolveManifest digest mismatch", ErrValidation)
 	}
 	requestID = requestID + "/solve-manifest-replay"
@@ -307,7 +330,7 @@ func (service *Service) promoteAssemblySolveManifest(ctx context.Context, docume
 	}
 	manifest.RootProductRevisionID, manifest.ModelHash, manifest.Purpose = revisionID, modelHash, "COMMIT"
 	manifest.Digest = ""
-	manifest.Digest = resolvedDigest(manifest)
+	manifest.Digest = assemblyManifestDigest(manifest)
 	if err = service.persistAssemblySolveManifest(ctx, manifest); err != nil {
 		return err
 	}

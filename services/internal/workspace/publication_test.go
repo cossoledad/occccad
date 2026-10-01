@@ -2,12 +2,58 @@ package workspace
 
 import (
 	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 	"testing"
 
 	"github.com/occccad/occccad/internal/modelcore"
 )
+
+func TestPublicationRedirectRedoUsesImmutableCompensationOutcome(t *testing.T) {
+	before := newPartModel()
+	p := Publication{ID: "support", Name: "Plane", Type: "PLANE", CompatibilityVersion: "1.0.0", Target: PublicationTarget{Kind: "DATUM", DatumID: "datum-xy"}, Contract: PublicationContract{GeometryKind: "PLANE", Symmetry: "NORMAL_UNORIENTED"}, Resolution: PublicationResolution{Status: "CONNECTED", ResolvedVersionID: "base"}}
+	before.Publications = []Publication{p}
+	after := before
+	after.Publications = append([]Publication(nil), before.Publications...)
+	after.Publications[0].Target.DatumID = "datum-xz"
+	after.Publications[0].Resolution.ResolvedVersionID = "redirect"
+	baseJSON, _ := json.Marshal(before)
+	afterJSON, _ := json.Marshal(after)
+	change, _ := modelcore.NewChange(modelcore.ChangeBind, modelcore.PropertyAddress{EntityID: p.ID, SlotID: "publication.entity"}, p, after.Publications[0])
+	set, err := reconcilePersistedChanges("PART", baseJSON, afterJSON, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Undo has the original definition but new, genuine resolution provenance.
+	before.Publications[0].Resolution.ResolvedVersionID = "undo-revision"
+	undoJSON, _ := json.Marshal(before)
+	guarded, err := historyChangeSetAgainstOutcome("PART", set, undoJSON, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values, _ := modelValues("PART", undoJSON, guarded)
+	desired, err := guarded.Reapply(values)
+	if err != nil {
+		t.Fatal("legitimate evaluated Undo prevented Redo", err)
+	}
+	redone, err := applyModelValues("PART", undoJSON, desired)
+	if err != nil || modelcore.ValueDigest(redone) != modelcore.ValueDigest(afterJSON) {
+		t.Fatal("Redo changed root definition", string(redone), err)
+	}
+	// Neither a later business edit nor replacement evaluator evidence may pass
+	// by discarding resolution fields or bypassing the conflict precondition.
+	for _, mutate := range []func(*Publication){func(p *Publication) { p.Name = "concurrent edit" }, func(p *Publication) { p.Resolution.ResolvedVersionID = "unrelated evaluation" }} {
+		edited := before
+		edited.Publications = append([]Publication(nil), before.Publications...)
+		mutate(&edited.Publications[0])
+		raw, _ := json.Marshal(edited)
+		current, _ := modelValues("PART", raw, guarded)
+		if _, err := guarded.Reapply(current); !errors.Is(err, modelcore.ErrChangeConflict) {
+			t.Fatal("unrelated edit bypassed immutable conflict check", err)
+		}
+	}
+}
 
 func TestPublicationCRUDRedirectKeepsStableIdentityAndContract(t *testing.T) {
 	model := newPartModel()

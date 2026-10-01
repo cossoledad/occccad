@@ -4,7 +4,12 @@ const require = createRequire(new URL("../../../../package.json", import.meta.ur
 const { createServer } = await import(require.resolve("vite"));
 const server = await createServer({ appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
 try {
-  const { assemblyConstraintEntry, changeAngleRelation } = await server.ssrLoadModule("/src/cad/assembly/assembly-angle.ts");
+  const { assemblyConstraintEntry, changeAngleRelation, invalidateAngleReferenceDirection } = await server.ssrLoadModule("/src/cad/assembly/assembly-angle.ts");
+  const {angleAxisCandidateError}=await server.ssrLoadModule("/src/features/workbench/assembly-angle-parameters.tsx");
+  assert.equal(angleAxisCandidateError({instanceId:"independent-third",kind:"AXIS"},{instanceId:"second",kind:"AXIS"}),undefined,"versioned directed angle accepts independently owned reference axis");
+  assert.ok(angleAxisCandidateError({instanceId:"third",kind:"BODY"},{instanceId:"second",kind:"AXIS"}));
+  const axis={instanceId:"third",kind:"AXIS",geometryId:"stable-axis"};
+  assert.deepEqual(invalidateAngleReferenceDirection({angleRelation:"DIRECTED",angleAxis:axis,angleReferenceDirection:[1,0,0]}),{angleRelation:"DIRECTED",angleAxis:axis,angleReferenceDirection:undefined},"support replacement discards computed basis but preserves independently owned axis");
   assert.deepEqual(assemblyConstraintEntry("angle"), { kind: "angle", angleRelation: "FREE" });
   assert.deepEqual(assemblyConstraintEntry("parallel"), { kind: "angle", angleRelation: "PARALLEL" });
   assert.deepEqual(assemblyConstraintEntry("perpendicular"), { kind: "angle", angleRelation: "PERPENDICULAR" });

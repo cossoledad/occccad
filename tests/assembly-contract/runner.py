@@ -13,6 +13,7 @@ import re
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+from urllib.parse import unquote, urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
@@ -23,6 +24,18 @@ STATES = {"implemented", "partial", "missing", "unknown"}
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+
+
+def integration_environment():
+    worker = os.getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
+    worker_digest = None
+    if worker and Path(worker).is_file():
+        with Path(worker).open("rb") as stream:
+            worker_digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    database = unquote(urlsplit(os.getenv("OCCCCAD_TEST_DATABASE_URL", "")).path).lstrip("/") or None
+    # Record reproducible build/database identity, never URL credentials.
+    return {"workerExecutable": worker, "workerExecutableDigest": worker_digest, "databaseName": database,
+            "integrationVariablesPresent": {k: bool(os.getenv(k)) for k in ("OCCCCAD_TEST_DATABASE_URL", "OCCCCAD_TEST_GEOMETRY_WORKER")}}
 
 
 def frozen_contract(catalog):
@@ -41,14 +54,37 @@ def frozen_contract(catalog):
 
 def assertion_source(case):
     source = (ROOT / case["fixture"]["source"]).read_text()
+    extra = ""
+    for ref in case["fixture"].get("assertionSources", []):
+        text = (ROOT / ref["source"]).read_text()
+        match = re.search(r"\b(?:func|void)\s+" + re.escape(ref["symbol"]) + r"\s*\(", text)
+        if match is None:
+            raise ValueError("missing additional assertion source " + ref["symbol"])
+        extra += "\n" + re.split(r"\n(?:func |TEST\(|}\s*(?:\n|$))", text[match.start():], maxsplit=1)[0]
     if case["adapter"] == "cpp":
         suite, test = case["selector"].split(".")
         start = re.search(r"TEST\(\s*" + re.escape(suite) + r"\s*,\s*" + re.escape(test) + r"\s*\)", source)
-        return re.split(r"\nTEST\(", source[start.start():], maxsplit=1)[0]
+        body = re.split(r"\nTEST\(", source[start.start():], maxsplit=1)[0]
+        # Explicit shared numeric fixtures are legitimate assertions, not empty
+        # wrappers. Include their source in the regression lock and validate it.
+        helper = case["fixture"].get("assertionHelperSymbol")
+        if helper:
+            match = re.search(r"\bvoid\s+" + re.escape(helper) + r"\s*\(", source)
+            if match is None:
+                raise ValueError("missing C++ assertion helper " + helper)
+            body += "\n" + re.split(r"\n}\s*(?:\n|$)", source[match.start():], maxsplit=1)[0]
+        return body + extra
     if case["adapter"] in {"go", "go-flags", "integration"}:
         start = source.index("func " + case["selector"].split("/")[0] + "(")
-        return re.split(r"\nfunc ", source[start:], maxsplit=1)[0]
-    return source
+        body = re.split(r"\nfunc ", source[start:], maxsplit=1)[0]
+        helper = case["fixture"].get("assertionHelperSymbol")
+        if helper:
+            if not re.search(r"\b" + re.escape(helper) + r"\s*\(", body):
+                raise ValueError("Go assertion helper is not called: " + helper)
+            start = source.index("func " + helper + "(")
+            body += "\n" + re.split(r"\nfunc ", source[start:], maxsplit=1)[0]
+        return body + extra
+    return source + extra
 
 
 def implementation(capability, catalog):
@@ -102,6 +138,8 @@ def validate(catalog, root=ROOT, lock=None):
     for policy in catalog["failurePolicies"].values():
         require(len({f["category"] for f in policy}) == len(policy), "duplicate failure category")
         require(all(all(k in f for k in ("category", "phase", "saveDefinition", "advanceHead", "adoptCandidatePose", "evaluation", "recovery")) for f in policy), "incomplete failure semantics")
+    # Stable derived roles must not silently shadow another source contract.
+    require(len({s["supportId"] for s in catalog["derivedSupports"]}) == len(catalog["derivedSupports"]), "duplicate derived supportId")
     for support in catalog["derivedSupports"]:
         require(support["sourceDescriptor"] in catalog["descriptors"] and support["resultDescriptor"] in catalog["descriptors"] and support["precondition"] and support["task"] in tasks, "invalid derived support")
     for c in caps:
@@ -111,6 +149,7 @@ def validate(catalog, root=ROOT, lock=None):
         require(c["arity"]["kind"] in {"unary", "binary", "group"}, f"{ident}: invalid arity")
         require(c["arity"]["min"] >= 1 and c["roles"], f"{ident}: missing roles")
         require(all(r["descriptor"] in catalog["descriptors"] and r["role"] for r in c["roles"]), f"{ident}: invalid descriptor")
+        require(all(not ("supportedDescriptors" in role) or (role["supportedDescriptors"] and set(role["supportedDescriptors"]).issubset(catalog["descriptors"])) for role in c["roles"]), f"{ident}: invalid supported descriptor")
         policy = catalog["policies"][c["policy"]]
         for key in ("direction", "sign", "exchange", "branch", "modes", "otherModes", "activation", "failurePolicy"):
             require(bool(policy[key]), f"{ident}: missing {key}")
@@ -133,6 +172,8 @@ def validate(catalog, root=ROOT, lock=None):
                 require(any(t["caseId"] in c["caseIds"] and t["layer"] == layer and t.get("purpose") != "unsupported-rejection" for t in cases), f"{ident}: implemented {layer} has no executable test")
     for t in cases:
         ident = t["caseId"]
+        for ref in t["fixture"].get("assertionSources", []):
+            require(bool(ref.get("symbol")) and (root / ref.get("source", "")).is_file(), f"{ident}: missing additional assertion fixture")
         require(t["adapter"] in ADAPTERS and t["layer"] in LAYERS, f"{ident}: invalid adapter/layer")
         require(t["capabilityIds"] and all(i in cap_ids for i in t["capabilityIds"]), f"{ident}: invalid capability reference")
         require(t["expectation"] and t["selector"], f"{ident}: empty assertion/selector")
@@ -149,13 +190,13 @@ def validate(catalog, root=ROOT, lock=None):
         elif t["adapter"] in {"go", "integration", "go-flags"}:
             require(re.search(r"func " + re.escape(t["selector"].split("/")[0]) + r"\(", contents), f"{ident}: missing Go test")
             require(t["package"].startswith("./internal/"), f"{ident}: invalid Go package")
-            body = re.split(r"\nfunc ", contents.split("func " + t["selector"].split("/")[0] + "(", 1)[1], maxsplit=1)[0]
+            body = assertion_source(t)
             require(re.search(r"t\.(Fatal|Error|Fail)", body), f"{ident}: empty Go assertion body")
             if t["adapter"] == "go-flags":
                 require(set(t["expected"]) == {"direction", "distanceSide", "directedAngle"} and all(isinstance(v, bool) for v in t["expected"].values()), f"{ident}: invalid expected flags")
                 require(set(t["input"]) == {"kind", "first", "second"}, f"{ident}: invalid capability inputs")
         elif t["adapter"] == "web-catalog":
-            require(t["selector"] in {"entry", "clear-axis", "offset-normal"} and t["input"] and t["expected"], f"{ident}: invalid web adapter")
+            require(t["selector"] in {"entry", "clear-axis", "offset-normal", "production-capability"} and t["input"] and t["expected"], f"{ident}: invalid web adapter")
         else:
             require(t["selector"] == t["fixture"]["source"], f"{ident}: invalid web path")
         for c in caps:
@@ -199,14 +240,25 @@ def command(argv, cwd, env, log):
 
 def go_verdict(events, selector, code):
     matching = [e for e in events if e.get("Test") == selector]
+    ancestor_names = {selector.rsplit("/", depth)[0] for depth in range(1, selector.count("/") + 1)}
+    ancestors = [e for e in events if e.get("Test") in ancestor_names]
+    # A child PASS is not complete fixture evidence if its containing test fails
+    # or skips final validation. Preserve the child event in the raw log, but
+    # conservatively reject acceptance of that fixture scope.
+    if any(e["Action"] == "fail" for e in ancestors):
+        return "FAIL", "mapped Go fixture ancestor failed; child PASS cannot certify the complete fixture"
+    if any(e["Action"] == "skip" for e in ancestors):
+        return "ENVIRONMENT_BLOCKED", "mapped Go fixture ancestor skipped; child PASS is not complete evidence"
     # Parent PASS cannot hide a skipped descendant (including integration subtests).
     descendants = [e for e in events if e.get("Test", "").startswith(selector + "/")]
-    if code or any(e["Action"] == "fail" for e in matching + descendants):
+    if any(e["Action"] == "fail" for e in matching + descendants):
         return "FAIL", "Go assertion/build/process failed"
     if any(e["Action"] == "skip" for e in matching + descendants):
         return "ENVIRONMENT_BLOCKED", "Go test or descendant skipped; not PASS"
     if not any(e["Action"] == "run" for e in matching) or not any(e["Action"] == "pass" for e in matching):
         return "FAIL", "mapped Go test did not execute (zero tests or stale mapping)"
+    if code and not (code == 1 and any(e.get("Test") and e["Action"] == "fail" and e not in matching + descendants + ancestors for e in events)):
+        return "FAIL", "Go process failed without an independently identified failing test"
     return "PASS", "actual Go assertions passed"
 
 
@@ -284,15 +336,17 @@ def run_cases(cases, output, build_type, adapters):
         argv = ["pnpm", "test", "--", "--verbose", relative]
         commands.append(argv)
         log = output / f"web-{index}.log"
-        code, raw = command(argv, ROOT / "web/apps/cad", env, log)
+        batch_env = {**env, "OCCCCAD_ASSEMBLY_CONTRACT_CASES": json.dumps([t["caseId"] for t in batch])}
+        code, raw = command(argv, ROOT / "web/apps/cad", batch_env, log)
         # The normal scenario runner rejects empty selection. The catalog adapter also
         # emits a per-case marker; success exit without that marker cannot certify it.
         for t in batch:
-            if t["adapter"] == "web-catalog" and "CONTRACT_PASS " + t["caseId"] in raw:
+            marker = re.search(r"(?<!\S)CONTRACT_PASS\s+" + re.escape(t["caseId"]) + r"(?![a-z0-9.-])", raw)
+            if code:
+                record(t, "FAIL", "TypeScript scenario process failed", argv, log)
+            elif t["adapter"] == "web-catalog" and marker:
                 record(t, "PASS", "actual per-case TypeScript assertions passed", argv, log)
-            elif code:
-                record(t, "FAIL", raw[-2500:], argv, log)
-            elif t["adapter"] == "web-catalog" and "CONTRACT_PASS " + t["caseId"] not in raw:
+            elif t["adapter"] == "web-catalog" and not marker:
                 record(t, "FAIL", "missing actual per-case web assertion evidence", argv, log)
             elif not re.search(r"PASS|passed", raw, re.I):
                 record(t, "FAIL", "scenario runner returned no execution evidence", argv, log)
@@ -314,12 +368,20 @@ def make_report(catalog, caps, cases, results, commands, purpose, argv):
         rows.append({"capabilityId": c["capabilityId"], "family": c["family"], "target": {**c, "policy": catalog["policies"][c["policy"]]}, "implementation": coverage, **advancement, "unresolvedLayers": unresolved, "verifiedCaseIdsByLayer": layer_evidence, "verification": evidence, "missingTestLayers": [layer for layer in LAYERS if not any(t["layer"] == layer and t.get("purpose") != "unsupported-rejection" for t in catalog["cases"] if c["capabilityId"] in t["capabilityIds"])], "testStatus": "MISSING_TEST" if not any(t.get("purpose") != "unsupported-rejection" for t in catalog["cases"] if c["capabilityId"] in t["capabilityIds"]) else "MAPPED", "followupTasks": c["followupTasks"]})
     native = {t["fixture"]["source"] + "::" + (t["caseId"] if t["adapter"] == "web-catalog" else t["selector"]) for t in cases if results[t["caseId"]]["status"] == "PASS"}
     sources = {"tests/assembly-contract/catalog.json", "tests/assembly-contract/runner.py", "tests/assembly-contract/baseline.json"} | {t["fixture"]["source"] for t in cases}
-    return {"schemaVersion": catalog["schemaVersion"], "contractVersion": catalog["contractVersion"], "catalogDigest": digest(catalog), "purpose": purpose, "baselineMeaning": "selected executed existing abilities only; NOT six-family product acceptance", "commit": git("rev-parse", "HEAD"), "worktree": git("status", "--short"), "worktreeDiffDigest": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"], cwd=ROOT)).hexdigest(), "inputDigests": {source: hashlib.sha256((ROOT / source).read_bytes()).hexdigest() for source in sorted(sources)}, "invocation": argv, "selectedCaseIds": [t["caseId"] for t in cases], "environment": {"platform": platform.platform(), "python": platform.python_version(), "integrationVariablesPresent": {k: bool(os.getenv(k)) for k in ("OCCCCAD_TEST_DATABASE_URL", "OCCCCAD_TEST_GEOMETRY_WORKER")}}, "commands": commands, "results": list(results.values()), "counts": dict(Counter(r["status"] for r in results.values())), "uniquePassedTestMappings": len(native), "targetCounts": dict(Counter(r["targetStatus"] for r in rows)), "capabilities": rows}
+    sources |= {ref["source"] for t in cases for ref in t["fixture"].get("assertionSources", [])}
+    sources |= {state["source"] for c in caps for state in implementation(c, catalog).values() if state.get("source")}
+    sources |= {"services/internal/assemblycontract/catalog.json", "proto/occccad/worker/v1/geometry_worker.proto",
+                "kernel/assembly/src/contact.cpp", "kernel/assembly/src/contact.hpp",
+                "services/internal/workspace/assembly_groups.go", "services/internal/workspace/assembly_manifest_digest.go",
+                "services/internal/workspace/assembly_offset.go", "workers/geometry/src/main.cpp",
+                "services/internal/workspace/assembly_geometry.go", "services/internal/workspace/assembly_contact.go",
+                "services/internal/control/assembly_composition_quality_test.go"}
+    return {"schemaVersion": catalog["schemaVersion"], "contractVersion": catalog["contractVersion"], "catalogDigest": digest(catalog), "purpose": purpose, "acceptanceScope": "AUTOMATED_CONTRACT_ONLY", "manualAcceptance": {"status": "PENDING_MAINTAINER", "priorOffsetFeedback": "Maintainer confirmed prior OFFSET usage; no exact manual version, date or case list supplied. Not acceptance of new six-family interactions."}, "baselineMeaning": "selected executed existing abilities only; NOT six-family product acceptance", "commit": git("rev-parse", "HEAD"), "worktree": git("status", "--short"), "worktreeDiffDigest": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"], cwd=ROOT)).hexdigest(), "inputDigests": {source: hashlib.sha256((ROOT / source).read_bytes()).hexdigest() for source in sorted(sources)}, "invocation": argv, "selectedCaseIds": [t["caseId"] for t in cases], "environment": {"platform": platform.platform(), "python": platform.python_version(), **integration_environment()}, "commands": commands, "results": list(results.values()), "counts": dict(Counter(r["status"] for r in results.values())), "uniquePassedTestMappings": len(native), "targetCounts": dict(Counter(r["targetStatus"] for r in rows)), "capabilities": rows}
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("purpose", choices=["baseline", "gaps", "validate"])
+    parser.add_argument("purpose", choices=["baseline", "gaps", "composition", "validate"])
     parser.add_argument("--capability")
     parser.add_argument("--family")
     parser.add_argument("--layer")
@@ -338,7 +400,7 @@ def main(argv=None):
     if not adapters or adapters - ADAPTERS:
         raise ValueError("unknown/empty adapter selection")
     output = args.output.resolve()
-    scheduled = cases if args.purpose == "gaps" else [t for t in cases if t["baseline"]]
+    scheduled = cases if args.purpose in {"gaps", "composition"} else [t for t in cases if t["baseline"]]
     results, commands = run_cases(scheduled, output, args.build_type, adapters)
     for t in cases:
         if t["caseId"] not in results:
@@ -360,6 +422,9 @@ def main(argv=None):
     print("Executed contract cases: " + json.dumps(counts, sort_keys=True))
     print(f"Reports: {output / 'report.json'} and summary.md")
     if counts.get("FAIL"):
+        return 1
+    if args.purpose == "composition" and any(row["acceptanceStatus"] != "ACCEPTED" for row in report["capabilities"]):
+        print("COMPOSITION incomplete: missing implementation or required actual evidence (including blocked integration)", file=sys.stderr)
         return 1
     if not counts.get("PASS"):
         print("No actual assertions passed; cannot report green baseline", file=sys.stderr)

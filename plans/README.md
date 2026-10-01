@@ -1,6 +1,6 @@
 # 统一开发路线
 
-> 2026-10-01 状态核对：`main` / `4ceda79`，加本轮 CONSTRAINT-OFFSET 工作区变更。计划只保存未完成工作；已实现事实见[当前架构](../docs/CURRENT_ARCHITECTURE.md)，长期合同见[目标架构](../docs/TARGET_ARCHITECTURE.md)。
+> 2026-10-01 状态核对：`main` / `c1becfd`，加本轮 CONSTRAINT-COMPOSITION 工作区变更。计划只保存未完成工作；已实现事实见[当前架构](../docs/CURRENT_ARCHITECTURE.md)，长期合同见[目标架构](../docs/TARGET_ARCHITECTURE.md)。
 
 ## 一条主线
 
@@ -10,8 +10,8 @@
 
 ```mermaid
 flowchart LR
-    Baseline["已有：数据面/XDE/Multi-Body/语义树/Product/M3及可执行合同"] --> Parity["六类约束、组合与激活/抑制；下一项 OFFSET"]
-    Parity --> Drag["M4 稳定实时约束流形交互"]
+    Baseline["已有：数据面/XDE/Multi-Body/语义树/Product/M3及六类实现"] --> Session["下一项 ASSEMBLY-SESSION；六类人工验收另行收口"]
+    Session --> Drag["M4 稳定实时约束流形交互"]
     Drag --> Conflict["M5 局部冲突解释"]
     Conflict --> Connection["M6 工程连接"]
     Baseline --> Feature["FEATURE 实体特征支线"]
@@ -19,19 +19,21 @@ flowchart LR
     Connection -.进入条件.-> Future["DMU / Kinematics 等候选"]
 ```
 
-若只有一条开发线：先 CONSTRAINT-OFFSET，依据可执行合同差距补齐六类及生命周期组合，再收口 M4 → M5 → M6。会话基础/延迟基准可在合同明确后与类型补齐并行；最终 M4 验收必须覆盖六类和抑制组合。Revolve/其他 Feature 和 Projection 保持独立支线，不再排在装配能力补齐之前。
+若只有一条开发线：下一项实施 ASSEMBLY-SESSION，再依次收口 M4 → M5 → M6。六类及生命周期的代码已交付，最终自动门和新增交互人工验收分别记录，不重新领取已实现的类型批次。M4 验收仍必须覆盖六类、组与抑制组合；Revolve/其他 Feature 和 Projection 保持独立支线。
 
 ## 当前决策与下一主任务
 
-CONSTRAINT-CONTRACT 已交付机器可读目录、真实测试 adapter、回归门及覆盖/差距报告，设施和实际验证见[当前 Product](../docs/architecture/current/product-assembly.md#六类约束可执行合同目录)。这不等于六类全矩阵、CONSTRAINT-COMPOSITION 或 M4 完成。当前主任务为 **CONSTRAINT-OFFSET（实施中）**：双平面第一法向纵向切片已有真实求解/数据库证据，继续领取其剩余验收，不重复实现这一符号链。Feature、Projection、大模型及工程维护保留各自队列，只有明确的新需求才调整执行优先级。
+CONSTRAINT-CONTRACT 的目录、真实测试 adapter 和回归门已复用到本轮六类补齐：公共 v2 定义/能力查询、八类精确 descriptor 与稳定派生支持、六类数值与参数、激活/来源恢复、真正的多成员组内先解/组外后解、冻结历史及发布链已进入当前实现，见[当前 Product](../docs/architecture/current/product-assembly.md#六类公共定义精确支持与生命周期)。已实现能力不再作为下一轮开发待办。
 
-`offset.plane-plane.first-normal-editor` 已修复并纳入基线；六对基础数值/秩不重复开发。有符号旋转/交换、约束自有 Quantity 稳定表达式、Measured、Undo/冷读取、manifest/Release 已有定向证据，未 Verified 的 Offset Preview 不再获得可晋升候选。下一领取顺序：补 Offset 六组合的精确 UI 支持消费、来源更新/断裂重连、CAS/幂等及完整模式历史组合，再由维护者实机验收；本切片通过不替代整个 Offset 退出门。其他 partial、未实现、缺测试或未运行项由[目录和报告](../tests/assembly-contract/README.md)持续生成，按[装配计划](assembly-evolution.md)领取；descriptor 仍按消费场景贯通。
+当前下一主实现任务为 **ASSEMBLY-SESSION（待实施，M4 入口）**，不是再次实现 Offset、Contact 或 Fix Together。本轮六类及生命周期已完成实现与 CONSTRAINT-COMPOSITION 自动收口：完整 baseline/gaps/composition 各 617 PASS，58 项能力必需自动证据齐全，且装配领域四步骤通过；准确范围和命令见[当前执行记录](../docs/architecture/current/product-assembly.md#constraint-composition-本轮收口)，派生报告为 `build/constraint-composition/final-composition/report.json`。新发现的真实失败必须保留并修复，不能降低合同进入 M4 最终验收。
+
+维护者只确认了本任务前 OFFSET 改造人工使用验证通过；本轮新增 Contact、固联及其他新交互均待维护者实机验收，步骤见[合同设施说明](../tests/assembly-contract/README.md)。九个 CONSTRAINT-* 标识在[装配计划](assembly-evolution.md#六类约束与生命周期补齐)仅保留验收出口和稳定导航，不重复保留已完成实施清单。Feature、Projection、大模型及工程维护保持各自队列，只有明确的新需求才调整执行优先级；Preview/null-space/自由度显示不等于 M4 已交付。
 
 ## 可领取工作
 
 | 轨道 | 当前首项 | 依赖与退出门 | 详情 |
 |---|---|---|---|
-| 装配主线 | CONSTRAINT-OFFSET（实施中，首切片已有定向验证） | 补齐六组合精确 UI 支持/来源/激活/历史与实机验收，完整退出后推进其余六类及组合 → M4 → M5 → M6 | [装配演进](assembly-evolution.md) |
+| 装配主线 | ASSEMBLY-SESSION（待实施） | 复用六类及组代码；本轮自动门按派生报告收口，人工验收另行记录；版本化求解 session → M4 → M5 → M6 | [装配演进](assembly-evolution.md) |
 | 实体支线 | FEATURE-REVOLVE-HISTORY | 已有 Extrude/Boolean 命名基线；完整命名 corpus | [Feature 扩张](feature-expansion.md) |
 | 草图支线 | PROJECTION-ARC | 已有 Edge/Vertex 投影；先统一 ARC snapshot | [Sketch 投影](sketch-projection.md) |
 | 导入与大模型支线 | LARGE-BASELINE | 命名正确性与容量基线先行；对象存储、计算、显示共同验收 | [导入与大模型](import-large-models.md) |

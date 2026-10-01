@@ -2,7 +2,7 @@
 
 ## Scope
 
-本目录只拥有与 OCCT、Product、RPC 和持久化无关的三维刚体约束算法。调用方应先把稳定 `InstancePath`/PersistentSelection 解析为 body-local Point/Axis/Plane/Cylinder；本模块不解析业务文档。
+本目录只拥有与 OCCT、Product、RPC 和持久化无关的三维刚体约束算法。调用方应先把稳定 `InstancePath`/PersistentSelection 解析为 body-local Point/Axis/Plane/Cylinder/Circle/Sphere/Cone/Frame 纯值；本模块不解析业务文档。
 
 ## Invariants
 
@@ -20,7 +20,7 @@
 
 ## Tests and validation
 
-- 场景：`tests/assembly_solver_scenarios.cpp`、`tests/motion_scenarios.cpp`
+- 场景：`tests/assembly_solver_scenarios.cpp`、`tests/motion_scenarios.cpp`、`tests/assembly_composition_scenarios.cpp`、`tests/contact_scenarios.cpp`、`tests/contact_solver_scenarios.cpp`
 - corpus：根 `tests/assembly-corpus/`
 - 局部验证：`invoke check --scope assembly`
 - 精确回归：`invoke check --scope assembly --match '<test regex>'`，随后按语义风险升级到完整 assembly scope

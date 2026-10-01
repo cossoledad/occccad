@@ -2,9 +2,9 @@
 
 本目录只保存无法归属单个实现模块的跨包、跨进程和协议 conformance。单元测试及模块级用户场景必须邻近被测实现：
 
-[六类装配可执行合同](assembly-contract/README.md)是共享目录与定向跨实现 adapter 入口；它复用各模块邻近测试，生成实现覆盖/验证证据分离的报告。`baseline` 防止既有能力退化，`gaps` 保留完整目标、实际差异及环境阻塞，不代表六类产品验收。
+[六类装配可执行合同](assembly-contract/README.md)是唯一生产能力目录与定向跨实现 adapter 的入口；它复用各模块邻近测试，生成实现覆盖/验证证据分离的报告。`baseline` 防止既有能力退化，`gaps` 展示完整目标、实际差异及环境阻塞；`composition` 要求每项必需的专用证据实际通过，缺失或阻塞不能成为六类自动验收通过。人工交互验收独立记录。
 
-- C++ solver 场景位于 `workers/geometry/sketch/tests`，OCCT 几何场景位于 `kernel/occt/tests`，由所属模块的 CMake 注册；
+- C++ 装配 solver 场景位于 `kernel/assembly/tests`，Sketch solver 场景位于 `workers/geometry/sketch/tests`，OCCT 几何场景位于 `kernel/occt/tests`，由所属模块的 CMake 注册；
 - Web 场景位于对应 `src/**/testing/*.scenario.mjs`，每个文件在独立 Node 进程运行并由 `pnpm test` 自动发现；
 - Go 遵循工具链要求，以邻近 `_test.go` 构建 package-private 白盒测试；本目录的 `go/` 只保留通过公开边界运行的多包/进程测试；
 - `../models/` 保存跨实现共享的 STEP/BREP 只读 corpus。

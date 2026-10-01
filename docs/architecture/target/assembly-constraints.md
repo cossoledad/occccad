@@ -70,6 +70,7 @@
 
 - Point–Point、Point–Line、Point–Plane、Line–Line、Line–Plane、Plane–Plane；Point 可来自精确点、球心、锥顶，Line 可来自直线、圆柱轴、锥轴，Plane 可来自平面支撑。
 - Point–Curve 与 Point–Surface 是允许组合；Curve 附注限定为有效 underlying geometry，必须把可识别种类/退化和选定 branch 转为权威 descriptor/证据，不能任意把显示折线当精确曲线。本系统以可精确求值且参数域/分支可验证的支撑为准，在能力合同测试中明确，不依赖未解释的文档附注。
+- 本轮精确 Curve 子类为无限 Line、Circle；修剪 Arc 必须显式选择 underlying-circle 语义，保留原修剪范围与 provenance。Surface 子类为 Plane、Cylinder、Sphere、所选叶 Cone，不声明任意 NURBS。Point–Cylinder 曲面入射是一条半径关系，不等于 Point–Cylinder-axis 的两条横向位置关系；圆上点为平面入射与半径两条独立关系。球/圆柱/圆锥曲面一般点入射各一秩，锥顶属于奇异构型，不用瞬时零空间认证有限运动。
 - Frame–Frame 定义为原点与完整朝向重合，控制六个相对自由度；Frame 必须为右手正交刚体坐标系，不把反射当旋转。Frame 与其他元素组合时必须显式选择其原点、轴或基准平面，再编译为点/线/面关系。例如“原点在平面上”控制一个自由度，“基准平面重合”控制三个；不提供含义不明的 Frame–Plane 隐式转换。这是对 CATIA 表/正文差异的本系统决策。
 - Same/Opposite 仅在几何可定向时显示；Undefined 是用户意图，选定的离散分支是求值证据。禁止把 Undefined 永久改写为 Same；preview 内冻结 branch 防跳解，重新求值按显式策略选择并报告分支。
 
@@ -91,6 +92,30 @@
 本轮未列出的组合返回 unsupported，不将其称为数学上不可能；后续可按同一合同扩展。Sphere–Cone 统一定义为环相切：球心位于锥轴、球面与所选锥叶的母线相切，接触环半径必须非零，材料侧与锥叶显式。球锥不能因转置图标而解释为整片曲面重合。Sphere–Circle/Cone–Circle 的环接触表示整条所选圆位于对应支撑上，明确区别于两个曲面的相切。
 
 每个接触分支冻结解析定义、参数域、独立秩及退化处理。几何对是无序的，交换选择只变换定向参数/证据，不能改变可行位姿集合。相等半径/锥角导致接触类型或秩变化时显式切换定义或报告退化，不能继续使用通用距离残差并谎报自由度。以上规则直接解决来源图标疑点，不以获取 CATIA 运行环境为前置。
+
+解析 descriptor 长度一律毫米、角度弧度；Quantity 源值保持 SI，在 Quantity 编译边界转换。Plane 法向已经是变换后的材料外法向，不再乘第二次材料符号；Cylinder/Sphere/Cone 的规范径向法向乘 `materialSide=±1`。External 要求相触外法向相反，Internal 要求相同；该侧别与 Coincidence 的 Same/Opposite、OFFSET 正负无关。Cone 使用有效叶轴 `A=leaf·axis`，`leaf=±1`，半角 `0<α<π/2`，Circle 半径严格正。
+
+以下秩为一个参考运动单元固定、另一个可动的非退化构型；方程条数可以超过独立秩。轴平行/重合初态必须可通过显式分支初值进入合法线接触，不能仅因初值奇异永久拒绝合法目标。
+
+| 分支 | 解析关系 | 一般独立秩 |
+|---|---|---|
+| Plane–Plane face | 法向按材料侧关系平行，平面位置相同 | 3 |
+| Plane–Cylinder line | 柱轴方向平行平面，轴到平面的定向距离为分支半径 | 2 |
+| Plane–Sphere point | 球心到平面的定向距离为分支半径 | 1 |
+| Cylinder–Cylinder line | 轴平行，轴间距按材料侧取半径和/差；零差转入 face/退化诊断 | 3 |
+| Cylinder–Cylinder face | 半径相等、同轴、材料侧兼容 | 4 |
+| Sphere–Sphere face | 半径相等、球心相同、材料侧兼容；不是球球外切 | 3 |
+| Sphere–Cone ring | 球心在有效叶轴上，高度 `R/sin α`，非零接触环半径 `R cos α` | 3 |
+| Sphere–Circle ring | 圆心相对球心沿圆法轴的高度 `branch·sqrt(R²-r²)`；`r>R` 不可行，`r=R` 高度零仍三秩 | 3 |
+| Cone–Cone line | 叶轴夹角按材料侧为半角和/差，共同母线 `g·Aᵢ=cos αᵢ`，锥顶差平行母线 | 3 |
+| Cone–Cone face | 半角相等、锥顶相同、有效叶轴相同、材料侧兼容 | 5 |
+| Cone–Circle ring | 圆法轴平行有效叶轴、圆心在轴上，高度 `r/tan α` | 5 |
+
+整圆支撑分支不额外发明 Circle 材料法向接触门。曲面 face 与 Sphere–Cone 同规范法向位置关系要求曲面材料符号：External 乘积为负，Internal 为正。Plane 与曲面距离分支使用曲面材料符号和侧别计算，选择交换只交换角色，不改变几何可行集合。不可行常量条件与可恢复初态退化分别诊断；允许保存失败定义不意味着采用失败候选姿态。
+
+分支符号以支持本身而非任意世界轴定义。Plane–Cylinder/Sphere 令 `h=n_plane·(C_curved-O_plane)`，必须 `h=branch·R`，其中 External 的 `branch=m_curved`，Internal 为 `-m_curved`；材料侧、支持交换与距离符号不是同一操作。Sphere–Cone 为 `C_s-O_c=(R/sinα)(leaf·axis)`；给定锥叶后高度唯一，通用 ±branch 不制造另一个非法叶上的环。Sphere–Circle 为 `C_circle-C_s=branch·sqrt(R²-r²)n_circle`，反圆法向须同时变换 branch 才保留可行集合。Cone–Circle 为 `C_circle-O_c=(r/tanα)(leaf·axis)`，圆法向可同向或反向，不把它误作材料接触侧。
+
+Cylinder/Cone line 的有效外侧由 `effectiveExternal=(side==External)==(m₁m₂>0)` 决定，分别选择半径和/差或半角和/差；选定锥叶先转为有效轴再比较夹角。Cone–Cone line 的共同单位母线满足 `g·A₁=cosα₁`、`g·A₂=cosα₂`，锥顶差与 g 平行，在两个选定叶上用有限点/切平面检查接触；轴平行初态是可恢复初值退化，等半角差零则是线分支退化为 face，不能混淆两者。Circle/Sphere 正半径和 Cone 开区间半角是前置条件，端点/奇异构型不由一般秩或一次线性零空间认证有限运动。
 
 属性页 `cfyugasmrf0501.htm` 的线接触方向图 `images/rf020NLS.gif` / `rf021NLS.gif` 明确为 Internal/External（本轮已查看图像）；它们不是 Coincidence 的 Same/Opposite。点接触方向由默认规则确定。Contact 对定向支撑的内部/外部侧有要求；普通无定向 Surface 不能冒充实体面。Circle 按表中指定的环接触特例验证支撑来源。持久定义保存工程支撑、材料侧与 branch，精确 descriptor 提取须带 provenance。
 
@@ -139,6 +164,10 @@ Point/Line/Plane 的全部六种无序组合均须支持。至少一方为平面
 相对 Fix 以用户显式移动后的组件位置作为后续装配 update 的保留基准，使相关组件随之求解；空间 Fix 则在 update 回到固定位置。相对 Fix 既不是“无约束”，也不能偷换为两体 Rigid 或临时弱权重。用 CATIA `ut0305` 的“移动 → update”双模式样例冻结基准更新时间、手势确认、Undo/Redo 与欠约束解选择。
 
 Fix Together 支持多成员、增删成员、命名及已有组参与；组保存稳定成员关系，不以数组位置为身份。根据 `ut0306`，组内已有约束先求解，再将更新后的组作为整体求组外约束；不能提前硬合并 rigid cluster 导致合法组内约束被误判冲突。重叠/嵌套组的环、重复成员与层次顺序必须明确定义和验证。用户操作一个成员时按尊重约束策略移动关联组；显式自由移动的行为与提示另行定义，不隐式解除组关系。
+
+成员按稳定 occurrence/组身份规范化，声明顺序不改变组身份；嵌套组形成有向无环依赖，循环拒绝。重叠组的传递闭包合并为一个确定性内部求解阶段，各组仍保留自己的 ID、名称与成员定义。内部关系要求所有参与运动单元都属于该阶段，包含指定轴投影角的独立第三参考轴；轴在组外时该关系属于外部，不能向仅含组成员的求解请求发送缺失的轴。内部参考轴的精确 descriptor 也进入捕获输入身份。
+
+首次建立、成员或内部定义显式变化时，先求解有效内部约束，仅成功结果可生成新的相对关系；普通读取和输入未变的更新不重新捕获。模式切换等合法内部输入变化可以改变捕获输入 digest，不意味着物理关系必须漂移。内部或外部失败都不能采用失败姿态或覆盖既有捕获；组停用释放组关系，不改变独立内部约束的激活状态。正常固联的相对限制为 `6·(N−1)`，与已有内部限制重合时按独立 Jacobian 秩处理，不重复扣除自由度。
 
 ## 激活、模式、连接和求值状态正交
 

@@ -37,6 +37,7 @@ export function assemblySupportPresentation(reference?: AssemblyGeometryRef): As
 }
 
 export function firstDisconnectedSupport(constraint: AssemblyConstraint): 0 | 1 | undefined {
+  if (constraint.kind === "FIX_TOGETHER") return undefined;
   if (assemblySupportPresentation(constraint.first).status === "NOT_CONNECTED") return 0;
   if (constraint.second && assemblySupportPresentation(constraint.second).status === "NOT_CONNECTED") return 1;
   return undefined;

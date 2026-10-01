@@ -363,6 +363,9 @@ func applyDeleteProductNode(modelJSON, payloadJSON json.RawMessage) (json.RawMes
 			}
 			before := model.Constraints[index]
 			model.Constraints = append(model.Constraints[:index], model.Constraints[index+1:]...)
+			if isAssemblyGroup(before) {
+				return applyAssemblyGroupDelete(modelJSON, payload.TargetID)
+			}
 			change, _ := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: payload.TargetID, SlotID: "assembly-constraint.entity"}, before, nil)
 			next, _ := json.Marshal(model)
 			return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.TargetID)}}, nil
@@ -380,10 +383,11 @@ func applyDeleteProductNode(modelJSON, payloadJSON json.RawMessage) (json.RawMes
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: selected instance does not exist", ErrValidation)
 	}
 	before := model.Instances[index]
+	groupChanges := pruneAssemblyGroupsForDeletedInstance(&model, payload.TargetID)
 	model.Instances = append(model.Instances[:index], model.Instances[index+1:]...)
 	change, _ := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: payload.TargetID, SlotID: "entity"}, before, nil)
 	next, _ := json.Marshal(model)
-	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"instance:" + modelcore.DependencyKey(payload.TargetID)}}, nil
+	return next, modelcore.ChangeSet{Changes: append([]modelcore.ModelChange{change}, groupChanges...), ImpactSeeds: []modelcore.DependencyKey{"instance:" + modelcore.DependencyKey(payload.TargetID)}}, nil
 }
 
 type editSketchPayload struct {
@@ -1477,30 +1481,44 @@ type moveInstancePayload struct {
 }
 
 type addAssemblyConstraintPayload struct {
-	Constraint       AssemblyConstraint `json:"constraint"`
-	OffsetExpression *string            `json:"offsetExpression,omitempty"`
-	OffsetKey        string             `json:"offsetKey,omitempty"`
+	Constraint         AssemblyConstraint `json:"constraint"`
+	QuantityExpression *string            `json:"quantityExpression,omitempty"`
+	QuantityKey        string             `json:"quantityKey,omitempty"`
+	OffsetExpression   *string            `json:"offsetExpression,omitempty"`
+	OffsetKey          string             `json:"offsetKey,omitempty"`
 }
 
 type editAssemblyConstraintPayload struct {
-	Mode                    *string              `json:"mode,omitempty"`
-	OffsetExpression        *string              `json:"offsetExpression,omitempty"`
-	OffsetKey               string               `json:"offsetKey,omitempty"`
-	FixMode                 string               `json:"fixMode,omitempty"`
-	AngleRelation           string               `json:"angleRelation,omitempty"`
-	ConstraintID            string               `json:"constraintId"`
-	Value                   float64              `json:"value"`
-	DirectionRelation       string               `json:"directionRelation"`
-	DistanceRelation        string               `json:"distanceRelation"`
-	First                   *AssemblyGeometryRef `json:"first,omitempty"`
-	Second                  *AssemblyGeometryRef `json:"second,omitempty"`
-	AngleAxis               *AssemblyGeometryRef `json:"angleAxis,omitempty"`
-	ReverseAngleAxis        *bool                `json:"reverseAngleAxis,omitempty"`
-	AngleReferenceDirection *[3]float64          `json:"angleReferenceDirection,omitempty"`
-	FixedPose               *InstancePose        `json:"fixedPose,omitempty"`
+	GroupName               *string                `json:"groupName,omitempty"`
+	GroupMembers            *[]AssemblyGroupMember `json:"groupMembers,omitempty"`
+	Family                  string                 `json:"family,omitempty"`
+	Subtype                 string                 `json:"subtype,omitempty"`
+	ContactKind             string                 `json:"contactKind,omitempty"`
+	ContactSide             string                 `json:"contactSide,omitempty"`
+	ContactBranch           *int32                 `json:"contactBranch,omitempty"`
+	QuantityExpression      *string                `json:"quantityExpression,omitempty"`
+	QuantityKey             string                 `json:"quantityKey,omitempty"`
+	Mode                    *string                `json:"mode,omitempty"`
+	OffsetExpression        *string                `json:"offsetExpression,omitempty"`
+	OffsetKey               string                 `json:"offsetKey,omitempty"`
+	FixMode                 string                 `json:"fixMode,omitempty"`
+	AngleRelation           string                 `json:"angleRelation,omitempty"`
+	ConstraintID            string                 `json:"constraintId"`
+	Value                   float64                `json:"value"`
+	DirectionRelation       string                 `json:"directionRelation"`
+	DistanceRelation        string                 `json:"distanceRelation"`
+	First                   *AssemblyGeometryRef   `json:"first,omitempty"`
+	Second                  *AssemblyGeometryRef   `json:"second,omitempty"`
+	AngleAxis               *AssemblyGeometryRef   `json:"angleAxis,omitempty"`
+	ReverseAngleAxis        *bool                  `json:"reverseAngleAxis,omitempty"`
+	AngleReferenceDirection *[3]float64            `json:"angleReferenceDirection,omitempty"`
+	FixedPose               *InstancePose          `json:"fixedPose,omitempty"`
 }
 
 func validateInstanceConstraintReferences(constraint AssemblyConstraint) error {
+	if isAssemblyGroup(constraint) {
+		return validateAssemblyGroupDefinition(constraint)
+	}
 	if constraint.Kind == "DISTANCE" {
 		switch constraint.DistanceRelation {
 		case "", "UNSIGNED", "ALONG_SECOND_NORMAL", "OPPOSITE_SECOND_NORMAL", "SELECTED_PLANE_NORMAL_V1":
@@ -1512,12 +1530,15 @@ func validateInstanceConstraintReferences(constraint AssemblyConstraint) error {
 		}
 	}
 	switch constraint.Kind {
-	case "FIX", "RIGID", "COINCIDENT", "CONCENTRIC", "ANGLE", "DISTANCE":
+	case "FIX", "RIGID", "COINCIDENT", "CONCENTRIC", "ANGLE", "DISTANCE", "CONTACT":
 	default:
 		return fmt.Errorf("%w: unknown assembly constraint kind", ErrValidation)
 	}
 	if !finite(constraint.Value) || (constraint.Kind == "ANGLE" && (constraint.Value < 0 || constraint.Value > 2*math.Pi)) {
 		return fmt.Errorf("%w: invalid assembly quantity", ErrValidation)
+	}
+	if err := validateContactDefinition(constraint); err != nil {
+		return err
 	}
 
 	if constraint.Mode != "" && constraint.Mode != "DRIVING" && constraint.Mode != "MEASURED" && constraint.Mode != "CONTROLLED" {
@@ -1530,10 +1551,10 @@ func validateInstanceConstraintReferences(constraint AssemblyConstraint) error {
 		return fmt.Errorf("%w: invalid angle relation", ErrValidation)
 	}
 	if constraint.AngleAxis != nil {
-		if constraint.Kind != "ANGLE" || constraint.Second == nil || constraint.AngleAxis.InstanceID != constraint.Second.InstanceID {
-			return fmt.Errorf("%w: angle axis must belong to the second support instance", ErrValidation)
+		if constraint.Kind != "ANGLE" || constraint.Second == nil || constraint.AngleAxis.InstanceID == "" || (constraint.DefinitionVersion < 2 && constraint.AngleAxis.InstanceID != constraint.Second.InstanceID) {
+			return fmt.Errorf("%w: angle axis requires an explicit owning occurrence (legacy axes belong to second support)", ErrValidation)
 		}
-		if constraint.AngleAxis.Kind != "AXIS" && constraint.AngleAxis.Kind != "PLANE" && constraint.AngleAxis.Kind != "FACE" && constraint.AngleAxis.Kind != "EDGE" {
+		if constraint.AngleAxis.Kind != "AXIS" && constraint.AngleAxis.Kind != "PLANE" && constraint.AngleAxis.Kind != "FACE" && constraint.AngleAxis.Kind != "EDGE" && constraint.AngleAxis.Kind != "CYLINDER" && constraint.AngleAxis.Kind != "CONE" && constraint.AngleAxis.Kind != "CIRCLE" && constraint.AngleAxis.Kind != "FRAME" {
 			return fmt.Errorf("%w: angle axis requires a directional support", ErrValidation)
 		}
 	}
@@ -1584,6 +1605,9 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
+	if payload.ContactBranch != nil && *payload.ContactBranch != -1 && *payload.ContactBranch != 1 {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: explicit contact branch must be -1 or 1", ErrValidation)
+	}
 	if !finite(payload.Value) {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: constraint value must be finite", ErrValidation)
 	}
@@ -1591,9 +1615,19 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 		if model.Constraints[index].ID != payload.ConstraintID {
 			continue
 		}
+		if model.Constraints[index].Kind == "RIGID" && payload.Family == "FixTogether" {
+			return applyLegacyRigidGroupEdit(modelJSON, payload)
+		}
+		if isAssemblyGroup(model.Constraints[index]) {
+			return applyAssemblyGroupEdit(modelJSON, payload)
+		}
 		before := model.Constraints[index]
-		if before.Kind == "ANGLE" && (payload.Value < 0 || payload.Value > 2*math.Pi) {
-			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: assembly angle must be in [0, 2pi]", ErrValidation)
+		if payload.GroupName != nil {
+			name := strings.TrimSpace(*payload.GroupName)
+			if name == "" {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: constraint name must not be empty", ErrValidation)
+			}
+			model.Constraints[index].Name = name
 		}
 		if payload.FixMode != "" {
 			model.Constraints[index].FixMode = payload.FixMode
@@ -1642,6 +1676,18 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 			return reflect.DeepEqual(x, y)
 		}
 		after := &model.Constraints[index]
+		if payload.ContactKind != "" {
+			after.ContactKind = payload.ContactKind
+		}
+		if payload.ContactSide != "" {
+			after.ContactSide = payload.ContactSide
+		}
+		if payload.ContactBranch != nil {
+			after.ContactBranch = *payload.ContactBranch
+		}
+		if err := canonicalAssemblyDefinition(after, payload.Family, payload.Subtype); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
 		if payload.AngleRelation == "DIRECTED" || !sameSupport(&before.First, &after.First) || !sameSupport(before.Second, after.Second) {
 			after.SpatialAngleBranchDirection = nil
 		}
@@ -1655,7 +1701,11 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: a binary assembly constraint requires two different instances", ErrValidation)
 			}
 		}
-		if err := editOffsetParameter(&model, index, payload.OffsetExpression, payload.OffsetKey, payload.Value); err != nil {
+		expression, key, err := assemblyQuantityInputs(model.Constraints[index].Kind, payload.QuantityExpression, payload.QuantityKey, payload.OffsetExpression, payload.OffsetKey)
+		if err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		if err := editAssemblyQuantity(&model, index, expression, key, payload.Value); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
 		if err := validateInstanceConstraintReferences(model.Constraints[index]); err != nil {
@@ -1663,8 +1713,8 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 		}
 		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.ConstraintID, SlotID: "assembly-constraint.entity"}, before, model.Constraints[index])
 		changes := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.ConstraintID)}}
-		if c := model.Constraints[index]; c.OffsetParameter != nil {
-			changes.ImpactSeeds = append(changes.ImpactSeeds, modelcore.DependencyKey("parameter:"+c.OffsetParameter.ParameterID))
+		if p := assemblyQuantityParameter(model.Constraints[index]); p != nil {
+			changes.ImpactSeeds = append(changes.ImpactSeeds, modelcore.DependencyKey("parameter:"+p.ParameterID))
 		}
 		// Explicit relative-Fix pose editing is a placement edit. Otherwise the
 		// next solve would recapture the old nominal placement and discard it.
@@ -1688,7 +1738,7 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 		}
 		changes = appendAssemblyEvaluationChanges(changes, priorProduct, model)
 		next, _ := json.Marshal(model)
-		changes, err := reconcilePersistedChanges("PRODUCT", modelJSON, next, changes)
+		changes, err = reconcilePersistedChanges("PRODUCT", modelJSON, next, changes)
 		if err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
@@ -1706,13 +1756,23 @@ func applyAddAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.Ra
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
+	if isAssemblyGroup(payload.Constraint) || payload.Constraint.Family == "FixTogether" {
+		if payload.QuantityExpression != nil || payload.OffsetExpression != nil || payload.QuantityKey != "" || payload.OffsetKey != "" {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: group has no Quantity parameter", ErrValidation)
+		}
+		return applyAssemblyGroupCreate(modelJSON, payload.Constraint)
+	}
 	for _, existing := range model.Constraints {
 		if existing.ID == payload.Constraint.ID {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate assembly constraint identity", ErrValidation)
 		}
 	}
 	model.Constraints = append(model.Constraints, payload.Constraint)
-	if err := editOffsetParameter(&model, len(model.Constraints)-1, payload.OffsetExpression, payload.OffsetKey, payload.Constraint.Value); err != nil {
+	expression, key, err := assemblyQuantityInputs(payload.Constraint.Kind, payload.QuantityExpression, payload.QuantityKey, payload.OffsetExpression, payload.OffsetKey)
+	if err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	if err := editAssemblyQuantity(&model, len(model.Constraints)-1, expression, key, payload.Constraint.Value); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	payload.Constraint = model.Constraints[len(model.Constraints)-1]
@@ -1936,6 +1996,9 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	finishPromote := perf.Start(ctx, "candidate-promote")
 	candidate, promoted := service.interactionCandidates.take(request.PreviewID, documentID, prepared)
 	finishPromote()
+	if request.PreviewID != "" && !promoted {
+		return fmt.Errorf("%w: PREVIEW_CANDIDATE_STALE_OR_MISMATCHED", ErrValidation)
+	}
 	var nextJSON json.RawMessage
 	var changes modelcore.ChangeSet
 	if promoted {
@@ -2765,6 +2828,10 @@ func sketchDefinitionStatus(status geometry.SketchSolveStatus, degreesOfFreedom 
 }
 
 func buildProductEvaluation(model ProductModel, revisionID, modelHash string, seeds []modelcore.DependencyKey, prior *modelcore.EvaluationManifest) (*modelcore.DependencyGraph, modelcore.EvaluationManifest, error) {
+	groupMembers, groupErr := assemblyGroupMembers(model)
+	if groupErr != nil {
+		return nil, modelcore.EvaluationManifest{}, groupErr
+	}
 	instanceIDs, instanceNames := map[string]bool{}, map[string]bool{}
 	for _, instance := range model.Instances {
 		name := scopedNameKey(instance.Name)
@@ -2783,13 +2850,42 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("instance:" + instance.ID), Phase: 1, Type: "PRODUCT_INSTANCE", CanonicalInput: data})
 	}
 	for _, constraint := range model.Constraints {
+		if isAssemblyGroup(constraint) {
+			data, _ := json.Marshal(constraint)
+			key := modelcore.DependencyKey("assembly-constraint:" + constraint.ID)
+			nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 2, Type: "ASSEMBLY_GROUP", CanonicalInput: data})
+			if !constraint.Suppressed {
+				for _, id := range groupMembers[constraint.ID] {
+					edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("instance:" + id), Target: key, Kind: modelcore.ReadGeometry})
+				}
+				for _, member := range constraint.GroupMembers {
+					if member.GroupID != "" {
+						edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("assembly-constraint:" + member.GroupID), Target: key, Kind: modelcore.ReadValue})
+					}
+				}
+				members := stringSet(groupMembers[constraint.ID])
+				for _, internal := range model.Constraints {
+					if isAssemblyGroup(internal) || internal.Suppressed {
+						continue
+					}
+					second := ""
+					if internal.Second != nil {
+						second = internal.Second.InstanceID
+					}
+					if groupContainsConstraint(members, internal.First.InstanceID, second) {
+						edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("assembly-constraint:" + internal.ID), Target: key, Kind: modelcore.ReadValue})
+					}
+				}
+			}
+			continue
+		}
 		if !constraint.Suppressed && (!instanceIDs[constraint.First.InstanceID] || (constraint.Second != nil && !instanceIDs[constraint.Second.InstanceID])) {
 			return nil, modelcore.EvaluationManifest{}, fmt.Errorf("%w: assembly constraint references an unknown instance", ErrValidation)
 		}
 		data, _ := json.Marshal(constraint)
 		key := modelcore.DependencyKey("assembly-constraint:" + constraint.ID)
 		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 2, Type: "ASSEMBLY_CONSTRAINT", CanonicalInput: data})
-		if p := constraint.OffsetParameter; p != nil {
+		if p := assemblyQuantityParameter(constraint); p != nil {
 			raw, _ := json.Marshal(p.Source)
 			parameterKey := modelcore.DependencyKey("parameter:" + p.ParameterID)
 			nodes = append(nodes, modelcore.DependencyNode{Key: parameterKey, Phase: 1, Type: "PARAMETER", CanonicalInput: raw})

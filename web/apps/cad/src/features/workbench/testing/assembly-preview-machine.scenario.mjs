@@ -47,4 +47,16 @@ assert.equal(evidenceActor.getSnapshot().context.components, undefined);
 evidenceActor.send({ type: "CANCEL", sequence: 12 });
 assert.equal(evidenceActor.getSnapshot().value, "idle");
 assert.equal(evidenceActor.getSnapshot().context.components, undefined);
+evidenceActor.send({type:"START"});
+evidenceActor.send({type:"REQUEST",sequence:13});
+evidenceActor.send({type:"CHANGE"}); // support/member/parameter identity changed before next request
+evidenceActor.send({type:"RESOLVE",sequence:13,components:[{componentId:"obsolete-members"}]});
+assert.equal(evidenceActor.getSnapshot().value,"drafting");
+assert.equal(evidenceActor.getSnapshot().context.components,undefined);
+evidenceActor.send({type:"REQUEST",sequence:14});
+evidenceActor.send({type:"RESOLVE",sequence:14});
+evidenceActor.send({type:"CONFIRM"});
+evidenceActor.send({type:"COMMIT_SUCCESS"});
+evidenceActor.send({type:"START"});
+assert.equal(evidenceActor.getSnapshot().value,"drafting");
 evidenceActor.stop();

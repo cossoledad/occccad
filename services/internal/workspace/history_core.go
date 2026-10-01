@@ -185,7 +185,11 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 		return err
 	}
 	original = reconciled
-	if documentType == "PRODUCT" {
+	// Both Product solve evidence and Part Publication resolution can be
+	// recomputed for a compensation Revision. Compare against that immutable
+	// committed outcome, not the root transaction's older evaluator fields.
+	// Business fields remain strictly guarded by the same ChangeSet checks.
+	if documentType == "PRODUCT" || documentType == "PART" {
 		var actualOutcome json.RawMessage
 		if request.Type == "REDO" {
 			err = service.database.QueryRow(ctx, `SELECT v.model_json FROM occccad.domain_transactions t

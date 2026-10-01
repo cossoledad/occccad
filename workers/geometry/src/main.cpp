@@ -215,6 +215,11 @@ worker_api::PersistentTopologyType persistent_topology_type(
 void fill_selection_evidence(const occccad::kernel::SelectionEvidence& source,
                              worker_api::SelectionEvidence* target) {
     target->set_geometry_type(source.geometry_type);
+    if (source.radius_mm) target->set_radius_mm(*source.radius_mm);
+    if (source.half_angle_radians) target->set_half_angle_radians(*source.half_angle_radians);
+    if (source.cone_leaf) target->set_cone_leaf(*source.cone_leaf);
+    if (source.material_side) target->set_material_side(*source.material_side);
+    if (source.x_direction) fill_vec3(*source.x_direction, target->mutable_x_direction());
     if (source.measure_si)
         target->set_measure_si(*source.measure_si);
     target->set_measure_dimension(source.measure_dimension);
@@ -690,6 +695,8 @@ public:
                                                                     pose(input.initial_guess()))
                                                               : std::nullopt});
         for (const auto& input : request->geometry()) {
+            if (!input.length_unit().empty() && input.length_unit() != "mm" && input.length_unit() != "MM")
+                return {grpc::StatusCode::INVALID_ARGUMENT, "assembly descriptor length_unit must be mm"};
             assembly_api::Geometry geometry;
             if (input.kind() == "POINT")
                 geometry = assembly_api::PointGeometry{vec(input.origin())};
@@ -699,7 +706,18 @@ public:
                 geometry = assembly_api::PlaneGeometry{vec(input.origin()), vec(input.direction())};
             else if (input.kind() == "CYLINDER")
                 geometry = assembly_api::CylinderGeometry{vec(input.origin()),
-                                                          vec(input.direction()), input.radius()};
+                                                          vec(input.direction()), input.radius(), input.material_side()==0?1:input.material_side()};
+            else if (input.kind() == "SPHERE")
+                geometry = assembly_api::SphereGeometry{vec(input.origin()),input.radius(),input.material_side()==0?1:input.material_side()};
+            else if (input.kind() == "CONE")
+                geometry = assembly_api::ConeGeometry{vec(input.origin()),vec(input.direction()),input.half_angle(),input.cone_leaf(),input.material_side()};
+            else if (input.kind() == "CIRCLE")
+                geometry = assembly_api::CircleGeometry{vec(input.origin()),vec(input.direction()),input.radius(),vec(input.x_direction())};
+            else if (input.kind() == "FRAME") {
+                assembly_api::Pose frame; frame.translation=vec(input.origin());
+                frame.rotation={input.rotation().x(),input.rotation().y(),input.rotation().z(),input.rotation().w()};
+                geometry = assembly_api::FrameGeometry{frame};
+            }
             else
                 return {grpc::StatusCode::INVALID_ARGUMENT, "unknown assembly geometry kind"};
             model.geometry.push_back({input.id(), input.body_id(), geometry});
@@ -715,6 +733,10 @@ public:
             constraint.value = input.value();
             if (input.has_angle_reference_direction())
                 constraint.angle_reference_direction = vec(input.angle_reference_direction());
+            if (input.has_angle_reference()) {
+                constraint.angle_reference_geometry=assembly_api::GeometryRef{input.angle_reference().body_id(),input.angle_reference().geometry_id()};
+                constraint.reverse_angle_reference=input.reverse_angle_reference();
+            }
             if (input.has_spatial_angle_branch_direction())
                 constraint.spatial_angle_branch_direction = vec(input.spatial_angle_branch_direction());
             if (input.has_angle_branch_state())
@@ -728,6 +750,8 @@ public:
                 constraint.kind = assembly_api::ConstraintKind::Rigid;
             else if (input.kind() == "COINCIDENT")
                 constraint.kind = assembly_api::ConstraintKind::Coincident;
+            else if (input.kind() == "SURFACE_INCIDENCE")
+                constraint.kind = assembly_api::ConstraintKind::SurfaceIncidence;
             else if (input.kind() == "CONCENTRIC")
                 constraint.kind = assembly_api::ConstraintKind::Concentric;
             else if (input.kind() == "PARALLEL")
@@ -738,6 +762,20 @@ public:
                 constraint.kind = assembly_api::ConstraintKind::Angle;
             else if (input.kind() == "DISTANCE")
                 constraint.kind = assembly_api::ConstraintKind::Distance;
+            else if (input.kind() == "CONTACT") {
+                constraint.kind = assembly_api::ConstraintKind::Contact;
+                if (input.contact_kind()=="FACE") constraint.contact_kind=assembly_api::ContactKind::Face;
+                else if(input.contact_kind()=="LINE") constraint.contact_kind=assembly_api::ContactKind::Line;
+                else if(input.contact_kind()=="POINT") constraint.contact_kind=assembly_api::ContactKind::Point;
+                else if(input.contact_kind()=="RING") constraint.contact_kind=assembly_api::ContactKind::Ring;
+                else return {grpc::StatusCode::INVALID_ARGUMENT,"invalid Contact subtype"};
+                if(input.contact_side()=="EXTERNAL") constraint.contact_side=assembly_api::ContactSide::External;
+                else if(input.contact_side()=="INTERNAL") constraint.contact_side=assembly_api::ContactSide::Internal;
+                else return {grpc::StatusCode::INVALID_ARGUMENT,"invalid Contact side"};
+                constraint.contact_branch=input.contact_branch();
+                if(constraint.contact_branch!=1 && constraint.contact_branch!=-1)
+                    return {grpc::StatusCode::INVALID_ARGUMENT,"invalid Contact branch"};
+            }
             else
                 return {grpc::StatusCode::INVALID_ARGUMENT, "unknown assembly constraint kind"};
             if (input.direction_relation() == "SAME")
@@ -872,7 +910,7 @@ public:
             : result.status == assembly_api::SolveStatus::MaxIterations ? "MAX_ITERATIONS"
             : result.status == assembly_api::SolveStatus::InvalidModel  ? "INVALID_MODEL"
                                                                         : "NUMERICAL_FAILURE";
-        response->set_solver_build("assembly-m2.5-hierarchy-v9");
+        response->set_solver_build("assembly-six-families-composition-v10");
         response->set_status(status);
         const char* classification =
             result.classification == assembly_api::SolveClassification::SolvedFully ? "SOLVED_FULLY"

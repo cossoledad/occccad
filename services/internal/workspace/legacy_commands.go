@@ -1027,8 +1027,37 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PRODUCT" {
 			break
 		}
+		if request.ContactBranch != nil && *request.ContactBranch != -1 && *request.ContactBranch != 1 {
+			return "", nil, fmt.Errorf("%w: explicit contact branch must be -1 or 1", ErrValidation)
+		}
 		kind := strings.ToUpper(strings.TrimSpace(request.ConstraintKind))
-		if kind != "FIX" && kind != "RIGID" && kind != "COINCIDENT" && kind != "CONCENTRIC" && kind != "ANGLE" && kind != "DISTANCE" {
+		rigidShortcut := kind == "RIGID"
+		if kind == "RIGID" {
+			// Legacy pair shortcut compiles into the sole public group model on
+			// new commands. Frozen old RIGID revisions remain replayable as-is.
+			if request.FirstAssemblyRef == nil || request.SecondAssemblyRef == nil || request.FirstAssemblyRef.Kind != "BODY" || request.SecondAssemblyRef.Kind != "BODY" {
+				return "", nil, fmt.Errorf("%w: rigid shortcut requires two occurrence bodies", ErrValidation)
+			}
+			request.GroupMembers = []AssemblyGroupMember{
+				{InstanceID: request.FirstAssemblyRef.InstanceID, InstancePath: request.FirstAssemblyRef.InstancePath},
+				{InstanceID: request.SecondAssemblyRef.InstanceID, InstancePath: request.SecondAssemblyRef.InstancePath},
+			}
+			kind = "FIX_TOGETHER"
+		}
+		if kind == "FIX_TOGETHER" || request.ConstraintFamily == "FixTogether" {
+			if (request.ConstraintFamily != "" && request.ConstraintFamily != "FixTogether") || request.Value != 0 || request.DirectionRelation != "" || request.DistanceRelation != "" || request.QuantityExpression != nil || request.OffsetExpression != nil || request.QuantityKey != "" || request.OffsetKey != "" || request.ContactKind != "" || request.ContactSide != "" || request.ContactBranch != nil || request.AngleAxis != nil || request.AngleRelation != "" || request.FixMode != "" || request.FixedPose != nil || (!rigidShortcut && (request.FirstAssemblyRef != nil || request.SecondAssemblyRef != nil)) {
+				return "", nil, fmt.Errorf("%w: Fix Together accepts stable members, name and Driving activation only", ErrValidation)
+			}
+			if request.GroupName != "" {
+				request.Name = request.GroupName
+			}
+			c := AssemblyConstraint{ID: commandEntityID("assembly-constraint", request.RequestID), ConnectionID: commandEntityID("assembly-connection", request.RequestID), Kind: "FIX_TOGETHER", Family: "FixTogether", DefinitionVersion: 2, Name: request.Name, GroupMembers: request.GroupMembers, Mode: "DRIVING"}
+			if request.ConstraintMode != nil {
+				c.Mode = *request.ConstraintMode
+			}
+			return typeAddAssemblyConstraint, addAssemblyConstraintPayload{Constraint: c}, nil
+		}
+		if kind != "FIX" && kind != "RIGID" && kind != "COINCIDENT" && kind != "CONCENTRIC" && kind != "ANGLE" && kind != "DISTANCE" && kind != "CONTACT" && kind != "OFFSET" && kind != "PARALLEL" && kind != "PERPENDICULAR" {
 			return "", nil, fmt.Errorf("%w: unsupported assembly constraint kind", ErrValidation)
 		}
 		if request.FirstAssemblyRef == nil {
@@ -1066,9 +1095,19 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, err
 			}
 		}
-		constraint := AssemblyConstraint{ID: commandEntityID("assembly-constraint", request.RequestID), ConnectionID: commandEntityID("assembly-connection", request.RequestID), Kind: kind, FixMode: request.FixMode, AngleRelation: request.AngleRelation, Mode: "DRIVING", First: *request.FirstAssemblyRef,
+		constraint := AssemblyConstraint{ID: commandEntityID("assembly-constraint", request.RequestID), ConnectionID: commandEntityID("assembly-connection", request.RequestID), Name: request.Name, Kind: kind, FixMode: request.FixMode, AngleRelation: request.AngleRelation, Mode: "DRIVING", First: *request.FirstAssemblyRef,
 			Second: request.SecondAssemblyRef, Value: request.Value, DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation),
 			AngleAxis: request.AngleAxis, ReverseAngleAxis: request.ReverseAngleAxis != nil && *request.ReverseAngleAxis, AngleReferenceDirection: request.AngleReferenceDirection, EvaluationStatus: modelcore.AssemblyConstraintVerified}
+		constraint.ContactKind, constraint.ContactSide = strings.ToUpper(request.ContactKind), strings.ToUpper(request.ContactSide)
+		if request.ContactBranch != nil {
+			constraint.ContactBranch = *request.ContactBranch
+		}
+		if err := canonicalAssemblyDefinition(&constraint, request.ConstraintFamily, request.ConstraintSubtype); err != nil {
+			return "", nil, err
+		}
+		if err := service.validatePublicAssemblySupports(ctx, &product, &constraint); err != nil {
+			return "", nil, err
+		}
 		if constraint.DirectionRelation == "" {
 			constraint.DirectionRelation = "UNORIENTED"
 		}
@@ -1105,7 +1144,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				constraint.FixedPose = &relative
 			}
 		}
-		return typeAddAssemblyConstraint, addAssemblyConstraintPayload{Constraint: constraint, OffsetExpression: request.OffsetExpression, OffsetKey: request.OffsetKey}, nil
+		return typeAddAssemblyConstraint, addAssemblyConstraintPayload{Constraint: constraint, QuantityExpression: request.QuantityExpression, QuantityKey: request.QuantityKey, OffsetExpression: request.OffsetExpression, OffsetKey: request.OffsetKey}, nil
 	case "EDIT_ASSEMBLY_CONSTRAINT":
 		if documentType != "PRODUCT" {
 			break
@@ -1141,6 +1180,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		var product ProductModel
 		if json.Unmarshal(modelJSON, &product) == nil {
 			for _, existing := range product.Constraints {
+				if existing.Kind == "RIGID" && request.ConstraintFamily == "FixTogether" {
+					continue
+				}
 				if existing.ID != id || (existing.Kind != "FIX" && existing.Kind != "RIGID") {
 					continue
 				}
@@ -1179,12 +1221,52 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if request.FixedPose != nil {
 			editedFixedPose = request.FixedPose
 		}
-		return typeEditAssemblyConstraint, editAssemblyConstraintPayload{FixMode: request.FixMode, AngleRelation: request.AngleRelation, ConstraintID: id, Value: request.Value,
+		var groupName *string
+		var groupMembers *[]AssemblyGroupMember
+		if request.GroupName != "" {
+			request.Name = request.GroupName
+		}
+		if request.Name != "" {
+			groupName = &request.Name
+		}
+		if request.GroupMembers != nil {
+			groupMembers = &request.GroupMembers
+		}
+		payload := editAssemblyConstraintPayload{GroupName: groupName, GroupMembers: groupMembers, FixMode: request.FixMode, AngleRelation: request.AngleRelation, ConstraintID: id, Value: request.Value,
+			Family: request.ConstraintFamily, Subtype: request.ConstraintSubtype, ContactKind: strings.ToUpper(request.ContactKind), ContactSide: strings.ToUpper(request.ContactSide), ContactBranch: request.ContactBranch,
 			Mode:             request.ConstraintMode,
 			OffsetExpression: request.OffsetExpression, OffsetKey: request.OffsetKey,
+			QuantityExpression: request.QuantityExpression, QuantityKey: request.QuantityKey,
 			DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation),
 			First: request.FirstAssemblyRef, Second: request.SecondAssemblyRef, AngleAxis: request.AngleAxis, ReverseAngleAxis: request.ReverseAngleAxis, AngleReferenceDirection: request.AngleReferenceDirection,
-			FixedPose: editedFixedPose}, nil
+			FixedPose: editedFixedPose}
+		// Validate the exact edited definition before a command or Preview can
+		// publish it. Model mutation remains atomic and is performed by the same
+		// domain implementation; no alternate edit semantics are introduced.
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return "", nil, err
+		}
+		candidateJSON, _, err := applyEditAssemblyConstraint(modelJSON, encoded)
+		if err != nil {
+			return "", nil, err
+		}
+		var candidate ProductModel
+		if err := json.Unmarshal(candidateJSON, &candidate); err != nil {
+			return "", nil, err
+		}
+		for index := range candidate.Constraints {
+			if candidate.Constraints[index].ID == id {
+				if err := service.validatePublicAssemblySupports(ctx, &candidate, &candidate.Constraints[index]); err != nil {
+					return "", nil, err
+				}
+				// Subtype inference is a public command decision, not a read-time
+				// reinterpretation of immutable legacy definitions.
+				payload.Subtype = candidate.Constraints[index].Subtype
+				break
+			}
+		}
+		return typeEditAssemblyConstraint, payload, nil
 	case "SET_REFERENCE_MODE":
 		if documentType != "PRODUCT" {
 			break

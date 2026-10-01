@@ -85,6 +85,13 @@ struct SelectionEvidence {
     Vec3 centroid;
     Vec3 origin;
     Vec3 direction;
+    // Analytic support values. Lengths are Part-local mm, angles radians;
+    // these optional fields are absent in older frozen naming evidence.
+    std::optional<double> radius_mm;
+    std::optional<double> half_angle_radians;
+    std::optional<int> cone_leaf;
+    std::optional<int> material_side;
+    std::optional<Vec3> x_direction;
     std::vector<SemanticTopologyRef> adjacent;
     std::string evidence_digest;
 };

@@ -137,7 +137,7 @@ export class ProjectExternalGeometrySketchTool implements CadTool {
   cancel(context: ToolContext): void { this.capturedPointerID = undefined; context.viewport.setToolPrompt(""); }
 }
 
-export type AssemblyConstraintToolKind = "fix"|"rigid"|"coincident"|"concentric"|"angle"|"parallel"|"perpendicular"|"distance";
+export type AssemblyConstraintToolKind = "fix"|"rigid"|"fix_together"|"contact"|"coincident"|"concentric"|"angle"|"parallel"|"perpendicular"|"distance";
 
 export class AssemblyMoveTool implements CadTool {
   readonly id = "assembly.move";
@@ -169,13 +169,13 @@ export class AssemblyConstraintTool implements CadTool {
   private capturedPointerID?: number;
   constructor(kind: AssemblyConstraintToolKind) { this.kind = kind; this.id = `assembly.${kind}`; }
   activate(context: ToolContext): void {
-    context.viewport.setToolPrompt(this.kind === "fix" ? "固定：选择一个实例" : "装配约束：依次选择两个元素");
+    context.viewport.setToolPrompt(this.kind === "fix" ? "固定：选择一个实例" : this.kind === "fix_together" || this.kind === "rigid" ? "固联组：选择两个初始组件，随后可添加组件或已有组" : "装配约束：依次选择两个元素；精确类型由服务器解析");
   }
   selectionInput(selections: readonly SelectionItem[], context: ToolContext): void {
     for (const candidate of selections) {
       const selection = selectionModeForTool(this.id).project(candidate);
       const reference = selection && assemblyGeometryRef(selection);
-      if (!selection || !reference || (["fix", "rigid"].includes(this.kind) && reference.kind !== "BODY")) continue;
+      if (!selection || !reference || (["fix", "rigid", "fix_together"].includes(this.kind) && reference.kind !== "BODY")) continue;
       if (this.kind === "fix") {
         context.viewport.retainSelections([selection]);
         context.viewport.requestAssemblyConstraint(this.kind, [reference]);

@@ -184,6 +184,9 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		if reference == nil || reference.PublicationRef == nil {
 			return nil
 		}
+		if reference.InstancePath != nil && len(reference.InstancePath.Segments) > 1 {
+			return nil // nested source is resolved at its own accepted occurrence
+		}
 		publication, ok, err := service.variantPublicationForAssembly(ctx, *model, reference.InstanceID,
 			reference.PublicationRef.PublicationID, contextVariants)
 		if err != nil {
@@ -222,209 +225,24 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			}
 		}
 	}
-	type resolvedPart struct {
-		model PartModel
-	}
-	resolved := map[string]resolvedPart{}
-	resolvePart := func(instance *ProductInstance) (resolvedPart, error) {
-		versionID := instance.ReferencedVersionID
-		if versionID == "" {
-			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&versionID); err != nil {
-				return resolvedPart{}, err
-			}
-		}
-		if value, ok := resolved[versionID]; ok {
-			return value, nil
-		}
-		var documentType string
-		var modelJSON []byte
-		if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v JOIN occccad.documents d ON d.id=v.document_id WHERE v.id=$1`, versionID).Scan(&documentType, &modelJSON); err != nil {
-			return resolvedPart{}, err
-		}
-		if documentType != "PART" {
-			return resolvedPart{}, fmt.Errorf("%w: assembly geometry currently requires a direct Part instance", ErrValidation)
-		}
-		part, err := decodeAssemblyPartModel(modelJSON)
-		if err != nil {
-			return resolvedPart{}, err
-		}
-		value := resolvedPart{model: part}
-		resolved[versionID] = value
-		return value, nil
-	}
+	resolver := newAssemblySupportResolver(ctx, service, model)
 	geometryValues := make([]geometry.AssemblyGeometry, 0)
 	seenGeometry := map[string]bool{}
 	resolvedGeometry := map[string]geometry.AssemblyGeometry{}
 	resolveRef := func(reference AssemblyGeometryRef) (string, error) {
-		instance, localPose, occurrenceErr := service.assemblyReferenceOccurrence(ctx, *model, reference)
-		if occurrenceErr != nil {
-			return "", occurrenceErr
+		value, err := resolver.resolve(reference)
+		if err != nil {
+			return "", err
 		}
-		if reference.PublicationRef != nil && (reference.PublicationResolution == nil || reference.PublicationResolution.Status != "CONNECTED") {
-			return "", fmt.Errorf("%w: assembly Publication endpoint is not connected", ErrValidation)
-		}
-		if reference.Kind == "BODY" {
+		if value.Kind == "BODY" {
 			return "", nil
 		}
-		persistentKey := ""
-		if reference.PersistentSelection != nil {
-			encoded, _ := json.Marshal(reference.PersistentSelection)
-			persistentKey = string(encoded)
-		}
-		pathKey, _ := json.Marshal(reference.InstancePath)
-		key := reference.InstanceID + ":" + string(pathKey) + ":" + reference.Kind + ":" + reference.GeometryID + ":" + reference.Axis + ":" + persistentKey
-		if seenGeometry[key] {
-			return key, nil
-		}
-		value := geometry.AssemblyGeometry{ID: key, BodyID: reference.InstanceID, Kind: reference.Kind}
-		if reference.PublicationRef != nil && reference.PublicationResolution != nil {
-			resolution := *reference.PublicationResolution
-			value.Origin = resolution.Origin
-			switch reference.Kind {
-			case "POINT", "VERTEX":
-				value.Kind = "POINT"
-			case "AXIS":
-				value.Kind, value.Direction = "AXIS", resolution.ZDirection
-			case "PLANE":
-				value.Kind, value.Direction = "PLANE", resolution.ZDirection
-			case "EDGE":
-				if resolution.GeometryKind != "LINE" {
-					return "", fmt.Errorf("%w: Publication curve must resolve to a line for this constraint", ErrValidation)
-				}
-				value.Kind, value.Direction = "AXIS", resolution.ZDirection
-			case "FACE":
-				switch resolution.GeometryKind {
-				case "PLANE":
-					value.Kind, value.Direction = "PLANE", resolution.ZDirection
-				case "CYLINDER":
-					value.Kind, value.Direction = "CYLINDER", resolution.ZDirection
-					if resolution.Radius <= 0 {
-						return "", fmt.Errorf("%w: cylindrical Publication is missing its exact radius", ErrValidation)
-					}
-					value.Radius = resolution.Radius
-				default:
-					return "", fmt.Errorf("%w: Publication surface geometry %s is unsupported", ErrValidation, resolution.GeometryKind)
-				}
-			default:
-				return "", fmt.Errorf("%w: Publication type is not a supported assembly endpoint", ErrValidation)
-			}
-			seenGeometry[key] = true
-			resolvedGeometry[key] = value
+		if !seenGeometry[value.ID] {
+			seenGeometry[value.ID] = true
+			resolvedGeometry[value.ID] = value
 			geometryValues = append(geometryValues, value)
-			return key, nil
 		}
-		switch reference.Kind {
-		case "FACE", "EDGE", "VERTEX":
-			_, err := resolvePart(instance)
-			if err != nil {
-				return "", err
-			}
-			if err := validatePersistentAssemblyReference(reference); err != nil {
-				return "", err
-			}
-			resolved, err := service.resolvedAssemblyTopologyProperties(ctx, instance.ReferencedDocumentID, ResolvePersistentSelectionRequest{Selection: *reference.PersistentSelection, SourceVersionID: reference.SourceVersionID, TargetVersionID: instance.ReferencedVersionID, PolicyDigest: modelcore.TopologyNamingPolicyDigest})
-			if err != nil {
-				return "", err
-			}
-			if resolved.Resolution.Status != modelcore.SelectionResolved || resolved.Properties == nil {
-				return "", fmt.Errorf("%w: supporting element is %s", ErrValidation, resolved.Resolution.Status)
-			}
-			properties := *resolved.Properties
-			if reference.Kind == "VERTEX" {
-				if properties.Point == nil {
-					return "", fmt.Errorf("%w: selected vertex is missing its exact point", ErrValidation)
-				}
-				value.Kind, value.Origin = "POINT", *properties.Point
-				break
-			}
-			origin, originOK := properties.Properties["origin"].([3]float64)
-			if reference.Kind == "EDGE" {
-				if properties.GeometryType != "LINE" {
-					return "", fmt.Errorf("%w: %s edges are not supported by this assembly constraint slice", ErrValidation, properties.GeometryType)
-				}
-				direction, ok := properties.Properties["direction"].([3]float64)
-				if !originOK || !ok {
-					return "", fmt.Errorf("%w: linear edge is missing its exact line", ErrValidation)
-				}
-				value.Kind, value.Origin, value.Direction = "AXIS", origin, direction
-				break
-			}
-			switch properties.GeometryType {
-			case "PLANE":
-				direction, ok := properties.Properties["normal"].([3]float64)
-				if !originOK || !ok {
-					return "", fmt.Errorf("%w: planar face is missing its exact frame", ErrValidation)
-				}
-				value.Kind, value.Origin, value.Direction = "PLANE", origin, direction
-			case "CYLINDER":
-				direction, ok := properties.Properties["axis"].([3]float64)
-				radius, radiusOK := properties.Properties["radius"].(float64)
-				if !originOK || !ok || !radiusOK {
-					return "", fmt.Errorf("%w: cylindrical face is missing its exact frame", ErrValidation)
-				}
-				value.Kind, value.Origin, value.Direction, value.Radius = "CYLINDER", origin, direction, radius
-			default:
-				return "", fmt.Errorf("%w: %s faces are not supported by this assembly constraint slice", ErrValidation, properties.GeometryType)
-			}
-		case "PLANE":
-			resolved, err := resolvePart(instance)
-			if err != nil {
-				return "", err
-			}
-			part := resolved.model
-			found := false
-			for _, plane := range part.DatumPlanes {
-				if plane.ID == reference.GeometryID {
-					value.Origin, value.Direction, found = plane.Origin, plane.Normal, true
-					break
-				}
-			}
-			if !found {
-				return "", fmt.Errorf("%w: referenced datum plane does not exist", ErrValidation)
-			}
-		case "AXIS", "POINT":
-			resolved, err := resolvePart(instance)
-			if err != nil {
-				return "", err
-			}
-			part := resolved.model
-			found := false
-			for _, axis := range part.DatumAxes {
-				if axis.ID == reference.GeometryID && reference.Kind == "AXIS" {
-					value.Origin, value.Direction, found = axis.Origin, axis.Direction, true
-					break
-				}
-			}
-			for _, system := range part.AxisSystems {
-				if system.ID != reference.GeometryID {
-					continue
-				}
-				value.Origin, found = system.Origin, true
-				if reference.Kind == "AXIS" {
-					switch reference.Axis {
-					case "X":
-						value.Direction = system.XDirection
-					case "Y":
-						value.Direction = system.YDirection
-					case "Z":
-						value.Direction = system.ZDirection
-					default:
-						return "", fmt.Errorf("%w: axis-system direction must be X, Y, or Z", ErrValidation)
-					}
-				}
-				break
-			}
-			if !found {
-				return "", fmt.Errorf("%w: referenced axis geometry does not exist", ErrValidation)
-			}
-		default:
-			return "", fmt.Errorf("%w: assembly references support BODY, POINT, AXIS, PLANE, VERTEX, linear EDGE, and planar/cylindrical FACE", ErrValidation)
-		}
-		value = assemblyGeometryInBody(value, localPose)
-		seenGeometry[key] = true
-		resolvedGeometry[key] = value
-		geometryValues = append(geometryValues, value)
-		return key, nil
+		return value.ID, nil
 	}
 	constraints := make([]geometry.AssemblyConstraint, 0, len(model.Constraints))
 	hasUnresolvedActiveConstraint := false
@@ -444,6 +262,9 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	}
 	for constraintIndex := range model.Constraints {
 		constraint := &model.Constraints[constraintIndex]
+		if isAssemblyGroup(*constraint) {
+			continue
+		}
 		if constraint.Suppressed || excluded[constraint.ID] {
 			continue
 		}
@@ -463,6 +284,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		}
 		appendResolutionEvidence(constraint.ID, "FIRST", firstGeometry, constraint.First)
 		value := geometry.AssemblyConstraint{ID: constraint.ID, ConnectionID: constraint.ConnectionID, Kind: constraint.Kind, Mode: constraint.Mode, FirstBodyID: constraint.First.InstanceID, FirstGeometryID: firstGeometry, Value: constraint.Value, DirectionRelation: constraint.DirectionRelation, DistanceRelation: constraint.DistanceRelation,
+			ContactKind: constraint.ContactKind, ContactSide: constraint.ContactSide, ContactBranch: constraint.ContactBranch,
 			AngleReferenceDirection: constraint.AngleReferenceDirection, SpatialAngleBranchDirection: constraint.SpatialAngleBranchDirection}
 		if err := applyAssemblyAngleRelation(constraint, &value); err != nil {
 			return err
@@ -514,19 +336,31 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 				}
 			}
 			constraint.AngleReferenceDirection, value.AngleReferenceDirection = &direction, &direction
+			if constraint.DefinitionVersion >= 2 {
+				value.AngleReferenceBodyID, value.AngleReferenceGeometryID, value.ReverseAngleReference = axis.BodyID, axisKey, constraint.ReverseAngleAxis
+				constraint.AngleReferenceDirection, value.AngleReferenceDirection = nil, nil
+			}
 			appendResolutionEvidence(constraint.ID, "ANGLE_AXIS", axisKey, *constraint.AngleAxis)
 		}
 		if constraint.Kind != "FIX" && constraint.Kind != "RIGID" {
 			firstKind := resolvedGeometry[firstGeometry].Kind
 			secondKind := resolvedGeometry[value.SecondGeometryID].Kind
+			if constraint.DefinitionVersion >= 2 && constraint.Family == "Coincidence" &&
+				(firstKind == "AXIS" || firstKind == "CYLINDER") && (secondKind == "AXIS" || secondKind == "CYLINDER") {
+				value.Kind = "CONCENTRIC" // public coaxial relation never equates radii
+			}
+			if constraint.DefinitionVersion >= 2 && constraint.Family == "Coincidence" && constraint.Subtype == "point-surface" &&
+				((firstKind == "POINT" && secondKind == "CYLINDER") || (secondKind == "POINT" && firstKind == "CYLINDER")) {
+				value.Kind = "SURFACE_INCIDENCE" // not the legacy point-to-cylinder-axis shortcut
+			}
 			if err := compileAssemblyOffset(*constraint, &value, resolvedGeometry[firstGeometry], resolvedGeometry[value.SecondGeometryID]); err != nil {
 				return err
 			}
 			capabilities := assemblyCapabilities(value.Kind, firstKind, secondKind)
 			if constraint.AngleRelation == "PERPENDICULAR" {
 				value.DirectionRelation = "SAME"
-			} else if value.Kind == "ANGLE" && constraint.AngleReferenceDirection != nil {
-				constraint.DirectionRelation, value.DirectionRelation = "SAME", "SAME"
+			} else if value.Kind == "ANGLE" && (value.AngleReferenceDirection != nil || value.AngleReferenceGeometryID != "") {
+				value.DirectionRelation = "SAME" // compiled primitive, not persisted user branch intent
 			} else if !capabilities.direction {
 				constraint.DirectionRelation, value.DirectionRelation = "UNORIENTED", "UNORIENTED"
 			} else if constraint.DirectionRelation == "" {
@@ -535,7 +369,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			if !capabilities.distanceSide {
 				constraint.DistanceRelation, value.DistanceRelation = "UNSIGNED", "UNSIGNED"
 			}
-			if value.Kind == "ANGLE" && constraint.AngleReferenceDirection != nil && !capabilities.directedAngle {
+			if value.Kind == "ANGLE" && (value.AngleReferenceDirection != nil || value.AngleReferenceGeometryID != "") && !capabilities.directedAngle {
 				return fmt.Errorf("%w: directed angle requires two directional supports", ErrValidation)
 			}
 
@@ -543,7 +377,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		if value.Kind == "ANGLE" && value.Value == 2*math.Pi {
 			constraint.Value, value.Value = 0, 0
 		}
-		if value.Kind == "ANGLE" && value.AngleReferenceDirection == nil {
+		if value.Kind == "ANGLE" && value.AngleReferenceDirection == nil && value.AngleReferenceGeometryID == "" {
 			if constraint.SpatialAngleBranchDirection == nil {
 				constraint.SpatialAngleBranchDirection = spatialAngleBranchDirection(resolvedGeometry[firstGeometry].Direction, resolvedGeometry[value.SecondGeometryID].Direction,
 					instances[constraint.First.InstanceID], instances[constraint.Second.InstanceID], 1)
@@ -560,7 +394,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	}
 	// A failed resolution is not an unconstrained solve. Only a genuinely
 	// empty active set receives empty-set solver evidence.
-	if len(constraints) == 0 && hasUnresolvedActiveConstraint {
+	if len(constraints) == 0 && hasUnresolvedActiveConstraint && !hasActiveAssemblyGroups(*model, excluded) {
 		return nil
 	}
 	if err := workflow.advance(context.Background()); err != nil {
@@ -586,12 +420,17 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	if err != nil {
 		return err
 	}
+	manifest.GroupStages, err = prepareAssemblyGroupStages(manifest, excluded)
+	if err != nil {
+		return err
+	}
+	manifest.Digest = assemblyManifestDigest(manifest)
 	if probe || strings.HasPrefix(requestID, "preview/") {
 		manifest.Purpose = "PREVIEW"
 		if probe {
 			manifest.Purpose = "PROBE"
 		}
-		manifest.Digest = resolvedDigest(func() AssemblySolveManifest { value := manifest; value.Digest = ""; return value }())
+		manifest.Digest = assemblyManifestDigest(manifest)
 	}
 	finishPrepare()
 	preparing = false
@@ -639,6 +478,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	if err := validateAssemblyPreference(result); err != nil {
 		return workflow.failure(context.Background(), "PREFERENCE_NOT_CONVERGED", "ASSEMBLY_PREFERENCE_NOT_CONVERGED", err.Error(), false)
 	}
+	promoteAssemblyGroupEvidence(model, result)
 	for _, target := range evidence {
 		if target != nil {
 			*target = result
@@ -659,7 +499,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			continue
 		}
 		for _, compiled := range constraints {
-			if compiled.ID != c.ID || compiled.Kind != "ANGLE" || compiled.AngleReferenceDirection != nil {
+			if compiled.ID != c.ID || compiled.Kind != "ANGLE" || compiled.AngleReferenceDirection != nil || compiled.AngleReferenceGeometryID != "" {
 				continue
 			}
 			sense := 1.0

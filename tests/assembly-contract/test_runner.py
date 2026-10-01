@@ -30,12 +30,15 @@ class CatalogTests(unittest.TestCase):
         self.check_bad(lambda c: c["cases"].append(c["cases"][0]), "duplicate caseId")
         self.check_bad(lambda c: c["capabilities"][0]["caseIds"].append("typo"), "invalid test mapping")
         self.check_bad(lambda c: c["cases"][0]["capabilityIds"].append("typo"), "invalid capability reference")
+        self.check_bad(lambda c: c["derivedSupports"].append(c["derivedSupports"][0]), "duplicate derived supportId")
+        self.check_bad(lambda c: c["capabilities"][0]["roles"][0].update(supportedDescriptors=["MESH_FACE"]), "invalid supported descriptor")
 
     def test_semantics_fixture_and_selector_are_required(self):
         self.check_bad(lambda c: c["policies"]["spatial"].pop("parameters"), "parameters")
         self.check_bad(lambda c: c["policies"]["spatial"]["parameters"][0].pop("unit"), "parameter semantics")
         self.check_bad(lambda c: c["descriptors"]["POINT"]["units"].clear(), "unit fields")
         self.check_bad(lambda c: c["cases"][0]["fixture"].update(source="missing"), "missing fixture")
+        self.check_bad(lambda c: c["cases"][0]["fixture"].update(assertionSources=[{"source": "missing", "symbol": "missing"}]), "missing additional assertion fixture")
         def typo(c):
             c["cases"][0]["selector"] = "AssemblySolver.Typo"
             c["cases"][0]["fixture"]["symbol"] = "AssemblySolver.Typo"
@@ -47,19 +50,29 @@ class CatalogTests(unittest.TestCase):
     def test_regression_lock_prevents_target_removal_and_weakening(self):
         self.check_bad(lambda c: c["policies"]["spatial"].update(direction="match current solver instead"), "regression lock changed", lock=True)
         self.check_bad(lambda c: c["cases"][0].update(expectation="Converged is enough"), "regression lock", lock=True)
-        self.check_bad(lambda c: c["implementationProfiles"]["existing"]["workerSolver"].update(state="partial"), "coverage lowered", lock=True)
+        self.check_bad(lambda c: c["capabilities"][0].setdefault("implementationOverrides", {}).update(workerSolver={"state": "partial", "reason": "weakened"}), "coverage lowered", lock=True)
         # Remove a missing target without leaving broken references: still rejected.
         def delete_target(c):
             removed = "coincidence.frame-frame"
             c["capabilities"] = [r for r in c["capabilities"] if r["capabilityId"] != removed]
             for case in c["cases"]:
                 case["capabilityIds"] = [ident for ident in case["capabilityIds"] if ident != removed]
+            c["cases"] = [case for case in c["cases"] if case["capabilityIds"]]
+            remaining = {case["caseId"] for case in c["cases"]}
+            for capability in c["capabilities"]:
+                capability["caseIds"] = [ident for ident in capability["caseIds"] if ident in remaining]
+                if "requiredCaseIds" in capability:
+                    capability["requiredCaseIds"] = [ident for ident in capability["requiredCaseIds"] if ident in remaining]
         self.check_bad(delete_target, "removed/changed", lock=True)
 
     def test_unknown_or_empty_selection_fails(self):
-        for options in ({"case": "typo"}, {"family": "Concentric"}, {"capability": "typo"}, {"layer": "browser"}, {"capability": "coincidence.frame-frame", "layer": "ui"}):
+        for options in ({"case": "typo"}, {"family": "Concentric"}, {"capability": "typo"}, {"layer": "browser"}):
             with self.assertRaises(ValueError):
                 runner.select(self.catalog, **options)
+        empty = copy.deepcopy(self.catalog)
+        empty["cases"] = []
+        with self.assertRaisesRegex(ValueError, "empty"):
+            runner.select(empty, capability="coincidence.frame-frame", layer="ui")
 
     def test_go_results_require_actual_run_and_no_skip(self):
         selector = "TestReal"
@@ -72,6 +85,30 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(runner.go_verdict(events, selector, 0)[0], "ENVIRONMENT_BLOCKED")
         events.append({"Test": selector + "/integration", "Action": "fail"})
         self.assertEqual(runner.go_verdict(events, selector, 0)[0], "FAIL")
+
+    def test_child_pass_cannot_hide_failed_fixture_ancestor(self):
+        events = [{"Test": "TestReal/good", "Action": "run"},
+                  {"Test": "TestReal/good", "Action": "pass"},
+                  {"Test": "TestReal/bad", "Action": "run"},
+                  {"Test": "TestReal/bad", "Action": "fail"},
+                  {"Test": "TestReal", "Action": "fail"}]
+        self.assertEqual(runner.go_verdict(events, "TestReal/good", 1)[0], "FAIL")
+        self.assertEqual(runner.go_verdict(events, "TestReal/bad", 1)[0], "FAIL")
+        self.assertEqual(runner.go_verdict(events, "TestReal", 1)[0], "FAIL")
+
+    def test_ancestor_skip_and_nested_ancestor_failure_are_not_pass(self):
+        selector = "TestReal/group/child"
+        events = [{"Test": selector, "Action": "run"}, {"Test": selector, "Action": "pass"}]
+        for ancestor in ("TestReal", "TestReal/group"):
+            self.assertEqual(runner.go_verdict(events + [{"Test": ancestor, "Action": "skip"}], selector, 0)[0], "ENVIRONMENT_BLOCKED")
+            self.assertEqual(runner.go_verdict(events + [{"Test": ancestor, "Action": "fail"}], selector, 1)[0], "FAIL")
+
+    def test_truly_unrelated_fixture_failure_does_not_relabel_pass(self):
+        selector = "TestReal/good"
+        events = [{"Test": selector, "Action": "run"}, {"Test": selector, "Action": "pass"},
+                  {"Test": "TestReal", "Action": "pass"}, {"Test": "TestOther/bad", "Action": "fail"},
+                  {"Test": "TestOther", "Action": "fail"}]
+        self.assertEqual(runner.go_verdict(events, selector, 1)[0], "PASS")
 
     def test_progress_requires_specific_applicable_actual_evidence(self):
         c = copy.deepcopy(self.catalog["capabilities"][0])
@@ -105,6 +142,14 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(result[case["caseId"]]["status"], "ENVIRONMENT_BLOCKED")
         self.assertEqual(commands, [])
 
+    def test_environment_identity_never_records_credentials(self):
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"OCCCCAD_TEST_DATABASE_URL": "postgresql://actor:secret@localhost/dedicated_contract_test?sslmode=disable", "OCCCCAD_TEST_GEOMETRY_WORKER": "/missing-worker"}, clear=True):
+            environment = runner.integration_environment()
+        self.assertEqual(environment["databaseName"], "dedicated_contract_test")
+        self.assertIsNone(environment["workerExecutableDigest"])
+        self.assertNotIn("secret", json.dumps(environment))
+
     def test_integration_failure_does_not_relabel_another_fixture(self):
         import tempfile
         from unittest.mock import patch
@@ -123,9 +168,56 @@ class CatalogTests(unittest.TestCase):
 
     def test_assertion_source_changes_fail_the_lock(self):
         from unittest.mock import patch
-        with patch.object(runner, "assertion_source", return_value="EXPECT_TRUE(true); // loosened assertion"):
+        with patch.object(runner, "assertion_source", return_value='EXPECT_TRUE(true); t.Fatal("changed assertion");'):
             with self.assertRaisesRegex(ValueError, "regression lock"):
                 runner.validate(self.catalog, lock=self.lock)
+
+    def test_web_marker_is_exact_and_process_must_succeed(self):
+        import tempfile
+        from unittest.mock import patch
+        case = next(c for c in self.catalog["cases"] if c["adapter"] == "web-catalog")
+        for code, raw, want in ((0, "CONTRACT_PASS " + case["caseId"] + "-wrong", "FAIL"),
+                                (1, "CONTRACT_PASS " + case["caseId"], "FAIL"),
+                                (0, "CONTRACT_PASS " + case["caseId"], "PASS")):
+            with tempfile.TemporaryDirectory() as output, patch.object(runner, "command", return_value=(code, raw)):
+                results, _ = runner.run_cases([case], Path(output), "Debug", {"web-catalog"})
+            self.assertEqual(results[case["caseId"]]["status"], want)
+
+    def test_web_batches_receive_only_their_catalog_cases(self):
+        import tempfile
+        from unittest.mock import patch
+        legacy = next(c for c in self.catalog["cases"] if c["caseId"] == "angle.free.web-entry")
+        production = next(c for c in self.catalog["cases"] if c["selector"] == "production-capability")
+        def execute(argv, cwd, env, log):
+            ids = json.loads(env["OCCCCAD_ASSEMBLY_CONTRACT_CASES"])
+            self.assertEqual(len(ids), 1)
+            return 0, "CONTRACT_PASS " + ids[0]
+        with tempfile.TemporaryDirectory() as output, patch.object(runner, "command", side_effect=execute):
+            results, commands = runner.run_cases([legacy, production], Path(output), "Debug", {"web-catalog"})
+        self.assertEqual(len(commands), 2)
+        self.assertTrue(all(r["status"] == "PASS" for r in results.values()))
+
+    def test_composition_rejects_blocked_or_unexecuted_required_evidence(self):
+        import tempfile
+        import contextlib
+        import io
+        from unittest.mock import patch
+        case = next(c for c in self.catalog["cases"] if c["adapter"] == "web-catalog")
+        for status in ("PASS", "ENVIRONMENT_BLOCKED"):
+            results = {case["caseId"]: dict(caseId=case["caseId"], status=status, observed="facility fixture", command=None, log=None)}
+            with tempfile.TemporaryDirectory() as output, patch.object(runner, "run_cases", return_value=(results, [])), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                code = runner.main(["composition", "--capability", case["capabilityIds"][0], "--output", output])
+            self.assertEqual(code, 1)  # Even a real UI PASS cannot stand in for required DB/math evidence.
+
+    def test_assertion_helper_must_exist_and_be_called(self):
+        case = copy.deepcopy(next(c for c in self.catalog["cases"] if c["adapter"] == "integration"))
+        case["fixture"]["assertionHelperSymbol"] = "missingContractAssertionHelper"
+        with self.assertRaisesRegex(ValueError, "not called"):
+            runner.assertion_source(case)
+        case["fixture"].pop("assertionHelperSymbol")
+        case["fixture"]["assertionSources"] = [{"source": case["fixture"]["source"], "symbol": "missingContractAssertionHelper"}]
+        with self.assertRaisesRegex(ValueError, "missing additional assertion"):
+            runner.assertion_source(case)
 
     def test_zero_execution_cannot_be_green(self):
         import contextlib

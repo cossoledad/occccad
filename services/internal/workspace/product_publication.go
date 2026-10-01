@@ -167,8 +167,15 @@ func applyPublicationDescriptor(reference *AssemblyGeometryRef, publication Publ
 	}
 	reference.GeometryID, reference.Axis = "", ""
 	switch publication.Type {
-	case "POINT", "FRAME":
+	case "POINT":
 		reference.Kind = "POINT"
+	case "FRAME":
+		// Older definitions deliberately persisted a POINT projection of Frame.
+		// Preserve that semantic replay; new full Frame references use FRAME (or
+		// an unset kind while binding), explicit derived roles select subelements.
+		if reference.Kind != "POINT" || reference.DerivedRole != "" {
+			reference.Kind = "FRAME"
+		}
 	case "AXIS":
 		reference.Kind = "AXIS"
 	case "PLANE":
@@ -196,15 +203,9 @@ func (service *Service) resolveAssemblyPublication(ctx context.Context, product 
 	if reference == nil || reference.PublicationRef == nil {
 		return Publication{}, nil
 	}
-	var instance *ProductInstance
-	for index := range product.Instances {
-		if product.Instances[index].ID == reference.InstanceID {
-			instance = &product.Instances[index]
-			break
-		}
-	}
-	if instance == nil {
-		return Publication{}, fmt.Errorf("%w: assembly Publication references an unknown instance", ErrValidation)
+	instance, _, occurrenceErr := service.assemblyReferenceOccurrence(ctx, *product, *reference)
+	if occurrenceErr != nil {
+		return Publication{}, occurrenceErr
 	}
 	publication, err := service.publicationAtRevision(ctx, instance.ReferencedDocumentID, instance.ReferencedVersionID,
 		reference.PublicationRef.PublicationID)

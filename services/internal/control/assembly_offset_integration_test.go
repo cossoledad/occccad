@@ -135,6 +135,10 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 		t.Fatal("commit did not advance")
 	}
 	gap := created.Product.Constraints[len(created.Product.Constraints)-1].ID
+	createdDefinition := created.Product.Constraints[len(created.Product.Constraints)-1]
+	if createdDefinition.DefinitionVersion != 2 || createdDefinition.OffsetParameter != nil || createdDefinition.QuantityParameter == nil || createdDefinition.QuantityParameter.ParameterID != "offset:"+gap {
+		t.Fatal("new Offset did not persist unique canonical stable quantity", createdDefinition)
+	}
 	literal := "-2 mm"
 	apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: gap, Value: 3, OffsetExpression: &literal, DirectionRelation: "OPPOSITE", DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
 	check(product, -2)
@@ -143,7 +147,8 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 	check(product, 3)
 	apply(workspace.CommandRequest{Type: "REDO"})
 	check(product, -2)
-	if product.Product.Constraints[len(product.Product.Constraints)-1].OffsetParameter.Source.Expression == nil {
+	definition := product.Product.Constraints[len(product.Product.Constraints)-1]
+	if definition.DefinitionVersion != 2 || definition.OffsetParameter != nil || definition.QuantityParameter == nil || definition.QuantityParameter.ParameterID != "offset:"+gap || definition.QuantityParameter.Source.Expression == nil || definition.QuantityParameter.Source.Expression.CheckedAST.Kind == "" {
 		t.Fatal("Redo lost AST")
 	}
 	cold := workspace.NewWithArtifacts(db, client, artifact.NewService(db, local))
@@ -234,15 +239,17 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 		four := "4 mm"
 		apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: gap, OffsetExpression: &four, OffsetKey: "Renamed", DirectionRelation: "OPPOSITE", DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
 		last := product.Product.Constraints[len(product.Product.Constraints)-1]
-		if last.Value != 5 || last.MeasuredValue == nil || math.Abs(*last.MeasuredValue-4) > 1e-7 || last.OffsetParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:"+gap {
+		if last.DefinitionVersion != 2 || last.OffsetParameter != nil || last.QuantityParameter == nil || last.QuantityParameter.ParameterID != "offset:"+last.ID || last.QuantityParameter.Source.Expression == nil || last.QuantityParameter.Source.Expression.CheckedAST.Kind == "" || last.QuantityParameter.Source.Expression.CheckedAST.Left == nil || last.Value != 5 || last.MeasuredValue == nil || math.Abs(*last.MeasuredValue-4) > 1e-7 || last.QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:"+gap {
 			t.Fatal("reference/measurement boundary", last)
 		}
 		apply(workspace.CommandRequest{Type: "UNDO"})
-		if product.Product.Constraints[len(product.Product.Constraints)-1].OffsetParameter.Source.Expression.SourceText != "(Gap + 1 mm)" {
+		undone := product.Product.Constraints[len(product.Product.Constraints)-1]
+		if undone.OffsetParameter != nil || undone.QuantityParameter == nil || undone.QuantityParameter.Source.Expression == nil || undone.QuantityParameter.Source.Expression.CheckedAST.Kind == "" || undone.QuantityParameter.Source.Expression.CheckedAST.Left == nil || undone.QuantityParameter.Source.Expression.SourceText != "(Gap + 1 mm)" || undone.QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:"+gap {
 			t.Fatal("Undo lost expression source")
 		}
 		apply(workspace.CommandRequest{Type: "REDO"})
-		if product.Product.Constraints[len(product.Product.Constraints)-1].OffsetParameter.Source.Expression.SourceText != "(Renamed + 1 mm)" {
+		redone := product.Product.Constraints[len(product.Product.Constraints)-1]
+		if redone.OffsetParameter != nil || redone.QuantityParameter == nil || redone.QuantityParameter.Source.Expression == nil || redone.QuantityParameter.Source.Expression.CheckedAST.Kind == "" || redone.QuantityParameter.Source.Expression.CheckedAST.Left == nil || redone.QuantityParameter.Source.Expression.SourceText != "(Renamed + 1 mm)" || redone.QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:"+gap {
 			t.Fatal("Redo lost stable rename")
 		}
 	})

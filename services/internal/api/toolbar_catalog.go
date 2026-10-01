@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/occccad/occccad/internal/assemblycontract"
 	"net/http"
 )
 
@@ -59,5 +60,46 @@ func (server *Server) toolbarCatalog(writer http.ResponseWriter, request *http.R
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(writer, http.StatusOK, map[string]any{"schemaVersion": 1, "toolbars": entries})
+	writeJSON(writer, http.StatusOK, map[string]any{"schemaVersion": 1, "toolbars": canonicalAssemblyToolbars(entries)})
+}
+
+// Legacy database presentation rows are projected onto the single public model;
+// their stored IDs are not business identities and need no data-reset migration.
+func canonicalAssemblyToolbars(entries []toolbarCatalogEntry) []toolbarCatalogEntry {
+	families := map[string]bool{}
+	for _, family := range assemblycontract.Read().Families {
+		families[family] = true
+	}
+	for i := range entries {
+		if entries[i].Workbench != "ASSEMBLY_DESIGN" {
+			continue
+		}
+		constraintBar := false
+		contactFound := false
+		for j := range entries[i].Items {
+			item := &entries[i].Items[j]
+			switch item.CommandID {
+			case "assembly.rigid":
+				if families["FixTogether"] {
+					item.CommandID = "assembly.fix_together"
+					item.Name = "固联组"
+					item.HelpText = "管理两个或多个组件及已有固联组；组内先解、组外整体求解。"
+				}
+			case "assembly.distance":
+				item.Name = "偏移"
+				item.HelpText = "精确 Point/Line/Plane 偏移；含平面时使用显式法向符号。"
+			case "assembly.parallel", "assembly.perpendicular":
+				item.HelpText = "Angle 关系族快捷入口；不是指定轴投影角。"
+			case "assembly.contact":
+				contactFound = true
+			}
+			if item.CommandID == "assembly.coincident" {
+				constraintBar = true
+			}
+		}
+		if constraintBar && !contactFound && families["Contact"] {
+			entries[i].Items = append(entries[i].Items, toolbarCatalogItem{CommandID: "assembly.contact", Name: "接触", HelpText: "精确解析面、线、点、环接触；材料侧与分支显式。", IconKey: "tangent", GroupKey: "primary", SortOrder: 65})
+		}
+	}
+	return entries
 }

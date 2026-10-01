@@ -30,6 +30,7 @@
 #include <Geom_BezierCurve.hxx>
 #include <Geom_BezierSurface.hxx>
 #include <Geom_Circle.hxx>
+#include <Precision.hxx>
 #include <Geom_ConicalSurface.hxx>
 #include <Geom_CylindricalSurface.hxx>
 #include <Geom_Ellipse.hxx>
@@ -174,6 +175,14 @@ TopologyProperty integer_property(std::string name, const int64_t value) {
     return result;
 }
 
+TopologyProperty text_property(std::string name, std::string value) {
+    TopologyProperty result;
+    result.name = std::move(name);
+    result.kind = TopologyProperty::Kind::TEXT;
+    result.text_value = std::move(value);
+    return result;
+}
+
 TopologyProperty boolean_property(std::string name, const bool value) {
     TopologyProperty result;
     result.name = std::move(name);
@@ -201,6 +210,11 @@ gp_Dir oriented_plane_normal(const TopoDS_Face& face, const gp_Pln& plane) {
 
 void append_surface_properties(const TopoDS_Face& face, FaceInfo& output) {
     BRepAdaptor_Surface surface(face, Standard_True);
+    output.properties.push_back(text_property("lengthUnit", "mm"));
+    output.properties.push_back(text_property("angleUnit", "rad"));
+    // +1: outward analytic normal; -1: the material lies on the other side
+    // (e.g. a cavity wall). This is not a Same/Opposite constraint intent.
+    output.properties.push_back(integer_property("materialSide", face.Orientation() == TopAbs_REVERSED ? -1 : 1));
     output.properties.push_back(number_property("uFirst", surface.FirstUParameter()));
     output.properties.push_back(number_property("uLast", surface.LastUParameter()));
     output.properties.push_back(number_property("vFirst", surface.FirstVParameter()));
@@ -234,10 +248,12 @@ void append_surface_properties(const TopoDS_Face& face, FaceInfo& output) {
         }
         case GeomAbs_Cone: {
             const auto value = surface.Cone();
+            output.properties.push_back(vector_property("apex", value.Apex().XYZ()));
             output.properties.push_back(vector_property("origin", value.Location().XYZ()));
             output.properties.push_back(vector_property("axis", value.Axis().Direction().XYZ()));
             output.properties.push_back(number_property("referenceRadius", value.RefRadius()));
             output.properties.push_back(number_property("semiAngle", value.SemiAngle()));
+            output.properties.push_back(integer_property("coneLeaf", value.SemiAngle() >= 0 ? 1 : -1));
             break;
         }
         case GeomAbs_Sphere: {
@@ -292,6 +308,8 @@ void append_surface_properties(const TopoDS_Face& face, FaceInfo& output) {
 
 void append_curve_properties(const TopoDS_Edge& edge, EdgeInfo& output) {
     BRepAdaptor_Curve curve(edge);
+    output.properties.push_back(text_property("lengthUnit", "mm"));
+    output.properties.push_back(text_property("parameterUnit", curve.GetType() == GeomAbs_Line ? "mm" : curve.GetType() == GeomAbs_Circle ? "rad" : "native"));
     const double first = curve.FirstParameter();
     const double last = curve.LastParameter();
     output.properties.push_back(number_property("firstParameter", first));
@@ -314,7 +332,9 @@ void append_curve_properties(const TopoDS_Edge& edge, EdgeInfo& output) {
             const auto value = curve.Circle();
             output.properties.push_back(vector_property("center", value.Location().XYZ()));
             output.properties.push_back(vector_property("normal", value.Axis().Direction().XYZ()));
+            output.properties.push_back(vector_property("xDirection", value.XAxis().Direction().XYZ()));
             output.properties.push_back(number_property("radius", value.Radius()));
+            output.properties.push_back(boolean_property("fullCircle", std::abs(last-first-2.0*std::acos(-1.0)) <= Precision::PConfusion()));
             break;
         }
         case GeomAbs_Ellipse: {
@@ -933,13 +953,33 @@ SelectionEvidence face_evidence(const TopoDS_Face& face) {
         evidence.origin = to_vec3(surface.Cylinder().Location());
         const auto direction = surface.Cylinder().Axis().Direction();
         evidence.direction = {direction.X(), direction.Y(), direction.Z()};
+        evidence.radius_mm = surface.Cylinder().Radius();
+    } else if (surface.GetType() == GeomAbs_Sphere) {
+        evidence.geometry_type = "SPHERE";
+        evidence.origin = to_vec3(surface.Sphere().Location());
+        evidence.radius_mm = surface.Sphere().Radius();
+    } else if (surface.GetType() == GeomAbs_Cone) {
+        const auto cone = surface.Cone();
+        evidence.geometry_type = "CONE";
+        evidence.origin = to_vec3(cone.Apex());
+        const auto direction = cone.Axis().Direction();
+        evidence.direction = {direction.X(), direction.Y(), direction.Z()};
+        evidence.half_angle_radians = std::abs(cone.SemiAngle());
+        evidence.cone_leaf = cone.SemiAngle() >= 0 ? 1 : -1;
     }
+    if (surface.GetType() == GeomAbs_Plane || surface.GetType() == GeomAbs_Cylinder ||
+        surface.GetType() == GeomAbs_Sphere || surface.GetType() == GeomAbs_Cone)
+        evidence.material_side = face.Orientation() == TopAbs_REVERSED ? -1 : 1;
     std::ostringstream canonical;
     canonical.precision(17);
     canonical << evidence.geometry_type << '|' << *evidence.measure_si << '|' << evidence.centroid.x
               << ',' << evidence.centroid.y << ',' << evidence.centroid.z << '|'
               << evidence.origin.x << ',' << evidence.origin.y << ',' << evidence.origin.z << '|'
               << evidence.direction.x << ',' << evidence.direction.y << ',' << evidence.direction.z;
+    if (evidence.radius_mm) canonical << "|radius_mm=" << *evidence.radius_mm;
+    if (evidence.half_angle_radians) canonical << "|half_angle_rad=" << *evidence.half_angle_radians;
+    if (evidence.cone_leaf) canonical << "|cone_leaf=" << *evidence.cone_leaf;
+    if (evidence.material_side) canonical << "|material_side=" << *evidence.material_side;
     evidence.evidence_digest = make_geometry_id(canonical.str());
     return evidence;
 }
@@ -988,6 +1028,9 @@ SelectionEvidence edge_evidence(const TopoDS_Edge& edge) {
         evidence.origin = to_vec3(curve.Circle().Location());
         const auto direction = curve.Circle().Axis().Direction();
         evidence.direction = {direction.X(), direction.Y(), direction.Z()};
+        evidence.radius_mm = curve.Circle().Radius();
+        const auto x = curve.Circle().XAxis().Direction();
+        evidence.x_direction = Vec3{x.X(), x.Y(), x.Z()};
     }
     std::ostringstream canonical;
     canonical.precision(17);
@@ -997,6 +1040,8 @@ SelectionEvidence edge_evidence(const TopoDS_Edge& edge) {
               << ',' << evidence.origin.z << '|' << evidence.direction.x << ','
               << evidence.direction.y << ',' << evidence.direction.z << '|'
               << curve.FirstParameter() << ',' << curve.LastParameter();
+    if (evidence.radius_mm) canonical << "|radius_mm=" << *evidence.radius_mm;
+    if (evidence.x_direction) canonical << "|x_direction=" << evidence.x_direction->x << ',' << evidence.x_direction->y << ',' << evidence.x_direction->z;
     evidence.evidence_digest = make_geometry_id(canonical.str());
     return evidence;
 }

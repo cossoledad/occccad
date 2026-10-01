@@ -13,7 +13,7 @@ function findNode(root: DocumentStructureNode | undefined, predicate: (node: Doc
 }
 
 const kindLabel: Record<AssemblyGeometryRef["kind"], string> = {
-  BODY: "实体", POINT: "点", AXIS: "轴", PLANE: "平面", CYLINDER: "圆柱面", FACE: "面", EDGE: "边", VERTEX: "顶点",
+  BODY: "组件", POINT: "点", AXIS: "轴", PLANE: "平面", CYLINDER: "圆柱面", CIRCLE:"圆支撑", SPHERE:"球面", CONE:"圆锥面", FRAME:"坐标系", FACE: "面（待精确解析）", EDGE: "边（待精确解析）", VERTEX: "顶点",
 };
 
 export function describeAssemblyReference(reference: AssemblyGeometryRef | undefined, view?: DocumentView): AssemblyReferencePresentation {
@@ -26,9 +26,10 @@ export function describeAssemblyReference(reference: AssemblyGeometryRef | undef
     (node) => (node.kind === "PUBLICATION" || node.kind === "PRODUCT_PUBLICATION") && node.entityId === reference.publicationRef?.publicationId);
   const publicationName = publicationNode?.name;
   const semantic = reference.persistentSelection?.anchor.outputSlot;
-  const geometry = semantic ? `${kindLabel[reference.kind]} · ${semantic}`
+  const sourceGeometry = semantic ? `${kindLabel[reference.kind]} · ${semantic}`
     : reference.geometryId ? `${kindLabel[reference.kind]} · ${reference.geometryId}`
     : reference.axis ? `${kindLabel[reference.kind]} · ${reference.axis}` : kindLabel[reference.kind];
+  const geometry = reference.derivedRole ? `${sourceGeometry} · ${reference.derivedRole}` : sourceGeometry;
   return publicationName
     ? { primary: `${occurrence} / ${publicationName}`, secondary: `${geometry} · 稳定发布接口`, publication: publicationName }
     : { primary: occurrence, secondary: geometry };

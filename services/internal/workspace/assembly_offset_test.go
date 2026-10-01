@@ -23,6 +23,8 @@ func TestOffsetPreviewIdentityRejectsChangedIntent(t *testing.T) {
 		func(p *editAssemblyConstraintPayload) { p.Value = 3 },
 		func(p *editAssemblyConstraintPayload) { v := "Base + 1 mm"; p.OffsetExpression = &v },
 		func(p *editAssemblyConstraintPayload) { p.OffsetKey = "Renamed" },
+		func(p *editAssemblyConstraintPayload) { v := "Base + 1 mm"; p.QuantityExpression = &v },
+		func(p *editAssemblyConstraintPayload) { p.QuantityKey = "Renamed" },
 	} {
 		raw, _ := json.Marshal(base)
 		prepared := preparedDomainMutation{actorID: "actor", headRevision: "head", headSequence: 3, command: modelcore.DomainCommand{TypeURI: typeEditAssemblyConstraint, Payload: raw}}
@@ -69,11 +71,11 @@ func TestOffsetQuantityStableBindingAndAtomicFailure(t *testing.T) {
 	if err = json.Unmarshal(next, &model); err != nil {
 		t.Fatal(err)
 	}
-	if model.Constraints[1].Value != 9 || model.Constraints[1].OffsetParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:base" {
+	if model.Constraints[1].Value != 9 || model.Constraints[1].QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:base" || model.Constraints[1].OffsetParameter != nil {
 		t.Fatal(model)
 	}
-	if model.Constraints[1].OffsetParameter.Source.Expression.SourceText != "(Renamed + 5 mm)" {
-		t.Fatal(model.Constraints[1].OffsetParameter)
+	if model.Constraints[1].QuantityParameter.Source.Expression.SourceText != "(Renamed + 5 mm)" {
+		t.Fatal(model.Constraints[1].QuantityParameter)
 	}
 	// Real entity compensation, not a mock Undo state machine.
 	values, err := modelValues("PRODUCT", next, changes)
@@ -153,7 +155,7 @@ func TestOffsetModeExpressionAndSuppressionCompensate(t *testing.T) {
 	}
 	var model ProductModel
 	_ = json.Unmarshal(raw, &model)
-	if model.Constraints[0].Mode != "MEASURED" || model.Constraints[0].Value != -2 || model.Constraints[0].OffsetParameter.Source.Expression == nil {
+	if model.Constraints[0].Mode != "MEASURED" || model.Constraints[0].Value != -2 || model.Constraints[0].QuantityParameter.Source.Expression == nil {
 		t.Fatal(model)
 	}
 	applyAssemblyMeasurements(&model, geometry.AssemblySolve{EquationResiduals: []geometry.AssemblyEquationResidual{{ConstraintID: "offset", EquationID: "offset/equation/PLANE_DISTANCE", NormalizedValue: -3}}}, defaultAssemblySolverProfile())
@@ -165,11 +167,17 @@ func TestOffsetModeExpressionAndSuppressionCompensate(t *testing.T) {
 		t.Fatal(err)
 	}
 	frozen, _ := json.Marshal(manifest.Definitions)
-	model.Constraints[0].OffsetParameter.Source.Expression.SourceText = "changed"
+	model.Constraints[0].QuantityParameter.Source.Expression.SourceText = "changed"
 	after, _ := json.Marshal(manifest.Definitions)
 	if string(after) != string(frozen) {
 		t.Fatal("manifest retained caller-owned Offset AST")
 	}
+	// Explicitly construct a pre-v2 frozen definition. A current canonical
+	// Quantity definition must not be smuggled under a historical policy.
+	manifest.Definitions[0].OffsetParameter = manifest.Definitions[0].QuantityParameter
+	manifest.Definitions[0].QuantityParameter = nil
+	manifest.Definitions[0].DefinitionVersion = 0
+	manifest.Definitions[0].Family, manifest.Definitions[0].Subtype = "", ""
 	manifest.SolverBuildPolicy = "assembly-offset-selected-plane-v8"
 	if err = validateAssemblySolveManifest(manifest); err != nil {
 		t.Fatal("v8 frozen Offset intent lost replay support", err)

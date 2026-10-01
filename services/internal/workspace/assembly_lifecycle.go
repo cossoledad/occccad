@@ -278,6 +278,11 @@ func incompatibleAssemblyGeometry(c geometry.AssemblyConstraint, a, b geometry.A
 		if a.Kind == "CYLINDER" && b.Kind == "CYLINDER" && math.Abs(a.Radius-b.Radius) > defaultAssemblySolverProfile().LengthTolerance {
 			return "coincident cylinder surfaces require equal radii; use concentric for unequal radii"
 		}
+	case "CONTACT":
+		if !publicContactPair(c.ContactKind, a.Kind, b.Kind) {
+			return "unsupported exact Contact geometry/branch combination"
+		}
+		return contactDefinitionInfeasibility(c, a, b)
 	}
 	return ""
 }

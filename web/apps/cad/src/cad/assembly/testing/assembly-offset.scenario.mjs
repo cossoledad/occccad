@@ -18,7 +18,8 @@ try {
   assert.deepEqual(offsetCommandFields(reopened),{offsetExpression:"Base - 5 mm",offsetKey:"Gap",constraintMode:"MEASURED"});
   assert.deepEqual(definition.first,first);assert.deepEqual(definition.second,second);
   assert.equal(definition.value,-2);assert.equal(definition.directionRelation,"UNORIENTED");
-  assert.equal(offsetInitialFields(undefined,[first,second]).distanceRelation,"SELECTED_PLANE_NORMAL_V1");
+  assert.equal(offsetInitialFields(undefined,[{...first,kind:"FACE"},{...second,kind:"FACE"}]).distanceRelation,"UNSIGNED","FACE is a pick category, not an exact plane descriptor");
+  assert.equal(offsetInitialFields(undefined,[first,second],["PLANE","PLANE"]).distanceRelation,"SELECTED_PLANE_NORMAL_V1");
   assert.equal(offsetInitialFields(undefined,[{kind:"POINT"},{kind:"AXIS"}]).distanceRelation,"UNSIGNED");
   assert.equal(offsetInitialFields({...definition,distanceRelation:"ALONG_SECOND_NORMAL"}).distanceRelation,"ALONG_SECOND_NORMAL","old Revision cannot be silently reinterpreted");
   for(const unit of ["mm","cm","m","in"]) for(const mm of [-2,0,5]) {

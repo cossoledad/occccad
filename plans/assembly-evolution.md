@@ -1,83 +1,66 @@
 # 装配主线：六类约束与自由度组合、激活状态与实时操纵
 
-> 状态：实施中（整体主线）；CONSTRAINT-CONTRACT 设施与验证已归入[当前架构](../docs/architecture/current/product-assembly.md#六类约束可执行合同目录)。CONSTRAINT-OFFSET 实施中，双平面首切片已有定向证据；六类完整组合仍未验收。Product/M3 的此前验收见[当前记录](../docs/architecture/current/product-assembly.md#accept-product-完成记录)，新增能力仍有自己的退出门。返回[统一路线](README.md)。
+> 状态：实施中（整体主线）；六类补齐实现与 CONSTRAINT-COMPOSITION 自动门已通过，CONSTRAINT-* 只保留人工待验收出口；下一主实现任务为 ASSEMBLY-SESSION。本轮新增交互待维护者实机验收，自动通过不代签人工。实现与实际执行证据见[当前架构](../docs/architecture/current/product-assembly.md#constraint-composition-本轮收口)，返回[统一路线](README.md)。
 
 ## 交付目标与当前差距
 
 先把 **Coincidence、Contact、Offset、Angle、Fix、Fix Together** 六种用户约束完整落到模型、求解、参数编辑和状态，再交付尊重约束的连续三维操纵，随后强化冲突解释与 Engineering Connections。六类的准确合同、几何矩阵及本机来源页面统一见[六类约束合同](../docs/architecture/target/assembly-constraints.md)，本页只维护工作分解、依赖与验收。
 
-当前 `COINCIDENT/CONCENTRIC/DISTANCE/ANGLE/FIX/RIGID` 不是 CATIA 六类的等价集合。Concentric 应归入 Coincidence；Distance 只能复用为 Offset 的部分方程；Rigid 不等于多成员、组内先解的 Fix Together。Contact、多成员固联、公共六类语义收敛和部分支持几何仍有缺口。现有类型的 Web → Domain Command → 引用解析 → active set → Release 激活/停用基础链已进入代码；完整六类与组生命周期的退出门尚未满足。
+本轮公共 v2 定义已统一为六族；Concentric/Distance/Parallel/Perpendicular/Rigid 保留为编译原语或明确快捷入口，不形成另一套活跃用户模型。真正的多成员固联及解析 Contact、有限精确 Curve/Surface/Frame 支持和来源/生命周期链已实现，不再列为从零实施的缺口。实现、自动执行证据和人工验收分开记录：目录/报告反映逐项实际结果，人工待验收不等于代码未实现。
 
 代码核对入口：`services/internal/workspace/assembly_solve.go`（能力/branch 规范化与临时 Fix）、`model.go`（约束及 mode）、`workers/geometry/src/main.cpp`（mode adapter）、`kernel/assembly/include/occccad/assembly/solver.hpp` 与 `src/solver.cpp`（模式/方程）。当前 MOVE 仍注入 `interaction-driver` Fix；已有 null-space 和预览不能算最近可行拖拽。
 
 ## 六类约束与生命周期补齐
 
-首批已落地独立激活状态、批量命令、原模式恢复、空活动集合 manifest、预览证据提交与 Undo/Redo 求解证据；Angle 无轴空间角、显式轴投影角及平行/垂直、点线/线面偏移、Fix 基准与六参数编辑、0–6 阶及常见关节有限运动测试也已进入代码。事实与测试入口见[当前实现](../docs/architecture/current/product-assembly.md#六类约束与生命周期的首批实现)。**本阶段尚未完成，不作完成标记。** 下列批次保留的是完整退出门，不能用首批通过替代六类全矩阵验收。
+本轮九个 CONSTRAINT-* 的实施内容已归入[当前实现](../docs/architecture/current/product-assembly.md#六类公共定义精确支持与生命周期)与[可执行目录](../tests/assembly-contract/README.md)。以下仅保留稳定标识、现有锚点及待验收出口，不复制架构或另建手工覆盖矩阵。若自动报告暴露真实失败、必需测试缺失或环境阻塞，应按 capability/case 修复并重跑，不能用代码存在或拒绝测试通过替代验收。
 
-剩余差距以[可执行目录与派生报告](../tests/assembly-contract/README.md)为领取依据，不另维护手工全矩阵。当前优先收口 CONSTRAINT-OFFSET 的剩余验收；已交付符号/参数链、六对基础数值方程和既有状态链不重复开发。Contact 未冻结秩、Curve/Surface 子类与 group 先内后外等开放边界在消费它们的对应批次细化，不改变既定数学合同。
+状态：**待验收（仅新增交互人工出口）**。完整 baseline/gaps/composition 各 617 PASS、58 项必需自动证据齐全，装配领域检查通过；准确执行范围由[当前记录](../docs/architecture/current/product-assembly.md#constraint-composition-本轮收口)及派生报告保存，不再领取已完成代码任务。新增交互人工验收由维护者后续执行。此前 OFFSET 人工通过反馈保留，但不扩展为本轮所有组合、Contact 或组交互均通过。下一主实现任务恢复到 ASSEMBLY-SESSION/M4。
 
 ### CONSTRAINT-ACTIVATION：激活/取消激活（抑制）完整闭环
 
-- 复用已有单个/批量 Activate/Deactivate、独立 suppressed、Driving/Measured 恢复、PropertySlot 和 Undo/Redo 基础链；扩展六类新组合及 Fix Together 整组切换，保留 ID、定义和原模式。
-- 核对既有 typed command、validation、active-set、Solver、Tree/Properties/glyph 与菜单，补齐新类型的贯通与分析计数差距，不重做基础状态模型。
-- 抑制项不参与硬方程、rigid cluster、DOF/rank 或活动冲突；Broken 停用项不阻塞其余组件。重新激活重新解析并求解，不沿用旧 Verified。
-- 模式或激活状态变化使当前 preview session、SolveManifest 和 Release candidate 失效；已发布 Release 保持冻结状态。复用已有空活动集合 manifest/replay，补齐六类“全部抑制/只有 Measure”的组合验收，不恢复“至少一条求解约束”假设或伪造成功证据。
-
-验收：六类逐项停用/恢复、Measure→停用→恢复 Measure、Fix 释放自由度、组停用保留独立内部约束、来源删除后停用/恢复、批量原子性、CAS/幂等、连续 Undo/Redo、刷新/冷重建、旧 Release replay。新类型尚未交付时先用已有类型验证基础链，各类型交付后必须补入同一矩阵。
+人工退出门：单项/批量停用恢复、Measured→停用→恢复 Measured、Fix 释放自由度、组停用保留独立内部约束、Broken 重新解析、空活动集合、Undo/Redo 与旧 Release 状态可读。对应自动证据由目录驱动，不再领取状态模型重建任务。
 
 ### CONSTRAINT-GEOMETRY：支持元素和精确 descriptor
 
-- 复用 Point/Axis/Plane/Cylinder，补齐 Circle/Sphere/Cone/Frame 与球心、锥顶、锥轴等稳定派生引用。
-- 补齐 Coincidence 表中的 Point–Curve/Surface 和坐标系特例；明确 underlying geometry 范围、支撑参数/branch 和求解查询边界。需要精确曲线/面数据时保持受限、不可变、带 provenance 的值协议，不泄漏 OCCT 类型。
-- 支持解析 Contact 的有向面、内外侧、半径/锥角及环接触证据；Publication/PersistentSelection 冷解析与 Update/Reconnect 同步扩展。
-
-验收：类型正确、单位/容差显式、frame 转换和 nested occurrence 正确，相关 source edit/delete/ambiguity 与冷重建可解释；不能靠显示网格推断精确支持。
+人工退出门：真实面/边/点、Datum、Publication 与稳定派生支持能定位/高亮；精确类型和单位可读；共享 Part、多 CAD Body 及 nested occurrence 不串源；来源变化/删除/歧义与显式 Reconnect 可解释。有限类型和参数域按目标合同，不宣称任意曲线/曲面支持。
 
 ### CONSTRAINT-COINCIDENCE：重合族与 Undefined 分支
 
-覆盖 Point/Line/Plane 基础组合、同轴、允许的 Curve/Surface/AxisSystem 组合及方向。Undefined 意图与 resolved branch 分离，不能提交时强制改成 Same；保持 session 连续性，换源、编辑、重放时不静默跳解。当前 Concentric 能力复用为此族，不新增第七个用户类型。
+人工退出门：基础点/线/面、同轴、有限精确 Curve/Surface 和 Frame–Frame 创建/替换/编辑可用，Undefined 意图与求值分支可区分，交换与反向不静默翻解；Frame 子元素按显式角色选择。同轴不错误要求圆柱半径相等。连续拖拽分支运输另属 M4。
 
 ### CONSTRAINT-OFFSET：完整偏移与测量模式
 
-在已有 Point–Axis（点—轴）、Axis–Plane（轴—平面）等 Offset 数值能力和 Measured 独立输出上补齐 Point/Line/Plane 六种无序组合的产品合同与验收。核对有平面时的有符号偏移、首选平面法向及 Undefined/Same/Opposite；无平面组合不显示无意义的 signed 控件。补齐 Quantity/表达式、Driving/Measured、不可测诊断、编辑/绑定/抑制/历史组合；复用非平行双平面不显示过期值的既有处理。
+此前首切片与维护者反馈保留在[当前 Product](../docs/architecture/current/product-assembly.md#offset-有符号纵向切片)。平行 EDGE 零目标/交线与 Axis–Plane 法向对齐后 Driving 恢复的已知数值问题已进入本轮修复和专用回归，不再默认留为下一轮开发任务；实际验证按报告，不把几何满足替代偏好收敛。
 
-已实现首切片与证据归入[当前 Product](../docs/architecture/current/product-assembly.md#offset-有符号纵向切片)。剩余领取顺序：
-
-1. 优先补齐偏离原点的平行 EDGE 零距离/交线退化分支：非零距离停滞已修复并有真实两独立 Part/Router/数据库历史回归，零目标探索仍有偏好停滞。退出门是明确交线分支、独立真实距离、合法偏好收敛、零值特殊秩及提交/历史通过，不能调大容差或把几何收敛代替偏好验收。
-2. 补齐六组合的 UI 精确支持消费、支持来源更新/断裂/重连、各模式与单个/批量激活、空活动集合、CAS/幂等及历史组合专用证据；当前共享测试不能代替组合逐项验收。表达式目前限定同 Product 的 Offset 自有参数，跨领域参数消费按实际需求贯通，不扩成 Configuration/Rule。
-3. 维护者实机验证创建/编辑/Preview、单位和符号回填、快速切换/取消、共享与嵌套 occurrence；Agent 未运行浏览器，不提前标记通过。
-
-完整退出门仍为六对完整产品合同与上述生命周期/历史组合通过，合同 baseline/gaps 无真实失败，旧符号版本保持可读/显式迁移边界，实机验收明确记录。当前数据库专用环境已可用，新双平面与共享历史测试已有通过证据；这不等于每个几何组合均完成，也不等于整个 CONSTRAINT-OFFSET、CONSTRAINT-COMPOSITION 或 M4 完成。
+人工退出门：六种组合创建/编辑/Preview 的精确支持、正负/零值、第一法向和方向独立性、稳定 Quantity 表达式、Measured 不驱动/不可测清旧值、来源重连、恢复原模式、符号回填及取消/快速切换正确；历史旧符号不被重新解释。维护者此前的通过反馈不自动认证这些新增交互。
 
 ### CONSTRAINT-ANGLE：角度参数族
 
-复用已有 FREE 无轴0–360°空间角、DIRECTED 指定轴投影角、Parallel/Perpendicular 和 Measured 基础链，补齐目标几何矩阵、参数及组合验收。只有投影角使用稳定参考轴，不引入 CATIA 的 ≤90°输入/sector 四分法。投影角只控制一个方位自由度，平行控制两个转动自由度；平面内角/铰链角由明确基础关系组合。几何含义和投影退化保持目标合同，持续复用 DirectedAngle 核心。
-
-验收：0/90/180/270/360°、359°→1°及反向连续移动、交换元素/反转轴、投影退化、平行与投影零角的区别、`3 + 2 + 1` 构造及正确 Jacobian 秩、参数修改/Undo/冷重放。静态 360°归一为 0°，session 保留连续圈数；ASSEMBLY-BRANCH 完成全链路拖拽验证。
+人工退出门：FREE/DIRECTED/Parallel/Perpendicular 的参数、模式与支持替换；独立第三 occurrence 参考轴、反轴/交换与稳定表达式；端点/退化诊断、Measured 和 Undo/Redo 正确。无轴空间角、投影角与空间平行/垂直不可混用。静态分支与 session winding 分开；359°→1°连续拖拽和圈数运输归 ASSEMBLY-BRANCH，不作为本轮已实现交互。
 
 ### CONSTRAINT-FIX：空间固定与相对固定
 
-复用已有默认 SPACE、RELATIVE 和位置/姿态六参数编辑，补齐嵌套、外层 Product 运动、欠约束及六类生命周期组合验收。用同一组件“显式移动 → update”验证空间固定回到捕获位置、相对固定保留移动后基准并带动相关组件；已有真实链路回归映射入矩阵。基准属于 owning Product，预览不能悄悄更新空间固定定义；保留抑制与 Undo/Redo 退出门。
+人工退出门：SPACE/RELATIVE 的 owning Product 捕获、位置/姿态编辑、外层 Product 移动与显式内部移动/update、Preview 取消、抑制恢复和 Undo/Redo；普通求值或测量不能改写 SPACE 基准。当前 interaction-driver 仍不等于 M4。
 
 ### CONSTRAINT-FIX-TOGETHER：多成员固联组
 
-实现稳定组 ID、命名、成员增删、已有组参与、整体 Activate/Deactivate 与用户选择反馈。按 CATIA 先解组内约束，再求组外约束；调整 rigid-cluster 编译时机，防止合法内部约束被提前合并锁死。明确重叠/嵌套组依赖与拒绝循环的诊断。
-
-验收：2/3/N 成员、已有组并入、成员重排不改身份、内部约束修改、外部约束带动全组、删除/抑制独立约束、组停用/恢复、已约束组件加入不被直接误判 overconstrained；普通 pair Rigid 不能代替此验收。
+人工退出门：稳定组 ID/名称、2/3/N 成员及增删/重排、已有组参与、嵌套/重叠/循环诊断、整组激活、树/Inspector/高亮、内部编辑后外部整组运动和解散；失败候选不能覆盖捕获关系，组停用不自动删除内部独立约束。组内先解/组外后解已实施，普通 pair Rigid 仍不能作为组生命周期验收证据。
 
 ### CONSTRAINT-CONTACT：完整解析接触矩阵
 
-逐行实现[目标合同](../docs/architecture/target/assembly-constraints.md)中的面、线、点与环接触，不再仅把 plane/plane 和 cylinder 子集留到 M6。包括 Plane–Cylinder/Sphere、Cylinder–Cylinder、Sphere–Sphere/Cone/Circle、Cone–Cone/Circle 及相等半径/锥角限制；不适用组合明确拒绝。
-
-验收：材料侧与线接触 Internal/External、交换选择、接触分支、无限支撑在裁剪面外的合法解、退化/不可能输入、正确 rank/DOF、来源编辑/重连、抑制/恢复及 deterministic replay。Contact 是位置关系，不能用 mesh 碰撞或动力学算法替代。
+人工退出门：目标 11 个解析分支的创建/编辑/Preview/取消、材料侧与 Internal/External、交换与分支、半径/锥角不兼容的可读拒绝、来源 Reconnect、激活和历史状态。球球 face 不替代为外切、整圆支撑不冒充普通零距离。任意 NURBS 接触、动力学和碰撞响应不在本轮范围。
 
 ### CONSTRAINT-COMPOSITION：组合能力与六类纵向验收门
 
-六类每一行都贯通 Web → command/history → immutable resolution → 正式 Router/Worker → solver → manifest/replay/Release；覆盖所有参数与几何组合，以及 inactive/Measure/不可能/断链状态。人工验收用可重放 fixture，检查本系统合同并记录参照差异。必须通过 0–6 独立秩、球铰/平面副/圆柱副/转动副/移动副/固定关系的运动方向和有限运动验证，以及奇异、冗余、冲突和抑制恢复案例。数学构造不替代端到端验收；存在未实现合同组合或仅有隐藏按钮时不得标完成。
+自动退出门已通过：现有完整目录的 baseline/gaps 与严格 composition 检查各 617 PASS，必需层有专用证据、无未解释失败/缺测/环境阻塞；独立几何、Jacobian/秩、0–6 及关节有限运动、组内外阶段、来源/生命周期、冷重放与 Release 按具体 case 认证。准确结果读取 `build/constraint-composition/final-composition/report.json`，报告是实际执行派生物，不另维护一张手工全矩阵。后续目录变化继续运行同一门防退化；此处只保留下述人工退出门。
+
+人工退出门：按[可复现场景与检查步骤](../tests/assembly-contract/README.md)确认六族、组、取消/迟到响应及来源恢复的真实交互，维护者反馈逐批记录，不由 Agent 代签。自动门通过与人工待验收可以并存；CONSTRAINT-COMPOSITION 不等于 M4 最近可行连续拖拽交付。
 
 ## Assembly M4：尊重约束的连续实时操纵
 
 ### ASSEMBLY-SESSION：版本化 session 与 branch snapshot
+
+状态：**待实施；下一主实现任务**。复用本轮六族能力、冻结 descriptor、分支及组阶段，不新建并行公共约束模型。退出门为版本化 session 身份、取消/过期、Head/参数/模式/激活变化失效、冻结 baseline 与 warm start 边界及迟到结果拒绝的定向验证；不以 TREE-03 编辑会话或既有单次 Preview 替代。
 
 TREE-03 的 Workbench `EditSession` 只负责宿主与编辑目标，不是这里的约束求解 Session；CAD Body 的历史/求值归属也不等于 solver body 或运动学刚体。已有 Preview、null-space、自由度显示不构成 M4 完成证据。
 
@@ -124,8 +107,8 @@ Session 绑定 Workspace Head/sequence、M3 digest、完整激活集合/模式�
 
 ## 执行依赖与验证
 
-基于当前实际差距的领取顺序：OFFSET（已定位符号入口/链路门）→ COINCIDENCE（已有支持的方向/组合/历史门）→ GEOMETRY（按下游消费补 descriptor）→ ANGLE → FIX → FIX-TOGETHER → CONTACT → ACTIVATION（新类型/组的生命周期组合）→ COMPOSITION → SESSION → DRAG → FEEDBACK → LATENCY → BRANCH → M5 → M6。
+下一主实现领取顺序：ASSEMBLY-SESSION → ASSEMBLY-DRAG → ASSEMBLY-FEEDBACK → ASSEMBLY-LATENCY → ASSEMBLY-BRANCH → M5 → M6。六族与组的已实现能力不重新排为开发批次；九个 CONSTRAINT-* 仅保留本轮自动门确认及人工验收出口。
 
-这是默认领取顺序，不是所有算法的硬依赖：合同设施已就绪，SESSION/延迟基准可与六类补齐并行；新增 Frame/解析接触等消费者需先满足对应 GEOMETRY 门，既有支持的 OFFSET/COINCIDENCE 不必等全套曲面 descriptor。已有 activation 基础不重做，新增类型交付时同步纳入生命周期矩阵；CONSTRAINT-COMPOSITION 必须等六类与生命周期全部通过，M4 最终验收必须等 COMPOSITION。Feature/Revolve 和 Sketch 投影不是这条主线的强制前置。
+SESSION/延迟基准可基于明确合同推进；最终 M4 验收依赖 CONSTRAINT-COMPOSITION 自动门通过，并覆盖六族/组/生命周期组合。人工交互待验收保持单列，不能虚报通过或无限保留已完成代码待办；新发现缺陷按证据回归修复。Feature/Revolve、Sketch Projection、大模型及工程维护是独立队列，不是装配主线的默认前置；Kinematics/M7/跨主机和完整多用户协作仍按候选进入条件处理。
 
-每批按具体测试 → assembly/workspace/web 受影响域 → 集成升级，公共 Proto/迁移/Router 修改运行全仓并验证空开发 schema。必须覆盖正常/退化/失败、方向/选择顺序、单位、确定性、Jacobian/rank/DOF、Undo/Redo、冷重放和迟到结果；交互另做重启后的真实浏览器验收。完成事实归入当前架构，计划删除已完成条目。
+每批按具体测试 → assembly/workspace/web 受影响域 → 定向真实集成升级，共享 Proto/模型/参数/迁移变化增加对应构建及兼容检查；实际执行和未执行范围如实记录，不以 Mock/源码检查代替真实几何或数据库。本轮未运行浏览器自动测试与无差别全量单测，人工由维护者后续执行；不清理应用数据库/制品。完成事实归入当前架构，计划删除已完成实施待办并保留未通过的验收出口。

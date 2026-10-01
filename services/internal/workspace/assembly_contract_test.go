@@ -62,18 +62,18 @@ func TestAssemblyContractCatalog(t *testing.T) {
 	}
 }
 
-func TestAssemblyContractUnsupportedKinds(t *testing.T) {
+func TestAssemblyContractInvalidDefinitions(t *testing.T) {
 	for _, kind := range []string{"CONTACT", "FIX_TOGETHER"} {
 		t.Run(kind, func(t *testing.T) {
 			payload, err := json.Marshal(addAssemblyConstraintPayload{Constraint: AssemblyConstraint{
-				ID: "unsupported-contract", Kind: kind, First: AssemblyGeometryRef{Kind: "BODY", InstanceID: "a"},
+				ID: "invalid-contract", Kind: kind, First: AssemblyGeometryRef{Kind: "BODY", InstanceID: "a"},
 			}})
 			if err != nil {
 				t.Fatal(err)
 			}
 			next, changes, err := applyAddAssemblyConstraint(json.RawMessage(`{"instances":[],"constraints":[]}`), payload)
 			if !errors.Is(err, ErrValidation) || next != nil || len(changes.Changes) != 0 {
-				t.Fatalf("unsupported target must reject without candidate/ChangeSet: %s %+v %v", next, changes, err)
+				t.Fatalf("invalid missing Contact branch/group members must reject without candidate/ChangeSet: %s %+v %v", next, changes, err)
 			}
 		})
 	}
