@@ -1,6 +1,6 @@
 # occccad 当前架构
 
-> 2026-09-21 文档核对基线。代码、迁移和测试决定实现事实；本文是分层入口。目标契约见[目标架构](TARGET_ARCHITECTURE.md)，未完成工作见[统一路线](../plans/README.md)。Product 验收已完成；人工确认和本轮标准测试见[完成记录](architecture/current/product-assembly.md#accept-product-完成记录)。
+> 2026-09-30 路线图相关状态核对基线：`main` / `ebbf37a9`，不代表全仓重新验收。代码、迁移和测试决定实现事实；本文是分层入口。目标契约见[目标架构](TARGET_ARCHITECTURE.md)，未完成工作见[统一路线](../plans/README.md)。Product 基线验收与当时标准测试见[完成记录](architecture/current/product-assembly.md#accept-product-完成记录)；TREE-03 本轮维护者使用反馈见[验证与限制](architecture/current/tree03-product-edit-tabs.md#验证与限制)。
 
 ## 系统结论
 
@@ -19,6 +19,7 @@
 | [Jobs 与制品](architecture/current/jobs-artifacts.md) | Router、租约、取消、交换、缩略图、LOCAL/S3 ArtifactStore |
 | [CAD realtime 控制面](architecture/current/realtime.md) | 命令、Preview 生命周期、幂等恢复、快照与文件通道边界 |
 | [Web 与交互](architecture/current/web.md) | 根场景/编辑上下文、选择、preview、偏好、Toolbar、工作台 |
+| [TREE-02 建模与显示](architecture/current/tree02-model-display.md) | Multi-Body 建模归属、定义显隐/实例覆盖、参数与 Publication |
 | [TREE-03 编辑会话与标签](architecture/current/tree03-product-edit-tabs.md) | Product 唯一上下文编辑、宿主标签、显式打开、窗口内顺序、右键菜单槽 |
 | [验证与可观测性](architecture/current/validation.md) | 日志/trace、性能、scoped checks、Mock 浏览器与真实验收边界 |
 
@@ -27,8 +28,8 @@
 | 能力 | 当前事实 | 未交付/未验收边界 |
 |---|---|---|
 | 模型与历史 | Part/Product、Workspace、追加 Revision、CAS、补偿式 Undo/Redo | semantic rebase、通用协作合并 |
-| Sketch/Part | 通用草图、基础约束、参数表达式、Profile、线性拉伸/旋转和单 Body 布尔 | 完整专业 Sketcher、多 Body、Hole/Fillet 等完整 Feature 链 |
-| 持久命名 | Extrude/Boolean 完整 Face/Edge/Vertex history 与 resolver；当前 policy 为 v3 | Revolve/Import 等未达到同等覆盖；歧义需要 Reconnect |
+| Sketch/Part | 通用草图、基础约束、参数表达式、Profile、线性拉伸/旋转、Multi-Body 与显式 Body 布尔 | 完整专业 Sketcher、Hole/Fillet 等完整 Feature 链 |
+| 持久命名 | Extrude/Boolean 完整 Face/Edge/Vertex history 与 resolver；导入根命名已有实现；具体 policy 见命名分册 | Revolve 完整 history/corpus 未收口；导入不冒充参数化 Feature history；歧义需要 Reconnect |
 | Part 关联 | 驱动尺寸 ParameterBinding、面支撑、Edge/Vertex 投影、更新/重连/Detach | 部分圆弧 snapshot、Face group、Section/Silhouette |
 | 产品关联 | Publication、typed InstancePath、Product Design Session、ContextInput/Binding、Variant、原子事务、Update Plan | Configuration/Design Table、partial update、flexible subassembly、Derive Part from Context |
 | 装配 | SE(3)、基础约束、平行/垂直、点线/线面偏移、激活与模式分离、M3/历史/Release 证据、0–6 阶组合测试 | 六类几何完整矩阵与多成员固联尚未完成；M4 最近可行拖拽、M5 冲突解释、M6 Engineering Connection；当前 MOVE 仍用临时 Fix |

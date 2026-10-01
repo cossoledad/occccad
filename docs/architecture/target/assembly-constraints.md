@@ -1,6 +1,6 @@
 # 装配六类约束：数学语义、组合能力与生命周期
 
-> 目标设计，尚未完整交付。用户约束分类以本机 CATIA B33 Assembly Design 为参照；实现基线见[当前 Product](../current/product-assembly.md)，唯一实施顺序见[装配主线](../../../plans/assembly-evolution.md)。本系统以自洽的数学语义、刚体自由度控制及可组合性为验收依据；CATIA 的分类与流程是参考，不要求逐项复制其参数、限制或文档疑点。
+> 长期目标合同，不作为实现状态表。用户约束分类以本机 CATIA B33 Assembly Design 为参照；实现基线见[当前 Product](../current/product-assembly.md)，唯一实施顺序见[装配主线](../../../plans/assembly-evolution.md)。本系统以自洽的数学语义、刚体自由度控制及可组合性为验收依据；CATIA 的分类与流程是参考，不要求逐项复制其参数、限制或文档疑点。
 
 ## 参照范围与证据
 
@@ -49,14 +49,14 @@
 
 ## 六种用户定义与内部方程分层
 
-| 用户类型 | 必须保存的定义和行为 | 当前对应及缺口 |
+| 用户类型 | 必须保存的定义和行为 | 内部方程边界 |
 |---|---|---|
-| Coincidence（重合） | 两个支持元素、适用组合上的方向意图；点重合/点在线面上/共线/同轴/共面/坐标系重合 | 复用 `COINCIDENT`、`CONCENTRIC` 的适用方程；Concentric 是重合族中的几何语义，不作为第七种并列用户类型；补齐下述组合 |
-| Contact（接触） | 有定向几何支撑、材料侧、接触分支及证据；按无限数学支撑求解 | 当前缺少独立产品 Contact 全链路；零距离不自动等于 Contact |
-| Offset（偏移） | 支持元素、距离数量、方向/符号规则、Driving/Measure | 当前 `DISTANCE` 仅为算法基础；补齐点线、线面、带方向/符号和测量语义，不能只改 UI 标签 |
-| Angle（角度） | 无轴0–360°空间角、指定轴0–360°投影角、平行、垂直；仅指定轴模式需要稳定参考轴 | 当前 ANGLE/DirectedAngle 数学基础可复用；前后端尚需贯通本系统方向/参考轴和几何可用性合同 |
-| Fix（固定） | 默认 Fix in space，另支持相对 Fix；固定基准/捕获 pose、可编辑位置参数 | 当前 `FIX` 是捕获空间 pose，不能宣称相对 Fix 已支持 |
-| Fix Together（固联） | 稳定组 identity、名称、至少两个成员、组/成员关系及激活状态；允许已有组加入 | 当前双体 `RIGID` 只覆盖相对刚性关系，不能代替多成员组与分阶段更新 |
+| Coincidence（重合） | 两个支持元素、适用组合上的方向意图；点重合/点在线面上/共线/同轴/共面/坐标系重合 | 可复用 `COINCIDENT`、`CONCENTRIC` 适用方程；Concentric 属于重合族，不作为第七种用户类型 |
+| Contact（接触） | 有定向几何支撑、材料侧、接触分支及证据；按无限数学支撑求解 | 零距离不自动等于 Contact；必须满足接触几何及分支合同 |
+| Offset（偏移） | 支持元素、距离数量、方向/符号规则、Driving/Measure | 可复用 `DISTANCE` 方程，但必须满足完整几何、符号及测量合同 |
+| Angle（角度） | 无轴0–360°空间角、指定轴0–360°投影角、平行、垂直；仅指定轴模式需要稳定参考轴 | ANGLE/DirectedAngle 按几何、方向及参考轴合同消费，不以数值类型代替用户合同 |
+| Fix（固定） | 默认 Fix in space，另支持相对 Fix；固定基准/捕获 pose、可编辑位置参数 | 空间与相对基准显式区分，不能用临时 interaction driver 替代持久定义 |
+| Fix Together（固联） | 稳定组 identity、名称、至少两个成员、组/成员关系及激活状态；允许已有组加入 | 双体 `RIGID` 相对刚性方程不能代替多成员组与分阶段更新 |
 
 用户类型、solver typed definition 和 descriptor 分开。公共 UI/目录/查询/编辑采用六类；旧实验命令与调用方按当前未发布规则收敛到唯一模型，不永久保留两套语义。内部允许复用 Rigid、Concentric、Distance、Parallel、Perpendicular 方程；工程连接是这些约束之上的后续组合层。
 
@@ -69,7 +69,7 @@
 - Point–Point、Point–Line、Point–Plane、Line–Line、Line–Plane、Plane–Plane；Point 可来自精确点、球心、锥顶，Line 可来自直线、圆柱轴、锥轴，Plane 可来自平面支撑。
 - Point–Curve 与 Point–Surface 是允许组合；Curve 附注限定为有效 underlying geometry，必须把可识别种类/退化和选定 branch 转为权威 descriptor/证据，不能任意把显示折线当精确曲线。本系统以可精确求值且参数域/分支可验证的支撑为准，在能力合同测试中明确，不依赖未解释的文档附注。
 - Frame–Frame 定义为原点与完整朝向重合，控制六个相对自由度；Frame 必须为右手正交刚体坐标系，不把反射当旋转。Frame 与其他元素组合时必须显式选择其原点、轴或基准平面，再编译为点/线/面关系。例如“原点在平面上”控制一个自由度，“基准平面重合”控制三个；不提供含义不明的 Frame–Plane 隐式转换。这是对 CATIA 表/正文差异的本系统决策。
-- Same/Opposite 仅在几何可定向时显示；Undefined 是用户意图，选定的离散分支是求值证据。不能像当前路径那样直接把 Undefined 永久改写为 Same；preview 内冻结 branch 防跳解，重新求值按显式策略选择并报告分支。
+- Same/Opposite 仅在几何可定向时显示；Undefined 是用户意图，选定的离散分支是求值证据。禁止把 Undefined 永久改写为 Same；preview 内冻结 branch 防跳解，重新求值按显式策略选择并报告分支。
 
 ### Contact
 

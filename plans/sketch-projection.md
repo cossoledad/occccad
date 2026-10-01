@@ -2,6 +2,8 @@
 
 > 状态：待实施。现有基线是同 Part 的 Edge/Vertex 正交投影、更新、Reconnect 与 Detach。返回[统一路线](README.md)。
 
+首项仍为 PROJECTION-ARC，随后 PROJECTION-BOUNDARY → PROJECTION-SECTION。草图能绘制 Arc 不等于关联投影已支持 trimmed Arc；未支持组合继续明确 unsupported，不以临时近似替代目标合同。本支线不默认先于 CONSTRAINT-CONTRACT。
+
 ## 1. 为什么选择 Face 不能直接复用当前 Project
 
 Face 不是二维 Sketch Geometry。一次 Face 选择至少可能表达三种不同意图：

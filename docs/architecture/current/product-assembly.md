@@ -28,7 +28,7 @@ Product 内关联由 Product Design Session 组织。`InstancePath` 由 root 与
 
 Part 现在声明不含具体来源的 typed `ContextInput`，root Product Revision 持有 source occurrence Publication 到 owning occurrence input 的 `ContextBinding`、相对 Transform 和 accepted resolution snapshot。创建绑定会在事务外解析当前 root snapshot、合同、权限与依赖环，再为消费 Part、全部嵌套 owning Product 和 root Product 预生成 Revision/ChangeSet/EvaluationManifest；数据库事务按 Workspace 稳定顺序锁定并统一 CAS，一次提交所有 Revision、Outbox 和 Head。该事务组从任一成员文档触发 Undo/Redo 时也统一补偿，不会只留下 Part input 或 Product binding。`ContextReference` 仅保留为旧试点模型与独立 Part/受控外部通道能力，新 Product 内 picker 不再向用户暴露全局 DocumentId/PublicationId。
 
-Web 以 root Product、active occurrence 和 definition/context 模式维护非持久设计会话；`GET design-session` 与 root-snapshot-scoped `GET context-catalog` 只返回当前 Product 可达且调用者可读的 Publication，并按 expected type、连接状态和已知 ContextBinding DAG 过滤。参数与 Context binding 面板按 occurrence breadcrumb/可编辑名称选择来源；跨 Workspace 提交仍由服务端重新验证 typed path、Head 和合同。
+Web 以宿主 root Product 和唯一 occurrence 编辑目标维护非持久设计会话，无 definition/context 双模式切换；TREE-03 编辑会话与 M4 约束求解 Session 分属不同职责。`GET design-session` 与 root-snapshot-scoped `GET context-catalog` 只返回当前 Product 可达且调用者可读的 Publication，并按 expected type、连接状态和已知 ContextBinding DAG 过滤。参数与 Context binding 面板按 occurrence breadcrumb/可编辑名称选择来源；跨 Workspace 提交仍由服务端重新验证 typed path、Head 和合同。共享 Part 定义、定义显隐、实例覆盖及 ContextVariant 语义仍保留。
 
 ## 更新计划与派生 Variant
 
@@ -93,7 +93,7 @@ Angle 的 `angleRelation` 提供 FREE（默认无轴空间角）、DIRECTED（�
 
 Fix 新增 SPACE/RELATIVE 基准：相对固定接受显式移动后的名义位姿，空间固定保留捕获位姿。编辑命令支持显式 `fixedPose`，前端提供模式切换、三个位置与三个角度编辑。角度显示采用依次绕 X/Y/Z 的外禀旋转，持久化仍用 quaternion；相对固定的显式 pose 编辑同步更新 nominal placement，补偿历史同时恢复基准与 placement。
 
-验证入口：[生命周期单元测试](../../../services/internal/workspace/assembly_lifecycle_test.go)、[0–6 阶、3+2+1 及常见关节有限运动测试](../../../kernel/assembly/tests/assembly_solver_scenarios.cpp)、[真实 Router/Worker、历史与 Release 集成](../../../services/internal/control/assembly_motion_integration_test.go)、[浏览器生命周期场景](../../../web/apps/cad/browser/assembly-lifecycle.spec.ts)。浏览器场景使用 Mock adapter 验证交互；权威计算另由真实 Router/Worker 与独立测试数据库验证。单项/批量激活、Measured 恢复、停用后移动、连续 Undo/Redo、空活动集重放、Release 后再激活、相对/空间 Fix 位姿行为已有真实链路回归。
+验证入口：[生命周期单元测试](../../../services/internal/workspace/assembly_lifecycle_test.go)、[0–6 阶、3+2+1 及常见关节有限运动测试](../../../kernel/assembly/tests/assembly_solver_scenarios.cpp)、[真实 Router/Worker、历史与 Release 集成](../../../services/internal/control/assembly_motion_integration_test.go)、[浏览器生命周期场景](../../../web/apps/cad/browser/assembly-lifecycle.spec.ts)。浏览器场景使用 Mock adapter 验证交互；权威计算测试走真实 Router/Worker 与独立测试数据库。单项/批量激活、Measured 恢复、停用后移动、连续 Undo/Redo、空活动集重放、Release 后再激活、相对/空间 Fix 位姿行为已有真实链路回归用例。2026-09-30 文档核对确认代码和测试入口存在，未重跑这些测试；此处未列出这些新增用例的逐项执行记录，不能借 ACCEPT-PRODUCT 的较早记录推断它们已执行通过。
 
 这些实现尚不代表“六类约束与生命周期补齐”整体完成：Contact、Circle/Sphere/Cone/Frame 等精确 descriptor、Point–Curve/Surface 完整组合、多成员且组内先解的 Fix Together、统一六类入口及新增几何族的参数/有限运动验收仍未完成。剩余任务见[装配计划](../../../plans/assembly-evolution.md)，目标语义见[六类约束合同](../target/assembly-constraints.md)。ACCEPT-PRODUCT 的已完成基线验收范围保持独立。
 

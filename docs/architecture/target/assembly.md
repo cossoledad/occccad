@@ -64,7 +64,7 @@ message AssemblyConstraint {
 }
 ```
 
-`DRIVING` 进入方程；`MEASURED` 只计算当前值；`CONTROLLED` 值来自 Parameter/Law。激活状态独立于 mode；停用保留身份/定义和原 mode，不参与活动求解。当前内核 `SUPPRESSED` 仅是 adapter 目标，不能使再次激活丢失 Measure/Controlled 意图。一个 Connection 原子提交：内部任何 Constraint 不合法或产生未接受冲突，整个 Connection 不创建。
+`DRIVING` 进入方程；`MEASURED` 只计算当前值；`CONTROLLED` 值来自 Parameter/Law。激活状态独立于 mode；停用保留身份/定义和原 mode，不参与活动求解。内核 `SUPPRESSED` 可作为 adapter 目标，不能使再次激活丢失 Measure/Controlled 意图。一个 Connection 原子提交：内部任何 Constraint 不合法或产生未接受冲突，整个 Connection 不创建。
 
 ### 5.6.12 基础约束语义与兼容几何
 

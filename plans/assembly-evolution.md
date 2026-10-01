@@ -1,6 +1,6 @@
 # 装配主线：六类约束与自由度组合、激活状态与实时操纵
 
-> 状态：实施中；2026-09-21 按自洽语义与自由度控制目标更新。Product/M3 基线已[完成验收](../docs/architecture/current/product-assembly.md#accept-product-完成记录)。返回[统一路线](README.md)。
+> 状态：实施中（整体主线）；2026-09-30 状态校准，下一任务 CONSTRAINT-CONTRACT 待实施。Product/M3 基线已[完成验收](../docs/architecture/current/product-assembly.md#accept-product-完成记录)。返回[统一路线](README.md)。
 
 ## 交付目标与当前差距
 
@@ -14,22 +14,22 @@
 
 首批已落地独立激活状态、批量命令、原模式恢复、空活动集合 manifest、预览证据提交与 Undo/Redo 求解证据；Angle 无轴空间角、显式轴投影角及平行/垂直、点线/线面偏移、Fix 基准与六参数编辑、0–6 阶及常见关节有限运动测试也已进入代码。事实与测试入口见[当前实现](../docs/architecture/current/product-assembly.md#六类约束与生命周期的首批实现)。**本阶段尚未完成，不作完成标记。** 下列批次保留的是完整退出门，不能用首批通过替代六类全矩阵验收。
 
-### CONSTRAINT-CONTRACT：六类能力与参照 corpus 冻结
+### CONSTRAINT-CONTRACT：六类能力矩阵与验收基线
 
-- 建立六类 user definition → typed solver definition → exact descriptor → 参数可用性矩阵，覆盖创建、编辑、类型切换及选择顺序；菜单/Toolbar/属性/query 共用能力来源，未完成组合明确禁用或返回 unsupported。
-- 收敛当前 Concentric/Distance/Rigid 用户入口与命令语义，保留可复用数值方程，不做永久双模型；当前未发布 schema 按唯一实现修改并空库验证。
-- 为本系统每个允许组合/参数登记正常、交换选择、退化、不可行和上游失效案例；记录 CATIA 来源与主动设计差异，外部行为不是正确性 oracle。
-- 采用目标合同的既定决策：球锥环相切及交换对称、Frame 显式子元素、0–360°空间角与指定轴投影角。建立 `3 + 2 + 1` 位姿构造、0–6 独立秩及常见关节 corpus，验证数量、方向与有限运动；来源文档疑点不再作为阻塞。
-- 同时冻结抑制与 mode 的正交表示、Fix 模式基准及 Fix Together 组内/外求解边界，再进入持久模型实现。
+- 将既有目标合同落实为可执行或可直接驱动参数化测试的矩阵；每行明确用户定义、typed solver definition、exact descriptor、支持几何、参数域、方向/符号、branch、Driving/Measured、正常秩及退化行为，并覆盖选择交换、创建/编辑/类型切换。
+- 对照代码逐行标记已支持、部分支持、尚未支持和尚缺验证；关联具体测试/fixture，区分测试存在、明确执行记录和维护者验收，不能用测试文件存在填成已通过。
+- 复用 Concentric/Distance/Rigid 等既有数值方程及 suppressed/mode、SPACE/RELATIVE Fix、空活动集合、Angle 与 Offset 基础链；列出公共六类入口收敛和组合差距，交给后续批次实施，不在本任务改写持久模型或数值算法。
+- 采用目标合同既定决策（球锥环相切及交换对称、Frame 显式子元素、0–360°空间角/指定轴投影角），映射 `3 + 2 + 1`、0–6 秩和常见关节既有 corpus，补列正常、退化、不可行、上游失效与有限运动的缺失用例。记录已有来源和设计理由，不重写六类介绍或改变数学合同。
+- 输出可领取的 CONSTRAINT-* 剩余批次、依赖和退出条件；菜单/Toolbar/属性/query 的统一能力消费列入对应批次。descriptor 与具体几何组合按消费场景逐批贯通，不要求先建立庞大通用框架。
 
-退出门：一份机器可执行或可直接落成参数化测试的能力矩阵，每行对应本系统数学定义、参数域、预期秩和验证案例，附来源或设计理由；版本化类型、依赖、失败提交和验证策略明确。不是只调整按钮名称。
+退出门：矩阵每行可驱动验收，代码/测试对应及证据等级准确，剩余任务无重复基础实现且各有退出门；版本化类型、依赖、失败提交和验证策略明确。完整 Contact、Fix Together、M4、M5 实现不属于此任务；本轮文档校准未开始本任务。
 
 ### CONSTRAINT-ACTIVATION：激活/取消激活（抑制）完整闭环
 
-- 支持单个和批量 Activate/Deactivate、Fix Together 整组切换；保留 ID、定义、原驱动/测量模式，Undo/Redo 精确恢复。
-- 贯通模型字段/PropertySlot、typed command、服务端 validation、active-set 编译、Solver、Tree/Properties/glyph、分析计数和快捷上下文菜单。
+- 复用已有单个/批量 Activate/Deactivate、独立 suppressed、Driving/Measured 恢复、PropertySlot 和 Undo/Redo 基础链；扩展六类新组合及 Fix Together 整组切换，保留 ID、定义和原模式。
+- 核对既有 typed command、validation、active-set、Solver、Tree/Properties/glyph 与菜单，补齐新类型的贯通与分析计数差距，不重做基础状态模型。
 - 抑制项不参与硬方程、rigid cluster、DOF/rank 或活动冲突；Broken 停用项不阻塞其余组件。重新激活重新解析并求解，不沿用旧 Verified。
-- 模式或激活状态变化使当前 preview session、SolveManifest 和 Release candidate 失效；已发布 Release 保持冻结状态。处理“全部抑制/只有 Measure”时的空活动集合，不能触发当前 manifest 的“至少一条求解约束”假设或伪造成功求解证据。
+- 模式或激活状态变化使当前 preview session、SolveManifest 和 Release candidate 失效；已发布 Release 保持冻结状态。复用已有空活动集合 manifest/replay，补齐六类“全部抑制/只有 Measure”的组合验收，不恢复“至少一条求解约束”假设或伪造成功证据。
 
 验收：六类逐项停用/恢复、Measure→停用→恢复 Measure、Fix 释放自由度、组停用保留独立内部约束、来源删除后停用/恢复、批量原子性、CAS/幂等、连续 Undo/Redo、刷新/冷重建、旧 Release replay。新类型尚未交付时先用已有类型验证基础链，各类型交付后必须补入同一矩阵。
 
@@ -47,17 +47,17 @@
 
 ### CONSTRAINT-OFFSET：完整偏移与测量模式
 
-实现 Point/Line/Plane 的完整六种无序组合，补齐点线与线面。实现有平面时的有符号偏移、首选平面法向规则及 Undefined/Same/Opposite；无平面组合不显示无意义的 signed 控件。贯通 Quantity/表达式、Driving/Measure 和不可测诊断；非平行双平面 Measure 不显示过期值。编辑、参数绑定、抑制恢复与历史使用同一合同。
+在已有 Point–Axis（点—轴）、Axis–Plane（轴—平面）等 Offset 数值能力和 Measured 独立输出上补齐 Point/Line/Plane 六种无序组合的产品合同与验收。核对有平面时的有符号偏移、首选平面法向及 Undefined/Same/Opposite；无平面组合不显示无意义的 signed 控件。补齐 Quantity/表达式、Driving/Measured、不可测诊断、编辑/绑定/抑制/历史组合；复用非平行双平面不显示过期值的既有处理。
 
 ### CONSTRAINT-ANGLE：角度参数族
 
-交付无轴0–360°空间角、指定轴0–360°投影角与独立 Parallel/Perpendicular 关系；只有投影角使用稳定参考轴，不引入 CATIA 的 ≤90°输入/sector 四分法。投影角只控制一个方位自由度，平行控制两个转动自由度；平面内角/铰链角由明确的基础关系组合。Angle 支持 Measure，几何含义与投影退化按目标合同处理。复用经测试符合合同的 DirectedAngle 核心。
+复用已有 FREE 无轴0–360°空间角、DIRECTED 指定轴投影角、Parallel/Perpendicular 和 Measured 基础链，补齐目标几何矩阵、参数及组合验收。只有投影角使用稳定参考轴，不引入 CATIA 的 ≤90°输入/sector 四分法。投影角只控制一个方位自由度，平行控制两个转动自由度；平面内角/铰链角由明确基础关系组合。几何含义和投影退化保持目标合同，持续复用 DirectedAngle 核心。
 
 验收：0/90/180/270/360°、359°→1°及反向连续移动、交换元素/反转轴、投影退化、平行与投影零角的区别、`3 + 2 + 1` 构造及正确 Jacobian 秩、参数修改/Undo/冷重放。静态 360°归一为 0°，session 保留连续圈数；ASSEMBLY-BRANCH 完成全链路拖拽验证。
 
 ### CONSTRAINT-FIX：空间固定与相对固定
 
-实现默认 Fix in space、位置/姿态参数编辑及相对 Fix。用同一组件“显式移动 → update”验证：空间固定返回捕获位置，相对固定保留移动后的基准并带动相关组件；嵌套 Product 的基准属于 owning Product。无论自由预览或尊重约束预览，都不能悄悄更新空间固定定义。覆盖抑制、Undo/Redo、外层 Product 运动和不同欠约束状态。
+复用已有默认 SPACE、RELATIVE 和位置/姿态六参数编辑，补齐嵌套、外层 Product 运动、欠约束及六类生命周期组合验收。用同一组件“显式移动 → update”验证空间固定回到捕获位置、相对固定保留移动后基准并带动相关组件；已有真实链路回归映射入矩阵。基准属于 owning Product，预览不能悄悄更新空间固定定义；保留抑制与 Undo/Redo 退出门。
 
 ### CONSTRAINT-FIX-TOGETHER：多成员固联组
 
@@ -78,6 +78,8 @@
 ## Assembly M4：尊重约束的连续实时操纵
 
 ### ASSEMBLY-SESSION：版本化 session 与 branch snapshot
+
+TREE-03 的 Workbench `EditSession` 只负责宿主与编辑目标，不是这里的约束求解 Session；CAD Body 的历史/求值归属也不等于 solver body 或运动学刚体。已有 Preview、null-space、自由度显示不构成 M4 完成证据。
 
 Session 绑定 Workspace Head/sequence、M3 digest、完整激活集合/模式、accepted pose、branch 和 warm start。开始手势冻结 nominal baseline，取消/到期可丢弃；其他用户提交、参数/模式或激活变化使 session 失效，不能把旧响应应用到新约束集。
 
