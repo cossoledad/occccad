@@ -34,6 +34,7 @@ export type CadViewportHandle = {
 type Props = {
   view: DocumentView;
   editingView?: DocumentView;
+  liveConstraintProjection?: boolean;
   activeInstancePath?: string;
   activeInstanceTranslation?: Vec3;
   activeInstanceRotation?: [number, number, number, number];
@@ -93,6 +94,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       view: callbacks.current.editingView, occurrencePath: callbacks.current.activeInstancePath,
       translation: callbacks.current.activeInstanceTranslation, bodyTreeNodeId: callbacks.current.activeBodyTreeNodeId,
       rotation: callbacks.current.activeInstanceRotation,
+      liveConstraintProjection: callbacks.current.liveConstraintProjection,
     } : undefined);
     instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
@@ -113,11 +115,11 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     const instance = engine.current; if (!instance) return;
     instance.render(props.view, props.editingView ? { view: props.editingView, occurrencePath: props.activeInstancePath,
       translation: props.activeInstanceTranslation, rotation: props.activeInstanceRotation,
-      bodyTreeNodeId: props.activeBodyTreeNodeId } : undefined);
+      bodyTreeNodeId: props.activeBodyTreeNodeId, liveConstraintProjection:props.liveConstraintProjection } : undefined);
     instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
-  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId]);
+  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveConstraintProjection]);
   useEffect(() => { engine.current?.selectMany(props.selections, false); }, [props.selections]);
   useEffect(() => { engine.current?.preselect(props.preselection, false); }, [props.preselection]);
   useEffect(() => {

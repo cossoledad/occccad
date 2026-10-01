@@ -18,6 +18,17 @@ export class SelectionIndex {
 
   clear(): void { this.objects.clear(); this.treeObjects.clear(); this.tree.clear(); this.picks.length = 0; }
 
+  unregister(selection: Exclude<Selection, null>, root: THREE.Object3D): void {
+    const removed = new Set<THREE.Object3D>(); root.traverse(object => removed.add(object));
+    this.objects.delete(selectionKey(selection));
+    for (const map of [this.objects,this.treeObjects]) for (const [key,objects] of map) {
+      for (const object of removed) objects.delete(object);
+      if(!objects.size)map.delete(key);
+    }
+    if(selection.treeNodeId && !this.treeObjects.has(selection.treeNodeId))this.tree.delete(selection.treeNodeId);
+    for(let i=this.picks.length-1;i>=0;i--)if(removed.has(this.picks[i].root))this.picks.splice(i,1);
+  }
+
   register(selection: Exclude<Selection, null>, object: THREE.Object3D, treeNodeId = selection.treeNodeId): void {
     const key = selectionKey(selection);
     const entries = this.objects.get(key) ?? new Set<THREE.Object3D>();

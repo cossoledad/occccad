@@ -26,6 +26,11 @@ try {
     assert.ok(Math.abs(displayLengthToMillimeters(millimetersToDisplayLength(mm,unit),unit)-mm)<1e-12);
   }
   const source=await readFile(new URL("../../../features/workbench/workbench.tsx",import.meta.url),"utf8");
-  assert.ok((source.match(/offsetCommandFields\(/g)||[]).length===3,"Preview/create/edit must consume the same intent adapter");
+  assert.ok((source.match(/assemblyEditIntent\(/g)||[]).length===3,"Preview/create/edit must consume the same complete draft adapter");
+  const {assemblyEditIntent}=await server.ssrLoadModule("/src/cad/assembly/assembly-edit-intent.ts");
+  const intent=assemblyEditIntent("DISTANCE",{...reopened,value:-2,directionRelation:"UNORIENTED"},[first,second],"mm",definition);
+  assert.equal(intent.value,-2);assert.equal(intent.distanceRelation,"SELECTED_PLANE_NORMAL_V1");
+  assert.equal(intent.offsetExpression,"Base - 5 mm");assert.equal(intent.constraintMode,"MEASURED");
+  assert.deepEqual(intent.firstAssemblyRef,first);assert.deepEqual(intent.secondAssemblyRef,second);
   assert.ok(source.includes('constraint.directionRelation ?? "UNORIENTED"'),"opening editor must not resolve Undefined from camera/placement");
 } finally {await server.close();}

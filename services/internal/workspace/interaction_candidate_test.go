@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,6 +40,57 @@ func TestInteractionCandidatePromotionRequiresExactAuthorityBoundary(t *testing.
 	cache.put(value)
 	if _, ok = cache.take("candidate", "document", prepared); ok {
 		t.Fatal("expired candidate was promoted")
+	}
+}
+
+func TestInteractionCandidateDiagnosticsPreserveStrictIntent(t *testing.T) {
+	if paths := candidateChangedPaths([]byte(`{"axis":null}`), []byte(`{}`)); len(paths) != 1 || paths[0] != "$.axis" {
+		t.Fatal("omission and null were conflated", paths)
+	}
+	p := preparedDomainMutation{actorID: "actor", headRevision: "base", headSequence: 4, command: modelcore.DomainCommand{TypeURI: "edit", Payload: json.RawMessage(`{"first":{"id":"a"},"directionRelation":"SAME"}`)}}
+	v := interactionCandidate{id: "token", documentID: "doc", actorID: p.actorID, headRevision: p.headRevision, headSequence: p.headSequence, commandType: p.command.TypeURI, payloadDigest: modelcore.ValueDigest(p.command.Payload), intentPayload: p.command.Payload, expiresAt: time.Now().Add(time.Minute)}
+	for _, test := range []struct {
+		name, reason, doc string
+		mutate            func(*preparedDomainMutation)
+	}{
+		{"actor", "actor_scope_mismatch", "doc", func(p *preparedDomainMutation) { p.actorID = "other" }},
+		{"target", "target_document_mismatch", "other", func(*preparedDomainMutation) {}},
+		{"revision", "base_revision_mismatch", "doc", func(p *preparedDomainMutation) { p.headRevision = "new" }},
+		{"sequence", "base_revision_mismatch", "doc", func(p *preparedDomainMutation) { p.headSequence++ }},
+		{"type", "command_type_mismatch", "doc", func(p *preparedDomainMutation) { p.command.TypeURI = "delete" }},
+		{"direction", "$.directionRelation", "doc", func(p *preparedDomainMutation) {
+			p.command.Payload = json.RawMessage(`{"first":{"id":"a"},"directionRelation":"OPPOSITE"}`)
+		}},
+		{"support", "$.first.id", "doc", func(p *preparedDomainMutation) {
+			p.command.Payload = json.RawMessage(`{"first":{"id":"different-sensitive-id"},"directionRelation":"SAME"}`)
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var cache interactionCandidateCache
+			cache.put(v)
+			changed := p
+			test.mutate(&changed)
+			_, reason := cache.takeDiagnosed(v.id, test.doc, changed)
+			if !strings.Contains(reason, test.reason) {
+				t.Fatal(reason)
+			}
+			if strings.Contains(reason, "different-sensitive-id") {
+				t.Fatal("raw intent leaked", reason)
+			}
+			if _, ok := cache.take(v.id, "doc", p); !ok {
+				t.Fatal("rejected request consumed valid candidate")
+			}
+		})
+	}
+	var cache interactionCandidateCache
+	expired := v
+	expired.expiresAt = time.Now().Add(-time.Second)
+	cache.put(expired)
+	if _, reason := cache.takeDiagnosed(v.id, "doc", p); reason != "candidate_expired" {
+		t.Fatal(reason)
+	}
+	if _, reason := cache.takeDiagnosed(v.id, "doc", p); reason != "candidate_missing_or_consumed" {
+		t.Fatal(reason)
 	}
 }
 

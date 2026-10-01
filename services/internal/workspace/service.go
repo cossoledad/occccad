@@ -1121,7 +1121,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 	view.ResolvedInstances = []ResolvedInstance{}
 	if err := service.resolveProduct(ctx, summary.VersionID, InstancePose{Rotation: [4]float64{0, 0, 0, 1}}, summary.Name,
 		InstancePath{RootDocumentID: summary.ID}, "document:"+summary.ID,
-		map[string]bool{}, view.Artifacts, &view.ResolvedInstances); err != nil {
+		map[string]bool{}, view.Artifacts, &view.ResolvedInstances, &view.ConstraintDisplayScopes); err != nil {
 		return view, err
 	}
 	items, err := service.expandProductContext(ctx, summary.ID, summary.VersionID)
@@ -2818,7 +2818,7 @@ func assemblyConstraintStructureCapabilities(constraint AssemblyConstraint, stat
 
 func (service *Service) resolveProduct(
 	ctx context.Context, versionID string, parent InstancePose, path string, instancePath InstancePath, treePath string, visiting map[string]bool,
-	artifacts map[string]Artifact, output *[]ResolvedInstance,
+	artifacts map[string]Artifact, output *[]ResolvedInstance, constraintScopes *[]ConstraintDisplayScope,
 ) error {
 	var documentID, documentType, name string
 	var modelJSON []byte
@@ -2864,6 +2864,9 @@ func (service *Service) resolveProduct(
 	if err := json.Unmarshal(modelJSON, &model); err != nil {
 		return err
 	}
+	if instancePath.Canonical != "" {
+		*constraintScopes = append(*constraintScopes, ConstraintDisplayScope{DocumentID: documentID, VersionID: versionID, InstancePath: instancePath, TreeNodeID: treePath, Constraints: model.Constraints})
+	}
 	for _, instance := range model.Instances {
 		childPose := composeInstancePose(parent, InstancePose{Translation: instance.Translation, Rotation: normalizedInstanceRotation(instance.Rotation)})
 		resolvedVersionID := instance.ReferencedVersionID
@@ -2875,7 +2878,7 @@ func (service *Service) resolveProduct(
 		if err := service.resolveProduct(ctx, resolvedVersionID, childPose,
 			path+"/"+instance.ID,
 			childPath,
-			treePath+"/instance:"+instance.ID+"/reference", visiting, artifacts, output); err != nil {
+			treePath+"/instance:"+instance.ID+"/reference", visiting, artifacts, output, constraintScopes); err != nil {
 			return err
 		}
 	}

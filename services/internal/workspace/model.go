@@ -870,21 +870,32 @@ type DocumentStructureNode struct {
 }
 
 type DocumentView struct {
-	Document            DocumentSummary          `json:"document"`
-	DatumPlanes         []DatumPlane             `json:"datumPlanes,omitempty"`
-	AxisSystems         []AxisSystem             `json:"axisSystems,omitempty"`
-	DatumAxes           []DatumAxis              `json:"datumAxes,omitempty"`
-	Part                *PartModel               `json:"part,omitempty"`
-	Product             *ProductModel            `json:"product,omitempty"`
-	Artifact            *Artifact                `json:"artifact,omitempty"`
-	Artifacts           map[string]Artifact      `json:"artifacts,omitempty"`
-	ResolvedInstances   []ResolvedInstance       `json:"resolvedInstances,omitempty"`
-	StructureTree       *DocumentStructureNode   `json:"structureTree,omitempty"`
-	ReferenceUpdates    []ReferenceUpdate        `json:"referenceUpdates,omitempty"`
-	FollowedDocumentIDs []string                 `json:"followedDocumentIds,omitempty"`
-	FollowedProductIDs  []string                 `json:"followedProductIds,omitempty"`
-	DesignSession       *ProductDesignSession    `json:"designSession,omitempty"`
-	ContextVariants     []ContextVariantSnapshot `json:"contextVariants,omitempty"`
+	Document                DocumentSummary          `json:"document"`
+	DatumPlanes             []DatumPlane             `json:"datumPlanes,omitempty"`
+	AxisSystems             []AxisSystem             `json:"axisSystems,omitempty"`
+	DatumAxes               []DatumAxis              `json:"datumAxes,omitempty"`
+	Part                    *PartModel               `json:"part,omitempty"`
+	Product                 *ProductModel            `json:"product,omitempty"`
+	Artifact                *Artifact                `json:"artifact,omitempty"`
+	Artifacts               map[string]Artifact      `json:"artifacts,omitempty"`
+	ResolvedInstances       []ResolvedInstance       `json:"resolvedInstances,omitempty"`
+	ConstraintDisplayScopes []ConstraintDisplayScope `json:"constraintDisplayScopes,omitempty"`
+	StructureTree           *DocumentStructureNode   `json:"structureTree,omitempty"`
+	ReferenceUpdates        []ReferenceUpdate        `json:"referenceUpdates,omitempty"`
+	FollowedDocumentIDs     []string                 `json:"followedDocumentIds,omitempty"`
+	FollowedProductIDs      []string                 `json:"followedProductIds,omitempty"`
+	DesignSession           *ProductDesignSession    `json:"designSession,omitempty"`
+	ContextVariants         []ContextVariantSnapshot `json:"contextVariants,omitempty"`
+}
+
+// Read-only occurrence projection from accepted immutable Product revisions.
+// No topology, mesh or new persistent constraint model is carried here.
+type ConstraintDisplayScope struct {
+	DocumentID   string               `json:"documentId"`
+	VersionID    string               `json:"versionId"`
+	InstancePath InstancePath         `json:"instancePath"`
+	TreeNodeID   string               `json:"treeNodeId"`
+	Constraints  []AssemblyConstraint `json:"constraints"`
 }
 
 type ProductDesignSession struct {

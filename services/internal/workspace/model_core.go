@@ -1994,10 +1994,11 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		return err
 	}
 	finishPromote := perf.Start(ctx, "candidate-promote")
-	candidate, promoted := service.interactionCandidates.take(request.PreviewID, documentID, prepared)
+	candidate, rejection := service.interactionCandidates.takeDiagnosed(request.PreviewID, documentID, prepared)
+	promoted := rejection == ""
 	finishPromote()
 	if request.PreviewID != "" && !promoted {
-		return fmt.Errorf("%w: PREVIEW_CANDIDATE_STALE_OR_MISMATCHED", ErrValidation)
+		return fmt.Errorf("%w: PREVIEW_CANDIDATE_STALE_OR_MISMATCHED: %s", ErrValidation, rejection)
 	}
 	var nextJSON json.RawMessage
 	var changes modelcore.ChangeSet
@@ -2394,7 +2395,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 			service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
 				headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
 				assemblyPreviewRequestID: "preview/" + prepared.requestID,
-				payloadDigest:            modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, changes: previewChanges,
+				payloadDigest:            modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, changes: previewChanges,
 				expiresAt: time.Now().Add(interactionCandidateTTL)})
 		}
 		result := CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
@@ -2464,7 +2465,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		previewID := newID("preview")
 		service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
 			headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
-			payloadDigest: modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, changes: previewChanges,
+			payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, changes: previewChanges,
 			expiresAt: time.Now().Add(interactionCandidateTTL)})
 		return CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: modelHash}, nil
 	}
@@ -2496,7 +2497,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	previewID := newID("preview")
 	service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
 		headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
-		payloadDigest: modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, geometryKey: geometryKey, visualObjectID: artifact.Representations["VISUAL"].ObjectID,
+		payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, geometryKey: geometryKey, visualObjectID: artifact.Representations["VISUAL"].ObjectID,
 		changes: previewChanges, expiresAt: time.Now().Add(interactionCandidateTTL)})
 	artifact.RepresentationKind = "TRANSIENT_PREVIEW"
 

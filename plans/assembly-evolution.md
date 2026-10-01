@@ -1,6 +1,6 @@
 # 装配主线：六类约束与自由度组合、激活状态与实时操纵
 
-> 状态：实施中（整体主线）；六类补齐实现与 CONSTRAINT-COMPOSITION 自动门已通过，CONSTRAINT-* 只保留人工待验收出口；下一主实现任务为 ASSEMBLY-SESSION。本轮新增交互待维护者实机验收，自动通过不代签人工。实现与实际执行证据见[当前架构](../docs/architecture/current/product-assembly.md#constraint-composition-本轮收口)，返回[统一路线](README.md)。
+> 状态：实施中（整体主线）；六类补齐实现与 CONSTRAINT-COMPOSITION 自动门已通过，维护者已反馈主要能力人工使用验证通过。编辑候选/约束显示两项收口修复另待实机确认，不重领六类实现。CONSTRAINT-* 保留人工检查出口，下一主实现任务仍为 ASSEMBLY-SESSION。自动通过不代签工业/全场景人工验收。实现与实际执行证据见[当前架构](../docs/architecture/current/product-assembly.md#六类交付定向收口编辑候选与约束显示)，返回[统一路线](README.md)。
 
 ## 交付目标与当前差距
 

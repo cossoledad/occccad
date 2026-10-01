@@ -197,4 +197,28 @@ Measured 不发驱动方程；双平面测量仅要求实际法向平行（任�
 
 首轮真实失败报告 `gaps/`、`gaps-final/` 及定向复现日志保留：显式 Contact branch=0 曾被默认成合法分支；Part Publication Redirect 的 Redo 前提使用了旧评价字段；第三轴位于组外时曾错误进入内部阶段；DIRECTED 结果曾污染切回 FREE 的扇区。修复真实生产路径后重新验证，保留非法输入拒绝、严格历史冲突检查、原测量期望和物理容差。旧 Offset 回归测试适配唯一 Quantity v2 字段，Preview 保留同一 request ID；旧 Multi-Body 回归按既有 NEW_BODY 命令测试新建独立 Body，未借此改变 CAD Body 生命周期。
 
-维护者反馈此前 OFFSET 使用验证通过，是维护者反馈而非本次 Agent 浏览器执行；未提供人工准确版本、日期或逐项清单。本轮新六族/Contact/固联交互仍为 `PENDING_MAINTAINER`，自动报告明确限定 `AUTOMATED_CONTRACT_ONLY`，人工场景和检查步骤见[合同设施 README](../../../tests/assembly-contract/README.md#维护者实机验收)。未运行浏览器、无差别全仓单测、容量验收或 M4/M5/M6；没有清理应用数据库或 S3、迁移重写历史或批量重建制品。
+上轮收口时维护者只反馈此前 OFFSET 使用验证通过，未提供人工准确版本、日期或逐项清单；当时新六族/Contact/固联交互记录为 `PENDING_MAINTAINER`，上述历史报告限定 `AUTOMATED_CONTRACT_ONLY`。最新维护者反馈与本次定向修复见下一节，不能倒写历史报告或为新修复代签。未运行浏览器、无差别全仓单测、容量验收或 M4/M5/M6；没有清理应用数据库或 S3、迁移重写历史或批量重建制品。
+
+### 六类交付定向收口：编辑候选与约束显示
+
+维护者现反馈“六类约束的主要能力已完成人工使用验证”，并观察到求解速度、稳定性明显改善。这是维护者当前使用场景的反馈，不是 Agent 浏览器测试或同环境性能基准；未提供准确人工测试版本、日期、完整场景、trace 或加速比，不推定工业语料/并发故障全部通过。此反馈先于本节两项修复，修复后的交互仍待实机确认。
+
+本次核对基线为 `main/3ee7e865b38b6e5f0ee16b3b4e50f3277b19f69b`，开始时工作区干净；实现和测试叠加本轮未提交改动。Worker 保持 `assembly-six-families-composition-v10`，SHA256 为 `675a2ab17e415fe3868f4110f5095fa4b49590d2784601f9df364834adb5ee56`，没有修改数值算法、公差、solver policy、持久约束或历史语义。
+
+- 编辑候选根因：Preview 读取完整表单存储中的隐藏默认值，确认使用 `validateFields()` 的已注册字段结果。Coincidence 可见方向已是 SAME，但隐藏 `distanceRelation=UNSIGNED` 在确认时省略，typed payload 变为不同输入。真实 Preview→Commit 复现明确记录 `intent_digest_mismatch … paths=$.distanceRelation`；不是方向求解错误。现由[唯一草稿入口](../../../web/apps/cad/src/cad/assembly/assembly-edit-intent.ts)为创建、Preview、编辑确认生成相同规范输入；确认不再混用旧定义或校验返回的局部字段。支持整体替换，Angle 轴及不适用字段按类型清理，用户方向、符号、表达式、模式、成员和必要分支仍参与意图。
+- 前端候选绑定草稿规范键、文档基线、occurrence 和交互代次；输入变化立即失效，空 token/等待/失败不能确认。点击确认冻结当前配对再做表单校验，不读取随后变化的对象；关闭、切换、取消和旧提交回调不影响新会话。真正基线变化保留草稿，显示原因并要求显式重新预览，不无条件改用新 Head。传输 correlation/request 身份仍按原协议管理，没有强迫所有 ID 相同。
+- [共享候选校验](../../../services/internal/workspace/interaction_candidate.go)保留 actor、目标、精确 Head/sequence、typed payload、TTL 与一次提升机制。拒绝给出原因及预期/实际摘要和至多 16 个差异路径，不输出参数值、BREP/Naming 或完整请求；错误请求不先消耗合法 token。成功重试先走原 requestId 幂等路径。解析、branch、姿态及 policy/build 仍由冻结候选/Manifest 保存并提升，不当作新的原始输入或静默重新求解。
+- 显示根因：权威新集合已经进入 DocumentView，但几何签名相同进入 `updateDisplayProjection`，旧实现只同步显隐，没有重建或更新约束对象。现在[视口约束层](../../../web/apps/cad/src/viewport/cad-viewport-engine.ts)单独按 owner Product/occurrence/ConstraintId reconcile；定义、状态、模式、参数及成员变化仅替换受影响 glyph。删除同步释放独占图形、连接线、拾取/关联及失效 selection/hover；停用仍保留 ID，glyph 与连接线立即用停用外观。全部路径请求按需绘制帧，旧 hydrate generation 不能挂回已删除对象。
+- `DocumentView.constraintDisplayScopes` 是接受版本的只读派生投影，不是新持久模型：沿已有 `resolveProduct` 读取的不可变 Product Revision 收集 owner、完整 InstancePath、语义树导航和约束，不增加几何查询。相同子 Product 的不同 occurrence 独立显示；只有显式可编辑的当前 occurrence 使用编辑目标的权威约束集合，不等待父级接受引用，也不因关闭约束对话框恢复旧图标。其他 occurrence 不泄漏未接受的新 Head，PINNED 路径不允许此覆盖，保持原版本。更新不下载 GLB，不重建 Body/BufferGeometry/BVH，不伪造 MOVE/额外 Revision，不改变宿主、相机或标签。
+
+定向证据：[真实数据库/Router/Worker 回归](../../../services/internal/control/assembly_edit_candidate_integration_test.go)覆盖六轮方向/支持编辑的独立最终几何、Preview 不推进 Head、成功重试、真实旧基线/取消拒绝以及 FOLLOW/PINNED 两 occurrence 投影；[实际 Antd 草稿与候选场景](../../../web/apps/cad/src/cad/assembly/testing/assembly-edit-intent.scenario.mjs)和[实际 Three.js 对象场景](../../../web/apps/cad/src/features/workbench/testing/assembly-constraint-display.scenario.mjs)分别认证前端状态与显示集合，不冒充浏览器 WebGL 验收。专用数据库仍为 `occccad_offset_contract_test`，没有连接或清理应用库/S3。
+
+目录在原 617 项基础上增加六个定向 case，保留全部旧 ID/合同/层及数值断言。只调整旧 `offset.editor.intent-roundtrip` 的构造接线检查：三个直接 Offset 字段调用收敛为三个完整草稿调用，同时保留并加强符号/表达式/Measured/单位行为断言。新项经选中 39 项实际 PASS 后纳入 baseline；派生报告位于 `build/constraint-closeout/`，选中通过不冒充本轮完整 623 项或工业验收。执行命令及人工步骤见[设施 README](../../../tests/assembly-contract/README.md#六类交付定向收口回归)。
+
+本轮实际检查：`invoke check --scope assembly --verbose` 通过 198 项 CTest、Go geometry/workspace/control（显式专用数据库及匹配 Worker）及 12 项装配前端场景；`invoke check --scope web` 通过全部 51 项现有 Web 场景、TypeScript 与生产构建；Go workspace/api/assemblycontract 定向包检查通过；目录/锁校验为 58 capability / 623 case，设施自身 20 项测试通过。`invoke context-audit` 与 `git diff --check` 通过。没有重新执行完整 623 项合同、全仓所有测试、浏览器/WebGL、大型 STEP corpus、工业容量或性能基准；上述领域 Go 检查不把缺少大型 STEP fixture 的可选检查计为真实几何验收。
+
+后续使用反馈定位了两项公共编辑路径回归：提交成功更新权威缓存，使 Preview sequence 改变，旧成功回调误判为迟到而没有关闭对话框；Parallel/Perpendicular 被公共入口附带空 Quantity 表达式，触发 `relation has no editable Quantity parameter`。现将提交回调绑定独立的草稿/对话框生命周期：自身 Head 更新不阻止创建/编辑成功自动关闭，取消、换目标或修改草稿仍使旧回调失效；提交前的严格候选/sequence 校验保留。关系型 Angle 仅提交适用字段及 Driving 模式，清除隐藏旧表达式/键；FREE/DIRECTED 继续复用原 Quantity 能力，服务端对关系型 Quantity 的拒绝不变。
+
+补充回归执行真实 TanStack mutation 的缓存更新→成功回调顺序，验证当前对话框关闭及已放弃会话隔离；`TestAssemblyAngleShortcutPreviewCommitThroughRouter` 使用上述专用库/v10 Worker，复现错误空表达式拒绝，并通过平行/垂直创建、Preview→Commit、双向关系切换、独立最终几何、Preview 不推进 Head 和幂等重试。原 Coincidence 真实回归同时重跑通过。目录新增 `angle.shortcuts.plane-plane.preview-commit`，现为 58 capability / 624 case；只锁定该新增 case 及强化后的共享 UI 断言，目标与覆盖要求不变。报告/日志位于 `build/constraint-closeout/dialog-shortcut-*`；该补充未修改求解器或 Worker，修复后仍待维护者实机确认。
+
+该补充实际通过全部 51 项 Web 场景、TypeScript/生产构建、20 项合同设施测试、目录/锁与文档检查；共享 UI 和新增 shortcut case 分别执行 baseline/gaps 通过，不代表重跑完整 624 项合同。未重跑 C++ corpus、全仓测试或浏览器自动验收。

@@ -81,7 +81,7 @@ type SolidContext = {
 
 type SolidBinding = { group: THREE.Group; mesh: THREE.Mesh; artifact: Artifact; context: SolidContext };
 export type ViewportEditContext = { view: DocumentDescriptor; occurrencePath?: string; translation?: Vec3;
-  rotation?: [number, number, number, number]; bodyTreeNodeId?: string };
+  rotation?: [number, number, number, number]; bodyTreeNodeId?: string; liveConstraintProjection?: boolean };
 
 // A Product viewport owns the assembly scene, while sketch interaction belongs
 // to the active occurrence's reference document. Keeping this decision in one
@@ -257,6 +257,7 @@ export class CadViewportEngine {
   private readonly instanceGroups = new Map<string, THREE.Group>();
   private insertPatternPreview?: THREE.Group;
   private readonly assemblyConstraintReferences = new Map<string, SelectionItem[]>();
+  private assemblyConstraintMarkers = new Map<string,{signature:string;group:THREE.Group;selection:SelectionItem}>();
   private referenceVisibility: ReferenceVisibility = { ...DEFAULT_REFERENCE_VISIBILITY };
   private solidDisplay: SolidDisplaySettings = { ...DEFAULT_SOLID_DISPLAY };
   private readonly screenStableReferences = new Map<THREE.Object3D, number>();
@@ -434,11 +435,12 @@ export class CadViewportEngine {
   }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
     const signature = this.geometrySignature(view, editContext);
+    const generation = ++this.visualGeneration;
     if (this.renderGeometrySignature === signature && !this.pendingVisualSnapshot && this.view) {
+      this.editContext=editContext;
       this.updateDisplayProjection(view);
       return;
     }
-    const generation = ++this.visualGeneration;
     const scope = (display?: DocumentDescriptor, editing?: ViewportEditContext) => JSON.stringify([
       display?.document.id, display?.document.versionId,
       editing?.view.document.id, editing?.view.document.versionId, editing?.occurrencePath,
@@ -518,6 +520,7 @@ export class CadViewportEngine {
     this.solidBindings.clear();
     this.instanceGroups.clear();
     this.assemblyConstraintReferences.clear();
+    this.assemblyConstraintMarkers.clear();
     this.screenStableReferences.clear();
     if (view.document.type === "PART") this.renderPart(view);
     else this.renderProduct(view);
@@ -592,7 +595,9 @@ export class CadViewportEngine {
 
   updateDisplayProjection(view: DocumentDescriptor): void {
     if (!this.view || this.view.document.id !== view.document.id) return;
-    this.view = {...this.view, structureTree: view.structureTree, part: view.part, product: view.product};
+    this.view = {...this.view,document:view.document,structureTree:view.structureTree,part:view.part,product:view.product,
+      constraintDisplayScopes:view.constraintDisplayScopes,resolvedInstances:view.resolvedInstances};
+    this.addAssemblyConstraintMarkers(this.view);
     this.visibilityResolver = visibilityResolverForView(view);
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
@@ -1106,7 +1111,7 @@ export class CadViewportEngine {
     for (const object of this.highlightedRoots) this.applyHighlight(object, "default");
     this.highlightedRoots.clear();
     const withAssemblyReferences = (selections: readonly SelectionItem[]) => selections.flatMap((selection) =>
-      selection.kind === "assembly-constraint" ? [selection, ...(this.assemblyConstraintReferences.get(selection.constraintId) ?? [])]
+      selection.kind === "assembly-constraint" ? [selection, ...(this.assemblyConstraintReferences.get(this.assemblyMarkerKey(selection.documentId ?? "",selection.occurrencePath ?? "",selection.constraintId)) ?? [])]
         : selection.kind === "publication" && selection.highlightTarget ? [selection.highlightTarget] : [selection]);
     this.replaceTopologyOverlays("preselected", withAssemblyReferences(this.preselected ? [this.preselected] : []));
     if (this.preselected) {
@@ -1294,6 +1299,39 @@ export class CadViewportEngine {
   }
 
   private addAssemblyConstraintMarkers(view: DocumentView): void {
+    // A separate projection from geometry: never hydrate GLB or rebuild bodies.
+    this.assemblyConstraintMarkers ??= new Map();
+    const live=new Set<string>();
+    const scopes:Array<{view:DocumentDescriptor;occurrence:string;treeNodeId:string;instancePath?:import("../types").InstancePath}>=[{view,occurrence:"",treeNodeId:`document:${view.document.id}`},...(view.constraintDisplayScopes??[]).map(scope=>({
+      view:{document:{...view.document,id:scope.documentId,versionId:scope.versionId},product:{instances:[],constraints:scope.constraints}},
+      occurrence:scope.instancePath.canonical,treeNodeId:scope.treeNodeId,instancePath:scope.instancePath}))];
+    // Only the explicitly editable occurrence follows its authoritative draft
+    // document. Other occurrences keep their accepted immutable projections.
+    const editing=this.editContext;
+    if(editing?.liveConstraintProjection && editing.view.document.type==="PRODUCT") {
+      const scope=scopes.find(scope=>scope.occurrence===editing.occurrencePath && scope.view.document.id===editing.view.document.id);
+      if(scope)scope.view=editing.view;
+    }
+    for(const scope of scopes)this.reconcileAssemblyConstraintMarkers(scope.view,scope.occurrence,live,scope.treeNodeId,scope.instancePath);
+    for(const [key,entry] of this.assemblyConstraintMarkers)if(!live.has(key))this.removeAssemblyConstraintMarker(key,entry);
+    this.refreshInteractionHighlights();
+  }
+
+  private assemblyMarkerKey(documentId:string,occurrence:string,constraintId:string) {
+    return JSON.stringify([documentId,occurrence,constraintId]);
+  }
+
+  private removeAssemblyConstraintMarker(key:string,entry:{group:THREE.Group;selection:SelectionItem},deleted=true) {
+    this.selectionIndex.unregister(entry.selection,entry.group);
+    entry.group.removeFromParent();this.disposeRenderable(entry.group);
+    this.assemblyConstraintMarkers.delete(key);this.assemblyConstraintReferences.delete(key);
+    const matches=(s:Selection)=>s?.kind==="assembly-constraint" && this.assemblyMarkerKey(s.documentId??"",s.occurrencePath??"",s.constraintId)===key;
+    if(deleted){const priorCount=this.selected.length;this.selected=this.selected.filter(s=>!matches(s));
+      if(this.selected.length!==priorCount)this.callbacks?.selectionsChanged(this.selected);
+      if(matches(this.preselected)){this.preselected=null;this.callbacks?.preselectionChanged(null);}}
+  }
+
+  private reconcileAssemblyConstraintMarkers(view: DocumentDescriptor,occurrence:string,live:Set<string>,treePath:string,instancePath?:import("../types").InstancePath): void {
     const glyphs: Record<import("../types").AssemblyConstraint["kind"], number> = {
       FIX: 2, RIGID: 7, FIX_TOGETHER:7, CONTACT:6, COINCIDENT: 0, CONCENTRIC: 13, ANGLE: 12, DISTANCE: 8,
     };
@@ -1301,24 +1339,29 @@ export class CadViewportEngine {
       VERIFIED: CATIA_VISUAL_THEME.constraint, NOT_UPDATED: CATIA_VISUAL_THEME.selected, IMPOSSIBLE: CATIA_VISUAL_THEME.sketchRedundant, BROKEN: CATIA_VISUAL_THEME.sketchInvalid,
     };
     for (const constraint of view.product?.constraints ?? []) {
+      const key=this.assemblyMarkerKey(view.document.id,occurrence,constraint.id);live.add(key);
       const references = assemblyConstraintReferences(constraint, view.product?.constraints ?? []);
       const located = references.map((reference) => {
-        const exact = this.resolveAssemblyConstraintReference(reference);
+        const exact = this.resolveAssemblyConstraintReference(reference,occurrence);
         if (exact) return { reference, ...exact, exact: true };
-        const instance = this.instanceGroups.get(reference.instanceId);
+        const instance = this.instanceGroups.get(occurrence.split("/")[0] || reference.instanceId);
         if (!instance) return undefined;
         const selection: SelectionItem = { kind: "instance", id: reference.instanceId, instanceId: reference.instanceId,
           occurrencePath: reference.instanceId, visualKey: `occurrence:${reference.instanceId}` };
         return { reference, selection, object: instance, anchor: new THREE.Box3().setFromObject(instance).getCenter(new THREE.Vector3()), exact: false };
       }).filter((value): value is NonNullable<typeof value> => Boolean(value));
-      if (!located.length) continue;
+      if (!located.length) {const old=this.assemblyConstraintMarkers.get(key);if(old)this.removeAssemblyConstraintMarker(key,old);continue;}
+      const signature=JSON.stringify([constraint,located.map(l=>l.anchor.toArray())]);
+      const prior=this.assemblyConstraintMarkers.get(key);
+      if(prior?.signature===signature)continue;
+      if(prior)this.removeAssemblyConstraintMarker(key,prior,false);
       const markerPosition = located.reduce((sum, value) => sum.add(value.anchor), new THREE.Vector3())
         .multiplyScalar(1 / located.length);
       const span = located.length > 1 ? located[0].anchor.distanceTo(located[1].anchor) : 0;
       markerPosition.z += Math.max(4, span * 0.08);
-      const treeNodeId = `document:${view.document.id}/assembly-constraints/constraint:${constraint.id}`;
+      const treeNodeId = `${treePath ?? `document:${view.document.id}`}/assembly-constraints/constraint:${constraint.id}`;
       const selection: SelectionItem = { kind: "assembly-constraint", id: constraint.id, constraintId: constraint.id,
-        constraintType: constraint.kind, documentId: view.document.id, treeNodeId };
+        constraintType: constraint.kind, documentId: view.document.id, occurrencePath:occurrence, instancePath, rootDocumentId:occurrence ? this.view?.document.id : undefined, treeNodeId };
       const group = new THREE.Group(); group.position.copy(markerPosition); group.userData = selection;
       const pointGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]);
       const glyph = new THREE.Points(pointGeometry, this.materials.constraintGlyph(
@@ -1327,13 +1370,14 @@ export class CadViewportEngine {
       group.add(glyph);
       if (located.some((value) => !value.anchor.equals(markerPosition))) {
         const leaders = makeOcclusionVisibleSegments(located.map((value) => [value.anchor.clone().sub(markerPosition), new THREE.Vector3()]),
-          statusColors[constraint.evaluationStatus], 1.75);
+          constraint.suppressed ? 0x808080 : statusColors[constraint.evaluationStatus], 1.75);
         leaders.renderOrder = 90; group.add(leaders);
       }
       this.helpers.add(group);
       this.selectionIndex.register(selection, group);
       this.selectionIndex.registerPick(glyph, () => selection, 90);
-      this.assemblyConstraintReferences.set(constraint.id, located.map((value) => value.selection));
+      this.assemblyConstraintMarkers.set(key,{signature,group,selection});
+      this.assemblyConstraintReferences.set(key, located.map((value) => value.selection));
       for (const value of located) {
         // Topology references are highlighted by exact face/edge/vertex overlays. Associating
         // their owning mesh group would incorrectly highlight the complete occurrence.
@@ -1468,20 +1512,22 @@ export class CadViewportEngine {
     return worldReference.normalize().applyQuaternion(inverse).toArray();
   }
 
-  private resolveAssemblyConstraintReference(reference: AssemblyGeometryRef):
+  private resolveAssemblyConstraintReference(reference: AssemblyGeometryRef,ownerOccurrence=""):
     { selection: SelectionItem; object: THREE.Object3D; anchor: THREE.Vector3 } | undefined {
-    const instance = this.instanceGroups.get(reference.instanceId);
+    const scopedPath=ownerOccurrence ? `${ownerOccurrence}/${reference.instancePath?.canonical ?? reference.instanceId}` : reference.instancePath?.canonical;
+    const instance = this.instanceGroups.get(ownerOccurrence.split("/")[0] || reference.instanceId);
     if (!instance) return undefined;
     const instanceSelection: SelectionItem = { kind: "instance", id: reference.instanceId, instanceId: reference.instanceId,
       occurrencePath: reference.instanceId, visualKey: `occurrence:${reference.instanceId}` };
     const instanceCenter = () => new THREE.Box3().setFromObject(instance).getCenter(new THREE.Vector3());
-    if (reference.kind === "BODY") return { selection: instanceSelection, object: instance, anchor: instanceCenter() };
     const resolvedTopology = reference.resolution?.result.status === "RESOLVED" ? reference.resolution.result.candidates?.[0] : undefined;
     const geometryKey = resolvedTopology?.geometryKey ?? reference.geometryKey;
     const topologyId = resolvedTopology?.localId ?? reference.topologyId;
-    const binding = [...this.solidBindings.values()].find((candidate) => candidate.context.instanceId === reference.instanceId &&
-      (!reference.instancePath || candidate.context.occurrencePath === reference.instancePath.canonical) &&
+    const binding = [...this.solidBindings.values()].find((candidate) => (ownerOccurrence || candidate.context.instanceId === reference.instanceId) &&
+      (!scopedPath || candidate.context.occurrencePath === scopedPath) &&
       (!geometryKey || candidate.artifact.geometryKey === geometryKey));
+    if (reference.kind === "BODY") return {selection:binding ? binding.group.userData as SelectionItem : instanceSelection,object:binding?.group ?? instance,
+      anchor:binding ? new THREE.Box3().setFromObject(binding.group).getCenter(new THREE.Vector3()) : instanceCenter()};
     if (reference.kind === "FACE" && binding && topologyId) {
       const anchor = new THREE.Vector3(); let count = 0;
       binding.artifact.mesh.triangles.forEach((triangle, index) => {
@@ -1508,7 +1554,7 @@ export class CadViewportEngine {
     let matched: THREE.Object3D | undefined;
     instance.traverse((object) => {
       if (matched || object.userData.entityId !== reference.geometryId ||
-        (reference.instancePath && object.userData.occurrencePath !== reference.instancePath.canonical)) return;
+        (scopedPath && object.userData.occurrencePath !== scopedPath)) return;
       if (reference.kind === "PLANE" && object.userData.kind === "plane") matched = object;
       else if (reference.kind === "AXIS" && object.userData.kind === "axis" && (!reference.axis || object.userData.axis === reference.axis)) matched = object;
       else if (reference.kind === "POINT" && object.userData.kind === "axis-system") matched = object;

@@ -27,7 +27,7 @@ CONSTRAINT-CONTRACT 的目录、真实测试 adapter 和回归门已复用到本
 
 当前下一主实现任务为 **ASSEMBLY-SESSION（待实施，M4 入口）**，不是再次实现 Offset、Contact 或 Fix Together。本轮六类及生命周期已完成实现与 CONSTRAINT-COMPOSITION 自动收口：完整 baseline/gaps/composition 各 617 PASS，58 项能力必需自动证据齐全，且装配领域四步骤通过；准确范围和命令见[当前执行记录](../docs/architecture/current/product-assembly.md#constraint-composition-本轮收口)，派生报告为 `build/constraint-composition/final-composition/report.json`。新发现的真实失败必须保留并修复，不能降低合同进入 M4 最终验收。
 
-维护者只确认了本任务前 OFFSET 改造人工使用验证通过；本轮新增 Contact、固联及其他新交互均待维护者实机验收，步骤见[合同设施说明](../tests/assembly-contract/README.md)。九个 CONSTRAINT-* 标识在[装配计划](assembly-evolution.md#六类约束与生命周期补齐)仅保留验收出口和稳定导航，不重复保留已完成实施清单。Feature、Projection、大模型及工程维护保持各自队列，只有明确的新需求才调整执行优先级；Preview/null-space/自由度显示不等于 M4 已交付。
+维护者现已反馈六类主要能力完成人工使用验证，并观察到求解速度、稳定性明显改善；没有同环境性能数据，不扩展为工业语料、加速比或所有并发场景验收。编辑候选一致性与约束显示同步的定向修复见[当前记录](../docs/architecture/current/product-assembly.md#六类交付定向收口编辑候选与约束显示)，这两项修复仍需维护者实机确认，步骤见[合同设施说明](../tests/assembly-contract/README.md)。九个 CONSTRAINT-* 标识在[装配计划](assembly-evolution.md#六类约束与生命周期补齐)保留验收出口和稳定导航，不重复保留已完成实施清单。Feature、Projection、大模型及工程维护保持各自队列，只有明确的新需求才调整执行优先级；Preview/null-space/自由度显示不等于 M4 已交付。
 
 ## 可领取工作
 

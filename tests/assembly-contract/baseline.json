@@ -1,4 +1,11 @@
 {
+    "closeoutReview": {
+        "implementationBaseCommit": "3ee7e865b38b6e5f0ee16b3b4e50f3277b19f69b",
+        "reason": "Six added candidate/display cases actually PASS in selected plane-plane gaps before promotion. Preserve all previous 617 cases/targets/layers/tolerances. Only existing offset.editor.intent-roundtrip assertion lock changes: replace three direct offset-field calls with three shared complete-draft calls, retaining all old checks and adding actual signed expression/Measured/support assertions.",
+        "scope": "39 selected plane-plane cases including all six new cases; this is not a fresh full 623-case industrial or browser acceptance",
+        "strengthenedAssertions": "Read-only owner projection verifies exact semantic tree paths/full occurrence identity; Three scene checks execute actual highlight cleanup and live editable occurrence deletion/suppression independently of accepted sibling snapshots. Strengthened fixtures separately executed PASS before updating only their new assertion locks.",
+        "dialogShortcutFollowup": "Actual TanStack cache-success ordering verifies dialog lifecycle independent of Preview sequence and preserves abandoned-dialog guards; shared intent tests exclude stale Quantity from Parallel/Perpendicular while retaining FREE/DIRECTED bindings. Real dedicated-DB/Worker shortcut create/edit, geometry, Preview Head and retry tests PASS. Add only this case and update only the strengthened shared-UI assertion lock; targets/coverage unchanged."
+    },
     "review": {
         "implementationBaseCommit": "c1becfdc2a569f14468f29ca2b643b303f005213",
         "contractEvolution": "v1 -> v2; all 58 original capability IDs and 100 original case IDs retained; no required-layer reductions",
@@ -78,6 +85,13 @@
         "fix-together.overlap-nested": "0dd988145716e5047a2d20974fe6b8524d5fd0a61d9c6a42ea12ff5a4e4353a2"
     },
     "cases": {
+        "composition.edit-intent.production-ui": "4ee9ec3c585a58a896ab3fa937c4ddbcb344cfbb0975ec5d01b3ff7cad40f486",
+        "composition.constraint-display.incremental-ui": "ea637308cd42af2a28e71432591db53aaa7cc0a1881e17fa1cfb1436d83f54d1",
+        "composition.preview-candidate.strict-diagnostics": "20811d46c76c7468aee010c10c987ab5b0e569c3c58a02ca3c8f49762dd0b2ba",
+        "coincidence.plane-plane.edit-preview-commit": "bbd420a99c44f711aa247e68a1efb6e46ae423466a98d6a81403809835e20ba2",
+        "composition.constraint-display.accepted-occurrences": "f9df7416472510229d41a37eca6d330eebbe66eea9387b2b335bc921ebbdaa4f",
+        "composition.edit-candidate.real-stale-cancel": "8a683e91c3620a4f986e3122ed467b21535df75953d705a5835b58e0d0a47a1a",
+        "angle.shortcuts.plane-plane.preview-commit": "676ef5dc84adde62e3fad9eb53cd75421e2d98f566964ddbe021095445f7187a",
         "coincidence.point-point.geometry": "53a705c71962d1cfbdcfcd8eebd7e60dc23af9bdad7cae66233b48f79f3b24c1",
         "coincidence.point-plane.geometry": "31296d6b7915e15ab0f86b946d0ad923f4440cb293f4eee90c9cb72ecc75ac55",
         "coincidence.axis-plane.geometry": "51c4cd62610a03f1305ca7ccfe6b110e87bcc6bc8e58c5e54e4501e6b8928451",
@@ -697,6 +711,13 @@
         "composition.trimmed-arc.production-ui-eligibility": "7f9c376e12326bdf4398f9dbad14af7bc75a9cda4e3803e21e19ff2c0d4a2c81"
     },
     "assertions": {
+        "composition.edit-intent.production-ui": "6d0afd972b78eeb318041aa9dd7be1e98da9bae4364968a749a1830a7fb6cd9a",
+        "composition.constraint-display.incremental-ui": "a1a8f924626c5898494f4acb9e2a9755470ac5d19d880edaeff8ad6dedae65d1",
+        "composition.preview-candidate.strict-diagnostics": "9120e5088fc7ba88f5cee1c5339cee3b432c984a1a6f6e543cf0264cae6b3f5e",
+        "coincidence.plane-plane.edit-preview-commit": "ad67a19d9ada7081bfbd65590846a120e860979eb969dc66980d57892000798d",
+        "composition.constraint-display.accepted-occurrences": "ad67a19d9ada7081bfbd65590846a120e860979eb969dc66980d57892000798d",
+        "composition.edit-candidate.real-stale-cancel": "ad67a19d9ada7081bfbd65590846a120e860979eb969dc66980d57892000798d",
+        "angle.shortcuts.plane-plane.preview-commit": "6a8cf0ad12ce5de832986db4edc4dcc4ba02bf48346892c6f09af19eb8828801",
         "coincidence.point-point.geometry": "3cef053361270c88d898add465a9c3d06a4902d91d83bd7441bbf1d37752ac0f",
         "coincidence.point-plane.geometry": "5c8231db65eafc669aaaf66101ddd0b908ebadfb77c0c9a324a7159033e786c3",
         "coincidence.axis-plane.geometry": "981c31b4ab1c75e84ff32b8bee1cf7085565c826c47a8de7738a7d160ea057dd",
@@ -790,7 +811,7 @@
         "offset.compile.roles": "31807b5f0ec2a9ab8d7a90a1e350d1ba362933ac62f1fcb1ed824daaecc02e56",
         "offset.mode.expression-suppression": "78598486a3dab342f8286af4a2576454d66b78e14a0d74b229fd6ee660b8510d",
         "offset.expression.unary-sign": "91ec12de273f95361da66024cbf31cd78bf3ed9cd0ac83075e41c9cf25bf5ff0",
-        "offset.editor.intent-roundtrip": "c8f61cbbbf4caf33fd1f6fa5ba16b9be0bff08ba71ac9ade25ada358d4cf5954",
+        "offset.editor.intent-roundtrip": "12518516bb9fe70c3740b1663bfcaee94276b48a1a834e587174c86043b0b21d",
         "offset.plane-plane.router-resolution": "515d63c93b940222ce4c48e9b12ce2d5b5f0a5efdf015e3fe595f7af28877dc4",
         "offset.plane-plane.router-historyreplay": "515d63c93b940222ce4c48e9b12ce2d5b5f0a5efdf015e3fe595f7af28877dc4",
         "offset.plane-plane.router-lifecycle": "515d63c93b940222ce4c48e9b12ce2d5b5f0a5efdf015e3fe595f7af28877dc4",

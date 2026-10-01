@@ -2,6 +2,10 @@ package workspace
 
 import (
 	"encoding/json"
+	"fmt"
+	"reflect"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,7 +19,7 @@ const (
 
 // interactionCandidate is an authoritative, already-evaluated transient. It
 // may be promoted only while its exact base and typed command still match.
-// Losing this cache is safe: commit falls back to normal evaluation.
+// Explicit missing tokens are rejected; only tokenless commands evaluate anew.
 type interactionCandidate struct {
 	assemblyPreviewRequestID                                          string
 	id, documentID, actorID, headRevision, commandType, payloadDigest string
@@ -24,6 +28,7 @@ type interactionCandidate struct {
 	geometryKey                                                       string
 	visualObjectID                                                    string
 	changes                                                           modelcore.ChangeSet
+	intentPayload                                                     json.RawMessage
 	expiresAt                                                         time.Time
 }
 
@@ -115,29 +120,97 @@ func (cache *interactionCandidateCache) put(value interactionCandidate) {
 		delete(cache.values, oldestKey)
 	}
 	value.nextJSON = append(json.RawMessage(nil), value.nextJSON...)
+	value.intentPayload = append(json.RawMessage(nil), value.intentPayload...)
 	value.changes = cloneCandidateChanges(value.changes)
 	cache.values[value.id] = value
 }
 
 func (cache *interactionCandidateCache) take(id, documentID string, prepared preparedDomainMutation) (interactionCandidate, bool) {
+	value, reason := cache.takeDiagnosed(id, documentID, prepared)
+	return value, reason == ""
+}
+
+// Report only identity digests and changed paths, never geometry or parameter
+// contents. A mismatched actor/request must not consume another valid token.
+func (cache *interactionCandidateCache) takeDiagnosed(id, documentID string, prepared preparedDomainMutation) (interactionCandidate, string) {
 	if id == "" {
-		return interactionCandidate{}, false
+		return interactionCandidate{}, "candidate_missing"
 	}
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	value, ok := cache.values[id]
 	if !ok {
-		return interactionCandidate{}, false
+		return interactionCandidate{}, "candidate_missing_or_consumed"
+	}
+	if time.Now().After(value.expiresAt) {
+		delete(cache.values, id)
+		return interactionCandidate{}, "candidate_expired"
+	}
+	for _, check := range []struct {
+		mismatch bool
+		reason   string
+	}{
+		{value.documentID != documentID, "target_document_mismatch"},
+		{value.actorID != prepared.actorID, "actor_scope_mismatch"},
+		{value.headRevision != prepared.headRevision || value.headSequence != prepared.headSequence, "base_revision_mismatch"},
+		{value.commandType != prepared.command.TypeURI, "command_type_mismatch"},
+	} {
+		if check.mismatch {
+			return interactionCandidate{}, check.reason
+		}
+	}
+	actual := modelcore.ValueDigest(prepared.command.Payload)
+	if value.payloadDigest != actual {
+		return interactionCandidate{}, fmt.Sprintf("intent_digest_mismatch expected=%s actual=%s paths=%s", value.payloadDigest, actual,
+			strings.Join(candidateChangedPaths(value.intentPayload, prepared.command.Payload), ","))
 	}
 	delete(cache.values, id)
-	if time.Now().After(value.expiresAt) || value.documentID != documentID || value.actorID != prepared.actorID ||
-		value.headRevision != prepared.headRevision || value.headSequence != prepared.headSequence ||
-		value.commandType != prepared.command.TypeURI || value.payloadDigest != modelcore.ValueDigest(prepared.command.Payload) {
-		return interactionCandidate{}, false
-	}
 	value.nextJSON = append(json.RawMessage(nil), value.nextJSON...)
 	value.changes = cloneCandidateChanges(value.changes)
-	return value, true
+	return value, ""
+}
+
+func candidateChangedPaths(expected, actual []byte) []string {
+	var a, b any
+	if json.Unmarshal(expected, &a) != nil || json.Unmarshal(actual, &b) != nil {
+		return []string{"$"}
+	}
+	paths := []string{}
+	var walk func(any, any, string)
+	walk = func(a, b any, path string) {
+		if len(paths) >= 16 || reflect.DeepEqual(a, b) {
+			return
+		}
+		am, aok := a.(map[string]any)
+		bm, bok := b.(map[string]any)
+		if aok && bok {
+			keys := map[string]bool{}
+			for k := range am {
+				keys[k] = true
+			}
+			for k := range bm {
+				keys[k] = true
+			}
+			ordered := []string{}
+			for k := range keys {
+				ordered = append(ordered, k)
+			}
+			sort.Strings(ordered)
+			for _, k := range ordered {
+				av, presentA := am[k]
+				bv, presentB := bm[k]
+				if presentA != presentB && len(paths) < 16 {
+					paths = append(paths, path+"."+k)
+				} else {
+					walk(av, bv, path+"."+k)
+				}
+			}
+			return
+		}
+		paths = append(paths, path)
+	}
+	walk(a, b, "$")
+	return paths
 }
 
 func cloneCandidateChanges(value modelcore.ChangeSet) modelcore.ChangeSet {

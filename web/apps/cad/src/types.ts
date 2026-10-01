@@ -349,6 +349,7 @@ export type DocumentView = {
   artifact?: Artifact;
   artifacts?: Record<string, Artifact>;
   resolvedInstances?: ResolvedInstance[];
+  constraintDisplayScopes?: Array<{documentId:string;versionId:string;instancePath:InstancePath;treeNodeId:string;constraints:AssemblyConstraint[]}>;
   structureTree?: DocumentStructureNode;
   referenceUpdates?: ReferenceUpdate[];
   followedDocumentIds?: string[];

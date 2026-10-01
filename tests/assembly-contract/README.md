@@ -97,7 +97,7 @@ Contact 和多成员 Fix Together 已有实际生产实现及专属正向测试�
 
 ## 维护者实机验收
 
-维护者此前仅明确确认 OFFSET 改造使用验证通过；没有为本轮新 Contact/组或全部组合代签。本轮不运行浏览器自动测试。下列步骤复用导出的解析 STEP fixture，在新测试 Product 中操作，不需清理应用数据：
+维护者现已反馈六类主要能力完成人工使用验证，并观察到速度、稳定性明显改善；没有完整场景、准确版本或同环境性能数据，不扩大为所有组合或工业基准。下列五步保留为场景参考，不能逐项倒填维护者通过。最新编辑候选/显示修复的实机检查见下一节，本轮不运行浏览器自动测试。复用导出的解析 STEP fixture，在新测试 Product 中操作，不需清理应用数据：
 
 1. 重新构建并按仓库正常流程重启应用（不 reset-data），用上述 FixtureExport 生成数据，导入球/圆柱/圆锥 STEP，插入同 Part 的两个 occurrence，再加入嵌套 Product。核对支持顺序、精确类型、派生圆心/球心/轴/锥顶/Frame 子元素；来源未解析时不能默认开放错误组合。修剪圆弧应提示显式 Underlying Circle，未选时禁用整圆关系 Preview/确认；选择圆心/轴/平面或 Underlying Circle 后允许相应合法关系，保留来源参数域而非伪 Broken。
 2. 分别创建 Coincidence、Offset、FREE/DIRECTED Angle、SPACE/RELATIVE Fix，令初始姿态明显不满足。检查 Preview/取消/提交、参数表达式、支持替换/重开编辑器，第一法向 Offset 不翻号，独立第三参考轴不随选择交换换 owner；Measured 不移动组件。
@@ -106,3 +106,27 @@ Contact 和多成员 Fix Together 已有实际生产实现及专属正向测试�
 5. 对六族执行单项/批量停用恢复、适用的 Measured→Suppressed→恢复、空活动集合、来源变化/断裂/显式重连、Undo/Redo、重新打开和 Release 后改变 Head/replay。AXIS–PLANE 测量期间可移到不可测构型，应清旧值；恢复 Driving 应实际转回合法方向并保留驱动参数。检查失败定义状态与用户停用正交，冻结 Release 不随新 Head 换来源/符号/组关系。
 
 记录实际操作的版本、场景与观察后再作人工确认。M4 最近可行拖拽、M5/M6、任意曲面接触和动力学不属于本批交互验收；现有 interaction-driver MOVE 不承诺 M4 行为。
+
+## 六类交付定向收口回归
+
+新增 case：`composition.edit-intent.production-ui`、`composition.constraint-display.incremental-ui`、`composition.preview-candidate.strict-diagnostics`、`coincidence.plane-plane.edit-preview-commit`、`composition.constraint-display.accepted-occurrences`、`composition.edit-candidate.real-stale-cancel`。前三项是共享前端/缓存行为证据，不能认证六族完整几何；后三项复用同一个真实导入面/数据库/Router/Worker fixture，不伪装三次独立纵向验收。
+
+继续使用前述显式专用数据库、v10 Worker 和解析 fixture 环境，运行：
+
+```sh
+python tests/assembly-contract/runner.py baseline --capability coincidence.plane-plane --output build/constraint-closeout/plane-plane-baseline
+python tests/assembly-contract/runner.py gaps --capability coincidence.plane-plane --output build/constraint-closeout/plane-plane-gaps
+pnpm --dir web/apps/cad test -- assembly-edit-intent assembly-constraint-display assembly-preview-machine command-preview-identity realtime-control
+python tests/assembly-contract/runner.py baseline --case angle.shortcuts.plane-plane.preview-commit --output build/constraint-closeout/dialog-shortcut-baseline
+python tests/assembly-contract/runner.py gaps --case angle.shortcuts.plane-plane.preview-commit --output build/constraint-closeout/dialog-shortcut-gaps
+```
+
+首轮收口目录为 58 capability / 623 case，定向报告的 39 项不表示重新执行完整目录。后续增加 `angle.shortcuts.plane-plane.preview-commit`，当前为 58 capability / 624 case：真实创建/编辑平行、垂直及独立几何验证，显式 Quantity 输入仍拒绝；共享 UI 场景增加真实 TanStack 成功回调顺序和对话框生命周期检查。只更新强化后的 UI 断言锁和新增 case，理由见 `closeoutReview.dialogShortcutFollowup`。原目标、已有断言和 requiredLayers 不变；旧 Offset 源码接线检查改为唯一草稿入口并增加真实行为断言，不批量 bless。初次旧接线检查失败日志与修复后的执行结果分开保留。
+
+维护者补充实机检查（正常重建/重启应用，不 reset-data）：
+
+1. 创建反向 Coincidence，编辑为正向，等待 Preview 后确认；反向切回、Undefined、先后替换第一/第二支持，再快速连续修改。等待最新候选时确认应不可用，重开不翻方向/换支持。另一客户端改变 Head 或候选过期后，应保留草稿、显示明确原因，显式重新预览后再确认；取消/关闭/切换目标后旧响应不能影响新编辑器。
+2. 相机及所有组件保持不动，右键删除、停用/激活约束，切换适用的 Measured，执行 Undo/Redo。glyph、连接线、状态与拾取应在下一帧同步；删除后不能再高亮/拾取，停用不是删除。再在两个相同子 Product occurrence 中检查作用域与 PINNED；打开编辑器/存在旧 Preview 时删除或停用，关闭编辑器不能挂回旧图标。
+3. 创建和编辑确认成功后，对话框应自动关闭；失败时保留草稿，取消/换目标后旧成功回调不关闭新对话框。创建平行和垂直，再双向切换关系；先编辑过有表达式的 FREE/DIRECTED 角再创建或切换平行/垂直，隐藏旧表达式不得导致 Quantity 错误。
+
+Agent 对象/状态场景不替代上述 WebGL 与真实交互验收；没有新增性能基准、工业 corpus、M4/M5/M6 或应用数据清理。
