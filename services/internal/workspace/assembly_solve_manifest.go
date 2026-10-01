@@ -15,7 +15,7 @@ import (
 
 const (
 	assemblySolveManifestSchema = 1
-	assemblySolverBuildPolicy   = "assembly-m3-lifecycle-v7"
+	assemblySolverBuildPolicy   = "assembly-offset-parallel-line-v9"
 	maxManifestBodies           = 4096
 	maxManifestGeometry         = 16384
 	maxManifestConstraints      = 16384
@@ -143,8 +143,20 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 		len(manifest.Definitions) > maxManifestConstraints || len(manifest.Constraints) > maxManifestConstraints {
 		return fmt.Errorf("%w: assembly SolveManifest resource limits exceeded", ErrValidation)
 	}
-	if manifest.SolverProfile.SchemaVersion != 2 || manifest.SolverBuildPolicy != assemblySolverBuildPolicy {
+	if manifest.SolverProfile.SchemaVersion != 2 || (manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-offset-selected-plane-v8" && manifest.SolverBuildPolicy != "assembly-m3-lifecycle-v7") {
 		return fmt.Errorf("%w: unsupported assembly solver profile or build policy", ErrValidation)
+	}
+	if manifest.SolverBuildPolicy == "assembly-m3-lifecycle-v7" {
+		for _, c := range manifest.Constraints {
+			if c.DistanceRelation == selectedPlaneNormalV1 {
+				return fmt.Errorf("%w: selected-plane Offset requires v8 policy", ErrValidation)
+			}
+		}
+		for _, c := range manifest.Definitions {
+			if c.OffsetParameter != nil || c.DistanceRelation == selectedPlaneNormalV1 {
+				return fmt.Errorf("%w: Offset intent requires v8 policy", ErrValidation)
+			}
+		}
 	}
 	bodies, geometryIDs, constraints := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, body := range manifest.Bodies {

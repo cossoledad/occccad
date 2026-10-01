@@ -46,6 +46,8 @@ depend on OCCT, Product documents, topology naming, RPC or persistence.
 
 Zero driving Point-Point/Point-Axis distances compile to coincidence equations with rank 3/2; a scalar norm at zero cannot represent that manifold with a regular Jacobian. The composition corpus checks ranks zero through six, the position/direction/clocking construction and suppression.
 
+`DistanceRelation::SelectedPlaneNormal` evaluates `n·(p_first-p_second)`, choosing the first plane normal for two planes or the unique plane otherwise. Direction relation is independent of the signed target. Legacy second-normal modes retain their equations. `AssemblyOffset.*` scenarios assert final rotated geometry, exchange/normal transformations, actual movement, rank and analytic Jacobians; see the shared [contract runner](../../tests/assembly-contract/README.md) for layered evidence.
+
 Cylinder-Cylinder `Coincident` includes equal radius; `Concentric` deliberately does
 not. Plane distance also imposes parallelism, which makes it a stable assembly mate
 rather than a closest-point measurement between arbitrary planes.
@@ -75,6 +77,15 @@ feasible results whose preference has not converged; raw RPC callers receive bot
 states and may inspect the evidence. Local stationarity is not a global nonconvex
 optimality guarantee. The algorithm and acceptance corpus are in
 `SOLVER_ALGORITHMS.md` and `tests/motion_scenarios.cpp`.
+
+For an isolated positive unsigned distance between parallel infinite lines,
+initial recovery uses a radial translation. With one free cluster, preference
+optimization stays in the local parallel chart instead of differentiating
+through the nonsmooth skew-line limit. Chart rows do not affect physical
+equations, rank or DOF; this is not an added Parallel constraint or a global
+minimum-motion guarantee. Zero-distance intersection and coupled combinations
+remain separate validation/development gaps. Regression:
+`AssemblyOffset.ParallelOffOriginEdgesMoveToRequestedDistance`.
 
 Each selected component uses deterministic damped least squares whose linearized
 step is solved as an augmented QR problem without forming normal equations. Typed

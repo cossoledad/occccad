@@ -55,6 +55,26 @@ def implementation(capability, catalog):
     return {**catalog["implementationProfiles"][capability["implementationProfile"]], **capability.get("implementationOverrides", {})}
 
 
+def progress(capability, catalog, results):
+    """Coverage is a declaration; acceptance requires specific, actually run evidence."""
+    required = capability.get("requiredLayers", catalog["layers"])
+    coverage = implementation(capability, catalog)
+    states = [coverage[layer]["state"] for layer in required]
+    implemented = all(state == "implemented" for state in states)
+    target = "IMPLEMENTED" if implemented else "TARGET_NOT_IMPLEMENTED" if all(state in {"missing", "unknown"} for state in states) else "PARTIAL"
+    applicable = [t for t in catalog["cases"] if capability["capabilityId"] in t["capabilityIds"]
+                  and t.get("purpose") != "unsupported-rejection" and t["evidenceScope"] == "specific-combination"]
+    missing = [layer for layer in required if not any(t["layer"] == layer for t in applicable)]
+    required_ids = set(capability.get("requiredCaseIds", [])) | {t["caseId"] for t in applicable if t["layer"] in required}
+    verdicts = {ident: results.get(ident, {"status": "NOT_RUN"})["status"] for ident in sorted(required_ids)}
+    outstanding = {ident: status for ident, status in verdicts.items() if status != "PASS"}
+    verified = not missing and bool(required_ids) and not outstanding
+    return {"targetStatus": target, "requiredLayers": required, "missingSpecificTestLayers": missing,
+            "requiredEvidence": verdicts, "outstandingEvidence": outstanding,
+            "verificationStatus": "VERIFIED" if verified else "INCOMPLETE",
+            "acceptanceStatus": "ACCEPTED" if implemented and verified else "NOT_ACCEPTED"}
+
+
 def validate(catalog, root=ROOT, lock=None):
     def require(condition, message):
         if not condition:
@@ -100,6 +120,8 @@ def validate(catalog, root=ROOT, lock=None):
         require(c["rank"]["configuration"] and (c["rank"]["normal"] is None or 0 <= c["rank"]["normal"] <= 6), f"{ident}: rank missing")
         require(c["rank"]["normal"] is not None or c.get("openQuestions") or c["rank"]["special"], f"{ident}: unknown rank has no boundary")
         require(c["followupTasks"] and all(t in tasks for t in c["followupTasks"]), f"{ident}: invalid followup task")
+        require(bool(c.get("requiredLayers", catalog["layers"])) and set(c.get("requiredLayers", catalog["layers"])).issubset(LAYERS), f"{ident}: invalid required layers")
+        require(set(c.get("requiredCaseIds", [])).issubset(c["caseIds"]), f"{ident}: invalid required evidence")
         require(all(i in case_ids for i in c["caseIds"]), f"{ident}: invalid test mapping")
         coverage = implementation(c, catalog)
         require(set(coverage) == LAYERS, f"{ident}: incomplete coverage")
@@ -234,13 +256,15 @@ def run_cases(cases, output, build_type, adapters):
                     record(t, "FAIL", "C++ process failed (another assertion or crash)", argv, log)
                 else:
                     record(t, "PASS", "actual C++ geometry/rank assertions passed", argv, log)
-    packages = sorted({t["package"] for t in pending if t["adapter"] in {"go", "go-flags", "integration"}})
-    for package in packages:
-        batch = [t for t in pending if t.get("package") == package]
+    # Integration cases run once per native test, not in one package process:
+    # an unrelated historical failure must not relabel a passing Router fixture.
+    packages = sorted({(t["package"], t["selector"].split("/")[0] if t["adapter"] == "integration" else "") for t in pending if t["adapter"] in {"go", "go-flags", "integration"}})
+    for index, (package, integration_selector) in enumerate(packages):
+        batch = [t for t in pending if t.get("package") == package and (t["selector"].split("/")[0] == integration_selector if integration_selector else t["adapter"] != "integration")]
         names = sorted({t["selector"].split("/")[0] for t in batch})
         argv = ["go", "test", "-json", "-count=1", "-timeout=240s", package, "-run", "^(" + "|".join(map(re.escape, names)) + ")$"]
         commands.append(argv)
-        log = output / (package.rsplit("/", 1)[1] + ".log")
+        log = output / (package.rsplit("/", 1)[1] + f"-{index}.log")
         code, raw = command(argv, ROOT / "services", env, log)
         events = []
         for line in raw.splitlines():
@@ -285,9 +309,9 @@ def make_report(catalog, caps, cases, results, commands, purpose, argv):
         evidence = [{**t, "result": results[t["caseId"]]} for t in selected]
         coverage = implementation(c, catalog)
         unresolved = [layer for layer, state in coverage.items() if state["state"] != "implemented"]
-        goal = "TARGET_NOT_IMPLEMENTED" if c["implementationProfile"] in {"missing", "group", "boundary"} else "PARTIAL"
+        advancement = progress(c, catalog, results)
         layer_evidence = {layer: [t["caseId"] for t in selected if t["layer"] == layer and results[t["caseId"]]["status"] == "PASS" and t.get("purpose") != "unsupported-rejection"] for layer in sorted(LAYERS)}
-        rows.append({"capabilityId": c["capabilityId"], "family": c["family"], "target": {**c, "policy": catalog["policies"][c["policy"]]}, "implementation": coverage, "targetStatus": goal, "unresolvedLayers": unresolved, "verifiedCaseIdsByLayer": layer_evidence, "verification": evidence, "missingTestLayers": [layer for layer in LAYERS if not any(t["layer"] == layer and t.get("purpose") != "unsupported-rejection" for t in catalog["cases"] if c["capabilityId"] in t["capabilityIds"])], "testStatus": "MISSING_TEST" if not any(t.get("purpose") != "unsupported-rejection" for t in catalog["cases"] if c["capabilityId"] in t["capabilityIds"]) else "MAPPED", "followupTasks": c["followupTasks"]})
+        rows.append({"capabilityId": c["capabilityId"], "family": c["family"], "target": {**c, "policy": catalog["policies"][c["policy"]]}, "implementation": coverage, **advancement, "unresolvedLayers": unresolved, "verifiedCaseIdsByLayer": layer_evidence, "verification": evidence, "missingTestLayers": [layer for layer in LAYERS if not any(t["layer"] == layer and t.get("purpose") != "unsupported-rejection" for t in catalog["cases"] if c["capabilityId"] in t["capabilityIds"])], "testStatus": "MISSING_TEST" if not any(t.get("purpose") != "unsupported-rejection" for t in catalog["cases"] if c["capabilityId"] in t["capabilityIds"]) else "MAPPED", "followupTasks": c["followupTasks"]})
     native = {t["fixture"]["source"] + "::" + (t["caseId"] if t["adapter"] == "web-catalog" else t["selector"]) for t in cases if results[t["caseId"]]["status"] == "PASS"}
     sources = {"tests/assembly-contract/catalog.json", "tests/assembly-contract/runner.py", "tests/assembly-contract/baseline.json"} | {t["fixture"]["source"] for t in cases}
     return {"schemaVersion": catalog["schemaVersion"], "contractVersion": catalog["contractVersion"], "catalogDigest": digest(catalog), "purpose": purpose, "baselineMeaning": "selected executed existing abilities only; NOT six-family product acceptance", "commit": git("rev-parse", "HEAD"), "worktree": git("status", "--short"), "worktreeDiffDigest": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"], cwd=ROOT)).hexdigest(), "inputDigests": {source: hashlib.sha256((ROOT / source).read_bytes()).hexdigest() for source in sorted(sources)}, "invocation": argv, "selectedCaseIds": [t["caseId"] for t in cases], "environment": {"platform": platform.platform(), "python": platform.python_version(), "integrationVariablesPresent": {k: bool(os.getenv(k)) for k in ("OCCCCAD_TEST_DATABASE_URL", "OCCCCAD_TEST_GEOMETRY_WORKER")}}, "commands": commands, "results": list(results.values()), "counts": dict(Counter(r["status"] for r in results.values())), "uniquePassedTestMappings": len(native), "targetCounts": dict(Counter(r["targetStatus"] for r in rows)), "capabilities": rows}
@@ -328,9 +352,9 @@ def main(argv=None):
         result = results[case["caseId"]]
         if result["status"] != "PASS":
             summary.append(f"| {case['caseId']} | {result['status']} | {result['log'] or result['observed']} |")
-    summary += ["", "| Capability | Target | Missing/partial layers | Followup |", "|---|---|---|---|"]
+    summary += ["", "| Capability | Implementation | Verification | Acceptance | Missing/partial layers | Outstanding evidence | Followup |", "|---|---|---|---|---|---|---|"]
     for row in report["capabilities"]:
-        summary.append(f"| {row['capabilityId']} | {row['targetStatus']} | {', '.join(row['unresolvedLayers'])} | {', '.join(row['followupTasks'])} |")
+        summary.append(f"| {row['capabilityId']} | {row['targetStatus']} | {row['verificationStatus']} | {row['acceptanceStatus']} | {', '.join(row['unresolvedLayers'])} | {json.dumps(row['outstandingEvidence'], sort_keys=True)} | {', '.join(row['followupTasks'])} |")
     summary += ["", "See report.json for case expectations, actual verdicts, logs and per-layer evidence."]
     (output / "summary.md").write_text("\n".join(summary) + "\n")
     print("Executed contract cases: " + json.dumps(counts, sort_keys=True))

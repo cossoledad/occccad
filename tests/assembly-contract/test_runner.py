@@ -73,6 +73,30 @@ class CatalogTests(unittest.TestCase):
         events.append({"Test": selector + "/integration", "Action": "fail"})
         self.assertEqual(runner.go_verdict(events, selector, 0)[0], "FAIL")
 
+    def test_progress_requires_specific_applicable_actual_evidence(self):
+        c = copy.deepcopy(self.catalog["capabilities"][0])
+        catalog = copy.deepcopy(self.catalog)
+        for layer in runner.LAYERS:
+            c.setdefault("implementationOverrides", {})[layer] = {"state": "implemented", "reason": "test declaration"}
+        c["requiredLayers"] = ["workerSolver", "historyReplay"]
+        catalog["cases"] = [dict(caseId="math", capabilityIds=[c["capabilityId"]], layer="workerSolver", evidenceScope="specific-combination"),
+                            dict(caseId="db", capabilityIds=[c["capabilityId"]], layer="historyReplay", evidenceScope="specific-combination")]
+        results = {"math": {"status": "PASS"}, "db": {"status": "ENVIRONMENT_BLOCKED"}}
+        p = runner.progress(c, catalog, results)
+        self.assertEqual(p["targetStatus"], "IMPLEMENTED")
+        self.assertEqual(p["acceptanceStatus"], "NOT_ACCEPTED")
+        self.assertEqual(p["outstandingEvidence"], {"db": "ENVIRONMENT_BLOCKED"})
+        results["db"]["status"] = "PASS"
+        self.assertEqual(runner.progress(c, catalog, results)["acceptanceStatus"], "ACCEPTED")
+        for evidence in ({"evidenceScope": "representative-shared-foundation"}, {"purpose": "unsupported-rejection"}):
+            altered = copy.deepcopy(catalog)
+            altered["cases"][1].update(evidence)
+            self.assertEqual(runner.progress(c, altered, results)["acceptanceStatus"], "NOT_ACCEPTED")
+        results.pop("db")
+        self.assertEqual(runner.progress(c, catalog, results)["outstandingEvidence"], {"db": "NOT_RUN"})
+        c["implementationOverrides"]["historyReplay"]["state"] = "missing"
+        self.assertEqual(runner.progress(c, catalog, results)["targetStatus"], "PARTIAL")
+
     def test_missing_environment_is_not_mock_pass(self):
         from unittest.mock import patch
         case = {"caseId": "integration.example", "adapter": "integration", "requires": ["CONTRACT_TEST_MISSING_ENV"]}
@@ -80,6 +104,22 @@ class CatalogTests(unittest.TestCase):
             result, commands = runner.run_cases([case], HERE, "Debug", {"integration"})
         self.assertEqual(result[case["caseId"]]["status"], "ENVIRONMENT_BLOCKED")
         self.assertEqual(commands, [])
+
+    def test_integration_failure_does_not_relabel_another_fixture(self):
+        import tempfile
+        from unittest.mock import patch
+        cases = [dict(caseId=name.lower(), adapter="integration", requires=[], package="./internal/control", selector=name)
+                 for name in ("TestPassing", "TestFailing")]
+        def execute(argv, cwd, env, log):
+            name = "TestFailing" if "TestFailing" in argv[-1] else "TestPassing"
+            failed = name == "TestFailing"
+            events = [{"Test": name, "Action": "run"}, {"Test": name, "Action": "fail" if failed else "pass"}]
+            return int(failed), "\n".join(json.dumps(event) for event in events)
+        with tempfile.TemporaryDirectory() as output, patch.object(runner, "command", side_effect=execute):
+            results, commands = runner.run_cases(cases, Path(output), "Debug", {"integration"})
+        self.assertEqual(len(commands), 2)
+        self.assertEqual(results["testpassing"]["status"], "PASS")
+        self.assertEqual(results["testfailing"]["status"], "FAIL")
 
     def test_assertion_source_changes_fail_the_lock(self):
         from unittest.mock import patch
@@ -93,7 +133,7 @@ class CatalogTests(unittest.TestCase):
         import tempfile
         with tempfile.TemporaryDirectory() as output:
             with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                code = runner.main(["baseline", "--case", "offset.plane-plane.first-normal-editor", "--output", output])
+                code = runner.main(["baseline", "--case", "offset.plane-plane.first-normal-editor", "--adapters", "go", "--output", output])
             self.assertEqual(code, 2)
 
 

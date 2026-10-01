@@ -1477,10 +1477,15 @@ type moveInstancePayload struct {
 }
 
 type addAssemblyConstraintPayload struct {
-	Constraint AssemblyConstraint `json:"constraint"`
+	Constraint       AssemblyConstraint `json:"constraint"`
+	OffsetExpression *string            `json:"offsetExpression,omitempty"`
+	OffsetKey        string             `json:"offsetKey,omitempty"`
 }
 
 type editAssemblyConstraintPayload struct {
+	Mode                    *string              `json:"mode,omitempty"`
+	OffsetExpression        *string              `json:"offsetExpression,omitempty"`
+	OffsetKey               string               `json:"offsetKey,omitempty"`
 	FixMode                 string               `json:"fixMode,omitempty"`
 	AngleRelation           string               `json:"angleRelation,omitempty"`
 	ConstraintID            string               `json:"constraintId"`
@@ -1496,6 +1501,16 @@ type editAssemblyConstraintPayload struct {
 }
 
 func validateInstanceConstraintReferences(constraint AssemblyConstraint) error {
+	if constraint.Kind == "DISTANCE" {
+		switch constraint.DistanceRelation {
+		case "", "UNSIGNED", "ALONG_SECOND_NORMAL", "OPPOSITE_SECOND_NORMAL", "SELECTED_PLANE_NORMAL_V1":
+		default:
+			return fmt.Errorf("%w: unknown offset sign convention", ErrValidation)
+		}
+		if (constraint.DistanceRelation == "" || constraint.DistanceRelation == "UNSIGNED") && constraint.Value < 0 {
+			return fmt.Errorf("%w: unsigned offset must be nonnegative", ErrValidation)
+		}
+	}
 	switch constraint.Kind {
 	case "FIX", "RIGID", "COINCIDENT", "CONCENTRIC", "ANGLE", "DISTANCE":
 	default:
@@ -1595,6 +1610,9 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 		model.Constraints[index].Value = payload.Value
 		model.Constraints[index].DirectionRelation = payload.DirectionRelation
 		model.Constraints[index].DistanceRelation = payload.DistanceRelation
+		if payload.Mode != nil {
+			model.Constraints[index].Mode = *payload.Mode
+		}
 		if payload.AngleReferenceDirection != nil {
 			model.Constraints[index].AngleReferenceDirection = payload.AngleReferenceDirection
 		}
@@ -1637,11 +1655,17 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: a binary assembly constraint requires two different instances", ErrValidation)
 			}
 		}
+		if err := editOffsetParameter(&model, index, payload.OffsetExpression, payload.OffsetKey, payload.Value); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
 		if err := validateInstanceConstraintReferences(model.Constraints[index]); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
 		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.ConstraintID, SlotID: "assembly-constraint.entity"}, before, model.Constraints[index])
 		changes := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.ConstraintID)}}
+		if c := model.Constraints[index]; c.OffsetParameter != nil {
+			changes.ImpactSeeds = append(changes.ImpactSeeds, modelcore.DependencyKey("parameter:"+c.OffsetParameter.ParameterID))
+		}
 		// Explicit relative-Fix pose editing is a placement edit. Otherwise the
 		// next solve would recapture the old nominal placement and discard it.
 		c := model.Constraints[index]
@@ -1658,7 +1682,16 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 				changes.ImpactSeeds = append(changes.ImpactSeeds, modelcore.DependencyKey("placement:"+instance.ID))
 			}
 		}
+		var priorProduct ProductModel
+		if err := json.Unmarshal(modelJSON, &priorProduct); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
+		changes = appendAssemblyEvaluationChanges(changes, priorProduct, model)
 		next, _ := json.Marshal(model)
+		changes, err := reconcilePersistedChanges("PRODUCT", modelJSON, next, changes)
+		if err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
 		return next, changes, nil
 	}
 	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: assembly constraint does not exist", ErrValidation)
@@ -1673,15 +1706,19 @@ func applyAddAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.Ra
 	if err := json.Unmarshal(payloadJSON, &payload); err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
-	if err := validateInstanceConstraintReferences(payload.Constraint); err != nil {
-		return nil, modelcore.ChangeSet{}, err
-	}
 	for _, existing := range model.Constraints {
 		if existing.ID == payload.Constraint.ID {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate assembly constraint identity", ErrValidation)
 		}
 	}
 	model.Constraints = append(model.Constraints, payload.Constraint)
+	if err := editOffsetParameter(&model, len(model.Constraints)-1, payload.OffsetExpression, payload.OffsetKey, payload.Constraint.Value); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
+	payload.Constraint = model.Constraints[len(model.Constraints)-1]
+	if err := validateInstanceConstraintReferences(payload.Constraint); err != nil {
+		return nil, modelcore.ChangeSet{}, err
+	}
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Constraint.ID, SlotID: "assembly-constraint.entity"}, nil, payload.Constraint)
 	next, _ := json.Marshal(model)
 	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.Constraint.ID)}}, nil
@@ -2264,19 +2301,6 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 				return CommandPreview{}, err
 			}
 		}
-		previewID := newID("preview")
-		if retainedFailure || assemblyResult.Status != "CONVERGED" {
-			previewID = ""
-		}
-		if !constraintLimited && previewID != "" {
-			service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
-				headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
-				assemblyPreviewRequestID: "preview/" + prepared.requestID,
-				payloadDigest:            modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, changes: previewChanges,
-				expiresAt: time.Now().Add(interactionCandidateTTL)})
-		}
-		result := CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
-			ModelHash: canonicalModelHash(nextJSON), ConstraintLimited: constraintLimited, AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
 		constraintID := ""
 		switch prepared.command.TypeURI {
 		case typeAddAssemblyConstraint:
@@ -2290,6 +2314,28 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 				constraintID = payload.ConstraintID
 			}
 		}
+		unverifiedOffset := false
+		for _, constraint := range model.Constraints {
+			if constraint.ID == constraintID && constraint.Kind == "DISTANCE" && constraint.EvaluationStatus != modelcore.AssemblyConstraintVerified {
+				// Admission may solve the accepted subset successfully while the
+				// edited Offset is isolated as NotUpdated/Broken. That is not a
+				// successful candidate for this definition, even if solve converged.
+				unverifiedOffset = true
+			}
+		}
+		previewID := newID("preview")
+		if retainedFailure || assemblyResult.Status != "CONVERGED" || unverifiedOffset {
+			previewID = ""
+		}
+		if !constraintLimited && previewID != "" {
+			service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
+				headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
+				assemblyPreviewRequestID: "preview/" + prepared.requestID,
+				payloadDigest:            modelcore.ValueDigest(prepared.command.Payload), nextJSON: nextJSON, changes: previewChanges,
+				expiresAt: time.Now().Add(interactionCandidateTTL)})
+		}
+		result := CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
+			ModelHash: canonicalModelHash(nextJSON), ConstraintLimited: constraintLimited, AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
 		for _, constraint := range model.Constraints {
 			if constraint.ID != constraintID {
 				continue
@@ -2743,6 +2789,17 @@ func buildProductEvaluation(model ProductModel, revisionID, modelHash string, se
 		data, _ := json.Marshal(constraint)
 		key := modelcore.DependencyKey("assembly-constraint:" + constraint.ID)
 		nodes = append(nodes, modelcore.DependencyNode{Key: key, Phase: 2, Type: "ASSEMBLY_CONSTRAINT", CanonicalInput: data})
+		if p := constraint.OffsetParameter; p != nil {
+			raw, _ := json.Marshal(p.Source)
+			parameterKey := modelcore.DependencyKey("parameter:" + p.ParameterID)
+			nodes = append(nodes, modelcore.DependencyNode{Key: parameterKey, Phase: 1, Type: "PARAMETER", CanonicalInput: raw})
+			edges = append(edges, modelcore.DependencyEdge{Source: parameterKey, Target: key, Kind: modelcore.ReadValue})
+			if p.Source.Expression != nil {
+				for _, read := range p.Source.Expression.Reads {
+					edges = append(edges, modelcore.DependencyEdge{Source: read, Target: parameterKey, Kind: modelcore.ReadValue})
+				}
+			}
+		}
 		if constraint.Suppressed {
 			continue
 		}

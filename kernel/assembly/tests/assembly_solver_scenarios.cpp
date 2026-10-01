@@ -550,6 +550,74 @@ TEST(AssemblyContract, OffsetRegularGeometryAndRank) {
     }
 }
 
+TEST(AssemblyOffset, SignedPlanesMoveAndExchangeInRotatedFrame) {
+    for (const auto relation : {DirectionRelation::Same, DirectionRelation::Opposite, DirectionRelation::Unoriented}) {
+      for (const double target : {-2.0, 0.0, 3.0}) {
+       for (const bool exchanged : {false,true}) {
+        for (const bool reverse : {false,true}) {
+          Model model;
+          Pose nominal;
+          nominal.translation = {12, 7, -3};
+          nominal.rotation = {0, std::sin(0.37), 0, std::cos(0.37)};
+          model.bodies = {{"ground", nominal}, {"moving", nominal}};
+          model.bodies[1].initial_pose.translation.x += 8;
+          const double sign = reverse ? -1 : 1;
+          const double alignment = relation == DirectionRelation::Opposite ? -1 : 1;
+          // Opposite starts SAME, so solving must actually turn a free body.
+          const double initial_alignment = 1;
+          model.geometry = {{"support","ground",PlaneGeometry{{1,2,3},{0,0,sign*initial_alignment}}},
+                            {"support","moving",PlaneGeometry{{-2,1,4},{0,0,sign}}}};
+          auto c = binary("offset",ConstraintKind::Distance,ref("moving","support"),ref("ground","support"));
+          c.distance_relation = DistanceRelation::SelectedPlaneNormal;
+          c.direction_relation = relation;
+          c.value = exchanged ? -alignment*target : target;
+          if(exchanged) std::swap(c.first,*c.second);
+          model.constraints = {fix("ground"),c};
+          model.constraints[0].fixed_pose = nominal;
+          SolverOptions options; options.verify_analytic_jacobians = true;
+          const auto result = Solver{}.solve(model,options);
+          ASSERT_EQ(result.status,SolveStatus::Converged) << result.diagnostic;
+          const auto a = pose(result,"moving"), b = pose(result,"ground");
+          const auto oa = rotate(a.rotation,{-2,1,4}), ob = rotate(b.rotation,{1,2,3});
+          const auto na = rotate(a.rotation,{0,0,sign}), nb = rotate(b.rotation,{0,0,sign*initial_alignment});
+          const Vec3 delta{a.translation.x+oa.x-b.translation.x-ob.x,
+                           a.translation.y+oa.y-b.translation.y-ob.y,
+                           a.translation.z+oa.z-b.translation.z-ob.z};
+          // Oracle always uses original FIRST normal and original support order,
+          // not the solver residual or the chosen motion preference.
+          EXPECT_NEAR(na.x*delta.x+na.y*delta.y+na.z*delta.z,target,options.length_tolerance);
+          const double cosine=na.x*nb.x+na.y*nb.y+na.z*nb.z;
+          EXPECT_NEAR(std::abs(cosine),1,options.angle_tolerance);
+          if(relation != DirectionRelation::Unoriented) { EXPECT_NEAR(cosine,alignment,options.angle_tolerance); }
+          EXPECT_EQ(result.components[0].jacobian_rank,3U);
+          EXPECT_EQ(result.components[0].relative_dof,3U);
+        }
+       }
+      }
+    }
+}
+
+TEST(AssemblyOffset, SinglePlaneSignPreservesSupportOrder) {
+    for (const bool line : {false,true}) for (const bool first_plane : {false,true}) for (const double target : {-3.,0.,2.}) {
+        Model model;
+        model.bodies = {{"ground",{}},{"moving",{{4,1,7},{}}}};
+        model.geometry = {{"plane","ground",PlaneGeometry{{0,0,1},{0,0,-1}}},
+          {"other","moving",line ? Geometry{AxisGeometry{{1,0,2},{1,0,0}}} : Geometry{PointGeometry{{1,0,2}}}}};
+        auto c = binary("offset",ConstraintKind::Distance,ref("moving","other"),ref("ground","plane"));
+        if(first_plane) std::swap(c.first,*c.second);
+        c.value=target; c.distance_relation=DistanceRelation::SelectedPlaneNormal;
+        model.constraints={fix("ground"),c};
+        SolverOptions options; options.verify_analytic_jacobians=true;
+        const auto result=Solver{}.solve(model,options);
+        ASSERT_EQ(result.status,SolveStatus::Converged) << result.diagnostic;
+        const auto p=pose(result,"moving"); const auto o=rotate(p.rotation,{1,0,2});
+        const double signed_distance=-(p.translation.z+o.z-1)*(first_plane?-1:1);
+        EXPECT_NEAR(signed_distance,target,options.length_tolerance);
+        if(line) { EXPECT_NEAR(rotate(p.rotation,{1,0,0}).z,0,options.angle_tolerance); }
+        EXPECT_EQ(result.components[0].jacobian_rank,line?2U:1U);
+    }
+}
+
 TEST(AssemblySolver, SpatialAnglePreservesConeAndComposesWithDifferentCoincidentLines) {
     for (double target : {kPi / 6.0, 11.0 * kPi / 6.0}) {
         for (double azimuth : {0.0, kPi / 4.0, kPi / 2.0, kPi}) {
@@ -991,6 +1059,67 @@ TEST(AssemblySolver, NearParallelAxisDistanceUsesDegenerateLimit) {
     const SolveResult result = Solver{}.solve(model);
 
     EXPECT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+}
+
+TEST(AssemblyOffset, ParallelOffOriginEdgesMoveToRequestedDistance) {
+    for (const double target : {10.0, 30.0, 50.0}) {
+        for (const bool exchanged : {false, true}) {
+            for (const bool grounded : {false, true}) {
+                SCOPED_TRACE(::testing::Message() << "target=" << target << " exchanged="
+                                                  << exchanged << " grounded=" << grounded);
+                Model model;
+                const double half = std::sqrt(0.5);
+                model.bodies = {{"reference", {{0, 0, 10}, {0, -half, 0, half}}}, {"moving", {}}};
+                model.geometry = {{"edge", "reference", AxisGeometry{{50, -60, 40}, {0, 1, 0}}},
+                                  {"edge", "moving", AxisGeometry{{-60, 60, 40}, {0, -1, 0}}}};
+                auto distance = binary("offset", ConstraintKind::Distance, ref("moving", "edge"),
+                                       ref("reference", "edge"));
+                distance.value = target;
+                if (exchanged)
+                    std::swap(distance.first, *distance.second);
+                model.constraints = {distance};
+                if (grounded)
+                    model.constraints.push_back(fix("reference"));
+                SolverOptions options;
+                options.solve_intent = SolveIntent{
+                    {"moving"}, {"reference"}, SolvePreferencePolicy::MoveFirstMinimizeReference};
+                options.verify_analytic_jacobians =
+                    false;  // Parallel infinite lines are a nonsmooth stratum.
+                const auto result = Solver{}.solve(model, options);
+                ASSERT_EQ(result.status, SolveStatus::Converged) << result.diagnostic;
+                ASSERT_EQ(result.components.size(), 1);
+                EXPECT_EQ(result.components[0].jacobian_rank, 1U);
+                EXPECT_EQ(result.components[0].relative_dof, 5U);
+                const auto a = pose(result, "moving"), b = pose(result, "reference");
+                const auto oa = rotate(a.rotation, {-60, 60, 40}),
+                           ob = rotate(b.rotation, {50, -60, 40});
+                const auto da = rotate(a.rotation, {0, -1, 0}), db = rotate(b.rotation, {0, 1, 0});
+                const Vec3 delta{a.translation.x + oa.x - b.translation.x - ob.x,
+                                 a.translation.y + oa.y - b.translation.y - ob.y,
+                                 a.translation.z + oa.z - b.translation.z - ob.z};
+                const Vec3 cross{da.y * db.z - da.z * db.y, da.z * db.x - da.x * db.z,
+                                 da.x * db.y - da.y * db.x};
+                const double length = std::hypot(cross.x, cross.y, cross.z);
+                const Vec3 perpendicular{delta.y * db.z - delta.z * db.y,
+                                         delta.z * db.x - delta.x * db.z,
+                                         delta.x * db.y - delta.y * db.x};
+                const double actual =
+                    length < 1e-12
+                        ? std::hypot(perpendicular.x, perpendicular.y, perpendicular.z)
+                        : std::abs(delta.x * cross.x + delta.y * cross.y + delta.z * cross.z) /
+                              length;
+                EXPECT_NEAR(actual, target, 1e-7) << "cross=" << length;
+                EXPECT_NEAR(b.translation.x, 0, 1e-12);
+                EXPECT_NEAR(b.translation.y, 0, 1e-12);
+                EXPECT_NEAR(b.translation.z, 10, 1e-12);
+                EXPECT_EQ(result.components[0].preference.status, PreferenceStatus::Converged)
+                    << "reference=" << result.components[0].preference.reference_optimality
+                    << " total=" << result.components[0].preference.total_optimality
+                    << " energy=" << result.components[0].preference.total_objective
+                    << " cross=" << length;
+            }
+        }
+    }
 }
 
 TEST(AssemblySolver, AxisDistanceDegeneracyBlendIsFiniteAndContinuousAcrossProfileScale) {

@@ -215,6 +215,11 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
       { key: "type", label: "类型", children: constraint?.kind ?? selection.constraintType },
       { key: "activation", label: "激活状态", children: constraint?.suppressed ? "停用" : "激活" },
       { key: "mode", label: "模式", children: constraint?.mode ?? "DRIVING" },
+      ...(constraint?.kind === "DISTANCE" ? [
+        {key:"offset-definition",label:"驱动偏移",children:`${constraint.value ?? 0} mm`},
+        {key:"offset-normal",label:"符号基准",children:constraint.distanceRelation === "SELECTED_PLANE_NORMAL_V1" ? "所选平面法向；双平面取第一元素；第一位置 − 第二位置" : constraint.distanceRelation === "UNSIGNED" || !constraint.distanceRelation ? "无符号无限支撑距离" : "历史第二法向约定"},
+        {key:"offset-parameter",label:"长度参数",children:constraint.offsetParameter ? `${constraint.offsetParameter.key}: ${constraint.offsetParameter.source.expression?.sourceText ?? "Literal"}` : "Literal（历史定义）"},
+      ] : []),
       ...(constraint?.mode === "MEASURED" ? [{key:"measurement",label:"测量值",children:constraint.measuredValue === undefined ? "不可测" : constraint.kind === "ANGLE" ? `${constraint.measuredValue*180/Math.PI}°` : `${constraint.measuredValue} mm`}] : []),
       { key: "evaluation", label: "Evaluation", children: constraint?.evaluationStatus ?? "NOT_UPDATED" },
       { key: "first-support", label: "First Support", children: constraint?.first.resolution?.result.supportingElementStatus ?? (constraint?.first.persistentSelection ? "NOT_CONNECTED" : "CONNECTED") },

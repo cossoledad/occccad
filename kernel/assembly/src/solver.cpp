@@ -615,12 +615,14 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
         }
         if (std::holds_alternative<WorldPoint>(*second)) {
             Constraint swapped = constraint;
-            if (swapped.distance_relation == DistanceRelation::AlongSecondNormal)
+            if (swapped.distance_relation == DistanceRelation::SelectedPlaneNormal ||
+                swapped.distance_relation == DistanceRelation::AlongSecondNormal)
                 swapped.distance_relation = DistanceRelation::OppositeSecondNormal;
             else if (swapped.distance_relation == DistanceRelation::OppositeSecondNormal)
                 swapped.distance_relation = DistanceRelation::AlongSecondNormal;
             ConstraintBranchState swapped_branch = branch ? *branch : ConstraintBranchState{};
-            if (swapped_branch.distance_relation == DistanceRelation::AlongSecondNormal)
+            if (swapped_branch.distance_relation == DistanceRelation::SelectedPlaneNormal ||
+                swapped_branch.distance_relation == DistanceRelation::AlongSecondNormal)
                 swapped_branch.distance_relation = DistanceRelation::OppositeSecondNormal;
             else if (swapped_branch.distance_relation == DistanceRelation::OppositeSecondNormal)
                 swapped_branch.distance_relation = DistanceRelation::AlongSecondNormal;
@@ -639,6 +641,8 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
                 double measured = (plane_a->origin - plane_b->origin).dot(plane_b->normal);
                 const DistanceRelation distance_relation =
                     branch ? branch->distance_relation : constraint.distance_relation;
+                if (distance_relation == DistanceRelation::SelectedPlaneNormal)
+                    measured = (plane_a->origin - plane_b->origin).dot(plane_a->normal);
                 if (distance_relation == DistanceRelation::Unsigned)
                     measured = std::abs(measured);
                 if (distance_relation == DistanceRelation::OppositeSecondNormal)
@@ -663,8 +667,15 @@ Eigen::VectorXd constraint_residual(const Constraint& constraint, const WorldGeo
                 (measured - constraint.value) / options.length_scale;
             return result;
         }
-        if (std::holds_alternative<WorldPlane>(first) && is_axis_like(*second))
-            return constraint_residual(constraint, *second, first, options, branch);
+        if (std::holds_alternative<WorldPlane>(first) && is_axis_like(*second)) {
+            Constraint compiled = constraint;
+            ConstraintBranchState compiled_branch = branch ? *branch : ConstraintBranchState{};
+            if (compiled.distance_relation == DistanceRelation::SelectedPlaneNormal)
+                compiled.distance_relation = DistanceRelation::OppositeSecondNormal;
+            if (compiled_branch.distance_relation == DistanceRelation::SelectedPlaneNormal)
+                compiled_branch.distance_relation = DistanceRelation::OppositeSecondNormal;
+            return constraint_residual(compiled, *second, first, options, branch ? &compiled_branch : nullptr);
+        }
         throw std::invalid_argument("unsupported Distance geometry pair");
     }
     throw std::invalid_argument("unsupported constraint kind");
@@ -808,7 +819,8 @@ Eigen::MatrixXd differential_residual(
             }
         } else if (std::holds_alternative<DifferentialPoint>(second)) {
             ConstraintBranchState swapped = branch;
-            if (swapped.distance_relation == DistanceRelation::AlongSecondNormal)
+            if (swapped.distance_relation == DistanceRelation::SelectedPlaneNormal ||
+                swapped.distance_relation == DistanceRelation::AlongSecondNormal)
                 swapped.distance_relation = DistanceRelation::OppositeSecondNormal;
             else if (swapped.distance_relation == DistanceRelation::OppositeSecondNormal)
                 swapped.distance_relation = DistanceRelation::AlongSecondNormal;
@@ -849,7 +861,10 @@ Eigen::MatrixXd differential_residual(
                 divided(measured - scalar(constraint.value, variables), options.length_scale));
         } else if (std::holds_alternative<DifferentialPlane>(first) &&
                    differential_axis_like(second)) {
-            return differential_residual(constraint, second, first, branch, options,
+            auto compiled_branch = branch;
+            if (compiled_branch.distance_relation == DistanceRelation::SelectedPlaneNormal)
+                compiled_branch.distance_relation = DistanceRelation::OppositeSecondNormal;
+            return differential_residual(constraint, second, first, compiled_branch, options,
                                          angle_reference);
         } else {
             const auto& first_plane = std::get<DifferentialPlane>(first);
@@ -857,7 +872,8 @@ Eigen::MatrixXd differential_residual(
             append(divided(related(first_plane.normal, second_plane.normal) - second_plane.normal,
                            options.angle_scale));
             DifferentialScalar measured =
-                dot(first_plane.origin - second_plane.origin, second_plane.normal);
+                dot(first_plane.origin - second_plane.origin,
+                    branch.distance_relation == DistanceRelation::SelectedPlaneNormal ? first_plane.normal : second_plane.normal);
             if (branch.distance_relation == DistanceRelation::Unsigned)
                 measured = absolute(measured);
             else if (branch.distance_relation == DistanceRelation::OppositeSecondNormal)
@@ -1264,6 +1280,10 @@ private:
             }
             if (!finite(constraint.value))
                 throw std::invalid_argument("constraint value must be finite");
+            if (constraint.kind == ConstraintKind::Distance && constraint.distance_relation == DistanceRelation::SelectedPlaneNormal &&
+                !std::holds_alternative<PlaneGeometry>(geometry(constraint.first).local_geometry) &&
+                !std::holds_alternative<PlaneGeometry>(geometry(*constraint.second).local_geometry))
+                throw std::invalid_argument("selected-plane signed Distance requires a plane");
             if (constraint.kind == ConstraintKind::Distance && constraint.value < 0.0 &&
                 constraint.distance_relation == DistanceRelation::Unsigned)
                 throw std::invalid_argument("Distance value must not be negative");
@@ -1567,7 +1587,10 @@ public:
             }
             state.poses.push_back(guess.value_or(item.initial_pose));
         }
-        if (initialize) initialize_singular_direction_branches(state);
+        if (initialize) {
+            initialize_singular_direction_branches(state);
+            initialize_parallel_distance_seed(state);
+        }
         return state;
     }
 
@@ -1824,6 +1847,44 @@ public:
         return gauge_anchor_cluster_ ? nullity : nullity - std::min(nullity, gauge_dof());
     }
     const std::vector<std::size_t>& free_clusters() const { return free_cluster_indices_; }
+    Eigen::MatrixXd motion_jacobian(const State& state, const Vector& residual) const {
+        Eigen::MatrixXd result = jacobian(state, residual);
+        // An isolated parallel-line distance has a nonsmooth stratum. During
+        // preference optimization use its parallel chart, not the fictitious
+        // smooth tangent of a skew line at an infinitesimal angle. These rows
+        // are NOT assembly equations and never enter physical rank/DOF.
+        if (free_cluster_indices_.size() != 1)
+            return result;
+        const auto bodies = assembly_.body_poses(cluster_poses(state));
+        for (const auto index : component_.constraint_indices) {
+            const auto& constraint = assembly_.constraint(index);
+            if (constraint.kind != ConstraintKind::Distance ||
+                constraint.mode == ConstraintMode::Measured ||
+                constraint.distance_relation != DistanceRelation::Unsigned ||
+                constraint.value <= assembly_.options().length_tolerance)
+                continue;
+            if (!std::all_of(component_.constraint_indices.begin(),
+                             component_.constraint_indices.end(), [&](auto other) {
+                                 const auto kind = assembly_.constraint(other).kind;
+                                 return other == index || kind == ConstraintKind::Fix ||
+                                        kind == ConstraintKind::Rigid;
+                             }))
+                continue;
+            const auto& first = assembly_.geometry(constraint.first);
+            const auto& second = assembly_.geometry(*constraint.second);
+            const auto a = world_geometry(first, bodies[assembly_.body_index(first.body_id)]);
+            const auto b = world_geometry(second, bodies[assembly_.body_index(second.body_id)]);
+            if (!is_axis_like(a) || !is_axis_like(b))
+                continue;
+            if (as_axis(a).direction.cross(as_axis(b).direction).norm() > kDirectionEpsilon)
+                continue;
+            const auto rows = result.rows();
+            result.conservativeResize(rows + 3, result.cols());
+            result.bottomRows(3).setZero();
+            result.block<3, 3>(rows, 3) = -skew(as_axis(a).direction);
+        }
+        return result;
+    }
     Vector tangent_scales() const {
         Vector scales(parameter_count());
         for (Eigen::Index i = 0; i < scales.size(); i += 6) {
@@ -1927,14 +1988,70 @@ public:
     const Component& component() const { return component_; }
 
 private:
+    void initialize_parallel_distance_seed(State& state) const {
+        for (const auto index : component_.constraint_indices) {
+            const auto& constraint = assembly_.constraint(index);
+            if (constraint.kind != ConstraintKind::Distance ||
+                constraint.mode == ConstraintMode::Measured ||
+                constraint.distance_relation != DistanceRelation::Unsigned)
+                continue;
+            const auto& first = assembly_.geometry(constraint.first);
+            const auto& second = assembly_.geometry(*constraint.second);
+            if (assembly_.cluster_index(first.body_id) == assembly_.cluster_index(second.body_id))
+                continue;
+            const auto bodies = assembly_.body_poses(cluster_poses(state));
+            const auto a = world_geometry(first, bodies[assembly_.body_index(first.body_id)]);
+            const auto b = world_geometry(second, bodies[assembly_.body_index(second.body_id)]);
+            if (!is_axis_like(a) || !is_axis_like(b))
+                continue;
+            const auto axis_a = as_axis(a), axis_b = as_axis(b);
+            if (axis_a.direction.cross(axis_b.direction).norm() > kDirectionEpsilon)
+                continue;
+            Vector3 radial = axis_a.origin - axis_b.origin;
+            radial -= radial.dot(axis_b.direction) * axis_b.direction;
+            const double distance = radial.norm();
+            if (std::abs(distance - constraint.value) <= assembly_.options().length_tolerance)
+                continue;
+            auto moving = std::find(free_cluster_indices_.begin(), free_cluster_indices_.end(),
+                                    assembly_.cluster_index(first.body_id));
+            double sign = 1;
+            if (moving == free_cluster_indices_.end()) {
+                moving = std::find(free_cluster_indices_.begin(), free_cluster_indices_.end(),
+                                   assembly_.cluster_index(second.body_id));
+                sign = -1;
+            }
+            if (moving == free_cluster_indices_.end())
+                continue;
+            radial = distance > kDirectionEpsilon ? Vector3(radial / distance)
+                                                  : perpendicular_to(axis_b.direction);
+            // Parallel infinite-line distance has a nonsmooth orientation
+            // stratum. Seed its exact radial translation, without a rotation
+            // crossing into the skew stratum. Only the initial guess changes;
+            // all equations and both motion-preference levels still execute.
+            auto& seed =
+                state.poses[static_cast<std::size_t>(moving - free_cluster_indices_.begin())];
+            seed.translation =
+                value(eigen(seed.translation) + sign * (constraint.value - distance) * radial);
+        }
+    }
+
     void initialize_singular_direction_branches(State& state) const {
         for (const std::size_t constraint_index : component_.constraint_indices) {
             const Constraint& constraint = assembly_.constraint(constraint_index);
-            const bool spatial_angle = constraint.kind == ConstraintKind::Angle && !constraint.angle_reference_direction;
+            const bool spatial_angle =
+                constraint.kind == ConstraintKind::Angle && !constraint.angle_reference_direction;
+            const bool signed_plane_offset =
+                constraint.kind == ConstraintKind::Distance &&
+                constraint.distance_relation == DistanceRelation::SelectedPlaneNormal &&
+                constraint.mode != ConstraintMode::Measured &&
+                std::holds_alternative<PlaneGeometry>(
+                    assembly_.geometry(constraint.first).local_geometry) &&
+                std::holds_alternative<PlaneGeometry>(
+                    assembly_.geometry(*constraint.second).local_geometry);
             if ((!spatial_angle && constraint.kind != ConstraintKind::Coincident &&
-                 constraint.kind != ConstraintKind::Concentric &&
-                 constraint.kind != ConstraintKind::Parallel &&
-                 constraint.kind != ConstraintKind::Perpendicular) ||
+                constraint.kind != ConstraintKind::Concentric &&
+                constraint.kind != ConstraintKind::Parallel &&
+                constraint.kind != ConstraintKind::Perpendicular && !signed_plane_offset) ||
                 (constraint.direction_relation == DirectionRelation::Unoriented &&
                  constraint.kind != ConstraintKind::Perpendicular && !spatial_angle))
                 continue;
@@ -2218,8 +2335,10 @@ bool restore_feasibility(const ComponentProblem& problem, State& state,
         // otherwise curvature error at the tolerance boundary hides its descent.
         if (problem.satisfied(state) && r.norm() <= 1e-12)
             return true;
-        const Eigen::MatrixXd j = problem.jacobian(state, r) * scales.asDiagonal();
-        const Vector step = scales.asDiagonal() * minimum_step(j, -r, options);
+        const Eigen::MatrixXd j = problem.motion_jacobian(state, r) * scales.asDiagonal();
+        Vector rhs = Vector::Zero(j.rows());
+        rhs.head(r.size()) = -r;
+        const Vector step = scales.asDiagonal() * minimum_step(j, rhs, options);
         bool accepted = false;
         for (double alpha = 1.0; alpha >= 1.0 / 4096; alpha *= 0.5) {
             State candidate = problem.incremented(state, alpha * step);
@@ -2245,13 +2364,13 @@ Eigen::MatrixXd preference_tangent(const ComponentProblem& problem, const State&
     const Vector scales = problem.tangent_scales();
     if (ref.residual.squaredNorm() <= options.objective_tolerance)
         return z * orthogonal_kernel(ref.jacobian * scales.asDiagonal() * z, options);
-    const Eigen::MatrixXd j = problem.jacobian(state, problem.residual(state)) * scales.asDiagonal();
+    const Eigen::MatrixXd j = problem.motion_jacobian(state, problem.residual(state)) * scales.asDiagonal();
     const Vector gradient = scales.asDiagonal() * ref.jacobian.transpose() * ref.residual;
     const Vector multipliers = minimum_step(j.transpose(), -gradient, options);
     const auto lagrangian_gradient = [&](const State& candidate) -> Vector {
         const auto objective = problem.objective(candidate, true, false);
         return scales.asDiagonal() * (objective.jacobian.transpose() * objective.residual +
-            problem.jacobian(candidate, problem.residual(candidate)).transpose() * multipliers);
+            problem.motion_jacobian(candidate, problem.residual(candidate)).transpose() * multipliers);
     };
     Eigen::MatrixXd curvature(z.cols(), z.cols());
     for (Eigen::Index col=0; col<z.cols(); ++col) {
@@ -2280,7 +2399,7 @@ Eigen::MatrixXd motion_curvature(const ComponentProblem& problem, const State& s
     const Vector scales = problem.tangent_scales();
     const auto objective = problem.objective(state, reference_only, false);
     auto equations = [&](const State& at) -> Eigen::MatrixXd {
-        Eigen::MatrixXd j = problem.jacobian(at, problem.residual(at));
+        Eigen::MatrixXd j = problem.motion_jacobian(at, problem.residual(at));
         if (!reference_only) {
             const auto ref = problem.objective(at, true, false);
             const auto rows = j.rows();
@@ -2332,7 +2451,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
             const auto objective = level == 0 ? ref : problem.objective(state, false);
             const Vector residual = problem.residual(state);
             Eigen::MatrixXd z =
-                orthogonal_kernel(problem.jacobian(state, residual) * scales.asDiagonal(), options);
+                orthogonal_kernel(problem.motion_jacobian(state, residual) * scales.asDiagonal(), options);
             if (level == 1) {
                 const double unrestricted = (z.transpose()*scales.asDiagonal()*objective.jacobian.transpose()*objective.residual).norm();
                 // Stationarity on the whole feasible tangent certifies every
@@ -2417,7 +2536,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                     if (!descent && after <= best_energy + roundoff) {
                         const auto next_objective = problem.objective(candidate, level == 0, false);
                         Eigen::MatrixXd next_z =
-                            orthogonal_kernel(problem.jacobian(candidate, problem.residual(candidate)) *
+                            orthogonal_kernel(problem.motion_jacobian(candidate, problem.residual(candidate)) *
                                                   scales.asDiagonal(),
                                               options);
                         if (level == 1) next_z = preference_tangent(problem,candidate,next_z,options);
@@ -2462,7 +2581,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
     report.reference_objective = ref.residual.squaredNorm();
     report.total_objective = all.residual.squaredNorm();
     const Eigen::MatrixXd final_z = orthogonal_kernel(
-        problem.jacobian(state, problem.residual(state)) * scales.asDiagonal(), options);
+        problem.motion_jacobian(state, problem.residual(state)) * scales.asDiagonal(), options);
     report.reference_optimality =
         (final_z.transpose() * scales.asDiagonal() * ref.jacobian.transpose() * ref.residual)
             .norm();

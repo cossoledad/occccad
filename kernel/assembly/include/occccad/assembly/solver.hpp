@@ -89,7 +89,9 @@ enum class DirectionRelation { Unoriented, Same, Opposite };
 
 // Distance to a plane and plane-to-plane distance require an explicit side
 // when sign matters. Unsigned uses the nearest absolute-distance branch.
-enum class DistanceRelation { Unsigned, AlongSecondNormal, OppositeSecondNormal };
+// SelectedPlaneNormal: n.(p_first-p_second), with FIRST plane preferred.
+// Old values retain their exact replay semantics (including endpoint recursion).
+enum class DistanceRelation { Unsigned, AlongSecondNormal, OppositeSecondNormal, SelectedPlaneNormal };
 
 struct AngleBranchState {
     double wrapped_angle{};

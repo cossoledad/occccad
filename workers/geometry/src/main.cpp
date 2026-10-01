@@ -748,6 +748,8 @@ public:
                 constraint.distance_relation = assembly_api::DistanceRelation::AlongSecondNormal;
             else if (input.distance_relation() == "OPPOSITE_SECOND_NORMAL")
                 constraint.distance_relation = assembly_api::DistanceRelation::OppositeSecondNormal;
+            else if (input.distance_relation() == "SELECTED_PLANE_NORMAL_V1")
+                constraint.distance_relation = assembly_api::DistanceRelation::SelectedPlaneNormal;
             if (input.has_fixed_pose())
                 constraint.fixed_pose = pose(input.fixed_pose());
             if (input.mode() == "MEASURED")
@@ -870,7 +872,7 @@ public:
             : result.status == assembly_api::SolveStatus::MaxIterations ? "MAX_ITERATIONS"
             : result.status == assembly_api::SolveStatus::InvalidModel  ? "INVALID_MODEL"
                                                                         : "NUMERICAL_FAILURE";
-        response->set_solver_build("assembly-m2.5-hierarchy-v8");
+        response->set_solver_build("assembly-m2.5-hierarchy-v9");
         response->set_status(status);
         const char* classification =
             result.classification == assembly_api::SolveClassification::SolvedFully ? "SOLVED_FULLY"

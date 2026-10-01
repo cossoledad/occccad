@@ -1,6 +1,6 @@
 # 统一开发路线
 
-> 2026-10-01 状态核对：`main` / `b8b07fcdf16e366079b14f4d5bf38f43dc0fa6b5`，加本轮 CONSTRAINT-CONTRACT 工作区变更。计划只保存未完成工作；已实现事实见[当前架构](../docs/CURRENT_ARCHITECTURE.md)，长期合同见[目标架构](../docs/TARGET_ARCHITECTURE.md)。
+> 2026-10-01 状态核对：`main` / `4ceda79`，加本轮 CONSTRAINT-OFFSET 工作区变更。计划只保存未完成工作；已实现事实见[当前架构](../docs/CURRENT_ARCHITECTURE.md)，长期合同见[目标架构](../docs/TARGET_ARCHITECTURE.md)。
 
 ## 一条主线
 
@@ -23,15 +23,15 @@ flowchart LR
 
 ## 当前决策与下一主任务
 
-CONSTRAINT-CONTRACT 已交付机器可读目录、真实测试 adapter、回归门及覆盖/差距报告，设施和实际验证见[当前 Product](../docs/architecture/current/product-assembly.md#六类约束可执行合同目录)。这不等于六类全矩阵、CONSTRAINT-COMPOSITION 或 M4 完成。下一主任务为 **CONSTRAINT-OFFSET：第一选择法向符号意图、交换与模式/历史闭环**（待实施）；本轮未开始它。Feature、Projection、大模型及工程维护保留各自队列，只有明确的新需求才调整执行优先级。
+CONSTRAINT-CONTRACT 已交付机器可读目录、真实测试 adapter、回归门及覆盖/差距报告，设施和实际验证见[当前 Product](../docs/architecture/current/product-assembly.md#六类约束可执行合同目录)。这不等于六类全矩阵、CONSTRAINT-COMPOSITION 或 M4 完成。当前主任务为 **CONSTRAINT-OFFSET（实施中）**：双平面第一法向纵向切片已有真实求解/数据库证据，继续领取其剩余验收，不重复实现这一符号链。Feature、Projection、大模型及工程维护保留各自队列，只有明确的新需求才调整执行优先级。
 
-现有六对 Offset 数值几何/秩及共享生命周期已有执行证据，优先复用。下一项先解决 `offset.plane-plane.first-normal-editor` 暴露的第二法向入口与第一法向目标差异，再验证符号到方程、选择交换、表达式/Measured、Undo/冷 replay；退出时目标失败 case 转为基线且既有秩/几何不退化。其他 partial、未实现、缺测试与数据库环境阻塞由[目录和报告](../tests/assembly-contract/README.md)持续生成，按[装配计划](assembly-evolution.md)领取；descriptor 仍按消费场景贯通，不先建立庞大通用框架。
+`offset.plane-plane.first-normal-editor` 已修复并纳入基线；六对基础数值/秩不重复开发。有符号旋转/交换、约束自有 Quantity 稳定表达式、Measured、Undo/冷读取、manifest/Release 已有定向证据，未 Verified 的 Offset Preview 不再获得可晋升候选。下一领取顺序：补 Offset 六组合的精确 UI 支持消费、来源更新/断裂重连、CAS/幂等及完整模式历史组合，再由维护者实机验收；本切片通过不替代整个 Offset 退出门。其他 partial、未实现、缺测试或未运行项由[目录和报告](../tests/assembly-contract/README.md)持续生成，按[装配计划](assembly-evolution.md)领取；descriptor 仍按消费场景贯通。
 
 ## 可领取工作
 
 | 轨道 | 当前首项 | 依赖与退出门 | 详情 |
 |---|---|---|---|
-| 装配主线 | CONSTRAINT-OFFSET（待实施） | 第一法向符号/交换/模式历史门；复用六对基础数值链，随后六类/生命周期组合 → M4 → M5 → M6 | [装配演进](assembly-evolution.md) |
+| 装配主线 | CONSTRAINT-OFFSET（实施中，首切片已有定向验证） | 补齐六组合精确 UI 支持/来源/激活/历史与实机验收，完整退出后推进其余六类及组合 → M4 → M5 → M6 | [装配演进](assembly-evolution.md) |
 | 实体支线 | FEATURE-REVOLVE-HISTORY | 已有 Extrude/Boolean 命名基线；完整命名 corpus | [Feature 扩张](feature-expansion.md) |
 | 草图支线 | PROJECTION-ARC | 已有 Edge/Vertex 投影；先统一 ARC snapshot | [Sketch 投影](sketch-projection.md) |
 | 导入与大模型支线 | LARGE-BASELINE | 命名正确性与容量基线先行；对象存储、计算、显示共同验收 | [导入与大模型](import-large-models.md) |

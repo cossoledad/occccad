@@ -127,7 +127,7 @@ STEP/XDE 导入复用既有 ProductInstance 与 typed InstancePath：每个源 P
 
 ## 六类约束可执行合同目录
 
-CONSTRAINT-CONTRACT 交付共享 [catalog.json](../../../tests/assembly-contract/catalog.json)（schema 1、`assembly-six-families-v1`）、[执行器](../../../tests/assembly-contract/runner.py)和[使用说明](../../../tests/assembly-contract/README.md)。58 个 capability 与 87 个 case 按稳定 ID 组织，目标语义、各层实现声明、测试映射和实际 verdict 分离。Coincidence/Contact/Offset/Angle/Fix/Fix Together 是用户族；Concentric/Distance/Parallel/Perpendicular/pair Rigid 仅作内部映射，不构成完整六类交付。未知 Contact 秩、Curve/Surface 子类边界显式登记，未用当前输出反写目标预期。
+CONSTRAINT-CONTRACT 交付共享 [catalog.json](../../../tests/assembly-contract/catalog.json)（schema 1、`assembly-six-families-v1`）、[执行器](../../../tests/assembly-contract/runner.py)和[使用说明](../../../tests/assembly-contract/README.md)。当前 58 个 capability 与 100 个 case 按稳定 ID 组织，目标语义、各层实现声明、测试映射和实际 verdict 分离。Coincidence/Contact/Offset/Angle/Fix/Fix Together 是用户族；Concentric/Distance/Parallel/Perpendicular/pair Rigid 仅作内部映射，不构成完整六类交付。未知 Contact 秩、Curve/Surface 子类边界显式登记，未用当前输出反写目标预期。
 
 执行器按 capability/family/layer/case 选择，读取唯一目录，调用现有 C++ GTest、Go 包测试与 TypeScript 规则；Go/TS 新 adapter 也直接读取它。C++ 新断言补充六种非零 Offset 的解析距离、秩和选择交换，空间角端点的独立几何检查，以及指定轴0°/90°不等于空间平行/垂直、交换支持/反转轴的角度变换。既有 3+2+1、0–6 秩、六种关节有限运动、冗余和子空间 projector corpus 通过目录映射复用，不复制求解器。
 
@@ -135,6 +135,34 @@ CONSTRAINT-CONTRACT 交付共享 [catalog.json](../../../tests/assembly-contract
 
 2026-10-01 实际执行基线：`main / b8b07fcdf16e366079b14f4d5bf38f43dc0fa6b5` 加本次未提交的目录/adapter/测试改动。目录/回归锁校验通过，10 个工具完整性测试通过。指定当前 Debug Worker 后，既有能力 `baseline` 为 **85 PASS、1 ENVIRONMENT_BLOCKED、1 NOT_RUN**，去重后 83 个通过测试映射；NOT_RUN 是下述目标专用断言，非跳过后计为通过。C++、Go（`-count=1`）、TypeScript 均实际执行，正式 Router→Worker 测试通过。全目录 `gaps` 为 **85 PASS、1 FAIL、1 ENVIRONMENT_BLOCKED**；每个通过 case 的具体范围、期望、观察与日志由执行器报告，不在 Markdown 手工复制全矩阵。
 
-实际差异：`offset.plane-plane.first-normal-editor` 的源码/UI 断言失败。双平面正号目标使用第一选择法向，当前编辑器选项为“沿/逆第二元素法向”。复现为 `python tests/assembly-contract/runner.py gaps --case offset.plane-plane.first-normal-editor`。它证明编辑器表达与目标合同的差异，不是浏览器使用验收，也不将内部 `AlongSecondNormal` 数值类型直接判错；完整符号、交换、表达式/Measured、历史的贯通进入 CONSTRAINT-OFFSET。
+上述 CONSTRAINT-CONTRACT 执行时的差异是 `offset.plane-plane.first-normal-editor`：第一选择法向目标与第二法向编辑入口不一致。CONSTRAINT-OFFSET 本批已保持其目标与断言不变地修复，并补充下述真实数学/领域/数据库链路；旧执行结果不是当前仍失败的声明。
 
-限制：目录中 40 项仍是分层 partial，18 项目标未实现；未实现项的明确拒绝测试通过不等于产品能力通过。Contact 分支、Frame/派生几何、Point–Curve/Surface 明确子类、多成员组生命周期与内部先解仍有缺口；部分几何组合只有共享基础或参数可用性证据，不能称作完整组合验收。CAS/数据库事务、冷解析、manifest/replay 与冻结 Release 的完整链路仍需专用数据库验证；本次未配置可丢弃的 `OCCCCAD_TEST_DATABASE_URL`，对应集成 case 显式 ENVIRONMENT_BLOCKED，未改用 Mock 或应用开发库。未运行浏览器、全量单测、性能基准；未修改数值/持久模型、policy、制品或开发数据。完成 CONSTRAINT-CONTRACT 不等于 CONSTRAINT-COMPOSITION 或 M4 完成，MOVE 仍用 `interaction-driver` Fix。
+CONSTRAINT-CONTRACT 当时未配置专用数据库，历史/Release case 是 ENVIRONMENT_BLOCKED，不能借本批结果倒填当时的验收。未实现项的明确拒绝测试通过不等于产品能力通过。Contact 分支、Frame/派生几何、Point–Curve/Surface 明确子类、多成员组生命周期与内部先解仍有缺口；共享基础测试不等于具体组合验收。完成 CONSTRAINT-CONTRACT 不等于 CONSTRAINT-COMPOSITION 或 M4 完成，MOVE 仍用 `interaction-driver` Fix。
+
+### Offset 有符号纵向切片
+
+实现基线 `main / 4ceda79` 加本批工作区（2026-10-01）。新增符号意图 `SELECTED_PLANE_NORMAL_V1`，精确支持经 [Workspace 编译边界](../../../services/internal/workspace/assembly_offset.go)验证后保留端点、值和 moving/reference 顺序，经既有 Worker string 字段映射到 native `SelectedPlaneNormal`。公式是 `d = n·(p_first-p_second)`，双平面选第一法向，否则选唯一平面；Datum 是持久法向，FACE 是解析后的材料外法向，按完整 occurrence 帧变换。双平面 Same/Opposite 与符号正交，Undefined 不被回填为 Same。无平面保持非负无限支撑距离；原六对方程、零距离特殊秩和解析 Jacobian 复用。真实 Same→Opposite 用例发现错误半球驻点，新增符号双平面 Driving 复用既有 cluster seed 探测，不改 nominal、运动偏好、容差或求解层级。
+
+`AssemblyConstraint.offsetParameter` 是约束自有 ParameterDefinition，稳定 ID 为 `offset:<constraintID>`。Literal 使用明确 mm→Quantity SI 转换，表达式保留 checked AST/稳定引用，只消费同一 Product 的其他 Offset 自有参数；投影 `value` 是 Worker/placement 使用的 mm，不用名字猜单位。复用已有数量维度、循环及原子命令检查，最小补上解析器一元正负号（仍为既有 AST）。重命名只更新表达式展示，依赖值与 ChangeSet 补偿同步；删除被引用定义会明确失败，不默默断开。Preview/创建/编辑共用 [Web 意图适配](../../../web/apps/cad/src/cad/assembly/assembly-offset.ts)，表达式、方向、模式与定义原子提交；Inspector 分开显示驱动值/表达式与测量值。
+
+Measured 不发驱动方程；双平面测量仅要求实际法向平行（任一朝向），不改保存的 Driving 方向/Quantity。独立 `measuredValue` 使用同一符号定义，无有效常量偏移或被隔离时先清旧值；恢复 Driving 或解除 Suppressed 保留原模式与驱动源。实际非平行测量测试确认无旧值、无伪零、Fix 不变。目标 Offset 被隔离为 NotUpdated/Broken 时，即使已接纳子集 Converged 也不生成可晋升 PreviewID；允许保存失败定义的既有提交合同不变。Debug 数值 replay 是最终已接纳子集，失败定义和试算证据在 SolveManifest/结果中分别保留，不把两层状态混为一谈。
+
+持久兼容边界：新字段为可选加法，旧 Revision 的空/UNSIGNED/ALONG_SECOND_NORMAL/OPPOSITE_SECOND_NORMAL 不换端点、不取负、不重标版本；旧编辑器回填保留旧约定。有符号切片使用 v8，平行线恢复后新 manifest 使用 `assembly-offset-parallel-line-v9`，schema 1/profile 2 不变；v7/v8 的冻结输入仍可读取和数值重放，v7 拒绝伪装新符号/新参数定义。重放由当前 Worker 执行并记录真实 solver build，不保证旧可执行程序的逐位结果，不修改原 Revision/manifest/Release。Release 冻结完整定义/激活/支持与数值输入。没有数据库迁移、重置、批量历史重写或应用制品重建。
+
+执行记录与入口：`runner.py baseline/gaps --family Offset`，源/预期/观察/每次真实 verdict 在派生 `build/offset-after-{baseline,gaps}/report.json`；定向 Router fixture 为 `TestOffsetSignedProductHistoryThroughRouter`。本批显式创建并使用可丢弃数据库 `occccad_offset_contract_test` 与当前 Debug Worker，数据库保留，应用开发库和制品未清理。真实覆盖旋转/非零平移、负/零/正、Same/Opposite/Undefined、法向反转/选择交换、单平面两位置；数据库覆盖共享多 Body Part 的两个 occurrence、第二 CAD Body 材料面、嵌套 Product 双层旋转、Preview/提交、跨零表达式、稳定引用重命名/UndoRedo、Measured/抑制恢复、冷读、manifest 与 Head 变化隔离的 Release replay。三个 router case 共用一个 fixture，不冒充三次独立验收；模型/源码/UI 与真实几何、数据库证据保持分层。
+
+有符号首切片执行结果：目录/锁通过，12 个执行设施测试通过；Offset baseline 与 gaps 均 **47 PASS**（44 个去重映射），受影响的六族合同 baseline **98 PASS**（94 个去重映射），没有环境跳过冒充通过。报告的能力覆盖仍为 44 PARTIAL、14 TARGET_NOT_IMPLEMENTED，Offset 六项均 PARTIAL。`invoke check --scope assembly` 四个步骤通过（C++ 构建/CTest、Go、Web 场景），TypeScript 无输出编译与共享 modelcore 包测试通过，`invoke context-audit` 通过。旧共享数据库历史测试的错误“抛错/数值子集失败”断言已替换为上述完整失败定义/试算隔离与无候选/无位姿/无 Head 变化断言，并真实通过；锁变更理由见测试 README。后续平行 EDGE 修复记录见下节，前述数字不是新增 case 的执行证据。
+
+报告按必需层与适用专用测试推导实现覆盖、执行完整性和验收状态；共享基础/拒绝测试不能认证组合，缺测/未运行/阻塞仍显示缺口。双平面 UI/domain 仅按已交付的窄链提升；resolution/lifecycle/history 完整组合仍 partial。剩余六组合的精确 UI 消费、来源更新/断裂重连、CAS/幂等及完整生命周期组合、浏览器/实机交互验收继续进入 [CONSTRAINT-OFFSET](../../../plans/assembly-evolution.md#constraint-offset完整偏移与测量模式)，不把整批标完成。未运行浏览器、无差别全量单测、性能/容量基准；未实现 Contact、Fix Together、M4/M5，TREE-03 与数据面边界不变。
+
+### 平行 EDGE 距离恢复
+
+维护者报告两个 Part 插入 Product 后选两个边线做 Distance 被隔离为 NotUpdated。只读核对应用库试算输入，确认 EDGE 已精确解析为 AXIS，典型目标 30 mm，初始无限线距离约 28.284271 mm；两个偏离原点的平行线支撑，reference 已旋转且非零平移。这不是 UI 文案、符号转换或解析失败。旧 native 试算复现 NON_CONVERGENT；修复初值后又确认几何可行不等于偏好收敛，没有将二者合并或强行 Verified。
+
+[solver](../../../kernel/assembly/src/solver.cpp) 增加径向初值恢复；孤立非零无符号平行线 Distance、一个自由 cluster 的偏好迭代/可行性校正使用局部平行 chart，避免跨入不光滑的异面线距离分支。chart 不进入物理方程、秩/DOF 或持久 Constraint，也不是隐藏 Parallel/Fix，不修改 nominal、容差或 moving/reference。证据是局部选定分支上的偏好收敛，不是跨分支全局最短运动。当前 Worker build 为 `assembly-m2.5-hierarchy-v9`，新 manifest policy 为 v9；实际运行的旧 Worker 须重启后才会采用修复。
+
+新增 native 12 个目标 10/30/50、交换/Fix 构型，独立最终无限线距离、reference 不动、偏好收敛及物理秩 1/相对 DOF 5 均断言。新增 [真实两 Part 集成](../../../services/internal/control/assembly_edge_offset_integration_test.go) 使用各自生成的 B-Rep 和持久 EDGE 引用，经 Router/Worker/专用数据库完成 Preview、提交 30、编辑 35、UndoRedo、冷读与独立几何验证。两个专用 case 进入同一目录和基线；没有把数学层当作完整 UI 验收。
+
+实际执行（同一 `4ceda79` 加本轮工作区）：目录/锁与 12 个设施测试通过；Offset baseline/gaps 各 **49 PASS**（46 个去重映射），受影响六族 baseline **100 PASS**（96 个去重映射），能力声明仍为 44 PARTIAL/14 TARGET_NOT_IMPLEMENTED。记录在 `build/edge-offset-verified-{baseline,gaps}/report.json` 与 `build/edge-offset-affected-baseline/report.json`，环境为显式 `occccad_offset_contract_test` 和当前 v9 Debug Worker，没有集成 skip。首次并发重链接 Worker 导致 6 个映射启动失败，原记录保留在 `build/edge-offset-baseline/`；完成构建后重跑上述正式检查，不把启动失败计为产品通过。`invoke check --scope assembly` 四步骤、定向 Workspace Offset、`invoke performance-baseline --count=1`、`invoke context-audit` 和 diff 空白检查通过；性能采样不作容量或跨版本无退化保证。未执行浏览器与无差别全量单测。
+
+探索性零目标测试仍有偏好停滞，已明确进入 axis-axis verificationGaps 与 CONSTRAINT-OFFSET 的优先剩余项；不把正距离修复扩大为零值/交线、耦合多约束或整个 Offset 验收。应用数据库只读诊断，未清理或修改用户数据，未运行浏览器。

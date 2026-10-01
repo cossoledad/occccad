@@ -84,20 +84,25 @@ func applyAssemblyConstraintState(modelJSON, payloadJSON json.RawMessage) (json.
 func applyAssemblyMeasurements(model *ProductModel, result geometry.AssemblySolve, profile geometry.AssemblySolverProfile, exclusions ...map[string]bool) {
 	for i := range model.Constraints {
 		c := &model.Constraints[i]
+		c.MeasuredValue = nil
 		if len(exclusions) > 0 && exclusions[0][c.ID] {
 			continue
 		}
-		c.MeasuredValue = nil
 		if c.Suppressed || c.Mode != "MEASURED" || c.EvaluationStatus == modelcore.AssemblyConstraintImpossible || c.EvaluationStatus == modelcore.AssemblyConstraintBroken {
 			continue
 		}
 		valid, found := true, false
 		measured := 0.0
+		normalSquare := 0.0
 		for _, equation := range result.EquationResiduals {
 			if equation.ConstraintID != c.ID {
 				continue
 			}
-			if strings.Contains(equation.EquationID, "/NORMAL_") || strings.Contains(equation.EquationID, "/LINE_PLANE_DIRECTION") {
+			if strings.Contains(equation.EquationID, "/NORMAL_") {
+				normalSquare += equation.NormalizedValue * equation.NormalizedValue
+				continue
+			}
+			if strings.Contains(equation.EquationID, "/LINE_PLANE_DIRECTION") {
 				if math.Abs(equation.NormalizedValue) > profile.AngleTolerance {
 					valid = false
 				}
@@ -106,6 +111,10 @@ func applyAssemblyMeasurements(model *ProductModel, result geometry.AssemblySolv
 			// The Geometry client freezes both residual scales at 1 (mm and radians).
 			measured = c.Value + equation.NormalizedValue
 			found = true
+		}
+		normalDistance := math.Sqrt(normalSquare)
+		if normalDistance > profile.AngleTolerance {
+			valid = false
 		}
 		if valid && found && finite(measured) {
 			if c.Kind == "ANGLE" {

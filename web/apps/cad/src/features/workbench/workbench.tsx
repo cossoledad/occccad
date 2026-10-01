@@ -4,6 +4,7 @@ import { EditActivationGate, prepareOccurrenceEditSession, rootEditSession,
   withWorkingBody, type EditSession } from "./edit-session";
 import { canDiscardNewSketch, defaultSolidReversed, type NewSketchSession } from "./sketch-session-policy";
 import { assemblyConstraintEntry } from "../../cad/assembly/assembly-angle";
+import { offsetCommandFields, offsetInitialFields } from "../../cad/assembly/assembly-offset";
 import { exactNormalViewPlane } from "../../cad/navigation/normal-view";
 import { AssemblyAngleParameters, angleAxisCandidateError } from "./assembly-angle-parameters";
 import { fixedPoseAngles, fixedPoseFromParameters } from "../../cad/assembly/assembly-fixed-pose";
@@ -111,6 +112,8 @@ function AssemblyConstraintFields({ kind, references, view, lengthUnit, constrai
   const status = ASSEMBLY_CONSTRAINT_STATUS[evaluationStatus];
   const planePair = references.slice(0, 2).every((reference) => reference && ["PLANE", "FACE"].includes(reference.kind));
   const distanceRelation = Form.useWatch("distanceRelation");
+  const offsetExpression = Form.useWatch("offsetExpression");
+  const expressionDriven = kind === "DISTANCE" && !!offsetExpression?.trim();
   const minimumValue = kind === "DISTANCE" && distanceRelation && distanceRelation !== "UNSIGNED" ? undefined : 0;
   const relation = angleRelation ?? constraint?.angleRelation;
   const relationOnly = kind === "ANGLE" && (relation === "PARALLEL" || relation === "PERPENDICULAR");
@@ -150,10 +153,20 @@ function AssemblyConstraintFields({ kind, references, view, lengthUnit, constrai
     {directionApplicable && <Form.Item name="directionRelation" label="方向"><Select onChange={onValueCommit} options={relation === "PERPENDICULAR" ? [{value:"SAME",label:"正向（90°）"},{value:"OPPOSITE",label:"反向（270°）"}] : [
       {value:"UNORIENTED",label:"未定义"},{value:"SAME",label:"同向"},{value:"OPPOSITE",label:"反向"}]} /></Form.Item>}
     {distanceDirectionApplicable && <Form.Item name="distanceRelation" label="距离方向"><Select onChange={onValueCommit} options={[
-      {value:"UNSIGNED",label:"无符号"},{value:"ALONG_SECOND_NORMAL",label:"沿第二元素法向"},{value:"OPPOSITE_SECOND_NORMAL",label:"逆第二元素法向"}]} /></Form.Item>}
-    {definition.value && !relationOnly && <Form.Item name="value" label={definition.value === "angle" ? "角度（deg）" : `距离（${lengthUnit}）`}
-      rules={[{required:true},{type:"number",min:minimumValue,max:definition.value === "angle"?360:undefined}]}>
-      <InputNumber min={minimumValue} max={definition.value === "angle"?360:undefined} precision={3} style={{width:"100%"}}
+      {value:"UNSIGNED",label:"无符号"},{value:"SELECTED_PLANE_NORMAL_V1",label:"第一元素法向（双平面）/所选平面法向"},
+      ...(constraint?.distanceRelation === "ALONG_SECOND_NORMAL" || constraint?.distanceRelation === "OPPOSITE_SECOND_NORMAL" ?
+        [{value:constraint.distanceRelation,label:"历史定义：第二法向约定（保留）"}] : [])]} /></Form.Item>}
+    {kind === "DISTANCE" && <>
+      <Typography.Text type="secondary">偏移 = 所选法向 ·（第一位置 − 第二位置）。双平面取第一法向；同向/反向不改变输入正负。无平面仅无符号无限支撑距离。</Typography.Text>
+      <Form.Item name="offsetKey" label="偏移参数标识"><Input onBlur={onValueCommit} /></Form.Item>
+      <Form.Item name="offsetExpression" label="长度表达式（空白使用数值）"><Input placeholder="例如 Offset_base + 5 mm" onBlur={onValueCommit} onPressEnter={event=>event.currentTarget.blur()} /></Form.Item>
+      <Typography.Text type="secondary">可引用：{view?.product?.constraints?.flatMap(c=>c.offsetParameter?[c.offsetParameter.key]:[]).join(", ") || "暂无；表达式须带长度单位"}</Typography.Text>
+      <Form.Item name="constraintMode" label="求值模式"><Select onChange={onValueCommit} options={[{value:"DRIVING",label:"驱动"},{value:"MEASURED",label:"只测量（保留驱动定义）"}]} /></Form.Item>
+      {constraint?.mode === "MEASURED" && <Typography.Text>测量：{constraint.measuredValue === undefined ? "不可测" : `${constraint.measuredValue} mm`}</Typography.Text>}
+    </>}
+    {definition.value && !relationOnly && <Form.Item name="value" label={definition.value === "angle" ? "角度（deg）" : `偏移（${lengthUnit}）`}
+      rules={expressionDriven ? [] : [{required:true},{type:"number",min:minimumValue,max:definition.value === "angle"?360:undefined}]}>
+      <InputNumber disabled={expressionDriven} min={minimumValue} max={definition.value === "angle"?360:undefined} precision={3} style={{width:"100%"}}
         onBlur={onValueCommit} onPressEnter={(event)=>event.currentTarget.blur()} /></Form.Item>}
   </>;
 }
@@ -248,7 +261,7 @@ export function Workbench() {
   const [contextReferenceForm] = Form.useForm<{ name:string;catalogKey:string;publicationType:string;targetId:string }>();
   const [replacementForm] = Form.useForm<{referencedDocumentId:string}>();
   const [externalParameterForm] = Form.useForm<{ catalogKey: string }>();
-  const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string; fixedTranslation:Vec3; fixedAngles:Vec3 }>();
+  const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string; offsetExpression?:string;offsetKey?:string;constraintMode?:string; fixedTranslation:Vec3; fixedAngles:Vec3 }>();
   const padOperation = Form.useWatch("operation", padForm) ?? "ADD";
   const contextPublicationType = Form.useWatch("publicationType", contextReferenceForm) ?? "PLANE";
   const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
@@ -600,7 +613,9 @@ export function Workbench() {
         firstAssemblyRef: references[0], secondAssemblyRef: references[1],
         angleRelation:pending?.angleRelation,angleAxis:pending?.angleAxis,reverseAngleAxis:pending?.reverseAngleAxis,
       };
-	  void api.previewCommand(editingView.document.id, {...commandInput,interactionId:assemblyInteractionID.current,previewSequence:sequence},controller.signal).then((preview) => {
+	  void api.previewCommand(editingView.document.id, {...commandInput,
+        ...(kind === "distance" ? offsetCommandFields(assemblyConstraintForm.getFieldsValue()) : {}),
+        interactionId:assemblyInteractionID.current,previewSequence:sequence},controller.signal).then((preview) => {
 		if (sequence===assemblyPreviewSequence.current&&preview.baseVersionId === editingView.document.versionId) {
 		  assemblyPreviewID.current=preview.previewId;
           setAssemblyPreviewEvaluation(preview.constraintEvaluation);
@@ -624,7 +639,7 @@ export function Workbench() {
 		    ...(supports[1] ? { second: { status: supports[1].status, diagnosticCode: supports[1].diagnosticCode, diagnostic: supports[1].diagnostic } } : {}),
 		  });
 		}
-        assemblyPreviewActor.current?.send({ type: "REJECT", sequence, error: error.message,
+        if (sequence === assemblyPreviewSequence.current) assemblyPreviewActor.current?.send({ type: "REJECT", sequence, error: error.message,
           errorCode: apiError?.code, phase: apiError?.phase, retryable: apiError?.retryable });
       });
     }, 140);
@@ -666,11 +681,13 @@ export function Workbench() {
       value: constraint.kind === "ANGLE" ? (constraint.value ?? 0) * 180 / Math.PI
         : constraint.kind === "DISTANCE" ? millimetersToDisplayLength(constraint.value ?? 0, lengthUnit) : constraint.value ?? 0,
       directionRelation: constraint.kind === "ANGLE" && constraint.angleReferenceDirection ? "SAME"
+        : constraint.kind === "DISTANCE" ? constraint.directionRelation ?? "UNORIENTED"
         : constraint.directionRelation && constraint.directionRelation !== "UNORIENTED" ? constraint.directionRelation
         : constraint.second && [constraint.first, constraint.second].every((reference) => ["PLANE", "FACE"].includes(reference.kind))
           ? (viewport.current?.measureAssemblyConstraint("angle", [constraint.first, constraint.second]) ?? 0) > 90 ? "OPPOSITE" : "SAME"
           : "UNORIENTED",
       distanceRelation: constraint.distanceRelation ?? "UNSIGNED",
+      ...(constraint.kind === "DISTANCE" ? offsetInitialFields(constraint) : {}),
     });
   };
   const refreshAssemblyConstraint = (constraintID?: string) => {
@@ -1379,8 +1396,9 @@ export function Workbench() {
             const measuredValue = kind === "angle" || kind === "distance" ? viewport.current?.measureAssemblyConstraint(kind, references) ?? 0 : 0;
             const value = kind === "distance" ? millimetersToDisplayLength(measuredValue, lengthUnit) : measuredValue;
             const planePair=references.length===2&&references.every((reference)=>["PLANE","FACE"].includes(reference.kind));
-            assemblyConstraintForm.setFieldsValue({ value, directionRelation: kind === "angle" ? "SAME" : planePair
-              ? (viewport.current?.measureAssemblyConstraint("angle",references)??0)>90?"OPPOSITE":"SAME" : "UNORIENTED", distanceRelation: "UNSIGNED" });
+            assemblyConstraintForm.setFieldsValue({ value, directionRelation: kind === "angle" ? "SAME" : kind === "distance" ? "UNORIENTED" : planePair
+              ? (viewport.current?.measureAssemblyConstraint("angle",references)??0)>90?"OPPOSITE":"SAME" : "UNORIENTED", distanceRelation: "UNSIGNED",
+              ...(kind === "distance" ? offsetInitialFields(undefined,references) : {}) });
             setPendingAssemblyConstraint({ kind, references,
               angleRelation });
           }}
@@ -1399,6 +1417,7 @@ export function Workbench() {
         command.mutate(()=>api.editAssemblyConstraint(editingView.document.id,constraint.id,{value:constraint.kind==="ANGLE"?values.value*Math.PI/180
           :constraint.kind==="DISTANCE"?displayLengthToMillimeters(values.value,lengthUnit):values.value,
 		  directionRelation:values.directionRelation,distanceRelation:values.distanceRelation,
+          ...(constraint.kind === "DISTANCE" ? offsetCommandFields(values) : {}),
           fixedPose: constraint.kind === "FIX" ? fixedPoseFromParameters(
             (values.fixedTranslation as Vec3).map(v=>displayLengthToMillimeters(v,lengthUnit)) as Vec3,values.fixedAngles) : undefined,
 		  firstAssemblyRef:constraint.first,secondAssemblyRef:constraint.second,angleAxis:constraint.angleAxis,reverseAngleAxis:constraint.reverseAngleAxis,angleReferenceDirection:constraint.angleReferenceDirection,angleRelation:constraint.angleRelation,fixMode:constraint.fixMode,
@@ -1421,7 +1440,7 @@ export function Workbench() {
             command.mutate(() => api.command(editingView.document.id, {type:"SET_ASSEMBLY_CONSTRAINT_STATE",
               constraintIds:[constraint.id], suppressed:!constraint.suppressed}), {onSuccess:()=>setEditingAssemblyConstraint(undefined)});
           }}>{editingAssemblyConstraint.suppressed ? "激活约束" : "停用约束"}</Button>
-          {["ANGLE","DISTANCE"].includes(editingAssemblyConstraint.kind) && (!editingAssemblyConstraint.angleRelation || editingAssemblyConstraint.angleRelation === "DIRECTED" || editingAssemblyConstraint.angleRelation === "FREE") && <Button disabled={command.isPending} onClick={() => {
+          {editingAssemblyConstraint.kind === "ANGLE" && (!editingAssemblyConstraint.angleRelation || editingAssemblyConstraint.angleRelation === "DIRECTED" || editingAssemblyConstraint.angleRelation === "FREE") && <Button disabled={command.isPending} onClick={() => {
             if (!editingView) return;
             const constraint = editingAssemblyConstraint;
             assemblyPreviewActor.current?.send({type:"CANCEL", sequence:assemblyPreviewSequence.current});
@@ -1460,6 +1479,7 @@ export function Workbench() {
           value: pending.kind === "angle" ? values.value * Math.PI / 180
             : pending.kind === "distance" ? displayLengthToMillimeters(values.value, lengthUnit) : values.value,
           directionRelation: values.directionRelation, distanceRelation: values.distanceRelation,
+          ...(pending.kind === "distance" ? offsetCommandFields(values) : {}),
 		  angleRelation:pending.angleRelation,angleAxis:pending.angleAxis,reverseAngleAxis:pending.reverseAngleAxis,
 		  previewId:assemblyPreviewID.current,
 		}), { onSuccess: () => { assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});viewport.current?.clearCommandPreview(false); assemblyPreviewID.current=undefined; setReconnectError(undefined); setAssemblyDefinitionDirty(false); setPendingAssemblyConstraint(undefined); },

@@ -1,6 +1,6 @@
 # 装配主线：六类约束与自由度组合、激活状态与实时操纵
 
-> 状态：实施中（整体主线）；CONSTRAINT-CONTRACT 设施与验证已归入[当前架构](../docs/architecture/current/product-assembly.md#六类约束可执行合同目录)。下一项 CONSTRAINT-OFFSET 待实施；六类完整组合仍未验收。Product/M3 基线已[完成验收](../docs/architecture/current/product-assembly.md#accept-product-完成记录)。返回[统一路线](README.md)。
+> 状态：实施中（整体主线）；CONSTRAINT-CONTRACT 设施与验证已归入[当前架构](../docs/architecture/current/product-assembly.md#六类约束可执行合同目录)。CONSTRAINT-OFFSET 实施中，双平面首切片已有定向证据；六类完整组合仍未验收。Product/M3 的此前验收见[当前记录](../docs/architecture/current/product-assembly.md#accept-product-完成记录)，新增能力仍有自己的退出门。返回[统一路线](README.md)。
 
 ## 交付目标与当前差距
 
@@ -14,7 +14,7 @@
 
 首批已落地独立激活状态、批量命令、原模式恢复、空活动集合 manifest、预览证据提交与 Undo/Redo 求解证据；Angle 无轴空间角、显式轴投影角及平行/垂直、点线/线面偏移、Fix 基准与六参数编辑、0–6 阶及常见关节有限运动测试也已进入代码。事实与测试入口见[当前实现](../docs/architecture/current/product-assembly.md#六类约束与生命周期的首批实现)。**本阶段尚未完成，不作完成标记。** 下列批次保留的是完整退出门，不能用首批通过替代六类全矩阵验收。
 
-剩余差距以[可执行目录与派生报告](../tests/assembly-contract/README.md)为领取依据，不另维护手工全矩阵。下一项优先 CONSTRAINT-OFFSET：修正已复现的第一/第二选择法向入口差异，补齐符号/交换与模式/历史证据；六对基础数值方程和既有状态链不重复开发。Contact 未冻结秩、Curve/Surface 子类与 group 先内后外等开放边界在消费它们的对应批次细化，不改变既定数学合同。
+剩余差距以[可执行目录与派生报告](../tests/assembly-contract/README.md)为领取依据，不另维护手工全矩阵。当前优先收口 CONSTRAINT-OFFSET 的剩余验收；已交付符号/参数链、六对基础数值方程和既有状态链不重复开发。Contact 未冻结秩、Curve/Surface 子类与 group 先内后外等开放边界在消费它们的对应批次细化，不改变既定数学合同。
 
 ### CONSTRAINT-ACTIVATION：激活/取消激活（抑制）完整闭环
 
@@ -41,7 +41,13 @@
 
 在已有 Point–Axis（点—轴）、Axis–Plane（轴—平面）等 Offset 数值能力和 Measured 独立输出上补齐 Point/Line/Plane 六种无序组合的产品合同与验收。核对有平面时的有符号偏移、首选平面法向及 Undefined/Same/Opposite；无平面组合不显示无意义的 signed 控件。补齐 Quantity/表达式、Driving/Measured、不可测诊断、编辑/绑定/抑制/历史组合；复用非平行双平面不显示过期值的既有处理。
 
-首个可领取切片：`offset.plane-plane.first-normal-editor` 已复现编辑器使用第二元素法向而目标要求第一选择法向。先贯通用户符号意图到内部方程的转换（不批量改名数值类型），覆盖 Same/Opposite、正负值、选择交换和反转法向，再补真实 Product 的表达式/Measured/Undo/冷 replay。退出门：目标专用失败 case 通过且纳入基线；现有六对无符号距离/秩及零距离特殊秩不退化；完整链路的环境阻塞明确解除，不能以 UI 文案修改代替符号求解验收。
+已实现首切片与证据归入[当前 Product](../docs/architecture/current/product-assembly.md#offset-有符号纵向切片)。剩余领取顺序：
+
+1. 优先补齐偏离原点的平行 EDGE 零距离/交线退化分支：非零距离停滞已修复并有真实两独立 Part/Router/数据库历史回归，零目标探索仍有偏好停滞。退出门是明确交线分支、独立真实距离、合法偏好收敛、零值特殊秩及提交/历史通过，不能调大容差或把几何收敛代替偏好验收。
+2. 补齐六组合的 UI 精确支持消费、支持来源更新/断裂/重连、各模式与单个/批量激活、空活动集合、CAS/幂等及历史组合专用证据；当前共享测试不能代替组合逐项验收。表达式目前限定同 Product 的 Offset 自有参数，跨领域参数消费按实际需求贯通，不扩成 Configuration/Rule。
+3. 维护者实机验证创建/编辑/Preview、单位和符号回填、快速切换/取消、共享与嵌套 occurrence；Agent 未运行浏览器，不提前标记通过。
+
+完整退出门仍为六对完整产品合同与上述生命周期/历史组合通过，合同 baseline/gaps 无真实失败，旧符号版本保持可读/显式迁移边界，实机验收明确记录。当前数据库专用环境已可用，新双平面与共享历史测试已有通过证据；这不等于每个几何组合均完成，也不等于整个 CONSTRAINT-OFFSET、CONSTRAINT-COMPOSITION 或 M4 完成。
 
 ### CONSTRAINT-ANGLE：角度参数族
 

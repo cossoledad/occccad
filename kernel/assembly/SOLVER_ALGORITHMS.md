@@ -123,6 +123,8 @@ Product 拒绝将它当作从动成功提交；不会误报为几何冲突。响
 记世界点为 `p`，轴为 `(o,d)`，平面为 `(o,n)`，其中方向均为单位向量。无向对齐 `Unoriented` 在当前迭代选择最近的 `Same`/`Opposite` 分支，残差与解析 Jacobian 使用同一符号；初始姿态不排除另一个可行分支。无符号距离仍固定到初始侧。Angle 的
 `Unoriented` 保留完整 `[0,π]` 语义。无向对齐的错误半球驻点通过最多16次刚性 cluster 半周初值探测恢复；探测仅改 initial_guess，不改 nominal、硬约束或 motion intent，成功后仍做完整偏好优化，失败保留原诊断。
 
+Distance `SelectedPlaneNormal` 是显式用户符号合同：`n_selected·(p_first-p_second)-target`，双平面选第一法向，否则选唯一平面。双平面保留独立的 Same/Opposite/Unoriented 法向方程；解析 Jacobian 使用所选法向的旋转导数。唯一平面位于第一位置时，既有点/轴—平面内部复用路径仅局部变换残差符号，不交换运动意图。旧 Along/OppositeSecondNormal 方程保留。新双平面 Driving 的错误半球驻点复用上述 seed 探测（Measured 不参与）；未改优化层级、rank 或容差。
+
 | 约束与几何对 | 当前残差块 | 标量行数 |
 |---|---|---:|
 | Fix | 平移差 + 四元数相对旋转的 rotation vector | 6 |
@@ -196,6 +198,10 @@ reference 最优残差为零时，其目标保持子空间是 `null(A_ref Z)`；
 reference 目标上界固定为第一层终值加 `objective_tolerance`（默认 `1e-12`），不逐步累计放宽。
 当目标差接近机器精度时，只在非累积能量误差界内且投影梯度进一步下降时接受步骤，不以浮点停滞冒充最优。
 `Converged` 是冻结 branch 下的局部一阶最优性证据，不证明非凸全局最优或任意有限运动可达性。
+
+平行无限直线与异面线的最短距离在平行点并非普通光滑流形：微小转动可把公垂线推至远处。实际偏离原点的 EDGE 距离试算复现了几何/偏好停滞。初始化现在对无符号平行线 Distance 给出精确径向平移 seed，仍不改 nominal。对于只有一个自由 cluster、孤立非零线线 Distance（其他关系仅 Fix/Rigid），偏好阶段使用局部平行 chart：旋转增量沿共同轴；偏好投影、曲率和可行性恢复共用 `motion_jacobian` 的临时 chart 行。物理方程/Jacobian、rank/DOF、模式、角色及成功容差不变，没有保存或发送额外 Parallel 约束；这是该局部分支上的驻点证据，不是跨分支全局最短运动或 M4 连续操纵保证。
+
+回归从不满足的旋转/平移、偏离原点的两个线支撑开始，独立计算最终无限线距离，并要求 reference 不动、偏好收敛、物理秩 1/相对 DOF 5；覆盖目标 10/30/50、交换选择及 Fix/无 Fix。该非光滑案例使用与正式 Worker 一致的 profile（不开启跨分层中央差分 oracle），不是放宽几何容差。探索性零目标用例仍出现偏好停滞，须在 CONSTRAINT-OFFSET 单独完成交线/退化分支合同与证据，不由正距离回归代替。
 
 ## 8. Rank、DOF 与 gauge
 

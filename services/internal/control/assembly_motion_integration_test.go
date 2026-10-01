@@ -69,7 +69,7 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v8" || len(result.Components) != 1 {
+	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m2.5-hierarchy-v9" || len(result.Components) != 1 {
 		t.Fatalf("invalid result: %+v", result)
 	}
 	p := result.Components[0].Preference
@@ -288,8 +288,16 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	failed := request
 	failed.RequestID = "failed-replay-" + id
 	failed.Value = 20
-	if _, err = service.PreviewCommand(t.Context(), id, failed); err == nil {
-		t.Fatal("conflicting preview unexpectedly succeeded")
+	failedPreview, err := service.PreviewCommand(t.Context(), id, failed)
+	if err != nil || failedPreview.PreviewID != "" || failedPreview.ConstraintEvaluation == nil || failedPreview.ConstraintEvaluation.Status != "NOT_UPDATED" || failedPreview.ConstraintEvaluation.Summary == "" {
+		t.Fatalf("conflicting definition must expose failure without a promotable candidate: %+v %v", failedPreview, err)
+	}
+	for _, candidate := range failedPreview.InstancePoses {
+		for _, original := range refreshed.Product.Instances {
+			if candidate.InstanceID == original.ID && (candidate.Translation != original.Translation || candidate.Rotation != original.Rotation) {
+				t.Fatal("failed Preview adopted candidate pose")
+			}
+		}
 	}
 	var failedData []byte
 	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
@@ -310,9 +318,37 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	if err = protojson.Unmarshal(failedReplay.Result, &failedResult); err != nil {
 		t.Fatal(err)
 	}
-	status := failedResult.Status
-	if status == "CONVERGED" {
-		t.Fatal("failed replay lost failure status")
+	// The final numeric replay is the accepted subset, not the rejected
+	// definition. Its convergence must not erase the DOMAIN failure evidence.
+	var failureManifestRaw []byte
+	if err = db.QueryRow(t.Context(), `SELECT m.manifest FROM occccad.product_solve_results r JOIN occccad.product_solve_manifests m ON m.digest=r.manifest_digest WHERE r.request_id=$1`, "preview/"+failed.RequestID).Scan(&failureManifestRaw); err != nil {
+		t.Fatal(err)
+	}
+	var failureManifest workspace.AssemblySolveManifest
+	if err = json.Unmarshal(failureManifestRaw, &failureManifest); err != nil {
+		t.Fatal(err)
+	}
+	rejectedID := failedPreview.ConstraintEvaluation.ConstraintID
+	foundRejected := false
+	for _, definition := range failureManifest.Definitions {
+		if definition.ID == rejectedID {
+			foundRejected = true
+			if definition.EvaluationStatus != "NOT_UPDATED" || definition.Suppressed || definition.Value != 20 || definition.EvaluationSummary == "" {
+				t.Fatal("manifest lost rejected definition evidence", definition)
+			}
+		}
+	}
+	if !foundRejected {
+		t.Fatal("manifest discarded rejected definition")
+	}
+	for _, definition := range failureManifest.Constraints {
+		if definition.ID == rejectedID {
+			t.Fatal("rejected definition entered accepted numeric replay")
+		}
+	}
+	var rejectedTrials int
+	if err = db.QueryRow(t.Context(), `SELECT count(*) FROM occccad.product_solve_results WHERE request_id LIKE $1 AND status <> 'CONVERGED'`, "preview/"+failed.RequestID+"/%").Scan(&rejectedTrials); err != nil || rejectedTrials == 0 {
+		t.Fatal("failed trial evidence missing", err)
 	}
 	afterFailure, err := service.GetDocument(t.Context(), id, "00000000-0000-7000-8000-000000000001")
 	if err != nil || afterFailure.Document.VersionID != refreshed.Document.VersionID {

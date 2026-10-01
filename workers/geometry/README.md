@@ -98,10 +98,12 @@ Worker `main` 仅负责启动 gRPC 服务，不包含 `--smoke` 或测试专用�
 二维草图约束推荐作为 Part Evaluation 内的独立模块与本 Worker 同进程部署，以避免草图求解和特征重生成之间的高频网络往返；三维装配由独立的 `kernel/assembly` 算法库实现，当前通过本 Worker 的 `SolveAssembly` RPC 承载。只有负载或隔离证据满足时才拆成独立 Worker，见[计算边界](../../docs/architecture/target/compute-boundaries.md)。
 
 `SolveAssemblyResponse.effective_solver_profile` 返回本次采用的完整数值配置，供 3dreplay 冻结隐式默认值。
-当前 solver build 为 `assembly-m2.5-hierarchy-v8`，包含长力臂尺度阻尼、模型下降比、独立平移/旋转步长控制，无向对齐双分支的有界初值恢复，以及偏好优化停滞时的曲率方向恢复。
+当前 solver build 为 `assembly-m2.5-hierarchy-v9`，包含长力臂尺度阻尼、模型下降比、独立平移/旋转步长控制，无向对齐双分支的有界初值恢复，以及偏好优化停滞时的曲率方向恢复。新增孤立平行直线非零 Distance 的径向初值与偏好局部平行 chart；后者不新增物理方程，不改变物理 rank/DOF、容差或运动角色。
 3dreplay 重放复用 `SolveAssembly`，无需另设 RPC 或在 Worker 内读取业务数据库。
 
 `SolveAssembly` 同时适配内部 `PARALLEL`/`PERPENDICULAR` 方程，并支持空约束集合求解。产品激活状态保存在 Go 模型和 M3 definitions，停用定义不作为 Worker 活动方程发送。新增点线/线面距离与方向关系由真实 Router conformance 测试覆盖。
+
+Offset 的 `distance_relation="SELECTED_PLANE_NORMAL_V1"` 通过已有 string 字段映射到 native `SelectedPlaneNormal`，不交换组件角色；双平面使用第一法向。旧第二法向值仍按旧规则解释。单位保持 Worker 装配请求的 mm/rad 与明确 profile；Quantity 的 SI 转换在 Workspace 边界完成。纵向定向入口见[合同测试](../../tests/assembly-contract/README.md)，正式 Router/Worker 和可丢弃数据库缺失时不得声明集成通过。
 
 平面 Face 属性和命名 evidence 使用最终 Solid 中包含 Face Orientation 的法向，闭合实体朝材料外（内腔朝空腔）。History 返回的工具面可能方向相反，输出命名前会按最终 face map 取回朝向；平面 X/Y/normal 保持右手系，供面上草图、装配 descriptor 和法线视图共享。
 

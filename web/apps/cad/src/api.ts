@@ -374,9 +374,9 @@ export const restApi = {
 	restApi.command(documentId, { type: "MOVE_INSTANCE", instanceId, translation, rotation, previewId }),
   addAssemblyConstraint: (documentId: string, input: { constraintKind: string; angleRelation?: string;
     firstAssemblyRef: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef;
-	value?: number; directionRelation?: string; distanceRelation?: string; angleReferenceDirection?: Vec3; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; previewId?: string }) =>
+	value?: number; directionRelation?: string; distanceRelation?: string; offsetExpression?:string;offsetKey?:string;constraintMode?:string; angleReferenceDirection?: Vec3; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; previewId?: string }) =>
     restApi.command(documentId, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),
-  editAssemblyConstraint: (documentId: string, constraintId: string, input: { value: number; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; fixMode?: string; angleRelation?: string; directionRelation: string; distanceRelation: string;
+  editAssemblyConstraint: (documentId: string, constraintId: string, input: { value: number; offsetExpression?:string;offsetKey?:string;constraintMode?:string; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; fixMode?: string; angleRelation?: string; directionRelation: string; distanceRelation: string;
 	firstAssemblyRef?: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef; angleReferenceDirection?: Vec3; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; previewId?: string }) =>
     restApi.command(documentId, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),
   setReferenceMode: (documentId: string, instanceId: string, referenceMode: "FOLLOW_HEAD" | "FOLLOW_WORKSPACE_WITH_ACCEPT" | "PINNED") =>

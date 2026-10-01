@@ -374,6 +374,20 @@ func (parser *expressionParser) parseTerm() (*ASTNode, error) {
 	return left, nil
 }
 func (parser *expressionParser) parsePrimary() (*ASTNode, error) {
+	// Signed Offset quantities need unary signs, not an application-side abs or
+	// string rewrite. Lower to the existing dimension-checked binary AST.
+	if parser.token == '-' || parser.token == '+' {
+		negative := parser.token == '-'
+		parser.next()
+		node, err := parser.parsePrimary()
+		if err != nil || !negative {
+			return node, err
+		}
+		zero := Quantity{Dimension: node.Dimension}
+		parser.cost += 2
+		return &ASTNode{Kind: "BINARY", Operator: "-", Dimension: node.Dimension,
+			Left: &ASTNode{Kind: "LITERAL", Quantity: &zero, Dimension: node.Dimension}, Right: node}, nil
+	}
 	if parser.token == '(' {
 		parser.next()
 		node, err := parser.parseExpression()

@@ -1072,6 +1072,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if constraint.DirectionRelation == "" {
 			constraint.DirectionRelation = "UNORIENTED"
 		}
+		if request.ConstraintMode != nil {
+			constraint.Mode = *request.ConstraintMode
+		}
 		if constraint.DistanceRelation == "" {
 			constraint.DistanceRelation = "UNSIGNED"
 		}
@@ -1102,7 +1105,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				constraint.FixedPose = &relative
 			}
 		}
-		return typeAddAssemblyConstraint, addAssemblyConstraintPayload{Constraint: constraint}, nil
+		return typeAddAssemblyConstraint, addAssemblyConstraintPayload{Constraint: constraint, OffsetExpression: request.OffsetExpression, OffsetKey: request.OffsetKey}, nil
 	case "EDIT_ASSEMBLY_CONSTRAINT":
 		if documentType != "PRODUCT" {
 			break
@@ -1177,6 +1180,8 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			editedFixedPose = request.FixedPose
 		}
 		return typeEditAssemblyConstraint, editAssemblyConstraintPayload{FixMode: request.FixMode, AngleRelation: request.AngleRelation, ConstraintID: id, Value: request.Value,
+			Mode:             request.ConstraintMode,
+			OffsetExpression: request.OffsetExpression, OffsetKey: request.OffsetKey,
 			DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation),
 			First: request.FirstAssemblyRef, Second: request.SecondAssemblyRef, AngleAxis: request.AngleAxis, ReverseAngleAxis: request.ReverseAngleAxis, AngleReferenceDirection: request.AngleReferenceDirection,
 			FixedPose: editedFixedPose}, nil

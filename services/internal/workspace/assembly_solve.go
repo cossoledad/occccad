@@ -123,6 +123,9 @@ func assemblyCapabilities(kind, firstKind, secondKind string) assemblyConstraint
 }
 
 func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRevisionID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, warmStartKey string, excluded map[string]bool, probe bool, evidence ...*geometry.AssemblySolve) (returnErr error) {
+	if err := resolveOffsetParameters(model); err != nil {
+		return err
+	}
 	if len(model.Constraints) == 0 {
 		return nil
 	}
@@ -516,6 +519,9 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		if constraint.Kind != "FIX" && constraint.Kind != "RIGID" {
 			firstKind := resolvedGeometry[firstGeometry].Kind
 			secondKind := resolvedGeometry[value.SecondGeometryID].Kind
+			if err := compileAssemblyOffset(*constraint, &value, resolvedGeometry[firstGeometry], resolvedGeometry[value.SecondGeometryID]); err != nil {
+				return err
+			}
 			capabilities := assemblyCapabilities(value.Kind, firstKind, secondKind)
 			if constraint.AngleRelation == "PERPENDICULAR" {
 				value.DirectionRelation = "SAME"

@@ -480,6 +480,7 @@ type ResolutionSnapshot struct {
 }
 
 type AssemblyConstraint struct {
+	OffsetParameter             *modelcore.ParameterDefinition               `json:"offsetParameter,omitempty"`
 	FixMode                     string                                       `json:"fixMode,omitempty"`
 	AngleRelation               string                                       `json:"angleRelation,omitempty"`
 	MeasuredValue               *float64                                     `json:"measuredValue,omitempty"`
@@ -975,6 +976,8 @@ type CommandRequest struct {
 	SecondAssemblyRef       *AssemblyGeometryRef `json:"secondAssemblyRef,omitempty"`
 	DirectionRelation       string               `json:"directionRelation,omitempty"`
 	DistanceRelation        string               `json:"distanceRelation,omitempty"`
+	OffsetExpression        *string              `json:"offsetExpression,omitempty"`
+	OffsetKey               string               `json:"offsetKey,omitempty"`
 	AngleAxis               *AssemblyGeometryRef `json:"angleAxis,omitempty"`
 	ReverseAngleAxis        *bool                `json:"reverseAngleAxis,omitempty"`
 	AngleReferenceDirection *[3]float64          `json:"angleReferenceDirection,omitempty"`
