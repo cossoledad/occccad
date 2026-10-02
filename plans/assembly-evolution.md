@@ -1,6 +1,6 @@
 # 装配主线：六类约束与自由度组合、激活状态与实时操纵
 
-> 状态：实施中（整体主线）；六类补齐实现与 CONSTRAINT-COMPOSITION 自动门已通过，维护者已反馈主要能力人工使用验证通过。编辑候选/约束显示两项收口修复另待实机确认，不重领六类实现。CONSTRAINT-* 保留人工检查出口，下一主实现任务仍为 ASSEMBLY-SESSION。自动通过不代签工业/全场景人工验收。实现与实际执行证据见[当前架构](../docs/architecture/current/product-assembly.md#六类交付定向收口编辑候选与约束显示)，返回[统一路线](README.md)。
+> 状态：待验收（M4/M5 第一阶段实现及自动收口已完成，等待维护者实机验收）；六类主要能力及最近候选/图标修复已有维护者反馈，不能扩展为本轮验收。已交付六类、Frame、Contact、组及自由度解释不重新领取。实现、实际验证及性能限制见[当前架构](../docs/architecture/current/product-assembly.md#m4m5-第一阶段连续操纵与局部解释)，返回[统一路线](README.md)。
 
 ## 交付目标与当前差距
 
@@ -8,13 +8,13 @@
 
 本轮公共 v2 定义已统一为六族；Concentric/Distance/Parallel/Perpendicular/Rigid 保留为编译原语或明确快捷入口，不形成另一套活跃用户模型。真正的多成员固联及解析 Contact、有限精确 Curve/Surface/Frame 支持和来源/生命周期链已实现，不再列为从零实施的缺口。实现、自动执行证据和人工验收分开记录：目录/报告反映逐项实际结果，人工待验收不等于代码未实现。
 
-代码核对入口：`services/internal/workspace/assembly_solve.go`（能力/branch 规范化与临时 Fix）、`model.go`（约束及 mode）、`workers/geometry/src/main.cpp`（mode adapter）、`kernel/assembly/include/occccad/assembly/solver.hpp` 与 `src/solver.cpp`（模式/方程）。当前 MOVE 仍注入 `interaction-driver` Fix；已有 null-space 和预览不能算最近可行拖拽。
+代码核对入口：`assembly_interaction.go`（版本化 Session/最终候选）、`assembly_conflict.go`（只读诊断）、`assembly_solve.go`（六类编译）、`workers/geometry/src/main.cpp`（纯值协议）与 `kernel/assembly/src/solver.cpp`（分层目标/方程）。新交互不注入 interaction-driver Fix；普通非 Session MOVE 保留既有兼容语义，不作为 M4 入口。
 
 ## 六类约束与生命周期补齐
 
 本轮九个 CONSTRAINT-* 的实施内容已归入[当前实现](../docs/architecture/current/product-assembly.md#六类公共定义精确支持与生命周期)与[可执行目录](../tests/assembly-contract/README.md)。以下仅保留稳定标识、现有锚点及待验收出口，不复制架构或另建手工覆盖矩阵。若自动报告暴露真实失败、必需测试缺失或环境阻塞，应按 capability/case 修复并重跑，不能用代码存在或拒绝测试通过替代验收。
 
-状态：**待验收（仅新增交互人工出口）**。完整 baseline/gaps/composition 各 617 PASS、58 项必需自动证据齐全，装配领域检查通过；准确执行范围由[当前记录](../docs/architecture/current/product-assembly.md#constraint-composition-本轮收口)及派生报告保存，不再领取已完成代码任务。新增交互人工验收由维护者后续执行。此前 OFFSET 人工通过反馈保留，但不扩展为本轮所有组合、Contact 或组交互均通过。下一主实现任务恢复到 ASSEMBLY-SESSION/M4。
+状态：**待验收（未覆盖场景与本轮新增交互）**。六类已实现及既有自动证据见[当前记录](../docs/architecture/current/product-assembly.md#constraint-composition-本轮收口)，不再领取已完成代码任务。维护者反馈主要能力可用不代替逐项、工业或本轮 M4/M5 验收；新增交互实机验证单列。
 
 ### CONSTRAINT-ACTIVATION：激活/取消激活（抑制）完整闭环
 
@@ -40,7 +40,7 @@
 
 ### CONSTRAINT-FIX：空间固定与相对固定
 
-人工退出门：SPACE/RELATIVE 的 owning Product 捕获、位置/姿态编辑、外层 Product 移动与显式内部移动/update、Preview 取消、抑制恢复和 Undo/Redo；普通求值或测量不能改写 SPACE 基准。当前 interaction-driver 仍不等于 M4。
+人工退出门：SPACE/RELATIVE 的 owning Product 捕获、位置/姿态编辑、外层 Product 移动与显式内部移动/update、Preview 取消、抑制恢复和 Undo/Redo；普通求值或测量不能改写 SPACE 基准。本轮 Session 仅在授权的显式 Move 最终提交更新 RELATIVE 基准。
 
 ### CONSTRAINT-FIX-TOGETHER：多成员固联组
 
@@ -60,30 +60,30 @@
 
 ### ASSEMBLY-SESSION：版本化 session 与 branch snapshot
 
-状态：**待实施；下一主实现任务**。复用本轮六族能力、冻结 descriptor、分支及组阶段，不新建并行公共约束模型。退出门为版本化 session 身份、取消/过期、Head/参数/模式/激活变化失效、冻结 baseline 与 warm start 边界及迟到结果拒绝的定向验证；不以 TREE-03 编辑会话或既有单次 Preview 替代。
+第一阶段实现已归入[当前架构](../docs/architecture/current/product-assembly.md#m4m5-第一阶段连续操纵与局部解释)，本节仅保留稳定任务标识与实机退出门。确认取消/过期、外部 Head/参数/模式/激活变化失效，冻结 baseline 与 warm start 不混用，迟到结果不能覆盖新状态。
 
 TREE-03 的 Workbench `EditSession` 只负责宿主与编辑目标，不是这里的约束求解 Session；CAD Body 的历史/求值归属也不等于 solver body 或运动学刚体。已有 Preview、null-space、自由度显示不构成 M4 完成证据。
 
-Session 绑定 Workspace Head/sequence、M3 digest、完整激活集合/模式、accepted pose、branch 和 warm start。开始手势冻结 nominal baseline，取消/到期可丢弃；其他用户提交、参数/模式或激活变化使 session 失效，不能把旧响应应用到新约束集。
+实机退出门：正常 pointerup 与异常 capture 丢失区分；取消不写历史、不用旧 baseline 覆盖外部 Head；断线后区分未提交手势和提交结果未知。
 
 ### ASSEMBLY-DRAG：约束流形上的拖拽目标
 
-利用 M2/M2.5 null-space，以活动硬约束可行为首要门，再在允许流形上逼近鼠标目标，替换临时 `interaction-driver` Fix。支持轴向/平面平移、绕轴旋转、几何指定方向/轴；输出最近可行 pose、残差及 allowed/blocked direction。
+实机退出门：轴向/平面平移、绕轴旋转及精确几何指定轴/方向可用，当前已接纳硬约束保持，不可达目标返回受限可行反馈；非原点抓取、组和整体自由运动不被隐藏 Fix 限制。局部最优不宣称全局最近点。
 
 尊重 Fix 模式、Fix Together 分阶段关系和 suppressed/Measure 的非驱动语义。不可达目标只产生受限结果，不使整个操作随机翻转 branch。若提供 CATIA 式不尊重约束的自由操纵选项，必须明确为自由预览并经正常 update/commit 验证；不能自动取消约束或持久提交声称 Verified 的非法姿态。
 
 ### ASSEMBLY-FEEDBACK：连续反馈与请求控制
 
 - 浏览器手柄/鼠标反馈保持连续；任何近似本地预测必须区分于权威 accepted pose，不进入 Revision。
-- 合并中间 pointermove，每个 session 最多一个在途求解和一个最新待处理目标；新目标取消过期计算，request sequence 与 base digest 双重拒绝迟到响应。pointerup 的最终目标不能被节流丢弃。
+- 合并中间 pointermove，每个 session 最多一个在途求解和一个最新待处理目标；不中途反复取消造成反馈饥饿。Session generation、sequence 与 base digest 拒绝迟到响应，pointerup 的最终目标不能被丢弃。
 - Instance、同组成员与手柄应用同一权威帧；展示允许/阻塞方向、计算中、受限及失败，不靠颜色猜语义。网络延迟/断线保持最后确认帧和诊断。
-- pointerup 等待最终权威结果后提交一次 Move；Esc、pointercancel、lost capture、blur 恢复 baseline，不产生历史。无可行变化不写空 Revision。
+- pointerup 等待配对的合格最终结果后提交一次 Move；Esc、pointercancel、异常 lost capture、blur 取消临时覆盖，不覆盖外部新 Head。无可行变化不写空 Revision，结果未知按 receipt/requestId 确认。
 
 验收：长拖拽不堆积请求，快速反向、旋转跨角边界、网断重连、重复/乱序/迟到响应、约束中途停用/激活、多人 Head 改变、整组移动、完全固定和欠约束闭环均有自动场景及真实浏览器验收。
 
 ### ASSEMBLY-LATENCY：测量与性能门
 
-建立固定的单组件、50 bodies/200 constraints 连通组件、多个独立组件，以及接触/固联/病态闭环 corpus。记录硬件/build、总量/活动量、transport/排队/求解/显示耗时、P50/P95、求解次数、取消响应和浏览器帧时间。
+第一阶段已建立单体、真实50 bodies/200活动约束单连通闭环、独立组件及组/接触的固定内核测量，观察基线见当前架构与既有 baseline；不从零重领。待验收边界：优化内核连通场景P95约1.25秒，未达100ms；Debug超出Session RPC预算。排队/传输分量、输入至显示延迟、浏览器帧时间和实机取消响应仍需真实测量，不把内核数据替代它们。
 
 候选目标：约定本机基准上普通 50-body 场景的输入至权威显示 P95 ≤100 ms，界面目标 60 Hz、主线程不因远程求解阻塞；慢/病态案例必须有有限预算、取消与诚实的 pending/受限反馈。先实测冻结预算，再以回归门约束退化；上述数值不是当前性能承诺，不以减少约束或降低残差正确性达标。优先复用冻结解析、affected component、warm start 与求解预算，不把 M7 稀疏后端或独立 Worker 强行变成前置。
 
@@ -93,11 +93,15 @@ Session 绑定 Workspace Head/sequence、M3 digest、完整激活集合/模式�
 
 ## Assembly M5：局部冲突解释
 
-- **CONFLICT-CORPUS**：六类及内部/外部组关系、冗余、矛盾、branch、容差与退化，区分 proven minimal、irreducible、localized suspect、unsatisfied、budget exhausted。
+第一阶段只读分析、三值 oracle、有预算删除过滤和正式修复入口已归入当前架构。本节保留实机退出门；一般非线性未收敛只能 UNKNOWN/嫌疑，不当成 UNSAT，可靠矛盾才可验证不可约，不承诺最小基数。
+
+- **CONFLICT-CORPUS**：实机核对当前未满足、可靠不可满足、验证不可约、局部嫌疑、冗余/退化及预算未知的不同标签；不提供最小基数标签，不把数值未收敛当UNSAT。
 - **CONFLICT-SEARCH**：按 changed constraint/activation/group 的 incidence graph 构造活动邻域，结合 rank/branch evidence 与有预算的删除过滤/QuickXplain；不把 inactive 定义算作活动冲突，不伪造 MUS。
 - **CONFLICT-UX**：按稳定 Constraint/Group/Equation ID 高亮树与视口，复用已有 Activate/Deactivate、Measure、Reconnect 命令供用户修复。此阶段增强解释，不再延后抑制基本功能。
 
 ## Assembly M6：Engineering Connections 扩展
+
+状态：**候选；明确延期**。不设恢复日期，也不是 M4/M5 验收后的自动下一项。已有 Frame、Contact、Fix Together 和自由度解释保留；有限运动测试不新增 Connection 实体。
 
 - **CONNECTION-FRAME**：在已支持 Frame descriptor 上增加 Connector 接口类别、对称性、极性、允许连接、名义间隙/尺寸与属性。
 - **CONNECTION-BASIC**：组合既有六类方程，形成 Rigid/Revolute/Prismatic/Cylindrical/Planar Connection，以实际 freedom 验证声明类型。Fix Together 不是这一步才交付，也不等于声明一个 Rigid Connection。
@@ -107,7 +111,7 @@ Session 绑定 Workspace Head/sequence、M3 digest、完整激活集合/模式�
 
 ## 执行依赖与验证
 
-下一主实现领取顺序：ASSEMBLY-SESSION → ASSEMBLY-DRAG → ASSEMBLY-FEEDBACK → ASSEMBLY-LATENCY → ASSEMBLY-BRANCH → M5 → M6。六族与组的已实现能力不重新排为开发批次；九个 CONSTRAINT-* 仅保留本轮自动门确认及人工验收出口。
+当前执行路线：M4/M5 第一阶段实现完成 → 维护者实机验证 → 按反馈修复和整理。自动证据见当前架构与完整合同报告，不代替人工或性能目标验收。后续主线转向 Part Sketch/Feature/Naming，本轮不实施；M6 明确延期。六族、组和 Session 等已实现能力不重新排为从零开发批次。
 
 SESSION/延迟基准可基于明确合同推进；最终 M4 验收依赖 CONSTRAINT-COMPOSITION 自动门通过，并覆盖六族/组/生命周期组合。人工交互待验收保持单列，不能虚报通过或无限保留已完成代码待办；新发现缺陷按证据回归修复。Feature/Revolve、Sketch Projection、大模型及工程维护是独立队列，不是装配主线的默认前置；Kinematics/M7/跨主机和完整多用户协作仍按候选进入条件处理。
 

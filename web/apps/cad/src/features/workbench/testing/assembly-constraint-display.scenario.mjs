@@ -5,6 +5,7 @@ try {
  const THREE=await server.ssrLoadModule("three");
  const {CadViewportEngine}=await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
  const {SelectionIndex}=await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
+ const {AssemblyInteractionController}=await server.ssrLoadModule("/src/cad/assembly/assembly-interaction.ts");
  const engine=Object.create(CadViewportEngine.prototype), index=new SelectionIndex();
  let frames=0,hydrates=0,rebuilds=0;
  const body=new THREE.Group();body.add(new THREE.Mesh(new THREE.BoxGeometry(2,2,2),new THREE.MeshBasicMaterial()));
@@ -14,6 +15,7 @@ try {
   highlightedRoots:new Set(),selectedOverlays:[],preselectedOverlays:[],
   materials:{constraintGlyph:(_glyph,color)=>new THREE.PointsMaterial({color}),setInteractionState(){}},
   invalidate:()=>frames++,updateSketchContextVisibility(){},applyTreeVisibility(){},
+  moveInteraction:new AssemblyInteractionController({begin:async()=>{throw Error("display-only fixture has no gesture");},update:async()=>{throw Error("display-only fixture must not solve");},cancel:async()=>{},frame(){},state(){}}),
   visualGeneration:0,visuals:{hydrate(){hydrates++;throw Error("constraint update downloaded mesh");}},renderReady(){rebuilds++;},pendingVisualSnapshot:false});
  const c={id:"same-id",kind:"COINCIDENT",first:{instanceId:"a",kind:"BODY"},second:{instanceId:"b",kind:"BODY"},evaluationStatus:"VERIFIED",suppressed:false};
  const view=constraints=>({document:{id:"product",versionId:"revision",type:"PRODUCT"},product:{instances:[{id:"a",translation:[0,0,0]},{id:"b",translation:[10,0,0]}],constraints},resolvedInstances:[]});

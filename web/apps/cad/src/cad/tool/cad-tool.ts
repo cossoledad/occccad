@@ -154,6 +154,7 @@ export class AssemblyMoveTool implements CadTool {
     return context.viewport.moveManipulatorPointerMove(event.pointerId, event.x, event.y) ? InputResult.Consumed : InputResult.Ignored;
   }
   pointerUp(event: CadPointerEvent, context: ToolContext): InputResult {
+    context.viewport.moveManipulatorPointerMove(event.pointerId,event.x,event.y);
     return context.viewport.moveManipulatorPointerUp(event.pointerId, true) ? InputResult.ReleaseCapture : InputResult.Ignored;
   }
   pointerCancel(event: CadPointerEvent, context: ToolContext): InputResult {

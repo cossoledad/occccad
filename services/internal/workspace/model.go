@@ -961,9 +961,11 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
-	BodyID                  string `json:"bodyId,omitempty"`
-	Visible                 bool   `json:"visible,omitempty"`
-	VisibilityMode          string `json:"visibilityMode,omitempty"`
+	SessionID               string                       `json:"sessionId,omitempty"`
+	InteractionTarget       *geometry.AssemblyDragTarget `json:"interactionTarget,omitempty"`
+	BodyID                  string                       `json:"bodyId,omitempty"`
+	Visible                 bool                         `json:"visible,omitempty"`
+	VisibilityMode          string                       `json:"visibilityMode,omitempty"`
 	importInstances         []ProductInstance
 	ImportGraphDigest       string                `json:"importGraphDigest,omitempty"`
 	ImportSource            *ImportSource         `json:"-"`

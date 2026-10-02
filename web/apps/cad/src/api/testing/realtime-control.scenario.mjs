@@ -88,6 +88,45 @@ try {
  const [timer, entry] = [...timers].find(([, value]) => value.ms === 20_000);
  window.clearTimeout(timer); entry.fn(); await timeoutRejected;
  assert.ok(sent.some(e => e.type === "workspace.preview.cancel.v1" && e.payload.interactionId === "timed"));
+ // M4 uses direct typed RPC responses, not the generic preview-ready envelope.
+ // Server-bound final MOVE keeps its exact logical requestId across retries.
+ const interactionTarget={bodyId:"a",localGrabPoint:[1,2,3],targetPose:{translation:[4,5,6],rotation:[0,0,0,1]},frameRotation:[0,0,0,1],translationComponents:[true,false,false],rotationComponents:[false,false,false],targetSequence:9};
+ const commitCommand={type:"MOVE_INSTANCE",requestId:"final-move-receipt",sessionId:"transient-solver-session",previewId:"exact-final",interactionTarget};
+ onRequest=(socket,request)=>{
+  if(request.type==="assembly.interaction.begin.v1")socket.reply(request,{sessionId:"transient-solver-session",bodyId:"a",baseRevisionId:"r4",inputDigest:"frozen",nominalPoses:[]});
+  if(request.type==="assembly.interaction.update.v1")socket.reply(request,{sessionId:"transient-solver-session",sequence:9,inputDigest:"frozen",requestId:commitCommand.requestId,previewId:"exact-final",instancePoses:[],commitCommand,interaction:{status:"CONSTRAINED",hardFeasible:true,targetConverged:true,eligibleForCommit:true,targetSequence:9,targetError:2,targetOptimality:0}});
+  if(request.type==="workspace.command.execute.v1")socket.reply(request,{sequence:4,versionId:"revision-4",view:snapshot(4).view});
+ };
+ const session=await client.beginAssemblyInteraction("part",{baseRevisionId:"r4",instanceId:"a",localGrabPoint:[1,2,3],frameRotation:[0,0,0,1]});
+ const final=await client.updateAssemblyInteraction("part",{sessionId:session.sessionId,sequence:9,final:true,target:interactionTarget});
+ assert.equal(final.interaction.status,"CONSTRAINED");assert.equal(final.previewId,"exact-final");
+ await client.executeCommand("part",final.commitCommand);await client.executeCommand("part",final.commitCommand);
+ const moves=sent.filter(e=>e.type==="workspace.command.execute.v1"&&e.payload.command.sessionId===session.sessionId);
+ assert.equal(moves.length,2);for(const move of moves)assert.deepEqual(move.payload.command,commitCommand);
+ let lateBegin;
+ onRequest=(socket,request)=>{
+  if(request.type==="assembly.interaction.begin.v1")lateBegin={socket,request};
+  if(request.type==="assembly.interaction.cancel.v1")socket.reply(request,{});
+ };
+ const beginAbort=new AbortController(),lateSession=client.beginAssemblyInteraction("part",{baseRevisionId:"r4",instanceId:"a",localGrabPoint:[0,0,0],frameRotation:[0,0,0,1]},beginAbort.signal);
+ await tick();beginAbort.abort();lateBegin.socket.reply(lateBegin.request,{sessionId:"cancelled-late-begin",bodyId:"a",baseRevisionId:"r4",inputDigest:"frozen",nominalPoses:[]});
+ // Receiving the identity does not activate it: controller epoch handles that.
+ // It permits explicit cleanup instead of silently leaking the allocated ID.
+ const allocated=await lateSession;await client.cancelAssemblyInteraction("part",allocated.sessionId);
+ assert.ok(sent.some(e=>e.type==="assembly.interaction.cancel.v1"&&e.payload.sessionId==="cancelled-late-begin"));
+ // Analysis Abort cancels actual server work using the transport analysisId;
+ // it cannot merely abandon a local Promise and leave numerical probes running.
+ let delayedAnalysis;
+ onRequest=(socket,request)=>{
+  if(request.type==="assembly.conflict.analyze.v1")delayedAnalysis={socket,request};
+  if(request.type==="assembly.conflict.cancel.v1")socket.reply(request,{});
+ };
+ const analysisAbort=new AbortController();
+ const analysis=client.analyzeAssemblyConflicts("part",{analysisId:"analysis-identity",baseRevisionId:"r4",maxProbes:7,timeBudgetMs:500},analysisAbort.signal);
+ const analysisRejected=assert.rejects(analysis,e=>e.name==="AbortError");await tick();analysisAbort.abort();await analysisRejected;await tick();
+ assert.ok(delayedAnalysis);assert.equal(delayedAnalysis.request.payload.maxProbes,7);
+ assert.equal(sent.filter(e=>e.type==="assembly.conflict.cancel.v1"&&e.payload.analysisId==="analysis-identity").length,1);
+ delayedAnalysis.socket.reply(delayedAnalysis.request,{status:"UNSAT"});await tick();
  // Validation failures and oversize messages must never be retried as transport loss.
  onRequest = (socket, request) => socket.reply(request, undefined, { code: "VALIDATION_FAILED", message: "bad input", retryable: false, phase: "SOLVING" });
  const before = sent.length;

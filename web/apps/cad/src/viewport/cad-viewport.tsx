@@ -13,8 +13,12 @@ import type { Artifact, AssemblyGeometryRef, DocumentView, Selection, SelectionI
 import type { AssemblyConstraintToolKind } from "../cad/tool/cad-tool";
 import { CadViewportEngine } from "./cad-viewport-engine";
 import { formatSketchDimensionValue, normalizeSketchDimensionValue } from "../cad/sketch/sketch-input-policy";
+import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame, AssemblyInteractionCommit, AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 
 export type CadViewportHandle = {
+  cancelAssemblyInteraction:()=>void;
+  retryAssemblyMoveCommit:()=>void;
+  setAssemblyMoveDirection:(instanceId:string,direction:Vec3,kind:"line"|"plane")=>boolean;
   captureToolSelections: (selections: readonly SelectionItem[]) => boolean;
   fit: () => void;
   normalToSketch: () => void;
@@ -27,7 +31,7 @@ export type CadViewportHandle = {
   previewAssemblyPoses: (poses: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>) => void;
   previewInsertPattern: (input?: InstancePatternPreview) => void;
   assemblyAngleReferenceDirection: (references: AssemblyGeometryRef[]) => Vec3 | undefined;
-  focusAssemblyReference: (reference: AssemblyGeometryRef) => boolean;
+  focusAssemblyReference: (reference: AssemblyGeometryRef,ownerOccurrence?:string) => boolean;
   beginExternalReconnect: (externalID:string) => void;
 };
 
@@ -55,9 +59,11 @@ type Props = {
   onSketchOperations: (featureID: string, operations: SketchOperation[]) => void;
   onToolUseComplete: () => void;
   onActiveToolChange: (toolID: WorkbenchToolID) => void;
-  onInstanceMoved: (instanceID: string, translation: Vec3, rotation:[number,number,number,number], previewId?: string) => void;
-	onInstanceMovePreview: (instanceID:string,translation:Vec3,rotation:[number,number,number,number],interactionId:string,previewSequence:number,signal?:AbortSignal)=>Promise<{
-		poses:Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;constraintLimited:boolean;previewId:string}>;
+  onInstanceMoved: (documentId:string,candidate:AssemblyInteractionCommit)=>Promise<void>;
+  onAssemblyInteractionBegin:(documentId:string,input:AssemblyInteractionBegin,signal:AbortSignal)=>Promise<AssemblyInteractionSession>;
+  onAssemblyInteractionUpdate:(documentId:string,input:AssemblyInteractionUpdate,signal:AbortSignal)=>Promise<AssemblyInteractionFrame>;
+  onAssemblyInteractionCancel:(documentId:string,sessionId:string)=>Promise<unknown>;
+  onAssemblyInteractionState?:(state:AssemblyInteractionState,reason?:string)=>void;
   onAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
 };
 
@@ -84,8 +90,11 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       dimensionCreateRequested: (request) => setDimensionEditor(request),
       activeToolChanged: (toolID) => callbacks.current.onActiveToolChange(toolID),
       toolPromptChanged: () => {},
-		instanceMoved: (instanceID, translation,rotation,previewId) => callbacks.current.onInstanceMoved(instanceID, translation,rotation,previewId),
-		instanceMovePreview: (instanceID,translation,rotation,interactionId,previewSequence,signal)=>callbacks.current.onInstanceMovePreview(instanceID,translation,rotation,interactionId,previewSequence,signal),
+      instanceMoved:(documentId,candidate)=>callbacks.current.onInstanceMoved(documentId,candidate),
+      assemblyInteractionBegin:(documentId,input,signal)=>callbacks.current.onAssemblyInteractionBegin(documentId,input,signal),
+      assemblyInteractionUpdate:(documentId,input,signal)=>callbacks.current.onAssemblyInteractionUpdate(documentId,input,signal),
+      assemblyInteractionCancel:(documentId,sessionId)=>callbacks.current.onAssemblyInteractionCancel(documentId,sessionId),
+      assemblyInteractionState:(state,reason)=>callbacks.current.onAssemblyInteractionState?.(state,reason),
       assemblyConstraintRequested: (kind, references) => callbacks.current.onAssemblyConstraint(kind, references),
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
     });
@@ -134,6 +143,9 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => { engine.current?.setTreeVisibilityOverrides(props.treeVisibilityOverrides); }, [props.treeVisibilityOverrides]);
 
   useImperativeHandle(ref, () => ({
+    cancelAssemblyInteraction:()=>engine.current?.cancelAssemblyInteraction(),
+    retryAssemblyMoveCommit:()=>engine.current?.retryAssemblyMoveCommit(),
+    setAssemblyMoveDirection:(id,direction,kind)=>engine.current?.setAssemblyMoveDirection(id,direction,kind)??false,
     captureToolSelections: selections => engine.current?.captureToolSelections(selections) ?? false,
     fit: () => engine.current?.fit(),
     normalToSketch: () => engine.current?.normalToSketch(),
@@ -146,7 +158,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     previewAssemblyPoses: (poses) => engine.current?.previewAssemblyPoses(poses),
     previewInsertPattern: (input) => { patternPreview.current = input; engine.current?.previewInsertPattern(input); },
     assemblyAngleReferenceDirection: (references) => engine.current?.assemblyAngleReferenceDirection(references),
-    focusAssemblyReference: (reference) => engine.current?.focusAssemblyReference(reference) ?? false,
+    focusAssemblyReference: (reference,ownerOccurrence) => engine.current?.focusAssemblyReference(reference,ownerOccurrence) ?? false,
     beginExternalReconnect: (externalID) => engine.current?.beginExternalReconnect(externalID),
   }), []);
 

@@ -1017,7 +1017,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if documentType != "PRODUCT" {
 			break
 		}
-		return typeMoveInstance, moveInstancePayload{request.InstanceID, request.Translation, request.Rotation}, nil
+		return typeMoveInstance, moveInstancePayload{InstanceID: request.InstanceID, Translation: request.Translation, Rotation: request.Rotation, SessionID: request.SessionID, InteractionTarget: request.InteractionTarget}, nil
 	case "SET_ASSEMBLY_CONSTRAINT_STATE":
 		if documentType != "PRODUCT" {
 			break

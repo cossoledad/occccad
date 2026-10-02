@@ -67,6 +67,7 @@ func New(
 		jobs:      jobService, openDocuments: newOpenDocumentRegistry(),
 		secureCookies: secureCookies, allowedOrigins: origins, realtime: newRealtimeHub(),
 	}
+	server.realtime.cancelAssemblySession = workspaceService.CancelAssemblyInteraction
 	if database != nil {
 		ctx, cancel := context.WithCancel(context.Background())
 		server.realtimeCancel = cancel

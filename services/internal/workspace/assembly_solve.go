@@ -388,6 +388,12 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 			constraint.EvaluationStatus = modelcore.AssemblyConstraintImpossible
 			constraint.EvaluationSummary = reason
 			hasUnresolvedActiveConstraint = true
+			if _, diagnosticCapture := ctx.Value(assemblyFrozenInputKey{}).(*AssemblySolveManifest); diagnosticCapture {
+				// A read-only diagnostic must retain the incompatible target and
+				// its exact descriptors; the production admission path still
+				// isolates it, and this capture never sends it to that path.
+				constraints = append(constraints, value)
+			}
 			continue
 		}
 		constraints = append(constraints, value)
@@ -434,6 +440,12 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	}
 	finishPrepare()
 	preparing = false
+	// Read-only M4/M5 compilation captures exact values before persistence,
+	// numerical work, admission or production warm-start promotion.
+	if frozen, ok := ctx.Value(assemblyFrozenInputKey{}).(*AssemblySolveManifest); ok {
+		*frozen = manifest
+		return nil
+	}
 	if err := service.persistAssemblySolveManifest(ctx, manifest); err != nil {
 		return err
 	}

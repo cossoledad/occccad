@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <variant>
@@ -176,6 +177,28 @@ struct SolveIntent {
     SolvePreferencePolicy policy{SolvePreferencePolicy::MinimumTotalChange};
 };
 
+// Pure-value interaction objective, never a physical constraint. Target pose
+// maps the body's frozen local grab point into the owning Product frame.
+struct DragTarget {
+    std::string body_id;
+    Vec3 local_grab_point{};
+    Pose target_pose{};
+    Quaternion frame_rotation{};
+    std::array<bool, 3> translation_components{{true, true, true}};
+    std::array<bool, 3> rotation_components{{false, false, false}};
+    std::uint64_t target_sequence{};
+};
+enum class InteractionStatus { Reached, Constrained, Budget, Cancelled, Failed };
+struct InteractionEvidence {
+    InteractionStatus status{InteractionStatus::Failed};
+    bool hard_feasible{};
+    bool target_converged{};
+    bool eligible_for_commit{};
+    double target_error{};
+    double target_optimality{};
+    std::uint64_t target_sequence{};
+};
+
 struct SolverOptions {
     std::size_t max_iterations{100};
     double length_tolerance{1.0e-7};
@@ -214,6 +237,10 @@ struct SolverOptions {
     // containing at least one listed body are numerically updated.
     std::vector<std::string> affected_body_ids;
     std::optional<SolveIntent> solve_intent;
+    std::optional<DragTarget> drag_target;
+    // Called at iteration/backtracking/retraction checkpoints. Individual
+    // dense QR/SVD factorizations are not interruptible.
+    std::function<bool()> should_cancel;
 };
 
 enum class SolveStatus {
@@ -283,6 +310,7 @@ struct MotionPreference {
     double angle_scale{1.0};
     std::size_t iterations{};
     std::vector<BodyMotion> bodies;
+    std::optional<InteractionEvidence> interaction;
 };
 enum class FreedomKind {
     Fixed,
@@ -346,6 +374,15 @@ struct SolvedBody {
     Pose pose{};
 };
 
+struct SolvedAlignmentBranch {
+    std::string constraint_id;
+    DirectionRelation direction_relation{DirectionRelation::Unoriented};
+};
+struct SolvedDistanceBranch {
+    std::string constraint_id;
+    DistanceRelation distance_relation{DistanceRelation::Unsigned};
+};
+
 struct SolveResult {
     SolveStatus status{SolveStatus::InvalidModel};
     SolveClassification classification{SolveClassification::InvalidModel};
@@ -363,6 +400,9 @@ struct SolveResult {
     std::size_t iterations{};
     double normalized_residual{};
     std::string diagnostic;
+    std::optional<InteractionEvidence> interaction;
+    std::vector<SolvedAlignmentBranch> alignment_branches;
+    std::vector<SolvedDistanceBranch> distance_branches;
 };
 
 class Solver final {

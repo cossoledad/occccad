@@ -56,16 +56,16 @@ The remaining boundary is equally important:
   optimum or finite-motion reachability is claimed;
 - M3 freezes typed paths, resolved descriptors and nested rigid expansion; flexible
   expansion remains unimplemented;
-- MOVE preview still models its target as a temporary `Fix`, so it cannot return the
-  nearest feasible point and blocked directions for an unreachable drag target;
-- conflict probes identify suspects, not a verified IIS/MUS; M3 persists solver
-  profile/build provenance and request results, while M4 interaction sessions remain
-  future work;
-- request deadline/cancel is handled by the orchestration path; this does not prove
-  fine-grained numerical interruption. Sparse/incremental factorization and
+- interaction uses a pure-value `DragTarget`, not a temporary `Fix`, and separates
+  hard feasibility from locally converged reached/constrained target evidence;
+- kernel conflict probes identify suspects, not a verified IIS/MUS. Product
+  orchestration owns versioned M4 Sessions and bounded M5 evidence; a generic
+  nonlinear kernel failure is not an UNSAT proof;
+- request deadline/cancel reaches iteration, backtracking, retraction and rank
+  checkpoints; a single dense factorization remains uninterruptible. Sparse/incremental factorization and
   representative large-assembly performance gates remain future work.
 
-M4 and later milestones close the remaining gaps in dependency order. They must not be
+Further acceptance and later milestones close the remaining gaps in dependency order. They must not be
 collapsed into a larger enum surface or a backend replacement that leaves Product
 identity, branch intent and diagnostics unresolved.
 
@@ -671,6 +671,19 @@ returns an explicit broken/ambiguous-reference result without silent rebinding.
 
 ### M4: branch-stable constrained manipulation
 
+The kernel's first-stage implementation is `DragTarget` plus
+`InteractionEvidence` in `solver.hpp`. It reuses the physical Jacobian,
+dimensionless orthonormal tangent and nonlinear feasibility retraction; the
+interaction target precedes reference/nominal preferences and is not a Fix
+equation. Ungrounded interaction components retain their global gauge. A
+stationary nonzero target residual requires nonnegative restricted curvature,
+not merely a small gradient. Later preferences preserve a frozen target energy
+bound, and final evidence is rechecked at the final pose. See
+[the implemented algorithm](SOLVER_ALGORITHMS.md#41-m4-纯值交互目标) and
+`tests/interaction_scenarios.cpp` for controlled finite-motion acceptance.
+Session authority, branch transport, candidate promotion and history remain
+Product/Worker responsibilities, not persistent state inside this kernel.
+
 The Product gate now includes all [six constraint families and their DOF compositions](../../docs/architecture/target/assembly-constraints.md), their parameters and activation lifecycle. Session work may proceed after contract freeze; final M4 acceptance requires the complete composition and lifecycle corpus, including Fix Together internal-before-external solving. Activation is orthogonal to driving/measured mode and invalidates stale sessions.
 
 - persist static discrete branch intent in Product while keeping iteration branch
@@ -707,6 +720,11 @@ M5 is gated by deterministic multi-constraint conflict corpora and fault budgets
 an exhausted diagnostic budget returns partial evidence rather than a false MUS.
 
 ### M6: Engineering Connections beyond the six-family baseline
+
+M6 is explicitly deferred, without a scheduled restart; it is not the next
+automatic task after M4/M5 first-stage implementation. Existing analytic Contact,
+Frame, Fix Together and instantaneous/finite-motion conformance remain delivered
+six-family capabilities, not suspended M6 entities.
 
 Add capabilities in dependency order, each gated by equation, Jacobian, freedom,
 branch and diagnostic corpus:

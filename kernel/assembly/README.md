@@ -167,8 +167,9 @@ are inferred from subspaces; ambiguous combinations remain `Coupled`. These are
 local differential freedoms, not persisted Engineering Connections or guarantees of
 finite travel. Product previews expose this evidence in the constraint dialog.
 Persistent topology and durable solve manifests are provided by the current
-Product/Worker boundary, not queried by this module. Closest-feasible M4 MOVE
-dragging, minimal conflict sets and sparse/incremental solving remain future work.
+Product/Worker boundary, not queried by this module. M4 dragging uses a distinct
+pure-value objective (below); a general minimum-cardinality conflict prover and
+large-scale sparse backend are not implemented by this mathematical module.
 
 Build and run the focused scenarios with:
 
@@ -215,7 +216,17 @@ evidence to be ACCEPTED; blocked database/Worker/fixture evidence is not green.
 Native success alone does not certify Web/Domain/history/Release or the complete
 milestone. The README there also provides analytic FixtureExport and maintainer
 manual checks. Only the earlier OFFSET work has maintainer use confirmation;
-new interactions await manual acceptance, and M4 dragging has not been implemented.
+new interactions await manual acceptance. M4's pure-value `DragTarget` and
+`InteractionEvidence` implement the hard-feasibility → drag → reference → nominal
+hierarchy without a temporary Fix; production Session and RPC ownership remain
+at the Product/Worker boundary. See [the interaction algorithm](SOLVER_ALGORITHMS.md#41-m4-纯值交互目标).
+
+`occcad_assembly_interaction_benchmark [samples] [scene]` measures kernel-only
+latency for `single`, `connected50-200`, `independent50`, and `group-contact`.
+The 50-body case is one connected component with 200 active definitions,
+including explicit dependent loop constraints; output reports physical rank,
+actual components and sample count. It does not measure transport or rendering,
+and therefore cannot certify input-to-display P95 or 60 Hz.
 
 The translated/rotated FACE 4 to fixed FACE 6 regression is also available as a
 [minimal 3dreplay fixture](../../tests/assembly-corpus/face4-face6.3dreplay), replayable

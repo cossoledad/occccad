@@ -228,6 +228,18 @@ class CatalogTests(unittest.TestCase):
                 code = runner.main(["baseline", "--case", "offset.plane-plane.first-normal-editor", "--adapters", "go", "--output", output])
             self.assertEqual(code, 2)
 
+    def test_milestone_requires_all_actual_evidence(self):
+        catalog={"cases":[{"caseId":"m4.one"},{"caseId":"m4.two"},{"caseId":"m5.one"}]}
+        evidence=runner.milestone_evidence(catalog,{"m4.one":{"status":"PASS"}})
+        self.assertEqual(evidence["M4"]["status"],"INCOMPLETE")
+        self.assertEqual(evidence["M4"]["requiredEvidence"]["m4.two"],"NOT_RUN")
+        for verdict in ("FAIL","ENVIRONMENT_BLOCKED","NOT_RUN"):
+            self.assertEqual(runner.milestone_evidence(catalog,{"m4.one":{"status":"PASS"},"m4.two":{"status":verdict}})["M4"]["status"],"INCOMPLETE")
+        done=runner.milestone_evidence(catalog,{"m4.one":{"status":"PASS"},"m4.two":{"status":"PASS"}})
+        self.assertEqual(done["M4"]["status"],"ALL_REQUIRED_PASS")
+        self.assertEqual(done["M4"]["manualAcceptance"],"PENDING_MAINTAINER")
+        self.assertEqual(runner.milestone_evidence({"cases":[]},{})["M4"]["status"],"INCOMPLETE")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,6 +3,7 @@ package geometry
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -271,6 +272,14 @@ type AssemblySolvedAngleBranch struct {
 	ConstraintID string
 	State        AssemblyAngleBranchState
 }
+type AssemblySolvedAlignmentBranch struct {
+	ConstraintID string `json:"constraintId"`
+	Direction    string `json:"direction"`
+}
+type AssemblySolvedDistanceBranch struct {
+	ConstraintID string `json:"constraintId"`
+	Side         string `json:"side"`
+}
 
 type AssemblyEquationResidual struct {
 	EquationID, ConnectionID, ConstraintID string
@@ -323,15 +332,40 @@ type AssemblySolverProfile struct {
 }
 
 type AssemblySolveOptions struct {
-	CaptureReplay func([]byte, error)
+	DisableConflictProbes bool
+	CaptureReplay         func([]byte, error)
 
 	AffectedBodyIDs []string
 	Intent          *AssemblySolveIntent
 	SolverProfile   *AssemblySolverProfile
+	DragTarget      *AssemblyDragTarget
+}
+
+type AssemblyDragTarget struct {
+	BodyID                string       `json:"bodyId"`
+	LocalGrabPoint        [3]float64   `json:"localGrabPoint"`
+	TargetPose            AssemblyPose `json:"targetPose"`
+	FrameRotation         [4]float64   `json:"frameRotation"`
+	TranslationComponents [3]bool      `json:"translationComponents"`
+	RotationComponents    [3]bool      `json:"rotationComponents"`
+	TargetSequence        uint64       `json:"targetSequence"`
+}
+
+type AssemblyInteractionEvidence struct {
+	Status            string  `json:"status"`
+	HardFeasible      bool    `json:"hardFeasible"`
+	TargetConverged   bool    `json:"targetConverged"`
+	EligibleForCommit bool    `json:"eligibleForCommit"`
+	TargetError       float64 `json:"targetError"`
+	TargetOptimality  float64 `json:"targetOptimality"`
+	TargetSequence    uint64  `json:"targetSequence"`
 }
 
 type AssemblySolve struct {
-	GroupEvidence                                                                                                 []AssemblyGroupSolveEvidence `json:"groupEvidence,omitempty"`
+	DistanceBranches                                                                                              []AssemblySolvedDistanceBranch  `json:"distanceBranches,omitempty"`
+	AlignmentBranches                                                                                             []AssemblySolvedAlignmentBranch `json:"alignmentBranches,omitempty"`
+	Interaction                                                                                                   *AssemblyInteractionEvidence    `json:"interaction,omitempty"`
+	GroupEvidence                                                                                                 []AssemblyGroupSolveEvidence    `json:"groupEvidence,omitempty"`
 	SolverBuild                                                                                                   string
 	Status, Classification, Diagnostic                                                                            string
 	Bodies                                                                                                        []AssemblyBody
@@ -372,7 +406,10 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 	geometryValues []AssemblyGeometry, constraints []AssemblyConstraint, options AssemblySolveOptions) (AssemblySolve, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	request := &workerv1.SolveAssemblyRequest{RequestId: requestID, LengthScale: 1, AngleScale: 1, AffectedBodyIds: options.AffectedBodyIDs}
+	request := &workerv1.SolveAssemblyRequest{RequestId: requestID, LengthScale: 1, AngleScale: 1, AffectedBodyIds: options.AffectedBodyIDs, DisableConflictProbes: options.DisableConflictProbes}
+	if t := options.DragTarget; t != nil {
+		request.DragTarget = &workerv1.AssemblyDragTarget{BodyId: t.BodyID, LocalGrabPoint: &workerv1.Vec3{X: t.LocalGrabPoint[0], Y: t.LocalGrabPoint[1], Z: t.LocalGrabPoint[2]}, TargetPose: protoPose(t.TargetPose), FrameRotation: &workerv1.Quaternion{X: t.FrameRotation[0], Y: t.FrameRotation[1], Z: t.FrameRotation[2], W: t.FrameRotation[3]}, TranslationComponents: t.TranslationComponents[:], RotationComponents: t.RotationComponents[:], TargetSequence: t.TargetSequence}
+	}
 	if options.Intent != nil {
 		request.SolveIntent = &workerv1.AssemblySolveIntent{MovingBodyIds: options.Intent.MovingBodyIDs, ReferenceBodyIds: options.Intent.ReferenceBodyIDs, PreferencePolicy: options.Intent.PreferencePolicy}
 	}
@@ -449,6 +486,10 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 		return AssemblySolve{}, fmt.Errorf("solve assembly: %w", err)
 	}
 	result := AssemblySolve{SolverBuild: response.GetSolverBuild(), Status: response.GetStatus(), Classification: response.GetClassification(), Diagnostic: response.GetDiagnostic(), Iterations: response.GetIterations(), NormalizedResidual: response.GetNormalizedResidual(), RedundantConstraintIDs: response.GetRedundantConstraintIds(), UnsatisfiedConstraintIDs: response.GetUnsatisfiedConstraintIds(), ConflictingConstraintIDs: response.GetConflictingConstraintIds(), SuspectedConflictingConstraintIDs: response.GetSuspectedConflictingConstraintIds()}
+	if v := response.GetInteraction(); v != nil {
+		status := strings.TrimPrefix(v.Status.String(), "ASSEMBLY_INTERACTION_")
+		result.Interaction = &AssemblyInteractionEvidence{Status: status, HardFeasible: v.HardFeasible, TargetConverged: v.TargetConverged, EligibleForCommit: v.EligibleForCommit, TargetError: v.TargetError, TargetOptimality: v.TargetOptimality, TargetSequence: v.TargetSequence}
+	}
 	for _, body := range response.GetBodies() {
 		result.Bodies = append(result.Bodies, AssemblyBody{ID: body.GetId(), Pose: AssemblyPose{
 			Translation: [3]float64{body.GetPose().GetTranslation().GetX(), body.GetPose().GetTranslation().GetY(), body.GetPose().GetTranslation().GetZ()},
@@ -492,6 +533,12 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 	for _, value := range response.GetAngleBranches() {
 		state := value.GetState()
 		result.AngleBranches = append(result.AngleBranches, AssemblySolvedAngleBranch{ConstraintID: value.GetConstraintId(), State: AssemblyAngleBranchState{WrappedAngle: state.GetWrappedAngle(), UnwrappedAngle: state.GetUnwrappedAngle(), Winding: state.GetWinding()}})
+	}
+	for _, value := range response.GetAlignmentBranches() {
+		result.AlignmentBranches = append(result.AlignmentBranches, AssemblySolvedAlignmentBranch{ConstraintID: value.GetConstraintId(), Direction: strings.TrimPrefix(value.GetDirection().String(), "ALIGNMENT_DIRECTION_")})
+	}
+	for _, value := range response.GetDistanceBranches() {
+		result.DistanceBranches = append(result.DistanceBranches, AssemblySolvedDistanceBranch{ConstraintID: value.GetConstraintId(), Side: strings.TrimPrefix(value.GetSide().String(), "DISTANCE_SIDE_")})
 	}
 	for _, value := range response.GetDiagnostics() {
 		result.Diagnostics = append(result.Diagnostics, AssemblySolveDiagnostic{Code: value.GetCode(), ComponentID: value.GetComponentId(), Detail: value.GetDetail(), BodyIDs: value.GetBodyIds(), ConstraintIDs: value.GetConstraintIds()})

@@ -118,7 +118,31 @@ Rigid 成员提供的多个 seed 必须符合捕获的刚性关系，未选择�
 
 `preference.status` 与几何 `SolveStatus` 独立：可行但偏好预算耗尽/停滞仍返回可行 Pose 和 `PREFERENCE_NOT_CONVERGED` 诊断，
 Product 拒绝将它当作从动成功提交；不会误报为几何冲突。响应包含每体角色及平移/旋转变化、两层目标值、最终投影梯度、
-迭代数和尺度。MOVE_INSTANCE 的 `interaction-driver` 临时 Fix 仍属于另一条 M4 待替换路径。
+迭代数和尺度。普通 ADD/EDIT 保持上述 M2.5 合同；M4 交互使用下面的显式目标策略，不注入临时 Fix。
+
+### 4.1 M4 纯值交互目标
+
+`SolverOptions.drag_target` 指定 body、body-local 抓取点、owning Product 中的目标 pose、冻结参考旋转及平移/旋转分量 mask。位置误差是参考帧中的
+`R_frame^T ((R p_grab+t)-(R_target p_grab+t_target))/L`；旋转误差使用目标旋转到当前旋转的短弧 Log，变换到相同参考帧后除以 A。
+未参与的分量没有驱动残差。该目标不增加物理方程，不改变 rank、DOF 或固定基准。
+
+交互顺序为硬几何恢复 → 拖动目标 → reference nominal motion → total nominal motion。
+在 `J * diag(L,L,L,A,A,A)` 的正交核上求目标步，而不是对外部原始 basis 直接计算 `Z Z^T`；每个试步都调用原硬约束的有界非线性 retraction。
+后续偏好复用 M2.5 的先行标量目标切空间：零目标使用目标 Jacobian 的核，非零目标使用受限 Lagrangian 曲率的核，保留球面中心目标等平坦 argmin 的真实自由度。
+仅当残差为零或在该 argmin 上恒定时，retraction 同时保持冻结目标残差；其他平坦情形使用硬 retraction 与冻结标量能量上界，不混成加权和、不冻结不必要的残差向量。
+曲率乘子包含先行目标的适用导数行，但这些行不进入物理 rank。
+无 ground 时不消去 reference gauge，允许整个连接组件运动。
+`initial_pose` 始终是手势冻结 nominal；`initial_guess` 仅提供前一接纳帧。组捕获关系没有重新采样。
+Undefined 的适用对齐关系在交互求值分支中按 `initial_pose` 解析为 Same/Opposite；legacy Unsigned 的 Point/Line/Plane—Plane 侧也按同一冻结基线解析。
+`alignment_branches`/`distance_branches` 返回 typed 求值证据，原定义仍为 Undefined/Unsigned；不会随 warm start、相机或某次鼠标目标重新选择。SelectedPlaneNormalV1、Angle 及显式 Contact branch 的原语义保持。
+交互 body freedom 使用 owning Product 中的绝对瞬时子空间，包含允许的整体 gauge；静态 M2.5 继续使用相对锚点解释。component 的 relative/gauge DOF 分开报告，两者都不是有限旅行保证。
+
+目标投影梯度足够小且非零误差时，还检查受限 Lagrangian 曲率；负曲率驻点不能被认证为最近可行局部最优。
+`InteractionEvidence` 将硬可行、目标优化收敛和提交资格分开：Reached/Constrained 是局部结论；Budget/Cancelled/Failed 不可提升候选。
+不可达目标不触发持久冲突 probe，不尝试随机翻转 Undefined 分支。角度静态意图与 Session winding 的运输由调用方绑定，kernel 不写 Revision。
+`should_cancel` 在迭代、回溯及 retraction 检查；单次密集 QR/SVD 分解不可中断，这也是当前取消粒度限制。
+pose-only 交互仍计算全硬约束的 component rank、null-space 及每条方程残差，但不重复逐定义的累计增量 rank/冗余审计，返回 `INTERACTION_CONSTRAINT_RANK_AUDIT_FROZEN`。
+逐定义证据由 Session 的已接受输入基线绑定；普通静态求解及 M5 probe 继续执行该审计，不把缺少本帧审计解释为新证明。
 
 ## 5. 当前约束残差
 
@@ -301,7 +325,8 @@ connected-component 分解和 ground/rigid
 M1.6 还为近平行直线距离引入以 `degeneracy_tolerance` 为尺度的 blended 退化极限；除极小的
 `kDirectionEpsilon` 保护分支外，它在 skew 与 parallel 公式之间连续过渡。该表达是工程正则化而非无限直线距离的唯一解析
 延拓，仍需用容差边界 sweep 验证 bias、Jacobian 和 rank。
-当前算法还不具备：最小冲突集、全局多分支枚举、拖拽流形投影、一般曲面接触和大规模稀疏图优化。
+当前内核还不具备：通用最小基数冲突集证明、全局多分支枚举、一般曲面接触和大规模稀疏图优化。
+M4 已增加纯值拖动目标的局部流形优化；Product M5 的有界证据分级不等于内核的通用非线性 UNSAT 证明。
 M2.5 已提供局部层级运动优化和规范化瞬时自由度解释，不能由此推断全局最优或有限运动可达性。
 
 ## 11. 已确定的后续升级流程
@@ -324,8 +349,8 @@ M1.7 已把该切片修正为严格的绕轴角：先投影两个端点方向，
 1. **M2 方程与微分正确性（已完成）**：内部 typed equation registry 覆盖当前八类纯值 descriptor 与解析关系；前向解析微分提供左增量 Jacobian，中央有限差分作为 differential oracle。参考后端使用 augmented QR，SVD 专用于 rank、奇异值和数值 null-space。M2 没有增加 Product 约束类型。
 2. **M2.5 自由度与解选择（已实现）**：a 从动层级优化、b Product 贯通验收及 c 自由度解释均已落地。将数值 null-space 在稳定 cluster tangent 顺序下解释为平移、旋转和耦合瞬时自由度；以子空间而非原始 SVD 列进行确定性验证。在可行流形内使用层级优化依次最小化 reference motion 与总 nominal change，已替换 M1.7 弱权重策略。
 3. **M3 可重放输入（控制面已实现）**：由控制面冻结包含 typed InstancePath、ResolutionSnapshot、Publication/PersistentSelection、descriptor symmetry/provenance、branch intent、tolerance 和 solver build 的不可变 solve manifest。当前正式路径已使用 typed nested InstancePath 与持久引用解析；local topology ID 只作瞬时 pick evidence。产品验收与后续执行顺序见[统一路线](../../plans/README.md)。
-4. **M4 稳定分支与交互**：完整产品门须先具备[六类约束组合与激活/抑制](../../docs/architecture/target/assembly-constraints.md)，基础 Offset/Angle 子类型/Contact 描述符不再推迟至 M6。DIRECTED Angle 已具有稳定独立参考轴与正反意图；M4 仍须建立实时求解 Session、连续分支策略与延迟基准，不能把现有编辑 Preview 当作已完成拖拽；静态 Product 只持久化 modulo `2π` branch intent，preview/kinematics session 承担 winding。利用 M2/M2.5 null space 把 Drag 目标作为二级目标投影到约束流形，返回最近可行 Pose 与 blocked directions，不再注入临时 `Fix`。
-5. **M5 以后**：先完成图局部化、带预算且证据分级的冲突解释，再扩展 Engineering Connection/几何覆盖；最后依据大装配 benchmark 决定 block-sparse、增量 factorization、可选后端与独立 Worker 部署。详细阶段门见 `SOLVER_ARCHITECTURE.md`。
+4. **M4 稳定分支与交互**：在已交付[六类约束组合与激活/抑制](../../docs/architecture/target/assembly-constraints.md)上，第一阶段增加第 4.1 节的纯值流形拖动目标；Product/Worker 负责版本化 Session、连续 branch 运输及最终候选提交，不能把普通编辑 Preview 当作拖拽。静态 Product 只持久化 modulo `2π` branch intent，Interaction 承担 winding。基础 Offset/Angle/Contact/Frame 不推迟至 M6。产品实现、实际测试和待人工验收见[当前 Product 架构](../../docs/architecture/current/product-assembly.md)。
+5. **M5 与后续边界**：Product 编排承担图局部化、有预算且证据分级的只读分析；kernel 数值失败不是 UNSAT。M6 Engineering Connections 明确延期，不自动领取；M7 的 block-sparse、增量 factorization、可选后端与独立 Worker 仍须真实规模证据。详细阶段门见 `SOLVER_ARCHITECTURE.md`。
 
 静态装配只保存 modulo `2π` 的姿态分支，多圈累计角属于 Interaction、Kinematics 或 Simulation 状态。MUS/minimal
 conflict set 不在 M2 关键路径上；当前优先保证方程、解析微分、数值子空间和可重放输入的正确性，再建设分支交互和诊断搜索。
@@ -342,11 +367,11 @@ ctest --test-dir build/cmake/debug \
   -R '^(assembly|assembly-corpus)/' --output-on-failure
 ```
 
-### 六族本轮原生验证
+### 六族阶段原生验证（CONSTRAINT-COMPOSITION）
 
 下列带日期小节是对应旧阶段的实际记录，不随新实现倒填。六族本轮新增数学与组合验证使用 `contact_scenarios.cpp`、`contact_solver_scenarios.cpp`、`assembly_composition_scenarios.cpp`：Contact 独立支撑采样/切法向、各分支秩和解析微分交叉验证；正常需实际移动、材料/选叶/交换/反向、不可行和冗余耦合；45 项具体 Coincidence/Offset/Angle/Fix 数值矩阵；独立第三参考轴及子空间 projector（先正交化而非假设 SVD 输出符号/顺序）。当前统一执行 **177/177 native、21/21 corpus 通过**，记录于 `build/constraint-composition/native-composition-final.xml`、`native-corpus-final.xml`。六族编译组的 Plane–Plane 材料反极点回归已纳入本次统一执行；这里不据此声称真实数据库或 CONSTRAINT-COMPOSITION 整体已通过。
 
-有限运动复用 `AssemblyComposition.JointFamiliesPreserveAllowedFiniteMotionAndRejectBlockedTranslation`：球铰/平面副/圆柱副/转动副/移动副/固定关系各 13 个解析有限姿态和一次受阻恢复，共 84 次真实重复求解。本轮没有实现 M4 鼠标最近可行拖拽，不以瞬时零空间方向代替该有限路径验收。维护者此前仅确认 OFFSET 使用验证，本轮新交互人工待验；未执行浏览器测试或无差别全仓单测。
+有限运动复用 `AssemblyComposition.JointFamiliesPreserveAllowedFiniteMotionAndRejectBlockedTranslation`：球铰/平面副/圆柱副/转动副/移动副/固定关系各 13 个解析有限姿态和一次受阻恢复，共 84 次真实重复求解。该阶段尚未实现 M4 鼠标最近可行拖拽，不以瞬时零空间方向代替该有限路径验收；M4 新增纯值目标见第 4.1 节。该记录中的维护者反馈仅覆盖此前 OFFSET 使用验证，后续反馈与交互验证见当前 Product 分册；未执行浏览器测试或无差别全仓单测。
 
 独立第三参考轴同时参与连通分量、微分与组内/组外判定：只有该约束的全部 incident bodies 都属于组时才进入内部阶段，内部捕获摘要包含第三轴的稳定几何身份。两成员组加外部第三轴与三成员组包含该轴是不同的冻结阶段。接受 DIRECTED 结果不能运输 FREE 的 `spatialAngleBranchDirection`；从 DIRECTED 切回 FREE 时保留用户空间角定义，而不是带入投影角求值分支。Axis–Plane 从不可测初态恢复 Driving 的正交初值只作用于试算，不修改 nominal、Fix 或驱动参数。
 

@@ -189,3 +189,21 @@ Activate/Deactivate（抑制）控制该定义是否参与更新，作用于六�
 约束定义的合法性与求解可满足性分离：Impossible 仅用于几何与单个约束定义不兼容；组合冲突、过约束或数值未收敛使用 NotUpdated 并保留求解证据。结构树允许保存这些定义，抑制与激活可用于修复；旧失败状态不得永久阻止重新参与求值。无向关系允许两个方向分支，不能以首次添加时的姿态冻结其可行解集。
 
 已求解约束集合与待接纳定义分离。添加或修改导致组合冲突时保留原已解集合，仅将不能接纳的定义置为 NotUpdated 并排除出运动方程；已有可满足的冗余方程无需仅因秩冗余而失败。拖动不承担重试隔离定义的职责；显式重算、定义修改、删除、抑制/激活后按确定顺序重新尝试接纳。用户 Suppressed 与求值隔离是两个维度，不通过偷偷抑制来实现过滤。
+
+### 连续操纵与局部诊断合同
+
+求解 Session 是有容量、TTL、取消与并发保护的瞬态计算上下文，不是 TREE-03 EditSession 或持久连接模型。它冻结 actor、Workspace/Head/sequence、owning Product/完整 occurrence 与编辑上下文、已接受引用、定义/模式/激活集合、精确支持、组捕获、solver policy/profile/build 和手势 nominal baseline。accepted pose/branch 仅用于后续 initial guess；失效、取消、未接纳或迟到结果不能运输它们。外部 Head/相关输入或上下文变化要求重新开始，不能自动追随新 Head。
+
+DragTarget 的 pose、抓取点目标与参考帧均属于 owning Product（长度毫米、角度弧度）。抓取点为 `R * localGrabPoint + t`；目标为 `R_target * localGrabPoint + t_target`。冻结 frame 的平移/旋转分量 mask 只控制指定目标，不升级为物理方程。层级为：实际接纳硬约束与分支可行 → 当前拖动目标的局部最优 → 不恶化上层的 reference/total nominal motion。统一尺度中的零空间必须正交化；每个切步做真实硬约束恢复和上层复验。无 Ground 时保留物理整体运动，不把数值 gauge 写成 Fix。未指定分量可以改变，不承诺 body origin 必然等于鼠标抓取点目标。
+
+SPACE Fix 保留捕获基准。显式 Move 可编辑被驱动运动单元及其既有刚性组成员的 RELATIVE 基准：开始时冻结授权 Fix ID 集合，交互编译明确把这些基准视为本次编辑参数，其他硬约束不变；合格最终帧一次原子写入新基准和所有受影响姿态。不是 admission 隔离或用户 suppression，不在数值迭代中重捕获；普通求值、测量、失败、取消不能改变持久基准。组捕获关系在整个手势中不变。
+
+反馈分别报告硬约束可行、目标到达/受限局部最优、优化预算/未知、数值失败与版本失效。“最近可行”只限定于本分支局部收敛证据；瞬时自由度不是有限运动证明。预算帧可反馈最后可行状态，但不可作为合格最终候选。最终候选绑定最新目标、完整冻结上下文、实际证据与 policy；中间帧零 Revision，无变化零提交，有变化一段手势原子提交一次 Move。CAS、receipt 重试、Undo/Redo 和冻结 Manifest 沿原体系；提交结果未知先确认 receipt，不能用恢复本地 baseline 冒充业务撤销。
+
+每 Session 一个在途求解和一个最新未发目标。连续输入合并而不反复取消在途工作；属于有效 Session 的顺序递增可行帧仍可反馈，不因存在更晚待发目标饥饿。pointerup 必须另行 flush 最终目标。异常 capture 丢失、Esc、取消、blur/切换取消；正常 pointerup 的 release 不触发异常取消。实例、组、glyph、手柄按同一权威帧投影，不重新生成几何。
+
+M5 分析冻结 Revision/输入、目标隔离定义与完整相关 incidence 邻域（含物理 Ground、闭环、第三轴及组生成关系）；probe 固定方程集，禁止使用 admission 自动缩减后的成功证明原集合 SAT。分析只读、预算与取消有界，不修改生产 warm start、branch、基准、激活或历史。Suppressed/Measured 不进入活动硬冲突；来源、参数及基础设施故障单独解释。
+
+oracle 是三值：SAT 需要独立几何见证；UNSAT 需要范围明确的解析/结构不可满足证据；未收敛、驻点、证书未覆盖或预算不足为 UNKNOWN。当前未满足、冗余、退化、localized suspect、解析不兼容与 verified irreducible 分开。只有原集合可靠 UNSAT 且必要删除集都有 SAT 见证，才声明背景/分支范围内不可约；不是最小基数。结果提供 Constraint/Group/Equation 与支持来源、版本和合法的既有修复命令，用户决定是否编辑、停用、测量或重连。修复后旧版本诊断失效，M4 不可达目标不触发 M5 搜索。
+
+M6 Engineering Connections 暂缓；上述数学有限运动和 Frame/Contact/组不创建 Connector、Joint limits、gear/rack 或动力学实体。

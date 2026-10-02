@@ -1,6 +1,8 @@
 import type { CommandPreview, DocumentView, Job } from "../types";
 import { closeAfterInitializationFailure } from "./websocket-lifecycle";
 import { randomUUID } from "../utils/random-uuid";
+import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame } from "../cad/assembly/assembly-interaction";
+import type { AssemblyConflictRequest, AssemblyConflictReport } from "../cad/assembly/assembly-conflict";
 
 const protocol = "occccad.realtime.v1";
 const apiBaseURL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
@@ -222,6 +224,34 @@ export class RealtimeClient {
     } catch (error) {
       abort.abort(); cleanup(); throw error;
     }
+  }
+
+  beginAssemblyInteraction(documentId: string, input: AssemblyInteractionBegin, signal?: AbortSignal): Promise<AssemblyInteractionSession> {
+    if(signal?.aborted)return Promise.reject(new DOMException("Aborted","AbortError"));
+    // A cancelled begin must still receive its newly allocated sessionId so
+    // the controller can explicitly close it. Dropping the local response on
+    // Abort would strand a server Session until TTL. Controller epoch fences
+    // ensure the late reply cannot activate/render the cancelled gesture.
+    return this.request("assembly.interaction.begin.v1", { documentId, ...input }, undefined, 20_000);
+  }
+  updateAssemblyInteraction(documentId: string, input: AssemblyInteractionUpdate, signal?: AbortSignal): Promise<AssemblyInteractionFrame> {
+    // Unlike generic feature Preview, pointer movement never aborts the running
+    // request. Backpressure/coalescing belongs to the one-flight controller.
+    return this.request("assembly.interaction.update.v1", { documentId, ...input }, signal, 20_000);
+  }
+  cancelAssemblyInteraction(documentId: string, sessionId: string): Promise<unknown> {
+    if (this.socket?.readyState !== WebSocket.OPEN) return Promise.resolve(undefined);
+    return this.request("assembly.interaction.cancel.v1", { documentId, sessionId }, undefined, 5_000);
+  }
+  async analyzeAssemblyConflicts(documentId:string,input:AssemblyConflictRequest,signal?:AbortSignal):Promise<AssemblyConflictReport> {
+    const cancel=()=>{void this.cancelAssemblyConflicts(documentId,input.analysisId).catch(()=>undefined);};
+    signal?.addEventListener("abort",cancel,{once:true});
+    try{return await this.request<AssemblyConflictReport>("assembly.conflict.analyze.v1",{documentId,...input},signal,Math.max(20_000,(input.timeBudgetMs??5_000)+5_000));}
+    finally{signal?.removeEventListener("abort",cancel);}
+  }
+  cancelAssemblyConflicts(documentId:string,analysisId:string):Promise<unknown>{
+    if(this.socket?.readyState!==WebSocket.OPEN)return Promise.resolve(undefined);
+    return this.request("assembly.conflict.cancel.v1",{documentId,analysisId},undefined,5_000);
   }
 
   onRecovery(listener: () => void): () => void {

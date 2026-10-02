@@ -82,6 +82,7 @@ type Service struct {
 	debugArtifactWrites   chan debugArtifactWrite
 	interactionCandidates interactionCandidateCache
 	assemblyWarmStarts    assemblyWarmStartCache
+	assemblyInteractions  assemblyInteractionCache
 	selectionResolutions  sync.Map
 }
 

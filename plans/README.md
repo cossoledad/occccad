@@ -1,6 +1,6 @@
 # 统一开发路线
 
-> 2026-10-01 状态核对：`main` / `c1becfd`，加本轮 CONSTRAINT-COMPOSITION 工作区变更。计划只保存未完成工作；已实现事实见[当前架构](../docs/CURRENT_ARCHITECTURE.md)，长期合同见[目标架构](../docs/TARGET_ARCHITECTURE.md)。
+> 2026-10-01 状态核对：`main` / `0b63ddd`，加本轮 M4/M5 第一阶段工作区变更。计划只保存未完成工作；已实现事实见[当前架构](../docs/CURRENT_ARCHITECTURE.md)，长期合同见[目标架构](../docs/TARGET_ARCHITECTURE.md)。
 
 ## 一条主线
 
@@ -10,30 +10,30 @@
 
 ```mermaid
 flowchart LR
-    Baseline["已有：数据面/XDE/Multi-Body/语义树/Product/M3及六类实现"] --> Session["下一项 ASSEMBLY-SESSION；六类人工验收另行收口"]
-    Session --> Drag["M4 稳定实时约束流形交互"]
-    Drag --> Conflict["M5 局部冲突解释"]
-    Conflict --> Connection["M6 工程连接"]
+    Baseline["已有：数据面/XDE/Multi-Body/语义树/Product/M3及六类实现"] --> Acceptance["M4/M5 第一阶段实机验收"]
+    Acceptance --> Closeout["按人工反馈修复和整理"]
+    Closeout --> Part["后续 Part Sketch/Feature/Naming 主线"]
+    Closeout -.明确延期.-> Connection["M6 工程连接；无恢复日期"]
     Baseline --> Feature["FEATURE 实体特征支线"]
     Baseline --> Projection["PROJECTION 草图投影支线"]
     Connection -.进入条件.-> Future["DMU / Kinematics 等候选"]
 ```
 
-若只有一条开发线：下一项实施 ASSEMBLY-SESSION，再依次收口 M4 → M5 → M6。六类及生命周期的代码已交付，最终自动门和新增交互人工验收分别记录，不重新领取已实现的类型批次。M4 验收仍必须覆盖六类、组与抑制组合；Revolve/其他 Feature 和 Projection 保持独立支线。
+若只有一条开发线：完成 M4/M5 第一阶段自动收口后，由维护者实机验证，再按反馈修复和整理；不从零重领 Session 或六类实现。后续主线转向 Part Sketch/Feature/Naming，具体批次沿用既有队列，本轮不提前实施。M6 明确延期，不是自动领取的下一任务。
 
 ## 当前决策与下一主任务
 
 CONSTRAINT-CONTRACT 的目录、真实测试 adapter 和回归门已复用到本轮六类补齐：公共 v2 定义/能力查询、八类精确 descriptor 与稳定派生支持、六类数值与参数、激活/来源恢复、真正的多成员组内先解/组外后解、冻结历史及发布链已进入当前实现，见[当前 Product](../docs/architecture/current/product-assembly.md#六类公共定义精确支持与生命周期)。已实现能力不再作为下一轮开发待办。
 
-当前下一主实现任务为 **ASSEMBLY-SESSION（待实施，M4 入口）**，不是再次实现 Offset、Contact 或 Fix Together。本轮六类及生命周期已完成实现与 CONSTRAINT-COMPOSITION 自动收口：完整 baseline/gaps/composition 各 617 PASS，58 项能力必需自动证据齐全，且装配领域四步骤通过；准确范围和命令见[当前执行记录](../docs/architecture/current/product-assembly.md#constraint-composition-本轮收口)，派生报告为 `build/constraint-composition/final-composition/report.json`。新发现的真实失败必须保留并修复，不能降低合同进入 M4 最终验收。
+当前状态为 **M4/M5 第一阶段实现完成，等待维护者实机验收**，随后按反馈修复和整理。连续目标、瞬态 Session、严格最终候选和只读局部诊断已进入真实产品链路；代码入口、完整自动报告、性能实测与限制见[当前实现](../docs/architecture/current/product-assembly.md#m4m5-第一阶段连续操纵与局部解释)。六类及生命周期的既有 CONSTRAINT-COMPOSITION 基线继续复用，不重复开发 Offset、Contact 或 Fix Together；新发现的真实失败必须保留并修复，不能降低合同。真实50-body连通性能未达100ms，浏览器60Hz未测，不与实现完成混为一谈。
 
-维护者现已反馈六类主要能力完成人工使用验证，并观察到求解速度、稳定性明显改善；没有同环境性能数据，不扩展为工业语料、加速比或所有并发场景验收。编辑候选一致性与约束显示同步的定向修复见[当前记录](../docs/architecture/current/product-assembly.md#六类交付定向收口编辑候选与约束显示)，这两项修复仍需维护者实机确认，步骤见[合同设施说明](../tests/assembly-contract/README.md)。九个 CONSTRAINT-* 标识在[装配计划](assembly-evolution.md#六类约束与生命周期补齐)保留验收出口和稳定导航，不重复保留已完成实施清单。Feature、Projection、大模型及工程维护保持各自队列，只有明确的新需求才调整执行优先级；Preview/null-space/自由度显示不等于 M4 已交付。
+维护者已反馈六类主要能力可用、速度和稳定性明显改善，并确认最近候选、图标及相关交互 Bug 已解决；没有同环境性能数据，不扩展为工业语料、加速比或所有并发场景验收，也不代签本轮新 M4/M5。九个 CONSTRAINT-* 标识在[装配计划](assembly-evolution.md#六类约束与生命周期补齐)保留稳定导航和尚未覆盖的验收出口。Feature、Projection、大模型及工程维护保持各自队列，只有明确的新需求才调整执行优先级。
 
 ## 可领取工作
 
 | 轨道 | 当前首项 | 依赖与退出门 | 详情 |
 |---|---|---|---|
-| 装配主线 | ASSEMBLY-SESSION（待实施） | 复用六类及组代码；本轮自动门按派生报告收口，人工验收另行记录；版本化求解 session → M4 → M5 → M6 | [装配演进](assembly-evolution.md) |
+| 装配主线 | M4/M5 第一阶段验收与反馈收口 | 自动证据和真实性能单列；实机通过且反馈缺陷闭环后结束第一阶段验收；M6 明确延期 | [装配演进](assembly-evolution.md) |
 | 实体支线 | FEATURE-REVOLVE-HISTORY | 已有 Extrude/Boolean 命名基线；完整命名 corpus | [Feature 扩张](feature-expansion.md) |
 | 草图支线 | PROJECTION-ARC | 已有 Edge/Vertex 投影；先统一 ARC snapshot | [Sketch 投影](sketch-projection.md) |
 | 导入与大模型支线 | LARGE-BASELINE | 命名正确性与容量基线先行；对象存储、计算、显示共同验收 | [导入与大模型](import-large-models.md) |

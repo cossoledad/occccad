@@ -50,7 +50,7 @@ HTTP `phases_ms` 增加 `assembly-total`、`assembly-prepare`、`assembly-worker
 
 `kernel/assembly` 只消费纯值 Point/Axis/Plane/Cylinder/Circle/Sphere/Cone/Frame、内部约束原语和完整 SE(3) pose。多 Body Part occurrence 仍是一个装配运动单元；支持可定位任意 CAD Body，不能据此拆分 solver body。Rigid cluster、Fix/Ground 消元与 connected-component 求解先于数值迭代；生产路径使用解析 Jacobian、augmented QR 和 SVD rank/null-space。M2.5 依次满足硬约束、最小化 reference motion、最小化总 nominal motion，独立报告偏好收敛与瞬时自由度。创建/编辑以第一选择为 moving、第二选择为 reference，Constraint 与全部 solved pose 在同一 ChangeSet 提交。Rigid 捕获当前相对位姿后允许 moving/reference 两个 occurrence 属于同一刚性组，reference 最小运动作用于共享组；既有约束仍逐项验证，真实不一致不会被固连掩盖。算法细节与 corpus 由[Solver Algorithms](../../../kernel/assembly/SOLVER_ALGORITHMS.md)维护。
 
-当前 MOVE 仍注入临时 `interaction-driver` Fix；不可达预览恢复权威 pose，尚不能返回 M4 的最近可行拖拽结果。有效 preview candidate 可经完整身份与 CAS 校验提升为提交；未提供 PreviewID 的命令走权威求解，明确提供但已过期或不匹配的 candidate 返回 `PREVIEW_CANDIDATE_STALE_OR_MISMATCHED`，不能静默重新求解后采用另一结果。M3 已覆盖嵌套 rigid Product 与持久引用解析；flexible expansion、稀疏后端和最小冲突集尚未实现。
+M4 Session 拖动使用独立 `DragTarget`，不注入临时 Fix；受限可行结果和未完成优化分开反馈。普通非交互 MOVE 的显式更新兼容路径仍保留。有效 preview candidate 可经完整身份与 CAS 校验提升为提交；未提供 PreviewID 的普通命令走权威求解，明确提供但已过期或不匹配的 candidate 返回 `PREVIEW_CANDIDATE_STALE_OR_MISMATCHED`，不能静默重新求解后采用另一结果。M3 已覆盖嵌套 rigid Product 与持久引用解析；M5 仅有范围明确的局部证据与不可约检验，flexible expansion、稀疏后端和通用最小基数冲突集未实现。
 
 三维求解支持独立的 `occccad.3dreplay.v1` 下载：每次实际 SolveAssembly（包括 preview、成功、模型失败和已知的 RPC 失败）结束后，将精确数学请求、有效求解参数及紧凑结果在响应关键路径之外原子写入 `OCCCCAD_LOG_DIR/debug/assembly-replays/<documentID>/`。它不进入 PostgreSQL，不改变 Workspace Head/Revision，也不包含 B-Rep、网格或完整命令历史。每个文档最多保留 50 条且最长保留 7 天；文档读权限仍控制列表与下载，Web 可按真正发生求解的 request ID 下载 `.3dreplay`。文件可不依赖数据库通过 Worker/Router 重放。几何解析前失败尚未形成数值求解输入，不生成文件；本地存档失败只记录独立错误，不伪造求解状态。
 
@@ -65,7 +65,7 @@ HTTP `phases_ms` 增加 `assembly-total`、`assembly-prepare`、`assembly-worker
 - [事务历史](../../../services/internal/workspace/product_design_history.go)
 - [Variant/Update/Release](../../../services/internal/workspace/product_update_release.go)
 - [M3 manifest/replay](../../../services/internal/workspace/assembly_solve_manifest.go)
-- [当前 MOVE Fix](../../../services/internal/workspace/assembly_solve.go)
+- [版本化交互 Session](../../../services/internal/workspace/assembly_interaction.go)与[普通 Move 更新](../../../services/internal/workspace/assembly_solve.go)
 - [typed path/命名 corpus](../../../services/internal/workspace/p10_product_context_test.go)
 - [ToyCar/manifest corpus](../../../services/internal/workspace/p10_remaining_test.go)
 - [Publication corpus](../../../services/internal/workspace/publication_test.go)
@@ -81,7 +81,7 @@ HTTP `phases_ms` 增加 `assembly-total`、`assembly-prepare`、`assembly-worker
 - 修复：原构造器只复制外层 slice，调用方修改嵌套指针可改变 manifest 内容而不改变 digest；现在构造器冻结独立持久化表示，保持现有 schema、字段与重放合同。
 - 限制：本轮未设置 `OCCCCAD_TEST_DATABASE_URL` 和 `OCCCCAD_TEST_GEOMETRY_WORKER`，要求专用数据库/真实 Worker 的可选 Go 集成测试按既有规则跳过；标准单元测试通过不表述为这些集成测试已重新通过。本轮未清理或重置开发数据。
 
-验收待办已移出计划；M4 稳定拖拽、M5 冲突解释和 M6 工程连接仍是后续工作，不因本次验收完成而视作交付。
+该阶段验收待办已移出计划；当时 M4/M5/M6 尚未交付。后续 M4/M5 第一阶段实现见本文末节，M6 仍明确延期，不倒填较早的验收记录。
 
 ## 六类公共定义、精确支持与生命周期
 
@@ -109,7 +109,7 @@ Fix 新增 SPACE/RELATIVE 基准：相对固定接受显式移动后的名义位
 
 验证入口：[生命周期单元测试](../../../services/internal/workspace/assembly_lifecycle_test.go)、[0–6 阶、3+2+1 及常见关节有限运动测试](../../../kernel/assembly/tests/assembly_solver_scenarios.cpp)、[真实 Router/Worker、历史与 Release 集成](../../../services/internal/control/assembly_motion_integration_test.go)、[浏览器生命周期场景](../../../web/apps/cad/browser/assembly-lifecycle.spec.ts)。浏览器场景使用 Mock adapter 验证交互；权威计算测试走真实 Router/Worker 与独立测试数据库。单项/批量激活、Measured 恢复、停用后移动、连续 Undo/Redo、空活动集重放、Release 后再激活、相对/空间 Fix 位姿行为已有真实链路回归用例。2026-09-30 文档核对确认代码和测试入口存在，未重跑这些测试；此处未列出这些新增用例的逐项执行记录，不能借 ACCEPT-PRODUCT 的较早记录推断它们已执行通过。
 
-上述新增实现不以旧阶段测试入口或 ACCEPT-PRODUCT 验收代替本轮 CONSTRAINT-COMPOSITION 的实际结果。目录逐 capability 区分实现层、专用数学/领域/UI/真实数据库证据及未运行/阻塞；本轮整体自动化收口以派生报告为准，不在此永久维护另一张状态矩阵。维护者只明确反馈本轮之前 OFFSET 改造人工使用验证通过，此反馈不能扩大到新 Contact、固联、全部来源/历史组合；本轮新增交互仍待维护者实机验收，未运行浏览器测试。M4 最近可行拖拽、M5/M6 均未实施；TREE-03 编辑会话不是约束求解 Session。
+上述新增实现不以旧阶段测试入口或 ACCEPT-PRODUCT 验收代替 CONSTRAINT-COMPOSITION 的实际结果。目录逐 capability 区分实现层、专用数学/领域/UI/真实数据库证据及未运行/阻塞；整体自动化收口以派生报告为准，不在此永久维护另一张状态矩阵。该阶段维护者仅反馈此前 OFFSET 使用验证通过，当时新增六类交互及 M4/M5/M6 未验收/未实施；后续六类反馈和 M4/M5 实现见本文末两节，不倒填当时记录。TREE-03 编辑会话不是约束求解 Session。
 
 ### 嵌套支持与可修复的约束状态
 
@@ -129,7 +129,7 @@ Product 与 Part 补偿冲突检查使用实际最近 REVERT/REAPPLY 结果 Revi
 
 装配求值先验证既有 Verified 集合，再按持久约束顺序逐个试加入新增、修改或待恢复定义。某项与已解集合冲突或不收敛时，仅该项记为 NotUpdated 并隔离；此前已解项保持 Verified，之后独立项仍可接纳。如果上游几何变化使原集合整体失效，则按持久顺序重建已解集合。该策略是本系统的确定性接纳顺序，不宣称 NotUpdated 等价于证明“无解”；可满足的冗余约束仍由数值求解器判断。
 
-鼠标拖动的 MOVE_INSTANCE（含 preview/commit）只使用已接纳方程和交互 driver。隔离定义不参与支持解析、方程、自由度计算或测量更新；拖动不可为了成功而丢弃已有 Verified 约束。抑制/激活、删除、修改或显式重算会再次尝试隔离项，恢复后重新参与运动。
+鼠标拖动使用下述版本化 M4 Session 与独立 DragTarget，不再把交互目标编译成 interaction-driver Fix；普通非 Session Move 保留原显式更新路径。隔离定义不参与拖动方程、自由度计算或测量更新；拖动不可为了成功而丢弃已有 Verified 约束。抑制/激活、删除、修改或显式重算会再次尝试隔离项，恢复后重新参与运动。
 
 每次接纳试算保留命令入口的 nominal pose；失败不污染姿态、warm start 或其他约束状态。网络、取消与基础设施故障使整次操作失败，不记为约束冲突。试算使用独立请求及 `PROBE` SolveManifest，最终 COMMIT/PREVIEW manifest 同时记录全部定义和实际接纳的方程集合；Release 不使用探测试算证据，活动隔离项仍阻止 Release。
 
@@ -151,7 +151,7 @@ CONSTRAINT-CONTRACT 交付共享 [catalog.json](../../../tests/assembly-contract
 
 上述 CONSTRAINT-CONTRACT 执行时的差异是 `offset.plane-plane.first-normal-editor`：第一选择法向目标与第二法向编辑入口不一致。CONSTRAINT-OFFSET 本批已保持其目标与断言不变地修复，并补充下述真实数学/领域/数据库链路；旧执行结果不是当前仍失败的声明。
 
-CONSTRAINT-CONTRACT 当时未配置专用数据库，历史/Release case 是 ENVIRONMENT_BLOCKED，不能借本批结果倒填当时的验收。未实现项的明确拒绝测试通过不等于产品能力通过。该阶段曾缺少 Contact、Frame/派生几何、明确 Point–Curve/Surface 与组内先解；本轮新增实现见上文，不能倒填当时结果。共享基础测试不等于具体组合验收。完成 CONSTRAINT-CONTRACT 不等于 CONSTRAINT-COMPOSITION 或 M4 完成，MOVE 仍用 `interaction-driver` Fix。
+CONSTRAINT-CONTRACT 当时未配置专用数据库，历史/Release case 是 ENVIRONMENT_BLOCKED，不能借后续结果倒填当时的验收。未实现项的明确拒绝测试通过不等于产品能力通过。该阶段曾缺少 Contact、Frame/派生几何、明确 Point–Curve/Surface 与组内先解；后续实现见上文。共享基础测试不等于具体组合验收。完成 CONSTRAINT-CONTRACT 不等于 CONSTRAINT-COMPOSITION 或 M4 完成，当时 MOVE 使用 `interaction-driver` Fix，新 Session 路径见末节。
 
 ### Offset 有符号纵向切片
 
@@ -169,7 +169,7 @@ Measured 不发驱动方程；双平面测量仅要求实际法向平行（任�
 
 有符号首切片执行结果：目录/锁通过，12 个执行设施测试通过；Offset baseline 与 gaps 均 **47 PASS**（44 个去重映射），受影响的六族合同 baseline **98 PASS**（94 个去重映射），没有环境跳过冒充通过。报告的能力覆盖仍为 44 PARTIAL、14 TARGET_NOT_IMPLEMENTED，Offset 六项均 PARTIAL。`invoke check --scope assembly` 四个步骤通过（C++ 构建/CTest、Go、Web 场景），TypeScript 无输出编译与共享 modelcore 包测试通过，`invoke context-audit` 通过。旧共享数据库历史测试的错误“抛错/数值子集失败”断言已替换为上述完整失败定义/试算隔离与无候选/无位姿/无 Head 变化断言，并真实通过；锁变更理由见测试 README。后续平行 EDGE 修复记录见下节，前述数字不是新增 case 的执行证据。
 
-报告按必需层与适用专用测试推导实现覆盖、执行完整性和验收状态；共享基础/拒绝测试不能认证组合，缺测/未运行/阻塞仍显示缺口。当时双平面 UI/domain 仅按已交付的窄链提升，resolution/lifecycle/history 完整组合仍 partial，不把该首切片当作整个 Offset 已完成。该阶段列出的六组合精确 UI、来源恢复和生命周期缺口已进入本轮实现/目录验收，当前收口记录见下节，实机交互仍待验证，人工出口见 [CONSTRAINT-OFFSET](../../../plans/assembly-evolution.md#constraint-offset完整偏移与测量模式)。未运行浏览器、无差别全量单测、性能/容量基准；此旧阶段未实现 Contact/Fix Together；本轮已新增前两者，M4/M5 仍未实施，TREE-03 与数据面边界不变。
+报告按必需层与适用专用测试推导实现覆盖、执行完整性和验收状态；共享基础/拒绝测试不能认证组合，缺测/未运行/阻塞仍显示缺口。当时双平面 UI/domain 仅按已交付窄链提升，resolution/lifecycle/history 完整组合仍 partial，不把首切片当作整个 Offset 已完成。六组合精确 UI、来源恢复和生命周期缺口随后进入六类实现/目录验收，记录见下节，人工出口见 [CONSTRAINT-OFFSET](../../../plans/assembly-evolution.md#constraint-offset完整偏移与测量模式)。该旧阶段未运行浏览器、全仓单测或性能/容量基准，也未实现 Contact/Fix Together/M4/M5；后续实现与证据另列，不改写历史。TREE-03 与数据面边界不变。
 
 ### 平行 EDGE 距离恢复
 
@@ -222,3 +222,50 @@ Measured 不发驱动方程；双平面测量仅要求实际法向平行（任�
 补充回归执行真实 TanStack mutation 的缓存更新→成功回调顺序，验证当前对话框关闭及已放弃会话隔离；`TestAssemblyAngleShortcutPreviewCommitThroughRouter` 使用上述专用库/v10 Worker，复现错误空表达式拒绝，并通过平行/垂直创建、Preview→Commit、双向关系切换、独立最终几何、Preview 不推进 Head 和幂等重试。原 Coincidence 真实回归同时重跑通过。目录新增 `angle.shortcuts.plane-plane.preview-commit`，现为 58 capability / 624 case；只锁定该新增 case 及强化后的共享 UI 断言，目标与覆盖要求不变。报告/日志位于 `build/constraint-closeout/dialog-shortcut-*`；该补充未修改求解器或 Worker，修复后仍待维护者实机确认。
 
 该补充实际通过全部 51 项 Web 场景、TypeScript/生产构建、20 项合同设施测试、目录/锁与文档检查；共享 UI 和新增 shortcut case 分别执行 baseline/gaps 通过，不代表重跑完整 624 项合同。未重跑 C++ corpus、全仓测试或浏览器自动验收。
+
+## M4/M5 第一阶段：连续操纵与局部解释
+
+本轮起点 `main / 0b63dddbbda81058e6e420d5df1764a1e7b09287`，开始时工作区干净；交付基线为该 HEAD 加本轮工作区改动。维护者确认此前六类主要能力可用、速度/稳定性改善，且上一轮候选、glyph、对话框和 Angle 快捷入口修复已解决。该反馈不扩展到本轮 M4/M5、工业语料或定量性能验收。
+
+状态：**M4/M5 第一阶段实现完成，等待维护者实机验收**。自动通过限定于下列实际范围，不宣称工业全场景成熟或已达到延迟目标。
+
+- [Session 编排](../../../services/internal/workspace/assembly_interaction.go)冻结 Workspace/Head/sequence、actor/occurrence/EditSession 上下文、实际接纳集合、精确支持、组捕获、nominal 和 policy/profile；按完整 incidence（含第三角度轴和组关系）选择相关组件。未接纳、停用/测量语义保留，不在拖动帧做 admission。缓存容量 128、空闲 TTL 2 分钟，单 Session 一个在途求解，单次数值 RPC 上限 5 秒；不占用等待用户的数据库事务。
+- [数学内核](../../../kernel/assembly/src/solver.cpp)使用硬约束 → DragTarget → reference/nominal 的词典序优化，scaled 正交零空间和有预算的非线性恢复；静态 ADD/EDIT 的 M2.5 优先级不变。抓取点为 `R*localGrabPoint+t`，指定分量在冻结 owning Product 参考帧中计算（毫米/弧度）。完全固定或目标不可达可以返回合格受限结果；预算/失败不能伪装局部最优或最终候选。交互保留无 Ground 的整体运动，逐定义增量 rank 审计不在每帧重复，完整组件物理 Jacobian/rank/null-space 与残差仍计算，并明确诊断该审计范围。
+- SPACE 不改捕获基准；显式 Move 授权被驱动单元/固联成员的 RELATIVE 基准编辑，ID 集合在开始时冻结，最终一次原子写入。组内接受的关系在 Session 期间保持，不逐帧重捕获。Final 必须与最新目标、证据和版本匹配；[原候选提升](../../../services/internal/workspace/interaction_candidate.go)、CAS、receipt、ChangeSet/UndoRedo 与 Manifest 复用。中间帧零 Revision，无变化零提交，有变化一次 Move。已提交重试先走 receipt，不因 Session 已取消/过期重复提交。
+- [实时入口](../../../services/internal/api/realtime_assembly.go)提供 `assembly.interaction.begin/update/cancel.v1` 和 `assembly.conflict.analyze/cancel.v1`，服务端重新授权，连接绑定与有界并发；cancel 直接经 reader 传播到 Worker 数值检查点。单次密集分解不能中途打断。前端[调度器](../../../web/apps/cad/src/cad/assembly/assembly-interaction.ts)合并一个最新未发目标而不取消饥饿，pointerup 显式 flush 最终帧；取消、外部更新、正常/异常 capture、未知提交回执分别处理。实例、手柄和约束层共用 accepted frame，不下载 GLB、不重建 BREP/Naming/BVH。
+- [M5 分析](../../../services/internal/workspace/assembly_conflict.go)冻结目标隔离定义与完整相关邻域，probe 不调用 admission。独立几何见证为 SAT；有限解析证书覆盖同距离函数矛盾、Parallel/Perpendicular、真实固定条件及 Contact 参数域等明确情形；其他未收敛、证书未覆盖或基础设施问题为 UNKNOWN。默认 24 probes/800 ms，上限 128/5 秒、完整邻域超过 512 定义报告预算不足；取消保留诚实结论。不可约仅在原集合 UNSAT 与必要删除 SAT 均有证据时声明，不是最小基数。生产姿态、warm start、激活、捕获和历史不改变。
+- [诊断面板](../../../web/apps/cad/src/features/workbench/assembly-conflict-panel.tsx)显示证据、范围/branch、预算与 probe，定位稳定 Constraint/Group/support，再由用户选择已有 Edit/Reconnect/Suppress/Measured 命令。版本改变后旧诊断不能继续修复新模型。鼠标目标受限不自动运行 M5。
+
+Proto 为添加型 typed 值协议；当前 policy `assembly-m4m5-interaction-v11`，旧 v10/v9/v8/v7 Manifest 仍按自身版本读取。新冻结输入保存 DragTarget、授权 RELATIVE 基准更新和实际求解结果，重放不依赖瞬态 Session，也不查询最新支持。未修改旧 Revision/Manifest、迁移、应用数据库、S3 或制品；跨版本语义重放不承诺逐位相同。
+
+实际验证与性能报告统一保存于 `build/m4m5/`；入口和人工步骤见[合同设施说明](../../../tests/assembly-contract/README.md#m4m5-第一阶段验证)。实现、自动验证与本轮人工待验收分开记录。未运行浏览器自动验收、工业 STEP/容量测试或全仓无差别单测；未测浏览器输入至权威显示延迟，不宣称 60 Hz 或任意非凸系统全局最近点。M6 明确延期；Frame、Contact、Fix Together 和有限运动能力不回退，后续 Part 主线另行实施。
+
+### 第一阶段性能实测与限制
+
+空闲串行测量使用 Intel Core i7-4900MQ 2.80 GHz（4 核/8 逻辑线程）、WSL2、同一生产 solver/contact/benchmark 源码。Debug 使用统一 CMake 二进制；优化内核仅用 GCC 15.2 `-O3 -DNDEBUG`，不是完整 Release Worker。完整 Conan Release 依赖构建中止的日志独立保留，不算通过。每配置/场景 10 次真实求解，80/80 样本通过独立几何和最终资格检查；观察基线保存于既有 `tests/assembly-contract/baseline.json` 的 `m4m5Review.kernelPerformanceObservation`，原始 JSONL 为 `build/m4m5/perf-kernel-{debug|optimized}-{scene}.jsonl`。
+
+| 场景 | Debug P50 / P95（ms） | 优化内核 P50 / P95（ms） |
+|---|---|---|
+| 单自由体 | 4.26 / 4.81 | 0.042 / 0.131 |
+| 50 bodies / 200 活动约束、单连通闭环 | 19221.8 / 19306.9 | 1223.2 / 1253.7 |
+| 50 个独立自由体 | 132.73 / 134.58 | 1.47 / 1.61 |
+| 固联组 / 接触 | 16.55 / 17.39 | 0.214 / 0.328 |
+
+50-body 场景没有拆分，完整物理 Jacobian rank 294；其他场景报告的 rank 是既有 rigid cluster/Ground 消元后的活动变量口径，不是原始全部刚体变量的总秩。组/接触性能场景消费冻结刚性关系的内核输入，不代表 Router 组编排延迟；真实领域组链路另有专用集成。**真实连通场景未达到 100 ms 目标**；Debug 耗时也超过 Session 5 秒 RPC 预算，应诚实显示预算/失败并保留最后可行帧，不能提交旧目标。冻结观测用于同机型、相同源码/构型/编译配置下比较，不是跨机器强制性能门，也不认证浏览器 60 Hz。排队、传输分量和输入至显示延迟未单独测量；真实 Router/Worker 测试仅记录同步 RPC+adapter 样本，不把它标成浏览器交互延迟。
+
+密集单次分解只能在前后取消；迭代、回溯、恢复、偏好/曲率列、组件和诊断 probe 设取消检查点。一般非线性 M5 若没有独立满足证书/可靠矛盾证明，继续 UNKNOWN 或局部嫌疑。任意非凸全局最近点、通用最小基数冲突集、工业大规模语料、完整 Release Worker 性能及实机显示均未验收。
+
+M5 第一阶段入口分析当前 Head 的已保存定义与冻结 Revision（包括隔离目标），不自动分析尚未提交的任意编辑草稿，也不提供任意历史 Revision 的新诊断入口；历史冻结输入继续由既有 replay 验证。完整连通 scope 包含相关用户 Fix/组关系，不额外固定边界部件；当前没有附加隐含 background 方程。定义、支持或 Head 改变后需重新分析。
+
+真实专用数据库的 `m4.session.router-commit-history` 在锁定 baseline 中记录10个连续变化目标、每帧独立检查抓取点：Debug RPC+adapter P50 29.669 ms / P95 33.531 ms，最终帧10.093 ms。该场景为2个自由体、仅1个相关运动单元参与求解、0个活动约束，同步调用无应用排队；不是50-body连通场景，也未分离网络传输或浏览器显示。这些原始观察保留在 `build/m4m5/final-baseline/report.json`，不能与纯内核数据合并成端到端性能承诺。
+
+### 第一阶段实际自动验证
+
+- 统一 Worker/Proto/内核构建通过，Worker SHA-256 `574338885650f1a1e23eb00f75a33e9bbc41091d5e0e4ac3709a688796f77301`。结束时 HEAD 仍为起点，未提交的实现及输入摘要由报告记录；全部调用方 Go 编译通过，旧 v10 Manifest 读取/摘要不变、禁止倒挂新 DragTarget 有专门测试。
+- 最新 `AssemblyInteraction.*:AssemblyMotion.*` **42/42 PASS**（21项新操纵数学、21项静态运动）；`invoke check --scope assembly` **4步骤 PASS**，覆盖构建、完整装配 CTest、Go真实集成和装配 Web 场景。日志为 `math-unified-regression.log`、`final-assembly-domain-execution.log`。
+- Go workspace/api/geometry/modelcore 受影响包、Session/诊断 race 检查通过；`invoke check --scope web` 场景及生产构建两步骤通过；合同执行器 **21测试 PASS**。日志为 `go-affected-unified.log`、`go-race-unified.log`、`go-all-compile-unified.log`、`web-unified.log`、`report-tool-final.log`。
+- 专用 `occccad_offset_contract_test` 与真实当前 Worker 的 Preview/最终候选→Move、幂等、无变化/取消零提交、外部Head失效、整组RELATIVE更新及Undo/Redo、冷Replay/Release隔离和只读诊断→正式Suppress修复均实际通过。没有环境阻塞项，也没有用Mock替代这些链路。单独日志 `real-integration-final.log` 保存4个Router/Worker测试；随后完整领域与合同门再次运行了强化的10帧独立几何断言。
+- 同一目录 **58 capability / 660 case**；锁定后的完整 **baseline/gaps/composition 各660 PASS**、各376个去重测试映射、58项必需自动覆盖齐全。报告分别为 `build/m4m5/final-{baseline,gaps-locked,composition}/report.json` 与 `summary.md`。新增36个M4/M5具体case已实际执行并进入基线；`milestoneEvidence` 两阶段均为 `ALL_REQUIRED_PASS`、仅 `FIRST_STAGE_AUTOMATED_CASES_ONLY`，人工为 `PENDING_MAINTAINER`。
+- 旧58能力、624目标、覆盖下限及数学语义锁保留。仅审查更新原显示fixture的真实idle-controller接线和旧Router测试的严格v11 build预期两项源码锁；几何断言不放宽。初次旧build预期失败及较早数学失败日志独立保留，最终回归已通过，不把失败日志删除或批量bless。
+
+目录/锁、Markdown导航的 `invoke context-audit` 与 `git diff --check` 通过。未执行浏览器自动验收、全仓无差别单测、工业STEP/容量、完整Release Worker或浏览器端到端性能；应用开发数据库、S3与制品没有清理。实机步骤见合同设施说明，不倒签维护者本轮验收。

@@ -1,5 +1,6 @@
 import { VisualRepository, type DisplayArtifact as Artifact, type DisplayDocumentView as DocumentView } from "../cad/visual/visual-repository";
 import { assemblyConstraintReferences } from "../cad/assembly/assembly-capability";
+import { AssemblyInteractionController,assemblyInteractionFailureState, type AssemblyInteractionBegin, type AssemblyInteractionSession, type AssemblyInteractionUpdate, type AssemblyInteractionFrame, type AssemblyInteractionCommit, type AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 import { makeSketchReferenceAxis, sketchAxisEndpoints } from "../cad/rendering/sketch-reference-axis";
 import { createStudioEnvironment } from "../cad/rendering/studio-environment";
 import { raycastDatumAxis } from "../cad/interaction/datum-axis-picking";
@@ -65,9 +66,11 @@ type Callbacks = {
   dimensionCreateRequested: (request: { mode: "create"; featureId: string; kind: "DISTANCE"|"LENGTH"|"RADIUS"|"DIAMETER"|"ANGLE";
     references: SketchGeometryRef[]; labelPosition: Vec2; value: number; unit: "mm"|"deg"; x: number; y: number }) => void;
   activeToolChanged: (toolID: import("../state/workbench-store").WorkbenchToolID) => void;
-  instanceMoved: (instanceId: string, translation: Vec3, rotation:[number,number,number,number], previewId?:string) => void;
-	instanceMovePreview: (instanceId:string,translation:Vec3,rotation:[number,number,number,number],interactionId:string,previewSequence:number,signal?:AbortSignal)=>Promise<{
-		poses:Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;constraintLimited:boolean;previewId:string}>;
+  instanceMoved: (documentId: string, candidate: AssemblyInteractionCommit) => Promise<void>;
+  assemblyInteractionBegin: (documentId: string, input: AssemblyInteractionBegin, signal: AbortSignal) => Promise<AssemblyInteractionSession>;
+  assemblyInteractionUpdate: (documentId: string, input: AssemblyInteractionUpdate, signal: AbortSignal) => Promise<AssemblyInteractionFrame>;
+  assemblyInteractionCancel: (documentId: string, sessionId: string) => Promise<unknown>;
+  assemblyInteractionState?: (state: AssemblyInteractionState, reason?: string) => void;
   assemblyConstraintRequested: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
@@ -281,11 +284,15 @@ export class CadViewportEngine {
   private assemblyPosePreview?: Map<string, { position: THREE.Vector3; rotation: THREE.Quaternion }>;
   private dimensionDrag?: { selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; constraint: SketchConstraint;
     root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2 };
-	private movePreviewGeneration=0;private movePreviewInFlight=false;
-	private movePreviewAbort?: AbortController;
-	private moveInteractionId="";private movePreviewSequence=0;
-  private moveCommitPending=false;
-  private pendingMovePreview?:{generation:number;instanceId:string;translation:Vec3;rotation:[number,number,number,number]};
+  private readonly moveInteraction: AssemblyInteractionController;
+  private moveCommitPending?:{documentId:string;candidate:AssemblyInteractionCommit};
+  private moveCommitInFlight=false;
+  private moveGestureGeneration=0;
+  private moveNominalBase?:{documentId:string;revisionId:string};
+  private moveSessionDocumentId = "";
+  private readonly moveSessionDocuments = new Map<string,string>();
+  private moveNominalScene?: Map<string, TransformPose>;
+  private moveFrameRotation?: [number,number,number,number];
   private desiredMovePose?:{translation:Vec3;rotation:[number,number,number,number]};
 	private acceptedMovePose?:{translation:Vec3;rotation:[number,number,number,number];previewId?:string};
   private activeToolID = "select";
@@ -314,6 +321,27 @@ export class CadViewportEngine {
     this.scene.environment = this.studioEnvironment.texture;
     host.appendChild(this.renderer.domElement);
 
+    this.moveInteraction = new AssemblyInteractionController({
+      begin:(input,signal)=>{
+        const documentId=this.moveSessionDocumentId,generation=this.moveGestureGeneration;
+        return this.callbacks.assemblyInteractionBegin(documentId,input,signal).then(session=>{
+          this.moveSessionDocuments.set(session.sessionId,documentId);
+          if(generation===this.moveGestureGeneration&&!signal.aborted){
+            // Rollback is the server's frozen nominal, not a possibly halfway
+            // ordinary render transition sampled at pointerdown.
+            this.moveNominalScene=new Map(session.nominalPoses.map(p=>[p.instanceId,this.transformPose(p.translation,p.rotation)]));
+          }
+          return session;
+        });
+      },
+      update:(input,signal)=>this.callbacks.assemblyInteractionUpdate(this.moveSessionDocuments.get(input.sessionId)??this.moveSessionDocumentId,input,signal),
+      cancel:sessionId=>{const documentId=this.moveSessionDocuments.get(sessionId)??this.moveSessionDocumentId;this.moveSessionDocuments.delete(sessionId);return this.callbacks.assemblyInteractionCancel(documentId,sessionId);},
+      frame:frame=>this.applyAcceptedMoveFrame(frame),
+      state:(state,reason)=>{
+        if((state==="failed"||state==="invalidated")&&!this.moveCommitPending)this.restoreMoveNominalScene();
+        this.callbacks.assemblyInteractionState?.(state,reason);
+      },
+    });
     this.moveManipulator = new AssemblyManipulator(this.shaders, {
       dragStarted: () => { this.navigation.setEnabled(false); this.beginMovePreviewGesture(); },
       snapPivot: (x, y) => this.snapManipulatorPivot(x, y),
@@ -323,12 +351,7 @@ export class CadViewportEngine {
       dragFinished: (commit) => {
         this.navigation.setEnabled(true);
         if (commit) this.finishMovePreviewGesture();
-        else if (this.moveTarget) {
-          this.cancelMovePreviewGesture();
-          const target = this.moveTarget;
-          this.transforms.apply(target.group, this.transformPose(target.startPosition, target.startQuaternion), "rollback",
-            () => this.syncMoveManipulatorToRenderedPose(target));
-        }
+        else this.cancelMovePreviewGesture();
       },
     });
     this.scene.add(this.moveManipulator.root);
@@ -434,6 +457,8 @@ export class CadViewportEngine {
       editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view)]);
   }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
+    if(this.view&&(this.view.document.id!==view.document.id || (this.editContext?.view.document.id??this.view.document.id)!==(editContext?.view.document.id??view.document.id) || this.editContext?.occurrencePath!==editContext?.occurrencePath))this.cancelMovePreviewGesture("editing context changed");
+    else this.moveInteraction.invalidate(view.document.versionId);
     const signature = this.geometrySignature(view, editContext);
     const generation = ++this.visualGeneration;
     if (this.renderGeometrySignature === signature && !this.pendingVisualSnapshot && this.view) {
@@ -941,6 +966,7 @@ export class CadViewportEngine {
       if(this.activeToolID==="assembly.move"&&(!this.moveManipulator.isAttached()||this.pendingManipulatorAnchor))this.attachMoveManipulator();
       return;
     }
+    if(!sameSelections(this.selected,unique))this.cancelMovePreviewGesture("操纵选择已变化");
     this.selected = unique;
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
@@ -1009,19 +1035,22 @@ export class CadViewportEngine {
   }
 
   private manipulatorAnchorFromIntersection(hit:THREE.Intersection):ManipulatorAnchor{
-    let direction:THREE.Vector3|undefined,kind:"line"|"plane"|undefined;
-    if(hit.object instanceof THREE.LineSegments){
-      const position=hit.object.geometry.getAttribute("position"),index=((hit.index??0)/2|0)*2;
-      if(position&&index+1<position.count){
-        const first=hit.object.localToWorld(new THREE.Vector3().fromBufferAttribute(position,index));
-        const second=hit.object.localToWorld(new THREE.Vector3().fromBufferAttribute(position,index+1));
-        direction=second.sub(first).normalize();kind="line";
-      }
-    }else if(hit.object instanceof THREE.Mesh&&hit.face){
-      direction=hit.face.normal.clone().transformDirection(hit.object.matrixWorld);kind="plane";
-    }
-    return {position:hit.point.clone(),orientation:direction?manipulatorFrame(direction,kind!):undefined};
+    // Mesh is permitted as approximate pointer grab position, never as the
+    // authority for a persistent/exact geometric direction objective.
+    return {position:hit.point.clone()};
   }
+  setAssemblyMoveDirection(instanceId:string,direction:Vec3,kind:"line"|"plane"):boolean{
+    if(this.moveCommitPending||this.moveManipulator.isDragging())return false;
+    const group=this.instanceGroups.get(instanceId);if(!group)return false;
+    const axis=new THREE.Vector3(...direction);
+    if(!Number.isFinite(axis.lengthSq())||axis.lengthSq()<1e-20)return false;
+    axis.normalize().applyQuaternion(group.quaternion);
+    this.manipulatorFrames.set(instanceId,manipulatorFrame(axis,kind));
+    this.select({kind:"instance",id:instanceId,instanceId},true);
+    this.setActiveTool("assembly.move");this.attachMoveManipulator();this.invalidate();return true;
+  }
+  cancelAssemblyInteraction():void{this.cancelMovePreviewGesture("用户取消操纵");}
+  retryAssemblyMoveCommit():void{if(this.moveCommitPending)void this.submitMoveCommit();}
 
   private updateMoveTarget(): void {
     if (!this.moveTarget || !this.moveManipulator.isAttached() || !this.moveManipulator.isDragging()) return;
@@ -1030,73 +1059,110 @@ export class CadViewportEngine {
       this.moveTarget.startPivot,pivot.position,pivot.rotation);
     const position=transformed.position;
     const rotation=transformed.rotation.toArray();
-    const id=this.moveTarget.group.userData.id as string;
     this.desiredMovePose={translation:position.toArray(),rotation};
-    this.pendingMovePreview={generation:this.movePreviewGeneration,instanceId:id,translation:this.desiredMovePose.translation,rotation};
-    this.drainMovePreview();
+    const components=this.moveManipulator.components(),frame=this.moveFrameRotation;
+    if(components&&frame)this.moveInteraction.target({localGrabPoint:this.moveTarget.localPivot.toArray(),targetPose:this.desiredMovePose,frameRotation:frame,...components});
   }
 
   private beginMovePreviewGesture():void{
-    this.movePreviewAbort?.abort();this.movePreviewAbort=new AbortController();
-	this.movePreviewGeneration+=1;this.pendingMovePreview=undefined;this.moveCommitPending=false;
-	this.moveInteractionId=randomUUID();this.movePreviewSequence=0;
+    if(this.moveCommitPending)return;
     const target=this.moveTarget;
-    if(target){
+    if(target&&this.view){
+      if(this.moveNominalScene)this.cancelMovePreviewGesture("开始新的操纵，先恢复未提交的权威基线");
+      this.moveGestureGeneration++;
+      this.moveNominalBase={documentId:this.view.document.id,revisionId:this.view.document.versionId};
+      this.moveNominalScene=new Map([...this.instanceGroups].map(([id,group])=>[id,snapshotTransform(group)]));
       this.transforms.stop(target.group);
       target.startPosition.copy(target.group.position);
       target.startQuaternion.copy(target.group.quaternion);
       target.startPivot.copy(this.moveManipulator.object.getWorldPosition(new THREE.Vector3()));
       target.localPivot.copy(target.group.worldToLocal(target.startPivot.clone()));
-		this.acceptedMovePose={translation:target.startPosition.toArray(),rotation:target.startQuaternion.toArray()};
+      this.acceptedMovePose={translation:target.startPosition.toArray(),rotation:target.startQuaternion.toArray()};
+      this.moveFrameRotation=this.moveManipulator.frameQuaternion().toArray();
+      this.moveSessionDocumentId=this.view.document.id;
+      this.moveInteraction.begin({baseRevisionId:this.view.document.versionId,instanceId:target.group.userData.id as string,
+        occurrencePath:target.group.userData.instancePath,localGrabPoint:target.localPivot.toArray(),frameRotation:this.moveFrameRotation});
     }
   }
-  private cancelMovePreviewGesture():void{
-    this.movePreviewAbort?.abort();
-    this.movePreviewGeneration+=1;this.pendingMovePreview=undefined;this.moveCommitPending=false;
+  private cancelMovePreviewGesture(reason="cancelled"):void{
+    if(this.moveInteraction.state==="committing")return; // receipt recovery owns a submitted command
+    this.moveGestureGeneration++;
+    this.moveInteraction.cancel(reason);
+    this.restoreMoveNominalScene();
+  }
+  private restoreMoveNominalScene():void{
+    if(this.moveNominalBase&&(this.pendingVisualSnapshot||this.view?.document.id!==this.moveNominalBase.documentId||this.view.document.versionId!==this.moveNominalBase.revisionId)){
+      // An external/current Head is authoritative. Never rollback an old
+      // session baseline over a newer rendered revision or incoming snapshot.
+      this.moveNominalScene=undefined;this.moveNominalBase=undefined;return;
+    }
+    if(this.moveNominalScene){
+      const batch=[...this.moveNominalScene].flatMap(([id,pose])=>{const object=this.instanceGroups.get(id);return object?[{object,target:pose}]:[];});
+      this.transforms.applyBatch(batch,"immediate");this.moveNominalScene=undefined;this.moveNominalBase=undefined;
+      if(this.moveTarget)this.syncMoveManipulatorToRenderedPose(this.moveTarget);
+      if(this.view)this.addAssemblyConstraintMarkers(this.view);
+      this.refreshContentBounds();this.invalidate();
+    }
   }
   private finishMovePreviewGesture():void{
-    this.moveCommitPending=true;
-    if(!this.movePreviewInFlight&&!this.pendingMovePreview)this.finishAcceptedMove();
-  }
-  private finishAcceptedMove():void{
-    if(!this.moveCommitPending)return;
-    this.moveCommitPending=false;
-    const target=this.moveTarget;
-    const pose=this.acceptedMovePose;
-    if(target&&pose){
-      this.transforms.finish(target.group);
-      this.transforms.apply(target.group, this.transformPose(pose.translation, pose.rotation), "immediate");
-      target.startPosition.copy(target.group.position);
-      target.startQuaternion.copy(target.group.quaternion);
-      const center=target.group.localToWorld(target.localPivot.clone());
-      target.startPivot.copy(center);
-      this.moveManipulator.commitPreviewFrame();
-      this.moveManipulator.setAuthoritativePose(center);
-    }
-	this.commitTransform(pose?.previewId);
-  }
-  private drainMovePreview():void{
-    if(this.movePreviewInFlight||!this.pendingMovePreview)return;const request=this.pendingMovePreview;this.pendingMovePreview=undefined;this.movePreviewInFlight=true;
-	const previewSequence=++this.movePreviewSequence;
-	void this.callbacks.instanceMovePreview(request.instanceId,request.translation,request.rotation,this.moveInteractionId,previewSequence,this.movePreviewAbort?.signal).then(({poses,constraintLimited,previewId})=>{
-      if(request.generation!==this.movePreviewGeneration)return;
-      if(constraintLimited){this.invalidate();return;}
-      const driven=poses.find((pose)=>pose.instanceId===request.instanceId),target=this.moveTarget;
-      const transitions=[];
-      for(const pose of poses){
-        const group=this.instanceGroups.get(pose.instanceId);if(!group)continue;
-        transitions.push({object:group,target:this.transformPose(pose.translation,pose.rotation),
-          frame:driven&&target&&group===target.group?()=>this.syncMoveManipulatorToRenderedPose(target):undefined});
+    const documentId=this.moveSessionDocumentId;
+    const generation=this.moveGestureGeneration;
+    void this.moveInteraction.finish().then(async candidate=>{
+      if(generation!==this.moveGestureGeneration)return;
+      if(!candidate){
+        // Budget/Failed/invalidated never commit an older frame, and never
+        // become the next gesture's nominal baseline.
+        const state=this.moveInteraction.state;
+        this.moveInteraction.cancel(`${this.moveInteraction.reason??state}；最终目标没有合格候选，已恢复未提交的权威基线`,state);
+        this.restoreMoveNominalScene();return;
       }
-      this.transforms.applyBatch(transitions,"preview");
-      if(driven&&target){
-		this.acceptedMovePose={translation:driven.translation,rotation:driven.rotation,previewId};
-      }
-    }).catch(()=>{}).finally(()=>{
-      this.movePreviewInFlight=false;
-      if(this.pendingMovePreview?.generation===this.movePreviewGeneration)this.drainMovePreview();
-      else if(this.moveCommitPending)this.finishAcceptedMove();
+      if(candidate.unchanged){this.moveInteraction.committed();this.moveNominalScene=undefined;return;}
+      this.moveInteraction.committing();
+      this.moveCommitPending={documentId,candidate};
+      await this.submitMoveCommit();
     });
+  }
+  private async submitMoveCommit():Promise<void>{
+      const pending=this.moveCommitPending;if(!pending||this.moveCommitInFlight)return;
+      this.moveCommitInFlight=true;
+      try{
+        await this.callbacks.instanceMoved(pending.documentId,pending.candidate);
+        if(this.moveCommitPending!==pending)return;
+        this.moveCommitPending=undefined;
+        this.moveInteraction.committed();this.moveNominalScene=undefined;
+        const target=this.moveTarget;
+        if(target){target.startPosition.copy(target.group.position);target.startQuaternion.copy(target.group.quaternion);
+          target.startPivot.copy(target.group.localToWorld(target.localPivot.clone()));
+          this.moveManipulator.commitPreviewFrame();this.moveManipulator.setAuthoritativePose(target.startPivot);}
+      }catch(error){
+        const code=(error as {code?:string})?.code;
+        if(!code||["CONNECTION_CLOSED","TIMEOUT","REALTIME_UNAVAILABLE","REALTIME_BUSY","DATABASE_BUSY"].includes(code)){
+          // Submission may already have committed. Keep exact request/token for
+          // receipt recovery; neither restore nominal nor generate a new MOVE.
+          this.callbacks.assemblyInteractionState?.("committing",`提交结果未知；可重试同一请求回执。${String(error)}`);
+        }else{
+          this.moveCommitPending=undefined;
+          const state=assemblyInteractionFailureState(error);
+          this.moveInteraction.cancel(String(error),state);
+          this.restoreMoveNominalScene();
+        }
+      }finally{this.moveCommitInFlight=false;}
+  }
+  private applyAcceptedMoveFrame(frame:AssemblyInteractionFrame):void{
+    const target=this.moveTarget;
+    const batch=frame.instancePoses.flatMap(pose=>{const object=this.instanceGroups.get(pose.instanceId);
+      return object?[{object,target:this.transformPose(pose.translation,pose.rotation)}]:[];});
+    // Authoritative assembly states are atomic snapshots. Independent pose
+    // interpolation can leave the hard manifold even if both endpoints satisfy it.
+    this.transforms.applyBatch(batch,"immediate");
+    if(target){
+      const driven=frame.instancePoses.find(p=>p.instanceId===target.group.userData.id);
+      if(driven)this.acceptedMovePose={translation:driven.translation,rotation:driven.rotation,previewId:frame.previewId};
+      this.syncMoveManipulatorToRenderedPose(target);
+    }
+    this.content.updateMatrixWorld(true);
+    if(this.view)this.addAssemblyConstraintMarkers(this.view);
+    this.refreshContentBounds();this.invalidate();
   }
 
   preselect(selection: Selection, notify = false): void {
@@ -1138,7 +1204,7 @@ export class CadViewportEngine {
   }
 
   dispose(): void {
-    this.movePreviewAbort?.abort();
+    this.cancelMovePreviewGesture("viewport interaction reset");
     this.visualGeneration++;
     this.visuals.dispose();
     this.visualError?.remove();
@@ -1463,8 +1529,8 @@ export class CadViewportEngine {
     return resolved[0].anchor.distanceTo(resolved[1].anchor);
   }
 
-  focusAssemblyReference(reference: AssemblyGeometryRef): boolean {
-    const resolved = this.resolveAssemblyConstraintReference(reference);
+  focusAssemblyReference(reference: AssemblyGeometryRef,ownerOccurrence=""): boolean {
+    const resolved = this.resolveAssemblyConstraintReference(reference,ownerOccurrence);
     const instance = this.instanceGroups.get(reference.instanceId);
     const anchor = resolved?.anchor ?? (instance ? new THREE.Box3().setFromObject(instance).getCenter(new THREE.Vector3()) : undefined);
     if (!anchor) return false;
@@ -2476,9 +2542,13 @@ export class CadViewportEngine {
       currentSelections: () => [...this.selected],
       retainSelections: (selections) => this.selectMany(selections),
       requestAssemblyConstraint: (kind, references) => this.callbacks.assemblyConstraintRequested(kind, references),
-      moveManipulatorPointerDown: (pointerId, x, y) => this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement),
+      moveManipulatorPointerDown: (pointerId, x, y) => !this.moveCommitPending&&this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement),
       moveManipulatorPointerMove: (pointerId, x, y) => this.moveManipulator.pointerMove(pointerId, x, y, this.camera, this.renderer.domElement),
-      moveManipulatorPointerUp: (pointerId, commit) => this.moveManipulator.pointerUp(pointerId, commit),
+      moveManipulatorPointerUp: (pointerId, commit) => {
+        const handled=this.moveManipulator.pointerUp(pointerId,commit);
+        if(!commit&&!handled)this.cancelMovePreviewGesture(); // Esc/blur after pointerup while final solve is pending
+        return handled;
+      },
     };
   }
 
@@ -2528,13 +2598,6 @@ export class CadViewportEngine {
       this.renderer.domElement.clientWidth,
       this.renderer.domElement.clientHeight,
     );
-  }
-
-  private commitTransform(previewId?:string): void {
-    const object = this.moveTarget?.group,pose=this.acceptedMovePose;
-    if (!object?.userData.id || !pose) return;
-	this.callbacks.instanceMoved(object.userData.id as string,pose.translation,pose.rotation,previewId);
-    this.refreshContentBounds();
   }
 
   private applyHighlight(object: THREE.Object3D, state: "default" | "hover" | "selected"): void {

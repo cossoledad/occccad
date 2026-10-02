@@ -875,6 +875,19 @@ public:
                         "unknown assembly solve preference policy"};
             options.solve_intent = std::move(intent);
         }
+        options.should_cancel = [context] { return context->IsCancelled(); };
+        if(request->disable_conflict_probes()) options.max_conflict_probes=0;
+        if(request->has_drag_target()) {
+            const auto& input=request->drag_target();
+            if(input.translation_components_size()!=3 || input.rotation_components_size()!=3)
+                return {grpc::StatusCode::INVALID_ARGUMENT,"drag component masks must have three entries"};
+            assembly_api::DragTarget target;
+            target.body_id=input.body_id(); target.local_grab_point=vec(input.local_grab_point());
+            target.target_pose=pose(input.target_pose());
+            target.frame_rotation={input.frame_rotation().x(),input.frame_rotation().y(),input.frame_rotation().z(),input.frame_rotation().w()};
+            for(int i=0;i<3;++i){target.translation_components[i]=input.translation_components(i);target.rotation_components[i]=input.rotation_components(i);}
+            target.target_sequence=input.target_sequence(); options.drag_target=target;
+        }
         auto* effective = response->mutable_effective_solver_profile();
         effective->set_schema_version(2);
         effective->set_max_iterations(options.max_iterations);
@@ -903,6 +916,27 @@ public:
         effective->set_verify_analytic_jacobians(options.verify_analytic_jacobians);
         effective->set_jacobian_check_tolerance(options.jacobian_check_tolerance);
         const auto result = assembly_solver_.solve(model, options);
+        for(const auto& branch:result.distance_branches) {
+            auto* output=response->add_distance_branches();output->set_constraint_id(branch.constraint_id);
+            output->set_side(branch.distance_relation==assembly_api::DistanceRelation::AlongSecondNormal?
+                worker_api::DISTANCE_SIDE_ALONG_SECOND_NORMAL:worker_api::DISTANCE_SIDE_OPPOSITE_SECOND_NORMAL);
+        }
+        for(const auto& branch:result.alignment_branches) {
+            auto* output=response->add_alignment_branches();output->set_constraint_id(branch.constraint_id);
+            output->set_direction(branch.direction_relation==assembly_api::DirectionRelation::Same?
+                worker_api::ALIGNMENT_DIRECTION_SAME:worker_api::ALIGNMENT_DIRECTION_OPPOSITE);
+        }
+        if(result.interaction) {
+            auto* out=response->mutable_interaction();const auto& proof=*result.interaction;
+            using IS=assembly_api::InteractionStatus;
+            out->set_status(proof.status==IS::Reached?worker_api::ASSEMBLY_INTERACTION_REACHED:
+                proof.status==IS::Constrained?worker_api::ASSEMBLY_INTERACTION_CONSTRAINED:
+                proof.status==IS::Budget?worker_api::ASSEMBLY_INTERACTION_BUDGET:
+                proof.status==IS::Cancelled?worker_api::ASSEMBLY_INTERACTION_CANCELLED:worker_api::ASSEMBLY_INTERACTION_FAILED);
+            out->set_hard_feasible(proof.hard_feasible);out->set_target_converged(proof.target_converged);
+            out->set_eligible_for_commit(proof.eligible_for_commit);out->set_target_error(proof.target_error);
+            out->set_target_optimality(proof.target_optimality);out->set_target_sequence(proof.target_sequence);
+        }
         const char* status =
             result.status == assembly_api::SolveStatus::Converged       ? "CONVERGED"
             : result.status == assembly_api::SolveStatus::Unsatisfied   ? "UNSATISFIED"
@@ -910,7 +944,7 @@ public:
             : result.status == assembly_api::SolveStatus::MaxIterations ? "MAX_ITERATIONS"
             : result.status == assembly_api::SolveStatus::InvalidModel  ? "INVALID_MODEL"
                                                                         : "NUMERICAL_FAILURE";
-        response->set_solver_build("assembly-six-families-composition-v10");
+        response->set_solver_build("assembly-m4m5-interaction-v11");
         response->set_status(status);
         const char* classification =
             result.classification == assembly_api::SolveClassification::SolvedFully ? "SOLVED_FULLY"

@@ -130,3 +130,31 @@ python tests/assembly-contract/runner.py gaps --case angle.shortcuts.plane-plane
 3. 创建和编辑确认成功后，对话框应自动关闭；失败时保留草稿，取消/换目标后旧成功回调不关闭新对话框。创建平行和垂直，再双向切换关系；先编辑过有表达式的 FREE/DIRECTED 角再创建或切换平行/垂直，隐藏旧表达式不得导致 Quantity 错误。
 
 Agent 对象/状态场景不替代上述 WebGL 与真实交互验收；没有新增性能基准、工业 corpus、M4/M5/M6 或应用数据清理。
+
+## M4/M5 第一阶段验证
+
+本节属于后续 M4/M5 实现，不改变前述六类交付历史。继续读取唯一生产 catalog；`m4.*`、`m5.*` 是同一目录中的具体证据，不是另一套能力账本。报告 `milestoneEvidence` 要求所有对应 case 真正 PASS；缺少、未运行、阻塞或失败均显示 INCOMPLETE，人工验收始终单列 PENDING_MAINTAINER。
+
+```sh
+python -m unittest discover -s tests/assembly-contract -p 'test_*.py'
+python tests/assembly-contract/runner.py validate
+build/cmake/debug/kernel/assembly/tests/occcad_assembly_solver_scenarios --gtest_filter='AssemblyInteraction.*:AssemblyMotion.*'
+python tests/assembly-contract/runner.py gaps --case m4.session.router-commit-history --output build/m4-targeted
+python tests/assembly-contract/runner.py composition --output build/m4m5/final-composition
+invoke check --scope web
+build/cmake/debug/kernel/assembly/tests/occcad_assembly_interaction_benchmark 10 connected50-200
+```
+
+定向 case 名以 `catalog.json` 为准，未知 ID 必须报错。完整 baseline/gaps/composition 不缩 family/layer/adapter 范围。真实集成复用明确的 `OCCCCAD_TEST_DATABASE_URL` 指向可丢弃 `occccad_offset_contract_test`，`OCCCCAD_TEST_GEOMETRY_WORKER` 指向统一构建完成的 Worker，`OCCCCAD_ASSEMBLY_FIXTURE_DIR` 指向 `build/constraint-composition/analytic-fixtures`；不要指向应用开发库，不与 Worker 重链接并行执行。未配置时显式 ENVIRONMENT_BLOCKED，不能降级 Mock 冒充通过。
+
+性能入口还接受 `single`、`independent50`、`group-contact`。`connected50-200` 为一个真实 50-body/200-active-constraint 连通组件，包含闭环，不拆成独立组件替代；约束定义数不等于标量方程数或独立秩。JSONL 独立检查真实几何与最终资格，记录每样本及 kernel P50/P95；不测浏览器、排队或传输，不能宣称输入至显示延迟或 60 Hz。当前机型/build/优化标志和实际数据见当前架构，100 ms 仍是目标，不是本轮通过结论。
+
+人工验证（使用新测试 Product，不清理既有数据）：
+
+1. 自由体用轴/平面平移与旋转手柄拖动，含非原点抓取及精确几何指定轴；在转动/滑动/平面/接触关系下重复。目标不可达应显示受限可行，已有约束保持。部件、同组成员、手柄与 glyph 同一权威帧，无需转相机刷新。
+2. Fix Together 中选一个成员拖动，SPACE 阻塞、RELATIVE 显式提交更新基准；确认整组只提交一次，Undo/Redo 恢复全组。测量/停用及隔离定义不因拖动伪造 Verified。
+3. 连续快速反向/绕角边界后 pointerup，确认最终目标不丢；Esc、blur、工具/目标切换取消且无历史。正常释放 capture 不应误取消。外部改参数/激活或 Head 后旧 Session 应明确失效，不覆盖新状态。
+4. 提交响应丢失时按界面重试/确认结果，不重复产生 Move；真正旧候选不得静默重新求解提交。回归编辑方向/支持后确认自动关闭，以及删除/停用 glyph 即时同步。
+5. 固定第一部件，在同一双平面支持上创建偏移4 mm；先停用它，再创建偏移8 mm，最后恢复4 mm，得到未接纳定义（不必提交失败 Preview）。选中失败定义打开诊断，检查作用范围、SAT/UNSAT/UNKNOWN、证据等级和 probe/预算；定位树/视口后自行选择 Edit/Suppress/Measured/Reconnect 等适用正式动作。修复后旧诊断失效，重新分析；分析/取消不改姿态或历史。一般非线性未知不能冒充已证明冲突。
+
+本轮不跑浏览器自动验收或工业大 STEP；上述实机步骤由维护者执行。M6 明确延期，Revolute/Prismatic 有限运动测试不创建工程连接。

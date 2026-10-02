@@ -55,11 +55,13 @@ type realtimeClient struct {
 	done      chan struct{}
 	closeOnce sync.Once
 
-	mu            sync.RWMutex
-	subscriptions map[string]string
-	acknowledged  map[string]uint64
-	previews      map[string]*realtimePreview
-	previewSlots  chan struct{}
+	mu               sync.RWMutex
+	subscriptions    map[string]string
+	acknowledged     map[string]uint64
+	previews         map[string]*realtimePreview
+	previewSlots     chan struct{}
+	assemblySessions map[string]string
+	assemblyAnalyses map[string]context.CancelFunc
 }
 
 func (client *realtimeClient) close() {
@@ -73,6 +75,16 @@ func (client *realtimeClient) close() {
 				p.discard(p.previewID)
 			}
 			client.previews = nil
+			for id, doc := range client.assemblySessions {
+				if client.hub.cancelAssemblySession != nil {
+					client.hub.cancelAssemblySession(doc, client.actor.ID, id)
+				}
+			}
+			client.assemblySessions = nil
+			for _, cancel := range client.assemblyAnalyses {
+				cancel()
+			}
+			client.assemblyAnalyses = nil
 		}()
 		if client.conn != nil {
 			_ = client.conn.Close()
@@ -90,6 +102,19 @@ func (client *realtimeClient) subscribe(documentID, workspaceID string) {
 func (client *realtimeClient) unsubscribe(documentID string) {
 	client.mu.Lock()
 	delete(client.subscriptions, documentID)
+	for id, doc := range client.assemblySessions {
+		if doc == documentID {
+			if client.hub.cancelAssemblySession != nil {
+				client.hub.cancelAssemblySession(doc, client.actor.ID, id)
+			}
+			delete(client.assemblySessions, id)
+		}
+	}
+	for key, cancel := range client.assemblyAnalyses {
+		if strings.HasPrefix(key, documentID+"/") {
+			cancel()
+		}
+	}
 	for key, p := range client.previews {
 		if strings.HasPrefix(key, documentID+"/") {
 			p.cancel()
@@ -105,9 +130,10 @@ func (client *realtimeClient) unsubscribe(documentID string) {
 }
 
 type realtimeHub struct {
-	mu          sync.RWMutex
-	byDocument  map[string]map[*realtimeClient]struct{}
-	connections map[*realtimeClient]struct{}
+	mu                    sync.RWMutex
+	byDocument            map[string]map[*realtimeClient]struct{}
+	connections           map[*realtimeClient]struct{}
+	cancelAssemblySession func(string, string, string)
 }
 
 func newRealtimeHub() *realtimeHub {
@@ -311,6 +337,12 @@ func (client *realtimeClient) readLoop(server *Server, request *http.Request) {
 			client.startPreview(server, ctx, envelope)
 		case "workspace.preview.cancel.v1":
 			client.cancelPreview(envelope)
+		case "assembly.interaction.begin.v1", "assembly.interaction.update.v1", "assembly.conflict.analyze.v1":
+			client.startAssemblyOperation(server, ctx, envelope)
+		case "assembly.interaction.cancel.v1":
+			client.cancelAssemblyOperation(server, envelope)
+		case "assembly.conflict.cancel.v1":
+			client.cancelAssemblyAnalysis(envelope)
 		default:
 			select {
 			case queue <- queuedRequest{envelope: envelope, deadline: time.Now().Add(2 * time.Minute)}:

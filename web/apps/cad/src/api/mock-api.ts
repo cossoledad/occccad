@@ -768,6 +768,11 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 }
 
 export const mockApi: CadApi = {
+  beginAssemblyInteraction:async()=>{throw new Error("ENVIRONMENT_BLOCKED: assembly manipulation requires the real solver; Mock is not numerical validation");},
+  updateAssemblyInteraction:async()=>{throw new Error("ENVIRONMENT_BLOCKED: assembly manipulation requires the real solver");},
+  cancelAssemblyInteraction:async()=>undefined,
+  analyzeAssemblyConflicts:async()=>{throw new Error("ENVIRONMENT_BLOCKED: numerical conflict evidence requires a real Worker, not Mock");},
+  cancelAssemblyConflicts:async()=>undefined,
 	assemblyCapabilities: async () => { throw new Error("Exact assembly capabilities require the real server"); },
 	inspectAssemblySupports: async () => { throw new Error("Exact support inspection requires the real Worker; mock geometry is not authoritative"); },
 	toolbarCatalog: async () => pause(mockToolbarCatalog),

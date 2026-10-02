@@ -133,6 +133,39 @@ message SolveAssemblyRequest {
     repeated string affected_body_ids = 8;
     AssemblySolveIntent solve_intent = 9;
     AssemblySolverProfile solver_profile = 10;
+    AssemblyDragTarget drag_target = 11;
+    bool disable_conflict_probes = 12; // diagnostic orchestration owns the bounded subset probes
+}
+
+// An interaction objective in owning Product millimetres/radians, not a hard
+// constraint. Masks have exactly three entries in the frozen reference frame.
+message AssemblyDragTarget {
+    string body_id = 1;
+    Vec3 local_grab_point = 2;
+    RigidPose target_pose = 3;
+    Quaternion frame_rotation = 4;
+    repeated bool translation_components = 5;
+    repeated bool rotation_components = 6;
+    uint64 target_sequence = 7;
+}
+
+enum AssemblyInteractionStatus {
+    ASSEMBLY_INTERACTION_UNKNOWN = 0;
+    ASSEMBLY_INTERACTION_REACHED = 1;
+    ASSEMBLY_INTERACTION_CONSTRAINED = 2;
+    ASSEMBLY_INTERACTION_BUDGET = 3;
+    ASSEMBLY_INTERACTION_CANCELLED = 4;
+    ASSEMBLY_INTERACTION_FAILED = 5;
+}
+
+message AssemblyInteractionEvidence {
+    AssemblyInteractionStatus status = 1;
+    bool hard_feasible = 2;
+    bool target_converged = 3;
+    bool eligible_for_commit = 4;
+    double target_error = 5;
+    double target_optimality = 6;
+    uint64 target_sequence = 7;
 }
 
 message AssemblyConstraintResidual {
@@ -164,6 +197,28 @@ message SolveAssemblyResponse {
     repeated string suspected_conflicting_constraint_ids = 16;
     string solver_build = 17;
     AssemblySolverProfile effective_solver_profile = 18;
+    AssemblyInteractionEvidence interaction = 19;
+    repeated AssemblySolvedAlignmentBranch alignment_branches = 20;
+    repeated AssemblySolvedDistanceBranch distance_branches = 21;
+}
+
+enum AssemblyAlignmentDirection {
+    ALIGNMENT_DIRECTION_UNSPECIFIED = 0;
+    ALIGNMENT_DIRECTION_SAME = 1;
+    ALIGNMENT_DIRECTION_OPPOSITE = 2;
+}
+message AssemblySolvedAlignmentBranch {
+    string constraint_id = 1;
+    AssemblyAlignmentDirection direction = 2;
+}
+enum AssemblyDistanceSide {
+    DISTANCE_SIDE_UNSPECIFIED = 0;
+    DISTANCE_SIDE_ALONG_SECOND_NORMAL = 1;
+    DISTANCE_SIDE_OPPOSITE_SECOND_NORMAL = 2;
+}
+message AssemblySolvedDistanceBranch {
+    string constraint_id = 1;
+    AssemblyDistanceSide side = 2;
 }
 
 message SketchPoint {

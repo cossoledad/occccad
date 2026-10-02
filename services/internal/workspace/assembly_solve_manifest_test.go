@@ -90,3 +90,28 @@ func TestAssemblyManifestSeparatesQuarantinedDefinitionsFromEquations(t *testing
 		t.Fatal("admission evidence cannot be replayed", err)
 	}
 }
+
+func TestAssemblyManifestLegacyPolicyRemainsImmutable(t *testing.T) {
+	pose := geometry.AssemblyPose{Rotation: [4]float64{0, 0, 0, 1}}
+	manifest, err := newAssemblySolveManifest("product", "old-revision", "old-model", []geometry.AssemblyBody{{ID: "body", Pose: pose}}, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.SolverBuildPolicy = "assembly-six-families-composition-v10"
+	manifest.Digest = assemblyManifestDigest(manifest)
+	raw, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cold AssemblySolveManifest
+	if err = json.Unmarshal(raw, &cold); err != nil || validateAssemblySolveManifest(cold) != nil {
+		t.Fatal("v10 manifest must remain readable", err)
+	}
+	if assemblyManifestDigest(cold) != manifest.Digest {
+		t.Fatal("reading legacy evidence changed its digest")
+	}
+	cold.DragTarget = &geometry.AssemblyDragTarget{BodyID: "body", FrameRotation: [4]float64{0, 0, 0, 1}, TargetPose: pose, TranslationComponents: [3]bool{true, false, false}, TargetSequence: 1}
+	if validateAssemblySolveManifest(cold) == nil {
+		t.Fatal("legacy policy must not silently acquire new interaction semantics")
+	}
+}

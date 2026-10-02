@@ -15,7 +15,7 @@ import (
 
 const (
 	assemblySolveManifestSchema = 1
-	assemblySolverBuildPolicy   = "assembly-six-families-composition-v10"
+	assemblySolverBuildPolicy   = "assembly-m4m5-interaction-v11"
 	maxManifestBodies           = 4096
 	maxManifestGeometry         = 16384
 	maxManifestConstraints      = 16384
@@ -25,23 +25,27 @@ const (
 // receives only these frozen descriptors and never resolves Product, database,
 // Publication, PersistentSelection or B-Rep state itself.
 type AssemblySolveManifest struct {
-	DigestPolicy          string                         `json:"digestPolicy,omitempty"`
-	GroupStages           []AssemblyGroupStage           `json:"groupStages,omitempty"`
-	Definitions           []AssemblyConstraint           `json:"definitions,omitempty"`
-	SchemaVersion         int                            `json:"schemaVersion"`
-	Digest                string                         `json:"digest"`
-	RootProductDocumentID string                         `json:"rootProductDocumentId"`
-	RootProductRevisionID string                         `json:"rootProductRevisionId"`
-	ModelHash             string                         `json:"modelHash"`
-	Purpose               string                         `json:"purpose"`
-	Bodies                []geometry.AssemblyBody        `json:"bodies"`
-	Geometry              []geometry.AssemblyGeometry    `json:"geometry"`
-	Constraints           []geometry.AssemblyConstraint  `json:"constraints"`
-	Intent                *geometry.AssemblySolveIntent  `json:"intent,omitempty"`
-	AffectedBodyIDs       []string                       `json:"affectedBodyIds,omitempty"`
-	SolverProfile         geometry.AssemblySolverProfile `json:"solverProfile"`
-	SolverBuildPolicy     string                         `json:"solverBuildPolicy"`
-	ResolutionEvidence    []AssemblyResolutionEvidence   `json:"resolutionEvidence,omitempty"`
+	DigestPolicy              string                                   `json:"digestPolicy,omitempty"`
+	GroupStages               []AssemblyGroupStage                     `json:"groupStages,omitempty"`
+	Definitions               []AssemblyConstraint                     `json:"definitions,omitempty"`
+	SchemaVersion             int                                      `json:"schemaVersion"`
+	Digest                    string                                   `json:"digest"`
+	RootProductDocumentID     string                                   `json:"rootProductDocumentId"`
+	RootProductRevisionID     string                                   `json:"rootProductRevisionId"`
+	ModelHash                 string                                   `json:"modelHash"`
+	Purpose                   string                                   `json:"purpose"`
+	Bodies                    []geometry.AssemblyBody                  `json:"bodies"`
+	Geometry                  []geometry.AssemblyGeometry              `json:"geometry"`
+	Constraints               []geometry.AssemblyConstraint            `json:"constraints"`
+	Intent                    *geometry.AssemblySolveIntent            `json:"intent,omitempty"`
+	DragTarget                *geometry.AssemblyDragTarget             `json:"dragTarget,omitempty"`
+	RelativeFixUpdates        []string                                 `json:"relativeFixUpdates,omitempty"`
+	ResolvedAlignmentBranches []geometry.AssemblySolvedAlignmentBranch `json:"resolvedAlignmentBranches,omitempty"`
+	ResolvedDistanceBranches  []geometry.AssemblySolvedDistanceBranch  `json:"resolvedDistanceBranches,omitempty"`
+	AffectedBodyIDs           []string                                 `json:"affectedBodyIds,omitempty"`
+	SolverProfile             geometry.AssemblySolverProfile           `json:"solverProfile"`
+	SolverBuildPolicy         string                                   `json:"solverBuildPolicy"`
+	ResolutionEvidence        []AssemblyResolutionEvidence             `json:"resolutionEvidence,omitempty"`
 }
 
 type AssemblyResolutionEvidence struct {
@@ -141,17 +145,17 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 	}
 	if manifest.SchemaVersion != assemblySolveManifestSchema || manifest.RootProductDocumentID == "" ||
 		manifest.RootProductRevisionID == "" || manifest.ModelHash == "" ||
-		(manifest.Purpose != "COMMIT" && manifest.Purpose != "PREVIEW" && manifest.Purpose != "PROBE") {
+		(manifest.Purpose != "COMMIT" && manifest.Purpose != "PREVIEW" && manifest.Purpose != "PROBE" && manifest.Purpose != "DIAGNOSTIC") {
 		return fmt.Errorf("%w: incomplete assembly SolveManifest identity", ErrValidation)
 	}
 	if len(manifest.Bodies) == 0 || len(manifest.Bodies) > maxManifestBodies || len(manifest.Geometry) > maxManifestGeometry ||
 		len(manifest.Definitions) > maxManifestConstraints || len(manifest.Constraints) > maxManifestConstraints {
 		return fmt.Errorf("%w: assembly SolveManifest resource limits exceeded", ErrValidation)
 	}
-	if manifest.SolverProfile.SchemaVersion != 2 || (manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-offset-parallel-line-v9" && manifest.SolverBuildPolicy != "assembly-offset-selected-plane-v8" && manifest.SolverBuildPolicy != "assembly-m3-lifecycle-v7") {
+	if manifest.SolverProfile.SchemaVersion != 2 || (manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-six-families-composition-v10" && manifest.SolverBuildPolicy != "assembly-offset-parallel-line-v9" && manifest.SolverBuildPolicy != "assembly-offset-selected-plane-v8" && manifest.SolverBuildPolicy != "assembly-m3-lifecycle-v7") {
 		return fmt.Errorf("%w: unsupported assembly solver profile or build policy", ErrValidation)
 	}
-	if manifest.SolverBuildPolicy != assemblySolverBuildPolicy {
+	if manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-six-families-composition-v10" {
 		for _, c := range manifest.Definitions {
 			if c.DefinitionVersion >= 2 || c.QuantityParameter != nil || c.Kind == "CONTACT" || c.Kind == "FIX_TOGETHER" {
 				return fmt.Errorf("%w: six-family definition requires v10 policy", ErrValidation)
@@ -182,6 +186,9 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 		}
 		bodies[body.ID] = true
 	}
+	if manifest.DragTarget != nil && (manifest.SolverBuildPolicy != assemblySolverBuildPolicy || !bodies[manifest.DragTarget.BodyID] || !validInteractionTarget(*manifest.DragTarget)) {
+		return fmt.Errorf("%w: invalid versioned drag target", ErrValidation)
+	}
 	for _, item := range manifest.Geometry {
 		if item.ID == "" || geometryIDs[item.ID] || !bodies[item.BodyID] {
 			return fmt.Errorf("%w: invalid geometry identity or body reference in SolveManifest", ErrValidation)
@@ -195,10 +202,40 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 			(constraint.SecondGeometryID != "" && !geometryIDs[constraint.SecondGeometryID]) {
 			return fmt.Errorf("%w: invalid constraint reference in SolveManifest", ErrValidation)
 		}
-		if constraint.AngleReferenceGeometryID != "" && (!geometryIDs[constraint.AngleReferenceGeometryID] || !bodies[constraint.AngleReferenceBodyID] || constraint.Kind != "ANGLE" || manifest.SolverBuildPolicy != assemblySolverBuildPolicy) {
+		if constraint.AngleReferenceGeometryID != "" && (!geometryIDs[constraint.AngleReferenceGeometryID] || !bodies[constraint.AngleReferenceBodyID] || constraint.Kind != "ANGLE" || (manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-six-families-composition-v10")) {
 			return fmt.Errorf("%w: invalid or unversioned directed-axis reference", ErrValidation)
 		}
 		constraints[constraint.ID] = true
+	}
+	if len(manifest.RelativeFixUpdates) > 0 || len(manifest.ResolvedAlignmentBranches) > 0 || len(manifest.ResolvedDistanceBranches) > 0 {
+		if manifest.DragTarget == nil || manifest.SolverBuildPolicy != assemblySolverBuildPolicy {
+			return fmt.Errorf("%w: interaction evidence requires versioned drag input", ErrValidation)
+		}
+		seen := map[string]bool{}
+		for _, id := range manifest.RelativeFixUpdates {
+			valid := false
+			for _, c := range manifest.Definitions {
+				valid = valid || (c.ID == id && c.Kind == "FIX" && c.FixMode == "RELATIVE" && !c.Suppressed && bodies[c.First.InstanceID])
+			}
+			if !valid || seen[id] {
+				return fmt.Errorf("%w: invalid RELATIVE Move authorization", ErrValidation)
+			}
+			seen[id] = true
+		}
+		seen = map[string]bool{}
+		for _, branch := range manifest.ResolvedAlignmentBranches {
+			if !constraints[branch.ConstraintID] || seen[branch.ConstraintID] || (branch.Direction != "SAME" && branch.Direction != "OPPOSITE") {
+				return fmt.Errorf("%w: invalid alignment branch evidence", ErrValidation)
+			}
+			seen[branch.ConstraintID] = true
+		}
+		seen = map[string]bool{}
+		for _, branch := range manifest.ResolvedDistanceBranches {
+			if !constraints[branch.ConstraintID] || seen[branch.ConstraintID] || (branch.Side != "ALONG_SECOND_NORMAL" && branch.Side != "OPPOSITE_SECOND_NORMAL") {
+				return fmt.Errorf("%w: invalid distance side evidence", ErrValidation)
+			}
+			seen[branch.ConstraintID] = true
+		}
 	}
 	for _, evidence := range manifest.ResolutionEvidence {
 		if evidence.ConstraintID == "" || !constraints[evidence.ConstraintID] || evidence.DescriptorDigest == "" ||
@@ -247,12 +284,23 @@ func (service *Service) solveFrozenManifest(ctx context.Context, requestID strin
 	if err := validateAssemblySolveManifest(manifest); err != nil {
 		return geometry.AssemblySolve{}, err
 	}
+	if manifest.DragTarget != nil {
+		if manifest.SolverBuildPolicy != assemblySolverBuildPolicy {
+			return geometry.AssemblySolve{}, fmt.Errorf("%w: drag target requires v11", ErrValidation)
+		}
+		constraints, err := interactionFrozenConstraints(manifest)
+		if err != nil {
+			return geometry.AssemblySolve{}, err
+		}
+		return service.worker.SolveAssemblyWithOptions(ctx, requestID, manifest.Bodies, manifest.Geometry, constraints,
+			geometry.AssemblySolveOptions{DragTarget: manifest.DragTarget, SolverProfile: &manifest.SolverProfile, CaptureReplay: capture})
+	}
 	if len(manifest.GroupStages) > 0 {
 		return service.solveFrozenAssemblyGroups(ctx, requestID, manifest, capture)
 	}
 	return service.worker.SolveAssemblyWithOptions(ctx, requestID, manifest.Bodies, manifest.Geometry, manifest.Constraints,
 		geometry.AssemblySolveOptions{Intent: manifest.Intent, AffectedBodyIDs: manifest.AffectedBodyIDs,
-			SolverProfile: &manifest.SolverProfile, CaptureReplay: capture})
+			SolverProfile: &manifest.SolverProfile, CaptureReplay: capture, DisableConflictProbes: manifest.Purpose == "DIAGNOSTIC"})
 }
 
 func (service *Service) GetAssemblySolveResult(ctx context.Context, documentID, requestID string) (AssemblySolveManifestResult, error) {

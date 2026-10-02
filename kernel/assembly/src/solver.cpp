@@ -3,6 +3,7 @@
 
 #include <Eigen/Cholesky>
 #include <Eigen/Core>
+#include <Eigen/Eigenvalues>
 #include <Eigen/Geometry>
 #include <Eigen/LU>
 #include <Eigen/QR>
@@ -1494,6 +1495,15 @@ private:
             if (!body_index_.count(id))
                 throw std::invalid_argument("affected body ID is unknown: " + id);
         }
+        if(options_.drag_target) {
+            const auto& target=*options_.drag_target;
+            if(!body_index_.count(target.body_id) || !finite(target.local_grab_point) || !finite(target.target_pose.translation) || !finite(target.target_pose.rotation) || !finite(target.frame_rotation))
+                throw std::invalid_argument("invalid drag target body, frame or grab point");
+            (void)normalized(target.target_pose.rotation);
+            (void)normalized(target.frame_rotation);
+            if(!std::any_of(target.translation_components.begin(),target.translation_components.end(),[](bool v){return v;}) && !std::any_of(target.rotation_components.begin(),target.rotation_components.end(),[](bool v){return v;}))
+                throw std::invalid_argument("drag target must control at least one component");
+        }
         if (options_.solve_intent) {
             std::unordered_set<std::string> moving;
             for (const std::string& id : options_.solve_intent->moving_body_ids) {
@@ -1730,6 +1740,15 @@ private:
                 world_geometry(first_element, bodies[body_index(first_element.body_id)]);
             const WorldGeometry second =
                 world_geometry(second_element, bodies[body_index(second_element.body_id)]);
+            const bool alignment = constraint.kind==ConstraintKind::Parallel ||
+                constraint.kind==ConstraintKind::Concentric ||
+                (constraint.kind==ConstraintKind::Coincident &&
+                    !(is_axis_like(first) && std::holds_alternative<WorldPlane>(second)) &&
+                    !(std::holds_alternative<WorldPlane>(first) && is_axis_like(second))) ||
+                (constraint.kind==ConstraintKind::Distance &&
+                    std::holds_alternative<WorldPlane>(first) && std::holds_alternative<WorldPlane>(second));
+            if(options_.drag_target && alignment && branch.direction_relation==DirectionRelation::Unoriented && has_direction(first) && has_direction(second))
+                branch.direction_relation=geometry_direction(first).dot(geometry_direction(second))<0 ? DirectionRelation::Opposite : DirectionRelation::Same;
             if (constraint.kind == ConstraintKind::Distance && constraint.value == 0.0 &&
                 is_axis_like(first) && is_axis_like(second)) {
                 branch.zero_line_branch =
@@ -1785,6 +1804,14 @@ private:
             if (constraint.kind != ConstraintKind::Distance ||
                 branch.distance_relation != DistanceRelation::Unsigned)
                 continue;
+            if(options_.drag_target &&
+                ((is_axis_like(first) && std::holds_alternative<WorldPlane>(second)) ||
+                 (std::holds_alternative<WorldPlane>(first) && is_axis_like(second)))) {
+                const auto axis=as_axis(is_axis_like(first)?first:second);
+                const auto& plane=std::get<WorldPlane>(std::holds_alternative<WorldPlane>(first)?first:second);
+                branch.distance_relation=(axis.origin-plane.origin).dot(plane.normal)<-options_.degeneracy_tolerance ? DistanceRelation::OppositeSecondNormal : DistanceRelation::AlongSecondNormal;
+                continue;
+            }
             if (const auto* point = std::get_if<WorldPoint>(&first)) {
                 if (const auto* plane = std::get_if<WorldPlane>(&second)) {
                     const double signed_distance =
@@ -1876,7 +1903,7 @@ public:
         for (const std::size_t cluster : component_.cluster_indices)
             physically_grounded_ =
                 physically_grounded_ || assembly_.clusters()[cluster].ground_pose.has_value();
-        if (!physically_grounded_ && assembly_.options().solve_intent &&
+        if (!physically_grounded_ && !assembly_.options().drag_target && assembly_.options().solve_intent &&
             assembly_.options().solve_intent->policy ==
                 SolvePreferencePolicy::MoveFirstMinimizeReference) {
             std::set<std::size_t> references;
@@ -2338,6 +2365,49 @@ public:
         Vector residual;
         Eigen::MatrixXd jacobian;
     };
+    Objective drag_objective(const State& state, bool verify=true) const {
+        const auto& target = assembly_.options().drag_target;
+        if (!target) return {Vector::Zero(0), Eigen::MatrixXd::Zero(0, parameter_count())};
+        const auto body = assembly_.body_index(target->body_id);
+        const auto cluster = assembly_.cluster_index(target->body_id);
+        if (std::find(component_.cluster_indices.begin(), component_.cluster_indices.end(), cluster) == component_.cluster_indices.end())
+            return {Vector::Zero(0), Eigen::MatrixXd::Zero(0, parameter_count())};
+        const auto poses = assembly_.body_poses(cluster_poses(state));
+        const auto& pose = poses[body];
+        const auto& options = assembly_.options();
+        const Eigen::Matrix3d frame = normalized(target->frame_rotation).toRotationMatrix().transpose();
+        const Vector3 arm = normalized(pose.rotation) * eigen(target->local_grab_point);
+        const Vector3 desired = eigen(target->target_pose.translation) + normalized(target->target_pose.rotation) * eigen(target->local_grab_point);
+        const Vector3 position = frame * (eigen(pose.translation) + arm - desired) / options.motion_length_scale;
+        const auto map = body_tangent(state, body);
+        const Eigen::MatrixXd point_j = frame * (map.topRows(3) - skew(arm) * map.bottomRows(3)) / options.motion_length_scale;
+        const auto target_rotation = normalized(target->target_pose.rotation);
+        const Vector3 phi = rotation_vector(target_rotation.conjugate() * normalized(pose.rotation));
+        const double theta = phi.norm();
+        const auto hat = skew(phi);
+        const double coefficient = theta < 1e-5 ? 1.0/12.0 + theta*theta/720.0 : (1.0-0.5*theta/std::tan(theta*0.5))/(theta*theta);
+        const Eigen::Matrix3d derivative = Eigen::Matrix3d::Identity()-0.5*hat+coefficient*hat*hat;
+        const Vector3 rotation = frame * target_rotation.toRotationMatrix() * phi / options.motion_angle_scale;
+        const Eigen::MatrixXd rotation_j = frame * target_rotation.toRotationMatrix() * derivative * target_rotation.conjugate().toRotationMatrix() * map.bottomRows(3) / options.motion_angle_scale;
+        std::size_t count = 0;
+        for (int i=0; i<3; ++i) count += target->translation_components[i] + target->rotation_components[i];
+        Objective out{Vector::Zero(count), Eigen::MatrixXd::Zero(count,parameter_count())};
+        std::size_t row=0;
+        for (int i=0;i<3;++i) if(target->translation_components[i]) { out.residual[row]=position[i]; out.jacobian.row(row++)=point_j.row(i); }
+        for (int i=0;i<3;++i) if(target->rotation_components[i]) { out.residual[row]=rotation[i]; out.jacobian.row(row++)=rotation_j.row(i); }
+        if(verify && options.verify_analytic_jacobians && parameter_count()) {
+            for(Eigen::Index col=0;col<out.jacobian.cols();++col) {
+                const double h=col%6<3 ? options.translation_finite_difference_step : options.rotation_finite_difference_step;
+                Vector step=Vector::Zero(parameter_count());step[col]=h;
+                const Vector plus=drag_objective(incremented(state,step),false).residual;
+                const Vector minus=drag_objective(incremented(state,-step),false).residual;
+                if((plus-minus).norm()>3.0/options.motion_angle_scale) continue;
+                if(((plus-minus)/(2*h)-out.jacobian.col(col)).cwiseAbs().maxCoeff()>options.jacobian_check_tolerance*std::max(1.0,out.jacobian.col(col).norm()))
+                    throw std::runtime_error("drag objective analytic Jacobian failed differential oracle");
+            }
+        }
+        return out;
+    }
     Objective objective(const State& state, bool reference_only, bool verify = true) const {
         const auto poses = assembly_.body_poses(cluster_poses(state));
         std::vector<std::size_t> bodies;
@@ -2735,6 +2805,8 @@ ComponentSolution restore_component(const ComponentProblem& problem, const Solve
     }
     double damping = options.initial_damping;
     for (std::size_t iteration = 1; iteration <= options.max_iterations; ++iteration) {
+        if (options.should_cancel && options.should_cancel())
+            return {SolveStatus::MaxIterations, result.state, iteration, "interaction cancelled"};
         const Eigen::MatrixXd jacobian = problem.jacobian(result.state, residual);
         const Vector constraint_gradient = jacobian.transpose() * residual;
         // Scale damping by each body block's rotational lever arm. Otherwise a
@@ -2795,6 +2867,8 @@ ComponentSolution restore_component(const ComponentProblem& problem, const Solve
         constexpr std::size_t trials = 12;
         double step_scale = 1.0;
         for (std::size_t trial = 0; trial < trials; ++trial, step_scale *= 0.5) {
+            if(options.should_cancel && options.should_cancel())
+                return {SolveStatus::MaxIterations,result.state,iteration,"interaction cancelled during backtracking"};
             const State candidate = problem.incremented(result.state, step_scale * step);
             const Vector candidate_residual = problem.residual(candidate);
             const double roundoff = 8.0 * std::numeric_limits<double>::epsilon() *
@@ -2897,53 +2971,80 @@ std::vector<std::vector<double>> vectors(const Eigen::MatrixXd& matrix) {
 }
 
 bool restore_feasibility(const ComponentProblem& problem, State& state,
-                         const SolverOptions& options) {
+                         const SolverOptions& options, const Vector* preserved_drag=nullptr) {
     const Vector scales = problem.tangent_scales();
+    const auto energy=[&](const State& at) {
+        double value=problem.residual(at).squaredNorm();
+        if(preserved_drag) value+=(problem.drag_objective(at,false).residual-*preserved_drag).squaredNorm();
+        return value;
+    };
     for (std::size_t i = 0; i < 16; ++i) {
+        if (options.should_cancel && options.should_cancel()) return false;
         const Vector r = problem.residual(state);
+        const double current_energy=r.squaredNorm()+(preserved_drag ? (problem.drag_objective(state,false).residual-*preserved_drag).squaredNorm() : 0.0);
         // Secondary optimization needs a tighter retraction than display acceptance;
         // otherwise curvature error at the tolerance boundary hides its descent.
-        if (problem.satisfied(state) && r.norm() <= 1e-12)
+        if (problem.satisfied(state) && std::sqrt(current_energy) <= 1e-12)
             return true;
-        const Eigen::MatrixXd j = problem.motion_jacobian(state, r) * scales.asDiagonal();
+        Eigen::MatrixXd j = problem.motion_jacobian(state, r) * scales.asDiagonal();
+        const auto physical_rows=j.rows();
+        if(preserved_drag) {
+            const auto drag=problem.drag_objective(state,false);
+            j.conservativeResize(physical_rows+drag.jacobian.rows(),j.cols());
+            j.bottomRows(drag.jacobian.rows())=drag.jacobian*scales.asDiagonal();
+        }
         Vector rhs = Vector::Zero(j.rows());
         rhs.head(r.size()) = -r;
+        if(preserved_drag) rhs.tail(preserved_drag->size())=*preserved_drag-problem.drag_objective(state,false).residual;
         const Vector step = scales.asDiagonal() * minimum_step(j, rhs, options);
         bool accepted = false;
         for (double alpha = 1.0; alpha >= 1.0 / 4096; alpha *= 0.5) {
+            if (options.should_cancel && options.should_cancel()) return false;
             State candidate = problem.incremented(state, alpha * step);
-            if (problem.residual(candidate).squaredNorm() < r.squaredNorm()) {
+            if (energy(candidate) < current_energy) {
                 state = std::move(candidate);
                 accepted = true;
                 break;
             }
         }
         if (!accepted)
-            return problem.satisfied(state);
+            return problem.satisfied(state) && (!preserved_drag || (problem.drag_objective(state,false).residual-*preserved_drag).norm()<=1e-12);
     }
-    return problem.satisfied(state);
+    return problem.satisfied(state) && (!preserved_drag || (problem.drag_objective(state,false).residual-*preserved_drag).norm()<=1e-12);
 }
 
 // The higher-level optimum is a scalar objective minimum, not a frozen residual
 // vector. Nonzero residual curvature can cancel Gauss-Newton curvature (e.g. a
 // reference point equally far from every point on a sphere). Keep that freedom.
 Eigen::MatrixXd preference_tangent(const ComponentProblem& problem, const State& state,
-                                  const Eigen::MatrixXd& z, const SolverOptions& options) {
-    const auto ref = problem.objective(state, true, false);
+                                  const Eigen::MatrixXd& z, const SolverOptions& options,
+                                  bool drag_priority=false) {
+    const auto value=[&](const State& at) {return drag_priority ? problem.drag_objective(at,false) : problem.objective(at,true,false);};
+    const auto ref = value(state);
     if (!ref.residual.size() || !z.cols()) return z;
     const Vector scales = problem.tangent_scales();
-    if (ref.residual.squaredNorm() <= options.objective_tolerance)
+    const double zero_energy=drag_priority ? options.preference_tolerance*options.preference_tolerance : options.objective_tolerance;
+    if (ref.residual.squaredNorm() <= zero_energy)
         return z * orthogonal_kernel(ref.jacobian * scales.asDiagonal() * z, options);
-    const Eigen::MatrixXd j = problem.motion_jacobian(state, problem.residual(state)) * scales.asDiagonal();
+    auto equations=[&](const State& at)->Eigen::MatrixXd {
+        Eigen::MatrixXd out=problem.motion_jacobian(at,problem.residual(at));
+        if(options.drag_target && !drag_priority) {
+            const auto drag=problem.drag_objective(at,false);const auto rows=out.rows();
+            if(drag.residual.squaredNorm()<=options.preference_tolerance*options.preference_tolerance) {out.conservativeResize(rows+drag.jacobian.rows(),out.cols());out.bottomRows(drag.jacobian.rows())=drag.jacobian;}
+            else {out.conservativeResize(rows+1,out.cols());out.bottomRows(1)=drag.residual.transpose()*drag.jacobian;}
+        }
+        return out*scales.asDiagonal();
+    };
+    const Eigen::MatrixXd j = equations(state);
     const Vector gradient = scales.asDiagonal() * ref.jacobian.transpose() * ref.residual;
     const Vector multipliers = minimum_step(j.transpose(), -gradient, options);
     const auto lagrangian_gradient = [&](const State& candidate) -> Vector {
-        const auto objective = problem.objective(candidate, true, false);
-        return scales.asDiagonal() * (objective.jacobian.transpose() * objective.residual +
-            problem.motion_jacobian(candidate, problem.residual(candidate)).transpose() * multipliers);
+        const auto objective = value(candidate);
+        return scales.asDiagonal()*objective.jacobian.transpose()*objective.residual + equations(candidate).transpose()*multipliers;
     };
     Eigen::MatrixXd curvature(z.cols(), z.cols());
     for (Eigen::Index col=0; col<z.cols(); ++col) {
+        if(options.should_cancel && options.should_cancel()) return z;
         const auto difference = [&](double h) -> Vector {
             const Vector step = scales.asDiagonal() * (h*z.col(col));
             return (lagrangian_gradient(problem.incremented(state,step)) -
@@ -2970,6 +3071,11 @@ Eigen::MatrixXd motion_curvature(const ComponentProblem& problem, const State& s
     const auto objective = problem.objective(state, reference_only, false);
     auto equations = [&](const State& at) -> Eigen::MatrixXd {
         Eigen::MatrixXd j = problem.motion_jacobian(at, problem.residual(at));
+        if(options.drag_target) {
+            const auto drag=problem.drag_objective(at,false);const auto rows=j.rows();
+            if(drag.residual.squaredNorm()<=options.preference_tolerance*options.preference_tolerance) {j.conservativeResize(rows+drag.jacobian.rows(),j.cols());j.bottomRows(drag.jacobian.rows())=drag.jacobian;}
+            else {j.conservativeResize(rows+1,j.cols());j.bottomRows(1)=drag.residual.transpose()*drag.jacobian;}
+        }
         if (!reference_only) {
             const auto ref = problem.objective(at, true, false);
             const auto rows = j.rows();
@@ -2987,6 +3093,7 @@ Eigen::MatrixXd motion_curvature(const ComponentProblem& problem, const State& s
     };
     Eigen::MatrixXd curvature(z.cols(), z.cols());
     for (Eigen::Index col = 0; col < z.cols(); ++col) {
+        if(options.should_cancel && options.should_cancel()) return Eigen::MatrixXd::Zero(z.cols(),z.cols());
         auto difference = [&](double h) -> Vector {
             const Vector step = scales.asDiagonal() * (h * z.col(col));
             return (lagrangian(problem.incremented(state, step)) -
@@ -3015,6 +3122,99 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
     }
     const Vector scales = problem.tangent_scales();
     report.status = PreferenceStatus::Converged;
+    double drag_bound = std::numeric_limits<double>::infinity();
+    std::optional<Vector> preserved_drag;
+    if (options.drag_target && problem.drag_objective(state).residual.size()) {
+        InteractionEvidence evidence;
+        evidence.target_sequence=options.drag_target->target_sequence;
+        evidence.hard_feasible=true;
+        double best_drag_energy=problem.drag_objective(state,false).residual.squaredNorm();
+        for (std::size_t iteration=0; iteration<options.max_preference_iterations; ++iteration) {
+            if(options.should_cancel && options.should_cancel()) { evidence.status=InteractionStatus::Cancelled; break; }
+            ++report.iterations;
+            const auto target=problem.drag_objective(state);
+            const auto z=orthogonal_kernel(problem.motion_jacobian(state,problem.residual(state))*scales.asDiagonal(),options);
+            const Eigen::MatrixXd reduced=target.jacobian*scales.asDiagonal()*z;
+            evidence.target_optimality=(reduced.transpose()*target.residual).norm();
+            evidence.target_error=target.residual.norm();
+            Vector step=-z*minimum_step(reduced,target.residual,options);
+            if(!step.allFinite() || (reduced.transpose()*target.residual).dot(z.transpose()*step)>=0) step=-z*(reduced.transpose()*target.residual);
+            if(evidence.target_optimality<=options.preference_tolerance) {
+                // First-order stationarity alone also holds at a constrained
+                // MAXIMUM (e.g. the far pole of a distance sphere). Require
+                // nonnegative restricted Lagrangian curvature before labeling
+                // a nonzero target residual locally optimal.
+                bool minimum=true;
+                if(z.cols() && evidence.target_error>options.preference_tolerance) {
+                    const Eigen::MatrixXd j=problem.motion_jacobian(state,problem.residual(state))*scales.asDiagonal();
+                    const Vector gradient=scales.asDiagonal()*target.jacobian.transpose()*target.residual;
+                    const Vector multipliers=minimum_step(j.transpose(),-gradient,options);
+                    const auto lagrangian=[&](const State& at)->Vector {
+                        const auto value=problem.drag_objective(at,false);
+                        return scales.asDiagonal()*(value.jacobian.transpose()*value.residual+problem.motion_jacobian(at,problem.residual(at)).transpose()*multipliers);
+                    };
+                    Eigen::MatrixXd curvature(z.cols(),z.cols());
+                    for(Eigen::Index col=0;col<z.cols();++col) {
+                        if(options.should_cancel && options.should_cancel()) break;
+                        const Vector delta=scales.asDiagonal()*(1e-4*z.col(col));
+                        curvature.col(col)=z.transpose()*(lagrangian(problem.incremented(state,delta))-lagrangian(problem.incremented(state,-delta)))/(2e-4);
+                    }
+                    if(options.should_cancel && options.should_cancel()) { evidence.status=InteractionStatus::Cancelled; break; }
+                    curvature=(0.5*(curvature+curvature.transpose())).eval();
+                    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eigenvalues(curvature);
+                    if(eigenvalues.info()!=Eigen::Success) break;
+                    const double threshold=std::max(options.rank_absolute_tolerance,options.rank_relative_tolerance*std::max(1.0,curvature.norm()));
+                    if(eigenvalues.eigenvalues()[0]<-threshold) { minimum=false;step=z*eigenvalues.eigenvectors().col(0); }
+                }
+                if(minimum) {
+                    evidence.target_converged=true;
+                    evidence.status=evidence.target_error<=options.preference_tolerance ? InteractionStatus::Reached : InteractionStatus::Constrained;
+                    break;
+                }
+            }
+            double ratio=1;
+            for(Eigen::Index i=0;i<step.size();i+=6) ratio=std::max(ratio,step.segment<3>(i+3).norm()*options.motion_angle_scale/0.25);
+            step/=ratio;
+            bool accepted=false;
+            const double before=target.residual.squaredNorm();
+            const double slope=2*(reduced.transpose()*target.residual).dot(z.transpose()*step);
+            for(double alpha=1;alpha>=1.0/65536;alpha*=0.5) {
+                if(options.should_cancel && options.should_cancel()) break;
+                State candidate=problem.incremented(state,scales.asDiagonal()*(alpha*step));
+                if(!restore_feasibility(problem,candidate,options)) continue;
+                const double after=problem.drag_objective(candidate).residual.squaredNorm();
+                bool descent=after<before && after<=before+1e-4*alpha*slope;
+                // Same roundoff certificate as M2.5: energy changes smaller
+                // than floating resolution still require strict projected
+                // derivative improvement and a non-accumulating energy bound.
+                if(!descent && after<=best_drag_energy+32*std::numeric_limits<double>::epsilon()*std::max(1.0,best_drag_energy)) {
+                    const auto next=problem.drag_objective(candidate,false);
+                    const auto next_z=orthogonal_kernel(problem.motion_jacobian(candidate,problem.residual(candidate))*scales.asDiagonal(),options);
+                    descent=(next_z.transpose()*scales.asDiagonal()*next.jacobian.transpose()*next.residual).norm()<0.8*evidence.target_optimality;
+                }
+                if(descent) {
+                    best_drag_energy=std::min(best_drag_energy,after);
+                    state=std::move(candidate); accepted=true; break;
+                }
+            }
+            if(!accepted) break;
+        }
+        if(!evidence.target_converged && evidence.status!=InteractionStatus::Cancelled) evidence.status=InteractionStatus::Budget;
+        evidence.target_error=problem.drag_objective(state).residual.norm();
+        evidence.eligible_for_commit=evidence.target_converged && problem.satisfied(state);
+        report.interaction=evidence;
+        drag_bound=problem.drag_objective(state).residual.squaredNorm();
+        const auto current_drag=problem.drag_objective(state,false);
+        const auto physical=orthogonal_kernel(problem.motion_jacobian(state,problem.residual(state))*scales.asDiagonal(),options);
+        const auto prior_tangent=preference_tangent(problem,state,physical,options,true);
+        // Preserve the residual vector only when it is zero or constant on
+        // the scalar argmin. Flat nonzero minima (sphere-center targets) must
+        // retain their genuine scalar-level freedoms for later priorities.
+        if(current_drag.residual.norm()<=options.preference_tolerance ||
+            (current_drag.jacobian*scales.asDiagonal()*prior_tangent).norm()<=options.rank_absolute_tolerance)
+            preserved_drag=current_drag.residual;
+        if(!evidence.target_converged) { report.status=PreferenceStatus::IterationLimit; report.geometrically_feasible=problem.satisfied(state); return report; }
+    }
     double reference_bound = std::numeric_limits<double>::infinity();
     // Each phase preserves the exact linearized higher-level solution space.
     for (int level = 0; level < 2; ++level) {
@@ -3024,12 +3224,14 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
         double best_energy = problem.objective(state, level == 0, false).residual.squaredNorm();
         for (std::size_t iteration = 0; iteration < options.max_preference_iterations;
              ++iteration) {
+            if(options.should_cancel && options.should_cancel()) { report.status=PreferenceStatus::IterationLimit; if(report.interaction) { report.interaction->status=InteractionStatus::Cancelled; report.interaction->eligible_for_commit=false; } break; }
             ++report.iterations;
             const auto ref = problem.objective(state, true);
             const auto objective = level == 0 ? ref : problem.objective(state, false);
             const Vector residual = problem.residual(state);
             Eigen::MatrixXd z =
                 orthogonal_kernel(problem.motion_jacobian(state, residual) * scales.asDiagonal(), options);
+            if(report.interaction) z=preference_tangent(problem,state,z,options,true);
             if (level == 1) {
                 const double unrestricted = (z.transpose()*scales.asDiagonal()*objective.jacobian.transpose()*objective.residual).norm();
                 // Stationarity on the whole feasible tangent certifies every
@@ -3097,9 +3299,11 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                 const double slope = 2.0 * gradient.dot(step);
                 const double before = objective.residual.squaredNorm();
                 for (double alpha = 1; alpha >= 1.0 / 65536; alpha *= 0.5) {
+                    if(options.should_cancel && options.should_cancel()) break;
                     State candidate = problem.incremented(state, scales.asDiagonal() * (alpha * step));
-                    if (!restore_feasibility(problem, candidate, options))
+                    if (!restore_feasibility(problem, candidate, options,preserved_drag ? &*preserved_drag : nullptr))
                         continue;
+                    if(report.interaction && problem.drag_objective(candidate,false).residual.squaredNorm()>drag_bound+std::max(64*std::numeric_limits<double>::epsilon()*drag_bound,options.preference_tolerance*options.preference_tolerance)) continue;
                     const double ref_value =
                         problem.objective(candidate, true, false).residual.squaredNorm();
                     const double after =
@@ -3117,6 +3321,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                             orthogonal_kernel(problem.motion_jacobian(candidate, problem.residual(candidate)) *
                                                   scales.asDiagonal(),
                                               options);
+                        if(report.interaction) next_z=preference_tangent(problem,candidate,next_z,options,true);
                         if (level == 1) next_z = preference_tangent(problem,candidate,next_z,options);
                         descent = (next_z.transpose() * scales.asDiagonal() *
                                    next_objective.jacobian.transpose() * next_objective.residual)
@@ -3158,8 +3363,18 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
     const auto all = problem.objective(state, false, false);
     report.reference_objective = ref.residual.squaredNorm();
     report.total_objective = all.residual.squaredNorm();
-    const Eigen::MatrixXd final_z = orthogonal_kernel(
+    Eigen::MatrixXd final_z = orthogonal_kernel(
         problem.motion_jacobian(state, problem.residual(state)) * scales.asDiagonal(), options);
+    if(report.interaction) final_z=preference_tangent(problem,state,final_z,options,true);
+    if(report.interaction) {
+        const auto drag=problem.drag_objective(state,false);
+        const auto physical_z=orthogonal_kernel(problem.motion_jacobian(state,problem.residual(state))*scales.asDiagonal(),options);
+        report.interaction->target_error=drag.residual.norm();
+        report.interaction->target_optimality=(physical_z.transpose()*scales.asDiagonal()*drag.jacobian.transpose()*drag.residual).norm();
+        report.interaction->hard_feasible=problem.satisfied(state);
+        report.interaction->eligible_for_commit=report.interaction->hard_feasible && report.interaction->target_converged && report.interaction->target_optimality<=options.preference_tolerance && report.interaction->status!=InteractionStatus::Cancelled;
+        if(!report.interaction->eligible_for_commit && report.interaction->status!=InteractionStatus::Cancelled) report.interaction->status=InteractionStatus::Budget;
+    }
     report.reference_optimality =
         (final_z.transpose() * scales.asDiagonal() * ref.jacobian.transpose() * ref.residual)
             .norm();
@@ -3195,7 +3410,7 @@ std::vector<BodyFreedom> interpret_freedoms(const ComponentProblem& problem, con
     const Eigen::MatrixXd z = orthogonal_kernel(
         problem.jacobian(state, problem.residual(state)) * scales.asDiagonal(), options);
     std::optional<std::size_t> anchor;
-    if (problem.gauge_dof())
+    if (problem.gauge_dof() && !options.drag_target)
         anchor =
             assembly.clusters()[problem.component().cluster_indices.front()].body_indices.front();
     Eigen::Matrix<double, 6, 6> normalize = Eigen::Matrix<double, 6, 6>::Identity();
@@ -3204,6 +3419,7 @@ std::vector<BodyFreedom> interpret_freedoms(const ComponentProblem& problem, con
     std::vector<BodyFreedom> result;
     for (auto cluster : problem.component().cluster_indices)
         for (auto body : assembly.clusters()[cluster].body_indices) {
+            if(options.should_cancel && options.should_cancel()) return result;
             BodyFreedom freedom;
             freedom.body_id = assembly.model().bodies[body].id;
             freedom.linearization_pose = poses[body];
@@ -3365,6 +3581,7 @@ std::vector<ConstraintRankInfo> constraint_rank_info(const ComponentProblem& pro
     std::size_t accepted_rank = 0;
     Eigen::Index row = 0;
     for (const ResidualBlock& block : blocks) {
+        if(options.should_cancel && options.should_cancel()) break;
         Eigen::MatrixXd candidate(accepted.rows() + block.values.size(), accepted.cols());
         if (accepted.rows() > 0)
             candidate.topRows(accepted.rows()) = accepted;
@@ -3509,6 +3726,12 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
 
         bool has_relative_dof = false;
         for (const Component& component : assembly.components()) {
+            if(options.should_cancel && options.should_cancel()) {
+                result.status=SolveStatus::MaxIterations;
+                result.classification=SolveClassification::NonConvergent;
+                result.diagnostic="cancelled before component evaluation";
+                return result;
+            }
             for (const std::size_t cluster : component.cluster_indices)
                 selected_clusters[cluster] = component.selected;
             ComponentProblem problem(assembly, component);
@@ -3522,9 +3745,16 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
             MotionPreference preference;
             if (component.selected && solution.status == SolveStatus::Converged)
                 preference = optimize_motion(problem, solution.state, options);
+            if(preference.interaction) result.interaction=preference.interaction;
             for (std::size_t index = 0; index < problem.free_clusters().size(); ++index)
                 cluster_poses[problem.free_clusters()[index]] = solution.state.poses[index];
             result.iterations += solution.iterations;
+            if(options.should_cancel && options.should_cancel()) {
+                result.status=SolveStatus::MaxIterations;
+                result.classification=SolveClassification::NonConvergent;
+                result.diagnostic="cancelled after feasibility/interaction evaluation";
+                return result;
+            }
             if (solution.status == SolveStatus::NumericalFailure)
                 result.status = SolveStatus::NumericalFailure;
             else if (solution.status == SolveStatus::MaxIterations &&
@@ -3585,13 +3815,17 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
             std::sort(component_dof.body_ids.begin(), component_dof.body_ids.end());
             result.components.push_back(std::move(component_dof));
 
-            if (component.selected && solution.status != SolveStatus::NumericalFailure) {
+            if (component.selected && solution.status != SolveStatus::NumericalFailure && !options.drag_target) {
                 const auto ranks = constraint_rank_info(problem, solution.state, options);
                 for (const ConstraintRankInfo& info : ranks) {
                     if (info.role == ConstraintRankRole::FullyRedundant)
                         result.redundant_constraint_ids.push_back(info.constraint_id);
                     result.constraint_ranks.push_back(info);
                 }
+            }
+            if(component.selected && options.drag_target) {
+                result.diagnostics.push_back({"INTERACTION_CONSTRAINT_RANK_AUDIT_FROZEN",component.id,{}, {},
+                    "all physical component equations, Jacobian rank and residuals evaluated; per-definition incremental redundancy audit not repeated during pose-only interaction"});
             }
             if (!component.selected) {
                 result.diagnostics.push_back(
@@ -3609,6 +3843,10 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
             const Constraint& constraint = assembly.constraint(constraint_index);
             if (constraint.mode == ConstraintMode::Suppressed)
                 continue;
+            if(options.drag_target && active(constraint) && constraint.direction_relation==DirectionRelation::Unoriented && assembly.branch(constraint_index).direction_relation!=DirectionRelation::Unoriented)
+                result.alignment_branches.push_back({constraint.id,assembly.branch(constraint_index).direction_relation});
+            if(options.drag_target && active(constraint) && constraint.kind==ConstraintKind::Distance && constraint.distance_relation==DistanceRelation::Unsigned && assembly.branch(constraint_index).distance_relation!=DistanceRelation::Unsigned)
+                result.distance_branches.push_back({constraint.id,assembly.branch(constraint_index).distance_relation});
             const ResidualBlock block =
                 evaluate_constraint(assembly, constraint_index, body_poses, true);
             const double norm = block.values.norm();
@@ -3708,7 +3946,7 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
         // Sign-symmetric residuals can cancel a directed residual at a stationary
         // point in the wrong hemisphere. Probe the other branch using guesses
         // only: nominal poses, physical Fix, intent and all equations stay intact.
-        if (explore_directions && (result.status == SolveStatus::Unsatisfied ||
+        if (explore_directions && !options.drag_target && (result.status == SolveStatus::Unsatisfied ||
                                    result.status == SolveStatus::MaxIterations)) {
             std::size_t probes = 0;
             constexpr std::size_t max_direction_probes = 16;
@@ -3748,11 +3986,12 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
                 if (probes >= max_direction_probes) break;
             }
         }
-        if (result.status == SolveStatus::Unsatisfied && options.max_conflict_probes > 0) {
+        if (!options.drag_target && result.status == SolveStatus::Unsatisfied && options.max_conflict_probes > 0) {
             std::size_t probes = 0;
             for (std::size_t index = 0;
                  index < model.constraints.size() && probes < options.max_conflict_probes;
                  ++index) {
+                if(options.should_cancel && options.should_cancel()) break;
                 if (!active(model.constraints[index]))
                     continue;
                 ++probes;
@@ -3793,7 +4032,16 @@ static SolveResult solve_model(const Model& model, const SolverOptions& options,
 }
 
 SolveResult Solver::solve(const Model& model, const SolverOptions& options) const {
-    return solve_model(model, options, true);
+    auto result=solve_model(model, options, true);
+    if(options.drag_target) {
+        if(!result.interaction) result.interaction=InteractionEvidence{};
+        auto& evidence=*result.interaction;
+        evidence.target_sequence=options.drag_target->target_sequence;
+        evidence.hard_feasible=result.status==SolveStatus::Converged;
+        if(options.should_cancel && options.should_cancel()) { evidence.status=InteractionStatus::Cancelled; evidence.eligible_for_commit=false; }
+        if(!evidence.hard_feasible) evidence.eligible_for_commit=false;
+    }
+    return result;
 }
 
 }  // namespace occccad::assembly

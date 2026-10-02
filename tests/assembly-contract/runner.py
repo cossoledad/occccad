@@ -355,6 +355,18 @@ def run_cases(cases, output, build_type, adapters):
     return results, commands
 
 
+def milestone_evidence(catalog, results):
+    """Derived execution evidence, not a second implementation matrix."""
+    evidence = {}
+    for milestone in ("m4", "m5"):
+        required = sorted(c["caseId"] for c in catalog["cases"] if c["caseId"].startswith(milestone + "."))
+        verdicts = {ident: results.get(ident, {"status": "NOT_RUN"})["status"] for ident in required}
+        evidence[milestone.upper()] = {"scope": "FIRST_STAGE_AUTOMATED_CASES_ONLY", "requiredEvidence": verdicts,
+            "status": "ALL_REQUIRED_PASS" if required and all(v == "PASS" for v in verdicts.values()) else "INCOMPLETE",
+            "manualAcceptance": "PENDING_MAINTAINER"}
+    return evidence
+
+
 def make_report(catalog, caps, cases, results, commands, purpose, argv):
     git = lambda *args: subprocess.check_output(["git", *args], cwd=ROOT, text=True).strip()
     rows = []
@@ -381,7 +393,11 @@ def make_report(catalog, caps, cases, results, commands, purpose, argv):
                 "web/apps/cad/src/cad/assembly/assembly-edit-intent.ts", "web/apps/cad/src/cad/interaction/selection-index.ts",
                 "web/apps/cad/src/features/workbench/workbench.tsx", "web/apps/cad/src/viewport/cad-viewport-engine.ts",
                 "web/apps/cad/src/viewport/cad-viewport.tsx", "web/apps/cad/src/types.ts"}
-    return {"schemaVersion": catalog["schemaVersion"], "contractVersion": catalog["contractVersion"], "catalogDigest": digest(catalog), "purpose": purpose, "acceptanceScope": "AUTOMATED_CONTRACT_ONLY", "manualAcceptance": {"status": "PENDING_MAINTAINER", "scope": "Current candidate/display fixes await interactive acceptance", "priorOffsetFeedback": "Maintainer confirmed prior OFFSET usage; no exact manual version, date or case list supplied.", "priorSixFamilyFeedback": "Maintainer reports major six-family capabilities usage-verified and observes improved speed/stability before these fixes; not an industrial corpus, performance benchmark or concurrent-failure acceptance."}, "baselineMeaning": "selected executed existing abilities only; NOT six-family product acceptance", "commit": git("rev-parse", "HEAD"), "worktree": git("status", "--short"), "worktreeDiffDigest": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"], cwd=ROOT)).hexdigest(), "inputDigests": {source: hashlib.sha256((ROOT / source).read_bytes()).hexdigest() for source in sorted(sources)}, "invocation": argv, "selectedCaseIds": [t["caseId"] for t in cases], "environment": {"platform": platform.platform(), "python": platform.python_version(), **integration_environment()}, "commands": commands, "results": list(results.values()), "counts": dict(Counter(r["status"] for r in results.values())), "uniquePassedTestMappings": len(native), "targetCounts": dict(Counter(r["targetStatus"] for r in rows)), "capabilities": rows}
+    sources |= {"kernel/assembly/src/solver.cpp", "services/internal/geometry/client.go",
+                "services/internal/workspace/assembly_interaction.go", "services/internal/workspace/assembly_conflict.go",
+                "services/internal/workspace/assembly_conflict_geometry.go", "services/internal/api/realtime_assembly.go",
+                "web/apps/cad/src/cad/assembly/assembly-interaction.ts", "web/apps/cad/src/cad/assembly/assembly-conflict.ts"}
+    return {"schemaVersion": catalog["schemaVersion"], "contractVersion": catalog["contractVersion"], "catalogDigest": digest(catalog), "purpose": purpose, "acceptanceScope": "AUTOMATED_CONTRACT_ONLY", "milestoneEvidence": milestone_evidence(catalog, results), "manualAcceptance": {"status": "PENDING_MAINTAINER", "scope": "M4/M5 first-stage interaction awaits maintainer acceptance", "priorOffsetFeedback": "Maintainer confirmed prior OFFSET usage; no exact manual version, date or case list supplied.", "priorSixFamilyFeedback": "Maintainer reports major six-family capabilities usage-verified and observes improved speed/stability; not an industrial corpus, performance benchmark or concurrent-failure acceptance.", "priorCloseoutFeedback": "Maintainer confirms the prior candidate/glyph/dialog/Angle interaction fixes are resolved; this does not accept new M4/M5 interaction."}, "baselineMeaning": "selected executed existing abilities only; NOT six-family product acceptance", "commit": git("rev-parse", "HEAD"), "worktree": git("status", "--short"), "worktreeDiffDigest": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"], cwd=ROOT)).hexdigest(), "inputDigests": {source: hashlib.sha256((ROOT / source).read_bytes()).hexdigest() for source in sorted(sources)}, "invocation": argv, "selectedCaseIds": [t["caseId"] for t in cases], "environment": {"platform": platform.platform(), "python": platform.python_version(), **integration_environment()}, "commands": commands, "results": list(results.values()), "counts": dict(Counter(r["status"] for r in results.values())), "uniquePassedTestMappings": len(native), "targetCounts": dict(Counter(r["targetStatus"] for r in rows)), "capabilities": rows}
 
 
 def main(argv=None):

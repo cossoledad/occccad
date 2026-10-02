@@ -1475,9 +1475,11 @@ func applyInsertInstance(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 }
 
 type moveInstancePayload struct {
-	InstanceID  string     `json:"instanceId"`
-	Translation [3]float64 `json:"translation"`
-	Rotation    [4]float64 `json:"rotation"`
+	SessionID         string                       `json:"sessionId,omitempty"`
+	InteractionTarget *geometry.AssemblyDragTarget `json:"interactionTarget,omitempty"`
+	InstanceID        string                       `json:"instanceId"`
+	Translation       [3]float64                   `json:"translation"`
+	Rotation          [4]float64                   `json:"rotation"`
 }
 
 type addAssemblyConstraintPayload struct {
@@ -1994,6 +1996,12 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		return err
 	}
 	finishPromote := perf.Start(ctx, "candidate-promote")
+	if request.SessionID != "" {
+		if err := service.validateInteractionCommit(ctx, documentID, prepared, request); err != nil {
+			finishPromote()
+			return err
+		}
+	}
 	candidate, rejection := service.interactionCandidates.takeDiagnosed(request.PreviewID, documentID, prepared)
 	promoted := rejection == ""
 	finishPromote()
@@ -2107,7 +2115,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 				}
 			}
 		}
-		if promoted && len(model.Constraints) > 0 {
+		if promoted && (len(model.Constraints) > 0 || request.SessionID != "") {
 			if err = service.promoteAssemblySolveManifest(ctx, documentID, revisionID, prepared.requestID, candidate.assemblyPreviewRequestID, canonicalModelHash(nextJSON)); err != nil {
 				return err
 			}

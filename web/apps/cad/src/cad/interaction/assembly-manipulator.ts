@@ -3,11 +3,13 @@ import type { CadShaderLibrary } from "../rendering/shader/cad-shader-library";
 import { solveScreenConstrainedParameter, worldUnitsPerCssPixel, type ViewportMetrics } from "../rendering/viewport-metrics";
 
 type Axis = "X" | "Y" | "Z";
-type Handle = { axis?: Axis; radialAxis?: Axis; operation: "translate" | "rotate" | "pivot";
+type Handle = { axis?: Axis; plane?: [Axis, Axis]; radialAxis?: Axis; operation: "translate" | "rotate" | "pivot";
   pick: THREE.Object3D; materials: THREE.ShaderMaterial[] };
 type Drag = { pointerId: number; handle: Handle; startPosition: THREE.Vector3;
   startQuaternion: THREE.Quaternion; desiredPosition: THREE.Vector3; desiredQuaternion: THREE.Quaternion;
-  axisParameter:number;angleParameter:number;pointerToHandleOffset:THREE.Vector2 };
+  axisParameter:number;angleParameter:number;pointerToHandleOffset:THREE.Vector2; startPlanePoint?:THREE.Vector3 };
+
+export type ManipulatorTargetComponents = {translationComponents:[boolean,boolean,boolean];rotationComponents:[boolean,boolean,boolean]};
 
 export type AssemblyManipulatorCallbacks = {
   poseChanged(): void;
@@ -39,6 +41,7 @@ export class AssemblyManipulator {
   private hovered?: Handle;
   private visible = false;
   private readonly frame=new THREE.Quaternion();
+  private targetComponents?: ManipulatorTargetComponents;
 
   constructor(private readonly shaders: CadShaderLibrary, private readonly callbacks: AssemblyManipulatorCallbacks) {
     this.root.name = "occccad-assembly-manipulator";
@@ -50,6 +53,7 @@ export class AssemblyManipulator {
     this.object.add(hub, hubPick);
     this.handles.push({ operation: "pivot", pick: hubPick, materials: [hubMaterial] });
     for (const axis of ["X", "Y", "Z"] as const) this.addAxis(axis);
+    for (const plane of [["X","Y"],["Y","Z"],["X","Z"]] as [Axis,Axis][]) this.addPlane(plane);
     this.root.visible = false;
   }
 
@@ -61,6 +65,7 @@ export class AssemblyManipulator {
     this.object.position.copy(position); this.object.quaternion.copy(this.frame);
   }
   frameQuaternion(): THREE.Quaternion { return this.frame.clone(); }
+  components(): ManipulatorTargetComponents | undefined { return this.targetComponents ? structuredClone(this.targetComponents) : undefined; }
   setPreviewPose(position: THREE.Vector3, orientation: THREE.Quaternion): void {
     this.object.position.copy(position); this.object.quaternion.copy(orientation);
   }
@@ -99,6 +104,9 @@ export class AssemblyManipulator {
         if(snapped.orientation){this.frame.copy(snapped.orientation);this.object.quaternion.copy(this.frame);}
         this.callbacks.pivotChanged({position:snapped.position.clone(),orientation:snapped.orientation?.clone()});
       }
+    } else if (drag.handle.operation === "translate" && drag.handle.plane && drag.startPlanePoint) {
+      const point=this.pointOnDragPlane(x,y,camera,surface,drag.startPosition,drag.handle.plane);
+      if(point)drag.desiredPosition.copy(drag.startPosition).add(point.sub(drag.startPlanePoint));
     } else if (drag.handle.operation === "translate" && drag.handle.axis) {
       const metrics={cssWidth:Math.max(surface.clientWidth,1),cssHeight:Math.max(surface.clientHeight,1),devicePixelRatio:1};
       const axis=AXES[drag.handle.axis].clone().applyQuaternion(this.frame);
@@ -142,7 +150,15 @@ export class AssemblyManipulator {
     const pointerToHandleOffset=new THREE.Vector2(x,y).sub(this.screenPoint(handlePoint,camera,surface));
     this.drag = { pointerId, handle, startPosition: this.object.position.clone(),
       startQuaternion: new THREE.Quaternion(), desiredPosition: this.object.position.clone(),
-      desiredQuaternion: new THREE.Quaternion(),axisParameter:0,angleParameter:0,pointerToHandleOffset };
+      desiredQuaternion: new THREE.Quaternion(),axisParameter:0,angleParameter:0,pointerToHandleOffset,
+      startPlanePoint:handle.plane?this.pointOnDragPlane(x,y,camera,surface,origin,handle.plane):undefined };
+    const axes=["X","Y","Z"] as Axis[];
+    this.targetComponents=handle.operation==="pivot"?undefined:{
+      // Axis rotation keeps the grabbed point as a positional objective; no
+      // unknown rotation component is silently turned into a hard Fix.
+      translationComponents:axes.map(a=>handle.operation==="rotate"||handle.axis===a||Boolean(handle.plane?.includes(a))) as [boolean,boolean,boolean],
+      rotationComponents:axes.map(a=>handle.operation==="rotate"&&handle.axis===a) as [boolean,boolean,boolean],
+    };
     this.setHandleActive(handle,1);
     if (handle.operation !== "pivot") this.callbacks.dragStarted();
     return true;
@@ -185,6 +201,23 @@ export class AssemblyManipulator {
     this.handles.push({ axis: rotationAxis[axis], radialAxis:axis, operation: "rotate", pick: ringPick, materials: [ringMaterial] });
   }
 
+  private addPlane(plane:[Axis,Axis]):void {
+    const [a,b]=plane;
+    const points=[[.17,.17],[.34,.17],[.34,.34],[.17,.34]].map(([u,v])=>AXES[a].clone().multiplyScalar(u).addScaledVector(AXES[b],v));
+    const material=this.shaders.createMaterial("cad.manipulator.line",{uColor:new THREE.Color(COLORS[(["X","Y","Z"] as Axis[]).find(axis=>!plane.includes(axis))!])});
+    const lines=new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(points.flatMap((p,i)=>[p,points[(i+1)%4]])),material);
+    const pick=new THREE.Mesh(new THREE.PlaneGeometry(.17,.17),new THREE.MeshBasicMaterial({visible:false,side:THREE.DoubleSide}));
+    pick.position.copy(AXES[a]).multiplyScalar(.255).addScaledVector(AXES[b],.255);
+    pick.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),AXES[a].clone().cross(AXES[b]));
+    this.object.add(lines,pick);this.handles.push({plane,operation:"translate",pick,materials:[material]});
+  }
+  private pointOnDragPlane(x:number,y:number,camera:THREE.Camera,surface:HTMLElement,origin:THREE.Vector3,plane:[Axis,Axis]):THREE.Vector3|undefined {
+    const rect=surface.getBoundingClientRect();const ray=new THREE.Raycaster();
+    ray.setFromCamera(new THREE.Vector2(x/Math.max(rect.width,1)*2-1,1-y/Math.max(rect.height,1)*2),camera);
+    const normal=AXES[plane[0]].clone().cross(AXES[plane[1]]).applyQuaternion(this.frame).normalize();
+    return ray.ray.intersectPlane(new THREE.Plane().setFromNormalAndCoplanarPoint(normal,origin),new THREE.Vector3())??undefined;
+  }
+
   private pick(x: number, y: number, camera: THREE.Camera, surface: HTMLElement): Handle | undefined {
     const rect = surface.getBoundingClientRect();
     const pointer = new THREE.Vector2(x / Math.max(rect.width, 1) * 2 - 1, 1 - y / Math.max(rect.height, 1) * 2);
@@ -194,7 +227,7 @@ export class AssemblyManipulator {
   }
 
   private screenPoint(point: THREE.Vector3, camera: THREE.Camera, surface: HTMLElement): THREE.Vector2 {
-    const rect = surface.getBoundingClientRect(); const projected = point.project(camera);
+    const rect = surface.getBoundingClientRect(); const projected = point.clone().project(camera);
     return new THREE.Vector2((projected.x + 1) * rect.width / 2, (1 - projected.y) * rect.height / 2);
   }
   private setHovered(handle?: Handle): void {

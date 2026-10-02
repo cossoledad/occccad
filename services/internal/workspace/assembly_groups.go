@@ -680,7 +680,7 @@ func (service *Service) solveFrozenAssemblyGroups(ctx context.Context, requestID
 			}
 			inner = append(inner, links...)
 		}
-		result, err := service.worker.SolveAssemblyWithOptions(ctx, requestID+"/"+stage.ID, innerBodies, innerGeometry, inner, geometry.AssemblySolveOptions{AffectedBodyIDs: stage.MemberIDs, SolverProfile: &manifest.SolverProfile})
+		result, err := service.worker.SolveAssemblyWithOptions(ctx, requestID+"/"+stage.ID, innerBodies, innerGeometry, inner, geometry.AssemblySolveOptions{AffectedBodyIDs: stage.MemberIDs, SolverProfile: &manifest.SolverProfile, DisableConflictProbes: manifest.Purpose == "DIAGNOSTIC"})
 		if err != nil {
 			return result, err
 		}
@@ -739,7 +739,7 @@ func (service *Service) solveFrozenAssemblyGroups(ctx context.Context, requestID
 			evidence = append(evidence, proof)
 		}
 	}
-	result, err := service.worker.SolveAssemblyWithOptions(ctx, requestID, bodies, manifest.Geometry, outer, geometry.AssemblySolveOptions{Intent: manifest.Intent, AffectedBodyIDs: manifest.AffectedBodyIDs, SolverProfile: &manifest.SolverProfile, CaptureReplay: capture})
+	result, err := service.worker.SolveAssemblyWithOptions(ctx, requestID, bodies, manifest.Geometry, outer, geometry.AssemblySolveOptions{Intent: manifest.Intent, AffectedBodyIDs: manifest.AffectedBodyIDs, SolverProfile: &manifest.SolverProfile, CaptureReplay: capture, DisableConflictProbes: manifest.Purpose == "DIAGNOSTIC"})
 	result.GroupEvidence = evidence
 	return result, err
 }
