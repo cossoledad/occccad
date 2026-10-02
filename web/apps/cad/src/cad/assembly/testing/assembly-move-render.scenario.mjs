@@ -15,7 +15,7 @@ try{
  let invalidates=0,hydrates=0;
  Object.assign(engine,{content,helpers:new THREE.Group(),instanceGroups:new Map([["a",a],["b",b]]),
   moveManipulator:manipulator,moveTarget:{group:a,startPosition:new THREE.Vector3(),startQuaternion:new THREE.Quaternion(),startPivot:new THREE.Vector3(1,0,0),localPivot:new THREE.Vector3(1,0,0)},
-  selectable:new Map([["instance:a",a],["instance:b",b]]),manipulatorFrames:new Map(),manipulatorPivots:new Map(),
+  selectable:new Map([["instance:a",a],["instance:b",b]]),manipulatorFrames:new Map(),manipulatorPivots:new Map(),moveInteraction:{hasUncommittedFinal:false},
   selected:[],preselected:null,selectionIndex:new SelectionIndex(),assemblyConstraintReferences:new Map(),assemblyConstraintMarkers:new Map(),solidBindings:new Map(),
   highlightedRoots:new Set(),selectedOverlays:[],preselectedOverlays:[],
   materials:{constraintGlyph:(_glyph,color)=>new THREE.PointsMaterial({color}),setInteractionState(){}},

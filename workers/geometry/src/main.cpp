@@ -886,6 +886,15 @@ public:
             target.target_pose=pose(input.target_pose());
             target.frame_rotation={input.frame_rotation().x(),input.frame_rotation().y(),input.frame_rotation().z(),input.frame_rotation().w()};
             for(int i=0;i<3;++i){target.translation_components[i]=input.translation_components(i);target.rotation_components[i]=input.rotation_components(i);}
+            if((input.hold_translation_components_size()!=0 && input.hold_translation_components_size()!=3) ||
+               (input.hold_rotation_components_size()!=0 && input.hold_rotation_components_size()!=3))
+                return {grpc::StatusCode::INVALID_ARGUMENT,"hold masks must be absent or have three entries"};
+            for(int i=0;i<3;++i){
+                target.hold_translation_components[i]=input.hold_translation_components_size()?input.hold_translation_components(i):false;
+                target.hold_rotation_components[i]=input.hold_rotation_components_size()?input.hold_rotation_components(i):false;
+                if((target.hold_translation_components[i]&&target.translation_components[i]) || (target.hold_rotation_components[i]&&target.rotation_components[i]))
+                    return {grpc::StatusCode::INVALID_ARGUMENT,"driven and held components must be disjoint"};
+            }
             target.target_sequence=input.target_sequence(); options.drag_target=target;
         }
         auto* effective = response->mutable_effective_solver_profile();
@@ -936,6 +945,10 @@ public:
             out->set_hard_feasible(proof.hard_feasible);out->set_target_converged(proof.target_converged);
             out->set_eligible_for_commit(proof.eligible_for_commit);out->set_target_error(proof.target_error);
             out->set_target_optimality(proof.target_optimality);out->set_target_sequence(proof.target_sequence);
+            out->set_termination_stage(proof.termination_stage);out->set_termination_reason(proof.termination_reason);
+            out->set_iterations(proof.iterations);out->set_restorations(proof.restorations);
+            out->set_hard_error(proof.hard_error);out->set_hold_optimality(proof.hold_optimality);out->set_hold_converged(proof.hold_converged);
+            if(proof.status==IS::Cancelled)out->set_termination_reason(std::chrono::system_clock::now()>=context->deadline()?"WALL_CLOCK_DEADLINE":"CANCELLED");
         }
         const char* status =
             result.status == assembly_api::SolveStatus::Converged       ? "CONVERGED"
@@ -944,7 +957,7 @@ public:
             : result.status == assembly_api::SolveStatus::MaxIterations ? "MAX_ITERATIONS"
             : result.status == assembly_api::SolveStatus::InvalidModel  ? "INVALID_MODEL"
                                                                         : "NUMERICAL_FAILURE";
-        response->set_solver_build("assembly-m4m5-interaction-v11");
+        response->set_solver_build("assembly-m4m5-intent-v12");
         response->set_status(status);
         const char* classification =
             result.classification == assembly_api::SolveClassification::SolvedFully ? "SOLVED_FULLY"

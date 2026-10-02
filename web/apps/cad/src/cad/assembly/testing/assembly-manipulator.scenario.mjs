@@ -24,7 +24,7 @@ m.attach(new THREE.Vector3(1,2,0),frozen);m.object.updateMatrixWorld(true);
 // motion has an independent orthographic geometry oracle (100px = 1 world mm).
 const xy=m.handles.find(h=>h.plane?.join("")==="XY");m.pick=()=>xy;
 assert.equal(m.pointerDown(1,600,300,camera,surface),true);
-assert.deepEqual(m.components(),{translationComponents:[true,true,false],rotationComponents:[false,false,false]});
+assert.deepEqual(m.components(),{translationComponents:[true,true,false],rotationComponents:[false,false,false],holdTranslationComponents:[false,false,true],holdRotationComponents:[true,true,true]});
 m.pointerMove(1,700,250,camera,surface);
 assert.ok(m.candidatePose().position.distanceTo(new THREE.Vector3(2,2.5,0))<1e-12,JSON.stringify(m.candidatePose().position.toArray()));
 assert.ok(m.frameQuaternion().angleTo(frozen)<1e-12);
@@ -41,6 +41,8 @@ for(const handle of m.handles.filter(h=>h.operation!=="pivot")){
  const components=m.components(),axes=["X","Y","Z"];
  assert.deepEqual(components.translationComponents,axes.map(a=>handle.operation==="rotate"||handle.plane?.includes(a)||handle.axis===a));
  assert.deepEqual(components.rotationComponents,axes.map(a=>handle.operation==="rotate"&&handle.axis===a));
+ assert.deepEqual(components.holdTranslationComponents,components.translationComponents.map(value=>!value));
+ assert.deepEqual(components.holdRotationComponents,components.rotationComponents.map(value=>!value));
  assert.equal(m.pointerUp(2,false),true);assert.equal(events.at(-1),"cancel");
 }
 m.dispose();

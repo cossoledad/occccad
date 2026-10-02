@@ -2,12 +2,15 @@ import type {AssemblyConstraint,AssemblyBodyFreedom,DocumentView as DocumentDesc
 import type {AssemblyConflictItem,AssemblyConflictMember} from "./assembly-conflict";
 export type AssemblyEngineeringEvidence={documentId:string;revisionId:string;available:boolean;components:Array<{bodyIds:string[];relativeDof:number;gaugeDof:number;solved:boolean;freedoms:AssemblyBodyFreedom[]}>};
 
+const nameIndices=new WeakMap<DocumentDescriptor,Map<string,string>>();
 export function engineeringInstanceName(view:DocumentDescriptor|undefined,id:string):string {
-  const instances=view?.product?.instances??[],instance=instances.find(value=>value.id===id);
-  if(!instance)return "组件";
-  const name=instance.name||"组件",siblings=instances.filter(value=>(value.name||"组件")===name);
-  // Display-only disambiguation, never a persistent identity or repair target.
-  return siblings.length>1?`${name}（第 ${siblings.findIndex(value=>value.id===id)+1} 个实例）`:name;
+  if(!view)return "组件";let index=nameIndices.get(view);
+  if(!index){index=new Map();const totals=new Map<string,number>(),seen=new Map<string,number>();
+    for(const i of view.product?.instances??[]){const n=i.name||"组件";totals.set(n,(totals.get(n)??0)+1);}
+    for(const i of view.product?.instances??[]){const n=i.name||"组件",ordinal=(seen.get(n)??0)+1;seen.set(n,ordinal);index.set(i.id,(totals.get(n)??0)>1?`${n}（第 ${ordinal} 个实例）`:n);}
+    nameIndices.set(view,index);
+  }
+  return index.get(id)??"组件";
 }
 
 export function assemblyEngineeringOverview(view?:DocumentDescriptor){
@@ -15,11 +18,12 @@ export function assemblyEngineeringOverview(view?:DocumentDescriptor){
   const active=definitions.filter(c=>!c.suppressed&&c.mode!=="MEASURED");
   const issues=active.filter(c=>c.evaluationStatus!=="VERIFIED");
   const fixed=new Set(active.filter(c=>c.kind==="FIX"&&c.evaluationStatus==="VERIFIED").map(c=>c.first.instancePath?.segments[0]?.instanceId??c.first.instanceId));
+  const participating=new Set(active.flatMap(c=>[c.first,c.second,c.angleAxis,...(c.groupMembers??[]).map(m=>({instanceId:m.instanceId,instancePath:m.instancePath}))].flatMap(r=>r?[r.instancePath?.segments[0]?.instanceId??r.instanceId]:[])));
   return {name:view?.document.name??"当前装配",total:definitions.length,suppressed:definitions.filter(c=>c.suppressed).length,
     measured:definitions.filter(c=>c.mode==="MEASURED").length,verified:active.filter(c=>c.evaluationStatus==="VERIFIED").length,
     broken:definitions.filter(c=>c.evaluationStatus==="BROKEN").length,notUpdated:definitions.filter(c=>c.evaluationStatus==="NOT_UPDATED").length,
     issues,instances:instances.map(instance=>({id:instance.id,name:engineeringInstanceName(view,instance.id),state:fixed.has(instance.id)?"已固定":
-      active.some(c=>[c.first,c.second,c.angleAxis,...(c.groupMembers??[]).map(m=>({instanceId:m.instanceId,instancePath:m.instancePath}))].some(r=>r&&(r.instancePath?.segments[0]?.instanceId??r.instanceId)===instance.id))?"受约束；运动范围需查看求值证据":"可自由运动"})),
+      participating.has(instance.id)?"受约束；运动范围需查看求值证据":"可自由运动"})),
     status:issues.length?"有待处理定义":active.length?"活动定义已满足（当前求值）":"没有活动驱动约束"};
 }
 export function engineeringMember(definition:AssemblyConstraint):AssemblyConflictMember {

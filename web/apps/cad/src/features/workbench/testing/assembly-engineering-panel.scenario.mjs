@@ -32,8 +32,15 @@ function load(file){
  const report={status:"UNKNOWN",baseRevisionId:"technical-revision",solverBuildPolicy:"technical-build",probeCount:12,elapsedMs:4,scopeConstraintIds:[constraint.id],scopeBodyIds:["a","b"],items:[{kind:"LOCALIZED_SUSPECT",oracle:"UNKNOWN",evidence:"technical-oracle",reason:"algorithm text",members:[{constraintId:constraint.id,first:constraint.first,repairActions:["EDIT"]}]}]};
  const view={document:{id:"p",versionId:"technical-revision",name:"机架"},product:{instances:[{id:"a",name:"支架"},{id:"b",name:"螺栓"}],constraints:[constraint]}};
  const html=renderToStaticMarkup(React.createElement(App,null,React.createElement(AssemblyConflictPanel,{open:true,pending:false,current:true,canEdit:true,view,report,onLocate(){},onLocateInstance(){},onRepair(){},onAnalyze(){},onStop(){},onClose(){}})));
- const defaultView=html.replace(/<details>[\s\S]*?<\/details>/g,"");
- assert.match(defaultView,/整体概览/);assert.match(defaultView,/安装间隙/);assert.match(defaultView,/支架/);
+ const defaultView=html.replace(/<details>[\s\S]*?<\/details>/g,"").replace(/<[^>]*>/g,"");
+ assert.match(html,/data-row-key="technical-uuid"/,"stable business ID remains the row identity, not visible text");
+ assert.match(defaultView,/待处理问题/);assert.match(defaultView,/安装间隙/);assert.match(defaultView,/支架/);
  assert.doesNotMatch(defaultView,/technical-uuid|technical-revision|technical-build|technical-oracle|algorithm text|探测上限|Oracle|UUID/);
- assert.match(html,/technical-uuid/,"technical evidence retained behind details");
+ assert.doesNotMatch(defaultView,/technical-uuid/,"technical evidence not eagerly rendered into default worklist");
  assert.equal((html.match(/cad-command-dialog-footer/g)??[]).length,0,"analysis has one existing close/Esc path, no duplicate footer actions");
+ for(const count of [0,1,100,500,1000]){
+  const largeView={...view,product:{...view.product,constraints:Array.from({length:count},(_,i)=>({...constraint,id:`stable-${i}`,name:`检查项 ${i}`}))}};
+  const markup=renderToStaticMarkup(React.createElement(App,null,React.createElement(AssemblyConflictPanel,{open:true,pending:false,current:true,canEdit:true,view:largeView,onLocate(){},onLocateInstance(){},onRepair(){},onAnalyze(){},onStop(){},onClose(){}})));
+  assert.equal((markup.match(/class="ant-table-row ant-table-row-level-0"/g)??[]).length,Math.min(count,10),"fixed page length, not full expanded lists");
+  if(count>10)assert.doesNotMatch(markup,/>检查项 99</,"unselected/off-page detail is not eagerly rendered");
+ }

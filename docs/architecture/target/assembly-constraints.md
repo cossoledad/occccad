@@ -194,7 +194,9 @@ Activate/Deactivate（抑制）控制该定义是否参与更新，作用于六�
 
 求解 Session 是有容量、TTL、取消与并发保护的瞬态计算上下文，不是 TREE-03 EditSession 或持久连接模型。它冻结 actor、Workspace/Head/sequence、owning Product/完整 occurrence 与编辑上下文、已接受引用、定义/模式/激活集合、精确支持、组捕获、solver policy/profile/build 和手势 nominal baseline。accepted pose/branch 仅用于后续 initial guess；失效、取消、未接纳或迟到结果不能运输它们。外部 Head/相关输入或上下文变化要求重新开始，不能自动追随新 Head。
 
-DragTarget 的 pose、抓取点目标与参考帧均属于 owning Product（长度毫米、角度弧度）。抓取点为 `R * localGrabPoint + t`；目标为 `R_target * localGrabPoint + t_target`。冻结 frame 的平移/旋转分量 mask 只控制指定目标，不升级为物理方程。层级为：实际接纳硬约束与分支可行 → 当前拖动目标的局部最优 → 不恶化上层的 reference/total nominal motion。统一尺度中的零空间必须正交化；每个切步做真实硬约束恢复和上层复验。无 Ground 时保留物理整体运动，不把数值 gauge 写成 Fix。未指定分量可以改变，不承诺 body origin 必然等于鼠标抓取点目标。
+DragTarget 的 pose、抓取点目标与参考帧均属于 owning Product（长度毫米、角度弧度）。抓取点为 `R * localGrabPoint + t`；目标为 `R_target * localGrabPoint + t_target`。冻结 frame 的驱动/保持 mask 互斥，未落入两组者完全自由；保持是交互偏好，不升级为物理方程。层级为：实际接纳硬约束与分支可行 → 用户驱动目标的局部最优 → 保持未要求改变的姿态/侧向抓取点 → 剩余 total nominal motion。可行自由平移应保持完整姿态，但机构必要的耦合旋转不能被禁止。旋转目标包含绕 pivot 的位姿轨迹。统一尺度中的零空间必须正交化；每个切步做真实硬约束恢复和上层复验。无 Ground 时保留物理整体运动，不把数值 gauge 写成 Fix。静态 ADD/EDIT 和旧策略仍按原 reference/total 层级解释。
+
+用户目标始终来自冻结 baseline 与累计输入；已接纳结果只作 continuation guess。可行显示、合格 checkpoint、warm state 和最终候选分开。短暂预算不足不丢弃整个手势；最终目标可有界续算，但目标身份与传输 attempt 分离，同一目标身份不得改变参数。最终仍未确认时保留明确未保存的预览并提供重试/取消，禁止静默提交早期目标。开始其他命令/目标先终结或取消未提交状态；外部版本失效恢复当前权威状态而不是旧 nominal。
 
 SPACE Fix 保留捕获基准。显式 Move 可编辑被驱动运动单元及其既有刚性组成员的 RELATIVE 基准：开始时冻结授权 Fix ID 集合，交互编译明确把这些基准视为本次编辑参数，其他硬约束不变；合格最终帧一次原子写入新基准和所有受影响姿态。不是 admission 隔离或用户 suppression，不在数值迭代中重捕获；普通求值、测量、失败、取消不能改变持久基准。组捕获关系在整个手势中不变。
 

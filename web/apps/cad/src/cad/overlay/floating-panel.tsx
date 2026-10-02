@@ -1,6 +1,7 @@
 import { clampPanelPosition, normalizePanelPosition } from "../../utils/panel-position";
 import {useOperationFeedback} from "../command/operation-feedback";
 import { CloseOutlined } from "@ant-design/icons";
+import {createPortal} from "react-dom";
 import { App, Button } from "antd";
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent, type PropsWithChildren, type ReactNode } from "react";
@@ -108,6 +109,8 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
   const submittingRef = useRef(false);
   const closeRef = useRef(onClose); closeRef.current = onClose;
   const dialog = useRef<HTMLElement>(null);
+  const [overlayHost,setOverlayHost]=useState<HTMLElement|null>(null);
+  useEffect(()=>{if(open)setOverlayHost(document.querySelector<HTMLElement>('[data-command-overlay-host]'));},[open]);
   const positionRef = useRef(position); positionRef.current = position;
   const drag = useRef<{ pointerId: number; offsetX: number; offsetY: number } | undefined>(undefined);
   useEffect(() => {
@@ -137,7 +140,7 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
       observer.disconnect(); window.removeEventListener("keydown", keyDown);
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
     };
-  }, [open]);
+  }, [open,overlayHost]);
   if (!open) return null;
   const pointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
@@ -167,16 +170,19 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
       if (!(error && typeof error === "object" && "errorFields" in error)) feedback(error,"命令");
     } finally { submittingRef.current = false; setSubmitting(false); }
   };
-  return <section ref={dialog} className="cad-command-dialog" role="dialog" aria-modal="false" aria-label={String(title)}
-    style={{ left: position.x, top: position.y, width }}>
-    <header className="cad-command-dialog-header" onPointerDown={pointerDown} onPointerMove={pointerMove}
+  const content=<section ref={dialog} className="cad-command-dialog" role="dialog" aria-modal="false" aria-label={String(title)}
+    onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} onWheel={event=>event.stopPropagation()} onContextMenu={event=>event.stopPropagation()}
+    onPointerMove={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onKeyDown={event=>{if(event.key!=="Escape")event.stopPropagation();}}
+    style={{ left: position.x, top: position.y, width,maxWidth:"calc(100% - 16px)",maxHeight:"calc(100% - 16px)",display:"flex",flexDirection:"column" }}>
+    <header className="cad-command-dialog-header" style={{flexShrink:0}} onPointerDown={pointerDown} onPointerMove={pointerMove}
       onPointerUp={pointerUp} onPointerCancel={pointerUp} onLostPointerCapture={pointerUp}>
       <strong>{title}</strong><button aria-label="关闭" title="关闭" onPointerDown={(event) => event.stopPropagation()}
         onClick={onClose}><CloseOutlined /></button>
     </header>
-    <div className="cad-command-dialog-body">{children}</div>
-    {footer&&<footer className="cad-command-dialog-footer"><Button onClick={onClose}>{cancelText}</Button>
+    <div className="cad-command-dialog-body" style={{overflowY:"auto",minHeight:0}}>{children}</div>
+    {footer&&<footer className="cad-command-dialog-footer" style={{flexShrink:0}}><Button onClick={onClose}>{cancelText}</Button>
       <Button type="primary" loading={confirmLoading || submitting} disabled={confirmDisabled}
         onClick={() => void confirm()}>{confirmText}</Button></footer>}
   </section>;
+  return overlayHost?createPortal(content,overlayHost):content;
 }

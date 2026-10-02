@@ -186,6 +186,8 @@ struct DragTarget {
     Quaternion frame_rotation{};
     std::array<bool, 3> translation_components{{true, true, true}};
     std::array<bool, 3> rotation_components{{false, false, false}};
+    std::array<bool, 3> hold_translation_components{{false, false, false}};
+    std::array<bool, 3> hold_rotation_components{{false, false, false}};
     std::uint64_t target_sequence{};
 };
 enum class InteractionStatus { Reached, Constrained, Budget, Cancelled, Failed };
@@ -197,6 +199,13 @@ struct InteractionEvidence {
     double target_error{};
     double target_optimality{};
     std::uint64_t target_sequence{};
+    std::string termination_stage;
+    std::string termination_reason;
+    std::size_t iterations{};
+    std::size_t restorations{};
+    double hard_error{};
+    double hold_optimality{};
+    bool hold_converged{};
 };
 
 struct SolverOptions {

@@ -2365,7 +2365,26 @@ public:
         Vector residual;
         Eigen::MatrixXd jacobian;
     };
-    Objective drag_objective(const State& state, bool verify=true) const {
+    bool holds_drag_intent() const {
+        const auto& t=assembly_.options().drag_target;
+        return t && (std::any_of(t->hold_translation_components.begin(),t->hold_translation_components.end(),[](bool v){return v;}) ||
+                     std::any_of(t->hold_rotation_components.begin(),t->hold_rotation_components.end(),[](bool v){return v;}));
+    }
+    // Exact desired rigid-cluster seed, accepted only after the same nonlinear
+    // physical retraction and hierarchy checks. Nominal is never recaptured.
+    State drag_seed(const State& state) const {
+        State candidate=state;
+        if(!holds_drag_intent())return candidate;
+        const auto& target=*assembly_.options().drag_target;
+        const auto cluster=assembly_.cluster_index(target.body_id);
+        const auto found=std::find(free_cluster_indices_.begin(),free_cluster_indices_.end(),cluster);
+        if(found!=free_cluster_indices_.end()) {
+            const auto body=assembly_.body_index(target.body_id);
+            candidate.poses[found-free_cluster_indices_.begin()]=compose(target.target_pose,inverse(assembly_.clusters()[cluster].root_to_body.at(body)));
+        }
+        return candidate;
+    }
+    Objective drag_objective(const State& state, bool verify=true, bool hold=false) const {
         const auto& target = assembly_.options().drag_target;
         if (!target) return {Vector::Zero(0), Eigen::MatrixXd::Zero(0, parameter_count())};
         const auto body = assembly_.body_index(target->body_id);
@@ -2389,18 +2408,20 @@ public:
         const Eigen::Matrix3d derivative = Eigen::Matrix3d::Identity()-0.5*hat+coefficient*hat*hat;
         const Vector3 rotation = frame * target_rotation.toRotationMatrix() * phi / options.motion_angle_scale;
         const Eigen::MatrixXd rotation_j = frame * target_rotation.toRotationMatrix() * derivative * target_rotation.conjugate().toRotationMatrix() * map.bottomRows(3) / options.motion_angle_scale;
+        const auto& translation=hold?target->hold_translation_components:target->translation_components;
+        const auto& angular=hold?target->hold_rotation_components:target->rotation_components;
         std::size_t count = 0;
-        for (int i=0; i<3; ++i) count += target->translation_components[i] + target->rotation_components[i];
+        for (int i=0; i<3; ++i) count += translation[i] + angular[i];
         Objective out{Vector::Zero(count), Eigen::MatrixXd::Zero(count,parameter_count())};
         std::size_t row=0;
-        for (int i=0;i<3;++i) if(target->translation_components[i]) { out.residual[row]=position[i]; out.jacobian.row(row++)=point_j.row(i); }
-        for (int i=0;i<3;++i) if(target->rotation_components[i]) { out.residual[row]=rotation[i]; out.jacobian.row(row++)=rotation_j.row(i); }
+        for (int i=0;i<3;++i) if(translation[i]) { out.residual[row]=position[i]; out.jacobian.row(row++)=point_j.row(i); }
+        for (int i=0;i<3;++i) if(angular[i]) { out.residual[row]=rotation[i]; out.jacobian.row(row++)=rotation_j.row(i); }
         if(verify && options.verify_analytic_jacobians && parameter_count()) {
             for(Eigen::Index col=0;col<out.jacobian.cols();++col) {
                 const double h=col%6<3 ? options.translation_finite_difference_step : options.rotation_finite_difference_step;
                 Vector step=Vector::Zero(parameter_count());step[col]=h;
-                const Vector plus=drag_objective(incremented(state,step),false).residual;
-                const Vector minus=drag_objective(incremented(state,-step),false).residual;
+                const Vector plus=drag_objective(incremented(state,step),false,hold).residual;
+                const Vector minus=drag_objective(incremented(state,-step),false,hold).residual;
                 if((plus-minus).norm()>3.0/options.motion_angle_scale) continue;
                 if(((plus-minus)/(2*h)-out.jacobian.col(col)).cwiseAbs().maxCoeff()>options.jacobian_check_tolerance*std::max(1.0,out.jacobian.col(col).norm()))
                     throw std::runtime_error("drag objective analytic Jacobian failed differential oracle");
@@ -2409,6 +2430,9 @@ public:
         return out;
     }
     Objective objective(const State& state, bool reference_only, bool verify = true) const {
+        // Explicit interaction profile: task -> hold -> remaining nominal.
+        // Legacy/static requests retain reference -> total exactly.
+        if(reference_only && holds_drag_intent())return drag_objective(state,verify,true);
         const auto poses = assembly_.body_poses(cluster_poses(state));
         std::vector<std::size_t> bodies;
         for (auto cluster : component_.cluster_indices)
@@ -3024,8 +3048,18 @@ Eigen::MatrixXd preference_tangent(const ComponentProblem& problem, const State&
     if (!ref.residual.size() || !z.cols()) return z;
     const Vector scales = problem.tangent_scales();
     const double zero_energy=drag_priority ? options.preference_tolerance*options.preference_tolerance : options.objective_tolerance;
-    if (ref.residual.squaredNorm() <= zero_energy)
-        return z * orthogonal_kernel(ref.jacobian * scales.asDiagonal() * z, options);
+    if (ref.residual.squaredNorm() <= zero_energy) {
+        Eigen::MatrixXd priority=ref.jacobian * scales.asDiagonal();
+        // Zero-residual priority preservation is a kernel, not an energy
+        // metric. Equilibrate before projecting: eccentric lever arms can
+        // otherwise erase independent attitude rows through relative rank
+        // thresholds. This does not change task weights or physical rank.
+        if(problem.holds_drag_intent())for(Eigen::Index row=0;row<priority.rows();++row) {
+            const double norm=priority.row(row).stableNorm();
+            if(norm>0)priority.row(row)/=norm;
+        }
+        return z * orthogonal_kernel(priority * z, options);
+    }
     auto equations=[&](const State& at)->Eigen::MatrixXd {
         Eigen::MatrixXd out=problem.motion_jacobian(at,problem.residual(at));
         if(options.drag_target && !drag_priority) {
@@ -3122,16 +3156,25 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
     }
     const Vector scales = problem.tangent_scales();
     report.status = PreferenceStatus::Converged;
+    if(problem.holds_drag_intent()) {
+        State candidate=problem.drag_seed(state);
+        if(restore_feasibility(problem,candidate,options) &&
+           problem.drag_objective(candidate,false).residual.squaredNorm()<=problem.drag_objective(state,false).residual.squaredNorm())
+            state=std::move(candidate);
+    }
     double drag_bound = std::numeric_limits<double>::infinity();
     std::optional<Vector> preserved_drag;
     if (options.drag_target && problem.drag_objective(state).residual.size()) {
         InteractionEvidence evidence;
         evidence.target_sequence=options.drag_target->target_sequence;
         evidence.hard_feasible=true;
+        evidence.termination_stage="DRIVEN_TARGET";
+        evidence.termination_reason="ITERATION_LIMIT";
         double best_drag_energy=problem.drag_objective(state,false).residual.squaredNorm();
         for (std::size_t iteration=0; iteration<options.max_preference_iterations; ++iteration) {
             if(options.should_cancel && options.should_cancel()) { evidence.status=InteractionStatus::Cancelled; break; }
             ++report.iterations;
+            ++evidence.iterations;
             const auto target=problem.drag_objective(state);
             const auto z=orthogonal_kernel(problem.motion_jacobian(state,problem.residual(state))*scales.asDiagonal(),options);
             const Eigen::MatrixXd reduced=target.jacobian*scales.asDiagonal()*z;
@@ -3168,6 +3211,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                 }
                 if(minimum) {
                     evidence.target_converged=true;
+                    evidence.termination_reason="LOCAL_OPTIMUM";
                     evidence.status=evidence.target_error<=options.preference_tolerance ? InteractionStatus::Reached : InteractionStatus::Constrained;
                     break;
                 }
@@ -3181,7 +3225,8 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
             for(double alpha=1;alpha>=1.0/65536;alpha*=0.5) {
                 if(options.should_cancel && options.should_cancel()) break;
                 State candidate=problem.incremented(state,scales.asDiagonal()*(alpha*step));
-                if(!restore_feasibility(problem,candidate,options)) continue;
+                ++evidence.restorations;
+                if(!restore_feasibility(problem,candidate,options)) {evidence.termination_reason="FEASIBILITY_RESTORE_FAILED";continue;}
                 const double after=problem.drag_objective(candidate).residual.squaredNorm();
                 bool descent=after<before && after<=before+1e-4*alpha*slope;
                 // Same roundoff certificate as M2.5: energy changes smaller
@@ -3197,7 +3242,7 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                     state=std::move(candidate); accepted=true; break;
                 }
             }
-            if(!accepted) break;
+            if(!accepted) {if(evidence.termination_reason!="FEASIBILITY_RESTORE_FAILED")evidence.termination_reason="NO_DESCENT";break;}
         }
         if(!evidence.target_converged && evidence.status!=InteractionStatus::Cancelled) evidence.status=InteractionStatus::Budget;
         evidence.target_error=problem.drag_objective(state).residual.norm();
@@ -3372,8 +3417,22 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
         report.interaction->target_error=drag.residual.norm();
         report.interaction->target_optimality=(physical_z.transpose()*scales.asDiagonal()*drag.jacobian.transpose()*drag.residual).norm();
         report.interaction->hard_feasible=problem.satisfied(state);
+        report.interaction->hard_error=problem.residual(state).norm();
+        report.interaction->iterations=report.iterations;
+        report.interaction->hold_optimality=(final_z.transpose()*scales.asDiagonal()*ref.jacobian.transpose()*ref.residual).norm();
+        if(problem.holds_drag_intent() && report.status!=PreferenceStatus::Converged) {
+            report.interaction->hold_converged=false;
+            report.interaction->termination_stage="INTENT_HOLD";
+            report.interaction->termination_reason=report.status==PreferenceStatus::Stalled?"PREFERENCE_STALLED":"ITERATION_LIMIT";
+        }
         report.interaction->eligible_for_commit=report.interaction->hard_feasible && report.interaction->target_converged && report.interaction->target_optimality<=options.preference_tolerance && report.interaction->status!=InteractionStatus::Cancelled;
-        if(!report.interaction->eligible_for_commit && report.interaction->status!=InteractionStatus::Cancelled) report.interaction->status=InteractionStatus::Budget;
+        if(!report.interaction->eligible_for_commit && report.interaction->status!=InteractionStatus::Cancelled) {
+            report.interaction->status=InteractionStatus::Budget;
+            if(report.interaction->target_converged && report.interaction->target_optimality>options.preference_tolerance) {
+                report.interaction->termination_stage="LOWER_PREFERENCE";
+                report.interaction->termination_reason="HIGHER_TARGET_STATIONARITY_LOST";
+            }
+        }
     }
     report.reference_optimality =
         (final_z.transpose() * scales.asDiagonal() * ref.jacobian.transpose() * ref.residual)
@@ -3388,6 +3447,12 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
         std::max(report.reference_optimality, report.total_optimality) >
             options.preference_tolerance)
         report.status = PreferenceStatus::Stalled;
+    if(report.interaction) report.interaction->hold_converged=!problem.holds_drag_intent() || report.status==PreferenceStatus::Converged;
+    if(report.interaction && problem.holds_drag_intent() && report.status!=PreferenceStatus::Converged) {
+        report.interaction->eligible_for_commit=false;
+        if(report.interaction->status!=InteractionStatus::Cancelled)report.interaction->status=InteractionStatus::Budget;
+        report.interaction->termination_stage="INTENT_HOLD";report.interaction->termination_reason="PREFERENCE_STALLED";
+    }
     const auto poses = problem.assembly().body_poses(problem.cluster_poses(state));
     for (auto cluster : problem.component().cluster_indices)
         for (auto body : problem.assembly().clusters()[cluster].body_indices) {
@@ -4036,9 +4101,14 @@ SolveResult Solver::solve(const Model& model, const SolverOptions& options) cons
     if(options.drag_target) {
         if(!result.interaction) result.interaction=InteractionEvidence{};
         auto& evidence=*result.interaction;
+        if(evidence.termination_stage.empty()) {
+            evidence.termination_stage="HARD_CONSTRAINTS";
+            evidence.termination_reason=result.status==SolveStatus::MaxIterations?"ITERATION_LIMIT":result.status==SolveStatus::NumericalFailure?"NUMERICAL_FAILURE":"HARD_INFEASIBLE";
+            evidence.hard_error=result.normalized_residual;
+        }
         evidence.target_sequence=options.drag_target->target_sequence;
         evidence.hard_feasible=result.status==SolveStatus::Converged;
-        if(options.should_cancel && options.should_cancel()) { evidence.status=InteractionStatus::Cancelled; evidence.eligible_for_commit=false; }
+        if(options.should_cancel && options.should_cancel()) { evidence.status=InteractionStatus::Cancelled; evidence.eligible_for_commit=false; evidence.termination_reason="CANCELLED_OR_DEADLINE"; }
         if(!evidence.hard_feasible) evidence.eligible_for_commit=false;
     }
     return result;

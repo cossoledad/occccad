@@ -32,6 +32,8 @@ type assemblyInteraction struct {
 	cancel                                                                context.CancelFunc
 	previewID                                                             string
 	finalTarget                                                           *geometry.AssemblyDragTarget
+	goalSequence                                                          uint64
+	goalDigest                                                            string
 }
 type assemblyInteractionCache struct {
 	mu     sync.Mutex
@@ -65,12 +67,14 @@ type AssemblyInteractionOpened struct {
 	NominalPoses   []InstancePoseEntry `json:"nominalPoses"`
 }
 type AssemblyInteractionUpdate struct {
-	SessionID string                      `json:"sessionId"`
-	Sequence  uint64                      `json:"sequence"`
-	Final     bool                        `json:"final"`
-	Target    geometry.AssemblyDragTarget `json:"target"`
+	GoalSequence uint64                      `json:"goalSequence,omitempty"`
+	SessionID    string                      `json:"sessionId"`
+	Sequence     uint64                      `json:"sequence"`
+	Final        bool                        `json:"final"`
+	Target       geometry.AssemblyDragTarget `json:"target"`
 }
 type AssemblyInteractionFrame struct {
+	GoalSequence uint64 `json:"goalSequence"`
 	CommandPreview
 	SessionID     string                                `json:"sessionId"`
 	InputDigest   string                                `json:"inputDigest"`
@@ -88,6 +92,9 @@ func validInteractionTarget(t geometry.AssemblyDragTarget) bool {
 	}
 	active := false
 	for i := 0; i < 3; i++ {
+		if (t.TranslationComponents[i] && t.HoldTranslationComponents[i]) || (t.RotationComponents[i] && t.HoldRotationComponents[i]) {
+			return false
+		}
 		active = active || t.TranslationComponents[i] || t.RotationComponents[i]
 	}
 	if !active {
@@ -411,6 +418,20 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 		return AssemblyInteractionFrame{}, fmt.Errorf("%w: ASSEMBLY_SESSION_TARGET_INVALID_OR_BUSY", ErrValidation)
 	}
 	s.inFlight = true
+	goal := input.GoalSequence
+	if goal == 0 {
+		goal = input.Sequence
+	}
+	semanticTarget := input.Target
+	semanticTarget.TargetSequence = 0
+	rawGoal, _ := json.Marshal(semanticTarget)
+	goalDigest := canonicalModelHash(rawGoal)
+	if goal > input.Sequence || goal < s.goalSequence || goal == s.goalSequence && goalDigest != s.goalDigest {
+		s.inFlight = false
+		cache.mu.Unlock()
+		return AssemblyInteractionFrame{}, fmt.Errorf("%w: ASSEMBLY_SESSION_GOAL_MISMATCH", ErrValidation)
+	}
+	s.goalSequence, s.goalDigest = goal, goalDigest
 	s.sequence = input.Sequence
 	s.expires = time.Now().Add(assemblyInteractionTTL)
 	service.DiscardPreview(documentID, actor, s.previewID)
@@ -423,6 +444,7 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 	frozen.Constraints = append([]geometry.AssemblyConstraint(nil), s.manifest.Constraints...)
 	target := input.Target
 	frozen.DragTarget = &target
+	frozen.InteractionGoalSequence = goal
 	frozen.Digest = assemblyManifestDigest(frozen)
 	cache.mu.Unlock()
 	defer func() {
@@ -439,7 +461,7 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 	}
 	started := time.Now()
 	requestID := newID("assembly-drag")
-	result, err := service.solveFrozenManifest(work, requestID, frozen, nil)
+	result, err := service.solveInteractionTrajectory(work, requestID, frozen)
 	if err != nil {
 		return AssemblyInteractionFrame{}, err
 	}
@@ -453,12 +475,25 @@ func (service *Service) UpdateAssemblyInteraction(ctx context.Context, documentI
 	}
 	frame := AssemblyInteractionFrame{CommandPreview: CommandPreview{BaseVersionID: s.baseRevisionID, BaseSequence: s.baseSequence, AssemblySolverBuild: result.SolverBuild, AssemblyComponents: result.Components}, SessionID: input.SessionID, InputDigest: s.inputDigest, Sequence: input.Sequence, RequestID: requestID, Interaction: result.Interaction, SolveMS: float64(time.Since(started).Microseconds()) / 1000}
 	if result.Interaction == nil {
+		frame.GoalSequence = goal
 		return frame, fmt.Errorf("%w: missing interaction evidence", ErrValidation)
 	}
+	frame.GoalSequence = goal
 	if result.SolverBuild != assemblySolverBuildPolicy || result.Interaction.TargetSequence != input.Sequence {
 		return frame, fmt.Errorf("%w: ASSEMBLY_SESSION_POLICY_OR_TARGET_MISMATCH", ErrValidation)
 	}
 	if !result.Interaction.HardFeasible || result.Interaction.Status == "FAILED" || result.Interaction.Status == "CANCELLED" {
+		return frame, nil
+	}
+	if !result.Interaction.TargetConverged || !result.Interaction.EligibleForCommit {
+		// Displayable physical witness is not a qualified continuation checkpoint.
+		for _, b := range result.Bodies {
+			frame.InstancePoses = append(frame.InstancePoses, struct {
+				InstanceID  string     `json:"instanceId"`
+				Translation [3]float64 `json:"translation"`
+				Rotation    [4]float64 `json:"rotation"`
+			}{b.ID, b.Pose.Translation, b.Pose.Rotation})
+		}
 		return frame, nil
 	}
 	// Only current, feasible accepted frames transport warm state. Nominal is immutable.

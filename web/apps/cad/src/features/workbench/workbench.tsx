@@ -400,6 +400,7 @@ export function Workbench() {
     return () => { disposed = true; unsubscribe?.(); };
   }, [client, documentID, message]);
   const command = useMutation({
+    onMutate:()=>viewport.current?.cancelAssemblyInteraction(),
     mutationFn: (operation: () => Promise<DocumentView>) => operation(),
     onSuccess: (updated) => { store.setSelection(null); void refresh(updated); }, onError: (error) => operationFeedback(error,"命令")
   });
@@ -1617,6 +1618,7 @@ export function Workbench() {
           onInspectAssemblySupports={(owner,references,signal)=>api.inspectAssemblySupports(owner,references,signal)}
           onOperationFailed={error=>operationFeedback(error,"装配操纵")}
           onAssemblyInteractionState={(state,reason)=>{
+            if(state==="blocked"&&reason?.startsWith("移动尚未保存"))setMoveReceiptPending(true);
             if(state==="committing"&&reason?.startsWith("提交结果未知")&&!receiptPrompt.current){
               setMoveReceiptPending(true);
               receiptPrompt.current=true;modal.confirm({title:"移动提交结果待确认",content:"连接中断时移动可能已经保存。请查询原请求回执，勿重复创建移动。",

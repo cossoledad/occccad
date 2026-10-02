@@ -147,6 +147,8 @@ message AssemblyDragTarget {
     repeated bool translation_components = 5;
     repeated bool rotation_components = 6;
     uint64 target_sequence = 7;
+    repeated bool hold_translation_components = 8;
+    repeated bool hold_rotation_components = 9;
 }
 
 enum AssemblyInteractionStatus {
@@ -166,6 +168,13 @@ message AssemblyInteractionEvidence {
     double target_error = 5;
     double target_optimality = 6;
     uint64 target_sequence = 7;
+    string termination_stage = 8;
+    string termination_reason = 9;
+    uint64 iterations = 10;
+    uint64 restorations = 11;
+    double hard_error = 12;
+    double hold_optimality = 13;
+    bool hold_converged = 14;
 }
 
 message AssemblyConstraintResidual {

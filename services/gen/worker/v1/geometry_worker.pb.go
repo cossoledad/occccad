@@ -1426,16 +1426,18 @@ func (x *SolveAssemblyRequest) GetDisableConflictProbes() bool {
 // An interaction objective in owning Product millimetres/radians, not a hard
 // constraint. Masks have exactly three entries in the frozen reference frame.
 type AssemblyDragTarget struct {
-	state                 protoimpl.MessageState `protogen:"open.v1"`
-	BodyId                string                 `protobuf:"bytes,1,opt,name=body_id,json=bodyId,proto3" json:"body_id,omitempty"`
-	LocalGrabPoint        *Vec3                  `protobuf:"bytes,2,opt,name=local_grab_point,json=localGrabPoint,proto3" json:"local_grab_point,omitempty"`
-	TargetPose            *RigidPose             `protobuf:"bytes,3,opt,name=target_pose,json=targetPose,proto3" json:"target_pose,omitempty"`
-	FrameRotation         *Quaternion            `protobuf:"bytes,4,opt,name=frame_rotation,json=frameRotation,proto3" json:"frame_rotation,omitempty"`
-	TranslationComponents []bool                 `protobuf:"varint,5,rep,packed,name=translation_components,json=translationComponents,proto3" json:"translation_components,omitempty"`
-	RotationComponents    []bool                 `protobuf:"varint,6,rep,packed,name=rotation_components,json=rotationComponents,proto3" json:"rotation_components,omitempty"`
-	TargetSequence        uint64                 `protobuf:"varint,7,opt,name=target_sequence,json=targetSequence,proto3" json:"target_sequence,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	state                     protoimpl.MessageState `protogen:"open.v1"`
+	BodyId                    string                 `protobuf:"bytes,1,opt,name=body_id,json=bodyId,proto3" json:"body_id,omitempty"`
+	LocalGrabPoint            *Vec3                  `protobuf:"bytes,2,opt,name=local_grab_point,json=localGrabPoint,proto3" json:"local_grab_point,omitempty"`
+	TargetPose                *RigidPose             `protobuf:"bytes,3,opt,name=target_pose,json=targetPose,proto3" json:"target_pose,omitempty"`
+	FrameRotation             *Quaternion            `protobuf:"bytes,4,opt,name=frame_rotation,json=frameRotation,proto3" json:"frame_rotation,omitempty"`
+	TranslationComponents     []bool                 `protobuf:"varint,5,rep,packed,name=translation_components,json=translationComponents,proto3" json:"translation_components,omitempty"`
+	RotationComponents        []bool                 `protobuf:"varint,6,rep,packed,name=rotation_components,json=rotationComponents,proto3" json:"rotation_components,omitempty"`
+	TargetSequence            uint64                 `protobuf:"varint,7,opt,name=target_sequence,json=targetSequence,proto3" json:"target_sequence,omitempty"`
+	HoldTranslationComponents []bool                 `protobuf:"varint,8,rep,packed,name=hold_translation_components,json=holdTranslationComponents,proto3" json:"hold_translation_components,omitempty"`
+	HoldRotationComponents    []bool                 `protobuf:"varint,9,rep,packed,name=hold_rotation_components,json=holdRotationComponents,proto3" json:"hold_rotation_components,omitempty"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *AssemblyDragTarget) Reset() {
@@ -1517,6 +1519,20 @@ func (x *AssemblyDragTarget) GetTargetSequence() uint64 {
 	return 0
 }
 
+func (x *AssemblyDragTarget) GetHoldTranslationComponents() []bool {
+	if x != nil {
+		return x.HoldTranslationComponents
+	}
+	return nil
+}
+
+func (x *AssemblyDragTarget) GetHoldRotationComponents() []bool {
+	if x != nil {
+		return x.HoldRotationComponents
+	}
+	return nil
+}
+
 type AssemblyInteractionEvidence struct {
 	state             protoimpl.MessageState    `protogen:"open.v1"`
 	Status            AssemblyInteractionStatus `protobuf:"varint,1,opt,name=status,proto3,enum=occccad.worker.v1.AssemblyInteractionStatus" json:"status,omitempty"`
@@ -1526,6 +1542,13 @@ type AssemblyInteractionEvidence struct {
 	TargetError       float64                   `protobuf:"fixed64,5,opt,name=target_error,json=targetError,proto3" json:"target_error,omitempty"`
 	TargetOptimality  float64                   `protobuf:"fixed64,6,opt,name=target_optimality,json=targetOptimality,proto3" json:"target_optimality,omitempty"`
 	TargetSequence    uint64                    `protobuf:"varint,7,opt,name=target_sequence,json=targetSequence,proto3" json:"target_sequence,omitempty"`
+	TerminationStage  string                    `protobuf:"bytes,8,opt,name=termination_stage,json=terminationStage,proto3" json:"termination_stage,omitempty"`
+	TerminationReason string                    `protobuf:"bytes,9,opt,name=termination_reason,json=terminationReason,proto3" json:"termination_reason,omitempty"`
+	Iterations        uint64                    `protobuf:"varint,10,opt,name=iterations,proto3" json:"iterations,omitempty"`
+	Restorations      uint64                    `protobuf:"varint,11,opt,name=restorations,proto3" json:"restorations,omitempty"`
+	HardError         float64                   `protobuf:"fixed64,12,opt,name=hard_error,json=hardError,proto3" json:"hard_error,omitempty"`
+	HoldOptimality    float64                   `protobuf:"fixed64,13,opt,name=hold_optimality,json=holdOptimality,proto3" json:"hold_optimality,omitempty"`
+	HoldConverged     bool                      `protobuf:"varint,14,opt,name=hold_converged,json=holdConverged,proto3" json:"hold_converged,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -1607,6 +1630,55 @@ func (x *AssemblyInteractionEvidence) GetTargetSequence() uint64 {
 		return x.TargetSequence
 	}
 	return 0
+}
+
+func (x *AssemblyInteractionEvidence) GetTerminationStage() string {
+	if x != nil {
+		return x.TerminationStage
+	}
+	return ""
+}
+
+func (x *AssemblyInteractionEvidence) GetTerminationReason() string {
+	if x != nil {
+		return x.TerminationReason
+	}
+	return ""
+}
+
+func (x *AssemblyInteractionEvidence) GetIterations() uint64 {
+	if x != nil {
+		return x.Iterations
+	}
+	return 0
+}
+
+func (x *AssemblyInteractionEvidence) GetRestorations() uint64 {
+	if x != nil {
+		return x.Restorations
+	}
+	return 0
+}
+
+func (x *AssemblyInteractionEvidence) GetHardError() float64 {
+	if x != nil {
+		return x.HardError
+	}
+	return 0
+}
+
+func (x *AssemblyInteractionEvidence) GetHoldOptimality() float64 {
+	if x != nil {
+		return x.HoldOptimality
+	}
+	return 0
+}
+
+func (x *AssemblyInteractionEvidence) GetHoldConverged() bool {
+	if x != nil {
+		return x.HoldConverged
+	}
+	return false
 }
 
 type AssemblyConstraintResidual struct {
@@ -9820,7 +9892,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	" \x01(\v2(.occccad.worker.v1.AssemblySolverProfileR\rsolverProfile\x12F\n" +
 	"\vdrag_target\x18\v \x01(\v2%.occccad.worker.v1.AssemblyDragTargetR\n" +
 	"dragTarget\x126\n" +
-	"\x17disable_conflict_probes\x18\f \x01(\bR\x15disableConflictProbesJ\x04\b\a\x10\b\"\x86\x03\n" +
+	"\x17disable_conflict_probes\x18\f \x01(\bR\x15disableConflictProbesJ\x04\b\a\x10\b\"\x80\x04\n" +
 	"\x12AssemblyDragTarget\x12\x17\n" +
 	"\abody_id\x18\x01 \x01(\tR\x06bodyId\x12A\n" +
 	"\x10local_grab_point\x18\x02 \x01(\v2\x17.occccad.worker.v1.Vec3R\x0elocalGrabPoint\x12=\n" +
@@ -9829,7 +9901,9 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x0eframe_rotation\x18\x04 \x01(\v2\x1d.occccad.worker.v1.QuaternionR\rframeRotation\x125\n" +
 	"\x16translation_components\x18\x05 \x03(\bR\x15translationComponents\x12/\n" +
 	"\x13rotation_components\x18\x06 \x03(\bR\x12rotationComponents\x12'\n" +
-	"\x0ftarget_sequence\x18\a \x01(\x04R\x0etargetSequence\"\xdc\x02\n" +
+	"\x0ftarget_sequence\x18\a \x01(\x04R\x0etargetSequence\x12>\n" +
+	"\x1bhold_translation_components\x18\b \x03(\bR\x19holdTranslationComponents\x128\n" +
+	"\x18hold_rotation_components\x18\t \x03(\bR\x16holdRotationComponents\"\xeb\x04\n" +
 	"\x1bAssemblyInteractionEvidence\x12D\n" +
 	"\x06status\x18\x01 \x01(\x0e2,.occccad.worker.v1.AssemblyInteractionStatusR\x06status\x12#\n" +
 	"\rhard_feasible\x18\x02 \x01(\bR\fhardFeasible\x12)\n" +
@@ -9837,7 +9911,18 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x13eligible_for_commit\x18\x04 \x01(\bR\x11eligibleForCommit\x12!\n" +
 	"\ftarget_error\x18\x05 \x01(\x01R\vtargetError\x12+\n" +
 	"\x11target_optimality\x18\x06 \x01(\x01R\x10targetOptimality\x12'\n" +
-	"\x0ftarget_sequence\x18\a \x01(\x04R\x0etargetSequence\"j\n" +
+	"\x0ftarget_sequence\x18\a \x01(\x04R\x0etargetSequence\x12+\n" +
+	"\x11termination_stage\x18\b \x01(\tR\x10terminationStage\x12-\n" +
+	"\x12termination_reason\x18\t \x01(\tR\x11terminationReason\x12\x1e\n" +
+	"\n" +
+	"iterations\x18\n" +
+	" \x01(\x04R\n" +
+	"iterations\x12\"\n" +
+	"\frestorations\x18\v \x01(\x04R\frestorations\x12\x1d\n" +
+	"\n" +
+	"hard_error\x18\f \x01(\x01R\thardError\x12'\n" +
+	"\x0fhold_optimality\x18\r \x01(\x01R\x0eholdOptimality\x12%\n" +
+	"\x0ehold_converged\x18\x0e \x01(\bR\rholdConverged\"j\n" +
 	"\x1aAssemblyConstraintResidual\x12#\n" +
 	"\rconstraint_id\x18\x01 \x01(\tR\fconstraintId\x12'\n" +
 	"\x0fnormalized_norm\x18\x02 \x01(\x01R\x0enormalizedNorm\"V\n" +

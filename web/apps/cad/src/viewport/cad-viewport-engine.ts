@@ -346,9 +346,13 @@ export class CadViewportEngine {
       update:(input,signal)=>this.callbacks.assemblyInteractionUpdate(this.moveSessionDocuments.get(input.sessionId)??this.moveSessionDocumentId,input,signal),
       cancel:sessionId=>{const documentId=this.moveSessionDocuments.get(sessionId)??this.moveSessionDocumentId;this.moveSessionDocuments.delete(sessionId);return this.callbacks.assemblyInteractionCancel(documentId,sessionId);},
       frame:frame=>this.applyAcceptedMoveFrame(frame),
-      failure:error=>this.callbacks.operationFailed?.(error),
+      failure:error=>this.callbacks.operationFailed?.(this.moveInteraction.hasUncommittedFinal&&error&&typeof error==="object"?
+        Object.assign(error,{retry:()=>this.retryAssemblyMoveCommit(),cancel:()=>this.cancelMovePreviewGesture("显式取消未保存移动")}):error),
       state:(state,reason)=>{
-        if((state==="failed"||state==="invalidated")&&!this.moveCommitPending)this.restoreMoveNominalScene();
+        // A numerical FAILED frame still owns a live, recoverable Session.
+        // Only invalidation or a closed failed transport restores authority;
+        // otherwise retain the last feasible display for same-goal recovery.
+        if((state==="invalidated"||state==="failed"&&!this.moveInteraction.sessionId)&&!this.moveCommitPending)this.restoreMoveNominalScene();
         this.callbacks.assemblyInteractionState?.(state,reason);
       },
     });
@@ -818,6 +822,7 @@ export class CadViewportEngine {
   }
 
   setActiveTool(toolID: import("../state/workbench-store").WorkbenchToolID): void {
+    if(toolID!=="assembly.move"&&this.moveInteraction.hasUncommittedFinal)this.cancelMovePreviewGesture("工具切换取消未保存移动");
     this.tools.activate(toolID);
   }
 
@@ -1027,6 +1032,7 @@ export class CadViewportEngine {
   }
 
   private attachMoveManipulator(): void {
+    if(this.moveInteraction.hasUncommittedFinal)this.cancelMovePreviewGesture("重新选择取消未保存移动");
     if (this.selected.length !== 1 || this.selected[0].kind !== "instance") return;
     const object = this.selectable.get(`instance:${this.selected[0].instanceId ?? this.selected[0].id}`);
     if (!(object instanceof THREE.Group)) return;
@@ -1127,7 +1133,7 @@ export class CadViewportEngine {
     this.setActiveTool("assembly.move");this.attachMoveManipulator();this.invalidate();return true;
   }
   cancelAssemblyInteraction():void{this.cancelMovePreviewGesture("用户取消操纵");}
-  retryAssemblyMoveCommit():void{if(this.moveCommitPending)void this.submitMoveCommit();}
+  retryAssemblyMoveCommit():void{if(this.moveCommitPending)void this.submitMoveCommit();else if(this.moveInteraction.hasUncommittedFinal)this.finishMovePreviewGesture(true);}
 
   private updateMoveTarget(): void {
     if (!this.moveTarget || !this.moveManipulator.isAttached() || !this.moveManipulator.isDragging()) return;
@@ -1188,12 +1194,15 @@ export class CadViewportEngine {
       this.refreshContentBounds();this.invalidate();
     }
   }
-  private finishMovePreviewGesture():void{
+  private finishMovePreviewGesture(retry=false):void{
     const documentId=this.moveSessionDocumentId;
     const generation=this.moveGestureGeneration;
-    void this.moveInteraction.finish().then(async candidate=>{
+    void (retry?this.moveInteraction.retryFinal():this.moveInteraction.finish()).then(async candidate=>{
       if(generation!==this.moveGestureGeneration)return;
       if(!candidate){
+        if(this.moveInteraction.hasUncommittedFinal&&this.moveInteraction.state==="blocked"){
+          this.callbacks.assemblyInteractionState?.("blocked","移动尚未保存；请重试确认当前目标或取消。");return;
+        }
         // Budget/Failed/invalidated never commit an older frame, and never
         // become the next gesture's nominal baseline.
         const state=this.moveInteraction.state;
@@ -2629,7 +2638,7 @@ export class CadViewportEngine {
       currentSelections: () => [...this.selected],
       retainSelections: (selections) => this.selectMany(selections),
       requestAssemblyConstraint: (kind, references) => this.callbacks.assemblyConstraintRequested(kind, references),
-      moveManipulatorPointerDown: (pointerId, x, y) => !this.moveCommitPending&&this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement),
+      moveManipulatorPointerDown: (pointerId, x, y) => !this.moveCommitPending&&!this.moveInteraction.hasUncommittedFinal&&this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement),
       moveManipulatorPointerMove: (pointerId, x, y) => this.moveManipulator.pointerMove(pointerId, x, y, this.camera, this.renderer.domElement),
       moveManipulatorPointerUp: (pointerId, commit) => {
         this.manipulatorSnapCache.cancelPending();this.snapInput=undefined;

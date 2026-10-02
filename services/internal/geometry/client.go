@@ -342,13 +342,15 @@ type AssemblySolveOptions struct {
 }
 
 type AssemblyDragTarget struct {
-	BodyID                string       `json:"bodyId"`
-	LocalGrabPoint        [3]float64   `json:"localGrabPoint"`
-	TargetPose            AssemblyPose `json:"targetPose"`
-	FrameRotation         [4]float64   `json:"frameRotation"`
-	TranslationComponents [3]bool      `json:"translationComponents"`
-	RotationComponents    [3]bool      `json:"rotationComponents"`
-	TargetSequence        uint64       `json:"targetSequence"`
+	BodyID                    string       `json:"bodyId"`
+	LocalGrabPoint            [3]float64   `json:"localGrabPoint"`
+	TargetPose                AssemblyPose `json:"targetPose"`
+	FrameRotation             [4]float64   `json:"frameRotation"`
+	TranslationComponents     [3]bool      `json:"translationComponents"`
+	RotationComponents        [3]bool      `json:"rotationComponents"`
+	TargetSequence            uint64       `json:"targetSequence"`
+	HoldTranslationComponents [3]bool      `json:"holdTranslationComponents,omitzero"`
+	HoldRotationComponents    [3]bool      `json:"holdRotationComponents,omitzero"`
 }
 
 type AssemblyInteractionEvidence struct {
@@ -359,6 +361,14 @@ type AssemblyInteractionEvidence struct {
 	TargetError       float64 `json:"targetError"`
 	TargetOptimality  float64 `json:"targetOptimality"`
 	TargetSequence    uint64  `json:"targetSequence"`
+	TerminationStage  string  `json:"terminationStage"`
+	TerminationReason string  `json:"terminationReason"`
+	Iterations        uint64  `json:"iterations"`
+	Restorations      uint64  `json:"restorations"`
+	HardError         float64 `json:"hardError"`
+	HoldOptimality    float64 `json:"holdOptimality"`
+	HoldConverged     bool    `json:"holdConverged"`
+	ContinuationSteps uint64  `json:"continuationSteps,omitempty"`
 }
 
 type AssemblySolve struct {
@@ -408,7 +418,7 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 	defer cancel()
 	request := &workerv1.SolveAssemblyRequest{RequestId: requestID, LengthScale: 1, AngleScale: 1, AffectedBodyIds: options.AffectedBodyIDs, DisableConflictProbes: options.DisableConflictProbes}
 	if t := options.DragTarget; t != nil {
-		request.DragTarget = &workerv1.AssemblyDragTarget{BodyId: t.BodyID, LocalGrabPoint: &workerv1.Vec3{X: t.LocalGrabPoint[0], Y: t.LocalGrabPoint[1], Z: t.LocalGrabPoint[2]}, TargetPose: protoPose(t.TargetPose), FrameRotation: &workerv1.Quaternion{X: t.FrameRotation[0], Y: t.FrameRotation[1], Z: t.FrameRotation[2], W: t.FrameRotation[3]}, TranslationComponents: t.TranslationComponents[:], RotationComponents: t.RotationComponents[:], TargetSequence: t.TargetSequence}
+		request.DragTarget = &workerv1.AssemblyDragTarget{BodyId: t.BodyID, LocalGrabPoint: &workerv1.Vec3{X: t.LocalGrabPoint[0], Y: t.LocalGrabPoint[1], Z: t.LocalGrabPoint[2]}, TargetPose: protoPose(t.TargetPose), FrameRotation: &workerv1.Quaternion{X: t.FrameRotation[0], Y: t.FrameRotation[1], Z: t.FrameRotation[2], W: t.FrameRotation[3]}, TranslationComponents: t.TranslationComponents[:], RotationComponents: t.RotationComponents[:], TargetSequence: t.TargetSequence, HoldTranslationComponents: t.HoldTranslationComponents[:], HoldRotationComponents: t.HoldRotationComponents[:]}
 	}
 	if options.Intent != nil {
 		request.SolveIntent = &workerv1.AssemblySolveIntent{MovingBodyIds: options.Intent.MovingBodyIDs, ReferenceBodyIds: options.Intent.ReferenceBodyIDs, PreferencePolicy: options.Intent.PreferencePolicy}
@@ -488,7 +498,7 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 	result := AssemblySolve{SolverBuild: response.GetSolverBuild(), Status: response.GetStatus(), Classification: response.GetClassification(), Diagnostic: response.GetDiagnostic(), Iterations: response.GetIterations(), NormalizedResidual: response.GetNormalizedResidual(), RedundantConstraintIDs: response.GetRedundantConstraintIds(), UnsatisfiedConstraintIDs: response.GetUnsatisfiedConstraintIds(), ConflictingConstraintIDs: response.GetConflictingConstraintIds(), SuspectedConflictingConstraintIDs: response.GetSuspectedConflictingConstraintIds()}
 	if v := response.GetInteraction(); v != nil {
 		status := strings.TrimPrefix(v.Status.String(), "ASSEMBLY_INTERACTION_")
-		result.Interaction = &AssemblyInteractionEvidence{Status: status, HardFeasible: v.HardFeasible, TargetConverged: v.TargetConverged, EligibleForCommit: v.EligibleForCommit, TargetError: v.TargetError, TargetOptimality: v.TargetOptimality, TargetSequence: v.TargetSequence}
+		result.Interaction = &AssemblyInteractionEvidence{Status: status, HardFeasible: v.HardFeasible, TargetConverged: v.TargetConverged, EligibleForCommit: v.EligibleForCommit, TargetError: v.TargetError, TargetOptimality: v.TargetOptimality, TargetSequence: v.TargetSequence, TerminationStage: v.TerminationStage, TerminationReason: v.TerminationReason, Iterations: v.Iterations, Restorations: v.Restorations, HardError: v.HardError, HoldOptimality: v.HoldOptimality, HoldConverged: v.HoldConverged}
 	}
 	for _, body := range response.GetBodies() {
 		result.Bodies = append(result.Bodies, AssemblyBody{ID: body.GetId(), Pose: AssemblyPose{

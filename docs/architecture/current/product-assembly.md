@@ -236,7 +236,7 @@ Measured 不发驱动方程；双平面测量仅要求实际法向平行（任�
 - [M5 分析](../../../services/internal/workspace/assembly_conflict.go)冻结目标隔离定义与完整相关邻域，probe 不调用 admission。独立几何见证为 SAT；有限解析证书覆盖同距离函数矛盾、Parallel/Perpendicular、真实固定条件及 Contact 参数域等明确情形；其他未收敛、证书未覆盖或基础设施问题为 UNKNOWN。默认 24 probes/800 ms，上限 128/5 秒、完整邻域超过 512 定义报告预算不足；取消保留诚实结论。不可约仅在原集合 UNSAT 与必要删除 SAT 均有证据时声明，不是最小基数。生产姿态、warm start、激活、捕获和历史不改变。
 - [诊断面板](../../../web/apps/cad/src/features/workbench/assembly-conflict-panel.tsx)经正式装配命令打开，默认显示工程概览与待处理问题；范围/branch、预算与 probe 保留在折叠技术报告。定位稳定 Constraint/Group/support，再由用户选择已有 Edit/Reconnect/Suppress/Measured 命令。版本改变后旧诊断不能继续修复新模型。鼠标目标受限不自动运行 M5。
 
-Proto 为添加型 typed 值协议；当前 policy `assembly-m4m5-interaction-v11`，旧 v10/v9/v8/v7 Manifest 仍按自身版本读取。新冻结输入保存 DragTarget、授权 RELATIVE 基准更新和实际求解结果，重放不依赖瞬态 Session，也不查询最新支持。未修改旧 Revision/Manifest、迁移、应用数据库、S3 或制品；跨版本语义重放不承诺逐位相同。
+Proto 为添加型 typed 值协议；该阶段 policy 为 `assembly-m4m5-interaction-v11`（最新意图策略见 M4/M5-03），旧 v10/v9/v8/v7 Manifest 仍按自身版本读取。新冻结输入保存 DragTarget、授权 RELATIVE 基准更新和实际求解结果，重放不依赖瞬态 Session，也不查询最新支持。未修改旧 Revision/Manifest、迁移、应用数据库、S3 或制品；跨版本语义重放不承诺逐位相同。
 
 实际验证与性能报告统一保存于 `build/m4m5/`；入口和人工步骤见[合同设施说明](../../../tests/assembly-contract/README.md#m4m5-第一阶段验证)。实现、自动验证与本轮人工待验收分开记录。未运行浏览器自动验收、工业 STEP/容量测试或全仓无差别单测；未测浏览器输入至权威显示延迟，不宣称 60 Hz 或任意非凸系统全局最近点。M6 明确延期；Frame、Contact、Fix Together 和有限运动能力不回退，后续 Part 主线另行实施。
 
@@ -282,3 +282,21 @@ M5 第一阶段入口分析当前 Head 的已保存定义与冻结 Revision（�
 实际验证：同一目录完整 baseline **668/668 PASS**（`build/m4m5-closeout/baseline`），另外增加当前嵌套/共享/PINNED 绑定回归；执行器 21/21、原生操纵/静态运动 43/43、精确支持 6/6、Go 受影响检查和全部包编译，以及 Web 场景/生产构建通过。专用 `occccad_offset_contract_test` 与本轮 Worker 实测删除约束后新路径 begin/求解、旧路径拒绝、Undo/Redo、精确圆柱提示与版本化运动证据；既有 Move 历史和只读诊断修复链也通过。新增独立数学案例验证目标 `(1,1,1)` 在平面约束下得到 `(1,1,0)`，未改变生产求解算法、公差或 v11 policy。新 case 锁逐项依据执行结果加入，旧显示锁仅因保留旧断言并新增快照断言而更新，不批量 bless。
 
 本轮交互整改实现完成，等待维护者实机验证，步骤见[合同设施说明](../../../tests/assembly-contract/README.md#m4m5-交互收口验证)。未进行浏览器自动验收、工业模型或新的性能基准；没有应用数据库/S3 清理、持久模型/历史语义改变或 M6 实现。此前性能测量结论不因本轮 UI 整改改变。
+
+## M4/M5-03：意图保持、连续恢复与紧凑分析
+
+核对起点为 `da0a0d7ba53a60094194fb6be08df0c3f0393f02`，初始工作区干净；本轮实现是该 HEAD 加工作区改动。维护者反馈此前交互可用，但偏心平移出现旋转、连续拖动可能预算不足且释放回退，以及分析面板仍过长；本轮自动证据不代替后续人工验收。
+
+确认数学根因：旧抓取点驱动之后的原点 nominal 偏好可以借旋转力臂代替平移。50 mm 抓取偏心、10 mm X 目标得到原点 X 约 0.0041 mm、quaternion Z 约 -0.10047。相同旧策略请求 100 mm 时，驱动层耗尽 100 次迭代且目标误差约 41.9 mm，并非网络超时。新 typed driven/hold mask 使用同一任务空间残差，按硬约束 → 驱动目标 → 姿态/侧向保持 → 剩余 nominal 分层；保持不增加物理 rank。解析 cluster seed 经过原硬约束恢复/分支检查。优先级零残差子空间的 Jacobian 先行尺度归一化，避免长力臂/运动尺度造成独立保持行误判；不改变软目标权重、物理秩、公差或静态 M2.5。公式与退出门见 [solver 合同](../../../kernel/assembly/SOLVER_ALGORITHMS.md#41-m4-纯值交互目标)。
+
+Session 冻结累计目标的 baseline/frame/pivot。硬可行显示帧、合格 checkpoint 和 warm start 分开；Budget 不运输失败分支/候选，也不推进 Head。服务端 continuation 共用单请求 deadline 和总偏好迭代限额，最多四个桥接子目标；只允许合格子结果作内部 guess，只有完整最终目标产生候选。原始 goal sequence/digest 与 transport sequence 分离，同一 goal 重试不能改变位移/方向/参数。pointerup 有界自动续算，仍未确认则保留明确未保存预览，统一反馈提供同目标重试/取消；新目标/工具/命令先取消未提交状态。真实 stale/CAS/权限/回执校验保留，不提交旧目标，也不将计算 Budget 变成连接 TIMEOUT。
+
+分析面板改为问题优先、搜索/状态筛选、三视图分页紧凑表格与选中详情；稳定 Constraint/Group/occurrence ID 绑定修复目标，版本变化令旧选择失效。名称与参与索引按快照预建；技术 JSON 仅展开时格式化。公共 CommandDialog portal 到工作台级 host，复用位置保存、ResizeObserver clamp、焦点/Esc 与 pointer capture；表格/输入事件不传播到视口。不新增专属窗口管理器，不重新下载几何。
+
+当前策略 `assembly-m4m5-intent-v12`，匹配 Debug Worker SHA256 `17b026f978bfdef193c938a258867c7438923500bbcf758dfa3afc7255e026f5`。Manifest 新增 optional goal identity，typed hold/终止证据经 Proto/Worker/Go/Web 贯通；旧 v11 输入的零 hold 字段保持省略、digest 不改变，拒绝旧 policy 偷带新保持语义。重放记录实际 build，不承诺跨版本逐位一致；未改旧 Revision、迁移或清理应用数据库/S3/制品。
+
+实际定向证据：原生操纵/静态运动 48/48；其中 1812 个累计自由体/倾斜平面目标覆盖 1/50/500 mm 力臂、粗/密采样与往返，另有必要转动、偏心旋转跨 2π、局部原点/尺度及确定性预算恢复。真实专用 `occccad_offset_contract_test`/Router/Worker 的累计 Session、Budget 后同会话恢复、最终同目标重试与改意图拒绝、单次提交及 Undo/Redo 通过；失败 Budget probe 共 222 次迭代/4 个 bridge，未伪造合格。Web 场景/构建、类型检查、Go 全包编译、Manifest 兼容及目录执行器检查通过。完整合同报告与复跑步骤见[验证入口](../../../tests/assembly-contract/README.md#m4m5-03-连续轨迹与恢复验证)。
+
+轨迹日志在 `build/m4m5-03/`，不堆入架构文档。本机 i7-4900MQ / WSL2 / Debug、并行验证负载下，906 个自由体样本 kernel P50/P95 为 24.456/27.908 ms，906 个倾斜平面样本 36.283/40.887 ms；119 个正常 Session 样本服务端 solve（含编排/RPC）为 15.101/17.401 ms。这些不同范围不是加速比或性能门；未测浏览器输入至显示/60 Hz，也未重新验收 50-body 性能目标。界面 0/1/100/500/1000 行 fixture 不是大装配求解证据。浏览器真实吸附/拖动、portal 焦点与屏幕边界仍待维护者实机确认，M6 未实施。
+
+最终锁定 baseline **675/675 PASS / 391 个去重测试映射**（`build/m4m5-03/final-baseline`），六个新 `m4.intent.*` case 实际通过后进入原锁；最终 Session 与固联绕心旋转定向 gaps 各 1/1 PASS（`final-session-gaps`、`final-rotation-gaps`）。只更新五个有明确语义理由的旧源码锁，并强化新绕心 case 的非代表组成员断言；不删除目标或降低覆盖。目录执行器 21/21、`context-audit` 和 diff 检查通过。早期锁不同步的失败报告保留，不当作真实产品数值成功，也不以跳过掩盖。当前状态：**M4/M5-03 实现及定向自动收口完成，等待维护者实机验收**。

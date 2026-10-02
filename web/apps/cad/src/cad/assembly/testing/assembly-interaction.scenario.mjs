@@ -54,10 +54,25 @@ assert.equal(f.controller.state,"committing");f.controller.committed();assert.eq
 // A feasible Budget/Failed last frame cannot promote the previous candidate.
 for(const status of ["BUDGET","FAILED","CANCELLED"]){
   const b=fixture();b.controller.begin(input);await tick();b.controller.target(target(3));
-  b.pending[0].resolve(frame(b.pending[0].request));await tick();
+  b.pending[0].resolve(frame(b.pending[0].request,"REACHED",{eligibleForCommit:true}));await tick();
   const finish=b.controller.finish();await tick();
   b.pending[1].resolve(frame(b.pending[1].request,status,{hardFeasible:status==="BUDGET",targetConverged:false,eligibleForCommit:false}));
+  if(status==="BUDGET")for(let retry=0;retry<2;retry++){
+    await tick();const next=b.pending.at(-1);assert.equal(next.request.final,true);
+    assert.deepEqual(next.request.target.targetPose,target(3).targetPose,"retry preserves cumulative final target");
+    next.resolve(frame(next.request,status,{hardFeasible:true,targetConverged:false,eligibleForCommit:false}));
+  }
   assert.equal(await finish,undefined);assert.notEqual(b.controller.state,"allowed");
+  if(status==="BUDGET"){
+    assert.equal(b.controller.hasUncommittedFinal,true);
+    assert.equal(b.controller.lastQualifiedFrame.sequence,1,"budget display cannot overwrite qualified checkpoint");
+    await tick(); // release the completed single-in-flight transport before a user retry
+    const previous=b.pending.at(-1).request;
+    const retry=b.controller.retryFinal();await tick();const latest=b.pending.at(-1);
+    assert.equal(latest.request.goalSequence,previous.goalSequence);
+    assert.deepEqual(latest.request.target.targetPose,previous.target.targetPose);
+    latest.resolve(frame(latest.request));assert.ok(await retry,"explicit retry promotes only the SAME final goal");
+  }
   if(status!=="BUDGET")assert.equal(b.frames.length,1);
 }
 

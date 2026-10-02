@@ -182,3 +182,32 @@ invoke check --scope web
 4. 从命令 Tab 的装配区或搜索“装配约束分析”打开；先看概览、停用/测量/待处理统计及已有运动证据，不应自动搜索全网络。按需检查失败定义、定位后用适用正式命令修复；版本变化后旧报告不能操作新对象。技术 UUID/方程/probe 不在默认主文本，折叠报告仍可复制。
 
 未做浏览器自动验收、工业规模/新的性能测量。未可靠识别的自由曲面保留位置/已有方向降级；缺指定 Revision 的运动证据显示待检查，不能沿用旧 DOF 或声称全装配正常。
+
+## M4/M5-03 连续轨迹与恢复验证
+
+新增 `m4.intent.*` 六个 case 沿用唯一 catalog 和回归锁：原生偏心/累计平移、必要转动、绕心旋转与预算恢复；真实 Router/Worker/专用数据库历史轨迹；生产手柄指针转换和调度轨迹。Web RPC 替身只验证输入/控制器，不冒充真实求解。native 的 trace fixture 固定 baseline、frame、grab、累计位移/转角、采样密度及往返事件；仅 accepted checkpoint 写入下一 initial guess，nominal 不变。
+
+```bash
+invoke check --scope assembly
+invoke check --scope web
+python -m unittest discover -s tests/assembly-contract -p 'test_*.py'
+python tests/assembly-contract/runner.py validate
+python tests/assembly-contract/runner.py gaps --case m4.intent.cumulative-translation --output build/m4m5-03/replay-native
+OCCCCAD_DRAG_TRACE_OUTPUT=build/m4m5-03/replay.jsonl build/cmake/debug/kernel/assembly/tests/occcad_assembly_solver_scenarios --gtest_filter=AssemblyInteraction.CumulativeEccentricTranslationTrace
+```
+
+真实集成先按开发环境加载配置，并显式设置 `OCCCCAD_TEST_DATABASE_URL` 为可丢弃的 `occccad_offset_contract_test`、`OCCCCAD_TEST_GEOMETRY_WORKER` 为匹配本轮 v12 Worker；fixture 同时核对 DSN 和实际数据库名，不能默认连应用库。在 `services/` 执行 `go test ./internal/control -run TestAssemblyInteractionCumulativeIntentTrace -count=1 -v`，或带相同环境在仓库根执行 `runner.py gaps --case m4.intent.router-cumulative-history`。缺环境必须报告阻塞。中间零 Revision、同最终 goal 的新 transport attempt、改意图拒绝、幂等/Undo/Redo 都有真实断言。
+
+证据：`build/m4m5-03/native-trajectory.jsonl` 按帧记录累计目标、最终位姿、完整 quaternion、硬/目标误差、阶段/原因、迭代/恢复及耗时；`legacy-termination.log` 是旧策略的最小 Budget/旋转特征复现，`scale-repro.log` 保留尺度失败，`native-final.log` / `scale-final.log` 为修复后的实际结果。`continuation-integration.log` 保留真实 Budget 后同会话恢复与历史链路。完整最终回归报告使用 `final-baseline/report.json`；不把早期执行报告当成最新 build 的验收。
+
+人工检查（本轮未运行浏览器自动验收）：
+
+1. 在自由 Part 的面边缘/角点放置手柄，单轴长拖、回拉、快速反向再释放：保持完整姿态，无无故旋转；确认/Undo/Redo 只一次修改。
+2. 固定基体与倾斜平面重合，沿切向/斜向拖动：有可行滑动时保持姿态，法向受限停住；转动副中仍允许必要旋转。
+3. 绕偏心中心转动，跨 360°并反向：中心与累计目标一致，不用原点位移抵消旋转。取消恢复当前权威状态。
+4. 未确认最终目标时预览明确未保存，可重试同目标或取消；切换对象/工具/命令不能从未保存显示开启假基线。提交回执未知仍查询原 requestId。
+5. 打开分析：默认只列待处理问题，搜索/筛选/分页、选中详情及更多修复操作目标不串项；技术报告按需展开。把面板拖到树/属性区域，窗口缩放或侧栏变化后标题/关闭始终可达，表格操作不触发底下视口。
+
+0/1/100/500/1000 行是 UI fixture，不是对应规模的真实求解容量或浏览器性能验收。M6 与工业规模测试未实施。
+
+本轮最终证据：原有锁加六个新 case，完整 baseline 675/675 PASS（391 个去重执行映射）；最新单目标 Session 和固联绕心 gaps 分别在 `build/m4m5-03/final-session-gaps`、`final-rotation-gaps`。`baseline-before-final-lock.json` 保留锁更新期间被校验拦截的早期报告；不将它计为通过。所有性能数值仅是当前 Debug 轨迹观察，不是浏览器延迟或工业容量门。

@@ -126,7 +126,10 @@ Product 拒绝将它当作从动成功提交；不会误报为几何冲突。响
 `R_frame^T ((R p_grab+t)-(R_target p_grab+t_target))/L`；旋转误差使用目标旋转到当前旋转的短弧 Log，变换到相同参考帧后除以 A。
 未参与的分量没有驱动残差。该目标不增加物理方程，不改变 rank、DOF 或固定基准。
 
-交互顺序为硬几何恢复 → 拖动目标 → reference nominal motion → total nominal motion。
+v12 显式交互策略的顺序为硬几何恢复 → driven task → held task → total nominal motion。
+两组互斥 mask 区分用户驱动分量、希望保持的分量及完全自由分量；held task 使用同一抓取点/短弧旋转残差及解析 Jacobian，不是物理方程。平移保留初始姿态和非驱动方向；绕心旋转的 target pose 已包含绕 pivot 的平移，不用原点位移压制该运动。L/A 仍是既有无量纲尺度，没有新极端权重。抓取点与姿态联合目标避免局部原点位置决定“用旋转替代平移”；受硬约束需要的旋转仍可发生。
+显式交互在零残差上构造优先级保留核时，对 `J_priority * diag(L,L,L,A,A,A)` 逐行归一化后再投影到现有正交核。行缩放不改变零残差可行子空间，只避免力臂/尺度差异把独立的姿态保持行误判为秩缺失；不改物理 rank、任务能量权重或成功容差。
+显式 held profile 先构造目标 body 对应的 rigid-cluster pose seed，只在原硬约束/branch 的非线性恢复成功且 driven 能量不恶化时采用；不 recapture nominal/组关系。不适用的固定 cluster 和恢复失败回到通用路径。没有 hold mask 的旧交互及静态 ADD/EDIT 保留原 reference → total M2.5 策略。
 在 `J * diag(L,L,L,A,A,A)` 的正交核上求目标步，而不是对外部原始 basis 直接计算 `Z Z^T`；每个试步都调用原硬约束的有界非线性 retraction。
 后续偏好复用 M2.5 的先行标量目标切空间：零目标使用目标 Jacobian 的核，非零目标使用受限 Lagrangian 曲率的核，保留球面中心目标等平坦 argmin 的真实自由度。
 仅当残差为零或在该 argmin 上恒定时，retraction 同时保持冻结目标残差；其他平坦情形使用硬 retraction 与冻结标量能量上界，不混成加权和、不冻结不必要的残差向量。
@@ -139,6 +142,7 @@ Undefined 的适用对齐关系在交互求值分支中按 `initial_pose` 解析
 
 目标投影梯度足够小且非零误差时，还检查受限 Lagrangian 曲率；负曲率驻点不能被认证为最近可行局部最优。
 `InteractionEvidence` 将硬可行、目标优化收敛和提交资格分开：Reached/Constrained 是局部结论；Budget/Cancelled/Failed 不可提升候选。
+另外分别返回 hold convergence、hard error、目标/保持最优性、终止阶段/原因和迭代/恢复计数；iteration limit、no descent、retraction failure、lower-preference 丢失上层驻点、hold 停滞和取消不再统称网络超时。墙钟 deadline 在 Worker 边界与显式取消区分；单次矩阵分解的取消粒度不改变。
 不可达目标不触发持久冲突 probe，不尝试随机翻转 Undefined 分支。角度静态意图与 Session winding 的运输由调用方绑定，kernel 不写 Revision。
 `should_cancel` 在迭代、回溯及 retraction 检查；单次密集 QR/SVD 分解不可中断，这也是当前取消粒度限制。
 pose-only 交互仍计算全硬约束的 component rank、null-space 及每条方程残差，但不重复逐定义的累计增量 rank/冗余审计，返回 `INTERACTION_CONSTRAINT_RANK_AUDIT_FROZEN`。

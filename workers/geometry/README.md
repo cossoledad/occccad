@@ -38,6 +38,8 @@ flowchart LR
 - 包名：`occcad.worker.v1`
 - 传输：gRPC/Protobuf
 - 默认监听：`127.0.0.1:51001`
+
+装配交互当前 build policy 为 `assembly-m4m5-intent-v12`。`SolveAssembly` 的纯值 DragTarget 分别传输 driven/hold 分量（互斥，保持不是硬约束），回传硬可行、驱动/保持收敛、提交资格、阶段/终止原因及迭代/恢复计数。取消与墙钟 deadline 在 Worker 边界区分；Session、continuation 和历史提升仍由 Go 编排，Worker 不持有业务 Session 或数据库真相。公式及静态旧策略兼容见 [solver 算法](../../kernel/assembly/SOLVER_ALGORITHMS.md#41-m4-纯值交互目标)。
 - 配置：`OCCCCAD_GEOMETRY_WORKER_LISTEN`
 
 调用应是“求值一个 Body 的完整 Feature chain”“导入一个交换根”“合成一次导出”一类粗粒度操作，不能把每个 OCCT 函数映射为远程 RPC。请求携带 `request_id` 与 `geometry_key`；Trace Context 通过 gRPC metadata 传播。B-Rep、GLB、STEP 和 BREP 交换文件通过 ArtifactReference 读写，不进入 unary gRPC bytes；持久存储支持 LOCAL/S3；Go client 将远端输入校验并暂存为 LOCAL scratch，Worker 输出由 Adopt 上传；计算暂存仍要求 Worker 与 API/Jobs 共享 `OCCCCAD_DATA_DIR`，object key 必须是根目录内的 opaque 相对键。

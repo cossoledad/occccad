@@ -1,12 +1,44 @@
 package workspace
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 )
+
+func TestAssemblyManifestV11RoundTripAndV12IntentBoundary(t *testing.T) {
+	m, err := newAssemblySolveManifest("product", "revision", "hash", []geometry.AssemblyBody{{ID: "body", Pose: geometry.AssemblyPose{Rotation: [4]float64{0, 0, 0, 1}}}}, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SolverBuildPolicy = "assembly-m4m5-interaction-v11"
+	m.DragTarget = &geometry.AssemblyDragTarget{BodyID: "body", TargetSequence: 3, TargetPose: geometry.AssemblyPose{Rotation: [4]float64{0, 0, 0, 1}}, FrameRotation: [4]float64{0, 0, 0, 1}, TranslationComponents: [3]bool{true, false, false}}
+	m.Digest = assemblyManifestDigest(m)
+	raw, err := json.Marshal(m)
+	if err != nil || bytes.Contains(raw, []byte("holdTranslationComponents")) || bytes.Contains(raw, []byte("interactionGoalSequence")) {
+		t.Fatal("legacy input silently acquired new fields", err)
+	}
+	var cold AssemblySolveManifest
+	if err = json.Unmarshal(raw, &cold); err != nil || validateAssemblySolveManifest(cold) != nil || assemblyManifestDigest(cold) != m.Digest {
+		t.Fatal("immutable v11 input round trip", err)
+	}
+	cold.DragTarget.HoldRotationComponents = [3]bool{true, true, true}
+	if validateAssemblySolveManifest(cold) == nil {
+		t.Fatal("v11 cannot acquire v12 intent")
+	}
+	cold.SolverBuildPolicy = assemblySolverBuildPolicy
+	cold.InteractionGoalSequence = 2
+	if err = validateAssemblySolveManifest(cold); err != nil {
+		t.Fatal("v12 same-goal attempt", err)
+	}
+	cold.InteractionGoalSequence = 4
+	if validateAssemblySolveManifest(cold) == nil {
+		t.Fatal("goal newer than its transport attempt")
+	}
+}
 
 func TestAssemblySolveManifestFreezesCallerOwnedInputs(t *testing.T) {
 	for _, field := range []string{"initial guess", "fixed pose", "angle axis", "angle sector", "angle branch", "publication reference", "publication quantity", "persistent resolution", "intent", "affected bodies"} {

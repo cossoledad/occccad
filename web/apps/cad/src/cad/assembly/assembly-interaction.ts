@@ -10,6 +10,8 @@ export type AssemblyDragTarget = {
   frameRotation: AssemblyRotation;
   translationComponents: [boolean, boolean, boolean];
   rotationComponents: [boolean, boolean, boolean];
+  holdTranslationComponents?: [boolean,boolean,boolean];
+  holdRotationComponents?: [boolean,boolean,boolean];
   targetSequence: number;
 };
 export type AssemblyInteractionBegin = {
@@ -36,14 +38,16 @@ export type AssemblyInteractionEvidence = {
   targetOptimality: number;
   targetSequence: number;
   diagnostic?: string;
+  terminationStage?:string;terminationReason?:string;iterations?:number;restorations?:number;hardError?:number;holdOptimality?:number;holdConverged?:boolean;
 };
-export type AssemblyInteractionUpdate = { sessionId: string; sequence: number; final: boolean; target: AssemblyDragTarget };
+export type AssemblyInteractionUpdate = { sessionId: string; sequence: number; goalSequence?:number; final: boolean; target: AssemblyDragTarget };
 export type AssemblyInteractionFrame = {
   previewId: string;
   requestId: string;
   sessionId: string;
   inputDigest: string;
   sequence: number;
+  goalSequence?:number;
   unchanged?: boolean;
   commitCommand?: Record<string, unknown>;
   instancePoses: AssemblyInteractionPose[];
@@ -56,7 +60,7 @@ export type AssemblyInteractionCommit = AssemblyInteractionUpdate & AssemblyInte
 export type AssemblyInteractionState = "idle" | "waiting" | "allowed" | "constrained" | "blocked" | "invalidated" | "failed" | "committing" | "committed";
 export function assemblyInteractionFailureState(error:unknown):"invalidated"|"failed"{
   const message=error instanceof Error?error.message:String(error);
-  return ["ASSEMBLY_SESSION_BASE_CHANGED","ASSEMBLY_SESSION_EDIT_CONTEXT_CHANGED","ASSEMBLY_SESSION_EXPIRED_OR_SCOPE_MISMATCH","ASSEMBLY_SESSION_CANCELLED","ASSEMBLY_SESSION_POLICY_OR_TARGET_MISMATCH","ASSEMBLY_SESSION_FINAL_CANDIDATE_STALE_OR_MISMATCHED"].some(code=>message.includes(code))?"invalidated":"failed";
+  return ["ASSEMBLY_SESSION_BASE_CHANGED","ASSEMBLY_SESSION_EDIT_CONTEXT_CHANGED","ASSEMBLY_SESSION_EXPIRED_OR_SCOPE_MISMATCH","ASSEMBLY_SESSION_CANCELLED","ASSEMBLY_SESSION_POLICY_OR_TARGET_MISMATCH","ASSEMBLY_SESSION_GOAL_MISMATCH","ASSEMBLY_SESSION_FINAL_CANDIDATE_STALE_OR_MISMATCHED"].some(code=>message.includes(code))?"invalidated":"failed";
 }
 export type AssemblyInteractionPort = {
   begin(input: AssemblyInteractionBegin, signal: AbortSignal): Promise<AssemblyInteractionSession>;
@@ -88,6 +92,9 @@ export class AssemblyInteractionController {
   private context?: AssemblyInteractionBegin;
   private phase: AssemblyInteractionState = "idle";
   private phaseReason?:string;
+  private finalAttempts=0;
+  private lastFeasible?:AssemblyInteractionFrame;
+  private checkpoint?:AssemblyInteractionFrame;
 
   private readonly port: AssemblyInteractionPort;
   constructor(port: AssemblyInteractionPort) { this.port = port; }
@@ -95,6 +102,8 @@ export class AssemblyInteractionController {
   get reason():string|undefined{return this.phaseReason;}
   get nominalPoses(): readonly AssemblyInteractionPose[] { return this.session?.nominalPoses ?? []; }
   get sessionId(): string | undefined { return this.session?.sessionId; }
+  get hasUncommittedFinal():boolean {return this.finalRequested&&this.phase!=="committing"&&this.phase!=="committed";}
+  get lastQualifiedFrame():AssemblyInteractionFrame|undefined{return this.checkpoint&&structuredClone(this.checkpoint);}
 
   begin(input: AssemblyInteractionBegin): void {
     this.failureReported=false;
@@ -103,6 +112,7 @@ export class AssemblyInteractionController {
     const abort = this.abort = new AbortController();
     this.context = structuredClone(input);
     this.sequence = 0;
+    this.finalAttempts=0;this.lastFeasible=undefined;this.checkpoint=undefined;
     this.finalRequested = false;
     this.finishPromise = undefined;
     this.setState("waiting");
@@ -125,9 +135,12 @@ export class AssemblyInteractionController {
 
   target(value: Omit<AssemblyDragTarget, "bodyId" | "targetSequence">): void {
     if (!this.abort || this.abort.signal.aborted || this.finalRequested) return;
-    const target: AssemblyDragTarget = { ...structuredClone(value), bodyId: this.session?.bodyId ?? "", targetSequence: ++this.sequence };
+    const target: AssemblyDragTarget = { ...structuredClone(value),
+      holdTranslationComponents:value.holdTranslationComponents??value.translationComponents.map(v=>!v) as [boolean,boolean,boolean],
+      holdRotationComponents:value.holdRotationComponents??value.rotationComponents.map(v=>!v) as [boolean,boolean,boolean],
+      bodyId: this.session?.bodyId ?? "", targetSequence: ++this.sequence };
     this.latest = target;
-    this.pending = { sessionId: this.session?.sessionId ?? "", sequence: target.targetSequence, final: false, target };
+    this.pending = { sessionId: this.session?.sessionId ?? "", sequence: target.targetSequence, goalSequence:target.targetSequence, final: false, target };
     this.drain();
   }
 
@@ -137,10 +150,15 @@ export class AssemblyInteractionController {
     this.finalRequested = true;
     this.finishPromise = new Promise(resolve => { this.finishResolve = resolve; });
     const target = { ...structuredClone(this.latest), targetSequence: ++this.sequence };
-    this.pending = { sessionId: this.session?.sessionId ?? "", sequence: target.targetSequence, final: true, target };
+    this.pending = { sessionId: this.session?.sessionId ?? "", sequence: target.targetSequence, goalSequence:this.latest.targetSequence, final: true, target };
     this.setState("waiting", "waiting for final authoritative frame");
     this.drain();
     return this.finishPromise;
+  }
+  retryFinal():Promise<AssemblyInteractionCommit|undefined>{
+    if(!this.hasUncommittedFinal||this.inFlight||this.pending)return this.finishPromise??Promise.resolve(undefined);
+    this.finishPromise=undefined;this.finalAttempts=0;this.failureReported=false;
+    return this.finish();
   }
 
   /** Called before the normal command path, so its own Head notification is
@@ -170,6 +188,8 @@ export class AssemblyInteractionController {
     this.context = undefined;
     this.pending = undefined;
     this.latest = undefined;
+	this.lastFeasible = undefined;
+	this.checkpoint = undefined;
     this.inFlight = false;
     this.finalRequested = false;
     this.finishResolve?.(undefined);
@@ -189,20 +209,35 @@ export class AssemblyInteractionController {
       if (epoch !== this.epoch || abort.signal.aborted) return;
       if (frame.interaction.targetSequence !== request.sequence || frame.sequence !== request.sequence || frame.sessionId !== session.sessionId || frame.inputDigest !== session.inputDigest) throw new Error("Assembly target response identity mismatch");
       const evidence = frame.interaction;
-      if (evidence.hardFeasible) this.port.frame(frame);
+      if(frame.goalSequence!==undefined&&frame.goalSequence!==request.goalSequence)throw new Error("Assembly response goal identity mismatch");
+      if (evidence.hardFeasible && evidence.status!=="CANCELLED" && evidence.status!=="FAILED") {this.lastFeasible=structuredClone(frame);this.port.frame(frame);}
+      if(evidence.hardFeasible&&evidence.targetConverged&&evidence.eligibleForCommit)this.checkpoint=structuredClone(frame);
       const eligible = evidence.hardFeasible && evidence.targetConverged && evidence.eligibleForCommit && (Boolean(frame.previewId && frame.requestId && frame.commitCommand) || Boolean(frame.unchanged))
         && (evidence.status === "REACHED" || evidence.status === "CONSTRAINED");
       const axes=["X","Y","Z"],translation=request.target.translationComponents.flatMap((v,i)=>v?[axes[i]]:[]),rotation=request.target.rotationComponents.flatMap((v,i)=>v?[axes[i]]:[]);
       const reason=`${evidence.diagnostic??evidence.status} · 冻结坐标架平移 [${translation.join(",")}] / 旋转 [${rotation.join(",")}] · 目标残差 ${evidence.targetError.toPrecision(4)} / 最优性 ${evidence.targetOptimality.toPrecision(4)}${evidence.status==="CONSTRAINED"?"（指定目标未到达，已确认约束受限最优；不是冲突证明）":""}`;
       this.setState(evidence.status === "REACHED" && evidence.hardFeasible && evidence.targetConverged ? "allowed" : evidence.status === "CONSTRAINED" && evidence.hardFeasible && evidence.targetConverged ? "constrained" : evidence.status === "FAILED" || evidence.status === "CANCELLED" ? "failed" : "blocked",reason);
-      if(evidence.status==="FAILED"||evidence.status==="BUDGET")this.reportFailure(Object.assign(new Error(reason),{code:evidence.status==="FAILED"?"ASSEMBLY_INTERACTION_NUMERICAL_FAILED":"TIMEOUT"}));
+      if(evidence.status==="FAILED"){
+        this.reportFailure(Object.assign(new Error(reason),{code:"ASSEMBLY_INTERACTION_NUMERICAL_FAILED"}));
+        if(request.final)this.setState("blocked",reason);
+      }
       if (request.final) {
+        if(!eligible&&evidence.status==="BUDGET"&&this.finalAttempts++<2){
+          const target={...structuredClone(request.target),targetSequence:++this.sequence};
+          this.pending={sessionId:session.sessionId,sequence:target.targetSequence,goalSequence:request.goalSequence,final:true,target};return;
+        }
         const candidate = eligible ? { ...structuredClone(frame), ...structuredClone(request), baseRevisionId: session.baseRevisionId, inputDigest: session.inputDigest } : undefined;
+        if(!eligible&&evidence.status!=="CANCELLED")this.reportFailure(Object.assign(new Error(reason),{code:"ASSEMBLY_INTERACTION_UNCONFIRMED",requestId:frame.requestId,terminationStage:evidence.terminationStage,terminationReason:evidence.terminationReason}));
         this.finishResolve?.(candidate);
         this.finishResolve = undefined;
       }
     }).catch(error => {
-      if (epoch === this.epoch && !abort.signal.aborted) {this.reportFailure(error);this.cancel(String(error),assemblyInteractionFailureState(error));}
+      if (epoch === this.epoch && !abort.signal.aborted) {
+        this.reportFailure(error);
+        if(request.final&&assemblyInteractionFailureState(error)!=="invalidated"){
+          this.setState("blocked",String(error));this.finishResolve?.(undefined);this.finishResolve=undefined;
+        }else this.cancel(String(error),assemblyInteractionFailureState(error));
+      }
     }).finally(() => {
       if (epoch !== this.epoch) return;
       this.inFlight = false;

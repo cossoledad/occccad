@@ -1,4 +1,9 @@
 {
+    "m4m5IntentReview": {
+        "baseline": "da0a0d7 plus reviewed M4/M5-03 working tree; current v12 Worker",
+        "assertionReason": "Only five pre-existing assertion hashes updated after actual PASS: Router strict v12 build expectation (all geometry/mode checks retained), scheduler same-goal bounded final/explicit retry and checkpoint guards, lazy/paginated engineering panel, manipulator complementary hold masks alongside every old driven-mask assertion, and scene fixture initialization of the new unsubmitted-state guard. Targets, capabilities, tolerances and coverage floors unchanged.",
+        "promotionReason": "Six new intent cases independently executed PASS before promotion: native full attitude/cumulative tilted-plane/necessary-revolute/orbit and deterministic budget checks, actual safe-DB/Router/Worker continuation and history, actual pointer/controller trace. Rotation fixture further strengthens the same target with non-root selected rigid-cluster member and independent group-relative/orbit checks; actual group-rotation-final PASS precedes this single assertion lock update. Legacy numerical Budget remains diagnostic, not a capability success. Final complete locked baseline is rerun after fixture changes."
+    },
     "m4m5Review": {
         "kernelPerformanceObservation": {
             "scope": "hardware-specific idle kernel measurements; NOT browser/RPC latency or a cross-machine performance acceptance gate",
@@ -811,7 +816,13 @@
         "m4.snap.precise-frame": "ef7d69c790c1de856d72069c5f36537466f7dedc9a13126d60d0a61f900163bd",
         "m4.snap.body-local-hints": "629b7cc473a2cb1dd94d03ed5bf6ce7afb1661332f89c6f07943f538486d2fa9",
         "m5.engineering.overview": "153e81e7253f6640cb4f3fcc00ed05715ed4c7a4276ce703c43f8e4692e44d5b",
-        "m4.operation.failure-outlet": "763d0ea26c49eba762785627a51d3211c0413039a147557b05fb589f1b020dc0"
+        "m4.operation.failure-outlet": "763d0ea26c49eba762785627a51d3211c0413039a147557b05fb589f1b020dc0",
+        "m4.intent.eccentric-translation": "9d6cb3c9af48d963ddd4a075e60a3098ff05be87089e5a04b53d62ce28c6af42",
+        "m4.intent.cumulative-translation": "094e63d8ba95001f95587361febd47e7cafec670f91e5f51e6a4a08c58ca55d7",
+        "m4.intent.necessary-revolute": "c6bba6dc34c98cfe5d6995463740fa21c36c1deed65fe9f86c838c5cd0c114e4",
+        "m4.intent.rotation-budget-recovery": "94ad31b89bbd22881c606d0b61224a5d12ef284526593cb2be097493b6b47e24",
+        "m4.intent.router-cumulative-history": "949b101542e3af2a790dc9619f1f1b99e29bec5327c05c08a594a4982997fbd5",
+        "m4.intent.production-pointer-trace": "31dbdb97306fb74b0e3595d6cc7544576be4d412d4289ede6f2234d4442722ad"
     },
     "assertions": {
         "composition.edit-intent.production-ui": "6d0afd972b78eeb318041aa9dd7be1e98da9bae4364968a749a1830a7fb6cd9a",
@@ -902,7 +913,7 @@
         "composition.subspace-projectors": "765695248ff383ef250213616aeb5536ed547c8b999dafc9fd82d983fab60d9b",
         "composition.empty-active-measured": "4fb05082f33705f02d55dca02b8793a7d5ea01238f469374c5d4971a691b9182",
         "composition.redundancy": "fa0d373b5db0e587f40648a1bfc7989439feaed3ed810a9bdfe9c8d10aa70a00",
-        "integration.router-worker": "869bd15bd2eb0525c219b56e15a996950dc6095841a8a772e51679f0d0f0d011",
+        "integration.router-worker": "3e1f70d772f78f81a10398d30c8508e692be55a15031ff716016cd52ee3877a7",
         "integration.product-history-release": "ba4605f5116add460546962defe089caa05ac3c50725497803b3900ca26a9a22",
         "offset.regular-six-pairs-exchange": "6d4e0f4ffd0c1e46f6a2d982b621ca54be6929ffc05b03125a0c826665ffb6bb",
         "admission.failed-pose-not-suppression": "500cca7ad5b77d433fa0c89c0c4d30f5e472cfc30033e986a9ffde26f19500c7",
@@ -1455,7 +1466,7 @@
         "m4.interaction.frozen-rank-audit": "f4824af9e66d64623840480154cb3f7e34deb11b284f9385612e6ce3e184757b",
         "m4.session.typed-target": "0bcb62f16a627985515eba3e806cc151234b6dd03fe3f095a9afb94be4c90854",
         "m4.session.router-commit-history": "586e411a20ff36d5bb8407695d9112e07bad34d8d115e11e8c09c336c8305086",
-        "m4.interaction.production-scheduler": "59b888d2ab5e4aa779ec02fe797b6ae5307533a0d06e2e09ce3f3d0c05bf7ca5",
+        "m4.interaction.production-scheduler": "0d1e10f66fd4e6366d6e9aa0ce5d6a8f4feacd73502cf1c26bf35392df8b47bc",
         "m5.conflict.three-valued-budget": "751e59cfa34ab46fb5873a7262ae676a40a005369f04176c99ab3246a3e00ffb",
         "m5.conflict.certificates-provenance": "044eb3b88c8011f48165d1ac9a53729127fb46fd723c11a2104dd7a0be6ace52",
         "m5.conflict.router-readonly-repair": "a71269f7ca7dfb7abbff3b61f2e7d50794a39292e3d6c309f7e68f3368583d38",
@@ -1468,21 +1479,27 @@
         "m4.interaction.undefined-alignment-branch": "455d104ed3b38dca0dd940ca9906ca6e93b06794c783af9d897796b3ab2c7a04",
         "m4.interaction.global-gauge-freedom": "5ea218728d1da06e5fcd694d4e4946ec5d83227fe81e864e2d7d2ec0102bdb6f",
         "m4.interaction.legacy-unsigned-plane-side": "38306872978156fac96a921d204209e0462e5953dfa33b4353b2ff3994ca32de",
-        "m4.interaction.production-manipulator": "8f537344f67b25217515ff632592b37890104e222cfd9b9059f5ae714f07bebc",
+        "m4.interaction.production-manipulator": "ebb339e8c5d3401e53105bc5d6b37a636575789d0aec929f138ed565be784273",
         "m4.session.busy-sequence-guard": "5808c6975ed112f75171eed668466e849a1531fd3c297ca9d55e07c310a5d095",
         "m4.interaction.production-input-lifecycle": "37e09b10a54afe3742dc575f1b5da40e3a18c3564c58f280b7dd4c927ce8f564",
-        "m4.interaction.production-authoritative-render": "fa9a792423c6816635fb0060e7081e034b42fafa03f62ffe24304d9b045ff27e",
+        "m4.interaction.production-authoritative-render": "805b05b7970e6e8e8a8430ed997a503f43c9e425c31d1c5b69b83134bd2d00ee",
         "m4.interaction.scalar-argmin-nominal-freedom": "4e5b3126bbf51c7cf500c63e5427c6613a836efe73059e7bf2521be8fd44cfd2",
         "m4.session.legacy-manifest-immutable-policy": "540bcdaafa4fe2d6abfa922fa59e09490cf330257f5359bc5ab5f0911f82ff57",
         "m4.snapshot.current-render-bindings": "44fbb9fc3c14f09f2b2e2f1d5adc40aa6b9163b587371de3b8cdb907752869b8",
         "m4.target.diagonal-projection": "93e6f1d756a244cd2e0def0399b12a70ee53cd74d04324e42414a8be6b698482",
-        "m5.engineering.command-panel": "be71ed87883bee15408068e5fe2de5cb115ddd8f35c2bc5c4dc4f79f4f35fcf0",
+        "m5.engineering.command-panel": "73a6240bd4327decb4da04596b75a818dbc1a160519b6df40ac130d2dab06ecb",
         "m5.engineering.server-catalog": "c6b99a7ca2530cb122679c943b3ad5631e06a6bda28100de1a73940bd66e034b",
         "m4.snapshot.metadata-only-router": "c2fa206580f03dc67fe87b64b73855799eb1763bd6a800471c99d478fd3e29e6",
         "m4.snap.precise-frame": "0531a46c32c76513bc401d274e442749692051dc11e1cfd35e24b4bff6e18f49",
         "m4.snap.body-local-hints": "f1be736cd0e1af0a57649ba234b283b20e72f42a7df63d8fda852a7139e2ca00",
         "m5.engineering.overview": "271da8c4f14098586df2dd75155206ce40c0be21c925042a2efca9bb81db7e2a",
-        "m4.operation.failure-outlet": "f13be95087b2b16899bd5d7638796bec7d51291254d8550f4bd9fbf704d14d2b"
+        "m4.operation.failure-outlet": "f13be95087b2b16899bd5d7638796bec7d51291254d8550f4bd9fbf704d14d2b",
+        "m4.intent.eccentric-translation": "32bfad20d629f9e6294eeb63e3634a9baa9d4b387253cf9c6bab55fa2ce32fca",
+        "m4.intent.cumulative-translation": "a1251c62c73f38f6eddf87b42a3f2d947c35c0fc2b4ce7e8f9601ecf5c7df844",
+        "m4.intent.necessary-revolute": "0f4f935957aeb18588a1297a64465e42bdd7fe2a4c481cc9f0a6b408537a6298",
+        "m4.intent.rotation-budget-recovery": "182a0cf67e5be0657c077d9d5825c5dcbee5cbffba84e8a234d80a10dff35919",
+        "m4.intent.router-cumulative-history": "d69bd5d4dc342a7b427739385f0334521ca427e6181af604fb38b0e14be019f2",
+        "m4.intent.production-pointer-trace": "d96e1a67d6f31ddf27a3f2fd710947c6ff43e47a33ba9c3413cc5f91ba5f5edb"
     },
     "coverageFloor": {
         "coincidence.point-point": {

@@ -31,7 +31,7 @@ export function WorkbenchLayout({ commands, tree, inspector, children, status, d
     resize.current = undefined;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
-  return <div className="workbench-layout" ref={root}>
+  return <div className="workbench-layout" ref={root} data-command-overlay-host style={{position:"relative"}}>
     {commands}
     <div className={`workbench-content ${treeOpen ? "" : "tree-collapsed"} ${inspectorOpen ? "with-inspector" : ""}`}
       style={{ "--structure-width": `${panelWidth}px` } as CSSProperties}>

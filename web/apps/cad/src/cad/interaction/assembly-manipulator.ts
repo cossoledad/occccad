@@ -10,7 +10,7 @@ type Drag = { pointerId: number; handle: Handle; startPosition: THREE.Vector3;
   startQuaternion: THREE.Quaternion; desiredPosition: THREE.Vector3; desiredQuaternion: THREE.Quaternion;
   axisParameter:number;angleParameter:number;pointerToHandleOffset:THREE.Vector2; startPlanePoint?:THREE.Vector3 };
 
-export type ManipulatorTargetComponents = {translationComponents:[boolean,boolean,boolean];rotationComponents:[boolean,boolean,boolean]};
+export type ManipulatorTargetComponents = {translationComponents:[boolean,boolean,boolean];rotationComponents:[boolean,boolean,boolean];holdTranslationComponents?:[boolean,boolean,boolean];holdRotationComponents?:[boolean,boolean,boolean]};
 
 export type AssemblyManipulatorCallbacks = {
   poseChanged(): void;
@@ -161,6 +161,8 @@ export class AssemblyManipulator {
       translationComponents:axes.map(a=>handle.operation==="rotate"||handle.axis===a||Boolean(handle.plane?.includes(a))) as [boolean,boolean,boolean],
       rotationComponents:axes.map(a=>handle.operation==="rotate"&&handle.axis===a) as [boolean,boolean,boolean],
     };
+    if(this.targetComponents){this.targetComponents.holdTranslationComponents=this.targetComponents.translationComponents.map(v=>!v) as [boolean,boolean,boolean];
+      this.targetComponents.holdRotationComponents=this.targetComponents.rotationComponents.map(v=>!v) as [boolean,boolean,boolean];}
     this.setHandleActive(handle,1);
     if (handle.operation !== "pivot") this.callbacks.dragStarted();
     return true;
