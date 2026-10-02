@@ -1,6 +1,6 @@
 # Router、持久任务、制品与交换
 
-> 2026-09-21 文档核对基线。返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。这里只记录实现事实；测试存在不等于本轮已经运行，验证缺口见[统一路线](../../../plans/README.md)。
+> 返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
 
 ## Geometry Router 与本机扩缩容
 
@@ -62,7 +62,6 @@ OCCT 使用文件接口：Go Geometry client 将远端引用按 RPC 下载到独
 
 `occccad-artifacts --migrate-local` 可复制并核验已有 LOCAL 对象后切换索引。旧 bytea 内联迁移/回退已移除；当前未发布数据架构通过开发 reset 重建，不能继续使用旧 schema。初始化桶和配置见[存储运维](../../../services/cmd/occccad-artifacts/README.md)。
 
-2026-09-24 定向验证：真实 MinIO 的 1 GiB 往返及完整 SHA-256 通过；取消分片独立清理、HTTP chunked 超限拒绝、Worker 输入校验/清理、小模型 STEP/BREP 交换链通过；Go 相关包定向测试、C++ Worker 构建及 Web 类型检查通过。开发库迁移了 408 个 LOCAL 对象并补齐 19 处 embedded 引用（内容去重），最终 409 个 READY 对象均在 S3 完成逐对象大小与摘要核验。原件保留，未做浏览器或全量测试。
 
 Exchange HTTP 提交只等待完整上传和 Job 入队，随后立即关闭对话框；浏览器不会让提交请求等待几何处理。Jobs 在排队、领取、进度、重试与取消等生命周期状态转换的同一 SQL statement 或领取事务中写入 `JOB` Outbox，API 将 `job.state.changed.v1` 仅推送给任务发起用户。若该用户没有可接收的 WebSocket 会话，事件保持 unpublished，直到至少一个会话接受。Web 顶部消息中心同时从 `GET /api/jobs` 恢复最近 100 条用户可见任务，因此错过瞬时通知或重新登录后仍能看到状态、失败原因、进度和下载/打开入口；仅在存在活动任务时每 2.5 秒刷新进度，终态仍由 WebSocket 立即提示。前端把持久 Job 投影为通用 ActivityItem，任务类型展示与动作注册集中在 activity 模块，未来其他持久消息来源可增加独立 projector 后合并，而不复制 Drawer 或任务状态机。
 
@@ -81,9 +80,3 @@ STEP 交换使用 `STEPCAFControl_Reader/Writer` 和 XDE document。Definition i
 - [Jobs](../../../services/internal/jobs)
 - [Artifact](../../../services/internal/artifact)
 - [Geometry 路由](../../../services/internal/control)
-
-### XDE 定向验证
-
-内核测试覆盖 100 次 Part 引用、重复 Sub Product、同几何不同 Definition、名称/平移/旋转、两轮 XDE round-trip、文件体积和 Solid Compound Naming。Jobs 集成通过真实 PostgreSQL、ArtifactStore、Router 和 Worker 验证唯一文档创建、冻结命名、显式 placement、Undo/Redo 与导出后重新导入。入口：`GeometryExchange.Xde*`、`TestXdeImportSharedDefinitionsAndRoundTrip`。这些测试不代表 1 GiB 几何容量或浏览器验收。
-
-真实 `data/LD200 torsen v7.step` 在独立测试 PostgreSQL、LOCAL ArtifactStore 和正式 Router/4 Worker 链路通过导入、全部唯一 Part FACE 绑定及 STEP 导出回读：16 个 Part + 7 个 Product Definition，60 个展开 Part occurrence，总 Solid 数仍为 114。此前按 Solid 展平为 114 个 Part；此处多 Solid 源 Definition 保持单 Part，未丢弃实体。实测为该语料正确性回归，不构成 1 GiB 容量或跨环境性能承诺。

@@ -10,7 +10,7 @@
 |---|---|---|---|
 | OCCT | 解析面/NURBS、B-Rep、Sweep/Loft/Fill/Offset/Sewing、STEP | 完整 Class-A 产品语义、自动保证 G2/G3、公差策略 | 权威精确内核；领域层包裹并独立验收 |
 | Eigen | 稀疏/稠密线代、最小二乘、fairness 能量 | 曲面拓扑、B-Rep、Feature 语义 | 内部数学基础，固定求解配置 |
-| Ceres Solver | 非线性拟合、受约束参数优化原型 | 直接作为曲面建模器 | P2 Explicit NURBS/Fit evaluator 候选 |
+| Ceres Solver | 非线性拟合、受约束参数优化原型 | 直接作为曲面建模器 | 高级 Explicit NURBS/Fit evaluator 候选 |
 | openNURBS | 3DM 数据结构和读写、NURBS 交换适配 | 通用建模/裁剪/缝合内核 | 可选 Exchange Worker；先审计当前许可与格式兼容 |
 | SISL / GoTools | NURBS 相交、拟合、光顺、Coons/Gordon 等研究算法 | 默认宽松许可核心依赖 | GPL/商业许可；只作对照或经法律审计的隔离可选后端 |
 | CGAL | robust predicates、网格/点云、离散曲率、AABB | 精确 trimmed NURBS B-Rep 主模型 | 包级许可差异大；仅选定包、隔离 mesh/reconstruction |

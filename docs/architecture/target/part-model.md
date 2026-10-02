@@ -151,9 +151,9 @@ message ProfileSelection {
 }
 ```
 
-P0 的实体拉伸、旋转和多截面实体只接受 `SOLID_REGION`：每个 Region 必须是共面、闭合、无自交、方向已规范化的外环加零个或多个孔环。多 Region 是否允许由特征明确声明；不能把所有闭环无条件合并。`region_id` 来自草图平面图的稳定环身份，草图编辑后若无法唯一恢复，Feature 返回 `SELECTION_AMBIGUOUS`，不按面积或遍历顺序静默猜测。
+基础实体拉伸、旋转和多截面实体合同只接受 `SOLID_REGION`：每个 Region 必须是共面、闭合、无自交、方向已规范化的外环加零个或多个孔环。多 Region 是否允许由特征明确声明；不能把所有闭环无条件合并。`region_id` 来自草图平面图的稳定环身份，草图编辑后若无法唯一恢复，Feature 返回 `SELECTION_AMBIGUOUS`，不按面积或遍历顺序静默猜测。
 
-开放轮廓用于曲面或薄壁特征，是后续独立能力；不要在 P0 中给开放 Wire 自动补线或自动生成零厚度实体。
+开放轮廓用于曲面或薄壁特征，是独立能力；基础实体合同不为开放 Wire 自动补线或自动生成零厚度实体。
 
 ### 5.4.6 共用求值流水线
 
@@ -229,7 +229,7 @@ message ExtrudeExtent {
 | `UP_TO_FACE` | target face、offset、side | 沿方向以目标面/其偏置为终止，必须唯一截断所有相关射线 |
 | `FROM_TO` | start face、end face、offsets | Profile 只提供截面形状，实际起止由两个限制面确定 |
 
-第一阶段用 [BRepPrimAPI_MakePrism](https://dev.opencascade.org/doc/refman/html/class_b_rep_prim_a_p_i___make_prism.html) 生成直线扫掠，并读取 `FirstShape/LastShape/Generated` 建立初始血缘。`THROUGH_ALL` 的 Tool 长度由目标 Body 在归一化方向上的投影区间、Profile bbox 和版本化裕量计算；不能使用固定的“很大数”。`UP_TO_FACE/FROM_TO` 的 P0 范围先限定为可唯一确定半空间的平面；曲面终止只有在所有生成射线存在一致、唯一的首个交点且能够形成有效端盖时才开放。
+线性拉伸用 [BRepPrimAPI_MakePrism](https://dev.opencascade.org/doc/refman/html/class_b_rep_prim_a_p_i___make_prism.html) 生成直线扫掠，并读取 `FirstShape/LastShape/Generated` 建立初始血缘。`THROUGH_ALL` 的 Tool 长度由目标 Body 在归一化方向上的投影区间、Profile bbox 和版本化裕量计算；不能使用固定的“很大数”。`UP_TO_FACE/FROM_TO` 的基本范围限定为可唯一确定半空间的平面；曲面终止只有在所有生成射线存在一致、唯一的首个交点且能够形成有效端盖时才开放。
 
 对于 ADD/REMOVE 的到面特征，evaluator 可选择 [BRepFeat_MakePrism](https://dev.opencascade.org/doc/refman/html/class_b_rep_feat___make_prism.html) 等专用 OCCT 路径，而不是强制构造超长 Tool；这是内核策略，不改变领域层的 Profile/Extent/BodyOperation 契约。专用路径必须产生同等的 Shape gate、语义输出和 TopologyHistory。NEW_BODY/INTERSECT 或专用路径不适用时，才使用候选 Tool + 限制几何裁剪 + 通用布尔，并验证每个 Region 都得到预期封闭结果。
 
@@ -273,7 +273,7 @@ message RevolveExtent {
 
 - `ONE_SIDE` 的 `0 < angle <= 2π`；`FULL` 固定为精确一周，不接受接近 `2π` 的随意值；
 - `SYMMETRIC` 的参数是总角度；`TWO_SIDED` 保存两个非负角度和明确方向；
-- Axis 必须与 Profile 共面，或由专门的三维截面规则显式允许；P0 要求共面；
+- Axis 必须与 Profile 共面，或由专门的三维截面规则显式允许；基础旋转合同要求共面；
 - 闭合 Profile 不得横跨 Axis；允许边界接触 Axis 形成无孔旋转体，但接触必须是可验证的点/边关系，不允许 tolerance 偶然相交；
 - Profile 与 Axis 重合的边、零半径回转和自相交回转均失败；
 - FULL 回转会产生 seam，seam 只作为拓扑实现细节，不作为用户选择的唯一身份来源；

@@ -26,7 +26,6 @@
 - **目标契约 / 应**：默认实现方向；局部替代方案必须证明语义等价、复杂度更低或验证结果更好；
 - **推荐 / 建议**：当前最合理的工程默认值，可基于实测数据调整；
 - **候选 / 可评估**：技术研讨结论，不代表已经选型、引入依赖或承诺兼容；
-- **路线阶段**：交付顺序与成熟度门，不表示前一阶段要实现最终全部功能。
 
 文中的 Proto、类型和目录通常是契约草案，用来固定语义和边界，不要求逐字复制字段名。实现可以采用更简洁的数据结构，但稳定身份、单位、版本、错误、幂等和迁移语义不能丢失。
 
@@ -57,11 +56,11 @@
 ### Product、Assembly 与工程扩展
 
 - [Product 结构、Publication 与上下文](architecture/target/product-context.md)
-- [六类约束、自由度组合与激活合同](architecture/target/assembly-constraints.md)
+- [六类约束、自由度组合与激活合同](architecture/current/assembly-constraints.md)
 - [装配约束、求解与交互](architecture/target/assembly.md)
 - [运动学、DMU 与仿真候选](architecture/target/kinematics-dmu.md)
 - [Product 求值、资源与验证](architecture/target/product-evaluation.md)
-- [持久拓扑命名](architecture/target/persistent-naming.md)
+- [持久拓扑命名](architecture/current/persistent-naming.md)
 ### 分布式平台与交付治理
 
 - [调度、通信、存储与制品](architecture/target/distributed-platform.md)
@@ -76,7 +75,7 @@
 - Product 内上下文使用 Part ContextInput + Product ContextBinding + 派生 Variant。独立 Part 的受控外部引用有独立使用范围，不能再给普通产品编辑增加并行入口。
 - 目标分册只保存契约、算法边界与质量门；删除过时的 C/S/F/A/P 实施时间表、旧矩形/PAD/Product 迁移提案及重复现状。交付依赖只在统一路线维护。
 - 当前尚未发布，不为实验数据维护永久 adapter/双写。已有 UI transport adapter 不代表历史兼容承诺；正式发布后的旧 Revision 可读性与追加迁移仍是长期要求。
-- 分册保留旧语义章节号便于检索，不再作为开发计划编号。文中局部 P0/P1/P2 表示该能力的基础/扩展/高级范围；它们不是全局先后关系。M3–M7 仅表示求解器成熟度门。
+- 编号仅供语义检索；稳定机器 ID、policy/schema、命令与 fixture 不因文档整理改名。当前合同已实现部分由 current 主题拥有，未实现设计明确范围，不表示交付承诺。
 - 目录草案、Proto 示例、开源候选和性能目标都不是当前 API/版本承诺。引入或升级时查锁文件、官方资料和真实 corpus，不能从设计文本推断已安装依赖。
 
 ## 维护

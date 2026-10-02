@@ -1,6 +1,6 @@
 # Persistent naming quick reference
 
-> Canonical semantics: [persistent naming](target/persistent-naming.md), [Feature evaluation](target/part-evaluation.md), and [Product context](target/product-context.md). Current facts: [naming and recovery](current/persistent-naming.md).
+> Canonical semantics: [persistent naming](current/persistent-naming.md), [Feature evaluation](target/part-evaluation.md), and [Product context](target/product-context.md). Current facts: [naming and recovery](current/persistent-naming.md).
 
 Use this page for topology history, PersistentSelection, Product supporting elements, Reconnect and exact topology properties.
 

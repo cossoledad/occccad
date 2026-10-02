@@ -8,24 +8,24 @@
 
 | 优先级 | Constraint | 引用/参数 | 语义 |
 |---|---|---|---|
-| P0 | `COINCIDENT` | point, point | 两点重合 |
-| P0 | `HORIZONTAL` / `VERTICAL` | line | 线方向水平/垂直 |
-| P0 | `DISTANCE_X` / `DISTANCE_Y` | point, point, length | 有符号水平/垂直距离 |
-| P0 | `DISTANCE` | point-point 或 point-line, length | 欧氏/垂直距离，需保存分支 |
-| P0 | `LENGTH` | line, length | 线段长度 |
-| P0 | `RADIUS` / `DIAMETER` | circle/arc, length | 圆弧尺寸 |
-| P0 | `FIX_POINT` | point, x/y parameter | 将点固定到明确坐标，不用隐式全局锁 |
-| P1 | `PARALLEL` / `PERPENDICULAR` | line, line | 方向关系 |
-| P1 | `POINT_ON_OBJECT` | point, curve | 点位于曲线 |
-| P1 | `TANGENT` | curve, curve + contact intent | 相切并保持内/外分支 |
-| P1 | `EQUAL` | 同类 curve/line | 等长或等半径 |
-| P1 | `CONCENTRIC` | circle/arc pair | 圆心重合 |
-| P1 | `MIDPOINT` | point, line | 点在线段中点 |
-| P1 | `ANGLE` | line-line 或 line-axis, angle | 有向角，规范到明确区间 |
-| P2 | `SYMMETRIC` | entity pair + axis | 关于线或轴对称 |
-| P2 | `COLLINEAR` | line pair | 共线，不等于仅平行 |
-| P2 | `BLOCK` | entity | 固定实体当前全部参数，作为显式用户操作 |
-| P2 | `CURVATURE_CONTINUITY` | spline/curve pair | 高阶曲线阶段 |
+| 基础 | `COINCIDENT` | point, point | 两点重合 |
+| 基础 | `HORIZONTAL` / `VERTICAL` | line | 线方向水平/垂直 |
+| 基础 | `DISTANCE_X` / `DISTANCE_Y` | point, point, length | 有符号水平/垂直距离 |
+| 基础 | `DISTANCE` | point-point 或 point-line, length | 欧氏/垂直距离，需保存分支 |
+| 基础 | `LENGTH` | line, length | 线段长度 |
+| 基础 | `RADIUS` / `DIAMETER` | circle/arc, length | 圆弧尺寸 |
+| 基础 | `FIX_POINT` | point, x/y parameter | 将点固定到明确坐标，不用隐式全局锁 |
+| 几何关系 | `PARALLEL` / `PERPENDICULAR` | line, line | 方向关系 |
+| 几何关系 | `POINT_ON_OBJECT` | point, curve | 点位于曲线 |
+| 几何关系 | `TANGENT` | curve, curve + contact intent | 相切并保持内/外分支 |
+| 几何关系 | `EQUAL` | 同类 curve/line | 等长或等半径 |
+| 几何关系 | `CONCENTRIC` | circle/arc pair | 圆心重合 |
+| 几何关系 | `MIDPOINT` | point, line | 点在线段中点 |
+| 几何关系 | `ANGLE` | line-line 或 line-axis, angle | 有向角，规范到明确区间 |
+| 扩展 | `SYMMETRIC` | entity pair + axis | 关于线或轴对称 |
+| 扩展 | `COLLINEAR` | line pair | 共线，不等于仅平行 |
+| 扩展 | `BLOCK` | entity | 固定实体当前全部参数，作为显式用户操作 |
+| 扩展 | `CURVATURE_CONTINUITY` | spline/curve pair | 高阶曲线阶段 |
 
 尺寸约束具有 `mode`：
 
@@ -101,7 +101,7 @@ SketchSolver
 建议交付顺序：
 
 1. 用项目自有 SketchModel 和测试语料定义行为；
-2. 将 PlaneGCS 作为单独构建的共享库/内部包做 P0/P1 约束 spike；
+2. 复用已集成的 PlaneGCS 验证具体基础/几何关系，并对新增高阶组合建立独立 corpus；
 3. 以 adapter contract 跑相同 conformance suite；
 4. 通过正确性、诊断质量、性能、确定性和许可证评审后才设为默认后端；
 5. 保留替换为自研 solver 或其他后端的能力。

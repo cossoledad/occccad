@@ -4,7 +4,7 @@
 
 ### 5.3.11 持久化、缓存与哈希
 
-第一阶段继续把 SketchFeature 放在不可变 `document_versions.model_json` 中，避免为每条线建立高写放大的关系表。PostgreSQL 只额外索引有业务查询价值的 Sketch/Parameter/External reference；未来协作量证明需要时再投影成专用表。
+当前把 SketchFeature 放在不可变 `document_versions.model_json` 中，避免为每条线建立高写放大的关系表。PostgreSQL 只额外索引有业务查询价值的 Sketch/Parameter/External reference；未来协作量证明需要时再投影成专用表。
 
 模型中保存：用户/权威提交后的实体参数、约束、表达式、支撑引用和 branch intent。以下内容是可重建缓存，不是业务真相：Jacobian、分解、warm start、求解日志、Profile B-Rep 和预览网格。
 
@@ -134,7 +134,7 @@ sequenceDiagram
 
 DragTarget 是临时目标，不成为持久硬约束。求解器在满足所有硬约束的可行流形上最小化目标位移；若目标不可达，返回最近可行位置和被约束方向。拖拽必须复用分解、变量映射和上一帧结果。Local WASM 与服务端必须共享 conformance tests 和 solver build/protocol version；即便算法相同，服务端仍重新求解并验证。
 
-第一阶段可只提供无状态 unary preview：每次携带完整 Snapshot，易于重试和扩缩容。只有测量证明网络/序列化成为瓶颈后，才增加双向流式 Sketch Session；Session 可固定 Worker 并缓存 warm state，但断线后客户端必须能用完整 Snapshot 在另一 Worker 恢复。
+默认使用无状态 unary preview：每次携带完整 Snapshot，易于重试和扩缩容。只有测量证明网络/序列化成为瓶颈后，才增加双向流式 Sketch Session；Session 可固定 Worker 并缓存 warm state，但断线后客户端必须能用完整 Snapshot 在另一 Worker 恢复。
 
 ### 5.3.15 外部几何
 

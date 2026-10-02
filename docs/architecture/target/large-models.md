@@ -1,18 +1,18 @@
 # 大文件导入与大模型工作集设计
 
-> 2026-09-25 更新；IMPORT-DIAGNOSTICS、IMPORT-NAMING、parse-once 导入与 Artifact 表示已实现，工作集和容量目标待实施与实测，不构成大模型能力或性能承诺。返回[目标架构](../../TARGET_ARCHITECTURE.md)，执行依赖见[导入与大模型计划](../../../plans/import-large-models.md)。适用于外部 STEP/BREP 导入和原生 Part/Product；存储与交换基础合同仍见[分布式平台](distributed-platform.md)。
+> 2026-09-25 更新；IMPORT-DIAGNOSTICS、IMPORT-NAMING、parse-once 导入与 Artifact 表示已实现，工作集和容量目标待实施与实测，不构成大模型能力或性能承诺。返回[目标架构](../../TARGET_ARCHITECTURE.md)，执行依赖见[导入与大模型计划](../../../plans/README.md)。适用于外部 STEP/BREP 导入和原生 Part/Product；存储与交换基础合同仍见[分布式平台](distributed-platform.md)。
 
 ## 1. 结论与边界
 
 S3 兼容 ArtifactStore 已实现；按当前实施范围暂不做续传，后续可按需要引入可续传上传协议，但它只解决大对象存取、传输恢复和跨主机共享。1 GiB 文件能够上传，不等于它能够解析、编辑或在浏览器完整驻留。交付能力应分别声明：上传完成、精确几何可用、可显示、可持久选择、可编辑、可发布。
 
-保留现有模块化控制面、PostgreSQL Jobs、不可变 Revision、ArtifactReference 和 Geometry Router；本轮不要求同时引入 Kubernetes、消息总线或独立网络微服务。大模型精确求值需要异步任务和资源隔离，并不意味着每个小命令都变成后台任务。
+保留现有模块化控制面、PostgreSQL Jobs、不可变 Revision、ArtifactReference 和 Geometry Router；不要求同时引入 Kubernetes、消息总线或独立网络微服务。大模型精确求值需要异步任务和资源隔离，并不意味着每个小命令都变成后台任务。
 
 文件大小只是准入维度之一。相同 1 GiB 文件可能是大量共享 occurrence、巨量独立零件、单一复杂 B-Rep、长文本属性或高密度样条，实际成本不同。不能用固定“文件大小 × 倍数”宣称内存足够；先建立 corpus 和阶段测量，再标定估算器与拒绝策略。
 
 ## 2. 当前事实与根因
 
-以下来自代码阅读，不是本轮性能测试结果。
+以下来自代码阅读，不是容量/性能验收。
 
 | 位置 | 当前事实 | 影响 |
 |---|---|---|
@@ -30,7 +30,7 @@ S3 兼容 ArtifactStore 已实现；按当前实施范围暂不做续传，后�
 
 原始缺陷是 `topologyManifestForVersion` 查询 `topology_manifest_digest` 并扫描到 Go `string`；迁移 `0008` 允许该列 NULL。旧导入流程在 ImportExchange 后直接提交没有 feature topology manifest 的制品，缺失 digest 写为 NULL，因此并非只能归因于历史数据。当前提交已加入冻结命名定义和带 seed 的 EvaluatePart。该读取缺陷已通过 IMPORT-DIAGNOSTICS 修复。
 
-已实施的诊断层采用可空读取并区分“尚无 naming”“生成失败”“摘要损坏/合同不匹配”；不能把 NULL COALESCE 成空字符串后继续假装可解析，也不能吞掉全部错误。缺失 naming 的文档仍允许打开、显示、查询不依赖稳定子拓扑的属性；面上草图、持久装配引用等操作需要明确的 capability/诊断和修复入口。具体实现与测试范围见[当前架构完成记录](../current/jobs-artifacts.md#import-diagnostics-完成记录2026-09-22)，导入 naming 生成与修复入口也已实现，见[导入根命名](../current/persistent-naming.md#导入根命名import-naming-已完成2026-09-22)。
+已实施的诊断层采用可空读取并区分“尚无 naming”“生成失败”“摘要损坏/合同不匹配”；不能把 NULL COALESCE 成空字符串后继续假装可解析，也不能吞掉全部错误。缺失 naming 的文档仍允许打开、显示、查询不依赖稳定子拓扑的属性；面上草图、持久装配引用等操作需要明确的 capability/诊断和修复入口。具体实现与测试范围见[当前交换说明](../current/jobs-artifacts.md#持久任务与制品)，导入 naming 生成与修复入口也已实现，见[导入根命名](../current/persistent-naming.md#导入根命名)。
 
 原链路更深一层的问题是：即使为初始导入补一份 manifest，后续 evaluator 只拿到 `base_brep`、没有导入拓扑 seed 时仍会产生 `TOPOLOGY_HISTORY_UNNAMED_BASE`。必须把 ImportBody 的完整 Face/Edge/Vertex 身份种子传入后续布尔求值，否则“能选面、不能可靠编辑”问题仍在；当前 IMPORT-NAMING 已按此补齐 seed 初始化和后续 history。
 
@@ -77,7 +77,7 @@ S3 multipart 支持分片重试和独立上传；完整对象 ETag 不一定是�
 
 ### 4.1 ImportBody 的输入真相和身份
 
-本节单 Solid 冻结快照方案已落地，具体持久化形式和验证边界见[当前导入根命名](../current/persistent-naming.md#导入根命名import-naming-已完成2026-09-22)。源文件替换和内核升级的身份迁移仍属后续扩展。
+本节单 Solid 冻结快照方案已落地，具体持久化形式和验证边界见[当前导入根命名](../current/persistent-naming.md#导入根命名)。源文件替换和内核升级的身份迁移仍属后续扩展。
 
 `IMPORT_BODY` 保存不可变源对象 digest、格式、导入器/kernel/healing/unit policy、组件定义标识、规范化精确形体与 ImportIdentityMap 的引用。没有源 CAD 的参数特征历史时，不伪造 Extrude/Fillet 历史；在导入 Body 上添加新特征、草图和约束属于正常后续建模。
 
@@ -93,7 +93,7 @@ ImportIdentityMap 绑定精确 BREP digest 与 importer policy，包含 stable I
 
 后续 EvaluatePart 输入必须带 base BREP + ImportIdentityMap/manifest seed，初始化已有 named topology。Add/Remove/Intersect 等通过 OCCT history 传播 unchanged/modified/generated/deleted/split/merged；完整性门检查最终子拓扑覆盖，不再把所有 imported base 都标为 unnamed。隐藏/LOD 不影响精确引用解析。
 
-初批可编辑验收聚焦有效闭合单 Solid Part 与其装配 occurrence。一个 transferable root 不一定只有一个 Solid，也不等于一个业务 Part；多 Solid、开放壳、混合线框分别标明结构和可用操作，采用已有 Body 能力内的明确拆分策略。完整多 Body 编辑、特征识别和直接编辑不是本轮默认承诺。
+初批可编辑验收聚焦有效闭合单 Solid Part 与其装配 occurrence。一个 transferable root 不一定只有一个 Solid，也不等于一个业务 Part；多 Solid、开放壳、混合线框分别标明结构和可用操作，采用已有 Body 能力内的明确拆分策略。完整多 Body 编辑、特征识别和直接编辑不是当前设计范围。
 
 ### 4.3 已有无 manifest 的导入文档
 

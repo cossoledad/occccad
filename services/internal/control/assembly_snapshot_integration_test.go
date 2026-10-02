@@ -34,6 +34,13 @@ func TestAssemblyInteractionMetadataOnlySnapshotAfterDelete(t *testing.T) {
 	if err != nil || !engineering.Available || len(engineering.Components) == 0 || engineering.Components[0].RelativeDof != 0 {
 		t.Fatal("exact current Revision engineering evidence", engineering, err)
 	}
+	if engineering.ReferenceSemantics != "STATIC_RELATIVE" || engineering.CoordinateFrame != "OWNING_PRODUCT" || engineering.LengthUnit != "mm" {
+		t.Fatal("manifest-bound reference/units", engineering)
+	}
+	beforeRead := p.Document.VersionID
+	if reread, readErr := f.service.GetDocument(t.Context(), p.Document.ID); readErr != nil || reread.Document.VersionID != beforeRead || reread.Product.Instances[0] != p.Product.Instances[0] {
+		t.Fatal("engineering read must not mutate Head or pose", readErr)
+	}
 	snapshot := func() workspace.InstancePath {
 		t.Helper()
 		p, err = f.service.GetDocument(t.Context(), p.Document.ID)

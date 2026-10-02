@@ -1,8 +1,8 @@
-# Sketch 投影支线
+# 关联投影扩展设计
 
-> 状态：待实施。现有基线是同 Part 的 Edge/Vertex 正交投影、更新、Reconnect 与 Detach。返回[统一路线](README.md)。
+> 未实现扩展设计，当前只支持已有 Edge/Vertex 投影。执行优先级见[后续工作](../../../plans/README.md)。
 
-首项仍为 PROJECTION-ARC，随后 PROJECTION-BOUNDARY → PROJECTION-SECTION。草图能绘制 Arc 不等于关联投影已支持 trimmed Arc；未支持组合继续明确 unsupported，不以临时近似替代目标合同。本支线不默认先于装配主线，当前领取顺序见[统一路线](README.md)。
+trimmed Arc、边界、Section 是不同能力；草图可绘 Arc 不代表关联投影支持修剪圆弧。unsupported 不用近似替代。
 
 ## 1. 为什么选择 Face 不能直接复用当前 Project
 
@@ -38,12 +38,12 @@ ExternalGeometry
 ```
 
 - `group_id`、`external_id` 和 derived `solution_id` 是身份；Face wire 序号、OCCT local ID、mesh index 和数组位置不是身份；
-- 第一阶段 Face Boundary 使用 `CAPTURED` membership：创建时明确绑定每个边界 Edge。split/merge 不会静默改变成员数量，而是通过 history 解析、歧义或失效诊断处理；
+- 初始 Face Boundary 使用 `CAPTURED` membership：创建时明确绑定每个边界 Edge。split/merge 不会静默改变成员数量，而是通过 history 解析、歧义或失效诊断处理；
 - `LIVE` membership 只有在稳定 member matching、tombstone 和下游约束迁移规则完成后开放；
 - 多曲线结果保留全部稳定 solution，用户选择的 branch 进入定义。禁止“每次取最长曲线”；
 - 更新顺序继续固定为 naming resolve → projection/section → Sketch solve → downstream Feature；失败时清除过期 snapshot，不消费旧几何。
 
-## 3. PROJECTION-BOUNDARY：Face Boundary Projection
+## 3. Face Boundary Projection
 
 目标：在活动草图中选择平面或曲面 Face，一次创建其外环/孔环的关联二维边界集合。
 
@@ -58,7 +58,7 @@ ExternalGeometry
 
 验收：选择 Pad 顶面后一次得到可辨识的外环和孔环；正常上游编辑保持成员 identity；成员拓扑变化不按数组位置错绑。
 
-### PROJECTION-ARC：单 Edge 的部分圆弧合同
+### 单 Edge 的部分圆弧合同
 
 在 Face group 之前先扩展现有单 Edge 投影，使布尔交线等 trimmed circular Edge 可以形成 `ARC` snapshot：
 
@@ -69,7 +69,7 @@ ExternalGeometry
 
 在该子批次完成前，部分圆弧必须稳定返回 `EXTERNAL_PROJECTION_TYPE_UNSUPPORTED`；新建/重连命令原子失败并保留旧 Head，不能静默创建 `UNRESOLVED_EXTERNAL` 或提交错误 artifact provenance。
 
-## 4. PROJECTION-SECTION：Section 与 Silhouette
+## 4. Section 与 Silhouette
 
 目标：提供显式的“与草图平面求交”和“沿指定方向投影轮廓”命令。
 
@@ -81,15 +81,15 @@ ExternalGeometry
 - 增加 branch 选择、更新后的保留/失效、Reconnect/Detach 和资源预算；
 - 二维 snapshot 支持 Line/Circle/Arc/Ellipse/BSpline，并保持 3D witness 与 2D 曲线偏差报告。
 
-PROJECTION-SECTION 依赖 PROJECTION-BOUNDARY 的 projection group、成员身份和 UI，不阻塞 Publication 或 FEATURE-REVOLVE-HISTORY Revolve naming。
+Section 依赖 Face Boundary 的 projection group、成员身份和 UI，不阻塞 Publication 或 Revolve 完整命名。
 
 ## 5. 与 Surface/3D Wire 的边界
 
-PROJECTION-BOUNDARY/PROJECTION-SECTION 的输出属于某个 Sketch 的二维 ExternalGeometry，只服务于草图约束与 Profile。Surface/3D Wire 的 `ProjectCurve`、`IntersectionCurve`、Boundary 和 CurveOnSurface 是独立的三维 WireFeature/SurfaceFeature，必须保存 3D curve、pcurve/UV、支撑面和多解 branch。不能把二维 Sketch snapshot 提升为权威三维曲线，也不能让 Surface/3D Wire 反向复用浏览器显示折线。
+Face Boundary/Section 的输出属于某个 Sketch 的二维 ExternalGeometry，只服务于草图约束与 Profile。Surface/3D Wire 的 `ProjectCurve`、`IntersectionCurve`、Boundary 和 CurveOnSurface 是独立的三维 WireFeature/SurfaceFeature，必须保存 3D curve、pcurve/UV、支撑面和多解 branch。不能把二维 Sketch snapshot 提升为权威三维曲线，也不能让 Surface/3D Wire 反向复用浏览器显示折线。
 
 ## 6. 执行依赖
 
-PROJECTION-ARC → PROJECTION-BOUNDARY → PROJECTION-SECTION。它们复用现有 Part/naming 基线，可独立于装配主线推进；不依赖三维曲面模块。先统一单 Edge ARC snapshot，再复用到 Face group，避免为一个布尔案例添加旁路。三维曲线与曲面能力见[候选方向](candidates.md)。
+trimmed Arc → Face Boundary → Section。它们复用现有 Part/naming 基线，可独立于装配主线推进；不依赖三维曲面模块。先统一单 Edge ARC snapshot，再复用到 Face group，避免为一个布尔案例添加旁路。三维曲线与曲面能力见[候选方向](../../../plans/README.md)。
 
 ## 7. 能力边界与缺陷处理规则
 

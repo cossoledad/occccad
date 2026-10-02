@@ -16,6 +16,7 @@ import { formatSketchDimensionValue, normalizeSketchDimensionValue } from "../ca
 import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame, AssemblyInteractionCommit, AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 
 export type CadViewportHandle = {
+  showRemainingMotion: (motion?:import("../cad/assembly/motion-presentation").MotionPresentation)=>void;
   cancelAssemblyInteraction:()=>void;
   retryAssemblyMoveCommit:()=>void;
   setAssemblyMoveDirection:(instanceId:string,direction:Vec3,kind:"line"|"plane")=>boolean;
@@ -163,6 +164,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     previewInsertPattern: (input) => { patternPreview.current = input; engine.current?.previewInsertPattern(input); },
     assemblyAngleReferenceDirection: (references) => engine.current?.assemblyAngleReferenceDirection(references),
     focusAssemblyReference: (reference,ownerOccurrence) => engine.current?.focusAssemblyReference(reference,ownerOccurrence) ?? false,
+    showRemainingMotion: motion=>engine.current?.showRemainingMotion(motion),
     beginExternalReconnect: (externalID) => engine.current?.beginExternalReconnect(externalID),
   }), []);
 

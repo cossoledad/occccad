@@ -1,4 +1,8 @@
 {
+    "motionPresentationReview": {
+        "baseline": "e5f1304 plus remaining-motion/docs working tree",
+        "reason": "Only three reviewed assertion hashes updated after actual execution: overview no longer guesses physical fixed/free from definitions; actual SSR panel adds remaining-motion pagination/occurrence rows; safe database Router/Worker snapshot test asserts manifest reference/units and read-only Head/pose. New representative production projection/Three.js case executed independently, including real viewport stale/occurrence rejection, nested transform and cleanup without Body rebuild. Existing targets, required layers, numerical expectations and coverage floors unchanged. Contract target path now follows current topic ownership; stable IDs retained."
+    },
     "m4m5IntentReview": {
         "baseline": "da0a0d7 plus reviewed M4/M5-03 working tree; current v12 Worker",
         "assertionReason": "Only five pre-existing assertion hashes updated after actual PASS: Router strict v12 build expectation (all geometry/mode checks retained), scheduler same-goal bounded final/explicit retry and checkpoint guards, lazy/paginated engineering panel, manipulator complementary hold masks alongside every old driven-mask assertion, and scene fixture initialization of the new unsubmitted-state guard. Targets, capabilities, tolerances and coverage floors unchanged.",
@@ -148,6 +152,7 @@
         "fix-together.overlap-nested": "0dd988145716e5047a2d20974fe6b8524d5fd0a61d9c6a42ea12ff5a4e4353a2"
     },
     "cases": {
+        "assembly.motion.presentation": "0466076c10f83d83ebf036509d2c8f273e35493dc6d5f6c52447c13de4a1f58e",
         "composition.edit-intent.production-ui": "4ee9ec3c585a58a896ab3fa937c4ddbcb344cfbb0975ec5d01b3ff7cad40f486",
         "composition.constraint-display.incremental-ui": "ea637308cd42af2a28e71432591db53aaa7cc0a1881e17fa1cfb1436d83f54d1",
         "composition.preview-candidate.strict-diagnostics": "20811d46c76c7468aee010c10c987ab5b0e569c3c58a02ca3c8f49762dd0b2ba",
@@ -825,6 +830,7 @@
         "m4.intent.production-pointer-trace": "31dbdb97306fb74b0e3595d6cc7544576be4d412d4289ede6f2234d4442722ad"
     },
     "assertions": {
+        "assembly.motion.presentation": "0c01582ddf1232d8a19b6c474624dddb750edc2d0072f907745aba943496e1f2",
         "composition.edit-intent.production-ui": "6d0afd972b78eeb318041aa9dd7be1e98da9bae4364968a749a1830a7fb6cd9a",
         "composition.constraint-display.incremental-ui": "5255b6ccdbb19b088098ea7db053aab9c30f50bc6dbe3d726c14d417be9c8aa8",
         "composition.preview-candidate.strict-diagnostics": "9120e5088fc7ba88f5cee1c5339cee3b432c984a1a6f6e543cf0264cae6b3f5e",
@@ -1487,12 +1493,12 @@
         "m4.session.legacy-manifest-immutable-policy": "540bcdaafa4fe2d6abfa922fa59e09490cf330257f5359bc5ab5f0911f82ff57",
         "m4.snapshot.current-render-bindings": "44fbb9fc3c14f09f2b2e2f1d5adc40aa6b9163b587371de3b8cdb907752869b8",
         "m4.target.diagonal-projection": "93e6f1d756a244cd2e0def0399b12a70ee53cd74d04324e42414a8be6b698482",
-        "m5.engineering.command-panel": "73a6240bd4327decb4da04596b75a818dbc1a160519b6df40ac130d2dab06ecb",
+        "m5.engineering.command-panel": "f272bfcfc93978cd9614385f739a50db97e398b630218770e1dc65939a596897",
         "m5.engineering.server-catalog": "c6b99a7ca2530cb122679c943b3ad5631e06a6bda28100de1a73940bd66e034b",
-        "m4.snapshot.metadata-only-router": "c2fa206580f03dc67fe87b64b73855799eb1763bd6a800471c99d478fd3e29e6",
+        "m4.snapshot.metadata-only-router": "2e9107f2330b2f224e0caadf3885e4aeb57c9f1722d8d8b1b3a89d6b025f0639",
         "m4.snap.precise-frame": "0531a46c32c76513bc401d274e442749692051dc11e1cfd35e24b4bff6e18f49",
         "m4.snap.body-local-hints": "f1be736cd0e1af0a57649ba234b283b20e72f42a7df63d8fda852a7139e2ca00",
-        "m5.engineering.overview": "271da8c4f14098586df2dd75155206ce40c0be21c925042a2efca9bb81db7e2a",
+        "m5.engineering.overview": "a90d47927a491e473d0662eeb8b8a823cd4255413d88144e5efefe5692d2bd44",
         "m4.operation.failure-outlet": "f13be95087b2b16899bd5d7638796bec7d51291254d8550f4bd9fbf704d14d2b",
         "m4.intent.eccentric-translation": "32bfad20d629f9e6294eeb63e3634a9baa9d4b387253cf9c6bab55fa2ce32fca",
         "m4.intent.cumulative-translation": "a1251c62c73f38f6eddf87b42a3f2d947c35c0fc2b4ce7e8f9601ecf5c7df844",

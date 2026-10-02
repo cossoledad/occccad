@@ -1,6 +1,6 @@
 # 可观测性与验证
 
-> 2026-09-21 文档核对基线。返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。这里只记录实现事实；测试存在不等于本轮已经运行，验证缺口见[统一路线](../../../plans/README.md)。
+> 返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
 
 ## 可观测性、构建与测试
 
@@ -18,7 +18,7 @@ Web 另有独立 `pnpm test:browser` 入口，Playwright 自动启动端口 5174
 
 `invoke check` 是面向局部开发与 Agent 的稳定验证 API，显式支持 `assembly / geometry / sketch / workspace / services / web / all` scope；省略 scope 时合并 tracked 与 untracked Git 工作区路径并作保守映射。公共 Proto、数据库迁移、通用 Geometry Worker/`kernel/api`、共享 build/validation 入口和未知路径升级为 `all`，纯 Markdown 不触发可执行测试。单个非 all scope 可用 `--match` 进入 Level 1：C++ 组合领域 CTest 前缀，Go 使用 `-run`，Web 使用场景 substring，并跳过跨层集成/production build。`--plan` 只展示 scope、升级理由、cwd 和底层命令。每个底层命令默认捕获 stdout/stderr，成功只报告步骤、耗时和总计；失败在终端展示有界高信号内容，把完整 stdout/stderr 与命令写入 `build/agent-logs/`，并给出复现命令；`--verbose` 恢复流式执行。全量 `invoke test` 与 `check --scope all` 都运行 routing/output/context-audit Python 单测。该层只改变开发命令输出，不削弱运行时 observability 或失败诊断。
 
-`invoke context-audit` 当前检查根/local guide 尺寸、必需 focused knowledge、Markdown 本地断链、旧 token prompt 残留、`tasks.py` 自身阈值，并统计 Git 已跟踪及未忽略的大文本；正常成功只报告 large/strong candidate 数，`--verbose` 才列出文件。
+`invoke context-audit` 检查根/local guide 尺寸、必需知识、全仓自有 Markdown 本地路径/锚点及 fenced block、旧 token prompt、`tasks.py` 阈值与大文本。它报告 root + docs/README + 一个 local guide 的字节范围，非 tokenizer 估算；`--verbose` 列出热点。`python tools/documentation_audit.py --baseline <commit>` 可重复测量删除/新增去向及前后字节规模，不关闭断链规则迁就整理。
 
 Web scenario runner 支持一个或多个路径/文件名片段的 OR 筛选、`--list` 和 `--verbose`。默认每个子进程输出被缓冲，全部成功时只输出场景计数，失败时仅展开失败场景的 stdout/stderr。Web 当前使用 Vite SSR 加载真实 Tool/状态模块，覆盖完整 pointer 手势、操作批次、约束选择、尺寸输入和实时生命周期；浏览器布局、WebGL 拾取及真实后端组合 E2E 仍待补充。
 
@@ -29,3 +29,10 @@ Agent 上下文按根 repository router、五个高频 local `AGENTS.md` 和 `do
 - [验证入口](../../../tasks.py)
 - [验证路由测试](../../../tests/python/test_validation_routing.py)
 - [跨模块验证路由](../../../tests/README.md)
+- [文档审计及规模测量](../../../tools/documentation_audit.py)、[审计负例](../../../tests/python/test_documentation_audit.py)
+
+## 最近定向基线
+
+核对基线为 `e5f1304` 加剩余运动/文档工作区变更。实际执行包含 Web 运动投影/分页/Three.js 标记和共享交互场景、TypeScript 检查与生产构建、Go Manifest 回归、专用 `occccad_offset_contract_test` 与匹配 Worker 的快照/只读证据测试、合同设施和导航审计。三个已审查源码锁只因推断规则纠正及增强断言更新，新投影是共享 UI 证据，不冒充具体几何组合验收；数值预期和 requiredLayers 不变。可复跑命令见[装配验证](../../../tests/assembly-contract/README.md)。
+
+维护者反馈当前使用场景下拖拽与约束较为稳定；剩余运动呈现尚待实机确认。本次未运行浏览器自动验收、工业容量、性能基准或无差别全仓测试，也未改算法或清理应用数据。历史执行不复制为当前全部通过。

@@ -110,13 +110,13 @@ classDiagram
 
 所有 Entity、Constraint、Parameter 和 ExternalGeometry 使用稳定、不复用的 ID。数组顺序只用于显示排序，引用永远使用 ID，禁止使用数组下标。删除后 ID 放入 Revision 的 tombstone 集合，至少在同一 Workspace 历史中不得复用。
 
-**SketchSupport** 第一阶段支持：
+**SketchSupport** 当前支持范围：
 
 1. `DATUM_PLANE`：引用当前 Part 的稳定 DatumPlaneId；
 2. `PLANAR_FACE`：引用上游 Feature 的 PersistentSelection，并保存明确的原点、X 方向和法向定向规则；
 3. `EXPLICIT_FRAME`：导入/迁移使用的不可变局部坐标系。
 
-面支撑解析失败时，已有 Revision 仍可打开，Sketch/下游 Feature 标记 `OUT_OF_DATE` 或 `FAILED_SUPPORT`，不得把草图静默移动到 XY 平面。第一阶段不支持在任意曲面上直接绘制；圆柱/曲面的参数域草图需要新的 Support 类型和周期边界语义。
+面支撑解析失败时，已有 Revision 仍可打开，Sketch/下游 Feature 标记 `OUT_OF_DATE` 或 `FAILED_SUPPORT`，不得把草图静默移动到 XY 平面。范围不包括在任意曲面上直接绘制；圆柱/曲面的参数域草图需要新的 Support 类型和周期边界语义。
 
 ### 5.3.4 实体模型
 
@@ -219,7 +219,7 @@ GeometryRef
   parameter_hint?: double
 ```
 
-第一阶段 `SubElement`：
+基础 `SubElement`：
 
 | 子元素 | 合法目标 |
 |---|---|
@@ -247,7 +247,7 @@ LineSegment 持有自己的 start/end 参数；Coincident Constraint 表达两�
 
 独立 `POINT` Entity 只用于用户显式创建的构造点、定位点或下游需要独立身份的点；它不是所有曲线端点的公共存储。
 
-#### 5.3.4.6 P0 实体详细参数化
+#### 5.3.4.6 基础实体详细参数化
 
 | Entity | 持久参数 | Solver 自由变量 | 参数域 | 默认 DoF |
 |---|---|---|---|---:|
@@ -301,7 +301,7 @@ P(t) = center + radius * (cos(start + t*sweep), sin(start + t*sweep))
 - Solver 必须保存 sweep sign 和象限/切向 branch，除非用户执行显式 Reverse/Complement 操作；
 - 当约束使 Arc 穿越 `0/2π` 时只改变规范角度，不改变几何方向或 EntityId。
 
-#### 5.3.4.7 P1/P2 曲线实体
+#### 5.3.4.7 扩展曲线实体
 
 **Ellipse2**
 
@@ -342,7 +342,7 @@ BSpline2 {
 }
 ```
 
-必须验证：degree 范围、控制点数、严格递增 knot、multiplicity 总数关系、正权重、periodic 闭合规则和连续性。第一阶段只允许控制点作为 Solver 自由变量；degree、knot、multiplicity、periodic 和权重由结构编辑命令改变，不作为连续求解变量。这样避免一个普通尺寸约束意外改变曲线拓扑或连续性。
+必须验证：degree 范围、控制点数、严格递增 knot、multiplicity 总数关系、正权重、periodic 闭合规则和连续性。连续求解只允许控制点作为 Solver 自由变量；degree、knot、multiplicity、periodic 和权重由结构编辑命令改变，不作为连续求解变量。这样避免一个普通尺寸约束意外改变曲线拓扑或连续性。
 
 OCCT `Geom2d` 支持 Line、Circle、Ellipse、Bezier 和 BSpline 等参数曲线，但也允许构造零长度或自交曲线，因此 OCCT 能构造不代表业务模型有效；验证必须在实体模块完成。[OCCT Geom2d_Curve 文档](https://dev.opencascade.org/doc/refman/html/class_geom2d___curve.html) [OCCT Geom2d_BSplineCurve 文档](https://dev.opencascade.org/doc/refman/html/class_geom2d___b_spline_curve.html)
 

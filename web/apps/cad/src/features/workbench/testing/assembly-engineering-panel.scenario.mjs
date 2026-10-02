@@ -44,3 +44,10 @@ function load(file){
   assert.equal((markup.match(/class="ant-table-row ant-table-row-level-0"/g)??[]).length,Math.min(count,10),"fixed page length, not full expanded lists");
   if(count>10)assert.doesNotMatch(markup,/>检查项 99</,"unselected/off-page detail is not eagerly rendered");
  }
+ for(const count of [0,1,100,500,1000]){
+  const motionView={...view,product:{instances:Array.from({length:count},(_,i)=>({id:`unit-${i}`,name:`组件 ${i}`})),constraints:[]}};
+  const markup=renderToStaticMarkup(React.createElement(App,null,React.createElement(AssemblyConflictPanel,{open:true,defaultTab:"motion",pending:false,current:true,canEdit:true,view:motionView,ownerOccurrence:"nested-occurrence",onLocate(){},onLocateInstance(){},onRepair(){},onAnalyze(){},onStop(){},onClose(){}})));
+  assert.equal((markup.match(/class="ant-table-row ant-table-row-level-0"/g)??[]).length,Math.min(count,10));
+  assert.match(markup,/剩余运动/);assert.doesNotMatch(markup,/raw direction|相对运动 3|axisPoint/);
+  if(count)assert.match(markup,/p\/nested-occurrence\/unit-0/,"row identity includes owning occurrence");
+ }

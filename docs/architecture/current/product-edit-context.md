@@ -1,6 +1,6 @@
-# TREE-03：Product 编辑会话、标签与菜单
+# Product 编辑会话、标签与菜单
 
-> TREE-03 实现基线：`ebbf37a9eb2ca1d3d9777624ec1a6967b753e8a5`。2026-09-30 文档核对基线：`main`，HEAD 同为该提交。结构树领域身份与显隐见 [TREE-02](tree02-model-display.md)，长期 Product 上下文合同见[目标架构](../target/product-context.md)。
+> 宿主、目标与导航的当前合同；显示模型见[建模与显示](model-display.md)。
 
 ## 编辑会话
 
@@ -26,24 +26,10 @@ Occurrence 激活先用 Product Design Session 校验 root Revision、完整路�
 
 结构树右键菜单的每个可操作项都使用公共 `ContextMenuIcon` 槽。有图标时在固定 16 px 槽内显示；无图标时保留 `aria-hidden` 空槽。禁用、危险、多选和普通操作共用相同文字起点；空槽不产生可访问文本。分隔线或纯标题无需图标槽。点击、键盘和命令行为仍由 Ant Design Menu 负责。
 
-## 验证与限制
+## 验证入口与限制
 
-本轮交互整改已完成。维护者明确反馈：“现在已经进行了一轮修改，并且验证通过。”据此记录为**维护者反馈 TREE-03 本轮使用验证通过**，是本轮整改的维护者验收依据，不是本次 Agent 重新运行浏览器或测试所得，也不是下列功能逐项单独验收的记录。
+实现：edit-session.ts、workbench.tsx、specification-tree.tsx、open-document-tab.ts、document-tab-order.ts、document-tabs.tsx、services/internal/api/open_documents.go。邻近 edit-session/open-document-tab/document-tab-order/context-menu-icon 场景和 Go OpenDocumentRegistry 测试检查唯一目标、嵌套/PINNED/迟到激活、读取不导航、稳定顺序与图标槽。
 
-实现基线及本次文档核对 HEAD 均为 `ebbf37a9eb2ca1d3d9777624ec1a6967b753e8a5`；反馈未提供人工测试日期、准确测试版本、逐项场景、截图、trace 或性能数据，因此不将代码核对基线冒充准确人工测试版本。后续 HEAD 的未知改动不自动继承此反馈。
+打开注册表是单 API 进程内状态，不是分布式 presence；结构树整体构造，Feature 贡献索引/子树分页未交付。真实跨窗口、并发、多副本、容量和所有故障未取得全面验证。具体测试执行证据按运行输出记录，不把入口存在当作已执行。
 
-代码核对入口：`edit-session.ts` 与 `workbench.tsx`（宿主/目标及激活）、`specification-tree.tsx`（根节点编辑态及菜单）、`open-document-tab.ts`、`document-tab-order.ts` 与 `document-tabs.tsx`（显式打开/稳定顺序）、`services/internal/api/open_documents.go`（读取与窗口作用域）、`ContextMenuIcon` 与样式（固定图标槽）。这些支持上文完成事实；测试入口存在与测试已执行分别记录。
-
-仓库已有定向测试入口：
-
-- Go `TestOpenDocumentRegistryPreservesOrderAndWorkspaceScope`：窗口隔离、原位摘要更新、关闭范围；
-- `edit-session.scenario.mjs`：Instance/定义根同目标、唯一编辑态、重复 occurrence、嵌套 Product、空 Part、PINNED 和迟到激活；
-- `open-document-tab.scenario.mjs` 与 `document-tab-order.scenario.mjs`：显式打开、后台摘要不新增、Product 宿主首位、稳定排序和关闭后不复活；
-- `context-menu-icon.scenario.mjs`：图标/空槽及可访问名称；
-- 既有 Product Update、TREE-02 多 Body/显隐/参数/Publication 场景用于回归。
-
-本次文档核对只检查代码、测试入口和文档，不执行上述测试。此前本文仅列出定向入口，没有逐项执行结果；不据此补记这些测试已通过。维护者反馈与既有 ACCEPT-PRODUCT 自动测试记录各有范围，不能相互替代。
-
-能力及验证限制独立保留：打开标签注册表仍是单 API 进程内状态，尚未成为分布式 presence 服务。服务端结构树仍整体构造，Feature 贡献索引与子树分页仍未交付。没有逐项记录的真实排序交互、跨窗口及 Product 更新失败视觉场景仍缺专项证据；全量测试、大模型容量、并发、多副本部署和所有故障场景均不在此次反馈的可确认范围内。本次未运行浏览器/WebGL、全量单测或容量基准。这些边界不使本轮整改重新处于未完成状态。
-
-这里的 `EditSession` 是工作台编辑上下文，不是 M4 约束求解 Session，也不证明最近可行连续拖拽已交付。会话工作 CAD Body 是 Part 历史/求值单元；装配 solver body 或未来运动学刚体是 occurrence 位姿对象，不能混作同一身份。
+EditSession 是工作台上下文，不是数值操纵 Session；会话 CAD Body 属于 Part 求值，solver body 属于 occurrence 运动单元。

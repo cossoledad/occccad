@@ -56,7 +56,7 @@ L0 root AGENTS.md
 | module README | 当前职责、公共接口、配置、运行与故障语义 |
 | `docs/README.md` | architecture knowledge router |
 | Current Architecture | 可由当前源码/迁移/测试证明的系统事实 |
-| Target Architecture | 长期领域语义、跨模块边界与阶段门 |
+| Target Architecture | 尚未实现的设计范围、长期语义与跨模块边界 |
 | focused architecture | 面向单一横切主题的短投影；必须链接 canonical 来源 |
 | Issue/会话 | goal、scope、known state、remaining、do-not-touch 等临时上下文 |
 
@@ -74,7 +74,7 @@ Proto source 是协议权威；生成代码是 output。正常路径是 proto �
 - 超过约 80 KB：职责拆分候选；
 - 超过约 120 KB：强候选。
 
-只有职责稳定、Agent 高频进入、局部任务长期加载无关区域时才物理拆分。拆职责而不是平均切行，且必须保持行为测试。当前实现分层见[验证与可观测性](current/validation.md)，后续候选见[工程维护支线](../../plans/engineering-maintenance.md)。
+只有职责稳定、Agent 高频进入、局部任务长期加载无关区域时才物理拆分。拆职责而不是平均切行，且必须保持行为测试。当前实现分层见[验证与可观测性](current/validation.md)，后续候选见[工程维护支线](../../plans/README.md)。
 
 ## 5. 验证 API
 
@@ -134,7 +134,7 @@ changed-file mapping 的核心规则：
 
 Web scenario runner 支持多个 OR substring、`--list` 和 `--verbose`。每个场景仍在独立 Node 进程运行；成功只打印总数，失败 replay 该场景输出，无匹配返回非零。
 
-`invoke context-audit` 是无索引服务的静态治理门：检查根/local guide 尺寸、必需 knowledge entry、Markdown 本地断链、已淘汰 prompt 残留、`tasks.py` 自身阈值，并统计 Git 已跟踪及未忽略文件中的 >40 KB 文本。成功只给 large/strong candidate 计数，`--verbose` 才列完整热点；热点本身不是失败，错误知识入口才失败。
+`invoke context-audit` 是无索引服务的静态治理门：检查根/local guide 尺寸、必需 knowledge entry、全仓自有 Markdown 本地链接与锚点、代码围栏、已淘汰 prompt 残留及 `tasks.py` 自身阈值，并统计 Git 已跟踪及未忽略文件中的 >40 KB 文本。输出默认入口链字节数与热点计数，`--verbose` 列完整热点；热点本身不是失败，错误知识入口才失败。链接审计与基线规模比较由 [documentation_audit.py](../../tools/documentation_audit.py) 提供，不把字节数宣称为 token 数。
 
 ## 7. 可复现指标
 
@@ -165,4 +165,4 @@ Web scenario runner 支持多个 OR substring、`--list` 和 `--verbose`。每�
 
 ## 8. 维护入口
 
-后续工作统一进入[工程维护支线](../../plans/engineering-maintenance.md)，不在本页保留另一套 P 编号和完成日志。维护完成条件仍是入口可发现、scope 可选择、成功安静、失败详细、共享风险会升级，以及知识完整可寻址。
+后续方向统一进入[后续工作](../../plans/README.md)，不在本页保留重复计划和完成日志。维护完成条件仍是入口可发现、scope 可选择、成功安静、失败详细、共享风险会升级，以及知识完整可寻址。

@@ -12,21 +12,21 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 - 草图基本元素、轮廓、几何约束和尺寸约束使用独立命令分组；Point、Line、Circle、Arc、Polyline、Spline、Rectangle、正六边形、长圆槽以及基础几何/尺寸约束；单击执行一次后回到选择，双击连续执行；
 - Distance/Length/Radius/Diameter/Angle 驱动尺寸在属性面板显示稳定 ParameterId、可读别名、literal/expression 与计算值；Part Design 的“参数”面板集中列出并编辑当前文档的全部参数。新建线性拉伸可输入带单位长度、参数别名或表达式，也可从已有长度参数中直接选择；服务端在同一个创建事务中把表达式 AST 绑定 stable ID，因此重命名不会断开引用；
 - Part Design 的“发布”面板创建和删除 Datum、Face/Edge、Body 与 Parameter Publication；结构树以稳定 PublicationId 显示接口，选中时仍使用实际 target 的视口选择身份定位，并在 Inspector 展示合同、resolved Revision、source digest 与 `BROKEN_PUBLICATION` 诊断。Publication 名称可直接编辑，稳定 ID 不变；参数面板可把本地参数发布。在 Product 中激活 Part 后，外部参数与其他输入通过当前 root snapshot 的可读 Context Catalog 按 occurrence breadcrumb/发布名称选择，不浏览所有文档也不手填 ID；
-- Assembly Design 可直接选择子 Part Publication 建立约束，并通过“发布”面板沿嵌套 occurrence path 转发为 Product Publication；兼容 Replace/Update 重连新 target，不兼容合同显示 Broken。Part 在发布面板中声明 typed ContextInput，root Product 拥有 ContextBinding；创建绑定以一个多 Workspace transaction 原子更新消费 Part、嵌套 owning Product 链和 root Product，Undo/Redo 同样按事务组执行。P9 ContextReference 只作为旧试点/独立外部引用能力保留，不与 Product binding 双写；
+- Assembly Design 可直接选择子 Part Publication 建立约束，并通过“发布”面板沿嵌套 occurrence path 转发为 Product Publication；兼容 Replace/Update 重连新 target，不兼容合同显示 Broken。Part 在发布面板中声明 typed ContextInput，root Product 拥有 ContextBinding；创建绑定以一个多 Workspace transaction 原子更新消费 Part、嵌套 owning Product 链和 root Product，Undo/Redo 同样按事务组执行。ContextReference 只作为旧试点/独立外部引用能力保留，不与 Product binding 双写；
 - Product 顶部显示显式 Update Plan，分别呈现引用连接、版本新旧和候选求值是否成功；同输入的共享 Part occurrence 复用 Context Variant 制品。`Product Release` 面板只在 CURRENT/READY/VERIFIED/SolveManifest gates 全部通过时冻结 dependency closure，并可对旧 Release 执行 replay 或提交 STEP/BREP 导出；
 - “开始草图”可直接使用 DatumPlane 或稳定平面 Face。Face 选择只把当前 Revision 的 raw pick 作为绑定证据，返回的 Sketch 显示 PLANAR_FACE semantic anchor、support snapshot 与失败诊断；面支撑失败不会静默切回 XY；
 - Sketcher 采用 in-context 场景分层：当前权威 Body 始终以原实体材质和独立常亮光照作为只读背景显示，活动 Sketch/Grid/Constraint 作为前景 overlay；全部 Sketch 始终进入渲染树，由“未消费默认显示、已消费默认隐藏、持久用户覆盖、编辑态临时显示”的统一策略决定可见性，结构树菜单显示同一有效状态。普通草图工具仍只能编辑活动 Sketch 元素，显式“投影”工具才把 Body Edge/Vertex 绑定为独立 ExternalGeometry；
 - ExternalGeometry 使用稳定 ExternalId、PersistentSelection、权威二维快照与 source digest；投影线/完整圆/点可参加草图约束但不能拖动或冒充普通 Entity。活动 Sketch 曲线使用屏幕稳定宽度的遮挡可见 overlay，ExternalGeometry 使用更宽的青色虚线，因此与 Body Edge 重合时仍可辨识。结构树提供“断开并冻结”和 Reconnect，属性面板显示 semantic anchor、解析状态、诊断与受影响对象；新建或重连投影若返回稳定不支持/退化诊断，命令失败且保留原 Head，不会留下空投影节点；
 - 通用闭合 Profile（包含外环、孔和岛）拉伸、实例插入/移动、Undo/Redo；装配操纵手柄提供轴/平面平移与轴旋转，拾取位置只作为近似抓取点；“以所选精确轴 / 法向操纵”通过服务端支持解析取得定向 descriptor，不从 mesh 推断求解方向。瞬态 solver Session 独立于文档编辑会话，冻结 nominal/frame/grab，单飞请求与最新目标排队，pointerup 采样最终坐标并等待匹配候选；确认复用服务端绑定的 MOVE 与幂等 requestId；
-- M4 接纳帧对所有受影响 occurrence 同步、立即应用姿态，刷新 glyph/helpers，不在两组可行位姿间独立插值，不为每帧重建 GLB。受限最优与预算/失败明确区分；取消恢复权威基线。提交结果未知时保留同一候选/请求供回执重试，不重造 MOVE。其他普通展示转换继续复用统一 transition 层；
+- 操纵接纳帧对所有受影响 occurrence 同步、立即应用姿态，刷新 glyph/helpers，不在两组可行位姿间独立插值，不为每帧重建 GLB。受限最优与预算/失败明确区分；取消恢复权威基线。提交结果未知时保留同一候选/请求供回执重试，不重造 MOVE。其他普通展示转换继续复用统一 transition 层；
 - 装配约束分析是独立显式操作，带探测/时间预算、Revision/digest 与真实 oracle 证据，取消会向服务端停止分析。旧 Head 的报告禁用定位/修复；报告可定位约束及支持并进入既有编辑、重连、停用或合法测量命令。操纵目标不可达、数值未知、局部冗余与经过验证的不可约冲突不混为一谈，分析本身不推进 Revision 或隐式停用；
 - Default/3DEXPERIENCE CATIA/SOLIDWORKS 导航 Profile、Pointer Capture、Tool 手势状态机和 Overlay；Default 右键旋转在完整模型可见时以可见内容包围盒中心为基准，拓扑点命中优先；局部放大时使用当前可见几何作为旋转参考；快捷键经统一 CommandRegistry 执行并遵循命令可用性；输入框、输入法组合输入及打开的命令面板不触发全局快捷键，Enter/Esc 仍用于多阶段手势完成/取消；
 - 版本化 `ui-preferences` 本地偏好统一保存 Inspector 开合、结构树宽度、命令面板位置和浮动 Toolbar 布局；新增纯客户端显示偏好应扩展同一 schema，不再自行散写 localStorage key；
 - 统一 CAD 语义色与 hover/selected/snap 层次；默认全开的捕获设置可分别过滤三维点、边、面、实体、草图、约束、基准面、基准轴/坐标系和实例，以及草图原点、点/端点、圆心、中点、Line/Circle/Arc/Spline 曲线投影和 10 mm 网格吸附；
 - Pad、命名版本使用可拖动非模态命令面板；Pad 长度 literal/expression 在 blur/Enter 后请求后端复用正式 typed command、参数求值、Sketch Solver 与 Part evaluator 生成非持久化精确预览，提交才创建 Revision；
 - Product 约束创建和编辑共用非模态“约束定义”面板：分别显示 Constraint 的 NotUpdated/Broken/Impossible/Verified 与每个 Supporting Element 的 Connected/NotConnected；结构树双击/右键可编辑，Broken 可 Reconnect，非 Verified 可重新解析并求解。Reconnect 使用一次性视口选择，权威 preview 返回候选状态，确认以单个 `EDIT_ASSEMBLY_CONSTRAINT` Revision 提交；视口以不同 glyph 显示异常状态，并为已丢失的精确支持元素保留 instance 中心恢复标记；
-- Cut/Hole P6 场景沿用同一状态投影：贯穿 Cut 保留的面继续显示 Connected/Verified，真实删除与 split 歧义显示 NotConnected/Broken，Reconnect 的当前制品 raw pick 只作为提交证据并由服务端绑定成 PersistentSelection；
-- P7 将同一交互和状态投影贯通到 Edge/Vertex：Vertex 作为精确 Point、线性 Edge 作为 Axis 参与 Vertex-Vertex、Vertex-Plane、Edge-Edge、Edge-Plane 约束；缺少 naming manifest 或 history 不完整时显示稳定诊断并进入 NotConnected/Broken，Reconnect 仍提交一次当前制品 raw pick，由服务端重新绑定稳定选择；
+- Cut/Hole 场景沿用同一状态投影：贯穿 Cut 保留的面继续显示 Connected/Verified，真实删除与 split 歧义显示 NotConnected/Broken，Reconnect 的当前制品 raw pick 只作为提交证据并由服务端绑定成 PersistentSelection；
+- 同一交互和状态投影支持 Edge/Vertex：Vertex 作为精确 Point、线性 Edge 作为 Axis 参与 Vertex-Vertex、Vertex-Plane、Edge-Edge、Edge-Plane 约束；缺少 naming manifest 或 history 不完整时显示稳定诊断并进入 NotConnected/Broken，Reconnect 仍提交一次当前制品 raw pick，由服务端重新绑定稳定选择；
 - 草图原点和 H/V 基准轴是自动带入、可约束选择的稳定内在引用；第一次约束选择与第二候选同时高亮，点、端点、捕获点和拓扑顶点统一显示为 X 形；
 - TanStack Query 管理服务端状态，Zustand 管理工作台交互状态；
 - Mock Adapter，以及真实 REST + WebSocket 双平面 Adapter；
@@ -140,7 +140,7 @@ invoke check --scope web
 
 长期前端数据流、实时协作和大装配方案见项目[目标架构](../../../docs/TARGET_ARCHITECTURE.md)。
 
-装配约束预览面板消费 M2.5 的 `assemblyComponents`，显示第二元素平移/旋转变化和每体瞬时自由度类型。
+装配约束预览面板消费 求解结果的 `assemblyComponents`，显示第二元素平移/旋转变化和每体瞬时自由度类型。
 这些数据与预览结果共用 sequence 生命周期，新的请求、取消或关闭时清理，迟到响应不覆盖当前结果；前端不自行推断约束自由度。
 
 Product 的 Debug 下载动作导出当前请求的 `.3dreplay`，Part 继续使用完整诊断包。

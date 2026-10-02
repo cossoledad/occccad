@@ -1,6 +1,6 @@
 # CAD 工作流参考索引
 
-本页保留已归并计划引用过的 CATIA B33、产品资料与 OCCT 页面定位，不保存完成日志或独立设计方案。页面内容没有在本轮重新核验；这些引用是用户流程/术语参照，不证明 occccad 已实现能力，也不约束内部架构。重新用于设计时先查 `/mnt/s/tools/DS/Catia/B33doc/English/control/*.viewdoc`，再读对应 `online/` 页面。相对 `online/` 路径均以该英文文档根为基准。
+本页记录 CATIA B33、产品资料与 OCCT 页面定位，不保存完成日志或独立设计方案。页面内容使用前按具体问题核验；这些引用是用户流程/术语参照，不证明 occccad 已实现能力，也不约束内部架构。重新用于设计时先查 `/mnt/s/tools/DS/Catia/B33doc/English/control/*.viewdoc`，再读对应 `online/` 页面。相对 `online/` 路径均以该英文文档根为基准。
 
 - `/mnt/s/tools/DS/Catia/B33doc/English/online/cfyugasm_C2/cfyugasmut0311.htm`：Editing Constraints、四种 traffic-light 状态、Object in Work。
 - `/mnt/s/tools/DS/Catia/B33doc/English/online/cfyugasm_C2/cfyugasmrf0501.htm`：Constraint 属性、Supporting Elements 的 connected/disconnected 与 Reconnect。
@@ -31,6 +31,6 @@
 
 当前实现见[当前架构](../CURRENT_ARCHITECTURE.md)，后续工作只在[统一路线](../../plans/README.md)维护。
 
-## 本轮已核对的 Assembly Design 范围
+## Assembly Design 来源
 
-2026-09-21 按本机 Asm/Cfy viewdoc 索引读取用户给出的 `online/CATIAfr_C2/asmugCATIAfrs.htm` 及其关联菜单/六类约束任务页、几何兼容参考页、Activate/Deactivate 与 Manipulate 页面。逐页路径、语义与文档疑点集中见[六类约束合同](../architecture/target/assembly-constraints.md)，不再在本索引复制参数矩阵。该次核对不刷新上方其他外部产品资料，也不表示新能力已经实现。
+2026-09-21 按本机 Asm/Cfy viewdoc 索引读取用户给出的 `online/CATIAfr_C2/asmugCATIAfrs.htm` 及其关联菜单/六类约束任务页、几何兼容参考页、Activate/Deactivate 与 Manipulate 页面。逐页路径、语义与文档疑点集中见[六类约束合同](../architecture/current/assembly-constraints.md)，不再在本索引复制参数矩阵。该次核对不刷新上方其他外部产品资料，也不表示新能力已经实现。

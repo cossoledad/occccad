@@ -674,18 +674,8 @@ def _context_audit() -> tuple[list[str], list[tuple[int, str]]]:
     if Path(__file__).stat().st_size > 40000:
         errors.append("tasks.py exceeded the 40 KB agent-large threshold; split validation tooling")
 
-    markdown_files = [root_guide, PROJECT_ROOT / "README.md", *local_guides]
-    markdown_files.extend((PROJECT_ROOT / "docs").rglob("*.md"))
-    link_pattern = re.compile(r"\[[^\]]+\]\(([^)]+)\)")
-    for source in markdown_files:
-        if not source.exists():
-            continue
-        for target in link_pattern.findall(source.read_text(encoding="utf-8")):
-            target = target.strip().strip("<>").split("#", 1)[0]
-            if not target or "://" in target or target.startswith(("mailto:", "/")):
-                continue
-            if not (source.parent / target).resolve().exists():
-                errors.append(f"broken local link: {source.relative_to(PROJECT_ROOT)} -> {target}")
+    from tools.documentation_audit import audit
+    errors.extend(audit(PROJECT_ROOT))
 
     listed = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"],
@@ -723,6 +713,9 @@ def context_audit(c, verbose=False):
         raise Exit(code=1)
     strong = sum(size >= 120000 for size, _ in hotspots)
     print(f"[context-audit] PASS guides/links; large text: {len(hotspots)}, strong candidates: {strong}")
+    entry_bytes = sum((PROJECT_ROOT / p).stat().st_size for p in ("AGENTS.md", "docs/README.md"))
+    local_sizes = [(PROJECT_ROOT / p / "AGENTS.md").stat().st_size for p in ("kernel/assembly", "kernel/occt", "workers/geometry", "services", "web/apps/cad")]
+    print(f"[context-audit] default entry bytes (root + docs + one local guide): {entry_bytes + min(local_sizes)}..{entry_bytes + max(local_sizes)}")
     if verbose:
         for size, path in hotspots:
             print(f"  {size:>8}  {path}")

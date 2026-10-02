@@ -1,11 +1,10 @@
 # Assembly geometric solver
 
 The current implementation and its focused build instructions are described here.
-The layered constraint-manager target, external design references and phased
-implementation plan are documented in
+The module boundaries are documented in
 [`SOLVER_ARCHITECTURE.md`](SOLVER_ARCHITECTURE.md).
 The equations, graph compilation, numerical iteration and diagnostic algorithms
-actually used by the current M2.5 implementation are recorded separately in
+actually used by the current implementation are recorded separately in
 [`SOLVER_ALGORITHMS.md`](SOLVER_ALGORITHMS.md).
 
 `occccad_assembly_solver` is the standalone algorithm module for 3D assembly
@@ -75,7 +74,7 @@ or browser polylines. Frame relationships outside full Frame-Frame use explicit
 origin/axis/plane roles. Contact uses its analytic support/material equations, not
 zero Distance, finite-face overlap or mesh collision. Its 11 branches, ranks,
 degeneracies and side semantics are documented in
-[Solver Algorithms](SOLVER_ALGORITHMS.md#51-解析-contact).
+[Solver Algorithms](SOLVER_ALGORITHMS.md#解析-contact).
 
 Fix Together retains Domain group identity and membership. Frozen manifest
 `groupStages` solves member-internal constraints first, captures successful
@@ -93,7 +92,7 @@ components touched by an interaction or edit.
 
 `SolverOptions.solve_intent` is request-scoped placement policy. Binary constraint
 creation and editing mark the first occurrence moving and the second reference.
-M2.5 first restores all physical constraints, minimizes reference motion on that
+Static solving first restores all physical constraints, minimizes reference motion on that
 feasible manifold, then minimizes total occurrence motion in the reference-optimal
 subspace. Physical Fix/Rigid constraints remain authoritative: a fixed first body
 can require the unfixed reference to move. There is no weak role weighting and no
@@ -142,7 +141,7 @@ uses bounded deterministic backtracking: rotating a body also moves an off-origi
 support point, so even plane coincidence can require a smaller step than the raw LM
 candidate.
 
-The M1.7 baseline projects Directed Angle endpoints onto the reference-axis normal
+Directed Angle projects Directed Angle endpoints onto the reference-axis normal
 plane, uses periodic scalar angle errors at every target including zero/pi, and
 exposes wrapped/unwrapped/winding branch state. Spatial angles without an axis
 use true separation in [0, 2pi] with a transported sector selector, distinguishing
@@ -160,14 +159,14 @@ owner. Legacy `angle_reference_direction` retains its second-body-local frozen
 interpretation. New inputs use `assembly-six-families-composition-v10`; the
 control-plane manifest schema remains 1 and SolverProfile schema remains 2.
 
-M2.5 returns per-body instantaneous translation, rotation/screw and allowed/blocked
+The solver returns per-body instantaneous translation, rotation/screw and allowed/blocked
 subspaces with linearization poses, metric scales, reference frame and rank
 threshold. Canonical revolute, prismatic, cylindrical, planar and spherical families
 are inferred from subspaces; ambiguous combinations remain `Coupled`. These are
 local differential freedoms, not persisted Engineering Connections or guarantees of
 finite travel. Product previews expose this evidence in the constraint dialog.
 Persistent topology and durable solve manifests are provided by the current
-Product/Worker boundary, not queried by this module. M4 dragging uses a distinct
+Product/Worker boundary, not queried by this module. Continuous dragging uses a distinct
 pure-value objective (below); a general minimum-cardinality conflict prover and
 large-scale sparse backend are not implemented by this mathematical module.
 
@@ -180,7 +179,7 @@ ctest --test-dir build/cmake/debug -R '^assembly/' --output-on-failure
 
 For the stable, quiet domain entry (including relevant Go integration and Web assembly scenarios), use `invoke check --scope assembly`. It prints summaries on success and expands subprocess diagnostics on failure.
 
-The executable M0 conformance corpus lives in
+The executable conformance corpus lives in
 [`tests/assembly-corpus`](../../tests/assembly-corpus). It records canonical
 freedoms, conflict/degeneracy baselines, permutation invariance, branch continuity
 and cold/warm-start equivalence. Run it independently with:
@@ -194,32 +193,10 @@ Run the deterministic dense-backend baseline with
 `invoke performance-baseline`; the assembly result is written to
 `build/performance/assembly-solver.txt`.
 
-The 2026-09-06 validation passed 78 assembly/corpus tests, full Go tests,
-real Router/Worker Product history integration, Web scenarios and production build.
-Current dense Debug timings and browser acceptance are recorded in
-[SOLVER_ALGORITHMS.md](SOLVER_ALGORITHMS.md).
-
-That is an earlier-stage record, not new six-family evidence. The current native
-run passed **177/177 scenarios and 21/21 corpus tests**, including independent
-Contact support/material assertions, exact incidence, per-capability numeric
-matrix, third-axis projected angles, zero-distance branches and the two stationary
-initial-pose fixes. Output is in
-`build/constraint-composition/native-composition-final.xml` and
-`native-corpus-final.xml`. The six joint finite-motion corpus checks 13 analytic
-poses plus one blocked-motion recovery per family, rather than certifying finite
-travel from an instantaneous kernel alone.
-
-For cross-layer acceptance, use the shared
-[contract runner](../../tests/assembly-contract/README.md). `composition` requires
-every selected capability's mandatory implementation layers and specific actual
-evidence to be ACCEPTED; blocked database/Worker/fixture evidence is not green.
-Native success alone does not certify Web/Domain/history/Release or the complete
-milestone. The README there also provides analytic FixtureExport and maintainer
-manual checks. Only the earlier OFFSET work has maintainer use confirmation;
-new interactions await manual acceptance. M4's pure-value `DragTarget` and
-`InteractionEvidence` implement the hard-feasibility → drag → reference → nominal
-hierarchy without a temporary Fix; production Session and RPC ownership remain
-at the Product/Worker boundary. See [the interaction algorithm](SOLVER_ALGORITHMS.md#41-m4-纯值交互目标).
+Cross-layer evidence and safe execution requirements belong to the shared
+[contract runner](../../tests/assembly-contract/README.md). Native success alone
+does not certify Web, Domain, history or Release. Maintainer feedback is scoped
+to current usage, not industrial or performance acceptance.
 
 `occcad_assembly_interaction_benchmark [samples] [scene]` measures kernel-only
 latency for `single`, `connected50-200`, `independent50`, and `group-contact`.

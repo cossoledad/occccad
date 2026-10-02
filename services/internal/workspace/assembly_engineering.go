@@ -15,10 +15,13 @@ type AssemblyEngineeringComponent struct {
 	Freedoms    []geometry.AssemblyBodyFreedom `json:"freedoms"`
 }
 type AssemblyEngineeringEvidence struct {
-	DocumentID string                         `json:"documentId"`
-	RevisionID string                         `json:"revisionId"`
-	Available  bool                           `json:"available"`
-	Components []AssemblyEngineeringComponent `json:"components"`
+	DocumentID         string                         `json:"documentId"`
+	RevisionID         string                         `json:"revisionId"`
+	Available          bool                           `json:"available"`
+	Components         []AssemblyEngineeringComponent `json:"components"`
+	ReferenceSemantics string                         `json:"referenceSemantics"`
+	CoordinateFrame    string                         `json:"coordinateFrame"`
+	LengthUnit         string                         `json:"lengthUnit"`
 }
 
 // Read the existing result attached to the exact immutable Revision's command.
@@ -46,6 +49,19 @@ func (service *Service) GetAssemblyEngineeringEvidence(ctx context.Context, docu
 		return evidence, nil
 	}
 	evidence.Available = true
+	// The exact result's manifest distinguishes physical-world drag freedom
+	// from static freedom relative to the numerical gauge anchor. Never infer
+	// this from an empty reference or borrow another Revision's manifest.
+	var interactive bool
+	if err = service.database.QueryRow(ctx, `SELECT COALESCE(manifest->'dragTarget', 'null'::jsonb) <> 'null'::jsonb FROM occccad.product_solve_manifests WHERE digest=$1 AND root_product_document_id=$2`, result.ManifestDigest, documentID).Scan(&interactive); err != nil {
+		return evidence, err
+	}
+	evidence.ReferenceSemantics = "STATIC_RELATIVE"
+	if interactive {
+		evidence.ReferenceSemantics = "INTERACTION_PHYSICAL"
+	}
+	evidence.CoordinateFrame = "OWNING_PRODUCT"
+	evidence.LengthUnit = "mm"
 	for _, component := range result.Result.Components {
 		evidence.Components = append(evidence.Components, AssemblyEngineeringComponent{BodyIDs: component.BodyIDs, RelativeDof: component.RelativeDof, GaugeDof: component.GaugeDof, Solved: component.Solved, Freedoms: component.Freedoms})
 	}

@@ -15,7 +15,7 @@
 - 输入曲线与方向相切、回转跨轴、自交或输出零面积时失败；
 - 解析输入应尽量保留 Plane/Cylinder/Cone 等 canonical surface，canonical detection policy 进入 evaluator version。
 
-这两个 Feature 是曲面 P0，用于建立后续 Trim/Join/Thicken 的最小闭环。
+这两个 Feature 是基本曲面能力，用于建立后续 Trim/Join/Thicken 的最小闭环。
 
 ### 5.5.10 扫掠曲面 Sweep
 
@@ -38,12 +38,12 @@ message SurfaceSweepFeature {
 
 | Frame mode | 语义 | 交付顺序 |
 |---|---|---|
-| `CORRECTED_FRENET` | 尽量避免 Frenet 在低曲率/拐点翻转 | P0 默认 |
-| `FRENET` | 经典切向-法向-副法向 frame | P1 |
-| `FIXED_FRAME` | 全程保持初始 frame 方向 | P0 |
-| `CONSTANT_BINORMAL` | 指定副法向，截面保持约束角 | P1 |
-| `SUPPORT_NORMAL` | spine 在支撑面上，以支撑面法向控制 | P1 |
-| `TWO_GUIDES` | 由两条 guide 与 anchor/coupling 控制尺度和方向 | P2 |
+| `CORRECTED_FRENET` | 尽量避免 Frenet 在低曲率/拐点翻转 | 基础默认 |
+| `FRENET` | 经典切向-法向-副法向 frame | 扩展 |
+| `FIXED_FRAME` | 全程保持初始 frame 方向 | 基础 |
+| `CONSTANT_BINORMAL` | 指定副法向，截面保持约束角 | 扩展 |
+| `SUPPORT_NORMAL` | spine 在支撑面上，以支撑面法向控制 | 扩展 |
+| `TWO_GUIDES` | 由两条 guide 与 anchor/coupling 控制尺度和方向 | 高级 |
 
 初期使用 [BRepOffsetAPI_MakePipeShell](https://dev.opencascade.org/doc/refman/html/class_b_rep_offset_a_p_i___make_pipe_shell.html)，它支持多截面、不同 frame、Generated history、错误状态与 surface error。算法适配器必须：
 
@@ -51,7 +51,7 @@ message SurfaceSweepFeature {
 2. 以 spine arc-length fraction 驱动 scale/twist law，避免原始参数化改变后形状突变；
 3. 对多 section 保存每个 section 在 spine 上的 location 和 coupling；
 4. 检测 frame 翻转、cusp、guide 多交点、截面自交、surface folding 和不相连多结果；
-5. `transition` 明确为 `FAIL_AT_CORNER | MITER | ROUND | TRANSFORMED`，P0 只交付 FAIL/MITER；
+5. `transition` 明确为 `FAIL_AT_CORNER | MITER | ROUND | TRANSFORMED`，基本范围限定为 FAIL/MITER；
 6. 记录 `ErrorOnSurface`，再以独立采样验证 profile/guide deviation；
 7. 对多解保存 branch，而不保存易变的“solution number”。
 
@@ -65,7 +65,7 @@ CATIA Sweep 提供 law、guide、reference surface、canonical detection、扭�
 - 使用 [BRepOffsetAPI_ThruSections](https://dev.opencascade.org/doc/refman/html/class_b_rep_offset_a_p_i___thru_sections.html) 的 surface/shell 模式，不造 Solid、不自动端盖；
 - 支持首末 Point 作为退化截面，但必须标识 singular fan；
 - `RULED | SMOOTH`、degree、span、parameterization 和 smoothing weights 全部进入 schema；
-- spine/guide 不塞进基本 Loft；P2 的 `GuidedMultiSectionSurface` 需要定义 section-guide 唯一交点和 coupling；
+- spine/guide 不塞进基本 Loft；高级设计的 `GuidedMultiSectionSurface` 需要定义 section-guide 唯一交点和 coupling；
 - 每对 section interval 输出独立 patch lineage，不能把整个结果当一个无身份 Shell；
 - 检验扭结、法向翻转、内部自交、跨 patch G0/G1 及最大偏差。
 
@@ -92,7 +92,7 @@ message FillSurfaceFeature {
 - G1/G2 boundary 必须提供明确 support Face，且 boundary 确实位于 support 上；
 - passing point 必须在目标参数域/边界内部的可行区域，passing curve 不得与边界产生未声明冲突；
 - 缺口修补、相邻边延长和交点重裁剪只有 `boundary_policy=EXPLICIT_REPAIR` 才允许，并把派生曲线写入输出；
-- 自动生成的 missing edge 不得悄悄改变设计意图；P0 默认要求闭合；
+- 自动生成的 missing edge 不得悄悄改变设计意图；基础默认要求闭合；
 - initial surface 只是优化初值，不成为未记录依赖；
 - 输出报告包含每个 constraint 的最大误差、最坏点、degree/spans 和是否产生 non-isoparametric trim。
 
@@ -111,14 +111,14 @@ message OffsetSurfaceFeature {
 }
 ```
 
-P0 只支持常量 offset，使用 [BRepOffsetAPI_MakeOffsetShape](https://dev.opencascade.org/doc/refman/html/class_b_rep_offset_a_p_i___make_offset_shape.html) 或对单支持面的等价路径。距离为正值，side 单独表示；输入 Face 法向规范化进入结果证据。
+基本范围只支持常量 offset，使用 [BRepOffsetAPI_MakeOffsetShape](https://dev.opencascade.org/doc/refman/html/class_b_rep_offset_a_p_i___make_offset_shape.html) 或对单支持面的等价路径。距离为正值，side 单独表示；输入 Face 法向规范化进入结果证据。
 
 - `failure_policy=FAIL` 是默认，不能自动删除失败区域；
 - `KEEP_VALID_REGIONS` 只用于交互诊断，返回候选区域但不能提交为原 Feature 成功；
 - 检测局部曲率半径小于 offset、offset 自交、消失面、尖角和 free edge 变化；
 - OCCT 的全局 `Intersection=true` 未完全实现且不推荐，默认固定 false；
 - join `ARC | INTERSECTION` 分阶段开放，不能和全局 Intersection 开关混淆；
-- variable offset 不是常量算法循环，需独立拟合与连续性设计，放到 P3；
+- variable offset 不是常量算法循环，需独立拟合与连续性设计，保留为独立研究；
 - trim boundary 的映射、seam 和被删除区域进入 TopologyHistory。
 
 ### 5.5.14 Trim、Split 与交线
@@ -161,7 +161,7 @@ message JoinSurfaceFeature {
 
 初期使用 [BRepBuilderAPI_Sewing](https://dev.opencascade.org/doc/refman/html/class_b_rep_builder_a_p_i___sewing.html)，收集 free edges、multiple edges、degenerated shapes、modified subshapes 和实际使用 tolerance。规则：
 
-- P0 只允许 manifold Join，non-manifold 必须是另一个明确 Body kind 和使用场景；
+- 基本范围只允许 manifold Join，non-manifold 必须是另一个明确 Body kind 和使用场景；
 - sewing tolerance 有项目上限，不能高于相邻最小特征尺度的安全比例；
 - `required=G0` 只保证位置连接；要求 G1/G2 时必须经连续性检查，Sewing 本身不创造切向/曲率连续；
 - 允许的 edge splitting、orientation correction 和 tiny-edge removal 逐项列入 `JoinRepairPolicy`；
@@ -190,7 +190,7 @@ message JoinSurfaceFeature {
 | Surface Fillet | 以半径/law 构造滚动球式过渡并可 trim supports | 可选 |
 | Match Surface | 移动目标 NURBS 边界 poles，使其贴合 reference | 是，生成新显式面 |
 
-`BlendSurfaceFeature` 保存两侧 boundary、support、G0/G1/G2、方向、tension/shape law、spine/limits 和 trim policy。P1 可用 constrained filling/plate 算法做双边 Blend；P2 才做稳定多解、variable tension 和自动 trim。
+`BlendSurfaceFeature` 保存两侧 boundary、support、G0/G1/G2、方向、tension/shape law、spine/limits 和 trim policy。扩展设计可用 constrained filling/plate 算法做双边 Blend；高级设计再考虑稳定多解、variable tension 和自动 trim。
 
 `SurfaceFilletFeature` 保存 support pair、radius/law、spine、rolling side、trim/keep 方案和 corner strategy。不能直接复用 Solid edge fillet schema，因为开放面没有同样的 Body 邻接语义。
 

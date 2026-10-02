@@ -1,6 +1,6 @@
 # 装配六类约束：数学语义、组合能力与生命周期
 
-> 长期目标合同，不作为实现状态表。用户约束分类以本机 CATIA B33 Assembly Design 为参照；实现基线见[当前 Product](../current/product-assembly.md)，唯一实施顺序见[装配主线](../../../plans/assembly-evolution.md)。本系统以自洽的数学语义、刚体自由度控制及可组合性为验收依据；CATIA 的分类与流程是参考，不要求逐项复制其参数、限制或文档疑点。
+> 当前装配实现合同；能力覆盖与实际验证由唯一可执行目录和派生报告区分，不能仅凭本文宣称全部场景通过。编排见[Product](product-assembly.md)，数学实现见[算法](../../../kernel/assembly/SOLVER_ALGORITHMS.md)，后续方向见[后续工作](../../../plans/README.md)。CATIA 是语义参照，不要求复制其私有模型或所有限制。
 
 ## 参照范围与证据
 
@@ -19,7 +19,7 @@
 | `online/cfyugasm_C2/cfyugasmut0309.htm`、`cfyugasmut1500.htm` | Activate/Deactivate；Deactivated 与求值状态、Measure Mode 独立统计 |
 | `online/cfyugasm_C2/cfyugasmut0403.htm` | Manipulate 轴向/平面平移、绕轴转动、几何指定方向、With respect to constraints |
 
-六类入口保持 Coincidence、Contact、Offset、Angle、Fix、Fix Together。下述系统合同优先于参照页面；来源差异记录为设计决策，不阻塞实现。所有列入本合同的几何组合仍需完整交付，不能以组合能力证明替代产品功能验收。任意曲面接触、摩擦/碰撞动力学、任意运动耦合与 Mechanism 时间积分不属于本轮范围。
+六类入口保持 Coincidence、Contact、Offset、Angle、Fix、Fix Together。下述系统合同优先于参照页面；来源差异记录为设计决策，不阻塞实现。目录区分实现覆盖与实际验证，组合数学证据不替代完整产品验收。任意曲面接触、摩擦/碰撞动力学、任意运动耦合与 Mechanism 时间积分不属于当前支持范围。
 
 本合同的机器可读目录与定向执行约定见[可执行合同](../../../tests/assembly-contract/README.md)。目录固定用户族/内部类型映射、具体几何和参数区域、秩/退化及命令阶段失败规则；测试预期以本合同为依据，未知几何子类或未冻结秩保留显式问题，不能从 solver 的一次输出反向生成预期。实现覆盖与实际结果仍由 current/派生报告负责，本页不维护支持状态表。
 
@@ -70,7 +70,7 @@
 
 - Point–Point、Point–Line、Point–Plane、Line–Line、Line–Plane、Plane–Plane；Point 可来自精确点、球心、锥顶，Line 可来自直线、圆柱轴、锥轴，Plane 可来自平面支撑。
 - Point–Curve 与 Point–Surface 是允许组合；Curve 附注限定为有效 underlying geometry，必须把可识别种类/退化和选定 branch 转为权威 descriptor/证据，不能任意把显示折线当精确曲线。本系统以可精确求值且参数域/分支可验证的支撑为准，在能力合同测试中明确，不依赖未解释的文档附注。
-- 本轮精确 Curve 子类为无限 Line、Circle；修剪 Arc 必须显式选择 underlying-circle 语义，保留原修剪范围与 provenance。Surface 子类为 Plane、Cylinder、Sphere、所选叶 Cone，不声明任意 NURBS。Point–Cylinder 曲面入射是一条半径关系，不等于 Point–Cylinder-axis 的两条横向位置关系；圆上点为平面入射与半径两条独立关系。球/圆柱/圆锥曲面一般点入射各一秩，锥顶属于奇异构型，不用瞬时零空间认证有限运动。
+- 当前精确 Curve 子类为无限 Line、Circle；修剪 Arc 必须显式选择 underlying-circle 语义，保留原修剪范围与 provenance。Surface 子类为 Plane、Cylinder、Sphere、所选叶 Cone，不声明任意 NURBS。Point–Cylinder 曲面入射是一条半径关系，不等于 Point–Cylinder-axis 的两条横向位置关系；圆上点为平面入射与半径两条独立关系。球/圆柱/圆锥曲面一般点入射各一秩，锥顶属于奇异构型，不用瞬时零空间认证有限运动。
 - Frame–Frame 定义为原点与完整朝向重合，控制六个相对自由度；Frame 必须为右手正交刚体坐标系，不把反射当旋转。Frame 与其他元素组合时必须显式选择其原点、轴或基准平面，再编译为点/线/面关系。例如“原点在平面上”控制一个自由度，“基准平面重合”控制三个；不提供含义不明的 Frame–Plane 隐式转换。这是对 CATIA 表/正文差异的本系统决策。
 - Same/Opposite 仅在几何可定向时显示；Undefined 是用户意图，选定的离散分支是求值证据。禁止把 Undefined 永久改写为 Same；preview 内冻结 branch 防跳解，重新求值按显式策略选择并报告分支。
 
@@ -89,7 +89,7 @@
 | Cone–Cone | 线接触；锥角相等才可面接触 |
 | Cone–Circle | 环接触 |
 
-本轮未列出的组合返回 unsupported，不将其称为数学上不可能；后续可按同一合同扩展。Sphere–Cone 统一定义为环相切：球心位于锥轴、球面与所选锥叶的母线相切，接触环半径必须非零，材料侧与锥叶显式。球锥不能因转置图标而解释为整片曲面重合。Sphere–Circle/Cone–Circle 的环接触表示整条所选圆位于对应支撑上，明确区别于两个曲面的相切。
+合同未列出的组合返回 unsupported，不将其称为数学上不可能；后续可按同一合同扩展。Sphere–Cone 统一定义为环相切：球心位于锥轴、球面与所选锥叶的母线相切，接触环半径必须非零，材料侧与锥叶显式。球锥不能因转置图标而解释为整片曲面重合。Sphere–Circle/Cone–Circle 的环接触表示整条所选圆位于对应支撑上，明确区别于两个曲面的相切。
 
 每个接触分支冻结解析定义、参数域、独立秩及退化处理。几何对是无序的，交换选择只变换定向参数/证据，不能改变可行位姿集合。相等半径/锥角导致接触类型或秩变化时显式切换定义或报告退化，不能继续使用通用距离残差并谎报自由度。以上规则直接解决来源图标疑点，不以获取 CATIA 运行环境为前置。
 
@@ -117,7 +117,7 @@
 
 Cylinder/Cone line 的有效外侧由 `effectiveExternal=(side==External)==(m₁m₂>0)` 决定，分别选择半径和/差或半角和/差；选定锥叶先转为有效轴再比较夹角。Cone–Cone line 的共同单位母线满足 `g·A₁=cosα₁`、`g·A₂=cosα₂`，锥顶差与 g 平行，在两个选定叶上用有限点/切平面检查接触；轴平行初态是可恢复初值退化，等半角差零则是线分支退化为 face，不能混淆两者。Circle/Sphere 正半径和 Cone 开区间半角是前置条件，端点/奇异构型不由一般秩或一次线性零空间认证有限运动。
 
-属性页 `cfyugasmrf0501.htm` 的线接触方向图 `images/rf020NLS.gif` / `rf021NLS.gif` 明确为 Internal/External（本轮已查看图像）；它们不是 Coincidence 的 Same/Opposite。点接触方向由默认规则确定。Contact 对定向支撑的内部/外部侧有要求；普通无定向 Surface 不能冒充实体面。Circle 按表中指定的环接触特例验证支撑来源。持久定义保存工程支撑、材料侧与 branch，精确 descriptor 提取须带 provenance。
+属性页 `cfyugasmrf0501.htm` 的线接触方向图 `images/rf020NLS.gif` / `rf021NLS.gif` 明确为 Internal/External；它们不是 Coincidence 的 Same/Opposite。点接触方向由默认规则确定。Contact 对定向支撑的内部/外部侧有要求；普通无定向 Surface 不能冒充实体面。Circle 按表中指定的环接触特例验证支撑来源。持久定义保存工程支撑、材料侧与 branch，精确 descriptor 提取须带 provenance。
 
 接触作用于无限数学支撑，结果可位于可见修剪区域之外。不能偷偷增加有限面重叠条件，也不能用 mesh collision、最近三角形或力学接触替代。每个适用组合都覆盖选择顺序、内外侧、多解、相等半径/锥角、退化与不可能输入。
 
@@ -155,7 +155,7 @@ Point/Line/Plane 的全部六种无序组合均须支持。至少一方为平面
 - Perpendicular：两方向点积为零，正常构型控制一个转动自由度；界面提供正向90°/反向270°，保存方向意图，正反向须选到相反姿态，编译为带扇区分支的空间角而不增加轴。Parallel 与 Perpendicular 提供独立工具栏入口。与“投影绕轴角等于 90°”明确区分。
 - 平面以法向作为方向支持；线面关系必须注明“线与法向”或通过明确的组合表达“线在平面内”，不静默互余转换。空间角和指定轴投影角均可作为驱动或测量数量，界面明确区分。
 
-静态 Revision 保存规范角、轴和方向意图；连续角、累计圈数与 warm start 属于 preview session，跨 0/180/360°保持连续。本轮不引入持久多圈传动约束。参数范围扩大本身不改变独立约束秩；自由度覆盖由前述构造及 conformance corpus 证明。CATIA 的角度输入域疑点据此关闭为设计差异，其 1 μm/1 μrad 阈值不自动改写平台容差。
+静态 Revision 保存规范角、轴和方向意图；连续角、累计圈数与 warm start 属于 preview session，跨 0/180/360°保持连续。不引入持久多圈传动约束。参数范围扩大本身不改变独立约束秩；自由度覆盖由前述构造及 conformance corpus 证明。CATIA 的角度输入域疑点据此关闭为设计差异，其 1 μm/1 μrad 阈值不自动改写平台容差。
 
 ### Fix 与 Fix Together
 
@@ -178,13 +178,13 @@ Activate/Deactivate（抑制）控制该定义是否参与更新，作用于六�
 - 非激活约束不进入硬方程、rigid-cluster 合并、rank/DOF 限制或活动冲突集合。组停用释放其组关系，但不删除或自动抑制组内独立定义的约束。
 - 停用对象保留可检查的引用状态；来源缺失仍可显示 NotConnected，但不以其 Broken 阻止其余活动约束求解。激活前重新解析当前快照，不能复用停用前 Verified。恢复时重新检查支持与兼容性；允许保存 Broken/Impossible/NotUpdated 定义，失败不写入候选姿态，后续抑制、重连或编辑可恢复。
 - Deactivated、Connected/NotConnected、NotUpdated/Broken/Impossible/Verified、Measure 是不同维度。树、属性、视口符号和分析计数都需显示停用；停用标记不抹去诊断证据。
-- M3/Release 冻结全部定义与激活状态，参与 solver 的 active set 可重建。Release gate 对活动约束要求 Verified，对停用定义显式记录排除理由；停用不伪造 Verified，也不使旧 Release 随新激活状态变化。
+- Manifest/Release 冻结全部定义与激活状态，参与 solver 的 active set 可重建。Release gate 对活动约束要求 Verified，对停用定义显式记录排除理由；停用不伪造 Verified，也不使旧 Release 随新激活状态变化。
 
 ## 尊重约束的连续三维操纵
 
 对标 `ut0403` 的轴向平移、平面平移、轴向旋转和由几何指定方向/轴。默认受约束编辑只在所有活动硬约束允许的流形上移动，固定/固联/抑制/测量模式都参与正确的自由度解释。
 
-实时不是每个 pointermove 提交 Revision。浏览器响应手势，服务端用不可变 M3 输入和 session branch/warm start 连续求解；请求合并、取消、背压和过期响应门保持有效。不可达目标返回最近可行 pose 与 blocked feedback；基础设施失败保留最后确认帧，不显示假成功。pointerup 等待最终确认，只形成一次版本化移动，Esc/cancel 不提交。具体交互性能预算与测量场景由[装配主线](../../../plans/assembly-evolution.md)维护。
+实时不是每个 pointermove 提交 Revision。浏览器响应手势，服务端用不可变 Manifest 输入和 session branch/warm start 连续求解；请求合并、取消、背压和过期响应门保持有效。不可达目标返回最近可行 pose 与 blocked feedback；基础设施失败保留最后确认帧，不显示假成功。pointerup 等待最终确认，只形成一次版本化移动，Esc/cancel 不提交。具体交互性能预算与测量场景由[装配主线](../../../plans/README.md)维护。
 
 约束定义的合法性与求解可满足性分离：Impossible 仅用于几何与单个约束定义不兼容；组合冲突、过约束或数值未收敛使用 NotUpdated 并保留求解证据。结构树允许保存这些定义，抑制与激活可用于修复；旧失败状态不得永久阻止重新参与求值。无向关系允许两个方向分支，不能以首次添加时的姿态冻结其可行解集。
 
@@ -192,7 +192,7 @@ Activate/Deactivate（抑制）控制该定义是否参与更新，作用于六�
 
 ### 连续操纵与局部诊断合同
 
-求解 Session 是有容量、TTL、取消与并发保护的瞬态计算上下文，不是 TREE-03 EditSession 或持久连接模型。它冻结 actor、Workspace/Head/sequence、owning Product/完整 occurrence 与编辑上下文、已接受引用、定义/模式/激活集合、精确支持、组捕获、solver policy/profile/build 和手势 nominal baseline。accepted pose/branch 仅用于后续 initial guess；失效、取消、未接纳或迟到结果不能运输它们。外部 Head/相关输入或上下文变化要求重新开始，不能自动追随新 Head。
+求解 Session 是有容量、TTL、取消与并发保护的瞬态计算上下文，不是 工作台 EditSession 或持久连接模型。它冻结 actor、Workspace/Head/sequence、owning Product/完整 occurrence 与编辑上下文、已接受引用、定义/模式/激活集合、精确支持、组捕获、solver policy/profile/build 和手势 nominal baseline。accepted pose/branch 仅用于后续 initial guess；失效、取消、未接纳或迟到结果不能运输它们。外部 Head/相关输入或上下文变化要求重新开始，不能自动追随新 Head。
 
 DragTarget 的 pose、抓取点目标与参考帧均属于 owning Product（长度毫米、角度弧度）。抓取点为 `R * localGrabPoint + t`；目标为 `R_target * localGrabPoint + t_target`。冻结 frame 的驱动/保持 mask 互斥，未落入两组者完全自由；保持是交互偏好，不升级为物理方程。层级为：实际接纳硬约束与分支可行 → 用户驱动目标的局部最优 → 保持未要求改变的姿态/侧向抓取点 → 剩余 total nominal motion。可行自由平移应保持完整姿态，但机构必要的耦合旋转不能被禁止。旋转目标包含绕 pivot 的位姿轨迹。统一尺度中的零空间必须正交化；每个切步做真实硬约束恢复和上层复验。无 Ground 时保留物理整体运动，不把数值 gauge 写成 Fix。静态 ADD/EDIT 和旧策略仍按原 reference/total 层级解释。
 
@@ -204,8 +204,8 @@ SPACE Fix 保留捕获基准。显式 Move 可编辑被驱动运动单元及其�
 
 每 Session 一个在途求解和一个最新未发目标。连续输入合并而不反复取消在途工作；属于有效 Session 的顺序递增可行帧仍可反馈，不因存在更晚待发目标饥饿。pointerup 必须另行 flush 最终目标。异常 capture 丢失、Esc、取消、blur/切换取消；正常 pointerup 的 release 不触发异常取消。实例、组、glyph、手柄按同一权威帧投影，不重新生成几何。
 
-M5 分析冻结 Revision/输入、目标隔离定义与完整相关 incidence 邻域（含物理 Ground、闭环、第三轴及组生成关系）；probe 固定方程集，禁止使用 admission 自动缩减后的成功证明原集合 SAT。分析只读、预算与取消有界，不修改生产 warm start、branch、基准、激活或历史。Suppressed/Measured 不进入活动硬冲突；来源、参数及基础设施故障单独解释。
+局部诊断分析冻结 Revision/输入、目标隔离定义与完整相关 incidence 邻域（含物理 Ground、闭环、第三轴及组生成关系）；probe 固定方程集，禁止使用 admission 自动缩减后的成功证明原集合 SAT。分析只读、预算与取消有界，不修改生产 warm start、branch、基准、激活或历史。Suppressed/Measured 不进入活动硬冲突；来源、参数及基础设施故障单独解释。
 
-oracle 是三值：SAT 需要独立几何见证；UNSAT 需要范围明确的解析/结构不可满足证据；未收敛、驻点、证书未覆盖或预算不足为 UNKNOWN。当前未满足、冗余、退化、localized suspect、解析不兼容与 verified irreducible 分开。只有原集合可靠 UNSAT 且必要删除集都有 SAT 见证，才声明背景/分支范围内不可约；不是最小基数。结果提供 Constraint/Group/Equation 与支持来源、版本和合法的既有修复命令，用户决定是否编辑、停用、测量或重连。修复后旧版本诊断失效，M4 不可达目标不触发 M5 搜索。
+oracle 是三值：SAT 需要独立几何见证；UNSAT 需要范围明确的解析/结构不可满足证据；未收敛、驻点、证书未覆盖或预算不足为 UNKNOWN。当前未满足、冗余、退化、localized suspect、解析不兼容与 verified irreducible 分开。只有原集合可靠 UNSAT 且必要删除集都有 SAT 见证，才声明背景/分支范围内不可约；不是最小基数。结果提供 Constraint/Group/Equation 与支持来源、版本和合法的既有修复命令，用户决定是否编辑、停用、测量或重连。修复后旧版本诊断失效，鼠标不可达目标不触发冲突搜索。
 
-M6 Engineering Connections 暂缓；上述数学有限运动和 Frame/Contact/组不创建 Connector、Joint limits、gear/rack 或动力学实体。
+Engineering Connections 暂缓；上述数学有限运动和 Frame/Contact/组不创建 Connector、Joint limits、gear/rack 或动力学实体。

@@ -1,5 +1,7 @@
 import { VisualRepository, type DisplayArtifact as Artifact, type DisplayDocumentView as DocumentView } from "../cad/visual/visual-repository";
 import { assemblyConstraintReferences } from "../cad/assembly/assembly-capability";
+import type {MotionPresentation} from "../cad/assembly/motion-presentation";
+import {makeMotionMarkers,disposeMotionMarkers} from "../cad/assembly/motion-markers";
 import { AssemblyInteractionController,assemblyInteractionFailureState, type AssemblyInteractionBegin, type AssemblyInteractionSession, type AssemblyInteractionUpdate, type AssemblyInteractionFrame, type AssemblyInteractionCommit, type AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 import { makeSketchReferenceAxis, sketchAxisEndpoints } from "../cad/rendering/sketch-reference-axis";
 import { createStudioEnvironment } from "../cad/rendering/studio-environment";
@@ -229,6 +231,18 @@ function makeGeometry(artifact: Artifact): THREE.BufferGeometry {
 
 export class CadViewportEngine {
   private readonly scene = new THREE.Scene();
+  private motionMarkers?:THREE.Group;
+  private motionPresentation?:MotionPresentation;
+  showRemainingMotion(motion?:MotionPresentation):void {
+    disposeMotionMarkers(this.motionMarkers);this.motionMarkers=undefined;this.motionPresentation=undefined;
+    const context=this.editContext?.view??this.view;
+    if(motion?.freedom&&context?.document.id===motion.documentId&&context.document.versionId===motion.revisionId&&motion.ownerOccurrence===(this.editContext?.occurrencePath??"")){
+      const markers=makeMotionMarkers(motion,Math.max(1,this.camera.position.distanceTo(this.navigation.target)*0.08));
+      if(this.editContext?.occurrencePath){markers.position.fromArray(this.editContext.translation??[0,0,0]);markers.quaternion.fromArray(this.editContext.rotation??[0,0,0,1]);}
+      this.motionPresentation=motion;this.motionMarkers=markers;this.scene.add(markers);
+    }
+    this.invalidate();
+  }
   private readonly camera = new THREE.OrthographicCamera(-150, 150, 150, -150, 0.1, 5000);
   private readonly renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
   private readonly shaders = new CadShaderLibrary();
@@ -484,6 +498,14 @@ export class CadViewportEngine {
       editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view)]);
   }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
+    const motionView=editContext?.view??view;
+    if(this.motionPresentation&&(this.motionPresentation.documentId!==motionView.document.id||this.motionPresentation.revisionId!==motionView.document.versionId||this.motionPresentation.ownerOccurrence!==(editContext?.occurrencePath??"")))this.showRemainingMotion();
+    // The same owning-Product evidence may remain valid while its outer rigid
+    // occurrence moves. Reproject the temporary guides, not their local data.
+    if(this.motionMarkers){
+      this.motionMarkers.position.fromArray(editContext?.occurrencePath?(editContext.translation??[0,0,0]):[0,0,0]);
+      this.motionMarkers.quaternion.fromArray(editContext?.occurrencePath?(editContext.rotation??[0,0,0,1]):[0,0,0,1]);
+    }
     if(this.view?.document.versionId!==view.document.versionId){this.manipulatorSnapCache?.clear();this.snapLock=undefined;}
     if(this.view&&(this.view.document.id!==view.document.id || (this.editContext?.view.document.id??this.view.document.id)!==(editContext?.view.document.id??view.document.id) || this.editContext?.occurrencePath!==editContext?.occurrencePath))this.cancelMovePreviewGesture("editing context changed");
     else this.moveInteraction.invalidate(view.document.versionId);
@@ -1016,7 +1038,11 @@ export class CadViewportEngine {
       if(this.activeToolID==="assembly.move"&&(!this.moveManipulator.isAttached()||this.pendingManipulatorAnchor))this.attachMoveManipulator();
       return;
     }
-    if(!sameSelections(this.selected,unique))this.cancelMovePreviewGesture("操纵选择已变化");
+    if(!sameSelections(this.selected,unique)){
+      const motion=this.motionPresentation,path=motion?[motion.ownerOccurrence,motion.bodyId].filter(Boolean).join("/"):undefined;
+      if(path&&!unique.some(s=>s.occurrencePath===path||s.occurrencePath?.startsWith(`${path}/`)))this.showRemainingMotion();
+      this.cancelMovePreviewGesture("操纵选择已变化");
+    }
     this.selected = unique;
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
@@ -1150,6 +1176,7 @@ export class CadViewportEngine {
   private beginMovePreviewGesture():void{
     this.manipulatorSnapCache?.cancelPending();
     if(this.moveCommitPending)return;
+    this.showRemainingMotion();
     const target=this.moveTarget;
     if(target&&this.view){
       const instanceId=target.group.userData.id as string;
@@ -1298,6 +1325,7 @@ export class CadViewportEngine {
   }
 
   dispose(): void {
+    disposeMotionMarkers(this.motionMarkers);
     this.cancelMovePreviewGesture("viewport interaction reset");
     this.visualGeneration++;
     this.visuals.dispose();

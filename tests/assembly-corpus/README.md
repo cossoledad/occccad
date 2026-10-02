@@ -1,6 +1,6 @@
 # Assembly conformance corpus
 
-This directory contains the executable M0 baseline for the three-dimensional
+This directory contains the executable conformance corpus for the three-dimensional
 assembly solver. `assembly_corpus.cpp` owns canonical input models and their
 semantic expectations; `assembly_corpus_test.cpp` runs the same cases against the
 current backend.
@@ -9,7 +9,7 @@ The initial corpus intentionally tests the public solver as a black box. For a
 canonical solved configuration it applies small rigid motions that should either
 remain on the feasible manifold or be rejected and corrected. This verifies the
 expected freedoms without adding a test-only Jacobian or prematurely exposing the
-M1 DOF result contract.
+DOF result contract.
 
 The corpus currently covers:
 
@@ -21,15 +21,15 @@ The corpus currently covers:
 - cold solve versus a previous accepted pose used as a warm start;
 - explicit plane-side preservation after a dimension edit.
 
-Freedom cases now assert both black-box feasible motions and the component's M1
+Freedom cases now assert both black-box feasible motions and the component's
 Jacobian rank, relative DOF and gauge DOF. Classification cases assert structured
 `REDUNDANT`, `INCONSISTENT` and invalid-model outcomes while retaining the lower
-level numerical status. Focused M1 scenarios additionally cover rigid-cluster
+level numerical status. Focused scenarios additionally cover rigid-cluster
 ground elimination, affected-component solving, constraint modes and stable
-equation provenance. M1.5 scenarios verify that first-selection moving and
+equation provenance. Solve-intent scenarios verify that first-selection moving and
 second-selection reference roles remain disjoint and that an ungrounded reference
 cluster is used as a gauge anchor without losing the component's six reported
-gauge freedoms. M1.6 scenarios distinguish stationary `UNSATISFIED`, zero-variable
+gauge freedoms. Robustness scenarios distinguish stationary `UNSATISFIED`, zero-variable
 `INCONSISTENT` and iteration-budget `NON_CONVERGENT`; verify independent convergence
 and classification tolerances; and cover frozen direction/side branches, convergence
 into exact zero/pi angle endpoints and a near-parallel axis-distance sweep across

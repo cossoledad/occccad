@@ -42,7 +42,7 @@ message Joint {
 }
 ```
 
-P0：Rigid、Revolute、Prismatic、Cylindrical、Planar；P1：Spherical、Universal、Screw、Gear、Rack；P2：Point/Curve、Slide/Roll Curve、Cable、Constant Velocity。每种 Joint 明确 generalized coordinates `q`、velocity `v`、frame convention、零位、正方向、周期和 limits。
+基本候选：Rigid、Revolute、Prismatic、Cylindrical、Planar；扩展候选：Spherical、Universal、Screw、Gear、Rack；高级候选：Point/Curve、Slide/Roll Curve、Cable、Constant Velocity。每种 Joint 明确 generalized coordinates `q`、velocity `v`、frame convention、零位、正方向、周期和 limits。
 
 - Revolute angle 使用连续 unwrap，不在 `±π` 跳变；
 - Screw pitch 使用 `meters/radian`，正负表达手性；

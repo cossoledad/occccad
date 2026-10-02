@@ -17,12 +17,12 @@ message ShellFeature {
 }
 ```
 
-`thickness` 始终为正数；INWARD/OUTWARD 单独编码，避免 signed length 与面朝向混淆。P0 要求 `faces_to_remove` 非空且唯一解析为 input Body 的 Face；“无开口偏置实心”应是独立 Offset Body 功能。
+`thickness` 始终为正数；INWARD/OUTWARD 单独编码，避免 signed length 与面朝向混淆。基础设计要求 `faces_to_remove` 非空且唯一解析为 input Body 的 Face；“无开口偏置实心”应是独立 Offset Body 功能。
 
 实现使用 [BRepOffsetAPI_MakeThickSolid::MakeThickSolidByJoin](https://dev.opencascade.org/doc/refman/html/class_b_rep_offset_a_p_i___make_thick_solid.html)。OCCT 文档明确指出全局 `SelfInter`/`Intersection` 算法选项并未完整实现，因此目标架构不暴露这些布尔开关来制造虚假的能力：
 
-- P0 固定 `SelfInter=false`，不声称支持自交修复；
-- P0 固定全局 `Intersection=false`；它与 `GeomAbs_Intersection` 面连接类型不是同一个选项；
+- 基础设计固定 `SelfInter=false`，不声称支持自交修复；
+- 基础设计固定全局 `Intersection=false`；它与 `GeomAbs_Intersection` 面连接类型不是同一个选项；
 - `join=ARC` 首先交付；`join=INTERSECTION` 只有通过独立 corpus 后才开放；
 - offset sign 由 ShellSide 和外壳方向转换，转换规则纳入 evaluator version；
 - 读取 `Modified` 历史并与被删除开口面 tombstone 合并；
@@ -30,7 +30,7 @@ message ShellFeature {
 
 典型失败必须可解释：厚度超过局部曲率半径、窄槽塌陷、相邻偏置面无法连接、开口面选择不连续、非流形输入或偏置自交。诊断至少给出 `problematic_selection_ids`、估算失败区域 bbox 和 OCCT status；不得只返回 `MakeThickSolid failed`。
 
-P1 可增加 `MultiThicknessShellFeature`，但它不是简单给 face 列表附不同厚度：必须定义厚度分区边界、过渡规则和连接连续性，未设计前不放进当前 schema。
+扩展设计可增加 `MultiThicknessShellFeature`，但它不是简单给 face 列表附不同厚度：必须定义厚度分区边界、过渡规则和连接连续性，未设计前不放进当前 schema。
 
 ### 5.4.11 拔模 Draft
 
@@ -54,7 +54,7 @@ message DraftGroup {
 
 使用 [BRepOffsetAPI_DraftAngle](https://dev.opencascade.org/doc/refman/html/class_b_rep_offset_a_p_i___draft_angle.html)。每个 group 解析出中性平面和拉模方向后，对面逐一 `Add`；每次检查 `AddDone`，失败时读取 `ProblematicShape/Status`。整个 Feature 原子化：任一面失败就回滚所有 group，不允许“前五个面成功、第六个失败”的半成品成为 Body Tip。
 
-- `angle` 保存绝对值与明确的 material side；P0 限制 `0 < abs(angle) < π/2 - angular_epsilon`；
+- `angle` 保存绝对值与明确的 material side；基础范围限制 `0 < abs(angle) < π/2 - angular_epsilon`；
 - Pull Direction 是脱模运动方向，不等于任意所选面的法向；
 - Neutral plane 表示几何保持位置，必须与 Pull Direction 的关系满足内核算法要求；
 - `TANGENT` propagation 只扩展到版本化 tangent tolerance 下连续的面，最终扩展集合写入结果，不能在重算时不可见地变化；
@@ -97,9 +97,9 @@ message LoftSection {
 5. `AUTO_COMPATIBLE` 只用于交互建议/简单截面，实际采用的方向、起点和分段映射必须固化为 `ResolvedSectionMatching` 并计入求值结果；
 6. 调用内核时设置输入不可变或传入副本，避免 compatibility 检查修改上游 Wire；
 7. `SMOOTH` 才使用 continuity、smoothing weights 和 max degree；`RULED` 在相邻截面间生成直纹面，忽略平滑参数；
-8. P0 不支持最后截面回接第一截面的周期 Loft；该能力需要独立的周期参数化与 seam 规则，不能用普通 `ThruSections` 冒充；
+8. 基础范围不包括最后截面回接第一截面的周期 Loft；该能力需要独立的周期参数化与 seam 规则，不能用普通 `ThruSections` 冒充；
 9. 截面自交、顺序折返、对应边交叉或结果非流形均失败；
-10. Guide curve 与 centerline/spine 不混入 P0 Loft；它们属于带独立相交约束的 Guided Loft 或 Sweep 扩展。
+10. Guide curve 与 centerline/spine 不混入 基本 Loft；它们属于带独立相交约束的 Guided Loft 或 Sweep 扩展。
 
 截面对应是多截面实体可编辑性的关键。只依赖 OCCT 自动兼容会在截面加一条边后产生不可预测旋转或扭结。`SectionMarker` 应引用 Region edge/vertex 的稳定身份，解析后形成：
 

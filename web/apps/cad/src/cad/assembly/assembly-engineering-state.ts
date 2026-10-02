@@ -1,6 +1,6 @@
 import type {AssemblyConstraint,AssemblyBodyFreedom,DocumentView as DocumentDescriptor} from "../../types";
 import type {AssemblyConflictItem,AssemblyConflictMember} from "./assembly-conflict";
-export type AssemblyEngineeringEvidence={documentId:string;revisionId:string;available:boolean;components:Array<{bodyIds:string[];relativeDof:number;gaugeDof:number;solved:boolean;freedoms:AssemblyBodyFreedom[]}>};
+export type AssemblyEngineeringEvidence={documentId:string;revisionId:string;available:boolean;referenceSemantics?:"STATIC_RELATIVE"|"INTERACTION_PHYSICAL";coordinateFrame?:"OWNING_PRODUCT";lengthUnit?:"mm";components:Array<{bodyIds:string[];relativeDof:number;gaugeDof:number;solved:boolean;freedoms:AssemblyBodyFreedom[]}>};
 
 const nameIndices=new WeakMap<DocumentDescriptor,Map<string,string>>();
 export function engineeringInstanceName(view:DocumentDescriptor|undefined,id:string):string {
@@ -17,13 +17,10 @@ export function assemblyEngineeringOverview(view?:DocumentDescriptor){
   const definitions=view?.product?.constraints??[],instances=view?.product?.instances??[];
   const active=definitions.filter(c=>!c.suppressed&&c.mode!=="MEASURED");
   const issues=active.filter(c=>c.evaluationStatus!=="VERIFIED");
-  const fixed=new Set(active.filter(c=>c.kind==="FIX"&&c.evaluationStatus==="VERIFIED").map(c=>c.first.instancePath?.segments[0]?.instanceId??c.first.instanceId));
-  const participating=new Set(active.flatMap(c=>[c.first,c.second,c.angleAxis,...(c.groupMembers??[]).map(m=>({instanceId:m.instanceId,instancePath:m.instancePath}))].flatMap(r=>r?[r.instancePath?.segments[0]?.instanceId??r.instanceId]:[])));
   return {name:view?.document.name??"当前装配",total:definitions.length,suppressed:definitions.filter(c=>c.suppressed).length,
     measured:definitions.filter(c=>c.mode==="MEASURED").length,verified:active.filter(c=>c.evaluationStatus==="VERIFIED").length,
     broken:definitions.filter(c=>c.evaluationStatus==="BROKEN").length,notUpdated:definitions.filter(c=>c.evaluationStatus==="NOT_UPDATED").length,
-    issues,instances:instances.map(instance=>({id:instance.id,name:engineeringInstanceName(view,instance.id),state:fixed.has(instance.id)?"已固定":
-      participating.has(instance.id)?"受约束；运动范围需查看求值证据":"可自由运动"})),
+    issues,instances:instances.map(instance=>({id:instance.id,name:engineeringInstanceName(view,instance.id),state:"待计算"})),
     status:issues.length?"有待处理定义":active.length?"活动定义已满足（当前求值）":"没有活动驱动约束"};
 }
 export function engineeringMember(definition:AssemblyConstraint):AssemblyConflictMember {

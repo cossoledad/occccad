@@ -1,10 +1,10 @@
 # 持久拓扑命名与引用恢复
 
-> 2026-09-21 文档核对基线。返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。这里只记录实现事实；测试存在不等于本轮已经运行，验证缺口见[统一路线](../../../plans/README.md)。
+> 返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
 
 服务端已实现 PersistentSelection bind/resolver。bind 只接受 source Revision 指定 sourceBodyId 的 Body Tip 的 local pick，并固化 semantic anchor 与 creation evidence；resolver 固定校验 source/target Revision、document/body、expected type、creation evidence、manifest digest 和 policy digest，沿 lineage 返回唯一解析、缺失、歧义、类型不符或当前 tip 外等状态，绝不以相同 local ID 或最近几何自动选面。解析缓存以 selection、target Revision、manifest/evidence/policy digest 为身份，并可从不可变 topology artifact 冷重建。右侧属性面板现在展示 semantic anchor、selection recipe、supporting-element 状态和 evidence digest。
 
-拓扑 endpoint 持久化 occurrence、source Part Revision 和 PersistentSelection，并保存固定 target Revision、topology manifest/policy digest 与 resolution result；`geometryKey + localId` 只作为创建或 Reconnect 时的瞬时 pick evidence。默认实例使用 `FOLLOW_HEAD`；Part Head 更新后 Product Update Plan 投影 NotUpdated/UpdateAvailable，Web 自动批量推进 Revision、重新解析 endpoint 并求解，用户可用 `PINNED` 显式截断自动跟随。Supporting Element 的 Connected/NotConnected 与 Constraint 的 NotUpdated/Broken/Impossible/Verified 是两个独立状态域：解析失败的约束不会进入 Solver，其余 connected component 仍经正式 Router 的 M2.5 路径求解。结构树和属性面板显示状态与 provenance，持久 ChangeSet 支持刷新及补偿式历史。
+拓扑 endpoint 持久化 occurrence、source Part Revision 和 PersistentSelection，并保存固定 target Revision、topology manifest/policy digest 与 resolution result；`geometryKey + localId` 只作为创建或 Reconnect 时的瞬时 pick evidence。默认实例使用 `FOLLOW_HEAD`；Part Head 更新后 Product Update Plan 投影 NotUpdated/UpdateAvailable，Web 自动批量推进 Revision、重新解析 endpoint 并求解，用户可用 `PINNED` 显式截断自动跟随。Supporting Element 的 Connected/NotConnected 与 Constraint 的 NotUpdated/Broken/Impossible/Verified 是两个独立状态域：解析失败的约束不会进入 Solver，其余 connected component 仍经正式 Router 的静态层级求解路径求解。结构树和属性面板显示状态与 provenance，持久 ChangeSet 支持刷新及补偿式历史。
 
 约束恢复复用这些状态。创建和编辑使用同一非模态约束定义面板，服务端成功 preview 除 occurrence poses 和 component 诊断外，还返回候选 Constraint 状态与两个 Supporting Element 状态；已连接支持元素在 `SOLVING` 阶段的不可重试结构化失败明确投影为 Impossible，基础设施或可重试失败保持 NotUpdated，前端不从颜色或普通异常文本猜测领域状态。结构树双击/右键 Edit 打开同一编辑器，Broken 节点提供 Reconnect，非 Verified 节点提供 typed `UPDATE_REFERENCES` Refresh。Reconnect 复用一次性 Selection Tool 和现有 preview actor，替换端点后立即权威预览，确认以一个 `EDIT_ASSEMBLY_CONSTRAINT` Transaction 提交。结构树状态包含图标、文字和可访问标签；视口的 NotUpdated、Impossible、Broken 各用不同的屏幕稳定 SDF glyph，精确拓扑锚点丢失时回退到 occurrence 中心，确保 Broken 约束仍可被选择并修复。
 
@@ -23,7 +23,7 @@ Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服
 - [resolver corpus](../../../services/internal/workspace/topology_selection_test.go)
 - [正式 Router Edge/Vertex 集成](../../../services/internal/control/edge_vertex_naming_integration_test.go)
 
-## 导入根命名（IMPORT-NAMING 已完成，2026-09-22）
+## 导入根命名
 
 有效 Solid/Compound 的 STEP/BREP Definition 生成完整 Face/Edge/Vertex 根命名。XDE Definition 保持一个 Part；多 Solid 不再触发业务拆分或伪造装配。导入 Definition 先检查有效性，必要时在拷贝上运行 ShapeFix（mm：precision 1e-6、min 1e-7、max 1e-3），针对相邻圆柱面拆分造成的周期参数边界未闭合，仅在参数坐标系一致、两面各只有一条三维闭合边界且仅共享一条边时合并面片；不拼接近似同轴曲面。修复后再次检查有效 Solid 集、数量保持且无游离拓扑，再冻结实际 BREP SHA-256；修复失败返回组件诊断，不丢弃坏实体。准备与修复发生在身份分配之前，已冻结的历史快照不重写。ImportExchange 负责规范化精确快照，提交 ImportBody 前控制面分配独立随机 topology ID，写入不可变 `identity.pb` Artifact，并由 `import_definitions` 索引（迁移 0028）；Feature 的 `importDefinitionId` 引用该重放输入。定义记录绑定 Feature/Body、原始源对象和源 Definition ID（新 Jobs 导入）、精确 BREP digest、OCCT 版本、导入策略及毫米单位。旧文档修复可仅依据其已冻结的精确 BREP，不虚构已丢失的原始源文件。
 
@@ -31,9 +31,9 @@ Persistent topology naming 已具备 Linear Extrude/Boolean history 生成与服
 
 EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named topology，再复用原生 Add/Remove/Intersect、OCCT history 与同域合并传播。初始输出有完整邻接、类型、几何 evidence 和有向法向；后续 split/merge/deletion 使用同一 resolver，分裂多候选保留 Ambiguous。缓存身份包含完整 seed，依赖图将 ImportBody 作为 Body Tip，后续草图/实体读取其命名和几何。
 
-已有无定义的导入由 `REPAIR_IMPORT_NAMING`（typed URI `occccad://part/exchange/repair-naming`）显式建立命名。工作台告警提供“建立导入命名”入口。修复保留原 Feature 和 BREP，通过正常 Transaction、CAS、entity ChangeSet 和新 Revision 提交；Undo/Redo 使用同一冻结定义，旧 Revision 不改写。已命名 Feature 不能以修复操作重新分配身份；缺失定义的历史快照仍使用 [IMPORT-DIAGNOSTICS](jobs-artifacts.md#import-diagnostics-完成记录2026-09-22) 的明确诊断。
+已有无定义的导入由 `REPAIR_IMPORT_NAMING`（typed URI `occccad://part/exchange/repair-naming`）显式建立命名。工作台告警提供“建立导入命名”入口。修复保留原 Feature 和 BREP，通过正常 Transaction、CAS、entity ChangeSet 和新 Revision 提交；Undo/Redo 使用同一冻结定义，旧 Revision 不改写。已命名 Feature 不能以修复操作重新分配身份；缺失定义的历史快照仍使用 [IMPORT-DIAGNOSTICS](jobs-artifacts.md#持久任务与制品) 的明确诊断。
 
-针对性验证覆盖 STEP/BREP 实际 Router 导入、26 个面边点根引用、六面草图及拉伸/切除、边投影、装配及引用更新、对称槽分裂的两候选歧义、修复 Undo/Redo、已提交重试、冷加载与连续布尔。内核另验证错摘要、缺项、重复身份和更换快照拒绝。入口：[内核场景](../../../kernel/occt/tests/geometry_exchange_scenarios.cpp)、[导入集成](../../../services/internal/control/import_naming_integration_test.go)、[诊断/修复集成](../../../services/internal/control/import_naming_diagnostics_test.go)、[修复补偿单测](../../../services/internal/workspace/import_naming_test.go)。本轮未做全仓、浏览器或大文件验收；开放壳和混合散落拓扑不属于此 Solid/Compound 导入能力，源文件替换/新版内核迁移也未实现自动身份对照。
+当前回归入口包括 kernel/occt/tests/geometry_exchange_scenarios.cpp、services/internal/control/import_naming_integration_test.go、import_naming_diagnostics_test.go 和 workspace/import_naming_test.go。开放壳和混合散落拓扑不属于此 Solid/Compound 导入能力，源文件替换/新版内核迁移也未实现自动身份对照。
 
 完整 Naming 的唯一持久载荷为 `naming.pb`；RPC 和数据库不重复保存 FeatureResults。导入 identity 也通过 ArtifactReference 重放。数据边界见[几何制品](geometry-representations.md)。
 

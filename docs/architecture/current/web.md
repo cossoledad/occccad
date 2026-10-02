@@ -1,6 +1,6 @@
 # Web 工作台与交互边界
 
-> 2026-09-21 文档核对。返回[当前架构](../../CURRENT_ARCHITECTURE.md)。本页描述实现，Product/WebGL 人工验收已由维护者确认通过，自动化测试与限制见[完成记录](product-assembly.md#accept-product-完成记录)。
+> 返回[当前架构目录](../../CURRENT_ARCHITECTURE.md)。代码和测试定义当前事实；验证范围见[验证说明](validation.md)。
 
 ## 状态与模块职责
 
@@ -18,7 +18,7 @@ flowchart TD
 
 页面通过 Viewport Engine 操作视口，不直接拥有 Three.js Scene/Renderer。模型、权限、Revision 与最终求值属于服务端；camera、hover、selection、工具采集和渲染插值是可丢弃状态。Mock 用于 UI 调试，不证明后端权限或几何正确性。
 
-工作台由独立结构树、视口和属性/历史面板组成。树筛选保留祖先与 stable key，虚拟树支持键盘和集合选择；Inspector 关闭时卸载，按页签请求数据，读取失败明确报错。Document tabs 位于全局标题栏，支持切换、关闭、新建、排序及窗口会话恢复。普通文档读取和依赖刷新不打开或重排标签；显式打开生命周期与窗口内稳定顺序见 [TREE-03](tree03-product-edit-tabs.md)。
+工作台由独立结构树、视口和属性/历史面板组成。树筛选保留祖先与 stable key，虚拟树支持键盘和集合选择；Inspector 关闭时卸载，按页签请求数据，读取失败明确报错。Document tabs 位于全局标题栏，支持切换、关闭、新建、排序及窗口会话恢复。普通文档读取和依赖刷新不打开或重排标签；显式打开生命周期与窗口内稳定顺序见 [编辑上下文](product-edit-context.md)。
 
 ## 根场景与编辑上下文
 

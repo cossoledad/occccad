@@ -4,7 +4,7 @@
 [`src/solver.cpp`](src/solver.cpp) 验证的事实，不代表 CATIA 或 DCM 的内部实现，也不把
 [`SOLVER_ARCHITECTURE.md`](SOLVER_ARCHITECTURE.md) 中的目标能力描述为已经交付。
 
-## 1. 输入、状态与目标函数
+## 输入、状态与目标函数
 
 每个 Body 的位姿是从 body-local 坐标到世界坐标的刚体变换
 
@@ -26,7 +26,7 @@ cluster 使用六维切空间增量
 t' = t+\Delta t,\qquad R'=\operatorname{Exp}(\Delta\theta)R.
 \]
 
-所有 active constraint 的残差块按稳定约束顺序拼接为向量 `r(x)`。M2.5 的几何恢复最小化
+所有 active constraint 的残差块按稳定约束顺序拼接为向量 `r(x)`。几何恢复最小化
 `||r(x)||²/2`；满足硬几何语义后，按词典序最小化 `(E_ref(x), E_all(x))`。
 运动目标不与几何残差加权混合，定义与收敛条件见第 4、7 节。
 
@@ -41,7 +41,7 @@ convergence/classification `10⁻⁷`、angle convergence/classification `10⁻�
 rank absolute/relative `10⁻¹⁰/10⁻⁸`。classification 可由
 调用方独立设置，不参与迭代停止，但不得严于对应 convergence tolerance，否则模型请求无效。
 
-## 2. 总体处理流水线
+## 总体处理流水线
 
 ```mermaid
 flowchart TD
@@ -61,9 +61,9 @@ flowchart TD
 输入校验包括稳定 ID 唯一性、引用完整性、有限数、单位方向、合法半径、无符号距离非负、无轴/指定轴 Angle 均位于 `[0, 2π]`、SolveIntent body 存在且同一 body 不同时指定为 moving/reference。不同 body 可以经 Rigid 合并到同一 cluster；运动角色仍是 occurrence 级偏好，不构成硬约束或组之间的排他关系。无效模型返回
 `InvalidModel`，不会让异常越过公开求解接口。
 
-## 3. 图编译
+## 刚性聚类、接地消元与连通分量
 
-### 3.1 Rigid cluster
+### 刚性聚类
 
 `Driving` 或 `Controlled` 的 `Rigid` 约束先通过并查集合并 Body。每条 Rigid 边保存创建约束时捕获的相对位姿；从按
 Body ID 排序后选出的 cluster root 做广度优先传播，得到 `root_to_body`。若闭环通过不同路径计算出的相对位姿误差超过
@@ -76,7 +76,7 @@ Body 位姿由下式恢复：
 T_{body}=T_{cluster}\,T_{root\rightarrow body}.
 \]
 
-### 3.2 Ground 消元
+### 接地消元
 
 active `Fix` 的目标是显式 `fixed_pose`，未提供时使用 Body 初始位姿。若 Fix 施加在非 root Body 上，先反算 cluster root
 目标：
@@ -87,7 +87,7 @@ T_{root}^{*}=T_{body}^{*}\left(T_{root\rightarrow body}\right)^{-1}.
 
 grounded cluster 不进入数值变量。一个 cluster 上的多个 Fix 若不能导出同一 root pose，则直接报告无效模型。
 
-### 3.3 Connected component 与局部求解
+### 连通分量与局部求解
 
 除 Fix/Rigid 外的 active constraints 在 cluster 之间建立无向边，并查集形成 connected components。现代 DIRECTED Angle 的独立 `angle_reference_geometry` 也把参考轴 owning body 加入同一 component；第三 body 的旋转进入解析 Jacobian，不假定该轴属于第二选择或固定世界。空的
 `affected_body_ids` 选择全部 component；否则只更新包含指定 Body 的 component，其他 component 保持名义状态并返回
@@ -96,7 +96,7 @@ grounded cluster 不进入数值变量。一个 cluster 上的多个 Fix 若不�
 适用的 `Measured` 约束不进入图和目标函数，但在最终位姿上计算残差；Contact 不接受 Measured。`Suppressed` 完全跳过；`Driving` 与 `Controlled` 当前采用
 相同的数值驱动语义。
 
-## 4. M2.5 从动层级优化与名义位姿
+## 静态解选择与名义位姿
 
 Product ADD/EDIT/preview/commit 共用 `assemblyConstraintSolveIntent()`：第一选择 moving、第二选择 reference。
 约束本身不增加持久主从方向。`Body.initial_pose` 是本次操作前冻结的名义位姿与分支基线，`initial_guess` 仅初始化数值变量；
@@ -118,9 +118,9 @@ Rigid 成员提供的多个 seed 必须符合捕获的刚性关系，未选择�
 
 `preference.status` 与几何 `SolveStatus` 独立：可行但偏好预算耗尽/停滞仍返回可行 Pose 和 `PREFERENCE_NOT_CONVERGED` 诊断，
 Product 拒绝将它当作从动成功提交；不会误报为几何冲突。响应包含每体角色及平移/旋转变化、两层目标值、最终投影梯度、
-迭代数和尺度。普通 ADD/EDIT 保持上述 M2.5 合同；M4 交互使用下面的显式目标策略，不注入临时 Fix。
+迭代数和尺度。普通 ADD/EDIT 保持上述静态合同；连续交互使用下面的显式目标策略，不注入临时 Fix。
 
-### 4.1 M4 纯值交互目标
+## 操纵目标与意图保持
 
 `SolverOptions.drag_target` 指定 body、body-local 抓取点、owning Product 中的目标 pose、冻结参考旋转及平移/旋转分量 mask。位置误差是参考帧中的
 `R_frame^T ((R p_grab+t)-(R_target p_grab+t_target))/L`；旋转误差使用目标旋转到当前旋转的短弧 Log，变换到相同参考帧后除以 A。
@@ -129,16 +129,16 @@ Product 拒绝将它当作从动成功提交；不会误报为几何冲突。响
 v12 显式交互策略的顺序为硬几何恢复 → driven task → held task → total nominal motion。
 两组互斥 mask 区分用户驱动分量、希望保持的分量及完全自由分量；held task 使用同一抓取点/短弧旋转残差及解析 Jacobian，不是物理方程。平移保留初始姿态和非驱动方向；绕心旋转的 target pose 已包含绕 pivot 的平移，不用原点位移压制该运动。L/A 仍是既有无量纲尺度，没有新极端权重。抓取点与姿态联合目标避免局部原点位置决定“用旋转替代平移”；受硬约束需要的旋转仍可发生。
 显式交互在零残差上构造优先级保留核时，对 `J_priority * diag(L,L,L,A,A,A)` 逐行归一化后再投影到现有正交核。行缩放不改变零残差可行子空间，只避免力臂/尺度差异把独立的姿态保持行误判为秩缺失；不改物理 rank、任务能量权重或成功容差。
-显式 held profile 先构造目标 body 对应的 rigid-cluster pose seed，只在原硬约束/branch 的非线性恢复成功且 driven 能量不恶化时采用；不 recapture nominal/组关系。不适用的固定 cluster 和恢复失败回到通用路径。没有 hold mask 的旧交互及静态 ADD/EDIT 保留原 reference → total M2.5 策略。
+显式 held profile 先构造目标 body 对应的 rigid-cluster pose seed，只在原硬约束/branch 的非线性恢复成功且 driven 能量不恶化时采用；不 recapture nominal/组关系。不适用的固定 cluster 和恢复失败回到通用路径。没有 hold mask 的旧交互及静态 ADD/EDIT 保留原 reference → total 静态策略。
 在 `J * diag(L,L,L,A,A,A)` 的正交核上求目标步，而不是对外部原始 basis 直接计算 `Z Z^T`；每个试步都调用原硬约束的有界非线性 retraction。
-后续偏好复用 M2.5 的先行标量目标切空间：零目标使用目标 Jacobian 的核，非零目标使用受限 Lagrangian 曲率的核，保留球面中心目标等平坦 argmin 的真实自由度。
+后续偏好复用静态层级优化 的先行标量目标切空间：零目标使用目标 Jacobian 的核，非零目标使用受限 Lagrangian 曲率的核，保留球面中心目标等平坦 argmin 的真实自由度。
 仅当残差为零或在该 argmin 上恒定时，retraction 同时保持冻结目标残差；其他平坦情形使用硬 retraction 与冻结标量能量上界，不混成加权和、不冻结不必要的残差向量。
 曲率乘子包含先行目标的适用导数行，但这些行不进入物理 rank。
 无 ground 时不消去 reference gauge，允许整个连接组件运动。
 `initial_pose` 始终是手势冻结 nominal；`initial_guess` 仅提供前一接纳帧。组捕获关系没有重新采样。
 Undefined 的适用对齐关系在交互求值分支中按 `initial_pose` 解析为 Same/Opposite；legacy Unsigned 的 Point/Line/Plane—Plane 侧也按同一冻结基线解析。
 `alignment_branches`/`distance_branches` 返回 typed 求值证据，原定义仍为 Undefined/Unsigned；不会随 warm start、相机或某次鼠标目标重新选择。SelectedPlaneNormalV1、Angle 及显式 Contact branch 的原语义保持。
-交互 body freedom 使用 owning Product 中的绝对瞬时子空间，包含允许的整体 gauge；静态 M2.5 继续使用相对锚点解释。component 的 relative/gauge DOF 分开报告，两者都不是有限旅行保证。
+交互 body freedom 使用 owning Product 中的绝对瞬时子空间，包含允许的整体 gauge；静态求解 继续使用相对锚点解释。component 的 relative/gauge DOF 分开报告，两者都不是有限旅行保证。
 
 目标投影梯度足够小且非零误差时，还检查受限 Lagrangian 曲率；负曲率驻点不能被认证为最近可行局部最优。
 `InteractionEvidence` 将硬可行、目标优化收敛和提交资格分开：Reached/Constrained 是局部结论；Budget/Cancelled/Failed 不可提升候选。
@@ -146,9 +146,9 @@ Undefined 的适用对齐关系在交互求值分支中按 `initial_pose` 解析
 不可达目标不触发持久冲突 probe，不尝试随机翻转 Undefined 分支。角度静态意图与 Session winding 的运输由调用方绑定，kernel 不写 Revision。
 `should_cancel` 在迭代、回溯及 retraction 检查；单次密集 QR/SVD 分解不可中断，这也是当前取消粒度限制。
 pose-only 交互仍计算全硬约束的 component rank、null-space 及每条方程残差，但不重复逐定义的累计增量 rank/冗余审计，返回 `INTERACTION_CONSTRAINT_RANK_AUDIT_FROZEN`。
-逐定义证据由 Session 的已接受输入基线绑定；普通静态求解及 M5 probe 继续执行该审计，不把缺少本帧审计解释为新证明。
+逐定义证据由 Session 的已接受输入基线绑定；普通静态求解及 局部诊断 probe 继续执行该审计，不把缺少本帧审计解释为新证明。
 
-## 5. 当前约束残差
+## 精确支持与方程编译
 
 记世界点为 `p`，轴为 `(o,d)`，平面为 `(o,n)`，其中方向均为单位向量。无向对齐 `Unoriented` 在当前迭代选择最近的 `Same`/`Opposite` 分支，残差与解析 Jacobian 使用同一符号；初始姿态不排除另一个可行分支。无符号距离仍固定到初始侧。Angle 的
 `Unoriented` 保留完整 `[0,π]` 语义。无向对齐的错误半球驻点通过最多16次刚性 cluster 半周初值探测恢复；探测仅改 initial_guess，不改 nominal、硬约束或 motion intent，成功后仍做完整偏好优化，失败保留原诊断。
@@ -192,7 +192,7 @@ Directed Angle 先把两个方向投影到 reference axis 的法平面，再用�
 
 现代参考轴是显式 `angle_reference_geometry` 和 `reverse_angle_reference`，在其 own body 中变换，支持独立第三组件；其解析旋转导数进入残差，不增加隐含的两方向垂直于轴关系。旧 `angle_reference_direction` 继续按第二 body-local 解释旧冻结输入，两字段不能并存。交换支持或反转轴按有向角变换目标，不改来源 owner；静态 branch 和多圈 session winding 分离。
 
-### 5.1 解析 Contact
+### 解析 Contact
 
 [`contact.cpp`](src/contact.cpp) 的前向解析微分计算 first/second origin/axis 共 12 输入偏导，native 再链到 cluster SE(3) 切空间。它不是另一套 solver/命令逻辑。Plane.axis 已是材料外法向；曲面规范径向法向乘 `m=±1`。External 相触材料法向相反，Internal 同向；Circle 整圆支撑不制造材料相切法向。令 `A=leaf·axis`、半角 `0<α<π/2`，`e=(side==External)==(m₁m₂>0)`。
 
@@ -216,7 +216,7 @@ Plane–curved 的 branch 必须与侧别/材料相容：External 为 `m_curved`
 
 公共 v2 在控制面编译为这些原语；完整 Fix Together 的 `groupStages` 则在冻结 manifest 编排中先解组内、成功后构造内部 Rigid，再解组外。native Rigid 只消费已捕获相对姿态，不拥有组 ID/编辑/嵌套生命周期。内部或外部数值/偏好失败不得晋升新捕获关系或候选位姿。
 
-## 6. 解析 Jacobian 与差分 oracle
+## 解析 Jacobian 与差分 oracle
 
 当前八类纯值 descriptor 与 Contact/精确入射能力由内部 typed equation registry 编译为带语义 equation kind、declared generic rank
 和稳定 provenance 的残差行。生产 Jacobian 使用前向解析微分值类型，在同一次方程计算中传播值及其对稳定自由 cluster
@@ -234,9 +234,9 @@ J_{:,j}\approx\frac{r(x+h_j e_j)-r(x-h_j e_j)}{2h_j}.
 平移和旋转使用独立默认步长 `10^-6` 与 `10^-7`。正负扰动复用已冻结 branch，残差维数必须一致且全部有限，否则返回
 `NumericalFailure`。兼容字段 `finite_difference_step` 非零时仍可覆盖两者，新调用方应使用分离字段。
 
-## 7. 可行性恢复与流形上的层级迭代
+## 分支、连续目标与可行性恢复
 
-几何恢复沿用 M2 增广 `ColPivHouseholderQR` 阻尼最小二乘，不形成正规方程，也不再加入弱运动权重。
+几何恢复沿用 增广 `ColPivHouseholderQR` 阻尼最小二乘，不形成正规方程，也不再加入弱运动权重。
 几何恢复阻尼按每个 body 的平移/旋转 Jacobian block 范数缩放，避免长力臂下把毫米与弧度当作同等步长。
 平移阻尼下界为 `1/length_scale²`，而非无量纲常量 1：长度残差已经除尺度，旧下界会在大尺度下过罚平移，使非原点 Point–Point/Point–Axis Offset 长期绕转停滞。此修复仅调整数值预条件，不改变残差、运动目标、秩或成功容差。
 用实际下降与线性模型预测下降的比值调整 damping，不因任意微小下降就持续减小阻尼。
@@ -244,7 +244,7 @@ J_{:,j}\approx\frac{r(x+h_j e_j)-r(x-h_j e_j)}{2h_j}.
 长度/角度成功容差不放宽；small-step 仍检查几何梯度，避免大 damping 伪造驻点。
 方向验收改用 `atan2(||a×b||, a·b)`，消除 `acos(dot)` 在对齐附近的浮点精度底限。
 
-几何可行后，M2.5 在无量纲切空间用同一 SVD 阈值构造正交零空间及最小范数校正。
+几何可行后，层级优化在无量纲切空间用同一 SVD 阈值构造正交零空间及最小范数校正。
 二级目标使用投影 BFGS 曲率更新和有界回溯；每体旋转步限制为 0.5 rad，平移步半径随当前目标残差尺度变化，
 避免将数百毫米自由平移限制为每轮 1 mm 而耗尽预算。trust region 只限制步长，不与几何约束竞争。
 零空间步只有一阶可行，候选需经有界几何恢复，再检查真实容差、上级目标固定上界及当前层改善。
@@ -261,11 +261,11 @@ reference 目标上界固定为第一层终值加 `objective_tolerance`（默认
 当目标差接近机器精度时，只在非累积能量误差界内且投影梯度进一步下降时接受步骤，不以浮点停滞冒充最优。
 `Converged` 是冻结 branch 下的局部一阶最优性证据，不证明非凸全局最优或任意有限运动可达性。
 
-平行无限直线与异面线的最短距离在平行点并非普通光滑流形：微小转动可把公垂线推至远处。实际偏离原点的 EDGE 距离试算复现了几何/偏好停滞。初始化现在对无符号平行线 Distance 给出精确径向平移 seed，仍不改 nominal。对于只有一个自由 cluster、孤立非零线线 Distance（其他关系仅 Fix/Rigid），偏好阶段使用局部平行 chart：旋转增量沿共同轴；偏好投影、曲率和可行性恢复共用 `motion_jacobian` 的临时 chart 行。物理方程/Jacobian、rank/DOF、模式、角色及成功容差不变，没有保存或发送额外 Parallel 约束；这是该局部分支上的驻点证据，不是跨分支全局最短运动或 M4 连续操纵保证。
+平行无限直线与异面线的最短距离在平行点并非普通光滑流形：微小转动可把公垂线推至远处。实际偏离原点的 EDGE 距离试算复现了几何/偏好停滞。初始化现在对无符号平行线 Distance 给出精确径向平移 seed，仍不改 nominal。对于只有一个自由 cluster、孤立非零线线 Distance（其他关系仅 Fix/Rigid），偏好阶段使用局部平行 chart：旋转增量沿共同轴；偏好投影、曲率和可行性恢复共用 `motion_jacobian` 的临时 chart 行。物理方程/Jacobian、rank/DOF、模式、角色及成功容差不变，没有保存或发送额外 Parallel 约束；这是该局部分支上的驻点证据，不是跨分支全局最短运动或连续操纵保证。
 
 回归从不满足的旋转/平移、偏离原点的两个线支撑开始，独立计算最终无限线距离，并要求 reference 不动、偏好收敛、物理秩 1/相对 DOF 5；覆盖目标 10/30/50、交换选择及 Fix/无 Fix。该非光滑案例使用与正式 Worker 一致的 profile（不开启跨分层中央差分 oracle），不是放宽几何容差。零目标现另有平行局部 chart：非平行/相交构型保持精确交线方程；同支持的显式 Parallel 耦合使用等价的横向位置式，Parallel 仍存在且独立计算 rank。chart 不伪造全局平行条件，既有 `ZeroDistanceAllowsFiniteIntersectionRotationWithoutHiddenParallel` 验证有限转动可行；另覆盖支撑原点变化、显式平行耦合和真实 Fix 冲突，不以临时 chart 秩代替物理 Jacobian/DOF。
 
-## 8. Rank、DOF 与 gauge
+## 秩、零空间与参考框架
 
 收敛后重新计算 `J`，先对非零参数列归一化，再使用 Eigen `JacobiSVD`；阈值为
 `max(rank_absolute_tolerance, rank_relative_tolerance*sigma_max)`。设参与计算的自由
@@ -277,17 +277,17 @@ nullity = \max(n-\rho,0).
 
 - 有物理 ground：`gauge_dof=0`，`relative_dof=nullity`；
 - 无物理 ground 且没有显式 reference gauge 消元：从 nullity 中最多扣除 6 个整体刚体 gauge；
-- 使用 M1.5 reference gauge 消元：数值变量已不含这 6 维，故 `relative_dof=nullity`，但逻辑变量数和
+- 使用 reference gauge 消元：数值变量已不含这 6 维，故 `relative_dof=nullity`，但逻辑变量数和
   `gauge_dof=6` 仍单独报告。
 
 结果同时返回按自由 cluster tangent 排序的数值 null-space basis、参与该排序的 cluster IDs、奇异值和实际 rank threshold。
-原始 basis 仍作为数值证据保留。M2.5 另在无量纲 metric 中构造每个 occurrence 的正交 allowed/blocked 子空间，
+原始 basis 仍作为数值证据保留。自由度解释在无量纲 metric 中构造每个 occurrence 的正交 allowed/blocked 子空间，
 按纯平移子空间与 angular image 分解，返回平移方向、转轴点/方向/pitch、linearization pose 和 rank threshold。
 无 ground 时这些解释相对稳定 body ID 的基准 occurrence 计算，整体六维 gauge 单独报告；固定坐标规约不冒充物理接地。
 规范自由度按子空间关系识别，无法确定为标准族时返回 Coupled。rank 是局部
 线性化结论，会受尺度、姿态、退化几何和阈值影响。
 
-## 9. 冗余、冲突与分类
+## 接纳、冗余与局部冲突证据
 
 冗余检测按 chosen basis 顺序增量拼接 Jacobian block，并为每个 constraint 返回 equation count、effective rank、
 incremental rank 与 Independent/PartiallyRedundant/FullyRedundant。旧 ID 列表仅包含 incremental rank 为零者；归因仍随
@@ -315,7 +315,7 @@ provenance。同一 block 内 semantic kind 必须唯一；当前“稳定”指
 零变量违反证明的是当前冻结分支、ground 和给定约束条件不可相容；一般非线性驻点只标记 `Unsatisfied`。当前
 `conflicting_constraint_ids` 仍不是 MUS：它是已证明不一致 component 中超差的约束邻域。
 
-## 10. 确定性、复杂度和已知边界
+## 确定性、复杂度与限制
 
 cluster、component 及冗余/冲突 ID 集合会显式排序；Body 与方程结果保留规范输入顺序。相同规范输入、选项和初始位姿
 应得到语义等价结果。该保证不意味着不同 CPU/Eigen 版本下浮点位完全一致，也不意味着未规范化的 constraint 排列会给出
@@ -326,141 +326,12 @@ Jacobian，augmented QR 的成本仍随 component 大小快速增长；Debug dif
 connected-component 分解和 ground/rigid
 消元是当前最主要的规模控制手段，尚未使用稀疏 Jacobian、增量因子分解或并行 component 求解。
 
-M1.6 还为近平行直线距离引入以 `degeneracy_tolerance` 为尺度的 blended 退化极限；除极小的
+距离方程为近平行直线距离引入以 `degeneracy_tolerance` 为尺度的 blended 退化极限；除极小的
 `kDirectionEpsilon` 保护分支外，它在 skew 与 parallel 公式之间连续过渡。该表达是工程正则化而非无限直线距离的唯一解析
 延拓，仍需用容差边界 sweep 验证 bias、Jacobian 和 rank。
 当前内核还不具备：通用最小基数冲突集证明、全局多分支枚举、一般曲面接触和大规模稀疏图优化。
-M4 已增加纯值拖动目标的局部流形优化；Product M5 的有界证据分级不等于内核的通用非线性 UNSAT 证明。
-M2.5 已提供局部层级运动优化和规范化瞬时自由度解释，不能由此推断全局最优或有限运动可达性。
-
-## 11. 已确定的后续升级流程
-
-后续工作先修正残差和状态语义，再替换微分与线性代数实现，避免为不稳定方程编写解析 Jacobian：
-
-M1.6 鲁棒性门已经落地：Angle 使用 unsigned `atan2` 和端点对齐残差，一次 solve 内冻结方向和适用的距离侧分支；
-版本化 SolverProfile 已贯穿 Proto/Worker/Go；`Unsatisfied`、`Inconsistent` 与 `NonConvergent` 拥有不同证据边界。
-
-M1.7 已把该切片修正为严格的绕轴角：先投影两个端点方向，再计算有向角；Angle 在所有目标值都保持单标量语义，周期误差
-跨 0/2π 连续。分支结构可接收/返回 winding，但静态装配 Revision 仍只保存 modulo `2π` 的几何目标，多圈累计属于交互或
-运动状态。
-所有 component 对候选步使用固定上限次数的二分回溯线搜索。旋转不仅改变支持方向，也会改变离 cluster 原点较远的
-支持点世界位置，因此 Plane-Plane Coincident 等普通约束同样可能拒绝完整 LM 步但接受较小下降步。文档实例 FACE 5
-回归正是这一类平移/旋转强耦合问题；统一回溯后无需随机 perturb 或增加迭代预算即可收敛。
-对于显式 Same/Opposite 的 Plane-Plane Coincident，若当前法向恰好处于目标 branch 的反点，法向差目标存在零梯度鞍点。
-初始化阶段会选择与法向最不平行的规范世界轴，构造绕第一支持平面原点的确定性半周 seed，并补偿法向距离；该 seed 只决定
-离散 branch 初值，其他约束仍由同一 component 的数值求解统一满足。
-
-1. **M2 方程与微分正确性（已完成）**：内部 typed equation registry 覆盖当前八类纯值 descriptor 与解析关系；前向解析微分提供左增量 Jacobian，中央有限差分作为 differential oracle。参考后端使用 augmented QR，SVD 专用于 rank、奇异值和数值 null-space。M2 没有增加 Product 约束类型。
-2. **M2.5 自由度与解选择（已实现）**：a 从动层级优化、b Product 贯通验收及 c 自由度解释均已落地。将数值 null-space 在稳定 cluster tangent 顺序下解释为平移、旋转和耦合瞬时自由度；以子空间而非原始 SVD 列进行确定性验证。在可行流形内使用层级优化依次最小化 reference motion 与总 nominal change，已替换 M1.7 弱权重策略。
-3. **M3 可重放输入（控制面已实现）**：由控制面冻结包含 typed InstancePath、ResolutionSnapshot、Publication/PersistentSelection、descriptor symmetry/provenance、branch intent、tolerance 和 solver build 的不可变 solve manifest。当前正式路径已使用 typed nested InstancePath 与持久引用解析；local topology ID 只作瞬时 pick evidence。产品验收与后续执行顺序见[统一路线](../../plans/README.md)。
-4. **M4 稳定分支与交互**：在已交付[六类约束组合与激活/抑制](../../docs/architecture/target/assembly-constraints.md)上，第一阶段增加第 4.1 节的纯值流形拖动目标；Product/Worker 负责版本化 Session、连续 branch 运输及最终候选提交，不能把普通编辑 Preview 当作拖拽。静态 Product 只持久化 modulo `2π` branch intent，Interaction 承担 winding。基础 Offset/Angle/Contact/Frame 不推迟至 M6。产品实现、实际测试和待人工验收见[当前 Product 架构](../../docs/architecture/current/product-assembly.md)。
-5. **M5 与后续边界**：Product 编排承担图局部化、有预算且证据分级的只读分析；kernel 数值失败不是 UNSAT。M6 Engineering Connections 明确延期，不自动领取；M7 的 block-sparse、增量 factorization、可选后端与独立 Worker 仍须真实规模证据。详细阶段门见 `SOLVER_ARCHITECTURE.md`。
-
-静态装配只保存 modulo `2π` 的姿态分支，多圈累计角属于 Interaction、Kinematics 或 Simulation 状态。MUS/minimal
-conflict set 不在 M2 关键路径上；当前优先保证方程、解析微分、数值子空间和可重放输入的正确性，再建设分支交互和诊断搜索。
-
-## 12. 回归验证
-
-邻近场景测试覆盖具体残差行为；[`tests/assembly-corpus`](../../tests/assembly-corpus) 覆盖 canonical DOF、刚性聚类、
-ground 消元、gauge、重复/冲突/退化输入、排列不变性、冷/热启动语义以及 M1.5 moving/reference。运行：
-
-```sh
-cmake --build build/cmake/debug \
-  --target occcad_assembly_solver_scenarios occcad_assembly_solver_corpus
-ctest --test-dir build/cmake/debug \
-  -R '^(assembly|assembly-corpus)/' --output-on-failure
-```
-
-### 六族阶段原生验证（CONSTRAINT-COMPOSITION）
-
-下列带日期小节是对应旧阶段的实际记录，不随新实现倒填。六族本轮新增数学与组合验证使用 `contact_scenarios.cpp`、`contact_solver_scenarios.cpp`、`assembly_composition_scenarios.cpp`：Contact 独立支撑采样/切法向、各分支秩和解析微分交叉验证；正常需实际移动、材料/选叶/交换/反向、不可行和冗余耦合；45 项具体 Coincidence/Offset/Angle/Fix 数值矩阵；独立第三参考轴及子空间 projector（先正交化而非假设 SVD 输出符号/顺序）。当前统一执行 **177/177 native、21/21 corpus 通过**，记录于 `build/constraint-composition/native-composition-final.xml`、`native-corpus-final.xml`。六族编译组的 Plane–Plane 材料反极点回归已纳入本次统一执行；这里不据此声称真实数据库或 CONSTRAINT-COMPOSITION 整体已通过。
-
-有限运动复用 `AssemblyComposition.JointFamiliesPreserveAllowedFiniteMotionAndRejectBlockedTranslation`：球铰/平面副/圆柱副/转动副/移动副/固定关系各 13 个解析有限姿态和一次受阻恢复，共 84 次真实重复求解。该阶段尚未实现 M4 鼠标最近可行拖拽，不以瞬时零空间方向代替该有限路径验收；M4 新增纯值目标见第 4.1 节。该记录中的维护者反馈仅覆盖此前 OFFSET 使用验证，后续反馈与交互验证见当前 Product 分册；未执行浏览器测试或无差别全仓单测。
-
-独立第三参考轴同时参与连通分量、微分与组内/组外判定：只有该约束的全部 incident bodies 都属于组时才进入内部阶段，内部捕获摘要包含第三轴的稳定几何身份。两成员组加外部第三轴与三成员组包含该轴是不同的冻结阶段。接受 DIRECTED 结果不能运输 FREE 的 `spatialAngleBranchDirection`；从 DIRECTED 切回 FREE 时保留用户空间角定义，而不是带入投影角求值分支。Axis–Plane 从不可测初态恢复 Driving 的正交初值只作用于试算，不修改 nominal、Fix 或驱动参数。
-
-### M2.5 验证记录（2026-09-06）
-
-重新编译 Debug 内核与 Geometry Worker 后，assembly/assembly-corpus 共 **75/75** 项通过。
-新增回归覆盖从动、非零 reference 最优解族、初值与 nominal 分离、单位/世界坐标变换、刚性成员代表选择、
-自由度子空间及偏好预算失败。Go 全仓测试通过；正式 Router 测试调用真实 Worker，并在隔离的临时 PostgreSQL
-上验证空库迁移及重复迁移、Product preview/commit、刷新、连续两次 Undo/Redo 和 capability。
-Web 场景测试及生产构建通过；浏览器真实入口验证约束面板的求解证据、取消、提交和刷新。
-预览 actor 按 effect 生命周期创建，避免 StrictMode 重挂载复用已停止 actor 而丢失响应。
-
-当前显式 moving/reference 的平面链 Debug 基准（每组 3 次）如下；该场景中 reference 必须平移 1：
-
-| Body 数 | 平均耗时 | 几何/偏好迭代 | 归一化残差 | reference 目标/平移 |
-|---|---|---|---|---|
-| 5 | 53.1 ms | 3 / 2 | 1.68e-11 | 1 / 1 |
-| 15 | 541 ms | 3 / 2 | 3.28e-8 | 1 / 1 |
-| 30 | 6.63 s | 4 / 2 | 1.77e-9 | 1 / 1 |
-
-总目标在整个可行切空间已满足驻点阈值时，直接使用该更强证据，省去不必要的 reference 二阶切空间计算。
-以上是 dense Debug 参考后端的规模证据；场景和策略已变化，不与旧 M2 时延作等价对比，也不代表生产容量承诺。
-
-### 移动后平面重合与 3dreplay 回归（2026-09-06）
-
-文档 `01a07216-9dce-7c7f-9e76-80333c4dca9d` 的 FACE 4 / FACE 6 同向重合已从数据库当前 Revision 和 OCCT 精确拓扑还原。
-第二 occurrence 已 Fix；第一 occurrence 位姿为 `t=(-252.55719832993879,0,0)`、
-`q_xyzw=(0,0,0.41411770542833365,0.9102233385553086)`。两个局部平面分别为
-`o=(89.88533068174983,0,38.522284577892705), n=(0,0,-1)` 与
-`o=(22.64967658052029,-40,-32.815279455242084), n=(0,-1,0)`。
-旧实现稳定耗尽 100 次几何迭代；上述阻尼修正后，同一正式 Router/Product preview 在 **9 次几何迭代、6 次偏好迭代**后收敛，
-reference 不动，归一化残差约 `2.13e-14`。未增加默认迭代预算或放宽几何/偏好容差。
-
-扩展测试还覆盖三轴共 36 个旋转初值，以及第一选择已固定时对自由 reference 做反向平面 branch 初始化。
-内核及 corpus **78/78** 通过；不等半径圆柱现在抵达可解释的 `Unsatisfied` 驻点，不再依赖耗尽预算作为预期失败状态。
-
-原始失败数学输入与结果见 [`face4-face6.3dreplay`](../../tests/assembly-corpus/face4-face6.3dreplay)。
-Go Router 集成测试直接读取此文件重放，并独立检查当前结果成功；原文件的旧 `MAX_ITERATIONS` 结果保留作比较证据。
-文件契约和可执行命令见 [`occccad-3dreplay`](../../services/cmd/occccad-3dreplay/README.md)。
-
-## 13. `solver.cpp` 上下文优化计划（尚未实施）
-
-`src/solver.cpp` 当前约 153 KB/2836 行，但它不是一个可以按行数平均切割的文件。源码依赖方向从前到后基本稳定：
-
-```text
-SE(3) / world geometry / differential values
-  -> equation registry + residual + analytic Jacobian rows
-  -> CompiledAssembly graph, rigid clusters and frozen branches
-  -> ComponentProblem state/residual/Jacobian/objectives
-  -> feasibility restoration + hierarchical motion optimization
-  -> null-space/rank/freedom/conflict diagnostics
-  -> Solver::solve result aggregation and bounded probes
-```
-
-审计确认的关键耦合不能被文件拆分破坏：
-
-- `constraint_residual`、`differential_residual`、`equation_definition`、tolerance 与 satisfaction ratio 必须继续来自同一 typed equation semantics；
-- `CompiledAssembly` 独占 input validation、Rigid cluster、Ground 消元、branch freeze 和 component selection，branch 不能在 residual evaluation 中重新选择；
-- `ComponentProblem` 独占稳定的 free-cluster tangent ordering、尺度、body tangent 和 analytic/finite-difference oracle 对照；
-- feasibility、reference preference、total nominal preference 使用同一 `State` 与 tangent scale，几何收敛不能被偏好收敛替代；
-- rank/DOF/freedom 必须在线性化 pose、同一 Jacobian normalization 和稳定 cluster identity 下解释；
-- `Solver::solve` 的 bounded conflict probe 会递归调用公开 solver，拆分后仍需保持 probe budget 清零和分类优先级。
-
-计划只建立 `src/detail/` 私有边界，不增加 public header 或改变 `solver.hpp`：
-
-| 阶段 | 拟拆职责 | 目标 |
-|---|---|---|
-| S0 | characterization only | 固定 equation row identity、branch、Jacobian oracle、排列/世界变换、warm/cold、分类与层级偏好 corpus |
-| S1 | `constraint_equations` | world/differential geometry、typed equation definition、residual/Jacobian row、tolerance；保持一个共享语义入口 |
-| S2 | `compiled_assembly` | validation/index、Rigid/ground、frozen branch、connected component；只暴露不可变查询 |
-| S3 | `component_problem` | State increment、residual block、analytic/finite-difference Jacobian、objective、tangent/body mappings |
-| S4 | `nonlinear_solve` | feasibility restore、trust/backtracking、reference/total hierarchy；不更改数值常量或迭代顺序 |
-| S5 | `freedom_diagnostics` | normalized SVD、rank attribution、freedom interpretation、conflict evidence |
-| S6 | thin `solver.cpp` | component orchestration、result aggregation、classification、bounded probes 和异常映射 |
-
-每阶段只移动一种职责，禁止同时调整算法、容差、Eigen decomposition、迭代顺序或数据布局。验收门：
-
-1. `assembly` 与 `assembly-corpus` 全部通过；
-2. analytic Jacobian 对 finite-difference oracle 的误差界不变；
-3. body/constraint permutation、单位/世界 frame、cold/warm-start 语义不变；
-4. M2.5 reference/total objective、preference status、rank/DOF 和稳定 equation identity 不变；
-5. representative benchmark 记录 compile time、binary size 和 runtime，结构拆分不得以明显性能回退换取上下文收益；
-6. Worker/Go/Product contract 不变，因此正常阶段只需 assembly scope；若 private boundary 被迫改变公共类型，停止并升级架构评审与全量验证。
-
-实施触发条件不是文件再次增长，而是至少两个真实任务持续需要跨越上述无关职责。首选从 S1 开始，因为 residual/Jacobian 已有最强 conformance；`CompiledAssembly` 与 `ComponentProblem` 在完成 S1 前不移动，避免一次改写匿名 namespace 中全部内部依赖。
+交互使用纯值拖动目标的局部流形优化；Product 局部诊断的有界证据分级不等于内核的通用非线性 UNSAT 证明。
+当前提供局部层级运动优化和规范化瞬时自由度解释，不能由此推断全局最优或有限运动可达性。
 
 ## 无轴空间角与指定轴投影角
 
@@ -471,3 +342,7 @@ SE(3) / world geometry / differential values
 `SpatialAnglePreservesConeAndComposesWithDifferentCoincidentLines` 验证30°/330°与不同方位的线重合可组合，真实法向点积正确且总秩为五；`SpatialAngleAcceptsAllAzimuthsAndReflexValues` 验证圆锥方位自由和解析 Jacobian。
 
 偏好阶段采用 BFGS 主搜索方向；线搜索停滞时，在零参考目标的可行子空间计算目标及硬约束的 Lagrangian Hessian，以正定 LDLT 给出第二方向。曲率由解析一阶导数的 Richardson 差分构造，不替代生产残差 Jacobian；仍要求原几何容差、参考目标界、下降或可证明的投影梯度下降，不把 Stalled 改名为 Converged。中央差分 oracle 在无向对齐的方向切换边界沿基点同一分支检查局部导数。
+
+## 验证入口
+
+邻近 native 场景独立检查最终几何、解析 Jacobian、秩/子空间、分支与有限运动；累计轨迹区分冻结 nominal、用户累计目标和 accepted initial guess。跨层验证与执行方式见[装配测试](../../tests/assembly-contract/README.md)，未实现方向见[后续工作](../../plans/README.md)。测试存在不是本次执行证明。

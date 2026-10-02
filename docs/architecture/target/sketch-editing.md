@@ -80,7 +80,7 @@ EntityOperation = oneof {
 
 **TrimEntity** 不是简单隐藏曲线片段。它用选择点和相交候选确定保留参数域，底层执行 Replace/Split，并返回歧义候选。存在多个同距候选、切触、重叠或周期 seam 时必须要求分支提示。
 
-**ExtendEntity** 第一阶段只支持 LineSegment 和 Arc 到明确的 target/intersection；若没有唯一可行交点则失败。**ReverseEntity** 交换 Line/开放曲线端点或反转 Arc sweep，并产生 sub-element mapping，使 START/END 引用可受控迁移。
+**ExtendEntity** 基本支持范围限定为 LineSegment 和 Arc 到明确的 target/intersection；若没有唯一可行交点则失败。**ReverseEntity** 交换 Line/开放曲线端点或反转 Arc sweep，并产生 sub-element mapping，使 START/END 引用可受控迁移。
 
 所有几何编辑先产生候选实体和 Lineage，再统一执行 Constraint rewrite、Schema validation、Solve、Profile validation 与 CAS commit；不能让每个 operation 自行写数据库。
 
@@ -157,7 +157,7 @@ VariableDescriptor
 - Fixed/表达式直接驱动的参数由 Constraint/Parameter layer 标记锁定，而不是从实体删除；
 - Circle radius、Ellipse axes、权重等正值参数允许 Adapter 使用内部变换，但必须提供 physical value/Jacobian chain rule；
 - Arc 角度使用 unwrapped solver state，持久化时才规范化，防止穿越 `2π` 时跳变；
-- BSpline control point ID 决定变量身份，knot/degree 第一阶段不是求解变量；
+- BSpline control point ID 决定变量身份，knot/degree 不作为求解变量；
 - 求解结果写回前按 Entity kind 重新验证和 canonicalize，失败返回 `SKETCH_DEGENERATE_ENTITY`。
 
 #### 5.3.4.14 Profile、渲染与 OCCT 转换边界

@@ -1554,11 +1554,13 @@ export function Workbench() {
         <AssemblyConflictPanel open={conflictOpen} pending={conflictPending} report={conflictReport}
           current={Boolean(conflictContextCurrent&&editingView&&assemblyConflictCurrent(conflictReport,editingView.document.id,editingView.document.versionId))}
           error={conflictError} canEdit={canEdit&&!command.isPending} view={editingView} evidence={engineeringEvidence.data}
+          onMotion={motion=>viewport.current?.showRemainingMotion(motion)}
+          ownerOccurrence={activeInstancePath}
           onLocateInstance={id=>{if(!editingView?.product?.instances.some(instance=>instance.id===id))return;
             store.setSelections([{kind:"instance",id,instanceId:id,documentId:editingView.document.id,occurrencePath:activeInstancePath?[activeInstancePath,id].join("/"):id}]);
             viewport.current?.focusAssemblyReference({instanceId:id,kind:"BODY"},activeInstancePath);}}
           onAnalyze={ids=>void analyzeConflicts(ids)} onStop={stopConflictAnalysis}
-          onClose={()=>{stopConflictAnalysis();setConflictOpen(false);}} onLocate={locateConflictMember} onRepair={repairConflictMember}/>
+          onClose={()=>{viewport.current?.showRemainingMotion();stopConflictAnalysis();setConflictOpen(false);}} onLocate={locateConflictMember} onRepair={repairConflictMember}/>
         {view.document.type === "PRODUCT" && (productUpdateFailure || productUpdatePlan.data?.hasUpdates && !productUpdatePlan.data.canAccept) && <Alert
           style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",minWidth:420}}
           type="error" showIcon message="自动跟随最新版本被阻塞"

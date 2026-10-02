@@ -46,7 +46,7 @@ flowchart LR
 
 `POST /api/documents/{rootProductId}/part-components` 实现 Product 树“新建零件”：可用 typed `targetProductInstancePath` 指向嵌套 Product，空名称由服务端分配 `PartN`。Part 初始 Revision、目标 occurrence 和祖先 Product Revision 以一个 ProductDesignTransaction 原子提交；当前唯一 placement mode 为 `PRODUCT_ORIGIN`。
 
-P10 Product API 包括 `GET|POST /api/documents/{rootProductId}/product-update-plan[/accept]`、`GET|POST .../releases`、`POST .../releases/{releaseId}/replay`、`POST .../solve-manifests/{digest}/replay` 与 `GET .../solve-results?requestId=`。Update accept 必须携带刚读取的 plan digest；Release gate 冻结 occurrence/ContextBinding/ContextVariant/Evaluation/SolveManifest closure，replay 与 request lookup 不读取可变 Workspace Head。
+Product API 包括 `GET|POST /api/documents/{rootProductId}/product-update-plan[/accept]`、`GET|POST .../releases`、`POST .../releases/{releaseId}/replay`、`POST .../solve-manifests/{digest}/replay` 与 `GET .../solve-results?requestId=`。Update accept 必须携带刚读取的 plan digest；Release gate 冻结 occurrence/ContextBinding/ContextVariant/Evaluation/SolveManifest closure，replay 与 request lookup 不读取可变 Workspace Head。
 
 `CREATE_SKETCH` 除 DatumPlane 外还接受当前 Part Revision 的 `FACE` raw pick（`versionId/geometryKey/topologyId`）。服务端先绑定 PersistentSelection 并验证平面类型，再保存确定性 support frame；后续上游编辑通过 naming resolver 和草图之前的完整 body-prefix 制品更新 frame/dependency snapshot。浏览器和持久模型都不把 local face ID 当成长期支撑身份。
 
@@ -118,7 +118,7 @@ invoke performance-baseline
 
 扩展业务能力优先增加 `services/internal` 模块，只有出现独立扩缩容、故障隔离、安全边界或发布节奏需求时才拆分网络服务。长期演进见项目[目标架构](../../../docs/TARGET_ARCHITECTURE.md)。
 
-装配 M2.5：ADD/EDIT 的预览与提交共用第一 moving、第二 reference 的 SolveIntent。
+装配静态解选择：ADD/EDIT 的预览与提交共用第一 moving、第二 reference 的 SolveIntent。
 服务端只接受几何满足且 preference 收敛的结果；`ASSEMBLY_PREFERENCE_NOT_CONVERGED` 与几何冲突分开报告。
 预览返回 `assemblySolverBuild` 和 `assemblyComponents`（每体位移、运动尺度、局部最优性及自由度证据），不写 Revision；
 预览 modelHash 对应求解后的候选模型。服务端保留 45 秒的一次性 verified candidate；提交的 `previewId` 只有在 actor、document、Head 和 typed payload 全部匹配时才能跳过重复求解，仍从最终求解 Pose 重建 ChangeSet 并执行正常 CAS，失效则自动重算。`interactionId` 只用于连续装配预览 warm start，不能成为 Revision 数据。
@@ -130,7 +130,7 @@ invoke performance-baseline
 `.3dreplay` 在响应关键路径外原子写入 `OCCCCAD_LOG_DIR/debug/assembly-replays/<documentID>/`，不进入数据库；每个文档最多 50 条、最长 7 天。成功、失败和预览留档不改模型历史。
 格式与独立重放命令见 [occccad-3dreplay](../occccad-3dreplay/README.md)。
 
-P6 Cut/Hole 验收位于 `internal/control/TestCutHolePersistentSelectionThroughRealRouter`。它通过正式 GeometryPool/Router 和 C++ Worker 执行 Part `REMOVE`、Product `UPDATE_REFERENCES`、Undo/Redo、Broken 隔离与 Reconnect，而不是绕过 transport 直接伪造 topology result。测试需要可丢弃 PostgreSQL 和 Worker 路径；设置 `OCCCCAD_P6_EVIDENCE_DIR` 时会额外保存逐场景 resolution JSON 与可下载、可由 `ReplayAssembly` 重放的 `.3dreplay`。
+Cut/Hole 集成验证位于 `internal/control/TestCutHolePersistentSelectionThroughRealRouter`。它通过正式 GeometryPool/Router 和 C++ Worker 执行 Part `REMOVE`、Product `UPDATE_REFERENCES`、Undo/Redo、Broken 隔离与 Reconnect，而不是绕过 transport 直接伪造 topology result。测试需要可丢弃 PostgreSQL 和 Worker 路径；设置 `OCCCCAD_P6_EVIDENCE_DIR` 时会额外保存逐场景 resolution JSON 与可下载、可由 `ReplayAssembly` 重放的 `.3dreplay`。
 
 数据库连接由统一的进程内访问层调度，支持有界等待和后台轮询预算；参数与一致性说明见 [database README](../../internal/database/README.md)。队列满时命令/预览返回可重试的 DATABASE_BUSY，客户端重试须保持 request ID。HTTP 耗时阶段新增 db-queue-wait / db-pool-wait / db-query / db-batch / db-transaction；阶段存在包含关系。
 
