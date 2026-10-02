@@ -8,7 +8,7 @@
 
 - 页面/Feature 不直接散布 Scene、Renderer 或全局事件生命周期；复用 Viewport、Input、Tool、Selection 和 Command 边界。
 - Pointer 工具拥有 down/move/up/cancel、capture/release、lost capture、blur 与 Esc。两点/两选择工具第一次 pointerup 后保持配对状态，Selection/Navigation 不接管事件。
-- Instance move 冻结 pointerdown baseline，coalesce preview、丢弃 stale generation，pointerup 等待最终权威 preview；最终确认帧与 handle/selection 生命周期保持一致。
+- Instance move 冻结 pointerdown baseline，coalesce preview、丢弃 stale generation；pointerup 后最终求解/提交独立于普通选择变化，模型修改经结束屏障。显式取消和上下文失效仍严格生效。
 - Three.js Group 不保证有 `material`；Point/Line/Mesh 使用各自 primitive、尺寸、depth/render order 与 sketch-plane transform。
 - render transition 只插值 TRS，rotation 用 quaternion slerp；同批 occurrence 共用时钟，从当前显示帧重定向，不写入服务端 state。
 - Realtime/鉴权改动同时验证 API 直连与浏览器实际 Vite `/api/realtime` Upgrade 入口，包括 Origin、cookie/CSRF 和 `occccad.realtime.v1` subprotocol；直连成功不能覆盖代理 403。

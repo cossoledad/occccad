@@ -124,9 +124,8 @@ function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, c
   const status = ASSEMBLY_CONSTRAINT_STATUS[evaluationStatus];
   const planePair = exactTypes?.length===2 && exactTypes.every(kind=>kind==="PLANE");
   const distanceRelation = Form.useWatch("distanceRelation");
-  const offsetExpression = Form.useWatch("offsetExpression");
   const quantityExpression = Form.useWatch("quantityExpression");
-  const expressionDriven = (kind === "DISTANCE" && !!offsetExpression?.trim()) || (kind === "ANGLE" && !!quantityExpression?.trim());
+  const expressionDriven = (kind === "DISTANCE" && !!quantityExpression?.trim()) || (kind === "ANGLE" && !!quantityExpression?.trim());
   const minimumValue = kind === "DISTANCE" && distanceRelation && distanceRelation !== "UNSIGNED" ? undefined : 0;
   const relation = angleRelation ?? constraint?.angleRelation;
   const relationOnly = kind === "ANGLE" && !angleRelationSupportsMeasured(relation);
@@ -187,9 +186,9 @@ function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, c
         [{value:constraint.distanceRelation,label:"历史定义：第二法向约定（保留）"}] : [])]} /></Form.Item>}
     {kind === "DISTANCE" && <>
       <Typography.Text type="secondary">偏移 = 所选法向 ·（第一位置 − 第二位置）。双平面取第一法向；同向/反向不改变输入正负。无平面仅无符号无限支撑距离。</Typography.Text>
-      <Form.Item name="offsetKey" label="偏移参数标识"><Input onBlur={onValueCommit} /></Form.Item>
-      <Form.Item name="offsetExpression" label="长度表达式（空白使用数值）"><Input placeholder="例如 Offset_base + 5 mm" onBlur={onValueCommit} onPressEnter={event=>event.currentTarget.blur()} /></Form.Item>
-      <Typography.Text type="secondary">可引用：{view?.product?.constraints?.flatMap(c=>{const p=c.quantityParameter??c.offsetParameter;return p?[p.key]:[];}).join(", ") || "暂无；表达式须带长度单位"}</Typography.Text>
+      <Form.Item name="quantityKey" label="偏移参数标识"><Input onBlur={onValueCommit} /></Form.Item>
+      <Form.Item name="quantityExpression" label="长度表达式（空白使用数值）"><Input placeholder="例如 Offset_base + 5 mm" onBlur={onValueCommit} onPressEnter={event=>event.currentTarget.blur()} /></Form.Item>
+      <Typography.Text type="secondary">可引用：{view?.product?.constraints?.flatMap(c=>{const p=c.quantityParameter;return p?[p.key]:[];}).join(", ") || "暂无；表达式须带长度单位"}</Typography.Text>
       <Form.Item name="constraintMode" label="求值模式"><Select onChange={onValueCommit} options={[{value:"DRIVING",label:"驱动"},{value:"MEASURED",label:"只测量（保留驱动定义）"}]} /></Form.Item>
       {constraint?.mode === "MEASURED" && <Typography.Text>测量：{constraint.measuredValue === undefined ? "不可测" : `${constraint.measuredValue} mm`}</Typography.Text>}
     </>}
@@ -256,6 +255,7 @@ export function Workbench() {
   const [insertOpen, setInsertOpen] = useState(false);
   const [patternOpen, setPatternOpen] = useState(false);
   const previewInsertPattern = useCallback((input?: InstancePatternPreview) => viewport.current?.previewInsertPattern(input), []);
+  const showAnalysisMotion = useCallback((motion?: Parameters<NonNullable<CadViewportHandle["showRemainingMotion"]>>[0]) => viewport.current?.showRemainingMotion(motion), []);
   const [newPartTarget, setNewPartTarget] = useState<SpecificationTreeNode>();
   const [versionOpen, setVersionOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
@@ -310,7 +310,7 @@ export function Workbench() {
   const [contextReferenceForm] = Form.useForm<{ name:string;catalogKey:string;publicationType:string;targetId:string }>();
   const [replacementForm] = Form.useForm<{referencedDocumentId:string}>();
   const [externalParameterForm] = Form.useForm<{ catalogKey: string }>();
-  const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string; offsetExpression?:string;offsetKey?:string;quantityExpression?:string;quantityKey?:string;contactKind?:string;contactSide?:string;contactBranch?:number;groupName?:string;groupMembers?:string[];constraintMode?:string; fixedTranslation:Vec3; fixedAngles:Vec3 }>();
+  const [assemblyConstraintForm] = Form.useForm<{ value: number; directionRelation: string; distanceRelation: string; quantityExpression?:string;quantityKey?:string;contactKind?:string;contactSide?:string;contactBranch?:number;groupName?:string;groupMembers?:string[];constraintMode?:string; fixedTranslation:Vec3; fixedAngles:Vec3 }>();
   const padOperation = Form.useWatch("operation", padForm) ?? "ADD";
   const contextPublicationType = Form.useWatch("publicationType", contextReferenceForm) ?? "PLANE";
   const assemblyDirection = Form.useWatch("directionRelation", assemblyConstraintForm);
@@ -400,7 +400,7 @@ export function Workbench() {
     return () => { disposed = true; unsubscribe?.(); };
   }, [client, documentID, message]);
   const command = useMutation({
-    onMutate:()=>viewport.current?.cancelAssemblyInteraction(),
+    onMutate:async()=>{await viewport.current?.settleAssemblyInteraction();},
     mutationFn: (operation: () => Promise<DocumentView>) => operation(),
     onSuccess: (updated) => { store.setSelection(null); void refresh(updated); }, onError: (error) => operationFeedback(error,"命令")
   });
@@ -749,7 +749,7 @@ export function Workbench() {
           }
           setAssemblyPreviewEvaluation(preview.constraintEvaluation);
           if (preview.instancePoses) viewport.current?.previewAssemblyPoses(preview.instancePoses);
-          assemblyPreviewActor.current?.send({ type: "RESOLVE", sequence, components: preview.assemblyComponents });
+          assemblyPreviewActor.current?.send({ type: "RESOLVE", sequence, components: preview.assemblyComponents, definitionOnly:preview.evaluationOutcome==="DEFINITION_ONLY" });
         }
       }).catch((cause: unknown) => {
         if (controller.signal.aborted) {
@@ -1364,7 +1364,7 @@ export function Workbench() {
   const assemblyPreviewEvidence = assemblyPreviewFailed ? <Alert type="error" showIcon
     message="约束预览求解失败"
     description={`${assemblyPreviewSnapshot.context.errorCode ? `[${assemblyPreviewSnapshot.context.errorCode}${assemblyPreviewSnapshot.context.phase ? ` @ ${assemblyPreviewSnapshot.context.phase}` : ""}] ` : ""}${assemblyPreviewSnapshot.context.error ?? "无法生成约束预览"}`}
-  /> : motionComponents?.length ? <div aria-label="装配求解结果">
+  /> : assemblyPreviewSnapshot.matches("definitionReady") ? <Alert type="warning" showIcon message="计算未完成，可确认保存为待更新" /> : motionComponents?.length ? <div aria-label="装配求解结果">
     {motionComponents.map(component => <div key={component.componentId}>
       <Typography.Text type="secondary">剩余相对自由度：{component.relativeDof}；整体自由度：{component.gaugeDof}</Typography.Text>
       {component.preference.bodies.filter(body => body.role === 1).map(body => <div key={body.bodyId}>
@@ -1554,8 +1554,8 @@ export function Workbench() {
         <AssemblyConflictPanel open={conflictOpen} pending={conflictPending} report={conflictReport}
           current={Boolean(conflictContextCurrent&&editingView&&assemblyConflictCurrent(conflictReport,editingView.document.id,editingView.document.versionId))}
           error={conflictError} canEdit={canEdit&&!command.isPending} view={editingView} evidence={engineeringEvidence.data}
-          onMotion={motion=>viewport.current?.showRemainingMotion(motion)}
-          ownerOccurrence={activeInstancePath}
+          onMotion={showAnalysisMotion}
+          ownerOccurrence={activeInstancePath} lengthUnit={lengthUnit}
           onLocateInstance={id=>{if(!editingView?.product?.instances.some(instance=>instance.id===id))return;
             store.setSelections([{kind:"instance",id,instanceId:id,documentId:editingView.document.id,occurrencePath:activeInstancePath?[activeInstancePath,id].join("/"):id}]);
             viewport.current?.focusAssemblyReference({instanceId:id,kind:"BODY"},activeInstancePath);}}
@@ -1633,7 +1633,7 @@ export function Workbench() {
     </WorkbenchLayout>
     <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" width={390}
       onClose={() => { assemblyDialogLifecycle.current.invalidate();assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined; setAssemblyPreviewEvaluation(undefined); setReplacingAssemblyReference(undefined); setReconnectError(undefined); setAssemblyDefinitionDirty(false); setEditingAssemblyConstraint(undefined); }}
-      confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !assemblyPreviewSnapshot.matches("succeeded") || replacingAssemblyReference !== undefined ||
+      confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined ||
         Boolean(editingAssemblyConstraint?.kind === "ANGLE" && editingAssemblyConstraint.angleRelation === "DIRECTED" && !editingAssemblyConstraint.angleAxis)} onConfirm={async()=>{
         if(!editingView||!editingAssemblyConstraint)return;
         const constraint=editingAssemblyConstraint, target=editingView.document;
@@ -1643,9 +1643,9 @@ export function Workbench() {
         const sequence=assemblyPreviewSequence.current;
         const dialogGeneration=assemblyDialogLifecycle.current.capture();
         await assemblyConstraintForm.validateFields();
-        if(sequence!==assemblyPreviewSequence.current || !assemblyPreviewActor.current?.getSnapshot().matches("succeeded"))return;
+        if(sequence!==assemblyPreviewSequence.current || !(assemblyPreviewActor.current?.getSnapshot().matches("succeeded") || assemblyPreviewActor.current?.getSnapshot().matches("definitionReady")))return;
 		assemblyPreviewActor.current?.send({type:"CONFIRM"});
-        command.mutate(()=>api.command(target.id,input),{onSuccess:(updated)=>{if(!assemblyDialogLifecycle.current.isCurrent(dialogGeneration))return;assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});viewport.current?.clearCommandPreview(false);assemblyPreviewID.current=undefined;setAssemblyDefinitionDirty(false);setReconnectError(undefined);setEditingAssemblyConstraint(undefined);store.setSelection({kind:"assembly-constraint",id:constraint.id,constraintId:constraint.id,constraintType:constraint.kind,documentId:updated.document.id,
+        command.mutate(()=>api.command(target.id,input),{onSuccess:(updated)=>{if(!assemblyDialogLifecycle.current.isCurrent(dialogGeneration))return;assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});if(assemblyPreviewSnapshot.matches("definitionReady"))message.info("约束已保存，等待更新");viewport.current?.clearCommandPreview(false);assemblyPreviewID.current=undefined;setAssemblyDefinitionDirty(false);setReconnectError(undefined);setEditingAssemblyConstraint(undefined);store.setSelection({kind:"assembly-constraint",id:constraint.id,constraintId:constraint.id,constraintType:constraint.kind,documentId:updated.document.id,
           occurrencePath:activeInstancePath??"",instancePath:editSession?.editTarget.instancePath,rootDocumentId:activeInstancePath?view?.document.id:undefined,
           treeNodeId:`${view?.constraintDisplayScopes?.find(scope=>scope.documentId===target.id && scope.instancePath.canonical===activeInstancePath)?.treeNodeId??`document:${updated.document.id}`}/assembly-constraints/constraint:${constraint.id}`});},
 		  onError:(cause)=>{if(assemblyDialogLifecycle.current.isCurrent(dialogGeneration))assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)});}});
@@ -1695,7 +1695,7 @@ export function Workbench() {
     </CommandDialog>
     <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)} title="约束定义" width={390}
       onClose={() => { assemblyDialogLifecycle.current.invalidate();assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined; setAssemblyPreviewEvaluation(undefined); setReplacingAssemblyReference(undefined); setReconnectError(undefined); setAssemblyDefinitionDirty(false); setPendingAssemblyConstraint(undefined); }}
-      confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !assemblyPreviewSnapshot.matches("succeeded") || replacingAssemblyReference !== undefined ||
+      confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined ||
         Boolean(pendingAssemblyConstraint?.kind === "angle" && pendingAssemblyConstraint.angleRelation === "DIRECTED" && !pendingAssemblyConstraint.angleAxis)}
       onConfirm={async () => {
         if (!editingView || !pendingAssemblyConstraint) return;
@@ -1708,9 +1708,9 @@ export function Workbench() {
         const sequence=assemblyPreviewSequence.current;
         const dialogGeneration=assemblyDialogLifecycle.current.capture();
         await assemblyConstraintForm.validateFields();
-        if(sequence!==assemblyPreviewSequence.current || !assemblyPreviewActor.current?.getSnapshot().matches("succeeded"))return;
+        if(sequence!==assemblyPreviewSequence.current || !(assemblyPreviewActor.current?.getSnapshot().matches("succeeded") || assemblyPreviewActor.current?.getSnapshot().matches("definitionReady")))return;
 		assemblyPreviewActor.current?.send({type:"CONFIRM"});
-        command.mutate(() => api.command(target.id,input), { onSuccess: () => {if(!assemblyDialogLifecycle.current.isCurrent(dialogGeneration))return; assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});viewport.current?.clearCommandPreview(false); assemblyPreviewID.current=undefined; setReconnectError(undefined); setAssemblyDefinitionDirty(false); setPendingAssemblyConstraint(undefined); },
+        command.mutate(() => api.command(target.id,input), { onSuccess: () => {if(!assemblyDialogLifecycle.current.isCurrent(dialogGeneration))return; assemblyPreviewActor.current?.send({type:"COMMIT_SUCCESS"});if(assemblyPreviewSnapshot.matches("definitionReady"))message.info("约束已保存，等待更新");viewport.current?.clearCommandPreview(false); assemblyPreviewID.current=undefined; setReconnectError(undefined); setAssemblyDefinitionDirty(false); setPendingAssemblyConstraint(undefined); },
 		  onError:(cause)=>{if(assemblyDialogLifecycle.current.isCurrent(dialogGeneration))assemblyPreviewActor.current?.send({type:"COMMIT_FAILURE",error:String(cause)});} });
       }}>
       <Form form={assemblyConstraintForm} layout="vertical" onValuesChange={invalidateAssemblyDefinition}>

@@ -172,14 +172,15 @@ func assemblySupportsMeasurement(c AssemblyConstraint) bool {
 	return c.Kind == "DISTANCE" || (c.Kind == "ANGLE" && (c.AngleRelation == "" || c.AngleRelation == "FREE" || c.AngleRelation == "DIRECTED"))
 }
 
-// Source updates and replay of an already failed Revision retain deterministic
-// model failure evidence. Transport/infrastructure failures never become history.
+// Definition validity, evaluation outcome and retryability are independent.
+// Only a validated definition that reached numerical work can retain a
+// retryable failure. Cancellation/preparation/persistence errors still fail.
 func acceptAssemblyEvaluationFailure(model *ProductModel, err error, allow bool) error {
 	if err == nil {
 		return nil
 	}
 	var failure *assemblySolveFailure
-	if !allow || !errors.As(err, &failure) || failure.retryable {
+	if !allow || !errors.As(err, &failure) || failure.status == "INVALID_MODEL" || (failure.retryable && !failure.definitionPersistable) {
 		return err
 	}
 	retained := false
@@ -191,6 +192,8 @@ func acceptAssemblyEvaluationFailure(model *ProductModel, err error, allow bool)
 		retained = true
 		c.EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
 		c.EvaluationSummary = failure.code + ": " + failure.diagnostic
+		c.EvaluationFailure = &AssemblyEvaluationFailure{Code: failure.code, Phase: failure.phase, Retryable: failure.retryable}
+		c.MeasuredValue = nil
 	}
 	if !retained {
 		return err

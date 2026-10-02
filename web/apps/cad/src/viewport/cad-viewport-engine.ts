@@ -2,6 +2,7 @@ import { VisualRepository, type DisplayArtifact as Artifact, type DisplayDocumen
 import { assemblyConstraintReferences } from "../cad/assembly/assembly-capability";
 import type {MotionPresentation} from "../cad/assembly/motion-presentation";
 import {makeMotionMarkers,disposeMotionMarkers} from "../cad/assembly/motion-markers";
+import {updateAnalysisGuides} from "../cad/rendering/analysis-guides";
 import { AssemblyInteractionController,assemblyInteractionFailureState, type AssemblyInteractionBegin, type AssemblyInteractionSession, type AssemblyInteractionUpdate, type AssemblyInteractionFrame, type AssemblyInteractionCommit, type AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 import { makeSketchReferenceAxis, sketchAxisEndpoints } from "../cad/rendering/sketch-reference-axis";
 import { createStudioEnvironment } from "../cad/rendering/studio-environment";
@@ -230,7 +231,15 @@ function makeGeometry(artifact: Artifact): THREE.BufferGeometry {
 
 
 export class CadViewportEngine {
+  private moveFinalization?:Promise<void>;
+  private toolActivationGeneration=0;
+  async settleAssemblyInteraction():Promise<void>{
+    await this.moveFinalization;
+    if(this.moveCommitPending||this.moveInteraction.hasUncommittedFinal||this.moveManipulator.isDragging())
+      throw Object.assign(new Error("请先确认、重试或取消尚未保存的移动。"),{code:"ASSEMBLY_OPERATION_PENDING"});
+  }
   private readonly scene = new THREE.Scene();
+  private readonly analysisScene = new THREE.Scene();
   private motionMarkers?:THREE.Group;
   private motionPresentation?:MotionPresentation;
   showRemainingMotion(motion?:MotionPresentation):void {
@@ -239,7 +248,7 @@ export class CadViewportEngine {
     if(motion?.freedom&&context?.document.id===motion.documentId&&context.document.versionId===motion.revisionId&&motion.ownerOccurrence===(this.editContext?.occurrencePath??"")){
       const markers=makeMotionMarkers(motion,Math.max(1,this.camera.position.distanceTo(this.navigation.target)*0.08));
       if(this.editContext?.occurrencePath){markers.position.fromArray(this.editContext.translation??[0,0,0]);markers.quaternion.fromArray(this.editContext.rotation??[0,0,0,1]);}
-      this.motionPresentation=motion;this.motionMarkers=markers;this.scene.add(markers);
+      this.motionPresentation=motion;this.motionMarkers=markers;this.analysisScene.add(markers);
     }
     this.invalidate();
   }
@@ -844,7 +853,13 @@ export class CadViewportEngine {
   }
 
   setActiveTool(toolID: import("../state/workbench-store").WorkbenchToolID): void {
-    if(toolID!=="assembly.move"&&this.moveInteraction.hasUncommittedFinal)this.cancelMovePreviewGesture("工具切换取消未保存移动");
+    const generation=++this.toolActivationGeneration;
+    if(this.moveFinalization||this.moveCommitPending||this.moveInteraction.hasUncommittedFinal){
+      void this.settleAssemblyInteraction().then(()=>{
+        if(!this.disposed&&generation===this.toolActivationGeneration)this.tools.activate(toolID);
+      }).catch(error=>{if(!this.disposed&&generation===this.toolActivationGeneration)this.callbacks.operationFailed?.(error);});
+      return;
+    }
     this.tools.activate(toolID);
   }
 
@@ -1041,7 +1056,7 @@ export class CadViewportEngine {
     if(!sameSelections(this.selected,unique)){
       const motion=this.motionPresentation,path=motion?[motion.ownerOccurrence,motion.bodyId].filter(Boolean).join("/"):undefined;
       if(path&&!unique.some(s=>s.occurrencePath===path||s.occurrencePath?.startsWith(`${path}/`)))this.showRemainingMotion();
-      this.cancelMovePreviewGesture("操纵选择已变化");
+      if(!this.moveFinalization&&!this.moveInteraction.hasUncommittedFinal&&!this.moveCommitPending)this.cancelMovePreviewGesture("操纵选择已变化");
     }
     this.selected = unique;
     this.updateSketchContextVisibility();
@@ -1058,7 +1073,7 @@ export class CadViewportEngine {
   }
 
   private attachMoveManipulator(): void {
-    if(this.moveInteraction.hasUncommittedFinal)this.cancelMovePreviewGesture("重新选择取消未保存移动");
+    if(this.moveFinalization||this.moveInteraction.hasUncommittedFinal||this.moveCommitPending)return;
     if (this.selected.length !== 1 || this.selected[0].kind !== "instance") return;
     const object = this.selectable.get(`instance:${this.selected[0].instanceId ?? this.selected[0].id}`);
     if (!(object instanceof THREE.Group)) return;
@@ -1222,9 +1237,10 @@ export class CadViewportEngine {
     }
   }
   private finishMovePreviewGesture(retry=false):void{
+    if(this.moveFinalization||this.moveCommitPending)return;
     const documentId=this.moveSessionDocumentId;
     const generation=this.moveGestureGeneration;
-    void (retry?this.moveInteraction.retryFinal():this.moveInteraction.finish()).then(async candidate=>{
+    const operation=(retry?this.moveInteraction.retryFinal():this.moveInteraction.finish()).then(async candidate=>{
       if(generation!==this.moveGestureGeneration)return;
       if(!candidate){
         if(this.moveInteraction.hasUncommittedFinal&&this.moveInteraction.state==="blocked"){
@@ -1241,6 +1257,8 @@ export class CadViewportEngine {
       this.moveCommitPending={documentId,candidate};
       await this.submitMoveCommit();
     });
+    this.moveFinalization=operation;
+    void operation.finally(()=>{if(this.moveFinalization===operation)this.moveFinalization=undefined;});
   }
   private async submitMoveCommit():Promise<void>{
       const pending=this.moveCommitPending;if(!pending||this.moveCommitInFlight)return;
@@ -2666,7 +2684,7 @@ export class CadViewportEngine {
       currentSelections: () => [...this.selected],
       retainSelections: (selections) => this.selectMany(selections),
       requestAssemblyConstraint: (kind, references) => this.callbacks.assemblyConstraintRequested(kind, references),
-      moveManipulatorPointerDown: (pointerId, x, y) => !this.moveCommitPending&&!this.moveInteraction.hasUncommittedFinal&&this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement),
+      moveManipulatorPointerDown: (pointerId, x, y) => !this.moveFinalization&&!this.moveCommitPending&&!this.moveInteraction.hasUncommittedFinal&&this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement),
       moveManipulatorPointerMove: (pointerId, x, y) => this.moveManipulator.pointerMove(pointerId, x, y, this.camera, this.renderer.domElement),
       moveManipulatorPointerUp: (pointerId, commit) => {
         this.manipulatorSnapCache.cancelPending();this.snapInput=undefined;
@@ -2856,6 +2874,11 @@ export class CadViewportEngine {
         if (this.environment.visible) this.groundGrid.render(this.renderer, this.camera);
         this.renderer.clearDepth();
         this.renderer.render(this.scene, this.camera);
+        if(this.analysisScene.children.length){
+          updateAnalysisGuides(this.analysisScene,this.camera,metrics);
+          this.renderer.clearDepth();
+          this.renderer.render(this.analysisScene,this.camera);
+        }
         this.navigationHUD.render(this.renderer);
         if (this.viewTransition.active) this.invalidate();
       }

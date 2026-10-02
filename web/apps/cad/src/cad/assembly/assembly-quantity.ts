@@ -1,9 +1,9 @@
 import type { AssemblyConstraint } from "../../types";
 
-export type AssemblyQuantityFields = {offsetExpression?:string;offsetKey?:string;quantityExpression?:string;quantityKey?:string;constraintMode?:string};
+export type AssemblyQuantityFields = {quantityExpression?:string;quantityKey?:string;constraintMode?:string};
 
 export function assemblyQuantityInitialFields(constraint?:AssemblyConstraint):AssemblyQuantityFields {
-  const p=constraint?.quantityParameter ?? constraint?.offsetParameter;
+  const p=constraint?.quantityParameter;
   return {quantityExpression:p?.source.expression?.sourceText ?? "",quantityKey:p?.key ?? "",constraintMode:constraint?.mode ?? "DRIVING"};
 }
 

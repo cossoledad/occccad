@@ -389,9 +389,9 @@ export const restApi = {
   addAssemblyConstraint: (documentId: string, input: { constraintKind: string; fixMode?:"SPACE"|"RELATIVE"; angleRelation?: string;
 	constraintFamily?:string;constraintSubtype?:string;contactKind?:string;contactSide?:string;contactBranch?:number;groupName?:string;groupMembers?:Array<{instanceId?:string;instancePath?:import("./types").InstancePath;groupId?:string}>;quantityExpression?:string;quantityKey?:string;
     firstAssemblyRef?: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef;
-	value?: number; directionRelation?: string; distanceRelation?: string; offsetExpression?:string;offsetKey?:string;constraintMode?:string; angleReferenceDirection?: Vec3; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; previewId?: string }) =>
+	value?: number; directionRelation?: string; distanceRelation?: string;constraintMode?:string; angleReferenceDirection?: Vec3; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; previewId?: string }) =>
     restApi.command(documentId, { type: "ADD_ASSEMBLY_CONSTRAINT", ...input }),
-  editAssemblyConstraint: (documentId: string, constraintId: string, input: { value?: number; offsetExpression?:string;offsetKey?:string;constraintMode?:string; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; fixMode?: string; angleRelation?: string; directionRelation?: string; distanceRelation?: string;
+  editAssemblyConstraint: (documentId: string, constraintId: string, input: { value?: number;constraintMode?:string; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; fixMode?: string; angleRelation?: string; directionRelation?: string; distanceRelation?: string;
 	constraintFamily?:string;constraintSubtype?:string;contactKind?:string;contactSide?:string;contactBranch?:number;groupName?:string;groupMembers?:Array<{instanceId?:string;instancePath?:import("./types").InstancePath;groupId?:string}>;quantityExpression?:string;quantityKey?:string;
 	firstAssemblyRef?: AssemblyGeometryRef; secondAssemblyRef?: AssemblyGeometryRef; angleReferenceDirection?: Vec3; angleAxis?:AssemblyGeometryRef; reverseAngleAxis?:boolean; previewId?: string }) =>
     restApi.command(documentId, { type: "EDIT_ASSEMBLY_CONSTRAINT", targetId: constraintId, ...input }),

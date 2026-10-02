@@ -73,7 +73,7 @@ func TestAssemblyStateBatchValidationIsAtomic(t *testing.T) {
 
 func TestAssemblyManifestEmptyActiveSetFreezesInactiveDefinitions(t *testing.T) {
 	pose := InstancePose{Rotation: [4]float64{0, 0, 0, 1}}
-	definitions := []AssemblyConstraint{{ID: "fix", Kind: "FIX", Mode: "DRIVING", Suppressed: true, FixedPose: &pose, EvaluationStatus: modelcore.AssemblyConstraintBroken}}
+	definitions := []AssemblyConstraint{{DefinitionVersion: 2, ID: "fix", Kind: "FIX", Mode: "DRIVING", Suppressed: true, FixedPose: &pose, EvaluationStatus: modelcore.AssemblyConstraintBroken}}
 	manifest, err := newAssemblySolveManifest("product", "revision", "hash", []geometry.AssemblyBody{{ID: "body", Pose: geometry.AssemblyPose{Rotation: pose.Rotation}}}, nil, nil, nil, nil, nil, definitions)
 	if err != nil {
 		t.Fatal(err)
@@ -145,13 +145,15 @@ func TestStableAngleAxisValidation(t *testing.T) {
 	if validateInstanceConstraintReferences(c) == nil {
 		t.Fatal("missing reference axis accepted")
 	}
-	c.AngleAxis = &AssemblyGeometryRef{InstanceID: "a", Kind: "AXIS"}
+	c.AngleAxis = &AssemblyGeometryRef{Kind: "AXIS"}
 	if validateInstanceConstraintReferences(c) == nil {
-		t.Fatal("axis from another body silently frozen")
+		t.Fatal("axis without owning occurrence accepted")
 	}
-	c.AngleAxis.InstanceID = "b"
-	if err := validateInstanceConstraintReferences(c); err != nil {
-		t.Fatal(err)
+	for _, owner := range []string{"a", "b", "third-reference"} {
+		c.AngleAxis.InstanceID = owner
+		if err := validateInstanceConstraintReferences(c); err != nil {
+			t.Fatalf("explicit reference occurrence %s rejected: %v", owner, err)
+		}
 	}
 	c.AngleAxis.Kind = "POINT"
 	if validateInstanceConstraintReferences(c) == nil {

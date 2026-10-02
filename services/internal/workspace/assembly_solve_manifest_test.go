@@ -22,8 +22,8 @@ func TestAssemblyManifestV11RoundTripAndV12IntentBoundary(t *testing.T) {
 		t.Fatal("legacy input silently acquired new fields", err)
 	}
 	var cold AssemblySolveManifest
-	if err = json.Unmarshal(raw, &cold); err != nil || validateAssemblySolveManifest(cold) != nil || assemblyManifestDigest(cold) != m.Digest {
-		t.Fatal("immutable v11 input round trip", err)
+	if err = json.Unmarshal(raw, &cold); err != nil || validateAssemblySolveManifest(cold) == nil || assemblyManifestDigest(cold) != m.Digest {
+		t.Fatal("old policy must be rejected, even when its bytes round trip", err)
 	}
 	cold.DragTarget.HoldRotationComponents = [3]bool{true, true, true}
 	if validateAssemblySolveManifest(cold) == nil {
@@ -108,8 +108,8 @@ func TestAssemblyManifestSeparatesQuarantinedDefinitionsFromEquations(t *testing
 		[]geometry.AssemblyBody{{ID: "body", Pose: pose}}, nil,
 		[]geometry.AssemblyConstraint{{ID: "accepted", Kind: "FIX", FirstBodyID: "body", FixedPose: &pose}},
 		nil, nil, nil, []AssemblyConstraint{
-			{ID: "accepted", Kind: "FIX", EvaluationStatus: modelcore.AssemblyConstraintVerified},
-			{ID: "pending", Kind: "FIX", EvaluationStatus: modelcore.AssemblyConstraintNotUpdated},
+			{ID: "accepted", DefinitionVersion: 2, Kind: "FIX", EvaluationStatus: modelcore.AssemblyConstraintVerified},
+			{ID: "pending", DefinitionVersion: 2, Kind: "FIX", EvaluationStatus: modelcore.AssemblyConstraintNotUpdated},
 		})
 	if err != nil {
 		t.Fatal(err)
@@ -136,8 +136,8 @@ func TestAssemblyManifestLegacyPolicyRemainsImmutable(t *testing.T) {
 		t.Fatal(err)
 	}
 	var cold AssemblySolveManifest
-	if err = json.Unmarshal(raw, &cold); err != nil || validateAssemblySolveManifest(cold) != nil {
-		t.Fatal("v10 manifest must remain readable", err)
+	if err = json.Unmarshal(raw, &cold); err != nil || validateAssemblySolveManifest(cold) == nil {
+		t.Fatal("old experimental policy must be rejected", err)
 	}
 	if assemblyManifestDigest(cold) != manifest.Digest {
 		t.Fatal("reading legacy evidence changed its digest")

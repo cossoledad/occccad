@@ -21,7 +21,7 @@ func TestOffsetPreviewIdentityRejectsChangedIntent(t *testing.T) {
 		func(p *editAssemblyConstraintPayload) { p.DirectionRelation = "OPPOSITE" },
 		func(p *editAssemblyConstraintPayload) { v := "MEASURED"; p.Mode = &v },
 		func(p *editAssemblyConstraintPayload) { p.Value = 3 },
-		func(p *editAssemblyConstraintPayload) { v := "Base + 1 mm"; p.OffsetExpression = &v },
+		func(p *editAssemblyConstraintPayload) { v := "Base + 1 mm"; p.QuantityExpression = &v },
 		func(p *editAssemblyConstraintPayload) { p.OffsetKey = "Renamed" },
 		func(p *editAssemblyConstraintPayload) { v := "Base + 1 mm"; p.QuantityExpression = &v },
 		func(p *editAssemblyConstraintPayload) { p.QuantityKey = "Renamed" },
@@ -44,7 +44,7 @@ func TestOffsetQuantityStableBindingAndAtomicFailure(t *testing.T) {
 	add := func(id, key string, value float64, expression *string) {
 		t.Helper()
 		raw, _ := json.Marshal(model)
-		payload, _ := json.Marshal(addAssemblyConstraintPayload{Constraint: AssemblyConstraint{ID: id, Kind: "DISTANCE", Value: value, DistanceRelation: selectedPlaneNormalV1, First: AssemblyGeometryRef{InstanceID: "a", Kind: "PLANE"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "PLANE"}}, OffsetKey: key, OffsetExpression: expression})
+		payload, _ := json.Marshal(addAssemblyConstraintPayload{Constraint: AssemblyConstraint{ID: id, Kind: "DISTANCE", Value: value, DistanceRelation: selectedPlaneNormalV1, First: AssemblyGeometryRef{InstanceID: "a", Kind: "PLANE"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "PLANE"}}, QuantityKey: key, QuantityExpression: expression})
 		next, _, err := applyAddAssemblyConstraint(raw, payload)
 		if err != nil {
 			t.Fatal(err)
@@ -64,14 +64,14 @@ func TestOffsetQuantityStableBindingAndAtomicFailure(t *testing.T) {
 		p, _ := json.Marshal(payload)
 		return applyEditAssemblyConstraint(raw, p)
 	}
-	next, changes, err := edit(editAssemblyConstraintPayload{ConstraintID: "base", Value: 4, OffsetKey: "Renamed", DistanceRelation: selectedPlaneNormalV1})
+	next, changes, err := edit(editAssemblyConstraintPayload{ConstraintID: "base", Value: 4, QuantityKey: "Renamed", DistanceRelation: selectedPlaneNormalV1})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err = json.Unmarshal(next, &model); err != nil {
 		t.Fatal(err)
 	}
-	if model.Constraints[1].Value != 9 || model.Constraints[1].QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:base" || model.Constraints[1].OffsetParameter != nil {
+	if model.Constraints[1].Value != 9 || model.Constraints[1].QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:base" {
 		t.Fatal(model)
 	}
 	if model.Constraints[1].QuantityParameter.Source.Expression.SourceText != "(Renamed + 5 mm)" {
@@ -92,18 +92,18 @@ func TestOffsetQuantityStableBindingAndAtomicFailure(t *testing.T) {
 	}
 	var undo ProductModel
 	_ = json.Unmarshal(restored, &undo)
-	if err = resolveOffsetParameters(&undo); err != nil || undo.Constraints[0].Value != -2 || undo.Constraints[1].Value != 3 {
+	if err = resolveAssemblyQuantities(&undo); err != nil || undo.Constraints[0].Value != -2 || undo.Constraints[1].Value != 3 {
 		t.Fatal(undo, err)
 	}
 	for _, bad := range []string{"Renamed + 2 deg", "Derived + 1 mm", "1 mm / 0"} {
-		_, set, e := edit(editAssemblyConstraintPayload{ConstraintID: "base", Value: 4, OffsetExpression: &bad, DistanceRelation: selectedPlaneNormalV1})
+		_, set, e := edit(editAssemblyConstraintPayload{ConstraintID: "base", Value: 4, QuantityExpression: &bad, DistanceRelation: selectedPlaneNormalV1})
 		if e == nil || len(set.Changes) != 0 {
 			t.Fatalf("invalid expression committed: %s %v", bad, e)
 		}
 	}
 	negative := "-2 mm"
 	positive := "2 mm"
-	accepted, _, e := edit(editAssemblyConstraintPayload{ConstraintID: "base", Value: -4, OffsetExpression: &positive, DistanceRelation: "UNSIGNED"})
+	accepted, _, e := edit(editAssemblyConstraintPayload{ConstraintID: "base", Value: -4, QuantityExpression: &positive, DistanceRelation: "UNSIGNED"})
 	if e != nil {
 		t.Fatal("valid expression incorrectly checked stale numeric projection", e)
 	}
@@ -112,7 +112,7 @@ func TestOffsetQuantityStableBindingAndAtomicFailure(t *testing.T) {
 	if positiveModel.Constraints[0].Value != 2 {
 		t.Fatal("expression was not authoritative", positiveModel)
 	}
-	raw, set, e := edit(editAssemblyConstraintPayload{ConstraintID: "base", OffsetExpression: &negative, DistanceRelation: "UNSIGNED"})
+	raw, set, e := edit(editAssemblyConstraintPayload{ConstraintID: "base", QuantityExpression: &negative, DistanceRelation: "UNSIGNED"})
 	if !errors.Is(e, ErrValidation) || raw != nil || len(set.Changes) != 0 {
 		t.Fatal("unsigned negative expression was accepted", e)
 	}
@@ -134,7 +134,7 @@ func TestOffsetCompilePreservesRolesAndExactPlaneGate(t *testing.T) {
 
 func TestOffsetModeExpressionAndSuppressionCompensate(t *testing.T) {
 	expression := "-2 mm"
-	raw, p := json.RawMessage(`{"instances":[],"constraints":[]}`), addAssemblyConstraintPayload{Constraint: AssemblyConstraint{ID: "offset", Kind: "DISTANCE", Value: -2, DistanceRelation: selectedPlaneNormalV1, First: AssemblyGeometryRef{InstanceID: "a", Kind: "PLANE"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "PLANE"}}, OffsetExpression: &expression}
+	raw, p := json.RawMessage(`{"instances":[],"constraints":[]}`), addAssemblyConstraintPayload{Constraint: AssemblyConstraint{ID: "offset", Kind: "DISTANCE", Value: -2, DistanceRelation: selectedPlaneNormalV1, First: AssemblyGeometryRef{InstanceID: "a", Kind: "PLANE"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "PLANE"}}, QuantityExpression: &expression}
 	payload, _ := json.Marshal(p)
 	raw, _, err := applyAddAssemblyConstraint(raw, payload)
 	if err != nil {
@@ -172,23 +172,14 @@ func TestOffsetModeExpressionAndSuppressionCompensate(t *testing.T) {
 	if string(after) != string(frozen) {
 		t.Fatal("manifest retained caller-owned Offset AST")
 	}
-	// Explicitly construct a pre-v2 frozen definition. A current canonical
-	// Quantity definition must not be smuggled under a historical policy.
-	manifest.Definitions[0].OffsetParameter = manifest.Definitions[0].QuantityParameter
-	manifest.Definitions[0].QuantityParameter = nil
-	manifest.Definitions[0].DefinitionVersion = 0
-	manifest.Definitions[0].Family, manifest.Definitions[0].Subtype = "", ""
+	// Experimental policies are unsupported, never reinterpreted as current.
 	manifest.SolverBuildPolicy = "assembly-offset-selected-plane-v8"
-	if err = validateAssemblySolveManifest(manifest); err != nil {
-		t.Fatal("v8 frozen Offset intent lost replay support", err)
-	}
-	manifest.SolverBuildPolicy = "assembly-m3-lifecycle-v7"
 	if !errors.Is(validateAssemblySolveManifest(manifest), ErrValidation) {
-		t.Fatal("new Offset intent accepted under old policy")
+		t.Fatal("old policy accepted")
 	}
-	manifest.Definitions[0].OffsetParameter = nil
-	manifest.Definitions[0].DistanceRelation = "ALONG_SECOND_NORMAL"
-	if err = validateAssemblySolveManifest(manifest); err != nil {
-		t.Fatal("legacy convention lost replay support", err)
+	manifest.SolverBuildPolicy = assemblySolverBuildPolicy
+	manifest.Definitions[0].DefinitionVersion = 0
+	if !errors.Is(validateAssemblySolveManifest(manifest), ErrValidation) {
+		t.Fatal("old definition accepted")
 	}
 }

@@ -42,7 +42,7 @@ func TestAssemblyAngleQuantityStableReferenceAtomicityAndCompensation(t *testing
 	var changed ProductModel
 	_ = json.Unmarshal(next, &changed)
 	c := changed.Constraints[1]
-	if math.Abs(c.Value-math.Pi/2) > 1e-12 || c.OffsetParameter != nil || c.DefinitionVersion != 2 || c.QuantityParameter == nil ||
+	if math.Abs(c.Value-math.Pi/2) > 1e-12 || c.DefinitionVersion != 2 || c.QuantityParameter == nil ||
 		c.QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "angle:base" ||
 		math.Abs(c.QuantityParameter.Source.Expression.CheckedAST.Right.Quantity.SIValue-math.Pi/6) > 1e-12 ||
 		!strings.HasPrefix(c.QuantityParameter.Source.Expression.SourceText, "(Renamed + ") || !strings.HasSuffix(c.QuantityParameter.Source.Expression.SourceText, " deg)") {
@@ -139,7 +139,7 @@ func TestAssemblyQuantityLegacyReadAndExplicitEditMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	old := &model.Constraints[0]
-	old.OffsetParameter, old.QuantityParameter, old.DefinitionVersion = old.QuantityParameter, nil, 0
+	old.DefinitionVersion = 2
 	before, _ := json.Marshal(model)
 	var cold ProductModel
 	_ = json.Unmarshal(before, &cold)
@@ -158,7 +158,7 @@ func TestAssemblyQuantityLegacyReadAndExplicitEditMigration(t *testing.T) {
 	var edited ProductModel
 	_ = json.Unmarshal(next, &edited)
 	c := edited.Constraints[0]
-	if c.OffsetParameter != nil || c.QuantityParameter == nil || c.QuantityParameter.ParameterID != "offset:gap" || c.DefinitionVersion != 2 || c.Value != 5 {
+	if c.QuantityParameter == nil || c.QuantityParameter.ParameterID != "offset:gap" || c.DefinitionVersion != 2 || c.Value != 5 {
 		t.Fatal(c)
 	}
 	values, err := modelValues("PRODUCT", next, changes)
@@ -175,8 +175,8 @@ func TestAssemblyQuantityLegacyReadAndExplicitEditMigration(t *testing.T) {
 	}
 	var undo ProductModel
 	_ = json.Unmarshal(restored, &undo)
-	if undo.Constraints[0].QuantityParameter != nil || undo.Constraints[0].OffsetParameter == nil || undo.Constraints[0].Value != 4 {
-		t.Fatal("compensation did not restore legacy definition", undo)
+	if undo.Constraints[0].QuantityParameter == nil || undo.Constraints[0].Value != 4 {
+		t.Fatal("compensation did not restore current definition", undo)
 	}
 }
 
@@ -191,7 +191,7 @@ func TestAssemblyQuantityConflictingInputsAndUnsupportedRelations(t *testing.T) 
 	if _, _, err := assemblyQuantityInputs("ANGLE", nil, "", &first, ""); !errors.Is(err, ErrValidation) {
 		t.Fatal(err)
 	}
-	if expr, key, err := assemblyQuantityInputs("DISTANCE", &first, "A", &first, "A"); err != nil || *expr != first || key != "A" {
+	if expr, key, err := assemblyQuantityInputs("DISTANCE", &first, "A", nil, ""); err != nil || *expr != first || key != "A" {
 		t.Fatal(expr, key, err)
 	}
 	for _, relation := range []string{"PARALLEL", "PERPENDICULAR"} {

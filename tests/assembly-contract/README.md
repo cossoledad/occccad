@@ -1,10 +1,11 @@
 # 六类装配约束可执行合同
 
-这里是六类约束的跨实现执行入口，不是第二套持久 Constraint 模型。唯一生产目录在 [services/internal/assemblycontract/catalog.json](../../services/internal/assemblycontract/catalog.json)；本目录 `catalog.json` 是指向它的相对 symlink，不维护另一份矩阵。数学/产品预期见[目标合同](../../docs/architecture/current/assembly-constraints.md)，当前设施与执行记录见[当前 Product](../../docs/architecture/current/product-assembly.md)，剩余开发见[装配计划](../../plans/README.md)。
+这里是六类约束的跨实现执行入口，不是第二套持久 Constraint 模型。唯一[生产合同](../../services/internal/assemblycontract/README.md)拥有数学语义；本目录 `catalog.json` 是组合索引，不再是 symlink。`catalog.py` 读取生产合同与测试专用 `evidence.json`，不允许测试元数据覆盖生产声明。数学/产品预期见[当前合同](../../docs/architecture/current/assembly-constraints.md)，当前行为见[Product](../../docs/architecture/current/product-assembly.md)，未完成方向见[后续工作](../../plans/README.md)。
 
 ## 文件与证据职责
 
-- `catalog.json`：`schemaVersion=1`、`contractVersion=assembly-six-families-v2`，六族、子类型、unary/binary/group 角色、八类 descriptor/稳定派生支持、参数单位/依赖、交换/方向/branch、模式/激活、秩/退化与分阶段失败合同。Point–Curve 明确为 Line/Circle，Point–Surface 为 Plane/Cylinder/Sphere/所选叶 Cone；Contact 11 个解析分支与一般秩已冻结，不声明任意曲线/曲面。规模随新增专用 case 变化，以 validate 输出和派生报告为准，不在 README 永久锁定数量。
+- `catalog.json`/`catalog.py`：本地组合入口；默认输出短摘要，`--capability`/`--family`/`--case` 定向查询，`--expanded` 是适配器显式完整导出。生产保持 schemaVersion=1、contractVersion=assembly-six-families-v2。
+- `evidence.json`：只维护 capabilityId 引用、实现证据、case/fixture/执行环境。共享 binding 只定义一次，caseIds 从引用关系派生；既有稳定 case ID、预期和 requiredLayers 不因物理拆分改变。缺 binding、零匹配、重复声明、越权覆盖与缺执行证据仍失败。
 - `runner.py`：选择并校验同一目录；C++ 映射到现有 GTest，Go 调用真实包内函数/既有测试，TypeScript 读取目录调用现有规则；集成走正式 Router/Worker。纯模型与带 scalar test double 的编排测试各有 `evidenceKind`，不冒充几何或数据库集成。
 - `baseline.json`：目标/案例摘要、实现声明下限及测试断言源摘要的回归锁，不另维护覆盖表。目录新增可以扩展；删除目标、改预期、降声明、改已有断言会失败。C++/Go 的 `fixture.assertionHelperSymbol` 必须指向实际调用的断言 helper，其源码纳入同一锁，不能只锁空包装 TEST 而遗漏共享几何/生命周期断言。真实合同演进或合法测试调整必须连同目标依据与锁的变更一起审查，不用自动 bless 绕过失败。
 - `test_runner.py`：目录/执行器的完整性与负例检查，不计为产品能力验证。
@@ -89,6 +90,16 @@ engineering 读取指定 Revision 命令结果，不是完整网络刷新或局�
 
 motion-presentation 场景检查固联整体可动、方向子空间等价、偏置轴、显示副本/浮点噪声与完整行；标记是临时只读对象，不进入拾取/持久模型。0/1/100/500/1000 行 fixture 验证投影/分页，不认证同规模求解。
 
+`TestAssemblyDeferredDefinitionPreviewCommit` 使用真实 Router、Worker、专用 PostgreSQL，并只在数值 RPC 边界注入 deadline/Unavailable/数值失败。检查显式候选确认、编辑/新增、不重复求解、保持姿态、NotUpdated、幂等/历史/冷读取、Release gate 与正常恢复；权限和取消不得变成定义候选。`motion-presentation` 同时执行真实 viewport 方法的可控 Promise 结束/选择/屏障/取消回归及 Three.js 覆盖标记的 CSS 尺寸、相机、资源生命周期检查。面板场景执行实际 hook/row/键盘/定位回调，不只检索源码。
+
+```sh
+python tests/assembly-contract/runner.py baseline --case lifecycle.deferred-definition.router-worker
+python tests/assembly-contract/runner.py baseline --case assembly.motion.presentation
+python tests/assembly-contract/runner.py gaps --family Offset --adapters go,web,web-catalog
+```
+
+最后一条刻意不执行原生或数据库映射，报告明确 NOT_RUN，不是完整 Offset 验收。生产只支持当前定义/Quantity/policy/canonical 摘要，旧实验格式测试改为拒绝；旧格式拒绝测试的稳定 case ID 保留，baseline 的 closeoutReview 记录授权原因，未降低数学预期或覆盖下限。
+
 ## 报告与性能边界
 
 报告派生自目录和实际结果，保存 commit/dirty、schema/version、命令/环境/选择、预期/观察、证据层与未执行/缺测/失败/阻塞。PASS 数量从报告生成，不永久手写多份。测试存在、历史运行、本次执行及维护者反馈分别标记。
@@ -102,5 +113,7 @@ motion-presentation 场景检查固联整体可动、方向子空间等价、偏
 3. Budget 保留未保存预览，同目标重试/取消及未知回执恢复，不保存旧目标。
 4. 剩余运动查看固定/自由/轴/平面及未接地固联；缺证据明确待计算。方向标记只对应选中主体，偏置轴不错误穿过原点，关闭/切换/新版本清理。
 5. 百项列表搜索/分页/定位不串目标，未知/嫌疑不变成已证冲突；技术证据按需复制。
+6. 释放拖动后立即点空白或选择另一组件，最终目标仍完成且只提交一次，不抢回选择；切换工具/修改命令等待结束，Esc 仍取消未提交操作。
+7. 剩余运动行鼠标/键盘选择即显示方向；缩放/窗口变化后箭头尺寸稳定，模型遮挡/透明/高亮下可见；小数噪声显示零，单位转换和真实微小值保留。WebGL 外观仍需实机验证。
 
 维护者反馈当前使用场景下拖拽与约束较为稳定；剩余运动呈现仍需本次实机确认。不补造截图、测试版本或工业/性能结论。

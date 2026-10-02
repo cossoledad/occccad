@@ -5,7 +5,13 @@ export type MotionPresentation={id:string;bodyId:string;documentId:string;revisi
 const dot=(a:Vec3,b:Vec3)=>a.reduce((s,v,i)=>s+v*b[i],0);
 export function displayNumber(value:number,precision=6):string {const n=Number(value.toFixed(precision));return String(Object.is(n,-0)?0:n);}
 export function displayDirection(v:Vec3):string {return v.map(n=>displayNumber(n)).join(", ");}
-export function displayLength(mm:number,unit:"mm"|"m"="mm"):string {const value=mm/(unit==="m"?1000:1);return `${Object.is(value,-0)?0:Number(value.toPrecision(6))} ${unit}`;}
+// Length-only display noise floor in millimetres, below physical tolerances.
+// Small real values above it retain significant digits, regardless of unit.
+export function displayLength(mm:number,unit:"mm"|"cm"|"m"|"in"="mm"):string {
+ const scale={mm:1,cm:10,m:1000,in:25.4}[unit];
+ const value=Math.abs(mm)<=1e-12?0:mm/scale;
+ return `${value===0?0:Number(value.toPrecision(6))} ${unit}`;
+}
 // Compare the span, not SVD column order/sign. Axis names describe directions,
 // never the location of a rotation axis. All directions are owning-Product axes.
 export function translationLabel(directions:Vec3[]):string {

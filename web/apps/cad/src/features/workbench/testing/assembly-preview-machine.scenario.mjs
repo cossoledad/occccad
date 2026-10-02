@@ -54,7 +54,11 @@ evidenceActor.send({type:"RESOLVE",sequence:13,components:[{componentId:"obsolet
 assert.equal(evidenceActor.getSnapshot().value,"drafting");
 assert.equal(evidenceActor.getSnapshot().context.components,undefined);
 evidenceActor.send({type:"REQUEST",sequence:14});
-evidenceActor.send({type:"RESOLVE",sequence:14});
+evidenceActor.send({type:"RESOLVE",sequence:13,definitionOnly:true});
+assert.equal(evidenceActor.getSnapshot().value,"pending");
+evidenceActor.send({type:"RESOLVE",sequence:14,definitionOnly:true});
+assert.equal(evidenceActor.getSnapshot().value,"definitionReady","legal definition may confirm without successful pose evidence");
+assert.equal(evidenceActor.getSnapshot().context.components,undefined);
 evidenceActor.send({type:"CONFIRM"});
 evidenceActor.send({type:"COMMIT_SUCCESS"});
 evidenceActor.send({type:"START"});

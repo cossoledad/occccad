@@ -1383,25 +1383,13 @@ func TestAssemblyConstraintGeometryPairCapabilities(t *testing.T) {
 	}
 }
 
-func TestMovePreviewSolveFailureRestoresAuthoritativePoses(t *testing.T) {
-	base := ProductModel{Instances: []ProductInstance{{ID: "a", Translation: [3]float64{1, 2, 3}}}}
-	baseJSON, _ := json.Marshal(base)
-	preview := ProductModel{Instances: []ProductInstance{{ID: "a", Translation: [3]float64{99, 2, 3}}}}
-	restored, err := restoreMovePreviewOnSolveFailure(typeMoveInstance,
-		&assemblySolveFailure{status: "MAX_ITERATIONS", diagnostic: "unreachable drag target"}, baseJSON, &preview)
-	if err != nil || !restored {
-		t.Fatalf("move preview failure was not recovered: restored=%v err=%v", restored, err)
-	}
-	if preview.Instances[0].Translation != base.Instances[0].Translation {
-		t.Fatalf("failed move leaked its candidate pose: %#v", preview.Instances[0].Translation)
-	}
-	restored, err = restoreMovePreviewOnSolveFailure(typeEditAssemblyConstraint,
-		&assemblySolveFailure{status: "MAX_ITERATIONS"}, baseJSON, &preview)
-	if err != nil || restored {
-		t.Fatalf("non-move solver failure must remain an error: restored=%v err=%v", restored, err)
+func TestMovePreviewSolveFailureCannotSaveDefinition(t *testing.T) {
+	model := ProductModel{Constraints: []AssemblyConstraint{{ID: "pending", EvaluationStatus: modelcore.AssemblyConstraintNotUpdated}}}
+	failure := &assemblySolveFailure{status: "NUMERICAL_FAILURE", phase: assemblySolveSolving, retryable: true, definitionPersistable: true}
+	if err := acceptAssemblyEvaluationFailure(&model, failure, retainsAssemblyDefinition(typeMoveInstance)); err == nil {
+		t.Fatal("MOVE must not accept a definition-only candidate")
 	}
 }
-
 func TestAssemblySolveWorkflowCarriesStableFailureState(t *testing.T) {
 	workflow := newAssemblySolveWorkflow()
 	if err := workflow.advance(t.Context()); err != nil {

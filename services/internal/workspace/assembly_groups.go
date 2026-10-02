@@ -173,7 +173,7 @@ func validateAssemblyGroupDefinition(c AssemblyConstraint) error {
 	if c.Mode != "" && c.Mode != "DRIVING" {
 		return fmt.Errorf("%w: Fix Together does not support measurement/controlled mode", ErrValidation)
 	}
-	if c.First.InstanceID != "" || c.Second != nil || c.QuantityParameter != nil || c.OffsetParameter != nil {
+	if c.First.InstanceID != "" || c.Second != nil || c.QuantityParameter != nil {
 		return fmt.Errorf("%w: a multi-member group is not a binary/Quantity definition", ErrValidation)
 	}
 	return nil
@@ -323,43 +323,6 @@ func applyAssemblyGroupEdit(raw json.RawMessage, payload editAssemblyConstraintP
 		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(c.ID)}}, nil
 	}
 	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: group does not exist", ErrValidation)
-}
-
-// An explicit edit promotes a legacy pair into the sole public group model.
-// Its stable identity is retained and the compensating ChangeSet contains the
-// original primitive, so old Revision/Undo/Replay never acquire new semantics.
-func applyLegacyRigidGroupEdit(raw json.RawMessage, payload editAssemblyConstraintPayload) (json.RawMessage, modelcore.ChangeSet, error) {
-	var model ProductModel
-	if err := json.Unmarshal(raw, &model); err != nil {
-		return nil, modelcore.ChangeSet{}, err
-	}
-	for index := range model.Constraints {
-		before := model.Constraints[index]
-		if before.ID != payload.ConstraintID || before.Kind != "RIGID" {
-			continue
-		}
-		if before.Second == nil {
-			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: legacy rigid pair is incomplete", ErrValidation)
-		}
-		members := []AssemblyGroupMember{{InstanceID: before.First.InstanceID, InstancePath: before.First.InstancePath}, {InstanceID: before.Second.InstanceID, InstancePath: before.Second.InstancePath}}
-		c := AssemblyConstraint{ID: before.ID, ConnectionID: before.ConnectionID, DefinitionVersion: 2, Family: "FixTogether", Kind: "FIX_TOGETHER", Mode: "DRIVING", Name: before.Name, Suppressed: before.Suppressed, GroupMembers: canonicalGroupMembers(members), GroupCapturePending: true}
-		if c.Name == "" {
-			c.Name = "FixTogether_" + parameterKeyFragment(c.ID)
-		}
-		model.Constraints[index] = c
-		prepared, _ := json.Marshal(model)
-		next, _, err := applyAssemblyGroupEdit(prepared, payload)
-		if err != nil {
-			return nil, modelcore.ChangeSet{}, err
-		}
-		var after ProductModel
-		if err := json.Unmarshal(next, &after); err != nil {
-			return nil, modelcore.ChangeSet{}, err
-		}
-		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: before.ID, SlotID: "assembly-constraint.entity"}, before, after.Constraints[index])
-		return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(before.ID)}}, nil
-	}
-	return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: legacy rigid pair does not exist", ErrValidation)
 }
 
 func canonicalGroupMembers(members []AssemblyGroupMember) []AssemblyGroupMember {

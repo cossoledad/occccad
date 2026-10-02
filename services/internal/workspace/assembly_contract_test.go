@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"testing"
 )
 
 // Test-only adapter: the single catalog supplies inputs and independent expected
 // parameter availability; the implementation remains assemblyCapabilities.
 func TestAssemblyContractCatalog(t *testing.T) {
-	data, err := os.ReadFile("../../../tests/assembly-contract/catalog.json")
+	data, err := exec.Command("python3", "../../../tests/assembly-contract/catalog.py", "--expanded").Output()
 	if err != nil {
 		t.Fatal(err)
 	}

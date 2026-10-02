@@ -1097,7 +1097,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		constraint := AssemblyConstraint{ID: commandEntityID("assembly-constraint", request.RequestID), ConnectionID: commandEntityID("assembly-connection", request.RequestID), Name: request.Name, Kind: kind, FixMode: request.FixMode, AngleRelation: request.AngleRelation, Mode: "DRIVING", First: *request.FirstAssemblyRef,
 			Second: request.SecondAssemblyRef, Value: request.Value, DirectionRelation: strings.ToUpper(request.DirectionRelation), DistanceRelation: strings.ToUpper(request.DistanceRelation),
-			AngleAxis: request.AngleAxis, ReverseAngleAxis: request.ReverseAngleAxis != nil && *request.ReverseAngleAxis, AngleReferenceDirection: request.AngleReferenceDirection, EvaluationStatus: modelcore.AssemblyConstraintVerified}
+			AngleAxis: request.AngleAxis, ReverseAngleAxis: request.ReverseAngleAxis != nil && *request.ReverseAngleAxis, AngleReferenceDirection: request.AngleReferenceDirection, EvaluationStatus: modelcore.AssemblyConstraintNotUpdated}
 		constraint.ContactKind, constraint.ContactSide = strings.ToUpper(request.ContactKind), strings.ToUpper(request.ContactSide)
 		if request.ContactBranch != nil {
 			constraint.ContactBranch = *request.ContactBranch

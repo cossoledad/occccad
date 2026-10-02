@@ -77,6 +77,10 @@ func evaluateAssemblyAdmission(model *ProductModel, moving bool, evaluate assemb
 			baseline, baselineErr = run("accepted")
 		}
 		if baselineErr != nil {
+			var failure *assemblySolveFailure
+			if errors.As(baselineErr, &failure) && failure.definitionPersistable && failure.retryable {
+				return baselineErr
+			}
 			if _, ok := isolatedAssemblyFailure(baselineErr); !ok {
 				return baselineErr
 			}
@@ -100,6 +104,10 @@ func evaluateAssemblyAdmission(model *ProductModel, moving bool, evaluate assemb
 			delete(excluded, id)
 			candidate, trialErr := run(fmt.Sprintf("candidate-%d", index))
 			if trialErr != nil {
+				var unavailable *assemblySolveFailure
+				if errors.As(trialErr, &unavailable) && unavailable.definitionPersistable && unavailable.retryable {
+					return trialErr
+				}
 				failure, ok := isolatedAssemblyFailure(trialErr)
 				if !ok {
 					return trialErr

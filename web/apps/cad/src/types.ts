@@ -62,6 +62,8 @@ export type AssemblyComponentDof = {
   freedoms: AssemblyBodyFreedom[];
 };
 export type CommandPreview = {
+  evaluationOutcome?: "DEFINITION_ONLY";
+  evaluationFailure?: AssemblyEvaluationFailure;
   assemblySolverBuild?: string;
   assemblyComponents?: AssemblyComponentDof[];
   previewId: string;
@@ -181,9 +183,9 @@ export type AssemblyGeometryRef = { derivedRole?:string; instancePath?: Instance
     manifestDigest: string; policyDigest: string; result: SelectionResolution };
   publicationRef?: { publicationId:string; expectedType:string; compatibilityVersion:string; persistentSelection?:PersistentSelection };
   publicationResolution?: Publication["resolution"] };
-export type AssemblyConstraint = { id: string; definitionVersion?:number;family?:"Coincidence"|"Contact"|"Offset"|"Angle"|"Fix"|"FixTogether";subtype?:string;name?:string; contactKind?:"FACE"|"LINE"|"POINT"|"RING";contactSide?:"EXTERNAL"|"INTERNAL";contactBranch?:number;groupMembers?:Array<{instanceId?:string;instancePath?:InstancePath;groupId?:string}>; fixMode?: "SPACE" | "RELATIVE"; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; angleRelation?: "FREE" | "DIRECTED" | "PARALLEL" | "PERPENDICULAR"; measuredValue?: number; suppressed?: boolean; mode?: "DRIVING" | "MEASURED" | "CONTROLLED"; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE" | "CONTACT" | "FIX_TOGETHER";
+export type AssemblyEvaluationFailure = {code:string;phase:string;retryable:boolean};
+export type AssemblyConstraint = { evaluationFailure?:AssemblyEvaluationFailure; id: string; definitionVersion?:number;family?:"Coincidence"|"Contact"|"Offset"|"Angle"|"Fix"|"FixTogether";subtype?:string;name?:string; contactKind?:"FACE"|"LINE"|"POINT"|"RING";contactSide?:"EXTERNAL"|"INTERNAL";contactBranch?:number;groupMembers?:Array<{instanceId?:string;instancePath?:InstancePath;groupId?:string}>; fixMode?: "SPACE" | "RELATIVE"; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; angleRelation?: "FREE" | "DIRECTED" | "PARALLEL" | "PERPENDICULAR"; measuredValue?: number; suppressed?: boolean; mode?: "DRIVING" | "MEASURED" | "CONTROLLED"; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE" | "CONTACT" | "FIX_TOGETHER";
   first: AssemblyGeometryRef; second?: AssemblyGeometryRef; value?: number; directionRelation?: string; distanceRelation?: string;
-  offsetParameter?: {parameterId:string;key:string;source:{literal?:{siValue:number};expression?:{sourceText:string}}};
   quantityParameter?: {parameterId:string;key:string;source:{literal?:{siValue:number};expression?:{sourceText:string}}};
   angleAxis?: AssemblyGeometryRef; reverseAngleAxis?: boolean; angleReferenceDirection?: Vec3; evaluationStatus: "NOT_UPDATED" | "BROKEN" | "IMPOSSIBLE" | "VERIFIED";
   evaluationSummary?: string };

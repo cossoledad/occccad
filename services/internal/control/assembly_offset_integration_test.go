@@ -122,7 +122,7 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 			t.Fatalf("signed geometry got %g want %g; poses %+v", got, target, poses)
 		}
 	}
-	request := workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "DISTANCE", FirstAssemblyRef: first, SecondAssemblyRef: second, Value: 3, DirectionRelation: "SAME", DistanceRelation: "SELECTED_PLANE_NORMAL_V1", OffsetKey: "Gap", RequestID: id + "-signed-preview", ActorID: actor}
+	request := workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "DISTANCE", FirstAssemblyRef: first, SecondAssemblyRef: second, Value: 3, DirectionRelation: "SAME", DistanceRelation: "SELECTED_PLANE_NORMAL_V1", QuantityKey: "Gap", RequestID: id + "-signed-preview", ActorID: actor}
 	preview, err := service.PreviewCommand(t.Context(), id, request)
 	if err != nil {
 		t.Fatal(err)
@@ -136,11 +136,11 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 	}
 	gap := created.Product.Constraints[len(created.Product.Constraints)-1].ID
 	createdDefinition := created.Product.Constraints[len(created.Product.Constraints)-1]
-	if createdDefinition.DefinitionVersion != 2 || createdDefinition.OffsetParameter != nil || createdDefinition.QuantityParameter == nil || createdDefinition.QuantityParameter.ParameterID != "offset:"+gap {
+	if createdDefinition.DefinitionVersion != 2 || createdDefinition.QuantityParameter == nil || createdDefinition.QuantityParameter.ParameterID != "offset:"+gap {
 		t.Fatal("new Offset did not persist unique canonical stable quantity", createdDefinition)
 	}
 	literal := "-2 mm"
-	apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: gap, Value: 3, OffsetExpression: &literal, DirectionRelation: "OPPOSITE", DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
+	apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: gap, Value: 3, QuantityExpression: &literal, DirectionRelation: "OPPOSITE", DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
 	check(product, -2)
 	edited := product
 	apply(workspace.CommandRequest{Type: "UNDO"})
@@ -148,7 +148,7 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 	apply(workspace.CommandRequest{Type: "REDO"})
 	check(product, -2)
 	definition := product.Product.Constraints[len(product.Product.Constraints)-1]
-	if definition.DefinitionVersion != 2 || definition.OffsetParameter != nil || definition.QuantityParameter == nil || definition.QuantityParameter.ParameterID != "offset:"+gap || definition.QuantityParameter.Source.Expression == nil || definition.QuantityParameter.Source.Expression.CheckedAST.Kind == "" {
+	if definition.DefinitionVersion != 2 || definition.QuantityParameter == nil || definition.QuantityParameter.ParameterID != "offset:"+gap || definition.QuantityParameter.Source.Expression == nil || definition.QuantityParameter.Source.Expression.CheckedAST.Kind == "" {
 		t.Fatal("Redo lost AST")
 	}
 	cold := workspace.NewWithArtifacts(db, client, artifact.NewService(db, local))
@@ -184,7 +184,7 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 	// Invalid expression cannot commit a pose or Head.
 	before := product.Document.VersionID
 	bad := "2 deg"
-	_, err = service.ApplyCommand(t.Context(), id, workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", ActorID: actor, TargetID: gap, Value: -2, OffsetExpression: &bad, DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
+	_, err = service.ApplyCommand(t.Context(), id, workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", ActorID: actor, TargetID: gap, Value: -2, QuantityExpression: &bad, DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
 	if err == nil {
 		t.Fatal("dimension error committed")
 	}
@@ -213,7 +213,7 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	literal = "4 mm"
-	apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: gap, Value: -2, OffsetExpression: &literal, DirectionRelation: "OPPOSITE", DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
+	apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: gap, Value: -2, QuantityExpression: &literal, DirectionRelation: "OPPOSITE", DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
 	check(product, 4)
 	frozen, err := service.ReplayProductRelease(t.Context(), id, release.ID, id+"-offset-release-replay")
 	if err != nil {
@@ -235,21 +235,21 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 	}
 	t.Run("stable-expression-reference-through-history", func(t *testing.T) {
 		dependent := "Gap + 1 mm"
-		apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "DISTANCE", FirstAssemblyRef: first, SecondAssemblyRef: second, OffsetExpression: &dependent, OffsetKey: "Derived", DistanceRelation: "SELECTED_PLANE_NORMAL_V1", ConstraintMode: &measured})
+		apply(workspace.CommandRequest{Type: "ADD_ASSEMBLY_CONSTRAINT", ConstraintKind: "DISTANCE", FirstAssemblyRef: first, SecondAssemblyRef: second, QuantityExpression: &dependent, QuantityKey: "Derived", DistanceRelation: "SELECTED_PLANE_NORMAL_V1", ConstraintMode: &measured})
 		four := "4 mm"
-		apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: gap, OffsetExpression: &four, OffsetKey: "Renamed", DirectionRelation: "OPPOSITE", DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
+		apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: gap, QuantityExpression: &four, QuantityKey: "Renamed", DirectionRelation: "OPPOSITE", DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
 		last := product.Product.Constraints[len(product.Product.Constraints)-1]
-		if last.DefinitionVersion != 2 || last.OffsetParameter != nil || last.QuantityParameter == nil || last.QuantityParameter.ParameterID != "offset:"+last.ID || last.QuantityParameter.Source.Expression == nil || last.QuantityParameter.Source.Expression.CheckedAST.Kind == "" || last.QuantityParameter.Source.Expression.CheckedAST.Left == nil || last.Value != 5 || last.MeasuredValue == nil || math.Abs(*last.MeasuredValue-4) > 1e-7 || last.QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:"+gap {
+		if last.DefinitionVersion != 2 || last.QuantityParameter == nil || last.QuantityParameter.ParameterID != "offset:"+last.ID || last.QuantityParameter.Source.Expression == nil || last.QuantityParameter.Source.Expression.CheckedAST.Kind == "" || last.QuantityParameter.Source.Expression.CheckedAST.Left == nil || last.Value != 5 || last.MeasuredValue == nil || math.Abs(*last.MeasuredValue-4) > 1e-7 || last.QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:"+gap {
 			t.Fatal("reference/measurement boundary", last)
 		}
 		apply(workspace.CommandRequest{Type: "UNDO"})
 		undone := product.Product.Constraints[len(product.Product.Constraints)-1]
-		if undone.OffsetParameter != nil || undone.QuantityParameter == nil || undone.QuantityParameter.Source.Expression == nil || undone.QuantityParameter.Source.Expression.CheckedAST.Kind == "" || undone.QuantityParameter.Source.Expression.CheckedAST.Left == nil || undone.QuantityParameter.Source.Expression.SourceText != "(Gap + 1 mm)" || undone.QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:"+gap {
+		if undone.QuantityParameter == nil || undone.QuantityParameter.Source.Expression == nil || undone.QuantityParameter.Source.Expression.CheckedAST.Kind == "" || undone.QuantityParameter.Source.Expression.CheckedAST.Left == nil || undone.QuantityParameter.Source.Expression.SourceText != "(Gap + 1 mm)" || undone.QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:"+gap {
 			t.Fatal("Undo lost expression source")
 		}
 		apply(workspace.CommandRequest{Type: "REDO"})
 		redone := product.Product.Constraints[len(product.Product.Constraints)-1]
-		if redone.OffsetParameter != nil || redone.QuantityParameter == nil || redone.QuantityParameter.Source.Expression == nil || redone.QuantityParameter.Source.Expression.CheckedAST.Kind == "" || redone.QuantityParameter.Source.Expression.CheckedAST.Left == nil || redone.QuantityParameter.Source.Expression.SourceText != "(Renamed + 1 mm)" || redone.QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:"+gap {
+		if redone.QuantityParameter == nil || redone.QuantityParameter.Source.Expression == nil || redone.QuantityParameter.Source.Expression.CheckedAST.Kind == "" || redone.QuantityParameter.Source.Expression.CheckedAST.Left == nil || redone.QuantityParameter.Source.Expression.SourceText != "(Renamed + 1 mm)" || redone.QuantityParameter.Source.Expression.CheckedAST.Left.ParameterID != "offset:"+gap {
 			t.Fatal("Redo lost stable rename")
 		}
 	})
@@ -301,7 +301,7 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 		rs := rf
 		rs.InstanceID = b
 		empty := ""
-		apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: gap, FirstAssemblyRef: &rf, SecondAssemblyRef: &rs, Value: -3, OffsetExpression: &empty, DirectionRelation: "UNORIENTED", DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
+		apply(workspace.CommandRequest{Type: "EDIT_ASSEMBLY_CONSTRAINT", TargetID: gap, FirstAssemblyRef: &rf, SecondAssemblyRef: &rs, Value: -3, QuantityExpression: &empty, DirectionRelation: "UNORIENTED", DistanceRelation: "SELECTED_PLANE_NORMAL_V1"})
 		rotate := func(q [4]float64, p [3]float64) [3]float64 {
 			u := [3]float64{q[0], q[1], q[2]}
 			dot := u[0]*p[0] + u[1]*p[1] + u[2]*p[2]

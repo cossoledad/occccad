@@ -487,6 +487,7 @@ type ResolutionSnapshot struct {
 }
 
 type AssemblyConstraint struct {
+	EvaluationFailure           *AssemblyEvaluationFailure                   `json:"evaluationFailure,omitempty"`
 	DefinitionVersion           int                                          `json:"definitionVersion,omitempty"`
 	Family                      string                                       `json:"family,omitempty"` // six public families; Kind is numeric mapping
 	Subtype                     string                                       `json:"subtype,omitempty"`
@@ -499,7 +500,6 @@ type AssemblyConstraint struct {
 	GroupCaptureDigest          string                                       `json:"groupCaptureDigest,omitempty"`
 	GroupCapturePending         bool                                         `json:"groupCapturePending,omitempty"`
 	QuantityParameter           *modelcore.ParameterDefinition               `json:"quantityParameter,omitempty"`
-	OffsetParameter             *modelcore.ParameterDefinition               `json:"offsetParameter,omitempty"`
 	FixMode                     string                                       `json:"fixMode,omitempty"`
 	AngleRelation               string                                       `json:"angleRelation,omitempty"`
 	MeasuredValue               *float64                                     `json:"measuredValue,omitempty"`
@@ -1062,6 +1062,8 @@ type CommandRequest struct {
 // used by ApplyCommand. The base revision lets clients reject a response that
 // arrived after the workspace head changed.
 type CommandPreview struct {
+	EvaluationOutcome    string                               `json:"evaluationOutcome,omitempty"`
+	EvaluationFailure    *AssemblyEvaluationFailure           `json:"evaluationFailure,omitempty"`
 	AssemblySolverBuild  string                               `json:"assemblySolverBuild,omitempty"`
 	AssemblyComponents   []geometry.AssemblyComponentDof      `json:"assemblyComponents,omitempty"`
 	PreviewID            string                               `json:"previewId"`
@@ -1079,6 +1081,12 @@ type CommandPreview struct {
 		Translation [3]float64 `json:"translation"`
 		Rotation    [4]float64 `json:"rotation"`
 	} `json:"instancePoses,omitempty"`
+}
+
+type AssemblyEvaluationFailure struct {
+	Code      string `json:"code"`
+	Phase     string `json:"phase"`
+	Retryable bool   `json:"retryable"`
 }
 
 type AssemblySupportPreviewEvaluation struct {

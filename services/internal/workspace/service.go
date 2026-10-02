@@ -1114,6 +1114,9 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		}
 	}
 	view.Product = &model
+	if err := validateAssemblyDefinitionFormat(model); err != nil {
+		return view, err
+	}
 	view.FollowedDocumentIDs, view.FollowedProductIDs, err = service.followedProductDocuments(ctx, model)
 	if err != nil {
 		return view, err

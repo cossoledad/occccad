@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
+from catalog import compose_catalog
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("contract_runner", HERE / "runner.py")
@@ -12,8 +13,22 @@ spec.loader.exec_module(runner)
 
 
 class CatalogTests(unittest.TestCase):
+    def test_split_catalog_binding_and_semantic_ownership(self):
+        production=json.loads((HERE / "../../services/internal/assemblycontract/catalog.json").read_text())
+        evidence=json.loads((HERE / "evidence.json").read_text())
+        combined=compose_catalog(production,evidence)
+        self.assertEqual(len(combined["cases"]),len(evidence["cases"]))
+        self.assertNotIn("cases",production)
+        self.assertNotIn("caseIds",production["capabilities"][0])
+        self.assertLess(len(evidence["bindings"]),len(evidence["cases"]))
+        bad=copy.deepcopy(evidence);bad["cases"][0]["bindingId"]="absent"
+        with self.assertRaisesRegex(ValueError,"missing binding"):compose_catalog(production,bad)
+        bad=copy.deepcopy(evidence);bad["bindings"]["orphan"]={}
+        with self.assertRaisesRegex(ValueError,"unused test binding"):compose_catalog(production,bad)
+        bad=copy.deepcopy(evidence);bad["capabilityEvidence"][production["capabilities"][0]["capabilityId"]]["roles"]=[]
+        with self.assertRaisesRegex(ValueError,"overwrites production"):compose_catalog(production,bad)
     def setUp(self):
-        self.catalog = json.loads((HERE / "catalog.json").read_text())
+        self.catalog = runner.load_catalog()
         self.lock = json.loads((HERE / "baseline.json").read_text())
 
     def check_bad(self, mutate, message, lock=False):

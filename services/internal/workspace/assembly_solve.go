@@ -13,6 +13,8 @@ import (
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
 	"github.com/qmuntal/stateless"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func inverseRelativePose(first, second InstancePose) InstancePose {
@@ -42,11 +44,12 @@ type assemblyConstraintCapabilities struct {
 }
 
 type assemblySolveFailure struct {
-	status     string
-	diagnostic string
-	code       string
-	phase      string
-	retryable  bool
+	definitionPersistable bool
+	status                string
+	diagnostic            string
+	code                  string
+	phase                 string
+	retryable             bool
 }
 
 func validatePersistentAssemblyReference(reference AssemblyGeometryRef) error {
@@ -104,7 +107,7 @@ func (workflow *assemblySolveWorkflow) failure(ctx context.Context, status, code
 		return fmt.Errorf("assembly solve workflow transition from %s: %w", phase, err)
 	}
 	return &assemblySolveFailure{status: status, diagnostic: diagnostic, code: code,
-		phase: phase, retryable: retryable}
+		phase: phase, retryable: retryable, definitionPersistable: phase == assemblySolveSolving && status != "INVALID_MODEL"}
 }
 
 // assemblyCapabilities is the authoritative application-layer geometry-pair
@@ -123,7 +126,7 @@ func assemblyCapabilities(kind, firstKind, secondKind string) assemblyConstraint
 }
 
 func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRevisionID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, warmStartKey string, excluded map[string]bool, probe bool, evidence ...*geometry.AssemblySolve) (returnErr error) {
-	if err := resolveOffsetParameters(model); err != nil {
+	if err := resolveAssemblyQuantities(model); err != nil {
 		return err
 	}
 	if len(model.Constraints) == 0 {
@@ -329,27 +332,18 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 				hasUnresolvedActiveConstraint = true
 				continue
 			}
-			direction := axis.Direction
-			if constraint.ReverseAngleAxis {
-				for i := range direction {
-					direction[i] = -direction[i]
-				}
-			}
-			constraint.AngleReferenceDirection, value.AngleReferenceDirection = &direction, &direction
-			if constraint.DefinitionVersion >= 2 {
-				value.AngleReferenceBodyID, value.AngleReferenceGeometryID, value.ReverseAngleReference = axis.BodyID, axisKey, constraint.ReverseAngleAxis
-				constraint.AngleReferenceDirection, value.AngleReferenceDirection = nil, nil
-			}
+			value.AngleReferenceBodyID, value.AngleReferenceGeometryID, value.ReverseAngleReference = axis.BodyID, axisKey, constraint.ReverseAngleAxis
+			constraint.AngleReferenceDirection, value.AngleReferenceDirection = nil, nil
 			appendResolutionEvidence(constraint.ID, "ANGLE_AXIS", axisKey, *constraint.AngleAxis)
 		}
 		if constraint.Kind != "FIX" && constraint.Kind != "RIGID" {
 			firstKind := resolvedGeometry[firstGeometry].Kind
 			secondKind := resolvedGeometry[value.SecondGeometryID].Kind
-			if constraint.DefinitionVersion >= 2 && constraint.Family == "Coincidence" &&
+			if constraint.Family == "Coincidence" &&
 				(firstKind == "AXIS" || firstKind == "CYLINDER") && (secondKind == "AXIS" || secondKind == "CYLINDER") {
 				value.Kind = "CONCENTRIC" // public coaxial relation never equates radii
 			}
-			if constraint.DefinitionVersion >= 2 && constraint.Family == "Coincidence" && constraint.Subtype == "point-surface" &&
+			if constraint.Family == "Coincidence" && constraint.Subtype == "point-surface" &&
 				((firstKind == "POINT" && secondKind == "CYLINDER") || (secondKind == "POINT" && firstKind == "CYLINDER")) {
 				value.Kind = "SURFACE_INCIDENCE" // not the legacy point-to-cylinder-axis shortcut
 			}
@@ -461,13 +455,34 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	} else if !errors.Is(lookupErr, ErrNotFound) {
 		return lookupErr
 	} else {
-		result, err = service.solveFrozenManifest(ctx, requestID, manifest, service.captureAssemblyReplay(ctx, documentID, requestID))
-		if recordErr := service.recordAssemblySolveResult(ctx, manifest, requestID, result, err); recordErr != nil && err == nil {
+		work, stop := assemblyNumericalContext(ctx)
+		result, err = service.solveFrozenManifest(work, requestID, manifest, service.captureAssemblyReplay(ctx, documentID, requestID))
+		stop()
+		// Never cache a canceled/invalid/unauthorized RPC as a retryable solve
+		// failure: replaying an untyped error string must not change its policy.
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
+		switch status.Code(err) {
+		case codes.Canceled, codes.InvalidArgument, codes.PermissionDenied, codes.Unauthenticated, codes.FailedPrecondition:
+			return err
+		}
+		if recordErr := service.recordAssemblySolveResult(ctx, manifest, requestID, result, err); recordErr != nil {
 			return recordErr
 		}
 	}
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if errors.Is(err, context.Canceled) || status.Code(err) == codes.Canceled {
+			return err
+		}
+		switch status.Code(err) {
+		case codes.InvalidArgument, codes.PermissionDenied, codes.Unauthenticated, codes.FailedPrecondition:
 			return err
 		}
 		return workflow.failure(context.Background(), "NUMERICAL_FAILURE",
@@ -478,6 +493,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		switch result.Status {
 		case "MAX_ITERATIONS":
 			code = "ASSEMBLY_SOLVER_NON_CONVERGENT"
+			retryable = true
 		case "INCONSISTENT":
 			code = "ASSEMBLY_SOLVER_INCONSISTENT"
 		case "INVALID_MODEL":
@@ -527,6 +543,7 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	for index := range model.Constraints {
 		if !excluded[model.Constraints[index].ID] && !model.Constraints[index].Suppressed && model.Constraints[index].EvaluationStatus != modelcore.AssemblyConstraintBroken && model.Constraints[index].EvaluationStatus != modelcore.AssemblyConstraintImpossible {
 			model.Constraints[index].EvaluationStatus = modelcore.AssemblyConstraintVerified
+			model.Constraints[index].EvaluationFailure = nil
 			model.Constraints[index].EvaluationSummary = "resolved supports satisfy the accepted assembly solution"
 		}
 	}

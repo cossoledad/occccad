@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
 import {readFile} from "node:fs/promises";
 import {createServer} from "vite";
+import {execFileSync} from "node:child_process";
+import {fileURLToPath} from "node:url";
 
 // Consume the production catalog, not implementationProfile or test PASS counts.
 // Every marker is emitted only after assertions for that exact capability.
 const catalog=JSON.parse(await readFile(new URL("../../../../../../../services/internal/assemblycontract/catalog.json",import.meta.url),"utf8"));
+const evidence=JSON.parse(execFileSync("python3",[fileURLToPath(new URL("../../../../../../../tests/assembly-contract/catalog.py",import.meta.url)),"--expanded"],{encoding:"utf8"}));
 const requested=process.env.OCCCCAD_ASSEMBLY_CONTRACT_CASES?JSON.parse(process.env.OCCCCAD_ASSEMBLY_CONTRACT_CASES):undefined;
 const cases=catalog.capabilities.map(capability=>({
  caseId:`${capability.capabilityId}.web-production-capability`,capability,
- expected:catalog.cases.find(c=>c.caseId===`${capability.capabilityId}.web-production-capability`)?.expected,
+ expected:evidence.cases.find(c=>c.caseId===`${capability.capabilityId}.web-production-capability`)?.expected,
 })).filter(c=>!requested||requested.includes(c.caseId));
 assert.ok(cases.length,"zero production capability assertions selected");
 if(requested)for(const caseId of requested.filter(id=>id.endsWith(".web-production-capability")))assert.ok(cases.some(c=>c.caseId===caseId),`unknown production capability case ${caseId}`);
@@ -39,7 +42,7 @@ try {
     assert.equal(fields.distanceRelation,types.includes("PLANE")?"SELECTED_PLANE_NORMAL_V1":"UNSIGNED");
     const definition={kind:"DISTANCE",first:refs[0],second:refs[1],distanceRelation:fields.distanceRelation,value:types.includes("PLANE")?-3:3,mode:"MEASURED",quantityParameter:{key:"Gap",source:{expression:{sourceText:"StableLength - 3 mm"}}}};
     const reopened=offsetInitialFields(definition);assert.equal(reopened.distanceRelation,fields.distanceRelation);
-    assert.deepEqual(offsetCommandFields(reopened),{offsetExpression:"StableLength - 3 mm",offsetKey:"Gap",constraintMode:"MEASURED"});
+    assert.deepEqual(offsetCommandFields(reopened),{quantityExpression:"StableLength - 3 mm",quantityKey:"Gap",constraintMode:"MEASURED"});
    }
    if(c.family==="Contact"){
     const relation=c.subtype.split("-").at(-1).toUpperCase();assert.ok(contactRelationOptions([c]).includes(relation));

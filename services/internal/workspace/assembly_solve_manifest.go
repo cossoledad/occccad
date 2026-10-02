@@ -144,12 +144,8 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 	if manifest.InteractionGoalSequence != 0 && (manifest.SolverBuildPolicy != assemblySolverBuildPolicy || manifest.DragTarget == nil || manifest.InteractionGoalSequence > manifest.DragTarget.TargetSequence) {
 		return fmt.Errorf("%w: invalid interaction goal identity", ErrValidation)
 	}
-	if manifest.DragTarget != nil && manifest.SolverBuildPolicy != "assembly-m4m5-intent-v12" &&
-		(manifest.DragTarget.HoldTranslationComponents != [3]bool{} || manifest.DragTarget.HoldRotationComponents != [3]bool{}) {
-		return fmt.Errorf("%w: intent hold requires v12 policy", ErrValidation)
-	}
-	if manifest.DigestPolicy != "" && manifest.DigestPolicy != assemblyManifestCanonicalJSON {
-		return fmt.Errorf("%w: unknown assembly manifest digest policy", ErrValidation)
+	if manifest.DigestPolicy != assemblyManifestCanonicalJSON {
+		return fmt.Errorf("%w: unsupported assembly manifest digest policy", ErrValidation)
 	}
 	if manifest.SchemaVersion != assemblySolveManifestSchema || manifest.RootProductDocumentID == "" ||
 		manifest.RootProductRevisionID == "" || manifest.ModelHash == "" ||
@@ -160,32 +156,11 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 		len(manifest.Definitions) > maxManifestConstraints || len(manifest.Constraints) > maxManifestConstraints {
 		return fmt.Errorf("%w: assembly SolveManifest resource limits exceeded", ErrValidation)
 	}
-	if manifest.SolverProfile.SchemaVersion != 2 || (manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-m4m5-interaction-v11" && manifest.SolverBuildPolicy != "assembly-six-families-composition-v10" && manifest.SolverBuildPolicy != "assembly-offset-parallel-line-v9" && manifest.SolverBuildPolicy != "assembly-offset-selected-plane-v8" && manifest.SolverBuildPolicy != "assembly-m3-lifecycle-v7") {
+	if manifest.SolverProfile.SchemaVersion != 2 || manifest.SolverBuildPolicy != assemblySolverBuildPolicy {
 		return fmt.Errorf("%w: unsupported assembly solver profile or build policy", ErrValidation)
 	}
-	if manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-m4m5-interaction-v11" && manifest.SolverBuildPolicy != "assembly-six-families-composition-v10" {
-		for _, c := range manifest.Definitions {
-			if c.DefinitionVersion >= 2 || c.QuantityParameter != nil || c.Kind == "CONTACT" || c.Kind == "FIX_TOGETHER" {
-				return fmt.Errorf("%w: six-family definition requires v10 policy", ErrValidation)
-			}
-		}
-		for _, g := range manifest.Geometry {
-			if g.Kind == "CIRCLE" || g.Kind == "SPHERE" || g.Kind == "CONE" || g.Kind == "FRAME" {
-				return fmt.Errorf("%w: analytic descriptor requires v10 policy", ErrValidation)
-			}
-		}
-	}
-	if manifest.SolverBuildPolicy == "assembly-m3-lifecycle-v7" {
-		for _, c := range manifest.Constraints {
-			if c.DistanceRelation == selectedPlaneNormalV1 {
-				return fmt.Errorf("%w: selected-plane Offset requires v8 policy", ErrValidation)
-			}
-		}
-		for _, c := range manifest.Definitions {
-			if c.OffsetParameter != nil || c.DistanceRelation == selectedPlaneNormalV1 {
-				return fmt.Errorf("%w: Offset intent requires v8 policy", ErrValidation)
-			}
-		}
+	if err := validateAssemblyDefinitionFormat(ProductModel{Constraints: manifest.Definitions}); err != nil {
+		return err
 	}
 	bodies, geometryIDs, constraints := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, body := range manifest.Bodies {
@@ -194,7 +169,7 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 		}
 		bodies[body.ID] = true
 	}
-	if manifest.DragTarget != nil && (manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-m4m5-interaction-v11" || !bodies[manifest.DragTarget.BodyID] || !validInteractionTarget(*manifest.DragTarget)) {
+	if manifest.DragTarget != nil && (manifest.SolverBuildPolicy != assemblySolverBuildPolicy || !bodies[manifest.DragTarget.BodyID] || !validInteractionTarget(*manifest.DragTarget)) {
 		return fmt.Errorf("%w: invalid versioned drag target", ErrValidation)
 	}
 	for _, item := range manifest.Geometry {
@@ -210,13 +185,13 @@ func validateAssemblySolveManifest(manifest AssemblySolveManifest) error {
 			(constraint.SecondGeometryID != "" && !geometryIDs[constraint.SecondGeometryID]) {
 			return fmt.Errorf("%w: invalid constraint reference in SolveManifest", ErrValidation)
 		}
-		if constraint.AngleReferenceGeometryID != "" && (!geometryIDs[constraint.AngleReferenceGeometryID] || !bodies[constraint.AngleReferenceBodyID] || constraint.Kind != "ANGLE" || (manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-m4m5-interaction-v11" && manifest.SolverBuildPolicy != "assembly-six-families-composition-v10")) {
+		if constraint.AngleReferenceGeometryID != "" && (!geometryIDs[constraint.AngleReferenceGeometryID] || !bodies[constraint.AngleReferenceBodyID] || constraint.Kind != "ANGLE" || (manifest.SolverBuildPolicy != assemblySolverBuildPolicy)) {
 			return fmt.Errorf("%w: invalid or unversioned directed-axis reference", ErrValidation)
 		}
 		constraints[constraint.ID] = true
 	}
 	if len(manifest.RelativeFixUpdates) > 0 || len(manifest.ResolvedAlignmentBranches) > 0 || len(manifest.ResolvedDistanceBranches) > 0 {
-		if manifest.DragTarget == nil || manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-m4m5-interaction-v11" {
+		if manifest.DragTarget == nil || manifest.SolverBuildPolicy != assemblySolverBuildPolicy {
 			return fmt.Errorf("%w: interaction evidence requires versioned drag input", ErrValidation)
 		}
 		seen := map[string]bool{}
@@ -293,9 +268,6 @@ func (service *Service) solveFrozenManifest(ctx context.Context, requestID strin
 		return geometry.AssemblySolve{}, err
 	}
 	if manifest.DragTarget != nil {
-		if manifest.SolverBuildPolicy != assemblySolverBuildPolicy && manifest.SolverBuildPolicy != "assembly-m4m5-interaction-v11" {
-			return geometry.AssemblySolve{}, fmt.Errorf("%w: drag target requires v11", ErrValidation)
-		}
 		constraints, err := interactionFrozenConstraints(manifest)
 		if err != nil {
 			return geometry.AssemblySolve{}, err

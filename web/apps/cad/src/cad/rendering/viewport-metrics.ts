@@ -10,7 +10,7 @@ export function viewportMetrics(renderer: THREE.WebGLRenderer): ViewportMetrics 
 export function worldUnitsPerCssPixel(camera: THREE.Camera, worldPosition: THREE.Vector3, metrics: ViewportMetrics): number {
   if (camera instanceof THREE.PerspectiveCamera) {
     const view = worldPosition.clone().applyMatrix4(camera.matrixWorldInverse);
-    return perspectiveWorldUnitsPerCssPixel(view.z, camera.fov, metrics.cssHeight);
+    return perspectiveWorldUnitsPerCssPixel(view.z, camera.fov, metrics.cssHeight) / camera.zoom;
   }
   if (camera instanceof THREE.OrthographicCamera) return (camera.top - camera.bottom) / (camera.zoom * metrics.cssHeight);
   return 1 / metrics.cssHeight;

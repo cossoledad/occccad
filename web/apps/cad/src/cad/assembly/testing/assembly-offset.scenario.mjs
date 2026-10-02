@@ -10,18 +10,18 @@ try {
   const first={instanceId:"same-part-occurrence-a",kind:"PLANE"};
   const second={instanceId:"same-part-occurrence-b",kind:"PLANE"};
   const definition={first,second,kind:"DISTANCE",value:-2,directionRelation:"UNORIENTED",distanceRelation:"SELECTED_PLANE_NORMAL_V1",mode:"MEASURED",
-    offsetParameter:{parameterId:"offset:gap",key:"Gap",source:{expression:{sourceText:"Base - 5 mm"}}}};
+    quantityParameter:{parameterId:"offset:gap",key:"Gap",source:{expression:{sourceText:"Base - 5 mm"}}}};
   const reopened=offsetInitialFields(definition);
   assert.equal(reopened.distanceRelation,"SELECTED_PLANE_NORMAL_V1");
-  assert.equal(reopened.offsetExpression,"Base - 5 mm");
+  assert.equal(reopened.quantityExpression,"Base - 5 mm");
   assert.equal(reopened.constraintMode,"MEASURED");
-  assert.deepEqual(offsetCommandFields(reopened),{offsetExpression:"Base - 5 mm",offsetKey:"Gap",constraintMode:"MEASURED"});
+  assert.deepEqual(offsetCommandFields(reopened),{quantityExpression:"Base - 5 mm",quantityKey:"Gap",constraintMode:"MEASURED"});
   assert.deepEqual(definition.first,first);assert.deepEqual(definition.second,second);
   assert.equal(definition.value,-2);assert.equal(definition.directionRelation,"UNORIENTED");
   assert.equal(offsetInitialFields(undefined,[{...first,kind:"FACE"},{...second,kind:"FACE"}]).distanceRelation,"UNSIGNED","FACE is a pick category, not an exact plane descriptor");
   assert.equal(offsetInitialFields(undefined,[first,second],["PLANE","PLANE"]).distanceRelation,"SELECTED_PLANE_NORMAL_V1");
   assert.equal(offsetInitialFields(undefined,[{kind:"POINT"},{kind:"AXIS"}]).distanceRelation,"UNSIGNED");
-  assert.equal(offsetInitialFields({...definition,distanceRelation:"ALONG_SECOND_NORMAL"}).distanceRelation,"ALONG_SECOND_NORMAL","old Revision cannot be silently reinterpreted");
+  assert.equal(offsetInitialFields(definition).distanceRelation,"SELECTED_PLANE_NORMAL_V1","current symbol intent is preserved");
   for(const unit of ["mm","cm","m","in"]) for(const mm of [-2,0,5]) {
     assert.ok(Math.abs(displayLengthToMillimeters(millimetersToDisplayLength(mm,unit),unit)-mm)<1e-12);
   }
@@ -30,7 +30,7 @@ try {
   const {assemblyEditIntent}=await server.ssrLoadModule("/src/cad/assembly/assembly-edit-intent.ts");
   const intent=assemblyEditIntent("DISTANCE",{...reopened,value:-2,directionRelation:"UNORIENTED"},[first,second],"mm",definition);
   assert.equal(intent.value,-2);assert.equal(intent.distanceRelation,"SELECTED_PLANE_NORMAL_V1");
-  assert.equal(intent.offsetExpression,"Base - 5 mm");assert.equal(intent.constraintMode,"MEASURED");
+  assert.equal(intent.quantityExpression,"Base - 5 mm");assert.equal(intent.constraintMode,"MEASURED");
   assert.deepEqual(intent.firstAssemblyRef,first);assert.deepEqual(intent.secondAssemblyRef,second);
   assert.ok(source.includes('constraint.directionRelation ?? "UNORIENTED"'),"opening editor must not resolve Undefined from camera/placement");
 } finally {await server.close();}

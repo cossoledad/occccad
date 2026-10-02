@@ -1523,7 +1523,7 @@ func validateInstanceConstraintReferences(constraint AssemblyConstraint) error {
 	}
 	if constraint.Kind == "DISTANCE" {
 		switch constraint.DistanceRelation {
-		case "", "UNSIGNED", "ALONG_SECOND_NORMAL", "OPPOSITE_SECOND_NORMAL", "SELECTED_PLANE_NORMAL_V1":
+		case "", "UNSIGNED", "SELECTED_PLANE_NORMAL_V1":
 		default:
 			return fmt.Errorf("%w: unknown offset sign convention", ErrValidation)
 		}
@@ -1553,8 +1553,8 @@ func validateInstanceConstraintReferences(constraint AssemblyConstraint) error {
 		return fmt.Errorf("%w: invalid angle relation", ErrValidation)
 	}
 	if constraint.AngleAxis != nil {
-		if constraint.Kind != "ANGLE" || constraint.Second == nil || constraint.AngleAxis.InstanceID == "" || (constraint.DefinitionVersion < 2 && constraint.AngleAxis.InstanceID != constraint.Second.InstanceID) {
-			return fmt.Errorf("%w: angle axis requires an explicit owning occurrence (legacy axes belong to second support)", ErrValidation)
+		if constraint.Kind != "ANGLE" || constraint.Second == nil || constraint.AngleAxis.InstanceID == "" {
+			return fmt.Errorf("%w: angle axis requires an explicit owning occurrence", ErrValidation)
 		}
 		if constraint.AngleAxis.Kind != "AXIS" && constraint.AngleAxis.Kind != "PLANE" && constraint.AngleAxis.Kind != "FACE" && constraint.AngleAxis.Kind != "EDGE" && constraint.AngleAxis.Kind != "CYLINDER" && constraint.AngleAxis.Kind != "CONE" && constraint.AngleAxis.Kind != "CIRCLE" && constraint.AngleAxis.Kind != "FRAME" {
 			return fmt.Errorf("%w: angle axis requires a directional support", ErrValidation)
@@ -1617,8 +1617,8 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 		if model.Constraints[index].ID != payload.ConstraintID {
 			continue
 		}
-		if model.Constraints[index].Kind == "RIGID" && payload.Family == "FixTogether" {
-			return applyLegacyRigidGroupEdit(modelJSON, payload)
+		if model.Constraints[index].Kind == "RIGID" {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: unsupported experimental rigid definition; use current Fix Together", ErrValidation)
 		}
 		if isAssemblyGroup(model.Constraints[index]) {
 			return applyAssemblyGroupEdit(modelJSON, payload)
@@ -1713,6 +1713,10 @@ func applyEditAssemblyConstraint(modelJSON, payloadJSON json.RawMessage) (json.R
 		if err := validateInstanceConstraintReferences(model.Constraints[index]); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
+		model.Constraints[index].EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
+		model.Constraints[index].EvaluationSummary = "definition changed; evaluation pending"
+		model.Constraints[index].EvaluationFailure = nil
+		model.Constraints[index].MeasuredValue = nil
 		change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: payload.ConstraintID, SlotID: "assembly-constraint.entity"}, before, model.Constraints[index])
 		changes := modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"assembly-constraint:" + modelcore.DependencyKey(payload.ConstraintID)}}
 		if p := assemblyQuantityParameter(model.Constraints[index]); p != nil {
@@ -1930,6 +1934,15 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 			prepared.priorManifest = &manifest
 		}
 	}
+	if prepared.documentType == "PRODUCT" {
+		var model ProductModel
+		if err := json.Unmarshal(prepared.modelJSON, &model); err != nil {
+			return prepared, err
+		}
+		if err := validateAssemblyDefinitionFormat(model); err != nil {
+			return prepared, err
+		}
+	}
 	command, payload, err := service.adaptLegacyCommand(ctx, documentID, prepared.documentType, prepared.modelJSON, request)
 	if err != nil {
 		return prepared, err
@@ -2004,6 +2017,9 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	}
 	candidate, rejection := service.interactionCandidates.takeDiagnosed(request.PreviewID, documentID, prepared)
 	promoted := rejection == ""
+	if promoted && candidate.definitionOnly && !retainsAssemblyDefinition(prepared.command.TypeURI) {
+		return fmt.Errorf("%w: definition-only candidate cannot commit a move", ErrValidation)
+	}
 	finishPromote()
 	if request.PreviewID != "" && !promoted {
 		return fmt.Errorf("%w: PREVIEW_CANDIDATE_STALE_OR_MISMATCHED: %s", ErrValidation, rejection)
@@ -2115,7 +2131,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 				}
 			}
 		}
-		if promoted && (len(model.Constraints) > 0 || request.SessionID != "") {
+		if promoted && !candidate.definitionOnly && (len(model.Constraints) > 0 || request.SessionID != "") {
 			if err = service.promoteAssemblySolveManifest(ctx, documentID, revisionID, prepared.requestID, candidate.assemblyPreviewRequestID, canonicalModelHash(nextJSON)); err != nil {
 				return err
 			}
@@ -2272,17 +2288,6 @@ func unresolvedExternalRevisionOutcome(model PartModel) (geometryKey, revisionSt
 	return "", "FAILED", "FAILED", true
 }
 
-func restoreMovePreviewOnSolveFailure(typeURI string, solveErr error, baseJSON []byte, model *ProductModel) (bool, error) {
-	var failure *assemblySolveFailure
-	if typeURI != typeMoveInstance || !errors.As(solveErr, &failure) {
-		return false, nil
-	}
-	if err := json.Unmarshal(baseJSON, model); err != nil {
-		return false, err
-	}
-	return true, nil
-}
-
 func assemblyConstraintSolveIntent(command modelcore.DomainCommand, model ProductModel) *geometry.AssemblySolveIntent {
 	var first, second string
 	switch command.TypeURI {
@@ -2330,7 +2335,6 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	}
 	if strings.EqualFold(prepared.documentType, "PRODUCT") {
 		var model ProductModel
-		constraintLimited := false
 		if err = json.Unmarshal(nextJSON, &model); err != nil {
 			return CommandPreview{}, err
 		}
@@ -2353,25 +2357,12 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 			if retained := acceptAssemblyEvaluationFailure(&model, err, retainsAssemblyDefinition(prepared.command.TypeURI)); retained == nil {
 				retainedFailure = true
 			} else {
-				restored, restoreErr := restoreMovePreviewOnSolveFailure(prepared.command.TypeURI, err, prepared.modelJSON, &model)
-				if restoreErr != nil {
-					return CommandPreview{}, restoreErr
-				}
-				if !restored {
-					return CommandPreview{}, err
-				}
-				constraintLimited = true
-				// A manipulator target is an ephemeral preference, not a new hard
-				// constraint. Until the solver exposes closest-feasible projection,
-				// an unreachable target previews the unchanged authoritative poses.
-				nextJSON = prepared.modelJSON
-			}
-		}
-		if !constraintLimited {
-			nextJSON, err = json.Marshal(model)
-			if err != nil {
 				return CommandPreview{}, err
 			}
+		}
+		nextJSON, err = json.Marshal(model)
+		if err != nil {
+			return CommandPreview{}, err
 		}
 		constraintID := ""
 		switch prepared.command.TypeURI {
@@ -2396,18 +2387,23 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 			}
 		}
 		previewID := newID("preview")
-		if retainedFailure || assemblyResult.Status != "CONVERGED" || unverifiedOffset {
+		if !retainedFailure && (assemblyResult.Status != "CONVERGED" || unverifiedOffset) {
 			previewID = ""
 		}
-		if !constraintLimited && previewID != "" {
+		if previewID != "" {
 			service.interactionCandidates.put(interactionCandidate{id: previewID, documentID: documentID, actorID: prepared.actorID,
-				headRevision: prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
+				definitionOnly: retainedFailure,
+				headRevision:   prepared.headRevision, headSequence: prepared.headSequence, commandType: prepared.command.TypeURI,
 				assemblyPreviewRequestID: "preview/" + prepared.requestID,
 				payloadDigest:            modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, changes: previewChanges,
 				expiresAt: time.Now().Add(interactionCandidateTTL)})
 		}
 		result := CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence,
-			ModelHash: canonicalModelHash(nextJSON), ConstraintLimited: constraintLimited, AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
+			ModelHash: canonicalModelHash(nextJSON), AssemblyComponents: assemblyResult.Components, AssemblySolverBuild: assemblyResult.SolverBuild}
+		if retainedFailure {
+			result.EvaluationOutcome = "DEFINITION_ONLY"
+			result.AssemblyComponents = nil
+		}
 		for _, constraint := range model.Constraints {
 			if constraint.ID != constraintID {
 				continue
@@ -2419,6 +2415,9 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 				preview.Second = &second
 			}
 			result.ConstraintEvaluation = &preview
+			if retainedFailure {
+				result.EvaluationFailure = constraint.EvaluationFailure
+			}
 			break
 		}
 		for _, instance := range model.Instances {

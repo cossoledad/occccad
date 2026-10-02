@@ -34,16 +34,8 @@ func compileAssemblyOffset(c AssemblyConstraint, value *geometry.AssemblyConstra
 	return nil
 }
 
-// Legacy Offset commands adapt to the same production Quantity implementation.
-func editOffsetParameter(model *ProductModel, index int, expression *string, key string, literalMM float64) error {
-	return editAssemblyQuantity(model, index, expression, key, literalMM)
-}
-
 func assemblyQuantityParameter(c AssemblyConstraint) *modelcore.ParameterDefinition {
-	if c.QuantityParameter != nil {
-		return c.QuantityParameter
-	}
-	return c.OffsetParameter // Frozen pre-v2 definitions remain readable, not rewritten.
+	return c.QuantityParameter
 }
 
 type assemblyQuantitySpec struct {
@@ -52,18 +44,8 @@ type assemblyQuantitySpec struct {
 }
 
 func assemblyQuantityInputs(kind string, expression *string, key string, offsetExpression *string, offsetKey string) (*string, string, error) {
-	if (offsetExpression != nil || offsetKey != "") && kind != "DISTANCE" {
-		return nil, "", fmt.Errorf("%w: legacy Offset inputs require DISTANCE", ErrValidation)
-	}
-	if expression != nil && offsetExpression != nil && *expression != *offsetExpression ||
-		key != "" && offsetKey != "" && key != offsetKey {
-		return nil, "", fmt.Errorf("%w: conflicting Quantity and Offset inputs", ErrValidation)
-	}
-	if expression == nil {
-		expression = offsetExpression
-	}
-	if key == "" {
-		key = offsetKey
+	if offsetExpression != nil || offsetKey != "" {
+		return nil, "", fmt.Errorf("%w: unsupported experimental Offset inputs; use Quantity", ErrValidation)
 	}
 	return expression, key, nil
 }
@@ -88,7 +70,7 @@ func editAssemblyQuantity(model *ProductModel, index int, expression *string, ke
 			return fmt.Errorf("%w: relation has no editable Quantity parameter", ErrValidation)
 		}
 		// A legal relation switch drops its now-inapplicable parameter atomically.
-		c.QuantityParameter, c.OffsetParameter = nil, nil
+		c.QuantityParameter = nil
 		return nil
 	}
 	parameter := modelcore.ParameterDefinition{ParameterID: spec.prefix + c.ID, Key: spec.label + "_" + parameterKeyFragment(c.ID),
@@ -105,7 +87,7 @@ func editAssemblyQuantity(model *ProductModel, index int, expression *string, ke
 	if !validParameterKey(parameter.Key) {
 		return fmt.Errorf("%w: Quantity key must be an ASCII identifier", ErrValidation)
 	}
-	c.QuantityParameter, c.OffsetParameter, c.DefinitionVersion = &parameter, nil, 2
+	c.QuantityParameter, c.DefinitionVersion = &parameter, 2
 	if expression != nil && strings.TrimSpace(*expression) != "" {
 		names := map[string]modelcore.ParameterBinding{}
 		for _, other := range model.Constraints {
@@ -128,19 +110,12 @@ func editAssemblyQuantity(model *ProductModel, index int, expression *string, ke
 	return resolveAssemblyQuantities(model)
 }
 
-func resolveOffsetParameters(model *ProductModel) error {
-	return resolveAssemblyQuantities(model)
-}
-
 func resolveAssemblyQuantities(model *ProductModel) error {
 	// Reuse the existing Quantity evaluator, dimension/dependency checks and
 	// cycle gate; the temporary input has parameters only, no Part/CAD bodies.
 	input := PartModel{}
 	keys := map[string]string{}
 	for _, c := range model.Constraints {
-		if c.QuantityParameter != nil && c.OffsetParameter != nil {
-			return fmt.Errorf("%w: duplicate active Quantity definitions", ErrValidation)
-		}
 		if p := assemblyQuantityParameter(c); p != nil {
 			input.Parameters = append(input.Parameters, *p)
 			keys[p.ParameterID] = p.Key
@@ -173,8 +148,7 @@ func resolveAssemblyQuantities(model *ProductModel) error {
 			continue
 		}
 		spec, supported := assemblyQuantitySpecification(*c)
-		if !supported || parameter.ParameterID != spec.prefix+c.ID || !parameter.Dimension.Equal(spec.dimension) ||
-			(c.OffsetParameter != nil && c.Kind != "DISTANCE") {
+		if !supported || parameter.ParameterID != spec.prefix+c.ID || !parameter.Dimension.Equal(spec.dimension) {
 			return fmt.Errorf("%w: invalid assembly Quantity ownership/dimension", ErrValidation)
 		}
 		p := byID[parameter.ParameterID]
@@ -191,11 +165,7 @@ func resolveAssemblyQuantities(model *ProductModel) error {
 			} // Static canonical angle; AST/literal stays intact.
 		}
 		c.Value = value
-		if c.QuantityParameter != nil {
-			c.QuantityParameter = &p
-		} else {
-			c.OffsetParameter = &p
-		}
+		c.QuantityParameter = &p
 		if err := validateInstanceConstraintReferences(*c); err != nil {
 			return err
 		}

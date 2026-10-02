@@ -21,6 +21,7 @@ const (
 // may be promoted only while its exact base and typed command still match.
 // Explicit missing tokens are rejected; only tokenless commands evaluate anew.
 type interactionCandidate struct {
+	definitionOnly                                                    bool
 	assemblyPreviewRequestID                                          string
 	id, documentID, actorID, headRevision, commandType, payloadDigest string
 	headSequence                                                      uint64

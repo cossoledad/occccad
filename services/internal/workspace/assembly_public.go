@@ -27,7 +27,10 @@ func assemblySupportConstraintEligibility(value geometry.AssemblyGeometry, role 
 // Compile only new commands against exact, accepted-version descriptors. Reads
 // and frozen replay retain their recorded primitives and never reinterpret them.
 func (service *Service) validatePublicAssemblySupports(ctx context.Context, model *ProductModel, c *AssemblyConstraint) error {
-	if c.DefinitionVersion < 2 || c.Kind == "FIX" || c.Kind == "FIX_TOGETHER" {
+	if c.DefinitionVersion != 2 {
+		return fmt.Errorf("%w: unsupported assembly definition version", ErrValidation)
+	}
+	if c.Kind == "FIX" || c.Kind == "FIX_TOGETHER" {
 		return nil
 	}
 	if c.Second == nil {
@@ -55,7 +58,7 @@ func (service *Service) validatePublicAssemblySupports(ctx context.Context, mode
 		c.Subtype = "point-surface"
 	}
 	if c.Subtype == "" && (c.Family == "Coincidence" || c.Family == "Offset") {
-		for _, capability := range assemblycontract.Read().Capabilities {
+		for _, capability := range assemblycontract.ForFamily(c.Family) {
 			if capability.Family == c.Family && publicCapabilityPair(capability, a.Kind, b.Kind) {
 				c.Subtype = capability.Subtype
 				break
@@ -64,7 +67,7 @@ func (service *Service) validatePublicAssemblySupports(ctx context.Context, mode
 	}
 	if c.Family == "Coincidence" || c.Family == "Offset" {
 		valid := false
-		for _, capability := range assemblycontract.Read().Capabilities {
+		for _, capability := range assemblycontract.ForFamily(c.Family) {
 			valid = valid || (capability.Family == c.Family && capability.Subtype == c.Subtype && publicCapabilityPair(capability, a.Kind, b.Kind))
 		}
 		if !valid {
@@ -99,7 +102,7 @@ func (service *Service) validatePublicAssemblySupports(ctx context.Context, mode
 }
 
 func publicAssemblyPair(family, relation, first, second string) bool {
-	for _, capability := range assemblycontract.Read().Capabilities {
+	for _, capability := range assemblycontract.ForFamily(family) {
 		if capability.Family != family || len(capability.Roles) != 2 ||
 			(family == "Angle" && capability.Subtype != relation) {
 			continue
@@ -148,7 +151,7 @@ func canonicalAssemblyDefinition(c *AssemblyConstraint, family, subtype string) 
 		case "FIX_TOGETHER":
 			family = "FixTogether"
 		case "RIGID":
-			return nil // legacy pair entry; group command owns promotion
+			return fmt.Errorf("%w: persisted pair Rigid is unsupported; use Fix Together", ErrValidation)
 		default:
 			return fmt.Errorf("%w: unknown assembly family", ErrValidation)
 		}
@@ -205,7 +208,7 @@ func canonicalAssemblyDefinition(c *AssemblyConstraint, family, subtype string) 
 // Geometry combinations come from the single production contract, not picking
 // categories, a second matrix, or generated test PASS counts.
 func publicContactPair(kind, first, second string) bool {
-	for _, c := range assemblycontract.Read().Capabilities {
+	for _, c := range assemblycontract.ForFamily("Contact") {
 		if c.Family != "Contact" || len(c.Roles) != 2 || !strings.HasSuffix(c.Subtype, "-"+strings.ToLower(kind)) {
 			continue
 		}

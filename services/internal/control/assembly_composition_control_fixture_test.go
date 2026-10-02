@@ -8,6 +8,7 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/workspace"
+	"google.golang.org/grpc"
 	"math"
 	"net"
 	"net/url"
@@ -25,7 +26,7 @@ type compositionControlFixture struct {
 	actor, fixtureDir string
 }
 
-func newCompositionControlFixture(t *testing.T) *compositionControlFixture {
+func newCompositionControlFixture(t *testing.T, options ...grpc.DialOption) *compositionControlFixture {
 	t.Helper()
 	binary, dsn := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER"), os.Getenv("OCCCCAD_TEST_DATABASE_URL")
 	if binary == "" || dsn == "" {
@@ -66,7 +67,7 @@ func newCompositionControlFixture(t *testing.T) *compositionControlFixture {
 	if err = pool.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client, err := geometry.Open(serveGeometry(t, pool))
+	client, err := geometry.Open(serveGeometry(t, pool), options...)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -218,7 +218,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
       ...(constraint?.kind === "DISTANCE" ? [
         {key:"offset-definition",label:"驱动偏移",children:`${constraint.value ?? 0} mm`},
         {key:"offset-normal",label:"符号基准",children:constraint.distanceRelation === "SELECTED_PLANE_NORMAL_V1" ? "所选平面法向；双平面取第一元素；第一位置 − 第二位置" : constraint.distanceRelation === "UNSIGNED" || !constraint.distanceRelation ? "无符号无限支撑距离" : "历史第二法向约定"},
-        {key:"offset-parameter",label:"长度参数",children:(constraint.quantityParameter??constraint.offsetParameter) ? `${(constraint.quantityParameter??constraint.offsetParameter)!.key}: ${(constraint.quantityParameter??constraint.offsetParameter)!.source.expression?.sourceText ?? "Literal"}` : "Literal（历史定义）"},
+        {key:"offset-parameter",label:"长度参数",children:(constraint.quantityParameter) ? `${(constraint.quantityParameter)!.key}: ${(constraint.quantityParameter)!.source.expression?.sourceText ?? "Literal"}` : "Literal"},
       ] : []),
       ...(constraint?.kind === "ANGLE" ? [
         {key:"angle-relation",label:"角度关系",children:constraint.angleRelation ?? "FREE"},

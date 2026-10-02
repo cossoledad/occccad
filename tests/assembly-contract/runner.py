@@ -12,6 +12,8 @@ import platform
 import re
 import subprocess
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from catalog import load_catalog
 import xml.etree.ElementTree as ET
 from urllib.parse import unquote, urlsplit
 
@@ -394,7 +396,7 @@ def make_report(catalog, caps, cases, results, commands, purpose, argv):
         layer_evidence = {layer: [t["caseId"] for t in selected if t["layer"] == layer and results[t["caseId"]]["status"] == "PASS" and t.get("purpose") != "unsupported-rejection"] for layer in sorted(LAYERS)}
         rows.append({"capabilityId": c["capabilityId"], "family": c["family"], "target": {**c, "policy": catalog["policies"][c["policy"]]}, "implementation": coverage, **advancement, "unresolvedLayers": unresolved, "verifiedCaseIdsByLayer": layer_evidence, "verification": evidence, "missingTestLayers": [layer for layer in LAYERS if not any(t["layer"] == layer and t.get("purpose") != "unsupported-rejection" for t in catalog["cases"] if c["capabilityId"] in t["capabilityIds"])], "testStatus": "MISSING_TEST" if not any(t.get("purpose") != "unsupported-rejection" for t in catalog["cases"] if c["capabilityId"] in t["capabilityIds"]) else "MAPPED", "followupTasks": c["followupTasks"], "followupLinks": {t: catalog["target"] + "#" + TASK_TOPICS[t] for t in c["followupTasks"]}})
     native = {t["fixture"]["source"] + "::" + (t["caseId"] if t["adapter"] == "web-catalog" else t["selector"]) for t in cases if results[t["caseId"]]["status"] == "PASS"}
-    sources = {"tests/assembly-contract/catalog.json", "tests/assembly-contract/runner.py", "tests/assembly-contract/baseline.json"} | {t["fixture"]["source"] for t in cases}
+    sources = {"tests/assembly-contract/catalog.json", "tests/assembly-contract/catalog.py", "tests/assembly-contract/evidence.json", "tests/assembly-contract/runner.py", "tests/assembly-contract/baseline.json"} | {t["fixture"]["source"] for t in cases}
     sources |= {ref["source"] for t in cases for ref in t["fixture"].get("assertionSources", [])}
     sources |= {state["source"] for c in caps for state in implementation(c, catalog).values() if state.get("source")}
     sources |= {"services/internal/assemblycontract/catalog.json", "proto/occccad/worker/v1/geometry_worker.proto",
@@ -412,7 +414,7 @@ def make_report(catalog, caps, cases, results, commands, purpose, argv):
                 "services/internal/workspace/assembly_interaction.go", "services/internal/workspace/assembly_interaction_continuation.go", "services/internal/workspace/assembly_conflict.go",
                 "services/internal/workspace/assembly_conflict_geometry.go", "services/internal/api/realtime_assembly.go",
                 "web/apps/cad/src/cad/assembly/assembly-interaction.ts", "web/apps/cad/src/cad/assembly/assembly-conflict.ts"}
-    return {"schemaVersion": catalog["schemaVersion"], "contractVersion": catalog["contractVersion"], "catalogDigest": digest(catalog), "purpose": purpose, "acceptanceScope": "AUTOMATED_CONTRACT_ONLY", "milestoneEvidence": milestone_evidence(catalog, results), "manualAcceptance": {"status": "PENDING_MAINTAINER", "scope": "Remaining-motion presentation awaits maintainer acceptance; current drag/constraint usage feedback is not industrial or performance acceptance", "priorOffsetFeedback": "Maintainer confirmed prior OFFSET usage; no exact manual version, date or case list supplied.", "priorSixFamilyFeedback": "Maintainer reports major six-family capabilities usage-verified and observes improved speed/stability; not an industrial corpus, performance benchmark or concurrent-failure acceptance.", "priorCloseoutFeedback": "Maintainer confirms the prior candidate/glyph/dialog/Angle interaction fixes are resolved; this does not accept new M4/M5 interaction."}, "baselineMeaning": "selected executed existing abilities only; NOT six-family product acceptance", "commit": git("rev-parse", "HEAD"), "worktree": git("status", "--short"), "worktreeDiffDigest": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"], cwd=ROOT)).hexdigest(), "inputDigests": {source: hashlib.sha256((ROOT / source).read_bytes()).hexdigest() for source in sorted(sources)}, "invocation": argv, "selectedCaseIds": [t["caseId"] for t in cases], "environment": {"platform": platform.platform(), "python": platform.python_version(), **integration_environment()}, "commands": commands, "results": list(results.values()), "counts": dict(Counter(r["status"] for r in results.values())), "uniquePassedTestMappings": len(native), "targetCounts": dict(Counter(r["targetStatus"] for r in rows)), "capabilities": rows}
+    return {"schemaVersion": catalog["schemaVersion"], "contractVersion": catalog["contractVersion"], "catalogDigest": digest(catalog), "purpose": purpose, "acceptanceScope": "AUTOMATED_CONTRACT_ONLY", "milestoneEvidence": milestone_evidence(catalog, results), "manualAcceptance": {"status": "PENDING_MAINTAINER", "scope": "Definition-only confirmation, finalizing selection barrier and analysis overlay await usage acceptance", "maintainerFeedback": "Maintainer reports assembly solve/drag generally stable in current usage; not an industrial, concurrent, platform or performance acceptance."}, "baselineMeaning": "selected executed existing abilities only; NOT six-family product acceptance", "commit": git("rev-parse", "HEAD"), "worktree": git("status", "--short"), "worktreeDiffDigest": hashlib.sha256(subprocess.check_output(["git", "diff", "HEAD"], cwd=ROOT)).hexdigest(), "inputDigests": {source: hashlib.sha256((ROOT / source).read_bytes()).hexdigest() for source in sorted(sources)}, "invocation": argv, "selectedCaseIds": [t["caseId"] for t in cases], "environment": {"platform": platform.platform(), "python": platform.python_version(), **integration_environment()}, "commands": commands, "results": list(results.values()), "counts": dict(Counter(r["status"] for r in results.values())), "uniquePassedTestMappings": len(native), "targetCounts": dict(Counter(r["targetStatus"] for r in rows)), "capabilities": rows}
 
 
 def main(argv=None):
@@ -426,7 +428,7 @@ def main(argv=None):
     parser.add_argument("--build-type", choices=["Debug", "Release"], default="Debug")
     parser.add_argument("--output", type=Path, default=ROOT / "build/assembly-contract")
     args = parser.parse_args(argv)
-    catalog = json.loads((HERE / "catalog.json").read_text())
+    catalog = load_catalog()
     validate(catalog, lock=json.loads((HERE / "baseline.json").read_text()))
     caps, cases = select(catalog, args.capability, args.family, args.layer, args.case)
     if args.purpose == "validate":

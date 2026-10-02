@@ -15,7 +15,7 @@ func groupModelFixture() ProductModel {
 	return ProductModel{Instances: []ProductInstance{{ID: "a", Name: "A", Rotation: [4]float64{0, 0, 0, 1}}, {ID: "b", Name: "B", Translation: [3]float64{3, 0, 0}, Rotation: [4]float64{0, 0, 0, 1}}, {ID: "c", Name: "C", Translation: [3]float64{0, 4, 0}, Rotation: [4]float64{0, 0, 0, 1}}}}
 }
 func groupDefinition(id string, members ...AssemblyGroupMember) AssemblyConstraint {
-	return AssemblyConstraint{ID: id, Kind: "FIX_TOGETHER", Family: "FixTogether", Name: id, GroupMembers: members, Mode: "DRIVING"}
+	return AssemblyConstraint{DefinitionVersion: 2, ID: id, Kind: "FIX_TOGETHER", Family: "FixTogether", Name: id, GroupMembers: members, Mode: "DRIVING"}
 }
 func groupRaw(t *testing.T, model ProductModel) json.RawMessage {
 	t.Helper()
@@ -76,40 +76,15 @@ func TestFixTogetherFailedTrialCannotCaptureAndInvalidParametersAreAtomic(t *tes
 
 func TestFixTogetherExplicitLegacyPairPromotionAndCompensation(t *testing.T) {
 	model := groupModelFixture()
-	pose := InstancePose{Translation: [3]float64{-3, 0, 0}, Rotation: [4]float64{0, 0, 0, 1}}
-	old := AssemblyConstraint{ID: "legacy-pair", ConnectionID: "legacy-connection", Kind: "RIGID", Mode: "DRIVING", First: AssemblyGeometryRef{InstanceID: "a", Kind: "BODY"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "BODY"}, FixedPose: &pose, Suppressed: true}
-	model.Constraints = []AssemblyConstraint{old}
+	model.Constraints = []AssemblyConstraint{{ID: "experimental-pair", Kind: "RIGID", DefinitionVersion: 2, First: AssemblyGeometryRef{InstanceID: "a", Kind: "BODY"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "BODY"}}}
+	if validateAssemblyDefinitionFormat(model) == nil {
+		t.Fatal("experimental pair accepted as current public group")
+	}
 	raw := groupRaw(t, model)
-	payload, _ := json.Marshal(editAssemblyConstraintPayload{ConstraintID: old.ID, Family: "FixTogether"})
+	payload, _ := json.Marshal(editAssemblyConstraintPayload{ConstraintID: "experimental-pair", Family: "FixTogether"})
 	next, changes, err := applyEditAssemblyConstraint(raw, payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var after ProductModel
-	_ = json.Unmarshal(next, &after)
-	c := after.Constraints[0]
-	if c.ID != old.ID || c.ConnectionID != old.ConnectionID || c.Kind != "FIX_TOGETHER" || c.DefinitionVersion != 2 || !c.Suppressed || len(c.GroupMembers) != 2 || !c.GroupCapturePending || c.First.InstanceID != "" || c.Second != nil || c.FixedPose != nil {
-		t.Fatal("explicit promotion lost identity or retained a parallel primitive", c)
-	}
-	values, err := modelValues("PRODUCT", next, changes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	desired, err := changes.Compensate(values)
-	if err != nil {
-		t.Fatal(err)
-	}
-	restored, err := applyModelValues("PRODUCT", next, desired)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var undo ProductModel
-	_ = json.Unmarshal(restored, &undo)
-	if !reflect.DeepEqual(undo.Constraints[0], old) {
-		t.Fatal("Undo reinterpreted the legacy immutable definition", undo.Constraints[0])
-	}
-	if !reflect.DeepEqual(undo.Instances, model.Instances) {
-		t.Fatal("promotion moved nominal poses without authoritative solve")
+	if err == nil || next != nil || len(changes.Changes) != 0 {
+		t.Fatal("experimental data silently promoted", err)
 	}
 }
 
@@ -230,7 +205,7 @@ func TestFixTogetherStageBoundaryCaptureInvalidationAndGraph(t *testing.T) {
 	model.Constraints = []AssemblyConstraint{
 		groupDefinition("g", AssemblyGroupMember{InstanceID: "a"}, AssemblyGroupMember{InstanceID: "b"}),
 		groupDefinition("overlap", AssemblyGroupMember{InstanceID: "b"}, AssemblyGroupMember{InstanceID: "c"}),
-		{ID: "inner", Kind: "DISTANCE", Value: 3, First: AssemblyGeometryRef{InstanceID: "a", Kind: "POINT"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "POINT"}},
+		{DefinitionVersion: 2, ID: "inner", Kind: "DISTANCE", Value: 3, First: AssemblyGeometryRef{InstanceID: "a", Kind: "POINT"}, Second: &AssemblyGeometryRef{InstanceID: "b", Kind: "POINT"}},
 	}
 	body := []geometry.AssemblyBody{}
 	for _, i := range model.Instances {

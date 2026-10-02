@@ -1,7 +1,7 @@
 import type { AssemblyComponentDof } from "../../types";
 import { assign, createActor, setup } from "xstate";
 
-export type AssemblyPreviewState = "idle" | "drafting" | "pending" | "succeeded" | "committing" | "committed" | "cancelled" | "failed";
+export type AssemblyPreviewState = "idle" | "drafting" | "pending" | "succeeded" | "definitionReady" | "committing" | "committed" | "cancelled" | "failed";
 
 type PreviewContext = {
   sequence: number;
@@ -16,7 +16,7 @@ type PreviewEvent =
 	| { type: "START" }
 	| { type: "CHANGE" }
   | { type: "REQUEST"; sequence: number }
-  | { type: "RESOLVE"; sequence: number; components?: AssemblyComponentDof[] }
+  | { type: "RESOLVE"; sequence: number; components?: AssemblyComponentDof[]; definitionOnly?:boolean }
   | { type: "REJECT"; sequence: number; error: string; errorCode?: string; phase?: string; retryable?: boolean }
   | { type: "CANCEL"; sequence: number }
 	| { type: "CONFIRM" }
@@ -28,6 +28,7 @@ export const assemblyPreviewMachine = setup({
   types: {} as { context: PreviewContext; events: PreviewEvent },
   guards: {
     isCurrent: ({ context, event }) => "sequence" in event && event.sequence === context.sequence,
+    isDefinition: ({context,event})=>event.type==="RESOLVE"&&event.sequence===context.sequence&&event.definitionOnly===true,
   },
   actions: {
     begin: assign(({ event }) => {
@@ -56,11 +57,12 @@ export const assemblyPreviewMachine = setup({
     pending: { on: {
       CHANGE: { target: "drafting", actions: "clear" },
       REQUEST: { target: "pending", reenter: true, actions: "begin" },
-      RESOLVE: { target: "succeeded", guard: "isCurrent", actions: "resolve" },
+      RESOLVE: [{target:"definitionReady",guard:"isDefinition",actions:"resolve"},{ target: "succeeded", guard: "isCurrent", actions: "resolve" }],
       REJECT: { target: "failed", guard: "isCurrent", actions: "fail" },
       CANCEL: { target: "idle", guard: "isCurrent", actions: "clear" },
       RESET: { target: "idle", actions: "clear" },
     } },
+    definitionReady:{on:{REQUEST:{target:"pending",actions:"begin"},CHANGE:{target:"drafting",actions:"clear"},CONFIRM:{target:"committing"},CANCEL:{target:"cancelled",actions:"clear"},RESET:{target:"idle",actions:"clear"}}},
     succeeded: { on: {
       REQUEST: { target: "pending", actions: "begin" },
 	  CHANGE: { target: "drafting", actions: "clear" },

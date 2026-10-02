@@ -18,6 +18,7 @@ import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInte
 export type CadViewportHandle = {
   showRemainingMotion: (motion?:import("../cad/assembly/motion-presentation").MotionPresentation)=>void;
   cancelAssemblyInteraction:()=>void;
+  settleAssemblyInteraction:()=>Promise<void>;
   retryAssemblyMoveCommit:()=>void;
   setAssemblyMoveDirection:(instanceId:string,direction:Vec3,kind:"line"|"plane")=>boolean;
   captureToolSelections: (selections: readonly SelectionItem[]) => boolean;
@@ -149,6 +150,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
 
   useImperativeHandle(ref, () => ({
     cancelAssemblyInteraction:()=>engine.current?.cancelAssemblyInteraction(),
+    settleAssemblyInteraction:async()=>{await engine.current?.settleAssemblyInteraction();},
     retryAssemblyMoveCommit:()=>engine.current?.retryAssemblyMoveCommit(),
     setAssemblyMoveDirection:(id,direction,kind)=>engine.current?.setAssemblyMoveDirection(id,direction,kind)??false,
     captureToolSelections: selections => engine.current?.captureToolSelections(selections) ?? false,

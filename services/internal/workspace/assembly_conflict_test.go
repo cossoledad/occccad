@@ -23,7 +23,7 @@ func conflictFixture(t *testing.T, values ...float64) AssemblySolveManifest {
 		id := string(rune('x' + i))
 		cs = append(cs, geometry.AssemblyConstraint{ID: id, Kind: "DISTANCE", FirstBodyID: "a", FirstGeometryID: "pa", SecondBodyID: "b", SecondGeometryID: "pb", Value: v, DistanceRelation: "UNSIGNED"})
 		second := AssemblyGeometryRef{InstanceID: "b", Kind: "POINT"}
-		defs = append(defs, AssemblyConstraint{ID: id, Kind: "DISTANCE", First: AssemblyGeometryRef{InstanceID: "a", Kind: "POINT"}, Second: &second, Value: v, EvaluationStatus: modelcore.AssemblyConstraintNotUpdated})
+		defs = append(defs, AssemblyConstraint{DefinitionVersion: 2, ID: id, Kind: "DISTANCE", First: AssemblyGeometryRef{InstanceID: "a", Kind: "POINT"}, Second: &second, Value: v, EvaluationStatus: modelcore.AssemblyConstraintNotUpdated})
 	}
 	m, err := newAssemblySolveManifest("product", "revision", "hash", bodies, geo, cs, nil, nil, nil, defs)
 	if err != nil {

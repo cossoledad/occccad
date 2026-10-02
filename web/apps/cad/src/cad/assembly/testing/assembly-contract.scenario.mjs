@@ -15,7 +15,7 @@ const output = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const actual = await import(`data:text/javascript;base64,${Buffer.from(output).toString("base64")}`);
-const catalog = JSON.parse(await readFile(resolve("../../../tests/assembly-contract/catalog.json"), "utf8"));
+const catalog = JSON.parse(execFileSync("python3",[resolve("../../../tests/assembly-contract/catalog.py"),"--expanded"],{encoding:"utf8"}));
 const selection = process.env.OCCCCAD_ASSEMBLY_CONTRACT_CASES
   ? JSON.parse(process.env.OCCCCAD_ASSEMBLY_CONTRACT_CASES) : undefined;
 const fixturePath = "web/apps/cad/src/cad/assembly/testing/assembly-contract.scenario.mjs";

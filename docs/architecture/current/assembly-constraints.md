@@ -188,13 +188,15 @@ Activate/Deactivate（抑制）控制该定义是否参与更新，作用于六�
 
 约束定义的合法性与求解可满足性分离：Impossible 仅用于几何与单个约束定义不兼容；组合冲突、过约束或数值未收敛使用 NotUpdated 并保留求解证据。结构树允许保存这些定义，抑制与激活可用于修复；旧失败状态不得永久阻止重新参与求值。无向关系允许两个方向分支，不能以首次添加时的姿态冻结其可行解集。
 
+经过领域合法性与精确支持解析的定义，在 SOLVING 阶段遇到子请求超时、服务不可用或数值未完成时可由用户显式确认保存 NotUpdated。仅定义候选与可采用位姿候选分开：完整意图、基线、actor/CAS、上下文仍严格匹配；不采用失败姿态、branch、测量或组捕获，不用于 MOVE。父请求取消、非法输入、权限与数据库失败不降级为成功。求解子预算不占满父请求的结束预算；后续正常重算才能恢复 Verified。
+
 已求解约束集合与待接纳定义分离。添加或修改导致组合冲突时保留原已解集合，仅将不能接纳的定义置为 NotUpdated 并排除出运动方程；已有可满足的冗余方程无需仅因秩冗余而失败。拖动不承担重试隔离定义的职责；显式重算、定义修改、删除、抑制/激活后按确定顺序重新尝试接纳。用户 Suppressed 与求值隔离是两个维度，不通过偷偷抑制来实现过滤。
 
 ### 连续操纵与局部诊断合同
 
 求解 Session 是有容量、TTL、取消与并发保护的瞬态计算上下文，不是 工作台 EditSession 或持久连接模型。它冻结 actor、Workspace/Head/sequence、owning Product/完整 occurrence 与编辑上下文、已接受引用、定义/模式/激活集合、精确支持、组捕获、solver policy/profile/build 和手势 nominal baseline。accepted pose/branch 仅用于后续 initial guess；失效、取消、未接纳或迟到结果不能运输它们。外部 Head/相关输入或上下文变化要求重新开始，不能自动追随新 Head。
 
-DragTarget 的 pose、抓取点目标与参考帧均属于 owning Product（长度毫米、角度弧度）。抓取点为 `R * localGrabPoint + t`；目标为 `R_target * localGrabPoint + t_target`。冻结 frame 的驱动/保持 mask 互斥，未落入两组者完全自由；保持是交互偏好，不升级为物理方程。层级为：实际接纳硬约束与分支可行 → 用户驱动目标的局部最优 → 保持未要求改变的姿态/侧向抓取点 → 剩余 total nominal motion。可行自由平移应保持完整姿态，但机构必要的耦合旋转不能被禁止。旋转目标包含绕 pivot 的位姿轨迹。统一尺度中的零空间必须正交化；每个切步做真实硬约束恢复和上层复验。无 Ground 时保留物理整体运动，不把数值 gauge 写成 Fix。静态 ADD/EDIT 和旧策略仍按原 reference/total 层级解释。
+DragTarget 的 pose、抓取点目标与参考帧均属于 owning Product（长度毫米、角度弧度）。抓取点为 `R * localGrabPoint + t`；目标为 `R_target * localGrabPoint + t_target`。冻结 frame 的驱动/保持 mask 互斥，未落入两组者完全自由；保持是交互偏好，不升级为物理方程。层级为：实际接纳硬约束与分支可行 → 用户驱动目标的局部最优 → 保持未要求改变的姿态/侧向抓取点 → 剩余 total nominal motion。可行自由平移应保持完整姿态，但机构必要的耦合旋转不能被禁止。旋转目标包含绕 pivot 的位姿轨迹。统一尺度中的零空间必须正交化；每个切步做真实硬约束恢复和上层复验。无 Ground 时保留物理整体运动，不把数值 gauge 写成 Fix。静态 ADD/EDIT 的 reference/total 层级不受交互偏好改变。
 
 用户目标始终来自冻结 baseline 与累计输入；已接纳结果只作 continuation guess。可行显示、合格 checkpoint、warm state 和最终候选分开。短暂预算不足不丢弃整个手势；最终目标可有界续算，但目标身份与传输 attempt 分离，同一目标身份不得改变参数。最终仍未确认时保留明确未保存的预览并提供重试/取消，禁止静默提交早期目标。开始其他命令/目标先终结或取消未提交状态；外部版本失效恢复当前权威状态而不是旧 nominal。
 

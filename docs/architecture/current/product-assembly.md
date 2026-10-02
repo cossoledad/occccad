@@ -12,7 +12,7 @@ Publication 用稳定目标身份，支持输出及转发；PersistentSelection 
 
 ## 定义与求值
 
-公共六族为 Coincidence、Contact、Offset、Angle、Fix、Fix Together；Concentric/Distance/Parallel/Perpendicular/Rigid 是内部原语或明确快捷入口。唯一生产目录在 services/internal/assemblycontract/catalog.json，测试通过 symlink 复用；按钮可用性不依赖 PASS 计数，FACE/EDGE/VERTEX 不等于精确类型。
+公共六族为 Coincidence、Contact、Offset、Angle、Fix、Fix Together；Concentric/Distance/Parallel/Perpendicular/Rigid 是内部原语或明确快捷入口。唯一生产目录在 [assemblycontract](../../../services/internal/assemblycontract/README.md)，测试目录仅引用 capabilityId 并映射执行证据；生产按一次加载的只读索引查询，返回脱离缓存的副本。按钮可用性不依赖 PASS 计数，FACE/EDGE/VERTEX 不等于精确类型。
 
 Point/Axis/Plane/Cylinder/Circle/Sphere/Cone/Frame 及稳定派生角色经 B-Rep、Datum、Publication、持久选择解析，局部到 owning Product 只变换一次。Worker 长度用毫米、角度弧度；Quantity 源值 SI 在领域编译边界转换。mesh 不是权威支持。
 
@@ -28,6 +28,8 @@ Preview/Commit 共用草稿规范化，包含支持顺序、方向、参数/表�
 
 提交保留 actor/权限、目标、Revision/CAS、定义/意图摘要、支持证据、policy/build、TTL 与交互身份校验。真实 stale 保留草稿并要求重新预览；有效候选提升不重新完整求解；成功重试先走 receipt。确认成功关闭编辑器，失败保留草稿。
 
+合法定义完成支持解析并进入 SOLVING 后，子请求 deadline、Worker 不可用或数值未完成可产生仅定义候选（DEFINITION_ONLY）。用户显式确认才保存新定义及 NotUpdated 和结构化失败；不采用失败姿态、branch、组捕获或测量。此候选不能用于 Move，也不伪造收敛 Manifest。求解子预算为父请求保留结束时间；父取消、权限/参数错误、CAS 与数据库失败仍拒绝。新增/编辑先使旧评价失效，正常重算才能恢复 Verified。
+
 ## 连续操纵
 
 数值 Session 冻结 actor、Workspace、owning Product/occurrence、Head/sequence、引用/定义摘要、实际已接纳活动集合、descriptor、组阶段、nominal、branch、policy/profile/build。容量 128，空闲 TTL 两分钟；不占等待用户的数据库事务。重启可使 Session 失效，不损坏持久模型。
@@ -37,6 +39,8 @@ DragTarget 是交互偏好而非 interaction-driver Fix。优先级为硬约束 
 一个在途加一个最新待发送目标，合并而不取消饥饿，pointerup flush 最终目标。可行显示帧、合格 checkpoint、warm start、最终候选分开。Budget 不等于网络超时；最多四个 continuation bridge 共用 deadline 和总迭代预算，未合格子步不运输分支或生成 Revision。
 
 Final 同目标有界续算，未确认保留明确未保存预览，可重试/取消，不能提交旧目标。工具/命令切换先终结未提交状态；取消恢复当前权威快照，不能用旧 baseline 覆盖外部更新。SPACE 捕获不改变，显式 Move 授权的 RELATIVE 基准更新仅在最终原子命令中发生。
+
+pointerup 后冻结最终目标、Session、文档与 generation，最终求解/提交独立于普通 UI 选择。空白点击或选择其他对象不取消、不重定向、不在完成后抢回选择。模型命令通过结束屏障等待；未提交预览或回执未知须先重试/取消，不能从临时显示位置开始下一操作。显式取消与外部失效仍有效。
 
 成功有变化的手势一次 Move Revision，全部相关姿态/证据原子保存；中间帧、取消、无变化零提交。回执未知按 requestId 查询/幂等重试，不将本地回滚解释为业务撤销。
 
@@ -48,11 +52,13 @@ Final 同目标有界续算，未确认保留明确未保存预览，可重试/�
 
 静态证据相对数值锚点，gauge 独立；交互证据是含整体运动的物理子空间。数值锚点不是 ground；未接地固联组组内刚性、整体可动。表格、详情、按需标记共享 MotionPresentation；方向是 owning Product 坐标，偏置轴不称为世界轴，瞬时自由度不等于关节、有限行程或极限。关闭/选中变化/版本变化清理标记，不参与持久几何或约束。
 
+剩余运动行选择自动显示有效方向；详情直接列出参考对象、平移方向、轴方向/位置和有意义的螺距，长度跟随工作台单位。显示副本以毫米尺度消除 1e-12 以下噪声，不修改原始证据或分类。analysis-guides 拥有独占几何/材质，在模型之后独立清深度覆盖绘制；箭头 64 CSS px、线宽 2 CSS px，正交/透视 zoom、resize 与 DPR 更新仅改变变换或 uniform。标记不参与模型包围盒、拾取、BVH、导出或历史。
+
 ## 显示、历史与发布
 
 新 DocumentView 即使 GeometryKey/pose 不变，也同步 owner/version/referenceMode、InstancePath、选择与操纵绑定；开始手势从当前权威快照按稳定 occurrence 冻结，旧路径严格拒绝。约束显示按 owner/occurrence/ConstraintId 增量 reconcile，增删、模式、抑制、评价、支持与标签独立失效，请求帧并清理拾取/高亮，无 GLB 下载或完整 BVH 重建。单一手柄吸附复用可见拾取与精确查询；中心重定位不是模型移动，手势框架冻结。
 
-SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence、参数解析值、模式/激活、组阶段、分支/基准、policy/profile/build、失败试算与采用结果。Replay 不查询最新几何、不依赖 Session。当前交互 policy 为 assembly-m4m5-intent-v12；旧输入按自己的版本读取，不重写旧 Revision，记录真实重放 build，不承诺跨版本逐位一致。Release 冻结定义、来源/激活与证据，后续 Head 不影响它。
+SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence、参数解析值、模式/激活、组阶段、分支/基准、policy/profile/build、失败试算与采用结果。Replay 不查询最新几何、不依赖 Session。开发数据只支持当前 DefinitionVersion=2、Quantity 和 assembly-m4m5-intent-v12/canonical JSON 摘要；旧实验定义、Offset 符号约定、pair-Rigid 持久记录和 policy 明确拒绝，不做读取修补、换号、组迁移或多代投影。Rigid 快捷创建仍生成当前正式组，内核刚性原语继续使用。已有旧开发数据可能无法读取，未自动重置。当前格式的 JSONB 数值规范化、篡改拒绝、Revision、CAS、Undo/Redo 与 Release 冻结完整保留；记录实际重放 build，不承诺跨版本逐位一致。
 
 ## 入口与限制
 
