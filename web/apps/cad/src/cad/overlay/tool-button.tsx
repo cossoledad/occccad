@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { useCommandRegistry, useCommandState } from "../command/command-context";
 import { useUIHelp } from "../help/ui-help-context";
 import { CursorTooltip } from "./cursor-tooltip";
+import {useOperationFeedback} from "../command/operation-feedback";
 
 export type ToolButtonProps = {
   command: string;
@@ -19,13 +20,13 @@ export type ToolButtonProps = {
 
 export function ToolButton({ command, icon, tooltip, toolbarName = "", helpText = "", className = "", repeatable = false, showLabel = false }: ToolButtonProps) {
   const registry = useCommandRegistry();
-  const { message } = App.useApp();
+  const feedback=useOperationFeedback();
 	const uiHelp = useUIHelp();
   const state = useCommandState(command);
   const singleClick = useRef<number | undefined>(undefined);
   useEffect(() => () => window.clearTimeout(singleClick.current), [command, state.enabled, state.visible, uiHelp.active]);
   const execute = (continuous = false) => {
-    void registry.execute(command, { continuous }).catch((error) => message.error(String(error)));
+    void registry.execute(command, { continuous }).catch((error) => feedback(error,"命令"));
   };
   if (!state.visible) return null;
   const click = () => {

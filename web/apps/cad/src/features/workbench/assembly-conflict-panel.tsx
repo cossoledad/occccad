@@ -1,55 +1,60 @@
-import {Alert,Button,Descriptions,InputNumber,List,Space,Tag,Typography} from "antd";
-import type {AssemblyConstraint} from "../../types";
-import {assemblyConflictEvidenceLabel,assemblyConflictRepairs,type AssemblyConflictReport,type AssemblyConflictMember,type AssemblyConflictRepair} from "../../cad/assembly/assembly-conflict";
+import {Alert,Button,Descriptions,List,Space,Typography} from "antd";
+import type {DocumentView as DocumentDescriptor} from "../../types";
+import {assemblyConflictRepairs,type AssemblyConflictReport,type AssemblyConflictMember,type AssemblyConflictRepair} from "../../cad/assembly/assembly-conflict";
+import {assemblyEngineeringOverview,engineeringMember,engineeringReason,engineeringConstraintName,engineeringInstanceName,type AssemblyEngineeringEvidence} from "../../cad/assembly/assembly-engineering-state";
 import {CommandDialog} from "../../cad/overlay/floating-panel";
 
-type Props={open:boolean;pending:boolean;report?:AssemblyConflictReport;current:boolean;error?:string;canEdit:boolean;definitions:AssemblyConstraint[];
-  maxProbes:number;timeBudgetMs:number;onBudget:(probes:number,timeMs:number)=>void;onAnalyze:()=>void;onStop:()=>void;onClose:()=>void;
-  onLocate:(member:AssemblyConflictMember)=>void;onRepair:(member:AssemblyConflictMember,action:AssemblyConflictRepair)=>void};
-const actionLabels:Record<AssemblyConflictRepair,string>={EDIT:"编辑定义",SUPPRESS:"停用定义",MEASURE:"切换测量",RECONNECT:"重连支持"};
-
-/** Diagnostic evidence never mutates activation/mode implicitly. Every repair
- * below is a separately clicked existing formal Domain Command or editor. */
+type Props={open:boolean;pending:boolean;report?:AssemblyConflictReport;current:boolean;error?:string;canEdit:boolean;view?:DocumentDescriptor;evidence?:AssemblyEngineeringEvidence;onLocateInstance:(id:string)=>void;
+  onAnalyze:(ids?:string[])=>void;onStop:()=>void;onClose:()=>void;
+  onLocate:(member:AssemblyConflictMember,revisionId:string)=>void;onRepair:(member:AssemblyConflictMember,action:AssemblyConflictRepair,revisionId:string)=>void};
+const actionLabels:Record<AssemblyConflictRepair,string>={EDIT:"编辑",SUPPRESS:"停用",MEASURE:"切换测量",RECONNECT:"重连支持"};
 export function AssemblyConflictPanel(p:Props){
-  return <CommandDialog id="assembly-conflict-analysis" title="装配约束分析" open={p.open} width={760} onClose={p.onClose} onConfirm={p.onClose} confirmText="关闭" cancelText="关闭">
-    <Space wrap style={{marginBottom:12}}>
-      <span>探测上限</span><InputNumber aria-label="约束分析探测上限" min={1} max={256} value={p.maxProbes} disabled={p.pending} onChange={v=>p.onBudget(v??32,p.timeBudgetMs)}/>
-      <span>时间预算（ms）</span><InputNumber aria-label="约束分析时间预算" min={100} max={30000} step={100} value={p.timeBudgetMs} disabled={p.pending} onChange={v=>p.onBudget(p.maxProbes,v??5000)}/>
-      <Button type="primary" loading={p.pending} onClick={p.onAnalyze}>分析当前快照</Button>
-      {p.pending&&<Button onClick={p.onStop}>取消分析</Button>}
-    </Space>
-    <Alert type="info" showIcon message="分析与操纵受限不是同一件事" description="鼠标目标不可达不证明约束冲突。数值未收敛/预算耗尽标为未知；局部冗余不要求删除。不可约集不承诺最小基数。分析不会推进 Head 或自动停用定义。"/>
-    {p.error&&<Alert style={{marginTop:12}} type="error" showIcon message="分析未完成" description={p.error}/>}
+  const overview=assemblyEngineeringOverview(p.view),definitions=p.view?.product?.constraints??[];
+  const value=p.evidence;
+  const evidence=value&&value.documentId===p.view?.document.id&&value.revisionId===p.view?.document.versionId&&value.available?value:undefined;
+  const name=(id:string)=>engineeringInstanceName(p.view,id);
+  const freedomNames=["固定","转动","滑动","圆柱运动","平面运动","球面运动","自由运动","耦合运动"];
+  const member=(value:AssemblyConflictMember,current:boolean,revisionId=p.view?.document.versionId??"")=>{
+    const definition=definitions.find(c=>c.id===value.constraintId);
+    return <Space wrap><Typography.Text>{definition?engineeringConstraintName(definition,p.view):"原定义已变化"}</Typography.Text>
+      <Button size="small" disabled={!current} onClick={()=>p.onLocate(value,revisionId)}>定位</Button>
+      {assemblyConflictRepairs(value,definition).map(action=><Button key={action} size="small" disabled={!current||!p.canEdit} onClick={()=>p.onRepair(value,action,revisionId)}>{actionLabels[action]}</Button>)}</Space>;
+  };
+  return <CommandDialog id="assembly-conflict-analysis" title={`装配状态 · ${overview.name}`} open={p.open} width={680} footer={false} onClose={p.onClose} onConfirm={p.onClose}>
+    <Typography.Title level={5}>整体概览</Typography.Title>
+    <Descriptions bordered size="small" column={2} items={[
+      {key:"status",label:"当前状态",children:overview.status},{key:"units",label:"装配运动组件",children:overview.instances.length},
+      {key:"count",label:"用户约束定义",children:overview.total},{key:"active",label:"已满足活动项",children:overview.verified},
+      {key:"suppressed",label:"停用",children:overview.suppressed},{key:"measured",label:"测量模式（含停用）",children:overview.measured},
+      {key:"broken",label:"支持断开（含非驱动项）",children:overview.broken},{key:"notUpdated",label:"待更新（含非驱动项）",children:overview.notUpdated},
+    ]}/>
+    <List size="small" dataSource={overview.instances} renderItem={item=><List.Item>{item.name}<Typography.Text type="secondary">{item.state}</Typography.Text></List.Item>}/>
+    <Typography.Paragraph type="secondary">停用与测量是独立维度。运动范围不按组件自由度相加；未完全约束可以是正常设计状态。</Typography.Paragraph>
+    {evidence?<List size="small" dataSource={evidence.components} renderItem={component=><List.Item><div>
+      <Typography.Text strong>{component.bodyIds.map(name).join(" / ")}</Typography.Text>
+      <div>{component.solved?`相对可用运动：${component.relativeDof}；整体运动：${component.gaugeDof}`:"该组件网络尚未获得满足证据"}</div>
+      {component.solved&&component.freedoms.filter(f=>!f.relativeToBodyId||f.relativeToBodyId!==f.bodyId).map(f=><div key={f.bodyId}>
+        {name(f.bodyId)}：{freedomNames[f.kind]??"运动类型未确定"}{f.relativeToBodyId?`，相对 ${name(f.relativeToBodyId)}`:""}
+        <Button size="small" onClick={()=>p.onLocateInstance(f.bodyId)}>定位组件</Button>
+        {f.kind!==7&&f.translationDirections?.map((v,index)=><div key={`t-${index}`}>沿 ({v.map(n=>n.toFixed(2)).join(", ")}) 平移</div>)}
+        {f.kind!==7&&f.rotations?.map((r,index)=><div key={`r-${index}`}>绕 ({r.direction.map(n=>n.toFixed(2)).join(", ")}) 转动</div>)}
+      </div>)}
+      <Typography.Text type="secondary">方向位于该装配坐标框架；局部瞬时运动，不表示任意有限行程。</Typography.Text>
+    </div></List.Item>}/>:<Typography.Paragraph type="secondary">此版本没有匹配的运动范围证据；不沿用旧版本自由度。</Typography.Paragraph>}
+    <Typography.Title level={5}>待处理问题</Typography.Title>
+    <List dataSource={overview.issues} locale={{emptyText:"当前没有待处理的活动定义"}} renderItem={definition=><List.Item><div>
+      {member(engineeringMember(definition),true)}<div>{({BROKEN:"支持已断开，请检查来源。",IMPOSSIBLE:"定义未被接纳，请检查几何要求。",NOT_UPDATED:"尚未获得有效更新。"})[definition.evaluationStatus as "BROKEN"|"IMPOSSIBLE"|"NOT_UPDATED"]}</div>
+      <Button size="small" loading={p.pending} onClick={()=>p.onAnalyze([definition.id])}>检查相关关系</Button>
+    </div></List.Item>}/>
+    <Space><Button loading={p.pending} onClick={()=>p.onAnalyze()}>检查当前约束网络</Button>{p.pending&&<Button onClick={p.onStop}>取消检查</Button>}</Space>
+    {p.error&&<Alert type="error" message="检查未完成，请重试或查看技术诊断"/>}
     {p.report&&<>
-      {!p.current&&<Alert style={{marginTop:12}} type="warning" showIcon message="诊断已失效" description="装配版本或上下文已变化。旧证据仅供查看，请重新分析；所有定位/修复操作已禁用。"/>}
-      <Descriptions bordered size="small" column={2} style={{marginTop:12}} items={[
-        {key:"status",label:"Oracle",children:<Tag color={p.report.status==="UNSAT"?"red":p.report.status==="SAT"?"green":"gold"}>{p.report.status}</Tag>},
-        {key:"complete",label:"探测完成",children:p.report.complete?"是":"否（不补造结论）"},
-        {key:"head",label:"冻结 Revision",children:p.report.baseRevisionId},
-        {key:"policy",label:"Solver policy/build",children:p.report.solverBuildPolicy},
-        {key:"input",label:"输入 digest",children:p.report.inputDigest},
-        {key:"budget",label:"实际探测 / 用时",children:`${p.report.probeCount} / ${p.report.elapsedMs.toFixed(1)} ms`},
-        {key:"scope",label:"范围",children:`${p.report.scopeConstraintIds.length} 定义 / ${p.report.scopeBodyIds.length} 运动单元`},
-        {key:"background",label:"固定背景",children:p.report.backgroundConstraintIds.length?p.report.backgroundConstraintIds.join(", "):"无额外隐藏背景"},
-      ]}/>
-      {p.report.budgetReason&&<Alert type="warning" message={p.report.budgetReason}/>}
-      <List dataSource={p.report.items} locale={{emptyText:"该范围没有诊断条目"}} renderItem={item=><List.Item>
-        <div style={{width:"100%"}}><Typography.Text strong>{assemblyConflictEvidenceLabel(item)}</Typography.Text> <Tag>{item.oracle}</Tag>
-          <div>{item.reason}</div>
-          <List size="small" dataSource={item.members} renderItem={member=>{
-            const definition=p.definitions.find(c=>c.id===member.constraintId);
-            return <List.Item><Space wrap>
-              <Typography.Text>{definition?.name??definition?.family??definition?.kind??member.constraintId}</Typography.Text>
-              {member.groupId&&<Tag>Group {member.groupId}</Tag>}
-              {member.equationIds?.length? <Typography.Text type="secondary">方程来源：{member.equationIds.join(", ")}</Typography.Text>:null}
-              <Button size="small" disabled={!p.current} onClick={()=>p.onLocate(member)}>定位及高亮支持</Button>
-              {assemblyConflictRepairs(member,definition).map(action=><Button key={action} size="small" disabled={!p.current||!p.canEdit} onClick={()=>p.onRepair(member,action)}>{actionLabels[action]}</Button>)}
-              <Typography.Text type="secondary">{member.constraintId}</Typography.Text>
-            </Space></List.Item>;
-          }}/>
-        </div>
-      </List.Item>}/>
-      <details><summary>冻结分支及实际 probe 证据</summary><pre style={{whiteSpace:"pre-wrap",maxHeight:240,overflow:"auto"}}>{JSON.stringify({branches:p.report.branches,probes:p.report.probes},null,2)}</pre></details>
+      <Typography.Title level={5}>本次局部检查</Typography.Title>
+      {!p.current&&<Alert type="warning" message="装配已变化，请重新检查；旧诊断不可用于修复。"/>}
+      <Typography.Paragraph>{p.report.status==="SAT"?"所检查范围已找到满足位置，不代表全装配完成检查。":p.report.status==="UNSAT"?"所检查范围存在已证明的不兼容要求。":"检查尚无确定结论。"}</Typography.Paragraph>
+      <List dataSource={p.report.items} renderItem={item=><List.Item><div>{engineeringReason(item)}<List size="small" dataSource={item.members} renderItem={value=><List.Item>{member(value,p.current,p.report!.baseRevisionId)}</List.Item>}/></div></List.Item>}/>
     </>}
+    <details><summary>技术诊断 / 可复制报告</summary><Typography.Paragraph copyable={{text:JSON.stringify({report:p.report,error:p.error,evidence:p.evidence},null,2)}}>复制技术证据</Typography.Paragraph>
+      <pre style={{whiteSpace:"pre-wrap",maxHeight:240,overflow:"auto"}}>{JSON.stringify({report:p.report,error:p.error,evidence:p.evidence},null,2)}</pre></details>
   </CommandDialog>;
 }

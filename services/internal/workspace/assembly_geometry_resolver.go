@@ -11,17 +11,28 @@ import (
 
 type assemblyResolvedPart struct{ model PartModel }
 type assemblySupportResolver struct {
-	ctx      context.Context
-	service  *Service
-	model    *ProductModel
-	parts    map[string]assemblyResolvedPart
-	geometry map[string]geometry.AssemblyGeometry
+	ctx       context.Context
+	service   *Service
+	model     *ProductModel
+	parts     map[string]assemblyResolvedPart
+	geometry  map[string]geometry.AssemblyGeometry
+	snapHints map[string]*AssemblySnapHints
+}
+
+// Interaction-only pure values, already folded into the owning motion-unit
+// frame. These do not change persistent supports or solver equations.
+type AssemblySnapHints struct {
+	Center            *[3]float64 `json:"center,omitempty"`
+	BoundaryDirection *[3]float64 `json:"boundaryDirection,omitempty"`
+	EndFirst          *[3]float64 `json:"endFirst,omitempty"`
+	EndLast           *[3]float64 `json:"endLast,omitempty"`
 }
 
 type AssemblySupportInspection struct {
 	Reference                AssemblyGeometryRef        `json:"reference"`
 	ExactType                string                     `json:"exactType,omitempty"`
 	Descriptor               *geometry.AssemblyGeometry `json:"descriptor,omitempty"`
+	SnapHints                *AssemblySnapHints         `json:"snapHints,omitempty"`
 	Status                   string                     `json:"status"`
 	DiagnosticCode           string                     `json:"diagnosticCode,omitempty"`
 	Diagnostic               string                     `json:"diagnostic,omitempty"`
@@ -70,6 +81,7 @@ func (service *Service) InspectAssemblySupports(ctx context.Context, documentID 
 				item.Reference = bound
 				item.ExactType = value.Kind
 				item.Descriptor = &value
+				item.SnapHints = resolver.snapHints[value.ID]
 				item.ConstraintEligible, item.ConstraintDiagnosticCode, item.ConstraintDiagnostic = assemblySupportConstraintEligibility(value, bound.DerivedRole)
 			}
 		}
@@ -87,7 +99,7 @@ func (service *Service) InspectAssemblySupports(ctx context.Context, documentID 
 }
 
 func newAssemblySupportResolver(ctx context.Context, service *Service, model *ProductModel) *assemblySupportResolver {
-	return &assemblySupportResolver{ctx: ctx, service: service, model: model, parts: map[string]assemblyResolvedPart{}, geometry: map[string]geometry.AssemblyGeometry{}}
+	return &assemblySupportResolver{ctx: ctx, service: service, model: model, parts: map[string]assemblyResolvedPart{}, geometry: map[string]geometry.AssemblyGeometry{}, snapHints: map[string]*AssemblySnapHints{}}
 }
 func (resolver *assemblySupportResolver) part(instance *ProductInstance) (assemblyResolvedPart, error) {
 	if instance.ReferencedVersionID == "" {
@@ -176,6 +188,7 @@ func (resolver *assemblySupportResolver) resolve(reference AssemblyGeometryRef) 
 		if err != nil {
 			return geometry.AssemblyGeometry{}, err
 		}
+		resolver.snapHints[key] = assemblySnapHints(*resolved.Properties, localPose)
 	case "PLANE":
 		resolved, err := resolver.part(instance)
 		if err != nil {

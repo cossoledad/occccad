@@ -44,6 +44,25 @@ try{
  const frameX=new THREE.Vector3(1,0,0).applyQuaternion(manipulator.frameQuaternion());
  assert.ok(frameX.distanceTo(new THREE.Vector3(0,1,0))<1e-12,"exact local direction transformed once");
  assert.equal(engine.setAssemblyMoveDirection("a",[0,0,0],"line"),false);
+ // A metadata-only authoritative revision must not pair its new Head with
+ // stale render-object paths. No selection change or mesh hydration occurs.
+ const path=revision=>({rootDocumentId:"assembly",canonical:"a",segments:[{instanceId:"a",ownerDocumentId:"assembly",ownerVersionId:revision,referencedDocumentId:"part",resolvedVersionId:"part-frozen",referenceMode:"PINNED"}]});
+ a.userData={kind:"instance",id:"a",instanceId:"a",occurrencePath:"a",instancePath:path("old")};
+ let begun;
+ engine.moveInteraction={begin(input){begun=input;},cancel(){}};
+ engine.updateSketchContextVisibility=()=>{};engine.applyTreeVisibility=()=>{};
+ engine.moveGestureGeneration=0;
+ const fresh={...engine.view,document:{...engine.view.document,versionId:"new"},resolvedInstances:[{occurrencePath:"a",instancePath:path("new")}]};
+ engine.updateDisplayProjection(fresh);
+ assert.deepEqual(a.userData.instancePath,path("new"));
+ // Even if an obsolete UI object is supplied, begin resolves the current
+ // path from the authority, not by surgically changing the old version field.
+ a.userData.instancePath=path("old");
+ engine.beginMovePreviewGesture();
+ assert.equal(begun.baseRevisionId,"new");assert.deepEqual(begun.occurrencePath,path("new"));
+ assert.equal(begun.occurrencePath.segments[0].referenceMode,"PINNED");
+ assert.equal(hydrates,0);assert.equal(a.children[0].geometry,geometry);
+ engine.moveNominalScene=undefined;
  // A receipt failure must not write an old nominal over a newer Head.
  engine.moveNominalBase={documentId:"assembly",revisionId:"old-head"};
  engine.moveNominalScene=new Map([["a",{position:new THREE.Vector3(100,100,100),rotation:new THREE.Quaternion(),scale:new THREE.Vector3(1,1,1)}]]);

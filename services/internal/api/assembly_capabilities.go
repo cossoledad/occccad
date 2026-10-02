@@ -34,3 +34,20 @@ func (server *Server) inspectAssemblySupports(writer http.ResponseWriter, reques
 	}
 	writeJSON(writer, http.StatusOK, result)
 }
+
+func (server *Server) assemblyEngineeringEvidence(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	revision := request.URL.Query().Get("revisionId")
+	if revision == "" {
+		writeError(writer, http.StatusBadRequest, "revisionId is required")
+		return
+	}
+	result, err := server.workspace.GetAssemblyEngineeringEvidence(request.Context(), request.PathValue("documentID"), revision)
+	if err != nil {
+		writeWorkspaceResult(writer, workspace.DocumentView{}, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
+}

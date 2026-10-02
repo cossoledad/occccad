@@ -40,8 +40,9 @@ class CatalogTests(unittest.TestCase):
         self.check_bad(lambda c: c["cases"][0]["fixture"].update(source="missing"), "missing fixture")
         self.check_bad(lambda c: c["cases"][0]["fixture"].update(assertionSources=[{"source": "missing", "symbol": "missing"}]), "missing additional assertion fixture")
         def typo(c):
-            c["cases"][0]["selector"] = "AssemblySolver.Typo"
-            c["cases"][0]["fixture"]["symbol"] = "AssemblySolver.Typo"
+            case = next(case for case in c["cases"] if case["adapter"] == "cpp")
+            case["selector"] = "AssemblySolver.Typo"
+            case["fixture"]["symbol"] = "AssemblySolver.Typo"
         self.check_bad(typo, r"missing C\+\+ test")
 
     def test_implemented_layer_cannot_have_no_test(self):
@@ -49,7 +50,7 @@ class CatalogTests(unittest.TestCase):
 
     def test_regression_lock_prevents_target_removal_and_weakening(self):
         self.check_bad(lambda c: c["policies"]["spatial"].update(direction="match current solver instead"), "regression lock changed", lock=True)
-        self.check_bad(lambda c: c["cases"][0].update(expectation="Converged is enough"), "regression lock", lock=True)
+        self.check_bad(lambda c: next(case for case in c["cases"] if case["adapter"] == "cpp").update(expectation="Converged is enough"), "regression lock", lock=True)
         self.check_bad(lambda c: c["capabilities"][0].setdefault("implementationOverrides", {}).update(workerSolver={"state": "partial", "reason": "weakened"}), "coverage lowered", lock=True)
         # Remove a missing target without leaving broken references: still rejected.
         def delete_target(c):

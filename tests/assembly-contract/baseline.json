@@ -802,7 +802,16 @@
         "m4.interaction.production-input-lifecycle": "f63809edca769c7fcdce8e8544764485ed491bff76afc2cee224add0eb0db8bb",
         "m4.interaction.production-authoritative-render": "2498c06a3f100e3471c47d87edfe3ab0e06834a8660099f5b06d943b504c89f4",
         "m4.interaction.scalar-argmin-nominal-freedom": "0ba05bfa34e18669f661b280cb5648654914301f50eeae93dfc794f9c0ec15c2",
-        "m4.session.legacy-manifest-immutable-policy": "8547aa43c0d9367beeef83ee80a2635677b14723dddd1ceb33890422fd3aa315"
+        "m4.session.legacy-manifest-immutable-policy": "8547aa43c0d9367beeef83ee80a2635677b14723dddd1ceb33890422fd3aa315",
+        "m4.snapshot.current-render-bindings": "2cf466b297cebc506e71131b83e478f67d79a90ab157781005769533526985ab",
+        "m4.target.diagonal-projection": "4d3ce3035c222d9e0aaa48336ec934cdb8711b1f989c858732fa4b7c8bdf84d1",
+        "m5.engineering.command-panel": "36cb34d61ea6d75c4dc342cbf23cac5fd90a827a5a77c08a93a65596ae81d1d8",
+        "m5.engineering.server-catalog": "4b86612944053224fb3e78a908c03b77f8e75d8b08947dcebe4703677ce6cff0",
+        "m4.snapshot.metadata-only-router": "6e6bf140597867a6ae241514205f0023736cb45fdb9073d06a07db72ae705a41",
+        "m4.snap.precise-frame": "ef7d69c790c1de856d72069c5f36537466f7dedc9a13126d60d0a61f900163bd",
+        "m4.snap.body-local-hints": "629b7cc473a2cb1dd94d03ed5bf6ce7afb1661332f89c6f07943f538486d2fa9",
+        "m5.engineering.overview": "153e81e7253f6640cb4f3fcc00ed05715ed4c7a4276ce703c43f8e4692e44d5b",
+        "m4.operation.failure-outlet": "763d0ea26c49eba762785627a51d3211c0413039a147557b05fb589f1b020dc0"
     },
     "assertions": {
         "composition.edit-intent.production-ui": "6d0afd972b78eeb318041aa9dd7be1e98da9bae4364968a749a1830a7fb6cd9a",
@@ -1462,9 +1471,18 @@
         "m4.interaction.production-manipulator": "8f537344f67b25217515ff632592b37890104e222cfd9b9059f5ae714f07bebc",
         "m4.session.busy-sequence-guard": "5808c6975ed112f75171eed668466e849a1531fd3c297ca9d55e07c310a5d095",
         "m4.interaction.production-input-lifecycle": "37e09b10a54afe3742dc575f1b5da40e3a18c3564c58f280b7dd4c927ce8f564",
-        "m4.interaction.production-authoritative-render": "ed10273ea2a77820644997de7572f05b6dc22aab90e1a9d69985f446dd1c75ce",
+        "m4.interaction.production-authoritative-render": "fa9a792423c6816635fb0060e7081e034b42fafa03f62ffe24304d9b045ff27e",
         "m4.interaction.scalar-argmin-nominal-freedom": "4e5b3126bbf51c7cf500c63e5427c6613a836efe73059e7bf2521be8fd44cfd2",
-        "m4.session.legacy-manifest-immutable-policy": "540bcdaafa4fe2d6abfa922fa59e09490cf330257f5359bc5ab5f0911f82ff57"
+        "m4.session.legacy-manifest-immutable-policy": "540bcdaafa4fe2d6abfa922fa59e09490cf330257f5359bc5ab5f0911f82ff57",
+        "m4.snapshot.current-render-bindings": "44fbb9fc3c14f09f2b2e2f1d5adc40aa6b9163b587371de3b8cdb907752869b8",
+        "m4.target.diagonal-projection": "93e6f1d756a244cd2e0def0399b12a70ee53cd74d04324e42414a8be6b698482",
+        "m5.engineering.command-panel": "be71ed87883bee15408068e5fe2de5cb115ddd8f35c2bc5c4dc4f79f4f35fcf0",
+        "m5.engineering.server-catalog": "c6b99a7ca2530cb122679c943b3ad5631e06a6bda28100de1a73940bd66e034b",
+        "m4.snapshot.metadata-only-router": "c2fa206580f03dc67fe87b64b73855799eb1763bd6a800471c99d478fd3e29e6",
+        "m4.snap.precise-frame": "0531a46c32c76513bc401d274e442749692051dc11e1cfd35e24b4bff6e18f49",
+        "m4.snap.body-local-hints": "f1be736cd0e1af0a57649ba234b283b20e72f42a7df63d8fda852a7139e2ca00",
+        "m5.engineering.overview": "271da8c4f14098586df2dd75155206ce40c0be21c925042a2efca9bb81db7e2a",
+        "m4.operation.failure-outlet": "f13be95087b2b16899bd5d7638796bec7d51291254d8550f4bd9fbf704d14d2b"
     },
     "coverageFloor": {
         "coincidence.point-point": {

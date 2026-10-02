@@ -1,4 +1,5 @@
 import { clampPanelPosition, normalizePanelPosition } from "../../utils/panel-position";
+import {useOperationFeedback} from "../command/operation-feedback";
 import { CloseOutlined } from "@ant-design/icons";
 import { App, Button } from "antd";
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent,
@@ -95,11 +96,11 @@ export function ToolbarGroup({ children }: PropsWithChildren) {
 export function ToolbarSeparator() { return <span className="cad-toolbar-separator" aria-hidden />; }
 
 export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmText = "确定",
-  cancelText = "取消", confirmLoading = false, confirmDisabled = false, width = 320 }: PropsWithChildren<{
+  cancelText = "取消", confirmLoading = false, confirmDisabled = false, width = 320,footer=true }: PropsWithChildren<{
   id: string; open: boolean; title: ReactNode; onClose: () => void; onConfirm: () => void | Promise<void>;
-  confirmText?: string; cancelText?: string; confirmLoading?: boolean; confirmDisabled?: boolean; width?: number;
+  confirmText?: string; cancelText?: string; confirmLoading?: boolean; confirmDisabled?: boolean; width?: number;footer?:boolean;
 }>) {
-  const { message } = App.useApp();
+  const feedback=useOperationFeedback();
   const savedPosition = useUIPreferences((state) => state.commandDialogPositions[id]);
   const savePosition = useUIPreferences((state) => state.setCommandDialogPosition);
   const [position, setPosition] = useState(() => normalizePanelPosition(savedPosition) ?? { x: 360, y: 144 });
@@ -163,7 +164,7 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
     try { await onConfirm(); }
     catch (error) {
       // Ant Form owns field validation feedback; unexpected command failures remain observable.
-      if (!(error && typeof error === "object" && "errorFields" in error)) message.error(String(error));
+      if (!(error && typeof error === "object" && "errorFields" in error)) feedback(error,"命令");
     } finally { submittingRef.current = false; setSubmitting(false); }
   };
   return <section ref={dialog} className="cad-command-dialog" role="dialog" aria-modal="false" aria-label={String(title)}
@@ -174,8 +175,8 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
         onClick={onClose}><CloseOutlined /></button>
     </header>
     <div className="cad-command-dialog-body">{children}</div>
-    <footer className="cad-command-dialog-footer"><Button onClick={onClose}>{cancelText}</Button>
+    {footer&&<footer className="cad-command-dialog-footer"><Button onClick={onClose}>{cancelText}</Button>
       <Button type="primary" loading={confirmLoading || submitting} disabled={confirmDisabled}
-        onClick={() => void confirm()}>{confirmText}</Button></footer>
+        onClick={() => void confirm()}>{confirmText}</Button></footer>}
   </section>;
 }

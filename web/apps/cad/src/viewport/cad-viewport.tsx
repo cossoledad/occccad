@@ -64,6 +64,8 @@ type Props = {
   onAssemblyInteractionUpdate:(documentId:string,input:AssemblyInteractionUpdate,signal:AbortSignal)=>Promise<AssemblyInteractionFrame>;
   onAssemblyInteractionCancel:(documentId:string,sessionId:string)=>Promise<unknown>;
   onAssemblyInteractionState?:(state:AssemblyInteractionState,reason?:string)=>void;
+  onOperationFailed?:(error:unknown)=>void;
+  onInspectAssemblySupports?:(documentId:string,references:AssemblyGeometryRef[],signal:AbortSignal)=>Promise<import("../cad/interaction/manipulator-snap").SupportInspection>;
   onAssemblyConstraint: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
 };
 
@@ -95,6 +97,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       assemblyInteractionUpdate:(documentId,input,signal)=>callbacks.current.onAssemblyInteractionUpdate(documentId,input,signal),
       assemblyInteractionCancel:(documentId,sessionId)=>callbacks.current.onAssemblyInteractionCancel(documentId,sessionId),
       assemblyInteractionState:(state,reason)=>callbacks.current.onAssemblyInteractionState?.(state,reason),
+      operationFailed:error=>callbacks.current.onOperationFailed?.(error),
+      inspectAssemblySupports:(documentId,references,signal)=>callbacks.current.onInspectAssemblySupports!(documentId,references,signal),
       assemblyConstraintRequested: (kind, references) => callbacks.current.onAssemblyConstraint(kind, references),
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
     });

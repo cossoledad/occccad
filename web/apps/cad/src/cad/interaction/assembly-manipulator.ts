@@ -6,6 +6,7 @@ type Axis = "X" | "Y" | "Z";
 type Handle = { axis?: Axis; plane?: [Axis, Axis]; radialAxis?: Axis; operation: "translate" | "rotate" | "pivot";
   pick: THREE.Object3D; materials: THREE.ShaderMaterial[] };
 type Drag = { pointerId: number; handle: Handle; startPosition: THREE.Vector3;
+  originalPosition:THREE.Vector3;
   startQuaternion: THREE.Quaternion; desiredPosition: THREE.Vector3; desiredQuaternion: THREE.Quaternion;
   axisParameter:number;angleParameter:number;pointerToHandleOffset:THREE.Vector2; startPlanePoint?:THREE.Vector3 };
 
@@ -81,6 +82,7 @@ export class AssemblyManipulator {
   detach(): void { this.drag = undefined; this.setHovered(undefined); this.visible = false; this.root.visible = false; }
   isAttached(): boolean { return this.visible; }
   isDragging(): boolean { return Boolean(this.drag); }
+  isPivotDragging():boolean {return this.drag?.handle.operation==="pivot";}
 
   updateScale(camera: THREE.Camera, metrics: ViewportMetrics): void {
     if (!this.visible) return;
@@ -149,7 +151,7 @@ export class AssemblyManipulator {
         ?this.object.localToWorld(AXES[handle.radialAxis].clone().multiplyScalar(ROTATION_CENTER)):origin;
     const pointerToHandleOffset=new THREE.Vector2(x,y).sub(this.screenPoint(handlePoint,camera,surface));
     this.drag = { pointerId, handle, startPosition: this.object.position.clone(),
-      startQuaternion: new THREE.Quaternion(), desiredPosition: this.object.position.clone(),
+      originalPosition:this.object.position.clone(),startQuaternion:this.frame.clone(), desiredPosition: this.object.position.clone(),
       desiredQuaternion: new THREE.Quaternion(),axisParameter:0,angleParameter:0,pointerToHandleOffset,
       startPlanePoint:handle.plane?this.pointOnDragPlane(x,y,camera,surface,origin,handle.plane):undefined };
     const axes=["X","Y","Z"] as Axis[];
@@ -167,6 +169,11 @@ export class AssemblyManipulator {
   pointerUp(pointerId: number, commit: boolean): boolean {
     if (!this.drag || (pointerId >= 0 && this.drag.pointerId !== pointerId)) return false;
     const operation = this.drag.handle.operation;
+    if(operation==="pivot"&&!commit){
+      this.object.position.copy(this.drag.originalPosition);
+      this.frame.copy(this.drag.startQuaternion);this.object.quaternion.copy(this.frame);
+      this.callbacks.pivotChanged({position:this.object.position.clone(),orientation:this.frame.clone()});
+    }
     if (operation === "rotate" && !commit) this.object.quaternion.copy(this.frame);
     this.setHandleActive(this.drag.handle,0);
     this.drag = undefined;

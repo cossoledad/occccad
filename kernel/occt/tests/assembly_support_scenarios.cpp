@@ -5,6 +5,7 @@
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_Transform.hxx>
 #include <BRepTools.hxx>
@@ -50,6 +51,25 @@ TEST(AssemblyExactSupport, SphereFreezesMillimetresAndMaterialSideAfterLocatedBr
     for (const auto& face : kernel.getTopology(reversed).faces) {
         if (face.surface_type == 3) { EXPECT_EQ(property(face.properties, "materialSide").integer_value, -1); }
     }
+}
+TEST(AssemblyExactSupport, ManipulatorHintsComeFromActualBoundaries) {
+    OcctKernel kernel;
+    const auto box=kernel.getTopology(import_shape(kernel,BRepPrimAPI_MakeBox(gp_Pnt(13,17,19),8,4,2).Shape()));
+    for(const auto& face:box.faces){
+        const auto center=property(face.properties,"snapCenter").vector_value;
+        const auto direction=property(face.properties,"snapBoundaryDirection").vector_value;
+        const auto normal=property(face.properties,"normal").vector_value;
+        EXPECT_GE(center.x,13);EXPECT_GE(center.y,17);EXPECT_GE(center.z,19);
+        EXPECT_NEAR(direction.x*direction.x+direction.y*direction.y+direction.z*direction.z,1,1e-12);
+        EXPECT_NEAR(direction.x*normal.x+direction.y*normal.y+direction.z*normal.z,0,1e-12);
+    }
+    const auto cylinder=kernel.getTopology(import_shape(kernel,BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(13,17,19),gp_Dir(0,1,0)),6,12).Shape()));
+    const auto wall=std::find_if(cylinder.faces.begin(),cylinder.faces.end(),[](const auto& face){return face.surface_type==1;});
+    ASSERT_NE(wall,cylinder.faces.end());
+    const auto first=property(wall->properties,"snapEndFirst").vector_value;
+    const auto last=property(wall->properties,"snapEndLast").vector_value;
+    EXPECT_NEAR(first.x,13,1e-12);EXPECT_NEAR(first.y,17,1e-12);EXPECT_NEAR(first.z,19,1e-12);
+    EXPECT_NEAR(last.x,13,1e-12);EXPECT_NEAR(last.y,29,1e-12);EXPECT_NEAR(last.z,19,1e-12);
 }
 TEST(AssemblyExactSupport, ConeApexAxisLeafAndHalfAngleAreIndependentOfFaceOrigin) {
     OcctKernel kernel;

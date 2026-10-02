@@ -227,6 +227,41 @@ void append_surface_properties(const TopoDS_Face& face, FaceInfo& output) {
     GProp_GProps area;
     BRepGProp::SurfaceProperties(face, area);
     output.properties.push_back(number_property("area", area.Mass()));
+    output.properties.push_back(vector_property("snapCenter", area.CentreOfMass().XYZ()));
+    // Read-only interaction hints from actual topological boundaries, never
+    // triangulation/PCA. Bounded output: one direction and two axial centers.
+    double longest = 0;
+    gp_XYZ boundary_direction;
+    std::vector<gp_Pnt> circular_centers;
+    for (TopExp_Explorer edges(face, TopAbs_EDGE); edges.More(); edges.Next()) {
+        BRepAdaptor_Curve edge(TopoDS::Edge(edges.Current()));
+        if (edge.GetType() == GeomAbs_Line && std::isfinite(edge.FirstParameter()) && std::isfinite(edge.LastParameter())) {
+            const double length = std::abs(edge.LastParameter() - edge.FirstParameter());
+            auto direction = edge.Line().Direction().XYZ();
+            for (int i = 1; i <= 3; ++i) if (std::abs(direction.Coord(i)) > 1e-12) {
+                if (direction.Coord(i) < 0) direction *= -1;
+                break;
+            }
+            const bool tie = std::abs(length - longest) <= 1e-9;
+            if (length > longest + 1e-9 || (tie && std::array{direction.X(),direction.Y(),direction.Z()} > std::array{boundary_direction.X(),boundary_direction.Y(),boundary_direction.Z()})) {
+                longest = length; boundary_direction = direction;
+            }
+        } else if (surface.GetType() == GeomAbs_Cylinder && edge.GetType() == GeomAbs_Circle) {
+            const auto circle = edge.Circle();
+            if (circle.Axis().Direction().IsParallel(surface.Cylinder().Axis().Direction(), 1e-9))
+                circular_centers.push_back(circle.Location());
+        }
+    }
+    if (surface.GetType() == GeomAbs_Plane && longest > 1e-9)
+        output.properties.push_back(vector_property("snapBoundaryDirection", boundary_direction));
+    if (!circular_centers.empty()) {
+        const auto axis = surface.Cylinder().Axis();
+        std::sort(circular_centers.begin(), circular_centers.end(), [&](const auto& a,const auto& b){
+            return gp_Vec(axis.Location(),a).Dot(gp_Vec(axis.Direction())) < gp_Vec(axis.Location(),b).Dot(gp_Vec(axis.Direction()));
+        });
+        output.properties.push_back(vector_property("snapEndFirst", circular_centers.front().XYZ()));
+        output.properties.push_back(vector_property("snapEndLast", circular_centers.back().XYZ()));
+    }
     switch (surface.GetType()) {
         case GeomAbs_Plane: {
             const auto value = surface.Plane();

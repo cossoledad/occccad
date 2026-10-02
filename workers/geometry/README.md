@@ -9,7 +9,7 @@ Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 g
 - `ProjectExternalGeometry`：以已解析的 Edge/Vertex evidence 和草图 support frame 权威生成二维只读 Point/Line/完整 Circle 投影；退化、类型不符、斜圆投影和缺少定向 evidence 的部分圆弧返回稳定诊断，不回退到浏览器近似；Arc evidence/snapshot 属于 P11J-0；
 - `EvaluatePart`：每次仅求值一个 Body 的矩形草图/拉伸链或在基础 B-Rep 上追加拉伸；Profile Pad 请求校验稳定 Feature/Body/source identity 和版本化 topology naming policy，仅回传逐 Feature identity、摘要与 ArtifactReference，完整 semantic topology outputs 和 TopologyHistory 写入 `naming.pb`；
 - `InspectExchange` / `ImportExchange` / `ExportExchange`：通过 ArtifactReference 检查、导入和导出 STEP/BREP；
-- `GetTopology`：返回面、边、点及诊断属性；
+- `GetTopology`：返回面、边、点及诊断属性；操纵手柄的只读提示包括实际面中心 `snapCenter`、平面的确定性真实直边方向 `snapBoundaryDirection`、圆柱真实边界圆的端部中心 `snapEndFirst/Last`。只输出可确认的 B-Rep 数据，不以三角剖分/PCA 猜边界，不改变装配方程；Go 将小型提示折入运动单元坐标，Web 再应用一次场景变换；
 - 生成 SHA-256 GeometryId、B-Rep、三角网格、边折线、包围盒、体积和 GLB。
 - 内置项目自有 `SketchSolver`/PlaneGCS 适配层；`GCS::*` 不进入公共头或 Proto。当前约束覆盖重合、平行、固定、水平/竖直、垂直、相切、相等、距离/长度/半径/直径/角度、同心、点在对象上、中点，以及点-线-点/点-点-点对称；基于内置草图轴的复合对称会保留与同一线段 H/V/轴平行关系重叠的设计意图，但仍报告冲突和无关冗余。Spline 的采集点按插值拟合点解释，暂只覆盖参数自由度、固定和端点引用。
 - `EvaluatePart.profile_pads` 消费控制面 Profile Builder 输出的有向外环/孔环，在 OCCT 内构造 Edge/Wire/Face、执行 BRepCheck 并 Prism；旧矩形字段只保留为当前开发期过渡入口。

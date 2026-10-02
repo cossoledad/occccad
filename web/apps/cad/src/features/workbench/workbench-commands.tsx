@@ -9,6 +9,7 @@ import { ToolButton } from "../../cad/overlay/tool-button";
 import { CAD_WORKBENCHES, type CadWorkbenchID } from "../../cad/workbench/cad-workbench";
 import type { ToolbarCatalogEntry } from "../../types";
 import { commandSection, searchCommands, type CommandSection } from "./workbench-command-model";
+import {useOperationFeedback} from "../../cad/command/operation-feedback";
 
 export function WorkbenchCommands({ toolbars, workbench }: {
   toolbars: ToolbarCatalogEntry[]; workbench: CadWorkbenchID;
@@ -17,6 +18,7 @@ export function WorkbenchCommands({ toolbars, workbench }: {
   const uiHelp = useUIHelp();
   useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const { message } = App.useApp();
+  const feedback=useOperationFeedback();
   const [section, setSection] = useState<CommandSection>("model");
   const [searchOpen, setSearchOpen] = useState(false);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
@@ -61,7 +63,7 @@ export function WorkbenchCommands({ toolbars, workbench }: {
           disabled={!item.state.enabled && !uiHelp.active} title={item.helpText} onClick={() => {
             setSearchOpen(false);
             if (uiHelp.active) { uiHelp.explain({ toolbarName: item.toolbarName, commandName: item.name, helpText: item.helpText }); return; }
-            void registry.execute(item.commandId, { continuous: false }).catch((error) => message.error(String(error)));
+            void registry.execute(item.commandId, { continuous: false }).catch((error) => feedback(error,"命令"));
           }}>
           <CadIcon name={item.iconKey as CadIconName} /><span><strong>{item.name}</strong><small>{item.toolbarName} · {item.helpText}</small></span>
           {commandShortcutLabel(item.commandId) && <kbd>{commandShortcutLabel(item.commandId)}</kbd>}

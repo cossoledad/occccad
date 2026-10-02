@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import {assemblyEngineeringOverview,engineeringMember,engineeringReason,engineeringConstraintName} from "../assembly-engineering-state.ts";
+const fix={id:"f",kind:"FIX",first:{instanceId:"a"},evaluationStatus:"VERIFIED"};
+const broken={id:"b",kind:"DISTANCE",first:{instanceId:"a",instancePath:{display:"支架 / 左侧",segments:[{instanceId:"a"}]}},second:{instanceId:"b"},evaluationStatus:"BROKEN"};
+const measured={...broken,id:"m",mode:"MEASURED",suppressed:true};
+const view={document:{name:"支架装配"},product:{instances:[{id:"a",name:"支架"},{id:"b",name:"支架"}],constraints:[fix,broken,measured]}};
+const summary=assemblyEngineeringOverview(view);
+assert.equal(summary.total,3);assert.equal(summary.measured,1);assert.equal(summary.suppressed,1);assert.equal(summary.verified,1);
+assert.deepEqual(summary.issues,[broken]);assert.equal(summary.instances.length,2,"CAD Body/compiled group equations do not increase unit counts");
+assert.equal(summary.instances[0].state,"已固定");assert.match(summary.status,/待处理/);
+assert.match(engineeringConstraintName(broken,view),/支架 \/ 左侧/);assert.doesNotMatch(engineeringConstraintName(broken,view),/b ·/);
+assert.ok(engineeringMember(broken).repairActions.includes("RECONNECT"));
+assert.match(engineeringReason({kind:"LOCALIZED_SUSPECT",oracle:"UNKNOWN"}),/未证明不可行/);
+assert.match(engineeringReason({kind:"REDUNDANT",oracle:"SAT"}),/不等于冲突/);
+assert.match(engineeringReason({kind:"CONFLICT",oracle:"UNSAT",evidence:"VERIFIED_IRREDUCIBLE"}),/不能同时满足/);
+assert.match(assemblyEngineeringOverview({...view,product:{...view.product,constraints:[]}}).status,/没有活动/);

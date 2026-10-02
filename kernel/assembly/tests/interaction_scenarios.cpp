@@ -78,6 +78,20 @@ TEST(AssemblyInteraction, PlaneManifoldKeepsHardConstraint) {
     EXPECT_EQ(r.interaction->status, InteractionStatus::Constrained);
     EXPECT_EQ(r.components[0].relative_dof, 3);
 }
+TEST(AssemblyInteraction, DiagonalTargetRetainsXYAndBlocksZ) {
+    Model m;
+    m.bodies={{"moving",{}},{"ground",{}}};
+    m.geometry={{"plane","moving",PlaneGeometry{}},{"plane","ground",PlaneGeometry{}}};
+    Constraint fix;fix.id="space";fix.kind=ConstraintKind::Fix;fix.first={"ground",{}};
+    Constraint plane;plane.id="plane";plane.kind=ConstraintKind::Coincident;plane.first={"moving","plane"};plane.second=GeometryRef{"ground","plane"};plane.direction_relation=DirectionRelation::Same;
+    m.constraints={fix,plane};
+    const auto result=Solver{}.solve(m,drag("moving",{1,1,1}));
+    qualified(result);const auto pose=body_pose(result,"moving");
+    EXPECT_NEAR(pose.translation.x,1,1e-7);EXPECT_NEAR(pose.translation.y,1,1e-7);EXPECT_NEAR(pose.translation.z,0,1e-7);
+    EXPECT_NEAR(pose.rotation.x,0,1e-8);EXPECT_NEAR(pose.rotation.y,0,1e-8);
+    EXPECT_EQ(result.interaction->status,InteractionStatus::Constrained);
+    EXPECT_EQ(result.components[0].relative_dof,3);EXPECT_EQ(result.components[0].gauge_dof,0);
+}
 TEST(AssemblyInteraction, UngroundedRigidGroupGaugeNotAnchored) {
     Model m;
     m.bodies = {{"a", {}}, {"b", {{3, 0, 0}, {}}}};

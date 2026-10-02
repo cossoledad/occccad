@@ -234,7 +234,7 @@ Measured 不发驱动方程；双平面测量仅要求实际法向平行（任�
 - SPACE 不改捕获基准；显式 Move 授权被驱动单元/固联成员的 RELATIVE 基准编辑，ID 集合在开始时冻结，最终一次原子写入。组内接受的关系在 Session 期间保持，不逐帧重捕获。Final 必须与最新目标、证据和版本匹配；[原候选提升](../../../services/internal/workspace/interaction_candidate.go)、CAS、receipt、ChangeSet/UndoRedo 与 Manifest 复用。中间帧零 Revision，无变化零提交，有变化一次 Move。已提交重试先走 receipt，不因 Session 已取消/过期重复提交。
 - [实时入口](../../../services/internal/api/realtime_assembly.go)提供 `assembly.interaction.begin/update/cancel.v1` 和 `assembly.conflict.analyze/cancel.v1`，服务端重新授权，连接绑定与有界并发；cancel 直接经 reader 传播到 Worker 数值检查点。单次密集分解不能中途打断。前端[调度器](../../../web/apps/cad/src/cad/assembly/assembly-interaction.ts)合并一个最新未发目标而不取消饥饿，pointerup 显式 flush 最终帧；取消、外部更新、正常/异常 capture、未知提交回执分别处理。实例、手柄和约束层共用 accepted frame，不下载 GLB、不重建 BREP/Naming/BVH。
 - [M5 分析](../../../services/internal/workspace/assembly_conflict.go)冻结目标隔离定义与完整相关邻域，probe 不调用 admission。独立几何见证为 SAT；有限解析证书覆盖同距离函数矛盾、Parallel/Perpendicular、真实固定条件及 Contact 参数域等明确情形；其他未收敛、证书未覆盖或基础设施问题为 UNKNOWN。默认 24 probes/800 ms，上限 128/5 秒、完整邻域超过 512 定义报告预算不足；取消保留诚实结论。不可约仅在原集合 UNSAT 与必要删除 SAT 均有证据时声明，不是最小基数。生产姿态、warm start、激活、捕获和历史不改变。
-- [诊断面板](../../../web/apps/cad/src/features/workbench/assembly-conflict-panel.tsx)显示证据、范围/branch、预算与 probe，定位稳定 Constraint/Group/support，再由用户选择已有 Edit/Reconnect/Suppress/Measured 命令。版本改变后旧诊断不能继续修复新模型。鼠标目标受限不自动运行 M5。
+- [诊断面板](../../../web/apps/cad/src/features/workbench/assembly-conflict-panel.tsx)经正式装配命令打开，默认显示工程概览与待处理问题；范围/branch、预算与 probe 保留在折叠技术报告。定位稳定 Constraint/Group/support，再由用户选择已有 Edit/Reconnect/Suppress/Measured 命令。版本改变后旧诊断不能继续修复新模型。鼠标目标受限不自动运行 M5。
 
 Proto 为添加型 typed 值协议；当前 policy `assembly-m4m5-interaction-v11`，旧 v10/v9/v8/v7 Manifest 仍按自身版本读取。新冻结输入保存 DragTarget、授权 RELATIVE 基准更新和实际求解结果，重放不依赖瞬态 Session，也不查询最新支持。未修改旧 Revision/Manifest、迁移、应用数据库、S3 或制品；跨版本语义重放不承诺逐位相同。
 
@@ -269,3 +269,16 @@ M5 第一阶段入口分析当前 Head 的已保存定义与冻结 Revision（�
 - 旧58能力、624目标、覆盖下限及数学语义锁保留。仅审查更新原显示fixture的真实idle-controller接线和旧Router测试的严格v11 build预期两项源码锁；几何断言不放宽。初次旧build预期失败及较早数学失败日志独立保留，最终回归已通过，不把失败日志删除或批量bless。
 
 目录/锁、Markdown导航的 `invoke context-audit` 与 `git diff --check` 通过。未执行浏览器自动验收、全仓无差别单测、工业STEP/容量、完整Release Worker或浏览器端到端性能；应用开发数据库、S3与制品没有清理。实机步骤见合同设施说明，不倒签维护者本轮验收。
+
+## M4/M5 交互收口：快照、统一手柄与工程分析
+
+本轮核对基线为 `9a22fbec434f24251f86db3162bfd498a1177560` 加本轮工作区修改。维护者反馈的五项交互问题是整改依据，不扩大为工业容量或本轮修复已经人工验收。
+
+- 快照回归的根因是 render 的几何复用分支更新了 DocumentView，却保留 Group、拾取和选择中的旧 InstancePath，begin 将新 baseRevision 与旧 OwnerVersion 混用。[当前 occurrence 投影](../../../web/apps/cad/src/cad/assembly/assembly-occurrence-snapshot.ts)以稳定 occurrence 身份从唯一当前 DocumentView 取得完整路径，轻量同步绑定与索引；begin 再从同一快照冻结路径，不以 userData 为版本权威。不下载 GLB、不重建 BufferGeometry/BVH；服务端旧路径、PINNED、CAS 校验未放宽。
+- 自动定向退化的根因是原自动吸附只返回 mesh 命中点，精确轴/法向能力留在另一按钮。现在统一手柄复用[精确候选与框架](../../../web/apps/cad/src/cad/interaction/manipulator-snap.ts)：直线真实端点/中点、圆心/法向、平面命中点与真实边界方向、圆柱真实端部圆心及 Datum/Frame。Worker 只补充小型只读 B-Rep 提示；局部到运动单元再到场景各变换一次。点保持已有方向，方向框架归一、正交、右手；次方向优先实际直边、再已有方向/投影世界轴。缓存有容量与取消代次，14/22 屏幕像素阈值保持锁定；开始运动后冻结框架，迟到精确结果不能改手势。中心重定位不移动零件或写历史，跨零件吸附不换受控主体。自由曲面未可靠识别时保留近似位置/已有框架，不声称精确。
+- 正常受限、固定、取消和过时响应没有常驻 HUD 或警告；内部状态/证据仍保留。数值与网络故障通过[统一操作反馈](../../../web/apps/cad/src/cad/command/operation-feedback.tsx)展示一次，可查看/复制技术详情。同一拒绝对象跨 Mutation/Dialog 去重，同一手势的失败不逐帧弹出。未知提交保留原回执，并可从正式“确认移动结果”命令重试，不生成第二次业务提交。
+- 正式 `assembly.analyze` 经服务端 ToolbarCatalog、CommandRegistry 与搜索打开。默认是“整体概览 + 待处理问题”，统计定义、停用、测量、评价状态分别计数，不把组方程或 CAD Body 算作用户定义/运动组件。只读 `assembly-engineering-evidence` 从指定 Revision 对应的既有求解结果读取相对 DOF、gauge 和局部运动解释，不启动求解或搜索；没有匹配证据就明确待检查。具体问题按需 M5 分析，局部 SAT 不认证整体正常；技术证据折叠保留。定位/正式修复均校验当前版本，晚到分析不覆盖新上下文。
+
+实际验证：同一目录完整 baseline **668/668 PASS**（`build/m4m5-closeout/baseline`），另外增加当前嵌套/共享/PINNED 绑定回归；执行器 21/21、原生操纵/静态运动 43/43、精确支持 6/6、Go 受影响检查和全部包编译，以及 Web 场景/生产构建通过。专用 `occccad_offset_contract_test` 与本轮 Worker 实测删除约束后新路径 begin/求解、旧路径拒绝、Undo/Redo、精确圆柱提示与版本化运动证据；既有 Move 历史和只读诊断修复链也通过。新增独立数学案例验证目标 `(1,1,1)` 在平面约束下得到 `(1,1,0)`，未改变生产求解算法、公差或 v11 policy。新 case 锁逐项依据执行结果加入，旧显示锁仅因保留旧断言并新增快照断言而更新，不批量 bless。
+
+本轮交互整改实现完成，等待维护者实机验证，步骤见[合同设施说明](../../../tests/assembly-contract/README.md#m4m5-交互收口验证)。未进行浏览器自动验收、工业模型或新的性能基准；没有应用数据库/S3 清理、持久模型/历史语义改变或 M6 实现。此前性能测量结论不因本轮 UI 整改改变。

@@ -268,3 +268,11 @@ message FlexibleOccurrenceOverride {
 - `CAPTURE_POSITION` / `CREATE_SCENE` / `CREATE_EXPLODED_VIEW`。
 
 结构变更先生成 path/dependency rewrite plan，再求候选 Assembly。长求解不持有数据库锁；Model Service 用 Workspace sequence CAS 提交。不同 occurrences 的无共同约束 Placement 编辑可以 rebase；共享 Connection、ancestor path、configuration 或 Publication 的编辑必须报告冲突。幂等 request ID 决定新 Instance/Connection ID，重试不重复插入。
+
+### 交互快照与工程状态呈现
+
+几何制品复用与语义快照同步是独立职责：GeometryKey/pose 未变时，新的 owner/reference/InstancePath 仍必须投影到拾取、选择与操纵绑定。新手势以稳定 occurrence 身份在一个确定的权威快照中取得完整路径后冻结，不替换旧路径个别版本字段；旧 Session 仍按原上下文失效。
+
+统一操纵手柄的中心重定位只改变临时 pivot/frame；自动吸附不创建约束或切换运动主体。mesh 可提供快速指针位置，绑定真实几何的精确方向、圆心和边界必须由只读精确查询确认。运动开始冻结框架，迟到响应不能重新定向。正常受限只表现为可行运动或停止，真实故障保留可诊断的统一反馈与未知提交回执恢复。
+
+装配分析是正式工程命令，权威概览与按需局部诊断分开。模式、停用、连接与评价状态不互相替代；相对运动与整体 gauge 分开，瞬时自由度不认证有限行程。局部 SAT/未知不能冒充整体完成检查；技术证据可折叠，但证据等级、版本和正式修复授权不得删除。

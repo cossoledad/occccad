@@ -64,6 +64,7 @@ export type AssemblyInteractionPort = {
   cancel(sessionId: string): Promise<unknown>;
   frame(value: AssemblyInteractionFrame): void;
   state(value: AssemblyInteractionState, reason?: string): void;
+  failure?(error:unknown):void;
 };
 
 /** A transient solver Session, never a TREE-03 document EditSession.
@@ -73,6 +74,7 @@ export type AssemblyInteractionPort = {
  * Final confirmation is a separately identified final=true solve, not whichever
  * earlier frame happened to finish last. */
 export class AssemblyInteractionController {
+  private failureReported=false;
   private epoch = 0;
   private abort?: AbortController;
   private session?: AssemblyInteractionSession;
@@ -95,6 +97,7 @@ export class AssemblyInteractionController {
   get sessionId(): string | undefined { return this.session?.sessionId; }
 
   begin(input: AssemblyInteractionBegin): void {
+    this.failureReported=false;
     this.cancel("new gesture", "idle");
     const epoch = this.epoch;
     const abort = this.abort = new AbortController();
@@ -116,7 +119,7 @@ export class AssemblyInteractionController {
       if (this.pending) { this.pending.sessionId = session.sessionId; this.pending.target.bodyId = session.bodyId; }
       this.drain();
     }).catch(error => {
-      if (epoch === this.epoch && !abort.signal.aborted) this.cancel(String(error),assemblyInteractionFailureState(error));
+      if (epoch === this.epoch && !abort.signal.aborted) {this.reportFailure(error);this.cancel(String(error),assemblyInteractionFailureState(error));}
     });
   }
 
@@ -173,6 +176,7 @@ export class AssemblyInteractionController {
     this.finishResolve = undefined;
   }
   private setState(state: AssemblyInteractionState, reason?: string): void { this.phase = state;this.phaseReason=reason; this.port.state(state, reason); }
+  private reportFailure(error:unknown):void {if(!this.failureReported){this.failureReported=true;this.port.failure?.(error);}}
   private drain(): void {
     if (this.inFlight || !this.pending || !this.session || !this.abort) return;
     const request = this.pending;
@@ -191,13 +195,14 @@ export class AssemblyInteractionController {
       const axes=["X","Y","Z"],translation=request.target.translationComponents.flatMap((v,i)=>v?[axes[i]]:[]),rotation=request.target.rotationComponents.flatMap((v,i)=>v?[axes[i]]:[]);
       const reason=`${evidence.diagnostic??evidence.status} · 冻结坐标架平移 [${translation.join(",")}] / 旋转 [${rotation.join(",")}] · 目标残差 ${evidence.targetError.toPrecision(4)} / 最优性 ${evidence.targetOptimality.toPrecision(4)}${evidence.status==="CONSTRAINED"?"（指定目标未到达，已确认约束受限最优；不是冲突证明）":""}`;
       this.setState(evidence.status === "REACHED" && evidence.hardFeasible && evidence.targetConverged ? "allowed" : evidence.status === "CONSTRAINED" && evidence.hardFeasible && evidence.targetConverged ? "constrained" : evidence.status === "FAILED" || evidence.status === "CANCELLED" ? "failed" : "blocked",reason);
+      if(evidence.status==="FAILED"||evidence.status==="BUDGET")this.reportFailure(Object.assign(new Error(reason),{code:evidence.status==="FAILED"?"ASSEMBLY_INTERACTION_NUMERICAL_FAILED":"TIMEOUT"}));
       if (request.final) {
         const candidate = eligible ? { ...structuredClone(frame), ...structuredClone(request), baseRevisionId: session.baseRevisionId, inputDigest: session.inputDigest } : undefined;
         this.finishResolve?.(candidate);
         this.finishResolve = undefined;
       }
     }).catch(error => {
-      if (epoch === this.epoch && !abort.signal.aborted) this.cancel(String(error),assemblyInteractionFailureState(error));
+      if (epoch === this.epoch && !abort.signal.aborted) {this.reportFailure(error);this.cancel(String(error),assemblyInteractionFailureState(error));}
     }).finally(() => {
       if (epoch !== this.epoch) return;
       this.inFlight = false;

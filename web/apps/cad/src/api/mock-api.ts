@@ -775,6 +775,7 @@ export const mockApi: CadApi = {
   cancelAssemblyConflicts:async()=>undefined,
 	assemblyCapabilities: async () => { throw new Error("Exact assembly capabilities require the real server"); },
 	inspectAssemblySupports: async () => { throw new Error("Exact support inspection requires the real Worker; mock geometry is not authoritative"); },
+	getAssemblyEngineeringEvidence:async(id:string,revisionId:string)=>({documentId:id,revisionId,available:false,components:[]}),
 	toolbarCatalog: async () => pause(mockToolbarCatalog),
   session: async () => {
     if (localStorage.getItem("occccad.mock.auth") === "false") throw new Error("authentication required");

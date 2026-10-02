@@ -15,6 +15,9 @@ import { makeFeaturePreview, type FeaturePreviewOperation } from "../cad/renderi
 import { adaptiveGridSpacing, InfiniteGroundGrid } from "../cad/rendering/infinite-ground-grid";
 import { fitOrthographicView, updateOrthographicClipping, orientPlaneView, saveView, standardView, viewFocus, type SavedView } from "../cad/navigation/orthographic-view";
 import * as THREE from "three";
+import {occurrenceSnapshot,refreshOccurrenceSelection} from "../cad/assembly/assembly-occurrence-snapshot";
+import {exactSnapCandidates,ManipulatorSnapCache,type SupportInspection} from "../cad/interaction/manipulator-snap";
+import {assemblyGeometryRef} from "../cad/assembly/assembly-reference";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import { InputManager } from "../cad/input/input-manager";
 import { snapshotTransform, TransformTransitionSystem, type TransformPose } from "../cad/animation/transform-transition";
@@ -71,6 +74,8 @@ type Callbacks = {
   assemblyInteractionUpdate: (documentId: string, input: AssemblyInteractionUpdate, signal: AbortSignal) => Promise<AssemblyInteractionFrame>;
   assemblyInteractionCancel: (documentId: string, sessionId: string) => Promise<unknown>;
   assemblyInteractionState?: (state: AssemblyInteractionState, reason?: string) => void;
+  operationFailed?:(error:unknown)=>void;
+  inspectAssemblySupports?:(documentId:string,references:AssemblyGeometryRef[],signal:AbortSignal)=>Promise<SupportInspection>;
   assemblyConstraintRequested: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
@@ -237,6 +242,10 @@ export class CadViewportEngine {
   private readonly manipulatorPivots = new Map<string, THREE.Vector3>();
   private readonly manipulatorFrames = new Map<string, THREE.Quaternion>();
   private pendingManipulatorAnchor?:{instanceId:string;anchor:ManipulatorAnchor};
+  private readonly manipulatorSnapCache=new ManipulatorSnapCache();
+  private snapLock?:{key:string;anchor:ManipulatorAnchor};
+  private snapInput?:{key:string;hit:THREE.Intersection};
+  private lastManipulatorPick?:{selection:SelectionItem;hit:THREE.Intersection;revisionId:string};
   private readonly navigation: NavigationController;
   private readonly navigationHUD: NavigationHUD;
   private readonly tools: ToolManager;
@@ -337,6 +346,7 @@ export class CadViewportEngine {
       update:(input,signal)=>this.callbacks.assemblyInteractionUpdate(this.moveSessionDocuments.get(input.sessionId)??this.moveSessionDocumentId,input,signal),
       cancel:sessionId=>{const documentId=this.moveSessionDocuments.get(sessionId)??this.moveSessionDocumentId;this.moveSessionDocuments.delete(sessionId);return this.callbacks.assemblyInteractionCancel(documentId,sessionId);},
       frame:frame=>this.applyAcceptedMoveFrame(frame),
+      failure:error=>this.callbacks.operationFailed?.(error),
       state:(state,reason)=>{
         if((state==="failed"||state==="invalidated")&&!this.moveCommitPending)this.restoreMoveNominalScene();
         this.callbacks.assemblyInteractionState?.(state,reason);
@@ -418,7 +428,20 @@ export class CadViewportEngine {
       this.selectionMode = selectionModeForTool(this.activeToolID);
       this.preselect(null, true);
       if (this.activeToolID !== "assembly.move") this.moveManipulator.detach();
-      else this.attachMoveManipulator();
+      else {
+        const selection=this.selected.length===1?this.selected[0]:undefined;
+        const group=selection?.instanceId?this.instanceGroups.get(selection.instanceId):undefined;
+        if(group&&selection?.kind!=="instance"){
+          this.selected=[refreshOccurrenceSelection(this.view!,group.userData as SelectionItem)];
+          this.callbacks.selectionsChanged(this.selected);
+        }
+        this.attachMoveManipulator();
+        const picked=this.lastManipulatorPick;
+        if(group&&picked&&picked.selection.instanceId===selection?.instanceId&&picked.revisionId===this.view?.document.versionId){
+          const anchor=this.manipulatorAnchorFromIntersection(picked.hit,picked.selection);
+          this.moveManipulator.attach(anchor.position,anchor.orientation??this.moveManipulator.frameQuaternion());this.updateManipulatorPivot(anchor);
+        }
+      }
       this.host.classList.toggle("drawing", Boolean(toolID?.startsWith("sketch.")) && Boolean(this.sketchPlane));
       this.callbacks.activeToolChanged(this.activeToolID as import("../state/workbench-store").WorkbenchToolID);
       this.emitDebugState();
@@ -450,13 +473,14 @@ export class CadViewportEngine {
   private geometrySignature(view: DocumentDescriptor, editContext?: ViewportEditContext): string {
     const part = (value?: DocumentDescriptor) => value?.part?.bodies.map((body) => [body.id, body.geometryKey]);
     return JSON.stringify([view.document.id, view.document.type, part(view),
-      view.resolvedInstances?.map((resolved) => [resolved.id, resolved.geometryKey, resolved.translation, resolved.rotation,
-        resolved.instancePath.segments.at(-1)?.resolvedVersionId, resolved.ownedSketchIds]),
+      view.resolvedInstances?.map((resolved) => [resolved.occurrencePath,resolved.bodyId, resolved.geometryKey, resolved.translation, resolved.rotation,
+        resolved.ownedSketchIds]),
       view.product?.instances.map((instance) => [instance.id, instance.translation, instance.rotation]),
       view.contextVariants?.map((variant) => [variant.owningInstancePath.canonical, variant.variantKey]),
       editContext?.occurrencePath, editContext?.translation, editContext?.rotation, part(editContext?.view)]);
   }
   render(view: DocumentDescriptor, editContext?: ViewportEditContext): void {
+    if(this.view?.document.versionId!==view.document.versionId){this.manipulatorSnapCache?.clear();this.snapLock=undefined;}
     if(this.view&&(this.view.document.id!==view.document.id || (this.editContext?.view.document.id??this.view.document.id)!==(editContext?.view.document.id??view.document.id) || this.editContext?.occurrencePath!==editContext?.occurrencePath))this.cancelMovePreviewGesture("editing context changed");
     else this.moveInteraction.invalidate(view.document.versionId);
     const signature = this.geometrySignature(view, editContext);
@@ -621,7 +645,27 @@ export class CadViewportEngine {
   updateDisplayProjection(view: DocumentDescriptor): void {
     if (!this.view || this.view.document.id !== view.document.id) return;
     this.view = {...this.view,document:view.document,structureTree:view.structureTree,part:view.part,product:view.product,
-      constraintDisplayScopes:view.constraintDisplayScopes,resolvedInstances:view.resolvedInstances};
+      contextVariants:view.contextVariants,constraintDisplayScopes:view.constraintDisplayScopes,resolvedInstances:view.resolvedInstances};
+    this.selectionIndex.setSemanticProjection(selection=>this.view?refreshOccurrenceSelection(this.view,selection):selection);
+    // Geometry reuse must not reuse the old semantic snapshot. Pick closures
+    // share the binding context; update it without replacing GPU resources.
+    for(const binding of this.solidBindings.values()){
+      const path=occurrenceSnapshot(view,binding.context.occurrencePath);
+      if(path){binding.context.instancePath=path;binding.context.versionId=path.segments.at(-1)?.resolvedVersionId;
+        binding.context.documentId=path.segments.at(-1)?.referencedDocumentId??binding.context.documentId;
+        binding.context.contextVariantKey=view.contextVariants?.find(variant=>variant.owningInstancePath.canonical===binding.context.occurrencePath)?.variantKey;}
+      binding.group.userData=refreshOccurrenceSelection(view,binding.group.userData as SelectionItem);
+    }
+    for(const group of this.instanceGroups.values()){
+      const selection=group.userData as SelectionItem;
+      group.userData=refreshOccurrenceSelection(view,selection);
+      if(group.userData.kind)this.selectionIndex.register(group.userData as SelectionItem,group);
+    }
+    if(this.moveTarget&&!view.product?.instances.some(instance=>instance.id===this.moveTarget!.group.userData.id)){
+      this.cancelMovePreviewGesture("运动组件已删除或替换");this.moveManipulator.detach();this.moveTarget=undefined;
+    }
+    this.selected=this.selected.map(selection=>refreshOccurrenceSelection(view,selection));
+    if(this.preselected)this.preselected=refreshOccurrenceSelection(view,this.preselected);
     this.addAssemblyConstraintMarkers(this.view);
     this.visibilityResolver = visibilityResolverForView(view);
     this.updateSketchContextVisibility();
@@ -960,7 +1004,8 @@ export class CadViewportEngine {
   }
 
   selectMany(selections: readonly SelectionItem[], notify = true): void {
-    const unique = [...new Map(selections.map((selection) => [selectionKey(selection), selection])).values()];
+    const projected=selections.map(selection=>this.view?refreshOccurrenceSelection(this.view,selection):selection);
+    const unique = [...new Map(projected.map((selection) => [selectionKey(selection), selection])).values()];
     if (sameSelections(this.selected, unique) && !this.preselected) {
       if (notify) this.callbacks.selectionsChanged(unique);
       if(this.activeToolID==="assembly.move"&&(!this.moveManipulator.isAttached()||this.pendingManipulatorAnchor))this.attachMoveManipulator();
@@ -993,8 +1038,9 @@ export class CadViewportEngine {
       : new THREE.Box3().setFromObject(object).getCenter(new THREE.Vector3()));
     const localPivot = object.worldToLocal(center.clone());
     this.manipulatorPivots.set(instanceId, localPivot.clone());
-    const orientation=picked?.orientation??this.manipulatorFrames.get(instanceId)??new THREE.Quaternion();
-    this.manipulatorFrames.set(instanceId,orientation.clone());
+    const objectRotation=object.getWorldQuaternion(new THREE.Quaternion());
+    const orientation=picked?.orientation??objectRotation.clone().multiply(this.manipulatorFrames.get(instanceId)??new THREE.Quaternion());
+    this.manipulatorFrames.set(instanceId,objectRotation.clone().invert().multiply(orientation));
     this.moveManipulator.attach(center,orientation);
     this.moveTarget = { group: object, startPosition: object.position.clone(), startQuaternion: object.quaternion.clone(),
       startPivot: center.clone(), localPivot };
@@ -1011,7 +1057,7 @@ export class CadViewportEngine {
     const instanceId = target.group.userData.id as string | undefined;
     if (instanceId){
       this.manipulatorPivots.set(instanceId, target.localPivot.clone());
-      if(anchor.orientation)this.manipulatorFrames.set(instanceId,anchor.orientation.clone());
+      if(anchor.orientation)this.manipulatorFrames.set(instanceId,target.group.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(anchor.orientation));
     }
     this.invalidate();
   }
@@ -1024,20 +1070,51 @@ export class CadViewportEngine {
       viewportMetrics(this.renderer));
     this.raycaster.params.Line = { threshold: worldPerPixel * 8 };
     this.raycaster.params.Points = { threshold: worldPerPixel * 11 };
-    const roots = [...this.solidBindings.values()].map((binding) => binding.group);
-    const hits = this.raycaster.intersectObjects(roots, true).filter((hit) => hit.object.visible);
-    if (hits.length === 0) return undefined;
-    const near = hits.filter((hit) => hit.distance <= hits[0].distance + worldPerPixel * 12);
-    const priority = (hit: THREE.Intersection) => hit.object instanceof THREE.Points ? 2
-      : hit.object instanceof THREE.LineSegments ? 1 : 0;
-    near.sort((left, right) => priority(right) - priority(left));
-    return this.manipulatorAnchorFromIntersection(near[0]);
+    this.datumAxisPickToleranceWorld = worldPerPixel * 1.75;
+    const hit=this.selectionIndex.pickWithIntersection(this.raycaster,selection=>Boolean(assemblyGeometryRef(selection)));
+    if(!hit.selection||!hit.intersection){this.snapLock=undefined;return;}
+    return this.manipulatorAnchorFromIntersection(hit.intersection,hit.selection);
   }
 
-  private manipulatorAnchorFromIntersection(hit:THREE.Intersection):ManipulatorAnchor{
+  private manipulatorAnchorFromIntersection(hit:THREE.Intersection,selection?:SelectionItem):ManipulatorAnchor{
     // Mesh is permitted as approximate pointer grab position, never as the
     // authority for a persistent/exact geometric direction objective.
-    return {position:hit.point.clone()};
+    const fallback={position:hit.point.clone()};
+    if(!selection||!this.view||!this.callbacks.inspectAssemblySupports)return fallback;
+    const current=refreshOccurrenceSelection(this.view,selection),reference=assemblyGeometryRef(current);
+    if(!reference)return fallback;
+    const view=this.view,key=JSON.stringify([view.document.id,view.document.versionId,reference]);
+    this.snapInput={key,hit};
+    const controlled=this.moveTarget?.group.userData.id??current.instanceId;
+    const frame=this.moveManipulator.frameQuaternion();
+    const choose=(inspection:SupportInspection):ManipulatorAnchor=>{
+      const support=inspection.supports[0],motionId=reference.instancePath?.segments[0]?.instanceId??reference.instanceId;
+      const group=this.instanceGroups.get(motionId);
+      if(inspection.versionId!==view.document.versionId||support?.status!=="RESOLVED"||!support.descriptor||!group)return fallback;
+      group.updateWorldMatrix(true,false);
+      const point=this.snapInput?.key===key?this.snapInput.hit.point:hit.point;
+      const candidates=exactSnapCandidates(support.descriptor,support.snapHints,group.matrixWorld,point,frame);
+      const pixels=(position:THREE.Vector3)=>{
+        const a=position.clone().project(this.camera),b=point.clone().project(this.camera),metrics=viewportMetrics(this.renderer);
+        return Math.hypot((a.x-b.x)*metrics.cssWidth/2,(a.y-b.y)*metrics.cssHeight/2);
+      };
+      const locked=this.snapLock?.key===key?this.snapLock:undefined;
+      if(locked&&pixels(locked.anchor.position)<22)return locked.anchor;
+      candidates.sort((a,b)=>pixels(a.position)-pixels(b.position));
+      const candidate=candidates.find(c=>c.role!=="surface"&&pixels(c.position)<14)??
+        (support.descriptor.Kind==="CIRCLE"?candidates.find(c=>c.role==="center"):undefined)??candidates.find(c=>c.role==="surface");
+      const anchor=candidate??{...fallback,orientation:candidates[0]?.orientation};
+      this.snapLock={key,anchor};return anchor;
+    };
+    const cached=this.manipulatorSnapCache.get(key);
+    if(cached)return choose(cached);
+    this.manipulatorSnapCache.request(key,signal=>this.callbacks.inspectAssemblySupports!(view.document.id,[reference],signal),inspection=>{
+      if(this.snapInput?.key!==key||this.activeToolID!=="assembly.move"||this.view?.document.versionId!==view.document.versionId||this.view.document.id!==view.document.id||
+        this.moveTarget?.group.userData.id!==controlled||this.moveManipulator.isDragging()&&!this.moveManipulator.isPivotDragging())return;
+      const anchor=choose(inspection);
+      this.moveManipulator.attach(anchor.position,anchor.orientation??frame);this.updateManipulatorPivot(anchor);
+    });
+    return fallback;
   }
   setAssemblyMoveDirection(instanceId:string,direction:Vec3,kind:"line"|"plane"):boolean{
     if(this.moveCommitPending||this.moveManipulator.isDragging())return false;
@@ -1045,7 +1122,7 @@ export class CadViewportEngine {
     const axis=new THREE.Vector3(...direction);
     if(!Number.isFinite(axis.lengthSq())||axis.lengthSq()<1e-20)return false;
     axis.normalize().applyQuaternion(group.quaternion);
-    this.manipulatorFrames.set(instanceId,manipulatorFrame(axis,kind));
+    this.manipulatorFrames.set(instanceId,group.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(manipulatorFrame(axis,kind)));
     this.select({kind:"instance",id:instanceId,instanceId},true);
     this.setActiveTool("assembly.move");this.attachMoveManipulator();this.invalidate();return true;
   }
@@ -1065,9 +1142,15 @@ export class CadViewportEngine {
   }
 
   private beginMovePreviewGesture():void{
+    this.manipulatorSnapCache?.cancelPending();
     if(this.moveCommitPending)return;
     const target=this.moveTarget;
     if(target&&this.view){
+      const instanceId=target.group.userData.id as string;
+      const path=occurrenceSnapshot(this.view,instanceId);
+      if(!path||!this.view.product?.instances.some(instance=>instance.id===instanceId)){
+        this.cancelMovePreviewGesture("操纵对象已变化，请重新选择组件");this.moveManipulator.detach();return;
+      }
       if(this.moveNominalScene)this.cancelMovePreviewGesture("开始新的操纵，先恢复未提交的权威基线");
       this.moveGestureGeneration++;
       this.moveNominalBase={documentId:this.view.document.id,revisionId:this.view.document.versionId};
@@ -1080,11 +1163,12 @@ export class CadViewportEngine {
       this.acceptedMovePose={translation:target.startPosition.toArray(),rotation:target.startQuaternion.toArray()};
       this.moveFrameRotation=this.moveManipulator.frameQuaternion().toArray();
       this.moveSessionDocumentId=this.view.document.id;
-      this.moveInteraction.begin({baseRevisionId:this.view.document.versionId,instanceId:target.group.userData.id as string,
-        occurrencePath:target.group.userData.instancePath,localGrabPoint:target.localPivot.toArray(),frameRotation:this.moveFrameRotation});
+      this.moveInteraction.begin({baseRevisionId:this.view.document.versionId,instanceId,
+        occurrencePath:path,localGrabPoint:target.localPivot.toArray(),frameRotation:this.moveFrameRotation});
     }
   }
   private cancelMovePreviewGesture(reason="cancelled"):void{
+    this.manipulatorSnapCache?.cancelPending();this.snapInput=undefined;
     if(this.moveInteraction.state==="committing")return; // receipt recovery owns a submitted command
     this.moveGestureGeneration++;
     this.moveInteraction.cancel(reason);
@@ -1141,6 +1225,7 @@ export class CadViewportEngine {
           // receipt recovery; neither restore nominal nor generate a new MOVE.
           this.callbacks.assemblyInteractionState?.("committing",`提交结果未知；可重试同一请求回执。${String(error)}`);
         }else{
+          this.callbacks.operationFailed?.(error);
           this.moveCommitPending=undefined;
           const state=assemblyInteractionFailureState(error);
           this.moveInteraction.cancel(String(error),state);
@@ -2114,7 +2199,7 @@ export class CadViewportEngine {
 
   private pick(x: number, y: number, additive: boolean): void {
     if (this.moveManipulator.isDragging()) return;
-    const hit = this.hitTest(x, y);
+    const hit = this.hitTest(x, y,true);
     if (!hit) { if (!additive) this.selectMany([]); return; }
     if (!additive) { this.selectMany([hit]); return; }
     const key = selectionKey(hit);
@@ -2144,8 +2229,10 @@ export class CadViewportEngine {
         ? allowsSelection(this.captureSettings, selection)
         : allowsSelectionInContext(this.captureSettings, selection, this.activeSketchID));
     const raw=hit.selection && bindPublicationSelection(hit.selection, this.view?.structureTree);
+    if(captureManipulatorAnchor&&raw&&hit.intersection&&this.view)
+      this.lastManipulatorPick={selection:raw,hit:hit.intersection,revisionId:this.view.document.versionId};
     if(captureManipulatorAnchor&&this.activeToolID==="assembly.move"&&raw?.instanceId&&hit.intersection){
-      this.pendingManipulatorAnchor={instanceId:raw.instanceId,anchor:this.manipulatorAnchorFromIntersection(hit.intersection)};
+      this.pendingManipulatorAnchor={instanceId:raw.instanceId,anchor:this.manipulatorAnchorFromIntersection(hit.intersection,raw)};
     }
     return this.selectionMode.project(projectSketchFeatureSelection(raw, this.activeSketchID));
   }
@@ -2545,6 +2632,7 @@ export class CadViewportEngine {
       moveManipulatorPointerDown: (pointerId, x, y) => !this.moveCommitPending&&this.moveManipulator.pointerDown(pointerId, x, y, this.camera, this.renderer.domElement),
       moveManipulatorPointerMove: (pointerId, x, y) => this.moveManipulator.pointerMove(pointerId, x, y, this.camera, this.renderer.domElement),
       moveManipulatorPointerUp: (pointerId, commit) => {
+        this.manipulatorSnapCache.cancelPending();this.snapInput=undefined;
         const handled=this.moveManipulator.pointerUp(pointerId,commit);
         if(!commit&&!handled)this.cancelMovePreviewGesture(); // Esc/blur after pointerup while final solve is pending
         return handled;

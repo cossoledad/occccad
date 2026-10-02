@@ -233,9 +233,10 @@ export const restApi = {
     {method:"POST",body:JSON.stringify({requestId:requestId()})}),
   getProductSolveResult: (id:string,solveRequestId:string) => request<AssemblySolveManifestResult>(
     `/api/documents/${id}/solve-results?requestId=${encodeURIComponent(solveRequestId)}`),
+  getAssemblyEngineeringEvidence:(id:string,revisionId:string,signal?:AbortSignal)=>request<import("./cad/assembly/assembly-engineering-state").AssemblyEngineeringEvidence>(`/api/documents/${id}/assembly-engineering-evidence?revisionId=${encodeURIComponent(revisionId)}`,{signal}),
   getDocumentProperties: (id: string) => request<DocumentProperties>(`/api/documents/${id}/properties`),
   assemblyCapabilities: () => request<{contractVersion:string;capabilities:Array<{capabilityId:string;family:string;subtype:string;roles:Array<{role:string;descriptor:string}>}>}>("/api/assembly/capabilities"),
-  inspectAssemblySupports: (id:string,references:AssemblyGeometryRef[],signal?:AbortSignal) => request<{documentId:string;versionId:string;supports:Array<{reference:AssemblyGeometryRef;exactType?:string;descriptor?:{Kind:string;Direction:Vec3;LengthUnit?:string};status:string;diagnostic?:string;diagnosticCode?:string;constraintEligible:boolean;constraintDiagnosticCode?:string;constraintDiagnostic?:string}>}>(`/api/documents/${id}/assembly-supports/inspect`,{method:"POST",body:JSON.stringify({references}),signal}),
+  inspectAssemblySupports: (id:string,references:AssemblyGeometryRef[],signal?:AbortSignal) => request<import("./cad/interaction/manipulator-snap").SupportInspection>(`/api/documents/${id}/assembly-supports/inspect`,{method:"POST",body:JSON.stringify({references}),signal}),
   getTopologyProperties: (id: string, geometryKey: string, kind: "FACE" | "EDGE" | "VERTEX", localId: number, versionId?: string) => {
     const query = new URLSearchParams({ geometryKey, kind, localId: String(localId) });
     if (versionId) query.set("versionId", versionId);

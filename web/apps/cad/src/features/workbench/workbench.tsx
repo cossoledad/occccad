@@ -12,9 +12,10 @@ import { assemblyTargetSupportsEligible, contactRelationOptions, derivedSupportO
 import { exactNormalViewPlane } from "../../cad/navigation/normal-view";
 import { AssemblyAngleParameters, angleAxisCandidateError } from "./assembly-angle-parameters";
 import { fixedPoseAngles } from "../../cad/assembly/assembly-fixed-pose";
-import type { AssemblyInteractionCommit, AssemblyInteractionState } from "../../cad/assembly/assembly-interaction";
+import type { AssemblyInteractionCommit } from "../../cad/assembly/assembly-interaction";
 import { AssemblyConflictResponseGate,assemblyConflictCurrent,type AssemblyConflictReport,type AssemblyConflictMember,type AssemblyConflictRepair } from "../../cad/assembly/assembly-conflict";
 import { AssemblyConflictPanel } from "./assembly-conflict-panel";
+import {useOperationFeedback} from "../../cad/command/operation-feedback";
 import { FeaturePreviewLegend } from "./feature-preview-legend";
 import { InsertDocumentDialog } from "./insert-document-dialog";
 import { InstancePatternDialog } from "./instance-pattern-dialog";
@@ -211,18 +212,19 @@ export function Workbench() {
   const navigate = useNavigate();
   const newSketchSession = useRef<NewSketchSession | undefined>(undefined);
   const client = useQueryClient();
-  const { message } = App.useApp();
+  const { message,modal } = App.useApp();
+  const operationFeedback=useOperationFeedback();
   const commandRegistry = useMemo(() => new CommandRegistry(), []);
   const viewport = useRef<CadViewportHandle>(null);
   const normalViewRequest = useRef(0);
   const [padOpen, setPadOpen] = useState(false);
-  const [assemblyMotionState,setAssemblyMotionState]=useState<{state:AssemblyInteractionState;reason?:string}>({state:"idle"});
+  const receiptPrompt=useRef(false);
+  const [moveReceiptPending,setMoveReceiptPending]=useState(false);
   const [conflictOpen,setConflictOpen]=useState(false);
   const [conflictReport,setConflictReport]=useState<AssemblyConflictReport>();
   const [conflictContextCurrent,setConflictContextCurrent]=useState(false);
   const [conflictPending,setConflictPending]=useState(false);
   const [conflictError,setConflictError]=useState<string>();
-  const [conflictBudget,setConflictBudget]=useState({maxProbes:32,timeBudgetMs:5000});
   const conflictGate=useRef(new AssemblyConflictResponseGate());
   const conflictAbort=useRef<AbortController|undefined>(undefined);
   const [renameTarget, setRenameTarget] = useState<SpecificationTreeNode>();
@@ -399,16 +401,20 @@ export function Workbench() {
   }, [client, documentID, message]);
   const command = useMutation({
     mutationFn: (operation: () => Promise<DocumentView>) => operation(),
-    onSuccess: (updated) => { store.setSelection(null); void refresh(updated); }, onError: (error) => message.error(error.message)
+    onSuccess: (updated) => { store.setSelection(null); void refresh(updated); }, onError: (error) => operationFeedback(error,"命令")
   });
   const moveCommand = useMutation({mutationFn:(operation:()=>Promise<DocumentView>)=>operation(),
-    onSuccess:(updated)=>{void refresh(updated);},onError:(error)=>{message.error(error.message);void refresh();}});
+    onSuccess:(updated)=>{void refresh(updated);},onError:()=>{void refresh();}});
   const view = document.data;
   useEffect(() => {
     if (!view || editSession?.hostDocumentId === view.document.id) return;
     setEditSession(rootEditSession(view, activationGate.current.begin()));
   }, [editSession?.hostDocumentId, view]);
   const editingView = activeID === documentID ? view : activeDocument.data;
+  const engineeringEvidence=useQuery({queryKey:["assembly-engineering-evidence",editingView?.document.id,editingView?.document.versionId],
+    queryFn:({signal})=>api.getAssemblyEngineeringEvidence(editingView!.document.id,editingView!.document.versionId,signal),
+    enabled:conflictOpen&&Boolean(editingView?.product),retry:false});
+  useEffect(()=>{if(engineeringEvidence.error)operationFeedback(engineeringEvidence.error,"读取装配状态");},[engineeringEvidence.error,operationFeedback]);
   latestHostVersion.current=view?.document.versionId;
   useEffect(()=>{
     conflictGate.current.invalidate();conflictAbort.current?.abort();setConflictPending(false);setConflictContextCurrent(false);
@@ -821,51 +827,32 @@ export function Workbench() {
     if(conflictPending)setConflictError("分析已取消；未完成的探测不形成数值结论。");
     setConflictPending(false);
   };
-  const setExactMoveDirection=async()=>{
-    const selected=store.selections[0];if(!selected||!view)return;
-    const reference=assemblyGeometryRef(selected);if(!reference){message.info("请选择有稳定引用的精确线、面或工程支持。");return;}
-    const owner=view.document.id,revision=view.document.versionId;
-    try{
-      const result=await api.inspectAssemblySupports(owner,[reference]);
-      if(result.documentId!==owner||result.versionId!==revision||latestHostVersion.current!==revision){message.warning("几何方向解析期间装配已变化，请重新选择。");return;}
-      const support=result.supports[0],descriptor=support?.descriptor;
-      const kind=support?.exactType?.toUpperCase();
-      if(support?.status!=="RESOLVED"||!descriptor||!["AXIS","LINE","PLANE","CIRCLE","CYLINDER","CONE"].includes(kind??"")){
-        message.warning(support?.diagnostic??"该精确支持没有可用的轴或定向法向。");return;
-      }
-      const motionUnit=reference.instancePath?.segments[0]?.instanceId??reference.instanceId;
-      if(!viewport.current?.setAssemblyMoveDirection(motionUnit,descriptor.Direction,kind==="PLANE"||kind==="CIRCLE"?"plane":"line")){
-        message.warning("当前运动单元或几何方向不可用。");return;
-      }
-      store.setActiveTool("assembly.move");
-    }catch(error){message.error(error instanceof Error?error.message:String(error));}
-  };
-  const analyzeConflicts=async()=>{
+  const analyzeConflicts=async(ids?:string[])=>{
     if(!editingView?.product)return;
     conflictAbort.current?.abort();
     const abort=new AbortController();conflictAbort.current=abort;
     const owner=editingView.document.id,revision=editingView.document.versionId;
     const generation=conflictGate.current.begin(owner,revision);
-    const selectedIds=store.selections.flatMap(s=>s.kind==="assembly-constraint"?[s.constraintId]:[]);
+    const selectedIds=ids??store.selections.flatMap(s=>s.kind==="assembly-constraint"?[s.constraintId]:[]);
     setConflictPending(true);setConflictError(undefined);setConflictContextCurrent(false);
     try{
-      const report=await api.analyzeAssemblyConflicts(owner,{analysisId:randomUUID(),baseRevisionId:revision,...conflictBudget,
+      const report=await api.analyzeAssemblyConflicts(owner,{analysisId:randomUUID(),baseRevisionId:revision,
         ...(selectedIds.length?{targetConstraintIds:selectedIds}:{})},abort.signal);
       if(conflictGate.current.accepts(generation,report)){setConflictReport(report);setConflictContextCurrent(true);}
       else if(!abort.signal.aborted)setConflictError("响应版本已失效，请重新分析当前装配。");
-    }catch(error){if(!abort.signal.aborted)setConflictError(error instanceof Error?error.message:String(error));}
+    }catch(error){if(!abort.signal.aborted){setConflictError(error instanceof Error?error.message:String(error));operationFeedback(error,"装配检查");}}
     finally{if(conflictAbort.current===abort)setConflictPending(false);}
   };
-  const locateConflictMember=(member:AssemblyConflictMember)=>{
-    if(!conflictContextCurrent||!editingView||!assemblyConflictCurrent(conflictReport,editingView.document.id,editingView.document.versionId))return;
+  const locateConflictMember=(member:AssemblyConflictMember,revisionId:string)=>{
+    if(!editingView||revisionId!==editingView.document.versionId)return;
     const definition=editingView.product?.constraints?.find(c=>c.id===member.constraintId);
     if(!definition)return;
     store.setSelections([{kind:"assembly-constraint",id:definition.id,constraintId:definition.id,
       constraintType:definition.kind,documentId:editingView.document.id,occurrencePath:activeInstancePath}]);
     viewport.current?.focusAssemblyReference(member.first,activeInstancePath);
   };
-  const repairConflictMember=(member:AssemblyConflictMember,action:AssemblyConflictRepair)=>{
-    if(!conflictContextCurrent||!canEdit||!editingView||!assemblyConflictCurrent(conflictReport,editingView.document.id,editingView.document.versionId))return;
+  const repairConflictMember=(member:AssemblyConflictMember,action:AssemblyConflictRepair,revisionId:string)=>{
+    if(!canEdit||!editingView||revisionId!==editingView.document.versionId)return;
     const definition=editingView.product?.constraints?.find(c=>c.id===member.constraintId);if(!definition)return;
     if(action==="EDIT"||action==="RECONNECT"){openAssemblyConstraintEditor(definition,action==="RECONNECT");return;}
     command.mutate(()=>api.command(editingView.document.id,{type:"SET_ASSEMBLY_CONSTRAINT_STATE",constraintIds:[definition.id],
@@ -1130,6 +1117,10 @@ export function Workbench() {
         isActive: () => store.activeToolID === "select" }),
       commandRegistry.register({ id: "assembly.move", execute: () => store.setActiveTool("assembly.move", "continuous"),
         isVisible: () => view?.document.type === "PRODUCT", isEnabled: () => Boolean(canEditRoot), isActive: () => store.activeToolID === "assembly.move" }),
+      commandRegistry.register({id:"assembly.analyze",execute:()=>setConflictOpen(true),
+        isVisible:()=>view?.document.type==="PRODUCT",isEnabled:()=>Boolean(editingView?.product),isActive:()=>conflictOpen}),
+      commandRegistry.register({id:"assembly.move-receipt",execute:()=>viewport.current?.retryAssemblyMoveCommit(),
+        isVisible:()=>Boolean(moveReceiptPending),isEnabled:()=>Boolean(moveReceiptPending)}),
       commandRegistry.register({ id: "sketch.start", execute: startSketch,
 		isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && !selectedNamingIssue && (["plane", "sketch", "face"].includes(store.selection?.kind ?? ""))) }),
       commandRegistry.register({ id: "view.normal", execute: normalToSelection,
@@ -1186,7 +1177,7 @@ export function Workbench() {
     ];
     return () => { for (const dispose of disposers.reverse()) dispose(); };
   }, [commandRegistry, editingView, view, canEdit, canEditRoot, store.selection, store.sketchPlane, store.activeToolID, lengthUnit,
-    command.isPending, assemblyConstraintForm, selectedNamingIssue]);
+    command.isPending, assemblyConstraintForm, selectedNamingIssue,conflictOpen,moveReceiptPending]);
 
   useEffect(() => { commandRegistry.notifyStateChanged(); }, [commandRegistry, editingView, store.selection, store.sketchPlane,
     store.activeToolID, command.isPending]);
@@ -1559,14 +1550,13 @@ export function Workbench() {
         onEditParameter={openParameterEditor} onEditPublication={openPublicationEditor}
         navigationProfile={navigationProfile} canRestore={canEdit && !command.isPending}
         onRestore={(entry) => command.mutate(() => api.restore(activeID, entry.versionId))} />}>
-        {view.document.type==="PRODUCT"&&<Space style={{position:"absolute",zIndex:13,right:16,bottom:48}}>
-          <Button disabled={!canEditRoot} onClick={()=>void setExactMoveDirection()}>以所选精确轴 / 法向操纵</Button>
-          <Button disabled={!editingView?.product} title="请显式激活约束所属 Product 后分析" onClick={()=>setConflictOpen(true)}>分析装配约束</Button></Space>}
         <AssemblyConflictPanel open={conflictOpen} pending={conflictPending} report={conflictReport}
           current={Boolean(conflictContextCurrent&&editingView&&assemblyConflictCurrent(conflictReport,editingView.document.id,editingView.document.versionId))}
-          error={conflictError} canEdit={canEdit&&!command.isPending} definitions={editingView?.product?.constraints??[]}
-          {...conflictBudget} onBudget={(maxProbes,timeBudgetMs)=>setConflictBudget({maxProbes,timeBudgetMs})}
-          onAnalyze={()=>void analyzeConflicts()} onStop={stopConflictAnalysis}
+          error={conflictError} canEdit={canEdit&&!command.isPending} view={editingView} evidence={engineeringEvidence.data}
+          onLocateInstance={id=>{if(!editingView?.product?.instances.some(instance=>instance.id===id))return;
+            store.setSelections([{kind:"instance",id,instanceId:id,documentId:editingView.document.id,occurrencePath:activeInstancePath?[activeInstancePath,id].join("/"):id}]);
+            viewport.current?.focusAssemblyReference({instanceId:id,kind:"BODY"},activeInstancePath);}}
+          onAnalyze={ids=>void analyzeConflicts(ids)} onStop={stopConflictAnalysis}
           onClose={()=>{stopConflictAnalysis();setConflictOpen(false);}} onLocate={locateConflictMember} onRepair={repairConflictMember}/>
         {view.document.type === "PRODUCT" && (productUpdateFailure || productUpdatePlan.data?.hasUpdates && !productUpdatePlan.data.canAccept) && <Alert
           style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",minWidth:420}}
@@ -1624,15 +1614,17 @@ export function Workbench() {
           }}
           onAssemblyInteractionUpdate={(ownerDocumentId,input,signal)=>api.updateAssemblyInteraction(ownerDocumentId,input,signal)}
           onAssemblyInteractionCancel={(ownerDocumentId,sessionId)=>api.cancelAssemblyInteraction(ownerDocumentId,sessionId)}
-          onAssemblyInteractionState={(state,reason)=>setAssemblyMotionState({state,reason})}
+          onInspectAssemblySupports={(owner,references,signal)=>api.inspectAssemblySupports(owner,references,signal)}
+          onOperationFailed={error=>operationFeedback(error,"装配操纵")}
+          onAssemblyInteractionState={(state,reason)=>{
+            if(state==="committing"&&reason?.startsWith("提交结果未知")&&!receiptPrompt.current){
+              setMoveReceiptPending(true);
+              receiptPrompt.current=true;modal.confirm({title:"移动提交结果待确认",content:"连接中断时移动可能已经保存。请查询原请求回执，勿重复创建移动。",
+                okText:"查询 / 重试原提交",cancelText:"稍后",onOk:()=>{receiptPrompt.current=false;viewport.current?.retryAssemblyMoveCommit();},onCancel:()=>{receiptPrompt.current=false;}});
+            }
+            if(state==="committed"||state==="idle"||state==="failed"||state==="invalidated"){receiptPrompt.current=false;setMoveReceiptPending(false);}
+          }}
           onInstanceMoved={moveInstance} /></Suspense>
-      {assemblyMotionState.state!=="idle"&&assemblyMotionState.state!=="committed"&&<Alert
-        style={{position:"absolute",zIndex:12,bottom:12,left:12,maxWidth:560}}
-        type={assemblyMotionState.state==="failed"?"error":["blocked","invalidated"].includes(assemblyMotionState.state)?"warning":"info"}
-        message={({waiting:"等待权威操纵帧",allowed:"目标可达",constrained:"受约束：最近可行位置",blocked:"目标尚未确认，不能提交",invalidated:"装配上下文已变化，操纵已失效",failed:"操纵失败；未确认目标不会提交",committing:"正在确认移动（断线时复用同一请求回执）"} as Partial<Record<AssemblyInteractionState,string>>)[assemblyMotionState.state]}
-        description={assemblyMotionState.reason} action={assemblyMotionState.state==="committing"?
-          <Button size="small" onClick={()=>viewport.current?.retryAssemblyMoveCommit()}>查询 / 重试同一提交</Button>:
-          <Button size="small" onClick={()=>viewport.current?.cancelAssemblyInteraction()}>取消操纵</Button>}/>}
       <WorkbenchViewControls toolbars={visibleToolbars} />
     </WorkbenchLayout>
     <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" width={390}

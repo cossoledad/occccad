@@ -69,6 +69,8 @@ export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: 
   ]),
   toolbar("assembly-positioning", "组件定位", "ASSEMBLY_DESIGN", "top-left", "assembly", 30, [
     ["assembly.move", "移动组件", "move"],
+    ["assembly.analyze", "装配约束分析", "measure"],
+    ["assembly.move-receipt", "确认移动结果", "move"],
   ]),
   toolbar("assembly-constraints", "装配约束", "ASSEMBLY_DESIGN", "top-left", "assembly", 40, [
     ["assembly.coincident", "重合", "coincident"], ["assembly.contact", "接触", "coincident"], ["assembly.distance", "偏移", "distance"],

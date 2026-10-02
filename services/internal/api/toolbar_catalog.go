@@ -76,8 +76,15 @@ func canonicalAssemblyToolbars(entries []toolbarCatalogEntry) []toolbarCatalogEn
 		}
 		constraintBar := false
 		contactFound := false
+		moveFound, receiptFound := false, false
 		for j := range entries[i].Items {
 			item := &entries[i].Items[j]
+			if item.CommandID == "assembly.move" {
+				moveFound = true
+			}
+			if item.CommandID == "assembly.move-receipt" {
+				receiptFound = true
+			}
 			switch item.CommandID {
 			case "assembly.rigid":
 				if families["FixTogether"] {
@@ -99,6 +106,20 @@ func canonicalAssemblyToolbars(entries []toolbarCatalogEntry) []toolbarCatalogEn
 		}
 		if constraintBar && !contactFound && families["Contact"] {
 			entries[i].Items = append(entries[i].Items, toolbarCatalogItem{CommandID: "assembly.contact", Name: "接触", HelpText: "精确解析面、线、点、环接触；材料侧与分支显式。", IconKey: "tangent", GroupKey: "primary", SortOrder: 65})
+		}
+		if moveFound && !receiptFound {
+			entries[i].Items = append(entries[i].Items, toolbarCatalogItem{CommandID: "assembly.move-receipt", Name: "确认移动结果", HelpText: "查询或重试同一移动提交回执，不重复创建操作。", IconKey: "move", GroupKey: "recovery", SortOrder: 120})
+		}
+		if constraintBar {
+			found := false
+			for _, item := range entries[i].Items {
+				if item.CommandID == "assembly.analyze" {
+					found = true
+				}
+			}
+			if !found {
+				entries[i].Items = append(entries[i].Items, toolbarCatalogItem{CommandID: "assembly.analyze", Name: "装配约束分析", HelpText: "查看装配工程状态，按需检查相关关系并定位修复。", IconKey: "measure", GroupKey: "analysis", SortOrder: 110})
+			}
 		}
 	}
 	return entries

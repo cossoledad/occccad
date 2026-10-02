@@ -158,3 +158,27 @@ build/cmake/debug/kernel/assembly/tests/occcad_assembly_interaction_benchmark 10
 5. 固定第一部件，在同一双平面支持上创建偏移4 mm；先停用它，再创建偏移8 mm，最后恢复4 mm，得到未接纳定义（不必提交失败 Preview）。选中失败定义打开诊断，检查作用范围、SAT/UNSAT/UNKNOWN、证据等级和 probe/预算；定位树/视口后自行选择 Edit/Suppress/Measured/Reconnect 等适用正式动作。修复后旧诊断失效，重新分析；分析/取消不改姿态或历史。一般非线性未知不能冒充已证明冲突。
 
 本轮不跑浏览器自动验收或工业大 STEP；上述实机步骤由维护者执行。M6 明确延期，Revolute/Prismatic 有限运动测试不创建工程连接。
+
+## M4/M5 交互收口验证
+
+`9a22fbe` 后的收口沿用同一目录，新增 9 个真实回归映射（669 cases）。完整 668-case baseline 实际通过；随后新增的 `m4.snapshot.current-render-bindings` 及加强后的 `m4.operation.failure-outlet` 分别定向执行通过。原 case/覆盖下限保留；只更新 `m4.interaction.production-authoritative-render` 的断言锁以加入新快照断言，9 个新增锁依据实际通过结果逐项加入，没有批量 bless。
+
+```sh
+python tests/assembly-contract/runner.py validate
+python -m unittest discover -s tests/assembly-contract -p 'test_*.py'
+python tests/assembly-contract/runner.py baseline --case m4.snapshot.current-render-bindings --output build/m4m5-closeout/snapshot-bindings
+python tests/assembly-contract/runner.py baseline --case m4.operation.failure-outlet --output build/m4m5-closeout/failure-outlet
+python tests/assembly-contract/runner.py gaps --case m4.snapshot.metadata-only-router --output build/m4m5-closeout/snapshot-router
+invoke check --scope web
+```
+
+真实 Router case 必须配置上节的专用数据库、匹配 Worker 与 fixture，否则报告环境阻塞。本轮完整 baseline 证据在 `build/m4m5-closeout/baseline/{report.json,summary.md}`；Worker SHA-256 为 `262c43caed9df501c15ed639cbc6842ed1e1ac625b6ffffa7c53ea52fda4fabd`。生产数值算法、公差、v11 policy 及持久模型没有改动；Worker 仅增加真实 B-Rep 边界的只读小型吸附提示。源码/对象场景、实际数学、数据库测试的证据层次仍分别记录，不替代实机交互验收。
+
+维护者实机检查：
+
+1. 选实例显示手柄，删除一个不改位姿的约束，不重选即拖动；再测试停用/恢复、Undo/Redo、重命名和嵌套共享实例。应无路径快照错误，旧会话遇到外部更新仍失效。
+2. 选面/边后启动移动；矩形面法向与真实直边定向，直边端点/中点、孔/圆弧圆心、圆柱端部及 Datum/Frame 自动吸附。拖动中心到另一部件仅重定位手柄，受控主体不变；Esc 恢复中心/框架，不写历史。旋转实例、嵌套来源及快速换候选后再拖轴/旋转环，实际方向应与显示一致。
+3. 平面关系阻止 Z 时向 `(1,1,1)` 拖动，允许 XY 的可行运动；完全固定停住，不弹算法警告，不写空 Revision。真正网络/求解故障有一次统一反馈和可复制详情；未知提交可从“确认移动结果”继续查询原回执，成功操作 Undo/Redo 只一次。
+4. 从命令 Tab 的装配区或搜索“装配约束分析”打开；先看概览、停用/测量/待处理统计及已有运动证据，不应自动搜索全网络。按需检查失败定义、定位后用适用正式命令修复；版本变化后旧报告不能操作新对象。技术 UUID/方程/probe 不在默认主文本，折叠报告仍可复制。
+
+未做浏览器自动验收、工业规模/新的性能测量。未可靠识别的自由曲面保留位置/已有方向降级；缺指定 Revision 的运动证据显示待检查，不能沿用旧 DOF 或声称全装配正常。
