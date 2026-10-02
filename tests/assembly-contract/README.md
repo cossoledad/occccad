@@ -1,6 +1,6 @@
 # 六类装配约束可执行合同
 
-这里是六类约束的跨实现执行入口，不是第二套持久 Constraint 模型。唯一[生产合同](../../services/internal/assemblycontract/README.md)拥有数学语义；本目录 `catalog.json` 是组合索引，不再是 symlink。`catalog.py` 读取生产合同与测试专用 `evidence.json`，不允许测试元数据覆盖生产声明。数学/产品预期见[当前合同](../../docs/architecture/current/assembly-constraints.md)，当前行为见[Product](../../docs/architecture/current/product-assembly.md)，未完成方向见[后续工作](../../plans/README.md)。
+这里是六类约束的跨实现执行入口，不是第二套持久 Constraint 模型。唯一[生产合同](../../services/internal/assemblycontract/README.md)拥有数学语义；本目录 `catalog.json` 是组合索引。`catalog.py` 读取生产合同与测试专用 `evidence.json`，不允许测试元数据覆盖生产声明。数学/产品预期见[当前合同](../../docs/architecture/current/assembly-constraints.md)，当前行为见[Product](../../docs/architecture/current/product-assembly.md)，未完成方向见[后续工作](../../plans/README.md)。
 
 ## 文件与证据职责
 
@@ -116,4 +116,4 @@ python tests/assembly-contract/runner.py gaps --family Offset --adapters go,web,
 6. 释放拖动后立即点空白或选择另一组件，最终目标仍完成且只提交一次，不抢回选择；切换工具/修改命令等待结束，Esc 仍取消未提交操作。
 7. 剩余运动行鼠标/键盘选择即显示方向；缩放/窗口变化后箭头尺寸稳定，模型遮挡/透明/高亮下可见；小数噪声显示零，单位转换和真实微小值保留。WebGL 外观仍需实机验证。
 
-维护者反馈当前使用场景下拖拽与约束较为稳定；剩余运动呈现仍需本次实机确认。不补造截图、测试版本或工业/性能结论。
+维护者确认装配主体能力具备，当前使用场景下拖拽与约束较为稳定；交互和显示仍有暂缓细节，集中见[后续工作](../../plans/README.md#装配暂缓问题)。自动检查不代替实机视觉验收，不补造截图、测试版本或工业/性能结论。

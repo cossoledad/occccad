@@ -67,4 +67,6 @@ SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence
 - Web：assembly-interaction、motion-presentation、assembly-conflict-panel、cad-viewport-engine。
 - 定向测试、报告和人工步骤见装配验证，不把测试存在或历史通过当作本次执行。
 
-维护者反馈：当前使用场景下拖拽与约束较为稳定；剩余运动呈现尚待本次实机检查。该反馈不代表工业、并发、平台或性能全部通过。dense 后端、局部分支、单次分解不可中断和非线性 UNKNOWN 仍有效；浏览器端到端/60 Hz、工业容量未完整验收。Engineering Connections 明确暂缓；flexible assembly、通用最小冲突证明、稀疏后端与跨主机协作未交付。
+装配主体能力形成当前开发基线；已知细节暂缓，后续按实际需求修复。[暂缓问题](../../../plans/README.md#装配暂缓问题)集中记录现象、已有复现信息与边界。
+
+维护者确认主体功能具备，当前使用场景下拖拽与约束较为稳定，仍有交互、显示细节问题；不代表工业、并发、平台或性能全部通过。dense 后端、局部分支、单次分解不可中断和非线性 UNKNOWN 仍有效；浏览器视觉与端到端/60 Hz、工业容量未完整验收。Engineering Connections 继续暂停；flexible assembly、通用最小冲突证明、稀疏后端与跨主机协作未交付。
