@@ -13,6 +13,7 @@ import (
 // GeometryKey is a derived result frozen with the Revision, not a mutable
 // business property. Body commands/history compare only the definition.
 type PartBody struct {
+	Consumed           bool   `json:"consumed,omitempty"`
 	CreatedByFeatureID string `json:"createdByFeatureId,omitempty"`
 	Order              int    `json:"order"`
 	ID                 string `json:"id"`
@@ -21,7 +22,7 @@ type PartBody struct {
 	GeometryKey        string `json:"geometryKey,omitempty"`
 }
 
-func bodyDefinition(b PartBody) PartBody { b.GeometryKey = ""; return b }
+func bodyDefinition(b PartBody) PartBody { b.GeometryKey = ""; b.Consumed = false; return b }
 func bodyIndex(m PartModel, id string) int {
 	return slices.IndexFunc(m.Bodies, func(b PartBody) bool { return b.ID == id })
 }
@@ -33,6 +34,7 @@ func normalizeBodies(m *PartModel) {
 		m.ActiveBodyID = m.Bodies[0].ID
 	}
 	for i := range m.Bodies {
+		m.Bodies[i].Consumed = bodyConsumed(*m, m.Bodies[i].ID)
 		if m.Bodies[i].Order == 0 {
 			m.Bodies[i].Order = i + 1
 		}
@@ -62,6 +64,9 @@ func bodyModel(m PartModel, id string) PartModel {
 	needed := map[string]bool{}
 	for _, f := range m.Features {
 		if f.BodyID == id {
+			for _, section := range f.Sections {
+				needed[section.SketchID] = true
+			}
 			if f.Profile != "" {
 				needed[f.Profile] = true
 			}
@@ -94,12 +99,36 @@ func ownedSketchIDs(m PartModel, bodyID string) []string {
 }
 func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *PartModel) error {
 	normalizePartModel(m)
+	for i := range m.Features {
+		m.Features[i].EvaluationStatus = ""
+		if m.Features[i].Suppressed {
+			m.Features[i].EvaluationStatus = "SUPPRESSED"
+		}
+		m.Features[i].Diagnostic = ""
+	}
+	var failure error
 	for i := range m.Bodies {
-		key, err := s.evaluateBody(ctx, requestID+"/body/"+m.Bodies[i].ID, bodyModel(*m, m.Bodies[i].ID))
+		key, err := s.evaluateBody(ctx, requestID+"/body/"+m.Bodies[i].ID, bodyModel(*m, m.Bodies[i].ID), *m)
+		m.Bodies[i].GeometryKey = ""
 		if err != nil {
-			return err
+			matches := featureFailurePattern.FindAllStringSubmatch(err.Error(), -1)
+			var match []string
+			if len(matches) > 0 {
+				match = matches[len(matches)-1]
+			}
+			if len(match) != 2 {
+				return err
+			}
+			if failure == nil {
+				failure = err
+			}
+			markSolidFailure(m, match[1], err.Error())
+			continue
 		}
 		m.Bodies[i].GeometryKey = key
+	}
+	if failure != nil {
+		return &solidEvaluationFailure{cause: failure}
 	}
 	return nil
 }
@@ -107,7 +136,7 @@ func (s *Service) evaluateBodyPrefix(ctx context.Context, requestID string, m Pa
 	if bodyID == "" {
 		bodyID = m.ActiveBodyID
 	}
-	return s.evaluateBody(ctx, requestID, bodyModel(m, bodyID))
+	return s.evaluateBody(ctx, requestID, bodyModel(m, bodyID), m)
 }
 func (s *Service) bodyArtifacts(ctx context.Context, m PartModel) (map[string]Artifact, error) {
 	result := map[string]Artifact{}
@@ -192,7 +221,7 @@ func applyBodyCommand(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, 
 				return nil, modelcore.ChangeSet{}, err
 			}
 			for _, f := range m.Features {
-				if f.BodyID != p.BodyID && removed[f.Profile] {
+				if f.BodyID != p.BodyID && (slices.ContainsFunc(featureInputIDs(f), func(id string) bool { return removed[id] })) {
 					return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: Body is used by feature %s", ErrValidation, f.ID)
 				}
 			}

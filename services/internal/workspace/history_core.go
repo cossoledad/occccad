@@ -337,7 +337,7 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 			case "entity":
 				for _, feature := range model.Features {
 					if feature.ID == change.Target.EntityID {
-						result[change.Target], _ = json.Marshal(feature)
+						result[change.Target], _ = json.Marshal(featureHistoryDefinition(feature))
 					}
 				}
 			case "sketch.model":
@@ -902,6 +902,11 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 			}
 		} else {
 			err = service.evaluatePartBodies(ctx, input.requestID, &model)
+			var failed *solidEvaluationFailure
+			if errors.As(err, &failed) {
+				revisionState, evaluationStatus = "FAILED", "FAILED"
+				err = nil
+			}
 		}
 		if err == nil {
 			input.modelJSON, _ = json.Marshal(model)

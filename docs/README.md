@@ -6,7 +6,7 @@
 |---|---|
 | 进程、控制/数据面、Worker、Artifact | [运行](architecture/current/runtime.md)、[Jobs/交换](architecture/current/jobs-artifacts.md)、[几何制品](architecture/current/geometry-representations.md) |
 | Workspace、Revision、Command、CAS、幂等、Undo/Redo、参数 | [模型历史](architecture/current/model-history.md) |
-| Sketch、Profile、Multi-Body、Feature 求值 | [Part/Sketch](architecture/current/part-sketch.md)、[求值链](architecture/part-feature-evaluation.md) |
+| Sketch、Profile、Multi-Body、Feature 求值 | [Part/Sketch](architecture/current/part-sketch.md)、[求值链](architecture/part-feature-evaluation.md)、[实体 Feature](architecture/current/solid-features.md) |
 | Naming、Evidence/Lineage、Resolver、Reconnect | [持久命名](architecture/current/persistent-naming.md) |
 | STEP/XDE Definition/Occurrence | [交换](architecture/current/jobs-artifacts.md) |
 | Product 引用、六族、组、参数/激活、历史发布 | [Product](architecture/current/product-assembly.md)、[当前约束合同](architecture/current/assembly-constraints.md) |

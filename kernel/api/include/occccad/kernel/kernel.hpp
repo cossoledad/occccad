@@ -133,6 +133,29 @@ struct ProfileRegionSpec {
 };
 [[nodiscard]] std::vector<ProfileRegionSpec>
 classify_sketch_profile(const std::vector<ProfileLoopSpec>& loops);
+// Locators are valid only in the supplied immutable B-Rep and naming snapshot.
+struct FeatureTopologyRef {
+    std::string feature_id, output_slot;
+    std::vector<std::string> source_ids;
+};
+struct BodyToolTopology {
+    std::string feature_id, output_slot;
+    std::vector<std::string> source_ids;
+    TopologyType type;
+    uint64_t local_id{};
+};
+struct BodyToolInput {
+    std::string body_id, feature_id, geometry_id;
+    std::vector<uint8_t> brep;
+    std::vector<BodyToolTopology> topology;
+};
+struct LoftSectionSpec {
+    std::string sketch_id, seam_entity_id;
+    ProfileRegionSpec region;
+    Vec3 origin, normal, u_direction;
+    bool reversed{};
+    double seam_angle{};
+};
 struct ProfilePadSpec {
     std::vector<ProfileRegionSpec> regions;
     double pad_length{};
@@ -152,6 +175,13 @@ struct ProfilePadSpec {
     std::string body_id;
     std::string input_feature_id;
     std::string profile_feature_id;
+    std::vector<BodyToolInput> tools;
+    std::string extent;
+    double second_length{};
+    std::vector<FeatureTopologyRef> selections;
+    Vec3 neutral_origin, neutral_normal;
+    std::vector<LoftSectionSpec> sections;
+    bool ruled{};
 };
 
 // ---------------------------------------------------------------------------

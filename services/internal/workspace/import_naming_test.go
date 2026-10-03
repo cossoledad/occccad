@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/occccad/occccad/internal/modelcore"
@@ -35,7 +36,7 @@ func TestRepairImportNamingPreservesFeatureAndCompensates(t *testing.T) {
 	if err = json.Unmarshal(restored, &actual); err != nil {
 		t.Fatal(err)
 	}
-	if actual.Features[0] != original {
+	if !reflect.DeepEqual(actual.Features[0], original) {
 		t.Fatalf("repair undo changed original import: %+v", actual.Features[0])
 	}
 	if _, _, err = applyRepairImportNaming(after, payload); err == nil {

@@ -386,25 +386,51 @@ type SketchCurveCutConnection struct {
 	Reference SketchGeometryRef `json:"reference"`
 }
 
+type FeatureStageRef struct {
+	BodyID    string `json:"bodyId"`
+	FeatureID string `json:"featureId"`
+}
+
+type FeatureSelection struct {
+	Selection       modelcore.PersistentSelection `json:"selection"`
+	SourceVersionID string                        `json:"sourceVersionId"`
+}
+type LoftSection struct {
+	SketchID     string  `json:"sketchId"`
+	Reversed     bool    `json:"reversed,omitempty"`
+	SeamEntityID string  `json:"seamEntityId,omitempty"`
+	SeamAngle    float64 `json:"seamAngle,omitempty"`
+}
 type Feature struct {
-	Order              int            `json:"order"`
-	Visible            *bool          `json:"visible,omitempty"`
-	BodyID             string         `json:"bodyId"`
-	ImportDefinitionID string         `json:"importDefinitionId,omitempty"`
-	ID                 string         `json:"id"`
-	Type               string         `json:"type"`
-	Name               string         `json:"name"`
-	Plane              string         `json:"plane,omitempty"`
-	Sketch             *SketchFeature `json:"sketch,omitempty"`
-	Profile            string         `json:"profile,omitempty"`
-	Length             float64        `json:"length,omitempty"`
-	Angle              float64        `json:"angle,omitempty"`
-	Operation          string         `json:"operation,omitempty"`
-	AxisEntityID       string         `json:"axisEntityId,omitempty"`
-	Reversed           bool           `json:"reversed,omitempty"`
-	GeometryKey        string         `json:"geometryKey,omitempty"`
-	FileName           string         `json:"fileName,omitempty"`
-	SourceFormat       string         `json:"sourceFormat,omitempty"`
+	EvaluationStatus   string             `json:"evaluationStatus,omitempty"`
+	Diagnostic         string             `json:"diagnostic,omitempty"`
+	Sections           []LoftSection      `json:"sections,omitempty"`
+	Ruled              bool               `json:"ruled,omitempty"`
+	Selections         []FeatureSelection `json:"selections,omitempty"`
+	NeutralPlaneID     string             `json:"neutralPlaneId,omitempty"`
+	Extent             string             `json:"extent,omitempty"`
+	Length2            float64            `json:"length2,omitempty"`
+	Tools              []FeatureStageRef  `json:"tools,omitempty"`
+	KeepTools          bool               `json:"keepTools,omitempty"`
+	Suppressed         bool               `json:"suppressed,omitempty"`
+	Order              int                `json:"order"`
+	Visible            *bool              `json:"visible,omitempty"`
+	BodyID             string             `json:"bodyId"`
+	ImportDefinitionID string             `json:"importDefinitionId,omitempty"`
+	ID                 string             `json:"id"`
+	Type               string             `json:"type"`
+	Name               string             `json:"name"`
+	Plane              string             `json:"plane,omitempty"`
+	Sketch             *SketchFeature     `json:"sketch,omitempty"`
+	Profile            string             `json:"profile,omitempty"`
+	Length             float64            `json:"length,omitempty"`
+	Angle              float64            `json:"angle,omitempty"`
+	Operation          string             `json:"operation,omitempty"`
+	AxisEntityID       string             `json:"axisEntityId,omitempty"`
+	Reversed           bool               `json:"reversed,omitempty"`
+	GeometryKey        string             `json:"geometryKey,omitempty"`
+	FileName           string             `json:"fileName,omitempty"`
+	SourceFormat       string             `json:"sourceFormat,omitempty"`
 }
 
 type PartModel struct {
@@ -887,6 +913,7 @@ type StructureSnapshotScope struct {
 }
 
 type DocumentStructureNode struct {
+	Consumed           bool                    `json:"consumed,omitempty"`
 	ID                 string                  `json:"id"`
 	Kind               string                  `json:"kind"`
 	Subject            *StructureEntityRef     `json:"subject,omitempty"`
@@ -1027,6 +1054,12 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	Extent                  string                       `json:"extent,omitempty"`
+	Length2                 float64                      `json:"length2,omitempty"`
+	ParameterExpressions    map[string]string            `json:"parameterExpressions,omitempty"`
+	Feature                 *Feature                     `json:"feature,omitempty"`
+	Tools                   []FeatureStageRef            `json:"tools,omitempty"`
+	KeepTools               bool                         `json:"keepTools,omitempty"`
 	SessionID               string                       `json:"sessionId,omitempty"`
 	InteractionTarget       *geometry.AssemblyDragTarget `json:"interactionTarget,omitempty"`
 	BodyID                  string                       `json:"bodyId,omitempty"`

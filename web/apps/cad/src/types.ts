@@ -19,7 +19,7 @@ export type MeshData = {
 
 export type NamingAvailability = { status: "READY" | "UNAVAILABLE" | "FAILED" | "CORRUPT" | "INCOMPATIBLE"; canBind: boolean; diagnosticCode?: string; diagnostic?: string };
 
-export type PartBody = { id: string; name: string; visible: boolean; geometryKey?: string; createdByFeatureId?: string };
+export type PartBody = { consumed?: boolean; id: string; name: string; visible: boolean; geometryKey?: string; createdByFeatureId?: string };
 
 export type Artifact = {
   bodyId?: string;
@@ -110,11 +110,20 @@ export type DocumentProperties = {
 };
 
 export type Feature = {
+  sections?:{sketchId:string;reversed?:boolean;seamEntityId?:string;seamAngle?:number}[];
+  ruled?:boolean;
+  selections?:{selection:PersistentSelection;sourceVersionId:string}[];
+  neutralPlaneId?:string;
+  extent?: "FINITE"|"TWO_SIDED"|"SYMMETRIC"|"THROUGH_ALL";
+  length2?:number;
+  tools?: {bodyId:string; featureId:string}[];
+  keepTools?: boolean;
+  suppressed?: boolean;
   bodyId?: string;
   visible?: boolean;
   importDefinitionId?: string;
   id: string;
-  type: "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY";
+  type: "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT";
   name?: string;
   plane?: PlaneName | "CUSTOM";
   sketch?: SketchFeature;
@@ -322,6 +331,7 @@ export type DocumentStructureNode = {
   bodyId?: string;
   localVisible?: boolean;
   visibilityMode?: "SHOW" | "HIDE";
+  consumed?: boolean;
   childrenState?: "COMPLETE" | "EMPTY" | "UNLOADED" | "LOADING" | "FAILED";
   connectionStatus?: string;
   currencyStatus?: string;

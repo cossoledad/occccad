@@ -311,7 +311,51 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
 		}
 		return typeCreatePad, createFeaturePayload{Feature: Feature{BodyID: request.BodyID, ID: commandEntityID("extrude", request.RequestID), Type: "PAD", Name: numberedFeatureName(model.Features, "PAD", "Extrude"), Profile: request.SketchID, Length: request.Length, Operation: "ADD"}}, nil
+	case "CREATE_MODIFY_FEATURE":
+		if documentType != "PART" || request.Feature == nil || !isLocalModifier(request.Feature.Type) {
+			break
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		feature := *request.Feature
+		feature.ID = commandEntityID(strings.ToLower(feature.Type), request.RequestID)
+		feature.Name = numberedFeatureName(model.Features, feature.Type, strings.Title(strings.ToLower(feature.Type)))
+		for _, pick := range feature.Selections {
+			if pick.Selection.SourceDocumentID != documentID {
+				return "", nil, fmt.Errorf("%w: cross-document modifier selection", ErrValidation)
+			}
+		}
+		sources, err := featureParameterExpressions(model, feature, request.ParameterExpressions)
+		if err != nil {
+			return "", nil, err
+		}
+		return typeCreateModifierFeature, createFeaturePayload{Feature: feature, ParameterSources: sources}, nil
+	case "CREATE_BOOLEAN_FEATURE":
+		if documentType != "PART" {
+			break
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		feature := Feature{ID: commandEntityID("boolean", request.RequestID), BodyID: request.BodyID, Type: "BOOLEAN", Name: numberedFeatureName(model.Features, "BOOLEAN", "Boolean"), Operation: request.Operation, Tools: request.Tools, KeepTools: request.KeepTools}
+		return typeCreateBooleanFeature, createFeaturePayload{Feature: feature}, nil
 	case "CREATE_SOLID_FEATURE":
+		if documentType == "PART" && request.Feature != nil && request.Feature.Type == "LOFT" {
+			var model PartModel
+			if err := json.Unmarshal(modelJSON, &model); err != nil {
+				return "", nil, err
+			}
+			feature := *request.Feature
+			feature.ID = commandEntityID("loft", request.RequestID)
+			feature.Name = numberedFeatureName(model.Features, "LOFT", "Loft")
+			if err := service.prepareLoftDefinition(ctx, request.RequestID, model, &feature); err != nil {
+				return "", nil, err
+			}
+			return typeCreateSolidFeature, createFeaturePayload{Feature: feature}, nil
+		}
 		if documentType != "PART" {
 			break
 		}
@@ -353,7 +397,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		feature := Feature{BodyID: request.BodyID, ID: commandEntityID(prefix, request.RequestID), Type: generator,
 			Name: numberedFeatureName(model.Features, generator, label), Profile: request.SketchID,
-			Length: request.Length, Angle: request.Angle, Operation: operation,
+			Length: request.Length, Angle: request.Angle, Extent: request.Extent, Length2: request.Length2, Operation: operation,
 			AxisEntityID: request.AxisEntityID, Reversed: request.Reversed}
 		parameterSources := map[string]modelcore.ValueSource{}
 		if generator == "LINEAR_EXTRUDE" && strings.TrimSpace(request.LengthExpression) != "" {
@@ -374,6 +418,13 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			// keep the transient feature value structurally valid until parameter evaluation.
 			feature.Length = 1
 		}
+		extraSources, err := featureParameterExpressions(model, feature, request.ParameterExpressions)
+		if err != nil {
+			return "", nil, err
+		}
+		for slot, source := range extraSources {
+			parameterSources[slot] = source
+		}
 		return typeCreateSolidFeature, createFeaturePayload{Feature: feature, ParameterSources: parameterSources}, nil
 	case "EDIT_FEATURE":
 		if documentType != "PART" {
@@ -393,6 +444,22 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		if feature == nil {
 			return "", nil, fmt.Errorf("%w: selected feature does not exist", ErrValidation)
+		}
+		if request.Feature != nil {
+			definition := *request.Feature
+			if err := service.prepareLoftDefinition(ctx, request.RequestID, model, &definition); err != nil {
+				return "", nil, err
+			}
+			for _, pick := range request.Feature.Selections {
+				if pick.Selection.SourceDocumentID != documentID {
+					return "", nil, fmt.Errorf("%w: cross-document modifier selection", ErrValidation)
+				}
+			}
+			sources, err := featureParameterExpressions(model, definition, request.ParameterExpressions)
+			if err != nil {
+				return "", nil, err
+			}
+			return typeEditFeature, editFeaturePayload{FeatureID: feature.ID, ExpectedFeatureDigest: request.ExpectedFeatureDigest, Definition: &definition, ParameterSources: sources}, nil
 		}
 		var source modelcore.ValueSource
 		if strings.TrimSpace(request.LengthExpression) != "" {

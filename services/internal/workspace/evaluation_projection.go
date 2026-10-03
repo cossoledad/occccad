@@ -72,8 +72,14 @@ func ensureFeatureParameters(model *PartModel) {
 	for _, feature := range model.Features {
 		managedPrefixes["parameter:"+feature.ID+":"] = struct{}{}
 		keyPrefix := strings.NewReplacer("-", "_", ":", "_").Replace(feature.ID)
-		if isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE" {
+		if (isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE") || (isLocalModifier(feature.Type) && feature.Type != "DRAFT") {
 			add(feature.ID, "length", keyPrefix+"_length", "Length", "mm", feature.Length, modelcore.LengthDimension, false)
+		}
+		if strings.ToUpper(feature.Type) == "REVOLVE" || feature.Type == "DRAFT" {
+			add(feature.ID, "angle", keyPrefix+"_angle", "Angle", "deg", feature.Angle, modelcore.AngleDimension, false)
+		}
+		if feature.Extent == "TWO_SIDED" {
+			add(feature.ID, "length2", keyPrefix+"_length2", "Second length", "mm", feature.Length2, modelcore.LengthDimension, false)
 		}
 		if feature.Sketch != nil {
 			for _, constraint := range feature.Sketch.Constraints {
@@ -125,6 +131,8 @@ func ensureFeatureParameters(model *PartModel) {
 
 func geometryFeatureDefinition(feature Feature) Feature {
 	feature.Visible = nil
+	feature.EvaluationStatus = ""
+	feature.Diagnostic = ""
 	feature.Name = ""
 	if feature.Sketch != nil {
 		copySketch := *feature.Sketch
@@ -315,10 +323,22 @@ func validateAndResolvePartParameters(model *PartModel) error {
 	}
 	for index := range model.Features {
 		feature := &model.Features[index]
-		if isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE" {
+		if (isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE") || (isLocalModifier(feature.Type) && feature.Type != "DRAFT") {
 			feature.Length = values["parameter:"+feature.ID+":length"].SIValue * 1000
 			if !positiveFinite(feature.Length) {
 				return fmt.Errorf("%w: extrude length must evaluate to a positive finite value", ErrValidation)
+			}
+		}
+		if feature.Type == "REVOLVE" || feature.Type == "DRAFT" {
+			feature.Angle, err = quantityInDisplayUnit(values["parameter:"+feature.ID+":angle"], "deg")
+			if err != nil || !positiveFinite(feature.Angle) || feature.Angle > 360 {
+				return fmt.Errorf("%w: invalid revolve angle", ErrValidation)
+			}
+		}
+		if feature.Extent == "TWO_SIDED" {
+			feature.Length2 = values["parameter:"+feature.ID+":length2"].SIValue * 1000
+			if !positiveFinite(feature.Length2) {
+				return fmt.Errorf("%w: invalid second length", ErrValidation)
 			}
 		}
 		if feature.Sketch != nil {
@@ -351,7 +371,7 @@ func validatePartStructure(model PartModel) error {
 		if b.CreatedByFeatureID != "" {
 			found := false
 			for _, f := range model.Features {
-				if f.ID == b.CreatedByFeatureID && f.BodyID == b.ID && isSolidGenerator(f.Type) {
+				if f.ID == b.CreatedByFeatureID && f.BodyID == b.ID && (isSolidGenerator(f.Type) || f.Type == "LOFT") {
 					found = true
 					break
 				}
@@ -429,6 +449,9 @@ func validatePartStructure(model PartModel) error {
 			if operation != "NEW_BODY" && operation != "ADD" && operation != "REMOVE" && operation != "INTERSECT" {
 				return fmt.Errorf("%w: solid feature %s has invalid BodyOperation", ErrValidation, feature.ID)
 			}
+		}
+		if err := validateSolidStage(feature, features); err != nil {
+			return err
 		}
 		features[feature.ID] = feature
 	}
@@ -544,11 +567,28 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("parameter:" + parameter.ParameterID), Target: key, Kind: modelcore.ReadValue})
 			}
 		}
+		if feature.Suppressed {
+			continue
+		}
 		if isSolidGenerator(feature.Type) {
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.Profile), Target: key, Kind: modelcore.ReadGeometry})
 			if bodyTipFeatureID != "" {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadGeometry})
 			}
+		}
+		if feature.Type == "BOOLEAN" || isLocalModifier(feature.Type) || feature.Type == "LOFT" {
+			if bodyTipFeatureID != "" {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadGeometry})
+			}
+			for _, tool := range feature.Tools {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + tool.FeatureID), Target: key, Kind: modelcore.ReadGeometry})
+			}
+		}
+		for _, section := range feature.Sections {
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + section.SketchID), Target: key, Kind: modelcore.ReadGeometry})
+		}
+		if feature.Type == "DRAFT" {
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + feature.NeutralPlaneID), Target: key, Kind: modelcore.ReadGeometry})
 		}
 		if feature.Sketch != nil {
 			sources := map[string]bool{}
@@ -569,7 +609,7 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + feature.Sketch.Support.DatumPlaneID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		}
-		if isSolidGenerator(feature.Type) || feature.Type == "IMPORT_BODY" {
+		if isBodyFeature(feature.Type) {
 			bodyTips[feature.BodyID] = feature.ID
 		}
 	}
@@ -627,6 +667,17 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		return hex.EncodeToString(sum[:]), nil
 	}
 	manifest, err := graph.Evaluate(revisionID, modelHash, evaluatorVersion, "units-mm-v1", seeds, prior, evaluator)
+	for _, feature := range model.Features {
+		if feature.EvaluationStatus != "" {
+			key := modelcore.DependencyKey("feature:" + feature.ID)
+			result := manifest.NodeResults[key]
+			result.Status = feature.EvaluationStatus
+			if result.Status == "FAILED" || result.Status == "BLOCKED" || result.Status == "SUPPRESSED" {
+				result.OutputDigest = ""
+			}
+			manifest.NodeResults[key] = result
+		}
+	}
 	return graph, manifest, err
 }
 

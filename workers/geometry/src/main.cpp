@@ -1304,7 +1304,9 @@ public:
                 if (input.units() != "mm")
                     throw std::invalid_argument("profile pads must use mm");
                 if (input.feature_id().empty() || input.body_id().empty() ||
-                    input.profile_feature_id().empty()) {
+                    (input.profile_feature_id().empty() &&
+                     (input.generator() == "LINEAR_EXTRUDE" || input.generator() == "REVOLVE" ||
+                      input.generator().empty()))) {
                     throw std::invalid_argument(
                         "profile pads require feature_id, body_id, and profile_feature_id");
                 }
@@ -1322,6 +1324,16 @@ public:
                 pad.axis_start = {input.axis_start().x(), input.axis_start().y()};
                 pad.axis_end = {input.axis_end().x(), input.axis_end().y()};
                 pad.reversed = input.reversed();
+                for (const auto& ref : input.selections())
+                    pad.selections.push_back({ref.feature_id(),
+                                              ref.output_slot(),
+                                              {ref.source_ids().begin(), ref.source_ids().end()}});
+                pad.neutral_origin = {input.neutral_origin().x(), input.neutral_origin().y(),
+                                      input.neutral_origin().z()};
+                pad.neutral_normal = {input.neutral_normal().x(), input.neutral_normal().y(),
+                                      input.neutral_normal().z()};
+                pad.extent = input.extent();
+                pad.second_length = input.second_length();
                 pad.plane_origin = {input.plane_origin().x(), input.plane_origin().y(),
                                     input.plane_origin().z()};
                 pad.plane_normal = {input.plane_normal().x(), input.plane_normal().y(),
@@ -1365,6 +1377,64 @@ public:
                     for (const auto& hole : region_input.holes())
                         region.holes.push_back(read_loop(hole));
                     pad.regions.push_back(std::move(region));
+                }
+                pad.ruled = input.ruled();
+                for (const auto& source : input.sections()) {
+                    occccad::kernel::LoftSectionSpec section;
+                    section.sketch_id = source.sketch_id();
+                    section.seam_entity_id = source.seam_entity_id();
+                    section.seam_angle = source.seam_angle();
+                    section.reversed = source.reversed();
+                    section.region.id = source.region().id();
+                    section.region.outer = read_loop(source.region().outer());
+                    for (const auto& hole : source.region().holes())
+                        section.region.holes.push_back(read_loop(hole));
+                    section.origin = {source.origin().x(), source.origin().y(),
+                                      source.origin().z()};
+                    section.normal = {source.normal().x(), source.normal().y(),
+                                      source.normal().z()};
+                    section.u_direction = {source.u_direction().x(), source.u_direction().y(),
+                                           source.u_direction().z()};
+                    pad.sections.push_back(std::move(section));
+                }
+                for (const auto& source : input.tools()) {
+                    occccad::kernel::BodyToolInput tool;
+                    tool.body_id = source.body_id();
+                    tool.feature_id = source.feature_id();
+                    tool.brep = read_artifact(source.brep());
+                    const auto bytes = read_artifact(source.naming());
+                    worker_api::PartTopologyManifest naming;
+                    if (!naming.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())) ||
+                        naming.schema_version() != 2 || naming.bodies_size() != 1 ||
+                        naming.brep_sha256() != source.brep().sha256() ||
+                        naming.bodies(0).body_id() != tool.body_id ||
+                        naming.bodies(0).tip_transition() == 0 ||
+                        naming.bodies(0).tip_transition() >
+                            static_cast<unsigned>(naming.transitions_size()))
+                        throw std::invalid_argument("BOOLEAN_TOOL_NAMING_SNAPSHOT_MISMATCH");
+                    const auto& tip = naming.transitions(naming.bodies(0).tip_transition() - 1);
+                    if (tip.feature_id() != tool.feature_id || !tip.complete())
+                        throw std::invalid_argument("BOOLEAN_TOOL_STAGE_MISMATCH");
+                    tool.geometry_id = naming.geometry_id();
+                    for (const auto& output : naming.bodies(0).tip()) {
+                        if (output.semantic_ref() == 0 ||
+                            output.semantic_ref() >
+                                static_cast<unsigned>(naming.semantic_refs_size()))
+                            throw std::invalid_argument("BOOLEAN_TOOL_NAMING_REF_INVALID");
+                        const auto& ref = naming.semantic_refs(output.semantic_ref() - 1);
+                        const auto type =
+                            output.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_FACE
+                                ? occccad::kernel::TopologyType::FACE
+                            : output.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE
+                                ? occccad::kernel::TopologyType::EDGE
+                                : occccad::kernel::TopologyType::VERTEX;
+                        tool.topology.push_back({ref.feature_id(),
+                                                 ref.output_slot(),
+                                                 {ref.source_ids().begin(), ref.source_ids().end()},
+                                                 type,
+                                                 output.local_id()});
+                    }
+                    pad.tools.push_back(std::move(tool));
                 }
                 profile_specs.push_back(std::move(pad));
             }

@@ -132,6 +132,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
       { key: "owner", label: "所属 Part", children: selection.documentId ?? "—" },
       { key: "occurrence", label: "Occurrence", children: selection.instancePath?.display ?? "Part root" },
       { key: "revision", label: "Revision", children: selection.versionId ?? view.document.versionId },
+      { key: "output", label: "最终输出", children: body?.consumed ? "已用于布尔" : "参与输出" },
       { key: "visibility", label: "定义显隐", children: body ? body.visible ? "可见" : "隐藏"
         : resolved ? resolved.bodyVisible ? "可见" : "隐藏" : "—" },
       { key: "geometry", label: "Geometry Key", children: geometryKey ?? "—" },
@@ -289,7 +290,7 @@ export function PartBodies({view}:{view:DocumentView}) {
     {view.part.bodies.map(body=><div key={body.id} style={{marginTop:12}}>
       <Typography.Text strong>{body.name}</Typography.Text>
       <Space wrap>{body.id===view.part!.activeBodyId && <Tag>活动实体</Tag>}
-        <Tag>{body.visible ? "可见" : "隐藏"}</Tag></Space>
+        <Tag>{body.visible ? "可见" : "隐藏"}</Tag>{body.consumed && <Tag>已用于布尔</Tag>}</Space>
       {Object.entries(view.artifacts?.[body.geometryKey??""]?.representations??{}).map(([role,ref])=><div key={role}>
         <Space wrap><span>{role==="VISUAL"?"mesh.glb":role==="NAMING"?"naming.pb":role}</span>
           <small>{ref.size.toLocaleString()} B · v{ref.schemaVersion}</small>

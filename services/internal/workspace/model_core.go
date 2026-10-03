@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -23,6 +24,8 @@ const (
 	typeCreateSketch           = "occccad://part/sketch/create"
 	typeEditSketch             = "occccad://part/sketch/edit"
 	typeCreatePad              = "occccad://part/pad/create"
+	typeCreateBooleanFeature   = "occccad://part/boolean/create"
+	typeCreateModifierFeature  = "occccad://part/modifier/create"
 	typeCreateSolidFeature     = "occccad://part/solid-generator/create"
 	typeEditFeature            = "occccad://part/feature/edit"
 	typeRenameFeature          = "occccad://part/feature/rename"
@@ -74,6 +77,8 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeEditSketch, "PART", applyEditSketch},
 		commandHandler{typeCreatePad, "PART", applyCreateFeature},
 		commandHandler{typeCreateSolidFeature, "PART", applyCreateFeature},
+		commandHandler{typeCreateBooleanFeature, "PART", applyCreateFeature},
+		commandHandler{typeCreateModifierFeature, "PART", applyCreateFeature},
 		commandHandler{typeEditFeature, "PART", applyEditFeature},
 		commandHandler{typeRenameFeature, "PART", applyRenameFeature},
 		commandHandler{typeCreateDatumPlane, "PART", applyCreateDatumPlane},
@@ -242,7 +247,7 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 			return nil, modelcore.ChangeSet{}, err
 		}
 		for _, dependent := range model.Features {
-			if dependent.Profile == payload.TargetID {
+			if slices.Contains(featureInputIDs(dependent), payload.TargetID) {
 				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: cannot delete feature %s while feature %s depends on it", ErrValidation, payload.TargetID, dependent.ID)
 			}
 			if dependent.Sketch != nil && dependent.Sketch.Support.Type == "PLANAR_FACE" &&
@@ -251,7 +256,7 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: FAILED_SUPPORT: sketch %s depends on feature %s", ErrValidation, dependent.ID, payload.TargetID)
 			}
 		}
-		before := model.Features[index]
+		before := featureHistoryDefinition(model.Features[index])
 		model.Features = append(model.Features[:index], model.Features[index+1:]...)
 		bodyChanges, err := removeFeatureBody(&model, payload.TargetID)
 		if err != nil {
@@ -1225,7 +1230,7 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 			}
 		}
 	}
-	if isSolidGenerator(payload.Feature.Type) && payload.Feature.Operation == "NEW_BODY" {
+	if (isSolidGenerator(payload.Feature.Type) || payload.Feature.Type == "LOFT") && payload.Feature.Operation == "NEW_BODY" {
 		bodyChanges = createFeatureBody(&model, &payload.Feature)
 	}
 	if bodyIndex(model, payload.Feature.BodyID) < 0 {
@@ -1252,7 +1257,7 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 		return nil, modelcore.ChangeSet{}, err
 	}
 	created := model.Features[len(model.Features)-1]
-	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Feature.ID, SlotID: "entity"}, nil, created)
+	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Feature.ID, SlotID: "entity"}, nil, featureHistoryDefinition(created))
 	changes, seeds := appendParameterLifecycleChanges(append(bodyChanges, change),
 		[]modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.Feature.ID)}, beforeParameters, model.Parameters)
 	set := modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}
@@ -1327,9 +1332,11 @@ type linearExtrudeEdit struct {
 }
 
 type editFeaturePayload struct {
-	FeatureID             string            `json:"featureId"`
-	ExpectedFeatureDigest string            `json:"expectedFeatureDigest"`
-	LinearExtrude         linearExtrudeEdit `json:"linearExtrude"`
+	ParameterSources      map[string]modelcore.ValueSource `json:"parameterSources,omitempty"`
+	Definition            *Feature                         `json:"definition,omitempty"`
+	FeatureID             string                           `json:"featureId"`
+	ExpectedFeatureDigest string                           `json:"expectedFeatureDigest"`
+	LinearExtrude         linearExtrudeEdit                `json:"linearExtrude"`
 }
 
 var padLengthSlot = modelcore.PropertySlotDescriptor{
@@ -1364,18 +1371,16 @@ func featureDefinitionDigest(model PartModel, featureID string) (string, error) 
 		if feature.ID != featureID {
 			continue
 		}
-		var source modelcore.ValueSource
-		parameterID := "parameter:" + feature.ID + ":length"
+		sources := map[string]modelcore.ValueSource{}
 		for _, parameter := range model.Parameters {
-			if parameter.ParameterID == parameterID {
-				source = parameter.Source
-				break
+			if parameter.OwnerFeatureID == feature.ID {
+				sources[parameter.PropertySlot] = parameter.Source
 			}
 		}
 		value, err := json.Marshal(struct {
-			Feature Feature               `json:"feature"`
-			Source  modelcore.ValueSource `json:"lengthSource"`
-		}{geometryFeatureDefinition(feature), source})
+			Feature Feature                          `json:"feature"`
+			Sources map[string]modelcore.ValueSource `json:"parameterSources"`
+		}{geometryFeatureDefinition(feature), sources})
 		if err != nil {
 			return "", err
 		}
@@ -1407,6 +1412,9 @@ func applyEditFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, 
 			feature = &model.Features[index]
 			break
 		}
+	}
+	if payload.Definition != nil {
+		return editSolidDefinition(model, feature, *payload.Definition, payload.ParameterSources)
 	}
 	if feature == nil || !isSolidGenerator(feature.Type) || strings.EqualFold(feature.Type, "REVOLVE") {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: only Linear Extrude can be edited", ErrValidation)
@@ -2316,6 +2324,9 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 				model.Bodies[i].GeometryKey = ""
 			}
 		} else if metadataOnly {
+			if partHasFailedFeature(model) {
+				revisionState, evaluationStatus = "FAILED", "FAILED"
+			}
 			// Display metadata and readable names do not change geometry inputs.
 			// Keep the frozen per-Body results without entering the evaluator.
 			for i := range model.Bodies {
@@ -2331,7 +2342,11 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			err = service.evaluatePartBodies(ctx, prepared.requestID, &model)
 			finishGeometry()
 			if err != nil {
-				return err
+				var failed *solidEvaluationFailure
+				if !errors.As(err, &failed) || (prepared.command.TypeURI != typeEditFeature && prepared.command.TypeURI != typeSetParameterLiteral && prepared.command.TypeURI != typeSetParameterExpression && prepared.command.TypeURI != typeEditParameter && prepared.command.TypeURI != typeEditSketch) {
+					return err
+				}
+				revisionState, evaluationStatus = "FAILED", "FAILED"
 			}
 		}
 		nextJSON, _ = json.Marshal(model)

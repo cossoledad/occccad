@@ -44,7 +44,7 @@ typed Feature definition
 ```
 
 The Boolean result is not accepted merely because `IsDone()` is true. It must
-be valid, non-empty, satisfy the single-Solid Body policy, and provide exactly
+be valid, non-empty, satisfy the valid multi-Solid Body policy, and provide exactly
 one semantic output and lineage result for every live Face, Edge and Vertex.
 
 ## Two-stage topology history
@@ -95,3 +95,10 @@ Sketcher keep the Body visible, keep non-active Sketch geometry filtered, and
 keep Body topology non-selectable until an explicit reference-capture tool is
 active. Browser/WebGL acceptance remains required for depth, occlusion and
 camera behavior.
+
+## Solid feature families
+
+The current [solid feature contract](current/solid-features.md) separates profile
+generation (extrude/revolve/loft), explicit cross-Body combinations, and local
+modifiers. They share command, history, selection resolution and artifact
+lifecycle; local modifiers do not run the generator/Boolean algorithm.

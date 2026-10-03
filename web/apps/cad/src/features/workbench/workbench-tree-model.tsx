@@ -4,7 +4,7 @@ import type { DocumentStructureNode, DocumentView, Feature, Selection, Selection
 import type { SpecificationTreeNode } from "./specification-tree";
 
 export function isSolidFeature(feature: Feature): boolean {
-  return ["PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY"].includes(feature.type.toUpperCase());
+  return ["PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase());
 }
 
 export function structureSelection(node: DocumentStructureNode, view: DocumentView): Selection {
@@ -126,7 +126,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
 
 export function findStructureEntity(node: DocumentStructureNode | undefined, entityID: string): DocumentStructureNode | undefined {
   if (!node) return undefined;
-  if (node.entityId === entityID && ["SKETCH", "PAD", "REVOLVE", "IMPORT"].includes(node.kind)) return node;
+  if (node.entityId === entityID && ["SKETCH", "PAD", "REVOLVE", "IMPORT", "FEATURE"].includes(node.kind)) return node;
   for (const child of node.children ?? []) {
     const found = findStructureEntity(child, entityID);
     if (found) return found;
@@ -138,7 +138,7 @@ export function findStructureOccurrenceEntity(root: DocumentStructureNode | unde
   occurrencePath: string, bodyID?: string): DocumentStructureNode | undefined {
   if (!root) return undefined;
   if (root.entityId === entityID && root.instancePath?.canonical === occurrencePath &&
-      (!bodyID || root.bodyId === bodyID) && ["SKETCH", "PAD", "REVOLVE", "IMPORT"].includes(root.kind)) return root;
+      (!bodyID || root.bodyId === bodyID) && ["SKETCH", "PAD", "REVOLVE", "IMPORT", "FEATURE"].includes(root.kind)) return root;
   for (const child of root.children ?? []) {
     const found = findStructureOccurrenceEntity(child, entityID, occurrencePath, bodyID);
     if (found) return found;
@@ -161,7 +161,9 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
 	const component=node.entityId?sketch?.solve.components?.find((candidate)=>candidate.entityIds.includes(node.entityId!)):undefined;
   const assemblyStatus = node.kind === "ASSEMBLY_CONSTRAINT"
     ? assemblyStatusFromDiagnostic(node.evaluationStatus ?? node.diagnostic) : undefined;
-  return { key: node.id, title: assemblyStatus ? <>{node.name}<span className={`assembly-tree-status status-${node.suppressed ? "not_updated" : assemblyStatus.toLowerCase()}`}
+  const featureStatus = node.evaluationStatus === "FAILED" ? "求值失败" : node.evaluationStatus === "BLOCKED" ? "上游失败" : node.evaluationStatus === "SUPPRESSED" ? "已抑制" : undefined;
+  const outputStatus = node.consumed ? "已用于布尔" : featureStatus;
+  return { key: node.id, title: outputStatus ? <>{node.name}<span title={node.diagnostic} aria-label={`状态 ${outputStatus}`}> · {outputStatus}</span></> : assemblyStatus ? <>{node.name}<span className={`assembly-tree-status status-${node.suppressed ? "not_updated" : assemblyStatus.toLowerCase()}`}
     aria-label={`状态 ${node.suppressed ? "停用" : ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}`}>{node.suppressed ? "停用" : ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}</span></> : node.name,
     icon: treeNodeIcon(node), kind: node.kind,
     entityId: node.entityId, documentId: node.documentId, documentType: node.documentType, instancePath: node.instancePath,

@@ -1142,7 +1142,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 			continue
 		}
 		for _, body := range variant.Bodies {
-			if body.GeometryKey == "" {
+			if body.GeometryKey == "" || body.Consumed {
 				continue
 			}
 			if _, exists := view.Artifacts[body.GeometryKey]; !exists {
@@ -1801,8 +1801,12 @@ func partGeometryKeyForPolicy(policyDigest, baseKey string, solidFeatures []geom
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
-func (service *Service) evaluateBody(ctx context.Context, reqID string, model PartModel) (string, error) {
+func (service *Service) evaluateBody(ctx context.Context, reqID string, model PartModel, fullModels ...PartModel) (string, error) {
 	normalizePartModel(&model)
+	fullModel := model
+	if len(fullModels) > 0 {
+		fullModel = fullModels[0]
+	}
 	sketches := map[string]Feature{}
 	solidFeatures := []geometry.ProfilePad{}
 	baseKey := ""
@@ -1810,7 +1814,47 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 	bodyTipFeatureID := ""
 	visualization := visualizationManifest(model)
 	for _, feature := range model.Features {
+		if feature.Suppressed {
+			continue
+		}
 		switch strings.ToUpper(feature.Type) {
+		case "LOFT":
+			spec := geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "LOFT", BodyOperation: feature.Operation, Ruled: feature.Ruled}
+			for _, section := range feature.Sections {
+				sketch, ok := sketches[section.SketchID]
+				if !ok {
+					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w: loft section missing", feature.ID, ErrValidation)
+				}
+				regions, err := service.buildExactProfileRegions(ctx, sketch, reqID+"/section/"+sketch.ID)
+				if err != nil {
+					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
+				}
+				if len(regions) != 1 || len(regions[0].Holes) != 0 {
+					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w: loft requires one closed region without holes per section", feature.ID, ErrValidation)
+				}
+				origin, u, normal, ok := supportFrame(fullModel, sketch.Sketch.Support)
+				if !ok {
+					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w: loft section support unavailable", feature.ID, ErrValidation)
+				}
+				spec.Sections = append(spec.Sections, geometry.LoftSection{SketchID: sketch.ID, Region: regions[0], Origin: origin, Normal: normal, UDirection: u, Reversed: section.Reversed, SeamEntityID: section.SeamEntityID, SeamAngle: section.SeamAngle * math.Pi / 180})
+			}
+			solidFeatures = append(solidFeatures, spec)
+			bodyTipFeatureID = feature.ID
+		case "FILLET", "CHAMFER", "DRAFT", "SHELL":
+			spec, err := service.modifierInput(ctx, reqID, fullModel, feature)
+			if err != nil {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
+			}
+			spec.InputFeatureID = bodyTipFeatureID
+			solidFeatures = append(solidFeatures, spec)
+			bodyTipFeatureID = feature.ID
+		case "BOOLEAN":
+			tools, err := service.booleanToolInputs(ctx, reqID, fullModel, feature)
+			if err != nil {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
+			}
+			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "BOOLEAN", BodyOperation: feature.Operation, Tools: tools})
+			bodyTipFeatureID = feature.ID
 		case "IMPORT_BODY":
 			baseKey = feature.GeometryKey
 			bodyTipFeatureID = feature.ID
@@ -1830,7 +1874,7 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 			}
 			regions, err := service.buildExactProfileRegions(ctx, sketch, reqID+"/profile/"+sketch.ID)
 			if err != nil {
-				return "", err
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}
 			plane := sketch.Plane
 			if sketch.Sketch != nil && sketch.Sketch.Support.Plane != "" {
@@ -1847,7 +1891,7 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 				angle = feature.Angle * math.Pi / 180
 				axisStart, axisEnd, err = resolveRevolveAxis(model, sketch, feature.AxisEntityID)
 				if err != nil {
-					return "", err
+					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 				}
 			}
 			operation := strings.ToUpper(feature.Operation)
@@ -1864,7 +1908,7 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 			}
 			solidFeatures = append(solidFeatures, geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID,
 				InputFeatureID: bodyTipFeatureID, ProfileFeatureID: sketch.ID,
-				Regions: regions, Length: feature.Length,
+				Regions: regions, Length: feature.Length, Extent: feature.Extent, Length2: feature.Length2,
 				Plane: plane, BodyOperation: operation, Generator: generator, RevolveAngle: angle,
 				AxisStart: axisStart, AxisEnd: axisEnd, Reversed: feature.Reversed,
 				PlaneOrigin: planeOrigin, PlaneNormal: planeNormal, PlaneUDirection: planeU})
@@ -2178,8 +2222,12 @@ func featureStructureNode(feature Feature, path, documentID, versionID, definiti
 	if deletable {
 		node.Capabilities = []string{"DELETE"}
 	}
-	if childrenEditable && kind == "PAD" {
+	if childrenEditable && (isBodyFeature(feature.Type) && feature.Type != "IMPORT_BODY") {
 		node.Capabilities = append(node.Capabilities, "EDIT")
+	}
+	if feature.EvaluationStatus != "" {
+		node.EvaluationStatus = feature.EvaluationStatus
+		node.Diagnostic = feature.EvaluationStatus + ": " + feature.Diagnostic
 	}
 	if feature.Sketch != nil {
 		if feature.Sketch.Support.Status == "FAILED_SUPPORT" {
@@ -2294,6 +2342,9 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 	consumed := make(map[string]bool)
 	dependents := make(map[string]bool)
 	for _, feature := range model.Features {
+		for _, id := range featureInputIDs(feature) {
+			dependents[id] = true
+		}
 		if strings.Contains(strings.ToUpper(feature.Type), "SKETCH") {
 			sketches[feature.ID] = feature
 		}
@@ -2308,7 +2359,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 	}
 	bodies := []DocumentStructureNode{}
 	for _, definition := range model.Bodies {
-		body := DocumentStructureNode{ID: path + "/body:" + definition.ID, Kind: "BODY", Name: definition.Name, EntityID: definition.ID, GeometryKey: definition.GeometryKey,
+		body := DocumentStructureNode{ID: path + "/body:" + definition.ID, Kind: "BODY", Consumed: definition.Consumed, Name: definition.Name, EntityID: definition.ID, GeometryKey: definition.GeometryKey,
 			DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{}}
 		visible := definition.Visible
 		body.LocalVisible = &visible
@@ -2843,7 +2894,7 @@ func (service *Service) resolveProduct(
 		}
 		normalizePartModel(&model)
 		for _, body := range model.Bodies {
-			if body.GeometryKey == "" {
+			if body.GeometryKey == "" || body.Consumed {
 				continue
 			}
 			if _, exists := artifacts[body.GeometryKey]; !exists {

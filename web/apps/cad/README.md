@@ -202,3 +202,9 @@ CAD Command/Preview 使用 `api` 门面进入 `RealtimeClient`；取消由 Abort
 人工验收：在已有圆心附近悬停并点击创建多边形，检查捕获标记和正式连接；检查下拉的图标、选中勾号与键盘操作；旋转视角检查倾斜尺寸仍沿尺寸线且不倒置。双击尺寸后直接键入并 Enter，再检查定位、名称、停用、参考、删除及取消；单纯打开/确认不能舍入原参数。Node 场景不替代视觉、WebGL 与实际焦点的实机验收。
 
 工作台呈现的唯一公共规格与组件入口见 [UI 规格](../../../docs/workbench-ui.md)。公共控件、Portal 面板、内联编辑与 WebGL 字体消费 `src/design/visual-tokens.ts`，几何反馈颜色保持独立语义。
+
+### 实体 Feature 面板
+
+Part Design 提供布尔、圆角、倒角、拔模、抽壳和基础放样命令。结构树的编辑入口使用同一 Feature 定义命令；局部修改通过“添加当前选择的边/面”取得服务端持久选择。预览与提交共用候选定义，输入变化、关闭及 Revision 变化使旧预览失效。工具 Body 的 consumed 状态不等于隐藏，视口不为已消耗结果创建实体和拾取对象。能力边界见[实体 Feature](../../../docs/architecture/current/solid-features.md)。
+
+实体 Feature 的真实后端浏览器回归：先运行 `invoke run.app --build-type=Debug`，加载已配置的管理员登录环境后，在本目录执行 `pnpm exec playwright test --config playwright.live.config.ts`。该用例新建独立验收文档，不重置数据库；覆盖真实布尔面板的预览、提交、输出消耗和页面重开。

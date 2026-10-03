@@ -149,6 +149,9 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID, rel
 			if err := json.Unmarshal(value.model, &part); err != nil {
 				return "", err
 			}
+			if partHasFailedFeature(part) {
+				return "", fmt.Errorf("%w: failed Part has no authoritative export result", ErrValidation)
+			}
 			bodies := part.Bodies
 			if override, ok := overrides[path]; ok {
 				bodies = override
@@ -157,7 +160,7 @@ func (service *Service) ExchangeExportGraph(ctx context.Context, documentID, rel
 			def.Id += "/" + modelcore.ValueDigest(encoded)
 			if !built[def.Id] {
 				for _, body := range bodies {
-					if body.GeometryKey == "" {
+					if body.GeometryKey == "" || body.Consumed {
 						continue
 					}
 					a, err := service.loadArtifact(ctx, body.GeometryKey)

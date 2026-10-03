@@ -546,7 +546,7 @@ export class CadViewportEngine {
   private pendingVisualSnapshot = false;
   private visualError?: HTMLDivElement;
   private geometrySignature(view: DocumentDescriptor, editContext?: ViewportEditContext): string {
-    const part = (value?: DocumentDescriptor) => value?.part?.bodies.map((body) => [body.id, body.geometryKey]);
+    const part = (value?: DocumentDescriptor) => value?.part?.bodies.map((body) => [body.id, body.geometryKey, body.consumed]);
     return JSON.stringify([view.document.id, view.document.type, part(view),
       view.resolvedInstances?.map((resolved) => [resolved.occurrencePath,resolved.bodyId, resolved.geometryKey, resolved.translation, resolved.rotation,
         resolved.ownedSketchIds]),
@@ -1670,6 +1670,7 @@ export class CadViewportEngine {
       treeNodeId: `${rootPath}/origin/datum-axis:${axis.id}`,
     });
     for (const body of view.part?.bodies ?? []) {
+      if (body.consumed) continue;
       const artifact = body.geometryKey ? view.artifacts?.[body.geometryKey] : undefined;
       if (!artifact) continue;
       const bodyTreeNodeId = `${rootPath}/body:${body.id}`;

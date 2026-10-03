@@ -30,6 +30,11 @@ try {
  hidden.applyTreeVisibility();hidden.content.updateMatrixWorld(true);
  assert.equal(hidden.solidBindings.get("root/body:a").group.visible,false);assert.equal(hidden.solidBindings.get("root/body:b").group.visible,true);
  assert.equal(hidden.selectionIndex.pick(new THREE.Raycaster(new THREE.Vector3(.2,.2,2),new THREE.Vector3(0,0,-1))),null);
+ const consumedView={...view,part:{...view.part,bodies:view.part.bodies.map(body=>({...body,consumed:body.id==="b"}))}};
+ const consumed=engine();consumed.renderPart(consumedView);consumed.content.updateMatrixWorld(true);
+ assert.equal(consumed.solidBindings.size,1,"Boolean consumed Body is excluded from final display");
+ assert.equal(consumed.selectionIndex.pick(new THREE.Raycaster(new THREE.Vector3(10.2,.2,2),new THREE.Vector3(0,0,-1))),null,"consumed tools cannot be picked");
+ assert.equal(consumedView.part.bodies[1].visible,true,"consumption does not rewrite visibility");
  const product=engine();const path={canonical:"instance",segments:[{resolvedVersionId:"v1"}]};product.renderProduct({document:{id:"product",name:"Root"},product:{instances:[{id:"instance",translation:[5,0,0]}]},artifacts:view.artifacts,
  resolvedInstances:["a","b"].map(bodyId=>({id:`Root/instance/body:${bodyId}`,bodyId,bodyVisible:true,documentId:"part",geometryKey:`g-${bodyId}`,translation:[5,0,0],occurrencePath:"instance",instancePath:path,bodyTreeNodeId:`part/body:${bodyId}`}))});
  assert.equal(product.solidBindings.size,2);product.content.updateMatrixWorld(true);

@@ -91,7 +91,7 @@ message TopologyLineage {
 
 - Shape 非 null，拓扑遍历无异常；
 - `BRepCheck_Analyzer` 或等价完整检查通过；
-- 标准 Body 恰好一个闭合、可定向、正体积 Solid；
+- Body 包含一个或多个闭合、可定向、正体积 Solid，且无游离拓扑；
 - 不存在开放 shell、非流形边、零面积面和超出 policy 的微小边；
 - bbox、体积和面积均有限，坐标不超过租户/项目上限；
 - operation-specific invariant 成立，例如 REMOVE 减材、Shell 厚度方向正确；

@@ -1,4 +1,4 @@
-import type { AssemblyGeometryRef, AssemblySolveManifestResult, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ProductRelease, ProductReleaseReplay, ProductUpdatePlan, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
+import type { Feature, AssemblyGeometryRef, AssemblySolveManifestResult, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ProductRelease, ProductReleaseReplay, ProductUpdatePlan, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
 import { CommandPreviewIdentities } from "./api/command-preview-identity";
 const previewIdentities = new CommandPreviewIdentities();
@@ -339,7 +339,7 @@ export const restApi = {
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
   createSolidFeature: (documentId: string, input: { sketchId: string; generator: "LINEAR_EXTRUDE" | "REVOLVE";
 	operation: "NEW_BODY" | "ADD" | "REMOVE" | "INTERSECT"; bodyId?: string; length?: number; angle?: number;
-	lengthExpression?: string; axisEntityId?: string; reversed?: boolean; previewId?: string }, intentRequestId?: string) =>
+	lengthExpression?: string; extent?: Feature["extent"]; length2?:number; parameterExpressions?:Record<string,string>; axisEntityId?: string; reversed?: boolean; previewId?: string }, intentRequestId?: string) =>
     restApi.command(documentId, { type: "CREATE_SOLID_FEATURE", ...input,
       ...(intentRequestId ? { requestId: intentRequestId } : {}) }),
 	editFeature: (documentId: string, input: { featureId: string; expectedFeatureDigest: string; length?: number; lengthExpression?: string; previewId?: string }) =>

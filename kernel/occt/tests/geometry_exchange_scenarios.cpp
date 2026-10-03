@@ -566,7 +566,7 @@ TEST(GeometryExchange, TopologyHistoryComposesBooleanAndSameDomainHistory) {
     }
 }
 
-TEST(GeometryExchange, RevolveReportsTopologyHistoryAsIncompleteUntilItsNamingPhase) {
+TEST(GeometryExchange, RevolveProvidesCompleteTopologyHistory) {
     OcctKernel kernel;
     ProfilePadSpec revolve;
     revolve.feature_id = "revolve-1";
@@ -581,11 +581,11 @@ TEST(GeometryExchange, RevolveReportsTopologyHistoryAsIncompleteUntilItsNamingPh
 
     const auto evaluation = kernel.evaluateProfilePadsWithHistory({revolve});
     ASSERT_EQ(evaluation.feature_results.size(), 1U);
-    EXPECT_FALSE(evaluation.feature_results.front().topology_history_complete);
-    EXPECT_NE(std::find(evaluation.feature_results.front().diagnostics.begin(),
-                        evaluation.feature_results.front().diagnostics.end(),
-                        "TOPOLOGY_HISTORY_UNSUPPORTED_GENERATOR:REVOLVE"),
-              evaluation.feature_results.front().diagnostics.end());
+    EXPECT_TRUE(evaluation.feature_results.front().topology_history_complete);
+    const auto topology = kernel.getTopology(evaluation.geometry_id);
+    EXPECT_EQ(evaluation.feature_results.front().semantic_outputs.size(),
+              topology.face_count + topology.edge_count + topology.vertex_count);
+    EXPECT_NEAR(kernel.getVolume(evaluation.geometry_id), 375.0 * 3.14159265358979323846, 1e-6);
 }
 
 TEST(GeometryExchange, NamingFixtureCutRetainsModifiedTopFace) {
@@ -1434,4 +1434,255 @@ TEST(GeometryExchange, ImportedNamingPropagatesThroughBooleanChain) {
 }
 
 }  // namespace
+}  // namespace occccad::kernel
+
+namespace occccad::kernel {
+TEST(GeometryExchange, CrossBodyBooleanUsesFrozenNamedStageAndColdRebuild) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id = "base";
+    base.body_id = "target";
+    base.profile_feature_id = "base-sketch";
+    base.regions = {rectangular_region("base-region", 0, 0, 20, 20)};
+    base.pad_length = 10;
+    auto cutter = base;
+    cutter.feature_id = "cutter";
+    cutter.body_id = "tool";
+    cutter.profile_feature_id = "tool-sketch";
+    cutter.regions = {rectangular_region("tool-region", 5, 5, 10, 10)};
+    cutter.pad_length = 20;
+    auto evaluated = kernel.evaluateProfilePadsWithHistory({cutter});
+    BodyToolInput input;
+    input.body_id = "tool";
+    input.feature_id = "cutter";
+    input.geometry_id = evaluated.geometry_id;
+    input.brep = kernel.serializeBrepr(evaluated.geometry_id);
+    for (const auto& output : evaluated.feature_results.back().semantic_outputs) {
+        const auto& ref = output.semantic_ref;
+        input.topology.push_back(
+            {ref.feature_id, ref.output_slot, ref.source_ids,
+             output.topology_type == PersistentTopologyType::face   ? TopologyType::FACE
+             : output.topology_type == PersistentTopologyType::edge ? TopologyType::EDGE
+                                                                    : TopologyType::VERTEX,
+             output.local_id});
+    }
+    ProfilePadSpec boolean;
+    boolean.feature_id = "boolean";
+    boolean.body_id = "target";
+    boolean.input_feature_id = "base";
+    boolean.generator = "BOOLEAN";
+    boolean.tools = {input};
+    for (const auto& [operation, volume] : std::vector<std::pair<std::string, double>>{
+             {"REMOVE", 3750}, {"ADD", 4250}, {"INTERSECT", 250}}) {
+        boolean.body_operation = operation;
+        const auto result = kernel.evaluateProfilePadsWithHistory({base, boolean});
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id), volume, 1e-6);
+        const auto& history = result.feature_results.back();
+        EXPECT_TRUE(history.topology_history_complete);
+        const auto topology = kernel.getTopology(result.geometry_id);
+        EXPECT_EQ(history.semantic_outputs.size(),
+                  topology.face_count + topology.edge_count + topology.vertex_count);
+        OcctKernel cold;
+        const auto rebuilt = cold.evaluateProfilePadsWithHistory({base, boolean});
+        EXPECT_NEAR(cold.getVolume(rebuilt.geometry_id), volume, 1e-6);
+        EXPECT_EQ(history.topology_history.evidence_digest,
+                  rebuilt.feature_results.back().topology_history.evidence_digest);
+    }
+    boolean.tools[0].geometry_id = "wrong";
+    EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base, boolean}), std::invalid_argument);
+}
+
+TEST(GeometryExchange, ExtrudeExtentsUseInputBodyAndPreserveNaming) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id = "base";
+    base.body_id = "body";
+    base.profile_feature_id = "sketch";
+    base.pad_length = 10;
+    base.regions = {rectangular_region("region", 0, 0, 20, 20)};
+    for (const auto& mode : std::vector<std::string>{"FINITE", "SYMMETRIC", "TWO_SIDED"}) {
+        auto spec = base;
+        spec.extent = mode;
+        spec.second_length = 5;
+        auto result = kernel.evaluateProfilePadsWithHistory({spec});
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id), mode == "TWO_SIDED" ? 6000 : 4000, 1e-6);
+        EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+    }
+    auto cut = base;
+    cut.feature_id = "cut";
+    cut.input_feature_id = "base";
+    cut.profile_feature_id = "hole";
+    cut.regions = {rectangular_region("hole-region", 5, 5, 10, 10)};
+    cut.body_operation = "REMOVE";
+    cut.extent = "THROUGH_ALL";
+    cut.pad_length = 1;
+    cut.plane_origin = {0, 0, 1000};
+    cut.plane_normal = {0, 0, 1};
+    cut.plane_u_direction = {1, 0, 0};
+    auto result = kernel.evaluateProfilePadsWithHistory({base, cut});
+    EXPECT_NEAR(kernel.getVolume(result.geometry_id), 3750, 1e-6);
+    EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+    base.pad_length = 25;
+    result = kernel.evaluateProfilePadsWithHistory({base, cut});
+    EXPECT_NEAR(kernel.getVolume(result.geometry_id), 9375, 1e-6);
+    cut.body_operation = "ADD";
+    EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base, cut}), std::invalid_argument);
+}
+
+TEST(GeometryExchange, LocalModifiersUseSemanticInputsAndCompleteHistory) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id = "base";
+    base.body_id = "body";
+    base.profile_feature_id = "sketch";
+    base.pad_length = 10;
+    base.regions = {rectangular_region("region", 0, 0, 20, 20)};
+    const auto initial = kernel.evaluateProfilePadsWithHistory({base});
+    const auto pick = [&](const FeatureResult& result, const std::string& prefix) {
+        for (const auto& output : result.semantic_outputs)
+            if (output.semantic_ref.output_slot.rfind(prefix, 0) == 0) {
+                const auto& r = output.semantic_ref;
+                return FeatureTopologyRef{r.feature_id, r.output_slot, r.source_ids};
+            }
+        throw std::runtime_error("test semantic slot missing: " + prefix);
+    };
+    const auto check = [&](const ProfileEvaluationResult& result) {
+        const auto topology = kernel.getTopology(result.geometry_id);
+        EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+        EXPECT_EQ(result.feature_results.back().semantic_outputs.size(),
+                  topology.face_count + topology.edge_count + topology.vertex_count);
+        EXPECT_GT(kernel.getVolume(result.geometry_id), 0);
+    };
+    for (const auto& kind : std::vector<std::string>{"FILLET", "CHAMFER"}) {
+        ProfilePadSpec modifier;
+        modifier.feature_id = "modify";
+        modifier.body_id = "body";
+        modifier.input_feature_id = "base";
+        modifier.generator = kind;
+        modifier.pad_length = 1;
+        modifier.selections = {
+            pick(initial.feature_results.back(), "VERTICAL_FROM_PROFILE_ENDPOINTS/")};
+        const auto result = kernel.evaluateProfilePadsWithHistory({base, modifier});
+        check(result);
+        EXPECT_LT(kernel.getVolume(result.geometry_id), 4000);
+        modifier.selections.front().output_slot = "missing";
+        EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base, modifier}),
+                     std::invalid_argument);
+    }
+    ProfilePadSpec shell;
+    shell.feature_id = "shell";
+    shell.body_id = "body";
+    shell.input_feature_id = "base";
+    shell.generator = "SHELL";
+    shell.pad_length = 1;
+    shell.selections = {pick(initial.feature_results.back(), "END_CAP/")};
+    const auto hollow = kernel.evaluateProfilePadsWithHistory({base, shell});
+    check(hollow);
+    EXPECT_NEAR(kernel.getVolume(hollow.geometry_id), 4000 - 18 * 18 * 9, 1e-5);
+    ProfilePadSpec draft;
+    draft.feature_id = "draft";
+    draft.body_id = "body";
+    draft.input_feature_id = "base";
+    draft.generator = "DRAFT";
+    draft.revolve_angle = 5 * 3.14159265358979323846 / 180;
+    draft.neutral_normal = {0, 0, 1};
+    for (const auto& output : initial.feature_results.back().semantic_outputs)
+        if (output.semantic_ref.output_slot.rfind("SIDE_FROM_PROFILE_EDGE/", 0) == 0) {
+            const auto& r = output.semantic_ref;
+            draft.selections.push_back({r.feature_id, r.output_slot, r.source_ids});
+        }
+    const auto tapered = kernel.evaluateProfilePadsWithHistory({base, draft});
+    check(tapered);
+    EXPECT_LT(kernel.getVolume(tapered.geometry_id), 4000);
+    shell.input_feature_id = "draft";
+    shell.selections = {pick(tapered.feature_results.back(), "END_CAP/")};
+    const auto chain = kernel.evaluateProfilePadsWithHistory({base, draft, shell});
+    check(chain);
+    EXPECT_LT(kernel.getVolume(chain.geometry_id), kernel.getVolume(tapered.geometry_id));
+    shell.pad_length = 1000;
+    EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base, draft, shell}),
+                 std::invalid_argument);
+}
+
+TEST(GeometryExchange, LoftOrderedSectionsHaveHistoryAndSurviveBooleanAndChamfer) {
+    OcctKernel kernel;
+    ProfilePadSpec loft;
+    loft.feature_id = "loft";
+    loft.body_id = "body";
+    loft.generator = "LOFT";
+    for (int i = 0; i < 3; ++i) {
+        LoftSectionSpec section;
+        section.sketch_id = "section-" + std::to_string(i);
+        section.region = rectangular_region(section.sketch_id, 0, 0, 20, 20);
+        section.origin = {0, 0, 10.0 * i};
+        section.normal = {0, 0, 1};
+        section.u_direction = {1, 0, 0};
+        loft.sections.push_back(section);
+    }
+    for (bool ruled : {true, false}) {
+        loft.ruled = ruled;
+        const auto solid = kernel.evaluateProfilePadsWithHistory({loft});
+        EXPECT_NEAR(kernel.getVolume(solid.geometry_id), 8000, 1e-5);
+        const auto topo = kernel.getTopology(solid.geometry_id);
+        EXPECT_TRUE(solid.feature_results.back().topology_history_complete);
+        EXPECT_EQ(solid.feature_results.back().semantic_outputs.size(),
+                  topo.face_count + topo.edge_count + topo.vertex_count);
+        ProfilePadSpec cut;
+        cut.feature_id = "cut";
+        cut.body_id = "body";
+        cut.input_feature_id = "loft";
+        cut.profile_feature_id = "hole";
+        cut.regions = {rectangular_region("hole-region", 5, 5, 10, 10)};
+        cut.pad_length = 25;
+        cut.body_operation = "REMOVE";
+        const auto bored = kernel.evaluateProfilePadsWithHistory({loft, cut});
+        EXPECT_NEAR(kernel.getVolume(bored.geometry_id), 7500, 1e-5);
+        ProfilePadSpec chamfer;
+        chamfer.feature_id = "chamfer";
+        chamfer.body_id = "body";
+        chamfer.input_feature_id = "cut";
+        chamfer.generator = "CHAMFER";
+        chamfer.pad_length = 0.5;
+        for (const auto& output : bored.feature_results.back().semantic_outputs)
+            if (output.topology_type == PersistentTopologyType::edge &&
+                output.evidence.geometry_type == "LINE") {
+                const auto& r = output.semantic_ref;
+                chamfer.selections = {{r.feature_id, r.output_slot, r.source_ids}};
+                break;
+            }
+        const auto finished = kernel.evaluateProfilePadsWithHistory({loft, cut, chamfer});
+        EXPECT_TRUE(finished.feature_results.back().topology_history_complete);
+        EXPECT_LT(kernel.getVolume(finished.geometry_id), 7500);
+    }
+}
+
+TEST(GeometryExchange, LoftTaperedSectionsRespectStoredSeams) {
+    OcctKernel kernel;
+    ProfilePadSpec loft;
+    loft.feature_id = "loft";
+    loft.body_id = "body";
+    loft.generator = "LOFT";
+    for (int i = 0; i < 2; ++i) {
+        LoftSectionSpec section;
+        section.sketch_id = "section-" + std::to_string(i);
+        section.region = rectangular_region(section.sketch_id, i * 5, i * 5, 20 - i * 5, 20 - i * 5);
+        section.seam_entity_id = section.region.outer.curves.front().entity_id;
+        // Profile traversal may start elsewhere; the stored seam is authoritative.
+        auto& curves = section.region.outer.curves;
+        std::rotate(curves.begin(), curves.begin() + i + 1, curves.end());
+        section.origin = {0, 0, i * 20.0};
+        section.normal = {0, 0, 1};
+        section.u_direction = {1, 0, 0};
+        loft.sections.push_back(section);
+    }
+    for (bool ruled : {true, false}) {
+        loft.ruled = ruled;
+        const auto result = kernel.evaluateProfilePadsWithHistory({loft});
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id), 14000.0 / 3.0, 1e-5);
+        EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+    }
+    loft.sections.back().seam_entity_id = "removed-edge";
+    EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({loft}), std::invalid_argument);
+}
+
 }  // namespace occccad::kernel

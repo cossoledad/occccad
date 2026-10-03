@@ -53,7 +53,25 @@ type ProfileRegion struct {
 	Outer ProfileLoop
 	Holes []ProfileLoop
 }
+type BodyToolInput struct {
+	BRep, Naming      ArtifactReference
+	BodyID, FeatureID string
+}
+type LoftSection struct {
+	SketchID, SeamEntityID     string
+	Region                     ProfileRegion
+	Origin, Normal, UDirection [3]float64
+	Reversed                   bool
+	SeamAngle                  float64
+}
 type ProfilePad struct {
+	Sections                                            []LoftSection
+	Ruled                                               bool
+	Selections                                          []modelcore.SemanticTopologyRef
+	NeutralOrigin, NeutralNormal                        [3]float64
+	Extent                                              string
+	Length2                                             float64
+	Tools                                               []BodyToolInput
 	FeatureID, BodyID, InputFeatureID, ProfileFeatureID string
 	Regions                                             []ProfileRegion
 	Length, RevolveAngle                                float64
@@ -83,6 +101,15 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 			BodyOperation: pad.BodyOperation, Generator: pad.Generator, RevolveAngle: pad.RevolveAngle,
 			AxisStart: &workerv1.Vec2{X: pad.AxisStart[0], Y: pad.AxisStart[1]},
 			AxisEnd:   &workerv1.Vec2{X: pad.AxisEnd[0], Y: pad.AxisEnd[1]}, Reversed: pad.Reversed}
+		for _, tool := range pad.Tools {
+			value.Tools = append(value.Tools, &workerv1.BodyToolInput{Brep: artifactProto(tool.BRep), Naming: artifactProto(tool.Naming), BodyId: tool.BodyID, FeatureId: tool.FeatureID})
+		}
+		for _, ref := range pad.Selections {
+			value.Selections = append(value.Selections, &workerv1.SemanticTopologyRef{FeatureId: ref.FeatureID, OutputSlot: ref.OutputSlot, SourceIds: ref.SourceIDs})
+		}
+		value.NeutralOrigin = &workerv1.Vec3{X: pad.NeutralOrigin[0], Y: pad.NeutralOrigin[1], Z: pad.NeutralOrigin[2]}
+		value.NeutralNormal = &workerv1.Vec3{X: pad.NeutralNormal[0], Y: pad.NeutralNormal[1], Z: pad.NeutralNormal[2]}
+		value.Extent, value.SecondLength = pad.Extent, pad.Length2
 		value.PlaneOrigin = &workerv1.Vec3{X: pad.PlaneOrigin[0], Y: pad.PlaneOrigin[1], Z: pad.PlaneOrigin[2]}
 		value.PlaneNormal = &workerv1.Vec3{X: pad.PlaneNormal[0], Y: pad.PlaneNormal[1], Z: pad.PlaneNormal[2]}
 		value.PlaneUDirection = &workerv1.Vec3{X: pad.PlaneUDirection[0], Y: pad.PlaneUDirection[1], Z: pad.PlaneUDirection[2]}
@@ -100,6 +127,11 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 				item.Holes = append(item.Holes, loopProto(hole))
 			}
 			value.Regions = append(value.Regions, item)
+		}
+		value.Ruled = pad.Ruled
+		for _, section := range pad.Sections {
+			region := profilePadsProto([]ProfilePad{{Regions: []ProfileRegion{section.Region}}})[0].Regions[0]
+			value.Sections = append(value.Sections, &workerv1.LoftSectionSpec{SketchId: section.SketchID, Region: region, Origin: &workerv1.Vec3{X: section.Origin[0], Y: section.Origin[1], Z: section.Origin[2]}, Normal: &workerv1.Vec3{X: section.Normal[0], Y: section.Normal[1], Z: section.Normal[2]}, UDirection: &workerv1.Vec3{X: section.UDirection[0], Y: section.UDirection[1], Z: section.UDirection[2]}, Reversed: section.Reversed, SeamEntityId: section.SeamEntityID, SeamAngle: section.SeamAngle})
 		}
 		result = append(result, value)
 	}
