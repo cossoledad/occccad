@@ -36,7 +36,7 @@ export const useWorkbenchStore = create<WorkbenchState>()(persist((set) => ({
     set({ selections: unique, selection: unique.at(-1) ?? null, preselection: null });
   },
   setPreselection: (preselection) => set({ preselection }),
-  beginSketch: (activeSketchID, sketchPlane) => set({ activeSketchID, sketchPlane, activeToolID: "select", activeToolMode: "once" }),
+  beginSketch: (activeSketchID, sketchPlane) => set({ activeSketchID, sketchPlane, activeToolID: "select", activeToolMode: "once", selection: null, selections: [], preselection: null }),
   endSketch: () => set({ activeSketchID: undefined, sketchPlane: undefined, activeToolID: "select", activeToolMode: "once" }),
   setActiveTool: (activeToolID, activeToolMode) => set((state) => ({ activeToolID,
     activeToolMode: activeToolMode ?? (state.activeToolID === activeToolID ? state.activeToolMode : "once") })),

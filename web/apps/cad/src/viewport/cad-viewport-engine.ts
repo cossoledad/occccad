@@ -1,3 +1,4 @@
+import { makeSplineControlFeedback } from "../cad/rendering/spline-control-feedback";
 import { useUIPreferences, sketchLabelPositionKey } from "../state/ui-preferences";
 import { sketchMarqueeContains, type SketchScreenPoint } from "../cad/interaction/sketch-marquee";
 import { SketchModalInputController } from "../cad/sketch/sketch-modal-input";
@@ -819,7 +820,7 @@ export class CadViewportEngine {
     this.activeSketchID = sketchID;
     this.sketchPlane = plane;
     this.moveManipulator.detach();
-    if (entering) this.select({ kind: "plane", id: plane.datumPlaneId, plane: plane.plane });
+    if (entering) this.select(null);
     this.navigation.setEnabled(true);
     if (entering) {
       const frame = planeFrame(plane);
@@ -2356,7 +2357,11 @@ export class CadViewportEngine {
         object = makeSketchOverlayLine(positions, entityColor, entity.role === "CONSTRUCTION" ? 2 : 2.5, entity.role === "CONSTRUCTION");
         updateHighlightLineResolution(object, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
         object.renderOrder = entity.role === "CONSTRUCTION" ? SKETCH_FEEDBACK_ORDER.construction : SKETCH_FEEDBACK_ORDER.geometry;
-        const markerPoints:Vec2[] = entity.kind==="SPLINE"?splineEditablePoints(entity).map(p=>[p.x,p.y])
+        if (entity.kind === "SPLINE") group.add(makeSplineControlFeedback(
+          splineEditablePoints(entity).map(p => [p.x, p.y]), entity.mode ?? "FIT",
+          point => localToWorld(plane, point), this.materials,
+          {width: this.renderer.domElement.clientWidth, height: this.renderer.domElement.clientHeight}, CATIA_VISUAL_THEME.vertex));
+        const markerPoints:Vec2[] = entity.kind==="SPLINE"?[]
           :["CIRCLE","ELLIPSE"].includes(entity.kind)?[]:[worldToLocal(plane,positions[0]),worldToLocal(plane,positions.at(-1)!)];
         if(entity.center&&["CIRCLE","ARC","ELLIPSE","ELLIPTICAL_ARC"].includes(entity.kind))markerPoints.push([entity.center.x,entity.center.y]);
         if(entity.center&&["ELLIPSE","ELLIPTICAL_ARC"].includes(entity.kind)){
@@ -2787,7 +2792,12 @@ export class CadViewportEngine {
     const point = this.raycaster.ray.intersectPlane(rayPlane(this.sketchPlane), new THREE.Vector3());
     if (!point) { this.clearSnapPreview(); return null; }
     const raw = worldToLocal(this.sketchPlane, point);
-    const snapEntities = this.visibleSketchReferenceEntities();
+    return this.snapSketchLocalPoint(raw, geometryOnly);
+  }
+
+  private snapSketchLocalPoint(raw: Vec2, geometryOnly=false, excludedEntityId?:string): Vec2 {
+    if (!this.sketchPlane) return raw;
+    const snapEntities = this.visibleSketchReferenceEntities().filter(entity=>entity.id!==excludedEntityId);
     const screen = (local: Vec2) => {
       const projected = localToWorld(this.sketchPlane!, local).project(this.camera);
       return [(projected.x + 1) * this.renderer.domElement.clientWidth / 2,
@@ -2864,6 +2874,10 @@ export class CadViewportEngine {
       const line=points.length===1?new THREE.Points(new THREE.BufferGeometry().setFromPoints(points),this.materials.point(color,12,false)):makeSketchOverlayLine(points,color,dashed?4:2.75,dashed);
       line.renderOrder=dashed?SKETCH_FEEDBACK_ORDER.trim:SKETCH_FEEDBACK_ORDER.preview;
       updateHighlightLineResolution(line,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);group.add(line);
+      if (!dashed && entity.kind === "SPLINE") group.add(makeSplineControlFeedback(
+        splineEditablePoints(entity).map(p => [p.x, p.y]), entity.mode ?? "FIT",
+        point => localToWorld(this.sketchPlane!, point), this.materials,
+        {width: this.renderer.domElement.clientWidth, height: this.renderer.domElement.clientHeight}, color, SKETCH_FEEDBACK_ORDER.preview + 3));
     }};
     draw(candidate.entities,CATIA_VISUAL_THEME.preview,false);
     draw(candidate.hitEntities,0xe05252,true);
@@ -3014,20 +3028,28 @@ export class CadViewportEngine {
       sketchManipulatorPointerMove:(id,x,y)=>this.sketchManipulator?.pointerMove(id,x,y,this.camera,this.renderer.domElement)??false,
       sketchManipulatorPointerUp:(id,commit)=>this.sketchManipulator?.pointerUp(id,commit)??false,
       sketchPoint: (x, y) => this.sketchPoint(x, y),
+      snapSketchEditPoint: (point, entityId) => this.snapSketchLocalPoint(point, true, entityId),
       sketchSnapReference: () => {
         const snap=this.lastSketchSnap;
         if(!snap)return undefined;
         if(snap.kind==="ORIGIN")return {target:"SKETCH_ORIGIN",subElement:"POINT"};
-        if(snap.entityId && (snap.subElement==="POINT"||snap.subElement==="START"||snap.subElement==="END"||snap.subElement==="CENTER")) {
+        if(snap.entityId && (snap.subElement==="POINT"||snap.subElement==="START"||snap.subElement==="END"||snap.subElement==="CENTER"||snap.subElement==="CONTROL")) {
           const external = this.sketchView()?.part?.features.find((feature) => feature.id === this.activeSketchID)?.sketch?.externalGeometry
             ?.some((candidate) => candidate.id === snap.entityId);
-          return {target:external?"EXTERNAL":"ENTITY",entityId:snap.entityId,subElement:snap.subElement};
+          return {target:external?"EXTERNAL":"ENTITY",entityId:snap.entityId,subElement:snap.subElement,...(snap.subElement==="CONTROL"?{controlPointIndex:snap.controlPointIndex,controlPointId:snap.controlPointId}:{})};
         }
         return undefined;
       },
       sketchPlacementPoint: (x, y) => this.rawSketchPoint(x, y) ?? null,
       showPolylinePreview: (points, closed = false) => {
         if (this.sketchPlane) this.drawPreview(points, closed, this.sketchPlane);
+      },
+      showSplineControlPreview: (points, mode) => {
+        if (!this.preview || !this.sketchPlane) return;
+        this.preview.add(makeSplineControlFeedback(points, mode, point => localToWorld(this.sketchPlane!, point),
+          this.materials, {width: this.renderer.domElement.clientWidth, height: this.renderer.domElement.clientHeight},
+          CATIA_VISUAL_THEME.preview, SKETCH_FEEDBACK_ORDER.preview + 3));
+        this.invalidate();
       },
       showPointPreview: (point) => {
         if (this.sketchPlane) this.drawPointPreview(point, this.sketchPlane);
@@ -3101,6 +3123,10 @@ export class CadViewportEngine {
           const primitive=entity.kind==="POINT"?new THREE.Points(new THREE.BufferGeometry().setFromPoints(points),this.materials.point(CATIA_VISUAL_THEME.preview,11,false)):
             makeSketchOverlayLine(points,CATIA_VISUAL_THEME.preview,2.75,entity.role==="CONSTRUCTION");
           primitive.renderOrder=SKETCH_FEEDBACK_ORDER.preview;updateHighlightLineResolution(primitive,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);group.add(primitive);
+          if (entity.kind === "SPLINE") group.add(makeSplineControlFeedback(
+            splineEditablePoints(entity).map(p => [p.x, p.y]), entity.mode ?? "FIT", point => localToWorld(this.sketchPlane!, point),
+            this.materials, {width: this.renderer.domElement.clientWidth, height: this.renderer.domElement.clientHeight},
+            CATIA_VISUAL_THEME.preview, SKETCH_FEEDBACK_ORDER.preview + 3));
         }
         this.preview=group;this.attachSketchPreview(group);this.invalidate();
       },

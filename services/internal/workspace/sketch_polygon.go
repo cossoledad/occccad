@@ -44,9 +44,22 @@ func applySketchPolygon(sketch *SketchFeature, op SketchOperation) error {
 		} else {
 			add(fmt.Sprintf("circle/%d", i), "POINT_ON_OBJECT", []SketchGeometryRef{ref(id, "START"), ref(circleID, "WHOLE")}, nil)
 		}
-		if i > 0 {
+		if i > 0 && !(op.Mode == "INSCRIBED" && op.Sides%2 == 0 && i == op.Sides-1) {
 			add(fmt.Sprintf("equal/%d", i), "EQUAL", []SketchGeometryRef{ref(ids[0], "WHOLE"), ref(id, "WHOLE")}, nil)
 		}
+	}
+	// Even tangential polygons have an alternating tangent-length freedom.
+	// Anchor one tangency at a side midpoint to remove it. The last equal-side
+	// equation is then implied by closure; omit it rather than add redundancy.
+	// For odd side counts the existing equal-side equations already imply this.
+	if op.Mode == "INSCRIBED" && op.Sides%2 == 0 {
+		midpointID := macroID(op.OperationID, "midpoint-radius")
+		a, b := vertices[0], vertices[1]
+		midpoint := SketchPoint2{X: (a.X + b.X) / 2, Y: (a.Y + b.Y) / 2}
+		ops = append(ops, SketchOperation{Type: "ADD_ENTITY", Entity: &SketchEntity{ID: midpointID, Kind: "LINE", Role: "CONSTRUCTION", Start: op.Point, End: &midpoint, CreatedByOperationID: op.OperationID}})
+		add("midpoint-on-side", "MIDPOINT", []SketchGeometryRef{ref(midpointID, "END"), ref(ids[0], "WHOLE")}, nil)
+		add("midpoint-radius-center", "COINCIDENT", []SketchGeometryRef{ref(midpointID, "START"), ref(circleID, "CENTER")}, nil)
+		add("midpoint-radius-normal", "PERPENDICULAR", []SketchGeometryRef{ref(midpointID, "WHOLE"), ref(ids[0], "WHOLE")}, nil)
 	}
 	if op.FirstReference != nil {
 		add("center-connection", "COINCIDENT", []SketchGeometryRef{ref(circleID, "CENTER"), *op.FirstReference}, nil)

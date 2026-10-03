@@ -8,7 +8,7 @@ import (
 
 func TestSketchPolygonGeometryAndAtomicity(t *testing.T) {
 	for _, mode := range []string{"INSCRIBED", "CIRCUMSCRIBED"} {
-		for _, n := range []int{3, 4, 7, 50} {
+		for _, n := range []int{3, 4, 6, 7, 8, 50} {
 			t.Run(fmt.Sprintf("%s/%d", mode, n), func(t *testing.T) {
 				s := SketchFeature{SchemaVersion: SketchSchemaVersion}
 				radius := 5.0
@@ -19,10 +19,14 @@ func TestSketchPolygonGeometryAndAtomicity(t *testing.T) {
 				if err := validateSketch(s); err != nil {
 					t.Fatal(err)
 				}
-				if len(s.Entities) != n+1 || s.Entities[0].Role != "CONSTRUCTION" {
+				wantEntities := n + 1
+				if mode == "INSCRIBED" && n%2 == 0 {
+					wantEntities++
+				}
+				if len(s.Entities) != wantEntities || s.Entities[0].Role != "CONSTRUCTION" {
 					t.Fatal("missing ordinary geometry or construction circle")
 				}
-				for _, e := range s.Entities[1:] {
+				for _, e := range s.Entities[1 : n+1] {
 					distance := math.Hypot(e.Start.X-13, e.Start.Y+9)
 					want := radius
 					if mode == "INSCRIBED" {
@@ -37,6 +41,19 @@ func TestSketchPolygonGeometryAndAtomicity(t *testing.T) {
 						if math.Abs(normalDistance-radius) > 1e-10 {
 							t.Fatal("side not tangent to circle")
 						}
+					}
+				}
+				if mode == "INSCRIBED" && n%2 == 0 {
+					radiusLine := s.Entities[n+1]
+					if radiusLine.Role != "CONSTRUCTION" || radiusLine.Kind != "LINE" || radiusLine.CreatedByOperationID != op.OperationID {
+						t.Fatal("missing traceable midpoint radius")
+					}
+					kinds := map[string]int{}
+					for _, c := range s.Constraints {
+						kinds[c.Kind]++
+					}
+					if kinds["MIDPOINT"] != 1 || kinds["PERPENDICULAR"] != 1 || kinds["EQUAL"] != n-2 {
+						t.Fatalf("regularity equations: %v", kinds)
 					}
 				}
 				loops, err := buildProfileLoops(Feature{ID: "sketch", Type: "SKETCH", Sketch: &s}, true)

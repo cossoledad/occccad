@@ -20,8 +20,10 @@ import {sketchCommitResultUnknown,type SketchCommandAction} from "./sketch-comma
 export type ToolViewportPort = {
   sketchPoint(x: number, y: number): Vec2 | null;
   sketchSnapReference(): SketchGeometryRef | undefined;
+  snapSketchEditPoint?(point: Vec2, excludedEntityId: string): Vec2;
   sketchPlacementPoint(x: number, y: number): Vec2 | null;
   showPolylinePreview(points: Vec2[], closed?: boolean): void;
+  showSplineControlPreview?(points: readonly Vec2[], mode: "FIT" | "CONTROL"): void;
   showPointPreview(point: Vec2): void;
   showReferenceDimensions(geometry: readonly SketchReferenceGeometry[]): void;
   clearToolPreview(): void;
@@ -106,7 +108,13 @@ export class SelectTool implements CadTool {
     // Every target is measured from the frozen gesture baseline. Accepted or
     // constrained coordinates never become a second accumulated displacement.
     gesture.point=[gesture.baseline[0]+current[0]-gesture.pointerBaseline[0],gesture.baseline[1]+current[1]-gesture.pointerBaseline[1]];
-    if(gesture.moved)context.viewport.showPointPreview(gesture.point);return true;
+    if(gesture.moved) {
+      if(gesture.reference.subElement==="CONTROL"&&!event.state.modifiers?.alt)
+        gesture.point=context.viewport.snapSketchEditPoint?.(gesture.point,gesture.reference.entityId!)??gesture.point;
+      if(gesture.reference.subElement==="CONTROL"&&event.state.modifiers?.alt)context.viewport.clearToolPreview();
+      context.viewport.showPointPreview(gesture.point);
+    }
+    return true;
   }
   activate(context: ToolContext): void { context.viewport.clearReferencePreview();context.viewport.clearToolPreview();context.viewport.setToolPrompt("选择：选择草图元素，或从工具栏启动创建命令"); }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
@@ -131,7 +139,14 @@ export class SelectTool implements CadTool {
   }
   pointerMove(event: CadPointerEvent, context: ToolContext): InputResult {
     if(event.pointerId===this.sketchPointPointer?.id){this.updateSketchPointGesture(event,context);return InputResult.Consumed;}
-    if (event.pointerId !== this.dimensionPointer?.id) return InputResult.Ignored;
+    if (event.pointerId !== this.dimensionPointer?.id) {
+      if (context.viewport.hasActiveSketch() && !event.state.buttons.left && !event.state.buttons.middle && !event.state.buttons.right) {
+        const control = context.viewport.sketchReferenceAt?.(event.x,event.y,"EDIT_POINT",undefined,ref=>ref.subElement==="CONTROL");
+        if (control) context.viewport.showReferencePreview?.(control);
+        else context.viewport.clearReferencePreview?.();
+      }
+      return InputResult.Ignored;
+    }
     if (Math.hypot(event.x - this.dimensionPointer.x, event.y - this.dimensionPointer.y) >= 3) this.dimensionPointer.moved = true;
     context.viewport.updateDimensionDrag(event.x, event.y);this.dimensionPointer.lastTarget=[event.x,event.y];
     return InputResult.Consumed;
@@ -666,6 +681,7 @@ abstract class MultiPointSketchTool extends SketchCreationTool {
   private lastClick?:{x:number;y:number;at:number};
   abstract readonly prompt:string; abstract minimumPoints:number; abstract commit(context:ToolContext):void;
   protected resetCreation():void {}
+  protected previewPoints(points:Vec2[],context:ToolContext):void {context.viewport.showPolylinePreview(points);}
   protected addPoint(value:Vec2,snap:SketchGeometryRef|undefined):void {this.points.push(value);this.snaps.push(snap);}
   selectionInput(selections:readonly SelectionItem[],context:ToolContext):SelectionInputResult {
     if(this.points.length)return SelectionInputResult.Rejected;const source=localSketchSelection(selections,context).find(entity=>entity.kind==="POINT"&&entity.point);
@@ -682,10 +698,10 @@ abstract class MultiPointSketchTool extends SketchCreationTool {
     if(previous&&at-previous.at<=450&&Math.hypot(event.x-previous.x,event.y-previous.y)<=6&&this.points.length>=this.minimumPoints){this.lastClick=undefined;this.finish(context);return InputResult.Capture;}
     const last=this.points.at(-1);if(last&&Math.hypot(value[0]-last[0],value[1]-last[1])<SKETCH_INPUT_POLICY.minimumGeometryLength)return InputResult.Capture;
     if(this.points.length>0&&Math.hypot(value[0]-this.points[0][0],value[1]-this.points[0][1])<SKETCH_INPUT_POLICY.minimumGeometryLength&&this.points.length>=this.minimumPoints){this.addPoint(this.points[0],this.snaps[0]);this.lastClick=undefined;this.finish(context);return InputResult.Capture;}
-    this.addPoint(value,this.capturedSnap(event,context));this.lastClick={x:event.x,y:event.y,at};context.viewport.showPolylinePreview(this.points);return InputResult.Capture;
+    this.addPoint(value,this.capturedSnap(event,context));this.lastClick={x:event.x,y:event.y,at};this.previewPoints(this.points,context);return InputResult.Capture;
   }
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {
-    if(this.creationPending)return InputResult.Consumed;if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;if(this.points.length>0)context.viewport.showPolylinePreview([...this.points,value]);return InputResult.Consumed;}
+    if(this.creationPending)return InputResult.Consumed;if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;if(this.points.length>0)this.previewPoints([...this.points,value],context);return InputResult.Consumed;}
   pointerUp(event:CadPointerEvent):InputResult {if(event.button!==0||event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.capturedPointerID=undefined;return InputResult.ReleaseCapture;}
   keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {
     if(this.creationPending){if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}const shared=this.creationKey(event,context);if(shared!==InputResult.Ignored)return shared;if(event.key==="Enter"&&this.points.length>=this.minimumPoints){this.finish(context);return InputResult.Consumed;}if(event.key==="Escape"&&this.points.length>0){this.cancel(context);return InputResult.Consumed;}return InputResult.Ignored;}
@@ -783,9 +799,14 @@ export class SplineSketchTool extends MultiPointSketchTool {
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {
     if(this.creationPending)return InputResult.Consumed;if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
     const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;if(this.points.length>0){const fit=[...this.points,value];
-      const points=fit.map(([x,y])=>({x,y}));
-      context.viewport.showPolylinePreview(this.mode==="FIT"?sampleInterpolatingSpline(fit,false,64):sampleSketchEntity(this.controlEntity("preview",points,false),64));
+      this.previewPoints(fit,context);
       context.viewport.showReferenceDimensions([{kind:"LINE",start:fit.at(-2)!,end:value}]);}return InputResult.Consumed;}
+  protected previewPoints(points:Vec2[],context:ToolContext):void {
+    const curve = points.length < 2 ? points : this.mode === "FIT" ? sampleInterpolatingSpline(points,false,64)
+      : sampleSketchEntity(this.controlEntity("preview",points.map(([x,y])=>({x,y})),false),64);
+    context.viewport.showPolylinePreview(curve);
+    context.viewport.showSplineControlPreview?.(points,this.mode);
+  }
   private controlEntity(id:string,poles:SketchEntity["poles"],closed:boolean):SketchEntity {
     const count=poles!.length,degree=Math.min(3,count-1),spans=count-degree;
     return{id,kind:"SPLINE",role:this.role,mode:"CONTROL",poles,poleIds:poles!.map(()=>randomUUID()),degree,closed,

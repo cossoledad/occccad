@@ -24,6 +24,10 @@ Part Revision 的 `model_json` 保存显式 `bodies[]`、`activeBodyId` 和带 `
 
 Geometry Worker 内的项目自有 `SketchSolver` 已通过 `SolveSketch` 粗粒度 RPC 接入提交链，PlaneGCS 只存在于适配层内部。当前支持 Coincident、H/V、Parallel、Perpendicular、Collinear、Fixed/FixedPoint、按精确类型限制的 Tangent/Equal/Concentric/PointOnObject、Midpoint/Symmetry，驱动 Distance、signed H/V Distance、Length、Radius/Diameter、Angle、Major/Minor Radius，以及生成操作的 MIRROR/SAME_SUPPORT 关系。Geometry client 是唯一协议适配边界：Worker 的历史 `SOLVED`/`INVALID_MODEL` 名称在此归一为平台 `FULLY_CONSTRAINED`/`INVALID`，PlaneGCS 整数返回码不会进入服务、Revision 或用户错误。求解结果把约束程度 `FULLY_CONSTRAINED / UNDER_CONSTRAINED / UNRESOLVED` 与诊断 `REDUNDANT / CONFLICTING` 正交保存；零 DoF 的闭包即使存在冗余，几何仍显示完全约束色，只有冗余约束本身显示诊断色。宏生成的 `internal` 约束仍参与求解和冲突诊断，但其纯冗余项不阻止整个原子宏提交；用户显式添加的无关冗余约束报告 REDUNDANT。Symmetry 支持“点—直线—点”的轴对称及“点—点—点”的中心对称；当其基于内置 U/V 轴且一个方程已被同一线段的 Horizontal/Vertical/对应轴 Parallel 隐含时，适配层保留复合设计意图。Spline 显式区分 FIT 插值通过点与 CONTROL 控制极点。FIT 的 `controlPoints` 历史字段仍表示拟合点，`controlPointIds` 是其稳定身份；CONTROL 使用 `poles/poleIds`。权威 OCCT 返回非周期 clamped rational B-Spline 的实际 degree、唯一 knots、multiplicities、weights 和参数域，显示及 Profile 消费该 canonical 曲线。FIT 点移动/插入/删除后重新插值；CONTROL 点移动保留 basis，增加/删除通过合法 knot insertion/removal，后者通过齐次系数逆操作一致性验证，不重拟合采样点。改变 basis 时失去唯一对应的点引用须显式释放；保持的点身份不随数组插入变化。FIT 转 CONTROL 是正式操作，保留拟合来源和精确 canonical 曲线；开闭操作不承诺闭合接缝的切向连续。完整样条曲率/G2/G3 约束未交付。Web 预览是瞬态状态；`EDIT_SKETCH` 提交后服务端求解结果才进入不可变 Revision。
 
+`CREATE_POLYGON` 生成普通边、构造圆和正式内部约束。内接圆模式中，偶数边的等长相切多边形额外用构造半径连接圆心与第一边中点，并约束半径垂直该边，消除交替切线长度自由度；省去由闭合隐含的最后一项等长。奇数边的等长相切关系已隐含中点切触，不重复添加方程。辅助半径不参与 Profile，和整体创建共用稳定操作来源及原子历史。
+
+进入草图会原子清空浏览选择与候选，支撑面不成为下一条草图命令的预选。样条绘制、编辑预览及持久显示共用屏幕像素点标记；CONTROL 额外显示控制多边形，FIT 只显示拟合点。自动点捕获及显式点拾取保留 `controlPointId`，不会将控制极点误当成曲线上的采样点；禁用点捕获不禁用显式编辑拾取。Select 拖动样条点沿冻结手势基线计算目标，再捕获其它可见草图元素；排除被编辑样条自身和网格，Alt 暂时跳过捕获。捕获位置预览不隐式建立新的 Coincident。
+
 ```mermaid
 stateDiagram-v2
     [*] --> Validate

@@ -1,6 +1,7 @@
+import { SPLINE_CONTROL_FEEDBACK } from "../rendering/sketch-feedback-style";
 import type { SketchEntity, Vec2 } from "../../types";
 import type { SketchSnapCaptureKind } from "./capture-settings";
-import { sampleSketchEntity } from "../sketch/sketch-geometry";
+import { sampleSketchEntity, splineEditablePoints, splineEditablePointIDs } from "../sketch/sketch-geometry";
 
 export type SketchSnapKind = "ORIGIN" | "POINT" | "ENDPOINT" | "CENTER" | "MIDPOINT" | "CURVE" | "GRID";
 
@@ -9,7 +10,9 @@ export type SketchSnapResult = {
   kind: SketchSnapKind;
   distancePixels: number;
   entityId?: string;
-  subElement?: "POINT" | "START" | "END" | "CENTER" | "DIRECTION";
+  subElement?: "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL";
+  controlPointIndex?: number;
+  controlPointId?: string;
 };
 
 type Candidate = SketchSnapResult & { priority: number };
@@ -42,16 +45,22 @@ export function resolveSketchSnap(raw: Vec2, entities: SketchEntity[], pixelsPer
   const scale = Math.max(pixelsPerUnit, 1.0e-6);
   const candidates: Candidate[] = [];
   const offer = (point: Vec2, kind: SketchSnapKind, priority: number, entityId?: string,
-    subElement?: SketchSnapResult["subElement"], threshold = thresholdPixels) => {
+    subElement?: SketchSnapResult["subElement"], threshold = thresholdPixels, controlPointIndex?: number, controlPointId?: string) => {
     const distancePixels = project ? distance(project(raw), project(point)) : distance(raw, point) * scale;
-    if (distancePixels <= threshold) candidates.push({ point, kind, priority, distancePixels, entityId, subElement });
+    if (distancePixels <= threshold) candidates.push({ point, kind, priority, distancePixels, entityId, subElement, controlPointIndex, controlPointId });
   };
 
   if (enabled.includes("ORIGIN")) offer([0, 0], "ORIGIN", 600, undefined, undefined, 13);
   for (const entity of entities) {
+    if (entity.suppressed) continue;
     if (enabled.includes("POINT") && entity.kind === "POINT" && entity.point) {
       offer([entity.point.x, entity.point.y], "POINT", 550, entity.id, "POINT", 13);
       continue;
+    }
+    if (enabled.includes("POINT") && entity.kind === "SPLINE") {
+      const ids = splineEditablePointIDs(entity);
+      splineEditablePoints(entity).forEach((point, index) =>
+        offer([point.x, point.y], "POINT", 540, entity.id, "CONTROL", SPLINE_CONTROL_FEEDBACK.pickRadius, index, ids[index]));
     }
     const sampled = sampleSketchEntity(entity, 64);
     if (sampled.length < 2) continue;
@@ -83,5 +92,7 @@ export function resolveSketchSnap(raw: Vec2, entities: SketchEntity[], pixelsPer
   const result: SketchSnapResult = { point: best.point, kind: best.kind, distancePixels: best.distancePixels };
   if (best.entityId !== undefined) result.entityId = best.entityId;
   if (best.subElement !== undefined) result.subElement = best.subElement;
+  if (best.controlPointIndex !== undefined) result.controlPointIndex = best.controlPointIndex;
+  if (best.controlPointId !== undefined) result.controlPointId = best.controlPointId;
   return result;
 }
