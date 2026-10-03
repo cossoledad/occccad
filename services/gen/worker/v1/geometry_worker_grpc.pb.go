@@ -22,6 +22,7 @@ const (
 	GeometryWorker_Ping_FullMethodName                    = "/occccad.worker.v1.GeometryWorker/Ping"
 	GeometryWorker_EvaluatePart_FullMethodName            = "/occccad.worker.v1.GeometryWorker/EvaluatePart"
 	GeometryWorker_SolveSketch_FullMethodName             = "/occccad.worker.v1.GeometryWorker/SolveSketch"
+	GeometryWorker_ComputeSketchCurves_FullMethodName     = "/occccad.worker.v1.GeometryWorker/ComputeSketchCurves"
 	GeometryWorker_ProjectExternalGeometry_FullMethodName = "/occccad.worker.v1.GeometryWorker/ProjectExternalGeometry"
 	GeometryWorker_SolveAssembly_FullMethodName           = "/occccad.worker.v1.GeometryWorker/SolveAssembly"
 	GeometryWorker_InspectExchange_FullMethodName         = "/occccad.worker.v1.GeometryWorker/InspectExchange"
@@ -46,6 +47,8 @@ type GeometryWorkerClient interface {
 	// Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
 	// implementation detail of this coarse-grained boundary.
 	SolveSketch(ctx context.Context, in *SolveSketchRequest, opts ...grpc.CallOption) (*SolveSketchResponse, error)
+	// Pure exact-curve computation over immutable sketch inputs.
+	ComputeSketchCurves(ctx context.Context, in *ComputeSketchCurvesRequest, opts ...grpc.CallOption) (*ComputeSketchCurvesResponse, error)
 	// Project one already-resolved stable topology element into an immutable
 	// sketch support frame. Document identity and naming resolution stay in
 	// the control plane; this RPC owns authoritative projection geometry.
@@ -104,6 +107,16 @@ func (c *geometryWorkerClient) SolveSketch(ctx context.Context, in *SolveSketchR
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(SolveSketchResponse)
 	err := c.cc.Invoke(ctx, GeometryWorker_SolveSketch_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *geometryWorkerClient) ComputeSketchCurves(ctx context.Context, in *ComputeSketchCurvesRequest, opts ...grpc.CallOption) (*ComputeSketchCurvesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ComputeSketchCurvesResponse)
+	err := c.cc.Invoke(ctx, GeometryWorker_ComputeSketchCurves_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -231,6 +244,8 @@ type GeometryWorkerServer interface {
 	// Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
 	// implementation detail of this coarse-grained boundary.
 	SolveSketch(context.Context, *SolveSketchRequest) (*SolveSketchResponse, error)
+	// Pure exact-curve computation over immutable sketch inputs.
+	ComputeSketchCurves(context.Context, *ComputeSketchCurvesRequest) (*ComputeSketchCurvesResponse, error)
 	// Project one already-resolved stable topology element into an immutable
 	// sketch support frame. Document identity and naming resolution stay in
 	// the control plane; this RPC owns authoritative projection geometry.
@@ -273,6 +288,9 @@ func (UnimplementedGeometryWorkerServer) EvaluatePart(context.Context, *Evaluate
 }
 func (UnimplementedGeometryWorkerServer) SolveSketch(context.Context, *SolveSketchRequest) (*SolveSketchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SolveSketch not implemented")
+}
+func (UnimplementedGeometryWorkerServer) ComputeSketchCurves(context.Context, *ComputeSketchCurvesRequest) (*ComputeSketchCurvesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ComputeSketchCurves not implemented")
 }
 func (UnimplementedGeometryWorkerServer) ProjectExternalGeometry(context.Context, *ProjectExternalGeometryRequest) (*ProjectExternalGeometryResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProjectExternalGeometry not implemented")
@@ -378,6 +396,24 @@ func _GeometryWorker_SolveSketch_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GeometryWorkerServer).SolveSketch(ctx, req.(*SolveSketchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GeometryWorker_ComputeSketchCurves_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ComputeSketchCurvesRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GeometryWorkerServer).ComputeSketchCurves(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GeometryWorker_ComputeSketchCurves_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GeometryWorkerServer).ComputeSketchCurves(ctx, req.(*ComputeSketchCurvesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -598,6 +634,10 @@ var GeometryWorker_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SolveSketch",
 			Handler:    _GeometryWorker_SolveSketch_Handler,
+		},
+		{
+			MethodName: "ComputeSketchCurves",
+			Handler:    _GeometryWorker_ComputeSketchCurves_Handler,
 		},
 		{
 			MethodName: "ProjectExternalGeometry",

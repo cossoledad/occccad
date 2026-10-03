@@ -1,10 +1,10 @@
 import type { ToolbarCatalog, ToolbarCatalogEntry, ToolbarCatalogItem } from "../types";
 
-type ItemSeed = [commandId: string, name: string, iconKey: string, helpText?: string, repeatable?: boolean];
+type ItemSeed = [commandId: string, name: string, iconKey: string, helpText?: string, repeatable?: boolean, groupKey?: string];
 
-const items = (seeds: ItemSeed[]): ToolbarCatalogItem[] => seeds.map(([commandId, name, iconKey, helpText, repeatable], index) => ({
+const items = (seeds: ItemSeed[]): ToolbarCatalogItem[] => seeds.map(([commandId, name, iconKey, helpText, repeatable, groupKey], index) => ({
   commandId, name, iconKey, helpText: helpText ?? `${name}命令。`, repeatable: repeatable ?? false,
-  groupKey: "primary", sortOrder: (index + 1) * 10,
+  groupKey: groupKey ?? "primary", sortOrder: (index + 1) * 10,
 }));
 
 const toolbar = (id: string, name: string, workbench: ToolbarCatalogEntry["workbench"],
@@ -42,14 +42,44 @@ export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: 
   toolbar("sketch-primitives", "草图基本元素", "SKETCHER", "top-left", "sketch", 30, [
     ["sketch.point", "点", "point", undefined, true], ["sketch.line", "直线", "line", undefined, true],
     ["sketch.arc", "圆弧", "arc", undefined, true], ["sketch.polyline", "多段线", "polyline", undefined, true],
-    ["sketch.spline", "过点曲线", "spline", undefined, true],
+    ["sketch.spline", "拟合点样条", "spline", "采集拟合点并创建必须经过这些点的插值样条；双击或 Enter 完成。", true],
+    ["sketch.spline.control", "控制点样条", "spline", "创建控制点 B-Spline，曲线不要求经过控制点；闭合缝不保证切向连续。", true, "more"],
   ]),
   toolbar("sketch-profiles", "草图轮廓", "SKETCHER", "top-left", "sketch", 40, [
     ["sketch.rectangle", "矩形", "rectangle", undefined, true], ["sketch.polygon", "正六边形", "polygon", undefined, true],
-    ["sketch.circle", "圆", "circle", undefined, true], ["sketch.slot", "长圆孔", "slot", undefined, true],
+    ["sketch.circle", "圆", "circle", undefined, true],
+    ["sketch.circle.three_point", "三点圆", "circle", "依次选择三个圆周点创建真实圆。", true, "more"],
+    ["sketch.arc.three_point", "三点圆弧", "arc", "依次选择起点、经过点和终点，方向由经过点确定。", true, "more"],
+    ["sketch.rectangle.center", "中心矩形", "rectangle", "选择中心与角点；中心由辅助对角线及中点约束保持。", true, "more"],
+    ["sketch.rectangle.oriented", "定向矩形", "rectangle", "选择底边两点及高度创建任意方向矩形。", true, "more"],
+    ["sketch.ellipse", "椭圆", "circle", "选择中心、主轴及次轴；圆形请使用圆工具。", true, "more"],
+    ["sketch.elliptical_arc", "椭圆弧", "arc", "定义椭圆后选择弧范围；R 切换方向。", true, "more"],
+  ]),
+  toolbar("sketch-edit", "草图编辑", "SKETCHER", "top-left", "sketch", 45, [
+    ["sketch.edit.delete", "删除几何", "delete", "删除选定本地几何及明确受影响的约束。"],
+    ["sketch.edit.copy", "复制几何", "copy", "生成独立几何副本；I 可选择只复制所选集合内部约束。"],
+    ["sketch.edit.move", "移动几何", "move", "保留现有约束；选择基点及目标点，或输入 X/Y 位移。"],
+    ["sketch.edit.rotate", "旋转几何", "rotate", "选择中心、基准点及目标点，或输入角度。"],
+    ["sketch.edit.scale", "统一缩放", "scale", "选择中心及两参考点，或输入正比例；驱动尺寸冲突时拒绝。"],
+    ["sketch.edit.mirror", "镜像", "mirror", "默认关联镜像；M 切换独立副本，选择直线或按 X/Y 使用内置轴。"],
+    ["sketch.edit.spline_insert", "样条插入点/结点", "point", "FIT 插入拟合点；CONTROL 精确插入结点，保持曲线形状。", false, "more"],
+    ["sketch.edit.spline_delete", "样条删除点/结点", "delete", "FIT 删除明确拟合点；CONTROL 仅允许精确移除结点，不任意删 pole。", false, "more"],
+    ["sketch.edit.spline_close", "样条开/闭合", "spline", "明确切换样条开闭；闭合缝不保证高阶连续。", false, "more"],
+    ["sketch.edit.spline_control", "转控制点样条", "spline", "将 FIT 的已求解 canonical 曲线精确转为 CONTROL，先说明点引用影响。", false, "more"],
+    ["sketch.edit.extend", "延伸", "line", "明确端点、边界及交点分支；外部边界只读，权威内核计算交点。"],
+    ["sketch.edit.offset", "二维偏移", "reference", "线段、圆、圆弧及连续链的有符号独立偏移；M 切换斜接/圆角。"],
+    ["sketch.edit.complement", "圆弧补弧", "arc", "改为另一补弧；U 显式解除受影响整体/端点关系。", false, "more"],
+    ["sketch.edit.close", "闭合曲线", "circle", "圆弧/椭圆弧转完整周期曲线；旧端点引用不静默转绑。", false, "more"],
+    ["sketch.edit.fillet", "草图圆角", "arc", "选择两条线/圆弧的裁切端部与分支，输入半径；B 可加入原子多角点批次。"],
+    ["sketch.edit.chamfer", "草图倒角", "line", "两条线段；M 切换等长/双长度/长度加角度，K 保留或修剪支撑，B 批次。"],
+    ["sketch.edit.trim", "修剪范围", "reference", "输入真实参数域中保留范围；交点与合法曲线子段由内核计算。"],
+    ["sketch.edit.quick_trim", "快速修剪", "reference", "选边界及命中段；Q 切换删除、保留或打断，权威内核计算交点。"],
+    ["sketch.edit.split", "分割几何", "reference", "输入真实参数域的比例位置；约束引用由控制面映射。", false, "more"],
+    ["sketch.edit.construction", "标准/辅助转换", "reference", "原子切换选定几何的轮廓角色。", false, "more"],
   ]),
   toolbar("sketch-geometric-constraints", "几何约束", "SKETCHER", "top-left", "sketch", 50, [
     ["sketch.constraint.coincident", "重合", "coincident", undefined, true], ["sketch.constraint.parallel", "平行", "parallel", undefined, true],
+    ["sketch.constraint.collinear", "共线", "parallel", undefined, true],
     ["sketch.constraint.fixed", "固定", "fixed", undefined, true], ["sketch.constraint.horizontal", "水平", "horizontal", undefined, true],
     ["sketch.constraint.vertical", "垂直", "vertical", undefined, true], ["sketch.constraint.perpendicular", "垂直相交", "perpendicular", undefined, true],
     ["sketch.constraint.tangent", "相切", "tangent", undefined, true], ["sketch.constraint.equal", "相等", "equal", undefined, true],
@@ -58,6 +88,10 @@ export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: 
   ]),
   toolbar("sketch-dimensional-constraints", "尺寸约束", "SKETCHER", "top-left", "sketch", 60, [
     ["sketch.dimension.linear", "线性尺寸", "distance", undefined, true], ["sketch.constraint.radius", "半径", "radius", undefined, true],
+    ["sketch.constraint.horizontal_distance", "水平距离", "distance", "目标 X − 基准 X，允许负值和零。", true],
+    ["sketch.constraint.vertical_distance", "竖直距离", "distance", "目标 Y − 基准 Y，允许负值和零。", true],
+    ["sketch.constraint.major_radius", "长半轴", "radius", "设置椭圆或椭圆弧的长半轴长度 a。", true],
+    ["sketch.constraint.minor_radius", "短半轴", "radius", "设置椭圆或椭圆弧的短半轴长度 b。", true],
     ["sketch.constraint.angle", "角度", "angle", undefined, true],
   ]),
   toolbar("product-structure", "产品结构", "ASSEMBLY_DESIGN", "top-left", "assembly", 10, [

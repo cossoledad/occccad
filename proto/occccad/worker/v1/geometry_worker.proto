@@ -22,6 +22,9 @@ service GeometryWorker {
     // implementation detail of this coarse-grained boundary.
     rpc SolveSketch(SolveSketchRequest) returns (SolveSketchResponse);
 
+    // Pure exact-curve computation over immutable sketch inputs.
+    rpc ComputeSketchCurves(ComputeSketchCurvesRequest) returns (ComputeSketchCurvesResponse);
+
     // Project one already-resolved stable topology element into an immutable
     // sketch support frame. Document identity and naming resolution stay in
     // the control plane; this RPC owns authoritative projection geometry.
@@ -259,12 +262,39 @@ message SketchArc {
     string role = 6;
 }
 
+message SketchEllipse {
+    string id = 1;
+    Vec2 center = 2;
+    double major_radius = 3;
+    double minor_radius = 4;
+    double rotation = 5; // radians, major-axis direction in sketch coordinates
+    string role = 6;
+}
+message SketchEllipticalArc {
+    string id = 1;
+    Vec2 center = 2;
+    double major_radius = 3;
+    double minor_radius = 4;
+    double rotation = 5;
+    double start_angle = 6; // ellipse parameter, radians
+    double end_angle = 7; // signed sweep end, no implicit wrap
+    string role = 8;
+}
+
 message SketchSpline {
     string id = 1;
     repeated Vec2 control_points = 2;
     uint32 degree = 3;
     bool closed = 4;
     string role = 5;
+    string mode = 6; // FIT (control_points are fit points) or CONTROL (poles)
+    repeated Vec2 poles = 7;
+    repeated double knots = 8; // unique ascending knot values
+    repeated uint32 multiplicities = 9;
+    repeated double weights = 10;
+    bool periodic = 11;
+    double parameter_start = 12;
+    double parameter_end = 13;
 }
 
 message SketchGeometryRef {
@@ -287,6 +317,7 @@ message SketchConstraint {
     double value = 5;
     string unit = 6;
     bool internal = 7;
+ string self_mirror_mode = 8; // explicit self-map axis/pair intent
 }
 
 message SketchModel {
@@ -297,6 +328,8 @@ message SketchModel {
     repeated SketchCircle circles = 5;
     repeated SketchArc arcs = 6;
     repeated SketchSpline splines = 7;
+    repeated SketchEllipse ellipses = 8;
+    repeated SketchEllipticalArc elliptical_arcs = 9;
 }
 
 message SolveSketchRequest {
@@ -359,7 +392,7 @@ message EvaluatePartRequest {
 message ProfileCurve {
     string entity_id = 1;
     bool reversed = 2;
-    string kind = 3; // LINE | CIRCLE | ARC | SPLINE
+    string kind = 3; // LINE | CIRCLE | ARC | SPLINE | ELLIPSE | ELLIPTICAL_ARC
     Vec2 start = 4;
     Vec2 end = 5;
     Vec2 center = 6;
@@ -369,6 +402,46 @@ message ProfileCurve {
     repeated Vec2 control_points = 10;
     uint32 degree = 11;
     bool closed = 12;
+    double major_radius = 13;
+    double minor_radius = 14;
+    double rotation = 15;
+    string mode = 16;
+    repeated Vec2 poles = 17;
+    repeated double knots = 18;
+    repeated uint32 multiplicities = 19;
+    repeated double weights = 20;
+    bool periodic = 21;
+    double parameter_start = 22;
+    double parameter_end = 23;
+}
+
+message ComputeSketchCurvesRequest {
+    string request_id = 1;
+    string operation = 2; // NORMALIZE, INTERSECT, TRIM, PROFILE
+    repeated ProfileCurve curves = 3;
+    optional double parameter_start = 4;
+    optional double parameter_end = 5;
+ repeated ProfileLoop loops = 6;
+}
+message SketchCurveIntersection {
+    string kind = 1; // POINT, TANGENT, OVERLAP
+    Vec2 point = 2;
+    double first_parameter = 3;
+    double second_parameter = 4;
+}
+message SketchCurveOverlap {
+ double first_start = 1;
+ double first_end = 2;
+ double second_start = 3;
+ double second_end = 4;
+}
+message ComputeSketchCurvesResponse {
+    string status = 1; // OK, INVALID
+    repeated ProfileCurve curves = 2;
+    repeated SketchCurveIntersection intersections = 3;
+    string diagnostic = 4;
+    repeated SketchCurveOverlap overlaps = 5;
+ repeated ProfileRegion regions = 6;
 }
 
 message ProfileLoop {

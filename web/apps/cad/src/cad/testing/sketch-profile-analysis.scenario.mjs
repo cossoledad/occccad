@@ -1,0 +1,37 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(new URL("../../../package.json", import.meta.url));
+const { createServer } = await import(require.resolve("vite"));
+const server = await createServer({ appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+try {
+  const { sketchProfileFeedback } = await server.ssrLoadModule("/src/cad/sketch/sketch-profile-analysis.ts");
+  const { Properties } = await server.ssrLoadModule("/src/features/workbench/workbench-inspector.tsx");
+  const React = await import(require.resolve("react"));
+  const { renderToStaticMarkup } = await import(require.resolve("react-dom/server"));
+  const issue = { code: "OPEN_ENDPOINT", message: "轮廓端点尚未通过正式重合关系连接", entityIds: ["line"], position: { x: 10, y: 20 } };
+  const feature = { id: "s", type: "SKETCH", name: "Sketch.1", sketch: { entities: [], constraints: [], support: { type: "DATUM_PLANE", status: "CONNECTED" }, solve: { status: "FULLY_CONSTRAINED", degreesOfFreedom: 0 } } };
+  const view = { document: { id: "p", type: "PART" }, part: { features: [feature] } };
+  const markup = sourceView => renderToStaticMarkup(React.createElement(Properties, { view: sourceView, feature, selection: { kind: "feature", id: "s" }, workbench: "SKETCHER", activeTool: "select", navigationProfile: "CATIA" }));
+  const unknown = sketchProfileFeedback();
+  assert.equal(unknown.locations.length, 0);
+  assert.match(markup(view), /等待服务器轮廓分析/);
+  const open = { status: "OPEN", regionCount: 0, loopCount: 0, issues: [issue] };
+  const openView = { ...view, sketchAnalyses: { s: open } };
+  const before = JSON.stringify(openView);
+  const openMarkup = markup(openView);
+  assert.match(openMarkup, /开放轮廓，可继续编辑/);
+  assert.match(openMarkup, /FULLY_CONSTRAINED/);
+  assert.doesNotMatch(openMarkup, /Profile 闭合检查通过/);
+  assert.deepEqual(sketchProfileFeedback(open).locations, [[10, 20]]);
+  assert.match(openMarkup, /10.00, 20.00 mm/);
+  assert.equal(JSON.stringify(openView), before, "display leaves authoritative state unchanged");
+  const closedMarkup = markup({ ...view, sketchAnalyses: { s: { status: "CLOSED", geometryVerified: true, regionCount: 2, loopCount: 4, issues: [] } } });
+  assert.match(closedMarkup, /Profile 闭合检查通过/);
+  assert.match(closedMarkup, /2 个区域 \/ 4 个闭环/);
+  const unverified=markup({...view,sketchAnalyses:{s:{status:"CLOSED",geometryVerified:false,regionCount:2,loopCount:4,issues:[]}}});
+  assert.match(unverified,/等待精确几何验证/);assert.doesNotMatch(unverified,/Profile 闭合检查通过/);
+  const invalidMarkup = markup({ ...view, sketchAnalyses: { s: { status: "INVALID", regionCount: 0, loopCount: 0, issues: [{ ...issue, code: "DUPLICATE_EDGE", message: "重复轮廓元素" }] } } });
+  assert.match(invalidMarkup, /轮廓需要修复/);
+  assert.match(invalidMarkup, /重复轮廓元素/);
+  console.log("sketch profile analysis: production inspector uses server closure and locations independently of solver DOF");
+} finally { await server.close(); }

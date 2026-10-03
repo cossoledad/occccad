@@ -1,5 +1,5 @@
 import type { SketchConstraint, SketchEntity, SketchGeometryRef, Vec2 } from "../../types";
-import { sampleSketchEntity, sketchEntityPoint } from "./sketch-geometry";
+import { ellipsePoint, sampleSketchEntity, sketchEntityPoint, splineReferencePoint } from "./sketch-geometry";
 import { constraintDefinition } from "./sketch-constraint-definition";
 import { formatSketchDimensionValue } from "./sketch-input-policy";
 
@@ -25,8 +25,12 @@ export function sketchReferencePoint(reference: SketchGeometryRef, entities: Rea
   if (reference.target === "SKETCH_ORIGIN") return [0, 0];
   const entity = entityFor(reference, entities);
   if (!entity) return undefined;
+  if (reference.pointId && reference.pointId !== (reference.subElement === "START" ? entity.startPointId : reference.subElement === "END" ? entity.endPointId : undefined)) return undefined;
   if (["POINT", "START", "END", "CENTER"].includes(reference.subElement)) {
     return sketchEntityPoint(entity, reference.subElement as "POINT" | "START" | "END" | "CENTER");
+  }
+  if (reference.subElement === "CONTROL") {
+    return splineReferencePoint(entity, reference.controlPointIndex, reference.controlPointId);
   }
   if (entity.kind === "LINE" && entity.start && entity.end) {
     return [(entity.start.x + entity.end.x) / 2, (entity.start.y + entity.end.y) / 2];
@@ -39,8 +43,22 @@ function linePoints(reference: SketchGeometryRef, entities: ReadonlyMap<string, 
   if (reference.target === "SKETCH_X_AXIS") return [[-110, 0], [110, 0]];
   if (reference.target === "SKETCH_Y_AXIS") return [[0, -110], [0, 110]];
   const entity = entityFor(reference, entities);
-  if (entity?.kind !== "LINE" || !entity.start || !entity.end) return undefined;
+  if (entity?.kind !== "LINE" || !entity.start || !entity.end ||
+      !["WHOLE", "DIRECTION"].includes(reference.subElement)) return undefined;
   return [[entity.start.x, entity.start.y], [entity.end.x, entity.end.y]];
+}
+
+// Supporting-line distance, independent of finite segment overlap or endpoint
+// order. Parallelism here is a preview check; the authoritative command owns
+// the formal parallel relation and validates its solver result.
+function parallelLineDistanceEndpoints(first: [Vec2, Vec2], second: [Vec2, Vec2]): [Vec2, Vec2] | undefined {
+  const a = sub(first[1], first[0]), b = sub(second[1], second[0]);
+  const aLength = Math.hypot(...a), bLength = Math.hypot(...b);
+  if (aLength === 0 || bLength === 0) return undefined;
+  if (Math.abs(a[0] * b[1] - a[1] * b[0]) > 1e-10 * aLength * bLength) return undefined;
+  const p = midpoint(...first), delta = sub(p, second[0]);
+  const t = (delta[0] * b[0] + delta[1] * b[1]) / (bLength * bLength);
+  return [p, add(second[0], scale(b, t))];
 }
 
 function arrow(tip: Vec2, direction: Vec2, size = 3): ConstraintSegment[] {
@@ -60,8 +78,13 @@ function linearDimension(a: Vec2, b: Vec2, text: string, placement?: Vec2): Pick
 }
 
 function constraintText(constraint: SketchConstraint): string {
-  const value = constraint.value === undefined ? "?" : formatSketchDimensionValue(constraint.value, constraint.unit ?? "mm");
+  const measured = constraint.value === undefined ? "不可测" : formatSketchDimensionValue(constraint.value, constraint.unit ?? "mm");
+  const value = constraint.reference ? `(${measured})` : measured;
+  if (constraint.kind === "HORIZONTAL_DISTANCE") return `ΔX ${value}`;
+  if (constraint.kind === "VERTICAL_DISTANCE") return `ΔY ${value}`;
   if (constraint.kind === "RADIUS") return `R ${value}`;
+  if (constraint.kind === "MAJOR_RADIUS") return `a ${value}`;
+  if (constraint.kind === "MINOR_RADIUS") return `b ${value}`;
   if (constraint.kind === "DIAMETER") return `Ø ${value}`;
   if (constraint.kind === "ANGLE") return `${value}°`;
   return value;
@@ -85,13 +108,23 @@ function lineIntersection(first: [Vec2, Vec2], second: [Vec2, Vec2]): Vec2 {
 export function measureSketchDimension(kind: SketchConstraint["kind"], references: readonly SketchGeometryRef[],
   sketchEntities: readonly SketchEntity[]): number | undefined {
   const entities = new Map(sketchEntities.map((entity) => [entity.id, entity]));
+  if (kind === "HORIZONTAL_DISTANCE" || kind === "VERTICAL_DISTANCE") {
+    const a = references[0] ? sketchReferencePoint(references[0], entities) : undefined;
+    const b = references[1] ? sketchReferencePoint(references[1], entities) : undefined;
+    if (a && b) return kind === "HORIZONTAL_DISTANCE" ? b[0] - a[0] : b[1] - a[1];
+  }
   if (kind === "DISTANCE") {
     const lines=references.map((reference)=>linePoints(reference,entities));
     const points = references.map((reference,index) => lines[index]?undefined:sketchReferencePoint(reference, entities));
+    if (lines[0] && lines[1]) {
+      const endpoints = parallelLineDistanceEndpoints(lines[0], lines[1]);
+      return endpoints ? Math.hypot(...sub(endpoints[1], endpoints[0])) : undefined;
+    }
     if (!lines[0]&&!lines[1]&&points.length >= 2 && points[0] && points[1]) return Math.hypot(...sub(points[1], points[0]));
     const pointIndex=points[0]?0:points[1]?1:-1,lineIndex=pointIndex===0?1:0;
     const line=lines[lineIndex];
     if(pointIndex>=0&&line){const p=points[pointIndex]!,direction=sub(line[1],line[0]);
+      if (Math.hypot(...direction) === 0) return undefined;
       return Math.abs(direction[0]*(line[0][1]-p[1])-(line[0][0]-p[0])*direction[1])/Math.hypot(...direction);}
   }
   if (kind === "LENGTH") {
@@ -101,6 +134,11 @@ export function measureSketchDimension(kind: SketchConstraint["kind"], reference
   if (kind === "RADIUS" || kind === "DIAMETER") {
     const circular = references[0] ? circularData(references[0], entities) : undefined;
     if (circular) return circular.radius * (kind === "DIAMETER" ? 2 : 1);
+  }
+  if (kind === "MAJOR_RADIUS" || kind === "MINOR_RADIUS") {
+    const entity = references[0] ? entityFor(references[0], entities) : undefined;
+    if (entity && (entity.kind === "ELLIPSE" || entity.kind === "ELLIPTICAL_ARC"))
+      return kind === "MAJOR_RADIUS" ? entity.majorRadius : entity.minorRadius;
   }
   if (kind === "ANGLE") {
     const first = references[0] ? linePoints(references[0], entities) : undefined;
@@ -120,16 +158,27 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
   const anchors: Vec2[] = [];
   const segments: ConstraintSegment[] = [];
   let label: SketchConstraintLayout["label"];
+  if (constraint.kind === "HORIZONTAL_DISTANCE" || constraint.kind === "VERTICAL_DISTANCE") {
+    const a = sketchReferencePoint(constraint.references[0], entities), b = sketchReferencePoint(constraint.references[1], entities);
+    if (a && b) {
+      const projected: Vec2 = constraint.kind === "HORIZONTAL_DISTANCE" ? [b[0], a[1]] : [a[0], b[1]];
+      const placement = constraint.labelPosition ? [constraint.labelPosition.x, constraint.labelPosition.y] as Vec2 : undefined;
+      const dimension = linearDimension(a, projected, constraintText(constraint), placement);
+      segments.push(...dimension.segments); segments[1] = [b, segments[1][1]]; label = dimension.label;
+    }
+  }
   if (constraint.kind === "DISTANCE") {
     const placement = constraint.labelPosition ? [constraint.labelPosition.x, constraint.labelPosition.y] as Vec2 : undefined;
     const lines=constraint.references.map((reference)=>linePoints(reference,entities));
     const pointReferences=constraint.references.map((reference,index)=>lines[index]?undefined:sketchReferencePoint(reference,entities));
     let endpoints:readonly [Vec2,Vec2]|undefined;
-    if(pointReferences[0]&&pointReferences[1])endpoints=[pointReferences[0],pointReferences[1]];
+    if(lines[0]&&lines[1])endpoints=parallelLineDistanceEndpoints(lines[0],lines[1]);
+    else if(pointReferences[0]&&pointReferences[1])endpoints=[pointReferences[0],pointReferences[1]];
     else {
       const pointIndex=pointReferences[0]?0:pointReferences[1]?1:-1,lineIndex=pointIndex===0?1:0;
       const line=constraint.references[lineIndex]?linePoints(constraint.references[lineIndex],entities):undefined;
       if(pointIndex>=0&&line){const p=pointReferences[pointIndex]!,direction=sub(line[1],line[0]);const length2=direction[0]**2+direction[1]**2;
+        if (length2 === 0) return { symbol: definition.symbol, anchors, segments };
         const t=((p[0]-line[0][0])*direction[0]+(p[1]-line[0][1])*direction[1])/length2;
         endpoints=[p,add(line[0],scale(direction,t))];}
     }
@@ -152,6 +201,15 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
       if (constraint.kind === "DIAMETER") segments.push(...arrow(opposite, sub(first, opposite)));
       if (placement) segments.push([first, placement]);
       label = { text: constraintText(constraint), position: placement ?? add(midpoint(first, opposite), scale([-direction[1], direction[0]], 3)) };
+    }
+  }
+  if (constraint.kind === "MAJOR_RADIUS" || constraint.kind === "MINOR_RADIUS") {
+    const entity = entityFor(constraint.references[0], entities);
+    if (entity && ["ELLIPSE", "ELLIPTICAL_ARC"].includes(entity.kind) && entity.center) {
+      const end = ellipsePoint(entity, constraint.kind === "MAJOR_RADIUS" ? 0 : Math.PI / 2);
+      const placement = constraint.labelPosition ? [constraint.labelPosition.x, constraint.labelPosition.y] as Vec2 : undefined;
+      if (end) { const dimension = linearDimension([entity.center.x, entity.center.y], end, constraintText(constraint), placement);
+        segments.push(...dimension.segments); label = dimension.label; }
     }
   }
   if (constraint.kind === "ANGLE") {
@@ -177,10 +235,18 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
     }
   }
   if (definition.dimension === "none") {
-    if (constraint.kind === "FIXED_POINT" && constraint.fixedPoint) anchors.push([constraint.fixedPoint.x, constraint.fixedPoint.y]);
-    else if (constraint.kind === "PARALLEL" || constraint.kind === "EQUAL") anchors.push(...points.map((point) => add(point, [4, 4])));
+    if (constraint.kind === "MIRROR") {
+      for (const index of [0, 2]) {
+        const reference = constraint.references[index], entity = reference ? entityFor(reference, entities) : undefined;
+        const point = entity?.center ? [entity.center.x, entity.center.y] as Vec2 : reference ? sketchReferencePoint(reference, entities) : undefined;
+        if (point) anchors.push(add(point, [4, 4]));
+      }
+    }
+    else if (constraint.kind === "FIXED_POINT" && constraint.fixedPoint) anchors.push([constraint.fixedPoint.x, constraint.fixedPoint.y]);
+    else if (constraint.kind === "PARALLEL" || constraint.kind === "COLLINEAR" || constraint.kind === "EQUAL") anchors.push(...points.map((point) => add(point, [4, 4])));
     else if (constraint.kind === "CONCENTRIC") {
-      const circular = circularData(constraint.references[0], entities); if (circular) anchors.push(circular.center);
+      const entity = entityFor(constraint.references[0], entities);
+      if (entity?.center) anchors.push([entity.center.x, entity.center.y]);
     } else if ((constraint.kind === "TANGENT" || constraint.kind === "PERPENDICULAR") && points.length >= 2) anchors.push(add(midpoint(points[0], points[1]), [4, 4]));
     else if (points[0]) anchors.push(add(points[0], constraint.kind === "COINCIDENT" ? [0, 0] : [4, 4]));
     else anchors.push([0, 0]);

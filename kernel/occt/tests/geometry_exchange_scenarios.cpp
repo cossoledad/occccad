@@ -150,6 +150,39 @@ TEST(GeometryExchange, ProfilePadSupportsCircularOuterLoopAndHole) {
                             }));
 }
 
+TEST(GeometryExchange, ProfilePadBuildsExactRotatedEllipseAndSignedEllipticalArc) {
+    OcctKernel kernel;
+    ProfileCurveSpec ellipse;
+    ellipse.entity_id="ellipse"; ellipse.kind="ELLIPSE";
+    ellipse.center={23,-11};ellipse.major_radius=12;ellipse.minor_radius=4;ellipse.rotation=0.7;
+    ProfileRegionSpec region;region.id="ellipse-region";region.outer={"ellipse-loop",{ellipse}};
+    ProfilePadSpec pad;pad.regions={region};pad.pad_length=7;pad.plane="XY";
+    const auto id=kernel.evaluateProfilePads({pad});
+    EXPECT_NEAR(kernel.getVolume(id),3.14159265358979323846*12*4*7,1e-5);
+    EXPECT_EQ(kernel.getTopology(id).solid_count,1U);
+    for (const double sweep : {3.14159265358979323846,-3.14159265358979323846}) {
+        ellipse.kind="ELLIPTICAL_ARC";ellipse.start_angle=0;ellipse.end_angle=sweep;
+        ProfileCurveSpec diameter;diameter.entity_id="diameter";diameter.kind="LINE";
+        const double dx=12*std::cos(0.7),dy=12*std::sin(0.7);
+        diameter.start={23-dx,-11-dy};diameter.end={23+dx,-11+dy};
+        region.outer={"half-loop",{ellipse,diameter}};pad.regions={region};
+        const auto half=kernel.evaluateProfilePads({pad});
+        EXPECT_NEAR(kernel.getVolume(half),0.5*3.14159265358979323846*12*4*7,1e-5);
+        EXPECT_EQ(kernel.getTopology(half).solid_count,1U);
+    }
+}
+
+TEST(GeometryExchange, ProfilePadSignedArcDoesNotUseComplementaryInterval) {
+    OcctKernel kernel;
+    ProfileCurveSpec arc;arc.entity_id="quarter";arc.kind="ARC";arc.radius=10;
+    arc.start_angle=0;arc.end_angle=-3.14159265358979323846/2;
+    ProfileCurveSpec chord;chord.entity_id="chord";chord.kind="LINE";chord.start={0,-10};chord.end={10,0};
+    ProfileRegionSpec region;region.id="segment";region.outer={"segment-loop",{arc,chord}};
+    ProfilePadSpec pad;pad.regions={region};pad.pad_length=3;pad.plane="XY";
+    const auto id=kernel.evaluateProfilePads({pad});
+    EXPECT_NEAR(kernel.getVolume(id),(3.14159265358979323846/4-0.5)*100*3,1e-5);
+}
+
 TEST(GeometryExchange, NamingRejectsProfileEdgesBelowPolicyTolerance) {
     OcctKernel kernel;
     ProfilePadSpec pad;

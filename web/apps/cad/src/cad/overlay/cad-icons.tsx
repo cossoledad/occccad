@@ -4,7 +4,7 @@ export type CadIconName =
   | "select" | "capture" | "sketch" | "pad" | "pocket" | "revolve" | "datum-plane" | "datum-axis" | "project" | "point" | "line" | "circle" | "arc" | "polyline" | "spline" | "finish"
   | "coincident" | "parallel" | "fixed" | "horizontal" | "vertical" | "perpendicular" | "tangent" | "equal"
   | "distance" | "length" | "radius" | "diameter" | "angle" | "concentric" | "point-on-object" | "midpoint" | "symmetry"
-  | "rectangle" | "polygon" | "slot" | "insert" | "pattern" | "reference" | "link" | "move" | "undo" | "redo" | "version" | "share"
+  | "rectangle" | "polygon" | "insert" | "pattern" | "reference" | "link" | "move" | "copy" | "delete" | "rotate" | "scale" | "mirror" | "undo" | "redo" | "version" | "share"
   | "navigation" | "fit" | "top-view" | "front-view" | "right-view" | "isometric" | "parameters" | "publication" | "release" | "debug";
 
 const P = ({ d }: { d: string }) => <path d={d} />;
@@ -47,13 +47,17 @@ function glyph(name: CadIconName): ReactNode {
   case "symmetry": return <><P d="M10 2v16" /><C cx={5} cy={8} r={1.7} /><C cx={15} cy={8} r={1.7} /><P d="M6.7 8h6.6M8 6l2 2-2 2M12 6l-2 2 2 2" /></>;
   case "rectangle": return <><rect x="4" y="5" width="12" height="10" /><C cx={4} cy={5} /><C cx={16} cy={15} /></>;
   case "polygon": return <><P d="M10 3l6 3.5v7L10 17l-6-3.5v-7z" /><C cx={10} cy={3} /></>;
-  case "slot": return <><P d="M7 5h6a5 5 0 010 10H7A5 5 0 017 5z" /><P d="M7 5a5 5 0 000 10M13 5a5 5 0 010 10" /></>;
   case "insert": return <><P d="M4 7l6-3 6 3-6 3zM4 7v6l6 3 6-3V7" /><P d="M10 7v7M13 11h5M15.5 8.5v5" /></>;
   case "pattern": return <><P d="M2 7l4-2 4 2-4 2zM2 7v5l4 2 4-2V7M6 9v5" />
     <P d="M12 7l4-2 4 2-4 2zM12 7v5l4 2 4-2V7M16 9v5M7 17h10m-2-2 2 2-2 2" /></>;
   case "reference": return <><P d="M6 5h8v10H6zM3 8h3M14 12h3" /><P d="M3 8l2-2M3 8l2 2M17 12l-2-2M17 12l-2 2" /></>;
   case "link": return <><P d="M8 7l-1.5-1.5a3 3 0 00-4.2 4.2l2 2a3 3 0 004.2 0l2-2"/><P d="M12 13l1.5 1.5a3 3 0 004.2-4.2l-2-2a3 3 0 00-4.2 0l-2 2"/></>;
   case "move": return <><P d="M10 2v16M2 10h16M10 2L7 5M10 2l3 3M18 10l-3-3M18 10l-3 3M10 18l-3-3M10 18l3-3M2 10l3-3M2 10l3 3"/></>;
+  case "copy": return <><rect x="3" y="3" width="10" height="10" /><rect x="7" y="7" width="10" height="10" /></>;
+  case "delete": return <><P d="M4 5h12M7 5V3h6v2M6 5l1 12h6l1-12M9 8v6M11 8v6" /></>;
+  case "rotate": return <><P d="M15 7a6 6 0 10-1 8M15 3v4h-4" /><C cx={10} cy={10} r={1} /></>;
+  case "scale": return <><rect x="3" y="10" width="7" height="7" /><P d="M7 7V3h10v10h-4M9 11l7-7M12 4h4v4" /></>;
+  case "mirror": return <><P d="M10 2v16M3 5l4 5-4 5zM17 5l-4 5 4 5z" /></>;
   case "undo": return <><P d="M7 6L3 10l4 4M4 10h7a5 5 0 015 5" /></>;
   case "redo": return <><P d="M13 6l4 4-4 4M16 10H9a5 5 0 00-5 5" /></>;
   case "version": return <><P d="M5 3h8l3 3v11H5zM8 3v5h5V3M8 14h5" /></>;
@@ -73,7 +77,7 @@ function glyph(name: CadIconName): ReactNode {
 
 export function CadIcon({ name }: { name: CadIconName }) {
   const family = ["pad", "pocket", "revolve", "datum-plane", "datum-axis", "parameters", "publication"].includes(name) ? "solid"
-    : ["sketch", "project", "point", "line", "circle", "arc", "polyline", "spline", "rectangle", "polygon", "slot", "finish"].includes(name) ? "sketch"
+    : ["sketch", "project", "point", "line", "circle", "arc", "polyline", "spline", "rectangle", "polygon", "finish"].includes(name) ? "sketch"
     : ["coincident", "parallel", "fixed", "horizontal", "vertical", "perpendicular", "tangent", "equal", "distance", "length", "radius", "diameter", "angle", "concentric", "point-on-object", "midpoint", "symmetry"].includes(name) ? "constraint"
     : ["insert", "pattern", "reference", "link", "move", "release"].includes(name) ? "assembly" : "view";
   return <svg className={`cad-command-icon family-${family}`} viewBox="0 0 20 20" width="20" height="20" aria-hidden="true"

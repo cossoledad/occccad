@@ -28,13 +28,21 @@ type RectangularPad struct {
 }
 
 type ProfileCurve struct {
-	EntityID, Kind               string
-	Reversed                     bool
-	Start, End, Center           [2]float64
-	Radius, StartAngle, EndAngle float64
-	ControlPoints                [][2]float64
-	Degree                       uint32
-	Closed                       bool
+	EntityID, Kind                     string
+	Reversed                           bool
+	Start, End, Center                 [2]float64
+	Radius, StartAngle, EndAngle       float64
+	MajorRadius, MinorRadius, Rotation float64
+	ControlPoints                      [][2]float64
+	Degree                             uint32
+	Closed                             bool
+	Mode                               string
+	Poles                              [][2]float64
+	Knots                              []float64
+	Multiplicities                     []uint32
+	Weights                            []float64
+	Periodic                           bool
+	ParameterStart, ParameterEnd       float64
 }
 type ProfileLoop struct {
 	ID     string
@@ -81,11 +89,7 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 		loopProto := func(loop ProfileLoop) *workerv1.ProfileLoop {
 			output := &workerv1.ProfileLoop{Id: loop.ID}
 			for _, curve := range loop.Curves {
-				item := &workerv1.ProfileCurve{EntityId: curve.EntityID, Kind: curve.Kind, Reversed: curve.Reversed, Radius: curve.Radius, StartAngle: curve.StartAngle, EndAngle: curve.EndAngle, Degree: curve.Degree, Closed: curve.Closed,
-					Start: &workerv1.Vec2{X: curve.Start[0], Y: curve.Start[1]}, End: &workerv1.Vec2{X: curve.End[0], Y: curve.End[1]}, Center: &workerv1.Vec2{X: curve.Center[0], Y: curve.Center[1]}}
-				for _, point := range curve.ControlPoints {
-					item.ControlPoints = append(item.ControlPoints, &workerv1.Vec2{X: point[0], Y: point[1]})
-				}
+				item := profileCurveProto(curve)
 				output.Curves = append(output.Curves, item)
 			}
 			return output
@@ -133,17 +137,33 @@ type SketchArc struct {
 	ID, Role                                       string
 	CenterX, CenterY, Radius, StartAngle, EndAngle float64
 }
+type SketchEllipse struct {
+	ID, Role                                             string
+	CenterX, CenterY, MajorRadius, MinorRadius, Rotation float64
+}
+type SketchEllipticalArc struct {
+	ID, Role                                                                   string
+	CenterX, CenterY, MajorRadius, MinorRadius, Rotation, StartAngle, EndAngle float64
+}
 type SketchSpline struct {
-	ID, Role      string
-	ControlPoints [][2]float64
-	Degree        uint32
-	Closed        bool
+	ID, Role                     string
+	ControlPoints                [][2]float64
+	Degree                       uint32
+	Closed                       bool
+	Mode                         string
+	Poles                        [][2]float64
+	Knots                        []float64
+	Multiplicities               []uint32
+	Weights                      []float64
+	Periodic                     bool
+	ParameterStart, ParameterEnd float64
 }
 type SketchReference struct {
 	Target, EntityID, SubElement string
 	ControlPointIndex            *int
 }
 type SketchConstraint struct {
+	SelfMirrorMode string
 	ID, Kind       string
 	References     []SketchReference
 	FixedX, FixedY float64
@@ -152,12 +172,14 @@ type SketchConstraint struct {
 	Internal       bool
 }
 type SketchModel struct {
-	Points      []SketchPoint
-	Lines       []SketchLine
-	Circles     []SketchCircle
-	Arcs        []SketchArc
-	Splines     []SketchSpline
-	Constraints []SketchConstraint
+	Points         []SketchPoint
+	Lines          []SketchLine
+	Circles        []SketchCircle
+	Arcs           []SketchArc
+	Splines        []SketchSpline
+	Ellipses       []SketchEllipse
+	EllipticalArcs []SketchEllipticalArc
+	Constraints    []SketchConstraint
 }
 
 type ExternalProjectionFrame struct {
@@ -572,15 +594,24 @@ func (client *Client) SolveSketch(ctx context.Context, requestID string, model S
 	for _, arc := range model.Arcs {
 		input.Arcs = append(input.Arcs, &workerv1.SketchArc{Id: arc.ID, Center: &workerv1.Vec2{X: arc.CenterX, Y: arc.CenterY}, Radius: arc.Radius, StartAngle: arc.StartAngle, EndAngle: arc.EndAngle, Role: arc.Role})
 	}
+	for _, e := range model.Ellipses {
+		input.Ellipses = append(input.Ellipses, &workerv1.SketchEllipse{Id: e.ID, Role: e.Role, Center: &workerv1.Vec2{X: e.CenterX, Y: e.CenterY}, MajorRadius: e.MajorRadius, MinorRadius: e.MinorRadius, Rotation: e.Rotation})
+	}
+	for _, e := range model.EllipticalArcs {
+		input.EllipticalArcs = append(input.EllipticalArcs, &workerv1.SketchEllipticalArc{Id: e.ID, Role: e.Role, Center: &workerv1.Vec2{X: e.CenterX, Y: e.CenterY}, MajorRadius: e.MajorRadius, MinorRadius: e.MinorRadius, Rotation: e.Rotation, StartAngle: e.StartAngle, EndAngle: e.EndAngle})
+	}
 	for _, spline := range model.Splines {
-		value := &workerv1.SketchSpline{Id: spline.ID, Degree: spline.Degree, Closed: spline.Closed, Role: spline.Role}
+		value := &workerv1.SketchSpline{Id: spline.ID, Degree: spline.Degree, Closed: spline.Closed, Role: spline.Role, Mode: spline.Mode, Knots: spline.Knots, Multiplicities: spline.Multiplicities, Weights: spline.Weights, Periodic: spline.Periodic, ParameterStart: spline.ParameterStart, ParameterEnd: spline.ParameterEnd}
 		for _, point := range spline.ControlPoints {
 			value.ControlPoints = append(value.ControlPoints, &workerv1.Vec2{X: point[0], Y: point[1]})
+		}
+		for _, p := range spline.Poles {
+			value.Poles = append(value.Poles, &workerv1.Vec2{X: p[0], Y: p[1]})
 		}
 		input.Splines = append(input.Splines, value)
 	}
 	for _, constraint := range model.Constraints {
-		value := &workerv1.SketchConstraint{Id: constraint.ID, Kind: constraint.Kind, FixedPoint: &workerv1.Vec2{X: constraint.FixedX, Y: constraint.FixedY}, Value: constraint.Value, Unit: constraint.Unit, Internal: constraint.Internal}
+		value := &workerv1.SketchConstraint{Id: constraint.ID, Kind: constraint.Kind, FixedPoint: &workerv1.Vec2{X: constraint.FixedX, Y: constraint.FixedY}, Value: constraint.Value, Unit: constraint.Unit, Internal: constraint.Internal, SelfMirrorMode: constraint.SelfMirrorMode}
 		for _, reference := range constraint.References {
 			index := uint32(0)
 			if reference.ControlPointIndex != nil {
@@ -608,10 +639,19 @@ func (client *Client) SolveSketch(ctx context.Context, requestID string, model S
 	for _, arc := range response.GetSketch().GetArcs() {
 		result.Model.Arcs = append(result.Model.Arcs, SketchArc{ID: arc.GetId(), CenterX: arc.GetCenter().GetX(), CenterY: arc.GetCenter().GetY(), Radius: arc.GetRadius(), StartAngle: arc.GetStartAngle(), EndAngle: arc.GetEndAngle(), Role: arc.GetRole()})
 	}
+	for _, e := range response.GetSketch().GetEllipses() {
+		result.Model.Ellipses = append(result.Model.Ellipses, SketchEllipse{ID: e.GetId(), Role: e.GetRole(), CenterX: e.GetCenter().GetX(), CenterY: e.GetCenter().GetY(), MajorRadius: e.GetMajorRadius(), MinorRadius: e.GetMinorRadius(), Rotation: e.GetRotation()})
+	}
+	for _, e := range response.GetSketch().GetEllipticalArcs() {
+		result.Model.EllipticalArcs = append(result.Model.EllipticalArcs, SketchEllipticalArc{ID: e.GetId(), Role: e.GetRole(), CenterX: e.GetCenter().GetX(), CenterY: e.GetCenter().GetY(), MajorRadius: e.GetMajorRadius(), MinorRadius: e.GetMinorRadius(), Rotation: e.GetRotation(), StartAngle: e.GetStartAngle(), EndAngle: e.GetEndAngle()})
+	}
 	for _, spline := range response.GetSketch().GetSplines() {
-		value := SketchSpline{ID: spline.GetId(), Degree: spline.GetDegree(), Closed: spline.GetClosed(), Role: spline.GetRole()}
+		value := SketchSpline{ID: spline.GetId(), Degree: spline.GetDegree(), Closed: spline.GetClosed(), Role: spline.GetRole(), Mode: spline.GetMode(), Knots: spline.GetKnots(), Multiplicities: spline.GetMultiplicities(), Weights: spline.GetWeights(), Periodic: spline.GetPeriodic(), ParameterStart: spline.GetParameterStart(), ParameterEnd: spline.GetParameterEnd()}
 		for _, point := range spline.GetControlPoints() {
 			value.ControlPoints = append(value.ControlPoints, [2]float64{point.GetX(), point.GetY()})
+		}
+		for _, p := range spline.GetPoles() {
+			value.Poles = append(value.Poles, [2]float64{p.GetX(), p.GetY()})
 		}
 		result.Model.Splines = append(result.Model.Splines, value)
 	}

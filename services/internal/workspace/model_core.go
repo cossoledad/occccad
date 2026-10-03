@@ -421,29 +421,35 @@ func applyEditSketch(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, m
 		for _, parameter := range model.Parameters {
 			beforeSources[parameter.ParameterID] = parameter.Source
 		}
+		// An internal-constraint copy may not flatten formula-driven dimensions.
+		for _, op := range payload.Operations {
+			if (op.Copy || op.Type == "COPY_ENTITIES" || op.Type == "MIRROR_ENTITIES") && op.ConstraintPolicy == "INTERNAL" {
+				selected := map[string]bool{}
+				for _, id := range op.EntityIDs {
+					selected[id] = true
+				}
+				for _, c := range feature.Sketch.Constraints {
+					all := len(c.References) > 0
+					for _, r := range c.References {
+						all = all && selected[r.EntityID] && r.Target == "ENTITY"
+					}
+					if !all {
+						continue
+					}
+					for _, parameter := range model.Parameters {
+						if parameter.ParameterID == c.ParameterID && parameter.Source.Expression != nil {
+							return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: copying formula-driven constraint %s requires an explicit parameter dependency policy", ErrValidation, c.ID)
+						}
+					}
+				}
+			}
+		}
 		if err := applySketchOperations(feature.Sketch, payload.Operations); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
 		ensureFeatureParameters(&model)
-		for _, operation := range payload.Operations {
-			if operation.Type != "UPDATE_CONSTRAINT_VALUE" || operation.Value == nil {
-				continue
-			}
-			for parameterIndex := range model.Parameters {
-				parameter := &model.Parameters[parameterIndex]
-				if parameter.ParameterID != sketchConstraintParameterID(feature.ID, operation.ConstraintID) {
-					continue
-				}
-				unit := parameter.DisplayUnit
-				if unit == "" {
-					unit, _ = sketchConstraintUnitAndDimension(parameter.Label)
-				}
-				quantity, quantityErr := modelcore.NewQuantity(*operation.Value, unit)
-				if quantityErr != nil {
-					return nil, modelcore.ChangeSet{}, quantityErr
-				}
-				parameter.Source = modelcore.ValueSource{Literal: &quantity}
-			}
+		if err := applySketchDimensionLifecycle(&model, payload.SketchID, before, payload.Operations); err != nil {
+			return nil, modelcore.ChangeSet{}, err
 		}
 		if err := validateAndResolvePartParameters(&model); err != nil {
 			return nil, modelcore.ChangeSet{}, err
@@ -452,7 +458,11 @@ func applyEditSketch(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, m
 		changes := []modelcore.ModelChange{change}
 		seeds := []modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(feature.ID)}
 		changes, seeds = appendParameterLifecycleChanges(changes, seeds, beforeParameters, model.Parameters)
+		changes, seeds, metadataChanged := appendSketchParameterDefinitionChanges(changes, seeds, beforeParameters, model.Parameters)
 		for _, parameter := range model.Parameters {
+			if metadataChanged[parameter.ParameterID] {
+				continue
+			}
 			prior, existed := beforeSources[parameter.ParameterID]
 			if !existed || reflect.DeepEqual(prior, parameter.Source) {
 				continue
@@ -514,12 +524,51 @@ func appendParameterLifecycleChanges(changes []modelcore.ModelChange, seeds []mo
 	return changes, seeds
 }
 
+// Every compound edit is staged on an isolated model. Callers, previews and
+// direct domain tests observe either the complete edit or the original sketch.
 func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) error {
+	encoded, err := json.Marshal(sketch)
+	if err != nil {
+		return err
+	}
+	var candidate SketchFeature
+	if err = json.Unmarshal(encoded, &candidate); err != nil {
+		return err
+	}
+	if err = normalizeSketchPointIdentities(&candidate); err != nil {
+		return err
+	}
+	if err = applySketchOperationsCandidate(&candidate, operations); err != nil {
+		return err
+	}
+	if err = normalizeSketchPointIdentities(&candidate); err != nil {
+		return err
+	}
+	if err = ensureSketchDistanceRelations(&candidate); err != nil {
+		return err
+	}
+	*sketch = candidate
+	return nil
+}
+
+func applySketchOperationsCandidate(sketch *SketchFeature, operations []SketchOperation) error {
 	if len(operations) == 0 {
 		return fmt.Errorf("%w: sketch edit requires at least one operation", ErrValidation)
 	}
 	for _, operation := range operations {
 		switch operation.Type {
+		case "OFFSET_ENTITIES":
+			if err := applySketchOffsetEdit(sketch, operation); err != nil {
+				return err
+			}
+		case "FILLET_ENTITIES", "CHAMFER_ENTITIES":
+			if err := applySketchCornerEdit(sketch, operation); err != nil {
+				return err
+			}
+		case "DELETE_ENTITIES", "COPY_ENTITIES", "TRANSFORM_ENTITIES", "MIRROR_ENTITIES", "SPLIT_ENTITY", "REPLACE_CURVE_INTERVALS":
+			if err := applySketchGeometryEdit(sketch, operation); err != nil {
+				return err
+			}
 		case "ADD_EXTERNAL_GEOMETRY":
 			if operation.ExternalGeometry == nil {
 				return fmt.Errorf("%w: ADD_EXTERNAL_GEOMETRY requires a bound external geometry", ErrValidation)
@@ -597,6 +646,10 @@ func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) 
 			if !found {
 				return fmt.Errorf("%w: selected sketch entity does not exist", ErrValidation)
 			}
+		case "EDIT_SPLINE_POINT", "SET_SPLINE_CLOSED", "CONVERT_SPLINE_TO_CONTROL":
+			if err := applySketchSplineEdit(sketch, operation); err != nil {
+				return err
+			}
 		case "UPDATE_ENTITY_POINT":
 			if operation.EntityID == "" || operation.Point == nil || !finite(operation.Point.X) || !finite(operation.Point.Y) {
 				return fmt.Errorf("%w: UPDATE_ENTITY_POINT requires an entity and finite point", ErrValidation)
@@ -608,21 +661,89 @@ func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) 
 					continue
 				}
 				switch operation.SubElement {
+				case "START", "END":
+					if entity.Kind == "LINE" {
+						if operation.SubElement == "START" {
+							entity.Start = operation.Point
+						} else {
+							entity.End = operation.Point
+						}
+						found = true
+					}
+					if entity.Kind == "ARC" && entity.Center != nil {
+						angle := math.Atan2(operation.Point.Y-entity.Center.Y, operation.Point.X-entity.Center.X)
+						baseline := entity.StartAngle
+						if operation.SubElement == "END" {
+							baseline = entity.EndAngle
+						}
+						angle += math.Round((baseline-angle)/(2*math.Pi)) * 2 * math.Pi
+						if operation.SubElement == "START" {
+							entity.StartAngle = angle
+						} else {
+							entity.EndAngle = angle
+						}
+						found = true
+					}
+					if entity.Kind == "ELLIPTICAL_ARC" && entity.Center != nil {
+						dx, dy := operation.Point.X-entity.Center.X, operation.Point.Y-entity.Center.Y
+						c, s := math.Cos(entity.Rotation), math.Sin(entity.Rotation)
+						angle := math.Atan2((-s*dx+c*dy)/entity.MinorRadius, (c*dx+s*dy)/entity.MajorRadius)
+						baseline := entity.StartAngle
+						if operation.SubElement == "END" {
+							baseline = entity.EndAngle
+						}
+						angle += math.Round((baseline-angle)/(2*math.Pi)) * 2 * math.Pi
+						if operation.SubElement == "START" {
+							entity.StartAngle = angle
+						} else {
+							entity.EndAngle = angle
+						}
+						found = true
+					}
 				case "POINT":
 					if entity.Kind == "POINT" {
 						entity.Point = operation.Point
 						found = true
 					}
 				case "CENTER":
-					if entity.Kind == "CIRCLE" || entity.Kind == "ARC" {
+					if entity.Kind == "CIRCLE" || entity.Kind == "ARC" || entity.Kind == "ELLIPSE" || entity.Kind == "ELLIPTICAL_ARC" {
 						entity.Center = operation.Point
 						found = true
 					}
 				case "CONTROL":
-					if entity.Kind == "SPLINE" && operation.ControlPointIndex != nil && *operation.ControlPointIndex >= 0 && *operation.ControlPointIndex < len(entity.ControlPoints) {
-						entity.ControlPoints[*operation.ControlPointIndex] = *operation.Point
-						found = true
+					if entity.Kind == "SPLINE" {
+						points := &entity.ControlPoints
+						ids := entity.ControlPointIDs
+						if entity.Mode == "CONTROL" {
+							points = &entity.Poles
+							ids = entity.PoleIDs
+						}
+						index := -1
+						if operation.ControlPointIndex != nil {
+							index = *operation.ControlPointIndex
+						}
+						if operation.ControlPointID != "" {
+							index = -1
+							for i, id := range ids {
+								if id == operation.ControlPointID {
+									index = i
+									break
+								}
+							}
+						}
+						if index >= 0 && index < len(*points) {
+							(*points)[index] = *operation.Point
+							found = true
+							if entity.Mode != "CONTROL" {
+								entity.Poles = nil
+								entity.PoleIDs = nil
+								entity.Knots = nil
+								entity.Weights = nil
+								entity.Multiplicities = nil
+							}
+						}
 					}
+
 				}
 				break
 			}
@@ -689,9 +810,17 @@ func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) 
 			if !found {
 				return fmt.Errorf("%w: selected constraint does not exist", ErrValidation)
 			}
+		case "DELETE_CONSTRAINT":
+			if err := deleteSketchConstraint(sketch, operation); err != nil {
+				return err
+			}
+		case "UPDATE_CONSTRAINT":
+			if err := replaceSketchConstraint(sketch, operation); err != nil {
+				return err
+			}
 		case "UPDATE_CONSTRAINT_VALUE":
-			if operation.ConstraintID == "" || operation.Value == nil || !positiveFinite(*operation.Value) {
-				return fmt.Errorf("%w: UPDATE_CONSTRAINT_VALUE requires a positive finite value", ErrValidation)
+			if operation.ConstraintID == "" || operation.Value == nil || !finite(*operation.Value) {
+				return fmt.Errorf("%w: UPDATE_CONSTRAINT_VALUE requires a finite value", ErrValidation)
 			}
 			found := false
 			for index := range sketch.Constraints {
@@ -700,6 +829,9 @@ func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) 
 				}
 				if !isDimensionalConstraint(sketch.Constraints[index].Kind) {
 					return fmt.Errorf("%w: only dimensional constraints have editable values", ErrValidation)
+				}
+				if !validSketchDimensionValue(sketch.Constraints[index].Kind, *operation.Value) {
+					return fmt.Errorf("%w: invalid value for this dimension", ErrValidation)
 				}
 				sketch.Constraints[index].Value = operation.Value
 				found = true
@@ -730,7 +862,7 @@ func isSolidGenerator(featureType string) bool {
 }
 
 func isDimensionalConstraint(kind string) bool {
-	return kind == "DISTANCE" || kind == "LENGTH" || kind == "RADIUS" || kind == "DIAMETER" || kind == "ANGLE"
+	return kind == "DISTANCE" || kind == "LENGTH" || kind == "RADIUS" || kind == "DIAMETER" || kind == "ANGLE" || kind == "MAJOR_RADIUS" || kind == "MINOR_RADIUS" || kind == "HORIZONTAL_DISTANCE" || kind == "VERTICAL_DISTANCE"
 }
 
 func validateSketch(sketch SketchFeature) error {
@@ -748,6 +880,9 @@ func validateSketch(sketch SketchFeature) error {
 		}
 		entityKinds[entity.ID] = entity.Kind
 		entityControlCounts[entity.ID] = len(entity.ControlPoints)
+		if entity.Mode == "CONTROL" {
+			entityControlCounts[entity.ID] = len(entity.Poles)
+		}
 		switch entity.Kind {
 		case "POINT":
 			if entity.Point == nil || !finite(entity.Point.X) || !finite(entity.Point.Y) {
@@ -767,8 +902,28 @@ func validateSketch(sketch SketchFeature) error {
 				!finite(entity.StartAngle) || !finite(entity.EndAngle) || math.Abs(sweep) < 1e-9 || math.Abs(sweep) >= 2*math.Pi-1e-9 {
 				return fmt.Errorf("%w: invalid sketch arc", ErrValidation)
 			}
+		case "ELLIPSE", "ELLIPTICAL_ARC":
+			if entity.Center == nil || !finite(entity.Center.X) || !finite(entity.Center.Y) || !positiveFinite(entity.MinorRadius) || !finite(entity.MajorRadius) || entity.MajorRadius <= entity.MinorRadius || !finite(entity.Rotation) {
+				return fmt.Errorf("%w: ellipse requires major > minor > 0 and finite center/rotation", ErrValidation)
+			}
+			if entity.Kind == "ELLIPTICAL_ARC" && (!finite(entity.StartAngle) || !finite(entity.EndAngle) || entity.StartAngle == entity.EndAngle || math.Abs(entity.EndAngle-entity.StartAngle) >= 2*math.Pi) {
+				return fmt.Errorf("%w: invalid elliptical arc parameter interval", ErrValidation)
+			}
 		case "SPLINE":
-			if entity.Degree < 2 || entity.Degree > 3 || len(entity.ControlPoints) < int(entity.Degree)+1 {
+			if (entity.Mode == "" || entity.Mode == "FIT") && len(entity.ControlPoints) < 3 {
+				return fmt.Errorf("%w: fitted spline requires at least three fit points", ErrValidation)
+			}
+			if entity.Mode != "" && entity.Mode != "FIT" && entity.Mode != "CONTROL" {
+				return fmt.Errorf("%w: unknown spline mode", ErrValidation)
+			}
+			if len(entity.Poles) > 0 {
+				if err := validateCanonicalSpline(entity); err != nil {
+					return err
+				}
+			} else if entity.Mode == "CONTROL" {
+				return fmt.Errorf("%w: control spline requires a canonical basis", ErrValidation)
+			}
+			if entity.Degree < 1 || entity.Degree > 16 {
 				return fmt.Errorf("%w: invalid sketch spline degree or control points", ErrValidation)
 			}
 			for _, point := range entity.ControlPoints {
@@ -846,10 +1001,45 @@ func validateSketch(sketch SketchFeature) error {
 		counts := map[string]int{"COINCIDENT": 2, "PARALLEL": 2, "FIXED": 1, "FIXED_POINT": 1,
 			"HORIZONTAL": 1, "VERTICAL": 1, "PERPENDICULAR": 2, "TANGENT": 2, "EQUAL": 2,
 			"DISTANCE": 2, "LENGTH": 1, "RADIUS": 1, "DIAMETER": 1, "ANGLE": 2,
-			"CONCENTRIC": 2, "POINT_ON_OBJECT": 2, "MIDPOINT": 2, "SYMMETRY": 3}
+			"CONCENTRIC": 2, "POINT_ON_OBJECT": 2, "MIDPOINT": 2, "SYMMETRY": 3, "MAJOR_RADIUS": 1, "MINOR_RADIUS": 1, "MIRROR": 3, "HORIZONTAL_DISTANCE": 2, "VERTICAL_DISTANCE": 2, "COLLINEAR": 2, "SAME_SUPPORT": 2}
 		expected, supported := counts[constraint.Kind]
 		if !supported || len(constraint.References) != expected {
 			return fmt.Errorf("%w: constraint %s has unsupported kind or reference count", ErrValidation, constraint.ID)
+		}
+		if constraint.Kind == "TANGENT" {
+			for _, ref := range constraint.References {
+				if entityKinds[ref.EntityID] != "SPLINE" {
+					continue
+				}
+				for _, entity := range sketch.Entities {
+					if entity.ID != ref.EntityID {
+						continue
+					}
+					if entity.Mode != "CONTROL" || entity.Closed || (ref.SubElement != "START" && ref.SubElement != "END") {
+						return fmt.Errorf("%w: spline tangent requires an explicit open CONTROL endpoint; convert solved FIT spline to CONTROL first", ErrValidation)
+					}
+					if err := validateCanonicalSpline(entity); err != nil {
+						return err
+					}
+					last := len(entity.Knots) - 1
+					if entity.Multiplicities[0] != entity.Degree+1 || entity.Multiplicities[last] != entity.Degree+1 || entity.ParameterStart != entity.Knots[0] || entity.ParameterEnd != entity.Knots[last] {
+						return fmt.Errorf("%w: endpoint tangent requires a clamped canonical spline on its complete domain", ErrValidation)
+					}
+				}
+			}
+		}
+		for _, ref := range constraint.References {
+			if entityKinds[ref.EntityID] != "SPLINE" || (ref.SubElement != "START" && ref.SubElement != "END") {
+				continue
+			}
+			for _, entity := range sketch.Entities {
+				if entity.ID == ref.EntityID && entity.Closed {
+					return fmt.Errorf("%w: closed spline has no independent endpoint subelement", ErrValidation)
+				}
+			}
+		}
+		if constraint.Reference && !isDimensionalConstraint(constraint.Kind) {
+			return fmt.Errorf("%w: only dimensions can be reference measurements", ErrValidation)
 		}
 		if constraint.Kind == "FIXED_POINT" && (constraint.FixedPoint == nil || !finite(constraint.FixedPoint.X) || !finite(constraint.FixedPoint.Y)) {
 			return fmt.Errorf("%w: fixed-point constraint %s requires a finite point", ErrValidation, constraint.ID)
@@ -858,9 +1048,9 @@ func validateSketch(sketch SketchFeature) error {
 			!finite(constraint.LabelPosition.X) || !finite(constraint.LabelPosition.Y)) {
 			return fmt.Errorf("%w: constraint %s has an invalid dimension placement", ErrValidation, constraint.ID)
 		}
-		if constraint.Kind == "DISTANCE" || constraint.Kind == "LENGTH" || constraint.Kind == "RADIUS" || constraint.Kind == "DIAMETER" || constraint.Kind == "ANGLE" {
-			if constraint.Value == nil || !positiveFinite(*constraint.Value) {
-				return fmt.Errorf("%w: dimensional constraint %s requires a positive finite value", ErrValidation, constraint.ID)
+		if isDimensionalConstraint(constraint.Kind) {
+			if !constraint.Reference && (constraint.Value == nil || !validSketchDimensionValue(constraint.Kind, *constraint.Value)) {
+				return fmt.Errorf("%w: dimensional constraint %s requires a valid finite value", ErrValidation, constraint.ID)
 			}
 			expectedUnit := "mm"
 			if constraint.Kind == "ANGLE" {
@@ -883,7 +1073,8 @@ func validateSketch(sketch SketchFeature) error {
 				validSubElements := map[string]map[string]bool{
 					"POINT": {"POINT": true, "WHOLE": true}, "LINE": {"START": true, "END": true, "DIRECTION": true, "WHOLE": true},
 					"CIRCLE": {"CENTER": true, "WHOLE": true}, "ARC": {"START": true, "END": true, "CENTER": true, "WHOLE": true},
-					"SPLINE": {"START": true, "END": true, "CONTROL": true, "WHOLE": true},
+					"SPLINE":  {"START": true, "END": true, "CONTROL": true, "WHOLE": true},
+					"ELLIPSE": {"CENTER": true, "WHOLE": true}, "ELLIPTICAL_ARC": {"CENTER": true, "START": true, "END": true, "WHOLE": true},
 				}
 				if !validSubElements[kind][reference.SubElement] {
 					return fmt.Errorf("%w: constraint %s uses invalid %s sub-element %s", ErrValidation, constraint.ID, kind, reference.SubElement)
@@ -921,9 +1112,9 @@ func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map
 		case "POINT":
 			return kind == "POINT"
 		case "START", "END":
-			return kind == "LINE" || kind == "ARC" || kind == "SPLINE"
+			return kind == "LINE" || kind == "ARC" || kind == "SPLINE" || kind == "ELLIPTICAL_ARC"
 		case "CENTER":
-			return kind == "CIRCLE" || kind == "ARC"
+			return kind == "CIRCLE" || kind == "ARC" || kind == "ELLIPSE" || kind == "ELLIPTICAL_ARC"
 		case "CONTROL":
 			return kind == "SPLINE" && reference.ControlPointIndex != nil
 		}
@@ -938,15 +1129,37 @@ func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map
 		kind := entityKinds[reference.EntityID]
 		return (reference.Target == "ENTITY" || reference.Target == "EXTERNAL") && (kind == "CIRCLE" || kind == "ARC") && reference.SubElement == "WHOLE"
 	}
-	curve := func(reference SketchGeometryRef) bool { return line(reference) || circular(reference) }
+	elliptical := func(reference SketchGeometryRef) bool {
+		kind := entityKinds[reference.EntityID]
+		return reference.Target == "ENTITY" && (kind == "ELLIPSE" || kind == "ELLIPTICAL_ARC") && reference.SubElement == "WHOLE"
+	}
+	curve := func(reference SketchGeometryRef) bool {
+		return line(reference) || circular(reference) || elliptical(reference)
+	}
 	refs := constraint.References
 	switch constraint.Kind {
+	case "SAME_SUPPORT":
+		return (line(refs[0]) && line(refs[1])) || (circular(refs[0]) && circular(refs[1])) || (elliptical(refs[0]) && elliptical(refs[1]))
+	case "MIRROR":
+		if refs[0].EntityID == refs[2].EntityID {
+			kind := entityKinds[refs[0].EntityID]
+			mode := constraint.SelfMirrorMode
+			valid := (kind == "POINT" || kind == "CIRCLE") && mode == "ON_AXIS" || (kind == "LINE" || kind == "SPLINE") && (mode == "ON_AXIS" || mode == "PAIRED") || kind == "ARC" && mode == "PAIRED" || (kind == "ELLIPSE" || kind == "ELLIPTICAL_ARC") && (mode == "MAJOR_PARALLEL" || mode == "MAJOR_PERPENDICULAR")
+			if !valid {
+				return false
+			}
+		} else if constraint.SelfMirrorMode != "" {
+			return false
+		}
+		return refs[0].Target == "ENTITY" && refs[2].Target == "ENTITY" && refs[0].SubElement == "WHOLE" && refs[2].SubElement == "WHOLE" && entityKinds[refs[0].EntityID] == entityKinds[refs[2].EntityID] && line(refs[1])
 	case "COINCIDENT":
 		return point(refs[0]) && point(refs[1])
 	case "DISTANCE":
 		return (point(refs[0]) && (point(refs[1]) || line(refs[1]))) ||
-			(line(refs[0]) && point(refs[1]))
-	case "PARALLEL", "PERPENDICULAR", "ANGLE":
+			(line(refs[0]) && (point(refs[1]) || line(refs[1])))
+	case "HORIZONTAL_DISTANCE", "VERTICAL_DISTANCE":
+		return point(refs[0]) && point(refs[1])
+	case "PARALLEL", "PERPENDICULAR", "ANGLE", "COLLINEAR":
 		return line(refs[0]) && line(refs[1])
 	case "FIXED":
 		return (refs[0].Target == "ENTITY" || refs[0].Target == "EXTERNAL") && refs[0].SubElement == "WHOLE"
@@ -957,11 +1170,22 @@ func constraintReferencesCompatible(constraint SketchConstraint, entityKinds map
 	case "RADIUS", "DIAMETER":
 		return circular(refs[0])
 	case "CONCENTRIC":
-		return circular(refs[0]) && circular(refs[1])
+		return (circular(refs[0]) || elliptical(refs[0])) && (circular(refs[1]) || elliptical(refs[1]))
+	case "MAJOR_RADIUS", "MINOR_RADIUS":
+		return elliptical(refs[0])
 	case "TANGENT":
-		return curve(refs[0]) && curve(refs[1]) && !(line(refs[0]) && line(refs[1]))
+		endpointCurve := func(r SketchGeometryRef) bool {
+			return (r.SubElement == "START" || r.SubElement == "END") && (entityKinds[r.EntityID] == "ARC" || entityKinds[r.EntityID] == "ELLIPTICAL_ARC" || entityKinds[r.EntityID] == "SPLINE")
+		}
+		circularTangent := func(r SketchGeometryRef) bool {
+			return circular(r) || ((r.SubElement == "START" || r.SubElement == "END") && entityKinds[r.EntityID] == "ARC")
+		}
+		ellipticalTangent := func(r SketchGeometryRef) bool {
+			return elliptical(r) || ((r.SubElement == "START" || r.SubElement == "END") && entityKinds[r.EntityID] == "ELLIPTICAL_ARC")
+		}
+		return (line(refs[0]) && (circularTangent(refs[1]) || ellipticalTangent(refs[1]) || endpointCurve(refs[1]))) || (line(refs[1]) && (circularTangent(refs[0]) || ellipticalTangent(refs[0]) || endpointCurve(refs[0]))) || (circularTangent(refs[0]) && circularTangent(refs[1]))
 	case "EQUAL":
-		return (line(refs[0]) && line(refs[1])) || (circular(refs[0]) && circular(refs[1]))
+		return (line(refs[0]) && line(refs[1])) || (circular(refs[0]) && circular(refs[1])) || (elliptical(refs[0]) && elliptical(refs[1]))
 	case "POINT_ON_OBJECT":
 		return point(refs[0]) && curve(refs[1])
 	case "MIDPOINT":
@@ -1237,7 +1461,13 @@ func applyParameterSource(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 		if model.Parameters[index].ParameterID != payload.ParameterID {
 			continue
 		}
+		if model.Parameters[index].Role == "MEASURED" {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: reference dimension is measured; switch its driving mode explicitly before editing its preserved source", ErrValidation)
+		}
 		before := model.Parameters[index].Source
+		if before.External != nil && payload.Source.External == nil {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: external parameter requires explicit Detach before source editing", ErrValidation)
+		}
 		model.Parameters[index].Source = payload.Source
 		if err := validateAndResolvePartParameters(&model); err != nil {
 			return nil, modelcore.ChangeSet{}, err
@@ -1284,6 +1514,12 @@ func applyEditParameter(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 	}
 	if index < 0 {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: parameter does not exist", ErrValidation)
+	}
+	if model.Parameters[index].Role == "MEASURED" && !reflect.DeepEqual(model.Parameters[index].Source, payload.Source) {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: reference dimension preserves its driving source; use its dimension definition editor to switch mode", ErrValidation)
+	}
+	if model.Parameters[index].Source.External != nil && payload.Source.External == nil {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: external parameter requires explicit Detach before source editing", ErrValidation)
 	}
 	model.Parameters[index].Key = payload.Key
 	model.Parameters[index].Source = payload.Source
@@ -2533,6 +2769,7 @@ func (service *Service) solveSketches(ctx context.Context, requestID string, mod
 			return err
 		}
 	}
+	refreshSketchReferenceMeasurements(model)
 	return nil
 }
 
@@ -2552,6 +2789,9 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 	if service.worker == nil {
 		return fmt.Errorf("%w: geometry worker is required to solve sketches", ErrValidation)
 	}
+	if err := normalizeSketchPointIdentities(sketch); err != nil {
+		return err
+	}
 	input := geometry.SketchModel{}
 	for _, entity := range sketch.Entities {
 		if entity.Suppressed {
@@ -2566,10 +2806,17 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 			input.Circles = append(input.Circles, geometry.SketchCircle{ID: entity.ID, CenterX: entity.Center.X, CenterY: entity.Center.Y, Radius: entity.Radius, Role: entity.Role})
 		case "ARC":
 			input.Arcs = append(input.Arcs, geometry.SketchArc{ID: entity.ID, CenterX: entity.Center.X, CenterY: entity.Center.Y, Radius: entity.Radius, StartAngle: entity.StartAngle, EndAngle: entity.EndAngle, Role: entity.Role})
+		case "ELLIPSE":
+			input.Ellipses = append(input.Ellipses, geometry.SketchEllipse{ID: entity.ID, Role: entity.Role, CenterX: entity.Center.X, CenterY: entity.Center.Y, MajorRadius: entity.MajorRadius, MinorRadius: entity.MinorRadius, Rotation: entity.Rotation})
+		case "ELLIPTICAL_ARC":
+			input.EllipticalArcs = append(input.EllipticalArcs, geometry.SketchEllipticalArc{ID: entity.ID, Role: entity.Role, CenterX: entity.Center.X, CenterY: entity.Center.Y, MajorRadius: entity.MajorRadius, MinorRadius: entity.MinorRadius, Rotation: entity.Rotation, StartAngle: entity.StartAngle, EndAngle: entity.EndAngle})
 		case "SPLINE":
-			value := geometry.SketchSpline{ID: entity.ID, Degree: entity.Degree, Closed: entity.Closed, Role: entity.Role}
+			value := geometry.SketchSpline{ID: entity.ID, Degree: entity.Degree, Closed: entity.Closed, Role: entity.Role, Mode: entity.Mode, Knots: entity.Knots, Multiplicities: entity.Multiplicities, Weights: entity.Weights, Periodic: entity.Periodic, ParameterStart: entity.ParameterStart, ParameterEnd: entity.ParameterEnd}
 			for _, point := range entity.ControlPoints {
 				value.ControlPoints = append(value.ControlPoints, [2]float64{point.X, point.Y})
+			}
+			for _, p := range entity.Poles {
+				value.Poles = append(value.Poles, [2]float64{p.X, p.Y})
 			}
 			input.Splines = append(input.Splines, value)
 		}
@@ -2597,7 +2844,7 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 		}
 	}
 	for _, constraint := range sketch.Constraints {
-		if constraint.Suppressed {
+		if constraint.Suppressed || constraint.Reference {
 			continue
 		}
 		affected := false
@@ -2610,7 +2857,7 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 		if affected {
 			continue
 		}
-		value := geometry.SketchConstraint{ID: constraint.ID, Kind: constraint.Kind, Unit: constraint.Unit, Internal: constraint.Internal}
+		value := geometry.SketchConstraint{ID: constraint.ID, Kind: constraint.Kind, Unit: constraint.Unit, Internal: constraint.Internal, SelfMirrorMode: constraint.SelfMirrorMode}
 		if constraint.Value != nil {
 			value.Value = *constraint.Value
 		}
@@ -2627,13 +2874,14 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 		}
 		input.Constraints = append(input.Constraints, value)
 	}
-	if len(input.Points)+len(input.Lines)+len(input.Circles)+len(input.Arcs)+len(input.Splines) == 0 {
+	if len(input.Points)+len(input.Lines)+len(input.Circles)+len(input.Arcs)+len(input.Splines)+len(input.Ellipses)+len(input.EllipticalArcs) == 0 {
 		if len(brokenExternal) > 0 {
 			sketch.Solve = SketchSolveState{Status: "UNRESOLVED_EXTERNAL", DefinitionStatus: "UNRESOLVED", DegreesOfFreedom: -1,
 				Diagnostic: strings.Join(brokenDiagnostics, "; ")}
 		} else {
 			sketch.Solve = SketchSolveState{Status: "EMPTY", DefinitionStatus: "EMPTY", DegreesOfFreedom: 0}
 		}
+		refreshSketchReferenceMeasurements(model)
 		return nil
 	}
 	result, err := service.worker.SolveSketch(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
@@ -2648,6 +2896,8 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 	circles := map[string]geometry.SketchCircle{}
 	arcs := map[string]geometry.SketchArc{}
 	splines := map[string]geometry.SketchSpline{}
+	ellipses := map[string]geometry.SketchEllipse{}
+	ellipticalArcs := map[string]geometry.SketchEllipticalArc{}
 	for _, point := range result.Model.Points {
 		byID[point.ID] = point
 	}
@@ -2662,6 +2912,12 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 	}
 	for _, spline := range result.Model.Splines {
 		splines[spline.ID] = spline
+	}
+	for _, e := range result.Model.Ellipses {
+		ellipses[e.ID] = e
+	}
+	for _, e := range result.Model.EllipticalArcs {
+		ellipticalArcs[e.ID] = e
 	}
 	for entityIndex := range sketch.Entities {
 		entity := &sketch.Entities[entityIndex]
@@ -2682,6 +2938,26 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 			arc := arcs[entity.ID]
 			entity.Center, entity.Radius = &SketchPoint2{arc.CenterX, arc.CenterY}, arc.Radius
 			entity.StartAngle, entity.EndAngle = arc.StartAngle, arc.EndAngle
+		} else if entity.Kind == "ELLIPSE" {
+			e, ok := ellipses[entity.ID]
+			if !ok {
+				return fmt.Errorf("%w: solver omitted ellipse %s", ErrValidation, entity.ID)
+			}
+			entity.Center = &SketchPoint2{X: e.CenterX, Y: e.CenterY}
+			entity.MajorRadius = e.MajorRadius
+			entity.MinorRadius = e.MinorRadius
+			entity.Rotation = e.Rotation
+		} else if entity.Kind == "ELLIPTICAL_ARC" {
+			e, ok := ellipticalArcs[entity.ID]
+			if !ok {
+				return fmt.Errorf("%w: solver omitted elliptical arc %s", ErrValidation, entity.ID)
+			}
+			entity.Center = &SketchPoint2{X: e.CenterX, Y: e.CenterY}
+			entity.MajorRadius = e.MajorRadius
+			entity.MinorRadius = e.MinorRadius
+			entity.Rotation = e.Rotation
+			entity.StartAngle = e.StartAngle
+			entity.EndAngle = e.EndAngle
 		} else if entity.Kind == "SPLINE" {
 			spline := splines[entity.ID]
 			entity.ControlPoints = entity.ControlPoints[:0]
@@ -2689,7 +2965,27 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 				entity.ControlPoints = append(entity.ControlPoints, SketchPoint2{X: point[0], Y: point[1]})
 			}
 			entity.Degree, entity.Closed = spline.Degree, spline.Closed
+			entity.Mode = spline.Mode
+			entity.Knots = spline.Knots
+			entity.Multiplicities = spline.Multiplicities
+			entity.Weights = spline.Weights
+			entity.Periodic = spline.Periodic
+			entity.ParameterStart = spline.ParameterStart
+			entity.ParameterEnd = spline.ParameterEnd
+			if entity.Mode != "CONTROL" && len(entity.PoleIDs) != len(spline.Poles) {
+				entity.PoleIDs = nil
+			}
+			entity.Poles = nil
+			for _, p := range spline.Poles {
+				entity.Poles = append(entity.Poles, SketchPoint2{X: p[0], Y: p[1]})
+			}
 		}
+	}
+	if err := normalizeSketchPointIdentities(sketch); err != nil {
+		return err
+	}
+	if err := validateSketchCornerGeometry(sketch); err != nil {
+		return err
 	}
 	components, err := service.solveSketchComponents(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
 	if err != nil {
@@ -2701,6 +2997,7 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 	}
 	sketch.Solve = SketchSolveState{Status: status, DefinitionStatus: definition, DegreesOfFreedom: result.DegreesOfFreedom, Diagnostic: diagnostic,
 		ConflictingConstraintIDs: publicSketchConstraintIDs(result.ConflictingConstraintIDs), RedundantConstraintIDs: publicSketchConstraintIDs(result.RedundantConstraintIDs), Components: components}
+	refreshSketchReferenceMeasurements(model)
 	return nil
 }
 
@@ -2730,6 +3027,12 @@ func (service *Service) solveSketchComponents(ctx context.Context, requestID str
 	}
 	for _, value := range input.Splines {
 		parent[value.ID] = value.ID
+	}
+	for _, e := range input.Ellipses {
+		parent[e.ID] = e.ID
+	}
+	for _, e := range input.EllipticalArcs {
+		parent[e.ID] = e.ID
 	}
 	var find func(string) string
 	find = func(id string) string {
@@ -2789,6 +3092,16 @@ func (service *Service) solveSketchComponents(ctx context.Context, requestID str
 		for _, v := range input.Splines {
 			if ids[v.ID] {
 				model.Splines = append(model.Splines, v)
+			}
+		}
+		for _, e := range input.Ellipses {
+			if ids[e.ID] {
+				model.Ellipses = append(model.Ellipses, e)
+			}
+		}
+		for _, e := range input.EllipticalArcs {
+			if ids[e.ID] {
+				model.EllipticalArcs = append(model.EllipticalArcs, e)
 			}
 		}
 		constraintIDs := []string{}

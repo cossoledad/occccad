@@ -1,6 +1,7 @@
+import { ContextMenuIcon } from "../../components/context-menu-icon";
 import { COMMAND_SHORTCUTS, commandShortcutLabel } from "../../cad/command/command-shortcuts";
-import { SearchOutlined, QuestionCircleOutlined } from "@ant-design/icons";
-import { App, Button, Empty, Input, Modal, Segmented } from "antd";
+import { SearchOutlined, QuestionCircleOutlined, DownOutlined } from "@ant-design/icons";
+import { App, Button, Dropdown, Empty, Input, Modal, Segmented } from "antd";
 import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
 import { useUIHelp } from "../../cad/help/ui-help-context";
 import { useCommandRegistry } from "../../cad/command/command-context";
@@ -47,9 +48,17 @@ export function WorkbenchCommands({ toolbars, workbench }: {
     </div>
     <div className="workbench-command-groups" aria-label="工作台命令">
       {groups.map((toolbar) => <section key={toolbar.id} className="workbench-command-group" aria-label={toolbar.name}>
-        <div className="workbench-command-items">{toolbar.items.map((item) => <ToolButton key={item.commandId}
+        <div className="workbench-command-items">{toolbar.items.filter(item=>item.groupKey!=="more").map((item) => <ToolButton key={item.commandId}
           command={item.commandId} repeatable={item.repeatable} showLabel icon={<CadIcon name={item.iconKey as CadIconName} />}
-          tooltip={item.name} toolbarName={toolbar.name} helpText={item.helpText} />)}</div>
+          tooltip={item.name} toolbarName={toolbar.name} helpText={item.helpText} />)}
+          {toolbar.items.some(item=>item.groupKey==="more"&&registry.state(item.commandId).visible)&&<Dropdown trigger={["click"]} menu={{
+            items:toolbar.items.filter(item=>item.groupKey==="more"&&registry.state(item.commandId).visible).map(item=>({key:item.commandId,label:item.name,
+              icon:<ContextMenuIcon><CadIcon name={item.iconKey as CadIconName}/></ContextMenuIcon>,disabled:!registry.state(item.commandId).enabled&&!uiHelp.active,title:item.helpText})),
+            onClick:({key})=>{const item=toolbar.items.find(item=>item.commandId===key);if(!item)return;
+              if(uiHelp.active){uiHelp.explain({toolbarName:toolbar.name,commandName:item.name,helpText:item.helpText});return;}
+              void registry.execute(key,{continuous:false}).catch(error=>feedback(error,"命令"));},
+          }}><Button size="small" aria-label={`${toolbar.name}更多方式`} icon={<DownOutlined/>}>更多</Button></Dropdown>}
+        </div>
         <span className="workbench-command-group-name">{toolbar.name}</span>
       </section>)}
       {groups.length === 0 && <span className="workbench-command-empty">当前上下文没有可用命令</span>}

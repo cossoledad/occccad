@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v16-multi-solid-body"
+const evaluatorVersion = "part-solid-generators-v17-exact-sketch-curves"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1065,6 +1065,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		normalizePartModel(&model)
 		presentParameters(&model)
 		view.Part = &model
+		view.SketchAnalyses = service.projectExactSketchAnalyses(ctx, model)
 		view.ReferenceUpdates = service.projectPartReferenceUpdates(ctx, model)
 		view.DatumPlanes = model.DatumPlanes
 		view.AxisSystems = model.AxisSystems
@@ -1407,7 +1408,7 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 				primitive.Kind = "POLYLINE"
 				primitive.Semantic = "SKETCH_CURVE"
 				primitive.Positions = [][3]float64{toWorld(*entity.Start), toWorld(*entity.End)}
-			case "CIRCLE", "ARC", "SPLINE":
+			case "CIRCLE", "ARC", "SPLINE", "ELLIPSE", "ELLIPTICAL_ARC":
 				points := sampleProfileCurve(profileCurve(entity, false))
 				if len(points) < 2 {
 					continue
@@ -1424,13 +1425,13 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 				suffix string
 				point  SketchPoint2
 			}{}
-			if (entity.Kind == "CIRCLE" || entity.Kind == "ARC") && entity.Center != nil {
+			if (entity.Kind == "CIRCLE" || entity.Kind == "ARC" || entity.Kind == "ELLIPSE" || entity.Kind == "ELLIPTICAL_ARC") && entity.Center != nil {
 				auxiliaryPoints = append(auxiliaryPoints, struct {
 					suffix string
 					point  SketchPoint2
 				}{"center", *entity.Center})
 			}
-			if entity.Kind == "ARC" {
+			if entity.Kind == "ARC" || entity.Kind == "ELLIPTICAL_ARC" {
 				if first, last, ok := entityProfileEndpoints(entity); ok {
 					auxiliaryPoints = append(auxiliaryPoints, struct {
 						suffix string
@@ -1827,7 +1828,7 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 			if !exists {
 				return "", fmt.Errorf("%w: extrude profile %s is missing or follows the extrude", ErrValidation, feature.Profile)
 			}
-			regions, err := buildProfileRegions(sketch)
+			regions, err := service.buildExactProfileRegions(ctx, sketch, reqID+"/profile/"+sketch.ID)
 			if err != nil {
 				return "", err
 			}

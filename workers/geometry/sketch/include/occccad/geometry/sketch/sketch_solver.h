@@ -42,12 +42,40 @@ struct ArcEntity {
     EntityRole role{EntityRole::profile};
 };
 
+struct EllipseEntity {
+    std::string id;
+    Vec2 center;
+    double major_radius{};
+    double minor_radius{};
+    double rotation{};
+    EntityRole role{EntityRole::profile};
+};
+
+struct EllipticalArcEntity {
+    std::string id;
+    Vec2 center;
+    double major_radius{};
+    double minor_radius{};
+    double rotation{};
+    double start_angle{};
+    double end_angle{};
+    EntityRole role{EntityRole::profile};
+};
+
 struct SplineEntity {
     std::string id;
     std::vector<Vec2> control_points;
     unsigned int degree{3};
     bool closed{};
     EntityRole role{EntityRole::profile};
+    std::string mode{"FIT"};
+    std::vector<Vec2> poles;
+    std::vector<double> knots;
+    std::vector<unsigned int> multiplicities;
+    std::vector<double> weights;
+    bool periodic{};
+    double parameter_start{};
+    double parameter_end{};
 };
 
 enum class GeometryTarget { entity, sketch_x_axis, sketch_y_axis, sketch_origin };
@@ -63,6 +91,7 @@ struct GeometryRef {
 enum class ConstraintKind {
     coincident,
     parallel,
+    collinear,
     fixed,
     fixed_point,
     horizontal,
@@ -71,14 +100,20 @@ enum class ConstraintKind {
     tangent,
     equal,
     distance,
+    horizontal_distance,
+    vertical_distance,
     length,
     radius,
+    major_radius,
+    minor_radius,
     diameter,
     angle,
     concentric,
     point_on_object,
     midpoint,
-    symmetry
+    symmetry,
+    mirror,
+    same_support
 };
 
 struct SketchConstraint {
@@ -89,6 +124,7 @@ struct SketchConstraint {
     double value{};
     std::string unit;
     bool internal{};
+    std::string self_mirror_mode;
 };
 
 struct SketchModel {
@@ -97,6 +133,8 @@ struct SketchModel {
     std::vector<CircleEntity> circles;
     std::vector<ArcEntity> arcs;
     std::vector<SplineEntity> splines;
+    std::vector<EllipseEntity> ellipses;
+    std::vector<EllipticalArcEntity> elliptical_arcs;
     std::vector<SketchConstraint> constraints;
 };
 
@@ -109,6 +147,8 @@ struct SolveResult {
     std::vector<CircleEntity> circles;
     std::vector<ArcEntity> arcs;
     std::vector<SplineEntity> splines;
+    std::vector<EllipseEntity> ellipses;
+    std::vector<EllipticalArcEntity> elliptical_arcs;
     int degrees_of_freedom{-1};
     std::vector<std::string> conflicting_constraint_ids;
     std::vector<std::string> redundant_constraint_ids;

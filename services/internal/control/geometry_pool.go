@@ -440,6 +440,20 @@ func (pool *GeometryPool) SolveSketch(ctx context.Context, request *workerv1.Sol
 	return response, err
 }
 
+// Exact sketch curve edits are stateless and share the normal Worker route.
+func (pool *GeometryPool) ComputeSketchCurves(ctx context.Context, request *workerv1.ComputeSketchCurvesRequest) (*workerv1.ComputeSketchCurvesResponse, error) {
+	client, worker, err := pool.selectClient("")
+	if err != nil {
+		return nil, err
+	}
+	if worker != nil {
+		_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
+	}
+	response, err := client.ComputeSketchCurves(outgoing(ctx), request)
+	pool.release(worker, "", err == nil)
+	return response, err
+}
+
 // ProjectExternalGeometry is stateless and follows the same routed Worker
 // boundary as sketch solving. PersistentSelection resolution is deliberately
 // completed by the control plane before this geometric operation.

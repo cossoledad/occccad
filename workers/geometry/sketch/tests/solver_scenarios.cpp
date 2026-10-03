@@ -5,6 +5,8 @@
 
 #include <cmath>
 
+#include "../src/reflection_normal_constraint.h"
+
 namespace occccad::geometry::sketch {
 namespace {
 GeometryRef endpoint(const char* id, SubElement sub_element) {
@@ -126,32 +128,44 @@ TEST(PlaneGcsSketchSolver, SolvesCircleRadiusAndLineTangentConstraints) {
 
 TEST(PlaneGcsSketchSolver, SolvesSlotMacroWithoutRedundantConstraints) {
     SketchModel model;
-    model.lines = {{"top", {0.0, 5.0}, {20.0, 5.0}},
-                   {"bottom", {20.0, -5.0}, {0.0, -5.0}}};
+    model.lines = {{"top", {0.0, 5.0}, {20.0, 5.0}}, {"bottom", {20.0, -5.0}, {0.0, -5.0}}};
     model.arcs = {{"right", {20.0, 0.0}, 5.0, 1.5707963267948966, 4.71238898038469},
                   {"left", {0.0, 0.0}, 5.0, 4.71238898038469, 7.853981633974483}};
     const std::vector<std::string> ids = {"top", "right", "bottom", "left"};
     for (std::size_t index = 0; index < ids.size(); ++index) {
         model.constraints.push_back(
-            {"join-" + std::to_string(index), ConstraintKind::coincident,
+            {"join-" + std::to_string(index),
+             ConstraintKind::coincident,
              {endpoint(ids[index].c_str(), SubElement::end),
               endpoint(ids[(index + 1U) % ids.size()].c_str(), SubElement::start)},
-             {}, 0.0, {}, true});
+             {},
+             0.0,
+             {},
+             true});
         model.constraints.push_back(
-            {"tangent-" + std::to_string(index), ConstraintKind::tangent,
+            {"tangent-" + std::to_string(index),
+             ConstraintKind::tangent,
              {endpoint(ids[index].c_str(), SubElement::whole),
               endpoint(ids[(index + 1U) % ids.size()].c_str(), SubElement::whole)},
-             {}, 0.0, {}, true});
+             {},
+             0.0,
+             {},
+             true});
     }
     model.constraints.push_back(
-        {"equal-radius", ConstraintKind::equal,
-         {endpoint("right", SubElement::whole), endpoint("left", SubElement::whole)}, {}, 0.0,
-         {}, true});
+        {"equal-radius",
+         ConstraintKind::equal,
+         {endpoint("right", SubElement::whole), endpoint("left", SubElement::whole)},
+         {},
+         0.0,
+         {},
+         true});
 
     const auto result = make_plane_gcs_sketch_solver()->solve(model);
 
     std::string redundant;
-    for (const auto& id : result.redundant_constraint_ids) redundant += id + ",";
+    for (const auto& id : result.redundant_constraint_ids)
+        redundant += id + ",";
     EXPECT_EQ(result.status, SolveStatus::under_constrained)
         << result.diagnostic << " redundant=" << redundant;
 }
@@ -169,20 +183,33 @@ TEST(PlaneGcsSketchSolver, SolvesRegularHexagonMacro) {
     for (int index = 0; index < 6; ++index) {
         const auto current = "edge-" + std::to_string(index);
         const auto next = "edge-" + std::to_string((index + 1) % 6);
+        model.constraints.push_back({"join-" + std::to_string(index),
+                                     ConstraintKind::coincident,
+                                     {endpoint(current.c_str(), SubElement::end),
+                                      endpoint(next.c_str(), SubElement::start)},
+                                     {},
+                                     0.0,
+                                     {},
+                                     true});
+        if (index == 0)
+            continue;
         model.constraints.push_back(
-            {"join-" + std::to_string(index), ConstraintKind::coincident,
-             {endpoint(current.c_str(), SubElement::end), endpoint(next.c_str(), SubElement::start)},
-             {}, 0.0, {}, true});
-        if (index == 0) continue;
-        model.constraints.push_back(
-            {"equal-" + std::to_string(index), ConstraintKind::equal,
+            {"equal-" + std::to_string(index),
+             ConstraintKind::equal,
              {endpoint("edge-0", SubElement::whole), endpoint(current.c_str(), SubElement::whole)},
-             {}, 0.0, {}, true});
+             {},
+             0.0,
+             {},
+             true});
         model.constraints.push_back(
-            {"angle-" + std::to_string(index), ConstraintKind::angle,
+            {"angle-" + std::to_string(index),
+             ConstraintKind::angle,
              {endpoint(("edge-" + std::to_string(index - 1)).c_str(), SubElement::direction),
               endpoint(current.c_str(), SubElement::direction)},
-             {}, 60.0, "deg", true});
+             {},
+             60.0,
+             "deg",
+             true});
     }
 
     const auto result = make_plane_gcs_sketch_solver()->solve(model);
@@ -203,20 +230,33 @@ TEST(PlaneGcsSketchSolver, SolvesConstraintAddedAfterDisconnectedRegularHexagon)
     for (int index = 0; index < 6; ++index) {
         const auto current = "edge-" + std::to_string(index);
         const auto next = "edge-" + std::to_string((index + 1) % 6);
+        model.constraints.push_back({"join-" + std::to_string(index),
+                                     ConstraintKind::coincident,
+                                     {endpoint(current.c_str(), SubElement::end),
+                                      endpoint(next.c_str(), SubElement::start)},
+                                     {},
+                                     0.0,
+                                     {},
+                                     true});
+        if (index == 0)
+            continue;
         model.constraints.push_back(
-            {"join-" + std::to_string(index), ConstraintKind::coincident,
-             {endpoint(current.c_str(), SubElement::end), endpoint(next.c_str(), SubElement::start)},
-             {}, 0.0, {}, true});
-        if (index == 0) continue;
-        model.constraints.push_back(
-            {"equal-" + std::to_string(index), ConstraintKind::equal,
+            {"equal-" + std::to_string(index),
+             ConstraintKind::equal,
              {endpoint("edge-0", SubElement::whole), endpoint(current.c_str(), SubElement::whole)},
-             {}, 0.0, {}, true});
+             {},
+             0.0,
+             {},
+             true});
         model.constraints.push_back(
-            {"angle-" + std::to_string(index), ConstraintKind::angle,
+            {"angle-" + std::to_string(index),
+             ConstraintKind::angle,
              {endpoint(("edge-" + std::to_string(index - 1)).c_str(), SubElement::direction),
               endpoint(current.c_str(), SubElement::direction)},
-             {}, 60.0, "deg", true});
+             {},
+             60.0,
+             "deg",
+             true});
     }
     model.lines.push_back({"later-line", {-58.371609311792255, 56.71477323962336}, {60.0, 90.0}});
     model.splines.push_back({"later-spline",
@@ -225,18 +265,22 @@ TEST(PlaneGcsSketchSolver, SolvesConstraintAddedAfterDisconnectedRegularHexagon)
                               {174.85993007811993, -25.872132511558654},
                               {84.62608860923586, 38.87192323165195},
                               {105.52771290428815, -86.28292468140478}},
-                             3, false});
-    model.constraints.push_back(
-        {"horizontal", ConstraintKind::horizontal,
-         {endpoint("later-line", SubElement::direction)}, {}});
-    model.constraints.push_back(
-        {"spline-control-at-origin", ConstraintKind::coincident,
-         {{GeometryTarget::sketch_origin, {}, SubElement::point},
-          {GeometryTarget::entity, "later-spline", SubElement::control, 4}}, {}});
+                             3,
+                             false});
+    model.constraints.push_back({"horizontal",
+                                 ConstraintKind::horizontal,
+                                 {endpoint("later-line", SubElement::direction)},
+                                 {}});
+    model.constraints.push_back({"spline-control-at-origin",
+                                 ConstraintKind::coincident,
+                                 {{GeometryTarget::sketch_origin, {}, SubElement::point},
+                                  {GeometryTarget::entity, "later-spline", SubElement::control, 4}},
+                                 {}});
 
     const auto result = make_plane_gcs_sketch_solver()->solve(model);
 
-    ASSERT_TRUE(result.status == SolveStatus::under_constrained || result.status == SolveStatus::redundant)
+    ASSERT_TRUE(result.status == SolveStatus::under_constrained ||
+                result.status == SolveStatus::redundant)
         << result.diagnostic;
     ASSERT_EQ(result.lines.size(), 7U);
     EXPECT_NEAR(result.lines.back().start.y, result.lines.back().end.y, 1e-8);
@@ -311,7 +355,9 @@ TEST(PlaneGcsSketchSolver, SolvesPointToIntrinsicAxisDistance) {
         {"distance-x",
          ConstraintKind::distance,
          {endpoint("point", SubElement::point), axis(GeometryTarget::sketch_x_axis)},
-         {}, 5.0, "mm"}};
+         {},
+         5.0,
+         "mm"}};
 
     const auto result = make_plane_gcs_sketch_solver()->solve(model);
 
@@ -338,27 +384,41 @@ TEST(PlaneGcsSketchSolver, ClassifiesConflictsWithoutLeakingBackendStatus) {
 
 TEST(PlaneGcsSketchSolver, SolvesArcClosureAngleToIntrinsicXAxisRegression) {
     SketchModel model;
-    model.arcs = {{"arc", {-4.17222551406913e-23, 0.0}, 90.0,
-                   2.1599643563596285, 7.265087723106667}};
+    model.arcs = {
+        {"arc", {-4.17222551406913e-23, 0.0}, 90.0, 2.1599643563596285, 7.265087723106667}};
     model.lines = {{"left", {-50.01025611280795, 74.82629406519713}, {0.0, 0.0}},
                    {"right", {0.0, 0.0}, {49.9897429479288, 74.84000000000002}}};
     model.constraints = {
-        {"arc-center", ConstraintKind::coincident,
-         {endpoint("arc", SubElement::center), {GeometryTarget::sketch_origin, {}, SubElement::point}}},
-        {"line-join", ConstraintKind::coincident,
+        {"arc-center",
+         ConstraintKind::coincident,
+         {endpoint("arc", SubElement::center),
+          {GeometryTarget::sketch_origin, {}, SubElement::point}}},
+        {"line-join",
+         ConstraintKind::coincident,
          {endpoint("left", SubElement::end), endpoint("right", SubElement::start)}},
-        {"left-arc", ConstraintKind::coincident,
+        {"left-arc",
+         ConstraintKind::coincident,
          {endpoint("left", SubElement::start), endpoint("arc", SubElement::start)}},
-        {"right-arc", ConstraintKind::coincident,
+        {"right-arc",
+         ConstraintKind::coincident,
          {endpoint("right", SubElement::end), endpoint("arc", SubElement::end)}},
         {"radius", ConstraintKind::radius, {endpoint("arc", SubElement::whole)}, {}, 90.0, "mm"},
-        {"chord", ConstraintKind::distance,
-         {endpoint("arc", SubElement::start), endpoint("arc", SubElement::end)}, {}, 100.0, "mm"},
-        {"at-origin", ConstraintKind::coincident,
-         {endpoint("left", SubElement::end), {GeometryTarget::sketch_origin, {}, SubElement::point}}},
-        {"angle", ConstraintKind::angle,
-         {endpoint("right", SubElement::direction), axis(GeometryTarget::sketch_x_axis)}, {},
-         56.25, "deg"},
+        {"chord",
+         ConstraintKind::distance,
+         {endpoint("arc", SubElement::start), endpoint("arc", SubElement::end)},
+         {},
+         100.0,
+         "mm"},
+        {"at-origin",
+         ConstraintKind::coincident,
+         {endpoint("left", SubElement::end),
+          {GeometryTarget::sketch_origin, {}, SubElement::point}}},
+        {"angle",
+         ConstraintKind::angle,
+         {endpoint("right", SubElement::direction), axis(GeometryTarget::sketch_x_axis)},
+         {},
+         56.25,
+         "deg"},
     };
 
     const auto result = make_plane_gcs_sketch_solver()->solve(model);
@@ -369,8 +429,8 @@ TEST(PlaneGcsSketchSolver, SolvesArcClosureAngleToIntrinsicXAxisRegression) {
 
 TEST(ExternalGeometryProjector, ProjectsVertexAndLinearEdgeIntoSupportFrame) {
     const ProjectionFrame frame{{0.0, 0.0, 10.0}, {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
-    const auto point = project_external_geometry(
-        {ExternalSourceKind::point, {3.0, 4.0, 15.0}}, frame);
+    const auto point =
+        project_external_geometry({ExternalSourceKind::point, {3.0, 4.0, 15.0}}, frame);
     EXPECT_EQ(point.status, ExternalProjectionStatus::connected);
     EXPECT_EQ(point.kind, ProjectedGeometryKind::point);
     EXPECT_NEAR(point.point.x, 3.0, 1e-12);
@@ -436,5 +496,1263 @@ TEST(ExternalGeometryProjector, RejectsPartialCircleUntilArcEvidenceIsAvailable)
 
     EXPECT_EQ(projected.status, ExternalProjectionStatus::unresolved);
     EXPECT_EQ(projected.diagnostic_code, "EXTERNAL_PROJECTION_TYPE_UNSUPPORTED");
+}
+}  // namespace occccad::geometry::sketch
+
+namespace occccad::geometry::sketch {
+namespace {
+SketchModel parallel_spacing(double spacing, bool reverse = false) {
+    SketchModel model;
+    model.lines = {{"base", {10.0, 20.0}, {16.0, 28.0}}, {"offset", {8.4, 21.2}, {14.4, 29.2}}};
+    if (reverse)
+        std::swap(model.lines[0].start, model.lines[0].end);
+    model.constraints = {
+        {"parallel",
+         ConstraintKind::parallel,
+         {endpoint("offset", SubElement::direction), endpoint("base", SubElement::whole)},
+         {}},
+        {"spacing",
+         ConstraintKind::distance,
+         {endpoint("base", SubElement::whole), endpoint("offset", SubElement::whole)},
+         {},
+         spacing,
+         "mm"}};
+    return model;
+}
+void assert_spacing(const SolveResult& result, double spacing) {
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    ASSERT_EQ(result.lines.size(), 2U);
+    const auto& a = result.lines[0];
+    const auto& b = result.lines[1];
+    const double dx = a.end.x - a.start.x, dy = a.end.y - a.start.y;
+    const double ex = b.end.x - b.start.x, ey = b.end.y - b.start.y;
+    ASSERT_GT(std::hypot(dx, dy), 1e-8);
+    EXPECT_NEAR((dx * ey - dy * ex) / (std::hypot(dx, dy) * std::hypot(ex, ey)), 0.0, 1e-8);
+    for (const auto& point : {b.start, b.end})
+        EXPECT_NEAR(
+            std::abs(dx * (point.y - a.start.y) - dy * (point.x - a.start.x)) / std::hypot(dx, dy),
+            spacing, 1e-8);
+}
+}  // namespace
+
+TEST(PlaneGcsSketchSolver, ParallelLineDistanceSolvesWithoutHiddenFix) {
+    const auto result = make_plane_gcs_sketch_solver()->solve(parallel_spacing(5.0));
+    assert_spacing(result, 5.0);
+    EXPECT_EQ(result.degrees_of_freedom, 6);
+}
+
+TEST(PlaneGcsSketchSolver, ParallelLineDistanceIsInvariantUnderEndpointAndSelectionReversal) {
+    auto model = parallel_spacing(3.0, true);
+    std::swap(model.constraints.back().references[0], model.constraints.back().references[1]);
+    assert_spacing(make_plane_gcs_sketch_solver()->solve(model), 3.0);
+}
+
+TEST(PlaneGcsSketchSolver, ParallelLineDistanceHandlesZeroAndCoincidentLines) {
+    auto model = parallel_spacing(0.0);
+    assert_spacing(make_plane_gcs_sketch_solver()->solve(model), 0.0);
+    model.lines[1].start = model.lines[0].start;
+    model.lines[1].end = model.lines[0].end;
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    assert_spacing(result, 0.0);
+    EXPECT_EQ(result.degrees_of_freedom, 6);
+}
+
+TEST(PlaneGcsSketchSolver, ParallelLineDistanceRequiresVisibleParallelRelationship) {
+    auto model = parallel_spacing(3.0);
+    model.constraints.erase(model.constraints.begin());
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    EXPECT_EQ(result.status, SolveStatus::invalid_model);
+    EXPECT_NE(result.diagnostic.find("explicit parallel"), std::string::npos);
+}
+
+TEST(PlaneGcsSketchSolver, ParallelLineDistanceAcceptsExistingHorizontalConstraints) {
+    auto model = parallel_spacing(3.0);
+    model.lines = {{"base", {10.0, 20.0}, {20.0, 20.0}}, {"offset", {12.0, 22.0}, {22.0, 22.0}}};
+    model.constraints.erase(model.constraints.begin());
+    model.constraints.push_back(
+        {"h1", ConstraintKind::horizontal, {endpoint("base", SubElement::whole)}, {}});
+    model.constraints.push_back(
+        {"h2", ConstraintKind::horizontal, {endpoint("offset", SubElement::whole)}, {}});
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    assert_spacing(result, 3.0);
+    EXPECT_EQ(result.degrees_of_freedom, 5);
+}
+
+TEST(PlaneGcsSketchSolver, ParallelLineDistanceDiagnosesIncompatibleAngle) {
+    auto model = parallel_spacing(3.0);
+    model.constraints.push_back(
+        {"angle",
+         ConstraintKind::angle,
+         {endpoint("base", SubElement::whole), endpoint("offset", SubElement::whole)},
+         {},
+         30.0,
+         "deg"});
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    EXPECT_EQ(result.status, SolveStatus::conflicting) << result.diagnostic;
+    EXPECT_FALSE(result.conflicting_constraint_ids.empty());
+}
+
+TEST(PlaneGcsSketchSolver, ParallelLineDistanceRejectsNegativeAndSelfDimensions) {
+    auto model = parallel_spacing(-3.0);
+    EXPECT_EQ(make_plane_gcs_sketch_solver()->solve(model).status, SolveStatus::invalid_model);
+    model = parallel_spacing(3.0);
+    model.constraints.back().references[1] = model.constraints.back().references[0];
+    EXPECT_EQ(make_plane_gcs_sketch_solver()->solve(model).status, SolveStatus::invalid_model);
+}
+
+TEST(PlaneGcsSketchSolver, ParallelLineDistanceSupportsScaleChangesAndCoincidentInitialGuess) {
+    for (const double scale : {0.01, 1.0, 1000.0}) {
+        auto model = parallel_spacing(3.0 * scale);
+        for (auto& line : model.lines) {
+            line.start.x *= scale;
+            line.start.y *= scale;
+            line.end.x *= scale;
+            line.end.y *= scale;
+        }
+        assert_spacing(make_plane_gcs_sketch_solver()->solve(model), 3.0 * scale);
+    }
+    auto model = parallel_spacing(3.0);
+    model.lines[1].start = model.lines[0].start;
+    model.lines[1].end = model.lines[0].end;
+    assert_spacing(make_plane_gcs_sketch_solver()->solve(model), 3.0);
+}
+
+TEST(PlaneGcsSketchSolver, ParallelLineDistanceSupportsIntrinsicAxisAndAxisParallelRelations) {
+    auto model = parallel_spacing(3.0);
+    model.lines = {{"base", {10.0, 20.0}, {20.0, 20.0}}, {"offset", {12.0, 22.0}, {22.0, 22.0}}};
+    model.constraints.erase(model.constraints.begin());
+    for (const char* id : {"base", "offset"})
+        model.constraints.push_back(
+            {std::string("axis-") + id,
+             ConstraintKind::parallel,
+             {endpoint(id, SubElement::whole), axis(GeometryTarget::sketch_x_axis)},
+             {}});
+    assert_spacing(make_plane_gcs_sketch_solver()->solve(model), 3.0);
+    model.lines.erase(model.lines.begin() + 1);
+    model.constraints.erase(model.constraints.end() - 1);
+    model.constraints[0].references[1] = axis(GeometryTarget::sketch_x_axis);
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    ASSERT_EQ(result.lines.size(), 1U);
+    EXPECT_NEAR(std::abs(result.lines[0].start.y), 3.0, 1e-8);
+    EXPECT_NEAR(std::abs(result.lines[0].end.y), 3.0, 1e-8);
+}
+}  // namespace occccad::geometry::sketch
+
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, EllipsePreservesExactParametersAndFiveDegreesOfFreedom) {
+    SketchModel model;
+    model.ellipses = {{"ellipse", {10.0, 20.0}, 5.0, 3.0, 0.7}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    EXPECT_EQ(result.degrees_of_freedom, 5);
+    ASSERT_EQ(result.ellipses.size(), 1U);
+    EXPECT_NEAR(result.ellipses[0].major_radius, 5.0, 1e-9);
+    EXPECT_NEAR(result.ellipses[0].minor_radius, 3.0, 1e-9);
+    EXPECT_NEAR(result.ellipses[0].rotation, 0.7, 1e-9);
+}
+
+TEST(PlaneGcsSketchSolver, EllipseSolvesNativeMajorAndMinorAxisDimensions) {
+    SketchModel model;
+    model.ellipses = {{"ellipse", {10.0, 20.0}, 5.0, 3.0, 0.7}};
+    model.constraints = {{"major",
+                          ConstraintKind::major_radius,
+                          {endpoint("ellipse", SubElement::whole)},
+                          {},
+                          8.0,
+                          "mm"},
+                         {"minor",
+                          ConstraintKind::minor_radius,
+                          {endpoint("ellipse", SubElement::whole)},
+                          {},
+                          2.0,
+                          "mm"}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    EXPECT_EQ(result.degrees_of_freedom, 3);
+    ASSERT_EQ(result.ellipses.size(), 1U);
+    EXPECT_NEAR(result.ellipses[0].major_radius, 8.0, 1e-8);
+    EXPECT_NEAR(result.ellipses[0].minor_radius, 2.0, 1e-8);
+}
+
+TEST(PlaneGcsSketchSolver, EllipseSupportsPointOnObjectAndExactLineTangency) {
+    SketchModel model;
+    model.ellipses = {{"ellipse", {10.0, 20.0}, 5.0, 3.0, 0.0}};
+    model.points = {{"point", {15.1, 20.0}}};
+    model.lines = {{"line", {5.0, 23.1}, {15.0, 23.1}}};
+    model.constraints = {
+        {"fixed-ellipse",
+         ConstraintKind::fixed,
+         {endpoint("ellipse", SubElement::whole)},
+         {},
+         0.0,
+         ""},
+        {"on-ellipse",
+         ConstraintKind::point_on_object,
+         {endpoint("point", SubElement::point), endpoint("ellipse", SubElement::whole)},
+         {},
+         0.0,
+         ""},
+        {"horizontal",
+         ConstraintKind::horizontal,
+         {endpoint("line", SubElement::whole)},
+         {},
+         0.0,
+         ""},
+        {"tangent",
+         ConstraintKind::tangent,
+         {endpoint("line", SubElement::whole), endpoint("ellipse", SubElement::whole)},
+         {},
+         0.0,
+         ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    ASSERT_EQ(result.points.size(), 1U);
+    const double x = (result.points[0].point.x - 10.0) / 5.0;
+    const double y = (result.points[0].point.y - 20.0) / 3.0;
+    EXPECT_NEAR(x * x + y * y, 1.0, 1e-8);
+    EXPECT_NEAR(result.lines[0].start.y, 23.0, 1e-8);
+    EXPECT_NEAR(result.lines[0].end.y, 23.0, 1e-8);
+}
+
+TEST(PlaneGcsSketchSolver, EllipticalArcPreservesSevenDegreesOfFreedomAndEndpointConnection) {
+    SketchModel model;
+    model.elliptical_arcs = {{"arc", {10.0, 20.0}, 5.0, 3.0, 0.7, 5.5, 7.0}};
+    auto solver = make_plane_gcs_sketch_solver();
+    const auto initial = solver->solve(model);
+    ASSERT_EQ(initial.status, SolveStatus::under_constrained) << initial.diagnostic;
+    EXPECT_EQ(initial.degrees_of_freedom, 7);
+    model.lines = {{"line", {13.0, 25.0}, {30.0, 30.0}}};
+    model.constraints = {
+        {"fixed-arc", ConstraintKind::fixed, {endpoint("arc", SubElement::whole)}, {}, 0.0, ""},
+        {"connected",
+         ConstraintKind::coincident,
+         {endpoint("arc", SubElement::end), endpoint("line", SubElement::start)},
+         {},
+         0.0,
+         ""}};
+    const auto result = solver->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    ASSERT_EQ(result.elliptical_arcs.size(), 1U);
+    ASSERT_EQ(result.lines.size(), 1U);
+    const auto& a = result.elliptical_arcs[0];
+    const double x = a.major_radius * std::cos(a.end_angle),
+                 y = a.minor_radius * std::sin(a.end_angle);
+    EXPECT_NEAR(result.lines[0].start.x,
+                a.center.x + x * std::cos(a.rotation) - y * std::sin(a.rotation), 1e-8);
+    EXPECT_NEAR(result.lines[0].start.y,
+                a.center.y + x * std::sin(a.rotation) + y * std::cos(a.rotation), 1e-8);
+}
+
+TEST(PlaneGcsSketchSolver, EllipseRejectsCircularDegeneracyAndUnsupportedTangency) {
+    SketchModel model;
+    model.ellipses = {{"ellipse", {0.0, 0.0}, 3.0, 3.0, 0.0}};
+    EXPECT_EQ(make_plane_gcs_sketch_solver()->solve(model).status, SolveStatus::invalid_model);
+    model.ellipses[0].major_radius = 5.0;
+    model.circles = {{"circle", {10.0, 0.0}, 2.0}};
+    model.constraints = {
+        {"tangent",
+         ConstraintKind::tangent,
+         {endpoint("ellipse", SubElement::whole), endpoint("circle", SubElement::whole)},
+         {},
+         0.0,
+         ""}};
+    EXPECT_EQ(make_plane_gcs_sketch_solver()->solve(model).status, SolveStatus::invalid_model);
+}
+}  // namespace occccad::geometry::sketch
+
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, EllipticalArcPointOnObjectUsesExactBoundedParameterCurve) {
+    SketchModel model;
+    model.elliptical_arcs = {{"arc", {0.0, 0.0}, 5.0, 3.0, 0.0, 0.0, 1.5}};
+    model.points = {{"point", {3.1, 2.5}}};
+    model.constraints = {
+        {"fixed", ConstraintKind::fixed, {endpoint("arc", SubElement::whole)}, {}, 0.0, ""},
+        {"on",
+         ConstraintKind::point_on_object,
+         {endpoint("point", SubElement::point), endpoint("arc", SubElement::whole)},
+         {},
+         0.0,
+         ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    ASSERT_EQ(result.points.size(), 1U);
+    const auto& p = result.points[0].point;
+    EXPECT_NEAR(p.x * p.x / 25.0 + p.y * p.y / 9.0, 1.0, 1e-8);
+    const double u = std::atan2(p.y / 3.0, p.x / 5.0);
+    EXPECT_GE(u, 0.0);
+    EXPECT_LE(u, 1.5);
+}
+TEST(PlaneGcsSketchSolver, EllipticalArcTangentRejectsSupportingEllipseContactOutsideRange) {
+    SketchModel model;
+    model.elliptical_arcs = {{"arc", {0.0, 0.0}, 5.0, 3.0, 0.0, 0.0, 1.0}};
+    model.lines = {{"line", {-10.0, 3.0}, {10.0, 3.0}}};
+    model.constraints = {
+        {"fixed", ConstraintKind::fixed, {endpoint("arc", SubElement::whole)}, {}, 0.0, ""},
+        {"tangent",
+         ConstraintKind::tangent,
+         {endpoint("line", SubElement::whole), endpoint("arc", SubElement::whole)},
+         {},
+         0.0,
+         ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    EXPECT_EQ(result.status, SolveStatus::failed) << result.diagnostic;
+    EXPECT_NE(result.diagnostic.find("outside elliptical arc"), std::string::npos);
+}
+}  // namespace occccad::geometry::sketch
+
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, EllipseEqualAndMixedConcentricPreserveBothSemiaxes) {
+    SketchModel model;
+    model.ellipses = {{"reference", {10.0, 20.0}, 5.0, 3.0, 0.0},
+                      {"equal", {0.0, 0.0}, 6.0, 2.0, 0.3}};
+    model.circles = {{"circle", {9.0, 21.0}, 1.0}};
+    model.constraints = {
+        {"fixed", ConstraintKind::fixed, {endpoint("reference", SubElement::whole)}, {}, 0.0, ""},
+        {"equal",
+         ConstraintKind::equal,
+         {endpoint("reference", SubElement::whole), endpoint("equal", SubElement::whole)},
+         {},
+         0.0,
+         ""},
+        {"concentric",
+         ConstraintKind::concentric,
+         {endpoint("reference", SubElement::whole), endpoint("circle", SubElement::whole)},
+         {},
+         0.0,
+         ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    ASSERT_EQ(result.ellipses.size(), 2U);
+    EXPECT_NEAR(result.ellipses[1].major_radius, 5.0, 1e-8);
+    EXPECT_NEAR(result.ellipses[1].minor_radius, 3.0, 1e-8);
+    ASSERT_EQ(result.circles.size(), 1U);
+    EXPECT_NEAR(result.circles[0].center.x, 10.0, 1e-8);
+    EXPECT_NEAR(result.circles[0].center.y, 20.0, 1e-8);
+}
+
+TEST(PlaneGcsSketchSolver, EllipticalArcSupportsReverseSweepAndCrossingPeriodicSeam) {
+    SketchModel model;
+    model.elliptical_arcs = {{"arc", {10.0, 20.0}, 5.0, 3.0, 0.7, 7.0, 5.5}};
+    model.constraints = {
+        {"fixed", ConstraintKind::fixed, {endpoint("arc", SubElement::whole)}, {}, 0.0, ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::solved) << result.diagnostic;
+    ASSERT_EQ(result.elliptical_arcs.size(), 1U);
+    EXPECT_NEAR(result.elliptical_arcs[0].start_angle, 7.0, 1e-8);
+    EXPECT_NEAR(result.elliptical_arcs[0].end_angle, 5.5, 1e-8);
+    EXPECT_NEAR(result.elliptical_arcs[0].rotation, 0.7, 1e-8);
+}
+}  // namespace occccad::geometry::sketch
+
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, LinkedMirrorLineUpdatesWithSourceAndMovedRotatedAxis) {
+    for (const double offset : {0.0, 2.0}) {
+        SketchModel model;
+        model.lines = {{"source", {1, 2}, {3, 4}},
+                       {"target", {-1, 2}, {-3, 4}},
+                       {"axis", {offset, 0}, {offset + 1, 1}}};
+        model.constraints = {
+            {"fixed-source",
+             ConstraintKind::fixed,
+             {endpoint("source", SubElement::whole)},
+             {},
+             0,
+             ""},
+            {"fixed-axis", ConstraintKind::fixed, {endpoint("axis", SubElement::whole)}, {}, 0, ""},
+            {"mirror",
+             ConstraintKind::mirror,
+             {endpoint("source", SubElement::whole), endpoint("axis", SubElement::direction),
+              endpoint("target", SubElement::whole)},
+             {},
+             0,
+             ""}};
+        const auto result = make_plane_gcs_sketch_solver()->solve(model);
+        ASSERT_EQ(result.status, SolveStatus::solved) << result.diagnostic;
+        EXPECT_NEAR(result.lines[1].start.x, 2 + offset, 1e-8);
+        EXPECT_NEAR(result.lines[1].start.y, 1 - offset, 1e-8);
+        EXPECT_NEAR(result.lines[1].end.x, 4 + offset, 1e-8);
+        EXPECT_NEAR(result.lines[1].end.y, 3 - offset, 1e-8);
+    }
+}
+TEST(PlaneGcsSketchSolver, LinkedMirrorArcPreservesTrueEndpointIdentityAndReverseSweep) {
+    SketchModel model;
+    model.arcs = {
+        {"source", {3, 2}, 2, 0.2, 1.2},
+        {"target", {-3, 2}, 2, 3.14159265358979323846 - 0.2, 3.14159265358979323846 - 1.2}};
+    model.constraints = {
+        {"fixed-source", ConstraintKind::fixed, {endpoint("source", SubElement::whole)}, {}, 0, ""},
+        {"mirror",
+         ConstraintKind::mirror,
+         {endpoint("source", SubElement::whole), axis(GeometryTarget::sketch_y_axis),
+          endpoint("target", SubElement::whole)},
+         {},
+         0,
+         ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::solved) << result.diagnostic;
+    ASSERT_EQ(result.arcs.size(), 2U);
+    const auto& a = result.arcs[0];
+    const auto& b = result.arcs[1];
+    EXPECT_NEAR(b.center.x, -a.center.x, 1e-8);
+    EXPECT_NEAR(b.center.y, a.center.y, 1e-8);
+    EXPECT_NEAR(b.radius, a.radius, 1e-8);
+    EXPECT_NEAR(b.center.x + b.radius * std::cos(b.start_angle),
+                -a.center.x - a.radius * std::cos(a.start_angle), 1e-8);
+    EXPECT_NEAR(b.center.y + b.radius * std::sin(b.start_angle),
+                a.center.y + a.radius * std::sin(a.start_angle), 1e-8);
+    EXPECT_LT(b.end_angle - b.start_angle, 0);
+}
+TEST(PlaneGcsSketchSolver, LinkedMirrorEllipseUsesExactFocusRelation) {
+    SketchModel model;
+    model.ellipses = {{"source", {3, 2}, 5, 3, 0.2},
+                      {"target", {-3, 2}, 5, 3, 3.14159265358979323846 - 0.2}};
+    model.constraints = {
+        {"fixed-source", ConstraintKind::fixed, {endpoint("source", SubElement::whole)}, {}, 0, ""},
+        {"mirror",
+         ConstraintKind::mirror,
+         {endpoint("source", SubElement::whole), axis(GeometryTarget::sketch_y_axis),
+          endpoint("target", SubElement::whole)},
+         {},
+         0,
+         ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::solved) << result.diagnostic;
+    const auto& b = result.ellipses[1];
+    EXPECT_NEAR(b.center.x, -3, 1e-8);
+    EXPECT_NEAR(b.center.y, 2, 1e-8);
+    EXPECT_NEAR(b.major_radius, 5, 1e-8);
+    EXPECT_NEAR(b.minor_radius, 3, 1e-8);
+    EXPECT_NEAR(std::cos(b.rotation), -std::cos(0.2), 1e-8);
+}
+TEST(PlaneGcsSketchSolver, LinkedMirrorSplineRejectsDifferentExactBasis) {
+    SketchModel model;
+    SplineEntity source;
+    source.id = "source";
+    source.mode = "CONTROL";
+    source.degree = 3;
+    source.poles = {{0, 0}, {1, 2}, {2, 2}, {3, 0}};
+    source.knots = {0, 1};
+    source.multiplicities = {4, 4};
+    source.weights = {1, 1, 1, 1};
+    source.parameter_end = 1;
+    auto target = source;
+    target.id = "target";
+    target.weights[1] = 2;
+    model.splines = {source, target};
+    model.constraints = {
+        {"mirror",
+         ConstraintKind::mirror,
+         {endpoint("source", SubElement::whole), axis(GeometryTarget::sketch_y_axis),
+          endpoint("target", SubElement::whole)},
+         {},
+         0,
+         ""}};
+    EXPECT_EQ(make_plane_gcs_sketch_solver()->solve(model).status, SolveStatus::invalid_model);
+}
+}  // namespace occccad::geometry::sketch
+
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, LinkedMirrorPointCircleEllipticalArcAndBothSplineModes) {
+    SketchModel model;
+    model.points = {{"point", {3, 2}}, {"point-copy", {-2, 1}}};
+    model.circles = {{"circle", {4, 2}, 3}, {"circle-copy", {-4, 2}, 3}};
+    model.elliptical_arcs = {{"arc", {3, 2}, 5, 3, 0.2, 0.3, 1.3},
+                             {"arc-copy", {-3, 2}, 5, 3, 3.14159265358979323846 - 0.2, -0.3, -1.3}};
+    SplineEntity fit;
+    fit.id = "fit";
+    fit.control_points = {{1, 1}, {2, 3}, {4, 3}, {5, 1}};
+    auto fit_copy = fit;
+    fit_copy.id = "fit-copy";
+    for (auto& p : fit_copy.control_points)
+        p.x = -p.x;
+    SplineEntity control;
+    control.id = "control";
+    control.mode = "CONTROL";
+    control.poles = fit.control_points;
+    control.knots = {0, 1};
+    control.multiplicities = {4, 4};
+    control.weights = {1, 0.8, 0.8, 1};
+    control.parameter_end = 1;
+    auto control_copy = control;
+    control_copy.id = "control-copy";
+    for (auto& p : control_copy.poles)
+        p.x = -p.x;
+    model.splines = {fit, fit_copy, control, control_copy};
+    for (const auto& ids :
+         std::vector<std::pair<std::string, std::string>>{{"point", "point-copy"},
+                                                          {"circle", "circle-copy"},
+                                                          {"arc", "arc-copy"},
+                                                          {"fit", "fit-copy"},
+                                                          {"control", "control-copy"}}) {
+        model.constraints.push_back({"fixed-" + ids.first,
+                                     ConstraintKind::fixed,
+                                     {{GeometryTarget::entity, ids.first, SubElement::whole}},
+                                     {},
+                                     0,
+                                     ""});
+        model.constraints.push_back({"mirror-" + ids.first,
+                                     ConstraintKind::mirror,
+                                     {{GeometryTarget::entity, ids.first, SubElement::whole},
+                                      axis(GeometryTarget::sketch_y_axis),
+                                      {GeometryTarget::entity, ids.second, SubElement::whole}},
+                                     {},
+                                     0,
+                                     ""});
+    }
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::solved) << result.diagnostic;
+    EXPECT_NEAR(result.points[1].point.x, -3, 1e-8);
+    EXPECT_NEAR(result.points[1].point.y, 2, 1e-8);
+    EXPECT_NEAR(result.circles[1].center.x, -4, 1e-8);
+    EXPECT_NEAR(result.circles[1].radius, 3, 1e-8);
+    const auto& a = result.elliptical_arcs[0];
+    const auto& b = result.elliptical_arcs[1];
+    const auto value = [](const EllipticalArcEntity& e, double u) {
+        const double x = e.major_radius * std::cos(u), y = e.minor_radius * std::sin(u);
+        return Vec2{e.center.x + x * std::cos(e.rotation) - y * std::sin(e.rotation),
+                    e.center.y + x * std::sin(e.rotation) + y * std::cos(e.rotation)};
+    };
+    const auto first = value(a, a.start_angle), second = value(b, b.start_angle);
+    EXPECT_NEAR(second.x, -first.x, 1e-8);
+    EXPECT_NEAR(second.y, first.y, 1e-8);
+    EXPECT_LT(b.end_angle - b.start_angle, 0);
+    for (std::size_t i = 0; i < 4U; ++i) {
+        EXPECT_NEAR(result.splines[1].control_points[i].x, -result.splines[0].control_points[i].x,
+                    1e-8);
+        EXPECT_NEAR(result.splines[1].control_points[i].y, result.splines[0].control_points[i].y,
+                    1e-8);
+        EXPECT_NEAR(result.splines[3].poles[i].x, -result.splines[2].poles[i].x, 1e-8);
+        EXPECT_NEAR(result.splines[3].poles[i].y, result.splines[2].poles[i].y, 1e-8);
+    }
+}
+TEST(PlaneGcsSketchSolver, LinkedMirrorReportsConflictInsteadOfOverwritingFixedTarget) {
+    SketchModel model;
+    model.points = {{"source", {3, 2}}, {"target", {3, 2}}};
+    model.constraints = {
+        {"source-fixed", ConstraintKind::fixed, {endpoint("source", SubElement::whole)}, {}, 0, ""},
+        {"target-fixed", ConstraintKind::fixed, {endpoint("target", SubElement::whole)}, {}, 0, ""},
+        {"mirror",
+         ConstraintKind::mirror,
+         {endpoint("source", SubElement::whole), axis(GeometryTarget::sketch_y_axis),
+          endpoint("target", SubElement::whole)},
+         {},
+         0,
+         ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    EXPECT_EQ(result.status, SolveStatus::conflicting) << result.diagnostic;
+    EXPECT_FALSE(result.conflicting_constraint_ids.empty());
+}
+}  // namespace occccad::geometry::sketch
+
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, ProjectedDistanceIsSignedAndSupportsZeroReversalAndScale) {
+    for (const double scale : {0.01, 1.0, 1000.0})
+        for (const double value : {-3.0, 0.0, 3.0}) {
+            SketchModel model;
+            model.points = {{"first", {10 * scale, 20 * scale}},
+                            {"second", {12 * scale, 24 * scale}}};
+            model.constraints = {
+                {"x",
+                 ConstraintKind::horizontal_distance,
+                 {endpoint("first", SubElement::point), endpoint("second", SubElement::point)},
+                 {},
+                 value * scale,
+                 "mm"},
+                {"y",
+                 ConstraintKind::vertical_distance,
+                 {endpoint("first", SubElement::point), endpoint("second", SubElement::point)},
+                 {},
+                 -2 * scale,
+                 "mm"}};
+            auto result = make_plane_gcs_sketch_solver()->solve(model);
+            ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+            EXPECT_EQ(result.degrees_of_freedom, 2);
+            EXPECT_NEAR(result.points[1].point.x - result.points[0].point.x, value * scale, 1e-8);
+            EXPECT_NEAR(result.points[1].point.y - result.points[0].point.y, -2 * scale, 1e-8);
+            for (auto& c : model.constraints) {
+                std::swap(c.references[0], c.references[1]);
+                c.value = -c.value;
+            }
+            result = make_plane_gcs_sketch_solver()->solve(model);
+            ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+            EXPECT_NEAR(result.points[1].point.x - result.points[0].point.x, value * scale, 1e-8);
+            EXPECT_NEAR(result.points[1].point.y - result.points[0].point.y, -2 * scale, 1e-8);
+        }
+}
+TEST(PlaneGcsSketchSolver, ProjectedDistanceOriginCenterEndpointAndControlReferencesAreExplicit) {
+    SketchModel model;
+    model.lines = {{"line", {1, 2}, {3, 4}}};
+    model.ellipses = {{"ellipse", {5, 6}, 5, 3, 0}};
+    SplineEntity spline;
+    spline.id = "spline";
+    spline.control_points = {{1, 1}, {2, 3}, {4, 3}, {5, 1}};
+    model.splines = {spline};
+    const GeometryRef origin{GeometryTarget::sketch_origin, {}, SubElement::point};
+    model.constraints = {{"line-x",
+                          ConstraintKind::horizontal_distance,
+                          {origin, endpoint("line", SubElement::end)},
+                          {},
+                          -7,
+                          "mm"},
+                         {"center-y",
+                          ConstraintKind::vertical_distance,
+                          {origin, endpoint("ellipse", SubElement::center)},
+                          {},
+                          8,
+                          "mm"},
+                         {"control-x",
+                          ConstraintKind::horizontal_distance,
+                          {origin, {GeometryTarget::entity, "spline", SubElement::control, 1}},
+                          {},
+                          9,
+                          "mm"}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    EXPECT_NEAR(result.lines[0].end.x, -7, 1e-8);
+    EXPECT_NEAR(result.ellipses[0].center.y, 8, 1e-8);
+    EXPECT_NEAR(result.splines[0].control_points[1].x, 9, 1e-8);
+}
+TEST(PlaneGcsSketchSolver, CollinearUsesMinimalEquationsAndDeduplicatesParallel) {
+    for (const bool parallel : {false, true}) {
+        SketchModel model;
+        model.lines = {{"first", {10, 20}, {16, 28}}, {"second", {8.4, 21.2}, {14.4, 29.2}}};
+        const std::vector<GeometryRef> refs{endpoint("first", SubElement::whole),
+                                            endpoint("second", SubElement::whole)};
+        if (parallel)
+            model.constraints.push_back({"parallel", ConstraintKind::parallel, refs, {}, 0, ""});
+        model.constraints.push_back({"collinear", ConstraintKind::collinear, refs, {}, 0, ""});
+        const auto result = make_plane_gcs_sketch_solver()->solve(model);
+        assert_spacing(result, 0);
+        EXPECT_EQ(result.degrees_of_freedom, 6);
+    }
+}
+TEST(PlaneGcsSketchSolver, CollinearSupportsIntrinsicAxesAndRejectsAngleConflict) {
+    SketchModel model;
+    model.lines = {{"line", {10, 20}, {16, 28}}};
+    model.constraints = {
+        {"collinear",
+         ConstraintKind::collinear,
+         {endpoint("line", SubElement::whole), axis(GeometryTarget::sketch_x_axis)},
+         {},
+         0,
+         ""}};
+    auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    EXPECT_EQ(result.degrees_of_freedom, 2);
+    EXPECT_NEAR(result.lines[0].start.y, 0, 1e-8);
+    EXPECT_NEAR(result.lines[0].end.y, 0, 1e-8);
+    model.constraints.push_back(
+        {"angle",
+         ConstraintKind::angle,
+         {endpoint("line", SubElement::whole), axis(GeometryTarget::sketch_x_axis)},
+         {},
+         30,
+         "deg"});
+    EXPECT_EQ(make_plane_gcs_sketch_solver()->solve(model).status, SolveStatus::conflicting);
+    model.lines[0].end = model.lines[0].start;
+    EXPECT_EQ(make_plane_gcs_sketch_solver()->solve(model).status, SolveStatus::invalid_model);
+}
+}  // namespace occccad::geometry::sketch
+
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, SameSupportMaintainsEllipseRotationAndLeavesArcRangeFree) {
+    SketchModel model;
+    model.ellipses = {{"source", {10, 20}, 5, 3, 0.6}};
+    model.elliptical_arcs = {{"target", {9, 19}, 6, 2, 0.4, 0.2, 1.2}};
+    model.constraints = {
+        {"fixed", ConstraintKind::fixed, {endpoint("source", SubElement::whole)}, {}, 0, ""},
+        {"support",
+         ConstraintKind::same_support,
+         {endpoint("source", SubElement::whole), endpoint("target", SubElement::whole)},
+         {},
+         0,
+         ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    EXPECT_EQ(result.degrees_of_freedom, 2);
+    const auto& target = result.elliptical_arcs[0];
+    EXPECT_NEAR(target.center.x, 10, 1e-8);
+    EXPECT_NEAR(target.center.y, 20, 1e-8);
+    EXPECT_NEAR(target.major_radius, 5, 1e-8);
+    EXPECT_NEAR(target.minor_radius, 3, 1e-8);
+    EXPECT_NEAR(target.rotation, 0.6, 1e-8);
+}
+TEST(PlaneGcsSketchSolver, SameSupportMaintainsCircularSupportAndRejectsMixedKinds) {
+    SketchModel model;
+    model.circles = {{"source", {10, 20}, 5}};
+    model.arcs = {{"target", {9, 19}, 6, 0.2, 1.2}};
+    model.constraints = {
+        {"fixed", ConstraintKind::fixed, {endpoint("source", SubElement::whole)}, {}, 0, ""},
+        {"support",
+         ConstraintKind::same_support,
+         {endpoint("source", SubElement::whole), endpoint("target", SubElement::whole)},
+         {},
+         0,
+         ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    EXPECT_EQ(result.degrees_of_freedom, 2);
+    EXPECT_NEAR(result.arcs[0].center.x, 10, 1e-8);
+    EXPECT_NEAR(result.arcs[0].center.y, 20, 1e-8);
+    EXPECT_NEAR(result.arcs[0].radius, 5, 1e-8);
+    model.lines = {{"line", {0, 0}, {1, 1}}};
+    model.constraints.back().references[1] = endpoint("line", SubElement::whole);
+    EXPECT_EQ(make_plane_gcs_sketch_solver()->solve(model).status, SolveStatus::invalid_model);
+}
+}  // namespace occccad::geometry::sketch
+
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, SameSupportCornerCompositeRemainsDrivenBySourceAndRadius) {
+    for (const double radius : {1.0, 2.0}) {
+        SketchModel model;
+        model.lines = {{"source-a", {0, 0}, {10, 0}},
+                       {"source-b", {0, 0}, {0, 8}},
+                       {"cut-a", {1, 0}, {10, 0}},
+                       {"cut-b", {0, 1}, {0, 8}}};
+        model.arcs = {{"fillet", {1, 1}, 1, -3.14159265358979323846 / 2, -3.14159265358979323846}};
+        model.constraints = {{"fixed-a",
+                              ConstraintKind::fixed,
+                              {endpoint("source-a", SubElement::whole)},
+                              {},
+                              0,
+                              ""},
+                             {"fixed-b",
+                              ConstraintKind::fixed,
+                              {endpoint("source-b", SubElement::whole)},
+                              {},
+                              0,
+                              ""}};
+        for (const auto pair : std::vector<std::pair<std::string, std::string>>{
+                 {"source-a", "cut-a"}, {"source-b", "cut-b"}}) {
+            const auto ref = [](const std::string& id, SubElement sub) {
+                return GeometryRef{GeometryTarget::entity, id, sub};
+            };
+            model.constraints.push_back(
+                {"support-" + pair.first,
+                 ConstraintKind::same_support,
+                 {ref(pair.first, SubElement::whole), ref(pair.second, SubElement::whole)},
+                 {},
+                 0,
+                 "",
+                 true});
+            model.constraints.push_back(
+                {"uncut-" + pair.first,
+                 ConstraintKind::coincident,
+                 {ref(pair.first, SubElement::end), ref(pair.second, SubElement::end)},
+                 {},
+                 0,
+                 "",
+                 true});
+            model.constraints.push_back(
+                {"on-" + pair.first,
+                 ConstraintKind::point_on_object,
+                 {ref(pair.second, SubElement::start), ref(pair.first, SubElement::whole)},
+                 {},
+                 0,
+                 "",
+                 true});
+            model.constraints.push_back(
+                {"tangent-" + pair.first,
+                 ConstraintKind::tangent,
+                 {ref(pair.first, SubElement::whole),
+                  endpoint("fillet",
+                           pair.first == "source-a" ? SubElement::start : SubElement::end)},
+                 {},
+                 0,
+                 "",
+                 true});
+        }
+        model.constraints.push_back(
+            {"join-a",
+             ConstraintKind::coincident,
+             {endpoint("cut-a", SubElement::start), endpoint("fillet", SubElement::start)},
+             {},
+             0,
+             "",
+             true});
+        model.constraints.push_back(
+            {"join-b",
+             ConstraintKind::coincident,
+             {endpoint("cut-b", SubElement::start), endpoint("fillet", SubElement::end)},
+             {},
+             0,
+             "",
+             true});
+        model.constraints.push_back({"radius",
+                                     ConstraintKind::radius,
+                                     {endpoint("fillet", SubElement::whole)},
+                                     {},
+                                     radius,
+                                     "mm"});
+        const auto result = make_plane_gcs_sketch_solver()->solve(model);
+        ASSERT_EQ(result.status, SolveStatus::solved) << result.diagnostic;
+        EXPECT_EQ(result.degrees_of_freedom, 0);
+        EXPECT_NEAR(result.arcs[0].radius, radius, 1e-8);
+        EXPECT_NEAR(result.lines[2].start.x, radius, 1e-8);
+        EXPECT_NEAR(result.lines[3].start.y, radius, 1e-8);
+        EXPECT_NEAR(result.lines[2].end.x, 10, 1e-8);
+        EXPECT_NEAR(result.lines[3].end.y, 8, 1e-8);
+    }
+}
+TEST(PlaneGcsSketchSolver, SameSupportReverseArcDoesNotConstrainItsTrimRange) {
+    SketchModel model;
+    model.arcs = {{"source", {10, 20}, 5, 1.4, 0.2}, {"target", {9, 19}, 6, 1.1, 0.8}};
+    model.constraints = {
+        {"fixed", ConstraintKind::fixed, {endpoint("source", SubElement::whole)}, {}, 0, ""},
+        {"support",
+         ConstraintKind::same_support,
+         {endpoint("source", SubElement::whole), endpoint("target", SubElement::whole)},
+         {},
+         0,
+         "",
+         true}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    EXPECT_EQ(result.degrees_of_freedom, 2);
+    EXPECT_NEAR(result.arcs[1].center.x, 10, 1e-8);
+    EXPECT_NEAR(result.arcs[1].radius, 5, 1e-8);
+    EXPECT_LT(result.arcs[1].end_angle - result.arcs[1].start_angle, 0);
+}
+}  // namespace occccad::geometry::sketch
+
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, LinkedMirrorSemicircleAxisEndpointsCloseWithoutSingularChord) {
+    const double pi = std::acos(-1.0);
+    for (const double radius : {2.0, 5.0, 1000.0}) {
+        SketchModel model;
+        model.arcs = {{"source", {0, 0}, radius, -pi / 2, pi / 2},
+                      {"target", {0, 0}, radius, 3 * pi / 2, pi / 2}};
+        model.constraints = {
+            {"center",
+             ConstraintKind::fixed_point,
+             {endpoint("source", SubElement::center)},
+             Vec2{0, 0},
+             0,
+             ""},
+            {"radius",
+             ConstraintKind::radius,
+             {endpoint("source", SubElement::whole)},
+             {},
+             radius,
+             ""},
+            {"start-axis",
+             ConstraintKind::point_on_object,
+             {endpoint("source", SubElement::start), axis(GeometryTarget::sketch_y_axis)},
+             {},
+             0,
+             ""},
+            {"end-axis",
+             ConstraintKind::point_on_object,
+             {endpoint("source", SubElement::end), axis(GeometryTarget::sketch_y_axis)},
+             {},
+             0,
+             ""},
+            {"mirror",
+             ConstraintKind::mirror,
+             {endpoint("source", SubElement::whole), axis(GeometryTarget::sketch_y_axis),
+              endpoint("target", SubElement::whole)},
+             {},
+             0,
+             "",
+             true},
+            {"start-join",
+             ConstraintKind::coincident,
+             {endpoint("source", SubElement::start), endpoint("target", SubElement::start)},
+             {},
+             0,
+             "",
+             true},
+            {"end-join",
+             ConstraintKind::coincident,
+             {endpoint("source", SubElement::end), endpoint("target", SubElement::end)},
+             {},
+             0,
+             "",
+             true}};
+        const auto result = make_plane_gcs_sketch_solver()->solve(model);
+        ASSERT_EQ(result.status, SolveStatus::solved) << result.diagnostic;
+        EXPECT_EQ(result.degrees_of_freedom, 0);
+        ASSERT_EQ(result.arcs.size(), 2U);
+        EXPECT_NEAR(result.arcs[1].radius, radius, 1e-7);
+        EXPECT_NEAR(result.arcs[1].center.x, 0, 1e-7);
+        EXPECT_LT(result.arcs[1].end_angle - result.arcs[1].start_angle, 0);
+    }
+}
+}  // namespace occccad::geometry::sketch
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, EllipticalArcEndpointTangentUsesAnalyticNormal) {
+    const double pi = std::acos(-1.0);
+    SketchModel model;
+    model.elliptical_arcs = {{"ellipse", {0, 0}, 5, 2, 0, 0, pi / 2}};
+    model.lines = {{"line", {2, 1}, {7, 3}}};
+    model.constraints = {
+        {"fixed-ellipse",
+         ConstraintKind::fixed,
+         {endpoint("ellipse", SubElement::whole)},
+         {},
+         0,
+         ""},
+        {"length", ConstraintKind::length, {endpoint("line", SubElement::whole)}, {}, 5, ""},
+        {"join",
+         ConstraintKind::coincident,
+         {endpoint("line", SubElement::start), endpoint("ellipse", SubElement::end)},
+         {},
+         0,
+         ""},
+        {"tangent",
+         ConstraintKind::tangent,
+         {endpoint("line", SubElement::whole), endpoint("ellipse", SubElement::end)},
+         {},
+         0,
+         ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::solved) << result.diagnostic;
+    EXPECT_NEAR(result.lines[0].start.x, 0, 1e-8);
+    EXPECT_NEAR(result.lines[0].start.y, 2, 1e-8);
+    EXPECT_NEAR(result.lines[0].end.y, 2, 1e-8);
+    EXPECT_NEAR(std::abs(result.lines[0].end.x), 5, 1e-8);
+}
+TEST(PlaneGcsSketchSolver, ControlSplineEndpointTangentIsExactPoleDerivative) {
+    SketchModel model;
+    SplineEntity spline;
+    spline.id = "spline";
+    spline.mode = "CONTROL";
+    spline.degree = 3;
+    spline.poles = {{0, 0}, {1, 1}, {2, 1}, {3, 0}};
+    spline.knots = {0, 1};
+    spline.multiplicities = {4, 4};
+    spline.weights = {1, 2, 1, 1};
+    spline.parameter_end = 1;
+    model.splines = {spline};
+    model.lines = {{"line", {0, 0}, {5, 0}}};
+    model.constraints = {
+        {"fixed-line", ConstraintKind::fixed, {endpoint("line", SubElement::whole)}, {}, 0, ""},
+        {"fix-start",
+         ConstraintKind::fixed_point,
+         {{GeometryTarget::entity, "spline", SubElement::start}},
+         {0, 0},
+         0,
+         ""},
+        {"tangent",
+         ConstraintKind::tangent,
+         {endpoint("spline", SubElement::start), endpoint("line", SubElement::whole)},
+         {},
+         0,
+         ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    // D1(0)=degree*w1/w0/(u_last-u_first)*(P1-P0), exact rational derivative.
+    EXPECT_NEAR(6 * (result.splines[0].poles[1].y - result.splines[0].poles[0].y), 0, 1e-8);
+    EXPECT_GT(std::abs(result.splines[0].poles[1].x - result.splines[0].poles[0].x), 1e-7);
+    model.splines[0].mode = "FIT";
+    model.splines[0].control_points = model.splines[0].poles;
+    EXPECT_EQ(make_plane_gcs_sketch_solver()->solve(model).status, SolveStatus::invalid_model);
+}
+TEST(PlaneGcsSketchSolver, SelfMirrorPointCircleAndLineTrackMovingAxisWithoutDuplicateGeometry) {
+    SketchModel model;
+    model.lines = {{"axis", {3, 1}, {3, 5}, EntityRole::construction},
+                   {"on-axis", {3, 2}, {3, 4}},
+                   {"paired", {1, 3}, {5, 3}}};
+    model.points = {{"point", {3, 7}}};
+    model.circles = {{"circle", {3, 3}, 2}};
+    model.constraints = {
+        {"fix-axis", ConstraintKind::fixed, {endpoint("axis", SubElement::whole)}, {}, 0, ""}};
+    for (const auto& id : {"point", "circle", "on-axis", "paired"}) {
+        SketchConstraint c;
+        c.id = std::string("self-") + id;
+        c.kind = ConstraintKind::mirror;
+        c.references = {endpoint(id, SubElement::whole), endpoint("axis", SubElement::direction),
+                        endpoint(id, SubElement::whole)};
+        if (std::string(id) == "on-axis")
+            c.self_mirror_mode = "ON_AXIS";
+        if (std::string(id) == "paired")
+            c.self_mirror_mode = "PAIRED";
+        model.constraints.push_back(c);
+    }
+    model.lines[0].start.x = model.lines[0].end.x = 9;
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    EXPECT_NEAR(result.points[0].point.x, 9, 1e-8);
+    EXPECT_NEAR(result.circles[0].center.x, 9, 1e-8);
+    EXPECT_NEAR(result.lines[1].start.x, 9, 1e-8);
+    EXPECT_NEAR(result.lines[1].end.x, 9, 1e-8);
+    EXPECT_NEAR((result.lines[2].start.x + result.lines[2].end.x) / 2, 9, 1e-8);
+    EXPECT_NEAR(result.lines[2].start.y, result.lines[2].end.y, 1e-8);
+}
+TEST(PlaneGcsSketchSolver, SelfMirrorEllipseArcAndSplineHaveExplicitExactCorrespondence) {
+    SketchModel model;
+    model.ellipses = {{"ellipse", {0, 0}, 5, 2, 0.3}};
+    model.arcs = {{"arc", {0, 0}, 5, -0.2, 0.2}};
+    SplineEntity spline;
+    spline.id = "spline";
+    spline.mode = "CONTROL";
+    spline.degree = 2;
+    spline.poles = {{-2, 0}, {0, 3}, {2, 0}};
+    spline.knots = {0, 1};
+    spline.multiplicities = {3, 3};
+    spline.weights = {1, 2, 1};
+    spline.parameter_end = 1;
+    model.splines = {spline};
+    for (const auto& id : {"ellipse", "arc", "spline"}) {
+        SketchConstraint c;
+        c.id = std::string("self-") + id;
+        c.kind = ConstraintKind::mirror;
+        c.references = {endpoint(id, SubElement::whole), axis(GeometryTarget::sketch_y_axis),
+                        endpoint(id, SubElement::whole)};
+        if (std::string(id) == "ellipse")
+            c.self_mirror_mode = "MAJOR_PERPENDICULAR";
+        if (std::string(id) == "spline")
+            c.self_mirror_mode = "PAIRED";
+        model.constraints.push_back(c);
+    }
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::under_constrained) << result.diagnostic;
+    EXPECT_NEAR(result.ellipses[0].center.x, 0, 1e-8);
+    EXPECT_NEAR(std::sin(result.ellipses[0].rotation), 0, 1e-8);
+    const auto& a = result.arcs[0];
+    EXPECT_NEAR(a.radius * (std::cos(a.start_angle) + std::cos(a.end_angle)), 0, 1e-7);
+    EXPECT_NEAR(result.splines[0].poles[0].x, -result.splines[0].poles[2].x, 1e-8);
+    EXPECT_NEAR(result.splines[0].poles[1].x, 0, 1e-8);
+    model.splines[0].weights = {1, 2, 3};
+    EXPECT_EQ(make_plane_gcs_sketch_solver()->solve(model).status, SolveStatus::invalid_model);
+}
+}  // namespace occccad::geometry::sketch
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, ReflectionNormalResidualAndAnalyticDerivativeAtZeroAndNonzeroChord) {
+    for (const double chord : {0.0, 3.0}) {
+        double coordinates[] = {2 - chord, 4, 2 + chord, 4, 2, 1, 2, 7};
+        GCS::Point a{&coordinates[0], &coordinates[1]}, b{&coordinates[2], &coordinates[3]};
+        GCS::Line axis;
+        axis.p1 = {&coordinates[4], &coordinates[5]};
+        axis.p2 = {&coordinates[6], &coordinates[7]};
+        ReflectionNormalConstraint normal(a, b, axis);
+        normal.rescale();
+        EXPECT_TRUE(std::isfinite(normal.error()));
+        EXPECT_NEAR(normal.error(), 0, 1e-12);
+        for (auto& parameter : coordinates) {
+            const double original = parameter, h = 1e-6;
+            const double exact = normal.grad(&parameter);
+            parameter = original + h;
+            const double plus = normal.error();
+            parameter = original - h;
+            const double minus = normal.error();
+            parameter = original;
+            EXPECT_TRUE(std::isfinite(exact));
+            EXPECT_NEAR(exact, (plus - minus) / (2 * h), 1e-8);
+        }
+        coordinates[3] += 2;
+        EXPECT_NEAR(std::abs(normal.error()), 2, 1e-12);
+    }
+}
+}  // namespace occccad::geometry::sketch
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, RedundantDisconnectedComponentPreservesAcceptedDrivingSolution) {
+    SketchModel model;
+    model.lines = {{"driven", {0, 0}, {2, 0}}, {"redundant", {10, 3}, {15, 3}}};
+    model.constraints = {
+        {"origin",
+         ConstraintKind::fixed_point,
+         {endpoint("driven", SubElement::start)},
+         {0, 0},
+         0,
+         ""},
+        {"direction",
+         ConstraintKind::horizontal,
+         {endpoint("driven", SubElement::whole)},
+         {},
+         0,
+         ""},
+        {"length", ConstraintKind::length, {endpoint("driven", SubElement::whole)}, {}, 7, ""},
+        {"horizontal-first",
+         ConstraintKind::horizontal,
+         {endpoint("redundant", SubElement::whole)},
+         {},
+         0,
+         ""},
+        {"horizontal-duplicate",
+         ConstraintKind::horizontal,
+         {endpoint("redundant", SubElement::whole)},
+         {},
+         0,
+         ""}};
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_EQ(result.status, SolveStatus::redundant) << result.diagnostic;
+    EXPECT_FALSE(result.redundant_constraint_ids.empty());
+    EXPECT_TRUE(result.conflicting_constraint_ids.empty());
+    ASSERT_EQ(result.lines.size(), 2U);
+    EXPECT_NEAR(result.lines[0].start.x, 0, 1e-8);
+    EXPECT_NEAR(result.lines[0].start.y, 0, 1e-8);
+    EXPECT_NEAR(std::hypot(result.lines[0].end.x - result.lines[0].start.x,
+                           result.lines[0].end.y - result.lines[0].start.y),
+                7, 1e-8);
+    EXPECT_NEAR(result.lines[0].end.y, 0, 1e-8);
+    EXPECT_EQ(result.degrees_of_freedom, 3);
+}
+}  // namespace occccad::geometry::sketch
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, LineArcAndArcArcCornerRadiusUpdatesWithFixedSourceSupports) {
+    const double pi = std::acos(-1.0);
+    for (const bool two_arcs : {false, true}) {
+        const double old_radius = two_arcs ? 0.5 : 1;
+        const double radius = old_radius * 1.5;
+        SketchModel model;
+        const double alpha = std::acos(0.6),
+                     height = std::sqrt((5 - old_radius) * (5 - old_radius) - 9);
+        if (two_arcs)
+            model.arcs = {{"source-a", {-3, 0}, 5, -alpha, alpha},
+                          {"source-b", {3, 0}, 5, pi - alpha, pi + alpha}};
+        else {
+            model.lines = {{"source-a", {-5, 0}, {5, 0}}};
+            model.arcs = {{"source-b", {0, 0}, 5, 0, pi}};
+        }
+        Vec2 center =
+            two_arcs ? Vec2{0, height} : Vec2{std::sqrt(25 - 10 * old_radius), old_radius};
+        const double beta =
+            two_arcs ? std::atan2(height, 3) : std::asin(old_radius / (5 - old_radius));
+        if (two_arcs) {
+            model.arcs.push_back({"cut-a", {-3, 0}, 5, -alpha, beta});
+            model.arcs.push_back({"cut-b", {3, 0}, 5, pi - beta, pi + alpha});
+        } else {
+            model.lines.push_back({"cut-a", {-5, 0}, {center.x, 0}});
+            model.arcs.push_back({"cut-b", {0, 0}, 5, beta, pi});
+        }
+        model.arcs.push_back(
+            {"fillet", center, old_radius, two_arcs ? beta : -pi / 2, two_arcs ? pi - beta : beta});
+        for (const auto source : {"source-a", "source-b"})
+            model.constraints.push_back({std::string("fixed-") + source,
+                                         ConstraintKind::fixed,
+                                         {endpoint(source, SubElement::whole)},
+                                         {},
+                                         0,
+                                         ""});
+        for (const auto pair : std::vector<std::pair<const char*, const char*>>{
+                 {"source-a", "cut-a"}, {"source-b", "cut-b"}}) {
+            const bool first = std::string(pair.first) == "source-a";
+            model.constraints.push_back({std::string("support-") + pair.first,
+                                         ConstraintKind::same_support,
+                                         {endpoint(pair.first, SubElement::whole),
+                                          endpoint(pair.second, SubElement::whole)},
+                                         {},
+                                         0,
+                                         "",
+                                         true});
+            model.constraints.push_back(
+                {std::string("uncut-") + pair.first,
+                 ConstraintKind::coincident,
+                 {endpoint(pair.first, first ? SubElement::start : SubElement::end),
+                  endpoint(pair.second, first ? SubElement::start : SubElement::end)},
+                 {},
+                 0,
+                 "",
+                 true});
+            model.constraints.push_back(
+                {std::string("on-") + pair.first,
+                 ConstraintKind::point_on_object,
+                 {endpoint(pair.second, first ? SubElement::end : SubElement::start),
+                  endpoint(pair.first, SubElement::whole)},
+                 {},
+                 0,
+                 "",
+                 true});
+            model.constraints.push_back(
+                {std::string("tangent-") + pair.first,
+                 ConstraintKind::tangent,
+                 {endpoint(pair.first, SubElement::whole),
+                  endpoint("fillet", first ? SubElement::start : SubElement::end)},
+                 {},
+                 0,
+                 "",
+                 true});
+            model.constraints.push_back(
+                {std::string("join-") + pair.first,
+                 ConstraintKind::coincident,
+                 {endpoint(pair.second, first ? SubElement::end : SubElement::start),
+                  endpoint("fillet", first ? SubElement::start : SubElement::end)},
+                 {},
+                 0,
+                 "",
+                 true});
+        }
+        model.constraints.push_back(
+            {"old-join-upper",
+             ConstraintKind::coincident,
+             {endpoint("source-a", SubElement::end), endpoint("source-b", SubElement::start)},
+             {},
+             0,
+             ""});
+        model.constraints.push_back(
+            {"old-join-lower",
+             ConstraintKind::coincident,
+             {endpoint("source-b", SubElement::end), endpoint("source-a", SubElement::start)},
+             {},
+             0,
+             ""});
+        model.constraints.push_back({"radius",
+                                     ConstraintKind::radius,
+                                     {endpoint("fillet", SubElement::whole)},
+                                     {},
+                                     radius,
+                                     ""});
+        const auto result = make_plane_gcs_sketch_solver()->solve(model);
+        ASSERT_TRUE(result.status == SolveStatus::solved || result.status == SolveStatus::redundant)
+            << two_arcs << " " << result.diagnostic;
+        EXPECT_EQ(result.degrees_of_freedom, 0);
+        EXPECT_EQ(result.redundant_constraint_ids.size(), 2U);
+        ASSERT_FALSE(result.arcs.empty());
+        const auto& fillet = result.arcs.back();
+        EXPECT_NEAR(fillet.radius, radius, 1e-8);
+        if (two_arcs) {
+            EXPECT_NEAR(fillet.center.x, 0, 1e-8);
+            EXPECT_NEAR(fillet.center.y, std::sqrt((5 - radius) * (5 - radius) - 9), 1e-8);
+        } else {
+            EXPECT_NEAR(fillet.center.y, radius, 1e-8);
+            EXPECT_NEAR(fillet.center.x, std::sqrt(25 - 10 * radius), 1e-8);
+        }
+    }
+}
+}  // namespace occccad::geometry::sketch
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver,
+     FixedEndpointCoincidenceNormalizationPreservesTrueConflictAndDefinition) {
+    for (const double gap : {0.0, 1.0}) {
+        SketchModel model;
+        model.lines = {{"a", {0, 0}, {3, 0}}, {"b", {3 + gap, 0}, {6, 2}}};
+        model.constraints = {
+            {"fixed-a", ConstraintKind::fixed, {endpoint("a", SubElement::whole)}, {}, 0, ""},
+            {"fixed-b", ConstraintKind::fixed, {endpoint("b", SubElement::whole)}, {}, 0, ""},
+            {"join",
+             ConstraintKind::coincident,
+             {endpoint("a", SubElement::end), endpoint("b", SubElement::start)},
+             {},
+             0,
+             ""}};
+        const auto result = make_plane_gcs_sketch_solver()->solve(model);
+        if (gap == 0) {
+            ASSERT_EQ(result.status, SolveStatus::redundant) << result.diagnostic;
+            EXPECT_EQ(result.degrees_of_freedom, 0);
+            EXPECT_EQ(result.redundant_constraint_ids, std::vector<std::string>{"join"});
+            EXPECT_TRUE(result.conflicting_constraint_ids.empty());
+            ASSERT_EQ(result.lines.size(), 2U);
+            EXPECT_NEAR(result.lines[0].end.x, 3, 1e-12);
+            EXPECT_NEAR(result.lines[1].start.x, 3, 1e-12);
+            // A separate genuinely inconsistent driver is still diagnosed even
+            // when the existing fixed-endpoint relation has been proven redundant.
+            model.constraints.push_back({"bad-length",
+                                         ConstraintKind::length,
+                                         {endpoint("a", SubElement::whole)},
+                                         {},
+                                         4,
+                                         ""});
+            const auto conflict = make_plane_gcs_sketch_solver()->solve(model);
+            EXPECT_EQ(conflict.status, SolveStatus::conflicting);
+            EXPECT_FALSE(conflict.conflicting_constraint_ids.empty());
+        } else {
+            EXPECT_EQ(result.status, SolveStatus::conflicting);
+            EXPECT_FALSE(result.conflicting_constraint_ids.empty());
+        }
+        EXPECT_EQ(model.constraints[2].id, "join");
+        EXPECT_EQ(model.constraints[2].references[0].entity_id, "a");
+    }
 }
 }  // namespace occccad::geometry::sketch

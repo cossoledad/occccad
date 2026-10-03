@@ -51,12 +51,14 @@ import { constraintSymbolCode, makeConstraintDimensionLabel, makeSketchConstrain
 import { isDimensionConstraintKind, type ConstraintKind } from "../cad/sketch/sketch-constraint-definition";
 import { measureSketchDimension } from "../cad/sketch/sketch-constraint-layout";
 import { sketchReferenceDimensions, SKETCH_INPUT_POLICY } from "../cad/sketch/sketch-input-policy";
-import { sampleSketchEntity, sketchEntityPoint } from "../cad/sketch/sketch-geometry";
+import { sampleSketchEntity, sketchEntityPoint, splineEditablePoints, splineReferencePoint } from "../cad/sketch/sketch-geometry";
+import { sketchProfileFeedback } from "../cad/sketch/sketch-profile-analysis";
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
 import { manipulatorFrame, transformAroundWorldPivot, viewportMetrics, worldUnitsPerCssPixel } from "../cad/rendering/viewport-metrics";
 import { randomUUID } from "../utils/random-uuid";
 import { assemblyConstraintGlyph } from "../cad/assembly/assembly-constraint-ux";
-import { ArcSketchTool, AssemblyConstraintTool, AssemblyMoveTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, ProjectExternalGeometrySketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SlotSketchTool, SplineSketchTool, type AssemblyConstraintToolKind, type ToolViewportPort } from "../cad/tool/cad-tool";
+import { ControlSplineSketchTool, EllipseSketchTool, EllipticalArcSketchTool, CenterRectangleSketchTool, OrientedRectangleSketchTool, ThreePointCircleSketchTool, ThreePointArcSketchTool, ArcSketchTool, AssemblyConstraintTool, AssemblyMoveTool, CircleSketchTool, ConstraintSketchTool, LineSketchTool, LinearDimensionSketchTool, PointSketchTool, PolylineSketchTool, ProjectExternalGeometrySketchTool, RectangleSketchTool, RegularPolygonSketchTool, SelectTool, SplineSketchTool, type AssemblyConstraintToolKind, type ToolViewportPort } from "../cad/tool/cad-tool";
+import { SketchEditTool } from "../cad/tool/sketch-edit-tool";
 import { ToolManager } from "../cad/tool/tool-manager";
 import type {
   Artifact as ArtifactDescriptor, AssemblyGeometryRef, AxisSystem, DatumAxis, DatumPlane, DocumentStructureNode, DocumentView as DocumentDescriptor, Feature, PlaneName, Publication, ReferenceGeometry, Selection, SelectionItem, SketchConstraint, SketchEntity, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3, VisualizationManifest,
@@ -68,8 +70,8 @@ type Callbacks = {
   sketchOperations: (featureID: string, operations: SketchOperation[]) => void;
   toolPromptChanged: (prompt: string) => void;
   toolUseCompleted: () => void;
-  dimensionEditRequested: (request: { mode: "edit"; featureId: string; constraintId: string; value: number; unit: "mm" | "deg"; x: number; y: number }) => void;
-  dimensionCreateRequested: (request: { mode: "create"; featureId: string; kind: "DISTANCE"|"LENGTH"|"RADIUS"|"DIAMETER"|"ANGLE";
+  dimensionEditRequested: (request: { mode: "edit"; featureId: string; constraintId: string; value?: number; unit: "mm" | "deg"; x: number; y: number }) => void;
+  dimensionCreateRequested: (request: { mode: "create"; featureId: string; kind: "DISTANCE"|"HORIZONTAL_DISTANCE"|"VERTICAL_DISTANCE"|"LENGTH"|"RADIUS"|"DIAMETER"|"MAJOR_RADIUS"|"MINOR_RADIUS"|"ANGLE";
     references: SketchGeometryRef[]; labelPosition: Vec2; value: number; unit: "mm"|"deg"; x: number; y: number }) => void;
   activeToolChanged: (toolID: import("../state/workbench-store").WorkbenchToolID) => void;
   instanceMoved: (documentId: string, candidate: AssemblyInteractionCommit) => Promise<void>;
@@ -315,7 +317,7 @@ export class CadViewportEngine {
   private previewBody?: { group: THREE.Group; visible: boolean };
   private assemblyPosePreview?: Map<string, { position: THREE.Vector3; rotation: THREE.Quaternion }>;
   private dimensionDrag?: { selection: Extract<SelectionItem, { kind: "sketch-constraint" }>; constraint: SketchConstraint;
-    root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2 };
+    root?: THREE.Object3D; rootParent?: THREE.Object3D; rootIndex?: number; startX: number; startY: number; position?: Vec2; scopeKey:string };
   private readonly moveInteraction: AssemblyInteractionController;
   private moveCommitPending?:{documentId:string;candidate:AssemblyInteractionCommit};
   private moveCommitInFlight=false;
@@ -435,11 +437,18 @@ export class CadViewportEngine {
     this.tools.register(new ArcSketchTool());
     this.tools.register(new PolylineSketchTool());
     this.tools.register(new SplineSketchTool());
+    this.tools.register(new ControlSplineSketchTool());
     this.tools.register(new RectangleSketchTool());
     this.tools.register(new RegularPolygonSketchTool());
-    this.tools.register(new SlotSketchTool());
+    this.tools.register(new CenterRectangleSketchTool());
+    this.tools.register(new OrientedRectangleSketchTool());
+    this.tools.register(new ThreePointCircleSketchTool());
+    this.tools.register(new ThreePointArcSketchTool());
+    this.tools.register(new EllipseSketchTool());
+    this.tools.register(new EllipticalArcSketchTool());
+    for(const kind of ["delete","copy","move","rotate","scale","mirror","split","trim","quick_trim","fillet","chamfer","extend","complement","close","offset","spline_insert","spline_delete","spline_close","spline_control","construction"] as const)this.tools.register(new SketchEditTool(kind));
     this.tools.register(new LinearDimensionSketchTool());
-    for (const kind of ["COINCIDENT","PARALLEL","FIXED","HORIZONTAL","VERTICAL","PERPENDICULAR","TANGENT","EQUAL","DISTANCE","LENGTH","RADIUS","ANGLE","CONCENTRIC","POINT_ON_OBJECT","MIDPOINT","SYMMETRY"] as const)
+    for (const kind of ["COINCIDENT","PARALLEL","COLLINEAR","FIXED","HORIZONTAL","VERTICAL","PERPENDICULAR","TANGENT","EQUAL","DISTANCE","HORIZONTAL_DISTANCE","VERTICAL_DISTANCE","LENGTH","RADIUS","MAJOR_RADIUS","MINOR_RADIUS","ANGLE","CONCENTRIC","POINT_ON_OBJECT","MIDPOINT","SYMMETRY"] as const)
       this.tools.register(new ConstraintSketchTool(kind));
     this.tools.activate("select");
     this.selectionController = new SelectionController(
@@ -1036,11 +1045,11 @@ export class CadViewportEngine {
     if (!sketchView) return false;
     const feature = sketchView.part?.features.find((candidate) => candidate.id === selection.featureId);
     const constraint = feature?.sketch?.constraints.find((candidate) => candidate.id === selection.constraintId);
-    if (!constraint || constraint.value === undefined || (constraint.unit !== "mm" && constraint.unit !== "deg") ||
-      !isDimensionConstraintKind(constraint.kind)) return false;
+    if(!constraint)return false;
+    if(constraint.internal||["MIRROR","SAME_SUPPORT"].includes(constraint.kind)){this.callbacks.toolPromptChanged("生成操作的内部关系须通过对应几何编辑显式解除，不能直接改写");return false;}
     this.selectMany([selection]);
     this.callbacks.dimensionEditRequested({ mode: "edit", featureId: selection.featureId, constraintId: constraint.id,
-      value: constraint.value, unit: constraint.unit, x: x ?? this.renderer.domElement.clientWidth / 2,
+      value: constraint.value, unit: constraint.unit==="deg"?"deg":"mm", x: x ?? this.renderer.domElement.clientWidth / 2,
       y: y ?? this.renderer.domElement.clientHeight / 2 });
     return true;
   }
@@ -2101,8 +2110,8 @@ export class CadViewportEngine {
         object = makeSketchOverlayLine(positions, entityColor, entity.role === "CONSTRUCTION" ? 2 : 2.5, entity.role === "CONSTRUCTION");
         updateHighlightLineResolution(object, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
         object.renderOrder = 20;
-        const markers=entity.kind==="CIRCLE"&&entity.center?[localToWorld(plane,[entity.center.x,entity.center.y])]
-          :entity.kind==="SPLINE"?(entity.controlPoints??[]).map((point)=>localToWorld(plane,[point.x,point.y]))
+        const markers=(entity.kind==="CIRCLE"||entity.kind==="ELLIPSE")&&entity.center?[localToWorld(plane,[entity.center.x,entity.center.y])]
+          :entity.kind==="SPLINE"?splineEditablePoints(entity).map((point)=>localToWorld(plane,[point.x,point.y]))
             :[positions[0],positions.at(-1)!];
         const endpointMarkers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(markers),
           this.materials.point(CATIA_VISUAL_THEME.vertex, 8, false));
@@ -2114,6 +2123,16 @@ export class CadViewportEngine {
       this.selectable.set(`visual:${entitySelection.id}`, object);
       this.selectionIndex.register(entitySelection, object);
       this.selectionIndex.registerPick(object, () => entitySelection, type === "POINT" ? 75 : 70);
+    }
+    // Locations are computed by the server using the production Profile
+    // graph. Displaying them never creates or guesses endpoint connectivity.
+    if (this.activeSketchID === feature.id) {
+      const feedback = sketchProfileFeedback(sourceView?.sketchAnalyses?.[feature.id]);
+      const locations = feedback.locations.map(position => localToWorld(plane, position));
+      if (locations.length) {
+        const markers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(locations), this.materials.point(CATIA_VISUAL_THEME.sketchInvalid, 14, false));
+        markers.renderOrder = 85; markers.userData.sketchAnalysisIssue = true; group.add(markers);
+      }
     }
     const externalEntities = (feature.sketch?.externalGeometry ?? []).flatMap((external) => {
       const snapshot = external.snapshot;
@@ -2309,21 +2328,24 @@ export class CadViewportEngine {
     return world ? worldToLocal(this.sketchPlane, world) : undefined;
   }
 
+  private dimensionGestureScope():string {const view=this.sketchView();return JSON.stringify([view?.document.id,view?.document.versionId,this.activeSketchID,this.editContext?.occurrencePath]);}
+
   private beginDimensionDrag(x: number, y: number): boolean {
     if (!this.sketchPlane || !this.activeSketchID) return false;
     const hit = this.dimensionConstraintAt(x, y);
     if (!hit || hit.selection.featureId !== this.activeSketchID) return false;
     this.selectMany([hit.selection]);
     const root = this.selectable.get(`sketch-constraint:${hit.selection.id}`);
-    this.dimensionDrag = { selection: hit.selection, constraint: hit.constraint, root, startX: x, startY: y };
+    this.dimensionDrag = { selection: hit.selection, constraint: hit.constraint, root, startX: x, startY: y,scopeKey:this.dimensionGestureScope() };
     return true;
   }
 
   private updateDimensionDrag(x: number, y: number): void {
     const sketchView = this.sketchView();
     if (!this.dimensionDrag || !this.sketchPlane || !sketchView) return;
+    if(this.dimensionDrag.scopeKey!==this.dimensionGestureScope()){this.cancelDimensionDrag();return;}
     if (Math.hypot(x - this.dimensionDrag.startX, y - this.dimensionDrag.startY) < 3 && !this.dimensionDrag.position) return;
-    const position = this.rawSketchPoint(x, y); if (!position) return;
+    const position = this.rawSketchPoint(x, y); if (!position||!position.every(Number.isFinite)){this.cancelDimensionDrag();return;}
     if (!this.dimensionDrag.position) {
       this.selectMany([]);
       const root = this.dimensionDrag.root;
@@ -2346,6 +2368,7 @@ export class CadViewportEngine {
   }
 
   private finishDimensionDrag(): void {
+    if(this.dimensionDrag&&this.dimensionDrag.scopeKey!==this.dimensionGestureScope()){this.cancelDimensionDrag();return;}
     const drag = this.dimensionDrag; this.dimensionDrag = undefined;
     if (!drag) return;
     this.clearReferencePreview();
@@ -2371,7 +2394,7 @@ export class CadViewportEngine {
 
   private editDimensionAt(x: number, y: number): boolean {
     const hit = this.dimensionConstraintAt(x, y);
-    if (!hit || hit.selection.featureId !== this.activeSketchID || hit.constraint.value === undefined ||
+    if (!hit || hit.selection.featureId !== this.activeSketchID ||
       (hit.constraint.unit !== "mm" && hit.constraint.unit !== "deg")) return false;
     return this.requestDimensionEdit(hit.selection, x, y);
   }
@@ -2572,8 +2595,8 @@ export class CadViewportEngine {
         this.materials.point(color, 15, false));
     }
     if(reference.subElement==="CONTROL"&&reference.controlPointIndex!==undefined&&entity.kind==="SPLINE"){
-      const point=entity.controlPoints?.[reference.controlPointIndex];if(point)return new THREE.Points(
-        new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane,[point.x,point.y])]),this.materials.point(color,15,false));
+      const point=splineReferencePoint(entity,reference.controlPointIndex,reference.controlPointId);if(point)return new THREE.Points(
+        new THREE.BufferGeometry().setFromPoints([localToWorld(this.sketchPlane,point)]),this.materials.point(color,15,false));
     }
     const sampled = sampleSketchEntity(entity);
     if (sampled.length < 2) return undefined;
@@ -2671,7 +2694,7 @@ export class CadViewportEngine {
       editDimensionAt: (x, y) => this.editDimensionAt(x, y),
       clearReferencePreview: () => this.clearReferencePreview(),
       setToolPrompt: (prompt) => this.callbacks.toolPromptChanged(prompt),
-      finishToolUse: () => this.callbacks.toolUseCompleted(),
+      finishToolUse: (exit) => { if (exit) this.tools.activate("select"); else this.callbacks.toolUseCompleted(); },
       selectionAt: (x, y) => this.hitTest(x, y, true),
       commitExternalProjection: (selection) => {
         if (!this.activeSketchID || !selection.geometryKey || !selection.versionId) return;
@@ -2680,6 +2703,20 @@ export class CadViewportEngine {
         this.reconnectExternalID = undefined;
         this.callbacks.sketchOperations(this.activeSketchID, [{ type, externalId: externalID, geometryKey: selection.geometryKey,
           topologyId: selection.topologyId, topologyKind: selection.kind.toUpperCase() as "EDGE"|"VERTEX", sourceVersionId: selection.versionId }]);
+      },
+      currentSketchConstraints: () => this.sketchView()?.part?.features.find(feature=>feature.id===this.activeSketchID)?.sketch?.constraints ?? [],
+      currentSketchEntities: () => this.sketchView()?.part?.features.find(feature=>feature.id===this.activeSketchID)?.sketch?.entities ?? [],
+      currentSketchIdentity: () => {const view=this.sketchView();return view&&this.activeSketchID?{documentId:view.document.id,versionId:view.document.versionId,sketchId:this.activeSketchID,occurrencePath:this.editContext?.occurrencePath}:undefined;},
+      showSketchEntityPreview: (entities) => {
+        this.clearPreview();if(!this.sketchPlane)return;
+        const group=new THREE.Group();
+        for(const entity of entities){const points=sampleSketchEntity(entity).map(point=>localToWorld(this.sketchPlane!,point));
+          if(!points.length)continue;
+          const primitive=entity.kind==="POINT"?new THREE.Points(new THREE.BufferGeometry().setFromPoints(points),this.materials.point(CATIA_VISUAL_THEME.preview,11,false)):
+            new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),new THREE.LineBasicMaterial({color:CATIA_VISUAL_THEME.preview,depthTest:false}));
+          primitive.renderOrder=28;group.add(primitive);
+        }
+        this.preview=group;this.scene.add(group);this.invalidate();
       },
       currentSelections: () => [...this.selected],
       retainSelections: (selections) => this.selectMany(selections),

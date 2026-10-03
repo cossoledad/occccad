@@ -1,0 +1,32 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(new URL("../../../package.json", import.meta.url));
+const { createServer } = await import(require.resolve("vite"));
+const server = await createServer({ appType:"custom", logLevel:"silent", server:{middlewareMode:true} });
+try {
+ const {dimensionSourceInput,dimensionDefinitionOperation,logicalDefinitionOperation,constraintReferenceChoices}=await server.ssrLoadModule("/src/cad/sketch/sketch-dimension-editor.tsx");
+ const {measureSketchDimension,sketchReferencePoint,buildSketchConstraintLayout}=await server.ssrLoadModule("/src/cad/sketch/sketch-constraint-layout.ts");
+ const {resolveSketchReference}=await server.ssrLoadModule("/src/cad/interaction/sketch-reference-pick.ts");
+ assert.equal(dimensionSourceInput("-12","mm"),"-12 mm");assert.equal(dimensionSourceInput("2 * width","mm"),"2 * width");assert.throws(()=>dimensionSourceInput("","mm"));
+ const ref=id=>({target:"ENTITY",entityId:id,subElement:"POINT"});
+ const original={id:"dim",parameterId:"stable-param",kind:"HORIZONTAL_DISTANCE",unit:"mm",value:-12,references:[ref("a"),ref("b")]};
+ const definition={...original,reference:true,references:[ref("b"),ref("a")]};
+ const op=dimensionDefinitionOperation(definition,original,"999","-12 mm","width",false,"ORIGINAL");
+ assert.equal(op.type,"UPDATE_CONSTRAINT");assert.equal(op.constraintId,"dim");assert.equal(op.constraint.parameterId,"stable-param");assert.equal(op.parameterSource,undefined);assert.equal(op.parameterKey,"width");assert.deepEqual(op.constraint.references,definition.references);
+ const restored=dimensionDefinitionOperation(original,{...original,reference:true},"-12 mm","-12 mm","width",false,"MEASUREMENT");assert.equal(restored.restoreMode,"MEASUREMENT");assert.equal(restored.parameterSource,undefined);
+ const formula=dimensionDefinitionOperation(original,original,"2 * width","-12 mm","dx",false,"ORIGINAL");assert.equal(formula.parameterSource,"2 * width");assert.throws(()=>dimensionDefinitionOperation(original,original,"12","12","bad name",false,"ORIGINAL"));
+ const entities=[{id:"a",kind:"POINT",point:{x:30,y:40}},{id:"b",kind:"POINT",point:{x:18,y:40}}];assert.equal(measureSketchDimension("HORIZONTAL_DISTANCE",original.references,entities),-12);assert.equal(measureSketchDimension("VERTICAL_DISTANCE",original.references,entities),0);
+ const line={id:"l",kind:"LINE",start:{x:5,y:5},end:{x:20,y:5},startPointId:"stable-start",endPointId:"stable-end"};
+ const picked=resolveSketchReference({x:5,y:5},[line],p=>({x:p[0],y:p[1]}),"POINT",1,0);assert.equal(picked.pointId,"stable-start");assert.equal(sketchReferencePoint({...picked,pointId:"deleted-endpoint"},new Map([[line.id,line]])),undefined);
+ const secondLine={id:"l2",kind:"LINE",start:{x:0,y:0},end:{x:0,y:10}};
+ const parallel={id:"stable-parallel",kind:"PARALLEL",references:[{target:"ENTITY",entityId:line.id,subElement:"DIRECTION"},{target:"ENTITY",entityId:secondLine.id,subElement:"DIRECTION"}]};
+ const choices=constraintReferenceChoices(parallel,1,[line,secondLine,...entities,{id:"circle",kind:"CIRCLE",center:{x:3,y:3},radius:2}]);assert(choices.some(choice=>choice.entityId===secondLine.id));assert(!choices.some(choice=>choice.entityId==="circle"));assert(!choices.some(choice=>choice.entityId==="a"));
+ const logicOperation=logicalDefinitionOperation(parallel,[parallel.references[0],{target:"SKETCH_Y_AXIS",subElement:"DIRECTION"}],true);assert.equal(logicOperation.type,"UPDATE_CONSTRAINT");assert.equal(logicOperation.constraintId,parallel.id);assert.equal(logicOperation.constraint.id,parallel.id);assert(logicOperation.constraint.suppressed);assert.equal(logicOperation.parameterSource,undefined);
+ assert.throws(()=>logicalDefinitionOperation({...parallel,kind:"MIRROR"},parallel.references,false));assert.throws(()=>logicalDefinitionOperation({...parallel,internal:true},parallel.references,false));
+ const coincident={id:"join",kind:"COINCIDENT",references:[ref("a"),ref("b")]};assert(constraintReferenceChoices(coincident,1,[line]).some(choice=>choice.pointId==="stable-end"&&choice.subElement==="END"));
+ const {CadViewportEngine}=await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts"),engine=Object.create(CadViewportEngine.prototype),requests=[];
+ Object.assign(engine,{sketchView:()=>({part:{features:[{id:"sketch",sketch:{constraints:[parallel]}}]}}),selectMany:()=>{},callbacks:{dimensionEditRequested:request=>requests.push(request)}});
+ assert.equal(engine.requestDimensionEdit({kind:"sketch-constraint",featureId:"sketch",constraintId:parallel.id},3,4),true);assert.equal(requests[0].constraintId,parallel.id,"real viewport tree-edit entry must accept ordinary logical constraints");
+ const measured=buildSketchConstraintLayout({...original,reference:true,value:undefined},entities);assert.match(measured.label.text,/不可测/);
+ console.log("PASS sketch dimension lifecycle: atomic source/reference/rename/refs, signed dimensions, stable endpoints");
+} finally {await server.close();}

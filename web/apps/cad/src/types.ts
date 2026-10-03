@@ -129,21 +129,22 @@ export type Feature = {
 };
 
 export type SketchPoint2 = { x: number; y: number };
-export type SketchGeometryRef = { target: "ENTITY" | "EXTERNAL" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL"; controlPointIndex?: number };
-export type SketchEntity = { id: string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; visible?: boolean; suppressed?: boolean; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; degree?: number; closed?: boolean };
+export type SketchGeometryRef = { target: "ENTITY" | "EXTERNAL" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL"; controlPointIndex?: number; controlPointId?: string; pointId?: string };
+export type SketchEntity = { id: string; createdByOperationId?: string; sourceEntityId?: string; startPointId?:string; endPointId?:string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "ELLIPSE" | "ELLIPTICAL_ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; visible?: boolean; suppressed?: boolean; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; majorRadius?: number; minorRadius?: number; rotation?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; controlPointIds?: string[]; degree?: number; closed?: boolean; mode?: "FIT" | "CONTROL"; poles?: SketchPoint2[]; poleIds?: string[]; knots?: number[]; multiplicities?: number[]; weights?: number[]; periodic?: boolean; parameterStart?: number; parameterEnd?: number };
 export type SketchExternalGeometry = { id:string;projectionKind:"ORTHOGONAL";geometryKind?:"POINT"|"LINE"|"CIRCLE";persistentSelection:PersistentSelection;sourceVersionId:string;
   sourceDocumentId?:string;contextReferenceId?:string;
   status:"PENDING"|"CONNECTED"|"UNRESOLVED_EXTERNAL";diagnosticCode?:string;diagnostic?:string;resolvedSourceDigest?:string;
   snapshot?:{kind:"POINT"|"LINE"|"CIRCLE";point?:SketchPoint2;start?:SketchPoint2;end?:SketchPoint2;center?:SketchPoint2;radius?:number};
   dependencySnapshot?:{geometryKey:string;manifestDigest:string;policyDigest:string;evidenceDigest?:string};
   affectedConstraintIds?:string[];affectedProfileRegionIds?:string[];downstreamFeatureIds?:string[] };
-export type SketchConstraint = { id: string; kind: "COINCIDENT" | "PARALLEL" | "FIXED" | "FIXED_POINT" | "HORIZONTAL" | "VERTICAL" | "PERPENDICULAR" | "TANGENT" | "EQUAL" | "DISTANCE" | "LENGTH" | "RADIUS" | "DIAMETER" | "ANGLE" | "CONCENTRIC" | "POINT_ON_OBJECT" | "MIDPOINT" | "SYMMETRY"; references: SketchGeometryRef[]; suppressed?: boolean; fixedPoint?: SketchPoint2; value?: number; unit?: "mm" | "deg"; parameterId?: string; labelPosition?: SketchPoint2; internal?: boolean };
+export type SketchConstraint = { id: string; kind: "COINCIDENT" | "PARALLEL" | "COLLINEAR" | "FIXED" | "FIXED_POINT" | "HORIZONTAL" | "VERTICAL" | "PERPENDICULAR" | "TANGENT" | "EQUAL" | "DISTANCE" | "HORIZONTAL_DISTANCE" | "VERTICAL_DISTANCE" | "LENGTH" | "RADIUS" | "DIAMETER" | "MAJOR_RADIUS" | "MINOR_RADIUS" | "ANGLE" | "CONCENTRIC" | "POINT_ON_OBJECT" | "MIDPOINT" | "SYMMETRY" | "MIRROR" | "SAME_SUPPORT"; references: SketchGeometryRef[]; reference?: boolean; suppressed?: boolean; fixedPoint?: SketchPoint2; value?: number; unit?: "mm" | "deg"; parameterId?: string; labelPosition?: SketchPoint2; internal?: boolean; selfMirrorMode?: "ON_AXIS" | "PAIRED" | "MAJOR_PARALLEL" | "MAJOR_PERPENDICULAR" };
 export type SketchSupport = { type: "DATUM_PLANE" | "PLANAR_FACE"; datumPlaneId?: string; plane: PlaneName | "CUSTOM";
   persistentSelection?: PersistentSelection; sourceVersionId?: string; origin?: Vec3; xDirection?: Vec3; normal?: Vec3;
   orientationRule?: string; status?: "CONNECTED" | "FAILED_SUPPORT"; diagnosticCode?: string; diagnostic?: string;
   dependencySnapshot?: { geometryKey: string; manifestDigest: string; policyDigest: string; evidenceDigest?: string } };
 export type SketchFeature = { schemaVersion: 2; support: SketchSupport; entities: SketchEntity[]; externalGeometry?:SketchExternalGeometry[]; constraints: SketchConstraint[]; solve: { status: string; definitionStatus?: "FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED"; degreesOfFreedom: number; diagnostic?: string; conflictingConstraintIds?: string[]; redundantConstraintIds?: string[]; components?: Array<{entityIds:string[];constraintIds:string[];status:string;definitionStatus?:"FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED";degreesOfFreedom:number}> } };
-export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { type: "ADD_CONSTRAINT"; constraint: SketchConstraint }
+export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { type: "ADD_CONSTRAINT"; constraint: SketchConstraint; parameterSource?: string; parameterKey?: string }
+  | { type: "UPDATE_CONSTRAINT"; constraintId: string; constraint: SketchConstraint; parameterSource?: string; parameterKey?: string; restoreMode?: "ORIGINAL" | "MEASUREMENT" }
   | {type:"ADD_EXTERNAL_GEOMETRY";externalId:string;geometryKey:string;topologyId:number;topologyKind:"EDGE"|"VERTEX";sourceVersionId:string}
   | {type:"RECONNECT_EXTERNAL_GEOMETRY";externalId:string;geometryKey:string;topologyId:number;topologyKind:"EDGE"|"VERTEX";sourceVersionId:string}
   | {type:"DETACH_EXTERNAL_GEOMETRY";externalId:string}
@@ -151,9 +152,25 @@ export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { t
   | { type: "UPDATE_CONSTRAINT_VALUE"; constraintId: string; value: number }
   | { type: "ADD_RECTANGLE"; first: SketchPoint2; second: SketchPoint2; firstReference?: SketchGeometryRef; secondReference?: SketchGeometryRef }
   | { type: "UPDATE_ENTITY_ROLE"; entityId: string; role: "PROFILE" | "CONSTRUCTION" }
-  | { type: "UPDATE_ENTITY_POINT"; entityId: string; subElement: "POINT" | "CENTER" | "CONTROL"; controlPointIndex?: number; point: SketchPoint2 }
+  | { type: "UPDATE_ENTITY_POINT"; entityId: string; subElement: "POINT" | "CENTER" | "CONTROL" | "START" | "END"; controlPointIndex?: number; controlPointId?: string; point: SketchPoint2 }
   | { type: "UPDATE_ENTITY_SUPPRESSION"; entityId: string; suppressed: boolean }
-  | { type: "UPDATE_CONSTRAINT_SUPPRESSION"; constraintId: string; suppressed: boolean };
+  | { type: "UPDATE_CONSTRAINT_SUPPRESSION"; constraintId: string; suppressed: boolean }
+  | { type: "DELETE_CONSTRAINT"; constraintId: string }
+  | { type: "DELETE_ENTITIES"; entityIds: string[] }
+  | { type: "COPY_ENTITIES"; operationId: string; entityIds: string[]; origin?: SketchPoint2; translation?: SketchPoint2; angle?: number; scale?: number; constraintPolicy?: "INTERNAL" | "GEOMETRY_ONLY" }
+  | { type: "TRANSFORM_ENTITIES"; operationId: string; entityIds: string[]; origin?: SketchPoint2; translation?: SketchPoint2; angle?: number; scale?: number; copy?: boolean; constraintPolicy?: "INTERNAL" | "GEOMETRY_ONLY"; detachConstraintIds?: string[] }
+  | { type: "MIRROR_ENTITIES"; operationId: string; entityIds: string[]; axis: SketchGeometryRef; mirrorMode?: "INDEPENDENT" | "LINKED"; constraintPolicy?: "INTERNAL" | "GEOMETRY_ONLY" }
+  | {type:"EDIT_SPLINE_POINT";operationId:string;entityId:string;pointAction:"INSERT"|"DELETE";pointIndex?:number;controlPointId?:string;point?:SketchPoint2;knotParameter?:number;detachConstraintIds?:string[]}
+  | {type:"SET_SPLINE_CLOSED";operationId:string;entityId:string;closed:boolean;detachConstraintIds?:string[]}
+  | {type:"CONVERT_SPLINE_TO_CONTROL";operationId:string;entityId:string;detachConstraintIds?:string[]}
+  | { type: "SPLIT_ENTITY"; operationId: string; entityIds: string[]; parameters: number[]; detachConstraintIds?: string[] }
+  | { type:"TRIM_ENTITY";operationId:string;entityIds:string[];parameters:[number,number];detachConstraintIds?:string[] }
+  | { type:"QUICK_TRIM";operationId:string;entityIds:string[];boundaryIds:string[];hitParameter:number;trimMode:"DELETE_HIT"|"KEEP_HIT"|"BREAK";detachConstraintIds?:string[] }
+  | {type:"FILLET_ENTITIES";operationId:string;entityIds:[string,string];firstReference:SketchGeometryRef;secondReference:SketchGeometryRef;point:SketchPoint2;value:number;trimMode:"TRIM"|"KEEP"}
+  | {type:"CHAMFER_ENTITIES";operationId:string;entityIds:[string,string];firstReference:SketchGeometryRef;secondReference:SketchGeometryRef;point:SketchPoint2;chamferMode:"EQUAL"|"TWO_LENGTHS"|"LENGTH_ANGLE";chamferFirst:number;chamferSecond?:number;chamferAngle?:number;trimMode:"TRIM"|"KEEP"}
+  | {type:"EXTEND_ENTITY";operationId:string;entityIds:string[];firstReference:SketchGeometryRef;boundaryIds:[string];point:SketchPoint2;detachConstraintIds?:string[]}
+  | {type:"ARC_COMPLEMENT"|"CLOSE_CURVE";operationId:string;entityIds:string[];detachConstraintIds?:string[]}
+  | {type:"OFFSET_ENTITIES";operationId:string;entityIds:string[];value:number;mode:"MITER"|"ROUND"};
 
 export type HistoryEntry = {
   position: number;
@@ -340,8 +357,18 @@ export type DocumentStructureNode = {
   children?: DocumentStructureNode[];
 };
 
+export type SketchProfileAnalysis = {
+  geometryVerified?: boolean;
+  status: "EMPTY" | "OPEN" | "INVALID" | "CLOSED";
+  regionCount: number;
+  loopCount: number;
+  regionIds?: string[];
+  issues: Array<{ code: string; message: string; entityIds: string[]; references?: SketchGeometryRef[]; position?: SketchPoint2 }>;
+};
+
 export type DocumentView = {
   document: DocumentSummary;
+  sketchAnalyses?: Record<string, SketchProfileAnalysis>;
   datumPlanes?: DatumPlane[];
   axisSystems?: AxisSystem[];
   datumAxes?: DatumAxis[];

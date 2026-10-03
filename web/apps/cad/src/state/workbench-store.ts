@@ -2,10 +2,11 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type { Selection, SelectionItem, SketchPlane } from "../types";
 
-export type WorkbenchToolID = "select" | "sketch.project" | "sketch.point" | "sketch.line" | "sketch.circle" | "sketch.arc" | "sketch.polyline" | "sketch.spline" | "sketch.rectangle" | "sketch.polygon" | "sketch.slot"
+export type WorkbenchToolID = "select" | "sketch.project" | "sketch.point" | "sketch.line" | "sketch.circle" | "sketch.arc" | "sketch.polyline" | "sketch.spline" | "sketch.spline.control" | "sketch.rectangle" | "sketch.polygon" | "sketch.ellipse" | "sketch.elliptical_arc" | "sketch.circle.three_point" | "sketch.arc.three_point" | "sketch.rectangle.center" | "sketch.rectangle.oriented"
 	| `assembly.${"move"|"fix"|"rigid"|"coincident"|"concentric"|"angle"|"parallel"|"perpendicular"|"distance"}`
+  | `sketch.edit.${"delete"|"copy"|"move"|"rotate"|"scale"|"mirror"|"split"|"trim"|"quick_trim"|"fillet"|"chamfer"|"extend"|"complement"|"close"|"offset"|"spline_insert"|"spline_delete"|"spline_close"|"spline_control"|"construction"}`
   | "sketch.dimension.linear"
-  | `sketch.constraint.${"coincident"|"parallel"|"fixed"|"horizontal"|"vertical"|"perpendicular"|"tangent"|"equal"|"distance"|"length"|"radius"|"diameter"|"angle"|"concentric"|"point_on_object"|"midpoint"|"symmetry"}`;
+  | `sketch.constraint.${"coincident"|"parallel"|"collinear"|"fixed"|"horizontal"|"vertical"|"perpendicular"|"tangent"|"equal"|"distance"|"horizontal_distance"|"vertical_distance"|"length"|"radius"|"diameter"|"major_radius"|"minor_radius"|"angle"|"concentric"|"point_on_object"|"midpoint"|"symmetry"}`;
 export type WorkbenchToolMode = "once" | "continuous";
 
 type WorkbenchState = {

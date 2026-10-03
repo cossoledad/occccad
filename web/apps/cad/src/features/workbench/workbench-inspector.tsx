@@ -11,6 +11,7 @@ import type {
   TopologyElementProperties,
 } from "../../types";
 import { parameterDisplayValue, parameterSourceText } from "./parameter-editor";
+import { sketchProfileFeedback } from "../../cad/sketch/sketch-profile-analysis";
 
 type PropertiesProps = {
   view: DocumentView;
@@ -184,13 +185,14 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
 		const sketch = view.part?.features.find((candidate) => candidate.id === selection.featureId)?.sketch;
 		const constraint = sketch?.constraints.find((candidate) => candidate.id === selection.constraintId);
 		return <Descriptions column={1} size="small" bordered className="property-list" items={[
-			{ key: "type", label: "约束", children: constraint?.kind ?? selection.constraintType },
+			{ key: "type", label: "约束", children: constraint?.kind === "MIRROR" ? "关联镜像" : constraint?.kind ?? selection.constraintType },
 			{ key: "status", label: "求解状态", children: sketch?.solve.status ?? "—" },
 			...parameterItems(constraint?.parameterId),
 		]} />;
 	}
   const instance = selection.kind === "instance" ? view.product?.instances.find((item) => item.id === selection.id) : undefined;
   if (selection.kind === "visual") {
+    const entity = view.part?.features.find(candidate => candidate.id === selection.featureId)?.sketch?.entities.find(candidate => candidate.id === selection.entityId);
     const external = view.part?.features.find((candidate)=>candidate.id===selection.featureId)?.sketch?.externalGeometry
       ?.find((candidate)=>candidate.id===selection.entityId);
     return <Descriptions column={1} size="small" bordered className="property-list" items={[
@@ -198,6 +200,12 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
     { key: "entity", label: "元素", children: selection.entityId },
     { key: "feature", label: "所属特征", children: selection.featureId },
     { key: "role", label: "角色", children: selection.role ?? "—" },
+    ...(entity?.kind === "SPLINE" ? [
+      { key: "spline-mode", label: "样条方式", children: entity.mode === "CONTROL" ? "控制顶点" : "插值拟合点" },
+      { key: "spline-points", label: entity.mode === "CONTROL" ? "控制顶点" : "拟合点", children: (entity.mode === "CONTROL" ? entity.poles : entity.controlPoints)?.length ?? 0 },
+      { key: "spline-basis", label: "曲线表示", children: entity.poles?.length && entity.knots?.length ? `有理 B-Spline · ${entity.degree} 次` : "待权威曲线计算" },
+      { key: "spline-closed", label: "开闭", children: entity.closed ? "闭合（不承诺接缝切向连续）" : "开放" },
+    ] : []),
     ...(external ? [
       {key:"external-status",label:"External Status",children:external.status},
       {key:"external-anchor",label:"Semantic Anchor",children:`${external.persistentSelection.anchor.featureId} · ${external.persistentSelection.anchor.outputSlot}`},
@@ -247,6 +255,13 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
       { key: "external", label: "外部几何", children: `${feature.sketch.externalGeometry?.length??0} · ${(feature.sketch.externalGeometry??[]).filter((item)=>item.status!=="CONNECTED").length} unresolved` },
       { key: "constraints", label: "约束", children: feature.sketch.constraints.length },
 	  { key: "solve", label: "求解", children: `${feature.sketch.solve.status} · ${feature.sketch.solve.degreesOfFreedom} DoF` },
+      { key: "profile-analysis", label: "轮廓", children: (() => {
+        const feedback = sketchProfileFeedback(view.sketchAnalyses?.[feature.id]);
+        return <Space direction="vertical" size={2}><span>{feedback.summary}</span>
+          {feedback.issues.map((issue, index) => <Typography.Text key={`${issue.code}:${index}`} type="warning">
+            {issue.message}{issue.position ? `（${issue.position.x.toFixed(2)}, ${issue.position.y.toFixed(2)} mm）` : ""}
+          </Typography.Text>)}</Space>;
+      })() },
 	  { key: "support", label: "Sketch Support", children: `${feature.sketch.support.type} · ${feature.sketch.support.status ?? "—"}` },
 	  ...(feature.sketch.support.type === "PLANAR_FACE" ? [
 		{ key: "support-anchor", label: "Semantic Anchor", children: `${feature.sketch.support.persistentSelection?.anchor.featureId ?? "—"} · ${feature.sketch.support.persistentSelection?.anchor.outputSlot ?? "—"}` },

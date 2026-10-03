@@ -26,10 +26,13 @@
 #include <GProp_GProps.hxx>
 #include <GeomAPI_Interpolate.hxx>
 #include <Geom_BSplineCurve.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <TColStd_Array1OfReal.hxx>
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_BezierCurve.hxx>
 #include <Geom_BezierSurface.hxx>
 #include <Geom_Circle.hxx>
+#include <Geom_Ellipse.hxx>
 #include <Precision.hxx>
 #include <Geom_ConicalSurface.hxx>
 #include <Geom_CylindricalSurface.hxx>
@@ -562,28 +565,47 @@ TopoDS_Edge make_profile_edge(const ProfileCurveSpec& curve, const ProfileFrame&
         edge = BRepBuilderAPI_MakeEdge(circle);
     } else if (curve.kind == "ARC") {
         validate_positive(curve.radius, "profile arc radius");
-        double end = curve.end_angle;
-        while (end <= curve.start_angle)
-            end += 2.0 * 3.14159265358979323846;
-        if (curve.radius * (end - curve.start_angle) <=
-            topology_linear_tolerance_meters * 1000.0)
-            throw std::invalid_argument("DEGENERATE_PROFILE_EDGE: arc is below naming tolerance");
-        Handle(Geom_Circle) circle =
-            new Geom_Circle(profile_axes(frame, curve.center), curve.radius);
-        edge = BRepBuilderAPI_MakeEdge(circle, curve.start_angle, end);
+        const double sweep=curve.end_angle-curve.start_angle;
+        if (!std::isfinite(sweep) || std::abs(sweep)>=2*3.14159265358979323846 || curve.radius*std::abs(sweep)<=topology_linear_tolerance_meters*1000.0)
+            throw std::invalid_argument("DEGENERATE_PROFILE_EDGE: invalid arc interval or below naming tolerance");
+        Handle(Geom_Circle) circle = new Geom_Circle(profile_axes(frame,curve.center),curve.radius);
+        edge=BRepBuilderAPI_MakeEdge(circle,std::min(curve.start_angle,curve.end_angle),std::max(curve.start_angle,curve.end_angle));
+        if (sweep<0) edge=TopoDS::Edge(edge.Reversed());
+    } else if (curve.kind == "ELLIPSE" || curve.kind == "ELLIPTICAL_ARC") {
+        validate_positive(curve.minor_radius, "profile ellipse minor radius");
+        if (!std::isfinite(curve.major_radius) || curve.major_radius <= curve.minor_radius || !std::isfinite(curve.rotation))
+            throw std::invalid_argument("profile ellipse requires major > minor > 0 and finite rotation");
+        gp_Ax2 axes = profile_axes(frame, curve.center);
+        axes.Rotate(gp_Ax1(axes.Location(),axes.Direction()),curve.rotation);
+        Handle(Geom_Ellipse) ellipse = new Geom_Ellipse(axes,curve.major_radius,curve.minor_radius);
+        if (curve.kind == "ELLIPSE") edge = BRepBuilderAPI_MakeEdge(ellipse);
+        else {
+            if (!std::isfinite(curve.start_angle) || !std::isfinite(curve.end_angle) || curve.start_angle==curve.end_angle || std::abs(curve.end_angle-curve.start_angle)>=2*3.14159265358979323846)
+                throw std::invalid_argument("invalid elliptical arc parameter interval");
+            edge = BRepBuilderAPI_MakeEdge(ellipse,std::min(curve.start_angle,curve.end_angle),std::max(curve.start_angle,curve.end_angle));
+            if (curve.end_angle<curve.start_angle) edge=TopoDS::Edge(edge.Reversed());
+        }
     } else if (curve.kind == "SPLINE") {
-        if (curve.control_points.size() < 3U)
-            throw std::invalid_argument("profile spline requires at least three control points");
-        const int point_count = static_cast<int>(curve.control_points.size());
-        Handle(TColgp_HArray1OfPnt) points = new TColgp_HArray1OfPnt(1, point_count);
-        for (std::size_t index = 0; index < curve.control_points.size(); ++index)
-            points->SetValue(static_cast<int>(index) + 1,
-                             profile_point(frame, curve.control_points[index]));
-        GeomAPI_Interpolate interpolation(points, curve.closed, 1.0e-7);
-        interpolation.Perform();
-        if (!interpolation.IsDone())
-            throw std::runtime_error("profile interpolation spline construction failed");
-        Handle(Geom_BSplineCurve) spline = interpolation.Curve();
+        // Use exact canonical poles and knots when supplied. Legacy FIT input
+        // is normalized once here; already canonical curves are never re-fitted.
+        auto request=curve;
+        if (!request.poles.empty()) request.mode="CONTROL";
+        const auto canonical = canonicalize_sketch_curve(request);
+        TColgp_Array1OfPnt poles(1,static_cast<int>(canonical.poles.size()));
+        TColStd_Array1OfReal weights(1,poles.Length()),knots(1,static_cast<int>(canonical.knots.size()));
+        TColStd_Array1OfInteger multiplicities(1,knots.Length());
+        if(canonical.weights.size()!=canonical.poles.size() || canonical.multiplicities.size()!=canonical.knots.size())
+            throw std::invalid_argument("invalid canonical profile spline arrays");
+        for(int i=1;i<=poles.Length();++i) {
+            poles.SetValue(i,profile_point(frame,canonical.poles[static_cast<std::size_t>(i-1)]));
+            weights.SetValue(i,canonical.weights[static_cast<std::size_t>(i-1)]);
+        }
+        for(int i=1;i<=knots.Length();++i) {
+            knots.SetValue(i,canonical.knots[static_cast<std::size_t>(i-1)]);
+            multiplicities.SetValue(i,static_cast<int>(canonical.multiplicities[static_cast<std::size_t>(i-1)]));
+        }
+        Handle(Geom_BSplineCurve) spline = new Geom_BSplineCurve(poles,weights,knots,multiplicities,
+                                                               static_cast<int>(canonical.degree),canonical.periodic);
         edge = BRepBuilderAPI_MakeEdge(spline);
     } else {
         throw std::invalid_argument("unsupported profile curve kind: " + curve.kind);
@@ -601,8 +623,15 @@ Vec2 profile_curve_endpoint(const ProfileCurveSpec& curve, const bool start) {
         return {curve.center.x + curve.radius * std::cos(angle),
                 curve.center.y + curve.radius * std::sin(angle)};
     }
-    if (curve.kind == "SPLINE" && !curve.control_points.empty())
-        return start ? curve.control_points.front() : curve.control_points.back();
+    if (curve.kind == "ELLIPSE" || curve.kind == "ELLIPTICAL_ARC") {
+        const double t = curve.kind=="ELLIPSE"?0:(start?curve.start_angle:curve.end_angle);
+        const double x=curve.major_radius*std::cos(t),y=curve.minor_radius*std::sin(t);
+        return {curve.center.x+x*std::cos(curve.rotation)-y*std::sin(curve.rotation),curve.center.y+x*std::sin(curve.rotation)+y*std::cos(curve.rotation)};
+    }
+    if (curve.kind == "SPLINE") {
+        const auto canonical=curve.poles.empty()?canonicalize_sketch_curve(curve):curve;
+        return evaluate_sketch_curve(canonical,start?canonical.parameter_start:canonical.parameter_end).point;
+    }
     if (curve.kind == "CIRCLE")
         return {curve.center.x + curve.radius, curve.center.y};
     return start ? curve.start : curve.end;
@@ -741,7 +770,12 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
                 throw std::runtime_error("profile wire construction failed: " + loop.id);
             return wire.Wire();
         };
-        BRepBuilderAPI_MakeFace face_builder(build_wire(region.outer));
+        // Keep the declared sketch frame as the face parameter orientation;
+        // automatic plane inference can flip it for a reversed closed curve and
+        // thereby turn the formally oriented hole into a second outer wire.
+        BRepBuilderAPI_MakeFace face_builder(
+            gp_Pln(gp_Ax3(frame.origin, frame.normal, frame.u_direction)),
+            build_wire(region.outer), true);
         for (const auto& hole : region.holes)
             face_builder.Add(build_wire(hole));
         face_builder.Build();

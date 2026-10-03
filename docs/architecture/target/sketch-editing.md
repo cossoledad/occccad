@@ -10,7 +10,6 @@
 |---|---|
 | Rectangle | 4 LineSegments + 4 Coincident + 2 Parallel(X axis) + 2 Parallel(Y axis)；按模式增加尺寸/对称约束 |
 | Polyline | N 个 LineSegments/Arcs + 相邻 Coincident；结束方式决定闭合约束 |
-| Slot | 2 LineSegments + 2 CircularArcs + Coincident/Tangent/Parallel/Equal |
 | Regular Polygon | N 条线 + Coincident + Equal + construction center/radial constraints |
 | Centerline Rectangle | Profile lines + construction diagonals/center constraints |
 

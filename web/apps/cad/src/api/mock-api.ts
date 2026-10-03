@@ -211,14 +211,14 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
         { id: `${node.id}/constraints`, kind: "SKETCH_CONSTRAINT_SET", name: "Constraints", ownerEntityId: feature.id,
           children: [
             { id: `${node.id}/constraints/logical`, kind: "SKETCH_LOGICAL_CONSTRAINT_SET", name: "Geometric Constraints",
-              children: feature.sketch.constraints.filter((constraint) => !["DISTANCE","LENGTH","RADIUS","DIAMETER","ANGLE"].includes(constraint.kind))
+              children: feature.sketch.constraints.filter((constraint) => !["DISTANCE","HORIZONTAL_DISTANCE","VERTICAL_DISTANCE","LENGTH","RADIUS","DIAMETER","MAJOR_RADIUS","MINOR_RADIUS","ANGLE"].includes(constraint.kind))
                 .map((constraint, index) => ({ id: `${node.id}/constraints/logical/constraint:${constraint.id}`,
                   kind: "SKETCH_CONSTRAINT", name: `${constraint.kind} ${index + 1}`, entityId: constraint.id,
                   ownerEntityId: feature.id, entityType: constraint.kind, suppressed: constraint.suppressed,
                   diagnostic: feature.sketch?.solve.conflictingConstraintIds?.includes(constraint.id)?"CONFLICTING":feature.sketch?.solve.redundantConstraintIds?.includes(constraint.id)?"REDUNDANT":undefined,
                   documentId: view.document.id, capabilities: editable ? ["DELETE","SUPPRESS"] : undefined })) },
             { id: `${node.id}/constraints/dimensions`, kind: "SKETCH_DIMENSION_SET", name: "Dimensions",
-              children: feature.sketch.constraints.filter((constraint) => ["DISTANCE","LENGTH","RADIUS","DIAMETER","ANGLE"].includes(constraint.kind))
+              children: feature.sketch.constraints.filter((constraint) => ["DISTANCE","HORIZONTAL_DISTANCE","VERTICAL_DISTANCE","LENGTH","RADIUS","DIAMETER","MAJOR_RADIUS","MINOR_RADIUS","ANGLE"].includes(constraint.kind))
                 .map((constraint, index) => ({ id: `${node.id}/constraints/dimensions/constraint:${constraint.id}`,
                   kind: "SKETCH_CONSTRAINT", name: `${constraint.kind} ${index + 1}`, entityId: constraint.id,
                   ownerEntityId: feature.id, entityType: constraint.kind, suppressed: constraint.suppressed,

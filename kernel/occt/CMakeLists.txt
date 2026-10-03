@@ -5,6 +5,7 @@ find_package(OpenCASCADE REQUIRED)
 add_library(occccad_occt_kernel STATIC
     src/occt_kernel.cpp
     src/exchange_graph.cpp
+    src/sketch_curve.cpp
 )
 
 target_include_directories(

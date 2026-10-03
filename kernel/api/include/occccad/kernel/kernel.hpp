@@ -76,10 +76,52 @@ struct ProfileCurveSpec {
     double radius{};
     double start_angle{};
     double end_angle{};
+    double major_radius{};
+    double minor_radius{};
+    double rotation{};
     std::vector<Vec2> control_points;
     uint32_t degree{};
     bool closed{};
+    std::string mode{"FIT"};
+    std::vector<Vec2> poles;
+    std::vector<double> knots;
+    std::vector<uint32_t> multiplicities;
+    std::vector<double> weights;
+    bool periodic{};
+    double parameter_start{};
+    double parameter_end{};
 };
+// Exact local sketch curves; units are mm and radians. No sampled authority.
+struct SketchCurveEvaluation {
+    Vec2 point;
+    Vec2 first_derivative;
+};
+enum class SketchCurveIntersectionKind { point, tangent };
+struct SketchCurveIntersection {
+    SketchCurveIntersectionKind kind{SketchCurveIntersectionKind::point};
+    Vec2 point;
+    double first_parameter{};
+    double second_parameter{};
+};
+struct SketchCurveOverlap {
+    double first_start{};
+    double first_end{};
+    double second_start{};
+    double second_end{};
+};
+struct SketchCurveIntersections {
+    std::vector<SketchCurveIntersection> points;
+    std::vector<SketchCurveOverlap> overlaps;
+};
+[[nodiscard]] ProfileCurveSpec canonicalize_sketch_curve(const ProfileCurveSpec& curve);
+[[nodiscard]] SketchCurveEvaluation evaluate_sketch_curve(const ProfileCurveSpec& curve,
+                                                          double parameter);
+[[nodiscard]] SketchCurveIntersections intersect_sketch_curves(const ProfileCurveSpec& first,
+                                                               const ProfileCurveSpec& second,
+                                                               double tolerance = 1e-7);
+[[nodiscard]] ProfileCurveSpec trim_sketch_curve(const ProfileCurveSpec& curve,
+                                                 double start_parameter, double end_parameter);
+
 struct ProfileLoopSpec {
     std::string id;
     std::vector<ProfileCurveSpec> curves;
@@ -89,6 +131,8 @@ struct ProfileRegionSpec {
     ProfileLoopSpec outer;
     std::vector<ProfileLoopSpec> holes;
 };
+[[nodiscard]] std::vector<ProfileRegionSpec>
+classify_sketch_profile(const std::vector<ProfileLoopSpec>& loops);
 struct ProfilePadSpec {
     std::vector<ProfileRegionSpec> regions;
     double pad_length{};

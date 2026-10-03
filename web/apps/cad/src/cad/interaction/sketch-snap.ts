@@ -56,7 +56,7 @@ export function resolveSketchSnap(raw: Vec2, entities: SketchEntity[], pixelsPer
     const sampled = sampleSketchEntity(entity, 64);
     if (sampled.length < 2) continue;
     const start = sampled[0], end = sampled.at(-1)!;
-    const closed = entity.kind === "CIRCLE" || (entity.kind === "SPLINE" && entity.closed);
+    const closed = entity.kind === "CIRCLE" || entity.kind === "ELLIPSE" || (entity.kind === "SPLINE" && entity.closed);
     if (enabled.includes("ENDPOINT")) {
       if (!closed) {
         offer(start, "ENDPOINT", 550, entity.id, "START", 13);

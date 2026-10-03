@@ -22,7 +22,6 @@ try {
     ProjectExternalGeometrySketchTool,
     RectangleSketchTool,
     SplineSketchTool,
-    SlotSketchTool,
   } = await server.ssrLoadModule("/src/cad/tool/cad-tool.ts");
   const { buildSketchRenderModel } = await server.ssrLoadModule("/src/cad/rendering/sketch-render-model.ts");
   const { visualSelection, visualType } = await server.ssrLoadModule("/src/cad/rendering/visualization-render-model.ts");
@@ -276,15 +275,6 @@ try {
   assert.equal(operations[smartDistanceIndex][0].constraint.kind, "DISTANCE");
   assert.equal(dimensionRequests.length, 3);
 
-  const slotIndex = operations.length;
-  const slot = new SlotSketchTool();
-  for (const [x, y] of [[0, 0], [20, 0], [10, 5]]) {
-    slot.pointerDown(pointer(x, y, "down"), context); slot.pointerUp(pointer(x, y, "up"), context);
-  }
-  assert.equal(operations[slotIndex].filter((item) => item.entity?.kind === "LINE").length, 2);
-  assert.equal(operations[slotIndex].filter((item) => item.entity?.kind === "ARC").length, 2);
-  assert.equal(operations[slotIndex].filter((item) => item.constraint?.kind === "COINCIDENT").length, 4);
-
   const renderModel = buildSketchRenderModel({
     id: "sketch-1", type: "SKETCH", sketch: { entities: [
       { id: "point-1", kind: "POINT", role: "PROFILE", point: { x: 4, y: 5 } },
@@ -503,7 +493,7 @@ try {
   assert.ok(Math.abs(measureSketchDimension("ANGLE", [ref("line-a", "DIRECTION"), ref("line-obtuse", "DIRECTION")],
     [...constraintEntities, { id: "line-obtuse", kind: "LINE", role: "PROFILE", start: { x: 0, y: 0 },
       end: { x: -10, y: 10 * Math.sqrt(3) } }]) - 120) < 1e-10);
-  assert.equal(TOOLBAR_CONSTRAINT_KINDS.length, 17);
+  assert.equal(TOOLBAR_CONSTRAINT_KINDS.length, 22);
   for (const [kind, refs] of Object.entries(fixtures)) {
     const definition = constraintDefinition(kind);
     assert.equal(definition.picks.length, refs.length, `${kind} selection count`);

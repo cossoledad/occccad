@@ -36,7 +36,7 @@ func constraintEntityAnchor(entity SketchEntity) (SketchPoint2, bool) {
 		if entity.Start != nil && entity.End != nil {
 			return midpoint2(*entity.Start, *entity.End), true
 		}
-	case "CIRCLE", "ARC", "SPLINE":
+	case "CIRCLE", "ARC", "SPLINE", "ELLIPSE", "ELLIPTICAL_ARC":
 		points := sampleProfileCurve(profileCurve(entity, false))
 		if len(points) > 0 {
 			return points[(len(points)-1)/2], true
@@ -70,6 +70,14 @@ func constraintReferencePoint(reference SketchGeometryRef, entities map[string]S
 		if entity.Center != nil {
 			return *entity.Center, true
 		}
+	case "CONTROL":
+		points := entity.ControlPoints
+		if entity.Mode == "CONTROL" {
+			points = entity.Poles
+		}
+		if reference.ControlPointIndex != nil && *reference.ControlPointIndex >= 0 && *reference.ControlPointIndex < len(points) {
+			return points[*reference.ControlPointIndex], true
+		}
 	case "WHOLE", "DIRECTION":
 		return constraintEntityAnchor(entity)
 	}
@@ -84,7 +92,7 @@ func constraintLine(reference SketchGeometryRef, entities map[string]SketchEntit
 		return SketchPoint2{Y: -110}, SketchPoint2{Y: 110}, true
 	}
 	entity, exists := entities[reference.EntityID]
-	if !exists || entity.Kind != "LINE" || entity.Start == nil || entity.End == nil {
+	if !exists || entity.Kind != "LINE" || entity.Start == nil || entity.End == nil || (reference.SubElement != "WHOLE" && reference.SubElement != "DIRECTION") {
 		return SketchPoint2{}, SketchPoint2{}, false
 	}
 	return *entity.Start, *entity.End, true
@@ -98,11 +106,18 @@ func appendArrow(positions []SketchPoint2, tip, direction SketchPoint2) []Sketch
 }
 
 func constraintValueLabel(constraint SketchConstraint) string {
-	value := "?"
+	value := "不可测"
 	if constraint.Value != nil {
 		value = fmt.Sprintf("%g", math.Round(*constraint.Value*1000)/1000)
 	}
+	if constraint.Reference {
+		value = "(" + value + ")"
+	}
 	switch constraint.Kind {
+	case "HORIZONTAL_DISTANCE":
+		return "ΔX " + value
+	case "VERTICAL_DISTANCE":
+		return "ΔY " + value
 	case "RADIUS":
 		return "R " + value
 	case "DIAMETER":
@@ -161,6 +176,16 @@ func constraintVisual(constraint SketchConstraint, entities map[string]SketchEnt
 		}
 	}
 	switch constraint.Kind {
+	case "HORIZONTAL_DISTANCE", "VERTICAL_DISTANCE":
+		if len(points) == 2 {
+			projected := SketchPoint2{X: points[1].X, Y: points[0].Y}
+			if constraint.Kind == "VERTICAL_DISTANCE" {
+				projected = SketchPoint2{X: points[0].X, Y: points[1].Y}
+			}
+			visual := linearConstraintVisual(points[0], projected, constraintValueLabel(constraint), constraint.LabelPosition)
+			visual.Positions[2] = points[1]
+			return visual, true
+		}
 	case "DISTANCE":
 		if len(constraint.References) == 2 {
 			firstLineA, firstLineB, firstIsLine := constraintLine(constraint.References[0], entities)
@@ -169,6 +194,16 @@ func constraintVisual(constraint SketchConstraint, entities map[string]SketchEnt
 			secondPoint, secondIsPoint := constraintReferencePoint(constraint.References[1], entities)
 			if !firstIsLine && !secondIsLine && firstIsPoint && secondIsPoint {
 				return linearConstraintVisual(firstPoint, secondPoint, constraintValueLabel(constraint), constraint.LabelPosition), true
+			}
+			if firstIsLine && secondIsLine {
+				point := midpoint2(firstLineA, firstLineB)
+				direction := sub2(secondLineB, secondLineA)
+				square := direction.X*direction.X + direction.Y*direction.Y
+				if square > 0 {
+					delta := sub2(point, secondLineA)
+					projection := add2(secondLineA, scale2(direction, (delta.X*direction.X+delta.Y*direction.Y)/square))
+					return linearConstraintVisual(point, projection, constraintValueLabel(constraint), constraint.LabelPosition), true
+				}
 			}
 			point, lineA, lineB, ok := firstPoint, secondLineA, secondLineB, firstIsPoint && secondIsLine
 			if firstIsLine && secondIsPoint {
@@ -221,6 +256,19 @@ func constraintVisual(constraint SketchConstraint, entities map[string]SketchEnt
 		}
 		return constraintVisual2D{Kind: "LINE_SEGMENTS", Positions: positions,
 			Label: constraintValueLabel(constraint), LabelPosition: &labelPosition}, true
+	case "MAJOR_RADIUS", "MINOR_RADIUS":
+		if len(constraint.References) != 1 {
+			break
+		}
+		e, ok := entities[constraint.References[0].EntityID]
+		if !ok || e.Center == nil || (e.Kind != "ELLIPSE" && e.Kind != "ELLIPTICAL_ARC") {
+			break
+		}
+		t := 0.0
+		if constraint.Kind == "MINOR_RADIUS" {
+			t = math.Pi / 2
+		}
+		return linearConstraintVisual(*e.Center, ellipsePoint(e, t), constraintValueLabel(constraint), constraint.LabelPosition), true
 	case "ANGLE":
 		if len(constraint.References) < 2 {
 			break
@@ -276,7 +324,7 @@ func constraintVisual(constraint SketchConstraint, entities map[string]SketchEnt
 			if entity, exists := entities[constraint.References[0].EntityID]; exists && entity.Center != nil {
 				anchors = append(anchors, *entity.Center)
 			}
-		} else if (constraint.Kind == "PARALLEL" || constraint.Kind == "EQUAL") && len(points) > 0 {
+		} else if (constraint.Kind == "PARALLEL" || constraint.Kind == "COLLINEAR" || constraint.Kind == "EQUAL") && len(points) > 0 {
 			for _, point := range points {
 				anchors = append(anchors, add2(point, SketchPoint2{4, 4}))
 			}

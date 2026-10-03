@@ -2,7 +2,7 @@ find_package(GTest REQUIRED CONFIG)
 include(GoogleTest)
 
 add_executable(occcad_sketch_solver_scenarios solver_scenarios.cpp)
-target_link_libraries(occcad_sketch_solver_scenarios PRIVATE occccad_sketch_solver GTest::gtest_main)
+target_link_libraries(occcad_sketch_solver_scenarios PRIVATE occccad_sketch_solver occccad_planegcs GTest::gtest_main)
 target_compile_features(occcad_sketch_solver_scenarios PRIVATE cxx_std_17)
 occccad_set_warnings(occcad_sketch_solver_scenarios PRIVATE)
 occccad_apply_sanitizers(occcad_sketch_solver_scenarios)

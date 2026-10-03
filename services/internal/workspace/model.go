@@ -212,21 +212,39 @@ type SketchSupportDependencySnapshot struct {
 	EvidenceDigest string `json:"evidenceDigest,omitempty"`
 }
 type SketchEntity struct {
-	ID            string         `json:"id"`
-	Visible       *bool          `json:"visible,omitempty"`
-	Kind          string         `json:"kind"`
-	Role          string         `json:"role"`
-	Point         *SketchPoint2  `json:"point,omitempty"`
-	Start         *SketchPoint2  `json:"start,omitempty"`
-	End           *SketchPoint2  `json:"end,omitempty"`
-	Center        *SketchPoint2  `json:"center,omitempty"`
-	Radius        float64        `json:"radius,omitempty"`
-	StartAngle    float64        `json:"startAngle,omitempty"`
-	EndAngle      float64        `json:"endAngle,omitempty"`
-	ControlPoints []SketchPoint2 `json:"controlPoints,omitempty"`
-	Degree        uint32         `json:"degree,omitempty"`
-	Closed        bool           `json:"closed,omitempty"`
-	Suppressed    bool           `json:"suppressed,omitempty"`
+	StartPointID         string         `json:"startPointId,omitempty"`
+	EndPointID           string         `json:"endPointId,omitempty"`
+	ID                   string         `json:"id"`
+	CreatedByOperationID string         `json:"createdByOperationId,omitempty"`
+	SourceEntityID       string         `json:"sourceEntityId,omitempty"`
+	Visible              *bool          `json:"visible,omitempty"`
+	Kind                 string         `json:"kind"`
+	Role                 string         `json:"role"`
+	Point                *SketchPoint2  `json:"point,omitempty"`
+	Start                *SketchPoint2  `json:"start,omitempty"`
+	End                  *SketchPoint2  `json:"end,omitempty"`
+	Center               *SketchPoint2  `json:"center,omitempty"`
+	Radius               float64        `json:"radius,omitempty"`
+	MajorRadius          float64        `json:"majorRadius,omitempty"`
+	MinorRadius          float64        `json:"minorRadius,omitempty"`
+	Rotation             float64        `json:"rotation,omitempty"`
+	StartAngle           float64        `json:"startAngle,omitempty"`
+	EndAngle             float64        `json:"endAngle,omitempty"`
+	ControlPoints        []SketchPoint2 `json:"controlPoints,omitempty"`
+	ControlPointIDs      []string       `json:"controlPointIds,omitempty"`
+	PoleIDs              []string       `json:"poleIds,omitempty"`
+	Degree               uint32         `json:"degree,omitempty"`
+	Closed               bool           `json:"closed,omitempty"`
+	Mode                 string         `json:"mode,omitempty"`
+	Poles                []SketchPoint2 `json:"poles,omitempty"`
+	Knots                []float64      `json:"knots,omitempty"`
+	Multiplicities       []uint32       `json:"multiplicities,omitempty"`
+	Weights              []float64      `json:"weights,omitempty"`
+	Periodic             bool           `json:"periodic,omitempty"`
+	ParameterStart       float64        `json:"parameterStart,omitempty"`
+	ParameterEnd         float64        `json:"parameterEnd,omitempty"`
+
+	Suppressed bool `json:"suppressed,omitempty"`
 }
 type SketchExternalGeometrySnapshot struct {
 	Kind   string        `json:"kind"`
@@ -255,22 +273,26 @@ type SketchExternalGeometry struct {
 	DownstreamFeatureIDs     []string                         `json:"downstreamFeatureIds,omitempty"`
 }
 type SketchGeometryRef struct {
+	PointID           string `json:"pointId,omitempty"`
 	Target            string `json:"target"`
 	EntityID          string `json:"entityId,omitempty"`
 	SubElement        string `json:"subElement"`
 	ControlPointIndex *int   `json:"controlPointIndex,omitempty"`
+	ControlPointID    string `json:"controlPointId,omitempty"`
 }
 type SketchConstraint struct {
-	ID            string              `json:"id"`
-	Kind          string              `json:"kind"`
-	References    []SketchGeometryRef `json:"references"`
-	FixedPoint    *SketchPoint2       `json:"fixedPoint,omitempty"`
-	Value         *float64            `json:"value,omitempty"`
-	Unit          string              `json:"unit,omitempty"`
-	ParameterID   string              `json:"parameterId,omitempty"`
-	LabelPosition *SketchPoint2       `json:"labelPosition,omitempty"`
-	Internal      bool                `json:"internal,omitempty"`
-	Suppressed    bool                `json:"suppressed,omitempty"`
+	SelfMirrorMode string              `json:"selfMirrorMode,omitempty"`
+	ID             string              `json:"id"`
+	Kind           string              `json:"kind"`
+	References     []SketchGeometryRef `json:"references"`
+	FixedPoint     *SketchPoint2       `json:"fixedPoint,omitempty"`
+	Value          *float64            `json:"value,omitempty"`
+	Unit           string              `json:"unit,omitempty"`
+	ParameterID    string              `json:"parameterId,omitempty"`
+	LabelPosition  *SketchPoint2       `json:"labelPosition,omitempty"`
+	Internal       bool                `json:"internal,omitempty"`
+	Suppressed     bool                `json:"suppressed,omitempty"`
+	Reference      bool                `json:"reference,omitempty"`
 }
 type SketchSolveState struct {
 	Status                   string                 `json:"status"`
@@ -297,28 +319,71 @@ type SketchFeature struct {
 	Solve            SketchSolveState         `json:"solve"`
 }
 type SketchOperation struct {
-	Type              string                  `json:"type"`
-	Entity            *SketchEntity           `json:"entity,omitempty"`
-	Constraint        *SketchConstraint       `json:"constraint,omitempty"`
-	ConstraintID      string                  `json:"constraintId,omitempty"`
-	LabelPosition     *SketchPoint2           `json:"labelPosition,omitempty"`
-	Value             *float64                `json:"value,omitempty"`
-	First             *SketchPoint2           `json:"first,omitempty"`
-	Second            *SketchPoint2           `json:"second,omitempty"`
-	FirstReference    *SketchGeometryRef      `json:"firstReference,omitempty"`
-	SecondReference   *SketchGeometryRef      `json:"secondReference,omitempty"`
-	EntityID          string                  `json:"entityId,omitempty"`
-	Role              string                  `json:"role,omitempty"`
-	SubElement        string                  `json:"subElement,omitempty"`
-	ControlPointIndex *int                    `json:"controlPointIndex,omitempty"`
-	Point             *SketchPoint2           `json:"point,omitempty"`
-	Suppressed        *bool                   `json:"suppressed,omitempty"`
-	ExternalGeometry  *SketchExternalGeometry `json:"externalGeometry,omitempty"`
-	ExternalID        string                  `json:"externalId,omitempty"`
-	GeometryKey       string                  `json:"geometryKey,omitempty"`
-	TopologyID        uint64                  `json:"topologyId,omitempty"`
-	TopologyKind      string                  `json:"topologyKind,omitempty"`
-	SourceVersionID   string                  `json:"sourceVersionId,omitempty"`
+	Mode                string                     `json:"mode,omitempty"`
+	Type                string                     `json:"type"`
+	Entity              *SketchEntity              `json:"entity,omitempty"`
+	Constraint          *SketchConstraint          `json:"constraint,omitempty"`
+	ParameterSource     *string                    `json:"parameterSource,omitempty"`
+	ParameterKey        string                     `json:"parameterKey,omitempty"`
+	RestoreMode         string                     `json:"restoreMode,omitempty"`
+	ConstraintID        string                     `json:"constraintId,omitempty"`
+	LabelPosition       *SketchPoint2              `json:"labelPosition,omitempty"`
+	Value               *float64                   `json:"value,omitempty"`
+	First               *SketchPoint2              `json:"first,omitempty"`
+	Second              *SketchPoint2              `json:"second,omitempty"`
+	FirstReference      *SketchGeometryRef         `json:"firstReference,omitempty"`
+	SecondReference     *SketchGeometryRef         `json:"secondReference,omitempty"`
+	EntityID            string                     `json:"entityId,omitempty"`
+	Role                string                     `json:"role,omitempty"`
+	SubElement          string                     `json:"subElement,omitempty"`
+	ControlPointIndex   *int                       `json:"controlPointIndex,omitempty"`
+	Point               *SketchPoint2              `json:"point,omitempty"`
+	Suppressed          *bool                      `json:"suppressed,omitempty"`
+	ExternalGeometry    *SketchExternalGeometry    `json:"externalGeometry,omitempty"`
+	ExternalID          string                     `json:"externalId,omitempty"`
+	GeometryKey         string                     `json:"geometryKey,omitempty"`
+	TopologyID          uint64                     `json:"topologyId,omitempty"`
+	TopologyKind        string                     `json:"topologyKind,omitempty"`
+	SourceVersionID     string                     `json:"sourceVersionId,omitempty"`
+	OperationID         string                     `json:"operationId,omitempty"`
+	EntityIDs           []string                   `json:"entityIds,omitempty"`
+	Origin              *SketchPoint2              `json:"origin,omitempty"`
+	Translation         *SketchPoint2              `json:"translation,omitempty"`
+	Angle               float64                    `json:"angle,omitempty"`
+	Scale               *float64                   `json:"scale,omitempty"`
+	Copy                bool                       `json:"copy,omitempty"`
+	Axis                *SketchGeometryRef         `json:"axis,omitempty"`
+	ConstraintPolicy    string                     `json:"constraintPolicy,omitempty"`
+	DetachConstraintIDs []string                   `json:"detachConstraintIds,omitempty"`
+	Parameters          []float64                  `json:"parameters,omitempty"`
+	MirrorMode          string                     `json:"mirrorMode,omitempty"`
+	PointIndex          *int                       `json:"pointIndex,omitempty"`
+	PointAction         string                     `json:"pointAction,omitempty"`
+	KnotParameter       *float64                   `json:"knotParameter,omitempty"`
+	Closed              *bool                      `json:"closed,omitempty"`
+	ControlPointID      string                     `json:"controlPointId,omitempty"`
+	ComputedEntities    []SketchEntity             `json:"computedEntities,omitempty"`
+	CurveSourceDigest   string                     `json:"curveSourceDigest,omitempty"`
+	Intervals           []SketchCurveInterval      `json:"intervals,omitempty"`
+	BoundaryIDs         []string                   `json:"boundaryIds,omitempty"`
+	HitParameter        *float64                   `json:"hitParameter,omitempty"`
+	TrimMode            string                     `json:"trimMode,omitempty"`
+	ChamferFirst        float64                    `json:"chamferFirst,omitempty"`
+	ChamferSecond       float64                    `json:"chamferSecond,omitempty"`
+	ChamferAngle        float64                    `json:"chamferAngle,omitempty"`
+	ChamferMode         string                     `json:"chamferMode,omitempty"`
+	CutConnections      []SketchCurveCutConnection `json:"cutConnections,omitempty"`
+}
+
+type SketchCurveInterval struct {
+	Start float64 `json:"start"`
+	End   float64 `json:"end"`
+}
+
+type SketchCurveCutConnection struct {
+	Kind      string            `json:"kind,omitempty"`
+	Parameter float64           `json:"parameter"`
+	Reference SketchGeometryRef `json:"reference"`
 }
 
 type Feature struct {
@@ -870,22 +935,23 @@ type DocumentStructureNode struct {
 }
 
 type DocumentView struct {
-	Document                DocumentSummary          `json:"document"`
-	DatumPlanes             []DatumPlane             `json:"datumPlanes,omitempty"`
-	AxisSystems             []AxisSystem             `json:"axisSystems,omitempty"`
-	DatumAxes               []DatumAxis              `json:"datumAxes,omitempty"`
-	Part                    *PartModel               `json:"part,omitempty"`
-	Product                 *ProductModel            `json:"product,omitempty"`
-	Artifact                *Artifact                `json:"artifact,omitempty"`
-	Artifacts               map[string]Artifact      `json:"artifacts,omitempty"`
-	ResolvedInstances       []ResolvedInstance       `json:"resolvedInstances,omitempty"`
-	ConstraintDisplayScopes []ConstraintDisplayScope `json:"constraintDisplayScopes,omitempty"`
-	StructureTree           *DocumentStructureNode   `json:"structureTree,omitempty"`
-	ReferenceUpdates        []ReferenceUpdate        `json:"referenceUpdates,omitempty"`
-	FollowedDocumentIDs     []string                 `json:"followedDocumentIds,omitempty"`
-	FollowedProductIDs      []string                 `json:"followedProductIds,omitempty"`
-	DesignSession           *ProductDesignSession    `json:"designSession,omitempty"`
-	ContextVariants         []ContextVariantSnapshot `json:"contextVariants,omitempty"`
+	Document                DocumentSummary                  `json:"document"`
+	DatumPlanes             []DatumPlane                     `json:"datumPlanes,omitempty"`
+	AxisSystems             []AxisSystem                     `json:"axisSystems,omitempty"`
+	DatumAxes               []DatumAxis                      `json:"datumAxes,omitempty"`
+	Part                    *PartModel                       `json:"part,omitempty"`
+	SketchAnalyses          map[string]SketchProfileAnalysis `json:"sketchAnalyses,omitempty"`
+	Product                 *ProductModel                    `json:"product,omitempty"`
+	Artifact                *Artifact                        `json:"artifact,omitempty"`
+	Artifacts               map[string]Artifact              `json:"artifacts,omitempty"`
+	ResolvedInstances       []ResolvedInstance               `json:"resolvedInstances,omitempty"`
+	ConstraintDisplayScopes []ConstraintDisplayScope         `json:"constraintDisplayScopes,omitempty"`
+	StructureTree           *DocumentStructureNode           `json:"structureTree,omitempty"`
+	ReferenceUpdates        []ReferenceUpdate                `json:"referenceUpdates,omitempty"`
+	FollowedDocumentIDs     []string                         `json:"followedDocumentIds,omitempty"`
+	FollowedProductIDs      []string                         `json:"followedProductIds,omitempty"`
+	DesignSession           *ProductDesignSession            `json:"designSession,omitempty"`
+	ContextVariants         []ContextVariantSnapshot         `json:"contextVariants,omitempty"`
 }
 
 // Read-only occurrence projection from accepted immutable Product revisions.

@@ -65,10 +65,10 @@ import { ProductReleaseCenter } from "./product-release-center";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
-const sketchToolCommands:WorkbenchToolID[]=["sketch.project","sketch.rectangle","sketch.polygon","sketch.slot","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline",
-  "sketch.constraint.coincident","sketch.constraint.parallel","sketch.constraint.fixed","sketch.constraint.horizontal","sketch.constraint.vertical",
+const sketchToolCommands:WorkbenchToolID[]=["sketch.edit.delete","sketch.edit.copy","sketch.edit.move","sketch.edit.rotate","sketch.edit.scale","sketch.edit.mirror","sketch.edit.split","sketch.edit.trim","sketch.edit.quick_trim","sketch.edit.fillet","sketch.edit.chamfer","sketch.edit.extend","sketch.edit.complement","sketch.edit.close","sketch.edit.offset","sketch.edit.spline_insert","sketch.edit.spline_delete","sketch.edit.spline_close","sketch.edit.spline_control","sketch.edit.construction","sketch.project","sketch.ellipse","sketch.elliptical_arc","sketch.rectangle","sketch.rectangle.center","sketch.rectangle.oriented","sketch.circle.three_point","sketch.arc.three_point","sketch.polygon","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline","sketch.spline.control",
+  "sketch.constraint.coincident","sketch.constraint.parallel","sketch.constraint.collinear","sketch.constraint.fixed","sketch.constraint.horizontal","sketch.constraint.vertical",
   "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.dimension.linear",
-  "sketch.constraint.radius","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint","sketch.constraint.symmetry"];
+  "sketch.constraint.horizontal_distance","sketch.constraint.vertical_distance","sketch.constraint.radius","sketch.constraint.major_radius","sketch.constraint.minor_radius","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint","sketch.constraint.symmetry"];
 
 function sketchPlane(datum: DatumPlane): SketchPlane {
   return { datumPlaneId: datum.id, plane: datum.plane, origin: datum.origin, normal: datum.normal, uDirection: datum.uDirection };
@@ -1130,7 +1130,7 @@ export function Workbench() {
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(store.sketchPlane) }),
       commandRegistry.register({ id: "sketch.finish", execute: finishSketch,
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && !command.isPending) }),
-      ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,invocation?.continuous?"continuous":"once"),
+      ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,toolID.startsWith("sketch.edit.") || toolID.startsWith("sketch.constraint.") || toolID.startsWith("sketch.dimension.") || toolID === "sketch.project" ? (invocation?.continuous?"continuous":"once") : "continuous"),
         isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane&&(toolID!=="sketch.project"||!selectedNamingIssue)),isActive:()=>store.activeToolID===toolID})),
       commandRegistry.register({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isVisible: () => editingView?.document.type === "PART",
         isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch") }),
@@ -1310,11 +1310,17 @@ export function Workbench() {
 	if (!editingView || !editingParameterID) return;
 	const values = await parameterForm.validateFields();
 	const current = editingView.part?.parameters?.find((candidate) => candidate.parameterId === editingParameterID);
+    if(current?.role==="MEASURED"||current?.source.external){
+      await command.mutateAsync(()=>api.command(editingView.document.id,{type:"RENAME_PARAMETER",parameterId:editingParameterID,name:values.key.trim()||current.key}));
+      setEditingParameterID(undefined);return;
+    }
 	const source = parseParameterSource(values.source, current && isLengthParameter(current) ? lengthUnit : current?.displayUnit);
 	command.mutate(() => api.command(editingView.document.id, {type: "EDIT_PARAMETER", parameterId: editingParameterID,
 		name: values.key.trim() || current?.key, ...(source.kind === "LITERAL" ? { value: source.value, unit: source.unit } : { expression: source.expression })}),
 		{onSuccess:()=>setEditingParameterID(undefined)});
   };
+  const editingParameterDefinition=editingView?.part?.parameters?.find(parameter=>parameter.parameterId===editingParameterID);
+  const parameterSourceReadonly=editingParameterDefinition?.role==="MEASURED"||Boolean(editingParameterDefinition?.source.external);
   const endInteractionForActivation = () => {
     viewport.current?.cancelAssemblyInteraction();stopConflictAnalysis();
     assemblyDialogLifecycle.current.invalidate();
@@ -1456,7 +1462,8 @@ export function Workbench() {
               if (node.kind === "ASSEMBLY_CONSTRAINT" && node.entityId) {
                 const constraint = editingView?.product?.constraints?.find((candidate) => candidate.id === node.entityId);
                 if (constraint) openAssemblyConstraintEditor(constraint);
-              } else if (node.kind === "PARAMETER" && node.entityId) openParameterEditor(node.entityId);
+              } else if (node.selection?.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
+              else if (node.kind === "PARAMETER" && node.entityId) openParameterEditor(node.entityId);
               else if (node.kind === "PUBLICATION" && node.entityId) openPublicationEditor(node.entityId,"PART");
               else if (node.kind === "PRODUCT_PUBLICATION" && node.entityId) openPublicationEditor(node.entityId,"PRODUCT");
               else openFeatureEditor(node);
@@ -1583,7 +1590,7 @@ export function Workbench() {
           treeVisibilityOverrides={treeVisibilityOverrides}
           sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={navigationProfile} catiaRotationSphereVisible={catiaRotationSphereVisible}
           referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}
-          captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch}
+          captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch} onDimensionOperations={async(featureID,operations)=>{if(!editingView)throw new Error("草图编辑会话已结束"); await command.mutateAsync(()=>api.editSketch(editingView.document.id,featureID,operations));}}
           onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
 		  onAssemblyConstraint={(toolKind, references) => {
             const issue = references.flatMap((reference) => {
@@ -1929,7 +1936,8 @@ export function Workbench() {
 		<Form form={parameterForm} layout="vertical">
 			<Form.Item name="key" label="可读别名（可选）" rules={[{pattern:/^$|^[A-Za-z_][A-Za-z0-9_]*$/,
 				message:"请输入 ASCII 标识符"}]}><Input /></Form.Item>
-			<Form.Item name="source" label="值或表达式" rules={[{required:true}]}><Input data-quantity-input="true" placeholder="40 或 base_width / 2" /></Form.Item>
+			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><Input disabled={parameterSourceReadonly} data-quantity-input="true" placeholder="40 或 base_width / 2" /></Form.Item>
+            {parameterSourceReadonly&&<small className="cad-command-hint">{editingParameterDefinition?.role==="MEASURED"?"参考尺寸只测量；请在尺寸定义编辑中显式恢复驱动后再改原来源。":"外部来源只读，当前仅编辑名称。"}</small>}
 			<small className="cad-command-hint">表达式按当前 Part 的参数别名编辑；提交后 AST 绑定稳定 ParameterId，后续重命名不会破坏引用。</small>
 		</Form>
 	</CommandDialog>

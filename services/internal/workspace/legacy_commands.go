@@ -283,7 +283,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				}
 			}
 		}
-		return typeEditSketch, editSketchPayload{SketchID: request.SketchID, Operations: operations}, nil
+		exactOperations, err := service.prepareSketchCurveEdits(ctx, modelJSON, request.SketchID, request.RequestID, operations)
+		if err != nil {
+			return "", nil, err
+		}
+		return typeEditSketch, editSketchPayload{SketchID: request.SketchID, Operations: exactOperations}, nil
 	case "PAD_SKETCH":
 		if documentType != "PART" {
 			break

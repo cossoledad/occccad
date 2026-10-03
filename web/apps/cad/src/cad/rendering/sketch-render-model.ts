@@ -1,4 +1,5 @@
 import type { Feature, Vec2 } from "../../types";
+import { sketchEntityPoint } from "../sketch/sketch-geometry";
 
 export type SketchRenderModel = {
   profileLines: Vec2[];
@@ -23,8 +24,12 @@ export function buildSketchRenderModel(feature: Feature): SketchRenderModel {
       (construction ? result.constructionLines : result.profileLines).push(start, end);
       result.endpoints.push(start, end);
     }
-    if ((entity.kind === "CIRCLE" || entity.kind === "ARC") && entity.center) {
+    if (["CIRCLE", "ARC", "ELLIPSE", "ELLIPTICAL_ARC"].includes(entity.kind) && entity.center) {
       (construction ? result.constructionPoints : result.profilePoints).push([entity.center.x, entity.center.y]);
+    }
+    if (entity.kind === "ELLIPTICAL_ARC") {
+      const start = sketchEntityPoint(entity, "START"), end = sketchEntityPoint(entity, "END");
+      if (start && end) result.endpoints.push(start, end);
     }
     if (entity.kind === "ARC" && entity.center && entity.radius && entity.startAngle !== undefined && entity.endAngle !== undefined) {
       result.endpoints.push(
@@ -32,9 +37,9 @@ export function buildSketchRenderModel(feature: Feature): SketchRenderModel {
         [entity.center.x + entity.radius * Math.cos(entity.endAngle), entity.center.y + entity.radius * Math.sin(entity.endAngle)],
       );
     }
-    if (entity.kind === "SPLINE" && !entity.closed && entity.controlPoints?.length) {
-      result.endpoints.push([entity.controlPoints[0].x, entity.controlPoints[0].y],
-        [entity.controlPoints.at(-1)!.x, entity.controlPoints.at(-1)!.y]);
+    if (entity.kind === "SPLINE" && !entity.closed) {
+      const start = sketchEntityPoint(entity, "START"), end = sketchEntityPoint(entity, "END");
+      if (start && end) result.endpoints.push(start, end);
     }
   }
   return result;

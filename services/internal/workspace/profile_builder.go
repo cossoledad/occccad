@@ -3,10 +3,10 @@ package workspace
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
-	"strings"
 
 	"github.com/occccad/occccad/internal/geometry"
 )
@@ -93,7 +93,19 @@ func entityProfileEndpoints(entity SketchEntity) (SketchPoint2, SketchPoint2, bo
 		if entity.Center != nil {
 			return SketchPoint2{X: entity.Center.X + entity.Radius*math.Cos(entity.StartAngle), Y: entity.Center.Y + entity.Radius*math.Sin(entity.StartAngle)}, SketchPoint2{X: entity.Center.X + entity.Radius*math.Cos(entity.EndAngle), Y: entity.Center.Y + entity.Radius*math.Sin(entity.EndAngle)}, true
 		}
+	case "ELLIPTICAL_ARC":
+		if entity.Center != nil {
+			return ellipsePoint(entity, entity.StartAngle), ellipsePoint(entity, entity.EndAngle), true
+		}
 	case "SPLINE":
+		if !entity.Closed && len(entity.Poles) > 0 {
+			a, err := evaluateCanonicalSpline(entity, entity.ParameterStart)
+			if err != nil {
+				return SketchPoint2{}, SketchPoint2{}, false
+			}
+			b, err := evaluateCanonicalSpline(entity, entity.ParameterEnd)
+			return a, b, err == nil
+		}
 		if !entity.Closed && len(entity.ControlPoints) > 1 {
 			return entity.ControlPoints[0], entity.ControlPoints[len(entity.ControlPoints)-1], true
 		}
@@ -101,21 +113,8 @@ func entityProfileEndpoints(entity SketchEntity) (SketchPoint2, SketchPoint2, bo
 	return SketchPoint2{}, SketchPoint2{}, false
 }
 
-func buildProfileRegions(feature Feature) ([]geometry.ProfileRegion, error) {
-	if feature.Sketch == nil {
-		return nil, fmt.Errorf("%w: sketch model is missing", ErrValidation)
-	}
-	if feature.Sketch.Solve.Status == "CONFLICTING" {
-		return nil, fmt.Errorf("%w: sketch constraints must be resolved before profile evaluation", ErrValidation)
-	}
+func profileConnectivity(feature Feature) *disjointSet {
 	dsu := newDisjointSet()
-	entities := map[string]SketchEntity{}
-	for _, entity := range feature.Sketch.Entities {
-		if entity.Suppressed {
-			continue
-		}
-		entities[entity.ID] = entity
-	}
 	for _, constraint := range feature.Sketch.Constraints {
 		if constraint.Suppressed {
 			continue
@@ -129,14 +128,33 @@ func buildProfileRegions(feature Feature) ([]geometry.ProfileRegion, error) {
 			dsu.union(a, b)
 		}
 	}
+	return dsu
+}
+
+func buildProfileRegions(feature Feature) ([]geometry.ProfileRegion, error) {
+	loops, err := buildProfileLoops(feature, false)
+	if err != nil {
+		return nil, err
+	}
+	return classifyProfileLoops(loops)
+}
+
+func buildProfileLoops(feature Feature, exact bool) ([]profileLoop, error) {
+	if feature.Sketch == nil {
+		return nil, fmt.Errorf("%w: sketch model is missing", ErrValidation)
+	}
+	if feature.Sketch.Solve.Status == "CONFLICTING" {
+		return nil, fmt.Errorf("%w: sketch constraints must be resolved before profile evaluation", ErrValidation)
+	}
+	dsu := profileConnectivity(feature)
 	edges := []profileEdge{}
 	loops := []profileLoop{}
 	for _, entity := range feature.Sketch.Entities {
 		if entity.Suppressed || entity.Role != "PROFILE" || entity.Kind == "POINT" {
 			continue
 		}
-		if entity.Kind == "CIRCLE" || (entity.Kind == "SPLINE" && entity.Closed) {
-			loop, err := closedEntityLoop(entity)
+		if entity.Kind == "CIRCLE" || entity.Kind == "ELLIPSE" || (entity.Kind == "SPLINE" && entity.Closed) {
+			loop, err := makeProfileLoopWithPolicy([]geometry.ProfileCurve{profileCurve(entity, false)}, exact)
 			if err != nil {
 				return nil, err
 			}
@@ -212,17 +230,17 @@ func buildProfileRegions(feature Feature) ([]geometry.ProfileRegion, error) {
 				current = edge.endNode
 			}
 		}
-		loop, err := makeProfileLoop(ordered)
+		loop, err := makeProfileLoopWithPolicy(ordered, exact)
 		if err != nil {
 			return nil, err
 		}
 		loops = append(loops, loop)
 	}
-	return classifyProfileLoops(loops)
+	return loops, nil
 }
 
 func profileCurve(entity SketchEntity, reversed bool) geometry.ProfileCurve {
-	value := geometry.ProfileCurve{EntityID: entity.ID, Kind: entity.Kind, Reversed: reversed, Radius: entity.Radius, StartAngle: entity.StartAngle, EndAngle: entity.EndAngle, Degree: entity.Degree, Closed: entity.Closed}
+	value := geometry.ProfileCurve{EntityID: entity.ID, Kind: entity.Kind, Reversed: reversed, Radius: entity.Radius, StartAngle: entity.StartAngle, EndAngle: entity.EndAngle, Degree: entity.Degree, Closed: entity.Closed, MajorRadius: entity.MajorRadius, MinorRadius: entity.MinorRadius, Rotation: entity.Rotation, Mode: entity.Mode, Knots: entity.Knots, Multiplicities: entity.Multiplicities, Weights: entity.Weights, Periodic: entity.Periodic, ParameterStart: entity.ParameterStart, ParameterEnd: entity.ParameterEnd}
 	if entity.Start != nil {
 		value.Start = [2]float64{entity.Start.X, entity.Start.Y}
 	}
@@ -232,6 +250,9 @@ func profileCurve(entity SketchEntity, reversed bool) geometry.ProfileCurve {
 	if entity.Center != nil {
 		value.Center = [2]float64{entity.Center.X, entity.Center.Y}
 	}
+	for _, p := range entity.Poles {
+		value.Poles = append(value.Poles, [2]float64{p.X, p.Y})
+	}
 	for _, point := range entity.ControlPoints {
 		value.ControlPoints = append(value.ControlPoints, [2]float64{point.X, point.Y})
 	}
@@ -240,26 +261,46 @@ func profileCurve(entity SketchEntity, reversed bool) geometry.ProfileCurve {
 func closedEntityLoop(entity SketchEntity) (profileLoop, error) {
 	return makeProfileLoop([]geometry.ProfileCurve{profileCurve(entity, false)})
 }
+
+// A loop is an unoriented cyclic sequence of stable entities. Start edge,
+// traversal direction and stored curve orientation do not define identity.
 func loopID(curves []geometry.ProfileCurve) string {
 	parts := make([]string, len(curves))
-	for i, curve := range curves {
-		direction := "+"
-		if curve.Reversed {
-			direction = "-"
-		}
-		parts[i] = curve.EntityID + direction
+	for i, c := range curves {
+		parts[i] = c.EntityID
 	}
-	digest := sha256.Sum256([]byte(strings.Join(parts, "|")))
+	canonical := ""
+	for _, reverse := range []bool{false, true} {
+		for start := range parts {
+			cycle := make([]string, len(parts))
+			for i := range cycle {
+				index := (start + i) % len(parts)
+				if reverse {
+					index = (start - i + len(parts)) % len(parts)
+				}
+				cycle[i] = parts[index]
+			}
+			encoded, _ := json.Marshal(cycle)
+			candidate := string(encoded)
+			if canonical == "" || candidate < canonical {
+				canonical = candidate
+			}
+		}
+	}
+	digest := sha256.Sum256([]byte(canonical))
 	return "profile-loop:" + hex.EncodeToString(digest[:12])
 }
 func makeProfileLoop(curves []geometry.ProfileCurve) (profileLoop, error) {
+	return makeProfileLoopWithPolicy(curves, false)
+}
+func makeProfileLoopWithPolicy(curves []geometry.ProfileCurve, exact bool) (profileLoop, error) {
 	value := geometry.ProfileLoop{ID: loopID(curves), Curves: curves}
 	polygon := sampleProfileLoop(value)
 	area := polygonArea(polygon)
-	if math.Abs(area) < profileTolerance {
+	if !exact && math.Abs(area) < profileTolerance {
 		return profileLoop{}, fmt.Errorf("%w: profile loop %s has no area", ErrValidation, value.ID)
 	}
-	if selfIntersects(polygon) {
+	if !exact && selfIntersects(polygon) {
 		return profileLoop{}, fmt.Errorf("%w: profile loop %s self-intersects", ErrValidation, value.ID)
 	}
 	return profileLoop{value: value, polygon: polygon, area: area, bounds: polygonBounds(polygon)}, nil
@@ -303,7 +344,33 @@ func sampleProfileCurve(curve geometry.ProfileCurve) []SketchPoint2 {
 			points[i] = SketchPoint2{X: curve.Center[0] + curve.Radius*math.Cos(angle), Y: curve.Center[1] + curve.Radius*math.Sin(angle)}
 		}
 		return points
+	case "ELLIPSE", "ELLIPTICAL_ARC":
+		start, end := 0.0, 2*math.Pi
+		if curve.Kind == "ELLIPTICAL_ARC" {
+			start, end = curve.StartAngle, curve.EndAngle
+		}
+		entity := SketchEntity{Center: &SketchPoint2{X: curve.Center[0], Y: curve.Center[1]}, MajorRadius: curve.MajorRadius, MinorRadius: curve.MinorRadius, Rotation: curve.Rotation}
+		points := make([]SketchPoint2, 129)
+		for i := range points {
+			points[i] = ellipsePoint(entity, start+(end-start)*float64(i)/128)
+		}
+		return points
 	case "SPLINE":
+		if len(curve.Poles) > 0 {
+			e := SketchEntity{Degree: curve.Degree, Knots: curve.Knots, Multiplicities: curve.Multiplicities, Weights: curve.Weights, Periodic: curve.Periodic, ParameterStart: curve.ParameterStart, ParameterEnd: curve.ParameterEnd}
+			for _, p := range curve.Poles {
+				e.Poles = append(e.Poles, SketchPoint2{X: p[0], Y: p[1]})
+			}
+			points := make([]SketchPoint2, 129)
+			for i := range points {
+				p, err := evaluateCanonicalSpline(e, e.ParameterStart+(e.ParameterEnd-e.ParameterStart)*float64(i)/128)
+				if err != nil {
+					return nil
+				}
+				points[i] = p
+			}
+			return points
+		}
 		points := make([]SketchPoint2, len(curve.ControlPoints), len(curve.ControlPoints)+1)
 		for i, value := range curve.ControlPoints {
 			points[i] = SketchPoint2{X: value[0], Y: value[1]}
@@ -460,4 +527,9 @@ func classifyProfileLoops(loops []profileLoop) ([]geometry.ProfileRegion, error)
 		regions[index].Holes = append(regions[index].Holes, hole)
 	}
 	return regions, nil
+}
+
+func ellipsePoint(e SketchEntity, t float64) SketchPoint2 {
+	x, y := e.MajorRadius*math.Cos(t), e.MinorRadius*math.Sin(t)
+	return SketchPoint2{X: e.Center.X + x*math.Cos(e.Rotation) - y*math.Sin(e.Rotation), Y: e.Center.Y + x*math.Sin(e.Rotation) + y*math.Cos(e.Rotation)}
 }

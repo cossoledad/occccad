@@ -8,11 +8,11 @@ import { InputDebugOverlay, type InputDebugSnapshot } from "../cad/overlay/input
 import type { NavigationProfileID } from "../cad/navigation/navigation-profile";
 import type { WorkbenchToolID } from "../state/workbench-store";
 import type { TreeVisibilityOverrides } from "../cad/interaction/tree-visibility";
-import { randomUUID } from "../utils/random-uuid";
+import { SketchDimensionEditor, type DimensionRequest } from "../cad/sketch/sketch-dimension-editor";
 import type { Artifact, AssemblyGeometryRef, DocumentView, Selection, SelectionItem, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3 } from "../types";
 import type { AssemblyConstraintToolKind } from "../cad/tool/cad-tool";
 import { CadViewportEngine } from "./cad-viewport-engine";
-import { formatSketchDimensionValue, normalizeSketchDimensionValue } from "../cad/sketch/sketch-input-policy";
+
 import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame, AssemblyInteractionCommit, AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 
 export type CadViewportHandle = {
@@ -59,6 +59,7 @@ type Props = {
   onSelectionsChange: (selections: SelectionItem[]) => void;
   onPreselectionChange: (selection: Selection) => void;
   onSketchOperations: (featureID: string, operations: SketchOperation[]) => void;
+  onDimensionOperations: (featureID:string,operations:SketchOperation[])=>Promise<unknown>;
   onToolUseComplete: () => void;
   onActiveToolChange: (toolID: WorkbenchToolID) => void;
   onInstanceMoved: (documentId:string,candidate:AssemblyInteractionCommit)=>Promise<void>;
@@ -77,11 +78,15 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   const patternPreview = useRef<InstancePatternPreview | undefined>(undefined);
   const callbacks = useRef(props);
   const [debug, setDebug] = useState<InputDebugSnapshot>();
-  const [dimensionEditor, setDimensionEditor] = useState<
-    { mode: "edit"; featureId: string; constraintId: string; value: number; unit: "mm" | "deg"; x: number; y: number }
-    | { mode: "create"; featureId: string; kind: "DISTANCE"|"LENGTH"|"RADIUS"|"DIAMETER"|"ANGLE";
-      references: SketchGeometryRef[]; labelPosition: Vec2; value: number; unit: "mm"|"deg"; x: number; y: number }>();
+  const [dimensionEditor, setDimensionEditor] = useState<DimensionRequest & {ownerDocumentID:string;ownerRevisionID:string;epoch:number}>();
+  const dimensionEpoch=useRef(0);
+  const openDimension=(request:DimensionRequest)=>{
+    const owner=(callbacks.current.editingView??callbacks.current.view).document;
+    setDimensionEditor({...request,ownerDocumentID:owner.id,ownerRevisionID:owner.versionId,epoch:++dimensionEpoch.current});
+  };
   callbacks.current = props;
+  const dimensionOwner=(props.editingView??props.view).document;
+  useEffect(()=>setDimensionEditor(undefined),[dimensionOwner.id,dimensionOwner.versionId,props.activeSketchID]);
 
   useEffect(() => {
     if (!host.current) return;
@@ -90,8 +95,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       preselectionChanged: (selection) => callbacks.current.onPreselectionChange(selection),
       sketchOperations: (featureID, operations) => callbacks.current.onSketchOperations(featureID, operations),
       toolUseCompleted: () => callbacks.current.onToolUseComplete(),
-      dimensionEditRequested: (request) => setDimensionEditor(request),
-      dimensionCreateRequested: (request) => setDimensionEditor(request),
+      dimensionEditRequested: (request) => openDimension(request),
+      dimensionCreateRequested: (request) => openDimension(request),
       activeToolChanged: (toolID) => callbacks.current.onActiveToolChange(toolID),
       toolPromptChanged: () => {},
       instanceMoved:(documentId,candidate)=>callbacks.current.onInstanceMoved(documentId,candidate),
@@ -171,22 +176,12 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   }), []);
 
   return <><div ref={host} className="cad-viewport-canvas" />
-    {dimensionEditor && <input key={`${dimensionEditor.mode}:${dimensionEditor.mode === "edit" ? dimensionEditor.constraintId : dimensionEditor.kind}`} className="sketch-dimension-editor" autoFocus
-      defaultValue={formatSketchDimensionValue(dimensionEditor.value, dimensionEditor.unit)}
-      inputMode="decimal" step={dimensionEditor.unit === "deg" ? 0.1 : 0.01} aria-label={`编辑尺寸 (${dimensionEditor.unit})`}
-      style={{ left: dimensionEditor.x, top: dimensionEditor.y }}
-      onBlur={() => setDimensionEditor(undefined)}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") { setDimensionEditor(undefined); return; }
-        if (event.key !== "Enter") return;
-        const value = normalizeSketchDimensionValue(Number(event.currentTarget.value), dimensionEditor.unit);
-        if (Number.isFinite(value) && value > 0) callbacks.current.onSketchOperations(dimensionEditor.featureId,
-          dimensionEditor.mode === "edit"
-            ? [{ type: "UPDATE_CONSTRAINT_VALUE", constraintId: dimensionEditor.constraintId, value }]
-            : [{ type: "ADD_CONSTRAINT", constraint: { id: randomUUID(), kind: dimensionEditor.kind,
-              references: dimensionEditor.references, value, unit: dimensionEditor.unit,
-              labelPosition: { x: dimensionEditor.labelPosition[0], y: dimensionEditor.labelPosition[1] } } }]);
-        setDimensionEditor(undefined);
+    {dimensionEditor && <SketchDimensionEditor key={`${dimensionEditor.epoch}:${dimensionEditor.featureId}:${dimensionEditor.mode === "edit" ? dimensionEditor.constraintId : dimensionEditor.kind}`}
+      request={dimensionEditor} view={props.editingView??props.view} onClose={()=>setDimensionEditor(current=>current?.epoch===dimensionEditor.epoch?undefined:current)}
+      onSubmit={async operations=>{
+        const owner=(callbacks.current.editingView??callbacks.current.view).document;
+        if(owner.id!==dimensionEditor.ownerDocumentID||owner.versionId!==dimensionEditor.ownerRevisionID||callbacks.current.activeSketchID!==dimensionEditor.featureId)throw new Error("草图版本或编辑会话已改变，请重新打开尺寸编辑");
+        return callbacks.current.onDimensionOperations(dimensionEditor.featureId,operations);
       }} />}
     {debug && <InputDebugOverlay snapshot={debug} />}</>;
 });

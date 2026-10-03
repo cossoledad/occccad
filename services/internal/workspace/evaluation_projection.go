@@ -18,7 +18,7 @@ func ensureFeatureParameters(model *PartModel) {
 	}
 	managedPrefixes := map[string]struct{}{}
 	desired := map[string]struct{}{}
-	add := func(featureID, slot, key, label, unit string, value float64, dimension modelcore.Dimension) {
+	add := func(featureID, slot, key, label, unit string, value float64, dimension modelcore.Dimension, reference bool) {
 		id := "parameter:" + featureID + ":" + slot
 		lifecycle := "FEATURE_REQUIRED"
 		if strings.HasPrefix(slot, "constraint:") {
@@ -31,32 +31,63 @@ func ensureFeatureParameters(model *PartModel) {
 			parameter.Dimension = dimension
 			parameter.ValueType = modelcore.ValueQuantity
 			parameter.DisplayUnit = unit
+			if reference {
+				parameter.Role = "MEASURED"
+			} else {
+				parameter.Role = "INPUT"
+			}
 			if parameter.Label == "" {
 				parameter.Label = label
 			}
 			return
 		}
+		if lifecycle == "SKETCH_DIMENSION" {
+			base := strings.ToLower(label)
+			for suffix := 1; ; suffix++ {
+				candidate := fmt.Sprintf("%s_%d", base, suffix)
+				used := false
+				for _, existingParameter := range model.Parameters {
+					if existingParameter.Key == candidate {
+						used = true
+						break
+					}
+				}
+				if !used {
+					key = candidate
+					break
+				}
+			}
+		}
 		quantity, _ := modelcore.NewQuantity(value, unit)
 		model.Parameters = append(model.Parameters, modelcore.ParameterDefinition{ParameterID: id, OwnerFeatureID: featureID, PropertySlot: slot, Lifecycle: lifecycle, Key: key, Label: label,
 			ValueType: modelcore.ValueQuantity, Dimension: dimension, DisplayUnit: unit, Role: "INPUT",
 			Source: modelcore.ValueSource{Literal: &quantity}, EvaluatedValue: &quantity})
+		if reference {
+			model.Parameters[len(model.Parameters)-1].Role = "MEASURED"
+			model.Parameters[len(model.Parameters)-1].Source = modelcore.ValueSource{}
+			model.Parameters[len(model.Parameters)-1].EvaluatedValue = nil
+		}
 		existing[id] = len(model.Parameters) - 1
 	}
 	for _, feature := range model.Features {
 		managedPrefixes["parameter:"+feature.ID+":"] = struct{}{}
 		keyPrefix := strings.NewReplacer("-", "_", ":", "_").Replace(feature.ID)
 		if isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE" {
-			add(feature.ID, "length", keyPrefix+"_length", "Length", "mm", feature.Length, modelcore.LengthDimension)
+			add(feature.ID, "length", keyPrefix+"_length", "Length", "mm", feature.Length, modelcore.LengthDimension, false)
 		}
 		if feature.Sketch != nil {
 			for _, constraint := range feature.Sketch.Constraints {
-				if !isDimensionalConstraint(constraint.Kind) || constraint.Value == nil {
+				if !isDimensionalConstraint(constraint.Kind) || (constraint.Value == nil && !constraint.Reference) {
 					continue
 				}
 				unit, dimension := sketchConstraintUnitAndDimension(constraint.Kind)
 				slot := "constraint:" + constraint.ID + ":value"
 				key := keyPrefix + "_" + strings.ToLower(constraint.Kind) + "_" + parameterKeyFragment(constraint.ID)
-				add(feature.ID, slot, key, constraint.Kind, unit, *constraint.Value, dimension)
+				value := 0.0
+				if constraint.Value != nil {
+					value = *constraint.Value
+				}
+				add(feature.ID, slot, key, constraint.Kind, unit, value, dimension, constraint.Reference)
 			}
 		}
 	}
@@ -136,6 +167,9 @@ func validateAndResolvePartParameters(model *PartModel) error {
 	if err := validatePartStructure(*model); err != nil {
 		return err
 	}
+	if err := validateSketchReferenceParameterDependencies(*model); err != nil {
+		return err
+	}
 	nodes := make([]modelcore.DependencyNode, 0, len(model.Parameters)*2)
 	edges := []modelcore.DependencyEdge{}
 	definitions := map[string]modelcore.ParameterDefinition{}
@@ -160,7 +194,7 @@ func validateAndResolvePartParameters(model *PartModel) error {
 		if parameter.Source.External != nil {
 			sourceCount++
 		}
-		if sourceCount != 1 {
+		if sourceCount != 1 && !(parameter.Role == "MEASURED" && sourceCount == 0) {
 			return fmt.Errorf("%w: parameter %s must have exactly one source", ErrValidation, parameter.ParameterID)
 		}
 		if parameter.ValueType != modelcore.ValueQuantity {
@@ -246,6 +280,14 @@ func validateAndResolvePartParameters(model *PartModel) error {
 		}
 		id := strings.TrimPrefix(string(key), "parameter:")
 		parameter := definitions[id]
+		if parameter.Role == "MEASURED" {
+			for i := range model.Parameters {
+				if model.Parameters[i].ParameterID == id {
+					model.Parameters[i].EvaluatedValue = nil
+				}
+			}
+			continue
+		}
 		var value modelcore.Quantity
 		if parameter.Source.Literal != nil {
 			value = *parameter.Source.Literal
@@ -282,7 +324,7 @@ func validateAndResolvePartParameters(model *PartModel) error {
 		if feature.Sketch != nil {
 			for constraintIndex := range feature.Sketch.Constraints {
 				constraint := &feature.Sketch.Constraints[constraintIndex]
-				if !isDimensionalConstraint(constraint.Kind) {
+				if !isDimensionalConstraint(constraint.Kind) || constraint.Reference {
 					continue
 				}
 				value, exists := values[constraint.ParameterID]

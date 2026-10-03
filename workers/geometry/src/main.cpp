@@ -414,22 +414,35 @@ sketch_api::SketchModel read_sketch(const worker_api::SketchModel& input) {
                               arc.role() == "CONSTRUCTION" ? sketch_api::EntityRole::construction
                                                            : sketch_api::EntityRole::profile});
     }
+    for (const auto& e : input.ellipses()) {
+        model.ellipses.push_back({e.id(),{e.center().x(),e.center().y()},e.major_radius(),e.minor_radius(),e.rotation(),e.role()=="CONSTRUCTION"?sketch_api::EntityRole::construction:sketch_api::EntityRole::profile});
+    }
+    for (const auto& e : input.elliptical_arcs()) {
+        model.elliptical_arcs.push_back({e.id(),{e.center().x(),e.center().y()},e.major_radius(),e.minor_radius(),e.rotation(),e.start_angle(),e.end_angle(),e.role()=="CONSTRUCTION"?sketch_api::EntityRole::construction:sketch_api::EntityRole::profile});
+    }
     for (const auto& spline : input.splines()) {
-        sketch_api::SplineEntity output{spline.id(),
-                                        {},
-                                        spline.degree(),
-                                        spline.closed(),
-                                        spline.role() == "CONSTRUCTION"
-                                            ? sketch_api::EntityRole::construction
-                                            : sketch_api::EntityRole::profile};
+        sketch_api::SplineEntity output{};
+        output.id=spline.id();output.degree=spline.degree();output.closed=spline.closed();
+        output.role=spline.role()=="CONSTRUCTION"?sketch_api::EntityRole::construction:sketch_api::EntityRole::profile;
         for (const auto& point : spline.control_points())
             output.control_points.push_back({point.x(), point.y()});
+        output.mode = spline.mode().empty() ? "FIT" : spline.mode();
+        for (const auto& p : spline.poles()) output.poles.push_back({p.x(), p.y()});
+        output.knots.assign(spline.knots().begin(), spline.knots().end());
+        output.multiplicities.assign(spline.multiplicities().begin(), spline.multiplicities().end());
+        output.weights.assign(spline.weights().begin(), spline.weights().end());
+        output.periodic = spline.periodic();
+        output.parameter_start = spline.parameter_start(); output.parameter_end = spline.parameter_end();
         model.splines.push_back(std::move(output));
     }
     for (const auto& constraint : input.constraints()) {
         sketch_api::ConstraintKind kind;
         if (constraint.kind() == "COINCIDENT")
             kind = sketch_api::ConstraintKind::coincident;
+        else if (constraint.kind() == "SAME_SUPPORT")
+            kind = sketch_api::ConstraintKind::same_support;
+        else if (constraint.kind() == "MIRROR")
+            kind = sketch_api::ConstraintKind::mirror;
         else if (constraint.kind() == "PARALLEL")
             kind = sketch_api::ConstraintKind::parallel;
         else if (constraint.kind() == "FIXED_POINT")
@@ -446,10 +459,20 @@ sketch_api::SketchModel read_sketch(const worker_api::SketchModel& input) {
             kind = sketch_api::ConstraintKind::tangent;
         else if (constraint.kind() == "EQUAL")
             kind = sketch_api::ConstraintKind::equal;
+        else if (constraint.kind() == "HORIZONTAL_DISTANCE")
+            kind = sketch_api::ConstraintKind::horizontal_distance;
+        else if (constraint.kind() == "VERTICAL_DISTANCE")
+            kind = sketch_api::ConstraintKind::vertical_distance;
+        else if (constraint.kind() == "COLLINEAR")
+            kind = sketch_api::ConstraintKind::collinear;
         else if (constraint.kind() == "DISTANCE")
             kind = sketch_api::ConstraintKind::distance;
         else if (constraint.kind() == "LENGTH")
             kind = sketch_api::ConstraintKind::length;
+        else if (constraint.kind() == "MAJOR_RADIUS")
+            kind = sketch_api::ConstraintKind::major_radius;
+        else if (constraint.kind() == "MINOR_RADIUS")
+            kind = sketch_api::ConstraintKind::minor_radius;
         else if (constraint.kind() == "RADIUS")
             kind = sketch_api::ConstraintKind::radius;
         else if (constraint.kind() == "DIAMETER")
@@ -473,7 +496,7 @@ sketch_api::SketchModel read_sketch(const worker_api::SketchModel& input) {
             {constraint.fixed_point().x(), constraint.fixed_point().y()},
             constraint.value(),
             constraint.unit(),
-            constraint.internal()};
+            constraint.internal(),constraint.self_mirror_mode()};
         for (const auto& reference : constraint.references()) {
             output.references.push_back(read_sketch_reference(reference));
         }
@@ -537,19 +560,68 @@ void write_solved_sketch(const sketch_api::SolveResult& result, worker_api::Sket
         value->set_start_angle(arc.start_angle);
         value->set_end_angle(arc.end_angle);
     }
+    for (const auto& e : result.ellipses) {
+        auto* value=output->add_ellipses(); value->set_id(e.id); value->set_role(e.role==sketch_api::EntityRole::construction?"CONSTRUCTION":"PROFILE");
+        value->mutable_center()->set_x(e.center.x);value->mutable_center()->set_y(e.center.y);
+        value->set_major_radius(e.major_radius);value->set_minor_radius(e.minor_radius);value->set_rotation(e.rotation);
+    }
+    for (const auto& e : result.elliptical_arcs) {
+        auto* value=output->add_elliptical_arcs(); value->set_id(e.id); value->set_role(e.role==sketch_api::EntityRole::construction?"CONSTRUCTION":"PROFILE");
+        value->mutable_center()->set_x(e.center.x);value->mutable_center()->set_y(e.center.y);
+        value->set_major_radius(e.major_radius);value->set_minor_radius(e.minor_radius);value->set_rotation(e.rotation);
+        value->set_start_angle(e.start_angle);value->set_end_angle(e.end_angle);
+    }
     for (const auto& spline : result.splines) {
         auto* value = output->add_splines();
         value->set_id(spline.id);
         value->set_role(spline.role == sketch_api::EntityRole::profile ? "PROFILE"
                                                                        : "CONSTRUCTION");
-        value->set_degree(spline.degree);
-        value->set_closed(spline.closed);
+        occccad::kernel::ProfileCurveSpec source;
+        source.kind="SPLINE"; source.mode=spline.mode; source.degree=spline.degree; source.closed=spline.closed;
+        for(const auto& p:spline.control_points) source.control_points.push_back({p.x,p.y});
+        for(const auto& p:spline.poles) source.poles.push_back({p.x,p.y});
+        source.knots=spline.knots; source.multiplicities=spline.multiplicities; source.weights=spline.weights;
+        source.periodic=spline.periodic; source.parameter_start=spline.parameter_start; source.parameter_end=spline.parameter_end;
+        const auto canonical=occccad::kernel::canonicalize_sketch_curve(source);
+        value->set_degree(canonical.degree); value->set_closed(canonical.closed); value->set_mode(spline.mode);
+        for(const auto& p:canonical.poles) {auto* pole=value->add_poles();pole->set_x(p.x);pole->set_y(p.y);}
+        for(const auto k:canonical.knots) value->add_knots(k);
+        for(const auto m:canonical.multiplicities) value->add_multiplicities(m);
+        for(const auto w:canonical.weights) value->add_weights(w);
+        value->set_periodic(canonical.periodic);value->set_parameter_start(canonical.parameter_start);value->set_parameter_end(canonical.parameter_end);
         for (const auto& point : spline.control_points) {
             auto* control = value->add_control_points();
             control->set_x(point.x);
             control->set_y(point.y);
         }
     }
+}
+
+occccad::kernel::ProfileCurveSpec exact_sketch_curve(const worker_api::ProfileCurve& c) {
+    if (c.control_points_size()>512 || c.poles_size()>512 || c.knots_size()>1024 || c.multiplicities_size()>1024 || c.weights_size()>512 || c.degree()>16)
+        throw std::invalid_argument("sketch curve exceeds resource limits");
+    occccad::kernel::ProfileCurveSpec v;
+    v.entity_id=c.entity_id();v.kind=c.kind();v.reversed=c.reversed();
+    v.start={c.start().x(),c.start().y()};v.end={c.end().x(),c.end().y()};v.center={c.center().x(),c.center().y()};
+    v.radius=c.radius();v.start_angle=c.start_angle();v.end_angle=c.end_angle();
+    v.major_radius=c.major_radius();v.minor_radius=c.minor_radius();v.rotation=c.rotation();
+    v.degree=c.degree();v.closed=c.closed();v.mode=c.mode().empty()?"FIT":c.mode();v.periodic=c.periodic();
+    v.parameter_start=c.parameter_start();v.parameter_end=c.parameter_end();
+    for (const auto& p:c.control_points()) v.control_points.push_back({p.x(),p.y()});
+    for (const auto& p:c.poles()) v.poles.push_back({p.x(),p.y()});
+    v.knots.assign(c.knots().begin(),c.knots().end());v.multiplicities.assign(c.multiplicities().begin(),c.multiplicities().end());v.weights.assign(c.weights().begin(),c.weights().end());
+    return v;
+}
+void exact_sketch_curve_proto(const occccad::kernel::ProfileCurveSpec& v,worker_api::ProfileCurve* c) {
+    c->set_entity_id(v.entity_id);c->set_kind(v.kind);c->set_reversed(v.reversed);
+    c->mutable_start()->set_x(v.start.x);c->mutable_start()->set_y(v.start.y);c->mutable_end()->set_x(v.end.x);c->mutable_end()->set_y(v.end.y);c->mutable_center()->set_x(v.center.x);c->mutable_center()->set_y(v.center.y);
+    c->set_radius(v.radius);c->set_start_angle(v.start_angle);c->set_end_angle(v.end_angle);c->set_major_radius(v.major_radius);c->set_minor_radius(v.minor_radius);c->set_rotation(v.rotation);
+    c->set_degree(v.degree);c->set_closed(v.closed);c->set_mode(v.mode);c->set_periodic(v.periodic);c->set_parameter_start(v.parameter_start);c->set_parameter_end(v.parameter_end);
+    for (const auto& p:v.control_points) {auto* point=c->add_control_points();point->set_x(p.x);point->set_y(p.y);}
+    for (const auto& p:v.poles) {auto* point=c->add_poles();point->set_x(p.x);point->set_y(p.y);}
+    for (double knot:v.knots)c->add_knots(knot);
+    for (auto mult:v.multiplicities)c->add_multiplicities(mult);
+    for (double weight:v.weights)c->add_weights(weight);
 }
 
 class GeometryWorkerService final : public worker_api::GeometryWorker::Service {
@@ -564,6 +636,40 @@ public:
         response->set_worker_id("geometry-worker-local-1");
         response->set_occt_version(OCC_VERSION_COMPLETE);
         response->set_resident_geometry_count(resident_snapshot_.load(std::memory_order_relaxed));
+        return grpc::Status::OK;
+    }
+
+    grpc::Status ComputeSketchCurves(grpc::ServerContext* context,
+                                    const worker_api::ComputeSketchCurvesRequest* request,
+                                    worker_api::ComputeSketchCurvesResponse* response) override {
+        try {
+            if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED,"curve computation cancelled"};
+            if (request->operation()=="PROFILE") {
+                if(request->loops_size()<1||request->loops_size()>256)throw std::invalid_argument("profile requires 1..256 loops");
+                std::vector<occccad::kernel::ProfileLoopSpec> loops;size_t count=0;
+                for(const auto& input:request->loops()){occccad::kernel::ProfileLoopSpec loop;loop.id=input.id();for(const auto& c:input.curves()){if(++count>512)throw std::invalid_argument("profile exceeds 512 curves");loop.curves.push_back(exact_sketch_curve(c));}loops.push_back(std::move(loop));}
+                const auto output=occccad::kernel::classify_sketch_profile(loops);
+                auto write_loop=[](const occccad::kernel::ProfileLoopSpec& loop,worker_api::ProfileLoop* value){value->set_id(loop.id);for(const auto& c:loop.curves)exact_sketch_curve_proto(c,value->add_curves());};
+                for(const auto& region:output){auto* value=response->add_regions();value->set_id(region.id);write_loop(region.outer,value->mutable_outer());for(const auto& hole:region.holes)write_loop(hole,value->add_holes());}
+            } else if (request->curves_size()<1 || request->curves_size()>64) throw std::invalid_argument("curve computation requires 1..64 curves");
+            else if (request->operation()=="NORMALIZE") {
+                for (const auto& c:request->curves()) exact_sketch_curve_proto(occccad::kernel::canonicalize_sketch_curve(exact_sketch_curve(c)),response->add_curves());
+            } else if (request->operation()=="INTERSECT") {
+                if (request->curves_size()!=2) throw std::invalid_argument("intersection requires two curves");
+                const auto result=occccad::kernel::intersect_sketch_curves(exact_sketch_curve(request->curves(0)),exact_sketch_curve(request->curves(1)),1e-7);
+                for (const auto& p:result.points) {
+                    auto* value=response->add_intersections();value->set_kind(p.kind==occccad::kernel::SketchCurveIntersectionKind::tangent?"TANGENT":"POINT");
+                    value->mutable_point()->set_x(p.point.x);value->mutable_point()->set_y(p.point.y);value->set_first_parameter(p.first_parameter);value->set_second_parameter(p.second_parameter);
+                }
+                for (const auto& p:result.overlaps) {auto* value=response->add_overlaps();value->set_first_start(p.first_start);value->set_first_end(p.first_end);value->set_second_start(p.second_start);value->set_second_end(p.second_end);}
+            } else if (request->operation()=="TRIM") {
+                if (request->curves_size()!=1 || !request->has_parameter_start() || !request->has_parameter_end()) throw std::invalid_argument("trim requires one curve and an explicit interval");
+                exact_sketch_curve_proto(occccad::kernel::trim_sketch_curve(exact_sketch_curve(request->curves(0)),request->parameter_start(),request->parameter_end()),response->add_curves());
+            } else throw std::invalid_argument("unsupported exact sketch curve operation");
+            response->set_status("OK");
+        } catch (const std::exception& error) {
+            response->Clear();response->set_status("INVALID");response->set_diagnostic(error.what());
+        }
         return grpc::Status::OK;
     }
 
@@ -1230,12 +1336,19 @@ public:
                         value.end = {curve.end().x(), curve.end().y()};
                         value.center = {curve.center().x(), curve.center().y()};
                         value.radius = curve.radius();
+                        value.major_radius = curve.major_radius();value.minor_radius=curve.minor_radius();value.rotation=curve.rotation();
                         value.start_angle = curve.start_angle();
                         value.end_angle = curve.end_angle();
                         value.degree = curve.degree();
                         value.closed = curve.closed();
                         for (const auto& point : curve.control_points())
                             value.control_points.push_back({point.x(), point.y()});
+                        value.mode=curve.mode().empty()?"FIT":curve.mode();
+                        for(const auto& p:curve.poles()) value.poles.push_back({p.x(),p.y()});
+                        value.knots.assign(curve.knots().begin(),curve.knots().end());
+                        value.multiplicities.assign(curve.multiplicities().begin(),curve.multiplicities().end());
+                        value.weights.assign(curve.weights().begin(),curve.weights().end());
+                        value.periodic=curve.periodic();value.parameter_start=curve.parameter_start();value.parameter_end=curve.parameter_end();
                         loop.curves.push_back(std::move(value));
                     }
                     return loop;

@@ -51,6 +51,10 @@ func (sketchWorkerStub) SolveSketch(_ context.Context, request *workerv1.SolveSk
 	}, nil
 }
 
+func (sketchWorkerStub) ComputeSketchCurves(_ context.Context, request *workerv1.ComputeSketchCurvesRequest) (*workerv1.ComputeSketchCurvesResponse, error) {
+	return &workerv1.ComputeSketchCurvesResponse{Status: "OK", Curves: request.GetCurves(), Intersections: []*workerv1.SketchCurveIntersection{{Kind: "TANGENT", FirstParameter: 0.5, SecondParameter: 2}}, Overlaps: []*workerv1.SketchCurveOverlap{{FirstStart: 0, FirstEnd: 1, SecondStart: 2, SecondEnd: 3}}}, nil
+}
+
 func (sketchWorkerStub) ProjectExternalGeometry(_ context.Context, request *workerv1.ProjectExternalGeometryRequest) (*workerv1.ProjectExternalGeometryResponse, error) {
 	return &workerv1.ProjectExternalGeometryResponse{Status: "CONNECTED", SourceDigest: request.GetSource().GetEvidence().GetEvidenceDigest(),
 		GeometryKind: "POINT", Point: &workerv1.Vec2{X: 2, Y: 3}}, nil
@@ -282,5 +286,27 @@ func TestGeometryPoolKeepsTopologyQueriesOnColdLoadedBodyOwner(t *testing.T) {
 	if firstService.topologyCalls.Load() != 2 || secondService.topologyCalls.Load() != 0 {
 		t.Fatalf("topology affinity was not retained: first=%d second=%d",
 			firstService.topologyCalls.Load(), secondService.topologyCalls.Load())
+	}
+}
+
+func TestGeometryPoolRoutesExactSketchCurves(t *testing.T) {
+	backend := serveGeometry(t, sketchWorkerStub{})
+	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{})
+	if err := pool.SetDebugAddress(backend); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	connection, err := grpc.NewClient(serveGeometry(t, pool), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = connection.Close() })
+	c := &workerv1.ProfileCurve{EntityId: "exact", Kind: "SPLINE", Mode: "CONTROL", Degree: 2, Knots: []float64{0, 1}, Multiplicities: []uint32{3, 3}, Weights: []float64{1, 0.7, 1}}
+	response, err := workerv1.NewGeometryWorkerClient(connection).ComputeSketchCurves(t.Context(), &workerv1.ComputeSketchCurvesRequest{RequestId: "curve", Operation: "NORMALIZE", Curves: []*workerv1.ProfileCurve{c}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.GetStatus() != "OK" || response.GetCurves()[0].GetWeights()[1] != 0.7 || response.GetIntersections()[0].GetKind() != "TANGENT" || response.GetOverlaps()[0].GetSecondEnd() != 3 {
+		t.Fatalf("exact RPC data lost in router: %v", response)
 	}
 }

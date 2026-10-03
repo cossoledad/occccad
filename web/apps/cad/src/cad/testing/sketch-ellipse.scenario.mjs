@@ -1,0 +1,51 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+const require = createRequire(new URL("../../../package.json", import.meta.url));
+const { createServer } = await import(require.resolve("vite"));
+const server = await createServer({ appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
+try {
+  const { sampleSketchEntity, sketchEntityPoint } = await server.ssrLoadModule("/src/cad/sketch/sketch-geometry.ts");
+  const { buildSketchRenderModel } = await server.ssrLoadModule("/src/cad/rendering/sketch-render-model.ts");
+  const { resolveSketchReference } = await server.ssrLoadModule("/src/cad/interaction/sketch-reference-pick.ts");
+  const { resolveSketchSnap } = await server.ssrLoadModule("/src/cad/interaction/sketch-snap.ts");
+  const { measureSketchDimension, buildSketchConstraintLayout } = await server.ssrLoadModule("/src/cad/sketch/sketch-constraint-layout.ts");
+  const { constraintDefinition, isDimensionConstraintKind } = await server.ssrLoadModule("/src/cad/sketch/sketch-constraint-definition.ts");
+  const ellipse = { id: "e", kind: "ELLIPSE", role: "PROFILE", center: { x: 30, y: 40 }, majorRadius: 10, minorRadius: 4, rotation: Math.PI / 2 };
+  const close = (a, b) => a.every((value, index) => Math.abs(value - b[index]) < 1e-10);
+  const sample = sampleSketchEntity(ellipse);
+  assert.ok(close(sample[0], [30, 50]));
+  assert.ok(close(sample[16], [26, 40]));
+  assert.ok(close(sample.at(-1), sample[0]));
+  for (const p of sample) assert.ok(Math.abs(((p[1]-40)/10)**2 + ((p[0]-30)/4)**2 - 1) < 1e-10, "display samples lie on the model ellipse");
+  assert.equal(sketchEntityPoint(ellipse, "START"), undefined, "full ellipse has no topological endpoint");
+  const arc = { ...ellipse, id: "ea", kind: "ELLIPTICAL_ARC", startAngle: 7 * Math.PI / 4, endAngle: 5 * Math.PI / 4 };
+  const arcSample = sampleSketchEntity(arc);
+  const root2 = Math.sqrt(2);
+  assert.ok(close(arcSample[0], [30 + 2 * root2, 40 + 5 * root2]));
+  assert.ok(close(arcSample.at(-1), [30 + 2 * root2, 40 - 5 * root2]));
+  assert.ok(close(sketchEntityPoint(arc, "START"), arcSample[0]));
+  const render = buildSketchRenderModel({ id: "s", sketch: { entities: [ellipse, arc] } });
+  assert.equal(render.endpoints.length, 2);
+  assert.equal(render.profilePoints.length, 2);
+  const project = p => ({ x: p[0], y: p[1] });
+  assert.deepEqual(resolveSketchReference({ x: 30, y: 40 }, [ellipse], project, "POINT", 1, 0), { target: "ENTITY", entityId: "e", subElement: "CENTER" });
+  assert.equal(resolveSketchReference({ x: 30, y: 50 }, [ellipse], project, "CIRCULAR", 1, 0), null);
+  assert.equal(resolveSketchReference({ x: 30, y: 50 }, [ellipse], project, "ELLIPTICAL", 1, 0).entityId, "e");
+  const ref = id => ({ target: "ENTITY", entityId: id, subElement: "WHOLE" });
+  assert.equal(resolveSketchReference({ x: 30, y: 50 }, [ellipse], project, "TANGENT_CURVE", 1, 0, ref("e")), null, "ellipse/ellipse tangent excluded");
+  const circular = { id: "c", kind: "CIRCLE", role: "PROFILE", center: { x: 30, y: 40 }, radius: 10 };
+  assert.equal(resolveSketchReference({ x: 30, y: 50 }, [ellipse, circular], project, "EQUAL_CURVE", 1, 0, ref("e")).entityId, "e", "equal half axes excludes circles");
+  assert.equal(resolveSketchReference({ x: 40, y: 40 }, [ellipse, circular], project, "CENTER_CURVE", 1, 0).entityId, "c");
+  assert.equal(resolveSketchSnap([30, 50], [ellipse], 1, 10, 1, ["ENDPOINT"]), undefined);
+  assert.equal(resolveSketchSnap(arcSample[0], [arc], 1, 10, 1, ["ENDPOINT"]).subElement, "START");
+  for (const [kind, value, text] of [["MAJOR_RADIUS", 10, "a 10"], ["MINOR_RADIUS", 4, "b 4"]]) {
+    assert.equal(measureSketchDimension(kind, [ref("e")], [ellipse]), value);
+    assert.ok(isDimensionConstraintKind(kind));
+    assert.equal(constraintDefinition(kind).picks[0], "ELLIPTICAL");
+    const layout = buildSketchConstraintLayout({ id: kind, kind, references: [ref("e")], value, unit: "mm" }, [ellipse]);
+    assert.equal(layout.label.text, text);
+    assert.equal(layout.segments.length, 7);
+    assert.ok(Math.abs(Math.hypot(layout.segments[0][0][0] - layout.segments[1][0][0], layout.segments[0][0][1] - layout.segments[1][0][1]) - value) < 1e-10);
+  }
+  console.log("sketch ellipse: rotated exact samples, signed ranges, centers/endpoints, typed picks and half-axis dimensions passed");
+} finally { await server.close(); }
