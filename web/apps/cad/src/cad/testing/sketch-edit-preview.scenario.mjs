@@ -48,6 +48,7 @@ try {
   const corner = { type: "FILLET_ENTITIES", operationId: "corner", entityIds: ["first", "second"], firstReference: ref("first", "START"), secondReference: ref("second", "START"), point: { x: 0, y: 0 }, value: 1, trimMode: "TRIM" };
   const fillet = buildSketchEditPreview({ entities: [first, second], operation: corner });
   assert.equal(fillet.status, "APPROXIMATE"); assert.deepEqual(fillet.replacedEntityIds, ["first", "second"]); assert.equal(fillet.entities[2].kind, "ARC");
+  assert.equal(fillet.dimensions[0].kind,'RADIUS');assert.equal(fillet.dimensions[0].references[0].entityId,fillet.entities[2].id);close(fillet.dimensions[0].value,1);
   pointClose(fillet.entities[2].center, { x: 1, y: 1 }); pointClose(fillet.entities[0].start, { x: 1, y: 0 }); pointClose(fillet.entities[1].start, { x: 0, y: 1 });
   pointClose(curveEnd(fillet.entities[2], false), fillet.entities[0].start); pointClose(curveEnd(fillet.entities[2], true), fillet.entities[1].start);
   close(Math.abs(fillet.entities[2].endAngle - fillet.entities[2].startAngle), Math.PI / 2);
@@ -70,6 +71,8 @@ try {
   for (const [mode, secondLength, angle] of [["EQUAL", 1, undefined], ["TWO_LENGTHS", 2, undefined], ["LENGTH_ANGLE", undefined, 30]]) {
     const op = { ...corner, type: "CHAMFER_ENTITIES", chamferMode: mode, chamferFirst: 1, chamferSecond: secondLength, chamferAngle: angle };
     const preview = buildSketchEditPreview({ entities: [first, second], operation: op }); assert.equal(preview.status, "APPROXIMATE");
+    assert.equal(preview.dimensions[0].kind,'LENGTH');assert.equal(preview.dimensions[0].references[0].entityId,preview.dimensionEntities[0].id);close(preview.dimensions[0].value,1);
+    assert.equal(preview.dimensions.length,mode==='EQUAL'?1:2);if(mode==='LENGTH_ANGLE')assert.equal(preview.dimensions[1].kind,'ANGLE');
     const bridge = preview.entities[2]; assert.equal(bridge.kind, "LINE");
     const firstContact = mode === "LENGTH_ANGLE" ? bridge.end : bridge.start, secondContact = mode === "LENGTH_ANGLE" ? bridge.start : bridge.end;
     pointClose(firstContact, { x: 1, y: 0 }); close(secondContact.x, 0); close(secondContact.y, mode === "LENGTH_ANGLE" ? Math.tan(Math.PI / 6) : secondLength);

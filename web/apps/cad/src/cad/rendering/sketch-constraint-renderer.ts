@@ -21,32 +21,36 @@ export function constraintSymbolCode(kind: ConstraintKind): number {
   return symbolCodes[constraintDefinition(kind).symbol];
 }
 
-export function makeConstraintDimensionLabel(text: string): THREE.Sprite {
+export function makeConstraintDimensionLabel(text: string, toWorld?: (point: Vec2) => THREE.Vector3): THREE.Mesh {
   const canvas = document.createElement("canvas");
   canvas.width = 256; canvas.height = 48;
   const context = canvas.getContext("2d")!;
-  // Transparent text with a thin halo keeps curves visible behind dimensions.
   context.font = "500 28px system-ui, sans-serif";
-  canvas.width=Math.ceil(context.measureText(text).width)+16;
+  canvas.width = Math.ceil(context.measureText(text).width) + 16;
   context.font = "500 28px system-ui, sans-serif";
   context.textAlign = "center"; context.textBaseline = "middle";
-  context.lineWidth=3;context.strokeStyle="rgba(255,255,255,0.9)";
-  context.strokeText(text,canvas.width/2,24);context.fillStyle="#175e40";context.fillText(text,canvas.width/2,24);
+  context.fillStyle = "#175e40"; context.fillText(text, canvas.width / 2, 24);
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false,
-    toneMapped: false });
-  material.userData.baseColor = 0xffffff;
-  material.userData.ownedTexture = texture;
-  const sprite = new THREE.Sprite(material);
-  const screenWidth=canvas.width/2,screenHeight=24,worldPosition=new THREE.Vector3();
-  sprite.userData.screenSize={width:screenWidth,height:screenHeight};
-  sprite.onBeforeRender=(renderer,_scene,camera) => {
-    sprite.getWorldPosition(worldPosition);
-    const worldPerPixel=worldUnitsPerCssPixel(camera,worldPosition,viewportMetrics(renderer));
-    sprite.scale.set(screenWidth*worldPerPixel,screenHeight*worldPerPixel,1);
-    sprite.updateMatrix();sprite.updateMatrixWorld(true);
-  };
-  return sprite;
+  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false,
+    side: THREE.DoubleSide, toneMapped: false });
+  material.userData.baseColor = 0xffffff; material.userData.ownedTexture = texture;
+  const label = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
+  if (toWorld) {
+    const origin = toWorld([0, 0]), u = toWorld([1, 0]).sub(origin).normalize(), v = toWorld([0, 1]).sub(origin).normalize();
+    label.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, v, u.clone().cross(v).normalize()));
+  }
+  const screenWidth = canvas.width / 2, screenHeight = 24, worldPosition = new THREE.Vector3();
+  label.userData.screenSize = { width: screenWidth, height: screenHeight };
+  label.userData.sketchDimensionLabel = true;
+  // Update before rendering AND picking. Orientation belongs to the support
+  // plane; only scale follows zoom, so orbiting never billboards the text.
+  registerScreenLineUpdate(label, (camera, width, height) => {
+    label.getWorldPosition(worldPosition);
+    const worldPerPixel = worldUnitsPerCssPixel(camera, worldPosition, { cssWidth: width, cssHeight: height, devicePixelRatio: 1 });
+    label.scale.set(screenWidth * worldPerPixel, screenHeight * worldPerPixel, 1);
+    label.updateMatrix(); label.updateMatrixWorld(true);
+  });
+  return label;
 }
 
 export function makeSketchConstraintRenderable(
@@ -89,7 +93,7 @@ export function makeSketchConstraintRenderable(
     group.add(arrow);
   }
   if (layout.label) {
-    const label = makeConstraintDimensionLabel(layout.label.text); label.position.copy(toWorld(layout.label.position)); label.renderOrder = SKETCH_FEEDBACK_ORDER.label;
+    const label = makeConstraintDimensionLabel(layout.label.text, toWorld); label.position.copy(toWorld(layout.label.position)); label.renderOrder = SKETCH_FEEDBACK_ORDER.label;
     group.add(label);
   }
   return group;

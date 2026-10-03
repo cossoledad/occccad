@@ -20,6 +20,8 @@ export type SketchEditCandidatePreview = {
   hitIntervals: Array<[number, number]>;
   candidateCount: number;
   diagnostic?: string;
+  dimensions?: SketchConstraint[];
+  dimensionEntities?: SketchEntity[];
 };
 const tau = 2 * Math.PI;
 const displayModelTolerance = 1e-7;
@@ -305,6 +307,17 @@ export function buildSketchEditPreview(input: SketchEditPreviewInput): SketchEdi
       }
       const role = operation.trimMode === "KEEP" ? "CONSTRUCTION" : "PROFILE";
       bridge.role = role;
+      const whole=(entity:SketchEntity):SketchGeometryRef=>({target:"ENTITY",entityId:entity.id,subElement:"WHOLE"});
+      if(operation.type==="FILLET_ENTITIES"){
+        result.dimensions=[{id:id("radius"),kind:"RADIUS",value:operation.value,unit:"mm",references:[whole(bridge)]}];
+      } else {
+        const virtual=lineIntersection(sources[0].start!,sub(sources[0].end!,sources[0].start!),sources[1].start!,sub(sources[1].end!,sources[1].start!))!;
+        const rays=[first,second].map((end,index):SketchEntity=>({id:id(`dimension-ray-${index}`),kind:"LINE",role:"CONSTRUCTION",start:virtual,end}));
+        result.dimensionEntities=rays;
+        result.dimensions=[{id:id("first-length"),kind:"LENGTH",unit:"mm",value:distance(virtual,first),references:[whole(rays[0])]}];
+        if(operation.chamferMode==="TWO_LENGTHS")result.dimensions.push({id:id("second-length"),kind:"LENGTH",unit:"mm",value:distance(virtual,second),references:[whole(rays[1])]});
+        if(operation.chamferMode==="LENGTH_ANGLE")result.dimensions.push({id:id("angle"),kind:"ANGLE",unit:"deg",value:operation.chamferAngle,references:[{...whole(sources[0]),subElement:"DIRECTION"},{...whole(bridge),subElement:"DIRECTION"}]});
+      }
       result.entities = [clippedCornerEntity(active[0], ends[0], first, id("first-cut"), role), clippedCornerEntity(active[1], ends[1], second, id("second-cut"), role), bridge];
       result.replacedEntityIds = operation.trimMode === "KEEP" ? [] : active.map(e => e.id);
       result.diagnostic = operation.trimMode === "KEEP" ? "保留原元素，新增辅助几何候选" : "真实曲线候选；约束、连接和引用影响由确认时验证";

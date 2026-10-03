@@ -1,3 +1,4 @@
+import { buildSketchConstraintLayout } from "../sketch/sketch-constraint-layout";
 import { cornerClickIntent, directLengthInput, type DirectEditInput } from "./sketch-direct-input";
 import { buildSketchEditPreview, type SketchEditCandidatePreview } from "../sketch/sketch-edit-preview";
 import { sketchCommitResultUnknown, type SketchCommandAction, type SketchCommandState, type SketchCommandPhase } from "./sketch-command-session";
@@ -168,7 +169,9 @@ export class SketchEditTool implements CadTool{
         const unit=direct.unit??context.viewport.currentLengthUnit?.()??"mm";
         fields=[{label:this.kind==="fillet"?"R":"距离",value:this.fields[0],unit:"length",displayUnit:unit,placeholder:`5 ${unit}`}];
         if(this.kind==="chamfer"&&this.chamferMode!=="EQUAL")fields.push({label:this.chamferMode==="TWO_LENGTHS"?"第二距离":"角度",value:this.fields[1],unit:this.chamferMode==="TWO_LENGTHS"?"length":"angle"});
-        input={id:direct.inputId,fieldIndex:this.field,anchor:direct.anchor};
+        const dimension=this.candidate?.dimensions?.[this.field];
+        const layout=dimension?buildSketchConstraintLayout(dimension,[...this.baseline,...this.candidate!.entities,...this.candidate!.dimensionEntities??[]]):undefined;
+        input={id:direct.inputId,fieldIndex:this.field,anchor:layout?.label?context.viewport.projectSketchPoint?.(layout.label.position):direct.anchor,modelAnchor:layout?.label?.position,dimension:!!layout?.label};
       }
     } else if(direct.kind==="split"){role=direct.first?"在同一圆上选择第二个分割位置":"在曲线上选择分割位置";required=direct.first?2:undefined;}
     else role="选择要删除的曲线段";
@@ -247,7 +250,7 @@ export class SketchEditTool implements CadTool{
     }
     if(action.type==="back"){
       this.candidateAbort?.abort();this.candidateGeneration++;this.previewStatus="idle";context.viewport.clearToolPreview();
-      if(direct.kind==="corner") {const ids=[...this.selected];this.selected.delete(ids.at(-1)!);direct.clicks.pop();direct.stage="curves";this.cornerRefs=[];this.cornerPoint=undefined;this.operationID=undefined;this.prepareDirectCorner(context);}
+      if(direct.kind==="corner") {const ids=[...this.selected];this.selected.delete(ids.at(-1)!);direct.clicks.pop();direct.stage="curves";direct.dimensionAnchors=undefined;this.cornerRefs=[];this.cornerPoint=undefined;this.operationID=undefined;this.prepareDirectCorner(context);}
       else if(direct.kind==="mirror"){if(direct.stage==="sources"&&this.selected.size){this.selected.delete([...this.selected].at(-1)!);this.refreshDirectSources(context);}else {this.axis=undefined;direct.stage="axis";context.viewport.clearReferencePreview();}}
       else if(direct.kind==="split"){direct.first=undefined;this.selected.clear();this.baseline=[];this.phase="selection";context.viewport.clearReferencePreview();}
       this.error=undefined;this.publishDirect(context);return true;
@@ -263,7 +266,7 @@ export class SketchEditTool implements CadTool{
     if(action.type==="option"&&(action.name==="mirrorMode"||action.name==="chamferMode")){
       const allowed=action.name==="mirrorMode"?["LINKED","INDEPENDENT"]:["EQUAL","TWO_LENGTHS","LENGTH_ANGLE"];
       if(!allowed.includes(action.value))return true;
-      if(action.name==="mirrorMode")this.mirrorMode=action.value as typeof this.mirrorMode;else this.chamferMode=action.value as typeof this.chamferMode;
+      if(action.name==="mirrorMode")this.mirrorMode=action.value as typeof this.mirrorMode;else {this.chamferMode=action.value as typeof this.chamferMode;if(direct.kind==="corner")direct.dimensionAnchors=undefined;}
       this.error=undefined;if(direct.kind==="corner"&&direct.stage==="value")this.previewDirectCorner(context);else if(direct.kind==="mirror"&&this.axis&&this.selected.size)this.preview(context);
       this.publishDirect(context);return true;
     }
@@ -494,6 +497,13 @@ export class SketchEditTool implements CadTool{
     const entities=context.viewport.currentSketchReferenceEntities?.()??context.viewport.currentSketchEntities?.()??[];
     this.candidateAbort?.abort();const generation=++this.candidateGeneration;this.previewStatus="idle";
     this.candidate=buildSketchEditPreview({entities,constraints:context.viewport.currentSketchConstraints?.(),operation,axisPoints:this.kind==="mirror"?this.axisPoints(context):undefined});
+    if(this.direct?.kind==="corner"&&this.candidate.dimensions){
+      const direct=this.direct;direct.dimensionAnchors??=[];
+      this.candidate.dimensions.forEach((dimension,index)=>{
+        const anchor=direct.dimensionAnchors![index]??buildSketchConstraintLayout(dimension,[...entities,...this.candidate!.entities,...this.candidate!.dimensionEntities??[]]).label?.position;
+        if(anchor){direct.dimensionAnchors![index]=anchor;dimension.labelPosition={x:anchor[0],y:anchor[1]};}
+      });
+    }
     if(this.candidate.status==="UNAVAILABLE") {
       context.viewport.clearToolPreview();this.error=this.candidate.diagnostic;
       if(context.viewport.previewSketchOperations){

@@ -186,3 +186,5 @@ Product 的 Debug 下载动作导出当前请求的 `.3dreplay`，Part 继续使
 持久实体显示仅来自 `*.mesh.glb`，DocumentView 的 Artifact 只含摘要和角色引用。`cad/visual/visual-repository.ts` 负责鉴权下载、摘要校验、并发限制和按对象摘要去重；`mesh-glb.ts` 解码 `OCCCCAD_cad` 拾取映射。解码数据属于 viewport，不回写 API/Query 状态。临时预览以 `TRANSIENT_PREVIEW` 明确区分，同样只从 Artifact 引用加载 GLB。合同与当前内存限制见[几何表示](../../../docs/architecture/current/geometry-representations.md)。
 
 CAD Command/Preview 使用 `api` 门面进入 `RealtimeClient`；取消由 AbortSignal 转为 preview cancel，断线不重放旧鼠标轨迹。订阅仅返回身份；命令可内联最多 64 KiB 的轻量业务快照，较大文档通过 HTTP snapshot 的一致 sequence 恢复权威状态。详见[realtime 控制面](../../../docs/architecture/current/realtime.md)。
+
+草图 Select 支持左右方向的包含/交叉框选与 Delete；尺寸文字附着草图平面，圆角/倒角候选复用同一尺寸显示。尺寸编辑允许既有视角导航并提供只读几何预览；具体合同与人工步骤见 [草图交互](../../../docs/sketch-inline-input.md)。

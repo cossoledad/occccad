@@ -3,7 +3,7 @@ import { parseParameterSource } from "../../features/workbench/parameter-editor"
 
 export type DirectEditInput =
   | { kind: "mirror"; route: "axis-first"|"source-first"; stage: "axis"|"sources" }
-  | { kind: "corner"; stage: "curves"|"branch"|"value"; clicks: Vec2[]; inputId: string; anchor?:Vec2; unit?: "mm"|"cm"|"m"|"in" }
+  | { kind: "corner"; stage: "curves"|"branch"|"value"; clicks: Vec2[]; inputId: string; anchor?:Vec2; dimensionAnchors?:Vec2[]; unit?: "mm"|"cm"|"m"|"in" }
   | { kind: "split"; first?: { entityId: string; parameter: number } }
   | { kind: "trim" };
 

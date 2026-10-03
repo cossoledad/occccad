@@ -1,3 +1,4 @@
+import { sketchGeometryPickPriority } from "../rendering/sketch-feedback-style";
 import type { SketchEntity, SketchGeometryRef, Vec2 } from "../../types";
 import { sampleSketchEntity, sketchEntityPoint, splineEditablePoints, splineEditablePointIDs } from "../sketch/sketch-geometry";
 
@@ -31,17 +32,17 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
     if(entity.suppressed)continue;
     // Visible profile segments beat their retained construction supports at
     // the same screen distance; standalone construction geometry stays pickable.
-    const dimensionPriority=mode==="LINEAR_DIMENSION"&&entity.role!=="CONSTRUCTION"?1:0;
-    if(mode==="ENTITY"&&entity.kind==="POINT"&&entity.point){const value=project([entity.point.x,entity.point.y]);consider(Math.hypot(cursor.x-value.x,cursor.y-value.y),{target:"ENTITY",entityId:entity.id,subElement:"POINT"});continue;}
+    const dimensionPriority=sketchGeometryPickPriority(entity.role);
+    if(mode==="ENTITY"&&entity.kind==="POINT"&&entity.point){const value=project([entity.point.x,entity.point.y]);consider(Math.hypot(cursor.x-value.x,cursor.y-value.y),{target:"ENTITY",entityId:entity.id,subElement:"POINT"},dimensionPriority+1);continue;}
     if(mode==="EDIT_POINT"){
       const editableElements=entity.kind==="POINT"?["POINT"] as const:["LINE","ARC","ELLIPTICAL_ARC"].includes(entity.kind)?["START","END"] as const:[];
       for(const subElement of editableElements){
         const point=sketchEntityPoint(entity,subElement);if(!point)continue;const projected=project(point);
         const pointId=subElement==="START"?entity.startPointId:subElement==="END"?entity.endPointId:undefined;
-        consider(Math.hypot(cursor.x-projected.x,cursor.y-projected.y),{target:"ENTITY",entityId:entity.id,subElement,...(pointId?{pointId}:{})},90);
+        consider(Math.hypot(cursor.x-projected.x,cursor.y-projected.y),{target:"ENTITY",entityId:entity.id,subElement,...(pointId?{pointId}:{})},90+dimensionPriority);
       }
-      if(["CIRCLE","ARC","ELLIPSE","ELLIPTICAL_ARC"].includes(entity.kind)&&entity.center){const projected=project([entity.center.x,entity.center.y]);consider(Math.hypot(cursor.x-projected.x,cursor.y-projected.y),{target:"ENTITY",entityId:entity.id,subElement:"CENTER"},80);}
-      if(entity.kind==="SPLINE")for(const [controlPointIndex,point] of splineEditablePoints(entity).entries()){const projected=project([point.x,point.y]);consider(Math.hypot(cursor.x-projected.x,cursor.y-projected.y),{target:"ENTITY",entityId:entity.id,subElement:"CONTROL",controlPointIndex,...(splineEditablePointIDs(entity)[controlPointIndex]?{controlPointId:splineEditablePointIDs(entity)[controlPointIndex]}:{})},80);}
+      if(["CIRCLE","ARC","ELLIPSE","ELLIPTICAL_ARC"].includes(entity.kind)&&entity.center){const projected=project([entity.center.x,entity.center.y]);consider(Math.hypot(cursor.x-projected.x,cursor.y-projected.y),{target:"ENTITY",entityId:entity.id,subElement:"CENTER"},80+dimensionPriority);}
+      if(entity.kind==="SPLINE")for(const [controlPointIndex,point] of splineEditablePoints(entity).entries()){const projected=project([point.x,point.y]);consider(Math.hypot(cursor.x-projected.x,cursor.y-projected.y),{target:"ENTITY",entityId:entity.id,subElement:"CONTROL",controlPointIndex,...(splineEditablePointIDs(entity)[controlPointIndex]?{controlPointId:splineEditablePointIDs(entity)[controlPointIndex]}:{})},80+dimensionPriority);}
       continue;
     }
     if (mode === "ENTITY" && entity.kind === "POINT" && entity.point) {
@@ -58,7 +59,7 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
         const point=sketchEntityPoint(entity,subElement);if(!point)continue;const projected=project(point);
         const endpointDistance=Math.hypot(cursor.x-projected.x,cursor.y-projected.y);
         if(endpointDistance<thresholdPixels)tangentEndpointCaptured=true;
-        consider(endpointDistance,{target:"ENTITY",entityId:entity.id,subElement,...((subElement==="START"?entity.startPointId:entity.endPointId)?{pointId:subElement==="START"?entity.startPointId:entity.endPointId}:{})},90);
+        consider(endpointDistance,{target:"ENTITY",entityId:entity.id,subElement,...((subElement==="START"?entity.startPointId:entity.endPointId)?{pointId:subElement==="START"?entity.startPointId:entity.endPointId}:{})},90+dimensionPriority);
       }
       if(entity.kind==="SPLINE")continue;
     }

@@ -201,9 +201,10 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
 
   return <><div ref={host} className="cad-viewport-canvas" />
     {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="advanced"&&<SketchCommandPanel state={sketchCommand} prompt={toolPrompt} onAction={action=>engine.current?.commandAction(action)} />}
-    {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="inline"&&<SketchInlineParameterInput state={sketchCommand} lengthUnit={props.preferredLengthUnit} onAction={action=>engine.current?.commandAction(action)} />}
+    {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="inline"&&<SketchInlineParameterInput state={sketchCommand} lengthUnit={props.preferredLengthUnit} onEditing={editing=>engine.current?.setSketchParameterEditing(editing)} onAction={action=>engine.current?.commandAction(action)} />}
     {dimensionEditor && <SketchDimensionEditor key={`${dimensionEditor.epoch}:${dimensionEditor.featureId}:${dimensionEditor.mode === "edit" ? dimensionEditor.constraintId : dimensionEditor.kind}`}
       preferredLengthUnit={props.preferredLengthUnit} request={dimensionEditor} view={props.editingView??props.view} onClose={()=>setDimensionEditor(current=>current?.epoch===dimensionEditor.epoch?undefined:current)}
+      onPreview={(operations,signal)=>engine.current?.previewDimensionDefinition(dimensionEditor.featureId,operations,signal)??Promise.resolve()}
       onSelectReference={request=>engine.current?.beginSketchReferenceSelection(request)??(()=>{})}
       onHighlightReference={(featureId,reference,slot)=>engine.current?.highlightSketchReference(featureId,reference,slot)}
       onLocateReference={(featureId,reference,slot)=>engine.current?.locateSketchReference(featureId,reference,slot)}

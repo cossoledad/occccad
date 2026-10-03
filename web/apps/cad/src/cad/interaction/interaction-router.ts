@@ -45,7 +45,7 @@ export class InteractionRouter implements CadInputSink {
   }
   auxiliaryClick(event: MouseEvent): InputResult { return this.navigation.auxiliaryClick(event); }
   wheel(event: CadWheelEvent): InputResult { return this.navigation.wheel(event); }
-  keyDown(event: CadKeyboardEvent): InputResult { if(event.editableTarget||event.isComposing)return InputResult.Ignored;return this.first(() => this.navigation.keyChanged(event), () => this.tools.keyDown(event)); }
+  keyDown(event: CadKeyboardEvent): InputResult { if(event.editableTarget||event.isComposing)return InputResult.Ignored;return this.first(() => this.navigation.keyChanged(event), () => this.selection.keyDown(event), () => this.tools.keyDown(event)); }
   keyUp(event: CadKeyboardEvent): InputResult { if(event.editableTarget||event.isComposing)return InputResult.Ignored;return this.first(() => this.navigation.keyChanged(event), () => this.tools.keyUp(event)); }
   cancel(): void { this.owners.clear();this.tools.cancel(); this.selection.cancel(); this.navigation.cancel(); }
 

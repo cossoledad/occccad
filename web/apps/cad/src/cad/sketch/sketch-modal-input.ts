@@ -9,7 +9,7 @@ export class SketchModalInputController implements CadInputSink {
  private child?:{generation:number;request:SketchReferenceSelectionRequest};
  private generation=0;
  private readonly owners=new Map<number,"modal"|"navigation"|"fallback">();
- constructor(private readonly fallback:CadInputSink,private readonly navigation:CadInputSink,private readonly ports:{
+ constructor(private readonly fallback:CadInputSink,private readonly navigation:CadInputSink&{wantsPointerPriority?:(event:CadPointerEvent)=>boolean;keyChanged?:(event:CadKeyboardEvent)=>InputResult},private readonly ports:{
   pick:(request:SketchReferenceSelectionRequest,event:CadPointerEvent)=>SketchGeometryRef|undefined;
   blocked?:()=>boolean;
   highlight?:(request:SketchReferenceSelectionRequest,reference:SketchGeometryRef|undefined)=>void;
@@ -32,11 +32,14 @@ export class SketchModalInputController implements CadInputSink {
  private finishChild(cancelled:boolean){const child=this.child;if(!child)return;this.child=undefined;this.generation++;this.ports.highlight?.(child.request,undefined);child.request.onPreview(undefined);if(cancelled)child.request.onCancel();}
  private cancelChild(){this.finishChild(true);}
  pointerDown(event:CadPointerEvent):InputResult {
-  if(this.barred()&&(event.state.buttons.middle||this.owners.get(event.pointerId)==="navigation")){
+  const wantsNavigation=this.navigation.wantsPointerPriority?.(event)??event.state.buttons.middle;
+  if(this.barred()&&(wantsNavigation||this.owners.get(event.pointerId)==="navigation")){
    const previous=this.owners.get(event.pointerId);if(previous==="fallback")this.fallback.pointerCancel?.({...event,phase:"cancel"});
    this.owners.set(event.pointerId,"navigation");return this.navigation.pointerDown?.(event)??InputResult.Consumed;
   }
-  if(!this.barred()){const result=this.fallback.pointerDown?.(event)??InputResult.Ignored;if(result!==InputResult.Ignored)this.owners.set(event.pointerId,this.barred()?"modal":"fallback");return result;}
+  // A commit barrier can appear during down. It blocks new gestures, but the
+  // original owner must still receive up to release its tool-local capture.
+  if(!this.barred()){const result=this.fallback.pointerDown?.(event)??InputResult.Ignored;if(result!==InputResult.Ignored&&!this.open)this.owners.set(event.pointerId,"fallback");return result;}
   this.owners.set(event.pointerId,"modal");
   if(event.button===2){this.cancelChild();return InputResult.Consumed;}
   if(event.button===0&&this.child){
@@ -79,13 +82,13 @@ export class SketchModalInputController implements CadInputSink {
   if(!this.barred())return this.fallback.keyDown?.(event)??InputResult.Ignored;
   if(event.isComposing||event.editableTarget)return InputResult.Ignored;
   if(event.key==="Escape"){if(this.child){this.cancelChild();return InputResult.Consumed;}if(!this.open)return this.fallback.keyDown?.(event)??InputResult.Consumed;return InputResult.Ignored;}
-  if(["Shift","Control","Alt","Meta"].includes(event.key))this.navigation.keyDown?.(event);
+  if(["Shift","Control","Alt","Meta"].includes(event.key))(this.navigation.keyChanged?.(event)??this.navigation.keyDown?.(event));
   return InputResult.Consumed;
  }
  keyUp(event:CadKeyboardEvent):InputResult {
   if(!this.barred())return this.fallback.keyUp?.(event)??InputResult.Ignored;
   if(event.isComposing||event.editableTarget)return InputResult.Ignored;
-  this.navigation.keyUp?.(event);return InputResult.Consumed;
+  (this.navigation.keyChanged?.(event)??this.navigation.keyUp?.(event));return InputResult.Consumed;
  }
  cancel(){this.owners.clear();this.cancelChild();this.navigation.cancel?.();if(!this.barred())this.fallback.cancel?.();}
 }

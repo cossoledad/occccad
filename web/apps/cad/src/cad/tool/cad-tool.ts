@@ -85,6 +85,8 @@ export interface CadTool {
 
 export class SelectTool implements CadTool {
   readonly id = "select";
+  private deletionPending=false;
+  private deletionGeneration=0;
   private dimensionPointer?: { id: number; x: number; y: number; moved: boolean; lastTarget?:Vec2 };
   private lastDimensionClick?: { x: number; y: number; at: number };
   private sketchPointPointer?:{id:number;reference:SketchGeometryRef;point:Vec2;baseline:Vec2;pointerBaseline:Vec2;x:number;y:number;moved:boolean;scopeKey:string|undefined};
@@ -106,8 +108,11 @@ export class SelectTool implements CadTool {
     if (context.viewport.beginDimensionDrag(event.x, event.y)) {
       this.dimensionPointer = { id: event.pointerId, x: event.x, y: event.y, moved: false };return InputResult.Capture;
     }
+    if(event.state.modifiers?.ctrl||event.state.modifiers?.meta)return InputResult.Ignored;
     const reference=context.viewport.sketchReferenceAt(event.x,event.y,"EDIT_POINT"),pointerBaseline=context.viewport.sketchPlacementPoint(event.x,event.y);
     const entity=context.viewport.currentSketchEntities?.().find(entity=>entity.id===reference?.entityId);
+    const primary=context.viewport.sketchEntityAt?.(event.x,event.y);
+    if(entity?.role==="CONSTRUCTION"&&primary?.entityId!==entity.id&&context.viewport.currentSketchEntities?.().some(candidate=>candidate.id===primary?.entityId&&candidate.role!=="CONSTRUCTION"))return InputResult.Ignored;
     if(reference?.target==="ENTITY"&&entity&&pointerBaseline){
       const index=reference.controlPointId?splineEditablePointIDs(entity).indexOf(reference.controlPointId):reference.controlPointIndex;
       const original=reference.subElement==="CENTER"?entity.center:reference.subElement==="POINT"?entity.point:
@@ -161,6 +166,7 @@ export class SelectTool implements CadTool {
     }
     if((event.state?.modifiers.ctrl||event.state?.modifiers.meta)&&event.key.toLowerCase()==="v")return pasteSketchClipboard(context)?InputResult.Consumed:InputResult.Ignored;
     if(event.key==="Delete"||event.key==="Backspace"){
+      if(event.repeat||this.deletionPending)return InputResult.Consumed;
       const selections=context.viewport.currentSelections?.()??[],entities=localSketchSelection(selections,context),scope=context.viewport.currentSketchIdentity?.();
       const constraintsByID=new Map((context.viewport.currentSketchConstraints?.()??[]).map(constraint=>[constraint.id,constraint]));
       const selectedConstraints=selections.filter(selection=>selection.kind==="sketch-constraint"&&constraintsByID.has(selection.constraintId)&&(!scope||selection.featureId===scope.sketchId)&&
@@ -170,11 +176,19 @@ export class SelectTool implements CadTool {
       if(!entities.length&&!selectedConstraints.length)return InputResult.Ignored;
       const operations:SketchOperation[]=[...new Set(selectedConstraints.map(selection=>selection.constraintId))].map(constraintId=>({type:"DELETE_CONSTRAINT",constraintId}));
       if(entities.length)operations.push({type:"DELETE_ENTITIES",entityIds:entities.map(entity=>entity.id)});
-      context.viewport.commitSketchOperations(operations);return InputResult.Consumed;
+      this.deletionPending=true;const generation=++this.deletionGeneration;
+      const owner=()=>{const scope=context.viewport.currentSketchIdentity?.();return JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath]);};const submittedOwner=owner();
+      const current=()=>generation===this.deletionGeneration&&owner()===submittedOwner;
+      try {
+        const result=context.viewport.commitSketchOperations(operations);
+        if(result&&typeof result.then==="function")void result.then(()=>{if(current())context.viewport.setToolPrompt("删除已完成");},error=>{if(current())context.viewport.setToolPrompt(`删除未完成：${error instanceof Error?error.message:String(error)}`);}).finally(()=>{this.deletionPending=false;});
+        else this.deletionPending=false;
+      } catch(error){this.deletionPending=false;context.viewport.setToolPrompt(`删除未完成：${error instanceof Error?error.message:String(error)}`);}
+      return InputResult.Consumed;
     }
     return InputResult.Ignored;
   }
-  cancel(context: ToolContext): void { this.dimensionPointer = undefined;this.sketchPointPointer=undefined; this.lastDimensionClick = undefined;context.viewport.clearToolPreview(); context.viewport.cancelDimensionDrag(); }
+  cancel(context: ToolContext): void { this.deletionGeneration++;this.dimensionPointer = undefined;this.sketchPointPointer=undefined; this.lastDimensionClick = undefined;context.viewport.clearToolPreview(); context.viewport.cancelDimensionDrag(); }
 }
 
 export class ProjectExternalGeometrySketchTool implements CadTool {
@@ -1196,7 +1210,7 @@ export class LinearDimensionSketchTool implements CadTool {
       presentation:"inline",role:step==="LINE_PENDING"?"暂定线长或选择第二对象":step==="PLACING"?"放置尺寸":value?"输入尺寸值或表达式":"选择点或直线",selectedIds:refs.flatMap(ref=>ref.entityId?[ref.entityId]:[]),references:refs,
       count:{accepted:refs.length,required:step==="SELECTING"?2:undefined},completion:{label:step==="LINE_PENDING"?"锁定长度":value?"创建尺寸":"放置尺寸"},
       fields:value?[{label:"尺寸",value:this.source,unit:"length",displayUnit:this.unit,placeholder:this.unit}]:[],options:[],
-      input:value&&this.status!=="committing"&&this.status!=="unknown"?{id:`${this.id}:${this.inputGeneration}`,fieldIndex:0,anchor:this.anchor}:undefined,
+      input:value&&this.status!=="committing"&&this.status!=="unknown"?{id:`${this.id}:${this.inputGeneration}`,fieldIndex:0,anchor:this.phase.step==="VALUE"?context.viewport.projectSketchPoint?.(this.phase.position)??this.anchor:this.anchor,modelAnchor:this.phase.step==="VALUE"?this.phase.position:undefined,dimension:true}:undefined,
       canConfirm:this.status!=="committing"&&this.status!=="unknown"&&(step==="LINE_PENDING"||value||step==="PLACING"&&!!this.cursor),next:this.definitionPrompt(),error:this.error,preview:"approximate"});
     context.viewport.setToolPrompt(this.definitionPrompt());
   }

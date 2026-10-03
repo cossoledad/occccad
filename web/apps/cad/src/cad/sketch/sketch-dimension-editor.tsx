@@ -78,8 +78,8 @@ export class SketchDimensionCommitSession {
   catch(error){this.unknown=sketchCommitResultUnknown(error);if(!this.unknown)this.retained=undefined;throw error;}
  }
 }
-export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectReference,onHighlightReference,onLocateReference,preferredLengthUnit}: {
- request:DimensionRequest;view:DocumentView;preferredLengthUnit?:DisplayLengthUnit;onClose:()=>void;onSubmit:(operations:SketchOperation[],intent?:SketchCommitIntent)=>Promise<unknown>
+export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectReference,onHighlightReference,onLocateReference,preferredLengthUnit,onPreview}: {
+ request:DimensionRequest;view:DocumentView;preferredLengthUnit?:DisplayLengthUnit;onClose:()=>void;onSubmit:(operations:SketchOperation[],intent?:SketchCommitIntent)=>Promise<unknown>;onPreview?:(operations:SketchOperation[],signal:AbortSignal)=>Promise<void>
 }&SketchReferenceSelectionBindings) {
  const sketch=view.part?.features.find(feature=>feature.id===request.featureId)?.sketch;
  const original=request.mode==="edit"?sketch?.constraints.find(c=>c.id===request.constraintId):undefined;
@@ -95,6 +95,7 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
  const [restore,setRestore]=useState<"ORIGINAL"|"MEASUREMENT">(hasOriginal?"ORIGINAL":"MEASUREMENT");
  const [references,setReferences]=useState(original?.references??(request.mode==="create"?request.references:[]));
  const [suppressed,setSuppressed]=useState(original?.suppressed??false);
+ const [previewConstraintID]=useState(()=>request.mode==="edit"?request.constraintId:randomUUID());
  const commitSession=useRef(new SketchDimensionCommitSession());
  const [unknown,setUnknown]=useState(false);
  const [deleting,setDeleting]=useState(false),[selecting,setSelecting]=useState<number>(),[pending,setPending]=useState(false);
@@ -127,6 +128,24 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
    onPreview:candidate=>session.current!.preview(token,candidate),onCancel:cancelSelection});
   if(session.current!.active)release.current=cleanup;else cleanup();
  };
+ const [previewError,setPreviewError]=useState<string>();
+ const previewPort=useRef(onPreview);previewPort.current=onPreview;
+ useEffect(()=>{
+  if(!previewPort.current)return;
+  const abort=new AbortController();
+  // Clear a superseded candidate immediately. Partial text remains a draft;
+  // parse/validation errors appear locally, never as repeated notifications.
+  void previewPort.current([],abort.signal);
+  if(pending||unknown||deleting||selecting!==undefined)return ()=>abort.abort();
+  const timer=setTimeout(()=>{
+   try {
+    const constraint:SketchConstraint=original?{...original,references,reference,suppressed}:{id:previewConstraintID,kind,references,reference,unit:request.unit,value:request.value,labelPosition:request.mode==="create"?{x:request.labelPosition[0],y:request.labelPosition[1]}:undefined};
+    const operation=logical&&original?logicalDefinitionOperation(original,references,suppressed):dimensionDefinitionOperation(constraint,original,source,initialSource,name,readonly,restore,inputUnit);
+    void previewPort.current!([operation],abort.signal).then(()=>{if(!abort.signal.aborted)setPreviewError(undefined);},error=>{if(!abort.signal.aborted)setPreviewError(error instanceof Error?error.message:String(error));});
+   } catch {setPreviewError(undefined);}
+  },180);
+  return ()=>{clearTimeout(timer);abort.abort();};
+ },[source,name,reference,references,suppressed,restore,pending,unknown,deleting,selecting]);
  const close=()=>{if(session.current!.active){cancelSelection();return;}if(!pending)onClose();};
  const submit=async()=>{
   if(session.current!.active||pending)return;
@@ -144,6 +163,7 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
  return <CommandDialog id="sketch-dimension" open title={logical?`编辑${definition.label}约束`:`编辑${definition.label}尺寸`} onClose={close} onConfirm={submit} confirmDisabled={selecting!==undefined} confirmText={unknown?"重试确认":deleting?(logical?"删除约束":"删除尺寸"):"确定"} width={380}>
   <fieldset disabled={pending||unknown} style={{border:0,padding:0,margin:0,minWidth:0}}>
   <Space direction="vertical" size="middle" style={{width:"100%"}}>
+  {previewError&&<Typography.Text type="secondary" aria-live="polite">预览不可用：{previewError}</Typography.Text>}
   {unknown&&<Typography.Paragraph aria-live="polite">请求已发出；结果待确认。重试使用同一请求查询结果，草稿暂不可修改。关闭面板不撤销已发请求。</Typography.Paragraph>}
   {deleting?<Typography.Paragraph>{logical?"确认后正式删除此关系。":"确认后正式删除关系及其尺寸参数；存在表达式依赖时操作将原子拒绝。"}</Typography.Paragraph>:<>
   {!logical&&<>
