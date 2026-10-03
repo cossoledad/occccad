@@ -158,14 +158,13 @@ func TestSymmetryAcceptsLineOrPointCenterAndRejectsCurveCenter(t *testing.T) {
 	}
 }
 
-func TestSketchConstraintPlacementAndValueUpdatesAreAtomicOperations(t *testing.T) {
+func TestSketchConstraintValueUpdatePreservesInitialPlacement(t *testing.T) {
 	t.Parallel()
 	value := 10.0
-	sketch := SketchFeature{SchemaVersion: SketchSchemaVersion, Constraints: []SketchConstraint{{ID: "length", Kind: "LENGTH", Value: &value, Unit: "mm"}}}
+	sketch := SketchFeature{SchemaVersion: SketchSchemaVersion, Constraints: []SketchConstraint{{ID: "length", Kind: "LENGTH", Value: &value, Unit: "mm", LabelPosition: &SketchPoint2{X: 12, Y: -8}}}}
 	updatedValue := 24.0
 	position := SketchPoint2{X: 12, Y: -8}
 	err := applySketchOperations(&sketch, []SketchOperation{
-		{Type: "UPDATE_CONSTRAINT_PLACEMENT", ConstraintID: "length", LabelPosition: &position},
 		{Type: "UPDATE_CONSTRAINT_VALUE", ConstraintID: "length", Value: &updatedValue},
 	})
 	if err != nil {
@@ -174,5 +173,12 @@ func TestSketchConstraintPlacementAndValueUpdatesAreAtomicOperations(t *testing.
 	if sketch.Constraints[0].Value == nil || *sketch.Constraints[0].Value != updatedValue ||
 		sketch.Constraints[0].LabelPosition == nil || *sketch.Constraints[0].LabelPosition != position {
 		t.Fatalf("constraint edit did not preserve placement and value: %#v", sketch.Constraints[0])
+	}
+}
+
+func TestSketchPlacementIsNotADomainOperation(t *testing.T) {
+	sketch := SketchFeature{SchemaVersion: SketchSchemaVersion}
+	if err := applySketchOperations(&sketch, []SketchOperation{{Type: "UPDATE_CONSTRAINT_PLACEMENT", ConstraintID: "length"}}); err == nil {
+		t.Fatal("display movement must not enter model history")
 	}
 }

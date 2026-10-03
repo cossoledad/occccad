@@ -1,16 +1,17 @@
+import {formatDisplayNumber} from "../../utils/display-number";
 import type {AssemblyBodyFreedom,DocumentView,Vec3} from "../../types";
 import {engineeringInstanceName,type AssemblyEngineeringEvidence} from "./assembly-engineering-state";
 
 export type MotionPresentation={id:string;bodyId:string;documentId:string;revisionId:string;ownerOccurrence:string;name:string;reference:string;description:string;status:"可运动"|"已定位"|"待计算"|"结果已失效";scope:string[];freedom?:AssemblyBodyFreedom;gaugeDof:number;frame:"OWNING_PRODUCT";unit:"mm"};
 const dot=(a:Vec3,b:Vec3)=>a.reduce((s,v,i)=>s+v*b[i],0);
-export function displayNumber(value:number,precision=6):string {const n=Number(value.toFixed(precision));return String(Object.is(n,-0)?0:n);}
+export const displayNumber=formatDisplayNumber;
 export function displayDirection(v:Vec3):string {return v.map(n=>displayNumber(n)).join(", ");}
 // Length-only display noise floor in millimetres, below physical tolerances.
-// Small real values above it retain significant digits, regardless of unit.
+// Display precision follows the shared UI policy; computation stays in millimetres.
 export function displayLength(mm:number,unit:"mm"|"cm"|"m"|"in"="mm"):string {
  const scale={mm:1,cm:10,m:1000,in:25.4}[unit];
  const value=Math.abs(mm)<=1e-12?0:mm/scale;
- return `${value===0?0:Number(value.toPrecision(6))} ${unit}`;
+ return `${formatDisplayNumber(value)} ${unit}`;
 }
 // Compare the span, not SVD column order/sign. Axis names describe directions,
 // never the location of a rotation axis. All directions are owning-Product axes.

@@ -1,4 +1,5 @@
-import { Alert, Button, InputNumber, Segmented, Switch } from "antd";
+import {CadNumberInput as InputNumber} from "../../cad/overlay/cad-number-input";
+import { Alert, Button, Segmented, Switch } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
 import type { ProductInstance } from "../../types";
@@ -32,7 +33,7 @@ export function InstancePatternDialog({ sourceInstance, parentOccurrencePath, pa
     catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
     finally { submittingRef.current = false; setSubmitting(false); }
   };
-  return <CommandDialog id="product-pattern" open title="多实例化" width={380}
+  return <CommandDialog id="product-pattern" open title="多实例化" size="S"
     onClose={onClose} onConfirm={() => apply(true)} confirmText="确定" confirmLoading={busy || submitting} confirmDisabled={!valid}>
     <div className="instance-pattern-fields">
       <p>{sourceInstance ? `源组件：${sourceInstance.name}` : "请在结构树或视口中选择一个当前 Product 的组件。"}</p>

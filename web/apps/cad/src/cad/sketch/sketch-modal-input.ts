@@ -73,7 +73,7 @@ export class SketchModalInputController implements CadInputSink {
  wheel(event:CadWheelEvent):InputResult{return (this.barred()?this.navigation:this.fallback).wheel?.(event)??InputResult.Ignored;}
  auxiliaryClick(event:MouseEvent):InputResult{return this.barred()?(this.navigation.auxiliaryClick?.(event)??InputResult.Consumed):(this.fallback.auxiliaryClick?.(event)??InputResult.Ignored);}
  modalKeyDown=(event:KeyboardEvent):InputResult=>{
-  if(!this.open||event.isComposing||event.keyCode===229)return InputResult.Ignored;
+  if(!this.open||event.isComposing||event.keyCode===229||(event.target instanceof HTMLElement&&event.target.closest("[role='menu'], [role='menuitem'], [role='listbox'], .ant-select-dropdown, .ant-dropdown, [aria-expanded='true'][aria-haspopup]")))return InputResult.Ignored;
   if(event.key==="Escape"&&this.child){this.cancelChild();return InputResult.Consumed;}
   return InputResult.Ignored;
  };

@@ -27,7 +27,7 @@ try {
  const ref=id=>({target:'ENTITY',entityId:id,subElement:'WHOLE'});
  engine.showConstraintPreview('LENGTH',[ref('a')],20,[20,5]);const dimension=engine.referencePreview;
  engine.showReferencePreview(ref('b'),[ref('a')]);assert.equal(engine.referencePreview,dimension,'hover must not erase the dimension preview');assert(engine.referenceHover);assert.equal(engine.referenceHover.children.at(-1).material.color.getHex(),theme.hover);assert(!drawn.some(text=>text.startsWith('#')),'reference feedback is geometry only');
- assert.equal(strokes.length,0,"dimension text has no white outline");
+ assert.equal(strokes.length,0,"dimension text has no dark outline");
  let textOrder;dimension.traverse(child=>{if(child.userData.sketchDimensionLabel)textOrder=child.renderOrder;});assert.equal(textOrder,order.label);
  const firstHover=engine.referenceHover;engine.showConstraintPreview('LENGTH',[ref('a')],20,[22,5]);assert.equal(engine.referenceHover,firstHover,'label placement must not erase the hovered second object');
  engine.referenceHover.traverse(child=>{if(child.isLine2)assert(child.renderOrder>textOrder);});
@@ -50,6 +50,7 @@ try {
  for(const state of ['default','hover','selected','default','hover','default']){
   engine.applyHighlight(label,state);
   assert.equal(label.material.opacity,1,'dimension glyphs never inherit translucent surface opacity');
+  assert.equal(label.children.length,0,'dimension text has no backing mesh');
   assert.equal(label.material.color.getHex(),state==='hover'?theme.hover:state==='selected'?theme.selected:baseText,'state color is absolute, not multiplied into a colored texture');
  }
  const {makeSketchConstraintRenderable}=await server.ssrLoadModule('/src/cad/rendering/sketch-constraint-renderer.ts');
@@ -64,7 +65,7 @@ try {
   engine.applyHighlight(display,'hover');engine.applyHighlight(display,'default');assert.equal(text.material.opacity,1);assert.equal(text.material.color.getHex(),baseText);
  }
  const diagnostic=makeSketchConstraintRenderable(lineDimension,inclined,toWorld,engine.materials,{width:800,height:600},theme.sketchInvalid);
- engine.applyHighlight(diagnostic,'selected');engine.applyHighlight(diagnostic,'default');assert.equal(diagnostic.children.find(c=>c.userData.sketchDimensionLabel).material.color.getHex(),theme.sketchInvalid,'reset preserves diagnostic state color');
+ engine.applyHighlight(diagnostic,'selected');assert.equal(diagnostic.children.find(c=>c.userData.sketchDimensionLabel).material.color.getHex(),theme.sketchInvalid,'selection never hides diagnostic text');engine.applyHighlight(diagnostic,'default');assert.equal(diagnostic.children.find(c=>c.userData.sketchDimensionLabel).material.color.getHex(),theme.sketchInvalid,'reset preserves diagnostic state color');
  const root=new THREE.Group();root.add(label);const camera=new THREE.OrthographicCamera(-50,50,50,-50,.1,1000);camera.position.set(0,-100,0);camera.up.set(0,0,1);camera.lookAt(0,0,0);updateScreenLines(root,camera,800,600);const beforeScale=label.scale.y,beforeQuaternion=label.quaternion.clone();camera.zoom=2;camera.updateProjectionMatrix();camera.position.set(50,-100,30);camera.lookAt(0,0,0);updateScreenLines(root,camera,800,600);assert(Math.abs(label.scale.y-beforeScale/2)<1e-12);assert(label.quaternion.equals(beforeQuaternion),'orbit never billboards a sketch label');
  // Camera roll may reverse reading direction, but only a plane-preserving half-turn is allowed.
  camera.rotateZ(Math.PI);updateScreenLines(root,camera,800,600);

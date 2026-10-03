@@ -3,7 +3,7 @@ import {createRequire} from 'node:module';
 const require=createRequire(new URL('../../../package.json',import.meta.url));
 const {createServer}=await import(require.resolve('vite'));
 class Surface extends EventTarget{
- style={};tabIndex=-1;editable=false;captures=new Set();setAttribute(){}focus(){}closest(){return this.editable?this:null;}getBoundingClientRect(){return {left:0,top:0};}
+ style={};tabIndex=-1;editable=false;captures=new Set();setAttribute(){}focus(){}closest(selector){return this.editable&&selector.includes("input,")?this:null;}getBoundingClientRect(){return {left:0,top:0};}
  setPointerCapture(id){this.captures.add(id);}hasPointerCapture(id){return this.captures.has(id);}releasePointerCapture(id){this.captures.delete(id);const e=new Event('lostpointercapture');Object.assign(e,{pointerId:id});this.dispatchEvent(e);}
 }
 globalThis.HTMLElement=Surface;globalThis.window=new EventTarget();globalThis.document=new EventTarget();document.visibilityState='visible';

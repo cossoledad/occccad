@@ -4,7 +4,7 @@ const require=createRequire(new URL('../../../package.json',import.meta.url));
 const {createServer}=await import(require.resolve('vite'));
 class Surface extends EventTarget {
   style={};tabIndex=-1;captures=new Set();focusCount=0;editable=false;
-  setAttribute(){}getBoundingClientRect(){return {left:0,top:0};}closest(){return this.editable?this:null;}
+  setAttribute(){}getBoundingClientRect(){return {left:0,top:0};}closest(selector){return this.editable&&selector.includes("input,")?this:null;}
   focus(){this.focusCount++;}setPointerCapture(id){this.captures.add(id);}hasPointerCapture(id){return this.captures.has(id);}releasePointerCapture(id){this.captures.delete(id);const event=new Event("lostpointercapture");Object.assign(event,{pointerId:id});this.dispatchEvent(event);}
 }
 globalThis.HTMLElement=Surface;globalThis.window=new EventTarget();globalThis.document=new EventTarget();document.visibilityState='visible';
@@ -42,6 +42,10 @@ try {
  manager.activate('sketch.dimension.linear');assert.equal(manager.selectionInput([selection('line')]),SelectionInputResult.Accepted);assert.equal(manager.selectionInput([selection('other')]),SelectionInputResult.Accepted);assert.equal(previews.at(-1).kind,'DISTANCE');
  const panel=new Surface();panel.editable=true;const panelEscape=key('Escape',panel);assert(!panelEscape.defaultPrevented);assert.equal(manager.activeToolID,'sketch.dimension.linear');
  key('Escape',surface,true);assert.equal(manager.activeToolID,'sketch.dimension.linear','IME composition cannot cancel CAD');modal=true;assert(key('Escape',panel).defaultPrevented);assert.equal(modalEsc,1);assert.equal(manager.activeToolID,'sketch.dimension.linear','modal reference stage owns its Escape');modal=false;
+ const arrow=new Surface();let expanded=true;arrow.closest=selector=>selector.includes("data-cad-tool-control")||selector.includes("button")?arrow:null;arrow.getAttribute=name=>name==="aria-expanded"?String(expanded):null;
+ assert(!key('Escape',arrow).defaultPrevented);assert.equal(manager.activeToolID,'sketch.dimension.linear','an expanded toolbar trigger owns menu Escape');
+ expanded=false;assert(key('Escape',arrow).defaultPrevented);assert.equal(manager.activeToolID,'select','the next Escape from restored toolbar focus follows the real tool route');
+ manager.activate('sketch.dimension.linear');
  assert(key('Escape').defaultPrevented);assert.equal(manager.activeToolID,'select','one Escape exits ordinary dimension editing');
  manager.activate('sketch.dimension.linear');hit={target:'ENTITY',entityId:'line',subElement:'WHOLE'};pointer('pointerdown',0,0,1);assert(surface.captures.has(1));window.dispatchEvent(new Event('blur'));assert.equal(surface.captures.size,0);pointer('pointerup',0,0,0);assert.equal(requests.length,3,'blur discards current definition and stale final pointer');
  // Owned selection end cannot be stolen by a tool that consumes hover.

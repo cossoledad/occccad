@@ -74,6 +74,7 @@ export class CadMaterialFactory {
       if (!("material" in renderable) || !renderable.material) return;
       const materials = Array.isArray(renderable.material) ? renderable.material : [renderable.material];
       for (const material of materials) {
+        if(material.userData.dimensionDiagnosticColor!==undefined){(material as THREE.MeshBasicMaterial).color.setHex(material.userData.dimensionDiagnosticColor);continue;}
         if (material instanceof THREE.MeshStandardMaterial && material.userData.cadMaterial === "surface") {
           const baseColor = Number(material.userData.baseColor ?? this.theme.surface);
           material.color.setHex(state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : baseColor);

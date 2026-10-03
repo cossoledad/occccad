@@ -1,9 +1,11 @@
-import {CheckOutlined, DownOutlined} from "@ant-design/icons";
+import { toolbarPages } from "./toolbar-pages";
+import {LeftOutlined, RightOutlined} from "@ant-design/icons";
+import {CadSplitToolButton} from "../../cad/overlay/cad-split-tool-button";
 import {toolbarVariantGroups,toolbarVariantDefault,rememberToolbarVariant,type ToolbarVariantGroup} from "./toolbar-variants";
 import { COMMAND_SHORTCUTS, commandShortcutLabel } from "../../cad/command/command-shortcuts";
 import { SearchOutlined, QuestionCircleOutlined } from "@ant-design/icons";
-import { App, Button, Empty, Input, Modal, Segmented, Dropdown } from "antd";
-import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
+import { Button, Empty, Input, Modal, Tabs, Tooltip } from "antd";
+import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useUIHelp } from "../../cad/help/ui-help-context";
 import { useCommandRegistry,useCommandState } from "../../cad/command/command-context";
 import { CadIcon, type CadIconName } from "../../cad/overlay/cad-icons";
@@ -19,7 +21,6 @@ export function WorkbenchCommands({ toolbars, workbench }: {
   const registry = useCommandRegistry();
   const uiHelp = useUIHelp();
   useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
-  const { message } = App.useApp();
   const feedback=useOperationFeedback();
   const [section, setSection] = useState<CommandSection>("model");
   const [searchOpen, setSearchOpen] = useState(false);
@@ -33,31 +34,45 @@ export function WorkbenchCommands({ toolbars, workbench }: {
   const results = searchCommands(toolbars, query, (id) => registry.state(id));
   const groups = toolbars.filter((toolbar) => commandSection(toolbar) === section)
     .filter((toolbar) => toolbar.items.some((item) => registry.state(item.commandId).visible));
+  const ribbon=useRef<HTMLDivElement>(null);
+  const [availableWidth,setAvailableWidth]=useState(0),[page,setPage]=useState(0);
+  const pageGroups=groups.map(toolbar=>({id:toolbar.id,name:toolbar.name,variants:toolbarVariantGroups(toolbar.items.filter(item=>registry.state(item.commandId).visible))}));
+  const fullPages=toolbarPages(pageGroups,availableWidth-8);
+  const pages=fullPages.length>1?toolbarPages(pageGroups,Math.max(1,availableWidth-56)):fullPages;
+  const currentPage=Math.min(page,pages.length-1);
+  useEffect(()=>{const node=ribbon.current;if(!node)return;const measure=()=>setAvailableWidth(node.clientWidth);const observer=new ResizeObserver(measure);observer.observe(node);measure();return ()=>observer.disconnect();},[]);
+  useEffect(()=>setPage(0),[workbench,section]);
+  useEffect(()=>{if(page!==currentPage)setPage(currentPage);},[page,currentPage]);
   return <header className="workbench-command-deck">
     <div className="workbench-command-tabs">
       <span className={`workbench-mode mode-${workbench.toLowerCase()}`}><i />{CAD_WORKBENCHES[workbench].label}</span>
-      <Segmented aria-label="命令分类" value={section} onChange={(value) => setSection(value as CommandSection)} options={[
-        { label: workbench === "SKETCHER" ? "草图" : workbench === "ASSEMBLY_DESIGN" ? "装配" : "建模", value: "model" },
-        { label: "视图", value: "view" }, { label: "文档与协作", value: "document" },
+      <Tabs className="workbench-section-tabs" aria-label="命令分类" type="line" size="small" activeKey={section} onChange={value=>setSection(value as CommandSection)} items={[
+        { label: workbench === "SKETCHER" ? "草图" : workbench === "ASSEMBLY_DESIGN" ? "装配" : "建模", key: "model" },
+        { label: "视图", key: "view" }, { label: "文档与协作", key: "document" },
       ]} />
       <div className="workbench-quick-actions">{toolbars.flatMap((toolbar) => toolbar.items
         .filter((item) => item.commandId === "edit.undo" || item.commandId === "edit.redo")
         .map((item) => <ToolButton key={item.commandId} command={item.commandId} icon={<CadIcon name={item.iconKey as CadIconName} />}
           tooltip={item.name} toolbarName={toolbar.name} helpText={item.helpText} />))}</div>
-      <Button type="text" size="small" aria-label="快捷键" title="快捷键 · Shift + /" icon={<QuestionCircleOutlined />} onClick={() => setShortcutHelpOpen(true)} />
-      <Button aria-keyshortcuts="Control+k Meta+k" aria-label="搜索工具" className="workbench-command-search" icon={<SearchOutlined />} onClick={() => { setQuery(""); setSearchOpen(true); }}>搜索工具</Button>
+      <Tooltip title={<>快捷键<kbd>{commandShortcutLabel("ui.shortcut-help")}</kbd></>} open={shortcutHelpOpen?false:undefined} placement="bottom" mouseEnterDelay={.45} mouseLeaveDelay={.1} arrow={false} classNames={{root:"cad-tool-tooltip"}}>
+        <Button className="workbench-header-action" type="text" size="small" aria-label="快捷键" icon={<QuestionCircleOutlined />} onClick={() => setShortcutHelpOpen(true)} />
+      </Tooltip>
+      <Tooltip title={<>搜索工具<kbd>{commandShortcutLabel("ui.command-search")}</kbd></>} open={searchOpen?false:undefined} placement="bottom" mouseEnterDelay={.45} mouseLeaveDelay={.1} arrow={false} classNames={{root:"cad-tool-tooltip"}}>
+        <Button aria-label="搜索工具" aria-keyshortcuts="Control+k Meta+k" className="workbench-command-search" icon={<SearchOutlined />} onClick={() => { setQuery(""); setSearchOpen(true); }}>搜索工具</Button>
+      </Tooltip>
     </div>
-    <div className="workbench-command-groups" aria-label="工作台命令">
-      {groups.map((toolbar) => <section key={toolbar.id} className="workbench-command-group" aria-label={toolbar.name}>
-        <div className="workbench-command-items">{toolbarVariantGroups(toolbar.items.filter(item=>registry.state(item.commandId).visible)).map(group=>
-          <ToolbarVariantButton key={group.key} group={group} toolbarName={toolbar.name}/>)}
-
-        </div>
+    <div ref={ribbon} className="workbench-ribbon">
+     {pages.length>1&&<Button className="workbench-page-control" aria-label="上一页命令" disabled={currentPage===0} icon={<LeftOutlined/>} onClick={()=>setPage(currentPage-1)}/>}
+     <div className="workbench-command-page" aria-label={`工作台命令 · 第${currentPage+1}/${pages.length}页`}><div className="workbench-command-groups">
+      {pages.flatMap((groups,pageIndex)=>groups.map((toolbar,index)=><section data-page-last={index===groups.length-1} key={`${toolbar.id}:${toolbar.start}`} hidden={pageIndex!==currentPage} className="workbench-command-group" aria-label={toolbar.name}>
+        <div className="workbench-command-items">{toolbar.variants.map(group=><ToolbarVariantButton key={group.key} group={group} toolbarName={toolbar.name}/>)}</div>
         <span className="workbench-command-group-name">{toolbar.name}</span>
-      </section>)}
-      {groups.length === 0 && <span className="workbench-command-empty">当前上下文没有可用命令</span>}
+      </section>))}
+      {groups.length===0&&<span className="workbench-command-empty">当前上下文没有可用命令</span>}
+     </div></div>
+     {pages.length>1&&<Button className="workbench-page-control" aria-label="下一页命令" disabled={currentPage===pages.length-1} onClick={()=>setPage(currentPage+1)}><RightOutlined/><span className="workbench-page-count" aria-label={`第${currentPage+1}/${pages.length}页`}>{currentPage+1}/{pages.length}</span></Button>}
     </div>
-    <Modal title="搜索工具" open={searchOpen} onCancel={() => setSearchOpen(false)} footer={null} destroyOnHidden
+    <Modal width={640} title="搜索工具" open={searchOpen} onCancel={() => setSearchOpen(false)} footer={null} destroyOnHidden
       afterOpenChange={(open) => { if (open) document.getElementById("workbench-tool-search")?.focus(); }}>
       <Input id="workbench-tool-search" aria-label="搜索工具名称或用途" prefix={<SearchOutlined />} allowClear
         placeholder="输入工具名称或用途…" value={query} onChange={(event) => setQuery(event.target.value)} />
@@ -85,18 +100,10 @@ export function WorkbenchCommands({ toolbars, workbench }: {
 }
 
 function ToolbarVariantButton({group,toolbarName}:{group:ToolbarVariantGroup;toolbarName:string}){
- const registry=useCommandRegistry(),feedback=useOperationFeedback(),uiHelp=useUIHelp();
  const [,refresh]=useState(0),item=toolbarVariantDefault(group);
  if(group.items.length===1)return <ToolButton command={item.commandId} repeatable={item.repeatable} showLabel icon={<CadIcon name={item.iconKey as CadIconName}/>} tooltip={item.name} toolbarName={toolbarName} helpText={item.helpText}/>;
- return <span className={`workbench-tool-variants${registry.state(item.commandId).active?" active":""}`}>
-  <ToolButton command={item.commandId} repeatable={item.repeatable} showLabel icon={<CadIcon name={item.iconKey as CadIconName}/>} tooltip={item===group.items[0]?group.label:item.name} toolbarName={toolbarName} helpText={item.helpText}/>
-  <Dropdown trigger={["click"]} placement="bottomLeft" classNames={{root:"workbench-variants-menu"}} menu={{selectable:true,selectedKeys:[item.commandId],items:group.items.map(choice=>({key:choice.commandId,label:<span className="workbench-variant-label"><span>{choice.name}</span>{choice.commandId===item.commandId&&<CheckOutlined aria-label="当前方式"/>}</span>,icon:<CadIcon name={choice.iconKey as CadIconName}/>,disabled:!registry.state(choice.commandId).enabled&&!uiHelp.active})),onClick:({key})=>{
-   const choice=group.items.find(i=>i.commandId===key);if(!choice)return;
-   if(uiHelp.active){uiHelp.explain({toolbarName,commandName:choice.name,helpText:choice.helpText});return;}
-   if(!registry.state(key).enabled)return;
-   rememberToolbarVariant(group,key);refresh(n=>n+1);void registry.execute(key,{continuous:false}).catch(error=>feedback(error,"命令"));
-  }}}><Button className="workbench-variant-trigger" type="text" aria-label={`${group.label}方式`} size="small" icon={<DownOutlined/>}/></Dropdown>
- </span>;
+ return <CadSplitToolButton items={group.items} defaultId={item.commandId} familyName={group.label} toolbarName={toolbarName}
+  onDefaultChange={id=>{rememberToolbarVariant(group,id);refresh(n=>n+1);}}/>;
 }
 
 export function WorkbenchViewControls({ toolbars }: { toolbars: ToolbarCatalogEntry[] }) {

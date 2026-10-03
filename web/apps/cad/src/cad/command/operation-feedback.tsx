@@ -8,7 +8,7 @@ export function normalizeOperationFailure(error:unknown):OperationFailure {
   const details=value?.terminationStage||value?.terminationReason?JSON.stringify({message:raw,terminationStage:value.terminationStage,terminationReason:value.terminationReason}):raw;
   const retryable=["ASSEMBLY_INTERACTION_UNCONFIRMED","TIMEOUT","CONNECTION_CLOSED","REALTIME_UNAVAILABLE","DATABASE_BUSY","REALTIME_BUSY"].includes(code);
   const message=code==="ASSEMBLY_INTERACTION_UNCONFIRMED"?"移动尚未保存；可重试确认当前目标，或取消恢复。":retryable?"操作未完成，请检查连接后重试。":
-    /STALE|MISMATCH|VERSION|CONFLICT/.test(code)?"装配状态已变化，请使用当前状态重新操作。":
+    /STALE|MISMATCH|VERSION|CONFLICT/.test(code)?"模型状态已变化，请使用当前状态重新操作。":
     code==="VALIDATION_FAILED"?"当前输入无法执行，请检查参数和支持元素。":
     code==="FORBIDDEN"?"当前没有执行此操作的权限。":"操作未完成，请查看诊断详情后重试。";
   return {message,details,code,requestId:value?.requestId??value?.correlationId,retryable,severity:retryable?"warning":"error"};
@@ -31,9 +31,9 @@ export function useOperationFeedback(){
     if(!gate.accept(error,scope))return;
     const failure=normalizeOperationFailure(error);
     const recovery=error as {retry?:()=>void;cancel?:()=>void};
-    notification[failure.severity]({key:`failure:${scope}`,message:`${scope}未完成`,description:<>
+    notification[failure.severity]({className:"cad-operation-notification",placement:"bottomRight",duration:recovery?.retry||recovery?.cancel?0:6,key:`failure:${scope}`,title:`${scope}未完成`,description:<>
       <div>{failure.message}</div>{recovery?.retry&&<Button size="small" onClick={()=>{notification.destroy(`failure:${scope}`);recovery.retry?.();}}>重试确认</Button>}{recovery?.cancel&&<Button size="small" onClick={()=>{notification.destroy(`failure:${scope}`);recovery.cancel?.();}}>取消未保存移动</Button>}<Button size="small" onClick={()=>modal.info({title:"技术诊断",width:640,content:<>
-        <pre style={{whiteSpace:"pre-wrap",maxHeight:300,overflow:"auto"}}>{JSON.stringify(failure,null,2)}</pre>
+        <pre className="cad-technical-log" style={{whiteSpace:"pre-wrap",maxHeight:320,overflow:"auto"}}>{JSON.stringify(failure,null,2)}</pre>
         <Button onClick={()=>void navigator.clipboard.writeText(JSON.stringify(failure,null,2)).then(()=>message.success("已复制诊断"))}>复制诊断</Button>
       </>})}>查看诊断</Button></>});
   },[notification,modal,message]);

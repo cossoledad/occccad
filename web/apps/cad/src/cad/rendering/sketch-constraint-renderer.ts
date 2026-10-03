@@ -1,3 +1,5 @@
+import { formatDimensionLabelText } from "../sketch/dimension-value-format";
+import { acquireDimensionLabelTextures } from "./dimension-label-textures";
 import { colorNumber, palette } from "../../design/visual-tokens";
 import { SKETCH_FEEDBACK_ORDER } from "./sketch-feedback-style";
 import { registerScreenLineUpdate, screenSpaceEndpoint } from "./screen-space-lines";
@@ -23,18 +25,11 @@ export function constraintSymbolCode(kind: ConstraintKind): number {
 }
 
 export function makeConstraintDimensionLabel(text: string, toWorld?: (point: Vec2) => THREE.Vector3, direction: Vec2 = [1, 0], color = colorNumber(palette.dimensionText)): THREE.Mesh {
-  const canvas = document.createElement("canvas");
-  canvas.width = 256; canvas.height = 48;
-  const context = canvas.getContext("2d")!;
-  context.font = "600 32px system-ui, sans-serif";
-  canvas.width = Math.ceil(context.measureText(text).width) + 16;
-  context.font = "600 32px system-ui, sans-serif";
-  context.textAlign = "center"; context.textBaseline = "middle";
-  context.fillStyle = "#ffffff"; context.fillText(text, canvas.width / 2, 24);
-  const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-  const material = new THREE.MeshBasicMaterial({ map: texture, color, transparent: true, depthTest: false, depthWrite: false,
+  const textures=acquireDimensionLabelTextures(formatDimensionLabelText(text));
+  const material = new THREE.MeshBasicMaterial({ map: textures.glyph, color, transparent: true, depthTest: false, depthWrite: false,
     side: THREE.DoubleSide, toneMapped: false });
-  material.userData.baseColor = color; material.userData.ownedTexture = texture;
+  material.userData.baseColor = color;
+  material.addEventListener("dispose",textures.release);
   const label = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
   if (toWorld) {
     // Keep the baseline aligned with its leader (or angular arc tangent),
@@ -47,7 +42,7 @@ export function makeConstraintDimensionLabel(text: string, toWorld?: (point: Vec
   const supportOrientation = label.quaternion.clone();
   const halfTurn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI);
   const baseline = new THREE.Vector3(), projectedStart = new THREE.Vector3(), projectedEnd = new THREE.Vector3();
-  const screenWidth = canvas.width / 2, screenHeight = 24, worldPosition = new THREE.Vector3();
+  const screenWidth = textures.width, screenHeight = textures.height, worldPosition = new THREE.Vector3();
   label.userData.screenSize = { width: screenWidth, height: screenHeight };
   label.userData.sketchDimensionLabel = true;
   // Stay in the support plane and parallel to the leader. The only allowed
@@ -115,7 +110,7 @@ export function makeSketchConstraintRenderable(
     group.add(arrow);
   }
   if (layout.label) {
-    const label = makeConstraintDimensionLabel(layout.label.text, toWorld, layout.label.direction, diagnosticColor ?? colorNumber(palette.dimensionText)); label.position.copy(toWorld(layout.label.position)); label.renderOrder = SKETCH_FEEDBACK_ORDER.label;
+    const label = makeConstraintDimensionLabel(layout.label.text, toWorld, layout.label.direction, diagnosticColor ?? colorNumber(constraint.reference?palette.dimensionReference:palette.dimensionText)); (label.material as THREE.MeshBasicMaterial).userData.dimensionDiagnosticColor=diagnosticColor; label.position.copy(toWorld(layout.label.position)); label.renderOrder = SKETCH_FEEDBACK_ORDER.label;
     group.add(label);
   }
   return group;

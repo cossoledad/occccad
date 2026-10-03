@@ -1,3 +1,4 @@
+import { useUIPreferences, sketchLabelPositionKey } from "../state/ui-preferences";
 import { sketchMarqueeContains, type SketchScreenPoint } from "../cad/interaction/sketch-marquee";
 import { SketchModalInputController } from "../cad/sketch/sketch-modal-input";
 import type { SketchReferenceSelectionRequest } from "../cad/sketch/sketch-reference-selection-session";
@@ -57,7 +58,7 @@ import { makeDatumReferenceLine, makeOcclusionVisibleHighlightLine, makeOcclusio
   makeSketchOverlayLine, updateHighlightLineResolution } from "../cad/rendering/interaction-highlight";
 import { constraintSymbolCode, makeConstraintDimensionLabel, makeSketchConstraintRenderable } from "../cad/rendering/sketch-constraint-renderer";
 import { isDimensionConstraintKind, type ConstraintKind } from "../cad/sketch/sketch-constraint-definition";
-import { measureSketchDimension } from "../cad/sketch/sketch-constraint-layout";
+import { measureSketchDimension, sketchDimensionText } from "../cad/sketch/sketch-constraint-layout";
 import { sketchReferenceDimensions, SKETCH_INPUT_POLICY } from "../cad/sketch/sketch-input-policy";
 import { sampleSketchEntity, ellipsePoint, sketchEntityPoint, splineEditablePoints, splineReferencePoint } from "../cad/sketch/sketch-geometry";
 import { sketchProfileFeedback } from "../cad/sketch/sketch-profile-analysis";
@@ -933,7 +934,7 @@ export class CadViewportEngine {
       if(original.suppressed)continue;
       const measured=isDimensionConstraintKind(original.kind)?measureSketchDimension(original.kind,original.references,entities):undefined;
       const constraint=isDimensionConstraintKind(original.kind)?{...original,value:measured}:original;
-      group.add(makeSketchConstraintRenderable(constraint,entities,point=>localToWorld(this.sketchPlane!,point),this.materials,{width:this.renderer.domElement.clientWidth,height:this.renderer.domElement.clientHeight}));
+      group.add(makeSketchConstraintRenderable(this.displaySketchConstraint(this.sketchView()!.document.id,featureId,constraint),entities,point=>localToWorld(this.sketchPlane!,point),this.materials,{width:this.renderer.domElement.clientWidth,height:this.renderer.domElement.clientHeight}));
     }
     // Hide only the active occurrence's normal display, never its pick index.
     // Reference replacement still picks the frozen authoritative model.
@@ -2171,7 +2172,8 @@ export class CadViewportEngine {
           const support=feature?.sketch?.support;
           const datum=ownerView?.datumPlanes?.find(plane=>plane.id===support?.datumPlaneId)??ownerView?.part?.datumPlanes?.find(plane=>plane.id===support?.datumPlaneId);
           const plane:PlaneName|SketchPlane=support?.origin&&support.normal&&support.xDirection?{datumPlaneId:support.datumPlaneId??feature!.id,plane:"CUSTOM",origin:support.origin,normal:support.normal,uDirection:support.xDirection}:datum?{datumPlaneId:datum.id,plane:datum.plane,origin:datum.origin,normal:datum.normal,uDirection:datum.uDirection}:feature?.plane!=="CUSTOM"?feature?.plane??"XY":"XY";
-          const label = makeConstraintDimensionLabel(primitive.label,point=>localToWorld(plane,point));
+          const definition=feature?.sketch?.constraints.find(constraint=>constraint.id===primitive.id);
+          const label = makeConstraintDimensionLabel(definition?sketchDimensionText(definition):primitive.label,point=>localToWorld(plane,point));
           label.position.fromArray(primitive.labelPosition);
           label.renderOrder = SKETCH_FEEDBACK_ORDER.label;
           group.add(label);
@@ -2425,7 +2427,7 @@ export class CadViewportEngine {
         contextVariantKey: context.contextVariantKey,
         occurrencePath: context.occurrencePath,
         treeNodeId: constraintTreeNodeID(featureTreeNode, constraint.kind, constraint.id) };
-      const constraintGroup = makeSketchConstraintRenderable(constraint, [...(feature.sketch?.entities ?? []), ...externalEntities],
+      const constraintGroup = makeSketchConstraintRenderable(this.displaySketchConstraint(documentId,feature.id,constraint), [...(feature.sketch?.entities ?? []), ...externalEntities],
         (point) => localToWorld(plane, point), this.materials,
         { width: this.renderer.domElement.clientWidth, height: this.renderer.domElement.clientHeight },
         feature.sketch?.solve.conflictingConstraintIds?.includes(constraint.id) ? CATIA_VISUAL_THEME.sketchInvalid
@@ -2609,6 +2611,10 @@ export class CadViewportEngine {
     return world ? worldToLocal(this.sketchPlane, world) : undefined;
   }
 
+  private displaySketchConstraint(documentId:string,sketchId:string,constraint:SketchConstraint):SketchConstraint {
+    const position=useUIPreferences.getState().sketchLabelPositions[sketchLabelPositionKey(documentId,sketchId,constraint.id)];
+    return position?{...constraint,labelPosition:position}:constraint;
+  }
   private dimensionGestureScope():string {const view=this.sketchView();return JSON.stringify([view?.document.id,view?.document.versionId,this.activeSketchID,this.editContext?.occurrencePath]);}
 
   private beginDimensionDrag(x: number, y: number): boolean {
@@ -2654,14 +2660,25 @@ export class CadViewportEngine {
     if (!drag) return;
     this.clearReferencePreview();
     if (drag.position) {
-      void this.commitSketchOperations([{ type:"UPDATE_CONSTRAINT_PLACEMENT",constraintId:drag.constraint.id,labelPosition:{x:drag.position[0],y:drag.position[1]} }],{requestId:randomUUID(),baseVersionId:this.sketchView()?.document.versionId}).then(()=>{
-        if(drag.root&&!drag.root.parent)this.disposeRenderable(drag.root);
-      },()=>{
-        if(drag.root&&drag.rootParent&&!drag.root.parent&&drag.scopeKey===this.dimensionGestureScope()){
-          drag.rootParent.add(drag.root);if(drag.rootIndex!==undefined){const at=drag.rootParent.children.indexOf(drag.root);drag.rootParent.children.splice(at,1);drag.rootParent.children.splice(drag.rootIndex,0,drag.root);}
-        }else if(drag.root&&!drag.root.parent)this.disposeRenderable(drag.root);
-        this.invalidate();
-      });
+      const view=this.sketchView(),feature=view?.part?.features.find(feature=>feature.id===drag.selection.featureId);
+      if(view&&feature?.sketch&&this.sketchPlane){
+        useUIPreferences.getState().setSketchLabelPosition(view.document.id,feature.id,drag.constraint.id,{x:drag.position[0],y:drag.position[1]});
+        const replacement=makeSketchConstraintRenderable(this.displaySketchConstraint(view.document.id,feature.id,drag.constraint),sketchReferenceEntities(feature),point=>localToWorld(this.sketchPlane!,point),this.materials,{width:this.renderer.domElement.clientWidth,height:this.renderer.domElement.clientHeight},
+          feature.sketch.solve.conflictingConstraintIds?.includes(drag.constraint.id)?CATIA_VISUAL_THEME.sketchInvalid:feature.sketch.solve.redundantConstraintIds?.includes(drag.constraint.id)?CATIA_VISUAL_THEME.sketchRedundant:undefined);
+        replacement.userData=drag.selection;
+        const related=this.selectionIndex.objectsFor(drag.selection).filter(object=>object!==drag.root);
+        if(drag.root)this.selectionIndex.unregister(drag.selection,drag.root);
+        replacement.traverse(child=>{
+          child.userData={...child.userData,...drag.selection};
+          if(child!==replacement&&(child.userData.sketchDimensionLabel||(child as THREE.Points).isPoints))this.selectionIndex.registerPick(child,()=>drag.selection,90);
+        });
+        this.selectionIndex.register(drag.selection,replacement);
+        for(const object of related)this.selectionIndex.associate(drag.selection,object);
+        const parent=drag.rootParent??drag.root?.parent;
+        parent?.add(replacement);
+        this.selectable.set(`sketch-constraint:${drag.selection.id}`,replacement);
+        if(drag.root){drag.root.removeFromParent();this.disposeRenderable(drag.root);}
+      }else if(drag.root&&drag.rootParent)drag.rootParent.add(drag.root);
     }
     this.invalidate();
   }

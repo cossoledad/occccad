@@ -1,3 +1,5 @@
+import {formatDisplayNumber} from "../../utils/display-number";
+import {CadNumberInput as InputNumber} from "../../cad/overlay/cad-number-input";
 import { defaultSketchToolMode } from "../../cad/sketch/sketch-inline-parameter-input";
 import type { SketchCommandState, SketchCommitIntent, SketchCommitReceipt } from "../../cad/tool/sketch-command-session";
 import { selectionNamingIssue, topologyNamingIssue } from "./topology-naming-capability";
@@ -25,7 +27,7 @@ import type { InstancePatternPreview } from "./instance-pattern";
 import "./workbench.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Alert, App, Button, Divider, Empty, Form, Input, InputNumber,
+  Alert, App, Button, Divider, Empty, Form, Input,
   Select, Space, Spin, Switch, Tag, Typography,
 } from "antd";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -57,7 +59,7 @@ import type { CadViewportHandle } from "../../viewport/cad-viewport";
 import { SpecificationTree, type SpecificationTreeNode } from "./specification-tree";
 import { followedDocumentIDs, staleProductDocumentIDs, followProductUpdates } from "./product-edit-context";
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
-import { isLengthParameter, linearExtrudeLengthInput, parameterDisplayValue, parameterSourceText, parseParameterSource } from "./parameter-editor";
+import { isLengthParameter, linearExtrudeLengthInput, linearExtrudeLengthEditInput, parameterDisplayValue, parameterSourceText, parameterEditSource, parseParameterSource } from "./parameter-editor";
 import { WorkbenchInspectorPanel } from "./workbench-inspector-panel";
 import { deletableTreeNodesForSelections, ancestorHintKeysForSelections, findStructureEntity, findStructureOccurrenceEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
 import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
@@ -202,7 +204,7 @@ function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, c
     </>}
     {definition.value && !relationOnly && <Form.Item name="value" label={definition.value === "angle" ? "角度（deg）" : `偏移（${lengthUnit}）`}
       rules={expressionDriven ? [] : [{required:true},{type:"number",min:minimumValue,max:definition.value === "angle"?360:undefined}]}>
-      <InputNumber disabled={expressionDriven} min={minimumValue} max={definition.value === "angle"?360:undefined} precision={3} style={{width:"100%"}}
+      <InputNumber disabled={expressionDriven} min={minimumValue} max={definition.value === "angle"?360:undefined} precision={2} style={{width:"100%"}}
         onBlur={onValueCommit} onPressEnter={(event)=>event.currentTarget.blur()} /></Form.Item>}
   </>;
 }
@@ -965,7 +967,7 @@ export function Workbench() {
 		const feature=editingView.part?.features.find((candidate)=>candidate.id===node.entityId);
 		if (!feature || !["PAD","LINEAR_EXTRUDE"].includes(feature.type.toUpperCase())) return;
 		const parameter=editingView.part?.parameters?.find((candidate)=>candidate.parameterId===`parameter:${feature.id}:length`);
-		featureForm.setFieldsValue({lengthText:parameter?parameterSourceText(parameter, lengthUnit):String(millimetersToDisplayLength(feature.length??0, lengthUnit))}); featurePreviewID.current=undefined;
+		featureForm.setFieldsValue({lengthText:parameter?parameterSourceText(parameter, lengthUnit):formatDisplayNumber(millimetersToDisplayLength(feature.length??0, lengthUnit))}); featurePreviewID.current=undefined;
 		featureInteractionID.current=randomUUID();
 		setFeaturePreviewError(undefined); setEditingExtrude({feature,digest:node.definitionDigest});
 	};
@@ -973,7 +975,7 @@ export function Workbench() {
 		if (!editingView || !editingExtrude) return;
 		let lengthInput: {length?:number;lengthExpression?:string};
 		try {
-			const values=await featureForm.validateFields(); lengthInput=linearExtrudeLengthInput(values.lengthText, lengthUnit);
+			const values=await featureForm.validateFields(); lengthInput=linearExtrudeLengthEditInput(values.lengthText,lengthUnit,editingExtrude.feature.length??0,editingView.part?.parameters?.find(parameter=>parameter.parameterId===`parameter:${editingExtrude.feature.id}:length`));
 		} catch { return; }
 		featurePreviewAbort.current?.abort(); const abort=new AbortController(); featurePreviewAbort.current=abort;
 		const sequence=++featurePreviewSequence.current, baseVersionID=editingView.document.versionId;
@@ -993,7 +995,7 @@ export function Workbench() {
 		if(!editingView||!editingExtrude)return;
 		let lengthInput: {length?:number;lengthExpression?:string};
 		try {
-			const values=await featureForm.validateFields(); lengthInput=linearExtrudeLengthInput(values.lengthText, lengthUnit);
+			const values=await featureForm.validateFields(); lengthInput=linearExtrudeLengthEditInput(values.lengthText,lengthUnit,editingExtrude.feature.length??0,editingView.part?.parameters?.find(parameter=>parameter.parameterId===`parameter:${editingExtrude.feature.id}:length`));
 		} catch { return; }
 		command.mutate(()=>api.editFeature(editingView.document.id,{featureId:editingExtrude.feature.id,
 			expectedFeatureDigest:editingExtrude.digest,...lengthInput,previewId:featurePreviewID.current}),{
@@ -1321,7 +1323,12 @@ export function Workbench() {
       await command.mutateAsync(()=>api.command(editingView.document.id,{type:"RENAME_PARAMETER",parameterId:editingParameterID,name:values.key.trim()||current.key}));
       setEditingParameterID(undefined);return;
     }
-	const source = parseParameterSource(values.source, current && isLengthParameter(current) ? lengthUnit : current?.displayUnit);
+    if(current&&values.source===parameterSourceText(current,isLengthParameter(current)?lengthUnit:current.displayUnit)){
+      const name=values.key.trim()||current.key;
+      if(name!==(current.displayAlias??current.key))await command.mutateAsync(()=>api.command(editingView.document.id,{type:"RENAME_PARAMETER",parameterId:editingParameterID,name}));
+      setEditingParameterID(undefined);return;
+    }
+	const source = parseParameterSource(current?parameterEditSource(current,values.source,isLengthParameter(current)?lengthUnit:current.displayUnit):values.source, current && isLengthParameter(current) ? lengthUnit : current?.displayUnit);
 	command.mutate(() => api.command(editingView.document.id, {type: "EDIT_PARAMETER", parameterId: editingParameterID,
 		name: values.key.trim() || current?.key, ...(source.kind === "LITERAL" ? { value: source.value, unit: source.unit } : { expression: source.expression })}),
 		{onSuccess:()=>setEditingParameterID(undefined)});
@@ -1381,7 +1388,7 @@ export function Workbench() {
     {motionComponents.map(component => <div key={component.componentId}>
       <Typography.Text type="secondary">剩余相对自由度：{component.relativeDof}；整体自由度：{component.gaugeDof}</Typography.Text>
       {component.preference.bodies.filter(body => body.role === 1).map(body => <div key={body.bodyId}>
-        第二元素变化：{body.translation.toPrecision(3)} mm / {(body.rotation * 180 / Math.PI).toPrecision(3)}°
+        第二元素变化：{formatDisplayNumber(body.translation)} mm / {formatDisplayNumber(body.rotation * 180 / Math.PI)}°
       </div>)}
       {component.freedoms.filter(freedom => !freedom.relativeToBodyId || freedom.bodyId !== freedom.relativeToBodyId).map(freedom => <div key={freedom.bodyId}>
         {editingView?.product?.instances.find(instance => instance.id === freedom.bodyId)?.name ?? freedom.bodyId}：
@@ -1646,7 +1653,7 @@ export function Workbench() {
           onInstanceMoved={moveInstance} /></Suspense>
       <WorkbenchViewControls toolbars={visibleToolbars} />
     </WorkbenchLayout>
-    <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" width={390}
+    <CommandDialog id="assembly-constraint-edit" open={Boolean(editingAssemblyConstraint)} title="约束定义" size="M"
       onClose={() => { assemblyDialogLifecycle.current.invalidate();assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined; setAssemblyPreviewEvaluation(undefined); setReplacingAssemblyReference(undefined); setReconnectError(undefined); setAssemblyDefinitionDirty(false); setEditingAssemblyConstraint(undefined); }}
       confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined ||
         Boolean(editingAssemblyConstraint?.kind === "ANGLE" && editingAssemblyConstraint.angleRelation === "DIRECTED" && !editingAssemblyConstraint.angleAxis)} onConfirm={async()=>{
@@ -1708,7 +1715,7 @@ export function Workbench() {
         {assemblyPreviewFeedback}
       </Form>
     </CommandDialog>
-    <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)} title="约束定义" width={390}
+    <CommandDialog id="assembly-constraint-value" open={Boolean(pendingAssemblyConstraint)} title="约束定义" size="M"
       onClose={() => { assemblyDialogLifecycle.current.invalidate();assemblyPreviewActor.current?.send({type:"CANCEL",sequence:assemblyPreviewSequence.current});assemblyPreviewAbort.current?.abort();assemblyPreviewSequence.current+=1;viewport.current?.clearCommandPreview();assemblyPreviewID.current=undefined; setAssemblyPreviewEvaluation(undefined); setReplacingAssemblyReference(undefined); setReconnectError(undefined); setAssemblyDefinitionDirty(false); setPendingAssemblyConstraint(undefined); }}
       confirmLoading={command.isPending || assemblyPreviewPending} confirmDisabled={!assemblySupportsReady || !(assemblyPreviewSnapshot.matches("succeeded") || assemblyPreviewSnapshot.matches("definitionReady")) || replacingAssemblyReference !== undefined ||
         Boolean(pendingAssemblyConstraint?.kind === "angle" && pendingAssemblyConstraint.angleRelation === "DIRECTED" && !pendingAssemblyConstraint.angleAxis)}
@@ -1750,7 +1757,7 @@ export function Workbench() {
         {assemblyPreviewFeedback}
       </Form>
     </CommandDialog>
-    <CommandDialog id="rename-model-object" open={Boolean(renameTarget)} title="重命名建模对象"
+    <CommandDialog size="S" id="rename-model-object" open={Boolean(renameTarget)} title="重命名建模对象"
       onClose={() => setRenameTarget(undefined)} confirmLoading={command.isPending}
       onConfirm={async () => {
         const values = await renameForm.validateFields();
@@ -1820,7 +1827,7 @@ export function Workbench() {
 		{featurePreviewError&&<Alert type="error" showIcon message="编辑预览失败" description={featurePreviewError}/>}
 		<small className="cad-command-hint">{featurePreviewPending?"后端正在求值预览…":"离开输入框刷新瞬态预览；按 Enter 或确定提交一个 Revision。"}</small></Form>
 	</CommandDialog>
-	<CommandDialog id="parameter-manager" open={parameterManagerOpen} title="参数" width={680}
+	<CommandDialog id="parameter-manager" open={parameterManagerOpen} title="参数" size="M"
 		onClose={() => setParameterManagerOpen(false)} onConfirm={() => setParameterManagerOpen(false)} confirmText="完成">
 		<div className="parameter-manager" aria-label="文档参数">
 			<Form form={createUserParameterForm} layout="inline" initialValues={{value:0,unit:"mm"}}>
@@ -1854,7 +1861,7 @@ export function Workbench() {
 			<small className="cad-command-hint">表达式使用可读别名输入，提交后绑定稳定 ParameterId；重命名别名不会断开已有引用。</small>
 		</div>
 	</CommandDialog>
-	<CommandDialog id="publication-manager" open={publicationManagerOpen} title="Publications" width={760}
+	<CommandDialog id="publication-manager" open={publicationManagerOpen} title="Publications" size="L"
 		onClose={() => setPublicationManagerOpen(false)} onConfirm={() => setPublicationManagerOpen(false)} confirmText="完成">
 		<Form form={publicationForm} layout="inline" initialValues={{ name: "", semanticPurpose: "" }}>
 			<Form.Item name="name"><Input placeholder="自动命名（可选）" /></Form.Item>
@@ -1939,7 +1946,7 @@ export function Workbench() {
 			<small className="cad-command-hint">来源限定在当前 Product occurrence 图中；提交会原子创建 Part ContextInput、Product ContextBinding 与接受快照。</small>
 		</Form>
 	</CommandDialog>
-	<CommandDialog id="parameter-edit" open={Boolean(editingParameterID)} title="编辑参数" onClose={() => setEditingParameterID(undefined)}
+	<CommandDialog size="S" id="parameter-edit" open={Boolean(editingParameterID)} title="编辑参数" onClose={() => setEditingParameterID(undefined)}
 		confirmLoading={command.isPending} onConfirm={commitParameterEdit}>
 		<Form form={parameterForm} layout="vertical">
 			<Form.Item name="key" label="可读别名（可选）" rules={[{pattern:/^$|^[A-Za-z_][A-Za-z0-9_]*$/,
@@ -1949,7 +1956,7 @@ export function Workbench() {
 			<small className="cad-command-hint">表达式按当前 Part 的参数别名编辑；提交后 AST 绑定稳定 ParameterId，后续重命名不会破坏引用。</small>
 		</Form>
 	</CommandDialog>
-	<CommandDialog id="publication-edit" open={Boolean(editingPublication)} title="编辑 Publication"
+	<CommandDialog size="S" id="publication-edit" open={Boolean(editingPublication)} title="编辑 Publication"
 		onClose={() => setEditingPublication(undefined)} confirmLoading={command.isPending} onConfirm={commitPublicationEdit}>
 		<Form form={publicationEditForm} layout="vertical">
 			<Form.Item name="name" label="名称" rules={[{required:true}]}><Input /></Form.Item>
@@ -1967,7 +1974,7 @@ export function Workbench() {
       busy={command.isPending} onPreview={previewInsertPattern}
       onClose={() => { previewInsertPattern(); setPatternOpen(false); }}
       onApply={(input) => command.mutateAsync(() => api.patternInstances(activeID, input))} />}
-    <CommandDialog id="new-part-component" open={Boolean(newPartTarget)} title="新建零件"
+    <CommandDialog size="S" id="new-part-component" open={Boolean(newPartTarget)} title="新建零件"
       onClose={() => setNewPartTarget(undefined)} confirmLoading={command.isPending}
       onConfirm={async () => createPartComponent(await newPartForm.validateFields())}>
       <Form form={newPartForm} layout="vertical">
@@ -1986,7 +1993,7 @@ export function Workbench() {
       }}><Form form={datumPlaneForm} layout="vertical"><Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
         <Form.Item name="offset" label={`偏置（${lengthUnit}）`} rules={[{ required: true }, { type: "number" }]}><InputNumber style={{ width: "100%" }} /></Form.Item></Form>
     </CommandDialog>
-    <CommandDialog id="datum-axis" open={datumAxisOpen} title="创建基准轴" onClose={() => setDatumAxisOpen(false)}
+    <CommandDialog size="S" id="datum-axis" open={datumAxisOpen} title="创建基准轴" onClose={() => setDatumAxisOpen(false)}
       confirmLoading={command.isPending} onConfirm={async () => { const v = await datumAxisForm.validateFields();
         command.mutate(() => api.createDatumAxis(activeID, { name: v.name,
           origin: [displayLengthToMillimeters(v.ox,lengthUnit),displayLengthToMillimeters(v.oy,lengthUnit),displayLengthToMillimeters(v.oz,lengthUnit)],
@@ -1995,7 +2002,7 @@ export function Workbench() {
         <Space><Form.Item name="ox" label={`原点 X（${lengthUnit}）`}><InputNumber /></Form.Item><Form.Item name="oy" label="Y"><InputNumber /></Form.Item><Form.Item name="oz" label="Z"><InputNumber /></Form.Item></Space>
         <Space><Form.Item name="dx" label="方向 X"><InputNumber /></Form.Item><Form.Item name="dy" label="Y"><InputNumber /></Form.Item><Form.Item name="dz" label="Z"><InputNumber /></Form.Item></Space></Form>
     </CommandDialog>
-    <CommandDialog id="version" open={versionOpen} title="创建命名版本" onClose={() => setVersionOpen(false)}
+    <CommandDialog size="S" id="version" open={versionOpen} title="创建命名版本" onClose={() => setVersionOpen(false)}
       onConfirm={async () => createVersion(await versionForm.validateFields())}>
       <Form form={versionForm} layout="vertical"><Form.Item name="name" label="版本名称" rules={[{ required: true }]}><Input placeholder="V1 - Initial concept" /></Form.Item>
         <Form.Item name="description" label="说明"><Input.TextArea rows={3} /></Form.Item></Form>

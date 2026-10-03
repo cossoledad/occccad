@@ -149,7 +149,6 @@ export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { t
   | {type:"ADD_EXTERNAL_GEOMETRY";externalId:string;geometryKey:string;topologyId:number;topologyKind:"EDGE"|"VERTEX";sourceVersionId:string}
   | {type:"RECONNECT_EXTERNAL_GEOMETRY";externalId:string;geometryKey:string;topologyId:number;topologyKind:"EDGE"|"VERTEX";sourceVersionId:string}
   | {type:"DETACH_EXTERNAL_GEOMETRY";externalId:string}
-  | { type: "UPDATE_CONSTRAINT_PLACEMENT"; constraintId: string; labelPosition: SketchPoint2 }
   | { type: "UPDATE_CONSTRAINT_VALUE"; constraintId: string; value: number }
   | {type:"CREATE_POLYGON";operationId:string;point:SketchPoint2;value:number;angle:number;sides:number;mode:"INSCRIBED"|"CIRCUMSCRIBED";role:"PROFILE"|"CONSTRUCTION";firstReference?:SketchGeometryRef}
   | { type: "ADD_RECTANGLE"; first: SketchPoint2; second: SketchPoint2; firstReference?: SketchGeometryRef; secondReference?: SketchGeometryRef }

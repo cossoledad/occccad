@@ -1,5 +1,6 @@
-import { clampPanelPosition, normalizePanelPosition } from "../../utils/panel-position";
+import { clampPanelPosition, normalizePanelPosition, initialCommandPanelPosition } from "../../utils/panel-position";
 import {useOperationFeedback} from "../command/operation-feedback";
+import {commandPanelWidths,type CommandPanelSize} from "../../design/visual-tokens";
 import { CloseOutlined } from "@ant-design/icons";
 import {createPortal} from "react-dom";
 import { App, Button } from "antd";
@@ -97,28 +98,33 @@ export function ToolbarGroup({ children }: PropsWithChildren) {
 export function ToolbarSeparator() { return <span className="cad-toolbar-separator" aria-hidden />; }
 
 export function CommandDialog({ id, open, title, children, onClose, onConfirm, confirmText = "确定",
-  cancelText = "取消", confirmLoading = false, confirmDisabled = false, width = 320,footer=true }: PropsWithChildren<{
+  cancelText = "取消", confirmLoading = false, confirmDisabled = false, size = "M",footer=true }: PropsWithChildren<{
   id: string; open: boolean; title: ReactNode; onClose: () => void; onConfirm: () => void | Promise<void>;
-  confirmText?: string; cancelText?: string; confirmLoading?: boolean; confirmDisabled?: boolean; width?: number;footer?:boolean;
+  confirmText?: string; cancelText?: string; confirmLoading?: boolean; confirmDisabled?: boolean; size?:CommandPanelSize;footer?:boolean;
 }>) {
   const feedback=useOperationFeedback();
   const savedPosition = useUIPreferences((state) => state.commandDialogPositions[id]);
   const savePosition = useUIPreferences((state) => state.setCommandDialogPosition);
-  const [position, setPosition] = useState(() => normalizePanelPosition(savedPosition) ?? { x: 360, y: 144 });
+  const width=commandPanelWidths[size];
+  const placed=useRef(Boolean(normalizePanelPosition(savedPosition)));
+  const [position, setPosition] = useState(() => normalizePanelPosition(savedPosition) ?? { x: 16, y: 16 });
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
   const closeRef = useRef(onClose); closeRef.current = onClose;
   const dialog = useRef<HTMLElement>(null);
-  const [overlayHost,setOverlayHost]=useState<HTMLElement|null>(null);
+  const [overlayHost,setOverlayHost]=useState<HTMLElement|null>(()=>typeof document!=="undefined"?document.querySelector?.<HTMLElement>('[data-command-overlay-host]')??null:null);
   useEffect(()=>{if(open)setOverlayHost(document.querySelector<HTMLElement>('[data-command-overlay-host]'));},[open]);
   const positionRef = useRef(position); positionRef.current = position;
   const drag = useRef<{ pointerId: number; offsetX: number; offsetY: number } | undefined>(undefined);
   useEffect(() => {
-    if (!open || !dialog.current?.parentElement) return;
+    if (!open || !overlayHost || dialog.current?.parentElement !== overlayHost) return;
     const element = dialog.current;
     const parent = element.parentElement!;
     const keepInBounds = () => {
-      const next = clampPanelPosition(positionRef.current, element.getBoundingClientRect(), parent.getBoundingClientRect());
+      const host=parent.getBoundingClientRect(),panel=element.getBoundingClientRect();
+      const viewport=parent.querySelector<HTMLElement>(".viewport-frame")?.getBoundingClientRect()??host;
+      const next=placed.current?clampPanelPosition(positionRef.current,panel,host):initialCommandPanelPosition(panel,host,{left:viewport.left-host.left,top:viewport.top-host.top,width:viewport.width,height:viewport.height},size==="L");
+      placed.current=true;
       if (next.x !== positionRef.current.x || next.y !== positionRef.current.y) {
         positionRef.current = next; setPosition(next);
       }
@@ -127,11 +133,11 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
     const observer = new ResizeObserver(keepInBounds);
     observer.observe(parent); observer.observe(element);
     const previousFocus = document.activeElement;
-    element.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
+    element.querySelector<HTMLElement>(".cad-command-dialog-body input:not(:disabled):not([readonly]):not([type=hidden]), .cad-command-dialog-body textarea:not(:disabled):not([readonly]), .cad-command-dialog-body select:not(:disabled), .cad-command-dialog-body button:not(:disabled)")?.focus({preventScroll:true});
     const keyDown = (event: globalThis.KeyboardEvent) => {
       const topmost = [...document.querySelectorAll(".cad-command-dialog")].at(-1);
       if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229 && !event.defaultPrevented && topmost === element
-        && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
+        && !document.querySelector('[role="dialog"][aria-modal="true"], .ant-dropdown:not(.ant-dropdown-hidden), .ant-select-dropdown:not(.ant-select-dropdown-hidden)')) {
         event.preventDefault(); closeRef.current();
       }
     };
@@ -140,7 +146,7 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
       observer.disconnect(); window.removeEventListener("keydown", keyDown);
       if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus();
     };
-  }, [open,overlayHost]);
+  }, [open,overlayHost,size]);
   if (!open) return null;
   const pointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0) return;
@@ -170,7 +176,7 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
       if (!(error && typeof error === "object" && "errorFields" in error)) feedback(error,"命令");
     } finally { submittingRef.current = false; setSubmitting(false); }
   };
-  const content=<section ref={dialog} className="cad-command-dialog" role="dialog" aria-modal="false" aria-label={String(title)}
+  const content=<section ref={dialog} className="cad-command-dialog" role="dialog" aria-modal="false" aria-label={String(title)} data-panel-size={size}
     onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} onWheel={event=>event.stopPropagation()} onContextMenu={event=>event.stopPropagation()}
     onPointerMove={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onKeyDown={event=>{
       if(event.key!=="Escape")event.stopPropagation();
@@ -180,10 +186,10 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
         event.preventDefault();void confirm();
       }
     }}
-    style={{ left: position.x, top: position.y, width,maxWidth:"calc(100% - 16px)",maxHeight:"calc(100% - 16px)",display:"flex",flexDirection:"column" }}>
+    style={{ left: position.x, top: position.y, width }}>
     <header className="cad-command-dialog-header" style={{flexShrink:0}} onPointerDown={pointerDown} onPointerMove={pointerMove}
       onPointerUp={pointerUp} onPointerCancel={pointerUp} onLostPointerCapture={pointerUp}>
-      <strong>{title}</strong><button aria-label="关闭" title="关闭" onPointerDown={(event) => event.stopPropagation()}
+      <strong>{title}</strong><button aria-label="关闭" onPointerDown={(event) => event.stopPropagation()}
         onClick={onClose}><CloseOutlined /></button>
     </header>
     <div className="cad-command-dialog-body" style={{overflowY:"auto",minHeight:0}}>{children}</div>

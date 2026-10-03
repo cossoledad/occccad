@@ -7,7 +7,11 @@ export function normalizePanelPosition(value: unknown): PanelPosition | undefine
 export function clampPanelPosition(position: PanelPosition, panel: { width: number; height: number },
   container: { width: number; height: number }): PanelPosition {
   return {
-    x: Math.max(8, Math.min(position.x, container.width - panel.width - 8)),
-    y: Math.max(8, Math.min(position.y, container.height - panel.height - 8)),
+    x: Math.max(16, Math.min(position.x, container.width - panel.width - 16)),
+    y: Math.max(16, Math.min(position.y, container.height - panel.height - 16)),
   };
+}
+
+export function initialCommandPanelPosition(panel:{width:number;height:number},host:{width:number;height:number},viewport:{left:number;top:number;width:number;height:number},large=false):PanelPosition {
+ return clampPanelPosition({x:large?(host.width-panel.width)/2:viewport.left+viewport.width-panel.width-16,y:viewport.top+16},panel,host);
 }

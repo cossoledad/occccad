@@ -799,26 +799,6 @@ func applySketchOperationsCandidate(sketch *SketchFeature, operations []SketchOp
 			if !found {
 				return fmt.Errorf("%w: selected sketch constraint does not exist", ErrValidation)
 			}
-		case "UPDATE_CONSTRAINT_PLACEMENT":
-			if operation.ConstraintID == "" || operation.LabelPosition == nil ||
-				!finite(operation.LabelPosition.X) || !finite(operation.LabelPosition.Y) {
-				return fmt.Errorf("%w: UPDATE_CONSTRAINT_PLACEMENT requires a constraint and finite position", ErrValidation)
-			}
-			found := false
-			for index := range sketch.Constraints {
-				if sketch.Constraints[index].ID != operation.ConstraintID {
-					continue
-				}
-				if !isDimensionalConstraint(sketch.Constraints[index].Kind) {
-					return fmt.Errorf("%w: only dimensional constraints have a placement", ErrValidation)
-				}
-				sketch.Constraints[index].LabelPosition = operation.LabelPosition
-				found = true
-				break
-			}
-			if !found {
-				return fmt.Errorf("%w: selected constraint does not exist", ErrValidation)
-			}
 		case "DELETE_CONSTRAINT":
 			if err := deleteSketchConstraint(sketch, operation); err != nil {
 				return err

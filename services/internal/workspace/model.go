@@ -328,7 +328,6 @@ type SketchOperation struct {
 	ParameterKey        string                     `json:"parameterKey,omitempty"`
 	RestoreMode         string                     `json:"restoreMode,omitempty"`
 	ConstraintID        string                     `json:"constraintId,omitempty"`
-	LabelPosition       *SketchPoint2              `json:"labelPosition,omitempty"`
 	Value               *float64                   `json:"value,omitempty"`
 	First               *SketchPoint2              `json:"first,omitempty"`
 	Second              *SketchPoint2              `json:"second,omitempty"`

@@ -9,7 +9,7 @@ const POINTER_BUTTONS = [
 
 export function isEditableTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  return target.isContentEditable || Boolean(target.closest("input, textarea, select, button, [role='button'], [role='tree'], [role='dialog'], [contenteditable='true']"));
+  return target.isContentEditable || Boolean(target.closest("input, textarea, select, button, [role='button'], [role='tree'], [role='menu'], [role='menuitem'], [role='tab'], [role='listbox'], [role='combobox'], [role='dialog'], [contenteditable='true']"));
 }
 
 export type ModalInputHandlers={keyDown?:(event:KeyboardEvent)=>InputResult;keyUp?:(event:KeyboardEvent)=>InputResult};
@@ -163,7 +163,12 @@ export class InputManager {
       editableTarget: isEditableTarget(event.target), isComposing:event.isComposing||event.keyCode===229, state, originalEvent: event };
     const modalResult=this.modalInput.keyDown?.(event)??InputResult.Ignored;
     if(isHandled(modalResult)){event.preventDefault();event.stopImmediatePropagation();return;}
-    if(event.defaultPrevented||event.isComposing||event.keyCode===229||normalized.editableTarget)return;
+    // A closed toolbar control returns Escape to the existing tool route;
+    // an expanded trigger/menu owns its first Escape. Text and dialogs stay isolated.
+    const toolbarEscape=event.key==="Escape"&&event.target instanceof HTMLElement
+      &&event.target.closest("[data-cad-tool-control]")&&event.target.getAttribute("aria-expanded")!=="true";
+    if(event.defaultPrevented||event.isComposing||event.keyCode===229||normalized.editableTarget&&!toolbarEscape)return;
+    if(toolbarEscape)normalized.editableTarget=false;
     const result = this.sink.keyDown?.(normalized) ?? InputResult.Ignored;
     if (result === InputResult.ReleaseCapture || event.key==="Escape"&&isHandled(result)) this.resetInput();
     if (isHandled(result)) event.preventDefault();

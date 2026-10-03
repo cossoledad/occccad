@@ -64,7 +64,7 @@ function load(file){
  function find(tree,type){if(!tree)return;if(Array.isArray(tree)){for(const child of tree){const result=find(child,type);if(result)return result;}}else if(tree.type===type)return tree;else return find(tree.props?.children,type);}
  try{
   const {Table,Tabs}=require("antd");let tree=renderControlled(),table=find(tree,Table);
-  assert.equal(tree.props.width,900);assert.equal(table.props.scroll.x,720);
+  assert.equal(tree.props.size,"L");assert.equal(table.props.scroll.x,720);
   const row=table.props.dataSource.find(r=>r.name==="螺栓");table.props.onRow(row).onClick();tree=renderControlled();assert.equal(shown.at(-1).bodyId,"b");
   assert.doesNotMatch(JSON.stringify(tree),/显示运动方向|方向详情/);
   table=find(tree,Table);table.props.columns.at(-1).render(undefined,row).props.onClick({stopPropagation(){}});renderControlled();assert.equal(shown.at(-1).bodyId,"b");assert.equal(located.at(-1),"b");

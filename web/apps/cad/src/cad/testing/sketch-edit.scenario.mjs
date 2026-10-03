@@ -177,8 +177,21 @@ try{
   Object.assign(dimensionSession,{dimensionDrag:{selection:{featureId:"sketch"},constraint:{id:"driver"},position:[3,4],scopeKey:"old-revision"},
     activeSketchID:"sketch",tools:{activeToolID:"select"},sketchView:()=>({document:{id:"part",versionId:"head"}}),clearSnapPreview:()=>{},dimensionGestureScope:()=>"changed-revision",clearReferencePreview:()=>{},invalidate:()=>{},callbacks:{sketchOperations:(...args)=>placementCommits.push(args)}});
   dimensionSession.finishDimensionDrag();assert.equal(placementCommits.length,0);assert.equal(dimensionSession.dimensionDrag,undefined,"actual viewport session cancels late label commit on revision/occurrence scope change");
-  dimensionSession.dimensionDrag={selection:{featureId:"sketch"},constraint:{id:"driver"},position:[3,4],scopeKey:"changed-revision"};dimensionSession.finishDimensionDrag();await new Promise(resolve=>setImmediate(resolve));
-  assert.deepEqual(placementCommits.at(-1),["sketch",[{type:"UPDATE_CONSTRAINT_PLACEMENT",constraintId:"driver",labelPosition:{x:3,y:4}}],{requestId:placementCommits.at(-1)?.[2]?.requestId,baseVersionId:"head"}],"label drag only writes placement, never model quantity");
+  const {useUIPreferences,sketchLabelPositionKey}=await server.ssrLoadModule('/src/state/ui-preferences.ts');
+  const {SelectionIndex}=await server.ssrLoadModule('/src/cad/interaction/selection-index.ts');
+  const {CadMaterialFactory}=await server.ssrLoadModule('/src/cad/rendering/cad-material-factory.ts');
+  const {CadShaderLibrary}=await server.ssrLoadModule('/src/cad/rendering/shader/cad-shader-library.ts');
+  const THREE=await import('three');
+  globalThis.document={createElement:()=>({width:0,height:0,getContext:()=>({measureText:t=>({width:t.length*16}),fillText(){}})})};
+  const driver={id:"driver",kind:"LENGTH",value:10,unit:"mm",references:[{target:"ENTITY",entityId:"line",subElement:"WHOLE"}]};
+  const fixture={document:{id:"part",versionId:"head"},part:{features:[{id:"sketch",sketch:{entities:[{id:"line",kind:"LINE",start:{x:0,y:0},end:{x:10,y:0}}],constraints:[driver],solve:{}}}]}};
+  Object.assign(dimensionSession,{sketchView:()=>fixture,sketchPlane:"XY",selectionIndex:new SelectionIndex(),selectable:new Map(),materials:new CadMaterialFactory(new CadShaderLibrary()),renderer:{domElement:{clientWidth:800,clientHeight:600}}});
+  dimensionSession.dimensionDrag={selection:{id:"label",featureId:"sketch"},constraint:driver,position:[3,4],scopeKey:"changed-revision"};dimensionSession.finishDimensionDrag();
+  assert.equal(placementCommits.length,0,"label drag never sends a domain operation or modifies Undo/Redo");
+  assert.deepEqual(useUIPreferences.getState().sketchLabelPositions[sketchLabelPositionKey('part','sketch','driver')],{x:3,y:4});
+  assert.equal(driver.labelPosition,undefined,"display movement cannot mutate authoritative model");
+  assert.deepEqual(dimensionSession.displaySketchConstraint('part','sketch',driver).labelPosition,{x:3,y:4},"position survives ordinary display/model refresh");
+  assert.equal(dimensionSession.displaySketchConstraint('other','sketch',driver).labelPosition,undefined,"display positions are owner scoped");
   dimensionSession.activeSketchID="sketch";dimensionSession.dimensionConstraintAt=()=>({selection:{featureId:"sketch",constraintId:"unmeasurable"},constraint:{id:"unmeasurable",reference:true,unit:"mm"}});
   let unavailableDimensionEdited=false;dimensionSession.requestDimensionEdit=()=>{unavailableDimensionEdited=true;return true;};assert.equal(dimensionSession.editDimensionAt(5,6),true);assert(unavailableDimensionEdited,"unmeasurable reference remains editable for reference replacement and restoration");
 

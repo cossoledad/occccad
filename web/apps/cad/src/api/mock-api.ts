@@ -471,10 +471,6 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
       for (const operation of input.operations as SketchOperation[] ?? []) {
         if (operation.type==="ADD_ENTITY") sketch?.entities.push(operation.entity);
         if (operation.type==="ADD_CONSTRAINT") sketch?.constraints.push(operation.constraint);
-        if (operation.type==="UPDATE_CONSTRAINT_PLACEMENT" && sketch) {
-          const constraint=sketch.constraints.find((candidate)=>candidate.id===operation.constraintId);
-          if(constraint)constraint.labelPosition=operation.labelPosition;
-        }
         if (operation.type==="UPDATE_CONSTRAINT_VALUE" && sketch) {
           const constraint=sketch.constraints.find((candidate)=>candidate.id===operation.constraintId);
           if(constraint)constraint.value=operation.value;

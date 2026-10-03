@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Checkbox, Input, Select, Space, Typography } from "antd";
+import { Button, Checkbox, Form, Input, Select, Space, Typography } from "antd";
 import { formatDimensionValue, selectInitialDimensionValue } from "./dimension-value-format";
 import { SketchReferenceSelectionSession, type SketchReferenceSelectionBindings } from "./sketch-reference-selection-session";
 import { sketchCommitResultUnknown, type SketchCommitIntent } from "../tool/sketch-command-session";
@@ -163,19 +163,19 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
    await commit([dimensionDefinitionOperation(constraint,original,source,initialSource,name,readonly,restore,inputUnit)]);onClose();
   }finally{setUnknown(commitSession.current.unknown);setPending(false);}
  };
- return <CommandDialog id="sketch-dimension" open title={logical?`编辑${definition.label}约束`:`编辑${definition.label}尺寸`} onClose={close} onConfirm={submit} confirmDisabled={selecting!==undefined} confirmText={unknown?"重试确认":deleting?(logical?"删除约束":"删除尺寸"):"确定"} width={380}>
+ return <CommandDialog id="sketch-dimension" open title={logical?`编辑${definition.label}约束`:`编辑${definition.label}尺寸`} onClose={close} onConfirm={submit} confirmDisabled={selecting!==undefined} confirmText={unknown?"重试确认":deleting?(logical?"删除约束":"删除尺寸"):"确定"} size="S">
   <fieldset disabled={pending||unknown} style={{border:0,padding:0,margin:0,minWidth:0}}>
-  <div className="sketch-dimension-form">
+  <Form layout="vertical" component="div" className="sketch-dimension-form">
   {previewError&&<Typography.Text type="secondary" aria-live="polite">预览不可用：{previewError}</Typography.Text>}
   {unknown&&<Typography.Paragraph aria-live="polite">请求已发出；结果待确认。重试使用同一请求查询结果，草稿暂不可修改。关闭面板不撤销已发请求。</Typography.Paragraph>}
   {deleting?<Typography.Paragraph>{logical?"确认后正式删除此关系。":"确认后正式删除关系及其尺寸参数；存在表达式依赖时操作将原子拒绝。"}</Typography.Paragraph>:<>
-   {!logical&&<label className="sketch-dimension-value">值或表达式（{inputUnit}）
+   {!logical&&<Form.Item className="sketch-dimension-value" label={`值或表达式（${inputUnit}）`}>
     <Input autoFocus aria-label="尺寸值或表达式" value={source} disabled={pending||unknown||reference||readonly}
      onFocus={e=>selectInitialDimensionValue(e.currentTarget,valueFocused)} onChange={e=>setSource(e.target.value)}/>
-   </label>}
-   {!logical&&<label className="sketch-dimension-name">名称
+   </Form.Item>}
+   {!logical&&<Form.Item className="sketch-dimension-name" label="名称" layout="horizontal">
     <Input disabled={pending||unknown} aria-label="尺寸名称" value={name} placeholder="可选参数名称" onChange={e=>setName(e.target.value)}/>
-   </label>}
+   </Form.Item>}
    <div className="sketch-dimension-references" aria-label="作用对象">
     {references.map((ref,index)=><div className="sketch-dimension-reference" key={index}
       onMouseEnter={()=>{if(selecting===undefined)onHighlightReference?.(request.featureId,ref,index);}}
@@ -198,6 +198,6 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
    {!logical&&original?.reference&&!hasOriginal&&<Typography.Text type="secondary">此参考尺寸没有原驱动定义；恢复时需使用合法的当前测量。</Typography.Text>}
   </>}
   {original&&<div className="sketch-dimension-danger"><Button danger type="text" disabled={pending||unknown||selecting!==undefined} onClick={()=>setDeleting(!deleting)}>{deleting?"取消删除":logical?"删除约束":"删除尺寸"}</Button></div>}
-  </div></fieldset>
+  </Form></fieldset>
  </CommandDialog>;
 }

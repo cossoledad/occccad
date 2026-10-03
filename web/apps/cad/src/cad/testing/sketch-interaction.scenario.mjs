@@ -526,7 +526,7 @@ try {
   assert.equal(resolveSketchReference({ x: 10, y: 0 }, constraintEntities, identityProject, "SYMMETRY_CENTER")?.subElement,
     "DIRECTION");
   assert.equal(formatSketchDimensionValue(12.3456, "mm"), "12.35");
-  assert.equal(formatSketchDimensionValue(12.3456, "deg"), "12.3");
+  assert.equal(formatSketchDimensionValue(12.3456, "deg"), "12.35");
   assert.equal(perspectiveWorldUnitsPerPixel(200, 50, 800), perspectiveWorldUnitsPerPixel(100, 50, 800)*2,
     "sprite world scale must compensate camera depth to preserve screen pixels");
   assert.equal(axisDragWorldDelta(new THREE.Vector2(12,0),new THREE.Vector2(2,0)),6,

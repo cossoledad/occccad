@@ -1,3 +1,4 @@
+import { formatDisplayNumber } from "../../utils/display-number";
 export const SKETCH_INPUT_POLICY = {
   gridSpacing: 10,
   snapThresholdPixels: 11,
@@ -13,8 +14,7 @@ export function normalizeSketchDimensionValue(value: number, unit: "mm" | "deg")
 }
 
 export function formatSketchDimensionValue(value: number, unit: "mm" | "deg"): string {
-  const decimals = unit === "deg" ? SKETCH_INPUT_POLICY.angleDecimals : SKETCH_INPUT_POLICY.lengthDecimals;
-  return normalizeSketchDimensionValue(value, unit).toFixed(decimals).replace(/\.?0+$/u, "");
+  return formatDisplayNumber(value);
 }
 
 export function formatSketchDimension(value: number, unit: "mm" | "deg", prefix = ""): string {

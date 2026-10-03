@@ -33,7 +33,7 @@ export function AssemblyConflictPanel(p:Props){
  const definition=id?index.get(id):undefined,issue=id?problems.get(id):undefined;
  const act=(action:AssemblyConflictRepair)=>{if(definition)p.onRepair(engineeringMember(definition),action,revision);};
  const technicalText=technical?JSON.stringify({report:p.report,error:p.error,evidence:p.evidence},null,2):"";
- return <CommandDialog id="assembly-conflict-analysis" title={`装配状态 · ${overview.name}`} open={p.open} width={900} footer={false} onClose={p.onClose} onConfirm={p.onClose}>
+ return <CommandDialog id="assembly-conflict-analysis" title={`装配状态 · ${overview.name}`} open={p.open} size="L" footer={false} onClose={p.onClose} onConfirm={p.onClose}>
   <Space wrap style={{marginBottom:8}}><Tag>{overview.status}</Tag><span>定义 {overview.total}</span><span>停用 {overview.suppressed}</span><span>测量 {overview.measured}</span><span>断链 {overview.broken}</span><span>待更新 {overview.notUpdated}</span></Space>
   <Tabs size="small" activeKey={tab} onChange={value=>{setTab(value);setFilter("all");setSelected(undefined);p.onMotion?.(undefined);}} items={[{key:"issues",label:`待处理问题 (${overview.issues.length})`},{key:"all",label:"全部约束"},{key:"motion",label:"剩余运动"}]}/>
   <Space wrap style={{marginBottom:8}}><Input.Search placeholder="搜索名称或组件" allowClear value={search} onChange={e=>setSearch(e.target.value)} style={{width:220}}/>
@@ -47,7 +47,7 @@ export function AssemblyConflictPanel(p:Props){
   {definition&&tab!=="motion"&&<div style={{borderTop:"1px solid #53606b",paddingTop:8}}>
    <Typography.Text strong>{engineeringConstraintName(definition,p.view)}</Typography.Text><div>{issue?engineeringReason(issue):statuses[definition.evaluationStatus??""]??"尚无评价证据"}</div>
    <Space wrap><Button size="small" disabled={!p.canEdit} onClick={()=>act("EDIT")}>编辑</Button>
-    <Dropdown menu={{items:assemblyConflictRepairs(engineeringMember(definition),definition).filter(a=>a!=="EDIT").map(action=>({key:action,disabled:!p.canEdit,icon:<ContextMenuIcon/>,label:actions[action]})),onClick:info=>act(info.key as AssemblyConflictRepair)}}><Button size="small">更多操作</Button></Dropdown>
+    <Dropdown trigger={["click"]} placement="bottomLeft" classNames={{root:"cad-command-menu"}} menu={{items:assemblyConflictRepairs(engineeringMember(definition),definition).filter(a=>a!=="EDIT").map(action=>({key:action,disabled:!p.canEdit,icon:<ContextMenuIcon/>,label:actions[action]})),onClick:info=>act(info.key as AssemblyConflictRepair)}}><Button size="small">更多操作</Button></Dropdown>
     {issue?.members.map(member=>{const c=index.get(member.constraintId);return c&&member.constraintId!==definition.id?<Button key={member.constraintId} size="small" onClick={()=>p.onLocate(member,revision)}>{engineeringConstraintName(c,p.view)}</Button>:null;})}
    </Space>
   </div>}

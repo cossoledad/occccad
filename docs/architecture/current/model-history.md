@@ -48,6 +48,8 @@ HTTP transport DTO 在 API 边界转换为 `type_uri + schema_version + typed pa
 
 Part 支持草图、拉伸、STEP 基础实体与参数 literal/expression 更新；Product 支持插入、移动和引用策略。Specification Tree 是服务端模型投影：节点携带稳定领域 identity、owner 和允许的 capability，当前 Feature、Product Instance、Sketch Entity/Constraint 可按模型状态开放 `DELETE`，而 Document、Body、Origin、Datum Plane、Axis System/Axis 和引用子树默认受保护。删除仍是版本化 Domain Command；删除草图实体会在同一 `sketch.model` 变更中级联删除全部引用约束，删除 Feature 则先检查下游依赖。Undo/Redo 以根 Domain Transaction 为稳定 identity：Revert 指向根 intent，Reapply 指向根 intent 并消费一个具体 Revert。服务端按 actor 折叠有序 action log 计算 capability，因此连续 Undo 两步可按逆序 Redo 两步；新 Domain/Restore 形成 redo boundary，但不删除历史。API 返回的 `canUndo/canRedo` 来自同一状态折叠，Web 按它置灰。字段 digest 或依赖冲突不会覆盖后续编辑。
 
+尺寸标注位置属于浏览器显示偏好；拖动不形成模型命令、Revision 或历史。原 `UPDATE_CONSTRAINT_PLACEMENT` 草图操作已移除，不支持旧操作回放。创建尺寸时的初始标注位置继续作为定义中的显示默认值，改数量/表达式仍形成正式历史。
+
 ### 实时消息与同文档同步
 
 - `GET /api/realtime` 沿用 `occccad.realtime.v1`、session cookie、CSRF 和 Origin 校验；CAD 正式命令及 Preview 统一进入 realtime 控制面，资源查询和文件保持 HTTP。

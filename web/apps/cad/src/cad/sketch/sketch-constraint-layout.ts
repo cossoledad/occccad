@@ -77,7 +77,7 @@ function linearDimension(a: Vec2, b: Vec2, text: string, placement?: Vec2): Pick
     label: { text, direction, position: placement ?? add(midpoint(qa, qb), scale(normal, offset < 0 ? -2.5 : 2.5)) } };
 }
 
-function constraintText(constraint: SketchConstraint): string {
+export function sketchDimensionText(constraint: SketchConstraint): string {
   const measured = constraint.value === undefined ? "不可测" : formatSketchDimensionValue(constraint.value, constraint.unit ?? "mm");
   const value = constraint.reference ? `(${measured})` : measured;
   if (constraint.kind === "HORIZONTAL_DISTANCE") return `ΔX ${value}`;
@@ -163,7 +163,7 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
     if (a && b) {
       const projected: Vec2 = constraint.kind === "HORIZONTAL_DISTANCE" ? [b[0], a[1]] : [a[0], b[1]];
       const placement = constraint.labelPosition ? [constraint.labelPosition.x, constraint.labelPosition.y] as Vec2 : undefined;
-      const dimension = linearDimension(a, projected, constraintText(constraint), placement);
+      const dimension = linearDimension(a, projected, sketchDimensionText(constraint), placement);
       segments.push(...dimension.segments); segments[1] = [b, segments[1][1]]; label = dimension.label;
     }
   }
@@ -182,13 +182,13 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
         const t=((p[0]-line[0][0])*direction[0]+(p[1]-line[0][1])*direction[1])/length2;
         endpoints=[p,add(line[0],scale(direction,t))];}
     }
-    if(endpoints){const dimension = linearDimension(endpoints[0], endpoints[1], constraintText(constraint), placement);
+    if(endpoints){const dimension = linearDimension(endpoints[0], endpoints[1], sketchDimensionText(constraint), placement);
       segments.push(...dimension.segments); label = dimension.label;}
   }
   if (constraint.kind === "LENGTH") {
     const line = linePoints(constraint.references[0], entities);
     if (line) { const placement = constraint.labelPosition ? [constraint.labelPosition.x, constraint.labelPosition.y] as Vec2 : undefined;
-      const dimension = linearDimension(line[0], line[1], constraintText(constraint), placement); segments.push(...dimension.segments); label = dimension.label; }
+      const dimension = linearDimension(line[0], line[1], sketchDimensionText(constraint), placement); segments.push(...dimension.segments); label = dimension.label; }
   }
   if (constraint.kind === "RADIUS" || constraint.kind === "DIAMETER") {
     const circular = circularData(constraint.references[0], entities);
@@ -200,7 +200,7 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
       segments.push([opposite, first], ...arrow(first, sub(opposite, first)));
       if (constraint.kind === "DIAMETER") segments.push(...arrow(opposite, sub(first, opposite)));
       if (placement) segments.push([first, placement]);
-      label = { text: constraintText(constraint), direction: placement ? normalize(sub(placement, first)) : direction, position: placement ?? add(midpoint(first, opposite), scale([-direction[1], direction[0]], 3)) };
+      label = { text: sketchDimensionText(constraint), direction: placement ? normalize(sub(placement, first)) : direction, position: placement ?? add(midpoint(first, opposite), scale([-direction[1], direction[0]], 3)) };
     }
   }
   if (constraint.kind === "MAJOR_RADIUS" || constraint.kind === "MINOR_RADIUS") {
@@ -208,7 +208,7 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
     if (entity && ["ELLIPSE", "ELLIPTICAL_ARC"].includes(entity.kind) && entity.center) {
       const end = ellipsePoint(entity, constraint.kind === "MAJOR_RADIUS" ? 0 : Math.PI / 2);
       const placement = constraint.labelPosition ? [constraint.labelPosition.x, constraint.labelPosition.y] as Vec2 : undefined;
-      if (end) { const dimension = linearDimension([entity.center.x, entity.center.y], end, constraintText(constraint), placement);
+      if (end) { const dimension = linearDimension([entity.center.x, entity.center.y], end, sketchDimensionText(constraint), placement);
         segments.push(...dimension.segments); label = dimension.label; }
     }
   }
@@ -233,7 +233,7 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
       for (let index = 1; index < arc.length; index++) segments.push([arc[index - 1], arc[index]]);
       const labelPosition = placement ?? add(origin, [Math.cos((firstAngle + secondAngle) / 2) * (radius + 4), Math.sin((firstAngle + secondAngle) / 2) * (radius + 4)]);
       const radial = normalize(sub(labelPosition, origin));
-      label = { text: constraintText(constraint), position: labelPosition, direction: [-radial[1], radial[0]] };
+      label = { text: sketchDimensionText(constraint), position: labelPosition, direction: [-radial[1], radial[0]] };
     }
   }
   if (definition.dimension === "none") {

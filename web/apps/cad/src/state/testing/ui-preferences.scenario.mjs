@@ -12,13 +12,13 @@ try {
   assert.equal(normalizePanelPosition({ x: "20", y: 30 }), undefined);
   assert.equal(normalizePanelPosition({ x: Infinity, y: 30 }), undefined);
   assert.deepEqual(normalizePanelPosition({ x: 20, y: 30 }), { x: 20, y: 30 });
-  assert.deepEqual(clampPanelPosition({ x: 900, y: -50 }, { width: 300, height: 200 }, { width: 800, height: 600 }), { x: 492, y: 8 });
-  assert.deepEqual(clampPanelPosition({ x: 100, y: 100 }, { width: 500, height: 500 }, { width: 300, height: 300 }), { x: 8, y: 8 });
+  assert.deepEqual(clampPanelPosition({ x: 900, y: -50 }, { width: 300, height: 200 }, { width: 800, height: 600 }), { x: 484, y: 16 });
+  assert.deepEqual(clampPanelPosition({ x: 100, y: 100 }, { width: 500, height: 500 }, { width: 300, height: 300 }), { x: 16, y: 16 });
   // The same clamp works in the full workbench host, not a viewport-only box;
   // sidebar/resize changes do not move the header outside reachable bounds.
   const moved=clampPanelPosition({x:120,y:100},{width:700,height:480},{width:1400,height:900});
   assert.deepEqual(moved,{x:120,y:100});
-  assert.deepEqual(clampPanelPosition(moved,{width:700,height:480},{width:720,height:500}),{x:12,y:12});
+  assert.deepEqual(clampPanelPosition(moved,{width:700,height:480},{width:720,height:500}),{x:16,y:16});
   const { migrateTreeVisibilityOverrides, sketchTreeVisible, treeVisibilityOverride } = await server.ssrLoadModule("/src/cad/interaction/tree-visibility.ts");
   assert.deepEqual(normalizeToolbarLayout(undefined, "vertical"), { orientation: "vertical" });
   assert.deepEqual(normalizeToolbarLayout({ orientation: "horizontal", x: 18, y: 42 }, "vertical"),

@@ -1,3 +1,4 @@
+import {formatDisplayNumber} from "../../utils/display-number";
 import { ExportOutlined } from "@ant-design/icons";
 import { Button, Descriptions, List, Space, Spin, Tag, Typography } from "antd";
 import { CAD_WORKBENCHES } from "../../cad/workbench/cad-workbench";
@@ -146,8 +147,8 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
   }
   if (["face", "edge", "vertex"].includes(selection.kind)) {
     const format = (value: unknown): string => Array.isArray(value)
-      ? value.map((entry) => typeof entry === "number" ? Number(entry).toPrecision(7) : String(entry)).join(", ")
-      : typeof value === "number" ? Number(value).toPrecision(9) : String(value);
+      ? value.map((entry) => typeof entry === "number" ? formatDisplayNumber(entry) : String(entry)).join(", ")
+      : typeof value === "number" ? formatDisplayNumber(value) : String(value);
     if (topologyLoading || !topology) return <Spin size="small" tip="从 Geometry Worker 读取 B-Rep…" />;
     return <><div className="property-context-hint">OCCT B-Rep 拓扑属性</div><Descriptions column={1} size="small"
       bordered className="property-list" items={[
@@ -176,8 +177,8 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
     return <Descriptions column={1} size="small" bordered className="property-list" items={[
       { key: "type", label: "类型", children: selection.kind === "axis" ? `${selection.axis} Axis` : "Axis System" },
       { key: "name", label: "名称", children: axisSystem?.name ?? selection.id },
-      { key: "origin", label: "原点", children: axisSystem?.origin.join(", ") ?? "—" },
-      ...(direction ? [{ key: "direction", label: "方向", children: direction.join(", ") }] : []),
+      { key: "origin", label: "原点", children: axisSystem?.origin.map(value=>formatDisplayNumber(value)).join(", ") ?? "—" },
+      ...(direction ? [{ key: "direction", label: "方向", children: direction.map(value=>formatDisplayNumber(value)).join(", ") }] : []),
       { key: "reference", label: "引用路径", children: selection.occurrencePath || "Part root" },
     ]} />;
   }
@@ -224,13 +225,13 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
       { key: "activation", label: "激活状态", children: constraint?.suppressed ? "停用" : "激活" },
       { key: "mode", label: "模式", children: constraint?.mode ?? "DRIVING" },
       ...(constraint?.kind === "DISTANCE" ? [
-        {key:"offset-definition",label:"驱动偏移",children:`${constraint.value ?? 0} mm`},
+        {key:"offset-definition",label:"驱动偏移",children:`${formatDisplayNumber(constraint.value ?? 0)} mm`},
         {key:"offset-normal",label:"符号基准",children:constraint.distanceRelation === "SELECTED_PLANE_NORMAL_V1" ? "所选平面法向；双平面取第一元素；第一位置 − 第二位置" : constraint.distanceRelation === "UNSIGNED" || !constraint.distanceRelation ? "无符号无限支撑距离" : "历史第二法向约定"},
         {key:"offset-parameter",label:"长度参数",children:(constraint.quantityParameter) ? `${(constraint.quantityParameter)!.key}: ${(constraint.quantityParameter)!.source.expression?.sourceText ?? "Literal"}` : "Literal"},
       ] : []),
       ...(constraint?.kind === "ANGLE" ? [
         {key:"angle-relation",label:"角度关系",children:constraint.angleRelation ?? "FREE"},
-        {key:"angle-parameter",label:"角度参数",children:constraint.quantityParameter ? `${constraint.quantityParameter.key}: ${constraint.quantityParameter.source.expression?.sourceText??"Literal"}` : `${(constraint.value??0)*180/Math.PI}°`},
+        {key:"angle-parameter",label:"角度参数",children:constraint.quantityParameter ? `${constraint.quantityParameter.key}: ${constraint.quantityParameter.source.expression?.sourceText??"Literal"}` : `${formatDisplayNumber((constraint.value??0)*180/Math.PI)}°`},
       ]:[]),
       ...(constraint?.mode === "MEASURED" ? [{key:"measurement",label:"测量值",children:constraint.measuredValue === undefined ? "不可测" : constraint.kind === "ANGLE" ? `${constraint.measuredValue*180/Math.PI}°` : `${constraint.measuredValue} mm`}] : []),
       { key: "evaluation", label: "Evaluation", children: constraint?.evaluationStatus ?? "NOT_UPDATED" },
@@ -268,7 +269,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
 		{ key: "support-snapshot", label: "Support Snapshot", children: feature.sketch.support.dependencySnapshot?.manifestDigest.slice(0, 20) ?? "—" },
 		{ key: "support-diagnostic", label: "Support Diagnostic", children: feature.sketch.support.diagnosticCode ?? "—" },
 	  ] : [])] : []),
-    ...(feature?.length ? [{ key: "length", label: "长度", children: `${feature.length} mm` }] : []),
+    ...(feature?.length ? [{ key: "length", label: "长度", children: `${formatDisplayNumber(feature.length)} mm` }] : []),
 	...parameterItems(feature ? `parameter:${feature.id}:length` : undefined),
     ...(instance ? [{ key: "transform", label: "位移", children: instance.translation.map((value) => value.toFixed(2)).join(", ") }] : []),
   ]} />;

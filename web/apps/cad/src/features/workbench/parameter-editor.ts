@@ -1,3 +1,4 @@
+import {formatDisplayNumber} from "../../utils/display-number";
 import type { ParameterDefinition } from "../../types";
 
 const unitScale: Record<string, number> = {
@@ -8,15 +9,16 @@ const unitScale: Record<string, number> = {
 export function parameterDisplayValue(parameter: ParameterDefinition, preferredLengthUnit?: "mm" | "cm" | "m" | "in"): string {
   if (!parameter.evaluatedValue) return "—";
   const unit = preferredLengthUnit && isLengthParameter(parameter) ? preferredLengthUnit : parameter.displayUnit;
-  return `${(parameter.evaluatedValue.siValue * (unitScale[unit] ?? 1)).toPrecision(8)} ${unit}`;
+  return `${formatDisplayNumber(parameter.evaluatedValue.siValue * (unitScale[unit] ?? 1))} ${unit}`;
 }
 
-export function parameterSourceText(parameter: ParameterDefinition, inputUnit?: string): string {
+export function parameterSourceText(parameter: ParameterDefinition, inputUnit?: string, exact=false): string {
   if (parameter.source.expression) return parameter.source.expression.sourceText;
   if (parameter.source.external) return `Publication ${parameter.source.external.publicationId} @ ${parameter.source.external.resolvedRevisionId.slice(0, 12)}`;
   if (!parameter.source.literal) return "";
   const unit = inputUnit ?? parameter.displayUnit;
-  const value = Number((parameter.source.literal.siValue * (unitScale[unit] ?? 1)).toPrecision(12));
+  const number=parameter.source.literal.siValue * (unitScale[unit] ?? 1);
+  const value=exact?String(Number(number.toPrecision(12))):formatDisplayNumber(number);
   return inputUnit ? String(value) : `${value} ${unit}`;
 }
 
@@ -49,4 +51,18 @@ export function isLengthParameter(parameter: ParameterDefinition): boolean {
   const dimension = parameter.dimension;
   return dimension.Length === 1 && dimension.Mass === 0 && dimension.Time === 0 && dimension.Current === 0 &&
     dimension.Temperature === 0 && dimension.Amount === 0 && dimension.Luminous === 0 && !dimension.Semantic;
+}
+
+/** An untouched rounded literal is presentation, not an edit of the original Quantity. */
+export function parameterEditSource(parameter:ParameterDefinition,draft:string,inputUnit?:string):string {
+  return draft===parameterSourceText(parameter,inputUnit)?parameterSourceText(parameter,inputUnit,true):draft;
+}
+
+export function linearExtrudeLengthEditInput(draft:string,unit:string,originalLength:number,parameter?:ParameterDefinition):{length?:number;lengthExpression?:string} {
+  const shown=parameter?parameterSourceText(parameter,unit):formatDisplayNumber(originalLength/(({mm:1,cm:10,m:1000,in:25.4} as Record<string,number>)[unit]??1));
+  if(draft===shown){
+    if(parameter?.source.expression)return {lengthExpression:parameter.source.expression.sourceText};
+    return {length:originalLength};
+  }
+  return linearExtrudeLengthInput(draft,unit);
 }

@@ -1,13 +1,12 @@
+import { DISPLAY_DECIMAL_PLACES, formatDisplayNumber } from "../../utils/display-number";
 /** Presentation precision in the chosen display unit; never round stored Quantity. */
-export const DIMENSION_DECIMAL_PLACES = 6;
+export const DIMENSION_DECIMAL_PLACES = DISPLAY_DECIMAL_PLACES;
+export const formatDimensionValue = formatDisplayNumber;
 
-export function formatDimensionValue(value: number): string {
-  if (!Number.isFinite(value)) return "";
-  const rounded = Number(value.toFixed(DIMENSION_DECIMAL_PLACES));
-  // Preserve meaningful tiny values instead of displaying a false zero.
-  return rounded === 0 && value !== 0
-    ? Number(value.toPrecision(DIMENSION_DECIMAL_PLACES)).toString()
-    : rounded.toString();
+/** Format numeric annotation text from display artifacts without touching names or expressions. */
+export function formatDimensionLabelText(text:string):string {
+  const match=text.match(/^((?:Δ[XY]|R|Ø|[ab])?\s*\(?)([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)(\)?(?:°|\s*(?:mm|cm|m|in|deg|rad))?)$/iu);
+  return match?`${match[1]}${formatDisplayNumber(Number(match[2]))}${match[3]}`:text;
 }
 
 /** Only initial focus selects all: returning from the viewport preserves the caret. */
