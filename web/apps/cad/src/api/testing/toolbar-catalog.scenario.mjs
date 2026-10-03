@@ -12,10 +12,10 @@ try {
   assert.ok(toolbars.some((toolbar) => toolbar.id === "sketch-projection"));
   assert.ok(toolbars.some((toolbar) => toolbar.id === "product-interface"));
   assert.ok(toolbars.some((toolbar) => toolbar.id === "view-navigation"));
-  assert.ok(toolbars.every((toolbar) => new Set(toolbar.items.map((item) => item.groupKey)).size <= 1),
+  assert.ok(toolbars.every((toolbar) => toolbar.items.every(item=>item.groupKey==="primary"||item.groupKey.startsWith("variants:"))),
     "one toolbar must represent one user-intent category");
   const commands = toolbars.flatMap((toolbar) => toolbar.items);
-  assert.ok(commands.some((item) => item.commandId === "sketch.normal"));
+  assert.ok(!commands.some((item) => item.commandId === "sketch.normal"));
   assert.equal(commands.some((item) => item.commandId === "capture.settings"), false,
     "capture settings belong to the global preference center");
   assert.equal(commands.some((item) => item.commandId === "navigation.profile.toggle"), false,

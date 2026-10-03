@@ -1,9 +1,11 @@
+import {CheckOutlined, DownOutlined} from "@ant-design/icons";
+import {toolbarVariantGroups,toolbarVariantDefault,rememberToolbarVariant,type ToolbarVariantGroup} from "./toolbar-variants";
 import { COMMAND_SHORTCUTS, commandShortcutLabel } from "../../cad/command/command-shortcuts";
 import { SearchOutlined, QuestionCircleOutlined } from "@ant-design/icons";
-import { App, Button, Empty, Input, Modal, Segmented } from "antd";
+import { App, Button, Empty, Input, Modal, Segmented, Dropdown } from "antd";
 import { Fragment, useEffect, useState, useSyncExternalStore } from "react";
 import { useUIHelp } from "../../cad/help/ui-help-context";
-import { useCommandRegistry } from "../../cad/command/command-context";
+import { useCommandRegistry,useCommandState } from "../../cad/command/command-context";
 import { CadIcon, type CadIconName } from "../../cad/overlay/cad-icons";
 import { ToolButton } from "../../cad/overlay/tool-button";
 import { CAD_WORKBENCHES, type CadWorkbenchID } from "../../cad/workbench/cad-workbench";
@@ -47,9 +49,8 @@ export function WorkbenchCommands({ toolbars, workbench }: {
     </div>
     <div className="workbench-command-groups" aria-label="工作台命令">
       {groups.map((toolbar) => <section key={toolbar.id} className="workbench-command-group" aria-label={toolbar.name}>
-        <div className="workbench-command-items">{toolbar.items.map((item) => <ToolButton key={item.commandId}
-          command={item.commandId} repeatable={item.repeatable} showLabel icon={<CadIcon name={item.iconKey as CadIconName} />}
-          tooltip={item.name} toolbarName={toolbar.name} helpText={item.helpText} />)}
+        <div className="workbench-command-items">{toolbarVariantGroups(toolbar.items.filter(item=>registry.state(item.commandId).visible)).map(group=>
+          <ToolbarVariantButton key={group.key} group={group} toolbarName={toolbar.name}/>)}
 
         </div>
         <span className="workbench-command-group-name">{toolbar.name}</span>
@@ -83,10 +84,26 @@ export function WorkbenchCommands({ toolbars, workbench }: {
   </header>;
 }
 
+function ToolbarVariantButton({group,toolbarName}:{group:ToolbarVariantGroup;toolbarName:string}){
+ const registry=useCommandRegistry(),feedback=useOperationFeedback(),uiHelp=useUIHelp();
+ const [,refresh]=useState(0),item=toolbarVariantDefault(group);
+ if(group.items.length===1)return <ToolButton command={item.commandId} repeatable={item.repeatable} showLabel icon={<CadIcon name={item.iconKey as CadIconName}/>} tooltip={item.name} toolbarName={toolbarName} helpText={item.helpText}/>;
+ return <span className={`workbench-tool-variants${registry.state(item.commandId).active?" active":""}`}>
+  <ToolButton command={item.commandId} repeatable={item.repeatable} showLabel icon={<CadIcon name={item.iconKey as CadIconName}/>} tooltip={item===group.items[0]?group.label:item.name} toolbarName={toolbarName} helpText={item.helpText}/>
+  <Dropdown trigger={["click"]} placement="bottomLeft" classNames={{root:"workbench-variants-menu"}} menu={{selectable:true,selectedKeys:[item.commandId],items:group.items.map(choice=>({key:choice.commandId,label:<span className="workbench-variant-label"><span>{choice.name}</span>{choice.commandId===item.commandId&&<CheckOutlined aria-label="当前方式"/>}</span>,icon:<CadIcon name={choice.iconKey as CadIconName}/>,disabled:!registry.state(choice.commandId).enabled&&!uiHelp.active})),onClick:({key})=>{
+   const choice=group.items.find(i=>i.commandId===key);if(!choice)return;
+   if(uiHelp.active){uiHelp.explain({toolbarName,commandName:choice.name,helpText:choice.helpText});return;}
+   if(!registry.state(key).enabled)return;
+   rememberToolbarVariant(group,key);refresh(n=>n+1);void registry.execute(key,{continuous:false}).catch(error=>feedback(error,"命令"));
+  }}}><Button className="workbench-variant-trigger" type="text" aria-label={`${group.label}方式`} size="small" icon={<DownOutlined/>}/></Dropdown>
+ </span>;
+}
+
 export function WorkbenchViewControls({ toolbars }: { toolbars: ToolbarCatalogEntry[] }) {
+  const sketching=useCommandState("sketch.finish").visible;
   return <div className="workbench-view-controls" role="toolbar" aria-label="视图快捷操作">
     {toolbars.filter((toolbar) => commandSection(toolbar) === "view").flatMap((toolbar) => toolbar.items.map((item) =>
       <ToolButton key={item.commandId} command={item.commandId} icon={<CadIcon name={item.iconKey as CadIconName} />}
-        tooltip={item.name} toolbarName={toolbar.name} helpText={item.helpText} />))}
+        tooltip={sketching&&item.commandId==="view.normal"?"正对草图平面":item.name} toolbarName={toolbar.name} helpText={sketching&&item.commandId==="view.normal"?"恢复当前草图支撑面的正视方向，保留缩放和关注区域。":item.helpText} />))}
   </div>;
 }

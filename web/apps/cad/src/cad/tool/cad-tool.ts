@@ -1,5 +1,6 @@
 import type { SketchCommandState, SketchCommitIntent, SketchCommitResult } from "./sketch-command-session";
 import { dimensionDefinitionOperation, dimensionDisplayValue, SketchDimensionCommitSession } from "../sketch/sketch-dimension-editor";
+import { formatDimensionValue } from "../sketch/dimension-value-format";
 import type { DisplayLengthUnit } from "../../state/ui-preferences";
 import { selectionModeForTool } from "../interaction/selection-mode";
 import type { CadKeyboardEvent, CadPointerEvent } from "../input/input-types";
@@ -534,12 +535,69 @@ function polylineOperations(points:Vec2[],closed:boolean,role:"PROFILE"|"CONSTRU
   return operations;
 }
 
-export class RegularPolygonSketchTool extends TwoClickSketchTool {
-  readonly id="sketch.polygon";readonly firstPrompt="正六边形：单击中心";readonly secondPrompt="正六边形：单击一个顶点；Esc 取消";
-  private vertices(center:Vec2,vertex:Vec2):Vec2[]{const radius=Math.hypot(vertex[0]-center[0],vertex[1]-center[1]);const start=Math.atan2(vertex[1]-center[1],vertex[0]-center[0]);return Array.from({length:6},(_,index)=>[center[0]+radius*Math.cos(start+index*Math.PI/3),center[1]+radius*Math.sin(start+index*Math.PI/3)]);}
-  preview(center:Vec2,vertex:Vec2,context:ToolContext):void {const vertices=this.vertices(center,vertex);context.viewport.showPolylinePreview(vertices,true);
-    context.viewport.showReferenceDimensions([{kind:"LINE",start:vertices[0],end:vertices[1]}]);}
-  commit(center:Vec2,vertex:Vec2,context:ToolContext):void {const operations=polylineOperations(this.vertices(center,vertex),true,this.role);const ids=operations.filter((item)=>item.type==="ADD_ENTITY").map((item)=>item.entity.id);for(let index=1;index<ids.length;index+=1){operations.push({type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"EQUAL",internal:true,references:[{target:"ENTITY",entityId:ids[0],subElement:"WHOLE"},{target:"ENTITY",entityId:ids[index],subElement:"WHOLE"}]}},{type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"ANGLE",internal:true,value:60,unit:"deg",references:[{target:"ENTITY",entityId:ids[index-1],subElement:"DIRECTION"},{target:"ENTITY",entityId:ids[index],subElement:"DIRECTION"}]}});}context.viewport.commitSketchOperations(operations);context.viewport.finishToolUse();}
+export function polygonVertices(center:Vec2,edge:Vec2,sides:number,mode:"INSCRIBED"|"CIRCUMSCRIBED"):Vec2[]{
+ const input=Math.hypot(edge[0]-center[0],edge[1]-center[1]),half=Math.PI/sides;
+ const radius=mode==="INSCRIBED"?input/Math.cos(half):input,angle=Math.atan2(edge[1]-center[1],edge[0]-center[0])-(mode==="INSCRIBED"?half:0);
+ return Array.from({length:sides},(_,i)=>[center[0]+radius*Math.cos(angle+i*2*Math.PI/sides),center[1]+radius*Math.sin(angle+i*2*Math.PI/sides)]);
+}
+export class RegularPolygonSketchTool extends SketchCreationTool {
+ readonly id:string;
+ private stage:"center"|"radius"|"sides"="center";
+ private center?:Vec2;private edge?:Vec2;private centerSnap?:SketchGeometryRef;private pointer?:number;
+ private sides="6";private operationId?:string;private error?:string;private phase:SketchCommandState["phase"]="selection";
+ constructor(private mode:"INSCRIBED"|"CIRCUMSCRIBED"="INSCRIBED"){super();this.id=mode==="INSCRIBED"?"sketch.polygon":"sketch.polygon.circumscribed";}
+ activate(context:ToolContext):void{this.publish(context);}
+ private publish(context:ToolContext):void{
+  const role=this.stage==="center"?"选择中心":this.stage==="radius"?"选择构造圆半径":"输入边数，Enter 完成";
+  context.viewport.setToolPrompt(`${this.mode==="INSCRIBED"?"内接":"外接"}多边形｜${role}`);
+  context.viewport.setSketchCommandState?.({toolId:this.id,operation:"多边形",phase:this.phase,role,selectedIds:[],references:this.centerSnap?[this.centerSnap]:[],presentation:"inline",fields:this.stage==="sides"?[{label:"边数",value:this.sides,unit:"scalar"}]:[],options:[],input:this.stage==="sides"?{id:this.operationId!,fieldIndex:0,modelAnchor:this.edge}:undefined,canConfirm:this.stage==="sides"&&!this.creationPending,next:role,error:this.error,preview:"approximate"});
+ }
+ private preview(context:ToolContext):void{
+  if(!this.center||!this.edge)return;const n=Number(this.sides);if(!Number.isInteger(n)||n<3||n>50)return;
+  context.viewport.showPolylinePreview(polygonVertices(this.center,this.edge,n,this.mode),true);
+  context.viewport.showReferenceDimensions([{kind:"CIRCLE",center:this.center,edge:this.edge}]);
+ }
+ private finish(context:ToolContext):void{
+  if(this.creationPending||this.stage!=="sides"||!this.center||!this.edge)return;
+  const sides=Number(this.sides);if(!Number.isInteger(sides)||sides<3||sides>50){this.error="边数必须是 3–50 的整数";this.publish(context);return;}
+  const operation:SketchOperation={type:"CREATE_POLYGON",operationId:this.operationId!,point:{x:this.center[0],y:this.center[1]},value:Math.hypot(this.edge[0]-this.center[0],this.edge[1]-this.center[1]),angle:Math.atan2(this.edge[1]-this.center[1],this.edge[0]-this.center[0]),sides,mode:this.mode,role:this.role,firstReference:this.centerSnap};
+  this.phase="committing";this.publish(context);
+  const owner=this.operationId;
+  this.submitCreation(context,submission=>{const result=submission.viewport.commitSketchOperations([operation]);if(result&&typeof result.then==="function")void result.catch(error=>{if(owner!==this.operationId)return;this.phase=sketchCommitResultUnknown(error)?"unknown":"failed";this.error=error instanceof Error?error.message:String(error);this.publish(context);});},()=>{this.stage="center";this.center=undefined;this.edge=undefined;this.centerSnap=undefined;this.operationId=undefined;this.error=undefined;this.phase="selection";this.publish(context);});
+ }
+ commandAction(action:import("./sketch-command-session").SketchCommandAction,context:ToolContext):void{
+  if(action.type==="cancel"){this.cancel(context);context.viewport.finishToolUse(true);return;}if(this.creationPending)return;
+  if(action.type==="field"&&action.index===0){this.sides=action.value;this.error=undefined;this.preview(context);this.publish(context);}
+  if(action.type==="confirm")this.finish(context);
+  if(action.type==="back"){this.stage=this.stage==="sides"?"radius":"center";this.publish(context);}
+ }
+ pointerDown(event:CadPointerEvent,context:ToolContext):InputResult{
+  if(event.button!==0||event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;if(this.creationPending)return InputResult.Consumed;
+  const point=context.viewport.sketchPoint(event.x,event.y);if(!point)return InputResult.Consumed;this.pointer=event.pointerId;
+  if(this.stage==="center"){this.center=point;this.edge=point;this.centerSnap=this.capturedSnap(event,context);this.operationId=randomUUID();this.stage="radius";this.phase="definition";this.publish(context);}
+  else if(this.stage==="radius"){if(Math.hypot(point[0]-this.center![0],point[1]-this.center![1])<SKETCH_INPUT_POLICY.minimumGeometryLength){this.error="半径必须大于零";this.publish(context);}else{this.edge=point;this.stage="sides";this.preview(context);this.publish(context);}}
+  else this.finish(context);
+  return InputResult.Capture;
+ }
+ pointerMove(event:CadPointerEvent,context:ToolContext):InputResult{
+  if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;if(this.creationPending)return InputResult.Consumed;
+  if(this.stage==="center"||this.stage==="radius"){
+   const p=context.viewport.sketchPoint(event.x,event.y);
+   if(p){if(this.stage==="center")context.viewport.showPointPreview(p);else{this.edge=p;this.preview(context);}}
+  }return InputResult.Consumed;
+ }
+ pointerUp(event:CadPointerEvent):InputResult{if(this.pointer!==event.pointerId)return InputResult.Ignored;this.pointer=undefined;return InputResult.ReleaseCapture;}
+ pointerCancel(event:CadPointerEvent,context:ToolContext):InputResult{if(this.pointer!==event.pointerId)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
+ keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult{
+  if(event.editableTarget)return InputResult.Ignored;if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);return InputResult.Consumed;}
+  if(this.creationPending||event.repeat)return InputResult.Consumed;
+  const shared=this.creationKey(event,context);if(shared!==InputResult.Ignored)return shared;
+  if(event.state?.modifiers.ctrl||event.state?.modifiers.meta||event.state?.modifiers.alt)return InputResult.Ignored;
+  if(event.key==="Enter"&&this.stage==="sides"){this.finish(context);return InputResult.Consumed;}
+  if(this.stage!=="center"&&/^[0-9]$/.test(event.key)){this.sides=this.sides==="6"?event.key:this.sides+event.key;this.preview(context);this.publish(context);return InputResult.Consumed;}return InputResult.Ignored;
+ }
+ deactivate(context:ToolContext):void{this.cancel(context);context.viewport.setSketchCommandState?.(undefined);}
+ cancel(context:ToolContext):void{this.invalidateCreationSubmission();this.stage="center";this.center=undefined;this.edge=undefined;this.centerSnap=undefined;this.pointer=undefined;this.operationId=undefined;this.error=undefined;this.phase="selection";context.viewport.clearToolPreview();this.publish(context);}
 }
 
 export class CircleSketchTool extends TwoClickSketchTool {
@@ -1270,7 +1328,7 @@ export class LinearDimensionSketchTool implements CadTool {
     const value=context.viewport.measureDimension(this.phase.kind,[...this.phase.references]);
     if(value===undefined||!Number.isFinite(value)){this.error="当前尺寸不可测；定义保持不变，请取消或重新选择";this.publish(context);return;}
     this.unit=context.viewport.currentLengthUnit?.()??"mm";
-    this.source=String(Number(dimensionDisplayValue(value,this.unit).toPrecision(12)));this.sourceEdited=false;this.inputGeneration++;
+    this.source=formatDimensionValue(dimensionDisplayValue(value,this.unit));this.sourceEdited=false;this.inputGeneration++;
     this.phase={...this.phase,step:"VALUE",position:[...position],value,constraintId:randomUUID()};this.preview(context);this.publish(context);
   }
   pointerDown(event:CadPointerEvent,context:ToolContext):InputResult {

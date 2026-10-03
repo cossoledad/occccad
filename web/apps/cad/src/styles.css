@@ -1069,3 +1069,26 @@ select {
   }
 
 }
+
+.workbench-tool-variants { display:inline-flex; align-items:center; height:33px; box-sizing:border-box; gap:0; border:1px solid transparent; border-radius:6px; transition:background .15s,border-color .15s; }
+.workbench-tool-variants:hover, .workbench-tool-variants:focus-within { background:#f4f6f6; border-color:#c0cbd0; }
+.workbench-tool-variants.active { background:var(--cad-selected); border-color:#d98610; }
+.workbench-tool-variants .cad-tool-button.ant-btn { height:31px; border:0; border-radius:5px 0 0 5px; background:transparent; }
+.workbench-tool-variants .cad-tool-button.ant-btn:hover { background:transparent; }
+.workbench-tool-variants .workbench-variant-trigger.ant-btn { width:22px; height:25px; padding:0; border-radius:0 4px 4px 0; color:#647580; border-inline-start:1px solid #dce3e7; }
+.workbench-variant-trigger .anticon { font-size:9px; }
+.workbench-variants-menu .ant-dropdown-menu { min-width:180px; padding:6px; border:1px solid #dce3e7; border-radius:8px; box-shadow:0 8px 24px #182b3b26; }
+.workbench-variants-menu .ant-dropdown-menu-item { min-height:36px; margin-block:2px; border-radius:5px; }
+.workbench-variants-menu .ant-dropdown-menu-item-icon { margin-inline-end:10px; }
+.workbench-variants-menu .ant-dropdown-menu-item-selected { background:var(--cad-selected); color:#263c49; }
+.workbench-variant-label { display:flex; align-items:center; justify-content:space-between; gap:24px; }
+.workbench-variant-label > .anticon { font-size:11px; }
+.sketch-dimension-form { display:grid; gap:14px; }
+.sketch-dimension-form label:not(.ant-checkbox-wrapper) { display:grid; gap:6px; color:#53636d; font-size:12px; }
+.sketch-dimension-value .ant-input { font-size:18px; font-variant-numeric:tabular-nums; }
+.sketch-dimension-references { display:grid; gap:10px; padding-block:12px; border-block:1px solid #e5eaed; }
+.sketch-dimension-reference { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.sketch-dimension-reference > div:first-child { min-width:0; }
+.sketch-dimension-options { display:flex; flex-wrap:wrap; gap:16px; }
+.sketch-dimension-danger { display:flex; justify-content:flex-start; border-top:1px solid #e5eaed; padding-top:6px; }
+.sketch-dimension-danger .ant-btn { padding-inline:0; }

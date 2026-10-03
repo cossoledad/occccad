@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, Checkbox, Collapse, Input, Select, Space, Typography } from "antd";
+import { Button, Checkbox, Input, Select, Space, Typography } from "antd";
+import { formatDimensionValue, selectInitialDimensionValue } from "./dimension-value-format";
 import { SketchReferenceSelectionSession, type SketchReferenceSelectionBindings } from "./sketch-reference-selection-session";
 import { sketchCommitResultUnknown, type SketchCommitIntent } from "../tool/sketch-command-session";
 import { millimetersToDisplayLength, type DisplayLengthUnit } from "../../state/ui-preferences";
@@ -88,7 +89,9 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
  const definition=constraintDefinition(kind);
  const parameter=view.part?.parameters?.find(p=>p.parameterId===original?.parameterId);
  const [inputUnit]=useState<DisplayLengthUnit|"deg">(()=>request.unit==="deg"?"deg":preferredLengthUnit??"mm");
- const initialSource=parameter?parameterSourceText(parameter,inputUnit):request.value===undefined?"":String(Number(dimensionDisplayValue(request.value,inputUnit).toPrecision(12)));
+ const parameterText=parameter?parameterSourceText(parameter,inputUnit):undefined;
+ const initialSource=parameter?.source.literal?formatDimensionValue(Number(parameterText)):parameterText??(request.value===undefined?"":formatDimensionValue(dimensionDisplayValue(request.value,inputUnit)));
+ const valueFocused=useRef<HTMLInputElement|null>(null);
  const [source,setSource]=useState(initialSource),[name,setName]=useState(parameter?.key??"");
  const [reference,setReference]=useState(original?.reference??false);
  const hasOriginal=!!parameter?.source.literal||!!parameter?.source.expression||!!parameter?.source.external;
@@ -162,32 +165,39 @@ export function SketchDimensionEditor({request,view,onClose,onSubmit,onSelectRef
  };
  return <CommandDialog id="sketch-dimension" open title={logical?`编辑${definition.label}约束`:`编辑${definition.label}尺寸`} onClose={close} onConfirm={submit} confirmDisabled={selecting!==undefined} confirmText={unknown?"重试确认":deleting?(logical?"删除约束":"删除尺寸"):"确定"} width={380}>
   <fieldset disabled={pending||unknown} style={{border:0,padding:0,margin:0,minWidth:0}}>
-  <Space direction="vertical" size="middle" style={{width:"100%"}}>
+  <div className="sketch-dimension-form">
   {previewError&&<Typography.Text type="secondary" aria-live="polite">预览不可用：{previewError}</Typography.Text>}
   {unknown&&<Typography.Paragraph aria-live="polite">请求已发出；结果待确认。重试使用同一请求查询结果，草稿暂不可修改。关闭面板不撤销已发请求。</Typography.Paragraph>}
   {deleting?<Typography.Paragraph>{logical?"确认后正式删除此关系。":"确认后正式删除关系及其尺寸参数；存在表达式依赖时操作将原子拒绝。"}</Typography.Paragraph>:<>
-  {!logical&&<>
-   <label>值或表达式（{inputUnit}）<Input aria-label="尺寸值或表达式" value={source} disabled={pending||unknown||reference||readonly} onChange={e=>setSource(e.target.value)}/></label>
-   <Checkbox disabled={pending||unknown} checked={reference} onChange={e=>setReference(e.target.checked)}>参考尺寸（测量，不驱动）</Checkbox>
-   {reference&&<Typography.Paragraph aria-live="polite">草稿测量：{measurement===undefined?"不可测":`${Number(dimensionDisplayValue(measurement,inputUnit).toPrecision(10))} ${inputUnit}`}。提交后由模型重新测量，保留原驱动定义。</Typography.Paragraph>}
+   {!logical&&<label className="sketch-dimension-value">值或表达式（{inputUnit}）
+    <Input autoFocus aria-label="尺寸值或表达式" value={source} disabled={pending||unknown||reference||readonly}
+     onFocus={e=>selectInitialDimensionValue(e.currentTarget,valueFocused)} onChange={e=>setSource(e.target.value)}/>
+   </label>}
+   {!logical&&<label className="sketch-dimension-name">名称
+    <Input disabled={pending||unknown} aria-label="尺寸名称" value={name} placeholder="可选参数名称" onChange={e=>setName(e.target.value)}/>
+   </label>}
+   <div className="sketch-dimension-references" aria-label="作用对象">
+    {references.map((ref,index)=><div className="sketch-dimension-reference" key={index}
+      onMouseEnter={()=>{if(selecting===undefined)onHighlightReference?.(request.featureId,ref,index);}}
+      onMouseLeave={()=>{if(selecting===undefined)onHighlightReference?.(request.featureId,undefined,index);}}>
+     <div><Typography.Text type="secondary">{definition.pickLabels[index]??"引用对象"}</Typography.Text>
+      <div><Typography.Text>{sketchReferenceLabel(ref,sketch?.entities??[])}</Typography.Text></div></div>
+     <Space size="small"><Button size="small" aria-label={`定位${definition.pickLabels[index]}`} disabled={pending||unknown||!onLocateReference} onClick={()=>onLocateReference?.(request.featureId,ref,index)}>定位</Button>
+      {logical&&<Button size="small" aria-label={`${selecting===index?"取消更换":"更换"}${definition.pickLabels[index]}`} type={selecting===index?"primary":"default"} disabled={pending||unknown||!onSelectReference} onClick={()=>selecting===index?cancelSelection():replace(index)}>{selecting===index?"取消更换":"更换"}</Button>}
+     </Space>
+    </div>)}
+   </div>
+   {selecting!==undefined&&<Typography.Paragraph aria-live="polite">请在草图中选择{definition.pickLabels[selecting]}；Esc 取消此次更换，保留草稿。</Typography.Paragraph>}
+   <div className="sketch-dimension-options">
+    {!logical&&<Checkbox disabled={pending||unknown} checked={reference} onChange={e=>setReference(e.target.checked)}>参考尺寸</Checkbox>}
+    {original&&<Checkbox disabled={pending||unknown} checked={suppressed} onChange={e=>setSuppressed(e.target.checked)}>停用</Checkbox>}
+   </div>
+   {!logical&&reference&&<Typography.Text type="secondary" aria-live="polite">草稿测量：{measurement===undefined?"不可测":`${formatDimensionValue(dimensionDisplayValue(measurement,inputUnit))} ${inputUnit}`} · 不驱动几何</Typography.Text>}
    {readonly&&<Typography.Text type="secondary">外部来源只读。</Typography.Text>}
-   {original?.reference&&!reference&&<label>恢复驱动<Select disabled={pending||unknown} aria-label="恢复驱动规则" style={{width:"100%"}} value={restore} onChange={setRestore} options={[{value:"ORIGINAL",label:"恢复原驱动定义",disabled:!hasOriginal},{value:"MEASUREMENT",label:"显式使用当前测量",disabled:readonly||measurement===undefined}]}/></label>}
-   {original?.reference&&!hasOriginal&&<Typography.Text type="secondary">此参考尺寸没有原驱动定义；恢复时需使用合法的当前测量。</Typography.Text>}
+   {!logical&&original?.reference&&!reference&&<label>恢复驱动<Select disabled={pending||unknown} aria-label="恢复驱动规则" style={{width:"100%"}} value={restore} onChange={setRestore} options={[{value:"ORIGINAL",label:"恢复原驱动定义",disabled:!hasOriginal},{value:"MEASUREMENT",label:"显式使用当前测量",disabled:readonly||measurement===undefined}]}/></label>}
+   {!logical&&original?.reference&&!hasOriginal&&<Typography.Text type="secondary">此参考尺寸没有原驱动定义；恢复时需使用合法的当前测量。</Typography.Text>}
   </>}
-  {references.map((ref,index)=><div key={index} onMouseEnter={()=>{if(selecting===undefined)onHighlightReference?.(request.featureId,ref,index);}} onMouseLeave={()=>{if(selecting===undefined)onHighlightReference?.(request.featureId,undefined,index);}}>
-   <Typography.Text strong>{`#${index+1} `}{definition.pickLabels[index]??`引用 ${index+1}`}</Typography.Text>
-   <div><Typography.Text>{sketchReferenceLabel(ref,sketch?.entities??[])}</Typography.Text></div>
-   <Space><Button size="small" aria-label={`定位${definition.pickLabels[index]}`} disabled={pending||unknown||!onLocateReference} onClick={()=>onLocateReference?.(request.featureId,ref,index)}>定位</Button>
-   <Button size="small" aria-label={`${selecting===index?"取消更换":"更换"}${definition.pickLabels[index]}`} type={selecting===index?"primary":"default"} disabled={pending||unknown||!onSelectReference} onClick={()=>selecting===index?cancelSelection():replace(index)}>{selecting===index?"取消更换":"更换"}</Button></Space>
-  </div>)}
-  {selecting!==undefined&&<Typography.Paragraph aria-live="polite">请在草图中选择{definition.pickLabels[selecting]}；Esc 取消此次更换，保留尺寸草稿。</Typography.Paragraph>}
-  </>}
-  <Collapse size="small" items={[{key:"secondary",label:"更多设置",children:<Space direction="vertical" style={{width:"100%"}}>
-   {!logical&&<label>名称<Input disabled={pending||unknown} aria-label="尺寸名称" value={name} placeholder="可选参数别名" onChange={e=>setName(e.target.value)}/></label>}
-   {original&&<Checkbox disabled={pending||unknown} checked={suppressed} onChange={e=>setSuppressed(e.target.checked)}>停用</Checkbox>}
-   {original&&<Button danger type="text" disabled={pending||unknown||selecting!==undefined} onClick={()=>setDeleting(!deleting)}>{deleting?"取消删除":logical?"删除此约束…":"删除此尺寸…"}</Button>}
-  </Space>}]}/>
-
-  </Space></fieldset>
+  {original&&<div className="sketch-dimension-danger"><Button danger type="text" disabled={pending||unknown||selecting!==undefined} onClick={()=>setDeleting(!deleting)}>{deleting?"取消删除":logical?"删除约束":"删除尺寸"}</Button></div>}
+  </div></fieldset>
  </CommandDialog>;
 }

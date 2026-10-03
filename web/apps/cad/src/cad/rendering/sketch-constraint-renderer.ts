@@ -44,14 +44,31 @@ export function makeConstraintDimensionLabel(text: string, toWorld?: (point: Vec
     const origin = toWorld([0, 0]), u = toWorld(d).sub(origin).normalize(), v = toWorld([-d[1], d[0]]).sub(origin).normalize();
     label.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, v, u.clone().cross(v).normalize()));
   }
+  const supportOrientation = label.quaternion.clone();
+  const halfTurn = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), Math.PI);
+  const baseline = new THREE.Vector3(), projectedStart = new THREE.Vector3(), projectedEnd = new THREE.Vector3();
   const screenWidth = canvas.width / 2, screenHeight = 24, worldPosition = new THREE.Vector3();
   label.userData.screenSize = { width: screenWidth, height: screenHeight };
   label.userData.sketchDimensionLabel = true;
-  // Update before rendering AND picking. Orientation belongs to the support
-  // plane; only scale follows zoom, so orbiting never billboards the text.
+  // Stay in the support plane and parallel to the leader. The only allowed
+  // camera-dependent change is a half-turn to keep the text readable.
   registerScreenLineUpdate(label, (camera, width, height) => {
     label.getWorldPosition(worldPosition);
     const worldPerPixel = worldUnitsPerCssPixel(camera, worldPosition, { cssWidth: width, cssHeight: height, devicePixelRatio: 1 });
+    if (toWorld) {
+      baseline.set(1, 0, 0).applyQuaternion(supportOrientation);
+      if (label.parent) baseline.transformDirection(label.parent.matrixWorld);
+      projectedStart.copy(worldPosition).project(camera);
+      projectedEnd.copy(worldPosition).addScaledVector(baseline, worldPerPixel * 16).project(camera);
+      const dx = (projectedEnd.x - projectedStart.x) * width;
+      const dy = (projectedEnd.y - projectedStart.y) * height;
+      const length = Math.hypot(dx, dy);
+      // Near vertical, prefer reading upwards; edge-on views keep the baseline.
+      const flip = Number.isFinite(length) && length > 1e-9
+        && (Math.abs(dx) <= length * 1e-6 ? dy < 0 : dx < 0);
+      label.quaternion.copy(supportOrientation);
+      if (flip) label.quaternion.multiply(halfTurn);
+    }
     label.scale.set(screenWidth * worldPerPixel, screenHeight * worldPerPixel, 1);
     label.updateMatrix(); label.updateMatrixWorld(true);
   });

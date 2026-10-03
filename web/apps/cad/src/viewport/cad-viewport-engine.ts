@@ -469,6 +469,7 @@ export class CadViewportEngine {
     this.tools.register(new ControlSplineSketchTool());
     this.tools.register(new RectangleSketchTool());
     this.tools.register(new RegularPolygonSketchTool());
+    this.tools.register(new RegularPolygonSketchTool("CIRCUMSCRIBED"));
     this.tools.register(new CenterRectangleSketchTool());
     this.tools.register(new OrientedRectangleSketchTool());
     this.tools.register(new ThreePointCircleSketchTool());

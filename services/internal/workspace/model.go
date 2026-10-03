@@ -319,6 +319,7 @@ type SketchFeature struct {
 	Solve            SketchSolveState         `json:"solve"`
 }
 type SketchOperation struct {
+	Sides               int                        `json:"sides,omitempty"`
 	Mode                string                     `json:"mode,omitempty"`
 	Type                string                     `json:"type"`
 	Entity              *SketchEntity              `json:"entity,omitempty"`

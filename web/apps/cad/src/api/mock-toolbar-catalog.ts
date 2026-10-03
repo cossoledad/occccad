@@ -34,19 +34,19 @@ export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: 
   ]),
   toolbar("sketch-lifecycle", "草图会话", "SKETCHER", "top-left", "sketch", 10, [
     ["sketch.finish", "退出草图", "finish"],
-    ["sketch.normal", "正对草图平面", "top-view", "恢复活动草图平面的正视方向，保留当前缩放和关注区域。"],
   ]),
   toolbar("sketch-projection", "外部几何", "SKETCHER", "top-left", "sketch", 20, [
     ["sketch.project", "投影", "project", undefined, true],
   ]),
   toolbar("sketch-primitives", "草图基本元素", "SKETCHER", "top-left", "sketch", 30, [
     ["sketch.point", "点", "point", undefined, true], ["sketch.line", "直线", "line", undefined, true],
-    ["sketch.arc", "圆弧", "arc", undefined, true], ["sketch.polyline", "多段线", "polyline", undefined, true],
+    ["sketch.polyline", "多段线", "polyline", undefined, true],
     ["sketch.spline", "拟合点样条", "spline", "采集拟合点并创建必须经过这些点的插值样条；双击或 Enter 完成。", true],
     ["sketch.spline.control", "控制点样条", "spline", "创建控制点 B-Spline，曲线不要求经过控制点；闭合缝不保证切向连续。", true, "more"],
   ]),
   toolbar("sketch-profiles", "草图轮廓", "SKETCHER", "top-left", "sketch", 40, [
-    ["sketch.rectangle", "矩形", "rectangle", undefined, true], ["sketch.polygon", "正六边形", "polygon", undefined, true],
+    ["sketch.rectangle", "矩形", "rectangle", undefined, true], ["sketch.polygon", "内接多边形", "polygon", "边与构造圆相切；边数 3–50。", true], ["sketch.polygon.circumscribed", "外接多边形", "polygon", "顶点位于构造圆上；边数 3–50。", true],
+    ["sketch.arc", "圆弧", "arc", undefined, true],
     ["sketch.circle", "圆", "circle", undefined, true],
     ["sketch.circle.three_point", "三点圆", "circle", "依次选择三个圆周点创建真实圆。", true, "more"],
     ["sketch.arc.three_point", "三点圆弧", "arc", "依次选择起点、经过点和终点，方向由经过点确定。", true, "more"],
@@ -119,3 +119,7 @@ export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: 
   ]),
   toolbar("debug", "诊断", "ALL", "bottom-right", "debug", 100, [["debug.download", "下载诊断包", "debug"]]),
 ] };
+
+const variantCommands:Record<string,string[]>={
+ spline:["sketch.spline","sketch.spline.control"],rectangle:["sketch.rectangle","sketch.rectangle.center","sketch.rectangle.oriented"],circle:["sketch.circle","sketch.circle.three_point"],arc:["sketch.arc","sketch.arc.three_point","sketch.elliptical_arc"],polygon:["sketch.polygon","sketch.polygon.circumscribed"],spline_control:["sketch.edit.spline_insert","sketch.edit.spline_delete","sketch.edit.spline_close","sketch.edit.spline_control"],linear:["sketch.dimension.linear","sketch.constraint.horizontal_distance","sketch.constraint.vertical_distance"],axis:["sketch.constraint.radius","sketch.constraint.diameter","sketch.constraint.major_radius","sketch.constraint.minor_radius"],angle:["sketch.constraint.angle"]};
+for(const toolbar of mockToolbarCatalog.toolbars)for(const item of toolbar.items){const family=Object.keys(variantCommands).find(key=>variantCommands[key].includes(item.commandId));if(family)item.groupKey=`variants:${family}`;}

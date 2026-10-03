@@ -67,7 +67,7 @@ import { ProductReleaseCenter } from "./product-release-center";
 
 const CadViewport = lazy(() => import("../../viewport/cad-viewport").then((module) => ({ default: module.CadViewport })));
 
-const sketchToolCommands:WorkbenchToolID[]=["sketch.edit.delete","sketch.edit.copy","sketch.edit.move","sketch.edit.mirror","sketch.edit.split","sketch.edit.trim","sketch.edit.fillet","sketch.edit.chamfer","sketch.edit.extend","sketch.edit.complement","sketch.edit.close","sketch.edit.offset","sketch.edit.spline_insert","sketch.edit.spline_delete","sketch.edit.spline_close","sketch.edit.spline_control","sketch.edit.construction","sketch.project","sketch.ellipse","sketch.elliptical_arc","sketch.rectangle","sketch.rectangle.center","sketch.rectangle.oriented","sketch.circle.three_point","sketch.arc.three_point","sketch.polygon","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline","sketch.spline.control",
+const sketchToolCommands:WorkbenchToolID[]=["sketch.edit.delete","sketch.edit.copy","sketch.edit.move","sketch.edit.mirror","sketch.edit.split","sketch.edit.trim","sketch.edit.fillet","sketch.edit.chamfer","sketch.edit.extend","sketch.edit.complement","sketch.edit.close","sketch.edit.offset","sketch.edit.spline_insert","sketch.edit.spline_delete","sketch.edit.spline_close","sketch.edit.spline_control","sketch.edit.construction","sketch.project","sketch.ellipse","sketch.elliptical_arc","sketch.rectangle","sketch.rectangle.center","sketch.rectangle.oriented","sketch.circle.three_point","sketch.arc.three_point","sketch.polygon","sketch.polygon.circumscribed","sketch.point","sketch.line","sketch.circle","sketch.arc","sketch.polyline","sketch.spline","sketch.spline.control",
   "sketch.constraint.coincident","sketch.constraint.parallel","sketch.constraint.collinear","sketch.constraint.fixed","sketch.constraint.horizontal","sketch.constraint.vertical",
   "sketch.constraint.perpendicular","sketch.constraint.tangent","sketch.constraint.equal","sketch.dimension.linear",
   "sketch.constraint.horizontal_distance","sketch.constraint.vertical_distance","sketch.constraint.radius","sketch.constraint.major_radius","sketch.constraint.minor_radius","sketch.constraint.angle","sketch.constraint.concentric","sketch.constraint.point_on_object","sketch.constraint.midpoint","sketch.constraint.symmetry"];
@@ -614,11 +614,12 @@ export function Workbench() {
   useEffect(()=>{
     normalViewRequest.current+=1;
     return ()=>{normalViewRequest.current+=1;};
-  },[store.selection,view?.document.versionId,documentID]);
+  },[store.selection,store.sketchPlane,store.activeSketchID,view?.document.versionId,documentID]);
   const normalToSelection = async () => {
+    const generation = ++normalViewRequest.current;
+    if(store.sketchPlane){viewport.current?.normalToSketch();return;}
     const selection = store.selection;
     if (!selection || !view) return;
-    const generation = ++normalViewRequest.current;
     try {
       const plane = selection.kind === "plane"
         ? selection.datumPlane ?? view.datumPlanes?.find(value=>value.id===(selection.entityId ?? selection.id))
@@ -1133,9 +1134,7 @@ export function Workbench() {
       commandRegistry.register({ id: "sketch.start", execute: startSketch,
 		isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && !selectedNamingIssue && (["plane", "sketch", "face"].includes(store.selection?.kind ?? ""))) }),
       commandRegistry.register({ id: "view.normal", execute: normalToSelection,
-        isEnabled: () => Boolean(store.selection && ["plane","face"].includes(store.selection.kind)) }),
-      commandRegistry.register({ id: "sketch.normal", execute: () => viewport.current?.normalToSketch(),
-        isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(store.sketchPlane) }),
+        isEnabled: () => Boolean(store.sketchPlane || store.selection && ["plane","face"].includes(store.selection.kind)) }),
       commandRegistry.register({ id: "sketch.finish", execute: finishSketch,
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && !command.isPending) }),
       ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,defaultSketchToolMode(toolID,invocation?.continuous)),

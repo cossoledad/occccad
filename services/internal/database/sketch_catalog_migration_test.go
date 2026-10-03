@@ -162,12 +162,22 @@ func TestSketchCatalogIncrementalMigrationPreservesDocuments(t *testing.T) {
 	if err = pool.QueryRow(ctx, `SELECT count(*) FROM occccad.ui_toolbar_items WHERE (command_id='sketch.point' AND help_text LIKE '%C 切换%') OR (command_id='sketch.line' AND help_text LIKE '%Tab%') OR (command_id='sketch.polyline' AND help_text LIKE '%T 切换%') OR (command_id='sketch.spline' AND help_text LIKE '%拟合点%')`).Scan(&helpCount); err != nil {
 		t.Fatal(err)
 	}
-	if slotCount != 0 || editCount != 18 || newCount != 12 || helpCount != 4 {
+	if slotCount != 0 || editCount != 17 || newCount != 12 || helpCount != 4 {
 		t.Fatalf("catalog mismatch: slot=%d edit=%d new=%d updatedHelp=%d", slotCount, editCount, newCount, helpCount)
 	}
 	var removed int
-	if err = pool.QueryRow(ctx, `SELECT count(*) FROM occccad.ui_toolbar_items WHERE command_id IN ('sketch.edit.scale','sketch.edit.quick_trim') OR group_key='more'`).Scan(&removed); err != nil || removed != 0 {
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM occccad.ui_toolbar_items WHERE command_id IN ('sketch.edit.scale','sketch.edit.quick_trim','sketch.edit.rotate','sketch.normal') OR group_key='more'`).Scan(&removed); err != nil || removed != 0 {
 		t.Fatalf("obsolete commands or overflow groups remain: %v count=%d", err, removed)
+	}
+	var families, polygonModes, arcVariants int
+	if err = pool.QueryRow(ctx, `SELECT count(DISTINCT group_key) FROM occccad.ui_toolbar_items WHERE toolbar_id='sketch-dimensional-constraints'`).Scan(&families); err != nil || families != 3 {
+		t.Fatalf("dimension families: %d %v", families, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM occccad.ui_toolbar_items WHERE group_key='variants:polygon'`).Scan(&polygonModes); err != nil || polygonModes != 2 {
+		t.Fatalf("polygon modes: %d %v", polygonModes, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM occccad.ui_toolbar_items WHERE toolbar_id='sketch-profiles' AND group_key='variants:arc'`).Scan(&arcVariants); err != nil || arcVariants != 3 {
+		t.Fatalf("arc variants: %d %v", arcVariants, err)
 	}
 	var catalogBefore, catalogAfter string
 	if err = pool.QueryRow(ctx, `SELECT jsonb_agg(to_jsonb(i) ORDER BY toolbar_id,command_id)::text FROM occccad.ui_toolbar_items i`).Scan(&catalogBefore); err != nil {

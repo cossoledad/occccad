@@ -562,6 +562,10 @@ func applySketchOperationsCandidate(sketch *SketchFeature, operations []SketchOp
 	}
 	for _, operation := range operations {
 		switch operation.Type {
+		case "CREATE_POLYGON":
+			if err := applySketchPolygon(sketch, operation); err != nil {
+				return err
+			}
 		case "OFFSET_ENTITIES":
 			if err := applySketchOffsetEdit(sketch, operation); err != nil {
 				return err

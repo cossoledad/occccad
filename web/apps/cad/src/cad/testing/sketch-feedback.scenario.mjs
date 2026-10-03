@@ -66,6 +66,21 @@ try {
  const diagnostic=makeSketchConstraintRenderable(lineDimension,inclined,toWorld,engine.materials,{width:800,height:600},theme.sketchInvalid);
  engine.applyHighlight(diagnostic,'selected');engine.applyHighlight(diagnostic,'default');assert.equal(diagnostic.children.find(c=>c.userData.sketchDimensionLabel).material.color.getHex(),theme.sketchInvalid,'reset preserves diagnostic state color');
  const root=new THREE.Group();root.add(label);const camera=new THREE.OrthographicCamera(-50,50,50,-50,.1,1000);camera.position.set(0,-100,0);camera.up.set(0,0,1);camera.lookAt(0,0,0);updateScreenLines(root,camera,800,600);const beforeScale=label.scale.y,beforeQuaternion=label.quaternion.clone();camera.zoom=2;camera.updateProjectionMatrix();camera.position.set(50,-100,30);camera.lookAt(0,0,0);updateScreenLines(root,camera,800,600);assert(Math.abs(label.scale.y-beforeScale/2)<1e-12);assert(label.quaternion.equals(beforeQuaternion),'orbit never billboards a sketch label');
+ // Camera roll may reverse reading direction, but only a plane-preserving half-turn is allowed.
+ camera.rotateZ(Math.PI);updateScreenLines(root,camera,800,600);
+ const uprightNormal=new THREE.Vector3(0,0,1).applyQuaternion(label.quaternion);assert(uprightNormal.distanceTo(normal)<1e-12);
+ assert(Math.abs(label.quaternion.angleTo(beforeQuaternion)-Math.PI)<1e-10);
+ const anchor=label.getWorldPosition(new THREE.Vector3()),baselineDirection=new THREE.Vector3(1,0,0).applyQuaternion(label.quaternion);
+ const projectedStart=anchor.clone().project(camera),projectedEnd=anchor.clone().add(baselineDirection).project(camera);
+ assert(projectedEnd.x>projectedStart.x,'baseline stays readable after a half-turn of the camera');
+ for(const angle of [-170,-100,-45,45,100,170]){
+  const direction=[Math.cos(angle*Math.PI/180),Math.sin(angle*Math.PI/180)];
+  const text=makeConstraintDimensionLabel('80',toWorld,direction);root.add(text);updateScreenLines(root,camera,800,600);
+  const axis=new THREE.Vector3(1,0,0).applyQuaternion(text.quaternion),support=toWorld(direction).normalize();
+  assert(Math.abs(axis.dot(support))>1-1e-10,'text remains parallel to the dimension line');
+  const a=text.getWorldPosition(new THREE.Vector3()),b=a.clone().add(axis);a.project(camera);b.project(camera);assert(b.x>=a.x-1e-10,'inclined labels do not read backwards');
+ }
+
  const coincident=[{...entities[0],id:'construction',role:'CONSTRUCTION'},entities[0]];
  for(const sequence of [coincident,[...coincident].reverse()])for(const scale of [.2,1,20])assert.equal(resolveSketchReference({x:20*scale,y:10*scale},sequence,([x,y])=>({x:x*scale,y:y*scale}),'ENTITY')?.entityId,'a','coincident profile geometry wins regardless of model order/zoom/dash phase');
  assert(sketchMarqueeContains([[0,0],[10,10]],{x:-1,y:-1},{x:11,y:11}));assert(!sketchMarqueeContains([[0,0],[20,20]],{x:-1,y:-1},{x:11,y:11}));assert(sketchMarqueeContains([[-10,5],[30,5]],{x:10,y:0},{x:0,y:10}),'crossing selects through-segment even when both endpoints are outside');
