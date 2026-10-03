@@ -114,7 +114,7 @@ func TestGeometryPoolRoutesSolveSketch(t *testing.T) {
 	t.Cleanup(func() { _ = connection.Close() })
 	response, err := workerv1.NewGeometryWorkerClient(connection).SolveSketch(t.Context(), &workerv1.SolveSketchRequest{
 		RequestId: "request-1",
-		Sketch:    &workerv1.SketchModel{SchemaVersion: 1},
+		Sketch:    &workerv1.SketchModel{SchemaVersion: 1, DragTargets: []*workerv1.SketchDragTarget{{Reference: &workerv1.SketchGeometryRef{Target: "ENTITY", EntityId: "line", SubElement: "END"}, Point: &workerv1.Vec2{X: 3, Y: 4}}}},
 	})
 	if err != nil {
 		t.Fatalf("SolveSketch was not routed: %v", err)
@@ -122,6 +122,11 @@ func TestGeometryPoolRoutesSolveSketch(t *testing.T) {
 	if response.GetStatus() != "UNDER_CONSTRAINED" || response.GetDegreesOfFreedom() != 4 {
 		t.Fatalf("unexpected routed response: %#v", response)
 	}
+	targets := response.GetSketch().GetDragTargets()
+	if len(targets) != 1 || targets[0].GetReference().GetEntityId() != "line" || targets[0].GetReference().GetSubElement() != "END" || targets[0].GetPoint().GetX() != 3 || targets[0].GetPoint().GetY() != 4 {
+		t.Fatal("router dropped or rewrote ephemeral sketch drag targets")
+	}
+
 }
 
 func TestGeometryPoolRoutesExternalGeometryProjection(t *testing.T) {

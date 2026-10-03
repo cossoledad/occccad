@@ -570,7 +570,7 @@ func applySketchOperationsCandidate(sketch *SketchFeature, operations []SketchOp
 			if err := applySketchCornerEdit(sketch, operation); err != nil {
 				return err
 			}
-		case "DELETE_ENTITIES", "COPY_ENTITIES", "TRANSFORM_ENTITIES", "MIRROR_ENTITIES", "SPLIT_ENTITY", "REPLACE_CURVE_INTERVALS":
+		case "APPLY_DRAG_RESULT", "DELETE_ENTITIES", "COPY_ENTITIES", "TRANSFORM_ENTITIES", "MIRROR_ENTITIES", "SPLIT_ENTITY", "REPLACE_CURVE_INTERVALS":
 			if err := applySketchGeometryEdit(sketch, operation); err != nil {
 				return err
 			}
@@ -2779,7 +2779,7 @@ func (service *Service) solveSketches(ctx context.Context, requestID string, mod
 	return nil
 }
 
-func (service *Service) solveSketchFeature(ctx context.Context, requestID string, model *PartModel, featureIndex int) error {
+func (service *Service) solveSketchFeature(ctx context.Context, requestID string, model *PartModel, featureIndex int, targets ...geometry.SketchDragTarget) error {
 	sketch := model.Features[featureIndex].Sketch
 	if sketch == nil || (len(sketch.Entities) == 0 && len(sketch.ExternalGeometry) == 0) {
 		return nil
@@ -2890,6 +2890,7 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 		refreshSketchReferenceMeasurements(model)
 		return nil
 	}
+	input.DragTargets = targets
 	result, err := service.worker.SolveSketch(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
 	if err != nil {
 		return err

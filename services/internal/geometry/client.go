@@ -171,7 +171,12 @@ type SketchConstraint struct {
 	Unit           string
 	Internal       bool
 }
+type SketchDragTarget struct {
+	Reference SketchReference
+	X, Y      float64
+}
 type SketchModel struct {
+	DragTargets    []SketchDragTarget
 	Points         []SketchPoint
 	Lines          []SketchLine
 	Circles        []SketchCircle
@@ -622,6 +627,13 @@ func (client *Client) SolveSketch(ctx context.Context, requestID string, model S
 				SubElement: reference.SubElement, ControlPointIndex: index})
 		}
 		input.Constraints = append(input.Constraints, value)
+	}
+	for _, target := range model.DragTargets {
+		ref := &workerv1.SketchGeometryRef{Target: target.Reference.Target, EntityId: target.Reference.EntityID, SubElement: target.Reference.SubElement}
+		if target.Reference.ControlPointIndex != nil {
+			ref.ControlPointIndex = uint32(*target.Reference.ControlPointIndex)
+		}
+		input.DragTargets = append(input.DragTargets, &workerv1.SketchDragTarget{Reference: ref, Point: &workerv1.Vec2{X: target.X, Y: target.Y}})
 	}
 	response, err := client.worker.SolveSketch(ctx, &workerv1.SolveSketchRequest{RequestId: requestID, Sketch: input})
 	if err != nil {

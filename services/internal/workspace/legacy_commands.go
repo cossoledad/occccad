@@ -283,6 +283,10 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				}
 			}
 		}
+		operations, dragErr := service.prepareSketchDragEdits(ctx, modelJSON, request.SketchID, request.RequestID, operations)
+		if dragErr != nil {
+			return "", nil, dragErr
+		}
 		exactOperations, err := service.prepareSketchCurveEdits(ctx, modelJSON, request.SketchID, request.RequestID, operations)
 		if err != nil {
 			return "", nil, err

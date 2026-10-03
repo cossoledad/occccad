@@ -475,7 +475,7 @@ export class CadViewportEngine {
     this.tools.register(new ThreePointArcSketchTool());
     this.tools.register(new EllipseSketchTool());
     this.tools.register(new EllipticalArcSketchTool());
-    for(const kind of ["delete","copy","move","rotate","mirror","split","trim","fillet","chamfer","extend","complement","close","offset","spline_insert","spline_delete","spline_close","spline_control","construction"] as const)this.tools.register(new SketchEditTool(kind));
+    for(const kind of ["delete","copy","move","mirror","split","trim","fillet","chamfer","extend","complement","close","offset","spline_insert","spline_delete","spline_close","spline_control","construction"] as const)this.tools.register(new SketchEditTool(kind));
     this.tools.register(new LinearDimensionSketchTool());
     for (const kind of ["COINCIDENT","PARALLEL","COLLINEAR","FIXED","HORIZONTAL","VERTICAL","PERPENDICULAR","TANGENT","EQUAL","DISTANCE","HORIZONTAL_DISTANCE","VERTICAL_DISTANCE","LENGTH","RADIUS","MAJOR_RADIUS","MINOR_RADIUS","ANGLE","CONCENTRIC","POINT_ON_OBJECT","MIDPOINT","SYMMETRY"] as const)
       this.tools.register(new ConstraintSketchTool(kind));
@@ -2762,18 +2762,14 @@ export class CadViewportEngine {
     (layer === "selected" ? this.selectedOverlays : this.preselectedOverlays).push(overlay);
   }
 
-  private sketchPoint(x: number, y: number): Vec2 | null {
+  private sketchPoint(x: number, y: number, geometryOnly=false): Vec2 | null {
     if (!this.sketchPlane) return null;
     this.updatePointer(x, y);
     this.raycaster.setFromCamera(this.pointer, this.camera);
     const point = this.raycaster.ray.intersectPlane(rayPlane(this.sketchPlane), new THREE.Vector3());
     if (!point) { this.clearSnapPreview(); return null; }
     const raw = worldToLocal(this.sketchPlane, point);
-    const activeFeature = this.sketchView()?.part?.features.find((feature) => feature.id === this.activeSketchID);
-    const snapEntities = sketchReferenceEntities(activeFeature).filter((entity) => !activeFeature ||
-      this.visibilityResolver?.resolve({documentId:this.sketchView()?.document.id ?? "",
-        occurrencePath:this.editContext?.occurrencePath ?? "",kind:"SKETCH_ENTITY",entityId:entity.id,
-        ownerEntityId:activeFeature.id,bodyId:activeFeature.bodyId},this.editingSketchScope()).effectiveVisible !== false);
+    const snapEntities = this.visibleSketchReferenceEntities();
     const screen = (local: Vec2) => {
       const projected = localToWorld(this.sketchPlane!, local).project(this.camera);
       return [(projected.x + 1) * this.renderer.domElement.clientWidth / 2,
@@ -2782,9 +2778,9 @@ export class CadViewportEngine {
     const first = screen(raw), second = screen([raw[0] + 1, raw[1]]);
     const pixelsPerUnit = Math.max(Math.hypot(second[0] - first[0], second[1] - first[1]), 1.0e-6);
     const snap = this.captureSettings.enabled
-      ? resolveSketchSnap(raw, snapEntities, pixelsPerUnit, adaptiveGridSpacing(this.camera, this.renderer.domElement.clientHeight),
-        SKETCH_INPUT_POLICY.snapThresholdPixels, this.captureSettings.sketch, screen) : undefined;
-    this.lastSketchSnap = snap;
+      ? resolveSketchSnap(raw, snapEntities, pixelsPerUnit, geometryOnly?1:adaptiveGridSpacing(this.camera, this.renderer.domElement.clientHeight),
+        SKETCH_INPUT_POLICY.snapThresholdPixels, geometryOnly?this.captureSettings.sketch.filter(kind=>kind!=="GRID"&&kind!=="ORIGIN"):this.captureSettings.sketch, screen) : undefined;
+    if(!geometryOnly)this.lastSketchSnap = snap;
     if (snap) this.showSnapPreview(snap, 8 / pixelsPerUnit); else this.clearSnapPreview();
     return snap?.point ?? raw;
   }
@@ -2981,7 +2977,7 @@ export class CadViewportEngine {
       this.sketchManipulator=new AssemblyManipulator(this.shaders,{
         poseChanged:()=>notify(),visualChanged:()=>this.invalidate(),dragStarted:()=>{},
         dragFinished:commit=>{if(commit&&this.sketchManipulatorLastValue)this.sketchManipulatorChanged?.({...this.sketchManipulatorLastValue,finish:true});},
-        snapPivot:(x,y)=>{const point=this.sketchPoint(x,y);return point&&this.sketchPlane?{position:localToWorld(this.sketchPlane,point)}:undefined;},
+        snapPivot:(x,y)=>{const point=this.sketchPoint(x,y,true);return point&&this.sketchPlane?{position:localToWorld(this.sketchPlane,point)}:undefined;},
         pivotChanged:anchor=>{if(this.sketchPlane)this.sketchManipulatorOrigin=worldToLocal(this.sketchPlane,anchor.position);},
       },true);
       this.attachSketchPreview(this.sketchManipulator.root);
@@ -2991,7 +2987,7 @@ export class CadViewportEngine {
     this.sketchManipulator.attach(localToWorld(this.sketchPlane,origin),new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(u,v,u.clone().cross(v))));
     this.sketchManipulator.setPlanarMode(mode);this.invalidate();
   }
-  private clearSketchManipulator():void {this.sketchManipulatorChanged=undefined;this.sketchManipulator?.detach();this.invalidate();}
+  private clearSketchManipulator():void {this.clearSnapPreview();this.sketchManipulatorChanged=undefined;this.sketchManipulator?.detach();this.invalidate();}
   private toolViewportPort(): ToolViewportPort {
     return {
       showSketchManipulator:(origin,mode,changed)=>this.showSketchManipulator(origin,mode,changed),

@@ -320,6 +320,12 @@ message SketchConstraint {
  string self_mirror_mode = 8; // explicit self-map axis/pair intent
 }
 
+// Ephemeral point objectives; never persisted as constraints or counted in DOF.
+message SketchDragTarget {
+    SketchGeometryRef reference = 1;
+    Vec2 point = 2;
+}
+
 message SketchModel {
     uint32 schema_version = 1;
     repeated SketchPoint points = 2;
@@ -330,6 +336,7 @@ message SketchModel {
     repeated SketchSpline splines = 7;
     repeated SketchEllipse ellipses = 8;
     repeated SketchEllipticalArc elliptical_arcs = 9;
+    repeated SketchDragTarget drag_targets = 10;
 }
 
 message SolveSketchRequest {

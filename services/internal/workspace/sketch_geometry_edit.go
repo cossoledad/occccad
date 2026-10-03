@@ -53,6 +53,24 @@ func applySketchGeometryEdit(sketch *SketchFeature, op SketchOperation) error {
 			return fmt.Errorf("%w: constraint release %s is not part of selection", ErrValidation, id)
 		}
 	}
+	if op.Type == "APPLY_DRAG_RESULT" {
+		if op.OperationID == "" || op.CurveSourceDigest != sketchDragDigest(sketch) || len(op.ComputedEntities) != len(sketch.Entities) {
+			return fmt.Errorf("%w: drag baseline changed", ErrValidation)
+		}
+		byID := make(map[string]SketchEntity, len(sketch.Entities))
+		for _, e := range sketch.Entities {
+			byID[e.ID] = e
+		}
+		for _, e := range op.ComputedEntities {
+			original, ok := byID[e.ID]
+			if !ok || e.Kind != original.Kind || e.Role != original.Role || e.StartPointID != original.StartPointID || e.EndPointID != original.EndPointID {
+				return fmt.Errorf("%w: drag cannot change geometry identity", ErrValidation)
+			}
+			delete(byID, e.ID)
+		}
+		sketch.Entities = op.ComputedEntities
+		return nil
+	}
 	if op.Type == "DELETE_ENTITIES" {
 		kept := sketch.Entities[:0]
 		for _, e := range sketch.Entities {

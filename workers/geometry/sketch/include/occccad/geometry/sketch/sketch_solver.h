@@ -127,7 +127,9 @@ struct SketchConstraint {
     std::string self_mirror_mode;
 };
 
+struct SketchDragTarget { GeometryRef reference; Vec2 point; };
 struct SketchModel {
+    std::vector<SketchDragTarget> drag_targets;
     std::vector<PointEntity> points;
     std::vector<LineEntity> lines;
     std::vector<CircleEntity> circles;

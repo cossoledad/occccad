@@ -478,10 +478,29 @@ private:
             for (int id = 0; id < tag; ++id)
                 if (std::isfinite(system.calculateConstraintErrorByTag(id)))
                     residual_tags.push_back(id);
+            // PlaneGCS negative tags are auxiliary objectives: formal equations
+            // remain the primary subsystem and diagnosis/DOF excludes objectives.
+            for(const auto& target:model.drag_targets) {
+                const auto& ref=target.reference;
+                if(ref.target!=GeometryTarget::entity||!std::isfinite(target.point.x)||!std::isfinite(target.point.y))return invalid("invalid drag target");
+                GCS::Point* p=nullptr;
+                if(ref.sub_element==SubElement::direction) {
+                    if(auto i=ellipse_indices.find(ref.entity_id);i!=ellipse_indices.end())p=&ellipses[i->second].ellipse.focus1;
+                    else if(auto arc_index=elliptical_arc_indices.find(ref.entity_id);arc_index!=elliptical_arc_indices.end())p=&elliptical_arcs[arc_index->second].arc.focus1;
+                } else p=resolve_point(ref,point_indices,line_indices,circle_indices,arc_indices,spline_indices,points,lines,circles,arcs,splines,ellipses,elliptical_arcs,ellipse_indices,elliptical_arc_indices,origin);
+                if(!p)return invalid("drag target must resolve to a local editable coordinate");
+                system.addConstraintCoordinateX(*p,constant(target.point.x),-1);
+                system.addConstraintCoordinateY(*p,constant(target.point.y),-1);
+            }
+            const auto accepted_status = [&](int value) {
+                // A constrained drag minimizes a target rather than requiring
+                // zero objective error. Formal residuals are checked below.
+                return value == GCS::Success || (!model.drag_targets.empty() && value == GCS::Converged);
+            };
             int status = system.solve(parameters, true, GCS::DogLeg);
-            if (status != GCS::Success)
+            if (!accepted_status(status))
                 status = system.solve(parameters, true, GCS::LevenbergMarquardt);
-            if (status != GCS::Success)
+            if (!accepted_status(status))
                 status = system.solve(parameters, true, GCS::BFGS);
             // PlaneGCS return codes are an implementation detail.  Diagnose every
             // non-successful solve before mapping it to the platform vocabulary so
@@ -520,7 +539,7 @@ private:
                 append_ellipses(result, ellipses, elliptical_arcs);
                 return result;
             }
-            if (status != GCS::Success) {
+            if (!accepted_status(status)) {
                 auto result = failed("constraint solver could not classify the model");
                 append_constraint_ids(user_redundant, constraint_ids,
                                       result.redundant_constraint_ids);

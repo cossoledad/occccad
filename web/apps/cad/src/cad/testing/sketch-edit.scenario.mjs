@@ -19,7 +19,7 @@ try{
   const operations=[],previews=[],prompts=[];
   const context={viewport:{currentSketchEntities:()=>entities,currentSketchConstraints:()=>constraints,currentSketchIdentity:()=>scope,currentSelections:()=>selections,
     hasActiveSketch:()=>true,showSketchEntityPreview:value=>previews.push(value),setToolPrompt:value=>prompts.push(value),
-    showPointPreview:()=>{},showReferencePreview:()=>{},clearToolPreview:()=>{},clearReferencePreview:()=>{},commitSketchOperations:value=>operations.push(value),finishToolUse:()=>{},
+    previewSketchOperations:async ops=>{const op=ops[0];return {entities:sketchEditPreview(entities,[op.origin?.x??0,op.origin?.y??0],[op.translation?.x??0,op.translation?.y??0],op.angle??0)};},showPointPreview:()=>{},showReferencePreview:()=>{},clearToolPreview:()=>{},clearReferencePreview:()=>{},commitSketchOperations:value=>operations.push(value),finishToolUse:()=>{},
     selectionAt:()=>selections[0],sketchPlacementPoint:(x,y)=>[x,y],sketchReferenceAt:()=>({target:"SKETCH_Y_AXIS",subElement:"WHOLE"})}};
   const key=(tool,key,modifiers={})=>tool.keyDown({key,state:{modifiers:{ctrl:false,meta:false,shift:false,...modifiers}}},context);
   const pointer=(x,y,phase="down",button=0)=>({x,y,phase,pointerId:1,button,state:{buttons:{left:phase==="down",middle:false,right:button===2}}});
@@ -29,19 +29,18 @@ try{
   const move=new SketchEditTool("move");move.selectionInput(selections,context);key(move,"Enter");
   for(const value of ["2","0","Tab","-","5"])key(move,value);
   assert.equal(operations.length,0,"selection, input and preview cannot mutate the model");
-  key(move,"Enter");const moved=operations.at(-1)[0];
-  assert.equal(moved.type,"TRANSFORM_ENTITIES");assert.deepEqual(moved.entityIds,["a","b"]);assert.deepEqual(moved.translation,{x:20,y:-5});
+  key(move,"Enter");await new Promise(r=>setImmediate(r));const moved=operations.at(-1)[0];
+  assert.equal(moved.type,"DRAG_ENTITIES");assert.deepEqual(moved.entityIds,["a","b"]);assert.deepEqual(moved.translation,{x:20,y:-5});
   assert(!moved.detachConstraintIds,"tool must never silently detach restrictions");assert(moved.operationId);key(move,"Enter");assert.equal(operations.length,1,"duplicate confirmation does not repeat commit");
+  delete context.viewport.previewSketchOperations;
   const copy=new SketchEditTool("copy");copy.selectionInput(selections,context);key(copy,"Enter");key(copy,"i");key(copy,"3");key(copy,"Enter");
   assert.equal(operations.at(-1)[0].type,"COPY_ENTITIES");assert.equal(operations.at(-1)[0].constraintPolicy,"INTERNAL");
   assert.notEqual(operations.at(-1)[0].operationId,moved.operationId);
 
-  const rotate=new SketchEditTool("rotate");rotate.selectionInput(selections,context);key(rotate,"Enter");
-  click(rotate,0,0);click(rotate,10,0);rotate.pointerMove(pointer(0,10,"move"),context);
-  const rotationPreview=previews.at(-1);close(rotationPreview[0].end.x,0);close(rotationPreview[0].end.y,10);
-  click(rotate,0,10);close(operations.at(-1)[0].angle,Math.PI/2);
+  const rotationPreview=sketchEditPreview(entities,[0,0],[0,0],Math.PI/2);
+  close(rotationPreview[0].end.x,0);close(rotationPreview[0].end.y,10);
   const {mockToolbarCatalog}=await server.ssrLoadModule("/src/api/mock-toolbar-catalog.ts");
-  assert(!mockToolbarCatalog.toolbars.flatMap(t=>t.items).some(i=>i.commandId==="sketch.edit.scale"),"unsupported scaling has no production command");
+  assert(!mockToolbarCatalog.toolbars.flatMap(t=>t.items).some(i=>["sketch.edit.scale","sketch.edit.rotate"].includes(i.commandId)),"scaling and the separate rotation command have no production entry");
   const mirror=new SketchEditTool("mirror");mirror.selectionInput(selections,context);key(mirror,"Enter");key(mirror,"y");key(mirror,"Enter");
   assert.deepEqual(operations.at(-1)[0].axis,{target:"SKETCH_Y_AXIS",subElement:"WHOLE"});
   assert.equal(operations.at(-1)[0].type,"MIRROR_ENTITIES");assert.equal(operations.at(-1)[0].mirrorMode,"LINKED");assert.equal(operations.at(-1)[0].constraintPolicy,undefined);
@@ -123,8 +122,9 @@ try{
   const convertSpline=new SketchEditTool("spline_control");convertSpline.selectionInput([selectCorner(fit.id)],context);key(convertSpline,"Enter");key(convertSpline,"Enter");assert.equal(operations.at(-1)[0].type,"CONVERT_SPLINE_TO_CONTROL");
   // Product remains the host while all edits target the stable owned Part sketch and occurrence.
   const ownedScope=structuredClone(scope);
+  context.viewport.previewSketchOperations=async ops=>({entities:sketchEditPreview(entities,[0,0],[ops[0].translation.x,ops[0].translation.y],ops[0].angle??0)});
   const productMove=new SketchEditTool("move");productMove.selectionInput([{...selectCorner("a"),ownerDocumentId:"host-product"}],context);key(productMove,"Enter");assert.equal(operations.at(-1)[0].type,"CONVERT_SPLINE_TO_CONTROL","host identity cannot edit the owned Part geometry");
-  productMove.selectionInput([selectCorner("a")],context);key(productMove,"Enter");key(productMove,"4");key(productMove,"Enter");assert.equal(operations.at(-1)[0].type,"TRANSFORM_ENTITIES");assert.deepEqual(scope,ownedScope);
+  productMove.selectionInput([selectCorner("a")],context);key(productMove,"Enter");key(productMove,"4");key(productMove,"Enter");await new Promise(r=>setImmediate(r));assert.equal(operations.at(-1)[0].type,"DRAG_ENTITIES");assert.deepEqual(scope,ownedScope);delete context.viewport.previewSketchOperations;
 
   assert.equal(copySketchSelection(context),true);entities[0].start.x=99;
   assert.equal(pasteSketchClipboard(context,[3,4]),true);

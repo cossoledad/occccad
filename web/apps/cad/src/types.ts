@@ -159,6 +159,7 @@ export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { t
   | { type: "DELETE_CONSTRAINT"; constraintId: string }
   | { type: "DELETE_ENTITIES"; entityIds: string[] }
   | { type: "COPY_ENTITIES"; operationId: string; entityIds: string[]; origin?: SketchPoint2; translation?: SketchPoint2; angle?: number; constraintPolicy?: "INTERNAL" | "GEOMETRY_ONLY" }
+  | { type: "DRAG_ENTITIES"; operationId: string; entityIds: string[]; origin?: SketchPoint2; translation?: SketchPoint2; angle?: number }
   | { type: "TRANSFORM_ENTITIES"; operationId: string; entityIds: string[]; origin?: SketchPoint2; translation?: SketchPoint2; angle?: number; copy?: boolean; constraintPolicy?: "INTERNAL" | "GEOMETRY_ONLY"; detachConstraintIds?: string[] }
   | { type: "MIRROR_ENTITIES"; operationId: string; entityIds: string[]; axis: SketchGeometryRef; mirrorMode?: "INDEPENDENT" | "LINKED"; constraintPolicy?: "INTERNAL" | "GEOMETRY_ONLY" }
   | {type:"EDIT_SPLINE_POINT";operationId:string;entityId:string;pointAction:"INSERT"|"DELETE";pointIndex?:number;controlPointId?:string;point?:SketchPoint2;knotParameter?:number;detachConstraintIds?:string[]}

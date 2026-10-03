@@ -1940,4 +1940,45 @@ TEST(PlaneGcsSketchSolver, ParallelOnRoundedFreeQuadrilateralDoesNotCollapseTrim
     EXPECT_NEAR((arc.center.x-child.start.x)*dx+(arc.center.y-child.start.y)*dy, 0, 1e-6);
 }
 
+TEST(PlaneGcsSketchSolver, DragObjectivesPreserveConnectedGeometryAndFormalDof) {
+    SketchModel model;
+    model.points={{"junction",{10,0}}};
+    model.lines={{"source",{0,0},{10,0}},{"neighbor",{10,0},{10,10}}};
+    model.constraints={
+        {"a",ConstraintKind::coincident,{endpoint("source",SubElement::end),endpoint("junction",SubElement::point)},{}},
+        {"b",ConstraintKind::coincident,{endpoint("neighbor",SubElement::start),endpoint("junction",SubElement::point)},{}},
+        {"length",ConstraintKind::distance,{endpoint("source",SubElement::start),endpoint("source",SubElement::end)}, {},10}
+    };
+    auto solver=make_plane_gcs_sketch_solver();const auto baseline=solver->solve(model);
+    for(const double angle:{0.0,0.5,1.2}) {
+        model.drag_targets={{endpoint("source",SubElement::start),{3,4}},
+            {endpoint("source",SubElement::end),{3+10*std::cos(angle),4+10*std::sin(angle)}}};
+        const auto result=solver->solve(model);
+        ASSERT_EQ(result.status,SolveStatus::under_constrained)<<result.diagnostic;
+        EXPECT_EQ(result.degrees_of_freedom,baseline.degrees_of_freedom);
+        ASSERT_EQ(result.lines.size(),2U);ASSERT_EQ(result.points.size(),1U);
+        EXPECT_NEAR(result.lines[0].start.x,3,1e-6);EXPECT_NEAR(result.lines[0].start.y,4,1e-6);
+        EXPECT_NEAR(result.lines[0].end.x,3+10*std::cos(angle),1e-6);
+        EXPECT_NEAR(result.lines[0].end.y,4+10*std::sin(angle),1e-6);
+        EXPECT_NEAR(result.lines[1].start.x,result.lines[0].end.x,1e-7);
+        EXPECT_NEAR(result.lines[1].start.y,result.lines[0].end.y,1e-7);
+        EXPECT_NEAR(result.points[0].point.x,result.lines[0].end.x,1e-7);
+        EXPECT_TRUE(result.conflicting_constraint_ids.empty());
+    }
+}
+TEST(PlaneGcsSketchSolver, DragObjectivesRespectFixedAndDirectionConstraints) {
+    SketchModel model;model.lines={{"source",{0,0},{10,0}}};
+    model.constraints={{"fixed",ConstraintKind::fixed,{endpoint("source",SubElement::whole)},{}}};
+    model.drag_targets={{endpoint("source",SubElement::start),{3,4}},{endpoint("source",SubElement::end),{3,14}}};
+    auto solver=make_plane_gcs_sketch_solver();auto result=solver->solve(model);
+    ASSERT_EQ(result.status,SolveStatus::solved)<<result.diagnostic;
+    EXPECT_EQ(result.degrees_of_freedom,0);EXPECT_NEAR(result.lines[0].start.x,0,1e-8);EXPECT_NEAR(result.lines[0].end.x,10,1e-8);
+    model.drag_targets[1].point={3+10*std::cos(0.5),4+10*std::sin(0.5)};
+    model.constraints={{"horizontal",ConstraintKind::horizontal,{endpoint("source",SubElement::whole)},{}}};
+    result=solver->solve(model);ASSERT_EQ(result.status,SolveStatus::under_constrained)<<result.diagnostic;
+    EXPECT_NEAR(result.lines[0].start.y,result.lines[0].end.y,1e-7);
+    EXPECT_NEAR(result.lines[0].start.y,4+5*std::sin(0.5),1e-6);
+    EXPECT_EQ(result.degrees_of_freedom,3);
+}
+
 } // namespace occccad::geometry::sketch

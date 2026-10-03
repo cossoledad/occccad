@@ -502,6 +502,11 @@ sketch_api::SketchModel read_sketch(const worker_api::SketchModel& input) {
         }
         model.constraints.push_back(std::move(output));
     }
+    if(input.drag_targets_size()>4096)throw std::invalid_argument("too many sketch drag targets");
+    for(const auto& target:input.drag_targets()) {
+        if(!target.has_reference()||!target.has_point())throw std::invalid_argument("drag target requires reference and point");
+        model.drag_targets.push_back({read_sketch_reference(target.reference()),{target.point().x(),target.point().y()}});
+    }
     return model;
 }
 
