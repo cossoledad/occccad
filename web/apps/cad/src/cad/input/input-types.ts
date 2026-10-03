@@ -1,3 +1,6 @@
+export type SelectionInputSource="activation"|"selection";
+export enum SelectionInputResult { Accepted="accepted", Rejected="rejected", Unhandled="unhandled" }
+
 export enum InputResult {
   Ignored = "ignored",
   Consumed = "consumed",
@@ -43,6 +46,7 @@ export type CadKeyboardEvent = {
   code: string;
   repeat: boolean;
   editableTarget: boolean;
+  isComposing?: boolean;
   state: InputState;
   originalEvent: KeyboardEvent;
 };

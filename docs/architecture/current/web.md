@@ -46,7 +46,11 @@ Toolbar 来自服务端版本化 Presentation Catalog，稳定 ToolbarId 表达�
 
 工具单击完成一个逻辑操作后回到选择，双击进入连续模式；Polyline/Spline 用 Enter 或双击完成多点采集。尺寸工具按引用选择、真实几何测量初值、放置、内联输入、提交运行；拖动尺寸位置和实体点只在 pointerup 形成一个 Domain Command。显示/输入单位在 UI 转换，权威数量和表达式由服务端验证。
 
-非模态 CommandDialog 允许继续拾取。Part preview 复用正式 adapter、handler、参数/Sketch/Feature evaluator，返回带 base Revision/provenance 的精确结果；它不产生 Revision/历史/Outbox。提交可携带 verified candidate token，仅当 actor、document、base head/sequence、命令类型与 payload digest 全部匹配时提升候选，否则重新求值。当前候选和 warm-start cache 有 45 秒 TTL、256 项进程上限；丢失只影响性能。
+草图工具通过 `SketchCommandState` 投影选择、定义、放置、提交及未知结果阶段，ToolManager/Input Router 拥有手势和工具生命周期；工作台命令面板只是投影并派发字段、选项、确认和取消动作。尺寸进入 Placement 后冻结引用和尺寸种类，hover 其他几何不会改写定义。尺寸编辑器持有未提交值/表达式草稿，角色槽位使用显式编号和 typed stable ref；更换会话按角色过滤候选并在排名前排除不兼容命中，定位/高亮不改模型选择。手动引用拾取独立于自动吸附偏好。尺寸面板开启时输入屏障阻止几何拖动，允许中键导航；Esc/右键先取消引用更换，IME 不确认或取消。显示/输入采用文档长度单位，数量与表达式仍由服务端处理。
+
+草图提交持有原 requestId、baseVersionId 和操作快照；未知响应重试携带 `retryReceipt=true` 查询原请求，不重新生成操作身份。Engine 持有待确认回执，关闭面板不撤销已发请求；回执待确认时继续阻止新编辑。请求已成功确认后渲染刷新失败不被当作领域提交失败重发。异步结果必须匹配文档/草图/版本/会话代际。操作交互与人工验证入口见[草图交互补齐](../../sketch-ux-02.md)。
+
+CommandDialog 允许由显式子选择会话继续拾取；尺寸面板默认输入屏障不允许任意修改其它几何。Part preview 复用正式 adapter、handler、参数/Sketch/Feature evaluator，返回带 base Revision/provenance 的精确结果；它不产生 Revision/历史/Outbox。提交可携带 verified candidate token，仅当 actor、document、base head/sequence、命令类型与 payload digest 全部匹配时提升候选，否则重新求值。当前候选和 warm-start cache 有 45 秒 TTL、256 项进程上限；丢失只影响性能。
 
 交互以 interactionId 和单调 previewSequence 取消旧请求、丢弃迟到响应。装配前端 actor 管理草拟/预览/确认/取消，服务端 workflow 管理解析/求解/应用/失败；二者不替代 Revision 或 solver 数值状态。nominal pose 来自 Revision，前次权威解只作短期 initial guess。数值输入通常在 blur/Enter 请求权威预览，成功后才能提交。
 

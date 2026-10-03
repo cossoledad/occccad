@@ -130,7 +130,7 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
     element.querySelector<HTMLElement>("input, select, textarea, button")?.focus();
     const keyDown = (event: globalThis.KeyboardEvent) => {
       const topmost = [...document.querySelectorAll(".cad-command-dialog")].at(-1);
-      if (event.key === "Escape" && !event.defaultPrevented && topmost === element
+      if (event.key === "Escape" && !event.isComposing && event.keyCode !== 229 && !event.defaultPrevented && topmost === element
         && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
         event.preventDefault(); closeRef.current();
       }
@@ -172,7 +172,14 @@ export function CommandDialog({ id, open, title, children, onClose, onConfirm, c
   };
   const content=<section ref={dialog} className="cad-command-dialog" role="dialog" aria-modal="false" aria-label={String(title)}
     onPointerDown={event=>event.stopPropagation()} onClick={event=>event.stopPropagation()} onWheel={event=>event.stopPropagation()} onContextMenu={event=>event.stopPropagation()}
-    onPointerMove={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onKeyDown={event=>{if(event.key!=="Escape")event.stopPropagation();}}
+    onPointerMove={event=>event.stopPropagation()} onPointerUp={event=>event.stopPropagation()} onKeyDown={event=>{
+      if(event.key!=="Escape")event.stopPropagation();
+      const target=event.target instanceof HTMLElement?event.target:undefined;
+      if(event.key==="Enter"&&!event.repeat&&!event.defaultPrevented&&!event.nativeEvent.isComposing&&event.nativeEvent.keyCode!==229
+        &&target?.tagName==="INPUT"&&!target.isContentEditable&&!target.closest("[role='combobox'], textarea, [contenteditable='true']")){
+        event.preventDefault();void confirm();
+      }
+    }}
     style={{ left: position.x, top: position.y, width,maxWidth:"calc(100% - 16px)",maxHeight:"calc(100% - 16px)",display:"flex",flexDirection:"column" }}>
     <header className="cad-command-dialog-header" style={{flexShrink:0}} onPointerDown={pointerDown} onPointerMove={pointerMove}
       onPointerUp={pointerUp} onPointerCancel={pointerUp} onLostPointerCapture={pointerUp}>

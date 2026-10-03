@@ -5,7 +5,7 @@ const {createServer}=await import(require.resolve("vite"));
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try{
   const {SketchEditTool,sketchEditPreview,copySketchSelection,pasteSketchClipboard}=await server.ssrLoadModule("/src/cad/tool/sketch-edit-tool.ts");
-  const {SelectTool,LinearDimensionSketchTool}=await server.ssrLoadModule("/src/cad/tool/cad-tool.ts");
+  const {SelectTool,LinearDimensionSketchTool,ConstraintSketchTool}=await server.ssrLoadModule("/src/cad/tool/cad-tool.ts");
   const entities=[{id:"a",kind:"LINE",role:"PROFILE",start:{x:0,y:0},end:{x:10,y:0}},
     {id:"b",kind:"ARC",role:"PROFILE",center:{x:10,y:5},radius:5,startAngle:-Math.PI/2,endAngle:Math.PI/2},
     {id:"ellipse",kind:"ELLIPTICAL_ARC",role:"CONSTRUCTION",center:{x:20,y:10},majorRadius:10,minorRadius:4,rotation:Math.PI/3,startAngle:0.2,endAngle:2.7},
@@ -64,10 +64,12 @@ try{
   key(trim,"u");key(trim,"Enter");
   assert.equal(operations.at(-1)[0].type,"TRIM_ENTITY");assert.deepEqual(operations.at(-1)[0].parameters,[0.2,0.8]);
   assert(operations.at(-1)[0].detachConstraintIds.includes("driver"),"whole-curve relation release is an explicit user action");
+  context.viewport.currentSketchReferenceEntities=()=>[...entities,{id:"external-boundary",kind:"LINE",role:"REFERENCE",start:{x:3,y:-5},end:{x:3,y:5}}];
   const quickTrim=new SketchEditTool("quick_trim");quickTrim.selectionInput([selections[0]],context);key(quickTrim,"Enter");
+  quickTrim.commandAction({type:"option",name:"boundaryMode",value:"explicit"},context);
   context.viewport.sketchReferenceAt=()=>({target:"EXTERNAL",entityId:"external-boundary",subElement:"WHOLE"});click(quickTrim,5,0);
   key(quickTrim,"q");key(quickTrim,"Enter");
-  assert.equal(operations.at(-1)[0].type,"QUICK_TRIM");assert.deepEqual(operations.at(-1)[0].boundaryIds,["external-boundary"]);
+  assert.equal(operations.at(-1)[0].type,"QUICK_TRIM",prompts.at(-1));assert.deepEqual(operations.at(-1)[0].boundaryIds,["external-boundary"]);
   assert.equal(operations.at(-1)[0].trimMode,"KEEP_HIT");assert.equal(operations.at(-1)[0].hitParameter,0.5);
   assert.equal(operations.at(-1)[0].parameters,undefined,"frontend supplies interval intent rather than sampled intersection geometry");
   const right={id:"corner-right",kind:"LINE",role:"PROFILE",start:{x:10,y:0},end:{x:10,y:10}},
@@ -174,10 +176,10 @@ try{
   const {CadViewportEngine}=await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
   const dimensionSession=Object.create(CadViewportEngine.prototype),placementCommits=[];
   Object.assign(dimensionSession,{dimensionDrag:{selection:{featureId:"sketch"},constraint:{id:"driver"},position:[3,4],scopeKey:"old-revision"},
-    dimensionGestureScope:()=>"changed-revision",clearReferencePreview:()=>{},invalidate:()=>{},callbacks:{sketchOperations:(...args)=>placementCommits.push(args)}});
+    activeSketchID:"sketch",tools:{activeToolID:"select"},sketchView:()=>({document:{id:"part",versionId:"head"}}),clearSnapPreview:()=>{},dimensionGestureScope:()=>"changed-revision",clearReferencePreview:()=>{},invalidate:()=>{},callbacks:{sketchOperations:(...args)=>placementCommits.push(args)}});
   dimensionSession.finishDimensionDrag();assert.equal(placementCommits.length,0);assert.equal(dimensionSession.dimensionDrag,undefined,"actual viewport session cancels late label commit on revision/occurrence scope change");
-  dimensionSession.dimensionDrag={selection:{featureId:"sketch"},constraint:{id:"driver"},position:[3,4],scopeKey:"changed-revision"};dimensionSession.finishDimensionDrag();
-  assert.deepEqual(placementCommits.at(-1),["sketch",[{type:"UPDATE_CONSTRAINT_PLACEMENT",constraintId:"driver",labelPosition:{x:3,y:4}}]],"label drag only writes placement, never model quantity");
+  dimensionSession.dimensionDrag={selection:{featureId:"sketch"},constraint:{id:"driver"},position:[3,4],scopeKey:"changed-revision"};dimensionSession.finishDimensionDrag();await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(placementCommits.at(-1),["sketch",[{type:"UPDATE_CONSTRAINT_PLACEMENT",constraintId:"driver",labelPosition:{x:3,y:4}}],{requestId:placementCommits.at(-1)?.[2]?.requestId,baseVersionId:"head"}],"label drag only writes placement, never model quantity");
   dimensionSession.activeSketchID="sketch";dimensionSession.dimensionConstraintAt=()=>({selection:{featureId:"sketch",constraintId:"unmeasurable"},constraint:{id:"unmeasurable",reference:true,unit:"mm"}});
   let unavailableDimensionEdited=false;dimensionSession.requestDimensionEdit=()=>{unavailableDimensionEdited=true;return true;};assert.equal(dimensionSession.editDimensionAt(5,6),true);assert(unavailableDimensionEdited,"unmeasurable reference remains editable for reference replacement and restoration");
 
@@ -191,7 +193,7 @@ try{
   context.viewport.sketchReferenceAt=()=>lineRefs.shift()??null;context.viewport.measureDimension=()=>0;
   context.viewport.showReferencePreview=()=>{};context.viewport.showConstraintPreview=()=>{};
   context.viewport.requestDimensionCreation=(kind,references,value)=>requests.push({kind,references,value});
-  const dimension=new LinearDimensionSketchTool();click(dimension,0,0);click(dimension,0,10);click(dimension,5,5);
+  const dimension=new ConstraintSketchTool("DISTANCE");click(dimension,0,0);click(dimension,0,10);click(dimension,5,5);
   assert.equal(requests.length,1);assert.equal(requests[0].kind,"DISTANCE");assert.equal(requests[0].value,0);
   assert.deepEqual(requests[0].references.map(reference=>reference.entityId),["parallel-a","parallel-b"],"direct two-line dimensions preserve both stable line references");
   console.log("Sketch edit selection, preview, atomic operations, parameter input, cancellation, frozen context and clipboard passed");

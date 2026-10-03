@@ -2748,6 +2748,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		PreviewID: previewID, BaseVersionID: prepared.headRevision,
 		BaseSequence: prepared.headSequence, ModelHash: modelHash, Artifact: &artifact,
 		ResultBodyID: bodyID, ResultBodyName: bodyName, BodyAssignment: bodyAssignment,
+		SketchCandidates: solvedSketchPreviewCandidates(prepared.command, model),
 	}, nil
 }
 

@@ -1128,6 +1128,7 @@ type CommandRequest struct {
 // used by ApplyCommand. The base revision lets clients reject a response that
 // arrived after the workspace head changed.
 type CommandPreview struct {
+	SketchCandidates     []SketchCandidatePreview             `json:"sketchCandidates,omitempty"`
 	EvaluationOutcome    string                               `json:"evaluationOutcome,omitempty"`
 	EvaluationFailure    *AssemblyEvaluationFailure           `json:"evaluationFailure,omitempty"`
 	AssemblySolverBuild  string                               `json:"assemblySolverBuild,omitempty"`
@@ -1147,6 +1148,14 @@ type CommandPreview struct {
 		Translation [3]float64 `json:"translation"`
 		Rotation    [4]float64 `json:"rotation"`
 	} `json:"instancePoses,omitempty"`
+}
+
+// SketchCandidatePreview is the solved production candidate of a read-only
+// EDIT_SKETCH preview, scoped by the enclosing head revision and sequence.
+type SketchCandidatePreview struct {
+	FeatureID string           `json:"featureId"`
+	Entities  []SketchEntity   `json:"entities"`
+	Solve     SketchSolveState `json:"solve"`
 }
 
 type AssemblyEvaluationFailure struct {

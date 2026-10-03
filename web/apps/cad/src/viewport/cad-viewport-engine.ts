@@ -1,3 +1,9 @@
+import { SketchModalInputController } from "../cad/sketch/sketch-modal-input";
+import type { SketchReferenceSelectionRequest } from "../cad/sketch/sketch-reference-selection-session";
+import type { SketchEditCandidatePreview } from "../cad/sketch/sketch-edit-preview";
+import { sketchCommitResultUnknown } from "../cad/tool/sketch-command-session";
+import { SelectionInputResult } from "../cad/input/input-types";
+import type { SketchCommandState, SketchCommandAction, SketchCommitIntent, SketchCommitResult, SketchCommitReceipt } from "../cad/tool/sketch-command-session";
 import { VisualRepository, type DisplayArtifact as Artifact, type DisplayDocumentView as DocumentView } from "../cad/visual/visual-repository";
 import { assemblyConstraintReferences } from "../cad/assembly/assembly-capability";
 import type {MotionPresentation} from "../cad/assembly/motion-presentation";
@@ -67,7 +73,11 @@ import type {
 type Callbacks = {
   selectionsChanged: (selections: SelectionItem[]) => void;
   preselectionChanged: (selection: Selection) => void;
-  sketchOperations: (featureID: string, operations: SketchOperation[]) => void;
+  sketchOperations: (featureID: string, operations: SketchOperation[], intent?:SketchCommitIntent) => Promise<SketchCommitResult>;
+  sketchCommandChanged?: (state:SketchCommandState|undefined)=>void;
+  sketchReceiptChanged?:(receipt:SketchCommitReceipt|undefined)=>void;
+  sketchReceiptCheck?:(receipt:SketchCommitReceipt)=>Promise<SketchCommitResult>;
+  sketchPreview?:(featureId:string,operations:SketchOperation[],signal?:AbortSignal)=>Promise<import("../types").CommandPreview>;
   toolPromptChanged: (prompt: string) => void;
   toolUseCompleted: () => void;
   dimensionEditRequested: (request: { mode: "edit"; featureId: string; constraintId: string; value?: number; unit: "mm" | "deg"; x: number; y: number }) => void;
@@ -163,7 +173,7 @@ export type ViewportDebugState = {
 };
 
 function sketchReferenceEntities(feature?: Feature): SketchEntity[] {
-  return [...(feature?.sketch?.entities ?? []), ...(feature?.sketch?.externalGeometry ?? []).flatMap((external) => external.snapshot ? [{
+  return [...(feature?.sketch?.entities ?? []), ...(feature?.sketch?.externalGeometry ?? []).flatMap((external) => external.status==="CONNECTED"&&external.snapshot ? [{
     id: external.id, kind: external.snapshot.kind, role: "CONSTRUCTION" as const, point: external.snapshot.point,
     start: external.snapshot.start, end: external.snapshot.end, center: external.snapshot.center, radius: external.snapshot.radius,
   } satisfies SketchEntity] : [])];
@@ -274,6 +284,7 @@ export class CadViewportEngine {
   private readonly navigation: NavigationController;
   private readonly navigationHUD: NavigationHUD;
   private readonly tools: ToolManager;
+  private readonly sketchModal:SketchModalInputController;
   private readonly selectionController: SelectionController;
   private readonly interaction: InteractionRouter;
   private readonly input: InputManager;
@@ -457,7 +468,12 @@ export class CadViewportEngine {
       () => { this.preselect(null, true); this.clearSnapPreview(); },
     );
     this.interaction = new InteractionRouter(this.tools, this.selectionController, this.navigation);
-    this.input = new InputManager(this.renderer.domElement, this.interaction);
+    this.sketchModal=new SketchModalInputController(this.interaction,this.navigation,{
+      blocked:()=>Boolean(this.sketchCommitPending||this.sketchReceipt||this.activeSketchID&&this.pendingVisualSnapshot),
+      pick:(request,event)=>this.sketchReferenceAt(event.x,event.y,request.pick,request.retained?{target:"ENTITY",entityId:request.retained.id,subElement:"WHOLE"}:undefined,request.allowed)??undefined,
+      highlight:(request,reference)=>{if(reference)this.showReferencePreview(reference,request.references,request.slot);else this.clearReferencePreview();},
+    });
+    this.input = new InputManager(this.renderer.domElement, this.sketchModal,{keyDown:this.sketchModal.modalKeyDown,keyUp:this.sketchModal.modalKeyUp});
     this.input.subscribe(() => this.emitDebugState());
     this.tools.subscribe((toolID) => {
       this.activeToolID = toolID ?? "select";
@@ -857,8 +873,145 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
+  setSketchDialogOpen(open:boolean):void { this.sketchModal.setOpen(open);if(!open)this.clearReferencePreview(); }
+  beginSketchReferenceSelection(request:SketchReferenceSelectionRequest):()=>void {
+    if(request.featureId!==this.activeSketchID)throw new Error("引用选择不属于当前草图");
+    return this.sketchModal.begin(request);
+  }
+  highlightSketchReference(featureId:string,reference:SketchGeometryRef|undefined,slot?:number):void {
+    if(featureId!==this.activeSketchID)return;
+    if(reference)this.showReferencePreview(reference,[],slot);else this.clearReferencePreview();
+  }
+  locateSketchReference(featureId:string,reference:SketchGeometryRef,slot?:number):void {
+    if(featureId!==this.activeSketchID||!this.sketchPlane)return;
+    const point=this.sketchReferenceAnchor(reference);if(!point)return;
+    const anchor=localToWorld(this.sketchPlane,point),offset=this.camera.position.clone().sub(this.navigation.target);
+    this.navigation.target.copy(anchor);this.camera.position.copy(anchor).add(offset);this.camera.lookAt(anchor);this.navigation.syncCamera(false);this.showReferencePreview(reference,[],slot);this.invalidate();
+  }
+  private sketchReferenceAnchor(reference:SketchGeometryRef):Vec2|undefined {
+    if(reference.target==="SKETCH_ORIGIN")return [0,0];
+    if(reference.target==="SKETCH_X_AXIS")return [1,0];if(reference.target==="SKETCH_Y_AXIS")return [0,1];
+    const entity=this.visibleSketchReferenceEntities().find(e=>e.id===reference.entityId);if(!entity)return;
+    if(reference.subElement==="CONTROL"&&entity.kind==="SPLINE")return splineReferencePoint(entity,reference.controlPointIndex??0,reference.controlPointId);
+    if(["START","END","CENTER","POINT"].includes(reference.subElement))return sketchEntityPoint(entity,reference.subElement as "START"|"END"|"CENTER"|"POINT")??undefined;
+    const sample=sampleSketchEntity(entity);return sample[Math.floor(sample.length/2)];
+  }
+  commitDimensionOperations(featureId:string,operations:SketchOperation[],intent?:SketchCommitIntent):Promise<SketchCommitResult> {
+    if(featureId!==this.activeSketchID)return Promise.reject(new Error("草图编辑会话已变化"));
+    return this.commitSketchOperations(operations,intent);
+  }
+  private sketchCommandState?:SketchCommandState;
+  private sketchCommitPending?:Promise<SketchCommitResult>;
+  private sketchReceipt?:SketchCommitReceipt;
+  private deferredToolFinish?:{exit?:boolean;toolId:string};
+  async retrySketchReceipt():Promise<void> {
+    const receipt=this.sketchReceipt;if(!receipt||receipt.status!=="unknown"||!this.callbacks.sketchReceiptCheck)return;
+    const scope={owner:this.sketchView()?.document.id,feature:this.activeSketchID,occurrence:this.editContext?.occurrencePath};
+    const current=()=>scope.owner===receipt.ownerDocumentId&&scope.owner===this.sketchView()?.document.id&&scope.feature===this.activeSketchID&&scope.occurrence===this.editContext?.occurrencePath;
+    receipt.status="committing";this.callbacks.sketchReceiptChanged?.({...receipt});
+    let confirmed=false;
+    try {
+      const updated=await this.callbacks.sketchReceiptCheck(receipt);confirmed=true;
+      this.sketchReceipt=undefined;this.callbacks.sketchReceiptChanged?.(undefined);
+      if(updated&&current()) {
+        this.pendingVisualSnapshot=true;
+        const hydrated=await this.visuals.hydrate(updated);
+        if(current()) {
+          this.visualGeneration++;
+          if(this.editContext&&this.view&&this.view.document.id!==updated.document.id)this.renderReady(this.view,{...this.editContext,view:hydrated});else this.renderReady(hydrated);
+          this.pendingVisualSnapshot=false;
+        }
+      }
+      if(current())this.tools.activate("select");
+    } catch(error) {
+      if(confirmed) {
+        this.callbacks.toolPromptChanged("原请求已确认，几何显示加载失败，请重新读取；不会重复提交模型");this.callbacks.operationFailed?.(error);
+        if(current())this.tools.activate("select");
+      } else if(sketchCommitResultUnknown(error)) {
+        receipt.status="unknown";receipt.error=error instanceof Error?error.message:String(error);this.callbacks.sketchReceiptChanged?.({...receipt});
+      } else {
+        this.sketchReceipt=undefined;this.callbacks.sketchReceiptChanged?.(undefined);this.callbacks.toolPromptChanged(`原请求明确失败：${error instanceof Error?error.message:String(error)}`);this.callbacks.operationFailed?.(error);
+        if(current())this.tools.activate("select");
+      }
+    }
+  }
+
+  commandAction(action:SketchCommandAction):void { this.tools.commandAction(action); }
+  private setSketchCommandState(state:SketchCommandState|undefined):void {
+    if(JSON.stringify(this.sketchCommandState)===JSON.stringify(state))return;
+    this.sketchCommandState=state;
+    this.callbacks.sketchCommandChanged?.(state);
+    if(state) {
+      const selections=state.selectedIds.flatMap(id=>{const entity=this.visibleSketchReferenceEntities().find(entity=>entity.id===id);return entity?[this.sketchEntitySelection(entity)]:[];});
+      this.selectMany(selections,true);
+    }
+  }
+  private async commitSketchOperations(operations:SketchOperation[],intent?:SketchCommitIntent):Promise<SketchCommitResult> {
+    if(this.sketchCommitPending)throw new Error("当前草图操作仍在提交，请等待结果");
+    if(this.sketchReceipt?.status==="committing")throw new Error("正在确认原草图请求结果，请等待回执");
+    if(this.pendingVisualSnapshot)throw new Error("正在加载已确认草图结果，请等待显示更新");
+    if(this.sketchReceipt?.status==="unknown"&&intent?.requestId!==this.sketchReceipt.intent.requestId)throw new Error("先确认上一草图请求结果，避免重复编辑");
+    const featureId=this.activeSketchID,owner=this.sketchView()?.document.id,occurrence=this.editContext?.occurrencePath,toolId=this.tools.activeToolID;
+    if(!featureId||!owner)throw new Error("草图编辑会话已结束");
+    if(!operations.length)throw new Error("操作为空，没有产生有效编辑");
+    this.clearSnapPreview();
+    const receipt:SketchCommitReceipt={ownerDocumentId:owner,featureId,operations:structuredClone(operations),intent:intent?structuredClone(intent):{requestId:randomUUID(),baseVersionId:this.sketchView()?.document.versionId},status:"committing"};
+    this.sketchReceipt=receipt;this.callbacks.sketchReceiptChanged?.(receipt);
+    const pending=Promise.resolve().then(()=>this.callbacks.sketchOperations(featureId,receipt.operations,receipt.intent));
+    this.sketchCommitPending=pending;
+    let confirmed:SketchCommitResult;
+    try {
+      const updated=await pending;confirmed=updated;
+      if(updated&&this.activeSketchID===featureId&&this.sketchView()?.document.id===owner&&this.editContext?.occurrencePath===occurrence) {
+        // The next gesture uses the accepted model only after its visual data is
+        // ready. This does not reinterpret a failed request as a successful one.
+        this.pendingVisualSnapshot=true;
+        const display=await this.visuals.hydrate(updated);
+        if(this.activeSketchID===featureId&&this.sketchView()?.document.id===owner&&this.editContext?.occurrencePath===occurrence) {
+          this.visualGeneration++;
+          if(this.editContext&&this.view&&this.view.document.id!==owner)this.renderReady(this.view,{...this.editContext,view:display});
+          else this.renderReady(display);
+          this.pendingVisualSnapshot=false;
+        }
+      }
+      this.sketchReceipt=undefined;this.callbacks.sketchReceiptChanged?.(undefined);
+      const finish=this.deferredToolFinish;this.deferredToolFinish=undefined;
+      if(finish&&this.tools.activeToolID===finish.toolId){if(finish.exit)this.tools.activate("select");else this.callbacks.toolUseCompleted();}
+      return updated;
+    } catch(error) {
+      if(confirmed){
+        this.sketchReceipt=undefined;this.callbacks.sketchReceiptChanged?.(undefined);
+        this.callbacks.toolPromptChanged("操作已确认，几何显示加载失败，请重新读取；不会重复提交模型");this.callbacks.operationFailed?.(error);
+        const finish=this.deferredToolFinish;this.deferredToolFinish=undefined;if(finish&&this.tools.activeToolID===finish.toolId)this.callbacks.toolUseCompleted();
+        return confirmed;
+      }
+      this.deferredToolFinish=undefined;
+      if(sketchCommitResultUnknown(error)){receipt.status="unknown";receipt.error=error instanceof Error?error.message:String(error);this.callbacks.sketchReceiptChanged?.({...receipt});}
+      else {this.sketchReceipt=undefined;this.callbacks.sketchReceiptChanged?.(undefined);this.callbacks.toolPromptChanged(`操作失败：${error instanceof Error?error.message:String(error)}`);this.callbacks.operationFailed?.(error);}
+      throw error;
+    } finally { if(this.sketchCommitPending===pending)this.sketchCommitPending=undefined; }
+  }
+  private sketchEntitySelection(entity:SketchEntity):SelectionItem {
+    const view=this.sketchView()!,feature=view.part?.features.find(feature=>feature.id===this.activeSketchID);
+    return {kind:"visual",id:`${this.editContext?.occurrencePath||"root"}:${this.activeSketchID}:${entity.id}`,visualType:entity.kind==="POINT"?"POINT":"CURVE",featureId:this.activeSketchID!,entityId:entity.id,documentId:view.document.id,ownerDocumentId:view.document.id,versionId:view.document.versionId,occurrencePath:this.editContext?.occurrencePath,bodyId:feature?.bodyId,role:entity.role};
+  }
+  private sketchEntitySelectionAt(x:number,y:number):SelectionItem|null {
+    const ref=this.sketchReferenceAt(x,y,"ENTITY");
+    const entity=ref?.target==="ENTITY"&&this.visibleSketchReferenceEntities().find(entity=>entity.id===ref.entityId);
+    return entity?this.sketchEntitySelection(entity):null;
+  }
+  private visibleSketchReferenceEntities():SketchEntity[] {
+    const view=this.sketchView(),feature=view?.part?.features.find(feature=>feature.id===this.activeSketchID);
+    if(!view||!feature?.sketch)return [];
+    return sketchReferenceEntities(feature).filter(entity=>{
+      if(entity.suppressed)return false;
+      const address:DisplayAddress={documentId:view.document.id,occurrencePath:this.editContext?.occurrencePath??"",kind:"SKETCH_ENTITY",entityId:entity.id,ownerEntityId:feature.id,bodyId:feature.bodyId};
+      const selection=this.sketchEntitySelection(entity),semantic=selectionKey(selection);
+      return treeVisibilityOverride(semantic,this.treeVisibilityOverrides)!==false&&treeVisibilityOverride(selection.treeNodeId,this.treeVisibilityOverrides)!==false&&(this.visibilityResolver?.resolve(address,this.editingSketchScope()).effectiveVisible??true);
+    });
+  }
   captureToolSelections(selections: readonly SelectionItem[]): boolean {
-    return this.tools.selectionInput(selections);
+    return this.tools.selectionInput(selections)!==SelectionInputResult.Unhandled;
   }
 
   setActiveTool(toolID: import("../state/workbench-store").WorkbenchToolID): void {
@@ -1043,6 +1196,12 @@ export class CadViewportEngine {
   requestDimensionEdit(selection: Extract<SelectionItem, { kind: "sketch-constraint" }>, x?: number, y?: number): boolean {
     const sketchView = this.sketchView();
     if (!sketchView) return false;
+    if ((selection.ownerDocumentId??selection.documentId)!==sketchView.document.id ||
+        (selection.occurrencePath??"")!==(this.editContext?.occurrencePath??"") ||
+        selection.versionId&&selection.versionId!==sketchView.document.versionId ||
+        this.activeSketchID&&selection.featureId!==this.activeSketchID) {
+      this.callbacks.toolPromptChanged("尺寸选择不属于当前文档、草图或 occurrence，请重新选择");return false;
+    }
     const feature = sketchView.part?.features.find((candidate) => candidate.id === selection.featureId);
     const constraint = feature?.sketch?.constraints.find((candidate) => candidate.id === selection.constraintId);
     if(!constraint)return false;
@@ -2090,7 +2249,7 @@ export class CadViewportEngine {
       if (entity.suppressed) continue;
       const type = entity.kind === "POINT" ? "POINT" as const : "CURVE" as const;
       const entitySelection = { kind: "visual" as const, id: `${context.occurrencePath || "root"}:${feature.id}:${entity.id}`, visualType: type,
-        featureId: feature.id, entityId: entity.id, role: entity.role, documentId,
+        featureId: feature.id, entityId: entity.id, role: entity.role, documentId, ownerDocumentId:documentId,
         bodyId: feature.bodyId, versionId: context.versionId, instancePath: context.instancePath,
         contextVariantKey: context.contextVariantKey,
         occurrencePath: context.occurrencePath,
@@ -2373,9 +2532,14 @@ export class CadViewportEngine {
     if (!drag) return;
     this.clearReferencePreview();
     if (drag.position) {
-      this.callbacks.sketchOperations(drag.selection.featureId, [{ type: "UPDATE_CONSTRAINT_PLACEMENT",
-        constraintId: drag.constraint.id, labelPosition: { x: drag.position[0], y: drag.position[1] } }]);
-      if (drag.root && !drag.root.parent) this.disposeRenderable(drag.root);
+      void this.commitSketchOperations([{ type:"UPDATE_CONSTRAINT_PLACEMENT",constraintId:drag.constraint.id,labelPosition:{x:drag.position[0],y:drag.position[1]} }],{requestId:randomUUID(),baseVersionId:this.sketchView()?.document.versionId}).then(()=>{
+        if(drag.root&&!drag.root.parent)this.disposeRenderable(drag.root);
+      },()=>{
+        if(drag.root&&drag.rootParent&&!drag.root.parent&&drag.scopeKey===this.dimensionGestureScope()){
+          drag.rootParent.add(drag.root);if(drag.rootIndex!==undefined){const at=drag.rootParent.children.indexOf(drag.root);drag.rootParent.children.splice(at,1);drag.rootParent.children.splice(drag.rootIndex,0,drag.root);}
+        }else if(drag.root&&!drag.root.parent)this.disposeRenderable(drag.root);
+        this.invalidate();
+      });
     }
     this.invalidate();
   }
@@ -2547,6 +2711,18 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
+  private showSketchEditCandidate(candidate:SketchEditCandidatePreview):void {
+    this.clearPreview();if(!this.sketchPlane)return;
+    const group=new THREE.Group();
+    const draw=(entities:SketchEntity[],color:number,dashed:boolean)=>{for(const entity of entities){
+      const points=sampleSketchEntity(entity).map(point=>localToWorld(this.sketchPlane!,point));if(!points.length)continue;
+      const material=dashed?new THREE.LineDashedMaterial({color,depthTest:false,dashSize:1,gapSize:.6}):new THREE.LineBasicMaterial({color,depthTest:false});
+      const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(points),material);line.renderOrder=31;if(dashed)line.computeLineDistances();group.add(line);
+    }};
+    draw(candidate.entities,CATIA_VISUAL_THEME.preview,false);
+    draw(candidate.hitEntities,0xe05252,true);
+    this.preview=group;this.scene.add(group);this.invalidate();
+  }
   private clearPreview(): void {
     if (!this.preview) return;
     this.scene.remove(this.preview);
@@ -2605,12 +2781,14 @@ export class CadViewportEngine {
     return line;
   }
 
-  private showReferencePreview(reference: SketchGeometryRef, retained: readonly SketchGeometryRef[] = []): void {
+  private showReferencePreview(reference: SketchGeometryRef, retained: readonly SketchGeometryRef[] = [], slot?:number): void {
     this.clearReferencePreview();
     const group = new THREE.Group();
     const same=retained.some((item)=>item.target===reference.target&&item.entityId===reference.entityId&&item.subElement===reference.subElement);
     for(const item of retained){const selected=this.makeReferencePreview(item,CATIA_VISUAL_THEME.selected);if(selected)group.add(selected);}
     if(!same){const candidate=this.makeReferencePreview(reference,CATIA_VISUAL_THEME.snap);if(candidate)group.add(candidate);}
+    const refs=retained.length?[...retained]:[reference];if(retained.length&&slot!==undefined)refs[slot]=reference;
+    if(this.sketchPlane)refs.forEach((ref,index)=>{const anchor=this.sketchReferenceAnchor(ref);if(anchor){const label=makeConstraintDimensionLabel(`#${retained.length?index+1:(slot??0)+1}`);label.position.copy(localToWorld(this.sketchPlane!,anchor));label.renderOrder=32;group.add(label);}});
     if (group.children.length === 0) return;
     this.referencePreview = group;
     this.referencePreview.renderOrder = 30;
@@ -2671,9 +2849,11 @@ export class CadViewportEngine {
         this.invalidate();
       },
       clearToolPreview: () => { this.clearPreview(); this.clearSnapPreview(); },
-      commitSketchOperations: (operations) => { this.clearSnapPreview(); if (this.activeSketchID) this.callbacks.sketchOperations(this.activeSketchID, operations); },
+      commitSketchOperations: (operations,intent) => {const result=this.commitSketchOperations(operations,intent);void result.catch(()=>{});return result;},
+      setSketchCommandState: state=>this.setSketchCommandState(state),
+      sketchEntityAt:(x,y)=>this.sketchEntitySelectionAt(x,y),
       hasActiveSketch: () => Boolean(this.sketchPlane && this.activeSketchID),
-      sketchReferenceAt: (x, y, kind, retained) => this.sketchReferenceAt(x, y, kind, retained),
+      sketchReferenceAt: (x, y, kind, retained,allowed) => this.sketchReferenceAt(x, y, kind, retained,allowed),
       showReferencePreview: (reference, retained) => this.showReferencePreview(reference, retained),
       showConstraintPreview: (kind, references, value, labelPosition) => this.showConstraintPreview(kind, references, value, labelPosition),
       measureDimension: (kind, references) => {
@@ -2694,19 +2874,34 @@ export class CadViewportEngine {
       editDimensionAt: (x, y) => this.editDimensionAt(x, y),
       clearReferencePreview: () => this.clearReferencePreview(),
       setToolPrompt: (prompt) => this.callbacks.toolPromptChanged(prompt),
-      finishToolUse: (exit) => { if (exit) this.tools.activate("select"); else this.callbacks.toolUseCompleted(); },
+      finishToolUse: (exit) => {
+        if(exit){this.tools.activate("select");return;}
+        if(this.sketchCommitPending){this.deferredToolFinish={toolId:this.tools.activeToolID??"select"};return;}
+        this.callbacks.toolUseCompleted();
+      },
       selectionAt: (x, y) => this.hitTest(x, y, true),
-      commitExternalProjection: (selection) => {
+      commitExternalProjection: async (selection) => {
         if (!this.activeSketchID || !selection.geometryKey || !selection.versionId) return;
         const externalID = this.reconnectExternalID ?? randomUUID();
         const type = this.reconnectExternalID ? "RECONNECT_EXTERNAL_GEOMETRY" as const : "ADD_EXTERNAL_GEOMETRY" as const;
-        this.reconnectExternalID = undefined;
-        this.callbacks.sketchOperations(this.activeSketchID, [{ type, externalId: externalID, geometryKey: selection.geometryKey,
+        const result=await this.commitSketchOperations( [{ type, externalId: externalID, geometryKey: selection.geometryKey,
           topologyId: selection.topologyId, topologyKind: selection.kind.toUpperCase() as "EDGE"|"VERTEX", sourceVersionId: selection.versionId }]);
+        if(this.reconnectExternalID===externalID)this.reconnectExternalID=undefined;
+        return result;
+      },
+      currentSketchReferenceEntities:()=>this.visibleSketchReferenceEntities(),
+      previewSketchOperations:async(operations,signal)=>{
+        const featureId=this.activeSketchID,scope=this.sketchView()?.document;
+        if(!featureId||!scope||!this.callbacks.sketchPreview)throw new Error("草图权威预览不可用");
+        const preview=await this.callbacks.sketchPreview(featureId,operations,signal);
+        const candidate=preview.sketchCandidates?.find(candidate=>candidate.featureId===featureId);
+        if(preview.baseVersionId!==scope.versionId||!candidate)throw new Error("草图候选已失效或无法求值");
+        return {featureId,versionId:preview.baseVersionId,entities:candidate.entities};
       },
       currentSketchConstraints: () => this.sketchView()?.part?.features.find(feature=>feature.id===this.activeSketchID)?.sketch?.constraints ?? [],
-      currentSketchEntities: () => this.sketchView()?.part?.features.find(feature=>feature.id===this.activeSketchID)?.sketch?.entities ?? [],
+      currentSketchEntities: () => this.visibleSketchReferenceEntities().filter(entity=>!this.sketchView()?.part?.features.find(feature=>feature.id===this.activeSketchID)?.sketch?.externalGeometry?.some(external=>external.id===entity.id)),
       currentSketchIdentity: () => {const view=this.sketchView();return view&&this.activeSketchID?{documentId:view.document.id,versionId:view.document.versionId,sketchId:this.activeSketchID,occurrencePath:this.editContext?.occurrencePath}:undefined;},
+      showSketchEditCandidate:candidate=>this.showSketchEditCandidate(candidate),
       showSketchEntityPreview: (entities) => {
         this.clearPreview();if(!this.sketchPlane)return;
         const group=new THREE.Group();
@@ -2732,9 +2927,9 @@ export class CadViewportEngine {
     };
   }
 
-  private sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind, retained?: SketchGeometryRef) {
+  private sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind, retained?: SketchGeometryRef,allowed?:(reference:SketchGeometryRef)=>boolean) {
     const sketchView = this.sketchView();
-    if (!this.sketchPlane || !sketchView || !this.captureSettings.enabled) return null;
+    if (!this.sketchPlane || !sketchView) return null;
     const width = Math.max(this.renderer.domElement.clientWidth, 1);
     const height = Math.max(this.renderer.domElement.clientHeight, 1);
     const screen = (point: Vec2) => {
@@ -2742,19 +2937,20 @@ export class CadViewportEngine {
       return { x: (projected.x + 1) * width / 2, y: (1 - projected.y) * height / 2 };
     };
     const feature = sketchView.part?.features.find((candidate) => candidate.id === this.activeSketchID);
-    const entities = sketchReferenceEntities(feature);
+    const entities = this.visibleSketchReferenceEntities();
     const origin = localToWorld(this.sketchPlane, [0, 0]);
     const extents = ([[1, 0], [0, 1]] as Vec2[]).map(axis => {
       const ends = sketchAxisEndpoints(this.camera, origin, localToWorld(this.sketchPlane!, axis).sub(origin), width, height);
       return ends ? ends[1].distanceTo(origin) : 0;
     }) as Vec2;
-    const reference = resolveSketchReference({ x, y }, entities, screen, kind, 12, extents, retained);
+    const reference = resolveSketchReference({ x, y }, entities, screen, kind, 12, extents, retained,allowed);
     if (!reference) return null;
     if (reference.entityId && feature?.sketch?.externalGeometry?.some((external) => external.id === reference.entityId)) reference.target = "EXTERNAL";
     const captureKind = reference.target === "SKETCH_ORIGIN" ? "ORIGIN"
       : reference.subElement === "START" || reference.subElement === "END" ? "ENDPOINT"
       : reference.subElement === "CENTER" ? "CENTER" : reference.subElement === "POINT" ? "POINT" : "CURVE";
-    return this.captureSettings.sketch.includes(captureKind) ? reference : null;
+    // Explicit role picking is independent of automatic snapping preferences.
+    return reference;
   }
 
   private emitDebugState(): void {

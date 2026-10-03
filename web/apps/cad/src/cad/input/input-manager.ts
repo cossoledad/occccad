@@ -12,6 +12,8 @@ export function isEditableTarget(target: EventTarget | null): boolean {
   return target.isContentEditable || Boolean(target.closest("input, textarea, select, button, [role='button'], [role='tree'], [role='dialog'], [contenteditable='true']"));
 }
 
+export type ModalInputHandlers={keyDown?:(event:KeyboardEvent)=>InputResult;keyUp?:(event:KeyboardEvent)=>InputResult};
+
 export class InputManager {
   private readonly state = new InputStateTracker();
   private readonly capturedPointers = new Set<number>();
@@ -19,7 +21,7 @@ export class InputManager {
   private readonly subscribers = new Set<(state: InputState) => void>();
   private lastControlSignature = "";
 
-  constructor(private readonly surface: HTMLElement, private readonly sink: CadInputSink) {
+  constructor(private readonly surface: HTMLElement, private readonly sink: CadInputSink,private readonly modalInput:ModalInputHandlers={}) {
     surface.style.touchAction = "none";
     surface.tabIndex = 0;
     surface.setAttribute("aria-label", "三维视口");
@@ -35,8 +37,8 @@ export class InputManager {
     surface.addEventListener("contextmenu", this.preventSurfaceDefault);
     surface.addEventListener("dragstart", this.preventSurfaceDefault);
     surface.addEventListener("selectstart", this.preventSurfaceDefault);
-    window.addEventListener("keydown", this.onKeyDown);
-    window.addEventListener("keyup", this.onKeyUp);
+    window.addEventListener("keydown", this.onKeyDown,true);
+    window.addEventListener("keyup", this.onKeyUp,true);
     window.addEventListener("blur", this.onWindowBlur);
     document.addEventListener("visibilitychange", this.onVisibilityChange);
   }
@@ -61,8 +63,8 @@ export class InputManager {
     this.surface.removeEventListener("contextmenu", this.preventSurfaceDefault);
     this.surface.removeEventListener("dragstart", this.preventSurfaceDefault);
     this.surface.removeEventListener("selectstart", this.preventSurfaceDefault);
-    window.removeEventListener("keydown", this.onKeyDown);
-    window.removeEventListener("keyup", this.onKeyUp);
+    window.removeEventListener("keydown", this.onKeyDown,true);
+    window.removeEventListener("keyup", this.onKeyUp,true);
     window.removeEventListener("blur", this.onWindowBlur);
     document.removeEventListener("visibilitychange", this.onVisibilityChange);
     this.subscribers.clear();
@@ -158,9 +160,12 @@ export class InputManager {
     const state = this.state.updateKey(event.code, true, modifiersFromEvent(event));
     this.publishControlState(state);
     const normalized: CadKeyboardEvent = { phase: "down", key: event.key, code: event.code, repeat: event.repeat,
-      editableTarget: isEditableTarget(event.target), state, originalEvent: event };
+      editableTarget: isEditableTarget(event.target), isComposing:event.isComposing||event.keyCode===229, state, originalEvent: event };
+    const modalResult=this.modalInput.keyDown?.(event)??InputResult.Ignored;
+    if(isHandled(modalResult)){event.preventDefault();event.stopImmediatePropagation();return;}
+    if(event.isComposing||event.keyCode===229||normalized.editableTarget)return;
     const result = this.sink.keyDown?.(normalized) ?? InputResult.Ignored;
-    if (result === InputResult.ReleaseCapture) this.resetInput();
+    if (result === InputResult.ReleaseCapture || event.key==="Escape"&&isHandled(result)) this.resetInput();
     if (isHandled(result)) event.preventDefault();
   };
 
@@ -168,7 +173,10 @@ export class InputManager {
     const state = this.state.updateKey(event.code, false, modifiersFromEvent(event));
     this.publishControlState(state);
     const normalized: CadKeyboardEvent = { phase: "up", key: event.key, code: event.code, repeat: event.repeat,
-      editableTarget: isEditableTarget(event.target), state, originalEvent: event };
+      editableTarget: isEditableTarget(event.target), isComposing:event.isComposing||event.keyCode===229, state, originalEvent: event };
+    const modalResult=this.modalInput.keyUp?.(event)??InputResult.Ignored;
+    if(isHandled(modalResult)){event.preventDefault();event.stopImmediatePropagation();return;}
+    if(event.isComposing||event.keyCode===229||normalized.editableTarget)return;
     if (isHandled(this.sink.keyUp?.(normalized) ?? InputResult.Ignored)) event.preventDefault();
   };
 

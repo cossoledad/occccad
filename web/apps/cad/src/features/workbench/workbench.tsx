@@ -1,3 +1,4 @@
+import type { SketchCommitIntent } from "../../cad/tool/sketch-command-session";
 import { selectionNamingIssue, topologyNamingIssue } from "./topology-naming-capability";
 import { openDocumentTab, registerDocumentTab, updateOpenDocumentSummary } from "./open-document-tab";
 import { EditActivationGate, prepareOccurrenceEditSession, rootEditSession, pinnedReferenceInPath,
@@ -776,17 +777,19 @@ export function Workbench() {
   }, [editingView, editingAssemblyConstraint, pendingAssemblyConstraint, replacingAssemblyReference,
     assemblyDirection, assemblyDistance, assemblyPreviewCommit, assemblyConstraintForm, assemblyPreviewActor, lengthUnit,assemblySupportsReady,editingGroup,activeInstancePath,assemblyInspection,axisInspection]);
 
-  const editSketch = (featureID: string, operations: SketchOperation[]) => {
-    const issue = operations.flatMap((operation) => {
-      if (operation.type !== "ADD_EXTERNAL_GEOMETRY" && operation.type !== "RECONNECT_EXTERNAL_GEOMETRY") return [];
-      const issue = topologyNamingIssue(operation.geometryKey, editingView, view);
-      return issue ? [issue] : [];
-    })[0];
-    if (issue) { message.warning(issue.diagnostic); return; }
-    if (operations.length && newSketchSession.current?.sketchId === featureID) newSketchSession.current.edited = true;
-    if (!editingView) return;
-    command.mutate(() => api.editSketch(editingView.document.id, featureID, operations));
+  const editSketch = async (featureID: string, operations: SketchOperation[],intent?:SketchCommitIntent):Promise<DocumentView> => {
+    const owner=editingView;
+    if(!owner||store.activeSketchID!==featureID)throw new Error("草图编辑会话已结束");
+    if(!intent?.retryReceipt&&intent?.baseVersionId&&intent.baseVersionId!==owner.document.versionId)throw new Error("草图版本已变化，请重新确认操作");
+    const issue=operations.flatMap(operation=>operation.type==="ADD_EXTERNAL_GEOMETRY"||operation.type==="RECONNECT_EXTERNAL_GEOMETRY"?[topologyNamingIssue(operation.geometryKey,owner,view)].filter(Boolean):[])[0];
+    if(issue)throw new Error(issue.diagnostic);
+    if(!operations.length)throw new Error("没有有效的草图编辑");
+    const updated=await command.mutateAsync(()=>api.command(owner.document.id,{type:"EDIT_SKETCH",sketchId:featureID,operations,requestId:intent?.requestId??randomUUID()}));
+    if(newSketchSession.current?.sketchId===featureID)newSketchSession.current.edited=true;
+    await refresh(updated);
+    return updated;
   };
+
   const moveInstance = async (ownerDocumentId:string,candidate:AssemblyInteractionCommit) => {
     if(!candidate.commitCommand)throw new Error("装配操纵缺少完整候选提交身份");
     // Server binds the exact final target/token/requestId. Do not reconstruct a
@@ -1130,7 +1133,7 @@ export function Workbench() {
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(store.sketchPlane) }),
       commandRegistry.register({ id: "sketch.finish", execute: finishSketch,
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && !command.isPending) }),
-      ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,toolID.startsWith("sketch.edit.") || toolID.startsWith("sketch.constraint.") || toolID.startsWith("sketch.dimension.") || toolID === "sketch.project" ? (invocation?.continuous?"continuous":"once") : "continuous"),
+      ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,toolID.startsWith("sketch.edit.") || toolID.startsWith("sketch.constraint.") || toolID.startsWith("sketch.dimension.") || toolID === "sketch.project" ? (invocation?.continuous||toolID==="sketch.edit.quick_trim"?"continuous":"once") : "continuous"),
         isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane&&(toolID!=="sketch.project"||!selectedNamingIssue)),isActive:()=>store.activeToolID===toolID})),
       commandRegistry.register({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isVisible: () => editingView?.document.type === "PART",
         isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch") }),
@@ -1590,7 +1593,7 @@ export function Workbench() {
           treeVisibilityOverrides={treeVisibilityOverrides}
           sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={navigationProfile} catiaRotationSphereVisible={catiaRotationSphereVisible}
           referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}
-          captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch} onDimensionOperations={async(featureID,operations)=>{if(!editingView)throw new Error("草图编辑会话已结束"); await command.mutateAsync(()=>api.editSketch(editingView.document.id,featureID,operations));}}
+          preferredLengthUnit={lengthUnit} captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch} onDimensionOperations={editSketch} onSketchPreview={(featureId,operations,signal)=>{if(!editingView||store.activeSketchID!==featureId)return Promise.reject(new Error("草图预览上下文已结束"));return api.previewCommand(editingView.document.id,{type:"EDIT_SKETCH",sketchId:featureId,operations},signal);}} onSketchReceiptCheck={async receipt=>{const updated=await command.mutateAsync(()=>api.command(receipt.ownerDocumentId,{type:"EDIT_SKETCH",sketchId:receipt.featureId,operations:receipt.operations,requestId:receipt.intent.requestId}));await refresh(updated);return updated;}}
           onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
 		  onAssemblyConstraint={(toolKind, references) => {
             const issue = references.flatMap((reference) => {

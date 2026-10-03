@@ -56,6 +56,6 @@ try {
   manager.selectionInput([axis("a")]);
   assert.equal(requests.length,count+1);
   assert.equal(requests.at(-1).references[0].geometryId,"datum-b","cancel must clear the previous first support");
-  assert.equal(manager.selectionInput([face("a")]),false,"ordinary selection remains owned by the workbench");
+  assert.equal(manager.selectionInput([face("a")]),"unhandled","ordinary selection remains owned by the workbench");
   console.log("Tree/viewport assembly supports, one/two seeds, Fix projection and cancellation passed.");
 } finally {await server.close();}

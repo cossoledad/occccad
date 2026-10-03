@@ -1,3 +1,6 @@
+import { Alert, Button } from "antd";
+import type { SketchCommandState, SketchCommitIntent, SketchCommitResult, SketchCommitReceipt } from "../cad/tool/sketch-command-session";
+import { SketchCommandPanel } from "../cad/sketch/sketch-command-panel";
 import type { ReferenceVisibility, SolidDisplaySettings } from "../cad/rendering/display-settings";
 import type { InstancePatternPreview } from "../features/workbench/instance-pattern";
 import type { NormalViewPlane } from "../cad/navigation/normal-view";
@@ -38,6 +41,7 @@ export type CadViewportHandle = {
 };
 
 type Props = {
+  preferredLengthUnit?: "mm"|"cm"|"m"|"in";
   view: DocumentView;
   editingView?: DocumentView;
   liveConstraintProjection?: boolean;
@@ -58,8 +62,10 @@ type Props = {
   treeVisibilityOverrides: TreeVisibilityOverrides;
   onSelectionsChange: (selections: SelectionItem[]) => void;
   onPreselectionChange: (selection: Selection) => void;
-  onSketchOperations: (featureID: string, operations: SketchOperation[]) => void;
-  onDimensionOperations: (featureID:string,operations:SketchOperation[])=>Promise<unknown>;
+  onSketchOperations: (featureID: string, operations: SketchOperation[],intent?:SketchCommitIntent) => Promise<SketchCommitResult>;
+  onDimensionOperations: (featureID:string,operations:SketchOperation[],intent?:SketchCommitIntent)=>Promise<unknown>;
+  onSketchReceiptCheck?:(receipt:SketchCommitReceipt)=>Promise<SketchCommitResult>;
+  onSketchPreview?:(featureId:string,operations:SketchOperation[],signal?:AbortSignal)=>Promise<import("../types").CommandPreview>;
   onToolUseComplete: () => void;
   onActiveToolChange: (toolID: WorkbenchToolID) => void;
   onInstanceMoved: (documentId:string,candidate:AssemblyInteractionCommit)=>Promise<void>;
@@ -77,28 +83,37 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   const engine = useRef<CadViewportEngine | undefined>(undefined);
   const patternPreview = useRef<InstancePatternPreview | undefined>(undefined);
   const callbacks = useRef(props);
+  const [sketchReceipt,setSketchReceipt]=useState<SketchCommitReceipt>();
+  const [toolPrompt,setToolPrompt]=useState("");
+  const [sketchCommand,setSketchCommand]=useState<SketchCommandState>();
   const [debug, setDebug] = useState<InputDebugSnapshot>();
   const [dimensionEditor, setDimensionEditor] = useState<DimensionRequest & {ownerDocumentID:string;ownerRevisionID:string;epoch:number}>();
   const dimensionEpoch=useRef(0);
   const openDimension=(request:DimensionRequest)=>{
     const owner=(callbacks.current.editingView??callbacks.current.view).document;
+    engine.current?.setSketchDialogOpen(true);
     setDimensionEditor({...request,ownerDocumentID:owner.id,ownerRevisionID:owner.versionId,epoch:++dimensionEpoch.current});
   };
   callbacks.current = props;
   const dimensionOwner=(props.editingView??props.view).document;
-  useEffect(()=>setDimensionEditor(undefined),[dimensionOwner.id,dimensionOwner.versionId,props.activeSketchID]);
+  useEffect(()=>{setDimensionEditor(undefined);engine.current?.setSketchDialogOpen(false);},[dimensionOwner.id,dimensionOwner.versionId,props.activeSketchID,props.activeInstancePath]);
+  useEffect(()=>engine.current?.setSketchDialogOpen(Boolean(dimensionEditor)),[dimensionEditor]);
 
   useEffect(() => {
     if (!host.current) return;
     const instance = new CadViewportEngine(host.current, {
       selectionsChanged: (selections) => callbacks.current.onSelectionsChange(selections),
       preselectionChanged: (selection) => callbacks.current.onPreselectionChange(selection),
-      sketchOperations: (featureID, operations) => callbacks.current.onSketchOperations(featureID, operations),
+      sketchOperations: (featureID, operations,intent) => callbacks.current.onSketchOperations(featureID, operations,intent),
+      sketchCommandChanged:setSketchCommand,
+      sketchReceiptChanged:setSketchReceipt,
+      sketchPreview:(featureId,operations,signal)=>callbacks.current.onSketchPreview?.(featureId,operations,signal)??Promise.reject(new Error("草图权威预览不可用")),
+      sketchReceiptCheck:receipt=>callbacks.current.onSketchReceiptCheck?.(receipt)??Promise.reject(new Error("原请求查询不可用")),
       toolUseCompleted: () => callbacks.current.onToolUseComplete(),
       dimensionEditRequested: (request) => openDimension(request),
       dimensionCreateRequested: (request) => openDimension(request),
       activeToolChanged: (toolID) => callbacks.current.onActiveToolChange(toolID),
-      toolPromptChanged: () => {},
+      toolPromptChanged: setToolPrompt,
       instanceMoved:(documentId,candidate)=>callbacks.current.onInstanceMoved(documentId,candidate),
       assemblyInteractionBegin:(documentId,input,signal)=>callbacks.current.onAssemblyInteractionBegin(documentId,input,signal),
       assemblyInteractionUpdate:(documentId,input,signal)=>callbacks.current.onAssemblyInteractionUpdate(documentId,input,signal),
@@ -176,12 +191,17 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   }), []);
 
   return <><div ref={host} className="cad-viewport-canvas" />
+    {props.activeSketchID&&!dimensionEditor&&<SketchCommandPanel state={sketchCommand} prompt={toolPrompt} onAction={action=>engine.current?.commandAction(action)} />}
     {dimensionEditor && <SketchDimensionEditor key={`${dimensionEditor.epoch}:${dimensionEditor.featureId}:${dimensionEditor.mode === "edit" ? dimensionEditor.constraintId : dimensionEditor.kind}`}
-      request={dimensionEditor} view={props.editingView??props.view} onClose={()=>setDimensionEditor(current=>current?.epoch===dimensionEditor.epoch?undefined:current)}
-      onSubmit={async operations=>{
+      preferredLengthUnit={props.preferredLengthUnit} request={dimensionEditor} view={props.editingView??props.view} onClose={()=>setDimensionEditor(current=>current?.epoch===dimensionEditor.epoch?undefined:current)}
+      onSelectReference={request=>engine.current?.beginSketchReferenceSelection(request)??(()=>{})}
+      onHighlightReference={(featureId,reference,slot)=>engine.current?.highlightSketchReference(featureId,reference,slot)}
+      onLocateReference={(featureId,reference,slot)=>engine.current?.locateSketchReference(featureId,reference,slot)}
+      onSubmit={async (operations,intent)=>{
         const owner=(callbacks.current.editingView??callbacks.current.view).document;
-        if(owner.id!==dimensionEditor.ownerDocumentID||owner.versionId!==dimensionEditor.ownerRevisionID||callbacks.current.activeSketchID!==dimensionEditor.featureId)throw new Error("草图版本或编辑会话已改变，请重新打开尺寸编辑");
-        return callbacks.current.onDimensionOperations(dimensionEditor.featureId,operations);
+        if(owner.id!==dimensionEditor.ownerDocumentID||(!intent?.retryReceipt&&owner.versionId!==dimensionEditor.ownerRevisionID)||callbacks.current.activeSketchID!==dimensionEditor.featureId)throw new Error("草图版本或编辑会话已改变，请重新打开尺寸编辑");
+        return engine.current?.commitDimensionOperations(dimensionEditor.featureId,operations,intent)??callbacks.current.onDimensionOperations(dimensionEditor.featureId,operations,intent);
       }} />}
+    {sketchReceipt&&!dimensionEditor&&<Alert style={{position:"absolute",bottom:48,left:12,right:12,zIndex:12}} type="warning" title={sketchReceipt.status==="committing"?"正在等待草图请求结果":"草图请求结果待确认"} description="退出工具不撤销已发请求；先确认原请求结果再继续编辑。" action={sketchReceipt.status==="unknown"?<Button onClick={()=>void engine.current?.retrySketchReceipt()}>确认原请求结果</Button>:undefined} />}
     {debug && <InputDebugOverlay snapshot={debug} />}</>;
 });

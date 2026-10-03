@@ -1,6 +1,7 @@
+import type { SketchCommandState, SketchCommitIntent, SketchCommitResult } from "./sketch-command-session";
 import { selectionModeForTool } from "../interaction/selection-mode";
 import type { CadKeyboardEvent, CadPointerEvent } from "../input/input-types";
-import { InputResult } from "../input/input-types";
+import { InputResult,SelectionInputResult,type SelectionInputSource } from "../input/input-types";
 import type { AssemblyGeometryRef, SelectionItem, SketchGeometryRef, SketchOperation, SketchEntity, SketchConstraint, Vec2 } from "../../types";
 import { assemblyGeometryRef } from "../assembly/assembly-reference";
 export { assemblyGeometryRef } from "../assembly/assembly-reference";
@@ -11,6 +12,8 @@ import { SKETCH_INPUT_POLICY, type SketchReferenceGeometry } from "../sketch/ske
 import { copySketchSelection, pasteSketchClipboard, localSketchSelection } from "./sketch-edit-tool";
 import { randomUUID } from "../../utils/random-uuid";
 
+import {sketchCommitResultUnknown,type SketchCommandAction} from "./sketch-command-session";
+
 export type ToolViewportPort = {
   sketchPoint(x: number, y: number): Vec2 | null;
   sketchSnapReference(): SketchGeometryRef | undefined;
@@ -19,9 +22,14 @@ export type ToolViewportPort = {
   showPointPreview(point: Vec2): void;
   showReferenceDimensions(geometry: readonly SketchReferenceGeometry[]): void;
   clearToolPreview(): void;
-  commitSketchOperations(operations: SketchOperation[]): void;
+  commitSketchOperations(operations: SketchOperation[], intent?: SketchCommitIntent): Promise<SketchCommitResult> | void;
+  previewSketchOperations?(operations:SketchOperation[],signal?:AbortSignal):Promise<{featureId:string;versionId:string;entities:SketchEntity[]}>;
+  currentSketchReferenceEntities?():readonly SketchEntity[];
+  showSketchEditCandidate?(candidate:import("../sketch/sketch-edit-preview").SketchEditCandidatePreview):void;
+  setSketchCommandState?(state: SketchCommandState | undefined): void;
+  sketchEntityAt?(x: number, y: number): SelectionItem | null;
   hasActiveSketch(): boolean;
-  sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind, retained?: SketchGeometryRef): SketchGeometryRef | null;
+  sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind, retained?: SketchGeometryRef,allowed?:(reference:SketchGeometryRef)=>boolean): SketchGeometryRef | null;
   showReferencePreview(reference: SketchGeometryRef, retained?: readonly SketchGeometryRef[]): void;
   showConstraintPreview(kind: ConstraintKind, references: readonly SketchGeometryRef[], value?: number, labelPosition?: Vec2): void;
   measureDimension(kind: ConstraintKind, references: readonly SketchGeometryRef[]): number | undefined;
@@ -36,7 +44,7 @@ export type ToolViewportPort = {
   setToolPrompt(prompt: string): void;
   finishToolUse(exit?: boolean): void;
   selectionAt(x: number, y: number): SelectionItem | null;
-  commitExternalProjection(selection: SelectionItem & {kind:"edge"|"vertex";topologyId:number}): void;
+  commitExternalProjection(selection: SelectionItem & {kind:"edge"|"vertex";topologyId:number}): Promise<SketchCommitResult>|void;
   currentSelections?(): readonly SelectionItem[];
   currentSketchEntities?(): readonly SketchEntity[];
   currentSketchConstraints?(): readonly SketchConstraint[];
@@ -56,7 +64,8 @@ const sameSketchReference = (left: SketchGeometryRef, right: SketchGeometryRef):
 export interface CadTool {
   readonly id: string;
   activate?(context: ToolContext): void;
-  selectionInput?(selections: readonly SelectionItem[], context: ToolContext): void;
+  commandAction?(action:SketchCommandAction,context:ToolContext):void;
+  selectionInput?(selections: readonly SelectionItem[], context: ToolContext,source?:SelectionInputSource): SelectionInputResult;
   deactivate?(context: ToolContext): void;
   pointerDown?(event: CadPointerEvent, context: ToolContext): InputResult;
   pointerMove?(event: CadPointerEvent, context: ToolContext): InputResult;
@@ -164,20 +173,28 @@ export class SelectTool implements CadTool {
 export class ProjectExternalGeometrySketchTool implements CadTool {
   readonly id = "sketch.project";
   private capturedPointerID?: number;
+  private draft?: SelectionItem & {kind:"edge"|"vertex";topologyId:number};
+  private pending=false;
+  private generation=0;
   activate(context: ToolContext): void { context.viewport.setToolPrompt("投影：选择已有实体的一条边或一个顶点；Esc 取消"); }
+  private submit(context:ToolContext):void {
+    if(!this.draft||this.pending)return;
+    const generation=++this.generation;this.pending=true;
+    const owner=()=>{const scope=context.viewport.currentSketchIdentity?.();return JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath]);};const initialOwner=owner();
+    const accepted=()=>{if(generation!==this.generation)return;if(owner()!==initialOwner){this.cancel(context);return;}this.pending=false;this.draft=undefined;context.viewport.finishToolUse();};
+    const failed=(error:unknown)=>{if(generation!==this.generation)return;if(owner()!==initialOwner){this.cancel(context);return;}this.pending=sketchCommitResultUnknown(error);context.viewport.setToolPrompt(`${this.pending?"投影结果待确认；请查询原提交结果或取消":"投影失败；保留已选引用，Enter 重试或重新选择"}：${error instanceof Error?error.message:String(error)}`);};
+    try{const result=context.viewport.commitExternalProjection(this.draft);if(result&&typeof result.then==="function")void Promise.resolve(result).then(accepted,failed);else accepted();}catch(error){failed(error);}
+  }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
-    if (event.button !== 0 || this.capturedPointerID !== undefined || event.state.buttons.middle || event.state.buttons.right)
-      return InputResult.Ignored;
+    if(this.pending)return InputResult.Consumed;
+    if (event.button !== 0 || this.capturedPointerID !== undefined || event.state.buttons.middle || event.state.buttons.right)return InputResult.Ignored;
     this.capturedPointerID = event.pointerId;
     const selection = context.viewport.selectionAt(event.x, event.y);
     if (!selection || (selection.kind !== "edge" && selection.kind !== "vertex") || !selection.geometryKey || !selection.versionId || !selection.topologyId) {
-      context.viewport.setToolPrompt("投影只接受当前 Part 中已有实体的边或顶点");
-      return InputResult.Capture;
+      context.viewport.setToolPrompt("投影只接受当前 Part 中已有实体的边或顶点");return InputResult.Capture;
     }
-    context.viewport.retainSelections([selection]);
-    context.viewport.commitExternalProjection(selection as SelectionItem & {kind:"edge"|"vertex";topologyId:number});
-    context.viewport.finishToolUse();
-    return InputResult.Capture;
+    this.draft={...selection} as SelectionItem & {kind:"edge"|"vertex";topologyId:number};
+    context.viewport.retainSelections([selection]);this.submit(context);return InputResult.Capture;
   }
   pointerUp(event: CadPointerEvent): InputResult {
     if (event.pointerId !== this.capturedPointerID || event.button !== 0) return InputResult.Ignored;
@@ -187,7 +204,12 @@ export class ProjectExternalGeometrySketchTool implements CadTool {
     if (event.pointerId !== this.capturedPointerID) return InputResult.Ignored;
     this.capturedPointerID = undefined; return InputResult.Consumed;
   }
-  cancel(context: ToolContext): void { this.capturedPointerID = undefined; context.viewport.setToolPrompt(""); }
+  keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {
+    if(event.key==="Escape"){this.cancel(context);return InputResult.Ignored;}
+    if(event.key==="Enter"&&this.draft){this.submit(context);return InputResult.Consumed;}return InputResult.Ignored;
+  }
+  deactivate(context:ToolContext):void{this.cancel(context);}
+  cancel(context: ToolContext): void {this.generation++;this.pending=false;this.draft=undefined;this.capturedPointerID = undefined; context.viewport.setToolPrompt(""); }
 }
 
 export type AssemblyConstraintToolKind = "fix"|"rigid"|"fix_together"|"contact"|"coincident"|"concentric"|"angle"|"parallel"|"perpendicular"|"distance";
@@ -225,7 +247,8 @@ export class AssemblyConstraintTool implements CadTool {
   activate(context: ToolContext): void {
     context.viewport.setToolPrompt(this.kind === "fix" ? "固定：选择一个实例" : this.kind === "fix_together" || this.kind === "rigid" ? "固联组：选择两个初始组件，随后可添加组件或已有组" : "装配约束：依次选择两个元素；精确类型由服务器解析");
   }
-  selectionInput(selections: readonly SelectionItem[], context: ToolContext): void {
+  selectionInput(selections: readonly SelectionItem[], context: ToolContext): SelectionInputResult {
+    let result=SelectionInputResult.Unhandled;
     for (const candidate of selections) {
       const selection = selectionModeForTool(this.id).project(candidate);
       const reference = selection && assemblyGeometryRef(selection);
@@ -234,22 +257,23 @@ export class AssemblyConstraintTool implements CadTool {
         context.viewport.retainSelections([selection]);
         context.viewport.requestAssemblyConstraint(this.kind, [reference]);
         context.viewport.finishToolUse();
-        return;
+        return SelectionInputResult.Accepted;
       }
       if (!this.first) {
-        this.first = { selection, reference };
+        result=SelectionInputResult.Accepted;this.first = { selection, reference };
         context.viewport.retainSelections([selection]);
         context.viewport.setToolPrompt("装配约束：选择另一个实例上的元素；Esc 取消");
         continue;
       }
       const occurrence = (ref: AssemblyGeometryRef) => ref.instancePath?.canonical ?? ref.instanceId;
-      if (occurrence(this.first.reference) === occurrence(reference)) continue;
+      if (occurrence(this.first.reference) === occurrence(reference)) {if(result!==SelectionInputResult.Accepted)result=SelectionInputResult.Rejected;continue;}
       const first = this.first; this.first = undefined;
       context.viewport.retainSelections([first.selection, selection]);
       context.viewport.requestAssemblyConstraint(this.kind, [first.reference, reference]);
       context.viewport.finishToolUse();
-      return;
+      return SelectionInputResult.Accepted;
     }
+    return result;
   }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
     if (event.button !== 0 || this.capturedPointerID !== undefined || event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
@@ -276,6 +300,23 @@ export class AssemblyConstraintTool implements CadTool {
 abstract class SketchCreationTool implements CadTool {
   abstract readonly id: string;
   protected construction = false;
+  protected creationPending=false;
+  private creationGeneration=0;
+  protected invalidateCreationSubmission():void{this.creationGeneration++;this.creationPending=false;}
+  protected submitCreation(context:ToolContext,invoke:(submission:ToolContext)=>void,accepted:()=>void,exit=false):void{
+    if(this.creationPending)return;
+    const generation=++this.creationGeneration;this.creationPending=true;
+    const owner=()=>{const scope=context.viewport.currentSketchIdentity?.();return JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath]);};const submissionOwner=owner();
+    const promises:Promise<SketchCommitResult>[]=[];
+    const submission:ToolContext={...context,viewport:{...context.viewport,
+      commitSketchOperations:(operations,intent)=>{const result=context.viewport.commitSketchOperations(operations,intent);if(result&&typeof result.then==="function")promises.push(Promise.resolve(result));return result;},
+      finishToolUse:()=>{},
+    }};
+    const success=()=>{if(generation!==this.creationGeneration)return;if(owner()!==submissionOwner){this.cancel(context);return;}this.creationPending=false;accepted();context.viewport.finishToolUse(exit);};
+    const failure=(error:unknown)=>{if(generation!==this.creationGeneration)return;if(owner()!==submissionOwner){this.cancel(context);return;}this.creationPending=sketchCommitResultUnknown(error);context.viewport.clearToolPreview();context.viewport.setToolPrompt(`${this.creationPending?"创建结果待确认；请查询原提交结果或取消":"创建失败；保留当前输入，可修改后重试"}：${error instanceof Error?error.message:String(error)}`);};
+    try{invoke(submission);if(promises.length)void Promise.all(promises).then(success,failure);else success();}catch(error){failure(error);}
+  }
+
   private automaticConstraints = true;
   protected capturedSnap(event:CadPointerEvent,context:ToolContext):SketchGeometryRef|undefined {
     return this.automaticConstraints&&!event.state.modifiers?.alt?context.viewport.sketchSnapReference():undefined;
@@ -311,14 +352,14 @@ abstract class TwoClickSketchTool extends SketchCreationTool {
   abstract readonly firstPrompt: string;
   abstract readonly secondPrompt: string;
 
-  selectionInput(selections:readonly SelectionItem[],context:ToolContext):void {
-    if(this.first)return;
+  selectionInput(selections:readonly SelectionItem[],context:ToolContext):SelectionInputResult {
+    if(this.first)return SelectionInputResult.Rejected;
     const points=localSketchSelection(selections,context).filter(entity=>entity.kind==="POINT"&&entity.point);
-    const source=points[0];if(!source?.point)return;
+    const source=points[0];if(!source?.point)return SelectionInputResult.Unhandled;
     this.first=[source.point.x,source.point.y];this.firstSnap={target:"ENTITY",entityId:source.id,subElement:"POINT"};
     const target=points[1];this.cursor=target?.point?[target.point.x,target.point.y]:this.first;
     this.cursorSnap=target?{target:"ENTITY",entityId:target.id,subElement:"POINT"}:undefined;
-    this.preview(this.first,this.cursor,context);this.updatePrompt(context);
+    this.preview(this.first,this.cursor,context);this.updatePrompt(context);return SelectionInputResult.Accepted;
   }
   activate(context: ToolContext): void { context.viewport.setToolPrompt(`${this.firstPrompt}；C 辅助几何，A 自动连接，Alt 临时禁用连接，右键结束`); }
 
@@ -346,12 +387,12 @@ abstract class TwoClickSketchTool extends SketchCreationTool {
     const first = this.first, firstSnap = this.firstSnap;
     // A numeric target is not the snapped endpoint, so it must not inherit its constraint.
     const secondSnap = this.fields.some(value => value !== "") ? undefined : snap;
-    this.first = undefined; this.firstSnap = undefined; this.cursor = undefined;this.cursorSnap=undefined;
-    context.viewport.clearToolPreview(); this.commit(first, resolved, context, { first: firstSnap, second: secondSnap });
-    this.fields = ["", ""]; this.field = 0; this.replacing = false;
-    this.activate(context); return true;
+    context.viewport.clearToolPreview();this.submitCreation(context,submission=>this.commit(first,resolved,submission,{first:firstSnap,second:secondSnap}),()=>{
+      this.first=undefined;this.firstSnap=undefined;this.cursor=undefined;this.cursorSnap=undefined;this.fields=["",""];this.field=0;this.replacing=false;this.activate(context);
+    });return true;
   }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
+    if(this.creationPending){if(event.button===2){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if (this.endOnRightClick(event, context)) return InputResult.Consumed;
     if (event.button !== 0 || this.capturedPointerID !== undefined || event.state.buttons.middle || event.state.buttons.right || !context.viewport.hasActiveSketch()) return InputResult.Ignored;
     const point = context.viewport.sketchPoint(event.x, event.y);
@@ -373,6 +414,7 @@ abstract class TwoClickSketchTool extends SketchCreationTool {
     this.cancel(context); return InputResult.Consumed;
   }
   pointerMove(event: CadPointerEvent, context: ToolContext): InputResult {
+    if(this.creationPending)return InputResult.Consumed;
     if (event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
     const point = context.viewport.sketchPoint(event.x, event.y);
     if (!point) return InputResult.Ignored;
@@ -382,6 +424,7 @@ abstract class TwoClickSketchTool extends SketchCreationTool {
     return InputResult.Consumed;
   }
   keyDown(event: CadKeyboardEvent, context: ToolContext): InputResult {
+    if(this.creationPending){if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     const shared = this.creationKey(event, context); if (shared !== InputResult.Ignored) return shared;
     if (event.editableTarget || event.state?.modifiers.ctrl || event.state?.modifiers.meta || event.state?.modifiers.alt) return InputResult.Ignored;
     if (!this.first) return InputResult.Ignored;
@@ -398,7 +441,7 @@ abstract class TwoClickSketchTool extends SketchCreationTool {
   }
   deactivate(context: ToolContext): void { this.cancel(context); }
   cancel(context: ToolContext): void {
-    this.capturedPointerID = undefined; this.first = undefined; this.firstSnap = undefined; this.cursor = undefined;this.cursorSnap=undefined;
+    this.invalidateCreationSubmission();this.capturedPointerID = undefined; this.first = undefined; this.firstSnap = undefined; this.cursor = undefined;this.cursorSnap=undefined;
     this.fields = ["", ""]; this.field = 0; this.replacing = false;
     context.viewport.clearToolPreview(); this.activate(context);
   }
@@ -494,12 +537,14 @@ export class CircleSketchTool extends TwoClickSketchTool {
 
 export class ArcSketchTool extends SketchCreationTool {
   readonly id="sketch.arc"; private clockwise=false; private center?:Vec2; private start?:Vec2; private centerSnap?:SketchGeometryRef; private startSnap?:SketchGeometryRef; private capturedPointerID?:number;
-  selectionInput(selections:readonly SelectionItem[],context:ToolContext):void {
-    if(this.center)return;const source=localSketchSelection(selections,context).find(entity=>entity.kind==="POINT"&&entity.point);
-    if(source?.point){this.center=[source.point.x,source.point.y];this.centerSnap={target:"ENTITY",entityId:source.id,subElement:"POINT"};context.viewport.setToolPrompt("圆弧：已使用预选中心，单击起点");}
+  selectionInput(selections:readonly SelectionItem[],context:ToolContext):SelectionInputResult {
+    if(this.center)return SelectionInputResult.Rejected;const source=localSketchSelection(selections,context).find(entity=>entity.kind==="POINT"&&entity.point);
+    if(source?.point){this.center=[source.point.x,source.point.y];this.centerSnap={target:"ENTITY",entityId:source.id,subElement:"POINT"};context.viewport.setToolPrompt("圆弧：已使用预选中心，单击起点");return SelectionInputResult.Accepted;}
+    return SelectionInputResult.Unhandled;
   }
   activate(context:ToolContext):void { context.viewport.setToolPrompt("圆弧：单击圆心"); }
   pointerDown(event:CadPointerEvent,context:ToolContext):InputResult {
+    if(this.creationPending){if(event.button===2){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if(this.endOnRightClick(event,context))return InputResult.Consumed;
     if(event.button!==0||this.capturedPointerID!==undefined||!context.viewport.hasActiveSketch())return InputResult.Ignored;
     const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;this.capturedPointerID=event.pointerId;
@@ -512,10 +557,10 @@ export class ArcSketchTool extends SketchCreationTool {
     const id=randomUUID(),operations:SketchOperation[]=[{type:"ADD_ENTITY",entity:{id,kind:"ARC",role:this.role,center:{x:center[0],y:center[1]},radius,startAngle,endAngle}}];
     for(const [subElement,target] of [["CENTER",this.centerSnap],["START",this.startSnap],["END",this.capturedSnap(event,context)]] as const)
       if(target)operations.push({type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"COINCIDENT",references:[{target:"ENTITY",entityId:id,subElement},target]}});
-    context.viewport.clearToolPreview();context.viewport.commitSketchOperations(operations);context.viewport.finishToolUse();
-    this.center=undefined;this.start=undefined;this.centerSnap=undefined;this.startSnap=undefined;context.viewport.setToolPrompt("圆弧：单击圆心");return InputResult.Capture;
+    context.viewport.clearToolPreview();this.submitCreation(context,submission=>submission.viewport.commitSketchOperations(operations),()=>{this.center=undefined;this.start=undefined;this.centerSnap=undefined;this.startSnap=undefined;context.viewport.setToolPrompt("圆弧：单击圆心");});return InputResult.Capture;
   }
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {
+    if(this.creationPending)return InputResult.Consumed;
     if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;if(!this.center)return InputResult.Consumed;
     if(!this.start){context.viewport.showPolylinePreview([this.center,value]);context.viewport.showReferenceDimensions([{kind:"CIRCLE",center:this.center,edge:value}]);return InputResult.Consumed;}
     const radius=Math.hypot(this.start[0]-this.center[0],this.start[1]-this.center[1]);const first=Math.atan2(this.start[1]-this.center[1],this.start[0]-this.center[0]);let last=Math.atan2(value[1]-this.center[1],value[0]-this.center[0]);const sweep=positiveTurn(last-first);last=first+(this.clockwise?sweep-2*Math.PI:sweep);
@@ -524,8 +569,9 @@ export class ArcSketchTool extends SketchCreationTool {
   }
   pointerUp(event:CadPointerEvent):InputResult {if(event.button!==0||event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.capturedPointerID=undefined;return InputResult.ReleaseCapture;}
   pointerCancel(event:CadPointerEvent,context:ToolContext):InputResult {if(event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
-  keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {const shared=this.creationKey(event,context);if(shared!==InputResult.Ignored)return shared;if(event.key.toLowerCase()==="r"&&!event.editableTarget){this.clockwise=!this.clockwise;context.viewport.setToolPrompt(`圆弧：${this.clockwise?"顺时针":"逆时针"}；R 反向，C 辅助几何`);return InputResult.Consumed;}if(event.key!=="Escape"||!this.center)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
-  deactivate(context:ToolContext):void {this.cancel(context);} cancel(context:ToolContext):void {this.center=undefined;this.start=undefined;this.centerSnap=undefined;this.startSnap=undefined;this.capturedPointerID=undefined;context.viewport.clearToolPreview();context.viewport.setToolPrompt("圆弧：单击圆心");}
+  keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {
+    if(this.creationPending){if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}const shared=this.creationKey(event,context);if(shared!==InputResult.Ignored)return shared;if(event.key.toLowerCase()==="r"&&!event.editableTarget){this.clockwise=!this.clockwise;context.viewport.setToolPrompt(`圆弧：${this.clockwise?"顺时针":"逆时针"}；R 反向，C 辅助几何`);return InputResult.Consumed;}if(event.key!=="Escape"||!this.center)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
+  deactivate(context:ToolContext):void {this.cancel(context);} cancel(context:ToolContext):void {this.invalidateCreationSubmission();this.center=undefined;this.start=undefined;this.centerSnap=undefined;this.startSnap=undefined;this.capturedPointerID=undefined;context.viewport.clearToolPreview();context.viewport.setToolPrompt("圆弧：单击圆心");}
 }
 
 abstract class MultiPointSketchTool extends SketchCreationTool {
@@ -534,13 +580,15 @@ abstract class MultiPointSketchTool extends SketchCreationTool {
   abstract readonly prompt:string; abstract minimumPoints:number; abstract commit(context:ToolContext):void;
   protected resetCreation():void {}
   protected addPoint(value:Vec2,snap:SketchGeometryRef|undefined):void {this.points.push(value);this.snaps.push(snap);}
-  selectionInput(selections:readonly SelectionItem[],context:ToolContext):void {
-    if(this.points.length)return;const source=localSketchSelection(selections,context).find(entity=>entity.kind==="POINT"&&entity.point);
-    if(source?.point){this.addPoint([source.point.x,source.point.y],{target:"ENTITY",entityId:source.id,subElement:"POINT"});context.viewport.setToolPrompt(`${this.prompt}；已使用预选起点/中心`);}
+  selectionInput(selections:readonly SelectionItem[],context:ToolContext):SelectionInputResult {
+    if(this.points.length)return SelectionInputResult.Rejected;const source=localSketchSelection(selections,context).find(entity=>entity.kind==="POINT"&&entity.point);
+    if(source?.point){this.addPoint([source.point.x,source.point.y],{target:"ENTITY",entityId:source.id,subElement:"POINT"});context.viewport.setToolPrompt(`${this.prompt}；已使用预选起点/中心`);return SelectionInputResult.Accepted;}
+    return SelectionInputResult.Unhandled;
   }
   activate(context:ToolContext):void {context.viewport.setToolPrompt(this.prompt);}
   pointerDown(event:CadPointerEvent,context:ToolContext):InputResult {
-    if(event.button===2){if(this.points.length>=this.minimumPoints)this.finish(context);else this.cancel(context);context.viewport.finishToolUse(true);return InputResult.Consumed;}
+    if(this.creationPending){if(event.button===2){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
+    if(event.button===2){if(this.points.length>=this.minimumPoints)this.finish(context,true);else{this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if(event.button!==0||this.capturedPointerID!==undefined||!context.viewport.hasActiveSketch())return InputResult.Ignored;
     const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;this.capturedPointerID=event.pointerId;
     const at=Number(event.originalEvent.timeStamp)||Date.now(),previous=this.lastClick;
@@ -549,12 +597,14 @@ abstract class MultiPointSketchTool extends SketchCreationTool {
     if(this.points.length>0&&Math.hypot(value[0]-this.points[0][0],value[1]-this.points[0][1])<SKETCH_INPUT_POLICY.minimumGeometryLength&&this.points.length>=this.minimumPoints){this.addPoint(this.points[0],this.snaps[0]);this.lastClick=undefined;this.finish(context);return InputResult.Capture;}
     this.addPoint(value,this.capturedSnap(event,context));this.lastClick={x:event.x,y:event.y,at};context.viewport.showPolylinePreview(this.points);return InputResult.Capture;
   }
-  pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;if(this.points.length>0)context.viewport.showPolylinePreview([...this.points,value]);return InputResult.Consumed;}
+  pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {
+    if(this.creationPending)return InputResult.Consumed;if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;if(this.points.length>0)context.viewport.showPolylinePreview([...this.points,value]);return InputResult.Consumed;}
   pointerUp(event:CadPointerEvent):InputResult {if(event.button!==0||event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.capturedPointerID=undefined;return InputResult.ReleaseCapture;}
-  keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {const shared=this.creationKey(event,context);if(shared!==InputResult.Ignored)return shared;if(event.key==="Enter"&&this.points.length>=this.minimumPoints){this.finish(context);return InputResult.Consumed;}if(event.key==="Escape"&&this.points.length>0){this.cancel(context);return InputResult.Consumed;}return InputResult.Ignored;}
+  keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {
+    if(this.creationPending){if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}const shared=this.creationKey(event,context);if(shared!==InputResult.Ignored)return shared;if(event.key==="Enter"&&this.points.length>=this.minimumPoints){this.finish(context);return InputResult.Consumed;}if(event.key==="Escape"&&this.points.length>0){this.cancel(context);return InputResult.Consumed;}return InputResult.Ignored;}
   pointerCancel(event:CadPointerEvent,context:ToolContext):InputResult {if(event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
-  private finish(context:ToolContext):void {context.viewport.clearToolPreview();this.commit(context);this.points=[];this.snaps=[];this.resetCreation();this.lastClick=undefined;context.viewport.finishToolUse();context.viewport.setToolPrompt(this.prompt);}
-  deactivate(context:ToolContext):void {this.cancel(context);} cancel(context:ToolContext):void {this.points=[];this.snaps=[];this.resetCreation();this.capturedPointerID=undefined;this.lastClick=undefined;context.viewport.clearToolPreview();context.viewport.setToolPrompt(this.prompt);}
+  private finish(context:ToolContext,exit=false):void {context.viewport.clearToolPreview();this.submitCreation(context,submission=>this.commit(submission),()=>{this.points=[];this.snaps=[];this.resetCreation();this.lastClick=undefined;context.viewport.setToolPrompt(this.prompt);},exit);}
+  deactivate(context:ToolContext):void {this.cancel(context);} cancel(context:ToolContext):void {this.invalidateCreationSubmission();this.points=[];this.snaps=[];this.resetCreation();this.capturedPointerID=undefined;this.lastClick=undefined;context.viewport.clearToolPreview();context.viewport.setToolPrompt(this.prompt);}
 }
 
 type ProfileCreationSegment = {kind:"LINE";start:Vec2;end:Vec2}|{kind:"ARC";start:Vec2;end:Vec2;center:Vec2;radius:number;startAngle:number;endAngle:number};
@@ -589,6 +639,7 @@ export class PolylineSketchTool extends MultiPointSketchTool {
     super.addPoint(value,snap);
   }
   pointerDown(event:CadPointerEvent,context:ToolContext):InputResult{
+    if(this.creationPending){if(event.button===2){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if(event.button===0&&this.points.length){const value=context.viewport.sketchPoint(event.x,event.y);
       // Double-clicking the current endpoint ends the contour through the base
       // lifecycle; it does not add a zero-length segment.
@@ -599,6 +650,7 @@ export class PolylineSketchTool extends MultiPointSketchTool {
     return super.pointerDown(event,context);
   }
   keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult{
+    if(this.creationPending){if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if(event.key.toLowerCase()==="t"&&!event.editableTarget&&!event.state?.modifiers.ctrl&&!event.state?.modifiers.meta){
       if(!this.segments.length){context.viewport.setToolPrompt("先创建一条直线，再按 T 创建端部相切圆弧");return InputResult.Consumed;}
       this.arcMode=!this.arcMode;context.viewport.setToolPrompt(`连续轮廓：${this.arcMode?"相切圆弧":"直线"}；T 切换，Enter 完成`);return InputResult.Consumed;
@@ -614,6 +666,7 @@ export class PolylineSketchTool extends MultiPointSketchTool {
     if(next)context.viewport.showReferenceDimensions(next.kind==="LINE"?[{kind:"LINE",start:next.start,end:next.end}]:[{kind:"CIRCLE",center:next.center,edge:next.end}]);
   }
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult{
+    if(this.creationPending)return InputResult.Consumed;
     if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
     const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;
     this.previewSegments(context,this.nextSegment(value));return InputResult.Consumed;
@@ -640,7 +693,8 @@ export class PolylineSketchTool extends MultiPointSketchTool {
 export class SplineSketchTool extends MultiPointSketchTool {
   readonly id:string="sketch.spline";readonly prompt:string="拟合点样条：依次单击通过点，双击或 Enter 完成，单击首点闭合";minimumPoints=3;
   protected mode:"FIT"|"CONTROL"="FIT";
-  pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
+  pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {
+    if(this.creationPending)return InputResult.Consumed;if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
     const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;if(this.points.length>0){const fit=[...this.points,value];
       const points=fit.map(([x,y])=>({x,y}));
       context.viewport.showPolylinePreview(this.mode==="FIT"?sampleInterpolatingSpline(fit,false,64):sampleSketchEntity(this.controlEntity("preview",points,false),64));
@@ -670,13 +724,14 @@ export class PointSketchTool extends SketchCreationTool {
   private capturedPointerID?: number;
   activate(context: ToolContext): void { context.viewport.setToolPrompt("点：单击放置；Esc 返回选择"); }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
+    if(this.creationPending){if(event.button===2){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if (this.endOnRightClick(event, context)) return InputResult.Consumed;
     if (event.button !== 0 || this.capturedPointerID !== undefined || !context.viewport.hasActiveSketch()) return InputResult.Ignored;
     const point = context.viewport.sketchPoint(event.x, event.y); if (!point) return InputResult.Ignored;
     this.capturedPointerID = event.pointerId;
     const id=randomUUID(),operations:SketchOperation[]=[{ type: "ADD_ENTITY", entity: { id, kind: "POINT", role: this.role, point: { x: point[0], y: point[1] } } }];
     const snap=this.capturedSnap(event,context);if(snap)operations.push({type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"COINCIDENT",references:[{target:"ENTITY",entityId:id,subElement:"POINT"},snap]}});
-    context.viewport.commitSketchOperations(operations);context.viewport.finishToolUse();
+    this.submitCreation(context,submission=>submission.viewport.commitSketchOperations(operations),()=>{});
 
     return InputResult.Capture;
   }
@@ -692,15 +747,17 @@ export class PointSketchTool extends SketchCreationTool {
     return InputResult.Consumed;
   }
   pointerMove(event: CadPointerEvent, context: ToolContext): InputResult {
+    if(this.creationPending)return InputResult.Consumed;
     if (event.state.buttons.middle || event.state.buttons.right || !context.viewport.hasActiveSketch()) return InputResult.Ignored;
     const point = context.viewport.sketchPoint(event.x, event.y); if (!point) return InputResult.Ignored;
     context.viewport.showPointPreview(point);
     context.viewport.showReferenceDimensions([{kind:"POINT",point}]);
     return InputResult.Consumed;
   }
-  keyDown(event: CadKeyboardEvent, context: ToolContext): InputResult { return this.creationKey(event, context); }
+  keyDown(event: CadKeyboardEvent, context: ToolContext): InputResult {
+    if(this.creationPending){if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;} return this.creationKey(event, context); }
   deactivate(context: ToolContext): void { this.cancel(context); }
-  cancel(context: ToolContext): void { this.capturedPointerID = undefined; context.viewport.clearToolPreview(); }
+  cancel(context: ToolContext): void { this.invalidateCreationSubmission();this.capturedPointerID = undefined; context.viewport.clearToolPreview(); }
 }
 
 // These creation modes reuse the same multipoint gesture lifecycle and submit
@@ -728,6 +785,7 @@ export class ThreePointCircleSketchTool extends MultiPointSketchTool {
   minimumPoints=3;
   protected arc=false;
   pointerDown(event:CadPointerEvent,context:ToolContext):InputResult{
+    if(this.creationPending){if(event.button===2){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if(event.button===0&&this.points.length===2){
       const last=context.viewport.sketchPoint(event.x,event.y);
       if(!last||!circleThroughPoints(this.points[0],this.points[1],last)){
@@ -739,6 +797,7 @@ export class ThreePointCircleSketchTool extends MultiPointSketchTool {
     return result;
   }
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult{
+    if(this.creationPending)return InputResult.Consumed;
     if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
     const last=context.viewport.sketchPoint(event.x,event.y);if(!last)return InputResult.Ignored;
     if(this.points.length!==2)return super.pointerMove(event,context);
@@ -802,11 +861,13 @@ export class OrientedRectangleSketchTool extends MultiPointSketchTool {
     return[first,second,[second[0]+nx*height,second[1]+ny*height],[first[0]+nx*height,first[1]+ny*height]];
   }
   pointerDown(event:CadPointerEvent,context:ToolContext):InputResult{
+    if(this.creationPending){if(event.button===2){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if(event.button===0&&this.points.length===1){const point=context.viewport.sketchPoint(event.x,event.y);if(!point||Math.hypot(point[0]-this.points[0][0],point[1]-this.points[0][1])<SKETCH_INPUT_POLICY.minimumGeometryLength)return InputResult.Consumed;}
     if(event.button===0&&this.points.length===2){const point=context.viewport.sketchPoint(event.x,event.y);if(!point||!this.corners(point)){context.viewport.setToolPrompt("矩形高度不能为零；重新选择高度");return InputResult.Consumed;}}
     const result=super.pointerDown(event,context);if(event.button===0&&this.points.length===3)super.keyDown({key:"Enter"} as CadKeyboardEvent,context);return result;
   }
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult{
+    if(this.creationPending)return InputResult.Consumed;
     const point=context.viewport.sketchPoint(event.x,event.y),corners=point&&this.corners(point);
     if(corners){context.viewport.showPolylinePreview(corners,true);context.viewport.showReferenceDimensions([{kind:"LINE",start:corners[0],end:corners[1]},{kind:"LINE",start:corners[1],end:corners[2]}]);return InputResult.Consumed;}
     return super.pointerMove(event,context);
@@ -876,6 +937,7 @@ export class EllipseSketchTool extends MultiPointSketchTool {
     return[start,start+(this.clockwise?sweep-2*Math.PI:sweep)];
   }
   pointerDown(event:CadPointerEvent,context:ToolContext):InputResult{
+    if(this.creationPending){if(event.button===2){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if(event.button===0){
       const point=context.viewport.sketchPoint(event.x,event.y);if(!point)return InputResult.Ignored;
       if(this.points.length===1&&Math.hypot(point[0]-this.points[0][0],point[1]-this.points[0][1])<SKETCH_INPUT_POLICY.minimumGeometryLength)return InputResult.Consumed;
@@ -892,6 +954,7 @@ export class EllipseSketchTool extends MultiPointSketchTool {
     return result;
   }
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult{
+    if(this.creationPending)return InputResult.Consumed;
     if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
     if(this.numericFields.some(Boolean)){this.numericPreview(context);return InputResult.Consumed;}
     const point=context.viewport.sketchPoint(event.x,event.y);if(!point)return InputResult.Ignored;
@@ -903,6 +966,7 @@ export class EllipseSketchTool extends MultiPointSketchTool {
     return InputResult.Consumed;
   }
   keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult{
+    if(this.creationPending){if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if(event.editableTarget)return InputResult.Ignored;
     if(this.arc&&event.key.toLowerCase()==="r"){this.clockwise=!this.clockwise;context.viewport.setToolPrompt(`椭圆弧：${this.clockwise?"顺时针":"逆时针"}；选择范围端点，R 反向`);this.numericPreview(context);return InputResult.Consumed;}
     if(this.points.length&&this.points.length<this.minimumPoints&&!event.state?.modifiers.ctrl&&!event.state?.modifiers.meta){
@@ -946,7 +1010,30 @@ export class EllipticalArcSketchTool extends EllipseSketchTool {
 // reference picking is the next extension point; commands stay typed and no
 // topology or array index is persisted.
 export class ConstraintSketchTool implements CadTool {
-  private references:SketchGeometryRef[]=[];
+  private phase:{step:"SELECTING";references:SketchGeometryRef[]}|{step:"PLACING"|"COMMITTING"|"FAILED"|"UNKNOWN";references:SketchGeometryRef[]}={step:"SELECTING",references:[]};
+  private get references(){return this.phase.references;}
+  private set references(references:SketchGeometryRef[]){this.phase={step:"SELECTING",references};}
+  private freezeDefinition():void{this.phase={step:"PLACING",references:Object.freeze(this.references.map(ref=>Object.freeze({...ref}))) as unknown as SketchGeometryRef[]};}
+  private pendingOperation?:SketchOperation;
+  private requestID?:string;
+  private generation=0;
+  private error?:string;
+  private definitionScope?:string;
+  private baseVersionID?:string;
+  private rememberScope(context:ToolContext):void {if(this.definitionScope!==undefined)return;this.definitionScope=JSON.stringify(context.viewport.currentSketchIdentity?.())??"";this.baseVersionID=context.viewport.currentSketchIdentity?.()?.versionId;}
+  private publish(context:ToolContext):void {
+    if(this.spec.unit)return;
+    const phase:SketchCommandState["phase"]=this.phase.step==="COMMITTING"?"committing":this.phase.step==="FAILED"?"failed":this.phase.step==="UNKNOWN"?"unknown":"selection";
+    context.viewport.setSketchCommandState?.({toolId:this.id,operation:`${this.spec.label}约束`,phase,role:this.spec.pickLabels[this.references.length]??"确认约束",selectedIds:this.references.flatMap(ref=>ref.entityId?[ref.entityId]:[]),references:[...this.references],fields:[],options:[],canConfirm:this.phase.step==="FAILED",next:this.phase.step==="UNKNOWN"?"查询原请求结果后重试":this.phase.step==="FAILED"?"重试或返回重新选择":this.phase.step==="COMMITTING"?"等待权威验证":this.prompt(),error:this.error});
+  }
+  commandAction(action:SketchCommandAction,context:ToolContext):void {
+    if(action.type==="cancel"){this.cancel(context);context.viewport.finishToolUse(true);return;}
+    if(this.phase.step==="COMMITTING")return;
+    if(action.type==="retry"&&this.pendingOperation){this.commit(context);return;}
+    if(this.phase.step==="UNKNOWN")return;
+    if(action.type==="back"){this.cancel(context);return;}
+    if(action.type==="confirm"&&this.phase.step==="FAILED")this.commit(context);
+  }
   private capturedPointerID?: number;
   private labelPosition?:Vec2;
   readonly id:string;
@@ -958,46 +1045,49 @@ export class ConstraintSketchTool implements CadTool {
   private get spec(){return constraintDefinition(this.kind);}
   private prompt():string {if(this.references.length===this.spec.picks.length&&this.spec.unit)return `${this.spec.label}：移动并单击放置尺寸，随后编辑当前值`;
     return `${this.spec.label}约束：选择${this.spec.pickLabels[this.references.length]}；Esc 取消`;}
-  selectionInput(selections:readonly SelectionItem[],context:ToolContext):void {
-    if(this.references.length)return;
+  selectionInput(selections:readonly SelectionItem[],context:ToolContext):SelectionInputResult {
+    if(this.phase.step!=="SELECTING")return SelectionInputResult.Rejected;
+    const previousCount=this.references.length;
     const entities=localSketchSelection(selections,context),all=context.viewport.currentSketchEntities?.()??[];
     for(const entity of entities){if(this.references.length>=this.spec.picks.length)break;
       const retained=all.find(candidate=>candidate.id===this.references[0]?.entityId);
       const reference=preselectedSketchReference(entity,this.spec.picks[this.references.length],retained);
-      if(reference&&!this.references.some(item=>sameSketchReference(item,reference)))this.references.push(reference);
+      if(reference&&!this.references.some(item=>sameSketchReference(item,reference))){this.rememberScope(context);this.references.push({...reference});}
     }
-    if(!this.references.length)return;
-    if(this.references.length===this.spec.picks.length&&!this.spec.unit){this.commit(context);return;}
+    if(this.references.length===previousCount)return entities.length?SelectionInputResult.Rejected:SelectionInputResult.Unhandled;
+    if(this.references.length===this.spec.picks.length&&!this.spec.unit){this.commit(context);return SelectionInputResult.Accepted;}
     context.viewport.showReferencePreview(this.references.at(-1)!,this.references);
     if(this.references.length===this.spec.picks.length)context.viewport.showConstraintPreview(this.kind,this.references,context.viewport.measureDimension(this.kind,this.references));
-    context.viewport.setToolPrompt(this.prompt());
+    if(this.references.length===this.spec.picks.length)this.freezeDefinition();
+    context.viewport.setToolPrompt(this.prompt());this.publish(context);return SelectionInputResult.Accepted;
   }
-  activate(context: ToolContext): void { context.viewport.setToolPrompt(this.prompt()); }
+  activate(context: ToolContext): void { context.viewport.setToolPrompt(this.prompt());this.publish(context); }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
     if (event.button !== 0 || this.capturedPointerID !== undefined || !context.viewport.hasActiveSketch()) return InputResult.Ignored;
-    if(this.references.length>=this.spec.picks.length){
+    if(["COMMITTING","FAILED","UNKNOWN"].includes(this.phase.step))return InputResult.Consumed;
+    if(this.phase.step==="PLACING"){
       if(!this.spec.unit||this.labelPosition)return InputResult.Ignored;
-      const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Ignored;
-      const value=context.viewport.measureDimension(this.kind,this.references);if(value===undefined||!Number.isFinite(value)||!this.spec.unit)return InputResult.Ignored;
+      const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Consumed;
+      const value=context.viewport.measureDimension(this.kind,this.references);if(value===undefined||!Number.isFinite(value)||!this.spec.unit){context.viewport.setToolPrompt("当前尺寸不可测；定义保持不变，请取消或重新选择");return InputResult.Consumed;}
       this.capturedPointerID=event.pointerId;this.labelPosition=position;
       context.viewport.requestDimensionCreation(this.kind,this.references,value,this.spec.unit,position,event.x,event.y);
       this.references=[];this.labelPosition=undefined;context.viewport.clearReferencePreview();
       context.viewport.setToolPrompt(this.prompt());context.viewport.finishToolUse();return InputResult.Capture;
     }
-    const reference = context.viewport.sketchReferenceAt(event.x, event.y, this.spec.picks[this.references.length], this.references[0]); if (!reference) return InputResult.Ignored;
+    const reference = context.viewport.sketchReferenceAt(event.x, event.y, this.spec.picks[this.references.length], this.references[0]); if (!reference) return InputResult.Consumed;
     if (this.references.some((item)=>sameSketchReference(item, reference))) {
       context.viewport.showReferencePreview(reference,this.references);
       return InputResult.Consumed;
     }
     this.capturedPointerID = event.pointerId;
-    this.references.push(reference);context.viewport.showReferencePreview(reference,this.references);
+    this.rememberScope(context);this.references.push({...reference});context.viewport.showReferencePreview(reference,this.references);
     if(this.references.length===this.spec.picks.length&&!this.spec.unit)this.commit(context);
     else {
-      if(this.references.length===this.spec.picks.length)context.viewport.showConstraintPreview(this.kind,this.references,
-        context.viewport.measureDimension(this.kind,this.references));
+      if(this.references.length===this.spec.picks.length){this.freezeDefinition();context.viewport.showConstraintPreview(this.kind,this.references,
+        context.viewport.measureDimension(this.kind,this.references));}
       context.viewport.setToolPrompt(this.prompt());
     }
-    return InputResult.Capture;
+    this.publish(context);return InputResult.Capture;
   }
   pointerUp(event: CadPointerEvent): InputResult {
     if (event.button !== 0 || event.pointerId !== this.capturedPointerID) return InputResult.Ignored;
@@ -1012,9 +1102,10 @@ export class ConstraintSketchTool implements CadTool {
   }
   pointerMove(event: CadPointerEvent, context: ToolContext): InputResult {
     if (event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
-    if(this.references.length>=this.spec.picks.length){
+    if(["COMMITTING","FAILED","UNKNOWN"].includes(this.phase.step))return InputResult.Consumed;
+    if(this.phase.step==="PLACING"){
       if(!this.spec.unit||this.labelPosition)return InputResult.Ignored;
-      const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Ignored;
+      const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Consumed;
       context.viewport.showConstraintPreview(this.kind,this.references,context.viewport.measureDimension(this.kind,this.references),position);return InputResult.Consumed;
     }
     const reference = context.viewport.sketchReferenceAt(event.x, event.y, this.spec.picks[this.references.length], this.references[0]);
@@ -1031,96 +1122,87 @@ export class ConstraintSketchTool implements CadTool {
     return InputResult.Consumed;
   }
   keyDown(event: CadKeyboardEvent, context: ToolContext): InputResult {
-    if(event.key==="Escape"&&this.references.length){this.cancel(context);return InputResult.Consumed;}
+    if(event.editableTarget||event.isComposing)return InputResult.Ignored;
+    if(event.key==="Escape"){this.cancel(context);return InputResult.Ignored;}
     return InputResult.Ignored;
   }
-  deactivate(context: ToolContext): void { this.cancel(context); }
+  deactivate(context: ToolContext): void { this.cancel(context);context.viewport.setSketchCommandState?.(undefined); }
   cancel(context: ToolContext): void {
+    this.generation++;this.pendingOperation=undefined;this.requestID=undefined;this.error=undefined;this.definitionScope=undefined;this.baseVersionID=undefined;
     this.capturedPointerID = undefined;
     this.references = [];
     this.labelPosition=undefined;
     context.viewport.clearReferencePreview();
-    context.viewport.setToolPrompt(this.prompt());
+    context.viewport.setToolPrompt(this.prompt());this.publish(context);
   }
-  private commit(context:ToolContext):void {context.viewport.clearReferencePreview();context.viewport.commitSketchOperations([{type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:this.kind,references:this.references}}]);this.references=[];this.labelPosition=undefined;context.viewport.finishToolUse();context.viewport.setToolPrompt(this.prompt());}
+  private commit(context:ToolContext):void {
+    if(this.phase.step==="COMMITTING")return;
+    const receiptRetry=this.phase.step==="UNKNOWN";
+    if(!receiptRetry&&this.definitionScope!==(JSON.stringify(context.viewport.currentSketchIdentity?.())??"")){this.phase={step:"FAILED",references:this.references};this.error="草图版本或上下文已变化；返回重新选择后再确认";this.publish(context);return;}
+    this.pendingOperation??={type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:this.kind,references:this.references.map(ref=>({...ref}))}};
+    this.phase={step:"COMMITTING",references:this.references};this.error=undefined;const generation=++this.generation;
+    context.viewport.clearReferencePreview();this.publish(context);
+    const accepted=()=>{if(generation!==this.generation)return;this.cancel(context);context.viewport.finishToolUse();};
+    const failed=(error:unknown)=>{if(generation!==this.generation)return;const unknown=sketchCommitResultUnknown(error);this.phase={step:unknown?"UNKNOWN":"FAILED",references:this.references};if(!unknown)this.requestID=undefined;this.error=error instanceof Error?error.message:String(error);this.publish(context);context.viewport.setToolPrompt(this.error);};
+    try {const result=context.viewport.commitSketchOperations([this.pendingOperation],{requestId:this.requestID??=randomUUID(),baseVersionId:this.baseVersionID,retryReceipt:receiptRetry});
+      if(result&&typeof result.then==="function")void result.then(accepted,failed);else accepted();
+    }catch(error){failed(error);}
+  }
 }
 
+type LinearDimensionPhase={step:"SELECTING";references:SketchGeometryRef[]}|{step:"PLACING";kind:"LENGTH"|"DISTANCE";references:readonly SketchGeometryRef[]};
 export class LinearDimensionSketchTool implements CadTool {
   readonly id="sketch.dimension.linear";
-  private references:SketchGeometryRef[]=[];
-  private kind?:"DISTANCE"|"LENGTH";
-  private labelPosition?:Vec2;
+  private phase:LinearDimensionPhase={step:"SELECTING",references:[]};
   private capturedPointerID?:number;
-  selectionInput(selections:readonly SelectionItem[],context:ToolContext):void {
-    if(this.references.length)return;
-    for(const entity of localSketchSelection(selections,context)){
-      const reference=preselectedSketchReference(entity,"LINEAR_DIMENSION");
-      if(reference&&!this.references.some(item=>sameSketchReference(item,reference)))this.references.push(reference);
-      if(this.references.length===2)break;
-    }
-    if(!this.references.length)return;
-    this.kind=this.references.length===1&&this.references[0].subElement==="WHOLE"?"LENGTH":"DISTANCE";
-    context.viewport.showReferencePreview(this.references.at(-1)!,this.references);
-    if(this.referencesComplete())context.viewport.showConstraintPreview(this.kind,this.references,context.viewport.measureDimension(this.kind,this.references));
+  private freeze(kind:"LENGTH"|"DISTANCE",references:SketchGeometryRef[]):void {this.phase={step:"PLACING",kind,references:Object.freeze(references.map(reference=>Object.freeze({...reference})))};}
+  private preview(context:ToolContext,position?:Vec2):void {
+    const refs=[...this.phase.references];if(this.phase.step==="PLACING")context.viewport.showConstraintPreview(this.phase.kind,refs,context.viewport.measureDimension(this.phase.kind,refs),position);
+    else if(refs.length)context.viewport.showReferencePreview(refs.at(-1)!,refs);
   }
-  activate(context:ToolContext):void {context.viewport.setToolPrompt("线性尺寸：选择直线或第一个点");}
-  private referencesComplete():boolean {return this.kind==="LENGTH"?this.references.length===1:this.kind==="DISTANCE"&&this.references.length===2;}
+  selectionInput(selections:readonly SelectionItem[],context:ToolContext):SelectionInputResult {
+    if(this.phase.step==="PLACING")return SelectionInputResult.Rejected;
+    const existing=this.phase.references;
+    const entities=localSketchSelection(selections,context),picked=entities.flatMap(entity=>{const ref=preselectedSketchReference(entity,"LINEAR_DIMENSION");return ref?[ref]:[];});
+    if(!entities.length)return SelectionInputResult.Unhandled;
+    const added=picked.filter(reference=>!existing.some(item=>sameSketchReference(item,reference))),references=[...existing,...added];
+    if(!added.length)return SelectionInputResult.Rejected;
+    if(picked.length!==entities.length||entities.length!==selections.filter(selection=>selection.kind==="visual").length||references.length>2){context.viewport.setToolPrompt("线性尺寸需要一条直线，或合法的两个点/直线；重新选择明确对象");return SelectionInputResult.Rejected;}
+    if(references.length===2)this.freeze("DISTANCE",references);
+    else if(references[0].target==="ENTITY"&&references[0].subElement==="WHOLE")this.freeze("LENGTH",references);
+    else this.phase={step:"SELECTING",references};
+    this.preview(context);context.viewport.setToolPrompt(this.definitionPrompt());return SelectionInputResult.Accepted;
+  }
+  private definitionPrompt():string{return this.phase.step==="PLACING"?"尺寸定义已冻结：单击放置标注，鼠标命中其他几何不会改变定义":"距离：选择第二个点或直线";}
+  activate(context:ToolContext):void {context.viewport.setToolPrompt("线性尺寸：单线为长度，点或合法双预选为距离；线线距离也可用显式距离命令");}
   pointerDown(event:CadPointerEvent,context:ToolContext):InputResult {
     if(event.button!==0||this.capturedPointerID!==undefined||!context.viewport.hasActiveSketch())return InputResult.Ignored;
-    if(this.referencesComplete()){
-      if(this.kind === "LENGTH") {
-        const second = context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.references[0]);
-        if(second && !sameSketchReference(second,this.references[0])) {
-          this.capturedPointerID=event.pointerId;this.references.push(second);this.kind="DISTANCE";
-          context.viewport.showConstraintPreview(this.kind,this.references,context.viewport.measureDimension(this.kind,this.references));
-          return InputResult.Capture;
-        }
-      }
-      if(this.labelPosition)return InputResult.Ignored;
-      const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Ignored;
-      const value=context.viewport.measureDimension(this.kind!,this.references);if(value===undefined||!Number.isFinite(value))return InputResult.Ignored;
-      this.capturedPointerID=event.pointerId;this.labelPosition=position;
-      context.viewport.requestDimensionCreation(this.kind!,this.references,value,"mm",position,event.x,event.y);
-      this.references=[];this.kind=undefined;this.labelPosition=undefined;context.viewport.clearReferencePreview();
-      context.viewport.finishToolUse();return InputResult.Capture;
+    if(this.phase.step==="PLACING"){
+      const definition=this.phase,refs=[...definition.references],position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Consumed;
+      const value=context.viewport.measureDimension(definition.kind,refs);if(value===undefined||!Number.isFinite(value)){context.viewport.setToolPrompt("当前尺寸不可测；定义保持不变，请取消或重新选择");return InputResult.Consumed;}
+      this.capturedPointerID=event.pointerId;context.viewport.requestDimensionCreation(definition.kind,refs,value,"mm",position,event.x,event.y);
+      this.phase={step:"SELECTING",references:[]};context.viewport.clearReferencePreview();context.viewport.finishToolUse();return InputResult.Capture;
     }
-    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.references[0]);
-    if(!reference||this.references.some((item)=>sameSketchReference(item,reference)))return InputResult.Ignored;
-    this.capturedPointerID=event.pointerId;this.references.push(reference);
-    if(this.references.length===1)this.kind=reference.target==="ENTITY"&&reference.subElement==="WHOLE"?"LENGTH":"DISTANCE";
-    else this.kind="DISTANCE";
-    context.viewport.showReferencePreview(reference,this.references);
-    if(this.referencesComplete())context.viewport.showConstraintPreview(this.kind!,this.references,
-      context.viewport.measureDimension(this.kind!,this.references));
-    return InputResult.Capture;
+    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.phase.references[0]);
+    if(!reference)return InputResult.Consumed;
+    if(this.phase.references.some(item=>sameSketchReference(item,reference)))return InputResult.Consumed;
+    this.capturedPointerID=event.pointerId;
+    const references=[...this.phase.references,{...reference}];
+    if(references.length===2)this.freeze("DISTANCE",references);
+    else if(reference.target==="ENTITY"&&reference.subElement==="WHOLE")this.freeze("LENGTH",references);
+    else this.phase={step:"SELECTING",references};
+    this.preview(context);context.viewport.setToolPrompt(this.definitionPrompt());return InputResult.Capture;
   }
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {
     if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
-    if(this.referencesComplete()){
-      if(this.kind === "LENGTH") {
-        const second = context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.references[0]);
-        if(second && !sameSketchReference(second,this.references[0])) {
-          this.capturedPointerID=event.pointerId;this.references.push(second);this.kind="DISTANCE";
-          context.viewport.showConstraintPreview(this.kind,this.references,context.viewport.measureDimension(this.kind,this.references));
-          return InputResult.Capture;
-        }
-      }
-      if(this.labelPosition)return InputResult.Ignored;
-      const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(!position)return InputResult.Ignored;
-      context.viewport.showConstraintPreview(this.kind!,this.references,context.viewport.measureDimension(this.kind!,this.references),position);return InputResult.Consumed;
-    }
-    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.references[0]);
-    if(reference&&!this.references.some((item)=>sameSketchReference(item,reference)))context.viewport.showReferencePreview(reference,this.references);
-    else if(this.references[0])context.viewport.showReferencePreview(this.references.at(-1)!,this.references);
-    else context.viewport.clearReferencePreview();
-    return InputResult.Consumed;
+    if(this.phase.step==="PLACING"){const position=context.viewport.sketchPlacementPoint(event.x,event.y);if(position)this.preview(context,position);return InputResult.Consumed;}
+    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"LINEAR_DIMENSION",this.phase.references[0]);
+    if(reference&&!this.phase.references.some(item=>sameSketchReference(item,reference)))context.viewport.showReferencePreview(reference,this.phase.references);
+    else this.preview(context);return InputResult.Consumed;
   }
   pointerUp(event:CadPointerEvent):InputResult {if(event.button!==0||event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.capturedPointerID=undefined;return InputResult.ReleaseCapture;}
   pointerCancel(event:CadPointerEvent,context:ToolContext):InputResult {if(event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
-  keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {
-    if(event.key==="Escape"&&this.references.length){this.cancel(context);return InputResult.Consumed;}
-    return InputResult.Ignored;
-  }
+  keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {if(event.editableTarget||event.isComposing)return InputResult.Ignored;if(event.key==="Escape"){this.cancel(context);return InputResult.Ignored;}return InputResult.Ignored;}
   deactivate(context:ToolContext):void {this.cancel(context);}
-  cancel(context:ToolContext):void {this.references=[];this.kind=undefined;this.labelPosition=undefined;this.capturedPointerID=undefined;context.viewport.clearReferencePreview();}
+  cancel(context:ToolContext):void {this.phase={step:"SELECTING",references:[]};this.capturedPointerID=undefined;context.viewport.clearReferencePreview();}
 }

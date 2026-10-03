@@ -62,6 +62,7 @@ export type AssemblyComponentDof = {
   freedoms: AssemblyBodyFreedom[];
 };
 export type CommandPreview = {
+  sketchCandidates?: Array<{featureId:string;entities:SketchEntity[];solve:SketchFeature["solve"]}>;
   evaluationOutcome?: "DEFINITION_ONLY";
   evaluationFailure?: AssemblyEvaluationFailure;
   assemblySolverBuild?: string;

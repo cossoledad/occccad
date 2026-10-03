@@ -1035,6 +1035,11 @@ export const mockApi: CadApi = {
   previewCommand: async (documentID, input, signal) => {
     if (signal?.aborted) throw new DOMException("Preview cancelled", "AbortError");
     const view = getView(documentID);
+    if (input.type === "EDIT_SKETCH") {
+      const sketch = view.part?.features.find((feature) => feature.id === input.sketchId)?.sketch;
+      if (!sketch) throw new Error("Sketch does not exist");
+      throw new Error("Mock 不支持权威草图编辑候选，请连接计算服务");
+    }
     if(input.type==="MOVE_INSTANCE"&&view.product){return pause({previewId:id("mock-move-preview"),baseVersionId:view.document.versionId,baseSequence:0,modelHash:"mock-move",
       instancePoses:view.product.instances.map((instance)=>({instanceId:instance.id,translation:instance.id===input.instanceId?input.translation as Vec3:instance.translation,rotation:instance.rotation??[0,0,0,1]}))});}
     if ((input.type === "ADD_ASSEMBLY_CONSTRAINT" || input.type === "EDIT_ASSEMBLY_CONSTRAINT") && view.product) {

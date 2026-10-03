@@ -14,12 +14,12 @@ const segmentDistance = (point: ScreenPoint, start: ScreenPoint, end: ScreenPoin
 // Intrinsic origin/axes and user geometry participate in one typed picking
 // policy. The returned reference is stable model identity, never a render ID.
 export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEntity[], project: (point: Vec2) => ScreenPoint,
-  kind: SketchReferencePickKind, thresholdPixels = 12, axisExtent: number | Vec2 = 110, retained?: SketchGeometryRef): SketchGeometryRef | null {
+  kind: SketchReferencePickKind, thresholdPixels = 12, axisExtent: number | Vec2 = 110, retained?: SketchGeometryRef, allowed?: (reference:SketchGeometryRef)=>boolean): SketchGeometryRef | null {
   const mode = kind;
   const [extentX, extentY] = typeof axisExtent === "number" ? [axisExtent, axisExtent] : axisExtent;
   let best: { distance: number; priority: number; reference: SketchGeometryRef } | undefined;
   const consider = (distance: number, reference: SketchGeometryRef, priority = 0) => {
-    if (distance >= thresholdPixels) return;
+    if (distance >= thresholdPixels || allowed&&!allowed(reference)) return;
     if (!best || distance < best.distance - 1.5 || (Math.abs(distance-best.distance)<=1.5&&priority>best.priority))
       best = { distance, priority, reference };
   };
@@ -29,6 +29,7 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
   }
   for (const entity of entities) {
     if(entity.suppressed)continue;
+    if(mode==="ENTITY"&&entity.kind==="POINT"&&entity.point){const value=project([entity.point.x,entity.point.y]);consider(Math.hypot(cursor.x-value.x,cursor.y-value.y),{target:"ENTITY",entityId:entity.id,subElement:"POINT"});continue;}
     if(mode==="EDIT_POINT"){
       const editableElements=entity.kind==="POINT"?["POINT"] as const:["LINE","ARC","ELLIPTICAL_ARC"].includes(entity.kind)?["START","END"] as const:[];
       for(const subElement of editableElements){
