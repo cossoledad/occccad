@@ -526,9 +526,8 @@ func TestSketchWorkflowCopyTransformDeleteExtrudeHistory(t *testing.T) {
 	f.edit(ops...)
 	f.volume(f.command(CommandRequest{Type: "PAD_SKETCH", Length: 2}), 160)
 	operationID := uuid.NewString()
-	scale := 2.0
-	view := f.edit(SketchOperation{Type: "TRANSFORM_ENTITIES", OperationID: operationID, EntityIDs: selected, Copy: true, ConstraintPolicy: "INTERNAL", Scale: &scale, Angle: .3, Origin: &SketchPoint2{}, Translation: &SketchPoint2{X: 30}})
-	f.volume(view, 800)
+	view := f.edit(SketchOperation{Type: "TRANSFORM_ENTITIES", OperationID: operationID, EntityIDs: selected, Copy: true, ConstraintPolicy: "INTERNAL", Angle: .3, Origin: &SketchPoint2{}, Translation: &SketchPoint2{X: 30}})
+	f.volume(view, 320)
 	copyIDs := []string{}
 	for _, e := range f.sketch(view).Entities {
 		if e.CreatedByOperationID == operationID {
@@ -538,9 +537,9 @@ func TestSketchWorkflowCopyTransformDeleteExtrudeHistory(t *testing.T) {
 	if len(copyIDs) != 4 {
 		t.Fatal("copy provenance not preserved")
 	}
-	f.volume(f.edit(SketchOperation{Type: "TRANSFORM_ENTITIES", OperationID: uuid.NewString(), EntityIDs: selected, ConstraintPolicy: "INTERNAL", Angle: .7, Translation: &SketchPoint2{X: -20}}), 800)
+	f.volume(f.edit(SketchOperation{Type: "TRANSFORM_ENTITIES", OperationID: uuid.NewString(), EntityIDs: selected, ConstraintPolicy: "INTERNAL", Angle: .7, Translation: &SketchPoint2{X: -20}}), 320)
 	f.volume(f.edit(SketchOperation{Type: "DELETE_ENTITIES", EntityIDs: copyIDs}), 160)
-	f.volume(f.command(CommandRequest{Type: "UNDO"}), 800)
+	f.volume(f.command(CommandRequest{Type: "UNDO"}), 320)
 	f.volume(f.command(CommandRequest{Type: "REDO"}), 160)
 }
 
@@ -692,4 +691,33 @@ func TestSketchWorkflowArcComplementAndCloseExtrudeUpdate(t *testing.T) {
 			f.volume(f.edit(SketchOperation{Type: "UPDATE_CONSTRAINT_VALUE", ConstraintID: dim, Value: workflowValue(7)}), 2*math.Pi*7*minor)
 		})
 	}
+}
+
+func TestSketchWorkflowFreeExtensionPlacementHistory(t *testing.T) {
+	f := newSketchWorkflowFixture(t)
+	source := SketchEntity{ID: uuid.NewString(), Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{X: 3, Y: 7}, End: &SketchPoint2{X: 8, Y: 7}}
+	f.edit(workflowEntity(source))
+	ref := workflowRef(source.ID, "END")
+	view := f.edit(SketchOperation{Type: "EXTEND_ENTITY", OperationID: uuid.NewString(), EntityIDs: []string{source.ID}, FirstReference: &ref, Point: &SketchPoint2{X: 13, Y: 9}})
+	check := func(view DocumentView, x float64) {
+		f.t.Helper()
+		sketch := f.sketch(view)
+		for _, e := range sketch.Entities {
+			if e.Kind == "LINE" {
+				if math.Abs(e.End.X-x) > 1e-8 || math.Abs(e.End.Y-7) > 1e-8 {
+					t.Fatalf("wrong analytic endpoint %+v", e.End)
+				}
+				return
+			}
+		}
+		t.Fatal("extended line missing")
+	}
+	check(view, 13)
+	check(f.command(CommandRequest{Type: "UNDO"}), 8)
+	check(f.command(CommandRequest{Type: "REDO"}), 13)
+	cold, err := f.service.GetDocument(f.ctx, f.documentID, f.actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check(cold, 13)
 }

@@ -25,21 +25,30 @@ const state={toolId:"sketch.edit.fillet",operation:"圆角",phase:"definition",p
 const actions=[];
 const render=(component,props)=>{elements.length=0;return renderToStaticMarkup(React.createElement(antd.App,null,React.createElement(UIHelpProvider,null,React.createElement(component,props))));};
 const inlineHTML=render(SketchInlineParameterInput,{state,lengthUnit:"in",onAction:action=>actions.push(action)});
-assert(inlineHTML.includes("半径")&&inlineHTML.includes(" in"));assert.match(inlineHTML,/2 \* width/);assert(inlineHTML.includes("<svg"));assert(!elements.some(element=>element.type===antd.Input),"default annotation has no input/card");assert(!inlineHTML.includes("高级选项"));assert(!inlineHTML.includes("长度"));assert(!inlineHTML.includes("private-entity-uuid"));
+assert(inlineHTML.includes("半径")&&inlineHTML.includes(" in"));assert.match(inlineHTML,/2 \* width/);assert(inlineHTML.includes("<svg"));assert(elements.some(element=>element.type===antd.Input&&element.props.autoFocus),"current parameter immediately enters borderless numeric editing");assert(!inlineHTML.includes("高级选项"));assert(!inlineHTML.includes("长度"));assert(!inlineHTML.includes("private-entity-uuid"));
 const inline=elements.find(element=>element.props?.["data-cad-parameter-annotation"]);
 render(SketchParameterValueInput,{field:state.fields[1],pending:false,onChange:value=>actions.push({type:"field",index:1,value})});
 const input=elements.find(element=>element.type===antd.Input);assert(input.props.autoFocus);assert.equal(input.props.variant,"borderless");assert.equal(input.props.onBlur,undefined);input.props.onChange({target:{value:"3 * height + 2 in"}});assert.deepEqual(actions.pop(),{type:"field",index:1,value:"3 * height + 2 in"});
 const key=(value,overrides={})=>{const event={key:value,repeat:false,shiftKey:false,nativeEvent:{isComposing:false,keyCode:0},defaultPrevented:false,preventDefault(){this.defaultPrevented=true;},stopPropagation(){},...overrides};inline.props.onKeyDownCapture(event);return event;};
 key("Enter",{nativeEvent:{isComposing:true,keyCode:229}});key("Enter",{repeat:true});assert.equal(actions.length,0);assert(key("Enter").defaultPrevented);key("Enter");assert.deepEqual(actions,[{type:"confirm"}],"production inline confirm uses a synchronous latch");actions.length=0;
-key("5");assert.deepEqual(actions.pop(),{type:"field",index:1,value:"5"});
+key("5");assert.equal(actions.length,0,"typing belongs to the focused native input");
 key("Tab");assert.deepEqual(actions.pop(),{type:"input",index:0});key("Escape");assert.deepEqual(actions.pop(),{type:"cancel"},"Esc exits the whole owning tool, not just its input");
-for(const phase of ["committing","unknown"]){render(SketchInlineParameterInput,{state:{...state,phase},onAction:action=>actions.push(action)});const blockValue=elements.find(element=>element.type===antd.Button),block=elements.find(element=>element.props?.["data-cad-parameter-annotation"]);assert(blockValue.props.disabled);block.props.onKeyDownCapture({key:"Enter",repeat:false,nativeEvent:{isComposing:false},preventDefault(){},stopPropagation(){}});assert.equal(actions.length,0);}
+for(const phase of ["committing","unknown"]){render(SketchInlineParameterInput,{state:{...state,phase},onAction:action=>actions.push(action)});const blockValue=elements.find(element=>element.type===antd.Input),block=elements.find(element=>element.props?.["data-cad-parameter-annotation"]);assert(blockValue.props.disabled);block.props.onKeyDownCapture({key:"Enter",repeat:false,nativeEvent:{isComposing:false},preventDefault(){},stopPropagation(){}});assert.equal(actions.length,0);}
+// Real component pointer handlers emit placement only, with frozen gesture anchor.
+render(SketchInlineParameterInput,{state:{...state,input:{...state.input,dimension:true}},onAction:action=>actions.push(action)});
+const dragGroup=elements.find(element=>element.props?.["data-cad-parameter-annotation"]),dragCapture={setPointerCapture(){},hasPointerCapture(){return true;},releasePointerCapture(){}};
+const event=(x,y)=>({pointerId:7,button:0,clientX:x,clientY:y,currentTarget:dragCapture,target:{closest(){return null;}},stopPropagation(){}});
+dragGroup.props.onPointerDown(event(10,10));dragGroup.props.onPointerMove(event(18,15));dragGroup.props.onPointerUp(event(18,15));
+assert.deepEqual(actions.pop(),{type:"placement",position:[128,85]},"annotation drag changes placement, never numeric source");
 assert(!render(SketchInlineParameterInput,{state:{...state,input:undefined},onAction(){}}).includes("data-cad-parameter-annotation"));assert(!render(SketchInlineParameterInput,{state:{...state,presentation:"advanced"},onAction(){}}).includes("data-cad-parameter-annotation"));
 const frozenUnitHTML=render(SketchInlineParameterInput,{state:{...state,fields:state.fields.map(field=>({...field,displayUnit:"in"}))},lengthUnit:"mm",onAction(){}});assert(frozenUnitHTML.includes(" in"));assert(!frozenUnitHTML.includes(" mm"),"an active draft keeps its actor-owned display unit when the document preference changes");
 const statusHTML=render(WorkbenchStatus,{busy:false,canEdit:true,selectionCount:0,toolName:"圆角",lengthUnit:"in",continuous:true,sketchCommand:state,onSketchAction:action=>actions.push(action)});
 assert.match(statusHTML,/当前草图动作/);assert.match(statusHTML,/输入半径/);assert.match(statusHTML,/2 \/ 2/);assert.match(statusHTML,/完成角点/);assert(!statusHTML.includes("private-entity-uuid"));
 const statusButtons=elements.filter(element=>element.type===antd.Button);
 statusButtons.find(element=>element.props.children==="半径").props.onClick();assert.deepEqual(actions.pop(),{type:"input",index:1});statusButtons.find(element=>element.props.children==="完成角点").props.onClick();assert.deepEqual(actions.pop(),{type:"confirm"});
+render(WorkbenchStatus,{busy:false,canEdit:true,selectionCount:0,toolName:"修剪",lengthUnit:"mm",continuous:false,sketchCommand:{...state,input:undefined,error:"尺寸引用需要处理",recovery:{label:"解除受影响关系（1）",action:"release"}},onSketchAction:action=>actions.push(action)});
+assert(elements.some(e=>e.props?.role==="alert"&&e.props.children==="尺寸引用需要处理"),"no-input failures remain visible in the status bar");
+elements.find(e=>e.type===antd.Button&&e.props.children==="解除受影响关系（1）").props.onClick();assert.deepEqual(actions.pop(),{type:"release"});
 // Options are an explicit secondary popup; changing them stays in the actor.
 const mirrorOption={name:"mirrorMode",label:"镜像关系",value:"LINKED",choices:[{value:"LINKED",label:"关联镜像"},{value:"INDEPENDENT",label:"独立副本"}]};
 render(WorkbenchStatus,{busy:false,canEdit:true,selectionCount:0,toolName:"镜像",lengthUnit:"mm",continuous:false,sketchCommand:{...state,input:undefined,fields:[],options:[mirrorOption]},onSketchAction:action=>actions.push(action)});

@@ -9,6 +9,7 @@ export const palette = {
   selected: "#f4ba62", hover: "#68d7e6", preview: "#aab9ff", snap: "#ffe099",
   sketchGrid: "#8dc7de", previewNew: "#8bb8e8", previewAdd: "#70c9ab", previewRemove: "#ebaa84",
   previewIntersect: "#b1a1df", previewReference: "#e1b896",
+  dimensionText: "#f4e6bc",
   solved: "#7edbb1", invalid: "#ff8490", redundant: "#d6a0ef",
   gridMinor: "#708495", gridMajor: "#8fa4b6", axisX: "#f28388", axisY: "#79cda6", axisZ: "#83adff",
 } as const;

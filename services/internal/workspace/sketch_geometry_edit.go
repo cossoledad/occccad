@@ -99,17 +99,16 @@ func applySketchGeometryEdit(sketch *SketchFeature, op SketchOperation) error {
 	if op.Translation != nil {
 		translation = *op.Translation
 	}
-	scale := 1.0
 	if op.Scale != nil {
-		scale = *op.Scale
+		return fmt.Errorf("%w: sketch uniform scaling is unsupported", ErrValidation)
 	}
-	if !finite(origin.X) || !finite(origin.Y) || !finite(translation.X) || !finite(translation.Y) || !finite(op.Angle) || !positiveFinite(scale) {
+	if !finite(origin.X) || !finite(origin.Y) || !finite(translation.X) || !finite(translation.Y) || !finite(op.Angle) {
 		return fmt.Errorf("%w: invalid transform", ErrValidation)
 	}
 	transform := func(p SketchPoint2) SketchPoint2 {
 		d := sub2(p, origin)
 		c, s := math.Cos(op.Angle), math.Sin(op.Angle)
-		return add2(add2(origin, translation), SketchPoint2{X: scale * (c*d.X - s*d.Y), Y: scale * (s*d.X + c*d.Y)})
+		return add2(add2(origin, translation), SketchPoint2{X: c*d.X - s*d.Y, Y: s*d.X + c*d.Y})
 	}
 	reflected := op.Type == "MIRROR_ENTITIES"
 	axisAngle := 0.0
@@ -132,7 +131,6 @@ func applySketchGeometryEdit(sketch *SketchFeature, op SketchOperation) error {
 			projection := add2(a, scale2(d, (v.X*d.X+v.Y*d.Y)/square))
 			return sub2(scale2(projection, 2), p)
 		}
-		scale = 1
 	}
 	ordered := append([]string(nil), op.EntityIDs...)
 	sort.Strings(ordered)
@@ -201,9 +199,6 @@ func applySketchGeometryEdit(sketch *SketchFeature, op SketchOperation) error {
 				clone.References[i].ControlPointID = macroID(op.OperationID, "point/"+clone.References[i].ControlPointID)
 			}
 		}
-		if scale != 1 && isDimensionalConstraint(clone.Kind) && clone.Kind != "ANGLE" {
-			return fmt.Errorf("%w: scaling driven dimension %s requires explicit parameter editing or GEOMETRY_ONLY copy", ErrValidation, c.ID)
-		}
 		if clone.LabelPosition != nil {
 			p := transform(*clone.LabelPosition)
 			clone.LabelPosition = &p
@@ -242,9 +237,6 @@ func applySketchGeometryEdit(sketch *SketchFeature, op SketchOperation) error {
 		for i := range e.ControlPoints {
 			e.ControlPoints[i] = transform(e.ControlPoints[i])
 		}
-		e.Radius *= scale
-		e.MajorRadius *= scale
-		e.MinorRadius *= scale
 		if reflected {
 			if e.Kind == "ARC" {
 				e.StartAngle = 2*axisAngle - e.StartAngle

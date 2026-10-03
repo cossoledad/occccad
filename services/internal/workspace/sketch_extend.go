@@ -9,7 +9,8 @@ import (
 )
 
 // Extension intersects the true support with a selected finite boundary. The
-// click selects a branch; it never supplies an authoritative curve endpoint.
+// click selects a branch. Without a boundary it supplies a target projected
+// onto the analytic support, rather than an arbitrary curve endpoint.
 func (service *Service) prepareSketchExtension(ctx context.Context, sketch *SketchFeature, op SketchOperation, requestID string) (SketchOperation, error) {
 	if len(op.EntityIDs) != 1 || op.OperationID == "" {
 		return op, fmt.Errorf("%w: select one local curve", ErrValidation)
@@ -53,97 +54,109 @@ func (service *Service) prepareSketchExtension(ctx context.Context, sketch *Sket
 		if source.Kind != "LINE" && source.Kind != "ARC" && source.Kind != "ELLIPTICAL_ARC" {
 			return op, fmt.Errorf("%w: extend supports lines and analytic arcs; spline extrapolation has no defined branch", ErrValidation)
 		}
-		if op.FirstReference == nil || op.FirstReference.Target != "ENTITY" || op.FirstReference.EntityID != source.ID || (op.FirstReference.SubElement != "START" && op.FirstReference.SubElement != "END") || len(op.BoundaryIDs) != 1 || op.Point == nil || !finite(op.Point.X) || !finite(op.Point.Y) {
-			return op, fmt.Errorf("%w: choose an endpoint, boundary and intersection branch", ErrValidation)
+		if op.FirstReference == nil || op.FirstReference.Target != "ENTITY" || op.FirstReference.EntityID != source.ID || (op.FirstReference.SubElement != "START" && op.FirstReference.SubElement != "END") || len(op.BoundaryIDs) > 1 || op.Point == nil || !finite(op.Point.X) || !finite(op.Point.Y) {
+			return op, fmt.Errorf("%w: choose an endpoint and a finite target; at most one boundary", ErrValidation)
 		}
-		boundary, ok := sketchEditBoundary(sketch, op.BoundaryIDs[0])
-		if !ok || boundary.ID == source.ID {
-			return op, fmt.Errorf("%w: invalid extension boundary", ErrValidation)
-		}
-		support := source
-		if source.Kind == "LINE" {
-			// A finite exact line window enclosing the boundary's complete bounds is
-			// sufficient for every possible intersection, including conic extrema.
-			lo, hi := sketchBoundaryProjectionBounds(boundary, *source.Start, *source.End)
-			lo = math.Min(lo, -1)
-			hi = math.Max(hi, 2)
-			support.Start = &SketchPoint2{X: source.Start.X + (source.End.X-source.Start.X)*lo, Y: source.Start.Y + (source.End.Y-source.Start.Y)*lo}
-			support.End = &SketchPoint2{X: source.Start.X + (source.End.X-source.Start.X)*hi, Y: source.Start.Y + (source.End.Y-source.Start.Y)*hi}
-		} else if source.Kind == "ARC" {
-			support.Kind = "CIRCLE"
-		} else {
-			support.Kind = "ELLIPSE"
-		}
-		if service.worker == nil {
-			return op, fmt.Errorf("%w: exact curve worker unavailable", ErrValidation)
-		}
-		intersections, e := service.worker.ComputeSketchCurves(ctx, requestID, "INTERSECT", []geometry.ProfileCurve{profileCurve(support, false), profileCurve(boundary, false)}, nil, nil)
-		if e != nil {
-			return op, fmt.Errorf("%w: %v", ErrValidation, e)
-		}
-		if len(intersections.Overlaps) > 0 {
-			return op, fmt.Errorf("%w: overlapping supports have no unique extension target", ErrValidation)
-		}
-		best := math.Inf(1)
-		target := 0.0
-		found := false
-		boundaryParameter := 0.0
-		boundaryPoint := [2]float64{}
-		for _, p := range intersections.Intersections {
-			t := 0.0
-			if source.Kind == "LINE" {
-				dx, dy := source.End.X-source.Start.X, source.End.Y-source.Start.Y
-				t = ((p.Point[0]-source.Start.X)*dx + (p.Point[1]-source.Start.Y)*dy) / (dx*dx + dy*dy)
+		if len(op.BoundaryIDs) == 0 {
+			target, e := sketchFreeExtensionParameter(source, *op.Point, op.FirstReference.SubElement)
+			if e != nil {
+				return op, e
+			}
+			if op.FirstReference.SubElement == "START" {
+				interval.Start = target
 			} else {
-				angle := p.FirstParameter
-				direction := math.Copysign(1, b-a)
-				if op.FirstReference.SubElement == "END" {
-					for direction*(angle-b) <= 0 {
-						angle += direction * 2 * math.Pi
-					}
+				interval.End = target
+			}
+		} else {
+			boundary, ok := sketchEditBoundary(sketch, op.BoundaryIDs[0])
+			if !ok || boundary.ID == source.ID {
+				return op, fmt.Errorf("%w: invalid extension boundary", ErrValidation)
+			}
+			support := source
+			if source.Kind == "LINE" {
+				// A finite exact line window enclosing the boundary's complete bounds is
+				// sufficient for every possible intersection, including conic extrema.
+				lo, hi := sketchBoundaryProjectionBounds(boundary, *source.Start, *source.End)
+				lo = math.Min(lo, -1)
+				hi = math.Max(hi, 2)
+				support.Start = &SketchPoint2{X: source.Start.X + (source.End.X-source.Start.X)*lo, Y: source.Start.Y + (source.End.Y-source.Start.Y)*lo}
+				support.End = &SketchPoint2{X: source.Start.X + (source.End.X-source.Start.X)*hi, Y: source.Start.Y + (source.End.Y-source.Start.Y)*hi}
+			} else if source.Kind == "ARC" {
+				support.Kind = "CIRCLE"
+			} else {
+				support.Kind = "ELLIPSE"
+			}
+			if service.worker == nil {
+				return op, fmt.Errorf("%w: exact curve worker unavailable", ErrValidation)
+			}
+			intersections, e := service.worker.ComputeSketchCurves(ctx, requestID, "INTERSECT", []geometry.ProfileCurve{profileCurve(support, false), profileCurve(boundary, false)}, nil, nil)
+			if e != nil {
+				return op, fmt.Errorf("%w: %v", ErrValidation, e)
+			}
+			if len(intersections.Overlaps) > 0 {
+				return op, fmt.Errorf("%w: overlapping supports have no unique extension target", ErrValidation)
+			}
+			best := math.Inf(1)
+			target := 0.0
+			found := false
+			boundaryParameter := 0.0
+			boundaryPoint := [2]float64{}
+			for _, p := range intersections.Intersections {
+				t := 0.0
+				if source.Kind == "LINE" {
+					dx, dy := source.End.X-source.Start.X, source.End.Y-source.Start.Y
+					t = ((p.Point[0]-source.Start.X)*dx + (p.Point[1]-source.Start.Y)*dy) / (dx*dx + dy*dy)
 				} else {
-					for direction*(angle-a) >= 0 {
-						angle -= direction * 2 * math.Pi
+					angle := p.FirstParameter
+					direction := math.Copysign(1, b-a)
+					if op.FirstReference.SubElement == "END" {
+						for direction*(angle-b) <= 0 {
+							angle += direction * 2 * math.Pi
+						}
+					} else {
+						for direction*(angle-a) >= 0 {
+							angle -= direction * 2 * math.Pi
+						}
+					}
+					t = (angle - a) / (b - a)
+					if math.Abs((a+(b-a)*t)-a) >= 2*math.Pi || math.Abs(b-(a+(b-a)*t)) >= 2*math.Pi {
+						continue
 					}
 				}
-				t = (angle - a) / (b - a)
-				if math.Abs((a+(b-a)*t)-a) >= 2*math.Pi || math.Abs(b-(a+(b-a)*t)) >= 2*math.Pi {
+				if (op.FirstReference.SubElement == "START" && t >= 0) || (op.FirstReference.SubElement == "END" && t <= 1) {
 					continue
 				}
+				distance := math.Hypot(p.Point[0]-op.Point.X, p.Point[1]-op.Point.Y)
+				if distance < best {
+					best = distance
+					target = t
+					boundaryParameter = p.SecondParameter
+					boundaryPoint = p.Point
+					found = true
+				}
 			}
-			if (op.FirstReference.SubElement == "START" && t >= 0) || (op.FirstReference.SubElement == "END" && t <= 1) {
-				continue
+			if !found {
+				return op, fmt.Errorf("%w: no intersection in the selected extension direction", ErrValidation)
 			}
-			distance := math.Hypot(p.Point[0]-op.Point.X, p.Point[1]-op.Point.Y)
-			if distance < best {
-				best = distance
-				target = t
-				boundaryParameter = p.SecondParameter
-				boundaryPoint = p.Point
-				found = true
+			reference := SketchGeometryRef{Target: "ENTITY", EntityID: boundary.ID, SubElement: "WHOLE"}
+			local := false
+			for _, e := range sketch.Entities {
+				local = local || e.ID == boundary.ID
 			}
-		}
-		if !found {
-			return op, fmt.Errorf("%w: no intersection in the selected extension direction", ErrValidation)
-		}
-		reference := SketchGeometryRef{Target: "ENTITY", EntityID: boundary.ID, SubElement: "WHOLE"}
-		local := false
-		for _, e := range sketch.Entities {
-			local = local || e.ID == boundary.ID
-		}
-		if !local {
-			reference.Target = "EXTERNAL"
-		}
-		kind := "POINT_ON_OBJECT"
-		if sub := sketchBoundaryIntersectionEndpoint(boundary, boundaryParameter, boundaryPoint); sub != "" {
-			reference.SubElement = sub
-			kind = "COINCIDENT"
-		}
-		op.CutConnections = append(op.CutConnections, SketchCurveCutConnection{Kind: kind, Parameter: target, Reference: reference})
-		if op.FirstReference.SubElement == "START" {
-			interval.Start = target
-		} else {
-			interval.End = target
+			if !local {
+				reference.Target = "EXTERNAL"
+			}
+			kind := "POINT_ON_OBJECT"
+			if sub := sketchBoundaryIntersectionEndpoint(boundary, boundaryParameter, boundaryPoint); sub != "" {
+				reference.SubElement = sub
+				kind = "COINCIDENT"
+			}
+			op.CutConnections = append(op.CutConnections, SketchCurveCutConnection{Kind: kind, Parameter: target, Reference: reference})
+			if op.FirstReference.SubElement == "START" {
+				interval.Start = target
+			} else {
+				interval.End = target
+			}
 		}
 		if source.Kind == "LINE" {
 			result.Start = &SketchPoint2{X: source.Start.X + (source.End.X-source.Start.X)*interval.Start, Y: source.Start.Y + (source.End.Y-source.Start.Y)*interval.Start}
@@ -245,4 +258,50 @@ func sketchBoundaryIntersectionEndpoint(e SketchEntity, parameter float64, p [2]
 		return "START"
 	}
 	return "END"
+}
+
+// Pointer placement is projected onto the analytic support, never a sampled
+// screen polyline. A selected boundary follows the exact intersection path above.
+func sketchFreeExtensionParameter(source SketchEntity, point SketchPoint2, sub string) (float64, error) {
+	a, b, err := sketchCurveDomain(source)
+	if err != nil {
+		return 0, err
+	}
+	var t float64
+	if source.Kind == "LINE" {
+		d := sub2(*source.End, *source.Start)
+		t = ((point.X-source.Start.X)*d.X + (point.Y-source.Start.Y)*d.Y) / (d.X*d.X + d.Y*d.Y)
+	} else {
+		x, y := point.X-source.Center.X, point.Y-source.Center.Y
+		if source.Kind == "ELLIPTICAL_ARC" {
+			c, s := math.Cos(source.Rotation), math.Sin(source.Rotation)
+			x, y = (x*c+y*s)/source.MajorRadius, (-x*s+y*c)/source.MinorRadius
+		}
+		if x == 0 && y == 0 {
+			return 0, fmt.Errorf("%w: extension target has no direction", ErrValidation)
+		}
+		angle := math.Atan2(y, x)
+		direction := math.Copysign(1, b-a)
+		if sub == "END" {
+			for direction*(angle-b) <= 0 {
+				angle += direction * 2 * math.Pi
+			}
+		} else {
+			for direction*(angle-a) >= 0 {
+				angle -= direction * 2 * math.Pi
+			}
+		}
+		t = (angle - a) / (b - a)
+		span := math.Abs((b - a) * t)
+		if sub == "START" {
+			span = math.Abs(b - a - (b-a)*t)
+		}
+		if span >= 2*math.Pi {
+			return 0, fmt.Errorf("%w: extension would wrap a complete period", ErrValidation)
+		}
+	}
+	if !finite(t) || sub == "START" && t >= 0 || sub == "END" && t <= 1 {
+		return 0, fmt.Errorf("%w: target must extend the selected endpoint", ErrValidation)
+	}
+	return t, nil
 }

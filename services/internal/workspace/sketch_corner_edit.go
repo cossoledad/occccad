@@ -458,7 +458,8 @@ func applySketchCornerEdit(sketch *SketchFeature, op SketchOperation) error {
 			}
 			sketch.Constraints = kept
 		}
-		appendConstraint("cut-on/"+source.ID, "POINT_ON_OBJECT", cornerRef(child.ID, subs[i]), cornerRef(source.ID, "WHOLE"))
+		// SAME_SUPPORT already constrains the cut endpoint to the support.
+		// Adding POINT_ON_OBJECT here duplicates an equation (also after the second corner).
 		childIDs[i] = child.ID
 		if trim == "TRIM" {
 			sketch.Entities[indices[i]].Role = "CONSTRUCTION"
@@ -472,8 +473,8 @@ func applySketchCornerEdit(sketch *SketchFeature, op SketchOperation) error {
 		bridge.Radius = *op.Value
 		bridge.StartAngle = chosen.start
 		bridge.EndAngle = chosen.end
-		appendConstraint("tangent/first", "TANGENT", cornerRef(sources[0].ID, "WHOLE"), cornerRef(bridgeID, "START"))
-		appendConstraint("tangent/second", "TANGENT", cornerRef(sources[1].ID, "WHOLE"), cornerRef(bridgeID, "END"))
+		appendConstraint("tangent/first", "TANGENT", cornerRef(childIDs[0], "WHOLE"), cornerRef(bridgeID, "START"))
+		appendConstraint("tangent/second", "TANGENT", cornerRef(childIDs[1], "WHOLE"), cornerRef(bridgeID, "END"))
 		appendDimension("radius", "RADIUS", "mm", *op.Value, cornerRef(bridgeID, "WHOLE"))
 	} else {
 		bridge.Kind = "LINE"

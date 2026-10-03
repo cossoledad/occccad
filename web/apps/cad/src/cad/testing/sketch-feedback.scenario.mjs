@@ -32,7 +32,7 @@ try {
  const firstHover=engine.referenceHover;engine.showConstraintPreview('LENGTH',[ref('a')],20,[22,5]);assert.equal(engine.referenceHover,firstHover,'label placement must not erase the hovered second object');
  engine.referenceHover.traverse(child=>{if(child.isLine2)assert(child.renderOrder>textOrder);});
  engine.showSketchEditCandidate({entities:[],hitEntities:[entities[1]]});assert.equal(engine.preview.children[0].renderOrder,order.trim);assert(engine.preview.children[0].material.transparent,'trim and dimensions must use the same transparent render queue');assert.equal(engine.preview.children[0].material.linewidth,4);
- engine.clearReferenceHover();assert.equal(engine.referenceHover,undefined);assert(engine.referencePreview);engine.clearReferencePreview();assert.equal(engine.referencePreview,undefined);
+ assert.equal(engine.referenceHover.parent,engine.sketchPreviewLayer);assert.equal(engine.referencePreview.parent,engine.sketchPreviewLayer);assert(engine.sketchPreviewLayer.userData.transient);engine.clearReferenceHover();assert.equal(engine.referenceHover,undefined);assert(engine.referencePreview);engine.clearReferencePreview();assert.equal(engine.referencePreview,undefined);
  engine.addTopologyOverlay('selected',{kind:'visual',entityId:'a',featureId:'sketch',documentId:'part',versionId:'v1',id:'a'});assert.equal(engine.selectedOverlays.length,1);assert.equal(engine.selectedOverlays[0].renderOrder,order.selected);
  engine.addTopologyOverlay('selected',{kind:'visual',entityId:'a',featureId:'sketch',documentId:'part',versionId:'v1',occurrencePath:'different-occurrence',id:'a'});assert.equal(engine.selectedOverlays.length,1,'equal entity IDs cannot leak across occurrences');
  engine.addTopologyOverlay('selected',{kind:'visual',entityId:'a',featureId:'sketch',documentId:'part',versionId:'v1',bodyId:'other-body',id:'a'});assert.equal(engine.selectedOverlays.length,1);
@@ -45,6 +45,26 @@ try {
  const {sketchMarqueeContains}=await server.ssrLoadModule('/src/cad/interaction/sketch-marquee.ts');
  const label=makeConstraintDimensionLabel('R5',([x,y])=>new THREE.Vector3(x,0,y));assert(label.isMesh&&!label.isSprite);
  const normal=new THREE.Vector3(0,0,1).applyQuaternion(label.quaternion);assert(normal.distanceTo(new THREE.Vector3(0,-1,0))<1e-12);
+ const {palette,colorNumber}=await server.ssrLoadModule('/src/design/visual-tokens.ts');
+ const baseText=colorNumber(palette.dimensionText);
+ for(const state of ['default','hover','selected','default','hover','default']){
+  engine.applyHighlight(label,state);
+  assert.equal(label.material.opacity,1,'dimension glyphs never inherit translucent surface opacity');
+  assert.equal(label.material.color.getHex(),state==='hover'?theme.hover:state==='selected'?theme.selected:baseText,'state color is absolute, not multiplied into a colored texture');
+ }
+ const {makeSketchConstraintRenderable}=await server.ssrLoadModule('/src/cad/rendering/sketch-constraint-renderer.ts');
+ const {buildSketchConstraintLayout}=await server.ssrLoadModule('/src/cad/sketch/sketch-constraint-layout.ts');
+ const inclined=[{id:'slant',kind:'LINE',start:{x:0,y:0},end:{x:20,y:20}},{id:'horizontal',kind:'LINE',start:{x:0,y:0},end:{x:20,y:0}}];
+ const toWorld=([x,y])=>new THREE.Vector3(x,0,y),lineDimension={id:'aligned',kind:'LENGTH',references:[ref('slant')],value:Math.sqrt(800),unit:'mm'};
+ for(const definition of [lineDimension,{id:'angular',kind:'ANGLE',references:[ref('horizontal'),ref('slant')],value:45,unit:'deg'}]){
+  const layout=buildSketchConstraintLayout(definition,inclined),display=makeSketchConstraintRenderable(definition,inclined,toWorld,engine.materials,{width:800,height:600});
+  const text=display.children.find(c=>c.userData.sketchDimensionLabel);
+  const baseline=new THREE.Vector3(1,0,0).applyQuaternion(text.quaternion),expected=toWorld(layout.label.direction).normalize();
+  assert(Math.abs(baseline.dot(expected))>1-1e-12,'dimension text follows its leader or angle arc tangent on the sketch plane');
+  engine.applyHighlight(display,'hover');engine.applyHighlight(display,'default');assert.equal(text.material.opacity,1);assert.equal(text.material.color.getHex(),baseText);
+ }
+ const diagnostic=makeSketchConstraintRenderable(lineDimension,inclined,toWorld,engine.materials,{width:800,height:600},theme.sketchInvalid);
+ engine.applyHighlight(diagnostic,'selected');engine.applyHighlight(diagnostic,'default');assert.equal(diagnostic.children.find(c=>c.userData.sketchDimensionLabel).material.color.getHex(),theme.sketchInvalid,'reset preserves diagnostic state color');
  const root=new THREE.Group();root.add(label);const camera=new THREE.OrthographicCamera(-50,50,50,-50,.1,1000);camera.position.set(0,-100,0);camera.up.set(0,0,1);camera.lookAt(0,0,0);updateScreenLines(root,camera,800,600);const beforeScale=label.scale.y,beforeQuaternion=label.quaternion.clone();camera.zoom=2;camera.updateProjectionMatrix();camera.position.set(50,-100,30);camera.lookAt(0,0,0);updateScreenLines(root,camera,800,600);assert(Math.abs(label.scale.y-beforeScale/2)<1e-12);assert(label.quaternion.equals(beforeQuaternion),'orbit never billboards a sketch label');
  const coincident=[{...entities[0],id:'construction',role:'CONSTRUCTION'},entities[0]];
  for(const sequence of [coincident,[...coincident].reverse()])for(const scale of [.2,1,20])assert.equal(resolveSketchReference({x:20*scale,y:10*scale},sequence,([x,y])=>({x:x*scale,y:y*scale}),'ENTITY')?.entityId,'a','coincident profile geometry wins regardless of model order/zoom/dash phase');
@@ -73,14 +93,14 @@ try {
  // Real tool phases publish separate candidate/selection feedback, with no writes on hover.
  let hit=ref('b'),state;const hover=[],sent=[],selection=[];
  const port={hasActiveSketch:()=>true,currentSketchIdentity:()=>({documentId:'part',sketchId:'sketch',versionId:'v1'}),currentSketchEntities:()=>entities,currentSketchReferenceEntities:()=>entities,currentSketchConstraints:()=>[],currentSelections:()=>[],sketchReferenceAt:(_x,_y,kind)=>hit&&kind==="LINE"?{...hit,subElement:"DIRECTION"}:hit,sketchEntityAt:()=>hit?{kind:'visual',id:hit.entityId,entityId:hit.entityId,featureId:'sketch',ownerDocumentId:'part'}:null,sketchPlacementPoint:(x,y)=>[x,y],setSketchCommandState:s=>{state=s;},setToolPrompt(){},retainSelections:s=>selection.push(s),showReferencePreview:(candidate,retained)=>hover.push({candidate,retained}),clearReferenceHover:()=>hover.push(null),clearReferencePreview(){},clearToolPreview(){},showSketchEntityPreview(){},showConstraintPreview(){},measureDimension:()=>20,commitSketchOperations:ops=>{sent.push(ops);},finishToolUse(){}};
- const manager=new ToolManager({viewport:port});manager.register(new SketchEditTool('scale'));manager.register(new SketchEditTool('mirror'));manager.register(new LinearDimensionSketchTool());
+ const manager=new ToolManager({viewport:port});manager.register(new SketchEditTool('move'));manager.register(new SketchEditTool('mirror'));manager.register(new LinearDimensionSketchTool());
  const surface=new Surface(),navigation={pointerDown:()=>InputResult.Ignored,pointerMove:()=>InputResult.Ignored,pointerUp:()=>InputResult.Ignored,keyDown:()=>InputResult.Ignored,keyChanged:()=>InputResult.Ignored,cancel(){},wantsPointerPriority:()=>false};
  const input=new InputManager(surface,new InteractionRouter(manager,new SelectionController(()=>assert.fail('selection cannot steal a command gesture'),()=>{},()=>{}),navigation));
  const pointer=type=>{const e=new Event(type,{cancelable:true});Object.assign(e,{clientX:20,clientY:10,pointerId:1,pointerType:'mouse',button:0,buttons:type==='pointerdown'?1:0,ctrlKey:false,metaKey:false,shiftKey:false,altKey:false});surface.dispatchEvent(e);};
  const click=()=>{pointer('pointerdown');pointer('pointerup');};
- manager.activate('sketch.edit.scale');pointer('pointermove');assert.equal(hover.at(-1).candidate.entityId,'b');click();assert.deepEqual(state.selectedIds,['b']);assert.equal(selection.at(-1)[0].entityId,'b');hit=null;pointer('pointermove');assert.equal(hover.at(-1),null);
+ manager.activate('sketch.edit.move');pointer('pointermove');assert.equal(hover.at(-1).candidate.entityId,'b');click();assert.deepEqual(state.selectedIds,['b']);assert.equal(selection.at(-1)[0].entityId,'b');hit=null;pointer('pointermove');assert.equal(hover.at(-1),null);
  hit=ref('a');manager.activate('sketch.edit.mirror');click();hit=ref('b');pointer('pointermove');assert.equal(hover.at(-1).candidate.entityId,'b');assert.equal(hover.at(-1).retained[0].entityId,'a');assert.equal(state.selectedIds.length,0);assert.equal(sent.length,0);
  manager.activate('sketch.dimension.linear');hit=ref('a');click();hit=ref('b');pointer('pointermove');assert.equal(hover.at(-1).candidate.entityId,'b');assert.deepEqual(state.references,[ref('a')],'hover cannot accept the second dimension reference');assert.equal(sent.length,0);
  input.dispose();
- console.log('PASS production sketch feedback: independent hover/dimensions, no role badges, selected overlays, scale/mirror/linear roles');
+ console.log('PASS production sketch feedback: independent hover/dimensions, no role badges, selected overlays, move/mirror/linear roles');
 } finally {await server.close();}

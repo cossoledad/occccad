@@ -322,6 +322,17 @@ export class CadViewportEngine {
   private editContext?: ViewportEditContext;
   private sketchPlane?: SketchPlane;
   private activeSketchID?: string;
+  // All sketch transient geometry, dimensions, snap and role feedback share
+  // one non-pickable rendering layer. Their owning tool/modal retains lifecycle
+  // and generation control; attaching display here never accepts model input.
+  private sketchPreviewLayer?:THREE.Group;
+  private attachSketchPreview(object:THREE.Object3D):void {
+    if(!this.sketchPreviewLayer){
+      this.sketchPreviewLayer=new THREE.Group();this.sketchPreviewLayer.name="sketch-preview";
+      this.sketchPreviewLayer.userData.transient=true;this.scene.add(this.sketchPreviewLayer);
+    }
+    object.userData.transient=true;this.sketchPreviewLayer.add(object);
+  }
   private preview?: THREE.Object3D;
   private referencePreview?: THREE.Object3D;
   private referenceHover?: THREE.Object3D;
@@ -460,7 +471,7 @@ export class CadViewportEngine {
     this.tools.register(new ThreePointArcSketchTool());
     this.tools.register(new EllipseSketchTool());
     this.tools.register(new EllipticalArcSketchTool());
-    for(const kind of ["delete","copy","move","rotate","scale","mirror","split","trim","quick_trim","fillet","chamfer","extend","complement","close","offset","spline_insert","spline_delete","spline_close","spline_control","construction"] as const)this.tools.register(new SketchEditTool(kind));
+    for(const kind of ["delete","copy","move","rotate","mirror","split","trim","fillet","chamfer","extend","complement","close","offset","spline_insert","spline_delete","spline_close","spline_control","construction"] as const)this.tools.register(new SketchEditTool(kind));
     this.tools.register(new LinearDimensionSketchTool());
     for (const kind of ["COINCIDENT","PARALLEL","COLLINEAR","FIXED","HORIZONTAL","VERTICAL","PERPENDICULAR","TANGENT","EQUAL","DISTANCE","HORIZONTAL_DISTANCE","VERTICAL_DISTANCE","LENGTH","RADIUS","MAJOR_RADIUS","MINOR_RADIUS","ANGLE","CONCENTRIC","POINT_ON_OBJECT","MIDPOINT","SYMMETRY"] as const)
       this.tools.register(new ConstraintSketchTool(kind));
@@ -888,7 +899,7 @@ export class CadViewportEngine {
   clearDimensionDefinitionPreview(restoreHighlights=true):void {
     const hadPreview=!!this.dimensionDefinitionPreview;
     this.dimensionPreviewGeneration++;
-    if(this.dimensionDefinitionPreview){this.scene.remove(this.dimensionDefinitionPreview);this.disposeRenderable(this.dimensionDefinitionPreview);this.dimensionDefinitionPreview=undefined;}
+    if(this.dimensionDefinitionPreview){this.dimensionDefinitionPreview.removeFromParent();this.disposeRenderable(this.dimensionDefinitionPreview);this.dimensionDefinitionPreview=undefined;}
     for(const root of this.dimensionPreviewHidden)root.visible=true;
     this.dimensionPreviewHidden.clear();if(hadPreview&&restoreHighlights)this.refreshInteractionHighlights();this.invalidate();
   }
@@ -927,7 +938,7 @@ export class CadViewportEngine {
       }
     });
     this.replaceTopologyOverlays("selected",[]);this.replaceTopologyOverlays("preselected",[]);
-    this.dimensionDefinitionPreview=group;this.scene.add(group);this.invalidate();
+    this.dimensionDefinitionPreview=group;this.attachSketchPreview(group);this.invalidate();
   }
   beginSketchReferenceSelection(request:SketchReferenceSelectionRequest):()=>void {
     if(request.featureId!==this.activeSketchID)throw new Error("引用选择不属于当前草图");
@@ -2784,12 +2795,12 @@ export class CadViewportEngine {
       new THREE.LineBasicMaterial({ color: CATIA_VISUAL_THEME.snap, depthTest: false, transparent: true, opacity: 0.92 }));
     ring.renderOrder = SKETCH_FEEDBACK_ORDER.snap;
     group.userData.snapKind = snap.kind;
-    group.add(ring, marker); this.scene.add(group); this.snapPreview = group; this.invalidate();
+    group.add(ring, marker); this.attachSketchPreview(group); this.snapPreview = group; this.invalidate();
   }
 
   private clearSnapPreview(): void {
     if (!this.snapPreview) return;
-    this.scene.remove(this.snapPreview); this.disposeRenderable(this.snapPreview);
+    this.snapPreview.removeFromParent(); this.disposeRenderable(this.snapPreview);
     this.snapPreview = undefined; this.invalidate();
   }
 
@@ -2806,7 +2817,7 @@ export class CadViewportEngine {
     const group=new THREE.Group();
     const line = makeSketchOverlayLine(points,CATIA_VISUAL_THEME.preview,2.5);
     updateHighlightLineResolution(line,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);
-    line.renderOrder=SKETCH_FEEDBACK_ORDER.preview;group.add(line);this.preview=group;this.scene.add(group);
+    line.renderOrder=SKETCH_FEEDBACK_ORDER.preview;group.add(line);this.preview=group;this.attachSketchPreview(group);
     this.invalidate();
   }
 
@@ -2816,7 +2827,7 @@ export class CadViewportEngine {
       new THREE.BufferGeometry().setFromPoints([localToWorld(plane, point)]),
       this.materials.point(CATIA_VISUAL_THEME.preview, 11, false),
     );
-    marker.renderOrder = SKETCH_FEEDBACK_ORDER.preview;group.add(marker);this.preview=group;this.scene.add(group);
+    marker.renderOrder = SKETCH_FEEDBACK_ORDER.preview;group.add(marker);this.preview=group;this.attachSketchPreview(group);
     this.invalidate();
   }
 
@@ -2835,11 +2846,11 @@ export class CadViewportEngine {
       const renderable=makeSketchConstraintRenderable(dimension,[...candidate.entities,...candidate.dimensionEntities??[],...this.visibleSketchReferenceEntities()],point=>localToWorld(this.sketchPlane!,point),this.materials,{width:this.renderer.domElement.clientWidth,height:this.renderer.domElement.clientHeight});
       renderable.traverse(child=>{if(child.userData.sketchDimensionLabel)child.userData.dimensionInputField=index;});group.add(renderable);
     });
-    this.preview=group;this.scene.add(group);this.updateSketchParameterVisibility();this.invalidate();
+    this.preview=group;this.attachSketchPreview(group);this.updateSketchParameterVisibility();this.invalidate();
   }
   private clearPreview(): void {
     if (!this.preview) return;
-    this.scene.remove(this.preview);
+    this.preview.removeFromParent();
     this.disposeRenderable(this.preview);
     this.preview = undefined;
     this.invalidate();
@@ -2852,11 +2863,11 @@ export class CadViewportEngine {
     for(const root of [this.preview,this.referencePreview])root?.traverse(child=>{if(child.userData.sketchDimensionLabel)child.visible=!(this.sketchParameterEditing&&(child.userData.dimensionInputField??0)===field);});
   }
   private clearReferenceHover():void {
-    if(!this.referenceHover)return;this.scene.remove(this.referenceHover);this.disposeRenderable(this.referenceHover);this.referenceHover=undefined;this.invalidate();
+    if(!this.referenceHover)return;this.referenceHover.removeFromParent();this.disposeRenderable(this.referenceHover);this.referenceHover=undefined;this.invalidate();
   }
   private clearConstraintPreview(): void {
     if (!this.referencePreview) return;
-    this.scene.remove(this.referencePreview);
+    this.referencePreview.removeFromParent();
     this.disposeRenderable(this.referencePreview);
     this.referencePreview = undefined;
     this.invalidate();
@@ -2916,7 +2927,7 @@ export class CadViewportEngine {
     if (group.children.length === 0) return;
     this.referenceHover = group;
     this.referenceHover.renderOrder = 0;
-    this.scene.add(this.referenceHover);
+    this.attachSketchPreview(this.referenceHover);
     this.invalidate();
   }
 
@@ -2940,7 +2951,7 @@ export class CadViewportEngine {
       (point) => localToWorld(this.sketchPlane!, point), this.materials,
       { width: this.renderer.domElement.clientWidth, height: this.renderer.domElement.clientHeight }));
     this.referencePreview = group;
-    this.scene.add(group);this.updateSketchParameterVisibility();
+    this.attachSketchPreview(group);this.updateSketchParameterVisibility();
     this.invalidate();
   }
 
@@ -3035,7 +3046,7 @@ export class CadViewportEngine {
             makeSketchOverlayLine(points,CATIA_VISUAL_THEME.preview,2.75,entity.role==="CONSTRUCTION");
           primitive.renderOrder=SKETCH_FEEDBACK_ORDER.preview;updateHighlightLineResolution(primitive,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);group.add(primitive);
         }
-        this.preview=group;this.scene.add(group);this.invalidate();
+        this.preview=group;this.attachSketchPreview(group);this.invalidate();
       },
       currentSelections: () => [...this.selected],
       retainSelections: (selections) => this.selectMany(selections.map(selection=>{
@@ -3118,7 +3129,8 @@ export class CadViewportEngine {
     object.traverse((child) => {
       const material = (child as THREE.Mesh).material;
       if (material instanceof THREE.MeshBasicMaterial) {
-        material.opacity = state === "selected" ? 0.28 : state === "hover" ? 0.18 : 0.075;
+        // Text is an opaque glyph over a transparent mask, not a translucent face.
+        material.opacity = child.userData.sketchDimensionLabel ? 1 : state === "selected" ? 0.28 : state === "hover" ? 0.18 : 0.075;
       } else if (material instanceof THREE.LineBasicMaterial) {
         material.userData.baseColor ??= material.color.getHex();
         material.color.setHex(state === "selected" ? CATIA_VISUAL_THEME.selected : state === "hover" ? CATIA_VISUAL_THEME.hover : Number(material.userData.baseColor));

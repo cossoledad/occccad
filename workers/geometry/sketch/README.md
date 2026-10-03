@@ -110,7 +110,7 @@ PlaneGCS 原生对称的 Perpendicular 以两条线长度归一，合法轴上�
 
 ## 支撑关系与精确端部相切
 
-内部 `SAME_SUPPORT` 保留裁剪子段与原支撑几何关系：Line 使用 Parallel/PointOnLine，
+内部 `SAME_SUPPORT` 保留裁剪子段与原支撑几何关系：Line 使用 Parallel/PointOnLine（已有两支撑端点 Coincident 时不重复编译定位方程），
 Circle/Arc 使用中心相等和半径相等，Ellipse/EllipticalArc 使用中心、焦点、次半轴相等。
 起止参数仍独立可变，不重新分配原端点身份；Spline 不伪造不同基函数的同支撑关系。
 
@@ -143,3 +143,7 @@ Line × Arc/EllipticalArc 指定 START/END 时使用真实端点接触和原生�
 该回归六次大步合计约 19 秒；仅 Go SolveSketch 的 RPC 截止时间为 15 秒，仍服从调用者
 总体截止/取消，曲线预览截止时间不变。周期角度输出按输入有向 sweep 规范整周表达，
 不会将持久长弧统一缩为短弧。
+
+两侧内部相切圆角的局部/补弧类别在求解后保持；残差合格但分支翻转仍为 failed，使用已有尺寸目标 continuation 恢复，禁止通过更换端点或缩小半径伪修复。
+
+派生裁剪线的 SAME_SUPPORT 及其用户平行关系使用 PlaneGCS 既有 L2LAngle 原语的最近平行/反平行分支，避免无归一化叉积在裁剪线坍缩时产生伪零残差；不固定长度或添加持久方向尺寸。普通平行线间距编译保留原路径和尺度精度验证，有限范围/退化后置校验继续执行。回归 `ParallelOnRoundedFreeQuadrilateralDoesNotCollapseTrimmedEdge` 与 Go `TestSketchCornerParallelRetainsFiniteCut` 使用实际自由四边形圆角场景。

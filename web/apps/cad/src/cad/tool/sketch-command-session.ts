@@ -2,6 +2,7 @@ import type { DocumentView, SketchGeometryRef } from "../../types";
 
 export type SketchCommandAction =
   | { type: "confirm" | "back" | "cancel" | "add-batch" | "release" | "retry" }
+  | { type: "placement"; position: import("../../types").Vec2 }
   | { type: "input"; index: number }
   | { type: "field"; index: number; value: string }
   | { type: "option"; name: string; value: string };
@@ -17,6 +18,7 @@ export type SketchCommandState = {
   input?: { id: string; fieldIndex: number; anchor?: import("../../types").Vec2; modelAnchor?: import("../../types").Vec2; dimension?: boolean };
   count?: { accepted: number; required?: number };
   completion?: { label: string };
+  recovery?: {label:string;action:"release"|"retry"};
   fields: { label: string; value: string; placeholder?: string; unit?: "length"|"angle"|"scalar"; displayUnit?: string }[];
   options: { name: string; label: string; value: string; choices: { value: string; label: string }[] }[];
   canConfirm: boolean;

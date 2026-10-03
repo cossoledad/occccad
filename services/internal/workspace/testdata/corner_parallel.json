@@ -1,0 +1,383 @@
+{
+  "support": {
+    "type": "DATUM_PLANE",
+    "plane": "XY",
+    "normal": [
+      0,
+      0,
+      1
+    ],
+    "origin": [
+      0,
+      0,
+      0
+    ],
+    "status": "CONNECTED",
+    "xDirection": [
+      1,
+      0,
+      0
+    ],
+    "datumPlaneId": "datum-xy",
+    "orientationRule": "PROJECT_STORED_X_FACE_NORMAL_V2"
+  },
+  "entities": [
+    {
+      "id": "19abbedb-f780-416c-a032-44c5363a19b9",
+      "end": {
+        "x": 47.16450811081129,
+        "y": 96.1430357643463
+      },
+      "kind": "LINE",
+      "role": "CONSTRUCTION",
+      "start": {
+        "x": -110,
+        "y": 70
+      },
+      "endPointId": "105f6b77-d5dc-5dbb-9647-992716f04df9",
+      "startPointId": "1169e710-4a20-572a-9e3a-799a18606321",
+      "createdByOperationId": "4e3c9cdb-0a50-4ac9-8de4-30d8622d285c"
+    },
+    {
+      "id": "c1fb2189-8b43-49ad-b690-dbfe383a0647",
+      "end": {
+        "x": 196.88158770359186,
+        "y": -31.563940043389
+      },
+      "kind": "LINE",
+      "role": "CONSTRUCTION",
+      "start": {
+        "x": 47.16450811081129,
+        "y": 96.1430357643463
+      },
+      "endPointId": "21b1ef6c-2571-5955-b6ac-6881122bc878",
+      "startPointId": "04a4b6cb-2816-56d1-a59a-922e36b67589",
+      "createdByOperationId": "4e3c9cdb-0a50-4ac9-8de4-30d8622d285c"
+    },
+    {
+      "id": "a99501dd-7615-485b-9976-2910d23ff31a",
+      "end": {
+        "x": -196.88158770359198,
+        "y": -99.77107484979308
+      },
+      "kind": "LINE",
+      "role": "PROFILE",
+      "start": {
+        "x": 196.88158770359186,
+        "y": -31.563940043389
+      },
+      "endPointId": "dfebc2f7-3575-5d17-a3ce-a800c77aa548",
+      "startPointId": "aa648975-5a54-5b7b-8fbf-cecdda2917cf",
+      "createdByOperationId": "4e3c9cdb-0a50-4ac9-8de4-30d8622d285c"
+    },
+    {
+      "id": "fac2b76a-4839-4a63-a905-5aee594f4561",
+      "end": {
+        "x": -110,
+        "y": 70
+      },
+      "kind": "LINE",
+      "role": "PROFILE",
+      "start": {
+        "x": -196.88158770359198,
+        "y": -99.77107484979308
+      },
+      "endPointId": "d807c2aa-6043-5d35-94cd-123b60c3b82c",
+      "startPointId": "2136e8ef-8fce-5421-8437-4e3c753bf363",
+      "createdByOperationId": "4e3c9cdb-0a50-4ac9-8de4-30d8622d285c"
+    },
+    {
+      "id": "274d6c40-c279-521b-aaa0-590165898e9d",
+      "end": {
+        "x": 5.852383217069605,
+        "y": 89.27110028997862
+      },
+      "kind": "LINE",
+      "role": "PROFILE",
+      "start": {
+        "x": -110,
+        "y": 70
+      },
+      "endPointId": "9cbfacb9-4a10-54c8-8460-9208b25c4483",
+      "startPointId": "39283dc2-afb4-5dc9-857f-59acd6c7fe35",
+      "sourceEntityId": "19abbedb-f780-416c-a032-44c5363a19b9",
+      "createdByOperationId": "636bc1e9-8d33-4e3e-aa6e-abe13827e93e"
+    },
+    {
+      "id": "32ffe143-3739-5f61-9b31-69e964929441",
+      "end": {
+        "x": 196.88158770359186,
+        "y": -31.563940043389
+      },
+      "kind": "LINE",
+      "role": "PROFILE",
+      "start": {
+        "x": 79.02731173985183,
+        "y": 68.96442459127137
+      },
+      "endPointId": "8bda7e31-8c75-5faf-bc98-3794353ca4c3",
+      "startPointId": "133644ab-062e-5502-aa88-4d485daf8bfe",
+      "sourceEntityId": "c1fb2189-8b43-49ad-b690-dbfe383a0647",
+      "createdByOperationId": "636bc1e9-8d33-4e3e-aa6e-abe13827e93e"
+    },
+    {
+      "id": "45575d35-3542-5509-9b94-03c5306b7c46",
+      "kind": "ARC",
+      "role": "PROFILE",
+      "center": {
+        "x": 20.62023385854509,
+        "y": 0.4909753326939956
+      },
+      "radius": 90,
+      "endAngle": 0.8645697301037458,
+      "endPointId": "d28618f9-2cce-587a-b11c-14fc6960e423",
+      "startAngle": 1.7356289542597216,
+      "startPointId": "59b4c530-2258-5566-a801-34e4c4c0533d",
+      "sourceEntityId": "19abbedb-f780-416c-a032-44c5363a19b9",
+      "createdByOperationId": "636bc1e9-8d33-4e3e-aa6e-abe13827e93e"
+    }
+  ],
+  "constraints": [
+    {
+      "id": "2e2447fb-2b61-4d9a-b150-0a0f6cc06f5b",
+      "kind": "COINCIDENT",
+      "internal": true,
+      "references": [
+        {
+          "target": "ENTITY",
+          "pointId": "105f6b77-d5dc-5dbb-9647-992716f04df9",
+          "entityId": "19abbedb-f780-416c-a032-44c5363a19b9",
+          "subElement": "END"
+        },
+        {
+          "target": "ENTITY",
+          "pointId": "04a4b6cb-2816-56d1-a59a-922e36b67589",
+          "entityId": "c1fb2189-8b43-49ad-b690-dbfe383a0647",
+          "subElement": "START"
+        }
+      ]
+    },
+    {
+      "id": "c6ed80a3-9bfa-48a4-92a0-8fdcfd640155",
+      "kind": "COINCIDENT",
+      "internal": true,
+      "references": [
+        {
+          "target": "ENTITY",
+          "pointId": "21b1ef6c-2571-5955-b6ac-6881122bc878",
+          "entityId": "c1fb2189-8b43-49ad-b690-dbfe383a0647",
+          "subElement": "END"
+        },
+        {
+          "target": "ENTITY",
+          "pointId": "aa648975-5a54-5b7b-8fbf-cecdda2917cf",
+          "entityId": "a99501dd-7615-485b-9976-2910d23ff31a",
+          "subElement": "START"
+        }
+      ]
+    },
+    {
+      "id": "a943460e-f368-4174-a7f0-bcd12388b864",
+      "kind": "COINCIDENT",
+      "internal": true,
+      "references": [
+        {
+          "target": "ENTITY",
+          "pointId": "dfebc2f7-3575-5d17-a3ce-a800c77aa548",
+          "entityId": "a99501dd-7615-485b-9976-2910d23ff31a",
+          "subElement": "END"
+        },
+        {
+          "target": "ENTITY",
+          "pointId": "2136e8ef-8fce-5421-8437-4e3c753bf363",
+          "entityId": "fac2b76a-4839-4a63-a905-5aee594f4561",
+          "subElement": "START"
+        }
+      ]
+    },
+    {
+      "id": "432b1343-2cdf-4821-be5e-f5c29f210645",
+      "kind": "COINCIDENT",
+      "internal": true,
+      "references": [
+        {
+          "target": "ENTITY",
+          "pointId": "d807c2aa-6043-5d35-94cd-123b60c3b82c",
+          "entityId": "fac2b76a-4839-4a63-a905-5aee594f4561",
+          "subElement": "END"
+        },
+        {
+          "target": "ENTITY",
+          "pointId": "1169e710-4a20-572a-9e3a-799a18606321",
+          "entityId": "19abbedb-f780-416c-a032-44c5363a19b9",
+          "subElement": "START"
+        }
+      ]
+    },
+    {
+      "id": "0e6785d9-f4d5-5a09-89d1-f9b352178dcc",
+      "kind": "SAME_SUPPORT",
+      "internal": true,
+      "references": [
+        {
+          "target": "ENTITY",
+          "entityId": "19abbedb-f780-416c-a032-44c5363a19b9",
+          "subElement": "WHOLE"
+        },
+        {
+          "target": "ENTITY",
+          "entityId": "274d6c40-c279-521b-aaa0-590165898e9d",
+          "subElement": "WHOLE"
+        }
+      ]
+    },
+    {
+      "id": "7647db7f-41fb-53e6-9f97-70725ee60d7f",
+      "kind": "COINCIDENT",
+      "internal": true,
+      "references": [
+        {
+          "target": "ENTITY",
+          "pointId": "39283dc2-afb4-5dc9-857f-59acd6c7fe35",
+          "entityId": "274d6c40-c279-521b-aaa0-590165898e9d",
+          "subElement": "START"
+        },
+        {
+          "target": "ENTITY",
+          "pointId": "1169e710-4a20-572a-9e3a-799a18606321",
+          "entityId": "19abbedb-f780-416c-a032-44c5363a19b9",
+          "subElement": "START"
+        }
+      ]
+    },
+    {
+      "id": "e5b208a5-f0f4-5022-a9ec-a7a5c2352202",
+      "kind": "SAME_SUPPORT",
+      "internal": true,
+      "references": [
+        {
+          "target": "ENTITY",
+          "entityId": "c1fb2189-8b43-49ad-b690-dbfe383a0647",
+          "subElement": "WHOLE"
+        },
+        {
+          "target": "ENTITY",
+          "entityId": "32ffe143-3739-5f61-9b31-69e964929441",
+          "subElement": "WHOLE"
+        }
+      ]
+    },
+    {
+      "id": "680250b6-cc4c-5fc8-bbf0-795c457898f6",
+      "kind": "COINCIDENT",
+      "internal": true,
+      "references": [
+        {
+          "target": "ENTITY",
+          "pointId": "8bda7e31-8c75-5faf-bc98-3794353ca4c3",
+          "entityId": "32ffe143-3739-5f61-9b31-69e964929441",
+          "subElement": "END"
+        },
+        {
+          "target": "ENTITY",
+          "pointId": "21b1ef6c-2571-5955-b6ac-6881122bc878",
+          "entityId": "c1fb2189-8b43-49ad-b690-dbfe383a0647",
+          "subElement": "END"
+        }
+      ]
+    },
+    {
+      "id": "25d6a2b9-1cf7-5754-b912-6c4ddb039e2f",
+      "kind": "TANGENT",
+      "internal": true,
+      "references": [
+        {
+          "target": "ENTITY",
+          "entityId": "274d6c40-c279-521b-aaa0-590165898e9d",
+          "subElement": "WHOLE"
+        },
+        {
+          "target": "ENTITY",
+          "pointId": "59b4c530-2258-5566-a801-34e4c4c0533d",
+          "entityId": "45575d35-3542-5509-9b94-03c5306b7c46",
+          "subElement": "START"
+        }
+      ]
+    },
+    {
+      "id": "4d4b73e5-b9d8-52f1-b30a-ec55b43f53de",
+      "kind": "TANGENT",
+      "internal": true,
+      "references": [
+        {
+          "target": "ENTITY",
+          "entityId": "32ffe143-3739-5f61-9b31-69e964929441",
+          "subElement": "WHOLE"
+        },
+        {
+          "target": "ENTITY",
+          "pointId": "d28618f9-2cce-587a-b11c-14fc6960e423",
+          "entityId": "45575d35-3542-5509-9b94-03c5306b7c46",
+          "subElement": "END"
+        }
+      ]
+    },
+    {
+      "id": "ae24eeaf-eb7b-5df6-8d6e-0f37bcc1dc5b",
+      "kind": "RADIUS",
+      "unit": "mm",
+      "value": 90,
+      "references": [
+        {
+          "target": "ENTITY",
+          "entityId": "45575d35-3542-5509-9b94-03c5306b7c46",
+          "subElement": "WHOLE"
+        }
+      ],
+      "parameterId": "parameter:sketch-145e8c71bf86175d911a:constraint:ae24eeaf-eb7b-5df6-8d6e-0f37bcc1dc5b:value",
+      "labelPosition": {
+        "x": 16.515280429073215,
+        "y": 135.18869587234403
+      }
+    },
+    {
+      "id": "4248c06d-2686-5b0a-a6af-c1373432844e",
+      "kind": "COINCIDENT",
+      "internal": true,
+      "references": [
+        {
+          "target": "ENTITY",
+          "pointId": "9cbfacb9-4a10-54c8-8460-9208b25c4483",
+          "entityId": "274d6c40-c279-521b-aaa0-590165898e9d",
+          "subElement": "END"
+        },
+        {
+          "target": "ENTITY",
+          "pointId": "59b4c530-2258-5566-a801-34e4c4c0533d",
+          "entityId": "45575d35-3542-5509-9b94-03c5306b7c46",
+          "subElement": "START"
+        }
+      ]
+    },
+    {
+      "id": "9a783c7c-df29-53e8-a3ca-bb9a182a1fb5",
+      "kind": "COINCIDENT",
+      "internal": true,
+      "references": [
+        {
+          "target": "ENTITY",
+          "pointId": "133644ab-062e-5502-aa88-4d485daf8bfe",
+          "entityId": "32ffe143-3739-5f61-9b31-69e964929441",
+          "subElement": "START"
+        },
+        {
+          "target": "ENTITY",
+          "pointId": "d28618f9-2cce-587a-b11c-14fc6960e423",
+          "entityId": "45575d35-3542-5509-9b94-03c5306b7c46",
+          "subElement": "END"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 2
+}

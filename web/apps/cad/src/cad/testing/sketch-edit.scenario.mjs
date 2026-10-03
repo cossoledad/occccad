@@ -40,17 +40,16 @@ try{
   click(rotate,0,0);click(rotate,10,0);rotate.pointerMove(pointer(0,10,"move"),context);
   const rotationPreview=previews.at(-1);close(rotationPreview[0].end.x,0);close(rotationPreview[0].end.y,10);
   click(rotate,0,10);close(operations.at(-1)[0].angle,Math.PI/2);
-  const scale=new SketchEditTool("scale");scale.selectionInput(selections,context);key(scale,"Enter");key(scale,"0");
-  const scaleCount=operations.length;key(scale,"Enter");assert.equal(operations.length,scaleCount,"nonpositive scale is rejected atomically");
-  key(scale,"Escape");assert.equal(operations.length,scaleCount);
+  const {mockToolbarCatalog}=await server.ssrLoadModule("/src/api/mock-toolbar-catalog.ts");
+  assert(!mockToolbarCatalog.toolbars.flatMap(t=>t.items).some(i=>i.commandId==="sketch.edit.scale"),"unsupported scaling has no production command");
   const mirror=new SketchEditTool("mirror");mirror.selectionInput(selections,context);key(mirror,"Enter");key(mirror,"y");key(mirror,"Enter");
   assert.deepEqual(operations.at(-1)[0].axis,{target:"SKETCH_Y_AXIS",subElement:"WHOLE"});
   assert.equal(operations.at(-1)[0].type,"MIRROR_ENTITIES");assert.equal(operations.at(-1)[0].mirrorMode,"LINKED");assert.equal(operations.at(-1)[0].constraintPolicy,undefined);
-  const reflected=sketchEditPreview(entities,[0,0],[0,0],0,1,{start:[2,3],end:[6,6]});
+  const reflected=sketchEditPreview(entities,[0,0],[0,0],0,{start:[2,3],end:[6,6]});
   for(let index=0;index<entities.length;index++)assert.equal(reflected[index].role,entities[index].role);
   close(reflected[1].endAngle-reflected[1].startAngle,-Math.PI);
   close(reflected[2].endAngle-reflected[2].startAngle,-2.5);
-  const axisPoint=sketchEditPreview([{id:"p",kind:"POINT",role:"PROFILE",point:{x:2,y:3}}],[0,0],[0,0],0,1,{start:[2,3],end:[6,6]})[0].point;
+  const axisPoint=sketchEditPreview([{id:"p",kind:"POINT",role:"PROFILE",point:{x:2,y:3}}],[0,0],[0,0],0,{start:[2,3],end:[6,6]})[0].point;
   close(axisPoint.x,2);close(axisPoint.y,3);
 
   const stale=new SketchEditTool("move");stale.selectionInput(selections,context);key(stale,"Enter");
@@ -196,5 +195,29 @@ try{
   const dimension=new ConstraintSketchTool("DISTANCE");click(dimension,0,0);click(dimension,0,10);click(dimension,5,5);
   assert.equal(requests.length,1);assert.equal(requests[0].kind,"DISTANCE");assert.equal(requests[0].value,0);
   assert.deepEqual(requests[0].references.map(reference=>reference.entityId),["parallel-a","parallel-b"],"direct two-line dimensions preserve both stable line references");
+  // Auxiliary edits share the same frozen domain definition between read-only preview and commit.
+  const auxiliaryRequests=[],auxiliaryCommits=[],auxiliaryDisplays=[];let resolveAuxiliary;
+  const auxiliaryContext={viewport:{...context.viewport,
+    previewSketchOperations:(ops,signal)=>{auxiliaryRequests.push({ops,signal});return new Promise(resolve=>{resolveAuxiliary=resolve;});},
+    commitSketchOperations:ops=>auxiliaryCommits.push(ops),showSketchEntityPreview:geometry=>auxiliaryDisplays.push(geometry)}};
+  const auxiliary=new SketchEditTool("close"),auxiliaryKey=value=>auxiliary.keyDown({key:value,state:{modifiers:{}}},auxiliaryContext);
+  auxiliary.selectionInput([{kind:"visual",id:"ellipse",featureId:"sketch",entityId:"ellipse",ownerDocumentId:scope.documentId,occurrencePath:scope.occurrencePath}],auxiliaryContext);
+  auxiliaryKey("Enter");assert.equal(auxiliaryRequests.length,1);assert.equal(auxiliaryCommits.length,0);
+  auxiliaryKey("Enter");auxiliaryKey("Enter");assert.equal(auxiliaryRequests.length,1,"accepted confirmation waits for current preview rather than replacing its request");
+  const closedEllipse={...entities.find(e=>e.id==="ellipse"),kind:"ELLIPSE",startAngle:undefined,endAngle:undefined};
+  resolveAuxiliary({entities:[closedEllipse]});await new Promise(resolve=>setImmediate(resolve));
+  assert.deepEqual(auxiliaryCommits,[auxiliaryRequests[0].ops],"preview acceptance submits exactly its frozen operation once");
+  assert.deepEqual(auxiliaryDisplays.at(-1),[closedEllipse],"computed result replaces source-only feedback");
+  const cancelledAuxiliary=new SketchEditTool("close");cancelledAuxiliary.selectionInput([{kind:"visual",id:"ellipse",featureId:"sketch",entityId:"ellipse",ownerDocumentId:scope.documentId,occurrencePath:scope.occurrencePath}],auxiliaryContext);
+  cancelledAuxiliary.keyDown({key:"Enter",state:{modifiers:{}}},auxiliaryContext);
+  cancelledAuxiliary.keyDown({key:"Enter",state:{modifiers:{}}},auxiliaryContext);
+  cancelledAuxiliary.keyDown({key:"Escape",state:{modifiers:{}}},auxiliaryContext);
+  resolveAuxiliary({entities:[closedEllipse]});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(auxiliaryCommits.length,1,"cancelled preview cannot fulfill old submission intent");
+  const changedAuxiliary=new SketchEditTool("offset");changedAuxiliary.selectionInput([{kind:"visual",id:"a",featureId:"sketch",entityId:"a",ownerDocumentId:scope.documentId,occurrencePath:scope.occurrencePath}],auxiliaryContext);
+  changedAuxiliary.commandAction({type:"confirm"},auxiliaryContext);changedAuxiliary.commandAction({type:"confirm"},auxiliaryContext);
+  changedAuxiliary.commandAction({type:"field",index:0,value:"-"},auxiliaryContext);
+  resolveAuxiliary({entities:[{...entities[0],start:{x:0,y:5},end:{x:10,y:5}}]});await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(auxiliaryCommits.length,1,"invalid intermediate text invalidates pending accepted candidate rather than committing its old value");
   console.log("Sketch edit selection, preview, atomic operations, parameter input, cancellation, frozen context and clipboard passed");
 }finally{await server.close();}

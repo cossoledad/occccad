@@ -8,7 +8,7 @@ export type SketchConstraintLayout = {
   symbol: ReturnType<typeof constraintDefinition>["symbol"];
   anchors: Vec2[];
   segments: ConstraintSegment[];
-  label?: { text: string; position: Vec2 };
+  label?: { text: string; position: Vec2; direction?: Vec2 };
 };
 
 const add = (a: Vec2, b: Vec2): Vec2 => [a[0] + b[0], a[1] + b[1]];
@@ -74,7 +74,7 @@ function linearDimension(a: Vec2, b: Vec2, text: string, placement?: Vec2): Pick
   const offset = placement && Math.abs(projected) < 4 ? (projected < 0 ? -4 : 4) : projected;
   const qa = add(a, scale(normal, offset)), qb = add(b, scale(normal, offset));
   return { segments: [[a, qa], [b, qb], [qa, qb], ...arrow(qa, direction), ...arrow(qb, scale(direction, -1))],
-    label: { text, position: placement ?? add(midpoint(qa, qb), scale(normal, offset < 0 ? -2.5 : 2.5)) } };
+    label: { text, direction, position: placement ?? add(midpoint(qa, qb), scale(normal, offset < 0 ? -2.5 : 2.5)) } };
 }
 
 function constraintText(constraint: SketchConstraint): string {
@@ -200,7 +200,7 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
       segments.push([opposite, first], ...arrow(first, sub(opposite, first)));
       if (constraint.kind === "DIAMETER") segments.push(...arrow(opposite, sub(first, opposite)));
       if (placement) segments.push([first, placement]);
-      label = { text: constraintText(constraint), position: placement ?? add(midpoint(first, opposite), scale([-direction[1], direction[0]], 3)) };
+      label = { text: constraintText(constraint), direction: placement ? normalize(sub(placement, first)) : direction, position: placement ?? add(midpoint(first, opposite), scale([-direction[1], direction[0]], 3)) };
     }
   }
   if (constraint.kind === "MAJOR_RADIUS" || constraint.kind === "MINOR_RADIUS") {
@@ -231,7 +231,9 @@ export function buildSketchConstraintLayout(constraint: SketchConstraint, sketch
         .map((angle) => add(origin, [Math.cos(angle) * radius, Math.sin(angle) * radius]));
       segments.push([origin, arc[0]], [origin, arc.at(-1)!]);
       for (let index = 1; index < arc.length; index++) segments.push([arc[index - 1], arc[index]]);
-      label = { text: constraintText(constraint), position: placement ?? add(origin, [Math.cos((firstAngle + secondAngle) / 2) * (radius + 4), Math.sin((firstAngle + secondAngle) / 2) * (radius + 4)]) };
+      const labelPosition = placement ?? add(origin, [Math.cos((firstAngle + secondAngle) / 2) * (radius + 4), Math.sin((firstAngle + secondAngle) / 2) * (radius + 4)]);
+      const radial = normalize(sub(labelPosition, origin));
+      label = { text: constraintText(constraint), position: labelPosition, direction: [-radial[1], radial[0]] };
     }
   }
   if (definition.dimension === "none") {

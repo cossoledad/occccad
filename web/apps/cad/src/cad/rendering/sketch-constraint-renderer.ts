@@ -1,3 +1,4 @@
+import { colorNumber, palette } from "../../design/visual-tokens";
 import { SKETCH_FEEDBACK_ORDER } from "./sketch-feedback-style";
 import { registerScreenLineUpdate, screenSpaceEndpoint } from "./screen-space-lines";
 import * as THREE from "three";
@@ -21,22 +22,26 @@ export function constraintSymbolCode(kind: ConstraintKind): number {
   return symbolCodes[constraintDefinition(kind).symbol];
 }
 
-export function makeConstraintDimensionLabel(text: string, toWorld?: (point: Vec2) => THREE.Vector3): THREE.Mesh {
+export function makeConstraintDimensionLabel(text: string, toWorld?: (point: Vec2) => THREE.Vector3, direction: Vec2 = [1, 0], color = colorNumber(palette.dimensionText)): THREE.Mesh {
   const canvas = document.createElement("canvas");
   canvas.width = 256; canvas.height = 48;
   const context = canvas.getContext("2d")!;
-  context.font = "500 28px system-ui, sans-serif";
+  context.font = "600 32px system-ui, sans-serif";
   canvas.width = Math.ceil(context.measureText(text).width) + 16;
-  context.font = "500 28px system-ui, sans-serif";
+  context.font = "600 32px system-ui, sans-serif";
   context.textAlign = "center"; context.textBaseline = "middle";
-  context.fillStyle = "#175e40"; context.fillText(text, canvas.width / 2, 24);
+  context.fillStyle = "#ffffff"; context.fillText(text, canvas.width / 2, 24);
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
-  const material = new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false,
+  const material = new THREE.MeshBasicMaterial({ map: texture, color, transparent: true, depthTest: false, depthWrite: false,
     side: THREE.DoubleSide, toneMapped: false });
-  material.userData.baseColor = 0xffffff; material.userData.ownedTexture = texture;
+  material.userData.baseColor = color; material.userData.ownedTexture = texture;
   const label = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material);
   if (toWorld) {
-    const origin = toWorld([0, 0]), u = toWorld([1, 0]).sub(origin).normalize(), v = toWorld([0, 1]).sub(origin).normalize();
+    // Keep the baseline aligned with its leader (or angular arc tangent),
+    // choosing an upright equivalent in sketch coordinates, never camera facing.
+    const sign = direction[0] < 0 || direction[0] === 0 && direction[1] < 0 ? -1 : 1;
+    const d: Vec2 = [direction[0] * sign, direction[1] * sign];
+    const origin = toWorld([0, 0]), u = toWorld(d).sub(origin).normalize(), v = toWorld([-d[1], d[0]]).sub(origin).normalize();
     label.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, v, u.clone().cross(v).normalize()));
   }
   const screenWidth = canvas.width / 2, screenHeight = 24, worldPosition = new THREE.Vector3();
@@ -93,7 +98,7 @@ export function makeSketchConstraintRenderable(
     group.add(arrow);
   }
   if (layout.label) {
-    const label = makeConstraintDimensionLabel(layout.label.text, toWorld); label.position.copy(toWorld(layout.label.position)); label.renderOrder = SKETCH_FEEDBACK_ORDER.label;
+    const label = makeConstraintDimensionLabel(layout.label.text, toWorld, layout.label.direction, diagnosticColor ?? colorNumber(palette.dimensionText)); label.position.copy(toWorld(layout.label.position)); label.renderOrder = SKETCH_FEEDBACK_ORDER.label;
     group.add(label);
   }
   return group;

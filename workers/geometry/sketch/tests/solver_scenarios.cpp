@@ -1827,6 +1827,19 @@ TEST(PlaneGcsSketchSolver, FreeRoundedRectangleLargeVisibleDimensionEditsPreserv
     model.constraints.push_back({"radius37", ConstraintKind::radius, {endpoint("arc11", SubElement::whole)}, {}, 5, "mm", false});
     model.constraints.push_back({"coincident38", ConstraintKind::coincident, {endpoint("line4", SubElement::start), endpoint("arc11", SubElement::start)}, {}, 0, "", true});
     model.constraints.push_back({"coincident39", ConstraintKind::coincident, {endpoint("line9", SubElement::end), endpoint("arc11", SubElement::end)}, {}, 0, "", true});
+    // Match the production corner macro: SAME_SUPPORT owns support membership;
+    // endpoint tangency uses the trimmed curve already joined to the fillet.
+    model.constraints.erase(std::remove_if(model.constraints.begin(), model.constraints.end(),
+        [](const auto& c) { return c.internal && c.kind == ConstraintKind::point_on_object; }),
+        model.constraints.end());
+    for (auto& c : model.constraints) if (c.kind == ConstraintKind::tangent) {
+        for (auto& ref : c.references) {
+            if (ref.entity_id == "line0") ref.entity_id = "line4";
+            else if (ref.entity_id == "line1") ref.entity_id = "line5";
+            else if (ref.entity_id == "line2") ref.entity_id = "line7";
+            else if (ref.entity_id == "line3") ref.entity_id = "line9";
+        }
+    }
     model.constraints.push_back({"length40", ConstraintKind::length, {endpoint("line4", SubElement::whole)}, {}, 80, "mm", false});
     const auto solver = make_plane_gcs_sketch_solver();
     for (double target : {80.0, 140.0, 80.0}) {
@@ -1880,3 +1893,51 @@ TEST(PlaneGcsSketchSolver, FreeRoundedRectangleLargeVisibleDimensionEditsPreserv
     }
 }
 }  // namespace occccad::geometry::sketch
+
+namespace occccad::geometry::sketch {
+TEST(PlaneGcsSketchSolver, ParallelOnRoundedFreeQuadrilateralDoesNotCollapseTrimmedEdge) {
+    SketchModel model;
+    model.lines = {
+        {"line-1", {-110, 70}, {47.16450811081129, 96.1430357643463}},
+        {"line-2", {47.16450811081129, 96.1430357643463}, {196.88158770359186, -31.563940043389}},
+        {"line-3", {196.88158770359186, -31.563940043389}, {-196.88158770359198, -99.77107484979308}},
+        {"line-4", {-196.88158770359198, -99.77107484979308}, {-110, 70}},
+        {"line-5", {-110, 70}, {5.852383217069605, 89.27110028997862}},
+        {"line-6", {79.02731173985183, 68.96442459127137}, {196.88158770359186, -31.563940043389}},
+    };
+    model.arcs = {{"fillet", {20.62023385854509, 0.4909753326939956}, 90, 1.7356289542597216, 0.8645697301037458}};
+    model.constraints = {
+        {"relation-0", ConstraintKind::coincident, {endpoint("line-1", SubElement::end), endpoint("line-2", SubElement::start)}, {}, 0, "", true},
+        {"relation-1", ConstraintKind::coincident, {endpoint("line-2", SubElement::end), endpoint("line-3", SubElement::start)}, {}, 0, "", true},
+        {"relation-2", ConstraintKind::coincident, {endpoint("line-3", SubElement::end), endpoint("line-4", SubElement::start)}, {}, 0, "", true},
+        {"relation-3", ConstraintKind::coincident, {endpoint("line-4", SubElement::end), endpoint("line-1", SubElement::start)}, {}, 0, "", true},
+        {"relation-4", ConstraintKind::same_support, {endpoint("line-1", SubElement::whole), endpoint("line-5", SubElement::whole)}, {}, 0, "", true},
+        {"relation-5", ConstraintKind::coincident, {endpoint("line-5", SubElement::start), endpoint("line-1", SubElement::start)}, {}, 0, "", true},
+        {"relation-6", ConstraintKind::same_support, {endpoint("line-2", SubElement::whole), endpoint("line-6", SubElement::whole)}, {}, 0, "", true},
+        {"relation-7", ConstraintKind::coincident, {endpoint("line-6", SubElement::end), endpoint("line-2", SubElement::end)}, {}, 0, "", true},
+        {"relation-8", ConstraintKind::tangent, {endpoint("line-5", SubElement::whole), endpoint("fillet", SubElement::start)}, {}, 0, "", true},
+        {"relation-9", ConstraintKind::tangent, {endpoint("line-6", SubElement::whole), endpoint("fillet", SubElement::end)}, {}, 0, "", true},
+        {"relation-10", ConstraintKind::radius, {endpoint("fillet", SubElement::whole)}, {}, 90, "", false},
+        {"relation-11", ConstraintKind::coincident, {endpoint("line-5", SubElement::end), endpoint("fillet", SubElement::start)}, {}, 0, "", true},
+        {"relation-12", ConstraintKind::coincident, {endpoint("line-6", SubElement::start), endpoint("fillet", SubElement::end)}, {}, 0, "", true},
+        {"visible-parallel", ConstraintKind::parallel, {endpoint("line-6", SubElement::whole), endpoint("line-4", SubElement::whole)}, {}},
+    };
+    const auto result = make_plane_gcs_sketch_solver()->solve(model);
+    ASSERT_TRUE(result.status == SolveStatus::under_constrained || result.status == SolveStatus::solved || result.status == SolveStatus::redundant) << result.diagnostic;
+    ASSERT_EQ(result.lines.size(), 6U);
+    const auto& child = result.lines[5]; const auto& other = result.lines[3]; const auto& source = result.lines[1];
+    const double dx = child.end.x-child.start.x, dy = child.end.y-child.start.y;
+    const double ox = other.end.x-other.start.x, oy = other.end.y-other.start.y;
+    ASSERT_GT(std::hypot(dx,dy), 1.0);
+    EXPECT_NEAR((dx*oy-dy*ox)/(std::hypot(dx,dy)*std::hypot(ox,oy)), 0, 1e-8);
+    const double sx = source.end.x-source.start.x, sy = source.end.y-source.start.y;
+    const double t = ((child.start.x-source.start.x)*sx+(child.start.y-source.start.y)*sy)/(sx*sx+sy*sy);
+    EXPECT_GT(t, 0); EXPECT_LT(t, 1);
+    ASSERT_EQ(result.arcs.size(), 1U); EXPECT_NEAR(result.arcs[0].radius, 90, 1e-8);
+    const auto& arc = result.arcs[0];
+    EXPECT_NEAR(child.start.x, arc.center.x+90*std::cos(arc.end_angle), 1e-7);
+    EXPECT_NEAR(child.start.y, arc.center.y+90*std::sin(arc.end_angle), 1e-7);
+    EXPECT_NEAR((arc.center.x-child.start.x)*dx+(arc.center.y-child.start.y)*dy, 0, 1e-6);
+}
+
+} // namespace occccad::geometry::sketch

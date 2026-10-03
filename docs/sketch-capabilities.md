@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | 创建 | Point、Line/连续轮廓、Circle、signed Arc、Ellipse/EllipticalArc；矩形三方式、正多边形、三点圆/弧、连续线/相切弧；FIT 与 CONTROL Spline | 统一工具输入 → `EDIT_SKETCH` → 权威 Worker；复合创建是普通实体及正式约束 |
 | 辅助几何 | `PROFILE` / `CONSTRUCTION`；独立点和辅助几何退出实体边界 | `UPDATE_ENTITY_ROLE`，Profile Builder |
-| 编辑与拓扑 | 删除/内部引用复制；移动/旋转/统一缩放；解析或 OCCT 参数域分割/裁剪；受影响引用显式释放，原子失败 | `sketch_geometry_edit.go`、`sketch_curve_edit.go`、Worker `ComputeSketchCurves` |
+| 编辑与拓扑 | 删除/内部引用复制；移动/旋转（不支持统一缩放）；解析或 OCCT 参数域分割/裁剪；受影响引用显式释放，原子失败 | `sketch_geometry_edit.go`、`sketch_curve_edit.go`、Worker `ComputeSketchCurves` |
 | 逻辑约束 | 基础逻辑、Collinear；类型精确的相切/等值/同心；端点与中心引用；内部 MIRROR/SAME_SUPPORT 仍参加诊断 | 规范能力/类型过滤 → Go 严格验证 → PlaneGCS 原语；CONTROL 样条端切向是端部真实 D1，FIT 先显式转 CONTROL |
 | 尺寸 | 真距离、signed ΔX/ΔY、支撑点线距离、非负平行线间距（可见 Parallel）、线长、半径/直径、线角度、椭圆半轴 | 统一定义 → 稳定 ParameterId/Quantity/checkedAST → 求解；零间距合法，非平行不冒充线段最近距离 |
 | 尺寸生命周期 | 同一对话框编辑 source/名称/引用/驱动参考/停用/删除；普通逻辑定义原子改kind/refs/停用；参考退出 Solver/DoF，解后测量，不可测为空 | `sketch_dimension_lifecycle.go`；恢复驱动显式 ORIGINAL 或 MEASUREMENT；表达式读取参考参数目前明确拒绝 |
@@ -26,7 +26,7 @@ PlaneGCS 使用仓库锁定的 FreeCAD 1.0.2 commit `256fc7eff3379911ab5daf88e10
 
 ## 支持边界与引用规则
 
-- 交点、裁剪、分割、补弧和延伸使用真实参数曲线；点击只选择区间或分支。重叠、不存在交点、极短区间及无效半径明确拒绝；不以显示采样线段代替权威交点。
+- 交点、裁剪、分割、补弧和延伸使用真实参数曲线；点击选择区间、分支或自由延伸的解析投影目标。重叠、不存在交点、极短区间及无效半径明确拒绝；不以显示采样线段代替权威交点。
 - 变换、复制及拓扑编辑保持实体和子元素身份映射。内部引用按新身份映射；跨选择集关系、Fixed、公式控制和被删除端点的关系必须明确保留、释放或拒绝，不按最近端点重连。复合操作原子提交。
 - Equal 在圆/圆弧间表示半径相等，在椭圆/椭圆弧间表示两个半轴相等。Concentric 使用这些类型的中心。相切按支持类型及明确端点角色过滤；CONTROL 样条开放 clamped 端点可与直线建立真实 D1 切向。
 - 线线尺寸表示非负平行支撑线间距；水平/垂直点点尺寸是有符号坐标差。参考尺寸不驱动几何，表达式读取参考参数目前明确拒绝，避免同草图测量/驱动循环。公式与只读来源不能被普通数值编辑覆盖。
@@ -63,7 +63,7 @@ PlaneGCS 使用仓库锁定的 FreeCAD 1.0.2 commit `256fc7eff3379911ab5daf88e10
 | 混合链独立偏移 | `TestSketchWorkflowMixedChainIndependentOffsetExtrude` | MITER/ROUND 两方式的真线弧曲线、正式闭合及独立实体面积 |
 | FIT 点编辑 | `TestSketchWorkflowFitPointEditRebuildsCanonicalAndSolid` | 拟合点变化引起真实 canonical 曲线与拉伸体积变化 |
 | 自映射圆随轴修改 | `TestSketchWorkflowSelfMirrorCircleTracksAxisEdits` | 不复制对称自身的圆；轴移动/旋转后仍保持正式关联 |
-| 复制/变换/删除及历史 | `TestSketchWorkflowCopyTransformDeleteExtrudeHistory` | 新身份/内部引用映射、刚性/缩放、原子删除、体积/Undo/Redo/冷读取 |
+| 复制/变换/删除及历史 | `TestSketchWorkflowCopyTransformDeleteExtrudeHistory` | 新身份/内部引用映射、刚性变换、缩放拒绝、原子删除、体积/Undo/Redo/冷读取 |
 | 三模式倒角修改 | `TestSketchWorkflowChamferModesDimensionsAndExtrude` | 等长、双长度、长度加角度；正式虚拟交点、修改尺寸及实体更新 |
 | 线弧/弧弧圆角修改 | `TestSketchWorkflowLineArcAndArcArcFilletsExtrudeUpdate` | 真圆弧、真实端部切向、半径修改后仍合法闭合并更新实体；未据此声称邻边修改组合已测 |
 | 圆弧补弧/闭合及修改 | `TestSketchWorkflowArcComplementAndCloseExtrudeUpdate` | Arc/EllipticalArc 真实范围、补弧/闭合、尺寸修改与独立实体体积 |

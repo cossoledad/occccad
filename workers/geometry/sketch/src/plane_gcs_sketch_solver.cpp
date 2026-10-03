@@ -98,6 +98,15 @@ public:
                     const double seed = std::abs(dx*(b->start.y-a->start.y)-dy*(b->start.x-a->start.x))/std::hypot(dx,dy);
                     if (std::isfinite(seed) && seed != c.value) lengths.emplace_back(i, seed);
                 }
+            } else if ((c.kind == ConstraintKind::radius || c.kind == ConstraintKind::diameter) &&
+                       c.references.size() == 1U) {
+                double seed = 0;
+                for (const auto& circle : model.circles)
+                    if (circle.id == c.references[0].entity_id) seed = circle.radius;
+                for (const auto& arc : model.arcs)
+                    if (arc.id == c.references[0].entity_id) seed = arc.radius;
+                if (c.kind == ConstraintKind::diameter) seed *= 2;
+                if (seed > 0 && c.value > 0 && seed != c.value) lengths.emplace_back(i, seed);
             } else if (c.kind == ConstraintKind::length && c.references.size() == 1U) {
             for (const auto& line : model.lines)
                 if (line.id == c.references[0].entity_id) {
@@ -547,6 +556,17 @@ private:
                 double sweep = std::fmod(arc.end_angle-arc.start_angle, period);
                 if (intent > 0 && sweep <= 0) sweep += period;
                 if (intent < 0 && sweep >= 0) sweep -= period;
+                // Generated two-sided fillets carry a chosen local branch.
+                // A residual-valid major-arc flip is still the wrong operation;
+                // use the existing dimension continuation, never clamp geometry.
+                int internal_tangents = 0;
+                for (const auto& relation : model.constraints)
+                    if (relation.internal && relation.kind == ConstraintKind::tangent)
+                        for (const auto& ref : relation.references)
+                            if (ref.entity_id == arc.id) ++internal_tangents;
+                if (internal_tangents >= 2 &&
+                    (std::abs(intent) < period/2) != (std::abs(sweep) < period/2))
+                    return failed("fillet solution changed the accepted arc branch");
                 arc.end_angle = arc.start_angle+sweep;
             }
             const double residual_limit = std::sqrt(system.getFinePrecision());
@@ -740,8 +760,25 @@ private:
             if (first_line && second_line) {
                 if (!has_parallel_relationship(model, first_line, second_line, line_i, lines,
                                                x_axis, y_axis))
-                    system.addConstraintParallel(*first_line, *second_line, tag);
-                system.addConstraintPointOnLine(second_line->p1, *first_line, tag);
+                    system.addConstraintL2LAngle(*first_line, *second_line,
+                        constant(parallel_angle(*first_line, *second_line)), tag);
+                // Coincident endpoints already locate the child on its support.
+                bool located = false;
+                for (const auto& relation : model.constraints) {
+                    if (relation.kind != ConstraintKind::coincident ||
+                        relation.references.size() != 2U) continue;
+                    for (std::size_t side = 0; side < 2U; ++side) {
+                        const auto& a = relation.references[side];
+                        const auto& b = relation.references[1U-side];
+                        if (a.target == GeometryTarget::entity && b.target == GeometryTarget::entity &&
+                            a.entity_id == c.references[0].entity_id &&
+                            b.entity_id == c.references[1].entity_id &&
+                            (a.sub_element == SubElement::start || a.sub_element == SubElement::end) &&
+                            (b.sub_element == SubElement::start || b.sub_element == SubElement::end))
+                            located = true;
+                    }
+                }
+                if (!located) system.addConstraintPointOnLine(second_line->p1, *first_line, tag);
                 return {};
             }
             GCS::Circle* first_circle = resolve_circle(c.references[0], circle_i, circles);
@@ -1018,8 +1055,23 @@ private:
             auto* b = resolve_line(c.references[1], line_i, lines, x_axis, y_axis);
             if (!a || !b)
                 return "line relationship contains an invalid line reference";
-            if (c.kind == ConstraintKind::parallel)
-                system.addConstraintParallel(*a, *b, tag);
+            if (c.kind == ConstraintKind::parallel) {
+                // A trimmed support has a movable cut endpoint and can collapse
+                // under the native cross-product primitive. Use its equivalent
+                // directional primitive only for these derived support classes.
+                const bool derived_support = std::any_of(model.constraints.begin(), model.constraints.end(),
+                    [&c](const SketchConstraint& relation) {
+                        if (relation.kind != ConstraintKind::same_support) return false;
+                        for (const auto& ref : c.references)
+                            for (const auto& support : relation.references)
+                                if (ref.target == GeometryTarget::entity && support.target == GeometryTarget::entity &&
+                                    ref.entity_id == support.entity_id) return true;
+                        return false;
+                    });
+                if (derived_support)
+                    system.addConstraintL2LAngle(*a, *b, constant(parallel_angle(*a, *b)), tag);
+                else system.addConstraintParallel(*a, *b, tag);
+            }
             else if (c.kind == ConstraintKind::perpendicular)
                 system.addConstraintPerpendicular(*a, *b, tag);
             else if (!std::isfinite(c.value))
@@ -1260,7 +1312,20 @@ private:
                     if (!circle)
                         circle = k == 0U ? ab : aa;
                     if (circle) {
-                        system.addConstraintPointOnCircle(point, *circle, tag);
+                        bool already_connected = false;
+                        for (const auto& relation : model.constraints)
+                            if (relation.kind == ConstraintKind::coincident &&
+                                relation.references.size() == 2U)
+                                for (std::size_t side = 0; side < 2U; ++side) {
+                                    const auto& a = relation.references[side];
+                                    const auto& b = relation.references[1U-side];
+                                    if (a.entity_id == c.references[k].entity_id &&
+                                        a.sub_element == sub &&
+                                        b.entity_id == c.references[1U-k].entity_id &&
+                                        (b.sub_element == SubElement::start || b.sub_element == SubElement::end))
+                                        already_connected = true;
+                                }
+                        if (!already_connected) system.addConstraintPointOnCircle(point, *circle, tag);
                         GCS::Line source_radius, target_radius;
                         source_radius.p1 = circle->center;
                         source_radius.p2 = point;
@@ -1501,6 +1566,14 @@ private:
                 return &splines[i->second].controls.back();
         }
         return nullptr;
+    }
+    // Native Parallel uses an unnormalised cross product: a collapsed line
+    // has zero residual at every direction. The equivalent angle primitive
+    // preserves the nearest parallel/antiparallel branch without fixing length.
+    static double parallel_angle(const GCS::Line& a, const GCS::Line& b) {
+        const double ax = *a.p2.x-*a.p1.x, ay = *a.p2.y-*a.p1.y;
+        const double bx = *b.p2.x-*b.p1.x, by = *b.p2.y-*b.p1.y;
+        return ax*bx+ay*by < 0 ? std::acos(-1.0) : 0.0;
     }
     static GCS::Line* resolve_line(const GeometryRef& r, const Index& indices,
                                    std::vector<LineState>& lines, GCS::Line& x, GCS::Line& y) {

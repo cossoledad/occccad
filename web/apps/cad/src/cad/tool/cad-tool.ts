@@ -1316,6 +1316,10 @@ export class LinearDimensionSketchTool implements CadTool {
     },error=>{if(generation!==this.generation)return;const scope=context.viewport.currentSketchIdentity?.();if(owner!==JSON.stringify([scope?.documentId,scope?.sketchId,scope?.occurrencePath])){this.cancel(context);this.publish(context);return;}this.status=this.session.unknown?"unknown":"failed";this.error=error instanceof Error?error.message:String(error);this.publish(context);});
   }
   commandAction(action:SketchCommandAction,context:ToolContext):void {
+    if(action.type==="placement"&&this.phase.step==="VALUE"&&this.status!=="committing"&&this.status!=="unknown"){
+      const position=context.viewport.sketchPlacementPoint(action.position[0],action.position[1]);
+      if(position){this.phase={...this.phase,position};this.preview(context,position);this.publish(context);}return;
+    }
     if(action.type==="cancel"){this.cancel(context);context.viewport.finishToolUse(true);return;}
     if(action.type==="retry"){this.submit(context,true);return;}
     if(this.status==="committing"||this.status==="unknown")return;

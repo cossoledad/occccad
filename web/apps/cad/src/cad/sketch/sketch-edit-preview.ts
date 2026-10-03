@@ -250,7 +250,27 @@ export function buildSketchEditPreview(input: SketchEditPreviewInput): SketchEdi
   const operation = input.operation, result = previewResult(operation);
   const id = (slot: string) => `preview:${"operationId" in operation ? operation.operationId : "edit"}:${slot}`;
   try {
-    if (operation.type === "MIRROR_ENTITIES") {
+    if(operation.type==="EXTEND_ENTITY"){
+      const source=input.entities.find(e=>e.id===operation.entityIds[0]);
+      if(!source||!finitePoint(operation.point))throw new Error("请选择延伸曲线和目标位置");
+      if(operation.boundaryIds.length)throw new Error("边界延伸等待精确交点预览");
+      const extended=clone(source),endRole=operation.firstReference.subElement;
+      let t:number;
+      if(source.kind==="LINE"&&source.start&&source.end){
+        const d=sub(source.end,source.start);t=dot(sub(operation.point,source.start),d)/dot(d,d);
+        const p=add(source.start,mul(d,t));if(endRole==="START")extended.start=p;else extended.end=p;
+      } else if((source.kind==="ARC"||source.kind==="ELLIPTICAL_ARC")&&source.center){
+        let x=operation.point.x-source.center.x,y=operation.point.y-source.center.y;
+        if(source.kind==="ELLIPTICAL_ARC"){const c=Math.cos(source.rotation??0),s=Math.sin(source.rotation??0);[x,y]=[(x*c+y*s)/source.majorRadius!,(-x*s+y*c)/source.minorRadius!];}
+        if(x===0&&y===0)throw new Error("目标位置没有延伸方向");
+        const a=source.startAngle!,b=source.endAngle!,direction=Math.sign(b-a);let angle=Math.atan2(y,x);
+        if(endRole==="END"){while(direction*(angle-b)<=0)angle+=direction*tau;}else{while(direction*(angle-a)>=0)angle-=direction*tau;}
+        t=(angle-a)/(b-a);if(endRole==="START")extended.startAngle=angle;else extended.endAngle=angle;
+        if(Math.abs(extended.endAngle!-extended.startAngle!)>=tau)throw new Error("延伸超过完整周期");
+      }else throw new Error("当前曲线不支持延伸");
+      if(!Number.isFinite(t)||endRole==="START"&&t>=0||endRole==="END"&&t<=1)throw new Error("目标必须在选定端点外侧");
+      extended.id=id("extended");result.entities=[extended];result.replacedEntityIds=[source.id];result.candidateCount=1;
+    }else if (operation.type === "MIRROR_ENTITIES") {
       const axis = axisFor(input, operation.axis);
       if (!axis) throw new Error("请选择明确的镜像直线或内置轴");
       for (const sourceID of operation.entityIds) {

@@ -158,8 +158,8 @@ export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { t
   | { type: "UPDATE_CONSTRAINT_SUPPRESSION"; constraintId: string; suppressed: boolean }
   | { type: "DELETE_CONSTRAINT"; constraintId: string }
   | { type: "DELETE_ENTITIES"; entityIds: string[] }
-  | { type: "COPY_ENTITIES"; operationId: string; entityIds: string[]; origin?: SketchPoint2; translation?: SketchPoint2; angle?: number; scale?: number; constraintPolicy?: "INTERNAL" | "GEOMETRY_ONLY" }
-  | { type: "TRANSFORM_ENTITIES"; operationId: string; entityIds: string[]; origin?: SketchPoint2; translation?: SketchPoint2; angle?: number; scale?: number; copy?: boolean; constraintPolicy?: "INTERNAL" | "GEOMETRY_ONLY"; detachConstraintIds?: string[] }
+  | { type: "COPY_ENTITIES"; operationId: string; entityIds: string[]; origin?: SketchPoint2; translation?: SketchPoint2; angle?: number; constraintPolicy?: "INTERNAL" | "GEOMETRY_ONLY" }
+  | { type: "TRANSFORM_ENTITIES"; operationId: string; entityIds: string[]; origin?: SketchPoint2; translation?: SketchPoint2; angle?: number; copy?: boolean; constraintPolicy?: "INTERNAL" | "GEOMETRY_ONLY"; detachConstraintIds?: string[] }
   | { type: "MIRROR_ENTITIES"; operationId: string; entityIds: string[]; axis: SketchGeometryRef; mirrorMode?: "INDEPENDENT" | "LINKED"; constraintPolicy?: "INTERNAL" | "GEOMETRY_ONLY" }
   | {type:"EDIT_SPLINE_POINT";operationId:string;entityId:string;pointAction:"INSERT"|"DELETE";pointIndex?:number;controlPointId?:string;point?:SketchPoint2;knotParameter?:number;detachConstraintIds?:string[]}
   | {type:"SET_SPLINE_CLOSED";operationId:string;entityId:string;closed:boolean;detachConstraintIds?:string[]}
@@ -169,7 +169,7 @@ export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { t
   | { type:"QUICK_TRIM";operationId:string;entityIds:string[];boundaryIds:string[];hitParameter:number;trimMode:"DELETE_HIT"|"KEEP_HIT"|"BREAK";detachConstraintIds?:string[] }
   | {type:"FILLET_ENTITIES";parameterSource?:string;operationId:string;entityIds:[string,string];firstReference:SketchGeometryRef;secondReference:SketchGeometryRef;point:SketchPoint2;value:number;trimMode:"TRIM"|"KEEP"}
   | {type:"CHAMFER_ENTITIES";parameterSource?:string;operationId:string;entityIds:[string,string];firstReference:SketchGeometryRef;secondReference:SketchGeometryRef;point:SketchPoint2;chamferMode:"EQUAL"|"TWO_LENGTHS"|"LENGTH_ANGLE";chamferFirst:number;chamferSecond?:number;chamferAngle?:number;trimMode:"TRIM"|"KEEP"}
-  | {type:"EXTEND_ENTITY";operationId:string;entityIds:string[];firstReference:SketchGeometryRef;boundaryIds:[string];point:SketchPoint2;detachConstraintIds?:string[]}
+  | {type:"EXTEND_ENTITY";operationId:string;entityIds:string[];firstReference:SketchGeometryRef;boundaryIds:[]|[string];point:SketchPoint2;detachConstraintIds?:string[]}
   | {type:"ARC_COMPLEMENT"|"CLOSE_CURVE";operationId:string;entityIds:string[];detachConstraintIds?:string[]}
   | {type:"OFFSET_ENTITIES";operationId:string;entityIds:string[];value:number;mode:"MITER"|"ROUND"};
 
