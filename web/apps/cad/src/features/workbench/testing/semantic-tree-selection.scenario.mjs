@@ -9,6 +9,10 @@ try {
   const { selectionKey, sameSelection } = await server.ssrLoadModule("/src/cad/interaction/selection-identity.ts");
   const { selectionModeForTool } = await server.ssrLoadModule("/src/cad/interaction/selection-mode.ts");
   const { Properties } = await server.ssrLoadModule("/src/features/workbench/workbench-inspector.tsx");
+  const deleteSelection={kind:'feature',entityId:'same',featureId:'same',ownerDocumentId:'part',documentId:'part',occurrencePath:'a'};
+  const otherOccurrence={...deleteSelection,occurrencePath:'b'};
+  const deletionTree=[{key:'a',entityId:'same',kind:'LINE',documentId:'part',selection:deleteSelection,capabilities:['DELETE']},{key:'b',entityId:'same',kind:'LINE',documentId:'part',selection:otherOccurrence,capabilities:['DELETE']},{key:'reference',entityId:'same',kind:'LINE',documentId:'part',presentationRole:'INPUT_REFERENCE',selection:deleteSelection,capabilities:['DELETE']},{key:'unsupported',entityId:'same',kind:'LINE',documentId:'part',selection:deleteSelection,capabilities:[]}];
+  assert.deepEqual(tree.deletableTreeNodesForSelections(deletionTree,[deleteSelection,deleteSelection]).map(n=>n.key),['a'],'global Delete ignores highlight aliases, unsupported nodes and other occurrences');
   const path = (id, revisionId) => ({ rootDocumentId: "product", canonical: id, display: id,
     segments: [{ ownerDocumentId: "product", ownerVersionId: "product-r1", instanceId: id,
       instanceName: id, referencedDocumentId: "part", resolvedVersionId: revisionId }] });

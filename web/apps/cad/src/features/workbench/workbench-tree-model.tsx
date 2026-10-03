@@ -188,4 +188,4 @@ export function selectedFeature(view: DocumentView, selection: Selection): Featu
   return view.part?.features.find((feature) => feature.id === selection.id);
 }
 
-export { ancestorHintKeysForSelections, treeKeyForSelection, treeKeysForSelections } from "./tree-projection-index";
+export { deletableTreeNodesForSelections, ancestorHintKeysForSelections, treeKeyForSelection, treeKeysForSelections } from "./tree-projection-index";

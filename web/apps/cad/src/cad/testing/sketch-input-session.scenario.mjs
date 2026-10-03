@@ -113,5 +113,20 @@ try {
  const regularFinish=port.finishToolUse;port.finishToolUse=exit=>{if(!exit&&manager.activeToolID==='sketch.edit.trim'){finishes++;manager.activate('sketch.edit.trim');}else regularFinish();};
  selected=[];manager.activate('sketch.edit.trim');hit={target:'ENTITY',entityId:spline.id,subElement:'WHOLE'};const quickCommitCount=commits.length;click(5,2.5);assert.equal(states.at(-1).preview,'pending');const initialPreview=previewCalls.at(-1);pointer('pointermove',9,1);click(9,1);assert.equal(previewCalls.at(-1),initialPreview);assert(!initialPreview.signal.aborted,'pending authoritative hit candidate survives subsequent hover/down');assert.equal(commits.length,quickCommitCount);
  const trimmed={...spline,id:'trimmed-spline',sourceEntityId:spline.id,parameterStart:0.2,parameterEnd:0.8};resolvePreview({featureId:'sketch',versionId:scope.versionId,entities:[trimmed,other]});await settle();assert.equal(commits.length,quickCommitCount+1,'original frozen hit produces exactly one commit after exact candidate');assert.equal(commits.at(-1).ops[0].entityIds[0],spline.id);scope.versionId='quick-authority';currentCurves=[trimmed,other];resolveCommit({document:{id:'part',versionId:scope.versionId}});await settle();assert.equal(manager.activeToolID,'sketch.edit.trim','continuous tool is reactivated only after authoritative completion');assert.equal(states.at(-1).phase,'selection');assert.deepEqual(states.at(-1).selectedIds,[]);hit={target:'ENTITY',entityId:trimmed.id,subElement:'WHOLE'};click(5,2.5);assert.equal(previewCalls.at(-1).ops[0].entityIds[0],trimmed.id,'next continuous gesture picks the accepted new baseline');key('Escape');assert(previewCalls.at(-1).signal.aborted);port.finishToolUse=regularFinish;
+
+ // Split consumes a stable on-curve endpoint snap through the complete input chain.
+ manager.activate('select');port.previewSketchOperations=undefined;
+ const splitLine={id:'split-line',kind:'LINE',start:{x:0,y:0},end:{x:20,y:0}},touchArc={id:'touch-arc',kind:'ARC',center:{x:5,y:-5},radius:5,startAngle:0,endAngle:Math.PI/2,endPointId:'contact-end'};
+ currentCurves=[splitLine,touchArc];port.projectSketchPoint=p=>[p[0]*10,p[1]*10];selected=[selection(splitLine.id)];
+ manager.register(new SketchEditTool('split'));manager.activate('sketch.edit.split');hit={target:'ENTITY',entityId:splitLine.id,subElement:'WHOLE'};
+ const splitCount=commits.length;pointer('pointermove',5.4,.3);assert.equal(commits.length,splitCount);click(5.4,.3);
+ assert.equal(commits.length,splitCount+1);const splitOperation=commits.at(-1).ops[0];assert.deepEqual(splitOperation.entityIds,[splitLine.id]);assert(Math.abs(splitOperation.parameters[0]-.25)<1e-12);assert.equal(splitOperation.firstReference.pointId,'contact-end');
+ resolveCommit({document:{id:'part',versionId:scope.versionId}});await settle();assert.equal(manager.activeToolID,'select');
+
+ const circle={id:'snap-circle',kind:'CIRCLE',center:{x:0,y:0},radius:5},aPoint={id:'a-point',kind:'POINT',point:{x:0,y:5}},bPoint={id:'b-point',kind:'POINT',point:{x:0,y:-5}};
+ currentCurves=[circle,aPoint,bPoint];selected=[];manager.activate('sketch.edit.split');hit={target:'ENTITY',entityId:circle.id,subElement:'WHOLE'};
+ const circularSplitCount=commits.length;click(.1,4.9);assert.equal(commits.length,circularSplitCount,'first split position never persists a half-circle');key('Escape');assert.equal(commits.length,circularSplitCount);
+ manager.activate('sketch.edit.split');click(.1,4.9);click(.1,-4.9);assert.equal(commits.length,circularSplitCount+1);assert.equal(commits.at(-1).ops[0].firstReference.entityId,aPoint.id);assert.equal(commits.at(-1).ops[0].secondReference.entityId,bPoint.id);
+ resolveCommit({document:{id:'part',versionId:scope.versionId}});await settle();assert.equal(manager.activeToolID,'select');
  input.dispose();console.log('PASS real InputManager/Router/ToolManager frozen dimensions, seed result, pointer ownership, finish, panel/IME/modal keyboard and blur');
 }finally{await server.close();}

@@ -163,6 +163,64 @@ func (service *Service) prepareSketchCurveEdits(ctx context.Context, modelJSON j
 			cuts := []float64{0, 1}
 			seamIntersection := false
 			if op.Type == "SPLIT_ENTITY" {
+				for snapIndex, reference := range []*SketchGeometryRef{op.FirstReference, op.SecondReference} {
+					if reference == nil {
+						continue
+					}
+					if service.worker == nil {
+						return nil, fmt.Errorf("%w: exact curve worker unavailable", ErrValidation)
+					}
+					r := *reference
+					boundary, ok := sketchEditBoundary(&staged, r.EntityID)
+					_, local := entities[r.EntityID]
+					if !ok || (r.Target != "ENTITY" && r.Target != "EXTERNAL") || (r.Target == "ENTITY") != local || r.EntityID == source.ID || snapIndex >= len(op.Parameters) {
+						return nil, fmt.Errorf("%w: invalid split snap reference", ErrValidation)
+					}
+					desired := start + (end-start)*op.Parameters[snapIndex]
+					var result geometry.SketchCurveComputation
+					var err error
+					if boundary.Kind == "POINT" && r.SubElement == "POINT" && boundary.Point != nil {
+						// An explicit point pick is validated against the exact trimmed
+						// endpoint below; it is not a synthetic curve intersection.
+						result.Intersections = []geometry.SketchCurveIntersection{{FirstParameter: desired, Point: [2]float64{boundary.Point.X, boundary.Point.Y}}}
+					} else {
+						result, err = service.worker.ComputeSketchCurves(ctx, requestID+fmt.Sprintf("/curve/%d/split-snap/%d", index, snapIndex), "INTERSECT", []geometry.ProfileCurve{profileCurve(source, false), profileCurve(boundary, false)}, nil, nil)
+					}
+					if err != nil {
+						return nil, fmt.Errorf("%w: split intersection: %v", ErrValidation, err)
+					}
+					best, found := math.Inf(1), false
+					for _, hit := range result.Intersections {
+						u := unwrapSketchCurveParameter(source, hit.FirstParameter)
+						if r.SubElement != "WHOLE" {
+							p, valid := constraintReferencePoint(r, map[string]SketchEntity{boundary.ID: boundary})
+							if !valid || cornerDistance(p, SketchPoint2{X: hit.Point[0], Y: hit.Point[1]}) > profileTolerance {
+								continue
+							}
+						}
+						distance := math.Abs(u - desired)
+						if source.Kind == "CIRCLE" || source.Kind == "ELLIPSE" {
+							distance = math.Abs(math.Remainder(u-desired, 2*math.Pi))
+							u = start + math.Mod(u-start, 2*math.Pi)
+							if u < start {
+								u += 2 * math.Pi
+							}
+						}
+						if distance < best {
+							best = distance
+							op.Parameters[snapIndex] = (u - start) / (end - start)
+							found = true
+						}
+					}
+					if !found {
+						return nil, fmt.Errorf("%w: split snap has no exact intersection", ErrValidation)
+					}
+					kind := "COINCIDENT"
+					if r.SubElement == "WHOLE" {
+						kind = "POINT_ON_OBJECT"
+					}
+					op.CutConnections = append(op.CutConnections, SketchCurveCutConnection{Kind: kind, Parameter: op.Parameters[snapIndex], Reference: r})
+				}
 				cuts = append(cuts, op.Parameters...)
 			} else {
 				if op.HitParameter == nil || !finite(*op.HitParameter) || *op.HitParameter < 0 || *op.HitParameter > 1 {
@@ -271,6 +329,12 @@ func (service *Service) prepareSketchCurveEdits(ctx context.Context, modelJSON j
 		computed := []SketchEntity{}
 		for segment, interval := range intervals {
 			a, b := start+(end-start)*interval.Start, start+(end-start)*interval.End
+			if interval.Start == 0 {
+				a = start
+			}
+			if interval.End == 1 {
+				b = end
+			}
 			result, computeErr := service.worker.ComputeSketchCurves(ctx, requestID+fmt.Sprintf("/curve/%d/segment/%d", index, segment), "TRIM", []geometry.ProfileCurve{profileCurve(source, false)}, &a, &b)
 			if computeErr != nil || len(result.Curves) != 1 {
 				return nil, fmt.Errorf("%w: exact curve trim failed: %v", ErrValidation, computeErr)
@@ -287,6 +351,24 @@ func (service *Service) prepareSketchCurveEdits(ctx context.Context, modelJSON j
 			}
 			if interval.End == 1 && source.EndPointID != "" {
 				e.EndPointID = source.EndPointID
+			}
+			for _, cut := range op.CutConnections {
+				boundary, exists := sketchEditBoundary(&staged, cut.Reference.EntityID)
+				if !exists || boundary.Kind != "POINT" || boundary.Point == nil {
+					continue
+				}
+				for _, endpoint := range []struct {
+					sub string
+					t   float64
+				}{{"START", interval.Start}, {"END", interval.End}} {
+					if endpoint.t != cut.Parameter && !((source.Kind == "CIRCLE" || source.Kind == "ELLIPSE") && endpoint.t == cut.Parameter+1) {
+						continue
+					}
+					p, valid := constraintReferencePoint(SketchGeometryRef{Target: "ENTITY", EntityID: e.ID, SubElement: endpoint.sub}, map[string]SketchEntity{e.ID: e})
+					if !valid || cornerDistance(p, *boundary.Point) > profileTolerance {
+						return nil, fmt.Errorf("%w: split point is not on the exact source curve", ErrValidation)
+					}
+				}
 			}
 			e.CreatedByOperationID = op.OperationID
 			e.SourceEntityID = source.ID

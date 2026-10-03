@@ -59,7 +59,7 @@ import { followedDocumentIDs, staleProductDocumentIDs, followProductUpdates } fr
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { isLengthParameter, linearExtrudeLengthInput, parameterDisplayValue, parameterSourceText, parseParameterSource } from "./parameter-editor";
 import { WorkbenchInspectorPanel } from "./workbench-inspector-panel";
-import { ancestorHintKeysForSelections, findStructureEntity, findStructureOccurrenceEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
+import { deletableTreeNodesForSelections, ancestorHintKeysForSelections, findStructureEntity, findStructureOccurrenceEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
 import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
   firstDisconnectedSupport, validateReconnectCandidate } from "../../cad/assembly/assembly-constraint-ux";
 import { describeAssemblyReference } from "../../cad/assembly/assembly-reference-presentation";
@@ -1119,7 +1119,9 @@ export function Workbench() {
     message.success(`产品版本 ${release.name} 已冻结`);
   };
   useEffect(() => {
+    const deletionNodes=deletableTreeNodesForSelections(treeNodes,store.selections);
     const disposers = [
+      commandRegistry.register({id:"edit.delete",execute:()=>deleteTreeNodes(deletionNodes),isEnabled:()=>Boolean(canEdit&&!command.isPending&&store.activeToolID==="select"&&deletionNodes.some(node=>node.capabilities?.includes("DELETE")))}),
       commandRegistry.register({ id: "tool.select", execute: () => store.setActiveTool("select", "once"),
         isActive: () => store.activeToolID === "select" }),
       commandRegistry.register({ id: "assembly.move", execute: () => store.setActiveTool("assembly.move", "continuous"),
@@ -1184,7 +1186,7 @@ export function Workbench() {
     ];
     return () => { for (const dispose of disposers.reverse()) dispose(); };
   }, [commandRegistry, editingView, view, canEdit, canEditRoot, store.selection, store.sketchPlane, store.activeToolID, lengthUnit,
-    command.isPending, assemblyConstraintForm, selectedNamingIssue,conflictOpen,moveReceiptPending]);
+    command.isPending, assemblyConstraintForm, selectedNamingIssue,conflictOpen,moveReceiptPending,treeNodes,store.selections]);
 
   useEffect(() => { commandRegistry.notifyStateChanged(); }, [commandRegistry, editingView, store.selection, store.sketchPlane,
     store.activeToolID, command.isPending]);

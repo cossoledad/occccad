@@ -454,4 +454,15 @@ TEST(ExactSketchCurve, NonSeamSplitConicsShareOnlyTwoEndpointsAndRetainRealOverl
         EXPECT_NEAR(overlap.overlaps[0].first_end-overlap.overlaps[0].first_start,.32*2*pi,1e-10);
     }
 }
+TEST(ExactSketchCurve, TrimCanonicalizesOnlyRepresentationalEndpointDrift) {
+    ProfileCurveSpec line; line.kind="LINE";line.start={1.2,3.4};line.end={74.182951303173,39.291341892514};
+    const double length=std::hypot(line.end.x-line.start.x,line.end.y-line.start.y);
+    const double foreign_end=std::nextafter(length,INFINITY);
+    const auto first=trim_sketch_curve(line,0,length*.37);
+    const auto second=trim_sketch_curve(line,length*.37,foreign_end);
+    EXPECT_NEAR(first.end.x,second.start.x,1e-12);EXPECT_NEAR(first.end.y,second.start.y,1e-12);
+    EXPECT_NEAR(second.end.x,line.end.x,1e-12);EXPECT_NEAR(second.end.y,line.end.y,1e-12);
+    EXPECT_THROW(trim_sketch_curve(line,0,length+1e-6),std::invalid_argument);
+}
+
 }

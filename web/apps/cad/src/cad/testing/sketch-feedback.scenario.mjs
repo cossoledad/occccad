@@ -101,6 +101,14 @@ try {
  manager.activate('sketch.edit.move');pointer('pointermove');assert.equal(hover.at(-1).candidate.entityId,'b');click();assert.deepEqual(state.selectedIds,['b']);assert.equal(selection.at(-1)[0].entityId,'b');hit=null;pointer('pointermove');assert.equal(hover.at(-1),null);
  hit=ref('a');manager.activate('sketch.edit.mirror');click();hit=ref('b');pointer('pointermove');assert.equal(hover.at(-1).candidate.entityId,'b');assert.equal(hover.at(-1).retained[0].entityId,'a');assert.equal(state.selectedIds.length,0);assert.equal(sent.length,0);
  manager.activate('sketch.dimension.linear');hit=ref('a');click();hit=ref('b');pointer('pointermove');assert.equal(hover.at(-1).candidate.entityId,'b');assert.deepEqual(state.references,[ref('a')],'hover cannot accept the second dimension reference');assert.equal(sent.length,0);
+
+ const conics=[{id:'arc-controls',kind:'ARC',role:'PROFILE',center:{x:3,y:4},radius:5,startAngle:0,endAngle:Math.PI/2},{id:'ellipse-controls',kind:'ELLIPTICAL_ARC',role:'PROFILE',center:{x:20,y:30},majorRadius:10,minorRadius:6,rotation:0,startAngle:0,endAngle:Math.PI}];
+ const controlsFeature={id:'control-sketch',type:'SKETCH',sketch:{entities:conics,constraints:[],solve:{}}};engine.addSketch(controlsFeature,true,engine.view);
+ const controlsGroup=engine.helpers.children.find(child=>child.userData.sketchFeatureID==='control-sketch');
+ const markerPositions=id=>{const marker=controlsGroup.children.find(child=>child.isPoints&&child.userData.entityId===id);return Array.from(marker.geometry.attributes.position.array);};
+ assert.equal(markerPositions('arc-controls').length,9,'arc displays two endpoints and center');
+ const ellipseMarkers=markerPositions('ellipse-controls');assert.equal(ellipseMarkers.length,21,'ellipse arc displays endpoints, center, two foci and axis tips');
+ for(const expected of [[20,30,0],[28,30,0],[12,30,0],[30,30,0],[20,36,0]])assert(ellipseMarkers.some((_,i)=>i%3===0&&expected.every((value,j)=>Math.abs(ellipseMarkers[i+j]-value)<1e-6)),'derived control marker missing '+expected);
  input.dispose();
  console.log('PASS production sketch feedback: independent hover/dimensions, no role badges, selected overlays, move/mirror/linear roles');
 } finally {await server.close();}

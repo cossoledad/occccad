@@ -163,7 +163,7 @@ export class InputManager {
       editableTarget: isEditableTarget(event.target), isComposing:event.isComposing||event.keyCode===229, state, originalEvent: event };
     const modalResult=this.modalInput.keyDown?.(event)??InputResult.Ignored;
     if(isHandled(modalResult)){event.preventDefault();event.stopImmediatePropagation();return;}
-    if(event.isComposing||event.keyCode===229||normalized.editableTarget)return;
+    if(event.defaultPrevented||event.isComposing||event.keyCode===229||normalized.editableTarget)return;
     const result = this.sink.keyDown?.(normalized) ?? InputResult.Ignored;
     if (result === InputResult.ReleaseCapture || event.key==="Escape"&&isHandled(result)) this.resetInput();
     if (isHandled(result)) event.preventDefault();
@@ -176,7 +176,7 @@ export class InputManager {
       editableTarget: isEditableTarget(event.target), isComposing:event.isComposing||event.keyCode===229, state, originalEvent: event };
     const modalResult=this.modalInput.keyUp?.(event)??InputResult.Ignored;
     if(isHandled(modalResult)){event.preventDefault();event.stopImmediatePropagation();return;}
-    if(event.isComposing||event.keyCode===229||normalized.editableTarget)return;
+    if(event.defaultPrevented||event.isComposing||event.keyCode===229||normalized.editableTarget)return;
     if (isHandled(this.sink.keyUp?.(normalized) ?? InputResult.Ignored)) event.preventDefault();
   };
 

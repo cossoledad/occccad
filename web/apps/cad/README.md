@@ -187,4 +187,4 @@ Product 的 Debug 下载动作导出当前请求的 `.3dreplay`，Part 继续使
 
 CAD Command/Preview 使用 `api` 门面进入 `RealtimeClient`；取消由 AbortSignal 转为 preview cancel，断线不重放旧鼠标轨迹。订阅仅返回身份；命令可内联最多 64 KiB 的轻量业务快照，较大文档通过 HTTP snapshot 的一致 sequence 恢复权威状态。详见[realtime 控制面](../../../docs/architecture/current/realtime.md)。
 
-草图 Select 支持左右方向的包含/交叉框选与 Delete；尺寸文字附着草图平面，圆角/倒角候选复用同一尺寸显示。尺寸编辑允许既有视角导航并提供只读几何预览；具体合同与人工步骤见 [草图交互](../../../docs/sketch-inline-input.md)。
+草图 Select 支持左右方向的包含/交叉框选；全局 Delete 按语义选集和树节点能力执行删除。草图移动、旋转和复制使用共用平面手柄，释放原子提交，拖动仅预览；分割显示交点/端点吸附，圆弧及椭圆弧支持 Ctrl 临时反向并显示控制标记；尺寸文字附着草图平面，圆角/倒角候选复用同一尺寸显示。尺寸编辑允许既有视角导航并提供只读几何预览；具体合同与人工步骤见 [草图交互](../../../docs/sketch-inline-input.md)。

@@ -1,5 +1,6 @@
 export type CommandShortcut = { command: string; label: string; key: string; modifier?: boolean; shift?: boolean; display: string; aria: string };
 export const COMMAND_SHORTCUTS: readonly CommandShortcut[] = [
+  { command: "edit.delete", label: "删除所选对象", key: "delete", display: "Delete", aria: "Delete" },
   { command: "edit.undo", label: "撤销", key: "z", modifier: true, display: "Ctrl / ⌘ + Z", aria: "Control+z Meta+z" },
   { command: "edit.redo", label: "重做", key: "y", modifier: true, display: "Ctrl / ⌘ + Y", aria: "Control+y Meta+y" },
   { command: "edit.redo", label: "重做（另一组合）", key: "z", modifier: true, shift: true, display: "Ctrl / ⌘ + Shift + Z", aria: "Control+Shift+z Meta+Shift+z" },

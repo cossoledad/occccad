@@ -164,7 +164,7 @@ export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { t
   | {type:"EDIT_SPLINE_POINT";operationId:string;entityId:string;pointAction:"INSERT"|"DELETE";pointIndex?:number;controlPointId?:string;point?:SketchPoint2;knotParameter?:number;detachConstraintIds?:string[]}
   | {type:"SET_SPLINE_CLOSED";operationId:string;entityId:string;closed:boolean;detachConstraintIds?:string[]}
   | {type:"CONVERT_SPLINE_TO_CONTROL";operationId:string;entityId:string;detachConstraintIds?:string[]}
-  | { type: "SPLIT_ENTITY"; operationId: string; entityIds: string[]; parameters: number[]; detachConstraintIds?: string[] }
+  | { type: "SPLIT_ENTITY"; operationId: string; entityIds: string[]; parameters: number[]; firstReference?: SketchGeometryRef; secondReference?:SketchGeometryRef; detachConstraintIds?: string[] }
   | { type:"TRIM_ENTITY";operationId:string;entityIds:string[];parameters:[number,number];detachConstraintIds?:string[] }
   | { type:"QUICK_TRIM";operationId:string;entityIds:string[];boundaryIds:string[];hitParameter:number;trimMode:"DELETE_HIT"|"KEEP_HIT"|"BREAK";detachConstraintIds?:string[] }
   | {type:"FILLET_ENTITIES";parameterSource?:string;operationId:string;entityIds:[string,string];firstReference:SketchGeometryRef;secondReference:SketchGeometryRef;point:SketchPoint2;value:number;trimMode:"TRIM"|"KEEP"}

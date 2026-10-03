@@ -150,5 +150,9 @@ try {
   manager.pointerDown(pointer(0,0));manager.pointerCancel(pointer(0,0,"cancel"));
   assert.equal(operations.length,count,"lost capture/cancel cannot commit incomplete geometry");
   assert.equal(manager.keyDown({key:"c",editableTarget:true}),"ignored","editing an input cannot toggle construction");
+
+  const heldArc=new ArcSketchTool();click(heldArc,0,0);click(heldArc,5,0);const reversePointer=pointer(0,5);reversePointer.state.modifiers={ctrl:true};heldArc.pointerDown(reversePointer,context);heldArc.pointerUp(pointer(0,5,'up'),context);close(operations.at(-1)[0].entity.endAngle,-3*Math.PI/2);
+  const heldEllipse=new EllipticalArcSketchTool();for(const [x,y]of [[0,0],[10,0],[0,5],[10,0]])click(heldEllipse,x,y);
+  const ellipseEnd=pointer(0,5);ellipseEnd.state.modifiers={ctrl:true};heldEllipse.pointerDown(ellipseEnd,context);heldEllipse.pointerUp(pointer(0,5,'up'),context);close(operations.at(-1)[0].entity.endAngle,-3*Math.PI/2);
   console.log("Sketch creation numeric input, continuous creation, construction, cancellation and role contracts passed");
 } finally {await server.close();}

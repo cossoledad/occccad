@@ -75,3 +75,13 @@ export function ancestorHintKeysForSelections(nodes: SpecificationTreeNode[], se
   }
   return [...result];
 }
+
+/** Exact semantic selection only; ancestor/publication highlight projections are not mutation targets. */
+export function deletableTreeNodesForSelections(nodes:SpecificationTreeNode[],selections:readonly SelectionItem[]):SpecificationTreeNode[] {
+  const index=indexTree(nodes),result=new Map<string,SpecificationTreeNode>();
+  for(const selection of selections)for(const key of index.bySelection.get(selectionKey(selection))??[]){
+    const node=index.byNode.get(key)!;
+    if(node.entityId&&node.kind&&node.presentationRole!=="INPUT_REFERENCE"&&node.capabilities?.includes("DELETE"))result.set(key,node);
+  }
+  return [...result.values()];
+}

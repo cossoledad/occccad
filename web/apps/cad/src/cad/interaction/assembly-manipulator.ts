@@ -44,7 +44,7 @@ export class AssemblyManipulator {
   private readonly frame=new THREE.Quaternion();
   private targetComponents?: ManipulatorTargetComponents;
 
-  constructor(private readonly shaders: CadShaderLibrary, private readonly callbacks: AssemblyManipulatorCallbacks) {
+  constructor(private readonly shaders: CadShaderLibrary, private readonly callbacks: AssemblyManipulatorCallbacks, private readonly planar = false) {
     this.root.name = "occccad-assembly-manipulator";
     this.root.renderOrder = 100;
     this.root.add(this.object);
@@ -53,8 +53,8 @@ export class AssemblyManipulator {
     const hubPick = new THREE.Mesh(new THREE.SphereGeometry(0.14, 16, 12), new THREE.MeshBasicMaterial({ visible: false }));
     this.object.add(hub, hubPick);
     this.handles.push({ operation: "pivot", pick: hubPick, materials: [hubMaterial] });
-    for (const axis of ["X", "Y", "Z"] as const) this.addAxis(axis);
-    for (const plane of [["X","Y"],["Y","Z"],["X","Z"]] as [Axis,Axis][]) this.addPlane(plane);
+    for (const axis of (planar ? ["X", "Y"] : ["X", "Y", "Z"]) as Axis[]) this.addAxis(axis);
+    for (const plane of (planar ? [["X","Y"]] : [["X","Y"],["Y","Z"],["X","Z"]]) as [Axis,Axis][]) this.addPlane(plane);
     this.root.visible = false;
   }
 
@@ -80,6 +80,11 @@ export class AssemblyManipulator {
       : { position: this.object.position.clone(), rotation: this.object.quaternion.clone() };
   }
   detach(): void { this.drag = undefined; this.setHovered(undefined); this.visible = false; this.root.visible = false; }
+  setPlanarMode(mode:"translate"|"rotate"|"both"):void {
+    if(!this.planar)return;
+    for(const handle of this.handles)for(const material of handle.materials)
+      material.visible=handle.operation==="pivot"||mode==="both"||mode==="rotate"&&handle.operation==="rotate"||mode==="translate"&&handle.operation==="translate";
+  }
   isAttached(): boolean { return this.visible; }
   isDragging(): boolean { return Boolean(this.drag); }
   isPivotDragging():boolean {return this.drag?.handle.operation==="pivot";}
@@ -202,6 +207,7 @@ export class AssemblyManipulator {
     this.object.add(arrow,axisPick);
     this.handles.push({ axis, operation: "translate", pick: axisPick, materials: [lineMaterial] });
 
+    if(this.planar&&axis!=="X")return;
     const ringMaterial=this.shaders.createMaterial("cad.manipulator.line",{uColor:color});
     const rotationAxis: Record<Axis, Axis> = { X: "Z", Y: "X", Z: "Y" };
     const ring=new THREE.LineSegments(this.rotationControlGeometry(axis,rotationAxis[axis]),ringMaterial);
@@ -231,7 +237,7 @@ export class AssemblyManipulator {
     const rect = surface.getBoundingClientRect();
     const pointer = new THREE.Vector2(x / Math.max(rect.width, 1) * 2 - 1, 1 - y / Math.max(rect.height, 1) * 2);
     const ray = new THREE.Raycaster(); ray.setFromCamera(pointer, camera);
-    const hit = ray.intersectObjects(this.handles.map((handle) => handle.pick), false)[0]?.object;
+    const hit = ray.intersectObjects(this.handles.filter(handle=>handle.materials.every(material=>material.visible)).map((handle) => handle.pick), false)[0]?.object;
     return this.handles.find((handle) => handle.pick === hit);
   }
 

@@ -1,7 +1,7 @@
 import { constraintDefinition } from "../sketch/sketch-constraint-definition";
 import { buildSketchConstraintLayout } from "../sketch/sketch-constraint-layout";
 import { cornerClickIntent, directLengthInput, type DirectEditInput } from "./sketch-direct-input";
-import { buildSketchEditPreview, type SketchEditCandidatePreview } from "../sketch/sketch-edit-preview";
+import { buildSketchEditPreview, localIntersections, type SketchEditCandidatePreview } from "../sketch/sketch-edit-preview";
 import { sketchCommitResultUnknown, type SketchCommandAction, type SketchCommandState, type SketchCommandPhase } from "./sketch-command-session";
 import type {SelectionItem,SketchConstraint,SketchEntity,SketchGeometryRef,SketchOperation,SketchPoint2,Vec2} from "../../types";
 import {SelectionInputResult,InputResult,type SelectionInputSource,type CadKeyboardEvent,type CadPointerEvent} from "../input/input-types";
@@ -80,6 +80,17 @@ function curvePoint(entity:SketchEntity,parameter:number):Vec2|undefined{
 }
 
 let clipboard:{entities:readonly SketchEntity[];constraints:readonly SketchConstraint[]}|undefined;
+export function resolveSplitLocation(entity:SketchEntity,raw:Vec2,entities:readonly SketchEntity[],project:(point:Vec2)=>Vec2,localIds?:ReadonlySet<string>):{point:Vec2;reference?:SketchGeometryRef} {
+  const parameter=selectedCurveParameter(entity,raw),base=parameter===undefined?raw:curvePoint(entity,Math.max(0,Math.min(1,parameter)))??raw;
+  const cursor=project(raw);let best:{point:Vec2;reference?:SketchGeometryRef;distance:number;priority:number}|undefined;
+  const offer=(p:Vec2,reference:SketchGeometryRef,priority:number)=>{const screen=project(p),distance=Math.hypot(screen[0]-cursor[0],screen[1]-cursor[1]);if(distance<=15&&(!best||priority>best.priority||priority===best.priority&&distance<best.distance))best={point:p,reference,distance,priority};};
+  for(const other of entities){if(other.id===entity.id||other.suppressed)continue;const target=localIds&&!localIds.has(other.id)?"EXTERNAL":"ENTITY";
+    if(other.kind==="POINT"&&other.point){const p:Vec2=[other.point.x,other.point.y],t=selectedCurveParameter(entity,p),q=t===undefined?undefined:curvePoint(entity,t);if(t!==undefined&&t>=0&&t<1&&q&&Math.hypot(q[0]-p[0],q[1]-p[1])<=1e-6)offer(p,{target,entityId:other.id,subElement:"POINT"},2);}
+    for(const subElement of ["START","END"] as const){if(["CIRCLE","ELLIPSE","POINT"].includes(other.kind)||other.closed)continue;const p=curvePoint(other,subElement==="START"?0:1);if(!p)continue;const t=selectedCurveParameter(entity,p),q=t===undefined?undefined:curvePoint(entity,t);if(t!==undefined&&t>=0&&t<=1&&q&&Math.hypot(q[0]-p[0],q[1]-p[1])<=1e-6)offer(p,{target,entityId:other.id,subElement,pointId:subElement==="START"?other.startPointId:other.endPointId},2);}
+    try {for(const t of localIntersections(entity,[other])){const p=curvePoint(entity,t);if(p)offer(p,{target,entityId:other.id,subElement:"WHOLE"},1);}}catch{/* Other exact combinations retain endpoint snapping and server validation. */}
+  }
+  return best?{point:best.point,reference:best.reference}:{point:base};
+}
 export function copySketchSelection(context:ToolContext):boolean{
   const entities=localSketchSelection(context.viewport.currentSelections?.()??[],context);if(!entities.length)return false;
   const ids=new Set(entities.map(entity=>entity.id));
@@ -152,6 +163,18 @@ export class SketchEditTool implements CadTool{
   private policy:"INTERNAL"|"GEOMETRY_ONLY"="GEOMETRY_ONLY";
   private fields:[string,string]=["",""];
   private field=0;
+  private transformPointer?:number;
+  private get transformTool():boolean{return ["move","rotate","copy"].includes(this.kind);}
+  private attachTransform(context:ToolContext):void {
+    if(!context.viewport.showSketchManipulator||!this.baseline.length)return;
+    this.origin??=(()=>{const points=this.baseline.flatMap(e=>sampleSketchEntity(e));return points.length?[points.reduce((sum,p)=>sum+p[0],0)/points.length,points.reduce((sum,p)=>sum+p[1],0)/points.length] as Vec2:[0,0] as Vec2;})();
+    context.viewport.showSketchManipulator(this.origin,this.kind==="rotate"?"rotate":"both",value=>{
+      if(!this.validScope(context)||this.phase==="committing"||this.phase==="unknown")return;
+      this.origin=[...value.origin];this.translation=[...value.translation];this.angle=value.angle;this.fields=["",""];
+      this.preview(context);if(value.finish)this.prompt(context);
+      if(value.finish&&(Math.hypot(...this.translation)>SKETCH_INPUT_POLICY.minimumGeometryLength||Math.abs(this.angle)>1e-10))this.confirm(context);
+    });
+  }
   private captured?:number;
   private extendDragStart?:Vec2;
   private extendHoverTimer?:ReturnType<typeof setTimeout>;
@@ -174,7 +197,7 @@ export class SketchEditTool implements CadTool{
         input={id:direct.inputId,fieldIndex:this.field,anchor:layout?.label?context.viewport.projectSketchPoint?.(layout.label.position):direct.anchor,modelAnchor:layout?.label?.position,dimension:!!layout?.label};
       }
     } else if(direct.kind==="split"){role=direct.first?"在同一圆上选择第二个分割位置":"在曲线上选择分割位置";required=direct.first?2:undefined;}
-    else if(direct.kind==="extend")role=direct.stage==="curve"?"选择要延伸的曲线":"移动预览，点击目标位置或边界";
+    else if(direct.kind==="extend")role=direct.stage==="curve"?"选择要延伸的曲线；Ctrl 选择另一端":"移动预览，点击目标位置或边界";
     else role="选择要删除的曲线段";
     const canConfirm=!busy&&(direct.kind==="mirror"?direct.stage==="sources"&&this.selected.size>0:direct.kind==="corner"&&direct.stage==="value");
     context.viewport.setSketchCommandState?.({toolId:this.id,operation:direct.kind==="trim"?"修剪":labels[this.kind],phase:this.phase,role,selectedIds:[...this.selected],references:[...this.cornerRefs,...this.extendReference?[this.extendReference]:[],...this.axis?[this.axis]:[]],fields,options:this.kind==="mirror"?[{name:"mirrorMode",label:"镜像关系",value:this.mirrorMode,choices:[{value:"LINKED",label:"关联镜像"},{value:"INDEPENDENT",label:"独立副本"}]}]:this.kind==="chamfer"?[{name:"chamferMode",label:"倒角定义",value:this.chamferMode,choices:[{value:"EQUAL",label:"等距离"},{value:"TWO_LENGTHS",label:"双距离"},{value:"LENGTH_ANGLE",label:"距离与角度"}]}]:[],canConfirm,next:role,error:this.error,presentation:"inline",input,preview:this.previewStatus==="pending"?"pending":this.previewStatus==="failed"?"unavailable":this.verifiedCandidateGeneration===this.candidateGeneration?"authoritative":"approximate",count:{accepted:this.selected.size,required},completion,recovery:this.recovery(context)});
@@ -202,6 +225,7 @@ export class SketchEditTool implements CadTool{
     }
     // A split/trim activation never invents positions or submits a seed.
     if(entities.length!==1||entities[0].kind==="POINT"){this.error="请选择一条曲线";this.publishDirect(context);return SelectionInputResult.Rejected;}
+    if(direct.kind==="split"){this.selected=new Set([entities[0].id]);this.highlight(context);}
     this.publishDirect(context);return SelectionInputResult.Accepted;
   }
   private refreshDirectSources(context:ToolContext):void {
@@ -303,17 +327,18 @@ export class SketchEditTool implements CadTool{
     }
     if(direct.kind==="extend"){this.directExtend(event,context,true);return;}
     if(direct.kind==="trim"){this.selectIntervalTarget(event,context,true);return;}
-    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"CURVE",undefined,ref=>ref.target==="ENTITY"&&(context.viewport.currentSketchEntities?.()??[]).some(e=>e.id===ref.entityId&&e.kind!=="POINT"));
+    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"CURVE",undefined,ref=>ref.target==="ENTITY"&&(context.viewport.currentSketchEntities?.()??[]).some(e=>e.id===ref.entityId&&e.kind!=="POINT"&&(!this.selected.size||this.selected.has(e.id))));
     const entity=reference?.entityId&&(context.viewport.currentSketchEntities?.()??[]).find(e=>e.id===reference.entityId);
     if(!entity||!target)return;
-    const parameter=selectedCurveParameter(entity,target);if(parameter===undefined||!Number.isFinite(parameter))return;
+    const snap=resolveSplitLocation(entity,target,context.viewport.currentSketchReferenceEntities?.()??context.viewport.currentSketchEntities?.()??[],p=>context.viewport.projectSketchPoint?.(p)??p,new Set((context.viewport.currentSketchEntities?.()??[]).map(e=>e.id)));
+    const parameter=selectedCurveParameter(entity,snap.point);if(parameter===undefined||!Number.isFinite(parameter))return;
     const periodic=entity.kind==="CIRCLE"||entity.kind==="ELLIPSE"||entity.kind==="SPLINE"&&entity.closed;
     if(direct.first&&direct.first.entityId!==entity.id){this.error="第二个分割位置必须在同一条闭合曲线上";this.publishDirect(context);return;}
     if(!periodic&&!(parameter>0&&parameter<1)){this.error="请选择曲线内部位置，已有端点不生成新段";this.publishDirect(context);return;}
-    if(periodic&&!direct.first){direct.first={entityId:entity.id,parameter};this.selected=new Set([entity.id]);this.baseline=[structuredClone(entity)];this.scope=context.viewport.currentSketchIdentity?.();this.phase="definition";context.viewport.showPointPreview(target);this.publishDirect(context);return;}
+    if(periodic&&!direct.first){direct.first={entityId:entity.id,parameter,reference:snap.reference};this.selected=new Set([entity.id]);this.baseline=[structuredClone(entity)];this.scope=context.viewport.currentSketchIdentity?.();this.phase="definition";context.viewport.showPointPreview(snap.point);this.publishDirect(context);return;}
     const parameters=direct.first?[direct.first.parameter,parameter]:[parameter];
     if(direct.first){const first=curvePoint(entity,direct.first.parameter)!;if(Math.hypot(first[0]-target[0],first[1]-target[1])<SKETCH_INPUT_POLICY.minimumGeometryLength){this.error="请选择与第一个分割点不同的位置";this.publishDirect(context);return;}}
-    this.selected=new Set([entity.id]);this.baseline=[structuredClone(entity)];this.scope=context.viewport.currentSketchIdentity?.();this.phase="definition";this.operationID??=randomUUID();this.commit(context,[{type:"SPLIT_ENTITY",operationId:this.operationID,entityIds:[entity.id],parameters,...(this.detach.length?{detachConstraintIds:[...this.detach]}:{})}]);
+    this.selected=new Set([entity.id]);this.baseline=[structuredClone(entity)];this.scope=context.viewport.currentSketchIdentity?.();this.phase="definition";this.operationID??=randomUUID();this.commit(context,[{type:"SPLIT_ENTITY",operationId:this.operationID,entityIds:[entity.id],parameters,...(direct.first?{firstReference:direct.first.reference,secondReference:snap.reference}:snap.reference?{firstReference:snap.reference}:{}),...(this.detach.length?{detachConstraintIds:[...this.detach]}:{})}]);
   }
   private directExtend(event:CadPointerEvent,context:ToolContext,accept:boolean):void {
     const direct=this.direct;if(direct?.kind!=="extend")return;
@@ -328,8 +353,9 @@ export class SketchEditTool implements CadTool{
       const entity=context.viewport.currentSketchEntities?.().find(e=>e.id===reference.entityId);if(!entity)return;
       const a=curvePoint(entity,0)!,b=curvePoint(entity,1)!;
       this.extendReference={target:"ENTITY",entityId:entity.id,subElement:Math.hypot(target[0]-a[0],target[1]-a[1])<Math.hypot(target[0]-b[0],target[1]-b[1])?"START":"END"};
+      if(event.state.modifiers?.ctrl)this.extendReference.subElement=this.extendReference.subElement==="START"?"END":"START";
       this.baseline=[structuredClone(entity)];this.selected=new Set([entity.id]);this.scope=context.viewport.currentSketchIdentity?.();this.operationID=randomUUID();
-      this.phase="definition";direct.stage="target";this.highlight(context);this.publishDirect(context);return;
+      this.phase="definition";direct.stage="target";this.highlight(context);context.viewport.showPointPreview(this.extendReference.subElement==="START"?a:b);this.publishDirect(context);return;
     }
     const operation:SketchOperation={type:"EXTEND_ENTITY",operationId:this.operationID!,entityIds:[this.baseline[0].id],firstReference:this.extendReference!,
       boundaryIds:reference?.entityId?[reference.entityId]:[],point:point(target),...(this.detach.length?{detachConstraintIds:[...this.detach]}:{})};
@@ -376,14 +402,14 @@ export class SketchEditTool implements CadTool{
     }
     if(direct.kind==="extend"){this.directExtend(event,context,false);return;}
     if(direct.kind==="trim"){this.selectIntervalTarget(event,context,false);return;}
-    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"CURVE",undefined,ref=>ref.target==="ENTITY"&&(!direct.first||ref.entityId===direct.first.entityId));
-    const target=context.viewport.sketchPlacementPoint(event.x,event.y);if(reference&&target)context.viewport.showPointPreview(target);
+    const reference=context.viewport.sketchReferenceAt(event.x,event.y,"CURVE",undefined,ref=>ref.target==="ENTITY"&&(!direct.first||ref.entityId===direct.first.entityId)&&(!this.selected.size||this.selected.has(ref.entityId!)));
+    const target=context.viewport.sketchPlacementPoint(event.x,event.y);if(reference&&target){const entity=(context.viewport.currentSketchEntities?.()??[]).find(e=>e.id===reference.entityId);if(entity){const snap=resolveSplitLocation(entity,target,context.viewport.currentSketchReferenceEntities?.()??context.viewport.currentSketchEntities?.()??[],p=>context.viewport.projectSketchPoint?.(p)??p,new Set((context.viewport.currentSketchEntities?.()??[]).map(e=>e.id)));context.viewport.showPointPreview(snap.point);context.viewport.showReferencePreview(snap.reference??reference,[reference]);}}
     else {context.viewport.clearToolPreview();context.viewport.clearReferenceHover?.();if(direct.first){const entity=(context.viewport.currentSketchEntities?.()??[]).find(entity=>entity.id===direct.first!.entityId),point=entity&&curvePoint(entity,direct.first.parameter);if(point)context.viewport.showPointPreview(point);}}
   }
   private publish(context:ToolContext):void {
     if(this.direct){this.publishDirect(context);return;}
     const defining=this.armed;
-    const fields=this.kind==="move"||this.kind==="copy"?["X (mm)","Y (mm)"]:
+    const fields=this.transformTool&&context.viewport.showSketchManipulator?[]:this.kind==="move"||this.kind==="copy"?["X (mm)","Y (mm)"]:
       this.kind==="trim"&&this.advancedTrim?["起点参数（高级）","终点参数（高级）"]:
       this.kind==="chamfer"?["第一长度 (mm)",this.chamferMode==="LENGTH_ANGLE"?"角度 (°)":"第二长度 (mm)"]:
       ["fillet","offset","rotate","split","quick_trim", "spline_insert","spline_delete"].includes(this.kind)?[({fillet:"半径 (mm)",offset:"距离 (mm)",rotate:"角度 (°)",split:"分割参数（高级）",quick_trim:"命中参数（高级）"} as Record<string,string>)[this.kind]??"点位置/结点参数"]:[];
@@ -399,8 +425,8 @@ export class SketchEditTool implements CadTool{
     if(this.kind==="fillet"||this.kind==="chamfer")option("cornerTrimMode","邻接几何",this.cornerTrimMode,[["TRIM","修剪两侧"],["KEEP","保留原元素"]]);
     if(this.kind==="chamfer")option("chamferMode","倒角定义",this.chamferMode,[["EQUAL","等长度"],["TWO_LENGTHS","双长度"],["LENGTH_ANGLE","长度加角度"]]);
     if(this.kind==="offset")option("offsetMode","连接方式",this.offsetMode,[["MITER","斜接"],["ROUND","圆角"]]);
-    const role=!defining?"选择源对象":this.kind==="mirror"?this.axis?"预览与确认":"选择镜像轴":this.kind==="extend"?!this.extendReference?"选择端点":!this.boundaries.length?"选择边界":"选择目标交点分支":this.kind==="fillet"||this.kind==="chamfer"?this.cornerRefs.length<2?"选择角点端部":"选择内外侧分支":this.kind==="trim"||this.kind==="quick_trim"?"命中曲线区间":"定义参数与位置";
-    const canConfirm=this.phase!=="committing"&&this.phase!=="unknown"&&this.previewStatus!=="pending"&&this.previewStatus!=="failed"&&(!defining?this.selected.size>0||this.batch.length>0:this.kind==="mirror"?Boolean(this.axis):this.kind==="fillet"||this.kind==="chamfer"?Boolean(this.cornerPoint&&this.cornerRefs.length===2):true);
+    const role=!defining?"选择源对象":this.transformTool&&context.viewport.showSketchManipulator?"拖动手柄；松开执行，中心调整基点":this.kind==="mirror"?this.axis?"预览与确认":"选择镜像轴":this.kind==="extend"?!this.extendReference?"选择端点":!this.boundaries.length?"选择边界":"选择目标交点分支":this.kind==="fillet"||this.kind==="chamfer"?this.cornerRefs.length<2?"选择角点端部":"选择内外侧分支":this.kind==="trim"||this.kind==="quick_trim"?"命中曲线区间":"定义参数与位置";
+    const canConfirm=this.transformPointer===undefined&&this.phase!=="committing"&&this.phase!=="unknown"&&this.previewStatus!=="pending"&&this.previewStatus!=="failed"&&(!defining||!this.transformTool||!context.viewport.showSketchManipulator||Math.hypot(...this.translation)>SKETCH_INPUT_POLICY.minimumGeometryLength||Math.abs(this.angle)>1e-10)&&(!defining?this.selected.size>0||this.batch.length>0:this.kind==="mirror"?Boolean(this.axis):this.kind==="fillet"||this.kind==="chamfer"?Boolean(this.cornerPoint&&this.cornerRefs.length===2):true);
     context.viewport.setSketchCommandState?.({toolId:this.id,operation:labels[this.kind],presentation:"inline",phase:this.phase,role,count:{accepted:this.selected.size},selectedIds:[...this.selected],references:[...this.cornerRefs,...this.boundaries,...this.axis?[this.axis]:[]],input:defining&&fields.length?{id:this.operationID!,fieldIndex:this.field}:undefined,recovery:this.recovery(context),completion:!defining&&this.selected.size?{label:"完成"}:defining&&!fields.length&&canConfirm?{label:"执行"}:undefined,fields:(defining?fields:[]).map((label,index)=>({label,unit:this.kind==="rotate"?"angle":this.kind==="offset"||this.kind==="move"||this.kind==="copy"?"length":"scalar",value:this.fields[index],placeholder:this.kind==="fillet"||this.kind==="chamfer"||this.kind==="offset"?"5":this.kind==="split"||this.kind==="quick_trim"?"0.5":"0"})),options,canConfirm,next:!defining?"点选可增减对象；点击下一步或 Enter":role,error:this.error,preview:this.previewStatus==="pending"?"pending":this.previewStatus==="failed"?"unavailable":this.verifiedCandidateGeneration===this.candidateGeneration?"authoritative":"approximate"});
   }
   commandAction(action:SketchCommandAction,context:ToolContext):void {
@@ -410,8 +436,8 @@ export class SketchEditTool implements CadTool{
     if(action.type==="retry"&&this.pendingOperations){this.commit(context,this.pendingOperations);return;}
     if(action.type==="retry"&&this.armed){this.preview(context);this.prompt(context);return;}
     if(this.phase==="unknown")return;
-    if(action.type==="back"){this.candidateAbort?.abort();this.candidateGeneration++;this.acceptPendingCandidate=false;this.previewStatus="idle";this.phase="selection";this.axis=undefined;this.cornerRefs=[];this.cornerPoint=undefined;context.viewport.clearToolPreview();context.viewport.clearReferencePreview();this.highlight(context);this.prompt(context);return;}
-    if(action.type==="confirm"){if(!this.armed)this.arm(context);else this.confirm(context);return;}
+    if(action.type==="back"){context.viewport.clearSketchManipulator?.();this.transformPointer=undefined;this.translation=[0,0];this.angle=0;this.candidateAbort?.abort();this.candidateGeneration++;this.acceptPendingCandidate=false;this.previewStatus="idle";this.phase="selection";this.axis=undefined;this.cornerRefs=[];this.cornerPoint=undefined;context.viewport.clearToolPreview();context.viewport.clearReferencePreview();this.highlight(context);this.prompt(context);return;}
+    if(action.type==="confirm"){if(this.transformPointer!==undefined)return;if(!this.armed)this.arm(context);else this.confirm(context);return;}
     if(action.type==="field"){if(this.kind==="trim")this.advancedTrim=true;if(action.index<0||action.index>1)return;this.fields[action.index]=action.value;this.error=undefined;if(!this.applyFields()){this.candidateAbort?.abort();this.candidateGeneration++;this.acceptPendingCandidate=false;this.previewStatus="idle";this.error="输入必须为有限数值";context.viewport.clearToolPreview();this.publish(context);return;}if(this.armed)this.preview(context);this.prompt(context);return;}
     if(action.type==="option") {
       if(action.name==="copy"){this.copy=action.value==="true";if(this.armed)this.preview(context);this.prompt(context);return;}
@@ -449,7 +475,7 @@ export class SketchEditTool implements CadTool{
       this.error="选择包含当前草图以外或不可编辑的对象，请修正选择";this.publish(context);return SelectionInputResult.Rejected;
     }
     if(source==="selection")this.selected=new Set(entities.map(entity=>entity.id));else for(const entity of entities)this.selected.add(entity.id);
-    this.highlight(context);if(this.kind==="construction"&&entities.length)this.arm(context);else this.prompt(context);return SelectionInputResult.Accepted;
+    this.highlight(context);if((this.kind==="construction"||this.transformTool&&!!context.viewport.showSketchManipulator&&source==="activation")&&entities.length)this.arm(context);else this.prompt(context);return SelectionInputResult.Accepted;
   }
   private prompt(context:ToolContext):void{
     if(this.direct){this.publishDirect(context);return;}
@@ -479,6 +505,7 @@ export class SketchEditTool implements CadTool{
     const inputs=this.kind==="move"||this.kind==="copy"?`X mm: ${this.fields[0]||this.translation[0]}，Y mm: ${this.fields[1]||this.translation[1]}；Tab 切换`:
       this.kind==="rotate"?`角度°: ${this.fields[0]||this.angle*180/Math.PI}`:this.kind==="split"?`参数比例 0~1: ${this.fields[0]||"0.5"}`:this.kind==="trim"?`保留范围 0~1: ${this.fields[0]||"0"} → ${this.fields[1]||"1"}；Tab 切换`:
       this.kind==="quick_trim"?`边界 ${this.boundaries.length} 条；选择边界，再点击目标曲线区间或输入命中比例 ${this.fields[0]||"0.5"}；Q 模式: ${{DELETE_HIT:"删除命中段",KEEP_HIT:"保留命中段",BREAK:"打断保留各段"}[this.trimMode]}`:"选择直线/辅助线作为轴，或 X/Y 内置轴";
+    if(this.transformTool&&this.armed&&context.viewport.showSketchManipulator){context.viewport.setToolPrompt(`${labels[this.kind]}：拖动箭头/平面移动，弧形手柄旋转，中心手柄调整基点；Esc 取消`);return;}
     if(["split","trim","quick_trim"].includes(this.kind)){const conversion=this.baseline[0]?.kind==="SPLINE"&&this.baseline[0].mode!=="CONTROL"?"；FIT 将使用精确子曲线转为 CONTROL（不重新拟合），拟合点引用需明确解除或操作拒绝":"";context.viewport.setToolPrompt(`${labels[this.kind]}：${inputs}${conversion}；Enter 确认，Esc 取消；交点由权威内核计算；U ${this.detach.length?`明确解除 ${this.detach.length} 个整体关系（再按可取消）`:"预览整体关系释放影响"}`);return;}
     const gesture=this.kind==="move"||this.kind==="copy"?"单击基点和目标点":this.kind==="rotate"?"单击中心、基准点和目标点":"";
     context.viewport.setToolPrompt(`${labels[this.kind]}：${gesture}；${inputs}；Enter 提交，Esc 取消；${this.kind==="mirror"&&this.mirrorMode==="LINKED"?"关联镜像（M 切换为独立）；正式反射关系，不复制驱动尺寸":this.kind==="mirror"||this.kind==="copy"||this.copy?`${this.kind==="mirror"?"独立镜像（M 切换为关联）；":""}${this.policy==="INTERNAL"?"复制内部约束":"仅几何副本（不复制连接和尺寸）"}（I 切换）`:"保留约束，冲突时拒绝"}；Shift+C 切换带复制`);
@@ -525,6 +552,7 @@ export class SketchEditTool implements CadTool{
     if(this.kind==="delete"){this.commit(context,[{type:"DELETE_ENTITIES",entityIds:entities.map(entity=>entity.id)}]);return true;}
     if(this.kind==="construction"){const role=entities.every(entity=>entity.role==="CONSTRUCTION")?"PROFILE":"CONSTRUCTION";
       this.commit(context,entities.map(entity=>({type:"UPDATE_ENTITY_ROLE",entityId:entity.id,role})));return true;}
+    if(this.transformTool)this.attachTransform(context);
     if(context.viewport.previewSketchOperations&&(this.kind.startsWith("spline_")||["complement","close","offset"].includes(this.kind)))this.preview(context);
     this.prompt(context);return true;
   }
@@ -626,6 +654,12 @@ export class SketchEditTool implements CadTool{
     return true;
   }
   pointerDown(event:CadPointerEvent,context:ToolContext):InputResult{
+    if(this.transformTool&&this.armed&&context.viewport.sketchManipulatorPointerDown){
+      if(event.button!==0||event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
+      if(this.phase==="committing"||this.phase==="unknown"||!this.validScope(context))return InputResult.Consumed;
+      if(context.viewport.sketchManipulatorPointerDown(event.pointerId,event.x,event.y)){this.transformPointer=event.pointerId;this.error=undefined;this.phase="definition";this.prompt(context);return InputResult.Capture;}
+      return InputResult.Consumed;
+    }
     if(event.state.buttons.middle||event.state.buttons.right&&event.button===0)return InputResult.Ignored;
     if(event.button===2){if(this.direct)return InputResult.Ignored;this.cancel(context);context.viewport.finishToolUse(true);return InputResult.Consumed;}
     if(event.button!==0||this.captured!==undefined||!context.viewport.hasActiveSketch())return InputResult.Ignored;
@@ -712,6 +746,12 @@ export class SketchEditTool implements CadTool{
     this.applyFields();
   }
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult{
+    if(this.transformTool&&this.armed&&context.viewport.sketchManipulatorPointerMove){
+      if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
+      if(this.phase==="committing"||this.phase==="unknown"||!this.validScope(context))return InputResult.Consumed;
+      context.viewport.sketchManipulatorPointerMove(event.pointerId,event.x,event.y);return InputResult.Consumed;
+    }
+
     if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
     if(this.phase==="committing"||this.phase==="unknown")return InputResult.Consumed;
     if(!this.validScope(context))return InputResult.Consumed;
@@ -727,13 +767,15 @@ export class SketchEditTool implements CadTool{
     this.preview(context);this.prompt(context);return InputResult.Consumed;
   }
   pointerUp(event:CadPointerEvent,context:ToolContext):InputResult{
+    if(event.pointerId===this.transformPointer){this.transformPointer=undefined;if(this.validScope(context)){context.viewport.sketchManipulatorPointerMove?.(event.pointerId,event.x,event.y);context.viewport.sketchManipulatorPointerUp?.(event.pointerId,true);}else context.viewport.sketchManipulatorPointerUp?.(event.pointerId,false);return InputResult.ReleaseCapture;}
+
     if(event.pointerId!==this.captured||event.button!==0)return InputResult.Ignored;
     this.captured=undefined;
     if(this.direct?.kind==="extend"&&this.direct.stage==="target"&&this.extendDragStart&&
       Math.hypot(event.x-this.extendDragStart[0],event.y-this.extendDragStart[1])>4&&this.phase!=="committing"&&this.phase!=="unknown")this.directExtend(event,context,true);
     this.extendDragStart=undefined;return InputResult.ReleaseCapture;
   }
-  pointerCancel(event:CadPointerEvent,context:ToolContext):InputResult{if(event.pointerId!==this.captured)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
+  pointerCancel(event:CadPointerEvent,context:ToolContext):InputResult{if(event.pointerId===this.transformPointer){context.viewport.sketchManipulatorPointerUp?.(event.pointerId,false);this.transformPointer=undefined;this.cancel(context);return InputResult.Consumed;}if(event.pointerId!==this.captured)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
   private applyFields():boolean{
     const values=this.fields.map(value=>value===""?undefined:Number(value));if(values.some(value=>value!==undefined&&!Number.isFinite(value)))return false;
     if(this.kind==="move"||this.kind==="copy")this.translation=[values[0]??this.translation[0],values[1]??this.translation[1]];
@@ -756,6 +798,7 @@ export class SketchEditTool implements CadTool{
       return InputResult.Ignored;
     }
     if(event.key==="Enter"){
+      if(event.repeat||this.transformPointer!==undefined)return InputResult.Consumed;
       if(!this.armed&&this.batch.length&&!this.selected.size)this.commit(context,[...this.batch]);
       else if(!this.armed)this.arm(context);else this.confirm(context);return InputResult.Consumed;
     }
@@ -805,6 +848,7 @@ export class SketchEditTool implements CadTool{
   }
   private confirm(context:ToolContext):void{
     if(!this.armed||!this.validScope(context)||this.previewStatus==="failed"||this.phase==="committing")return;
+    if(this.transformTool&&context.viewport.showSketchManipulator&&Math.hypot(...this.translation)<=SKETCH_INPUT_POLICY.minimumGeometryLength&&Math.abs(this.angle)<=1e-10)return;
     // One accepted Enter can wait for the current read-only preview, without creating a second request.
     if(this.previewStatus==="pending"){this.acceptPendingCandidate=true;return;}
     if(this.kind==="fillet"||this.kind==="chamfer"){const operation=this.cornerOperation(context);if(operation)this.commit(context,[...this.batch,operation]);return;}
@@ -887,10 +931,12 @@ export class SketchEditTool implements CadTool{
     if(this.phase==="failed")this.requestID=undefined;
     this.error=error instanceof Error?error.message:String(error);
     context.viewport.clearToolPreview();context.viewport.clearReferencePreview();
+    if(this.transformTool&&this.phase==="failed")this.attachTransform(context);
     this.prompt(context);context.viewport.setToolPrompt(`${this.phase==="unknown"?"提交结果待确认；按原请求查询/重试":"操作失败，可修改后重试"}：${this.error}`);
   }
   deactivate(context:ToolContext):void{this.cancel(context);context.viewport.setSketchCommandState?.(undefined);}
   cancel(context:ToolContext):void{
+    context.viewport.sketchManipulatorPointerUp?.(this.transformPointer??-1,false);this.transformPointer=undefined;context.viewport.clearSketchManipulator?.();
     this.candidateAbort?.abort();this.candidateGeneration++;this.acceptPendingCandidate=false;this.previewStatus="idle";this.candidate=undefined;
     this.commitGeneration++;this.requestID=undefined;this.pendingOperations=undefined;this.error=undefined;this.hover=undefined;
     this.splinePointReference=undefined;this.extendReference=undefined;this.branchPoint=undefined;this.batch=[];this.cornerRefs=[];this.cornerPoint=undefined;this.selected.clear();this.baseline=[];this.scope=undefined;this.phase="selection";this.operationID=undefined;this.origin=undefined;this.ray=undefined;

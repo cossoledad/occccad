@@ -178,7 +178,7 @@ function filletCandidates(first: SketchEntity, second: SketchEntity, active: [Sk
   }
   return candidates.sort((a, b) => a.score - b.score || a.center.x - b.center.x || a.center.y - b.center.y || (a.end - a.start) - (b.end - b.start));
 }
-function localIntersections(source: SketchEntity, boundaries: readonly SketchEntity[]): number[] {
+export function localIntersections(source: SketchEntity, boundaries: readonly SketchEntity[]): number[] {
   const supported = (e: SketchEntity) => ["LINE", "CIRCLE", "ARC"].includes(e.kind);
   if (!supported(source) || boundaries.some(e => !supported(e))) throw new Error("该组合等待精确曲线候选；本地显示不使用采样交点");
   const parameters: number[] = [];

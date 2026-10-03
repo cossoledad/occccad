@@ -59,6 +59,11 @@ export type ToolViewportPort = {
   showSketchEntityPreview?(entities:readonly SketchEntity[]):void;
   retainSelections(selections: SelectionItem[]): void;
   requestAssemblyConstraint(kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]): void;
+  showSketchManipulator?(origin:Vec2,mode:"translate"|"rotate"|"both",changed:(value:{translation:Vec2;angle:number;origin:Vec2;finish?:boolean})=>void):void;
+  clearSketchManipulator?():void;
+  sketchManipulatorPointerDown?(pointerId:number,x:number,y:number):boolean;
+  sketchManipulatorPointerMove?(pointerId:number,x:number,y:number):boolean;
+  sketchManipulatorPointerUp?(pointerId:number,commit:boolean):boolean;
   moveManipulatorPointerDown(pointerId: number, x: number, y: number): boolean;
   moveManipulatorPointerMove(pointerId: number, x: number, y: number): boolean;
   moveManipulatorPointerUp(pointerId: number, commit: boolean): boolean;
@@ -557,23 +562,23 @@ export class CircleSketchTool extends TwoClickSketchTool {
 }
 
 export class ArcSketchTool extends SketchCreationTool {
-  readonly id="sketch.arc"; private clockwise=false; private center?:Vec2; private start?:Vec2; private centerSnap?:SketchGeometryRef; private startSnap?:SketchGeometryRef; private capturedPointerID?:number;
+  readonly id="sketch.arc"; private clockwise=false; private lastHover?:CadPointerEvent; private center?:Vec2; private start?:Vec2; private centerSnap?:SketchGeometryRef; private startSnap?:SketchGeometryRef; private capturedPointerID?:number;
   selectionInput(selections:readonly SelectionItem[],context:ToolContext):SelectionInputResult {
     if(this.center)return SelectionInputResult.Rejected;const source=localSketchSelection(selections,context).find(entity=>entity.kind==="POINT"&&entity.point);
     if(source?.point){this.center=[source.point.x,source.point.y];this.centerSnap={target:"ENTITY",entityId:source.id,subElement:"POINT"};context.viewport.setToolPrompt("圆弧：已使用预选中心，单击起点");return SelectionInputResult.Accepted;}
     return SelectionInputResult.Unhandled;
   }
-  activate(context:ToolContext):void { context.viewport.setToolPrompt("圆弧：单击圆心"); }
+  activate(context:ToolContext):void { context.viewport.setToolPrompt("圆弧：单击圆心；按住 Ctrl 反向，R 切换默认方向"); }
   pointerDown(event:CadPointerEvent,context:ToolContext):InputResult {
     if(this.creationPending){if(event.button===2){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if(this.endOnRightClick(event,context))return InputResult.Consumed;
     if(event.button!==0||this.capturedPointerID!==undefined||!context.viewport.hasActiveSketch())return InputResult.Ignored;
     const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;this.capturedPointerID=event.pointerId;
     if(!this.center){this.center=value;this.centerSnap=this.capturedSnap(event,context);context.viewport.setToolPrompt("圆弧：单击起点");return InputResult.Capture;}
-    if(!this.start){if(Math.hypot(value[0]-this.center[0],value[1]-this.center[1])<SKETCH_INPUT_POLICY.minimumGeometryLength)return InputResult.Consumed;this.start=value;this.startSnap=this.capturedSnap(event,context);context.viewport.setToolPrompt("圆弧：单击终点；Esc 取消");return InputResult.Capture;}
+    if(!this.start){if(Math.hypot(value[0]-this.center[0],value[1]-this.center[1])<SKETCH_INPUT_POLICY.minimumGeometryLength)return InputResult.Consumed;this.start=value;this.startSnap=this.capturedSnap(event,context);context.viewport.setToolPrompt("圆弧：单击终点；按住 Ctrl 反向，Esc 取消");return InputResult.Capture;}
     const center=this.center,start=this.start,radius=Math.hypot(start[0]-center[0],start[1]-center[1]);
     let startAngle=Math.atan2(start[1]-center[1],start[0]-center[0]);let endAngle=Math.atan2(value[1]-center[1],value[0]-center[0]);
-    const sweep=positiveTurn(endAngle-startAngle);endAngle=startAngle+(this.clockwise?sweep-2*Math.PI:sweep);
+    const sweep=positiveTurn(endAngle-startAngle);endAngle=startAngle+((this.clockwise!==!!event.state.modifiers?.ctrl)?sweep-2*Math.PI:sweep);
     if(Math.abs(endAngle-startAngle)<1e-9||Math.abs(endAngle-startAngle)>=Math.PI*2-1e-9)return InputResult.Consumed;
     const id=randomUUID(),operations:SketchOperation[]=[{type:"ADD_ENTITY",entity:{id,kind:"ARC",role:this.role,center:{x:center[0],y:center[1]},radius,startAngle,endAngle}}];
     for(const [subElement,target] of [["CENTER",this.centerSnap],["START",this.startSnap],["END",this.capturedSnap(event,context)]] as const)
@@ -582,17 +587,20 @@ export class ArcSketchTool extends SketchCreationTool {
   }
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {
     if(this.creationPending)return InputResult.Consumed;
+    this.lastHover=event;
     if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;if(!this.center)return InputResult.Consumed;
     if(!this.start){context.viewport.showPolylinePreview([this.center,value]);context.viewport.showReferenceDimensions([{kind:"CIRCLE",center:this.center,edge:value}]);return InputResult.Consumed;}
-    const radius=Math.hypot(this.start[0]-this.center[0],this.start[1]-this.center[1]);const first=Math.atan2(this.start[1]-this.center[1],this.start[0]-this.center[0]);let last=Math.atan2(value[1]-this.center[1],value[0]-this.center[0]);const sweep=positiveTurn(last-first);last=first+(this.clockwise?sweep-2*Math.PI:sweep);
+    const radius=Math.hypot(this.start[0]-this.center[0],this.start[1]-this.center[1]);const first=Math.atan2(this.start[1]-this.center[1],this.start[0]-this.center[0]);let last=Math.atan2(value[1]-this.center[1],value[0]-this.center[0]);const sweep=positiveTurn(last-first);last=first+((this.clockwise!==!!event.state.modifiers?.ctrl)?sweep-2*Math.PI:sweep);
     context.viewport.showPolylinePreview(Array.from({length:49},(_,index):Vec2=>{const angle=first+(last-first)*index/48;return[this.center![0]+radius*Math.cos(angle),this.center![1]+radius*Math.sin(angle)];}));
     context.viewport.showReferenceDimensions([{kind:"CIRCLE",center:this.center,edge:this.start}]);return InputResult.Consumed;
   }
   pointerUp(event:CadPointerEvent):InputResult {if(event.button!==0||event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.capturedPointerID=undefined;return InputResult.ReleaseCapture;}
   pointerCancel(event:CadPointerEvent,context:ToolContext):InputResult {if(event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
   keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {
+    if(event.key==="Control"&&!event.editableTarget){this.keyUp(event,context);return InputResult.Consumed;}
     if(this.creationPending){if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}const shared=this.creationKey(event,context);if(shared!==InputResult.Ignored)return shared;if(event.key.toLowerCase()==="r"&&!event.editableTarget){this.clockwise=!this.clockwise;context.viewport.setToolPrompt(`圆弧：${this.clockwise?"顺时针":"逆时针"}；R 反向，C 辅助几何`);return InputResult.Consumed;}if(event.key!=="Escape"||!this.center)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
-  deactivate(context:ToolContext):void {this.cancel(context);} cancel(context:ToolContext):void {this.invalidateCreationSubmission();this.center=undefined;this.start=undefined;this.centerSnap=undefined;this.startSnap=undefined;this.capturedPointerID=undefined;context.viewport.clearToolPreview();context.viewport.setToolPrompt("圆弧：单击圆心");}
+  keyUp(event:CadKeyboardEvent,context:ToolContext):InputResult {if(event.key!=="Control"||event.editableTarget)return InputResult.Ignored;if(this.lastHover&&!this.creationPending)this.pointerMove({...this.lastHover,state:{...this.lastHover.state,modifiers:event.state.modifiers}},context);return InputResult.Consumed;}
+  deactivate(context:ToolContext):void {this.cancel(context);} cancel(context:ToolContext):void {this.invalidateCreationSubmission();this.lastHover=undefined;this.center=undefined;this.start=undefined;this.centerSnap=undefined;this.startSnap=undefined;this.capturedPointerID=undefined;context.viewport.clearToolPreview();context.viewport.setToolPrompt("圆弧：单击圆心");}
 }
 
 abstract class MultiPointSketchTool extends SketchCreationTool {
@@ -910,10 +918,10 @@ export class EllipseSketchTool extends MultiPointSketchTool {
   readonly prompt:string="椭圆：依次选择中心、主轴端点和次轴宽度；C 辅助几何，Esc 取消";
   minimumPoints=3;
   protected arc=false;
-  private clockwise=false;
+  private lastHover?:CadPointerEvent; private reverseHeld=false; private clockwise=false;
   private numericFields:[string,string]=["",""];
   private numericField=0;
-  protected resetCreation():void{this.numericFields=["",""];this.numericField=0;}
+  protected resetCreation():void{this.numericFields=["",""];this.numericField=0;this.lastHover=undefined;this.reverseHeld=false;}
   private numericPoint():Vec2|undefined{
     if(!this.numericFields.some(Boolean)||!this.points.length)return undefined;
     const radius=Number(this.numericFields[0]),center=this.points[0];
@@ -955,9 +963,10 @@ export class EllipseSketchTool extends MultiPointSketchTool {
   }
   private range(ellipse:NonNullable<ReturnType<EllipseSketchTool["ellipse"]>>,last:Vec2):[number,number]{
     const start=this.parameter(ellipse,this.points[3]),sweep=positiveTurn(this.parameter(ellipse,last)-start);
-    return[start,start+(this.clockwise?sweep-2*Math.PI:sweep)];
+    return[start,start+((this.clockwise!==this.reverseHeld)?sweep-2*Math.PI:sweep)];
   }
   pointerDown(event:CadPointerEvent,context:ToolContext):InputResult{
+    this.reverseHeld=!!event.state.modifiers?.ctrl;
     if(this.creationPending){if(event.button===2){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if(event.button===0){
       const point=context.viewport.sketchPoint(event.x,event.y);if(!point)return InputResult.Ignored;
@@ -975,6 +984,7 @@ export class EllipseSketchTool extends MultiPointSketchTool {
     return result;
   }
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult{
+    this.reverseHeld=!!event.state.modifiers?.ctrl;this.lastHover=event;
     if(this.creationPending)return InputResult.Consumed;
     if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;
     if(this.numericFields.some(Boolean)){this.numericPreview(context);return InputResult.Consumed;}
@@ -989,6 +999,8 @@ export class EllipseSketchTool extends MultiPointSketchTool {
   keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult{
     if(this.creationPending){if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}
     if(event.editableTarget)return InputResult.Ignored;
+    if(event.key==="Control"){this.keyUp(event,context);return InputResult.Consumed;}
+    this.reverseHeld=!!event.state?.modifiers.ctrl;
     if(this.arc&&event.key.toLowerCase()==="r"){this.clockwise=!this.clockwise;context.viewport.setToolPrompt(`椭圆弧：${this.clockwise?"顺时针":"逆时针"}；选择范围端点，R 反向`);this.numericPreview(context);return InputResult.Consumed;}
     if(this.points.length&&this.points.length<this.minimumPoints&&!event.state?.modifiers.ctrl&&!event.state?.modifiers.meta){
       if(event.key==="Tab"){this.numericField=this.points.length===1?1-this.numericField:0;this.numericPrompt(context);return InputResult.Consumed;}
@@ -1006,6 +1018,7 @@ export class EllipseSketchTool extends MultiPointSketchTool {
     }
     return super.keyDown(event,context);
   }
+  keyUp(event:CadKeyboardEvent,context:ToolContext):InputResult {if(event.key!=="Control"||event.editableTarget)return InputResult.Ignored;this.reverseHeld=!!event.state.modifiers.ctrl;if(this.lastHover&&!this.creationPending)this.pointerMove({...this.lastHover,state:{...this.lastHover.state,modifiers:event.state.modifiers}},context);return InputResult.Consumed;}
   commit(context:ToolContext):void{
     const ellipse=this.ellipse(this.points)!,id=randomUUID(),range=this.arc?this.range(ellipse,this.points[4]):[0,2*Math.PI];
     const operations:SketchOperation[]=[{type:"ADD_ENTITY",entity:{id,kind:this.arc?"ELLIPTICAL_ARC":"ELLIPSE",role:this.role,
@@ -1024,7 +1037,7 @@ export class EllipseSketchTool extends MultiPointSketchTool {
   }
 }
 export class EllipticalArcSketchTool extends EllipseSketchTool {
-  readonly id="sketch.elliptical_arc";readonly prompt="椭圆弧：中心、主轴、次轴，然后选择起点与终点；R 反向，C 辅助几何";minimumPoints=5;protected arc=true;
+  readonly id="sketch.elliptical_arc";readonly prompt="椭圆弧：中心、主轴、次轴，然后选择起点与终点；按住 Ctrl 反向，R 切换默认方向";minimumPoints=5;protected arc=true;
 }
 
 // Constraint tools intentionally share the same tool lifecycle now. Entity

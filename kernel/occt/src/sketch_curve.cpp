@@ -297,6 +297,23 @@ ProfileCurveSpec trim_sketch_curve(const ProfileCurveSpec& source, double start,
         throw std::invalid_argument("invalid trim interval");
     const auto c = exact_curve(source);
     const bool periodic_support = source.kind == "CIRCLE" || source.kind == "ELLIPSE";
+    // Request domains are calculated in another runtime. Permit only bounded
+    // floating-point representation drift at an existing native endpoint, not
+    // geometric tolerance or an extension beyond the finite support.
+    if (!periodic_support) {
+        const double lo = std::min(c.start, c.end), hi = std::max(c.start, c.end);
+        double below = lo, above = hi;
+        for (int i = 0; i < 8; ++i) {
+            below = std::nextafter(below, -INFINITY);
+            above = std::nextafter(above, INFINITY);
+        }
+        const auto canonical_endpoint = [=](double value) {
+            if (value < lo && value >= below) return lo;
+            if (value > hi && value <= above) return hi;
+            return value;
+        };
+        start = canonical_endpoint(start); end = canonical_endpoint(end);
+    }
     if ((periodic_support && std::abs(end - start) > 2 * pi) ||
         (!periodic_support && (std::min(start, end) < std::min(c.start, c.end) ||
                                std::max(start, end) > std::max(c.start, c.end))))

@@ -59,7 +59,7 @@ import { constraintSymbolCode, makeConstraintDimensionLabel, makeSketchConstrain
 import { isDimensionConstraintKind, type ConstraintKind } from "../cad/sketch/sketch-constraint-definition";
 import { measureSketchDimension } from "../cad/sketch/sketch-constraint-layout";
 import { sketchReferenceDimensions, SKETCH_INPUT_POLICY } from "../cad/sketch/sketch-input-policy";
-import { sampleSketchEntity, sketchEntityPoint, splineEditablePoints, splineReferencePoint } from "../cad/sketch/sketch-geometry";
+import { sampleSketchEntity, ellipsePoint, sketchEntityPoint, splineEditablePoints, splineReferencePoint } from "../cad/sketch/sketch-geometry";
 import { sketchProfileFeedback } from "../cad/sketch/sketch-profile-analysis";
 import { CadShaderLibrary } from "../cad/rendering/shader/cad-shader-library";
 import { manipulatorFrame, transformAroundWorldPivot, viewportMetrics, worldUnitsPerCssPixel } from "../cad/rendering/viewport-metrics";
@@ -337,6 +337,10 @@ export class CadViewportEngine {
   private referencePreview?: THREE.Object3D;
   private referenceHover?: THREE.Object3D;
   private snapPreview?: THREE.Object3D;
+  private sketchManipulator?:AssemblyManipulator;
+  private sketchManipulatorChanged?:(value:{translation:Vec2;angle:number;origin:Vec2;finish?:boolean})=>void;
+  private sketchManipulatorLastValue?:{translation:Vec2;angle:number;origin:Vec2};
+  private sketchManipulatorOrigin:Vec2=[0,0];
   private lastSketchSnap?: SketchSnapResult;
   private commandPreview?: THREE.Object3D;
   private previewBody?: { group: THREE.Group; visible: boolean };
@@ -1605,6 +1609,7 @@ export class CadViewportEngine {
     this.clearCommandPreview(false);
     this.transforms.stopAll();
     this.moveManipulator.dispose();
+    this.sketchManipulator?.dispose();
     this.navigationHUD.dispose();
     this.background.dispose();
     this.groundGrid.dispose();
@@ -2348,9 +2353,15 @@ export class CadViewportEngine {
         object = makeSketchOverlayLine(positions, entityColor, entity.role === "CONSTRUCTION" ? 2 : 2.5, entity.role === "CONSTRUCTION");
         updateHighlightLineResolution(object, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
         object.renderOrder = entity.role === "CONSTRUCTION" ? SKETCH_FEEDBACK_ORDER.construction : SKETCH_FEEDBACK_ORDER.geometry;
-        const markers=(entity.kind==="CIRCLE"||entity.kind==="ELLIPSE")&&entity.center?[localToWorld(plane,[entity.center.x,entity.center.y])]
-          :entity.kind==="SPLINE"?splineEditablePoints(entity).map((point)=>localToWorld(plane,[point.x,point.y]))
-            :[positions[0],positions.at(-1)!];
+        const markerPoints:Vec2[] = entity.kind==="SPLINE"?splineEditablePoints(entity).map(p=>[p.x,p.y])
+          :["CIRCLE","ELLIPSE"].includes(entity.kind)?[]:[worldToLocal(plane,positions[0]),worldToLocal(plane,positions.at(-1)!)];
+        if(entity.center&&["CIRCLE","ARC","ELLIPSE","ELLIPTICAL_ARC"].includes(entity.kind))markerPoints.push([entity.center.x,entity.center.y]);
+        if(entity.center&&["ELLIPSE","ELLIPTICAL_ARC"].includes(entity.kind)){
+          const focal=Math.sqrt(entity.majorRadius!**2-entity.minorRadius!**2),c=Math.cos(entity.rotation??0),s=Math.sin(entity.rotation??0);
+          markerPoints.push([entity.center.x+focal*c,entity.center.y+focal*s],[entity.center.x-focal*c,entity.center.y-focal*s]);
+          for(const angle of [0,Math.PI/2]){const point=ellipsePoint(entity,angle);if(point)markerPoints.push(point);}
+        }
+        const markers=markerPoints.map(point=>localToWorld(plane,point));
         const endpointMarkers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(markers),
           this.materials.point(CATIA_VISUAL_THEME.vertex, 8, false));
         endpointMarkers.userData = { ...entitySelection, sketchEntityOverlay: true }; endpointMarkers.renderOrder = entity.role === "CONSTRUCTION" ? SKETCH_FEEDBACK_ORDER.constructionEndpoint : SKETCH_FEEDBACK_ORDER.endpoint; group.add(endpointMarkers);
@@ -2955,8 +2966,39 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
+  private showSketchManipulator(origin:Vec2,mode:"translate"|"rotate"|"both",changed:(value:{translation:Vec2;angle:number;origin:Vec2;finish?:boolean})=>void):void {
+    if(!this.sketchPlane)return;
+    if(!this.sketchManipulator){
+      const notify=(finish?:boolean)=>{
+        if(!this.sketchPlane||!this.sketchManipulator)return;
+        const candidate=this.sketchManipulator.candidatePose(),position=worldToLocal(this.sketchPlane,candidate.position);
+        const normal=localToWorld(this.sketchPlane,[1,0]).sub(localToWorld(this.sketchPlane,[0,0])).cross(localToWorld(this.sketchPlane,[0,1]).sub(localToWorld(this.sketchPlane,[0,0]))).normalize();
+        const angle=2*Math.atan2(new THREE.Vector3(candidate.rotation.x,candidate.rotation.y,candidate.rotation.z).dot(normal),candidate.rotation.w);
+        this.sketchManipulatorLastValue={origin:[...this.sketchManipulatorOrigin],translation:[position[0]-this.sketchManipulatorOrigin[0],position[1]-this.sketchManipulatorOrigin[1]],angle};
+        this.sketchManipulator.setPreviewPose(candidate.position,candidate.rotation.clone().multiply(this.sketchManipulator.frameQuaternion()));
+        this.sketchManipulatorChanged?.({...this.sketchManipulatorLastValue,finish});
+      };
+      this.sketchManipulator=new AssemblyManipulator(this.shaders,{
+        poseChanged:()=>notify(),visualChanged:()=>this.invalidate(),dragStarted:()=>{},
+        dragFinished:commit=>{if(commit&&this.sketchManipulatorLastValue)this.sketchManipulatorChanged?.({...this.sketchManipulatorLastValue,finish:true});},
+        snapPivot:(x,y)=>{const point=this.sketchPoint(x,y);return point&&this.sketchPlane?{position:localToWorld(this.sketchPlane,point)}:undefined;},
+        pivotChanged:anchor=>{if(this.sketchPlane)this.sketchManipulatorOrigin=worldToLocal(this.sketchPlane,anchor.position);},
+      },true);
+      this.attachSketchPreview(this.sketchManipulator.root);
+    }
+    this.sketchManipulatorOrigin=[...origin];this.sketchManipulatorLastValue=undefined;this.sketchManipulatorChanged=changed;
+    const zero=localToWorld(this.sketchPlane,[0,0]),u=localToWorld(this.sketchPlane,[1,0]).sub(zero).normalize(),v=localToWorld(this.sketchPlane,[0,1]).sub(zero).normalize();
+    this.sketchManipulator.attach(localToWorld(this.sketchPlane,origin),new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(u,v,u.clone().cross(v))));
+    this.sketchManipulator.setPlanarMode(mode);this.invalidate();
+  }
+  private clearSketchManipulator():void {this.sketchManipulatorChanged=undefined;this.sketchManipulator?.detach();this.invalidate();}
   private toolViewportPort(): ToolViewportPort {
     return {
+      showSketchManipulator:(origin,mode,changed)=>this.showSketchManipulator(origin,mode,changed),
+      clearSketchManipulator:()=>this.clearSketchManipulator(),
+      sketchManipulatorPointerDown:(id,x,y)=>{this.sketchManipulator?.updateScale(this.camera,viewportMetrics(this.renderer));return this.sketchManipulator?.pointerDown(id,x,y,this.camera,this.renderer.domElement)??false;},
+      sketchManipulatorPointerMove:(id,x,y)=>this.sketchManipulator?.pointerMove(id,x,y,this.camera,this.renderer.domElement)??false,
+      sketchManipulatorPointerUp:(id,commit)=>this.sketchManipulator?.pointerUp(id,commit)??false,
       sketchPoint: (x, y) => this.sketchPoint(x, y),
       sketchSnapReference: () => {
         const snap=this.lastSketchSnap;
@@ -3235,6 +3277,7 @@ export class CadViewportEngine {
         if (this.viewTransition.update(now)) this.navigation.syncCamera(false);
         this.updateNavigationHUD();
         this.moveManipulator.updateScale(this.camera, viewportMetrics(this.renderer));
+        this.sketchManipulator?.updateScale(this.camera,viewportMetrics(this.renderer));
         this.updateScreenStableReferences();
         const metrics=viewportMetrics(this.renderer);
         updateScreenLines(this.scene, this.camera, metrics.cssWidth, metrics.cssHeight);

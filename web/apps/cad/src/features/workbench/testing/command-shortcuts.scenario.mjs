@@ -16,7 +16,8 @@ try {
   assert.equal(resolveCommandShortcut({ ...base, key: "f", ctrlKey: false })?.command, "view.fit");
   assert.equal(resolveCommandShortcut({ ...base, key: "L", ctrlKey: false })?.command, "sketch.line");
   assert.equal(resolveCommandShortcut({ ...base, key: "?", ctrlKey: false, shiftKey: true })?.command, "ui.shortcut-help");
-  assert.equal(resolveCommandShortcut({ ...base, key: "Delete", ctrlKey: false }), undefined);
+  assert.equal(resolveCommandShortcut({ ...base, key: "Delete", ctrlKey: false })?.command, "edit.delete");
+  assert.equal(resolveCommandShortcut({ ...base, key: "Delete", ctrlKey: false,repeat:true }), undefined);
   assert.equal(resolveCommandShortcut({ ...base, key: "Escape", ctrlKey: false }), undefined);
   assert.match(commandShortcutAria("edit.redo"), /Meta\+Shift\+z/);
   console.log("Shortcut aliases, modifiers, IME, repeat and reserved gesture keys passed.");

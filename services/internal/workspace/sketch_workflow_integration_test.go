@@ -721,3 +721,155 @@ func TestSketchWorkflowFreeExtensionPlacementHistory(t *testing.T) {
 	}
 	check(cold, 13)
 }
+
+func TestSketchWorkflowSplitExtendedArcContact(t *testing.T) {
+	f := newSketchWorkflowFixture(t)
+	const rotation = 0.37
+	p := func(x, y float64) *SketchPoint2 {
+		return &SketchPoint2{X: 12 + x*math.Cos(rotation) - y*math.Sin(rotation), Y: 19 + x*math.Sin(rotation) + y*math.Cos(rotation)}
+	}
+	line := SketchEntity{ID: uuid.NewString(), Kind: "LINE", Role: "PROFILE", Start: p(-10.123, 0), End: p(20.1726, 0)}
+	arc := SketchEntity{ID: uuid.NewString(), Kind: "ARC", Role: "PROFILE", Center: p(0, -5), Radius: 5, StartAngle: rotation, EndAngle: rotation + math.Pi/4}
+	f.edit(workflowEntity(line), workflowEntity(arc), workflowConstraint(SketchConstraint{ID: uuid.NewString(), Kind: "FIXED_POINT", References: []SketchGeometryRef{workflowRef(line.ID, "START")}, FixedPoint: line.Start}), workflowConstraint(SketchConstraint{ID: uuid.NewString(), Kind: "FIXED_POINT", References: []SketchGeometryRef{workflowRef(line.ID, "END")}, FixedPoint: line.End}), workflowConstraint(SketchConstraint{ID: uuid.NewString(), Kind: "FIXED_POINT", References: []SketchGeometryRef{workflowRef(arc.ID, "CENTER")}, FixedPoint: arc.Center}), workflowConstraint(SketchConstraint{ID: uuid.NewString(), Kind: "RADIUS", References: []SketchGeometryRef{workflowRef(arc.ID, "WHOLE")}, Value: workflowValue(5), Unit: "mm"}))
+	end := workflowRef(arc.ID, "END")
+	view := f.edit(SketchOperation{Type: "EXTEND_ENTITY", OperationID: uuid.NewString(), EntityIDs: []string{arc.ID}, FirstReference: &end, BoundaryIDs: []string{line.ID}, Point: p(0, 0)})
+	for _, e := range f.sketch(view).Entities {
+		if e.ID == arc.ID {
+			end.PointID = e.EndPointID
+		}
+	}
+	view = f.edit(SketchOperation{Type: "SPLIT_ENTITY", OperationID: uuid.NewString(), EntityIDs: []string{line.ID}, Parameters: []float64{10.123 / 30.2956}, FirstReference: &end})
+	identities := map[string][2]string{}
+	for _, e := range f.sketch(view).Entities {
+		identities[e.ID] = [2]string{e.StartPointID, e.EndPointID}
+	}
+	check := func(v DocumentView) {
+		t.Helper()
+		s := f.sketch(v)
+		length := 0.0
+		segments := 0
+		contact := p(0, 0)
+		joined := false
+		for _, e := range s.Entities {
+			if expected, ok := identities[e.ID]; !ok || expected != [2]string{e.StartPointID, e.EndPointID} {
+				t.Fatalf("unstable split identity: %+v", e)
+			}
+			if e.ID == arc.ID && (math.Abs(e.Radius-5) > 1e-8 || math.Abs(e.EndAngle-(rotation+math.Pi/2)) > 1e-8) {
+				t.Fatalf("extension/split changed circle support: %+v", e)
+			}
+			if e.Kind == "LINE" {
+				segments++
+				length += math.Hypot(e.End.X-e.Start.X, e.End.Y-e.Start.Y)
+				if math.Min(math.Hypot(e.End.X-contact.X, e.End.Y-contact.Y), math.Hypot(e.Start.X-contact.X, e.Start.Y-contact.Y)) > 1e-7 {
+					t.Fatalf("split misses exact contact: %+v", e)
+				}
+			}
+		}
+		if segments != 2 || math.Abs(length-30.2956) > 1e-7 {
+			t.Fatalf("split altered source shape: %d %g", segments, length)
+		}
+		for _, c := range s.Constraints {
+			if c.Kind == "COINCIDENT" {
+				for _, r := range c.References {
+					if r.EntityID == arc.ID && r.SubElement == "END" {
+						joined = true
+					}
+				}
+			}
+		}
+		if !joined {
+			t.Fatal("contact lacks formal endpoint connection")
+		}
+	}
+	check(view)
+	f.command(CommandRequest{Type: "UNDO"})
+	check(f.command(CommandRequest{Type: "REDO"}))
+	cold, err := f.service.GetDocument(f.ctx, f.documentID, f.actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check(cold)
+}
+
+func TestSketchWorkflowSplitOnObjectPoint(t *testing.T) {
+	f := newSketchWorkflowFixture(t)
+	line := SketchEntity{ID: uuid.NewString(), Kind: "LINE", Role: "PROFILE", Start: &SketchPoint2{X: 2, Y: 3}, End: &SketchPoint2{X: 17, Y: 9}}
+	point := SketchEntity{ID: uuid.NewString(), Kind: "POINT", Point: &SketchPoint2{X: 7, Y: 5}, Role: "CONSTRUCTION"}
+	outside := SketchEntity{ID: uuid.NewString(), Kind: "POINT", Point: &SketchPoint2{X: 7, Y: 5.5}, Role: "CONSTRUCTION"}
+	before := f.edit(workflowEntity(line), workflowEntity(point), workflowEntity(outside))
+	bad := workflowRef(outside.ID, "POINT")
+	_, err := f.service.ApplyCommand(f.ctx, f.documentID, CommandRequest{RequestID: uuid.NewString(), ActorID: f.actor, Type: "EDIT_SKETCH", SketchID: f.sketchID, Operations: []SketchOperation{{Type: "SPLIT_ENTITY", OperationID: uuid.NewString(), EntityIDs: []string{line.ID}, Parameters: []float64{1.0 / 3}, FirstReference: &bad}}})
+	if err == nil {
+		t.Fatal("off-curve point must not be accepted")
+	}
+	after, err := f.service.GetDocument(f.ctx, f.documentID, f.actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Document.VersionID != before.Document.VersionID {
+		t.Fatal("failed snap changed the revision")
+	}
+	ref := workflowRef(point.ID, "POINT")
+	view := f.edit(SketchOperation{Type: "SPLIT_ENTITY", OperationID: uuid.NewString(), EntityIDs: []string{line.ID}, Parameters: []float64{1.0 / 3}, FirstReference: &ref})
+	joined := false
+	for _, c := range f.sketch(view).Constraints {
+		if c.Kind == "COINCIDENT" {
+			for _, r := range c.References {
+				if r.EntityID == point.ID && r.SubElement == "POINT" {
+					joined = true
+				}
+			}
+		}
+	}
+	if !joined {
+		t.Fatal("split lacks explicit point connection")
+	}
+	length := 0.0
+	for _, e := range f.sketch(view).Entities {
+		if e.Kind == "LINE" {
+			length += math.Hypot(e.End.X-e.Start.X, e.End.Y-e.Start.Y)
+			if math.Min(math.Hypot(e.Start.X-7, e.Start.Y-5), math.Hypot(e.End.X-7, e.End.Y-5)) > 1e-8 {
+				t.Fatal("point snap changed the requested cut")
+			}
+		}
+	}
+	if math.Abs(length-math.Hypot(15, 6)) > 1e-8 {
+		t.Fatal("point split changed source shape")
+	}
+}
+
+func TestSketchWorkflowSplitCirclePointReferences(t *testing.T) {
+	f := newSketchWorkflowFixture(t)
+	circle := SketchEntity{ID: uuid.NewString(), Kind: "CIRCLE", Role: "PROFILE", Center: &SketchPoint2{}, Radius: 5}
+	a := SketchEntity{ID: uuid.NewString(), Kind: "POINT", Role: "CONSTRUCTION", Point: &SketchPoint2{X: 5 * math.Cos(.2*math.Pi), Y: 5 * math.Sin(.2*math.Pi)}}
+	b := SketchEntity{ID: uuid.NewString(), Kind: "POINT", Role: "CONSTRUCTION", Point: &SketchPoint2{X: 0, Y: -5}}
+	f.edit(workflowEntity(circle), workflowEntity(a), workflowEntity(b))
+	ar, br := workflowRef(a.ID, "POINT"), workflowRef(b.ID, "POINT")
+	view := f.edit(SketchOperation{Type: "SPLIT_ENTITY", OperationID: uuid.NewString(), EntityIDs: []string{circle.ID}, Parameters: []float64{.1, .75}, FirstReference: &ar, SecondReference: &br})
+	sweep := 0.0
+	joins := map[string]bool{}
+	for _, e := range f.sketch(view).Entities {
+		if e.Kind == "ARC" {
+			sweep += math.Abs(e.EndAngle - e.StartAngle)
+			if math.Abs(e.Radius-5) > 1e-8 || math.Hypot(e.Center.X, e.Center.Y) > 1e-8 {
+				t.Fatal("split lost original circle support")
+			}
+		}
+	}
+	if math.Abs(sweep-2*math.Pi) > 1e-8 {
+		t.Fatal("periodic split lost original curve range")
+	}
+	for _, c := range f.sketch(view).Constraints {
+		if c.Kind == "COINCIDENT" {
+			for _, r := range c.References {
+				if r.EntityID == a.ID || r.EntityID == b.ID {
+					joins[r.EntityID] = true
+				}
+			}
+		}
+	}
+	if !joins[a.ID] || !joins[b.ID] {
+		t.Fatal("two-point split dropped a snapped reference")
+	}
+	f.volume(f.command(CommandRequest{Type: "PAD_SKETCH", Length: 2}), 50*math.Pi)
+}
