@@ -149,7 +149,8 @@ function filletCandidates(first: SketchEntity, second: SketchEntity, active: [Sk
   const append = (center: SketchPoint2, a: SketchPoint2, b: SketchPoint2) => {
     if (!cutAllowed(active[0], ends[0], a) || !cutAllowed(active[1], ends[1], b) || distance(a, b) <= displayModelTolerance) return;
     const start = Math.atan2(a.y - center.y, a.x - center.x), sweep = remainder(Math.atan2(b.y - center.y, b.x - center.x) - start, tau);
-    for (const s of [sweep, sweep > 0 ? sweep - tau : sweep + tau]) candidates.push({ center, first: a, second: b, start, end: start + s, score: arcDistance(click, center, radius, start, start + s) });
+    // The click selects a support/side candidate, never the complementary major arc.
+    candidates.push({ center, first: a, second: b, start, end: start + sweep, score: arcDistance(click, center, radius, start, start + sweep) });
   };
   if (first.kind === "LINE" && second.kind === "LINE") {
     const au = unit(sub(first.end!, first.start!)), bu = unit(sub(second.end!, second.start!)), an = { x: -au.y, y: au.x }, bn = { x: -bu.y, y: bu.x };
@@ -188,8 +189,12 @@ function localIntersections(source: SketchEntity, boundaries: readonly SketchEnt
     } else if (source.kind === "LINE") points = lineCircle(source.start!, sub(source.end!, source.start!), boundary.center!, boundary.radius!);
     else if (boundary.kind === "LINE") points = lineCircle(boundary.start!, sub(boundary.end!, boundary.start!), source.center!, source.radius!);
     else {
-      if (distance(source.center!, boundary.center!) <= displayModelTolerance && Math.abs(source.radius! - boundary.radius!) <= displayModelTolerance) throw new Error("重叠圆支撑需精确曲线预览");
-      points = circleCircle(source.center!, source.radius!, boundary.center!, boundary.radius!);
+      if (distance(source.center!, boundary.center!) <= displayModelTolerance && Math.abs(source.radius! - boundary.radius!) <= displayModelTolerance) {
+        if(source.kind!=="ARC"||boundary.kind!=="ARC")throw new Error("重叠圆支撑需精确曲线预览");
+        const midpoint=(e:SketchEntity)=>add(e.center!,{x:e.radius!*Math.cos((e.startAngle!+e.endAngle!)/2),y:e.radius!*Math.sin((e.startAngle!+e.endAngle!)/2)});
+        if(contains(source,midpoint(boundary))||contains(boundary,midpoint(source)))throw new Error("重叠圆弧区间需精确曲线预览");
+        points=[endpoint(boundary,false)!,endpoint(boundary,true)!];
+      } else points = circleCircle(source.center!, source.radius!, boundary.center!, boundary.radius!);
     }
     for (const p of points) if (contains(source, p) && contains(boundary, p)) {
       const parameter = curveParameter(source, p);
@@ -324,9 +329,13 @@ export function buildSketchEditPreview(input: SketchEditPreviewInput): SketchEdi
         }
         if (cuts.some(value => !Number.isFinite(value) || value < 0 || value > 1)) throw new Error("无效的曲线分割参数");
         const sorted = [...new Set([0, ...cuts, 1])].sort((a, b) => a - b);
-        if (sorted.length < 3) throw new Error("没有内部交点或分割区间");
+        if (sorted.length < 3 && !(operation.type==="QUICK_TRIM"&&operation.trimMode==="DELETE_HIT")) throw new Error("没有内部交点或分割区间");
         const cyclic = operation.type === "QUICK_TRIM" && !cuts.some(value => Math.abs(value) <= 1e-10 || Math.abs(value - 1) <= 1e-10) && (source.kind === "CIRCLE" || source.kind === "ELLIPSE" || source.closed) && (operation.hitParameter < sorted[1] || operation.hitParameter >= sorted[sorted.length - 2]);
-        for (let i = 1; i < sorted.length; ++i) {
+        if(operation.type==="SPLIT_ENTITY"&&(source.kind==="CIRCLE"||source.kind==="ELLIPSE")) {
+          const periodicCuts=[...new Set(cuts.map(value=>value===1?0:value))].sort((a,b)=>a-b);
+          if(periodicCuts.length<2)throw new Error("闭合曲线需要两个不同分割位置");
+          for(let i=0;i<periodicCuts.length;i++)intervals.push([periodicCuts[i],i+1<periodicCuts.length?periodicCuts[i+1]:periodicCuts[0]+1]);
+        } else for (let i = 1; i < sorted.length; ++i) {
           const interval: [number, number] = [sorted[i - 1], sorted[i]], hit = operation.type === "QUICK_TRIM" && ((operation.hitParameter >= interval[0] && (operation.hitParameter < interval[1] || i === sorted.length - 1 && operation.hitParameter === 1)) || cyclic && (i === 1 || i === sorted.length - 1));
           if (hit) hits.push(interval);
           if (operation.type === "SPLIT_ENTITY" || operation.trimMode === "BREAK" || operation.trimMode === "DELETE_HIT" && !hit || operation.trimMode === "KEEP_HIT" && hit) intervals.push(interval);

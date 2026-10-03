@@ -444,6 +444,11 @@ func applyEditSketch(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, m
 				}
 			}
 		}
+		var cornerErr error
+		payload.Operations, cornerErr = resolveSketchCornerOperationValues(model, payload.Operations)
+		if cornerErr != nil {
+			return nil, modelcore.ChangeSet{}, cornerErr
+		}
 		if err := applySketchOperations(feature.Sketch, payload.Operations); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}

@@ -118,14 +118,10 @@ func cornerFilletCandidates(first, second SketchEntity, firstActive, secondActiv
 		}
 		start := math.Atan2(a.Y-center.Y, a.X-center.X)
 		sweep := math.Remainder(math.Atan2(b.Y-center.Y, b.X-center.X)-start, 2*math.Pi)
+		// A corner joins the retained sides with the local rounding arc. The
+		// selection point chooses an analytic center/side, not the complementary
+		// major arc merely because a curve was clicked far from the corner.
 		sweeps := []float64{sweep}
-		if click != nil {
-			if sweep > 0 {
-				sweeps = append(sweeps, sweep-2*math.Pi)
-			} else {
-				sweeps = append(sweeps, sweep+2*math.Pi)
-			}
-		}
 		for _, s := range sweeps {
 			score := cornerDistance(a, cornerEndpoint(firstActive, firstSub)) + cornerDistance(b, cornerEndpoint(secondActive, secondSub))
 			if click != nil {

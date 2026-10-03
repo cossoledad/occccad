@@ -107,6 +107,14 @@ func applySketchDimensionLifecycle(model *PartModel, sketchID string, before Ske
 		return fmt.Errorf("%w: sketch missing", ErrValidation)
 	}
 	for _, operation := range operations {
+		if operation.Type == "FILLET_ENTITIES" || operation.Type == "CHAMFER_ENTITIES" {
+			label := "radius"
+			if operation.Type == "CHAMFER_ENTITIES" {
+				label = "first-length"
+			}
+			operation.ConstraintID = macroID(operation.OperationID, "corner/"+label)
+			operation.Type = "ADD_CONSTRAINT"
+		}
 		if operation.Type != "ADD_CONSTRAINT" && operation.Type != "UPDATE_CONSTRAINT" && operation.Type != "UPDATE_CONSTRAINT_VALUE" {
 			continue
 		}

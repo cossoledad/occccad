@@ -1,3 +1,4 @@
+import { SKETCH_FEEDBACK_ORDER } from "./sketch-feedback-style";
 import { registerScreenLineUpdate, screenSpaceEndpoint } from "./screen-space-lines";
 import * as THREE from "three";
 import type { SketchConstraint, SketchEntity, Vec2 } from "../../types";
@@ -22,20 +23,22 @@ export function constraintSymbolCode(kind: ConstraintKind): number {
 
 export function makeConstraintDimensionLabel(text: string): THREE.Sprite {
   const canvas = document.createElement("canvas");
-  canvas.width = 256; canvas.height = 56;
+  canvas.width = 256; canvas.height = 48;
   const context = canvas.getContext("2d")!;
-  context.fillStyle = "rgba(17, 31, 39, 0.76)";
-  context.beginPath(); context.roundRect(5, 5, 246, 46, 9); context.fill();
-  context.strokeStyle = "rgba(114, 221, 160, 0.72)"; context.lineWidth = 2; context.stroke();
-  context.fillStyle = "#effff5"; context.font = "500 27px system-ui, sans-serif";
-  context.textAlign = "center"; context.textBaseline = "middle"; context.fillText(text, 128, 29);
+  // Transparent text with a thin halo keeps curves visible behind dimensions.
+  context.font = "500 28px system-ui, sans-serif";
+  canvas.width=Math.ceil(context.measureText(text).width)+16;
+  context.font = "500 28px system-ui, sans-serif";
+  context.textAlign = "center"; context.textBaseline = "middle";
+  context.lineWidth=3;context.strokeStyle="rgba(255,255,255,0.9)";
+  context.strokeText(text,canvas.width/2,24);context.fillStyle="#175e40";context.fillText(text,canvas.width/2,24);
   const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace;
   const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false,
     toneMapped: false });
   material.userData.baseColor = 0xffffff;
   material.userData.ownedTexture = texture;
   const sprite = new THREE.Sprite(material);
-  const screenWidth=124,screenHeight=27,worldPosition=new THREE.Vector3();
+  const screenWidth=canvas.width/2,screenHeight=24,worldPosition=new THREE.Vector3();
   sprite.userData.screenSize={width:screenWidth,height:screenHeight};
   sprite.onBeforeRender=(renderer,_scene,camera) => {
     sprite.getWorldPosition(worldPosition);
@@ -56,15 +59,15 @@ export function makeSketchConstraintRenderable(
 ): THREE.Group {
   const layout = buildSketchConstraintLayout(constraint, entities);
   const group = new THREE.Group();
-  if (layout.anchors.length) {
+  if (layout.anchors.length&&!layout.label) {
     const glyphs = new THREE.Points(new THREE.BufferGeometry().setFromPoints(layout.anchors.map(toWorld)),
       materials.constraintGlyph(symbolCodes[layout.symbol], diagnosticColor ?? CATIA_VISUAL_THEME.constraint, 17));
-    glyphs.renderOrder = 84; group.add(glyphs);
+    glyphs.renderOrder = SKETCH_FEEDBACK_ORDER.glyph; group.add(glyphs);
   }
   if (layout.segments.length) {
     const leaders = makeOcclusionVisibleSegments(layout.segments.filter(segment => !segment.screenAnchor).map(([first, second]) => [toWorld(first), toWorld(second)]),
       diagnosticColor ?? CATIA_VISUAL_THEME.constraint, 1.25);
-    leaders.renderOrder = 82;
+    leaders.renderOrder = SKETCH_FEEDBACK_ORDER.leader;
     updateHighlightLineResolution(leaders, viewport.width, viewport.height);
     group.add(leaders);
   }
@@ -72,7 +75,7 @@ export function makeSketchConstraintRenderable(
     const anchor = toWorld(segment[0]), toward = toWorld(segment[1]);
     const arrow = makeOcclusionVisibleSegments([[anchor, toward]], diagnosticColor ?? CATIA_VISUAL_THEME.constraint, 1.25);
     arrow.frustumCulled = false;
-    arrow.renderOrder = 83;
+    arrow.renderOrder = SKETCH_FEEDBACK_ORDER.leader;
     registerScreenLineUpdate(arrow, (camera, cssWidth, cssHeight) => {
       arrow.material.resolution.set(cssWidth, cssHeight);
       const worldAnchor = anchor.clone().applyMatrix4(arrow.matrixWorld);
@@ -86,7 +89,7 @@ export function makeSketchConstraintRenderable(
     group.add(arrow);
   }
   if (layout.label) {
-    const label = makeConstraintDimensionLabel(layout.label.text); label.position.copy(toWorld(layout.label.position)); label.renderOrder = 86;
+    const label = makeConstraintDimensionLabel(layout.label.text); label.position.copy(toWorld(layout.label.position)); label.renderOrder = SKETCH_FEEDBACK_ORDER.label;
     group.add(label);
   }
   return group;

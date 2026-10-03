@@ -229,6 +229,39 @@ SketchCurveIntersections intersect_sketch_curves(const ProfileCurveSpec& first,
                                  unwrap_parameter(a, intersection.ParamOnFirst()),
                                  unwrap_parameter(b, intersection.ParamOnSecond())});
     }
+    // Periodic same-support native segments may report a ±period parameter
+    // jump for a shared endpoint. Intersect actual bounded domains instead of
+    // interpreting that encoding as a full-period overlap.
+    const auto circular=[](const ProfileCurveSpec& c){return c.kind=="CIRCLE"||c.kind=="ARC";};
+    const auto elliptical=[](const ProfileCurveSpec& c){return c.kind=="ELLIPSE"||c.kind=="ELLIPTICAL_ARC";};
+    const bool same_center=first.center.x==second.center.x && first.center.y==second.center.y;
+    const bool exact_support=same_center &&
+        ((circular(first)&&circular(second)&&first.radius==second.radius) ||
+         (elliptical(first)&&elliptical(second)&&first.major_radius==second.major_radius&&
+          first.minor_radius==second.minor_radius&&std::remainder(second.rotation-first.rotation,pi)==0));
+    if((exact_support || operation.NbSegments()>0) && ((circular(first)&&circular(second)) || (elliptical(first)&&elliptical(second)))) {
+        result.points.clear(); // Native contact encodings are replaced by the domain intersection.
+
+        const double phase=elliptical(first)?std::remainder(second.rotation,2*pi)-std::remainder(first.rotation,2*pi):0;
+        const double alo=std::min(a.start,a.end),ahi=std::max(a.start,a.end),
+                     blo=std::min(b.start,b.end),bhi=std::max(b.start,b.end);
+        const double period=a.curve->Period();
+        if(!std::isfinite(ahi-alo) || !std::isfinite(bhi-blo) || ahi-alo>period || bhi-blo>period)
+            throw std::invalid_argument("periodic intersection domain exceeds one period");
+        const auto base=static_cast<long long>(std::llround(((alo+ahi)-(blo+bhi))*0.5/period-phase/period));
+        for(long long offset=base-1;offset<=base+1;++offset) {
+            const double shift=phase+static_cast<double>(offset)*period;
+            const double lo=std::max(alo,blo+shift),hi=std::min(ahi,bhi+shift);
+            const auto da=evaluate_sketch_curve(first,lo).first_derivative;
+            const auto db=evaluate_sketch_curve(second,lo-shift).first_derivative;
+            const double scale=std::max(std::hypot(da.x,da.y),std::hypot(db.x,db.y));
+            if((lo-hi)*scale>tolerance)continue;
+            if((hi-lo)*scale<=tolerance) {
+                const auto point=evaluate_sketch_curve(first,lo).point;
+                result.points.push_back({SketchCurveIntersectionKind::tangent,point,lo,lo-shift});
+            } else result.overlaps.push_back({lo,hi,lo-shift,hi-shift});
+        }
+    } else {
     for (int i = 1; i <= operation.NbSegments(); ++i) {
         const auto& segment = operation.Intersector().Segment(i);
         if (!segment.HasFirstPoint() || !segment.HasLastPoint())
@@ -250,6 +283,7 @@ SketchCurveIntersections intersect_sketch_curves(const ProfileCurveSpec& first,
             continue;
         }
         result.overlaps.push_back({af, af + a_span, bf, bf + b_span});
+    }
     }
     std::sort(result.points.begin(), result.points.end(), [](const auto& left, const auto& right) {
         return left.first_parameter < right.first_parameter ||
@@ -336,7 +370,9 @@ std::vector<ProfileRegionSpec> classify_sketch_profile(const std::vector<Profile
         }
         if (!wire.IsDone())
             throw std::invalid_argument("profile wire construction failed: " + loop.id);
-        BRepBuilderAPI_MakeFace face(plane, wire.Wire(), true);
+        // Preserve the supplied winding while classifying. Inside=true silently
+        // reverses a clockwise wire, hiding the orientation change from loop.value.
+        BRepBuilderAPI_MakeFace face(plane, wire.Wire(), false);
         if (!face.IsDone())
             throw std::invalid_argument("profile face construction failed: " + loop.id);
         return face.Face();

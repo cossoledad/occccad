@@ -2,6 +2,7 @@ import type { DocumentView, SketchGeometryRef } from "../../types";
 
 export type SketchCommandAction =
   | { type: "confirm" | "back" | "cancel" | "add-batch" | "release" | "retry" }
+  | { type: "input"; index: number }
   | { type: "field"; index: number; value: string }
   | { type: "option"; name: string; value: string };
 export type SketchCommandPhase = "selection" | "definition" | "placement" | "committing" | "unknown" | "failed" | "committed" | "cancelled";
@@ -12,7 +13,11 @@ export type SketchCommandState = {
   role: string;
   selectedIds: string[];
   references: SketchGeometryRef[];
-  fields: { label: string; value: string; placeholder?: string }[];
+  presentation?: "inline" | "advanced";
+  input?: { id: string; fieldIndex: number; anchor?: import("../../types").Vec2 };
+  count?: { accepted: number; required?: number };
+  completion?: { label: string };
+  fields: { label: string; value: string; placeholder?: string; unit?: "length"|"angle"|"scalar"; displayUnit?: string }[];
   options: { name: string; label: string; value: string; choices: { value: string; label: string }[] }[];
   canConfirm: boolean;
   next: string;

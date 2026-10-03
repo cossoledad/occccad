@@ -132,3 +132,14 @@ Line × Arc/EllipticalArc 指定 START/END 时使用真实端点接触和原生�
 冗余成功结果与普通成功结果统一通过 applySolution 和有限弧/端部导数门禁；
 未收敛结果保留 FAILED，不以冗余标签接受旧坐标。测试：`LineArcAndArcArcCorner*`、
 `FixedEndpointCoincidence*`、`RedundantDisconnectedComponent*`。
+
+大步尺寸编辑若原生首次求解失败，可对 Line LENGTH、WHOLE/DIRECTION 两平行线 DISTANCE
+采用最多 16 步的原生求解 continuation；每步在原生成功之后，再用锁定接口
+`calculateConstraintErrorByTag` 检查完整编译方程（含内部 tag 0）的有限残差，限值来自
+`sqrt(getFinePrecision())`；只有通过结果用作下一数值初值，最终仍求解原始
+完整约束与精确目标。点点距离不作为平行间距初值，既不新增 Fix 也不删除关系；任一步失败
+返回原始诊断与原始几何。自由四圆角矩形的往返长度/间距回归包含独立长度、端点连接和
+圆弧半径/范围断言，入口 `FreeRoundedRectangleLargeVisibleDimensionEditsPreserveResiduals`。
+该回归六次大步合计约 19 秒；仅 Go SolveSketch 的 RPC 截止时间为 15 秒，仍服从调用者
+总体截止/取消，曲线预览截止时间不变。周期角度输出按输入有向 sweep 规范整周表达，
+不会将持久长弧统一缩为短弧。

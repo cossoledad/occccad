@@ -1,4 +1,5 @@
-import type { SketchCommitIntent } from "../../cad/tool/sketch-command-session";
+import { defaultSketchToolMode } from "../../cad/sketch/sketch-inline-parameter-input";
+import type { SketchCommandState, SketchCommitIntent, SketchCommitReceipt } from "../../cad/tool/sketch-command-session";
 import { selectionNamingIssue, topologyNamingIssue } from "./topology-naming-capability";
 import { openDocumentTab, registerDocumentTab, updateOpenDocumentSummary } from "./open-document-tab";
 import { EditActivationGate, prepareOccurrenceEditSession, rootEditSession, pinnedReferenceInPath,
@@ -216,6 +217,8 @@ export function Workbench() {
   const operationFeedback=useOperationFeedback();
   const commandRegistry = useMemo(() => new CommandRegistry(), []);
   const viewport = useRef<CadViewportHandle>(null);
+  const [sketchCommandState,setSketchCommandState]=useState<SketchCommandState>();
+  const [sketchReceipt,setSketchReceipt]=useState<SketchCommitReceipt>();
   const normalViewRequest = useRef(0);
   const [padOpen, setPadOpen] = useState(false);
   const receiptPrompt=useRef(false);
@@ -1133,7 +1136,7 @@ export function Workbench() {
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(store.sketchPlane) }),
       commandRegistry.register({ id: "sketch.finish", execute: finishSketch,
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && !command.isPending) }),
-      ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,toolID.startsWith("sketch.edit.") || toolID.startsWith("sketch.constraint.") || toolID.startsWith("sketch.dimension.") || toolID === "sketch.project" ? (invocation?.continuous||toolID==="sketch.edit.quick_trim"?"continuous":"once") : "continuous"),
+      ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,defaultSketchToolMode(toolID,invocation?.continuous)),
         isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane&&(toolID!=="sketch.project"||!selectedNamingIssue)),isActive:()=>store.activeToolID===toolID})),
       commandRegistry.register({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isVisible: () => editingView?.document.type === "PART",
         isEnabled: () => Boolean(canEdit && store.selection?.kind === "sketch") }),
@@ -1421,6 +1424,7 @@ export function Workbench() {
       inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen}
       commands={<WorkbenchCommands key={activeWorkbench} toolbars={visibleToolbars} workbench={activeWorkbench} />}
       status={<WorkbenchStatus busy={command.isPending} canEdit={canEdit} selectionCount={store.selections.length}
+        sketchReceipt={sketchReceipt} onSketchReceiptCheck={()=>void viewport.current?.retrySketchReceipt()} sketchCommand={store.activeSketchID?sketchCommandState:undefined} onSketchAction={action=>viewport.current?.sketchCommandAction(action)}
         toolName={activeToolName} lengthUnit={lengthUnit} continuous={store.activeToolMode === "continuous"} />}
       tree={<SpecificationTree key={documentID} nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
             ancestorHintKeys={ancestorHintKeysForSelections(treeNodes, store.selections)}
@@ -1594,7 +1598,7 @@ export function Workbench() {
           sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={navigationProfile} catiaRotationSphereVisible={catiaRotationSphereVisible}
           referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}
           preferredLengthUnit={lengthUnit} captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch} onDimensionOperations={editSketch} onSketchPreview={(featureId,operations,signal)=>{if(!editingView||store.activeSketchID!==featureId)return Promise.reject(new Error("草图预览上下文已结束"));return api.previewCommand(editingView.document.id,{type:"EDIT_SKETCH",sketchId:featureId,operations},signal);}} onSketchReceiptCheck={async receipt=>{const updated=await command.mutateAsync(()=>api.command(receipt.ownerDocumentId,{type:"EDIT_SKETCH",sketchId:receipt.featureId,operations:receipt.operations,requestId:receipt.intent.requestId}));await refresh(updated);return updated;}}
-          onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
+          onSketchReceiptChange={setSketchReceipt} onSketchCommandStateChange={setSketchCommandState} onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
 		  onAssemblyConstraint={(toolKind, references) => {
             const issue = references.flatMap((reference) => {
               if (!["FACE", "EDGE", "VERTEX"].includes(reference.kind)) return [];

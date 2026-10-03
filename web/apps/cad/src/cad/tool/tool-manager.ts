@@ -17,11 +17,13 @@ export class ToolManager {
     };
   }
 
-  activate(toolID?: string): void {
+  activate(toolID?: string,seedSource?:SelectionInputSource): void {
     const next = toolID ? this.tools.get(toolID) : undefined;
     if (toolID && !next) throw new Error(`CAD tool is not registered: ${toolID}`);
     if (next === this.active) return;
-    const activationSeed=Object.freeze((this.context.viewport.currentSelections?.()??[]).map(selection=>Object.freeze({...selection})));
+    const source=seedSource??this.context.viewport.currentSelectionSource?.()??"activation";
+    const activationSeed=Object.freeze((source==="activation"||source==="selection"?this.context.viewport.currentSelections?.()??[]:[]).map(selection=>Object.freeze({...selection})));
+    if(activationSeed.length)this.context.viewport.consumeActivationSelection?.();
     this.active?.cancel?.(this.context);
     this.active?.deactivate?.(this.context);
     this.active = next;
@@ -29,7 +31,7 @@ export class ToolManager {
     for (const listener of this.listeners) listener(this.active?.id);
     // Publish activation before consuming a seed: completing a seeded tool may
     // synchronously return the workbench to Select.
-    if (this.active === next) this.active?.selectionInput?.(activationSeed, this.context,"activation");
+    if (this.active === next&&activationSeed.length) this.active?.selectionInput?.(activationSeed, this.context,"activation");
   }
 
   get activeToolID(): string | undefined { return this.active?.id; }
@@ -39,6 +41,7 @@ export class ToolManager {
   }
 
   selectionInput(selections: readonly import("../../types").SelectionItem[],source:SelectionInputSource="selection"): SelectionInputResult {
+    if(source==="command"||source==="result")return SelectionInputResult.Unhandled;
     return this.active?.selectionInput?.(selections,this.context,source)??SelectionInputResult.Unhandled;
   }
 

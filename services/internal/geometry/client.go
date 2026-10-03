@@ -579,7 +579,8 @@ func (client *Client) SolveAssemblyWithOptions(ctx context.Context, requestID st
 }
 
 func (client *Client) SolveSketch(ctx context.Context, requestID string, model SketchModel) (SketchSolve, error) {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	// A bounded native dimension continuation can require several exact solves.
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	input := &workerv1.SketchModel{SchemaVersion: 1}
 	for _, point := range model.Points {

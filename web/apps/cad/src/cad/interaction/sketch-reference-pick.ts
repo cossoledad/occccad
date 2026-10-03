@@ -29,6 +29,9 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
   }
   for (const entity of entities) {
     if(entity.suppressed)continue;
+    // Visible profile segments beat their retained construction supports at
+    // the same screen distance; standalone construction geometry stays pickable.
+    const dimensionPriority=mode==="LINEAR_DIMENSION"&&entity.role!=="CONSTRUCTION"?1:0;
     if(mode==="ENTITY"&&entity.kind==="POINT"&&entity.point){const value=project([entity.point.x,entity.point.y]);consider(Math.hypot(cursor.x-value.x,cursor.y-value.y),{target:"ENTITY",entityId:entity.id,subElement:"POINT"});continue;}
     if(mode==="EDIT_POINT"){
       const editableElements=entity.kind==="POINT"?["POINT"] as const:["LINE","ARC","ELLIPTICAL_ARC"].includes(entity.kind)?["START","END"] as const:[];
@@ -71,7 +74,7 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
       for (const subElement of candidates) {
         const value = sketchEntityPoint(entity, subElement);
         if (value) { const projected = project(value); consider(Math.hypot(cursor.x-projected.x,cursor.y-projected.y),
-          { target: "ENTITY", entityId: entity.id, subElement, ...((subElement === "START" ? entity.startPointId : subElement === "END" ? entity.endPointId : undefined) ? {pointId:subElement === "START" ? entity.startPointId : entity.endPointId} : {}) }); }
+          { target: "ENTITY", entityId: entity.id, subElement, ...((subElement === "START" ? entity.startPointId : subElement === "END" ? entity.endPointId : undefined) ? {pointId:subElement === "START" ? entity.startPointId : entity.endPointId} : {}) },dimensionPriority); }
       }
       if (mode === "POINT") continue;
     }
@@ -102,7 +105,7 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
     const sampled = sampleSketchEntity(entity).map(project);
     for (let index=1; index<sampled.length; index+=1) {
       consider(segmentDistance(cursor,sampled[index-1],sampled[index]), { target:"ENTITY",entityId:entity.id,
-        subElement: entity.kind === "LINE" && (mode === "LINE" || mode === "SYMMETRY_CENTER") ? "DIRECTION" : "WHOLE" });
+        subElement: entity.kind === "LINE" && (mode === "LINE" || mode === "SYMMETRY_CENTER") ? "DIRECTION" : "WHOLE" },dimensionPriority);
     }
   }
   // User lines win exact ties, while an exposed portion of either intrinsic

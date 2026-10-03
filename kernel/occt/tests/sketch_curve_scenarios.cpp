@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <occccad/kernel/kernel.hpp>
 
 #include <gtest/gtest.h>
@@ -392,3 +393,65 @@ TEST(ExactSketchCurve, FullPeriodicOverlapRetainsNonzeroNativeInterval) {
     EXPECT_NEAR(total, 2 * std::acos(-1.0), 1e-8);
 }
 }  // namespace occccad::kernel
+
+namespace occccad::kernel {
+TEST(ExactSketchCurve, ReflectedNonSemicircleLensHoleExtrudesForBothTraversalOrders) {
+    const double pi = std::acos(-1.0), a = .14 * 2 * pi, b = .62 * 2 * pi, r = 10;
+    ProfileCurveSpec first;
+    first.entity_id = "arc";
+    first.kind = "ARC";
+    first.center = {45, 25};
+    first.radius = r;
+    first.start_angle = a;
+    first.end_angle = b;
+    const Vec2 p{45 + r * std::cos(a), 25 + r * std::sin(a)},
+        q{45 + r * std::cos(b), 25 + r * std::sin(b)};
+    const double dx = q.x - p.x, dy = q.y - p.y, nx = -dy / std::hypot(dx, dy),
+                 ny = dx / std::hypot(dx, dy);
+    const double distance = (45 - p.x) * nx + (25 - p.y) * ny;
+    ProfileCurveSpec second = first;
+    second.entity_id = "mirror";
+    second.center = {45 - 2 * distance * nx, 25 - 2 * distance * ny};
+    const double theta = std::atan2(dy, dx);
+    second.start_angle = 2 * theta - a;
+    second.end_angle = 2 * theta - b;
+    second.reversed = true;
+    ProfileCurveSpec outer;
+    outer.entity_id = "outer";
+    outer.kind = "CIRCLE";
+    outer.center = {45, 25};
+    outer.radius = 30;
+    for (bool reverseOrder : {false, true}) {
+        ProfileLoopSpec hole{"lens", {first, second}};
+        if (reverseOrder) {
+            std::reverse(hole.curves.begin(), hole.curves.end());
+            for (auto& curve : hole.curves)
+                curve.reversed = !curve.reversed;
+        }
+        const auto regions = classify_sketch_profile({{"outer", {outer}}, hole});
+        OcctKernel kernel;
+        ProfilePadSpec pad;
+        pad.regions = regions;
+        pad.pad_length = 2;
+        const auto id = kernel.evaluateProfilePads({pad});
+        EXPECT_NEAR(kernel.getVolume(id), 2 * (900 * pi - r * r * ((b - a) - std::sin(b - a))),
+                    1e-5);
+    }
+}
+
+}  // namespace occccad::kernel
+
+namespace occccad::kernel {
+TEST(ExactSketchCurve, NonSeamSplitConicsShareOnlyTwoEndpointsAndRetainRealOverlap) {
+    const double pi=std::acos(-1.0);
+    for(const auto* kind:{"CIRCLE","ELLIPSE"}) {
+        ProfileCurveSpec c;c.kind=kind;c.entity_id="source";c.center={73.6068746237249,43.188733866955715};c.radius=8;c.major_radius=8;c.minor_radius=3;c.rotation=.23;
+        auto a=trim_sketch_curve(c,.13*2*pi,.62*2*pi),b=trim_sketch_curve(c,.62*2*pi,1.13*2*pi);
+        const auto adjacent=intersect_sketch_curves(a,b);
+        EXPECT_TRUE(adjacent.overlaps.empty());EXPECT_EQ(adjacent.points.size(),2U);
+        const auto overlap=intersect_sketch_curves(a,trim_sketch_curve(c,.3*2*pi,.8*2*pi));
+        ASSERT_EQ(overlap.overlaps.size(),1U);
+        EXPECT_NEAR(overlap.overlaps[0].first_end-overlap.overlaps[0].first_start,.32*2*pi,1e-10);
+    }
+}
+}

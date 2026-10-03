@@ -1,4 +1,4 @@
-export type SelectionInputSource="activation"|"selection";
+export type SelectionInputSource="activation"|"selection"|"command"|"result";
 export enum SelectionInputResult { Accepted="accepted", Rejected="rejected", Unhandled="unhandled" }
 
 export enum InputResult {

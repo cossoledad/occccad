@@ -167,8 +167,8 @@ export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { t
   | { type: "SPLIT_ENTITY"; operationId: string; entityIds: string[]; parameters: number[]; detachConstraintIds?: string[] }
   | { type:"TRIM_ENTITY";operationId:string;entityIds:string[];parameters:[number,number];detachConstraintIds?:string[] }
   | { type:"QUICK_TRIM";operationId:string;entityIds:string[];boundaryIds:string[];hitParameter:number;trimMode:"DELETE_HIT"|"KEEP_HIT"|"BREAK";detachConstraintIds?:string[] }
-  | {type:"FILLET_ENTITIES";operationId:string;entityIds:[string,string];firstReference:SketchGeometryRef;secondReference:SketchGeometryRef;point:SketchPoint2;value:number;trimMode:"TRIM"|"KEEP"}
-  | {type:"CHAMFER_ENTITIES";operationId:string;entityIds:[string,string];firstReference:SketchGeometryRef;secondReference:SketchGeometryRef;point:SketchPoint2;chamferMode:"EQUAL"|"TWO_LENGTHS"|"LENGTH_ANGLE";chamferFirst:number;chamferSecond?:number;chamferAngle?:number;trimMode:"TRIM"|"KEEP"}
+  | {type:"FILLET_ENTITIES";parameterSource?:string;operationId:string;entityIds:[string,string];firstReference:SketchGeometryRef;secondReference:SketchGeometryRef;point:SketchPoint2;value:number;trimMode:"TRIM"|"KEEP"}
+  | {type:"CHAMFER_ENTITIES";parameterSource?:string;operationId:string;entityIds:[string,string];firstReference:SketchGeometryRef;secondReference:SketchGeometryRef;point:SketchPoint2;chamferMode:"EQUAL"|"TWO_LENGTHS"|"LENGTH_ANGLE";chamferFirst:number;chamferSecond?:number;chamferAngle?:number;trimMode:"TRIM"|"KEEP"}
   | {type:"EXTEND_ENTITY";operationId:string;entityIds:string[];firstReference:SketchGeometryRef;boundaryIds:[string];point:SketchPoint2;detachConstraintIds?:string[]}
   | {type:"ARC_COMPLEMENT"|"CLOSE_CURVE";operationId:string;entityIds:string[];detachConstraintIds?:string[]}
   | {type:"OFFSET_ENTITIES";operationId:string;entityIds:string[];value:number;mode:"MITER"|"ROUND"};

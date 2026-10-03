@@ -70,6 +70,72 @@ using Index = std::unordered_map<std::string, std::size_t>;
 class PlaneGcsSketchSolver final : public SketchSolver {
 public:
     [[nodiscard]] SolveResult solve(const SketchModel& model) const override {
+        const auto first = solve_once(model);
+        if (first.status != SolveStatus::failed && first.status != SolveStatus::conflicting)
+            return first;
+        // PlaneGCS rank reduction is local to its numeric seed. A large length
+        // edit in a free component can leave that basin even though all formal
+        // relationships have a solution. Continue only numeric dimension targets;
+        // keep every equation, identity and final target unchanged.
+        std::vector<std::pair<std::size_t, double>> lengths;
+        for (std::size_t i = 0; i < model.constraints.size(); ++i) {
+            const auto& c = model.constraints[i];
+            const auto line_role = [](const GeometryRef& ref) {
+                return ref.target == GeometryTarget::entity &&
+                       (ref.sub_element == SubElement::whole ||
+                        ref.sub_element == SubElement::direction);
+            };
+            if (c.kind == ConstraintKind::distance && c.references.size() == 2U &&
+                line_role(c.references[0]) && line_role(c.references[1])) {
+                const LineEntity* a = nullptr;
+                const LineEntity* b = nullptr;
+                for (const auto& line : model.lines) {
+                    if (line.id == c.references[0].entity_id) a = &line;
+                    if (line.id == c.references[1].entity_id) b = &line;
+                }
+                if (a && b && c.value >= 0) {
+                    const double dx = a->end.x-a->start.x, dy = a->end.y-a->start.y;
+                    const double seed = std::abs(dx*(b->start.y-a->start.y)-dy*(b->start.x-a->start.x))/std::hypot(dx,dy);
+                    if (std::isfinite(seed) && seed != c.value) lengths.emplace_back(i, seed);
+                }
+            } else if (c.kind == ConstraintKind::length && c.references.size() == 1U) {
+            for (const auto& line : model.lines)
+                if (line.id == c.references[0].entity_id) {
+                    const double seed = std::hypot(line.end.x-line.start.x, line.end.y-line.start.y);
+                    if (seed > 0 && c.value > 0 && seed != c.value)
+                        lengths.emplace_back(i, seed);
+                    break;
+                }
+            }
+        }
+        if (lengths.empty())
+            return first;
+        SketchModel candidate = model;
+        SolveResult accepted;
+        constexpr int steps = 16;
+        for (int step = 0; step <= steps; ++step) {
+            for (const auto& [index, seed] : lengths)
+                candidate.constraints[index].value =
+                    step == steps ? model.constraints[index].value
+                                  : seed + (model.constraints[index].value-seed)*step/steps;
+            accepted = solve_once(candidate);
+            if (accepted.status != SolveStatus::solved &&
+                accepted.status != SolveStatus::under_constrained &&
+                accepted.status != SolveStatus::redundant)
+                return first;
+            candidate.points = accepted.points;
+            candidate.lines = accepted.lines;
+            candidate.circles = accepted.circles;
+            candidate.arcs = accepted.arcs;
+            candidate.splines = accepted.splines;
+            candidate.ellipses = accepted.ellipses;
+            candidate.elliptical_arcs = accepted.elliptical_arcs;
+        }
+        return accepted;
+    }
+
+private:
+    [[nodiscard]] SolveResult solve_once(const SketchModel& model) const {
         std::vector<PointState> points;
         std::vector<LineState> lines;
         std::vector<CircleState> circles;
@@ -397,6 +463,12 @@ public:
                 a.arc.PushOwnParams(parameters);
             for (auto& parameter : curve_parameters)
                 parameters.push_back(&parameter.value);
+            // Some formal relationships were already proven and compile to no
+            // scalar equations. PlaneGCS returns NaN for those absent tags.
+            std::vector<int> residual_tags;
+            for (int id = 0; id < tag; ++id)
+                if (std::isfinite(system.calculateConstraintErrorByTag(id)))
+                    residual_tags.push_back(id);
             int status = system.solve(parameters, true, GCS::DogLeg);
             if (status != GCS::Success)
                 status = system.solve(parameters, true, GCS::LevenbergMarquardt);
@@ -464,6 +536,25 @@ public:
             // solution afterwards; applying before diagnose loses solved values
             // whenever a disconnected component contains redundant constraints.
             system.applySolution();
+            // GCS endpoint angles are periodic unknowns. Preserve the model's
+            // directed sweep branch when an angle crosses the periodic seam;
+            // shifting an endpoint by a whole turn changes no solved equation.
+            for (std::size_t i = 0; i < arcs.size(); ++i) {
+                const double intent = model.arcs[i].end_angle-model.arcs[i].start_angle;
+                if (intent == 0) continue;
+                auto& arc = arcs[i].entity;
+                const double period = 2*std::acos(-1.0);
+                double sweep = std::fmod(arc.end_angle-arc.start_angle, period);
+                if (intent > 0 && sweep <= 0) sweep += period;
+                if (intent < 0 && sweep >= 0) sweep -= period;
+                arc.end_angle = arc.start_angle+sweep;
+            }
+            const double residual_limit = std::sqrt(system.getFinePrecision());
+            for (const int id : residual_tags) {
+                const double error = system.calculateConstraintErrorByTag(id);
+                if (!std::isfinite(error) || std::abs(error) > residual_limit)
+                    return failed("accepted PlaneGCS solution exceeds native residual policy");
+            }
             for (const auto& parameter : curve_parameters) {
                 const double lo = std::min(*parameter.start, *parameter.end);
                 const double hi = std::max(*parameter.start, *parameter.end);

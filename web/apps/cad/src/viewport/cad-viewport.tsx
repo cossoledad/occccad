@@ -1,5 +1,5 @@
-import { Alert, Button } from "antd";
-import type { SketchCommandState, SketchCommitIntent, SketchCommitResult, SketchCommitReceipt } from "../cad/tool/sketch-command-session";
+import type { SketchCommandState, SketchCommandAction, SketchCommitIntent, SketchCommitResult, SketchCommitReceipt } from "../cad/tool/sketch-command-session";
+import { SketchInlineParameterInput } from "../cad/sketch/sketch-inline-parameter-input";
 import { SketchCommandPanel } from "../cad/sketch/sketch-command-panel";
 import type { ReferenceVisibility, SolidDisplaySettings } from "../cad/rendering/display-settings";
 import type { InstancePatternPreview } from "../features/workbench/instance-pattern";
@@ -19,6 +19,8 @@ import { CadViewportEngine } from "./cad-viewport-engine";
 import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame, AssemblyInteractionCommit, AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 
 export type CadViewportHandle = {
+  sketchCommandAction:(action:SketchCommandAction)=>void;
+  retrySketchReceipt:()=>Promise<void>;
   showRemainingMotion: (motion?:import("../cad/assembly/motion-presentation").MotionPresentation)=>void;
   cancelAssemblyInteraction:()=>void;
   settleAssemblyInteraction:()=>Promise<void>;
@@ -42,6 +44,8 @@ export type CadViewportHandle = {
 
 type Props = {
   preferredLengthUnit?: "mm"|"cm"|"m"|"in";
+  onSketchCommandStateChange?:(state:SketchCommandState|undefined)=>void;
+  onSketchReceiptChange?:(receipt:SketchCommitReceipt|undefined)=>void;
   view: DocumentView;
   editingView?: DocumentView;
   liveConstraintProjection?: boolean;
@@ -83,7 +87,6 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   const engine = useRef<CadViewportEngine | undefined>(undefined);
   const patternPreview = useRef<InstancePatternPreview | undefined>(undefined);
   const callbacks = useRef(props);
-  const [sketchReceipt,setSketchReceipt]=useState<SketchCommitReceipt>();
   const [toolPrompt,setToolPrompt]=useState("");
   const [sketchCommand,setSketchCommand]=useState<SketchCommandState>();
   const [debug, setDebug] = useState<InputDebugSnapshot>();
@@ -98,6 +101,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   const dimensionOwner=(props.editingView??props.view).document;
   useEffect(()=>{setDimensionEditor(undefined);engine.current?.setSketchDialogOpen(false);},[dimensionOwner.id,dimensionOwner.versionId,props.activeSketchID,props.activeInstancePath]);
   useEffect(()=>engine.current?.setSketchDialogOpen(Boolean(dimensionEditor)),[dimensionEditor]);
+  useEffect(()=>{setSketchCommand(undefined);callbacks.current.onSketchCommandStateChange?.(undefined);},[dimensionOwner.id,props.activeSketchID,props.activeInstancePath]);
+
 
   useEffect(() => {
     if (!host.current) return;
@@ -105,8 +110,8 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       selectionsChanged: (selections) => callbacks.current.onSelectionsChange(selections),
       preselectionChanged: (selection) => callbacks.current.onPreselectionChange(selection),
       sketchOperations: (featureID, operations,intent) => callbacks.current.onSketchOperations(featureID, operations,intent),
-      sketchCommandChanged:setSketchCommand,
-      sketchReceiptChanged:setSketchReceipt,
+      sketchCommandChanged:state=>{setSketchCommand(state);callbacks.current.onSketchCommandStateChange?.(state);},
+      sketchReceiptChanged:receipt=>callbacks.current.onSketchReceiptChange?.(receipt),
       sketchPreview:(featureId,operations,signal)=>callbacks.current.onSketchPreview?.(featureId,operations,signal)??Promise.reject(new Error("草图权威预览不可用")),
       sketchReceiptCheck:receipt=>callbacks.current.onSketchReceiptCheck?.(receipt)??Promise.reject(new Error("原请求查询不可用")),
       toolUseCompleted: () => callbacks.current.onToolUseComplete(),
@@ -137,6 +142,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     if (callbacks.current.sketchPlane && callbacks.current.activeSketchID) {
       instance.beginSketch(callbacks.current.activeSketchID, callbacks.current.sketchPlane);
     }
+    instance.setSketchLengthUnit(callbacks.current.preferredLengthUnit??"mm");
     instance.setActiveTool(callbacks.current.activeToolID);
     instance.setNavigationProfile(callbacks.current.navigationProfile);
     instance.setCatiaRotationSphereVisible(callbacks.current.catiaRotationSphereVisible);
@@ -161,6 +167,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     if (props.sketchPlane && props.activeSketchID) engine.current?.beginSketch(props.activeSketchID, props.sketchPlane);
     else engine.current?.endSketch();
   }, [props.sketchPlane, props.activeSketchID]);
+  useEffect(() => { engine.current?.setSketchLengthUnit(props.preferredLengthUnit??"mm"); }, [props.preferredLengthUnit]);
   useEffect(() => { engine.current?.setActiveTool(props.activeToolID); }, [props.activeToolID]);
   useEffect(() => { engine.current?.setNavigationProfile(props.navigationProfile); }, [props.navigationProfile]);
   useEffect(() => { engine.current?.setCatiaRotationSphereVisible(props.catiaRotationSphereVisible); }, [props.catiaRotationSphereVisible]);
@@ -187,11 +194,14 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     assemblyAngleReferenceDirection: (references) => engine.current?.assemblyAngleReferenceDirection(references),
     focusAssemblyReference: (reference,ownerOccurrence) => engine.current?.focusAssemblyReference(reference,ownerOccurrence) ?? false,
     showRemainingMotion: motion=>engine.current?.showRemainingMotion(motion),
+    sketchCommandAction:action=>engine.current?.commandAction(action),
+    retrySketchReceipt:async()=>{await engine.current?.retrySketchReceipt();},
     beginExternalReconnect: (externalID) => engine.current?.beginExternalReconnect(externalID),
   }), []);
 
   return <><div ref={host} className="cad-viewport-canvas" />
-    {props.activeSketchID&&!dimensionEditor&&<SketchCommandPanel state={sketchCommand} prompt={toolPrompt} onAction={action=>engine.current?.commandAction(action)} />}
+    {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="advanced"&&<SketchCommandPanel state={sketchCommand} prompt={toolPrompt} onAction={action=>engine.current?.commandAction(action)} />}
+    {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="inline"&&<SketchInlineParameterInput state={sketchCommand} lengthUnit={props.preferredLengthUnit} onAction={action=>engine.current?.commandAction(action)} />}
     {dimensionEditor && <SketchDimensionEditor key={`${dimensionEditor.epoch}:${dimensionEditor.featureId}:${dimensionEditor.mode === "edit" ? dimensionEditor.constraintId : dimensionEditor.kind}`}
       preferredLengthUnit={props.preferredLengthUnit} request={dimensionEditor} view={props.editingView??props.view} onClose={()=>setDimensionEditor(current=>current?.epoch===dimensionEditor.epoch?undefined:current)}
       onSelectReference={request=>engine.current?.beginSketchReferenceSelection(request)??(()=>{})}
@@ -202,6 +212,6 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
         if(owner.id!==dimensionEditor.ownerDocumentID||(!intent?.retryReceipt&&owner.versionId!==dimensionEditor.ownerRevisionID)||callbacks.current.activeSketchID!==dimensionEditor.featureId)throw new Error("草图版本或编辑会话已改变，请重新打开尺寸编辑");
         return engine.current?.commitDimensionOperations(dimensionEditor.featureId,operations,intent)??callbacks.current.onDimensionOperations(dimensionEditor.featureId,operations,intent);
       }} />}
-    {sketchReceipt&&!dimensionEditor&&<Alert style={{position:"absolute",bottom:48,left:12,right:12,zIndex:12}} type="warning" title={sketchReceipt.status==="committing"?"正在等待草图请求结果":"草图请求结果待确认"} description="退出工具不撤销已发请求；先确认原请求结果再继续编辑。" action={sketchReceipt.status==="unknown"?<Button onClick={()=>void engine.current?.retrySketchReceipt()}>确认原请求结果</Button>:undefined} />}
+
     {debug && <InputDebugOverlay snapshot={debug} />}</>;
 });

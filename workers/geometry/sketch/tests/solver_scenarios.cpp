@@ -1755,4 +1755,128 @@ TEST(PlaneGcsSketchSolver,
         EXPECT_EQ(model.constraints[2].references[0].entity_id, "a");
     }
 }
+
+TEST(PlaneGcsSketchSolver, EndpointDistanceIsNotParallelSpacingContinuation) {
+    SketchModel model;
+    model.lines = {{"a", {0,0}, {10,0}}, {"b", {12,5}, {20,5}}};
+    model.constraints = {
+        {"fixed-a", ConstraintKind::fixed, {endpoint("a",SubElement::whole)}},
+        {"fixed-b", ConstraintKind::fixed, {endpoint("b",SubElement::whole)}},
+        {"point-distance", ConstraintKind::distance,
+            {endpoint("a",SubElement::start),endpoint("b",SubElement::start)}, {}, 5, "mm"}};
+    const auto solver = make_plane_gcs_sketch_solver();
+    EXPECT_EQ(solver->solve(model).status, SolveStatus::conflicting);
+    model.constraints.back().value = 13;
+    const auto result = solver->solve(model);
+    ASSERT_TRUE(result.status == SolveStatus::solved || result.status == SolveStatus::redundant);
+    EXPECT_NEAR(std::hypot(result.lines[1].start.x-result.lines[0].start.x,
+                         result.lines[1].start.y-result.lines[0].start.y),13,1e-8);
+}
+
+TEST(PlaneGcsSketchSolver, FreeRoundedRectangleLargeVisibleDimensionEditsPreserveResiduals) {
+    SketchModel model;
+    model.lines.push_back({"line0", {10,10}, {130,10}});
+    model.lines.push_back({"line1", {130,10}, {130,80}});
+    model.lines.push_back({"line2", {130,80}, {10,80}});
+    model.lines.push_back({"line3", {10,80}, {10,10}});
+    model.lines.push_back({"line4", {15,10}, {125,10}});
+    model.lines.push_back({"line5", {130,15}, {130,75}});
+    model.arcs.push_back({"arc6", {125,15}, 5, -1.5707963267948966, 0});
+    model.lines.push_back({"line7", {125,80}, {15,80}});
+    model.arcs.push_back({"arc8", {125,75}, 5, 1.5707963267948966, 0});
+    model.lines.push_back({"line9", {10,75}, {10,15}});
+    model.arcs.push_back({"arc10", {15,75}, 5, 1.5707963267948966, 3.141592653589793});
+    model.arcs.push_back({"arc11", {15,15}, 5, -1.5707963267948966, -3.141592653589793});
+    model.constraints.push_back({"coincident0", ConstraintKind::coincident, {endpoint("line0", SubElement::end), endpoint("line1", SubElement::start)}, {}, 0, "", false});
+    model.constraints.push_back({"coincident1", ConstraintKind::coincident, {endpoint("line1", SubElement::end), endpoint("line2", SubElement::start)}, {}, 0, "", false});
+    model.constraints.push_back({"coincident2", ConstraintKind::coincident, {endpoint("line2", SubElement::end), endpoint("line3", SubElement::start)}, {}, 0, "", false});
+    model.constraints.push_back({"coincident3", ConstraintKind::coincident, {endpoint("line3", SubElement::end), endpoint("line0", SubElement::start)}, {}, 0, "", false});
+    model.constraints.push_back({"parallel4", ConstraintKind::parallel, {endpoint("line0", SubElement::direction), axis(GeometryTarget::sketch_x_axis)}, {}, 0, "", false});
+    model.constraints.push_back({"parallel5", ConstraintKind::parallel, {endpoint("line1", SubElement::direction), axis(GeometryTarget::sketch_y_axis)}, {}, 0, "", false});
+    model.constraints.push_back({"parallel6", ConstraintKind::parallel, {endpoint("line2", SubElement::direction), axis(GeometryTarget::sketch_x_axis)}, {}, 0, "", false});
+    model.constraints.push_back({"parallel7", ConstraintKind::parallel, {endpoint("line3", SubElement::direction), axis(GeometryTarget::sketch_y_axis)}, {}, 0, "", false});
+    model.constraints.push_back({"same_support8", ConstraintKind::same_support, {endpoint("line0", SubElement::whole), endpoint("line4", SubElement::whole)}, {}, 0, "", true});
+    model.constraints.push_back({"point_on_object9", ConstraintKind::point_on_object, {endpoint("line4", SubElement::end), endpoint("line0", SubElement::whole)}, {}, 0, "", true});
+    model.constraints.push_back({"same_support10", ConstraintKind::same_support, {endpoint("line1", SubElement::whole), endpoint("line5", SubElement::whole)}, {}, 0, "", true});
+    model.constraints.push_back({"point_on_object11", ConstraintKind::point_on_object, {endpoint("line5", SubElement::start), endpoint("line1", SubElement::whole)}, {}, 0, "", true});
+    model.constraints.push_back({"tangent12", ConstraintKind::tangent, {endpoint("line0", SubElement::whole), endpoint("arc6", SubElement::start)}, {}, 0, "", true});
+    model.constraints.push_back({"tangent13", ConstraintKind::tangent, {endpoint("line1", SubElement::whole), endpoint("arc6", SubElement::end)}, {}, 0, "", true});
+    model.constraints.push_back({"radius14", ConstraintKind::radius, {endpoint("arc6", SubElement::whole)}, {}, 5, "mm", false});
+    model.constraints.push_back({"coincident15", ConstraintKind::coincident, {endpoint("line4", SubElement::end), endpoint("arc6", SubElement::start)}, {}, 0, "", true});
+    model.constraints.push_back({"coincident16", ConstraintKind::coincident, {endpoint("line5", SubElement::start), endpoint("arc6", SubElement::end)}, {}, 0, "", true});
+    model.constraints.push_back({"same_support17", ConstraintKind::same_support, {endpoint("line2", SubElement::whole), endpoint("line7", SubElement::whole)}, {}, 0, "", true});
+    model.constraints.push_back({"point_on_object18", ConstraintKind::point_on_object, {endpoint("line7", SubElement::start), endpoint("line2", SubElement::whole)}, {}, 0, "", true});
+    model.constraints.push_back({"point_on_object19", ConstraintKind::point_on_object, {endpoint("line5", SubElement::end), endpoint("line1", SubElement::whole)}, {}, 0, "", true});
+    model.constraints.push_back({"tangent20", ConstraintKind::tangent, {endpoint("line2", SubElement::whole), endpoint("arc8", SubElement::start)}, {}, 0, "", true});
+    model.constraints.push_back({"tangent21", ConstraintKind::tangent, {endpoint("line1", SubElement::whole), endpoint("arc8", SubElement::end)}, {}, 0, "", true});
+    model.constraints.push_back({"radius22", ConstraintKind::radius, {endpoint("arc8", SubElement::whole)}, {}, 5, "mm", false});
+    model.constraints.push_back({"coincident23", ConstraintKind::coincident, {endpoint("line7", SubElement::start), endpoint("arc8", SubElement::start)}, {}, 0, "", true});
+    model.constraints.push_back({"coincident24", ConstraintKind::coincident, {endpoint("line5", SubElement::end), endpoint("arc8", SubElement::end)}, {}, 0, "", true});
+    model.constraints.push_back({"point_on_object25", ConstraintKind::point_on_object, {endpoint("line7", SubElement::end), endpoint("line2", SubElement::whole)}, {}, 0, "", true});
+    model.constraints.push_back({"same_support26", ConstraintKind::same_support, {endpoint("line3", SubElement::whole), endpoint("line9", SubElement::whole)}, {}, 0, "", true});
+    model.constraints.push_back({"point_on_object27", ConstraintKind::point_on_object, {endpoint("line9", SubElement::start), endpoint("line3", SubElement::whole)}, {}, 0, "", true});
+    model.constraints.push_back({"tangent28", ConstraintKind::tangent, {endpoint("line2", SubElement::whole), endpoint("arc10", SubElement::start)}, {}, 0, "", true});
+    model.constraints.push_back({"tangent29", ConstraintKind::tangent, {endpoint("line3", SubElement::whole), endpoint("arc10", SubElement::end)}, {}, 0, "", true});
+    model.constraints.push_back({"radius30", ConstraintKind::radius, {endpoint("arc10", SubElement::whole)}, {}, 5, "mm", false});
+    model.constraints.push_back({"coincident31", ConstraintKind::coincident, {endpoint("line7", SubElement::end), endpoint("arc10", SubElement::start)}, {}, 0, "", true});
+    model.constraints.push_back({"coincident32", ConstraintKind::coincident, {endpoint("line9", SubElement::start), endpoint("arc10", SubElement::end)}, {}, 0, "", true});
+    model.constraints.push_back({"point_on_object33", ConstraintKind::point_on_object, {endpoint("line4", SubElement::start), endpoint("line0", SubElement::whole)}, {}, 0, "", true});
+    model.constraints.push_back({"point_on_object34", ConstraintKind::point_on_object, {endpoint("line9", SubElement::end), endpoint("line3", SubElement::whole)}, {}, 0, "", true});
+    model.constraints.push_back({"tangent35", ConstraintKind::tangent, {endpoint("line0", SubElement::whole), endpoint("arc11", SubElement::start)}, {}, 0, "", true});
+    model.constraints.push_back({"tangent36", ConstraintKind::tangent, {endpoint("line3", SubElement::whole), endpoint("arc11", SubElement::end)}, {}, 0, "", true});
+    model.constraints.push_back({"radius37", ConstraintKind::radius, {endpoint("arc11", SubElement::whole)}, {}, 5, "mm", false});
+    model.constraints.push_back({"coincident38", ConstraintKind::coincident, {endpoint("line4", SubElement::start), endpoint("arc11", SubElement::start)}, {}, 0, "", true});
+    model.constraints.push_back({"coincident39", ConstraintKind::coincident, {endpoint("line9", SubElement::end), endpoint("arc11", SubElement::end)}, {}, 0, "", true});
+    model.constraints.push_back({"length40", ConstraintKind::length, {endpoint("line4", SubElement::whole)}, {}, 80, "mm", false});
+    const auto solver = make_plane_gcs_sketch_solver();
+    for (double target : {80.0, 140.0, 80.0}) {
+        model.constraints.back().value = target;
+        const auto result = solver->solve(model);
+        ASSERT_TRUE(result.status == SolveStatus::under_constrained || result.status == SolveStatus::redundant) << result.diagnostic;
+        for (const auto& line : result.lines)
+            if (line.id == "line4")
+                EXPECT_NEAR(std::hypot(line.end.x-line.start.x, line.end.y-line.start.y), target, 1e-7);
+        for (const auto& arc : result.arcs) {
+            EXPECT_NEAR(arc.radius, 5, 1e-8);
+            EXPECT_NEAR(std::abs(arc.end_angle-arc.start_angle), std::acos(-1.0)/2, 1e-7);
+        }
+        model.lines = result.lines;
+        model.arcs = result.arcs;
+    }
+    model.constraints.push_back({"visible-parallel", ConstraintKind::parallel,
+        {endpoint("line4", SubElement::direction), endpoint("line7", SubElement::direction)}, {}, 0, "", true});
+    model.constraints.push_back({"visible-distance", ConstraintKind::distance,
+        {endpoint("line4", SubElement::whole), endpoint("line7", SubElement::whole)}, {}, 50, "mm"});
+    for (double target : {50.0, 100.0, 50.0}) {
+        model.constraints.back().value = target;
+        const auto result = solver->solve(model);
+        ASSERT_TRUE(result.status == SolveStatus::under_constrained || result.status == SolveStatus::redundant) << result.diagnostic;
+        const LineEntity* a = nullptr;
+        const LineEntity* b = nullptr;
+        for (const auto& line : result.lines) {
+            if (line.id == "line4") a = &line;
+            if (line.id == "line7") b = &line;
+        }
+        ASSERT_NE(a, nullptr);
+        ASSERT_NE(b, nullptr);
+        EXPECT_NEAR(std::abs(a->start.y-b->start.y), target, 1e-7);
+        for (const auto& constraint : model.constraints) {
+            if (constraint.kind != ConstraintKind::coincident) continue;
+            const auto point = [&](const GeometryRef& ref) {
+                for (const auto& line : result.lines)
+                    if (line.id == ref.entity_id) return ref.sub_element == SubElement::start ? line.start : line.end;
+                for (const auto& arc : result.arcs) {
+                    if (arc.id != ref.entity_id) continue;
+                    const double angle = ref.sub_element == SubElement::start ? arc.start_angle : arc.end_angle;
+                    return Vec2{arc.center.x+arc.radius*std::cos(angle),arc.center.y+arc.radius*std::sin(angle)};
+                }
+                return Vec2{};
+            };
+            const auto first = point(constraint.references[0]), second = point(constraint.references[1]);
+            EXPECT_NEAR(std::hypot(first.x-second.x,first.y-second.y), 0, 1e-7);
+        }
+        model.lines = result.lines;
+        model.arcs = result.arcs;
+    }
+}
 }  // namespace occccad::geometry::sketch

@@ -80,6 +80,11 @@ func (service *Service) prepareSketchCurveEdits(ctx context.Context, modelJSON j
 	if err := json.Unmarshal(modelJSON, &model); err != nil {
 		return nil, err
 	}
+	var cornerErr error
+	operations, cornerErr = resolveSketchCornerOperationValues(model, operations)
+	if cornerErr != nil {
+		return nil, cornerErr
+	}
 	var sketch *SketchFeature
 	for _, f := range model.Features {
 		if f.ID == sketchID {
@@ -160,8 +165,8 @@ func (service *Service) prepareSketchCurveEdits(ctx context.Context, modelJSON j
 			if op.Type == "SPLIT_ENTITY" {
 				cuts = append(cuts, op.Parameters...)
 			} else {
-				if op.HitParameter == nil || !finite(*op.HitParameter) || *op.HitParameter < 0 || *op.HitParameter > 1 || len(op.BoundaryIDs) == 0 {
-					return nil, fmt.Errorf("%w: quick trim requires boundaries and a hit interval", ErrValidation)
+				if op.HitParameter == nil || !finite(*op.HitParameter) || *op.HitParameter < 0 || *op.HitParameter > 1 {
+					return nil, fmt.Errorf("%w: quick trim requires a finite hit interval", ErrValidation)
 				}
 				if service.worker == nil {
 					return nil, fmt.Errorf("%w: exact curve worker is unavailable", ErrValidation)
@@ -190,8 +195,9 @@ func (service *Service) prepareSketchCurveEdits(ctx context.Context, modelJSON j
 					}
 					for _, p := range result.Intersections {
 						t := (unwrapSketchCurveParameter(source, p.FirstParameter) - start) / (end - start)
-						if math.Abs(t) <= 1e-10 || math.Abs(t-1) <= 1e-10 {
+						if sketchBoundaryIntersectionEndpoint(source, p.FirstParameter, p.Point) != "" || math.Abs(t) <= 1e-10 || math.Abs(t-1) <= 1e-10 {
 							seamIntersection = true
+							continue // An endpoint contact is not an interior interval cut.
 						}
 						if t > 0 && t < 1 {
 							sub := sketchBoundaryIntersectionEndpoint(boundary, p.SecondParameter, p.Point)
@@ -206,8 +212,9 @@ func (service *Service) prepareSketchCurveEdits(ctx context.Context, modelJSON j
 					}
 					for _, p := range result.Intersections {
 						t := (unwrapSketchCurveParameter(source, p.FirstParameter) - start) / (end - start)
-						if math.Abs(t) <= 1e-10 || math.Abs(t-1) <= 1e-10 {
+						if sketchBoundaryIntersectionEndpoint(source, p.FirstParameter, p.Point) != "" || math.Abs(t) <= 1e-10 || math.Abs(t-1) <= 1e-10 {
 							seamIntersection = true
+							continue // An endpoint contact is not an interior interval cut.
 						}
 						if t > 0 && t < 1 {
 							cuts = append(cuts, t)
@@ -225,7 +232,7 @@ func (service *Service) prepareSketchCurveEdits(ctx context.Context, modelJSON j
 					unique = append(unique, t)
 				}
 			}
-			if len(unique) < 3 {
+			if len(unique) < 3 && !(op.Type == "QUICK_TRIM" && op.TrimMode == "DELETE_HIT") {
 				return nil, fmt.Errorf("%w: no interior curve intersection or split", ErrValidation)
 			}
 			cyclicHit := op.Type == "QUICK_TRIM" && !seamIntersection && (source.Kind == "CIRCLE" || source.Kind == "ELLIPSE" || source.Closed) && op.HitParameter != nil && (*op.HitParameter < unique[1] || *op.HitParameter >= unique[len(unique)-2])
@@ -241,6 +248,18 @@ func (service *Service) prepareSketchCurveEdits(ctx context.Context, modelJSON j
 			}
 			if op.Type == "QUICK_TRIM" && op.TrimMode != "BREAK" && op.TrimMode != "DELETE_HIT" && op.TrimMode != "KEEP_HIT" {
 				return nil, fmt.Errorf("%w: choose DELETE_HIT, KEEP_HIT or BREAK", ErrValidation)
+			}
+		}
+		// A conic has no topological endpoint at its arbitrary parameter seam.
+		// Two interior split picks produce two cyclic arcs, not three pieces.
+		if op.Type == "SPLIT_ENTITY" && (source.Kind == "CIRCLE" || source.Kind == "ELLIPSE") && len(intervals) >= 3 && intervals[0].Start == 0 && intervals[len(intervals)-1].End == 1 {
+			explicitSeam := false
+			for _, cut := range op.Parameters {
+				explicitSeam = explicitSeam || cut == 0 || cut == 1
+			}
+			if !explicitSeam {
+				wrap := SketchCurveInterval{Start: intervals[len(intervals)-1].Start, End: intervals[0].End + 1}
+				intervals = append(append([]SketchCurveInterval(nil), intervals[1:len(intervals)-1]...), wrap)
 			}
 		}
 		if len(intervals) > 64 {
@@ -293,8 +312,41 @@ func applyComputedSketchIntervals(sketch *SketchFeature, op SketchOperation, ent
 	if op.CurveSourceDigest != sketchCurveDigest(source) {
 		return fmt.Errorf("%w: precise edit source changed", ErrValidation)
 	}
+	// A formal SAME_SUPPORT sibling is an exact replacement for shared
+	// circular center/radius references when an entire split arc is removed.
+	// Endpoint or arbitrary whole-curve relations never use this migration.
+	sharedCircularSupport := ""
+	if len(op.ComputedEntities) == 0 && (source.Kind == "CIRCLE" || source.Kind == "ARC") {
+		var siblings []string
+		for _, relation := range sketch.Constraints {
+			if relation.Kind == "SAME_SUPPORT" && !relation.Suppressed && !detached[relation.ID] && len(relation.References) == 2 {
+				for i, r := range relation.References {
+					if r.Target == "ENTITY" && r.EntityID == source.ID {
+						other := relation.References[1-i]
+						candidate := entities[other.EntityID]
+						if other.Target == "ENTITY" && (candidate.Kind == "CIRCLE" || candidate.Kind == "ARC") {
+							siblings = append(siblings, candidate.ID)
+						}
+					}
+				}
+			}
+		}
+		sort.Strings(siblings)
+		if len(siblings) > 0 {
+			sharedCircularSupport = siblings[0]
+		}
+	}
 	constraints := []SketchConstraint{}
 	for _, c := range sketch.Constraints {
+		if len(op.ComputedEntities) == 0 && c.Internal {
+			dependent := false
+			for _, r := range c.References {
+				dependent = dependent || (r.Target == "ENTITY" && r.EntityID == source.ID)
+			}
+			if dependent {
+				continue
+			}
+		}
 		if detached[c.ID] {
 			continue
 		}
@@ -329,6 +381,11 @@ func applyComputedSketchIntervals(sketch *SketchFeature, op SketchOperation, ent
 					keep = 0
 				}
 			}
+			if keep < 0 && sharedCircularSupport != "" && (r.SubElement == "CENTER" || (r.SubElement == "WHOLE" && (c.Kind == "RADIUS" || c.Kind == "DIAMETER" || c.Kind == "CONCENTRIC"))) {
+				clone.References[i].EntityID = sharedCircularSupport
+				clone.References[i].PointID = ""
+				continue
+			}
 			if keep < 0 {
 				return fmt.Errorf("%w: topology edit changes constraint %s (%s); explicitly release or replace this reference", ErrValidation, c.ID, r.SubElement)
 			}
@@ -342,7 +399,7 @@ func applyComputedSketchIntervals(sketch *SketchFeature, op SketchOperation, ent
 				sub string
 				t   float64
 			}{{"START", interval.Start}, {"END", interval.End}} {
-				if endpoint.t == cut.Parameter {
+				if endpoint.t == cut.Parameter || ((source.Kind == "CIRCLE" || source.Kind == "ELLIPSE") && endpoint.t == cut.Parameter+1) {
 					kind := cut.Kind
 					if kind == "" {
 						kind = "COINCIDENT"
@@ -367,7 +424,7 @@ func applyComputedSketchIntervals(sketch *SketchFeature, op SketchOperation, ent
 			constraints = append(constraints, SketchConstraint{ID: macroID(op.OperationID, fmt.Sprintf("same-support/%d", i)), Kind: "SAME_SUPPORT", Internal: true, References: []SketchGeometryRef{{Target: "ENTITY", EntityID: op.ComputedEntities[0].ID, SubElement: "WHOLE"}, {Target: "ENTITY", EntityID: op.ComputedEntities[i].ID, SubElement: "WHOLE"}}})
 		}
 	}
-	if (source.Kind == "CIRCLE" || source.Kind == "ELLIPSE" || source.Closed) && len(op.Intervals) > 1 && op.Intervals[0].Start == 0 && op.Intervals[len(op.Intervals)-1].End == 1 {
+	if (source.Kind == "CIRCLE" || source.Kind == "ELLIPSE" || source.Closed) && len(op.Intervals) > 1 && op.Intervals[len(op.Intervals)-1].End == op.Intervals[0].Start+1 {
 		constraints = append(constraints, SketchConstraint{ID: macroID(op.OperationID, "periodic-join"), Kind: "COINCIDENT", Internal: true, References: []SketchGeometryRef{{Target: "ENTITY", EntityID: op.ComputedEntities[0].ID, SubElement: "START"}, {Target: "ENTITY", EntityID: op.ComputedEntities[len(op.ComputedEntities)-1].ID, SubElement: "END"}}})
 	}
 	kept := sketch.Entities[:0]

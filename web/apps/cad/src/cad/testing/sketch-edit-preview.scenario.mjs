@@ -51,8 +51,9 @@ try {
   pointClose(fillet.entities[2].center, { x: 1, y: 1 }); pointClose(fillet.entities[0].start, { x: 1, y: 0 }); pointClose(fillet.entities[1].start, { x: 0, y: 1 });
   pointClose(curveEnd(fillet.entities[2], false), fillet.entities[0].start); pointClose(curveEnd(fillet.entities[2], true), fillet.entities[1].start);
   close(Math.abs(fillet.entities[2].endAngle - fillet.entities[2].startAngle), Math.PI / 2);
-  const major = buildSketchEditPreview({ entities: [first, second], operation: { ...corner, point: { x: 2, y: 1 } } });
-  assert(Math.abs(major.entities[2].endAngle - major.entities[2].startAngle) > Math.PI, "branch click selects the alternate actual circular interval");
+  const distantClick = buildSketchEditPreview({ entities: [first, second], operation: { ...corner, point: { x: 2, y: 1 } } });
+  close(Math.abs(distantClick.entities[2].endAngle - distantClick.entities[2].startAngle), Math.PI / 2);
+  pointClose(distantClick.entities[2].center, { x: 1, y: 1 }); // click chooses the support side, not a complementary 270 degree arc
   assert.equal(buildSketchEditPreview({ entities: [first, second], operation: { ...corner, value: 9 } }).status, "UNAVAILABLE");
   const kept = buildSketchEditPreview({ entities: [first, second], operation: { ...corner, trimMode: "KEEP" } }); assert(kept.entities.every(e => e.role === "CONSTRUCTION")); assert.deepEqual(kept.replacedEntityIds, []);
 
