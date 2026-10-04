@@ -128,3 +128,5 @@ Multi-Body 由 Workspace 协调独立调用；一个 `naming.pb` 只允许一个
 `EvaluatePart` 沿用有序 Feature 输入协议，分别执行生成、跨 Body Boolean 和局部修改。`BodyToolInput` 只接收明确阶段的不可变 BREP/Naming ArtifactReference，校验摘要和阶段后才能组合。当前范围、参数与限制见[实体 Feature 合同](../../docs/architecture/current/solid-features.md)。真实服务回归入口为 `TestSolidBooleanLifecycleThroughRouter`；它使用独立新建文档并经过 GeometryPool/Router，不清空数据库。
 
 基础 Loft 支持同边数闭合截面及矩形/圆截面组合。不同边数使用 OCCT 的 CompatibleWires 与 Generated 历史保留拆分来源，Naming evaluator 为 v6；无孔和无导轨的范围不变。
+
+托管 Worker 使用控制面传入的 `OCCCCAD_GEOMETRY_WORKER_ID` 返回 Ping 身份，启动就绪检查必须与本次启动身份一致。监听禁用 `SO_REUSEPORT`，防止残留旧进程与新 Worker 共享端口；控制面在配置起始端口之后寻找空闲端口，不接管已存在的进程。

@@ -397,6 +397,18 @@ func featureInputIDs(feature Feature) []string {
 			ids = append(ids, axis[1])
 		}
 	}
+	if feature.Pattern != nil {
+		ids = append(ids, patternReferenceFeatures(feature.Pattern.PatternDefinition)...)
+	}
+	if feature.Sketch != nil {
+		for _, p := range feature.Sketch.Patterns {
+			for _, id := range patternReferenceFeatures(p.PatternDefinition) {
+				if id != feature.ID {
+					ids = append(ids, id)
+				}
+			}
+		}
+	}
 	if feature.Profile != "" {
 		ids = append(ids, feature.Profile)
 	}

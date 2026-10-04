@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log/slog"
 	"net"
@@ -161,18 +162,34 @@ func (pool *GeometryPool) Status() map[string]any {
 }
 
 func (pool *GeometryPool) spawnLocked() (*workerInstance, error) {
-	port := pool.nextPort
-	pool.nextPort++
-	address := net.JoinHostPort(pool.config.WorkerHost, strconv.Itoa(port))
+	// A stale Worker must never satisfy readiness for a new managed process.
+	var port int
+	var address string
+	for attempt := 0; ; attempt++ {
+		if attempt >= 128 {
+			return nil, fmt.Errorf("no free geometry worker port")
+		}
+		port = pool.nextPort
+		pool.nextPort++
+		address = net.JoinHostPort(pool.config.WorkerHost, strconv.Itoa(port))
+		probe, err := net.Listen("tcp", address)
+		if err != nil {
+			continue
+		}
+		_ = probe.Close()
+		break
+	}
+	identity := "geometry-" + rand.Text()
 	environment := make([]string, 0, len(os.Environ())+1)
 	for _, entry := range os.Environ() {
-		if !strings.HasPrefix(entry, "OCCCCAD_GEOMETRY_WORKER_LISTEN=") &&
+		if !strings.HasPrefix(entry, "OCCCCAD_GEOMETRY_WORKER_ID=") &&
+			!strings.HasPrefix(entry, "OCCCCAD_GEOMETRY_WORKER_LISTEN=") &&
 			!strings.HasPrefix(entry, "OCCCCAD_DATA_DIR=") &&
 			!strings.HasPrefix(entry, "OCCCCAD_LOG_DIR=") {
 			environment = append(environment, entry)
 		}
 	}
-	environment = append(environment, "OCCCCAD_GEOMETRY_WORKER_LISTEN="+address)
+	environment = append(environment, "OCCCCAD_GEOMETRY_WORKER_LISTEN="+address, "OCCCCAD_GEOMETRY_WORKER_ID="+identity)
 	if pool.config.DataDirectory != "" {
 		environment = append(environment, "OCCCCAD_DATA_DIR="+pool.config.DataDirectory)
 	}
@@ -191,9 +208,20 @@ func (pool *GeometryPool) spawnLocked() (*workerInstance, error) {
 	client := workerv1.NewGeometryWorkerClient(connection)
 	deadline := time.Now().Add(15 * time.Second)
 	for {
+		select {
+		case <-process.Done():
+			_ = connection.Close()
+			return nil, fmt.Errorf("geometry worker %s exited before readiness", address)
+		default:
+		}
 		ctx, cancel := context.WithTimeout(pool.ctx, 500*time.Millisecond)
-		_, pingErr := client.Ping(ctx, &workerv1.PingRequest{})
+		pong, pingErr := client.Ping(ctx, &workerv1.PingRequest{})
 		cancel()
+		if pingErr == nil && pong.GetWorkerId() != identity {
+			_ = connection.Close()
+			_ = process.Stop(2 * time.Second)
+			return nil, fmt.Errorf("geometry worker %s ownership mismatch", address)
+		}
 		if pingErr == nil {
 			break
 		}

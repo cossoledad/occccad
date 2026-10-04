@@ -34,7 +34,7 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	port := listener.Addr().(*net.TCPAddr).Port
-	_ = listener.Close()
+	t.Cleanup(func() { _ = listener.Close() }) // Occupied port must never be reused by the pool.
 	directory := t.TempDir()
 	pool := NewGeometryPool(t.Context(), GeometryPoolConfig{WorkerBinary: binary, WorkerHost: "127.0.0.1", FirstWorkerPort: port, DataDirectory: directory, LogDirectory: t.TempDir()})
 	t.Cleanup(pool.Close)
@@ -128,7 +128,7 @@ func TestParametricPatternsSharedUpdateThroughRouter(t *testing.T) {
 			{Type: "ADD_CONSTRAINT", Constraint: &workspace.SketchConstraint{ID: "radius", Kind: "RADIUS", Unit: "mm", References: []workspace.SketchGeometryRef{{Target: "ENTITY", EntityID: "circle", SubElement: "WHOLE"}}, Value: &radius}},
 			{Type: "ADD_CONSTRAINT", Constraint: &workspace.SketchConstraint{ID: "pitch", Kind: "HORIZONTAL_DISTANCE", Unit: "mm", References: []workspace.SketchGeometryRef{origin, center}, Value: &pitch}},
 			{Type: "ADD_CONSTRAINT", Constraint: &workspace.SketchConstraint{ID: "height", Kind: "VERTICAL_DISTANCE", Unit: "mm", References: []workspace.SketchGeometryRef{origin, center}, Value: &zero}},
-			{Type: "CREATE_PATTERN", Pattern: &workspace.SketchPattern{PatternDefinition: workspace.PatternDefinition{ID: "group", Kind: "CIRCULAR", Distribution: "FULL_CIRCLE", Count: 6, Direction: [3]float64{0, 0, 1}}, EntityIDs: []string{"circle"}}},
+			{Type: "CREATE_PATTERN", Pattern: &workspace.SketchPattern{PatternDefinition: workspace.PatternDefinition{ID: "group", CenterReference: &workspace.PatternPointReference{SketchID: sketch, Reference: origin}, Kind: "CIRCULAR", Distribution: "FULL_CIRCLE", Count: 6, Direction: [3]float64{0, 0, 1}}, EntityIDs: []string{"circle"}}},
 		}})
 		for key, slot := range map[string]string{"count": "pattern:group:count", "pitch": "constraint:pitch:value", "phase": "pattern:group:phase"} {
 			apply(&v, workspace.CommandRequest{Type: "SET_PARAMETER_EXTERNAL", ParameterID: "parameter:" + sketch + ":" + slot, SourceDocumentID: design.Document.ID, PublicationID: publications[key], ReferenceMode: "FOLLOW_HEAD"})

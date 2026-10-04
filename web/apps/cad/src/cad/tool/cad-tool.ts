@@ -32,6 +32,7 @@ export type ToolViewportPort = {
   currentSketchReferenceEntities?():readonly SketchEntity[];
   showSketchEditCandidate?(candidate:import("../sketch/sketch-edit-preview").SketchEditCandidatePreview):void;
   setSketchCommandState?(state: SketchCommandState | undefined): void;
+  isFeatureSelectionActive?(): boolean;
   sketchEntityAt?(x: number, y: number): SelectionItem | null;
   hasActiveSketch(): boolean;
   sketchReferenceAt(x: number, y: number, kind: SketchReferencePickKind, retained?: SketchGeometryRef,allowed?:(reference:SketchGeometryRef)=>boolean): SketchGeometryRef | null;
@@ -118,6 +119,7 @@ export class SelectTool implements CadTool {
   }
   activate(context: ToolContext): void { context.viewport.clearReferencePreview();context.viewport.clearToolPreview();context.viewport.setToolPrompt("选择：选择草图元素，或从工具栏启动创建命令"); }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
+    if (context.viewport.isFeatureSelectionActive?.()) return InputResult.Ignored;
     if (event.button !== 0 || event.state.buttons.middle || event.state.buttons.right) return InputResult.Ignored;
     if (context.viewport.beginDimensionDrag(event.x, event.y)) {
       this.dimensionPointer = { id: event.pointerId, x: event.x, y: event.y, moved: false };return InputResult.Capture;
@@ -178,6 +180,7 @@ export class SelectTool implements CadTool {
     return InputResult.Consumed;
   }
   keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {
+    if(context.viewport.isFeatureSelectionActive?.())return InputResult.Ignored;
     if(event.editableTarget||!context.viewport.hasActiveSketch())return InputResult.Ignored;
     if(event.key==="Escape"&&(this.sketchPointPointer||this.dimensionPointer)){this.cancel(context);return InputResult.Consumed;}
     if((event.state?.modifiers.ctrl||event.state?.modifiers.meta)&&event.key.toLowerCase()==="c")return copySketchSelection(context)?InputResult.Consumed:InputResult.Ignored;

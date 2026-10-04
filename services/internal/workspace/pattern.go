@@ -15,18 +15,21 @@ import (
 // Coordinates use the owner's frame (mm); angles are degrees. Count includes slot
 // zero. Skipping a slot never changes the identity or placement of another slot.
 type PatternDefinition struct {
-	AxisEntityID string     `json:"axisEntityId,omitempty"`
-	ID           string     `json:"id"`
-	Kind         string     `json:"kind"`
-	Distribution string     `json:"distribution"`
-	Count        float64    `json:"count"`
-	Spacing      float64    `json:"spacing,omitempty"`
-	Angle        float64    `json:"angle,omitempty"`
-	Phase        float64    `json:"phase,omitempty"`
-	Origin       [3]float64 `json:"origin"`
-	Direction    [3]float64 `json:"direction"`
-	SkippedSlots []int      `json:"skippedSlots,omitempty"`
-	Suppressed   bool       `json:"suppressed,omitempty"`
+	DirectionReference *SketchGeometryRef     `json:"directionReference,omitempty"`
+	CenterReference    *PatternPointReference `json:"centerReference,omitempty"`
+	Reversed           bool                   `json:"reversed,omitempty"`
+	AxisEntityID       string                 `json:"axisEntityId,omitempty"`
+	ID                 string                 `json:"id"`
+	Kind               string                 `json:"kind"`
+	Distribution       string                 `json:"distribution"`
+	Count              float64                `json:"count"`
+	Spacing            float64                `json:"spacing,omitempty"`
+	Angle              float64                `json:"angle,omitempty"`
+	Phase              float64                `json:"phase,omitempty"`
+	Origin             [3]float64             `json:"origin"`
+	Direction          [3]float64             `json:"direction"`
+	SkippedSlots       []int                  `json:"skippedSlots,omitempty"`
+	Suppressed         bool                   `json:"suppressed,omitempty"`
 }
 
 const maxPatternMembers = 256
@@ -38,7 +41,7 @@ type FeaturePattern struct {
 	SourceKind string          `json:"sourceKind"` // SKETCH_FRAME, GENERATOR_TOOL, BODY_STAGE
 }
 
-func resolvedPatternDefinition(model PartModel, p PatternDefinition) (PatternDefinition, error) {
+func resolvePatternAxisDefinition(model PartModel, p PatternDefinition) (PatternDefinition, error) {
 	if p.AxisEntityID == "" {
 		return p, nil
 	}
@@ -105,6 +108,11 @@ func validateFeaturePattern(f Feature, earlier map[string]Feature) error {
 		return fmt.Errorf("%w: pattern identity required", ErrValidation)
 	}
 	p := f.Pattern
+	for _, id := range patternReferenceFeatures(p.PatternDefinition) {
+		if _, ok := earlier[id]; !ok {
+			return fmt.Errorf("%w: pattern reference must precede pattern", ErrValidation)
+		}
+	}
 	if axis := strings.Split(p.AxisEntityID, ":"); len(axis) == 3 && axis[0] == "SKETCH_LINE" {
 		if source, ok := earlier[axis[1]]; !ok || source.Sketch == nil {
 			return fmt.Errorf("%w: pattern axis must precede pattern", ErrValidation)
@@ -238,10 +246,9 @@ func visualizationSketchFeatures(model PartModel) []Feature {
 			if err != nil {
 				continue
 			}
-			for i := range entities {
-				entities[i].ID = patternMemberID(feature.ID, placement.Slot, entities[i].ID)
-			}
-			member.ID = feature.ID
+			// Entity IDs stay in the seed namespace; member FeatureID scopes display
+			// identity and downstream seam references still address the source geometry.
+			// Keep the stable member identity for separate visual/selection groups.
 			member.BodyID = feature.BodyID
 			member.Visible = feature.Visible
 			member.Sketch.Entities = entities
@@ -314,6 +321,9 @@ func patternPlacements(p PatternDefinition) ([]PatternPlacement, error) {
 	}
 	if p.Distribution == "FULL_CIRCLE" {
 		step = 360 / p.Count
+	}
+	if p.Reversed {
+		step = -step
 	}
 	result := make([]PatternPlacement, 0, int(p.Count))
 	for slot := 0; slot < int(p.Count); slot++ {

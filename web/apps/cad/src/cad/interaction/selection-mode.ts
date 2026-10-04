@@ -49,6 +49,7 @@ export function projectSketchFeatureSelection(selection: Selection, activeSketch
     .find((index) => index >= 0);
   return {
     kind: "sketch",
+    patternId:selection.patternId,patternMemberSlot:selection.patternMemberSlot,
     id: selection.featureId,
     entityId: selection.featureId,
     documentId: selection.documentId,

@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v22-parametric-patterns"
+const evaluatorVersion = "part-solid-generators-v23-pattern-members"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1415,13 +1415,14 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 				continue
 			}
 			primitive := VisualPrimitive{ID: entity.ID, DisplayEntityID: entity.ID, FeatureID: feature.ID,
-				EntityType: entity.Kind, Role: entity.Role, Status: feature.Sketch.Solve.Status, Selectable: true}
+				EntityType: entity.Kind, Role: entity.Role, Status: sketchEntityDefinitionStatus(*feature.Sketch, entity), Selectable: true}
 			switch entity.Kind {
 			case "POINT":
 				if entity.Point == nil {
 					continue
 				}
 				primitive.Kind = "POINTS"
+				primitive.PointReference = &SketchGeometryRef{Target: "ENTITY", EntityID: entity.ID, SubElement: "POINT"}
 				primitive.Semantic = "SKETCH_POINT"
 				primitive.Positions = [][3]float64{toWorld(*entity.Point)}
 			case "LINE":
@@ -1476,7 +1477,7 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 			for _, auxiliary := range auxiliaryPoints {
 				manifest.Primitives = append(manifest.Primitives, VisualPrimitive{ID: entity.ID + ":" + auxiliary.suffix, DisplayEntityID: entity.ID, FeatureID: feature.ID,
 					Kind: "POINTS", Semantic: "SKETCH_POINT", EntityType: "REFERENCE_POINT", Role: entity.Role,
-					Status: feature.Sketch.Solve.Status, Positions: [][3]float64{toWorld(auxiliary.point)}, Selectable: false})
+					PointReference: &SketchGeometryRef{Target: "ENTITY", EntityID: entity.ID, SubElement: strings.ToUpper(auxiliary.suffix)}, Status: primitive.Status, Positions: [][3]float64{toWorld(auxiliary.point)}, Selectable: auxiliary.suffix == "center" || auxiliary.suffix == "start" || auxiliary.suffix == "end"})
 			}
 		}
 		for _, external := range feature.Sketch.ExternalGeometry {
@@ -1547,6 +1548,22 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 				primitive.LabelPosition = &worldPosition
 			}
 			manifest.Primitives = append(manifest.Primitives, primitive)
+		}
+	}
+	// Separate member IDs enter the same GLB snapshot as their exact geometry.
+	members := map[string]sketchPatternMember{}
+	for _, f := range model.Features {
+		for _, m := range spatialSketchMembers(f) {
+			members[m.ID] = m
+		}
+	}
+	for i := range manifest.Primitives {
+		p := &manifest.Primitives[i]
+		if m, ok := members[p.FeatureID]; ok {
+			p.PatternID = m.PatternID
+			p.SketchMemberID = m.ID
+			slot := m.Slot
+			p.PatternMemberSlot = &slot
 		}
 	}
 	return manifest
@@ -2280,6 +2297,10 @@ func featureStructureNode(feature Feature, path, documentID, versionID, definiti
 		}
 		node.Children = sketchStructureChildren(*feature.Sketch, node.ID, feature.ID, documentID, versionID, childrenEditable)
 	}
+	for _, member := range spatialSketchMembers(feature) {
+		slot := member.Slot
+		node.Children = append(node.Children, DocumentStructureNode{ID: node.ID + "/member:" + member.ID, Kind: "SKETCH_PATTERN_MEMBER", Name: fmt.Sprintf("关联草图 %d", slot+1), EntityID: member.ID, OwnerEntityID: feature.ID, PatternID: feature.ID, PatternMemberSlot: &slot, BodyID: feature.BodyID, DocumentID: documentID, VersionID: versionID})
+	}
 	return node
 }
 
@@ -2348,9 +2369,9 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 	}
 	constraints.Children = append(constraints.Children, logical, dimensions)
 	if len(externals.Children) > 0 {
-		return []DocumentStructureNode{geometry, externals, constraints}
+		return append([]DocumentStructureNode{geometry, externals, constraints}, sketchPatternNodes(sketch, path, sketchID, documentID, versionID, editable)...)
 	}
-	return []DocumentStructureNode{geometry, constraints}
+	return append([]DocumentStructureNode{geometry, constraints}, sketchPatternNodes(sketch, path, sketchID, documentID, versionID, editable)...)
 }
 
 func partStructureChildren(model PartModel, path, documentID, versionID string, editable bool) []DocumentStructureNode {
@@ -2781,9 +2802,13 @@ func annotateStructure(node *DocumentStructureNode, ownerDocumentID, bodyID stri
 	if node.Kind == "INSTANCE" {
 		subjectDocumentID = node.OwnerDocumentID
 	}
-	if node.Kind == "SKETCH_INPUT_REFERENCE" {
+	if node.Kind == "SKETCH_INPUT_REFERENCE" || node.Kind == "SKETCH_PATTERN_MEMBER" {
 		subjectKind = "SKETCH"
 	}
+	if node.Kind == "SKETCH_PATTERN_ENTITY" {
+		subjectKind = "SKETCH_ENTITY"
+	}
+
 	if entityID != "" && subjectDocumentID != "" {
 		node.Subject = &StructureEntityRef{DocumentID: subjectDocumentID, EntityKind: subjectKind, EntityID: entityID}
 	}

@@ -25,9 +25,21 @@ func deleteDatum(model PartModel, kind, id string) (json.RawMessage, modelcore.C
 		}
 	}
 	for _, f := range model.Features {
-		if f.Pattern != nil && f.Pattern.AxisEntityID == "DATUM_AXIS:"+id {
-			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is used by pattern %s", ErrValidation, f.ID)
+		definitions := []PatternDefinition{}
+		if f.Pattern != nil {
+			definitions = append(definitions, f.Pattern.PatternDefinition)
 		}
+		if f.Sketch != nil {
+			for _, p := range f.Sketch.Patterns {
+				definitions = append(definitions, p.PatternDefinition)
+			}
+		}
+		for _, p := range definitions {
+			if p.AxisEntityID == "DATUM_AXIS:"+id || p.CenterReference != nil && p.CenterReference.AxisEntityID == "DATUM_AXIS:"+id {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is used by pattern %s", ErrValidation, p.ID)
+			}
+		}
+
 		if f.NeutralPlaneID == id || f.AxisEntityID == "DATUM_AXIS:"+id || f.Sketch != nil && f.Sketch.Support.DatumPlaneID == id {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is used by feature %s", ErrValidation, f.ID)
 		}

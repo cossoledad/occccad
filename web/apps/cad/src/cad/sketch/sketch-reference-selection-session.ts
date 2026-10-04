@@ -4,6 +4,7 @@ import type { SketchReferencePickKind } from "../interaction/sketch-reference-pi
 export type SketchReferenceSelectionRequest = {
  featureId:string; slot:number; pick:SketchReferencePickKind; retained?:SketchEntity;
  references:readonly SketchGeometryRef[];
+ hoverOverridesRetained?:boolean;
  allowed?:(candidate:SketchGeometryRef)=>boolean;
  onCandidate:(candidate:SketchGeometryRef)=>boolean;
  onPreview:(candidate:SketchGeometryRef|undefined)=>void;

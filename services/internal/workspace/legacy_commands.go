@@ -1486,10 +1486,10 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, fmt.Errorf("%w: delete target identity is required", ErrValidation)
 		}
 		if documentType == "PART" {
-			if kind != "FEATURE" && kind != "SKETCH_ENTITY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" {
+			if kind != "FEATURE" && kind != "SKETCH_PATTERN_DEFINITION" && kind != "SKETCH_ENTITY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" {
 				break
 			}
-			if (kind == "SKETCH_ENTITY" || kind == "SKETCH_CONSTRAINT") && owner == "" {
+			if (kind == "SKETCH_ENTITY" || kind == "SKETCH_CONSTRAINT" || kind == "SKETCH_PATTERN_DEFINITION") && owner == "" {
 				return "", nil, fmt.Errorf("%w: sketch child deletion requires its owning sketch", ErrValidation)
 			}
 			return typeDeletePartNode, deleteNodePayload{TargetKind: kind, TargetID: id, OwnerEntityID: owner}, nil
@@ -1512,18 +1512,18 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, fmt.Errorf("%w: delete target identity is required", ErrValidation)
 			}
 			if documentType == "PART" {
-				if kind != "FEATURE" && kind != "SKETCH_ENTITY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" {
+				if kind != "FEATURE" && kind != "SKETCH_PATTERN_DEFINITION" && kind != "SKETCH_ENTITY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" {
 					valid = false
 					break
 				}
-				if (kind == "SKETCH_ENTITY" || kind == "SKETCH_CONSTRAINT") && owner == "" {
+				if (kind == "SKETCH_ENTITY" || kind == "SKETCH_CONSTRAINT" || kind == "SKETCH_PATTERN_DEFINITION") && owner == "" {
 					return "", nil, fmt.Errorf("%w: sketch child deletion requires its owning sketch", ErrValidation)
 				}
 			} else if documentType != "PRODUCT" || (kind != "INSTANCE" && kind != "ASSEMBLY_CONSTRAINT") {
 				valid = false
 				break
 			}
-			key := kind + "\x00" + id
+			key := kind + "\x00" + owner + "\x00" + id
 			if seen[key] {
 				continue
 			}

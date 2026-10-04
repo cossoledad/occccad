@@ -1,3 +1,4 @@
+import { referencePropertyRows } from "./reference-properties";
 import {formatDisplayNumber} from "../../utils/display-number";
 import { ExportOutlined } from "@ant-design/icons";
 import { Button, Descriptions, List, Space, Spin, Tag, Typography } from "antd";
@@ -169,21 +170,9 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
         ...Object.entries(topology.properties).map(([key, value]) => ({ key: `brep-${key}`, label: key, children: format(value) })),
       ]} /></>;
   }
-  if (selection.kind === "axis" || selection.kind === "axis-system") {
-    const systems = view.axisSystems ?? diagnostics?.artifacts.flatMap((item) => item.visualization.referenceGeometry.axisSystems) ?? [];
-    const axisSystem = systems.find((item) => item.id === selection.entityId);
-    const datumAxis = selection.kind === "axis" && selection.axis === "DATUM" ? (view.datumAxes ?? view.part?.datumAxes ?? diagnostics?.artifacts.flatMap(item => item.visualization.referenceGeometry.datumAxes ?? []) ?? []).find(item => item.id === selection.entityId) : undefined;
-    const direction = selection.kind === "axis" && axisSystem
-      ? selection.axis === "X" ? axisSystem.xDirection : selection.axis === "Y" ? axisSystem.yDirection : axisSystem.zDirection
-      : datumAxis?.direction;
-    return <Descriptions column={1} size="small" bordered className="property-list" items={[
-      { key: "type", label: "类型", children: selection.kind === "axis" ? `${selection.axis} Axis` : "Axis System" },
-      { key: "name", label: "名称", children: datumAxis?.name ?? axisSystem?.name ?? selection.id },
-      { key: "origin", label: "原点", children: (datumAxis?.origin ?? axisSystem?.origin)?.map(value=>formatDisplayNumber(value)).join(", ") ?? "—" },
-      ...(direction ? [{ key: "direction", label: "方向", children: direction.map(value=>formatDisplayNumber(value)).join(", ") }] : []),
-      { key: "reference", label: "引用路径", children: selection.occurrencePath || "Part root" },
-    ]} />;
-  }
+  const referenceRows=referencePropertyRows(view,selection,diagnostics);
+  if(referenceRows)return <Descriptions column={1} size="small" bordered className="property-list" items={referenceRows}/>;
+
 	if (selection.kind === "sketch-constraint") {
 		const sketch = view.part?.features.find((candidate) => candidate.id === selection.featureId)?.sketch;
 		const constraint = sketch?.constraints.find((candidate) => candidate.id === selection.constraintId);
@@ -195,7 +184,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
 	}
   const instance = selection.kind === "instance" ? view.product?.instances.find((item) => item.id === selection.id) : undefined;
   if (selection.kind === "visual") {
-    const entity = view.part?.features.find(candidate => candidate.id === selection.featureId)?.sketch?.entities.find(candidate => candidate.id === selection.entityId);
+    const entity = view.part?.features.find(candidate => candidate.id === selection.featureId)?.sketch?.entities.find(candidate => candidate.id === selection.entityId) ?? view.sketchPatternMembers?.[selection.featureId]?.find(candidate => candidate.id === selection.entityId);
     const external = view.part?.features.find((candidate)=>candidate.id===selection.featureId)?.sketch?.externalGeometry
       ?.find((candidate)=>candidate.id===selection.entityId);
     return <Descriptions column={1} size="small" bordered className="property-list" items={[
@@ -203,6 +192,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
     { key: "entity", label: "元素", children: selection.entityId },
     { key: "feature", label: "所属特征", children: selection.featureId },
     { key: "role", label: "角色", children: selection.role ?? "—" },
+    ...(entity?.sourceEntityId ? [{key:"pattern-source",label:"关联种子",children:entity.sourceEntityId},{key:"pattern-owner",label:"阵列",children:entity.createdByOperationId??"—"}] : []),
     ...(entity?.kind === "SPLINE" ? [
       { key: "spline-mode", label: "样条方式", children: entity.mode === "CONTROL" ? "控制顶点" : "插值拟合点" },
       { key: "spline-points", label: entity.mode === "CONTROL" ? "控制顶点" : "拟合点", children: (entity.mode === "CONTROL" ? entity.poles : entity.controlPoints)?.length ?? 0 },

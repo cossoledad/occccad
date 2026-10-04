@@ -171,20 +171,24 @@ type VisualizationManifest struct {
 // POLYLINE, and TRIANGLES cover sketches and form the extension boundary for
 // future wire/curve/surface modules without leaking OCCT types.
 type VisualPrimitive struct {
-	ID               string       `json:"id"`
-	DisplayEntityID  string       `json:"displayEntityId,omitempty"`
-	FeatureID        string       `json:"featureId"`
-	Kind             string       `json:"kind"`
-	Semantic         string       `json:"semantic"`
-	EntityType       string       `json:"entityType,omitempty"`
-	Role             string       `json:"role,omitempty"`
-	Status           string       `json:"status,omitempty"`
-	Positions        [][3]float64 `json:"positions"`
-	Label            string       `json:"label,omitempty"`
-	LabelPosition    *[3]float64  `json:"labelPosition,omitempty"`
-	RelatedEntityIDs []string     `json:"relatedEntityIds,omitempty"`
-	Indices          []uint32     `json:"indices,omitempty"`
-	Selectable       bool         `json:"selectable"`
+	PatternID         string             `json:"patternId,omitempty"`
+	PatternMemberSlot *int               `json:"patternMemberSlot,omitempty"`
+	SketchMemberID    string             `json:"sketchMemberId,omitempty"`
+	PointReference    *SketchGeometryRef `json:"pointReference,omitempty"`
+	ID                string             `json:"id"`
+	DisplayEntityID   string             `json:"displayEntityId,omitempty"`
+	FeatureID         string             `json:"featureId"`
+	Kind              string             `json:"kind"`
+	Semantic          string             `json:"semantic"`
+	EntityType        string             `json:"entityType,omitempty"`
+	Role              string             `json:"role,omitempty"`
+	Status            string             `json:"status,omitempty"`
+	Positions         [][3]float64       `json:"positions"`
+	Label             string             `json:"label,omitempty"`
+	LabelPosition     *[3]float64        `json:"labelPosition,omitempty"`
+	RelatedEntityIDs  []string           `json:"relatedEntityIds,omitempty"`
+	Indices           []uint32           `json:"indices,omitempty"`
+	Selectable        bool               `json:"selectable"`
 }
 
 type SketchPoint2 struct {
@@ -926,6 +930,8 @@ type StructureSnapshotScope struct {
 }
 
 type DocumentStructureNode struct {
+	PatternID          string                  `json:"patternId,omitempty"`
+	PatternMemberSlot  *int                    `json:"patternMemberSlot,omitempty"`
 	Consumed           bool                    `json:"consumed,omitempty"`
 	ID                 string                  `json:"id"`
 	Kind               string                  `json:"kind"`

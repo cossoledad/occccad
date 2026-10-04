@@ -384,7 +384,7 @@ func validateAndResolvePartParameters(model *PartModel) error {
 			}
 		}
 	}
-	return nil
+	return resolveSketchPatternReferences(model)
 }
 
 func validatePartStructure(model PartModel) error {
@@ -478,6 +478,17 @@ func validatePartStructure(model PartModel) error {
 		if feature.Type == "DRAFT" && feature.NeutralPlaneID != "" {
 			if _, exists := datums[feature.NeutralPlaneID]; !exists {
 				return fmt.Errorf("%w: neutral datum plane missing", ErrValidation)
+			}
+		}
+		if feature.Sketch != nil {
+			for _, p := range feature.Sketch.Patterns {
+				for _, id := range patternReferenceFeatures(p.PatternDefinition) {
+					if id != feature.ID {
+						if _, ok := features[id]; !ok {
+							return fmt.Errorf("%w: pattern reference must be upstream", ErrValidation)
+						}
+					}
+				}
 			}
 		}
 		if err := validateFeaturePattern(feature, features); err != nil {
@@ -626,6 +637,32 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 					prefix = "feature:"
 				}
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey(prefix + axis[1]), Target: key, Kind: modelcore.ReadGeometry})
+			}
+		}
+		definitions := []PatternDefinition{}
+		if feature.Pattern != nil {
+			definitions = append(definitions, feature.Pattern.PatternDefinition)
+		}
+		if feature.Sketch != nil {
+			for _, p := range feature.Sketch.Patterns {
+				definitions = append(definitions, p.PatternDefinition)
+			}
+		}
+		for _, p := range definitions {
+			for _, id := range patternReferenceFeatures(p) {
+				if id != feature.ID {
+					edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + id), Target: key, Kind: modelcore.ReadGeometry})
+				}
+			}
+			axes := []string{p.AxisEntityID}
+			if p.CenterReference != nil {
+				axes = append(axes, p.CenterReference.AxisEntityID)
+			}
+			for _, axis := range axes {
+				parts := strings.Split(axis, ":")
+				if len(parts) >= 2 && (parts[0] == "AXIS_SYSTEM" || parts[0] == "DATUM_AXIS") {
+					edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + parts[1]), Target: key, Kind: modelcore.ReadGeometry})
+				}
 			}
 		}
 		for _, section := range feature.Sections {

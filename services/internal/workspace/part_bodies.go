@@ -89,8 +89,18 @@ func bodyModel(m PartModel, id string) PartModel {
 	// Spatial members carry a transitive dependency on their evaluated seed.
 	for i := len(m.Features) - 1; i >= 0; i-- {
 		f := m.Features[i]
+		if (f.BodyID == id || needed[f.ID]) && f.Sketch != nil {
+			for _, p := range f.Sketch.Patterns {
+				for _, ref := range patternReferenceFeatures(p.PatternDefinition) {
+					needed[ref] = true
+				}
+			}
+		}
 		if (f.BodyID == id || needed[f.ID]) && f.Pattern != nil {
 			needed[f.Pattern.Source.FeatureID] = true
+			for _, ref := range patternReferenceFeatures(f.Pattern.PatternDefinition) {
+				needed[ref] = true
+			}
 			if axis := strings.Split(f.Pattern.AxisEntityID, ":"); len(axis) == 3 && axis[0] == "SKETCH_LINE" {
 				needed[axis[1]] = true
 			}

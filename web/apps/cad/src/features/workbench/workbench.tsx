@@ -931,7 +931,12 @@ export function Workbench() {
     }});
   };
   const openFeatureEditor = (node: SpecificationTreeNode) => {
-    if (!editingView || !node.entityId || !node.definitionDigest || !node.capabilities?.includes("EDIT")) return;
+    if (!editingView || !node.entityId || !node.capabilities?.includes("EDIT")) return;
+    if(node.kind==="SKETCH_PATTERN_DEFINITION"&&node.ownerEntityId){
+      const owner=editingView.part?.features.find(f=>f.id===node.ownerEntityId),pattern=owner?.sketch?.patterns?.find(p=>p.id===node.entityId);
+      if(owner&&pattern){const plane=featureSketchPlane(editingView,owner);if(plane)store.beginSketch(owner.id,occurrenceSketchPlane(plane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation));setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"SKETCH",profile:owner.id,bodyId:owner.bodyId,pattern:{...pattern,sourceKind:"SKETCH_FRAME",source:{bodyId:owner.bodyId!,featureId:owner.id}}}});}return;
+    }
+    if(!node.definitionDigest)return;
     const feature = editingView.part?.features.find(candidate => candidate.id === node.entityId);
     if (feature && ["SOLID_PATTERN", "SKETCH_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase())) {
       setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature, digest: node.definitionDigest});
@@ -983,7 +988,7 @@ export function Workbench() {
       return;
     }
     command.mutate(() => api.deleteNodes(editingView.document.id, targets.map((node) => ({
-      targetKind: ["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE", "DATUM_AXIS"].includes(node.kind!) ? node.kind! : node.kind === "PLANE" ? "DATUM_PLANE" : "FEATURE",
+      targetKind: ["SKETCH_PATTERN_DEFINITION", "SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE", "DATUM_AXIS"].includes(node.kind!) ? node.kind! : node.kind === "PLANE" ? "DATUM_PLANE" : "FEATURE",
       targetId: node.entityId!, ownerEntityId: node.ownerEntityId,
     }))));
   };
@@ -1018,7 +1023,7 @@ export function Workbench() {
         isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane&&(toolID!=="sketch.project"||!selectedNamingIssue)),isActive:()=>store.activeToolID===toolID})),
       ...(["LINEAR","CIRCULAR"] as const).map(kind=>commandRegistry.register({id:`part.pattern.${kind.toLowerCase()}`,execute:()=>{
         setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");
-        setSolidEditor({feature:{id:"",type:store.activeSketchID?"SKETCH":"SOLID_PATTERN",profile:store.activeSketchID,bodyId:workingBodyID,operation:"ADD",pattern:{id:"",kind,distribution:kind==="CIRCULAR"?"FULL_CIRCLE":"FIXED_STEP",count:6,spacing:10,angle:90,phase:0,origin:[0,0,0],direction:kind==="CIRCULAR"?[0,0,1]:[1,0,0],sourceKind:store.activeSketchID?"SKETCH_FRAME":"GENERATOR_TOOL",source:{bodyId:workingBodyID??"",featureId:store.activeSketchID??""}}}});
+        setSolidEditor({feature:{id:"",type:store.activeSketchID?"SKETCH":"SOLID_PATTERN",profile:store.activeSketchID,bodyId:workingBodyID,operation:"ADD",pattern:{id:"",kind,axisEntityId:store.activeSketchID?undefined:`AXIS_SYSTEM:${editingView?.part?.axisSystems[0]?.id??"axis-system-default"}:${kind==="CIRCULAR"?"Z":"X"}`,distribution:kind==="CIRCULAR"?"FULL_CIRCLE":"FIXED_STEP",count:6,spacing:10,angle:90,phase:0,origin:[0,0,0],direction:kind==="CIRCULAR"?[0,0,1]:[1,0,0],sourceKind:store.activeSketchID?"SKETCH_FRAME":"GENERATOR_TOOL",source:{bodyId:workingBodyID??"",featureId:store.activeSketchID??""}}}});
       },isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>Boolean(canEdit&&!command.isPending)})),
       commandRegistry.register({id:"part.loft",execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"LOFT",bodyId:workingBodyID,operation:"NEW_BODY",sections:[]}});},isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>!command.isPending&&!store.activeSketchID}),
       ...(["FILLET","CHAMFER","DRAFT","SHELL"] as const).map(type=>commandRegistry.register({id:`part.${type.toLowerCase()}`, execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type,bodyId:store.selection?.bodyId??workingBodyID,length:1,angle:5,neutralPlaneId:"datum-xy",selections:[]}});},isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>!command.isPending&&!store.activeSketchID})),
@@ -1430,7 +1435,11 @@ export function Workbench() {
               setTreeVisibility(node.selection ? selectionKey(node.selection) : node.key, Boolean(node.hidden));
             }}
             onToggleSuppression={(node)=>{
-              if (node.documentId === editingView?.document.id && node.entityId && ["PAD","REVOLVE","FEATURE"].includes(node.kind ?? "") && node.definitionDigest) {
+              if(node.kind==="SKETCH_PATTERN_DEFINITION"&&node.documentId===editingView?.document.id&&node.ownerEntityId){
+                const pattern=editingView?.part?.features.find(f=>f.id===node.ownerEntityId)?.sketch?.patterns?.find(p=>p.id===node.entityId);
+                if(pattern)editSketch(node.ownerEntityId,[{type:"EDIT_PATTERN",patternId:pattern.id,pattern:{...pattern,suppressed:!pattern.suppressed}}]);return;
+              }
+              if (node.documentId === editingView?.document.id && node.entityId && ["PAD","REVOLVE","FEATURE","SKETCH"].includes(node.kind ?? "") && node.definitionDigest) {
                 command.mutate(()=>api.command(node.documentId!,{type:"SET_FEATURE_SUPPRESSION",targetId:node.entityId,expectedFeatureDigest:node.definitionDigest,suppressed:!node.suppressed}));
                 return;
               }

@@ -40,10 +40,11 @@ export function visualSelection(
   };
   return {
     kind: "visual",
+    patternId:primitive.patternId,patternMemberSlot:primitive.patternMemberSlot,sketchReference:primitive.pointReference,
     id: `${context.occurrencePath || "root"}:${primitive.featureId}:${primitive.id}`,
     visualType: visualType(primitive),
     featureId: primitive.featureId,
-    entityId: primitive.id,
+    entityId: primitive.displayEntityId??primitive.id,
     role: primitive.role,
     treeNodeId: context.treeNodeId,
     documentId: context.documentId,

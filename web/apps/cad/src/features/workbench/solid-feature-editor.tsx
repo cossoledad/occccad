@@ -8,7 +8,7 @@ import type { FeaturePickRole, FeatureSelectionSession } from "../../cad/interac
 import { selectionKey } from "../../cad/interaction/selection-identity";
 import { parameterSourceText } from "./parameter-editor";
 import { solidParameterEdit, solidFeatureNames, pickLoftSection } from "./solid-feature-model";
-import { selectedAxis, selectedSketch, sketchPick } from "./feature-picking";
+import { selectedAxis, selectedSketch, sketchPick, profileSelectionIDs } from "./feature-picking";
 import { FeaturePickField } from "./feature-pick-field";
 import { useFeaturePreview } from "./use-feature-preview";
 import { randomUUID } from "../../utils/random-uuid";
@@ -142,7 +142,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             if (loft)
                 setDraft(previous => ({ ...previous, sections: pickLoftSection(previous.sections ?? [], sketch) }));
             else {
-                edit({ profile: sketch.id, profileMemberSlot:sketch.type==="SKETCH_PATTERN"?pickLoftSection([],sketch)[0]?.memberSlot:undefined });
+                edit({ profile: sketch.id, profileMemberSlot:sketch.type==="SKETCH_PATTERN"?sketch.profileMemberSlot:undefined });
                 if (feature.type === "REVOLVE" && !draft.axisEntityId)
                     setRole("axis");
             }
@@ -166,7 +166,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         }
         else if (chosenRole === "plane" && selection.kind === "face") { bindNeutralPlane(selection); }
         else if (chosenRole === "seam" && selection.kind === "visual" && seamIndex !== undefined) {
-            edit({ sections: draft.sections?.map((s, i) => i === seamIndex && s.sketchId === selection.featureId ? { ...s, seamEntityId: selection.entityId } : s) });
+            edit({ sections: draft.sections?.map((s, i) => i === seamIndex && (s.sketchId === selection.featureId || s.sketchId===selection.patternId&&s.memberSlot===selection.patternMemberSlot) ? { ...s, seamEntityId: selection.entityId } : s) });
             setRole("profile");
         }
         else if (chosenRole === "body" && selection.bodyId) {
@@ -186,7 +186,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         else {
             const sketch = seed.map(s => selectedSketch(view, s, upstream)).find(Boolean);
             if (sketch)
-                edit({ profile: sketch.id, profileMemberSlot:sketch.type==="SKETCH_PATTERN"?pickLoftSection([],sketch)[0]?.memberSlot:undefined });
+                edit({ profile: sketch.id, profileMemberSlot:sketch.type==="SKETCH_PATTERN"?sketch.profileMemberSlot:undefined });
             const axis = seed.find(s => selectedAxis(view, s, upstream));
             if (axis)
                 pick(axis, "axis");
@@ -200,14 +200,15 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const restoredAxis: SelectionItem | undefined = axisParts?.[0] === "SKETCH_LINE" ? {
         kind: "visual", visualType: "CURVE", id: `${occurrencePath || "root"}:${axisParts[1]}:${axisParts[2]}`, featureId: axisParts[1], entityId: axisParts[2], bodyId: upstream.find(f => f.id === axisParts[1])?.bodyId, documentId: view.document.id, versionId: version.current, occurrencePath
     } : undefined;
-    const highlights: SelectionItem[] = modifier ? picks.map(p => p.visual) : loft ? (draft.sections ?? []).map(s => sketchPick(view, s.sketchId, occurrencePath)) : draft.profile ? [sketchPick(view, draft.profile, occurrencePath)] : [];
+    const highlights: SelectionItem[] = modifier ? picks.map(p => p.visual) : loft ? (draft.sections ?? []).map(s => sketchPick(view, s.sketchId, occurrencePath, s.memberSlot)) : draft.profile ? [sketchPick(view, draft.profile, occurrencePath, draft.profileMemberSlot)] : [];
     if (axisVisual ?? restoredAxis)
         highlights.push((axisVisual ?? restoredAxis)!);
     if (neutralVisual) highlights.push(neutralVisual);
     const contextSelections = feature.type === "REVOLVE" && role === "axis" ? highlights.filter(s => s.kind === "sketch") : [];
     const selections = contextSelections.length ? highlights.filter(s => s.kind !== "sketch") : highlights;
     const highlightsToken = JSON.stringify([selections, contextSelections]);
-    const sketchIds = role === "seam" ? [draft.sections![seamIndex!].sketchId] : upstream.filter(f => f.sketch || f.type==="SKETCH_PATTERN").map(f => f.id);
+    const seamSection=seamIndex!==undefined?draft.sections?.[seamIndex]:undefined;
+    const sketchIds = role === "seam" && seamSection ? seamSection.memberSlot!==undefined?profileSelectionIDs(view,upstream,seamSection.sketchId,seamSection.memberSlot):[seamSection.sketchId] : profileSelectionIDs(view,upstream);
     const sketchIdsToken = JSON.stringify(sketchIds);
     useEffect(() => {
         callbacks.current.onSelectionSession({ role, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) });

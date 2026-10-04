@@ -284,6 +284,8 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 			[]modelcore.DependencyKey{"feature:" + modelcore.DependencyKey(payload.TargetID)}, beforeParameters, model.Parameters)
 		next, _ := json.Marshal(model)
 		return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
+	case "SKETCH_PATTERN_DEFINITION":
+		return applyEditSketch(modelJSON, mustPatternDeletePayload(payload.OwnerEntityID, payload.TargetID))
 	case "SKETCH_ENTITY", "SKETCH_CONSTRAINT":
 		for i := range model.Features {
 			feature := &model.Features[i]
@@ -3037,7 +3039,7 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 	sketch.Solve = SketchSolveState{Status: status, DefinitionStatus: definition, DegreesOfFreedom: result.DegreesOfFreedom, Diagnostic: diagnostic,
 		ConflictingConstraintIDs: publicSketchConstraintIDs(result.ConflictingConstraintIDs), RedundantConstraintIDs: publicSketchConstraintIDs(result.RedundantConstraintIDs), Components: components}
 	refreshSketchReferenceMeasurements(model)
-	return nil
+	return resolveSketchPatternReferences(model, featureIndex)
 }
 
 func publicSketchConstraintIDs(values []string) []string {

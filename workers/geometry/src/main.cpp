@@ -640,7 +640,8 @@ public:
         std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);
         if (lock.owns_lock())
             resident_snapshot_.store(static_cast<uint32_t>(kernel_.resident_count()), std::memory_order_relaxed);
-        response->set_worker_id("geometry-worker-local-1");
+        const char* identity = std::getenv("OCCCCAD_GEOMETRY_WORKER_ID");
+        response->set_worker_id(identity ? identity : "geometry-worker-local-1");
         response->set_occt_version(OCC_VERSION_COMPLETE);
         response->set_resident_geometry_count(resident_snapshot_.load(std::memory_order_relaxed));
         return grpc::Status::OK;
@@ -2026,6 +2027,7 @@ int main() {
         OSD_ThreadPool::DefaultPool(4)->SetNbDefaultThreadsToLaunch(4);
         GeometryWorkerService service;
         grpc::ServerBuilder builder;
+        builder.AddChannelArgument("grpc.so_reuseport", 0);
         builder.SetMaxReceiveMessageSize(kGeometryRpcMaxMessageBytes);
         builder.SetMaxSendMessageSize(kGeometryRpcMaxMessageBytes);
         builder.AddListeningPort(address, grpc::InsecureServerCredentials());

@@ -4,7 +4,7 @@ import type { DocumentStructureNode, DocumentView, Feature, Selection, Selection
 import type { SpecificationTreeNode } from "./specification-tree";
 
 export function isSolidFeature(feature: Feature): boolean {
-  return ["PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase());
+  return ["SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase());
 }
 
 export function structureSelection(node: DocumentStructureNode, view: DocumentView): Selection {
@@ -18,6 +18,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
   const base = {
     id: node.subject?.entityId ?? node.entityId ?? node.id,
     entityId: node.subject?.entityId ?? node.entityId,
+    patternId:node.patternId,patternMemberSlot:node.patternMemberSlot,
     entityKind: node.subject?.entityKind ?? node.kind,
     entityRef: node.subject, occurrenceRef: node.occurrence, snapshotScope: node.snapshot,
     documentId: node.documentId, ownerDocumentId: node.ownerDocumentId ?? node.documentId,
@@ -34,9 +35,11 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
       visualKey: `occurrence:${occurrencePath || node.entityId}` };
     case "BODY": return { ...base, kind: "body", id: occurrencePath ? `${occurrencePath}:body:${bodyId}` : bodyId ?? node.id,
       visualKey: `body:${occurrencePath ? `${occurrencePath}:body:${bodyId}` : bodyId}` };
+    case "SKETCH_PATTERN_MEMBER":
     case "SKETCH":
     case "SKETCH_INPUT_REFERENCE":
       return { ...base, kind: "sketch", id: node.entityId ?? node.id };
+    case "SKETCH_PATTERN_DEFINITION": return {...base,kind:"feature",id:node.entityId??node.id};
     case "PAD":
     case "REVOLVE":
     case "IMPORT":
@@ -54,6 +57,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
     case "DATUM_AXIS":
       return { ...base, kind: "axis", axis: node.axis ?? "DATUM",
         id: `${occurrencePath || "root"}:${node.entityId}:${node.axis ?? "DATUM"}` };
+    case "SKETCH_PATTERN_ENTITY":
     case "SKETCH_ENTITY":
     case "SKETCH_EXTERNAL_GEOMETRY":
       if (node.entityId && node.ownerEntityId) return { ...base, kind: "visual",

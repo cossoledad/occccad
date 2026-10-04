@@ -21,7 +21,7 @@ export class VisibilityResolver {
   }
 
   private index(node: DocumentStructureNode): void {
-    const kind = node.kind === "SKETCH_INPUT_REFERENCE" ? "SKETCH" : node.kind;
+    const kind = ["SKETCH_INPUT_REFERENCE","SKETCH_PATTERN_MEMBER"].includes(node.kind) ? "SKETCH" : node.kind==="SKETCH_PATTERN_ENTITY"?"SKETCH_ENTITY":node.kind;
     if ((["INSTANCE", "PART", "BODY", "SKETCH", "SKETCH_ENTITY"].includes(kind) && node.entityId) ||
         (kind === "PART" && node.documentId)) {
       const address: DisplayAddress = {
@@ -76,6 +76,7 @@ export class VisibilityResolver {
   private parent(address: DisplayAddress): DisplayAddress | undefined {
     const common = {documentId: address.documentId, occurrencePath: address.occurrencePath};
     if (address.kind === "SKETCH_ENTITY" && address.ownerEntityId) return {...common, kind: "SKETCH", entityId: address.ownerEntityId, bodyId: address.bodyId};
+    if (address.kind === "SKETCH" && address.ownerEntityId) return {...common,kind:"SKETCH",entityId:address.ownerEntityId,bodyId:address.bodyId};
     if (address.kind === "SKETCH" && address.bodyId) return {...common, kind: "BODY", entityId: address.bodyId};
     if (address.kind === "BODY") return {...common, kind: "PART", entityId: address.documentId};
     if (address.kind === "PART" && address.occurrencePath) {

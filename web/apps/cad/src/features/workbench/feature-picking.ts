@@ -4,7 +4,11 @@ export function selectedSketch(view: DocumentView, selection: SelectionItem, ups
     const projected = projectSketchFeatureSelection(selection);
     if (projected?.kind !== "sketch" || (projected.ownerDocumentId ?? projected.documentId) !== view.document.id)
         return;
-    return upstream.find(f => f.id === projected.id && (f.sketch || f.type==="SKETCH_PATTERN"));
+    if(projected.patternId&&projected.patternMemberSlot!==undefined){
+      const pattern=upstream.find(f=>f.id===projected.patternId&&f.type==="SKETCH_PATTERN");
+      return pattern?{...pattern,profileMemberSlot:projected.patternMemberSlot}:undefined;
+    }
+    return upstream.find(f => f.id === projected.id && !!f.sketch);
 }
 export function selectedAxis(view: DocumentView, selection: SelectionItem, upstream: Feature[]): string | undefined {
     if ((selection.ownerDocumentId ?? selection.documentId) !== view.document.id)
@@ -34,6 +38,18 @@ export function bodyStage(selection: SelectionItem, stages: Feature[]): {
     const stage = explicit ? stages.find(f => f.id === selection.entityId || f.id === selection.id) : [...stages].reverse().find(f => f.bodyId === selection.bodyId && !f.suppressed);
     return stage?.bodyId === selection.bodyId ? { bodyId: stage.bodyId, featureId: stage.id } : undefined;
 }
-export function sketchPick(view: DocumentView, id: string, occurrencePath?: string): SelectionItem {
-    return { kind: "sketch", id, documentId: view.document.id, versionId: view.document.versionId, bodyId: view.part?.features.find(f => f.id === id)?.bodyId, occurrencePath, expandTreeDescendants: true };
+export function sketchPick(view: DocumentView, id: string, occurrencePath?: string, memberSlot?: number): SelectionItem {
+    const memberId = memberSlot === undefined ? undefined : profileSelectionIDs(view, view.part?.features ?? [], id, memberSlot)[0];
+    return { kind: "sketch", id: memberId ?? id, ...(memberId ? {patternId:id,patternMemberSlot:memberSlot} : {}), documentId: view.document.id, versionId: view.document.versionId, bodyId: view.part?.features.find(f => f.id === id)?.bodyId, occurrencePath, expandTreeDescendants: true };
+}
+
+export function profileSelectionIDs(view:DocumentView,upstream:Feature[],patternId?:string,slot?:number):string[] {
+ const ids=patternId?[]:upstream.filter(f=>f.sketch||f.type==="SKETCH_PATTERN").map(f=>f.id);
+ const visit=(node:DocumentView["structureTree"])=>{
+  if(!node)return;
+  if(node.kind==="SKETCH_PATTERN_MEMBER"&&node.entityId&&upstream.some(f=>f.id===node.patternId)&&(!patternId||node.patternId===patternId&&node.patternMemberSlot===slot))ids.push(node.entityId);
+  node.children?.forEach(visit);
+ };
+ if(view.structureTree)visit(view.structureTree);
+ return ids;
 }
