@@ -91,6 +91,7 @@
 #include <gp_Vec.hxx>
 
 #include <internal/occt_kernel.hpp>
+#include <internal/fillet_boundary.hpp>
 #include <occccad/kernel/geometry_id.hpp>
 #include <occccad/kernel/topology_naming.hpp>
 
@@ -2282,13 +2283,52 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
             return ref_key(source->ref);
         };
         std::sort(selected.begin(), selected.end(), [&](const auto& a, const auto& b) { return semantic_key(a) < semantic_key(b); });
-        auto corner = planar_bevel_corner_fillets(input, selected, spec.pad_length);
-        if (corner.IsDone()) return finish(corner);
-        BRepFilletAPI_MakeFillet algorithm(input);
+        try {
+            auto corner = planar_bevel_corner_fillets(input, selected, spec.pad_length);
+            if (corner.IsDone()) return finish(corner);
+        } catch (const std::invalid_argument& e) {
+            if (std::string(e.what()) != "FILLET_RADIUS_EXCEEDS_SUPPORT") throw;
+        }
+        BRepBuilderAPI_Copy attempt(input, Standard_True, Standard_False);
+        BRepFilletAPI_MakeFillet algorithm(attempt.Shape());
         for (const auto& shape : selected)
-            algorithm.Add(spec.pad_length, TopoDS::Edge(shape));
+            algorithm.Add(spec.pad_length, TopoDS::Edge(attempt.ModifiedShape(shape)));
+        const auto started = std::chrono::steady_clock::now();
         algorithm.Build();
-        if (algorithm.IsDone()) return finish(algorithm);
+        std::clog << "fillet stage=generic done=" << algorithm.IsDone() << " ms="
+                  << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() -
+                                                               started)
+                         .count()
+                  << '\n';
+        if (algorithm.IsDone()) {
+            ComposedModifier composed{algorithm.Shape(), new BRepTools_History()};
+            TopTools_ListOfShape original;
+            original.Append(input);
+            composed.history->Merge(original, attempt);
+            TopTools_ListOfShape copied;
+            copied.Append(attempt.Shape());
+            composed.history->Merge(copied, algorithm);
+            // OCCT history composition drops Generated relations when the
+            // intermediate edge is also deleted. Preserve the algorithm's
+            // actual generation relation across the isolation copy explicitly.
+            for (const auto& source : named) {
+                const auto copiedSource = attempt.ModifiedShape(source.shape);
+                for (TopTools_ListIteratorOfListOfShape it(algorithm.Generated(copiedSource)); it.More(); it.Next()) {
+                    if (!composed.history->Generated(source.shape).Contains(it.Value()))
+                        composed.history->AddGenerated(source.shape, it.Value());
+                }
+            }
+            return finish(composed);
+        }
+        for (int i = 1; i <= algorithm.NbFaultyContours(); ++i)
+            std::clog << "fillet stage=generic contour_status="
+                      << algorithm.StripeStatus(algorithm.FaultyContour(i)) << '\n';
+        auto rebuilt = detail::rebuild_fillet_boundary(input, selected, spec.pad_length);
+        if (rebuilt.IsDone()) {
+            auto output = finish(rebuilt);
+            output.diagnostics = rebuilt.diagnostics;
+            return output;
+        }
         // Simultaneous corner patches can fail on partially selected chamfered
         // contours. Build the exact requested fillets in deterministic semantic
         // order, transporting each edge only through real OCCT history.
