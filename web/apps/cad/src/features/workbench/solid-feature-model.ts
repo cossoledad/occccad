@@ -54,14 +54,14 @@ export function solidGeneratorParameters(values: {generator: string; extent?: Fe
 // A spatial pattern is one Feature with explicitly addressed members. Picking
 // it again adds its next available slot, never a duplicate implicit profile.
 export function pickLoftSection(sections: NonNullable<Feature["sections"]>, source: Feature): NonNullable<Feature["sections"]> {
-  if(source.type!=="SKETCH_PATTERN") return sections.some(s=>s.sketchId===source.id)?sections.filter(s=>s.sketchId!==source.id):[...sections,{sketchId:source.id}];
+  if(source.type!=="SKETCH_PATTERN") return sections.some(s=>!s.point&&s.sketchId===source.id)?sections.filter(s=>!!s.point||s.sketchId!==source.id):[...sections,{sketchId:source.id}];
   if(source.profileMemberSlot!==undefined){
     const slot=source.profileMemberSlot;
-    return sections.some(s=>s.sketchId===source.id&&s.memberSlot===slot)?sections.filter(s=>s.sketchId!==source.id||s.memberSlot!==slot):[...sections,{sketchId:source.id,memberSlot:slot}];
+    return sections.some(s=>!s.point&&s.sketchId===source.id&&s.memberSlot===slot)?sections.filter(s=>!!s.point||s.sketchId!==source.id||s.memberSlot!==slot):[...sections,{sketchId:source.id,memberSlot:slot}];
   }
   const pattern=source.pattern;
   if(!pattern)return sections;
-  const used=new Set(sections.filter(s=>s.sketchId===source.id).map(s=>s.memberSlot));
+  const used=new Set(sections.filter(s=>!s.point&&s.sketchId===source.id).map(s=>s.memberSlot));
   for(let slot=0;slot<pattern.count;slot++)if(!used.has(slot)&&!pattern.skippedSlots?.includes(slot))return [...sections,{sketchId:source.id,memberSlot:slot}];
   return sections;
 }

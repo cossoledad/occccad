@@ -15,17 +15,17 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/debugartifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
-	"go.opentelemetry.io/otel/trace"
-	artifactstore "github.com/occccad/occccad/internal/artifact"
 	perf "github.com/occccad/occccad/internal/performance"
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v23-pattern-members"
+const evaluatorVersion = "part-solid-generators-v24-loft-correspondence-point"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1857,24 +1857,11 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 		switch strings.ToUpper(feature.Type) {
 		case "LOFT":
 			spec := geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "LOFT", BodyOperation: feature.Operation, Ruled: feature.Ruled}
-			for _, section := range feature.Sections {
-				sketch, memberErr := resolvePatternSketch(fullModel, sketches, section.SketchID, section.MemberSlot)
-				if memberErr != nil {
-					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, memberErr)
-				}
-				regions, err := service.buildExactProfileRegions(ctx, sketch, reqID+"/section/"+sketch.ID)
-				if err != nil {
-					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
-				}
-				if len(regions) != 1 || len(regions[0].Holes) != 0 {
-					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w: loft requires one closed region without holes per section", feature.ID, ErrValidation)
-				}
-				origin, u, normal, ok := supportFrame(fullModel, sketch.Sketch.Support)
-				if !ok {
-					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w: loft section support unavailable", feature.ID, ErrValidation)
-				}
-				spec.Sections = append(spec.Sections, geometry.LoftSection{SketchID: sketch.ID, Region: regions[0], Origin: origin, Normal: normal, UDirection: u, Reversed: section.Reversed, SeamEntityID: section.SeamEntityID, SeamAngle: section.SeamAngle * math.Pi / 180})
+			sections, err := service.loftGeometrySections(ctx, reqID, fullModel, feature, sketches)
+			if err != nil {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}
+			spec.Sections = sections
 			solidFeatures = append(solidFeatures, spec)
 			bodyTipFeatureID = feature.ID
 		case "FILLET", "CHAMFER", "DRAFT", "SHELL":

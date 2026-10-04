@@ -1,6 +1,8 @@
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepAlgoAPI_Common.hxx>
+#include <BRepAlgoAPI_Check.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BOPAlgo_CellsBuilder.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepAlgoAPI_Fuse.hxx>
@@ -1483,66 +1485,287 @@ std::string topology_history_digest(const TopologyHistory& history) {
     return make_geometry_id(canonical.str());
 }
 
-ToolBuild make_loft_tool(const ProfilePadSpec& spec) {
-    if (spec.sections.size() < 2 || spec.sections.size() > 32)
+// Correspondence operates on copies. Candidate order is domain-ID order, never
+// OCCT traversal order. Saved/manual choices are singleton candidate sets.
+std::vector<ProfileCurveSpec> loft_curves(const LoftSectionSpec& section) {
+    auto curves = section.region.outer.curves;
+    if (section.reversed) {
+        std::reverse(curves.begin(), curves.end());
+        for (auto& curve : curves)
+            curve.reversed = !curve.reversed;
+    }
+    if (!section.seam_entity_id.empty()) {
+        const auto seam = std::find_if(curves.begin(), curves.end(), [&](const auto& c) {
+            return c.entity_id == section.seam_entity_id;
+        });
+        if (seam == curves.end())
+            throw std::invalid_argument("LOFT_CORRESPONDENCE_LOST:SECTION_SEAM_MISSING");
+        std::rotate(curves.begin(), seam, curves.end());
+    }
+    return curves;
+}
+ProfileFrame loft_frame(const LoftSectionSpec& section) {
+    ProfilePadSpec plane;
+    plane.plane_origin = section.origin;
+    plane.plane_normal = section.normal;
+    plane.plane_u_direction = section.u_direction;
+    return profile_frame(plane);
+}
+bool loft_circle(const LoftSectionSpec& section) {
+    const auto& c = section.region.outer.curves;
+    return c.size() == 1 && c.front().kind == "CIRCLE";
+}
+std::size_t loft_boundary_count(const std::vector<LoftSectionSpec>& sections) {
+    if (sections.size() < 2 || sections.size() > 32)
         throw std::invalid_argument("INVALID_LOFT_SECTION_COUNT");
-    BRepOffsetAPI_ThruSections algorithm(Standard_True, spec.ruled, 1e-7);
-    // CompatibleWires splits unlike sections and records the original-edge to
-    // generated-face history. Keep explicit seam/direction for matching wires.
-    const auto count = spec.sections.front().region.outer.curves.size();
-    const bool unlike = std::any_of(spec.sections.begin(), spec.sections.end(),
-        [&](const auto& section) { return section.region.outer.curves.size() != count; });
-    if (unlike) {
-        for (const auto& section : spec.sections) {
-            const auto& curves = section.region.outer.curves;
-            if (curves.size() != count && !(curves.size() == 1 && curves.front().kind == "CIRCLE") &&
-                !(count == 1 && spec.sections.front().region.outer.curves.front().kind == "CIRCLE"))
+    std::size_t count = 0, profiles = 0;
+    for (std::size_t i = 0; i < sections.size(); ++i) {
+        const auto& s = sections[i];
+        if (!s.point_id.empty()) {
+            if (i != 0 && i + 1 != sections.size())
+                throw std::invalid_argument("LOFT_POINT_MUST_BE_ENDPOINT");
+            if (!std::isfinite(s.point.x) || !std::isfinite(s.point.y) || !std::isfinite(s.point.z))
+                throw std::invalid_argument("INVALID_LOFT_POINT");
+            continue;
+        }
+        if (!std::isfinite(s.seam_angle))
+            throw std::invalid_argument("INVALID_LOFT_SEAM_ANGLE");
+        ++profiles;
+        const auto n = s.region.outer.curves.size();
+        if (!n || !s.region.holes.empty())
+            throw std::invalid_argument("LOFT_REQUIRES_SINGLE_CLOSED_SECTION");
+        if (n > 64)
+            throw std::invalid_argument("LOFT_CORRESPONDENCE_RESOURCE_LIMIT");
+        if (!loft_circle(s)) {
+            if (count && count != n)
                 throw std::invalid_argument("UNSUPPORTED_UNLIKE_LOFT_SECTIONS");
+            count = n;
         }
     }
-    algorithm.CheckCompatibility(unlike ? Standard_True : Standard_False);
-    algorithm.SetMutableInput(Standard_False);
-    std::vector<std::pair<SemanticTopologyRef, TopoDS_Edge>> edges;
-    for (const auto& section : spec.sections) {
-        if (!section.region.holes.empty() || section.region.outer.curves.empty())
-            throw std::invalid_argument("LOFT_REQUIRES_SINGLE_CLOSED_SECTION");
-        auto curves = section.region.outer.curves;
-        if (section.reversed) {
-            std::reverse(curves.begin(), curves.end());
-            for (auto& curve : curves)
-                curve.reversed = !curve.reversed;
+    if (!profiles)
+        throw std::invalid_argument("LOFT_REQUIRES_PROFILE_SECTION");
+    return count ? count : 1;
+}
+// Circles are partitioned analytically at the accepted phase. These arcs share
+// their real source edge and a stable boundary anchor from the polygon section.
+std::vector<TopoDS_Edge> loft_edges(const LoftSectionSpec& section, std::size_t count) {
+    const auto frame = loft_frame(section);
+    const auto curves = loft_curves(section);
+    std::vector<TopoDS_Edge> result;
+    if (loft_circle(section)) {
+        const auto& c = curves.front();
+        Handle(Geom_Circle) circle = new Geom_Circle(profile_axes(frame, c.center), c.radius);
+        const double direction = c.reversed ? -1 : 1;
+        for (std::size_t i = 0; i < count; ++i) {
+            const double a = section.seam_angle + direction * 2 * M_PI * i / count;
+            const double b = section.seam_angle + direction * 2 * M_PI * (i + 1) / count;
+            TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(circle, std::min(a, b), std::max(a, b));
+            if (direction < 0)
+                edge.Reverse();
+            result.push_back(edge);
         }
-        if (!section.seam_entity_id.empty()) {
-            auto seam = std::find_if(curves.begin(), curves.end(), [&](const auto& curve) {
-                return curve.entity_id == section.seam_entity_id;
-            });
-            if (seam == curves.end())
-                throw std::invalid_argument("SECTION_SEAM_MISSING");
-            std::rotate(curves.begin(), seam, curves.end());
+    } else {
+        for (const auto& c : curves)
+            result.push_back(make_profile_edge(c, frame));
+    }
+    return result;
+}
+gp_Quaternion loft_transport(const LoftSectionSpec& a, const LoftSectionSpec& b) {
+    auto na = loft_frame(a).normal, nb = loft_frame(b).normal;
+    // A support normal is not an oriented loft tangent. Opposite support normals
+    // must not introduce an unintended half-turn in otherwise parallel sections.
+    if (na.Dot(nb) < -1e-10)
+        nb.Reverse();
+    return gp_Quaternion(na.XYZ(), nb.XYZ());
+}
+struct LoftCandidate {
+    LoftSectionSpec section;
+    std::vector<gp_Vec> samples;
+};
+LoftCandidate loft_candidate(LoftSectionSpec section, std::size_t count) {
+    // A manual direction can arrive before a seam pick. Freeze its actual first
+    // source edge as well, so reopening never depends on profile traversal order.
+    if (section.seam_entity_id.empty())
+        section.seam_entity_id = loft_curves(section).front().entity_id;
+    LoftCandidate candidate{std::move(section), {}};
+    const auto edges = loft_edges(candidate.section, count);
+    gp_XYZ center(0, 0, 0);
+    std::vector<gp_Pnt> samples;
+    for (const auto& edge : edges) {
+        BRepAdaptor_Curve curve(edge);
+        for (int k = 0; k < 4; ++k) {
+            double t = k / 4.0;
+            if (edge.Orientation() == TopAbs_REVERSED)
+                t = 1 - t;
+            const auto p =
+                curve.Value(curve.FirstParameter() * (1 - t) + curve.LastParameter() * t);
+            samples.push_back(p);
+            center += p.XYZ();
         }
-        ProfilePadSpec plane;
-        plane.plane_origin = section.origin;
-        plane.plane_normal = section.normal;
-        plane.plane_u_direction = section.u_direction;
-        const auto frame = profile_frame(plane);
-        BRepBuilderAPI_MakeWire wire;
-        for (const auto& curve : curves) {
-            auto edge = make_profile_edge(curve, frame);
-            if (curve.kind == "CIRCLE" && section.seam_angle != 0) {
-                Handle(Geom_Circle) circle =
-                    new Geom_Circle(profile_axes(frame, curve.center), curve.radius);
-                edge = BRepBuilderAPI_MakeEdge(circle, section.seam_angle,
-                                               section.seam_angle + 2 * 3.14159265358979323846);
-                if (curve.reversed)
-                    edge.Reverse();
+    }
+    center /= static_cast<double>(samples.size());
+    double scale = 0;
+    for (const auto& p : samples)
+        scale += (p.XYZ() - center).SquareModulus();
+    scale = std::sqrt(scale / samples.size());
+    if (scale <= Precision::Confusion())
+        throw std::invalid_argument("DEGENERATE_LOFT_SECTION");
+    for (const auto& p : samples)
+        candidate.samples.emplace_back((p.XYZ() - center) / scale);
+    return candidate;
+}
+std::vector<LoftSectionSpec> resolve_loft_sections(const std::vector<LoftSectionSpec>& input) {
+    const auto count = loft_boundary_count(input);
+    std::vector<LoftSectionSpec> result = input;
+    std::vector<std::size_t> indices;
+    std::vector<std::vector<LoftCandidate>> candidates;
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        auto section = input[i];
+        if (!section.point_id.empty())
+            continue;
+        loft_curves(section);  // Validate every saved edge, including single-edge circles.
+        indices.push_back(i);
+        std::vector<LoftCandidate> choices;
+        if (section.correspondence_resolved ||
+            (!section.seam_entity_id.empty() && !loft_circle(section)) || section.reversed ||
+            section.seam_angle != 0) {
+            choices.push_back(loft_candidate(section, count));
+        } else if (loft_circle(section)) {
+            // Include exact projected polygon vertices, not only an angular grid.
+            std::vector<double> phases{0};
+            const auto frame = loft_frame(section);
+            for (const auto& other : input) {
+                if (!other.point_id.empty())
+                    continue;
+                const auto rotation = loft_transport(other, section);
+                if (loft_circle(other)) {
+                    const auto f = loft_frame(other);
+                    const auto v = rotation * (gp_Vec(f.u_direction) * std::cos(other.seam_angle) +
+                                               gp_Vec(f.v_direction) * std::sin(other.seam_angle));
+                    phases.push_back(std::atan2(v.Dot(gp_Vec(frame.v_direction)),
+                                                v.Dot(gp_Vec(frame.u_direction))));
+                    continue;
+                }
+                const auto sample = loft_candidate(other, count);
+                for (std::size_t k = 0; k < sample.samples.size(); k += 4) {
+                    const auto v = rotation * sample.samples[k].XYZ();
+                    phases.push_back(
+                        std::atan2(v.Dot(frame.v_direction.XYZ()), v.Dot(frame.u_direction.XYZ())));
+                }
             }
-            wire.Add(edge);
+            for (int k = 1; k < 16; ++k)
+                phases.push_back(2 * M_PI * k / 16);
+            std::sort(phases.begin(), phases.end());
+            phases.erase(std::unique(phases.begin(), phases.end(),
+                                     [](double a, double b) { return std::abs(a - b) < 1e-10; }),
+                         phases.end());
+            if (phases.size() * count * 8 > 65536)
+                throw std::invalid_argument("LOFT_CORRESPONDENCE_RESOURCE_LIMIT");
+            for (bool reverse : {false, true})
+                for (double phase : phases) {
+                    section.reversed = reverse;
+                    section.seam_angle = phase;
+                    section.seam_entity_id = section.region.outer.curves.front().entity_id;
+                    choices.push_back(loft_candidate(section, count));
+                }
+        } else {
+            std::vector<std::string> ids;
+            for (const auto& c : section.region.outer.curves)
+                ids.push_back(c.entity_id);
+            std::sort(ids.begin(), ids.end());
+            for (bool reverse : {false, true})
+                for (const auto& id : ids) {
+                    section.reversed = reverse;
+                    section.seam_entity_id = id;
+                    choices.push_back(loft_candidate(section, count));
+                }
+        }
+        candidates.push_back(std::move(choices));
+    }
+    // Global shortest path across all section candidate sets. Rotation transports
+    // the comparison vectors only; the actual section frames never change.
+    std::vector<std::vector<double>> cost(candidates.size());
+    std::vector<std::vector<std::size_t>> parent(candidates.size());
+    std::size_t comparisonBudget = 0;
+    for (std::size_t i = 1; i < candidates.size(); ++i)
+        comparisonBudget += candidates[i].size() * candidates[i - 1].size() * count * 4;
+    if (comparisonBudget > 100000000)
+        throw std::invalid_argument("LOFT_CORRESPONDENCE_RESOURCE_LIMIT");
+    for (std::size_t i = 0; i < candidates.size(); ++i) {
+        cost[i].assign(candidates[i].size(), std::numeric_limits<double>::infinity());
+        parent[i].resize(candidates[i].size());
+        if (!i) {
+            std::fill(cost[i].begin(), cost[i].end(), 0);
+            continue;
+        }
+        const auto rotation = loft_transport(input[indices[i - 1]], input[indices[i]]);
+        for (std::size_t b = 0; b < candidates[i].size(); ++b)
+            for (std::size_t a = 0; a < candidates[i - 1].size(); ++a) {
+                double transition = 0;
+                const auto& av = candidates[i - 1][a].samples;
+                const auto& bv = candidates[i][b].samples;
+                for (std::size_t k = 0; k < av.size(); ++k)
+                    transition += (rotation * av[k].XYZ() - bv[k].XYZ()).SquareMagnitude();
+                const double value = cost[i - 1][a] + transition / av.size();
+                if (value + 1e-12 < cost[i][b]) {
+                    cost[i][b] = value;
+                    parent[i][b] = a;
+                }
+            }
+    }
+    auto selected = static_cast<std::size_t>(
+        std::min_element(cost.back().begin(), cost.back().end()) - cost.back().begin());
+    for (std::size_t i = candidates.size(); i-- > 0;) {
+        result[indices[i]] = candidates[i][selected].section;
+        result[indices[i]].correspondence_resolved = true;
+        selected = parent[i][selected];
+    }
+    return result;
+}
+
+ToolBuild make_loft_tool(const ProfilePadSpec& spec) {
+    const auto sections = resolve_loft_sections(spec.sections);
+    const auto count = loft_boundary_count(sections);
+    BRepOffsetAPI_ThruSections algorithm(Standard_True, spec.ruled, 1e-7);
+    algorithm.CheckCompatibility(Standard_False);
+    // All wires/vertices below are newly constructed and privately owned. OCCT
+    // may share their topology, but cannot mutate an upstream BREP or sketch.
+    algorithm.SetMutableInput(Standard_True);
+    std::vector<std::string> partitions;
+    for (const auto& s : sections)
+        if (s.point_id.empty() && !loft_circle(s)) {
+            for (const auto& c : loft_curves(s))
+                partitions.push_back(s.sketch_id + "/" + c.entity_id);
+            break;
+        }
+    struct Boundary {
+        SemanticTopologyRef source;
+        TopoDS_Edge edge;
+        std::string partition;
+    };
+    std::vector<Boundary> edges;
+    std::vector<TopoDS_Vertex> tips(sections.size());
+    for (std::size_t i = 0; i < sections.size(); ++i) {
+        const auto& section = sections[i];
+        if (!section.point_id.empty()) {
+            tips[i] = BRepBuilderAPI_MakeVertex(
+                gp_Pnt(section.point.x, section.point.y, section.point.z));
+            algorithm.AddVertex(tips[i]);
+            continue;
+        }
+        const auto curves = loft_curves(section);
+        const auto boundary = loft_edges(section, count);
+        BRepBuilderAPI_MakeWire wire;
+        for (std::size_t j = 0; j < boundary.size(); ++j) {
+            wire.Add(boundary[j]);
             if (!wire.IsDone())
                 throw std::invalid_argument("INVALID_LOFT_WIRE");
+            const auto& curve = curves[loft_circle(section) ? 0 : j];
             edges.push_back({{section.sketch_id,
                               "PROFILE_EDGE/" + curve.entity_id,
                               {section.region.id, curve.entity_id}},
-                             wire.Edge()});
+                             wire.Edge(),
+                             loft_circle(section) && count > 1 ? partitions[j] : ""});
         }
         if (!wire.Wire().Closed())
             throw std::invalid_argument("OPEN_LOFT_SECTION");
@@ -1550,24 +1773,41 @@ ToolBuild make_loft_tool(const ProfilePadSpec& spec) {
     }
     algorithm.Build();
     if (!algorithm.IsDone())
-        throw std::runtime_error("LOFT_ALGORITHM_FAILED");
+        throw std::runtime_error(
+            "LOFT_ALGORITHM_FAILED:CHECK_CORRESPONDENCE_OR_ADD_INTERMEDIATE_SECTION");
     ToolBuild tool;
     tool.feature_id = spec.feature_id;
     tool.shape = algorithm.Shape();
-    validate_body_solid_set(tool.shape);
-    const auto& first = spec.sections.front();
-    const auto& last = spec.sections.back();
-    append_generated(
-        tool, {first.sketch_id, "PROFILE_REGION/" + first.region.id, {first.region.id}},
-        {spec.feature_id, "LOFT_START_CAP", {first.sketch_id}}, algorithm.FirstShape());
-    append_generated(tool, {last.sketch_id, "PROFILE_REGION/" + last.region.id, {last.region.id}},
-                     {spec.feature_id, "LOFT_END_CAP", {last.sketch_id}}, algorithm.LastShape());
-    for (const auto& [source, edge] : edges) {
-        const auto generated = algorithm.Generated(edge);
+    try {
+        validate_body_solid_set(tool.shape);
+    } catch (const std::exception& e) {
+        throw std::runtime_error(std::string("LOFT_INVALID_SOLID:") + e.what() +
+                                 ":ADD_INTERMEDIATE_SECTION");
+    }
+    BRepAlgoAPI_Check check(tool.shape, Standard_False, Standard_True);
+    if (!check.IsValid())
+        throw std::runtime_error(
+            "LOFT_SELF_INTERFERENCE:CHECK_CORRESPONDENCE_OR_ADD_INTERMEDIATE_SECTION");
+    for (const auto i : {std::size_t(0), sections.size() - 1}) {
+        const auto& s = sections[i];
+        const std::string end = i == 0 ? "START" : "END";
+        if (!s.point_id.empty()) {
+            append_generated(
+                tool, {s.sketch_id, "PROFILE_POINT/" + s.point_id, {s.point_id}},
+                {spec.feature_id, "LOFT_" + end + "_VERTEX", {s.sketch_id, s.point_id}}, tips[i]);
+        } else {
+            append_generated(tool, {s.sketch_id, "PROFILE_REGION/" + s.region.id, {s.region.id}},
+                             {spec.feature_id, "LOFT_" + end + "_CAP", {s.sketch_id}},
+                             i == 0 ? algorithm.FirstShape() : algorithm.LastShape());
+        }
+    }
+    for (const auto& boundary : edges) {
+        const auto generated = algorithm.Generated(boundary.edge);
         for (TopTools_ListIteratorOfListOfShape it(generated); it.More(); it.Next()) {
             if (it.Value().ShapeType() != TopAbs_FACE)
                 continue;
-            const auto key = make_geometry_id(ref_key(source)).substr(7);
+            const auto& source = boundary.source;
+            const auto key = make_geometry_id(ref_key(source) + "/" + boundary.partition).substr(7);
             append_generated(
                 tool, source,
                 {spec.feature_id, "LOFT_SIDE/" + key, {source.feature_id, source.output_slot}},
@@ -1582,7 +1822,7 @@ ToolBuild make_loft_tool(const ProfilePadSpec& spec) {
 BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
                                          const std::vector<NamedShape>& input_named,
                                          const ToolBuild& tool,
-                                         const std::string& requested_operation) {
+                                         const std::string& requested_operation, bool diagnose_loft = false) {
     const std::string operation = requested_operation.empty() ? "ADD" : requested_operation;
     if (input.IsNull()) {
         if (operation == "REMOVE" || operation == "INTERSECT")
@@ -1597,11 +1837,19 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     std::vector<NamedShape> mapped;
     std::vector<NamedShape> sources = input_named;
     sources.insert(sources.end(), tool.named.begin(), tool.named.end());
+    const auto failed = [&](const char* diagnostic) {
+        if (diagnose_loft) {
+            BRepAlgoAPI_Check target(input, Standard_False, Standard_True);
+            if (!target.IsValid()) throw std::runtime_error("LOFT_BOOLEAN_INVALID_TARGET");
+            throw std::runtime_error("LOFT_BOOLEAN_ALGORITHM_FAILED:" + operation + ":" + diagnostic);
+        }
+        throw std::runtime_error(diagnostic);
+    };
     if (operation == "ADD") {
         BRepAlgoAPI_Fuse algorithm(input, tool.shape);
         algorithm.Build();
         if (!algorithm.IsDone())
-            throw std::runtime_error("body fuse failed");
+            failed("body fuse failed");
         result = algorithm.Shape();
         mapped = map_named_shapes(sources, algorithm, result);
         if (shape_volume(result) - shape_volume(input) <= 1.0e-9)
@@ -1610,7 +1858,7 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
         BRepAlgoAPI_Cut algorithm(input, tool.shape);
         algorithm.Build();
         if (!algorithm.IsDone())
-            throw std::runtime_error("body cut failed");
+            failed("body cut failed");
         result = algorithm.Shape();
         mapped = map_named_shapes(sources, algorithm, result);
         if (shape_volume(input) - shape_volume(result) <= 1.0e-9)
@@ -1620,7 +1868,7 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
         BRepAlgoAPI_Common algorithm(input, tool.shape);
         algorithm.Build();
         if (!algorithm.IsDone())
-            throw std::runtime_error("body common failed");
+            failed("body common failed");
         result = algorithm.Shape();
         mapped = map_named_shapes(sources, algorithm, result);
         if (!result.IsNull() && shape_volume(input) - shape_volume(result) <= 1.0e-9)
@@ -2305,6 +2553,27 @@ public:
 
 }  // namespace
 
+std::vector<LoftSectionSpec> resolve_loft_correspondence(
+    const std::vector<LoftSectionSpec>& sections) {
+    return resolve_loft_sections(sections);
+}
+std::vector<std::vector<Vec3>> loft_connection_points(
+    const std::vector<LoftSectionSpec>& sections) {
+    const auto count = loft_boundary_count(sections);
+    std::vector<std::vector<Vec3>> result;
+    for (const auto& section : sections) {
+        std::vector<Vec3> points;
+        if (!section.point_id.empty())
+            points.assign(count, section.point);
+        else
+            for (const auto& edge : loft_edges(section, count)) {
+                points.push_back(to_vec3(BRep_Tool::Pnt(TopExp::FirstVertex(edge, Standard_True))));
+            }
+        result.push_back(std::move(points));
+    }
+    return result;
+}
+
 struct OcctKernel::Impl {
     struct StoredGeometry {
         TopoDS_Shape shape;
@@ -2761,7 +3030,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 ? BodyOperationResult{result,live_named,{}, {}}
                 : spec.generator=="SOLID_PATTERN" && spec.pattern_result_mode=="INDEPENDENT" ? independent()
                 : modifier ? apply_local_modifier(result, live_named, spec)
-                           : apply_body_operation(result, live_named, tool, spec.body_operation);
+                           : apply_body_operation(result, live_named, tool, spec.body_operation, spec.generator == "LOFT");
             result = operation.shape;
             result_id = impl_->store(result);
 

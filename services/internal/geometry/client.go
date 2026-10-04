@@ -58,6 +58,10 @@ type BodyToolInput struct {
 	BodyID, FeatureID string
 }
 type LoftSection struct {
+	BoundaryPoints             [][3]float64
+	CorrespondenceResolved     bool
+	PointID                    string
+	Point                      [3]float64
 	SketchID, SeamEntityID     string
 	Region                     ProfileRegion
 	Origin, Normal, UDirection [3]float64
@@ -144,7 +148,7 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 		value.Ruled = pad.Ruled
 		for _, section := range pad.Sections {
 			region := profilePadsProto([]ProfilePad{{Regions: []ProfileRegion{section.Region}}})[0].Regions[0]
-			value.Sections = append(value.Sections, &workerv1.LoftSectionSpec{SketchId: section.SketchID, Region: region, Origin: &workerv1.Vec3{X: section.Origin[0], Y: section.Origin[1], Z: section.Origin[2]}, Normal: &workerv1.Vec3{X: section.Normal[0], Y: section.Normal[1], Z: section.Normal[2]}, UDirection: &workerv1.Vec3{X: section.UDirection[0], Y: section.UDirection[1], Z: section.UDirection[2]}, Reversed: section.Reversed, SeamEntityId: section.SeamEntityID, SeamAngle: section.SeamAngle})
+			value.Sections = append(value.Sections, &workerv1.LoftSectionSpec{SketchId: section.SketchID, Region: region, Origin: &workerv1.Vec3{X: section.Origin[0], Y: section.Origin[1], Z: section.Origin[2]}, Normal: &workerv1.Vec3{X: section.Normal[0], Y: section.Normal[1], Z: section.Normal[2]}, UDirection: &workerv1.Vec3{X: section.UDirection[0], Y: section.UDirection[1], Z: section.UDirection[2]}, Reversed: section.Reversed, SeamEntityId: section.SeamEntityID, SeamAngle: section.SeamAngle, CorrespondenceResolved: section.CorrespondenceResolved, PointId: section.PointID, Point: &workerv1.Vec3{X: section.Point[0], Y: section.Point[1], Z: section.Point[2]}})
 		}
 		result = append(result, value)
 	}
@@ -1011,4 +1015,27 @@ func firstImportSeed(seeds []*workerv1.ImportTopologySeed) *workerv1.ImportTopol
 		return seeds[0]
 	}
 	return nil
+}
+
+// ResolveLoftCorrespondence is pure. Its accepted choices are persisted with the feature.
+func (client *Client) ResolveLoftCorrespondence(ctx context.Context, requestID string, sections []LoftSection) ([]LoftSection, error) {
+	inputs := profilePadsProto([]ProfilePad{{Sections: sections}})[0].Sections
+	response, err := client.worker.ResolveLoftCorrespondence(ctx, &workerv1.ResolveLoftCorrespondenceRequest{RequestId: requestID, Sections: inputs})
+	if err != nil {
+		return nil, err
+	}
+	if len(response.Sections) != len(sections) {
+		return nil, fmt.Errorf("invalid loft correspondence response")
+	}
+	result := append([]LoftSection(nil), sections...)
+	for i, choice := range response.Sections {
+		result[i].SeamEntityID = choice.SeamEntityId
+		result[i].SeamAngle = choice.SeamAngle
+		result[i].Reversed = choice.Reversed
+		result[i].CorrespondenceResolved = true
+		for _, p := range choice.BoundaryPoints {
+			result[i].BoundaryPoints = append(result[i].BoundaryPoints, [3]float64{p.X, p.Y, p.Z})
+		}
+	}
+	return result, nil
 }

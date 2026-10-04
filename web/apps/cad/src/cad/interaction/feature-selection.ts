@@ -3,6 +3,7 @@ import { projectSketchFeatureSelection } from "./selection-mode";
 export type FeaturePickRole = "geometry" | "point" | "profile" | "axis" | "edge" | "face" | "plane" | "body" | "seam";
 export type FeatureSelectionSession = {
     role: FeaturePickRole;
+    connectionLines?: [number,number,number][][];
     localSketchId?: string;
     documentId: string;
     versionId: string;

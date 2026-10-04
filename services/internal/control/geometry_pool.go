@@ -482,6 +482,19 @@ func (pool *GeometryPool) ComputeSketchCurves(ctx context.Context, request *work
 	return response, err
 }
 
+func (pool *GeometryPool) ResolveLoftCorrespondence(ctx context.Context, request *workerv1.ResolveLoftCorrespondenceRequest) (*workerv1.ResolveLoftCorrespondenceResponse, error) {
+	client, worker, err := pool.selectClient("")
+	if err != nil {
+		return nil, err
+	}
+	if worker != nil {
+		_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
+	}
+	response, err := client.ResolveLoftCorrespondence(outgoing(ctx), request)
+	pool.release(worker, "", err == nil)
+	return response, err
+}
+
 // ProjectExternalGeometry is stateless and follows the same routed Worker
 // boundary as sketch solving. PersistentSelection resolution is deliberately
 // completed by the control plane before this geometric operation.

@@ -2296,4 +2296,208 @@ TEST(GeometryExchange, LoftRectangleToCircleUsesActualSplitHistory) {
     }
 }
 
+namespace {
+LoftSectionSpec loft_rectangle(const std::string& id, double z) {
+    LoftSectionSpec s;
+    s.sketch_id = id;
+    s.region = rectangular_region(id, -5, -3, 5, 3);
+    s.origin = {0, 0, z};
+    s.normal = {0, 0, 1};
+    s.u_direction = {1, 0, 0};
+    return s;
+}
+ProfilePadSpec loft_spec(std::vector<LoftSectionSpec> sections) {
+    ProfilePadSpec p;
+    p.feature_id = "loft";
+    p.body_id = "body";
+    p.generator = "LOFT";
+    p.sections = std::move(sections);
+    return p;
+}
+TopoDS_Shape loft_shape(OcctKernel& kernel, const GeometryId& id) {
+    auto bytes = kernel.serializeBrepr(id);
+    BRep_Builder builder;
+    TopoDS_Shape shape;
+    std::istringstream stream(std::string(bytes.begin(), bytes.end()));
+    BRepTools::Read(shape, stream, builder);
+    return shape;
+}
+}  // namespace
+TEST(GeometryExchange, LoftAutomaticCorrespondencePreservesAcceptedCyclicOrder) {
+    auto a = loft_rectangle("a", 0), b = loft_rectangle("b", 10), c = loft_rectangle("c", 20);
+    std::rotate(b.region.outer.curves.begin(), b.region.outer.curves.begin() + 2,
+                b.region.outer.curves.end());
+    std::reverse(c.region.outer.curves.begin(), c.region.outer.curves.end());
+    for (auto& edge : c.region.outer.curves)
+        edge.reversed = !edge.reversed;
+    auto manual=a;manual.reversed=true;
+    const auto anchored=resolve_loft_correspondence({manual,b});
+    EXPECT_FALSE(anchored[0].seam_entity_id.empty());EXPECT_TRUE(anchored[0].reversed);
+    auto resolved = resolve_loft_correspondence({a, b, c});
+    ASSERT_EQ(resolved.size(), 3);
+    EXPECT_TRUE(resolved[2].reversed != resolved[0].reversed);
+    OcctKernel kernel;
+    const auto result = kernel.evaluateProfilePadsWithHistory({loft_spec(resolved)});
+    EXPECT_NEAR(kernel.getVolume(result.geometry_id), 1200, 1e-5);
+    const auto shape = loft_shape(kernel, result.geometry_id);
+    for (double z : {0.0, 10.0, 20.0})
+        for (const gp_Pnt p : {gp_Pnt(-5, -3, z), gp_Pnt(5, 3, z)}) {
+            BRepExtrema_DistShapeShape distance(BRepBuilderAPI_MakeVertex(p), shape);
+            ASSERT_TRUE(distance.IsDone());
+            EXPECT_LT(distance.Value(), 1e-7);
+        }
+    EXPECT_FALSE(a.correspondence_resolved);
+    EXPECT_TRUE(a.seam_entity_id.empty());
+    EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+    for (auto& s : resolved)
+        std::rotate(s.region.outer.curves.begin(), s.region.outer.curves.begin() + 1,
+                    s.region.outer.curves.end());
+    const auto again = resolve_loft_correspondence(resolved);
+    for (std::size_t i = 0; i < 3; ++i)
+        EXPECT_EQ(again[i].seam_entity_id, resolved[i].seam_entity_id);
+    OcctKernel cold;
+    EXPECT_EQ(cold.evaluateProfilePadsWithHistory({loft_spec(again)}).geometry_id,
+              result.geometry_id);
+    resolved[1].seam_entity_id = "deleted";
+    EXPECT_THROW(resolve_loft_correspondence(resolved), std::invalid_argument);
+}
+TEST(GeometryExchange, LoftTruePointEndpointsAndCutTool) {
+    for (bool first : {false, true})
+        for (bool intermediate : {false, true}) {
+            auto base = loft_rectangle("base", 0);
+            LoftSectionSpec tip;
+            tip.sketch_id = "tip-sketch";
+            tip.point_id = "tip";
+            tip.point = {0, 0, 20};
+            std::vector<LoftSectionSpec> sections{base};
+            if (intermediate) {
+                auto mid = loft_rectangle("mid", 10);
+                mid.region = rectangular_region("mid", -2.5, -1.5, 2.5, 1.5);
+                sections.push_back(mid);
+            }
+            sections.push_back(tip);
+            if (first)
+                std::reverse(sections.begin(), sections.end());
+            OcctKernel kernel;
+            const auto loft = loft_spec(sections);
+            const auto result = kernel.evaluateProfilePadsWithHistory({loft});
+            EXPECT_NEAR(kernel.getVolume(result.geometry_id), 400, 1e-4);
+            EXPECT_TRUE(BRepCheck_Analyzer(loft_shape(kernel, result.geometry_id)).IsValid());
+            const auto& history = result.feature_results.back();
+            EXPECT_TRUE(history.topology_history_complete);
+            bool namedTip = false;
+            for (const auto& out : history.semantic_outputs) {
+                if (out.semantic_ref.output_slot ==
+                    (first ? "LOFT_START_VERTEX" : "LOFT_END_VERTEX")) {
+                    namedTip = true;
+                    EXPECT_EQ(out.topology_type, PersistentTopologyType::vertex);
+                }
+                EXPECT_NE(out.semantic_ref.output_slot, first ? "LOFT_START_CAP" : "LOFT_END_CAP");
+            }
+            EXPECT_TRUE(namedTip);
+            ProfilePadSpec stock;
+            stock.feature_id = "stock";
+            stock.body_id = "body";
+            stock.profile_feature_id = "stock-sketch";
+            stock.regions = {rectangular_region("stock", -8, -8, 8, 8)};
+            stock.pad_length = 20;
+            auto cut = loft;
+            cut.body_operation = "REMOVE";
+            cut.input_feature_id = "stock";
+            const auto cutResult = kernel.evaluateProfilePadsWithHistory({stock, cut});
+            EXPECT_NEAR(kernel.getVolume(cutResult.geometry_id), 5120 - 400, 1e-4);
+            EXPECT_TRUE(cutResult.feature_results.back().topology_history_complete);
+        }
+    auto a = loft_rectangle("a", 0), b = loft_rectangle("b", 20);
+    LoftSectionSpec p;
+    p.point_id = "p";
+    p.point = {0, 0, 10};
+    EXPECT_THROW(resolve_loft_correspondence({a, p, b}), std::invalid_argument);
+    EXPECT_THROW(resolve_loft_correspondence({p, p}), std::invalid_argument);
+}
+TEST(GeometryExchange, LoftCirclePhaseAndManualTwist) {
+    auto a = loft_rectangle("a", 0), b = loft_rectangle("b", 10), c = loft_rectangle("c", 20);
+    b.u_direction = {std::cos(0.35), std::sin(0.35), 0};
+    auto automatic = resolve_loft_correspondence({a, b, c});
+    auto manual = automatic;
+    manual[1].seam_entity_id = manual[1].region.outer.curves[1].entity_id;
+    auto kept = resolve_loft_correspondence(manual);
+    EXPECT_EQ(kept[1].seam_entity_id, manual[1].seam_entity_id);
+    OcctKernel kernel;
+    EXPECT_NO_THROW(kernel.evaluateProfilePadsWithHistory({loft_spec(automatic)}));
+    LoftSectionSpec circle = a;
+    circle.sketch_id = "circle";
+    circle.origin.z = 20;
+    ProfileCurveSpec curve;
+    curve.entity_id = "circle-edge";
+    curve.kind = "CIRCLE";
+    curve.radius = 3;
+    circle.region = {"circle", {"circle-loop", {curve}}, {}};
+    auto paired = resolve_loft_correspondence({a, circle});
+    EXPECT_NE(paired[1].seam_angle, 0);
+    EXPECT_NO_THROW(kernel.evaluateProfilePadsWithHistory({loft_spec(paired)}));
+    paired[1].seam_angle += 2 * M_PI;
+    const auto wrap = resolve_loft_correspondence(paired);
+    EXPECT_DOUBLE_EQ(wrap[1].seam_angle, paired[1].seam_angle);
+    EXPECT_NO_THROW(kernel.evaluateProfilePadsWithHistory({loft_spec(wrap)}));
+    auto lower = circle;
+    lower.sketch_id = "lower";
+    lower.origin.z = 0;
+    lower.seam_angle = 0.37;
+    lower.correspondence_resolved = true;
+    const auto cylinderSections = resolve_loft_correspondence({lower, circle});
+    const auto cylinder = kernel.evaluateProfilePadsWithHistory({loft_spec(cylinderSections)});
+    EXPECT_NEAR(kernel.getVolume(cylinder.geometry_id), M_PI * 9 * 20, 1e-4);
+    auto twist = cylinderSections;
+    twist[1].seam_angle += 0.4;
+    auto twisted = loft_spec(twist);
+    twisted.ruled = true;
+    const auto twistedResult = kernel.evaluateProfilePadsWithHistory({twisted});
+    EXPECT_LT(kernel.getVolume(twistedResult.geometry_id),
+              kernel.getVolume(cylinder.geometry_id) - 1);
+    EXPECT_TRUE(twistedResult.feature_results.back().topology_history_complete);
+}
+TEST(GeometryExchange, LoftPerpendicularSectionsWithIntermediateAndInvalidCrossing) {
+    auto a = loft_rectangle("a", 0), b = loft_rectangle("b", 10), c = loft_rectangle("c", 20);
+    b.origin = {0, 10, 10};
+    b.normal = {0, std::sqrt(0.5), std::sqrt(0.5)};
+    c.origin = {0, 20, 10};
+    c.normal = {0, 1, 0};
+    OcctKernel kernel;
+    const auto resolved=resolve_loft_correspondence({a,b,c});
+    const auto result=kernel.evaluateProfilePadsWithHistory({loft_spec(resolved)});
+    const auto shape=loft_shape(kernel,result.geometry_id);
+    for(const auto& section:loft_connection_points(resolved)) for(const auto& p:section)
+        EXPECT_EQ(BRepClass3d_SolidClassifier(shape,gp_Pnt(p.x,p.y,p.z),1e-6).State(),TopAbs_ON);
+    c.origin = {0, 0, 0};
+    try { kernel.evaluateProfilePadsWithHistory({loft_spec({a,c})});FAIL()<<"intersecting perpendicular sections accepted"; }
+    catch(const std::exception& e) { EXPECT_NE(std::string(e.what()).find("LOFT_"),std::string::npos);EXPECT_EQ(std::string(e.what()).find("body cut failed"),std::string::npos); }
+}
+
+TEST(GeometryExchange, LoftOppositeSupportNormalsAndDegenerateTip) {
+    auto a = loft_rectangle("a", 0), b = loft_rectangle("b", 20);
+    b.normal = {0, 0, -1};
+    OcctKernel kernel;
+    const auto parallel = kernel.evaluateProfilePadsWithHistory({loft_spec({a, b})});
+    EXPECT_NEAR(kernel.getVolume(parallel.geometry_id), 1200, 1e-5);
+    ProfileCurveSpec c;
+    c.entity_id = "circle";
+    c.kind = "CIRCLE";
+    c.radius = 5;
+    a.region = {"circle", {"circle-loop", {c}}, {}};
+    LoftSectionSpec p;
+    p.sketch_id = "tip";
+    p.point_id = "point";
+    p.point = {0, 0, 20};
+    const auto cone = kernel.evaluateProfilePadsWithHistory({loft_spec({a, p})});
+    EXPECT_NEAR(kernel.getVolume(cone.geometry_id), M_PI * 25 * 20 / 3, 1e-5);
+    EXPECT_TRUE(cone.feature_results.back().topology_history_complete);
+    EXPECT_FALSE(kernel.tessellate(cone.geometry_id).triangles.empty());
+    const auto shape = loft_shape(kernel, cone.geometry_id);
+    bool degenerate = false;
+    for (TopExp_Explorer e(shape, TopAbs_EDGE); e.More(); e.Next())
+        degenerate |= BRep_Tool::Degenerated(TopoDS::Edge(e.Current()));
+    EXPECT_TRUE(degenerate);
+}
+
 }  // namespace occccad::kernel

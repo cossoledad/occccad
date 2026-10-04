@@ -631,6 +631,33 @@ void exact_sketch_curve_proto(const occccad::kernel::ProfileCurveSpec& v,worker_
     for (double weight:v.weights)c->add_weights(weight);
 }
 
+occccad::kernel::ProfileLoopSpec read_loop(const worker_api::ProfileLoop& source) {
+    occccad::kernel::ProfileLoopSpec loop;
+    loop.id = source.id();
+    for (const auto& curve : source.curves())
+        loop.curves.push_back(exact_sketch_curve(curve));
+    return loop;
+}
+occccad::kernel::LoftSectionSpec read_loft_section(const worker_api::LoftSectionSpec& source) {
+    occccad::kernel::LoftSectionSpec section;
+    section.sketch_id = source.sketch_id();
+    section.seam_entity_id = source.seam_entity_id();
+    section.seam_angle = source.seam_angle();
+    section.reversed = source.reversed();
+    section.region.id = source.region().id();
+    section.region.outer = read_loop(source.region().outer());
+    for (const auto& hole : source.region().holes())
+        section.region.holes.push_back(read_loop(hole));
+    section.origin = {source.origin().x(), source.origin().y(), source.origin().z()};
+    section.normal = {source.normal().x(), source.normal().y(), source.normal().z()};
+    section.u_direction = {source.u_direction().x(), source.u_direction().y(),
+                           source.u_direction().z()};
+    section.correspondence_resolved = source.correspondence_resolved();
+    section.point_id = source.point_id();
+    section.point = {source.point().x(), source.point().y(), source.point().z()};
+    return section;
+}
+
 class GeometryWorkerService final : public worker_api::GeometryWorker::Service {
 public:
     grpc::Status Ping(grpc::ServerContext* /*context*/, const worker_api::PingRequest* /*request*/,
@@ -647,9 +674,42 @@ public:
         return grpc::Status::OK;
     }
 
+    grpc::Status ResolveLoftCorrespondence(
+        grpc::ServerContext* context, const worker_api::ResolveLoftCorrespondenceRequest* request,
+        worker_api::ResolveLoftCorrespondenceResponse* response) override {
+        try {
+            if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED,"loft correspondence cancelled"};
+            if (request->sections_size()<2 || request->sections_size()>32)
+                return {grpc::StatusCode::INVALID_ARGUMENT,"INVALID_LOFT_SECTION_COUNT"};
+            std::vector<occccad::kernel::LoftSectionSpec> sections;
+            for (const auto& s : request->sections())
+                sections.push_back(read_loft_section(s));
+            const auto resolved = occccad::kernel::resolve_loft_correspondence(sections);
+            const auto points = occccad::kernel::loft_connection_points(resolved);
+            for (std::size_t i = 0; i < resolved.size(); ++i) {
+                const auto& s = resolved[i];
+                auto* out = response->add_sections();
+                out->set_seam_entity_id(s.seam_entity_id);
+                out->set_reversed(s.reversed);
+                out->set_seam_angle(s.seam_angle);
+                for (const auto& p : points[i]) {
+                    auto* v = out->add_boundary_points();
+                    v->set_x(p.x);
+                    v->set_y(p.y);
+                    v->set_z(p.z);
+                }
+            }
+            return grpc::Status::OK;
+        } catch (const Standard_Failure& e) {
+            return {grpc::StatusCode::INVALID_ARGUMENT, e.GetMessageString()};
+        } catch (const std::exception& e) {
+            return {grpc::StatusCode::INVALID_ARGUMENT, e.what()};
+        }
+    }
+
     grpc::Status ComputeSketchCurves(grpc::ServerContext* context,
-                                    const worker_api::ComputeSketchCurvesRequest* request,
-                                    worker_api::ComputeSketchCurvesResponse* response) override {
+                                     const worker_api::ComputeSketchCurvesRequest* request,
+                                     worker_api::ComputeSketchCurvesResponse* response) override {
         try {
             if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED,"curve computation cancelled"};
             if (request->operation()=="PROFILE") {
@@ -1374,35 +1434,6 @@ public:
                 pad.plane_u_direction = {input.plane_u_direction().x(),
                                          input.plane_u_direction().y(),
                                          input.plane_u_direction().z()};
-                const auto read_loop = [](const worker_api::ProfileLoop& source) {
-                    occccad::kernel::ProfileLoopSpec loop;
-                    loop.id = source.id();
-                    for (const auto& curve : source.curves()) {
-                        occccad::kernel::ProfileCurveSpec value;
-                        value.entity_id = curve.entity_id();
-                        value.reversed = curve.reversed();
-                        value.kind = curve.kind();
-                        value.start = {curve.start().x(), curve.start().y()};
-                        value.end = {curve.end().x(), curve.end().y()};
-                        value.center = {curve.center().x(), curve.center().y()};
-                        value.radius = curve.radius();
-                        value.major_radius = curve.major_radius();value.minor_radius=curve.minor_radius();value.rotation=curve.rotation();
-                        value.start_angle = curve.start_angle();
-                        value.end_angle = curve.end_angle();
-                        value.degree = curve.degree();
-                        value.closed = curve.closed();
-                        for (const auto& point : curve.control_points())
-                            value.control_points.push_back({point.x(), point.y()});
-                        value.mode=curve.mode().empty()?"FIT":curve.mode();
-                        for(const auto& p:curve.poles()) value.poles.push_back({p.x(),p.y()});
-                        value.knots.assign(curve.knots().begin(),curve.knots().end());
-                        value.multiplicities.assign(curve.multiplicities().begin(),curve.multiplicities().end());
-                        value.weights.assign(curve.weights().begin(),curve.weights().end());
-                        value.periodic=curve.periodic();value.parameter_start=curve.parameter_start();value.parameter_end=curve.parameter_end();
-                        loop.curves.push_back(std::move(value));
-                    }
-                    return loop;
-                };
                 for (const auto& region_input : input.regions()) {
                     occccad::kernel::ProfileRegionSpec region;
                     region.id = region_input.id();
@@ -1413,21 +1444,7 @@ public:
                 }
                 pad.ruled = input.ruled();
                 for (const auto& source : input.sections()) {
-                    occccad::kernel::LoftSectionSpec section;
-                    section.sketch_id = source.sketch_id();
-                    section.seam_entity_id = source.seam_entity_id();
-                    section.seam_angle = source.seam_angle();
-                    section.reversed = source.reversed();
-                    section.region.id = source.region().id();
-                    section.region.outer = read_loop(source.region().outer());
-                    for (const auto& hole : source.region().holes())
-                        section.region.holes.push_back(read_loop(hole));
-                    section.origin = {source.origin().x(), source.origin().y(),
-                                      source.origin().z()};
-                    section.normal = {source.normal().x(), source.normal().y(),
-                                      source.normal().z()};
-                    section.u_direction = {source.u_direction().x(), source.u_direction().y(),
-                                           source.u_direction().z()};
+                    auto section = read_loft_section(source);
                     pad.sections.push_back(std::move(section));
                 }
                 for (const auto& source : input.tools()) {

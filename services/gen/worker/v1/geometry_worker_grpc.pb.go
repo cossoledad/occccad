@@ -19,21 +19,22 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	GeometryWorker_Ping_FullMethodName                    = "/occccad.worker.v1.GeometryWorker/Ping"
-	GeometryWorker_EvaluatePart_FullMethodName            = "/occccad.worker.v1.GeometryWorker/EvaluatePart"
-	GeometryWorker_SolveSketch_FullMethodName             = "/occccad.worker.v1.GeometryWorker/SolveSketch"
-	GeometryWorker_ComputeSketchCurves_FullMethodName     = "/occccad.worker.v1.GeometryWorker/ComputeSketchCurves"
-	GeometryWorker_ProjectExternalGeometry_FullMethodName = "/occccad.worker.v1.GeometryWorker/ProjectExternalGeometry"
-	GeometryWorker_SolveAssembly_FullMethodName           = "/occccad.worker.v1.GeometryWorker/SolveAssembly"
-	GeometryWorker_InspectExchange_FullMethodName         = "/occccad.worker.v1.GeometryWorker/InspectExchange"
-	GeometryWorker_ImportExchange_FullMethodName          = "/occccad.worker.v1.GeometryWorker/ImportExchange"
-	GeometryWorker_ExportExchange_FullMethodName          = "/occccad.worker.v1.GeometryWorker/ExportExchange"
-	GeometryWorker_LoadGeometry_FullMethodName            = "/occccad.worker.v1.GeometryWorker/LoadGeometry"
-	GeometryWorker_UnloadGeometry_FullMethodName          = "/occccad.worker.v1.GeometryWorker/UnloadGeometry"
-	GeometryWorker_GetTopology_FullMethodName             = "/occccad.worker.v1.GeometryWorker/GetTopology"
-	GeometryWorker_Tessellate_FullMethodName              = "/occccad.worker.v1.GeometryWorker/Tessellate"
-	GeometryWorker_CreateChamfer_FullMethodName           = "/occccad.worker.v1.GeometryWorker/CreateChamfer"
-	GeometryWorker_CreateFillet_FullMethodName            = "/occccad.worker.v1.GeometryWorker/CreateFillet"
+	GeometryWorker_Ping_FullMethodName                      = "/occccad.worker.v1.GeometryWorker/Ping"
+	GeometryWorker_EvaluatePart_FullMethodName              = "/occccad.worker.v1.GeometryWorker/EvaluatePart"
+	GeometryWorker_ResolveLoftCorrespondence_FullMethodName = "/occccad.worker.v1.GeometryWorker/ResolveLoftCorrespondence"
+	GeometryWorker_SolveSketch_FullMethodName               = "/occccad.worker.v1.GeometryWorker/SolveSketch"
+	GeometryWorker_ComputeSketchCurves_FullMethodName       = "/occccad.worker.v1.GeometryWorker/ComputeSketchCurves"
+	GeometryWorker_ProjectExternalGeometry_FullMethodName   = "/occccad.worker.v1.GeometryWorker/ProjectExternalGeometry"
+	GeometryWorker_SolveAssembly_FullMethodName             = "/occccad.worker.v1.GeometryWorker/SolveAssembly"
+	GeometryWorker_InspectExchange_FullMethodName           = "/occccad.worker.v1.GeometryWorker/InspectExchange"
+	GeometryWorker_ImportExchange_FullMethodName            = "/occccad.worker.v1.GeometryWorker/ImportExchange"
+	GeometryWorker_ExportExchange_FullMethodName            = "/occccad.worker.v1.GeometryWorker/ExportExchange"
+	GeometryWorker_LoadGeometry_FullMethodName              = "/occccad.worker.v1.GeometryWorker/LoadGeometry"
+	GeometryWorker_UnloadGeometry_FullMethodName            = "/occccad.worker.v1.GeometryWorker/UnloadGeometry"
+	GeometryWorker_GetTopology_FullMethodName               = "/occccad.worker.v1.GeometryWorker/GetTopology"
+	GeometryWorker_Tessellate_FullMethodName                = "/occccad.worker.v1.GeometryWorker/Tessellate"
+	GeometryWorker_CreateChamfer_FullMethodName             = "/occccad.worker.v1.GeometryWorker/CreateChamfer"
+	GeometryWorker_CreateFillet_FullMethodName              = "/occccad.worker.v1.GeometryWorker/CreateFillet"
 )
 
 // GeometryWorkerClient is the client API for GeometryWorker service.
@@ -44,6 +45,8 @@ type GeometryWorkerClient interface {
 	Ping(ctx context.Context, in *PingRequest, opts ...grpc.CallOption) (*PingResponse, error)
 	// Evaluate one complete Part feature chain in a coarse-grained worker call.
 	EvaluatePart(ctx context.Context, in *EvaluatePartRequest, opts ...grpc.CallOption) (*EvaluatePartResponse, error)
+	// Pure correspondence resolution; accepted choices belong to the feature definition.
+	ResolveLoftCorrespondence(ctx context.Context, in *ResolveLoftCorrespondenceRequest, opts ...grpc.CallOption) (*ResolveLoftCorrespondenceResponse, error)
 	// Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
 	// implementation detail of this coarse-grained boundary.
 	SolveSketch(ctx context.Context, in *SolveSketchRequest, opts ...grpc.CallOption) (*SolveSketchResponse, error)
@@ -97,6 +100,16 @@ func (c *geometryWorkerClient) EvaluatePart(ctx context.Context, in *EvaluatePar
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(EvaluatePartResponse)
 	err := c.cc.Invoke(ctx, GeometryWorker_EvaluatePart_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *geometryWorkerClient) ResolveLoftCorrespondence(ctx context.Context, in *ResolveLoftCorrespondenceRequest, opts ...grpc.CallOption) (*ResolveLoftCorrespondenceResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ResolveLoftCorrespondenceResponse)
+	err := c.cc.Invoke(ctx, GeometryWorker_ResolveLoftCorrespondence_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -241,6 +254,8 @@ type GeometryWorkerServer interface {
 	Ping(context.Context, *PingRequest) (*PingResponse, error)
 	// Evaluate one complete Part feature chain in a coarse-grained worker call.
 	EvaluatePart(context.Context, *EvaluatePartRequest) (*EvaluatePartResponse, error)
+	// Pure correspondence resolution; accepted choices belong to the feature definition.
+	ResolveLoftCorrespondence(context.Context, *ResolveLoftCorrespondenceRequest) (*ResolveLoftCorrespondenceResponse, error)
 	// Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
 	// implementation detail of this coarse-grained boundary.
 	SolveSketch(context.Context, *SolveSketchRequest) (*SolveSketchResponse, error)
@@ -285,6 +300,9 @@ func (UnimplementedGeometryWorkerServer) Ping(context.Context, *PingRequest) (*P
 }
 func (UnimplementedGeometryWorkerServer) EvaluatePart(context.Context, *EvaluatePartRequest) (*EvaluatePartResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method EvaluatePart not implemented")
+}
+func (UnimplementedGeometryWorkerServer) ResolveLoftCorrespondence(context.Context, *ResolveLoftCorrespondenceRequest) (*ResolveLoftCorrespondenceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ResolveLoftCorrespondence not implemented")
 }
 func (UnimplementedGeometryWorkerServer) SolveSketch(context.Context, *SolveSketchRequest) (*SolveSketchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SolveSketch not implemented")
@@ -378,6 +396,24 @@ func _GeometryWorker_EvaluatePart_Handler(srv interface{}, ctx context.Context, 
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GeometryWorkerServer).EvaluatePart(ctx, req.(*EvaluatePartRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GeometryWorker_ResolveLoftCorrespondence_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ResolveLoftCorrespondenceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GeometryWorkerServer).ResolveLoftCorrespondence(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GeometryWorker_ResolveLoftCorrespondence_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GeometryWorkerServer).ResolveLoftCorrespondence(ctx, req.(*ResolveLoftCorrespondenceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -630,6 +666,10 @@ var GeometryWorker_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "EvaluatePart",
 			Handler:    _GeometryWorker_EvaluatePart_Handler,
+		},
+		{
+			MethodName: "ResolveLoftCorrespondence",
+			Handler:    _GeometryWorker_ResolveLoftCorrespondence_Handler,
 		},
 		{
 			MethodName: "SolveSketch",

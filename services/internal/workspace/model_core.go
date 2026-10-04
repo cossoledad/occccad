@@ -2781,8 +2781,41 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		payloadDigest: modelcore.ValueDigest(prepared.command.Payload), intentPayload: prepared.command.Payload, nextJSON: nextJSON, geometryKey: geometryKey, visualObjectID: artifact.Representations["VISUAL"].ObjectID,
 		changes: previewChanges, expiresAt: time.Now().Add(interactionCandidateTTL)})
 	artifact.RepresentationKind = "TRANSIENT_PREVIEW"
-
+	var loftSections []LoftSection
+	var loftConnections [][][3]float64
+	if request.Feature != nil && request.Feature.Type == "LOFT" {
+		target := request.TargetID
+		if target == "" {
+			target = commandEntityID("loft", request.RequestID)
+		}
+		earlier := map[string]Feature{}
+		for _, f := range model.Features {
+			if f.ID == target {
+				loftSections = f.Sections
+				inputs, e := service.loftGeometrySections(ctx, request.RequestID+"/connections", model, f, earlier)
+				if e != nil {
+					return CommandPreview{}, e
+				}
+				resolved, e := service.worker.ResolveLoftCorrespondence(ctx, request.RequestID+"/connections", inputs)
+				if e != nil {
+					return CommandPreview{}, e
+				}
+				if len(resolved) > 0 {
+					for j := range resolved[0].BoundaryPoints {
+						line := make([][3]float64, len(resolved))
+						for i := range resolved {
+							line[i] = resolved[i].BoundaryPoints[j]
+						}
+						loftConnections = append(loftConnections, line)
+					}
+				}
+				break
+			}
+			earlier[f.ID] = f
+		}
+	}
 	return CommandPreview{
+		LoftSections: loftSections, LoftConnections: loftConnections,
 		PreviewID: previewID, BaseVersionID: prepared.headRevision,
 		BaseSequence: prepared.headSequence, ModelHash: modelHash, Artifact: &artifact,
 		ResultBodyID: bodyID, ResultBodyName: bodyName, BodyAssignment: bodyAssignment,

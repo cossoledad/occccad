@@ -10,6 +10,15 @@ try {
   sections=pickLoftSection(sections,pattern);
   assert.equal(sections[2].memberSlot,3);
   assert.deepEqual(pickLoftSection(sections,{...pattern,pattern:{count:2,skippedSlots:[1]}}),sections,"shrinking must not silently rebind a missing existing section");
+  const pointSection={sketchId:"same",point:{sketchId:"same",reference:{target:"ENTITY",entityId:"p",subElement:"POINT"}}};
+  assert.deepEqual(pickLoftSection([pointSection],{id:"same",type:"SKETCH"}),[pointSection,{sketchId:"same"}]);
+  assert.deepEqual(pickLoftSection([pointSection,{sketchId:"same"}],{id:"same",type:"SKETCH"}),[pointSection],"profile toggle must retain the separately referenced point");
+  const {featureSelectionHit}=await server.ssrLoadModule("/src/cad/interaction/feature-selection.ts");
+  const session={role:"point",documentId:"part",versionId:"v",sketchIds:["same"]};
+  const pick={kind:"visual",visualType:"POINT",id:"p",documentId:"part",versionId:"v",featureId:"same",entityId:"p",sketchReference:pointSection.point.reference};
+  assert.deepEqual(featureSelectionHit(pick,session),pick,"point picking must retain the entity reference rather than project to its entire sketch");
+  assert.equal(featureSelectionHit({...pick,versionId:"old"},session),null);
+  assert.equal(featureSelectionHit({...pick,visualType:"CURVE"},session),null);
   const features = [
     {id:"base",bodyId:"target",type:"LINEAR_EXTRUDE"},
     {id:"loft",bodyId:"tool",type:"LOFT"},

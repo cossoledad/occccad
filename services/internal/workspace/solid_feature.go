@@ -27,12 +27,33 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 			return fmt.Errorf("%w: loft requires 2..32 sections", ErrValidation)
 		}
 		seen := map[string]bool{}
-		for _, section := range f.Sections {
+		profiles := 0
+		for i, section := range f.Sections {
+			if section.Point != nil {
+				if i != 0 && i != len(f.Sections)-1 {
+					return fmt.Errorf("%w: LOFT_POINT_MUST_BE_ENDPOINT", ErrValidation)
+				}
+				if section.MemberSlot != nil || section.Point.SketchID != section.SketchID || (section.Point.AxisEntityID != "" && section.SketchID != "") {
+					return fmt.Errorf("%w: invalid loft point reference", ErrValidation)
+				}
+				if section.Point.AxisEntityID != "" {
+					parts := strings.Split(section.Point.AxisEntityID, ":")
+					if len(parts) < 2 || (parts[0] != "AXIS_SYSTEM" && parts[0] != "DATUM_AXIS") {
+						return fmt.Errorf("%w: invalid loft datum point", ErrValidation)
+					}
+					continue
+				}
+			} else {
+				profiles++
+			}
 			sketch, ok := earlier[section.SketchID]
 			if !ok || (sketch.Sketch == nil && sketch.Type != "SKETCH_PATTERN") || seen[loftSectionIdentity(section)] || math.IsNaN(section.SeamAngle) || math.IsInf(section.SeamAngle, 0) {
 				return fmt.Errorf("%w: invalid loft section", ErrValidation)
 			}
 			seen[loftSectionIdentity(section)] = true
+		}
+		if profiles == 0 {
+			return fmt.Errorf("%w: LOFT_REQUIRES_PROFILE_SECTION", ErrValidation)
 		}
 		if f.Operation != "ADD" && f.Operation != "REMOVE" && f.Operation != "INTERSECT" && f.Operation != "NEW_BODY" {
 			return fmt.Errorf("%w: invalid loft operation", ErrValidation)
@@ -416,7 +437,9 @@ func featureInputIDs(feature Feature) []string {
 		ids = append(ids, tool.FeatureID)
 	}
 	for _, section := range feature.Sections {
-		ids = append(ids, section.SketchID)
+		if section.SketchID != "" {
+			ids = append(ids, section.SketchID)
+		}
 	}
 	if pick := feature.NeutralPlane; pick != nil {
 		ids = append(ids, pick.Selection.Anchor.FeatureID)
@@ -444,83 +467,141 @@ func partHasFailedFeature(model PartModel) bool {
 	return false
 }
 
-// Choose an initial closed-point edge once, then persist its sketch entity ID.
-// Evaluators never silently choose another seam after an upstream edit.
-func (s *Service) prepareLoftDefinition(ctx context.Context, requestID string, model PartModel, feature *Feature) error {
-	if feature.Type != "LOFT" {
-		return nil
-	}
-	feature.Sections = append([]LoftSection(nil), feature.Sections...)
-	for i := range feature.Sections {
-		section := &feature.Sections[i]
-		var sketch *Feature
-		for j := range model.Features {
-			if model.Features[j].ID == section.SketchID {
-				sketch = &model.Features[j]
-				break
-			}
-		}
-		if sketch != nil && sketch.Type == "SKETCH_PATTERN" {
-			earlier := map[string]Feature{}
-			for _, f := range model.Features {
-				if f.ID == feature.ID {
-					break
-				}
-				earlier[f.ID] = f
-			}
-			resolved, err := resolvePatternSketch(model, earlier, section.SketchID, section.MemberSlot)
+// loftGeometrySections is shared by definition preparation and every evaluation path.
+func (s *Service) loftGeometrySections(ctx context.Context, requestID string, model PartModel, feature Feature, earlier map[string]Feature) ([]geometry.LoftSection, error) {
+	result := make([]geometry.LoftSection, 0, len(feature.Sections))
+	for _, section := range feature.Sections {
+		value := geometry.LoftSection{SketchID: section.SketchID, Reversed: section.Reversed, SeamEntityID: section.SeamEntityID, SeamAngle: section.SeamAngle * math.Pi / 180, CorrespondenceResolved: section.CorrespondenceResolved}
+		if section.Point != nil {
+			point, err := patternReferencePoint(model, *section.Point)
 			if err != nil {
-				return err
+				return nil, fmt.Errorf("%w: LOFT_POINT_UNAVAILABLE: %v", ErrValidation, err)
 			}
-			sketch = &resolved
-		}
-		if sketch == nil || sketch.Sketch == nil {
-			return fmt.Errorf("%w: loft section missing", ErrValidation)
-		}
-		if section.SeamEntityID != "" {
-			// Display members namespace their source entity IDs. Bind the picked
-			// entity only within the explicitly selected slot, never by proximity.
+			ref := section.Point.Reference
+			value.PointID = ref.Target + "/" + ref.EntityID + "/" + ref.SubElement + "/" + ref.PointID
+			if section.Point.AxisEntityID != "" {
+				value.PointID = section.Point.AxisEntityID
+				value.SketchID = section.Point.AxisEntityID
+			}
+			value.Point = point
+		} else {
+			sketch, err := resolvePatternSketch(model, earlier, section.SketchID, section.MemberSlot)
+			if err != nil {
+				return nil, err
+			}
+			regions, err := s.buildExactProfileRegions(ctx, sketch, requestID+"/section/"+sketch.ID)
+			if err != nil {
+				return nil, err
+			}
+			if len(regions) != 1 || len(regions[0].Holes) != 0 {
+				return nil, fmt.Errorf("%w: loft requires one closed region without holes", ErrValidation)
+			}
+			origin, u, normal, ok := supportFrame(model, sketch.Sketch.Support)
+			if !ok {
+				return nil, fmt.Errorf("%w: loft section support unavailable", ErrValidation)
+			}
+			value.SketchID = sketch.ID
+			value.Region = regions[0]
+			value.Origin = origin
+			value.Normal = normal
+			value.UDirection = u
 			if section.MemberSlot != nil {
-				entities, err := evaluatedSketchPatternEntities(*sketch.Sketch)
-				if err != nil {
-					return err
-				}
-				for _, entity := range entities {
-					if patternMemberID(section.SketchID, *section.MemberSlot, entity.ID) == section.SeamEntityID {
-						section.SeamEntityID = entity.ID
+				for _, curve := range regions[0].Outer.Curves {
+					if patternMemberID(section.SketchID, *section.MemberSlot, curve.EntityID) == section.SeamEntityID {
+						value.SeamEntityID = curve.EntityID
 						break
 					}
 				}
 			}
+		}
+		result = append(result, value)
+	}
+	return result, nil
+}
+
+// A whole point-only sketch is an unambiguous endpoint selection. Bind once to
+// its stable entity, before profile validation; never reinterpret an accepted
+// profile or replace an existing point reference after upstream edits.
+func bindLoftPointSketches(sections []LoftSection, earlier map[string]Feature) ([]LoftSection, error) {
+	result := append([]LoftSection(nil), sections...)
+	for i := range result {
+		section := &result[i]
+		if section.Point != nil || section.CorrespondenceResolved || section.SeamEntityID != "" || section.MemberSlot != nil {
 			continue
 		}
-		regions, err := s.buildExactProfileRegions(ctx, *sketch, requestID+"/loft-seam/"+sketch.ID)
+		sketch, ok := earlier[section.SketchID]
+		if !ok || sketch.Suppressed || sketch.Sketch == nil || len(sketch.Sketch.ExternalGeometry) > 0 {
+			continue
+		}
+		entities, err := evaluatedSketchPatternEntities(*sketch.Sketch)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if len(regions) != 1 || len(regions[0].Holes) != 0 {
-			return fmt.Errorf("%w: loft requires one closed region without holes", ErrValidation)
+		if len(entities) == 0 {
+			continue
 		}
-		boundary := map[string]bool{}
-		for _, curve := range regions[0].Outer.Curves {
-			boundary[curve.EntityID] = true
-		}
-		// Entity order is the explicit sketch definition's creation order. This only
-		// initializes a new seam; it is never used to recover an invalid saved ref.
-		for _, entity := range sketch.Sketch.Entities {
-			if boundary[entity.ID] {
-				section.SeamEntityID = entity.ID
+		onlyPoints := true
+		for _, entity := range entities {
+			if entity.Kind != "POINT" {
+				onlyPoints = false
 				break
 			}
 		}
-		if section.SeamEntityID == "" {
-			return fmt.Errorf("%w: no loft seam edge", ErrValidation)
+		if !onlyPoints {
+			continue
 		}
+		if len(entities) != 1 {
+			return nil, fmt.Errorf("%w: LOFT_POINT_SELECTION_AMBIGUOUS: select one point", ErrValidation)
+		}
+		section.Point = &PatternPointReference{SketchID: section.SketchID, Reference: SketchGeometryRef{Target: "ENTITY", EntityID: entities[0].ID, SubElement: "POINT"}}
+		section.Reversed = false
+		section.SeamAngle = 0
+	}
+	return result, nil
+}
+
+func (s *Service) prepareLoftDefinition(ctx context.Context, requestID string, model PartModel, feature *Feature) error {
+	if feature.Type != "LOFT" {
+		return nil
+	}
+	earlier := map[string]Feature{}
+	for _, f := range model.Features {
+		if f.ID == feature.ID {
+			break
+		}
+		earlier[f.ID] = f
+	}
+	bound, err := bindLoftPointSketches(feature.Sections, earlier)
+	if err != nil {
+		return err
+	}
+	feature.Sections = bound
+	if err := validateSolidStage(*feature, earlier); err != nil {
+		return err
+	}
+	sections, err := s.loftGeometrySections(ctx, requestID, model, *feature, earlier)
+	if err != nil {
+		return err
+	}
+	resolved, err := s.worker.ResolveLoftCorrespondence(ctx, requestID+"/loft-correspondence", sections)
+	if err != nil {
+		return fmt.Errorf("%w: %v", ErrValidation, err)
+	}
+	feature.Sections = append([]LoftSection(nil), feature.Sections...)
+	for i, choice := range resolved {
+		feature.Sections[i].SeamEntityID = choice.SeamEntityID
+		feature.Sections[i].SeamAngle = choice.SeamAngle * 180 / math.Pi
+		feature.Sections[i].Reversed = choice.Reversed
+		feature.Sections[i].CorrespondenceResolved = true
 	}
 	return nil
 }
 
 func loftSectionIdentity(section LoftSection) string {
+	if section.Point != nil {
+		raw, _ := json.Marshal(section.Point)
+		return "point/" + string(raw)
+	}
 	if section.MemberSlot == nil {
 		return section.SketchID
 	}

@@ -18,6 +18,9 @@ service GeometryWorker {
     // Evaluate one complete Part feature chain in a coarse-grained worker call.
     rpc EvaluatePart(EvaluatePartRequest) returns (EvaluatePartResponse);
 
+    // Pure correspondence resolution; accepted choices belong to the feature definition.
+    rpc ResolveLoftCorrespondence(ResolveLoftCorrespondenceRequest) returns (ResolveLoftCorrespondenceResponse);
+
     // Solve one immutable, domain-owned 2D sketch. PlaneGCS remains an
     // implementation detail of this coarse-grained boundary.
     rpc SolveSketch(SolveSketchRequest) returns (SolveSketchResponse);
@@ -470,6 +473,20 @@ message BodyToolInput {
     string feature_id = 4;
 }
 
+message ResolveLoftCorrespondenceRequest {
+    string request_id = 1;
+    repeated LoftSectionSpec sections = 2;
+}
+message LoftCorrespondence {
+    repeated Vec3 boundary_points = 4;
+    string seam_entity_id = 1;
+    bool reversed = 2;
+    double seam_angle = 3;
+}
+message ResolveLoftCorrespondenceResponse {
+    repeated LoftCorrespondence sections = 1;
+}
+
 message LoftSectionSpec {
     string sketch_id = 1;
     ProfileRegion region = 2;
@@ -479,6 +496,9 @@ message LoftSectionSpec {
     bool reversed = 6;
     string seam_entity_id = 7;
     double seam_angle = 8;
+    bool correspondence_resolved = 9;
+    string point_id = 10;
+    Vec3 point = 11;
 }
 message ProfilePadSpec {
     repeated ProfileRegion regions = 1;

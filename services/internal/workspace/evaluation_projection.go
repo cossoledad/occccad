@@ -666,7 +666,14 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			}
 		}
 		for _, section := range feature.Sections {
-			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + section.SketchID), Target: key, Kind: modelcore.ReadGeometry})
+			source := "feature:" + section.SketchID
+			if section.Point != nil && section.Point.AxisEntityID != "" {
+				parts := strings.Split(section.Point.AxisEntityID, ":")
+				if len(parts) >= 2 {
+					source = "datum:" + parts[1]
+				}
+			}
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey(source), Target: key, Kind: modelcore.ReadGeometry})
 		}
 		if feature.Type == "DRAFT" && feature.NeutralPlane != nil {
 			pick := feature.NeutralPlane

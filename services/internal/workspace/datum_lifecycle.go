@@ -40,6 +40,11 @@ func deleteDatum(model PartModel, kind, id string) (json.RawMessage, modelcore.C
 			}
 		}
 
+		for _, section := range f.Sections {
+			if section.Point != nil && section.Point.AxisEntityID == "DATUM_AXIS:"+id {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is used by loft %s", ErrValidation, f.ID)
+			}
+		}
 		if f.NeutralPlaneID == id || f.AxisEntityID == "DATUM_AXIS:"+id || f.Sketch != nil && f.Sketch.Support.DatumPlaneID == id {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is used by feature %s", ErrValidation, f.ID)
 		}

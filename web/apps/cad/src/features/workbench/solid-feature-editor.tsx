@@ -1,3 +1,4 @@
+import { pickedPatternCenter } from "./pattern-selection";
 import { PatternFeatureEditor } from "./pattern-feature-editor";
 import { Alert, Button, Input, Segmented, Switch } from "antd";
 import { useEffect, useRef, useState } from "react";
@@ -36,6 +37,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const loft = feature.type === "LOFT", modifier = ["FILLET", "CHAMFER", "DRAFT", "SHELL"].includes(feature.type);
     const angular = feature.type === "REVOLVE" || feature.type === "DRAFT";
     const pickRole: FeaturePickRole = modifier ? (feature.type === "FILLET" || feature.type === "CHAMFER" ? "edge" : "face") : "profile";
+    const [showConnections,setShowConnections]=useState(false);
+    const acceptedSections=useRef<Feature["sections"]>(undefined);
     const [draft, setDraft] = useState({ ...feature });
     const [role, setRole] = useState<FeaturePickRole>(pickRole), [seamIndex, setSeamIndex] = useState<number>();
     const [neutralVisual, setNeutralVisual] = useState<SelectionItem>();
@@ -135,6 +138,14 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
             bindPick(selection);
             return;
         }
+        if (chosenRole === "point" && loft) {
+            const point=pickedPatternCenter(selection);
+            if(!point || point.sketchId && !upstream.some(f=>f.id===point.sketchId))return;
+            const section={sketchId:point.sketchId??"",point};
+            edit({sections:[...(draft.sections??[]).filter(s=>JSON.stringify(s.point)!==JSON.stringify(point)),section]});
+            setRole("profile");
+            return;
+        }
         if (chosenRole === "profile") {
             const sketch = selectedSketch(view, selection, upstream);
             if (!sketch)
@@ -166,7 +177,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         }
         else if (chosenRole === "plane" && selection.kind === "face") { bindNeutralPlane(selection); }
         else if (chosenRole === "seam" && selection.kind === "visual" && seamIndex !== undefined) {
-            edit({ sections: draft.sections?.map((s, i) => i === seamIndex && (s.sketchId === selection.featureId || s.sketchId===selection.patternId&&s.memberSlot===selection.patternMemberSlot) ? { ...s, seamEntityId: selection.entityId } : s) });
+            edit({ sections: (acceptedSections.current??draft.sections)?.map((s, i) => i === seamIndex && (s.sketchId === selection.featureId || s.sketchId===selection.patternId&&s.memberSlot===selection.patternMemberSlot) ? { ...s, correspondenceResolved:true, seamEntityId: selection.entityId } : s) });
             setRole("profile");
         }
         else if (chosenRole === "body" && selection.bodyId) {
@@ -200,7 +211,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const restoredAxis: SelectionItem | undefined = axisParts?.[0] === "SKETCH_LINE" ? {
         kind: "visual", visualType: "CURVE", id: `${occurrencePath || "root"}:${axisParts[1]}:${axisParts[2]}`, featureId: axisParts[1], entityId: axisParts[2], bodyId: upstream.find(f => f.id === axisParts[1])?.bodyId, documentId: view.document.id, versionId: version.current, occurrencePath
     } : undefined;
-    const highlights: SelectionItem[] = modifier ? picks.map(p => p.visual) : loft ? (draft.sections ?? []).map(s => sketchPick(view, s.sketchId, occurrencePath, s.memberSlot)) : draft.profile ? [sketchPick(view, draft.profile, occurrencePath, draft.profileMemberSlot)] : [];
+    const highlights: SelectionItem[] = modifier ? picks.map(p => p.visual) : loft ? (draft.sections ?? []).map(s => s.point?.sketchId ? ({kind:"visual",visualType:"POINT",id:`loft-point:${s.sketchId}:${JSON.stringify(s.point.reference)}`,featureId:s.sketchId,entityId:s.point.reference.entityId??s.point.reference.target,sketchReference:s.point.reference,documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : s.point?.axisEntityId ? ({kind:"axis-system",id:s.point.axisEntityId.split(":")[1],entityId:s.point.axisEntityId.split(":")[1],documentId:view.document.id,versionId:version.current,occurrencePath} as SelectionItem) : sketchPick(view, s.sketchId, occurrencePath, s.memberSlot)) : draft.profile ? [sketchPick(view, draft.profile, occurrencePath, draft.profileMemberSlot)] : [];
     if (axisVisual ?? restoredAxis)
         highlights.push((axisVisual ?? restoredAxis)!);
     if (neutralVisual) highlights.push(neutralVisual);
@@ -210,11 +221,9 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const seamSection=seamIndex!==undefined?draft.sections?.[seamIndex]:undefined;
     const sketchIds = role === "seam" && seamSection ? seamSection.memberSlot!==undefined?profileSelectionIDs(view,upstream,seamSection.sketchId,seamSection.memberSlot):[seamSection.sketchId] : profileSelectionIDs(view,upstream);
     const sketchIdsToken = JSON.stringify(sketchIds);
-    useEffect(() => {
-        callbacks.current.onSelectionSession({ role, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) });
-    }, [role, highlightsToken, sketchIdsToken, draft.bodyId]);
+
     let input: Record<string, unknown> | undefined, parameterError: string | undefined;
-    const ready = validRevision && !loadingInput && !binding && (loft ? (draft.sections?.length ?? 0) >= 2 : modifier ? picks.length > 0 && !!draft.bodyId && (feature.type !== "DRAFT" || !!draft.neutralPlaneId || !!draft.neutralPlane) : !!draft.profile && (feature.type !== "REVOLVE" || !!draft.axisEntityId));
+    const ready = validRevision && !loadingInput && !binding && (loft ? (draft.sections?.length ?? 0) >= 2 && !!draft.sections?.some(s=>!s.point) && !draft.sections?.some((s,i)=>s.point&&i!==0&&i!==draft.sections!.length-1) : modifier ? picks.length > 0 && !!draft.bodyId && (feature.type !== "DRAFT" || !!draft.neutralPlaneId || !!draft.neutralPlane) : !!draft.profile && (feature.type !== "REVOLVE" || !!draft.axisEntityId));
     try {
         const value = { ...draft, selections: modifier ? picks.map(p => p.definition) : draft.selections }, expressions: Record<string, string> = {};
         const read = (slot: "length" | "length2" | "angle", text: string) => { const parsed = solidParameterEdit(slot, text, original.current[slot], unit); if (parsed.value !== undefined)
@@ -237,6 +246,10 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
         parameterError = String(cause);
     }
     const preview = useFeaturePreview(view.document.id, view.document.versionId, input, draft.operation, onPreview);
+    acceptedSections.current=preview.loftSections;
+    useEffect(() => {
+        callbacks.current.onSelectionSession({ role, connectionLines:showConnections?preview.loftConnections:undefined, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) });
+    }, [role, highlightsToken, sketchIdsToken, draft.bodyId,showConnections,JSON.stringify(preview.loftConnections)]);
     const apply = async () => { if (!input || !preview.previewId || preview.pending || committing)
         return; setCommitting(true); try {
         await onApply({ ...input, previewId: preview.previewId });
@@ -255,15 +268,19 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
    {modifier && <FeaturePickField label={pickRole === "edge" ? "边集" : "面集"} value={loadingInput ? "正在恢复选择…" : `已选择 ${picks.length} ${pickRole === "edge" ? "条边" : "个面"}`} active={role === pickRole} onActivate={() => setRole(pickRole)} onClear={picks.length ? () => setPicks([]) : undefined}/>}
    {feature.type === "DRAFT" && <FeaturePickField label="中性平面" value={draft.neutralPlane ? "已选择实体平面" : view.part?.datumPlanes.find(p => p.id === draft.neutralPlaneId)?.name ?? "选择基准面或实体平面"} active={role === "plane"} onActivate={() => setRole("plane")}/>}
    {loft && <>
-    <FeaturePickField label="截面" value={`已选择 ${draft.sections?.length ?? 0} 个草图`} active={role === "profile"} onActivate={() => setRole("profile")} onClear={draft.sections?.length ? () => edit({ sections: [] }) : undefined}/>
-    {(draft.sections ?? []).map((section, i) => <div className="feature-section-row" key={`${section.sketchId}/${i}`}>
-     <span>{i + 1}. {name(section.sketchId)}</span>
-     {upstream.find(f=>f.id===section.sketchId)?.type==="SKETCH_PATTERN"&&<label>成员槽位<Input type="number" min={0} step={1} value={section.memberSlot} onChange={e=>edit({sections:draft.sections?.map((s,j)=>i===j?{...s,memberSlot:e.target.value===""?undefined:Number(e.target.value)}:s)})}/></label>}
+    <FeaturePickField label="截面" value={`已选择 ${draft.sections?.length ?? 0} 个截面`} active={role === "profile"} onActivate={() => setRole("profile")} onClear={draft.sections?.length ? () => edit({ sections: [] }) : undefined}/>
+    <FeaturePickField label="点端" value="选择草图点或基准原点" active={role === "point"} onActivate={()=>setRole("point")}/>
+    <label>显示连接线<Switch checked={showConnections} onChange={setShowConnections}/></label>
+    {(preview.loftSections ?? draft.sections ?? []).map((section, i) => <div className="feature-section-row" key={`${section.sketchId}/${i}`}>
+     <span>{i + 1}. {section.point ? `点端 · ${section.point.axisEntityId ?? name(section.sketchId)}` : name(section.sketchId)}</span>
+     {upstream.find(f=>f.id===section.sketchId)?.type==="SKETCH_PATTERN"&&<label>成员槽位<Input type="number" min={0} step={1} value={section.memberSlot} onChange={e=>edit({sections:(acceptedSections.current??draft.sections)?.map((s,j)=>i===j?{...s,memberSlot:e.target.value===""?undefined:Number(e.target.value)}:s)})}/></label>}
      <Button size="small" aria-label={`上移截面 ${i + 1}`} disabled={!i} onClick={() => { const sections = [...draft.sections!]; [sections[i - 1], sections[i]] = [sections[i], sections[i - 1]]; edit({ sections }); }}>↑</Button>
      <Button size="small" aria-label={`移除截面 ${i + 1}`} onClick={() => edit({ sections: draft.sections?.filter((_, j) => j !== i) })}>移除</Button>
-     <label>反向<Switch checked={section.reversed} onChange={reversed => edit({ sections: draft.sections?.map((s, j) => i === j ? { ...s, reversed } : s) })}/></label>
+     {!section.point && <><Button size="small" onClick={()=>edit({sections:(acceptedSections.current??draft.sections)?.map((s,j)=>i===j?{...s,correspondenceResolved:false,seamEntityId:undefined,seamAngle:0,reversed:false}:s)})}>自动对应</Button>
+     <label>反向<Switch checked={section.reversed} onChange={reversed => edit({ sections: (acceptedSections.current??draft.sections)?.map((s, j) => i === j ? { ...s, correspondenceResolved:true, reversed } : s) })}/></label>
      <Button size="small" aria-pressed={role === "seam" && seamIndex === i} onClick={() => { setSeamIndex(i); setRole("seam"); }}>选择闭合起始边</Button>
-     {upstream.find(f => f.id === section.sketchId)?.sketch?.entities.some(e => e.kind === "CIRCLE") && <label>闭合点角度（deg）<Input type="number" value={section.seamAngle ?? 0} onChange={e => edit({ sections: draft.sections?.map((s, j) => i === j ? { ...s, seamAngle: Number(e.target.value) } : s) })}/></label>}
+     {upstream.find(f => f.id === section.sketchId)?.sketch?.entities.some(e => e.kind === "CIRCLE") && <label>闭合点角度（deg）<Input type="number" value={section.seamAngle ?? 0} onChange={e => edit({ sections: (acceptedSections.current??draft.sections)?.map((s, j) => i === j ? { ...s, correspondenceResolved:true, seamAngle: Number(e.target.value) } : s) })}/></label>}
+     </>}
     </div>)}
     <label>截面连接<Segmented value={draft.ruled ? "ruled" : "smooth"} options={[{ value: "smooth", label: "平滑" }, { value: "ruled", label: "直纹" }]} onChange={v => edit({ ruled: v === "ruled" })}/></label>
    </>}

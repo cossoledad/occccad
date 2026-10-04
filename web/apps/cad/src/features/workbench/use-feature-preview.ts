@@ -7,6 +7,8 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
         id?: string;
         pending: boolean;
         error?: string;
+        loftSections?: Feature["sections"];
+        loftConnections?: [number,number,number][][];
     }>({ pending: false });
     const [retry, setRetry] = useState(0);
     const callback = useRef(onPreview);
@@ -26,13 +28,13 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
             void api.previewCommand(documentId, candidate.input!, controller.signal).then(result => {
                 if (!alive || latest.current.key !== key || result.baseVersionId !== versionId)
                     return;
-                setState({ key, id: result.previewId, pending: false });
+                setState({ key, id: result.previewId, pending: false, loftSections:result.loftSections,loftConnections:result.loftConnections });
                 callback.current(result.artifact, candidate.operation);
             }).catch(error => { if (alive && !controller.signal.aborted)
                 setState({ key, pending: false, error: String(error) }); });
         }, 250);
         return () => { alive = false; clearTimeout(timer); controller.abort(); callback.current(); };
     }, [key, retry]);
-    return { pending: !!key && (state.key !== key || state.pending), previewId: state.key === key ? state.id : undefined,
+    return { loftSections:state.key===key?state.loftSections:undefined,loftConnections:state.key===key?state.loftConnections:undefined, pending: !!key && (state.key !== key || state.pending), previewId: state.key === key ? state.id : undefined,
         error: state.key === key ? state.error : undefined, retry: () => setRetry(value => value + 1) };
 }

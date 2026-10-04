@@ -156,7 +156,13 @@ struct LoftSectionSpec {
     Vec3 origin, normal, u_direction;
     bool reversed{};
     double seam_angle{};
+    bool correspondence_resolved{};
+    // Point position is evaluated from a stable domain reference by the caller.
+    std::string point_id;
+    Vec3 point;
 };
+std::vector<LoftSectionSpec> resolve_loft_correspondence(const std::vector<LoftSectionSpec>& sections);
+std::vector<std::vector<Vec3>> loft_connection_points(const std::vector<LoftSectionSpec>& resolved_sections);
 struct PatternPlacement {
     std::uint32_t slot{};
     std::array<double, 12> matrix{};

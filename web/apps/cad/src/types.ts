@@ -69,6 +69,8 @@ export type CommandPreview = {
   evaluationFailure?: AssemblyEvaluationFailure;
   assemblySolverBuild?: string;
   assemblyComponents?: AssemblyComponentDof[];
+  loftSections?: Feature["sections"];
+  loftConnections?: [number,number,number][][];
   previewId: string;
   baseVersionId: string;
   baseSequence: number;
@@ -119,7 +121,7 @@ export type Feature = {
   profileMemberSlot?:number;
   evaluationStatus?: "FAILED" | "BLOCKED" | "SUPPRESSED";
   diagnostic?: string;
-  sections?:{sketchId:string;memberSlot?:number;reversed?:boolean;seamEntityId?:string;seamAngle?:number}[];
+  sections?:{sketchId:string;memberSlot?:number;reversed?:boolean;seamEntityId?:string;seamAngle?:number;correspondenceResolved?:boolean;point?:PatternDefinition["centerReference"]}[];
   ruled?:boolean;
   selections?:{selection:PersistentSelection;sourceVersionId:string;sourceFeatureId?:string}[];
   neutralPlaneId?:string;

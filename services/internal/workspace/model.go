@@ -407,11 +407,13 @@ type FeatureSelection struct {
 	SourceFeatureID string                        `json:"sourceFeatureId,omitempty"`
 }
 type LoftSection struct {
-	MemberSlot   *int    `json:"memberSlot,omitempty"`
-	SketchID     string  `json:"sketchId"`
-	Reversed     bool    `json:"reversed,omitempty"`
-	SeamEntityID string  `json:"seamEntityId,omitempty"`
-	SeamAngle    float64 `json:"seamAngle,omitempty"`
+	Point                  *PatternPointReference `json:"point,omitempty"`
+	CorrespondenceResolved bool                   `json:"correspondenceResolved,omitempty"`
+	MemberSlot             *int                   `json:"memberSlot,omitempty"`
+	SketchID               string                 `json:"sketchId"`
+	Reversed               bool                   `json:"reversed,omitempty"`
+	SeamEntityID           string                 `json:"seamEntityId,omitempty"`
+	SeamAngle              float64                `json:"seamAngle,omitempty"`
 }
 type Feature struct {
 	Pattern            *FeaturePattern    `json:"pattern,omitempty"`
@@ -1185,6 +1187,8 @@ type CommandRequest struct {
 // used by ApplyCommand. The base revision lets clients reject a response that
 // arrived after the workspace head changed.
 type CommandPreview struct {
+	LoftSections         []LoftSection                        `json:"loftSections,omitempty"`
+	LoftConnections      [][][3]float64                       `json:"loftConnections,omitempty"`
 	SketchCandidates     []SketchCandidatePreview             `json:"sketchCandidates,omitempty"`
 	EvaluationOutcome    string                               `json:"evaluationOutcome,omitempty"`
 	EvaluationFailure    *AssemblyEvaluationFailure           `json:"evaluationFailure,omitempty"`

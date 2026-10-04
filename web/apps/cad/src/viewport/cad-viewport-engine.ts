@@ -370,6 +370,7 @@ export class CadViewportEngine {
   private activeToolID = "select";
   private reconnectExternalID?: string;
   private featureSelection?: FeatureSelectionSession;
+  private loftConnections?: THREE.Group;
   private releaseFeatureSketchPick?:()=>void;
   private selectionMode: SelectionMode = selectionModeForTool("select");
   private sketchReturnView?: SavedView;
@@ -2661,6 +2662,22 @@ export class CadViewportEngine {
 
     if(this.featureSelection?.localSketchId&&!session?.localSketchId)this.clearReferenceHover();
     this.featureSelection = session;
+    if(this.loftConnections){this.loftConnections.removeFromParent();this.disposeGroup(this.loftConnections);this.loftConnections=undefined;}
+    if(session?.connectionLines?.length){
+      const group=new THREE.Group();
+      // Points belong to the preview Part frame, including occurrence placement.
+      if(session.occurrencePath && session.occurrencePath===this.editContext?.occurrencePath){
+        group.position.fromArray(this.editContext.translation??[0,0,0]);
+        group.quaternion.fromArray(this.editContext.rotation??[0,0,0,1]);
+      }
+      for(const line of session.connectionLines){
+        const points=line.map(p=>new THREE.Vector3(...p));
+        group.add(makeSketchOverlayLine(points,0x418de8,1.5,true));
+      }
+      this.helpers.add(group);this.loftConnections=group;
+      updateHighlightLineResolution(group,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);
+    }
+
     this.preselect(null);
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
