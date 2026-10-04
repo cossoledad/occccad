@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import {createServer} from "vite";
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try {
@@ -63,5 +64,35 @@ try {
  references.featureSelection={role:"plane",documentId:"part"};references.applyTreeVisibility();
  assert.equal(ownPlane.visible,true,"active neutral-plane input temporarily reveals its references");assert.equal(otherPlane.visible,false);
  references.featureSelection=undefined;references.applyTreeVisibility();assert.equal(ownPlane.visible,false,"closing input restores display preferences");
+ if (process.env.OCCCCAD_TEST_CURVED_GLB) {
+  const {decodeMeshGLB}=await server.ssrLoadModule("/src/cad/visual/mesh-glb.ts");
+  const bytes=await readFile(process.env.OCCCCAD_TEST_CURVED_GLB);
+  const decoded=decodeMeshGLB(bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength));
+  const native={...a,mesh:decoded.mesh};
+  const nativeView={...view,artifacts:{...view.artifacts,[a.geometryKey]:native}};
+  const rendered=engine();rendered.view=nativeView;rendered.renderPart(nativeView);rendered.content.updateMatrixWorld(true);
+  const binding=rendered.solidBindings.get("root/body:a");
+  const edge=decoded.mesh.edges.find(edge=>Math.abs(edge.points[0][2]-edge.points.at(-1)[2])>10);
+  assert.ok(edge,"native cylinder includes its periodic seam");
+  const p=new THREE.Vector3().fromArray(edge.points[0]).add(new THREE.Vector3().fromArray(edge.points.at(-1))).multiplyScalar(.5);
+  const ray=new THREE.Raycaster(p.clone().add(new THREE.Vector3(20,0,0)),new THREE.Vector3(-1,0,0));ray.params.Line.threshold=.001;
+  const picked=rendered.selectionIndex.pick(ray);
+  assert.equal(picked.kind,"edge");assert.equal(picked.topologyId,edge.localId);assert.equal(picked.bodyId,"a");
+  Object.assign(rendered,{selectedOverlays:[],preselectedOverlays:[],renderer:{domElement:{clientWidth:800,clientHeight:600}}});
+  for(const layer of ["selected","preselected"]) {
+   rendered.addTopologyOverlay(layer,picked);
+   const overlay=(layer==="selected"?rendered.selectedOverlays:rendered.preselectedOverlays).at(-1);
+   assert.equal(overlay.parent,binding.group);
+   const starts=overlay.geometry.getAttribute("instanceStart"),ends=overlay.geometry.getAttribute("instanceEnd");
+   assert.equal(starts.count,edge.points.length-1);
+   for(let i=0;i<starts.count;i++) {
+    assert.deepEqual([starts.getX(i),starts.getY(i),starts.getZ(i)],edge.points[i]);
+    assert.deepEqual([ends.getX(i),ends.getY(i),ends.getZ(i)],edge.points[i+1]);
+   }
+  }
+  rendered.addTopologyOverlay("selected",{...picked,geometryKey:"previous-snapshot"});
+  assert.equal(rendered.selectedOverlays.length,1,"stale snapshot picks cannot highlight the new geometry");
+  console.log("Native curved GLB: seam picking and hover/selection reuse the exact snapshot polyline");
+ }
  console.log("Multi-Body Part/occurrence rendering, FACE 1 picking isolation, visibility and target-only preview passed");
 } finally {await server.close()}

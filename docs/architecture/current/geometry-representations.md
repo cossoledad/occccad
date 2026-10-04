@@ -46,6 +46,20 @@ local ID 和三角形序号仍只是该 GeometryKey 的临时拾取定位。持�
 
 下载入口为 `GET /api/documents/{documentID}/representations/{objectID}?versionId=...`。先校验文档权限，再校验对象属于指定 Revision 及其冻结 Product 引用；ContextVariant 使用既有领域解析门验证。不能拿任意 object id 读取其他文档对象。响应支持 ETag 私有重验证。前端按对象/摘要合并下载，每次最多 4 路；检查长度、representation/CAD schema，支持 WebCrypto 的上下文还校验 SHA-256；过期 render 请求不覆盖新视图，切换文档时清除旧场景。释放视口时取消加载并释放缓存。
 
+## 拓扑感知的离散快照
+
+内核 `OcctKernel::tessellate` 是实体可视化唯一几何入口：对驻留精确 Shape 深拷贝（含几何，不复制旧剖分），整 Body 进行一次 OCCT 剖分，然后固定面节点、三角形、法线、Edge 折线、Vertex 点和 localId 映射。源 Shape 和 Naming 不因显示精度变化而修改。解析曲面也启用内部偏差控制；剖分失败状态、缺失面/边界和邻接边界不一致均显式失败，不能发布部分成功。
+
+附面 Edge 遍历全部有向 EdgeUse，从同次 `PolygonOnTriangulation` 取节点；包含周期面的双接缝、位置变换和退化极点。所有邻接 use 的节点序列须按原模型边/点容差正向或反向一致，验证后才选取确定顺序的显示折线；不独立采样、不全局焊接、不放大显示容差。退化边确认收缩为一点后不产生零长显示线。只有无邻接面的孤立曲线使用自适应离散。`GetTopology` 保持精确属性查询，保留的 `render_points` 字段为空，不触发剖分。
+
+Worker 的 `fill_evaluation` 统一调度离散与编码，`make_glb` 消费快照法线。Worker 仍通过互斥锁串行管理同一驻留内核；整 Body 剖分和曲面抽壳布尔复用 OCCT 内部至多 4 路并行，不拆分相邻 Face。快照以 `shared_ptr<const ...>` 缓存，编码/提取目前按稳定顺序执行。不同 Worker 可并发计算独立输入。
+
+两级易失缓存分别保存冻结请求的完整求值结果和 GeometryId/精度/离散策略对应的可视化快照，各最多 8 项、64 MiB 计数预算；超大结果正常计算但不缓存。请求键包含真实输入、命名策略及精度，不以调用者 geometryKey 代替输入身份。串行门合并排队的相同请求，命中后复用 BREP/GLB/Naming 字节并写入当前 attempt 路径，不重复求值或编码。Naming 仍由该请求的实际命名历史绑定到同一 GeometryId；Go 在现有 GLB 制品装配阶段加入 Naming digest。前端要求带 Naming 的制品具有完整关联，成套 hydrate 后切换，显示/hover/selected 读取同一 mesh.edges。
+
+`visual_snapshot` 日志记录剖分、面提取、边界提取/验证、法线、编码耗时及顶点/三角形/边节点/GLB 字节数，缓存命中另有标识。缓存预算不包含驻留 BREP 与计算峰值；尚未实现进程整体按字节淘汰或 OCCT 算法中途强制取消。
+
+定向验证包括 `CurvedVisualSnapshotUsesEveryAdjacentMeshBoundary`（圆柱、球面接缝、修剪曲面、圆角、嵌套变换、串并行字节一致与 BREP 精度抽样）、真实 Worker 缓存/抽壳测试，以及 `OCCCCAD_TEST_CURVED_GLB` 注入真实 C++ GLB 的前端 `multi-body` 场景（接缝拾取、hover/selected 折线及过期快照隔离）。这些检查不替代实机 WebGL 验收，也不构成任意曲面的全局 Hausdorff 误差证明。
+
 ## Naming、RPC 与预览
 
 每个 Body 的完整 `PartTopologyManifest` 只存在自己的 `naming.pb`，采用共享 SemanticRef/Evidence 表、逐 Feature transition 与显式 Body Tip locator 索引；历史 Feature 不再持久保存完整快照。`PartEvaluationManifest` 只携带策略摘要、轻量 Feature identity 及 Naming ArtifactReference，不再重复传完整 FeatureResults。导入重放 RPC 传 identity ArtifactReference，Worker 校验并读取 seed，而非让大型 identities 数组再次穿过请求。

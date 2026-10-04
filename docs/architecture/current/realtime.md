@@ -50,7 +50,7 @@
 
 Preview 保持不创建 Revision、不推进 Head、不写历史/提交 Outbox。相同 interaction 的新序号取消旧计算并撤销旧候选；同号/更旧请求拒绝。取消、退订、断线和到期后的迟到结果被丢弃。求值完成再次核对 base Head；前端还以 interaction sequence、已观察 Workspace sequence 和视口加载 generation 隔离迟到结果。
 
-每连接最多 4 个尚未返回的 preview evaluator 和 64 个短期 interaction 记录；被取消的 evaluator 在实际返回前仍占额度，不能靠连发取消绕过资源限制。Preview deadline 为 15 秒；客户端 20 秒超时后发送 cancel。取消向 Go/Worker context 传播，但不能保证 OCCT 内所有算法立刻停止；迟到结果不会发布。暂存输出路径属于独立求值 attempt，稳定业务 requestId 不再造成并发文件覆盖。
+每连接最多 4 个尚未返回的 preview evaluator 和 64 个短期 interaction 记录；被取消的 evaluator 在实际返回前仍占额度，不能靠连发取消绕过资源限制。Preview deadline 为 120 秒，覆盖曲面抽壳等耗时命令；客户端 125 秒超时后发送 cancel。计算中的 interaction 记录覆盖整个求值预算，完成后重新计时保留 60 秒（verified candidate 自身仍采用下面的 45 秒 TTL）。取消向 Go/Worker context 传播，但不能保证 OCCT 内所有算法立刻停止；迟到结果不会发布。暂存输出路径属于独立求值 attempt，稳定业务 requestId 不再造成并发文件覆盖。
 
 沿用 45 秒、一次性 verified candidate：提交仅在 actor、document、Head/sequence、typed payload 完全一致时提升候选，否则正常重算。候选缓存丢失不会成为成功提交的前提。Part 和装配继续共用这条门，不创建平行 Preview 命令体系。
 

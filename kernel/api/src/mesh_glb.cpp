@@ -28,6 +28,34 @@ void append_float(std::vector<uint8_t>& output, const float value) {
 
 }  // namespace
 
+void compute_mesh_normals(TessellationResult& mesh) {
+    mesh.normals.assign(mesh.vertices.size(), {});
+    auto& normals = mesh.normals;
+    for (const auto& t : mesh.triangles) {
+        if (t.v0 >= mesh.vertices.size() || t.v1 >= mesh.vertices.size() ||
+            t.v2 >= mesh.vertices.size())
+            throw std::invalid_argument("GLB triangle index");
+        const auto &a = mesh.vertices[t.v0], &b = mesh.vertices[t.v1], &c = mesh.vertices[t.v2];
+        const Vec3 u{b.x - a.x, b.y - a.y, b.z - a.z}, v{c.x - a.x, c.y - a.y, c.z - a.z};
+        const Vec3 n{u.y * v.z - u.z * v.y, u.z * v.x - u.x * v.z, u.x * v.y - u.y * v.x};
+        for (auto id : {t.v0, t.v1, t.v2}) {
+            normals[id].x += n.x;
+            normals[id].y += n.y;
+            normals[id].z += n.z;
+        }
+    }
+    for (auto& n : normals) {
+        const auto length = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+        if (length > 0) {
+            n.x /= length;
+            n.y /= length;
+            n.z /= length;
+        } else {
+            n = {0, 0, 1};
+        }
+    }
+}
+
 std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string& association_json) {
     if (mesh.vertices.empty() || mesh.triangles.empty()) {
         throw std::invalid_argument("cannot encode an empty mesh as GLB");
@@ -65,32 +93,11 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string&
         return accessor(offset, vertices.size(), "VEC3", 5126, bounds.str());
     };
     const auto positions = points(mesh.vertices);
-    std::vector<Vec3> normals(mesh.vertices.size());
-    for (const auto& t : mesh.triangles) {
-        if (t.v0 >= mesh.vertices.size() || t.v1 >= mesh.vertices.size() ||
-            t.v2 >= mesh.vertices.size())
-            throw std::invalid_argument("GLB triangle index");
-        const auto &a = mesh.vertices[t.v0], &b = mesh.vertices[t.v1], &c = mesh.vertices[t.v2];
-        const Vec3 u{b.x - a.x, b.y - a.y, b.z - a.z}, v{c.x - a.x, c.y - a.y, c.z - a.z};
-        const Vec3 n{u.y * v.z - u.z * v.y, u.z * v.x - u.x * v.z, u.x * v.y - u.y * v.x};
-        for (auto id : {t.v0, t.v1, t.v2}) {
-            normals[id].x += n.x;
-            normals[id].y += n.y;
-            normals[id].z += n.z;
-        }
-    }
-    for (auto& n : normals) {
-        const auto length = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
-        if (length > 0) {
-            n.x /= length;
-            n.y /= length;
-            n.z /= length;
-        } else {
-            n = {0, 0, 1};
-        }
-    }
+    if (mesh.normals.size() != mesh.vertices.size()) throw std::invalid_argument("GLB missing snapshot normals");
+    const auto& normals = mesh.normals;
     const auto normal_offset = binary.size();
     for (const auto& n : normals) {
+        if (!std::isfinite(n.x) || !std::isfinite(n.y) || !std::isfinite(n.z)) throw std::invalid_argument("nonfinite GLB normal");
         append_float(binary, n.x);
         append_float(binary, n.y);
         append_float(binary, n.z);
@@ -98,6 +105,7 @@ std::vector<uint8_t> make_glb(const TessellationResult& mesh, const std::string&
     const auto normal_accessor = accessor(normal_offset, normals.size(), "VEC3", 5126);
     size_t offset = binary.size();
     for (const auto& t : mesh.triangles) {
+        if (t.v0 >= mesh.vertices.size() || t.v1 >= mesh.vertices.size() || t.v2 >= mesh.vertices.size()) throw std::invalid_argument("GLB triangle index");
         append_u32(binary, t.v0);
         append_u32(binary, t.v1);
         append_u32(binary, t.v2);

@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v19-corner-fillets"
+const evaluatorVersion = "part-solid-generators-v21-visual-boundaries"
 
 var (
 	ErrNotFound   = errors.New("document not found")

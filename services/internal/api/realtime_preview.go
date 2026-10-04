@@ -12,7 +12,9 @@ import (
 	"github.com/occccad/occccad/internal/workspace"
 )
 
-const realtimePreviewTimeout = 15 * time.Second
+// Surface-offset Booleans can exceed the old 15s budget. Cancellation, slot
+// bounds and preview sequence checks still reject superseded results.
+const realtimePreviewTimeout = 2 * time.Minute
 
 type realtimePreview struct {
 	sequence  uint64
@@ -77,7 +79,7 @@ func (client *realtimeClient) startPreview(server *Server, ctx context.Context, 
 	}
 	// Preserve the high-water mark even when admission fails.
 	work, cancel := context.WithTimeout(ctx, realtimePreviewTimeout)
-	p := &realtimePreview{sequence: input.Sequence, requestID: envelope.ID, cancel: cancel, expires: time.Now().Add(time.Minute), discard: func(id string) { server.workspace.DiscardPreview(input.DocumentID, client.actor.ID, id) }}
+	p := &realtimePreview{sequence: input.Sequence, requestID: envelope.ID, cancel: cancel, expires: time.Now().Add(realtimePreviewTimeout + time.Minute), discard: func(id string) { server.workspace.DiscardPreview(input.DocumentID, client.actor.ID, id) }}
 	client.previews[key] = p
 	select {
 	case client.previewSlots <- struct{}{}:
@@ -126,6 +128,7 @@ func (client *realtimeClient) startPreview(server *Server, ctx context.Context, 
 			return
 		}
 		p.previewID = result.PreviewID
+		p.expires = time.Now().Add(time.Minute)
 		// URLs are session/actor-scoped grants checked against the candidate cache.
 		// Never mutate the cached descriptor's map or expose inline mesh arrays.
 		if result.Artifact != nil {

@@ -104,3 +104,16 @@ try {
  repository.dispose();
 }finally{globalThis.fetch=originalFetch}
 console.log("GLB v2 multiple primitives, binary wire, normals and association checks passed");
+// A named production snapshot must carry its binding even if an otherwise
+// well-formed GLB has been accidentally paired with the wrong descriptor.
+try {
+ globalThis.fetch=async()=>new Response(glb);
+ const repository=new VisualRepository();
+ await assert.rejects(repository.hydrate({...view,artifact:{...descriptor,geometryId:"geometry",representations:{...descriptor.representations,NAMING:{digest:"naming"}}}}),/identity mismatch/);
+ repository.dispose();
+ const missingNaming=rewriteDocument(paired,doc=>delete doc.extensions.OCCCCAD_cad.association.namingDigest);
+ globalThis.fetch=async()=>new Response(missingNaming);
+ const second=new VisualRepository();
+ await assert.rejects(second.hydrate({...pairedView,artifact:{...pairedView.artifact,representations:{...pairedView.artifact.representations,VISUAL:{...pairedView.artifact.representations.VISUAL,size:missingNaming.byteLength,digest:createHash("sha256").update(new Uint8Array(missingNaming)).digest("hex")}}}}),/Naming digest mismatch/);
+ second.dispose();
+} finally {globalThis.fetch=originalFetch}

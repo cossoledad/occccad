@@ -10,7 +10,7 @@ Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 g
 - `EvaluatePart`：每次仅求值一个 Body 的矩形草图/拉伸链或在基础 B-Rep 上追加拉伸；Profile Pad 请求校验稳定 Feature/Body/source identity 和版本化 topology naming policy，仅回传逐 Feature identity、摘要与 ArtifactReference，完整 semantic topology outputs 和 TopologyHistory 写入 `naming.pb`；
 - `InspectExchange` / `ImportExchange` / `ExportExchange`：通过 ArtifactReference 检查、导入和导出 STEP/BREP；
 - `GetTopology`：返回面、边、点及诊断属性；操纵手柄的只读提示包括实际面中心 `snapCenter`、平面的确定性真实直边方向 `snapBoundaryDirection`、圆柱真实边界圆的端部中心 `snapEndFirst/Last`。只输出可确认的 B-Rep 数据，不以三角剖分/PCA 猜边界，不改变装配方程；Go 将小型提示折入运动单元坐标，Web 再应用一次场景变换；
-- 生成 SHA-256 GeometryId、B-Rep、三角网格、边折线、包围盒、体积和 GLB。
+- 生成 SHA-256 GeometryId、B-Rep、包围盒、体积及完整可视化快照：隔离深拷贝上的整 Body 剖分、同剖分边界节点、法线和拓扑映射统一生成 GLB。邻接 EdgeUse、周期接缝和缺失数据验证见[几何制品](../../docs/architecture/current/geometry-representations.md#拓扑感知的离散快照)。`GetTopology` 不再生成显示折线。
 - 内置项目自有 `SketchSolver`/PlaneGCS 适配层；`GCS::*` 不进入公共头或 Proto。当前约束覆盖重合、平行、固定、水平/竖直、垂直、相切、相等、距离/长度/半径/直径/角度、同心、点在对象上、中点，以及点-线-点/点-点-点对称；基于内置草图轴的复合对称会保留与同一线段 H/V/轴平行关系重叠的设计意图，但仍报告冲突和无关冗余。Spline 的采集点按插值拟合点解释，暂只覆盖参数自由度、固定和端点引用。
 - `EvaluatePart.profile_pads` 消费控制面 Profile Builder 输出的有向外环/孔环，在 OCCT 内构造 Edge/Wire/Face、执行 BRepCheck 并 Prism；旧矩形字段只保留为当前开发期过渡入口。
 
@@ -55,11 +55,11 @@ evaluator `occccad.topology.contract.v2` 为 Linear Extrude 输出 `START/END_BO
 版本化 `AssemblySolverProfile` 已由 Go Client 经 `SolveAssemblyRequest` 传到 Worker，除 convergence/classification、step、degeneracy 和 damping 外，还包含解析 Jacobian differential-check 开关与阈值、独立 translation/rotation central-difference oracle step、SVD absolute/relative rank threshold、gradient stationary threshold、motion length/angle scales、preference/objective tolerance、独立 preference iteration budget 与 bounded conflict-probe budget。旧 `finite_difference_step`/`rank_tolerance` 字段保留为兼容 override；`schema_version` 当前必须为 2，零值沿用 kernel 默认值。响应额外返回 `assembly-m2.5-hierarchy-v1` build、typed preference 状态、每体位移和瞬时允许/阻塞自由度；`initial_pose` 冻结 nominal/branch，`initial_guess` 仅作数值 seed。响应会返回 semantic equation provenance、declared/effective/incremental rank、numeric null-space basis/cluster ordering/singular values/threshold、directed-angle wrapped/unwrapped/winding 以及 suspected conflict IDs。
 Classification tolerance 不得严于对应 convergence tolerance；违反该不变量的请求返回 `INVALID_MODEL`。
 
-当前单 Body Part 以不可变 GeometryId 作为驻留原子。首次拓扑请求可以从 B-Rep Artifact 冷恢复，但 Router 会在 RPC 前预留同一 owner，Worker 随后缓存完整 `TopologyInfo`；选择其他面、边或点只过滤缓存，不重新读取 B-Rep 或遍历整个 Shape。未来多 Body Part 应为每个 Body 生成独立 GeometryId，而装配中的相同 Part occurrence 复用 GeometryId，仅区分 InstancePath/Transform。
+当前单 Body Part 以不可变 GeometryId 作为驻留原子。首次拓扑请求可以从 B-Rep Artifact 冷恢复，但 Router 会在 RPC 前预留同一 owner，Worker 随后缓存完整 `TopologyInfo`；选择其他面、边或点只过滤缓存，不重新读取 B-Rep 或遍历整个 Shape。Part 已为每个 Body 生成独立 GeometryId，装配中的相同 Part occurrence 复用 GeometryId，仅区分 InstancePath/Transform。
 
 ## 日志
 
-Worker 使用 spdlog 1.15.3 同时输出控制台与滚动文件。托管启动时 stdout/stderr 直接透传到终端，不再被 Go control 包装成 `service output message="..."`；Worker 生命周期日志仍由 control 记录。`OCCCCAD_LOG_LEVEL` 控制两类 sink 的级别；`OCCCCAD_LOG_DIR` 控制文件目录，`occccad-control` 默认把相对路径解析为 `services/logs/`。每个监听地址使用独立 `occccad-geometry-<address>.log`，单文件达到 10 MiB 后轮转并保留 5 个，避免多个 Worker 争写同一文件。日志包含启动、RPC、拓扑缓存命中、耗时和错误上下文，但不记录模型内容、凭据或制品 URL。
+Worker 使用 spdlog 1.15.3 同时输出控制台与滚动文件。托管启动时 stdout/stderr 直接透传到终端，不再被 Go control 包装成 `service output message="..."`；Worker 生命周期日志仍由 control 记录。`OCCCCAD_LOG_LEVEL` 控制两类 sink 的级别；`OCCCCAD_LOG_DIR` 控制文件目录，`occccad-control` 默认把相对路径解析为 `services/logs/`。每个监听地址使用独立 `occccad-geometry-<address>.log`，单文件达到 10 MiB 后轮转并保留 5 个，避免多个 Worker 争写同一文件。每个 Worker 的共享内核仍串行调度，OCCT 内部至多 4 路并行。求值及可视化缓存各设 8 项/64 MiB 预算；命中复用完整字节/映射，超限结果不缓存。`visual_snapshot` 记录剖分、面/边提取、法线、编码时间和数据量；曲面抽壳的 wall_offsets/wall_partition/wall_assembly 阶段计时输出到 stderr。日志包含启动、RPC、拓扑缓存命中、耗时和错误上下文，但不记录模型内容、凭据或制品 URL。
 
 ## 构建与运行
 

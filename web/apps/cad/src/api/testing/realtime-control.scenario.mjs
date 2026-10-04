@@ -85,7 +85,7 @@ try {
  assert.ok(sent.some(e => e.type === "workspace.preview.cancel.v1" && e.payload.previewSequence === 2));
  const timed = client.previewCommand("part", { type: "MOVE_INSTANCE", interactionId: "timed", previewSequence: 1 });
  const timeoutRejected = assert.rejects(timed, error => error.code === "TIMEOUT"); await tick();
- const [timer, entry] = [...timers].find(([, value]) => value.ms === 20_000);
+ const [timer, entry] = [...timers].find(([, value]) => value.ms === 125_000);
  window.clearTimeout(timer); entry.fn(); await timeoutRejected;
  assert.ok(sent.some(e => e.type === "workspace.preview.cancel.v1" && e.payload.interactionId === "timed"));
  // M4 uses direct typed RPC responses, not the generic preview-ready envelope.

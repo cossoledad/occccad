@@ -202,7 +202,13 @@ struct TopologyPoint {
     Vec3 point;
 };
 
+struct VisualStageTimings {
+    double meshing_ms = 0, faces_ms = 0, edges_ms = 0, normals_ms = 0;
+};
+
 struct TessellationResult {
+    std::vector<Vec3> normals;
+    VisualStageTimings timings;
     std::vector<Vec3> vertices;
     std::vector<Triangle> triangles;
     std::vector<uint32_t> face_ids;  // triangle -> 1-based frozen face local ID
@@ -238,7 +244,7 @@ struct EdgeInfo {
     int curve_type;  // 0=line, 1=circle, 2=ellipse, 3=bspline, -1=other
     BoundingBox bbox;
     std::vector<TopologyProperty> properties;
-    std::vector<Vec3> render_points;
+    std::vector<Vec3> render_points; // Reserved empty: display edges exist only in TessellationResult.
 };
 
 struct VertexInfo {
@@ -317,7 +323,7 @@ public:
 
     // Tessellation
     virtual TessellationResult tessellate(const GeometryId& id, double linear_deflection = 0.1,
-                                          double angular_deflection = 0.5) = 0;
+                                          double angular_deflection = 0.5, bool parallel = true) = 0;
 
     // Feature operations (return new GeometryId)
     virtual GeometryId chamfer(const GeometryId& id, const std::vector<uint64_t>& edge_local_ids,

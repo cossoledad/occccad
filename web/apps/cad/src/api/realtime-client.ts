@@ -217,7 +217,7 @@ export class RealtimeClient {
       const result = await this.request<{ interactionId: string; previewSequence: number; preview?: CommandPreview }>("workspace.preview.request.v1", {
         documentId, interactionId, previewSequence: sequence,
         command: { ...command, requestId: command.requestId ?? randomUUID(), interactionId, previewSequence: sequence },
-      }, abort.signal, 20_000);
+      }, abort.signal, 125_000);
       if (abort.signal.aborted || this.previews.get(key) !== entry || !result.preview || result.interactionId !== interactionId || result.previewSequence !== sequence) throw new DOMException("Preview superseded or canceled", "AbortError");
       if (result.preview.baseSequence < (this.sequences.get(documentId) ?? 0)) throw new DOMException("Preview base expired", "AbortError");
       return result.preview;

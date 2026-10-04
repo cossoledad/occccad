@@ -30,6 +30,8 @@
 #include <iterator>
 #include <memory>
 #include <mutex>
+#include <OSD_ThreadPool.hxx>
+#include <OSD_Parallel.hxx>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -1253,15 +1255,32 @@ public:
         std::lock_guard<std::mutex> lock(mutex_);
         const bool external_outputs =
             !request->brep_output_key().empty() || !request->glb_output_key().empty();
-        const auto cached = cache_.find(request->geometry_key());
-        if (!external_outputs && cached != cache_.end()) {
-            response->CopyFrom(cached->second);
-            response->set_cache_hit(true);
-            log_rpc("EvaluatePart", request->request_id(), traceparent, "CACHE_HIT", started);
-            return grpc::Status::OK;
-        }
-
+        if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "request cancelled while queued"};
         try {
+            // The lock coalesces in-flight work; the key includes the actual frozen
+            // inputs, naming policy and precision, never only a caller-supplied key.
+            auto canonical = *request;
+            canonical.clear_request_id(); canonical.clear_geometry_key();
+            canonical.clear_brep_output_key(); canonical.clear_glb_output_key();
+            const auto request_key = occccad::kernel::make_geometry_id(canonical.SerializeAsString()) + (external_outputs ? ":persistent" : ":transient");
+            const auto cached = cache_.find(request_key);
+            if (cached != cache_.end()) {
+                response->CopyFrom(cached->second.response);
+                response->set_geometry_key(request->geometry_key());
+                if (external_outputs && !cached->second.brep.empty()) {
+                    write_artifact(request->brep_output_key(), cached->second.brep, "application/vnd.opencascade.brep", response->mutable_brep_artifact());
+                    write_artifact(request->glb_output_key(), cached->second.glb, "model/gltf-binary", response->mutable_glb_artifact());
+                    if (!cached->second.naming.empty()) write_artifact(request->brep_output_key()+".naming.pb", cached->second.naming,
+                        "application/vnd.occccad.topology-manifest.v2+protobuf", response->mutable_evaluation_manifest()->mutable_topology_manifest_artifact());
+                    response->set_representation_kind("PERSISTENT"); response->clear_preview_mesh();
+                }
+                if (!response->geometry_id().empty()) {
+                    response->set_cache_hit(true);
+                    log_rpc("EvaluatePart", request->request_id(), traceparent, "CACHE_HIT", started);
+                    return grpc::Status::OK;
+                }
+            }
+
             std::vector<occccad::kernel::RectangularPadSpec> specs;
             const auto append_spec = [&specs](const worker_api::RectangularPadSpec& input) {
                 if (input.units() != "mm") {
@@ -1517,8 +1536,22 @@ public:
                 }
             }
 
-            if (!external_outputs)
-                cache_.insert_or_assign(request->geometry_key(), *response);
+            const auto bytes = response->ByteSizeLong() + response->brep_artifact().size_bytes()
+                + response->glb_artifact().size_bytes() + response->evaluation_manifest().topology_manifest_artifact().size_bytes();
+            if (bytes <= cache_budget_) {
+                EvaluationCache entry;
+                entry.response = *response;
+                if (external_outputs) {
+                    entry.brep = read_artifact(response->brep_artifact());
+                    entry.glb = read_artifact(response->glb_artifact());
+                    if (response->evaluation_manifest().has_topology_manifest_artifact())
+                        entry.naming = read_artifact(response->evaluation_manifest().topology_manifest_artifact());
+                }
+                // Reject oversized entries before reading artifacts back. A hit
+                // never depends on prior attempt files remaining on disk.
+                if (cache_bytes_+bytes > cache_budget_ || cache_.size() >= 8) { cache_.clear(); cache_bytes_=0; }
+                if (cache_.find(request_key)==cache_.end()) { cache_bytes_+=bytes; cache_.emplace(request_key,std::move(entry)); }
+            }
             log_rpc("EvaluatePart", request->request_id(), traceparent, "OK", started);
             return grpc::Status::OK;
         } catch (const std::invalid_argument& error) {
@@ -1684,12 +1717,7 @@ public:
                 output->set_curve_type(edge.curve_type);
                 fill_bbox(edge.bbox, output->mutable_bbox());
                 fill_properties(edge.properties, output->mutable_properties());
-                for (const auto& point : edge.render_points) {
-                    auto* output_point = output->add_render_points();
-                    output_point->set_x(point.x);
-                    output_point->set_y(point.y);
-                    output_point->set_z(point.z);
-                }
+
             }
             for (const auto& vertex : topology.vertices) {
                 if (!request->topology_type().empty() && request->topology_type() != "VERTEX")
@@ -1849,13 +1877,47 @@ private:
             requested_linear_deflection > 0.0 ? requested_linear_deflection : 0.1;
         const double angular_deflection =
             requested_angular_deflection > 0.0 ? requested_angular_deflection : 0.5;
-        const auto mesh = kernel_.tessellate(geometry_id, linear_deflection, angular_deflection);
+        // Geometry identity freezes local topology order. Naming is deliberately
+        // kept outside this cache and bound to these IDs by the response manifest.
+        std::ostringstream policy;
+        policy.precision(std::numeric_limits<double>::max_digits10);
+        policy << geometry_id << ":visual-boundary-v1:" << linear_deflection << ':' << angular_deflection;
+        const auto key = policy.str();
+        auto found = visual_cache_.find(key);
+        const bool visual_hit = found != visual_cache_.end();
+        std::shared_ptr<const VisualSnapshot> snapshot;
+        if (visual_hit) {
+            snapshot = found->second;
+            spdlog::info("visual_snapshot geometry={} cache_hit=true",geometry_id);
+        }
+        else {
+            auto computed = std::make_shared<VisualSnapshot>();
+            computed->mesh = kernel_.tessellate(geometry_id, linear_deflection, angular_deflection);
+            google::protobuf::Struct association;
+            (*association.mutable_fields())["geometryId"].set_string_value(geometry_id);
+            std::string association_json;
+            if (!google::protobuf::util::MessageToJsonString(association,&association_json).ok()) throw std::runtime_error("GLB association serialization failed");
+            const auto encoding = std::chrono::steady_clock::now();
+            computed->glb = occccad::kernel::make_glb(computed->mesh, association_json);
+            const auto& m = computed->mesh;
+            size_t edge_points = 0; for (const auto& edge : m.edges) edge_points += edge.points.size();
+            spdlog::info("visual_snapshot geometry={} mesh_ms={} faces_ms={} edges_ms={} normals_ms={} encoding_ms={} vertices={} triangles={} edges={} edge_points={} glb_bytes={}",
+                geometry_id, m.timings.meshing_ms, m.timings.faces_ms, m.timings.edges_ms, m.timings.normals_ms,
+                std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-encoding).count(),
+                m.vertices.size(),m.triangles.size(),m.edges.size(),edge_points,computed->glb.size());
+            size_t edge_capacity = 0; for (const auto& edge : m.edges) edge_capacity += edge.points.capacity();
+            const auto bytes = computed->glb.capacity() + (m.vertices.capacity()+m.normals.capacity()+edge_capacity)*sizeof(occccad::kernel::Vec3)
+                + m.triangles.capacity()*sizeof(occccad::kernel::Triangle) + m.face_ids.capacity()*sizeof(uint32_t)
+                + m.topology_vertices.capacity()*sizeof(occccad::kernel::TopologyPoint) + m.edges.capacity()*sizeof(occccad::kernel::EdgePolyline);
+            snapshot = computed;
+            if (bytes <= cache_budget_) {
+                if (visual_bytes_+bytes > cache_budget_ || visual_cache_.size()>=8) { visual_cache_.clear(); visual_bytes_=0; }
+                visual_bytes_+=bytes; visual_cache_.emplace(key,std::move(computed));
+            }
+        }
+        const auto& mesh = snapshot->mesh;
+        const auto& glb = snapshot->glb;
         const auto brep = kernel_.serializeBrepr(geometry_id);
-        google::protobuf::Struct association;
-        (*association.mutable_fields())["geometryId"].set_string_value(geometry_id);
-        std::string association_json;
-        if(!google::protobuf::util::MessageToJsonString(association,&association_json).ok()) throw std::runtime_error("GLB association serialization failed");
-        const auto glb = occccad::kernel::make_glb(mesh, association_json);
 
         response->set_geometry_id(geometry_id);
         response->set_geometry_key(geometry_key);
@@ -1920,7 +1982,19 @@ private:
     occccad::kernel::OcctKernel kernel_;
     std::unique_ptr<occccad::geometry::sketch::SketchSolver> sketch_solver_ =
         occccad::geometry::sketch::make_plane_gcs_sketch_solver();
-    std::unordered_map<std::string, worker_api::EvaluatePartResponse> cache_;
+    struct EvaluationCache {
+        worker_api::EvaluatePartResponse response;
+        std::vector<uint8_t> brep, glb, naming;
+    };
+    struct VisualSnapshot {
+        occccad::kernel::TessellationResult mesh;
+        std::vector<uint8_t> glb;
+    };
+    // Per-worker budgets, in addition to the resident exact model working set.
+    static constexpr size_t cache_budget_ = 64 * 1024 * 1024;
+    size_t cache_bytes_ = 0, visual_bytes_ = 0;
+    std::unordered_map<std::string, EvaluationCache> cache_;
+    std::unordered_map<std::string, std::shared_ptr<const VisualSnapshot>> visual_cache_;
     std::unordered_set<std::string> topology_cached_;
 };
 
@@ -1933,6 +2007,10 @@ int main() {
             configured_address != nullptr ? configured_address : "127.0.0.1:51001";
         const auto log_file = configure_logging(address);
 
+        // One coarse geometry RPC at a time in this worker, bounded internal
+        // OCCT parallelism. Do not nest per-face application thread pools.
+        OSD_Parallel::SetUseOcctThreads(Standard_True);
+        OSD_ThreadPool::DefaultPool(4)->SetNbDefaultThreadsToLaunch(4);
         GeometryWorkerService service;
         grpc::ServerBuilder builder;
         builder.SetMaxReceiveMessageSize(kGeometryRpcMaxMessageBytes);
