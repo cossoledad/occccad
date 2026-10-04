@@ -207,12 +207,13 @@ func TestPatternSketchProjectionTracksSeedWithoutSolverCopies(t *testing.T) {
 			t.Fatal("removed member silently rebound")
 		}
 	}
-	if err := applySketchOperations(&sketch, []SketchOperation{{Type: "DELETE_ENTITIES", EntityIDs: []string{"seed"}}}); err == nil {
-		// Full validation must reject dangling pattern sources before solving.
-		if validateSketch(sketch) == nil {
-			t.Fatal("dangling seed accepted")
-		}
+	if err := applySketchOperations(&sketch, []SketchOperation{{Type: "DELETE_ENTITIES", EntityIDs: []string{"seed"}}}); err != nil {
+		t.Fatal(err)
 	}
+	if len(sketch.Patterns) != 0 || len(sketch.Entities) != 1 || sketch.Entities[0].ID != "seed" {
+		t.Fatal("seed selection must delete its pattern, preserving the seed")
+	}
+
 }
 
 func TestPatternDetachPreservesClosedProfiles(t *testing.T) {

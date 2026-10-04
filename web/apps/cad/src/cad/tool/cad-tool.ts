@@ -52,6 +52,7 @@ export type ToolViewportPort = {
   finishToolUse(exit?: boolean): void;
   selectionAt(x: number, y: number): SelectionItem | null;
   commitExternalProjection(selection: SelectionItem & {kind:"edge"|"vertex";topologyId:number}): Promise<SketchCommitResult>|void;
+  currentSketchDeletableEntities?(): readonly SketchEntity[];
   currentSelections?(): readonly SelectionItem[];
   currentSelectionSource?():SelectionInputSource;
   currentLengthUnit?():DisplayLengthUnit;
@@ -191,7 +192,7 @@ export class SelectTool implements CadTool {
     if((event.state?.modifiers.ctrl||event.state?.modifiers.meta)&&event.key.toLowerCase()==="v")return pasteSketchClipboard(context)?InputResult.Consumed:InputResult.Ignored;
     if(event.key==="Delete"||event.key==="Backspace"){
       if(event.repeat||this.deletionPending)return InputResult.Consumed;
-      const selections=context.viewport.currentSelections?.()??[],entities=localSketchSelection(selections,context),scope=context.viewport.currentSketchIdentity?.();
+      const selections=context.viewport.currentSelections?.()??[],entities=localSketchSelection(selections,context,true),scope=context.viewport.currentSketchIdentity?.();
       const constraintsByID=new Map((context.viewport.currentSketchConstraints?.()??[]).map(constraint=>[constraint.id,constraint]));
       const selectedConstraints=selections.filter(selection=>selection.kind==="sketch-constraint"&&constraintsByID.has(selection.constraintId)&&(!scope||selection.featureId===scope.sketchId)&&
         (!scope||!selection.ownerDocumentId||selection.ownerDocumentId===scope.documentId)&&(!scope?.occurrencePath||!selection.occurrencePath||selection.occurrencePath===scope.occurrencePath))

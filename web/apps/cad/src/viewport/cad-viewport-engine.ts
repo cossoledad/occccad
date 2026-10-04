@@ -1095,6 +1095,13 @@ export class CadViewportEngine {
     const entity=ref?.target==="ENTITY"&&this.visibleSketchReferenceEntities().find(entity=>entity.id===ref.entityId);
     return entity?this.sketchEntitySelection(entity):null;
   }
+  private visibleSketchDeletionEntities():SketchEntity[] {
+    const members=this.sketchView()?.sketchPatternMembers?.[this.activeSketchID??""]??[];
+    return [...this.visibleSketchReferenceEntities(),...members.filter(e=>{
+      const selection=this.sketchEntitySelection(e),object=this.selectable.get(`visual:${selection.id}`);
+      return !!object&&this.objectVisible(object);
+    })];
+  }
   private visibleSketchReferenceEntities():SketchEntity[] {
     const view=this.sketchView(),feature=view?.part?.features.find(feature=>feature.id===this.activeSketchID);
     if(!view||!feature?.sketch)return [];
@@ -2692,7 +2699,7 @@ export class CadViewportEngine {
   private selectSketchMarquee(from:SketchScreenPoint,to:SketchScreenPoint,additive:boolean):void {
     if(!this.sketchPlane||!this.activeSketchID||this.pendingVisualSnapshot||this.activeToolID!=="select")return;
     this.camera.updateMatrixWorld();const metrics=viewportMetrics(this.renderer);
-    const selections=this.visibleSketchReferenceEntities().filter(entity=>{
+    const selections=this.visibleSketchDeletionEntities().filter(entity=>{
       const selection=this.sketchEntitySelection(entity);
       if(!allowsSelectionInContext(this.captureSettings,selection,this.activeSketchID))return false;
       const points=sampleSketchEntity(entity).map(point=>{
@@ -3268,6 +3275,7 @@ export class CadViewportEngine {
         return {featureId,versionId:preview.baseVersionId,entities:candidate.entities};
       },
       currentSketchConstraints: () => this.sketchView()?.part?.features.find(feature=>feature.id===this.activeSketchID)?.sketch?.constraints ?? [],
+      currentSketchDeletableEntities:()=>this.visibleSketchDeletionEntities().filter(e=>!this.sketchView()?.part?.features.find(f=>f.id===this.activeSketchID)?.sketch?.externalGeometry?.some(external=>external.id===e.id)),
       currentSketchEntities: () => this.visibleSketchReferenceEntities().filter(entity=>!this.sketchView()?.part?.features.find(feature=>feature.id===this.activeSketchID)?.sketch?.externalGeometry?.some(external=>external.id===entity.id)),
       currentSketchIdentity: () => {const view=this.sketchView();return view&&this.activeSketchID?{documentId:view.document.id,versionId:view.document.versionId,sketchId:this.activeSketchID,occurrencePath:this.editContext?.occurrencePath}:undefined;},
       showSketchEditCandidate:candidate=>this.showSketchEditCandidate(candidate),

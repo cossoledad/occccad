@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -229,6 +230,42 @@ func TestPatternTreeDeletionPassesPublicCommandAdapter(t *testing.T) {
 			request.Targets[0].OwnerEntityID = ""
 			if _, _, err = (&Service{}).adaptLegacyCommand(t.Context(), "doc", "PART", raw, request); err == nil {
 				t.Fatal("ownerless delete accepted")
+			}
+		})
+	}
+}
+
+func TestDeletePatternThroughMemberSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		ids       []string
+		remaining int
+	}{
+		{"one", []string{patternMemberID("pattern", 1, "seed")}, 3},
+		{"marquee", []string{"seed", patternMemberID("pattern", 0, "seed"), patternMemberID("pattern", 2, "seed"), "direction"}, 2},
+		{"seed", []string{"seed"}, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := patternReferenceFixture()
+			ensureFeatureParameters(&model)
+			raw, _ := json.Marshal(model)
+			payload, _ := json.Marshal(editSketchPayload{SketchID: "sketch", Operations: []SketchOperation{{Type: "DELETE_ENTITIES", EntityIDs: tc.ids}}})
+			result, changes, err := applyEditSketch(raw, payload)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var next PartModel
+			_ = json.Unmarshal(result, &next)
+			if len(next.Features[0].Sketch.Patterns) != 0 || len(next.Features[0].Sketch.Entities) != tc.remaining || len(changes.Changes) == 0 {
+				t.Fatal("incorrect pattern deletion")
+			}
+			if next.Features[0].Sketch.Entities[0].ID != "seed" {
+				t.Fatal("seed was deleted")
+			}
+			for _, p := range next.Parameters {
+				if p.OwnerFeatureID == "sketch" && strings.HasPrefix(p.PropertySlot, "pattern:pattern:") {
+					t.Fatal("orphaned managed pattern parameter")
+				}
 			}
 		})
 	}

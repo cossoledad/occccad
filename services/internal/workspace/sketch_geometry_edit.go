@@ -24,6 +24,55 @@ func applySketchGeometryEdit(sketch *SketchFeature, op SketchOperation) error {
 	if len(selected) == 0 {
 		return fmt.Errorf("%w: select sketch geometry", ErrValidation)
 	}
+	if op.Type == "DELETE_ENTITIES" {
+		members, err := evaluatedSketchPatternEntities(*sketch)
+		if err != nil {
+			return err
+		}
+		owners := map[string][]string{}
+		for _, p := range sketch.Patterns {
+			for _, id := range p.EntityIDs {
+				owners[id] = append(owners[id], p.ID)
+			}
+		}
+		for _, e := range members {
+			if e.SourceEntityID != "" {
+				for _, p := range sketch.Patterns {
+					if p.ID == e.CreatedByOperationID {
+						owners[e.ID] = []string{p.ID}
+					}
+				}
+			}
+		}
+		known := map[string]bool{}
+		for _, e := range sketch.Entities {
+			known[e.ID] = true
+		}
+		removed := map[string]bool{}
+		for id := range selected {
+			if !known[id] && len(owners[id]) == 0 {
+				return fmt.Errorf("%w: deletion target unavailable: %s", ErrValidation, id)
+			}
+			for _, p := range owners[id] {
+				removed[p] = true
+			}
+		}
+		for id := range selected {
+			if len(owners[id]) > 0 {
+				delete(selected, id)
+			}
+		}
+		kept := sketch.Patterns[:0]
+		for _, p := range sketch.Patterns {
+			if !removed[p.ID] {
+				kept = append(kept, p)
+			}
+		}
+		sketch.Patterns = kept
+		if len(selected) == 0 {
+			return nil
+		}
+	}
 	entities := map[string]SketchEntity{}
 	for _, e := range sketch.Entities {
 		entities[e.ID] = e

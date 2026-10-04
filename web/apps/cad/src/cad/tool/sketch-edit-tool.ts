@@ -16,8 +16,8 @@ const scopeKey=(scope:SketchScope|undefined)=>scope&&`${scope.documentId}/${scop
 const point=(value:Vec2):SketchPoint2=>({x:value[0],y:value[1]});
 const labels:Record<SketchEditKind,string>={delete:"删除",copy:"复制",move:"移动",mirror:"镜像",split:"分割",trim:"修剪保留范围",quick_trim:"快速修剪",fillet:"圆角",chamfer:"倒角",extend:"延伸",complement:"补弧",close:"闭合曲线",offset:"偏移",spline_insert:"样条插入拟合点/结点",spline_delete:"样条删除拟合点/结点",spline_close:"样条开/闭合",spline_control:"转为控制点样条",construction:"构造线"};
 
-export function localSketchSelection(selections:readonly SelectionItem[],context:ToolContext):SketchEntity[]{
-  const scope=context.viewport.currentSketchIdentity?.(),entities=context.viewport.currentSketchEntities?.()??[];
+export function localSketchSelection(selections:readonly SelectionItem[],context:ToolContext,forDeletion=false):SketchEntity[]{
+  const scope=context.viewport.currentSketchIdentity?.(),entities=(forDeletion?context.viewport.currentSketchDeletableEntities?.():undefined)??context.viewport.currentSketchEntities?.()??[];
   const ids=[...new Set(selections.filter(selection=>selection.kind==="visual"&&(!scope||selection.featureId===scope.sketchId)&&
     (!scope||(selection.ownerDocumentId??selection.documentId)===scope.documentId||(!scope.occurrencePath&&!selection.ownerDocumentId&&!selection.documentId))&&(!scope|| (selection.occurrencePath??"")===(scope.occurrencePath??""))&&(!scope||!selection.versionId||selection.versionId===scope.versionId)).map(selection=>selection.entityId))];
   const byID=new Map(entities.map(entity=>[entity.id,entity]));
@@ -511,7 +511,7 @@ export class SketchEditTool implements CadTool{
       context.viewport.setToolPrompt("当前阶段只接受指定对象角色；命令保持激活");return SelectionInputResult.Rejected;
     }
     if(source==="selection"&&!selections.length){this.selected.clear();this.highlight(context);this.prompt(context);return SelectionInputResult.Accepted;}
-    const entities=localSketchSelection(selections,context);
+    const entities=localSketchSelection(selections,context,this.kind==="delete");
     if(!entities.length||entities.length!==selections.length){
       this.error="选择包含当前草图以外或不可编辑的对象，请修正选择";this.publish(context);return SelectionInputResult.Rejected;
     }
@@ -567,7 +567,7 @@ export class SketchEditTool implements CadTool{
   }
   private highlight(context:ToolContext):void{
     const scope=context.viewport.currentSketchIdentity?.();
-    const entities=(context.viewport.currentSketchEntities?.()??[]).filter(entity=>this.selected.has(entity.id));
+    const entities=((this.kind==="delete"?context.viewport.currentSketchDeletableEntities?.():undefined)??context.viewport.currentSketchEntities?.()??[]).filter(entity=>this.selected.has(entity.id));
     if(!scope)return;
     context.viewport.retainSelections?.(entities.map(entity=>({kind:"visual",id:`${this.scope?.occurrencePath||"root"}:${context.viewport.currentSketchIdentity?.()?.sketchId}:${entity.id}`,entityId:entity.id,visualType:entity.kind==="POINT"?"POINT":"CURVE",featureId:scope.sketchId,ownerDocumentId:scope.documentId,occurrencePath:context.viewport.currentSketchIdentity?.()?.occurrencePath})));
   }
@@ -577,7 +577,7 @@ export class SketchEditTool implements CadTool{
   }
   private arm(context:ToolContext):boolean{
     if(this.phase==="committing"||this.phase==="unknown")return false;
-    const entities=(context.viewport.currentSketchEntities?.()??[]).filter(entity=>this.selected.has(entity.id));
+    const entities=((this.kind==="delete"?context.viewport.currentSketchDeletableEntities?.():undefined)??context.viewport.currentSketchEntities?.()??[]).filter(entity=>this.selected.has(entity.id));
     if(!entities.length){context.viewport.setToolPrompt("先选择本地草图几何；外部几何保持只读，可先显式分离");return false;}
     if(["split","trim","quick_trim"].includes(this.kind)&&(entities.length!==1||entities[0].kind==="POINT")){context.viewport.setToolPrompt("曲线拓扑编辑只接受一条本地真实曲线；独立点无参数区间");return false;}
     if((this.kind==="fillet"||this.kind==="chamfer")&&(entities.length!==2||entities.some(entity=>this.kind==="chamfer"?entity.kind!=="LINE":!["LINE","ARC"].includes(entity.kind)))){
@@ -712,7 +712,7 @@ export class SketchEditTool implements CadTool{
     if((this.kind==="quick_trim"||this.kind==="trim"&&!this.advancedTrim)&&this.boundaryMode==="automatic"){
       this.selectIntervalTarget(event,context,true);return InputResult.Capture;
     }
-    if(!this.armed){const selection=(context.viewport.sketchEntityAt??context.viewport.selectionAt)(event.x,event.y),entities=selection?localSketchSelection([selection],context):[];
+    if(!this.armed){const selection=(this.kind==="delete"?context.viewport.selectionAt:context.viewport.sketchEntityAt??context.viewport.selectionAt)(event.x,event.y),entities=selection?localSketchSelection([selection],context,this.kind==="delete"):[];
       if(!entities.length){context.viewport.setToolPrompt("只能编辑当前草图本地几何；外部几何只读");return InputResult.Capture;}
       for(const entity of entities)if(this.selected.has(entity.id))this.selected.delete(entity.id);else this.selected.add(entity.id);
       this.highlight(context);if(this.kind==="construction")this.arm(context);else this.prompt(context);return InputResult.Capture;}
