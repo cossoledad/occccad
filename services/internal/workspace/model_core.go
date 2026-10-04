@@ -21,6 +21,7 @@ import (
 )
 
 const (
+	typeCreatePattern          = "occccad://part/pattern/create"
 	typeCreateSketch           = "occccad://part/sketch/create"
 	typeEditSketch             = "occccad://part/sketch/edit"
 	typeCreatePad              = "occccad://part/pad/create"
@@ -74,6 +75,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeBodyCommand, "PART", applyBodyCommand},
 		commandHandler{typeDefinitionVisibility, "PART", applyDefinitionVisibility},
 		commandHandler{typeOccurrenceVisibility, "PRODUCT", applyOccurrenceVisibility},
+		commandHandler{typeCreatePattern, "PART", applyCreateFeature},
 		commandHandler{typeCreateSketch, "PART", applyCreateFeature},
 		commandHandler{typeEditSketch, "PART", applyEditSketch},
 		commandHandler{typeCreatePad, "PART", applyCreateFeature},
@@ -462,6 +464,9 @@ func applyEditSketch(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, m
 			return nil, modelcore.ChangeSet{}, err
 		}
 		ensureFeatureParameters(&model)
+		if err := applySketchPatternParameterSources(&model, feature.ID, before, payload.Operations); err != nil {
+			return nil, modelcore.ChangeSet{}, err
+		}
 		if err := applySketchDimensionLifecycle(&model, payload.SketchID, before, payload.Operations); err != nil {
 			return nil, modelcore.ChangeSet{}, err
 		}
@@ -561,6 +566,9 @@ func applySketchOperations(sketch *SketchFeature, operations []SketchOperation) 
 	if err = ensureSketchDistanceRelations(&candidate); err != nil {
 		return err
 	}
+	if err := validateSketchPatterns(candidate); err != nil {
+		return err
+	}
 	*sketch = candidate
 	return nil
 }
@@ -571,6 +579,10 @@ func applySketchOperationsCandidate(sketch *SketchFeature, operations []SketchOp
 	}
 	for _, operation := range operations {
 		switch operation.Type {
+		case "CREATE_PATTERN", "EDIT_PATTERN", "DELETE_PATTERN", "DETACH_PATTERN":
+			if err := applySketchPatternOperation(sketch, operation); err != nil {
+				return err
+			}
 		case "CREATE_POLYGON":
 			if err := applySketchPolygon(sketch, operation); err != nil {
 				return err
@@ -864,6 +876,9 @@ func isDimensionalConstraint(kind string) bool {
 }
 
 func validateSketch(sketch SketchFeature) error {
+	if err := validateSketchPatterns(sketch); err != nil {
+		return err
+	}
 	if sketch.SchemaVersion != SketchSchemaVersion {
 		return fmt.Errorf("%w: unsupported sketch schema version", ErrValidation)
 	}
@@ -2174,6 +2189,9 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 		return prepared, ErrNotFound
 	} else if err != nil {
 		return prepared, err
+	}
+	if request.ExpectedUpdateRevision != "" && prepared.headRevision != request.ExpectedUpdateRevision {
+		return prepared, fmt.Errorf("%w: PARAMETER_UPDATE_CONSUMER_CHANGED", ErrValidation)
 	}
 	if len(priorManifestJSON) > 0 {
 		var manifest modelcore.EvaluationManifest

@@ -6,6 +6,7 @@
 #include <BRepAlgoAPI_Fuse.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
@@ -105,6 +106,8 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <set>
+#include <map>
 #include <utility>
 #include <vector>
 
@@ -1001,6 +1004,64 @@ std::string ref_key(const SemanticTopologyRef& ref) {
     for (const auto& source : ref.source_ids)
         key += "\n" + source;
     return key;
+}
+
+ToolBuild make_pattern_tool(const ToolBuild& source, const ProfilePadSpec& spec) {
+    if (spec.pattern_placements.empty() || spec.pattern_placements.size() > 256)
+        throw std::invalid_argument("PATTERN_MEMBER_BUDGET");
+    if (source.named.size() > 100000 / spec.pattern_placements.size())
+        throw std::invalid_argument("PATTERN_TOPOLOGY_BUDGET");
+    if (!spec.pattern_result_mode.empty() && spec.pattern_result_mode!="COMBINE" && spec.pattern_result_mode!="INDEPENDENT")
+        throw std::invalid_argument("PATTERN_RESULT_MODE_INVALID");
+    if (spec.pattern_result_mode=="INDEPENDENT" && spec.body_operation!="ADD")
+        throw std::invalid_argument("PATTERN_INDEPENDENT_REQUIRES_ADDITIVE_SOURCE");
+    ToolBuild output;
+    output.feature_id = spec.feature_id;
+    output.topology_history_complete = source.topology_history_complete;
+    BRep_Builder builder;
+    TopoDS_Compound compound;
+    builder.MakeCompound(compound);
+    std::set<std::uint32_t> slots;
+    bool seed = false;
+    for (const auto& member : spec.pattern_placements) {
+        if (member.slot >= 256 || !slots.insert(member.slot).second)
+            throw std::invalid_argument("PATTERN_SLOT_INVALID");
+        const auto& m = member.matrix;
+        for (const auto value : m)
+            if (!std::isfinite(value)) throw std::invalid_argument("PATTERN_TRANSFORM_NON_FINITE");
+        for (int a = 0; a < 3; ++a)
+            for (int b = 0; b < 3; ++b) {
+                double dot = 0;
+                for (int c = 0; c < 3; ++c) dot += m[a*4+c]*m[b*4+c];
+                if (std::abs(dot - (a == b ? 1.0 : 0.0)) > 1e-10)
+                    throw std::invalid_argument("PATTERN_TRANSFORM_NOT_RIGID");
+            }
+        const double det = m[0]*(m[5]*m[10]-m[6]*m[9])-m[1]*(m[4]*m[10]-m[6]*m[8])+m[2]*(m[4]*m[9]-m[5]*m[8]);
+        if (std::abs(det-1.0)>1e-10) throw std::invalid_argument("PATTERN_REFLECTION_UNSUPPORTED");
+        if (member.slot == 0) {
+            for (int i=0;i<12;++i)
+                if (std::abs(m[i] - (i==0 || i==5 || i==10 ? 1.0 : 0.0))>1e-10)
+                    throw std::invalid_argument("PATTERN_SEED_TRANSFORM_UNSUPPORTED");
+            seed = true;
+            continue; // The accepted upstream stage already contains the seed.
+        }
+        gp_Trsf transform;
+        transform.SetValues(m[0],m[1],m[2],m[3],m[4],m[5],m[6],m[7],m[8],m[9],m[10],m[11]);
+        BRepBuilderAPI_Transform algorithm(source.shape, transform, Standard_True);
+        if (!algorithm.IsDone()) throw std::runtime_error("PATTERN_TRANSFORM_FAILED");
+        builder.Add(compound, algorithm.Shape());
+        for (const auto& named : source.named) {
+            const auto shape = algorithm.ModifiedShape(named.shape);
+            if (shape.IsNull()) throw std::runtime_error("PATTERN_TRANSFORM_HISTORY_MISSING");
+            SemanticTopologyRef ref{spec.feature_id,
+                "MEMBER/"+std::to_string(member.slot)+"/"+make_geometry_id(ref_key(named.ref)),
+                named.ref.source_ids};
+            append_generated(output,named.ref,ref,shape);
+        }
+    }
+    if (!seed) throw std::invalid_argument("PATTERN_SEED_SLOT_REQUIRED");
+    if (slots.size()>1) output.shape=compound;
+    return output;
 }
 
 void sort_refs(std::vector<SemanticTopologyRef>& refs) {
@@ -2558,6 +2619,17 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
         topology_history_complete = true;
     }
 
+    std::map<std::string, ToolBuild> pattern_tools, pattern_bodies;
+    std::set<std::string> required_pattern_tools, required_pattern_bodies;
+    for (const auto& spec : specs) {
+        if (spec.generator != "SOLID_PATTERN") continue;
+        (spec.pattern_source_kind == "GENERATOR_TOOL" ? required_pattern_tools : required_pattern_bodies).insert(spec.pattern_source_feature_id);
+    }
+    if (import_seed && !result.IsNull() && required_pattern_bodies.count(import_seed->feature_id)) {
+        ToolBuild stage; stage.shape=result;stage.named=live_named;
+        stage.topology_history_complete=topology_history_complete;
+        pattern_bodies.emplace(import_seed->feature_id,std::move(stage));
+    }
     for (const auto& spec : specs) {
         try {
             const auto input_shape = result;
@@ -2568,6 +2640,13 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                                   spec.generator == "DRAFT" || spec.generator == "SHELL";
             if (modifier) {
                 tool.feature_id = spec.feature_id;
+            } else if (spec.generator == "SOLID_PATTERN") {
+                const auto& stages = spec.pattern_source_kind == "GENERATOR_TOOL" ? pattern_tools : pattern_bodies;
+                if (spec.pattern_source_kind != "GENERATOR_TOOL" && spec.pattern_source_kind != "BODY_STAGE")
+                    throw std::invalid_argument("PATTERN_SOURCE_KIND_INVALID");
+                const auto found = stages.find(spec.pattern_source_feature_id);
+                if (found == stages.end()) throw std::invalid_argument("PATTERN_SOURCE_STAGE_UNAVAILABLE");
+                tool = make_pattern_tool(found->second,spec);
             } else if (spec.generator == "BOOLEAN") {
                 if (result.IsNull() || spec.tools.empty() || spec.tools.size() > 32 ||
                     (spec.body_operation == "INTERSECT" && spec.tools.size() != 1))
@@ -2669,9 +2748,20 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 tool = make_profile_tool(generator_spec);
             }
             topology_history_complete = topology_history_complete && tool.topology_history_complete;
-            auto operation =
-                modifier ? apply_local_modifier(result, live_named, spec)
-                         : apply_body_operation(result, live_named, tool, spec.body_operation);
+            if (required_pattern_tools.count(spec.feature_id) && (spec.generator == "LINEAR_EXTRUDE" || spec.generator == "REVOLVE") && spec.extent != "THROUGH_ALL")
+                pattern_tools.emplace(spec.feature_id,tool);
+            auto independent = [&]() {
+                BRep_Builder builder;TopoDS_Compound compound;builder.MakeCompound(compound);
+                builder.Add(compound,result);builder.Add(compound,tool.shape);
+                validate_body_solid_set(compound);
+                auto named=live_named;named.insert(named.end(),tool.named.begin(),tool.named.end());
+                return BodyOperationResult{compound,std::move(named),{}, {}};
+            };
+            auto operation = spec.generator == "SOLID_PATTERN" && tool.shape.IsNull()
+                ? BodyOperationResult{result,live_named,{}, {}}
+                : spec.generator=="SOLID_PATTERN" && spec.pattern_result_mode=="INDEPENDENT" ? independent()
+                : modifier ? apply_local_modifier(result, live_named, spec)
+                           : apply_body_operation(result, live_named, tool, spec.body_operation);
             result = operation.shape;
             result_id = impl_->store(result);
 
@@ -2967,6 +3057,12 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             for (auto& output : outputs) {
                 feature.semantic_outputs.push_back(std::move(output.first));
                 live_named.push_back({feature.semantic_outputs.back().semantic_ref, output.second});
+            }
+            if (required_pattern_bodies.count(spec.feature_id)) {
+                ToolBuild stage;
+                stage.shape=result; stage.named=live_named; stage.feature_id=spec.feature_id;
+                stage.topology_history_complete=topology_history_complete;
+                pattern_bodies.emplace(spec.feature_id,std::move(stage));
             }
             evaluation.feature_results.push_back(std::move(feature));
         } catch (const Standard_Failure& error) {

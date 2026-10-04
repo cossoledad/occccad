@@ -10,6 +10,10 @@ ProductInstance 保存明确引用 Revision、FOLLOW_HEAD/PINNED、局部 placem
 
 Publication 用稳定目标身份，支持输出及转发；PersistentSelection 保存命名身份与解析快照，topology local ID 只作瞬时证据。Product Design Session 验证 root snapshot、typed path、目标与权限；跨 Workspace 设计事务原子检查 CAS，保存最终模型与 ChangeSet，Undo/Redo 使用正式补偿。FOLLOW_HEAD 变化由 digest-bound UpdatePlan 按叶到根接受 UPDATE_REFERENCES；失败保留合法快照与已提交子 Part，PINNED 不跟随。
 
+参数 Publication 的关联更新计划另冻结 `parameterUpdates` 前沿（Part、源 Revision、依赖及待更新状态）。一次显式接受按参数依赖顺序预览并提交受影响 Part，最后让当前 Product 接受这些确切结果 Revision；相同 Part 的 occurrence 只重算定义，保留各自 ID 和位姿。参数源加入通知订阅图，计算不依赖页面是否打开；浏览器自动跟随已计算版本时跳过需要跨 Part 参数重算的计划，界面由“更新关联零件”确认。
+
+接受前校验计划 digest、每个文档权限及 CAS，固定外部参数输入，不读取半途变化的 Head 作为结果。PINNED/ISOLATED 不传播，循环拒绝。失败不接纳失败候选，Product 保持原接受版本；已成功的子 Part 可保留独立 Revision，重新取得计划后恢复。该批次只更新参数外部引用，不顺带更新 Part 的其他 ContextReference。当前一次计划覆盖 Product 直接引用的 Part 及其递归参数依赖，嵌套 Product 仍沿用各自叶到根接受计划；未引入跨文档长事务。
+
 ## 定义与求值
 
 公共六族为 Coincidence、Contact、Offset、Angle、Fix、Fix Together；Concentric/Distance/Parallel/Perpendicular/Rigid 是内部原语或明确快捷入口。唯一生产目录在 [assemblycontract](../../../services/internal/assemblycontract/README.md)，测试目录仅引用 capabilityId 并映射执行证据；生产按一次加载的只读索引查询，返回脱离缓存的副本。按钮可用性不依赖 PASS 计数，FACE/EDGE/VERTEX 不等于精确类型。

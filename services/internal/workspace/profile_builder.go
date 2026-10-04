@@ -146,6 +146,19 @@ func buildProfileLoops(feature Feature, exact bool) ([]profileLoop, error) {
 	if feature.Sketch.Solve.Status == "CONFLICTING" {
 		return nil, fmt.Errorf("%w: sketch constraints must be resolved before profile evaluation", ErrValidation)
 	}
+	if len(feature.Sketch.Patterns) > 0 {
+		entities, err := evaluatedSketchPatternEntities(*feature.Sketch)
+		if err != nil {
+			return nil, err
+		}
+		projected := *feature.Sketch
+		projected.Entities = entities
+		projected.Constraints = append([]SketchConstraint(nil), feature.Sketch.Constraints...)
+		for _, pattern := range feature.Sketch.Patterns {
+			projected.Constraints = append(projected.Constraints, sketchPatternConnectivity(*feature.Sketch, pattern)...)
+		}
+		feature.Sketch = &projected
+	}
 	dsu := profileConnectivity(feature)
 	edges := []profileEdge{}
 	loops := []profileLoop{}

@@ -86,7 +86,11 @@ func (service *Service) bindAssemblyPick(ctx context.Context, product *ProductMo
 	return nil
 }
 
-func (service *Service) updateProductReferences(ctx context.Context, product *ProductModel) error {
+func (service *Service) updateProductReferences(ctx context.Context, product *ProductModel, accepted ...map[string]string) error {
+	var revisions map[string]string
+	if len(accepted) > 0 {
+		revisions = accepted[0]
+	}
 	instances := map[string]*ProductInstance{}
 	for index := range product.Instances {
 		instance := &product.Instances[index]
@@ -95,7 +99,9 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 			instance.ReferenceMode = "FOLLOW_HEAD"
 		}
 		if instance.ReferenceMode == "FOLLOW_HEAD" || instance.ReferenceMode == "FOLLOW_WORKSPACE_WITH_ACCEPT" {
-			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&instance.ReferencedVersionID); err != nil {
+			if revision := revisions[instance.ReferencedDocumentID]; revision != "" {
+				instance.ReferencedVersionID = revision
+			} else if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, instance.ReferencedDocumentID).Scan(&instance.ReferencedVersionID); err != nil {
 				return err
 			}
 		}
@@ -119,10 +125,12 @@ func (service *Service) updateProductReferences(ctx context.Context, product *Pr
 			continue
 		}
 		sourceDocumentID := binding.SourceInstancePath.Segments[len(binding.SourceInstancePath.Segments)-1].ReferencedDocumentID
-		var sourceHead string
-		if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents
+		sourceHead := revisions[sourceDocumentID]
+		if sourceHead == "" {
+			if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents
 			WHERE id=$1 AND deleted_at IS NULL`, sourceDocumentID).Scan(&sourceHead); err != nil {
-			return err
+				return err
+			}
 		}
 		publication, err := service.publicationAtRevision(ctx, sourceDocumentID, sourceHead, binding.Publication.PublicationID)
 		if err != nil {

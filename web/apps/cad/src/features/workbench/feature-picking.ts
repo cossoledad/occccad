@@ -4,7 +4,7 @@ export function selectedSketch(view: DocumentView, selection: SelectionItem, ups
     const projected = projectSketchFeatureSelection(selection);
     if (projected?.kind !== "sketch" || (projected.ownerDocumentId ?? projected.documentId) !== view.document.id)
         return;
-    return upstream.find(f => f.id === projected.id && f.sketch);
+    return upstream.find(f => f.id === projected.id && (f.sketch || f.type==="SKETCH_PATTERN"));
 }
 export function selectedAxis(view: DocumentView, selection: SelectionItem, upstream: Feature[]): string | undefined {
     if ((selection.ownerDocumentId ?? selection.documentId) !== view.document.id)

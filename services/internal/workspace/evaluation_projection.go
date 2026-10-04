@@ -72,6 +72,11 @@ func ensureFeatureParameters(model *PartModel) {
 	for _, feature := range model.Features {
 		managedPrefixes["parameter:"+feature.ID+":"] = struct{}{}
 		keyPrefix := strings.NewReplacer("-", "_", ":", "_").Replace(feature.ID)
+		if feature.Pattern != nil {
+			for _, parameter := range patternParameters(&feature.Pattern.PatternDefinition) {
+				add(feature.ID, "pattern:"+parameter.slot, keyPrefix+"_"+parameter.slot, parameter.slot, parameter.unit, parameter.value, parameter.dimension, false)
+			}
+		}
 		if (isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE") || (isLocalModifier(feature.Type) && feature.Type != "DRAFT") {
 			add(feature.ID, "length", keyPrefix+"_length", "Length", "mm", feature.Length, modelcore.LengthDimension, false)
 		}
@@ -82,6 +87,12 @@ func ensureFeatureParameters(model *PartModel) {
 			add(feature.ID, "length2", keyPrefix+"_length2", "Second length", "mm", feature.Length2, modelcore.LengthDimension, false)
 		}
 		if feature.Sketch != nil {
+			for _, pattern := range feature.Sketch.Patterns {
+				for _, parameter := range patternParameters(&pattern.PatternDefinition) {
+					slot := "pattern:" + pattern.ID + ":" + parameter.slot
+					add(feature.ID, slot, keyPrefix+"_"+parameterKeyFragment(pattern.ID)+"_"+parameter.slot, parameter.slot, parameter.unit, parameter.value, parameter.dimension, false)
+				}
+			}
 			for _, constraint := range feature.Sketch.Constraints {
 				if !isDimensionalConstraint(constraint.Kind) || (constraint.Value == nil && !constraint.Reference) {
 					continue
@@ -323,6 +334,11 @@ func validateAndResolvePartParameters(model *PartModel) error {
 	}
 	for index := range model.Features {
 		feature := &model.Features[index]
+		if feature.Pattern != nil {
+			if err := resolvePatternParameters(feature.ID, "pattern:", &feature.Pattern.PatternDefinition, values); err != nil {
+				return err
+			}
+		}
 		if (isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE") || (isLocalModifier(feature.Type) && feature.Type != "DRAFT") {
 			feature.Length = values["parameter:"+feature.ID+":length"].SIValue * 1000
 			if !positiveFinite(feature.Length) {
@@ -342,6 +358,15 @@ func validateAndResolvePartParameters(model *PartModel) error {
 			}
 		}
 		if feature.Sketch != nil {
+			for i := range feature.Sketch.Patterns {
+				pattern := &feature.Sketch.Patterns[i]
+				if err := resolvePatternParameters(feature.ID, "pattern:"+pattern.ID+":", &pattern.PatternDefinition, values); err != nil {
+					return err
+				}
+			}
+			if err := validateSketchPatterns(*feature.Sketch); err != nil {
+				return err
+			}
 			for constraintIndex := range feature.Sketch.Constraints {
 				constraint := &feature.Sketch.Constraints[constraintIndex]
 				if !isDimensionalConstraint(constraint.Kind) || constraint.Reference {
@@ -454,6 +479,9 @@ func validatePartStructure(model PartModel) error {
 			if _, exists := datums[feature.NeutralPlaneID]; !exists {
 				return fmt.Errorf("%w: neutral datum plane missing", ErrValidation)
 			}
+		}
+		if err := validateFeaturePattern(feature, features); err != nil {
+			return err
 		}
 		if err := validateSolidStage(feature, features); err != nil {
 			return err
@@ -581,12 +609,23 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		}
-		if feature.Type == "BOOLEAN" || isLocalModifier(feature.Type) || feature.Type == "LOFT" {
+		if feature.Type == "BOOLEAN" || feature.Type == "SOLID_PATTERN" || isLocalModifier(feature.Type) || feature.Type == "LOFT" {
 			if bodyTipFeatureID != "" {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadGeometry})
 			}
 			for _, tool := range feature.Tools {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + tool.FeatureID), Target: key, Kind: modelcore.ReadGeometry})
+			}
+		}
+		if feature.Pattern != nil {
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.Pattern.Source.FeatureID), Target: key, Kind: modelcore.ReadGeometry})
+
+			if axis := strings.Split(feature.Pattern.AxisEntityID, ":"); len(axis) >= 2 {
+				prefix := "datum:"
+				if axis[0] == "SKETCH_LINE" {
+					prefix = "feature:"
+				}
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey(prefix + axis[1]), Target: key, Kind: modelcore.ReadGeometry})
 			}
 		}
 		for _, section := range feature.Sections {
@@ -666,6 +705,17 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			}
 		}
 	}
+	// Several logical inputs can read the same stage (pattern seed/body tip,
+	// or multiple spatial members of one sketch). Persist one typed edge.
+	uniqueEdges := edges[:0]
+	seenEdges := map[modelcore.DependencyEdge]bool{}
+	for _, edge := range edges {
+		if !seenEdges[edge] {
+			seenEdges[edge] = true
+			uniqueEdges = append(uniqueEdges, edge)
+		}
+	}
+	edges = uniqueEdges
 	graph, err := modelcore.NewDependencyGraph(nodes, edges)
 	if err != nil {
 		return nil, modelcore.EvaluationManifest{}, err

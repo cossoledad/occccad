@@ -1,3 +1,4 @@
+import { PatternFeatureEditor } from "./pattern-feature-editor";
 import { Alert, Button, Input, Segmented, Switch } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
@@ -6,7 +7,7 @@ import type { Artifact, DocumentView, Feature, SelectionItem } from "../../types
 import type { FeaturePickRole, FeatureSelectionSession } from "../../cad/interaction/feature-selection";
 import { selectionKey } from "../../cad/interaction/selection-identity";
 import { parameterSourceText } from "./parameter-editor";
-import { solidParameterEdit, solidFeatureNames } from "./solid-feature-model";
+import { solidParameterEdit, solidFeatureNames, pickLoftSection } from "./solid-feature-model";
 import { selectedAxis, selectedSketch, sketchPick } from "./feature-picking";
 import { FeaturePickField } from "./feature-pick-field";
 import { useFeaturePreview } from "./use-feature-preview";
@@ -15,7 +16,10 @@ type BoundPick = {
     definition: NonNullable<Feature["selections"]>[number];
     visual: SelectionItem;
 };
-export function SolidFeatureEditor({ view, feature, digest, unit, seed, occurrencePath, occurrenceContext, onClose, onApply, onPreview, onSelectionSession, onInputArtifact }: {
+export function SolidFeatureEditor(props: Parameters<typeof SolidFeatureDefinitionEditor>[0]) {
+    return props.feature.pattern ? <PatternFeatureEditor {...props}/> : <SolidFeatureDefinitionEditor {...props}/>;
+}
+function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occurrencePath, occurrenceContext, onClose, onApply, onPreview, onSelectionSession, onInputArtifact }: {
     view: DocumentView;
     feature: Feature;
     digest?: string;
@@ -25,7 +29,7 @@ export function SolidFeatureEditor({ view, feature, digest, unit, seed, occurren
     occurrenceContext?: Pick<SelectionItem, "instancePath" | "contextVariantKey" | "rootDocumentId">;
     onClose: () => void;
     onApply: (input: Record<string, unknown>) => Promise<unknown>;
-    onPreview: (artifact?: Artifact, operation?: Feature["operation"]) => void;
+    onPreview: (artifact?: Artifact, operation?: Feature["operation"], sketchFeatureId?:string) => void;
     onSelectionSession: (session?: FeatureSelectionSession) => void;
     onInputArtifact: (artifact?: Artifact | Artifact[]) => void;
 }) {
@@ -136,9 +140,9 @@ export function SolidFeatureEditor({ view, feature, digest, unit, seed, occurren
             if (!sketch)
                 return;
             if (loft)
-                setDraft(previous => ({ ...previous, sections: previous.sections?.some(s => s.sketchId === sketch.id) ? previous.sections.filter(s => s.sketchId !== sketch.id) : [...(previous.sections ?? []), { sketchId: sketch.id }] }));
+                setDraft(previous => ({ ...previous, sections: pickLoftSection(previous.sections ?? [], sketch) }));
             else {
-                edit({ profile: sketch.id });
+                edit({ profile: sketch.id, profileMemberSlot:sketch.type==="SKETCH_PATTERN"?pickLoftSection([],sketch)[0]?.memberSlot:undefined });
                 if (feature.type === "REVOLVE" && !draft.axisEntityId)
                     setRole("axis");
             }
@@ -182,7 +186,7 @@ export function SolidFeatureEditor({ view, feature, digest, unit, seed, occurren
         else {
             const sketch = seed.map(s => selectedSketch(view, s, upstream)).find(Boolean);
             if (sketch)
-                edit({ profile: sketch.id });
+                edit({ profile: sketch.id, profileMemberSlot:sketch.type==="SKETCH_PATTERN"?pickLoftSection([],sketch)[0]?.memberSlot:undefined });
             const axis = seed.find(s => selectedAxis(view, s, upstream));
             if (axis)
                 pick(axis, "axis");
@@ -203,7 +207,7 @@ export function SolidFeatureEditor({ view, feature, digest, unit, seed, occurren
     const contextSelections = feature.type === "REVOLVE" && role === "axis" ? highlights.filter(s => s.kind === "sketch") : [];
     const selections = contextSelections.length ? highlights.filter(s => s.kind !== "sketch") : highlights;
     const highlightsToken = JSON.stringify([selections, contextSelections]);
-    const sketchIds = role === "seam" ? [draft.sections![seamIndex!].sketchId] : upstream.filter(f => f.sketch).map(f => f.id);
+    const sketchIds = role === "seam" ? [draft.sections![seamIndex!].sketchId] : upstream.filter(f => f.sketch || f.type==="SKETCH_PATTERN").map(f => f.id);
     const sketchIdsToken = JSON.stringify(sketchIds);
     useEffect(() => {
         callbacks.current.onSelectionSession({ role, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) });
@@ -226,7 +230,7 @@ export function SolidFeatureEditor({ view, feature, digest, unit, seed, occurren
         }
         const common = { requestId: intent.current, parameterExpressions: expressions };
         if (ready)
-            input = feature.id ? { ...common, type: "EDIT_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value } : modifier ? { ...common, type: "CREATE_MODIFY_FEATURE", feature: value } : loft ? { ...common, type: "CREATE_SOLID_FEATURE", feature: value } : { ...common, type: "CREATE_SOLID_FEATURE", sketchId: value.profile, generator: value.type, bodyId: value.bodyId, operation: value.operation, length: value.length ?? 1, length2: value.length2, angle: value.angle ?? 360, extent: value.extent, axisEntityId: value.axisEntityId, reversed: value.reversed };
+            input = feature.id ? { ...common, type: "EDIT_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value } : modifier ? { ...common, type: "CREATE_MODIFY_FEATURE", feature: value } : loft ? { ...common, type: "CREATE_SOLID_FEATURE", feature: value } : { ...common, type: "CREATE_SOLID_FEATURE", sketchId: value.profile, profileMemberSlot:value.profileMemberSlot, generator: value.type, bodyId: value.bodyId, operation: value.operation, length: value.length ?? 1, length2: value.length2, angle: value.angle ?? 360, extent: value.extent, axisEntityId: value.axisEntityId, reversed: value.reversed };
     }
     catch (cause) {
         parameterError = String(cause);
@@ -245,13 +249,15 @@ export function SolidFeatureEditor({ view, feature, digest, unit, seed, occurren
     return <CommandDialog id="solid-feature-editor" open title={`${feature.id ? "编辑" : "创建"} ${solidFeatureNames[feature.type] ?? feature.type}`} size="S" onClose={onClose} onConfirm={apply} confirmLoading={committing} confirmDisabled={!input || !preview.previewId || preview.pending || committing}>
   <fieldset disabled={committing} className="instance-pattern-fields feature-input-fields">
    {!modifier && !loft && <FeaturePickField label="轮廓" value={draft.profile ? name(draft.profile) : "请在视图区选择草图"} active={role === "profile"} onActivate={() => setRole("profile")} onClear={draft.profile ? () => edit({ profile: undefined }) : undefined}/>}
+   {draft.profile && upstream.find(f=>f.id===draft.profile)?.type==="SKETCH_PATTERN" && <label>草图成员槽位<Input type="number" min={0} step={1} value={draft.profileMemberSlot} onChange={e=>edit({profileMemberSlot:e.target.value===""?undefined:Number(e.target.value)})}/></label>}
    {feature.type === "REVOLVE" && <FeaturePickField label="旋转轴" value={draft.axisEntityId ? "已选择 1 条轴线" : "请在视图区选择直线或轴"} active={role === "axis"} onActivate={() => setRole("axis")} onClear={draft.axisEntityId ? () => { edit({ axisEntityId: undefined }); setAxisVisual(undefined); } : undefined}/>}
    {modifier && <FeaturePickField label={pickRole === "edge" ? "边集" : "面集"} value={loadingInput ? "正在恢复选择…" : `已选择 ${picks.length} ${pickRole === "edge" ? "条边" : "个面"}`} active={role === pickRole} onActivate={() => setRole(pickRole)} onClear={picks.length ? () => setPicks([]) : undefined}/>}
    {feature.type === "DRAFT" && <FeaturePickField label="中性平面" value={draft.neutralPlane ? "已选择实体平面" : view.part?.datumPlanes.find(p => p.id === draft.neutralPlaneId)?.name ?? "选择基准面或实体平面"} active={role === "plane"} onActivate={() => setRole("plane")}/>}
    {loft && <>
     <FeaturePickField label="截面" value={`已选择 ${draft.sections?.length ?? 0} 个草图`} active={role === "profile"} onActivate={() => setRole("profile")} onClear={draft.sections?.length ? () => edit({ sections: [] }) : undefined}/>
-    {(draft.sections ?? []).map((section, i) => <div className="feature-section-row" key={section.sketchId}>
+    {(draft.sections ?? []).map((section, i) => <div className="feature-section-row" key={`${section.sketchId}/${i}`}>
      <span>{i + 1}. {name(section.sketchId)}</span>
+     {upstream.find(f=>f.id===section.sketchId)?.type==="SKETCH_PATTERN"&&<label>成员槽位<Input type="number" min={0} step={1} value={section.memberSlot} onChange={e=>edit({sections:draft.sections?.map((s,j)=>i===j?{...s,memberSlot:e.target.value===""?undefined:Number(e.target.value)}:s)})}/></label>}
      <Button size="small" aria-label={`上移截面 ${i + 1}`} disabled={!i} onClick={() => { const sections = [...draft.sections!]; [sections[i - 1], sections[i]] = [sections[i], sections[i - 1]]; edit({ sections }); }}>↑</Button>
      <Button size="small" aria-label={`移除截面 ${i + 1}`} onClick={() => edit({ sections: draft.sections?.filter((_, j) => j !== i) })}>移除</Button>
      <label>反向<Switch checked={section.reversed} onChange={reversed => edit({ sections: draft.sections?.map((s, j) => i === j ? { ...s, reversed } : s) })}/></label>

@@ -1570,6 +1570,41 @@ TEST(GeometryExchange, ImportedNamingPropagatesThroughBooleanChain) {
 }
 
 }  // namespace
+
+TEST(GeometryExchange, PatternCutReusesToolAndPreservesMemberNames) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id="plate"; base.body_id="body"; base.profile_feature_id="plate-sketch";
+    base.regions={rectangular_region("plate-region",-30,-30,30,30)}; base.pad_length=5;
+    ProfilePadSpec cut;
+    cut.feature_id="hole"; cut.body_id="body"; cut.profile_feature_id="hole-sketch";
+    cut.body_operation="REMOVE"; cut.pad_length=5;
+    ProfileCurveSpec circle; circle.entity_id="circle"; circle.kind="CIRCLE";circle.center={20,0};circle.radius=2;
+    ProfileRegionSpec region;region.id="hole-region";region.outer={"hole-loop",{circle}};cut.regions={region};
+    ProfilePadSpec pattern;pattern.feature_id="holes";pattern.body_id="body";pattern.input_feature_id="hole";
+    pattern.generator="SOLID_PATTERN";pattern.body_operation="REMOVE";
+    pattern.pattern_source_feature_id="hole";pattern.pattern_source_kind="GENERATOR_TOOL";
+    std::set<std::string> surviving;
+    for (const unsigned count : {6U,8U,4U,1U}) {
+        pattern.pattern_placements.clear();
+        for (unsigned slot=0;slot<count;++slot) {
+            const double angle=2*3.14159265358979323846*slot/count;
+            const double c=std::cos(angle),s=std::sin(angle);
+            pattern.pattern_placements.push_back({slot,{c,-s,0,0,s,c,0,0,0,0,1,0}});
+        }
+        const auto result=kernel.evaluateProfilePadsWithHistory({base,cut,pattern});
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id),18000-count*3.14159265358979323846*4*5,1e-5);
+        ASSERT_TRUE(result.feature_results.back().topology_history_complete);
+        const auto topology=kernel.getTopology(result.geometry_id);
+        EXPECT_EQ(topology.solid_count,1U);
+        std::set<std::string> names;
+        for (const auto& output:result.feature_results.back().semantic_outputs)
+            if (output.semantic_ref.output_slot.find("MEMBER/1/")==0) names.insert(output.semantic_ref.output_slot);
+        if(count==6) {ASSERT_FALSE(names.empty());surviving=names;}
+        else if(count>1) { EXPECT_EQ(names,surviving); }
+    }
+}
+
 }  // namespace occccad::kernel
 
 namespace occccad::kernel {

@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import { createServer } from "vite";
 const server = await createServer({ server: { middlewareMode: true }, appType: "custom", logLevel: "silent" });
 try {
-  const {booleanInputStages, booleanDefinitionReady, solidParameterEdit, solidGeneratorParameters} = await server.ssrLoadModule("/src/features/workbench/solid-feature-model.ts");
+  const {booleanInputStages, booleanDefinitionReady, solidParameterEdit, solidGeneratorParameters,pickLoftSection} = await server.ssrLoadModule("/src/features/workbench/solid-feature-model.ts");
+  const pattern={id:"frames",type:"SKETCH_PATTERN",pattern:{count:6,skippedSlots:[1,4]}};
+  let sections=pickLoftSection([],pattern);
+  sections=pickLoftSection(sections,pattern);
+  assert.deepEqual(sections,[{sketchId:"frames",memberSlot:0},{sketchId:"frames",memberSlot:2}]);
+  sections=pickLoftSection(sections,pattern);
+  assert.equal(sections[2].memberSlot,3);
+  assert.deepEqual(pickLoftSection(sections,{...pattern,pattern:{count:2,skippedSlots:[1]}}),sections,"shrinking must not silently rebind a missing existing section");
   const features = [
     {id:"base",bodyId:"target",type:"LINEAR_EXTRUDE"},
     {id:"loft",bodyId:"tool",type:"LOFT"},

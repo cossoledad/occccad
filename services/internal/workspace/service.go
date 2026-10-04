@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v21-visual-boundaries"
+const evaluatorVersion = "part-solid-generators-v22-parametric-patterns"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1065,6 +1065,25 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		normalizePartModel(&model)
 		presentParameters(&model)
 		view.Part = &model
+		view.SketchPatternMembers = map[string][]SketchEntity{}
+		for _, feature := range model.Features {
+			if feature.Sketch == nil || len(feature.Sketch.Patterns) == 0 {
+				continue
+			}
+			members, err := evaluatedSketchPatternEntities(*feature.Sketch)
+			if err != nil {
+				continue
+			}
+			patterns := map[string]bool{}
+			for _, p := range feature.Sketch.Patterns {
+				patterns[p.ID] = true
+			}
+			for _, member := range members {
+				if patterns[member.CreatedByOperationID] {
+					view.SketchPatternMembers[feature.ID] = append(view.SketchPatternMembers[feature.ID], member)
+				}
+			}
+		}
 		view.SketchAnalyses = service.projectExactSketchAnalyses(ctx, model)
 		view.ReferenceUpdates = service.projectPartReferenceUpdates(ctx, model)
 		view.DatumPlanes = model.DatumPlanes
@@ -1358,7 +1377,7 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 		ReferenceGeometry: referenceGeometry(model),
 		Primitives:        []VisualPrimitive{},
 	}
-	for _, feature := range model.Features {
+	for _, feature := range visualizationSketchFeatures(model) {
 		if feature.Sketch == nil {
 			continue
 		}
@@ -1387,7 +1406,11 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 				return [3]float64{point.X, point.Y, 0}
 			}
 		}
-		for _, entity := range feature.Sketch.Entities {
+		patternEntities, patternErr := evaluatedSketchPatternEntities(*feature.Sketch)
+		if patternErr != nil {
+			continue
+		} // Failed candidates never reach an accepted artifact.
+		for _, entity := range patternEntities {
 			if entity.Suppressed {
 				continue
 			}
@@ -1821,9 +1844,9 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 		case "LOFT":
 			spec := geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "LOFT", BodyOperation: feature.Operation, Ruled: feature.Ruled}
 			for _, section := range feature.Sections {
-				sketch, ok := sketches[section.SketchID]
-				if !ok {
-					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w: loft section missing", feature.ID, ErrValidation)
+				sketch, memberErr := resolvePatternSketch(fullModel, sketches, section.SketchID, section.MemberSlot)
+				if memberErr != nil {
+					return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, memberErr)
 				}
 				regions, err := service.buildExactProfileRegions(ctx, sketch, reqID+"/section/"+sketch.ID)
 				if err != nil {
@@ -1848,6 +1871,24 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 			spec.InputFeatureID = bodyTipFeatureID
 			solidFeatures = append(solidFeatures, spec)
 			bodyTipFeatureID = feature.ID
+		case "SOLID_PATTERN":
+			if feature.Pattern == nil {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: pattern missing", feature.ID)
+			}
+			definition, err := resolvedPatternDefinition(fullModel, feature.Pattern.PatternDefinition)
+			if err != nil {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
+			}
+			placements, err := patternPlacements(definition)
+			if err != nil {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
+			}
+			spec := geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "SOLID_PATTERN", BodyOperation: feature.Operation, PatternSourceFeatureID: feature.Pattern.Source.FeatureID, PatternSourceKind: feature.Pattern.SourceKind, PatternResultMode: feature.Pattern.ResultMode}
+			for _, placement := range placements {
+				spec.PatternPlacements = append(spec.PatternPlacements, geometry.PatternPlacement{Slot: uint32(placement.Slot), Matrix: placement.Matrix})
+			}
+			solidFeatures = append(solidFeatures, spec)
+			bodyTipFeatureID = feature.ID
 		case "BOOLEAN":
 			tools, err := service.booleanToolInputs(ctx, reqID, fullModel, feature)
 			if err != nil {
@@ -1865,12 +1906,12 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 					return "", seedErr
 				}
 			}
-		case "SKETCH":
+		case "SKETCH", "SKETCH_PATTERN":
 			sketches[feature.ID] = feature
 		case "PAD", "LINEAR_EXTRUDE", "REVOLVE":
-			sketch, exists := sketches[feature.Profile]
-			if !exists {
-				return "", fmt.Errorf("%w: extrude profile %s is missing or follows the extrude", ErrValidation, feature.Profile)
+			sketch, memberErr := resolvePatternSketch(fullModel, sketches, feature.Profile, feature.ProfileMemberSlot)
+			if memberErr != nil {
+				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, memberErr)
 			}
 			regions, err := service.buildExactProfileRegions(ctx, sketch, reqID+"/profile/"+sketch.ID)
 			if err != nil {
@@ -2222,7 +2263,7 @@ func featureStructureNode(feature Feature, path, documentID, versionID, definiti
 	if deletable {
 		node.Capabilities = []string{"DELETE"}
 	}
-	if childrenEditable && (isBodyFeature(feature.Type) && feature.Type != "IMPORT_BODY") {
+	if childrenEditable && ((isBodyFeature(feature.Type) || feature.Type == "SKETCH_PATTERN") && feature.Type != "IMPORT_BODY") {
 		node.Capabilities = append(node.Capabilities, "EDIT", "SUPPRESS")
 	}
 	node.Suppressed = feature.Suppressed
@@ -2808,6 +2849,39 @@ func (service *Service) followedProductDocuments(ctx context.Context, root Produ
 	result := map[string]bool{}
 	visited := map[string]bool{}
 	productIDs := []string{}
+	var visitParameters func(PartModel, int) error
+	visitParameters = func(model PartModel, depth int) error {
+		if depth > 32 || len(result) > 4096 {
+			return fmt.Errorf("%w: parameter subscription graph budget exceeded", ErrValidation)
+		}
+		for _, source := range partUpdateSources(model) {
+			id := source.documentID
+			result[id] = true
+			if visited[id] {
+				continue
+			}
+			visited[id] = true
+			var kind string
+			var raw []byte
+			err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.documents d JOIN occccad.document_versions v ON v.id=d.head_version_id WHERE d.id=$1 AND d.deleted_at IS NULL`, id).Scan(&kind, &raw)
+			if errors.Is(err, pgx.ErrNoRows) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if kind == "PART" {
+				var child PartModel
+				if err = json.Unmarshal(raw, &child); err != nil {
+					return err
+				}
+				if err = visitParameters(child, depth+1); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
 	var visit func(ProductModel, int) error
 	visit = func(model ProductModel, depth int) error {
 		if depth > 32 {
@@ -2837,6 +2911,15 @@ func (service *Service) followedProductDocuments(ctx context.Context, root Produ
 				return err
 			}
 			if documentType != "PRODUCT" {
+				if documentType == "PART" {
+					var child PartModel
+					if err = json.Unmarshal(raw, &child); err != nil {
+						return err
+					}
+					if err = visitParameters(child, 0); err != nil {
+						return err
+					}
+				}
 				continue
 			}
 			var child ProductModel

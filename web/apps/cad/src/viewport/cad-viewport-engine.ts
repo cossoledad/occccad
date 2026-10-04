@@ -666,7 +666,7 @@ export class CadViewportEngine {
     if (view.document.type === "PRODUCT" && editContext?.view.document.type === "PART") {
       const consumedSketches = new Set((editContext.view.part?.features ?? []).flatMap((feature) => feature.profile ? [feature.profile] : []));
       for (const feature of editContext.view.part?.features ?? []) {
-        if (feature.type.toUpperCase().includes("SKETCH")) this.addSketch(feature, false, editContext.view, {
+        if (feature.sketch) this.addSketch(feature, false, editContext.view, {
           documentId: editContext.view.document.id, bodyId:feature.bodyId, geometryKey:editContext.view.part?.bodies.find(b=>b.id===feature.bodyId)?.geometryKey??"",
           occurrencePath: editContext.occurrencePath ?? "", treeNodeId:view.resolvedInstances?.find(r=>r.occurrencePath===editContext.occurrencePath && r.bodyId===feature.bodyId)?.bodyTreeNodeId??"",
         }, editContext.translation, editContext.rotation, !consumedSketches.has(feature.id));
@@ -1145,7 +1145,8 @@ export class CadViewportEngine {
   private previewInputMaterials:Array<{object:THREE.Mesh;original:THREE.Material|THREE.Material[];temporary:THREE.Material[]}>=[];
   private previewVisualGeneration = 0;
   private previewVisuals?: VisualRepository;
-  previewArtifact(descriptor: ArtifactDescriptor, operation: FeaturePreviewOperation = "NEW_BODY"): void {
+  private previewSketchHidden:THREE.Object3D[]=[];
+  previewArtifact(descriptor: ArtifactDescriptor, operation: FeaturePreviewOperation = "NEW_BODY", sketchFeatureId?:string): void {
     this.clearCommandPreview();
     const generation = this.previewVisualGeneration;
     if (descriptor.representationKind !== "TRANSIENT_PREVIEW" || !this.view) return;
@@ -1153,11 +1154,34 @@ export class CadViewportEngine {
     this.previewVisuals = this.visuals.previewRepository();
     void this.previewVisuals.hydrate(view).then(display => {
       if (generation !== this.previewVisualGeneration || this.disposed || !display.artifact) return;
-      this.showPreviewArtifact(display.artifact, operation);
+      if(sketchFeatureId!==undefined)this.showSketchPatternPreview(display.artifact,sketchFeatureId);
+      else this.showPreviewArtifact(display.artifact, operation);
     }).catch(error => {
       if (generation !== this.previewVisualGeneration || this.disposed) return;
       this.callbacks.toolPromptChanged(`预览显示加载失败：${error instanceof Error ? error.message : String(error)}`);
     });
+  }
+
+  private showSketchPatternPreview(artifact:Artifact,featureId:string):void {
+    const existing=new Set(this.sketchView()?.part?.features.map(feature=>feature.id)??[]);
+    const group=new THREE.Group();
+    for(const primitive of artifact.visualization?.primitives??[]) {
+      if(!(featureId?primitive.featureId===featureId:!existing.has(primitive.featureId))||!["SKETCH_CURVE","SKETCH_POINT"].includes(primitive.semantic))continue;
+      const geometry=new THREE.BufferGeometry().setFromPoints(primitive.positions.map(position=>new THREE.Vector3().fromArray(position)));
+      const object=primitive.kind==="POINTS"?new THREE.Points(geometry,new THREE.PointsMaterial({color:CATIA_VISUAL_THEME.selected,size:5,depthTest:false})):new THREE.Line(geometry,new THREE.LineBasicMaterial({color:CATIA_VISUAL_THEME.selected,depthTest:false}));
+      group.add(object);
+    }
+    if(this.editContext?.translation)group.position.fromArray(this.editContext.translation);
+    if(this.editContext?.rotation)group.quaternion.fromArray(this.editContext.rotation);
+    for(const root of [this.helpers,this.content])root.traverse(object=>{
+      if(!object.visible)return;
+      const data=object.userData;
+      if((data.featureId??data.sketchFeatureID)!==featureId)return;
+      if(this.activeSketchID===featureId&&!data.patternMember)return;
+      if((data.occurrencePath??"")!==(this.editContext?.occurrencePath??""))return;
+      this.previewSketchHidden.push(object);object.visible=false;
+    });
+    this.scene.add(group);this.commandPreview=group;this.updateCameraClipping();this.invalidate();
   }
 
   private showPreviewArtifact(artifact: Artifact, operation: FeaturePreviewOperation): void {
@@ -1193,6 +1217,8 @@ export class CadViewportEngine {
     delete this.host.dataset.featurePreview;
     for(const {object,original,temporary} of this.previewInputMaterials){object.material=original;for(const material of temporary)material.dispose();}
     this.previewInputMaterials=[];
+    for(const object of this.previewSketchHidden)object.visible=true;
+    this.previewSketchHidden=[];
     if (this.previewBody) {
       this.previewBody.group.visible = this.previewBody.visible;
       this.previewBody = undefined;
@@ -1710,7 +1736,8 @@ export class CadViewportEngine {
       const bodyTreeNodeId = `${rootPath}/body:${body.id}`;
       const context: SolidContext = { bodyId:body.id, documentId:view.document.id,versionId:view.document.versionId,
         geometryKey:artifact.geometryKey,occurrencePath:"",treeNodeId:bodyTreeNodeId };
-      if (body.geometryKey) this.addVisualPrimitives(artifact.visualization, this.helpers, context, false);
+      if (body.geometryKey) this.addVisualPrimitives(artifact.visualization, this.helpers, context, true,
+        new Set((view.part?.features??[]).filter(feature=>feature.type==="SKETCH_PATTERN"&&feature.bodyId===body.id&&!feature.suppressed).map(feature=>feature.id)));
       if (artifact.mesh.triangles.length) {
         const solid=body.geometryKey ? this.makeSolid(artifact,CATIA_VISUAL_THEME.surface,context) : this.makeFailedBody(artifact,body.visible,context);
         this.content.add(solid);
@@ -1718,7 +1745,7 @@ export class CadViewportEngine {
     }
     const consumedSketches = new Set((view.part?.features ?? []).flatMap((feature) => feature.profile ? [feature.profile] : []));
     for (const feature of view.part?.features ?? []) {
-      if (feature.type.toUpperCase().includes("SKETCH")) {
+      if (feature.sketch) {
         this.addSketch(feature, false, view, undefined, undefined, undefined, !consumedSketches.has(feature.id));
       }
     }
@@ -2361,8 +2388,11 @@ export class CadViewportEngine {
         for(const id of ids)if(!conflictEntities.has(id)){conflictEntities.add(id);changed=true;}
       }
     }}
-    for (const entity of feature.sketch?.entities ?? []) {
-      if (entity.suppressed) continue;
+    const patternMembers=sourceView?.sketchPatternMembers?.[feature.id]??[];
+    const patternMemberIDs=new Set(patternMembers.map(entity=>entity.id));
+    const patternSeeds=new Set(feature.sketch?.patterns?.filter(pattern=>!pattern.suppressed).flatMap(pattern=>pattern.entityIds)??[]);
+    for (const entity of [...feature.sketch?.entities ?? [],...patternMembers]) {
+      if (entity.suppressed || this.activeSketchID!==feature.id && patternSeeds.has(entity.id)) continue;
       const type = entity.kind === "POINT" ? "POINT" as const : "CURVE" as const;
       const entitySelection = { kind: "visual" as const, id: `${context.occurrencePath || "root"}:${feature.id}:${entity.id}`, visualType: type,
         featureId: feature.id, entityId: entity.id, role: entity.role, documentId, ownerDocumentId:documentId,
@@ -2400,11 +2430,14 @@ export class CadViewportEngine {
         const markers=markerPoints.map(point=>localToWorld(plane,point));
         const endpointMarkers = new THREE.Points(new THREE.BufferGeometry().setFromPoints(markers),
           this.materials.point(CATIA_VISUAL_THEME.vertex, 8, false));
-        endpointMarkers.userData = { ...entitySelection, sketchEntityOverlay: true }; endpointMarkers.renderOrder = entity.role === "CONSTRUCTION" ? SKETCH_FEEDBACK_ORDER.constructionEndpoint : SKETCH_FEEDBACK_ORDER.endpoint; group.add(endpointMarkers);
+        endpointMarkers.userData = { ...entitySelection, sketchEntityOverlay: true,patternMember:patternMemberIDs.has(entity.id) }; endpointMarkers.renderOrder = entity.role === "CONSTRUCTION" ? SKETCH_FEEDBACK_ORDER.constructionEndpoint : SKETCH_FEEDBACK_ORDER.endpoint; group.add(endpointMarkers);
       }
       if (!object) continue;
-      object.userData = { ...entitySelection, sketchEntityOverlay: true }; group.add(object);
+      object.userData = { ...entitySelection, sketchEntityOverlay: true,patternMember:patternMemberIDs.has(entity.id) }; group.add(object);
       sketchEntityObjects.set(entity.id, object);
+      // Associated members are rendered from the accepted server projection;
+      // only their seed participates in solver-driven editing and drag inputs.
+      if(patternMemberIDs.has(entity.id)){object.renderOrder-=1;if(this.activeSketchID===feature.id)continue;}
       this.selectable.set(`visual:${entitySelection.id}`, object);
       this.selectionIndex.register(entitySelection, object);
       this.selectionIndex.registerPick(object, () => entitySelection, (type === "POINT" ? 75 : 70)+sketchGeometryPickPriority(entity.role));

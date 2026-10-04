@@ -210,6 +210,25 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		operations := make([]SketchOperation, 0, len(request.Operations)+12)
 		for index, operation := range request.Operations {
+			if operation.Pattern != nil && len(operation.PatternParameterExpressions) > 0 {
+				var model PartModel
+				if err := json.Unmarshal(modelJSON, &model); err != nil {
+					return "", nil, err
+				}
+				expressions := map[string]string{}
+				for key, value := range operation.PatternParameterExpressions {
+					expressions["pattern:"+key] = value
+				}
+				sources, err := featureParameterExpressions(model, Feature{Pattern: &FeaturePattern{PatternDefinition: operation.Pattern.PatternDefinition}}, expressions)
+				if err != nil {
+					return "", nil, err
+				}
+				operation.PatternParameterSources = map[string]modelcore.ValueSource{}
+				for key, value := range sources {
+					operation.PatternParameterSources[strings.TrimPrefix(key, "pattern:")] = value
+				}
+			}
+
 			if operation.Type == "ADD_EXTERNAL_GEOMETRY" || operation.Type == "RECONNECT_EXTERNAL_GEOMETRY" {
 				sourceVersionID := strings.TrimSpace(operation.SourceVersionID)
 				if sourceVersionID == "" {
@@ -387,7 +406,15 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 		}
 		if sketch == nil {
-			return "", nil, fmt.Errorf("%w: selected sketch does not exist", ErrValidation)
+			earlier := map[string]Feature{}
+			for _, f := range model.Features {
+				earlier[f.ID] = f
+			}
+			resolved, err := resolvePatternSketch(model, earlier, request.SketchID, request.ProfileMemberSlot)
+			if err != nil {
+				return "", nil, err
+			}
+			sketch = &resolved
 		}
 		if generator == "REVOLVE" {
 			if _, _, err := resolveRevolveAxis(model, *sketch, request.AxisEntityID); err != nil {
@@ -399,7 +426,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			prefix, label = "revolve", "Revolve"
 		}
 		feature := Feature{BodyID: request.BodyID, ID: commandEntityID(prefix, request.RequestID), Type: generator,
-			Name: numberedFeatureName(model.Features, generator, label), Profile: request.SketchID,
+			Name: numberedFeatureName(model.Features, generator, label), Profile: request.SketchID, ProfileMemberSlot: request.ProfileMemberSlot,
 			Length: request.Length, Angle: request.Angle, Extent: request.Extent, Length2: request.Length2, Operation: operation,
 			AxisEntityID: request.AxisEntityID, Reversed: request.Reversed}
 		parameterSources := map[string]modelcore.ValueSource{}
@@ -434,6 +461,30 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			break
 		}
 		return typeSetFeatureSuppression, featureSuppressionPayload{FeatureID: request.TargetID, ExpectedFeatureDigest: request.ExpectedFeatureDigest, Suppressed: *request.Suppressed}, nil
+	case "CREATE_PATTERN":
+		if documentType != "PART" || request.Feature == nil {
+			break
+		}
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		feature := *request.Feature
+		if feature.Type != "SKETCH_PATTERN" && feature.Type != "SOLID_PATTERN" || feature.Pattern == nil {
+			return "", nil, fmt.Errorf("%w: pattern definition required", ErrValidation)
+		}
+		feature.ID = commandEntityID("pattern", request.RequestID)
+		pattern := *feature.Pattern
+		pattern.ID = feature.ID
+		feature.Pattern = &pattern
+		if feature.Name == "" {
+			feature.Name = numberedFeatureName(model.Features, feature.Type, "Pattern")
+		}
+		sources, err := featureParameterExpressions(model, feature, request.ParameterExpressions)
+		if err != nil {
+			return "", nil, err
+		}
+		return typeCreatePattern, createFeaturePayload{Feature: feature, ParameterSources: sources}, nil
 	case "EDIT_FEATURE":
 		if documentType != "PART" {
 			break
@@ -1392,7 +1443,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			if err := json.Unmarshal(modelJSON, &model); err != nil {
 				return "", nil, err
 			}
-			if err := service.updatePartReferences(ctx, documentID, &model); err != nil {
+			if err := service.updatePartReferences(ctx, documentID, &model, request.AcceptedSourceRevisions); err != nil {
 				return "", nil, err
 			}
 			return typeUpdatePartReferences, updatePartReferencesPayload{Model: model}, nil
@@ -1412,14 +1463,18 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			if err != nil {
 				return "", nil, err
 			}
-			if plan.Digest != request.UpdatePlanDigest {
+			expected := request.UpdatePlanDigest
+			if request.ValidatedUpdatePlanDigest != "" {
+				expected = request.ValidatedUpdatePlanDigest
+			}
+			if plan.Digest != expected {
 				return "", nil, fmt.Errorf("%w: PRODUCT_UPDATE_PLAN_STALE", ErrValidation)
 			}
 			if !plan.CanAccept {
 				return "", nil, fmt.Errorf("%w: PRODUCT_UPDATE_BLOCKED", ErrValidation)
 			}
 		}
-		if err := service.updateProductReferences(ctx, &model); err != nil {
+		if err := service.updateProductReferences(ctx, &model, request.AcceptedSourceRevisions); err != nil {
 			return "", nil, err
 		}
 		return typeUpdateReferences, updateReferencesPayload{Model: model}, nil

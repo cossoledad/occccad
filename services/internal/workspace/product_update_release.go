@@ -160,6 +160,15 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 		}
 		plan.ContextVariants = append(plan.ContextVariants, variant)
 	}
+	plan.ParameterUpdates, err = service.productParameterUpdateOrder(ctx, rootModel)
+	if err != nil {
+		return ProductUpdatePlan{}, err
+	}
+	for _, node := range plan.ParameterUpdates {
+		if node.NeedsUpdate {
+			plan.HasUpdates = true
+		}
+	}
 	appendAssemblyUpdateDiagnostics(&plan, revisionID, rootModel.Constraints)
 
 	sort.Slice(plan.Entries, func(i, j int) bool { return plan.Entries[i].BindingID < plan.Entries[j].BindingID })
@@ -170,7 +179,8 @@ func (service *Service) GetProductUpdatePlan(ctx context.Context, rootDocumentID
 		Root, Revision string
 		Entries        []ProductUpdatePlanEntry
 		Variants       []ContextVariantSnapshot
-	}{rootDocumentID, revisionID, plan.Entries, plan.ContextVariants})
+		Parameters     []ParameterUpdateNode
+	}{rootDocumentID, revisionID, plan.Entries, plan.ContextVariants, plan.ParameterUpdates})
 	return plan, nil
 }
 

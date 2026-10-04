@@ -511,6 +511,15 @@ message ProfilePadSpec {
     Vec3 neutral_normal = 23;
     repeated LoftSectionSpec sections = 24;
     bool ruled = 25;
+    string pattern_source_feature_id = 26;
+    string pattern_source_kind = 27; // GENERATOR_TOOL | BODY_STAGE
+    repeated PatternPlacement pattern_placements = 28;
+    string pattern_result_mode = 29; // COMBINE | INDEPENDENT
+}
+
+message PatternPlacement {
+    uint32 slot = 1;
+    repeated double matrix = 2; // 3x4 row-major rigid transform; translation in mm
 }
 
 // ---------------------------------------------------------------------------

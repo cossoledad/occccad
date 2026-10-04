@@ -25,6 +25,9 @@ func deleteDatum(model PartModel, kind, id string) (json.RawMessage, modelcore.C
 		}
 	}
 	for _, f := range model.Features {
+		if f.Pattern != nil && f.Pattern.AxisEntityID == "DATUM_AXIS:"+id {
+			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is used by pattern %s", ErrValidation, f.ID)
+		}
 		if f.NeutralPlaneID == id || f.AxisEntityID == "DATUM_AXIS:"+id || f.Sketch != nil && f.Sketch.Support.DatumPlaneID == id {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is used by feature %s", ErrValidation, f.ID)
 		}
@@ -85,7 +88,7 @@ func applyFeatureSuppression(modelJSON, payloadJSON json.RawMessage) (json.RawMe
 		if f.ID != payload.FeatureID {
 			continue
 		}
-		if !isBodyFeature(f.Type) || f.Type == "IMPORT_BODY" {
+		if (!isBodyFeature(f.Type) && f.Type != "SKETCH_PATTERN") || f.Type == "IMPORT_BODY" {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: feature does not support suppression", ErrValidation)
 		}
 		before := featureHistoryDefinition(*f)

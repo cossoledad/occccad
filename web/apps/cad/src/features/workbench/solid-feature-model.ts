@@ -1,6 +1,6 @@
 import type { Feature } from "../../types";
 import { linearExtrudeLengthInput, parseParameterSource } from "./parameter-editor";
-const bodyFeatureTypes = new Set(["PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"]);
+const bodyFeatureTypes = new Set(["SOLID_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "IMPORT_BODY", "BOOLEAN", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"]);
 export const solidFeatureNames: Record<string, string> = { FILLET: "圆角", CHAMFER: "倒角", DRAFT: "拔模", SHELL: "抽壳", LOFT: "放样", REVOLVE: "旋转", PAD: "拉伸", LINEAR_EXTRUDE: "拉伸" };
 export function booleanInputStages(features: Feature[], editedId?: string): Feature[] {
     const boundary = editedId ? features.findIndex(feature => feature.id === editedId) : features.length;
@@ -49,4 +49,15 @@ export function solidGeneratorParameters(values: {generator: string; extent?: Fe
     if(input.expression)result.parameterExpressions.length2=input.expression;
   }
   return result;
+}
+
+// A spatial pattern is one Feature with explicitly addressed members. Picking
+// it again adds its next available slot, never a duplicate implicit profile.
+export function pickLoftSection(sections: NonNullable<Feature["sections"]>, source: Feature): NonNullable<Feature["sections"]> {
+  if(source.type!=="SKETCH_PATTERN") return sections.some(s=>s.sketchId===source.id)?sections.filter(s=>s.sketchId!==source.id):[...sections,{sketchId:source.id}];
+  const pattern=source.pattern;
+  if(!pattern)return sections;
+  const used=new Set(sections.filter(s=>s.sketchId===source.id).map(s=>s.memberSlot));
+  for(let slot=0;slot<pattern.count;slot++)if(!used.has(slot)&&!pattern.skippedSlots?.includes(slot))return [...sections,{sketchId:source.id,memberSlot:slot}];
+  return sections;
 }

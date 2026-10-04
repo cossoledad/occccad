@@ -1334,6 +1334,19 @@ public:
                 pad.body_id = input.body_id();
                 pad.input_feature_id = input.input_feature_id();
                 pad.profile_feature_id = input.profile_feature_id();
+                pad.pattern_source_feature_id = input.pattern_source_feature_id();
+                pad.pattern_source_kind = input.pattern_source_kind();
+                pad.pattern_result_mode = input.pattern_result_mode();
+                if (input.pattern_placements_size() > 256)
+                    throw std::invalid_argument("PATTERN_MEMBER_BUDGET");
+                for (const auto& placement : input.pattern_placements()) {
+                    if (placement.matrix_size() != 12)
+                        throw std::invalid_argument("PATTERN_TRANSFORM_REQUIRED");
+                    occccad::kernel::PatternPlacement member;
+                    member.slot = placement.slot();
+                    std::copy(placement.matrix().begin(), placement.matrix().end(), member.matrix.begin());
+                    pad.pattern_placements.push_back(member);
+                }
                 pad.pad_length = input.pad_length();
                 pad.plane = input.plane().empty() ? "XY" : input.plane();
                 pad.body_operation =

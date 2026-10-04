@@ -406,8 +406,14 @@ func (server *Server) acceptProductUpdatePlan(writer http.ResponseWriter, reques
 	if !decodeJSON(writer, request, &input) {
 		return
 	}
-	result, err := server.workspace.ApplyCommand(request.Context(), request.PathValue("documentID"), workspace.CommandRequest{
-		RequestID: input.RequestID, Type: "UPDATE_REFERENCES", UpdatePlanDigest: input.Digest, ActorID: principal(request).ID})
+	result, err := server.workspace.AcceptParametricProductUpdate(request.Context(), request.PathValue("documentID"), input.RequestID, input.Digest, principal(request).ID, func(id string, write bool) error {
+		role := access.RoleViewer
+		if write {
+			role = access.RoleEditor
+		}
+		_, err := server.access.RequireDocument(request.Context(), id, principal(request).ID, role)
+		return err
+	})
 	server.writeDocumentResult(writer, request, result, err)
 }
 

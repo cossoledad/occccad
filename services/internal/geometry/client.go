@@ -65,6 +65,9 @@ type LoftSection struct {
 	SeamAngle                  float64
 }
 type ProfilePad struct {
+	PatternResultMode                                   string
+	PatternSourceFeatureID, PatternSourceKind           string
+	PatternPlacements                                   []PatternPlacement
 	Sections                                            []LoftSection
 	Ruled                                               bool
 	Selections                                          []modelcore.SemanticTopologyRef
@@ -79,6 +82,11 @@ type ProfilePad struct {
 	PlaneOrigin, PlaneNormal, PlaneUDirection           [3]float64
 	Plane, BodyOperation, Generator                     string
 	Reversed                                            bool
+}
+
+type PatternPlacement struct {
+	Slot   uint32
+	Matrix [12]float64
 }
 
 func topologyNamingPolicyProto() *workerv1.TopologyNamingPolicy {
@@ -101,6 +109,11 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 			BodyOperation: pad.BodyOperation, Generator: pad.Generator, RevolveAngle: pad.RevolveAngle,
 			AxisStart: &workerv1.Vec2{X: pad.AxisStart[0], Y: pad.AxisStart[1]},
 			AxisEnd:   &workerv1.Vec2{X: pad.AxisEnd[0], Y: pad.AxisEnd[1]}, Reversed: pad.Reversed}
+		value.PatternSourceFeatureId, value.PatternSourceKind = pad.PatternSourceFeatureID, pad.PatternSourceKind
+		value.PatternResultMode = pad.PatternResultMode
+		for _, placement := range pad.PatternPlacements {
+			value.PatternPlacements = append(value.PatternPlacements, &workerv1.PatternPlacement{Slot: placement.Slot, Matrix: append([]float64(nil), placement.Matrix[:]...)})
+		}
 		for _, tool := range pad.Tools {
 			value.Tools = append(value.Tools, &workerv1.BodyToolInput{Brep: artifactProto(tool.BRep), Naming: artifactProto(tool.Naming), BodyId: tool.BodyID, FeatureId: tool.FeatureID})
 		}

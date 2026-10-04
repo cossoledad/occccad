@@ -80,20 +80,34 @@ func applyUpdatePartReferences(modelJSON, payloadJSON json.RawMessage) (json.Raw
 // updatePartReferences builds a fully resolved frozen candidate outside the
 // commit transaction. The normal Workspace CAS rejects it if the consumer
 // Head changed while source Publications were being resolved.
-func (service *Service) updatePartReferences(ctx context.Context, documentID string, model *PartModel) error {
+func (service *Service) updatePartReferences(ctx context.Context, documentID string, model *PartModel, accepted ...map[string]string) error {
+	var revisions map[string]string
+	if len(accepted) > 0 {
+		revisions = accepted[0]
+	}
 	for index := range model.Parameters {
 		parameter := &model.Parameters[index]
 		current := parameter.Source.External
 		if current == nil || current.Revision.Mode == "PINNED" {
 			continue
 		}
-		updated, err := service.resolveExternalParameterRefWithMode(ctx, documentID, current.SourceDocumentID, "",
+		sourceRevision := ""
+		if revisions != nil {
+			sourceRevision = revisions[current.SourceDocumentID]
+			if sourceRevision == "" {
+				return fmt.Errorf("%w: PARAMETER_UPDATE_SOURCE_NOT_PLANNED", ErrValidation)
+			}
+		}
+		updated, err := service.resolveExternalParameterRefWithMode(ctx, documentID, current.SourceDocumentID, sourceRevision,
 			current.PublicationID, current.Revision.Mode, *parameter, *model)
 		if err != nil {
 			return fmt.Errorf("update external parameter %s: %w", parameter.ParameterID, err)
 		}
 		parameter.Source.External = &updated
 	}
+	if revisions != nil {
+		return nil
+	} // This batch accepts parameter publications only.
 	for index := range model.ContextReferences {
 		if model.ContextReferences[index].ReferenceMode == "PINNED" || model.ContextReferences[index].ReferenceMode == "ISOLATED" {
 			continue

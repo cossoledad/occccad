@@ -15,6 +15,20 @@
 
 `Body` 身份不随材料连通性改变。Boolean 默认消耗工具的最终输出，`keepTools` 可保留它；定义、制品和历史始终保留。派生 `consumed` 与 `visible` 独立，视口/拾取、Product 展开和 STEP 导出遵循输出状态。抑制 Boolean 恢复工具输出。
 
+## 参数化阵列
+
+`CREATE_PATTERN` 创建 `SOLID_PATTERN` 或 `SKETCH_PATTERN`；编辑、预览、抑制、删除、补偿历史和 per-Body 制品沿用 Feature 链。共同定义为稳定源引用、`PatternDefinition` 分布及逻辑槽位；控制面只计算刚体变换，三类几何分别求值。长度、角度、相位、数量使用既有 Quantity、ParameterID 和 checkedAST，不由浏览器逐成员发命令。
+
+数量包含槽位 0，求值后必须是 1–256 的整数。线性支持固定步距和总跨度；圆周另支持整圆均布（步角为 360/N，不生成重复终点）。数量为 1 不除以零。跳过成员不重新编号；暂时超出当前数量的跳过槽位保留，恢复数量后仍跳过。成员身份来自 PatternId、槽位、源身份；位置和显示顺序不参与身份。成员消失后的下游引用明确失败，不按相近几何改绑。
+
+- `GENERATOR_TOOL` 复用同 Body 明确上游拉伸/旋转生成工具。切除阵列变换切削工具，再与当前上游 Body 做差，不复制已经打孔的主体。有限、对称、双侧拉伸及有限旋转可复用；贯穿及其他逐位置重新求值不支持。
+- `BODY_STAGE` 复用指定上游实体阶段。`COMBINE` 使用现有布尔；添加材料可选择 `INDEPENDENT`，在同一 Body 保留独立 Solid，不按数量创建 Body/Part。槽位 0 是已存在的上游种子，不能跳过或由阵列相位搬移；实体阵列的相位应设在种子参数上。草图和空间草图阵列可直接设置相位、跳过槽位 0。
+- `SKETCH_FRAME` 复用已求值二维草图与变换后框架，正式 Profile 引用保存阵列 FeatureId 和 `profileMemberSlot`；放样截面分别保存 `memberSlot`。同一阵列的多个成员可作为不同截面，不新增三维草图求解器或文档。普通显示使用同一制品链的曲线投影。
+
+内核仅留存被引用的工具/实体阶段，复用种子几何，以 `BRepBuilderAPI_Transform` 真实历史合成 Boolean/同域合并 Naming。拓扑预算为源命名输出数乘成员数不超过 100000；成员身份稳定不保证布尔后的面永不分裂，仍执行完整性、缺失与歧义门禁。路径阵列、逐成员变尺寸、任意局部特征重执行未包含。
+
+入口：Part 和草图工具栏的线性/圆周阵列；空间草图成员槽位在拉伸、旋转及放样面板中明确选择。实体与空间草图在树中编辑/抑制/删除；草图内阵列在草图阵列面板中编辑、抑制、删除或解除关联。
+
 ## 阶段、命名与历史
 
 依赖连接上游 Feature 输出，而不连接 Body 的未来最终结果。局部修改先重建自身之前的 Body 前缀，再以保存的 source Revision、Body 和 PersistentSelection 解析当前输入。缺失、歧义或类型变化必须失败，不能用最近几何或持久化 local ID 恢复。显示层的 local pick 只用于创建正式持久选择。
@@ -50,6 +64,7 @@ Feature 定义编辑保持稳定 ID、顺序和名称；生成和局部修改保
 - `kernel/occt/tests/geometry_exchange_scenarios.cpp` 的抽壳回归：大倒角、全棱圆角、倒角后底棱圆角及矩形到圆放样，检查开口、壁厚两侧材料分类、逐面网格覆盖、上游不可变与冷重算历史。
 - `services/internal/geometry/shell_worker_integration_test.go`：真实 Worker 的全棱圆角与矩形到圆放样后抽壳，检查阶段面引用、完整 Naming 与 BREP/GLB 制品。
 - `services/internal/geometry/corner_fillet_worker_integration_test.go`：真实 Worker RPC 的倒角 1 → 双边圆角 1/1.5/2，按阶段 Naming 绑定原边，检查完整历史及 BREP/GLB 制品。
+- 阵列定向入口：`kernel/occt/tests/geometry_exchange_scenarios.cpp` 的 `PatternCutReusesToolAndPreservesMemberNames`；`services/internal/workspace/pattern_test.go`、`parameter_update_plan_test.go`；真实 Worker 的 `services/internal/geometry/pattern_worker_integration_test.go`；真实 Router 的 `services/internal/control/parametric_pattern_integration_test.go`。后者需要独立测试数据库，覆盖共享参数、显式接受、成员面引用、失败恢复、历史和 occurrence 位姿。
 - `services/internal/workspace/solid_feature_test.go`：阶段合法性、参数生命周期、定义编辑和补偿。
 - `services/internal/control/solid_feature_integration_test.go`：真实 Router/Worker、预览、三条建模链、上游修改、失败恢复与保存重开。
 - `web/apps/cad/browser/solid-feature-live.spec.ts`：真实 API/Router/Worker 下的视图区布尔工具拾取/取消及消耗工具编辑恢复、倒角预选/编辑阶段拾取/失败预览恢复、矩形到圆放样、单条草图轴线旋转、自动预览、精确体积和页面重开；通过 `playwright.live.config.ts` 启动 API 模式前端，需运行应用及配置登录。

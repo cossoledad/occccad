@@ -161,7 +161,7 @@ func datumSupportFrame(model PartModel, support SketchSupport) ([3]float64, [3]f
 }
 
 func supportFrame(model PartModel, support SketchSupport) ([3]float64, [3]float64, [3]float64, bool) {
-	if support.Type == "PLANAR_FACE" {
+	if support.Type == "PLANAR_FACE" || support.Type == "PATTERN_FRAME" {
 		origin, xDirection, normal, err := validatedSupportFrame(support.Origin, support.XDirection, support.Normal)
 		return origin, xDirection, normal, err == nil && support.Status != "FAILED_SUPPORT"
 	}

@@ -7,6 +7,7 @@
 #define OCCCCAD_KERNEL_HPP
 
 #include <cstdint>
+#include <array>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -156,7 +157,14 @@ struct LoftSectionSpec {
     bool reversed{};
     double seam_angle{};
 };
+struct PatternPlacement {
+    std::uint32_t slot{};
+    std::array<double, 12> matrix{};
+};
 struct ProfilePadSpec {
+    std::string pattern_source_feature_id, pattern_source_kind;
+    std::string pattern_result_mode;
+    std::vector<PatternPlacement> pattern_placements;
     std::vector<ProfileRegionSpec> regions;
     double pad_length{};
     std::string plane{"XY"};

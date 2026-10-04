@@ -111,10 +111,14 @@ export type DocumentProperties = {
   worker: { available: boolean; workerId?: string; occtVersion?: string; residentGeometryCount?: number; error?: string };
 };
 
+export type PatternDefinition = { axisEntityId?:string; id:string; kind:"LINEAR"|"CIRCULAR"; distribution:"FIXED_STEP"|"TOTAL_SPAN"|"FULL_CIRCLE"; count:number; spacing?:number; angle?:number; phase?:number; origin:Vec3; direction:Vec3; skippedSlots?:number[]; suppressed?:boolean };
+export type SketchPattern = PatternDefinition & {entityIds:string[]};
 export type Feature = {
+  pattern?:PatternDefinition & {resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"};
+  profileMemberSlot?:number;
   evaluationStatus?: "FAILED" | "BLOCKED" | "SUPPRESSED";
   diagnostic?: string;
-  sections?:{sketchId:string;reversed?:boolean;seamEntityId?:string;seamAngle?:number}[];
+  sections?:{sketchId:string;memberSlot?:number;reversed?:boolean;seamEntityId?:string;seamAngle?:number}[];
   ruled?:boolean;
   selections?:{selection:PersistentSelection;sourceVersionId:string;sourceFeatureId?:string}[];
   neutralPlaneId?:string;
@@ -128,7 +132,7 @@ export type Feature = {
   visible?: boolean;
   importDefinitionId?: string;
   id: string;
-  type: "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT";
+  type: "SKETCH_PATTERN" | "SOLID_PATTERN" | "SKETCH" | "sketch" | "PAD" | "pad" | "LINEAR_EXTRUDE" | "REVOLVE" | "IMPORT_BODY" | "BOOLEAN" | "FILLET" | "CHAMFER" | "DRAFT" | "SHELL" | "LOFT";
   name?: string;
   plane?: PlaneName | "CUSTOM";
   sketch?: SketchFeature;
@@ -157,8 +161,8 @@ export type SketchSupport = { type: "DATUM_PLANE" | "PLANAR_FACE"; datumPlaneId?
   persistentSelection?: PersistentSelection; sourceVersionId?: string; origin?: Vec3; xDirection?: Vec3; normal?: Vec3;
   orientationRule?: string; status?: "CONNECTED" | "FAILED_SUPPORT"; diagnosticCode?: string; diagnostic?: string;
   dependencySnapshot?: { geometryKey: string; manifestDigest: string; policyDigest: string; evidenceDigest?: string } };
-export type SketchFeature = { schemaVersion: 2; support: SketchSupport; entities: SketchEntity[]; externalGeometry?:SketchExternalGeometry[]; constraints: SketchConstraint[]; solve: { status: string; definitionStatus?: "FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED"; degreesOfFreedom: number; diagnostic?: string; conflictingConstraintIds?: string[]; redundantConstraintIds?: string[]; components?: Array<{entityIds:string[];constraintIds:string[];status:string;definitionStatus?:"FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED";degreesOfFreedom:number}> } };
-export type SketchOperation = { type: "ADD_ENTITY"; entity: SketchEntity } | { type: "ADD_CONSTRAINT"; constraint: SketchConstraint; parameterSource?: string; parameterKey?: string }
+export type SketchFeature = { patterns?:SketchPattern[]; schemaVersion: 2; support: SketchSupport; entities: SketchEntity[]; externalGeometry?:SketchExternalGeometry[]; constraints: SketchConstraint[]; solve: { status: string; definitionStatus?: "FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED"; degreesOfFreedom: number; diagnostic?: string; conflictingConstraintIds?: string[]; redundantConstraintIds?: string[]; components?: Array<{entityIds:string[];constraintIds:string[];status:string;definitionStatus?:"FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED";degreesOfFreedom:number}> } };
+export type SketchOperation = {type:"CREATE_PATTERN"|"EDIT_PATTERN";pattern:SketchPattern;patternId?:string;patternParameterExpressions?:Record<string,string>} | {type:"DELETE_PATTERN"|"DETACH_PATTERN";patternId:string} | { type: "ADD_ENTITY"; entity: SketchEntity } | { type: "ADD_CONSTRAINT"; constraint: SketchConstraint; parameterSource?: string; parameterKey?: string }
   | { type: "UPDATE_CONSTRAINT"; constraintId: string; constraint: SketchConstraint; parameterSource?: string; parameterKey?: string; restoreMode?: "ORIGINAL" | "MEASUREMENT" }
   | {type:"ADD_EXTERNAL_GEOMETRY";externalId:string;geometryKey:string;topologyId:number;topologyKind:"EDGE"|"VERTEX";sourceVersionId:string}
   | {type:"RECONNECT_EXTERNAL_GEOMETRY";externalId:string;geometryKey:string;topologyId:number;topologyKind:"EDGE"|"VERTEX";sourceVersionId:string}
@@ -385,6 +389,7 @@ export type SketchProfileAnalysis = {
 };
 
 export type DocumentView = {
+  sketchPatternMembers?:Record<string,SketchEntity[]>;
   document: DocumentSummary;
   sketchAnalyses?: Record<string, SketchProfileAnalysis>;
   datumPlanes?: DatumPlane[];
@@ -460,6 +465,7 @@ export type ProductUpdatePlanEntry = {kind:"CONTEXT_BINDING"|"OCCURRENCE_REFEREN
   currency:"CURRENT"|"UPDATE_AVAILABLE"|"UPDATE_BLOCKED";evaluation:"READY"|"FAILED"|"BLOCKED_BY_UPSTREAM";
   diagnosticCode?:string;diagnostic?:string};
 export type ProductUpdatePlan = {rootProductDocumentId:string;rootProductRevisionId:string;digest:string;canAccept:boolean;
+  parameterUpdates?:Array<{documentId:string;revisionId:string;needsUpdate:boolean;dependencies?:string[]}>;
   hasUpdates:boolean;entries:ProductUpdatePlanEntry[];contextVariants:ContextVariantSnapshot[];affectedConstraintIds?:string[]};
 export type ProductReleaseGate = {code:string;status:"PASSED"|"FAILED";diagnostic?:string};
 export type ProductRelease = {id:string;name:string;createdAt:string;manifest:{schemaVersion:number;digest:string;

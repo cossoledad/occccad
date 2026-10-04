@@ -933,7 +933,7 @@ export function Workbench() {
   const openFeatureEditor = (node: SpecificationTreeNode) => {
     if (!editingView || !node.entityId || !node.definitionDigest || !node.capabilities?.includes("EDIT")) return;
     const feature = editingView.part?.features.find(candidate => candidate.id === node.entityId);
-    if (feature && ["PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase())) {
+    if (feature && ["SOLID_PATTERN", "SKETCH_PATTERN", "PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase())) {
       setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature, digest: node.definitionDigest});
     } else if (feature?.type === "BOOLEAN") {
       setDatumEditor(undefined);setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({feature, digest: node.definitionDigest});
@@ -1016,6 +1016,10 @@ export function Workbench() {
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && !command.isPending) }),
       ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,defaultSketchToolMode(toolID,invocation?.continuous)),
         isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane&&(toolID!=="sketch.project"||!selectedNamingIssue)),isActive:()=>store.activeToolID===toolID})),
+      ...(["LINEAR","CIRCULAR"] as const).map(kind=>commandRegistry.register({id:`part.pattern.${kind.toLowerCase()}`,execute:()=>{
+        setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");
+        setSolidEditor({feature:{id:"",type:store.activeSketchID?"SKETCH":"SOLID_PATTERN",profile:store.activeSketchID,bodyId:workingBodyID,operation:"ADD",pattern:{id:"",kind,distribution:kind==="CIRCULAR"?"FULL_CIRCLE":"FIXED_STEP",count:6,spacing:10,angle:90,phase:0,origin:[0,0,0],direction:kind==="CIRCULAR"?[0,0,1]:[1,0,0],sourceKind:store.activeSketchID?"SKETCH_FRAME":"GENERATOR_TOOL",source:{bodyId:workingBodyID??"",featureId:store.activeSketchID??""}}}});
+      },isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>Boolean(canEdit&&!command.isPending)})),
       commandRegistry.register({id:"part.loft",execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"LOFT",bodyId:workingBodyID,operation:"NEW_BODY",sections:[]}});},isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>!command.isPending&&!store.activeSketchID}),
       ...(["FILLET","CHAMFER","DRAFT","SHELL"] as const).map(type=>commandRegistry.register({id:`part.${type.toLowerCase()}`, execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type,bodyId:store.selection?.bodyId??workingBodyID,length:1,angle:5,neutralPlaneId:"datum-xy",selections:[]}});},isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>!command.isPending&&!store.activeSketchID})),
       commandRegistry.register({ id: "part.boolean", execute: () => {setDatumEditor(undefined);setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({});}, isVisible: () => editingView?.document.type === "PART", isEnabled: () => !command.isPending && !store.activeSketchID }),
@@ -1465,6 +1469,10 @@ export function Workbench() {
             viewport.current?.focusAssemblyReference({instanceId:id,kind:"BODY"},activeInstancePath);}}
           onAnalyze={ids=>void analyzeConflicts(ids)} onStop={stopConflictAnalysis}
           onClose={()=>{viewport.current?.showRemainingMotion();stopConflictAnalysis();setConflictOpen(false);}} onLocate={locateConflictMember} onRepair={repairConflictMember}/>
+        {view.document.type==="PRODUCT"&&productUpdatePlan.data?.parameterUpdates?.some(node=>node.needsUpdate)&&!productUpdateFailure&&<Alert
+          style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)"}}
+          type="info" showIcon message="共享参数有待接受的更新"
+          action={<Button size="small" disabled={!canEditRoot||command.isPending||!productUpdatePlan.data.canAccept} onClick={()=>command.mutate(()=>api.acceptProductUpdatePlan(documentID,productUpdatePlan.data!.digest))}>更新关联零件</Button>}/>}
         {view.document.type === "PRODUCT" && (productUpdateFailure || productUpdatePlan.data?.hasUpdates && !productUpdatePlan.data.canAccept) && <Alert
           style={{position:"absolute",zIndex:12,top:12,left:"50%",transform:"translateX(-50%)",minWidth:420}}
           type="error" showIcon message="自动跟随最新版本被阻塞"
@@ -1796,7 +1804,7 @@ export function Workbench() {
       onInsertDocuments={(ids) => command.mutateAsync(() => api.insertMany(activeID, ids))} />}
     {solidEditor && editingView?.part && <SolidFeatureEditor key={editingView.document.id+solidEditor.feature.id+solidEditor.feature.type} view={editingView} feature={solidEditor.feature} digest={solidEditor.digest} unit={lengthUnit} seed={store.selections} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onSelectionSession={setFeatureSelection} onInputArtifact={featureInputChanged}
       onClose={()=>{viewport.current?.clearCommandPreview();setSolidEditor(undefined);}}
-      onPreview={(artifact,operation)=>{if(artifact)viewport.current?.previewArtifact(artifact,operation);else viewport.current?.clearCommandPreview();}}
+      onPreview={(artifact,operation,sketchFeatureId)=>{if(artifact)viewport.current?.previewArtifact(artifact,operation,sketchFeatureId);else viewport.current?.clearCommandPreview();}}
       onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))} />}
     {booleanDialog && editingView?.part && <BooleanFeatureDialog key={editingView.document.id+":"+(booleanDialog.feature?.id??"new")} view={editingView} initial={booleanDialog.feature} digest={booleanDialog.digest} bodyId={workingBodyID} seed={store.selections} occurrencePath={activeInstancePath} occurrenceContext={featureOccurrenceContext} onSelectionSession={setFeatureSelection} onInputArtifacts={setFeatureInputs}
       onClose={()=>{viewport.current?.clearCommandPreview();setBooleanDialog(undefined);}}

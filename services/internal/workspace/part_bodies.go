@@ -86,6 +86,16 @@ func bodyModel(m PartModel, id string) PartModel {
 			}
 		}
 	}
+	// Spatial members carry a transitive dependency on their evaluated seed.
+	for i := len(m.Features) - 1; i >= 0; i-- {
+		f := m.Features[i]
+		if (f.BodyID == id || needed[f.ID]) && f.Pattern != nil {
+			needed[f.Pattern.Source.FeatureID] = true
+			if axis := strings.Split(f.Pattern.AxisEntityID, ":"); len(axis) == 3 && axis[0] == "SKETCH_LINE" {
+				needed[axis[1]] = true
+			}
+		}
+	}
 	for _, f := range m.Features {
 		if f.BodyID == id || needed[f.ID] {
 			out.Features = append(out.Features, f)
@@ -102,7 +112,7 @@ func bodyModel(m PartModel, id string) PartModel {
 func ownedSketchIDs(m PartModel, bodyID string) []string {
 	var ids []string
 	for _, feature := range m.Features {
-		if feature.BodyID == bodyID && feature.Sketch != nil {
+		if feature.BodyID == bodyID && (feature.Sketch != nil || feature.Type == "SKETCH_PATTERN") {
 			ids = append(ids, feature.ID)
 		}
 	}

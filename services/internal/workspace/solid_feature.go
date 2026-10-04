@@ -18,7 +18,7 @@ func isLocalModifier(kind string) bool {
 }
 
 func isBodyFeature(kind string) bool {
-	return kind == "LOFT" || isLocalModifier(kind) || isSolidGenerator(kind) || kind == "IMPORT_BODY" || kind == "BOOLEAN"
+	return kind == "SOLID_PATTERN" || kind == "LOFT" || isLocalModifier(kind) || isSolidGenerator(kind) || kind == "IMPORT_BODY" || kind == "BOOLEAN"
 }
 
 func validateSolidStage(f Feature, earlier map[string]Feature) error {
@@ -29,10 +29,10 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 		seen := map[string]bool{}
 		for _, section := range f.Sections {
 			sketch, ok := earlier[section.SketchID]
-			if !ok || sketch.Sketch == nil || seen[section.SketchID] || math.IsNaN(section.SeamAngle) || math.IsInf(section.SeamAngle, 0) {
+			if !ok || (sketch.Sketch == nil && sketch.Type != "SKETCH_PATTERN") || seen[loftSectionIdentity(section)] || math.IsNaN(section.SeamAngle) || math.IsInf(section.SeamAngle, 0) {
 				return fmt.Errorf("%w: invalid loft section", ErrValidation)
 			}
-			seen[section.SketchID] = true
+			seen[loftSectionIdentity(section)] = true
 		}
 		if f.Operation != "ADD" && f.Operation != "REMOVE" && f.Operation != "INTERSECT" && f.Operation != "NEW_BODY" {
 			return fmt.Errorf("%w: invalid loft operation", ErrValidation)
@@ -120,7 +120,7 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 }
 
 func editSolidDefinition(model PartModel, current *Feature, replacement Feature, sources map[string]modelcore.ValueSource) (json.RawMessage, modelcore.ChangeSet, error) {
-	if current == nil || !isBodyFeature(current.Type) || current.Type == "IMPORT_BODY" || replacement.Type != current.Type {
+	if current == nil || (!isBodyFeature(current.Type) && current.Type != "SKETCH_PATTERN") || current.Type == "IMPORT_BODY" || replacement.Type != current.Type {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: unsupported Feature definition edit", ErrValidation)
 	}
 	// Identity and history position belong to the existing feature. Target is an explicit input.
@@ -152,7 +152,23 @@ func editSolidDefinition(model PartModel, current *Feature, replacement Feature,
 		case "angle":
 			oldValue, newValue = before.Angle, replacement.Angle
 		default:
-			continue
+			found := false
+			if replacement.Pattern != nil && before.Pattern != nil {
+				for _, p := range patternParameters(&replacement.Pattern.PatternDefinition) {
+					if slot == "pattern:"+p.slot {
+						newValue = p.value
+						found = true
+					}
+				}
+				for _, p := range patternParameters(&before.Pattern.PatternDefinition) {
+					if slot == "pattern:"+p.slot {
+						oldValue = p.value
+					}
+				}
+			}
+			if !found {
+				continue
+			}
 		}
 		if oldValue != newValue {
 			quantity, err := modelcore.NewQuantity(newValue, parameter.DisplayUnit)
@@ -247,7 +263,18 @@ func featureParameterExpressions(model PartModel, feature Feature, expressions m
 		if slot == "angle" {
 			dimension = modelcore.AngleDimension
 		} else if slot != "length" && slot != "length2" {
-			return nil, fmt.Errorf("%w: unknown feature parameter", ErrValidation)
+			found := false
+			if feature.Pattern != nil {
+				for _, p := range patternParameters(&feature.Pattern.PatternDefinition) {
+					if slot == "pattern:"+p.slot {
+						dimension = p.dimension
+						found = true
+					}
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("%w: unknown feature parameter", ErrValidation)
+			}
 		}
 		qualified, err := resolveQualifiedParameterSource(model, text)
 		if err != nil {
@@ -364,6 +391,12 @@ func featureHistoryDefinition(feature Feature) Feature {
 
 func featureInputIDs(feature Feature) []string {
 	var ids []string
+	if feature.Pattern != nil {
+		ids = append(ids, feature.Pattern.Source.FeatureID)
+		if axis := strings.Split(feature.Pattern.AxisEntityID, ":"); len(axis) == 3 && axis[0] == "SKETCH_LINE" {
+			ids = append(ids, axis[1])
+		}
+	}
 	if feature.Profile != "" {
 		ids = append(ids, feature.Profile)
 	}
@@ -408,9 +441,6 @@ func (s *Service) prepareLoftDefinition(ctx context.Context, requestID string, m
 	feature.Sections = append([]LoftSection(nil), feature.Sections...)
 	for i := range feature.Sections {
 		section := &feature.Sections[i]
-		if section.SeamEntityID != "" {
-			continue
-		}
 		var sketch *Feature
 		for j := range model.Features {
 			if model.Features[j].ID == section.SketchID {
@@ -418,8 +448,39 @@ func (s *Service) prepareLoftDefinition(ctx context.Context, requestID string, m
 				break
 			}
 		}
+		if sketch != nil && sketch.Type == "SKETCH_PATTERN" {
+			earlier := map[string]Feature{}
+			for _, f := range model.Features {
+				if f.ID == feature.ID {
+					break
+				}
+				earlier[f.ID] = f
+			}
+			resolved, err := resolvePatternSketch(model, earlier, section.SketchID, section.MemberSlot)
+			if err != nil {
+				return err
+			}
+			sketch = &resolved
+		}
 		if sketch == nil || sketch.Sketch == nil {
 			return fmt.Errorf("%w: loft section missing", ErrValidation)
+		}
+		if section.SeamEntityID != "" {
+			// Display members namespace their source entity IDs. Bind the picked
+			// entity only within the explicitly selected slot, never by proximity.
+			if section.MemberSlot != nil {
+				entities, err := evaluatedSketchPatternEntities(*sketch.Sketch)
+				if err != nil {
+					return err
+				}
+				for _, entity := range entities {
+					if patternMemberID(section.SketchID, *section.MemberSlot, entity.ID) == section.SeamEntityID {
+						section.SeamEntityID = entity.ID
+						break
+					}
+				}
+			}
+			continue
 		}
 		regions, err := s.buildExactProfileRegions(ctx, *sketch, requestID+"/loft-seam/"+sketch.ID)
 		if err != nil {
@@ -445,4 +506,11 @@ func (s *Service) prepareLoftDefinition(ctx context.Context, requestID string, m
 		}
 	}
 	return nil
+}
+
+func loftSectionIdentity(section LoftSection) string {
+	if section.MemberSlot == nil {
+		return section.SketchID
+	}
+	return fmt.Sprintf("%s/member/%d", section.SketchID, *section.MemberSlot)
 }

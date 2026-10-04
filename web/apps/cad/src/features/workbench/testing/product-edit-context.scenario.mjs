@@ -48,3 +48,9 @@ await assert.rejects(() => context.followProductUpdates({ ...view, followedProdu
   async getDocument() { assert.fail("read after blocked plan"); },
 }), /actual upstream failure/);
 console.log("Domain-driven Product update and pinned reference tests passed");
+
+assert.deepEqual(await context.followProductUpdates({...view,followedProductIds:[]},{
+ async getProductUpdatePlan(){return {hasUpdates:true,canAccept:true,parameterUpdates:[{documentId:"fan",needsUpdate:true}],entries:[]};},
+ async acceptProductUpdatePlan(){assert.fail("background following must not commit shared parameter changes");},
+ async getDocument(){assert.fail("no version was accepted");},
+}),[]);
