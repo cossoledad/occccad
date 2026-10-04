@@ -17,7 +17,7 @@ import (
 
 func main() {
 	resetDevelopmentData := flag.Bool("reset-development-data", false,
-		"delete the occccad schema, local staging and configured ArtifactStore before migrating")
+		"clear the configured development database, local staging and ArtifactStore before migrating")
 	flag.Parse()
 	ctx := context.Background()
 	shutdown, err := observability.Initialize(ctx, "occccad-migrate")
@@ -31,37 +31,61 @@ func main() {
 		os.Exit(1)
 	}
 	configuration := config.Load()
-	pool, err := database.Open(ctx, configuration.DatabaseURL)
-	if err == nil {
-		defer pool.Close()
-		if *resetDevelopmentData {
-			if os.Getenv("OCCCCAD_ALLOW_DEV_RESET") != "1" {
-				err = errors.New("development reset requires OCCCCAD_ALLOW_DEV_RESET=1")
-			} else {
-				var artifactDirectory string
-				artifactDirectory, err = validateArtifactDirectory(configuration.DataDirectory)
-				if err == nil {
-					err = resetConfiguredArtifacts(ctx, artifactDirectory)
-					if err == nil {
-						var databaseName string
-						databaseName, err = database.ResetDevelopmentSchema(ctx, pool)
-						if err == nil {
-							slog.Warn("development data cleared", "database", databaseName,
-								"schema", "occccad", "artifact_directory", artifactDirectory)
-						}
-					}
-				}
-			}
-		}
-	}
-	if err == nil {
-		err = database.Migrate(ctx, pool)
-	}
+	err = migrateConfiguredDatabase(ctx, configuration, *resetDevelopmentData)
 	if err != nil {
 		slog.Error("database migration failed", "error", err)
 		os.Exit(1)
 	}
 	slog.Info("database migrations are up to date")
+}
+
+// Close before deleting local storage: the SQLite database can live inside it.
+func migrateConfiguredDatabase(ctx context.Context, configuration config.Config, reset bool) error {
+	if reset && os.Getenv("OCCCCAD_ALLOW_DEV_RESET") != "1" {
+		return errors.New("development reset requires OCCCCAD_ALLOW_DEV_RESET=1")
+	}
+	pool, err := database.Open(ctx, configuration.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer func() { pool.Close() }()
+	if reset {
+		if err = database.ValidateDevelopmentReset(pool); err != nil {
+			return err
+		}
+		directory, err := validateArtifactDirectory(configuration.DataDirectory)
+		if err != nil {
+			return err
+		}
+		// Resolve both targets before deleting either one.
+		store, _, err := artifact.OpenConfigured(ctx, directory)
+		if err != nil {
+			return err
+		}
+		if store.Backend() != "LOCAL" {
+			if _, ok := store.(artifact.DevelopmentResetter); !ok {
+				return fmt.Errorf("artifact backend %s does not support development reset", store.Backend())
+			}
+		}
+		if err = resetRemoteArtifacts(ctx, directory, store); err != nil {
+			return err
+		}
+		target, err := database.ResetDevelopmentSchema(ctx, pool)
+		if err != nil {
+			return err
+		}
+		pool.Close()
+		if err = resetArtifactDirectory(directory); err != nil {
+			return err
+		}
+		reopened, err := database.Open(ctx, configuration.DatabaseURL)
+		if err != nil {
+			return err
+		}
+		pool = reopened
+		slog.Warn("development data cleared", "database", target, "artifact_directory", directory)
+	}
+	return database.Migrate(ctx, pool)
 }
 
 func validateArtifactDirectory(configured string) (string, error) {
@@ -109,7 +133,14 @@ func resetConfiguredArtifacts(ctx context.Context, directory string) error {
 	if err != nil {
 		return err
 	}
-	slog.Warn("development reset targets", "schema", "occccad", "local_directory", directory, "artifact_backend", store.Backend())
+	if err := resetRemoteArtifacts(ctx, directory, store); err != nil {
+		return err
+	}
+	return resetArtifactDirectory(directory)
+}
+
+func resetRemoteArtifacts(ctx context.Context, directory string, store artifact.Store) error {
+	slog.Warn("development reset targets", "local_directory", directory, "artifact_backend", store.Backend())
 	if store.Backend() != "LOCAL" {
 		resetter, ok := store.(artifact.DevelopmentResetter)
 		if !ok {
@@ -120,5 +151,5 @@ func resetConfiguredArtifacts(ctx context.Context, directory string) error {
 			return err
 		}
 	}
-	return resetArtifactDirectory(directory)
+	return nil
 }

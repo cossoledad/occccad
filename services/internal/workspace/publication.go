@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 )
@@ -595,7 +595,7 @@ func (service *Service) resolveExternalParameterRefWithMode(ctx context.Context,
 	}
 	if strings.TrimSpace(sourceVersionID) == "" {
 		if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`,
-			sourceDocumentID).Scan(&sourceVersionID); errors.Is(err, pgx.ErrNoRows) {
+			sourceDocumentID).Scan(&sourceVersionID); errors.Is(err, database.ErrNoRows) {
 			return modelcore.ExternalParameterRef{}, fmt.Errorf("%w: EXTERNAL_PARAMETER_SOURCE_DELETED", ErrValidation)
 		} else if err != nil {
 			return modelcore.ExternalParameterRef{}, err
@@ -605,7 +605,7 @@ func (service *Service) resolveExternalParameterRefWithMode(ctx context.Context,
 	var sourceModelJSON []byte
 	if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v
 		JOIN occccad.documents d ON d.id=v.document_id WHERE v.id=$1 AND d.id=$2 AND d.deleted_at IS NULL`,
-		sourceVersionID, sourceDocumentID).Scan(&sourceType, &sourceModelJSON); errors.Is(err, pgx.ErrNoRows) {
+		sourceVersionID, sourceDocumentID).Scan(&sourceType, &sourceModelJSON); errors.Is(err, database.ErrNoRows) {
 		return modelcore.ExternalParameterRef{}, fmt.Errorf("%w: EXTERNAL_PARAMETER_REVISION_MISSING", ErrValidation)
 	} else if err != nil {
 		return modelcore.ExternalParameterRef{}, err
@@ -705,7 +705,7 @@ func (service *Service) externalParameterTargetReaches(ctx context.Context, curr
 		} else {
 			var nestedJSON []byte
 			if err := service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions
-				WHERE id=$1 AND document_id=$2`, reference.ResolvedRevisionID, reference.SourceDocumentID).Scan(&nestedJSON); errors.Is(err, pgx.ErrNoRows) {
+				WHERE id=$1 AND document_id=$2`, reference.ResolvedRevisionID, reference.SourceDocumentID).Scan(&nestedJSON); errors.Is(err, database.ErrNoRows) {
 				return false, fmt.Errorf("%w: EXTERNAL_PARAMETER_REVISION_MISSING", ErrValidation)
 			} else if err != nil {
 				return false, err

@@ -3,7 +3,8 @@ package workspace
 import (
 	"context"
 	"errors"
-	"github.com/jackc/pgx/v5"
+
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 )
 
@@ -32,7 +33,7 @@ func (service *Service) GetAssemblyEngineeringEvidence(ctx context.Context, docu
 	var requestID string
 	err := service.database.QueryRow(ctx, `SELECT c.request_id FROM occccad.document_versions v
  JOIN occccad.commands c ON c.id=v.created_by_command_id WHERE v.document_id=$1 AND v.id=$2`, documentID, revisionID).Scan(&requestID)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, database.ErrNoRows) {
 		return evidence, ErrNotFound
 	}
 	if err != nil {

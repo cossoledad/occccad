@@ -28,6 +28,6 @@ Body Publication 目标用 `BODY_RESULT + BodyId` 表示该 Body 的当前结果
 
 ## 数据与边界
 
-PostgreSQL 保存模型和轻量显示元数据；ArtifactStore 保存 per-Body BREP/GLB/Naming；WebSocket 承载命令、Preview 与状态；HTTP 承载制品下载。没有 Part 级持久聚合几何，也没有改变 XDE Definition/Occurrence。历史 Revision 不自动合并 Body、不重写 Naming。现有开发数据若依赖旧自动分 Body 的建模意图，应显式重建或按维护者批准的数据边界重置；本次没有执行数据删除。
+所选关系数据库（PostgreSQL/SQLite）保存模型和轻量显示元数据；ArtifactStore 保存 per-Body BREP/GLB/Naming；WebSocket 承载命令、Preview 与状态；HTTP 承载制品下载。没有 Part 级持久聚合几何，也没有改变 XDE Definition/Occurrence。历史 Revision 不自动合并 Body、不重写 Naming。现有开发数据若依赖旧自动分 Body 的建模意图，应显式重建或按维护者批准的数据边界重置；本次没有执行数据删除。
 
 验证入口为邻近 Body/显示/参数/Publication 场景。浏览器、多标签页、Product 更新及跨 Workspace 并发需要明确的独立证据，不能由模型测试代签。

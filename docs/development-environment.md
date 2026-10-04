@@ -8,7 +8,7 @@
 
 - 已有 `.env` 时保留原配置；首次配置才从 `.env.example` 复制。文档与脚本引用变量名，不另存一份实际密码。
 - `invoke` 在加载根目录 `tasks.py` 时读取根 `.env`，已导出的环境变量优先。加载器接受简单的 `KEY=VALUE`、可选 `export` 前缀及成对引号，不执行 shell 表达式。排障时先检查是否有旧的导出变量覆盖配置。
-- 服务端优先使用 `OCCCCAD_DATABASE_URL`；未设置时使用 `OCCCCAD_POSTGRES_HOST`、`PORT`、`USER`、`PASSWORD`、`DB`（均带 `OCCCCAD_POSTGRES_` 前缀）。正常业务使用数据库中的 `occccad` schema。
+- 服务端优先使用 `OCCCCAD_DATABASE_URL`；未设置时使用 `OCCCCAD_POSTGRES_HOST`、`PORT`、`USER`、`PASSWORD`、`DB`（均带 `OCCCCAD_POSTGRES_` 前缀）。PostgreSQL 正常业务使用数据库中的 `occccad` schema。也可设置 `OCCCCAD_DATABASE_URL=sqlite:/absolute/path/local.db` 使用 SQLite Local Mode；API 与 Jobs 必须指向同一个绝对本机路径，数据库并发设为 1 或保持未配置。SQLite 运行与限制见[数据库层](../services/internal/database/README.md)。
 - 直接执行 `psql`、`go test` 等命令时，不要假定它们会自动读取项目 `.env`；显式加载所需配置或使用已有项目入口。诊断输出只需连接是否成功和错误原因，不必回显完整连接串。
 - ArtifactStore 支持 LOCAL/S3，使用根 `.env` 的 `OCCCCAD_ARTIFACT_BACKEND`、`OCCCCAD_S3_ENDPOINT/BUCKET/REGION/ACCESS_KEY/SECRET_KEY/SECURE`。HTTP MinIO 设置 `SECURE=false`，endpoint 不含协议前缀。`OCCCCAD_DATA_DIR` 在 S3 模式保留为计算暂存目录，API/Jobs/本机 Worker 共享；配置和迁移见[存储运维](../services/cmd/occccad-artifacts/README.md)。原始密码只保留在未跟踪的 `.env`。
 
@@ -24,7 +24,7 @@ sudo apt install postgresql
 
 部分集成测试使用显式的 `OCCCCAD_TEST_DATABASE_URL`，不会自动使用应用的数据库配置。运行前读对应测试对迁移、空库和清理的要求：可兼容现有数据的测试可复用已授权开发数据库；要求可丢弃数据库的测试使用隔离测试库，并按测试入口准备迁移。不要为使测试执行而把所有测试无差别指向开发库。
 
-数据重置仍遵循[根 AGENTS 的开发数据边界](../AGENTS.md#当前开发数据边界)：先停止占用进程，仅通过 `invoke data.reset --yes` 或 `invoke run.app --reset-data` 删除命令报告的 `occccad` schema、本地 ArtifactStore/暂存目录，以及 S3 模式下当前配置的专用桶全部对象（含版本和未完成分片，保留桶），并在交付中说明。资源使用授权不包括清空其他数据库、schema 或 S3 bucket。S3 与 PostgreSQL 不构成跨存储事务：清理失败直接报错，可能已部分删除，停止写入后可重新执行。
+数据重置仍遵循[根 AGENTS 的开发数据边界](../AGENTS.md#当前开发数据边界)：先停止占用进程，仅通过 `invoke data.reset --yes` 或 `invoke run.app --reset-data` 删除命令报告的 PostgreSQL `occccad` schema 或当前配置的专用 SQLite 数据库全部表（含迁移记录），以及本地 ArtifactStore/暂存目录，以及 S3 模式下当前配置的专用桶全部对象（含版本和未完成分片，保留桶），并在交付中说明。资源使用授权不包括清空其他数据库、schema 或 S3 bucket。S3、数据库与本地制品不构成跨存储事务：清理失败直接报错，可能已部分删除，停止写入后可重新执行。
 
 ## Chromium 与浏览器验证
 
@@ -49,3 +49,5 @@ env -u LD_LIBRARY_PATH pnpm --dir web/apps/cad exec playwright test browser/norm
 ```
 
 当前 Playwright 配置自动启动端口 5174 的 Mock 前端，使用 Chromium 与软件 WebGL，测试后关闭进程。此入口验证真实浏览器中的前端交互；数据库、真实 API 和 Geometry Worker 的完整链路需另行连接真实后端验证。真实环境启动使用 `invoke run.app --build-type=Debug` 与 `invoke run.web --mode=api`。
+
+Invoke 与 Go 使用相同环境优先级：已导出变量 > `OCCCCAD_ENV_FILE` 指定文件（未指定时读取根 `.env`）。显式文件不存在时直接失败，不回退到默认资源。Invoke 将指定文件路径转为绝对路径，确保切换工作目录后仍读取同一文件。

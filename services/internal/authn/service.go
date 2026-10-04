@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/database"
 	"golang.org/x/crypto/bcrypt"
@@ -61,11 +60,11 @@ type UpdateUserRequest struct {
 }
 
 type Service struct {
-	database        *database.Pool
+	database        database.DB
 	sessionDuration time.Duration
 }
 
-func New(database *database.Pool, sessionDuration time.Duration) *Service {
+func New(database database.DB, sessionDuration time.Duration) *Service {
 	if sessionDuration <= 0 {
 		sessionDuration = 12 * time.Hour
 	}
@@ -173,7 +172,7 @@ func (service *Service) Login(ctx context.Context, email, password, userAgent, r
 		FROM occccad.users WHERE lower(email)=lower($1)`, email).Scan(&user.ID, &user.Email,
 		&user.DisplayName, &user.Status, &user.PlatformRole, &user.MustChangePassword,
 		&user.CreatedAt, &user.LastLoginAt, &passwordHash, &lockedUntil)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, database.ErrNoRows) {
 		_ = bcrypt.CompareHashAndPassword([]byte("$2a$10$7EqJtq98hPqEX7fNZaFWoOhiLK8TjViQeS2p4V0O9hCq6H6hEXR8K"), []byte(password))
 		return Session{}, ErrUnauthorized
 	}
@@ -202,13 +201,19 @@ func (service *Service) Login(ctx context.Context, email, password, userAgent, r
 		return Session{}, err
 	}
 	expires := time.Now().Add(service.sessionDuration)
-	_, err = service.database.Exec(ctx, `WITH session AS (
-		INSERT INTO occccad.user_sessions(user_id,token_hash,csrf_hash,user_agent,remote_address,expires_at)
-		VALUES($1,$2,$3,$4,$5,$6)
-	)
-	UPDATE occccad.users SET failed_login_count=0,locked_until=NULL,updated_at=now() WHERE id=$1`,
-		user.ID, hashToken(token), hashToken(csrf), truncate(userAgent, 500), truncate(remoteAddress, 100), expires)
+	tx, err := service.database.Begin(ctx)
 	if err != nil {
+		return Session{}, err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `INSERT INTO occccad.user_sessions(user_id,token_hash,csrf_hash,user_agent,remote_address,expires_at)
+ VALUES($1,$2,$3,$4,$5,$6)`, user.ID, hashToken(token), hashToken(csrf), truncate(userAgent, 500), truncate(remoteAddress, 100), expires); err != nil {
+		return Session{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE occccad.users SET failed_login_count=0,locked_until=NULL,updated_at=now() WHERE id=$1`, user.ID); err != nil {
+		return Session{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
 		return Session{}, err
 	}
 	return Session{User: user, Token: token, CSRFToken: csrf, ExpiresAt: expires}, nil
@@ -245,7 +250,7 @@ func (service *Service) Authenticate(ctx context.Context, token string) (User, e
 		WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at>now() AND u.status='ACTIVE'`,
 		hashToken(token)).Scan(&user.ID, &user.Email, &user.DisplayName, &user.Status,
 		&user.PlatformRole, &user.MustChangePassword, &user.CreatedAt, &user.LastLoginAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, database.ErrNoRows) {
 		return User{}, ErrUnauthorized
 	}
 	if err == nil {
@@ -279,7 +284,7 @@ func (service *Service) ListUsers(ctx context.Context, query, status string) ([]
 	rows, err := service.database.Query(ctx, `SELECT u.id::text,u.email,u.display_name,u.status,u.platform_role,
 		u.must_change_password,u.created_at::text,max(s.last_seen_at)::text
 		FROM occccad.users u LEFT JOIN occccad.user_sessions s ON s.user_id=u.id
-		WHERE ($1='' OR u.email ILIKE '%'||$1||'%' OR u.display_name ILIKE '%'||$1||'%')
+		WHERE ($1='' OR lower(u.email) LIKE lower('%'||$1||'%') OR lower(u.display_name) LIKE lower('%'||$1||'%'))
 		  AND ($2='' OR u.status=$2)
 		GROUP BY u.id ORDER BY u.created_at DESC`, strings.TrimSpace(query), strings.ToUpper(strings.TrimSpace(status)))
 	if err != nil {
@@ -365,7 +370,7 @@ func (service *Service) UpdateUser(ctx context.Context, actorID, targetID string
 		WHERE id=$5 RETURNING id::text,email,display_name,status,platform_role,must_change_password,created_at::text,NULL`,
 		name, status, role, actorID, targetID).Scan(&result.ID, &result.Email, &result.DisplayName,
 		&result.Status, &result.PlatformRole, &result.MustChangePassword, &result.CreatedAt, &result.LastLoginAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, database.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
 	if err == nil {
@@ -381,7 +386,7 @@ func (service *Service) UpdateUser(ctx context.Context, actorID, targetID string
 func (service *Service) ensureAdminRemains(ctx context.Context, targetID, status, role string) error {
 	var targetIsAdmin bool
 	if err := service.database.QueryRow(ctx, `SELECT platform_role='ADMIN' AND status='ACTIVE'
-		FROM occccad.users WHERE id=$1`, targetID).Scan(&targetIsAdmin); errors.Is(err, pgx.ErrNoRows) {
+		FROM occccad.users WHERE id=$1`, targetID).Scan(&targetIsAdmin); errors.Is(err, database.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err

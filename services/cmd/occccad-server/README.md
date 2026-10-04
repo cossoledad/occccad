@@ -9,7 +9,7 @@ occccad-server 是当前系统的 HTTP/WebSocket API 与业务编排进程。它
 - 提供版本化 WebSocket 消息、文档订阅、命令请求响应和 Workspace Outbox 实时事件；
 - 验证访问权限，把 HTTP transport DTO 转换为版本化 Domain Command，并由 typed handler 应用到显式 Part/Product Workspace；
 - 在数据库事务外通过 gRPC 求值候选模型，再以 Workspace Head/sequence CAS 原子持久化 Transaction、ChangeSet、Revision、EvaluationManifest、依赖投影和 outbox；
-- 将 STEP/BREP 文档交换与缩略图工作写入 PostgreSQL 持久任务队列；
+- 将 STEP/BREP 文档交换与缩略图工作写入 数据库持久任务队列；
 - 通过 ArtifactStore 读写本地内容寻址制品；
 - 暴露健康检查并传播 HTTP/gRPC Trace Context。
 
@@ -20,11 +20,13 @@ occccad-server 是当前系统的 HTTP/WebSocket API 与业务编排进程。它
 ```mermaid
 flowchart LR
     Browser["CAD Web / HTTP"] --> Server["occccad-server"]
-    Server --> DB[(PostgreSQL)]
+    Server --> DB[(PostgreSQL / SQLite)]
     Server --> Store["Local ArtifactStore"]
     Server --> Router["Geometry Worker gRPC endpoint"]
     Server -. "enqueue" .-> Jobs[(jobs table)]
 ```
+
+SQLite Local Mode 保留 API/Jobs 进程拓扑，所有进程共享同一个本机数据库文件；配置与事务边界见[数据库层](../../internal/database/README.md)。
 
 启动时会自动执行数据库迁移，并要求 Geometry gRPC 地址可连接。当前 ArtifactStore 固定为本地文件系统。
 
@@ -38,7 +40,7 @@ flowchart LR
 
 主要资源包括 `/api/auth/*`、`/api/session`、`/api/documents`、`/api/folders`、`/api/jobs`、`/api/teams`、`/api/users`、`/api/admin/*` 与 `/api/audit`。具体契约当前以 `services/internal/api/server.go` 为准；仓库尚未发布稳定的外部 OpenAPI。
 
-`GET /api/ui/toolbars` 返回 PostgreSQL 中启用的 Toolbar Presentation Catalog，包括工作台归属、默认布局、命令稳定 ID、短名称、详细帮助、图标语义键、分组和顺序。目录只控制展示；浏览器必须在本地 `CommandRegistry` 注册命令后才允许执行，不能把数据库内容解释为脚本。
+`GET /api/ui/toolbars` 返回 数据库中启用的 Toolbar Presentation Catalog，包括工作台归属、默认布局、命令稳定 ID、短名称、详细帮助、图标语义键、分组和顺序。目录只控制展示；浏览器必须在本地 `CommandRegistry` 注册命令后才允许执行，不能把数据库内容解释为脚本。
 
 文档交换使用独立资源：`POST /api/exchange/imports?format=STEP|BREP&fileName=...` 把原始 request body 流式写入 ArtifactStore，限制由 `OCCCCAD_EXCHANGE_MAX_BYTES` 配置（默认 16 GiB）；`POST /api/exchange/exports` 提交 `{documentId, format, releaseId?}`，带 ReleaseId 时从冻结 Release GeometryKey 导出而不要求当前 Head 未移动；Product occurrence placement 保留 translation 和 quaternion rotation。`GET /api/jobs` 恢复当前用户最近 100 条可见任务，`POST /api/jobs/{jobID}/cancel|retry` 执行发起者或管理员动作，任务完成后从 `GET /api/jobs/{jobID}/download` 流式下载。导入不要求先创建 Part，不使用 multipart，也不让大文件经过 WebSocket 或 gRPC bytes。
 
@@ -64,7 +66,7 @@ RFC 6455 Upgrade、frame、Ping/Pong 由 `github.com/gorilla/websocket` v1.5.3 �
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `OCCCCAD_DATABASE_URL` | 由 PostgreSQL 分项变量生成 | 完整连接串，优先级最高 |
+| `OCCCCAD_DATABASE_URL` | 由 PostgreSQL 分项变量生成 | PostgreSQL 连接串或 sqlite:/绝对路径/local.db，优先级最高 |
 | `OCCCCAD_POSTGRES_HOST` | `127.0.0.1` | PostgreSQL 主机 |
 | `OCCCCAD_POSTGRES_PORT` | `5432` | PostgreSQL 端口 |
 | `OCCCCAD_POSTGRES_USER` | `occccad` | 数据库用户 |
@@ -96,7 +98,7 @@ invoke run.server
 
 ## 一致性与故障语义
 
-- PostgreSQL 是业务真相；Geometry Worker 返回的是可重建的计算结果。
+- 所选数据库的参数模型与 Revision 是业务真相；Geometry Worker 返回的是可重建的计算结果。
 - 写操作经过身份和 ACL 校验；昂贵求值不占用数据库事务，最终提交以 Head CAS 防止迟到结果覆盖新 Revision。
 - Undo/Redo/Restore 都追加 Transaction 与 Revision；Revert/Reapply 围绕稳定根 Transaction 折叠，支持连续多步 Undo/Redo。`canUndo/canRedo` 由同一 actor history fold 计算并返回 Web；字段 digest 或结构依赖不匹配时返回冲突。
 - DocumentView 的 Specification Tree 节点携带服务端计算的 capability。`DELETE_NODE` transport 意图只可适配为受支持的 Part Feature/Sketch child 或 Product Instance typed command；未列出的节点类型（包括基准面和轴）默认拒绝。Sketch Entity 删除与引用约束清理属于同一原子 `sketch.model` 变更。

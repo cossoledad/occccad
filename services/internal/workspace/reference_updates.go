@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -132,7 +132,7 @@ func (service *Service) projectPartReferenceUpdates(ctx context.Context, model P
 		item := ReferenceUpdate{ConsumerKind: kind, ConsumerID: id, SourceDocumentID: sourceID,
 			AcceptedRevisionID: accepted, Status: "CURRENT"}
 		var head string
-		if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, sourceID).Scan(&head); errors.Is(err, pgx.ErrNoRows) {
+		if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, sourceID).Scan(&head); errors.Is(err, database.ErrNoRows) {
 			item.Status, item.DiagnosticCode, item.Diagnostic = "BROKEN", "REFERENCE_SOURCE_MISSING", "source document was deleted"
 			updates = append(updates, item)
 			return

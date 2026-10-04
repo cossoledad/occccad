@@ -14,7 +14,7 @@ import (
 
 // Called by the real Router fixture after producing a native BREP. ImportExchange
 // has a frozen naming definition; the legacy fixture below intentionally omits it.
-func verifyImportNamingDiagnostics(t *testing.T, db *database.Pool, client *geometry.Client, artifacts *artifact.Service, source workspace.DocumentView) {
+func verifyImportNamingDiagnostics(t *testing.T, db database.DB, client *geometry.Client, artifacts *artifact.Service, source workspace.DocumentView) {
 	t.Helper()
 	if activeBodyArtifact(t, source).Naming.Status != "READY" || !activeBodyArtifact(t, source).Naming.CanBind {
 		t.Fatalf("native capability regressed: %+v", activeBodyArtifact(t, source).Naming)

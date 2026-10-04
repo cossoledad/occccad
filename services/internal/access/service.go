@@ -90,9 +90,9 @@ type AuditEvent struct {
 	CreatedAt    string         `json:"createdAt"`
 }
 
-type Service struct{ database *database.Pool }
+type Service struct{ database database.DB }
 
-func New(database *database.Pool) *Service { return &Service{database: database} }
+func New(database database.DB) *Service { return &Service{database: database} }
 
 type principalContextKey struct{}
 
@@ -108,7 +108,7 @@ func Principal(ctx context.Context) (User, bool) {
 func (service *Service) ListUsers(ctx context.Context, query string) ([]User, error) {
 	rows, err := service.database.Query(ctx, `
 		SELECT id::text,email,display_name,status,platform_role,must_change_password FROM occccad.users
-		WHERE status='ACTIVE' AND ($1='' OR email ILIKE '%'||$1||'%' OR display_name ILIKE '%'||$1||'%')
+		WHERE status='ACTIVE' AND ($1='' OR lower(email) LIKE lower('%'||$1||'%') OR lower(display_name) LIKE lower('%'||$1||'%'))
 		ORDER BY lower(display_name) LIMIT 50`, strings.TrimSpace(query))
 	if err != nil {
 		return nil, err

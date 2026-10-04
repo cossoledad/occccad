@@ -12,7 +12,7 @@ import (
 	"github.com/occccad/occccad/internal/workspace"
 )
 
-func verifyImportedNaming(t *testing.T, db *database.Pool, client *geometry.Client, artifacts *artifact.Service, initial workspace.DocumentView) {
+func verifyImportedNaming(t *testing.T, db database.DB, client *geometry.Client, artifacts *artifact.Service, initial workspace.DocumentView) {
 	t.Helper()
 	service := workspace.NewWithArtifacts(db, client, artifacts)
 	part, err := service.GetDocument(t.Context(), initial.Document.ID)

@@ -6,7 +6,7 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 
 ## 项目状态
 
-仓库当前是可运行的早期垂直切片，而不是完整 CAD 产品。已经贯通浏览器工作台、Go API、PostgreSQL、持久任务、C++/OCCT Geometry Worker 和 LOCAL/S3 制品存储；当前支持通用草图、参数化特征与关联产品设计、Part/Product 文档、版本历史、Document Center 中的 STEP/BREP 文档交换、账号与 ACL 等基础能力。
+仓库当前是可运行的早期垂直切片，而不是完整 CAD 产品。已经贯通浏览器工作台、Go API、PostgreSQL/SQLite Local Mode、持久任务、C++/OCCT Geometry Worker 和 LOCAL/S3 制品存储；当前支持通用草图、参数化特征与关联产品设计、Part/Product 文档、版本历史、Document Center 中的 STEP/BREP 文档交换、账号与 ACL 等基础能力。
 
 当前支持 Sketch/Profile、Extrude/Revolve 几何与显式 Multi-Body、持久命名、Product 引用/上下文、六类装配、连续约束操纵、局部诊断及冻结发布。具体能力、算法、验证与限制从[知识目录](docs/README.md)进入。完整 Revolve history、更多 Feature、关联 trimmed Arc/边界/Section、大模型工作集、工程连接与跨主机协作仍有明确边界；[后续工作](plans/README.md)只保留未完成方向。
 
@@ -29,7 +29,7 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 | [occccad-jobs](services/cmd/occccad-jobs/README.md) | Go 后台 Worker | STEP/BREP 文档交换和缩略图持久任务 |
 | [occccad-control](services/cmd/occccad-control/README.md) | Go 本地控制进程 | 启动、代理、调试切流和本机 Geometry Worker 池 |
 | [occccad-monitor](services/cmd/occccad-monitor/README.md) | Go TUI | 独立显示本地进程资源、Geometry 池和业务快照 |
-| [occccad-migrate](services/cmd/occccad-migrate/README.md) | Go 一次性任务 | 执行带校验的 PostgreSQL 迁移 |
+| [occccad-migrate](services/cmd/occccad-migrate/README.md) | Go 一次性任务 | 执行带校验的 PostgreSQL/SQLite 迁移 |
 | [occccad-3dreplay](services/cmd/occccad-3dreplay/README.md) | Go CLI | 从最小数学文件通过 Worker/Router 重放三维约束求解 |
 | [Geometry Worker](workers/geometry/README.md) | C++ gRPC Worker | OCCT 精确几何、拓扑、网格与 STEP/BREP 交换 |
 | [CAD Web](web/apps/cad/README.md) | React Web 应用 | 文档中心、CAD 工作台、交互和 Three.js 视口 |
@@ -38,7 +38,7 @@ occccad 的目标不是把桌面 CAD 远程化，而是把参数化建模、产�
 
 ## 快速开始
 
-推荐在 Linux 或 WSL2 中开发。需要 CMake 3.30+、C++17 编译器、Ninja、Conan 2、Python 3、Go、Node.js/pnpm 和 PostgreSQL。仓库当前固定 OCCT 7.9.1；精确版本以 `conanfile.py`、`services/go.mod` 和 `web/package.json` 为准。
+推荐在 Linux 或 WSL2 中开发。需要 CMake 3.30+、C++17 编译器、Ninja、Conan 2、Python 3、Go、Node.js/pnpm；默认数据库为 PostgreSQL，也可使用不需要数据库服务器的 SQLite Local Mode。仓库当前固定 OCCT 7.9.1；精确版本以 `conanfile.py`、`services/go.mod` 和 `web/package.json` 为准。
 
 开发资源授权、`.env` 加载规则、PostgreSQL 与浏览器依赖见[环境准备](docs/development-environment.md)。已有 `.env` 时直接复用，不要用示例覆盖。
 
@@ -56,7 +56,7 @@ invoke build --build-type=Debug
 invoke test --build-type=Debug
 ```
 
-首次配置且尚无 `.env` 时，复制 `.env.example` 为 `.env`，配置 PostgreSQL，并设置首次启动所需的 `OCCCCAD_ADMIN_PASSWORD`：
+首次配置且尚无 `.env` 时，复制 `.env.example` 为 `.env`，配置 PostgreSQL，或设置 `OCCCCAD_DATABASE_URL=sqlite:/absolute/path/local.db`（详见[数据库模式](services/internal/database/README.md)），并设置首次启动所需的 `OCCCCAD_ADMIN_PASSWORD`：
 
 ```bash
 invoke run.app --build-type=Debug
@@ -68,7 +68,7 @@ invoke run.app --build-type=Debug
 invoke run.app --reset-data --build-type=Debug
 ```
 
-该选项只删除配置数据库中的 `occccad` schema 、`OCCCCAD_DATA_DIR` 指向的本地 ArtifactStore/暂存目录；S3 模式还清空 `OCCCCAD_S3_BUCKET` 全部对象、历史版本、删除标记和未完成分片（保留桶），随后从当前迁移重建 schema；进程内 Router/Worker 状态随新进程自然清空。若只清理和迁移而不启动，使用 `invoke data.reset --yes`。命令不可用于已经承诺保留数据的发布环境。
+该选项按环境配置删除 PostgreSQL `occccad` schema 或 SQLite 专用数据库全部用户表、视图及迁移记录，以及`OCCCCAD_DATA_DIR` 指向的本地 ArtifactStore/暂存目录；S3 模式还清空 `OCCCCAD_S3_BUCKET` 全部对象、历史版本、删除标记和未完成分片（保留桶），随后从当前迁移重建 schema；进程内 Router/Worker 状态随新进程自然清空。若只清理和迁移而不启动，使用 `invoke data.reset --yes`。命令不可用于已经承诺保留数据的发布环境。
 
 另开终端启动连接真实 API 的前端：
 

@@ -6,7 +6,7 @@ Part Revision 通过 `bodies[].geometryKey` 引用独立 Body 结果，DocumentV
 
 ## 所有权与数据流
 
-参数模型、Feature、Revision、稳定引用、导入 identity 分配和状态属于业务真相。Geometry Worker 只接收冻结输入并输出计算制品；PostgreSQL 保存业务模型及几何摘要，ArtifactStore 保存大载荷。LOCAL/S3 使用同一 Store 接口。
+参数模型、Feature、Revision、稳定引用、导入 identity 分配和状态属于业务真相。Geometry Worker 只接收冻结输入并输出计算制品；所选关系数据库（PostgreSQL/SQLite）保存业务模型及几何摘要，ArtifactStore 保存大载荷。LOCAL/S3 使用同一 Store 接口。
 
 ```mermaid
 flowchart LR

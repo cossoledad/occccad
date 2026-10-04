@@ -16,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/occccad/occccad/internal/access"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/config"
@@ -32,7 +31,7 @@ type handler struct {
 	importBudget           *importBudget
 	workerID               string
 	thumbnailRenderTimeout time.Duration
-	database               *database.Pool
+	database               database.DB
 	queue                  *jobs.Service
 	access                 *access.Service
 	artifacts              *artifact.Service
@@ -102,7 +101,7 @@ func (h handler) runJobLoop(ctx context.Context) error {
 	workerID := h.workerID
 	for ctx.Err() == nil {
 		job, err := h.queue.Claim(ctx, workerID, 2*time.Minute)
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			select {
 			case <-ctx.Done():
 			case <-time.After(time.Second):

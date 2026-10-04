@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
@@ -291,7 +291,7 @@ func (service *Service) GetAssemblySolveResult(ctx context.Context, documentID, 
 		COALESCE(r.diagnostic,''),r.result FROM occccad.product_solve_results r
 		JOIN occccad.product_solve_manifests m ON m.digest=r.manifest_digest
 		WHERE m.root_product_document_id=$1 AND r.request_id=$2`, documentID, requestID).
-		Scan(&value.ManifestDigest, &value.RequestID, &value.ResultDigest, &value.Status, &value.Diagnostic, &raw); errors.Is(err, pgx.ErrNoRows) {
+		Scan(&value.ManifestDigest, &value.RequestID, &value.ResultDigest, &value.Status, &value.Diagnostic, &raw); errors.Is(err, database.ErrNoRows) {
 		return AssemblySolveManifestResult{}, ErrNotFound
 	} else if err != nil {
 		return AssemblySolveManifestResult{}, err
@@ -305,7 +305,7 @@ func (service *Service) GetAssemblySolveResult(ctx context.Context, documentID, 
 func (service *Service) ReplayAssemblySolveManifest(ctx context.Context, documentID, digest, requestID string) (AssemblySolveManifestResult, error) {
 	var raw []byte
 	if err := service.database.QueryRow(ctx, `SELECT manifest FROM occccad.product_solve_manifests
-		WHERE digest=$1 AND root_product_document_id=$2`, digest, documentID).Scan(&raw); errors.Is(err, pgx.ErrNoRows) {
+		WHERE digest=$1 AND root_product_document_id=$2`, digest, documentID).Scan(&raw); errors.Is(err, database.ErrNoRows) {
 		return AssemblySolveManifestResult{}, ErrNotFound
 	} else if err != nil {
 		return AssemblySolveManifestResult{}, err

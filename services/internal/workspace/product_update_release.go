@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -245,7 +245,7 @@ func (service *Service) contextVariantSnapshot(ctx context.Context, owner expand
 			return ContextVariantSnapshot{}, err
 		}
 		return variant, nil
-	} else if !errors.Is(err, pgx.ErrNoRows) {
+	} else if !errors.Is(err, database.ErrNoRows) {
 		return ContextVariantSnapshot{}, err
 	}
 	if state != "READY" {
@@ -493,7 +493,7 @@ func (service *Service) CreateProductRelease(ctx context.Context, rootDocumentID
 		var manifest ProductReleaseManifest
 		_ = json.Unmarshal(existingRaw, &manifest)
 		return ProductRelease{ID: existingID, Name: existingName, CreatedAt: existingCreated, Manifest: manifest}, nil
-	} else if !errors.Is(err, pgx.ErrNoRows) {
+	} else if !errors.Is(err, database.ErrNoRows) {
 		return ProductRelease{}, err
 	}
 	revisionID, items, err := service.productContextRoot(ctx, rootDocumentID)
@@ -592,7 +592,7 @@ func (service *Service) CreateProductRelease(ctx context.Context, rootDocumentID
 		if err := service.database.QueryRow(ctx, `SELECT digest FROM occccad.product_solve_manifests m WHERE
 			m.root_product_document_id=$1 AND m.root_product_revision_id=$2 AND m.manifest->>'purpose'='COMMIT' AND EXISTS (
 				SELECT 1 FROM occccad.product_solve_results r WHERE r.manifest_digest=m.digest AND r.status='CONVERGED')
-			ORDER BY m.created_at DESC LIMIT 1`, rootDocumentID, revisionID).Scan(&manifest.AssemblySolveManifest); errors.Is(err, pgx.ErrNoRows) {
+			ORDER BY m.created_at DESC LIMIT 1`, rootDocumentID, revisionID).Scan(&manifest.AssemblySolveManifest); errors.Is(err, database.ErrNoRows) {
 			gates = append(gates, ProductReleaseGate{Code: "SOLVE_MANIFEST_REPLAYABLE", Status: "FAILED", Diagnostic: "no successful SolveManifest exists for the root model"})
 		} else if err != nil {
 			return ProductRelease{}, err
@@ -645,7 +645,7 @@ func (service *Service) GetProductRelease(ctx context.Context, rootDocumentID, r
 	var raw []byte
 	if err := service.database.QueryRow(ctx, `SELECT id::text,name,created_at::text,manifest FROM occccad.product_releases
 		WHERE id=$1 AND root_product_document_id=$2`, releaseID, rootDocumentID).
-		Scan(&result.ID, &result.Name, &result.CreatedAt, &raw); errors.Is(err, pgx.ErrNoRows) {
+		Scan(&result.ID, &result.Name, &result.CreatedAt, &raw); errors.Is(err, database.ErrNoRows) {
 		return ProductRelease{}, ErrNotFound
 	} else if err != nil {
 		return ProductRelease{}, err

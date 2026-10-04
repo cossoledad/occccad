@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 )
@@ -25,14 +24,9 @@ const historyCapabilitiesSQL = `
 		SELECT
 			EXISTS (
 				SELECT 1 FROM occccad.domain_transactions root
-				LEFT JOIN LATERAL (
-					SELECT action.kind FROM occccad.domain_transactions action
-					WHERE action.root_transaction_id=root.id AND action.status='COMMITTED'
-					ORDER BY action.sequence DESC LIMIT 1
-				) latest ON true
 				WHERE root.workspace_id=(SELECT id FROM workspace) AND root.actor_id=$2
 				  AND root.status='COMMITTED' AND root.kind IN ('DOMAIN','RESTORE')
-				  AND (latest.kind IS NULL OR latest.kind='REAPPLY')
+				  AND COALESCE((SELECT action.kind FROM occccad.domain_transactions action WHERE action.root_transaction_id=root.id AND action.status='COMMITTED' ORDER BY action.sequence DESC LIMIT 1),'REAPPLY')='REAPPLY'
 			),
 			EXISTS (
 				SELECT 1 FROM occccad.domain_transactions revert_tx CROSS JOIN boundary
@@ -62,7 +56,7 @@ func (service *Service) populateHistoryCapabilities(ctx context.Context, documen
 	const chunkSize = 128
 	for start := 0; start < len(documents); start += chunkSize {
 		end := min(start+chunkSize, len(documents))
-		batch := &pgx.Batch{}
+		batch := &database.Batch{}
 		for _, document := range documents[start:end] {
 			batch.Queue(historyCapabilitiesSQL, document.ID, actorID(actor))
 		}
@@ -90,7 +84,7 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 		FROM occccad.workspaces w JOIN occccad.documents d ON d.id=w.document_id
 		JOIN occccad.document_versions v ON v.id=w.head_revision_id
 		WHERE w.document_id=$1 AND w.name='main' AND d.deleted_at IS NULL`, documentID).
-		Scan(&workspaceID, &headRevision, &headSequence, &documentType, &modelJSON); errors.Is(err, pgx.ErrNoRows) {
+		Scan(&workspaceID, &headRevision, &headSequence, &documentType, &modelJSON); errors.Is(err, database.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
@@ -105,7 +99,7 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 			return fmt.Errorf("%w: IDEMPOTENCY_KEY_REUSED", ErrValidation)
 		}
 		return nil
-	} else if !errors.Is(err, pgx.ErrNoRows) {
+	} else if !errors.Is(err, database.ErrNoRows) {
 		return err
 	}
 	var rootTransaction, consumedRevert, productDesignTransaction string
@@ -116,16 +110,11 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 			SELECT root.id::text,coalesce(root.product_design_transaction_id::text,''),cs.canonical_blob,cs.write_set
 			FROM occccad.domain_transactions root
 			JOIN occccad.change_sets cs ON cs.transaction_id=root.id
-			LEFT JOIN LATERAL (
-				SELECT action.kind FROM occccad.domain_transactions action
-				WHERE action.root_transaction_id=root.id AND action.status='COMMITTED'
-				ORDER BY action.sequence DESC LIMIT 1
-			) latest ON true
 			WHERE root.workspace_id=$1 AND root.actor_id=$2 AND root.status='COMMITTED'
 			  AND root.kind IN ('DOMAIN','RESTORE')
-			  AND (latest.kind IS NULL OR latest.kind='REAPPLY')
+			  AND COALESCE((SELECT action.kind FROM occccad.domain_transactions action WHERE action.root_transaction_id=root.id AND action.status='COMMITTED' ORDER BY action.sequence DESC LIMIT 1),'REAPPLY')='REAPPLY'
 			ORDER BY root.sequence DESC LIMIT 1`, workspaceID, actor).Scan(&rootTransaction, &productDesignTransaction, &changeJSON, &persistedWrites)
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return fmt.Errorf("%w: nothing to undo for this actor", ErrValidation)
 		}
 		if err != nil {
@@ -150,7 +139,7 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
 			  AND NOT EXISTS (SELECT 1 FROM occccad.domain_transactions reapply
 			      WHERE reapply.reapplies_transaction_id=revert_tx.id AND reapply.status='COMMITTED')
 			ORDER BY revert_tx.sequence DESC LIMIT 1`, workspaceID, actor).Scan(&rootTransaction, &consumedRevert, &productDesignTransaction, &changeJSON, &persistedWrites)
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return fmt.Errorf("%w: REDO_NOT_AVAILABLE", ErrValidation)
 		}
 		if err != nil {
@@ -200,7 +189,7 @@ func (service *Service) applyCompensatingHistory(ctx context.Context, documentID
             JOIN occccad.document_versions v ON v.id=t.result_revision_id
             WHERE t.root_transaction_id=$1 AND t.workspace_id=$2 AND t.status='COMMITTED' AND t.kind='REAPPLY'
             ORDER BY t.sequence DESC LIMIT 1`, rootTransaction, workspaceID).Scan(&actualOutcome)
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, database.ErrNoRows) {
 				err = nil
 			}
 		}
@@ -274,7 +263,7 @@ func (service *Service) applyRestoreRevision(ctx context.Context, documentID str
 	var workspaceID, headRevision, documentType string
 	var headSequence uint64
 	var current, target json.RawMessage
-	if err := service.database.QueryRow(ctx, `SELECT w.id::text,w.head_revision_id::text,w.head_sequence,d.document_type,current.model_json,target.model_json FROM occccad.workspaces w JOIN occccad.documents d ON d.id=w.document_id JOIN occccad.document_versions current ON current.id=w.head_revision_id JOIN occccad.document_versions target ON target.id=$2 AND target.document_id=d.id WHERE w.document_id=$1 AND w.name='main'`, documentID, request.VersionID).Scan(&workspaceID, &headRevision, &headSequence, &documentType, &current, &target); errors.Is(err, pgx.ErrNoRows) {
+	if err := service.database.QueryRow(ctx, `SELECT w.id::text,w.head_revision_id::text,w.head_sequence,d.document_type,current.model_json,target.model_json FROM occccad.workspaces w JOIN occccad.documents d ON d.id=w.document_id JOIN occccad.document_versions current ON current.id=w.head_revision_id JOIN occccad.document_versions target ON target.id=$2 AND target.document_id=d.id WHERE w.document_id=$1 AND w.name='main'`, documentID, request.VersionID).Scan(&workspaceID, &headRevision, &headSequence, &documentType, &current, &target); errors.Is(err, database.ErrNoRows) {
 		return fmt.Errorf("%w: restore point does not belong to this document", ErrValidation)
 	} else if err != nil {
 		return err
@@ -287,7 +276,7 @@ func (service *Service) applyRestoreRevision(ctx context.Context, documentID str
 			return fmt.Errorf("%w: IDEMPOTENCY_KEY_REUSED", ErrValidation)
 		}
 		return nil
-	} else if !errors.Is(err, pgx.ErrNoRows) {
+	} else if !errors.Is(err, database.ErrNoRows) {
 		return err
 	}
 	change, _ := modelcore.NewChange(modelcore.ChangeUpdate, modelcore.PropertyAddress{EntityID: documentID, SlotID: "document.model"}, json.RawMessage(current), json.RawMessage(target))
@@ -980,7 +969,7 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 			}
 			return nil
 		}
-		if !errors.Is(completedErr, pgx.ErrNoRows) {
+		if !errors.Is(completedErr, database.ErrNoRows) {
 			return completedErr
 		}
 
@@ -995,7 +984,7 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	if err = tx.QueryRow(ctx, `INSERT INTO occccad.commands(request_id,command_type,document_id,payload,status,completed_at,trace_id,span_id) VALUES($1,$2,$3,$4,'SUCCEEDED',now(),$5,$6) RETURNING id::text`, input.requestID, input.kind, input.documentID, payload, traceID, spanID).Scan(&commandID); err != nil {
 		return err
 	}
-	batch := &pgx.Batch{}
+	batch := &database.Batch{}
 	batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, revisionID, input.documentID, input.headRevision, revisionSequence, input.modelJSON, revisionState, commandID, modelHash, dependencyDigest, manifestJSON)
 	batch.Queue(`INSERT INTO occccad.revision_parents(revision_id,parent_revision_id) VALUES($1,$2)`, revisionID, input.headRevision)
 	var revertID, reapplyID any
@@ -1029,7 +1018,7 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 	if err = tx.QueryRow(ctx, `SELECT coalesce(max(position),-1)+1 FROM occccad.document_history WHERE document_id=$1`, input.documentID).Scan(&position); err != nil {
 		return err
 	}
-	batch = &pgx.Batch{}
+	batch = &database.Batch{}
 	batch.Queue(`INSERT INTO occccad.document_history(document_id,position,version_id,command_id) VALUES($1,$2,$3,$4)`, input.documentID, position, revisionID, commandID)
 	batch.Queue(`INSERT INTO occccad.document_changes(document_id,version_id,command_id,change_type) VALUES($1,$2,$3,$4)`, input.documentID, revisionID, commandID, input.kind)
 	batch.Queue(`UPDATE occccad.workspaces SET head_revision_id=$1,head_sequence=$2,updated_at=now() WHERE id=$3`, revisionID, currentSequence+1, input.workspaceID)

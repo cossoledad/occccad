@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -42,7 +42,7 @@ func (service *Service) CreatePartComponent(ctx context.Context, rootProductDocu
 		}
 		return DocumentView{}, fmt.Errorf("%w: ProductDesignTransaction is %s", ErrValidation, status)
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, database.ErrNoRows) {
 		return DocumentView{}, err
 	}
 
@@ -181,7 +181,7 @@ func (service *Service) loadProductCandidateState(ctx context.Context, documentI
 		JOIN occccad.documents d ON d.id=w.document_id JOIN occccad.document_versions v ON v.id=w.head_revision_id
 		WHERE d.id=$1 AND d.document_type='PRODUCT' AND d.deleted_at IS NULL AND w.name='main'`, documentID).
 		Scan(&state.workspaceID, &state.headRevision, &state.headSequence, &state.modelJSON, &state.manifestJSON); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return state, fmt.Errorf("%w: Product does not exist", ErrValidation)
 		}
 		return state, err
@@ -289,7 +289,7 @@ func (service *Service) nextPartDocumentName(ctx context.Context) (string, error
 	}
 }
 
-func (service *Service) persistInitialDocumentCandidate(ctx context.Context, tx pgx.Tx, candidate *initialDocumentCandidate) error {
+func (service *Service) persistInitialDocumentCandidate(ctx context.Context, tx database.Tx, candidate *initialDocumentCandidate) error {
 	if _, err := tx.Exec(ctx, `INSERT INTO occccad.documents(id,document_type,name,description,folder_id,owner_user_id)
 		VALUES($1,$2,$3,$4,$5,$6)`, candidate.documentID, candidate.documentType, candidate.name, candidate.description,
 		candidate.folderID, candidate.ownerID); err != nil {

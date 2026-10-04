@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 )
@@ -71,7 +70,7 @@ func (service *Service) CreateProductContextBinding(ctx context.Context, rootPro
 			return service.GetDocument(ctx, rootProductDocumentID, request.ActorID)
 		}
 		return DocumentView{}, fmt.Errorf("%w: ProductDesignTransaction is %s", ErrValidation, status)
-	} else if !errors.Is(err, pgx.ErrNoRows) {
+	} else if !errors.Is(err, database.ErrNoRows) {
 		return DocumentView{}, err
 	}
 
@@ -414,7 +413,7 @@ func (service *Service) commitProductDesignCandidates(ctx context.Context, group
 		if err != nil {
 			return err
 		}
-		batch := &pgx.Batch{}
+		batch := &database.Batch{}
 		batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,'READY',$6,$7,$8,$9)`, candidate.revisionID, candidate.documentID, candidate.headRevision, revisionSequence, candidate.nextJSON, auditCommandID, candidate.modelHash, dependencyDigest, manifestJSON)
 		batch.Queue(`INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, candidate.revisionID, candidate.headRevision)
 		requestJSON, _ := json.Marshal(candidate.request)
@@ -456,7 +455,7 @@ func (service *Service) commitProductDesignCandidates(ctx context.Context, group
 		if err := tx.QueryRow(ctx, `SELECT coalesce(max(position),-1)+1 FROM occccad.document_history WHERE document_id=$1`, candidate.documentID).Scan(&position); err != nil {
 			return err
 		}
-		batch = &pgx.Batch{}
+		batch = &database.Batch{}
 		batch.Queue(`INSERT INTO occccad.document_history(document_id,position,version_id,command_id) VALUES($1,$2,$3,$4)`, candidate.documentID, position, candidate.revisionID, auditCommandID)
 		batch.Queue(`INSERT INTO occccad.document_changes(document_id,version_id,command_id,change_type) VALUES($1,$2,$3,$4)`, candidate.documentID, candidate.revisionID, auditCommandID, candidate.request.Type)
 		batch.Queue(`UPDATE occccad.workspaces SET head_revision_id=$1,head_sequence=$2,updated_at=now() WHERE id=$3`, candidate.revisionID, candidate.headSequence+1, candidate.workspaceID)

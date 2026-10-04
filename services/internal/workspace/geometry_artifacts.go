@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/jackc/pgx/v5"
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
-	artifactstore "github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 	"github.com/occccad/occccad/internal/visual"
+	artifactstore "github.com/occccad/occccad/internal/artifact"
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
 
 func (s *Service) representationObject(ctx context.Context, key, role string) (artifactstore.Object, error) {
@@ -236,7 +236,7 @@ func (s *Service) loadArtifact(ctx context.Context, key string) (Artifact, error
 func (s *Service) namingReference(ctx context.Context, key string) (*string, *string, string, string, error) {
 	var id, digest, geometryID, brepDigest string
 	err := s.database.QueryRow(ctx, `SELECT o.id::text,o.sha256,g.geometry_id,b.sha256 FROM occccad.geometry_representations r JOIN occccad.artifact_objects o ON o.id=r.object_id JOIN occccad.geometry_artifacts g ON g.geometry_key=r.geometry_key JOIN occccad.geometry_representations br ON br.geometry_key=r.geometry_key AND br.role='BREP' JOIN occccad.artifact_objects b ON b.id=br.object_id WHERE r.geometry_key=$1 AND r.role='NAMING'`, key).Scan(&id, &digest, &geometryID, &brepDigest)
-	if err == pgx.ErrNoRows {
+	if err == database.ErrNoRows {
 		return nil, nil, "", "", nil
 	}
 	if err != nil {

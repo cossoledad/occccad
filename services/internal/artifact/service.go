@@ -24,12 +24,12 @@ type Object struct {
 }
 
 type Service struct {
-	database *database.Pool
+	database database.DB
 	store    Store
 	staging  Store
 }
 
-func NewService(database *database.Pool, store Store, staging ...Store) *Service {
+func NewService(database database.DB, store Store, staging ...Store) *Service {
 	local := store
 	if len(staging) > 0 {
 		local = staging[0]

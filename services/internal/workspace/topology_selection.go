@@ -10,10 +10,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
 
 type BindPersistentSelectionRequest struct {
@@ -391,7 +391,7 @@ func (service *Service) resolvedAssemblyTopologyProperties(ctx context.Context, 
 	_, err := assemblyRead(ctx, assemblyReadKey{"live-document", documentID, ""}, func() (bool, error) {
 		var live bool
 		err := service.database.QueryRow(ctx, `SELECT true FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, documentID).Scan(&live)
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return false, ErrNotFound
 		}
 		return live, err
@@ -692,7 +692,7 @@ func (service *Service) loadTopologyManifestForVersion(ctx context.Context, docu
 	err := service.database.QueryRow(ctx, `SELECT body->>'geometryKey' FROM occccad.document_versions v
  CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') body
  WHERE v.id=$2 AND v.document_id=$1 AND body->>'id'=$3 AND COALESCE(body->>'geometryKey','')<>''`, documentID, versionID, bodyID).Scan(&geometryKey)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, database.ErrNoRows) {
 		return nil, "", "", ErrNotFound
 	}
 	if err != nil {
@@ -714,7 +714,7 @@ func (service *Service) BindPersistentSelection(ctx context.Context, documentID 
 		err := service.database.QueryRow(ctx, `SELECT body->>'id' FROM occccad.document_versions v
         CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') body
         WHERE v.id=$2 AND v.document_id=$1 AND body->>'geometryKey'=$3`, documentID, request.SourceVersionID, request.GeometryKey).Scan(&request.BodyID)
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, database.ErrNoRows) {
 			return modelcore.PersistentSelection{}, ErrNotFound
 		}
 		if err != nil {

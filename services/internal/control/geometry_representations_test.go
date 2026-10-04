@@ -6,16 +6,16 @@ import (
 	"os"
 	"testing"
 
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/thumbnail"
 	"github.com/occccad/occccad/internal/visual"
 	"github.com/occccad/occccad/internal/workspace"
 	"google.golang.org/protobuf/proto"
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
 
-func verifyGeometryRepresentations(t *testing.T, db *database.Pool, service *workspace.Service, store *artifact.Service, view workspace.DocumentView) {
+func verifyGeometryRepresentations(t *testing.T, db database.DB, service *workspace.Service, store *artifact.Service, view workspace.DocumentView) {
 	t.Helper()
 	if len(activeBodyArtifact(t, view).Representations) != 3 {
 		t.Fatalf("expected BREP/VISUAL/NAMING: %+v", activeBodyArtifact(t, view).Representations)

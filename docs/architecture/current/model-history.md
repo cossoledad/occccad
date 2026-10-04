@@ -4,7 +4,7 @@
 
 ## 业务与数据模型
 
-PostgreSQL schema 名为 `occccad`，当前迁移建立的主要关系如下。
+PostgreSQL schema 名为 `occccad`；SQLite Local Mode 在独立本机文件中建立相同领域关系，使用显式外键、唯一与类型检查。应用通过供应商无关的数据库接口持久化；两种模式共享 Revision/CAS、幂等、补偿历史与 Outbox 合同。当前迁移建立的主要关系如下。
 
 ```mermaid
 erDiagram

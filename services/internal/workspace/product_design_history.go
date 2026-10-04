@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -31,7 +31,7 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 		}
 		return fmt.Errorf("%w: ProductDesignTransaction is %s", ErrValidation, storedStatus)
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, database.ErrNoRows) {
 		return err
 	}
 
@@ -58,7 +58,7 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 		currentJSON, baseJSON, resultJSON, changeJSON                            []byte
 		persistedWrites                                                          []string
 	}
-	inputs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (historyRow, error) {
+	inputs, err := database.CollectRows(rows, func(row database.CollectableRow) (historyRow, error) {
 		var v historyRow
 		err := row.Scan(&v.originalTransaction, &v.workspaceID, &v.documentID, &v.documentType, &v.headRevision, &v.headSequence, &v.currentJSON, &v.baseJSON, &v.resultJSON, &v.changeJSON, &v.persistedWrites)
 		return v, err
@@ -90,7 +90,7 @@ func (service *Service) applyProductDesignCompensatingHistory(ctx context.Contex
 				WHERE revert_tx.root_transaction_id=$1 AND revert_tx.kind='REVERT' AND revert_tx.status='COMMITTED'
 				  AND revert_tx.sequence>boundary.sequence
 				  AND NOT EXISTS (SELECT 1 FROM occccad.domain_transactions reapply WHERE reapply.reapplies_transaction_id=revert_tx.id AND reapply.status='COMMITTED')
-				ORDER BY revert_tx.sequence DESC LIMIT 1`, originalTransaction, workspaceID, actorID(request.ActorID)).Scan(&consumedRevert); errors.Is(err, pgx.ErrNoRows) {
+				ORDER BY revert_tx.sequence DESC LIMIT 1`, originalTransaction, workspaceID, actorID(request.ActorID)).Scan(&consumedRevert); errors.Is(err, database.ErrNoRows) {
 				return fmt.Errorf("%w: ProductDesignTransaction is not uniformly redoable", ErrValidation)
 			} else if err != nil {
 				return err

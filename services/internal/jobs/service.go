@@ -6,9 +6,12 @@ import (
 	"errors"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/occccad/occccad/internal/database"
 )
+
+const jobColumns = `id::text,job_type,state,document_id::text,version_id::text,requested_by_user_id::text,
+ input_object_id::text,result_object_id::text,payload,attempt_count,max_attempts,progress,
+ error_code,error_message,created_at::text,started_at::text,completed_at::text,cancel_requested_at::text,user_visible`
 
 var ErrNotFound = errors.New("job not found")
 var ErrNotCancelable = errors.New("job cannot be canceled in its current state")
@@ -45,31 +48,21 @@ type EnqueueRequest struct {
 	UserVisible                                                  bool
 }
 
-type Service struct{ database *database.Pool }
+type Service struct{ database database.DB }
 
-func New(database *database.Pool) *Service { return &Service{database: database} }
+func New(database database.DB) *Service { return &Service{database: database} }
 
 func (service *Service) Enqueue(ctx context.Context, request EnqueueRequest) (Job, error) {
 	payload, err := json.Marshal(request.Payload)
 	if err != nil {
 		return Job{}, err
 	}
-	var input *string
-	if request.InputObjectID != "" {
-		input = &request.InputObjectID
-	}
-	row := service.database.QueryRow(ctx, `WITH queued AS (INSERT INTO occccad.jobs(job_type,document_id,version_id,
-		requested_by_user_id,input_object_id,payload,idempotency_key,user_visible)
-		VALUES($1,NULLIF($2,'')::uuid,$3,$4,NULLIF($5,'')::uuid,$6,$7,$8)
-		ON CONFLICT(job_type,idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
-        RETURNING *), notified AS (
-        INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
-        SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state',state) FROM queued)
-        SELECT id::text,job_type,state,document_id::text,version_id::text,requested_by_user_id::text,
-		input_object_id::text,result_object_id::text,payload,attempt_count,max_attempts,progress,
-		error_code,error_message,created_at::text,started_at::text,completed_at::text,cancel_requested_at::text,user_visible FROM queued`, request.Type, request.DocumentID,
-		request.VersionID, request.RequestedBy, input, payload, request.IdempotencyKey, request.UserVisible)
-	return scan(row)
+	return service.change(ctx, `INSERT INTO occccad.jobs(job_type,document_id,version_id,
+ requested_by_user_id,input_object_id,payload,idempotency_key,user_visible)
+ VALUES($1,NULLIF($2,'')::uuid,$3,$4,NULLIF($5,'')::uuid,$6,$7,$8)
+ ON CONFLICT(job_type,idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key
+ RETURNING `+jobColumns, "", "", "", request.Type, request.DocumentID, request.VersionID,
+		request.RequestedBy, request.InputObjectID, payload, request.IdempotencyKey, request.UserVisible)
 }
 
 func (service *Service) Get(ctx context.Context, id string) (Job, error) {
@@ -78,7 +71,7 @@ func (service *Service) Get(ctx context.Context, id string) (Job, error) {
 		attempt_count,max_attempts,progress,error_code,error_message,created_at::text,started_at::text,
 		completed_at::text,cancel_requested_at::text,user_visible
 		FROM occccad.jobs WHERE id=$1`, id))
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, database.ErrNoRows) {
 		return Job{}, ErrNotFound
 	}
 	return result, err
@@ -112,94 +105,62 @@ func (service *Service) Claim(ctx context.Context, workerID string, lease time.D
 	if lease <= 0 {
 		lease = 2 * time.Minute
 	}
-	transaction, err := service.database.Begin(ctx)
+	tx, err := service.database.Begin(ctx)
 	if err != nil {
 		return Job{}, err
 	}
-	defer func() { _ = transaction.Rollback(ctx) }()
-	row := transaction.QueryRow(ctx, `WITH candidate AS (
-		SELECT id FROM occccad.jobs WHERE
-			(state IN ('QUEUED','RETRY_WAIT') AND available_at<=now()) OR
-			(state='RUNNING' AND lease_expires_at<now())
-		ORDER BY priority DESC,created_at FOR UPDATE SKIP LOCKED LIMIT 1
-	), claimed AS (
-		UPDATE occccad.jobs j SET state='RUNNING',lease_owner=$1,lease_expires_at=now()+$2::interval,
-			heartbeat_at=now(),started_at=COALESCE(started_at,now()),attempt_count=attempt_count+1
-		FROM candidate WHERE j.id=candidate.id
-		RETURNING j.*
-    ), notified AS (
-      INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
-      SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state',state) FROM claimed
-    )
-	SELECT id::text,job_type,state,document_id::text,version_id::text,requested_by_user_id::text,
-		input_object_id::text,result_object_id::text,payload,attempt_count,max_attempts,progress,
-		error_code,error_message,created_at::text,started_at::text,completed_at::text,
-		cancel_requested_at::text,user_visible FROM claimed`, workerID, lease.String())
-	job, err := scan(row)
+	defer tx.Rollback(ctx)
+	var id string
+	if err = tx.QueryRow(ctx, `SELECT id::text FROM occccad.jobs WHERE
+ (state IN ('QUEUED','RETRY_WAIT') AND available_at<=now()) OR
+ (state='RUNNING' AND lease_expires_at<now())
+ ORDER BY priority DESC,created_at LIMIT 1 FOR UPDATE SKIP LOCKED`).Scan(&id); err != nil {
+		return Job{}, err
+	}
+	job, err := scan(tx.QueryRow(ctx, `UPDATE occccad.jobs SET state='RUNNING',lease_owner=$1,lease_expires_at=now()+$2::interval,
+ heartbeat_at=now(),started_at=COALESCE(started_at,now()),attempt_count=attempt_count+1
+ WHERE id=$3 RETURNING `+jobColumns, workerID, lease.String(), id))
 	if err != nil {
 		return Job{}, err
 	}
-	_, err = transaction.Exec(ctx, `INSERT INTO occccad.job_attempts(job_id,attempt,worker_id)
-		VALUES($1,$2,$3)`, job.ID, job.AttemptCount, workerID)
-	if err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO occccad.job_attempts(job_id,attempt,worker_id) VALUES($1,$2,$3)`, job.ID, job.AttemptCount, workerID); err != nil {
 		return Job{}, err
 	}
-	if err := transaction.Commit(ctx); err != nil {
+	if err = notify(ctx, tx, job); err != nil {
+		return Job{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
 		return Job{}, err
 	}
 	return job, nil
 }
 
-func (service *Service) Succeed(ctx context.Context, jobID, workerID, resultObjectID string) error {
-	var updated int
-	err := service.database.QueryRow(ctx, `WITH finished AS (
-		UPDATE occccad.jobs SET state='SUCCEEDED',progress=100,result_object_id=NULLIF($3,'')::uuid,
-			completed_at=now(),lease_owner=NULL,lease_expires_at=NULL WHERE id=$1 AND state='RUNNING'
-			AND lease_owner=$2 AND cancel_requested_at IS NULL
-		RETURNING id,job_type,attempt_count), attempt AS (
-		UPDATE occccad.job_attempts a SET completed_at=now(),result='SUCCEEDED'
-		FROM finished WHERE a.job_id=finished.id AND a.attempt=finished.attempt_count RETURNING a.job_id), notified AS (
-		INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
-		SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state','SUCCEEDED')
-		FROM finished RETURNING id)
-	SELECT count(*) FROM finished`, jobID, workerID, resultObjectID).Scan(&updated)
-	if err != nil {
-		return err
-	}
-	if updated == 0 {
+func (service *Service) Succeed(ctx context.Context, jobID, workerID, resultID string) error {
+	_, err := service.change(ctx, `UPDATE occccad.jobs SET state='SUCCEEDED',progress=100,result_object_id=NULLIF($3,'')::uuid,
+ completed_at=now(),lease_owner=NULL,lease_expires_at=NULL WHERE id=$1 AND state='RUNNING'
+ AND lease_owner=$2 AND cancel_requested_at IS NULL RETURNING `+jobColumns, "SUCCEEDED", "", "", jobID, workerID, resultID)
+	if errors.Is(err, database.ErrNoRows) {
 		return ErrNotFound
 	}
-	return nil
+	return err
 }
 
-func (service *Service) SucceedImport(ctx context.Context, jobID, workerID, documentID string) error {
-	var updated int
-	err := service.database.QueryRow(ctx, `WITH finished AS (
-		UPDATE occccad.jobs SET state='SUCCEEDED',progress=100,document_id=$3,
-			completed_at=now(),lease_owner=NULL,lease_expires_at=NULL
-			WHERE id=$1 AND state='RUNNING' AND lease_owner=$2 AND cancel_requested_at IS NULL RETURNING id,attempt_count), attempt AS (
-		UPDATE occccad.job_attempts a SET completed_at=now(),result='SUCCEEDED'
-		FROM finished WHERE a.job_id=finished.id AND a.attempt=finished.attempt_count RETURNING a.job_id), notified AS (
-		INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
-		SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state','SUCCEEDED')
-		FROM finished RETURNING id)
-	SELECT count(*) FROM finished`, jobID, workerID, documentID).Scan(&updated)
-	if err != nil {
-		return err
-	}
-	if updated == 0 {
+func (service *Service) SucceedImport(ctx context.Context, jobID, workerID, resultID string) error {
+	_, err := service.change(ctx, `UPDATE occccad.jobs SET state='SUCCEEDED',progress=100,document_id=NULLIF($3,'')::uuid,
+ completed_at=now(),lease_owner=NULL,lease_expires_at=NULL WHERE id=$1 AND state='RUNNING'
+ AND lease_owner=$2 AND cancel_requested_at IS NULL RETURNING `+jobColumns, "SUCCEEDED", "", "", jobID, workerID, resultID)
+	if errors.Is(err, database.ErrNoRows) {
 		return ErrNotFound
 	}
-	return nil
+	return err
 }
 
 func (service *Service) Heartbeat(ctx context.Context, jobID, workerID string, lease time.Duration) error {
 	if lease <= 0 {
 		lease = 2 * time.Minute
 	}
-	command, err := service.database.Exec(ctx, `UPDATE occccad.jobs SET heartbeat_at=now(),
-		lease_expires_at=now()+$3::interval WHERE id=$1 AND state='RUNNING' AND lease_owner=$2`,
-		jobID, workerID, lease.String())
+	command, err := service.database.Exec(ctx, `UPDATE occccad.jobs SET heartbeat_at=now(),lease_expires_at=now()+$3::interval
+ WHERE id=$1 AND state='RUNNING' AND lease_owner=$2`, jobID, workerID, lease.String())
 	if err != nil {
 		return err
 	}
@@ -223,42 +184,72 @@ func (service *Service) UpdateProgress(ctx context.Context, jobID, workerID stri
 // older phase replace details belonging to a more advanced phase in that attempt.
 // A new attempt reports its actual phase while the overall percentage stays put.
 func (service *Service) UpdateProgressDetail(ctx context.Context, jobID, workerID string, progress int, detail *ProgressDetail) error {
-	if progress < 0 {
-		progress = 0
-	}
-	if progress > 99 {
-		progress = 99
-	}
-	var value any
-	if detail != nil {
-		encoded, err := json.Marshal(detail)
-		if err != nil {
-			return err
-		}
-		value = encoded
-	}
-	command, err := service.database.Exec(ctx, `WITH changed AS (UPDATE occccad.jobs SET progress=GREATEST(progress,$3),
- payload=CASE WHEN $4::jsonb IS NOT NULL AND (
- COALESCE((payload#>>'{progressDetail,attempt}')::int,-1)<attempt_count OR
- $3>=COALESCE((payload#>>'{progressDetail,phaseProgress}')::int,progress))
- THEN jsonb_set(payload,'{progressDetail}',$4::jsonb || jsonb_build_object('attempt',attempt_count,'phaseProgress',$3)) ELSE payload END
- WHERE id=$1 AND state='RUNNING' AND lease_owner=$2 AND cancel_requested_at IS NULL RETURNING id)
- INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
- SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id) FROM changed`, jobID, workerID, progress, value)
+	progress = max(0, min(99, progress))
+	tx, err := service.database.Begin(ctx)
 	if err != nil {
 		return err
 	}
-	if command.RowsAffected() == 0 {
+	defer tx.Rollback(ctx)
+	job, err := scan(tx.QueryRow(ctx, `SELECT `+jobColumns+` FROM occccad.jobs
+ WHERE id=$1 AND state='RUNNING' AND lease_owner=$2 AND cancel_requested_at IS NULL FOR UPDATE`, jobID, workerID))
+	if errors.Is(err, database.ErrNoRows) {
 		return ErrNotFound
 	}
-	return nil
+	if err != nil {
+		return err
+	}
+	payload := map[string]json.RawMessage{}
+	if err = json.Unmarshal(job.Payload, &payload); err != nil {
+		return err
+	}
+	if payload == nil {
+		payload = map[string]json.RawMessage{}
+	}
+	var previous struct {
+		Attempt       *int
+		PhaseProgress *int
+	}
+	if raw := payload["progressDetail"]; raw != nil {
+		if err = json.Unmarshal(raw, &previous); err != nil {
+			return err
+		}
+	}
+	priorAttempt, priorProgress := -1, job.Progress
+	if previous.Attempt != nil {
+		priorAttempt = *previous.Attempt
+	}
+	if previous.PhaseProgress != nil {
+		priorProgress = *previous.PhaseProgress
+	}
+	if detail != nil && (priorAttempt < job.AttemptCount || progress >= priorProgress) {
+		value := struct {
+			*ProgressDetail
+			Attempt       int
+			PhaseProgress int
+		}{detail, job.AttemptCount, progress}
+		payload["progressDetail"], err = json.Marshal(value)
+		if err != nil {
+			return err
+		}
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE occccad.jobs SET progress=$2,payload=$3 WHERE id=$1`, job.ID, max(job.Progress, progress), encoded); err != nil {
+		return err
+	}
+	if err = notify(ctx, tx, job); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (service *Service) CancellationRequested(ctx context.Context, jobID, workerID string) (bool, error) {
 	var requested bool
 	err := service.database.QueryRow(ctx, `SELECT cancel_requested_at IS NOT NULL
 		FROM occccad.jobs WHERE id=$1 AND state='RUNNING' AND lease_owner=$2`, jobID, workerID).Scan(&requested)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, database.ErrNoRows) {
 		return false, ErrNotFound
 	}
 	return requested, err
@@ -268,105 +259,64 @@ func (service *Service) CancellationRequested(ctx context.Context, jobID, worker
 // owner to cooperatively stop running work. A running attempt remains RUNNING
 // until its worker acknowledges cancellation, so it cannot be claimed twice.
 func (service *Service) RequestCancel(ctx context.Context, jobID, userID string, isAdmin bool) (Job, error) {
-	row := service.database.QueryRow(ctx, `WITH changed AS (
-		UPDATE occccad.jobs SET
-			state=CASE WHEN state IN ('QUEUED','RETRY_WAIT') THEN 'CANCELED' ELSE state END,
-			cancel_requested_at=COALESCE(cancel_requested_at,now()),
-			completed_at=CASE WHEN state IN ('QUEUED','RETRY_WAIT') THEN now() ELSE completed_at END
-		WHERE id=$1 AND ($3 OR requested_by_user_id=$2)
-			AND (state IN ('QUEUED','RETRY_WAIT') OR (state='RUNNING' AND (job_type<>'EXCHANGE_IMPORT' OR progress<70)))
-			AND cancel_requested_at IS NULL
-		RETURNING *
-	), notified AS (
-		INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
-		SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state',state)
-		FROM changed
-	)
-	SELECT id::text,job_type,state,document_id::text,version_id::text,requested_by_user_id::text,
-		input_object_id::text,result_object_id::text,payload,attempt_count,max_attempts,progress,
-		error_code,error_message,created_at::text,started_at::text,completed_at::text,cancel_requested_at::text,user_visible
-	FROM changed`, jobID, userID, isAdmin)
-	result, err := scan(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		if _, getErr := service.Get(ctx, jobID); errors.Is(getErr, ErrNotFound) {
-			return Job{}, ErrNotFound
+	job, err := service.change(ctx, `UPDATE occccad.jobs SET
+ state=CASE WHEN state IN ('QUEUED','RETRY_WAIT') THEN 'CANCELED' ELSE state END,
+ cancel_requested_at=COALESCE(cancel_requested_at,now()),
+ completed_at=CASE WHEN state IN ('QUEUED','RETRY_WAIT') THEN now() ELSE completed_at END
+ WHERE id=$1 AND ($3 OR requested_by_user_id=$2)
+ AND (state IN ('QUEUED','RETRY_WAIT') OR (state='RUNNING' AND (job_type<>'EXCHANGE_IMPORT' OR progress<70)))
+ AND cancel_requested_at IS NULL RETURNING `+jobColumns, "", "", "", jobID, userID, isAdmin)
+	if errors.Is(err, database.ErrNoRows) {
+		if _, getErr := service.Get(ctx, jobID); getErr != nil {
+			return Job{}, getErr
 		}
 		return Job{}, ErrNotCancelable
 	}
-	return result, err
+	return job, err
 }
 
 func (service *Service) AcknowledgeCanceled(ctx context.Context, jobID, workerID string) error {
-	var updated int
-	err := service.database.QueryRow(ctx, `WITH finished AS (
-		UPDATE occccad.jobs SET state='CANCELED',completed_at=now(),lease_owner=NULL,lease_expires_at=NULL
-		WHERE id=$1 AND state='RUNNING' AND lease_owner=$2 AND cancel_requested_at IS NOT NULL
-		RETURNING id,job_type,attempt_count
-	), attempt AS (
-		UPDATE occccad.job_attempts a SET completed_at=now(),result='CANCELED'
-		FROM finished WHERE a.job_id=finished.id AND a.attempt=finished.attempt_count RETURNING a.job_id
-	), notified AS (
-		INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
-		SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state','CANCELED')
-		FROM finished RETURNING id
-	)
-	SELECT count(*) FROM finished`, jobID, workerID).Scan(&updated)
-	if err != nil {
-		return err
-	}
-	if updated == 0 {
+	_, err := service.change(ctx, `UPDATE occccad.jobs SET state='CANCELED',completed_at=now(),lease_owner=NULL,lease_expires_at=NULL
+ WHERE id=$1 AND state='RUNNING' AND lease_owner=$2 AND cancel_requested_at IS NOT NULL RETURNING `+jobColumns,
+		"CANCELED", "", "", jobID, workerID)
+	if errors.Is(err, database.ErrNoRows) {
 		return ErrNotFound
 	}
-	return nil
+	return err
 }
 
 func (service *Service) Retry(ctx context.Context, jobID, userID string, isAdmin bool) (Job, error) {
-	row := service.database.QueryRow(ctx, `WITH changed AS (
-		UPDATE occccad.jobs SET state='QUEUED',available_at=now(),completed_at=NULL,
-			cancel_requested_at=NULL,error_code=NULL,error_message=NULL,
-			max_attempts=GREATEST(max_attempts,attempt_count+3)
-		WHERE id=$1 AND ($3 OR requested_by_user_id=$2) AND state IN ('FAILED','CANCELED')
-		RETURNING *
-    ), notified AS (
-      INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
-      SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state',state) FROM changed
-    )
-	SELECT id::text,job_type,state,document_id::text,version_id::text,requested_by_user_id::text,
-		input_object_id::text,result_object_id::text,payload,attempt_count,max_attempts,progress,
-		error_code,error_message,created_at::text,started_at::text,completed_at::text,cancel_requested_at::text,user_visible
-	FROM changed`, jobID, userID, isAdmin)
-	result, err := scan(row)
-	if errors.Is(err, pgx.ErrNoRows) {
-		if _, getErr := service.Get(ctx, jobID); errors.Is(getErr, ErrNotFound) {
-			return Job{}, ErrNotFound
+	job, err := service.change(ctx, `UPDATE occccad.jobs SET state='QUEUED',available_at=now(),completed_at=NULL,
+ cancel_requested_at=NULL,error_code=NULL,error_message=NULL,max_attempts=GREATEST(max_attempts,attempt_count+3)
+ WHERE id=$1 AND ($3 OR requested_by_user_id=$2) AND state IN ('FAILED','CANCELED') RETURNING `+jobColumns,
+		"", "", "", jobID, userID, isAdmin)
+	if errors.Is(err, database.ErrNoRows) {
+		if _, getErr := service.Get(ctx, jobID); getErr != nil {
+			return Job{}, getErr
 		}
 		return Job{}, ErrNotRetryable
 	}
-	return result, err
+	return job, err
 }
 
 func (service *Service) Fail(ctx context.Context, job Job, workerID, code, message string) error {
 	state := "FAILED"
-	delay := "0 seconds"
+	delay := time.Duration(0)
 	if job.AttemptCount < job.MaxAttempts {
-		state, delay = "RETRY_WAIT", (time.Duration(job.AttemptCount) * 5 * time.Second).String()
+		state = "RETRY_WAIT"
+		delay = time.Duration(job.AttemptCount) * 5 * time.Second
 	}
-	_, err := service.database.Exec(ctx, `WITH finished AS (
-		UPDATE occccad.jobs SET state=$3,error_code=$4,error_message=$5,available_at=now()+$6::interval,
-			completed_at=CASE WHEN $3='FAILED' THEN now() END,lease_owner=NULL,lease_expires_at=NULL
-		WHERE id=$1 AND lease_owner=$2 AND cancel_requested_at IS NULL RETURNING id,job_type,attempt_count,state), attempt AS (
-		UPDATE occccad.job_attempts a SET completed_at=now(),result='FAILED',error_code=$4,error_message=$5
-		FROM finished WHERE a.job_id=finished.id AND a.attempt=finished.attempt_count RETURNING a.job_id)
-	INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
-	SELECT 'JOB',id,'job.state.changed',1,jsonb_build_object('jobId',id,'state',state)
-	FROM finished`,
-		job.ID, workerID, state, code, message, delay)
+	_, err := service.change(ctx, `UPDATE occccad.jobs SET state=$3,error_code=$4,error_message=$5,available_at=now()+$6::interval,
+ completed_at=CASE WHEN $3='FAILED' THEN now() END,lease_owner=NULL,lease_expires_at=NULL
+ WHERE id=$1 AND state='RUNNING' AND lease_owner=$2 AND cancel_requested_at IS NULL RETURNING `+jobColumns,
+		"FAILED", code, message, job.ID, workerID, state, code, message, delay.String())
+	if errors.Is(err, database.ErrNoRows) {
+		return nil
+	}
 	return err
 }
 
-type scanner interface{ Scan(...any) error }
-
-func scan(row scanner) (Job, error) {
+func scan(row database.Row) (Job, error) {
 	var result Job
 	err := row.Scan(&result.ID, &result.Type, &result.State, &result.DocumentID, &result.VersionID,
 		&result.RequestedBy, &result.InputObjectID, &result.ResultObjectID, &result.Payload,
@@ -380,4 +330,40 @@ func populateCapabilities(result *Job) {
 	result.CanCancel = (result.State == "QUEUED" || result.State == "RETRY_WAIT" ||
 		(result.State == "RUNNING" && (result.Type != "EXCHANGE_IMPORT" || result.Progress < 70))) && result.CancelRequestedAt == nil
 	result.CanRetry = result.State == "FAILED" || result.State == "CANCELED"
+}
+
+// change commits the state, attempt and notification in one transaction on every
+// backend. A failure in any step rolls back the entire transition.
+func (service *Service) change(ctx context.Context, query, attemptResult, code, message string, args ...any) (Job, error) {
+	tx, err := service.database.Begin(ctx)
+	if err != nil {
+		return Job{}, err
+	}
+	defer tx.Rollback(ctx)
+	job, err := scan(tx.QueryRow(ctx, query, args...))
+	if err != nil {
+		return Job{}, err
+	}
+	if attemptResult != "" {
+		if _, err = tx.Exec(ctx, `UPDATE occccad.job_attempts SET completed_at=now(),result=$3,error_code=NULLIF($4,''),error_message=NULLIF($5,'')
+  WHERE job_id=$1 AND attempt=$2`, job.ID, job.AttemptCount, attemptResult, code, message); err != nil {
+			return Job{}, err
+		}
+	}
+	if err = notify(ctx, tx, job); err != nil {
+		return Job{}, err
+	}
+	if err = tx.Commit(ctx); err != nil {
+		return Job{}, err
+	}
+	return job, nil
+}
+func notify(ctx context.Context, tx database.Tx, job Job) error {
+	payload, err := json.Marshal(map[string]string{"jobId": job.ID, "state": job.State})
+	if err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO occccad.outbox_events(aggregate_type,aggregate_id,event_type,schema_version,payload)
+ VALUES('JOB',$1,'job.state.changed',1,$2)`, job.ID, payload)
+	return err
 }

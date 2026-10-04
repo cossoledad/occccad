@@ -48,8 +48,12 @@ LOCKS_DIR = CONAN_DIR / "locks"
 
 def _load_project_env() -> None:
     """Load simple KEY=VALUE entries from .env; exported variables take precedence."""
-    env_file = PROJECT_ROOT / ".env"
-    if not env_file.exists():
+    explicit = os.environ.get("OCCCCAD_ENV_FILE", "").strip()
+    env_file = Path(explicit).resolve() if explicit else PROJECT_ROOT / ".env"
+    if explicit:
+        # Child commands change cwd; pass the same absolute file to Go.
+        os.environ["OCCCCAD_ENV_FILE"] = str(env_file)
+    if not explicit and not env_file.exists():
         return
     for raw_line in env_file.read_text(encoding="utf-8").splitlines():
         line = raw_line.strip()
@@ -783,14 +787,14 @@ def run_server(c):
 
 @task
 def run_jobs(c):
-    """Start the PostgreSQL-backed artifact and STEP job worker."""
+    """Start the artifact and STEP job worker."""
     with c.cd(str(PROJECT_ROOT / "services")):
         c.run("go run ./cmd/occccad-jobs", pty=True)
 
 
 def _reset_development_data(c):
-    """Clear the fixed PostgreSQL schema, configured ArtifactStore and staging, then migrate."""
-    print("[data.reset] Clearing PostgreSQL schema 'occccad', configured ArtifactStore (including S3) and local staging...")
+    """Clear the configured database, ArtifactStore and staging, then migrate."""
+    print("[data.reset] Clearing the configured database, ArtifactStore (including S3) and local staging; stop API/Jobs before resetting...")
     with c.cd(str(PROJECT_ROOT / "services")):
         c.run(
             "go run ./cmd/occccad-migrate --reset-development-data",

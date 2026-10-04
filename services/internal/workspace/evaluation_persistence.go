@@ -6,11 +6,11 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
-func persistEvaluationProjection(ctx context.Context, tx pgx.Tx, revisionID, documentType, modelHash, dependencyDigest string, graph *modelcore.DependencyGraph, manifest modelcore.EvaluationManifest) error {
+func persistEvaluationProjection(ctx context.Context, tx database.Tx, revisionID, documentType, modelHash, dependencyDigest string, graph *modelcore.DependencyGraph, manifest modelcore.EvaluationManifest) error {
 	manifestJSON, err := json.Marshal(manifest)
 	if err != nil {
 		return err
@@ -28,7 +28,7 @@ func persistEvaluationProjection(ctx context.Context, tx pgx.Tx, revisionID, doc
 	return err
 }
 
-func persistInitialTransaction(ctx context.Context, tx pgx.Tx, workspaceID, documentID, revisionID, actor, modelHash, typeURI string, modelJSON []byte) error {
+func persistInitialTransaction(ctx context.Context, tx database.Tx, workspaceID, documentID, revisionID, actor, modelHash, typeURI string, modelJSON []byte) error {
 	transactionUUID, err := uuid.NewV7()
 	if err != nil {
 		return err

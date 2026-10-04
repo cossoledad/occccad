@@ -1,6 +1,6 @@
 # occccad-jobs
 
-occccad-jobs 是当前 PostgreSQL 持久任务的消费者进程，适合脱离 HTTP 请求执行可重试工作。
+occccad-jobs 是当前数据库持久任务的消费者进程，适合脱离 HTTP 请求执行可重试工作。
 
 ## 当前职责
 
@@ -13,14 +13,16 @@ occccad-jobs 是当前 PostgreSQL 持久任务的消费者进程，适合脱离 
 Worker 不提供网络 API，不接受用户认证请求，也不是通用分布式工作流引擎。
 STEP 优先保留 Definition/Occurrence 名称；无源名称时使用上传文件名。Product STEP 导出通过 XDE 共享 Definition 和 reference + local placement，保留嵌套层级。BREP 保持单 Part/Compound 语义。
 
+SQLite Local Mode 使用 `OCCCCAD_DATABASE_URL=sqlite:/absolute/path/local.db`，必须与 API 指向同一个本机文件。完整配置见[数据库层](../../internal/database/README.md)。
+
 ## 执行模型
 
-单个进程默认同时运行 2 个独立 Job 领取循环，`OCCCCAD_JOB_CONCURRENCY` 可设为 1–8。每个循环持有独立 lease owner 和 Workspace 缓存；共享 PostgreSQL 池、ArtifactStore 与 Geometry Router，多个导入文件可由不同 Geometry Worker 进程处理。每个文件仍是独立可重试任务，批次中的一个失败不会撤销其他文件。
+单个进程默认同时运行 2 个独立 Job 领取循环，`OCCCCAD_JOB_CONCURRENCY` 可设为 1–8。每个循环持有独立 lease owner 和 Workspace 缓存；共享所选数据库后端的池、ArtifactStore 与 Geometry Router，多个导入文件可由不同 Geometry Worker 进程处理。每个文件仍是独立可重试任务，批次中的一个失败不会撤销其他文件。
 
 ```mermaid
 flowchart LR
-    API["occccad-server"] -->|"INSERT with idempotency key"| Queue[(PostgreSQL jobs)]
-    Jobs["occccad-jobs"] -->|"FOR UPDATE SKIP LOCKED"| Queue
+    API["occccad-server"] -->|"INSERT with idempotency key"| Queue[(PostgreSQL / SQLite jobs)]
+    Jobs["occccad-jobs"] -->|"事务领取"| Queue
     Jobs --> DB[(Domain tables)]
     Jobs --> Store["ArtifactStore（S3 / Local）"]
     Jobs --> Geometry["Geometry gRPC"]
@@ -33,7 +35,7 @@ flowchart LR
 - Worker 按持久阶段单调写入 0–100 进度；导入进入正式文档提交阶段后关闭取消能力，避免形成半提交的组件集合；
 - 最终失败或取消任务可在同一 Job identity 上手动重试，继续递增 attempt，不覆盖尝试历史；
 - 领取语义是至少一次，任务处理器必须依赖幂等键和条件写入，不能假设“恰好一次”；
-- 最终成功、最终失败或取消与 `JOB` Outbox 在同一数据库 statement 中写入；API 通过 `job.state.changed.v1` 通知任务发起用户，重试等待状态不制造失败通知；
+- 最终成功、最终失败或取消与 `JOB` Outbox 在同一数据库事务中写入；API 通过 `job.state.changed.v1` 通知任务发起用户，重试等待状态不制造失败通知；
 - 轮询为空时等待 1 秒。
 - 缩略图生成默认有 `5s` deadline，可通过 `OCCCCAD_THUMBNAIL_RENDER_TIMEOUT` 调整；超时或场景预算耗尽会持久化固定尺寸默认 PNG。API 在预览尚未生成或制品不可用时也返回默认 PNG；父 Job 取消直接结束渲染，不遗留后台渲染 goroutine。
 - `png-v4` 与视口共用 `(1,-1,1)` / Z-up 的正交 ISO 约定，按实际投影几何统一 Fit，应用 occurrence 完整 quaternion/translation。

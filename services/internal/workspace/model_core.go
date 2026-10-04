@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
@@ -2187,7 +2186,7 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	prepared.requestID = request.RequestID
 	prepared.actorID = actorID(request.ActorID)
 	var priorManifestJSON []byte
-	if err := service.database.QueryRow(ctx, `SELECT w.id::text,w.head_revision_id::text,w.head_sequence,d.document_type,v.model_json,v.evaluation_manifest FROM occccad.workspaces w JOIN occccad.documents d ON d.id=w.document_id JOIN occccad.document_versions v ON v.id=w.head_revision_id WHERE w.document_id=$1 AND w.name='main' AND d.deleted_at IS NULL`, documentID).Scan(&prepared.workspaceID, &prepared.headRevision, &prepared.headSequence, &prepared.documentType, &prepared.modelJSON, &priorManifestJSON); errors.Is(err, pgx.ErrNoRows) {
+	if err := service.database.QueryRow(ctx, `SELECT w.id::text,w.head_revision_id::text,w.head_sequence,d.document_type,v.model_json,v.evaluation_manifest FROM occccad.workspaces w JOIN occccad.documents d ON d.id=w.document_id JOIN occccad.document_versions v ON v.id=w.head_revision_id WHERE w.document_id=$1 AND w.name='main' AND d.deleted_at IS NULL`, documentID).Scan(&prepared.workspaceID, &prepared.headRevision, &prepared.headSequence, &prepared.documentType, &prepared.modelJSON, &priorManifestJSON); errors.Is(err, database.ErrNoRows) {
 		return prepared, ErrNotFound
 	} else if err != nil {
 		return prepared, err
@@ -2266,7 +2265,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		}
 		return nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, database.ErrNoRows) {
 		return err
 	}
 	finishPrepare := perf.Start(ctx, "command-prepare")
@@ -2480,7 +2479,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			}
 			return nil
 		}
-		if !errors.Is(completedErr, pgx.ErrNoRows) {
+		if !errors.Is(completedErr, database.ErrNoRows) {
 			return completedErr
 		}
 
@@ -2496,7 +2495,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	if err := tx.QueryRow(ctx, `INSERT INTO occccad.commands(request_id,command_type,document_id,payload,status,completed_at,trace_id,span_id) VALUES($1,$2,$3,$4,'SUCCEEDED',now(),$5,$6) RETURNING id::text`, prepared.requestID, request.Type, documentID, transportPayload, traceID, spanID).Scan(&auditCommandID); err != nil {
 		return err
 	}
-	batch := &pgx.Batch{}
+	batch := &database.Batch{}
 	batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, revisionID, documentID, prepared.headRevision, revisionSequence, nextJSON, revisionState, auditCommandID, modelHash, dependencyDigest, manifestJSON)
 	batch.Queue(`INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, revisionID, prepared.headRevision)
 	batch.Queue(`INSERT INTO occccad.domain_transactions(id,workspace_id,sequence,actor_id,request_id,request_digest,kind,status,base_revision_id,result_revision_id,committed_at) VALUES($1,$2,$3,$4,$5,$6,'DOMAIN','COMMITTED',$7,$8,now())`, prepared.transactionID, prepared.workspaceID, currentSequence+1, prepared.actorID, prepared.requestID, prepared.requestDigest, prepared.headRevision, revisionID)
@@ -2520,7 +2519,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	if err := tx.QueryRow(ctx, `SELECT coalesce(max(position),-1)+1 FROM occccad.document_history WHERE document_id=$1`, documentID).Scan(&position); err != nil {
 		return err
 	}
-	batch = &pgx.Batch{}
+	batch = &database.Batch{}
 	batch.Queue(`INSERT INTO occccad.document_history(document_id,position,version_id,command_id) VALUES($1,$2,$3,$4)`, documentID, position, revisionID, auditCommandID)
 	batch.Queue(`INSERT INTO occccad.document_changes(document_id,version_id,command_id,change_type) VALUES($1,$2,$3,$4)`, documentID, revisionID, auditCommandID, request.Type)
 	batch.Queue(`UPDATE occccad.workspaces SET head_revision_id=$1,head_sequence=$2,updated_at=now() WHERE id=$3`, revisionID, currentSequence+1, prepared.workspaceID)

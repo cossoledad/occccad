@@ -40,7 +40,7 @@ flowchart LR
 
 ## 数据库执行边界
 
-运行时数据库访问统一经进程内 `database.Pool`，复用 pgx 与有界 semaphore 调度。普通查询、结果流或完整事务作为一个调度单元，事务内语句不会重新排队；API 后台轮询使用独立等待预算和后台执行上限。数据库断连不提供离线提交，队列满或等待超时显式失败，写入不自动重试或提前返回成功。每个进程独立限流，连接数与等待容量需按部署进程数预算。配置、资源释放契约和观测说明见 [数据库层 README](../../../services/internal/database/README.md)。
+应用服务依赖无驱动类型的 `database.DB/Tx/Rows/Batch` 接口，运行时统一经进程内 `database.Pool` 与有界 semaphore 调度。PostgreSQL 后端使用 pgx；SQLite Local Mode 后端使用纯 Go SQLite 驱动和独立迁移，由 `OCCCCAD_DATABASE_URL=sqlite:/absolute/path/local.db` 选择。API 与 Jobs 保持独立进程并共享同一个本机文件；SQLite 使用 WAL、外键、FULL 同步和 BEGIN IMMEDIATE，最终写事务串行。新供应商需要实现后端、SQL 方言与迁移，当前尚无 MySQL 实现。普通查询、结果流或完整事务作为一个调度单元，事务内语句不会重新排队；API 后台轮询使用独立等待预算和后台执行上限。数据库断连不提供离线提交，队列满或等待超时显式失败，写入不自动重试或提前返回成功。每个进程独立限流，连接数与等待容量需按部署进程数预算。配置、资源释放契约和观测说明见 [数据库层 README](../../../services/internal/database/README.md)。
 
 监控四项统计通过单个 SQL 获取；文档列表的 Undo/Redo 能力复用单文档历史判定 SQL，按最多 128 条批量发送。普通命令、补偿历史和跨文档设计事务中的连续写入及 Product 实例投影也在原事务内分批发送，保持原锁/CAS 与原子提交边界。当前没有新增跨请求模型缓存、消息中间件或独立数据库代理。
 
@@ -57,7 +57,7 @@ flowchart LR
 5. 在 `0.0.0.0:8080` 提供稳定 HTTP 代理入口；
 6. 在 `127.0.0.1:19090` 提供无认证的本机 Control API。
 
-`invoke run.app --reset-data` 在启动控制进程前运行受保护的开发重置：删除配置数据库中固定的 `occcad` schema，清空 `OCCCCAD_DATA_DIR` 对应的本地 ArtifactStore/暂存目录；S3 模式还清空当前配置专用桶中的全部对象、历史版本、删除标记和未完成分片（保留桶），再从嵌入迁移重建 schema。必须先停止写入进程；跨存储删除不具备原子回滚，失败后可修复并重跑。该命令只面向当前未发布开发数据；Router、Worker resident geometry 和其他进程内状态由新进程自然重建。
+`invoke data.reset --yes` 与 `invoke run.app --reset-data` 按 `.env`（已导出环境变量优先）选择数据库和 ArtifactStore。后者在启动控制进程前运行同一受保护的开发重置：PostgreSQL 删除固定的 `occccad` schema，SQLite 删除当前配置专用数据库的全部用户表、视图与迁移记录；清空 `OCCCCAD_DATA_DIR` 对应的本地 ArtifactStore/暂存目录；S3 模式还清空当前配置专用桶中的全部对象、历史版本、删除标记和未完成分片（保留桶），再从嵌入迁移重建表结构及种子数据。SQLite 文件可位于制品目录内：清理目录前关闭数据库连接，之后重新打开并迁移。必须先停止写入进程；跨存储删除不具备原子回滚，失败后可修复并重跑。该命令只面向当前未发布开发数据；Router、Worker resident geometry 和其他进程内状态由新进程自然重建。
 
 ```mermaid
 sequenceDiagram

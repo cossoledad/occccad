@@ -4,11 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/occccad/occccad/internal/artifact"
-	"github.com/occccad/occccad/internal/database"
-	"github.com/occccad/occccad/internal/geometry"
-	"github.com/occccad/occccad/internal/workspace"
-	"google.golang.org/grpc"
 	"math"
 	"net"
 	"net/url"
@@ -16,10 +11,16 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+
+	"github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/database"
+	"github.com/occccad/occccad/internal/geometry"
+	"github.com/occccad/occccad/internal/workspace"
+	"google.golang.org/grpc"
 )
 
 type compositionControlFixture struct {
-	db                *database.Pool
+	db                database.DB
 	client            *geometry.Client
 	store             *artifact.Service
 	service           *workspace.Service

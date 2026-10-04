@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -124,7 +124,7 @@ func (service *Service) publicationAtRevision(ctx context.Context, documentID, r
 	var raw []byte
 	if err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.document_versions v
 		JOIN occccad.documents d ON d.id=v.document_id WHERE d.id=$1 AND v.id=$2 AND d.deleted_at IS NULL`,
-		documentID, revisionID).Scan(&documentType, &raw); errors.Is(err, pgx.ErrNoRows) {
+		documentID, revisionID).Scan(&documentType, &raw); errors.Is(err, database.ErrNoRows) {
 		return Publication{}, fmt.Errorf("%w: PUBLICATION_SOURCE_REVISION_MISSING", ErrValidation)
 	} else if err != nil {
 		return Publication{}, err

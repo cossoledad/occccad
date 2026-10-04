@@ -9,6 +9,7 @@
 - Command handler 产生确定、无 I/O 的候选模型；昂贵求值在事务外，最终短事务 CAS 提交。
 - evaluator/solver 规范化后，ChangeSet 必须从最终持久 Revision 重建。新增 PropertySlot 同时贯通 current/read/write、补偿、canonical digest、依赖与 Undo/Redo 测试。
 - capability 与 Undo/Redo 执行使用同一 action-log 折叠语义；依赖图提交时验证全部 edge 两端。
+- 应用服务依赖 `database.DB/Tx/Rows/Batch`，驱动类型、错误分类与方言适配留在 database 包；数据库变更同步 PostgreSQL/SQLite 迁移并验证同一业务合同。
 - PostgreSQL 使用 `occccad.<table>` 或显式 `search_path`。至少一次消息/任务按效果幂等，迟到 compute 结果不得推进已变化的 Head。
 - 原始 B-Rep bytes 保留在 ArtifactStore；控制面不从 Three.js mesh 猜测精确拓扑。
 

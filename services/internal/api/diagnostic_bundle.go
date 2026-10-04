@@ -49,7 +49,7 @@ func (server *Server) downloadDiagnosticBundle(writer http.ResponseWriter, reque
 	var workspaceState json.RawMessage
 	if err := server.database.QueryRow(request.Context(), `SELECT jsonb_build_object(
 		'id',w.id,'name',w.name,'headRevisionId',w.head_revision_id,'headSequence',w.head_sequence,
-		'baseRevisionId',w.base_revision_id,'policy',w.policy,'updatedAt',w.updated_at)
+		'baseRevisionId',w.base_revision_id,'policy',w.policy::jsonb,'updatedAt',w.updated_at)
 		FROM occccad.workspaces w WHERE w.document_id=$1 AND w.name='main'`, documentID).Scan(&workspaceState); err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
@@ -81,15 +81,15 @@ func (server *Server) downloadDiagnosticBundle(writer http.ResponseWriter, reque
 	var commandLog, evaluationRuns json.RawMessage
 	if err := server.database.QueryRow(request.Context(), `SELECT COALESCE(jsonb_agg(item), '[]'::jsonb) FROM (
 		SELECT jsonb_build_object('requestId',request_id,'type',command_type,'status',status,
-			'error',error_message,'payload',payload,'createdAt',created_at,'completedAt',completed_at) item
+			'error',error_message,'payload',payload::jsonb,'createdAt',created_at,'completedAt',completed_at) item
 		FROM occccad.commands WHERE document_id=$1 ORDER BY created_at DESC LIMIT 50) recent`, documentID).Scan(&commandLog); err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if err := server.database.QueryRow(request.Context(), `SELECT COALESCE(jsonb_agg(item), '[]'::jsonb) FROM (
 		SELECT jsonb_build_object('id',r.id,'revisionId',r.revision_id,'capability',r.capability,
-			'evaluatorDigest',r.evaluator_digest,'inputDigest',r.input_digest,'manifest',r.manifest,
-			'manifestDigest',r.manifest_digest,'status',r.status,'authoritative',r.authoritative,'createdAt',r.created_at) item
+			'evaluatorDigest',r.evaluator_digest,'inputDigest',r.input_digest,'manifest',r.manifest::jsonb,
+			'manifestDigest',r.manifest_digest,'status',r.status,'authoritative',CASE WHEN r.authoritative THEN 'true'::jsonb ELSE 'false'::jsonb END,'createdAt',r.created_at) item
 		FROM occccad.evaluation_runs r JOIN occccad.document_versions v ON v.id=r.revision_id
 		WHERE v.document_id=$1 ORDER BY r.created_at DESC LIMIT 20) recent`, documentID).Scan(&evaluationRuns); err != nil {
 		writeError(writer, http.StatusInternalServerError, err.Error())

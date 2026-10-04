@@ -15,16 +15,14 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
-	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/debugartifact"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
-	perf "github.com/occccad/occccad/internal/performance"
 	"go.opentelemetry.io/otel/trace"
+	artifactstore "github.com/occccad/occccad/internal/artifact"
+	perf "github.com/occccad/occccad/internal/performance"
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
 
 const evaluatorVersion = "part-solid-generators-v23-pattern-members"
@@ -72,7 +70,7 @@ func (service *Service) BranchWorkspace(ctx context.Context, documentID string, 
 }
 
 type Service struct {
-	database              *database.Pool
+	database              database.DB
 	worker                *geometry.Client
 	artifacts             *artifactstore.Service
 	artifactCacheMu       sync.RWMutex
@@ -86,11 +84,11 @@ type Service struct {
 	selectionResolutions  sync.Map
 }
 
-func New(database *database.Pool, worker *geometry.Client) *Service {
+func New(database database.DB, worker *geometry.Client) *Service {
 	return &Service{database: database, worker: worker, artifactCache: map[string]Artifact{}}
 }
 
-func NewWithArtifacts(database *database.Pool, worker *geometry.Client, artifacts *artifactstore.Service) *Service {
+func NewWithArtifacts(database database.DB, worker *geometry.Client, artifacts *artifactstore.Service) *Service {
 	return &Service{database: database, worker: worker, artifacts: artifacts, artifactCache: map[string]Artifact{}}
 }
 
@@ -162,7 +160,7 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 		       ($1='trash' AND d.deleted_at IS NOT NULL))
 		  AND ($1='all' OR d.folder_id IS NULL OR EXISTS(
 		       SELECT 1 FROM occccad.folders parent WHERE parent.id=d.folder_id AND parent.deleted_at IS NULL))
-		  AND ($2='' OR d.name ILIKE '%' || $2 || '%' OR d.description ILIKE '%' || $2 || '%')
+		  AND ($2='' OR lower(d.name) LIKE lower('%' || $2 || '%') OR lower(d.description) LIKE lower('%' || $2 || '%'))
 		  AND ($3='' OR d.document_type=$3)
 		  AND ($6 OR (($4='' AND d.folder_id IS NULL) OR ($4<>'' AND d.folder_id=$4::uuid)))
 		  AND (NOT $5 OR d.last_opened_at IS NOT NULL)
@@ -182,7 +180,7 @@ func (service *Service) ListDocuments(ctx context.Context, options DocumentListO
 		       ($1='trash' AND d.deleted_at IS NOT NULL))
 		  AND ($1='all' OR d.folder_id IS NULL OR EXISTS(
 		       SELECT 1 FROM occccad.folders parent WHERE parent.id=d.folder_id AND parent.deleted_at IS NULL))
-		  AND ($2='' OR d.name ILIKE '%' || $2 || '%' OR d.description ILIKE '%' || $2 || '%')
+		  AND ($2='' OR lower(d.name) LIKE lower('%' || $2 || '%') OR lower(d.description) LIKE lower('%' || $2 || '%'))
 		  AND ($3='' OR d.document_type=$3)
 		  AND ($6 OR (($4='' AND d.folder_id IS NULL) OR ($4<>'' AND d.folder_id=$4::uuid)))
 		  AND (NOT $5 OR d.last_opened_at IS NOT NULL)
@@ -365,7 +363,7 @@ func (service *Service) UpdateFolder(
 		  created_at::text,updated_at::text`, name, description, folderID).Scan(
 		&result.ID, &result.ParentID, &result.Name, &result.Description,
 		&result.DocumentCount, &result.TrashCount, &result.ChildCount, &result.CreatedAt, &result.UpdatedAt)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, database.ErrNoRows) {
 		return FolderSummary{}, ErrNotFound
 	}
 	if isUniqueViolation(err) {
@@ -381,7 +379,7 @@ func (service *Service) DeleteFolder(ctx context.Context, folderID string) error
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	var active bool
-	if err := tx.QueryRow(ctx, `SELECT deleted_at IS NULL FROM occccad.folders WHERE id=$1 FOR UPDATE`, folderID).Scan(&active); errors.Is(err, pgx.ErrNoRows) {
+	if err := tx.QueryRow(ctx, `SELECT deleted_at IS NULL FROM occccad.folders WHERE id=$1 FOR UPDATE`, folderID).Scan(&active); errors.Is(err, database.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
@@ -408,7 +406,7 @@ func (service *Service) RestoreFolder(ctx context.Context, folderID string) erro
 	var root bool
 	if err := tx.QueryRow(ctx, `SELECT f.deleted_at IS NOT NULL AND f.trashed_by_folder_id=f.id
 		AND (f.parent_id IS NULL OR EXISTS(SELECT 1 FROM occccad.folders parent WHERE parent.id=f.parent_id AND parent.deleted_at IS NULL))
-		FROM occccad.folders f WHERE f.id=$1 FOR UPDATE`, folderID).Scan(&root); errors.Is(err, pgx.ErrNoRows) {
+		FROM occccad.folders f WHERE f.id=$1 FOR UPDATE`, folderID).Scan(&root); errors.Is(err, database.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
@@ -452,8 +450,7 @@ func (service *Service) ListTrashedFolders(ctx context.Context, principalID stri
 }
 
 func isUniqueViolation(err error) bool {
-	var databaseError *pgconn.PgError
-	return errors.As(err, &databaseError) && databaseError.Code == "23505"
+	return database.IsUniqueViolation(err)
 }
 
 func (service *Service) UpdateDocument(
@@ -532,7 +529,7 @@ func (service *Service) MoveDocument(
 	var headVersion string
 	if err := tx.QueryRow(ctx, `
 		SELECT head_version_id::text FROM occccad.documents
-		WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, documentID).Scan(&headVersion); errors.Is(err, pgx.ErrNoRows) {
+		WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, documentID).Scan(&headVersion); errors.Is(err, database.ErrNoRows) {
 		return DocumentView{}, ErrNotFound
 	} else if err != nil {
 		return DocumentView{}, err
@@ -585,7 +582,7 @@ func (service *Service) CopyDocument(
 		SELECT d.document_type,d.description,d.folder_id::text,v.model_json
 		FROM occccad.documents d JOIN occccad.document_versions v ON v.id=d.head_version_id
 		WHERE d.id=$1 AND d.deleted_at IS NULL`, sourceDocumentID).Scan(
-		&documentType, &description, &sourceFolderID, &modelJSON); errors.Is(err, pgx.ErrNoRows) {
+		&documentType, &description, &sourceFolderID, &modelJSON); errors.Is(err, database.ErrNoRows) {
 		return DocumentView{}, ErrNotFound
 	} else if err != nil {
 		return DocumentView{}, err
@@ -696,7 +693,7 @@ func (service *Service) changeDocumentMetadata(
 	var deletedAt *string
 	if err := tx.QueryRow(ctx, `
 		SELECT head_version_id::text,deleted_at::text FROM occccad.documents
-		WHERE id=$1 FOR UPDATE`, documentID).Scan(&headVersion, &deletedAt); errors.Is(err, pgx.ErrNoRows) {
+		WHERE id=$1 FOR UPDATE`, documentID).Scan(&headVersion, &deletedAt); errors.Is(err, database.ErrNoRows) {
 		return ErrNotFound
 	} else if err != nil {
 		return err
@@ -722,7 +719,7 @@ func (service *Service) changeDocumentMetadata(
 		requestID(requestIDValue), changeType, documentID, payload, traceID, spanID).Scan(&commandID); err != nil {
 		return err
 	}
-	var updateResult pgconn.CommandTag
+	var updateResult database.Result
 	switch changeType {
 	case "UPDATE_DOCUMENT":
 		updateResult, err = tx.Exec(ctx, `
@@ -801,7 +798,7 @@ func (service *Service) CreateVersion(
 	var headVersion string
 	if err := tx.QueryRow(ctx,
 		`SELECT head_version_id::text FROM occccad.documents WHERE id=$1 FOR UPDATE`, documentID).
-		Scan(&headVersion); errors.Is(err, pgx.ErrNoRows) {
+		Scan(&headVersion); errors.Is(err, database.ErrNoRows) {
 		return nil, ErrNotFound
 	} else if err != nil {
 		return nil, err
@@ -914,7 +911,7 @@ func (service *Service) CreateDocument(
 		if err == nil {
 			return service.GetDocument(ctx, existingDocumentID, request.ActorID)
 		}
-		if !errors.Is(err, pgx.ErrNoRows) {
+		if !errors.Is(err, database.ErrNoRows) {
 			return DocumentView{}, err
 		}
 	}
@@ -1042,7 +1039,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		&summary.DeletedAt, &summary.FolderID, &summary.LastOpenedAt, &summary.CopiedFromID,
 		&summary.WorkspaceName,
 		&modelJSON)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, database.ErrNoRows) {
 		return DocumentView{}, ErrNotFound
 	}
 	if err != nil {
@@ -1737,14 +1734,14 @@ func numberedFeatureName(features []Feature, featureType, label string) string {
 }
 
 func (service *Service) mutateProduct(
-	ctx context.Context, tx pgx.Tx, documentID string, model *ProductModel, request CommandRequest,
+	ctx context.Context, tx database.Tx, documentID string, model *ProductModel, request CommandRequest,
 ) error {
 	switch request.Type {
 	case "INSERT_INSTANCE":
 		var referenceID, versionID, name string
 		if err := tx.QueryRow(ctx, `
 			SELECT id::text,head_version_id::text,name FROM occccad.documents WHERE id=$1`,
-			request.ReferencedDocumentID).Scan(&referenceID, &versionID, &name); errors.Is(err, pgx.ErrNoRows) {
+			request.ReferencedDocumentID).Scan(&referenceID, &versionID, &name); errors.Is(err, database.ErrNoRows) {
 			return fmt.Errorf("%w: referenced document does not exist", ErrValidation)
 		} else if err != nil {
 			return err
@@ -2093,7 +2090,7 @@ func (service *Service) GetTopologyElementPropertiesAtVersion(
 	err := service.database.QueryRow(ctx, `SELECT d.document_type,
 		EXISTS(SELECT 1 FROM occccad.document_versions v CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') body WHERE v.document_id=d.id AND body->>'geometryKey'=$2)
 		FROM occccad.documents d WHERE d.id=$1 AND d.deleted_at IS NULL`, documentID, geometryKey).Scan(&documentType, &allowed)
-	if errors.Is(err, pgx.ErrNoRows) {
+	if errors.Is(err, database.ErrNoRows) {
 		finishAuthorize()
 		return TopologyElementProperties{}, ErrNotFound
 	}
@@ -2235,8 +2232,8 @@ func (service *Service) loadTopologyElementPropertiesFromArtifact(
 	return result, nil
 }
 
-func insertProductInstances(ctx context.Context, tx pgx.Tx, versionID string, model ProductModel) error {
-	batch := &pgx.Batch{}
+func insertProductInstances(ctx context.Context, tx database.Tx, versionID string, model ProductModel) error {
+	batch := &database.Batch{}
 	for _, instance := range model.Instances {
 		batch.Queue(`
 			INSERT INTO occccad.product_instances(
@@ -2889,7 +2886,7 @@ func (service *Service) followedProductDocuments(ctx context.Context, root Produ
 			var kind string
 			var raw []byte
 			err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.documents d JOIN occccad.document_versions v ON v.id=d.head_version_id WHERE d.id=$1 AND d.deleted_at IS NULL`, id).Scan(&kind, &raw)
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, database.ErrNoRows) {
 				continue
 			}
 			if err != nil {
@@ -2927,7 +2924,7 @@ func (service *Service) followedProductDocuments(ctx context.Context, root Produ
 			err := service.database.QueryRow(ctx, `SELECT d.document_type,v.model_json FROM occccad.documents d
 				JOIN occccad.document_versions v ON v.id=d.head_version_id
 				WHERE d.id=$1 AND d.deleted_at IS NULL`, id).Scan(&documentType, &raw)
-			if errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, database.ErrNoRows) {
 				// Keep the reference in the subscription projection. The accepted
 				// revision remains inspectable even if its source is now unavailable.
 				continue

@@ -7,11 +7,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/jackc/pgx/v5"
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
-	artifactstore "github.com/occccad/occccad/internal/artifact"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 	"google.golang.org/protobuf/proto"
+	artifactstore "github.com/occccad/occccad/internal/artifact"
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
 
 const importPolicy = "occccad.import.frozen-brep.v1"
@@ -48,7 +48,7 @@ func (service *Service) allocateImportDefinition(ctx context.Context, documentID
 	if err == nil {
 		return id, nil
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if !errors.Is(err, database.ErrNoRows) {
 		return "", err
 	}
 	var topology struct{ Faces, Edges, Vertices, Solids int }

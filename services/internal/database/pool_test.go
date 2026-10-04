@@ -7,9 +7,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func testScheduler(concurrent, queued int) *scheduler {
@@ -86,39 +83,39 @@ func TestSchedulerQueueTimeoutDoesNotCancelRunningOperation(t *testing.T) {
 
 type fakeBackend struct {
 	poolBackend
-	tx    pgx.Tx
-	rows  pgx.Rows
-	row   pgx.Row
+	tx    Tx
+	rows  Rows
+	row   Row
 	err   error
 	calls atomic.Int32
 }
 
-func (f *fakeBackend) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
+func (f *fakeBackend) BeginTx(context.Context, TxOptions) (Tx, error) {
 	f.calls.Add(1)
 	return f.tx, f.err
 }
-func (f *fakeBackend) Query(context.Context, string, ...any) (pgx.Rows, error) {
+func (f *fakeBackend) Query(context.Context, string, ...any) (Rows, error) {
 	f.calls.Add(1)
 	return f.rows, f.err
 }
-func (f *fakeBackend) QueryRow(context.Context, string, ...any) pgx.Row { f.calls.Add(1); return f.row }
+func (f *fakeBackend) QueryRow(context.Context, string, ...any) Row { f.calls.Add(1); return f.row }
 
 type fakeTx struct {
-	pgx.Tx
+	Tx
 	commits, rollbacks int
 	commitErr          error
-	child              pgx.Tx
+	child              Tx
 }
 
-func (f *fakeTx) Begin(context.Context) (pgx.Tx, error) { return f.child, nil }
-func (f *fakeTx) Commit(context.Context) error          { f.commits++; return f.commitErr }
-func (f *fakeTx) Rollback(context.Context) error        { f.rollbacks++; return nil }
-func (f *fakeTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
-	return pgconn.NewCommandTag("UPDATE 1"), nil
+func (f *fakeTx) Begin(context.Context) (Tx, error) { return f.child, nil }
+func (f *fakeTx) Commit(context.Context) error      { f.commits++; return f.commitErr }
+func (f *fakeTx) Rollback(context.Context) error    { f.rollbacks++; return nil }
+func (f *fakeTx) Exec(context.Context, string, ...any) (Result, error) {
+	return Result{affected: 1}, nil
 }
 
 type fakeRows struct {
-	pgx.Rows
+	Rows
 	remaining int
 	closed    bool
 	scanErr   error
@@ -172,11 +169,11 @@ func TestPoolRowsReleaseOnDrainCloseAndScanFailure(t *testing.T) {
 	for _, mode := range []string{"drain", "close", "scan-failure", "query-failure", "row-failure"} {
 		t.Run(mode, func(t *testing.T) {
 			rows := &fakeRows{remaining: 1}
-			backend := &fakeBackend{rows: rows, row: errorRow{pgx.ErrNoRows}}
+			backend := &fakeBackend{rows: rows, row: errorRow{ErrNoRows}}
 			p := &Pool{backend: backend, scheduler: testScheduler(1, 0)}
 			switch mode {
 			case "row-failure":
-				if err := p.QueryRow(t.Context(), "select").Scan(); !errors.Is(err, pgx.ErrNoRows) {
+				if err := p.QueryRow(t.Context(), "select").Scan(); !errors.Is(err, ErrNoRows) {
 					t.Fatal(err)
 				}
 			case "query-failure":
@@ -210,3 +207,5 @@ func TestPoolRowsReleaseOnDrainCloseAndScanFailure(t *testing.T) {
 		})
 	}
 }
+
+func (*fakeBackend) connections() (int32, int32) { return 0, 0 }

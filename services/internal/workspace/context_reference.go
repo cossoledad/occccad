@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -102,7 +102,7 @@ func (service *Service) contextSource(ctx context.Context, consumerDocumentID st
 	if reference.RootProductDocumentID == "" {
 		var head string
 		if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`,
-			reference.SourceDocumentID).Scan(&head); errors.Is(err, pgx.ErrNoRows) {
+			reference.SourceDocumentID).Scan(&head); errors.Is(err, database.ErrNoRows) {
 			return "", "", InstancePose{}, nil, "", "", fmt.Errorf("%w: CONTEXT_SOURCE_MISSING", ErrValidation)
 		} else if err != nil {
 			return "", "", InstancePose{}, nil, "", "", err
@@ -250,7 +250,7 @@ func (service *Service) contextDocumentReaches(ctx context.Context, documentID, 
 	visited[key] = true
 	var raw []byte
 	if err := service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1 AND document_id=$2`,
-		revisionID, documentID).Scan(&raw); errors.Is(err, pgx.ErrNoRows) {
+		revisionID, documentID).Scan(&raw); errors.Is(err, database.ErrNoRows) {
 		return false, nil
 	} else if err != nil {
 		return false, err

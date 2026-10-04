@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,7 +27,7 @@ func TestPoolPostgresBatchAtomicityAndCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal("cannot connect test database")
 	}
-	p := &Pool{raw: raw, backend: raw, scheduler: testScheduler(1, 1)}
+	p := &Pool{backend: &postgresBackend{Pool: raw}, scheduler: testScheduler(1, 1)}
 	defer p.Close()
 	if _, err = p.Exec(t.Context(), `CREATE TEMP TABLE data_access_atomicity(id int PRIMARY KEY,value int NOT NULL)`); err != nil {
 		t.Fatal(err)
@@ -37,7 +36,7 @@ func TestPoolPostgresBatchAtomicityAndCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	batch := &pgx.Batch{}
+	batch := &Batch{}
 	batch.Queue(`INSERT INTO data_access_atomicity VALUES(1,10)`)
 	batch.Queue(`INSERT INTO data_access_atomicity VALUES(2,20)`)
 	if err = ExecBatch(t.Context(), tx, batch); err != nil {
@@ -52,7 +51,7 @@ func TestPoolPostgresBatchAtomicityAndCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	batch = &pgx.Batch{}
+	batch = &Batch{}
 	batch.Queue(`UPDATE data_access_atomicity SET value=99 WHERE id=1`)
 	// Failure in the second chunk must roll back the completed first chunk too.
 	for i := 3; i < 135; i++ {
@@ -90,7 +89,7 @@ func TestPoolPostgresBatchAtomicityAndCancellation(t *testing.T) {
 		t.Fatalf("canceled SQL executed: %v value=%d", err, value)
 	}
 	// QueryRow error, early Rows.Close, exhausted Rows and Batch.Close all return capacity.
-	if err = p.QueryRow(t.Context(), `SELECT value FROM data_access_atomicity WHERE id=999`).Scan(&value); !errors.Is(err, pgx.ErrNoRows) {
+	if err = p.QueryRow(t.Context(), `SELECT value FROM data_access_atomicity WHERE id=999`).Scan(&value); !errors.Is(err, ErrNoRows) {
 		t.Fatal(err)
 	}
 	rows, err := p.Query(t.Context(), `SELECT * FROM data_access_atomicity`)
@@ -107,7 +106,7 @@ func TestPoolPostgresBatchAtomicityAndCancellation(t *testing.T) {
 	if err = rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	results := p.SendBatch(t.Context(), &pgx.Batch{})
+	results := p.SendBatch(t.Context(), &Batch{})
 	if err = results.Close(); err != nil {
 		t.Fatal(err)
 	}

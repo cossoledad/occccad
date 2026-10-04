@@ -22,14 +22,14 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
-	perf "github.com/occccad/occccad/internal/performance"
 	"github.com/occccad/occccad/internal/thumbnail"
 	"github.com/occccad/occccad/internal/workspace"
 	"go.opentelemetry.io/otel/trace"
+	perf "github.com/occccad/occccad/internal/performance"
 )
 
 type Server struct {
-	database       *database.Pool
+	database       database.DB
 	worker         *geometry.Client
 	workspace      *workspace.Service
 	access         *access.Service
@@ -44,7 +44,7 @@ type Server struct {
 }
 
 func New(
-	database *database.Pool,
+	database database.DB,
 	worker *geometry.Client,
 	workspaceService *workspace.Service,
 	accessService *access.Service,

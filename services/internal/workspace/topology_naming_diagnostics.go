@@ -10,10 +10,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 	"google.golang.org/protobuf/proto"
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
 
 // NamingAvailability describes artifact capability, not a per-selection result.
@@ -75,7 +75,7 @@ func (service *Service) readTopologyManifest(ctx context.Context, inline []byte,
 		}
 		_, reader, err := service.artifacts.Open(ctx, *objectID)
 		if err != nil {
-			if errors.Is(err, os.ErrNotExist) || errors.Is(err, pgx.ErrNoRows) {
+			if errors.Is(err, os.ErrNotExist) || errors.Is(err, database.ErrNoRows) {
 				return nil, "", namingError("CORRUPT", "TOPOLOGY_MANIFEST_OBJECT_MISSING", "拓扑命名制品已登记但对象丢失，需要恢复或重新生成制品。")
 			}
 			return nil, "", err

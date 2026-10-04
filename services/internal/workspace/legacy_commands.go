@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
+	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -956,7 +956,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				seen[id] = true
 				var referenceID, versionID, name string
 				err := service.database.QueryRow(ctx, `SELECT id::text,head_version_id::text,name FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, id).Scan(&referenceID, &versionID, &name)
-				if errors.Is(err, pgx.ErrNoRows) {
+				if errors.Is(err, database.ErrNoRows) {
 					return "", nil, fmt.Errorf("%w: referenced document does not exist", ErrValidation)
 				}
 				if err != nil {
@@ -984,7 +984,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			break
 		}
 		var referenceID, versionID, name string
-		if err := service.database.QueryRow(ctx, `SELECT id::text,head_version_id::text,name FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, request.ReferencedDocumentID).Scan(&referenceID, &versionID, &name); errors.Is(err, pgx.ErrNoRows) {
+		if err := service.database.QueryRow(ctx, `SELECT id::text,head_version_id::text,name FROM occccad.documents WHERE id=$1 AND deleted_at IS NULL`, request.ReferencedDocumentID).Scan(&referenceID, &versionID, &name); errors.Is(err, database.ErrNoRows) {
 			return "", nil, fmt.Errorf("%w: referenced document does not exist", ErrValidation)
 		} else if err != nil {
 			return "", nil, err
@@ -1016,7 +1016,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		var replacementID, replacementVersion string
 		if err := service.database.QueryRow(ctx, `SELECT id::text,head_version_id::text FROM occccad.documents
-			WHERE id=$1 AND deleted_at IS NULL`, request.ReferencedDocumentID).Scan(&replacementID, &replacementVersion); errors.Is(err, pgx.ErrNoRows) {
+			WHERE id=$1 AND deleted_at IS NULL`, request.ReferencedDocumentID).Scan(&replacementID, &replacementVersion); errors.Is(err, database.ErrNoRows) {
 			return "", nil, fmt.Errorf("%w: replacement document does not exist", ErrValidation)
 		} else if err != nil {
 			return "", nil, err
