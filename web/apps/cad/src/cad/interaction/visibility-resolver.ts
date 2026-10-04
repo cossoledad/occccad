@@ -5,7 +5,7 @@ export type DisplayAddress = { documentId: string; occurrencePath: string; kind:
 export type EffectiveVisibility = { localVisible: boolean; effectiveVisible: boolean; blockedBy?: DisplayAddress; mode: "INHERIT" | "SHOW" | "HIDE"; displayEligible: boolean };
 
 type Entry = { address: DisplayAddress; localVisible: boolean; mode: "INHERIT" | "SHOW" | "HIDE"; eligible: boolean };
-export type EditingSketchScope = { id: string; occurrencePath: string };
+export type EditingSketchScope = { id: string; occurrencePath: string; ids?:string[]; documentId?:string };
 const key = (address: Pick<DisplayAddress, "documentId" | "occurrencePath" | "kind" | "entityId">) =>
   [address.documentId, address.occurrencePath, address.kind, address.entityId].join("\u0000");
 
@@ -57,13 +57,14 @@ export class VisibilityResolver {
     const mode = entry?.mode ?? "INHERIT";
     let localVisible = mode === "SHOW" ? true : mode === "HIDE" ? false : entry?.localVisible ?? true;
     const displayEligible = entry?.eligible ?? true;
-    const editingAddress = editingSketch ? this.sketches.get(`${editingSketch.id}\u0000${editingSketch.occurrencePath}`) : undefined;
-    const sameDefinition = editingAddress?.documentId === address.documentId && editingAddress?.occurrencePath === address.occurrencePath;
-    const editReveal = Boolean(editingAddress && (
-      sameDefinition && (address.kind === "SKETCH" && address.entityId === editingAddress.entityId ||
+    const editingAddresses = editingSketch ? (editingSketch.ids??[editingSketch.id]).map(id=>this.sketches.get(`${id}\u0000${editingSketch.occurrencePath}`)).filter((entry):entry is DisplayAddress=>!!entry&&(!editingSketch.documentId||entry.documentId===editingSketch.documentId)) : [];
+    const editReveal = editingAddresses.some(editingAddress=>{
+      const sameDefinition = editingAddress.documentId === address.documentId && editingAddress.occurrencePath === address.occurrencePath;
+      return sameDefinition && (address.kind === "SKETCH" && address.entityId === editingAddress.entityId ||
         address.kind === "BODY" && address.entityId === editingAddress.bodyId || address.kind === "PART") ||
-      address.kind === "INSTANCE" && editingAddress.occurrencePath &&
-        (editingAddress.occurrencePath === address.occurrencePath || editingAddress.occurrencePath.startsWith(`${address.occurrencePath}/`))));
+        address.kind === "INSTANCE" && editingAddress.occurrencePath &&
+        (editingAddress.occurrencePath === address.occurrencePath || editingAddress.occurrencePath.startsWith(`${address.occurrencePath}/`));
+    });
     if (editReveal) localVisible = true;
     const parent = this.parent(entry?.address ?? address);
     const ancestor = parent ? this.resolveInner(parent, editingSketch, visited) : undefined;

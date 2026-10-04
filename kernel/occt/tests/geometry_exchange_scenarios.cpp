@@ -1685,4 +1685,46 @@ TEST(GeometryExchange, LoftTaperedSectionsRespectStoredSeams) {
     EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({loft}), std::invalid_argument);
 }
 
+TEST(GeometryExchange, LoftRectangleToCircleUsesActualSplitHistory) {
+    OcctKernel kernel;
+    ProfilePadSpec loft;
+    loft.feature_id = "mixed-loft"; loft.body_id = "body"; loft.generator = "LOFT";
+    LoftSectionSpec rectangle;
+    rectangle.sketch_id = "rectangle";
+    rectangle.region = rectangular_region("rectangle-region", -10, -10, 10, 10);
+    rectangle.normal = {0, 0, 1}; rectangle.u_direction = {1, 0, 0};
+    rectangle.seam_entity_id = rectangle.region.outer.curves.front().entity_id;
+    LoftSectionSpec circle = rectangle;
+    circle.sketch_id = "circle"; circle.origin = {0, 0, 20};
+    ProfileCurveSpec curve; curve.entity_id = "circle-entity"; curve.kind = "CIRCLE";
+    curve.center = {0, 0}; curve.radius = 10;
+    circle.region.id = "circle-region"; circle.region.outer = {"circle-loop", {curve}};
+    circle.seam_entity_id = curve.entity_id;
+    loft.sections = {rectangle, circle};
+    for (bool ruled : {false, true}) {
+        loft.ruled = ruled;
+        const auto result = kernel.evaluateProfilePadsWithHistory({loft});
+        const auto& topology = kernel.getTopology(result.geometry_id);
+        EXPECT_EQ(topology.solid_count, 1);
+        const auto volume = kernel.getVolume(result.geometry_id);
+        EXPECT_GT(volume, 20 * 3.14159265358979323846 * 100);
+        EXPECT_LT(volume, 20 * 400);
+        const auto& history = result.feature_results.back();
+        EXPECT_TRUE(history.topology_history_complete);
+        EXPECT_EQ(history.semantic_outputs.size(), topology.face_count + topology.edge_count + topology.vertex_count);
+        bool start = false, end = false, circle_side = false;
+        for (const auto& output : history.semantic_outputs) {
+            if (output.semantic_ref.output_slot == "LOFT_START_CAP") { start = true; EXPECT_NEAR(output.evidence.measure_si.value_or(-1), 400e-6, 1e-8); }
+            if (output.semantic_ref.output_slot == "LOFT_END_CAP") { end = true; EXPECT_NEAR(output.evidence.measure_si.value_or(-1), 3.14159265358979323846 * 100e-6, 1e-8); }
+        }
+        for (const auto& generated : history.topology_history.lineage) {
+            for (const auto& source : generated.sources)
+                if (source.feature_id == "circle" && source.output_slot == "PROFILE_EDGE/circle-entity") circle_side = true;
+        }
+        EXPECT_TRUE(start); EXPECT_TRUE(end); EXPECT_TRUE(circle_side);
+        OcctKernel cold;
+        EXPECT_EQ(cold.evaluateProfilePadsWithHistory({loft}).geometry_id, result.geometry_id);
+    }
+}
+
 }  // namespace occccad::kernel

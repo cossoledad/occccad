@@ -7,6 +7,7 @@ try {
  const {SelectionIndex}=await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
  const {visibilityResolverForView}=await server.ssrLoadModule("/src/cad/interaction/visibility-resolver.ts");
  const {DEFAULT_SOLID_DISPLAY}=await server.ssrLoadModule("/src/cad/rendering/display-settings.ts");
+ const {featureInputDisplay}=await server.ssrLoadModule("/src/viewport/feature-input-display.ts");
  const artifact=(bodyId,x)=>({bodyId,geometryKey:`g-${bodyId}`,mesh:{vertices:[[x,0,0],[x+2,0,0],[x,2,0]],triangles:[[0,1,2]],faceIds:[1],edges:[],topologyVertices:[]},visualization:{referenceGeometry:{datumPlanes:[],axisSystems:[]},primitives:[]}});
  const a=artifact("a",0),b=artifact("b",10);
  const view={document:{id:"part",name:"Part",type:"PART",versionId:"v1"},part:{activeBodyId:"a",bodies:[{id:"a",name:"A",visible:true,geometryKey:a.geometryKey},{id:"b",name:"B",visible:true,geometryKey:b.geometryKey}],features:[]},artifacts:{[a.geometryKey]:a,[b.geometryKey]:b}};
@@ -22,6 +23,17 @@ try {
   assert.equal(pick.kind,"face");assert.equal(pick.topologyId,1);assert.equal(pick.bodyId,id);assert.equal(pick.geometryKey,`g-${id}`);
  }
  e.showPreviewArtifact({...a,bodyId:"a"},"ADD");assert.equal(e.solidBindings.get("root/body:a").group.visible,false);assert.equal(e.solidBindings.get("root/body:b").group.visible,true);
+
+ const picking=engine();picking.previewInputMaterials=[];picking.previewVisualGeneration=0;
+ picking.featureSelection={role:"face",selections:[],onPick(){}};
+ picking.renderPart(view);picking.content.updateMatrixWorld(true);
+ const originalMaterial=picking.solidBindings.get("root/body:a").mesh.material;
+ picking.showPreviewArtifact({...a,bodyId:"a"},"REMOVE");
+ assert.equal(picking.solidBindings.get("root/body:a").group.visible,true,"input remains eligible for picking during preview");
+ assert.equal(picking.solidBindings.get("root/body:a").mesh.material.visible,false,"opaque input does not cover the computed result");
+ assert.equal(picking.selectionIndex.pick(new THREE.Raycaster(new THREE.Vector3(.2,.2,2),new THREE.Vector3(0,0,-1))).bodyId,"a");
+ picking.clearCommandPreview();
+ assert.equal(picking.solidBindings.get("root/body:a").mesh.material,originalMaterial,"cancel restores exact original material ownership");
  const hiddenView={...view,structureTree:{kind:"PART",documentId:"part",entityId:"part",children:[
   {kind:"BODY",documentId:"part",entityId:"a",localVisible:false},
   {kind:"BODY",documentId:"part",entityId:"b",localVisible:true}]}};
@@ -39,5 +51,17 @@ try {
  resolvedInstances:["a","b"].map(bodyId=>({id:`Root/instance/body:${bodyId}`,bodyId,bodyVisible:true,documentId:"part",geometryKey:`g-${bodyId}`,translation:[5,0,0],occurrencePath:"instance",instancePath:path,bodyTreeNodeId:`part/body:${bodyId}`}))});
  assert.equal(product.solidBindings.size,2);product.content.updateMatrixWorld(true);
  for(const binding of product.solidBindings.values())assert.equal(binding.group.getWorldPosition(new THREE.Vector3()).x,5);
+ const formalProduct={document:{id:"product",name:"Root"},product:{instances:[{id:"instance",translation:[5,0,0]}]},artifacts:view.artifacts,
+  structureTree:{kind:"PRODUCT",children:[{id:"tool-node",kind:"BODY",name:"Tool B",subject:{documentId:"part",entityId:"b"},occurrence:{instancePath:path}}]},
+  resolvedInstances:[{id:"Root/instance/body:a",bodyId:"a",bodyVisible:true,documentId:"part",geometryKey:"g-a",translation:[5,0,0],occurrencePath:"instance",instancePath:path,bodyTreeNodeId:"target-node"}]};
+ const staged=featureInputDisplay(formalProduct,[a,b],"part","instance"),stagedEngine=engine();stagedEngine.renderProduct(staged);
+ assert.equal(stagedEngine.solidBindings.size,2,"temporarily restored consumed tool is rendered in the actual Product path");
+ assert.equal(staged.resolvedInstances[1].bodyTreeNodeId,"tool-node");
+ assert.equal(formalProduct.resolvedInstances.length,1,"temporary edit display never restores tools in formal output");
+ const references=engine();references.treeVisibilityOverrides={};references.refreshInteractionHighlights=()=>{};references.referenceVisibility={planes:false};
+ const ownPlane=new THREE.Mesh(),otherPlane=new THREE.Mesh();ownPlane.userData={kind:"plane",id:"p",documentId:"part"};otherPlane.userData={kind:"plane",id:"q",documentId:"other"};references.helpers.add(ownPlane,otherPlane);
+ references.featureSelection={role:"plane",documentId:"part"};references.applyTreeVisibility();
+ assert.equal(ownPlane.visible,true,"active neutral-plane input temporarily reveals its references");assert.equal(otherPlane.visible,false);
+ references.featureSelection=undefined;references.applyTreeVisibility();assert.equal(ownPlane.visible,false,"closing input restores display preferences");
  console.log("Multi-Body Part/occurrence rendering, FACE 1 picking isolation, visibility and target-only preview passed");
 } finally {await server.close()}

@@ -58,6 +58,12 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 			if err := pick.Selection.Validate(); err != nil {
 				return fmt.Errorf("%w: %v", ErrValidation, err)
 			}
+			if pick.SourceFeatureID != "" {
+				stage, ok := earlier[pick.SourceFeatureID]
+				if !ok || stage.BodyID != f.BodyID || !isBodyFeature(stage.Type) {
+					return fmt.Errorf("%w: invalid selection source stage", ErrValidation)
+				}
+			}
 			anchor, exists := earlier[pick.Selection.Anchor.FeatureID]
 			if pick.SourceVersionID == "" || pick.Selection.SourceBodyID != f.BodyID || pick.Selection.ExpectedType != expected || !exists || anchor.BodyID != f.BodyID {
 				return fmt.Errorf("%w: modifier selection must belong to its upstream Body", ErrValidation)
@@ -255,7 +261,7 @@ func (s *Service) modifierInput(ctx context.Context, requestID string, model Par
 		return spec, err
 	}
 	for _, pick := range feature.Selections {
-		resolution, _, err := s.resolveSelectionAgainstGeometry(ctx, pick.Selection.SourceDocumentID, pick.SourceVersionID, key, pick.Selection)
+		resolution, err := s.resolveFeaturePick(ctx, pick, key)
 		if err != nil {
 			return spec, err
 		}
@@ -331,6 +337,9 @@ func featureInputIDs(feature Feature) []string {
 	}
 	for _, pick := range feature.Selections {
 		ids = append(ids, pick.Selection.Anchor.FeatureID)
+		if pick.SourceFeatureID != "" {
+			ids = append(ids, pick.SourceFeatureID)
+		}
 	}
 	if axis := strings.Split(feature.AxisEntityID, ":"); len(axis) == 3 && axis[0] == "SKETCH_LINE" {
 		ids = append(ids, axis[1])

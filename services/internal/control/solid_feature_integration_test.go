@@ -176,6 +176,44 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 		return properties.GeometryType == "LINE"
 	})
 	view = apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "FILLET", BodyID: base.BodyID, Length: 0.5, Selections: []workspace.FeatureSelection{{Selection: pick.Selection, SourceVersionID: pick.SourceVersionID}}}})
+	// Editing restores the exact upstream edge instead of picking the final
+	// fillet result. A replacement pick carries its immutable source stage.
+	editedFillet := view.Part.Features[len(view.Part.Features)-1]
+	editingInput, inputErr := service.GetFeatureInput(t.Context(), doc, workspace.FeatureInputRequest{VersionID: view.Document.VersionID, FeatureID: editedFillet.ID})
+	if inputErr != nil {
+		t.Fatal(inputErr)
+	}
+	if len(editingInput.Picks) != 1 || editingInput.SourceFeatureID != chamfer.ID {
+		t.Fatal("editing did not restore exact upstream selection")
+	}
+	rebound, inputErr := service.GetFeatureInput(t.Context(), doc, workspace.FeatureInputRequest{VersionID: view.Document.VersionID, FeatureID: editedFillet.ID, GeometryKey: editingInput.Artifact.GeometryKey, Kind: editingInput.Picks[0].Kind, LocalID: editingInput.Picks[0].LocalID})
+	if inputErr != nil || rebound.Selection == nil {
+		t.Fatalf("input rebind: %v", inputErr)
+	}
+	if _, inputErr = service.GetFeatureInput(t.Context(), doc, workspace.FeatureInputRequest{VersionID: view.Document.VersionID, FeatureID: editedFillet.ID, GeometryKey: "wrong-body", Kind: "EDGE", LocalID: editingInput.Picks[0].LocalID}); inputErr == nil {
+		t.Fatal("accepted foreign stage geometry")
+	}
+	unchanged, inputErr := service.GetDocument(t.Context(), doc)
+	if inputErr != nil || unchanged.Document.VersionID != view.Document.VersionID {
+		t.Fatal("input query changed Head")
+	}
+	editedFillet.Selections = []workspace.FeatureSelection{*rebound.Selection}
+	var inputDigest string
+	var findInputDigest func([]workspace.DocumentStructureNode)
+	findInputDigest = func(nodes []workspace.DocumentStructureNode) {
+		for _, node := range nodes {
+			if node.EntityID == editedFillet.ID {
+				inputDigest = node.DefinitionDigest
+			}
+			findInputDigest(node.Children)
+		}
+	}
+	findInputDigest([]workspace.DocumentStructureNode{*view.StructureTree})
+	view = apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: editedFillet.ID, ExpectedFeatureDigest: inputDigest, Feature: &editedFillet})
+	if math.Abs(activeBodyArtifact(t, view).Volume-activeBodyArtifact(t, unchanged).Volume) > 1e-7 {
+		t.Fatal("stage selection edit changed geometry")
+	}
+
 	downstream := view.Part.Features[len(view.Part.Features)-1].ID
 	expectedVolume := activeBodyArtifact(t, view).Volume
 	if !(expectedVolume < 3750 && expectedVolume > 3700) {

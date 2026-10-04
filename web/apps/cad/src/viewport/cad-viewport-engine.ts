@@ -1,3 +1,4 @@
+import { featureSelectionHit, type FeatureSelectionSession } from "../cad/interaction/feature-selection";
 import { makeSplineControlFeedback } from "../cad/rendering/spline-control-feedback";
 import { useUIPreferences, sketchLabelPositionKey } from "../state/ui-preferences";
 import { sketchMarqueeContains, type SketchScreenPoint } from "../cad/interaction/sketch-marquee";
@@ -170,6 +171,7 @@ export type ViewportDebugState = {
   activeTool: string;
   selectionKeys?: string[];
   highlightedVisible?: number;
+  featureSelection?:{role:string;count:number;overlays:number};
   navigationProfile: NavigationProfileID;
   navigationAction: NavigationAction;
   navigation?: NavigationSnapshot;
@@ -362,6 +364,7 @@ export class CadViewportEngine {
 	private acceptedMovePose?:{translation:Vec3;rotation:[number,number,number,number];previewId?:string};
   private activeToolID = "select";
   private reconnectExternalID?: string;
+  private featureSelection?: FeatureSelectionSession;
   private selectionMode: SelectionMode = selectionModeForTool("select");
   private sketchReturnView?: SavedView;
   private navigationProfile: NavigationProfileID = "default";
@@ -688,6 +691,7 @@ export class CadViewportEngine {
       standardView(this.camera, this.navigation.target, "ISO");
       this.frameContent();
     }
+    this.emitDebugState();
     this.invalidate();
   }
 
@@ -756,8 +760,11 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
-  private editingSketchScope(): {id:string; occurrencePath:string} | undefined {
-    return this.activeSketchID ? {id:this.activeSketchID, occurrencePath:this.editContext?.occurrencePath ?? ""} : undefined;
+  private editingSketchScope(): import("../cad/interaction/visibility-resolver").EditingSketchScope | undefined {
+    if(this.activeSketchID)return {id:this.activeSketchID,occurrencePath:this.editContext?.occurrencePath??""};
+    const session=this.featureSelection;
+    if(!session||!["profile","axis","seam"].includes(session.role)||!session.sketchIds?.length)return;
+    return {id:session.sketchIds[0],ids:session.sketchIds,documentId:session.documentId,occurrencePath:session.occurrencePath??""};
   }
 
   private semanticVisibilityAddress(entry: Partial<SelectionItem>): DisplayAddress | undefined {
@@ -791,7 +798,11 @@ export class CadViewportEngine {
       const editingOverlayReplacesPrimitive = Boolean(this.editContext && this.activeSketchID && entry.visualizationPrimitive &&
         entry.sketchFeatureID === this.activeSketchID && entry.occurrencePath === this.editContext.occurrencePath);
       const category = referenceCategory(object.userData.kind, object.userData.axis);
-      if (category) object.visible = this.referenceVisibility[category] &&
+      const featureReference = this.featureSelection &&
+        (entry.ownerDocumentId ?? entry.documentId) === this.featureSelection.documentId &&
+        (entry.occurrencePath ?? "") === (this.featureSelection.occurrencePath ?? "") &&
+        (this.featureSelection.role === "plane" && entry.kind === "plane" || this.featureSelection.role === "axis" && entry.kind === "axis");
+      if (category) object.visible = (this.referenceVisibility[category] || !!featureReference) &&
         !(root === this.helpers && this.sketchPlane) && hidden !== false;
       else if (editingOverlayReplacesPrimitive) object.visible = false;
       else if (semanticVisible !== undefined) object.visible = semanticVisible;
@@ -1126,6 +1137,7 @@ export class CadViewportEngine {
     this.frameContent();
   }
 
+  private previewInputMaterials:Array<{object:THREE.Mesh;original:THREE.Material|THREE.Material[];temporary:THREE.Material[]}>=[];
   private previewVisualGeneration = 0;
   private previewVisuals?: VisualRepository;
   previewArtifact(descriptor: ArtifactDescriptor, operation: FeaturePreviewOperation = "NEW_BODY"): void {
@@ -1150,7 +1162,17 @@ export class CadViewportEngine {
     const group = makeFeaturePreview(geometry, operation, binding?.mesh.geometry.clone());
     if (binding) {
       this.previewBody = { group: binding.group, visible: binding.group.visible };
-      binding.group.visible = false;
+      binding.group.visible = !!this.featureSelection;
+      if(this.featureSelection)binding.group.traverse(child=>{
+        const object=child as THREE.Mesh;
+        if(!object.material)return;
+        const original=object.material;
+        const temporary=(Array.isArray(original)?original:[original]).map(material=>{
+          const copy=material.clone();copy.visible=false;return copy;
+        });
+        object.material=Array.isArray(original)?temporary:temporary[0];
+        this.previewInputMaterials.push({object,original,temporary});
+      });
     }
     if (this.editContext?.translation) group.position.fromArray(this.editContext.translation);
     if (this.editContext?.rotation) group.quaternion.fromArray(this.editContext.rotation);
@@ -1164,6 +1186,8 @@ export class CadViewportEngine {
     this.previewVisuals?.dispose();
     this.previewVisuals = undefined;
     delete this.host.dataset.featurePreview;
+    for(const {object,original,temporary} of this.previewInputMaterials){object.material=original;for(const material of temporary)material.dispose();}
+    this.previewInputMaterials=[];
     if (this.previewBody) {
       this.previewBody.group.visible = this.previewBody.visible;
       this.previewBody = undefined;
@@ -1572,8 +1596,8 @@ export class CadViewportEngine {
         this.applyHighlight(object, "hover"); this.highlightedRoots.add(object);
       }
     }
-    this.replaceTopologyOverlays("selected", withAssemblyReferences(this.selected));
-    for (const object of this.selectionIndex.objectsForMany(this.selected)) {
+    this.replaceTopologyOverlays("selected", withAssemblyReferences(this.featureSelection?.selections ?? this.selected));
+    for (const object of this.selectionIndex.objectsForMany(this.featureSelection?.selections ?? this.selected)) {
       if (!this.objectVisible(object)) continue;
       this.applyHighlight(object, "selected"); this.highlightedRoots.add(object);
     }
@@ -2529,9 +2553,29 @@ export class CadViewportEngine {
     return group;
   }
 
+  setFeatureSelection(session?: FeatureSelectionSession): void {
+    const entering=!this.featureSelection&&!!session;
+    this.featureSelection = session;
+    this.preselect(null);
+    this.updateSketchContextVisibility();
+    this.applyTreeVisibility();
+    if(entering&&session?.sketchIds?.length&&![...this.solidBindings.values()].some(binding=>binding.artifact.topology.solids>0)){
+      const box=new THREE.Box3();
+      for(const group of this.helpers.children)if(group.userData.sketchEditOverlay&&session.sketchIds.includes(group.userData.sketchFeatureID)&&this.objectVisible(group)){
+        group.updateMatrixWorld(true);
+        for(const child of group.children)if(child.userData.sketchEntityOverlay&&this.objectVisible(child))box.union(new THREE.Box3().setFromObject(child));
+      }
+      if(!box.isEmpty()){fitOrthographicView(this.camera,this.navigation.target,box);this.navigation.syncCamera(false);}
+    }
+    this.refreshInteractionHighlights();
+    this.emitDebugState();
+    this.invalidate();
+  }
+
   private pick(x: number, y: number, additive: boolean): void {
     if (this.moveManipulator.isDragging()) return;
     const hit = this.hitTest(x, y,true);
+    if (this.featureSelection) { if (hit) this.featureSelection.onPick(hit); return; }
     if (!hit) { if (!additive) this.selectMany([]); return; }
     if (!additive) { this.selectMany([hit]); return; }
     const key = selectionKey(hit);
@@ -2588,6 +2632,7 @@ export class CadViewportEngine {
       return entity&&current(entity)?entity:null;
     }
     const hit = this.selectionIndex.pickWithIntersection(this.raycaster, (selection) =>
+      this.featureSelection ? !!featureSelectionHit(selection, this.featureSelection) :
       this.activeToolID === "sketch.project" && (selection.kind === "edge" || selection.kind === "vertex")
         ? allowsSelection(this.captureSettings, selection)
         : allowsSelectionInContext(this.captureSettings, selection, this.activeSketchID));
@@ -2597,7 +2642,7 @@ export class CadViewportEngine {
     if(captureManipulatorAnchor&&this.activeToolID==="assembly.move"&&raw?.instanceId&&hit.intersection){
       this.pendingManipulatorAnchor={instanceId:raw.instanceId,anchor:this.manipulatorAnchorFromIntersection(hit.intersection,raw)};
     }
-    return this.selectionMode.project(projectSketchFeatureSelection(raw, this.activeSketchID));
+    return this.featureSelection ? featureSelectionHit(raw, this.featureSelection) : this.selectionMode.project(projectSketchFeatureSelection(raw, this.activeSketchID));
   }
 
   private dimensionConstraintAt(x: number, y: number) {
@@ -3189,7 +3234,8 @@ export class CadViewportEngine {
     this.callbacks.debugStateChanged?.({
       input: this.input.getState(), activeTool: this.activeToolID,
       navigationProfile: this.navigationProfile, navigationAction: this.navigation.activeAction,
-      selectionKeys: this.selected.map(selectionKey),
+      selectionKeys: (this.featureSelection?.selections??this.selected).map(selectionKey),
+      featureSelection: this.featureSelection?{role:this.featureSelection.role,count:this.featureSelection.selections.length,overlays:this.selectedOverlays.length}:undefined,
       highlightedVisible: [...this.highlightedRoots].filter((root) => {
         for (let object: THREE.Object3D | null = root; object; object = object.parent) if (!object.visible) return false;
         return true;

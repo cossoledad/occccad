@@ -231,6 +231,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/documents/{documentID}/solve-results", server.productSolveResult)
 	mux.HandleFunc("GET /api/documents/{documentID}/properties", server.documentProperties)
 	mux.HandleFunc("GET /api/documents/{documentID}/topology-properties", server.topologyProperties)
+	mux.HandleFunc("POST /api/documents/{documentID}/feature-input", server.featureInput)
 	mux.HandleFunc("POST /api/documents/{documentID}/persistent-selections/bind", server.bindPersistentSelection)
 	mux.HandleFunc("POST /api/documents/{documentID}/persistent-selections/resolve", server.resolvePersistentSelection)
 	mux.HandleFunc("POST /api/documents/{documentID}/resolved-topology-properties", server.resolvedTopologyProperties)
@@ -1280,4 +1281,20 @@ func writeDatabaseBusy(writer http.ResponseWriter, err error) bool {
 	writer.Header().Set("Retry-After", "1")
 	writeJSON(writer, http.StatusServiceUnavailable, map[string]any{"error": "database is busy; retry with the same request ID", "code": "DATABASE_BUSY", "retryable": true})
 	return true
+}
+
+func (server *Server) featureInput(writer http.ResponseWriter, request *http.Request) {
+	if _, ok := server.requireDocument(writer, request, access.RoleViewer); !ok {
+		return
+	}
+	var input workspace.FeatureInputRequest
+	if !decodeJSON(writer, request, &input) {
+		return
+	}
+	result, err := server.workspace.GetFeatureInput(request.Context(), request.PathValue("documentID"), input)
+	if err != nil {
+		writeTopologySelectionError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, result)
 }

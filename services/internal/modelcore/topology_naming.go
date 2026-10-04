@@ -4,8 +4,8 @@ import "fmt"
 
 const (
 	TopologyNamingPolicyID                = "occccad.topology.naming.v1"
-	TopologyNamingEvaluator               = "occccad.topology.contract.v5"
-	TopologyNamingPolicyDigest            = "sha256:c2370246271d87a36696fc387d703c8c70121e2f705c1ecba9607b2ae7230001"
+	TopologyNamingEvaluator               = "occccad.topology.contract.v6"
+	TopologyNamingPolicyDigest            = "sha256:0232362d3c8d0e5fc09fef90c50b8e0347ef868a6d79c033cd5fc4368417da36"
 	TopologyNamingSchemaVersion           = uint32(1)
 	TopologyNamingLinearToleranceMeters   = 1e-7
 	TopologyNamingAngularToleranceRadians = 1e-9

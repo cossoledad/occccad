@@ -23,7 +23,7 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 - Default/3DEXPERIENCE CATIA/SOLIDWORKS 导航 Profile、Pointer Capture、Tool 手势状态机和 Overlay；Default 右键旋转在完整模型可见时以可见内容包围盒中心为基准，拓扑点命中优先；局部放大时使用当前可见几何作为旋转参考；快捷键经统一 CommandRegistry 执行并遵循命令可用性；输入框、输入法组合输入及打开的命令面板不触发全局快捷键，Enter/Esc 仍用于多阶段手势完成/取消；
 - 版本化 `ui-preferences` 本地偏好统一保存 Inspector 开合、结构树宽度、命令面板位置和浮动 Toolbar 布局；新增纯客户端显示偏好应扩展同一 schema，不再自行散写 localStorage key；
 - 统一 CAD 语义色与 hover/selected/snap 层次；默认全开的捕获设置可分别过滤三维点、边、面、实体、草图、约束、基准面、基准轴/坐标系和实例，以及草图原点、点/端点、圆心、中点、Line/Circle/Arc/Spline 曲线投影和 10 mm 网格吸附；
-- Pad、命名版本使用可拖动非模态命令面板；Pad 长度 literal/expression 在 blur/Enter 后请求后端复用正式 typed command、参数求值、Sketch Solver 与 Part evaluator 生成非持久化精确预览，提交才创建 Revision；
+- Pad、命名版本使用可拖动非模态命令面板；实体 Feature 长度/角度 literal/expression 和视图区几何输入变化后自动请求后端复用正式 typed command、参数求值、Sketch Solver 与 Part evaluator 生成非持久化精确预览，提交才创建 Revision；
 - Product 约束创建和编辑共用非模态“约束定义”面板：分别显示 Constraint 的 NotUpdated/Broken/Impossible/Verified 与每个 Supporting Element 的 Connected/NotConnected；结构树双击/右键可编辑，Broken 可 Reconnect，非 Verified 可重新解析并求解。Reconnect 使用一次性视口选择，权威 preview 返回候选状态，确认以单个 `EDIT_ASSEMBLY_CONSTRAINT` Revision 提交；视口以不同 glyph 显示异常状态，并为已丢失的精确支持元素保留 instance 中心恢复标记；
 - Cut/Hole 场景沿用同一状态投影：贯穿 Cut 保留的面继续显示 Connected/Verified，真实删除与 split 歧义显示 NotConnected/Broken，Reconnect 的当前制品 raw pick 只作为提交证据并由服务端绑定成 PersistentSelection；
 - 同一交互和状态投影支持 Edge/Vertex：Vertex 作为精确 Point、线性 Edge 作为 Axis 参与 Vertex-Vertex、Vertex-Plane、Edge-Edge、Edge-Plane 约束；缺少 naming manifest 或 history 不完整时显示稳定诊断并进入 NotConnected/Broken，Reconnect 仍提交一次当前制品 raw pick，由服务端重新绑定稳定选择；
@@ -207,4 +207,6 @@ CAD Command/Preview 使用 `api` 门面进入 `RealtimeClient`；取消由 Abort
 
 Part Design 提供布尔、圆角、倒角、拔模、抽壳和基础放样命令。结构树的编辑入口使用同一 Feature 定义命令；局部修改通过“添加当前选择的边/面”取得服务端持久选择。预览与提交共用候选定义，输入变化、关闭及 Revision 变化使旧预览失效。工具 Body 的 consumed 状态不等于隐藏，视口不为已消耗结果创建实体和拾取对象。能力边界见[实体 Feature](../../../docs/architecture/current/solid-features.md)。
 
-实体 Feature 的真实后端浏览器回归：先运行 `invoke run.app --build-type=Debug`，加载已配置的管理员登录环境后，在本目录执行 `pnpm exec playwright test --config playwright.live.config.ts`。该用例新建独立验收文档，不重置数据库；覆盖真实布尔面板的预览、提交、输出消耗和页面重开。
+实体 Feature 的真实后端浏览器回归：先运行 `invoke run.app --build-type=Debug`，加载已配置的管理员登录环境后，在本目录执行 `pnpm exec playwright test --config playwright.live.config.ts`。该用例新建独立验收文档，不重置数据库；覆盖真实视图区布尔拾取/取消、倒角预选带入和编辑恢复、矩形到圆放样、自动预览、提交、精确体积和页面重开。测试打开输入诊断 Overlay 并根据当前相机投影点击真实 WebGL 视口。
+
+实体 Feature 操作使用视图区角色拾取，几何输入不显示 UUID 下拉列表。命令前预选自动带入，边/面集点击添加、再次点击取消；输入完整后自动精确预览。局部特征编辑临时显示上游阶段并恢复持久边面高亮，取消恢复正式视图。旋转轴保留单条草图直线；放样按选取顺序连接草图，支持矩形到圆截面。`feature-selection.ts` 拥有拾取角色过滤，Feature 面板拥有短期候选与绑定集合，Viewport 拥有显示/拾取生命周期，正式修改仍经既有命令与 CAS。

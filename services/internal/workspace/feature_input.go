@@ -1,0 +1,168 @@
+package workspace
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/occccad/occccad/internal/modelcore"
+)
+
+// FeatureInput is a read-only reconstruction of the stage before an edited
+// feature. It never moves Head or writes a compensable model change.
+type FeatureInputRequest struct {
+	VersionID   string `json:"versionId"`
+	FeatureID   string `json:"featureId"`
+	GeometryKey string `json:"geometryKey,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	LocalID     uint64 `json:"localId,omitempty"`
+}
+type FeatureInputPick struct {
+	Index   int    `json:"index"`
+	Kind    string `json:"kind"`
+	LocalID uint64 `json:"localId"`
+}
+type FeatureInput struct {
+	VersionID       string             `json:"versionId"`
+	SourceFeatureID string             `json:"sourceFeatureId"`
+	Artifact        Artifact           `json:"artifact"`
+	Artifacts       []Artifact         `json:"artifacts,omitempty"`
+	Picks           []FeatureInputPick `json:"picks"`
+	Selection       *FeatureSelection  `json:"selection,omitempty"`
+}
+
+func (s *Service) featureStageAtVersion(ctx context.Context, documentID, versionID, stageID, bodyID string) (string, error) {
+	var raw []byte
+	if err := s.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE document_id=$1 AND id=$2`, documentID, versionID).Scan(&raw); err != nil {
+		return "", err
+	}
+	var model PartModel
+	if err := json.Unmarshal(raw, &model); err != nil {
+		return "", err
+	}
+	normalizePartModel(&model)
+	index := -1
+	for i, f := range model.Features {
+		if (stageID == "" || f.ID == stageID) && f.BodyID == bodyID && isBodyFeature(f.Type) && !f.Suppressed {
+			index = i
+			if stageID != "" {
+				break
+			}
+		}
+	}
+	if index < 0 {
+		return "", fmt.Errorf("%w: source feature stage missing", ErrValidation)
+	}
+	model.Features = append([]Feature(nil), model.Features[:index+1]...)
+	return s.evaluateBodyPrefix(ctx, "selection-source/"+versionID+"/"+stageID, model, bodyID)
+}
+
+func (s *Service) resolveFeaturePick(ctx context.Context, pick FeatureSelection, targetKey string) (modelcore.SelectionResolution, error) {
+	// Rebuild either the explicit stage or the historical revision's final
+	// Body stage under the current evaluator. Derived artifacts from an older
+	// evaluator are not the business truth and cannot prevent an exact rebuild.
+	key, err := s.featureStageAtVersion(ctx, pick.Selection.SourceDocumentID, pick.SourceVersionID, pick.SourceFeatureID, pick.Selection.SourceBodyID)
+	if err != nil {
+		return modelcore.SelectionResolution{}, err
+	}
+	source, _, err := s.topologyManifestForGeometryKey(ctx, key)
+	if err != nil {
+		return modelcore.SelectionResolution{}, err
+	}
+	output := manifestSemanticOutput(source, pick.Selection)
+	if !topologyHistoryComplete(source) || output == nil || pick.Selection.CreationEvidence.EvidenceDigest != output.GetEvidence().GetEvidenceDigest() {
+		return unavailableSelectionResolution("CREATION_EVIDENCE_MISMATCH", "source stage does not contain the selected topology"), nil
+	}
+	target, _, err := s.topologyManifestForGeometryKey(ctx, targetKey)
+	if err != nil {
+		return modelcore.SelectionResolution{}, err
+	}
+	if !topologyHistoryComplete(target) {
+		return unavailableSelectionResolution("TOPOLOGY_HISTORY_INCOMPLETE", "feature input history is incomplete"), nil
+	}
+	return resolveManifest(pick.Selection, targetKey, target), nil
+}
+
+func (s *Service) GetFeatureInput(ctx context.Context, documentID string, request FeatureInputRequest) (FeatureInput, error) {
+	view, err := s.GetDocument(ctx, documentID)
+	if err != nil {
+		return FeatureInput{}, err
+	}
+	if view.Part == nil || request.VersionID != view.Document.VersionID {
+		return FeatureInput{}, fmt.Errorf("%w: feature editing revision changed", ErrValidation)
+	}
+	index := -1
+	for i, f := range view.Part.Features {
+		if f.ID == request.FeatureID {
+			index = i
+			break
+		}
+	}
+	if index < 0 {
+		return FeatureInput{}, fmt.Errorf("%w: feature missing", ErrValidation)
+	}
+	feature := view.Part.Features[index]
+	stage := ""
+	for _, f := range view.Part.Features[:index] {
+		if f.BodyID == feature.BodyID && isBodyFeature(f.Type) && !f.Suppressed {
+			stage = f.ID
+		}
+	}
+	if stage == "" {
+		return FeatureInput{}, fmt.Errorf("%w: feature has no solid input", ErrValidation)
+	}
+	key, err := s.featureStageAtVersion(ctx, documentID, request.VersionID, stage, feature.BodyID)
+	if err != nil {
+		return FeatureInput{}, err
+	}
+	a, err := s.loadArtifact(ctx, key)
+	if err != nil {
+		return FeatureInput{}, err
+	}
+	a.BodyID = feature.BodyID
+	result := FeatureInput{VersionID: request.VersionID, SourceFeatureID: stage, Artifact: a, Picks: []FeatureInputPick{}}
+	if request.LocalID != 0 {
+		if request.GeometryKey != key {
+			return FeatureInput{}, fmt.Errorf("%w: pick does not belong to feature input", ErrValidation)
+		}
+		manifest, _, err := s.topologyManifestForGeometryKey(ctx, key)
+		if err != nil {
+			return FeatureInput{}, err
+		}
+		kind := modelcore.PersistentTopologyType(request.Kind)
+		output, bodyID := manifestOutput(manifest, kind, request.LocalID)
+		if !topologyHistoryComplete(manifest) || output == nil || bodyID != feature.BodyID {
+			return FeatureInput{}, fmt.Errorf("%w: input topology unavailable", ErrValidation)
+		}
+		pick := FeatureSelection{SourceVersionID: request.VersionID, SourceFeatureID: stage, Selection: modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion, SourceDocumentID: documentID, SourceBodyID: bodyID, Anchor: semanticRef(output.GetSemanticRef()), ExpectedType: kind, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant}, CreationEvidence: selectionEvidence(output.GetEvidence())}}
+		if err := pick.Selection.Validate(); err != nil {
+			return FeatureInput{}, fmt.Errorf("%w: %v", ErrValidation, err)
+		}
+		result.Selection = &pick
+		return result, nil
+	}
+	result.Artifacts = []Artifact{a}
+	for _, tool := range feature.Tools {
+		toolKey, err := s.featureStageAtVersion(ctx, documentID, request.VersionID, tool.FeatureID, tool.BodyID)
+		if err != nil {
+			return FeatureInput{}, err
+		}
+		toolArtifact, err := s.loadArtifact(ctx, toolKey)
+		if err != nil {
+			return FeatureInput{}, err
+		}
+		toolArtifact.BodyID = tool.BodyID
+		result.Artifacts = append(result.Artifacts, toolArtifact)
+	}
+	for i, pick := range feature.Selections {
+		resolution, err := s.resolveFeaturePick(ctx, pick, key)
+		if err != nil {
+			return FeatureInput{}, err
+		}
+		if resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) != 1 {
+			return FeatureInput{}, fmt.Errorf("%w: %s: %s", ErrValidation, resolution.Status, resolution.DiagnosticCode)
+		}
+		result.Picks = append(result.Picks, FeatureInputPick{Index: i, Kind: string(pick.Selection.ExpectedType), LocalID: resolution.Candidates[0].LocalID})
+	}
+	return result, nil
+}

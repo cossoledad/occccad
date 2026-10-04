@@ -23,6 +23,27 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
+	if featureID := r.URL.Query().Get("featureId"); featureID != "" && !allowed {
+		input, inputErr := s.workspace.GetFeatureInput(r.Context(), r.PathValue("documentID"), workspace.FeatureInputRequest{VersionID: version, FeatureID: featureID})
+		if inputErr != nil {
+			writeError(w, http.StatusNotFound, "feature input unavailable")
+			return
+		}
+		for _, artifact := range append(input.Artifacts, input.Artifact) {
+			if bodyID := r.URL.Query().Get("bodyId"); bodyID != "" && artifact.BodyID != bodyID {
+				continue
+			}
+			for _, representation := range artifact.Representations {
+				if representation.ObjectID == id {
+					allowed = true
+				}
+			}
+		}
+		if !allowed {
+			writeError(w, http.StatusNotFound, "representation outside feature input")
+			return
+		}
+	}
 	var err error
 	if !allowed {
 		err = s.database.QueryRow(r.Context(), `WITH RECURSIVE reachable(id) AS (

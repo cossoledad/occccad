@@ -1436,17 +1436,26 @@ ToolBuild make_loft_tool(const ProfilePadSpec& spec) {
     if (spec.sections.size() < 2 || spec.sections.size() > 32)
         throw std::invalid_argument("INVALID_LOFT_SECTION_COUNT");
     BRepOffsetAPI_ThruSections algorithm(Standard_True, spec.ruled, 1e-7);
-    algorithm.CheckCompatibility(Standard_False);
+    // CompatibleWires splits unlike sections and records the original-edge to
+    // generated-face history. Keep explicit seam/direction for matching wires.
+    const auto count = spec.sections.front().region.outer.curves.size();
+    const bool unlike = std::any_of(spec.sections.begin(), spec.sections.end(),
+        [&](const auto& section) { return section.region.outer.curves.size() != count; });
+    if (unlike) {
+        for (const auto& section : spec.sections) {
+            const auto& curves = section.region.outer.curves;
+            if (curves.size() != count && !(curves.size() == 1 && curves.front().kind == "CIRCLE") &&
+                !(count == 1 && spec.sections.front().region.outer.curves.front().kind == "CIRCLE"))
+                throw std::invalid_argument("UNSUPPORTED_UNLIKE_LOFT_SECTIONS");
+        }
+    }
+    algorithm.CheckCompatibility(unlike ? Standard_True : Standard_False);
     algorithm.SetMutableInput(Standard_False);
     std::vector<std::pair<SemanticTopologyRef, TopoDS_Edge>> edges;
-    std::size_t edge_count = 0;
     for (const auto& section : spec.sections) {
         if (!section.region.holes.empty() || section.region.outer.curves.empty())
             throw std::invalid_argument("LOFT_REQUIRES_SINGLE_CLOSED_SECTION");
         auto curves = section.region.outer.curves;
-        if (edge_count && edge_count != curves.size())
-            throw std::invalid_argument("SECTION_EDGE_COUNT_MISMATCH");
-        edge_count = curves.size();
         if (section.reversed) {
             std::reverse(curves.begin(), curves.end());
             for (auto& curve : curves)
@@ -2409,6 +2418,23 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                         lineage_sources = generated->sources;
                     else if (derived != operation.derived.end())
                         lineage_sources = derived->sources;
+                }
+                if (spec.generator == "LOFT") {
+                    // Unlike sections split one circle into several side faces.
+                    // Preserve every actual section-edge source, including when
+                    // several generated references name the same resulting face.
+                    std::vector<SemanticTopologyRef> section_sources;
+                    for (const auto& source : group.sources) {
+                        bool found = false;
+                        for (const auto& generated : tool.generated) {
+                            if (!same_ref(generated.result, source)) continue;
+                            section_sources.insert(section_sources.end(), generated.sources.begin(), generated.sources.end());
+                            found = true;
+                        }
+                        if (!found) section_sources.push_back(source);
+                    }
+                    sort_refs(section_sources);
+                    lineage_sources = section_sources;
                 }
                 feature.topology_history.lineage.push_back(
                     {lineage_sources, output_ref, kind, evidence});

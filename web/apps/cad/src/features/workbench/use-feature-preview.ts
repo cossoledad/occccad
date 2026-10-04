@@ -1,0 +1,38 @@
+import { useEffect, useRef, useState } from "react";
+import type { Artifact, Feature } from "../../types";
+import { api } from "../../api/client";
+export function useFeaturePreview(documentId: string, versionId: string, input: Record<string, unknown> | undefined, operation: Feature["operation"], onPreview: (artifact?: Artifact, operation?: Feature["operation"]) => void) {
+    const [state, setState] = useState<{
+        key?: string;
+        id?: string;
+        pending: boolean;
+        error?: string;
+    }>({ pending: false });
+    const [retry, setRetry] = useState(0);
+    const callback = useRef(onPreview);
+    callback.current = onPreview;
+    const key = input ? JSON.stringify([documentId, versionId, input]) : undefined;
+    const latest = useRef({ input, operation, key });
+    latest.current = { input, operation, key };
+    useEffect(() => {
+        callback.current();
+        setState({ key, pending: !!key });
+        if (!key)
+            return;
+        const candidate = latest.current;
+        const controller = new AbortController();
+        let alive = true;
+        const timer = setTimeout(() => {
+            void api.previewCommand(documentId, candidate.input!, controller.signal).then(result => {
+                if (!alive || latest.current.key !== key || result.baseVersionId !== versionId)
+                    return;
+                setState({ key, id: result.previewId, pending: false });
+                callback.current(result.artifact, candidate.operation);
+            }).catch(error => { if (alive && !controller.signal.aborted)
+                setState({ key, pending: false, error: String(error) }); });
+        }, 250);
+        return () => { alive = false; clearTimeout(timer); controller.abort(); callback.current(); };
+    }, [key, retry]);
+    return { pending: !!key && (state.key !== key || state.pending), previewId: state.key === key ? state.id : undefined,
+        error: state.key === key ? state.error : undefined, retry: () => setRetry(value => value + 1) };
+}

@@ -1,3 +1,5 @@
+import { featureInputDisplay } from "./feature-input-display";
+import type { FeatureSelectionSession } from "../cad/interaction/feature-selection";
 import type { SketchCommandState, SketchCommandAction, SketchCommitIntent, SketchCommitResult, SketchCommitReceipt } from "../cad/tool/sketch-command-session";
 import { SketchInlineParameterInput } from "../cad/sketch/sketch-inline-parameter-input";
 import { SketchCommandPanel } from "../cad/sketch/sketch-command-panel";
@@ -43,6 +45,8 @@ export type CadViewportHandle = {
 };
 
 type Props = {
+  featureSelection?:FeatureSelectionSession;
+  featureInputArtifacts?:Artifact[];
   preferredLengthUnit?: "mm"|"cm"|"m"|"in";
   onSketchCommandStateChange?:(state:SketchCommandState|undefined)=>void;
   onSketchReceiptChange?:(receipt:SketchCommitReceipt|undefined)=>void;
@@ -154,13 +158,17 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
 
   useEffect(() => {
     const instance = engine.current; if (!instance) return;
-    instance.render(props.view, props.editingView ? { view: props.editingView, occurrencePath: props.activeInstancePath,
+    const inputs = props.featureInputArtifacts;
+    const ownerId=(props.editingView??props.view).document.id;
+    const replaceInput = (view:DocumentView) => featureInputDisplay(view,inputs,ownerId,view.part?undefined:props.activeInstancePath);
+    instance.render(replaceInput(props.view), props.editingView ? { view: replaceInput(props.editingView), occurrencePath: props.activeInstancePath,
       translation: props.activeInstanceTranslation, rotation: props.activeInstanceRotation,
       bodyTreeNodeId: props.activeBodyTreeNodeId, liveConstraintProjection:props.liveConstraintProjection } : undefined);
     instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
-  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveConstraintProjection]);
+  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveConstraintProjection, props.featureInputArtifacts]);
+  useEffect(() => { engine.current?.setFeatureSelection(props.featureSelection); }, [props.featureSelection]);
   useEffect(() => { engine.current?.selectMany(props.selections, false); }, [props.selections]);
   useEffect(() => { engine.current?.preselect(props.preselection, false); }, [props.preselection]);
   useEffect(() => {

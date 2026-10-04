@@ -1,4 +1,4 @@
-import type { Feature, AssemblyGeometryRef, AssemblySolveManifestResult, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ProductRelease, ProductReleaseReplay, ProductUpdatePlan, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
+import type { Artifact, Feature, AssemblyGeometryRef, AssemblySolveManifestResult, AuditEvent, CommandPreview, ContextCatalog, DocumentPage, DocumentProperties, DocumentScope, DocumentSummary, DocumentView, FolderSummary, HistoryEntry, InstancePath, Job, ProductDesignSession, ProductRelease, ProductReleaseReplay, ProductUpdatePlan, ShareGrant, SketchOperation, Team, ToolbarCatalog, TopologyElementProperties, User, Vec3 } from "./types";
 import { realtime } from "./api/realtime-client";
 import { CommandPreviewIdentities } from "./api/command-preview-identity";
 const previewIdentities = new CommandPreviewIdentities();
@@ -237,6 +237,12 @@ export const restApi = {
   getDocumentProperties: (id: string) => request<DocumentProperties>(`/api/documents/${id}/properties`),
   assemblyCapabilities: () => request<{contractVersion:string;capabilities:Array<{capabilityId:string;family:string;subtype:string;roles:Array<{role:string;descriptor:string}>}>}>("/api/assembly/capabilities"),
   inspectAssemblySupports: (id:string,references:AssemblyGeometryRef[],signal?:AbortSignal) => request<import("./cad/interaction/manipulator-snap").SupportInspection>(`/api/documents/${id}/assembly-supports/inspect`,{method:"POST",body:JSON.stringify({references}),signal}),
+  getFeatureInput: async (id: string, input: {versionId:string;featureId:string;geometryKey?:string;kind?:string;localId?:number}, signal?:AbortSignal) => {
+    const result=await request<{versionId:string;sourceFeatureId:string;artifact:Artifact;artifacts?:Artifact[];picks:{index:number;kind:string;localId:number}[];selection?:NonNullable<Feature["selections"]>[number]}>(`/api/documents/${id}/feature-input`,{method:"POST",body:JSON.stringify(input),signal});
+    for(const artifact of [result.artifact,...(result.artifacts??[])])for(const representation of Object.values(artifact.representations))
+      representation.url=apiURL(`/api/documents/${id}/representations/${representation.objectId}?${new URLSearchParams({versionId:input.versionId,featureId:input.featureId,bodyId:artifact.bodyId??""})}`);
+    return result;
+  },
   getTopologyProperties: (id: string, geometryKey: string, kind: "FACE" | "EDGE" | "VERTEX", localId: number, versionId?: string) => {
     const query = new URLSearchParams({ geometryKey, kind, localId: String(localId) });
     if (versionId) query.set("versionId", versionId);

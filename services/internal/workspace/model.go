@@ -394,6 +394,7 @@ type FeatureStageRef struct {
 type FeatureSelection struct {
 	Selection       modelcore.PersistentSelection `json:"selection"`
 	SourceVersionID string                        `json:"sourceVersionId"`
+	SourceFeatureID string                        `json:"sourceFeatureId,omitempty"`
 }
 type LoftSection struct {
 	SketchID     string  `json:"sketchId"`

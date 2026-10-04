@@ -133,3 +133,9 @@
 .instance-pattern-fields { display: flex; flex-direction: column; gap: 14px; }
 .instance-pattern-fields p { margin: 0; color: var(--color-muted); font-size: 12px; }
 .instance-pattern-fields label { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+.feature-input-fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.feature-pick-field { display: flex; gap: 6px; align-items: center; }
+.feature-pick-field > button:first-child { flex: 1; min-width: 0; height: auto; white-space: normal; text-align: left; }
+.feature-section-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 6px 0; }
+.feature-section-row > span { flex: 1; min-width: 100px; }

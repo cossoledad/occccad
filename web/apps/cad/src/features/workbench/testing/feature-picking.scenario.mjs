@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import {createServer} from "vite";
+const server=await createServer({server:{middlewareMode:true},appType:"custom",logLevel:"silent"});
+try {
+ const {featureSelectionHit}=await server.ssrLoadModule("/src/cad/interaction/feature-selection.ts");
+ const {selectedAxis,bodyStage,selectedSketch}=await server.ssrLoadModule("/src/features/workbench/feature-picking.ts");
+
+ const {featureInputDisplay}=await server.ssrLoadModule("/src/viewport/feature-input-display.ts");
+ const partView={document:{id:"part",versionId:"head"},part:{bodies:[{id:"body",geometryKey:"final",consumed:true}],features:[]},artifacts:{}};
+ const input={bodyId:"body",geometryKey:"upstream"};
+ const inputView=featureInputDisplay(partView,[input],"part");
+ assert.equal(inputView.part.bodies[0].geometryKey,"upstream");
+ assert.equal(inputView.part.bodies[0].consumed,false);
+ assert.equal(partView.part.bodies[0].geometryKey,"final","edit display never writes model truth");
+ const productView={document:{id:"root"},product:{},structureTree:{kind:"PRODUCT",children:[{id:"tool-node-a",kind:"BODY",name:"Tool",subject:{documentId:"part",entityId:"tool"},occurrence:{instancePath:{canonical:"a"}}}]},resolvedInstances:[{id:"a",documentId:"part",bodyId:"body",occurrencePath:"a",geometryKey:"final"},{id:"b",documentId:"part",bodyId:"body",occurrencePath:"b",geometryKey:"final"}],artifacts:{}};
+ const editingProduct=featureInputDisplay(productView,[input,{bodyId:"tool",geometryKey:"tool-stage"}],"part","a");
+ assert.equal(editingProduct.resolvedInstances[0].geometryKey,"upstream");
+ assert.equal(editingProduct.resolvedInstances[1].geometryKey,"final","another occurrence of the same Part is not replaced");
+ assert.equal(editingProduct.resolvedInstances[2].bodyId,"tool","consumed tools are restored only in the committed edit occurrence");
+ assert.equal(editingProduct.resolvedInstances[2].occurrencePath,"a");
+ assert.equal(editingProduct.resolvedInstances[2].bodyTreeNodeId,"tool-node-a");
+ assert.equal(editingProduct.resolvedInstances[2].name,"Tool");
+ const sketch={id:"sketch",type:"SKETCH",bodyId:"body",sketch:{entities:[{id:"line",kind:"LINE"},{id:"circle",kind:"CIRCLE"}]}};
+ const view={document:{id:"part",versionId:"v"},part:{features:[sketch],datumAxes:[],axisSystems:[]}};
+ const line={kind:"visual",id:"root:sketch:line",entityId:"line",featureId:"sketch",visualType:"CURVE",documentId:"part",versionId:"v",bodyId:"body"};
+ const session={role:"axis",documentId:"part",versionId:"v",selections:[],onPick(){}};
+ assert.equal(featureSelectionHit(line,session),line,"rotation axis preserves individual stable sketch entity");
+ assert.equal(selectedAxis(view,line,[sketch]),"SKETCH_LINE:sketch:line");
+ assert.equal(selectedAxis(view,{...line,entityId:"circle"},[sketch]),undefined,"circle cannot be a rotation axis");
+ assert.equal(featureSelectionHit(line,{...session,role:"profile"}).kind,"sketch");
+ assert.equal(selectedSketch(view,line,[sketch]),sketch);
+ assert.equal(featureSelectionHit({...line,occurrencePath:"other"},session),null);
+ assert.equal(featureSelectionHit({...line,versionId:"stale"},session),null);
+ const edge={kind:"edge",id:"edge",documentId:"part",versionId:"v",bodyId:"body",geometryKey:"input",topologyId:7};
+ assert.equal(featureSelectionHit(edge,{...session,role:"edge",bodyId:"body"}),edge);
+ assert.equal(featureSelectionHit({...edge,bodyId:"other"},{...session,role:"edge",bodyId:"body"}),null);
+ assert.equal(featureSelectionHit({...edge,kind:"face"},{...session,role:"edge"}),null);
+ const stages=[{id:"base",type:"LINEAR_EXTRUDE",bodyId:"body"},{id:"fillet",type:"FILLET",bodyId:"body"},{id:"suppressed",type:"CHAMFER",bodyId:"body",suppressed:true}];
+ assert.deepEqual(bodyStage(edge,stages),{bodyId:"body",featureId:"fillet"});
+ assert.deepEqual(bodyStage({kind:"pad",id:"base",entityId:"base",bodyId:"body"},stages),{bodyId:"body",featureId:"base"});
+ assert.equal(bodyStage({kind:"pad",id:"future",bodyId:"body"},stages),undefined,"never replace invalid stage with the Body final result");
+}finally{await server.close();}

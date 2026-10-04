@@ -112,7 +112,7 @@ export type DocumentProperties = {
 export type Feature = {
   sections?:{sketchId:string;reversed?:boolean;seamEntityId?:string;seamAngle?:number}[];
   ruled?:boolean;
-  selections?:{selection:PersistentSelection;sourceVersionId:string}[];
+  selections?:{selection:PersistentSelection;sourceVersionId:string;sourceFeatureId?:string}[];
   neutralPlaneId?:string;
   extent?: "FINITE"|"TWO_SIDED"|"SYMMETRIC"|"THROUGH_ALL";
   length2?:number;

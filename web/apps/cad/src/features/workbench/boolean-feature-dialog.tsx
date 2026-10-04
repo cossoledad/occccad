@@ -1,80 +1,108 @@
-import { Alert, Button, Select, Switch } from "antd";
+import { Alert, Segmented, Switch } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
 import { api } from "../../api/client";
-import type { Artifact, DocumentView, Feature } from "../../types";
+import type { Artifact, DocumentView, Feature, SelectionItem } from "../../types";
+import type { FeatureSelectionSession } from "../../cad/interaction/feature-selection";
 import { booleanInputStages, booleanDefinitionReady } from "./solid-feature-model";
+import { bodyStage } from "./feature-picking";
+import { FeaturePickField } from "./feature-pick-field";
+import { useFeaturePreview } from "./use-feature-preview";
 import { randomUUID } from "../../utils/random-uuid";
-export function BooleanFeatureDialog({ view, initial, digest, bodyId, onClose, onApply, onPreview }: {
+export function BooleanFeatureDialog({ view, initial, digest, bodyId, seed, occurrencePath, occurrenceContext, onClose, onApply, onPreview, onSelectionSession, onInputArtifacts }: {
     view: DocumentView;
     initial?: Feature;
     digest?: string;
     bodyId?: string;
+    seed: SelectionItem[];
+    occurrencePath?: string;
+    occurrenceContext?: Pick<SelectionItem, "instancePath" | "contextVariantKey" | "rootDocumentId">;
     onClose: () => void;
     onApply: (input: Record<string, unknown>) => Promise<unknown>;
     onPreview: (artifact?: Artifact, operation?: Feature["operation"]) => void;
+    onSelectionSession: (session?: FeatureSelectionSession) => void;
+    onInputArtifacts: (artifacts?: Artifact[]) => void;
 }) {
-    const [target, setTarget] = useState(initial?.bodyId ?? bodyId);
-    const [operation, setOperation] = useState<Feature["operation"]>(initial?.operation ?? "REMOVE");
-    const [tools, setTools] = useState(initial?.tools ?? []);
-    const [keep, setKeep] = useState(initial?.keepTools ?? false);
-    const [suppressed, setSuppressed] = useState(initial?.suppressed ?? false);
-    const [error, setError] = useState<string>();
-    const [busy, setBusy] = useState(false);
-    const generation = useRef(0), abort = useRef<AbortController>(undefined), preview = useRef<string>(undefined);
-    const intent = useRef(randomUUID());
-    const features = view.part?.features ?? [];
-    const stages = booleanInputStages(features, initial?.id);
-    const targets = (view.part?.bodies ?? []).filter(body => stages.some(feature => feature.bodyId === body.id));
-    const valid = booleanDefinitionReady(target, operation, tools, stages);
-    const definition: Feature = { ...initial, id: initial?.id ?? "", type: "BOOLEAN", bodyId: target, operation, tools, keepTools: keep, suppressed };
-    const input: Record<string, unknown> = initial ? { type: "EDIT_FEATURE", targetId: initial.id, expectedFeatureDigest: digest, feature: definition } : { type: "CREATE_BOOLEAN_FEATURE", bodyId: target, operation, tools, keepTools: keep };
-    const changed = () => { generation.current++; abort.current?.abort(); preview.current = undefined; onPreview(); setError(undefined); setBusy(false); };
-    useEffect(() => () => { generation.current++; abort.current?.abort(); onPreview(); }, []);
-    useEffect(() => { changed(); }, [view.document.versionId]);
-    const requestPreview = async () => {
-        changed();
-        const sequence = generation.current;
+    const stages = booleanInputStages(view.part!.features, initial?.id);
+    const [target, setTarget] = useState(initial?.bodyId ?? bodyId), [operation, setOperation] = useState<Feature["operation"]>(initial?.operation ?? "REMOVE");
+    const [tools, setTools] = useState(initial?.tools ?? []), [keep, setKeep] = useState(initial?.keepTools ?? false), [suppressed, setSuppressed] = useState(initial?.suppressed ?? false);
+    const [role, setRole] = useState<"target" | "tools">("tools"), [error, setError] = useState<string>(), [committing, setCommitting] = useState(false);
+    const [loading, setLoading] = useState(!!initial);
+    const version = useRef(view.document.versionId), intent = useRef(randomUUID());
+    const callbacks = useRef({ onSelectionSession, onInputArtifacts });
+    callbacks.current = { onSelectionSession, onInputArtifacts };
+    useEffect(() => () => { callbacks.current.onSelectionSession(); callbacks.current.onInputArtifacts(); }, []);
+    useEffect(() => {
+        if (!initial)
+            return;
         const controller = new AbortController();
-        abort.current = controller;
-        setBusy(true);
-        try {
-            const result = await api.previewCommand(view.document.id, { ...input, requestId: intent.current }, controller.signal);
-            if (sequence !== generation.current || result.baseVersionId !== view.document.versionId)
-                return;
-            preview.current = result.previewId;
-            onPreview(result.artifact, operation);
+        let alive = true;
+        void api.getFeatureInput(view.document.id, { versionId: version.current, featureId: initial.id }, controller.signal).then(context => {
+            if (alive)
+                callbacks.current.onInputArtifacts(context.artifacts ?? [context.artifact]);
+        }).catch(cause => { if (alive)
+            setError(String(cause)); }).finally(() => { if (alive)
+            setLoading(false); });
+        return () => { alive = false; controller.abort(); };
+    }, []);
+    const pick = (s: SelectionItem) => {
+        if (committing || version.current !== view.document.versionId || (s.ownerDocumentId ?? s.documentId) !== view.document.id || (s.occurrencePath ?? "") !== (occurrencePath ?? ""))
+            return;
+        const stage = bodyStage(s, stages);
+        if (!stage)
+            return;
+        setError(undefined);
+        if (role === "target") {
+            setTarget(stage.bodyId);
+            setTools(previous => previous.filter(t => t.bodyId !== stage.bodyId));
+            setRole("tools");
         }
-        catch (cause) {
-            if (!controller.signal.aborted)
-                setError(String(cause));
-        }
-        finally {
-            if (sequence === generation.current)
-                setBusy(false);
-        }
+        else if (stage.bodyId !== target)
+            setTools(previous => previous.some(t => t.bodyId === stage.bodyId) ? previous.filter(t => t.bodyId !== stage.bodyId) : operation === "INTERSECT" ? [stage] : [...previous, stage]);
     };
-    const apply = async () => { if (!valid || busy)
-        return; setBusy(true); setError(undefined); try {
-        await onApply({ ...input, requestId: intent.current, previewId: preview.current });
+    const pickRef = useRef(pick);
+    pickRef.current = pick;
+    const seedOnce = useRef(false);
+    useEffect(() => {
+        if (seedOnce.current || initial)
+            return;
+        seedOnce.current = true;
+        const picked = seed.filter(s => (s.ownerDocumentId ?? s.documentId) === view.document.id && (s.occurrencePath ?? "") === (occurrencePath ?? "")).map(s => bodyStage(s, stages)).filter((s): s is NonNullable<typeof s> => !!s);
+        if (!picked.length)
+            return;
+        const selectedTarget = picked[0].bodyId;
+        setTarget(selectedTarget);
+        setTools([...new Map(picked.slice(1).filter(t => t.bodyId !== selectedTarget).map(t => [t.bodyId, t])).values()]);
+    }, []);
+    const selectedBodies = [target, ...tools.map(t => t.bodyId)].filter((id): id is string => !!id);
+    const token = JSON.stringify(selectedBodies);
+    useEffect(() => {
+        callbacks.current.onSelectionSession({ role: "body", documentId: view.document.id, versionId: version.current, occurrencePath,
+            selections: selectedBodies.map(id => ({ ...occurrenceContext, kind: "body", id, bodyId: id, documentId: view.document.id, versionId: version.current, occurrencePath })), onPick: s => pickRef.current(s) });
+    }, [token, role]);
+    const valid = !loading && version.current === view.document.versionId && booleanDefinitionReady(target, operation, tools, stages);
+    const definition: Feature = { ...initial, id: initial?.id ?? "", type: "BOOLEAN", bodyId: target, operation, tools, keepTools: keep, suppressed };
+    const input: Record<string, unknown> | undefined = valid ? initial ? { type: "EDIT_FEATURE", targetId: initial.id, expectedFeatureDigest: digest, feature: definition, requestId: intent.current } : { type: "CREATE_BOOLEAN_FEATURE", bodyId: target, operation, tools, keepTools: keep, requestId: intent.current } : undefined;
+    const preview = useFeaturePreview(view.document.id, view.document.versionId, input, operation, onPreview);
+    const apply = async () => { if (!input || !preview.previewId || preview.pending || committing)
+        return; setCommitting(true); try {
+        await onApply({ ...input, previewId: preview.previewId });
         onClose();
     }
     catch (cause) {
         setError(String(cause));
-    }
-    finally {
-        setBusy(false);
+        setCommitting(false);
     } };
-    return <CommandDialog id="boolean-feature" title={initial ? "编辑布尔" : "布尔运算"} open size="S" onClose={onClose} onConfirm={apply} confirmDisabled={!valid || busy} confirmLoading={busy}>
-    <div className="instance-pattern-fields">
-      <label>目标 Body<Select value={target} disabled={busy} options={targets.map(b => ({ value: b.id, label: b.name }))} onChange={value => { changed(); setTarget(value); setTools(tools.filter(t => t.bodyId !== value)); }}/></label>
-      <label>运算<Select value={operation} disabled={busy} options={[{ value: "ADD", label: "并集" }, { value: "REMOVE", label: "差集" }, { value: "INTERSECT", label: "交集" }]} onChange={value => { changed(); setOperation(value); if (value === "INTERSECT")
-        setTools(tools.slice(0, 1)); }}/></label>
-      <label>工具输出阶段<Select mode="multiple" value={tools.map(t => t.featureId)} disabled={busy} options={stages.filter(f => f.bodyId !== target).map(f => ({ value: f.id, label: `${view.part?.bodies.find(b => b.id === f.bodyId)?.name} / ${f.name ?? f.id}` }))} onChange={ids => { changed(); const selected = ids.map(id => stages.find(f => f.id === id)!); setTools(selected.map(f => ({ bodyId: f.bodyId!, featureId: f.id }))); }}/></label>
-      <label>保留工具结果<Switch checked={keep} disabled={busy} onChange={value => { changed(); setKeep(value); }}/></label>
-      {initial && <label>抑制<Switch checked={suppressed} disabled={busy} onChange={value => { changed(); setSuppressed(value); }}/></label>}
-      <Button onClick={() => void requestPreview()} disabled={!valid || busy}>预览</Button>
-      {error && <Alert type="error" title="布尔求值失败" description={error}/>}
-    </div>
-  </CommandDialog>;
+    return <CommandDialog id="boolean-feature" title={initial ? "编辑布尔" : "布尔运算"} open size="S" onClose={onClose} onConfirm={apply} confirmDisabled={!input || !preview.previewId || preview.pending || committing} confirmLoading={committing}>
+  <fieldset disabled={committing} className="instance-pattern-fields feature-input-fields">
+   <FeaturePickField label="目标实体" value={view.part?.bodies.find(b => b.id === target)?.name ?? "请在视图区选择实体"} active={role === "target"} onActivate={() => setRole("target")}/>
+   <label>运算<Segmented value={operation} options={[{ value: "ADD", label: "并集" }, { value: "REMOVE", label: "差集" }, { value: "INTERSECT", label: "交集" }]} onChange={value => { setOperation(value as Feature["operation"]); if (value === "INTERSECT")
+        setTools(previous => previous.slice(0, 1)); }}/></label>
+   <FeaturePickField label="工具实体" value={`已选择 ${tools.length} 个实体`} active={role === "tools"} onActivate={() => setRole("tools")} onClear={tools.length ? () => setTools([]) : undefined}/>
+   <label>保留工具结果<Switch checked={keep} onChange={setKeep}/></label>
+   {initial && <label>抑制<Switch checked={suppressed} onChange={setSuppressed}/></label>}
+   <small role="status">{loading ? "正在恢复上游实体…" : preview.pending ? "正在预览…" : "在视图区点击实体添加工具，再次点击取消。"}</small>
+   {(error ?? preview.error) && <Alert type="error" title="布尔求值失败" description={error ?? preview.error}/>}
+  </fieldset>
+ </CommandDialog>;
 }

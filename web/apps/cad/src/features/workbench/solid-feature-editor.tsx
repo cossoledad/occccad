@@ -1,150 +1,253 @@
-import { Alert, Button, Input, Select, Switch } from "antd";
+import { Alert, Button, Input, Segmented, Switch } from "antd";
 import { useEffect, useRef, useState } from "react";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
 import { api } from "../../api/client";
-import type { Artifact, DocumentView, Feature, Selection } from "../../types";
+import type { Artifact, DocumentView, Feature, SelectionItem } from "../../types";
+import type { FeaturePickRole, FeatureSelectionSession } from "../../cad/interaction/feature-selection";
+import { selectionKey } from "../../cad/interaction/selection-identity";
 import { parameterSourceText } from "./parameter-editor";
 import { solidParameterEdit, solidFeatureNames } from "./solid-feature-model";
+import { selectedAxis, selectedSketch, sketchPick } from "./feature-picking";
+import { FeaturePickField } from "./feature-pick-field";
+import { useFeaturePreview } from "./use-feature-preview";
 import { randomUUID } from "../../utils/random-uuid";
-export function SolidFeatureEditor({ view, feature, digest, unit, selection, onClose, onApply, onPreview }: {
+type BoundPick = {
+    definition: NonNullable<Feature["selections"]>[number];
+    visual: SelectionItem;
+};
+export function SolidFeatureEditor({ view, feature, digest, unit, seed, occurrencePath, occurrenceContext, onClose, onApply, onPreview, onSelectionSession, onInputArtifact }: {
     view: DocumentView;
     feature: Feature;
     digest?: string;
     unit: string;
-    selection?: Selection;
+    seed: SelectionItem[];
+    occurrencePath?: string;
+    occurrenceContext?: Pick<SelectionItem, "instancePath" | "contextVariantKey" | "rootDocumentId">;
     onClose: () => void;
     onApply: (input: Record<string, unknown>) => Promise<unknown>;
     onPreview: (artifact?: Artifact, operation?: Feature["operation"]) => void;
+    onSelectionSession: (session?: FeatureSelectionSession) => void;
+    onInputArtifact: (artifact?: Artifact) => void;
 }) {
-    const loft = feature.type === "LOFT";
-    const modifier = ["FILLET", "CHAMFER", "DRAFT", "SHELL"].includes(feature.type);
+    const loft = feature.type === "LOFT", modifier = ["FILLET", "CHAMFER", "DRAFT", "SHELL"].includes(feature.type);
     const angular = feature.type === "REVOLVE" || feature.type === "DRAFT";
+    const pickRole: FeaturePickRole = modifier ? (feature.type === "FILLET" || feature.type === "CHAMFER" ? "edge" : "face") : "profile";
     const [draft, setDraft] = useState({ ...feature });
-    const initial = (slot: string, fallback: number) => { const p = view.part?.parameters?.find(p => p.ownerFeatureId === feature.id && p.propertySlot === slot); return p ? parameterSourceText(p, slot === "angle" ? "deg" : unit, true) : String(slot === "angle" ? fallback : fallback / (({ mm: 1, cm: 10, m: 1000, in: 25.4 } as Record<string, number>)[unit] ?? 1)); };
-    const initialText = useRef({ length: initial("length", feature.length ?? 10), length2: feature.extent === "TWO_SIDED" ? initial("length2", feature.length2 ?? 10) : "", angle: initial("angle", feature.angle ?? 360) });
+    const [role, setRole] = useState<FeaturePickRole>(pickRole), [seamIndex, setSeamIndex] = useState<number>();
+    const [picks, setPicks] = useState<BoundPick[]>([]), [axisVisual, setAxisVisual] = useState<SelectionItem>();
+    const [error, setError] = useState<string>(), [committing, setCommitting] = useState(false), [binding, setBinding] = useState(0);
+    const [inputContext, setInputContext] = useState<Awaited<ReturnType<typeof api.getFeatureInput>>>();
+    const [loadingInput, setLoadingInput] = useState(modifier && !!feature.id);
+    const initial = (slot: string, fallback: number) => {
+        const p = view.part?.parameters?.find(p => p.ownerFeatureId === feature.id && p.propertySlot === slot);
+        return p ? parameterSourceText(p, slot === "angle" ? "deg" : unit, true) : String(slot === "angle" ? fallback : fallback / (({ mm: 1, cm: 10, m: 1000, in: 25.4 } as Record<string, number>)[unit] ?? 1));
+    };
+    const original = useRef({ length: feature.id ? initial("length", feature.length ?? 10) : "", length2: feature.id && feature.extent === "TWO_SIDED" ? initial("length2", feature.length2 ?? 10) : "", angle: feature.id ? initial("angle", feature.angle ?? 360) : "" });
     const [length, setLength] = useState(initial("length", feature.length ?? 10)), [second, setSecond] = useState(initial("length2", feature.length2 ?? 10)), [angle, setAngle] = useState(initial("angle", feature.angle ?? 360));
-    const [busy, setBusy] = useState(false), [error, setError] = useState<string>();
-    const generation = useRef(0), abort = useRef<AbortController>(undefined), preview = useRef<string>(undefined), intent = useRef(randomUUID());
-    const changed = () => { generation.current++; abort.current?.abort(); preview.current = undefined; onPreview(); setError(undefined); setBusy(false); };
-    useEffect(() => () => { generation.current++; abort.current?.abort(); onPreview(); }, []);
-    useEffect(() => { changed(); }, [view.document.versionId]);
-    const update = (patch: Partial<Feature>) => { changed(); setDraft({ ...draft, ...patch }); };
-    const command = () => {
-        const value = { ...draft }, expressions: Record<string, string> = {};
-        const read = (slot: "length" | "length2" | "angle", text: string) => {
-            const edit = solidParameterEdit(slot, text, initialText.current[slot], unit);
-            if (edit.value !== undefined)
-                value[slot] = edit.value;
-            if (edit.expression !== undefined)
-                expressions[slot] = edit.expression;
-        };
+    const intent = useRef(randomUUID()), version = useRef(view.document.versionId), alive = useRef(true), queue = useRef(Promise.resolve());
+    const callbacks = useRef({ onSelectionSession, onInputArtifact });
+    callbacks.current = { onSelectionSession, onInputArtifact };
+    const index = feature.id ? view.part!.features.findIndex(f => f.id === feature.id) : view.part!.features.length;
+    const upstream = view.part!.features.slice(0, Math.max(0, index));
+    const edit = (patch: Partial<Feature>) => { setError(undefined); setDraft(current => ({ ...current, ...patch })); };
+    const validRevision = version.current === view.document.versionId;
+    useEffect(() => { alive.current = true; return () => { alive.current = false; callbacks.current.onSelectionSession(); callbacks.current.onInputArtifact(); }; }, []);
+    useEffect(() => {
+        if (!modifier || !feature.id)
+            return;
+        let current = true;
+        const controller = new AbortController();
+        setLoadingInput(true);
+        void api.getFeatureInput(view.document.id, { versionId: view.document.versionId, featureId: feature.id }, controller.signal).then(context => {
+            if (!current)
+                return;
+            setInputContext(context);
+            callbacks.current.onInputArtifact(context.artifact);
+            setPicks(context.picks.map(p => ({ definition: feature.selections![p.index], visual: { ...occurrenceContext, kind: p.kind.toLowerCase() as "edge" | "face", id: `input:${p.kind}:${p.localId}`, documentId: view.document.id, bodyId: feature.bodyId, versionId: context.versionId, geometryKey: context.artifact.geometryKey, topologyId: p.localId, occurrencePath } })));
+        }).catch(cause => { if (current && !controller.signal.aborted)
+            setError(String(cause)); }).finally(() => { if (current)
+            setLoadingInput(false); });
+        return () => { current = false; controller.abort(); };
+    }, []);
+    const current = useRef({ draft, role, inputContext, upstream, committing, validRevision });
+    current.current = { draft, role, inputContext, upstream, committing, validRevision };
+    const bindPick = (selection: SelectionItem) => {
+        setBinding(n => n + 1);
+        queue.current = queue.current.then(async () => {
+            if (!alive.current || !current.current.validRevision || current.current.committing)
+                return;
+            const state = current.current;
+            if ((selection.kind !== "edge" && selection.kind !== "face") || selection.kind !== pickRole || selection.bodyId !== state.draft.bodyId || !selection.geometryKey)
+                return;
+            let definition: NonNullable<Feature["selections"]>[number];
+            if (feature.id) {
+                if (!state.inputContext || selection.geometryKey !== state.inputContext.artifact.geometryKey)
+                    return;
+                const result = await api.getFeatureInput(view.document.id, { versionId: version.current, featureId: feature.id, geometryKey: selection.geometryKey, kind: selection.kind.toUpperCase(), localId: selection.topologyId });
+                if (!result.selection)
+                    throw new Error("所选边面没有可用的持久引用");
+                definition = result.selection;
+            }
+            else {
+                const result = await api.getTopologyProperties(view.document.id, selection.geometryKey, selection.kind.toUpperCase() as "EDGE" | "FACE", selection.topologyId, selection.versionId ?? version.current);
+                if (!result.persistentSelection)
+                    throw new Error("所选边面没有可用的持久引用");
+                definition = { selection: result.persistentSelection, sourceVersionId: selection.versionId ?? version.current };
+            }
+            if (!alive.current || !current.current.validRevision)
+                return;
+            const key = selectionKey(selection);
+            setPicks(previous => previous.some(p => selectionKey(p.visual) === key) ? previous.filter(p => selectionKey(p.visual) !== key) : [...previous, { definition, visual: selection }]);
+            setError(undefined);
+        }).catch(cause => { if (alive.current)
+            setError(String(cause)); }).finally(() => { if (alive.current)
+            setBinding(n => n - 1); });
+    };
+    const pick = (selection: SelectionItem, chosenRole: FeaturePickRole = current.current.role) => {
+        if ((selection.ownerDocumentId ?? selection.documentId) !== view.document.id || (selection.occurrencePath ?? "") !== (occurrencePath ?? "") || selection.versionId && selection.versionId !== version.current || committing || !validRevision)
+            return;
+        if (chosenRole === "edge" || chosenRole === "face") {
+            bindPick(selection);
+            return;
+        }
+        if (chosenRole === "profile") {
+            const sketch = selectedSketch(view, selection, upstream);
+            if (!sketch)
+                return;
+            if (loft)
+                setDraft(previous => ({ ...previous, sections: previous.sections?.some(s => s.sketchId === sketch.id) ? previous.sections.filter(s => s.sketchId !== sketch.id) : [...(previous.sections ?? []), { sketchId: sketch.id }] }));
+            else {
+                edit({ profile: sketch.id });
+                if (feature.type === "REVOLVE" && !draft.axisEntityId)
+                    setRole("axis");
+            }
+        }
+        else if (chosenRole === "axis") {
+            const axis = selectedAxis(view, selection, upstream);
+            if (!axis) {
+                setError("请选择草图中的直线或基准轴");
+                return;
+            }
+            edit({ axisEntityId: axis });
+            setAxisVisual(selection);
+        }
+        else if (chosenRole === "plane" && selection.kind === "plane") {
+            const plane = view.part?.datumPlanes.find(p => p.id === selection.datumPlane?.id || p.id === selection.entityId || p.id === selection.id);
+            if (plane) {
+                edit({ neutralPlaneId: plane.id });
+                setRole(pickRole);
+            }
+        }
+        else if (chosenRole === "seam" && selection.kind === "visual" && seamIndex !== undefined) {
+            edit({ sections: draft.sections?.map((s, i) => i === seamIndex && s.sketchId === selection.featureId ? { ...s, seamEntityId: selection.entityId } : s) });
+            setRole("profile");
+        }
+        else if (chosenRole === "body" && selection.bodyId) {
+            edit({ bodyId: selection.bodyId });
+            setRole("profile");
+        }
+    };
+    const seedOnce = useRef(false);
+    useEffect(() => {
+        if (seedOnce.current || feature.id)
+            return;
+        seedOnce.current = true;
+        if (modifier)
+            seed.forEach(s => pick(s, pickRole));
+        else if (loft)
+            seed.forEach(s => pick(s, "profile"));
+        else {
+            const sketch = seed.map(s => selectedSketch(view, s, upstream)).find(Boolean);
+            if (sketch)
+                edit({ profile: sketch.id });
+            const axis = seed.find(s => selectedAxis(view, s, upstream));
+            if (axis)
+                pick(axis, "axis");
+            else if (sketch && feature.type === "REVOLVE")
+                setRole("axis");
+        }
+    }, []);
+    const pickRef = useRef(pick);
+    pickRef.current = pick;
+    const axisParts = draft.axisEntityId?.split(":");
+    const restoredAxis: SelectionItem | undefined = axisParts?.[0] === "SKETCH_LINE" ? {
+        kind: "visual", visualType: "CURVE", id: `${occurrencePath || "root"}:${axisParts[1]}:${axisParts[2]}`, featureId: axisParts[1], entityId: axisParts[2], bodyId: upstream.find(f => f.id === axisParts[1])?.bodyId, documentId: view.document.id, versionId: version.current, occurrencePath
+    } : undefined;
+    const highlights: SelectionItem[] = modifier ? picks.map(p => p.visual) : loft ? (draft.sections ?? []).map(s => sketchPick(view, s.sketchId, occurrencePath)) : draft.profile ? [sketchPick(view, draft.profile, occurrencePath)] : [];
+    if (axisVisual ?? restoredAxis)
+        highlights.push((axisVisual ?? restoredAxis)!);
+    const highlightsToken = JSON.stringify(highlights);
+    const sketchIds = role === "seam" ? [draft.sections![seamIndex!].sketchId] : upstream.filter(f => f.sketch).map(f => f.id);
+    const sketchIdsToken = JSON.stringify(sketchIds);
+    useEffect(() => {
+        callbacks.current.onSelectionSession({ role, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, sketchIds, selections: highlights.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) });
+    }, [role, highlightsToken, sketchIdsToken, draft.bodyId]);
+    let input: Record<string, unknown> | undefined, parameterError: string | undefined;
+    const ready = validRevision && !loadingInput && !binding && (loft ? (draft.sections?.length ?? 0) >= 2 : modifier ? picks.length > 0 && !!draft.bodyId && (feature.type !== "DRAFT" || !!draft.neutralPlaneId) : !!draft.profile && (feature.type !== "REVOLVE" || !!draft.axisEntityId));
+    try {
+        const value = { ...draft, selections: modifier ? picks.map(p => p.definition) : draft.selections }, expressions: Record<string, string> = {};
+        const read = (slot: "length" | "length2" | "angle", text: string) => { const parsed = solidParameterEdit(slot, text, original.current[slot], unit); if (parsed.value !== undefined)
+            value[slot] = parsed.value; if (parsed.expression !== undefined)
+            expressions[slot] = parsed.expression; };
         if (!loft) {
             if (angular)
                 read("angle", angle);
-            else {
+            else if (draft.extent !== "THROUGH_ALL") {
                 read("length", length);
                 if (draft.extent === "TWO_SIDED")
                     read("length2", second);
             }
         }
-        return { type: feature.id ? "EDIT_FEATURE" : loft ? "CREATE_SOLID_FEATURE" : "CREATE_MODIFY_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value, parameterExpressions: expressions, requestId: intent.current };
-    };
-    const run = async (commit: boolean) => {
-        if (busy)
-            return;
-        setError(undefined);
-        let input;
-        try {
-            input = command();
-        }
-        catch (cause) {
-            setError(String(cause));
-            return;
-        }
-        const sequence = ++generation.current;
-        setBusy(true);
-        try {
-            if (commit) {
-                await onApply({ ...input, previewId: preview.current });
-                onClose();
-            }
-            else {
-                abort.current?.abort();
-                const controller = new AbortController();
-                abort.current = controller;
-                const result = await api.previewCommand(view.document.id, input, controller.signal);
-                if (sequence === generation.current && result.baseVersionId === view.document.versionId) {
-                    preview.current = result.previewId;
-                    onPreview(result.artifact, draft.operation);
-                }
-            }
-        }
-        catch (cause) {
-            if (sequence === generation.current)
-                setError(String(cause));
-        }
-        finally {
-            if (sequence === generation.current)
-                setBusy(false);
-        }
-    };
-    const addSelection = async () => {
-        if (!selection || !(selection.kind === "edge" || selection.kind === "face") || selection.bodyId !== draft.bodyId || selection.documentId && selection.documentId !== view.document.id)
-            return;
-        const kind = feature.type === "FILLET" || feature.type === "CHAMFER" ? "EDGE" : "FACE";
-        if (selection.kind.toUpperCase() !== kind)
-            return;
-        const seq = ++generation.current;
-        try {
-            const bound = await api.getTopologyProperties(view.document.id, selection.geometryKey!, kind, selection.topologyId, selection.versionId ?? view.document.versionId);
-            if (seq !== generation.current)
-                return;
-            if (!bound.persistentSelection)
-                throw new Error("所选拓扑没有可用的持久引用");
-            const picks = [...(draft.selections ?? [])];
-            if (!picks.some(p => JSON.stringify(p.selection.anchor) === JSON.stringify(bound.persistentSelection!.anchor)))
-                picks.push({ selection: bound.persistentSelection, sourceVersionId: selection.versionId ?? view.document.versionId });
-            update({ selections: picks });
-        }
-        catch (cause) {
-            setError(String(cause));
-        }
-    };
-    const index = feature.id ? (view.part?.features.findIndex(f => f.id === feature.id) ?? 0) : (view.part?.features.length ?? 0);
-    const upstream = view.part?.features.slice(0, index) ?? [];
-    const definitionReady = loft ? (draft.sections?.length ?? 0) >= 2 : modifier ? (draft.selections?.length ?? 0) > 0 && !!draft.bodyId && (!angular || !!draft.neutralPlaneId) : !!draft.profile;
-    return <CommandDialog id="solid-feature-editor" open title={`${feature.id ? "编辑" : "创建"} ${feature.name ?? solidFeatureNames[feature.type] ?? feature.type}`} size="S" onClose={onClose} onConfirm={() => run(true)} confirmLoading={busy} confirmDisabled={busy || !definitionReady}>
-  <div className="instance-pattern-fields">
-   {!modifier && <>{!loft && <label>轮廓<Select value={draft.profile} disabled={busy} options={upstream.filter(f => f.sketch).map(f => ({ value: f.id, label: f.name ?? f.id }))} onChange={profile => update({ profile })}/></label>}
-   <label>运算<Select value={draft.operation} disabled={busy} options={[...(!feature.id ? [{ value: "NEW_BODY", label: "新建 Body" }] : []), { value: "ADD", label: "添加材料" }, { value: "REMOVE", label: "移除材料" }, { value: "INTERSECT", label: "交集" }]} onChange={operation => update({ operation })}/></label></>}
+        const common = { requestId: intent.current, parameterExpressions: expressions };
+        if (ready)
+            input = feature.id ? { ...common, type: "EDIT_FEATURE", targetId: feature.id, expectedFeatureDigest: digest, feature: value } : modifier ? { ...common, type: "CREATE_MODIFY_FEATURE", feature: value } : loft ? { ...common, type: "CREATE_SOLID_FEATURE", feature: value } : { ...common, type: "CREATE_SOLID_FEATURE", sketchId: value.profile, generator: value.type, bodyId: value.bodyId, operation: value.operation, length: value.length ?? 1, length2: value.length2, angle: value.angle ?? 360, extent: value.extent, axisEntityId: value.axisEntityId, reversed: value.reversed };
+    }
+    catch (cause) {
+        parameterError = String(cause);
+    }
+    const preview = useFeaturePreview(view.document.id, view.document.versionId, input, draft.operation, onPreview);
+    const apply = async () => { if (!input || !preview.previewId || preview.pending || committing)
+        return; setCommitting(true); try {
+        await onApply({ ...input, previewId: preview.previewId });
+        onClose();
+    }
+    catch (cause) {
+        setError(String(cause));
+        setCommitting(false);
+    } };
+    const name = (id?: string) => upstream.find(f => f.id === id)?.name ?? "已选择";
+    return <CommandDialog id="solid-feature-editor" open title={`${feature.id ? "编辑" : "创建"} ${solidFeatureNames[feature.type] ?? feature.type}`} size="S" onClose={onClose} onConfirm={apply} confirmLoading={committing} confirmDisabled={!input || !preview.previewId || preview.pending || committing}>
+  <fieldset disabled={committing} className="instance-pattern-fields feature-input-fields">
+   {!modifier && !loft && <FeaturePickField label="轮廓" value={draft.profile ? name(draft.profile) : "请在视图区选择草图"} active={role === "profile"} onActivate={() => setRole("profile")} onClear={draft.profile ? () => edit({ profile: undefined }) : undefined}/>}
+   {feature.type === "REVOLVE" && <FeaturePickField label="旋转轴" value={draft.axisEntityId ? "已选择 1 条轴线" : "请在视图区选择直线或轴"} active={role === "axis"} onActivate={() => setRole("axis")} onClear={draft.axisEntityId ? () => { edit({ axisEntityId: undefined }); setAxisVisual(undefined); } : undefined}/>}
+   {modifier && <FeaturePickField label={pickRole === "edge" ? "边集" : "面集"} value={loadingInput ? "正在恢复选择…" : `已选择 ${picks.length} ${pickRole === "edge" ? "条边" : "个面"}`} active={role === pickRole} onActivate={() => setRole(pickRole)} onClear={picks.length ? () => setPicks([]) : undefined}/>}
+   {feature.type === "DRAFT" && <FeaturePickField label="中性平面" value={view.part?.datumPlanes.find(p => p.id === draft.neutralPlaneId)?.name ?? "请在视图区选择平面"} active={role === "plane"} onActivate={() => setRole("plane")}/>}
    {loft && <>
-    <label>截面（按添加顺序）<Select disabled={busy} mode="multiple" value={draft.sections?.map(s => s.sketchId)} options={upstream.filter(f => f.sketch).map(f => ({ value: f.id, label: f.name ?? f.id }))} onChange={ids => update({ sections: ids.map(sketchId => draft.sections?.find(s => s.sketchId === sketchId) ?? { sketchId }) })}/></label>
-    {(draft.sections ?? []).map((section, i) => <div key={section.sketchId}>
-     <span>截面 {i + 1}</span><Button size="small" disabled={busy || !i} onClick={() => { const sections = [...draft.sections!]; [sections[i - 1], sections[i]] = [sections[i], sections[i - 1]]; update({ sections }); }}>上移</Button>
-     <label>反向<Switch disabled={busy} checked={section.reversed} onChange={reversed => update({ sections: draft.sections?.map((s, j) => i === j ? { ...s, reversed } : s) })}/></label>
-     {upstream.find(f => f.id === section.sketchId)?.sketch?.entities.some(e => e.kind === "CIRCLE") && <label>圆的闭合点角度（deg）<Input disabled={busy} type="number" value={section.seamAngle ?? 0} onChange={e => update({ sections: draft.sections?.map((s, j) => i === j ? { ...s, seamAngle: Number(e.target.value) } : s) })}/></label>}
-     <label>闭合起始边<Select disabled={busy} allowClear value={section.seamEntityId} options={upstream.find(f => f.id === section.sketchId)?.sketch?.entities.filter(e => e.role !== "CONSTRUCTION" && e.kind !== "POINT").map(e => ({ value: e.id, label: e.id }))} onChange={seamEntityId => update({ sections: draft.sections?.map((s, j) => i === j ? { ...s, seamEntityId } : s) })}/></label>
+    <FeaturePickField label="截面" value={`已选择 ${draft.sections?.length ?? 0} 个草图`} active={role === "profile"} onActivate={() => setRole("profile")} onClear={draft.sections?.length ? () => edit({ sections: [] }) : undefined}/>
+    {(draft.sections ?? []).map((section, i) => <div className="feature-section-row" key={section.sketchId}>
+     <span>{i + 1}. {name(section.sketchId)}</span>
+     <Button size="small" aria-label={`上移截面 ${i + 1}`} disabled={!i} onClick={() => { const sections = [...draft.sections!]; [sections[i - 1], sections[i]] = [sections[i], sections[i - 1]]; edit({ sections }); }}>↑</Button>
+     <Button size="small" aria-label={`移除截面 ${i + 1}`} onClick={() => edit({ sections: draft.sections?.filter((_, j) => j !== i) })}>移除</Button>
+     <label>反向<Switch checked={section.reversed} onChange={reversed => edit({ sections: draft.sections?.map((s, j) => i === j ? { ...s, reversed } : s) })}/></label>
+     <Button size="small" aria-pressed={role === "seam" && seamIndex === i} onClick={() => { setSeamIndex(i); setRole("seam"); }}>选择闭合起始边</Button>
+     {upstream.find(f => f.id === section.sketchId)?.sketch?.entities.some(e => e.kind === "CIRCLE") && <label>闭合点角度（deg）<Input type="number" value={section.seamAngle ?? 0} onChange={e => edit({ sections: draft.sections?.map((s, j) => i === j ? { ...s, seamAngle: Number(e.target.value) } : s) })}/></label>}
     </div>)}
-    <label>直纹<Switch disabled={busy} checked={draft.ruled} onChange={ruled => update({ ruled })}/></label>
+    <label>截面连接<Segmented value={draft.ruled ? "ruled" : "smooth"} options={[{ value: "smooth", label: "平滑" }, { value: "ruled", label: "直纹" }]} onChange={v => edit({ ruled: v === "ruled" })}/></label>
    </>}
-   {modifier && <>
-    <Button disabled={busy} onClick={() => void addSelection()}>添加当前选择的{feature.type === "FILLET" || feature.type === "CHAMFER" ? "边" : "面"}</Button>
-    {(draft.selections ?? []).map((pick, i) => <div key={JSON.stringify(pick.selection.anchor)}>选择 {i + 1}<Button size="small" disabled={busy} onClick={() => update({ selections: draft.selections?.filter((_, j) => j !== i) })}>移除</Button></div>)}
-    {feature.type === "DRAFT" && <label>中性平面<Select disabled={busy} value={draft.neutralPlaneId} options={view.part?.datumPlanes.map(p => ({ value: p.id, label: p.name }))} onChange={neutralPlaneId => update({ neutralPlaneId })}/></label>}
+   {!modifier && <>
+    <label>材料<Segmented value={draft.operation} options={[...(!feature.id ? [{ value: "NEW_BODY", label: "新实体" }] : []), { value: "ADD", label: "添加" }, { value: "REMOVE", label: "切除" }, { value: "INTERSECT", label: "交集" }]} onChange={operation => edit({ operation: operation as Feature["operation"], extent: operation !== "REMOVE" && draft.extent === "THROUGH_ALL" ? "FINITE" : draft.extent })}/></label>
+    {draft.operation !== "NEW_BODY" && <FeaturePickField label="目标实体" value={view.part?.bodies.find(b => b.id === draft.bodyId)?.name ?? "请在视图区选择实体"} disabled={!!feature.id} active={role === "body"} onActivate={() => setRole("body")}/>}
    </>}
-   {!loft && (angular ? <>
-
-    <label>角度（deg）<Input value={angle} disabled={busy} onChange={e => { changed(); setAngle(e.target.value); }}/></label>
-    {feature.type === "REVOLVE" && <label>轴<Select value={draft.axisEntityId} disabled={busy} options={[...upstream.flatMap(f => (f.sketch?.entities ?? []).filter(e => e.kind === "LINE").map(e => ({ value: `SKETCH_LINE:${f.id}:${e.id}`, label: `${f.name} / ${e.id}` }))), ...(view.part?.datumAxes ?? []).map(a => ({ value: `DATUM_AXIS:${a.id}`, label: a.name })), ...(view.part?.axisSystems ?? []).flatMap(a => ["X", "Y", "Z"].map(axis => ({ value: `AXIS_SYSTEM:${a.id}:${axis}`, label: `${a.name} ${axis}` })))]} onChange={axisEntityId => update({ axisEntityId })}/></label>}
-   </> : <>
-    {!modifier && <label>范围<Select value={draft.extent ?? "FINITE"} disabled={busy} options={[{ value: "FINITE", label: "有限长度" }, { value: "TWO_SIDED", label: "双侧" }, { value: "SYMMETRIC", label: "对称（总长）" }, ...(draft.operation === "REMOVE" ? [{ value: "THROUGH_ALL", label: "贯穿切除" }] : [])]} onChange={extent => update({ extent })}/></label>}
-    {draft.extent !== "THROUGH_ALL" && <label>{feature.type === "FILLET" ? "半径" : feature.type === "SHELL" ? "厚度" : feature.type === "CHAMFER" ? "等距距离" : "长度"}（{unit}）<Input value={length} disabled={busy} onChange={e => { changed(); setLength(e.target.value); }}/></label>}
-    {draft.extent === "TWO_SIDED" && <label>反向{feature.type === "FILLET" ? "半径" : feature.type === "SHELL" ? "厚度" : feature.type === "CHAMFER" ? "等距距离" : "长度"}（{unit}）<Input value={second} disabled={busy} onChange={e => { changed(); setSecond(e.target.value); }}/></label>}
+   {!loft && (angular ? <label>角度（deg）<Input value={angle} disabled={committing} onChange={e => setAngle(e.target.value)}/></label> : <>
+    {!modifier && <label>范围<Segmented value={draft.extent ?? "FINITE"} options={[{ value: "FINITE", label: "长度" }, { value: "TWO_SIDED", label: "双侧" }, { value: "SYMMETRIC", label: "对称" }, ...(draft.operation === "REMOVE" ? [{ value: "THROUGH_ALL", label: "贯穿" }] : [])]} onChange={extent => edit({ extent: extent as Feature["extent"] })}/></label>}
+    {draft.extent !== "THROUGH_ALL" && <label>{feature.type === "FILLET" ? "半径" : feature.type === "CHAMFER" ? "距离" : feature.type === "SHELL" ? "厚度" : "长度"}（{unit}）<Input value={length} disabled={committing} onChange={e => setLength(e.target.value)}/></label>}
+    {draft.extent === "TWO_SIDED" && <label>反向长度（{unit}）<Input value={second} disabled={committing} onChange={e => setSecond(e.target.value)}/></label>}
    </>)}
-   <label>反向<Switch checked={draft.reversed} disabled={busy} onChange={reversed => update({ reversed })}/></label>
-   <label>抑制<Switch checked={draft.suppressed} disabled={busy} onChange={suppressed => update({ suppressed })}/></label>
-   <Button disabled={busy || !definitionReady} onClick={() => void run(false)}>预览</Button>
-   {error && <Alert type="error" title="特征求值失败" description={error}/>}
-  </div>
+   {!loft && <label>反向<Switch checked={draft.reversed} disabled={committing} onChange={reversed => edit({ reversed })}/></label>}
+   {feature.id && <label>抑制<Switch checked={draft.suppressed} disabled={committing} onChange={suppressed => edit({ suppressed })}/></label>}
+   <small role="status">{!validRevision ? "模型已改变，请关闭并重新打开此命令" : binding || loadingInput ? "正在恢复精确选择…" : preview.pending ? "正在预览…" : "在视图区点击添加选择，再次点击取消；参数修改后自动预览。"}</small>
+   {(error ?? parameterError ?? preview.error) && <Alert type="error" title="特征求值失败" description={error ?? parameterError ?? preview.error}/>}
+   {preview.error && <Button onClick={preview.retry}>重新预览</Button>}
+  </fieldset>
  </CommandDialog>;
 }
