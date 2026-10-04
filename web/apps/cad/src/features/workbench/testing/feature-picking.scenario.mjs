@@ -35,6 +35,9 @@ try {
  assert.equal(featureSelectionHit(edge,{...session,role:"edge",bodyId:"body"}),edge);
  assert.equal(featureSelectionHit({...edge,bodyId:"other"},{...session,role:"edge",bodyId:"body"}),null);
  assert.equal(featureSelectionHit({...edge,kind:"face"},{...session,role:"edge"}),null);
+ const face={...edge,kind:"face"};
+ assert.equal(featureSelectionHit(face,{...session,role:"plane"}),face,"draft and datum planes accept exact face picks");
+ assert.equal(featureSelectionHit({...face,documentId:"foreign"},{...session,role:"plane"}),null);
  const stages=[{id:"base",type:"LINEAR_EXTRUDE",bodyId:"body"},{id:"fillet",type:"FILLET",bodyId:"body"},{id:"suppressed",type:"CHAMFER",bodyId:"body",suppressed:true}];
  assert.deepEqual(bodyStage(edge,stages),{bodyId:"body",featureId:"fillet"});
  assert.deepEqual(bodyStage({kind:"pad",id:"base",entityId:"base",bodyId:"body"},stages),{bodyId:"body",featureId:"base"});

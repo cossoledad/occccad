@@ -53,7 +53,7 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
  SELECT p.referenced_version_id FROM occccad.product_instances p JOIN reachable r ON p.product_version_id=r.id
  ) SELECT EXISTS(SELECT 1 FROM reachable r JOIN occccad.document_versions v ON v.id=r.id
  CROSS JOIN LATERAL jsonb_array_elements(v.model_json->'bodies') body
- JOIN occccad.geometry_representations a ON a.geometry_key=body->>'geometryKey' WHERE a.object_id=$3
+ JOIN occccad.geometry_representations a ON (a.geometry_key=body->>'geometryKey' OR (a.role='VISUAL' AND a.geometry_key=body->'displayFallback'->>'geometryKey' AND COALESCE(body->>'geometryKey','')='')) WHERE a.object_id=$3
  AND ($4='' OR body->>'id'=$4))`, r.PathValue("documentID"), version, id, r.URL.Query().Get("bodyId")).Scan(&allowed)
 	}
 	if err != nil {

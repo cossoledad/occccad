@@ -12,17 +12,28 @@ import (
 
 // GeometryKey is a derived result frozen with the Revision, not a mutable
 // business property. Body commands/history compare only the definition.
-type PartBody struct {
-	Consumed           bool   `json:"consumed,omitempty"`
-	CreatedByFeatureID string `json:"createdByFeatureId,omitempty"`
-	Order              int    `json:"order"`
-	ID                 string `json:"id"`
-	Name               string `json:"name"`
-	Visible            bool   `json:"visible"`
-	GeometryKey        string `json:"geometryKey,omitempty"`
+type BodyDisplayFallback struct {
+	GeometryKey     string `json:"geometryKey"`
+	SourceVersionID string `json:"sourceVersionId"`
 }
 
-func bodyDefinition(b PartBody) PartBody { b.GeometryKey = ""; b.Consumed = false; return b }
+type PartBody struct {
+	DisplayFallback    *BodyDisplayFallback `json:"displayFallback,omitempty"`
+	Consumed           bool                 `json:"consumed,omitempty"`
+	CreatedByFeatureID string               `json:"createdByFeatureId,omitempty"`
+	Order              int                  `json:"order"`
+	ID                 string               `json:"id"`
+	Name               string               `json:"name"`
+	Visible            bool                 `json:"visible"`
+	GeometryKey        string               `json:"geometryKey,omitempty"`
+}
+
+func bodyDefinition(b PartBody) PartBody {
+	b.GeometryKey = ""
+	b.Consumed = false
+	b.DisplayFallback = nil
+	return b
+}
 func bodyIndex(m PartModel, id string) int {
 	return slices.IndexFunc(m.Bodies, func(b PartBody) bool { return b.ID == id })
 }
@@ -110,6 +121,7 @@ func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *P
 	for i := range m.Bodies {
 		key, err := s.evaluateBody(ctx, requestID+"/body/"+m.Bodies[i].ID, bodyModel(*m, m.Bodies[i].ID), *m)
 		m.Bodies[i].GeometryKey = ""
+		m.Bodies[i].DisplayFallback = nil
 		if err != nil {
 			matches := featureFailurePattern.FindAllStringSubmatch(err.Error(), -1)
 			var match []string
@@ -141,15 +153,22 @@ func (s *Service) evaluateBodyPrefix(ctx context.Context, requestID string, m Pa
 func (s *Service) bodyArtifacts(ctx context.Context, m PartModel) (map[string]Artifact, error) {
 	result := map[string]Artifact{}
 	for _, b := range m.Bodies {
-		if b.GeometryKey == "" {
+		key := b.GeometryKey
+		if key == "" && b.DisplayFallback != nil {
+			key = b.DisplayFallback.GeometryKey
+		}
+		if key == "" {
 			continue
 		}
-		a, err := s.loadArtifact(ctx, b.GeometryKey)
+		a, err := s.loadArtifact(ctx, key)
 		if err != nil {
 			return nil, err
 		}
 		a.BodyID = b.ID
-		result[b.GeometryKey] = a
+		if b.GeometryKey == "" {
+			a = fallbackVisualArtifact(a)
+		}
+		result[key] = a
 	}
 	return result, nil
 }
@@ -341,4 +360,48 @@ func removeFeatureBody(m *PartModel, featureID string) ([]modelcore.ModelChange,
 		return changes, nil
 	}
 	return nil, nil
+}
+
+// A stale visual is provenance-bearing display context, never a Body result.
+// It survives re-open and repeated failures; successful evaluation clears it.
+func retainFailedBodyDisplay(model *PartModel, before PartModel, sourceVersion string) {
+	for i := range model.Bodies {
+		body := &model.Bodies[i]
+		if body.GeometryKey != "" {
+			body.DisplayFallback = nil
+			continue
+		}
+		failed := false
+		for _, f := range model.Features {
+			if f.BodyID == body.ID && (f.EvaluationStatus == "FAILED" || f.EvaluationStatus == "BLOCKED") {
+				failed = true
+				break
+			}
+		}
+		if !failed {
+			body.DisplayFallback = nil
+			continue
+		}
+		index := bodyIndex(before, body.ID)
+		if index < 0 {
+			body.DisplayFallback = nil
+			continue
+		}
+		previous := before.Bodies[index]
+		if previous.GeometryKey != "" {
+			body.DisplayFallback = &BodyDisplayFallback{GeometryKey: previous.GeometryKey, SourceVersionID: sourceVersion}
+		} else if previous.DisplayFallback != nil {
+			copy := *previous.DisplayFallback
+			body.DisplayFallback = &copy
+		}
+	}
+}
+func fallbackVisualArtifact(a Artifact) Artifact {
+	a.VisualNamingDigest = a.Representations["NAMING"].Digest
+	visual, exists := a.Representations["VISUAL"]
+	a.Representations = map[string]Representation{}
+	if exists {
+		a.Representations["VISUAL"] = visual
+	}
+	return a
 }

@@ -34,6 +34,7 @@ type TopologyElementProperties struct {
 }
 
 type Artifact struct {
+	VisualNamingDigest string                    `json:"visualNamingDigest,omitempty"`
 	BodyID             string                    `json:"bodyId,omitempty"`
 	Naming             NamingAvailability        `json:"naming"`
 	GeometryKey        string                    `json:"geometryKey"`
@@ -408,6 +409,7 @@ type Feature struct {
 	Sections           []LoftSection      `json:"sections,omitempty"`
 	Ruled              bool               `json:"ruled,omitempty"`
 	Selections         []FeatureSelection `json:"selections,omitempty"`
+	NeutralPlane       *FeatureSelection  `json:"neutralPlane,omitempty"`
 	NeutralPlaneID     string             `json:"neutralPlaneId,omitempty"`
 	Extent             string             `json:"extent,omitempty"`
 	Length2            float64            `json:"length2,omitempty"`
@@ -879,18 +881,19 @@ type CopyDocumentRequest struct {
 }
 
 type ResolvedInstance struct {
-	BodyID         string       `json:"bodyId"`
-	BodyVisible    bool         `json:"bodyVisible"`
-	OwnedSketchIDs []string     `json:"ownedSketchIds,omitempty"`
-	ID             string       `json:"id"`
-	Name           string       `json:"name"`
-	DocumentID     string       `json:"documentId"`
-	GeometryKey    string       `json:"geometryKey"`
-	Translation    [3]float64   `json:"translation"`
-	Rotation       [4]float64   `json:"rotation"`
-	OccurrencePath string       `json:"occurrencePath"`
-	InstancePath   InstancePath `json:"instancePath"`
-	BodyTreeNodeID string       `json:"bodyTreeNodeId"`
+	DisplayFallback *BodyDisplayFallback `json:"displayFallback,omitempty"`
+	BodyID          string               `json:"bodyId"`
+	BodyVisible     bool                 `json:"bodyVisible"`
+	OwnedSketchIDs  []string             `json:"ownedSketchIds,omitempty"`
+	ID              string               `json:"id"`
+	Name            string               `json:"name"`
+	DocumentID      string               `json:"documentId"`
+	GeometryKey     string               `json:"geometryKey"`
+	Translation     [3]float64           `json:"translation"`
+	Rotation        [4]float64           `json:"rotation"`
+	OccurrencePath  string               `json:"occurrencePath"`
+	InstancePath    InstancePath         `json:"instancePath"`
+	BodyTreeNodeID  string               `json:"bodyTreeNodeId"`
 }
 
 // DocumentStructureNode is the UI-independent specification tree contract.

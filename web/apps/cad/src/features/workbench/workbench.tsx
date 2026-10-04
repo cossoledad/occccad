@@ -1,3 +1,5 @@
+import { DatumEditor } from "./datum-editor";
+import type { DatumPreview } from "../../cad/rendering/datum-reference";
 import { featureSelectionHit, type FeatureSelectionSession } from "../../cad/interaction/feature-selection";
 import {formatDisplayNumber} from "../../utils/display-number";
 import {CadNumberInput as InputNumber} from "../../cad/overlay/cad-number-input";
@@ -246,7 +248,7 @@ export function Workbench() {
   const [solidEditor,setSolidEditor]=useState<{feature:Feature;digest?:string}>();
   const [featureSelection,setFeatureSelection]=useState<FeatureSelectionSession>();
   const [featureInputs,setFeatureInputs]=useState<Artifact[]>();
-  const featureInputChanged=useCallback((artifact?:Artifact)=>setFeatureInputs(artifact?[artifact]:undefined),[]);
+  const featureInputChanged=useCallback((artifact?:Artifact|Artifact[])=>setFeatureInputs(artifact ? Array.isArray(artifact) ? artifact : [artifact] : undefined),[]);
   const [booleanDialog, setBooleanDialog] = useState<{feature?:Feature;digest?:string}>();
   const [patternOpen, setPatternOpen] = useState(false);
   const previewInsertPattern = useCallback((input?: InstancePatternPreview) => viewport.current?.previewInsertPattern(input), []);
@@ -254,8 +256,8 @@ export function Workbench() {
   const [newPartTarget, setNewPartTarget] = useState<SpecificationTreeNode>();
   const [versionOpen, setVersionOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
-  const [datumPlaneOpen, setDatumPlaneOpen] = useState(false);
-  const [datumAxisOpen, setDatumAxisOpen] = useState(false);
+  const [datumEditor, setDatumEditor] = useState<"plane" | "axis">();
+  const [datumPreview, setDatumPreview] = useState<DatumPreview>();
   const [parameterManagerOpen, setParameterManagerOpen] = useState(false);
   const [publicationManagerOpen, setPublicationManagerOpen] = useState(false);
   const [externalParameterID, setExternalParameterID] = useState<string>();
@@ -294,8 +296,6 @@ export function Workbench() {
   const [renameForm] = Form.useForm<{ name: string }>();
   const [newPartForm] = Form.useForm<{ name?: string; description?: string }>();
   const [versionForm] = Form.useForm<{ name: string; description: string }>();
-  const [datumPlaneForm] = Form.useForm<{ name: string; offset: number }>();
-  const [datumAxisForm] = Form.useForm<{ name: string; ox: number; oy: number; oz: number; dx: number; dy: number; dz: number }>();
   const [parameterForm] = Form.useForm<{ key: string; source: string }>();
   const [createUserParameterForm] = Form.useForm<{name?:string;value:number;unit:string}>();
   const [publicationForm] = Form.useForm<{ name: string; semanticPurpose: string }>();
@@ -411,6 +411,7 @@ export function Workbench() {
   useEffect(() => {
     setSolidEditor(undefined);
     setBooleanDialog(undefined);
+    setDatumEditor(undefined); setDatumPreview(undefined);
     setFeatureInputs(undefined);setFeatureSelection(undefined);
   }, [editingView?.document.id,editingView?.document.versionId,activeInstancePath]);
   const engineeringEvidence=useQuery({queryKey:["assembly-engineering-evidence",editingView?.document.id,editingView?.document.versionId],
@@ -600,7 +601,7 @@ export function Workbench() {
       const ownerEditable = Boolean(editingView && actionOwner === editingView.document.id &&
         ["OWNER", "EDITOR"].includes(editingView.document.permission ?? ""));
       return { ...node, hidden: !ownVisible, localVisible: semantic?.localVisible ?? node.localVisible,
-        capabilities: ownerEditable ? node.capabilities : node.capabilities?.filter((capability) => capability !== "EDIT" && capability !== "DELETE"),
+        capabilities: ownerEditable ? node.capabilities : node.capabilities?.filter((capability) => capability !== "EDIT" && capability !== "DELETE" && capability !== "SUPPRESS"),
         visibilityMode: semantic?.mode ?? node.visibilityMode,
         hiddenByAncestor: Boolean(semantic?.blockedBy && (semantic.blockedBy.kind !== kind || semantic.blockedBy.entityId !== node.entityId)),
         visibilityBlocker: semantic?.blockedBy ? `${semantic.blockedBy.kind} · ${semantic.blockedBy.entityId}` : undefined,
@@ -933,13 +934,13 @@ export function Workbench() {
     if (!editingView || !node.entityId || !node.definitionDigest || !node.capabilities?.includes("EDIT")) return;
     const feature = editingView.part?.features.find(candidate => candidate.id === node.entityId);
     if (feature && ["PAD", "LINEAR_EXTRUDE", "REVOLVE", "FILLET", "CHAMFER", "DRAFT", "SHELL", "LOFT"].includes(feature.type.toUpperCase())) {
-      setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature, digest: node.definitionDigest});
+      setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature, digest: node.definitionDigest});
     } else if (feature?.type === "BOOLEAN") {
-      setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({feature, digest: node.definitionDigest});
+      setDatumEditor(undefined);setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({feature, digest: node.definitionDigest});
     }
   };
   const openSolidFeature = (generator: "LINEAR_EXTRUDE" | "REVOLVE", operation: "NEW_BODY" | "ADD" | "REMOVE" = "ADD") => {
-    setBooleanDialog(undefined); store.setActiveTool("select","once");
+    setDatumEditor(undefined);setBooleanDialog(undefined); store.setActiveTool("select","once");
     const sketch = store.selections.find(s=>s.kind==="sketch");
     setSolidEditor({feature:{id:"",type:generator,bodyId:sketch?.bodyId??workingBodyID,operation,length:40,length2:10,angle:360,extent:"FINITE",reversed:defaultSolidReversed(generator,operation)}});
   };
@@ -982,7 +983,7 @@ export function Workbench() {
       return;
     }
     command.mutate(() => api.deleteNodes(editingView.document.id, targets.map((node) => ({
-      targetKind: ["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE"].includes(node.kind!) ? node.kind! : "FEATURE",
+      targetKind: ["SKETCH_ENTITY", "SKETCH_CONSTRAINT", "ASSEMBLY_CONSTRAINT", "INSTANCE", "DATUM_AXIS"].includes(node.kind!) ? node.kind! : node.kind === "PLANE" ? "DATUM_PLANE" : "FEATURE",
       targetId: node.entityId!, ownerEntityId: node.ownerEntityId,
     }))));
   };
@@ -1015,9 +1016,9 @@ export function Workbench() {
         isVisible: () => Boolean(store.sketchPlane), isEnabled: () => Boolean(canEdit && !command.isPending) }),
       ...sketchToolCommands.map((toolID)=>commandRegistry.register({id:toolID,execute:(invocation)=>store.setActiveTool(toolID,defaultSketchToolMode(toolID,invocation?.continuous)),
         isVisible:()=>Boolean(store.sketchPlane),isEnabled:()=>Boolean(canEdit&&store.sketchPlane&&(toolID!=="sketch.project"||!selectedNamingIssue)),isActive:()=>store.activeToolID===toolID})),
-      commandRegistry.register({id:"part.loft",execute:()=>{setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"LOFT",bodyId:workingBodyID,operation:"NEW_BODY",sections:[]}});},isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>!command.isPending&&!store.activeSketchID}),
-      ...(["FILLET","CHAMFER","DRAFT","SHELL"] as const).map(type=>commandRegistry.register({id:`part.${type.toLowerCase()}`, execute:()=>{setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type,bodyId:store.selection?.bodyId??workingBodyID,length:1,angle:5,neutralPlaneId:"datum-xy",selections:[]}});},isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>!command.isPending&&!store.activeSketchID})),
-      commandRegistry.register({ id: "part.boolean", execute: () => {setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({});}, isVisible: () => editingView?.document.type === "PART", isEnabled: () => !command.isPending && !store.activeSketchID }),
+      commandRegistry.register({id:"part.loft",execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"LOFT",bodyId:workingBodyID,operation:"NEW_BODY",sections:[]}});},isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>!command.isPending&&!store.activeSketchID}),
+      ...(["FILLET","CHAMFER","DRAFT","SHELL"] as const).map(type=>commandRegistry.register({id:`part.${type.toLowerCase()}`, execute:()=>{setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type,bodyId:store.selection?.bodyId??workingBodyID,length:1,angle:5,neutralPlaneId:"datum-xy",selections:[]}});},isVisible:()=>editingView?.document.type==="PART",isEnabled:()=>!command.isPending&&!store.activeSketchID})),
+      commandRegistry.register({ id: "part.boolean", execute: () => {setDatumEditor(undefined);setSolidEditor(undefined);store.setActiveTool("select","once");setBooleanDialog({});}, isVisible: () => editingView?.document.type === "PART", isEnabled: () => !command.isPending && !store.activeSketchID }),
       commandRegistry.register({ id: "part.pad", execute: () => openSolidFeature("LINEAR_EXTRUDE"), isVisible: () => editingView?.document.type === "PART",
         isEnabled: () => Boolean(canEdit && !store.activeSketchID) }),
       commandRegistry.register({ id: "part.pocket", execute: () => openSolidFeature("LINEAR_EXTRUDE", "REMOVE"), isVisible: () => editingView?.document.type === "PART",
@@ -1030,10 +1031,10 @@ export function Workbench() {
 		isVisible: () => Boolean(editingView), isEnabled: () => Boolean(editingView?.part || editingView?.product) }),
       commandRegistry.register({ id: "product.publications", execute: () => setPublicationManagerOpen(true),
 		isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(editingView?.product) }),
-      commandRegistry.register({ id: "part.datum-plane", execute: () => { datumPlaneForm.setFieldsValue({ name: "Plane", offset: 10 }); setDatumPlaneOpen(true); },
-        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && store.selection?.kind === "plane") }),
-      commandRegistry.register({ id: "part.datum-axis", execute: () => { datumAxisForm.setFieldsValue({ name: "Axis", ox: 0, oy: 0, oz: 0, dx: 0, dy: 0, dz: 1 }); setDatumAxisOpen(true); },
-        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit) }),
+      commandRegistry.register({ id: "part.datum-plane", execute: () => { setSolidEditor(undefined); setBooleanDialog(undefined); setDatumEditor("plane"); },
+        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && !store.activeSketchID && !command.isPending) }),
+      commandRegistry.register({ id: "part.datum-axis", execute: () => { setSolidEditor(undefined); setBooleanDialog(undefined); setDatumEditor("axis"); },
+        isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && !store.activeSketchID && !command.isPending) }),
       commandRegistry.register({ id: "product.insert", execute: () => setInsertOpen(true), isVisible: () => editingView?.document.type === "PRODUCT",
         isEnabled: () => Boolean(canEdit) }),
       commandRegistry.register({ id: "product.pattern", execute: () => setPatternOpen(true),
@@ -1215,7 +1216,7 @@ export function Workbench() {
   const endInteractionForActivation = () => {
     viewport.current?.cancelAssemblyInteraction();stopConflictAnalysis();
     assemblyDialogLifecycle.current.invalidate();
-    setSolidEditor(undefined); setBooleanDialog(undefined);
+    setDatumEditor(undefined);setSolidEditor(undefined); setBooleanDialog(undefined);
     assemblyPreviewActor.current?.send({ type: "CANCEL", sequence: assemblyPreviewSequence.current });
     assemblyPreviewAbort.current?.abort(); assemblyPreviewSequence.current += 1; assemblyPreviewID.current = undefined;
     viewport.current?.clearCommandPreview();
@@ -1425,6 +1426,10 @@ export function Workbench() {
               setTreeVisibility(node.selection ? selectionKey(node.selection) : node.key, Boolean(node.hidden));
             }}
             onToggleSuppression={(node)=>{
+              if (node.documentId === editingView?.document.id && node.entityId && ["PAD","REVOLVE","FEATURE"].includes(node.kind ?? "") && node.definitionDigest) {
+                command.mutate(()=>api.command(node.documentId!,{type:"SET_FEATURE_SUPPRESSION",targetId:node.entityId,expectedFeatureDigest:node.definitionDigest,suppressed:!node.suppressed}));
+                return;
+              }
               if(node.kind==="ASSEMBLY_CONSTRAINT"||node.kind==="ASSEMBLY_CONSTRAINT_SET") {
                 const constraints=node.kind==="ASSEMBLY_CONSTRAINT"?[node]:node.children??[];
                 if(!node.documentId)return;
@@ -1482,7 +1487,7 @@ export function Workbench() {
           treeVisibilityOverrides={treeVisibilityOverrides}
           sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={navigationProfile} catiaRotationSphereVisible={catiaRotationSphereVisible}
           referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}
-          featureSelection={featureSelection} featureInputArtifacts={featureInputs} preferredLengthUnit={lengthUnit} captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch} onDimensionOperations={editSketch} onSketchPreview={(featureId,operations,signal)=>{if(!editingView||store.activeSketchID!==featureId)return Promise.reject(new Error("草图预览上下文已结束"));return api.previewCommand(editingView.document.id,{type:"EDIT_SKETCH",sketchId:featureId,operations},signal);}} onSketchReceiptCheck={async receipt=>{const updated=await command.mutateAsync(()=>api.command(receipt.ownerDocumentId,{type:"EDIT_SKETCH",sketchId:receipt.featureId,operations:receipt.operations,requestId:receipt.intent.requestId}));await refresh(updated);return updated;}}
+          datumPreview={datumPreview} featureSelection={featureSelection} featureInputArtifacts={featureInputs} preferredLengthUnit={lengthUnit} captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch} onDimensionOperations={editSketch} onSketchPreview={(featureId,operations,signal)=>{if(!editingView||store.activeSketchID!==featureId)return Promise.reject(new Error("草图预览上下文已结束"));return api.previewCommand(editingView.document.id,{type:"EDIT_SKETCH",sketchId:featureId,operations},signal);}} onSketchReceiptCheck={async receipt=>{const updated=await command.mutateAsync(()=>api.command(receipt.ownerDocumentId,{type:"EDIT_SKETCH",sketchId:receipt.featureId,operations:receipt.operations,requestId:receipt.intent.requestId}));await refresh(updated);return updated;}}
           onSketchReceiptChange={setSketchReceipt} onSketchCommandStateChange={setSketchCommandState} onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
 		  onAssemblyConstraint={(toolKind, references) => {
             const issue = references.flatMap((reference) => {
@@ -1813,25 +1818,10 @@ export function Workbench() {
         <small className="cad-command-hint">新 Part 与 occurrence 会原子创建；默认位于所选 Product 原点，实例名按“零件名.序号”分配。</small>
       </Form>
     </CommandDialog>
-    <CommandDialog id="datum-plane" open={datumPlaneOpen} title="创建基准面" onClose={() => setDatumPlaneOpen(false)}
-      confirmLoading={command.isPending} onConfirm={async () => {
-        const values = await datumPlaneForm.validateFields(); const selectedPlane = store.selection?.kind === "plane" ? store.selection.datumPlane : undefined;
-        if (!selectedPlane) return; const offset = displayLengthToMillimeters(values.offset, lengthUnit);
-        const origin = selectedPlane.origin.map((value, index) => value + selectedPlane.normal[index] * offset) as Vec3;
-        command.mutate(() => api.createDatumPlane(activeID, { name: values.name, origin, normal: selectedPlane.normal, uDirection: selectedPlane.uDirection }),
-          { onSuccess: () => setDatumPlaneOpen(false) });
-      }}><Form form={datumPlaneForm} layout="vertical"><Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
-        <Form.Item name="offset" label={`偏置（${lengthUnit}）`} rules={[{ required: true }, { type: "number" }]}><InputNumber style={{ width: "100%" }} /></Form.Item></Form>
-    </CommandDialog>
-    <CommandDialog size="S" id="datum-axis" open={datumAxisOpen} title="创建基准轴" onClose={() => setDatumAxisOpen(false)}
-      confirmLoading={command.isPending} onConfirm={async () => { const v = await datumAxisForm.validateFields();
-        command.mutate(() => api.createDatumAxis(activeID, { name: v.name,
-          origin: [displayLengthToMillimeters(v.ox,lengthUnit),displayLengthToMillimeters(v.oy,lengthUnit),displayLengthToMillimeters(v.oz,lengthUnit)],
-          direction: [v.dx,v.dy,v.dz] }),
-          { onSuccess: () => setDatumAxisOpen(false) }); }}><Form form={datumAxisForm} layout="vertical"><Form.Item name="name" label="名称" rules={[{ required: true }]}><Input /></Form.Item>
-        <Space><Form.Item name="ox" label={`原点 X（${lengthUnit}）`}><InputNumber /></Form.Item><Form.Item name="oy" label="Y"><InputNumber /></Form.Item><Form.Item name="oz" label="Z"><InputNumber /></Form.Item></Space>
-        <Space><Form.Item name="dx" label="方向 X"><InputNumber /></Form.Item><Form.Item name="dy" label="Y"><InputNumber /></Form.Item><Form.Item name="dz" label="Z"><InputNumber /></Form.Item></Space></Form>
-    </CommandDialog>
+    {datumEditor && editingView?.part && <DatumEditor key={editingView.document.id+datumEditor+(activeInstancePath ?? "")} kind={datumEditor} view={editingView} seed={store.selections} unit={lengthUnit}
+      occurrencePath={activeInstancePath} placement={{translation:activeResolvedInstance?.translation,rotation:activeResolvedInstance?.rotation}}
+      onClose={()=>setDatumEditor(undefined)} onSelectionSession={setFeatureSelection} onPreview={setDatumPreview}
+      onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))} />}
     <CommandDialog size="S" id="version" open={versionOpen} title="创建命名版本" onClose={() => setVersionOpen(false)}
       onConfirm={async () => createVersion(await versionForm.validateFields())}>
       <Form form={versionForm} layout="vertical"><Form.Item name="name" label="版本名称" rules={[{ required: true }]}><Input placeholder="V1 - Initial concept" /></Form.Item>

@@ -11,6 +11,7 @@ import (
 // FeatureInput is a read-only reconstruction of the stage before an edited
 // feature. It never moves Head or writes a compensable model change.
 type FeatureInputRequest struct {
+	BodyID      string `json:"bodyId,omitempty"`
 	VersionID   string `json:"versionId"`
 	FeatureID   string `json:"featureId"`
 	GeometryKey string `json:"geometryKey,omitempty"`
@@ -22,13 +23,20 @@ type FeatureInputPick struct {
 	Kind    string `json:"kind"`
 	LocalID uint64 `json:"localId"`
 }
+type FeatureNeutralPick struct {
+	Kind        string `json:"kind"`
+	LocalID     uint64 `json:"localId"`
+	BodyID      string `json:"bodyId"`
+	GeometryKey string `json:"geometryKey"`
+}
 type FeatureInput struct {
-	VersionID       string             `json:"versionId"`
-	SourceFeatureID string             `json:"sourceFeatureId"`
-	Artifact        Artifact           `json:"artifact"`
-	Artifacts       []Artifact         `json:"artifacts,omitempty"`
-	Picks           []FeatureInputPick `json:"picks"`
-	Selection       *FeatureSelection  `json:"selection,omitempty"`
+	NeutralPick     *FeatureNeutralPick `json:"neutralPick,omitempty"`
+	VersionID       string              `json:"versionId"`
+	SourceFeatureID string              `json:"sourceFeatureId"`
+	Artifact        Artifact            `json:"artifact"`
+	Artifacts       []Artifact          `json:"artifacts,omitempty"`
+	Picks           []FeatureInputPick  `json:"picks"`
+	Selection       *FeatureSelection   `json:"selection,omitempty"`
 }
 
 func (s *Service) featureStageAtVersion(ctx context.Context, documentID, versionID, stageID, bodyID string) (string, error) {
@@ -102,16 +110,23 @@ func (s *Service) GetFeatureInput(ctx context.Context, documentID string, reques
 		return FeatureInput{}, fmt.Errorf("%w: feature missing", ErrValidation)
 	}
 	feature := view.Part.Features[index]
+	bodyID := feature.BodyID
+	if request.BodyID != "" {
+		if feature.Type != "DRAFT" {
+			return FeatureInput{}, fmt.Errorf("%w: alternate input Body requires draft", ErrValidation)
+		}
+		bodyID = request.BodyID
+	}
 	stage := ""
 	for _, f := range view.Part.Features[:index] {
-		if f.BodyID == feature.BodyID && isBodyFeature(f.Type) && !f.Suppressed {
+		if f.BodyID == bodyID && isBodyFeature(f.Type) && !f.Suppressed {
 			stage = f.ID
 		}
 	}
 	if stage == "" {
 		return FeatureInput{}, fmt.Errorf("%w: feature has no solid input", ErrValidation)
 	}
-	key, err := s.featureStageAtVersion(ctx, documentID, request.VersionID, stage, feature.BodyID)
+	key, err := s.featureStageAtVersion(ctx, documentID, request.VersionID, stage, bodyID)
 	if err != nil {
 		return FeatureInput{}, err
 	}
@@ -119,7 +134,7 @@ func (s *Service) GetFeatureInput(ctx context.Context, documentID string, reques
 	if err != nil {
 		return FeatureInput{}, err
 	}
-	a.BodyID = feature.BodyID
+	a.BodyID = bodyID
 	result := FeatureInput{VersionID: request.VersionID, SourceFeatureID: stage, Artifact: a, Picks: []FeatureInputPick{}}
 	if request.LocalID != 0 {
 		if request.GeometryKey != key {
@@ -130,8 +145,8 @@ func (s *Service) GetFeatureInput(ctx context.Context, documentID string, reques
 			return FeatureInput{}, err
 		}
 		kind := modelcore.PersistentTopologyType(request.Kind)
-		output, bodyID := manifestOutput(manifest, kind, request.LocalID)
-		if !topologyHistoryComplete(manifest) || output == nil || bodyID != feature.BodyID {
+		output, pickedBodyID := manifestOutput(manifest, kind, request.LocalID)
+		if !topologyHistoryComplete(manifest) || output == nil || pickedBodyID != bodyID {
 			return FeatureInput{}, fmt.Errorf("%w: input topology unavailable", ErrValidation)
 		}
 		pick := FeatureSelection{SourceVersionID: request.VersionID, SourceFeatureID: stage, Selection: modelcore.PersistentSelection{SchemaVersion: modelcore.TopologyNamingSchemaVersion, SourceDocumentID: documentID, SourceBodyID: bodyID, Anchor: semanticRef(output.GetSemanticRef()), ExpectedType: kind, Selector: modelcore.SelectionRecipe{Kind: modelcore.SelectionLineageDescendant}, CreationEvidence: selectionEvidence(output.GetEvidence())}}
@@ -153,6 +168,32 @@ func (s *Service) GetFeatureInput(ctx context.Context, documentID string, reques
 		}
 		toolArtifact.BodyID = tool.BodyID
 		result.Artifacts = append(result.Artifacts, toolArtifact)
+	}
+	if feature.NeutralPlane != nil {
+		pick := *feature.NeutralPlane
+		neutralKey := key
+		if pick.Selection.SourceBodyID != feature.BodyID {
+			prefix := *view.Part
+			prefix.Features = append([]Feature(nil), prefix.Features[:index]...)
+			neutralKey, err = s.evaluateBodyPrefix(ctx, "neutral-input/"+request.VersionID+"/"+feature.ID, prefix, pick.Selection.SourceBodyID)
+			if err != nil {
+				return FeatureInput{}, err
+			}
+			neutralArtifact, loadErr := s.loadArtifact(ctx, neutralKey)
+			if loadErr != nil {
+				return FeatureInput{}, loadErr
+			}
+			neutralArtifact.BodyID = pick.Selection.SourceBodyID
+			result.Artifacts = append(result.Artifacts, neutralArtifact)
+		}
+		resolution, resolveErr := s.resolveFeaturePick(ctx, pick, neutralKey)
+		if resolveErr != nil {
+			return FeatureInput{}, resolveErr
+		}
+		if resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) != 1 {
+			return FeatureInput{}, fmt.Errorf("%w: neutral plane unresolved", ErrValidation)
+		}
+		result.NeutralPick = &FeatureNeutralPick{Kind: "FACE", LocalID: resolution.Candidates[0].LocalID, BodyID: pick.Selection.SourceBodyID, GeometryKey: neutralKey}
 	}
 	for i, pick := range feature.Selections {
 		resolution, err := s.resolveFeaturePick(ctx, pick, key)

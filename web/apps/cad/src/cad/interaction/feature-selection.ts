@@ -8,6 +8,7 @@ export type FeatureSelectionSession = {
     occurrencePath?: string;
     bodyId?: string;
     sketchIds?: string[];
+    contextSelections?: SelectionItem[];
     selections: SelectionItem[];
     onPick: (selection: SelectionItem) => void;
 };
@@ -23,7 +24,7 @@ export function featureSelectionHit(raw: Selection, session: FeatureSelectionSes
     if (session.role === "edge" || session.role === "face")
         return raw.kind === session.role ? raw : null;
     if (session.role === "plane")
-        return raw.kind === "plane" ? raw : null;
+        return raw.kind === "plane" || raw.kind === "face" ? raw : null;
     if (session.role === "body")
         return raw.bodyId && ["face", "edge", "vertex", "body", "solid", "pad"].includes(raw.kind) ? raw : null;
     if (session.role === "axis")

@@ -1,4 +1,5 @@
 import { featureInputDisplay } from "./feature-input-display";
+import type { DatumPreview } from "../cad/rendering/datum-reference";
 import type { FeatureSelectionSession } from "../cad/interaction/feature-selection";
 import type { SketchCommandState, SketchCommandAction, SketchCommitIntent, SketchCommitResult, SketchCommitReceipt } from "../cad/tool/sketch-command-session";
 import { SketchInlineParameterInput } from "../cad/sketch/sketch-inline-parameter-input";
@@ -45,6 +46,7 @@ export type CadViewportHandle = {
 };
 
 type Props = {
+  datumPreview?:DatumPreview;
   featureSelection?:FeatureSelectionSession;
   featureInputArtifacts?:Artifact[];
   preferredLengthUnit?: "mm"|"cm"|"m"|"in";
@@ -168,6 +170,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
   }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveConstraintProjection, props.featureInputArtifacts]);
+  useEffect(() => { engine.current?.setDatumPreview(props.datumPreview); }, [props.datumPreview]);
   useEffect(() => { engine.current?.setFeatureSelection(props.featureSelection); }, [props.featureSelection]);
   useEffect(() => { engine.current?.selectMany(props.selections, false); }, [props.selections]);
   useEffect(() => { engine.current?.preselect(props.preselection, false); }, [props.preselection]);
@@ -207,7 +210,9 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     beginExternalReconnect: (externalID) => engine.current?.beginExternalReconnect(externalID),
   }), []);
 
+  const failedDisplay = props.view.part?.bodies.some(b => b.displayFallback) || props.view.resolvedInstances?.some(r => r.displayFallback);
   return <><div ref={host} className="cad-viewport-canvas" />
+    {failedDisplay && <div className="cad-failed-body-notice" role="status">部分特征计算失败：红色半透明实体为上次成功结果，请修复结构树中标记的特征。</div>}
     {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="advanced"&&<SketchCommandPanel state={sketchCommand} prompt={toolPrompt} onAction={action=>engine.current?.commandAction(action)} />}
     {props.activeSketchID&&!dimensionEditor&&sketchCommand?.presentation==="inline"&&<SketchInlineParameterInput state={sketchCommand} lengthUnit={props.preferredLengthUnit} onEditing={editing=>engine.current?.setSketchParameterEditing(editing)} onAction={action=>engine.current?.commandAction(action)} />}
     {dimensionEditor && <SketchDimensionEditor key={`${dimensionEditor.epoch}:${dimensionEditor.featureId}:${dimensionEditor.mode === "edit" ? dimensionEditor.constraintId : dimensionEditor.kind}`}

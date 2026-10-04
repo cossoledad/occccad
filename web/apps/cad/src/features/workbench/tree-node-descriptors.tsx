@@ -46,6 +46,7 @@ export function treeNodeIcon(node: Pick<DocumentStructureNode, "kind" | "diagnos
     return <span aria-label={`Constraint status ${detail.label}`} title={`${detail.label}: ${detail.description}`}
       style={{ color: detail.color }}>{icon}</span>;
   }
+  if (node.evaluationStatus === "FAILED" || node.evaluationStatus === "BLOCKED") return <span aria-label={node.evaluationStatus === "FAILED" ? "计算失败" : "上游失败"} style={{color: node.evaluationStatus === "FAILED" ? "#b86151" : "#b38a48"}}><ExclamationCircleOutlined /></span>;
   if ((node.kind === "PAD" || node.kind === "REVOLVE") && node.operation === "REMOVE") return <ScissorOutlined />;
   return descriptors[node.kind]?.icon ?? <CloudUploadOutlined />;
 }

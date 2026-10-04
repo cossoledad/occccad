@@ -1,3 +1,4 @@
+import { makeDatumAxisReference, type DatumPreview } from "../cad/rendering/datum-reference";
 import { featureSelectionHit, type FeatureSelectionSession } from "../cad/interaction/feature-selection";
 import { makeSplineControlFeedback } from "../cad/rendering/spline-control-feedback";
 import { useUIPreferences, sketchLabelPositionKey } from "../state/ui-preferences";
@@ -172,6 +173,7 @@ export type ViewportDebugState = {
   selectionKeys?: string[];
   highlightedVisible?: number;
   featureSelection?:{role:string;count:number;overlays:number};
+  datumPreview?:{kind:string;origin:Vec3;direction:Vec3};
   navigationProfile: NavigationProfileID;
   navigationAction: NavigationAction;
   navigation?: NavigationSnapshot;
@@ -298,6 +300,8 @@ export class CadViewportEngine {
   private readonly pointer = new THREE.Vector2();
   private readonly content = new THREE.Group();
   private readonly helpers = new THREE.Group();
+  private datumPreview?: DatumPreview;
+  private datumPreviewGroup?: THREE.Group;
   private readonly sketchContext = new THREE.Group();
   private readonly environment = new THREE.Group();
   private readonly studioEnvironment: THREE.WebGLRenderTarget;
@@ -549,9 +553,9 @@ export class CadViewportEngine {
   private pendingVisualSnapshot = false;
   private visualError?: HTMLDivElement;
   private geometrySignature(view: DocumentDescriptor, editContext?: ViewportEditContext): string {
-    const part = (value?: DocumentDescriptor) => value?.part?.bodies.map((body) => [body.id, body.geometryKey, body.consumed]);
+    const part = (value?: DocumentDescriptor) => value?.part?.bodies.map((body) => [body.id, body.geometryKey, body.displayFallback, body.consumed]);
     return JSON.stringify([view.document.id, view.document.type, part(view),
-      view.resolvedInstances?.map((resolved) => [resolved.occurrencePath,resolved.bodyId, resolved.geometryKey, resolved.translation, resolved.rotation,
+      view.resolvedInstances?.map((resolved) => [resolved.occurrencePath,resolved.bodyId, resolved.geometryKey, resolved.displayFallback, resolved.translation, resolved.rotation,
         resolved.ownedSketchIds]),
       view.product?.instances.map((instance) => [instance.id, instance.translation, instance.rotation]),
       view.contextVariants?.map((variant) => [variant.owningInstancePath.canonical, variant.variantKey]),
@@ -670,6 +674,7 @@ export class CadViewportEngine {
     }
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
+    this.setDatumPreview(this.datumPreview);
     this.refreshContentBounds();
     if (previousDocumentID === view.document.id && view.document.type === "PRODUCT") {
       const starts: Array<{ object: THREE.Group; target: TransformPose }> = [];
@@ -1589,17 +1594,21 @@ export class CadViewportEngine {
     const withAssemblyReferences = (selections: readonly SelectionItem[]) => selections.flatMap((selection) =>
       selection.kind === "assembly-constraint" ? [selection, ...(this.assemblyConstraintReferences.get(this.assemblyMarkerKey(selection.documentId ?? "",selection.occurrencePath ?? "",selection.constraintId)) ?? [])]
         : selection.kind === "publication" && selection.highlightTarget ? [selection.highlightTarget] : [selection]);
+    for (const object of this.selectionIndex.objectsForMany(this.featureSelection?.contextSelections ?? [])) {
+      if (!this.objectVisible(object)) continue;
+      this.applyHighlight(object, "context"); this.highlightedRoots.add(object);
+    }
+    this.replaceTopologyOverlays("selected", withAssemblyReferences(this.featureSelection?.selections ?? this.selected));
+    for (const object of this.selectionIndex.objectsForMany(this.featureSelection?.selections ?? this.selected)) {
+      if (!this.objectVisible(object)) continue;
+      this.applyHighlight(object, "selected"); this.highlightedRoots.add(object);
+    }
     this.replaceTopologyOverlays("preselected", withAssemblyReferences(this.preselected ? [this.preselected] : []));
     if (this.preselected) {
       for (const object of this.selectionIndex.objectsFor(this.preselected)) {
         if (!this.objectVisible(object)) continue;
         this.applyHighlight(object, "hover"); this.highlightedRoots.add(object);
       }
-    }
-    this.replaceTopologyOverlays("selected", withAssemblyReferences(this.featureSelection?.selections ?? this.selected));
-    for (const object of this.selectionIndex.objectsForMany(this.featureSelection?.selections ?? this.selected)) {
-      if (!this.objectVisible(object)) continue;
-      this.applyHighlight(object, "selected"); this.highlightedRoots.add(object);
     }
   }
 
@@ -1695,14 +1704,15 @@ export class CadViewportEngine {
     });
     for (const body of view.part?.bodies ?? []) {
       if (body.consumed) continue;
-      const artifact = body.geometryKey ? view.artifacts?.[body.geometryKey] : undefined;
+      const displayKey = body.geometryKey || body.displayFallback?.geometryKey;
+      const artifact = displayKey ? view.artifacts?.[displayKey] : undefined;
       if (!artifact) continue;
       const bodyTreeNodeId = `${rootPath}/body:${body.id}`;
       const context: SolidContext = { bodyId:body.id, documentId:view.document.id,versionId:view.document.versionId,
         geometryKey:artifact.geometryKey,occurrencePath:"",treeNodeId:bodyTreeNodeId };
-      this.addVisualPrimitives(artifact.visualization, this.helpers, context, false);
+      if (body.geometryKey) this.addVisualPrimitives(artifact.visualization, this.helpers, context, false);
       if (artifact.mesh.triangles.length) {
-        const solid=this.makeSolid(artifact,CATIA_VISUAL_THEME.surface,context);
+        const solid=body.geometryKey ? this.makeSolid(artifact,CATIA_VISUAL_THEME.surface,context) : this.makeFailedBody(artifact,body.visible,context);
         this.content.add(solid);
       }
     }
@@ -1738,7 +1748,7 @@ export class CadViewportEngine {
       const referencedOccurrences = new Set<string>();
       for (const resolved of view.resolvedInstances ?? []) {
         if (!resolved.id.startsWith(prefix)) continue;
-        const artifact = view.artifacts?.[resolved.geometryKey];
+        const artifact = view.artifacts?.[resolved.geometryKey || resolved.displayFallback?.geometryKey || ""];
         if (!artifact) continue;
         const resolvedGroup = new THREE.Group();
         resolvedGroup.userData = { occurrencePath: resolved.occurrencePath };
@@ -1752,7 +1762,7 @@ export class CadViewportEngine {
             contextVariantKey: view.contextVariants?.find((variant) => variant.owningInstancePath.canonical === resolved.occurrencePath)?.variantKey,
             instancePath: resolved.instancePath, occurrencePath: resolved.occurrencePath, treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id
           };
-          const solid = this.makeSolid(artifact, CATIA_VISUAL_THEME.productSurface, context);
+          const solid = resolved.geometryKey ? this.makeSolid(artifact, CATIA_VISUAL_THEME.productSurface, context) : this.makeFailedBody(artifact,resolved.bodyVisible,context);
           resolvedGroup.add(solid);
         }
         const visualContext = {
@@ -1761,8 +1771,8 @@ export class CadViewportEngine {
           geometryKey: artifact.geometryKey, occurrencePath: resolved.occurrencePath,
           instancePath: resolved.instancePath, treeNodeId: resolved.bodyTreeNodeId, instanceId: instance.id,
         };
-        if (!referencedOccurrences.has(resolved.occurrencePath)) { this.addReferenceGeometry(artifact.visualization.referenceGeometry, resolvedGroup, visualContext); referencedOccurrences.add(resolved.occurrencePath); }
-        this.addVisualPrimitives(artifact.visualization, resolvedGroup, visualContext, true,
+        if (resolved.geometryKey && !referencedOccurrences.has(resolved.occurrencePath)) { this.addReferenceGeometry(artifact.visualization.referenceGeometry, resolvedGroup, visualContext); referencedOccurrences.add(resolved.occurrencePath); }
+        if (resolved.geometryKey) this.addVisualPrimitives(artifact.visualization, resolvedGroup, visualContext, true,
           new Set(resolved.ownedSketchIds ?? []));
         if (resolvedGroup.children.length > 0) group.add(resolvedGroup);
       }
@@ -2048,7 +2058,7 @@ export class CadViewportEngine {
   private addDatumPlane(datum: DatumPlane, parent: THREE.Group, selectable: boolean, context?: SolidContext): void {
     const { id, plane } = datum;
     const geometry = new THREE.PlaneGeometry(0.72, 0.72);
-    geometry.translate(0.54, 0.54, 0);
+    if (plane !== "CUSTOM") geometry.translate(0.54, 0.54, 0);
     const material = this.materials.datumPlane(planeColors[plane]);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.fromArray(datum.origin);
@@ -2073,26 +2083,19 @@ export class CadViewportEngine {
   }
 
   private addDatumAxis(axis: DatumAxis, parent: THREE.Group, context?: SolidContext): void {
-    const origin = new THREE.Vector3().fromArray(axis.origin);
-    const direction = new THREE.Vector3().fromArray(axis.direction).normalize();
-    const reference = new THREE.Group();
-    reference.position.copy(origin);
-    reference.quaternion.setFromUnitVectors(new THREE.Vector3(1, 0, 0), direction);
-    const visibleLine = makeDatumReferenceLine([
-      new THREE.Vector3(), new THREE.Vector3(1, 0, 0),
-    ], 0xd89422, true);
-    updateHighlightLineResolution(visibleLine, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
+    const reference = makeDatumAxisReference(axis);
+    updateHighlightLineResolution(reference, this.renderer.domElement.clientWidth, this.renderer.domElement.clientHeight);
     const pickLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(), new THREE.Vector3(1, 0, 0),
+      new THREE.Vector3(-0.65, 0, 0), new THREE.Vector3(1, 0, 0),
     ]), new THREE.LineBasicMaterial({ transparent: true, opacity: 0, depthTest: false, depthWrite: false }));
     const selection = { kind: "axis" as const, axis: "DATUM" as const,
       id: `${context?.occurrencePath || "root"}:${axis.id}`, entityId: axis.id, treeNodeId: context?.treeNodeId,
-      documentId: context?.documentId, occurrencePath: context?.occurrencePath, geometryKey: context?.geometryKey,
+      documentId: context?.documentId, versionId: context?.versionId, occurrencePath: context?.occurrencePath, geometryKey: context?.geometryKey,
       instancePath: context?.instancePath, instanceId: context?.instanceId };
     pickLine.raycast = raycastDatumAxis;
     reference.userData = selection;
     pickLine.userData = selection;
-    reference.add(visibleLine, pickLine);
+    reference.add(pickLine);
     parent.add(reference);
     this.screenStableReferences.set(reference, 54);
     this.selectionIndex.register(selection, reference); this.selectionIndex.registerPick(pickLine, (hit) =>
@@ -2481,6 +2484,17 @@ export class CadViewportEngine {
     this.selectionIndex.register(sketchSelection, group);
   }
 
+  private makeFailedBody(artifact: Artifact, visible: boolean, context: SolidContext): THREE.Group {
+    const group = new THREE.Group(); group.visible = visible;
+    group.userData = { ...context, kind: "body", id: context.occurrencePath ? `${context.occurrencePath}:body:${context.bodyId}` : context.bodyId, displayFallback: true };
+    const mesh = new THREE.Mesh(makeGeometry(artifact), this.materials.surface(0xb86151));
+    mesh.material.transparent = true; mesh.material.opacity = .6;
+    mesh.material.depthWrite = false; mesh.material.roughness = .85;
+    // Camera navigation may use the display, modeling picks cannot.
+    mesh.raycast = acceleratedRaycast; markNavigationPickable(mesh);
+    group.add(mesh); return group;
+  }
+
   private makeSolid(artifact: Artifact, color: number, context: SolidContext): THREE.Group {
     const geometry = makeGeometry(artifact);
     geometry.userData.navigationFaceIds = artifact.mesh.faceIds;
@@ -2553,20 +2567,37 @@ export class CadViewportEngine {
     return group;
   }
 
+  setDatumPreview(preview?: DatumPreview): void {
+    this.datumPreview = preview;
+    if (this.datumPreviewGroup) {
+      this.datumPreviewGroup.traverse(child => this.screenStableReferences.delete(child));
+      this.disposeGroup(this.datumPreviewGroup); this.datumPreviewGroup.removeFromParent();
+      this.datumPreviewGroup = undefined;
+    }
+    if (preview) {
+      const placement = new THREE.Group();
+      placement.position.fromArray(preview.translation ?? [0,0,0]);
+      placement.quaternion.fromArray(preview.rotation ?? [0,0,0,1]);
+      let reference: THREE.Group | THREE.Mesh | undefined;
+      if (preview.axis) reference = makeDatumAxisReference(preview.axis, CATIA_VISUAL_THEME.commandPreview);
+      if (preview.plane) {
+        const p = preview.plane, normal = new THREE.Vector3().fromArray(p.normal), u = new THREE.Vector3().fromArray(p.uDirection);
+        reference = new THREE.Mesh(new THREE.PlaneGeometry(1.5,1.5), this.materials.datumPlane(CATIA_VISUAL_THEME.commandPreview));
+        reference.position.fromArray(p.origin);
+        reference.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(u, normal.clone().cross(u), normal));
+        reference.renderOrder = 95;
+      }
+      if (reference) { placement.add(reference); this.helpers.add(placement); this.screenStableReferences.set(reference, 90); this.datumPreviewGroup = placement; }
+      updateHighlightLineResolution(placement,this.renderer.domElement.clientWidth,this.renderer.domElement.clientHeight);
+    }
+    this.emitDebugState(); this.invalidate();
+  }
+
   setFeatureSelection(session?: FeatureSelectionSession): void {
-    const entering=!this.featureSelection&&!!session;
     this.featureSelection = session;
     this.preselect(null);
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
-    if(entering&&session?.sketchIds?.length&&![...this.solidBindings.values()].some(binding=>binding.artifact.topology.solids>0)){
-      const box=new THREE.Box3();
-      for(const group of this.helpers.children)if(group.userData.sketchEditOverlay&&session.sketchIds.includes(group.userData.sketchFeatureID)&&this.objectVisible(group)){
-        group.updateMatrixWorld(true);
-        for(const child of group.children)if(child.userData.sketchEntityOverlay&&this.objectVisible(child))box.union(new THREE.Box3().setFromObject(child));
-      }
-      if(!box.isEmpty()){fitOrthographicView(this.camera,this.navigation.target,box);this.navigation.syncCamera(false);}
-    }
     this.refreshInteractionHighlights();
     this.emitDebugState();
     this.invalidate();
@@ -3235,6 +3266,7 @@ export class CadViewportEngine {
       input: this.input.getState(), activeTool: this.activeToolID,
       navigationProfile: this.navigationProfile, navigationAction: this.navigation.activeAction,
       selectionKeys: (this.featureSelection?.selections??this.selected).map(selectionKey),
+      datumPreview: this.datumPreview?.axis ? {kind:"axis",origin:this.datumPreview.axis.origin,direction:this.datumPreview.axis.direction} : this.datumPreview?.plane ? {kind:"plane",origin:this.datumPreview.plane.origin,direction:this.datumPreview.plane.normal} : undefined,
       featureSelection: this.featureSelection?{role:this.featureSelection.role,count:this.featureSelection.selections.length,overlays:this.selectedOverlays.length}:undefined,
       highlightedVisible: [...this.highlightedRoots].filter((root) => {
         for (let object: THREE.Object3D | null = root; object; object = object.parent) if (!object.visible) return false;
@@ -3253,7 +3285,7 @@ export class CadViewportEngine {
     );
   }
 
-  private applyHighlight(object: THREE.Object3D, state: "default" | "hover" | "selected"): void {
+  private applyHighlight(object: THREE.Object3D, state: "default" | "hover" | "selected" | "context"): void {
     this.materials.setInteractionState(object, state);
     object.traverse((child) => {
       const material = (child as THREE.Mesh).material;

@@ -68,7 +68,7 @@ export class CadMaterialFactory {
     this.setInteractionState(object, selected ? "selected" : "default");
   }
 
-  setInteractionState(object: THREE.Object3D, state: "default" | "hover" | "selected"): void {
+  setInteractionState(object: THREE.Object3D, state: "default" | "hover" | "selected" | "context"): void {
     object.traverse((child) => {
       const renderable = child as THREE.Mesh | THREE.LineSegments;
       if (!("material" in renderable) || !renderable.material) return;
@@ -83,7 +83,11 @@ export class CadMaterialFactory {
         } else if (material instanceof LineMaterial) {
           const baseColor = Number(material.userData.baseColor ?? material.color.getHex());
           material.userData.baseColor = baseColor;
-          material.color.setHex(state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : baseColor);
+          material.color.setHex(state === "selected" ? this.theme.selected : state === "hover" ? this.theme.hover : state === "context" ? 0x6b929b : baseColor);
+          material.userData.baseOpacity ??= material.opacity;
+          material.userData.baseLinewidth ??= material.linewidth;
+          material.opacity = state === "context" ? .5 : Number(material.userData.baseOpacity);
+          material.linewidth = state === "hover" ? 4 : state === "selected" ? 3.5 : Number(material.userData.baseLinewidth);
         } else if (material instanceof THREE.ShaderMaterial) {
           const selectedUniform = material.uniforms.uSelected;
           const selectedColor = material.uniforms.uSelectedColor;

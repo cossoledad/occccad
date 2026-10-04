@@ -235,6 +235,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 		}
 	}
 	findFeature([]workspace.DocumentStructureNode{*view.StructureTree}, chamfer.ID)
+	lastReadyKey, lastReadyRevision := activeBodyArtifact(t, view).GeometryKey, view.Document.VersionID
 	chamfer.Length = 1000
 	view = apply(workspace.CommandRequest{Type: "EDIT_FEATURE", TargetID: chamfer.ID, ExpectedFeatureDigest: digest, Feature: &chamfer})
 	var revisionState string
@@ -249,25 +250,48 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	if revisionState != "FAILED" {
 		t.Fatalf("failed feature accepted as %s", revisionState)
 	}
-	for _, b := range view.Part.Bodies {
-		if b.ID == base.BodyID && b.GeometryKey != "" {
-			t.Fatal("failed Body retained stale geometry")
+	assertFallback := func(v workspace.DocumentView) {
+		t.Helper()
+		for _, b := range v.Part.Bodies {
+			if b.ID != base.BodyID {
+				continue
+			}
+			if b.GeometryKey != "" || b.DisplayFallback == nil || b.DisplayFallback.GeometryKey != lastReadyKey || b.DisplayFallback.SourceVersionID != lastReadyRevision {
+				t.Fatalf("failed Body lost visual provenance: %+v", b)
+			}
+			display := v.Artifacts[lastReadyKey]
+			if _, ok := display.Representations["VISUAL"]; !ok || len(display.Representations) != 1 || display.VisualNamingDigest == "" {
+				t.Fatal("fallback exposed authority artifacts or lost GLB association")
+			}
 		}
 	}
+	assertFallback(view)
+	reopened, err = service.GetDocument(t.Context(), doc, p6Actor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFallback(reopened)
 	if _, e := service.ExchangeExportGraph(t.Context(), doc, ""); e == nil {
 		t.Fatal("failed Part exported stale result")
 	}
 	view = apply(workspace.CommandRequest{Type: "RENAME_FEATURE", TargetID: chamfer.ID, Name: "Failed chamfer"})
+	assertFallback(view)
 	if e := db.QueryRow(t.Context(), `SELECT state FROM occccad.document_versions WHERE id=$1`, view.Document.VersionID).Scan(&revisionState); e != nil || revisionState != "FAILED" {
 		t.Fatal("metadata edit cleared failed Revision state")
 	}
 	view = apply(workspace.CommandRequest{Type: "UNDO"}) // Undo metadata while geometry is still failed.
+	assertFallback(view)
 	view = apply(workspace.CommandRequest{Type: "UNDO"}) // Undo the invalid dimension.
 	view = apply(workspace.CommandRequest{Type: "REDO"}) // Failed definitions are still replayable history.
 	if e := db.QueryRow(t.Context(), `SELECT state FROM occccad.document_versions WHERE id=$1`, view.Document.VersionID).Scan(&revisionState); e != nil || revisionState != "FAILED" {
 		t.Fatal("redo lost failed definition")
 	}
 	view = apply(workspace.CommandRequest{Type: "UNDO"})
+	for _, body := range view.Part.Bodies {
+		if body.ID == base.BodyID && body.DisplayFallback != nil {
+			t.Fatal("recovery retained fallback")
+		}
+	}
 	if activeBodyArtifact(t, view).Volume <= expectedVolume {
 		t.Fatal("undo did not recover evaluated output")
 	}
@@ -299,7 +323,15 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 			sides = append(sides, workspace.FeatureSelection{Selection: *properties.PersistentSelection, SourceVersionID: view.Document.VersionID})
 		}
 	}
-	view = apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "DRAFT", BodyID: secondBase.BodyID, Angle: 5, NeutralPlaneID: "datum-xy", Selections: sides}})
+	neutral := findP6FacePick(t, service, view, func(selection modelcore.PersistentSelection) bool {
+		return strings.HasPrefix(selection.Anchor.OutputSlot, "START_CAP/")
+	})
+	view = apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "DRAFT", BodyID: secondBase.BodyID, Angle: 5, NeutralPlane: &workspace.FeatureSelection{Selection: neutral.Selection, SourceVersionID: view.Document.VersionID}, Selections: sides}})
+	draftFeature := view.Part.Features[len(view.Part.Features)-1]
+	draftInput, err := service.GetFeatureInput(t.Context(), doc, workspace.FeatureInputRequest{VersionID: view.Document.VersionID, FeatureID: draftFeature.ID})
+	if err != nil || draftInput.NeutralPick == nil || draftInput.NeutralPick.BodyID != secondBase.BodyID || len(draftInput.Picks) != len(sides) {
+		t.Fatalf("draft planar input restore: %v %+v", err, draftInput)
+	}
 	top := findP6FacePick(t, service, view, func(selection modelcore.PersistentSelection) bool {
 		return strings.HasPrefix(selection.Anchor.OutputSlot, "END_CAP/")
 	})
@@ -353,8 +385,10 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	}
 	last := view.Part.Features[len(view.Part.Features)-1]
 	finalVolume := activeBodyArtifact(t, view).Volume
-	last.Suppressed = true
-	view = edit(last)
+	digest = ""
+	findFeature([]workspace.DocumentStructureNode{*view.StructureTree}, last.ID)
+	suppress := true
+	view = apply(workspace.CommandRequest{Type: "SET_FEATURE_SUPPRESSION", TargetID: last.ID, ExpectedFeatureDigest: digest, Suppressed: &suppress})
 	assertReady(view)
 	if math.Abs(activeBodyArtifact(t, view).Volume-7500) > 1e-5 {
 		t.Fatalf("suppression did not restore Boolean input: %.12g", activeBodyArtifact(t, view).Volume)
@@ -369,8 +403,10 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	}
 	view = apply(workspace.CommandRequest{Type: "REDO"})
 	assertReady(view)
-	last.Suppressed = false
-	view = edit(last)
+	digest = ""
+	findFeature([]workspace.DocumentStructureNode{*view.StructureTree}, last.ID)
+	suppress = false
+	view = apply(workspace.CommandRequest{Type: "SET_FEATURE_SUPPRESSION", TargetID: last.ID, ExpectedFeatureDigest: digest, Suppressed: &suppress})
 	assertReady(view)
 	view = apply(workspace.CommandRequest{Type: "DELETE_NODE", TargetKind: "FEATURE", TargetID: last.ID})
 	if math.Abs(activeBodyArtifact(t, view).Volume-7500) > 1e-5 {

@@ -191,12 +191,13 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
     const featureNode = (feature: Feature, parent: string, deletable: boolean): DocumentStructureNode => {
       const node: DocumentStructureNode = {
         id: `${parent}/${feature.type.toLowerCase()}:${feature.id}`,
-        kind: feature.type.toUpperCase().includes("SKETCH") ? "SKETCH" : feature.type.toUpperCase() === "PAD" ? "PAD" : "IMPORT",
+        kind: feature.type.toUpperCase().includes("SKETCH") ? "SKETCH" : ["PAD","LINEAR_EXTRUDE"].includes(feature.type.toUpperCase()) ? "PAD" : feature.type === "REVOLVE" ? "REVOLVE" : feature.type === "IMPORT_BODY" ? "IMPORT" : "FEATURE",
         name: feature.name ?? feature.type, entityId: feature.id, entityType: feature.type,
         documentId: view.document.id, versionId: view.document.versionId,
         bodyId: feature.bodyId, operation: feature.operation, localVisible: feature.sketch ? feature.visible ?? !consumed.has(feature.id) : undefined,
-        definitionDigest: feature.type.toUpperCase() === "PAD" || feature.type.toUpperCase() === "LINEAR_EXTRUDE" ? JSON.stringify(feature) : undefined,
-        capabilities: deletable ? ["DELETE", ...(["PAD","LINEAR_EXTRUDE"].includes(feature.type.toUpperCase()) ? ["EDIT" as const] : [])] : undefined,
+        definitionDigest: !feature.sketch ? JSON.stringify(feature) : undefined,
+        capabilities: [...(deletable ? ["DELETE" as const] : []), ...(!feature.sketch && feature.type !== "IMPORT_BODY" && editable ? ["EDIT" as const, "SUPPRESS" as const] : [])],
+        suppressed:feature.suppressed, evaluationStatus:feature.evaluationStatus,
       };
       if (feature.sketch) node.children = [
         { id: `${node.id}/geometry`, kind: "SKETCH_GEOMETRY_SET", name: "Geometry", ownerEntityId: feature.id,
@@ -255,7 +256,8 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
       documentType: "PART", versionId: view.document.versionId, children: [
         { id: `${path}/origin`, kind: "ORIGIN", name: "Origin", documentId: view.document.id, children: [
           ...(view.datumPlanes ?? []).map((plane) => ({ id: `${path}/origin/plane:${plane.id}`, kind: "PLANE" as const,
-            name: plane.name, entityId: plane.id, documentId: view.document.id, plane: plane.plane })),
+            name: plane.name, entityId: plane.id, documentId: view.document.id, plane: plane.plane, capabilities:editable && !["datum-xy","datum-yz","datum-xz"].includes(plane.id) ? ["DELETE" as const] : [] })),
+          ...(view.datumAxes ?? view.part?.datumAxes ?? []).map(axis => ({id:`${path}/origin/datum-axis:${axis.id}`,kind:"DATUM_AXIS" as const,name:axis.name,entityId:axis.id,documentId:view.document.id,capabilities:editable ? ["DELETE" as const] : []})),
           ...(view.axisSystems ?? []).map((axis) => ({ id: `${path}/origin/axis:${axis.id}`, kind: "AXIS_SYSTEM" as const,
             name: axis.name, entityId: axis.id, documentId: view.document.id, children: (["X", "Y", "Z"] as const).map((name) => ({
               id: `${path}/origin/axis:${axis.id}/${name.toLowerCase()}`, kind: "AXIS" as const, name: `${name} Axis`,
@@ -463,7 +465,7 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
     }
     if(commandType==="CREATE_DATUM_PLANE"&&view.part){const datum={id:id("mock-plane"),name:String(input.name),plane:"CUSTOM" as const,
       origin:input.origin as Vec3,normal:input.normal as Vec3,uDirection:input.uDirection as Vec3,size:180};
-      view.part.datumPlanes.push(datum);view.datumPlanes?.push(datum);}
+      view.part.datumPlanes.push(datum);view.datumPlanes=view.part.datumPlanes;}
     if(commandType==="CREATE_DATUM_AXIS"&&view.part){const datum={id:id("mock-axis"),name:String(input.name),origin:input.origin as Vec3,direction:input.direction as Vec3};
       view.part.datumAxes=[...(view.part.datumAxes??[]),datum];view.datumAxes=[...(view.datumAxes??[]),datum];}
     if (commandType === "EDIT_SKETCH" && view.part) {
@@ -738,6 +740,10 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
       const instance = view.product.instances.find((candidate) => candidate.id === input.instanceId);
       if (instance) instance.referenceMode = input.referenceMode as ProductInstance["referenceMode"];
     }
+    if (commandType === "SET_FEATURE_SUPPRESSION" && view.part) {
+      const feature = view.part.features.find(f => f.id === input.targetId);
+      if (feature) { feature.suppressed = Boolean(input.suppressed); feature.evaluationStatus = feature.suppressed ? "SUPPRESSED" : undefined; }
+    }
     if (commandType === "DELETE_NODE" || commandType === "DELETE_NODES") {
       const targets = commandType === "DELETE_NODES" ? input.targets as Array<Record<string, unknown>> : [input];
       for (const item of targets) {
@@ -748,7 +754,9 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
           view.product.instances = view.product.instances.filter((instance) => instance.id !== target); rebuildProduct(view);
         } else if (kind === "ASSEMBLY_CONSTRAINT" && view.product) {
           view.product.constraints = (view.product.constraints ?? []).filter((constraint) => constraint.id !== target);
-        } else if (kind === "FEATURE" && view.part) {
+        } else if (kind === "DATUM_PLANE" && view.part) { view.part.datumPlanes = view.part.datumPlanes.filter(p=>p.id !== target); view.datumPlanes = view.part.datumPlanes; }
+        if (kind === "DATUM_AXIS" && view.part) { view.part.datumAxes = view.part.datumAxes?.filter(a=>a.id !== target); view.datumAxes = view.part.datumAxes; }
+        if (kind === "FEATURE" && view.part) {
           view.part.features = view.part.features.filter((feature) => feature.id !== target);
         } else if (view.part) {
           const sketch = view.part.features.find((feature) => feature.id === owner)?.sketch;

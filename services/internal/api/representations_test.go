@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -77,6 +78,7 @@ func TestRepresentationDownloadAuthorizationAndSnapshot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	authorityIDs := make(map[string]string)
 	for _, role := range []string{"BREP", "NAMING"} {
 		kind := artifact.KindBREP
 		contentType := "application/vnd.opencascade.brep"
@@ -89,6 +91,7 @@ func TestRepresentationDownloadAuthorizationAndSnapshot(t *testing.T) {
 		if e != nil {
 			t.Fatal(e)
 		}
+		authorityIDs[role] = object.ID
 		_, e = db.Exec(t.Context(), `INSERT INTO occccad.geometry_representations(geometry_key,role,schema_version,object_id) VALUES($1,$2,2,$3)`, view.Part.Bodies[1].GeometryKey, role, object.ID)
 		if e != nil {
 			t.Fatal(e)
@@ -103,6 +106,7 @@ func TestRepresentationDownloadAuthorizationAndSnapshot(t *testing.T) {
 		}
 	}
 	bodyScope = ""
+	partSnapshot := view
 	// Follow nested frozen snapshots, including after the root Head changes.
 	child := view
 	for depth := 0; depth < 2; depth++ {
@@ -129,5 +133,22 @@ func TestRepresentationDownloadAuthorizationAndSnapshot(t *testing.T) {
 	if response := get(actor, ref.ObjectID, "", ""); response.Code != 404 {
 		t.Fatalf("removed occurrence still exposes artifact: %d", response.Code)
 	}
-
+	// Seed the derived failure display in this test's own Part snapshot. Its
+	// successful source representations remain stored, but only Visual is readable.
+	view = partSnapshot
+	body := view.Part.Bodies[1]
+	fallback, _ := json.Marshal(workspace.BodyDisplayFallback{GeometryKey: body.GeometryKey, SourceVersionID: view.Document.VersionID})
+	if _, err := db.Exec(t.Context(), `UPDATE occccad.document_versions SET model_json=jsonb_set(model_json,'{bodies,1,displayFallback}',$2::jsonb) #- '{bodies,1,geometryKey}' WHERE id=$1`, view.Document.VersionID, string(fallback)); err != nil {
+		t.Fatal(err)
+	}
+	bodyScope = body.ID
+	visual := view.Artifacts[body.GeometryKey].Representations["VISUAL"]
+	if response := get(actor, visual.ObjectID, view.Document.VersionID, ""); response.Code != 200 {
+		t.Fatalf("failure display unavailable: %d %s", response.Code, response.Body.String())
+	}
+	for role, objectID := range authorityIDs {
+		if response := get(actor, objectID, view.Document.VersionID, ""); response.Code != 404 {
+			t.Fatalf("fallback exposed %s: %d", role, response.Code)
+		}
+	}
 }

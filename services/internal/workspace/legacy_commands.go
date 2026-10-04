@@ -322,6 +322,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		feature := *request.Feature
 		feature.ID = commandEntityID(strings.ToLower(feature.Type), request.RequestID)
 		feature.Name = numberedFeatureName(model.Features, feature.Type, strings.Title(strings.ToLower(feature.Type)))
+		if pick := feature.NeutralPlane; pick != nil && pick.Selection.SourceDocumentID != documentID {
+			return "", nil, fmt.Errorf("%w: cross-document neutral plane", ErrValidation)
+		}
 		for _, pick := range feature.Selections {
 			if pick.Selection.SourceDocumentID != documentID {
 				return "", nil, fmt.Errorf("%w: cross-document modifier selection", ErrValidation)
@@ -426,6 +429,11 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			parameterSources[slot] = source
 		}
 		return typeCreateSolidFeature, createFeaturePayload{Feature: feature, ParameterSources: parameterSources}, nil
+	case "SET_FEATURE_SUPPRESSION":
+		if documentType != "PART" || request.Suppressed == nil {
+			break
+		}
+		return typeSetFeatureSuppression, featureSuppressionPayload{FeatureID: request.TargetID, ExpectedFeatureDigest: request.ExpectedFeatureDigest, Suppressed: *request.Suppressed}, nil
 	case "EDIT_FEATURE":
 		if documentType != "PART" {
 			break
@@ -449,6 +457,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			definition := *request.Feature
 			if err := service.prepareLoftDefinition(ctx, request.RequestID, model, &definition); err != nil {
 				return "", nil, err
+			}
+			if pick := request.Feature.NeutralPlane; pick != nil && pick.Selection.SourceDocumentID != documentID {
+				return "", nil, fmt.Errorf("%w: cross-document neutral plane", ErrValidation)
 			}
 			for _, pick := range request.Feature.Selections {
 				if pick.Selection.SourceDocumentID != documentID {
@@ -1420,7 +1431,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			return "", nil, fmt.Errorf("%w: delete target identity is required", ErrValidation)
 		}
 		if documentType == "PART" {
-			if kind != "FEATURE" && kind != "SKETCH_ENTITY" && kind != "SKETCH_CONSTRAINT" {
+			if kind != "FEATURE" && kind != "SKETCH_ENTITY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" {
 				break
 			}
 			if (kind == "SKETCH_ENTITY" || kind == "SKETCH_CONSTRAINT") && owner == "" {
@@ -1446,7 +1457,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 				return "", nil, fmt.Errorf("%w: delete target identity is required", ErrValidation)
 			}
 			if documentType == "PART" {
-				if kind != "FEATURE" && kind != "SKETCH_ENTITY" && kind != "SKETCH_CONSTRAINT" {
+				if kind != "FEATURE" && kind != "SKETCH_ENTITY" && kind != "SKETCH_CONSTRAINT" && kind != "DATUM_PLANE" && kind != "DATUM_AXIS" {
 					valid = false
 					break
 				}

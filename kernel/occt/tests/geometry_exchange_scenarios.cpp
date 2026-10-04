@@ -6,6 +6,16 @@
 #include <gtest/gtest.h>
 
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepFilletAPI_MakeFillet.hxx>
+#include <BRepAlgoAPI_Common.hxx>
+#include <BRepAlgoAPI_Cut.hxx>
+#include <BRepAdaptor_Surface.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
+#include <BRepCheck_Analyzer.hxx>
+#include <BRepGProp.hxx>
+#include <BRep_Tool.hxx>
+#include <TopoDS.hxx>
+#include <GProp_GProps.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <TopExp.hxx>
 #include <TopTools_IndexedMapOfShape.hxx>
@@ -586,6 +596,30 @@ TEST(GeometryExchange, RevolveProvidesCompleteTopologyHistory) {
     EXPECT_EQ(evaluation.feature_results.front().semantic_outputs.size(),
               topology.face_count + topology.edge_count + topology.vertex_count);
     EXPECT_NEAR(kernel.getVolume(evaluation.geometry_id), 375.0 * 3.14159265358979323846, 1e-6);
+}
+
+TEST(GeometryExchange, RevolveAboutProfileBoundaryHasCompleteHistory) {
+    OcctKernel kernel;
+    ProfilePadSpec revolve;
+    revolve.feature_id = "revolve-boundary";
+    revolve.body_id = "body";
+    revolve.profile_feature_id = "sketch";
+    revolve.regions = {rectangular_region("section", 5, 2, 10, 10)};
+    revolve.generator = "REVOLVE";
+    revolve.axis_start = {5, 2};
+    revolve.axis_end = {5, 10};
+    revolve.body_operation = "NEW_BODY";
+    for (const double angle : {std::acos(-1.0), 2 * std::acos(-1.0)}) {
+        SCOPED_TRACE(angle);
+        revolve.revolve_angle = angle;
+        const auto evaluation = kernel.evaluateProfilePadsWithHistory({revolve});
+        const auto topology = kernel.getTopology(evaluation.geometry_id);
+        EXPECT_TRUE(evaluation.feature_results.back().topology_history_complete);
+        EXPECT_EQ(evaluation.feature_results.back().semantic_outputs.size(), topology.face_count + topology.edge_count + topology.vertex_count);
+        EXPECT_NEAR(kernel.getVolume(evaluation.geometry_id), 100 * angle, 1e-6);
+        const auto repeat = kernel.evaluateProfilePadsWithHistory({revolve});
+        EXPECT_EQ(evaluation.feature_results.back().topology_history.evidence_digest, repeat.feature_results.back().topology_history.evidence_digest);
+    }
 }
 
 TEST(GeometryExchange, NamingFixtureCutRetainsModifiedTopFace) {
@@ -1604,6 +1638,232 @@ TEST(GeometryExchange, LocalModifiersUseSemanticInputsAndCompleteHistory) {
                  std::invalid_argument);
 }
 
+TEST(GeometryExchange, ChamferedTrihedralCornerFillets) {
+    const auto readShape = [](const std::vector<uint8_t>& bytes) {
+        std::istringstream stream(std::string(bytes.begin(), bytes.end()));
+        BRep_Builder builder;
+        TopoDS_Shape shape;
+        BRepTools::Read(shape, stream, builder);
+        return shape;
+    };
+    const auto volume = [](const TopoDS_Shape& shape) {
+        GProp_GProps props;
+        BRepGProp::VolumeProperties(shape, props);
+        return props.Mass();
+    };
+    // Rotate the entire construction: the special corner is a topology/support
+    // relation, never a world-axis or coordinate-based identity in production.
+    for (int pose = 0; pose < 3; ++pose) {
+        SCOPED_TRACE(pose);
+        OcctKernel kernel;
+        ProfilePadSpec base;
+        base.feature_id = "base";
+        base.body_id = "body";
+        base.profile_feature_id = "sketch";
+        base.pad_length = 40;
+        base.regions = {rectangular_region("region", 0, 0, 20, 30)};
+        gp_Dir u(1, 0, 0), n(0, 0, 1);
+        gp_Pnt origin(0, 0, 0);
+        if (pose == 1) { u = gp_Dir(0, 1, 0); n = gp_Dir(-1, 0, 0); origin = gp_Pnt(7, -11, 5); }
+        if (pose == 2) { u = gp_Dir(1, 1, 0); n = gp_Dir(-1, 1, 2); origin = gp_Pnt(7, -11, 5); }
+        const gp_Dir v = n.Crossed(u);
+        base.plane_origin = {origin.X(), origin.Y(), origin.Z()};
+        base.plane_u_direction = {u.X(), u.Y(), u.Z()};
+        base.plane_normal = {n.X(), n.Y(), n.Z()};
+        const auto local = [&](const Vec3& point) {
+            const gp_Vec delta(origin, gp_Pnt(point.x, point.y, point.z));
+            return Vec3{delta.Dot(gp_Vec(u)), delta.Dot(gp_Vec(v)), delta.Dot(gp_Vec(n))};
+        };
+        const auto initial = kernel.evaluateProfilePadsWithHistory({base});
+        const auto initialTopology = kernel.getTopology(initial.geometry_id);
+        ProfilePadSpec chamfer;
+        chamfer.feature_id = "chamfer";
+        chamfer.body_id = "body";
+        chamfer.input_feature_id = "base";
+        chamfer.generator = "CHAMFER";
+        chamfer.pad_length = 1;
+        for (const auto& output : initial.feature_results.back().semantic_outputs) {
+            if (output.topology_type != PersistentTopologyType::edge) continue;
+            const auto it = std::find_if(initialTopology.edges.begin(), initialTopology.edges.end(), [&](const auto& e) { return e.local_id == output.local_id; });
+            if (it != initialTopology.edges.end() && it->render_points.size() > 1 &&
+                std::all_of(it->render_points.begin(), it->render_points.end(), [&](const auto& point) { const auto p = local(point); return std::abs(p.x) < 1e-7 && std::abs(p.y) < 1e-7; })) {
+                const auto& r = output.semantic_ref;
+                chamfer.selections.push_back({r.feature_id, r.output_slot, r.source_ids});
+            }
+        }
+        ASSERT_EQ(chamfer.selections.size(), 1);
+        const auto beveled = kernel.evaluateProfilePadsWithHistory({base, chamfer});
+        const auto inputBytes = kernel.serializeBrepr(beveled.geometry_id);
+        const auto bevelShape = readShape(inputBytes);
+        const auto topology = kernel.getTopology(beveled.geometry_id);
+        ProfilePadSpec fillet;
+        fillet.feature_id = "fillet";
+        fillet.body_id = "body";
+        fillet.input_feature_id = "chamfer";
+        fillet.generator = "FILLET";
+        for (const auto& output : beveled.feature_results.back().semantic_outputs) {
+            if (output.topology_type != PersistentTopologyType::edge) continue;
+            const auto it = std::find_if(topology.edges.begin(), topology.edges.end(), [&](const auto& e) { return e.local_id == output.local_id; });
+            if (it != topology.edges.end() && it->render_points.size() > 1 &&
+                std::all_of(it->render_points.begin(), it->render_points.end(), [&](const auto& p) { return std::abs(local(p).z) < 1e-7; }) &&
+                (std::all_of(it->render_points.begin(), it->render_points.end(), [&](const auto& p) { return std::abs(local(p).x) < 1e-7; }) ||
+                 std::all_of(it->render_points.begin(), it->render_points.end(), [&](const auto& p) { return std::abs(local(p).y) < 1e-7; }))) {
+                const auto& r = output.semantic_ref;
+                fillet.selections.push_back({r.feature_id, r.output_slot, r.source_ids});
+            }
+        }
+        ASSERT_EQ(fillet.selections.size(), 2);
+        for (double radius : {0.5, 1.0, 1.01, 1.5, 2.0, 5.0}) {
+            SCOPED_TRACE(radius);
+            fillet.pad_length = radius;
+            const auto result = kernel.evaluateProfilePadsWithHistory({base, chamfer, fillet});
+            const auto shape = readShape(kernel.serializeBrepr(result.geometry_id));
+            EXPECT_TRUE(BRepCheck_Analyzer(shape).IsValid());
+            EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+            // Independent OCCT reference: round the un-beveled box in one
+            // operation, then clip by the original beveled solid.
+            const auto box = BRepPrimAPI_MakeBox(20, 30, 40).Shape();
+            BRepFilletAPI_MakeFillet reference(box);
+            TopTools_IndexedMapOfShape boxEdges;
+            TopExp::MapShapes(box, TopAbs_EDGE, boxEdges);
+            for (int e = 1; e <= boxEdges.Extent(); ++e) {
+                bool x0 = true, y0 = true, z0 = true;
+                for (TopExp_Explorer vertices(boxEdges(e), TopAbs_VERTEX); vertices.More(); vertices.Next()) {
+                    const auto p = BRep_Tool::Pnt(TopoDS::Vertex(vertices.Current()));
+                    x0 &= std::abs(p.X()) < 1e-7;
+                    y0 &= std::abs(p.Y()) < 1e-7;
+                    z0 &= std::abs(p.Z()) < 1e-7;
+                }
+                if (z0 && (x0 || y0)) reference.Add(radius, TopoDS::Edge(boxEdges(e)));
+            }
+            reference.Build();
+            ASSERT_TRUE(reference.IsDone());
+            gp_Trsf transform;
+            transform.SetValues(u.X(), v.X(), n.X(), origin.X(), u.Y(), v.Y(), n.Y(), origin.Y(), u.Z(), v.Z(), n.Z(), origin.Z());
+            BRepAlgoAPI_Common clipped(BRepBuilderAPI_Transform(reference.Shape(), transform, true).Shape(), bevelShape);
+            ASSERT_TRUE(clipped.IsDone());
+            EXPECT_NEAR(kernel.getVolume(result.geometry_id), volume(clipped.Shape()), 1e-5);
+            for (bool reverse : {false, true}) {
+                BRepAlgoAPI_Cut difference(reverse ? shape : clipped.Shape(), reverse ? clipped.Shape() : shape);
+                ASSERT_TRUE(difference.IsDone());
+                EXPECT_NEAR(volume(difference.Shape()), 0, 1e-6);
+            }
+            TopTools_IndexedMapOfShape faces;
+            TopExp::MapShapes(shape, TopAbs_FACE, faces);
+            int cylinders = 0;
+            for (int f = 1; f <= faces.Extent(); ++f) {
+                const BRepAdaptor_Surface surface(TopoDS::Face(faces(f)));
+                if (surface.GetType() == GeomAbs_Cylinder) {
+                    ++cylinders;
+                    EXPECT_NEAR(surface.Cylinder().Radius(), radius, 1e-8);
+                } else EXPECT_EQ(surface.GetType(), GeomAbs_Plane);
+            }
+            EXPECT_EQ(cylinders, 2);
+            const auto mesh = kernel.tessellate(result.geometry_id, 0.01, 0.1);
+            ASSERT_FALSE(mesh.triangles.empty());
+            EXPECT_FALSE(make_glb(mesh).empty());
+            std::set<uint32_t> meshedFaces(mesh.face_ids.begin(), mesh.face_ids.end());
+            EXPECT_EQ(meshedFaces.size(), static_cast<size_t>(faces.Extent()));
+            double meshVolume = 0;
+            for (const auto& p : mesh.vertices) EXPECT_TRUE(std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.z));
+            for (const auto& triangle : mesh.triangles) {
+                const auto a = local(mesh.vertices.at(triangle.v0));
+                const auto b = local(mesh.vertices.at(triangle.v1));
+                const auto c = local(mesh.vertices.at(triangle.v2));
+                const gp_Vec ab(b.x-a.x, b.y-a.y, b.z-a.z), ac(c.x-a.x, c.y-a.y, c.z-a.z);
+                EXPECT_GT(ab.Crossed(ac).Magnitude(), 1e-12);
+                meshVolume += gp_Vec(a.x,a.y,a.z).Dot(gp_Vec(b.x,b.y,b.z).Crossed(gp_Vec(c.x,c.y,c.z))) / 6;
+            }
+            EXPECT_NEAR(meshVolume, kernel.getVolume(result.geometry_id), 0.5);
+            OcctKernel cold;
+            auto reversed = fillet;
+            std::reverse(reversed.selections.begin(), reversed.selections.end());
+            const auto repeated = cold.evaluateProfilePadsWithHistory({base, chamfer, reversed});
+            EXPECT_EQ(result.feature_results.back().topology_history.evidence_digest, repeated.feature_results.back().topology_history.evidence_digest);
+            EXPECT_EQ(inputBytes, kernel.serializeBrepr(beveled.geometry_id));
+        }
+        fillet.pad_length = 1000;
+        EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base, chamfer, fillet}), std::invalid_argument);
+    }
+}
+
+TEST(GeometryExchange, ChamferedBoxBottomFilletsAndInwardShell) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id = "base";
+    base.body_id = "body";
+    base.profile_feature_id = "sketch";
+    base.pad_length = 40;
+    base.regions = {rectangular_region("region", 0, 0, 20, 30)};
+    const auto initial = kernel.evaluateProfilePadsWithHistory({base});
+    ProfilePadSpec chamfer;
+    chamfer.feature_id = "chamfer";
+    chamfer.body_id = "body";
+    chamfer.input_feature_id = "base";
+    chamfer.generator = "CHAMFER";
+    chamfer.pad_length = 2;
+    for (const auto& output : initial.feature_results.back().semantic_outputs) {
+        const auto& r = output.semantic_ref;
+        if (r.output_slot.rfind("VERTICAL_FROM_PROFILE_ENDPOINTS/", 0) == 0)
+            chamfer.selections.push_back({r.feature_id, r.output_slot, r.source_ids});
+    }
+    ASSERT_EQ(chamfer.selections.size(), 4);
+    const auto beveled = kernel.evaluateProfilePadsWithHistory({base, chamfer});
+    const auto topology = kernel.getTopology(beveled.geometry_id);
+    ProfilePadSpec fillet;
+    fillet.feature_id = "fillet";
+    fillet.body_id = "body";
+    fillet.input_feature_id = "chamfer";
+    fillet.generator = "FILLET";
+    fillet.pad_length = 1;
+    ProfilePadSpec shell = fillet;
+    shell.feature_id = "shell";
+    shell.generator = "SHELL";
+    shell.pad_length = 1;
+    for (const auto& output : beveled.feature_results.back().semantic_outputs) {
+        const auto& r = output.semantic_ref;
+        if (output.topology_type == PersistentTopologyType::edge) {
+            const auto it = std::find_if(topology.edges.begin(), topology.edges.end(), [&](const auto& e) { return e.local_id == output.local_id; });
+            if (it != topology.edges.end() && it->render_points.size() > 1 &&
+                std::all_of(it->render_points.begin(), it->render_points.end(), [](const auto& v) { return std::abs(v.z) < 1e-7; }))
+                fillet.selections.push_back({r.feature_id, r.output_slot, r.source_ids});
+        }
+        if (r.output_slot.rfind("END_CAP/", 0) == 0)
+            shell.selections.push_back({r.feature_id, r.output_slot, r.source_ids});
+    }
+    ASSERT_GE(fillet.selections.size(), 4);
+    for (size_t count = 1; count <= fillet.selections.size(); ++count) {
+        auto subset = fillet;
+        subset.selections.resize(count);
+        SCOPED_TRACE(count);
+        ProfileEvaluationResult result;
+        EXPECT_NO_THROW(result = kernel.evaluateProfilePadsWithHistory({base, chamfer, subset}));
+        if (result.geometry_id.empty()) continue;
+        EXPECT_LT(kernel.getVolume(result.geometry_id), kernel.getVolume(beveled.geometry_id));
+        EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+    }
+    ASSERT_EQ(shell.selections.size(), 1);
+    const auto hollow = kernel.evaluateProfilePadsWithHistory({base, chamfer, shell});
+    EXPECT_LT(kernel.getVolume(hollow.geometry_id), kernel.getVolume(beveled.geometry_id));
+    EXPECT_GT(kernel.getVolume(hollow.geometry_id), 0);
+    EXPECT_TRUE(hollow.feature_results.back().topology_history_complete);
+    // The inward cavity remains valid when its offset erases a small bevel.
+    chamfer.pad_length = 0.5;
+    const auto smallBevel = kernel.evaluateProfilePadsWithHistory({base, chamfer});
+    shell.selections.clear();
+    for (const auto& output : smallBevel.feature_results.back().semantic_outputs) {
+        const auto& r = output.semantic_ref;
+        if (r.output_slot.rfind("END_CAP/",0) == 0) shell.selections.push_back({r.feature_id,r.output_slot,r.source_ids});
+    }
+    const auto smallHollow = kernel.evaluateProfilePadsWithHistory({base, chamfer, shell});
+    EXPECT_NEAR(kernel.getVolume(smallHollow.geometry_id), 23980 - 18*28*39, 1e-5);
+    EXPECT_TRUE(smallHollow.feature_results.back().topology_history_complete);
+    const auto repeated = kernel.evaluateProfilePadsWithHistory({base, chamfer, shell});
+    EXPECT_EQ(smallHollow.feature_results.back().topology_history.evidence_digest, repeated.feature_results.back().topology_history.evidence_digest);
+    shell.pad_length = 1000;
+    EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base,chamfer,shell}), std::invalid_argument);
+}
+
 TEST(GeometryExchange, LoftOrderedSectionsHaveHistoryAndSurviveBooleanAndChamfer) {
     OcctKernel kernel;
     ProfilePadSpec loft;
@@ -1642,7 +1902,7 @@ TEST(GeometryExchange, LoftOrderedSectionsHaveHistoryAndSurviveBooleanAndChamfer
         chamfer.body_id = "body";
         chamfer.input_feature_id = "cut";
         chamfer.generator = "CHAMFER";
-        chamfer.pad_length = 0.5;
+        chamfer.pad_length = 2;
         for (const auto& output : bored.feature_results.back().semantic_outputs)
             if (output.topology_type == PersistentTopologyType::edge &&
                 output.evidence.geometry_type == "LINE") {

@@ -909,6 +909,15 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 			}
 		}
 		if err == nil {
+			var previous PartModel
+			var beforePartJSON []byte
+			if readErr := service.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE id=$1`, input.headRevision).Scan(&beforePartJSON); readErr != nil {
+				return readErr
+			}
+			if readErr := json.Unmarshal(beforePartJSON, &previous); readErr != nil {
+				return readErr
+			}
+			retainFailedBodyDisplay(&model, previous, input.headRevision)
 			input.modelJSON, _ = json.Marshal(model)
 			modelHash = canonicalModelHash(input.modelJSON)
 			graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, input.changes.ImpactSeeds, nil)

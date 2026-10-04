@@ -55,3 +55,11 @@ assert.ok(files.includes("versionId=revision&amp;bodyId=b"));
 console.log("Part Files lists both frozen Body artifact groups and scoped download links");
 
 assert.ok(!/<button|<input|contenteditable|ant-typography-edit/.test(files), "Body properties must be read-only");
+
+view.part.datumAxes=[{id:"axis-custom",name:"Inspection axis",origin:[3,4,5],direction:[0,1,0]}];
+const axisHTML=renderToStaticMarkup(React.createElement(Properties,{view,selection:{kind:"axis",axis:"DATUM",entityId:"axis-custom",id:"root:axis-custom"},workbench:Object.keys(CAD_WORKBENCHES)[0],activeTool:"select",navigationProfile:"cad"}));
+assert.ok(axisHTML.includes("Inspection axis") && axisHTML.includes("3, 4, 5") && axisHTML.includes("0, 1, 0"),"custom axis inspector displays exact origin and direction");
+view.part.bodies[0]={...view.part.bodies[0],geometryKey:undefined,displayFallback:{geometryKey:"ga",sourceVersionId:"successful-revision"}};
+const failedHTML=renderToStaticMarkup(React.createElement(PartBodies,{view}));
+assert.ok(failedHTML.includes("上次成功结果"));
+assert.equal((failedHTML.match(/>Download</g)??[]).length,3,"failed body has no authoritative artifact downloads");

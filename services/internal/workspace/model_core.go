@@ -27,6 +27,7 @@ const (
 	typeCreateBooleanFeature   = "occccad://part/boolean/create"
 	typeCreateModifierFeature  = "occccad://part/modifier/create"
 	typeCreateSolidFeature     = "occccad://part/solid-generator/create"
+	typeSetFeatureSuppression  = "occccad://part/feature/suppression/set"
 	typeEditFeature            = "occccad://part/feature/edit"
 	typeRenameFeature          = "occccad://part/feature/rename"
 	typeCreateDatumPlane       = "occccad://part/datum-plane/create"
@@ -80,6 +81,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeCreateBooleanFeature, "PART", applyCreateFeature},
 		commandHandler{typeCreateModifierFeature, "PART", applyCreateFeature},
 		commandHandler{typeEditFeature, "PART", applyEditFeature},
+		commandHandler{typeSetFeatureSuppression, "PART", applyFeatureSuppression},
 		commandHandler{typeRenameFeature, "PART", applyRenameFeature},
 		commandHandler{typeCreateDatumPlane, "PART", applyCreateDatumPlane},
 		commandHandler{typeCreateDatumAxis, "PART", applyCreateDatumAxis},
@@ -225,6 +227,8 @@ func applyDeletePartNode(modelJSON, payloadJSON json.RawMessage) (json.RawMessag
 	normalizePartModel(&model)
 	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
 	switch payload.TargetKind {
+	case "DATUM_PLANE", "DATUM_AXIS":
+		return deleteDatum(model, payload.TargetKind, payload.TargetID)
 	case "FEATURE":
 		index := -1
 		for i := range model.Features {
@@ -1282,6 +1286,11 @@ func applyCreateDatumPlane(modelJSON, payloadJSON json.RawMessage) (json.RawMess
 		return nil, modelcore.ChangeSet{}, err
 	}
 	normalizePartModel(&model)
+	origin, u, normal, err := validatedSupportFrame(payload.Plane.Origin, payload.Plane.UDirection, payload.Plane.Normal)
+	if payload.Plane.ID == "" || err != nil {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: invalid datum plane frame", ErrValidation)
+	}
+	payload.Plane.Origin, payload.Plane.UDirection, payload.Plane.Normal = origin, u, normal
 	for _, plane := range model.DatumPlanes {
 		if plane.ID == payload.Plane.ID {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate datum plane identity", ErrValidation)
@@ -1303,6 +1312,11 @@ func applyCreateDatumAxis(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 		return nil, modelcore.ChangeSet{}, err
 	}
 	normalizePartModel(&model)
+	direction, ok := normalize3(payload.Axis.Direction)
+	if payload.Axis.ID == "" || !ok || !finite(payload.Axis.Origin[0]) || !finite(payload.Axis.Origin[1]) || !finite(payload.Axis.Origin[2]) {
+		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: invalid datum axis frame", ErrValidation)
+	}
+	payload.Axis.Direction = direction
 	for _, axis := range model.DatumAxes {
 		if axis.ID == payload.Axis.ID {
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: duplicate datum axis identity", ErrValidation)
@@ -2343,12 +2357,13 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			finishGeometry()
 			if err != nil {
 				var failed *solidEvaluationFailure
-				if !errors.As(err, &failed) || (prepared.command.TypeURI != typeEditFeature && prepared.command.TypeURI != typeSetParameterLiteral && prepared.command.TypeURI != typeSetParameterExpression && prepared.command.TypeURI != typeEditParameter && prepared.command.TypeURI != typeEditSketch) {
+				if !errors.As(err, &failed) || (prepared.command.TypeURI != typeEditFeature && prepared.command.TypeURI != typeSetFeatureSuppression && prepared.command.TypeURI != typeSetParameterLiteral && prepared.command.TypeURI != typeSetParameterExpression && prepared.command.TypeURI != typeEditParameter && prepared.command.TypeURI != typeEditSketch) {
 					return err
 				}
 				revisionState, evaluationStatus = "FAILED", "FAILED"
 			}
 		}
+		retainFailedBodyDisplay(&model, beforeModel, prepared.headRevision)
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
 		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)

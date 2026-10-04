@@ -450,6 +450,11 @@ func validatePartStructure(model PartModel) error {
 				return fmt.Errorf("%w: solid feature %s has invalid BodyOperation", ErrValidation, feature.ID)
 			}
 		}
+		if feature.Type == "DRAFT" && feature.NeutralPlaneID != "" {
+			if _, exists := datums[feature.NeutralPlaneID]; !exists {
+				return fmt.Errorf("%w: neutral datum plane missing", ErrValidation)
+			}
+		}
 		if err := validateSolidStage(feature, features); err != nil {
 			return err
 		}
@@ -587,7 +592,14 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 		for _, section := range feature.Sections {
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + section.SketchID), Target: key, Kind: modelcore.ReadGeometry})
 		}
-		if feature.Type == "DRAFT" {
+		if feature.Type == "DRAFT" && feature.NeutralPlane != nil {
+			pick := feature.NeutralPlane
+			source := pick.Selection.Anchor.FeatureID
+			if tip := bodyTips[pick.Selection.SourceBodyID]; tip != "" {
+				source = tip
+			}
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + source), Target: key, Kind: modelcore.ReadTopology})
+		} else if feature.Type == "DRAFT" {
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + feature.NeutralPlaneID), Target: key, Kind: modelcore.ReadGeometry})
 		}
 		if feature.Sketch != nil {

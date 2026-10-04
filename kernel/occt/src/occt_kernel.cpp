@@ -21,6 +21,8 @@
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
 #include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
+#include <BRepPrimAPI_MakeCylinder.hxx>
+#include <BRepPrimAPI_MakeHalfSpace.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepTools.hxx>
@@ -940,17 +942,17 @@ ToolBuild make_profile_tool(const ProfilePadSpec& spec) {
             if (!revolve.IsDone())
                 throw std::runtime_error("profile revolve failed: " + region.id);
             generated = revolve.Shape();
+            const auto first_named = result.named.size();
             name_sweep(revolve);
-            // A full turn has one seam rather than two independent caps/boundaries.
-            // Keep only actual final topology; shared seam identities are merged later.
+            // Full turns merge seams; points/edges on the rotation axis can also
+            // disappear. OCCT returns helper shapes for these source vertices.
+            // Retain only actual generated-region members, including vertex refs
+            // whose source IDs are endpoint IDs rather than the region ID.
             TopTools_IndexedMapOfShape members;
             TopExp::MapShapes(generated, members);
-            result.named.erase(std::remove_if(result.named.begin(), result.named.end(),
+            result.named.erase(std::remove_if(result.named.begin() + first_named, result.named.end(),
                                               [&](const auto& named) {
-                                                  return named.ref.source_ids.size() &&
-                                                         named.ref.source_ids.front() ==
-                                                             region.id &&
-                                                         !members.Contains(named.shape);
+                                                  return !members.Contains(named.shape);
                                               }),
                                result.named.end());
         }
@@ -1599,11 +1601,203 @@ BodyOperationResult apply_body_operation(const TopoDS_Shape& input,
     return {result, mapped, std::move(derived), std::move(diagnostics)};
 }
 
+// Expose a composed OCCT history through the same modifier naming gate.
+struct ComposedModifier {
+    TopoDS_Shape shape;
+    Handle(BRepTools_History) history;
+    bool IsDone() const { return !shape.IsNull(); }
+    const TopoDS_Shape& Shape() const { return shape; }
+    const TopTools_ListOfShape& Modified(const TopoDS_Shape& source) { return history->Modified(source); }
+    const TopTools_ListOfShape& Generated(const TopoDS_Shape& source) { return history->Generated(source); }
+    bool IsDeleted(const TopoDS_Shape& source) { return history->IsRemoved(source); }
+};
+
+// Two orthogonal edge rounds separated by a planar bevel share one support
+// face. Construct both constant-radius cylinders from the ORIGINAL supports,
+// then trim their corner wedges against the body. This is the same mitered
+// intersection as rounding the sharp corner and clipping it by the bevel; a
+// small bevel can disappear without moving either cylinder or changing radius.
+// Return an empty result outside this deliberately narrow analytic case.
+ComposedModifier planar_bevel_corner_fillets(const TopoDS_Shape& input,
+                                             const std::vector<TopoDS_Shape>& selected,
+                                             double radius) {
+    if (selected.size() != 2 || solid_count(input) != 1) return {};
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(input, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+    TopoDS_Shape shared;
+    for (TopTools_ListIteratorOfListOfShape a(edgeFaces.FindFromKey(selected[0])); a.More(); a.Next())
+        for (TopTools_ListIteratorOfListOfShape b(edgeFaces.FindFromKey(selected[1])); b.More(); b.Next())
+            if (a.Value().IsSame(b.Value())) shared = a.Value();
+    if (shared.IsNull()) return {};
+    TopTools_IndexedMapOfShape endpoints[2];
+    for (int i = 0; i < 2; ++i) TopExp::MapShapes(selected[i], TopAbs_VERTEX, endpoints[i]);
+    for (int i = 1; i <= endpoints[0].Extent(); ++i)
+        if (endpoints[1].Contains(endpoints[0](i))) return {};
+    bool bridge = false;
+    for (TopExp_Explorer edges(shared, TopAbs_EDGE); edges.More(); edges.Next()) {
+        bool connects[2] = {false, false};
+        for (TopExp_Explorer vertices(edges.Current(), TopAbs_VERTEX); vertices.More(); vertices.Next())
+            for (int i = 0; i < 2; ++i) connects[i] |= endpoints[i].Contains(vertices.Current());
+        if (connects[0] && connects[1]) bridge = true;
+    }
+    if (!bridge) return {};
+    BRepAdaptor_Curve curves[2] = {BRepAdaptor_Curve(TopoDS::Edge(selected[0])),
+                                 BRepAdaptor_Curve(TopoDS::Edge(selected[1]))};
+    if (curves[0].GetType() != GeomAbs_Line || curves[1].GetType() != GeomAbs_Line ||
+        std::abs(curves[0].Line().Direction().Dot(curves[1].Line().Direction())) > 1e-8) return {};
+    TopTools_IndexedMapOfShape faces, vertices;
+    TopExp::MapShapes(input, TopAbs_FACE, faces);
+    TopExp::MapShapes(input, TopAbs_VERTEX, vertices);
+    std::vector<gp_Dir> outward;
+    for (int i = 1; i <= faces.Extent(); ++i) {
+        BRepAdaptor_Surface surface(TopoDS::Face(faces(i)));
+        if (surface.GetType() != GeomAbs_Plane) return {};
+        const auto plane = surface.Plane();
+        auto normal = oriented_plane_normal(TopoDS::Face(faces(i)), plane);
+        double low = 0, high = 0;
+        for (int v = 1; v <= vertices.Extent(); ++v) {
+            const double distance = gp_Vec(plane.Location(), BRep_Tool::Pnt(TopoDS::Vertex(vertices(v)))).Dot(gp_Vec(normal));
+            low = std::min(low, distance); high = std::max(high, distance);
+        }
+        if (low < -1e-7 && high > 1e-7) return {};
+        if (high > 1e-7) normal.Reverse();
+        outward.push_back(normal);
+    }
+    struct Support { gp_Pnt point; gp_Vec axis, first, second; double low, high; };
+    std::vector<Support> supports;
+    for (int i = 0; i < 2; ++i) {
+        const auto& adjacent = edgeFaces.FindFromKey(selected[i]);
+        if (adjacent.Extent() != 2) return {};
+        const gp_Vec first(outward[faces.FindIndex(adjacent.First())-1]);
+        const gp_Vec second(outward[faces.FindIndex(adjacent.Last())-1]);
+        if (std::abs(first.Dot(second)) > 1e-8) return {};
+        const auto point = curves[i].Line().Location();
+        const gp_Vec axis(curves[i].Line().Direction());
+        double low = 0, high = 0, firstDepth = 0, secondDepth = 0;
+        for (int v = 1; v <= vertices.Extent(); ++v) {
+            const gp_Vec delta(point, BRep_Tool::Pnt(TopoDS::Vertex(vertices(v))));
+            low = std::min(low, delta.Dot(axis)); high = std::max(high, delta.Dot(axis));
+            firstDepth = std::max(firstDepth, -delta.Dot(first));
+            secondDepth = std::max(secondDepth, -delta.Dot(second));
+        }
+        if (radius >= std::min(firstDepth, secondDepth) - Precision::Confusion())
+            throw std::invalid_argument("FILLET_RADIUS_EXCEEDS_SUPPORT");
+        supports.push_back({point, axis, first, second, low-radius, high+radius});
+    }
+    ComposedModifier result{input, new BRepTools_History()};
+    std::vector<TopoDS_Shape> cutters;
+    for (int i = 0; i < 2; ++i) {
+        const auto& support = supports[i];
+        const auto corner = support.point.Translated(support.axis * support.low);
+        const auto center = corner.Translated((support.first + support.second) * -radius);
+        const auto travel = support.axis * (support.high-support.low);
+        BRepBuilderAPI_MakePolygon polygon;
+        polygon.Add(corner);
+        polygon.Add(corner.Translated(support.first * -radius));
+        polygon.Add(center);
+        polygon.Add(corner.Translated(support.second * -radius));
+        polygon.Close();
+        const auto prism = BRepPrimAPI_MakePrism(BRepBuilderAPI_MakeFace(polygon.Wire()).Face(), travel).Shape();
+        // Keep the periodic surface seam opposite the retained quarter arc.
+        // A world-default X direction would split oblique rounds into extra
+        // faces and expose an artificial edge in the viewport.
+        const gp_Dir seam((support.first + support.second) * -1);
+        BRepPrimAPI_MakeCylinder cylinder(gp_Ax2(center, gp_Dir(support.axis), seam), radius, travel.Magnitude());
+        // Primitive construction is exact source evidence, followed by the
+        // actual Boolean history; no nearest-face/edge recovery is involved.
+        result.history->AddGenerated(selected[i], cylinder.Face());
+        TopTools_ListOfShape objects, tools;
+        objects.Append(prism); tools.Append(cylinder.Shape());
+        BRepAlgoAPI_Cut wedge;
+        wedge.SetArguments(objects); wedge.SetTools(tools);
+        wedge.SetNonDestructive(Standard_True);
+        wedge.Build();
+        if (!wedge.IsDone()) throw std::runtime_error("FILLET_CORNER_TOOL_FAILED");
+        TopTools_ListOfShape arguments;
+        arguments.Append(prism); arguments.Append(cylinder.Shape());
+        result.history->Merge(arguments, wedge);
+        cutters.push_back(wedge.Shape());
+    }
+    for (const auto& cutter : cutters) {
+        TopTools_ListOfShape objects, tools;
+        objects.Append(result.shape); tools.Append(cutter);
+        BRepAlgoAPI_Cut cut;
+        cut.SetArguments(objects); cut.SetTools(tools);
+        cut.SetNonDestructive(Standard_True);
+        cut.Build();
+        if (!cut.IsDone()) throw std::runtime_error("FILLET_CORNER_TRIM_FAILED");
+        TopTools_ListOfShape arguments;
+        arguments.Append(result.shape); arguments.Append(cutter);
+        result.history->Merge(arguments, cut);
+        result.shape = cut.Shape();
+    }
+    validate_body_solid_set(result.shape);
+    return result;
+}
+
+// Exact inward cavity for convex, all-planar solids. Small bevel faces may
+// disappear during offset; half-space intersection handles that event without
+// adopting OCCT's unchanged-input result. The analytic face offsets and every
+// Boolean stage retain their real generated/modified/deleted history.
+ComposedModifier convex_planar_shell(const TopoDS_Shape& input,
+                                    const std::vector<TopoDS_Shape>& removed,
+                                    double thickness) {
+    if (solid_count(input) != 1) throw std::invalid_argument("SHELL_PLANAR_FALLBACK_UNSUPPORTED");
+    Bnd_Box bounds;
+    BRepBndLib::Add(input, bounds);
+    Standard_Real xmin, ymin, zmin, xmax, ymax, zmax;
+    bounds.Get(xmin, ymin, zmin, xmax, ymax, zmax);
+    const double extent = std::max({xmax-xmin, ymax-ymin, zmax-zmin, thickness}) * 2;
+    TopoDS_Shape cavity = BRepPrimAPI_MakeBox(gp_Pnt(xmin-extent,ymin-extent,zmin-extent), gp_Pnt(xmax+extent,ymax+extent,zmax+extent)).Shape();
+    Handle(BRepTools_History) history = new BRepTools_History();
+    for (TopExp_Explorer faces(input, TopAbs_FACE); faces.More(); faces.Next()) {
+        const auto face = TopoDS::Face(faces.Current());
+        BRepAdaptor_Surface surface(face);
+        if (surface.GetType() != GeomAbs_Plane) throw std::invalid_argument("SHELL_PLANAR_FALLBACK_UNSUPPORTED");
+        auto plane = surface.Plane();
+        auto normal = oriented_plane_normal(face, plane);
+        const auto point = plane.Location();
+        double minDistance = 0, maxDistance = 0;
+        for (TopExp_Explorer vertices(input, TopAbs_VERTEX); vertices.More(); vertices.Next()) {
+            const auto distance = gp_Vec(point, BRep_Tool::Pnt(TopoDS::Vertex(vertices.Current()))).Dot(gp_Vec(normal));
+            minDistance = std::min(minDistance, distance);
+            maxDistance = std::max(maxDistance, distance);
+        }
+        if (minDistance < -1e-6 && maxDistance > 1e-6) throw std::invalid_argument("SHELL_PLANAR_FALLBACK_NONCONVEX");
+        if (maxDistance > 1e-6) normal.Reverse();
+        if (std::any_of(removed.begin(), removed.end(), [&](const auto& r) { return r.IsSame(face); })) continue;
+        plane.SetLocation(point.Translated(gp_Vec(normal) * -thickness));
+        const auto offsetFace = BRepBuilderAPI_MakeFace(plane).Face();
+        const auto halfspace = BRepPrimAPI_MakeHalfSpace(offsetFace, plane.Location().Translated(gp_Vec(normal) * -extent)).Solid();
+        history->AddGenerated(face, offsetFace);
+        BRepAlgoAPI_Common clip(cavity, halfspace);
+        clip.Build();
+        if (!clip.IsDone() || clip.Shape().IsNull() || solid_count(clip.Shape()) == 0)
+            throw std::invalid_argument("SHELL_THICKNESS_EXCEEDS_INTERIOR");
+        TopTools_ListOfShape arguments;
+        arguments.Append(cavity); arguments.Append(halfspace);
+        history->Merge(arguments, clip);
+        cavity = clip.Shape();
+    }
+    BRepAlgoAPI_Cut cut(input, cavity);
+    cut.Build();
+    if (!cut.IsDone()) throw std::runtime_error("MODIFIER_ALGORITHM_FAILED:SHELL:PLANAR");
+    TopTools_ListOfShape arguments;
+    arguments.Append(input); arguments.Append(cavity);
+    history->Merge(arguments, cut);
+    return {cut.Shape(), history};
+}
+
 // Local modifiers use the exact upstream shape and semantic references. No
 // saved local topology index, geometry search, or nearest-element recovery.
-BodyOperationResult apply_local_modifier(const TopoDS_Shape& input,
-                                         const std::vector<NamedShape>& named,
+BodyOperationResult apply_local_modifier(const TopoDS_Shape& upstream,
+                                         const std::vector<NamedShape>& upstream_named,
                                          const ProfilePadSpec& spec) {
+    // Local OCCT builders can adjust their inputs. Immutable stage artifacts
+    // must never be changed by preview, failure, or a later modifier.
+    BRepBuilderAPI_Copy copy(upstream, Standard_True, Standard_False);
+    const auto input = copy.Shape();
+    const auto named = map_named_shapes(upstream_named, copy, input);
     if (input.IsNull() || spec.selections.empty() || spec.selections.size() > 128)
         throw std::invalid_argument("INVALID_MODIFIER_INPUT");
     std::vector<TopoDS_Shape> selected;
@@ -1661,12 +1855,88 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& input,
     };
     if (spec.generator == "FILLET") {
         validate_positive(spec.pad_length, "fillet radius");
+        // A selection is a set; construction and history must not depend on
+        // the order in which the user picked its members.
+        const auto semantic_key = [&](const TopoDS_Shape& shape) {
+            const auto source = std::find_if(named.begin(), named.end(), [&](const auto& item) { return item.shape.IsSame(shape); });
+            if (source == named.end()) throw std::runtime_error("FILLET_HISTORY_SOURCE_MISSING");
+            return ref_key(source->ref);
+        };
+        std::sort(selected.begin(), selected.end(), [&](const auto& a, const auto& b) { return semantic_key(a) < semantic_key(b); });
+        auto corner = planar_bevel_corner_fillets(input, selected, spec.pad_length);
+        if (corner.IsDone()) return finish(corner);
         BRepFilletAPI_MakeFillet algorithm(input);
-        for (const auto& shape : selected) {
+        for (const auto& shape : selected)
             algorithm.Add(spec.pad_length, TopoDS::Edge(shape));
-        }
         algorithm.Build();
-        return finish(algorithm);
+        if (algorithm.IsDone()) return finish(algorithm);
+        // Simultaneous corner patches can fail on partially selected chamfered
+        // contours. Build the exact requested fillets in deterministic semantic
+        // order, transporting each edge only through real OCCT history.
+        std::vector<std::pair<std::string, TopoDS_Shape>> ordered;
+        for (const auto& shape : selected) {
+            const auto source = std::find_if(named.begin(), named.end(), [&](const auto& item) { return item.shape.IsSame(shape); });
+            if (source == named.end()) throw std::runtime_error("FILLET_HISTORY_SOURCE_MISSING");
+            ordered.emplace_back(ref_key(source->ref), shape);
+        }
+        std::sort(ordered.begin(), ordered.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        const auto build_sequential = [&](bool reverse) {
+            ComposedModifier sequential{input, new BRepTools_History()};
+            std::vector<bool> covered(ordered.size(), false);
+            for (size_t position = 0; position < ordered.size(); ++position) {
+                const size_t index = reverse ? ordered.size()-1-position : position;
+                if (covered[index]) continue;
+                const auto& entry = ordered[index];
+                TopTools_IndexedMapOfShape members;
+                TopExp::MapShapes(sequential.shape, TopAbs_EDGE, members);
+                const auto current_edges = [&](const TopoDS_Shape& original) {
+                    TopTools_ListOfShape current = sequential.history->Modified(original);
+                    if (members.Contains(original)) current.Append(original);
+                    return current;
+                };
+                const auto current = current_edges(entry.second);
+                TopTools_MapOfShape unique;
+                BRepFilletAPI_MakeFillet step(sequential.shape);
+                for (TopTools_ListIteratorOfListOfShape it(current); it.More(); it.Next()) {
+                    if (it.Value().ShapeType() == TopAbs_EDGE && members.Contains(it.Value()) && unique.Add(it.Value()))
+                        step.Add(spec.pad_length, TopoDS::Edge(it.Value()));
+                }
+                if (unique.IsEmpty()) {
+                    // An adjacent same-radius blend can consume a short
+                    // requested edge completely. OCCT deletion is evidence of
+                    // that event; there is no surviving edge to round again.
+                    if (sequential.history->IsRemoved(entry.second)) continue;
+                    throw std::runtime_error("FILLET_HISTORY_EDGE_MISSING");
+                }
+                // A previous contour can propagate over several requested
+                // edges once its neighbors become tangent. Do not fillet an
+                // already treated contour for a second time.
+                for (size_t candidate = 0; candidate < ordered.size(); ++candidate) {
+                    bool found = false, all = true;
+                    const auto descendants = current_edges(ordered[candidate].second);
+                    for (TopTools_ListIteratorOfListOfShape it(descendants); it.More(); it.Next()) {
+                        if (it.Value().ShapeType() != TopAbs_EDGE || !members.Contains(it.Value())) continue;
+                        found = true;
+                        if (step.Contour(TopoDS::Edge(it.Value())) == 0) all = false;
+                    }
+                    if (found && all) covered[candidate] = true;
+                }
+                step.Build();
+                if (!step.IsDone()) throw std::runtime_error("MODIFIER_ALGORITHM_FAILED:FILLET:SEQUENTIAL");
+                validate_body_solid_set(step.Shape());
+                TopTools_ListOfShape arguments;
+                arguments.Append(sequential.shape);
+                sequential.history->Merge(arguments, step);
+                sequential.shape = step.Shape();
+            }
+            return sequential;
+        };
+        ComposedModifier sequential;
+        try { sequential = build_sequential(false); }
+        catch (const std::exception&) { sequential = build_sequential(true); }
+        auto result = finish(sequential);
+        result.diagnostics.push_back("FILLET_SEQUENTIAL_HISTORY");
+        return result;
     }
     if (spec.generator == "CHAMFER") {
         validate_positive(spec.pad_length, "chamfer distance");
@@ -1699,23 +1969,31 @@ BodyOperationResult apply_local_modifier(const TopoDS_Shape& input,
         TopTools_ListOfShape removed;
         for (const auto& shape : selected)
             removed.Append(shape);
+        const double tolerance = std::max(1.0e-7, shape_volume(input) * 1.0e-9);
+        const auto inward_valid = [&](const TopoDS_Shape& shape) {
+            if (shape.IsNull() || shape_volume(shape) >= shape_volume(input) - tolerance) return false;
+            BRepAlgoAPI_Cut outside(shape, input);
+            outside.Build();
+            return outside.IsDone() && shape_volume(outside.Shape()) <= tolerance;
+        };
+        if (!spec.reversed) {
+            try {
+                auto planar = convex_planar_shell(input, selected, spec.pad_length);
+                auto result = finish(planar);
+                if (!inward_valid(result.shape)) throw std::invalid_argument("SHELL_THICKNESS_EXCEEDS_INTERIOR");
+                result.diagnostics.push_back("SHELL_CONVEX_PLANAR_OFFSET_HISTORY");
+                return result;
+            } catch (const std::invalid_argument& error) {
+                const std::string code = error.what();
+                if (code != "SHELL_PLANAR_FALLBACK_UNSUPPORTED" && code != "SHELL_PLANAR_FALLBACK_NONCONVEX") throw;
+            }
+        }
         BRepOffsetAPI_MakeThickSolid algorithm;
         algorithm.MakeThickSolidByJoin(
             input, removed, spec.reversed ? spec.pad_length : -spec.pad_length, 1e-7,
             BRepOffset_Skin, Standard_False, Standard_False, GeomAbs_Intersection);
-        auto result = finish(algorithm);
-        // OCCT may report a valid offset after an inward wall has crossed the
-        // opposite boundary. Such a solid is not an inward shell of the input.
-        if (!spec.reversed) {
-            const double tolerance = std::max(1.0e-7, shape_volume(input) * 1.0e-9);
-            if (shape_volume(result.shape) >= shape_volume(input) - tolerance)
-                throw std::invalid_argument("SHELL_THICKNESS_EXCEEDS_INTERIOR");
-            BRepAlgoAPI_Cut outside(result.shape, input);
-            outside.Build();
-            if (!outside.IsDone() || shape_volume(outside.Shape()) > tolerance)
-                throw std::invalid_argument("SHELL_OFFSET_OUTSIDE_INPUT");
-        }
-        return result;
+        if (spec.reversed || (algorithm.IsDone() && inward_valid(algorithm.Shape()))) return finish(algorithm);
+        throw std::invalid_argument("SHELL_THICKNESS_EXCEEDS_INTERIOR");
     }
     throw std::invalid_argument("UNSUPPORTED_LOCAL_MODIFIER");
 }

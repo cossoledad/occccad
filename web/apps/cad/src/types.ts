@@ -19,9 +19,11 @@ export type MeshData = {
 
 export type NamingAvailability = { status: "READY" | "UNAVAILABLE" | "FAILED" | "CORRUPT" | "INCOMPATIBLE"; canBind: boolean; diagnosticCode?: string; diagnostic?: string };
 
-export type PartBody = { consumed?: boolean; id: string; name: string; visible: boolean; geometryKey?: string; createdByFeatureId?: string };
+export type BodyDisplayFallback = { geometryKey: string; sourceVersionId: string };
+export type PartBody = { displayFallback?: BodyDisplayFallback; consumed?: boolean; id: string; name: string; visible: boolean; geometryKey?: string; createdByFeatureId?: string };
 
 export type Artifact = {
+  visualNamingDigest?: string;
   bodyId?: string;
   naming?: NamingAvailability;
   geometryKey: string;
@@ -110,10 +112,13 @@ export type DocumentProperties = {
 };
 
 export type Feature = {
+  evaluationStatus?: "FAILED" | "BLOCKED" | "SUPPRESSED";
+  diagnostic?: string;
   sections?:{sketchId:string;reversed?:boolean;seamEntityId?:string;seamAngle?:number}[];
   ruled?:boolean;
   selections?:{selection:PersistentSelection;sourceVersionId:string;sourceFeatureId?:string}[];
   neutralPlaneId?:string;
+  neutralPlane?: NonNullable<Feature["selections"]>[number];
   extent?: "FINITE"|"TWO_SIDED"|"SYMMETRIC"|"THROUGH_ALL";
   length2?:number;
   tools?: {bodyId:string; featureId:string}[];
@@ -303,6 +308,7 @@ export type Job = {
 };
 
 export type ResolvedInstance = {
+  displayFallback?: BodyDisplayFallback;
   bodyId: string; bodyVisible: boolean;
   ownedSketchIds?: string[];
   id: string;

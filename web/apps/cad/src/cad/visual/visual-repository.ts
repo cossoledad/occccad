@@ -61,7 +61,7 @@ export class VisualRepository {
             }
             const decoded = await pending;
             if (decoded.association?.geometryId && decoded.association.geometryId !== a.geometryId) throw new Error("Visual geometry identity mismatch");
-            if (decoded.association?.namingDigest && decoded.association.namingDigest !== a.representations.NAMING?.digest) throw new Error("Visual Naming digest mismatch");
+            if (decoded.association?.namingDigest && decoded.association.namingDigest !== (a.visualNamingDigest ?? a.representations.NAMING?.digest)) throw new Error("Visual Naming digest mismatch");
             return { ...a, mesh: decoded.mesh, visualization: decoded.visualization ?? a.visualization };
         };
         const artifact = view.artifact ? await load(view.artifact) : undefined;

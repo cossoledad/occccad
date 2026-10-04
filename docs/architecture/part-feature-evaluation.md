@@ -81,6 +81,14 @@ duplicate, dangling, type-less and live/tombstone-conflicting outputs. Worker
 errors must retain the Feature evaluation phase and stable code; callers must
 not retry by dropping history or adopting unnamed geometry.
 
+An accepted failed definition clears the affected Body's authoritative geometry
+key and marks its dependent Features BLOCKED. The derived displayFallback keeps
+the previous successful Visual and its source Revision for Part and Product
+display. It is excluded from compensable definitions, modeling picks, BREP/Naming
+download authority and export. Repeated failures preserve its successful source;
+successful reevaluation removes it. The viewport renders this display with a
+distinct translucent red-brown material and an explicit failure notice.
+
 ## Required corpus
 
 The baseline covers rectangle, circle, arc, spline and multi-region profiles;

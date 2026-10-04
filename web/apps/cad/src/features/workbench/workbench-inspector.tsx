@@ -171,14 +171,15 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
   }
   if (selection.kind === "axis" || selection.kind === "axis-system") {
     const systems = view.axisSystems ?? diagnostics?.artifacts.flatMap((item) => item.visualization.referenceGeometry.axisSystems) ?? [];
-    const axisSystem = systems.find((item) => selection.id.includes(item.id));
+    const axisSystem = systems.find((item) => item.id === selection.entityId);
+    const datumAxis = selection.kind === "axis" && selection.axis === "DATUM" ? (view.datumAxes ?? view.part?.datumAxes ?? diagnostics?.artifacts.flatMap(item => item.visualization.referenceGeometry.datumAxes ?? []) ?? []).find(item => item.id === selection.entityId) : undefined;
     const direction = selection.kind === "axis" && axisSystem
       ? selection.axis === "X" ? axisSystem.xDirection : selection.axis === "Y" ? axisSystem.yDirection : axisSystem.zDirection
-      : undefined;
+      : datumAxis?.direction;
     return <Descriptions column={1} size="small" bordered className="property-list" items={[
       { key: "type", label: "类型", children: selection.kind === "axis" ? `${selection.axis} Axis` : "Axis System" },
-      { key: "name", label: "名称", children: axisSystem?.name ?? selection.id },
-      { key: "origin", label: "原点", children: axisSystem?.origin.map(value=>formatDisplayNumber(value)).join(", ") ?? "—" },
+      { key: "name", label: "名称", children: datumAxis?.name ?? axisSystem?.name ?? selection.id },
+      { key: "origin", label: "原点", children: (datumAxis?.origin ?? axisSystem?.origin)?.map(value=>formatDisplayNumber(value)).join(", ") ?? "—" },
       ...(direction ? [{ key: "direction", label: "方向", children: direction.map(value=>formatDisplayNumber(value)).join(", ") }] : []),
       { key: "reference", label: "引用路径", children: selection.occurrencePath || "Part root" },
     ]} />;
@@ -290,7 +291,8 @@ export function PartBodies({view}:{view:DocumentView}) {
     {view.part.bodies.map(body=><div key={body.id} style={{marginTop:12}}>
       <Typography.Text strong>{body.name}</Typography.Text>
       <Space wrap>{body.id===view.part!.activeBodyId && <Tag>活动实体</Tag>}
-        <Tag>{body.visible ? "可见" : "隐藏"}</Tag>{body.consumed && <Tag>已用于布尔</Tag>}</Space>
+        <Tag>{body.visible ? "可见" : "隐藏"}</Tag>{body.displayFallback && <Tag color="error">计算失败 · 显示上次成功结果</Tag>}{body.consumed && <Tag>已用于布尔</Tag>}</Space>
+      {body.displayFallback && <div>显示来源版本：{body.displayFallback.sourceVersionId.slice(0,12)}；修复失败特征后恢复。</div>}
       {Object.entries(view.artifacts?.[body.geometryKey??""]?.representations??{}).map(([role,ref])=><div key={role}>
         <Space wrap><span>{role==="VISUAL"?"mesh.glb":role==="NAMING"?"naming.pb":role}</span>
           <small>{ref.size.toLocaleString()} B · v{ref.schemaVersion}</small>

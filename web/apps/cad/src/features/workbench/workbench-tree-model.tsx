@@ -44,7 +44,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
       return { ...base, kind: node.kind === "IMPORT" ? "import" : "pad", id: node.entityId ?? node.id };
     case "PLANE": {
       if (!node.entityId || !node.plane) break;
-      const datumPlane = view.datumPlanes?.find((datum) => datum.id === node.entityId);
+      const datumPlane = (view.datumPlanes ?? view.part?.datumPlanes)?.find((datum) => datum.id === node.entityId);
       return { ...base, kind: "plane", id: `${occurrencePath || "root"}:${node.entityId}`,
         plane: node.plane, datumPlane };
     }

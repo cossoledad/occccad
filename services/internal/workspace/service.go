@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v17-exact-sketch-curves"
+const evaluatorVersion = "part-solid-generators-v19-corner-fillets"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -2223,8 +2223,9 @@ func featureStructureNode(feature Feature, path, documentID, versionID, definiti
 		node.Capabilities = []string{"DELETE"}
 	}
 	if childrenEditable && (isBodyFeature(feature.Type) && feature.Type != "IMPORT_BODY") {
-		node.Capabilities = append(node.Capabilities, "EDIT")
+		node.Capabilities = append(node.Capabilities, "EDIT", "SUPPRESS")
 	}
+	node.Suppressed = feature.Suppressed
 	if feature.EvaluationStatus != "" {
 		node.EvaluationStatus = feature.EvaluationStatus
 		node.Diagnostic = feature.EvaluationStatus + ": " + feature.Diagnostic
@@ -2318,9 +2319,13 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		DocumentID: documentID, VersionID: versionID,
 		Children: make([]DocumentStructureNode, 0, len(planes)+len(model.AxisSystems)+len(model.DatumAxes))}
 	for _, plane := range planes {
+		capabilities := []string{}
+		if editable && !isStandardDatumPlane(plane.ID) {
+			capabilities = append(capabilities, "DELETE")
+		}
 		origin.Children = append(origin.Children, DocumentStructureNode{
 			ID: path + "/origin/plane:" + plane.ID, Kind: "PLANE", Name: plane.Name,
-			EntityID: plane.ID, DocumentID: documentID, VersionID: versionID, Plane: plane.Plane,
+			EntityID: plane.ID, DocumentID: documentID, VersionID: versionID, Plane: plane.Plane, Capabilities: capabilities,
 		})
 	}
 	for _, axis := range model.AxisSystems {
@@ -2334,8 +2339,12 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		})
 	}
 	for _, axis := range model.DatumAxes {
+		capabilities := []string{}
+		if editable {
+			capabilities = append(capabilities, "DELETE")
+		}
 		origin.Children = append(origin.Children, DocumentStructureNode{ID: path + "/origin/datum-axis:" + axis.ID,
-			Kind: "DATUM_AXIS", Name: axis.Name, EntityID: axis.ID, DocumentID: documentID, VersionID: versionID})
+			Kind: "DATUM_AXIS", Name: axis.Name, EntityID: axis.ID, DocumentID: documentID, VersionID: versionID, Capabilities: capabilities})
 	}
 	sketches := make(map[string]Feature)
 	uses := make(map[string][]Feature)
@@ -2894,20 +2903,27 @@ func (service *Service) resolveProduct(
 		}
 		normalizePartModel(&model)
 		for _, body := range model.Bodies {
-			if body.GeometryKey == "" || body.Consumed {
+			key := body.GeometryKey
+			if key == "" && body.DisplayFallback != nil {
+				key = body.DisplayFallback.GeometryKey
+			}
+			if key == "" || body.Consumed {
 				continue
 			}
-			if _, exists := artifacts[body.GeometryKey]; !exists {
-				artifact, err := service.loadArtifact(ctx, body.GeometryKey)
+			if _, exists := artifacts[key]; !exists {
+				artifact, err := service.loadArtifact(ctx, key)
 				if err != nil {
 					return err
 				}
 				artifact.BodyID = body.ID
-				artifacts[body.GeometryKey] = artifact
+				if body.GeometryKey == "" {
+					artifact = fallbackVisualArtifact(artifact)
+				}
+				artifacts[key] = artifact
 			}
 			*output = append(*output, ResolvedInstance{
 				ID: path + "/body:" + body.ID, Name: name, DocumentID: documentID,
-				BodyID: body.ID, BodyVisible: body.Visible, OwnedSketchIDs: ownedSketchIDs(model, body.ID), GeometryKey: body.GeometryKey,
+				BodyID: body.ID, BodyVisible: body.Visible, OwnedSketchIDs: ownedSketchIDs(model, body.ID), GeometryKey: body.GeometryKey, DisplayFallback: body.DisplayFallback,
 				Translation: parent.Translation, Rotation: parent.Rotation,
 				OccurrencePath: instancePath.Canonical, InstancePath: instancePath, BodyTreeNodeID: treePath + "/body:" + body.ID,
 			})
