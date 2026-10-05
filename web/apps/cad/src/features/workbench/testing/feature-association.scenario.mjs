@@ -1,0 +1,42 @@
+import assert from "node:assert/strict";
+import {createServer} from "vite";
+const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
+try {
+ const THREE=await server.ssrLoadModule("three");
+ const {CadViewportEngine}=await server.ssrLoadModule("/src/viewport/cad-viewport-engine.ts");
+ const {SelectionIndex}=await server.ssrLoadModule("/src/cad/interaction/selection-index.ts");
+ const {DEFAULT_SOLID_DISPLAY}=await server.ssrLoadModule("/src/cad/rendering/display-settings.ts");
+ const {featureContribution}=await server.ssrLoadModule("/src/cad/interaction/feature-association.ts");
+ const {treeKeysForSelections,ancestorHintKeysForSelections}=await server.ssrLoadModule("/src/features/workbench/tree-projection-index.ts");
+ const {patternSourceCandidates}=await server.ssrLoadModule("/src/features/workbench/feature-picking.ts");
+ const {featureSelectionHit}=await server.ssrLoadModule("/src/cad/interaction/feature-selection.ts");
+ const {encodeMeshGLB,decodeMeshGLB}=await server.ssrLoadModule("/src/cad/visual/mesh-glb.ts");
+ const mesh={vertices:[[0,0,0],[1,0,0],[0,1,0],[2,0,0],[3,0,0],[2,1,0]],triangles:[[0,1,2],[3,4,5]],faceIds:[1,2],edges:[{localId:1,points:[[0,0,0],[1,0,0]]},{localId:1,points:[[2,0,0],[3,0,0]]}],topologyVertices:[]};
+ const associations={features:["blade","fillet","consumed"],elements:[{kind:"FACE",localId:1,origins:["blade"],primary:["blade"],modifiers:["fillet"],status:"MAPPED"},{kind:"FACE",localId:2,origins:["fillet"],primary:["fillet"],supports:["blade"],members:[{patternId:"array",slot:2}],status:"MAPPED"},{kind:"EDGE",localId:1,origins:["blade"],primary:["blade"],status:"MAPPED"}]};
+ const visual={schemaVersion:2,referenceGeometry:{datumPlanes:[],axisSystems:[]},primitives:[],featureAssociations:associations};
+ const decoded=decodeMeshGLB(encodeMeshGLB(mesh,visual));assert.deepEqual(decoded.visualization.featureAssociations,associations);
+ const artifact={geometryKey:"g",bodyId:"b",mesh:decoded.mesh,visualization:decoded.visualization};
+ const view={document:{id:"part",versionId:"v"},structureTree:{id:"document:part",children:[{id:"document:part/body:b",children:[{id:"document:part/body:b/feature:blade",entityId:"blade"},{id:"document:part/body:b/feature:fillet",entityId:"fillet"}]}]}};
+ const context={documentId:"part",versionId:"v",bodyId:"b",geometryKey:"g",occurrencePath:"a",treeNodeId:"document:part/body:b"};
+ function engine(){const e=Object.create(CadViewportEngine.prototype);Object.assign(e,{view,renderer:{domElement:{clientWidth:800,clientHeight:600}},selectionIndex:new SelectionIndex(),selectable:new Map(),solidBindings:new Map(),solidDisplay:DEFAULT_SOLID_DISPLAY,selectedOverlays:[],preselectedOverlays:[],materials:{surface:()=>new THREE.MeshBasicMaterial({side:THREE.DoubleSide}),edge:()=>new THREE.LineBasicMaterial(),point:()=>new THREE.PointsMaterial()}});return e;}
+ const e=engine();const group=e.makeSolid(artifact,0xffffff,context);group.updateMatrixWorld(true);
+ const hit=e.selectionIndex.pick(new THREE.Raycaster(new THREE.Vector3(2.2,.2,1),new THREE.Vector3(0,0,-1)),selection=>selection.kind==="face");
+ assert.equal(hit.kind,"face");assert.equal(hit.topologyId,2);assert.deepEqual(hit.associatedFeatureIds,["fillet"]);assert.equal(hit.patternMemberSlot,2);assert.equal(hit.patternId,"array");
+ assert.equal(hit.treeNodeId,"document:part/body:b/feature:fillet");
+ const feature=id=>({kind:"pad",id,entityId:id,...context});
+ e.addTopologyOverlay("selected",feature("blade"));
+ const overlay=e.selectedOverlays.find(o=>o.isMesh);assert.equal(overlay.geometry.getAttribute("position").count,3,"blade highlights its current face only");
+ e.addTopologyOverlay("selected",feature("fillet"));assert.equal(e.selectedOverlays.at(-1).geometry.getAttribute("position").count,3,"fillet does not highlight the Body or support face");
+ const count=e.selectedOverlays.length;
+ e.addTopologyOverlay("selected",{...feature("blade"),occurrencePath:"b"});e.addTopologyOverlay("selected",{...feature("blade"),documentId:"other"});e.addTopologyOverlay("selected",{...feature("blade"),versionId:"old"});e.addTopologyOverlay("selected",{...feature("blade"),contextVariantKey:"other"});assert.equal(e.selectedOverlays.length,count);
+ e.addTopologyOverlay("selected",feature("consumed"));assert.equal(e.selectedOverlays.length,count,"consumed never falls back to Body");
+ assert.equal(featureContribution(associations,"consumed").status,"NO_CURRENT_CONTRIBUTION");assert.equal(featureContribution(undefined,"consumed").status,"MAPPING_MISSING");
+ e.addTopologyOverlay("selected",{...context,kind:"edge",id:"edge",topologyId:1});assert.equal(e.selectedOverlays.at(-1).children.length,2,"all fused-mesh edge segments are highlighted");
+ const nodes=[{key:"body",children:[{key:"blade",selection:feature("blade")},{key:"fillet",selection:feature("fillet")}]}];
+ assert.deepEqual(treeKeysForSelections(nodes,[hit]),[],"tree association must not promote primary face selection");assert(ancestorHintKeysForSelections(nodes,[hit]).includes("fillet"));assert(!ancestorHintKeysForSelections(nodes,[{...hit,occurrencePath:"b"}]).includes("fillet"));
+ const stages=[{id:"blade",type:"PAD",bodyId:"b"},{id:"array",type:"SOLID_PATTERN",bodyId:"b"},{id:"fillet",type:"FILLET",bodyId:"b"}];
+ assert.deepEqual(patternSourceCandidates({...hit,associatedFeatureIds:["blade"],sourceFeatureIds:["blade"]},stages,"GENERATOR_TOOL").map(f=>f.id),["blade"]);assert.deepEqual(patternSourceCandidates(hit,stages,"GENERATOR_TOOL"),[],"transition face cannot silently become the Body tool");assert.deepEqual(patternSourceCandidates(hit,stages,"BODY_STAGE").map(f=>f.id),["fillet"]);
+ const session={role:"face",documentId:"part",versionId:"v",bodyId:"b",occurrencePath:"a",geometryKey:"input"};assert.equal(featureSelectionHit(hit,session),null,"history editor cannot pick downstream geometry");
+ const historical=engine();historical.makeSolid({...artifact,historicalPreview:true},0xffffff,context).updateMatrixWorld(true);assert.equal(historical.selectionIndex.pick(new THREE.Raycaster(new THREE.Vector3(.2,.2,1),new THREE.Vector3(0,0,-1))),null,"historical preview is display only");
+ console.log("Feature contribution overlays, topology primary selection, member and occurrence isolation, explicit pattern roles and history picking passed");
+}finally{await server.close();}

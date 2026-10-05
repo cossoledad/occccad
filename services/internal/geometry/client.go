@@ -71,6 +71,7 @@ type LoftSection struct {
 type ProfilePad struct {
 	PatternResultMode                                   string
 	PatternSourceFeatureID, PatternSourceKind           string
+	PatternStartFeatureID                               string
 	PatternPlacements                                   []PatternPlacement
 	Sections                                            []LoftSection
 	Ruled                                               bool
@@ -114,6 +115,7 @@ func profilePadsProto(pads []ProfilePad) []*workerv1.ProfilePadSpec {
 			AxisStart: &workerv1.Vec2{X: pad.AxisStart[0], Y: pad.AxisStart[1]},
 			AxisEnd:   &workerv1.Vec2{X: pad.AxisEnd[0], Y: pad.AxisEnd[1]}, Reversed: pad.Reversed}
 		value.PatternSourceFeatureId, value.PatternSourceKind = pad.PatternSourceFeatureID, pad.PatternSourceKind
+		value.PatternStartFeatureId = pad.PatternStartFeatureID
 		value.PatternResultMode = pad.PatternResultMode
 		for _, placement := range pad.PatternPlacements {
 			value.PatternPlacements = append(value.PatternPlacements, &workerv1.PatternPlacement{Slot: placement.Slot, Matrix: append([]float64(nil), placement.Matrix[:]...)})

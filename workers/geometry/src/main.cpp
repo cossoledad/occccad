@@ -1397,6 +1397,7 @@ public:
                 pad.profile_feature_id = input.profile_feature_id();
                 pad.pattern_source_feature_id = input.pattern_source_feature_id();
                 pad.pattern_source_kind = input.pattern_source_kind();
+                pad.pattern_start_feature_id = input.pattern_start_feature_id();
                 pad.pattern_result_mode = input.pattern_result_mode();
                 if (input.pattern_placements_size() > 256)
                     throw std::invalid_argument("PATTERN_MEMBER_BUDGET");

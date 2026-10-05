@@ -34,27 +34,28 @@ type TopologyElementProperties struct {
 }
 
 type Artifact struct {
-	VisualNamingDigest string                    `json:"visualNamingDigest,omitempty"`
-	BodyID             string                    `json:"bodyId,omitempty"`
-	Naming             NamingAvailability        `json:"naming"`
-	GeometryKey        string                    `json:"geometryKey"`
-	GeometryID         string                    `json:"geometryId"`
-	Mesh               Mesh                      `json:"-"` // decoded consumer-local GLB data, never DocumentView JSON
-	Representations    map[string]Representation `json:"representations"`
-	TriangleCount      uint64                    `json:"triangleCount"`
-	DisplayVertexCount uint64                    `json:"displayVertexCount"`
-	RepresentationKind string                    `json:"representationKind"`
-	BBox               map[string]any            `json:"bbox"`
-	Topology           map[string]any            `json:"topology"`
-	Volume             float64                   `json:"volume"`
-	OCCTVersion        string                    `json:"occtVersion"`
-	GLBBytes           int                       `json:"glbBytes"`
-	BRepBytes          int                       `json:"brepBytes"`
-	EvaluatorVersion   string                    `json:"evaluatorVersion"`
-	WorkerID           string                    `json:"workerId"`
-	StorageState       string                    `json:"storageState"`
-	CreatedAt          string                    `json:"createdAt"`
-	Visualization      VisualizationManifest     `json:"visualization"`
+	DisplayStageFeatureID string                    `json:"displayStageFeatureId,omitempty"`
+	VisualNamingDigest    string                    `json:"visualNamingDigest,omitempty"`
+	BodyID                string                    `json:"bodyId,omitempty"`
+	Naming                NamingAvailability        `json:"naming"`
+	GeometryKey           string                    `json:"geometryKey"`
+	GeometryID            string                    `json:"geometryId"`
+	Mesh                  Mesh                      `json:"-"` // decoded consumer-local GLB data, never DocumentView JSON
+	Representations       map[string]Representation `json:"representations"`
+	TriangleCount         uint64                    `json:"triangleCount"`
+	DisplayVertexCount    uint64                    `json:"displayVertexCount"`
+	RepresentationKind    string                    `json:"representationKind"`
+	BBox                  map[string]any            `json:"bbox"`
+	Topology              map[string]any            `json:"topology"`
+	Volume                float64                   `json:"volume"`
+	OCCTVersion           string                    `json:"occtVersion"`
+	GLBBytes              int                       `json:"glbBytes"`
+	BRepBytes             int                       `json:"brepBytes"`
+	EvaluatorVersion      string                    `json:"evaluatorVersion"`
+	WorkerID              string                    `json:"workerId"`
+	StorageState          string                    `json:"storageState"`
+	CreatedAt             string                    `json:"createdAt"`
+	Visualization         VisualizationManifest     `json:"visualization"`
 }
 
 type DatumPlane struct {
@@ -162,9 +163,11 @@ type ReferenceGeometry struct {
 // and every Product occurrence that references it. Positions are always in
 // Part coordinates; occurrence transforms are applied only by the consumer.
 type VisualizationManifest struct {
-	SchemaVersion     uint32            `json:"schemaVersion"`
-	ReferenceGeometry ReferenceGeometry `json:"referenceGeometry"`
-	Primitives        []VisualPrimitive `json:"primitives"`
+	FeatureContributions map[string]string        `json:"featureContributions,omitempty"`
+	FeatureAssociations  *FeatureAssociationIndex `json:"featureAssociations,omitempty"`
+	SchemaVersion        uint32                   `json:"schemaVersion"`
+	ReferenceGeometry    ReferenceGeometry        `json:"referenceGeometry"`
+	Primitives           []VisualPrimitive        `json:"primitives"`
 }
 
 // VisualPrimitive represents selectable non-solid geometry. POINTS,
@@ -932,6 +935,9 @@ type StructureSnapshotScope struct {
 }
 
 type DocumentStructureNode struct {
+	InputEntityID      string                  `json:"inputEntityId,omitempty"`
+	InputRole          string                  `json:"inputRole,omitempty"`
+	InputOrder         int                     `json:"inputOrder,omitempty"`
 	PatternID          string                  `json:"patternId,omitempty"`
 	PatternMemberSlot  *int                    `json:"patternMemberSlot,omitempty"`
 	Consumed           bool                    `json:"consumed,omitempty"`

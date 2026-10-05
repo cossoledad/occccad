@@ -20,6 +20,8 @@ const descriptors: Partial<Record<Kind, Descriptor>> = {
   DATUM_AXIS: { icon: <NodeIndexOutlined />, visibility: true },
   BODY: { icon: <DatabaseOutlined />, visibility: true },
   SKETCH: { icon: <ScissorOutlined />, visibility: true },
+  DATUM_INPUT_REFERENCE: { icon: <GatewayOutlined /> },
+  FEATURE_INPUT_REFERENCE: { icon: <GatewayOutlined /> },
   SKETCH_INPUT_REFERENCE: { icon: <GatewayOutlined /> },
   SKETCH_PATTERN_DEFINITION: {icon:<NodeIndexOutlined />},
   SKETCH_PATTERN_MEMBER: {icon:<NodeIndexOutlined />},

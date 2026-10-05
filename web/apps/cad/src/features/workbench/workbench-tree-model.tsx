@@ -38,13 +38,20 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
     case "SKETCH_PATTERN_MEMBER":
     case "SKETCH":
     case "SKETCH_INPUT_REFERENCE":
+      if(node.kind==="SKETCH_INPUT_REFERENCE"&&node.inputEntityId&&node.entityId)return {...base,kind:"visual",id:`${occurrencePath||"root"}:${node.entityId}:${node.inputEntityId}`,featureId:node.entityId,entityId:node.inputEntityId,visualType:node.inputRole==="AXIS"?"CURVE":"POINT"};
       return { ...base, kind: "sketch", id: node.entityId ?? node.id };
     case "SKETCH_PATTERN_DEFINITION": return {...base,kind:"feature",id:node.entityId??node.id};
     case "PAD":
     case "REVOLVE":
     case "IMPORT":
+    case "FEATURE_INPUT_REFERENCE":
     case "FEATURE":
       return { ...base, kind: node.kind === "IMPORT" ? "import" : "pad", id: node.entityId ?? node.id };
+    case "DATUM_INPUT_REFERENCE":
+      if(node.entityType==="PLANE")return structureSelection({...node,kind:"PLANE"},view);
+      if(node.entityType==="DATUM_AXIS")return structureSelection({...node,kind:"DATUM_AXIS"},view);
+      if(node.entityType==="AXIS_SYSTEM")return structureSelection({...node,kind:"AXIS"},view);
+      break;
     case "PLANE": {
       if (!node.entityId || !node.plane) break;
       const datumPlane = (view.datumPlanes ?? view.part?.datumPlanes)?.find((datum) => datum.id === node.entityId);
@@ -166,9 +173,14 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
   const assemblyStatus = node.kind === "ASSEMBLY_CONSTRAINT"
     ? assemblyStatusFromDiagnostic(node.evaluationStatus ?? node.diagnostic) : undefined;
   const featureStatus = node.evaluationStatus === "FAILED" ? "求值失败" : node.evaluationStatus === "BLOCKED" ? "上游失败" : node.evaluationStatus === "SUPPRESSED" ? "已抑制" : undefined;
-  const outputStatus = node.consumed ? "已用于布尔" : featureStatus;
-  return { key: node.id, title: outputStatus ? <>{node.name}<span title={node.diagnostic} aria-label={`状态 ${outputStatus}`}> · {outputStatus}</span></> : assemblyStatus ? <>{node.name}<span className={`assembly-tree-status status-${node.suppressed ? "not_updated" : assemblyStatus.toLowerCase()}`}
-    aria-label={`状态 ${node.suppressed ? "停用" : ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}`}>{node.suppressed ? "停用" : ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}</span></> : node.name,
+  const inputLabel:Record<string,string>={PROFILE:"轮廓",SECTION:"截面",SECTION_POINT:"截面点",AXIS:"轴",SUPPORT:"支撑",TOOL:"工具",RANGE_START:"范围起始",SEED:"种子",TOPOLOGY:"拓扑引用",STAGE:"输入阶段",NEUTRAL_PLANE:"中性面",PATTERN_REFERENCE:"阵列参考"};
+  const displayName=node.inputRole?`${inputLabel[node.inputRole]??node.inputRole}${["SECTION","SECTION_POINT"].includes(node.inputRole)?` ${1+(node.inputOrder??0)}`:""} · ${node.name}`:node.name;
+  const currentSelection=structureSelection(node,view);
+  const contribution=currentSelection?.geometryKey?view.artifacts?.[currentSelection.geometryKey]?.visualization?.featureContributions?.[node.entityId??""]:undefined;
+  const contributionStatus=contribution==="NO_CURRENT_CONTRIBUTION"?"无当前几何贡献":contribution==="MAPPING_MISSING"?"拓扑关联缺失":undefined;
+  const outputStatus = node.consumed ? "已用于布尔" : featureStatus??contributionStatus;
+  return { key: node.id, title: outputStatus ? <>{displayName}<span title={node.diagnostic} aria-label={`状态 ${outputStatus}`}> · {outputStatus}</span></> : assemblyStatus ? <>{displayName}<span className={`assembly-tree-status status-${node.suppressed ? "not_updated" : assemblyStatus.toLowerCase()}`}
+    aria-label={`状态 ${node.suppressed ? "停用" : ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}`}>{node.suppressed ? "停用" : ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}</span></> : displayName,
     icon: treeNodeIcon(node), kind: node.kind,
     entityId: node.entityId, documentId: node.documentId, documentType: node.documentType, instancePath: node.instancePath,
     ownerDocumentId: node.ownerDocumentId, bodyId: node.bodyId, presentationRole: node.presentationRole,
@@ -194,4 +206,4 @@ export function selectedFeature(view: DocumentView, selection: Selection): Featu
   return view.part?.features.find((feature) => feature.id === selection.id);
 }
 
-export { deletableTreeNodesForSelections, ancestorHintKeysForSelections, treeKeyForSelection, treeKeysForSelections } from "./tree-projection-index";
+export { associatedTreeKeyForSelection, deletableTreeNodesForSelections, ancestorHintKeysForSelections, treeKeyForSelection, treeKeysForSelections } from "./tree-projection-index";

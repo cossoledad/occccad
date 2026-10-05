@@ -1,3 +1,4 @@
+import { featureContribution, topologyFeatureAssociation, sameDisplayContext } from "../cad/interaction/feature-association";
 import { patternEntityStatus } from "../features/workbench/pattern-selection";
 import { makeDatumAxisReference, type DatumPreview } from "../cad/rendering/datum-reference";
 import { featureSelectionHit, type FeatureSelectionSession } from "../cad/interaction/feature-selection";
@@ -104,6 +105,7 @@ type Callbacks = {
 
 type SolidContext = {
   bodyId?: string;
+  displayStageFeatureId?:string;
   contextVariantKey?: string;
   instancePath?: SelectionItem["instancePath"];
   documentId: string; versionId?: string; geometryKey: string; occurrencePath: string; treeNodeId: string; instanceId?: string;
@@ -1752,7 +1754,7 @@ export class CadViewportEngine {
       if (!artifact) continue;
       const bodyTreeNodeId = `${rootPath}/body:${body.id}`;
       const context: SolidContext = { bodyId:body.id, documentId:view.document.id,versionId:view.document.versionId,
-        geometryKey:artifact.geometryKey,occurrencePath:"",treeNodeId:bodyTreeNodeId };
+        geometryKey:artifact.geometryKey,occurrencePath:"",treeNodeId:bodyTreeNodeId,displayStageFeatureId:artifact.displayStageFeatureId };
       if (body.geometryKey) this.addVisualPrimitives(artifact.visualization, this.helpers, context, true,
         new Set((view.part?.features??[]).filter(feature=>feature.type==="SKETCH_PATTERN"&&feature.bodyId===body.id&&!feature.suppressed).map(feature=>feature.id)));
       if (artifact.mesh.triangles.length) {
@@ -2559,7 +2561,17 @@ export class CadViewportEngine {
     group.add(mesh); return group;
   }
 
+  private topologyAssociationContext(artifact:Artifact,context:SolidContext,kind:string,id:number):Pick<SelectionItem,"associatedFeatureIds"|"sourceFeatureIds"|"treeNodeId"|"patternId"|"patternMemberSlot"> {
+    const association=topologyFeatureAssociation(artifact.visualization?.featureAssociations,kind,id);
+    if(!association)return {};
+    const primary=association.primary??[];
+    const member=association.members?.length===1?association.members[0]:undefined;
+    return {associatedFeatureIds:primary,sourceFeatureIds:association.origins,treeNodeId:primary.length===1?this.featureTreeNode(context,primary[0])??context.treeNodeId:context.treeNodeId,
+      patternId:member?.patternId,patternMemberSlot:member?.slot};
+  }
+
   private makeSolid(artifact: Artifact, color: number, context: SolidContext): THREE.Group {
+    context={...context,displayStageFeatureId:artifact.displayStageFeatureId};
     const geometry = makeGeometry(artifact);
     geometry.userData.navigationFaceIds = artifact.mesh.faceIds;
     const group = new THREE.Group();
@@ -2577,12 +2589,12 @@ export class CadViewportEngine {
       this.selectionIndex.registerVisualKey(`occurrence:${occurrenceParts.slice(0, length).join("/")}`, group);
     }
     this.selectable.set(`body:${bodySelection.id}`, group);
-    this.selectionIndex.registerPick(mesh, (hit) => {
+    if(!artifact.historicalPreview)this.selectionIndex.registerPick(mesh, (hit) => {
       const triangle = hit.faceIndex ?? -1;
       const localID = triangle >= 0 ? (artifact.mesh.faceIds[triangle] ?? 0) : 0;
       return localID > 0 ? {
         kind: "face", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:face:${localID}`,
-        topologyId: localID, ...context
+        topologyId: localID, ...context, ...this.topologyAssociationContext(artifact,context,"face",localID)
       } : bodySelection;
     }, 20);
     group.add(mesh);
@@ -2599,12 +2611,12 @@ export class CadViewportEngine {
       edgeGeometry.userData.navigationEdgeIds = edgeIDs;
       const edges = new THREE.LineSegments(edgeGeometry, this.materials.edge());
       markNavigationPickable(edges);
-      this.selectionIndex.registerPick(edges, (hit) => {
+      if(!artifact.historicalPreview)this.selectionIndex.registerPick(edges, (hit) => {
         const segmentIndex = ((hit.index ?? 0) / 2) | 0;
         const localID = edgeIDs[segmentIndex] ?? 0;
         return {
           kind: "edge", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:edge:${localID}`,
-          topologyId: localID, ...context
+          topologyId: localID, ...context, ...this.topologyAssociationContext(artifact,context,"edge",localID)
         };
       }, 40);
       group.add(edges);
@@ -2617,11 +2629,11 @@ export class CadViewportEngine {
       pointGeometry.setAttribute("position", new THREE.Float32BufferAttribute(topologyVertices.flatMap((item) => item.point), 3));
       const points = new THREE.Points(pointGeometry, this.materials.point(CATIA_VISUAL_THEME.vertex, 7));
       markNavigationPickable(points);
-      this.selectionIndex.registerPick(points, (hit) => {
+      if(!artifact.historicalPreview)this.selectionIndex.registerPick(points, (hit) => {
         const localID = topologyVertices[hit.index ?? 0]?.localId ?? 0;
         return {
           kind: "vertex", id: `${context.occurrencePath || "root"}:${artifact.geometryKey}:vertex:${localID}`,
-          topologyId: localID, ...context
+          topologyId: localID, ...context, ...this.topologyAssociationContext(artifact,context,"vertex",localID)
         };
       }, 50);
       group.add(points);
@@ -2895,7 +2907,17 @@ export class CadViewportEngine {
     for (const selection of selections) this.addTopologyOverlay(layer, selection);
   }
 
-  private addTopologyOverlay(layer: "selected" | "preselected", selection: SelectionItem): void {
+  private addTopologyOverlay(layer: "selected" | "preselected", selection: SelectionItem, ids?:ReadonlySet<number>): void {
+    if(["pad","feature","import"].includes(selection.kind)) {
+      const binding=[...this.solidBindings.values()].find(b=>sameDisplayContext(selection,b.context));
+      if(!binding)return;
+      const contribution=featureContribution(binding.artifact.visualization?.featureAssociations,selection.entityId??selection.id);
+      for(const kind of ["face","edge"] as const) {
+        const locators=new Set(contribution.elements.filter(e=>e.kind===kind.toUpperCase()).map(e=>e.localId));
+        if(locators.size)this.addTopologyOverlay(layer,{...selection,kind,topologyId:[...locators][0]},locators);
+      }
+      return;
+    }
     if(selection.kind==="visual"&&this.activeSketchID&&selection.featureId===this.activeSketchID){
       const owner=this.sketchView()?.document;
       const feature=this.sketchView()?.part?.features.find(feature=>feature.id===this.activeSketchID);
@@ -2921,17 +2943,15 @@ export class CadViewportEngine {
       return;
     }
     if (selection.kind !== "face" && selection.kind !== "edge" && selection.kind !== "vertex") return;
-    const binding = [...this.solidBindings.values()].find(b => b.context.occurrencePath === (selection.occurrencePath ?? "") &&
-      (!selection.bodyId || b.context.bodyId === selection.bodyId) &&
-      b.artifact.geometryKey === selection.geometryKey && b.context.versionId === selection.versionId &&
-      b.context.contextVariantKey === selection.contextVariantKey);
+    const binding = [...this.solidBindings.values()].find(b => sameDisplayContext(selection,b.context));
     if (!binding || !selection.topologyId) return;
+    const selectedIDs=ids??new Set([selection.topologyId]);
     const color = layer === "selected" ? CATIA_VISUAL_THEME.selected : CATIA_VISUAL_THEME.hover;
     let overlay: THREE.Object3D | undefined;
     if (selection.kind === "face") {
       const positions: number[] = [];
       binding.artifact.mesh.triangles.forEach((triangle, index) => {
-        if ((binding.artifact.mesh.faceIds[index] ?? -1) !== selection.topologyId) return;
+        if (!selectedIDs.has(binding.artifact.mesh.faceIds[index] ?? -1)) return;
         for (const vertex of triangle) positions.push(...binding.artifact.mesh.vertices[vertex]);
       });
       if (positions.length > 0) {
@@ -2945,10 +2965,10 @@ export class CadViewportEngine {
         }));
       }
     } else if (selection.kind === "edge") {
-      const edge = (binding.artifact.mesh.edges ?? []).find((item) => item.localId === selection.topologyId);
-      if (edge) overlay = makeOcclusionVisibleHighlightLine(
-        edge.points.map((point) => new THREE.Vector3().fromArray(point)), color, layer === "selected" ? 5 : 4,
-      );
+      const group=new THREE.Group();
+      for(const edge of binding.artifact.mesh.edges??[])if(selectedIDs.has(edge.localId))group.add(makeOcclusionVisibleHighlightLine(
+        edge.points.map(point=>new THREE.Vector3().fromArray(point)),color,layer==="selected"?5:4));
+      if(group.children.length===1){overlay=group.children[0];group.remove(overlay);}else if(group.children.length)overlay=group;
     } else {
       const vertex = (binding.artifact.mesh.topologyVertices ?? []).find((item) => item.localId === selection.topologyId);
       if (vertex) {

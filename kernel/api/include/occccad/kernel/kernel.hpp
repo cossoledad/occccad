@@ -168,7 +168,7 @@ struct PatternPlacement {
     std::array<double, 12> matrix{};
 };
 struct ProfilePadSpec {
-    std::string pattern_source_feature_id, pattern_source_kind;
+    std::string pattern_source_feature_id, pattern_source_kind, pattern_start_feature_id;
     std::string pattern_result_mode;
     std::vector<PatternPlacement> pattern_placements;
     std::vector<ProfileRegionSpec> regions;

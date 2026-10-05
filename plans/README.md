@@ -8,7 +8,7 @@
 | Feature | Hole → Fillet → Chamfer，随后 Pattern/Mirror/Shell/Draft；每项含 schema、参数、精确求值、topology history、引用、UI、Undo/Redo、冷重建与失败。Loft/Sweep 须明确 section/guide/seam 身份。 |
 | 关联投影 | trimmed Arc → Face Boundary → Section；[设计](../docs/architecture/target/sketch-projection.md)。当前 unsupported 不用临时近似替代。 |
 | 大模型 | 真实容量/瓶颈基线，再补 checkpoint、资源预算、分阶段计算、LOD/chunk、共享 buffers、解码/BVH 与故障验收；[设计](../docs/architecture/target/large-models.md)。续传暂缓，不是前置；基础数据面/XDE 不重做，不宣称完整 AP242 或 1 GiB+/单超大 Body/低复用装配已验收。 |
-| 树与依赖 | Feature 贡献索引、子树按需/大树基准、Publication 引用查看/跨 Workspace 并发、更多参数生命周期；按真实场景进入，不默认阻塞装配。 |
+| 树与依赖 | Feature 贡献的复杂组合与人工验收、子树按需/大树基准、Publication 引用查看/跨 Workspace 并发、更多参数生命周期；按真实场景进入，不默认阻塞装配。 |
 | 装配证据与规模 | 缺 Revision 运动证据保持未知，可按需补快照绑定只读刷新。连通性能、浏览器端到端与工业语料专门验收；千行 UI fixture 不替代求解。 |
 | 维护 | 按重复修改/漏检证据优化职责和检查路由，保持行为等价，不按文件数/行数重构。 |
 

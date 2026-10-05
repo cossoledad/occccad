@@ -72,13 +72,14 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onEdit, onRename, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onRename, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
   selectionToken: string; highlightedKey?: string; editSession?: EditSession;
   activeDocumentId?: string; activeInstancePath?: string; workingBodyId?: string;
   onSelect: (nodes: SpecificationTreeNode[]) => void; onHover?: (node?: SpecificationTreeNode) => void;
   onActivate?: (node: SpecificationTreeNode) => void;
   onOpenDocumentTab?: (node: SpecificationTreeNode) => void;
+  onViewResult?: (node:SpecificationTreeNode)=>void;
   onEdit?: (node: SpecificationTreeNode) => void;
   onRename?: (node: SpecificationTreeNode) => void;
   onCreatePart?: (node: SpecificationTreeNode) => void;
@@ -243,7 +244,8 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
               label: node.role === "CONSTRUCTION" ? "设为轮廓元素" : "设为构造元素",
               disabled: !node.capabilities?.includes("DELETE"),
               onClick: () => { setContextMenu(undefined); onToggleConstruction?.(node); } } : null,
-            node.capabilities?.includes("EDIT") ? { key: "edit", icon: <ContextMenuIcon><EditOutlined /></ContextMenuIcon>, label: "编辑",
+            ["PAD","REVOLVE","FEATURE","IMPORT"].includes(node.kind??"") && node.presentationRole!=="INPUT_REFERENCE" && onViewResult ? {key:"view-result",icon:<ContextMenuIcon />,label:"查看此步骤结果",onClick:()=>{setContextMenu(undefined);onViewResult(node);}}:null,
+            node.capabilities?.includes("EDIT") ? { key: "edit", icon: <ContextMenuIcon><EditOutlined /></ContextMenuIcon>, label: ["PAD","REVOLVE","FEATURE"].includes(node.kind??"")?"编辑定义":"编辑",
               onClick: () => { setContextMenu(undefined); onEdit?.(node); } } : null,
             onRename && ["BODY", "SKETCH", "PAD", "REVOLVE", "IMPORT"].includes(node.kind ?? "") && node.documentId === activeDocumentId
               ? { key: "rename", icon: <ContextMenuIcon />, label: "重命名", onClick: () => { setContextMenu(undefined); onRename(node); } } : null,

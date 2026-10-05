@@ -9,11 +9,11 @@ import (
 	"fmt"
 	"io"
 
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
+	artifactstore "github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 	"github.com/occccad/occccad/internal/visual"
-	artifactstore "github.com/occccad/occccad/internal/artifact"
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
 
 func (s *Service) representationObject(ctx context.Context, key, role string) (artifactstore.Object, error) {
@@ -63,6 +63,7 @@ func (s *Service) persistGeometry(ctx context.Context, key string, a Artifact, o
 	// Reference geometry is business metadata; large display primitives live only in GLB.
 	metadata := a.Visualization
 	metadata.Primitives = nil
+	metadata.FeatureAssociations = nil
 	visual, _ := json.Marshal(metadata)
 	tx, err := s.database.Begin(ctx)
 	if err != nil {
@@ -89,17 +90,7 @@ func (s *Service) storeEvaluation(ctx context.Context, key string, e *workerv1.E
 	if err != nil {
 		return err
 	}
-	ref := e.GetGlbArtifact()
-	if ref == nil || ref.GetSizeBytes() > uint64(^uint64(0)>>1) {
-		return fmt.Errorf("visual ArtifactReference required")
-	}
-	visual, err := s.artifacts.AdoptTransformed(ctx, artifactstore.KindGLB, "model/gltf-binary", ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes), func(data []byte) ([]byte, error) {
-		return glbWithVisualization(data, v, map[string]string{"geometryId": e.GeometryId, "namingDigest": e.GetEvaluationManifest().GetTopologyManifestDigest()})
-	})
-	if err != nil {
-		return err
-	}
-	objects := map[string]artifactstore.Object{"BREP": brep, "VISUAL": visual}
+	objects := map[string]artifactstore.Object{"BREP": brep}
 	if m := e.EvaluationManifest; m != nil {
 		if m.SchemaVersion != modelcore.TopologyNamingSchemaVersion || m.TopologyPolicyId != modelcore.TopologyNamingPolicyID || m.TopologyEvaluatorVersion != modelcore.TopologyNamingEvaluator || m.TopologyPolicyDigest != modelcore.TopologyNamingPolicyDigest {
 			return fmt.Errorf("topology manifest contract mismatch")
@@ -111,8 +102,28 @@ func (s *Service) storeEvaluation(ctx context.Context, key string, e *workerv1.E
 		if err := validateTopologyManifestDigests(m.TopologyManifestDigest, m.GetTopologyManifestArtifact().GetSha256(), naming.SHA256); err != nil {
 			return err
 		}
+		manifest, _, err := s.readTopologyManifest(ctx, nil, &naming.ID, &naming.SHA256)
+		if err != nil {
+			return err
+		}
+		if manifest.GeometryID != e.GeometryId || manifest.BRepSHA256 != brep.SHA256 {
+			return fmt.Errorf("feature association snapshot mismatch")
+		}
+		v.FeatureAssociations = deriveFeatureAssociations(manifest)
+		v.FeatureContributions = featureContributionStatuses(v.FeatureAssociations)
 		objects["NAMING"] = naming
 	}
+	ref := e.GetGlbArtifact()
+	if ref == nil || ref.GetSizeBytes() > uint64(^uint64(0)>>1) {
+		return fmt.Errorf("visual ArtifactReference required")
+	}
+	visual, err := s.artifacts.AdoptTransformed(ctx, artifactstore.KindGLB, "model/gltf-binary", ref.ObjectKey, ref.Sha256, int64(ref.SizeBytes), func(data []byte) ([]byte, error) {
+		return glbWithVisualization(data, v, map[string]string{"geometryId": e.GeometryId, "namingDigest": e.GetEvaluationManifest().GetTopologyManifestDigest()})
+	})
+	if err != nil {
+		return err
+	}
+	objects["VISUAL"] = visual
 	worker := s.worker.WorkerFor(key)
 	return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, Volume: e.Volume, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount}, TriangleCount: e.TriangleCount, DisplayVertexCount: e.DisplayVertexCount, Visualization: v}, objects)
 }
@@ -170,6 +181,7 @@ func (s *Service) ensureVisualizationVariant(ctx context.Context, base string, v
 	if err != nil {
 		return "", err
 	}
+	v.FeatureContributions = a.Visualization.FeatureContributions
 	a.Visualization = v
 	return key, s.persistGeometry(ctx, key, a, objects)
 }

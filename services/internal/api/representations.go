@@ -24,7 +24,7 @@ func (s *Server) downloadRepresentation(w http.ResponseWriter, r *http.Request) 
 		}
 	}
 	if featureID := r.URL.Query().Get("featureId"); featureID != "" && !allowed {
-		input, inputErr := s.workspace.GetFeatureInput(r.Context(), r.PathValue("documentID"), workspace.FeatureInputRequest{VersionID: version, FeatureID: featureID})
+		input, inputErr := s.workspace.GetFeatureInput(r.Context(), r.PathValue("documentID"), workspace.FeatureInputRequest{VersionID: version, FeatureID: featureID, ResultStage: r.URL.Query().Get("resultStage") == "true"})
 		if inputErr != nil {
 			writeError(w, http.StatusNotFound, "feature input unavailable")
 			return

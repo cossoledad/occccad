@@ -689,7 +689,10 @@ std::vector<NamedShape> map_named_shapes(const std::vector<NamedShape>& sources,
         const auto generated = algorithm.Generated(source.shape);
         for (TopTools_ListIteratorOfListOfShape it(generated); it.More(); it.Next())
             candidates.Append(it.Value());
-        if (!algorithm.IsDeleted(source.shape) && contains(source.shape)) {
+        // A composed history may remove an intermediate tool occurrence while
+        // the exact source TShape survives in another Boolean argument. Final
+        // membership is authoritative; never rename that survivor via closure.
+        if (contains(source.shape)) {
             candidates.Append(source.shape);
         }
         for (TopTools_ListIteratorOfListOfShape it(candidates); it.More(); it.Next()) {
@@ -727,7 +730,7 @@ std::vector<NamedShape> map_named_history(const std::vector<NamedShape>& sources
         const auto& generated = history->Generated(source.shape);
         for (TopTools_ListIteratorOfListOfShape it(generated); it.More(); it.Next())
             candidates.Append(it.Value());
-        if (candidates.IsEmpty() && !history->IsRemoved(source.shape) && contains(source.shape))
+        if (contains(source.shape))
             candidates.Append(source.shape);
         for (TopTools_ListIteratorOfListOfShape it(candidates); it.More(); it.Next())
             if (it.Value().ShapeType() == source.shape.ShapeType() && contains(it.Value()))
@@ -2929,10 +2932,13 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
     }
 
     std::map<std::string, ToolBuild> pattern_tools, pattern_bodies;
+    std::map<std::string, TopoDS_Shape> pattern_range_bases;
+    std::set<std::string> range_starts;
     std::set<std::string> required_pattern_tools, required_pattern_bodies;
     for (const auto& spec : specs) {
         if (spec.generator != "SOLID_PATTERN") continue;
         (spec.pattern_source_kind == "GENERATOR_TOOL" ? required_pattern_tools : required_pattern_bodies).insert(spec.pattern_source_feature_id);
+        if (spec.pattern_source_kind == "FEATURE_DELTA") range_starts.insert(spec.pattern_start_feature_id);
     }
     if (import_seed && !result.IsNull() && required_pattern_bodies.count(import_seed->feature_id)) {
         ToolBuild stage; stage.shape=result;stage.named=live_named;
@@ -2944,6 +2950,12 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             const auto input_shape = result;
             const auto input_id = result_id;
             const auto input_named = live_named;
+            if (range_starts.count(spec.feature_id)) {
+                if ((spec.generator != "LINEAR_EXTRUDE" && spec.generator != "REVOLVE") ||
+                    (spec.body_operation != "ADD" && spec.body_operation != "NEW_BODY") || spec.extent == "THROUGH_ALL")
+                    throw std::invalid_argument("PATTERN_RANGE_INVALID");
+                pattern_range_bases.emplace(spec.feature_id, result);
+            }
             ToolBuild tool;
             const bool modifier = spec.generator == "FILLET" || spec.generator == "CHAMFER" ||
                                   spec.generator == "DRAFT" || spec.generator == "SHELL";
@@ -2951,11 +2963,50 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 tool.feature_id = spec.feature_id;
             } else if (spec.generator == "SOLID_PATTERN") {
                 const auto& stages = spec.pattern_source_kind == "GENERATOR_TOOL" ? pattern_tools : pattern_bodies;
-                if (spec.pattern_source_kind != "GENERATOR_TOOL" && spec.pattern_source_kind != "BODY_STAGE")
+                if (spec.pattern_source_kind != "GENERATOR_TOOL" && spec.pattern_source_kind != "BODY_STAGE" && spec.pattern_source_kind != "FEATURE_DELTA")
                     throw std::invalid_argument("PATTERN_SOURCE_KIND_INVALID");
                 const auto found = stages.find(spec.pattern_source_feature_id);
                 if (found == stages.end()) throw std::invalid_argument("PATTERN_SOURCE_STAGE_UNAVAILABLE");
-                tool = make_pattern_tool(found->second,spec);
+                if (spec.pattern_source_kind == "FEATURE_DELTA") {
+                    const auto base = pattern_range_bases.find(spec.pattern_start_feature_id);
+                    if (base == pattern_range_bases.end() || spec.body_operation != "ADD")
+                        throw std::invalid_argument("PATTERN_RANGE_INVALID");
+                    bool inside = false, ended = false;
+                    for (const auto& member : specs) {
+                        if (member.feature_id == spec.pattern_start_feature_id) inside = true;
+                        if (inside && member.feature_id != spec.pattern_start_feature_id &&
+                            member.generator != "FILLET" && member.generator != "CHAMFER")
+                            throw std::invalid_argument("PATTERN_RANGE_REEXECUTION_UNSUPPORTED");
+                        if (inside && member.feature_id == spec.pattern_source_feature_id) { ended = true; break; }
+                    }
+                    if (!ended) throw std::invalid_argument("PATTERN_RANGE_INVALID");
+                    auto delta = found->second;
+                    if (!base->second.IsNull()) {
+                        // Additive ranges must retain all baseline material. This is
+                        // an exact stage difference, not re-execution or Body copying.
+                        BRepAlgoAPI_Cut removed;
+                        removed.SetNonDestructive(Standard_True);
+                        TopTools_ListOfShape baseline, endpoint; baseline.Append(base->second); endpoint.Append(delta.shape);
+                        removed.SetArguments(baseline);
+                        removed.SetTools(endpoint);
+                        removed.Build();
+                        if (!removed.IsDone() || removed.HasErrors())
+                            throw std::runtime_error("PATTERN_RANGE_BASELINE_CHECK_FAILED");
+                        if (shape_volume(removed.Shape()) > std::max(1e-7, shape_volume(base->second)*1e-10))
+                            throw std::invalid_argument("PATTERN_RANGE_REMOVES_BASELINE");
+                        BRepAlgoAPI_Cut cut;
+                        cut.SetNonDestructive(Standard_True);
+                        cut.SetArguments(endpoint);
+                        cut.SetTools(baseline);
+                        cut.Build();
+                        if (!cut.IsDone() || cut.HasErrors()) throw std::runtime_error("PATTERN_RANGE_EXTRACTION_FAILED");
+                        validate_body_solid_set(cut.Shape());
+                        delta.named = map_named_shapes(delta.named, cut, cut.Shape());
+                        delta.shape = cut.Shape();
+                        delta.generated = complete_boolean_topology_naming(delta.shape, delta.named, spec.pattern_start_feature_id);
+                    }
+                    tool = make_pattern_tool(delta, spec);
+                } else tool = make_pattern_tool(found->second,spec);
             } else if (spec.generator == "BOOLEAN") {
                 if (result.IsNull() || spec.tools.empty() || spec.tools.size() > 32 ||
                     (spec.body_operation == "INTERSECT" && spec.tools.size() != 1))

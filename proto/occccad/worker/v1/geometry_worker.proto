@@ -532,9 +532,10 @@ message ProfilePadSpec {
     repeated LoftSectionSpec sections = 24;
     bool ruled = 25;
     string pattern_source_feature_id = 26;
-    string pattern_source_kind = 27; // GENERATOR_TOOL | BODY_STAGE
+    string pattern_source_kind = 27; // GENERATOR_TOOL | BODY_STAGE | FEATURE_DELTA
     repeated PatternPlacement pattern_placements = 28;
     string pattern_result_mode = 29; // COMBINE | INDEPENDENT
+    string pattern_start_feature_id = 30; // FEATURE_DELTA inclusive start; source is inclusive end.
 }
 
 message PatternPlacement {

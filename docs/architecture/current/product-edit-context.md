@@ -30,6 +30,6 @@ Occurrence 激活先用 Product Design Session 校验 root Revision、完整路�
 
 实现：edit-session.ts、workbench.tsx、specification-tree.tsx、open-document-tab.ts、document-tab-order.ts、document-tabs.tsx、services/internal/api/open_documents.go。邻近 edit-session/open-document-tab/document-tab-order/context-menu-icon 场景和 Go OpenDocumentRegistry 测试检查唯一目标、嵌套/PINNED/迟到激活、读取不导航、稳定顺序与图标槽。
 
-打开注册表是单 API 进程内状态，不是分布式 presence；结构树整体构造，Feature 贡献索引/子树分页未交付。真实跨窗口、并发、多副本、容量和所有故障未取得全面验证。具体测试执行证据按运行输出记录，不把入口存在当作已执行。
+打开注册表是单 API 进程内状态，不是分布式 presence；结构树整体构造，Feature 当前贡献使用 Naming 派生索引，子树分页未交付。真实跨窗口、并发、多副本、容量和所有故障未取得全面验证。具体测试执行证据按运行输出记录，不把入口存在当作已执行。
 
 EditSession 是工作台上下文，不是数值操纵 Session；会话 CAD Body 属于 Part 求值，solver body 属于 occurrence 运动单元。

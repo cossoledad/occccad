@@ -37,8 +37,9 @@ const maxPatternMembers = 256
 type FeaturePattern struct {
 	ResultMode string `json:"resultMode,omitempty"` // COMBINE | INDEPENDENT
 	PatternDefinition
-	Source     FeatureStageRef `json:"source"`
-	SourceKind string          `json:"sourceKind"` // SKETCH_FRAME, GENERATOR_TOOL, BODY_STAGE
+	Source         FeatureStageRef `json:"source"`
+	SourceKind     string          `json:"sourceKind"`               // SKETCH_FRAME, GENERATOR_TOOL, BODY_STAGE, FEATURE_DELTA
+	StartFeatureID string          `json:"startFeatureId,omitempty"` // inclusive start of additive material range
 }
 
 func resolvePatternAxisDefinition(model PartModel, p PatternDefinition) (PatternDefinition, error) {
@@ -122,6 +123,9 @@ func validateFeaturePattern(f Feature, earlier map[string]Feature) error {
 	if !ok || source.BodyID != p.Source.BodyID || source.Suppressed {
 		return fmt.Errorf("%w: PATTERN_SOURCE_STAGE_UNAVAILABLE", ErrValidation)
 	}
+	if p.SourceKind != "FEATURE_DELTA" && p.StartFeatureID != "" {
+		return fmt.Errorf("%w: PATTERN_RANGE_UNEXPECTED", ErrValidation)
+	}
 	if f.Type == "SKETCH_PATTERN" {
 		if p.SourceKind != "SKETCH_FRAME" || source.Sketch == nil {
 			return fmt.Errorf("%w: pattern requires an upstream sketch", ErrValidation)
@@ -150,6 +154,19 @@ func validateFeaturePattern(f Feature, earlier map[string]Feature) error {
 			}
 			if f.Operation != source.Operation && !(source.Operation == "NEW_BODY" && f.Operation == "ADD") {
 				return fmt.Errorf("%w: pattern operation must match seed tool", ErrValidation)
+			}
+		} else if p.SourceKind == "FEATURE_DELTA" {
+			start, valid := earlier[p.StartFeatureID]
+			if !valid || start.Suppressed || start.BodyID != source.BodyID || start.Order > source.Order || !isSolidGenerator(start.Type) || start.Operation != "ADD" && start.Operation != "NEW_BODY" || start.Extent == "THROUGH_ALL" || !isBodyFeature(source.Type) || f.Operation != "ADD" {
+				return fmt.Errorf("%w: PATTERN_RANGE_INVALID", ErrValidation)
+			}
+			for _, member := range earlier {
+				if member.BodyID != source.BodyID || member.Order < start.Order || member.Order > source.Order || member.Suppressed || !isBodyFeature(member.Type) {
+					continue
+				}
+				if member.ID != start.ID && member.Type != "FILLET" && member.Type != "CHAMFER" {
+					return fmt.Errorf("%w: PATTERN_RANGE_REEXECUTION_UNSUPPORTED", ErrValidation)
+				}
 			}
 		} else if p.SourceKind != "BODY_STAGE" || !isBodyFeature(source.Type) || f.Operation != "ADD" {
 			return fmt.Errorf("%w: invalid pattern source or operation", ErrValidation)

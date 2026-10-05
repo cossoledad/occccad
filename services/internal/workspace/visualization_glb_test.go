@@ -8,7 +8,7 @@ import (
 )
 
 func TestVisualV2BinaryAuxiliaryAndReplacement(t *testing.T) {
-	v := VisualizationManifest{SchemaVersion: 1, Primitives: []VisualPrimitive{{ID: "wire", Kind: "POLYLINE", Positions: [][3]float64{{1, 2, 3}, {4, 5, 6}}, Indices: []uint32{0, 1}}, {ID: "label", Kind: "POINTS", Positions: [][3]float64{}}}}
+	v := VisualizationManifest{FeatureAssociations: &FeatureAssociationIndex{Features: []string{"feature"}}, FeatureContributions: map[string]string{"feature": "NO_CURRENT_CONTRIBUTION"}, SchemaVersion: 1, Primitives: []VisualPrimitive{{ID: "wire", Kind: "POLYLINE", Positions: [][3]float64{{1, 2, 3}, {4, 5, 6}}, Indices: []uint32{0, 1}}, {ID: "label", Kind: "POINTS", Positions: [][3]float64{}}}}
 	data, err := glbWithVisualization(nil, v, map[string]string{"geometryId": "geometry", "namingDigest": "naming"})
 	if err != nil {
 		t.Fatal(err)
@@ -46,10 +46,25 @@ func TestVisualV2BinaryAuxiliaryAndReplacement(t *testing.T) {
 	if len(restored.Primitives[0].Positions) != 2 || restored.Primitives[0].Positions[1] != v.Primitives[0].Positions[1] {
 		t.Fatal("binary display changed")
 	}
+	if restored.FeatureAssociations == nil || restored.FeatureContributions["feature"] != "NO_CURRENT_CONTRIBUTION" {
+		t.Fatal("association not paired with GLB")
+	}
 	// Repeated variants replace owned buffers, so unchanged payloads do not grow.
+	v.FeatureAssociations = nil
+	v.FeatureContributions = nil
 	again, err := glbWithVisualization(data, v)
 	if err != nil {
 		t.Fatal(err)
+	}
+	_, raw, err = visual.Decode(again)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = json.Unmarshal(raw, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if restored.FeatureAssociations == nil || restored.FeatureContributions["feature"] != "NO_CURRENT_CONTRIBUTION" {
+		t.Fatal("metadata variant lost associations")
 	}
 	if len(again) != len(data) {
 		t.Fatalf("retained stale auxiliary data: %d -> %d", len(data), len(again))

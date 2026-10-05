@@ -8,6 +8,7 @@
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakePolygon.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepClass3d_SolidClassifier.hxx>
 #include <BRepClass_FaceClassifier.hxx>
@@ -39,6 +40,7 @@
 #include <cmath>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 
 namespace occccad::kernel::detail {
 namespace {
@@ -93,7 +95,35 @@ double shape_tolerance(const TopoDS_Shape& shape) {
         result = std::max(result, BRep_Tool::Tolerance(TopoDS::Edge(it.Current())));
     return result;
 }
-void check_tolerance(const TopoDS_Shape& input, FilletBoundaryResult& result) {
+// Track construction faces through the actual Boolean/copy/unify mappings.
+// BRepTools_History composition can discard Generated when its original edge
+// is also removed from another argument, so preserve this explicit relation.
+using GeneratedFaces = std::vector<std::pair<TopoDS_Shape, TopoDS_Shape>>;
+template <class Algorithm>
+void transport_generated_faces(GeneratedFaces& faces, Algorithm& algorithm,
+                               const TopoDS_Shape& result) {
+    TopTools_IndexedMapOfShape members;
+    TopExp::MapShapes(result, TopAbs_FACE, members);
+    GeneratedFaces next;
+    for (const auto& [source, face] : faces) {
+        TopTools_ListOfShape candidates = algorithm.Modified(face);
+        for (TopTools_ListIteratorOfListOfShape it(algorithm.Generated(face)); it.More(); it.Next())
+            candidates.Append(it.Value());
+        if (members.Contains(face))
+            candidates.Append(face);
+        for (TopTools_ListIteratorOfListOfShape it(candidates); it.More(); it.Next()) {
+            if (it.Value().ShapeType() != TopAbs_FACE || !members.Contains(it.Value()))
+                continue;
+            if (std::none_of(next.begin(), next.end(), [&](const auto& v) {
+                    return v.first.IsSame(source) && v.second.IsSame(it.Value());
+                }))
+                next.emplace_back(source, it.Value());
+        }
+    }
+    faces = std::move(next);
+}
+void check_tolerance(const TopoDS_Shape& input, FilletBoundaryResult& result,
+                     GeneratedFaces* generated = nullptr) {
     const double recorded = shape_tolerance(result.shape),
                  limit = std::max(1e-6, shape_tolerance(input) * 1.01);
     if (recorded <= limit)
@@ -135,12 +165,15 @@ void check_tolerance(const TopoDS_Shape& input, FilletBoundaryResult& result) {
     valid(tightened, "TIGHTENED_TOLERANCE");
     TopTools_ListOfShape args;
     args.Append(result.shape);
+    if (generated)
+        transport_generated_faces(*generated, copy, tightened);
     result.history->Merge(args, copy);
     result.shape = tightened;
 }
 template <class Op>
 TopoDS_Shape boolean_shape(const TopoDS_Shape& a, const TopoDS_Shape& b,
-                           Handle(BRepTools_History) & history, const char* stage) {
+                           Handle(BRepTools_History) & history, const char* stage,
+                           GeneratedFaces* generated = nullptr) {
     Stage timing{stage};
     Op op;
     TopTools_ListOfShape objects, tools;
@@ -155,6 +188,8 @@ TopoDS_Shape boolean_shape(const TopoDS_Shape& a, const TopoDS_Shape& b,
     TopTools_ListOfShape args;
     args.Append(a);
     args.Append(b);
+    if (generated)
+        transport_generated_faces(*generated, op, op.Shape());
     history->Merge(args, op);
     return op.Shape();
 }
@@ -391,12 +426,16 @@ FilletBoundaryResult rebuild_fillet_boundary(const TopoDS_Shape& input,
     if (prismatic.IsDone())
         return prismatic;
     std::vector<Plane> planes;
+    std::vector<TopoDS_Face> curved;
+    std::vector<int> planeIndex(faces.Extent(), -1);
     bool convex = true;
     for (int i = 1; i <= faces.Extent(); ++i) {
         const auto face = TopoDS::Face(faces(i));
         BRepAdaptor_Surface s(face);
-        if (s.GetType() != GeomAbs_Plane)
-            return {};
+        if (s.GetType() != GeomAbs_Plane) {
+            curved.push_back(face);
+            continue;
+        }
         const auto n = normal(face);
         bool bounding = true;
         for (int j = 1; j <= vertices.Extent(); ++j)
@@ -404,7 +443,30 @@ FilletBoundaryResult rebuild_fillet_boundary(const TopoDS_Shape& input,
                     .Dot(gp_Vec(n)) > tolerance)
                 bounding = false;
         convex &= bounding;
+        planeIndex[i - 1] = static_cast<int>(planes.size());
         planes.push_back({face, s.Plane(), n, bounding});
+    }
+    // The existing concave sector construction only reads planar supports.
+    // Remote curved faces remain immutable input; they are not support planes.
+    if (!curved.empty()) {
+        convex = false;
+        for (auto& p : planes) {
+            if (!p.bounding)
+                continue;
+            gp_Trsf local;
+            local.SetTransformation(gp_Ax3(p.plane.Location(), p.outward));
+            for (const auto& face : curved) {
+                Bnd_Box bounds;
+                BRepBndLib::AddOptimal(BRepBuilderAPI_Transform(face, local, Standard_True).Shape(),
+                                       bounds, Standard_False, Standard_False);
+                double x0, y0, z0, x1, y1, z1;
+                bounds.Get(x0, y0, z0, x1, y1, z1);
+                if (z1 > tolerance) {
+                    p.bounding = false;
+                    break;
+                }
+            }
+        }
     }
     TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
     TopExp::MapShapesAndAncestors(input, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
@@ -419,8 +481,10 @@ FilletBoundaryResult rebuild_fillet_boundary(const TopoDS_Shape& input,
         if (curve.GetType() != GeomAbs_Line)
             return {};
         const auto& adjacent = edgeFaces.FindFromKey(edge);
-        const int a = faces.FindIndex(adjacent.First()) - 1,
-                  b = faces.FindIndex(adjacent.Last()) - 1;
+        const int a = planeIndex[faces.FindIndex(adjacent.First()) - 1],
+                  b = planeIndex[faces.FindIndex(adjacent.Last()) - 1];
+        if (a < 0 || b < 0)
+            return {};
         const auto n1 = gp_Vec(planes[a].outward), n2 = gp_Vec(planes[b].outward);
         const double cosine = n1.Dot(n2);
         if (1 + cosine < 1e-6 || 1 - cosine < 1e-6)
@@ -445,8 +509,11 @@ FilletBoundaryResult rebuild_fillet_boundary(const TopoDS_Shape& input,
         supports.push_back({edge, a, b, p, center, t1, t2, curve.Line().Direction(), isConvex});
         fixed[a] = fixed[b] = true;
     }
-    if (!exceeds)
+    if (!exceeds) {
+        std::clog << "fillet_boundary unsupported=within_finite_supports curved=" << curved.size()
+                  << '\n';
         return {};
+    }
     Bnd_Box box;
     BRepBndLib::AddOptimal(input, box, Standard_False, Standard_False);
     double x0, y0, z0, x1, y1, z1;
@@ -456,6 +523,7 @@ FilletBoundaryResult rebuild_fillet_boundary(const TopoDS_Shape& input,
         throw std::invalid_argument("FILLET_BOUNDARY_SUPPORT_EXTENSION_LIMIT");
     const double margin = 2 * (reach + radius);
     FilletBoundaryResult result;
+    GeneratedFaces materialFaces;
     result.history = new BRepTools_History();
     if (convex) {
         Stage stage{"convex_support_extension"};
@@ -511,19 +579,34 @@ FilletBoundaryResult rebuild_fillet_boundary(const TopoDS_Shape& input,
         for (const auto& s : supports)
             if (s.convex)
                 return {};
-        // A selected root must terminate on global material limits. Otherwise
-        // extending its cylinder could fill an unrelated cavity along its axis.
+        // Bound the sector by actual planar end faces incident to the selected
+        // root vertices. A remote existing blend can extend beyond those local
+        // limits, so a whole-Body hull is not a valid endpoint test.
+        TopTools_IndexedDataMapOfShapeListOfShape vertexFaces;
+        TopExp::MapShapesAndAncestors(input, TopAbs_VERTEX, TopAbs_FACE, vertexFaces);
+        std::vector<bool> localLimits(planes.size(), false);
         for (const auto& s : supports) {
             TopoDS_Vertex a, b;
             TopExp::Vertices(TopoDS::Edge(s.edge), a, b);
             for (const auto& vertex : {a, b}) {
                 bool bounded = false;
-                for (const auto& p : planes)
-                    if (p.bounding && std::abs(p.outward.Dot(s.axis)) > 1e-6 &&
-                        p.plane.Distance(BRep_Tool::Pnt(vertex)) <= tolerance)
+                for (std::size_t i = 0; i < planes.size(); ++i) {
+                    const auto& p = planes[i];
+                    if (vertexFaces.Contains(vertex) &&
+                        vertexFaces.FindFromKey(vertex).Contains(p.face) &&
+                        std::abs(p.outward.Dot(s.axis)) > 1e-6 &&
+                        p.plane.Distance(BRep_Tool::Pnt(vertex)) <= tolerance &&
+                        gp_Vec(p.plane.Location(), s.point).Dot(gp_Vec(p.outward)) < -tolerance) {
+                        localLimits[i] = true;
                         bounded = true;
-                if (!bounded)
+                    }
+                }
+                if (!bounded) {
+                    const auto point = BRep_Tool::Pnt(vertex);
+                    std::clog << "fillet_boundary unsupported=unbounded_root_endpoint point="
+                              << point.X() << "," << point.Y() << "," << point.Z() << '\n';
                     return {};
+                }
             }
         }
         result.shape = input;
@@ -553,18 +636,43 @@ FilletBoundaryResult rebuild_fillet_boundary(const TopoDS_Shape& input,
             result.history->AddGenerated(s.edge, cylinder.Face());
             auto fill = boolean_shape<BRepAlgoAPI_Cut>(prism, cylinder.Shape(), result.history,
                                                        "tangent_sector");
-            for (const auto& p : planes)
-                if (p.bounding) {
+            for (std::size_t i = 0; i < planes.size(); ++i)
+                if (planes[i].bounding || localLimits[i]) {
+                    const auto& p = planes[i];
                     TopoDS_Face boundary;
                     auto space = halfspace(p, 0, boundary);
                     // The limiting plane is constructed from this actual face.
-                    result.history->AddGenerated(p.face, boundary);
+                    result.history->AddModified(p.face, boundary);
+                    // This cap bounds newly constructed sector material. After
+                    // same-domain fusion it can share a face with the old limit;
+                    // retain both its original face and actual fillet generator.
+                    result.history->AddGenerated(s.edge, boundary);
                     fill = boolean_shape<BRepAlgoAPI_Common>(fill, space, result.history,
                                                              "limit_trim");
                 }
             valid(fill, "LIMIT_TRIM");
+            // Remote curved boundaries are allowed only when this local sector
+            // does not touch them. Never use a planar hull to fill a curved
+            // cavity or modify a previous blend as an accidental side effect.
+            for (const auto& face : curved) {
+                BRepAlgoAPI_Common contact;
+                TopTools_ListOfShape args, tools;
+                args.Append(fill);
+                tools.Append(face);
+                contact.SetArguments(args);
+                contact.SetTools(tools);
+                contact.SetNonDestructive(Standard_True);
+                contact.Build();
+                if (!contact.IsDone() || contact.HasErrors() ||
+                    TopExp_Explorer(contact.Shape(), TopAbs_FACE).More() ||
+                    TopExp_Explorer(contact.Shape(), TopAbs_EDGE).More() ||
+                    TopExp_Explorer(contact.Shape(), TopAbs_VERTEX).More())
+                    return {};
+            }
+            for (TopExp_Explorer fillFaces(fill, TopAbs_FACE); fillFaces.More(); fillFaces.Next())
+                materialFaces.emplace_back(s.edge, fillFaces.Current());
             result.shape = boolean_shape<BRepAlgoAPI_Fuse>(result.shape, fill, result.history,
-                                                           "material_assembly");
+                                                           "material_assembly", &materialFaces);
         }
         result.diagnostics.push_back("FILLET_SUPPORT_DOMAIN_EXTENDED:CONCAVE_PLANAR");
     }
@@ -574,17 +682,21 @@ FilletBoundaryResult rebuild_fillet_boundary(const TopoDS_Shape& input,
                                            Standard_False);
         unify.SetSafeInputMode(Standard_True);
         unify.Build();
+        transport_generated_faces(materialFaces, *unify.History(), unify.Shape());
         result.history->Merge(unify.History());
         result.shape = unify.Shape();
     }
     {
         Stage stage{"validation"};
         valid(result.shape, "CORNER_CLOSURE");
-        check_tolerance(input, result);
+        check_tolerance(input, result, &materialFaces);
         BRepAlgoAPI_Check check(result.shape, Standard_False, Standard_True);
         if (!check.IsValid())
             throw std::runtime_error("FILLET_BOUNDARY_SELF_INTERFERENCE");
     }
+    for (const auto& [source, face] : materialFaces)
+        if (!result.history->Generated(source).Contains(face))
+            result.history->AddGenerated(source, face);
     // A valid solid with the entire blend consumed is not a successful fillet.
     TopTools_IndexedMapOfShape liveFaces;
     TopExp::MapShapes(result.shape, TopAbs_FACE, liveFaces);

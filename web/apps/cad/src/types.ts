@@ -23,6 +23,7 @@ export type BodyDisplayFallback = { geometryKey: string; sourceVersionId: string
 export type PartBody = { displayFallback?: BodyDisplayFallback; consumed?: boolean; id: string; name: string; visible: boolean; geometryKey?: string; createdByFeatureId?: string };
 
 export type Artifact = {
+ displayStageFeatureId?:string;historicalPreview?:boolean;
   visualNamingDigest?: string;
   bodyId?: string;
   naming?: NamingAvailability;
@@ -100,7 +101,11 @@ export type VisualPrimitive = {
   relatedEntityIds?: string[];
   indices?: number[]; selectable: boolean;
 };
+export type FeatureTopologyAssociation = {kind:"FACE"|"EDGE"|"VERTEX";localId:number;origins:string[];primary:string[];modifiers?:string[];supports?:string[];members?:{patternId:string;slot:number}[];status:"MAPPED"|"MAPPING_MISSING"};
+export type FeatureAssociationIndex = {features:string[];elements:FeatureTopologyAssociation[]};
 export type VisualizationManifest = {
+ featureAssociations?:FeatureAssociationIndex;
+ featureContributions?:Record<string,"CURRENT"|"NO_CURRENT_CONTRIBUTION"|"MAPPING_MISSING">;
   schemaVersion: 1 | 2; referenceGeometry: ReferenceGeometry;
   // Lightweight Artifact descriptors omit display primitives; GLB owns the full payload.
   primitives?: VisualPrimitive[] | null;
@@ -117,7 +122,7 @@ export type DocumentProperties = {
 export type PatternDefinition = { directionReference?:SketchGeometryRef; reversed?:boolean; centerReference?:{sketchId?:string;axisEntityId?:string;reference:SketchGeometryRef}; axisEntityId?:string; id:string; kind:"LINEAR"|"CIRCULAR"; distribution:"FIXED_STEP"|"TOTAL_SPAN"|"FULL_CIRCLE"; count:number; spacing?:number; angle?:number; phase?:number; origin:Vec3; direction:Vec3; skippedSlots?:number[]; suppressed?:boolean };
 export type SketchPattern = PatternDefinition & {entityIds:string[]};
 export type Feature = {
-  pattern?:PatternDefinition & {resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"};
+  pattern?:PatternDefinition & {startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"};
   profileMemberSlot?:number;
   evaluationStatus?: "FAILED" | "BLOCKED" | "SUPPRESSED";
   diagnostic?: string;
@@ -334,12 +339,13 @@ export type OccurrenceRef = { rootDocumentId: string; instancePath: InstancePath
 export type SnapshotScope = { revisionId: string; contextVariantKey?: string; geometryKey?: string };
 
 export type DocumentStructureNode = {
+ inputRole?:string;inputOrder?:number;inputEntityId?:string;
  patternId?:string;patternMemberSlot?:number;
   id: string;
   subject?: EntityRef;
   occurrence?: OccurrenceRef;
   snapshot?: SnapshotScope;
-  kind: "SKETCH_PATTERN_MEMBER" | "SKETCH_PATTERN_DEFINITION" | "SKETCH_PATTERN_ENTITY" | "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
+  kind: "SKETCH_PATTERN_MEMBER" | "SKETCH_PATTERN_DEFINITION" | "SKETCH_PATTERN_ENTITY" | "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "FEATURE_INPUT_REFERENCE" | "DATUM_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
   presentationRole?: "DEFINITION" | "FEATURE_INPUT" | "INPUT_REFERENCE" | "GROUP";
   ownerDocumentId?: string;
   bodyId?: string;
@@ -491,6 +497,9 @@ export type SelectionIdentity = {
   rootDocumentId?: string;
   contextVariantKey?: string;
   highlightTarget?: SelectionItem;
+  associatedFeatureIds?:string[];
+  sourceFeatureIds?:string[];
+  displayStageFeatureId?:string;
   treeNodeId?: string;
   expandTreeDescendants?: boolean;
   documentId?: string;

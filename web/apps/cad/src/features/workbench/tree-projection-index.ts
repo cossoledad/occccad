@@ -66,6 +66,14 @@ export function ancestorHintKeysForSelections(nodes: SpecificationTreeNode[], se
   const index = indexTree(nodes);
   const result = new Set<string>();
   for (const selection of selections) {
+    if(["face","edge","vertex"].includes(selection.kind))for(const id of selection.associatedFeatureIds??[]) {
+      for(const node of index.byNode.values()) {
+        const target=node.selection;
+        if(!target||node.presentationRole==="INPUT_REFERENCE")continue;
+        if((target.entityId??target.id)!==id||target.documentId!==selection.documentId||target.versionId!==selection.versionId||target.bodyId!==selection.bodyId||target.geometryKey!==selection.geometryKey||target.contextVariantKey!==selection.contextVariantKey||(target.occurrencePath??"")!==(selection.occurrencePath??""))continue;
+        result.add(node.key);for(const parent of index.parents.get(node.key)??[])result.add(parent);
+      }
+    }
     const exact = index.bySelection.get(selectionKey(selection)) ?? [];
     const location = exact.length ? exact : [closestTreeKey(nodes, selection.treeNodeId)].filter((key): key is string => Boolean(key));
     for (const key of location) {
@@ -84,4 +92,13 @@ export function deletableTreeNodesForSelections(nodes:SpecificationTreeNode[],se
     if(node.entityId&&node.kind&&node.presentationRole!=="INPUT_REFERENCE"&&node.capabilities?.includes("DELETE"))result.set(key,node);
   }
   return [...result.values()];
+}
+
+/** Association is a view hint only and cannot become a command target. */
+export function associatedTreeKeyForSelection(nodes:SpecificationTreeNode[],selection:Selection):string|undefined {
+ if(!selection||!["face","edge","vertex"].includes(selection.kind)||selection.associatedFeatureIds?.length!==1)return;
+ const id=selection.associatedFeatureIds[0];
+ for(const node of indexTree(nodes).byNode.values()) {const target=node.selection;
+  if(target&&node.presentationRole!=="INPUT_REFERENCE"&&(target.entityId??target.id)===id&&target.documentId===selection.documentId&&target.versionId===selection.versionId&&target.bodyId===selection.bodyId&&target.geometryKey===selection.geometryKey&&target.contextVariantKey===selection.contextVariantKey&&(target.occurrencePath??"")===(selection.occurrencePath??""))return node.key;
+ }
 }

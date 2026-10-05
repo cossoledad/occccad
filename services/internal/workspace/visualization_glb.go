@@ -83,6 +83,15 @@ func glbWithVisualization(source []byte, visualization VisualizationManifest, as
 	if err = json.Unmarshal(raw, &metadata); err != nil {
 		return nil, err
 	}
+	if visualization.FeatureAssociations == nil {
+		if previous, ok := extensions[visualizationExtension].(map[string]any); ok {
+			for _, key := range []string{"featureAssociations", "featureContributions"} {
+				if derived := previous[key]; derived != nil {
+					metadata[key] = derived
+				}
+			}
+		}
+	}
 	metadata["schemaVersion"] = 2
 	views, _ := document["bufferViews"].([]any)
 	accessors, _ := document["accessors"].([]any)

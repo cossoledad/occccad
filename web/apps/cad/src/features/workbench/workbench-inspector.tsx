@@ -242,7 +242,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
     { key: "type", label: "类型", children: selection.kind.toUpperCase() },
     { key: "name", label: "名称", children: feature?.name ?? instance?.name ?? selection.id },
     ...(["pad", "import", "feature"].includes(selection.kind) ? [{ key: "contribution", label: "当前结果中的贡献",
-      children: "尚无可靠的 Feature 贡献定位；选择保留在设计历史中，不将整个 Body 视为该 Feature 的几何结果。" }] : []),
+      children: (()=>{const status=selection.geometryKey?view.artifacts?.[selection.geometryKey]?.visualization?.featureContributions?.[selection.entityId??selection.id]:undefined;return status==="CURRENT"?"已突出当前结果中的生成贡献；支撑与后续修改单独关联。":status==="NO_CURRENT_CONTRIBUTION"?"无当前几何贡献；可通过“查看此步骤结果”查看历史结果。":"当前拓扑关联缺失，无法可靠定位。";})() }] : []),
     ...(selection.kind === "plane" ? [{ key: "plane", label: "基准面", children: selection.plane }] : []),
     ...(feature?.sketch ? [{ key: "entities", label: "草图元素", children: feature.sketch.entities.length },
       { key: "external", label: "外部几何", children: `${feature.sketch.externalGeometry?.length??0} · ${(feature.sketch.externalGeometry??[]).filter((item)=>item.status!=="CONNECTED").length} unresolved` },

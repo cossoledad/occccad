@@ -238,3 +238,36 @@ func TestPatternDetachPreservesClosedProfiles(t *testing.T) {
 		t.Fatal("detachment retained link")
 	}
 }
+
+func TestPatternMaterialRangeContract(t *testing.T) {
+	seed := Feature{ID: "leaf", Type: "LINEAR_EXTRUDE", BodyID: "body", Order: 2, Operation: "ADD", Extent: "FINITE"}
+	round := Feature{ID: "round", Type: "FILLET", BodyID: "body", Order: 3}
+	earlier := map[string]Feature{seed.ID: seed, round.ID: round}
+	f := Feature{ID: "copies", Type: "SOLID_PATTERN", BodyID: "body", Order: 4, Operation: "ADD", Pattern: &FeaturePattern{PatternDefinition: PatternDefinition{ID: "copies", Kind: "CIRCULAR", Distribution: "FIXED_STEP", Count: 2, Angle: 180, Direction: [3]float64{0, 0, 1}}, Source: FeatureStageRef{BodyID: "body", FeatureID: round.ID}, SourceKind: "FEATURE_DELTA", StartFeatureID: seed.ID}}
+	if err := validateFeaturePattern(f, earlier); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(featureInputIDs(f), ","), seed.ID) {
+		t.Fatal("range start missing from dependency graph")
+	}
+	for _, kind := range []string{"BOOLEAN", "DRAFT", "SHELL", "SOLID_PATTERN", "LINEAR_EXTRUDE"} {
+		broken := round
+		broken.Type = kind
+		earlier[round.ID] = broken
+		if err := validateFeaturePattern(f, earlier); err == nil {
+			t.Fatal("arbitrary group replay accepted", kind)
+		}
+	}
+	earlier[round.ID] = round
+	wrong := seed
+	wrong.BodyID = "other"
+	earlier[seed.ID] = wrong
+	if err := validateFeaturePattern(f, earlier); err == nil {
+		t.Fatal("cross Body start accepted")
+	}
+	earlier[seed.ID] = seed
+	f.Pattern.SourceKind = "GENERATOR_TOOL"
+	if err := validateFeaturePattern(f, earlier); err == nil {
+		t.Fatal("range silently mixed with generator tool")
+	}
+}

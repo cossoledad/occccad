@@ -31,3 +31,15 @@ Body Publication 目标用 `BODY_RESULT + BodyId` 表示该 Body 的当前结果
 所选关系数据库（PostgreSQL/SQLite）保存模型和轻量显示元数据；ArtifactStore 保存 per-Body BREP/GLB/Naming；WebSocket 承载命令、Preview 与状态；HTTP 承载制品下载。没有 Part 级持久聚合几何，也没有改变 XDE Definition/Occurrence。历史 Revision 不自动合并 Body、不重写 Naming。现有开发数据若依赖旧自动分 Body 的建模意图，应显式重建或按维护者批准的数据边界重置；本次没有执行数据删除。
 
 验证入口为邻近 Body/显示/参数/Publication 场景。浏览器、多标签页、Product 更新及跨 Workspace 并发需要明确的独立证据，不能由模型测试代签。
+
+## Feature 定义、当前贡献与阶段显示
+
+同 Body 的实体 Feature 按模型历史顺序同级显示，阶段 S0/S1/S2 不生成普通树节点。`featureInputs` 从定义枚举轮廓、按定义顺序的截面/点、轴、支撑、中性面、工具、阵列种子与拓扑来源阶段，依赖检查和树投影共用该枚举。同 Body 单一消费者的专用草图可以收纳；共享/跨 Body 输入显示引用，原定义和所有权不变。阵列种子保持原树位置与编辑能力，依赖删除仍受保护。
+
+`storeEvaluation` 验证同一 BREP/Naming 快照后，从完整 transition 与 tip locator 派生 `featureAssociations`，与面/边映射一起写入 GLB 的既有 Visualization 扩展。显示摘要中的 `featureContributions` 区分当前贡献、完整历史下无当前贡献和关联缺失。索引不成为持久 Naming，不改变 SemanticTopologyRef 或 PersistentSelection，也不保存每步历史网格；显示元数据变体保留原配套索引。
+
+生成、修改和支撑分别记录。组合历史中的 Removed 标记不能覆盖最终 Shape 中仍存在的同一 TShape；这种明确存活的面/边保留上游来源，不能被邻接补齐命名误标为局部修改生成。支撑域裁剪的限制面通过同类型 Modified 传播原面身份。圆角扇区的实际新增面经布尔、同域融合和容差副本的真实 History 传播，并补回根边到最终面的 Generated 关系，避免中间删除令组合 History 丢失新增封口来源。封口融合原面时，保留原拉伸和圆角两个来源；共用边另有真实邻接来源时保留额外候选，不要求面边的全部来源集合相同。Modified/Split/Merged 继承实际来源，多个生成来源保留候选；Generated 新过渡面主要定位其生成 Feature，读取整个 Body 不产生整 Body 贡献。阵列 MEMBER 语义槽位与 Naming 中精确 seed SemanticTopologyRef 摘要配对，成员及其下游过渡面保留 pattern/slot，不按位置匹配种子；过渡生成别名经精确源引用摘要恢复支撑及成员上下文。
+
+视图命中保持真实拓扑主选择；树关联/预选提示不进入命令目标。Feature 选择按当前 Face/Edge ID 集合渲染融合网格高亮，Body 选择才高亮整体。匹配必须同时满足文档、Revision、Body、GeometryKey、occurrence、variant 和显示阶段。历史结果通过 `feature-input{resultStage:true}` 按需重建，下载仍验证 Feature、Revision 和精确对象范围；历史预览不参与建模拾取。恢复按钮、编辑结束或上下文变化清除临时阶段显示。
+
+生成工具选源与整体 Body 阶段分开；视图生成来源有歧义时提示候选，定义列表给出明确选择。特征组合以明确起止步骤复用阶段差集；树多选同 Body 的生成特征及后续圆角/倒角时按历史顺序初始化范围，文档、Revision 和 occurrence 不一致则拒绝。已有实体阵列允许显式切换选源模式。该范围支持添加型拉伸/旋转及随后的圆角/倒角；此前 Body 材料不参与复制。当前生成工具阵列仍限已有 PAD/LINEAR_EXTRUDE/REVOLVE 能力，不以最终 Body、白名单扩展或全 Body 复制替代任意特征组重执行。阵列阶段可以作为下游局部加工输入，种子编辑与成员上的下游圆角分别提交定义并通过真实 Naming 重算。

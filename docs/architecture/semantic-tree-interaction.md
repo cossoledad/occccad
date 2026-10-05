@@ -4,7 +4,7 @@
 
 `PartModel` 保存 Body、Feature、Sketch 输入、Publication 与 ContextReference；`ProductModel` 保存 occurrence、版本策略、Publication、Binding 和约束。`workspace.Service.buildDocumentStructure` 从已解析 Revision 生成 `DocumentStructureNode`；`DocumentView` 同时提供模型摘要、per-Body Artifact 索引、resolved occurrence 和引用更新。前端 `treeData` 适配为虚拟行，`structureSelection` 转换树入口；视口从 Body 几何和 GLB 拾取，`Workbench` 将树/视口选择交给工具、属性和命令。实时事件更新 Query 缓存，Product 的接受更新仍使用服务端 `UpdatePlan`。
 
-当前身份/显隐见[建模与显示](current/model-display.md)，宿主/编辑目标和导航见[编辑上下文](current/product-edit-context.md)。尚缺 Feature 贡献索引、按需子树及跨 Workspace 依赖保证，见[后续工作](../../plans/README.md)。
+当前身份/显隐见[建模与显示](current/model-display.md)，宿主/编辑目标和导航见[编辑上下文](current/product-edit-context.md)。当前 Feature 贡献索引由 Naming 派生；尚缺按需子树及跨 Workspace 依赖保证，见[后续工作](../../plans/README.md)。
 
 ## 领域与投影合同
 

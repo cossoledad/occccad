@@ -61,7 +61,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const validRevision = version.current === view.document.versionId;
     useEffect(() => { alive.current = true; return () => { alive.current = false; callbacks.current.onSelectionSession(); callbacks.current.onInputArtifact(); }; }, []);
     useEffect(() => {
-        if (!modifier || !feature.id)
+        if (!feature.id)
             return;
         let current = true;
         const controller = new AbortController();
@@ -71,8 +71,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
                 return;
             setInputContext(context);
             callbacks.current.onInputArtifact(context.artifacts ?? context.artifact);
-            if (context.neutralPick) { const p = context.neutralPick; setNeutralVisual({ ...occurrenceContext, kind:"face", id:`input:neutral:${p.localId}`, documentId:view.document.id, bodyId:p.bodyId, versionId:context.versionId, geometryKey:p.geometryKey, topologyId:p.localId, occurrencePath }); }
-            setPicks(context.picks.map(p => ({ definition: feature.selections![p.index], visual: { ...occurrenceContext, kind: p.kind.toLowerCase() as "edge" | "face", id: `input:${p.kind}:${p.localId}`, documentId: view.document.id, bodyId: feature.bodyId, versionId: context.versionId, geometryKey: context.artifact.geometryKey, topologyId: p.localId, occurrencePath } })));
+            if (context.neutralPick) { const p = context.neutralPick; setNeutralVisual({ ...occurrenceContext, kind:"face", id:`input:neutral:${p.localId}`, documentId:view.document.id, bodyId:p.bodyId, versionId:context.versionId, geometryKey:p.geometryKey, displayStageFeatureId:p.displayStageFeatureId, topologyId:p.localId, occurrencePath }); }
+            setPicks(context.picks.map(p => ({ definition: feature.selections![p.index], visual: { ...occurrenceContext, kind: p.kind.toLowerCase() as "edge" | "face", id: `input:${p.kind}:${p.localId}`, documentId: view.document.id, bodyId: feature.bodyId, displayStageFeatureId:context.sourceFeatureId, versionId: context.versionId, geometryKey: context.artifact.geometryKey, topologyId: p.localId, occurrencePath } })));
         }).catch(cause => { if (current && !controller.signal.aborted)
             setError(String(cause)); }).finally(() => { if (current)
             setLoadingInput(false); });
@@ -248,8 +248,8 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
     const preview = useFeaturePreview(view.document.id, view.document.versionId, input, draft.operation, onPreview);
     acceptedSections.current=preview.loftSections;
     useEffect(() => {
-        callbacks.current.onSelectionSession({ role, connectionLines:showConnections?preview.loftConnections:undefined, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) });
-    }, [role, highlightsToken, sketchIdsToken, draft.bodyId,showConnections,JSON.stringify(preview.loftConnections)]);
+        callbacks.current.onSelectionSession({ ...occurrenceContext,role, connectionLines:showConnections?preview.loftConnections:undefined, documentId: view.document.id, versionId: version.current, occurrencePath, bodyId: modifier ? draft.bodyId : undefined, geometryKey:modifier && feature.id ? inputContext?.artifact.geometryKey : undefined, sketchIds, contextSelections: contextSelections.map(s => ({ ...occurrenceContext, ...s })), selections: selections.map(s => ({ ...occurrenceContext, ...s })), onPick: s => pickRef.current(s) });
+    }, [role, highlightsToken, sketchIdsToken, draft.bodyId,inputContext?.artifact.geometryKey,showConnections,JSON.stringify(preview.loftConnections)]);
     const apply = async () => { if (!input || !preview.previewId || preview.pending || committing)
         return; setCommitting(true); try {
         await onApply({ ...input, previewId: preview.previewId });

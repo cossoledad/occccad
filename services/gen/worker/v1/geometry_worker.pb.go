@@ -4586,9 +4586,10 @@ type ProfilePadSpec struct {
 	Sections               []*LoftSectionSpec     `protobuf:"bytes,24,rep,name=sections,proto3" json:"sections,omitempty"`
 	Ruled                  bool                   `protobuf:"varint,25,opt,name=ruled,proto3" json:"ruled,omitempty"`
 	PatternSourceFeatureId string                 `protobuf:"bytes,26,opt,name=pattern_source_feature_id,json=patternSourceFeatureId,proto3" json:"pattern_source_feature_id,omitempty"`
-	PatternSourceKind      string                 `protobuf:"bytes,27,opt,name=pattern_source_kind,json=patternSourceKind,proto3" json:"pattern_source_kind,omitempty"` // GENERATOR_TOOL | BODY_STAGE
+	PatternSourceKind      string                 `protobuf:"bytes,27,opt,name=pattern_source_kind,json=patternSourceKind,proto3" json:"pattern_source_kind,omitempty"` // GENERATOR_TOOL | BODY_STAGE | FEATURE_DELTA
 	PatternPlacements      []*PatternPlacement    `protobuf:"bytes,28,rep,name=pattern_placements,json=patternPlacements,proto3" json:"pattern_placements,omitempty"`
-	PatternResultMode      string                 `protobuf:"bytes,29,opt,name=pattern_result_mode,json=patternResultMode,proto3" json:"pattern_result_mode,omitempty"` // COMBINE | INDEPENDENT
+	PatternResultMode      string                 `protobuf:"bytes,29,opt,name=pattern_result_mode,json=patternResultMode,proto3" json:"pattern_result_mode,omitempty"`               // COMBINE | INDEPENDENT
+	PatternStartFeatureId  string                 `protobuf:"bytes,30,opt,name=pattern_start_feature_id,json=patternStartFeatureId,proto3" json:"pattern_start_feature_id,omitempty"` // FEATURE_DELTA inclusive start; source is inclusive end.
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -4822,6 +4823,13 @@ func (x *ProfilePadSpec) GetPatternPlacements() []*PatternPlacement {
 func (x *ProfilePadSpec) GetPatternResultMode() string {
 	if x != nil {
 		return x.PatternResultMode
+	}
+	return ""
+}
+
+func (x *ProfilePadSpec) GetPatternStartFeatureId() string {
+	if x != nil {
+		return x.PatternStartFeatureId
 	}
 	return ""
 }
@@ -11433,8 +11441,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x17correspondence_resolved\x18\t \x01(\bR\x16correspondenceResolved\x12\x19\n" +
 	"\bpoint_id\x18\n" +
 	" \x01(\tR\apointId\x12-\n" +
-	"\x05point\x18\v \x01(\v2\x17.occccad.worker.v1.Vec3R\x05point\"\xd8\n" +
-	"\n" +
+	"\x05point\x18\v \x01(\v2\x17.occccad.worker.v1.Vec3R\x05point\"\x91\v\n" +
 	"\x0eProfilePadSpec\x12:\n" +
 	"\aregions\x18\x01 \x03(\v2 .occccad.worker.v1.ProfileRegionR\aregions\x12\x1d\n" +
 	"\n" +
@@ -11470,7 +11477,8 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x19pattern_source_feature_id\x18\x1a \x01(\tR\x16patternSourceFeatureId\x12.\n" +
 	"\x13pattern_source_kind\x18\x1b \x01(\tR\x11patternSourceKind\x12R\n" +
 	"\x12pattern_placements\x18\x1c \x03(\v2#.occccad.worker.v1.PatternPlacementR\x11patternPlacements\x12.\n" +
-	"\x13pattern_result_mode\x18\x1d \x01(\tR\x11patternResultMode\">\n" +
+	"\x13pattern_result_mode\x18\x1d \x01(\tR\x11patternResultMode\x127\n" +
+	"\x18pattern_start_feature_id\x18\x1e \x01(\tR\x15patternStartFeatureId\">\n" +
 	"\x10PatternPlacement\x12\x12\n" +
 	"\x04slot\x18\x01 \x01(\rR\x04slot\x12\x16\n" +
 	"\x06matrix\x18\x02 \x03(\x01R\x06matrix\"t\n" +

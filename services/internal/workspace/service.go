@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v25-fillet-boundary"
+const evaluatorVersion = "part-solid-generators-v28-local-fillet-history"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1884,7 +1884,7 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 			if err != nil {
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}
-			spec := geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "SOLID_PATTERN", BodyOperation: feature.Operation, PatternSourceFeatureID: feature.Pattern.Source.FeatureID, PatternSourceKind: feature.Pattern.SourceKind, PatternResultMode: feature.Pattern.ResultMode}
+			spec := geometry.ProfilePad{FeatureID: feature.ID, BodyID: feature.BodyID, InputFeatureID: bodyTipFeatureID, Generator: "SOLID_PATTERN", BodyOperation: feature.Operation, PatternSourceFeatureID: feature.Pattern.Source.FeatureID, PatternSourceKind: feature.Pattern.SourceKind, PatternStartFeatureID: feature.Pattern.StartFeatureID, PatternResultMode: feature.Pattern.ResultMode}
 			for _, placement := range placements {
 				spec.PatternPlacements = append(spec.PatternPlacements, geometry.PatternPlacement{Slot: uint32(placement.Slot), Matrix: placement.Matrix})
 			}
@@ -2028,7 +2028,11 @@ func (service *Service) ensureArtifactVisualization(ctx context.Context, key str
 	var current VisualizationManifest
 	expected := visualizationManifest(model)
 	expected.Primitives = nil
-	if json.Unmarshal(stored, &current) != nil || !reflect.DeepEqual(current, expected) {
+	if err := json.Unmarshal(stored, &current); err != nil {
+		return err
+	}
+	current.FeatureContributions = nil
+	if !reflect.DeepEqual(current, expected) {
 		return fmt.Errorf("%w: visualization artifact does not match the Part revision", ErrValidation)
 	}
 	return nil
@@ -2403,14 +2407,24 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		if strings.Contains(strings.ToUpper(feature.Type), "SKETCH") {
 			sketches[feature.ID] = feature
 		}
-		if isSolidGenerator(feature.Type) && feature.Profile != "" {
-			uses[feature.Profile] = append(uses[feature.Profile], feature)
-			dependents[feature.Profile] = true
+		seen := map[string]bool{}
+		for _, input := range featureInputs(feature) {
+			if !seen[input.FeatureID] {
+				uses[input.FeatureID] = append(uses[input.FeatureID], feature)
+				seen[input.FeatureID] = true
+			}
 		}
 	}
 	for sketchID, consumers := range uses {
 		sketch, exists := sketches[sketchID]
-		consumed[sketchID] = exists && len(consumers) == 1 && consumers[0].BodyID == sketch.BodyID
+		consumed[sketchID] = false
+		if exists && sketch.Type == "SKETCH" && len(consumers) == 1 && consumers[0].BodyID == sketch.BodyID {
+			for _, input := range featureInputs(consumers[0]) {
+				if input.FeatureID == sketchID && (input.Role == "PROFILE" || input.Role == "SECTION" || input.Role == "SECTION_POINT") {
+					consumed[sketchID] = true
+				}
+			}
+		}
 	}
 	bodies := []DocumentStructureNode{}
 	for _, definition := range model.Bodies {
@@ -2424,21 +2438,56 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			}
 			digest, _ := featureDefinitionDigest(model, feature.ID)
 			node := featureStructureNode(feature, body.ID, documentID, versionID, digest, editable && !dependents[feature.ID], editable)
-			if isSolidGenerator(feature.Type) && feature.Profile != "" {
-				if sketch, exists := sketches[feature.Profile]; exists {
-					if consumed[sketch.ID] {
+			collected := map[string]bool{}
+			for order, input := range featureInputs(feature) {
+				inputOrder := order
+				if input.Role == "SECTION" || input.Role == "SECTION_POINT" {
+					inputOrder = input.SectionOrder
+				}
+				if input.EntityKind != "FEATURE" {
+					ref := DocumentStructureNode{ID: fmt.Sprintf("%s/input:%d", node.ID, order), Kind: "DATUM_INPUT_REFERENCE", EntityType: input.EntityKind, EntityID: input.FeatureID, OwnerEntityID: feature.ID, DocumentID: documentID, VersionID: versionID, PresentationRole: "INPUT_REFERENCE", InputRole: input.Role, InputOrder: inputOrder}
+					for _, plane := range model.DatumPlanes {
+						if plane.ID == input.FeatureID {
+							ref.Name = plane.Name
+							ref.Plane = plane.Plane
+						}
+					}
+					for _, axis := range model.DatumAxes {
+						if axis.ID == input.FeatureID {
+							ref.Name = axis.Name
+							ref.Axis = "DATUM"
+						}
+					}
+					for _, axis := range model.AxisSystems {
+						if axis.ID == input.FeatureID {
+							ref.Name = axis.Name
+							ref.Axis = input.EntityID
+						}
+					}
+					if ref.Name != "" {
+						node.Children = append(node.Children, ref)
+					}
+					continue
+				}
+				if sketch, exists := sketches[input.FeatureID]; exists {
+					if consumed[sketch.ID] && (input.Role == "PROFILE" || input.Role == "SECTION" || input.Role == "SECTION_POINT") && !collected[sketch.ID] {
 						child := featureStructureNode(sketch, node.ID, documentID, versionID, "", false, editable)
 						if sketch.Visible == nil {
 							hidden := false
 							child.LocalVisible = &hidden
 						}
 						child.PresentationRole = "FEATURE_INPUT"
-						node.Children = []DocumentStructureNode{child}
+						child.InputRole, child.InputOrder = input.Role, inputOrder
+						node.Children = append(node.Children, child)
+						collected[sketch.ID] = true
 					} else {
-						node.Children = []DocumentStructureNode{{ID: node.ID + "/input-sketch:" + sketch.ID,
-							Kind: "SKETCH_INPUT_REFERENCE", Name: sketch.Name, EntityID: sketch.ID,
-							BodyID: sketch.BodyID, DocumentID: documentID, VersionID: versionID,
-							OwnerEntityID: feature.ID, PresentationRole: "INPUT_REFERENCE"}}
+						node.Children = append(node.Children, DocumentStructureNode{ID: fmt.Sprintf("%s/input:%d", node.ID, order), Kind: "SKETCH_INPUT_REFERENCE", Name: sketch.Name, EntityID: sketch.ID, BodyID: sketch.BodyID, DocumentID: documentID, VersionID: versionID, OwnerEntityID: feature.ID, PresentationRole: "INPUT_REFERENCE", InputRole: input.Role, InputEntityID: input.EntityID, InputOrder: inputOrder, PatternMemberSlot: input.MemberSlot})
+					}
+				} else {
+					for _, source := range model.Features {
+						if source.ID == input.FeatureID {
+							node.Children = append(node.Children, DocumentStructureNode{ID: fmt.Sprintf("%s/input:%d", node.ID, order), Kind: "FEATURE_INPUT_REFERENCE", Name: source.Name, EntityID: source.ID, EntityType: source.Type, BodyID: source.BodyID, DocumentID: documentID, VersionID: versionID, OwnerEntityID: feature.ID, PresentationRole: "INPUT_REFERENCE", InputRole: input.Role, InputOrder: inputOrder})
+						}
 					}
 				}
 			}
@@ -2788,6 +2837,12 @@ func annotateStructure(node *DocumentStructureNode, ownerDocumentID, bodyID stri
 	}
 	if node.Kind == "SKETCH_INPUT_REFERENCE" || node.Kind == "SKETCH_PATTERN_MEMBER" {
 		subjectKind = "SKETCH"
+	}
+	if node.Kind == "DATUM_INPUT_REFERENCE" {
+		subjectKind = node.EntityType
+	}
+	if node.Kind == "FEATURE_INPUT_REFERENCE" {
+		subjectKind = "FEATURE"
 	}
 	if node.Kind == "SKETCH_PATTERN_ENTITY" {
 		subjectKind = "SKETCH_ENTITY"

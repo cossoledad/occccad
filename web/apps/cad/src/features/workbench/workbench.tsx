@@ -65,7 +65,7 @@ import { followedDocumentIDs, staleProductDocumentIDs, followProductUpdates } fr
 import { createAssemblyPreviewActor } from "./assembly-preview-machine";
 import { isLengthParameter, parameterDisplayValue, parameterSourceText, parameterEditSource, parseParameterSource } from "./parameter-editor";
 import { WorkbenchInspectorPanel } from "./workbench-inspector-panel";
-import { deletableTreeNodesForSelections, ancestorHintKeysForSelections, findStructureEntity, findStructureOccurrenceEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
+import { associatedTreeKeyForSelection, deletableTreeNodesForSelections, ancestorHintKeysForSelections, findStructureEntity, findStructureOccurrenceEntity, isSolidFeature, selectedFeature, structureSelection, treeData, treeKeyForSelection, treeKeysForSelections } from "./workbench-tree-model";
 import { ASSEMBLY_CONSTRAINT_STATUS, assemblyStatusAfterPreviewFailure, assemblySupportPresentation,
   firstDisconnectedSupport, validateReconnectCandidate } from "../../cad/assembly/assembly-constraint-ux";
 import { describeAssemblyReference } from "../../cad/assembly/assembly-reference-presentation";
@@ -248,6 +248,9 @@ export function Workbench() {
   const [solidEditor,setSolidEditor]=useState<{feature:Feature;digest?:string}>();
   const [featureSelection,setFeatureSelection]=useState<FeatureSelectionSession>();
   const [featureInputs,setFeatureInputs]=useState<Artifact[]>();
+  const [historyResult,setHistoryResult]=useState<string>();
+  const historyGeneration=useRef(0);
+  const endHistoryResult=()=>{historyGeneration.current++;setHistoryResult(undefined);setFeatureInputs(undefined);};
   const featureInputChanged=useCallback((artifact?:Artifact|Artifact[])=>setFeatureInputs(artifact ? Array.isArray(artifact) ? artifact : [artifact] : undefined),[]);
   const [booleanDialog, setBooleanDialog] = useState<{feature?:Feature;digest?:string}>();
   const [patternOpen, setPatternOpen] = useState(false);
@@ -412,8 +415,9 @@ export function Workbench() {
     setSolidEditor(undefined);
     setBooleanDialog(undefined);
     setDatumEditor(undefined); setDatumPreview(undefined);
-    setFeatureInputs(undefined);setFeatureSelection(undefined);
+    historyGeneration.current++;setHistoryResult(undefined);setFeatureInputs(undefined);setFeatureSelection(undefined);
   }, [editingView?.document.id,editingView?.document.versionId,activeInstancePath]);
+  useEffect(()=>{if(solidEditor||booleanDialog||datumEditor||store.activeSketchID){historyGeneration.current++;setHistoryResult(undefined);setFeatureInputs(undefined);}},[solidEditor,booleanDialog,datumEditor,store.activeSketchID]);
   const engineeringEvidence=useQuery({queryKey:["assembly-engineering-evidence",editingView?.document.id,editingView?.document.versionId],
     queryFn:({signal})=>api.getAssemblyEngineeringEvidence(editingView!.document.id,editingView!.document.versionId,signal),
     enabled:conflictOpen&&Boolean(editingView?.product),retry:false});
@@ -932,6 +936,7 @@ export function Workbench() {
   };
   const openFeatureEditor = (node: SpecificationTreeNode) => {
     if (!editingView || !node.entityId || !node.capabilities?.includes("EDIT")) return;
+    endHistoryResult();
     if(node.kind==="SKETCH_PATTERN_DEFINITION"&&node.ownerEntityId){
       const owner=editingView.part?.features.find(f=>f.id===node.ownerEntityId),pattern=owner?.sketch?.patterns?.find(p=>p.id===node.entityId);
       if(owner&&pattern){const plane=featureSketchPlane(editingView,owner);if(plane)store.beginSketch(owner.id,occurrenceSketchPlane(plane,activeResolvedInstance?.translation,activeResolvedInstance?.rotation));setDatumEditor(undefined);setBooleanDialog(undefined);store.setActiveTool("select","once");setSolidEditor({feature:{id:"",type:"SKETCH",profile:owner.id,bodyId:owner.bodyId,pattern:{...pattern,sourceKind:"SKETCH_FRAME",source:{bodyId:owner.bodyId!,featureId:owner.id}}}});}return;
@@ -1314,6 +1319,7 @@ export function Workbench() {
     .find((item) => item.commandId === store.activeToolID)?.name ?? "选择";
 
   return <CommandProvider registry={commandRegistry}><section className="cad-workbench">
+    {historyResult&&<Alert type="info" title="正在查看历史步骤结果" action={<Button onClick={endHistoryResult}>恢复当前结果</Button>}/> }
     <WorkbenchLayout documentName={editingView?.document.name ?? view.document.name}
       inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen}
       commands={<WorkbenchCommands key={activeWorkbench} toolbars={visibleToolbars} workbench={activeWorkbench} />}
@@ -1323,11 +1329,19 @@ export function Workbench() {
       tree={<SpecificationTree key={documentID} nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
             ancestorHintKeys={ancestorHintKeysForSelections(treeNodes, store.selections)}
             selectionToken={selectionSetToken(store.selections)}
-            highlightedKey={treeKeyForSelection(treeNodes, store.preselection)}
+            highlightedKey={treeKeyForSelection(treeNodes, store.preselection)??associatedTreeKeyForSelection(treeNodes,store.preselection)}
             editSession={editSession}
             activeDocumentId={activeID}
             activeInstancePath={activeInstancePath}
             workingBodyId={workingBodyID}
+            onViewResult={(node)=>{
+              if(!editingView?.part||node.documentId!==editingView.document.id||(node.selection?.occurrencePath??"")!==(activeInstancePath??"")||!node.entityId||solidEditor||booleanDialog||datumEditor||store.activeSketchID||command.isPending)return;
+              const generation=++historyGeneration.current;
+              void api.getFeatureInput(node.documentId,{versionId:editingView.document.versionId,featureId:node.entityId,resultStage:true}).then(result=>{
+                if(historyGeneration.current!==generation)return;
+                viewport.current?.clearCommandPreview();setFeatureInputs([result.artifact]);setHistoryResult(String(node.entityId));
+              }).catch(error=>{if(historyGeneration.current===generation)operationFeedback(error,"查看步骤结果");});
+            }}
             onSelect={(nodes) => {
               const selections = [...new Map(nodes.flatMap((node) => node.selection ? [[selectionKey(node.selection), node.selection] as const] : [])).values()];
               if(featureSelection){for(const selection of selections){const hit=featureSelectionHit(selection,featureSelection);if(hit)featureSelection.onPick(hit);}return;}

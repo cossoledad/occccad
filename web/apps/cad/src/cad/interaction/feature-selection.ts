@@ -9,6 +9,9 @@ export type FeatureSelectionSession = {
     versionId: string;
     occurrencePath?: string;
     bodyId?: string;
+    geometryKey?:string;
+    contextVariantKey?:string;
+    rootDocumentId?:string;
     sketchIds?: string[];
     contextSelections?: SelectionItem[];
     selections: SelectionItem[];
@@ -21,15 +24,17 @@ export function featureSelectionHit(raw: Selection, session: FeatureSelectionSes
         (raw.occurrencePath ?? "") !== (session.occurrencePath ?? "") ||
         (raw.versionId && raw.versionId !== session.versionId))
         return null;
+    if(session.contextVariantKey!==undefined&&raw.contextVariantKey!==session.contextVariantKey)return null;
+    if(session.rootDocumentId&&(raw.instancePath?.rootDocumentId??raw.rootDocumentId)!==session.rootDocumentId)return null;
     if(session.localSketchId && (raw.kind!=="visual" || raw.featureId!==session.localSketchId || ((session.role==="point"||session.role==="axis")&&!raw.sketchReference)))return null;
     if (session.bodyId && raw.bodyId !== session.bodyId && (session.role === "edge" || session.role === "face"))
         return null;
     if (session.role === "edge" || session.role === "face")
-        return raw.kind === session.role ? raw : null;
+        return (!session.geometryKey || raw.geometryKey===session.geometryKey) && raw.kind === session.role ? raw : null;
     if (session.role === "plane")
         return raw.kind === "plane" || raw.kind === "face" ? raw : null;
     if (session.role === "body")
-        return raw.bodyId && ["face", "edge", "vertex", "body", "solid", "pad"].includes(raw.kind) ? raw : null;
+        return raw.bodyId && ["face", "edge", "vertex", "body", "solid", "pad", "feature", "import"].includes(raw.kind) ? raw : null;
     if (session.role === "point") return raw.kind==="axis-system"||raw.kind==="visual"&&raw.visualType==="POINT"?raw:null;
     if (session.role === "axis")
         return raw.kind === "axis" || raw.kind === "visual" && raw.visualType === "CURVE" ? raw : null;

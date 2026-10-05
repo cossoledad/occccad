@@ -25,7 +25,7 @@ try {
  }
  e.showPreviewArtifact({...a,bodyId:"a"},"ADD");assert.equal(e.solidBindings.get("root/body:a").group.visible,false);assert.equal(e.solidBindings.get("root/body:b").group.visible,true);
 
- const picking=engine();picking.previewInputMaterials=[];picking.previewVisualGeneration=0;
+ const picking=engine();picking.previewSketchHidden=[];picking.previewInputMaterials=[];picking.previewVisualGeneration=0;
  picking.featureSelection={role:"face",selections:[],onPick(){}};
  picking.renderPart(view);picking.content.updateMatrixWorld(true);
  const originalMaterial=picking.solidBindings.get("root/body:a").mesh.material;

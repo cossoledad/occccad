@@ -412,14 +412,10 @@ func featureHistoryDefinition(feature Feature) Feature {
 
 func featureInputIDs(feature Feature) []string {
 	var ids []string
-	if feature.Pattern != nil {
-		ids = append(ids, feature.Pattern.Source.FeatureID)
-		if axis := strings.Split(feature.Pattern.AxisEntityID, ":"); len(axis) == 3 && axis[0] == "SKETCH_LINE" {
-			ids = append(ids, axis[1])
+	for _, input := range featureInputs(feature) {
+		if input.EntityKind == "FEATURE" {
+			ids = append(ids, input.FeatureID)
 		}
-	}
-	if feature.Pattern != nil {
-		ids = append(ids, patternReferenceFeatures(feature.Pattern.PatternDefinition)...)
 	}
 	if feature.Sketch != nil {
 		for _, p := range feature.Sketch.Patterns {
@@ -430,34 +426,9 @@ func featureInputIDs(feature Feature) []string {
 			}
 		}
 	}
-	if feature.Profile != "" {
-		ids = append(ids, feature.Profile)
-	}
-	for _, tool := range feature.Tools {
-		ids = append(ids, tool.FeatureID)
-	}
-	for _, section := range feature.Sections {
-		if section.SketchID != "" {
-			ids = append(ids, section.SketchID)
-		}
-	}
-	if pick := feature.NeutralPlane; pick != nil {
-		ids = append(ids, pick.Selection.Anchor.FeatureID)
-		if pick.SourceFeatureID != "" {
-			ids = append(ids, pick.SourceFeatureID)
-		}
-	}
-	for _, pick := range feature.Selections {
-		ids = append(ids, pick.Selection.Anchor.FeatureID)
-		if pick.SourceFeatureID != "" {
-			ids = append(ids, pick.SourceFeatureID)
-		}
-	}
-	if axis := strings.Split(feature.AxisEntityID, ":"); len(axis) == 3 && axis[0] == "SKETCH_LINE" {
-		ids = append(ids, axis[1])
-	}
-	return ids
+	return uniqueAssociationIDs(ids)
 }
+
 func partHasFailedFeature(model PartModel) bool {
 	for _, feature := range model.Features {
 		if feature.EvaluationStatus == "FAILED" || feature.EvaluationStatus == "BLOCKED" {
