@@ -71,20 +71,8 @@ func validateSolidStage(f Feature, earlier map[string]Feature) error {
 		if (f.NeutralPlaneID == "") == (f.NeutralPlane == nil) {
 			return fmt.Errorf("%w: draft requires one neutral plane", ErrValidation)
 		}
-		if pick := f.NeutralPlane; pick != nil {
-			anchor, exists := earlier[pick.Selection.Anchor.FeatureID]
-			if err := pick.Selection.Validate(); err != nil {
-				return fmt.Errorf("%w: invalid neutral plane: %v", ErrValidation, err)
-			}
-			if !exists || anchor.BodyID != pick.Selection.SourceBodyID || pick.SourceVersionID == "" || pick.Selection.ExpectedType != modelcore.PersistentTopologyFace || pick.Selection.CreationEvidence.GeometryType != "PLANE" {
-				return fmt.Errorf("%w: neutral plane must be an upstream planar face", ErrValidation)
-			}
-			if pick.SourceFeatureID != "" {
-				stage, ok := earlier[pick.SourceFeatureID]
-				if !ok || stage.BodyID != anchor.BodyID || !isBodyFeature(stage.Type) {
-					return fmt.Errorf("%w: invalid neutral plane source stage", ErrValidation)
-				}
-			}
+		if err := validateReferencedPlane(f.NeutralPlaneID, f.NeutralPlane, earlier); err != nil {
+			return err
 		}
 	}
 	if isLocalModifier(f.Type) {
@@ -338,37 +326,13 @@ func (s *Service) modifierInput(ctx context.Context, requestID string, model Par
 		}
 		spec.Selections = append(spec.Selections, resolution.Candidates[0].SemanticRef)
 	}
-	if feature.Type == "DRAFT" && feature.NeutralPlane != nil {
-		pick := *feature.NeutralPlane
-		neutralKey := key
-		if pick.Selection.SourceBodyID != feature.BodyID {
-			neutralKey, err = s.evaluateBodyPrefix(ctx, requestID+"/neutral/"+feature.ID, prefix, pick.Selection.SourceBodyID)
-			if err != nil {
-				return spec, err
-			}
-		}
-		resolution, err := s.resolveFeaturePick(ctx, pick, neutralKey)
+	if feature.Type == "DRAFT" {
+		spec.NeutralOrigin, spec.NeutralNormal, err = s.resolveReferencedPlane(ctx, requestID, model, feature.ID, feature.NeutralPlaneID, feature.NeutralPlane)
 		if err != nil {
 			return spec, err
 		}
-		if resolution.Status != modelcore.SelectionResolved || len(resolution.Candidates) != 1 || resolution.Candidates[0].Evidence.GeometryType != "PLANE" {
-			return spec, fmt.Errorf("%w: NEUTRAL_PLANE_UNRESOLVED: %s", ErrValidation, resolution.DiagnosticCode)
-		}
-		evidence := resolution.Candidates[0].Evidence
-		spec.NeutralOrigin, spec.NeutralNormal = evidence.Origin, evidence.Direction
-	} else if feature.Type == "DRAFT" {
-		found := false
-		for _, plane := range model.DatumPlanes {
-			if plane.ID == feature.NeutralPlaneID {
-				spec.NeutralOrigin = plane.Origin
-				spec.NeutralNormal = plane.Normal
-				found = true
-			}
-		}
-		if !found {
-			return spec, fmt.Errorf("%w: neutral plane missing", ErrValidation)
-		}
 	}
+
 	return spec, nil
 }
 

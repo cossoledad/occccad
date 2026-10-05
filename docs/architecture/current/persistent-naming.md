@@ -46,3 +46,5 @@ EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named 
 ## 阵列复制与选择延续
 
 `LINEAGE_DESCENDANT` 跟踪所选拓扑的实际延续，不把 `GENERATED → MEMBER/slot/seed-digest` 刚体复制关系作为种子选择的延续。种子仍存在时只解析其当前结果；种子消失时不能跳到副本。显式 MEMBER 锚点保留其槽位，并继续跟踪下游 Modified/Split/Merged；真实分裂仍保留 Ambiguous。Feature 的贡献显示仍可包含各复制成员，与命令的单一拓扑选择职责分开。该修正没有修改持久命名格式或用坐标挑选候选。
+
+解析直线样条的 evidence 与类型查询共用完整裁剪区间控制点证明；origin/direction 和 parameterStart/End 表达毫米直线区间，底层 BREP 原生参数仍在属性查询中报告。该识别不产生新拓扑身份或几何替换，详见[实体 Feature](solid-features.md)。

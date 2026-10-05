@@ -228,7 +228,7 @@ func TestSolidBooleanLifecycleThroughRouter(t *testing.T) {
 	var findFeature func([]workspace.DocumentStructureNode, string)
 	findFeature = func(nodes []workspace.DocumentStructureNode, id string) {
 		for _, n := range nodes {
-			if n.EntityID == id {
+			if n.EntityID == id && n.PresentationRole != "INPUT_REFERENCE" {
 				digest = n.DefinitionDigest
 			}
 			findFeature(n.Children, id)

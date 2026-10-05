@@ -475,10 +475,17 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		feature.ID = commandEntityID("pattern", request.RequestID)
 		pattern := *feature.Pattern
+		if pick := pattern.MirrorPlane; pick != nil && pick.Selection.SourceDocumentID != documentID {
+			return "", nil, fmt.Errorf("%w: cross-document mirror plane", ErrValidation)
+		}
 		pattern.ID = feature.ID
 		feature.Pattern = &pattern
 		if feature.Name == "" {
-			feature.Name = numberedFeatureName(model.Features, feature.Type, "Pattern")
+			prefix := "Pattern"
+			if pattern.Kind == "MIRROR" {
+				prefix = "Mirror"
+			}
+			feature.Name = numberedFeatureName(model.Features, feature.Type, prefix)
 		}
 		sources, err := featureParameterExpressions(model, feature, request.ParameterExpressions)
 		if err != nil {
@@ -508,6 +515,9 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			definition := *request.Feature
 			if err := service.prepareLoftDefinition(ctx, request.RequestID, model, &definition); err != nil {
 				return "", nil, err
+			}
+			if request.Feature.Pattern != nil && request.Feature.Pattern.MirrorPlane != nil && request.Feature.Pattern.MirrorPlane.Selection.SourceDocumentID != documentID {
+				return "", nil, fmt.Errorf("%w: cross-document mirror plane", ErrValidation)
 			}
 			if pick := request.Feature.NeutralPlane; pick != nil && pick.Selection.SourceDocumentID != documentID {
 				return "", nil, fmt.Errorf("%w: cross-document neutral plane", ErrValidation)

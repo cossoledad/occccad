@@ -989,6 +989,7 @@ type DocumentStructureNode struct {
 }
 
 type DocumentView struct {
+	ReplicationSources      map[string]ReplicationSource     `json:"replicationSources,omitempty"`
 	SketchPatternMembers    map[string][]SketchEntity        `json:"sketchPatternMembers,omitempty"`
 	Document                DocumentSummary                  `json:"document"`
 	DatumPlanes             []DatumPlane                     `json:"datumPlanes,omitempty"`

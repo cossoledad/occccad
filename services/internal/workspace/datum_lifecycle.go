@@ -35,7 +35,7 @@ func deleteDatum(model PartModel, kind, id string) (json.RawMessage, modelcore.C
 			}
 		}
 		for _, p := range definitions {
-			if p.AxisEntityID == "DATUM_AXIS:"+id || p.CenterReference != nil && p.CenterReference.AxisEntityID == "DATUM_AXIS:"+id {
+			if p.MirrorPlaneID == id || p.AxisEntityID == "DATUM_AXIS:"+id || p.CenterReference != nil && p.CenterReference.AxisEntityID == "DATUM_AXIS:"+id {
 				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is used by pattern %s", ErrValidation, p.ID)
 			}
 		}

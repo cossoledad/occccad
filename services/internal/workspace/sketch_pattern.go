@@ -62,7 +62,10 @@ func validateSketchPatterns(sketch SketchFeature) error {
 	owned := map[string]bool{}
 	budget := 0
 	for _, p := range sketch.Patterns {
-		if p.ID == "" || ids[p.ID] || len(p.EntityIDs) == 0 {
+		if p.Kind == "MIRROR" {
+ return fmt.Errorf("%w: sketch mirror unsupported", ErrValidation)
+}
+if p.ID == "" || ids[p.ID] || len(p.EntityIDs) == 0 {
 			return fmt.Errorf("%w: invalid sketch pattern identity or source", ErrValidation)
 		}
 		ids[p.ID] = true

@@ -157,7 +157,42 @@ int classify_surface(const TopoDS_Face& face) {
     }
 }
 
+// A positive-weight spline lies in its pole convex hull. Collinear, ordered
+// poles certify a straight, non-backtracking segment over the entire trimmed
+// interval; display tessellation or a few sampled points cannot certify this.
+std::optional<gp_Lin> analytic_line(const TopoDS_Edge& edge) {
+    BRepAdaptor_Curve curve(edge);
+    if (curve.GetType() == GeomAbs_Line)
+        return curve.Line();
+    if (curve.GetType() != GeomAbs_BSplineCurve ||
+        !std::isfinite(curve.FirstParameter()) || !std::isfinite(curve.LastParameter()))
+        return std::nullopt;
+    auto spline = Handle(Geom_BSplineCurve)::DownCast(curve.BSpline()->Copy());
+    if (spline->IsPeriodic())
+        return std::nullopt;
+    spline->Segment(curve.FirstParameter(), curve.LastParameter());
+    const auto start = spline->StartPoint(), end = spline->EndPoint();
+    const double length = start.Distance(end);
+    const double tolerance = Precision::Confusion();
+    if (length <= tolerance)
+        return std::nullopt;
+    const gp_Lin line(start, gp_Dir(gp_Vec(start, end)));
+    double previous = -tolerance;
+    for (int i = 1; i <= spline->NbPoles(); ++i) {
+        const auto pole = spline->Pole(i);
+        const double parameter = gp_Vec(start, pole).Dot(gp_Vec(line.Direction()));
+        if (spline->Weight(i) <= 0 || line.Distance(pole) > tolerance ||
+            parameter < previous - tolerance || parameter < -tolerance ||
+            parameter > length + tolerance)
+            return std::nullopt;
+        previous = parameter;
+    }
+    return line;
+}
+
 int classify_curve(const TopoDS_Edge& edge) {
+    if (analytic_line(edge))
+        return 0;
     switch (BRepAdaptor_Curve(edge).GetType()) {
         case GeomAbs_Line:
             return 0;
@@ -377,6 +412,11 @@ void append_curve_properties(const TopoDS_Edge& edge, EdgeInfo& output) {
     }
     output.properties.push_back(boolean_property("closed", curve.IsClosed()));
     output.properties.push_back(boolean_property("periodic", curve.IsPeriodic()));
+    if (const auto line = analytic_line(edge); line && curve.GetType() != GeomAbs_Line) {
+        output.properties.push_back(text_property("underlyingCurveType", "BSPLINE_CURVE"));
+        output.properties.push_back(vector_property("origin", line->Location().XYZ()));
+        output.properties.push_back(vector_property("direction", line->Direction().XYZ()));
+    }
     switch (curve.GetType()) {
         case GeomAbs_Line: {
             const auto value = curve.Line();
@@ -1043,7 +1083,7 @@ ToolBuild make_pattern_tool(const ToolBuild& source, const ProfilePadSpec& spec)
                     throw std::invalid_argument("PATTERN_TRANSFORM_NOT_RIGID");
             }
         const double det = m[0]*(m[5]*m[10]-m[6]*m[9])-m[1]*(m[4]*m[10]-m[6]*m[8])+m[2]*(m[4]*m[9]-m[5]*m[8]);
-        if (std::abs(det-1.0)>1e-10) throw std::invalid_argument("PATTERN_REFLECTION_UNSUPPORTED");
+        if (std::abs(std::abs(det)-1.0)>1e-10) throw std::invalid_argument("PATTERN_TRANSFORM_NOT_ISOMETRIC");
         if (member.slot == 0) {
             for (int i=0;i<12;++i)
                 if (std::abs(m[i] - (i==0 || i==5 || i==10 ? 1.0 : 0.0))>1e-10)
@@ -1127,6 +1167,8 @@ SelectionEvidence face_evidence(const TopoDS_Face& face) {
 }
 
 std::string curve_geometry_type(const TopoDS_Edge& edge) {
+    if (analytic_line(edge))
+        return "LINE";
     switch (BRepAdaptor_Curve(edge).GetType()) {
         case GeomAbs_Line:
             return "LINE";
@@ -1162,10 +1204,15 @@ SelectionEvidence edge_evidence(const TopoDS_Edge& edge) {
         evidence.parameter_start = curve.FirstParameter();
     if (std::isfinite(curve.LastParameter()))
         evidence.parameter_end = curve.LastParameter();
-    if (curve.GetType() == GeomAbs_Line) {
-        evidence.origin = to_vec3(curve.Line().Location());
-        const auto direction = curve.Line().Direction();
+    if (const auto line = analytic_line(edge)) {
+        evidence.origin = to_vec3(line->Location());
+        const auto direction = line->Direction();
         evidence.direction = {direction.X(), direction.Y(), direction.Z()};
+        // Projection consumes line distances, never native spline parameters.
+        evidence.parameter_start = gp_Vec(line->Location(), curve.Value(curve.FirstParameter()))
+                                       .Dot(gp_Vec(direction));
+        evidence.parameter_end = gp_Vec(line->Location(), curve.Value(curve.LastParameter()))
+                                     .Dot(gp_Vec(direction));
     } else if (curve.GetType() == GeomAbs_Circle) {
         evidence.origin = to_vec3(curve.Circle().Location());
         const auto direction = curve.Circle().Axis().Direction();
@@ -1181,7 +1228,8 @@ SelectionEvidence edge_evidence(const TopoDS_Edge& edge) {
               << evidence.centroid.z << '|' << evidence.origin.x << ',' << evidence.origin.y
               << ',' << evidence.origin.z << '|' << evidence.direction.x << ','
               << evidence.direction.y << ',' << evidence.direction.z << '|'
-              << curve.FirstParameter() << ',' << curve.LastParameter();
+              << evidence.parameter_start.value_or(curve.FirstParameter()) << ','
+              << evidence.parameter_end.value_or(curve.LastParameter());
     if (evidence.radius_mm) canonical << "|radius_mm=" << *evidence.radius_mm;
     if (evidence.x_direction) canonical << "|x_direction=" << evidence.x_direction->x << ',' << evidence.x_direction->y << ',' << evidence.x_direction->z;
     evidence.evidence_digest = make_geometry_id(canonical.str());
@@ -1574,12 +1622,30 @@ std::vector<TopoDS_Edge> loft_edges(const LoftSectionSpec& section, std::size_t 
     }
     return result;
 }
+gp_Pnt loft_section_center(const LoftSectionSpec& section) {
+    BRepBuilderAPI_MakeWire wire;
+    for (const auto& edge : loft_edges(section, loft_circle(section) ? 1 : section.region.outer.curves.size()))
+        wire.Add(edge);
+    if (!wire.IsDone())
+        throw std::invalid_argument("INVALID_LOFT_WIRE");
+    GProp_GProps properties;
+    BRepGProp::LinearProperties(wire.Wire(), properties);
+    return properties.CentreOfMass();
+}
 gp_Quaternion loft_transport(const LoftSectionSpec& a, const LoftSectionSpec& b) {
     auto na = loft_frame(a).normal, nb = loft_frame(b).normal;
-    // A support normal is not an oriented loft tangent. Opposite support normals
-    // must not introduce an unintended half-turn in otherwise parallel sections.
-    if (na.Dot(nb) < -1e-10)
+    // Support normals are unoriented. Orient them consistently along the actual
+    // section-to-section displacement, rather than choosing an arbitrary quarter
+    // turn for perpendicular supports. Sketch origins need not be profile centers.
+    const gp_Vec travel(loft_section_center(a), loft_section_center(b));
+    const double pa = travel.Dot(gp_Vec(na)), pb = travel.Dot(gp_Vec(nb));
+    const double tolerance = std::max(Precision::Confusion(), travel.Magnitude() * 1e-8);
+    if (std::abs(pa) > tolerance && std::abs(pb) > tolerance) {
+        if (pa * pb < 0)
+            nb.Reverse();
+    } else if (na.Dot(nb) < -1e-10) {
         nb.Reverse();
+    }
     return gp_Quaternion(na.XYZ(), nb.XYZ());
 }
 struct LoftCandidate {
@@ -2951,7 +3017,7 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
             const auto input_id = result_id;
             const auto input_named = live_named;
             if (range_starts.count(spec.feature_id)) {
-                if ((spec.generator != "LINEAR_EXTRUDE" && spec.generator != "REVOLVE") ||
+                if ((spec.generator != "LINEAR_EXTRUDE" && spec.generator != "REVOLVE" && spec.generator != "LOFT") ||
                     (spec.body_operation != "ADD" && spec.body_operation != "NEW_BODY") || spec.extent == "THROUGH_ALL")
                     throw std::invalid_argument("PATTERN_RANGE_INVALID");
                 pattern_range_bases.emplace(spec.feature_id, result);
@@ -3108,8 +3174,16 @@ ProfileEvaluationResult OcctKernel::evaluateProfilePadsWithHistory(
                 tool = make_profile_tool(generator_spec);
             }
             topology_history_complete = topology_history_complete && tool.topology_history_complete;
-            if (required_pattern_tools.count(spec.feature_id) && (spec.generator == "LINEAR_EXTRUDE" || spec.generator == "REVOLVE") && spec.extent != "THROUGH_ALL")
-                pattern_tools.emplace(spec.feature_id,tool);
+            if (required_pattern_tools.count(spec.feature_id)) {
+                // Retain the real independently constructed tool before Body
+                // application, never the already-cut stage or the whole Body.
+                if (modifier || spec.generator == "SOLID_PATTERN" || spec.extent == "THROUGH_ALL" || tool.shape.IsNull())
+                    throw std::invalid_argument("PATTERN_INDEPENDENT_TOOL_UNAVAILABLE");
+                validate_body_solid_set(tool.shape);
+                auto closure = complete_boolean_topology_naming(tool.shape, tool.named, spec.feature_id);
+                tool.generated.insert(tool.generated.end(), closure.begin(), closure.end());
+                pattern_tools.emplace(spec.feature_id, tool);
+            }
             auto independent = [&]() {
                 BRep_Builder builder;TopoDS_Compound compound;builder.MakeCompound(compound);
                 builder.Add(compound,result);builder.Add(compound,tool.shape);

@@ -15,6 +15,8 @@ import (
 // Coordinates use the owner's frame (mm); angles are degrees. Count includes slot
 // zero. Skipping a slot never changes the identity or placement of another slot.
 type PatternDefinition struct {
+	MirrorPlaneID      string                 `json:"mirrorPlaneId,omitempty"`
+	MirrorPlane        *FeatureSelection      `json:"mirrorPlane,omitempty"`
 	DirectionReference *SketchGeometryRef     `json:"directionReference,omitempty"`
 	CenterReference    *PatternPointReference `json:"centerReference,omitempty"`
 	Reversed           bool                   `json:"reversed,omitempty"`
@@ -126,6 +128,19 @@ func validateFeaturePattern(f Feature, earlier map[string]Feature) error {
 	if p.SourceKind != "FEATURE_DELTA" && p.StartFeatureID != "" {
 		return fmt.Errorf("%w: PATTERN_RANGE_UNEXPECTED", ErrValidation)
 	}
+	if p.Kind == "MIRROR" && f.Type != "SOLID_PATTERN" {
+		return fmt.Errorf("%w: MIRROR_REQUIRES_SOLID_FEATURE", ErrValidation)
+	}
+	if p.Kind == "MIRROR" {
+		if (p.MirrorPlaneID == "") == (p.MirrorPlane == nil) {
+			return fmt.Errorf("%w: MIRROR_PLANE_REQUIRED", ErrValidation)
+		}
+		if err := validateReferencedPlane(p.MirrorPlaneID, p.MirrorPlane, earlier); err != nil {
+			return err
+		}
+	} else if p.MirrorPlaneID != "" || p.MirrorPlane != nil {
+		return fmt.Errorf("%w: MIRROR_PLANE_UNEXPECTED", ErrValidation)
+	}
 	if f.Type == "SKETCH_PATTERN" {
 		if p.SourceKind != "SKETCH_FRAME" || source.Sketch == nil {
 			return fmt.Errorf("%w: pattern requires an upstream sketch", ErrValidation)
@@ -149,7 +164,7 @@ func validateFeaturePattern(f Feature, earlier map[string]Feature) error {
 			return fmt.Errorf("%w: solid pattern requires a stage in its own Body", ErrValidation)
 		}
 		if p.SourceKind == "GENERATOR_TOOL" {
-			if !isSolidGenerator(source.Type) || source.Extent == "THROUGH_ALL" {
+			if !replicationSource(source).Tool {
 				return fmt.Errorf("%w: PATTERN_REEXECUTION_UNSUPPORTED", ErrValidation)
 			}
 			if f.Operation != source.Operation && !(source.Operation == "NEW_BODY" && f.Operation == "ADD") {
@@ -157,14 +172,14 @@ func validateFeaturePattern(f Feature, earlier map[string]Feature) error {
 			}
 		} else if p.SourceKind == "FEATURE_DELTA" {
 			start, valid := earlier[p.StartFeatureID]
-			if !valid || start.Suppressed || start.BodyID != source.BodyID || start.Order > source.Order || !isSolidGenerator(start.Type) || start.Operation != "ADD" && start.Operation != "NEW_BODY" || start.Extent == "THROUGH_ALL" || !isBodyFeature(source.Type) || f.Operation != "ADD" {
+			if !valid || start.Suppressed || start.BodyID != source.BodyID || start.Order > source.Order || !replicationSource(start).RangeStart || !isBodyFeature(source.Type) || f.Operation != "ADD" {
 				return fmt.Errorf("%w: PATTERN_RANGE_INVALID", ErrValidation)
 			}
 			for _, member := range earlier {
 				if member.BodyID != source.BodyID || member.Order < start.Order || member.Order > source.Order || member.Suppressed || !isBodyFeature(member.Type) {
 					continue
 				}
-				if member.ID != start.ID && member.Type != "FILLET" && member.Type != "CHAMFER" {
+				if member.ID != start.ID && !replicationSource(member).RangeModifier {
 					return fmt.Errorf("%w: PATTERN_RANGE_REEXECUTION_UNSUPPORTED", ErrValidation)
 				}
 			}
@@ -231,7 +246,7 @@ func resolvePatternSketch(model PartModel, earlier map[string]Feature, id string
 
 type PatternPlacement struct {
 	Slot int
-	// Row-major rigid transform, in the same length unit as the source geometry.
+	// Row-major orthogonal isometry, in the same length unit as the source geometry.
 	Matrix [12]float64
 }
 
@@ -295,8 +310,11 @@ func patternPlacements(p PatternDefinition) ([]PatternPlacement, error) {
 			return fail("NON_FINITE")
 		}
 	}
-	if p.Kind != "LINEAR" && p.Kind != "CIRCULAR" {
+	if p.Kind != "LINEAR" && p.Kind != "CIRCULAR" && p.Kind != "MIRROR" {
 		return fail("KIND_UNSUPPORTED")
+	}
+	if p.Kind == "MIRROR" && (p.Count != 2 || p.Distribution != "FIXED_STEP" || p.Phase != 0 || p.Angle != 0 || p.Spacing != 0 || p.Reversed || len(p.SkippedSlots) != 0 || p.AxisEntityID != "" || p.CenterReference != nil || p.DirectionReference != nil) {
+		return fail("MIRROR_PARAMETERS_INVALID")
 	}
 	if p.Distribution != "FIXED_STEP" && p.Distribution != "TOTAL_SPAN" && !(p.Kind == "CIRCULAR" && p.Distribution == "FULL_CIRCLE") {
 		return fail("DISTRIBUTION_UNSUPPORTED")
@@ -348,7 +366,16 @@ func patternPlacements(p PatternDefinition) ([]PatternPlacement, error) {
 			continue
 		}
 		m := [12]float64{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0}
-		if p.Kind == "LINEAR" {
+		if p.Kind == "MIRROR" && slot == 1 {
+			for row := 0; row < 3; row++ {
+				for col := 0; col < 3; col++ {
+					m[row*4+col] -= 2 * d[row] * d[col]
+				}
+				m[row*4+3] = 2 * d[row] * (d[0]*p.Origin[0] + d[1]*p.Origin[1] + d[2]*p.Origin[2])
+			}
+		} else if p.Kind == "MIRROR" {
+			// Slot zero is the unchanged seed.
+		} else if p.Kind == "LINEAR" {
 			for row := 0; row < 3; row++ {
 				m[row*4+3] = float64(slot) * step * d[row]
 			}
@@ -395,7 +422,7 @@ type patternParameter struct {
 }
 
 func patternParameters(p *PatternDefinition) []patternParameter {
-	if p == nil {
+	if p == nil || p.Kind == "MIRROR" {
 		return nil
 	}
 	result := []patternParameter{{"count", "1", p.Count, modelcore.Dimensionless}}

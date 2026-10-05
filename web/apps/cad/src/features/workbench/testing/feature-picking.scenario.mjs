@@ -43,12 +43,13 @@ try {
  assert.deepEqual(bodyStage({kind:"pad",id:"base",entityId:"base",bodyId:"body"},stages),{bodyId:"body",featureId:"base"});
  assert.equal(bodyStage({kind:"pad",id:"future",bodyId:"body"},stages),undefined,"never replace invalid stage with the Body final result");
  const range=[{id:"hub",type:"LINEAR_EXTRUDE",bodyId:"body",operation:"ADD"},{id:"leaf",type:"LINEAR_EXTRUDE",bodyId:"body",operation:"ADD"},{id:"sketch",type:"SKETCH",bodyId:"body",sketch:{}},{id:"round",type:"FILLET",bodyId:"body"},{id:"cut",type:"LINEAR_EXTRUDE",bodyId:"body",operation:"REMOVE"},{id:"later",type:"FILLET",bodyId:"body"}];
- assert.deepEqual(patternRangeEnds(range,"leaf").map(f=>f.id),["leaf","round"]);
- assert.deepEqual(patternRangeEnds(range,"cut"),[],"subtractive seed cannot masquerade as added material");
- assert.deepEqual(patternRangeEnds(range,"missing"),[]);
+ const caps=Object.fromEntries(range.map(f=>[f.id,{tool:f.type==="LINEAR_EXTRUDE",rangeStart:f.type==="LINEAR_EXTRUDE"&&f.operation!=="REMOVE",rangeModifier:f.type==="FILLET"||f.type==="CHAMFER",bodyStage:f.type!=="SKETCH"}]));view.replicationSources=caps;
+ assert.deepEqual(patternRangeEnds(range,"leaf",caps).map(f=>f.id),["leaf","round"]);
+ assert.deepEqual(patternRangeEnds(range,"cut",caps),[],"subtractive seed cannot masquerade as added material");
+ assert.deepEqual(patternRangeEnds(range,"missing",caps),[]);
  const roundedFace={...face,sourceFeatureIds:["round"]};
- assert.deepEqual(patternSourceCandidates(roundedFace,patternRangeEnds(range,"leaf"),"FEATURE_DELTA").map(f=>f.id),["round"]);
- assert.deepEqual(patternSourceCandidates(roundedFace,range,"GENERATOR_TOOL"),[],"fillet is not an independent generator tool");
+ assert.deepEqual(patternSourceCandidates(roundedFace,patternRangeEnds(range,"leaf",caps),"FEATURE_DELTA",caps).map(f=>f.id),["round"]);
+ assert.deepEqual(patternSourceCandidates(roundedFace,range,"GENERATOR_TOOL",caps),[],"fillet is not an independent generator tool");
  const pickedRange=[{kind:"pad",id:"leaf",documentId:"part",versionId:"v",bodyId:"body"},{kind:"feature",id:"round",entityId:"round",documentId:"part",versionId:"v",bodyId:"body"}];
  assert.deepEqual(patternRangeFromSelections(view,pickedRange,range),{status:"READY",bodyId:"body",startFeatureId:"leaf",endFeatureId:"round"},"two explicit Feature selections seed the accepted range");
  assert.deepEqual(patternRangeFromSelections(view,[pickedRange[1],pickedRange[0]],range),patternRangeFromSelections(view,pickedRange,range),"selection order does not rewrite historical range order");
@@ -57,4 +58,9 @@ try {
  assert.equal(patternRangeFromSelections(view,[pickedRange[0],{...pickedRange[1],occurrencePath:"other"}],range).status,"INVALID","separate occurrences cannot form one source range");
  assert.equal(patternRangeFromSelections(view,[pickedRange[0],{...pickedRange[1],versionId:"stale"}],range).status,"INVALID");
  assert.equal(patternRangeFromSelections(view,[pickedRange[0],{...pickedRange[1],documentId:"other"}],range).status,"INVALID");
+ const loft={id:"loft",type:"LOFT",bodyId:"body",operation:"REMOVE"};
+ caps.loft={tool:true,rangeStart:false,bodyStage:true};
+ assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["loft"]},[loft],"GENERATOR_TOOL",caps),[loft]);
+ assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["loft"],patternMemberSlot:1},[loft],"GENERATOR_TOOL",caps),[],"member pick cannot silently jump to seed");
+ assert.deepEqual(patternSourceCandidates({...face,sourceFeatureIds:["loft"]},[loft],"GENERATOR_TOOL",{}),[],"missing capability is not inferred from type");
 }finally{await server.close();}

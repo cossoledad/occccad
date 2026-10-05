@@ -540,7 +540,7 @@ message ProfilePadSpec {
 
 message PatternPlacement {
     uint32 slot = 1;
-    repeated double matrix = 2; // 3x4 row-major rigid transform; translation in mm
+    repeated double matrix = 2; // 3x4 row-major orthogonal isometry (rotation or reflection); translation in mm
 }
 
 // ---------------------------------------------------------------------------

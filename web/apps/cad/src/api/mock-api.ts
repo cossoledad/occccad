@@ -341,6 +341,10 @@ function getView(documentID: string): DocumentView {
   const view = views.get(documentID);
   if (!view) throw new Error("文档不存在");
   if(view.part)for(const f of view.part.features)f.bodyId??=view.part.activeBodyId;
+  if(view.part)view.replicationSources=Object.fromEntries(view.part.features.map(f=>{
+    const tool=["PAD","LINEAR_EXTRUDE","REVOLVE","LOFT"].includes(f.type)&&f.extent!=="THROUGH_ALL"&&!f.suppressed;
+    return [f.id,{tool,rangeStart:tool&&f.operation!=="REMOVE",rangeModifier:!f.suppressed&&["FILLET","CHAMFER"].includes(f.type),bodyStage:!f.suppressed&&["PAD","LINEAR_EXTRUDE","REVOLVE","LOFT","BOOLEAN","FILLET","CHAMFER","DRAFT","SHELL","SOLID_PATTERN","IMPORT_BODY"].includes(f.type)}];
+  }));
   view.structureTree = mockStructure(view);
   annotateMockStructure(view.structureTree, view.document.id);
   if (view.product?.visibilityOverrides?.length) {

@@ -130,8 +130,8 @@ func (s *Service) GetFeatureInput(ctx context.Context, documentID string, reques
 	}
 	bodyID := feature.BodyID
 	if request.BodyID != "" {
-		if feature.Type != "DRAFT" {
-			return FeatureInput{}, fmt.Errorf("%w: alternate input Body requires draft", ErrValidation)
+		if feature.Type != "DRAFT" && !(feature.Type == "SOLID_PATTERN" && feature.Pattern != nil && feature.Pattern.Kind == "MIRROR") {
+			return FeatureInput{}, fmt.Errorf("%w: alternate input Body requires a referenced plane", ErrValidation)
 		}
 		bodyID = request.BodyID
 	}
@@ -196,8 +196,12 @@ func (s *Service) GetFeatureInput(ctx context.Context, documentID string, reques
 		toolArtifact.DisplayStageFeatureID = tool.FeatureID
 		result.Artifacts = append(result.Artifacts, toolArtifact)
 	}
-	if feature.NeutralPlane != nil {
-		pick := *feature.NeutralPlane
+	planePick := feature.NeutralPlane
+	if feature.Pattern != nil && feature.Pattern.Kind == "MIRROR" {
+		planePick = feature.Pattern.MirrorPlane
+	}
+	if planePick != nil {
+		pick := *planePick
 		neutralKey := key
 		neutralStage := stage
 		if pick.Selection.SourceBodyID != feature.BodyID {

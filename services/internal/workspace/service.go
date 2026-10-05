@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v28-local-fillet-history"
+const evaluatorVersion = "part-solid-generators-v30-replication-tools-mirror"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1063,6 +1063,7 @@ func (service *Service) GetDocument(ctx context.Context, documentID string, acto
 		normalizePartModel(&model)
 		presentParameters(&model)
 		view.Part = &model
+		view.ReplicationSources = replicationSources(model)
 		view.SketchPatternMembers = map[string][]SketchEntity{}
 		for _, feature := range model.Features {
 			if feature.Sketch == nil || len(feature.Sketch.Patterns) == 0 {
@@ -1877,7 +1878,7 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 			if feature.Pattern == nil {
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: pattern missing", feature.ID)
 			}
-			definition, err := resolvedPatternDefinition(fullModel, feature.Pattern.PatternDefinition)
+			definition, err := service.resolvedSolidPatternDefinition(ctx, reqID, fullModel, feature)
 			if err != nil {
 				return "", fmt.Errorf("FEATURE_FAILED[%s]: %w", feature.ID, err)
 			}

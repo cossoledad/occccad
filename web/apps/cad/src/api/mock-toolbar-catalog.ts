@@ -23,7 +23,7 @@ export const mockToolbarCatalog: ToolbarCatalog = { schemaVersion: 1, toolbars: 
     ["sketch.start", "草图", "sketch", "选择基准面创建草图，或选择已有草图进入编辑。"],
   ]),
   toolbar("part-features", "实体特征", "PART_DESIGN", "top-left", "part", 20, [
-    ["part.pad", "拉伸", "pad"], ["part.pocket", "切除", "pocket"], ["part.revolve", "旋转", "revolve"], ["part.boolean", "布尔", "pocket"], ["part.fillet", "圆角", "pad"], ["part.chamfer", "倒角", "pad"], ["part.draft", "拔模", "pad"], ["part.shell", "抽壳", "pocket"], ["part.loft", "放样", "pad"], ["part.pattern.linear", "线性阵列", "pad"], ["part.pattern.circular", "圆周阵列", "pad"],
+    ["part.pad", "拉伸", "pad"], ["part.pocket", "切除", "pocket"], ["part.revolve", "旋转", "revolve"], ["part.boolean", "布尔", "pocket"], ["part.fillet", "圆角", "pad"], ["part.chamfer", "倒角", "pad"], ["part.draft", "拔模", "pad"], ["part.shell", "抽壳", "pocket"], ["part.loft", "放样", "pad"], ["part.pattern.linear", "线性阵列", "pad"], ["part.pattern.circular", "圆周阵列", "pad"], ["part.pattern.mirror", "实体镜像", "pad"],
   ]),
   toolbar("part-knowledge", "参数与接口", "PART_DESIGN", "top-left", "part", 30, [
     ["part.parameters", "参数", "parameters", "集中查看、编辑并复用当前 Part 的参数。"],

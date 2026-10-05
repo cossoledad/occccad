@@ -1,4 +1,10 @@
 #include <internal/occt_kernel.hpp>
+#include <BRepAdaptor_Curve.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <TColgp_Array1OfPnt.hxx>
+#include <TColStd_Array1OfReal.hxx>
+#include <TColStd_Array1OfInteger.hxx>
+#include <BRepAlgoAPI_Check.hxx>
 #include <occccad/kernel/topology_naming.hpp>
 #include <occccad/kernel/geometry_id.hpp>
 #include <occccad/kernel/mesh_glb.hpp>
@@ -2501,3 +2507,262 @@ TEST(GeometryExchange, LoftOppositeSupportNormalsAndDegenerateTip) {
 }
 
 }  // namespace occccad::kernel
+
+namespace occccad::kernel {
+namespace {
+// Exact section frames and profile lines from CAD_DIAGNOSTIC
+// 01a10b4e.../20261005T155112.915914014Z-6e8d2d51035cff5b.
+std::vector<LoftSectionSpec> main_fan_loft_sections() {
+    std::vector<LoftSectionSpec> sections;
+    {
+        LoftSectionSpec s;
+        s.sketch_id = "sketch-e98ff5608dcf5c830a64";
+        s.region.id = "region";
+        s.origin = {-8.660254037809363, -15.000000000007274, 20};
+        s.normal = {-1.7188722466065913e-13, 1, 0};
+        s.u_direction = {0, 0, 1};
+        {
+            ProfileCurveSpec c;
+            c.entity_id = "d2340497-65d7-4056-a37a-c4d4813eefef";
+            c.kind = "LINE";
+            c.start = {-11.023932256648603, 10.392304845378343};
+            c.end = {-9.023932256653687, 6.928203230237654};
+            s.region.outer.curves.push_back(c);
+        }
+        {
+            ProfileCurveSpec c;
+            c.entity_id = "aac29d6c-adb0-43c2-9c0b-61b0e8f5bede";
+            c.kind = "LINE";
+            c.start = {-9.023932256653687, 6.928203230237654};
+            c.end = {-11.622008468009206, 5.428203230241471};
+            s.region.outer.curves.push_back(c);
+        }
+        {
+            ProfileCurveSpec c;
+            c.entity_id = "ea724dc0-991b-4b47-9f09-2715e789649e";
+            c.kind = "LINE";
+            c.start = {-11.622008468009206, 5.428203230241471};
+            c.end = {-13.622008468004125, 8.892304845382158};
+            s.region.outer.curves.push_back(c);
+        }
+        {
+            ProfileCurveSpec c;
+            c.entity_id = "ce931f2d-0c14-4ac7-aeb0-6920563c3684";
+            c.kind = "LINE";
+            c.start = {-13.622008468004125, 8.892304845382158};
+            c.end = {-11.023932256648603, 10.392304845378343};
+            s.region.outer.curves.push_back(c);
+        }
+        sections.push_back(s);
+    }
+    {
+        LoftSectionSpec s;
+        s.sketch_id = "sketch-90f7664622649ae7e30b";
+        s.region.id = "region";
+        s.origin = {13.279056191361388, -22.99999999999999, 2.309401076708165};
+        s.normal = {0.49999999999872985, 5.350852692531982e-16, 0.866025403785172};
+        s.u_direction = {-2.6754263462591947e-16, 1, -4.633974363644985e-16};
+        {
+            ProfileCurveSpec c;
+            c.entity_id = "5fbadcc9-c016-4e59-9b30-40df5c8dabb7";
+            c.kind = "LINE";
+            c.start = {-1.6064444463794845e-14, 17.333333333320333};
+            c.end = {-1.2357264967320021e-14, 13.333333333320333};
+            s.region.outer.curves.push_back(c);
+        }
+        {
+            ProfileCurveSpec c;
+            c.entity_id = "4bd271aa-8480-4869-a8a8-6b7bf7fd41a6";
+            c.kind = "LINE";
+            c.start = {-1.2357264967320021e-14, 13.333333333320333};
+            c.end = {-4.000000000000012, 13.33333333332033};
+            s.region.outer.curves.push_back(c);
+        }
+        {
+            ProfileCurveSpec c;
+            c.entity_id = "7be34a5d-809d-45f4-9b7f-f0ca1cfcea71";
+            c.kind = "LINE";
+            c.start = {-4.000000000000012, 13.33333333332033};
+            c.end = {-4.000000000000016, 17.33333333332033};
+            s.region.outer.curves.push_back(c);
+        }
+        {
+            ProfileCurveSpec c;
+            c.entity_id = "38ab9f48-831c-4317-b79b-a4a394d68f08";
+            c.kind = "LINE";
+            c.start = {-4.000000000000016, 17.33333333332033};
+            c.end = {-1.6064444463794845e-14, 17.333333333320333};
+            s.region.outer.curves.push_back(c);
+        }
+        sections.push_back(s);
+    }
+    return sections;
+}
+}  // namespace
+TEST(GeometryExchange, LoftMainFanPerpendicularToolAndCut) {
+    OcctKernel kernel;
+    const auto sections = main_fan_loft_sections();
+    const auto resolved = resolve_loft_correspondence(sections);
+    const auto tool = kernel.evaluateProfilePadsWithHistory({loft_spec(resolved)});
+    EXPECT_NEAR(kernel.getVolume(tool.geometry_id), 72, 1e-5);
+    EXPECT_TRUE(tool.feature_results.back().topology_history_complete);
+    EXPECT_TRUE(BRepAlgoAPI_Check(loft_shape(kernel, tool.geometry_id), false, true).IsValid());
+    EXPECT_EQ(resolve_loft_correspondence(resolved).back().seam_entity_id,
+              resolved.back().seam_entity_id);
+    OcctKernel cold;
+    EXPECT_EQ(cold.evaluateProfilePadsWithHistory({loft_spec(resolved)}).geometry_id,
+              tool.geometry_id);
+    for (bool ruled : {false, true}) {
+        auto cut = loft_spec(resolved);
+        cut.body_operation = "REMOVE";
+        cut.ruled = ruled;
+        ProfilePadSpec stock;
+        stock.feature_id = "stock";
+        stock.body_id = "body";
+        stock.profile_feature_id = "stock-sketch";
+        stock.regions = {rectangular_region("stock", -30, -40, 30, 20)};
+        stock.plane_origin = {0, 0, -20};
+        stock.plane_normal = {0, 0, 1};
+        stock.plane_u_direction = {1, 0, 0};
+        stock.pad_length = 60;
+        cut.input_feature_id = "stock";
+        const auto result = kernel.evaluateProfilePadsWithHistory({stock, cut});
+        // Numerical volume integration of the large stock is checked to
+        // 1e-4 mm^3 (under 5e-10 relative), independently of shape tolerances.
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id), 216000 - 72, 1e-4);
+        EXPECT_TRUE(result.feature_results.back().topology_history_complete);
+    }
+    auto invalid = resolved;
+    invalid.back().reversed = !invalid.back().reversed;
+    // A stored/manual fold remains an error, never silently auto-corrected.
+    EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({loft_spec(invalid)}), std::runtime_error);
+}
+TEST(GeometryExchange, LoftStraightSplineBoundariesHaveLinearEvidence) {
+    OcctKernel kernel;
+    auto a = loft_rectangle("a", 0), b = loft_rectangle("b", 10), c = loft_rectangle("c", 20);
+    b.region = rectangular_region("b", -4, -2, 4, 2);
+    c.region = rectangular_region("c", -3, -1, 3, 1);
+    const auto result = kernel.evaluateProfilePadsWithHistory({loft_spec({a, b, c})});
+    const auto shape = loft_shape(kernel, result.geometry_id);
+    TopTools_IndexedMapOfShape edges;
+    TopExp::MapShapes(shape, TopAbs_EDGE, edges);
+    size_t certified = 0;
+    for (const auto& output : result.feature_results.back().semantic_outputs) {
+        if (output.topology_type != PersistentTopologyType::edge)
+            continue;
+        const auto& edge = TopoDS::Edge(edges(static_cast<int>(output.local_id)));
+        BRepAdaptor_Curve curve(edge);
+        const auto first = curve.Value(curve.FirstParameter()),
+                   last = curve.Value(curve.LastParameter());
+        if (std::abs(first.Z() - last.Z()) > 1e-6)
+            continue;
+        ++certified;
+        EXPECT_EQ(output.evidence.geometry_type, "LINE");
+        const auto& e = output.evidence;
+        const gp_Pnt origin(e.origin.x, e.origin.y, e.origin.z);
+        const gp_Vec direction(e.direction.x, e.direction.y, e.direction.z);
+        ASSERT_TRUE(e.parameter_start && e.parameter_end);
+        EXPECT_LT(origin.Translated(direction * *e.parameter_start).Distance(first), 1e-7);
+        EXPECT_LT(origin.Translated(direction * *e.parameter_end).Distance(last), 1e-7);
+        EXPECT_EQ(kernel.getTopology(result.geometry_id).edges[output.local_id - 1].curve_type, 0);
+    }
+    EXPECT_EQ(certified, 8U);
+}
+TEST(GeometryExchange, LinearSplineRecognitionRejectsBendsAndBacktracking) {
+    for (int fixture = 0; fixture < 3; ++fixture) {
+        TColgp_Array1OfPnt poles(1, 4);
+        poles.SetValue(1, gp_Pnt(0, 0, 0));
+        poles.SetValue(2, gp_Pnt(fixture == 2 ? 40 : 10, fixture == 1 ? 1e-3 : 0, 0));
+        poles.SetValue(3, gp_Pnt(fixture == 2 ? -10 : 20, 0, 0));
+        poles.SetValue(4, gp_Pnt(30, 0, 0));
+        TColStd_Array1OfReal knots(1, 2);
+        knots.SetValue(1, 0);
+        knots.SetValue(2, 1);
+        TColStd_Array1OfInteger mult(1, 2);
+        mult.SetValue(1, 4);
+        mult.SetValue(2, 4);
+        Handle(Geom_BSplineCurve) curve = new Geom_BSplineCurve(poles, knots, mult, 3);
+        const auto edge = BRepBuilderAPI_MakeEdge(curve).Edge();
+        std::ostringstream stream;
+        BRepTools::Write(edge, stream);
+        const auto bytes = stream.str();
+        OcctKernel kernel;
+        const auto id = kernel.loadBrepr({bytes.begin(), bytes.end()});
+        const auto frozen = kernel.serializeBrepr(id);
+        EXPECT_EQ(kernel.getTopology(id).edges.front().curve_type, fixture == 0 ? 0 : 3);
+        EXPECT_EQ(kernel.serializeBrepr(id), frozen);
+    }
+}
+}  // namespace occccad::kernel
+
+namespace occccad::kernel {
+TEST(GeometryExchange, LoftCutCircularAndMirrorUseOnlyToolWithMemberHistory) {
+    OcctKernel kernel;
+    ProfilePadSpec base;
+    base.feature_id="stock"; base.body_id="body"; base.profile_feature_id="stock-sketch";
+    base.regions={rectangular_region("stock-region",-30,-30,30,30)};base.pad_length=10;
+    auto eccentric=base;eccentric.feature_id="eccentric";eccentric.body_operation="REMOVE";
+    eccentric.regions={rectangular_region("eccentric-region",-2,17,2,19)};
+    auto a=loft_rectangle("section-a",0),b=loft_rectangle("section-b",10);
+    a.region=rectangular_region("section-a",8,-2,12,2);
+    b.region=rectangular_region("section-b",9,-1,11,1);
+    auto cut=loft_spec({a,b});cut.body_operation="REMOVE";
+    const auto seed=kernel.evaluateProfilePadsWithHistory({base,eccentric,cut});
+    const double seed_volume=kernel.getVolume(seed.geometry_id);
+    const double tool_volume=kernel.getVolume(kernel.evaluateProfilePadsWithHistory({loft_spec({a,b})}).geometry_id);
+    ProfilePadSpec pattern;pattern.feature_id="copies";pattern.body_id="body";pattern.input_feature_id="loft";
+    pattern.generator="SOLID_PATTERN";pattern.body_operation="REMOVE";
+    pattern.pattern_source_feature_id="loft";pattern.pattern_source_kind="GENERATOR_TOOL";
+    for(const bool mirror : {false,true}) {
+        pattern.pattern_placements={{0,{1,0,0,0,0,1,0,0,0,0,1,0}},
+            {1,mirror?std::array<double,12>{-1,0,0,0,0,1,0,0,0,0,1,0}:std::array<double,12>{-1,0,0,0,0,-1,0,0,0,0,1,0}}};
+        const auto result=kernel.evaluateProfilePadsWithHistory({base,eccentric,cut,pattern});
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id),seed_volume-tool_volume,1e-5);
+        ASSERT_TRUE(result.feature_results.back().topology_history_complete);
+        EXPECT_EQ(kernel.getTopology(result.geometry_id).solid_count,1U);
+        std::set<std::string> names;
+        for(const auto& out:result.feature_results.back().semantic_outputs)
+            if(out.semantic_ref.output_slot.find("MEMBER/1/")==0)names.insert(out.semantic_ref.output_slot);
+        ASSERT_FALSE(names.empty());
+        OcctKernel cold;
+        const auto rebuilt=cold.evaluateProfilePadsWithHistory({base,eccentric,cut,pattern});
+        EXPECT_NEAR(cold.getVolume(rebuilt.geometry_id),kernel.getVolume(result.geometry_id),1e-8);
+        std::set<std::string> cold_names;
+        for(const auto& out:rebuilt.feature_results.back().semantic_outputs)
+            if(out.semantic_ref.output_slot.find("MEMBER/1/")==0)cold_names.insert(out.semantic_ref.output_slot);
+        EXPECT_EQ(names,cold_names);
+    }
+    EXPECT_NEAR(kernel.getVolume(seed.geometry_id),seed_volume,1e-8);
+    pattern.pattern_placements[1].matrix[0]=2;
+    EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({base,eccentric,cut,pattern}),std::exception);
+}
+} // namespace occccad::kernel
+
+namespace occccad::kernel {
+TEST(GeometryExchange, MirrorLoftAdditiveRangeAndExplicitBodyStageRemainDistinct) {
+    OcctKernel kernel;
+    ProfilePadSpec base; base.feature_id="base";base.body_id="body";base.profile_feature_id="base-sketch";
+    base.regions={rectangular_region("base",-10,-10,10,10)};base.pad_length=10;
+    auto a=loft_rectangle("a",0),b=loft_rectangle("b",10);
+    a.region=rectangular_region("a",8,-2,20,2);b.region=rectangular_region("b",8,-2,20,2);
+    auto loft=loft_spec({a,b});loft.body_operation="ADD";
+    auto seed=kernel.evaluateProfilePadsWithHistory({base,loft});
+    EXPECT_NEAR(kernel.getVolume(seed.geometry_id),4400,1e-6);
+    ProfilePadSpec mirror;mirror.feature_id="mirror";mirror.body_id="body";mirror.input_feature_id="loft";
+    mirror.generator="SOLID_PATTERN";mirror.body_operation="ADD";mirror.pattern_source_feature_id="loft";
+    mirror.pattern_placements={{0,{1,0,0,0,0,1,0,0,0,0,1,0}},{1,{-1,0,0,0,0,1,0,0,0,0,1,0}}};
+    for(const std::string kind : {"GENERATOR_TOOL","FEATURE_DELTA"}) {
+        mirror.pattern_source_kind=kind;mirror.pattern_start_feature_id=kind=="FEATURE_DELTA"?"loft":"";
+        auto result=kernel.evaluateProfilePadsWithHistory({base,loft,mirror});
+        EXPECT_NEAR(kernel.getVolume(result.geometry_id),4800,1e-6);
+        ASSERT_TRUE(result.feature_results.back().topology_history_complete);
+        EXPECT_EQ(kernel.getTopology(result.geometry_id).solid_count,1U);
+    }
+    mirror.pattern_source_kind="BODY_STAGE";mirror.pattern_start_feature_id="";
+    mirror.pattern_result_mode="INDEPENDENT";mirror.pattern_placements[1].matrix[3]=100;
+    auto whole=kernel.evaluateProfilePadsWithHistory({base,loft,mirror});
+    EXPECT_NEAR(kernel.getVolume(whole.geometry_id),8800,1e-6);
+    EXPECT_EQ(kernel.getTopology(whole.geometry_id).solid_count,2U);
+    ASSERT_TRUE(whole.feature_results.back().topology_history_complete);
+}
+}

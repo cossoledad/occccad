@@ -127,6 +127,12 @@ func resolveSketchPatternReferences(model *PartModel, indices ...int) error {
 
 func patternReferenceFeatures(p PatternDefinition) []string {
 	var ids []string
+	if p.MirrorPlane != nil {
+		ids = append(ids, p.MirrorPlane.Selection.Anchor.FeatureID)
+		if p.MirrorPlane.SourceFeatureID != "" {
+			ids = append(ids, p.MirrorPlane.SourceFeatureID)
+		}
+	}
 	for _, axis := range []string{p.AxisEntityID, func() string {
 		if p.CenterReference != nil {
 			return p.CenterReference.AxisEntityID

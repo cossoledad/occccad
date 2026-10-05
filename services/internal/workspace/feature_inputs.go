@@ -48,6 +48,12 @@ func featureInputs(f Feature) []featureInput {
 		add("TOOL", t.FeatureID, "", nil)
 	}
 	if f.Pattern != nil {
+		if f.Pattern.MirrorPlaneID != "" {
+			out = append(out, featureInput{Role: "MIRROR_PLANE", EntityKind: "PLANE", FeatureID: f.Pattern.MirrorPlaneID})
+		}
+		if f.Pattern.MirrorPlane != nil {
+			add("MIRROR_PLANE", f.Pattern.MirrorPlane.Selection.Anchor.FeatureID, "", nil)
+		}
 		add("SEED", f.Pattern.Source.FeatureID, "", nil)
 		add("RANGE_START", f.Pattern.StartFeatureID, "", nil)
 		axis(f.Pattern.AxisEntityID)

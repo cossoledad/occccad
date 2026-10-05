@@ -132,4 +132,6 @@ Multi-Body 由 Workspace 协调独立调用；一个 `naming.pb` 只允许一个
 
 托管 Worker 使用控制面传入的 `OCCCCAD_GEOMETRY_WORKER_ID` 返回 Ping 身份，启动就绪检查必须与本次启动身份一致。监听禁用 `SO_REUSEPORT`，防止残留旧进程与新 Worker 共享端口；控制面在配置起始端口之后寻找空闲端口，不接管已存在的进程。
 
-实体阵列的 `ProfilePadSpec` 区分 `GENERATOR_TOOL`、`BODY_STAGE` 与 `FEATURE_DELTA`。新增材料范围以 `pattern_start_feature_id` 为包含的起点、`pattern_source_feature_id` 为包含的终点；Worker 在不可变阶段上以现有布尔求差，拒绝删除基线材料或不支持的中间特征，再复用 Naming 与刚体成员变换。此合同限添加型拉伸/旋转及随后圆角/倒角，不支持任意特征组重新执行。
+实体阵列的 `ProfilePadSpec` 区分 `GENERATOR_TOOL`、`BODY_STAGE` 与 `FEATURE_DELTA`。新增材料范围以 `pattern_start_feature_id` 为包含的起点、`pattern_source_feature_id` 为包含的终点；Worker 在不可变阶段上以现有布尔求差，拒绝删除基线材料或不支持的中间特征，再复用 Naming 与等距成员变换。此合同限添加型拉伸/旋转/放样及随后圆角/倒角，不支持任意特征组重新执行。
+
+实体复制保留操作应用之前的真实工具体，有限放样添加/切除与拉伸、旋转共用工具留存和拓扑完整性检查。镜像使用已有 `PatternPlacement` 的正交反射矩阵（行列式 −1），仍经 `BRepBuilderAPI_Transform` 历史与 Boolean 合成 Naming，不增加 RPC 或复制整个目标 Body 代替切削工具。非等距矩阵继续拒绝。

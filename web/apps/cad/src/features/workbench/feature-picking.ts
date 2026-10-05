@@ -56,8 +56,9 @@ export function profileSelectionIDs(view:DocumentView,upstream:Feature[],pattern
 
 // A generator tool is not the final Body stage. Viewport association may offer
 // several actual generators; callers present those candidates explicitly.
-export function patternSourceCandidates(selection:SelectionItem,stages:Feature[],kind:"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"):Feature[] {
- const eligible=stages.filter(f=>!f.suppressed&&f.bodyId===selection.bodyId&&(kind!=="GENERATOR_TOOL"?!f.sketch&&f.type!=="SKETCH_PATTERN":["PAD","LINEAR_EXTRUDE","REVOLVE"].includes(f.type)&&f.extent!=="THROUGH_ALL"));
+export function patternSourceCandidates(selection:SelectionItem,stages:Feature[],kind:"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA",capabilities:DocumentView["replicationSources"]={}):Feature[] {
+ if(kind==="GENERATOR_TOOL" && selection.patternMemberSlot!==undefined && selection.patternMemberSlot!==0)return [];
+ const eligible=stages.filter(f=>!f.suppressed&&f.bodyId===selection.bodyId&&(kind==="GENERATOR_TOOL"?capabilities[f.id]?.tool:capabilities[f.id]?.bodyStage));
  if(["pad","feature","import"].includes(selection.kind))return eligible.filter(f=>f.id===(selection.entityId??selection.id));
  if(kind==="GENERATOR_TOOL"||kind==="FEATURE_DELTA")return eligible.filter(f=>(selection.sourceFeatureIds??selection.associatedFeatureIds)?.includes(f.id));
  const stage=selection.displayStageFeatureId?eligible.find(f=>f.id===selection.displayStageFeatureId):eligible.at(-1);
@@ -66,13 +67,13 @@ export function patternSourceCandidates(selection:SelectionItem,stages:Feature[]
 
 // A material range has an explicit additive seed and inclusive end. Only local
 // fillet/chamfer steps are supported; this never promises arbitrary group replay.
-export function patternRangeEnds(stages:Feature[],startId?:string):Feature[] {
+export function patternRangeEnds(stages:Feature[],startId?:string,capabilities:DocumentView["replicationSources"]={}):Feature[] {
  const start=stages.find(f=>f.id===startId);
- if(!start||start.suppressed||!["PAD","LINEAR_EXTRUDE","REVOLVE"].includes(start.type)||!["ADD","NEW_BODY"].includes(start.operation??"ADD")||start.extent==="THROUGH_ALL")return [];
+ if(!start||start.suppressed||!capabilities[start.id]?.rangeStart)return [];
  const ends:Feature[]=[];
  for(const f of stages.slice(stages.indexOf(start))){
   if(f.suppressed||f.bodyId!==start.bodyId||f.sketch||f.type==="SKETCH_PATTERN")continue;
-  if(f!==start&&!["FILLET","CHAMFER"].includes(f.type))break;
+  if(f!==start&&!capabilities[f.id]?.rangeModifier)break;
   ends.push(f);
  }
  return ends;
@@ -86,6 +87,6 @@ export function patternRangeFromSelections(view:DocumentView,selections:Selectio
  if(explicit.some(s=>(s.ownerDocumentId??s.documentId)!==view.document.id||s.versionId!==view.document.versionId||(s.instancePath?.canonical??s.occurrencePath??"")!==(occurrencePath??"")))return {status:"INVALID"};
  const selected=stages.filter(f=>ids.includes(f.id));
  const first=selected[0],last=selected.at(-1);
- if(selected.length!==ids.length||!first?.bodyId||!last||selected.some(f=>f.bodyId!==first.bodyId)||!patternRangeEnds(stages,first.id).some(f=>f.id===last.id))return {status:"INVALID"};
+ if(selected.length!==ids.length||!first?.bodyId||!last||selected.some(f=>f.bodyId!==first.bodyId)||!patternRangeEnds(stages,first.id,view.replicationSources).some(f=>f.id===last.id))return {status:"INVALID"};
  return {status:"READY",bodyId:first.bodyId,startFeatureId:first.id,endFeatureId:last.id};
 }

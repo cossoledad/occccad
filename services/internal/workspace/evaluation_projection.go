@@ -475,6 +475,11 @@ func validatePartStructure(model PartModel) error {
 				return fmt.Errorf("%w: solid feature %s has invalid BodyOperation", ErrValidation, feature.ID)
 			}
 		}
+		if feature.Pattern != nil && feature.Pattern.Kind == "MIRROR" && feature.Pattern.MirrorPlaneID != "" {
+			if _, exists := datums[feature.Pattern.MirrorPlaneID]; !exists {
+				return fmt.Errorf("%w: mirror datum plane missing", ErrValidation)
+			}
+		}
 		if feature.Type == "DRAFT" && feature.NeutralPlaneID != "" {
 			if _, exists := datums[feature.NeutralPlaneID]; !exists {
 				return fmt.Errorf("%w: neutral datum plane missing", ErrValidation)
@@ -674,6 +679,18 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				}
 			}
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey(source), Target: key, Kind: modelcore.ReadGeometry})
+		}
+		if feature.Pattern != nil && feature.Pattern.Kind == "MIRROR" {
+			p := feature.Pattern
+			if p.MirrorPlane != nil {
+				source := p.MirrorPlane.Selection.Anchor.FeatureID
+				if tip := bodyTips[p.MirrorPlane.Selection.SourceBodyID]; tip != "" {
+					source = tip
+				}
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + source), Target: key, Kind: modelcore.ReadTopology})
+			} else {
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + p.MirrorPlaneID), Target: key, Kind: modelcore.ReadGeometry})
+			}
 		}
 		if feature.Type == "DRAFT" && feature.NeutralPlane != nil {
 			pick := feature.NeutralPlane

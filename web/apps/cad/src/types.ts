@@ -119,7 +119,7 @@ export type DocumentProperties = {
   worker: { available: boolean; workerId?: string; occtVersion?: string; residentGeometryCount?: number; error?: string };
 };
 
-export type PatternDefinition = { directionReference?:SketchGeometryRef; reversed?:boolean; centerReference?:{sketchId?:string;axisEntityId?:string;reference:SketchGeometryRef}; axisEntityId?:string; id:string; kind:"LINEAR"|"CIRCULAR"; distribution:"FIXED_STEP"|"TOTAL_SPAN"|"FULL_CIRCLE"; count:number; spacing?:number; angle?:number; phase?:number; origin:Vec3; direction:Vec3; skippedSlots?:number[]; suppressed?:boolean };
+export type PatternDefinition = { directionReference?:SketchGeometryRef; reversed?:boolean; centerReference?:{sketchId?:string;axisEntityId?:string;reference:SketchGeometryRef}; axisEntityId?:string; id:string; kind:"LINEAR"|"CIRCULAR"|"MIRROR"; mirrorPlaneId?:string; mirrorPlane?:NonNullable<Feature["selections"]>[number]; distribution:"FIXED_STEP"|"TOTAL_SPAN"|"FULL_CIRCLE"; count:number; spacing?:number; angle?:number; phase?:number; origin:Vec3; direction:Vec3; skippedSlots?:number[]; suppressed?:boolean };
 export type SketchPattern = PatternDefinition & {entityIds:string[]};
 export type Feature = {
   pattern?:PatternDefinition & {startFeatureId?:string;resultMode?:"COMBINE"|"INDEPENDENT";source:{bodyId:string;featureId:string};sourceKind:"SKETCH_FRAME"|"GENERATOR_TOOL"|"BODY_STAGE"|"FEATURE_DELTA"};
@@ -399,6 +399,7 @@ export type SketchProfileAnalysis = {
 };
 
 export type DocumentView = {
+ replicationSources?:Record<string,{tool:boolean;rangeStart:boolean;rangeModifier:boolean;bodyStage:boolean;diagnostic?:string}>;
   sketchPatternMembers?:Record<string,SketchEntity[]>;
   document: DocumentSummary;
   sketchAnalyses?: Record<string, SketchProfileAnalysis>;
