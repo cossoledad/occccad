@@ -1,3 +1,4 @@
+import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
 import type { FeaturePickRole } from "../../cad/interaction/feature-selection";
 import { Alert, Button, Input, Select, Switch } from "antd";
 import { useEffect, useRef, useState } from "react";
@@ -129,5 +130,6 @@ export function PatternFeatureEditor({ view, feature, digest, unit, seed, occurr
       <label>跳过槽位（从 0 开始）<Input value={skipped} onChange={e=>setSkipped(e.target.value)}/></label>
     </fieldset>
     {(parameterError||error||preview.error)&&<Alert type="error" title={parameterError??error??preview.error}/>}
-  </CommandDialog>;
+  {!!preview.failure && <DiagnosticCopy text={diagnosticReference(preview.failure,{documentId:view.document.id,versionId:view.document.versionId})}/>}
+</CommandDialog>;
 }

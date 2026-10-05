@@ -22,10 +22,10 @@ import (
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/jobs"
+	perf "github.com/occccad/occccad/internal/performance"
 	"github.com/occccad/occccad/internal/thumbnail"
 	"github.com/occccad/occccad/internal/workspace"
 	"go.opentelemetry.io/otel/trace"
-	perf "github.com/occccad/occccad/internal/performance"
 )
 
 type Server struct {
@@ -253,6 +253,7 @@ func (server *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/documents/{documentID}/assembly-engineering-evidence", server.assemblyEngineeringEvidence)
 	mux.HandleFunc("GET /api/documents/{documentID}/assembly-replays/{replayID}", server.downloadAssemblyReplay)
 	mux.HandleFunc("POST /api/documents/{documentID}/diagnostic-bundles", server.downloadDiagnosticBundle)
+	mux.HandleFunc("GET /api/documents/{documentID}/diagnostics/{diagnosticID}", server.downloadOperationDiagnostic)
 	mux.HandleFunc("GET /api/exchange/capabilities", server.exchangeCapabilities)
 	mux.HandleFunc("POST /api/exchange/imports", server.startExchangeImport)
 	mux.HandleFunc("POST /api/exchange/exports", server.startExchangeExport)
@@ -1091,15 +1092,15 @@ func writeWorkspaceResult(writer http.ResponseWriter, result workspace.DocumentV
 		return
 	}
 	if errors.Is(err, workspace.ErrNotFound) {
-		writeError(writer, http.StatusNotFound, err.Error())
+		writeOperationError(writer, http.StatusNotFound, err)
 		return
 	}
 	if errors.Is(err, workspace.ErrValidation) {
-		writeError(writer, http.StatusBadRequest, err.Error())
+		writeOperationError(writer, http.StatusBadRequest, err)
 		return
 	}
 	slog.Error("workspace request failed", "error", err)
-	writeError(writer, http.StatusInternalServerError, err.Error())
+	writeOperationError(writer, http.StatusInternalServerError, err)
 }
 
 func (server *Server) health(writer http.ResponseWriter, request *http.Request) {

@@ -162,3 +162,29 @@ func testBodyTips(m *topologyManifest) *topologyManifest {
 	}
 	return m
 }
+
+func TestResolveManifestPatternReplicaIsNotSeedContinuation(t *testing.T) {
+	seed := testRef("extrude-1", "END_CAP/region-1")
+	member := testRef("pattern-1", "MEMBER/1/sha256:seed")
+	trimmed := testRef("fillet-1", "member-trim")
+	generated := workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_GENERATED
+	modified := workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_MODIFIED
+	manifest := testBodyTips(&topologyManifest{FeatureResults: []*workerv1.FeatureResult{
+		{FeatureId: "extrude-1", BodyId: "body-main", TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{{Kind: generated, Result: seed}}}},
+		{FeatureId: "pattern-1", BodyId: "body-main", TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{{Kind: generated, Sources: []*workerv1.SemanticTopologyRef{seed}, Result: member}}}},
+		{FeatureId: "fillet-1", BodyId: "body-main", SemanticOutputs: []*workerv1.SemanticTopologyOutput{testOutput(seed, 2, 1), testOutput(trimmed, 30, 1)}, TopologyHistory: &workerv1.TopologyHistory{Lineage: []*workerv1.TopologyLineage{{Kind: modified, Sources: []*workerv1.SemanticTopologyRef{member}, Result: trimmed}}}},
+	}})
+	selection := testSelection()
+	if got := resolveManifest(selection, "key", manifest); got.Status != modelcore.SelectionResolved || got.Candidates[0].LocalID != 2 {
+		t.Fatalf("seed upgraded to replicas: %+v", got)
+	}
+	selection.Anchor = semanticRef(member)
+	if got := resolveManifest(selection, "key", manifest); got.Status != modelcore.SelectionResolved || got.Candidates[0].LocalID != 30 {
+		t.Fatalf("member lost continuation: %+v", got)
+	}
+	manifest.Tips["body-main"].SemanticOutputs = manifest.Tips["body-main"].SemanticOutputs[1:]
+	selection = testSelection()
+	if got := resolveManifest(selection, "key", manifest); got.Status != modelcore.SelectionMissing {
+		t.Fatalf("deleted seed jumped to member: %+v", got)
+	}
+}

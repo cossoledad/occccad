@@ -62,15 +62,8 @@ func associationSeedDigest(ref *workerv1.SemanticTopologyRef) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 func associationMember(ref *workerv1.SemanticTopologyRef) (FeatureAssociationMember, string, bool) {
-	parts := strings.Split(ref.OutputSlot, "/")
-	if len(parts) != 3 || parts[0] != "MEMBER" {
-		return FeatureAssociationMember{}, "", false
-	}
-	slot, err := strconv.Atoi(parts[1])
-	if err != nil || slot < 0 {
-		return FeatureAssociationMember{}, "", false
-	}
-	return FeatureAssociationMember{ref.FeatureId, slot}, parts[2], true
+	patternID, slot, digest, ok := semanticPatternMember(ref)
+	return FeatureAssociationMember{patternID, slot}, digest, ok
 }
 func deriveFeatureAssociations(m *topologyManifest) *FeatureAssociationIndex {
 	index := &FeatureAssociationIndex{Features: []string{}, Elements: []FeatureTopologyAssociation{}}

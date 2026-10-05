@@ -7,6 +7,7 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
         id?: string;
         pending: boolean;
         error?: string;
+ failure?:unknown;
         loftSections?: Feature["sections"];
         loftConnections?: [number,number,number][][];
     }>({ pending: false });
@@ -31,10 +32,10 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
                 setState({ key, id: result.previewId, pending: false, loftSections:result.loftSections,loftConnections:result.loftConnections });
                 callback.current(result.artifact, candidate.operation);
             }).catch(error => { if (alive && !controller.signal.aborted)
-                setState({ key, pending: false, error: String(error) }); });
+                setState({ key, pending: false, error: String(error),failure:error }); });
         }, 250);
         return () => { alive = false; clearTimeout(timer); controller.abort(); callback.current(); };
     }, [key, retry]);
     return { loftSections:state.key===key?state.loftSections:undefined,loftConnections:state.key===key?state.loftConnections:undefined, pending: !!key && (state.key !== key || state.pending), previewId: state.key === key ? state.id : undefined,
-        error: state.key === key ? state.error : undefined, retry: () => setRetry(value => value + 1) };
+        failure:state.key===key?state.failure:undefined, error: state.key === key ? state.error : undefined, retry: () => setRetry(value => value + 1) };
 }

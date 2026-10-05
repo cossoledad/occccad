@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/occccad/occccad/internal/workspace"
 	"net/http"
 	"runtime"
 	"time"
@@ -129,4 +131,29 @@ func (server *Server) downloadDiagnosticBundle(writer http.ResponseWriter, reque
 	writer.Header().Set("Cache-Control", "no-store")
 	writer.WriteHeader(http.StatusOK)
 	_, _ = writer.Write(encoded)
+}
+
+// Snapshot retrieval never substitutes current Head for failure-time evidence.
+func (server *Server) downloadOperationDiagnostic(w http.ResponseWriter, r *http.Request) {
+	if _, ok := server.requireDocument(w, r, access.RoleViewer); !ok {
+		return
+	}
+	data, err := server.workspace.ReadOperationDiagnostic(r.Context(), r.PathValue("documentID"), r.PathValue("diagnosticID"))
+	if errors.Is(err, workspace.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "diagnostic not found or expired")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "diagnostic retrieval failed")
+		return
+	}
+	w.Header().Set("Content-Type", "application/vnd.occccad.diagnostic+json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="cad-diagnostic-%s.json"`, r.PathValue("diagnosticID")))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+func writeOperationError(w http.ResponseWriter, status int, err error) {
+	failure := realtimeDomainError(err)
+	writeJSON(w, status, map[string]any{"error": failure.Message, "code": failure.Code, "phase": failure.Phase, "retryable": failure.Retryable, "diagnosticId": failure.DiagnosticID})
 }

@@ -56,6 +56,17 @@ func NewStore(root string, maxPerDocument int, maxAge time.Duration) (*Store, er
 }
 
 func (store *Store) Save(ctx context.Context, documentID, requestID string, data []byte) (Item, error) {
+	return store.save(ctx, documentID, requestID, data, ".3dreplay")
+}
+
+// SaveJSON uses the same bounded repository and immutable metadata as replays.
+func (store *Store) SaveJSON(ctx context.Context, documentID, requestID string, data []byte) (Item, error) {
+	if !json.Valid(data) {
+		return Item{}, errors.New("invalid diagnostic JSON")
+	}
+	return store.save(ctx, documentID, requestID, data, ".json")
+}
+func (store *Store) save(ctx context.Context, documentID, requestID string, data []byte, extension string) (Item, error) {
 	if err := ctx.Err(); err != nil {
 		return Item{}, err
 	}
@@ -71,7 +82,7 @@ func (store *Store) Save(ctx context.Context, documentID, requestID string, data
 	created := store.now().UTC()
 	id := created.Format("20060102T150405.000000000Z") + "-" + randomID()
 	item := Item{ID: id, RequestID: requestID, CreatedAt: created.Format(time.RFC3339Nano), Status: replayStatus(data)}
-	meta := metadata{Item: item, DocumentID: documentID, File: id + ".3dreplay", Bytes: len(data)}
+	meta := metadata{Item: item, DocumentID: documentID, File: id + extension, Bytes: len(data)}
 	if err := writeAtomic(filepath.Join(directory, meta.File), data, 0o640); err != nil {
 		return Item{}, err
 	}
@@ -96,6 +107,7 @@ func (store *Store) List(ctx context.Context, documentID string, limit int) ([]I
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	store.pruneLocked(filepath.Join(store.root, documentID))
 	all, err := store.metadataLocked(filepath.Join(store.root, documentID))
 	if err != nil {
 		return nil, err
@@ -122,6 +134,7 @@ func (store *Store) Read(ctx context.Context, documentID, id, requestID string) 
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
+	store.pruneLocked(filepath.Join(store.root, documentID))
 	all, err := store.metadataLocked(filepath.Join(store.root, documentID))
 	if err != nil {
 		return Item{}, nil, err

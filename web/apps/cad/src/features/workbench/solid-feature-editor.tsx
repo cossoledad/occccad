@@ -1,3 +1,4 @@
+import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
 import { pickedPatternCenter } from "./pattern-selection";
 import { PatternFeatureEditor } from "./pattern-feature-editor";
 import { Alert, Button, Input, Segmented, Switch } from "antd";
@@ -298,6 +299,7 @@ function SolidFeatureDefinitionEditor({ view, feature, digest, unit, seed, occur
    <small role="status">{!validRevision ? "模型已改变，请关闭并重新打开此命令" : binding || loadingInput ? "正在恢复精确选择…" : preview.pending ? "正在预览…" : "在视图区点击添加选择，再次点击取消；参数修改后自动预览。"}</small>
    {(error ?? parameterError ?? preview.error) && <Alert type="error" title="特征求值失败" description={error ?? parameterError ?? preview.error}/>}
    {preview.error && <Button onClick={preview.retry}>重新预览</Button>}
+{!!preview.failure && <DiagnosticCopy text={diagnosticReference(preview.failure,{documentId:view.document.id,versionId:view.document.versionId})}/>}
   </fieldset>
  </CommandDialog>;
 }

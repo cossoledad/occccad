@@ -2249,7 +2249,11 @@ func (service *Service) prepareDomainMutation(ctx context.Context, documentID st
 	return prepared, nil
 }
 
-func (service *Service) applyDomainMutation(ctx context.Context, documentID string, request CommandRequest) error {
+func (service *Service) applyDomainMutation(ctx context.Context, documentID string, request CommandRequest) (failure error) {
+	diagnostic := service.newOperationDiagnostic(ctx, documentID, request, "APPLY")
+	var diagnosticJSON json.RawMessage
+	var diagnosticModel *PartModel
+	defer func() { service.finishOperationDiagnostic(ctx, diagnostic, &diagnosticJSON, diagnosticModel, &failure) }()
 	// Check committed intent before adapting against the new Head: import/repair
 	// preconditions intentionally cease to hold after their first successful commit.
 	request.RequestID = requestID(request.RequestID)
@@ -2270,10 +2274,12 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 	}
 	finishPrepare := perf.Start(ctx, "command-prepare")
 	prepared, err := service.prepareDomainMutation(ctx, documentID, request)
+	diagnostic.prepared(prepared)
 	finishPrepare()
 	if err != nil {
 		return err
 	}
+	diagnostic.stage("CANDIDATE")
 	finishPromote := perf.Start(ctx, "candidate-promote")
 	if request.SessionID != "" {
 		if err := service.validateInteractionCommit(ctx, documentID, prepared, request); err != nil {
@@ -2302,6 +2308,8 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			return err
 		}
 	}
+	diagnosticJSON = nextJSON
+	diagnostic.stage("EVALUATION")
 	revisionUUID, err := uuid.NewV7()
 	if err != nil {
 		return err
@@ -2320,6 +2328,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err := json.Unmarshal(prepared.modelJSON, &beforeModel); err != nil {
 			return err
 		}
+		diagnosticModel = &model
 		normalizePartModel(&model)
 		normalizePartModel(&beforeModel)
 		metadataOnly := isPartMetadataCommand(prepared.command)
@@ -2327,6 +2336,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			if err := validateAndResolvePartParameters(&model); err != nil {
 				return err
 			}
+			diagnostic.stage("SKETCH_INPUTS")
 			finishSolve := perf.Start(ctx, "support-resolve-sketch-solve")
 			if err := service.resolveAndSolveSketches(ctx, documentID, prepared.requestID, &model); err != nil {
 				finishSolve()
@@ -2371,6 +2381,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 				}
 			}
 		} else {
+			diagnostic.stage("GEOMETRY")
 			finishGeometry := perf.Start(ctx, "geometry-evaluate")
 			err = service.evaluatePartBodies(ctx, prepared.requestID, &model)
 			finishGeometry()
@@ -2496,6 +2507,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		return err
 	}
 	batch := &database.Batch{}
+	diagnostic.stage("COMMIT")
 	batch.Queue(`INSERT INTO occccad.document_versions(id,document_id,parent_version_id,sequence,model_json,state,created_by_command_id,model_hash,dependency_snapshot_digest,evaluation_manifest) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, revisionID, documentID, prepared.headRevision, revisionSequence, nextJSON, revisionState, auditCommandID, modelHash, dependencyDigest, manifestJSON)
 	batch.Queue(`INSERT INTO occccad.revision_parents(revision_id,parent_revision_id,ordinal) VALUES($1,$2,0)`, revisionID, prepared.headRevision)
 	batch.Queue(`INSERT INTO occccad.domain_transactions(id,workspace_id,sequence,actor_id,request_id,request_digest,kind,status,base_revision_id,result_revision_id,committed_at) VALUES($1,$2,$3,$4,$5,$6,'DOMAIN','COMMITTED',$7,$8,now())`, prepared.transactionID, prepared.workspaceID, currentSequence+1, prepared.actorID, prepared.requestID, prepared.requestDigest, prepared.headRevision, revisionID)
@@ -2592,21 +2604,28 @@ func assemblyConstraintSolveIntent(command modelcore.DomainCommand, model Produc
 // and authoritative Part evaluator without creating a Revision, advancing a
 // Workspace or appending history. Geometry artifacts remain content-addressed
 // rebuildable cache entries and may therefore be reused by the later commit.
-func (service *Service) PreviewCommand(ctx context.Context, documentID string, request CommandRequest) (CommandPreview, error) {
+func (service *Service) PreviewCommand(ctx context.Context, documentID string, request CommandRequest) (result CommandPreview, failure error) {
+	diagnostic := service.newOperationDiagnostic(ctx, documentID, request, "PREVIEW")
+	var diagnosticJSON json.RawMessage
+	var diagnosticModel *PartModel
+	defer func() { service.finishOperationDiagnostic(ctx, diagnostic, &diagnosticJSON, diagnosticModel, &failure) }()
 	request.Type = strings.ToUpper(strings.TrimSpace(request.Type))
 	if request.Type == "UNDO" || request.Type == "REDO" || request.Type == "RESTORE" {
 		return CommandPreview{}, fmt.Errorf("%w: history commands cannot be previewed", ErrValidation)
 	}
 	finishPrepare := perf.Start(ctx, "preview-prepare")
 	prepared, err := service.prepareDomainMutation(ctx, documentID, request)
+	diagnostic.prepared(prepared)
 	finishPrepare()
 	if err != nil {
 		return CommandPreview{}, err
 	}
+	diagnostic.stage("DEFINITION")
 	nextJSON, previewChanges, err := workspaceCommandRegistry.Apply(prepared.documentType, prepared.modelJSON, prepared.command)
 	if err != nil {
 		return CommandPreview{}, err
 	}
+	diagnosticJSON = nextJSON
 	if strings.EqualFold(prepared.documentType, "PRODUCT") {
 		var model ProductModel
 		if err = json.Unmarshal(nextJSON, &model); err != nil {
@@ -2711,11 +2730,14 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	if err = json.Unmarshal(prepared.modelJSON, &beforeModel); err != nil {
 		return CommandPreview{}, err
 	}
+	diagnosticModel = &model
+	diagnostic.stage("PARAMETERS")
 	normalizePartModel(&model)
 	normalizePartModel(&beforeModel)
 	if err = validateAndResolvePartParameters(&model); err != nil {
 		return CommandPreview{}, err
 	}
+	diagnostic.stage("SKETCH_INPUTS")
 	finishSolve := perf.Start(ctx, "support-resolve-sketch-solve")
 	if err = service.resolveAndSolveSketches(ctx, documentID, "preview/"+prepared.requestID, &model); err != nil {
 		finishSolve()
@@ -2750,6 +2772,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 			expiresAt: time.Now().Add(interactionCandidateTTL)})
 		return CommandPreview{PreviewID: previewID, BaseVersionID: prepared.headRevision, BaseSequence: prepared.headSequence, ModelHash: modelHash}, nil
 	}
+	diagnostic.stage("GEOMETRY")
 	finishGeometry := perf.Start(ctx, "geometry-evaluate")
 	bodyID := previewBodyID(prepared.command.Payload, model)
 	geometryKey, err := service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID, model, bodyID)
@@ -2757,6 +2780,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	if err != nil {
 		return CommandPreview{}, err
 	}
+	diagnostic.stage("ARTIFACT")
 	finishArtifact := perf.Start(ctx, "artifact-load")
 	artifact, err := service.loadArtifact(ctx, geometryKey)
 	finishArtifact()

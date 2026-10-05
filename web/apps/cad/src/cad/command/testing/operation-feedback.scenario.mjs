@@ -25,6 +25,15 @@ controller.cancel();controller.begin(input);await tick();await respond("FAILED")
 const server=await createServer({appType:"custom",logLevel:"silent",server:{middlewareMode:true}});
 try{
  const {normalizeOperationFailure,OperationFailureGate}=await server.ssrLoadModule("/src/cad/command/operation-feedback.tsx");
+
+ const {copyDiagnosticText,diagnosticReference}=await server.ssrLoadModule("/src/cad/command/diagnostic-copy.tsx");
+ const failed={code:"FAILED_SUPPORT",phase:"SKETCH_SUPPORT",diagnosticId:"doc/immutable-id",message:"ambiguous",requestId:"request-id",retryable:false};
+ assert.equal(normalizeOperationFailure(failed).diagnosticId,failed.diagnosticId);
+ assert.equal(diagnosticReference(failed),"CAD_DIAGNOSTIC doc/immutable-id FAILED_SUPPORT");
+ let copied;assert.equal(await copyDiagnosticText("reference",{writeText:async value=>{copied=value;}}),true);assert.equal(copied,"reference");
+ assert.equal(await copyDiagnosticText("reference",{writeText:async()=>{throw Error("permission denied");}}),false);
+ assert.equal(await copyDiagnosticText("reference"),false,"unavailable clipboard offers manual text");
+ assert.match(diagnosticReference(new Error("offline"),{documentId:"doc",versionId:"revision"}),/revision/);
  const error=Object.assign(new Error("invalid workspace command: secret UUID internal snapshot"),{code:"VALIDATION_FAILED",requestId:"request"});
  const view=normalizeOperationFailure(error);assert.doesNotMatch(view.message,/UUID|invalid workspace/);assert.match(view.details,/UUID/);assert.equal(view.requestId,"request");
  const gate=new OperationFailureGate();assert.equal(gate.accept(error,"command",100),true);assert.equal(gate.accept(error,"dialog",101),false,"same mutation rejection has one outlet");

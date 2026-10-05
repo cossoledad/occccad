@@ -42,3 +42,7 @@ EvaluatePart 的 `import_seed` 初始化导入根 FeatureResult 和已有 named 
 每个 Body 独立 Naming Artifact；bind 先验证 GeometryKey 属于指定 Revision/Body，再解释 localId。resolver 在 source/target Revision 中分别寻找同一个稳定 Body，不会扫描兄弟 Body 的 Naming 作为回退。Loader 同时验证 GeometryId、BREP SHA-256 及单 Body transition 归属；Body 删除后引用返回不可用，不按同名 Body 或相同 FACE 1 自动重连。
 
 实体 evaluator v5 补齐旋转扫掠历史、跨 Body 工具快照和局部修改/放样历史。工具的 Naming 与 BREP 摘要、Body 和 Feature 阶段必须一致。抽壳保留原外表面且生成内表面时，两者都进入真实历史；同一来源集产生多个结果时显式区分分裂，无法消歧仍失败。参见[实体 Feature](solid-features.md)。
+
+## 阵列复制与选择延续
+
+`LINEAGE_DESCENDANT` 跟踪所选拓扑的实际延续，不把 `GENERATED → MEMBER/slot/seed-digest` 刚体复制关系作为种子选择的延续。种子仍存在时只解析其当前结果；种子消失时不能跳到副本。显式 MEMBER 锚点保留其槽位，并继续跟踪下游 Modified/Split/Merged；真实分裂仍保留 Ambiguous。Feature 的贡献显示仍可包含各复制成员，与命令的单一拓扑选择职责分开。该修正没有修改持久命名格式或用坐标挑选候选。

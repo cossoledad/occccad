@@ -8,12 +8,13 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
+	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"github.com/occccad/occccad/internal/database"
 	"github.com/occccad/occccad/internal/modelcore"
 	perf "github.com/occccad/occccad/internal/performance"
-	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 )
 
 type BindPersistentSelectionRequest struct {
@@ -591,6 +592,15 @@ func resolveManifest(selection modelcore.PersistentSelection, geometryKey string
 				}
 			}
 			if matched {
+				// A pattern member is a new occurrence of the source topology,
+				// not a continuation of a selection on the surviving seed.
+				// Explicit member anchors remain in current and their later
+				// Modified/Split/Merged transitions are followed normally.
+				if lineage.Result != nil && lineage.Kind == workerv1.TopologyLineageKind_TOPOLOGY_LINEAGE_GENERATED {
+					if _, _, _, replica := semanticPatternMember(lineage.Result); replica {
+						continue
+					}
+				}
 				ref := semanticRef(lineage.GetResult())
 				current[refKey(ref)] = ref
 			}
@@ -834,4 +844,21 @@ func namingTopologyType(kind modelcore.PersistentTopologyType) int {
 		return 3
 	}
 	return 0
+}
+
+// MEMBER is the persistent Naming slot emitted by exact rigid-copy history.
+// This parser is shared by selection resolution and the derived display index.
+func semanticPatternMember(ref *workerv1.SemanticTopologyRef) (string, int, string, bool) {
+	if ref == nil {
+		return "", 0, "", false
+	}
+	parts := strings.Split(ref.OutputSlot, "/")
+	if len(parts) != 3 || parts[0] != "MEMBER" {
+		return "", 0, "", false
+	}
+	slot, err := strconv.Atoi(parts[1])
+	if err != nil || slot < 0 {
+		return "", 0, "", false
+	}
+	return ref.FeatureId, slot, parts[2], true
 }

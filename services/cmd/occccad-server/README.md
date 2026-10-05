@@ -139,3 +139,7 @@ Cut/Hole 集成验证位于 `internal/control/TestCutHolePersistentSelectionThro
 存储后端通过根 `.env` 的 `OCCCCAD_ARTIFACT_BACKEND` 选择 LOCAL/S3。S3 配置、桶初始化和旧制品迁移见[存储运维](../occccad-artifacts/README.md)。业务层只依赖 Store；Geometry Worker 使用共享本地 scratch。
 
 订阅携带 versionId、sequence 等控制信息；完成消息可附带不超过 64 KiB 且匹配提交 sequence 的轻量业务快照，否则客户端通过 `GET /api/documents/{documentID}/realtime-snapshot` 获取同一 Head/sequence 的权威轻量业务快照。Preview GLB 通过既有 representations 路由和短期 previewId 授权读取。协议、恢复、队列和定向验证见[realtime 控制面](../../../docs/architecture/current/realtime.md)。
+
+## 操作诊断
+
+启动时复用有界 `debugartifact.Store`，在配置的日志目录 `debug/cad-diagnostics` 保存返回错误的普通命令及预览快照，每文档最多 50 份、7 天，单份最大 8 MiB。错误携带 `diagnosticId=documentId/recordId`；文档成员可通过 `GET /api/documents/{documentID}/diagnostics/{diagnosticID}` 取回不可变 JSON。记录不进入模型历史；本机目录随进程重开保留，复制到 Agent 的一行引用可定位同名 JSON 和关联请求。记录缺失或过期返回 404，归档失败不改变原操作结果。

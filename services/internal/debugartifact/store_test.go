@@ -33,3 +33,32 @@ func TestStoreKeepsRecentLocalArtifactsAndFiltersRequest(t *testing.T) {
 		t.Fatalf("read = %#v %q %v", item, data, err)
 	}
 }
+
+func TestStoreJSONSurvivesReopenAndExpiresWithoutAnotherWrite(t *testing.T) {
+	root := t.TempDir()
+	s, err := NewStore(root, 2, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	s.now = func() time.Time { return now }
+	item, err := s.SaveJSON(t.Context(), "doc-1", "preview/failed", []byte(`{"failure":"bad geometry"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := NewStore(root, 2, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened.now = func() time.Time { return now.Add(time.Minute) }
+	if _, _, err = reopened.Read(t.Context(), "doc-1", item.ID, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = reopened.Read(t.Context(), "other-doc", item.ID, ""); !errors.Is(err, ErrNotFound) {
+		t.Fatal("cross document read", err)
+	}
+	reopened.now = func() time.Time { return now.Add(2 * time.Hour) }
+	if _, _, err = reopened.Read(t.Context(), "doc-1", item.ID, ""); !errors.Is(err, ErrNotFound) {
+		t.Fatal("expired diagnostic retained", err)
+	}
+}

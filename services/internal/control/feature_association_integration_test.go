@@ -2,14 +2,18 @@ package control
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/occccad/occccad/internal/debugartifact"
 	"io"
 	"math"
 	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/occccad/occccad/internal/artifact"
 	"github.com/occccad/occccad/internal/database"
@@ -20,6 +24,11 @@ import (
 
 func TestFeatureAssociationFanLifecycleThroughRouter(t *testing.T) {
 	service, artifacts, db, client := featureAssociationTestService(t)
+	diagnostics, err := debugartifact.NewStore(t.TempDir(), 50, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.SetDiagnosticArtifactStore(diagnostics)
 	view, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: p6Actor, Type: "PART", Name: "Fan associations"})
 	if err != nil {
 		t.Fatal(err)
@@ -101,6 +110,43 @@ func TestFeatureAssociationFanLifecycleThroughRouter(t *testing.T) {
 	if !copiedBladeFace {
 		t.Fatal("tree blade contribution omitted replicated member faces")
 	}
+	// Seed selection follows material continuation, never replica generation.
+	var seedFace, seedEdge uint64
+	for _, f := range mesh.FaceIDs {
+		props, e := service.GetTopologyElementPropertiesAtVersion(t.Context(), view.Document.ID, view.Document.VersionID, activeBodyArtifact(t, view).GeometryKey, "FACE", uint64(f))
+		if e != nil {
+			t.Fatal(e)
+		}
+		if props.PersistentSelection != nil && props.PersistentSelection.Anchor.FeatureID == blade.ID && props.GeometryType == "PLANE" {
+			seedFace = uint64(f)
+			break
+		}
+	}
+	for _, edge := range mesh.Edges {
+		props, e := service.GetTopologyElementPropertiesAtVersion(t.Context(), view.Document.ID, view.Document.VersionID, activeBodyArtifact(t, view).GeometryKey, "EDGE", edge.LocalID)
+		if e != nil {
+			t.Fatal(e)
+		}
+		if props.PersistentSelection != nil && props.PersistentSelection.Anchor.FeatureID == blade.ID && props.GeometryType == "LINE" && math.Abs(props.PersistentSelection.CreationEvidence.Direction[2]) < 1e-6 {
+			seedEdge = edge.LocalID
+			break
+		}
+	}
+	if seedFace == 0 || seedEdge == 0 {
+		t.Fatal("seed face/edge absent")
+	}
+	preview, e := service.PreviewCommand(t.Context(), view.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: "seed-face-preview", Type: "CREATE_SKETCH", TargetKind: "FACE", TopologyID: seedFace, GeometryKey: activeBodyArtifact(t, view).GeometryKey, VersionID: view.Document.VersionID})
+	if e != nil || preview.PreviewID == "" {
+		t.Fatal("seed face support after pattern", e)
+	}
+	service.DiscardPreview(view.Document.ID, p6Actor, preview.PreviewID)
+	apply(workspace.CommandRequest{Type: "CREATE_SKETCH", Plane: "XY"})
+	referenceSketch := view.Part.Features[len(view.Part.Features)-1]
+	apply(workspace.CommandRequest{Type: "EDIT_SKETCH", SketchID: referenceSketch.ID, Operations: []workspace.SketchOperation{{Type: "ADD_EXTERNAL_GEOMETRY", ExternalID: "seed-edge-reference", TopologyKind: "EDGE", TopologyID: seedEdge, GeometryKey: activeBodyArtifact(t, view).GeometryKey, SourceVersionID: view.Document.VersionID}}})
+	referenceSketch = view.Part.Features[len(view.Part.Features)-1]
+	if len(referenceSketch.Sketch.ExternalGeometry) != 1 || referenceSketch.Sketch.ExternalGeometry[0].Status != "CONNECTED" {
+		t.Fatal("seed projection after pattern", referenceSketch.Sketch.ExternalGeometry)
+	}
 	var edgeID uint64
 	for _, e := range mesh.Edges {
 		if len(e.Points) < 2 {
@@ -131,6 +177,33 @@ func TestFeatureAssociationFanLifecycleThroughRouter(t *testing.T) {
 	p, err := service.GetTopologyElementPropertiesAtVersion(t.Context(), view.Document.ID, view.Document.VersionID, activeBodyArtifact(t, view).GeometryKey, "EDGE", edgeID)
 	if err != nil || p.PersistentSelection == nil {
 		t.Fatal("member edge bind", err)
+	}
+
+	beforeFailure := view.Document.VersionID
+	_, e = service.PreviewCommand(t.Context(), view.Document.ID, workspace.CommandRequest{ActorID: p6Actor, RequestID: "failed-real-fillet", Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "FILLET", BodyID: hub.BodyID, Length: 1e9, Selections: []workspace.FeatureSelection{{Selection: *p.PersistentSelection, SourceVersionID: view.Document.VersionID, SourceFeatureID: pattern.ID}}}})
+	var diagnostic interface{ DiagnosticID() string }
+	if e == nil || !errors.As(e, &diagnostic) {
+		t.Fatal("failed real Worker preview lost diagnostic", e)
+	}
+	identity := strings.Split(diagnostic.DiagnosticID(), "/")
+	evidence, e := service.ReadOperationDiagnostic(t.Context(), identity[0], identity[1])
+	if e != nil {
+		t.Fatal(e)
+	}
+	var failure workspace.OperationDiagnostic
+	if e = json.Unmarshal(evidence, &failure); e != nil {
+		t.Fatal(e)
+	}
+	var failedModel workspace.PartModel
+	if e = json.Unmarshal(failure.Candidate, &failedModel); e != nil {
+		t.Fatal(e)
+	}
+	if failure.BaseRevisionID != beforeFailure || failure.Stage != "GEOMETRY" || len(failure.Artifacts) == 0 || failedModel.Features[len(failedModel.Features)-1].Length != 1e9 {
+		t.Fatal("failure not captured at evaluated candidate", failure.Stage)
+	}
+	unchanged, e := service.GetDocument(t.Context(), view.Document.ID, p6Actor)
+	if e != nil || unchanged.Document.VersionID != beforeFailure {
+		t.Fatal("failed preview advanced Head", e)
 	}
 	apply(workspace.CommandRequest{Type: "CREATE_MODIFY_FEATURE", Feature: &workspace.Feature{Type: "FILLET", BodyID: hub.BodyID, Length: 0.5, Selections: []workspace.FeatureSelection{{Selection: *p.PersistentSelection, SourceVersionID: view.Document.VersionID, SourceFeatureID: pattern.ID}}}})
 	fillet := view.Part.Features[len(view.Part.Features)-1]

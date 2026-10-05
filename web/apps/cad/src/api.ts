@@ -30,7 +30,7 @@ const mutationHeaders = (method = "GET"): Record<string, string> =>
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string,
-    readonly phase?: string, readonly retryable = false) {
+    readonly phase?: string, readonly retryable = false, readonly diagnosticId?:string,readonly requestId?:string) {
     super(message);
     this.name = "ApiError";
   }
@@ -46,10 +46,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 	recordClientPerformance({ name: `${init?.method ?? "GET"} ${path.split("?")[0]}`, durationMs: performance.now() - started,
 		status: response.status, serverTiming: response.headers.get("Server-Timing") ?? "", at: new Date().toISOString() });
   const body = await response.json().catch(() => ({})) as {
-    error?: string; code?: string; phase?: string; retryable?: boolean;
+    error?: string; code?: string; phase?: string; retryable?: boolean;diagnosticId?:string;
   };
   if (!response.ok) throw new ApiError(body.error ?? `HTTP ${response.status}`, response.status,
-    body.code, body.phase, Boolean(body.retryable));
+    body.code, body.phase, Boolean(body.retryable),body.diagnosticId,response.headers.get("X-Request-ID")??undefined);
   return body as T;
 }
 
@@ -102,6 +102,7 @@ async function executeDocumentCommand(documentId: string, command: Record<string
 		return await realtime.executeCommand(documentId, commandWithID);
 	} catch (cause) {
 		const error = cause instanceof Error ? cause : new Error(String(cause));
+ Object.assign(error,{requestId:String(commandWithID.requestId)});
 		if (error.message.includes("sketch solve")) void downloadDiagnosticBundle(documentId, commandWithID, error.message).catch(() => undefined);
 		throw error;
 	}
@@ -299,7 +300,9 @@ export const restApi = {
   previewCommand: async (documentId: string, command: Record<string, unknown>, signal?: AbortSignal) => {
     const input = { requestId: requestId(), ...command };
     assemblyReplayRequests.set(documentId, `preview/${input.requestId}`);
-    const result = await realtime.previewCommand(documentId, input, signal);
+    let result;
+    try {result=await realtime.previewCommand(documentId,input,signal);}
+    catch(cause){if(cause instanceof Error)Object.assign(cause,{requestId:String(input.requestId)});throw cause;}
     previewIdentities.remember(documentId, result.previewId, String(input.requestId));
     return result;
   },

@@ -18,7 +18,7 @@ interface Envelope<T = unknown> {
   sequence?: number;
   sentAt: string;
   payload?: T;
-  error?: { code: string; message: string; retryable: boolean; phase?: string };
+  error?: { code: string; message: string; retryable: boolean; phase?: string; diagnosticId?:string };
 }
 
 interface SubscriptionSnapshot {
@@ -49,7 +49,7 @@ function socketURL(): string {
 }
 
 export class RealtimeError extends Error {
- constructor(public readonly code: string, message: string, public readonly retryable = false, public readonly phase?: string) { super(message); }
+ constructor(public readonly code: string, message: string, public readonly retryable = false, public readonly phase?: string, public readonly diagnosticId?:string,public readonly requestId?:string) { super(message); }
 }
 
 export class RealtimeClient {
@@ -305,7 +305,7 @@ export class RealtimeClient {
       window.clearTimeout(pending.timer);
       pending.cleanup?.();
       this.pending.delete(envelope.correlationId);
-      if (envelope.kind === "error") pending.reject(new RealtimeError(envelope.error?.code ?? "INTERNAL", envelope.error?.message ?? "realtime request failed", envelope.error?.retryable, envelope.error?.phase));
+      if (envelope.kind === "error") pending.reject(new RealtimeError(envelope.error?.code ?? "INTERNAL", envelope.error?.message ?? "realtime request failed", envelope.error?.retryable, envelope.error?.phase,envelope.error?.diagnosticId,envelope.correlationId));
       else pending.resolve(envelope.payload);
       return;
     }

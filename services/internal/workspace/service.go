@@ -77,6 +77,7 @@ type Service struct {
 	artifactCache         map[string]Artifact
 	artifactCacheOrder    []string
 	debugArtifacts        *debugartifact.Store
+	diagnosticArtifacts   *debugartifact.Store
 	debugArtifactWrites   chan debugArtifactWrite
 	interactionCandidates interactionCandidateCache
 	assemblyWarmStarts    assemblyWarmStartCache

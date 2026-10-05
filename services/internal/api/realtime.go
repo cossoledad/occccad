@@ -40,10 +40,11 @@ type realtimeEnvelope struct {
 }
 
 type realtimeError struct {
-	Phase     string `json:"phase,omitempty"`
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	Retryable bool   `json:"retryable"`
+	DiagnosticID string `json:"diagnosticId,omitempty"`
+	Phase        string `json:"phase,omitempty"`
+	Code         string `json:"code"`
+	Message      string `json:"message"`
+	Retryable    bool   `json:"retryable"`
 }
 
 type realtimeClient struct {
@@ -556,6 +557,8 @@ func realtimeDomainError(err error) realtimeError {
 		code, retryable = "DATABASE_BUSY", true
 	case errors.As(err, &domainFailure):
 		code, retryable = domainFailure.Code(), domainFailure.Retryable()
+	case strings.Contains(err.Error(), "FEATURE_FAILED["):
+		code, retryable = "FEATURE_FAILED", false
 	case strings.Contains(err.Error(), "CONFLICT"):
 		code, retryable = "CHANGESET_CONFLICT", false
 	case errors.Is(err, access.ErrForbidden):
@@ -566,6 +569,10 @@ func realtimeDomainError(err error) realtimeError {
 		code, retryable = "VALIDATION_FAILED", false
 	}
 	failure := realtimeError{Code: code, Message: err.Error(), Retryable: retryable}
+	var diagnostic interface{ DiagnosticID() string }
+	if errors.As(err, &diagnostic) {
+		failure.DiagnosticID = diagnostic.DiagnosticID()
+	}
 	var phased interface{ Phase() string }
 	if errors.As(err, &phased) {
 		failure.Phase = phased.Phase()

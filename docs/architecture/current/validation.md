@@ -36,3 +36,11 @@ Agent 上下文按根 repository router、五个高频 local `AGENTS.md` 和 `do
 核对基线为 `e5f1304` 加剩余运动/文档工作区变更。实际执行包含 Web 运动投影/分页/Three.js 标记和共享交互场景、TypeScript 检查与生产构建、Go Manifest 回归、专用 `occccad_offset_contract_test` 与匹配 Worker 的快照/只读证据测试、合同设施和导航审计。三个已审查源码锁只因推断规则纠正及增强断言更新，新投影是共享 UI 证据，不冒充具体几何组合验收；数值预期和 requiredLayers 不变。可复跑命令见[装配验证](../../../tests/assembly-contract/README.md)。
 
 维护者反馈当前使用场景下拖拽与约束较为稳定；剩余运动呈现尚待实机确认。本次未运行浏览器自动验收、工业容量、性能基准或无差别全仓测试，也未改算法或清理应用数据。历史执行不复制为当前全部通过。
+
+## 操作失败诊断快照
+
+API 初始化 `debug/cad-diagnostics` 的现有 `debugartifact.Store`，按文档最多 50 份、7 天保存操作失败；读取时也执行过期清理。`PreviewCommand` 和普通 Domain Command 应用失败记录原请求、可用的规范命令、失败阶段、基准 Revision/模型、已构造的未提交候选及基准 Body 的 BREP/Naming/GLB 引用、evaluator/Naming policy 与制品内的 kernel/Worker 版本。适配前失败可能没有候选；用户取消不归档。单份上限 8 MiB，归档失败记录日志并保留原业务错误，不改变提交语义。
+
+错误通过 HTTP/WebSocket 携带 `diagnosticId`（`documentId/recordId`）。`GET /api/documents/{documentID}/diagnostics/{diagnosticID}` 经当前文档 Viewer 权限返回失败时的不可变 JSON；不拼入查询时的新 Head，缺失/过期返回 404。服务重开仍可读取本机日志目录的记录，不创建业务 Revision或提交候选，不收集凭据或无关日志。历史手动诊断包下载入口仍可用。
+
+Web 操作诊断和实体/阵列/布尔预览提供“复制诊断”，复制 `CAD_DIAGNOSTIC <documentId>/<recordId> <code>`；剪贴板不可用或拒绝时显示可选择的文本，不虚报成功。没有服务端记录时复制已有阶段、操作请求 ID、错误及可用文档/Revision 上下文。普通命令与预览共享结构化错误，预览保留原错误对象并清除旧成功候选。此入口当前覆盖返回错误的预览及普通 Domain Command；已接受 FAILED Revision、历史补偿、后台 Job 和离线失败的自动归档尚未贯通，不应声称全部错误途径均已统一。

@@ -85,6 +85,11 @@ func run() error {
 		return err
 	}
 	workspaceService.SetDebugArtifactStore(debugStore)
+	diagnosticStore, err := debugartifact.NewStore(filepath.Join(configuration.LogDirectory, "debug", "cad-diagnostics"), 50, 7*24*time.Hour)
+	if err != nil {
+		return err
+	}
+	workspaceService.SetDiagnosticArtifactStore(diagnosticStore)
 	accessService := access.New(pool)
 	apiServer := api.New(
 		pool, worker, workspaceService, accessService, authenticationService,
