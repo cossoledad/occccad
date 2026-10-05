@@ -5,6 +5,7 @@ import (
 	"math"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,7 +40,7 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = client.Close() })
-	fixture, err := os.ReadFile("../../../tests/assembly-corpus/face4-face6.3dreplay")
+	fixture, err := os.ReadFile("../../../tests/test.data/face4-face6.3dreplay")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +70,7 @@ func TestAssemblyMotionThroughRealRouter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m4m5-intent-v12" || len(result.Components) != 1 {
+	if result.Status != "CONVERGED" || result.SolverBuild != "assembly-m4m5-reference-retraction-v13" || len(result.Components) != 1 {
 		t.Fatalf("invalid result: %+v", result)
 	}
 	p := result.Components[0].Preference
@@ -171,6 +172,7 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	service.SetDebugArtifactStore(debugStore)
+	service.SetDiagnosticArtifactStore(debugStore)
 	part, err := service.CreateDocument(t.Context(), workspace.CreateDocumentRequest{ActorID: "00000000-0000-7000-8000-000000000001", Type: "PART", Name: "M25 Part"})
 	if err != nil {
 		t.Fatal(err)
@@ -249,6 +251,7 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	// Dependency snapshots and pose compensation must also survive a fresh service instance.
 	service = workspace.NewWithArtifacts(db, client, artifact.NewService(db, store))
 	service.SetDebugArtifactStore(debugStore)
+	service.SetDiagnosticArtifactStore(debugStore)
 	refreshed, err = service.GetDocument(t.Context(), id, "00000000-0000-7000-8000-000000000001")
 	if err != nil {
 		t.Fatal(err)
@@ -291,6 +294,29 @@ func TestAssemblyProductMotionHistoryThroughRouter(t *testing.T) {
 	failedPreview, err := service.PreviewCommand(t.Context(), id, failed)
 	if err != nil || failedPreview.PreviewID != "" || failedPreview.ConstraintEvaluation == nil || failedPreview.ConstraintEvaluation.Status != "NOT_UPDATED" || failedPreview.ConstraintEvaluation.Summary == "" {
 		t.Fatalf("conflicting definition must expose failure without a promotable candidate: %+v %v", failedPreview, err)
+	}
+	if failedPreview.EvaluationFailure == nil || failedPreview.EvaluationFailure.DiagnosticID == "" || failedPreview.ConstraintEvaluation.Failure == nil {
+		t.Fatal("NotUpdated preview lost copyable operation diagnostic", failedPreview)
+	}
+	diagnosticID := strings.Split(failedPreview.EvaluationFailure.DiagnosticID, "/")
+	diagnosticRaw, diagnosticErr := service.ReadOperationDiagnostic(t.Context(), diagnosticID[0], diagnosticID[1])
+	if diagnosticErr != nil {
+		t.Fatal(diagnosticErr)
+	}
+	var diagnostic workspace.OperationDiagnostic
+	if e := json.Unmarshal(diagnosticRaw, &diagnostic); e != nil {
+		t.Fatal(e)
+	}
+	if diagnostic.BaseRevisionID != refreshed.Document.VersionID || len(diagnostic.AssemblyReplay) == 0 || diagnostic.AssemblyManifestDigest == "" || len(diagnostic.Candidate) == 0 {
+		t.Fatal("NotUpdated diagnostic missing immutable failed trial", diagnostic)
+	}
+	var failedNumeric geometry.AssemblyReplay
+	if e := json.Unmarshal(diagnostic.AssemblyReplay, &failedNumeric); e != nil {
+		t.Fatal(e)
+	}
+	var rejectedResult workerv1.SolveAssemblyResponse
+	if e := protojson.Unmarshal(failedNumeric.Result, &rejectedResult); e != nil || rejectedResult.Status == "CONVERGED" {
+		t.Fatal("diagnostic points to accepted subset instead of rejected attempt", e)
 	}
 	for _, candidate := range failedPreview.InstancePoses {
 		for _, original := range refreshed.Product.Instances {

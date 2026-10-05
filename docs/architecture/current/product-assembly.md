@@ -62,7 +62,7 @@ pointerup 后冻结最终目标、Session、文档与 generation，最终求解/
 
 新 DocumentView 即使 GeometryKey/pose 不变，也同步 owner/version/referenceMode、InstancePath、选择与操纵绑定；开始手势从当前权威快照按稳定 occurrence 冻结，旧路径严格拒绝。约束显示按 owner/occurrence/ConstraintId 增量 reconcile，增删、模式、抑制、评价、支持与标签独立失效，请求帧并清理拾取/高亮，无 GLB 下载或完整 BVH 重建。单一手柄吸附复用可见拾取与精确查询；中心重定位不是模型移动，手势框架冻结。
 
-SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence、参数解析值、模式/激活、组阶段、分支/基准、policy/profile/build、失败试算与采用结果。Replay 不查询最新几何、不依赖 Session。开发数据只支持当前 DefinitionVersion=2、Quantity 和 assembly-m4m5-intent-v12/canonical JSON 摘要；旧实验定义、Offset 符号约定、pair-Rigid 持久记录和 policy 明确拒绝，不做读取修补、换号、组迁移或多代投影。Rigid 快捷创建仍生成当前正式组，内核刚性原语继续使用。已有旧开发数据可能无法读取，未自动重置。当前格式的 JSONB 数值规范化、篡改拒绝、Revision、CAS、Undo/Redo 与 Release 冻结完整保留；记录实际重放 build，不承诺跨版本逐位一致。
+SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence、参数解析值、模式/激活、组阶段、分支/基准、policy/profile/build、失败试算与采用结果。Replay 不查询最新几何、不依赖 Session。开发数据只支持当前 DefinitionVersion=2、Quantity 和 assembly-m4m5-reference-retraction-v13/canonical JSON 摘要；旧实验定义、Offset 符号约定、pair-Rigid 持久记录和 policy 明确拒绝，不做读取修补、换号、组迁移或多代投影。Rigid 快捷创建仍生成当前正式组，内核刚性原语继续使用。已有旧开发数据可能无法读取，未自动重置。当前格式的 JSONB 数值规范化、篡改拒绝、Revision、CAS、Undo/Redo 与 Release 冻结完整保留；记录实际重放 build，不承诺跨版本逐位一致。
 
 ## 入口与限制
 
@@ -74,3 +74,9 @@ SolveManifest 冻结用户定义、编译输入、descriptor/来源、occurrence
 装配主体能力形成当前开发基线；已知细节暂缓，后续按实际需求修复。[暂缓问题](../../../plans/README.md#装配暂缓问题)集中记录现象、已有复现信息与边界。
 
 维护者确认主体功能具备，当前使用场景下拖拽与约束较为稳定，仍有交互、显示细节问题；不代表工业、并发、平台或性能全部通过。dense 后端、局部分支、单次分解不可中断和非线性 UNKNOWN 仍有效；浏览器视觉与端到端/60 Hz、工业容量未完整验收。Engineering Connections 继续暂停；flexible assembly、通用最小冲突证明、稀疏后端与跨主机协作未交付。
+
+### 装配失败诊断与最小重放
+
+装配试算失败经现有 operation diagnostic repository 记录不可变 Product 基线/候选、来源 Revision、排除约束集合及精确数字重放。admission 隔离为 NotUpdated 的定义仍携带 `evaluationFailure.diagnosticId`，预览和属性面板复用 DiagnosticCopy；失败位姿不能进入已接纳集合。整体/相对 DOF 对应已接纳求解集合，不能用它替代被隔离试算的收敛证据。
+
+`.3dreplay` 只保存纯值数值输入、有效 profile 与必要结果证据。超长几何 ID 在重放私有命名空间内做 SHA-256 别名，约束的 first/second/angle-reference 一并改写；不持久更名业务拓扑或 occurrence。省略重复方程/逐约束秩诊断，以紧凑 JSON 输出。业务支持、Naming 来源和 Revision 上下文由 CAD_DIAGNOSTIC 查询，不塞入内核重放。实际风车输入及 Router 回归见 `tests/test.data/windmill-cylinder-reference.3dreplay` 与 `TestWindmillCylinderMinimalReplayThroughRouter`。

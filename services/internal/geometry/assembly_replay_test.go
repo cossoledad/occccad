@@ -1,11 +1,13 @@
 package geometry
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"strings"
 	"testing"
 )
 
@@ -59,5 +61,34 @@ func TestAssemblyReplayFreezesEffectiveDefaultsWithoutMutatingRequest(t *testing
 	}
 	if input.SolverProfile != nil || !proto.Equal(restored.SolverProfile, result.EffectiveSolverProfile) {
 		t.Fatal("defaults were not frozen independently of the input")
+	}
+}
+
+func TestAssemblyReplayCompactsOnlyPrivateGeometryIdentifiers(t *testing.T) {
+	large := strings.Repeat("persistent-reference-snapshot/", 1000)
+	input := &workerv1.SolveAssemblyRequest{RequestId: "replay", Bodies: []*workerv1.AssemblyBody{{Id: "occurrence", InitialPose: &workerv1.RigidPose{Rotation: &workerv1.Quaternion{W: 1}}}}, Geometry: []*workerv1.AssemblyGeometry{{Id: large, BodyId: "occurrence", Kind: "CYLINDER", Radius: 12.5, Origin: &workerv1.Vec3{X: 3.141592653589793}, Direction: &workerv1.Vec3{Z: 1}}}, Constraints: []*workerv1.AssemblyConstraint{{Id: "constraint", First: &workerv1.AssemblyGeometryRef{BodyId: "occurrence", GeometryId: large}, AngleReference: &workerv1.AssemblyGeometryRef{BodyId: "occurrence", GeometryId: large}}}}
+	before := proto.Clone(input)
+	raw, e := makeAssemblyReplay(input, nil, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if len(raw) > 4096 || bytes.Contains(raw, []byte("persistent-reference-snapshot")) {
+		t.Fatal("business snapshot leaked into numerical replay")
+	}
+	var replay AssemblyReplay
+	json.Unmarshal(raw, &replay)
+	var restored workerv1.SolveAssemblyRequest
+	if e = protojson.Unmarshal(replay.Request, &restored); e != nil {
+		t.Fatal(e)
+	}
+	id := restored.Geometry[0].Id
+	if id != restored.Constraints[0].First.GeometryId || id != restored.Constraints[0].AngleReference.GeometryId {
+		t.Fatal("replay references disconnected")
+	}
+	restored.Geometry[0].Id = large
+	restored.Constraints[0].First.GeometryId = large
+	restored.Constraints[0].AngleReference.GeometryId = large
+	if !proto.Equal(before, &restored) || !proto.Equal(before, input) {
+		t.Fatal("numeric input or live stable references changed")
 	}
 }

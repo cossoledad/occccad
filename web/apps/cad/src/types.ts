@@ -82,7 +82,7 @@ export type CommandPreview = {
   bodyAssignment?: "TARGET_BODY" | "EXPLICIT_NEW_BODY";
   constraintLimited?: boolean;
   instancePoses?: Array<{instanceId:string;translation:Vec3;rotation:[number,number,number,number]}>;
-  constraintEvaluation?: { constraintId: string; status: AssemblyConstraint["evaluationStatus"]; summary?: string;
+  constraintEvaluation?: { failure?:AssemblyEvaluationFailure;constraintId: string; status: AssemblyConstraint["evaluationStatus"]; summary?: string;
     first: { status: "CONNECTED" | "NOT_CONNECTED"; diagnosticCode?: string; diagnostic?: string };
     second?: { status: "CONNECTED" | "NOT_CONNECTED"; diagnosticCode?: string; diagnostic?: string } };
 };
@@ -228,7 +228,7 @@ export type AssemblyGeometryRef = { derivedRole?:string; instancePath?: Instance
     manifestDigest: string; policyDigest: string; result: SelectionResolution };
   publicationRef?: { publicationId:string; expectedType:string; compatibilityVersion:string; persistentSelection?:PersistentSelection };
   publicationResolution?: Publication["resolution"] };
-export type AssemblyEvaluationFailure = {code:string;phase:string;retryable:boolean};
+export type AssemblyEvaluationFailure = { diagnosticId?:string;code:string;phase:string;retryable:boolean};
 export type AssemblyConstraint = { evaluationFailure?:AssemblyEvaluationFailure; id: string; definitionVersion?:number;family?:"Coincidence"|"Contact"|"Offset"|"Angle"|"Fix"|"FixTogether";subtype?:string;name?:string; contactKind?:"FACE"|"LINE"|"POINT"|"RING";contactSide?:"EXTERNAL"|"INTERNAL";contactBranch?:number;groupMembers?:Array<{instanceId?:string;instancePath?:InstancePath;groupId?:string}>; fixMode?: "SPACE" | "RELATIVE"; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; angleRelation?: "FREE" | "DIRECTED" | "PARALLEL" | "PERPENDICULAR"; measuredValue?: number; suppressed?: boolean; mode?: "DRIVING" | "MEASURED" | "CONTROLLED"; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE" | "CONTACT" | "FIX_TOGETHER";
   first: AssemblyGeometryRef; second?: AssemblyGeometryRef; value?: number; directionRelation?: string; distanceRelation?: string;
   quantityParameter?: {parameterId:string;key:string;source:{literal?:{siValue:number};expression?:{sourceText:string}}};

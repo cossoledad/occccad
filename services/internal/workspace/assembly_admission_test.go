@@ -169,3 +169,31 @@ func TestAssemblyExcludedSupportsAreNotResolvedDuringDrag(t *testing.T) {
 		t.Fatal("drag reinterpreted the isolated definition", model)
 	}
 }
+
+func TestAssemblyAdmissionRetainsDiagnosticAndRejectsFailedTrialPose(t *testing.T) {
+	model := admissionModel()
+	var calls [][]string
+	base := scalarAssemblyEvaluator(&calls)
+	evaluate := func(stage string, candidate *ProductModel, excluded map[string]bool) error {
+		err := base(stage, candidate, excluded)
+		if err != nil {
+			return &operationDiagnosticFailure{error: err, id: "product/immutable-diagnostic", stage: "SOLVING"}
+		}
+		return nil
+	}
+	if e := evaluateAssemblyAdmission(&model, false, evaluate); e != nil {
+		t.Fatal(e)
+	}
+	for _, c := range model.Constraints {
+		if c.ID == "conflict" {
+			if c.EvaluationStatus != modelcore.AssemblyConstraintNotUpdated || c.EvaluationFailure == nil || c.EvaluationFailure.DiagnosticID != "product/immutable-diagnostic" || c.EvaluationFailure.Code != "CONFLICT" {
+				t.Fatal("retained definition lost typed diagnostic", c)
+			}
+		}
+	}
+	for _, i := range model.Instances {
+		if i.Translation[0] == 999 {
+			t.Fatal("failed trial pose accepted")
+		}
+	}
+}

@@ -16,9 +16,12 @@ class ValidationRoutingTest(unittest.TestCase):
 
     def test_local_domains_remain_scoped(self):
         self.assertEqual(self.scopes("kernel/assembly/src/solver.cpp"), {"assembly"})
+        self.assertEqual(self.scopes("tests/test.data/windmill-cylinder-reference.3dreplay"), {"assembly"})
         self.assertEqual(self.scopes("workers/geometry/sketch/src/solver.cpp"), {"sketch"})
         self.assertEqual(self.scopes("kernel/occt/src/occt_kernel.cpp"), {"geometry"})
+        self.assertEqual(self.scopes("tests/test.data/example.step"), {"geometry"})
         self.assertEqual(self.scopes("services/internal/workspace/service.go"), {"workspace"})
+        self.assertEqual(self.scopes("tests/test.data/sketch/corner_parallel.json"), {"workspace"})
         self.assertEqual(self.scopes("web/apps/cad/src/app/app.tsx"), {"web"})
 
     def test_independent_domains_are_combined(self):
@@ -35,6 +38,7 @@ class ValidationRoutingTest(unittest.TestCase):
             "tasks.py",
             "tests/python/test_validation_routing.py",
             "unexpected.file",
+            "tests/test.data/assembly-contract/evidence.json",
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.scopes(path), {"all"})

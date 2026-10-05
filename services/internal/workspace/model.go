@@ -1227,9 +1227,10 @@ type SketchCandidatePreview struct {
 }
 
 type AssemblyEvaluationFailure struct {
-	Code      string `json:"code"`
-	Phase     string `json:"phase"`
-	Retryable bool   `json:"retryable"`
+	DiagnosticID string `json:"diagnosticId,omitempty"`
+	Code         string `json:"code"`
+	Phase        string `json:"phase"`
+	Retryable    bool   `json:"retryable"`
 }
 
 type AssemblySupportPreviewEvaluation struct {
@@ -1239,6 +1240,7 @@ type AssemblySupportPreviewEvaluation struct {
 }
 
 type AssemblyConstraintPreviewEvaluation struct {
+	Failure      *AssemblyEvaluationFailure                   `json:"failure,omitempty"`
 	ConstraintID string                                       `json:"constraintId"`
 	Status       modelcore.AssemblyConstraintEvaluationStatus `json:"status"`
 	Summary      string                                       `json:"summary,omitempty"`

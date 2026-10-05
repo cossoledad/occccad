@@ -15,7 +15,7 @@ import (
 
 const (
 	assemblySolveManifestSchema = 1
-	assemblySolverBuildPolicy   = "assembly-m4m5-intent-v12"
+	assemblySolverBuildPolicy   = "assembly-m4m5-reference-retraction-v13"
 	maxManifestBodies           = 4096
 	maxManifestGeometry         = 16384
 	maxManifestConstraints      = 16384

@@ -70,8 +70,7 @@ void describe(const TopoDS_Shape& shape) {
 }  // namespace
 TEST(FilletBoundary, TargetSupportEvidence) {
     for (const auto& name : {"Solar Panel - Solar Panel.step", "Main Fan - Main Fan.step"}) {
-        const auto path = std::filesystem::path(OCCCCAD_MODEL_FIXTURE_DIR).parent_path() /
-                          "tests/test.data" / name;
+        const auto path = std::filesystem::path(OCCCCAD_MODEL_FIXTURE_DIR) / name;
         STEPControl_Reader reader;
         ASSERT_EQ(reader.ReadFile(path.c_str()), IFSelect_RetDone);
         reader.TransferRoots();

@@ -4,11 +4,12 @@ import json
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+DATA = HERE.parent / "test.data" / "assembly-contract"
 
 def load_catalog():
-    index = json.loads((HERE / "catalog.json").read_text())
-    production = json.loads((HERE / index["production"]).read_text())
-    evidence = json.loads((HERE / index["evidence"]).read_text())
+    index = json.loads((DATA / "catalog.json").read_text())
+    production = json.loads((DATA / index["production"]).read_text())
+    evidence = json.loads((DATA / index["evidence"]).read_text())
     return compose_catalog(production, evidence)
 
 def compose_catalog(production, evidence):

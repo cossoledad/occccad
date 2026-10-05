@@ -1,16 +1,16 @@
 # 六类装配约束可执行合同
 
-这里是六类约束的跨实现执行入口，不是第二套持久 Constraint 模型。唯一[生产合同](../../services/internal/assemblycontract/README.md)拥有数学语义；本目录 `catalog.json` 是组合索引。`catalog.py` 读取生产合同与测试专用 `evidence.json`，不允许测试元数据覆盖生产声明。数学/产品预期见[当前合同](../../docs/architecture/current/assembly-constraints.md)，当前行为见[Product](../../docs/architecture/current/product-assembly.md)，未完成方向见[后续工作](../../plans/README.md)。
+这里是六类约束的跨实现执行入口，不是第二套持久 Constraint 模型。唯一[生产合同](../../services/internal/assemblycontract/README.md)拥有数学语义；`../test.data/assembly-contract/catalog.json` 是组合索引。`catalog.py` 读取生产合同与测试专用 `../test.data/assembly-contract/evidence.json`，不允许测试元数据覆盖生产声明。数学/产品预期见[当前合同](../../docs/architecture/current/assembly-constraints.md)，当前行为见[Product](../../docs/architecture/current/product-assembly.md)，未完成方向见[后续工作](../../plans/README.md)。
 
 ## 文件与证据职责
 
-- `catalog.json`/`catalog.py`：本地组合入口；默认输出短摘要，`--capability`/`--family`/`--case` 定向查询，`--expanded` 是适配器显式完整导出。生产保持 schemaVersion=1、contractVersion=assembly-six-families-v2。
-- `evidence.json`：只维护 capabilityId 引用、实现证据、case/fixture/执行环境。共享 binding 只定义一次，caseIds 从引用关系派生；既有稳定 case ID、预期和 requiredLayers 不因物理拆分改变。缺 binding、零匹配、重复声明、越权覆盖与缺执行证据仍失败。
+- `../test.data/assembly-contract/catalog.json` 与本目录 `catalog.py`：组合入口；默认输出短摘要，`--capability`/`--family`/`--case` 定向查询，`--expanded` 是适配器显式完整导出。生产保持 schemaVersion=1、contractVersion=assembly-six-families-v2。
+- `../test.data/assembly-contract/evidence.json`：只维护 capabilityId 引用、实现证据、case/fixture/执行环境。共享 binding 只定义一次，caseIds 从引用关系派生；既有稳定 case ID、预期和 requiredLayers 不因物理拆分改变。缺 binding、零匹配、重复声明、越权覆盖与缺执行证据仍失败。
 - `runner.py`：选择并校验同一目录；C++ 映射到现有 GTest，Go 调用真实包内函数/既有测试，TypeScript 读取目录调用现有规则；集成走正式 Router/Worker。纯模型与带 scalar test double 的编排测试各有 `evidenceKind`，不冒充几何或数据库集成。
-- `baseline.json`：目标/案例摘要、实现声明下限及测试断言源摘要的回归锁，不另维护覆盖表。目录新增可以扩展；删除目标、改预期、降声明、改已有断言会失败。C++/Go 的 `fixture.assertionHelperSymbol` 必须指向实际调用的断言 helper，其源码纳入同一锁，不能只锁空包装 TEST 而遗漏共享几何/生命周期断言。真实合同演进或合法测试调整必须连同目标依据与锁的变更一起审查，不用自动 bless 绕过失败。
+- `../test.data/assembly-contract/baseline.json`：目标/案例摘要、实现声明下限及测试断言源摘要的回归锁，不另维护覆盖表。目录新增可以扩展；删除目标、改预期、降声明、改已有断言会失败。C++/Go 的 `fixture.assertionHelperSymbol` 必须指向实际调用的断言 helper，其源码纳入同一锁，不能只锁空包装 TEST 而遗漏共享几何/生命周期断言。真实合同演进或合法测试调整必须连同目标依据与锁的变更一起审查，不用自动 bless 绕过失败。
 - `test_runner.py`：目录/执行器的完整性与负例检查，不计为产品能力验证。
 
-实现字段与执行 verdict 独立。`implemented` 仅指该层的窄组合；`partial/missing/unknown` 不可提升为完整产品能力。`specific-combination` 与 `representative-shared-foundation` 明确区分，复用生命周期或入口测试不代表每种几何组合都完成。`caseIds` 是可追溯映射，fixture 保留在原模块，不复制 solver/command 逻辑。
+实现字段与执行 verdict 独立。`implemented` 仅指该层的窄组合；`partial/missing/unknown` 不可提升为完整产品能力。`specific-combination` 与 `representative-shared-foundation` 明确区分，复用生命周期或入口测试不代表每种几何组合都完成。`caseIds` 是可追溯映射，测试代码 fixture 保留在原模块，文件型输入位于 `../test.data/`，不复制 solver/command 逻辑。
 
 六个默认必需层为 `ui/domain/resolution/workerSolver/lifecycle/historyReplay`。即使当前公共 v2 声明这些层 implemented，也必须实际执行该 capability 对应的专用断言才能验收；生产能力不依赖 PASS 数量，源码/UI、模型编排、真实数值、Router/Worker/数据库历史仍各自标记证据层。
 

@@ -1,3 +1,4 @@
+import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
 import { referencePropertyRows } from "./reference-properties";
 import {formatDisplayNumber} from "../../utils/display-number";
 import { ExportOutlined } from "@ant-design/icons";
@@ -235,7 +236,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
         ...(constraint?.second ? [{ key: "second-support", label: "第二支持", children: constraint.second.resolution?.result.supportingElementStatus ?? (constraint.second.persistentSelection ? "NOT_CONNECTED" : "CONNECTED") }] : []),
       ]),
       ...(constraint?.kind === "CONTACT" ? [{key:"contact-branch",label:"接触关系",children:`${constraint.contactKind} · ${constraint.contactSide} · branch ${constraint.contactBranch}`}]:[]),
-      { key: "diagnostic", label: "Diagnostic", children: constraint?.evaluationSummary ?? "—" },
+      { key: "diagnostic", label: "Diagnostic", children: <>{constraint?.evaluationSummary ?? "—"}{constraint?.evaluationFailure&&<DiagnosticCopy text={diagnosticReference(constraint.evaluationFailure,{documentId:view.document.id,versionId:view.document.versionId})}/>}</> },
     ]} />;
   }
   return <Descriptions column={1} size="small" bordered className="property-list" items={[

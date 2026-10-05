@@ -121,6 +121,7 @@ func evaluateAssemblyAdmission(model *ProductModel, moving bool, evaluate assemb
 					working.Constraints[i] = candidate.Constraints[i]
 					working.Constraints[i].EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
 					working.Constraints[i].EvaluationSummary = "excluded from accepted solve set: " + failure.code + ": " + failure.diagnostic
+					working.Constraints[i].EvaluationFailure = assemblyFailureEvidence(trialErr, failure)
 					working.Constraints[i].MeasuredValue = nil
 				}
 				continue

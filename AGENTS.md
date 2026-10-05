@@ -17,7 +17,7 @@ occccad 是早期可运行的云原生参数化 CAD 垂直切片。参数模型�
 3. 跨越稳定身份、Revision/Undo、数据库、公共协议、Worker 边界或新 CAD 领域时，再按 docs router 读取对应架构章节；
 4. 已知所属模块、当前行为、实现、测试、最小变更和验证入口后，停止扩张上下文。
 
-默认不读 `build/`、`node_modules/`、`dist/`、日志、`services/gen/`、`models/`、锁文件、`go.sum`、`compile_commands.json`、`*.step`、`*.brep`、`*.glb`、`*.3dreplay`。它们不是禁区；仅在依赖、生成 API、corpus 或制品问题明确需要时读取。协议先读 `proto/`，生成代码只用于 codegen/API 差异诊断。
+默认不读 `build/`、`node_modules/`、`dist/`、日志、`services/gen/`、`tests/test.data/`、锁文件、`go.sum`、`compile_commands.json`、`*.step`、`*.brep`、`*.glb`、`*.3dreplay`。它们不是禁区；仅在依赖、生成 API、corpus 或制品问题明确需要时读取。协议先读 `proto/`，生成代码只用于 codegen/API 差异诊断。
 
 超过约 40 KB 的文本先查符号再读区间；超过约 80 KB 仅在职责边界确实需要时扩大。不要为缩短文件而机械拆分。
 

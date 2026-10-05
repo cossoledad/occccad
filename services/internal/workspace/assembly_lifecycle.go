@@ -192,7 +192,7 @@ func acceptAssemblyEvaluationFailure(model *ProductModel, err error, allow bool)
 		retained = true
 		c.EvaluationStatus = modelcore.AssemblyConstraintNotUpdated
 		c.EvaluationSummary = failure.code + ": " + failure.diagnostic
-		c.EvaluationFailure = &AssemblyEvaluationFailure{Code: failure.code, Phase: failure.phase, Retryable: failure.retryable}
+		c.EvaluationFailure = assemblyFailureEvidence(err, failure)
 		c.MeasuredValue = nil
 	}
 	if !retained {
@@ -288,4 +288,13 @@ func incompatibleAssemblyGeometry(c geometry.AssemblyConstraint, a, b geometry.A
 		return contactDefinitionInfeasibility(c, a, b)
 	}
 	return ""
+}
+
+func assemblyFailureEvidence(err error, failure *assemblySolveFailure) *AssemblyEvaluationFailure {
+	value := &AssemblyEvaluationFailure{Code: failure.code, Phase: failure.phase, Retryable: failure.retryable}
+	var diagnostic interface{ DiagnosticID() string }
+	if errors.As(err, &diagnostic) {
+		value.DiagnosticID = diagnostic.DiagnosticID()
+	}
+	return value
 }

@@ -1,0 +1,4 @@
+{
+  "production": "../../../services/internal/assemblycontract/catalog.json",
+  "evidence": "evidence.json"
+}

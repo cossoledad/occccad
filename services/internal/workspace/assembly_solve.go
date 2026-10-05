@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 
 	"github.com/occccad/occccad/internal/database"
@@ -126,6 +127,28 @@ func assemblyCapabilities(kind, firstKind, secondKind string) assemblyConstraint
 }
 
 func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRevisionID, requestID, drivenInstanceID string, intent *geometry.AssemblySolveIntent, model *ProductModel, warmStartKey string, excluded map[string]bool, probe bool, evidence ...*geometry.AssemblySolve) (returnErr error) {
+	diagnostic := service.newOperationDiagnostic(ctx, documentID, CommandRequest{RequestID: requestID, Type: "ASSEMBLY_SOLVE"}, "ASSEMBLY")
+	if diagnostic != nil {
+		diagnostic.BaseRevisionID = rootRevisionID
+		diagnostic.BaseModel, _ = json.Marshal(model)
+		for id, skip := range excluded {
+			if skip {
+				diagnostic.ExcludedConstraintIDs = append(diagnostic.ExcludedConstraintIDs, id)
+			}
+		}
+		sort.Strings(diagnostic.ExcludedConstraintIDs)
+	}
+	defer func() {
+		if diagnostic != nil {
+			diagnostic.Stage = "ASSEMBLY_SOLVE"
+			if f, ok := returnErr.(*assemblySolveFailure); ok {
+				diagnostic.Stage = f.phase
+			}
+			raw, _ := json.Marshal(model)
+			candidate := json.RawMessage(raw)
+			service.finishOperationDiagnostic(ctx, diagnostic, &candidate, nil, &returnErr)
+		}
+	}()
 	if err := resolveAssemblyQuantities(model); err != nil {
 		return err
 	}
@@ -443,6 +466,9 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 	if err := service.persistAssemblySolveManifest(ctx, manifest); err != nil {
 		return err
 	}
+	if diagnostic != nil {
+		diagnostic.AssemblyManifestDigest = manifest.Digest
+	}
 	var result geometry.AssemblySolve
 	if existing, lookupErr := service.GetAssemblySolveResult(ctx, documentID, requestID); lookupErr == nil {
 		if existing.ManifestDigest != manifest.Digest {
@@ -456,7 +482,12 @@ func (service *Service) solveAssemblySet(ctx context.Context, documentID, rootRe
 		return lookupErr
 	} else {
 		work, stop := assemblyNumericalContext(ctx)
-		result, err = service.solveFrozenManifest(work, requestID, manifest, service.captureAssemblyReplay(ctx, documentID, requestID))
+		result, err = service.solveFrozenManifest(work, requestID, manifest, func(data []byte, e error) {
+			if diagnostic != nil && e == nil {
+				diagnostic.AssemblyReplay = append(json.RawMessage(nil), data...)
+			}
+			service.captureAssemblyReplay(ctx, documentID, requestID)(data, e)
+		})
 		stop()
 		// Never cache a canceled/invalid/unauthorized RPC as a retryable solve
 		// failure: replaying an untyped error string must not change its policy.

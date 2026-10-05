@@ -21,7 +21,7 @@ func TestSketchCornerParallelRetainsFiniteCut(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer worker.Close()
-	data, err := os.ReadFile("testdata/corner_parallel.json")
+	data, err := os.ReadFile("../../../tests/test.data/sketch/corner_parallel.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func assertRoundedParallel(t *testing.T, sketch *SketchFeature, childID, otherID
 
 func TestSketchWorkflowRoundedQuadrilateralParallelHistory(t *testing.T) {
 	f := newSketchWorkflowFixture(t)
-	data, err := os.ReadFile("testdata/corner_parallel.json")
+	data, err := os.ReadFile("../../../tests/test.data/sketch/corner_parallel.json")
 	if err != nil {
 		t.Fatal(err)
 	}

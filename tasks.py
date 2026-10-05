@@ -366,16 +366,16 @@ def _validation_scopes_for_paths(paths: list[str]) -> tuple[set[str], list[str]]
         elif path.startswith("services/internal/database/migrations/"):
             scopes.add("all")
             reasons.append(f"{path}: database schema")
-        elif path.startswith("kernel/assembly/") or path.startswith("tests/assembly-corpus/"):
+        elif path.startswith("kernel/assembly/") or path.startswith("tests/assembly-corpus/") or (path.startswith("tests/test.data/") and path.endswith(".3dreplay")):
             scopes.add("assembly")
         elif path.startswith("workers/geometry/sketch/"):
             scopes.add("sketch")
-        elif path.startswith("kernel/occt/") or path.startswith("models/"):
+        elif path.startswith("kernel/occt/") or (path.startswith("tests/test.data/") and Path(path).suffix.lower() in {".step", ".stp", ".brep", ".iges", ".igs", ".stl"}):
             scopes.add("geometry")
         elif path.startswith("workers/geometry/") or path.startswith("kernel/api/"):
             scopes.add("all")
             reasons.append(f"{path}: shared Geometry Worker boundary")
-        elif path.startswith("services/internal/workspace/") or path.startswith("services/internal/modelcore/"):
+        elif path.startswith("services/internal/workspace/") or path.startswith("services/internal/modelcore/") or path.startswith("tests/test.data/sketch/"):
             scopes.add("workspace")
         elif path.startswith("services/") or path.startswith("tests/go/"):
             scopes.add("services")

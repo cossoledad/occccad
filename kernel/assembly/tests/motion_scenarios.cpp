@@ -493,3 +493,65 @@ TEST(AssemblyMotion, OffsetPerpendicularCylindersPreserveReferenceAndConverge) {
         }
     }
 }
+
+TEST(AssemblyMotion, ActualWindmillCylinderConstraintPreservesReferenceOptimum) {
+ Model m;
+ m.bodies.push_back({"instance-28a791a16a4cc0569c9a",{{78.28273815544775,0,0},{0,0,0,1}}});
+ m.bodies.push_back({"instance-397e904441a02023f36e",{{-238.8774706446041,8.581127052453197e-16,72.49038344517723},{-0.9330127762592088,-0.2499998234046462,0.24999991898044924,0.06698722374078664}}});
+ m.bodies.push_back({"instance-85429570771c100c22ca",{{-246.12746810936875,1.2255677699061126e-18,59.93301362658437},{0.25881894759604973,5.086359740301957e-08,0.9659258524158232,1.8982560629592644e-07}}});
+ m.bodies.push_back({"instance-bc824134e902ae300fb4",{{-250.70759554559956,0,0},{0,0,0,1}}});
+ m.bodies.push_back({"instance-f2ee71eed0a51b14abd6",{{-230.05276229924706,-9.569912297784242,73.74629030279985},{-1.8108185866175285e-15,0.2588189475960547,-6.648706345408536e-15,0.965925852415842}}});
+ m.geometry.push_back({"g000","instance-397e904441a02023f36e",PlaneGeometry{{0,0,12.5},{0,0,1}}});
+ m.geometry.push_back({"g001","instance-397e904441a02023f36e",CylinderGeometry{{0,0,0},{0,0,-1},12.2,-1}});
+ m.geometry.push_back({"g002","instance-397e904441a02023f36e",CylinderGeometry{{-7.144709581221619,-4.125,12.5},{0,0,1},0.85,-1}});
+ m.geometry.push_back({"g003","instance-397e904441a02023f36e",CylinderGeometry{{0,0,-0.7},{0,0,-1},1,1}});
+ m.geometry.push_back({"g004","instance-397e904441a02023f36e",PlaneGeometry{{0,0,18.5},{0,0,1}}});
+ m.geometry.push_back({"g005","instance-85429570771c100c22ca",PlaneGeometry{{0,0,1.9999999999999964},{0,0,1}}});
+ m.geometry.push_back({"g006","instance-85429570771c100c22ca",CylinderGeometry{{0,0,20.000020100000203},{0,0,1},3.25,-1}});
+ m.geometry.push_back({"g007","instance-85429570771c100c22ca",CylinderGeometry{{8.25,0,20.000020100000203},{0,0,1},0.9,-1}});
+ m.geometry.push_back({"g008","instance-85429570771c100c22ca",PlaneGeometry{{0,0,20},{0,0,1}}});
+ m.geometry.push_back({"g009","instance-85429570771c100c22ca",CylinderGeometry{{10.969655114635927,-18.999999999971166,20},{0,0,1},1.5,-1}});
+ m.geometry.push_back({"g010","instance-bc824134e902ae300fb4",CylinderGeometry{{4.33012752365271,0,59.5000008742191},{0.4999998251561808,5.760052454432016e-17,0.8660255047305413},1,-1}});
+ m.geometry.push_back({"g011","instance-bc824134e902ae300fb4",PlaneGeometry{{1.5096617415105655,-3.8042260651806146,57.08694538029326},{0.4999998251561808,5.760052454432016e-17,0.8660255047305413}}});
+ m.geometry.push_back({"g012","instance-f2ee71eed0a51b14abd6",PlaneGeometry{{26.55811238272279,-1.4210854715202004e-14,0},{0,0,-1}}});
+ m.geometry.push_back({"g013","instance-f2ee71eed0a51b14abd6",CylinderGeometry{{-10.969655114602885,19,0},{0,0,1},1.5,1}});
+ { Constraint c; c.id="assembly-constraint-26078cbe-8c9e-5a3f-99fc-e04f5bf393eb";c.kind=ConstraintKind::Coincident;
+ c.first={"instance-397e904441a02023f36e","g000"};
+ c.second=GeometryRef{"instance-85429570771c100c22ca","g005"};
+ c.direction_relation=DirectionRelation::Opposite;m.constraints.push_back(c); }
+ { Constraint c; c.id="assembly-constraint-41df2941-39ac-554d-bab8-d98745cfa5cd";c.kind=ConstraintKind::Concentric;
+ c.first={"instance-397e904441a02023f36e","g001"};
+ c.second=GeometryRef{"instance-85429570771c100c22ca","g006"};
+ c.direction_relation=DirectionRelation::Unoriented;m.constraints.push_back(c); }
+ { Constraint c; c.id="assembly-constraint-639f408d-04ca-585b-b768-d35169622baf";c.kind=ConstraintKind::Concentric;
+ c.first={"instance-397e904441a02023f36e","g003"};
+ c.second=GeometryRef{"instance-bc824134e902ae300fb4","g010"};
+ c.direction_relation=DirectionRelation::Unoriented;m.constraints.push_back(c); }
+ { Constraint c; c.id="assembly-constraint-99e907ae-23fc-5ec2-8943-9d8b0eb7bae5";c.kind=ConstraintKind::Concentric;
+ c.first={"instance-f2ee71eed0a51b14abd6","g013"};
+ c.second=GeometryRef{"instance-85429570771c100c22ca","g009"};
+ c.direction_relation=DirectionRelation::Unoriented;m.constraints.push_back(c); }
+ { Constraint c; c.id="assembly-constraint-acfac830-1734-54fd-acb3-620002c69370";c.kind=ConstraintKind::Concentric;
+ c.first={"instance-397e904441a02023f36e","g002"};
+ c.second=GeometryRef{"instance-85429570771c100c22ca","g007"};
+ c.direction_relation=DirectionRelation::Unoriented;m.constraints.push_back(c); }
+ { Constraint c; c.id="assembly-constraint-b8eddae1-359d-5976-9b1b-d75a4428cb77";c.kind=ConstraintKind::Coincident;
+ c.first={"instance-397e904441a02023f36e","g004"};
+ c.second=GeometryRef{"instance-bc824134e902ae300fb4","g011"};
+ c.direction_relation=DirectionRelation::Opposite;m.constraints.push_back(c); }
+ { Constraint c; c.id="assembly-constraint-e0d1520e-39ea-5c19-a85f-b72e065d1e5d";c.kind=ConstraintKind::Fix;
+ c.first={"instance-bc824134e902ae300fb4",""};
+ c.fixed_pose=Pose{{-250.70759554559956,0,0},{0,0,0,1}};
+ c.direction_relation=DirectionRelation::Unoriented;m.constraints.push_back(c); }
+ { Constraint c; c.id="assembly-constraint-e1a2b2d7-489b-57a7-bebe-153afbbca3c7";c.kind=ConstraintKind::Coincident;
+ c.first={"instance-f2ee71eed0a51b14abd6","g012"};
+ c.second=GeometryRef{"instance-85429570771c100c22ca","g008"};
+ c.direction_relation=DirectionRelation::Opposite;m.constraints.push_back(c); }
+ SolverOptions o; o.solve_intent=SolveIntent{{"instance-f2ee71eed0a51b14abd6"},{"instance-85429570771c100c22ca"},SolvePreferencePolicy::MoveFirstMinimizeReference};
+ const auto result=Solver{}.solve(m,o);certified(result);
+ for (const auto& component : result.components) {
+     if (component.solved) {
+         EXPECT_LT(component.preference.reference_objective, 1e-16);
+     }
+ }
+}

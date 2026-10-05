@@ -206,7 +206,7 @@ actual components and sample count. It does not measure transport or rendering,
 and therefore cannot certify input-to-display P95 or 60 Hz.
 
 The translated/rotated FACE 4 to fixed FACE 6 regression is also available as a
-[minimal 3dreplay fixture](../../tests/assembly-corpus/face4-face6.3dreplay), replayable
+[minimal 3dreplay fixture](../../tests/test.data/face4-face6.3dreplay), replayable
 through the [standalone CLI](../../services/cmd/occccad-3dreplay/README.md).
 
 When the BFGS preference direction stalls, a positive Lagrangian-curvature

@@ -90,3 +90,30 @@ func TestOperationDiagnosticFailureSnapshotAndColdRead(t *testing.T) {
 		t.Fatal("application failure missing diagnostic", err)
 	}
 }
+
+func TestAssemblySolveFailureCapturesImmutableProductContext(t *testing.T) {
+	store, e := debugartifact.NewStore(t.TempDir(), 50, time.Hour)
+	if e != nil {
+		t.Fatal(e)
+	}
+	service := &Service{}
+	service.SetDiagnosticArtifactStore(store)
+	model := ProductModel{Instances: []ProductInstance{{ID: "occurrence", Translation: [3]float64{1, 2, 3}}}, Constraints: []AssemblyConstraint{{ID: "pending", Kind: "CONCENTRIC"}}}
+	err := service.solveAssemblySet(t.Context(), "product", "frozen-revision", "constraint-preview", "", nil, &model, "", map[string]bool{"other": true}, true)
+	var diagnostic interface{ DiagnosticID() string }
+	if !errors.As(err, &diagnostic) {
+		t.Fatal("assembly error bypassed operation diagnostics", err)
+	}
+	ids := strings.Split(diagnostic.DiagnosticID(), "/")
+	data, e := service.ReadOperationDiagnostic(t.Context(), ids[0], ids[1])
+	if e != nil {
+		t.Fatal(e)
+	}
+	var record OperationDiagnostic
+	if e = json.Unmarshal(data, &record); e != nil {
+		t.Fatal(e)
+	}
+	if record.BaseRevisionID != "frozen-revision" || record.Mode != "ASSEMBLY" || record.Stage != "RESOLVING_GEOMETRY" || len(record.ExcludedConstraintIDs) != 1 || len(record.BaseModel) == 0 || len(record.Candidate) == 0 {
+		t.Fatal("assembly context missing", record)
+	}
+}

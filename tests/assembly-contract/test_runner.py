@@ -4,7 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import unittest
-from catalog import compose_catalog
+from catalog import DATA, compose_catalog
 
 HERE = Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("contract_runner", HERE / "runner.py")
@@ -15,7 +15,7 @@ spec.loader.exec_module(runner)
 class CatalogTests(unittest.TestCase):
     def test_split_catalog_binding_and_semantic_ownership(self):
         production=json.loads((HERE / "../../services/internal/assemblycontract/catalog.json").read_text())
-        evidence=json.loads((HERE / "evidence.json").read_text())
+        evidence=json.loads((DATA / "evidence.json").read_text())
         combined=compose_catalog(production,evidence)
         self.assertEqual(len(combined["cases"]),len(evidence["cases"]))
         self.assertNotIn("cases",production)
@@ -29,7 +29,7 @@ class CatalogTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"overwrites production"):compose_catalog(production,bad)
     def setUp(self):
         self.catalog = runner.load_catalog()
-        self.lock = json.loads((HERE / "baseline.json").read_text())
+        self.lock = json.loads((DATA / "baseline.json").read_text())
 
     def check_bad(self, mutate, message, lock=False):
         changed = copy.deepcopy(self.catalog)

@@ -1,3 +1,4 @@
+import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
 import { DatumEditor } from "./datum-editor";
 import type { DatumPreview } from "../../cad/rendering/datum-reference";
 import { featureSelectionHit, type FeatureSelectionSession } from "../../cad/interaction/feature-selection";
@@ -166,6 +167,7 @@ function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, c
       aria-label={`Constraint status ${status.label}`}>
       <span className="assembly-status-light" style={{ background: status.color }} />
       <span><strong>{status.label}</strong><small>{previewEvaluation?.summary ?? (dirty ? "定义已修改，等待权威预览。" : constraint?.evaluationSummary ?? status.description)}</small></span>
+      {(previewEvaluation?.failure??(!dirty?constraint?.evaluationFailure:undefined))&&<DiagnosticCopy text={diagnosticReference(previewEvaluation?.failure??constraint?.evaluationFailure)}/>}
       {constraint && evaluationStatus !== "VERIFIED" && !dirty && <Button size="small" onClick={onRefresh}>重新计算</Button>}
     </div>
     {definition.supports > 0 && <div className="assembly-support-list"><strong>支持元素</strong>{references.slice(0, definition.supports).map((reference,index)=><div className="assembly-support-row" key={index}>

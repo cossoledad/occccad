@@ -60,4 +60,4 @@ invoke check --scope geometry
 invoke check --scope workspace
 ```
 
-Changes spanning Proto/Worker/Router/Product require `invoke check --scope all` and a test through the formal Router. Only read `models/` when the regression explicitly requires real STEP/BREP input.
+Changes spanning Proto/Worker/Router/Product require `invoke check --scope all` and a test through the formal Router. Only read `tests/test.data/` when the regression explicitly requires real STEP/BREP input.

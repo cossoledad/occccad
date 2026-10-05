@@ -257,7 +257,7 @@ reference 最优残差为零时，其目标保持子空间是 `null(A_ref Z)`；
 这一步是二阶曲率计算，不是将生产几何 Jacobian 降级为数值差分；后续稀疏/解析二阶优化必须与该参考结果对照。
 
 终止检查两层在最终位姿上的投影梯度，默认 `preference_tolerance=1e-8`，每层最多 100 次。
-reference 目标上界固定为第一层终值加 `objective_tolerance`（默认 `1e-12`），不逐步累计放宽。
+reference 目标上界固定为第一层终值加 `objective_tolerance`（默认 `1e-12`），不逐步累计放宽。第一层残差平方小于 `preference_tolerance²` 时，第二层试步还把冻结的零 reference 残差与物理约束一起做非线性 retraction；不能用标量能量余量交换约 10⁻⁶ 的 reference 姿态漂移并破坏上层驻点。非零最优仍保留 reduced Hessian 的最优集合，不冻结 reference Body、不用加权和混合优先级。实际风车圆柱同轴回归见 `ActualWindmillCylinderConstraintPreservesReferenceOptimum`。
 当目标差接近机器精度时，只在非累积能量误差界内且投影梯度进一步下降时接受步骤，不以浮点停滞冒充最优。
 `Converged` 是冻结 branch 下的局部一阶最优性证据，不证明非凸全局最优或任意有限运动可达性。
 

@@ -2,6 +2,8 @@ package geometry
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	workerv1 "github.com/occccad/occccad/gen/worker/v1"
@@ -26,6 +28,26 @@ func makeAssemblyReplay(request *workerv1.SolveAssemblyRequest, result *workerv1
 	if result != nil && result.EffectiveSolverProfile != nil {
 		effective.SolverProfile = proto.Clone(result.EffectiveSolverProfile).(*workerv1.AssemblySolverProfile)
 	}
+	// Reference recipes are sometimes encoded in runtime geometry IDs. Replay
+	// needs only equality/ownership, never those business snapshots. Compact the
+	// private numerical namespace without changing the live request or model.
+	ids := map[string]string{}
+	for _, g := range effective.Geometry {
+		if len(g.Id) > 128 {
+			sum := sha256.Sum256([]byte(g.Id))
+			ids[g.Id] = "geometry:" + hex.EncodeToString(sum[:])
+			g.Id = ids[g.Id]
+		}
+	}
+	for _, c := range effective.Constraints {
+		for _, ref := range []*workerv1.AssemblyGeometryRef{c.First, c.Second, c.AngleReference} {
+			if ref != nil {
+				if id, ok := ids[ref.GeometryId]; ok {
+					ref.GeometryId = id
+				}
+			}
+		}
+	}
 	input, err := protojson.Marshal(effective)
 	if err != nil {
 		return nil, err
@@ -34,6 +56,9 @@ func makeAssemblyReplay(request *workerv1.SolveAssemblyRequest, result *workerv1
 	if result != nil {
 		compact := proto.Clone(result).(*workerv1.SolveAssemblyResponse)
 		compact.EffectiveSolverProfile = nil
+		compact.EquationResiduals = nil
+		compact.ConstraintRanks = nil
+		compact.Diagnostics = nil
 		for _, c := range compact.Components {
 			c.NullSpaceBasis = nil
 			c.SingularValues = nil
@@ -47,7 +72,7 @@ func makeAssemblyReplay(request *workerv1.SolveAssemblyRequest, result *workerv1
 	if solveErr != nil {
 		replay.TransportError = solveErr.Error()
 	}
-	return json.MarshalIndent(replay, "", "  ")
+	return json.Marshal(replay)
 }
 
 // ReplayAssembly uses the same public RPC and validation as an ordinary solve.

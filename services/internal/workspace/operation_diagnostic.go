@@ -15,21 +15,24 @@ import (
 // Operation diagnostics reuse the bounded debug repository, never Revision or
 // commit candidates. Capture the evaluated input, not whatever Head exists later.
 type OperationDiagnostic struct {
-	Schema         string                   `json:"schema"`
-	CreatedAt      time.Time                `json:"createdAt"`
-	DocumentID     string                   `json:"documentId"`
-	BaseRevisionID string                   `json:"baseRevisionId,omitempty"`
-	Mode           string                   `json:"mode"`
-	Stage          string                   `json:"stage"`
-	Request        CommandRequest           `json:"request"`
-	Command        *modelcore.DomainCommand `json:"command,omitempty"`
-	BaseModel      json.RawMessage          `json:"baseModel,omitempty"`
-	Candidate      json.RawMessage          `json:"candidateModel,omitempty"`
-	Failure        string                   `json:"failure"`
-	Evaluator      string                   `json:"evaluator"`
-	NamingPolicy   string                   `json:"namingPolicy"`
-	GoVersion      string                   `json:"goVersion"`
-	Artifacts      map[string]Artifact      `json:"artifacts,omitempty"`
+	AssemblyReplay         json.RawMessage          `json:"assemblyReplay,omitempty"`
+	AssemblyManifestDigest string                   `json:"assemblyManifestDigest,omitempty"`
+	ExcludedConstraintIDs  []string                 `json:"excludedConstraintIds,omitempty"`
+	Schema                 string                   `json:"schema"`
+	CreatedAt              time.Time                `json:"createdAt"`
+	DocumentID             string                   `json:"documentId"`
+	BaseRevisionID         string                   `json:"baseRevisionId,omitempty"`
+	Mode                   string                   `json:"mode"`
+	Stage                  string                   `json:"stage"`
+	Request                CommandRequest           `json:"request"`
+	Command                *modelcore.DomainCommand `json:"command,omitempty"`
+	BaseModel              json.RawMessage          `json:"baseModel,omitempty"`
+	Candidate              json.RawMessage          `json:"candidateModel,omitempty"`
+	Failure                string                   `json:"failure"`
+	Evaluator              string                   `json:"evaluator"`
+	NamingPolicy           string                   `json:"namingPolicy"`
+	GoVersion              string                   `json:"goVersion"`
+	Artifacts              map[string]Artifact      `json:"artifacts,omitempty"`
 }
 type operationDiagnosticFailure struct {
 	error

@@ -64,7 +64,7 @@ L0 root AGENTS.md
 
 ## 4. 默认排除与大对象
 
-默认不读：build/dist/node_modules、日志/data、`services/gen`、models/corpus、锁文件、`go.sum`、compile database 和 STEP/BREP/GLB/3dreplay。它们不是禁止访问；依赖解析、codegen discrepancy、真实 corpus 或制品问题可以显式进入。
+默认不读：build/dist/node_modules、日志/data、`services/gen`、tests/test.data corpus、锁文件、`go.sum`、compile database 和 STEP/BREP/GLB/3dreplay。它们不是禁止访问；依赖解析、codegen discrepancy、真实 corpus 或制品问题可以显式进入。
 
 Proto source 是协议权威；生成代码是 output。正常路径是 proto → regenerate → compile → contract tests。
 

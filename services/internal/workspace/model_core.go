@@ -2702,13 +2702,13 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 				continue
 			}
 			preview := AssemblyConstraintPreviewEvaluation{ConstraintID: constraint.ID, Status: constraint.EvaluationStatus,
-				Summary: constraint.EvaluationSummary, First: assemblySupportPreview(constraint.First)}
+				Summary: constraint.EvaluationSummary, First: assemblySupportPreview(constraint.First), Failure: constraint.EvaluationFailure}
 			if constraint.Second != nil {
 				second := assemblySupportPreview(*constraint.Second)
 				preview.Second = &second
 			}
 			result.ConstraintEvaluation = &preview
-			if retainedFailure {
+			if constraint.EvaluationFailure != nil {
 				result.EvaluationFailure = constraint.EvaluationFailure
 			}
 			break

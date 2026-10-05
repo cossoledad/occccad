@@ -3,7 +3,7 @@ include(GoogleTest)
 
 add_executable(occcad_geometry_scenarios geometry_exchange_scenarios.cpp fillet_boundary_scenarios.cpp assembly_support_scenarios.cpp sketch_curve_scenarios.cpp)
 target_link_libraries(occcad_geometry_scenarios PRIVATE occccad_occt_kernel occccad_kernel_api GTest::gtest_main)
-target_compile_definitions(occcad_geometry_scenarios PRIVATE OCCCCAD_MODEL_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/models")
+target_compile_definitions(occcad_geometry_scenarios PRIVATE OCCCCAD_MODEL_FIXTURE_DIR="${PROJECT_SOURCE_DIR}/tests/test.data")
 target_compile_features(occcad_geometry_scenarios PRIVATE cxx_std_17)
 occccad_set_warnings(occcad_geometry_scenarios PRIVATE)
 occccad_apply_sanitizers(occcad_geometry_scenarios)

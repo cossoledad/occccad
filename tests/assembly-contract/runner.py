@@ -13,7 +13,7 @@ import re
 import subprocess
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from catalog import load_catalog
+from catalog import DATA, load_catalog
 import xml.etree.ElementTree as ET
 from urllib.parse import unquote, urlsplit
 
@@ -396,7 +396,7 @@ def make_report(catalog, caps, cases, results, commands, purpose, argv):
         layer_evidence = {layer: [t["caseId"] for t in selected if t["layer"] == layer and results[t["caseId"]]["status"] == "PASS" and t.get("purpose") != "unsupported-rejection"] for layer in sorted(LAYERS)}
         rows.append({"capabilityId": c["capabilityId"], "family": c["family"], "target": {**c, "policy": catalog["policies"][c["policy"]]}, "implementation": coverage, **advancement, "unresolvedLayers": unresolved, "verifiedCaseIdsByLayer": layer_evidence, "verification": evidence, "missingTestLayers": [layer for layer in LAYERS if not any(t["layer"] == layer and t.get("purpose") != "unsupported-rejection" for t in catalog["cases"] if c["capabilityId"] in t["capabilityIds"])], "testStatus": "MISSING_TEST" if not any(t.get("purpose") != "unsupported-rejection" for t in catalog["cases"] if c["capabilityId"] in t["capabilityIds"]) else "MAPPED", "followupTasks": c["followupTasks"], "followupLinks": {t: catalog["target"] + "#" + TASK_TOPICS[t] for t in c["followupTasks"]}})
     native = {t["fixture"]["source"] + "::" + (t["caseId"] if t["adapter"] == "web-catalog" else t["selector"]) for t in cases if results[t["caseId"]]["status"] == "PASS"}
-    sources = {"tests/assembly-contract/catalog.json", "tests/assembly-contract/catalog.py", "tests/assembly-contract/evidence.json", "tests/assembly-contract/runner.py", "tests/assembly-contract/baseline.json"} | {t["fixture"]["source"] for t in cases}
+    sources = {"tests/test.data/assembly-contract/catalog.json", "tests/assembly-contract/catalog.py", "tests/test.data/assembly-contract/evidence.json", "tests/assembly-contract/runner.py", "tests/test.data/assembly-contract/baseline.json"} | {t["fixture"]["source"] for t in cases}
     sources |= {ref["source"] for t in cases for ref in t["fixture"].get("assertionSources", [])}
     sources |= {state["source"] for c in caps for state in implementation(c, catalog).values() if state.get("source")}
     sources |= {"services/internal/assemblycontract/catalog.json", "proto/occccad/worker/v1/geometry_worker.proto",
@@ -429,7 +429,7 @@ def main(argv=None):
     parser.add_argument("--output", type=Path, default=ROOT / "build/assembly-contract")
     args = parser.parse_args(argv)
     catalog = load_catalog()
-    validate(catalog, lock=json.loads((HERE / "baseline.json").read_text()))
+    validate(catalog, lock=json.loads((DATA / "baseline.json").read_text()))
     caps, cases = select(catalog, args.capability, args.family, args.layer, args.case)
     if args.purpose == "validate":
         print(f"Catalog/lock PASS: {len(catalog['capabilities'])} capabilities, {len(catalog['cases'])} cases; no implementation tests executed")

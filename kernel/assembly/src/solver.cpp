@@ -2995,17 +2995,19 @@ std::vector<std::vector<double>> vectors(const Eigen::MatrixXd& matrix) {
 }
 
 bool restore_feasibility(const ComponentProblem& problem, State& state,
-                         const SolverOptions& options, const Vector* preserved_drag=nullptr) {
+                         const SolverOptions& options, const Vector* preserved_drag=nullptr,
+                         const Vector* preserved_reference=nullptr) {
     const Vector scales = problem.tangent_scales();
     const auto energy=[&](const State& at) {
         double value=problem.residual(at).squaredNorm();
         if(preserved_drag) value+=(problem.drag_objective(at,false).residual-*preserved_drag).squaredNorm();
+        if(preserved_reference) value+=(problem.objective(at,true,false).residual-*preserved_reference).squaredNorm();
         return value;
     };
     for (std::size_t i = 0; i < 16; ++i) {
         if (options.should_cancel && options.should_cancel()) return false;
         const Vector r = problem.residual(state);
-        const double current_energy=r.squaredNorm()+(preserved_drag ? (problem.drag_objective(state,false).residual-*preserved_drag).squaredNorm() : 0.0);
+        const double current_energy=energy(state);
         // Secondary optimization needs a tighter retraction than display acceptance;
         // otherwise curvature error at the tolerance boundary hides its descent.
         if (problem.satisfied(state) && std::sqrt(current_energy) <= 1e-12)
@@ -3017,9 +3019,16 @@ bool restore_feasibility(const ComponentProblem& problem, State& state,
             j.conservativeResize(physical_rows+drag.jacobian.rows(),j.cols());
             j.bottomRows(drag.jacobian.rows())=drag.jacobian*scales.asDiagonal();
         }
+        const auto reference_offset=j.rows();
+        if(preserved_reference) {
+            const auto ref=problem.objective(state,true,false);
+            j.conservativeResize(reference_offset+ref.jacobian.rows(),j.cols());
+            j.bottomRows(ref.jacobian.rows())=ref.jacobian*scales.asDiagonal();
+        }
         Vector rhs = Vector::Zero(j.rows());
         rhs.head(r.size()) = -r;
-        if(preserved_drag) rhs.tail(preserved_drag->size())=*preserved_drag-problem.drag_objective(state,false).residual;
+        if(preserved_drag) rhs.segment(physical_rows,preserved_drag->size())=*preserved_drag-problem.drag_objective(state,false).residual;
+        if(preserved_reference) rhs.tail(preserved_reference->size())=*preserved_reference-problem.objective(state,true,false).residual;
         const Vector step = scales.asDiagonal() * minimum_step(j, rhs, options);
         bool accepted = false;
         for (double alpha = 1.0; alpha >= 1.0 / 4096; alpha *= 0.5) {
@@ -3032,9 +3041,9 @@ bool restore_feasibility(const ComponentProblem& problem, State& state,
             }
         }
         if (!accepted)
-            return problem.satisfied(state) && (!preserved_drag || (problem.drag_objective(state,false).residual-*preserved_drag).norm()<=1e-12);
+            return problem.satisfied(state) && (!preserved_drag || (problem.drag_objective(state,false).residual-*preserved_drag).norm()<=1e-12) && (!preserved_reference || (problem.objective(state,true,false).residual-*preserved_reference).norm()<=1e-12);
     }
-    return problem.satisfied(state) && (!preserved_drag || (problem.drag_objective(state,false).residual-*preserved_drag).norm()<=1e-12);
+    return problem.satisfied(state) && (!preserved_drag || (problem.drag_objective(state,false).residual-*preserved_drag).norm()<=1e-12) && (!preserved_reference || (problem.objective(state,true,false).residual-*preserved_reference).norm()<=1e-12);
 }
 
 // The higher-level optimum is a scalar objective minimum, not a frozen residual
@@ -3263,6 +3272,12 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
     double reference_bound = std::numeric_limits<double>::infinity();
     // Each phase preserves the exact linearized higher-level solution space.
     for (int level = 0; level < 2; ++level) {
+        // A zero reference minimum is a residual kernel. Retract onto it with
+        // geometry instead of spending the scalar objective slack on reference
+        // drift; that drift invalidates the projected secondary stationarity.
+        std::optional<Vector> preserved_reference;
+        if(level==1 && reference_bound<=options.preference_tolerance*options.preference_tolerance)
+            preserved_reference=problem.objective(state,true,false).residual;
         bool done = false;
         Eigen::MatrixXd inverse_hessian = Eigen::MatrixXd::Identity(scales.size(), scales.size());
         std::optional<Vector> previous_gradient, previous_step;
@@ -3346,7 +3361,8 @@ MotionPreference optimize_motion(const ComponentProblem& problem, State& state,
                 for (double alpha = 1; alpha >= 1.0 / 65536; alpha *= 0.5) {
                     if(options.should_cancel && options.should_cancel()) break;
                     State candidate = problem.incremented(state, scales.asDiagonal() * (alpha * step));
-                    if (!restore_feasibility(problem, candidate, options,preserved_drag ? &*preserved_drag : nullptr))
+                    if (!restore_feasibility(problem, candidate, options,preserved_drag ? &*preserved_drag : nullptr,
+                                             preserved_reference ? &*preserved_reference : nullptr))
                         continue;
                     if(report.interaction && problem.drag_objective(candidate,false).residual.squaredNorm()>drag_bound+std::max(64*std::numeric_limits<double>::epsilon()*drag_bound,options.preference_tolerance*options.preference_tolerance)) continue;
                     const double ref_value =

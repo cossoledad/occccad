@@ -102,7 +102,7 @@ occccad/
 ├── services/internal/database/migrations/
 ├── web/apps/cad/            React CAD Web 应用
 ├── tests/                   仅跨模块/跨进程 conformance；单元与场景测试邻近实现
-├── models/                  STEP/BREP 等真实交换回归语料
+│   └── test.data/           统一测试输入、回归语料与验收记录
 ├── deploy/                  部署辅助配置
 └── docs/                    现有架构与目标架构
 ```
