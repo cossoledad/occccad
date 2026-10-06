@@ -170,7 +170,7 @@ func patternSketchReferenceEntities(sketch SketchFeature) map[string]SketchEntit
 	for _, external := range sketch.ExternalGeometry {
 		if external.Status == "CONNECTED" && external.Snapshot != nil {
 			s := external.Snapshot
-			entities[external.ID] = SketchEntity{ID: external.ID, Kind: s.Kind, Point: s.Point, Start: s.Start, End: s.End, Center: s.Center}
+			entities[external.ID] = s.entity(external.ID)
 		}
 	}
 	return entities

@@ -452,7 +452,7 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 				TopologyType: string(candidate.Type), LocalID: candidate.LocalID, GeometryType: candidate.Evidence.GeometryType,
 				EvidenceDigest: candidate.Evidence.EvidenceDigest, MeasureSI: candidate.Evidence.MeasureSI,
 				ParameterStart: candidate.Evidence.ParameterStart, ParameterEnd: candidate.Evidence.ParameterEnd,
-				Origin: origin, Direction: direction},
+				Origin: origin, Direction: direction, XDirection: rotateByPose(sourcePose, candidate.Evidence.XDirection), RadiusMM: candidate.Evidence.RadiusMM, MinorRadiusMM: candidate.Evidence.MinorRadiusMM},
 			geometry.ExternalProjectionFrame{Origin: sketch.Support.Origin, XDirection: sketch.Support.XDirection, Normal: sketch.Support.Normal})
 		if err != nil {
 			return err
@@ -463,13 +463,13 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 				PolicyDigest: modelcore.TopologyNamingPolicyDigest, EvidenceDigest: resolution.EvidenceDigest}
 			continue
 		}
-		snapshot := &SketchExternalGeometrySnapshot{Kind: projected.Kind, Radius: projected.Radius}
+		snapshot := &SketchExternalGeometrySnapshot{Kind: projected.Kind, Radius: projected.Radius, MajorRadius: projected.MajorRadius, MinorRadius: projected.MinorRadius, Rotation: projected.Rotation, StartAngle: projected.StartAngle, EndAngle: projected.EndAngle}
 		switch projected.Kind {
 		case "POINT":
 			snapshot.Point = &SketchPoint2{X: projected.Point[0], Y: projected.Point[1]}
 		case "LINE":
 			snapshot.Start, snapshot.End = &SketchPoint2{X: projected.Start[0], Y: projected.Start[1]}, &SketchPoint2{X: projected.End[0], Y: projected.End[1]}
-		case "CIRCLE":
+		case "CIRCLE", "ARC", "ELLIPSE", "ELLIPTICAL_ARC":
 			snapshot.Center = &SketchPoint2{X: projected.Center[0], Y: projected.Center[1]}
 		default:
 			markBroken(external, "EXTERNAL_PROJECTION_TYPE_MISMATCH", "worker returned an unsupported projected geometry kind")

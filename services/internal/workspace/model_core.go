@@ -647,8 +647,7 @@ func applySketchOperationsCandidate(sketch *SketchFeature, operations []SketchOp
 			if external.DatumReference != nil && snapshot.Kind == "LINE" {
 				return fmt.Errorf("%w: projected axis cannot detach as a finite segment", ErrValidation)
 			}
-			entity := SketchEntity{ID: external.ID, Kind: snapshot.Kind, Role: "CONSTRUCTION", Point: snapshot.Point,
-				Start: snapshot.Start, End: snapshot.End, Center: snapshot.Center, Radius: snapshot.Radius}
+			entity := snapshot.entity(external.ID)
 			sketch.Entities = append(sketch.Entities, entity)
 			sketch.ExternalGeometry = append(sketch.ExternalGeometry[:found], sketch.ExternalGeometry[found+1:]...)
 			for constraintIndex := range sketch.Constraints {
@@ -987,21 +986,10 @@ func validateSketch(sketch SketchFeature) error {
 		if external.Snapshot != nil {
 			kind = external.Snapshot.Kind
 			snapshot := external.Snapshot
-			switch kind {
-			case "POINT":
-				if snapshot.Point == nil || !finite(snapshot.Point.X) || !finite(snapshot.Point.Y) {
-					return fmt.Errorf("%w: invalid projected external point", ErrValidation)
-				}
-			case "LINE":
-				if snapshot.Start == nil || snapshot.End == nil || !finite(snapshot.Start.X) || !finite(snapshot.Start.Y) || !finite(snapshot.End.X) || !finite(snapshot.End.Y) || *snapshot.Start == *snapshot.End {
-					return fmt.Errorf("%w: invalid projected external line", ErrValidation)
-				}
-			case "CIRCLE":
-				if snapshot.Center == nil || !finite(snapshot.Center.X) || !finite(snapshot.Center.Y) || !positiveFinite(snapshot.Radius) {
-					return fmt.Errorf("%w: invalid projected external circle", ErrValidation)
-				}
-			default:
-				return fmt.Errorf("%w: unsupported projected external geometry %s", ErrValidation, kind)
+			// Validate with the ordinary sketch geometry rules, including conic trims.
+			entity := snapshot.entity(external.ID)
+			if err := validateSketch(SketchFeature{SchemaVersion: SketchSchemaVersion, Entities: []SketchEntity{entity}}); err != nil {
+				return err
 			}
 		}
 		if kind == "" {
@@ -1012,11 +1000,12 @@ func validateSketch(sketch SketchFeature) error {
 				kind = "LINE"
 			}
 		}
-		// Orthogonal projection can lower a finite straight EDGE to a POINT;
+		// Orthogonal projection can lower a sufficiently short EDGE locus to a POINT;
 		// the source remains an EDGE and retains its Naming recipe.
-		edgePoint := kind == "POINT" && external.PersistentSelection.CreationEvidence.GeometryType == "LINE"
+		sourceFamily := external.PersistentSelection.CreationEvidence.GeometryType
+		edgePoint := kind == "POINT" && (sourceFamily == "LINE" || sourceFamily == "CIRCLE" || sourceFamily == "ELLIPSE")
 		if (external.PersistentSelection.ExpectedType == modelcore.PersistentTopologyVertex && kind != "POINT") ||
-			(external.PersistentSelection.ExpectedType == modelcore.PersistentTopologyEdge && kind != "LINE" && kind != "CIRCLE" && !edgePoint) {
+			(external.PersistentSelection.ExpectedType == modelcore.PersistentTopologyEdge && kind != "LINE" && kind != "CIRCLE" && kind != "ARC" && kind != "ELLIPSE" && kind != "ELLIPTICAL_ARC" && !edgePoint) {
 			return fmt.Errorf("%w: external geometry %s snapshot type does not match its topology source", ErrValidation, external.ID)
 		}
 		entityKinds[external.ID] = kind
@@ -2390,7 +2379,9 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err := rejectExplicitBrokenPublication(prepared.command, model); err != nil {
 			return err
 		}
-		changes = appendEvaluatedDatumChanges(appendEvaluatedSketchChanges(changes, beforeModel, model), beforeModel, model)
+		if !metadataOnly {
+			changes = appendEvaluatedDatumChanges(appendEvaluatedSketchChanges(changes, beforeModel, model), beforeModel, model)
+		}
 		if _, failedRevision, failedEvaluation, unresolved := unresolvedExternalRevisionOutcome(model); unresolved {
 			revisionState, evaluationStatus = failedRevision, failedEvaluation
 			for i := range model.Bodies {
@@ -2923,7 +2914,13 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 		return err
 	}
 	input := geometry.SketchModel{}
-	for _, entity := range sketch.Entities {
+	entities := append([]SketchEntity(nil), sketch.Entities...)
+	for _, external := range sketch.ExternalGeometry {
+		if !brokenExternal[external.ID] {
+			entities = append(entities, external.Snapshot.entity(external.ID))
+		}
+	}
+	for _, entity := range entities {
 		if entity.Suppressed {
 			continue
 		}
@@ -2955,23 +2952,15 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 		if brokenExternal[external.ID] {
 			continue
 		}
-		snapshot := external.Snapshot
-		switch snapshot.Kind {
-		case "POINT":
-			input.Points = append(input.Points, geometry.SketchPoint{ID: external.ID, X: snapshot.Point.X, Y: snapshot.Point.Y, Role: "CONSTRUCTION"})
-			input.Constraints = append(input.Constraints, geometry.SketchConstraint{ID: "external-fixed-" + external.ID, Kind: "FIXED_POINT", Internal: true,
-				FixedX: snapshot.Point.X, FixedY: snapshot.Point.Y, References: []geometry.SketchReference{{Target: "ENTITY", EntityID: external.ID, SubElement: "POINT"}}})
-		case "LINE":
-			input.Lines = append(input.Lines, geometry.SketchLine{ID: external.ID, StartX: snapshot.Start.X, StartY: snapshot.Start.Y,
-				EndX: snapshot.End.X, EndY: snapshot.End.Y, Role: "CONSTRUCTION"})
-			input.Constraints = append(input.Constraints, geometry.SketchConstraint{ID: "external-fixed-" + external.ID, Kind: "FIXED", Internal: true,
-				References: []geometry.SketchReference{{Target: "ENTITY", EntityID: external.ID, SubElement: "WHOLE"}}})
-		case "CIRCLE":
-			input.Circles = append(input.Circles, geometry.SketchCircle{ID: external.ID, CenterX: snapshot.Center.X, CenterY: snapshot.Center.Y,
-				Radius: snapshot.Radius, Role: "CONSTRUCTION"})
-			input.Constraints = append(input.Constraints, geometry.SketchConstraint{ID: "external-fixed-" + external.ID, Kind: "FIXED", Internal: true,
-				References: []geometry.SketchReference{{Target: "ENTITY", EntityID: external.ID, SubElement: "WHOLE"}}})
+		entity := external.Snapshot.entity(external.ID)
+		fixed := geometry.SketchConstraint{ID: "external-fixed-" + external.ID, Kind: "FIXED", Internal: true, References: []geometry.SketchReference{{Target: "ENTITY", EntityID: external.ID, SubElement: "WHOLE"}}}
+		if entity.Kind == "POINT" {
+			fixed.Kind = "FIXED_POINT"
+			fixed.FixedX = entity.Point.X
+			fixed.FixedY = entity.Point.Y
+			fixed.References[0].SubElement = "POINT"
 		}
+		input.Constraints = append(input.Constraints, fixed)
 	}
 	for _, constraint := range sketch.Constraints {
 		if constraint.Suppressed || constraint.Reference {

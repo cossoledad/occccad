@@ -8,6 +8,7 @@ Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 g
 - `SolveSketch`：求解版本化 Point/Line/Circle/Arc/Spline/Constraint SketchModel，返回坐标、状态、DoF 和冲突/冗余约束 ID；可接收仅本次计算有效的 `drag_targets`，在正式约束可行域内最小化坐标目标，不持久化或扣减正式 DoF；
 - `ProjectExternalGeometry`：以已解析的 Edge/Vertex evidence 或纯数值 Datum Point/Axis 与草图 support frame 权威生成二维只读 Point/Line/完整 Circle 投影；Axis 投影为规范单位方向线，垂直时为 Point；退化、类型不符、斜圆投影和缺少定向 evidence 的部分圆弧返回稳定诊断，不回退到浏览器近似；Arc evidence/snapshot 属于 P11J-0；
 - `ResolveLoftCorrespondence`：纯计算有序截面的循环对应，返回闭合边、反向、圆相位与可选显示连接的边界点；Go 持久化已接受的语义选择，`EvaluatePart` 使用同一内核算法和点端输入，不重新猜测保存的闭合点；
+- `ProjectExternalGeometry`：基于 Naming 的精确点、轴、线段、圆/圆弧及椭圆/椭圆弧证据做正交投影；返回草图的解析快照，包含修剪角度和圆心。斜圆投影为椭圆，侧向退化计算真实投影区间；不使用显示折线拟合。不支持 Face 边界组、一般 BSpline、Section/Silhouette。
 - `EvaluatePart`：每次求值一个 Body 的冻结实体 Feature 链或在基础 B-Rep 上续算；Profile Pad 请求校验稳定 Feature/Body/source identity 和版本化 topology naming policy，仅回传逐 Feature identity、摘要与 ArtifactReference，完整 semantic topology outputs 和 TopologyHistory 写入 `naming.pb`；
 - `InspectExchange` / `ImportExchange` / `ExportExchange`：通过 ArtifactReference 检查、导入和导出 STEP/BREP；
 - `GetTopology`：返回面、边、点及诊断属性；操纵手柄的只读提示包括实际面中心 `snapCenter`、平面的确定性真实直边方向 `snapBoundaryDirection`、圆柱真实边界圆的端部中心 `snapEndFirst/Last`。只输出可确认的 B-Rep 数据，不以三角剖分/PCA 猜边界，不改变装配方程；Go 将小型提示折入运动单元坐标，Web 再应用一次场景变换；

@@ -33,6 +33,7 @@ inline void pack_naming(const std::vector<v1::FeatureResult>& features,
         packed.set_evidence_digest(value.evidence_digest());
         packed.set_endpoint_role(value.endpoint_role());
         if (value.has_radius_mm()) packed.set_radius_mm(value.radius_mm());
+        if (value.has_minor_radius_mm()) packed.set_minor_radius_mm(value.minor_radius_mm());
         if (value.has_half_angle_radians()) packed.set_half_angle_radians(value.half_angle_radians());
         if (value.has_cone_leaf()) packed.set_cone_leaf(value.cone_leaf());
         if (value.has_material_side()) packed.set_material_side(value.material_side());

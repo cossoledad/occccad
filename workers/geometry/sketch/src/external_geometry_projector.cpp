@@ -1,6 +1,7 @@
 #include <occccad/geometry/sketch/external_geometry_projector.h>
 
 #include <cmath>
+#include <algorithm>
 #include <utility>
 
 namespace occccad::geometry::sketch {
@@ -105,25 +106,65 @@ ExternalProjectionResult project_external_geometry(const ExternalProjectionSourc
         }
         return result;
     }
-    if (source.kind == ExternalSourceKind::circle) {
-        Vec3 axis = source.direction;
-        if (!normalize(axis) || !source.has_parameters || source.measure_mm <= linear_tolerance)
-            return failure("EXTERNAL_SOURCE_CONTRACT_INCOMPLETE",
-                           "circular edge evidence is incomplete");
-        if (1.0 - std::abs(dot(axis, frame.normal)) > angular_tolerance)
-            return failure("EXTERNAL_PROJECTION_TYPE_UNSUPPORTED",
-                           "oblique circular projection is an ellipse");
-        const double sweep = std::abs(source.parameter_end - source.parameter_start);
-        constexpr double full_turn = 2.0 * 3.14159265358979323846;
-        if (std::abs(sweep - full_turn) > 1.0e-7)
-            return failure("EXTERNAL_PROJECTION_TYPE_UNSUPPORTED",
-                           "partial circular edges require arc orientation evidence");
-        result.kind = ProjectedGeometryKind::circle;
+    if (source.kind == ExternalSourceKind::circle || source.kind == ExternalSourceKind::ellipse) {
+        constexpr double tau = 2.0 * 3.14159265358979323846;
+        Vec3 axis = source.direction, x = source.x_direction;
+        const double a = source.radius;
+        const double b = source.kind == ExternalSourceKind::circle ? a : source.minor_radius;
+        const double sweep = source.parameter_end - source.parameter_start;
+        if (!normalize(axis) || !normalize(x) || std::abs(dot(axis, x)) > angular_tolerance ||
+            !source.has_parameters || !std::isfinite(source.parameter_start) || !std::isfinite(source.parameter_end) ||
+            !std::isfinite(a) || !std::isfinite(b) || a <= linear_tolerance || b <= linear_tolerance ||
+            sweep <= angular_tolerance || sweep > tau + angular_tolerance)
+            return failure("EXTERNAL_SOURCE_CONTRACT_INCOMPLETE", "conic requires exact radii, oriented axes and finite angular interval");
+        const Vec3 y = cross(axis, x);
+        // A maps the original parameter circle onto the sketch plane. Its left
+        // singular vectors/radii give an exact conic, with no sampled fit.
+        const Vec2 u{a * dot(x, frame.x_direction), a * dot(x, y_direction)};
+        const Vec2 v{b * dot(y, frame.x_direction), b * dot(y, y_direction)};
+        const double xx = u.x*u.x + v.x*v.x, yy = u.y*u.y + v.y*v.y;
+        const double xy = u.x*u.y + v.x*v.y, determinant = u.x*v.y-u.y*v.x;
         result.center = project(source.origin);
-        result.radius = source.measure_mm / sweep;
-        if (!std::isfinite(result.radius) || result.radius <= linear_tolerance)
-            return failure("EXTERNAL_PROJECTION_DEGENERATE",
-                           "circular edge projects with a degenerate radius");
+        result.rotation = 0.5 * std::atan2(2*xy, xx-yy);
+        result.major_radius = std::sqrt(std::max(0.0, 0.5*(xx+yy+std::hypot(xx-yy, 2*xy))));
+        if (result.major_radius <= linear_tolerance) {
+            result.kind = ProjectedGeometryKind::point; result.point = result.center; return result;
+        }
+        result.minor_radius = std::abs(determinant)/result.major_radius;
+        const double c = std::cos(result.rotation), sn = std::sin(result.rotation);
+        const auto coordinates = [&](double t) {
+            return Vec2{u.x*std::cos(t)+v.x*std::sin(t), u.y*std::cos(t)+v.y*std::sin(t)};
+        };
+        if (result.minor_radius <= linear_tolerance) {
+            // Edge-on conics collapse to an interval; include interior extrema,
+            // since projected arc endpoints alone do not define this interval.
+            const double uc=c*u.x+sn*u.y, vc=c*v.x+sn*v.y;
+            const auto scalar=[&](double t){return uc*std::cos(t)+vc*std::sin(t);};
+            double low=std::min(scalar(source.parameter_start),scalar(source.parameter_end));
+            double high=std::max(scalar(source.parameter_start),scalar(source.parameter_end));
+            const double extreme=std::atan2(vc,uc);
+            for (int i=0;i<2;++i) {
+                double offset=std::fmod(extreme+i*tau/2-source.parameter_start,tau);
+                if(offset<0)offset+=tau;
+                if(offset<=sweep+angular_tolerance){const double z=scalar(source.parameter_start+offset);low=std::min(low,z);high=std::max(high,z);}
+            }
+            result.kind=ProjectedGeometryKind::line;
+            result.start={result.center.x+c*low,result.center.y+sn*low};
+            result.end={result.center.x+c*high,result.center.y+sn*high};
+            if(high-low<=linear_tolerance){result.kind=ProjectedGeometryKind::point;result.point=result.start;}
+            return result;
+        }
+        const bool circular=std::abs(result.major_radius-result.minor_radius)<=linear_tolerance;
+        const bool full=std::abs(sweep-tau)<=angular_tolerance;
+        // Reflection reverses parameter orientation. Store the same trimmed locus
+        // using the sketch's positive sweep convention, without taking a complement.
+        const auto p=coordinates(determinant<0 ? source.parameter_end : source.parameter_start);
+        result.start_angle = circular ? std::atan2(p.y,p.x) :
+            std::atan2((-sn*p.x+c*p.y)/result.minor_radius,(c*p.x+sn*p.y)/result.major_radius);
+        result.end_angle=result.start_angle+sweep;
+        result.radius=result.major_radius;
+        result.kind=circular ? (full ? ProjectedGeometryKind::circle : ProjectedGeometryKind::arc) :
+            (full ? ProjectedGeometryKind::ellipse : ProjectedGeometryKind::elliptical_arc);
         return result;
     }
     return failure("EXTERNAL_SOURCE_TYPE_MISMATCH", "only line, circle and vertex sources are supported");

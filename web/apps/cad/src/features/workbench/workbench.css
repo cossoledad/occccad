@@ -145,3 +145,5 @@
 .feature-pick-field > button:first-child { flex: 1; min-width: 0; height: auto; white-space: normal; text-align: left; }
 .feature-section-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; padding: 6px 0; }
 .feature-section-row > span { flex: 1; min-width: 100px; }
+
+.inspector-object-data { margin:0; padding:12px; max-height:60vh; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; user-select:text; font-size:12px; line-height:1.5; background:var(--wb-surface); border:1px solid var(--wb-border); border-radius:4px; }

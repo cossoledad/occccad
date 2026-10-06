@@ -45,6 +45,7 @@ func unpackNaming(m *workerv1.PartTopologyManifest) (*topologyManifest, error) {
 	evidence := make([]*workerv1.SelectionEvidence, len(m.Evidence))
 	for i, e := range m.Evidence {
 		v := &workerv1.SelectionEvidence{Centroid: e.Centroid, MeasureSi: e.MeasureSi, MeasureDimension: e.MeasureDimension, EvidenceDigest: e.EvidenceDigest, EndpointRole: e.EndpointRole}
+		v.MinorRadiusMm = e.MinorRadiusMm
 		v.RadiusMm, v.HalfAngleRadians, v.ConeLeaf, v.MaterialSide, v.XDirection = e.RadiusMm, e.HalfAngleRadians, e.ConeLeaf, e.MaterialSide, e.XDirection
 		for _, id := range e.Adjacent {
 			v.Adjacent = append(v.Adjacent, ref(id))

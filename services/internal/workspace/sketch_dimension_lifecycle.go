@@ -280,7 +280,7 @@ func refreshSketchReferenceMeasurements(model *PartModel) {
 		for _, external := range sketch.ExternalGeometry {
 			if external.Status == "CONNECTED" && external.Snapshot != nil {
 				s := external.Snapshot
-				entities[external.ID] = SketchEntity{ID: external.ID, Kind: s.Kind, Point: s.Point, Start: s.Start, End: s.End, Center: s.Center, Radius: s.Radius}
+				entities[external.ID] = s.entity(external.ID)
 			}
 		}
 		for i := range sketch.Constraints {

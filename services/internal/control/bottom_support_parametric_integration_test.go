@@ -212,9 +212,30 @@ func TestBottomSupportParametricDatumLifecycleThroughRouter(t *testing.T) {
 	// Persistent display attributes must retain the exact Body result, datum
 	// references and parameter chain, including compensating history/reopen.
 	key := view.Part.Bodies[0].GeometryKey
+	// Regression for CAD_DIAGNOSTIC 5adb050550cf1c4d: a supported datum
+	// plane controls display independently of its geometric dependencies.
+	apply(workspace.CommandRequest{Type: "SET_DEFINITION_VISIBILITY", TargetKind: "PLANE", TargetID: planeID, Visible: false})
+	i := slices.IndexFunc(view.Part.DatumPlanes, func(p workspace.DatumPlane) bool { return p.ID == planeID })
+	if view.Part.DatumPlanes[i].Visible == nil || *view.Part.DatumPlanes[i].Visible || view.Part.Bodies[0].GeometryKey != key {
+		t.Fatal("plane hide changed Body or was not saved")
+	}
+	apply(workspace.CommandRequest{Type: "UNDO"})
+	if view.Part.Bodies[0].GeometryKey != key {
+		t.Fatalf("plane Undo changed key %s -> %s", key, view.Part.Bodies[0].GeometryKey)
+	}
+	if view.Part.DatumPlanes[i].Visible != nil && !*view.Part.DatumPlanes[i].Visible {
+		t.Fatal("plane visibility Undo")
+	}
+	apply(workspace.CommandRequest{Type: "REDO"})
+	if view.Part.Bodies[0].GeometryKey != key {
+		t.Fatalf("plane Redo changed key %s -> %s", key, view.Part.Bodies[0].GeometryKey)
+	}
+	if view.Part.DatumPlanes[i].Visible == nil || *view.Part.DatumPlanes[i].Visible {
+		t.Fatal("plane visibility Redo")
+	}
 	apply(workspace.CommandRequest{Type: "SET_DEFINITION_VISIBILITY", TargetKind: "ORIGIN", TargetID: "origin", Visible: false})
 	if view.Part.OriginVisible == nil || *view.Part.OriginVisible || view.Part.Bodies[0].GeometryKey != key {
-		t.Fatal("Origin visibility changed geometry or was not saved")
+		t.Fatalf("Origin visibility=%v geometry=%s want=%s", view.Part.OriginVisible, view.Part.Bodies[0].GeometryKey, key)
 	}
 	apply(workspace.CommandRequest{Type: "UNDO"})
 	if view.Part.OriginVisible != nil && !*view.Part.OriginVisible {

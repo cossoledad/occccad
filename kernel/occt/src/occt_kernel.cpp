@@ -1220,6 +1220,15 @@ SelectionEvidence edge_evidence(const TopoDS_Edge& edge) {
         evidence.radius_mm = curve.Circle().Radius();
         const auto x = curve.Circle().XAxis().Direction();
         evidence.x_direction = Vec3{x.X(), x.Y(), x.Z()};
+    } else if (curve.GetType() == GeomAbs_Ellipse) {
+        const auto ellipse = curve.Ellipse();
+        evidence.origin = to_vec3(ellipse.Location());
+        const auto direction = ellipse.Axis().Direction();
+        evidence.direction = {direction.X(), direction.Y(), direction.Z()};
+        evidence.radius_mm = ellipse.MajorRadius();
+        evidence.minor_radius_mm = ellipse.MinorRadius();
+        const auto x = ellipse.XAxis().Direction();
+        evidence.x_direction = Vec3{x.X(), x.Y(), x.Z()};
     }
     std::ostringstream canonical;
     canonical.precision(17);
@@ -1231,6 +1240,7 @@ SelectionEvidence edge_evidence(const TopoDS_Edge& edge) {
               << evidence.parameter_start.value_or(curve.FirstParameter()) << ','
               << evidence.parameter_end.value_or(curve.LastParameter());
     if (evidence.radius_mm) canonical << "|radius_mm=" << *evidence.radius_mm;
+    if (evidence.minor_radius_mm) canonical << "|minor_radius_mm=" << *evidence.minor_radius_mm;
     if (evidence.x_direction) canonical << "|x_direction=" << evidence.x_direction->x << ',' << evidence.x_direction->y << ',' << evidence.x_direction->z;
     evidence.evidence_digest = make_geometry_id(canonical.str());
     return evidence;

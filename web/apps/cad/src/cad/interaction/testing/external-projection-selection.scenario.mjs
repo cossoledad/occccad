@@ -36,5 +36,15 @@ try {
  Object.assign(engine,{activeToolID:'sketch.project',captureSettings:DEFAULT_CAPTURE_SETTINGS,updateScreenStableReferences(){},scene:new THREE.Scene(),navigation:{target:new THREE.Vector3()},raycaster:new THREE.Raycaster(),pointer:new THREE.Vector2(),renderer:{domElement:{clientWidth:800,clientHeight:600},getPixelRatio:()=>1},camera,selectionIndex:{pickWithIntersection(_ray,filter){return {selection:candidates.find(filter)??null};}},selectionMode:{project:s=>s}});
  assert.equal(engine.hitTest(400,300).id,'x');candidates.splice(0,2,origin);assert.equal(engine.hitTest(400,300).kind,'datum-point');
  candidates.splice(0,1,{...axis,kind:'plane'});assert.equal(engine.hitTest(400,300),null);
+ const {sampleSketchEntity,sketchEntityPoint}=await server.ssrLoadModule('/src/cad/sketch/sketch-geometry.ts');
+ const {resolveSketchSnap}=await server.ssrLoadModule('/src/cad/interaction/sketch-snap.ts');
+ const snapshot={kind:'ELLIPTICAL_ARC',center:{x:30,y:40},majorRadius:10,minorRadius:4,rotation:Math.PI/6,startAngle:Math.PI/4,endAngle:5*Math.PI/4};
+ engine.sketchView=()=>({document:{id:'part',versionId:'head'},part:{features:[{id:'sketch',sketch:{entities:[],externalGeometry:[{id:'conic',status:'CONNECTED',snapshot}]}}]}});
+ const conics=engine.visibleSketchReferenceEntities();assert.equal(conics.length,1);
+ assert.equal(conics[0].rotation,snapshot.rotation);assert.equal(conics[0].endAngle,snapshot.endAngle);
+ assert(sampleSketchEntity(conics[0]).length>2);assert.deepEqual(sketchEntityPoint(conics[0],'CENTER'),[30,40]);
+ const snap=resolveSketchSnap([30.02,40.01],conics,100,10);
+ assert.equal(snap.kind,'CENTER');assert.equal(snap.entityId,'conic');
+ assert.equal(snap.subElement,'CENTER');
  console.log('Projection tree/pointer inputs, scoped picking and reference visibility passed.');
 }finally{await server.close()}

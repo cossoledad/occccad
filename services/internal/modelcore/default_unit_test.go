@@ -7,13 +7,13 @@ import (
 )
 
 func TestExpressionContextDefaultUnit(t *testing.T) {
-	names := map[string]ParameterBinding{"r_1": {ParameterID: "radius", Dimension: LengthDimension}, "r_2": {ParameterID: "other", Dimension: LengthDimension}}
+	names := map[string]ParameterBinding{"p111": {ParameterID: "radius", Dimension: LengthDimension}, "r_1": {ParameterID: "radius", Dimension: LengthDimension}, "r_2": {ParameterID: "other", Dimension: LengthDimension}}
 	radius, _ := NewQuantity(10, "mm")
 	other, _ := NewQuantity(2, "mm")
 	for _, test := range []struct {
 		source, unit string
 		want         float64
-	}{{"r_1 + 5", "mm", .015}, {"5 + r_1", "mm", .015}, {"(r_1 + 5) * 2", "mm", .030}, {"r_1 * 2", "mm", .020}, {"r_1 + 5 * 2", "mm", .020}, {"r_1 - 5", "mm", .005}, {"r_1 + -5", "mm", .005}, {"5 + 5", "mm", .010}, {"r_1 + 5 cm", "mm", .060}, {"r_1 + 5", "cm", .060}} {
+	}{{"p111 + 4", "mm", .014}, {"r_1 + 5", "mm", .015}, {"5 + r_1", "mm", .015}, {"(r_1 + 5) * 2", "mm", .030}, {"r_1 * 2", "mm", .020}, {"r_1 + 5 * 2", "mm", .020}, {"r_1 - 5", "mm", .005}, {"r_1 + -5", "mm", .005}, {"5 + 5", "mm", .010}, {"r_1 + 5 cm", "mm", .060}, {"r_1 + 5", "cm", .060}} {
 		t.Run(test.source+test.unit, func(t *testing.T) {
 			expression, err := CompileExpression(test.source, names, LengthDimension, test.unit)
 			if err != nil {

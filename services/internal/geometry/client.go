@@ -243,6 +243,8 @@ type ExternalProjectionFrame struct {
 }
 
 type ExternalProjectionSource struct {
+	RadiusMM, MinorRadiusMM                                             *float64
+	XDirection                                                          [3]float64
 	GeometryID, GeometryKey, TopologyType, GeometryType, EvidenceDigest string
 	LocalID                                                             uint64
 	MeasureSI                                                           *float64
@@ -251,9 +253,10 @@ type ExternalProjectionSource struct {
 }
 
 type ProjectedExternalGeometry struct {
-	Status, DiagnosticCode, Diagnostic, SourceDigest, Kind string
-	Point, Start, End, Center                              [2]float64
-	Radius                                                 float64
+	MajorRadius, MinorRadius, Rotation, StartAngle, EndAngle float64
+	Status, DiagnosticCode, Diagnostic, SourceDigest, Kind   string
+	Point, Start, End, Center                                [2]float64
+	Radius                                                   float64
 }
 type SketchSolveStatus string
 
@@ -738,7 +741,7 @@ func (client *Client) ProjectExternalGeometry(ctx context.Context, requestID str
 		return &workerv1.Vec3{X: value[0], Y: value[1], Z: value[2]}
 	}
 	evidence := &workerv1.SelectionEvidence{GeometryType: source.GeometryType,
-		Origin: vec3(source.Origin), Direction: vec3(source.Direction), EvidenceDigest: source.EvidenceDigest}
+		Origin: vec3(source.Origin), Direction: vec3(source.Direction), EvidenceDigest: source.EvidenceDigest, XDirection: vec3(source.XDirection), RadiusMm: source.RadiusMM, MinorRadiusMm: source.MinorRadiusMM}
 	if source.MeasureSI != nil {
 		evidence.MeasureSi = source.MeasureSI
 	}
@@ -759,7 +762,7 @@ func (client *Client) ProjectExternalGeometry(ctx context.Context, requestID str
 	}
 	result := ProjectedExternalGeometry{Status: response.GetStatus(), DiagnosticCode: response.GetDiagnosticCode(),
 		Diagnostic: response.GetDiagnostic(), SourceDigest: response.GetSourceDigest(), Kind: response.GetGeometryKind(),
-		Radius: response.GetRadius()}
+		Radius: response.GetRadius(), MajorRadius: response.GetMajorRadius(), MinorRadius: response.GetMinorRadius(), Rotation: response.GetRotation(), StartAngle: response.GetStartAngle(), EndAngle: response.GetEndAngle()}
 	if value := response.GetPoint(); value != nil {
 		result.Point = [2]float64{value.GetX(), value.GetY()}
 	}

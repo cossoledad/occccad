@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v33-stage-runtime"
+const evaluatorVersion = "part-solid-generators-v34-conic-projection"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -1498,11 +1498,11 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 					continue
 				}
 				primitive.Kind, primitive.Positions = "POLYLINE", [][3]float64{toWorld(*snapshot.Start), toWorld(*snapshot.End)}
-			case "CIRCLE":
+			case "CIRCLE", "ARC", "ELLIPSE", "ELLIPTICAL_ARC":
 				if snapshot.Center == nil {
 					continue
 				}
-				entity := SketchEntity{Kind: "CIRCLE", Center: snapshot.Center, Radius: snapshot.Radius}
+				entity := snapshot.entity(external.ID)
 				primitive.Kind = "POLYLINE"
 				for _, point := range sampleProfileCurve(profileCurve(entity, false)) {
 					primitive.Positions = append(primitive.Positions, toWorld(point))
@@ -1511,6 +1511,9 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 				continue
 			}
 			manifest.Primitives = append(manifest.Primitives, primitive)
+			if snapshot.Center != nil {
+				manifest.Primitives = append(manifest.Primitives, VisualPrimitive{ID: external.ID + ":center", DisplayEntityID: external.ID, FeatureID: feature.ID, EntityType: "REFERENCE_POINT", Kind: "POINTS", Role: "CONSTRUCTION", Status: external.Status, Semantic: "SKETCH_POINT", Selectable: true, PointReference: &SketchGeometryRef{Target: "EXTERNAL", EntityID: external.ID, SubElement: "CENTER"}, Positions: [][3]float64{toWorld(*snapshot.Center)}})
+			}
 		}
 		entities := make(map[string]SketchEntity, len(feature.Sketch.Entities)+len(feature.Sketch.ExternalGeometry))
 		for _, entity := range feature.Sketch.Entities {
@@ -1518,9 +1521,7 @@ func visualizationManifest(model PartModel) VisualizationManifest {
 		}
 		for _, external := range feature.Sketch.ExternalGeometry {
 			if external.Snapshot != nil {
-				entities[external.ID] = SketchEntity{ID: external.ID, Kind: external.Snapshot.Kind, Role: "CONSTRUCTION",
-					Point: external.Snapshot.Point, Start: external.Snapshot.Start, End: external.Snapshot.End,
-					Center: external.Snapshot.Center, Radius: external.Snapshot.Radius}
+				entities[external.ID] = external.Snapshot.entity(external.ID)
 			}
 		}
 		for _, constraint := range feature.Sketch.Constraints {

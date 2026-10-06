@@ -420,6 +420,7 @@ func semanticRef(source *workerv1.SemanticTopologyRef) modelcore.SemanticTopolog
 
 func selectionEvidence(source *workerv1.SelectionEvidence) modelcore.TopologySelectionEvidence {
 	result := modelcore.TopologySelectionEvidence{GeometryType: source.GetGeometryType(), MeasureDimension: source.GetMeasureDimension(), EvidenceDigest: source.GetEvidenceDigest()}
+	result.MinorRadiusMM = source.MinorRadiusMm
 	result.RadiusMM, result.HalfAngleRadians, result.ConeLeaf, result.MaterialSide = source.RadiusMm, source.HalfAngleRadians, source.ConeLeaf, source.MaterialSide
 	if x := source.GetXDirection(); x != nil {
 		result.XDirection = [3]float64{x.X, x.Y, x.Z}

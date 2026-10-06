@@ -397,8 +397,7 @@ func isolateContextCurve(model *PartModel, reference ContextReference) error {
 				return fmt.Errorf("%w: unresolved context curve cannot be isolated", ErrValidation)
 			}
 			snapshot := external.Snapshot
-			entity := SketchEntity{ID: external.ID, Kind: snapshot.Kind, Role: "CONSTRUCTION", Point: snapshot.Point,
-				Start: snapshot.Start, End: snapshot.End, Center: snapshot.Center, Radius: snapshot.Radius}
+			entity := snapshot.entity(external.ID)
 			feature.Sketch.Entities = append(feature.Sketch.Entities, entity)
 			feature.Sketch.ExternalGeometry = append(feature.Sketch.ExternalGeometry[:externalIndex], feature.Sketch.ExternalGeometry[externalIndex+1:]...)
 			for constraintIndex := range feature.Sketch.Constraints {

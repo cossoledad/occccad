@@ -15,7 +15,7 @@
 
 - Go 定向测试：表达式默认单位、合法/非法量纲、唯一稳定别名、Datum/参数/阵列依赖、显示属性补偿历史和冷反序列化通过。
 - TypeScript 类型检查及 Vite 生产构建通过；相关 Node 场景覆盖投影旧 Revision、替换拓扑拒绝、occurrence、闭合连续轮廓、显示/拾取、网格偏好、参数和剪贴板。
-- 真实 Router/Worker：Bottom Support 的 `r_2 = r_1 + 5` 驱动基准→投影→草图→实体，验证 Origin/X 轴隐藏、Undo/Redo、冷重开及几何保持。
+- 真实 Router/Worker：Bottom Support 的 `r_2 = r_1 + 5` 驱动基准→投影→草图→实体，验证支撑平面/Origin/X 轴隐藏、Undo/Redo、冷重开及几何保持。
 - 真实 Router/Worker：Signed Offset 装配约束隐藏保留已接受状态和位姿，Undo/Redo、冷重开、参数表达式与多个 occurrence 通过。
 - 独立临时 SQLite/ArtifactStore；未清理或修改用户文档。未进行浏览器自动测试或无差别全量单测。
 
@@ -23,10 +23,20 @@
 
 ## 人工验收
 
-1. 重启使用最新代码的 API/Jobs 并刷新前端（不重置数据）。创建草图、修改尺寸后不刷新页面，反复进入投影；从视区和树选原点、标准轴、基准轴及实体边/顶点。切换 occurrence 后不得串选。投影仍不接受面或基准面作为直接投影源。
+1. 后台 API/Jobs/Worker 已按当前代码重建重启，刷新前端。创建草图、修改尺寸后不刷新页面，反复进入投影；从视区和树选原点、标准轴、基准轴及实体边/顶点。切换 occurrence 后不得串选。投影仍不接受面或基准面作为直接投影源。
 2. 连续轮廓靠近起点闭合，靠近中途顶点捕获；确认闭合 Profile 可拉伸，Esc/取消后下一条绘制不捕获旧草稿。
 3. 隐藏 Origin，单独隐藏 X/原点/基准，恢复父项时子项本地状态保持；重开和 Undo/Redo 验证。装配隐藏约束标记时零件不能移动或失去约束。
 4. 新建基准轴/面和特征，复制树参数别名；输入 `r_1 + 5`、`r_1 * 2` 并修改 r_1，确认传播。参数列表没有技术详情，选中参数后属性面板仍有 ID。
 5. 分别切换地面和草图网格，确认只控制显示；关闭网格后捕获设置仍生效。
 
 浏览器/WebGL 实机交互尚未验收；自动场景和 Worker 验证不代替上述操作。
+
+## 投影扩展与运行版本核对
+
+实机诊断 `01a1109b-cc20-7e29-a6b2-d126f7ec28ac/20261006T111325.259622156Z-5adb050550cf1c4d` 的平面隐藏失败来自旧 API（10 月 5 日构建），实际错误为 `PLANE has no independent display result`。本轮更新运行进程，并修复显隐附带基准求值槽导致 Undo/Redo 重算的问题。别名、复制菜单、`p111 + 4` 沿用已有实现，未增加兼容分支。
+
+投影新增圆弧、椭圆、椭圆弧；圆斜投影为精确椭圆，侧向退化为含区间极值的线段。使用真实 Naming 的轴、X 方向、半径和角度区间，不用显示折线拟合；二维快照供求解、测量、显示和解除引用共用。圆心显示为可捕获、可约束的 CENTER 子元素。
+
+定向入口：C++ `ExternalGeometryProjector.*`；真实 Router/Worker `TestConicProjectionLifecycleThroughRouter`（完整圆/圆弧/斜圆弧/椭圆/椭圆弧、圆心 Coincident、解除引用、Undo/Redo、冷重开），并回归 `TestBottomSupportParametricDatumLifecycleThroughRouter`、`TestPerpendicularEdgeProjectionThroughRouter`、`TestLoftLinearBoundaryProjectionThroughRouter`。前端 `projection` 场景验证椭圆弧数据、圆心捕获；TypeScript 与生产构建验证调用合同。
+
+人工补充：分别投影完整圆、修剪圆弧、椭圆弧，选择投影圆心建立重合约束；改变上游后查看关联更新，解除引用再撤销。隐藏支撑平面后 Undo/Redo 和重开，确认实体不变；创建关联 Plane 后复制参数别名，输入 `p111 + 4` 并确认数值采用输入默认单位。Face 边界组、一般 BSpline、Section/Silhouette 尚未实现；未执行浏览器/WebGL 自动验收。

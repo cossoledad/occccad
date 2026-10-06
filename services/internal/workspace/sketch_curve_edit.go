@@ -235,7 +235,7 @@ func (service *Service) prepareSketchCurveEdits(ctx context.Context, modelJSON j
 						for _, external := range staged.ExternalGeometry {
 							if external.ID == id && external.Status == "CONNECTED" && external.Snapshot != nil {
 								s := external.Snapshot
-								boundary = SketchEntity{ID: id, Kind: s.Kind, Start: s.Start, End: s.End, Center: s.Center, Radius: s.Radius}
+								boundary = s.entity(id)
 								ok = true
 								break
 							}

@@ -96,7 +96,7 @@ Workbench 主文件编排文档、命令、查询、工具和领域面板生命�
 | `workbench-status.tsx` | 展示真实提交、选择、工具、单位与捕获状态；不推断保存成功 |
 | `cad/overlay/floating-panel.tsx` | 非模态命令面板；位置归一化、容器边界、焦点、取消和重复提交保护 |
 
-只读 Properties/History 位于 `features/workbench/workbench-inspector.tsx`，结构树 projection/selection mapping 位于 `features/workbench/workbench-tree-model.tsx`。属性、历史或树映射改动不需要加载主 orchestrator。默认属性页展示文档概览，内部 provenance/Worker 信息位于“技术详情与诊断”。桌面工作台的结构树与属性栏占据独立网格列，不覆盖视口；窄于 800px 时属性栏改为可关闭的覆盖面板。命令组在空间不足时水平滚动。
+只读 Properties/History 位于 `features/workbench/workbench-inspector.tsx`，结构树 projection/selection mapping 位于 `features/workbench/workbench-tree-model.tsx`。属性、历史或树映射改动不需要加载主 orchestrator。默认属性页展示文档概览，内部 provenance/Worker 信息位于“技术详情与诊断”；所有对象另有默认展开的只读“完整对象数据与上下文”，保留定义、参数来源、SI 值、引用、诊断和制品元数据。`inspector-object-data.ts` 按稳定身份及文档/Revision 解析数据，跨文档检查复用只读查询；旧快照未加载时明确提示，不使用当前 Head 冒充。桌面工作台的结构树与属性栏占据独立网格列，不覆盖视口；窄于 800px 时属性栏改为可关闭的覆盖面板。命令组在空间不足时水平滚动。
 
 交互边界：树筛选保留命中节点的祖先，命中父节点时保留其子树，不修改模型或选择身份；清空筛选恢复原展开状态。方向键/Home/End 移动树焦点，Enter/Space 选择。输入框、按钮、树与对话框中的按键不交给视口工具。浏览器原生右键仅在 CAD 视口和树节点上被接管。命令面板的持久位置统一进入 `ui-preferences` v4；旧的独立 `occccad.command-dialog.*` 键不再读取，新面板采用默认位置。
 

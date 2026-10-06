@@ -895,16 +895,31 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 			return err
 		}
 		normalizePartModel(&model)
-		if err = resolveRuntimeParameters(ctx, &model); err != nil {
-			return err
+		// Display compensation uses the same frozen geometry as a display command.
+		// No parameter/publication preparation or solid evaluation is necessary.
+		displayOnly := len(input.changes.Changes) > 0
+		for _, change := range input.changes.Changes {
+			if !strings.HasPrefix(change.Target.SlotID, "display.") {
+				displayOnly = false
+				break
+			}
 		}
-		if err = service.resolvePartPublications(ctx, input.documentID, input.requestID, revisionID, &model); err != nil {
-			return err
+		if !displayOnly {
+			if err = resolveRuntimeParameters(ctx, &model); err != nil {
+				return err
+			}
+			if err = service.resolvePartPublications(ctx, input.documentID, input.requestID, revisionID, &model); err != nil {
+				return err
+			}
 		}
 		if _, failedRevision, failedEvaluation, unresolved := unresolvedExternalRevisionOutcome(model); unresolved {
 			revisionState, evaluationStatus = failedRevision, failedEvaluation
 			for i := range model.Bodies {
 				model.Bodies[i].GeometryKey = ""
+			}
+		} else if displayOnly {
+			if partHasFailedFeature(model) {
+				revisionState, evaluationStatus = "FAILED", "FAILED"
 			}
 		} else {
 			err = service.evaluatePartBodies(ctx, input.requestID, &model)

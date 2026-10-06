@@ -278,7 +278,7 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
             canToggleNodeVisibility(node.kind) && !["INSTANCE", "BODY", "SKETCH", "SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT"].includes(node.kind ?? "")
               ? { key: "session-visibility", icon: <ContextMenuIcon><EyeInvisibleOutlined /></ContextMenuIcon>, label: node.hidden ? "显示（临时）" : "隐藏（临时）",
                 onClick: () => { setContextMenu(undefined); onToggleVisibility?.(node,"SESSION"); } } : null,
-            node.kind==="PARAMETER"&&node.parameterAlias ? {key:"copy-alias",label:"复制参数别名",onClick:()=>{
+            node.kind==="PARAMETER"&&node.parameterAlias ? {key:"copy-alias",icon:<ContextMenuIcon />,label:"复制参数别名",onClick:()=>{
               setContextMenu(undefined);void copyTextToClipboard(node.parameterAlias!).then(ok=>{if(ok)message.success("已复制参数别名");else message.error("剪贴板不可用，请从参数列表选择别名复制");});
             }} : null,
             node.capabilities?.includes("SUPPRESS") ? { key: "suppress", icon: <ContextMenuIcon><PauseCircleOutlined /></ContextMenuIcon>,

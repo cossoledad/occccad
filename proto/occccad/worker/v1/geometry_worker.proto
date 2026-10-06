@@ -375,12 +375,17 @@ message ProjectExternalGeometryResponse {
     string diagnostic_code = 2;
     string diagnostic = 3;
     string source_digest = 4;
-    string geometry_kind = 5; // POINT | LINE | CIRCLE
+    string geometry_kind = 5; // POINT | LINE | CIRCLE | ARC | ELLIPSE | ELLIPTICAL_ARC
     Vec2 point = 6;
     Vec2 start = 7;
     Vec2 end = 8;
     Vec2 center = 9;
     double radius = 10;
+    double major_radius = 11;
+    double minor_radius = 12;
+    double rotation = 13;
+    double start_angle = 14;
+    double end_angle = 15;
 }
 
 message EvaluatePartRequest {
@@ -658,6 +663,7 @@ message SelectionEvidence {
     optional int32 cone_leaf = 14;
     optional int32 material_side = 15;
     Vec3 x_direction = 16;
+    optional double minor_radius_mm = 17; // ellipse major radius uses radius_mm
 }
 
 message PersistentSelection {
@@ -787,6 +793,7 @@ message NamingEvidence {
     optional int32 cone_leaf = 9;
     optional int32 material_side = 17;
     Vec3 x_direction = 18;
+    optional double minor_radius_mm = 19;
     oneof geometry {
         NamingFrame plane = 10;
         NamingFrame cylinder = 11;

@@ -221,6 +221,7 @@ void fill_selection_evidence(const occccad::kernel::SelectionEvidence& source,
                              worker_api::SelectionEvidence* target) {
     target->set_geometry_type(source.geometry_type);
     if (source.radius_mm) target->set_radius_mm(*source.radius_mm);
+    if (source.minor_radius_mm) target->set_minor_radius_mm(*source.minor_radius_mm);
     if (source.half_angle_radians) target->set_half_angle_radians(*source.half_angle_radians);
     if (source.cone_leaf) target->set_cone_leaf(*source.cone_leaf);
     if (source.material_side) target->set_material_side(*source.material_side);
@@ -801,6 +802,9 @@ public:
         source.has_parameters = evidence.has_parameter_start() && evidence.has_parameter_end();
         source.parameter_start = evidence.parameter_start();
         source.parameter_end = evidence.parameter_end();
+        source.x_direction = vec(evidence.x_direction());
+        source.radius = evidence.radius_mm();
+        source.minor_radius = evidence.minor_radius_mm();
         if (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED && evidence.geometry_type()=="AXIS") {
             source.kind=sketch_api::ExternalSourceKind::axis;
         } else if ((input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_VERTEX || input.topology_type()==worker_api::PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED) &&
@@ -812,10 +816,12 @@ public:
         } else if (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE &&
                    evidence.geometry_type() == "CIRCLE") {
             source.kind = sketch_api::ExternalSourceKind::circle;
+        } else if (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE && evidence.geometry_type() == "ELLIPSE") {
+            source.kind = sketch_api::ExternalSourceKind::ellipse;
         } else {
             response->set_status("UNRESOLVED_EXTERNAL");
             response->set_diagnostic_code("EXTERNAL_SOURCE_TYPE_MISMATCH");
-            response->set_diagnostic("only linear/circular Edge and Vertex sources are supported");
+            response->set_diagnostic("projection requires a point, axis, line, circle/arc or ellipse/elliptical arc edge");
             response->set_source_digest(evidence.evidence_digest());
             return grpc::Status::OK;
         }
@@ -834,6 +840,13 @@ public:
             target->set_x(value.x);
             target->set_y(value.y);
         };
+        fill(projected.center, response->mutable_center());
+        response->set_radius(projected.radius);
+        response->set_major_radius(projected.major_radius);
+        response->set_minor_radius(projected.minor_radius);
+        response->set_rotation(projected.rotation);
+        response->set_start_angle(projected.start_angle);
+        response->set_end_angle(projected.end_angle);
         switch (projected.kind) {
             case sketch_api::ProjectedGeometryKind::point:
                 response->set_geometry_kind("POINT");
@@ -849,6 +862,9 @@ public:
                 fill(projected.center, response->mutable_center());
                 response->set_radius(projected.radius);
                 break;
+            case sketch_api::ProjectedGeometryKind::arc: response->set_geometry_kind("ARC"); break;
+            case sketch_api::ProjectedGeometryKind::ellipse: response->set_geometry_kind("ELLIPSE"); break;
+            case sketch_api::ProjectedGeometryKind::elliptical_arc: response->set_geometry_kind("ELLIPTICAL_ARC"); break;
             default:
                 return {grpc::StatusCode::INTERNAL, "projection returned no geometry"};
         }

@@ -18,7 +18,7 @@ struct ProjectionFrame {
     Vec3 normal;
 };
 
-enum class ExternalSourceKind { point, line, circle, axis };
+enum class ExternalSourceKind { point, line, circle, axis, ellipse };
 
 struct ExternalProjectionSource {
     ExternalSourceKind kind{ExternalSourceKind::point};
@@ -28,10 +28,13 @@ struct ExternalProjectionSource {
     double parameter_start{};
     double parameter_end{};
     bool has_parameters{};
+    Vec3 x_direction;
+    double radius{};
+    double minor_radius{};
 };
 
 enum class ExternalProjectionStatus { connected, unresolved };
-enum class ProjectedGeometryKind { none, point, line, circle };
+enum class ProjectedGeometryKind { none, point, line, circle, arc, ellipse, elliptical_arc };
 
 struct ExternalProjectionResult {
     ExternalProjectionStatus status{ExternalProjectionStatus::unresolved};
@@ -41,6 +44,7 @@ struct ExternalProjectionResult {
     Vec2 end;
     Vec2 center;
     double radius{};
+    double major_radius{}, minor_radius{}, rotation{}, start_angle{}, end_angle{};
     std::string diagnostic_code;
     std::string diagnostic;
 };

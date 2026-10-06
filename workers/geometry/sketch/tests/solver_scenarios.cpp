@@ -481,6 +481,8 @@ TEST(ExternalGeometryProjector, ProjectsFullCircleAndPerpendicularLineAsPoint) {
     circle.kind = ExternalSourceKind::circle;
     circle.origin = {5.0, 6.0, 4.0};
     circle.direction = {0.0, 0.0, -1.0};
+    circle.x_direction = {1,0,0};
+    circle.radius = 3;
     circle.parameter_start = 0.0;
     circle.parameter_end = 2.0 * 3.14159265358979323846;
     circle.measure_mm = circle.parameter_end * 3.0;
@@ -530,7 +532,7 @@ TEST(ExternalGeometryProjector, ProjectsBottomSupportDiagnosticEdgeAsPoint) {
               "EXTERNAL_SOURCE_CONTRACT_INCOMPLETE");
 }
 
-TEST(ExternalGeometryProjector, RejectsPartialCircleUntilArcEvidenceIsAvailable) {
+TEST(ExternalGeometryProjector, RejectsPartialCircleWithoutOrientedEvidence) {
     const ProjectionFrame frame{{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
     ExternalProjectionSource arc;
     arc.kind = ExternalSourceKind::circle;
@@ -544,7 +546,7 @@ TEST(ExternalGeometryProjector, RejectsPartialCircleUntilArcEvidenceIsAvailable)
     const auto projected = project_external_geometry(arc, frame);
 
     EXPECT_EQ(projected.status, ExternalProjectionStatus::unresolved);
-    EXPECT_EQ(projected.diagnostic_code, "EXTERNAL_PROJECTION_TYPE_UNSUPPORTED");
+    EXPECT_EQ(projected.diagnostic_code, "EXTERNAL_SOURCE_CONTRACT_INCOMPLETE");
 }
 }  // namespace occccad::geometry::sketch
 
@@ -2031,3 +2033,30 @@ TEST(PlaneGcsSketchSolver, DragObjectivesRespectFixedAndDirectionConstraints) {
 }
 
 } // namespace occccad::geometry::sketch
+
+TEST(ExternalGeometryProjector, ProjectsConicsWithTrimAndReflection) {
+    using namespace occccad::geometry::sketch;
+    constexpr double pi=3.14159265358979323846;
+    ExternalProjectionSource source;
+    source.kind=ExternalSourceKind::circle;source.origin={3,4,7};source.direction={0,0,1};source.x_direction={1,0,0};source.radius=10;source.has_parameters=true;source.parameter_start=pi/4;source.parameter_end=5*pi/4;
+    auto arc=project_external_geometry(source,{{0,0,0},{1,0,0},{0,0,1}});
+    ASSERT_EQ(arc.kind,ProjectedGeometryKind::arc);EXPECT_NEAR(arc.start_angle,pi/4,1e-10);EXPECT_NEAR(arc.end_angle,5*pi/4,1e-10);
+    auto ellipse=project_external_geometry(source,{{0,0,0},{1,0,0},{0,std::sqrt(0.75),0.5}});
+    ASSERT_EQ(ellipse.kind,ProjectedGeometryKind::elliptical_arc);EXPECT_NEAR(ellipse.major_radius,10,1e-10);EXPECT_NEAR(ellipse.minor_radius,5,1e-10);EXPECT_NEAR(ellipse.end_angle-ellipse.start_angle,pi,1e-10);
+    auto reflected=project_external_geometry(source,{{0,0,0},{1,0,0},{0,0,-1}});
+    ASSERT_EQ(reflected.kind,ProjectedGeometryKind::arc);EXPECT_NEAR(std::cos(reflected.start_angle),std::cos(source.parameter_end),1e-10);EXPECT_NEAR(std::sin(reflected.start_angle),-std::sin(source.parameter_end),1e-10);
+    source.kind=ExternalSourceKind::ellipse;source.minor_radius=4;
+    auto exact=project_external_geometry(source,{{0,0,0},{1,0,0},{0,0,1}});
+    ASSERT_EQ(exact.kind,ProjectedGeometryKind::elliptical_arc);EXPECT_NEAR(exact.minor_radius,4,1e-10);
+    source.parameter_start=0;source.parameter_end=2*pi;
+    auto full=project_external_geometry(source,{{0,0,0},{1,0,0},{0,0,1}});
+    EXPECT_EQ(full.kind,ProjectedGeometryKind::ellipse);
+}
+TEST(ExternalGeometryProjector, EdgeOnArcIncludesInteriorExtrema) {
+    using namespace occccad::geometry::sketch;
+    constexpr double pi=3.14159265358979323846;
+    ExternalProjectionSource source;
+    source.kind=ExternalSourceKind::circle;source.direction={0,0,1};source.x_direction={1,0,0};source.radius=10;source.has_parameters=true;source.parameter_start=-pi/4;source.parameter_end=pi/4;
+    auto line=project_external_geometry(source,{{0,0,0},{1,0,0},{0,1,0}});
+    ASSERT_EQ(line.kind,ProjectedGeometryKind::line);EXPECT_NEAR(line.start.x,10/std::sqrt(2.),1e-10);EXPECT_NEAR(line.end.x,10,1e-10);
+}

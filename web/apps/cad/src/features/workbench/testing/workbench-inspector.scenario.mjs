@@ -63,3 +63,36 @@ view.part.bodies[0]={...view.part.bodies[0],geometryKey:undefined,displayFallbac
 const failedHTML=renderToStaticMarkup(React.createElement(PartBodies,{view}));
 assert.ok(failedHTML.includes("上次成功结果"));
 assert.equal((failedHTML.match(/>Download</g)??[]).length,3,"failed body has no authoritative artifact downloads");
+
+const dimension={Length:1,Mass:0,Time:0,Current:0,Temperature:0,Amount:0,Luminous:0,Semantic:''};
+const parameter={parameterId:'parameter-stable',key:'p111',label:'Plane offset',ownerFeatureId:'plane-stable',propertySlot:'datum:distance',lifecycle:'DATUM_REQUIRED',valueType:'QUANTITY',dimension,displayUnit:'mm',role:'DRIVING',
+  source:{expression:{sourceText:'r_1 + 4',reads:['parameter:upstream-stable'],ast:{kind:'binary',operator:'+',left:{parameterId:'upstream-stable'}}}},evaluatedValue:{siValue:0.0123456789012345,dimension}};
+view.part.parameters=[parameter];
+const props={view,workbench:Object.keys(CAD_WORKBENCHES)[0],activeTool:'select',navigationProfile:'cad'};
+const render=selection=>renderToStaticMarkup(React.createElement(Properties,{...props,selection}));
+const parameterHTML=render({kind:'parameter',id:'parameter-stable',entityId:'parameter-stable',documentId:'part',versionId:'revision'});
+for(const value of ['p111','datum:distance','DATUM_REQUIRED','DRIVING','QUANTITY','upstream-stable','0.0123456789012345','完整对象数据与上下文'])assert(parameterHTML.includes(value),`parameter field missing: ${value}`);
+assert(!/<button|<input|contenteditable/.test(parameterHTML),'complete parameter details are read-only');
+assert(parameterHTML.includes('<details class="inspector-diagnostics" open=""'),'complete details are visible initially');
+view.part.datumAxes[0].definition={source:{kind:'AXIS_SYSTEM',entityId:'frame-stable',axis:'Z'},angle:25,distance:13};
+assert(render({kind:'axis',axis:'DATUM',id:'axis-custom',entityId:'axis-custom'}).includes('frame-stable'),'datum transform references are retained');
+view.part.features=[{id:'feature-stable',type:'LOFT',name:'Loft',sections:[{sketchId:'section-stable'}],evaluationStatus:'FAILED',diagnostic:'exact-diagnostic'}];
+for(const value of ['section-stable','exact-diagnostic'])assert(render({kind:'feature',id:'feature-stable'}).includes(value),'full feature definition/diagnostic missing');
+
+const {inspectorObjectData}=load(fileURLToPath(new URL('../inspector-object-data.ts',import.meta.url)));
+const foreign={kind:'parameter',id:'parameter-stable',documentId:'other-part',versionId:'other-revision',occurrencePath:'instance/b'};
+assert.equal(inspectorObjectData(view,foreign).object,undefined,'foreign selection must not fall back to a same-id root parameter');
+assert.equal(inspectorObjectData(view,{...foreign,documentId:'part',versionId:'old-revision'}).object,undefined,'historical selection must not use current definitions');
+const owner={document:{...view.document,id:'other-part',versionId:'other-revision'},part:{...view.part,parameters:[{...parameter,key:'other_alias'}]}};
+assert.equal(inspectorObjectData(view,foreign,undefined,undefined,undefined,owner).object.key,'other_alias');
+assert.equal(inspectorObjectData(view,{...foreign,versionId:'pinned-revision'},undefined,undefined,undefined,owner).object,undefined,'latest owner data must not impersonate a pinned revision');
+const unrelated=inspectorObjectData(view,{kind:'feature',id:'unknown'});
+assert.equal(unrelated.parameters,undefined,'unknown object must not show all unrelated document parameters');
+console.log('Complete parameter/feature/datum data, read-only rendering and selected Revision/owner scope passed');
+
+const face={kind:'face',id:'face',topologyId:7,geometryKey:'selected-key',documentId:'part',versionId:'revision'};
+const response={kind:'FACE',localId:7,geometryKey:'selected-key',properties:{exactPrecision:0.0123456789012345},persistentSelection:{anchor:{featureId:'feature-stable',outputSlot:'root-face'}}};
+assert.equal(inspectorObjectData(view,face,undefined,response).object,response);
+for(const stale of [{...response,geometryKey:'other-key'},{...response,localId:8},{...response,kind:'EDGE'}])assert.equal(inspectorObjectData(view,face,undefined,stale).object,undefined,'topology details must match the selected geometry snapshot');
+const errorHTML=renderToStaticMarkup(React.createElement(Properties,{...props,selection:face,readErrors:{topology:'specific-topology-error'}}));
+assert(errorHTML.includes('specific-topology-error')&&errorHTML.includes('selected-key'),'failed read retains selection context and diagnostic');

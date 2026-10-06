@@ -88,6 +88,7 @@ struct SelectionEvidence {
     // Analytic support values. Lengths are Part-local mm, angles radians;
     // these optional fields are absent in older frozen naming evidence.
     std::optional<double> radius_mm;
+    std::optional<double> minor_radius_mm;
     std::optional<double> half_angle_radians;
     std::optional<int> cone_leaf;
     std::optional<int> material_side;

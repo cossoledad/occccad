@@ -1,3 +1,4 @@
+import { inspectorObjectData, inspectorOwnerDocumentId, inspectorTopologyData } from "./inspector-object-data";
 import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
 import { referencePropertyRows } from "./reference-properties";
 import {formatDisplayNumber} from "../../utils/display-number";
@@ -18,6 +19,7 @@ import { sketchProfileFeedback } from "../../cad/sketch/sketch-profile-analysis"
 
 type PropertiesProps = {
   view: DocumentView;
+  ownerView?: DocumentView;
   selection: Selection;
   feature?: Feature;
   workbench: keyof typeof CAD_WORKBENCHES;
@@ -27,12 +29,35 @@ type PropertiesProps = {
   diagnostics?: DocumentProperties;
   topology?: TopologyElementProperties;
   topologyLoading?: boolean;
+  readErrors?: {owner?:string;diagnostics?:string;topology?:string};
   onEditParameter?: (id:string) => void;
   onEditPublication?: (id:string,kind:"PART"|"PRODUCT") => void;
 };
 
-export function Properties({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading,
-  onEditParameter, onEditPublication }: PropertiesProps) {
+export function Properties(props: PropertiesProps) {
+  const {view,selection,ownerView}=props;
+  const data=inspectorObjectData(view,selection,props.feature,props.topology,props.diagnostics,ownerView);
+  const target=inspectorOwnerDocumentId(view,selection);
+  const candidate=target===view.document.id ? view : ownerView;
+  const definitionView=candidate?.document.id===target && (!selection?.versionId||candidate.document.versionId===selection.versionId) ? candidate : undefined;
+  const summaryView=definitionView ?? (selection && (["body","face","edge","vertex","instance"].includes(selection.kind)||Boolean(selection.publication)) ? view : undefined);
+  const featureID=selection?.entityId ?? selection?.id;
+  const selectedFeature=definitionView?.part?.features.find(item=>item.id===featureID);
+  return <>
+    {summaryView ? <PropertySummary {...props} view={summaryView} feature={selectedFeature}
+      topology={inspectorTopologyData(selection,props.topology)}
+      onEditParameter={summaryView===view ? props.onEditParameter : undefined}
+      onEditPublication={summaryView===view ? props.onEditPublication : undefined} />
+      : <Typography.Text type="secondary">所选文档与 Revision 的完整定义尚未加载。</Typography.Text>}
+    <details className="inspector-diagnostics" open>
+      <summary>完整对象数据与上下文</summary>
+      <pre className="inspector-object-data" aria-label="完整对象数据">{JSON.stringify({...data,readErrors:props.readErrors},null,2)}</pre>
+    </details>
+  </>;
+}
+
+function PropertySummary({ view, selection, feature, workbench, sketchPlane, activeTool, navigationProfile, diagnostics, topology, topologyLoading,
+  onEditParameter, onEditPublication, readErrors }: PropertiesProps) {
 	const parameterFor = (parameterId?: string) => view.part?.parameters?.find((parameter) => parameter.parameterId === parameterId);
 	const parameterItems = (parameterId?: string) => {
 		const parameter = parameterFor(parameterId);
@@ -46,6 +71,22 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
 			...(onEditParameter ? [{key:"parameter-edit",label:"操作",children:<Button size="small" onClick={()=>onEditParameter(parameter.parameterId)}>编辑参数</Button>}] : []),
 		];
 	};
+  if (selection?.kind === "parameter") {
+    const parameter=parameterFor(selection.entityId ?? selection.id);
+    if (!parameter) return <Typography.Text type="secondary">所选快照的参数定义尚未加载。</Typography.Text>;
+    return <Descriptions column={1} size="small" bordered className="property-list" items={[
+      ...parameterItems(parameter.parameterId),
+      {key:"alias-key",label:"引用别名",children:parameter.key},
+      {key:"owner",label:"所有者",children:parameter.ownerFeatureId ?? "文档参数"},
+      {key:"slot",label:"属性槽",children:parameter.propertySlot ?? "—"},
+      {key:"lifecycle",label:"生命周期",children:parameter.lifecycle ?? "—"},
+      {key:"value-type",label:"值类型",children:parameter.valueType},
+      {key:"unit",label:"显示单位",children:parameter.displayUnit || "无量纲"},
+      {key:"role",label:"角色",children:parameter.role},
+      {key:"dimension",label:"量纲",children:JSON.stringify(parameter.dimension)},
+      {key:"si",label:"SI 值",children:parameter.evaluatedValue?.siValue ?? "未求值"},
+    ]} />;
+  }
   if (selection?.publicationId) {
     const publication = selection.publication ?? view.part?.publications?.find((candidate) => candidate.id === selection.publicationId);
     if (publication) return <><div className="property-context-hint">Publication · 稳定公开契约</div>
@@ -152,6 +193,7 @@ export function Properties({ view, selection, feature, workbench, sketchPlane, a
     const format = (value: unknown): string => Array.isArray(value)
       ? value.map((entry) => typeof entry === "number" ? formatDisplayNumber(entry) : String(entry)).join(", ")
       : typeof value === "number" ? formatDisplayNumber(value) : String(value);
+    if (readErrors?.topology) return <Typography.Text type="secondary">精确拓扑属性读取未完成：{readErrors.topology}</Typography.Text>;
     if (topologyLoading || !topology) return <Spin size="small" tip="从 Geometry Worker 读取 B-Rep…" />;
     return <><div className="property-context-hint">OCCT B-Rep 拓扑属性</div><Descriptions column={1} size="small"
       bordered className="property-list" items={[

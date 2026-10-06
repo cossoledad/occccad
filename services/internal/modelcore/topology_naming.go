@@ -79,6 +79,7 @@ type SelectionRecipe struct {
 }
 
 type TopologySelectionEvidence struct {
+	MinorRadiusMM    *float64              `json:"minorRadiusMM,omitempty"`
 	RadiusMM         *float64              `json:"radiusMM,omitempty"`
 	HalfAngleRadians *float64              `json:"halfAngleRadians,omitempty"`
 	ConeLeaf         *int32                `json:"coneLeaf,omitempty"`

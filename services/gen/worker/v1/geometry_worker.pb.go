@@ -3310,12 +3310,17 @@ type ProjectExternalGeometryResponse struct {
 	DiagnosticCode string                 `protobuf:"bytes,2,opt,name=diagnostic_code,json=diagnosticCode,proto3" json:"diagnostic_code,omitempty"`
 	Diagnostic     string                 `protobuf:"bytes,3,opt,name=diagnostic,proto3" json:"diagnostic,omitempty"`
 	SourceDigest   string                 `protobuf:"bytes,4,opt,name=source_digest,json=sourceDigest,proto3" json:"source_digest,omitempty"`
-	GeometryKind   string                 `protobuf:"bytes,5,opt,name=geometry_kind,json=geometryKind,proto3" json:"geometry_kind,omitempty"` // POINT | LINE | CIRCLE
+	GeometryKind   string                 `protobuf:"bytes,5,opt,name=geometry_kind,json=geometryKind,proto3" json:"geometry_kind,omitempty"` // POINT | LINE | CIRCLE | ARC | ELLIPSE | ELLIPTICAL_ARC
 	Point          *Vec2                  `protobuf:"bytes,6,opt,name=point,proto3" json:"point,omitempty"`
 	Start          *Vec2                  `protobuf:"bytes,7,opt,name=start,proto3" json:"start,omitempty"`
 	End            *Vec2                  `protobuf:"bytes,8,opt,name=end,proto3" json:"end,omitempty"`
 	Center         *Vec2                  `protobuf:"bytes,9,opt,name=center,proto3" json:"center,omitempty"`
 	Radius         float64                `protobuf:"fixed64,10,opt,name=radius,proto3" json:"radius,omitempty"`
+	MajorRadius    float64                `protobuf:"fixed64,11,opt,name=major_radius,json=majorRadius,proto3" json:"major_radius,omitempty"`
+	MinorRadius    float64                `protobuf:"fixed64,12,opt,name=minor_radius,json=minorRadius,proto3" json:"minor_radius,omitempty"`
+	Rotation       float64                `protobuf:"fixed64,13,opt,name=rotation,proto3" json:"rotation,omitempty"`
+	StartAngle     float64                `protobuf:"fixed64,14,opt,name=start_angle,json=startAngle,proto3" json:"start_angle,omitempty"`
+	EndAngle       float64                `protobuf:"fixed64,15,opt,name=end_angle,json=endAngle,proto3" json:"end_angle,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
@@ -3416,6 +3421,41 @@ func (x *ProjectExternalGeometryResponse) GetCenter() *Vec2 {
 func (x *ProjectExternalGeometryResponse) GetRadius() float64 {
 	if x != nil {
 		return x.Radius
+	}
+	return 0
+}
+
+func (x *ProjectExternalGeometryResponse) GetMajorRadius() float64 {
+	if x != nil {
+		return x.MajorRadius
+	}
+	return 0
+}
+
+func (x *ProjectExternalGeometryResponse) GetMinorRadius() float64 {
+	if x != nil {
+		return x.MinorRadius
+	}
+	return 0
+}
+
+func (x *ProjectExternalGeometryResponse) GetRotation() float64 {
+	if x != nil {
+		return x.Rotation
+	}
+	return 0
+}
+
+func (x *ProjectExternalGeometryResponse) GetStartAngle() float64 {
+	if x != nil {
+		return x.StartAngle
+	}
+	return 0
+}
+
+func (x *ProjectExternalGeometryResponse) GetEndAngle() float64 {
+	if x != nil {
+		return x.EndAngle
 	}
 	return 0
 }
@@ -5312,6 +5352,7 @@ type SelectionEvidence struct {
 	ConeLeaf         *int32                 `protobuf:"varint,14,opt,name=cone_leaf,json=coneLeaf,proto3,oneof" json:"cone_leaf,omitempty"`
 	MaterialSide     *int32                 `protobuf:"varint,15,opt,name=material_side,json=materialSide,proto3,oneof" json:"material_side,omitempty"`
 	XDirection       *Vec3                  `protobuf:"bytes,16,opt,name=x_direction,json=xDirection,proto3" json:"x_direction,omitempty"`
+	MinorRadiusMm    *float64               `protobuf:"fixed64,17,opt,name=minor_radius_mm,json=minorRadiusMm,proto3,oneof" json:"minor_radius_mm,omitempty"` // ellipse major radius uses radius_mm
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -5456,6 +5497,13 @@ func (x *SelectionEvidence) GetXDirection() *Vec3 {
 		return x.XDirection
 	}
 	return nil
+}
+
+func (x *SelectionEvidence) GetMinorRadiusMm() float64 {
+	if x != nil && x.MinorRadiusMm != nil {
+		return *x.MinorRadiusMm
+	}
+	return 0
 }
 
 type PersistentSelection struct {
@@ -6724,6 +6772,7 @@ type NamingEvidence struct {
 	ConeLeaf         *int32                 `protobuf:"varint,9,opt,name=cone_leaf,json=coneLeaf,proto3,oneof" json:"cone_leaf,omitempty"`
 	MaterialSide     *int32                 `protobuf:"varint,17,opt,name=material_side,json=materialSide,proto3,oneof" json:"material_side,omitempty"`
 	XDirection       *Vec3                  `protobuf:"bytes,18,opt,name=x_direction,json=xDirection,proto3" json:"x_direction,omitempty"`
+	MinorRadiusMm    *float64               `protobuf:"fixed64,19,opt,name=minor_radius_mm,json=minorRadiusMm,proto3,oneof" json:"minor_radius_mm,omitempty"`
 	// Types that are valid to be assigned to Geometry:
 	//
 	//	*NamingEvidence_Plane
@@ -6843,6 +6892,13 @@ func (x *NamingEvidence) GetXDirection() *Vec3 {
 		return x.XDirection
 	}
 	return nil
+}
+
+func (x *NamingEvidence) GetMinorRadiusMm() float64 {
+	if x != nil && x.MinorRadiusMm != nil {
+		return *x.MinorRadiusMm
+	}
+	return 0
 }
 
 func (x *NamingEvidence) GetGeometry() isNamingEvidence_Geometry {
@@ -11617,7 +11673,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12'\n" +
 	"\x0fprojection_kind\x18\x02 \x01(\tR\x0eprojectionKind\x12B\n" +
 	"\x06source\x18\x03 \x01(\v2*.occccad.worker.v1.ResolvedTopologyElementR\x06source\x12>\n" +
-	"\x05frame\x18\x04 \x01(\v2(.occccad.worker.v1.SketchProjectionFrameR\x05frame\"\x9e\x03\n" +
+	"\x05frame\x18\x04 \x01(\v2(.occccad.worker.v1.SketchProjectionFrameR\x05frame\"\xbe\x04\n" +
 	"\x1fProjectExternalGeometryResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12'\n" +
 	"\x0fdiagnostic_code\x18\x02 \x01(\tR\x0ediagnosticCode\x12\x1e\n" +
@@ -11631,7 +11687,13 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x03end\x18\b \x01(\v2\x17.occccad.worker.v1.Vec2R\x03end\x12/\n" +
 	"\x06center\x18\t \x01(\v2\x17.occccad.worker.v1.Vec2R\x06center\x12\x16\n" +
 	"\x06radius\x18\n" +
-	" \x01(\x01R\x06radius\"\xe6\x06\n" +
+	" \x01(\x01R\x06radius\x12!\n" +
+	"\fmajor_radius\x18\v \x01(\x01R\vmajorRadius\x12!\n" +
+	"\fminor_radius\x18\f \x01(\x01R\vminorRadius\x12\x1a\n" +
+	"\brotation\x18\r \x01(\x01R\brotation\x12\x1f\n" +
+	"\vstart_angle\x18\x0e \x01(\x01R\n" +
+	"startAngle\x12\x1b\n" +
+	"\tend_angle\x18\x0f \x01(\x01R\bendAngle\"\xe6\x06\n" +
 	"\x13EvaluatePartRequest\x12\x1d\n" +
 	"\n" +
 	"request_id\x18\x01 \x01(\tR\trequestId\x12!\n" +
@@ -11832,7 +11894,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"source_ids\x18\x03 \x03(\tR\tsourceIds\"\x91\x01\n" +
 	"\x0fSelectionRecipe\x12:\n" +
 	"\x04kind\x18\x01 \x01(\x0e2&.occccad.worker.v1.SelectionRecipeKindR\x04kind\x12B\n" +
-	"\boperands\x18\x02 \x03(\v2&.occccad.worker.v1.SemanticTopologyRefR\boperands\"\xe5\x06\n" +
+	"\boperands\x18\x02 \x03(\v2&.occccad.worker.v1.SemanticTopologyRefR\boperands\"\xa6\a\n" +
 	"\x11SelectionEvidence\x12#\n" +
 	"\rgeometry_type\x18\x01 \x01(\tR\fgeometryType\x12\"\n" +
 	"\n" +
@@ -11852,7 +11914,8 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\tcone_leaf\x18\x0e \x01(\x05H\x05R\bconeLeaf\x88\x01\x01\x12(\n" +
 	"\rmaterial_side\x18\x0f \x01(\x05H\x06R\fmaterialSide\x88\x01\x01\x128\n" +
 	"\vx_direction\x18\x10 \x01(\v2\x17.occccad.worker.v1.Vec3R\n" +
-	"xDirectionB\r\n" +
+	"xDirection\x12+\n" +
+	"\x0fminor_radius_mm\x18\x11 \x01(\x01H\aR\rminorRadiusMm\x88\x01\x01B\r\n" +
 	"\v_measure_siB\x12\n" +
 	"\x10_parameter_startB\x10\n" +
 	"\x0e_parameter_endB\f\n" +
@@ -11861,7 +11924,8 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x13_half_angle_radiansB\f\n" +
 	"\n" +
 	"_cone_leafB\x10\n" +
-	"\x0e_material_side\"\xb3\x03\n" +
+	"\x0e_material_sideB\x12\n" +
+	"\x10_minor_radius_mm\"\xb3\x03\n" +
 	"\x13PersistentSelection\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\rR\rschemaVersion\x12,\n" +
 	"\x12source_document_id\x18\x02 \x01(\tR\x10sourceDocumentId\x12$\n" +
@@ -11972,7 +12036,7 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x13NamingOtherGeometry\x12\x16\n" +
 	"\x06family\x18\x01 \x01(\tR\x06family\x124\n" +
 	"\x05frame\x18\x02 \x01(\v2\x1e.occccad.worker.v1.NamingFrameR\x05frame\x129\n" +
-	"\x05range\x18\x03 \x01(\v2#.occccad.worker.v1.NamingCurveRangeR\x05range\"\xd3\a\n" +
+	"\x05range\x18\x03 \x01(\v2#.occccad.worker.v1.NamingCurveRangeR\x05range\"\x94\b\n" +
 	"\x0eNamingEvidence\x123\n" +
 	"\bcentroid\x18\x01 \x01(\v2\x17.occccad.worker.v1.Vec3R\bcentroid\x12\"\n" +
 	"\n" +
@@ -11986,7 +12050,8 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\tcone_leaf\x18\t \x01(\x05H\x04R\bconeLeaf\x88\x01\x01\x12(\n" +
 	"\rmaterial_side\x18\x11 \x01(\x05H\x05R\fmaterialSide\x88\x01\x01\x128\n" +
 	"\vx_direction\x18\x12 \x01(\v2\x17.occccad.worker.v1.Vec3R\n" +
-	"xDirection\x126\n" +
+	"xDirection\x12+\n" +
+	"\x0fminor_radius_mm\x18\x13 \x01(\x01H\x06R\rminorRadiusMm\x88\x01\x01\x126\n" +
 	"\x05plane\x18\n" +
 	" \x01(\v2\x1e.occccad.worker.v1.NamingFrameH\x00R\x05plane\x12<\n" +
 	"\bcylinder\x18\v \x01(\v2\x1e.occccad.worker.v1.NamingFrameH\x00R\bcylinder\x124\n" +
@@ -12003,7 +12068,8 @@ const file_occccad_worker_v1_geometry_worker_proto_rawDesc = "" +
 	"\x13_half_angle_radiansB\f\n" +
 	"\n" +
 	"_cone_leafB\x10\n" +
-	"\x0e_material_side\"\xc1\x01\n" +
+	"\x0e_material_sideB\x12\n" +
+	"\x10_minor_radius_mm\"\xc1\x01\n" +
 	"\x15NamingTopologyLocator\x12N\n" +
 	"\rtopology_type\x18\x01 \x01(\x0e2).occccad.worker.v1.PersistentTopologyTypeR\ftopologyType\x12\x19\n" +
 	"\blocal_id\x18\x02 \x01(\x04R\alocalId\x12!\n" +

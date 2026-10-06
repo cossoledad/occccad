@@ -278,13 +278,25 @@ type SketchEntity struct {
 	Suppressed bool `json:"suppressed,omitempty"`
 }
 type SketchExternalGeometrySnapshot struct {
-	Kind   string        `json:"kind"`
-	Point  *SketchPoint2 `json:"point,omitempty"`
-	Start  *SketchPoint2 `json:"start,omitempty"`
-	End    *SketchPoint2 `json:"end,omitempty"`
-	Center *SketchPoint2 `json:"center,omitempty"`
-	Radius float64       `json:"radius,omitempty"`
+	MajorRadius float64       `json:"majorRadius,omitempty"`
+	MinorRadius float64       `json:"minorRadius,omitempty"`
+	Rotation    float64       `json:"rotation,omitempty"`
+	StartAngle  float64       `json:"startAngle,omitempty"`
+	EndAngle    float64       `json:"endAngle,omitempty"`
+	Kind        string        `json:"kind"`
+	Point       *SketchPoint2 `json:"point,omitempty"`
+	Start       *SketchPoint2 `json:"start,omitempty"`
+	End         *SketchPoint2 `json:"end,omitempty"`
+	Center      *SketchPoint2 `json:"center,omitempty"`
+	Radius      float64       `json:"radius,omitempty"`
 }
+
+// entity adapts the evaluated snapshot to the existing sketch geometry contract.
+// The external reference remains the persistent owner; this is never a new entity.
+func (s *SketchExternalGeometrySnapshot) entity(id string) SketchEntity {
+	return SketchEntity{ID: id, Kind: s.Kind, Role: "CONSTRUCTION", Point: s.Point, Start: s.Start, End: s.End, Center: s.Center, Radius: s.Radius, MajorRadius: s.MajorRadius, MinorRadius: s.MinorRadius, Rotation: s.Rotation, StartAngle: s.StartAngle, EndAngle: s.EndAngle}
+}
+
 type SketchExternalGeometry struct {
 	DatumReference           *DatumReference                  `json:"datumReference,omitempty"`
 	ID                       string                           `json:"id"`

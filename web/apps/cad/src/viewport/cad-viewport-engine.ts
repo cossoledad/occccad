@@ -186,8 +186,7 @@ export type ViewportDebugState = {
 
 function sketchReferenceEntities(feature?: Feature): SketchEntity[] {
   return [...(feature?.sketch?.entities ?? []), ...(feature?.sketch?.externalGeometry ?? []).flatMap((external) => external.status==="CONNECTED"&&external.snapshot ? [{
-    infinite:Boolean(external.datumReference&&external.snapshot.kind==="LINE"),id: external.id, kind: external.snapshot.kind, role: "CONSTRUCTION" as const, point: external.snapshot.point,
-    start: external.snapshot.start, end: external.snapshot.end, center: external.snapshot.center, radius: external.snapshot.radius,
+    infinite:Boolean(external.datumReference&&external.snapshot.kind==="LINE"),id: external.id, role: "CONSTRUCTION" as const, ...external.snapshot,
   } satisfies SketchEntity] : [])];
 }
 
@@ -2508,8 +2507,8 @@ export class CadViewportEngine {
     const externalEntities = (feature.sketch?.externalGeometry ?? []).flatMap((external) => {
       const snapshot = external.snapshot;
       if (!snapshot) return [];
-      const entity: SketchEntity = { infinite:Boolean(external.datumReference&&snapshot.kind==="LINE"),id: external.id, kind: snapshot.kind, role: "CONSTRUCTION",
-        point: snapshot.point, start: snapshot.start, end: snapshot.end, center: snapshot.center, radius: snapshot.radius };
+      const entity: SketchEntity = { infinite:Boolean(external.datumReference&&snapshot.kind==="LINE"),id: external.id, role: "CONSTRUCTION",
+        ...snapshot };
       const type = snapshot.kind === "POINT" ? "POINT" as const : "CURVE" as const;
       const selection = { kind: "visual" as const, id: `${context.occurrencePath || "root"}:${feature.id}:${external.id}`, visualType: type,
         featureId: feature.id, entityId: external.id, role: "CONSTRUCTION" as const, documentId,
@@ -2537,6 +2536,15 @@ export class CadViewportEngine {
         object.renderOrder = SKETCH_FEEDBACK_ORDER.construction; object.userData = { ...selection, sketchEntityOverlay: true }; group.add(object);
         sketchEntityObjects.set(external.id, object); this.selectable.set(`visual:${selection.id}`, object);
         this.selectionIndex.register(selection, object); this.selectionIndex.registerPick(object, () => selection, type === "POINT" ? 65 : 60);
+      }
+      if (entity.center) {
+        const reference = {target: "EXTERNAL" as const, entityId: external.id, subElement: "CENTER" as const};
+        const center = new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(plane,[entity.center.x,entity.center.y])]),this.materials.point(color,8,false));
+        center.renderOrder=SKETCH_FEEDBACK_ORDER.constructionEndpoint;
+        const centerSelection={...selection,visualType:"POINT" as const,sketchReference:reference};
+        center.userData={...centerSelection,sketchEntityOverlay:true};group.add(center);
+        this.selectionIndex.registerPick(center,()=>centerSelection,80);
+        if(object)this.selectionIndex.associate(selection,center);
       }
       return [entity];
     });

@@ -1,8 +1,8 @@
 # 关联投影扩展设计
 
-> 未实现扩展设计，当前只支持已有 Edge/Vertex 投影。执行优先级见[后续工作](../../../plans/README.md)。
+> Face Boundary、Section、Silhouette 和一般曲线投影的扩展设计；单 Edge 的圆弧、椭圆及椭圆弧已贯通，当前事实见[Part Sketch](../current/part-sketch.md)。执行优先级见[后续工作](../../../plans/README.md)。
 
-trimmed Arc、边界、Section 是不同能力；草图可绘 Arc 不代表关联投影支持修剪圆弧。unsupported 不用近似替代。
+trimmed Arc、边界、Section 是不同能力；单 Edge 投影不代表 Face 边界组已经实现。unsupported 不用近似替代。
 
 ## 1. 为什么选择 Face 不能直接复用当前 Project
 
@@ -51,23 +51,16 @@ ExternalGeometry
 
 - 新增 typed `ADD_EXTERNAL_PROJECTION_GROUP`，selection capability 明确允许 Face；
 - 服务端从权威 B-Rep/TopologyManifest 枚举 Face boundary Edge，并为每个成员绑定 PersistentSelection；
-- Worker 复用 Point/Line/Circle 投影，并补齐 Arc、Ellipse 与受控 BSpline snapshot；
+- Worker 复用已有 Point/Line/Circle/Arc/Ellipse/EllipticalArc 投影，补齐受控 BSpline snapshot；
 - 结构树以一个 projection group 管理成员，支持整组/单成员显示、Reconnect 和 Detach；
 - Profile Builder 仍只消费明确闭合且无歧义的成员集合；seam、退化 Edge、重复投影和孔环方向产生稳定诊断；
 - 覆盖上游长度变化、孔增加、Edge split/merge/delete、Undo/Redo、冷重建和正式 Router。
 
 验收：选择 Pad 顶面后一次得到可辨识的外环和孔环；正常上游编辑保持成员 identity；成员拓扑变化不按数组位置错绑。
 
-### 单 Edge 的部分圆弧合同
+### 已贯通的单 Edge 合同
 
-在 Face group 之前先扩展现有单 Edge 投影，使布尔交线等 trimmed circular Edge 可以形成 `ARC` snapshot：
-
-- naming evidence 增加圆所在平面的稳定 X/Y 基向量、规范起始方向和有向 sweep，不能只用圆心、轴、长度及 OCCT 参数区间猜测端点；
-- Worker/Proto/Go/Web 同步增加 `ARC` snapshot、START/END/CENTER 子元素和 fixed geometry 约束适配；
-- 对 seam、反向参数化、跨 `0/2π`、近似整圆、镜像 frame 和投影后退化建立 corpus；
-- 单 Edge Arc 与随后 Face Boundary group 使用同一曲线表示和诊断，不增加只服务某个布尔案例的旁路。
-
-在该子批次完成前，部分圆弧必须稳定返回 `EXTERNAL_PROJECTION_TYPE_UNSUPPORTED`；新建/重连命令原子失败并保留旧 Head，不能静默创建 `UNRESOLVED_EXTERNAL` 或提交错误 artifact provenance。
+圆弧、椭圆及椭圆弧复用现有 ExternalGeometry、命名证据、fixed sketch geometry、Reconnect/Detach 与 CENTER 引用。未来 Face Boundary 成员应复用同一曲线合同；一般 BSpline、边界组和 Section 仍需独立验证稳定成员身份及资源限制。当前验证入口和能力见[Part Sketch](../current/part-sketch.md)。
 
 ## 4. Section 与 Silhouette
 
