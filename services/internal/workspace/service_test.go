@@ -871,7 +871,7 @@ func TestPartStructureNestsConsumedSketchUnderPad(t *testing.T) {
 		t.Fatalf("Origin must contain three planes and one axis system: %#v", children[0])
 	}
 	axisSystem := children[0].Children[3]
-	if len(axisSystem.Children) != 3 || axisSystem.Children[0].Axis != "X" || axisSystem.Children[1].Axis != "Y" || axisSystem.Children[2].Axis != "Z" {
+	if len(axisSystem.Children) != 4 || axisSystem.Children[0].Kind != "DATUM_POINT" || axisSystem.Children[1].Axis != "X" || axisSystem.Children[2].Axis != "Y" || axisSystem.Children[3].Axis != "Z" {
 		t.Fatalf("axis system must expose independently selectable X/Y/Z axes: %#v", axisSystem)
 	}
 }
@@ -885,8 +885,11 @@ func TestSketchStructureProjectsEntitiesConstraintsAndDeleteCapabilities(t *test
 	}}}}
 	children := partStructureChildren(model, "document:part-1", "part-1", "version-1", true)
 	sketch := children[1].Children[0]
-	if len(sketch.Capabilities) != 1 || sketch.Capabilities[0] != "DELETE" || len(sketch.Children) != 2 {
-		t.Fatalf("sketch must expose delete capability and two child sets: %#v", sketch)
+	if len(sketch.Capabilities) != 1 || sketch.Capabilities[0] != "DELETE" || len(sketch.Children) != 3 {
+		t.Fatalf("sketch must expose delete capability and two child sets and its support reference: %#v", sketch)
+	}
+	if sketch.Children[2].Kind != "DATUM_INPUT_REFERENCE" || sketch.Children[2].EntityID != "datum-xy" {
+		t.Fatal("sketch support must retain its datum reference", sketch.Children[2])
 	}
 	entity := sketch.Children[0].Children[0]
 	if len(sketch.Children[1].Children) != 2 || sketch.Children[1].Children[0].Kind != "SKETCH_LOGICAL_CONSTRAINT_SET" ||

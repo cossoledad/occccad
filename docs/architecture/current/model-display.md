@@ -43,3 +43,5 @@ Body Publication 目标用 `BODY_RESULT + BodyId` 表示该 Body 的当前结果
 视图命中保持真实拓扑主选择；树关联/预选提示不进入命令目标。Feature 选择按当前 Face/Edge ID 集合渲染融合网格高亮，Body 选择才高亮整体。匹配必须同时满足文档、Revision、Body、GeometryKey、occurrence、variant 和显示阶段。历史结果通过 `feature-input{resultStage:true}` 按需重建，下载仍验证 Feature、Revision 和精确对象范围；历史预览不参与建模拾取。恢复按钮、编辑结束或上下文变化清除临时阶段显示。
 
 生成工具选源与整体 Body 阶段分开；视图生成来源有歧义时提示候选，定义列表给出明确选择。特征组合以明确起止步骤复用阶段差集；树多选同 Body 的生成特征及后续圆角/倒角时按历史顺序初始化范围，文档、Revision 和 occurrence 不一致则拒绝。已有实体阵列允许显式切换选源模式。该范围支持添加型拉伸/旋转及随后的圆角/倒角；此前 Body 材料不参与复制。当前生成工具阵列仍限已有 PAD/LINEAR_EXTRUDE/REVOLVE 能力，不以最终 Body、白名单扩展或全 Body 复制替代任意特征组重执行。阵列阶段可以作为下游局部加工输入，种子编辑与成员上的下游圆角分别提交定义并通过真实 Naming 重算。
+
+标准轴的显示与树选择携带轴系 ID＋X/Y/Z、文档、Revision 和 occurrence；hover 定位轴的子节点，主选择不升级为整个轴系。轴系原点使用单独 `datum-point` 选择角色。投影方向的显示在所属 occurrence 坐标中按屏幕长度延伸，单位方向快照不冒充有限几何端点。

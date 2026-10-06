@@ -53,7 +53,7 @@ try {
   const sketchEntitySelection = { kind: "visual", id: "root:sketch-1:line-1", visualType: "CURVE", featureId: "sketch-1",
     entityId: "line-1", documentId: "part-1", treeNodeId: "document:part-1/body/sketch:sketch-1/geometry/entity:line-1" };
   assert.deepEqual(projectSketchFeatureSelection(sketchEntitySelection), {
-    kind: "sketch", id: "sketch-1", entityId: "sketch-1", documentId: "part-1", ownerDocumentId: undefined,
+    kind: "sketch", patternId:undefined,patternMemberSlot:undefined,id: "sketch-1", entityId: "sketch-1", documentId: "part-1", ownerDocumentId: undefined,
     bodyId: undefined, versionId: undefined, contextVariantKey: undefined, rootDocumentId: undefined,
     occurrencePath: undefined, instancePath: undefined,
     instanceId: undefined, geometryKey: undefined, treeNodeId: "document:part-1/body/sketch:sketch-1", expandTreeDescendants: true,
@@ -131,7 +131,8 @@ try {
   });
 
   const projection = new ProjectExternalGeometrySketchTool();
-  viewport.selectionAt = () => ({kind:"edge",id:"edge",topologyId:17,geometryKey:"geometry",versionId:"revision"});
+  viewport.currentSketchIdentity = () => ({documentId:"part",versionId:"revision",sketchId:"sketch"});
+  viewport.selectionAt = () => ({kind:"edge",id:"edge",documentId:"part",topologyId:17,geometryKey:"geometry",versionId:"revision"});
   projection.activate(context);
   assert.equal(projection.pointerDown(pointer(4,4,"down"),context),"capture");
   projection.pointerUp(pointer(4,4,"up"),context);
@@ -671,7 +672,7 @@ try {
     documentId: "part-1", bodyId: "body-a", versionId: "revision-1", geometryKey: "geometry-1", occurrencePath: "instance-a",
     instanceId: "instance-a", treeNodeId: "product/instance-a/reference/body/sketch:sketch-1",
   }), {
-    kind: "visual", id: "instance-a:sketch-1:line-1", visualType: "CURVE",
+    kind: "visual", patternId:undefined,patternMemberSlot:undefined,sketchReference:undefined,id: "instance-a:sketch-1:line-1", visualType: "CURVE",
     featureId: "sketch-1", entityId: "line-1", role: "PROFILE",
     documentId: "part-1", bodyId: "body-a", versionId: "revision-1", contextVariantKey: undefined,
     instancePath: undefined, geometryKey: "geometry-1", occurrencePath: "instance-a",

@@ -58,14 +58,31 @@ type Artifact struct {
 	Visualization         VisualizationManifest     `json:"visualization"`
 }
 
+// DatumReference identifies local design input, never a mesh index or display name.
+type DatumReference struct {
+	Kind            string                         `json:"kind"` // PLANE | AXIS | AXIS_SYSTEM | POINT | SKETCH_LINE | TOPOLOGY
+	EntityID        string                         `json:"entityId,omitempty"`
+	Axis            string                         `json:"axis,omitempty"`
+	FeatureID       string                         `json:"featureId,omitempty"` // sketch owner or exact topology source stage
+	Selection       *modelcore.PersistentSelection `json:"selection,omitempty"`
+	SourceVersionID string                         `json:"sourceVersionId,omitempty"`
+}
+type DatumTransform struct {
+	Source               DatumReference  `json:"source"`
+	RotationAxis         *DatumReference `json:"rotationAxis,omitempty"`
+	TranslationDirection *DatumReference `json:"translationDirection,omitempty"`
+	Angle                float64         `json:"angle"`    // degrees, resolved from existing ParameterDefinition
+	Distance             float64         `json:"distance"` // mm
+}
 type DatumPlane struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	Plane      string     `json:"plane"`
-	Origin     [3]float64 `json:"origin"`
-	Normal     [3]float64 `json:"normal"`
-	UDirection [3]float64 `json:"uDirection"`
-	Size       float64    `json:"size"`
+	Definition *DatumTransform `json:"definition,omitempty"`
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	Plane      string          `json:"plane"`
+	Origin     [3]float64      `json:"origin"`
+	Normal     [3]float64      `json:"normal"`
+	UDirection [3]float64      `json:"uDirection"`
+	Size       float64         `json:"size"`
 }
 
 type AxisSystem struct {
@@ -78,10 +95,11 @@ type AxisSystem struct {
 }
 
 type DatumAxis struct {
-	ID        string     `json:"id"`
-	Name      string     `json:"name"`
-	Origin    [3]float64 `json:"origin"`
-	Direction [3]float64 `json:"direction"`
+	Definition *DatumTransform `json:"definition,omitempty"`
+	ID         string          `json:"id"`
+	Name       string          `json:"name"`
+	Origin     [3]float64      `json:"origin"`
+	Direction  [3]float64      `json:"direction"`
 }
 
 type PublicationTarget struct {
@@ -263,6 +281,7 @@ type SketchExternalGeometrySnapshot struct {
 	Radius float64       `json:"radius,omitempty"`
 }
 type SketchExternalGeometry struct {
+	DatumReference           *DatumReference                  `json:"datumReference,omitempty"`
 	ID                       string                           `json:"id"`
 	ProjectionKind           string                           `json:"projectionKind"`
 	GeometryKind             string                           `json:"geometryKind,omitempty"`
@@ -328,6 +347,7 @@ type SketchFeature struct {
 	Solve            SketchSolveState         `json:"solve"`
 }
 type SketchOperation struct {
+	DatumReference              *DatumReference                  `json:"datumReference,omitempty"`
 	PatternParameterExpressions map[string]string                `json:"patternParameterExpressions,omitempty"`
 	PatternParameterSources     map[string]modelcore.ValueSource `json:"patternParameterSources,omitempty"`
 	Pattern                     *SketchPattern                   `json:"pattern,omitempty"`
@@ -1083,6 +1103,9 @@ type DeleteNodeTarget struct {
 }
 
 type CommandRequest struct {
+	DatumDefinition           *DatumTransform              `json:"datumDefinition,omitempty"`
+	DatumAngleExpression      string                       `json:"datumAngleExpression,omitempty"`
+	DatumDistanceExpression   string                       `json:"datumDistanceExpression,omitempty"`
 	ValidatedUpdatePlanDigest string                       `json:"-"`
 	AcceptedSourceRevisions   map[string]string            `json:"-"`
 	ExpectedUpdateRevision    string                       `json:"-"`
@@ -1194,6 +1217,8 @@ type CommandRequest struct {
 // used by ApplyCommand. The base revision lets clients reject a response that
 // arrived after the workspace head changed.
 type CommandPreview struct {
+	ReferenceGeometry    *ReferenceGeometry                   `json:"referenceGeometry,omitempty"`
+	ParameterCandidates  []modelcore.ParameterDefinition      `json:"parameterCandidates,omitempty"`
 	LoftSections         []LoftSection                        `json:"loftSections,omitempty"`
 	LoftConnections      [][][3]float64                       `json:"loftConnections,omitempty"`
 	SketchCandidates     []SketchCandidatePreview             `json:"sketchCandidates,omitempty"`

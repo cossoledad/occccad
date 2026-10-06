@@ -21,7 +21,7 @@ export const DEFAULT_CAPTURE_SETTINGS: CaptureSettings = {
 };
 
 export function selectionCaptureKind(selection: Exclude<Selection, null>): SelectionCaptureKind {
-  if (selection.kind === "vertex" || (selection.kind === "visual" && selection.visualType === "POINT")) return "POINT";
+  if (selection.kind === "datum-point" || selection.kind === "vertex" || (selection.kind === "visual" && selection.visualType === "POINT")) return "POINT";
   if (selection.kind === "edge" || (selection.kind === "visual" && selection.visualType === "CURVE")) return "CURVE";
   if (selection.kind === "face" || (selection.kind === "visual" && selection.visualType === "SURFACE")) return "SURFACE";
   if (selection.kind === "plane") return "DATUM_PLANE";

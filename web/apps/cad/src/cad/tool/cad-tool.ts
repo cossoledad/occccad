@@ -1,3 +1,4 @@
+import {isExternalProjectionSource} from "../interaction/external-projection-selection";
 import type { SketchCommandState, SketchCommitIntent, SketchCommitResult } from "./sketch-command-session";
 import { dimensionDefinitionOperation, dimensionDisplayValue, SketchDimensionCommitSession } from "../sketch/sketch-dimension-editor";
 import { formatDimensionValue } from "../sketch/dimension-value-format";
@@ -51,7 +52,7 @@ export type ToolViewportPort = {
   setToolPrompt(prompt: string): void;
   finishToolUse(exit?: boolean): void;
   selectionAt(x: number, y: number): SelectionItem | null;
-  commitExternalProjection(selection: SelectionItem & {kind:"edge"|"vertex";topologyId:number}): Promise<SketchCommitResult>|void;
+  commitExternalProjection(selection: SelectionItem): Promise<SketchCommitResult>|void;
   currentSketchDeletableEntities?(): readonly SketchEntity[];
   currentSelections?(): readonly SelectionItem[];
   currentSelectionSource?():SelectionInputSource;
@@ -219,10 +220,10 @@ export class SelectTool implements CadTool {
 export class ProjectExternalGeometrySketchTool implements CadTool {
   readonly id = "sketch.project";
   private capturedPointerID?: number;
-  private draft?: SelectionItem & {kind:"edge"|"vertex";topologyId:number};
+  private draft?: SelectionItem;
   private pending=false;
   private generation=0;
-  activate(context: ToolContext): void { context.viewport.setToolPrompt("投影：选择已有实体的一条边或一个顶点；Esc 取消"); }
+  activate(context: ToolContext): void { context.viewport.setToolPrompt("投影：选择原点、标准轴、基准轴、实体边或顶点；Esc 取消"); }
   private submit(context:ToolContext):void {
     if(!this.draft||this.pending)return;
     const generation=++this.generation;this.pending=true;
@@ -231,16 +232,22 @@ export class ProjectExternalGeometrySketchTool implements CadTool {
     const failed=(error:unknown)=>{if(generation!==this.generation)return;if(owner()!==initialOwner){this.cancel(context);return;}this.pending=sketchCommitResultUnknown(error);context.viewport.setToolPrompt(`${this.pending?"投影结果待确认；请查询原提交结果或取消":"投影失败；保留已选引用，Enter 重试或重新选择"}：${error instanceof Error?error.message:String(error)}`);};
     try{const result=context.viewport.commitExternalProjection(this.draft);if(result&&typeof result.then==="function")void Promise.resolve(result).then(accepted,failed);else accepted();}catch(error){failed(error);}
   }
+  selectionInput(selections:readonly SelectionItem[],context:ToolContext,source:SelectionInputSource="selection"):SelectionInputResult {
+    if(source==="activation" || source==="command" || source==="result")return SelectionInputResult.Unhandled;
+    if(this.pending)return SelectionInputResult.Rejected;
+    const selection=selections.length===1?selections[0]:undefined;
+    if(!isExternalProjectionSource(selection,context.viewport.currentSketchIdentity?.())){
+      context.viewport.setToolPrompt("请选择当前 Part 的原点、轴、实体边或顶点");return SelectionInputResult.Rejected;
+    }
+    this.draft={...selection};context.viewport.retainSelections([selection]);this.submit(context);
+    return SelectionInputResult.Accepted;
+  }
   pointerDown(event: CadPointerEvent, context: ToolContext): InputResult {
     if(this.pending)return InputResult.Consumed;
     if (event.button !== 0 || this.capturedPointerID !== undefined || event.state.buttons.middle || event.state.buttons.right)return InputResult.Ignored;
     this.capturedPointerID = event.pointerId;
     const selection = context.viewport.selectionAt(event.x, event.y);
-    if (!selection || (selection.kind !== "edge" && selection.kind !== "vertex") || !selection.geometryKey || !selection.versionId || !selection.topologyId) {
-      context.viewport.setToolPrompt("投影只接受当前 Part 中已有实体的边或顶点");return InputResult.Capture;
-    }
-    this.draft={...selection} as SelectionItem & {kind:"edge"|"vertex";topologyId:number};
-    context.viewport.retainSelections([selection]);this.submit(context);return InputResult.Capture;
+    this.selectionInput(selection?[selection]:[],context);return InputResult.Capture;
   }
   pointerUp(event: CadPointerEvent): InputResult {
     if (event.pointerId !== this.capturedPointerID || event.button !== 0) return InputResult.Ignored;

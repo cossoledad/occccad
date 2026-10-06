@@ -31,6 +31,7 @@ const (
 	typeEditFeature            = "occccad://part/feature/edit"
 	typeRenameFeature          = "occccad://part/feature/rename"
 	typeCreateDatumPlane       = "occccad://part/datum-plane/create"
+	typeEditDatum              = "occccad://part/datum/edit"
 	typeCreateDatumAxis        = "occccad://part/datum-axis/create"
 	typeImportExchange         = "occccad://part/exchange/import"
 	typeSetParameterLiteral    = "occccad://parameter/literal/set"
@@ -86,6 +87,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeRenameFeature, "PART", applyRenameFeature},
 		commandHandler{typeCreateDatumPlane, "PART", applyCreateDatumPlane},
 		commandHandler{typeCreateDatumAxis, "PART", applyCreateDatumAxis},
+		commandHandler{typeEditDatum, "PART", applyEditDatum},
 		commandHandler{typeImportExchange, "PART", applyCreateFeature},
 		commandHandler{typeRepairImportNaming, "PART", applyRepairImportNaming},
 		commandHandler{typeSetParameterLiteral, "PART", applyParameterSource},
@@ -640,6 +642,9 @@ func applySketchOperationsCandidate(sketch *SketchFeature, operations []SketchOp
 			}
 			external := sketch.ExternalGeometry[found]
 			snapshot := external.Snapshot
+			if external.DatumReference != nil && snapshot.Kind == "LINE" {
+				return fmt.Errorf("%w: projected axis cannot detach as a finite segment", ErrValidation)
+			}
 			entity := SketchEntity{ID: external.ID, Kind: snapshot.Kind, Role: "CONSTRUCTION", Point: snapshot.Point,
 				Start: snapshot.Start, End: snapshot.End, Center: snapshot.Center, Radius: snapshot.Radius}
 			sketch.Entities = append(sketch.Entities, entity)
@@ -949,6 +954,7 @@ func validateSketch(sketch SketchFeature) error {
 			return fmt.Errorf("%w: unsupported sketch entity %s", ErrValidation, entity.Kind)
 		}
 	}
+	infiniteExternal := map[string]bool{}
 	for _, external := range sketch.ExternalGeometry {
 		if external.ID == "" || entityKinds[external.ID] != "" {
 			return fmt.Errorf("%w: sketch external ids must be unique across geometry", ErrValidation)
@@ -956,7 +962,14 @@ func validateSketch(sketch SketchFeature) error {
 		if external.ProjectionKind != "ORTHOGONAL" || external.SourceVersionID == "" {
 			return fmt.Errorf("%w: external geometry %s has an incomplete source contract", ErrValidation, external.ID)
 		}
-		if err := external.PersistentSelection.Validate(); err != nil {
+		if external.DatumReference != nil {
+			if err := validateDatumReference(*external.DatumReference); err != nil {
+				return err
+			}
+			if external.PersistentSelection.Anchor.FeatureID != "" || external.ContextReferenceID != "" || external.SourceDocumentID != "" {
+				return fmt.Errorf("%w: external datum has conflicting topology/context sources", ErrValidation)
+			}
+		} else if err := external.PersistentSelection.Validate(); err != nil {
 			return fmt.Errorf("%w: external geometry %s persistent selection: %v", ErrValidation, external.ID, err)
 		}
 		if external.Status != "PENDING" && external.Status != "CONNECTED" && external.Status != "UNRESOLVED_EXTERNAL" {
@@ -997,11 +1010,15 @@ func validateSketch(sketch SketchFeature) error {
 				kind = "LINE"
 			}
 		}
+		// Orthogonal projection can lower a finite straight EDGE to a POINT;
+		// the source remains an EDGE and retains its Naming recipe.
+		edgePoint := kind == "POINT" && external.PersistentSelection.CreationEvidence.GeometryType == "LINE"
 		if (external.PersistentSelection.ExpectedType == modelcore.PersistentTopologyVertex && kind != "POINT") ||
-			(external.PersistentSelection.ExpectedType == modelcore.PersistentTopologyEdge && kind != "LINE" && kind != "CIRCLE") {
+			(external.PersistentSelection.ExpectedType == modelcore.PersistentTopologyEdge && kind != "LINE" && kind != "CIRCLE" && !edgePoint) {
 			return fmt.Errorf("%w: external geometry %s snapshot type does not match its topology source", ErrValidation, external.ID)
 		}
 		entityKinds[external.ID] = kind
+		infiniteExternal[external.ID] = external.DatumReference != nil && kind == "LINE"
 	}
 	constraints := map[string]bool{}
 	for _, constraint := range sketch.Constraints {
@@ -1081,6 +1098,9 @@ func validateSketch(sketch SketchFeature) error {
 			switch reference.Target {
 			case "ENTITY", "EXTERNAL":
 				kind := entityKinds[reference.EntityID]
+				if infiniteExternal[reference.EntityID] && (reference.SubElement == "START" || reference.SubElement == "END" || constraint.Kind == "LENGTH" || constraint.Kind == "EQUAL" || constraint.Kind == "MIDPOINT") {
+					return fmt.Errorf("%w: projected axis is an infinite direction, not a finite segment", ErrValidation)
+				}
 				if kind == "" {
 					return fmt.Errorf("%w: constraint %s references unknown entity %s", ErrValidation, constraint.ID, reference.EntityID)
 				}
@@ -1286,10 +1306,12 @@ func applyCreateFeature(modelJSON, payloadJSON json.RawMessage) (json.RawMessage
 }
 
 type createDatumPlanePayload struct {
-	Plane DatumPlane `json:"plane"`
+	Plane            DatumPlane                       `json:"plane"`
+	ParameterSources map[string]modelcore.ValueSource `json:"parameterSources,omitempty"`
 }
 type createDatumAxisPayload struct {
-	Axis DatumAxis `json:"axis"`
+	Axis             DatumAxis                        `json:"axis"`
+	ParameterSources map[string]modelcore.ValueSource `json:"parameterSources,omitempty"`
 }
 
 func applyCreateDatumPlane(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -1302,6 +1324,7 @@ func applyCreateDatumPlane(modelJSON, payloadJSON json.RawMessage) (json.RawMess
 		return nil, modelcore.ChangeSet{}, err
 	}
 	normalizePartModel(&model)
+	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
 	origin, u, normal, err := validatedSupportFrame(payload.Plane.Origin, payload.Plane.UDirection, payload.Plane.Normal)
 	if payload.Plane.ID == "" || err != nil {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: invalid datum plane frame", ErrValidation)
@@ -1314,8 +1337,10 @@ func applyCreateDatumPlane(modelJSON, payloadJSON json.RawMessage) (json.RawMess
 	}
 	model.DatumPlanes = append(model.DatumPlanes, payload.Plane)
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Plane.ID, SlotID: "datum.plane"}, nil, payload.Plane)
+	applyDatumParameterSources(&model, payload.Plane.ID, payload.ParameterSources)
+	changes, seeds := appendParameterLifecycleChanges([]modelcore.ModelChange{change}, []modelcore.DependencyKey{"datum:" + modelcore.DependencyKey(payload.Plane.ID)}, beforeParameters, model.Parameters)
 	next, _ := json.Marshal(model)
-	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"datum:" + modelcore.DependencyKey(payload.Plane.ID)}}, nil
+	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
 }
 
 func applyCreateDatumAxis(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, modelcore.ChangeSet, error) {
@@ -1328,6 +1353,7 @@ func applyCreateDatumAxis(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 		return nil, modelcore.ChangeSet{}, err
 	}
 	normalizePartModel(&model)
+	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
 	direction, ok := normalize3(payload.Axis.Direction)
 	if payload.Axis.ID == "" || !ok || !finite(payload.Axis.Origin[0]) || !finite(payload.Axis.Origin[1]) || !finite(payload.Axis.Origin[2]) {
 		return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: invalid datum axis frame", ErrValidation)
@@ -1340,8 +1366,10 @@ func applyCreateDatumAxis(modelJSON, payloadJSON json.RawMessage) (json.RawMessa
 	}
 	model.DatumAxes = append(model.DatumAxes, payload.Axis)
 	change, _ := modelcore.NewChange(modelcore.ChangeCreate, modelcore.PropertyAddress{EntityID: payload.Axis.ID, SlotID: "datum.axis"}, nil, payload.Axis)
+	applyDatumParameterSources(&model, payload.Axis.ID, payload.ParameterSources)
+	changes, seeds := appendParameterLifecycleChanges([]modelcore.ModelChange{change}, []modelcore.DependencyKey{"datum:" + modelcore.DependencyKey(payload.Axis.ID)}, beforeParameters, model.Parameters)
 	next, _ := json.Marshal(model)
-	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{"datum:" + modelcore.DependencyKey(payload.Axis.ID)}}, nil
+	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, nil
 }
 
 type parameterSourcePayload struct {
@@ -2360,7 +2388,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		if err := rejectExplicitBrokenPublication(prepared.command, model); err != nil {
 			return err
 		}
-		changes = appendEvaluatedSketchChanges(changes, beforeModel, model)
+		changes = appendEvaluatedDatumChanges(appendEvaluatedSketchChanges(changes, beforeModel, model), beforeModel, model)
 		if _, failedRevision, failedEvaluation, unresolved := unresolvedExternalRevisionOutcome(model); unresolved {
 			revisionState, evaluationStatus = failedRevision, failedEvaluation
 			for i := range model.Bodies {
@@ -2757,7 +2785,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	if err = rejectExplicitBrokenPublication(prepared.command, model); err != nil {
 		return CommandPreview{}, err
 	}
-	previewChanges = appendEvaluatedSketchChanges(previewChanges, beforeModel, model)
+	previewChanges = appendEvaluatedDatumChanges(appendEvaluatedSketchChanges(previewChanges, beforeModel, model), beforeModel, model)
 	nextJSON, _ = json.Marshal(model)
 	previewChanges, err = reconcilePersistedChanges(prepared.documentType, prepared.modelJSON, nextJSON, previewChanges)
 	if err != nil {
@@ -2840,6 +2868,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	}
 	return CommandPreview{
 		LoftSections: loftSections, LoftConnections: loftConnections,
+		ReferenceGeometry: datumPreviewReferences(prepared.command, model), ParameterCandidates: parameterPreviewCandidates(prepared.command, model),
 		PreviewID: previewID, BaseVersionID: prepared.headRevision,
 		BaseSequence: prepared.headSequence, ModelHash: modelHash, Artifact: &artifact,
 		ResultBodyID: bodyID, ResultBodyName: bodyName, BodyAssignment: bodyAssignment,

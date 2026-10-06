@@ -108,6 +108,24 @@ func ensureFeatureParameters(model *PartModel) {
 			}
 		}
 	}
+	for _, p := range model.DatumPlanes {
+		managedPrefixes["parameter:"+p.ID+":"] = struct{}{}
+	}
+	for _, p := range model.DatumAxes {
+		managedPrefixes["parameter:"+p.ID+":"] = struct{}{}
+	}
+	for id, d := range datumDefinitions(model) {
+		managedPrefixes["parameter:"+id+":"] = struct{}{}
+		keyPrefix := parameterKeyFragment(id)
+		add(id, "datum:angle", keyPrefix+"_angle", "旋转角度", "deg", d.Angle, modelcore.AngleDimension, false)
+		add(id, "datum:distance", keyPrefix+"_distance", "平移距离", "mm", d.Distance, modelcore.LengthDimension, false)
+		for i := range model.Parameters {
+			if model.Parameters[i].OwnerFeatureID == id {
+				model.Parameters[i].Lifecycle = "DATUM_REQUIRED"
+			}
+		}
+	}
+
 	filtered := model.Parameters[:0]
 	for _, parameter := range model.Parameters {
 		managed := false
@@ -332,6 +350,15 @@ func validateAndResolvePartParameters(model *PartModel) error {
 			}
 		}
 	}
+	for id, d := range datumDefinitions(model) {
+		var e error
+		d.Angle, e = quantityInDisplayUnit(values["parameter:"+id+":datum:angle"], "deg")
+		if e != nil {
+			return e
+		}
+		d.Distance = values["parameter:"+id+":datum:distance"].SIValue * 1000
+	}
+
 	for index := range model.Features {
 		feature := &model.Features[index]
 		if feature.Pattern != nil {
@@ -537,7 +564,7 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 	edges := []modelcore.DependencyEdge{}
 	for _, datum := range model.DatumPlanes {
 		data, _ := json.Marshal(datum)
-		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 1, Type: "DATUM_PLANE", CanonicalInput: data})
+		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 2, Type: "DATUM_PLANE", CanonicalInput: data})
 	}
 	for _, datum := range model.AxisSystems {
 		data, _ := json.Marshal(datum)
@@ -545,7 +572,7 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 	}
 	for _, datum := range model.DatumAxes {
 		data, _ := json.Marshal(datum)
-		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 1, Type: "DATUM_AXIS", CanonicalInput: data})
+		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 2, Type: "DATUM_AXIS", CanonicalInput: data})
 	}
 	for _, parameter := range model.Parameters {
 		source, _ := json.Marshal(parameter.Source)
@@ -563,6 +590,16 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			}
 		}
 	}
+	for id, d := range datumDefinitions(&model) {
+		key := modelcore.DependencyKey("datum:" + id)
+		for _, ref := range datumReferences(d) {
+			edges = append(edges, modelcore.DependencyEdge{Source: datumReferenceDependency(ref), Target: key, Kind: modelcore.ReadGeometry})
+		}
+		for _, slot := range []string{"datum:angle", "datum:distance"} {
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("parameter:parameter:" + id + ":" + slot), Target: key, Kind: modelcore.ReadValue})
+		}
+	}
+
 	for _, reference := range model.ContextReferences {
 		data, _ := json.Marshal(reference)
 		key := modelcore.DependencyKey("context-reference:" + reference.ID)
@@ -708,7 +745,9 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				sources[support.PersistentSelection.SourceBodyID] = true
 			}
 			for _, external := range feature.Sketch.ExternalGeometry {
-				if external.ContextReferenceID == "" {
+				if external.DatumReference != nil {
+					edges = append(edges, modelcore.DependencyEdge{Source: datumReferenceDependency(*external.DatumReference), Target: key, Kind: modelcore.ReadGeometry})
+				} else if external.ContextReferenceID == "" {
 					sources[external.PersistentSelection.SourceBodyID] = true
 				}
 			}

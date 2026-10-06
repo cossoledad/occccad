@@ -776,6 +776,7 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
 }
 
 export const mockApi: CadApi = {
+ bindTopologySelection:async()=>{throw new Error("Exact datum topology requires the real Worker");},
   getFeatureInput: async () => { throw new Error("Mock 没有精确特征输入阶段；请使用真实 API 验证编辑"); },
   beginAssemblyInteraction:async()=>{throw new Error("ENVIRONMENT_BLOCKED: assembly manipulation requires the real solver; Mock is not numerical validation");},
   updateAssemblyInteraction:async()=>{throw new Error("ENVIRONMENT_BLOCKED: assembly manipulation requires the real solver");},

@@ -208,11 +208,22 @@ func (service *Service) resolveSelectionAgainstGeometry(ctx context.Context, doc
 }
 
 func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID, requestID string, model *PartModel) error {
+	// Validate real dependency cycles before evaluating any geometry prefix.
+	graph, _, err := buildPartEvaluation(*model, "", "", nil, nil)
+	if err != nil {
+		return err
+	}
+	if err := validateDatumFeatureOrder(*model, graph); err != nil {
+		return err
+	}
 	featureIndex := map[string]int{}
 	for index, feature := range model.Features {
 		featureIndex[feature.ID] = index
 	}
 	for index := range model.Features {
+		if err := service.resolveDatumDefinitions(ctx, documentID, requestID, model, index); err != nil {
+			return err
+		}
 		feature := &model.Features[index]
 		if feature.Sketch == nil {
 			continue
@@ -291,7 +302,7 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 			return nil
 		}
 	}
-	return nil
+	return service.resolveDatumDefinitions(ctx, documentID, requestID, model, len(model.Features))
 }
 
 func (service *Service) resolveExternalGeometry(ctx context.Context, documentID, requestID string, model *PartModel, featureIndex int, geometryKey string) error {
@@ -331,6 +342,36 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 	}
 	for index := range sketch.ExternalGeometry {
 		external := &sketch.ExternalGeometry[index]
+		if external.DatumReference != nil {
+			source, err := datumProjectionSource(*model, *external.DatumReference)
+			if err != nil {
+				markBroken(external, "EXTERNAL_DATUM_MISSING", err.Error())
+				continue
+			}
+			projected, err := service.worker.ProjectExternalGeometry(ctx, requestID+"/datum-projection/"+external.ID, source, geometry.ExternalProjectionFrame{Origin: sketch.Support.Origin, XDirection: sketch.Support.XDirection, Normal: sketch.Support.Normal})
+			if err != nil {
+				return err
+			}
+			if projected.Status != "CONNECTED" {
+				markBroken(external, projected.DiagnosticCode, projected.Diagnostic)
+				continue
+			}
+			snapshot := &SketchExternalGeometrySnapshot{Kind: projected.Kind}
+			if projected.Kind == "POINT" {
+				snapshot.Point = &SketchPoint2{X: projected.Point[0], Y: projected.Point[1]}
+			} else if projected.Kind == "LINE" {
+				snapshot.Start = &SketchPoint2{X: projected.Start[0], Y: projected.Start[1]}
+				snapshot.End = &SketchPoint2{X: projected.End[0], Y: projected.End[1]}
+			} else {
+				return fmt.Errorf("%w: datum projection kind invalid", ErrValidation)
+			}
+			external.Status, external.GeometryKind, external.Snapshot = "CONNECTED", projected.Kind, snapshot
+			external.DiagnosticCode, external.Diagnostic = "", ""
+			external.ResolvedSourceDigest = source.EvidenceDigest
+			external.DependencySnapshot = nil
+			external.AffectedConstraintIDs, external.AffectedProfileRegionIDs, external.DownstreamFeatureIDs = nil, nil, nil
+			continue
+		}
 		sourceDocumentID := external.SourceDocumentID
 		if sourceDocumentID == "" {
 			sourceDocumentID = documentID

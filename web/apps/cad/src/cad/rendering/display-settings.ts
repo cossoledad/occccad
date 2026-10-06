@@ -18,7 +18,7 @@ export function normalizeSolidDisplaySettings(value: unknown): SolidDisplaySetti
 }
 export function referenceCategory(kind: unknown, axis?: unknown): keyof ReferenceVisibility | undefined {
   if (kind === "plane") return "planes";
-  if (kind === "axis-system" || (kind === "axis" && axis !== "DATUM")) return "coordinateSystems";
+  if (kind === "datum-point" || kind === "axis-system" || (kind === "axis" && axis !== "DATUM")) return "coordinateSystems";
   if (kind === "axis") return "axes";
 }
 

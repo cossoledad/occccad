@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v30-replication-tools-mirror"
+const evaluatorVersion = "part-solid-generators-v32-projection-point"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -2326,6 +2326,10 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 		}
 		if editable {
 			node.Capabilities = []string{"DETACH", "RECONNECT"}
+			if external.DatumReference != nil && external.Snapshot != nil && external.Snapshot.Kind == "LINE" {
+				node.Name = "Projected Axis " + fmt.Sprint(index+1)
+				node.Capabilities = []string{"RECONNECT"}
+			}
 		}
 		externals.Children = append(externals.Children, node)
 	}
@@ -2373,7 +2377,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 	for _, plane := range planes {
 		capabilities := []string{}
 		if editable && !isStandardDatumPlane(plane.ID) {
-			capabilities = append(capabilities, "DELETE")
+			capabilities = append(capabilities, "EDIT", "DELETE")
 		}
 		origin.Children = append(origin.Children, DocumentStructureNode{
 			ID: path + "/origin/plane:" + plane.ID, Kind: "PLANE", Name: plane.Name,
@@ -2384,6 +2388,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		origin.Children = append(origin.Children, DocumentStructureNode{
 			ID: path + "/origin/axis:" + axis.ID, Kind: "AXIS_SYSTEM", Name: axis.Name,
 			EntityID: axis.ID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{
+				{ID: path + "/origin/axis:" + axis.ID + "/point", Kind: "DATUM_POINT", Name: "Origin Point", EntityID: axis.ID, DocumentID: documentID, VersionID: versionID},
 				{ID: path + "/origin/axis:" + axis.ID + "/x", Kind: "AXIS", Name: "X Axis", EntityID: axis.ID, Axis: "X", DocumentID: documentID, VersionID: versionID},
 				{ID: path + "/origin/axis:" + axis.ID + "/y", Kind: "AXIS", Name: "Y Axis", EntityID: axis.ID, Axis: "Y", DocumentID: documentID, VersionID: versionID},
 				{ID: path + "/origin/axis:" + axis.ID + "/z", Kind: "AXIS", Name: "Z Axis", EntityID: axis.ID, Axis: "Z", DocumentID: documentID, VersionID: versionID},
@@ -2393,7 +2398,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 	for _, axis := range model.DatumAxes {
 		capabilities := []string{}
 		if editable {
-			capabilities = append(capabilities, "DELETE")
+			capabilities = append(capabilities, "EDIT", "DELETE")
 		}
 		origin.Children = append(origin.Children, DocumentStructureNode{ID: path + "/origin/datum-axis:" + axis.ID,
 			Kind: "DATUM_AXIS", Name: axis.Name, EntityID: axis.ID, DocumentID: documentID, VersionID: versionID, Capabilities: capabilities})
@@ -2526,13 +2531,40 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 	}
 	parameters := DocumentStructureNode{ID: path + "/parameters", Kind: "PARAMETER_SET", Name: "Parameters / Relations",
 		DocumentID: documentID, VersionID: versionID}
+	groups := map[string]int{}
 	for _, parameter := range model.Parameters {
 		name := parameterPresentation(model, parameter).QualifiedDisplayPath
 		capabilities := []string{"EDIT"}
 		if parameter.Lifecycle == "USER" {
 			capabilities = append(capabilities, "DELETE")
 		}
-		parameters.Children = append(parameters.Children, DocumentStructureNode{ID: parameters.ID + "/parameter:" + parameter.ParameterID,
+		owner := parameter.OwnerFeatureID
+		group, indexed := groups[owner]
+		if !indexed {
+			label := "用户参数"
+			for _, f := range model.Features {
+				if f.ID == owner {
+					label = f.Name
+					if label == "" {
+						label = f.ID
+					}
+				}
+			}
+			for _, p := range model.DatumPlanes {
+				if p.ID == owner {
+					label = p.Name
+				}
+			}
+			for _, p := range model.DatumAxes {
+				if p.ID == owner {
+					label = p.Name
+				}
+			}
+			group = len(parameters.Children)
+			groups[owner] = group
+			parameters.Children = append(parameters.Children, DocumentStructureNode{ID: parameters.ID + "/owner:" + owner, Kind: "PARAMETER_GROUP", Name: label, DocumentID: documentID, VersionID: versionID})
+		}
+		parameters.Children[group].Children = append(parameters.Children[group].Children, DocumentStructureNode{ID: parameters.ID + "/parameter:" + parameter.ParameterID,
 			Kind: "PARAMETER", Name: name, EntityID: parameter.ParameterID,
 			DocumentID: documentID, VersionID: versionID, Capabilities: capabilities})
 	}

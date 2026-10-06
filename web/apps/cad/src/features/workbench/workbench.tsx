@@ -1,3 +1,5 @@
+import {ParameterReferenceInput} from "./parameter-reference-input";
+import {useFeaturePreview} from "./use-feature-preview";
 import {DiagnosticCopy,diagnosticReference} from "../../cad/command/diagnostic-copy";
 import { DatumEditor } from "./datum-editor";
 import type { DatumPreview } from "../../cad/rendering/datum-reference";
@@ -262,6 +264,8 @@ export function Workbench() {
   const [versionOpen, setVersionOpen] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [datumEditor, setDatumEditor] = useState<"plane" | "axis">();
+ const [editingDatumId,setEditingDatumId]=useState<string>();
+ const [parameterSearch,setParameterSearch]=useState("");
   const [datumPreview, setDatumPreview] = useState<DatumPreview>();
   const [parameterManagerOpen, setParameterManagerOpen] = useState(false);
   const [publicationManagerOpen, setPublicationManagerOpen] = useState(false);
@@ -1047,9 +1051,9 @@ export function Workbench() {
 		isVisible: () => Boolean(editingView), isEnabled: () => Boolean(editingView?.part || editingView?.product) }),
       commandRegistry.register({ id: "product.publications", execute: () => setPublicationManagerOpen(true),
 		isVisible: () => editingView?.document.type === "PRODUCT", isEnabled: () => Boolean(editingView?.product) }),
-      commandRegistry.register({ id: "part.datum-plane", execute: () => { setSolidEditor(undefined); setBooleanDialog(undefined); setDatumEditor("plane"); },
+      commandRegistry.register({ id: "part.datum-plane", execute: () => { setSolidEditor(undefined); setBooleanDialog(undefined); setEditingDatumId(undefined);setDatumEditor("plane"); },
         isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && !store.activeSketchID && !command.isPending) }),
-      commandRegistry.register({ id: "part.datum-axis", execute: () => { setSolidEditor(undefined); setBooleanDialog(undefined); setDatumEditor("axis"); },
+      commandRegistry.register({ id: "part.datum-axis", execute: () => { setSolidEditor(undefined); setBooleanDialog(undefined); setEditingDatumId(undefined);setDatumEditor("axis"); },
         isVisible: () => editingView?.document.type === "PART", isEnabled: () => Boolean(canEdit && !store.activeSketchID && !command.isPending) }),
       commandRegistry.register({ id: "product.insert", execute: () => setInsertOpen(true), isVisible: () => editingView?.document.type === "PRODUCT",
         isEnabled: () => Boolean(canEdit) }),
@@ -1209,6 +1213,14 @@ export function Workbench() {
 	if (!parameter) return;
 	parameterForm.setFieldsValue({key:parameter.displayAlias ?? "",source:parameterSourceText(parameter, isLengthParameter(parameter) ? lengthUnit : parameter.displayUnit)}); setEditingParameterID(parameterID);
   };
+  const parameterDraftSource=Form.useWatch("source",parameterForm),parameterDraftKey=Form.useWatch("key",parameterForm);
+ const previewParameter=editingView?.part?.parameters?.find(p=>p.parameterId===editingParameterID);
+ let parameterPreviewInput:Record<string,unknown>|undefined;
+ try{if(editingParameterID&&editingView&&previewParameter&&previewParameter.role!=="MEASURED"&&!previewParameter.source.external&&typeof parameterDraftSource==="string"){
+ const parsed=parseParameterSource(parameterEditSource(previewParameter,parameterDraftSource,isLengthParameter(previewParameter)?lengthUnit:previewParameter.displayUnit),isLengthParameter(previewParameter)?lengthUnit:previewParameter.displayUnit);
+ if(parsed.kind==="LITERAL"||parsed.expression)parameterPreviewInput={type:"EDIT_PARAMETER",parameterId:editingParameterID,name:parameterDraftKey?.trim()||previewParameter.key,...(parsed.kind==="LITERAL"?{value:parsed.value,unit:parsed.unit}:{expression:parsed.expression})};
+ }}catch{}
+ const parameterInputPreview=useFeaturePreview(editingView?.document.id??"",editingView?.document.versionId??"",parameterPreviewInput,undefined,()=>{});
   const commitParameterEdit = async () => {
 	if (!editingView || !editingParameterID) return;
 	const values = await parameterForm.validateFields();
@@ -1223,7 +1235,8 @@ export function Workbench() {
       setEditingParameterID(undefined);return;
     }
 	const source = parseParameterSource(current?parameterEditSource(current,values.source,isLengthParameter(current)?lengthUnit:current.displayUnit):values.source, current && isLengthParameter(current) ? lengthUnit : current?.displayUnit);
-	command.mutate(() => api.command(editingView.document.id, {type: "EDIT_PARAMETER", parameterId: editingParameterID,
+	if(!parameterInputPreview.previewId||parameterInputPreview.pending){message.warning("请等待表达式检查成功");return;}
+ command.mutate(() => api.command(editingView.document.id, {previewId:parameterInputPreview.previewId,type: "EDIT_PARAMETER", parameterId: editingParameterID,
 		name: values.key.trim() || current?.key, ...(source.kind === "LITERAL" ? { value: source.value, unit: source.unit } : { expression: source.expression })}),
 		{onSuccess:()=>setEditingParameterID(undefined)});
   };
@@ -1382,6 +1395,7 @@ export function Workbench() {
                 if (constraint) openAssemblyConstraintEditor(constraint);
               } else if (node.selection?.kind === "sketch-constraint") viewport.current?.editDimension(node.selection);
               else if (node.kind === "PARAMETER" && node.entityId) openParameterEditor(node.entityId);
+ else if((node.kind==="PLANE"||node.kind==="DATUM_AXIS")&&node.entityId){setEditingDatumId(node.entityId);setDatumEditor(node.kind==="PLANE"?"plane":"axis");}
               else if (node.kind === "PUBLICATION" && node.entityId) openPublicationEditor(node.entityId,"PART");
               else if (node.kind === "PRODUCT_PUBLICATION" && node.entityId) openPublicationEditor(node.entityId,"PRODUCT");
               else openFeatureEditor(node);
@@ -1687,7 +1701,7 @@ export function Workbench() {
         <Input maxLength={160} /></Form.Item></Form>
     </CommandDialog>
 
-	<CommandDialog id="parameter-manager" open={parameterManagerOpen} title="参数" size="M"
+	<CommandDialog id="parameter-manager" open={parameterManagerOpen} title="参数" size="L"
 		onClose={() => setParameterManagerOpen(false)} onConfirm={() => setParameterManagerOpen(false)} confirmText="完成">
 		<div className="parameter-manager" aria-label="文档参数">
 			<Form form={createUserParameterForm} layout="inline" initialValues={{value:0,unit:"mm"}}>
@@ -1700,9 +1714,9 @@ export function Workbench() {
 						value:values.value,unit:values.unit}),{onSuccess:()=>createUserParameterForm.resetFields()});
 				}}>新建参数</Button></Form.Item>
 			</Form>
-			<div className="parameter-manager-header"><span>参数 / 别名</span><span>来源</span><span>计算值</span><span /></div>
+			<Input.Search aria-label="搜索参数" placeholder="搜索参数、别名或所属对象" value={parameterSearch} onChange={e=>setParameterSearch(e.target.value)}/><div className="parameter-manager-header"><span>参数 / 别名</span><span>来源</span><span>计算值</span><span /></div>
 			{(editingView?.part?.parameters ?? []).length === 0 ? <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前 Part 尚无参数" />
-				: (editingView?.part?.parameters ?? []).map((parameter: ParameterDefinition) => <div className="parameter-manager-row" key={parameter.parameterId}>
+				: (editingView?.part?.parameters ?? []).filter(p=>[p.key,p.displayAlias,p.qualifiedDisplayPath,p.label].some(text=>text?.toLowerCase().includes(parameterSearch.trim().toLowerCase()))).map((parameter: ParameterDefinition) => <div className="parameter-manager-row" key={parameter.parameterId}>
 					<span><strong>{parameter.qualifiedDisplayPath ?? parameter.displayName ?? parameter.label}</strong>
 						{parameter.displayAlias && <Typography.Text type="secondary">{parameter.displayAlias}</Typography.Text>}
 						<Typography.Text type="secondary" copyable={{text:parameter.parameterId}} title={parameter.parameterId}>技术详情</Typography.Text></span>
@@ -1807,13 +1821,15 @@ export function Workbench() {
 		</Form>
 	</CommandDialog>
 	<CommandDialog size="S" id="parameter-edit" open={Boolean(editingParameterID)} title="编辑参数" onClose={() => setEditingParameterID(undefined)}
-		confirmLoading={command.isPending} onConfirm={commitParameterEdit}>
+		confirmLoading={command.isPending} confirmDisabled={!parameterSourceReadonly&&parameterInputPreview.pending||Boolean(parameterInputPreview.error)} onConfirm={commitParameterEdit}>
 		<Form form={parameterForm} layout="vertical">
 			<Form.Item name="key" label="可读别名（可选）" rules={[{pattern:/^$|^[A-Za-z_][A-Za-z0-9_]*$/,
 				message:"请输入 ASCII 标识符"}]}><Input /></Form.Item>
-			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><Input disabled={parameterSourceReadonly} data-quantity-input="true" placeholder="40 或 base_width / 2" /></Form.Item>
+			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><ParameterReferenceInput disabled={parameterSourceReadonly} parameters={editingView?.part?.parameters??[]} excludeId={editingParameterID} unit={lengthUnit} placeholder="40 或 r_1 + 5 mm"/></Form.Item>
             {parameterSourceReadonly&&<small className="cad-command-hint">{editingParameterDefinition?.role==="MEASURED"?"参考尺寸只测量；请在尺寸定义编辑中显式恢复驱动后再改原来源。":"外部来源只读，当前仅编辑名称。"}</small>}
-			<small className="cad-command-hint">表达式按当前 Part 的参数别名编辑；提交后 AST 绑定稳定 ParameterId，后续重命名不会破坏引用。</small>
+			{parameterInputPreview.pending&&<Typography.Text type="secondary">正在检查表达式…</Typography.Text>}{parameterInputPreview.error&&<Alert type="error" message={parameterInputPreview.error}/>}{parameterInputPreview.parameterCandidates?.find(p=>p.parameterId===editingParameterID)&&<Typography.Text>计算值：{parameterDisplayValue(parameterInputPreview.parameterCandidates.find(p=>p.parameterId===editingParameterID)!,lengthUnit)}</Typography.Text>}
+ {editingView&&Boolean(parameterInputPreview.failure)&&<DiagnosticCopy text={diagnosticReference(parameterInputPreview.failure,{documentId:editingView.document.id,versionId:editingView.document.versionId})}/>}
+ <small className="cad-command-hint">长度增量请显式输入单位，如 r_1 + 5 mm。表达式按当前 Part 的参数别名编辑；提交后 AST 绑定稳定 ParameterId，后续重命名不会破坏引用。</small>
 		</Form>
 	</CommandDialog>
 	<CommandDialog size="S" id="publication-edit" open={Boolean(editingPublication)} title="编辑 Publication"
@@ -1851,7 +1867,7 @@ export function Workbench() {
         <small className="cad-command-hint">新 Part 与 occurrence 会原子创建；默认位于所选 Product 原点，实例名按“零件名.序号”分配。</small>
       </Form>
     </CommandDialog>
-    {datumEditor && editingView?.part && <DatumEditor key={editingView.document.id+datumEditor+(activeInstancePath ?? "")} kind={datumEditor} view={editingView} seed={store.selections} unit={lengthUnit}
+    {datumEditor && editingView?.part && <DatumEditor key={editingView.document.id+datumEditor+(editingDatumId??"")+(activeInstancePath ?? "")} kind={datumEditor} datumId={editingDatumId} view={editingView} seed={store.selections} unit={lengthUnit}
       occurrencePath={activeInstancePath} placement={{translation:activeResolvedInstance?.translation,rotation:activeResolvedInstance?.rotation}}
       onClose={()=>setDatumEditor(undefined)} onSelectionSession={setFeatureSelection} onPreview={setDatumPreview}
       onApply={input=>command.mutateAsync(()=>api.command(editingView.document.id,input))} />}

@@ -31,7 +31,7 @@ export function parseParameterSource(source: string, defaultUnit?: string):
     if (!Number.isFinite(value)) throw new Error("数值必须有限");
     return { kind: "LITERAL", value, unit: defaultUnit };
   }
-  if (literal) return { kind: "LITERAL", value: Number(literal[1]), unit: literal[2].toLowerCase() };
+  if (literal) {const value=Number(literal[1]);if(!Number.isFinite(value))throw new Error("数值必须有限");return {kind:"LITERAL",value,unit:literal[2].toLowerCase()};}
   return { kind: "EXPRESSION", expression: normalized };
 }
 
@@ -65,4 +65,14 @@ export function linearExtrudeLengthEditInput(draft:string,unit:string,originalLe
     return {length:originalLength};
   }
   return linearExtrudeLengthInput(draft,unit);
+}
+
+export function insertParameterReference(source:string,key:string,caret?:{start:number;end:number}):string {
+  if(!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))throw new Error("参数别名无效");
+  // Choosing a parameter replaces a standalone literal; compound expressions
+  // retain the captured caret, so operators and explicit units remain visible.
+  if(!source.trim()||parseParameterSource(source,"mm").kind==="LITERAL")return key;
+  const start=Math.max(0,Math.min(source.length,caret?.start??source.length));
+  const end=Math.max(start,Math.min(source.length,caret?.end??start));
+  return source.slice(0,start)+key+source.slice(end);
 }

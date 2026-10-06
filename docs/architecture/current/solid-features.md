@@ -87,6 +87,6 @@ Feature 定义编辑保持稳定 ID、顺序和名称；生成和局部修改保
 
 曲面抽壳的逐面偏置回退使用一次 CellsBuilder 求交，避免先合并再裁剪时重复计算偏置曲面交线；启用 OBB 筛选和 Worker 内受控并行，记录 wall_offsets/wall_partition/wall_assembly 耗时。该路径仍可能需要数十秒；上述新增回退针对向内抽壳，复杂向外曲面仍使用通用 OCCT 路径。
 
-未包含多工具交集、跨文档 Boolean、可变半径、非等距倒角、复杂拔模、带导轨/带孔/任意不同边数放样。偏置基准面目前保存明确框架，尚无关联偏置参数编辑。三条完整建模链的逐步鼠标拾取、全部参数组合和复杂实体的 WebGL 人工验收仍需独立证据。
+未包含多工具交集、跨文档 Boolean、可变半径、非等距倒角、复杂拔模、带导轨/带孔/任意不同边数放样。关联基准面的旋转/平移定义与参数编辑见 [Part/Sketch](part-sketch.md)。三条完整建模链的逐步鼠标拾取、全部参数组合和复杂实体的 WebGL 人工验收仍需独立证据。
 
 - `services/internal/control/replication_loft_mirror_integration_test.go`：真实 Router/Worker 的偏心孔、放样切除工具、圆周阵列/引用实体面镜像、成员倒角、种子/数量编辑、Undo/Redo 与冷读取；内核 `LoftCutCircularAndMirrorUseOnlyToolWithMemberHistory` 检查体积、Naming、反射与冷重建。

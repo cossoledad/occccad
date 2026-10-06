@@ -53,6 +53,11 @@ export function resolveSketchSnap(raw: Vec2, entities: SketchEntity[], pixelsPer
   if (enabled.includes("ORIGIN")) offer([0, 0], "ORIGIN", 600, undefined, undefined, 13);
   for (const entity of entities) {
     if (entity.suppressed) continue;
+    if(entity.infinite&&entity.start&&entity.end){
+      const a=entity.start,b=entity.end,dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy;
+      if(enabled.includes("CURVE")&&length>0){const t=((raw[0]-a.x)*dx+(raw[1]-a.y)*dy)/length;offer([a.x+t*dx,a.y+t*dy],"CURVE",300,entity.id,"DIRECTION",8);}
+      continue;
+    }
     if (enabled.includes("POINT") && entity.kind === "POINT" && entity.point) {
       offer([entity.point.x, entity.point.y], "POINT", 550, entity.id, "POINT", 13);
       continue;

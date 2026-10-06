@@ -58,6 +58,7 @@ export function structureSelection(node: DocumentStructureNode, view: DocumentVi
       return { ...base, kind: "plane", id: `${occurrencePath || "root"}:${node.entityId}`,
         plane: node.plane, datumPlane };
     }
+    case "DATUM_POINT": return {...base,kind:"datum-point",id:`${occurrencePath||"root"}:${node.entityId}:point`};
     case "AXIS_SYSTEM":
       return { ...base, kind: "axis-system", id: `${occurrencePath || "root"}:${node.entityId}` };
     case "AXIS":

@@ -24,7 +24,22 @@ func deleteDatum(model PartModel, kind, id string) (json.RawMessage, modelcore.C
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: detach context reference before deleting its datum", ErrValidation)
 		}
 	}
+	for owner, d := range datumDefinitions(&model) {
+		for _, ref := range datumReferences(d) {
+			if ref.EntityID == id {
+				return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is referenced by %s", ErrValidation, owner)
+			}
+		}
+	}
 	for _, f := range model.Features {
+		if f.Sketch != nil {
+			for _, external := range f.Sketch.ExternalGeometry {
+				if external.DatumReference != nil && external.DatumReference.EntityID == id {
+					return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum is projected by %s", ErrValidation, f.ID)
+				}
+			}
+		}
+
 		definitions := []PatternDefinition{}
 		if f.Pattern != nil {
 			definitions = append(definitions, f.Pattern.PatternDefinition)
@@ -69,12 +84,19 @@ func deleteDatum(model PartModel, kind, id string) (json.RawMessage, modelcore.C
 		before = model.DatumAxes[index]
 		model.DatumAxes = slices.Delete(model.DatumAxes, index, index+1)
 	}
+	beforeParameters := append([]modelcore.ParameterDefinition(nil), model.Parameters...)
+	for i := len(model.Parameters) - 1; i >= 0; i-- {
+		if model.Parameters[i].OwnerFeatureID == id && model.Parameters[i].Lifecycle == "DATUM_REQUIRED" {
+			model.Parameters = append(model.Parameters[:i], model.Parameters[i+1:]...)
+		}
+	}
 	change, err := modelcore.NewChange(modelcore.ChangeDelete, modelcore.PropertyAddress{EntityID: id, SlotID: slot}, before, nil)
 	if err != nil {
 		return nil, modelcore.ChangeSet{}, err
 	}
 	next, err := json.Marshal(model)
-	return next, modelcore.ChangeSet{Changes: []modelcore.ModelChange{change}, ImpactSeeds: []modelcore.DependencyKey{modelcore.DependencyKey("datum:" + id)}}, err
+	changes, seeds := appendParameterLifecycleChanges([]modelcore.ModelChange{change}, []modelcore.DependencyKey{modelcore.DependencyKey("datum:" + id)}, beforeParameters, model.Parameters)
+	return next, modelcore.ChangeSet{Changes: changes, ImpactSeeds: seeds}, err
 }
 
 type featureSuppressionPayload struct {

@@ -93,3 +93,7 @@
 
 - 实际文档核验：Main Fan `01a10b4e-f4c5-7088-9158-0a11908189e3` 的 Head `01a10ce3-f98a-7733-82a0-917e812229f3`、放样切除 `loft-384951b0-9f59-5987-b4bc-8726a8a07224`，真实配置下 180° 圆周阵列及 YZ 平面镜像预览成功。镜像切除量取决于所选平面及工具与主体交集，不保证 YZ 是设计所需的对称面；两个预览均已撤销，Head 未改变。
 - 验证：Go 来源/平面/参数/依赖单测，SQLite 迁移复开，PostgreSQL/SQLite 36 表与工具栏目录一致；TypeScript、定向选择场景及生产构建；内核复制/反射/材料范围/整体阶段区别；真实 Router/Worker 复制生命周期及受影响风扇、放样投影、布尔/拔模/抽壳回归。未执行浏览器自动化或无差别全量单测。
+
+## 6. Bottom Support 参数化体验实现核对（2026-10-05）
+
+已接通 XYZ/Part 原点选择、关联基准旋转/平移、基础原点/轴投影和参数引用/计算预览；复用既有 Datum、ParameterDefinition、依赖图、ExternalGeometry 与 Preview/ChangeSet。实际验证范围、剩余边界及人工步骤见 [Bottom Support 参数化验收](bottom-support-parametric-validation.md)。未将目标五件模型的 STEP 等效、六实例装配或 WebGL 人工验收合并宣称通过。

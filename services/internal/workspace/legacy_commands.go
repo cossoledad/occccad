@@ -230,6 +230,37 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			}
 
 			if operation.Type == "ADD_EXTERNAL_GEOMETRY" || operation.Type == "RECONNECT_EXTERNAL_GEOMETRY" {
+				if operation.DatumReference != nil {
+					if operation.GeometryKey != "" || operation.TopologyID != 0 || operation.TopologyKind != "" {
+						return "", nil, fmt.Errorf("%w: datum projection has conflicting topology source", ErrValidation)
+					}
+					var head string
+					if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&head); err != nil {
+						return "", nil, err
+					}
+					if operation.SourceVersionID != head {
+						return "", nil, fmt.Errorf("%w: DATUM_PROJECTION_STALE_REVISION", ErrValidation)
+					}
+					var m PartModel
+					if err := json.Unmarshal(modelJSON, &m); err != nil {
+						return "", nil, err
+					}
+					normalizePartModel(&m)
+					if _, err := datumProjectionSource(m, *operation.DatumReference); err != nil {
+						return "", nil, err
+					}
+					id := operation.ExternalID
+					if id == "" {
+						id = newID("external")
+					}
+					operation.ExternalID = id
+					operation.ExternalGeometry = &SketchExternalGeometry{ID: id, ProjectionKind: "ORTHOGONAL", DatumReference: operation.DatumReference, SourceVersionID: operation.SourceVersionID, Status: "PENDING"}
+					if operation.SourceVersionID == "" {
+						return "", nil, fmt.Errorf("%w: datum projection requires source Revision", ErrValidation)
+					}
+					operations = append(operations, operation)
+					continue
+				}
 				sourceVersionID := strings.TrimSpace(operation.SourceVersionID)
 				if sourceVersionID == "" {
 					if err := service.database.QueryRow(ctx, `SELECT head_version_id::text FROM occccad.documents WHERE id=$1`, documentID).Scan(&sourceVersionID); err != nil {
@@ -557,7 +588,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		return typeEditFeature, editFeaturePayload{FeatureID: feature.ID, ExpectedFeatureDigest: request.ExpectedFeatureDigest,
 			LinearExtrude: linearExtrudeEdit{Source: source, Operation: feature.Operation, Reversed: feature.Reversed, Profile: feature.Profile}}, nil
-	case "CREATE_DATUM_PLANE":
+	case "CREATE_DATUM_PLANE", "EDIT_DATUM_PLANE":
 		if documentType != "PART" {
 			break
 		}
@@ -579,8 +610,22 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		plane := DatumPlane{ID: commandEntityID("plane", request.RequestID), Name: name, Plane: "CUSTOM",
 			Origin: request.Origin, Normal: request.Normal, UDirection: request.UDirection, Size: 180}
-		return typeCreateDatumPlane, createDatumPlanePayload{Plane: plane}, nil
-	case "CREATE_DATUM_AXIS":
+		plane.Definition = request.DatumDefinition
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		normalizePartModel(&model)
+		sources, err := datumParameterSources(model, request.DatumDefinition, request.DatumAngleExpression, request.DatumDistanceExpression, request.TargetID)
+		if err != nil {
+			return "", nil, err
+		}
+		if strings.HasPrefix(request.Type, "EDIT_") {
+			plane.ID = request.TargetID
+			return typeEditDatum, editDatumPayload{Plane: &plane, ParameterSources: sources}, nil
+		}
+		return typeCreateDatumPlane, createDatumPlanePayload{Plane: plane, ParameterSources: sources}, nil
+	case "CREATE_DATUM_AXIS", "EDIT_DATUM_AXIS":
 		if documentType != "PART" {
 			break
 		}
@@ -594,7 +639,21 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		}
 		axis := DatumAxis{ID: commandEntityID("axis", request.RequestID), Name: name, Origin: request.Origin,
 			Direction: [3]float64{request.Direction[0] / magnitude, request.Direction[1] / magnitude, request.Direction[2] / magnitude}}
-		return typeCreateDatumAxis, createDatumAxisPayload{Axis: axis}, nil
+		axis.Definition = request.DatumDefinition
+		var model PartModel
+		if err := json.Unmarshal(modelJSON, &model); err != nil {
+			return "", nil, err
+		}
+		normalizePartModel(&model)
+		sources, err := datumParameterSources(model, request.DatumDefinition, request.DatumAngleExpression, request.DatumDistanceExpression, request.TargetID)
+		if err != nil {
+			return "", nil, err
+		}
+		if strings.HasPrefix(request.Type, "EDIT_") {
+			axis.ID = request.TargetID
+			return typeEditDatum, editDatumPayload{Axis: &axis, ParameterSources: sources}, nil
+		}
+		return typeCreateDatumAxis, createDatumAxisPayload{Axis: axis, ParameterSources: sources}, nil
 	case "REPAIR_IMPORT_NAMING":
 		var model PartModel
 		if documentType != "PART" {

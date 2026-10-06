@@ -3,13 +3,17 @@ import { createServer } from "vite";
 
 const server = await createServer({ server: { middlewareMode: true }, appType: "custom", logLevel: "silent" });
 try {
-  const { isLengthParameter, linearExtrudeLengthInput, linearExtrudeLengthEditInput, parameterEditSource, parameterDisplayValue, parameterSourceText, parseParameterSource } = await server.ssrLoadModule("/src/features/workbench/parameter-editor.ts");
+  const { insertParameterReference, isLengthParameter, linearExtrudeLengthInput, linearExtrudeLengthEditInput, parameterEditSource, parameterDisplayValue, parameterSourceText, parseParameterSource } = await server.ssrLoadModule("/src/features/workbench/parameter-editor.ts");
   const parameter = {
     parameterId: "parameter:sketch-a:constraint:length:value", key: "base_width", label: "LENGTH",
     valueType: "QUANTITY", dimension: { Length: 1, Mass: 0, Time: 0, Current: 0, Temperature: 0, Amount: 0, Luminous: 0, Semantic: "" },
     displayUnit: "mm", role: "INPUT", source: { literal: { siValue: 0.02, dimension: { Length: 1 } } },
     evaluatedValue: { siValue: 0.02, dimension: { Length: 1 } },
   };
+  assert.equal(insertParameterReference("20 mm","r_1"),"r_1");
+  assert.equal(insertParameterReference(" + 5 mm","r_1",{start:0,end:0}),"r_1 + 5 mm");
+  assert.equal(insertParameterReference("r_2 + 5 mm","r_1",{start:0,end:3}),"r_1 + 5 mm");
+  assert.throws(()=>insertParameterReference("","bad key"));
   assert.equal(parameterSourceText(parameter), "20 mm");
   assert.equal(parameterDisplayValue(parameter), "20 mm");
   assert.deepEqual(parseParameterSource("40 mm"), { kind: "LITERAL", value: 40, unit: "mm" });

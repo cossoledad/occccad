@@ -30,6 +30,13 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
   }
   for (const entity of entities) {
     if(entity.suppressed)continue;
+    if(entity.infinite&&entity.start&&entity.end){
+      if(!["LINE","LINEAR_DIMENSION","SOLVER_CURVE","TANGENT_CURVE","SYMMETRY_CENTER","ENTITY","CURVE"].includes(mode))continue;
+      const a=project([entity.start.x,entity.start.y]),b=project([entity.end.x,entity.end.y]);
+      const dx=b.x-a.x,dy=b.y-a.y,length=Math.hypot(dx,dy);
+      if(length>1e-10)consider(Math.abs((cursor.x-a.x)*dy-(cursor.y-a.y)*dx)/length,{target:"ENTITY",entityId:entity.id,subElement:"DIRECTION"},sketchGeometryPickPriority(entity.role));
+      continue;
+    }
     // Visible profile segments beat their retained construction supports at
     // the same screen distance; standalone construction geometry stays pickable.
     const dimensionPriority=sketchGeometryPickPriority(entity.role);
@@ -126,6 +133,7 @@ export function resolveSketchReference(cursor: ScreenPoint, entities: SketchEnti
 // or spline control point from an object selection.
 export function preselectedSketchReference(entity:SketchEntity,pick:SketchReferencePickKind,retained?:SketchEntity):SketchGeometryRef|undefined {
  if(entity.suppressed)return undefined;
+ if(entity.infinite)return ["LINE","LINEAR_DIMENSION","SOLVER_CURVE","TANGENT_CURVE","SYMMETRY_CENTER","ENTITY","CURVE"].includes(pick)?{target:"ENTITY",entityId:entity.id,subElement:"DIRECTION"}:undefined;
  const ref=(subElement:SketchGeometryRef["subElement"]):SketchGeometryRef=>({target:"ENTITY",entityId:entity.id,subElement});
  if(pick==="POINT"||pick==="EDIT_POINT")return entity.kind==="POINT"?ref("POINT"):undefined;
  if(pick==="LINEAR_DIMENSION")return entity.kind==="POINT"?ref("POINT"):entity.kind==="LINE"?ref("WHOLE"):undefined;

@@ -791,7 +791,9 @@ public:
         source.has_parameters = evidence.has_parameter_start() && evidence.has_parameter_end();
         source.parameter_start = evidence.parameter_start();
         source.parameter_end = evidence.parameter_end();
-        if (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_VERTEX &&
+        if (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED && evidence.geometry_type()=="AXIS") {
+            source.kind=sketch_api::ExternalSourceKind::axis;
+        } else if ((input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_VERTEX || input.topology_type()==worker_api::PERSISTENT_TOPOLOGY_TYPE_UNSPECIFIED) &&
             evidence.geometry_type() == "POINT") {
             source.kind = sketch_api::ExternalSourceKind::point;
         } else if (input.topology_type() == worker_api::PERSISTENT_TOPOLOGY_TYPE_EDGE &&

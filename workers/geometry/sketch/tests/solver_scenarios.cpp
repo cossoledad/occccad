@@ -452,7 +452,30 @@ TEST(ExternalGeometryProjector, ProjectsVertexAndLinearEdgeIntoSupportFrame) {
     EXPECT_NEAR(projected.end.y, 2.0, 1e-12);
 }
 
-TEST(ExternalGeometryProjector, ProjectsFullCircleAndRejectsDegenerateLine) {
+TEST(ExternalGeometryProjector, ProjectsAxisAsDirectionOrPoint) {
+    const ProjectionFrame frame{{0, 0, 10}, {1, 0, 0}, {0, 0, 1}};
+    ExternalProjectionSource axis;
+    axis.kind = ExternalSourceKind::axis;
+    axis.origin = {3, 4, 20};
+    axis.direction = {2, 0, 2};
+    const auto line = project_external_geometry(axis, frame);
+    ASSERT_EQ(line.status, ExternalProjectionStatus::connected);
+    ASSERT_EQ(line.kind, ProjectedGeometryKind::line);
+    EXPECT_NEAR(line.start.x, 3, 1e-12);
+    EXPECT_NEAR(line.start.y, 4, 1e-12);
+    EXPECT_NEAR(line.end.x, 4, 1e-12);
+    EXPECT_NEAR(line.end.y, 4, 1e-12);
+    axis.direction = {0, 0, -1};
+    const auto point = project_external_geometry(axis, frame);
+    ASSERT_EQ(point.status, ExternalProjectionStatus::connected);
+    ASSERT_EQ(point.kind, ProjectedGeometryKind::point);
+    EXPECT_NEAR(point.point.x, 3, 1e-12);
+    EXPECT_NEAR(point.point.y, 4, 1e-12);
+    axis.direction = {0, 0, 0};
+    EXPECT_EQ(project_external_geometry(axis, frame).status, ExternalProjectionStatus::unresolved);
+}
+
+TEST(ExternalGeometryProjector, ProjectsFullCircleAndPerpendicularLineAsPoint) {
     const ProjectionFrame frame{{0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.0, 0.0, 1.0}};
     ExternalProjectionSource circle;
     circle.kind = ExternalSourceKind::circle;
@@ -477,8 +500,34 @@ TEST(ExternalGeometryProjector, ProjectsFullCircleAndRejectsDegenerateLine) {
     normal_line.parameter_end = 5.0;
     normal_line.has_parameters = true;
     const auto degenerate = project_external_geometry(normal_line, frame);
-    EXPECT_EQ(degenerate.status, ExternalProjectionStatus::unresolved);
-    EXPECT_EQ(degenerate.diagnostic_code, "EXTERNAL_PROJECTION_DEGENERATE");
+    EXPECT_EQ(degenerate.status, ExternalProjectionStatus::connected);
+    EXPECT_EQ(degenerate.kind, ProjectedGeometryKind::point);
+    EXPECT_NEAR(degenerate.point.x, 1.0, 1e-12);
+    EXPECT_NEAR(degenerate.point.y, 2.0, 1e-12);
+    normal_line.direction = {0.0, 0.0, 0.0};
+    EXPECT_EQ(project_external_geometry(normal_line, frame).diagnostic_code,
+              "EXTERNAL_SOURCE_CONTRACT_INCOMPLETE");
+}
+
+// Minimal geometry from CAD_DIAGNOSTIC cd8b897686593a7c: array-member
+// EDGE #11 is normal to the planar-face sketch support, not an invalid source.
+TEST(ExternalGeometryProjector, ProjectsBottomSupportDiagnosticEdgeAsPoint) {
+    const ProjectionFrame frame{{60.0, -20.0, 0.0}, {1.0, 0.0, 0.0}, {0.0, -1.0, 0.0}};
+    ExternalProjectionSource edge;
+    edge.kind = ExternalSourceKind::line;
+    edge.origin = {-60.0, 20.0, 0.0};
+    edge.direction = {0.0, -1.0, 0.0};
+    edge.parameter_start = 0.0;
+    edge.parameter_end = 40.0;
+    edge.has_parameters = true;
+    const auto projected = project_external_geometry(edge, frame);
+    EXPECT_EQ(projected.status, ExternalProjectionStatus::connected);
+    EXPECT_EQ(projected.kind, ProjectedGeometryKind::point);
+    EXPECT_NEAR(projected.point.x, -120.0, 1e-12);
+    EXPECT_NEAR(projected.point.y, 0.0, 1e-12);
+    edge.parameter_end = edge.parameter_start;
+    EXPECT_EQ(project_external_geometry(edge, frame).diagnostic_code,
+              "EXTERNAL_SOURCE_CONTRACT_INCOMPLETE");
 }
 
 TEST(ExternalGeometryProjector, RejectsPartialCircleUntilArcEvidenceIsAvailable) {

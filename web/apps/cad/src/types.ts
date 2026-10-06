@@ -65,6 +65,7 @@ export type AssemblyComponentDof = {
   freedoms: AssemblyBodyFreedom[];
 };
 export type CommandPreview = {
+ referenceGeometry?:ReferenceGeometry;parameterCandidates?:ParameterDefinition[];
   sketchCandidates?: Array<{featureId:string;entities:SketchEntity[];solve:SketchFeature["solve"]}>;
   evaluationOutcome?: "DEFINITION_ONLY";
   evaluationFailure?: AssemblyEvaluationFailure;
@@ -87,8 +88,10 @@ export type CommandPreview = {
     second?: { status: "CONNECTED" | "NOT_CONNECTED"; diagnosticCode?: string; diagnostic?: string } };
 };
 
-export type DatumPlane = { id: string; name: string; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3; size: number };
-export type DatumAxis = { id: string; name: string; origin: Vec3; direction: Vec3 };
+export type DatumReference = {kind:"PLANE"|"AXIS"|"AXIS_SYSTEM"|"POINT"|"SKETCH_LINE"|"TOPOLOGY";entityId?:string;axis?:"X"|"Y"|"Z";featureId?:string;selection?:PersistentSelection;sourceVersionId?:string};
+export type DatumTransform = {source:DatumReference;rotationAxis?:DatumReference;translationDirection?:DatumReference;angle:number;distance:number};
+export type DatumPlane = { id: string; name: string; definition?:DatumTransform; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3; size: number };
+export type DatumAxis = { id: string; name: string; definition?:DatumTransform; origin: Vec3; direction: Vec3 };
 export type AxisSystem = { id: string; name: string; origin: Vec3; xDirection: Vec3; yDirection: Vec3; zDirection: Vec3 };
 export type ReferenceGeometry = { datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[] };
 export type VisualPrimitive = {
@@ -157,8 +160,8 @@ export type Feature = {
 
 export type SketchPoint2 = { x: number; y: number };
 export type SketchGeometryRef = { target: "ENTITY" | "EXTERNAL" | "SKETCH_ORIGIN" | "SKETCH_X_AXIS" | "SKETCH_Y_AXIS"; entityId?: string; subElement: "WHOLE" | "POINT" | "START" | "END" | "CENTER" | "DIRECTION" | "CONTROL"; controlPointIndex?: number; controlPointId?: string; pointId?: string };
-export type SketchEntity = { id: string; createdByOperationId?: string; sourceEntityId?: string; startPointId?:string; endPointId?:string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "ELLIPSE" | "ELLIPTICAL_ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; visible?: boolean; suppressed?: boolean; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; majorRadius?: number; minorRadius?: number; rotation?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; controlPointIds?: string[]; degree?: number; closed?: boolean; mode?: "FIT" | "CONTROL"; poles?: SketchPoint2[]; poleIds?: string[]; knots?: number[]; multiplicities?: number[]; weights?: number[]; periodic?: boolean; parameterStart?: number; parameterEnd?: number };
-export type SketchExternalGeometry = { id:string;projectionKind:"ORTHOGONAL";geometryKind?:"POINT"|"LINE"|"CIRCLE";persistentSelection:PersistentSelection;sourceVersionId:string;
+export type SketchEntity = { infinite?:boolean; id: string; createdByOperationId?: string; sourceEntityId?: string; startPointId?:string; endPointId?:string; kind: "POINT" | "LINE" | "CIRCLE" | "ARC" | "ELLIPSE" | "ELLIPTICAL_ARC" | "SPLINE"; role: "PROFILE" | "CONSTRUCTION"; visible?: boolean; suppressed?: boolean; point?: SketchPoint2; start?: SketchPoint2; end?: SketchPoint2; center?: SketchPoint2; radius?: number; majorRadius?: number; minorRadius?: number; rotation?: number; startAngle?: number; endAngle?: number; controlPoints?: SketchPoint2[]; controlPointIds?: string[]; degree?: number; closed?: boolean; mode?: "FIT" | "CONTROL"; poles?: SketchPoint2[]; poleIds?: string[]; knots?: number[]; multiplicities?: number[]; weights?: number[]; periodic?: boolean; parameterStart?: number; parameterEnd?: number };
+export type SketchExternalGeometry = { datumReference?:DatumReference;id:string;projectionKind:"ORTHOGONAL";geometryKind?:"POINT"|"LINE"|"CIRCLE";persistentSelection:PersistentSelection;sourceVersionId:string;
   sourceDocumentId?:string;contextReferenceId?:string;
   status:"PENDING"|"CONNECTED"|"UNRESOLVED_EXTERNAL";diagnosticCode?:string;diagnostic?:string;resolvedSourceDigest?:string;
   snapshot?:{kind:"POINT"|"LINE"|"CIRCLE";point?:SketchPoint2;start?:SketchPoint2;end?:SketchPoint2;center?:SketchPoint2;radius?:number};
@@ -172,8 +175,8 @@ export type SketchSupport = { type: "DATUM_PLANE" | "PLANAR_FACE"; datumPlaneId?
 export type SketchFeature = { patterns?:SketchPattern[]; schemaVersion: 2; support: SketchSupport; entities: SketchEntity[]; externalGeometry?:SketchExternalGeometry[]; constraints: SketchConstraint[]; solve: { status: string; definitionStatus?: "FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED"; degreesOfFreedom: number; diagnostic?: string; conflictingConstraintIds?: string[]; redundantConstraintIds?: string[]; components?: Array<{entityIds:string[];constraintIds:string[];status:string;definitionStatus?:"FULLY_CONSTRAINED"|"UNDER_CONSTRAINED"|"UNRESOLVED";degreesOfFreedom:number}> } };
 export type SketchOperation = {type:"CREATE_PATTERN"|"EDIT_PATTERN";pattern:SketchPattern;patternId?:string;patternParameterExpressions?:Record<string,string>} | {type:"DELETE_PATTERN"|"DETACH_PATTERN";patternId:string} | { type: "ADD_ENTITY"; entity: SketchEntity } | { type: "ADD_CONSTRAINT"; constraint: SketchConstraint; parameterSource?: string; parameterKey?: string }
   | { type: "UPDATE_CONSTRAINT"; constraintId: string; constraint: SketchConstraint; parameterSource?: string; parameterKey?: string; restoreMode?: "ORIGINAL" | "MEASUREMENT" }
-  | {type:"ADD_EXTERNAL_GEOMETRY";externalId:string;geometryKey:string;topologyId:number;topologyKind:"EDGE"|"VERTEX";sourceVersionId:string}
-  | {type:"RECONNECT_EXTERNAL_GEOMETRY";externalId:string;geometryKey:string;topologyId:number;topologyKind:"EDGE"|"VERTEX";sourceVersionId:string}
+  | {type:"ADD_EXTERNAL_GEOMETRY";externalId:string;geometryKey?:string;topologyId?:number;topologyKind?:"EDGE"|"VERTEX";datumReference?:DatumReference;sourceVersionId:string}
+  | {type:"RECONNECT_EXTERNAL_GEOMETRY";externalId:string;geometryKey?:string;topologyId?:number;topologyKind?:"EDGE"|"VERTEX";datumReference?:DatumReference;sourceVersionId:string}
   | {type:"DETACH_EXTERNAL_GEOMETRY";externalId:string}
   | { type: "UPDATE_CONSTRAINT_VALUE"; constraintId: string; value: number }
   | {type:"CREATE_POLYGON";operationId:string;point:SketchPoint2;value:number;angle:number;sides:number;mode:"INSCRIBED"|"CIRCUMSCRIBED";role:"PROFILE"|"CONSTRUCTION";firstReference?:SketchGeometryRef}
@@ -345,7 +348,7 @@ export type DocumentStructureNode = {
   subject?: EntityRef;
   occurrence?: OccurrenceRef;
   snapshot?: SnapshotScope;
-  kind: "SKETCH_PATTERN_MEMBER" | "SKETCH_PATTERN_DEFINITION" | "SKETCH_PATTERN_ENTITY" | "PART" | "PRODUCT" | "INSTANCE" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "FEATURE_INPUT_REFERENCE" | "DATUM_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
+  kind: "SKETCH_PATTERN_MEMBER" | "SKETCH_PATTERN_DEFINITION" | "SKETCH_PATTERN_ENTITY" | "PART" | "PRODUCT" | "INSTANCE" | "DATUM_POINT" | "ORIGIN" | "PLANE" | "AXIS_SYSTEM" | "AXIS" | "DATUM_AXIS" | "BODY" | "SKETCH" | "SKETCH_INPUT_REFERENCE" | "FEATURE_INPUT_REFERENCE" | "DATUM_INPUT_REFERENCE" | "PAD" | "REVOLVE" | "IMPORT" | "FEATURE" | "PARAMETER_GROUP" | "PARAMETER_SET" | "PARAMETER" | "PUBLICATION_SET" | "PUBLICATION" | "PRODUCT_PUBLICATION_SET" | "PRODUCT_PUBLICATION" | "CONTEXT_REFERENCE_SET" | "CONTEXT_REFERENCE" | "CONTEXT_INPUT_SET" | "CONTEXT_INPUT" | "CONTEXT_BINDING_SET" | "CONTEXT_BINDING" | "SKETCH_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY_SET" | "SKETCH_EXTERNAL_GEOMETRY" | "SKETCH_CONSTRAINT_SET" | "SKETCH_LOGICAL_CONSTRAINT_SET" | "SKETCH_DIMENSION_SET" | "SKETCH_ENTITY" | "SKETCH_CONSTRAINT" | "ASSEMBLY_CONSTRAINT_SET" | "ASSEMBLY_CONSTRAINT" | "REFERENCE_CYCLE";
   presentationRole?: "DEFINITION" | "FEATURE_INPUT" | "INPUT_REFERENCE" | "GROUP";
   ownerDocumentId?: string;
   bodyId?: string;
@@ -518,6 +521,7 @@ export type SelectionIdentity = {
 export type SelectionItem =
   | (SelectionIdentity & { kind: "part" | "product" | "feature" | "publication" | "external-reference" | "context-input" | "context-binding" | "parameter" })
   | (SelectionIdentity & { kind: "plane"; plane: PlaneName | "CUSTOM"; datumPlane?: DatumPlane })
+  | (SelectionIdentity & {kind:"datum-point"})
   | (SelectionIdentity & { kind: "axis-system" })
   | (SelectionIdentity & { kind: "axis"; axis: "X" | "Y" | "Z" | "DATUM" })
   | (SelectionIdentity & { kind: "sketch" })

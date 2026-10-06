@@ -778,7 +778,7 @@ select {
 .assembly-support-row code { overflow: hidden; color: var(--cad-text); font: 11px/1.3 ui-monospace, SFMono-Regular, Consolas, monospace;
   text-overflow: ellipsis; white-space: nowrap; }
 .parameter-manager { display: grid; gap: 0; }
-.parameter-manager-header, .parameter-manager-row { display: grid; grid-template-columns: minmax(180px, 1.3fr) minmax(130px, 1fr) 110px 48px;
+.parameter-manager-header, .parameter-manager-row { display: grid; grid-template-columns: minmax(160px, 1.3fr) minmax(100px, 1fr) 100px 48px;
   align-items: center; gap: 10px; padding: 8px 6px; }
 .parameter-manager-header { position: sticky; z-index: 1; top: 0; color: var(--color-text-secondary); border-bottom: 1px solid #bdc9ce;
   background: var(--cad-panel); font-size: 12px; font-weight: 500; letter-spacing: .35px; }
@@ -980,3 +980,10 @@ select {
   }
 
 }
+
+/* The parameter list owns its scroll extent; command chrome remains reachable. */
+.parameter-manager[aria-label="文档参数"] {max-height:min(62vh,620px);overflow:auto;}
+.parameter-reference-input {display:grid;grid-template-columns:minmax(0,1fr);gap:6px;}
+.parameter-reference-input .ant-select {width:100%;}
+
+.parameter-manager[aria-label="文档参数"] :is(.parameter-manager-header,.parameter-manager-row) {grid-template-columns:minmax(160px,1.3fr) minmax(100px,1fr) 100px 260px;}

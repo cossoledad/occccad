@@ -75,8 +75,19 @@ ExternalProjectionResult project_external_geometry(const ExternalProjectionSourc
         result.point = project(source.origin);
         return result;
     }
+    if (source.kind == ExternalSourceKind::axis) {
+        Vec3 direction=source.direction;
+        if(!normalize(direction)) return failure("EXTERNAL_SOURCE_CONTRACT_INCOMPLETE","datum axis direction is degenerate");
+        const auto origin=project(source.origin), end=project(add_scaled(source.origin,direction,1.0));
+        const double dx=end.x-origin.x,dy=end.y-origin.y,length=std::hypot(dx,dy);
+        if(length<=angular_tolerance){result.kind=ProjectedGeometryKind::point;result.point=origin;}
+        else {result.kind=ProjectedGeometryKind::line;result.start=origin;result.end={origin.x+dx/length,origin.y+dy/length};}
+        return result;
+    }
     if (source.kind == ExternalSourceKind::line) {
-        if (!source.has_parameters)
+        if (!source.has_parameters || !std::isfinite(source.parameter_start) ||
+            !std::isfinite(source.parameter_end) ||
+            std::abs(source.parameter_end - source.parameter_start) <= linear_tolerance)
             return failure("EXTERNAL_SOURCE_CONTRACT_INCOMPLETE",
                            "linear edge has no finite parameter range");
         Vec3 direction = source.direction;
@@ -87,9 +98,11 @@ ExternalProjectionResult project_external_geometry(const ExternalProjectionSourc
         result.start = project(add_scaled(source.origin, direction, source.parameter_start));
         result.end = project(add_scaled(source.origin, direction, source.parameter_end));
         if (std::hypot(result.end.x - result.start.x, result.end.y - result.start.y) <=
-            linear_tolerance)
-            return failure("EXTERNAL_PROJECTION_DEGENERATE",
-                           "linear edge projects to a point in the sketch plane");
+            linear_tolerance) {
+            result.kind = ProjectedGeometryKind::point;
+            result.point = {(result.start.x + result.end.x) * 0.5,
+                            (result.start.y + result.end.y) * 0.5};
+        }
         return result;
     }
     if (source.kind == ExternalSourceKind::circle) {

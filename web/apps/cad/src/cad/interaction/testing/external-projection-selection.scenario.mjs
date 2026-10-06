@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import {createServer} from 'vite';
+const server=await createServer({appType:'custom',logLevel:'silent',server:{middlewareMode:true}});
+try {
+ const {isExternalProjectionSource}=await server.ssrLoadModule('/src/cad/interaction/external-projection-selection.ts');
+ const {DEFAULT_CAPTURE_SETTINGS,selectionCaptureKind}=await server.ssrLoadModule('/src/cad/interaction/capture-settings.ts');
+ const {ProjectExternalGeometrySketchTool}=await server.ssrLoadModule('/src/cad/tool/cad-tool.ts');
+ const {SelectionInputResult,InputResult}=await server.ssrLoadModule('/src/cad/input/input-types.ts');
+ const scope={documentId:'part',versionId:'head',sketchId:'sketch',occurrencePath:'instance/a'};
+ const axis={kind:'axis',axis:'X',entityId:'xyz',id:'x',documentId:'part',versionId:'head',occurrencePath:'instance/a'};
+ const origin={...axis,kind:'datum-point',id:'origin'};
+ const edge={...axis,kind:'edge',geometryKey:'key',topologyId:7};
+ for(const source of [axis,origin,edge])assert(isExternalProjectionSource(source,scope));
+ for(const bad of [{...axis,occurrencePath:'instance/b'},{...axis,versionId:'old'},{...axis,documentId:'other'},{...axis,kind:'face'},{...edge,topologyId:undefined}])assert(!isExternalProjectionSource(bad,scope));
+ assert.equal(selectionCaptureKind(origin),'POINT');
+ let commits=[],finished=0,resolve,hit=axis;
+ const viewport={currentSketchIdentity:()=>scope,setToolPrompt(){},retainSelections(){},finishToolUse:()=>finished++,selectionAt:()=>hit,commitExternalProjection:s=>{commits.push(s);return new Promise(r=>resolve=r);}};
+ const context={viewport};const tool=new ProjectExternalGeometrySketchTool();tool.activate(context);
+ assert.equal(tool.selectionInput([origin],context,'activation'),SelectionInputResult.Unhandled);
+ assert.equal(tool.selectionInput([{...axis,occurrencePath:'instance/b'}],context),SelectionInputResult.Rejected);
+ assert.equal(tool.selectionInput([axis],context),SelectionInputResult.Accepted);assert.equal(commits.length,1);
+ assert.equal(tool.selectionInput([axis],context,'command'),SelectionInputResult.Unhandled);
+ assert.equal(tool.selectionInput([origin],context),SelectionInputResult.Rejected);
+ resolve();await Promise.resolve();await Promise.resolve();assert.equal(finished,1);
+ hit=origin;assert.equal(tool.pointerDown({button:0,pointerId:1,x:0,y:0,state:{buttons:{}}},context),InputResult.Capture);
+ assert.equal(commits.length,2);resolve();await Promise.resolve();assert.equal(tool.pointerUp({button:0,pointerId:1}),InputResult.ReleaseCapture);
+ const THREE=await server.ssrLoadModule('three');
+ const {CadViewportEngine}=await server.ssrLoadModule('/src/viewport/cad-viewport-engine.ts');
+ const engine=Object.create(CadViewportEngine.prototype),helpers=new THREE.Group(),content=new THREE.Group();
+ for(const source of [axis,origin,{...axis,kind:'plane',id:'plane'}]){const child=new THREE.Group();child.userData=source;helpers.add(child);}
+ Object.assign(engine,{helpers,content,activeSketchID:'sketch',sketchPlane:{},tools:{activeToolID:'sketch.project'},editContext:{occurrencePath:'instance/a'},referenceVisibility:{planes:false,axes:false,axisSystems:false,points:false},treeVisibilityOverrides:{},sketchView:()=>({document:{id:'part',versionId:'head'}}),semanticVisibilityAddress:()=>undefined,refreshInteractionHighlights(){}});
+ engine.applyTreeVisibility();assert(helpers.children.every(child=>child.visible));
+ engine.tools.activeToolID='select';engine.applyTreeVisibility();assert(helpers.children.every(child=>!child.visible));
+ const camera=new THREE.OrthographicCamera(-100,100,75,-75,1,1000);camera.position.z=200;camera.updateMatrixWorld();
+ const candidates=[{...axis,occurrencePath:'instance/b'},axis];
+ Object.assign(engine,{activeToolID:'sketch.project',captureSettings:DEFAULT_CAPTURE_SETTINGS,updateScreenStableReferences(){},scene:new THREE.Scene(),navigation:{target:new THREE.Vector3()},raycaster:new THREE.Raycaster(),pointer:new THREE.Vector2(),renderer:{domElement:{clientWidth:800,clientHeight:600},getPixelRatio:()=>1},camera,selectionIndex:{pickWithIntersection(_ray,filter){return {selection:candidates.find(filter)??null};}},selectionMode:{project:s=>s}});
+ assert.equal(engine.hitTest(400,300).id,'x');candidates.splice(0,2,origin);assert.equal(engine.hitTest(400,300).kind,'datum-point');
+ candidates.splice(0,1,{...axis,kind:'plane'});assert.equal(engine.hitTest(400,300),null);
+ console.log('Projection tree/pointer inputs, scoped picking and reference visibility passed.');
+}finally{await server.close()}

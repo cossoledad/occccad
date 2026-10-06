@@ -21,7 +21,11 @@ export function makeSketchReferenceAxis(origin: THREE.Vector3, direction: THREE.
   line.renderOrder = 12;
   line.frustumCulled = false;
   registerScreenLineUpdate(line, (camera, width, height) => {
-    const ends = sketchAxisEndpoints(camera, origin, direction, width, height);
+    line.updateWorldMatrix(true,false);
+    const worldOrigin=line.localToWorld(origin.clone());
+    const worldDirection=direction.clone().transformDirection(line.matrixWorld);
+    const worldEnds = sketchAxisEndpoints(camera, worldOrigin, worldDirection, width, height);
+    const ends=worldEnds?.map(end=>line.worldToLocal(end)) as [THREE.Vector3,THREE.Vector3]|undefined;
     line.visible = Boolean(ends);
     if (!ends) return;
     const starts = geometry.getAttribute("instanceStart"), finishes = geometry.getAttribute("instanceEnd");

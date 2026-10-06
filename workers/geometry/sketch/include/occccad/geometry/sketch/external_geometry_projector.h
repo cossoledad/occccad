@@ -18,7 +18,7 @@ struct ProjectionFrame {
     Vec3 normal;
 };
 
-enum class ExternalSourceKind { point, line, circle };
+enum class ExternalSourceKind { point, line, circle, axis };
 
 struct ExternalProjectionSource {
     ExternalSourceKind kind{ExternalSourceKind::point};

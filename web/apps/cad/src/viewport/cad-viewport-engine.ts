@@ -1,3 +1,4 @@
+import {isExternalProjectionSource} from "../cad/interaction/external-projection-selection";
 import { featureContribution, topologyFeatureAssociation, sameDisplayContext } from "../cad/interaction/feature-association";
 import { patternEntityStatus } from "../features/workbench/pattern-selection";
 import { makeDatumAxisReference, type DatumPreview } from "../cad/rendering/datum-reference";
@@ -185,7 +186,7 @@ export type ViewportDebugState = {
 
 function sketchReferenceEntities(feature?: Feature): SketchEntity[] {
   return [...(feature?.sketch?.entities ?? []), ...(feature?.sketch?.externalGeometry ?? []).flatMap((external) => external.status==="CONNECTED"&&external.snapshot ? [{
-    id: external.id, kind: external.snapshot.kind, role: "CONSTRUCTION" as const, point: external.snapshot.point,
+    infinite:Boolean(external.datumReference&&external.snapshot.kind==="LINE"),id: external.id, kind: external.snapshot.kind, role: "CONSTRUCTION" as const, point: external.snapshot.point,
     start: external.snapshot.start, end: external.snapshot.end, center: external.snapshot.center, radius: external.snapshot.radius,
   } satisfies SketchEntity] : [])];
 }
@@ -530,6 +531,9 @@ export class CadViewportEngine {
         }
       }
       this.host.classList.toggle("drawing", Boolean(toolID?.startsWith("sketch.")) && Boolean(this.sketchPlane));
+      this.updateSketchContextVisibility();
+      this.applyTreeVisibility();
+      this.invalidate();
       this.callbacks.activeToolChanged(this.activeToolID as import("../state/workbench-store").WorkbenchToolID);
       this.emitDebugState();
     });
@@ -808,10 +812,11 @@ export class CadViewportEngine {
       const editingOverlayReplacesPrimitive = Boolean(this.editContext && this.activeSketchID && entry.visualizationPrimitive &&
         entry.sketchFeatureID === this.activeSketchID && entry.occurrencePath === this.editContext.occurrencePath);
       const category = referenceCategory(object.userData.kind, object.userData.axis);
-      const featureReference = this.featureSelection && !this.featureSelection.localSketchId &&
+      const projectionReference=this.tools?.activeToolID==="sketch.project"&&(entry.ownerDocumentId??entry.documentId)===this.sketchView()?.document.id&&(entry.occurrencePath??"")===(this.editContext?.occurrencePath??"");
+      const featureReference = projectionReference || this.featureSelection && !this.featureSelection.localSketchId &&
         (entry.ownerDocumentId ?? entry.documentId) === this.featureSelection.documentId &&
         (entry.occurrencePath ?? "") === (this.featureSelection.occurrencePath ?? "") &&
-        (this.featureSelection.role === "plane" && entry.kind === "plane" || this.featureSelection.role === "axis" && ["axis","axis-system"].includes(entry.kind??"") || this.featureSelection.role === "point" && entry.kind === "axis-system");
+        (this.featureSelection.role === "plane" && entry.kind === "plane" || ["axis","direction"].includes(this.featureSelection.role) && ["axis","axis-system"].includes(entry.kind??"") || this.featureSelection.role === "point" && ["axis-system","datum-point"].includes(entry.kind??""));
       if(object.userData.patternCenterMarker){ object.visible=this.featureSelection?.role==="point"&&!this.featureSelection.localSketchId;return; }
       if (category) object.visible = (this.referenceVisibility[category] || !!featureReference) &&
         !(root === this.helpers && this.sketchPlane && !featureReference) && hidden !== false;
@@ -2154,7 +2159,7 @@ export class CadViewportEngine {
     system.position.copy(origin);
     this.screenStableReferences.set(system, 54);
     const systemSelection = {
-      kind: "axis-system" as const, id: `${context?.occurrencePath || "root"}:${axis.id}`,
+      ...context, kind: "axis-system" as const, id: `${context?.occurrencePath || "root"}:${axis.id}`,
       entityId: axis.id,
       treeNodeId: context?.treeNodeId, documentId: context?.documentId, occurrencePath: context?.occurrencePath,
       geometryKey: context?.geometryKey, instancePath: context?.instancePath, instanceId: context?.instanceId
@@ -2176,15 +2181,17 @@ export class CadViewportEngine {
       pickLine.userData = selection;
       axisReference.add(visibleLine, pickLine);
       system.add(axisReference);
-      this.selectionIndex.register(selection, axisReference, context?.treeNodeId);
+      this.selectionIndex.register(selection, axisReference);
       this.selectionIndex.registerPick(pickLine, (hit) =>
         datumAxisHitAccepted(this.raycaster.ray.distanceToPoint(hit.point), this.datumAxisPickToleranceWorld) ? selection : null, 200, 10);
     }
     const originPoint = new THREE.Points(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]), this.materials.point(CATIA_VISUAL_THEME.vertex, 8, false));
-    originPoint.userData = {...systemSelection,patternCenterMarker:true};
-    originPoint.visible = false;
+    const pointSelection={...systemSelection,kind:"datum-point" as const,id:`${systemSelection.id}:point`,treeNodeId:systemSelection.treeNodeId?`${systemSelection.treeNodeId}/point`:undefined};
+    originPoint.userData=pointSelection;
+    originPoint.visible=true;
+    this.selectionIndex.register(pointSelection,originPoint);
     system.add(originPoint);
-    this.selectionIndex.registerPick(originPoint, () => this.featureSelection?.role === "point" ? systemSelection : null, 210);
+    this.selectionIndex.registerPick(originPoint, () => pointSelection, 210);
     system.userData = systemSelection; parent.add(system);
     this.selectionIndex.register(systemSelection, system);
   }
@@ -2488,7 +2495,7 @@ export class CadViewportEngine {
     const externalEntities = (feature.sketch?.externalGeometry ?? []).flatMap((external) => {
       const snapshot = external.snapshot;
       if (!snapshot) return [];
-      const entity: SketchEntity = { id: external.id, kind: snapshot.kind, role: "CONSTRUCTION",
+      const entity: SketchEntity = { infinite:Boolean(external.datumReference&&snapshot.kind==="LINE"),id: external.id, kind: snapshot.kind, role: "CONSTRUCTION",
         point: snapshot.point, start: snapshot.start, end: snapshot.end, center: snapshot.center, radius: snapshot.radius };
       const type = snapshot.kind === "POINT" ? "POINT" as const : "CURVE" as const;
       const selection = { kind: "visual" as const, id: `${context.occurrencePath || "root"}:${feature.id}:${external.id}`, visualType: type,
@@ -2502,6 +2509,10 @@ export class CadViewportEngine {
       if (snapshot.kind === "POINT" && snapshot.point) {
         object = new THREE.Points(new THREE.BufferGeometry().setFromPoints([localToWorld(plane, [snapshot.point.x, snapshot.point.y])]),
           this.materials.point(color, 10, false));
+      } else if(entity.infinite&&snapshot.start&&snapshot.end){
+        const origin=localToWorld(plane,[snapshot.start.x,snapshot.start.y]);
+        const direction=localToWorld(plane,[snapshot.end.x,snapshot.end.y]).sub(origin);
+        object=makeSketchReferenceAxis(origin,direction,new THREE.Color(color),2.75);
       } else {
         const sampled = sampleSketchEntity(entity);
         if (sampled.length >= 2) {
@@ -2775,10 +2786,12 @@ export class CadViewportEngine {
       if(entity&&current(entity))return entity;
       return this.selectionIndex.pick(this.raycaster,selection=>!!selection.associatedSourceEntityId&&current(selection));
     }
+    const projectionDocument=this.sketchView()?.document;
+    const projectionScope=projectionDocument?{documentId:projectionDocument.id,versionId:projectionDocument.versionId,occurrencePath:this.editContext?.occurrencePath}:undefined;
     const hit = this.selectionIndex.pickWithIntersection(this.raycaster, (selection) =>
       this.featureSelection ? !!featureSelectionHit(selection, this.featureSelection) :
-      this.activeToolID === "sketch.project" && (selection.kind === "edge" || selection.kind === "vertex")
-        ? allowsSelection(this.captureSettings, selection)
+      this.activeToolID === "sketch.project"
+        ? isExternalProjectionSource(selection, projectionScope) && allowsSelection(this.captureSettings, selection)
         : allowsSelectionInContext(this.captureSettings, selection, this.activeSketchID));
     const raw=hit.selection && bindPublicationSelection(hit.selection, this.view?.structureTree);
     if(captureManipulatorAnchor&&raw&&hit.intersection&&this.view)
@@ -3294,11 +3307,15 @@ export class CadViewportEngine {
       },
       selectionAt: (x, y) => this.hitTest(x, y, true),
       commitExternalProjection: async (selection) => {
-        if (!this.activeSketchID || !selection.geometryKey || !selection.versionId) return;
+        if (!this.activeSketchID || !selection.versionId) return;
         const externalID = this.reconnectExternalID ?? randomUUID();
         const type = this.reconnectExternalID ? "RECONNECT_EXTERNAL_GEOMETRY" as const : "ADD_EXTERNAL_GEOMETRY" as const;
-        const result=await this.commitSketchOperations( [{ type, externalId: externalID, geometryKey: selection.geometryKey,
-          topologyId: selection.topologyId, topologyKind: selection.kind.toUpperCase() as "EDGE"|"VERTEX", sourceVersionId: selection.versionId }]);
+        const scope=this.sketchView();if(!scope||(selection.ownerDocumentId??selection.documentId)!==scope.document.id||(selection.occurrencePath??"")!==(this.editContext?.occurrencePath??"")||selection.versionId!==scope.document.versionId)throw new Error("投影引用不属于当前草图的文档、Revision 或 occurrence");
+        let source:Partial<import("../types").SketchOperation>;
+        if(selection.kind==="axis"||selection.kind==="axis-system"||selection.kind==="datum-point"){
+          const ref:import("../types").DatumReference={kind:selection.kind==="axis"?(selection.axis==="DATUM"?"AXIS":"AXIS_SYSTEM"):"POINT",entityId:selection.entityId,...(selection.kind==="axis"&&selection.axis!=="DATUM"?{axis:selection.axis}:{})};source={datumReference:ref};
+        }else if(selection.kind==="edge"||selection.kind==="vertex")source={geometryKey:selection.geometryKey,topologyId:selection.topologyId,topologyKind:selection.kind.toUpperCase() as "EDGE"|"VERTEX"};else throw new Error("投影来源不支持");
+        const result=await this.commitSketchOperations([{...source,type,externalId:externalID,sourceVersionId:selection.versionId} as import("../types").SketchOperation]);
         if(this.reconnectExternalID===externalID)this.reconnectExternalID=undefined;
         return result;
       },

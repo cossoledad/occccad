@@ -26,6 +26,23 @@ func parameterPresentation(model PartModel, parameter modelcore.ParameterDefinit
 	}
 	if feature == nil {
 		parameter.DisplayName, parameter.QualifiedDisplayPath = parameter.Label, parameter.Label
+		name := ""
+		for _, p := range model.DatumPlanes {
+			if p.ID == parameter.OwnerFeatureID {
+				name = p.Name
+			}
+		}
+		for _, p := range model.DatumAxes {
+			if p.ID == parameter.OwnerFeatureID {
+				name = p.Name
+			}
+		}
+		if name != "" {
+			parameter.QualifiedDisplayPath = "Origin\\" + name + "\\" + parameter.Label
+		}
+		if !strings.HasPrefix(parameter.Key, parameterKeyFragment(parameter.OwnerFeatureID)+"_") {
+			parameter.DisplayAlias = parameter.Key
+		}
 		return parameter
 	}
 	featureName := feature.Name
