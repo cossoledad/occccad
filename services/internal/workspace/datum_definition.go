@@ -417,7 +417,7 @@ func datumParameterSources(m PartModel, d *DatumTransform, angle, distance strin
 			if _, ok := sources[input.slot]; ok {
 				continue
 			}
-			expr, err := modelcore.CompileExpression(input.text, names, input.dimension)
+			expr, err := modelcore.CompileExpression(input.text, names, input.dimension, input.unit)
 			if err != nil {
 				return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 			}
@@ -509,6 +509,7 @@ func applyEditDatum(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, mo
 			return nil, modelcore.ChangeSet{}, err
 		}
 		p.Plane.Origin, p.Plane.UDirection, p.Plane.Normal = o, u, n
+		p.Plane.Visible = m.DatumPlanes[index].Visible
 		p.Plane.Size = m.DatumPlanes[index].Size
 		p.Plane.Plane = "CUSTOM"
 		before = m.DatumPlanes[index]
@@ -523,6 +524,7 @@ func applyEditDatum(modelJSON, payloadJSON json.RawMessage) (json.RawMessage, mo
 			return nil, modelcore.ChangeSet{}, fmt.Errorf("%w: datum axis edit not allowed", ErrValidation)
 		}
 		p.Axis.Direction = d
+		p.Axis.Visible = m.DatumAxes[index].Visible
 		before = m.DatumAxes[index]
 		m.DatumAxes[index] = *p.Axis
 		after = *p.Axis

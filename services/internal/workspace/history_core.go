@@ -295,6 +295,13 @@ func modelValues(documentType string, modelJSON json.RawMessage, set modelcore.C
 			return nil, err
 		}
 		for _, change := range set.Changes {
+			if strings.HasPrefix(change.Target.SlotID, "display.") {
+				value, exists := partReferenceVisibility(&model, change.Target, nil, false)
+				if exists {
+					result[change.Target], _ = json.Marshal(value)
+				}
+				continue
+			}
 			switch change.Target.SlotID {
 			case "body.entity":
 				for _, b := range model.Bodies {
@@ -442,6 +449,16 @@ func applyModelValues(documentType string, modelJSON json.RawMessage, values map
 			return nil, err
 		}
 		for address, value := range values {
+			if strings.HasPrefix(address.SlotID, "display.") {
+				var visible *bool
+				if err := json.Unmarshal(value, &visible); err != nil {
+					return nil, err
+				}
+				if _, ok := partReferenceVisibility(&model, address, visible, true); !ok {
+					return nil, fmt.Errorf("%w: display target deleted", ErrValidation)
+				}
+				continue
+			}
 			switch address.SlotID {
 			case "active-body":
 				if err := json.Unmarshal(value, &model.ActiveBodyID); err != nil {

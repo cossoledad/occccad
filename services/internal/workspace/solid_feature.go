@@ -289,7 +289,7 @@ func featureParameterExpressions(model PartModel, feature Feature, expressions m
 		if err != nil {
 			return nil, err
 		}
-		expression, err := modelcore.CompileExpression(qualified, names, dimension)
+		expression, err := modelcore.CompileExpression(qualified, names, dimension, defaultParameterUnit(dimension))
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 		}

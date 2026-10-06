@@ -21,6 +21,7 @@ import {sketchCommitResultUnknown,type SketchCommandAction} from "./sketch-comma
 export type ToolViewportPort = {
   sketchPoint(x: number, y: number): Vec2 | null;
   sketchSnapReference(): SketchGeometryRef | undefined;
+  setSketchDraftPoints?(points: readonly Vec2[]): void;
   snapSketchEditPoint?(point: Vec2, excludedEntityId: string): Vec2;
   sketchPlacementPoint(x: number, y: number): Vec2 | null;
   showPolylinePreview(points: Vec2[], closed?: boolean): void;
@@ -696,7 +697,7 @@ abstract class MultiPointSketchTool extends SketchCreationTool {
   protected addPoint(value:Vec2,snap:SketchGeometryRef|undefined):void {this.points.push(value);this.snaps.push(snap);}
   selectionInput(selections:readonly SelectionItem[],context:ToolContext):SelectionInputResult {
     if(this.points.length)return SelectionInputResult.Rejected;const source=localSketchSelection(selections,context).find(entity=>entity.kind==="POINT"&&entity.point);
-    if(source?.point){this.addPoint([source.point.x,source.point.y],{target:"ENTITY",entityId:source.id,subElement:"POINT"});context.viewport.setToolPrompt(`${this.prompt}；已使用预选起点/中心`);return SelectionInputResult.Accepted;}
+    if(source?.point){this.addPoint([source.point.x,source.point.y],{target:"ENTITY",entityId:source.id,subElement:"POINT"});context.viewport.setToolPrompt(`${this.prompt}；已使用预选起点/中心`);context.viewport.setSketchDraftPoints?.(this.points);return SelectionInputResult.Accepted;}
     return SelectionInputResult.Unhandled;
   }
   activate(context:ToolContext):void {context.viewport.setToolPrompt(this.prompt);}
@@ -709,7 +710,7 @@ abstract class MultiPointSketchTool extends SketchCreationTool {
     if(previous&&at-previous.at<=450&&Math.hypot(event.x-previous.x,event.y-previous.y)<=6&&this.points.length>=this.minimumPoints){this.lastClick=undefined;this.finish(context);return InputResult.Capture;}
     const last=this.points.at(-1);if(last&&Math.hypot(value[0]-last[0],value[1]-last[1])<SKETCH_INPUT_POLICY.minimumGeometryLength)return InputResult.Capture;
     if(this.points.length>0&&Math.hypot(value[0]-this.points[0][0],value[1]-this.points[0][1])<SKETCH_INPUT_POLICY.minimumGeometryLength&&this.points.length>=this.minimumPoints){this.addPoint(this.points[0],this.snaps[0]);this.lastClick=undefined;this.finish(context);return InputResult.Capture;}
-    this.addPoint(value,this.capturedSnap(event,context));this.lastClick={x:event.x,y:event.y,at};this.previewPoints(this.points,context);return InputResult.Capture;
+    this.addPoint(value,this.capturedSnap(event,context));context.viewport.setSketchDraftPoints?.(this.points);this.lastClick={x:event.x,y:event.y,at};this.previewPoints(this.points,context);return InputResult.Capture;
   }
   pointerMove(event:CadPointerEvent,context:ToolContext):InputResult {
     if(this.creationPending)return InputResult.Consumed;if(event.state.buttons.middle||event.state.buttons.right)return InputResult.Ignored;const value=context.viewport.sketchPoint(event.x,event.y);if(!value)return InputResult.Ignored;if(this.points.length>0)this.previewPoints([...this.points,value],context);return InputResult.Consumed;}
@@ -717,8 +718,8 @@ abstract class MultiPointSketchTool extends SketchCreationTool {
   keyDown(event:CadKeyboardEvent,context:ToolContext):InputResult {
     if(this.creationPending){if(event.key==="Escape"){this.cancel(context);context.viewport.finishToolUse(true);}return InputResult.Consumed;}const shared=this.creationKey(event,context);if(shared!==InputResult.Ignored)return shared;if(event.key==="Enter"&&this.points.length>=this.minimumPoints){this.finish(context);return InputResult.Consumed;}if(event.key==="Escape"&&this.points.length>0){this.cancel(context);return InputResult.Consumed;}return InputResult.Ignored;}
   pointerCancel(event:CadPointerEvent,context:ToolContext):InputResult {if(event.pointerId!==this.capturedPointerID)return InputResult.Ignored;this.cancel(context);return InputResult.Consumed;}
-  private finish(context:ToolContext,exit=false):void {context.viewport.clearToolPreview();this.submitCreation(context,submission=>this.commit(submission),()=>{this.points=[];this.snaps=[];this.resetCreation();this.lastClick=undefined;context.viewport.setToolPrompt(this.prompt);},exit);}
-  deactivate(context:ToolContext):void {this.cancel(context);} cancel(context:ToolContext):void {this.invalidateCreationSubmission();this.points=[];this.snaps=[];this.resetCreation();this.capturedPointerID=undefined;this.lastClick=undefined;context.viewport.clearToolPreview();context.viewport.setToolPrompt(this.prompt);}
+  private finish(context:ToolContext,exit=false):void {context.viewport.setSketchDraftPoints?.([]);context.viewport.clearToolPreview();this.submitCreation(context,submission=>this.commit(submission),()=>{this.points=[];this.snaps=[];this.resetCreation();this.lastClick=undefined;context.viewport.setToolPrompt(this.prompt);},exit);}
+  deactivate(context:ToolContext):void {this.cancel(context);} cancel(context:ToolContext):void {this.invalidateCreationSubmission();this.points=[];this.snaps=[];this.resetCreation();this.capturedPointerID=undefined;this.lastClick=undefined;context.viewport.setSketchDraftPoints?.([]);context.viewport.clearToolPreview();context.viewport.setToolPrompt(this.prompt);}
 }
 
 type ProfileCreationSegment = {kind:"LINE";start:Vec2;end:Vec2}|{kind:"ARC";start:Vec2;end:Vec2;center:Vec2;radius:number;startAngle:number;endAngle:number};
@@ -798,6 +799,13 @@ export class PolylineSketchTool extends MultiPointSketchTool {
     }
     if(closed&&ids.length>1)operations.push({type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"COINCIDENT",internal:true,
       references:[{target:"ENTITY",entityId:ids.at(-1),subElement:"END"},{target:"ENTITY",entityId:ids[0],subElement:"START"}]}});
+    for(let end=1;end<this.points.length;end++)for(let prior=0;prior<end-1;prior++){
+      if(closed&&end===this.points.length-1&&prior===0)continue;
+      if(this.points[end][0]===this.points[prior][0]&&this.points[end][1]===this.points[prior][1]){
+        operations.push({type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"COINCIDENT",internal:true,
+          references:[{target:"ENTITY",entityId:ids[end-1],subElement:"END"},{target:"ENTITY",entityId:ids[prior],subElement:"START"}]}});break;
+      }
+    }
     if(this.snaps[0]&&ids[0])operations.push({type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"COINCIDENT",references:[{target:"ENTITY",entityId:ids[0],subElement:"START"},this.snaps[0]]}});
     const lastSnap=this.snaps[closed?0:this.snaps.length-1];if(lastSnap&&ids.at(-1))operations.push({type:"ADD_CONSTRAINT",constraint:{id:randomUUID(),kind:"COINCIDENT",references:[{target:"ENTITY",entityId:ids.at(-1),subElement:"END"},lastSnap]}});
     context.viewport.commitSketchOperations(operations);

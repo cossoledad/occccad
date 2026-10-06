@@ -4,7 +4,7 @@ import type { FeatureSelectionSession } from "../cad/interaction/feature-selecti
 import type { SketchCommandState, SketchCommandAction, SketchCommitIntent, SketchCommitResult, SketchCommitReceipt } from "../cad/tool/sketch-command-session";
 import { SketchInlineParameterInput } from "../cad/sketch/sketch-inline-parameter-input";
 import { SketchCommandPanel } from "../cad/sketch/sketch-command-panel";
-import type { ReferenceVisibility, SolidDisplaySettings } from "../cad/rendering/display-settings";
+import type { GridVisibility, ReferenceVisibility, SolidDisplaySettings } from "../cad/rendering/display-settings";
 import type { InstancePatternPreview } from "../features/workbench/instance-pattern";
 import type { NormalViewPlane } from "../cad/navigation/normal-view";
 import type { FeaturePreviewOperation } from "../cad/rendering/feature-preview";
@@ -67,6 +67,7 @@ type Props = {
   navigationProfile: NavigationProfileID;
   catiaRotationSphereVisible: boolean;
   captureSettings: CaptureSettings;
+  gridVisibility: GridVisibility;
   referenceVisibility: ReferenceVisibility;
   solidDisplay: SolidDisplaySettings;
   treeVisibilityOverrides: TreeVisibilityOverrides;
@@ -152,6 +153,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     instance.setActiveTool(callbacks.current.activeToolID);
     instance.setNavigationProfile(callbacks.current.navigationProfile);
     instance.setCatiaRotationSphereVisible(callbacks.current.catiaRotationSphereVisible);
+    instance.setGridVisibility(callbacks.current.gridVisibility);
     instance.setDisplaySettings(callbacks.current.referenceVisibility, callbacks.current.solidDisplay);
     instance.setCaptureSettings(callbacks.current.captureSettings);
     instance.setTreeVisibilityOverrides(callbacks.current.treeVisibilityOverrides);
@@ -182,6 +184,7 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
   useEffect(() => { engine.current?.setActiveTool(props.activeToolID); }, [props.activeToolID]);
   useEffect(() => { engine.current?.setNavigationProfile(props.navigationProfile); }, [props.navigationProfile]);
   useEffect(() => { engine.current?.setCatiaRotationSphereVisible(props.catiaRotationSphereVisible); }, [props.catiaRotationSphereVisible]);
+  useEffect(() => { engine.current?.setGridVisibility(props.gridVisibility); }, [props.gridVisibility]);
   useEffect(() => { engine.current?.setDisplaySettings(props.referenceVisibility, props.solidDisplay); }, [props.referenceVisibility, props.solidDisplay]);
   useEffect(() => { engine.current?.setCaptureSettings(props.captureSettings); }, [props.captureSettings]);
   useEffect(() => { engine.current?.setTreeVisibilityOverrides(props.treeVisibilityOverrides); }, [props.treeVisibilityOverrides]);

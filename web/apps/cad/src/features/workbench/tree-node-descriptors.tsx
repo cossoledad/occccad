@@ -11,11 +11,12 @@ type Kind = DocumentStructureNode["kind"];
 type Descriptor = { icon: ReactNode; visibility?: true };
 
 const descriptors: Partial<Record<Kind, Descriptor>> = {
+  ASSEMBLY_CONSTRAINT:{icon:<GatewayOutlined />,visibility:true},
   PRODUCT: { icon: <ApartmentOutlined /> }, PART: { icon: <BuildOutlined /> },
   INSTANCE: { icon: <BuildOutlined />, visibility: true },
-  ORIGIN: { icon: <GatewayOutlined /> },
+  ORIGIN: { icon: <GatewayOutlined />, visibility:true },
   PLANE: { icon: <NodeIndexOutlined />, visibility: true },
-  DATUM_POINT: {icon:<AimOutlined />},
+  DATUM_POINT: {icon:<AimOutlined />,visibility:true},
   AXIS_SYSTEM: { icon: <AimOutlined />, visibility: true },
   AXIS: { icon: <NodeIndexOutlined />, visibility: true },
   DATUM_AXIS: { icon: <NodeIndexOutlined />, visibility: true },

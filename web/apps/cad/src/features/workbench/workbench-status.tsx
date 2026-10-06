@@ -37,7 +37,7 @@ export function WorkbenchStatus({ busy, canEdit, selectionCount, toolName, lengt
     {sketchReceipt?.status==="unknown"&&<Button size="small" onClick={onSketchReceiptCheck}>确认草图结果</Button>}
     {!sketchCommand&&<span className="workbench-selection-count">{selectionCount ? `已选择 ${selectionCount} 项` : "未选择对象"}</span>}
     <span className="workbench-status-spacer" />
-    <ViewportSettingsButton references={preferences.referenceVisibility} display={preferences.solidDisplay}
+    <ViewportSettingsButton grids={preferences.gridVisibility} onGrids={preferences.setGridVisibility} references={preferences.referenceVisibility} display={preferences.solidDisplay}
       onReferences={preferences.setReferenceVisibility} onDisplay={preferences.setSolidDisplay}
       capture={{ settings: preferences.captureSettings, onEnabledChange: preferences.setCaptureEnabled,
         onSelectionToggle: preferences.toggleSelectionCapture, onSketchToggle: preferences.toggleSketchSnap,

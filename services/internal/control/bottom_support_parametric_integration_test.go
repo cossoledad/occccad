@@ -53,7 +53,7 @@ func TestBottomSupportParametricDatumLifecycleThroughRouter(t *testing.T) {
 	}{{"tilt", "deg", 30}, {"height", "mm", 20}, {"r_1", "mm", 5}, {"r_2", "mm", 10}} {
 		apply(workspace.CommandRequest{Type: "CREATE_PARAMETER", Name: p.key, Unit: p.unit, Value: p.value})
 	}
-	apply(workspace.CommandRequest{Type: "SET_PARAMETER_EXPRESSION", ParameterID: parameterID("r_2"), Expression: "r_1 + 5 mm"})
+	apply(workspace.CommandRequest{Type: "SET_PARAMETER_EXPRESSION", ParameterID: parameterID("r_2"), Expression: "r_1 + 5"})
 	system := view.Part.AxisSystems[0].ID
 	x := workspace.DatumReference{Kind: "AXIS_SYSTEM", EntityID: system, Axis: "X"}
 	z := workspace.DatumReference{Kind: "AXIS_SYSTEM", EntityID: system, Axis: "Z"}
@@ -207,6 +207,32 @@ func TestBottomSupportParametricDatumLifecycleThroughRouter(t *testing.T) {
 	apply(workspace.CommandRequest{Type: "UNDO"})
 	check(60, 40, 12)
 	apply(workspace.CommandRequest{Type: "REDO"})
+	check(60, 50, 12)
+
+	// Persistent display attributes must retain the exact Body result, datum
+	// references and parameter chain, including compensating history/reopen.
+	key := view.Part.Bodies[0].GeometryKey
+	apply(workspace.CommandRequest{Type: "SET_DEFINITION_VISIBILITY", TargetKind: "ORIGIN", TargetID: "origin", Visible: false})
+	if view.Part.OriginVisible == nil || *view.Part.OriginVisible || view.Part.Bodies[0].GeometryKey != key {
+		t.Fatal("Origin visibility changed geometry or was not saved")
+	}
+	apply(workspace.CommandRequest{Type: "UNDO"})
+	if view.Part.OriginVisible != nil && !*view.Part.OriginVisible {
+		t.Fatal("Origin Undo")
+	}
+	apply(workspace.CommandRequest{Type: "REDO"})
+	if view.Part.OriginVisible == nil || *view.Part.OriginVisible {
+		t.Fatal("Origin Redo")
+	}
+	apply(workspace.CommandRequest{Type: "SET_DEFINITION_VISIBILITY", TargetKind: "AXIS", TargetID: system, Axis: "X", Visible: false})
+	if view.Part.AxisSystems[0].AxisVisibility["X"] {
+		t.Fatal("X visibility")
+	}
+	cold = workspace.NewWithArtifacts(db, client, artifacts)
+	reopened, e = cold.GetDocument(t.Context(), view.Document.ID, p6Actor)
+	if e != nil || reopened.Part.OriginVisible == nil || *reopened.Part.OriginVisible || reopened.Part.AxisSystems[0].AxisVisibility["X"] {
+		t.Fatal("cold display state", e)
+	}
 	check(60, 50, 12)
 
 }

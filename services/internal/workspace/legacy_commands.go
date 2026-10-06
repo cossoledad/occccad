@@ -16,11 +16,14 @@ import (
 func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, documentType string, modelJSON json.RawMessage, request CommandRequest) (string, any, error) {
 	switch request.Type {
 	case "SET_DEFINITION_VISIBILITY":
+		if documentType == "PRODUCT" {
+			return typeConstraintVisibility, definitionVisibilityPayload{EntityKind: request.TargetKind, EntityID: request.TargetID, Visible: request.Visible}, nil
+		}
 		if documentType != "PART" {
 			break
 		}
 		return typeDefinitionVisibility, definitionVisibilityPayload{EntityKind: request.TargetKind, EntityID: request.TargetID,
-			OwnerEntityID: request.OwnerEntityID, Visible: request.Visible}, nil
+			OwnerEntityID: request.OwnerEntityID, Axis: request.Axis, Visible: request.Visible}, nil
 	case "SET_BODY_VISIBILITY":
 		if documentType != "PART" {
 			break
@@ -470,7 +473,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			if resolveErr != nil {
 				return "", nil, resolveErr
 			}
-			expression, compileErr := modelcore.CompileExpression(source, names, modelcore.LengthDimension)
+			expression, compileErr := modelcore.CompileExpression(source, names, modelcore.LengthDimension, "mm")
 			if compileErr != nil {
 				return "", nil, fmt.Errorf("%w: %w", ErrValidation, compileErr)
 			}
@@ -570,7 +573,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			for _, parameter := range model.Parameters {
 				names[parameter.Key] = modelcore.ParameterBinding{ParameterID: parameter.ParameterID, Dimension: parameter.Dimension}
 			}
-			expression, err := modelcore.CompileExpression(request.LengthExpression, names, modelcore.LengthDimension)
+			expression, err := modelcore.CompileExpression(request.LengthExpression, names, modelcore.LengthDimension, "mm")
 			if err != nil {
 				return "", nil, fmt.Errorf("%w: %w", ErrValidation, err)
 			}
@@ -725,7 +728,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 			if err != nil {
 				return "", nil, err
 			}
-			expression, err := modelcore.CompileExpression(source, names, expected.Dimension)
+			expression, err := modelcore.CompileExpression(source, names, expected.Dimension, expected.DisplayUnit)
 			if err != nil {
 				return "", nil, fmt.Errorf("%w: %w", ErrValidation, err)
 			}
@@ -768,7 +771,7 @@ func (service *Service) adaptLegacyCommand(ctx context.Context, documentID, docu
 		if err != nil {
 			return "", nil, err
 		}
-		expression, err := modelcore.CompileExpression(source, names, expected.Dimension)
+		expression, err := modelcore.CompileExpression(source, names, expected.Dimension, expected.DisplayUnit)
 		if err != nil {
 			return "", nil, fmt.Errorf("%w: %w", ErrValidation, err)
 		}

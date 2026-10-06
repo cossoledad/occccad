@@ -49,7 +49,7 @@ import { CommandProvider } from "../../cad/command/command-context";
 import { CommandRegistry } from "../../cad/command/command-registry";
 import { selectionKey, selectionSetToken } from "../../cad/interaction/selection-identity";
 import { treeVisibilityOverride } from "../../cad/interaction/tree-visibility";
-import { visibilityResolverForView, type DisplayKind } from "../../cad/interaction/visibility-resolver";
+import { DISPLAY_KINDS, visibilityResolverForView, type DisplayKind } from "../../cad/interaction/visibility-resolver";
 import { assemblyGeometryRef, type AssemblyConstraintToolKind } from "../../cad/tool/cad-tool";
 import { CommandDialog } from "../../cad/overlay/floating-panel";
 import { resolveCadWorkbench } from "../../cad/workbench/cad-workbench";
@@ -199,8 +199,8 @@ function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, c
     {kind === "DISTANCE" && <>
       <Typography.Text type="secondary">偏移 = 所选法向 ·（第一位置 − 第二位置）。双平面取第一法向；同向/反向不改变输入正负。无平面仅无符号无限支撑距离。</Typography.Text>
       <Form.Item name="quantityKey" label="偏移参数标识"><Input onBlur={onValueCommit} /></Form.Item>
-      <Form.Item name="quantityExpression" label="长度表达式（空白使用数值）"><Input placeholder="例如 Offset_base + 5 mm" onBlur={onValueCommit} onPressEnter={event=>event.currentTarget.blur()} /></Form.Item>
-      <Typography.Text type="secondary">可引用：{view?.product?.constraints?.flatMap(c=>{const p=c.quantityParameter;return p?[p.key]:[];}).join(", ") || "暂无；表达式须带长度单位"}</Typography.Text>
+      <Form.Item name="quantityExpression" label="长度表达式（空白使用数值）"><Input placeholder="例如 offset_1 + 5" onBlur={onValueCommit} onPressEnter={event=>event.currentTarget.blur()} /></Form.Item>
+      <Typography.Text type="secondary">可引用：{view?.product?.constraints?.flatMap(c=>{const p=c.quantityParameter;return p?[p.key]:[];}).join(", ") || "暂无；无单位常数使用默认长度单位"}</Typography.Text>
       <Form.Item name="constraintMode" label="求值模式"><Select onChange={onValueCommit} options={[{value:"DRIVING",label:"驱动"},{value:"MEASURED",label:"只测量（保留驱动定义）"}]} /></Form.Item>
       {constraint?.mode === "MEASURED" && <Typography.Text>测量：{constraint.measuredValue === undefined ? "不可测" : `${constraint.measuredValue} mm`}</Typography.Text>}
     </>}
@@ -294,6 +294,7 @@ export function Workbench() {
   const setTreeVisibility = useUIPreferences((state) => state.setTreeVisibility);
   const catiaRotationSphereVisible = useUIPreferences((state) => state.catiaRotationSphereVisible);
   const navigationProfile = useUIPreferences((state) => state.navigationProfile);
+  const gridVisibility = useUIPreferences(state=>state.gridVisibility);
   const referenceVisibility = useUIPreferences((state) => state.referenceVisibility);
   const solidDisplay = useUIPreferences((state) => state.solidDisplay);
   const captureSettings = useUIPreferences((state) => state.captureSettings);
@@ -600,10 +601,10 @@ export function Workbench() {
     const decorate = (node: SpecificationTreeNode): SpecificationTreeNode => {
       const visibilityKey = node.selection ? selectionKey(node.selection) : node.key;
       const kind = node.kind === "SKETCH_INPUT_REFERENCE" ? "SKETCH" : node.kind;
-      const semantic = ["INSTANCE", "PART", "BODY", "SKETCH", "SKETCH_ENTITY"].includes(kind ?? "") && node.selection?.entityRef
+      const semantic = (DISPLAY_KINDS as readonly string[]).includes(kind ?? "") && node.selection?.entityRef
         ? resolver.resolve({documentId: node.selection.entityRef.documentId,
           occurrencePath: node.instancePath?.canonical ?? "", kind: kind as DisplayKind,
-          entityId: node.selection.entityRef.entityId, ownerEntityId: node.ownerEntityId, bodyId: node.bodyId},
+          axis:node.axis, entityId: node.selection.entityRef.entityId, ownerEntityId: node.ownerEntityId, bodyId: node.bodyId},
           store.activeSketchID ? {id:store.activeSketchID, occurrencePath:activeInstancePath ?? ""} : undefined)
         : undefined;
       const ownVisible = semantic?.effectiveVisible ?? treeVisibilityOverride(visibilityKey, treeVisibilityOverrides) ?? true;
@@ -1453,7 +1454,7 @@ export function Workbench() {
             onToggleVisibility={(node,scope,mode)=>{
               if (scope === "DEFINITION" && node.documentId && node.entityId) {
                 command.mutate(() => api.command(node.documentId!, {type:"SET_DEFINITION_VISIBILITY",targetKind:node.kind,
-                  targetId:node.entityId,ownerEntityId:node.ownerEntityId,visible:!node.localVisible}));
+                  targetId:node.entityId,axis:node.axis,ownerEntityId:node.ownerEntityId,visible:!node.localVisible}));
                 return;
               }
               if (scope === "OCCURRENCE" && view?.document.type === "PRODUCT" && node.instancePath && node.entityId) {
@@ -1533,7 +1534,7 @@ export function Workbench() {
           preselection={store.preselection}
           treeVisibilityOverrides={treeVisibilityOverrides}
           sketchPlane={store.sketchPlane} activeSketchID={store.activeSketchID} activeToolID={store.activeToolID} navigationProfile={navigationProfile} catiaRotationSphereVisible={catiaRotationSphereVisible}
-          referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}
+          gridVisibility={gridVisibility} referenceVisibility={referenceVisibility} solidDisplay={solidDisplay}
           datumPreview={datumPreview} featureSelection={featureSelection} featureInputArtifacts={featureInputs} preferredLengthUnit={lengthUnit} captureSettings={captureSettings} onSelectionsChange={store.setSelections} onPreselectionChange={store.setPreselection} onSketchOperations={editSketch} onDimensionOperations={editSketch} onSketchPreview={(featureId,operations,signal)=>{if(!editingView||store.activeSketchID!==featureId)return Promise.reject(new Error("草图预览上下文已结束"));return api.previewCommand(editingView.document.id,{type:"EDIT_SKETCH",sketchId:featureId,operations},signal);}} onSketchReceiptCheck={async receipt=>{const updated=await command.mutateAsync(()=>api.command(receipt.ownerDocumentId,{type:"EDIT_SKETCH",sketchId:receipt.featureId,operations:receipt.operations,requestId:receipt.intent.requestId}));await refresh(updated);return updated;}}
           onSketchReceiptChange={setSketchReceipt} onSketchCommandStateChange={setSketchCommandState} onToolUseComplete={store.completeToolUse} onActiveToolChange={store.setActiveTool}
 		  onAssemblyConstraint={(toolKind, references) => {
@@ -1719,7 +1720,7 @@ export function Workbench() {
 				: (editingView?.part?.parameters ?? []).filter(p=>[p.key,p.displayAlias,p.qualifiedDisplayPath,p.label].some(text=>text?.toLowerCase().includes(parameterSearch.trim().toLowerCase()))).map((parameter: ParameterDefinition) => <div className="parameter-manager-row" key={parameter.parameterId}>
 					<span><strong>{parameter.qualifiedDisplayPath ?? parameter.displayName ?? parameter.label}</strong>
 						{parameter.displayAlias && <Typography.Text type="secondary">{parameter.displayAlias}</Typography.Text>}
-						<Typography.Text type="secondary" copyable={{text:parameter.parameterId}} title={parameter.parameterId}>技术详情</Typography.Text></span>
+						</span>
 					<Space direction="vertical" size={0}><Typography.Text ellipsis={{tooltip:parameterSourceText(parameter)}}>{parameterSourceText(parameter)}</Typography.Text>
 						{editingView?.referenceUpdates?.find((item) => item.consumerKind === "EXTERNAL_PARAMETER" && item.consumerId === parameter.parameterId) && ((update) =>
 							<Tag color={update.status === "CURRENT" ? "success" : update.status === "UPDATE_AVAILABLE" ? "processing" : "error"}
@@ -1825,7 +1826,7 @@ export function Workbench() {
 		<Form form={parameterForm} layout="vertical">
 			<Form.Item name="key" label="可读别名（可选）" rules={[{pattern:/^$|^[A-Za-z_][A-Za-z0-9_]*$/,
 				message:"请输入 ASCII 标识符"}]}><Input /></Form.Item>
-			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><ParameterReferenceInput disabled={parameterSourceReadonly} parameters={editingView?.part?.parameters??[]} excludeId={editingParameterID} unit={lengthUnit} placeholder="40 或 r_1 + 5 mm"/></Form.Item>
+			<Form.Item name="source" label="值或表达式" rules={[{required:!parameterSourceReadonly}]}><ParameterReferenceInput disabled={parameterSourceReadonly} parameters={editingView?.part?.parameters??[]} excludeId={editingParameterID} unit={lengthUnit} placeholder="40 或 r_1 + 5"/></Form.Item>
             {parameterSourceReadonly&&<small className="cad-command-hint">{editingParameterDefinition?.role==="MEASURED"?"参考尺寸只测量；请在尺寸定义编辑中显式恢复驱动后再改原来源。":"外部来源只读，当前仅编辑名称。"}</small>}
 			{parameterInputPreview.pending&&<Typography.Text type="secondary">正在检查表达式…</Typography.Text>}{parameterInputPreview.error&&<Alert type="error" message={parameterInputPreview.error}/>}{parameterInputPreview.parameterCandidates?.find(p=>p.parameterId===editingParameterID)&&<Typography.Text>计算值：{parameterDisplayValue(parameterInputPreview.parameterCandidates.find(p=>p.parameterId===editingParameterID)!,lengthUnit)}</Typography.Text>}
  {editingView&&Boolean(parameterInputPreview.failure)&&<DiagnosticCopy text={diagnosticReference(parameterInputPreview.failure,{documentId:editingView.document.id,versionId:editingView.document.versionId})}/>}

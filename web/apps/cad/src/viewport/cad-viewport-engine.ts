@@ -354,6 +354,7 @@ export class CadViewportEngine {
   private sketchManipulatorLastValue?:{translation:Vec2;angle:number;origin:Vec2};
   private sketchManipulatorOrigin:Vec2=[0,0];
   private lastSketchSnap?: SketchSnapResult;
+  private sketchDraftPoints: Vec2[] = [];
   private commandPreview?: THREE.Object3D;
   private previewBody?: { group: THREE.Group; visible: boolean };
   private assemblyPosePreview?: Map<string, { position: THREE.Vector3; rotation: THREE.Quaternion }>;
@@ -562,7 +563,12 @@ export class CadViewportEngine {
   private pendingVisualSnapshot = false;
   private visualError?: HTMLDivElement;
   private geometrySignature(view: DocumentDescriptor, editContext?: ViewportEditContext): string {
-    const part = (value?: DocumentDescriptor) => value?.part?.bodies.map((body) => [body.id, body.geometryKey, body.displayFallback, body.consumed]);
+    const part = (value?: DocumentDescriptor) => value?.part && [
+      value.part.bodies.map(body=>[body.id,body.geometryKey,body.displayFallback,body.consumed]),
+      value.part.datumPlanes.map(plane=>[plane.id,plane.origin,plane.normal,plane.uDirection,plane.size]),
+      value.part.axisSystems.map(axis=>[axis.id,axis.origin,axis.xDirection,axis.yDirection,axis.zDirection]),
+      value.part.datumAxes?.map(axis=>[axis.id,axis.origin,axis.direction]),
+    ];
     return JSON.stringify([view.document.id, view.document.type, part(view),
       view.resolvedInstances?.map((resolved) => [resolved.occurrencePath,resolved.bodyId, resolved.geometryKey, resolved.displayFallback, resolved.translation, resolved.rotation,
         resolved.ownedSketchIds]),
@@ -647,7 +653,7 @@ export class CadViewportEngine {
     if (previousDocumentID !== view.document.id) {
       this.viewTransition.cancel();
       this.sketchReturnView = undefined;
-      this.sketchPlane = undefined; this.activeSketchID = undefined;
+      this.sketchPlane = undefined; this.activeSketchID = undefined;this.sketchDraftPoints=[];
       this.disposeGroup(this.sketchContext);
     }
     const previousInstancePoses = new Map([...this.instanceGroups].map(([id, group]) => [id, snapshotTransform(group)]));
@@ -716,7 +722,7 @@ export class CadViewportEngine {
 	this.clearInteractionState();
     this.view = undefined;
     this.sketchReturnView = undefined;
-    this.sketchPlane = undefined; this.activeSketchID = undefined;
+    this.sketchPlane = undefined; this.activeSketchID = undefined;this.sketchDraftPoints=[];
     this.moveManipulator.detach();
     this.moveTarget = undefined;
     this.disposeGroup(this.content);
@@ -726,6 +732,9 @@ export class CadViewportEngine {
     this.contentBounds.makeEmpty();
     this.invalidate();
   }
+
+  private gridVisibility = {scene:true,sketch:true};
+  setGridVisibility(value: {scene:boolean;sketch:boolean}): void {this.gridVisibility={...value};this.invalidate();}
 
   setDisplaySettings(references: ReferenceVisibility, display: SolidDisplaySettings): void {
     this.referenceVisibility = { ...references };
@@ -755,6 +764,7 @@ export class CadViewportEngine {
       if(path){binding.context.instancePath=path;binding.context.versionId=path.segments.at(-1)?.resolvedVersionId;
         binding.context.documentId=path.segments.at(-1)?.referencedDocumentId??binding.context.documentId;
         binding.context.contextVariantKey=view.contextVariants?.find(variant=>variant.owningInstancePath.canonical===binding.context.occurrencePath)?.variantKey;}
+      if(!binding.context.occurrencePath)binding.context.versionId=view.document.versionId;
       binding.group.userData=refreshOccurrenceSelection(view,binding.group.userData as SelectionItem);
     }
     for(const group of this.instanceGroups.values()){
@@ -785,6 +795,9 @@ export class CadViewportEngine {
     const documentId = entry.documentId;
     const occurrencePath = entry.occurrencePath ?? "";
     if (!documentId) return undefined;
+    const referenceKind=entry.kind==="plane"?"PLANE":entry.kind==="axis-system"?"AXIS_SYSTEM":entry.kind==="datum-point"?"DATUM_POINT":entry.kind==="axis"?(entry.axis==="DATUM"?"DATUM_AXIS":"AXIS"):undefined;
+    if(referenceKind&&entry.entityId)return {documentId,occurrencePath,kind:referenceKind,entityId:entry.entityId,axis:entry.kind==="axis"?entry.axis:undefined};
+    if(entry.kind==="assembly-constraint"&&entry.constraintId)return {documentId,occurrencePath,kind:"ASSEMBLY_CONSTRAINT",entityId:entry.constraintId};
     if (entry.kind === "body" && entry.bodyId) return {documentId, occurrencePath, kind:"BODY", entityId:entry.bodyId};
     if (entry.kind === "sketch" && entry.id) return {documentId, occurrencePath, kind:"SKETCH", entityId:entry.id, bodyId:entry.bodyId};
     if (entry.kind === "visual" && entry.featureId && entry.entityId) return {documentId, occurrencePath,
@@ -819,7 +832,7 @@ export class CadViewportEngine {
         (this.featureSelection.role === "plane" && entry.kind === "plane" || ["axis","direction"].includes(this.featureSelection.role) && ["axis","axis-system"].includes(entry.kind??"") || this.featureSelection.role === "point" && ["axis-system","datum-point"].includes(entry.kind??""));
       if(object.userData.patternCenterMarker){ object.visible=this.featureSelection?.role==="point"&&!this.featureSelection.localSketchId;return; }
       if (category) object.visible = (this.referenceVisibility[category] || !!featureReference) &&
-        !(root === this.helpers && this.sketchPlane && !featureReference) && hidden !== false;
+        !(root === this.helpers && this.sketchPlane && !featureReference) && (address ? semanticVisible !== false : hidden !== false);
       else if (editingOverlayReplacesPrimitive) object.visible = false;
       else if (semanticVisible !== undefined) object.visible = semanticVisible;
       else if (hidden === false) object.visible = false;
@@ -3018,7 +3031,7 @@ export class CadViewportEngine {
     const pixelsPerUnit = Math.max(Math.hypot(second[0] - first[0], second[1] - first[1]), 1.0e-6);
     const snap = this.captureSettings.enabled
       ? resolveSketchSnap(raw, snapEntities, pixelsPerUnit, geometryOnly?1:adaptiveGridSpacing(this.camera, this.renderer.domElement.clientHeight),
-        SKETCH_INPUT_POLICY.snapThresholdPixels, geometryOnly?this.captureSettings.sketch.filter(kind=>kind!=="GRID"&&kind!=="ORIGIN"):this.captureSettings.sketch, screen) : undefined;
+        SKETCH_INPUT_POLICY.snapThresholdPixels, geometryOnly?this.captureSettings.sketch.filter(kind=>kind!=="GRID"&&kind!=="ORIGIN"):this.captureSettings.sketch, screen, geometryOnly?[]:this.sketchDraftPoints) : undefined;
     if(!geometryOnly)this.lastSketchSnap = snap;
     if (snap) this.showSnapPreview(snap, 8 / pixelsPerUnit); else this.clearSnapPreview();
     return snap?.point ?? raw;
@@ -3240,6 +3253,7 @@ export class CadViewportEngine {
       sketchManipulatorPointerMove:(id,x,y)=>this.sketchManipulator?.pointerMove(id,x,y,this.camera,this.renderer.domElement)??false,
       sketchManipulatorPointerUp:(id,commit)=>this.sketchManipulator?.pointerUp(id,commit)??false,
       sketchPoint: (x, y) => this.sketchPoint(x, y),
+      setSketchDraftPoints: points => { this.sketchDraftPoints = [...points]; },
       snapSketchEditPoint: (point, entityId) => this.snapSketchLocalPoint(point, true, entityId),
       sketchSnapReference: () => {
         const snap=this.lastSketchSnap;
@@ -3549,10 +3563,10 @@ export class CadViewportEngine {
             material.uniforms.uPointSize.value=material.userData.cssPointSize*metrics.devicePixelRatio;
         });
         this.sketchGrid.object.visible = false;
-        if (this.sketchPlane) this.sketchGrid.update(this.camera, this.renderer.domElement.clientHeight, planeFrame(this.sketchPlane));
+        if (this.sketchPlane && this.gridVisibility.sketch) this.sketchGrid.update(this.camera, this.renderer.domElement.clientHeight, planeFrame(this.sketchPlane));
         this.renderer.clear(true, true, true);
         this.background.render(this.renderer, this.camera);
-        if (this.environment.visible) this.groundGrid.render(this.renderer, this.camera);
+        if (this.environment.visible && this.gridVisibility.scene) this.groundGrid.render(this.renderer, this.camera);
         this.renderer.clearDepth();
         this.renderer.render(this.scene, this.camera);
         if(this.analysisScene.children.length){

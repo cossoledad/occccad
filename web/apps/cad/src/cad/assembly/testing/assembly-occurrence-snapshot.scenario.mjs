@@ -10,6 +10,21 @@ try{
   {ownerDocumentId:"product",ownerVersionId:head,instanceId:outer,referencedDocumentId:"nested",resolvedVersionId:"pinned-product",instanceName:outer},
   {ownerDocumentId:"nested",ownerVersionId:"pinned-product",instanceId:"leaf",referencedDocumentId:"part",resolvedVersionId:leaf,instanceName:"共享零件"}]});
  const view=(head,leaf)=>({document:{id:"product",versionId:head,type:"PRODUCT"},product:{instances:[]},resolvedInstances:["left","right"].flatMap(outer=>["body-a","body-b"].map(bodyId=>({bodyId,occurrencePath:`${outer}/leaf`,instancePath:makePath(outer,head,leaf),geometryKey:`mesh-${bodyId}`,translation:[0,0,0],rotation:[0,0,0,1]})))});
+ const {isExternalProjectionSource}=await server.ssrLoadModule("/src/cad/interaction/external-projection-selection.ts");
+ const rootView={document:{id:"part",versionId:"head-new",type:"PART"},artifacts:{"same-shape":{geometryKey:"same-shape"}}};
+ const rootAxis={kind:"axis",axis:"X",id:"axis:X",entityId:"axis",documentId:"part",versionId:"head-old"};
+ const rootScope={documentId:"part",versionId:"head-new"};
+ assert.equal(isExternalProjectionSource(rootAxis,rootScope),false);
+ assert.equal(isExternalProjectionSource(refreshOccurrenceSelection(rootView,rootAxis),rootScope),true);
+ const rootEdge={kind:"edge",id:"edge",entityId:"edge",documentId:"part",versionId:"head-old",geometryKey:"same-shape",topologyId:1};
+ assert.equal(isExternalProjectionSource(refreshOccurrenceSelection(rootView,rootEdge),rootScope),true);
+ assert.equal(refreshOccurrenceSelection({...rootView,artifacts:{}},rootEdge).versionId,"head-old","replaced topology cannot be promoted to new Head");
+ assert.equal(refreshOccurrenceSelection(rootView,{...rootAxis,documentId:"other"}).versionId,"head-old");
+ const signaturePart={...rootView,part:{bodies:[],datumPlanes:[],datumAxes:[],axisSystems:[{id:"system",origin:[0,0,0],xDirection:[1,0,0],yDirection:[0,1,0],zDirection:[0,0,1]}]}};
+ const signature=value=>CadViewportEngine.prototype.geometrySignature.call({},value);
+ const initialSignature=signature(signaturePart);
+ assert.equal(signature({...signaturePart,part:{...signaturePart.part,originVisible:false,axisSystems:[{...signaturePart.part.axisSystems[0],visible:false}]}}),initialSignature);
+ assert.notEqual(signature({...signaturePart,part:{...signaturePart.part,axisSystems:[{...signaturePart.part.axisSystems[0],origin:[0,0,10]}]}}),initialSignature,"changed reference geometry must rebuild helper picking as well as display");
  const oldView=view("old","part-old"),newView=view("new","part-new");
  assert.notDeepEqual(occurrenceSnapshot(newView,"left/leaf"),occurrenceSnapshot(newView,"right/leaf"));
  assert.equal(occurrenceSnapshot(newView,"missing"),undefined);

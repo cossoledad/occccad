@@ -183,7 +183,7 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
   return { key: node.id, title: outputStatus ? <>{displayName}<span title={node.diagnostic} aria-label={`状态 ${outputStatus}`}> · {outputStatus}</span></> : assemblyStatus ? <>{displayName}<span className={`assembly-tree-status status-${node.suppressed ? "not_updated" : assemblyStatus.toLowerCase()}`}
     aria-label={`状态 ${node.suppressed ? "停用" : ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}`}>{node.suppressed ? "停用" : ASSEMBLY_CONSTRAINT_STATUS[assemblyStatus].label}</span></> : displayName,
     icon: treeNodeIcon(node), kind: node.kind,
-    entityId: node.entityId, documentId: node.documentId, documentType: node.documentType, instancePath: node.instancePath,
+    axis:node.axis, parameterAlias:node.parameterAlias, entityId: node.entityId, documentId: node.documentId, documentType: node.documentType, instancePath: node.instancePath,
     ownerDocumentId: node.ownerDocumentId, bodyId: node.bodyId, presentationRole: node.presentationRole,
     localVisible: node.localVisible, visibilityMode: node.visibilityMode,
     childrenState: node.childrenState, resolutionStatus: node.resolutionStatus,

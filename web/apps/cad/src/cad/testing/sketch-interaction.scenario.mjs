@@ -289,6 +289,18 @@ try {
   assert.deepEqual(renderModel.profileLines, [[0, 0], [2, 0]]);
   assert.deepEqual(renderModel.endpoints, [[0, 0], [2, 0]]);
 
+  const draftPoints=[[12,8],[35,8],[35,30]];
+  assert.deepEqual(resolveSketchSnap([12.6,8.5],[],10,10,11,["ENDPOINT"],undefined,draftPoints)?.point,[12,8]);
+  assert.equal(resolveSketchSnap([35.6,8.3],[],10,10,11,["ENDPOINT"],undefined,draftPoints)?.draftPointIndex,1);
+  assert.equal(resolveSketchSnap([12.6,8.5],[],10,10,11,["GRID"],undefined,draftPoints),undefined);
+  let draft=[];
+  const draftViewport={...context.viewport,setSketchDraftPoints:points=>{draft=[...points]},
+    sketchPoint:(x,y)=>resolveSketchSnap([x,y],[],10,10,11,["ENDPOINT"],undefined,draft)?.point??[x,y]};
+  const closing=new PolylineSketchTool(),closingContext={...context,viewport:draftViewport},closingIndex=operations.length;
+  for(const [x,y] of [[12,8],[35,8],[35,30],[12.6,8.5]]){closing.pointerDown(pointer(x,y,"down"),closingContext);closing.pointerUp(pointer(x,y,"up"),closingContext);}
+  assert.equal(operations[closingIndex].filter(o=>o.type==="ADD_ENTITY").length,3);
+  assert.equal(operations[closingIndex].filter(o=>o.type==="ADD_CONSTRAINT"&&o.constraint.kind==="COINCIDENT").length,3);
+  assert.deepEqual(draft,[],"commit releases transient endpoints");
   const snapEntities = [{ id: "line-a", kind: "LINE", role: "PROFILE",
     start: { x: 0, y: 0 }, end: { x: 20, y: 0 } }];
   assert.deepEqual(resolveSketchSnap([0.7, 0.4], snapEntities, 10), {

@@ -37,6 +37,7 @@ const (
 	typeSetParameterLiteral    = "occccad://parameter/literal/set"
 	typeSetParameterExpression = "occccad://parameter/expression/set"
 	typeRenameParameter        = "occccad://parameter/key/rename"
+	typeConstraintVisibility   = "occccad://product/display/constraint-visibility/set"
 	typeDefinitionVisibility   = "occccad://part/display/visibility/set"
 	typeOccurrenceVisibility   = "occccad://product/display/visibility/set"
 	typeEditParameter          = "occccad://parameter/edit"
@@ -75,6 +76,7 @@ func mustWorkspaceRegistry() *modelcore.Registry {
 		commandHandler{typeBodyCommand, "PART", applyBodyCommand},
 		commandHandler{typeDefinitionVisibility, "PART", applyDefinitionVisibility},
 		commandHandler{typeOccurrenceVisibility, "PRODUCT", applyOccurrenceVisibility},
+		commandHandler{typeConstraintVisibility, "PRODUCT", applyConstraintVisibility},
 		commandHandler{typeCreatePattern, "PART", applyCreateFeature},
 		commandHandler{typeCreateSketch, "PART", applyCreateFeature},
 		commandHandler{typeEditSketch, "PART", applyEditSketch},
@@ -2450,7 +2452,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 				return err
 			}
 		}
-		if !promoted && prepared.command.TypeURI != typeOccurrenceVisibility {
+		if !promoted && prepared.command.TypeURI != typeOccurrenceVisibility && prepared.command.TypeURI != typeConstraintVisibility {
 			finishSolve := perf.Start(ctx, "assembly-solve")
 			drivenInstanceID := ""
 			var solveIntent *geometry.AssemblySolveIntent

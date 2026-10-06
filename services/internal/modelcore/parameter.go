@@ -191,11 +191,24 @@ type ParameterBinding struct {
 	Dimension   Dimension
 }
 
-func CompileExpression(source string, names map[string]ParameterBinding, expected Dimension) (TypedExpression, error) {
+func CompileExpression(source string, names map[string]ParameterBinding, expected Dimension, defaultUnit ...string) (TypedExpression, error) {
 	if len(source) == 0 || len(source) > 4096 {
 		return TypedExpression{}, fmt.Errorf("%w: source length", ErrExpression)
 	}
-	parser := expressionParser{names: names, reads: map[DependencyKey]struct{}{}}
+	parser := expressionParser{names: names, reads: map[DependencyKey]struct{}{}, bare: map[*ASTNode]bool{}}
+	if len(defaultUnit) > 1 {
+		return TypedExpression{}, fmt.Errorf("%w: multiple default units", ErrExpression)
+	}
+	if len(defaultUnit) == 1 {
+		unit, err := NewQuantity(1, defaultUnit[0])
+		if err != nil {
+			return TypedExpression{}, err
+		}
+		if !unit.Dimension.Equal(expected) {
+			return TypedExpression{}, fmt.Errorf("%w: default unit", ErrUnitMismatch)
+		}
+		parser.defaultUnit = &unit
+	}
 	parser.scanner.Init(strings.NewReader(source))
 	parser.scanner.Mode = scanner.ScanIdents | scanner.ScanFloats | scanner.ScanInts | scanner.SkipComments
 	parser.next()
@@ -205,6 +218,9 @@ func CompileExpression(source string, names map[string]ParameterBinding, expecte
 	}
 	if parser.token != scanner.EOF {
 		return TypedExpression{}, fmt.Errorf("%w: unexpected token %q", ErrExpression, parser.text)
+	}
+	if !node.Dimension.Equal(expected) {
+		node = parser.promoteBare(node, expected)
 	}
 	if parser.cost > 256 {
 		return TypedExpression{}, fmt.Errorf("%w: expression cost exceeds 256 nodes", ErrExpression)
@@ -320,12 +336,14 @@ func evaluateAST(node *ASTNode, values map[string]Quantity) (Quantity, error) {
 }
 
 type expressionParser struct {
-	scanner scanner.Scanner
-	token   rune
-	text    string
-	names   map[string]ParameterBinding
-	reads   map[DependencyKey]struct{}
-	cost    uint32
+	scanner     scanner.Scanner
+	token       rune
+	text        string
+	names       map[string]ParameterBinding
+	reads       map[DependencyKey]struct{}
+	cost        uint32
+	defaultUnit *Quantity
+	bare        map[*ASTNode]bool
 }
 
 func (parser *expressionParser) next() {
@@ -343,6 +361,10 @@ func (parser *expressionParser) parseExpression() (*ASTNode, error) {
 		right, err := parser.parseTerm()
 		if err != nil {
 			return nil, err
+		}
+		if !left.Dimension.Equal(right.Dimension) {
+			left = parser.promoteBare(left, right.Dimension)
+			right = parser.promoteBare(right, left.Dimension)
 		}
 		if !left.Dimension.Equal(right.Dimension) {
 			return nil, fmt.Errorf("%w: %s requires equal dimensions", ErrUnitMismatch, op)
@@ -385,8 +407,9 @@ func (parser *expressionParser) parsePrimary() (*ASTNode, error) {
 		}
 		zero := Quantity{Dimension: node.Dimension}
 		parser.cost += 2
-		return &ASTNode{Kind: "BINARY", Operator: "-", Dimension: node.Dimension,
-			Left: &ASTNode{Kind: "LITERAL", Quantity: &zero, Dimension: node.Dimension}, Right: node}, nil
+		zeroNode := &ASTNode{Kind: "LITERAL", Quantity: &zero, Dimension: node.Dimension}
+		parser.bare[zeroNode] = parser.isBare(node)
+		return &ASTNode{Kind: "BINARY", Operator: "-", Dimension: node.Dimension, Left: zeroNode, Right: node}, nil
 	}
 	if parser.token == '(' {
 		parser.next()
@@ -418,7 +441,9 @@ func (parser *expressionParser) parsePrimary() (*ASTNode, error) {
 			return nil, err
 		}
 		parser.cost++
-		return &ASTNode{Kind: "LITERAL", Quantity: &quantity, Dimension: quantity.Dimension}, nil
+		node := &ASTNode{Kind: "LITERAL", Quantity: &quantity, Dimension: quantity.Dimension}
+		parser.bare[node] = unit == ""
+		return node, nil
 	}
 	if parser.token == scanner.Ident {
 		name := parser.text
@@ -433,4 +458,28 @@ func (parser *expressionParser) parsePrimary() (*ASTNode, error) {
 		return &ASTNode{Kind: "PARAMETER", ParameterID: binding.ParameterID, Dimension: binding.Dimension}, nil
 	}
 	return nil, fmt.Errorf("%w: unexpected token %q", ErrExpression, parser.text)
+}
+
+// Only number-only terms can inherit the input unit. Multipliers remain scalars,
+// explicit units and parameter ratios retain their checked dimensions.
+func (parser *expressionParser) isBare(node *ASTNode) bool {
+	if node == nil {
+		return false
+	}
+	if node.Kind == "LITERAL" {
+		return parser.bare[node]
+	}
+	return node.Kind == "BINARY" && parser.isBare(node.Left) && parser.isBare(node.Right)
+}
+func (parser *expressionParser) promoteBare(node *ASTNode, dimension Dimension) *ASTNode {
+	if parser.defaultUnit == nil || !parser.defaultUnit.Dimension.Equal(dimension) || !node.Dimension.Equal(Dimensionless) || dimension.Equal(Dimensionless) || !parser.isBare(node) {
+		return node
+	}
+	unit := *parser.defaultUnit
+	if node.Kind == "LITERAL" && node.Quantity != nil {
+		quantity := Quantity{SIValue: node.Quantity.SIValue * unit.SIValue, Dimension: dimension}
+		return &ASTNode{Kind: "LITERAL", Quantity: &quantity, Dimension: dimension}
+	}
+	parser.cost += 2
+	return &ASTNode{Kind: "BINARY", Operator: "*", Dimension: dimension, Left: node, Right: &ASTNode{Kind: "LITERAL", Quantity: &unit, Dimension: dimension}}
 }

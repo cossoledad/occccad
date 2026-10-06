@@ -73,7 +73,7 @@ func editAssemblyQuantity(model *ProductModel, index int, expression *string, ke
 		c.QuantityParameter = nil
 		return nil
 	}
-	parameter := modelcore.ParameterDefinition{ParameterID: spec.prefix + c.ID, Key: spec.label + "_" + parameterKeyFragment(c.ID),
+	parameter := modelcore.ParameterDefinition{ParameterID: spec.prefix + c.ID, Key: nextAssemblyParameterAlias(*model, spec.label),
 		Label: spec.label, ValueType: modelcore.ValueQuantity, Dimension: spec.dimension, DisplayUnit: spec.unit, Role: "DRIVING", PropertySlot: "assembly-constraint.entity"}
 	if existing := assemblyQuantityParameter(*c); existing != nil {
 		raw, _ := json.Marshal(existing)
@@ -95,7 +95,7 @@ func editAssemblyQuantity(model *ProductModel, index int, expression *string, ke
 				names[p.Key] = modelcore.ParameterBinding{ParameterID: p.ParameterID, Dimension: p.Dimension}
 			}
 		}
-		compiled, err := modelcore.CompileExpression(*expression, names, spec.dimension)
+		compiled, err := modelcore.CompileExpression(*expression, names, spec.dimension, spec.unit)
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
@@ -171,4 +171,14 @@ func resolveAssemblyQuantities(model *ProductModel) error {
 		}
 	}
 	return nil
+}
+
+func nextAssemblyParameterAlias(model ProductModel, base string) string {
+	parameters := []modelcore.ParameterDefinition{}
+	for _, c := range model.Constraints {
+		if c.QuantityParameter != nil {
+			parameters = append(parameters, *c.QuantityParameter)
+		}
+	}
+	return nextParameterAlias(parameters, base)
 }

@@ -232,7 +232,7 @@ func compileSketchDimensionSource(model PartModel, text string, dimension modelc
 	if err != nil {
 		return modelcore.ValueSource{}, err
 	}
-	expression, err := modelcore.CompileExpression(source, names, dimension)
+	expression, err := modelcore.CompileExpression(source, names, dimension, defaultParameterUnit(dimension))
 	if err != nil {
 		return modelcore.ValueSource{}, fmt.Errorf("%w: %w", ErrValidation, err)
 	}

@@ -151,12 +151,31 @@ func TestOffsetSignedProductHistoryThroughRouter(t *testing.T) {
 	if definition.DefinitionVersion != 2 || definition.QuantityParameter == nil || definition.QuantityParameter.ParameterID != "offset:"+gap || definition.QuantityParameter.Source.Expression == nil || definition.QuantityParameter.Source.Expression.CheckedAST.Kind == "" {
 		t.Fatal("Redo lost AST")
 	}
+
+	posesBeforeDisplay := append([]workspace.ProductInstance(nil), product.Product.Instances...)
+	statusBeforeDisplay := definition.EvaluationStatus
+	apply(workspace.CommandRequest{Type: "SET_DEFINITION_VISIBILITY", TargetKind: "ASSEMBLY_CONSTRAINT", TargetID: gap, Visible: false})
+	hidden := product.Product.Constraints[len(product.Product.Constraints)-1]
+	if hidden.Visible == nil || *hidden.Visible || hidden.Suppressed || hidden.EvaluationStatus != statusBeforeDisplay || !reflect.DeepEqual(posesBeforeDisplay, product.Product.Instances) {
+		t.Fatal("constraint hide changed accepted solve or poses")
+	}
+	apply(workspace.CommandRequest{Type: "UNDO"})
+	if p := product.Product.Constraints[len(product.Product.Constraints)-1]; p.Visible != nil && !*p.Visible {
+		t.Fatal("constraint visibility Undo")
+	}
+	apply(workspace.CommandRequest{Type: "REDO"})
+	if p := product.Product.Constraints[len(product.Product.Constraints)-1]; p.Visible == nil || *p.Visible {
+		t.Fatal("constraint visibility Redo")
+	}
 	cold := workspace.NewWithArtifacts(db, client, artifact.NewService(db, local))
 	reopened, err := cold.GetDocument(t.Context(), id, actor)
 	if err != nil {
 		t.Fatal(err)
 	}
 	check(reopened, -2)
+	if p := reopened.Product.Constraints[len(reopened.Product.Constraints)-1]; p.Visible == nil || *p.Visible {
+		t.Fatal("constraint visibility cold read")
+	}
 	if reopened.Product.Constraints[len(reopened.Product.Constraints)-1].DistanceRelation != "SELECTED_PLANE_NORMAL_V1" {
 		t.Fatal("cold read changed convention")
 	}

@@ -22,3 +22,10 @@ export function referenceCategory(kind: unknown, axis?: unknown): keyof Referenc
   if (kind === "axis") return "axes";
 }
 
+
+export type GridVisibility = { scene: boolean; sketch: boolean };
+export const DEFAULT_GRID_VISIBILITY: GridVisibility = {scene:true,sketch:true};
+export function normalizeGridVisibility(value: unknown): GridVisibility {
+  const input=value&&typeof value==="object"?value as Partial<GridVisibility>:{};
+  return {scene:input.scene!==false,sketch:input.sketch!==false};
+}

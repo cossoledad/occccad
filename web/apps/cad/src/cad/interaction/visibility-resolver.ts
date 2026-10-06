@@ -1,13 +1,14 @@
 import type { DocumentStructureNode, DocumentView } from "../../types";
 
-export type DisplayKind = "INSTANCE" | "PART" | "BODY" | "SKETCH" | "SKETCH_ENTITY";
-export type DisplayAddress = { documentId: string; occurrencePath: string; kind: DisplayKind; entityId: string; ownerEntityId?: string; bodyId?: string };
+export const DISPLAY_KINDS = ["INSTANCE","PART","BODY","SKETCH","SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT"] as const;
+export type DisplayKind = typeof DISPLAY_KINDS[number];
+export type DisplayAddress = { documentId: string; occurrencePath: string; kind: DisplayKind; entityId: string; axis?: string; ownerEntityId?: string; bodyId?: string };
 export type EffectiveVisibility = { localVisible: boolean; effectiveVisible: boolean; blockedBy?: DisplayAddress; mode: "INHERIT" | "SHOW" | "HIDE"; displayEligible: boolean };
 
 type Entry = { address: DisplayAddress; localVisible: boolean; mode: "INHERIT" | "SHOW" | "HIDE"; eligible: boolean };
 export type EditingSketchScope = { id: string; occurrencePath: string; ids?:string[]; documentId?:string };
-const key = (address: Pick<DisplayAddress, "documentId" | "occurrencePath" | "kind" | "entityId">) =>
-  [address.documentId, address.occurrencePath, address.kind, address.entityId].join("\u0000");
+const key = (address: Pick<DisplayAddress, "documentId" | "occurrencePath" | "kind" | "entityId" | "axis">) =>
+  [address.documentId, address.occurrencePath, address.kind, address.entityId, address.kind==="AXIS"?address.axis??"":""].join("\u0000");
 
 // Display ancestry is semantic: Sketch belongs to Body even when the tree
 // presents it below its consuming Pad. Publication and input references do not
@@ -22,13 +23,13 @@ export class VisibilityResolver {
 
   private index(node: DocumentStructureNode): void {
     const kind = ["SKETCH_INPUT_REFERENCE","SKETCH_PATTERN_MEMBER"].includes(node.kind) ? "SKETCH" : node.kind==="SKETCH_PATTERN_ENTITY"?"SKETCH_ENTITY":node.kind;
-    if ((["INSTANCE", "PART", "BODY", "SKETCH", "SKETCH_ENTITY"].includes(kind) && node.entityId) ||
+    if (((DISPLAY_KINDS as readonly string[]).includes(kind) && node.entityId) ||
         (kind === "PART" && node.documentId)) {
       const address: DisplayAddress = {
         documentId: node.subject?.documentId ?? node.documentId ?? "",
         occurrencePath: node.instancePath?.canonical ?? "",
         kind: kind as DisplayKind, entityId: node.subject?.entityId ?? node.entityId ?? node.documentId ?? "",
-        ownerEntityId: node.ownerEntityId, bodyId: node.bodyId,
+        axis:node.axis, ownerEntityId: node.ownerEntityId, bodyId: node.bodyId,
       };
       if (address.documentId && address.entityId) {
         const id = key(address);
@@ -75,6 +76,10 @@ export class VisibilityResolver {
 
   private parent(address: DisplayAddress): DisplayAddress | undefined {
     const common = {documentId: address.documentId, occurrencePath: address.occurrencePath};
+    if(["AXIS","DATUM_POINT"].includes(address.kind))return {...common,kind:"AXIS_SYSTEM",entityId:address.ownerEntityId??address.entityId};
+    if(["PLANE","DATUM_AXIS","AXIS_SYSTEM"].includes(address.kind))return {...common,kind:"ORIGIN",entityId:"origin"};
+    if(address.kind==="ORIGIN")return {...common,kind:"PART",entityId:address.documentId};
+    if(address.kind==="ASSEMBLY_CONSTRAINT"&&address.occurrencePath)return this.instances.get(address.occurrencePath);
     if (address.kind === "SKETCH_ENTITY" && address.ownerEntityId) return {...common, kind: "SKETCH", entityId: address.ownerEntityId, bodyId: address.bodyId};
     if (address.kind === "SKETCH" && address.ownerEntityId) return {...common,kind:"SKETCH",entityId:address.ownerEntityId,bodyId:address.bodyId};
     if (address.kind === "SKETCH" && address.bodyId) return {...common, kind: "BODY", entityId: address.bodyId};
@@ -91,11 +96,11 @@ export class VisibilityResolver {
 
   resolveNode(node: DocumentStructureNode, editingSketch?: EditingSketchScope): EffectiveVisibility | undefined {
     const kind = node.subject?.entityKind ?? node.kind;
-    if (!["INSTANCE", "PART", "BODY", "SKETCH", "SKETCH_ENTITY"].includes(kind)) return undefined;
+    if (!(DISPLAY_KINDS as readonly string[]).includes(kind)) return undefined;
     return this.resolve({documentId: node.subject?.documentId ?? node.documentId ?? "",
       occurrencePath: node.instancePath?.canonical ?? "", kind: kind as DisplayKind,
       entityId: node.subject?.entityId ?? node.entityId ?? node.documentId ?? "",
-      ownerEntityId: node.ownerEntityId, bodyId: node.bodyId}, editingSketch);
+      axis:node.axis, ownerEntityId: node.ownerEntityId, bodyId: node.bodyId}, editingSketch);
   }
 }
 

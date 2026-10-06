@@ -263,7 +263,7 @@ func TestParameterDisplayPathFollowsNamesAndRequiredParameterRejectsDelete(t *te
 		t.Fatal("feature parameter metadata missing")
 	}
 	first := parameterPresentation(model, parameter)
-	if first.QualifiedDisplayPath != "Body.1\\凸台.2\\第一限制\\长度" || first.DisplayAlias != "" {
+	if first.QualifiedDisplayPath != "Body.1\\凸台.2\\第一限制\\长度" || first.DisplayAlias != "length_1" {
 		t.Fatalf("unexpected readable parameter identity: %+v", first)
 	}
 	model.Bodies[0].Name = "零件几何体.1"

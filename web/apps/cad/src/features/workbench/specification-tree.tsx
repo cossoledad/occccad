@@ -1,6 +1,6 @@
 import { ExportOutlined, SearchOutlined, DeleteOutlined, EditOutlined, EyeInvisibleOutlined, LinkOutlined, LockOutlined, PauseCircleOutlined, PlusOutlined, ReloadOutlined, SwapOutlined, UnlockOutlined } from "@ant-design/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Dropdown, Input } from "antd";
+import { Dropdown, Input, message } from "antd";
 import { isValidElement, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type MouseEvent, type ReactNode } from "react";
 import { selectionSetToken } from "../../cad/interaction/selection-identity";
 import type { InstancePath, Selection } from "../../types";
@@ -8,9 +8,12 @@ import { filterTree } from "./tree-filter";
 import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-selection";
 import { canToggleNodeVisibility } from "./tree-node-descriptors";
 import { isEditTargetNode, type EditSession } from "./edit-session";
+import { copyTextToClipboard } from "../../utils/clipboard";
 import { ContextMenuIcon } from "../../components/context-menu-icon";
 
 export type SpecificationTreeNode = {
+  axis?:string;
+  parameterAlias?: string;
   key: string; title: ReactNode; icon?: ReactNode; children?: SpecificationTreeNode[];
   kind?: string; entityId?: string; documentId?: string; documentType?: string; plane?: string; selection?: Selection;
   ownerDocumentId?: string; bodyId?: string;
@@ -268,13 +271,16 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
                   node.visibilityMode === "HIDE" || node.visibilityMode !== "SHOW" && node.localVisible === false ? "SHOW" : "HIDE");}} : null,
             canToggleNodeVisibility(node.kind) && node.instancePath?.canonical && node.visibilityMode && node.visibilityMode !== "INHERIT"
               ? {key:"restore-visibility",icon:<ContextMenuIcon />,label:"恢复实例继承",onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"OCCURRENCE","INHERIT");}} : null,
-            canToggleNodeVisibility(node.kind) && ["BODY", "SKETCH", "SKETCH_ENTITY"].includes(node.kind ?? "") &&
+            canToggleNodeVisibility(node.kind) && ["BODY", "SKETCH", "SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT"].includes(node.kind ?? "") &&
               (!node.instancePath?.canonical || node.documentId === activeDocumentId)
-              ? {key:"definition-visibility",icon:<ContextMenuIcon><EyeInvisibleOutlined /></ContextMenuIcon>,label:`${node.localVisible ? "隐藏" : "显示"}（零件定义）`,
+              ? {key:"definition-visibility",icon:<ContextMenuIcon><EyeInvisibleOutlined /></ContextMenuIcon>,label:`${node.localVisible!==false ? "隐藏" : "显示"}（${node.kind==="ASSEMBLY_CONSTRAINT"?"约束对象":"零件定义"}）`,
                 onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"DEFINITION");}} : null,
-            canToggleNodeVisibility(node.kind) && !["INSTANCE", "BODY", "SKETCH", "SKETCH_ENTITY"].includes(node.kind ?? "")
+            canToggleNodeVisibility(node.kind) && !["INSTANCE", "BODY", "SKETCH", "SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT"].includes(node.kind ?? "")
               ? { key: "session-visibility", icon: <ContextMenuIcon><EyeInvisibleOutlined /></ContextMenuIcon>, label: node.hidden ? "显示（临时）" : "隐藏（临时）",
                 onClick: () => { setContextMenu(undefined); onToggleVisibility?.(node,"SESSION"); } } : null,
+            node.kind==="PARAMETER"&&node.parameterAlias ? {key:"copy-alias",label:"复制参数别名",onClick:()=>{
+              setContextMenu(undefined);void copyTextToClipboard(node.parameterAlias!).then(ok=>{if(ok)message.success("已复制参数别名");else message.error("剪贴板不可用，请从参数列表选择别名复制");});
+            }} : null,
             node.capabilities?.includes("SUPPRESS") ? { key: "suppress", icon: <ContextMenuIcon><PauseCircleOutlined /></ContextMenuIcon>,
               label: node.suppressed ? "解除抑制" : "抑制",
               onClick: () => { setContextMenu(undefined); onToggleSuppression?.(node); } } : null,

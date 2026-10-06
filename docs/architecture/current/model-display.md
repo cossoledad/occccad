@@ -14,7 +14,7 @@ Body 是稳定的历史和独立求值单元。`ADD/REMOVE/INTERSECT` 在指定 
 
 ## 显示模型
 
-定义级 Body、Sketch、SketchEntity 本地显隐随 Part Revision 保存；Product occurrence 保存 `InstancePath + EntityKind + EntityId` 的 `SHOW/HIDE/INHERIT` 覆盖。有效状态遵循 `parentEffectiveVisible AND localVisible AND displayEligible`，层级为 occurrence → Part → Body → Sketch → SketchEntity。树收纳、输入引用和 Publication 不参与显示继承。隐藏祖先不会覆盖子对象的本地值；树给出本地设置、有效状态及阻断来源。工作台菜单分别声明“零件定义”和“当前实例”，恢复继承删除覆盖。编辑隐藏草图的临时显示仅属于会话，退出编辑后恢复持久状态。隐藏元素不参与普通拾取、悬浮或捕捉，但仍参与求解、Profile 和实体求值。无独立几何结果的历史 Feature 不提供显隐命令。
+定义级 Body、Sketch、SketchEntity，以及 Origin、基准面、基准轴、轴系、原点和 XYZ 子轴的本地显隐随 Part Revision 保存；Product occurrence 保存 `InstancePath + EntityKind + EntityId` 的 `SHOW/HIDE/INHERIT` 覆盖。有效状态遵循 `parentEffectiveVisible AND localVisible AND displayEligible`，实体/草图层级为 occurrence → Part → Body → Sketch → SketchEntity；参考元素按 Part → Origin → 基准/轴系 → 原点/XYZ 子轴继承。XYZ 共用轴系稳定 ID，以显式 X/Y/Z 子槽区分显示地址。树收纳、输入引用和 Publication 不参与显示继承。隐藏祖先不会覆盖子对象的本地值；树给出本地设置、有效状态及阻断来源。工作台菜单分别声明“零件定义”和“当前实例”，恢复继承删除覆盖。编辑隐藏草图的临时显示仅属于会话，退出编辑后恢复持久状态。隐藏元素不参与普通拾取、悬浮或捕捉，但仍参与求解、Profile 和实体求值。装配约束的对象显示属性随所属 Product Revision 保存，隐藏标记及引线不会抑制约束、改变已接受状态或组件位姿。无独立几何结果的历史 Feature 不提供显隐命令。
 
 显示隐藏命令使用已有 Domain Command、Revision、CAS 和 Undo/Redo；没有几何影响种子时，ChangeSet 保存空 JSON 数组 `[]`，满足 `change_sets.impact_seeds` 的非空约束。视觉投影更新复用已加载对象，并以语义地址更新可见性和交互候选。几何依赖输入剔除纯显示字段，显示改动不要求重算 BREP、naming.pb 或完整 GLB。辅助基准/临时隔离仍是独立会话显示状态，尚未统一为定义级显示属性。
 
@@ -45,3 +45,7 @@ Body Publication 目标用 `BODY_RESULT + BodyId` 表示该 Body 的当前结果
 生成工具选源与整体 Body 阶段分开；视图生成来源有歧义时提示候选，定义列表给出明确选择。特征组合以明确起止步骤复用阶段差集；树多选同 Body 的生成特征及后续圆角/倒角时按历史顺序初始化范围，文档、Revision 和 occurrence 不一致则拒绝。已有实体阵列允许显式切换选源模式。该范围支持添加型拉伸/旋转及随后的圆角/倒角；此前 Body 材料不参与复制。当前生成工具阵列仍限已有 PAD/LINEAR_EXTRUDE/REVOLVE 能力，不以最终 Body、白名单扩展或全 Body 复制替代任意特征组重执行。阵列阶段可以作为下游局部加工输入，种子编辑与成员上的下游圆角分别提交定义并通过真实 Naming 重算。
 
 标准轴的显示与树选择携带轴系 ID＋X/Y/Z、文档、Revision 和 occurrence；hover 定位轴的子节点，主选择不升级为整个轴系。轴系原点使用单独 `datum-point` 选择角色。投影方向的显示在所属 occurrence 坐标中按屏幕长度延伸，单位方向快照不冒充有限几何端点。
+
+视区设置分别保存场景地面网格、草图网格和参考元素的前端显示偏好，网格关闭不关闭捕获。投影工具可临时揭示被显示偏好关闭的参考元素，不能揭示定义级隐藏对象。持久显示属性优先于旧的会话显示覆盖，且不进入 Datum 几何依赖摘要。Datum 编辑保留显示属性。
+
+显示制品复用时，SelectionIndex 从当前权威快照投影选择身份：根 Part 同步 Revision，拓扑仅在原 GeometryKey 仍存在时同步；Product 继续按完整 occurrence 解析各自 Revision。基准几何位置/方向/增删变化进入显示几何签名，显示属性不进入。旧对象不因复用 GPU 资源而继续携带旧投影版本。

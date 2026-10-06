@@ -235,7 +235,7 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
           :[{id:`${node.id}/input-sketch:${sketch.id}`,kind:"SKETCH_INPUT_REFERENCE",name:sketch.name??"Sketch",entityId:sketch.id,
             bodyId:sketch.bodyId,ownerEntityId:feature.id,presentationRole:"INPUT_REFERENCE",documentId:view.document.id,versionId:view.document.versionId}];return node;})}));
     const parameters:DocumentStructureNode[]=(view.part?.parameters?.length??0)>0?[{id:`${path}/parameters`,kind:"PARAMETER_SET",name:"Parameters / Relations",documentId:view.document.id,
-      children:(view.part?.parameters??[]).map(parameter=>({id:`${path}/parameters/parameter:${parameter.parameterId}`,kind:"PARAMETER",
+      children:(view.part?.parameters??[]).map(parameter=>({id:`${path}/parameters/parameter:${parameter.parameterId}`,kind:"PARAMETER",parameterAlias:parameter.key,
         name:parameter.qualifiedDisplayPath||parameter.displayName||parameter.label,entityId:parameter.parameterId,documentId:view.document.id,versionId:view.document.versionId,capabilities:["EDIT"]}))}]:[];
     const publications:DocumentStructureNode[]=(view.part?.publications?.length??0)>0?[{id:`${path}/publications`,kind:"PUBLICATION_SET",name:"Publications",documentId:view.document.id,
       children:(view.part?.publications??[]).map(publication=>({id:`${path}/publications/publication:${publication.id}`,kind:"PUBLICATION",
@@ -254,15 +254,15 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
         ownerEntityId:input.target.targetId,contextInput:input,capabilities:["EDIT","DELETE"]}))}]:[];
     return withMockOccurrence({ id: path, kind: "PART", name: view.document.name, documentId: view.document.id,
       documentType: "PART", versionId: view.document.versionId, children: [
-        { id: `${path}/origin`, kind: "ORIGIN", name: "Origin", documentId: view.document.id, children: [
+        { id: `${path}/origin`, kind: "ORIGIN", name: "Origin", entityId:"origin", localVisible:view.part?.originVisible!==false, documentId: view.document.id, children: [
           ...(view.datumPlanes ?? []).map((plane) => ({ id: `${path}/origin/plane:${plane.id}`, kind: "PLANE" as const,
-            name: plane.name, entityId: plane.id, documentId: view.document.id, plane: plane.plane, capabilities:editable && !["datum-xy","datum-yz","datum-xz"].includes(plane.id) ? ["DELETE" as const] : [] })),
-          ...(view.datumAxes ?? view.part?.datumAxes ?? []).map(axis => ({id:`${path}/origin/datum-axis:${axis.id}`,kind:"DATUM_AXIS" as const,name:axis.name,entityId:axis.id,documentId:view.document.id,capabilities:editable ? ["DELETE" as const] : []})),
+            localVisible:plane.visible!==false, name: plane.name, entityId: plane.id, documentId: view.document.id, plane: plane.plane, capabilities:editable && !["datum-xy","datum-yz","datum-xz"].includes(plane.id) ? ["DELETE" as const] : [] })),
+          ...(view.datumAxes ?? view.part?.datumAxes ?? []).map(axis => ({id:`${path}/origin/datum-axis:${axis.id}`,kind:"DATUM_AXIS" as const,localVisible:axis.visible!==false,name:axis.name,entityId:axis.id,documentId:view.document.id,capabilities:editable ? ["DELETE" as const] : []})),
           ...(view.axisSystems ?? []).map((axis) => ({ id: `${path}/origin/axis:${axis.id}`, kind: "AXIS_SYSTEM" as const,
-            name: axis.name, entityId: axis.id, documentId: view.document.id, children: (["X", "Y", "Z"] as const).map((name) => ({
+            localVisible:axis.visible!==false, name: axis.name, entityId: axis.id, documentId: view.document.id, children: [{id:`${path}/origin/axis:${axis.id}/point`,kind:"DATUM_POINT" as const,name:"Origin Point",entityId:axis.id,ownerEntityId:axis.id,documentId:view.document.id,localVisible:axis.pointVisible!==false},...(["X", "Y", "Z"] as const).map((name) => ({
               id: `${path}/origin/axis:${axis.id}/${name.toLowerCase()}`, kind: "AXIS" as const, name: `${name} Axis`,
-              entityId: axis.id, axis: name, documentId: view.document.id,
-            })) })),
+              ownerEntityId:axis.id,localVisible:axis.axisVisibility?.[name]!==false, entityId: axis.id, axis: name, documentId: view.document.id,
+            }))] })),
         ] },
         ...bodyNodes,
         ...parameters,
@@ -304,7 +304,7 @@ function mockStructure(view: DocumentView, path = `document:${view.document.id}`
     children: constraints.map((constraint, index) => {
       const disconnected = constraint.evaluationStatus === "BROKEN" || [constraint.first, constraint.second].filter(Boolean).some((reference) =>
         reference?.resolution?.result.supportingElementStatus === "NOT_CONNECTED");
-      return { id: `${path}/assembly-constraints/constraint:${constraint.id}`, kind: "ASSEMBLY_CONSTRAINT" as const,
+      return { id: `${path}/assembly-constraints/constraint:${constraint.id}`, kind: "ASSEMBLY_CONSTRAINT" as const,localVisible:constraint.visible!==false,
         suppressed:constraint.suppressed, name: `#${constraint.kind}.${index + 1}`, entityId: constraint.id, entityType: constraint.kind, documentId: view.document.id,
         diagnostic: `${constraint.evaluationStatus}: ${constraint.evaluationSummary ?? ""}`,
         capabilities: ["EDIT" as const, "DELETE" as const, "SUPPRESS" as const,
@@ -447,9 +447,14 @@ async function command(documentID: string, input: Record<string, unknown>): Prom
         if(targetKind==="BODY") { const target=part.bodies.find((item)=>item.id===targetID);if(target)target.visible=Boolean(input.visible); }
         else if(targetKind==="SKETCH") { const target=part.features.find((item)=>item.id===targetID&&item.sketch);if(target)target.visible=Boolean(input.visible); }
         else if(targetKind==="SKETCH_ENTITY") { const owner=part.features.find((item)=>item.id===input.ownerEntityId);const target=owner?.sketch?.entities.find((item)=>item.id===targetID);if(target)target.visible=Boolean(input.visible); }
+        else if(targetKind==="ORIGIN"&&targetID==="origin")part.originVisible=Boolean(input.visible);
+        else if(targetKind==="PLANE"){const target=part.datumPlanes.find(p=>p.id===targetID);if(target)target.visible=Boolean(input.visible);}
+        else if(targetKind==="DATUM_AXIS"){const target=part.datumAxes?.find(p=>p.id===targetID);if(target)target.visible=Boolean(input.visible);}
+        else if(["AXIS_SYSTEM","AXIS","DATUM_POINT"].includes(targetKind)){const target=part.axisSystems.find(p=>p.id===targetID);if(target){if(targetKind==="AXIS_SYSTEM")target.visible=Boolean(input.visible);else if(targetKind==="DATUM_POINT")target.pointVisible=Boolean(input.visible);else if(input.axis==="X"||input.axis==="Y"||input.axis==="Z")(target.axisVisibility??={})[input.axis]=Boolean(input.visible);}}
         else throw new Error("此对象没有独立显示结果");
       }
     }
+    if(commandType==="SET_DEFINITION_VISIBILITY"&&view.product){const target=view.product.constraints?.find(c=>c.id===input.targetId);if(input.targetKind!=="ASSEMBLY_CONSTRAINT"||!target)throw new Error("约束不存在");target.visible=Boolean(input.visible);}
     if(commandType==="SET_OCCURRENCE_VISIBILITY"&&view.product) {
       const path=input.instancePath as InstancePath;
       const kind=String(input.targetKind),targetID=String(input.targetId),mode=String(input.visibilityMode);

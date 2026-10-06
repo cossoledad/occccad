@@ -1,4 +1,4 @@
-import { DEFAULT_SOLID_DISPLAY, DEFAULT_REFERENCE_VISIBILITY, normalizeReferenceVisibility, normalizeSolidDisplaySettings, type ReferenceVisibility, type SolidDisplaySettings } from "../cad/rendering/display-settings";
+import { DEFAULT_GRID_VISIBILITY, normalizeGridVisibility, type GridVisibility, DEFAULT_SOLID_DISPLAY, DEFAULT_REFERENCE_VISIBILITY, normalizeReferenceVisibility, normalizeSolidDisplaySettings, type ReferenceVisibility, type SolidDisplaySettings } from "../cad/rendering/display-settings";
 import { normalizePanelPosition, type PanelPosition } from "../utils/panel-position";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
@@ -18,6 +18,8 @@ export const MAX_STRUCTURE_TREE_WIDTH = 640;
 type UIPreferences = {
   sketchLabelPositions: Record<string, {x:number;y:number}>;
   setSketchLabelPosition: (documentId:string, sketchId:string, constraintId:string, position:{x:number;y:number}) => void;
+  gridVisibility: GridVisibility;
+  setGridVisibility: (value: GridVisibility) => void;
   referenceVisibility: ReferenceVisibility;
   solidDisplay: SolidDisplaySettings;
   setReferenceVisibility: (value: ReferenceVisibility) => void;
@@ -90,6 +92,8 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
     if(!documentId||!sketchId||!constraintId||!Number.isFinite(position.x)||!Number.isFinite(position.y))return;
     set(state=>({sketchLabelPositions:{...state.sketchLabelPositions,[sketchLabelPositionKey(documentId,sketchId,constraintId)]:{...position}}}));
   },
+  gridVisibility: {...DEFAULT_GRID_VISIBILITY},
+  setGridVisibility: value => set({gridVisibility:normalizeGridVisibility(value)}),
   referenceVisibility: { ...DEFAULT_REFERENCE_VISIBILITY },
   solidDisplay: { ...DEFAULT_SOLID_DISPLAY },
   setReferenceVisibility: (value) => set({ referenceVisibility: normalizeReferenceVisibility(value) }),
@@ -143,14 +147,14 @@ export const useUIPreferences = create<UIPreferences>()(persist((set) => ({
       .map(([id, unit]) => [id, normalizeDisplayLengthUnit(unit)]));
     const commandDialogPositions = Object.fromEntries(Object.entries(value.commandDialogPositions ?? {})
       .flatMap(([id, position]) => { const normalized = normalizePanelPosition(position); return normalized ? [[id, normalized]] : []; }));
-    return { ...value, sketchLabelPositions: {}, referenceVisibility: normalizeReferenceVisibility(value.referenceVisibility), solidDisplay: normalizeSolidDisplaySettings(value.solidDisplay ?? value.renderMode), commandDialogPositions, treeVisibilityOverrides: migrateTreeVisibilityOverrides(value),
+    return { ...value, sketchLabelPositions: {}, gridVisibility:normalizeGridVisibility(value.gridVisibility), referenceVisibility: normalizeReferenceVisibility(value.referenceVisibility), solidDisplay: normalizeSolidDisplaySettings(value.solidDisplay ?? value.renderMode), commandDialogPositions, treeVisibilityOverrides: migrateTreeVisibilityOverrides(value),
       structureTreeWidth: clampStructureTreeWidth(value.structureTreeWidth),
       navigationProfile: value.navigationProfile === "catia" || value.navigationProfile === "solidworks" ? value.navigationProfile : "default",
       catiaRotationSphereVisible: value.catiaRotationSphereVisible === true,
       captureSettings: normalizeCaptureSettings(value.captureSettings),
       displayLengthUnit: normalizeDisplayLengthUnit(value.displayLengthUnit), documentLengthUnits } as UIPreferences;
   },
-  partialize: (state) => ({ sketchLabelPositions:state.sketchLabelPositions, referenceVisibility: state.referenceVisibility, solidDisplay: state.solidDisplay, commandDialogPositions: state.commandDialogPositions, inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
+  partialize: (state) => ({ sketchLabelPositions:state.sketchLabelPositions, gridVisibility:state.gridVisibility, referenceVisibility: state.referenceVisibility, solidDisplay: state.solidDisplay, commandDialogPositions: state.commandDialogPositions, inspectorOpen: state.inspectorOpen, toolbarLayouts: state.toolbarLayouts,
     treeVisibilityOverrides: state.treeVisibilityOverrides, structureTreeWidth: state.structureTreeWidth,
     navigationProfile: state.navigationProfile, catiaRotationSphereVisible: state.catiaRotationSphereVisible, captureSettings: state.captureSettings,
     displayLengthUnit: state.displayLengthUnit, documentLengthUnits: state.documentLengthUnits }),

@@ -2417,7 +2417,7 @@ func sketchStructureChildren(sketch SketchFeature, path, sketchID, documentID, v
 func partStructureChildren(model PartModel, path, documentID, versionID string, editable bool) []DocumentStructureNode {
 	normalizePartModel(&model)
 	planes := model.DatumPlanes
-	origin := DocumentStructureNode{ID: path + "/origin", Kind: "ORIGIN", Name: "Origin",
+	origin := DocumentStructureNode{ID: path + "/origin", Kind: "ORIGIN", Name: "Origin", EntityID: "origin", LocalVisible: boolPointer(visibleOrDefault(model.OriginVisible)),
 		DocumentID: documentID, VersionID: versionID,
 		Children: make([]DocumentStructureNode, 0, len(planes)+len(model.AxisSystems)+len(model.DatumAxes))}
 	for _, plane := range planes {
@@ -2427,17 +2427,17 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 		}
 		origin.Children = append(origin.Children, DocumentStructureNode{
 			ID: path + "/origin/plane:" + plane.ID, Kind: "PLANE", Name: plane.Name,
-			EntityID: plane.ID, DocumentID: documentID, VersionID: versionID, Plane: plane.Plane, Capabilities: capabilities,
+			EntityID: plane.ID, DocumentID: documentID, VersionID: versionID, Plane: plane.Plane, LocalVisible: boolPointer(visibleOrDefault(plane.Visible)), Capabilities: capabilities,
 		})
 	}
 	for _, axis := range model.AxisSystems {
 		origin.Children = append(origin.Children, DocumentStructureNode{
-			ID: path + "/origin/axis:" + axis.ID, Kind: "AXIS_SYSTEM", Name: axis.Name,
+			ID: path + "/origin/axis:" + axis.ID, Kind: "AXIS_SYSTEM", Name: axis.Name, LocalVisible: boolPointer(visibleOrDefault(axis.Visible)),
 			EntityID: axis.ID, DocumentID: documentID, VersionID: versionID, Children: []DocumentStructureNode{
-				{ID: path + "/origin/axis:" + axis.ID + "/point", Kind: "DATUM_POINT", Name: "Origin Point", EntityID: axis.ID, DocumentID: documentID, VersionID: versionID},
-				{ID: path + "/origin/axis:" + axis.ID + "/x", Kind: "AXIS", Name: "X Axis", EntityID: axis.ID, Axis: "X", DocumentID: documentID, VersionID: versionID},
-				{ID: path + "/origin/axis:" + axis.ID + "/y", Kind: "AXIS", Name: "Y Axis", EntityID: axis.ID, Axis: "Y", DocumentID: documentID, VersionID: versionID},
-				{ID: path + "/origin/axis:" + axis.ID + "/z", Kind: "AXIS", Name: "Z Axis", EntityID: axis.ID, Axis: "Z", DocumentID: documentID, VersionID: versionID},
+				{ID: path + "/origin/axis:" + axis.ID + "/point", Kind: "DATUM_POINT", Name: "Origin Point", OwnerEntityID: axis.ID, LocalVisible: boolPointer(visibleOrDefault(axis.PointVisible)), EntityID: axis.ID, DocumentID: documentID, VersionID: versionID},
+				{ID: path + "/origin/axis:" + axis.ID + "/x", Kind: "AXIS", Name: "X Axis", OwnerEntityID: axis.ID, LocalVisible: boolPointer(axisDisplayVisible(axis, "X")), EntityID: axis.ID, Axis: "X", DocumentID: documentID, VersionID: versionID},
+				{ID: path + "/origin/axis:" + axis.ID + "/y", Kind: "AXIS", Name: "Y Axis", OwnerEntityID: axis.ID, LocalVisible: boolPointer(axisDisplayVisible(axis, "Y")), EntityID: axis.ID, Axis: "Y", DocumentID: documentID, VersionID: versionID},
+				{ID: path + "/origin/axis:" + axis.ID + "/z", Kind: "AXIS", Name: "Z Axis", OwnerEntityID: axis.ID, LocalVisible: boolPointer(axisDisplayVisible(axis, "Z")), EntityID: axis.ID, Axis: "Z", DocumentID: documentID, VersionID: versionID},
 			},
 		})
 	}
@@ -2447,7 +2447,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			capabilities = append(capabilities, "EDIT", "DELETE")
 		}
 		origin.Children = append(origin.Children, DocumentStructureNode{ID: path + "/origin/datum-axis:" + axis.ID,
-			Kind: "DATUM_AXIS", Name: axis.Name, EntityID: axis.ID, DocumentID: documentID, VersionID: versionID, Capabilities: capabilities})
+			Kind: "DATUM_AXIS", Name: axis.Name, LocalVisible: boolPointer(visibleOrDefault(axis.Visible)), EntityID: axis.ID, DocumentID: documentID, VersionID: versionID, Capabilities: capabilities})
 	}
 	sketches := make(map[string]Feature)
 	uses := make(map[string][]Feature)
@@ -2611,7 +2611,7 @@ func partStructureChildren(model PartModel, path, documentID, versionID string, 
 			parameters.Children = append(parameters.Children, DocumentStructureNode{ID: parameters.ID + "/owner:" + owner, Kind: "PARAMETER_GROUP", Name: label, DocumentID: documentID, VersionID: versionID})
 		}
 		parameters.Children[group].Children = append(parameters.Children[group].Children, DocumentStructureNode{ID: parameters.ID + "/parameter:" + parameter.ParameterID,
-			Kind: "PARAMETER", Name: name, EntityID: parameter.ParameterID,
+			Kind: "PARAMETER", Name: name, EntityID: parameter.ParameterID, ParameterAlias: parameter.Key,
 			DocumentID: documentID, VersionID: versionID, Capabilities: capabilities})
 	}
 	contexts := DocumentStructureNode{ID: path + "/context-references", Kind: "CONTEXT_REFERENCE_SET", Name: "Context References",
@@ -2832,7 +2832,7 @@ func (service *Service) buildDocumentStructure(
 			}
 			capabilities := assemblyConstraintStructureCapabilities(constraint, status)
 			group.Children = append(group.Children, DocumentStructureNode{ID: group.ID + "/constraint:" + constraint.ID,
-				Kind: "ASSEMBLY_CONSTRAINT", Suppressed: constraint.Suppressed, Name: name, EntityID: constraint.ID, EntityType: constraint.Kind,
+				Kind: "ASSEMBLY_CONSTRAINT", LocalVisible: boolPointer(visibleOrDefault(constraint.Visible)), Suppressed: constraint.Suppressed, Name: name, EntityID: constraint.ID, EntityType: constraint.Kind,
 				DocumentID: documentID, EvaluationStatus: string(status),
 				Diagnostic: string(status) + ": " + summary, Capabilities: capabilities})
 		}

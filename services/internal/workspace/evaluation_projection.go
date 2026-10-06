@@ -18,16 +18,23 @@ func ensureFeatureParameters(model *PartModel) {
 	}
 	managedPrefixes := map[string]struct{}{}
 	desired := map[string]struct{}{}
-	add := func(featureID, slot, key, label, unit string, value float64, dimension modelcore.Dimension, reference bool) {
+	add := func(featureID, slot, label, unit string, value float64, dimension modelcore.Dimension, reference bool) {
 		id := "parameter:" + featureID + ":" + slot
 		lifecycle := "FEATURE_REQUIRED"
 		if strings.HasPrefix(slot, "constraint:") {
 			lifecycle = "SKETCH_DIMENSION"
 		}
+		base := strings.ToLower(label)
+		if strings.HasPrefix(slot, "datum:") {
+			base = strings.TrimPrefix(slot, "datum:")
+		}
 		desired[id] = struct{}{}
 		if index, exists := existing[id]; exists {
 			parameter := &model.Parameters[index]
 			parameter.OwnerFeatureID, parameter.PropertySlot, parameter.Lifecycle = featureID, slot, lifecycle
+			if parameter.Key == "" {
+				parameter.Key = nextParameterAlias(model.Parameters, base)
+			}
 			parameter.Dimension = dimension
 			parameter.ValueType = modelcore.ValueQuantity
 			parameter.DisplayUnit = unit
@@ -41,23 +48,8 @@ func ensureFeatureParameters(model *PartModel) {
 			}
 			return
 		}
-		if lifecycle == "SKETCH_DIMENSION" {
-			base := strings.ToLower(label)
-			for suffix := 1; ; suffix++ {
-				candidate := fmt.Sprintf("%s_%d", base, suffix)
-				used := false
-				for _, existingParameter := range model.Parameters {
-					if existingParameter.Key == candidate {
-						used = true
-						break
-					}
-				}
-				if !used {
-					key = candidate
-					break
-				}
-			}
-		}
+		key := nextParameterAlias(model.Parameters, base)
+
 		quantity, _ := modelcore.NewQuantity(value, unit)
 		model.Parameters = append(model.Parameters, modelcore.ParameterDefinition{ParameterID: id, OwnerFeatureID: featureID, PropertySlot: slot, Lifecycle: lifecycle, Key: key, Label: label,
 			ValueType: modelcore.ValueQuantity, Dimension: dimension, DisplayUnit: unit, Role: "INPUT",
@@ -71,26 +63,25 @@ func ensureFeatureParameters(model *PartModel) {
 	}
 	for _, feature := range model.Features {
 		managedPrefixes["parameter:"+feature.ID+":"] = struct{}{}
-		keyPrefix := strings.NewReplacer("-", "_", ":", "_").Replace(feature.ID)
 		if feature.Pattern != nil {
 			for _, parameter := range patternParameters(&feature.Pattern.PatternDefinition) {
-				add(feature.ID, "pattern:"+parameter.slot, keyPrefix+"_"+parameter.slot, parameter.slot, parameter.unit, parameter.value, parameter.dimension, false)
+				add(feature.ID, "pattern:"+parameter.slot, parameter.slot, parameter.unit, parameter.value, parameter.dimension, false)
 			}
 		}
 		if (isSolidGenerator(feature.Type) && strings.ToUpper(feature.Type) != "REVOLVE") || (isLocalModifier(feature.Type) && feature.Type != "DRAFT") {
-			add(feature.ID, "length", keyPrefix+"_length", "Length", "mm", feature.Length, modelcore.LengthDimension, false)
+			add(feature.ID, "length", "Length", "mm", feature.Length, modelcore.LengthDimension, false)
 		}
 		if strings.ToUpper(feature.Type) == "REVOLVE" || feature.Type == "DRAFT" {
-			add(feature.ID, "angle", keyPrefix+"_angle", "Angle", "deg", feature.Angle, modelcore.AngleDimension, false)
+			add(feature.ID, "angle", "Angle", "deg", feature.Angle, modelcore.AngleDimension, false)
 		}
 		if feature.Extent == "TWO_SIDED" {
-			add(feature.ID, "length2", keyPrefix+"_length2", "Second length", "mm", feature.Length2, modelcore.LengthDimension, false)
+			add(feature.ID, "length2", "Second length", "mm", feature.Length2, modelcore.LengthDimension, false)
 		}
 		if feature.Sketch != nil {
 			for _, pattern := range feature.Sketch.Patterns {
 				for _, parameter := range patternParameters(&pattern.PatternDefinition) {
 					slot := "pattern:" + pattern.ID + ":" + parameter.slot
-					add(feature.ID, slot, keyPrefix+"_"+parameterKeyFragment(pattern.ID)+"_"+parameter.slot, parameter.slot, parameter.unit, parameter.value, parameter.dimension, false)
+					add(feature.ID, slot, parameter.slot, parameter.unit, parameter.value, parameter.dimension, false)
 				}
 			}
 			for _, constraint := range feature.Sketch.Constraints {
@@ -99,12 +90,11 @@ func ensureFeatureParameters(model *PartModel) {
 				}
 				unit, dimension := sketchConstraintUnitAndDimension(constraint.Kind)
 				slot := "constraint:" + constraint.ID + ":value"
-				key := keyPrefix + "_" + strings.ToLower(constraint.Kind) + "_" + parameterKeyFragment(constraint.ID)
 				value := 0.0
 				if constraint.Value != nil {
 					value = *constraint.Value
 				}
-				add(feature.ID, slot, key, constraint.Kind, unit, value, dimension, constraint.Reference)
+				add(feature.ID, slot, constraint.Kind, unit, value, dimension, constraint.Reference)
 			}
 		}
 	}
@@ -114,11 +104,10 @@ func ensureFeatureParameters(model *PartModel) {
 	for _, p := range model.DatumAxes {
 		managedPrefixes["parameter:"+p.ID+":"] = struct{}{}
 	}
-	for id, d := range datumDefinitions(model) {
-		managedPrefixes["parameter:"+id+":"] = struct{}{}
-		keyPrefix := parameterKeyFragment(id)
-		add(id, "datum:angle", keyPrefix+"_angle", "旋转角度", "deg", d.Angle, modelcore.AngleDimension, false)
-		add(id, "datum:distance", keyPrefix+"_distance", "平移距离", "mm", d.Distance, modelcore.LengthDimension, false)
+	for _, datum := range appendDatumParameterOwners(model) {
+		id, d := datum.id, datum.definition
+		add(id, "datum:angle", "旋转角度", "deg", d.Angle, modelcore.AngleDimension, false)
+		add(id, "datum:distance", "平移距离", "mm", d.Distance, modelcore.LengthDimension, false)
 		for i := range model.Parameters {
 			if model.Parameters[i].OwnerFeatureID == id {
 				model.Parameters[i].Lifecycle = "DATUM_REQUIRED"
@@ -563,14 +552,19 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 	nodes := []modelcore.DependencyNode{}
 	edges := []modelcore.DependencyEdge{}
 	for _, datum := range model.DatumPlanes {
+		datum.Visible = nil
 		data, _ := json.Marshal(datum)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 2, Type: "DATUM_PLANE", CanonicalInput: data})
 	}
 	for _, datum := range model.AxisSystems {
+		datum.Visible = nil
+		datum.PointVisible = nil
+		datum.AxisVisibility = nil
 		data, _ := json.Marshal(datum)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 1, Type: "AXIS_SYSTEM", CanonicalInput: data})
 	}
 	for _, datum := range model.DatumAxes {
+		datum.Visible = nil
 		data, _ := json.Marshal(datum)
 		nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("datum:" + datum.ID), Phase: 2, Type: "DATUM_AXIS", CanonicalInput: data})
 	}
@@ -922,4 +916,59 @@ func prepareInitialEvaluation(documentType, revisionID string, modelJSON []byte)
 	}
 	digest, err := graph.Digest()
 	return modelJSON, modelHash, graph, manifest, digest, err
+}
+
+func nextParameterAlias(parameters []modelcore.ParameterDefinition, base string) string {
+	base = strings.ToLower(strings.TrimSpace(base))
+	var b strings.Builder
+	for _, c := range base {
+		if c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '_' {
+			b.WriteRune(c)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	base = strings.Trim(b.String(), "_")
+	if base == "" || base[0] >= '0' && base[0] <= '9' {
+		base = "parameter"
+	}
+	used := map[string]bool{}
+	for _, p := range parameters {
+		used[p.Key] = true
+	}
+	for n := 1; ; n++ {
+		key := fmt.Sprintf("%s_%d", base, n)
+		if !used[key] {
+			return key
+		}
+	}
+}
+
+type datumParameterOwner struct {
+	id         string
+	definition *DatumTransform
+}
+
+func appendDatumParameterOwners(model *PartModel) []datumParameterOwner {
+	owners := []datumParameterOwner{}
+	for _, p := range model.DatumPlanes {
+		if p.Definition != nil {
+			owners = append(owners, datumParameterOwner{p.ID, p.Definition})
+		}
+	}
+	for _, a := range model.DatumAxes {
+		if a.Definition != nil {
+			owners = append(owners, datumParameterOwner{a.ID, a.Definition})
+		}
+	}
+	return owners
+}
+func defaultParameterUnit(dimension modelcore.Dimension) string {
+	if dimension.Equal(modelcore.LengthDimension) {
+		return "mm"
+	}
+	if dimension.Equal(modelcore.AngleDimension) {
+		return "deg"
+	}
+	return ""
 }

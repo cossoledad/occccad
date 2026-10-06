@@ -8,6 +8,9 @@ const server = await createServer({ appType: "custom", logLevel: "silent", serve
 try {
   const { clampStructureTreeWidth, displayLengthToMillimeters, effectiveLengthUnit, millimetersToDisplayLength,
     normalizeDisplayLengthUnit, normalizeToolbarLayout } = await server.ssrLoadModule("/src/state/ui-preferences.ts");
+  const {normalizeGridVisibility}=await server.ssrLoadModule("/src/cad/rendering/display-settings.ts");
+  assert.deepEqual(normalizeGridVisibility(undefined),{scene:true,sketch:true});
+  assert.deepEqual(normalizeGridVisibility({scene:false,sketch:true}),{scene:false,sketch:true});
   const { normalizePanelPosition, clampPanelPosition } = await server.ssrLoadModule("/src/utils/panel-position.ts");
   assert.equal(normalizePanelPosition({ x: "20", y: 30 }), undefined);
   assert.equal(normalizePanelPosition({ x: Infinity, y: 30 }), undefined);

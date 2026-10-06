@@ -90,9 +90,9 @@ export type CommandPreview = {
 
 export type DatumReference = {kind:"PLANE"|"AXIS"|"AXIS_SYSTEM"|"POINT"|"SKETCH_LINE"|"TOPOLOGY";entityId?:string;axis?:"X"|"Y"|"Z";featureId?:string;selection?:PersistentSelection;sourceVersionId?:string};
 export type DatumTransform = {source:DatumReference;rotationAxis?:DatumReference;translationDirection?:DatumReference;angle:number;distance:number};
-export type DatumPlane = { id: string; name: string; definition?:DatumTransform; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3; size: number };
-export type DatumAxis = { id: string; name: string; definition?:DatumTransform; origin: Vec3; direction: Vec3 };
-export type AxisSystem = { id: string; name: string; origin: Vec3; xDirection: Vec3; yDirection: Vec3; zDirection: Vec3 };
+export type DatumPlane = {visible?:boolean; id: string; name: string; definition?:DatumTransform; plane: PlaneName | "CUSTOM"; origin: Vec3; normal: Vec3; uDirection: Vec3; size: number };
+export type DatumAxis = {visible?:boolean; id: string; name: string; definition?:DatumTransform; origin: Vec3; direction: Vec3 };
+export type AxisSystem = {visible?:boolean;pointVisible?:boolean;axisVisibility?:Partial<Record<"X"|"Y"|"Z",boolean>>; id: string; name: string; origin: Vec3; xDirection: Vec3; yDirection: Vec3; zDirection: Vec3 };
 export type ReferenceGeometry = { datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[] };
 export type VisualPrimitive = {
  patternId?:string;patternMemberSlot?:number;sketchMemberId?:string;pointReference?:SketchGeometryRef;
@@ -232,7 +232,8 @@ export type AssemblyGeometryRef = { derivedRole?:string; instancePath?: Instance
   publicationRef?: { publicationId:string; expectedType:string; compatibilityVersion:string; persistentSelection?:PersistentSelection };
   publicationResolution?: Publication["resolution"] };
 export type AssemblyEvaluationFailure = { diagnosticId?:string;code:string;phase:string;retryable:boolean};
-export type AssemblyConstraint = { evaluationFailure?:AssemblyEvaluationFailure; id: string; definitionVersion?:number;family?:"Coincidence"|"Contact"|"Offset"|"Angle"|"Fix"|"FixTogether";subtype?:string;name?:string; contactKind?:"FACE"|"LINE"|"POINT"|"RING";contactSide?:"EXTERNAL"|"INTERNAL";contactBranch?:number;groupMembers?:Array<{instanceId?:string;instancePath?:InstancePath;groupId?:string}>; fixMode?: "SPACE" | "RELATIVE"; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; angleRelation?: "FREE" | "DIRECTED" | "PARALLEL" | "PERPENDICULAR"; measuredValue?: number; suppressed?: boolean; mode?: "DRIVING" | "MEASURED" | "CONTROLLED"; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE" | "CONTACT" | "FIX_TOGETHER";
+export type AssemblyConstraint = {
+  visible?: boolean; evaluationFailure?:AssemblyEvaluationFailure; id: string; definitionVersion?:number;family?:"Coincidence"|"Contact"|"Offset"|"Angle"|"Fix"|"FixTogether";subtype?:string;name?:string; contactKind?:"FACE"|"LINE"|"POINT"|"RING";contactSide?:"EXTERNAL"|"INTERNAL";contactBranch?:number;groupMembers?:Array<{instanceId?:string;instancePath?:InstancePath;groupId?:string}>; fixMode?: "SPACE" | "RELATIVE"; fixedPose?: {translation:Vec3;rotation:[number,number,number,number]}; angleRelation?: "FREE" | "DIRECTED" | "PARALLEL" | "PERPENDICULAR"; measuredValue?: number; suppressed?: boolean; mode?: "DRIVING" | "MEASURED" | "CONTROLLED"; kind: "FIX" | "RIGID" | "COINCIDENT" | "CONCENTRIC" | "ANGLE" | "DISTANCE" | "CONTACT" | "FIX_TOGETHER";
   first: AssemblyGeometryRef; second?: AssemblyGeometryRef; value?: number; directionRelation?: string; distanceRelation?: string;
   quantityParameter?: {parameterId:string;key:string;source:{literal?:{siValue:number};expression?:{sourceText:string}}};
   angleAxis?: AssemblyGeometryRef; reverseAngleAxis?: boolean; angleReferenceDirection?: Vec3; evaluationStatus: "NOT_UPDATED" | "BROKEN" | "IMPOSSIBLE" | "VERIFIED";
@@ -342,6 +343,7 @@ export type OccurrenceRef = { rootDocumentId: string; instancePath: InstancePath
 export type SnapshotScope = { revisionId: string; contextVariantKey?: string; geometryKey?: string };
 
 export type DocumentStructureNode = {
+  parameterAlias?: string;
  inputRole?:string;inputOrder?:number;inputEntityId?:string;
  patternId?:string;patternMemberSlot?:number;
   id: string;
@@ -409,7 +411,7 @@ export type DocumentView = {
   datumPlanes?: DatumPlane[];
   axisSystems?: AxisSystem[];
   datumAxes?: DatumAxis[];
-  part?: { bodies: PartBody[]; activeBodyId: string; units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextInputs?:ContextInput[]; contextReferences?:ContextReference[] };
+  part?: { originVisible?:boolean; bodies: PartBody[]; activeBodyId: string; units: string; datumPlanes: DatumPlane[]; axisSystems: AxisSystem[]; datumAxes?: DatumAxis[]; features: Feature[]; parameters?: ParameterDefinition[]; publications?: Publication[]; contextInputs?:ContextInput[]; contextReferences?:ContextReference[] };
   product?: { instances: ProductInstance[]; constraints?: AssemblyConstraint[]; publications?:ProductPublication[]; contextBindings?:ContextBinding[];
     visibilityOverrides?: Array<{instancePath:InstancePath;entityKind:string;entityId:string;mode:"SHOW"|"HIDE"}> };
   artifact?: Artifact;

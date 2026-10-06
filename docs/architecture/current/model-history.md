@@ -60,12 +60,12 @@ Part 支持草图、实体 Feature、STEP 基础实体与参数 literal/expressi
 ### 参数、依赖与增量求值
 
 - Distance、Horizontal/Vertical Distance、Length、Radius、Diameter、Major/Minor Radius、Angle 草图尺寸与 Pad length 会从所属 Sketch/Constraint/Feature identity 确定性派生稳定 ParameterId 和 PropertySlot facade；草图尺寸不再以匿名数值作为权威来源；
-- 关联 Datum 的角度/距离从 Datum ID 与 `datum:angle / datum:distance` 确定稳定参数，生命周期 `DATUM_REQUIRED`；更新定义、参数和最终框架共用现有 datum PropertySlot 与补偿历史。参数树按所属 Feature/Datum 分组，分组不改变参数身份或求值顺序。
+- 关联 Datum 的角度/距离从 Datum ID 与 `datum:angle / datum:distance` 确定稳定参数，生命周期 `DATUM_REQUIRED`；更新定义、参数和最终框架共用现有 datum PropertySlot 与补偿历史。参数树按所属 Feature/Datum 分组，分组不改变参数身份或求值顺序。新生成的 Feature、草图尺寸、Datum 和装配数量参数共用别名生成规则：可读英文基名转小写下划线标识符，追加当前作用域内首个未用的正整数；Datum 按定义数组顺序分配，不依赖 map 遍历。已有别名保留，参数树提供复制别名入口。参数列表省略技术 ID，属性面板继续显示稳定 ParameterId。
 - Quantity 以 SI canonical value 和显式 Dimension 保存，当前注册 `mm/cm/m/in` 与 `deg/rad`，拒绝非有限值和量纲错误；
 - 当前安全表达式 profile 支持数量字面量、Parameter read、括号和 `+ - * /`，在提交时完成名称绑定、单位检查、cost limit 和 dependency extraction；持久 AST 只保存 ParameterId，显示 key 重命名不破坏引用，并由 checked AST 重新生成当前可读别名文本；参数删除、缺失引用、循环和量纲错误在新 Head 前失败；
 - Design Dependency Graph 使用稳定 key 与 typed edge，提交前检查 phase 和 cycle；handler 的 impact seed 计算 transitive dirty closure；
 - 每个新模型 Revision 保存 model hash、dependency snapshot digest 和 EvaluationManifest，并投影 node input/output digest、dirty nodes 与 authoritative EvaluationRun；依赖摘要只在 input digest 相同才复用前一 manifest 结果。实际准备和原生阶段执行由 manifest.runtime 单独记录；跨请求阶段续算、命名身份与真正冷求值规则见[Part 增量运行时](jobs-artifacts.md#part-增量运行时)。
-- 参数 literal/expression 在 Sketch Solver 和 Feature evaluator 之前按同一拓扑序求值；DocumentView/属性面板显示 ParameterId、别名、source text 与规范计算值，Part Design 的文档级参数面板集中列出全部参数并复用同一版本化编辑命令。新建 Linear Extrude 的 length 可提交 literal 或同一 Part 的别名表达式；legacy UI command adapter 在创建前完成量纲检查和稳定 ParameterId 绑定，typed create handler 在同一个 Domain Transaction 中创建 Feature 及其参数 source，preview/commit 共用该路径且求值结果必须为正有限长度。别名和 source 编辑继续通过版本化 Domain Command、ChangeSet 与 Undo/Redo。参数面板加宽并限制高度，支持搜索与按稳定 ParameterId 选择、插入当前别名；表达式编辑复用既有权威预览，显示计算值/量纲/循环/重名错误，成功候选才可正式应用。长度常量显式写单位，例如 `r_1 + 5 mm`。
+- 参数 literal/expression 在 Sketch Solver 和 Feature evaluator 之前按同一拓扑序求值；DocumentView/属性面板显示 ParameterId、别名、source text 与规范计算值，Part Design 的文档级参数面板集中列出全部参数并复用同一版本化编辑命令。新建 Linear Extrude 的 length 可提交 literal 或同一 Part 的别名表达式；legacy UI command adapter 在创建前完成量纲检查和稳定 ParameterId 绑定，typed create handler 在同一个 Domain Transaction 中创建 Feature 及其参数 source，preview/commit 共用该路径且求值结果必须为正有限长度。别名和 source 编辑继续通过版本化 Domain Command、ChangeSet 与 Undo/Redo。参数面板加宽并限制高度，支持搜索与按稳定 ParameterId 选择、插入当前别名；表达式编辑复用既有权威预览，显示计算值/量纲/循环/重名错误，成功候选才可正式应用。输入上下文允许无单位的数值常量：`r_1 + 5` 按该数量的默认单位解释，内部仍保存带量纲的 SI AST；乘除的倍数保留无量纲，例如 `r_1 * 2`。显式单位、参数比值和非法量纲不会被隐式改写。
 
 ## 实现与验证入口
 

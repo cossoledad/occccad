@@ -6,6 +6,7 @@ import { sampleSketchEntity, splineEditablePoints, splineEditablePointIDs } from
 export type SketchSnapKind = "ORIGIN" | "POINT" | "ENDPOINT" | "CENTER" | "MIDPOINT" | "CURVE" | "GRID";
 
 export type SketchSnapResult = {
+  draftPointIndex?: number;
   point: Vec2;
   kind: SketchSnapKind;
   distancePixels: number;
@@ -41,7 +42,7 @@ function projectToCurve(point: Vec2, sampled: Vec2[]): Vec2 | undefined {
 export function resolveSketchSnap(raw: Vec2, entities: SketchEntity[], pixelsPerUnit: number,
   gridSpacing = 10, thresholdPixels = 11,
   enabled: readonly SketchSnapCaptureKind[] = ["GRID", "ORIGIN", "POINT", "ENDPOINT", "CENTER", "MIDPOINT", "CURVE"],
-  project?: (point: Vec2) => Vec2): SketchSnapResult | undefined {
+  project?: (point: Vec2) => Vec2, draftPoints: readonly Vec2[] = []): SketchSnapResult | undefined {
   const scale = Math.max(pixelsPerUnit, 1.0e-6);
   const candidates: Candidate[] = [];
   const offer = (point: Vec2, kind: SketchSnapKind, priority: number, entityId?: string,
@@ -50,6 +51,10 @@ export function resolveSketchSnap(raw: Vec2, entities: SketchEntity[], pixelsPer
     if (distancePixels <= threshold) candidates.push({ point, kind, priority, distancePixels, entityId, subElement, controlPointIndex, controlPointId });
   };
 
+  if (enabled.includes("ENDPOINT")) draftPoints.forEach((point, draftPointIndex) => {
+    const distancePixels = project ? distance(project(raw), project(point)) : distance(raw, point) * scale;
+    if(distancePixels <= 13) candidates.push({point,kind:"ENDPOINT",priority:650,distancePixels,draftPointIndex});
+  });
   if (enabled.includes("ORIGIN")) offer([0, 0], "ORIGIN", 600, undefined, undefined, 13);
   for (const entity of entities) {
     if (entity.suppressed) continue;
@@ -95,6 +100,7 @@ export function resolveSketchSnap(raw: Vec2, entities: SketchEntity[], pixelsPer
   const best = candidates[0];
   if (!best) return undefined;
   const result: SketchSnapResult = { point: best.point, kind: best.kind, distancePixels: best.distancePixels };
+  if (best.draftPointIndex !== undefined) result.draftPointIndex = best.draftPointIndex;
   if (best.entityId !== undefined) result.entityId = best.entityId;
   if (best.subElement !== undefined) result.subElement = best.subElement;
   if (best.controlPointIndex !== undefined) result.controlPointIndex = best.controlPointIndex;

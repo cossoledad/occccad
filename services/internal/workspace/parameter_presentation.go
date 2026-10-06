@@ -8,6 +8,7 @@ import (
 )
 
 func parameterPresentation(model PartModel, parameter modelcore.ParameterDefinition) modelcore.ParameterDefinition {
+	parameter.DisplayAlias = parameter.Key
 	if parameter.OwnerFeatureID == "" {
 		parameter.DisplayName = parameter.Label
 		if parameter.DisplayName == "" {
@@ -39,9 +40,6 @@ func parameterPresentation(model PartModel, parameter modelcore.ParameterDefinit
 		}
 		if name != "" {
 			parameter.QualifiedDisplayPath = "Origin\\" + name + "\\" + parameter.Label
-		}
-		if !strings.HasPrefix(parameter.Key, parameterKeyFragment(parameter.OwnerFeatureID)+"_") {
-			parameter.DisplayAlias = parameter.Key
 		}
 		return parameter
 	}
@@ -86,9 +84,6 @@ func parameterPresentation(model PartModel, parameter modelcore.ParameterDefinit
 		parts = append(parts, group)
 	}
 	parameter.QualifiedDisplayPath = strings.Join(append(parts, name), "\\")
-	if parameter.Key != "" && !strings.HasPrefix(parameter.Key, strings.NewReplacer("-", "_", ":", "_").Replace(parameter.OwnerFeatureID)+"_") {
-		parameter.DisplayAlias = parameter.Key
-	}
 	return parameter
 }
 

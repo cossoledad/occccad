@@ -75,6 +75,7 @@ type DatumTransform struct {
 	Distance             float64         `json:"distance"` // mm
 }
 type DatumPlane struct {
+	Visible    *bool           `json:"visible,omitempty"`
 	Definition *DatumTransform `json:"definition,omitempty"`
 	ID         string          `json:"id"`
 	Name       string          `json:"name"`
@@ -86,15 +87,19 @@ type DatumPlane struct {
 }
 
 type AxisSystem struct {
-	ID         string     `json:"id"`
-	Name       string     `json:"name"`
-	Origin     [3]float64 `json:"origin"`
-	XDirection [3]float64 `json:"xDirection"`
-	YDirection [3]float64 `json:"yDirection"`
-	ZDirection [3]float64 `json:"zDirection"`
+	Visible        *bool           `json:"visible,omitempty"`
+	PointVisible   *bool           `json:"pointVisible,omitempty"`
+	AxisVisibility map[string]bool `json:"axisVisibility,omitempty"`
+	ID             string          `json:"id"`
+	Name           string          `json:"name"`
+	Origin         [3]float64      `json:"origin"`
+	XDirection     [3]float64      `json:"xDirection"`
+	YDirection     [3]float64      `json:"yDirection"`
+	ZDirection     [3]float64      `json:"zDirection"`
 }
 
 type DatumAxis struct {
+	Visible    *bool           `json:"visible,omitempty"`
 	Definition *DatumTransform `json:"definition,omitempty"`
 	ID         string          `json:"id"`
 	Name       string          `json:"name"`
@@ -474,6 +479,7 @@ type Feature struct {
 }
 
 type PartModel struct {
+	OriginVisible     *bool                           `json:"originVisible,omitempty"`
 	Bodies            []PartBody                      `json:"bodies"`
 	ActiveBodyID      string                          `json:"activeBodyId"`
 	Units             string                          `json:"units"`
@@ -618,6 +624,7 @@ type ResolutionSnapshot struct {
 }
 
 type AssemblyConstraint struct {
+	Visible                     *bool                                        `json:"visible,omitempty"`
 	EvaluationFailure           *AssemblyEvaluationFailure                   `json:"evaluationFailure,omitempty"`
 	DefinitionVersion           int                                          `json:"definitionVersion,omitempty"`
 	Family                      string                                       `json:"family,omitempty"` // six public families; Kind is numeric mapping
@@ -955,6 +962,7 @@ type StructureSnapshotScope struct {
 }
 
 type DocumentStructureNode struct {
+	ParameterAlias     string                  `json:"parameterAlias,omitempty"`
 	InputEntityID      string                  `json:"inputEntityId,omitempty"`
 	InputRole          string                  `json:"inputRole,omitempty"`
 	InputOrder         int                     `json:"inputOrder,omitempty"`

@@ -1,12 +1,13 @@
 import { Button, Checkbox, Popover, Radio, Tabs } from "antd";
 import { SettingOutlined } from "@ant-design/icons";
 import { useEffect, useRef, useState } from "react";
-import type { ReferenceVisibility, SolidDisplaySettings } from "../rendering/display-settings";
+import type { GridVisibility, ReferenceVisibility, SolidDisplaySettings } from "../rendering/display-settings";
 import { CaptureSettingsPanel } from "./capture-settings-panel";
 import type { ComponentProps } from "react";
 import { useUIHelp } from "../help/ui-help-context";
 
-export function ViewportSettingsButton({ references, display, onReferences, onDisplay, capture }: {
+export function ViewportSettingsButton({ references, display, grids, onGrids, onReferences, onDisplay, capture }: {
+  grids: GridVisibility; onGrids: (value: GridVisibility) => void;
   references: ReferenceVisibility; display: SolidDisplaySettings;
   onReferences: (value: ReferenceVisibility) => void;
   onDisplay: (value: SolidDisplaySettings) => void;
@@ -36,6 +37,10 @@ export function ViewportSettingsButton({ references, display, onReferences, onDi
       {([["planes", "基准面"], ["axes", "基准轴"], ["coordinateSystems", "坐标系"]] as const).map(([key, label]) =>
         <Checkbox key={key} checked={references[key]} onChange={event =>
           onReferences({ ...references, [key]: event.target.checked })}>{label}</Checkbox>)}
+    </div></section>
+    <section><strong>网格</strong><div className="cad-capture-grid">
+      <Checkbox checked={grids.scene} onChange={event=>onGrids({...grids,scene:event.target.checked})}>场景地面网格</Checkbox>
+      <Checkbox checked={grids.sketch} onChange={event=>onGrids({...grids,sketch:event.target.checked})}>草图网格</Checkbox>
     </div></section>
     <section><strong>实体</strong><Radio.Group value={display.mode}
       onChange={event => onDisplay({ ...display, mode: event.target.value })}
