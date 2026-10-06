@@ -2361,7 +2361,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		normalizePartModel(&beforeModel)
 		metadataOnly := isPartMetadataCommand(prepared.command)
 		if !promoted && !metadataOnly {
-			if err := validateAndResolvePartParameters(&model); err != nil {
+			if err := resolveRuntimeParameters(ctx, &model); err != nil {
 				return err
 			}
 			diagnostic.stage("SKETCH_INPUTS")
@@ -2373,7 +2373,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 			finishSolve()
 		}
 		if !metadataOnly {
-			if err := validateAndResolvePartParameters(&model); err != nil {
+			if err := resolveRuntimeParameters(ctx, &model); err != nil {
 				return err
 			}
 		}
@@ -2425,6 +2425,7 @@ func (service *Service) applyDomainMutation(ctx context.Context, documentID stri
 		nextJSON, _ = json.Marshal(model)
 		modelHash = canonicalModelHash(nextJSON)
 		graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, changes.ImpactSeeds, prepared.priorManifest)
+		attachEvaluationRuntime(ctx, &manifest)
 		if err != nil {
 			return err
 		}
@@ -2633,10 +2634,12 @@ func assemblyConstraintSolveIntent(command modelcore.DomainCommand, model Produc
 // Workspace or appending history. Geometry artifacts remain content-addressed
 // rebuildable cache entries and may therefore be reused by the later commit.
 func (service *Service) PreviewCommand(ctx context.Context, documentID string, request CommandRequest) (result CommandPreview, failure error) {
+	ctx = withEvaluationRuntime(ctx)
 	diagnostic := service.newOperationDiagnostic(ctx, documentID, request, "PREVIEW")
 	var diagnosticJSON json.RawMessage
 	var diagnosticModel *PartModel
 	defer func() { service.finishOperationDiagnostic(ctx, diagnostic, &diagnosticJSON, diagnosticModel, &failure) }()
+	defer func() { result.Runtime = runtimeSnapshot(ctx) }()
 	request.Type = strings.ToUpper(strings.TrimSpace(request.Type))
 	if request.Type == "UNDO" || request.Type == "REDO" || request.Type == "RESTORE" {
 		return CommandPreview{}, fmt.Errorf("%w: history commands cannot be previewed", ErrValidation)
@@ -2762,7 +2765,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	diagnostic.stage("PARAMETERS")
 	normalizePartModel(&model)
 	normalizePartModel(&beforeModel)
-	if err = validateAndResolvePartParameters(&model); err != nil {
+	if err = resolveRuntimeParameters(ctx, &model); err != nil {
 		return CommandPreview{}, err
 	}
 	diagnostic.stage("SKETCH_INPUTS")
@@ -2772,7 +2775,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 		return CommandPreview{}, err
 	}
 	finishSolve()
-	if err = validateAndResolvePartParameters(&model); err != nil {
+	if err = resolveRuntimeParameters(ctx, &model); err != nil {
 		return CommandPreview{}, err
 	}
 	if err = rejectExplicitUnresolvedExternal(prepared.command, model); err != nil {
@@ -2803,7 +2806,7 @@ func (service *Service) PreviewCommand(ctx context.Context, documentID string, r
 	diagnostic.stage("GEOMETRY")
 	finishGeometry := perf.Start(ctx, "geometry-evaluate")
 	bodyID := previewBodyID(prepared.command.Payload, model)
-	geometryKey, err := service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID, model, bodyID)
+	geometryKey, err := service.evaluateBodyPrefix(ctx, "preview/"+prepared.requestID, model, bodyID, true)
 	finishGeometry()
 	if err != nil {
 		return CommandPreview{}, err
@@ -3010,7 +3013,9 @@ func (service *Service) solveSketchFeature(ctx context.Context, requestID string
 		return nil
 	}
 	input.DragTargets = targets
-	result, err := service.worker.SolveSketch(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
+	result, err := preparedResult(ctx, &service.prepared, "feature:"+model.Features[featureIndex].ID, input, func() (geometry.SketchSolve, error) {
+		return service.worker.SolveSketch(ctx, requestID+"/"+model.Features[featureIndex].ID, input)
+	})
 	if err != nil {
 		return err
 	}

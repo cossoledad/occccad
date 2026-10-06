@@ -8,7 +8,7 @@ Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 g
 - `SolveSketch`：求解版本化 Point/Line/Circle/Arc/Spline/Constraint SketchModel，返回坐标、状态、DoF 和冲突/冗余约束 ID；可接收仅本次计算有效的 `drag_targets`，在正式约束可行域内最小化坐标目标，不持久化或扣减正式 DoF；
 - `ProjectExternalGeometry`：以已解析的 Edge/Vertex evidence 或纯数值 Datum Point/Axis 与草图 support frame 权威生成二维只读 Point/Line/完整 Circle 投影；Axis 投影为规范单位方向线，垂直时为 Point；退化、类型不符、斜圆投影和缺少定向 evidence 的部分圆弧返回稳定诊断，不回退到浏览器近似；Arc evidence/snapshot 属于 P11J-0；
 - `ResolveLoftCorrespondence`：纯计算有序截面的循环对应，返回闭合边、反向、圆相位与可选显示连接的边界点；Go 持久化已接受的语义选择，`EvaluatePart` 使用同一内核算法和点端输入，不重新猜测保存的闭合点；
-- `EvaluatePart`：每次仅求值一个 Body 的矩形草图/拉伸链或在基础 B-Rep 上追加拉伸；Profile Pad 请求校验稳定 Feature/Body/source identity 和版本化 topology naming policy，仅回传逐 Feature identity、摘要与 ArtifactReference，完整 semantic topology outputs 和 TopologyHistory 写入 `naming.pb`；
+- `EvaluatePart`：每次求值一个 Body 的冻结实体 Feature 链或在基础 B-Rep 上续算；Profile Pad 请求校验稳定 Feature/Body/source identity 和版本化 topology naming policy，仅回传逐 Feature identity、摘要与 ArtifactReference，完整 semantic topology outputs 和 TopologyHistory 写入 `naming.pb`；
 - `InspectExchange` / `ImportExchange` / `ExportExchange`：通过 ArtifactReference 检查、导入和导出 STEP/BREP；
 - `GetTopology`：返回面、边、点及诊断属性；操纵手柄的只读提示包括实际面中心 `snapCenter`、平面的确定性真实直边方向 `snapBoundaryDirection`、圆柱真实边界圆的端部中心 `snapEndFirst/Last`。只输出可确认的 B-Rep 数据，不以三角剖分/PCA 猜边界，不改变装配方程；Go 将小型提示折入运动单元坐标，Web 再应用一次场景变换；
 - 生成 SHA-256 GeometryId、B-Rep、包围盒、体积及完整可视化快照：隔离深拷贝上的整 Body 剖分、同剖分边界节点、法线和拓扑映射统一生成 GLB。邻接 EdgeUse、周期接缝和缺失数据验证见[几何制品](../../docs/architecture/current/geometry-representations.md#拓扑感知的离散快照)。`GetTopology` 不再生成显示折线。
@@ -16,6 +16,10 @@ Geometry Worker 是当前唯一的 C++ 网络计算服务。它通过粗粒度 g
 - `EvaluatePart.profile_pads` 消费控制面 Profile Builder 输出的有向外环/孔环，在 OCCT 内构造 Edge/Wire/Face、执行 BRepCheck 并 Prism；旧矩形字段只保留为当前开发期过渡入口。
 
 Proto 中已经声明但当前服务类没有覆盖的 `LoadGeometry`、`UnloadGeometry`、`Tessellate`、`CreateChamfer` 和 `CreateFillet` 会得到 gRPC `UNIMPLEMENTED`；协议声明不等于已交付能力。
+
+## 增量 Part 求值
+
+`EvaluatePart` 以完整冻结 Body 链和已有 Shape 仓库的易失阶段检查点续算；阶段保存 Naming、工具和范围起点。`exact_only` 用于内部支撑/工具解析，省略 GLB；`force_cold` 强制绕过热缓存并清除驻留形体后重建；`runtime_affinity` 仅是 Router 提示。`runtime_stats` 回传实际逐阶段执行/复用和耗时。阶段缓存预算通过 `OCCCCAD_STAGE_CACHE_BYTES` 配置，默认 134217728 字节，0 关闭，最大 2147483648；超预算项不缓存。原生全局锁继续保护共享状态，取消在安全阶段检查。完整键、预算和恢复语义见[当前运行时](../../docs/architecture/current/jobs-artifacts.md#part-增量运行时)。
 
 ## 内部结构
 
@@ -62,7 +66,7 @@ Classification tolerance 不得严于对应 convergence tolerance；违反该不
 
 ## 日志
 
-Worker 使用 spdlog 1.15.3 同时输出控制台与滚动文件。托管启动时 stdout/stderr 直接透传到终端，不再被 Go control 包装成 `service output message="..."`；Worker 生命周期日志仍由 control 记录。`OCCCCAD_LOG_LEVEL` 控制两类 sink 的级别；`OCCCCAD_LOG_DIR` 控制文件目录，`occccad-control` 默认把相对路径解析为 `services/logs/`。每个监听地址使用独立 `occccad-geometry-<address>.log`，单文件达到 10 MiB 后轮转并保留 5 个，避免多个 Worker 争写同一文件。每个 Worker 的共享内核仍串行调度，OCCT 内部至多 4 路并行。求值及可视化缓存各设 8 项/64 MiB 预算；命中复用完整字节/映射，超限结果不缓存。`visual_snapshot` 记录剖分、面/边提取、法线、编码时间和数据量；曲面抽壳的 wall_offsets/wall_partition/wall_assembly 阶段计时输出到 stderr。日志包含启动、RPC、拓扑缓存命中、耗时和错误上下文，但不记录模型内容、凭据或制品 URL。
+Worker 使用 spdlog 1.15.3 同时输出控制台与滚动文件。托管启动时 stdout/stderr 直接透传到终端，不再被 Go control 包装成 `service output message="..."`；Worker 生命周期日志仍由 control 记录。`OCCCCAD_LOG_LEVEL` 控制两类 sink 的级别；`OCCCCAD_LOG_DIR` 控制文件目录，`occccad-control` 默认把相对路径解析为 `services/logs/`。每个监听地址使用独立 `occccad-geometry-<address>.log`，单文件达到 10 MiB 后轮转并保留 5 个，避免多个 Worker 争写同一文件。每个 Worker 的共享内核仍串行调度，OCCT 内部至多 4 路并行。求值及可视化缓存各采用 64 MiB 字节预算与 LRU；阶段、Shape、Naming 与输入制品预算见上文增量 Part 求值；命中复用完整字节/映射，超限结果不缓存。`visual_snapshot` 记录剖分、面/边提取、法线、编码时间和数据量；曲面抽壳的 wall_offsets/wall_partition/wall_assembly 阶段计时输出到 stderr。日志包含启动、RPC、拓扑缓存命中、耗时和错误上下文，但不记录模型内容、凭据或制品 URL。
 
 ## 构建与运行
 

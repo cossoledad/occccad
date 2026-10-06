@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
@@ -75,6 +76,16 @@ func (s *Service) persistGeometry(ctx context.Context, key string, a Artifact, o
 		return err
 	}
 	for role, o := range objects {
+		if role == "BREP" || role == "NAMING" {
+			var digest string
+			err := tx.QueryRow(ctx, `SELECT o.sha256 FROM occccad.geometry_representations r JOIN occccad.artifact_objects o ON o.id=r.object_id WHERE r.geometry_key=$1 AND r.role=$2`, key, role).Scan(&digest)
+			if err == nil && digest != o.SHA256 {
+				return fmt.Errorf("immutable %s result mismatch for %s", role, key)
+			}
+			if err != nil && !errors.Is(err, database.ErrNoRows) {
+				return err
+			}
+		}
 		_, err = tx.Exec(ctx, `INSERT INTO occccad.geometry_representations(geometry_key,role,schema_version,object_id) VALUES($1,$2,$4,$3) ON CONFLICT(geometry_key,role) DO NOTHING`, key, role, o.ID, representationSchema(role))
 		if err != nil {
 			return err
@@ -83,7 +94,7 @@ func (s *Service) persistGeometry(ctx context.Context, key string, a Artifact, o
 	return tx.Commit(ctx)
 }
 func (s *Service) storeEvaluation(ctx context.Context, key string, e *workerv1.EvaluatePartResponse, v VisualizationManifest) error {
-	if e.GetRepresentationKind() != "PERSISTENT" || e.GetTopology().GetSolidCount() == 0 || e.GetVolume() <= 0 {
+	if (e.GetRepresentationKind() != "PERSISTENT" && e.GetRepresentationKind() != "EXACT_STAGE") || e.GetTopology().GetSolidCount() == 0 || e.GetVolume() <= 0 {
 		return fmt.Errorf("%w: persistent solid result required", ErrValidation)
 	}
 	brep, err := s.adoptEvaluationObject(ctx, e.BrepArtifact, artifactstore.KindBREP)
@@ -109,9 +120,17 @@ func (s *Service) storeEvaluation(ctx context.Context, key string, e *workerv1.E
 		if manifest.GeometryID != e.GeometryId || manifest.BRepSHA256 != brep.SHA256 {
 			return fmt.Errorf("feature association snapshot mismatch")
 		}
-		v.FeatureAssociations = deriveFeatureAssociations(manifest)
-		v.FeatureContributions = featureContributionStatuses(v.FeatureAssociations)
+		if e.GetRepresentationKind() != "EXACT_STAGE" {
+			v.FeatureAssociations = deriveFeatureAssociations(manifest)
+			v.FeatureContributions = featureContributionStatuses(v.FeatureAssociations)
+		}
 		objects["NAMING"] = naming
+	}
+	if e.GetRepresentationKind() == "EXACT_STAGE" {
+		worker := s.worker.WorkerFor(key)
+		v.Primitives = nil
+		v.FeatureAssociations = nil
+		return s.persistGeometry(ctx, key, Artifact{GeometryID: e.GeometryId, OCCTVersion: e.OcctVersion, WorkerID: worker, Volume: e.Volume, BBox: protoBBox(e.Bbox), Topology: map[string]any{"faces": e.Topology.FaceCount, "edges": e.Topology.EdgeCount, "vertices": e.Topology.VertexCount, "solids": e.Topology.SolidCount}, Visualization: v}, objects)
 	}
 	ref := e.GetGlbArtifact()
 	if ref == nil || ref.GetSizeBytes() > uint64(^uint64(0)>>1) {

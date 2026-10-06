@@ -397,6 +397,39 @@ message EvaluatePartRequest {
     repeated ProfilePadSpec profile_pads = 11;
     TopologyNamingPolicy topology_policy = 12;
     ImportTopologySeed import_seed = 13;
+    bool force_cold = 14; // bypass response, stage and display caches; same operators
+    bool exact_only = 15; // internal stage: BREP + Naming, no tessellation/GLB
+    string runtime_affinity = 16; // scheduling hint only; never part of shape identity
+}
+
+message PartStageExecution {
+    string feature_id = 1;
+    string input_digest = 2;
+    string geometry_id = 3;
+    bool reused = 4;
+}
+message PartRuntimeStats {
+    uint32 stages_executed = 1;
+    uint32 stages_reused = 2;
+    uint32 generator_calls = 3;
+    uint32 modifier_calls = 4;
+    uint32 body_operation_calls = 5;
+    double queue_ms = 6;
+    double exact_ms = 7;
+    double naming_ms = 8;
+    double display_ms = 9;
+    double artifact_io_ms = 10;
+    uint64 stage_cache_bytes = 11;
+    uint32 stage_evictions = 12;
+    repeated string executed_feature_ids = 13;
+    repeated string reused_feature_ids = 14;
+    repeated PartStageExecution stages = 15;
+    double input_prepare_ms = 16;
+    uint64 peak_rss_bytes = 17;
+    double mesh_ms = 18;
+    double encoding_ms = 19;
+    uint64 response_cache_bytes = 20;
+    uint64 visual_cache_bytes = 21;
 }
 
 message ProfileCurve {
@@ -902,6 +935,7 @@ message EvaluatePartResponse {
     string representation_kind = 14; // PERSISTENT | TRANSIENT_PREVIEW
     uint64 triangle_count = 15;
     uint64 display_vertex_count = 16;
+    PartRuntimeStats runtime_stats = 17;
 }
 
 message Mesh {

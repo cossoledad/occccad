@@ -1,3 +1,5 @@
+import {LatestPreviewQueue} from "./latest-preview-queue";
+import {randomUUID} from "../../utils/random-uuid";
 import { useEffect, useRef, useState } from "react";
 import type { Artifact, Feature,ReferenceGeometry,ParameterDefinition } from "../../types";
 import { api } from "../../api/client";
@@ -13,11 +15,16 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
         loftConnections?: [number,number,number][][];
     }>({ pending: false });
     const [retry, setRetry] = useState(0);
+    const queue=useRef(new LatestPreviewQueue<Awaited<ReturnType<typeof api.previewCommand>>>());
+    const scope=JSON.stringify([documentId,versionId,input?.type,input?.targetId]);
+    const session=useRef({scope,id:randomUUID()});
+    if(session.current.scope!==scope)session.current={scope,id:randomUUID()};
     const callback = useRef(onPreview);
     callback.current = onPreview;
     const key = input ? JSON.stringify([documentId, versionId, input]) : undefined;
-    const latest = useRef({ input, operation, key });
-    latest.current = { input, operation, key };
+    const request=input?{...input,requestId:input.requestId??session.current.id,interactionId:input.interactionId??`feature/${session.current.id}`}:undefined;
+    const latest = useRef({ input:request, operation, key });
+    latest.current = { input:request, operation, key };
     useEffect(() => {
         callback.current();
         setState({ key, pending: !!key });
@@ -27,7 +34,7 @@ export function useFeaturePreview(documentId: string, versionId: string, input: 
         const controller = new AbortController();
         let alive = true;
         const timer = setTimeout(() => {
-            void api.previewCommand(documentId, candidate.input!, controller.signal).then(result => {
+            void queue.current.submit(signal=>api.previewCommand(documentId,candidate.input!,signal),controller.signal).then(result => {
                 if (!alive || latest.current.key !== key || result.baseVersionId !== versionId)
                     return;
                 setState({ key, referenceGeometry:result.referenceGeometry,parameterCandidates:result.parameterCandidates,id: result.previewId, pending: false, loftSections:result.loftSections,loftConnections:result.loftConnections });

@@ -209,6 +209,7 @@ type NodeResult struct {
 	Status       string `json:"status"`
 }
 type EvaluationManifest struct {
+	Runtime                  json.RawMessage              `json:"runtime,omitempty"`
 	RevisionID               string                       `json:"revisionId"`
 	ModelHash                string                       `json:"modelHash"`
 	DependencySnapshotDigest string                       `json:"dependencySnapshotDigest"`

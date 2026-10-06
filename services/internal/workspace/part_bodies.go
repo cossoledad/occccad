@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/occccad/occccad/internal/geometry"
 	"github.com/occccad/occccad/internal/modelcore"
 )
 
@@ -164,11 +165,13 @@ func (s *Service) evaluatePartBodies(ctx context.Context, requestID string, m *P
 	}
 	return nil
 }
-func (s *Service) evaluateBodyPrefix(ctx context.Context, requestID string, m PartModel, bodyID string) (string, error) {
+func (s *Service) evaluateBodyPrefix(ctx context.Context, requestID string, m PartModel, bodyID string, display ...bool) (string, error) {
 	if bodyID == "" {
 		bodyID = m.ActiveBodyID
 	}
-	return s.evaluateBody(ctx, requestID, bodyModel(m, bodyID), m)
+	options := geometry.PartRuntime(ctx)
+	options.ExactOnly = len(display) == 0 || !display[0]
+	return s.evaluateBody(geometry.WithPartRuntime(ctx, options), requestID, bodyModel(m, bodyID), m)
 }
 func (s *Service) bodyArtifacts(ctx context.Context, m PartModel) (map[string]Artifact, error) {
 	result := map[string]Artifact{}

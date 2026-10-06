@@ -18,6 +18,24 @@ Router 实现与 GeometryWorker 相同的 gRPC 服务并转发请求。Part 的�
 
 局限：所有注册和缓存亲和信息均在内存中；只会拉起本机进程；没有持久租约、跨节点资源报告、优先级、公平调度或租户预算。
 
+## Part 增量运行时
+
+Workspace 沿用 Design DependencyGraph、参数和 ChangeSet；草图/Profile、外部投影和放样对应准备现在有显式节点。基准/草图按该图的拓扑序解析，实体仍以一个 Body 的粗粒度 `EvaluatePart` 执行，不拆成逐 Feature RPC。EvaluationManifest 的输入/输出摘要描述依赖计划；新增 `runtime` 记录实际准备执行/复用以及 Worker 的逐阶段形体身份，不能把摘要复用当作几何执行证据。
+
+Go Service 的 32 MiB 准备缓存按 evaluator 版本、准备类型和真实冻结输入复用 Sketch Solver、Profile、投影与放样对应结果；并发同输入只准备一次，返回值经独立解码隔离所有权，失败和取消不入缓存。请求内 Body 前缀 memo 消除支撑、modifierInput 和 Boolean 工具的重复展开。参数表达式及便宜的框架计算仍会校验，不承诺跳过每一项模型遍历。
+
+OCCT 现有 Shape 仓库保存易失阶段检查点：精确形体、完整 Naming 历史、生成工具、阶段 Body 和 Feature 范围起点。追加从最长有效前缀继续，历史编辑从变更之前的前缀继续，后续阵列可以使用原阶段保存的工具/范围。检查点不是第二套持久命名或持久业务模型。阶段键包含基础 BREP 内容、import naming seed、Naming 策略及有序 Feature 的实际求值定义；不包含请求 ID、新 Revision 或显示名称。不同 Feature/Body 身份不能仅因形体相同共享命名上下文。Boolean 采用非破坏性输入，局部修改与离散使用原有隔离机制，候选不修改共享形体。
+
+内部支撑/工具前缀请求 `exact_only`，只生成继续求值需要的 BREP/NAMING；历史查看、预览和最终显示才请求统一 mesh.glb。Naming 打包及显示快照分别按精确阶段/离散策略复用，已生成的缓冲直接写制品，不再为安装请求缓存读回 GLB。完整性、Naming 与 BREP 摘要检查保留；同一不可变 geometryKey 再次计算产生不同 BREP/NAMING 时拒绝登记，防止数据库旧制品掩盖冷重建差异。
+
+Worker 仍保留保护真实 OCCT 共享状态的全局锁。Part 排队可响应取消；安全取消点位于阶段边界、离散/编码和制品发布之前，不承诺中断正在运行的 OCCT 算子。Body runtime affinity 仅是 Router 调度提示；失去缓存或 Worker 重启后，完整定义和冻结制品足以冷恢复。
+
+缓存预算：阶段默认 128 MiB（`OCCCCAD_STAGE_CACHE_BYTES`，0 关闭，最大 2 GiB）；Shape 仓库 128 MiB；请求响应及显示各 64 MiB；输入制品及 Naming 打包各 32 MiB。LRU 淘汰只释放缓存持有，活动阶段/显示结果由局部共享引用保护。Shape/阶段按序列化大小和结构开销保守计费，重复共享可能重复计费；这不是 OCCT 分配器或进程 RSS 硬上限，单个超预算活动形体仍可计算。Router 亲和元数据和候选制品的持久 GC 不由这些预算覆盖。
+
+`workspace.WithColdEvaluation` → `EvaluatePart.force_cold` 是测试/恢复入口：绕过 Go 跨请求准备与已登记结果、原生阶段/响应/显示/输入/Naming 热缓存，并清除驻留 Shape/Topology 后使用同一算子重建。冷请求内相同冻结准备仍只执行一次。它不清理数据库或共享制品，也不提升候选或推进 Head。运行统计包含实际 generator/modifier/body-operation 调用、排队、准备、精确/Naming、mesh/encoding、制品 I/O、缓存字节与 Linux Worker 进程生命周期 RSS 高水位；display 总耗时包含部分 I/O，不能与子项直接相加。
+
+生产路径验证和复现入口见[增量运行时定向验证](../../../tests/test.data/incremental-modeling-runtime-validation.md)。
+
 ## 持久任务与制品
 
 ### 数据库任务队列

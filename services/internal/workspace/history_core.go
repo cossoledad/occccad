@@ -878,7 +878,7 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 			return err
 		}
 		normalizePartModel(&model)
-		if err = validateAndResolvePartParameters(&model); err != nil {
+		if err = resolveRuntimeParameters(ctx, &model); err != nil {
 			return err
 		}
 		if err = service.resolvePartPublications(ctx, input.documentID, input.requestID, revisionID, &model); err != nil {
@@ -910,6 +910,7 @@ func (service *Service) commitHistoryRevision(ctx context.Context, input history
 			input.modelJSON, _ = json.Marshal(model)
 			modelHash = canonicalModelHash(input.modelJSON)
 			graph, manifest, err = buildPartEvaluation(model, revisionID, modelHash, input.changes.ImpactSeeds, nil)
+			attachEvaluationRuntime(ctx, &manifest)
 		}
 	} else {
 		var model ProductModel

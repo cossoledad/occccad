@@ -143,7 +143,7 @@ func datumRotate(v, axis [3]float64, angle float64) [3]float64 {
 	}
 	return v
 }
-func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, requestID string, m *PartModel, limit int) error {
+func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, requestID string, m *PartModel, limit int, targets ...string) error {
 	defs := datumDefinitions(m)
 	if len(defs) == 0 {
 		return nil
@@ -271,6 +271,7 @@ func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, reque
 		}
 		cache[id] = base
 		state[id] = 2
+		recordEvaluation(ctx, "datum:"+id, false, "", 0)
 		return nil
 	}
 	resolve = func(ref DatumReference) (datumFrame, error) {
@@ -374,6 +375,9 @@ func (s *Service) resolveDatumDefinitions(ctx context.Context, documentID, reque
 			return datumFrame{}, fmt.Errorf("%w: DATUM_SOURCE_TYPE_MISMATCH", ErrValidation)
 		}
 		return datumFrame{}, fmt.Errorf("%w: DATUM_REFERENCE_MISSING: %s", ErrValidation, ref.EntityID)
+	}
+	if len(targets) > 0 {
+		return visit(targets[0])
 	}
 	for _, p := range m.DatumPlanes {
 		if err := visit(p.ID); err != nil {

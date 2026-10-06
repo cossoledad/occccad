@@ -10,6 +10,7 @@
 #include <occccad/kernel/topology_naming.hpp>
 
 #include <memory>
+#include <functional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -18,6 +19,22 @@
 class TopoDS_Shape;
 
 namespace occccad::kernel {
+
+struct PartStageExecution {std::string feature_id,input_digest,geometry_id;bool reused=false;};
+struct PartRuntimeStats {
+    size_t stages_executed = 0, stages_reused = 0, generator_calls = 0,
+           modifier_calls = 0, body_operation_calls = 0, stage_cache_bytes = 0, stage_evictions = 0;
+    double exact_ms = 0, naming_ms = 0;
+    std::vector<std::string> executed_feature_ids, reused_feature_ids;
+    std::vector<PartStageExecution> stages;
+};
+struct PartRuntimeOptions {
+    // Keys are canonical frozen prefix digests, including naming context/policy.
+    std::vector<std::string> stage_keys;
+    bool force_cold = false;
+    std::function<bool()> cancelled;
+    PartRuntimeStats* stats = nullptr;
+};
 
 /// OCCT-backed implementation of ICadKernel.
 ///
@@ -55,8 +72,10 @@ public:
                                    const std::vector<uint8_t>& base_brep = {}) override;
     ProfileEvaluationResult evaluateProfilePadsWithHistory(
         const std::vector<ProfilePadSpec>& specs, const std::vector<uint8_t>& base_brep = {},
-        const ImportTopologySeed* import_seed = nullptr);
+        const ImportTopologySeed* import_seed = nullptr,
+        const PartRuntimeOptions& runtime = {});
 
+    TopologyInfo getTopologySummary(const GeometryId& id);
     BoundingBox getBoundingBox(const GeometryId& id) override;
     const TopologyInfo& getTopology(const GeometryId& id) override;
     double getVolume(const GeometryId& id) override;
@@ -75,6 +94,9 @@ public:
     std::vector<uint8_t> serializeStep(const GeometryId& id) override;
 
     // Additional accessors
+    void clear_runtime_cache();
+    void set_runtime_cache_budget(size_t bytes);
+    size_t runtime_cache_bytes() const noexcept;
     size_t resident_count() const noexcept;
     bool is_loaded(const GeometryId& id) const noexcept;
 

@@ -41,7 +41,7 @@ type FeatureInput struct {
 	Selection       *FeatureSelection   `json:"selection,omitempty"`
 }
 
-func (s *Service) featureStageAtVersion(ctx context.Context, documentID, versionID, stageID, bodyID string) (string, error) {
+func (s *Service) featureStageAtVersion(ctx context.Context, documentID, versionID, stageID, bodyID string, display ...bool) (string, error) {
 	var raw []byte
 	if err := s.database.QueryRow(ctx, `SELECT model_json FROM occccad.document_versions WHERE document_id=$1 AND id=$2`, documentID, versionID).Scan(&raw); err != nil {
 		return "", err
@@ -64,7 +64,7 @@ func (s *Service) featureStageAtVersion(ctx context.Context, documentID, version
 		return "", fmt.Errorf("%w: source feature stage missing", ErrValidation)
 	}
 	model.Features = append([]Feature(nil), model.Features[:index+1]...)
-	return s.evaluateBodyPrefix(ctx, "selection-source/"+versionID+"/"+stageID, model, bodyID)
+	return s.evaluateBodyPrefix(ctx, "selection-source/"+versionID+"/"+stageID, model, bodyID, display...)
 }
 
 func (s *Service) resolveFeaturePick(ctx context.Context, pick FeatureSelection, targetKey string) (modelcore.SelectionResolution, error) {
@@ -116,7 +116,7 @@ func (s *Service) GetFeatureInput(ctx context.Context, documentID string, reques
 		if request.GeometryKey != "" || request.Kind != "" || request.LocalID != 0 || request.BodyID != "" {
 			return FeatureInput{}, fmt.Errorf("%w: historical result is display only", ErrValidation)
 		}
-		key, err := s.featureStageAtVersion(ctx, documentID, request.VersionID, feature.ID, feature.BodyID)
+		key, err := s.featureStageAtVersion(ctx, documentID, request.VersionID, feature.ID, feature.BodyID, true)
 		if err != nil {
 			return FeatureInput{}, err
 		}
@@ -148,9 +148,9 @@ func (s *Service) GetFeatureInput(ctx context.Context, documentID string, reques
 	if stage == "" {
 		prefix := *view.Part
 		prefix.Features = append([]Feature(nil), prefix.Features[:index]...)
-		key, err = s.evaluateBodyPrefix(ctx, "empty-feature-input/"+request.VersionID+"/"+feature.ID, prefix, bodyID)
+		key, err = s.evaluateBodyPrefix(ctx, "empty-feature-input/"+request.VersionID+"/"+feature.ID, prefix, bodyID, true)
 	} else {
-		key, err = s.featureStageAtVersion(ctx, documentID, request.VersionID, stage, bodyID)
+		key, err = s.featureStageAtVersion(ctx, documentID, request.VersionID, stage, bodyID, true)
 	}
 	if err != nil {
 		return FeatureInput{}, err
@@ -184,7 +184,7 @@ func (s *Service) GetFeatureInput(ctx context.Context, documentID string, reques
 	}
 	result.Artifacts = []Artifact{a}
 	for _, tool := range feature.Tools {
-		toolKey, err := s.featureStageAtVersion(ctx, documentID, request.VersionID, tool.FeatureID, tool.BodyID)
+		toolKey, err := s.featureStageAtVersion(ctx, documentID, request.VersionID, tool.FeatureID, tool.BodyID, true)
 		if err != nil {
 			return FeatureInput{}, err
 		}

@@ -16,7 +16,14 @@ import (
 // bounds and preview sequence checks still reject superseded results.
 const realtimePreviewTimeout = 2 * time.Minute
 
+type previewRunner struct {
+	pending      func()
+	running      bool
+	activeCancel context.CancelFunc
+}
+
 type realtimePreview struct {
+	runner    *previewRunner
 	sequence  uint64
 	requestID string
 	previewID string
@@ -77,24 +84,46 @@ func (client *realtimeClient) startPreview(server *Server, ctx context.Context, 
 			client.sendResponse(old.requestID, "workspace.preview.canceled.v1", map[string]any{"interactionId": input.InteractionID, "previewSequence": old.sequence})
 		}
 	}
-	// Preserve the high-water mark even when admission fails.
-	work, cancel := context.WithTimeout(ctx, realtimePreviewTimeout)
-	p := &realtimePreview{sequence: input.Sequence, requestID: envelope.ID, cancel: cancel, expires: time.Now().Add(realtimePreviewTimeout + time.Minute), discard: func(id string) { server.workspace.DiscardPreview(input.DocumentID, client.actor.ID, id) }}
-	client.previews[key] = p
-	select {
-	case client.previewSlots <- struct{}{}:
-	default:
-		cancel()
-		p.requestID = ""
-		client.mu.Unlock()
-		client.sendError(envelope.ID, "PREVIEW_BUSY", "preview evaluator capacity exhausted", true)
-		return
+	// One active evaluation and one replaceable pending input per interaction.
+	// Slots are held by the runner until actual evaluation returns, not by each update.
+	runner := &previewRunner{}
+	if old != nil && old.runner != nil {
+		runner = old.runner
 	}
-	client.mu.Unlock()
-	go func() {
+	work, cancel := context.WithTimeout(ctx, realtimePreviewTimeout)
+	p := &realtimePreview{runner: runner, sequence: input.Sequence, requestID: envelope.ID,
+		cancel: func() {
+			cancel()
+			if runner.activeCancel != nil {
+				runner.activeCancel()
+			}
+		},
+		expires: time.Now().Add(realtimePreviewTimeout + time.Minute), discard: func(id string) { server.workspace.DiscardPreview(input.DocumentID, client.actor.ID, id) }}
+	client.previews[key] = p
+	startRunner := !runner.running
+	if startRunner {
+		select {
+		case client.previewSlots <- struct{}{}:
+		default:
+			cancel()
+			p.requestID = ""
+			client.mu.Unlock()
+			client.sendError(envelope.ID, "PREVIEW_BUSY", "preview evaluator capacity exhausted", true)
+			return
+		}
+		runner.running = true
+	}
+	execute := func() {
+		if work.Err() != nil {
+			return
+		}
+		client.mu.Lock()
+		runner.activeCancel = cancel
+		client.mu.Unlock()
+
 		work, finishTiming := realtimeOperationTiming(work, envelope)
 		defer finishTiming()
-		defer func() { cancel(); <-client.previewSlots }()
+		defer cancel()
 		var result workspace.CommandPreview
 		_, err := server.access.RequireDocument(work, input.DocumentID, client.actor.ID, access.RoleEditor)
 		if err == nil {
@@ -142,7 +171,29 @@ func (client *realtimeClient) startPreview(server *Server, ctx context.Context, 
 			result.Artifact = &a
 		}
 		client.sendResponse(envelope.ID, "workspace.preview.ready.v1", map[string]any{"documentId": input.DocumentID, "interactionId": input.InteractionID, "previewSequence": input.Sequence, "preview": result})
-	}()
+	}
+	runner.pending = execute
+	client.mu.Unlock()
+	if startRunner {
+		go client.runPreviewRunner(runner)
+	}
+}
+
+func (client *realtimeClient) runPreviewRunner(runner *previewRunner) {
+	for {
+		client.mu.Lock()
+		next := runner.pending
+		runner.pending = nil
+		if next == nil {
+			runner.running = false
+			runner.activeCancel = nil
+			<-client.previewSlots
+			client.mu.Unlock()
+			return
+		}
+		client.mu.Unlock()
+		next()
+	}
 }
 
 func (client *realtimeClient) cancelPreview(envelope realtimeEnvelope) {

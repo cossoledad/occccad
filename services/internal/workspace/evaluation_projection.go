@@ -642,6 +642,10 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 	}
 	featureIDs := map[string]bool{}
 	for _, feature := range model.Features {
+		if feature.Sketch != nil || feature.Type == "SKETCH_PATTERN" {
+			nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("profile:" + feature.ID), Phase: 2, Type: "PROFILE", CanonicalInput: []byte(`{}`)})
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.ID), Target: modelcore.DependencyKey("profile:" + feature.ID), Kind: modelcore.ReadGeometry})
+		}
 		featureIDs[feature.ID] = true
 		bodyTipFeatureID := bodyTips[feature.BodyID]
 		key := modelcore.DependencyKey("feature:" + feature.ID)
@@ -657,7 +661,7 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 			continue
 		}
 		if isSolidGenerator(feature.Type) {
-			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + feature.Profile), Target: key, Kind: modelcore.ReadGeometry})
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("profile:" + feature.Profile), Target: key, Kind: modelcore.ReadGeometry})
 			if bodyTipFeatureID != "" {
 				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + bodyTipFeatureID), Target: key, Kind: modelcore.ReadGeometry})
 			}
@@ -707,6 +711,11 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				}
 			}
 		}
+		if feature.Type == "LOFT" {
+			data, _ := json.Marshal(feature.Sections)
+			nodes = append(nodes, modelcore.DependencyNode{Key: modelcore.DependencyKey("loft-correspondence:" + feature.ID), Phase: 2, Type: "LOFT_CORRESPONDENCE", CanonicalInput: data})
+			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("loft-correspondence:" + feature.ID), Target: key, Kind: modelcore.ReadGeometry})
+		}
 		for _, section := range feature.Sections {
 			source := "feature:" + section.SketchID
 			if section.Point != nil && section.Point.AxisEntityID != "" {
@@ -716,6 +725,13 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				}
 			}
 			edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey(source), Target: key, Kind: modelcore.ReadGeometry})
+			if feature.Type == "LOFT" {
+				corrSource := source
+				if section.Point == nil {
+					corrSource = "profile:" + section.SketchID
+				}
+				edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey(corrSource), Target: modelcore.DependencyKey("loft-correspondence:" + feature.ID), Kind: modelcore.ReadGeometry})
+			}
 		}
 		if feature.Pattern != nil && feature.Pattern.Kind == "MIRROR" {
 			p := feature.Pattern
@@ -745,6 +761,28 @@ func buildPartEvaluation(model PartModel, revisionID, modelHash string, seeds []
 				sources[support.PersistentSelection.SourceBodyID] = true
 			}
 			for _, external := range feature.Sketch.ExternalGeometry {
+				projectionKey := modelcore.DependencyKey("projection:" + feature.ID + "/" + external.ID)
+				data, _ := json.Marshal(external)
+				nodes = append(nodes, modelcore.DependencyNode{Key: projectionKey, Phase: 2, Type: "EXTERNAL_PROJECTION", CanonicalInput: data})
+				edges = append(edges, modelcore.DependencyEdge{Source: projectionKey, Target: key, Kind: modelcore.ReadGeometry})
+				if external.DatumReference != nil {
+					edges = append(edges, modelcore.DependencyEdge{Source: datumReferenceDependency(*external.DatumReference), Target: projectionKey, Kind: modelcore.ReadGeometry})
+				} else if external.ContextReferenceID != "" {
+					edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("context-reference:" + external.ContextReferenceID), Target: projectionKey, Kind: modelcore.ReadGeometry})
+				} else if external.PersistentSelection.SourceBodyID != "" {
+					if tip := bodyTips[external.PersistentSelection.SourceBodyID]; tip != "" {
+						edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + tip), Target: projectionKey, Kind: modelcore.ReadTopology})
+					}
+				}
+				if support := feature.Sketch.Support; support.Type == "PLANAR_FACE" && support.PersistentSelection != nil {
+					if tip := bodyTips[support.PersistentSelection.SourceBodyID]; tip != "" {
+						edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("feature:" + tip), Target: projectionKey, Kind: modelcore.ReadTopology})
+					}
+				}
+				if feature.Sketch.Support.Type == "DATUM_PLANE" {
+					edges = append(edges, modelcore.DependencyEdge{Source: modelcore.DependencyKey("datum:" + feature.Sketch.Support.DatumPlaneID), Target: projectionKey, Kind: modelcore.ReadGeometry})
+				}
+
 				if external.DatumReference != nil {
 					edges = append(edges, modelcore.DependencyEdge{Source: datumReferenceDependency(*external.DatumReference), Target: key, Kind: modelcore.ReadGeometry})
 				} else if external.ContextReferenceID == "" {

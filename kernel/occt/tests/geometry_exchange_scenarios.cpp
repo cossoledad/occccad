@@ -2766,3 +2766,47 @@ TEST(GeometryExchange, MirrorLoftAdditiveRangeAndExplicitBodyStageRemainDistinct
     ASSERT_TRUE(whole.feature_results.back().topology_history_complete);
 }
 }
+
+namespace occccad::kernel {
+TEST(GeometryExchange, IncrementalStagesResumeEditEvictAndColdNaming) {
+    OcctKernel kernel;
+    auto generator=[](const std::string& id,double x,double y,double width,double height,double length){
+        ProfilePadSpec p;p.feature_id=id;p.body_id="runtime-body";p.profile_feature_id="sketch-"+id;
+        p.regions={rectangular_region("profile-"+id,x,y,x+width,y+height)};p.pad_length=length;p.body_operation="ADD";return p;
+    };
+    auto a=generator("base",0,0,20,20,5);
+    auto b=generator("stem",5,5,10,10,15);b.input_feature_id=a.feature_id;
+    auto c=generator("tip",7,7,6,6,20);c.input_feature_id=b.feature_id;
+    PartRuntimeStats stats;
+    PartRuntimeOptions runtime;runtime.stage_keys={"base-5","stem-15"};runtime.stats=&stats;
+    kernel.evaluateProfilePadsWithHistory({a,b},{},nullptr,runtime);
+    EXPECT_EQ(stats.stages_executed,2U);EXPECT_EQ(stats.generator_calls,2U);
+    runtime.stage_keys.push_back("tip-20");
+    const auto appended=kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime);
+    EXPECT_EQ(stats.stages_reused,2U);EXPECT_EQ(stats.stages_executed,1U);EXPECT_EQ(stats.generator_calls,1U);
+    const auto frozen=kernel.serializeBrepr(appended.geometry_id);
+    b.pad_length=16;runtime.stage_keys={"base-5","stem-16","tip-from-16"};
+    const auto edited=kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime);
+    EXPECT_EQ(stats.stages_reused,1U);EXPECT_EQ(stats.stages_executed,2U);
+    EXPECT_EQ(kernel.serializeBrepr(appended.geometry_id),frozen) << "preview must not mutate accepted shape";
+    runtime.force_cold=true;
+    const auto cold=kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime);
+    EXPECT_EQ(stats.stages_reused,0U);EXPECT_EQ(stats.stages_executed,3U);
+    EXPECT_EQ(cold.geometry_id,edited.geometry_id);
+    ASSERT_EQ(cold.feature_results.size(),edited.feature_results.size());
+    for(size_t i=0;i<cold.feature_results.size();++i){
+        EXPECT_TRUE(cold.feature_results[i].topology_history_complete);
+        EXPECT_EQ(cold.feature_results[i].topology_history.evidence_digest,edited.feature_results[i].topology_history.evidence_digest);
+        EXPECT_EQ(cold.feature_results[i].semantic_outputs.size(),edited.feature_results[i].semantic_outputs.size());
+    }
+    runtime.force_cold=false;kernel.set_runtime_cache_budget(1);EXPECT_EQ(kernel.runtime_cache_bytes(),0U);
+    const auto evicted=kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime);
+    EXPECT_EQ(stats.stages_executed,3U);EXPECT_EQ(evicted.geometry_id,cold.geometry_id);
+    size_t cancellation_checks=0;runtime.cancelled=[&](){return ++cancellation_checks>=3;};EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime),std::runtime_error);
+    runtime.cancelled={};c.pad_length=0;runtime.stage_keys.back()="invalid-tip";
+    EXPECT_THROW(kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime),std::invalid_argument);
+    c.pad_length=20;runtime.stage_keys.back()="tip-from-16";kernel.set_runtime_cache_budget(128*1024*1024);
+    EXPECT_EQ(kernel.evaluateProfilePadsWithHistory({a,b,c},{},nullptr,runtime).geometry_id,cold.geometry_id);
+}
+
+} // namespace occccad::kernel

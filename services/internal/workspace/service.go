@@ -25,7 +25,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const evaluatorVersion = "part-solid-generators-v32-projection-point"
+const evaluatorVersion = "part-solid-generators-v33-stage-runtime"
 
 var (
 	ErrNotFound   = errors.New("document not found")
@@ -70,6 +70,7 @@ func (service *Service) BranchWorkspace(ctx context.Context, documentID string, 
 }
 
 type Service struct {
+	prepared              preparedCache
 	database              database.DB
 	worker                *geometry.Client
 	artifacts             *artifactstore.Service
@@ -1579,6 +1580,7 @@ func (service *Service) ApplyCommand(ctx context.Context, documentID string, req
 }
 
 func (service *Service) ExecuteCommand(ctx context.Context, documentID string, request CommandRequest) error {
+	ctx = withEvaluationRuntime(ctx)
 	if err := service.requireActiveDocument(ctx, documentID); err != nil {
 		return err
 	}
@@ -1841,6 +1843,36 @@ func partGeometryKeyForPolicy(policyDigest, baseKey string, solidFeatures []geom
 }
 
 func (service *Service) evaluateBody(ctx context.Context, reqID string, model PartModel, fullModels ...PartModel) (string, error) {
+	ctx = withEvaluationRuntime(ctx)
+	frozen := []PartModel{model}
+	frozen = append(frozen, fullModels...)
+	for i := range frozen {
+		frozen[i].Features = append([]Feature(nil), frozen[i].Features...)
+		for j := range frozen[i].Features {
+			frozen[i].Features[j] = geometryFeatureDefinition(frozen[i].Features[j])
+		}
+	}
+	raw, _ := json.Marshal(struct {
+		Models []PartModel
+		Exact  bool
+	}{frozen, geometry.PartRuntime(ctx).ExactOnly})
+	key := modelcore.ValueDigest(raw)
+	runtime := ctx.Value(evaluationRuntimeKey{}).(*evaluationRuntime)
+	runtime.mu.Lock()
+	previous := runtime.bodies[key]
+	runtime.mu.Unlock()
+	if previous != "" {
+		return previous, nil
+	}
+	result, err := service.buildBody(ctx, reqID, model, fullModels...)
+	if err == nil {
+		runtime.mu.Lock()
+		runtime.bodies[key] = result
+		runtime.mu.Unlock()
+	}
+	return result, err
+}
+func (service *Service) buildBody(ctx context.Context, reqID string, model PartModel, fullModels ...PartModel) (string, error) {
 	normalizePartModel(&model)
 	fullModel := model
 	if len(fullModels) > 0 {
@@ -1971,7 +2003,11 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 		sum := sha256.Sum256(append([]byte(baseKey+"|"+importPolicy+"|"), seedJSON...))
 		cacheBaseKey = "sha256:" + hex.EncodeToString(sum[:])
 	}
-	key, err := partGeometryKey(cacheBaseKey, solidFeatures, visualization)
+	keyVisualization := visualization
+	if geometry.PartRuntime(ctx).ExactOnly {
+		keyVisualization = VisualizationManifest{}
+	}
+	key, err := partGeometryKey(cacheBaseKey, solidFeatures, keyVisualization)
 	if err != nil {
 		return "", err
 	}
@@ -1981,7 +2017,10 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 		Scan(&exists); err != nil {
 		return "", err
 	}
-	if exists {
+	if exists && !geometry.PartRuntime(ctx).ForceCold {
+		for _, f := range solidFeatures {
+			recordEvaluation(ctx, "feature:"+f.FeatureID, true, key, 0)
+		}
 		return key, nil
 	}
 	var evaluation *workerv1.EvaluatePartResponse
@@ -1996,13 +2035,20 @@ func (service *Service) evaluateBody(ctx context.Context, reqID string, model Pa
 		// An intent ID may be reused by successive previews or by a lost-ack
 		// retry. Staging belongs to this evaluation attempt, not that intent.
 		attempt := reqID + "/" + newID("artifact-attempt")
-		evaluation, err = service.worker.EvaluateProfilePartFromArtifact(ctx, reqID, key, solidFeatures, base,
+		options := geometry.PartRuntime(ctx)
+		options.Affinity = "body-runtime:" + model.ActiveBodyID
+		workerContext := geometry.WithPartRuntime(ctx, options)
+		evaluation, err = service.worker.EvaluateProfilePartFromArtifact(workerContext, reqID, key, solidFeatures, base,
 			artifactstore.StagingKey(attempt, "shape.brep"), artifactstore.StagingKey(attempt, "mesh.glb"), importSeed)
 	} else {
 		return "", fmt.Errorf("persistent evaluation requires ArtifactStore")
 	}
 	if err != nil {
 		return "", err
+	}
+	recordWorkerEvaluation(ctx, evaluation)
+	if ctx.Err() != nil {
+		return "", ctx.Err()
 	}
 	if err := service.storeEvaluation(ctx, key, evaluation, visualization); err != nil {
 		return "", err

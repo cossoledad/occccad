@@ -32,7 +32,7 @@
 
 实体镜像保存为同一 `SOLID_PATTERN` 的 `MIRROR` 分布，固定保留槽位 0 并生成槽位 1；引用标准/基准面或上游实体平面，反射矩阵由实时引用求值，不以界面中的缓存方向为真相。实体平面复用拔模的持久面解析与 feature-input 上游显示，进入依赖和删除保护。旋转与反射共用正交等距变换、工具来源、组合运算及成员 Naming；无新增持久命名或几何求解架构。仅实现实体特征镜像，不新增草图阵列镜像或装配镜像。
 
-内核仅留存被引用的工具/实体阶段，复用种子几何，以 `BRepBuilderAPI_Transform` 真实历史合成 Boolean/同域合并 Naming。拓扑预算为源命名输出数乘成员数不超过 100000；成员身份稳定不保证布尔后的面永不分裂，仍执行完整性、缺失与歧义门禁。路径阵列、逐成员变尺寸、任意局部特征重执行未包含。
+内核阶段检查点留存可复用的生成工具、实体阶段与添加范围起点，供后续追加阵列续算；复用种子几何，以 `BRepBuilderAPI_Transform` 真实历史合成 Boolean/同域合并 Naming。拓扑预算为源命名输出数乘成员数不超过 100000；成员身份稳定不保证布尔后的面永不分裂，仍执行完整性、缺失与歧义门禁。路径阵列、逐成员变尺寸、任意局部特征重执行未包含。
 
 入口：Part 和草图工具栏的线性/圆周阵列，Part 工具栏的实体镜像；空间草图成员可在视图区和树中分别选择，用于独立拉伸、旋转和放样。实体与空间草图阵列在树中编辑/抑制/删除；草图内阵列也有独立树节点，解除关联仍由阵列面板执行。空间与实体阵列默认绑定标准轴，方向、轴和圆周中心支持视图区拾取，反向改变分布步进符号。中心和方向的源引用进入依赖图及删除保护。
 
@@ -40,7 +40,7 @@
 
 依赖连接上游 Feature 输出，而不连接 Body 的未来最终结果。局部修改先重建自身之前的 Body 前缀，再以保存的 source Revision、Body 和 PersistentSelection 解析当前输入。缺失、歧义或类型变化必须失败，不能用最近几何或持久化 local ID 恢复。显示层的 local pick 只用于创建正式持久选择。
 
-生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 为 `part-solid-generators-v29-loft-transport-linear-evidence`，Naming policy 继续为 v6；缓存包含版本和完整来源历史。
+生成历史、Boolean、same-domain unify 和局部修改的真实 Generated/Modified/Deleted/存活关系形成同一命名链。抽壳同时保留外面并生成内面时保留两类来源；多对多来源不能生成重复 semantic ref。未被同类型历史覆盖的边/点继续使用已有语义邻接闭包，完整门禁覆盖每个 Face、Edge、Vertex。控制面 evaluator 为 `part-solid-generators-v33-stage-runtime`，Naming policy 继续为 v6；缓存包含版本和完整来源历史。
 
 精确边的直线识别由同一个内核判定供类型查询、方向属性与 Naming evidence 使用。非周期 B-spline 在实际裁剪参数区间内，正权控制点全部落在端点直线的 `Precision::Confusion()`（1e-7 mm）容差内，且沿直线单调排列时，识别为 `LINE`；不依据显示折线或有限采样。原 BREP 和真实 History 保留，属性同时报告 `underlyingCurveType=BSPLINE_CURVE` 与原生参数。选择 evidence 使用解析直线原点、单位方向和端点距离参数，现有轴/方向解析及外部几何投影消费同一证据，不能把 0–1 的样条参数当作毫米。弯曲、回折或周期样条保守保留曲线类型。evaluator 版本进入缓存键；旧制品须经正常特征编辑/重新求值生成新的成套 Naming/Visual，再选择其边。
 

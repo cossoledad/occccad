@@ -249,6 +249,7 @@ func resolvedDigest(value any) string {
 
 func (service *Service) resolvePartPublications(ctx context.Context, documentID, requestID, revisionID string, model *PartModel) error {
 	for index := range model.Publications {
+		recordEvaluation(ctx, "publication:"+model.Publications[index].ID, false, "", 0)
 		publication := &model.Publications[index]
 		broken := func(code, diagnostic string) {
 			publication.Resolution = PublicationResolution{Status: "BROKEN_PUBLICATION", DiagnosticCode: code, Diagnostic: diagnostic}

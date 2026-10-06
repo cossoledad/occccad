@@ -437,7 +437,11 @@ func (pool *GeometryPool) Ping(ctx context.Context, _ *workerv1.PingRequest) (*w
 }
 
 func (pool *GeometryPool) EvaluatePart(ctx context.Context, request *workerv1.EvaluatePartRequest) (*workerv1.EvaluatePartResponse, error) {
-	client, worker, err := pool.selectClient(request.GetGeometryKey())
+	affinity := request.GetGeometryKey()
+	if request.GetRuntimeAffinity() != "" {
+		affinity = request.GetRuntimeAffinity()
+	}
+	client, worker, err := pool.selectClient(affinity)
 	if err != nil {
 		return nil, err
 	}
@@ -445,9 +449,9 @@ func (pool *GeometryPool) EvaluatePart(ctx context.Context, request *workerv1.Ev
 		_ = grpc.SetHeader(ctx, metadata.Pairs("x-occccad-worker-id", worker.id))
 	}
 	response, err := client.EvaluatePart(outgoing(ctx), request)
-	pool.release(worker, request.GetGeometryKey(), err == nil)
+	pool.release(worker, affinity, err == nil)
 	if err == nil {
-		pool.remember(worker, response.GetGeometryId())
+		pool.remember(worker, response.GetGeometryId(), request.GetGeometryKey())
 	}
 	return response, err
 }

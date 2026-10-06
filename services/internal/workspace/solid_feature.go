@@ -518,7 +518,9 @@ func (s *Service) prepareLoftDefinition(ctx context.Context, requestID string, m
 	if err != nil {
 		return err
 	}
-	resolved, err := s.worker.ResolveLoftCorrespondence(ctx, requestID+"/loft-correspondence", sections)
+	resolved, err := preparedResult(ctx, &s.prepared, "loft-correspondence:"+feature.ID, sections, func() ([]geometry.LoftSection, error) {
+		return s.worker.ResolveLoftCorrespondence(ctx, requestID+"/loft-correspondence", sections)
+	})
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrValidation, err)
 	}

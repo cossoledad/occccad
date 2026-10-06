@@ -27,7 +27,9 @@ func (service *Service) buildExactProfileRegions(ctx context.Context, feature Fe
 	if service.worker == nil {
 		return nil, fmt.Errorf("%w: exact profile worker unavailable", ErrValidation)
 	}
-	regions, err := service.worker.ClassifySketchProfile(ctx, requestID, input)
+	regions, err := preparedResult(ctx, &service.prepared, "profile:"+feature.ID, input, func() ([]geometry.ProfileRegion, error) {
+		return service.worker.ClassifySketchProfile(ctx, requestID, input)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrValidation, err)
 	}

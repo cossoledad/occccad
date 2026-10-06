@@ -935,7 +935,7 @@ func (client *Client) EvaluateProfilePart(ctx context.Context, requestID, geomet
 	var header metadata.MD
 	response, err := client.worker.EvaluatePart(ctx, &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
 		ProfilePads: profilePadsProto(pads), BaseBrepData: baseBRep, LinearDeflection: 0.1, AngularDeflection: 0.5,
-		TopologyPolicy: topologyNamingPolicyProto(), ImportSeed: firstImportSeed(seeds)}, grpc.Header(&header))
+		TopologyPolicy: topologyNamingPolicyProto(), ImportSeed: firstImportSeed(seeds), ForceCold: PartRuntime(ctx).ForceCold, ExactOnly: PartRuntime(ctx).ExactOnly, RuntimeAffinity: PartRuntime(ctx).Affinity}, grpc.Header(&header))
 	if err != nil {
 		return nil, fmt.Errorf("evaluate Part profile feature chain: %w", err)
 	}
@@ -948,6 +948,13 @@ func (client *Client) EvaluateProfilePartFromArtifact(ctx context.Context, reque
 	defer cancel()
 	request := &workerv1.EvaluatePartRequest{RequestId: requestID, GeometryKey: geometryKey,
 		ProfilePads: profilePadsProto(pads), LinearDeflection: 0.1, AngularDeflection: 0.5, BrepOutputKey: brepOutputKey, GlbOutputKey: glbOutputKey}
+	options := PartRuntime(ctx)
+	request.ForceCold = options.ForceCold
+	request.ExactOnly = options.ExactOnly
+	request.RuntimeAffinity = options.Affinity
+	if options.ExactOnly {
+		request.GlbOutputKey = ""
+	}
 	request.TopologyPolicy = topologyNamingPolicyProto()
 	request.ImportSeed = firstImportSeed(seeds)
 	if baseBRep.ObjectKey != "" {

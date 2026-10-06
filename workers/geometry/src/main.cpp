@@ -1,3 +1,6 @@
+#if defined(__linux__)
+#include <sys/resource.h>
+#endif
 #include <Standard_Version.hxx>
 #include "naming_artifact.hpp"
 
@@ -660,6 +663,13 @@ occccad::kernel::LoftSectionSpec read_loft_section(const worker_api::LoftSection
 
 class GeometryWorkerService final : public worker_api::GeometryWorker::Service {
 public:
+    GeometryWorkerService() {
+        if(const char* value=std::getenv("OCCCCAD_STAGE_CACHE_BYTES")) {
+            size_t consumed=0;const auto budget=std::stoull(value,&consumed);
+            if(consumed!=std::string(value).size()||budget>2ULL*1024*1024*1024)throw std::invalid_argument("invalid stage cache byte budget");
+            kernel_.set_runtime_cache_budget(static_cast<size_t>(budget));
+        }
+    }
     grpc::Status Ping(grpc::ServerContext* /*context*/, const worker_api::PingRequest* /*request*/,
                       worker_api::PingResponse* response) override {
         // Liveness must not queue behind a long OCCT operation. Resident
@@ -1313,31 +1323,53 @@ public:
             return {grpc::StatusCode::INVALID_ARGUMENT, "feature chain requires at least one pad"};
         }
 
-        if (request->brep_output_key().empty() != request->glb_output_key().empty())
+        if (!request->exact_only() && request->brep_output_key().empty() != request->glb_output_key().empty())
             return {grpc::StatusCode::INVALID_ARGUMENT, "persistent evaluation requires both BREP and visual output keys"};
-        std::lock_guard<std::mutex> lock(mutex_);
+        std::unique_lock<std::mutex> lock(mutex_,std::defer_lock);
+        while(!lock.try_lock()) {
+            if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"evaluation cancelled in queue"};
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        const auto acquired=std::chrono::steady_clock::now();
         const bool external_outputs =
             !request->brep_output_key().empty() || !request->glb_output_key().empty();
         if (context->IsCancelled()) return {grpc::StatusCode::CANCELLED, "request cancelled while queued"};
         try {
+            double input_io_ms=0;
+            const auto input_artifact=[&](const auto& ref){const auto began=std::chrono::steady_clock::now();auto bytes=read_input(ref,request->force_cold());input_io_ms+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count();return bytes;};
+            const auto publish=[&](const auto& key,const auto& bytes,const auto& type,auto* ref){const auto began=std::chrono::steady_clock::now();if(context->IsCancelled())throw std::runtime_error("EVALUATION_CANCELLED");write_artifact(key,bytes,type,ref);auto* timings=response->mutable_runtime_stats();timings->set_artifact_io_ms(timings->artifact_io_ms()+std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count());};
             // The lock coalesces in-flight work; the key includes the actual frozen
             // inputs, naming policy and precision, never only a caller-supplied key.
             auto canonical = *request;
             canonical.clear_request_id(); canonical.clear_geometry_key();
             canonical.clear_brep_output_key(); canonical.clear_glb_output_key();
+            canonical.clear_force_cold();canonical.clear_runtime_affinity();
             const auto request_key = occccad::kernel::make_geometry_id(canonical.SerializeAsString()) + (external_outputs ? ":persistent" : ":transient");
             const auto cached = cache_.find(request_key);
-            if (cached != cache_.end()) {
+            if (!request->force_cold() && cached != cache_.end()) {
+                cached->second.used=++cache_clock_;
                 response->CopyFrom(cached->second.response);
+                const auto old_stats=response->runtime_stats();response->clear_runtime_stats();
                 response->set_geometry_key(request->geometry_key());
                 if (external_outputs && !cached->second.brep.empty()) {
-                    write_artifact(request->brep_output_key(), cached->second.brep, "application/vnd.opencascade.brep", response->mutable_brep_artifact());
-                    write_artifact(request->glb_output_key(), cached->second.glb, "model/gltf-binary", response->mutable_glb_artifact());
-                    if (!cached->second.naming.empty()) write_artifact(request->brep_output_key()+".naming.pb", cached->second.naming,
+                    publish(request->brep_output_key(), cached->second.brep, "application/vnd.opencascade.brep", response->mutable_brep_artifact());
+                    if(!request->exact_only())publish(request->glb_output_key(), cached->second.glb, "model/gltf-binary", response->mutable_glb_artifact());
+                    if (!cached->second.naming.empty()) publish(request->brep_output_key()+".naming.pb", cached->second.naming,
                         "application/vnd.occccad.topology-manifest.v2+protobuf", response->mutable_evaluation_manifest()->mutable_topology_manifest_artifact());
-                    response->set_representation_kind("PERSISTENT"); response->clear_preview_mesh();
+                    response->set_representation_kind(request->exact_only()?"EXACT_STAGE":"PERSISTENT"); response->clear_preview_mesh();
                 }
                 if (!response->geometry_id().empty()) {
+
+                    auto* stats=response->mutable_runtime_stats();
+                    stats->set_stages_reused(request->profile_pads_size());
+                    for(const auto& pad:request->profile_pads())stats->add_reused_feature_ids(pad.feature_id());
+                    for(const auto& stage:old_stats.stages()){auto* out=stats->add_stages();*out=stage;out->set_reused(true);}
+                    stats->set_queue_ms(std::chrono::duration<double,std::milli>(acquired-started).count());
+                    stats->set_stage_cache_bytes(kernel_.runtime_cache_bytes());
+                    stats->set_response_cache_bytes(cache_bytes_);stats->set_visual_cache_bytes(visual_bytes_);
+#if defined(__linux__)
+                    struct rusage usage{};if(getrusage(RUSAGE_SELF,&usage)==0)stats->set_peak_rss_bytes(static_cast<uint64_t>(usage.ru_maxrss)*1024);
+#endif
                     response->set_cache_hit(true);
                     log_rpc("EvaluatePart", request->request_id(), traceparent, "CACHE_HIT", started);
                     return grpc::Status::OK;
@@ -1366,7 +1398,7 @@ public:
             std::vector<uint8_t> base_brep(request->base_brep_data().begin(),
                                            request->base_brep_data().end());
             if (request->has_base_brep_artifact())
-                base_brep = read_artifact(request->base_brep_artifact());
+                base_brep = input_artifact(request->base_brep_artifact());
             std::vector<occccad::kernel::ProfilePadSpec> profile_specs;
             if (!request->profile_pads().empty() || request->has_import_seed()) {
                 const auto& policy = request->topology_policy();
@@ -1454,8 +1486,8 @@ public:
                     occccad::kernel::BodyToolInput tool;
                     tool.body_id = source.body_id();
                     tool.feature_id = source.feature_id();
-                    tool.brep = read_artifact(source.brep());
-                    const auto bytes = read_artifact(source.naming());
+                    tool.brep = input_artifact(source.brep());
+                    const auto bytes = input_artifact(source.naming());
                     worker_api::PartTopologyManifest naming;
                     if (!naming.ParseFromArray(bytes.data(), static_cast<int>(bytes.size())) ||
                         naming.schema_version() != 2 || naming.bodies_size() != 1 ||
@@ -1497,7 +1529,7 @@ public:
                     throw std::invalid_argument("import naming seed requires the profile feature contract");
                 auto input = request->import_seed();
                 if (input.has_identity_artifact()) {
-                    const auto data = read_artifact(input.identity_artifact());
+                    const auto data = input_artifact(input.identity_artifact());
                     worker_api::ImportTopologySeed full;
                     if (!full.ParseFromArray(data.data(), static_cast<int>(data.size())) || full.feature_id()!=input.feature_id() || full.brep_sha256()!=input.brep_sha256())
                         throw std::invalid_argument("IMPORT_SEED_ARTIFACT_MISMATCH");
@@ -1512,16 +1544,50 @@ public:
                     seed.identities.push_back({entry.stable_id(),
                         static_cast<occccad::kernel::PersistentTopologyType>(entry.topology_type()), entry.local_id()});
             }
+            occccad::kernel::PartRuntimeStats runtime_stats;
+            occccad::kernel::PartRuntimeOptions runtime;
+            runtime.force_cold=request->force_cold();runtime.stats=&runtime_stats;
+            runtime.cancelled=[context](){return context->IsCancelled();};
+            // Canonical keys include actual immutable source digests, stable Body /
+            // Feature identity and the naming policy; transport IDs/outputs do not.
+            std::string prefix=occccad::kernel::make_geometry_id(base_brep.data(),base_brep.size())+
+                request->topology_policy().SerializeAsString()+request->import_seed().SerializeAsString()+"stage-runtime-v1";
+            for(const auto& pad:request->profile_pads()) {
+                prefix=occccad::kernel::make_geometry_id(prefix+pad.SerializeAsString());
+                runtime.stage_keys.push_back(prefix);
+            }
+            const auto exact_started=std::chrono::steady_clock::now();
+            const double queue_ms=std::chrono::duration<double,std::milli>(acquired-started).count();
             occccad::kernel::ProfileEvaluationResult profile_evaluation;
             const auto geometry_id =
                 (profile_specs.empty() && !request->has_import_seed())
                     ? kernel_.evaluateRectangularPads(specs, base_brep)
                     : (profile_evaluation =
-                           kernel_.evaluateProfilePadsWithHistory(profile_specs, base_brep, request->has_import_seed() ? &seed : nullptr),
+                           kernel_.evaluateProfilePadsWithHistory(profile_specs, base_brep, request->has_import_seed() ? &seed : nullptr,runtime),
                        profile_evaluation.geometry_id);
+            if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"evaluation cancelled before display"};
+            std::vector<uint8_t> cached_brep,cached_glb,cached_naming;
+            auto* stats=response->mutable_runtime_stats();
+            stats->set_artifact_io_ms(input_io_ms);
+            stats->set_queue_ms(queue_ms);
+            stats->set_input_prepare_ms(std::chrono::duration<double,std::milli>(exact_started-acquired).count());
+            stats->set_exact_ms(runtime_stats.exact_ms);
+            stats->set_naming_ms(runtime_stats.naming_ms);
+            stats->set_stages_executed(runtime_stats.stages_executed);stats->set_stages_reused(runtime_stats.stages_reused);
+            stats->set_generator_calls(runtime_stats.generator_calls);stats->set_modifier_calls(runtime_stats.modifier_calls);
+            stats->set_body_operation_calls(runtime_stats.body_operation_calls);stats->set_stage_cache_bytes(runtime_stats.stage_cache_bytes);
+            stats->set_stage_evictions(runtime_stats.stage_evictions);
+            for(const auto& stage:runtime_stats.stages) {
+                auto* out=stats->add_stages();out->set_feature_id(stage.feature_id);out->set_input_digest(stage.input_digest);
+                out->set_geometry_id(stage.geometry_id);out->set_reused(stage.reused);
+            }
+            for(const auto& id:runtime_stats.executed_feature_ids)stats->add_executed_feature_ids(id);
+            for(const auto& id:runtime_stats.reused_feature_ids)stats->add_reused_feature_ids(id);
+            const auto display_started=std::chrono::steady_clock::now();
             fill_evaluation(request->geometry_key(), geometry_id, request->linear_deflection(),
                             request->angular_deflection(), response, request->brep_output_key(),
-                            request->glb_output_key());
+                            request->glb_output_key(),request->exact_only(),request->force_cold(),&cached_brep,&cached_glb,[context](){return context->IsCancelled();});
+            stats->set_display_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-display_started).count());
             if (!profile_specs.empty() || request->has_import_seed()) {
                 auto* manifest = response->mutable_evaluation_manifest();
                 manifest->set_schema_version(occccad::kernel::topology_naming_schema_version);
@@ -1541,6 +1607,13 @@ public:
                     identity->set_input_feature_id(spec.input_feature_id);
                     identity->set_profile_feature_id(spec.profile_feature_id);
                 }
+                const auto naming_started=std::chrono::steady_clock::now();
+                std::string topology_bytes;
+                const auto naming_key=prefix+"|"+response->brep_artifact().sha256();
+                const auto naming_hit=naming_cache_.find(naming_key);
+                if(!request->force_cold()&&naming_hit!=naming_cache_.end()&&naming_hit->second.geometry_id==geometry_id) {
+                    topology_bytes=naming_hit->second.bytes;naming_hit->second.used=++cache_clock_;
+                } else {
                 worker_api::PartTopologyManifest topology_manifest;
                 topology_manifest.set_schema_version(
                     occccad::kernel::topology_naming_schema_version);
@@ -1556,15 +1629,31 @@ public:
                 occccad::worker::pack_naming(working_results, topology_manifest);
                 topology_manifest.set_geometry_id(geometry_id);
                 topology_manifest.set_brep_sha256(response->brep_artifact().sha256());
-                std::string topology_bytes;
-                if (!topology_manifest.SerializeToString(&topology_bytes))
+                if (!topology_manifest.SerializeToString(&topology_bytes)) {
                     throw std::runtime_error("topology manifest serialization failed");
+                }
+
+                    if(!request->force_cold()&&topology_bytes.size()<=cache_budget_/2) {
+                        const auto bytes=topology_bytes.capacity()+naming_key.capacity()+geometry_id.capacity()+sizeof(NamingSnapshot);
+                        if (auto existing=naming_cache_.find(naming_key);existing!=naming_cache_.end()) {
+                            naming_bytes_-=existing->second.charge;naming_cache_.erase(existing);
+                        }
+                        while(!naming_cache_.empty()&&naming_bytes_+bytes>cache_budget_/2) {
+                            auto oldest=std::min_element(naming_cache_.begin(),naming_cache_.end(),[](const auto& a,const auto& b){return a.second.used<b.second.used;});
+                            naming_bytes_-=oldest->second.charge;naming_cache_.erase(oldest);
+                        }
+                        if(bytes<=cache_budget_/2){naming_bytes_+=bytes;naming_cache_.emplace(naming_key,NamingSnapshot{geometry_id,topology_bytes,bytes,++cache_clock_});}
+                    }
+                }
+                stats->set_naming_ms(stats->naming_ms()+std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-naming_started).count());
                 const auto topology_id = occccad::kernel::make_geometry_id(topology_bytes);
                 manifest->set_topology_manifest_digest(
                     topology_id.rfind("sha256:", 0) == 0 ? topology_id.substr(7) : topology_id);
+                cached_naming.assign(topology_bytes.begin(),topology_bytes.end());
+                if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,"evaluation cancelled before naming publication"};
                 if (external_outputs) {
-                    const std::vector<uint8_t> bytes(topology_bytes.begin(), topology_bytes.end());
-                    write_artifact(request->brep_output_key() + ".naming.pb", bytes,
+                    const std::vector<uint8_t>& bytes=cached_naming;
+                    publish(request->brep_output_key() + ".naming.pb", bytes,
                                    "application/vnd.occccad.topology-manifest.v2+protobuf",
                                    manifest->mutable_topology_manifest_artifact());
                 }
@@ -1572,25 +1661,33 @@ public:
 
             const auto bytes = response->ByteSizeLong() + response->brep_artifact().size_bytes()
                 + response->glb_artifact().size_bytes() + response->evaluation_manifest().topology_manifest_artifact().size_bytes();
-            if (bytes <= cache_budget_) {
+            if (!request->force_cold() && bytes <= cache_budget_) {
                 EvaluationCache entry;
                 entry.response = *response;
                 if (external_outputs) {
-                    entry.brep = read_artifact(response->brep_artifact());
-                    entry.glb = read_artifact(response->glb_artifact());
-                    if (response->evaluation_manifest().has_topology_manifest_artifact())
-                        entry.naming = read_artifact(response->evaluation_manifest().topology_manifest_artifact());
+                    entry.brep=std::move(cached_brep);entry.glb=std::move(cached_glb);entry.naming=std::move(cached_naming);
                 }
                 // Reject oversized entries before reading artifacts back. A hit
                 // never depends on prior attempt files remaining on disk.
-                if (cache_bytes_+bytes > cache_budget_ || cache_.size() >= 8) { cache_.clear(); cache_bytes_=0; }
+                while(!cache_.empty() && cache_bytes_+bytes>cache_budget_) {
+                    auto oldest=std::min_element(cache_.begin(),cache_.end(),[](const auto& a,const auto& b){return a.second.used<b.second.used;});
+                    cache_bytes_-=oldest->second.bytes;cache_.erase(oldest);
+                }
+                entry.bytes=bytes;entry.used=++cache_clock_;
                 if (cache_.find(request_key)==cache_.end()) { cache_bytes_+=bytes; cache_.emplace(request_key,std::move(entry)); }
             }
+            spdlog::info("part_runtime request={} executed={} reused={} generator_calls={} modifier_calls={} queue_ms={} exact_ms={} naming_ms={} display_ms={} cache_bytes={}",
+                request->request_id(),stats->stages_executed(),stats->stages_reused(),stats->generator_calls(),stats->modifier_calls(),stats->queue_ms(),stats->exact_ms(),stats->naming_ms(),stats->display_ms(),stats->stage_cache_bytes());
+#if defined(__linux__)
+            struct rusage usage{};if(getrusage(RUSAGE_SELF,&usage)==0)stats->set_peak_rss_bytes(static_cast<uint64_t>(usage.ru_maxrss)*1024);
+#endif
+            stats->set_response_cache_bytes(cache_bytes_);stats->set_visual_cache_bytes(visual_bytes_);
             log_rpc("EvaluatePart", request->request_id(), traceparent, "OK", started);
             return grpc::Status::OK;
         } catch (const std::invalid_argument& error) {
             return {grpc::StatusCode::INVALID_ARGUMENT, error.what()};
         } catch (const std::exception& error) {
+            if(context->IsCancelled())return {grpc::StatusCode::CANCELLED,error.what()};
             return {grpc::StatusCode::INTERNAL, error.what()};
         }
     }
@@ -1903,9 +2000,25 @@ private:
                          const double requested_angular_deflection,
                          worker_api::EvaluatePartResponse* response,
                          const std::string& brep_output_key = {},
-                         const std::string& glb_output_key = {}) {
+                         const std::string& glb_output_key = {}, bool exact_only = false, bool force_cold = false,
+                         std::vector<uint8_t>* brep_buffer=nullptr,std::vector<uint8_t>* glb_buffer=nullptr,std::function<bool()> cancelled={}) {
+        const auto check_cancel=[&](){if(cancelled&&cancelled())throw std::runtime_error("EVALUATION_CANCELLED");};
+        check_cancel();
+        const auto publish=[&](const auto& key,const auto& bytes,const auto& type,auto* ref){const auto began=std::chrono::steady_clock::now();check_cancel();write_artifact(key,bytes,type,ref);auto* stats=response->mutable_runtime_stats();stats->set_artifact_io_ms(stats->artifact_io_ms()+std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-began).count());};
         const auto bbox = kernel_.getBoundingBox(geometry_id);
-        const auto& topology = kernel_.getTopology(geometry_id);
+        if(exact_only) {
+            const auto topology=kernel_.getTopologySummary(geometry_id);
+            const auto brep=kernel_.serializeBrepr(geometry_id);
+            if(brep_buffer)*brep_buffer=brep;
+            if(!brep_output_key.empty())publish(brep_output_key,brep,"application/vnd.opencascade.brep",response->mutable_brep_artifact());
+            response->set_geometry_id(geometry_id);response->set_geometry_key(geometry_key);
+            fill_bbox(bbox,response->mutable_bbox());response->set_volume(kernel_.getVolume(geometry_id));
+            auto* summary=response->mutable_topology();summary->set_face_count(topology.face_count);summary->set_edge_count(topology.edge_count);
+            summary->set_vertex_count(topology.vertex_count);summary->set_solid_count(topology.solid_count);
+            response->set_occt_version(OCC_VERSION_COMPLETE);response->set_representation_kind("EXACT_STAGE");
+            return;
+        }
+        const auto& topology=kernel_.getTopology(geometry_id);
         topology_cached_.insert(geometry_id);
         const double linear_deflection =
             requested_linear_deflection > 0.0 ? requested_linear_deflection : 0.1;
@@ -1918,22 +2031,27 @@ private:
         policy << geometry_id << ":visual-boundary-v1:" << linear_deflection << ':' << angular_deflection;
         const auto key = policy.str();
         auto found = visual_cache_.find(key);
-        const bool visual_hit = found != visual_cache_.end();
+        const bool visual_hit = !force_cold && found != visual_cache_.end();
         std::shared_ptr<const VisualSnapshot> snapshot;
         if (visual_hit) {
+            found->second->used=++cache_clock_;
             snapshot = found->second;
             spdlog::info("visual_snapshot geometry={} cache_hit=true",geometry_id);
         }
         else {
             auto computed = std::make_shared<VisualSnapshot>();
             computed->mesh = kernel_.tessellate(geometry_id, linear_deflection, angular_deflection);
+            check_cancel();
             google::protobuf::Struct association;
             (*association.mutable_fields())["geometryId"].set_string_value(geometry_id);
             std::string association_json;
             if (!google::protobuf::util::MessageToJsonString(association,&association_json).ok()) throw std::runtime_error("GLB association serialization failed");
+            check_cancel();
             const auto encoding = std::chrono::steady_clock::now();
             computed->glb = occccad::kernel::make_glb(computed->mesh, association_json);
             const auto& m = computed->mesh;
+            response->mutable_runtime_stats()->set_mesh_ms(m.timings.meshing_ms);
+            response->mutable_runtime_stats()->set_encoding_ms(std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-encoding).count());
             size_t edge_points = 0; for (const auto& edge : m.edges) edge_points += edge.points.size();
             spdlog::info("visual_snapshot geometry={} mesh_ms={} faces_ms={} edges_ms={} normals_ms={} encoding_ms={} vertices={} triangles={} edges={} edge_points={} glb_bytes={}",
                 geometry_id, m.timings.meshing_ms, m.timings.faces_ms, m.timings.edges_ms, m.timings.normals_ms,
@@ -1944,23 +2062,29 @@ private:
                 + m.triangles.capacity()*sizeof(occccad::kernel::Triangle) + m.face_ids.capacity()*sizeof(uint32_t)
                 + m.topology_vertices.capacity()*sizeof(occccad::kernel::TopologyPoint) + m.edges.capacity()*sizeof(occccad::kernel::EdgePolyline);
             snapshot = computed;
-            if (bytes <= cache_budget_) {
-                if (visual_bytes_+bytes > cache_budget_ || visual_cache_.size()>=8) { visual_cache_.clear(); visual_bytes_=0; }
+            if (!force_cold && bytes <= cache_budget_) {
+                while(!visual_cache_.empty() && visual_bytes_+bytes>cache_budget_) {
+                    auto oldest=std::min_element(visual_cache_.begin(),visual_cache_.end(),[](const auto& a,const auto& b){return a.second->used<b.second->used;});
+                    visual_bytes_-=oldest->second->bytes;visual_cache_.erase(oldest);
+                }
+                computed->bytes=bytes;computed->used=++cache_clock_;
                 visual_bytes_+=bytes; visual_cache_.emplace(key,std::move(computed));
             }
         }
         const auto& mesh = snapshot->mesh;
         const auto& glb = snapshot->glb;
         const auto brep = kernel_.serializeBrepr(geometry_id);
+        if(brep_buffer)*brep_buffer=brep;
+        if(glb_buffer)*glb_buffer=glb;
 
         response->set_geometry_id(geometry_id);
         response->set_geometry_key(geometry_key);
         if (!brep_output_key.empty())
-            write_artifact(brep_output_key, brep, "application/vnd.opencascade.brep",
+            publish(brep_output_key, brep, "application/vnd.opencascade.brep",
                            response->mutable_brep_artifact());
 
         if (!glb_output_key.empty())
-            write_artifact(glb_output_key, glb, "model/gltf-binary",
+            publish(glb_output_key, glb, "model/gltf-binary",
                            response->mutable_glb_artifact());
 
         fill_bbox(bbox, response->mutable_bbox());
@@ -2012,6 +2136,25 @@ private:
     }
 
     std::atomic<uint32_t> resident_snapshot_{0};
+    struct NamingSnapshot {std::string geometry_id,bytes;size_t charge=0;uint64_t used=0;};
+    size_t naming_bytes_=0;
+    std::unordered_map<std::string,NamingSnapshot> naming_cache_;
+    struct InputArtifact {std::vector<uint8_t> bytes;uint64_t used=0;size_t charge=0;};
+    size_t input_bytes_=0;
+    std::unordered_map<std::string,InputArtifact> inputs_;
+    std::vector<uint8_t> read_input(const worker_api::ArtifactReference& ref,bool cold) {
+        const auto key=ref.sha256()+"/"+std::to_string(ref.size_bytes());
+        if(!cold){const auto hit=inputs_.find(key);if(hit!=inputs_.end()){hit->second.used=++cache_clock_;return hit->second.bytes;}}
+        auto data=read_artifact(ref);const size_t bytes=data.capacity()+key.capacity()+sizeof(InputArtifact);
+        if(!cold && bytes<=cache_budget_/2) {
+            while(!inputs_.empty() && input_bytes_+bytes>cache_budget_/2) {
+                auto oldest=std::min_element(inputs_.begin(),inputs_.end(),[](const auto& a,const auto& b){return a.second.used<b.second.used;});
+                input_bytes_-=oldest->second.charge;inputs_.erase(oldest);
+            }
+            input_bytes_+=bytes;inputs_.emplace(key,InputArtifact{data,++cache_clock_,bytes});
+        }
+        return data;
+    }
     std::mutex mutex_;
     occccad::kernel::OcctKernel kernel_;
     std::unique_ptr<occccad::geometry::sketch::SketchSolver> sketch_solver_ =
@@ -2019,14 +2162,17 @@ private:
     struct EvaluationCache {
         worker_api::EvaluatePartResponse response;
         std::vector<uint8_t> brep, glb, naming;
+        size_t bytes=0;uint64_t used=0;
     };
     struct VisualSnapshot {
         occccad::kernel::TessellationResult mesh;
         std::vector<uint8_t> glb;
+        size_t bytes=0;mutable uint64_t used=0;
     };
     // Per-worker budgets, in addition to the resident exact model working set.
     static constexpr size_t cache_budget_ = 64 * 1024 * 1024;
     size_t cache_bytes_ = 0, visual_bytes_ = 0;
+    uint64_t cache_clock_=0;
     std::unordered_map<std::string, EvaluationCache> cache_;
     std::unordered_map<std::string, std::shared_ptr<const VisualSnapshot>> visual_cache_;
     std::unordered_set<std::string> topology_cached_;

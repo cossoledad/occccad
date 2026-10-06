@@ -294,6 +294,10 @@ func TestFeatureAssociationFanLifecycleThroughRouter(t *testing.T) {
 }
 
 func featureAssociationTestService(t *testing.T) (*workspace.Service, *artifact.Service, database.DB, *geometry.Client) {
+	s, a, d, c, _ := featureAssociationRuntimeService(t)
+	return s, a, d, c
+}
+func featureAssociationRuntimeService(t *testing.T) (*workspace.Service, *artifact.Service, database.DB, *geometry.Client, *GeometryPool) {
 	t.Helper()
 	binary := os.Getenv("OCCCCAD_TEST_GEOMETRY_WORKER")
 	if binary == "" {
@@ -330,6 +334,6 @@ func featureAssociationTestService(t *testing.T) (*workspace.Service, *artifact.
 	}
 	artifacts := artifact.NewService(db, local)
 	service := workspace.NewWithArtifacts(db, client, artifacts)
-	return service, artifacts, db, client
+	return service, artifacts, db, client, pool
 
 }

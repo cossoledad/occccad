@@ -220,9 +220,21 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 	for index, feature := range model.Features {
 		featureIndex[feature.ID] = index
 	}
-	for index := range model.Features {
-		if err := service.resolveDatumDefinitions(ctx, documentID, requestID, model, index); err != nil {
-			return err
+	// The existing graph orders real datum/projection/sketch preparation.
+	// Solid execution stays a coarse Body RPC, invoked only by stage readers.
+	for _, node := range graph.TopologicalOrder() {
+		if strings.HasPrefix(string(node), "datum:") {
+			if err := service.resolveDatumDefinitions(ctx, documentID, requestID, model, len(model.Features), strings.TrimPrefix(string(node), "datum:")); err != nil {
+				return err
+			}
+			continue
+		}
+		if !strings.HasPrefix(string(node), "feature:") {
+			continue
+		}
+		index, ok := featureIndex[strings.TrimPrefix(string(node), "feature:")]
+		if !ok {
+			continue
 		}
 		feature := &model.Features[index]
 		if feature.Sketch == nil {
@@ -302,7 +314,7 @@ func (service *Service) resolveAndSolveSketches(ctx context.Context, documentID,
 			return nil
 		}
 	}
-	return service.resolveDatumDefinitions(ctx, documentID, requestID, model, len(model.Features))
+	return nil
 }
 
 func (service *Service) resolveExternalGeometry(ctx context.Context, documentID, requestID string, model *PartModel, featureIndex int, geometryKey string) error {
@@ -348,7 +360,7 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 				markBroken(external, "EXTERNAL_DATUM_MISSING", err.Error())
 				continue
 			}
-			projected, err := service.worker.ProjectExternalGeometry(ctx, requestID+"/datum-projection/"+external.ID, source, geometry.ExternalProjectionFrame{Origin: sketch.Support.Origin, XDirection: sketch.Support.XDirection, Normal: sketch.Support.Normal})
+			projected, err := service.projectExternalGeometry(ctx, requestID, model.Features[featureIndex].ID, external.ID, source, geometry.ExternalProjectionFrame{Origin: sketch.Support.Origin, XDirection: sketch.Support.XDirection, Normal: sketch.Support.Normal})
 			if err != nil {
 				return err
 			}
@@ -435,7 +447,7 @@ func (service *Service) resolveExternalGeometry(ctx context.Context, documentID,
 		}
 		candidate := resolution.Candidates[0]
 		origin, direction := pointByPose(sourcePose, candidate.Evidence.Origin), rotateByPose(sourcePose, candidate.Evidence.Direction)
-		projected, err := service.worker.ProjectExternalGeometry(ctx, requestID+"/external/"+external.ID,
+		projected, err := service.projectExternalGeometry(ctx, requestID, model.Features[featureIndex].ID, external.ID,
 			geometry.ExternalProjectionSource{GeometryID: candidate.GeometryID, GeometryKey: candidate.GeometryKey,
 				TopologyType: string(candidate.Type), LocalID: candidate.LocalID, GeometryType: candidate.Evidence.GeometryType,
 				EvidenceDigest: candidate.Evidence.EvidenceDigest, MeasureSI: candidate.Evidence.MeasureSI,
