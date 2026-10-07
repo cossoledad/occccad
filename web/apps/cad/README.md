@@ -6,7 +6,7 @@ CAD Web 是 occccad 的独立 React 应用，包含文档中心与浏览器 CAD 
 
 - 登录、注册、账号管理、文档/文件夹中心、分享与常驻消息中心；Document 使用 UUID 身份并允许显示名称重复，创建时提供可编辑的 `PartN`/`ProductN` 默认名称；消息中心恢复用户可见任务，展示进度和失败原因，并提供取消、重试、下载或打开文档动作；
 - Part/Product 常驻文档标签、按上下文分组的图文命令区、可筛选的 Specification Tree、独立 WebGL 视口与可折叠 Inspector；
-- Product 打开时默认激活根 occurrence；双击树中的 Product/Part/Instance 激活 typed InstancePath，并在保留根装配和其他部件的场景中就地编辑对应 Reference。视口 breadcrumb 明确显示上下文，可在 `打开定义` 与 `在此上下文打开` 间切换而不产生 Revision。Toolbar、属性、历史和命令绑定 Reference Document，草图与预览应用 occurrence 世界 Placement。Product 节点右键“新建零件”可留空自动分配 `PartN`，并以一个 ProductDesignTransaction 原子创建 Part、按 `PartN.N` 插入 occurrence、推进嵌套祖先引用；默认放在所选 Product 原点。Undo 移除 occurrence 但保留独立 Part 文档。Instance 右键“在新标签页中打开”通过工作台内部文档 Tab 打开其 Reference Document 当前 HEAD，已打开的文档复用 Tab。Insert 仍用于插入已有 Reference；默认 `FOLLOW_HEAD` 子文档通过递归实时订阅发现变化，并按叶到根自动接受带 digest 的 Product Update Plan。Broken/Impossible 约束保留诊断但不阻塞引用更新，也不会在源 HEAD 不变时反复触发更新；
+- Product 首次打开时激活根装配；双击树中的 Product/Part/Instance 激活 typed InstancePath，并在保留根装配和其他部件的场景中就地编辑对应 Reference。唯一 EditSession 同时记录宿主与实际编辑目标，激活不产生 Revision。Toolbar、属性、历史和命令绑定 Reference Document，草图与预览应用 occurrence 世界 Placement。Product 节点右键“新建零件”可留空自动分配 `PartN`，并以一个 ProductDesignTransaction 原子创建 Part、按 `PartN.N` 插入 occurrence、推进嵌套祖先引用；默认放在所选 Product 原点。Undo 移除 occurrence 但保留独立 Part 文档。Instance 右键“在新标签页中打开”通过工作台内部文档 Tab 打开其 Reference Document 当前 HEAD，已打开的文档复用 Tab。Insert 仍用于插入已有 Reference；默认 `FOLLOW_HEAD` 子文档通过递归实时订阅发现变化，并按叶到根自动接受带 digest 的 Product Update Plan。Broken/Impossible 约束保留诊断但不阻塞引用更新，也不会在源 HEAD 不变时反复触发更新；
 - 命令组成、工作台归属、顺序、短名称与详细帮助由后端 Presentation Catalog 下发；命令区按建模/草图/装配、视图、文档与协作分类，撤销/重做和视图操作保留快捷入口；工具搜索包含当前工作台的已注册可见命令，不可用项可发现但不能执行；hover 使用统一深色提示显示命令名与已分配的快捷键，上边栏纯图标“这是什么？”进入一次性上下文帮助且不会触发命令，未知命令默认不显示且不可执行；
 - Three.js 精确网格显示、基准面、集合化选择/预选与结构树联动；最终 Body 的视口选择归属最近的 Import/Extrude 节点，精确拓扑元素使用遮挡可见的面、宽边线和点 Overlay，树选父节点才展开全部后代；Specification Tree 支持 Ctrl/Meta 多选、Shift 连选和固定宽度的节点锚定右键菜单，选择变化关闭菜单，删除不确认并以一个原子 Revision 作用于当前选择集合，实体删除仍级联其引用约束；
 - 基准面/轴沿用现有定义面板，支持自由框架或关联来源、绕参考直线旋转、沿参考方向平移；角度/距离可插入参数表达式。标准面/轴、基准、草图线和精确实体平面/直线边按角色拾取，复用权威预览与正式编辑命令，取消不写 Head。Origin 增加 Part 原点，XYZ/原点的树选择、hover 与 occurrence 显示共用身份。
@@ -93,10 +93,13 @@ Workbench 主文件编排文档、命令、查询、工具和领域面板生命�
 | `cad/command/command-shortcuts.ts` / `use-command-shortcuts.ts` | 快捷键声明、匹配与全局生命周期；复用 CommandRegistry |
 | `design/visual-tokens.ts` / `design-system.css` | 统一语义色源、界面表面、控件和图标样式 |
 | `document-tabs*.tsx` | 文档标签呈现与服务端已打开文档生命周期 |
+| `cad/document/document-session*.ts*` / `document-editing-state.ts` | 窗口/用户内按宿主隔离的临时状态槽与编辑上下文恢复校验 |
 | `tree-filter.ts` / `specification-tree.tsx` | 保留稳定身份和祖先的过滤、虚拟树、键盘导航及集合选择 |
 | `workbench-inspector-panel.tsx` | 独立拥有属性/历史/拓扑查询，关闭即卸载；处理读取失败与只读历史操作 |
 | `workbench-status.tsx` | 展示真实提交、选择、工具、单位与捕获状态；不推断保存成功 |
 | `cad/overlay/floating-panel.tsx` | 非模态命令面板；位置归一化、容器边界、焦点、取消和重复提交保护 |
+
+切换文档标签保存编辑目标、工作 Body、草图编辑态、相机、树搜索/展开及工具栏 Tab；恢复复用当前领域快照校验，关闭标签清空快照。状态仅保留于当前用户、当前窗口内存，工具/Preview 不恢复。扩展入口与具体边界见[Product 编辑会话](../../../docs/architecture/current/product-edit-context.md)。右键菜单统一使用“隐藏/显示”，作用域随编辑目标自动选择，见[显示模型](../../../docs/architecture/current/model-display.md)。
 
 只读 Properties/History 位于 `features/workbench/workbench-inspector.tsx`，结构树 projection/selection mapping 位于 `features/workbench/workbench-tree-model.tsx`。属性、历史或树映射改动不需要加载主 orchestrator。默认属性页展示文档概览，内部 provenance/Worker 信息位于“技术详情与诊断”；所有对象另有默认展开的只读“完整对象数据与上下文”，保留定义、参数来源、SI 值、引用、诊断和制品元数据。`inspector-object-data.ts` 按稳定身份及文档/Revision 解析数据，跨文档检查复用只读查询；旧快照未加载时明确提示，不使用当前 Head 冒充。桌面工作台的结构树与属性栏占据独立网格列，不覆盖视口；窄于 800px 时属性栏改为可关闭的覆盖面板。命令组在空间不足时水平滚动。
 
@@ -169,7 +172,7 @@ DEBUG Tab 的 `debug.part`（Part 诊断包）与 `debug.assembly`（装配诊�
 
 约束确认检查服务端 `expiresAt`；临近过期时以冻结草稿重取预览，提交竞争中的到期/淘汰最多重试一次。Revision、意图、支持与上下文失配仍拒绝。NotUpdated 使用正式 DEFINITION_ONLY 候选保存，失败姿态不提交；取消和目标变化继续隔离迟到结果。
 
-确认期间暂停自动预览及其草稿清理，Head 更新由正式命令响应收口，避免将自身提交误报为基线变化；过期候选恢复使用显式刷新事件。约束集合根节点提供“隐藏全部约束/显示全部约束”，通过 `tree.visibility` 和一次正式显示命令修改当前全部约束，Undo 恢复每项原有显隐；显隐不改变求解状态或组件位姿。
+确认期间暂停自动预览及其草稿清理，Head 更新由正式命令响应收口，避免将自身提交误报为基线变化；过期候选恢复使用显式刷新事件。约束集合根节点提供“隐藏/显示”，通过 `tree.visibility` 和一次正式显示命令修改当前全部约束，Undo 恢复每项原有显隐；显隐不改变求解状态或组件位姿。
 
 默认视口采用正交等轴测投影。快捷键 1 切换标准等轴测方向并按可见内容包围盒适合窗口；其他标准方向保留比例。独立“适合窗口”命令保留当前朝向。平移/拾取容差按当前 zoom 换算 CSS 像素。进入草图对齐支撑平面并保留比例，退出恢复进入前视图，同一草图刷新不重复对齐。相机数学与视图快照位于 `cad/navigation/orthographic-view.ts`；导航场景和浏览器用例覆盖高倍放大、等轴测重复切换、基准面/面支撑草图进入与退出。
 

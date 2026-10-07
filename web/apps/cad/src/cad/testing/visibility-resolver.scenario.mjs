@@ -6,7 +6,7 @@ const { createServer } = await import(require.resolve("vite"));
 const server = await createServer({ appType: "custom", logLevel: "silent", server: { middlewareMode: true } });
 
 try {
-  const { VisibilityResolver } = await server.ssrLoadModule("/src/cad/interaction/visibility-resolver.ts");
+  const { VisibilityResolver, visibilityResolverForView } = await server.ssrLoadModule("/src/cad/interaction/visibility-resolver.ts");
   const referenceTree={kind:"PART",documentId:"part",entityId:"part",children:[{kind:"ORIGIN",documentId:"part",entityId:"origin",localVisible:true,children:[
     {kind:"AXIS_SYSTEM",documentId:"part",entityId:"system",children:[{kind:"AXIS",documentId:"part",entityId:"system",axis:"X",localVisible:false},{kind:"AXIS",documentId:"part",entityId:"system",axis:"Y",localVisible:true}]},
     {kind:"PLANE",documentId:"part",entityId:"xy",localVisible:true}]}]};
@@ -67,6 +67,21 @@ try {
   const frozen=new VisibilityResolver(frozenRoot);
   assert.equal(frozen.resolve(body("first")).effectiveVisible,false,"pinned occurrence keeps its resolved revision's hidden definition");
   assert.equal(frozen.resolve(body("second")).effectiveVisible,true,"updated occurrence reads its own resolved revision's visible definition");
+  const editingPart = { document: { id: "part", type: "PART" }, structureTree: {
+    kind: "PART", documentId: "part", entityId: "part", children: [
+      { kind: "BODY", documentId: "part", entityId: "body-one", localVisible: true },
+    ] } };
+  const host = { structureTree: frozenRoot };
+  const scoped = visibilityResolverForView(host, { view: editingPart, occurrencePath: "first", liveDefinitionProjection: true });
+  assert.equal(scoped.resolve(body("first")).effectiveVisible, true, "current definition is projected only in the active edit occurrence");
+  assert.equal(scoped.resolve(body("first")).definitionVisible, true);
+  assert.equal(scoped.resolve(body("first")).mode, "INHERIT", "editing does not apply the host's object override to definition controls");
+  assert.equal(new VisibilityResolver(frozenRoot).resolve(body("first")).effectiveVisible, false, "leaving editing restores persisted host projection");
+  editingPart.structureTree.children[0].localVisible = false;
+  const hiddenDefinition = visibilityResolverForView(host, { view: editingPart, occurrencePath: "first", liveDefinitionProjection: true });
+  assert.equal(hiddenDefinition.resolve(body("first")).effectiveVisible, false);
+  assert.equal(hiddenDefinition.resolve(body("second")).effectiveVisible, true, "another occurrence keeps its accepted definition");
+  assert.equal(visibilityResolverForView(host, { view: editingPart, occurrencePath: "first", liveDefinitionProjection: false }).resolve(body("first")).effectiveVisible, false);
   console.log("Semantic visibility resolver scenarios passed.");
 } finally {
   await server.close();

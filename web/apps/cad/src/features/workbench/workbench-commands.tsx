@@ -15,8 +15,13 @@ import { type CadWorkbenchID } from "../../cad/command/workbench-catalog";
 import type { ToolbarCatalogEntry } from "../../types";
 import { commandSection, searchCommands, type CommandSection } from "./workbench-command-model";
 import {useOperationFeedback} from "../../cad/command/operation-feedback";
+import { registerDocumentState, type DocumentSessions } from "../../cad/document/document-session";
+import { useDocumentState } from "../../cad/document/document-session-context";
 
-export function WorkbenchCommands({ toolbars, workbench, catalog,tabs:contextTabs }: {
+const toolbarState = registerDocumentState<Record<string, CommandSection>>("workbench.toolbar-tabs");
+
+export function WorkbenchCommands({ documentSessions, hostDocumentId, toolbars, workbench, catalog,tabs:contextTabs }: {
+  documentSessions?: DocumentSessions; hostDocumentId?: string;
   toolbars: ToolbarCatalogEntry[]; workbench: CadWorkbenchID; catalog?:WorkbenchCatalog;tabs:WorkbenchCatalog["tabs"];
 }) {
   const registry = useCommandRegistry();
@@ -25,7 +30,7 @@ export function WorkbenchCommands({ toolbars, workbench, catalog,tabs:contextTab
   const execute=(id:string)=>{void registry.execute(id).catch(error=>feedback(error,"命令"));};
   useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot);
   const feedback=useOperationFeedback();
-  const [sections, setSections] = useState<Record<string,CommandSection>>({});
+  const [sections, setSections] = useDocumentState<Record<string, CommandSection>>(documentSessions, hostDocumentId, toolbarState, () => ({}));
   const tabs=[...contextTabs].sort((a,b)=>a.order-b.order);
   const tabID=tabs.some(tab=>tab.id===sections[workbench])?sections[workbench]:tabs[0]?.id;
   const [searchOpen, setSearchOpen] = useState(false);

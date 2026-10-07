@@ -18,6 +18,7 @@ import { SketchDimensionEditor, type DimensionRequest } from "../cad/sketch/sket
 import type { Artifact, AssemblyGeometryRef, DocumentView, Selection, SelectionItem, SketchGeometryRef, SketchOperation, SketchPlane, Vec2, Vec3 } from "../types";
 import type { AssemblyConstraintToolKind } from "../cad/tool/cad-tool";
 import { CadViewportEngine } from "./cad-viewport-engine";
+import type { DocumentSessions } from "../cad/document/document-session";
 
 import type { AssemblyInteractionBegin, AssemblyInteractionSession, AssemblyInteractionUpdate, AssemblyInteractionFrame, AssemblyInteractionCommit, AssemblyInteractionState } from "../cad/assembly/assembly-interaction";
 
@@ -46,6 +47,7 @@ export type CadViewportHandle = {
 };
 
 type Props = {
+  documentSessions?: DocumentSessions;
   datumPreview?:DatumPreview;
   featureSelection?:FeatureSelectionSession;
   featureInputArtifacts?:Artifact[];
@@ -54,7 +56,7 @@ type Props = {
   onSketchReceiptChange?:(receipt:SketchCommitReceipt|undefined)=>void;
   view: DocumentView;
   editingView?: DocumentView;
-  liveConstraintProjection?: boolean;
+  liveDefinitionProjection?: boolean;
   activeInstancePath?: string;
   activeInstanceTranslation?: Vec3;
   activeInstanceRotation?: [number, number, number, number];
@@ -134,21 +136,25 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
       operationFailed:error=>callbacks.current.onOperationFailed?.(error),
       inspectAssemblySupports:(documentId,references,signal)=>callbacks.current.onInspectAssemblySupports!(documentId,references,signal),
       assemblyConstraintRequested: (kind, references) => callbacks.current.onAssemblyConstraint(kind, references),
+      documentViewReady: (documentId, restoredCamera) => {
+        const current = callbacks.current;
+        if (current.view.document.id !== documentId) return;
+        if (current.activeSketchID && current.sketchPlane)
+          engine.current?.beginSketch(current.activeSketchID, current.sketchPlane, restoredCamera);
+        else engine.current?.endSketch();
+      },
       debugStateChanged: import.meta.env.DEV && import.meta.env.VITE_INPUT_DEBUG === "true" ? setDebug : undefined,
-    });
+    }, callbacks.current.documentSessions);
     engine.current = instance;
     instance.render(callbacks.current.view, callbacks.current.editingView ? {
       view: callbacks.current.editingView, occurrencePath: callbacks.current.activeInstancePath,
       translation: callbacks.current.activeInstanceTranslation, bodyTreeNodeId: callbacks.current.activeBodyTreeNodeId,
       rotation: callbacks.current.activeInstanceRotation,
-      liveConstraintProjection: callbacks.current.liveConstraintProjection,
+      liveDefinitionProjection: callbacks.current.liveDefinitionProjection,
     } : undefined);
     instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
-    if (callbacks.current.sketchPlane && callbacks.current.activeSketchID) {
-      instance.beginSketch(callbacks.current.activeSketchID, callbacks.current.sketchPlane);
-    }
     instance.setSketchLengthUnit(callbacks.current.preferredLengthUnit??"mm");
     instance.setActiveTool(callbacks.current.activeToolID);
     instance.setNavigationProfile(callbacks.current.navigationProfile);
@@ -167,19 +173,21 @@ export const CadViewport = forwardRef<CadViewportHandle, Props>(function CadView
     const replaceInput = (view:DocumentView) => featureInputDisplay(view,inputs,ownerId,view.part?undefined:props.activeInstancePath);
     instance.render(replaceInput(props.view), props.editingView ? { view: replaceInput(props.editingView), occurrencePath: props.activeInstancePath,
       translation: props.activeInstanceTranslation, rotation: props.activeInstanceRotation,
-      bodyTreeNodeId: props.activeBodyTreeNodeId, liveConstraintProjection:props.liveConstraintProjection } : undefined);
+      bodyTreeNodeId: props.activeBodyTreeNodeId, liveDefinitionProjection:props.liveDefinitionProjection } : undefined);
     instance.previewInsertPattern(patternPreview.current);
     instance.selectMany(callbacks.current.selections, false);
     instance.preselect(callbacks.current.preselection, false);
-  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveConstraintProjection, props.featureInputArtifacts]);
+  }, [props.view, props.editingView, props.activeInstancePath, props.activeInstanceTranslation, props.activeInstanceRotation, props.activeBodyTreeNodeId, props.liveDefinitionProjection, props.featureInputArtifacts]);
   useEffect(() => { engine.current?.setDatumPreview(props.datumPreview); }, [props.datumPreview]);
   useEffect(() => { engine.current?.setFeatureSelection(props.featureSelection); }, [props.featureSelection]);
   useEffect(() => { engine.current?.selectMany(props.selections, false); }, [props.selections]);
   useEffect(() => { engine.current?.preselect(props.preselection, false); }, [props.preselection]);
   useEffect(() => {
-    if (props.sketchPlane && props.activeSketchID) engine.current?.beginSketch(props.activeSketchID, props.sketchPlane);
-    else engine.current?.endSketch();
-  }, [props.sketchPlane, props.activeSketchID]);
+    const instance = engine.current;
+    if (!instance?.isDocumentReady(props.view.document.id)) return;
+    if (props.sketchPlane && props.activeSketchID) instance.beginSketch(props.activeSketchID, props.sketchPlane);
+    else instance.endSketch();
+  }, [props.view.document.id, props.sketchPlane, props.activeSketchID]);
   useEffect(() => { engine.current?.setSketchLengthUnit(props.preferredLengthUnit??"mm"); }, [props.preferredLengthUnit]);
   useEffect(() => { engine.current?.setActiveTool(props.activeToolID); }, [props.activeToolID]);
   useEffect(() => { engine.current?.setNavigationProfile(props.navigationProfile); }, [props.navigationProfile]);

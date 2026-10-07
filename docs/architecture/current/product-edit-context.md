@@ -20,6 +20,14 @@ Occurrence 激活先用 Product Design Session 校验 root Revision、完整路�
 
 进入 Product 工作空间时，当前宿主 Product 在显示顺序中固定首位；其他标签保持窗口内保存的相对顺序。宿主编辑期间，依赖广播、Part 提交、Product 自动更新和快照恢复不会改变该顺序。关闭活动标签按当时可见顺序选择相邻标签，不依赖后台列表返回顺序。关闭独立 Part 标签只结束该标签生命周期；Product 自己的依赖读取和 realtime 订阅继续存在。
 
+## 文档临时状态
+
+认证 Shell 的 `DocumentSessionProvider` 创建当前用户、当前窗口的 `DocumentSessions`。各模块以唯一稳定 ID 注册可克隆的状态槽；快照按宿主 DocumentId 隔离，读写不打开标签、不写 Revision。关闭标签删除所有槽，关闭后的迟到写入被拒绝；刷新页面或结束认证生命周期清空内存，不做跨窗口同步。
+
+当前保存 EditSession 的编辑目标、工作 Body 和草图编辑状态，以及相机位置/姿态/观察目标/缩放/投影跨度、进入草图前的返回视角、树的搜索与展开状态、各工作台的工具栏 Tab。切换文档暂停草图编辑并清理工具、选择、表单和 Preview；未编辑的新建草图不因切换标签自动删除。恢复目标时复用 Product Design Session 校验当前宿主、完整路径、身份、resolved Revision 和 PINNED 策略，更新基线后再启用命令。删除的 Body/草图不恢复，失去编辑权限时不恢复草图编辑；无法恢复的目标回到宿主并给出提示，activation generation 拒绝迟到结果。相机在显示制品加载完成后恢复，草图恢复不覆盖保存的视角。
+
+新增展示状态可调用 `registerDocumentState<T>("module.state")`，由 `useDocumentState(sessions, hostDocumentId, slot, initial)` 统一读取和更新。需要领域校验的状态像编辑目标一样先验证再恢复；状态槽不得保存场景对象、监听、正在执行的命令或 Preview 候选。
+
 ## 更新失败与右键菜单
 
 非 PINNED Product 引用继续通过服务端 `followedProductIds` 与 UpdatePlan 按叶到根自动接受。失败保留已提交的子 Part 和原合法 Product 快照，不切换宿主或编辑目标；工作台显示诊断和显式重试入口。PINNED 路径不进入自动接受。
@@ -28,7 +36,7 @@ Occurrence 激活先用 Product Design Session 校验 root Revision、完整路�
 
 ## 验证入口与限制
 
-实现：edit-session.ts、workbench.tsx、specification-tree.tsx、open-document-tab.ts、document-tab-order.ts、document-tabs.tsx、services/internal/api/open_documents.go。邻近 edit-session/open-document-tab/document-tab-order/context-menu-icon 场景和 Go OpenDocumentRegistry 测试检查唯一目标、嵌套/PINNED/迟到激活、读取不导航、稳定顺序与图标槽。
+实现：cad/document/document-session.ts、document-session-context.tsx、cad/navigation/document-camera-state.ts、document-editing-state.ts、edit-session.ts、workbench.tsx、specification-tree.tsx、open-document-tab.ts、document-tab-order.ts、document-tabs.tsx、services/internal/api/open_documents.go。邻近 document-session/edit-session/open-document-tab/document-tab-order/context-menu-icon 场景和 Go OpenDocumentRegistry 测试检查唯一目标、嵌套/PINNED/迟到激活、读取不导航、稳定顺序与图标槽。
 
 打开注册表是单 API 进程内状态，不是分布式 presence；结构树整体构造，Feature 当前贡献使用 Naming 派生索引，子树分页未交付。真实跨窗口、并发、多副本、容量和所有故障未取得全面验证。具体测试执行证据按运行输出记录，不把入口存在当作已执行。
 

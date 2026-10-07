@@ -4922,17 +4922,8 @@
         "all": []
       },
       "labels": {
-        "hide-occurrence": "隐藏（当前实例）",
-        "show-occurrence": "显示（当前实例）",
-        "restore": "恢复实例继承",
-        "hide-definition": "隐藏（零件定义）",
-        "show-definition": "显示（零件定义）",
-        "hide-constraint": "隐藏（约束对象）",
-        "show-constraint": "显示（约束对象）",
-        "hide-constraints": "隐藏全部约束",
-        "show-constraints": "显示全部约束",
-        "hide-session": "隐藏（临时）",
-        "show-session": "显示（临时）"
+        "hide": "隐藏",
+        "show": "显示"
       }
     },
     {

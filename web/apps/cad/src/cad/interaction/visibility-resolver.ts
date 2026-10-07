@@ -3,7 +3,9 @@ import type { DocumentStructureNode, DocumentView } from "../../types";
 export const DISPLAY_KINDS = ["INSTANCE","PART","BODY","SKETCH","SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT"] as const;
 export type DisplayKind = typeof DISPLAY_KINDS[number];
 export type DisplayAddress = { documentId: string; occurrencePath: string; kind: DisplayKind; entityId: string; axis?: string; ownerEntityId?: string; bodyId?: string };
-export type EffectiveVisibility = { localVisible: boolean; effectiveVisible: boolean; blockedBy?: DisplayAddress; mode: "INHERIT" | "SHOW" | "HIDE"; displayEligible: boolean };
+export type EffectiveVisibility = { definitionVisible: boolean; localVisible: boolean; effectiveVisible: boolean; blockedBy?: DisplayAddress; mode: "INHERIT" | "SHOW" | "HIDE"; displayEligible: boolean };
+
+type DefinitionScope = { documentId: string; occurrencePath: string; root: DocumentStructureNode };
 
 type Entry = { address: DisplayAddress; localVisible: boolean; mode: "INHERIT" | "SHOW" | "HIDE"; eligible: boolean };
 export type EditingSketchScope = { id: string; occurrencePath: string; ids?:string[]; documentId?:string };
@@ -17,17 +19,18 @@ export class VisibilityResolver {
   private readonly entries = new Map<string, Entry>();
   private readonly instances = new Map<string, DisplayAddress>();
   private readonly sketches = new Map<string, DisplayAddress>();
-  constructor(root?: DocumentStructureNode) {
+  constructor(root?: DocumentStructureNode, editing?: DefinitionScope) {
     if (root) this.index(root);
+    if (editing) this.index(editing.root, editing);
   }
 
-  private index(node: DocumentStructureNode): void {
+  private index(node: DocumentStructureNode, editing?: DefinitionScope): void {
     const kind = ["SKETCH_INPUT_REFERENCE","SKETCH_PATTERN_MEMBER"].includes(node.kind) ? "SKETCH" : node.kind==="SKETCH_PATTERN_ENTITY"?"SKETCH_ENTITY":node.kind;
-    if (((DISPLAY_KINDS as readonly string[]).includes(kind) && node.entityId) ||
-        (kind === "PART" && node.documentId)) {
+    if ((!editing || (node.subject?.documentId ?? node.documentId) === editing.documentId && !node.instancePath?.canonical) && (((DISPLAY_KINDS as readonly string[]).includes(kind) && node.entityId) ||
+        (kind === "PART" && node.documentId))) {
       const address: DisplayAddress = {
         documentId: node.subject?.documentId ?? node.documentId ?? "",
-        occurrencePath: node.instancePath?.canonical ?? "",
+        occurrencePath: editing?.occurrencePath ?? node.instancePath?.canonical ?? "",
         kind: kind as DisplayKind, entityId: node.subject?.entityId ?? node.entityId ?? node.documentId ?? "",
         axis:node.axis, ownerEntityId: node.ownerEntityId, bodyId: node.bodyId,
       };
@@ -39,11 +42,11 @@ export class VisibilityResolver {
         // The Sketch definition carries local state; input references share it.
         if (!prior || node.kind !== "SKETCH_INPUT_REFERENCE") this.entries.set(id, {
           address, localVisible: node.localVisible ?? prior?.localVisible ?? true,
-          mode: node.visibilityMode ?? prior?.mode ?? "INHERIT", eligible: !node.suppressed,
+          mode: editing ? "INHERIT" : node.visibilityMode ?? prior?.mode ?? "INHERIT", eligible: !node.suppressed,
         });
       }
     }
-    for (const child of node.children ?? []) this.index(child);
+    for (const child of node.children ?? []) this.index(child, editing);
   }
 
   resolve(address: DisplayAddress, editingSketch?: EditingSketchScope): EffectiveVisibility {
@@ -52,7 +55,7 @@ export class VisibilityResolver {
 
   private resolveInner(address: DisplayAddress, editingSketch: EditingSketchScope | undefined, visited: Set<string>): EffectiveVisibility {
     const id = key(address);
-    if (visited.has(id)) return {localVisible: false, effectiveVisible: false, mode: "INHERIT", displayEligible: false};
+    if (visited.has(id)) return {definitionVisible: false, localVisible: false, effectiveVisible: false, mode: "INHERIT", displayEligible: false};
     visited.add(id);
     const entry = this.entries.get(id);
     const mode = entry?.mode ?? "INHERIT";
@@ -70,7 +73,7 @@ export class VisibilityResolver {
     const parent = this.parent(entry?.address ?? address);
     const ancestor = parent ? this.resolveInner(parent, editingSketch, visited) : undefined;
     const effectiveVisible = localVisible && displayEligible && (ancestor?.effectiveVisible ?? true);
-    return { localVisible, effectiveVisible, mode, displayEligible,
+    return { definitionVisible: entry?.localVisible ?? true, localVisible, effectiveVisible, mode, displayEligible,
       blockedBy: !ancestor?.effectiveVisible ? ancestor?.blockedBy ?? parent : !localVisible || !displayEligible ? address : undefined };
   }
 
@@ -104,6 +107,13 @@ export class VisibilityResolver {
   }
 }
 
-export function visibilityResolverForView(view?: DocumentView): VisibilityResolver {
-  return new VisibilityResolver(view?.structureTree);
+export function visibilityResolverForView(view?: DocumentView, editing?: {
+  view: DocumentView; occurrencePath?: string; liveDefinitionProjection?: boolean;
+}): VisibilityResolver {
+  // Editing uses the current definition only in the exact active occurrence.
+  // Its host overlays remain persisted and apply again on leaving that target.
+  if (!editing?.liveDefinitionProjection || !editing.occurrencePath || !editing.view.structureTree)
+    return new VisibilityResolver(view?.structureTree);
+  return new VisibilityResolver(view?.structureTree, { documentId: editing.view.document.id,
+    occurrencePath: editing.occurrencePath, root: editing.view.structureTree });
 }

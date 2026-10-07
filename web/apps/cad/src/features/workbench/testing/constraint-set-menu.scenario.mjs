@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url), ts = require("typescript"), React = require("react");
 const modules = new Map();
 const hooks = { ...React, useMemo: fn => fn(), useEffect() {}, useRef: value => ({ current: value }),
+  useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
   useState: value => [typeof value === "function" ? value() : value, () => {}] };
 function load(file) {
   if (file.endsWith(".json")) return JSON.parse(readFileSync(file, "utf8"));
@@ -41,23 +42,41 @@ function dropdown(tree) {
 const node = { key: "product/assembly-constraints", kind: "ASSEMBLY_CONSTRAINT_SET", entityId: "assembly-constraints",
   documentId: "product", title: "约束", localVisible: true, children: [{ key: "constraint", kind: "ASSEMBLY_CONSTRAINT", entityId: "mate" }] };
 const calls = [];
-function menu(target, activeDocumentId = "product") {
-  return dropdown(SpecificationTree({ nodes: [target], selectedKeys: [], selectionToken: "", activeDocumentId,
+function menu(target, activeDocumentId = "product", editSession) {
+  return dropdown(SpecificationTree({ nodes: [target], selectedKeys: [], selectionToken: "", activeDocumentId, editSession,
     onSelect() {}, onActivate() {}, onOpenDocumentTab() {}, onViewResult() {}, onEdit() {}, onRename() {}, onCreatePart() {},
     onReferenceMode() {}, onDetach() {}, onReconnect() {}, onRefresh() {}, onDelete() {}, onToggleSuppression() {},
     onToggleVisibility: (...args) => calls.push(args) })).props.menu.items.filter(Boolean);
 }
-const hide = menu(node).find(item => item.key === "definition-visibility");
-assert.equal(hide.label, "隐藏全部约束");
+const hide = menu(node).find(item => item.key === "visibility");
+assert.equal(hide.label, "隐藏");
 assert.equal(menu(node).some(item => item.key === "session-visibility"), false, "bulk display must use the formal definition command");
 hide.onClick();
-assert.deepEqual(calls.at(-1), [node, "DEFINITION"]);
+assert.deepEqual(calls.at(-1), [node, "DEFINITION", undefined]);
 const hidden = { ...node, localVisible: false };
-const show = menu(hidden).find(item => item.key === "definition-visibility");
-assert.equal(show.label, "显示全部约束"); show.onClick();
-assert.deepEqual(calls.at(-1), [hidden, "DEFINITION"]);
-assert.equal(menu({ ...node, documentId: "nested-product", instancePath: { canonical: "nested" } }).some(item => item.key === "definition-visibility"), false,
+const show = menu(hidden).find(item => item.key === "visibility");
+assert.equal(show.label, "显示"); show.onClick();
+assert.deepEqual(calls.at(-1), [hidden, "DEFINITION", undefined]);
+assert.equal(menu({ ...node, documentId: "nested-product", instancePath: { canonical: "nested" } }).some(item => item.key === "visibility"), false,
   "a referenced Product does not silently become the active edit target");
+// One action chooses ownership from the exact editing occurrence, not just the
+// shared Part ID. Instance rows always use the host assembly's overlay.
+const partSession = { hostDocumentId: "product", editTarget: { documentId: "part", documentType: "PART",
+  instancePath: { canonical: "a" } } };
+const partBody = { key: "a/body", kind: "BODY", documentId: "part", entityId: "body",
+  instancePath: { canonical: "a" }, localVisible: false, definitionVisible: true, visibilityMode: "HIDE" };
+for (const [target, session, scope, label, mode] of [
+  [partBody, undefined, "OCCURRENCE", "显示", "SHOW"],
+  [partBody, partSession, "DEFINITION", "隐藏", undefined],
+  [{ ...partBody, instancePath: { canonical: "b" } }, partSession, "OCCURRENCE", "显示", "SHOW"],
+  [{ ...partBody, kind: "INSTANCE" }, partSession, "OCCURRENCE", "显示", "SHOW"],
+  [{ ...partBody, kind: "INSTANCE", instancePath: { canonical: "b" }, localVisible: true, visibilityMode: "SHOW" },
+    partSession, "OCCURRENCE", "隐藏", "HIDE"],
+]) {
+  const actions = menu(target, "part", session).filter(item => item.key.includes("visibility"));
+  assert.equal(actions.length, 1); assert.equal(actions[0].label, label); actions[0].onClick();
+  assert.deepEqual(calls.at(-1), [target, scope, mode]);
+}
 // Verify real menu elements across domains, including the common icon slot
 // supplied through configured command declarations rather than inline JSX.
 const keys = new Set();
@@ -79,7 +98,7 @@ for (const target of [node,
 }
 for (const key of ["open-document-tab", "open-source", "activate-body", "construction", "view-result", "edit", "rename", "create-part",
   "pin-version", "follow-head", "detach", "reconnect", "refresh", "copy-alias", "suppress", "delete",
-  "definition-visibility", "occurrence-visibility", "restore-visibility"]) {
+  "visibility"]) {
   assert(keys.has(key), `menu coverage omitted ${key}`);
 }
 console.log("Constraint root menu uses configured labels, stable target identity and formal display scope.");

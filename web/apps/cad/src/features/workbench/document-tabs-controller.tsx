@@ -6,10 +6,12 @@ import { api } from "../../api/client";
 import { queryKeys } from "../../app/query-keys";
 import { DocumentTabs } from "./document-tabs";
 import { defaultDocumentName } from "../documents/document-utils";
+import { useDocumentSessions } from "../../cad/document/document-session-context";
 
 type CreateDocumentValues = { type: "PART" | "PRODUCT"; name: string; description?: string };
 
 export function DocumentTabsController() {
+  const sessions = useDocumentSessions();
   const location = useLocation();
   const navigate = useNavigate();
   const client = useQueryClient();
@@ -40,6 +42,7 @@ export function DocumentTabsController() {
   const closeDocument = async (id: string) => {
     try {
       await api.closeOpenDocument(id);
+      sessions.close(id);
       client.setQueryData(queryKeys.openDocuments, (current: Awaited<ReturnType<typeof api.listOpenDocuments>> | undefined) =>
         current?.filter((document) => document.id !== id) ?? []);
       if (id === activeID) {

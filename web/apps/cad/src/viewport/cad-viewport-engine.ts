@@ -14,6 +14,8 @@ import { SelectionInputResult } from "../cad/input/input-types";
 import type { SketchCommandState, SketchCommandAction, SketchCommitIntent, SketchCommitResult, SketchCommitReceipt } from "../cad/tool/sketch-command-session";
 import { VisualRepository, type DisplayArtifact as Artifact, type DisplayDocumentView as DocumentView } from "../cad/visual/visual-repository";
 import { assemblyConstraintReferences } from "../cad/assembly/assembly-capability";
+import type { DocumentSessions } from "../cad/document/document-session";
+import { captureDocumentCamera, documentCameraState, documentCameraPose, restoreDocumentCamera } from "../cad/navigation/document-camera-state";
 import type {MotionPresentation} from "../cad/assembly/motion-presentation";
 import {makeMotionMarkers,disposeMotionMarkers} from "../cad/assembly/motion-markers";
 import {updateAnalysisGuides} from "../cad/rendering/analysis-guides";
@@ -101,6 +103,7 @@ type Callbacks = {
   operationFailed?:(error:unknown)=>void;
   inspectAssemblySupports?:(documentId:string,references:AssemblyGeometryRef[],signal:AbortSignal)=>Promise<SupportInspection>;
   assemblyConstraintRequested: (kind: AssemblyConstraintToolKind, references: AssemblyGeometryRef[]) => void;
+  documentViewReady?: (documentId: string, restoredCamera: boolean) => void;
   debugStateChanged?: (state: ViewportDebugState) => void;
 };
 
@@ -114,7 +117,7 @@ type SolidContext = {
 
 type SolidBinding = { group: THREE.Group; mesh: THREE.Mesh; artifact: Artifact; context: SolidContext };
 export type ViewportEditContext = { view: DocumentDescriptor; occurrencePath?: string; translation?: Vec3;
-  rotation?: [number, number, number, number]; bodyTreeNodeId?: string; liveConstraintProjection?: boolean };
+  rotation?: [number, number, number, number]; bodyTreeNodeId?: string; liveDefinitionProjection?: boolean };
 
 // A Product viewport owns the assembly scene, while sketch interaction belongs
 // to the active occurrence's reference document. Keeping this decision in one
@@ -386,7 +389,7 @@ export class CadViewportEngine {
   private disposed = false;
   private readonly transforms = new TransformTransitionSystem(() => this.invalidate());
 
-  constructor(private readonly host: HTMLElement, private readonly callbacks: Callbacks) {
+  constructor(private readonly host: HTMLElement, private readonly callbacks: Callbacks, private readonly documentSessions?: DocumentSessions) {
     this.scene.background = null;
     this.camera.position.set(300, -300, 300);
     this.camera.up.set(0, 0, 1);
@@ -600,6 +603,7 @@ export class CadViewportEngine {
     ]);
     this.pendingVisualSnapshot = scope(this.view, this.editContext) !== scope(view, editContext);
     if (this.view?.document.id !== view.document.id) {
+      this.captureDocumentView();
       this.visuals.clearReusablePreview();
       this.navigation.cancel();
       this.viewTransition.cancel();
@@ -649,6 +653,7 @@ export class CadViewportEngine {
     this.clearInsertPatternPreview();
     this.navigation.cancel();
     const previousDocumentID = this.view?.document.id;
+    let restoredCamera = false;
     if (previousDocumentID !== view.document.id) {
       this.viewTransition.cancel();
       this.sketchReturnView = undefined;
@@ -662,8 +667,8 @@ export class CadViewportEngine {
 	this.transforms.stopAll();
 	this.clearInteractionState();
     this.view = view;
-    this.visibilityResolver = visibilityResolverForView(view);
     this.editContext = editContext;
+    this.visibilityResolver = visibilityResolverForView(view, editContext);
     this.moveManipulator.detach();
     this.moveTarget = undefined;
     this.disposeGroup(this.content);
@@ -707,12 +712,24 @@ export class CadViewportEngine {
       this.instanceGroups.has(selection.instanceId ?? selection.id));
     this.selectMany(this.activeToolID === "assembly.move" ? validMoveSelection : retainedSelections, false);
     if (previousDocumentID !== view.document.id) {
-      standardView(this.camera, this.navigation.target, "ISO");
-      this.frameContent();
+      const saved = this.documentSessions?.read(view.document.id, documentCameraState);
+      if (saved) {
+        restoredCamera = true;
+        const canvas = this.renderer.domElement;
+        restoreDocumentCamera(this.camera, this.navigation.target, saved, canvas.clientWidth / Math.max(1, canvas.clientHeight));
+        this.sketchReturnView = saved.sketchReturn ? documentCameraPose(saved.sketchReturn) : undefined;
+        this.navigation.syncCamera(false);
+      } else {
+        standardView(this.camera, this.navigation.target, "ISO");
+        this.frameContent();
+      }
     }
     this.emitDebugState();
+    this.callbacks.documentViewReady?.(view.document.id, restoredCamera);
     this.invalidate();
   }
+
+  isDocumentReady(documentId: string): boolean { return this.view?.document.id === documentId && !this.pendingVisualSnapshot; }
 
   clear(): void {
     this.clearInsertPatternPreview();
@@ -776,8 +793,8 @@ export class CadViewportEngine {
     }
     this.selected=this.selected.map(selection=>refreshOccurrenceSelection(view,selection));
     if(this.preselected)this.preselected=refreshOccurrenceSelection(view,this.preselected);
+    this.visibilityResolver = visibilityResolverForView(view, this.editContext);
     this.addAssemblyConstraintMarkers(this.view);
-    this.visibilityResolver = visibilityResolverForView(view);
     this.updateSketchContextVisibility();
     this.applyTreeVisibility();
     this.invalidate();
@@ -852,7 +869,7 @@ export class CadViewportEngine {
     this.invalidate();
   }
 
-  beginSketch(sketchID: string, plane: SketchPlane): void {
+  beginSketch(sketchID: string, plane: SketchPlane, preserveCamera = false): void {
     const entering = this.activeSketchID !== sketchID;
     if (entering && !this.sketchReturnView) this.sketchReturnView = saveView(this.camera, this.navigation.target);
     this.navigation.cancel();
@@ -861,7 +878,7 @@ export class CadViewportEngine {
     this.moveManipulator.detach();
     if (entering) this.select(null);
     this.navigation.setEnabled(true);
-    if (entering) {
+    if (entering && !preserveCamera) {
       const frame = planeFrame(plane);
       const focus = viewFocus(this.camera, this.navigation.target);
       // Keep the region being inspected, projected onto the support plane.
@@ -1686,6 +1703,7 @@ export class CadViewportEngine {
   }
 
   dispose(): void {
+    this.captureDocumentView();
     disposeMotionMarkers(this.motionMarkers);
     this.cancelMovePreviewGesture("viewport interaction reset");
     this.clearSketchMarquee();this.clearDimensionDefinitionPreview(false);
@@ -1862,7 +1880,7 @@ export class CadViewportEngine {
     // Only the explicitly editable occurrence follows its authoritative draft
     // document. Other occurrences keep their accepted immutable projections.
     const editing=this.editContext;
-    if(editing?.liveConstraintProjection && editing.view.document.type==="PRODUCT") {
+    if(editing?.liveDefinitionProjection && editing.view.document.type==="PRODUCT") {
       const scope=scopes.find(scope=>scope.occurrence===editing.occurrencePath && scope.view.document.id===editing.view.document.id);
       if(scope)scope.view=editing.view;
     }
@@ -1917,6 +1935,8 @@ export class CadViewportEngine {
       const selection: SelectionItem = { kind: "assembly-constraint", id: constraint.id, constraintId: constraint.id,
         constraintType: constraint.kind, documentId: view.document.id, occurrencePath:occurrence, instancePath, rootDocumentId:occurrence ? this.view?.document.id : undefined, treeNodeId };
       const group = new THREE.Group(); group.position.copy(markerPosition); group.userData = selection;
+      const address = this.semanticVisibilityAddress(selection);
+      group.visible = !address || this.visibilityResolver?.resolve(address, this.editingSketchScope()).effectiveVisible !== false;
       const pointGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3()]);
       const glyph = new THREE.Points(pointGeometry, this.materials.constraintGlyph(
         assemblyConstraintGlyph(constraint.evaluationStatus, glyphs[constraint.kind]), constraint.suppressed ? 0x808080 : statusColors[constraint.evaluationStatus], 22));
@@ -3472,6 +3492,11 @@ export class CadViewportEngine {
     if (box.isEmpty()) box.setFromCenterAndSize(new THREE.Vector3(), new THREE.Vector3(180, 180, 100));
     fitOrthographicView(this.camera, this.navigation.target, box);
     this.navigation.syncCamera(false);
+  }
+
+  private captureDocumentView(): void {
+    if (this.view && this.documentSessions) this.documentSessions.write(this.view.document.id, documentCameraState,
+      captureDocumentCamera(this.camera, this.navigation.target, this.sketchReturnView));
   }
 
   private updateCameraClipping(box?: THREE.Box3): void {

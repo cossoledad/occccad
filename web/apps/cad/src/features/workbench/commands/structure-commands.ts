@@ -6,7 +6,7 @@ type TreeActions=Pick<ComponentProps<typeof SpecificationTree>,
  'onActivate'|'onOpenDocumentTab'|'onViewResult'|'onEdit'|'onRename'|'onCreatePart'|'onReferenceMode'|'onDetach'|'onReconnect'|'onRefresh'|'onDelete'|'onToggleConstruction'|'onToggleVisibility'|'onToggleSuppression'>;
 export type StructureActions={[Action in keyof TreeActions]?: (...args:[...Parameters<NonNullable<TreeActions[Action]>>,operation?:CommandOperation])=>void|Promise<void>};
 export const structureCommandIDs={onActivate:'tree.activate',onOpenDocumentTab:'tree.open-document',onViewResult:'tree.view-result',onEdit:'tree.edit',onRename:'tree.rename',onCreatePart:'tree.create-part',onReferenceMode:'tree.reference-mode',onDetach:'tree.detach',onReconnect:'tree.reconnect',onRefresh:'tree.refresh',onDelete:'edit.delete',onToggleConstruction:'tree.construction',onToggleVisibility:'tree.visibility',onToggleSuppression:'tree.suppression'} as const;
-export type StructureInvocation={node?:SpecificationTreeNode;nodes?:SpecificationTreeNode[];referenceMode?:'PINNED'|'FOLLOW_HEAD';scope?:'DEFINITION'|'OCCURRENCE'|'SESSION';visibilityMode?:'SHOW'|'HIDE'|'INHERIT'};
+export type StructureInvocation={node?:SpecificationTreeNode;nodes?:SpecificationTreeNode[];referenceMode?:'PINNED'|'FOLLOW_HEAD';scope?:'DEFINITION'|'OCCURRENCE';visibilityMode?:'SHOW'|'HIDE'|'INHERIT'};
 export function structureInvocation(invocation?:CadCommandInvocation):StructureInvocation {
  if(!invocation?.payload||typeof invocation.payload!=='object')throw new Error('Missing structure command target');
  return invocation.payload as StructureInvocation;

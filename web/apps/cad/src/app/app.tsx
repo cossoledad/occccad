@@ -14,6 +14,7 @@ import { UserPreferencesCenter } from "../features/preferences/user-preferences-
 import { queryKeys } from "./query-keys";
 import { UIHelpProvider, useUIHelp } from "../cad/help/ui-help-context";
 import { useApplicationContext } from "../state/application-context";
+import { DocumentSessionProvider } from "../cad/document/document-session-context";
 
 const AdminDrawer = lazy(() => import("../features/admin/admin-drawer").then((module) => ({ default: module.AdminDrawer })));
 const Workbench = lazy(() => import("../features/workbench/workbench").then((module) => ({ default: module.Workbench })));
@@ -62,7 +63,7 @@ function ApplicationShell() {
   const activeDocumentID = location.pathname.match(/^\/documents\/([^/]+)/)?.[1];
   const logout = async () => { realtime.stop(); await api.logout(); client.clear(); navigate("/"); };
 
-  return <Layout className="application-shell">
+  return <DocumentSessionProvider key={user.id}><Layout className="application-shell">
     <Layout.Header className="global-header">
       <button className="brand-button" aria-label="文档中心" onClick={() => navigate("/")}><Brand /></button>
       {inWorkbench && <DocumentTabsController />}
@@ -86,7 +87,7 @@ function ApplicationShell() {
     </Layout.Header>
     <Layout.Content className="application-content"><Outlet /></Layout.Content>
     {adminOpen && <Suspense fallback={null}><AdminDrawer open onClose={() => setAdminOpen(false)} /></Suspense>}
-  </Layout>;
+  </Layout></DocumentSessionProvider>;
 }
 
 export function App() {

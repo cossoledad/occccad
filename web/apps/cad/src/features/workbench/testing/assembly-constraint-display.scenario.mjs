@@ -14,7 +14,7 @@ try {
   solidBindings:new Map(),selectionIndex:index,assemblyConstraintReferences:new Map(),assemblyConstraintMarkers:new Map(),selected:[],preselected:null,
   highlightedRoots:new Set(),selectedOverlays:[],preselectedOverlays:[],
   materials:{constraintGlyph:(_glyph,color)=>new THREE.PointsMaterial({color}),setInteractionState(){}},
-  invalidate:()=>frames++,updateSketchContextVisibility(){},applyTreeVisibility(){},
+  invalidate:()=>frames++,updateSketchContextVisibility(){},treeVisibilityOverrides:{},referenceVisibility:{},
   moveInteraction:new AssemblyInteractionController({begin:async()=>{throw Error("display-only fixture has no gesture");},update:async()=>{throw Error("display-only fixture must not solve");},cancel:async()=>{},frame(){},state(){}}),
   visualGeneration:0,visuals:{hydrate(){hydrates++;throw Error("constraint update downloaded mesh");}},renderReady(){rebuilds++;},pendingVisualSnapshot:false});
  const c={id:"same-id",kind:"COINCIDENT",first:{instanceId:"a",kind:"BODY"},second:{instanceId:"b",kind:"BODY"},evaluationStatus:"VERIFIED",suppressed:false};
@@ -39,6 +39,23 @@ try {
  assert.deepEqual(index.objectsFor(unrelated),[body],"do not delete support body/index/shared resources");
  engine.render(view([c]));engine.render(view([]));assert.equal(engine.helpers.children.length,0,"Undo/Redo projection");
  assert.equal(body.children[0].geometry,geometry);assert.equal(hydrates,0);assert.equal(rebuilds,0);assert.ok(frames>=7,"demand renderer receives a frame without camera movement");
+ // The real motion-frame update replaces markers when their anchors move.
+ // A recreated hidden marker must stay hidden and out of normal picking.
+ const hiddenView = { ...view([c]), structureTree: { kind: "PRODUCT", documentId: "product", children: [
+   { kind: "ASSEMBLY_CONSTRAINT", documentId: "product", entityId: c.id, localVisible: false },
+ ] } };
+ engine.render(hiddenView);
+ const hiddenMarker = [...engine.assemblyConstraintMarkers.values()][0];
+ assert.equal(hiddenMarker.group.visible, false);
+ body.position.x += 5; body.updateMatrixWorld(true);
+ engine.addAssemblyConstraintMarkers(engine.view);
+ const movedMarker = [...engine.assemblyConstraintMarkers.values()][0];
+ assert.notEqual(movedMarker.group, hiddenMarker.group, "motion rebuilt the anchored glyph");
+ assert.equal(movedMarker.group.visible, false, "hidden constraint must not reappear while moving its support");
+ index.pickWithIntersection({ intersectObjects(roots) {
+   assert.equal(roots.includes(movedMarker.group.children[0]), false, "hidden glyph is excluded from raycast candidates");
+   return [];
+ } });
  const nested={...view([]),constraintDisplayScopes:["outer-a","outer-b"].map(occurrence=>({documentId:"child",versionId:"pinned-v1",instancePath:{rootDocumentId:"product",canonical:occurrence},treeNodeId:`document:product/instance:${occurrence}/reference`,constraints:[c]}))};
  engine.instanceGroups=new Map([["outer-a",body],["outer-b",other]]);
  engine.renderGeometrySignature=engine.geometrySignature(nested);engine.render(nested);
@@ -54,7 +71,7 @@ try {
  assert.equal(hydrates,0);assert.equal(rebuilds,0);
  // A live editable occurrence immediately projects its own authoritative state,
  // without advancing another occurrence's accepted (including PINNED) version.
- const editing={view:{document:{id:"child",versionId:"head-v2",type:"PRODUCT"},product:{instances:[],constraints:[]}},occurrencePath:"outer-a",liveConstraintProjection:true};
+ const editing={view:{document:{id:"child",versionId:"head-v2",type:"PRODUCT"},product:{instances:[],constraints:[]}},occurrencePath:"outer-a",liveDefinitionProjection:true};
  engine.renderGeometrySignature=engine.geometrySignature(nested,editing);
  engine.render(nested,editing);
  assert.equal(engine.assemblyConstraintMarkers.size,1,"live deletion must not wait for parent UPDATE_REFERENCES");
@@ -68,7 +85,7 @@ try {
  assert.notEqual(pinned.group.children[0].material.color.getHex(),0x808080);
  engine.render(nested,editing);engine.render(nested,editing);
  assert.equal(engine.assemblyConstraintMarkers.size,1,"closing constraint dialog retains live edit context; old root snapshot cannot resurrect glyph");
- engine.render(nested,{...editing,liveConstraintProjection:false});
+ engine.render(nested,{...editing,liveDefinitionProjection:false});
  assert.equal(engine.assemblyConstraintMarkers.size,2,"noneditable context cannot override accepted snapshot");
  assert.equal(hydrates,0);assert.equal(rebuilds,0);
  engine.editContext=undefined;

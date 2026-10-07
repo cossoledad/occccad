@@ -38,7 +38,10 @@ import {
   Alert, App, Button, Divider, Empty, Form, Input,
   Select, Space, Spin, Switch, Tag, Typography,
 } from "antd";
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useDocumentSessions } from "../../cad/document/document-session-context";
+import { documentEditingState, restoreDocumentEditingState } from "./document-editing-state";
+import { treeVisibilityAction } from "./tree-visibility-action";
 import { useNavigate, useParams } from "react-router-dom";
 import { api, isMockMode } from "../../api/client";
 import { ApiError } from "../../api";
@@ -221,6 +224,7 @@ function AssemblyConstraintFields({ kind, references, exactTypes, sourceTypes, c
 
 export function Workbench() {
   const { documentID = "" } = useParams();
+  const documentSessions = useDocumentSessions();
   const navigate = useNavigate();
   const newSketchSession = useRef<NewSketchSession | undefined>(undefined);
   const client = useQueryClient();
@@ -247,7 +251,9 @@ export function Workbench() {
   const automaticUpdateRunning = useRef(false);
   const [automaticUpdateEpoch, setAutomaticUpdateEpoch] = useState(0);
   const [productUpdateFailure, setProductUpdateFailure] = useState<string>();
-  const [editSession, setEditSession] = useState<EditSession>();
+  const [editSessionState, setEditSession] = useState<EditSession>();
+  const editSession = editSessionState?.hostDocumentId === documentID ? editSessionState : undefined;
+  const latestEditSession = useRef(editSessionState); latestEditSession.current = editSessionState;
   const activationGate = useRef(new EditActivationGate());
   const [insertOpen, setInsertOpen] = useState(false);
   const [solidEditor,setSolidEditor]=useState<{feature:Feature;digest?:string}>();
@@ -294,7 +300,6 @@ export function Workbench() {
   const inspectorOpen = useUIPreferences((state) => state.inspectorOpen);
   const setInspectorOpen = useUIPreferences((state) => state.setInspectorOpen);
   const treeVisibilityOverrides = useUIPreferences((state) => state.treeVisibilityOverrides);
-  const setTreeVisibility = useUIPreferences((state) => state.setTreeVisibility);
   const catiaRotationSphereVisible = useUIPreferences((state) => state.catiaRotationSphereVisible);
   const navigationProfile = useUIPreferences((state) => state.navigationProfile);
   const gridVisibility = useUIPreferences(state=>state.gridVisibility);
@@ -322,15 +327,26 @@ export function Workbench() {
   const assemblyDistance = Form.useWatch("distanceRelation", assemblyConstraintForm);
   const store = useWorkbenchStore();
   const document = useQuery({ queryKey: queryKeys.document(documentID), queryFn: () => api.getDocument(documentID), enabled: Boolean(documentID) });
-	useEffect(() => {
+	useLayoutEffect(() => {
+	  documentSessions.open(documentID);
 	  activationGate.current.invalidate(); setEditSession(undefined); store.endSketch(); store.setSelection(null);
 	  if (!documentID) return;
 	  void registerDocumentTab(documentID, client, api.openDocument)
 	    .catch((error: Error) => message.error(`打开工作空间失败：${error.message}`));
+	  return () => {
+        const session = latestEditSession.current;
+        if (session?.hostDocumentId === documentID) documentSessions.write(documentID, documentEditingState,
+          { session, sketchId: useWorkbenchStore.getState().activeSketchID, newSketchSession: newSketchSession.current });
+        newSketchSession.current = undefined; activationGate.current.invalidate();
+      };
 	// Route changes are the explicit open lifecycle. Interaction state changes
 	// must never register, reorder, or reopen a tab.
 	// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [client, documentID]);
+	}, [client, documentID, documentSessions]);
+  useLayoutEffect(() => {
+    if (editSession) documentSessions.write(documentID, documentEditingState,
+      { session: editSession, sketchId: store.activeSketchID, newSketchSession: newSketchSession.current });
+  }, [documentID, documentSessions, editSession, store.activeSketchID]);
   useEffect(() => { setPatternOpen(false); previewInsertPattern(); }, [editSession?.editTarget.documentId,
     editSession?.editTarget.instancePath?.canonical, previewInsertPattern]);
   useEffect(() => {
@@ -418,8 +434,30 @@ export function Workbench() {
   } : undefined;
   useEffect(() => {
     if (!view || editSession?.hostDocumentId === view.document.id) return;
-    setEditSession(rootEditSession(view, activationGate.current.begin()));
-  }, [editSession?.hostDocumentId, view]);
+    if (document.isFetching && documentSessions.read(documentID, documentEditingState)) return;
+    const generation = activationGate.current.begin();
+    void restoreDocumentEditingState(view, documentSessions.read(documentID, documentEditingState), generation,
+      api.getProductDesignSession, id => client.fetchQuery({ queryKey: queryKeys.document(id), queryFn: () => api.getDocument(id), staleTime: 0 }))
+      .then(prepared => {
+        if (!activationGate.current.isCurrent(generation)) return;
+        client.setQueryData(queryKeys.document(prepared.targetView.document.id), prepared.targetView);
+        activationGate.current.commit(generation, prepared.session, setEditSession);
+        if (prepared.sketchId) {
+          const feature = prepared.targetView.part?.features.find(feature => feature.id === prepared.sketchId);
+          const plane = feature && featureSketchPlane(prepared.targetView, feature);
+          if (plane) {
+            const occurrence = view.resolvedInstances?.find(instance => instance.occurrencePath === prepared.session.editTarget.instancePath?.canonical);
+            newSketchSession.current = prepared.newSketchSession;
+            store.beginSketch(prepared.sketchId, occurrenceSketchPlane(plane, occurrence?.translation, occurrence?.rotation));
+          }
+        }
+      }).catch(error => {
+        if (!activationGate.current.isCurrent(generation)) return;
+        activationGate.current.commit(generation, rootEditSession(view, generation), setEditSession);
+        message.info(`原编辑目标当前不可恢复，已返回宿主文档：${String(error)}`);
+      });
+    return () => { if (activationGate.current.isCurrent(generation)) activationGate.current.invalidate(); };
+  }, [documentID, documentSessions, client, editSession?.hostDocumentId, view, document.isFetching]);
   const editingView = activeID === documentID ? view : activeDocument.data;
   useEffect(() => {
     setSolidEditor(undefined);
@@ -547,8 +585,8 @@ export function Workbench() {
     newSketchSession.current = undefined;
     const latest = client.getQueryData<DocumentView>(queryKeys.document(session.documentId));
     if (!canDiscardNewSketch(session, latest)) return;
-    // Use the owning document, even when exit was caused by switching tabs or
-    // activating another occurrence. Do not clear the new context's selection.
+    // Explicit exit or target activation discards an unedited new sketch. Tab
+    // switches suspend it in the document session instead of deleting it.
     void api.deleteNodes(session.documentId, [{ targetKind: "FEATURE", targetId: session.sketchId }])
       .then((updated) => refresh(updated))
       .catch((error: Error) => message.error(`放弃空草图失败：${error.message}`));
@@ -600,7 +638,8 @@ export function Workbench() {
     return () => { disposed = true; unsubscribers.forEach((unsubscribe) => unsubscribe()); };
   }, [client, documentID, followedIDs.join("|"), message, view]);
   const treeNodes = useMemo(() => {
-    const resolver = visibilityResolverForView(view);
+    const resolver = visibilityResolverForView(view, editingView ? { view: editingView, occurrencePath: activeInstancePath,
+      liveDefinitionProjection: Boolean(editSession && ["OWNER", "EDITOR"].includes(editingView.document.permission ?? "")) } : undefined);
     const decorate = (node: SpecificationTreeNode): SpecificationTreeNode => {
       const visibilityKey = node.selection ? selectionKey(node.selection) : node.key;
       const kind = node.kind === "SKETCH_INPUT_REFERENCE" ? "SKETCH" : node.kind;
@@ -614,7 +653,7 @@ export function Workbench() {
       const actionOwner = node.kind === "INSTANCE" ? node.ownerDocumentId : node.documentId;
       const ownerEditable = Boolean(editingView && actionOwner === editingView.document.id &&
         ["OWNER", "EDITOR"].includes(editingView.document.permission ?? ""));
-      return { ...node, hidden: !ownVisible, localVisible: semantic?.localVisible ?? node.localVisible,
+      return { ...node, hidden: !ownVisible, definitionVisible: semantic?.definitionVisible ?? node.definitionVisible, localVisible: semantic?.localVisible ?? node.localVisible,
         capabilities: ownerEditable ? node.capabilities : node.capabilities?.filter((capability) => capability !== "EDIT" && capability !== "DELETE" && capability !== "SUPPRESS"),
         visibilityMode: semantic?.mode ?? node.visibilityMode,
         hiddenByAncestor: Boolean(semantic?.blockedBy && (semantic.blockedBy.kind !== kind || semantic.blockedBy.entityId !== node.entityId)),
@@ -622,7 +661,7 @@ export function Workbench() {
         children: node.children?.map(decorate) };
     };
     return view ? treeData(view, editingView).map((node) => decorate(node)) : [];
-  }, [view, editingView, store.activeSketchID, activeInstancePath, treeVisibilityOverrides]);
+  }, [view, editingView, editSession, store.activeSketchID, activeInstancePath, treeVisibilityOverrides]);
   useEffect(()=>{
     normalViewRequest.current+=1;
     return ()=>{normalViewRequest.current+=1;};
@@ -645,7 +684,7 @@ export function Workbench() {
       if (!signal?.aborted&&generation===normalViewRequest.current) message.error(error instanceof Error ? error.message : String(error));
     }
   };
-  const canEdit = editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR";
+  const canEdit = Boolean(editSession) && (editingView?.document.permission === "OWNER" || editingView?.document.permission === "EDITOR");
   const canEditRoot = view?.document.permission === "OWNER" || view?.document.permission === "EDITOR";
   const commandFacts={isMock:isMockMode,moveReceiptPending,hostType:view?.document.type??"PART",targetType:editingView?.document.type??"PART",sketchActive:Boolean(store.sketchPlane),canEdit,rootCanEdit:canEditRoot,busy:command.isPending,selectionKind:store.selection?.kind??"",selectionCount:store.selections.length,hasWorkingBody:Boolean(workingBodyID)};
   const activeTabs=toolbarCatalog.data?contextTabs(toolbarCatalog.data,commandFacts):[];
@@ -1168,19 +1207,20 @@ onRefresh:(node) => {
               refreshAssemblyConstraint(node.entityId);
             },
 onDelete:deleteTreeNodes,
-onToggleVisibility:(node,scope,mode)=>{
+onToggleVisibility:(node,scope)=>{
+              const action = treeVisibilityAction(node, editSession);
+              if (!action || action.scope !== scope) throw new Error("显示上下文已变化，请重新选择。");
               if (scope === "DEFINITION" && node.documentId && node.entityId) {
                 command.mutate(() => api.command(node.documentId!, {type:"SET_DEFINITION_VISIBILITY",targetKind:node.kind,
-                  targetId:node.entityId,axis:node.axis,ownerEntityId:node.ownerEntityId,visible:!node.localVisible}));
+                  targetId:node.entityId,axis:node.axis,ownerEntityId:node.ownerEntityId,visible:!(node.definitionVisible ?? node.localVisible ?? true)}));
                 return;
               }
               if (scope === "OCCURRENCE" && view?.document.type === "PRODUCT" && node.instancePath && node.entityId) {
                 command.mutate(() => api.command(view.document.id, {type:"SET_OCCURRENCE_VISIBILITY",instancePath:node.instancePath,
-                  targetKind:node.kind,targetId:node.entityId,visibilityMode:mode ?? (node.visibilityMode === "HIDE" ||
-                    node.visibilityMode !== "SHOW" && node.localVisible === false ? "SHOW" : "HIDE")}));
+                  targetKind:node.kind,targetId:node.entityId,visibilityMode:action.mode}));
                 return;
               }
-              setTreeVisibility(node.selection ? selectionKey(node.selection) : node.key, Boolean(node.hidden));
+              throw new Error("显示目标当前不可用，请重新选择。");
             },
 onToggleSuppression:(node)=>{
               if(node.kind==="SKETCH_PATTERN_DEFINITION"&&node.documentId===editingView?.document.id&&node.ownerEntityId){
@@ -1409,7 +1449,7 @@ onToggleConstruction:(node)=>{
       }
     }
   };
-  if (document.isLoading) return <div className="workbench-loading"><Spin size="large" /></div>;
+  if (document.isLoading || view && !editSession) return <div className="workbench-loading"><Spin size="large" /></div>;
   if (!view) return <Empty description="无法打开文档" />;
 
   const assemblyPreviewPending = assemblyPreviewSnapshot.matches("pending");
@@ -1464,11 +1504,11 @@ onToggleConstruction:(node)=>{
     {historyResult&&<Alert type="info" title="正在查看历史步骤结果" action={<Button onClick={endHistoryResult}>恢复当前结果</Button>}/> }
     <WorkbenchLayout documentName={editingView?.document.name ?? view.document.name}
       inspectorOpen={inspectorOpen} onInspectorChange={setInspectorOpen}
-      commands={<WorkbenchCommands toolbars={visibleToolbars} workbench={activeWorkbench} catalog={toolbarCatalog.data} tabs={activeTabs} />}
+      commands={<WorkbenchCommands documentSessions={documentSessions} hostDocumentId={documentID} toolbars={visibleToolbars} workbench={activeWorkbench} catalog={toolbarCatalog.data} tabs={activeTabs} />}
       status={<WorkbenchStatus busy={command.isPending} canEdit={canEdit} selectionCount={store.selections.length}
         sketchReceipt={sketchReceipt} onSketchReceiptCheck={()=>void viewport.current?.retrySketchReceipt()} sketchCommand={store.activeSketchID?sketchCommandState:undefined} onSketchAction={action=>viewport.current?.sketchCommandAction(action)}
         toolName={activeToolName} lengthUnit={lengthUnit} continuous={store.activeToolMode === "continuous"} />}
-      tree={<SpecificationTree key={documentID} nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
+      tree={<SpecificationTree key={documentID} documentSessions={documentSessions} hostDocumentId={documentID} nodes={treeNodes} selectedKeys={treeKeysForSelections(treeNodes, store.selections)}
             ancestorHintKeys={ancestorHintKeysForSelections(treeNodes, store.selections)}
             selectionToken={selectionSetToken(store.selections)}
             highlightedKey={treeKeyForSelection(treeNodes, store.preselection)??associatedTreeKeyForSelection(treeNodes,store.preselection)}
@@ -1525,9 +1565,9 @@ onToggleConstruction:(node)=>{
           type="warning" showIcon message="当前几何暂不支持持久拓扑引用"
           description={(selectedNamingIssue ?? activeNamingIssue)?.diagnostic}
           action={repairableImport && canEdit ? <Button size="small" loading={command.isPending} onClick={() => command.mutate(() => api.command(editingView!.document.id, {type:"REPAIR_IMPORT_NAMING",targetId:repairableImport.id}))}>建立导入命名</Button> : undefined} />}
-        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view}
+        <Suspense fallback={<div className="viewport-loading"><Spin size="large" /></div>}><CadViewport ref={viewport} view={view} documentSessions={documentSessions}
           editingView={editingView} activeInstancePath={activeInstancePath} activeInstanceTranslation={activeResolvedInstance?.translation}
-          liveConstraintProjection={Boolean(canEdit && editSession?.hostDocumentId===view.document.id && activeInstancePath &&
+          liveDefinitionProjection={Boolean(canEdit && editSession?.hostDocumentId===view.document.id && activeInstancePath &&
             !pinnedReferenceInPath(view.structureTree,activeInstancePath))}
           activeInstanceRotation={activeResolvedInstance?.rotation}
           activeBodyTreeNodeId={activeResolvedInstance?.bodyTreeNodeId}

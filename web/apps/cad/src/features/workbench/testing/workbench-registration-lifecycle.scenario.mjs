@@ -22,7 +22,7 @@ const {CommandRegistry,CommandOperation}=load(resolve(base,'../../../cad/command
 const {builtinCatalog}=load(resolve(base,'../../../cad/command/workbench-catalog.ts'));
 const {useWorkbenchCommandRegistration}=load(resolve(base,'../workbench-command-registration.ts'));
 const {structureCommands,resolveStructureNode}=load(resolve(base,'../commands/structure-commands.ts'));
-const saved={useRef:React.useRef,useLayoutEffect:React.useLayoutEffect,useState:React.useState,useEffect:React.useEffect,useSyncExternalStore:React.useSyncExternalStore};
+const saved={useMemo:React.useMemo,useRef:React.useRef,useLayoutEffect:React.useLayoutEffect,useState:React.useState,useEffect:React.useEffect,useSyncExternalStore:React.useSyncExternalStore};
 const refs=[],effects=[];let refCursor=0,effectCursor=0,queue=[];
 React.useRef=value=>{const index=refCursor++;return refs[index]??(refs[index]={current:value});};
 React.useLayoutEffect=(fn,deps)=>{const index=effectCursor++,previous=effects[index];if(!deps||!previous||deps.some((value,index)=>!Object.is(value,previous.deps?.[index])))queue.push(()=>{previous?.dispose?.();effects[index]={deps,dispose:fn()};});};
@@ -64,11 +64,16 @@ try {
  let configuredTabs=builtinCatalog.tabs.filter(tab=>tab.workbench==='PART_DESIGN');
  const state=[];let stateCursor=0;
  React.useState=value=>{const index=stateCursor++;if(!(index in state))state[index]=value;return [state[index],value=>state[index]=typeof value==='function'?value(state[index]):value];};
- React.useEffect=React.useLayoutEffect=()=>{};React.useRef=()=>({current:null});React.useSyncExternalStore=()=>0;
+ React.useMemo=fn=>fn();React.useEffect=React.useLayoutEffect=()=>{};React.useRef=()=>({current:null});React.useSyncExternalStore=(_subscribe,get)=>get();
  const findTabs=tree=>{if(!tree)return;if(Array.isArray(tree)){for(const child of tree){const found=findTabs(child);if(found)return found;}}else if(tree.type===require('antd').Tabs)return tree;else return findTabs(tree.props?.children);};
- const deck=()=>{stateCursor=0;return findTabs(WorkbenchCommands({toolbars,workbench:'PART_DESIGN',catalog:builtinCatalog,tabs:configuredTabs}));};
+ const {DocumentSessions}=load(resolve(base,'../../../cad/document/document-session.ts'));
+ const documentSessions=new DocumentSessions();documentSessions.open('A');documentSessions.open('B');let hostDocumentId='A';
+ const deck=()=>{stateCursor=0;return findTabs(WorkbenchCommands({documentSessions,hostDocumentId,toolbars,workbench:'PART_DESIGN',catalog:builtinCatalog,tabs:configuredTabs}));};
  const beforeTab={closed,opened,fitted};deck().props.onChange('PART_DESIGN.view');assert.equal(deck().props.activeKey,'PART_DESIGN.view');
  configuredTabs=[...configuredTabs];assert.equal(deck().props.activeKey,'PART_DESIGN.view','configuration refresh preserves stable Tab selection');
+ hostDocumentId='B';assert.equal(deck().props.activeKey,'PART_DESIGN.model');deck().props.onChange('PART_DESIGN.document');
+ hostDocumentId='A';assert.equal(deck().props.activeKey,'PART_DESIGN.view','returning to document restores its own toolbar Tab');
+ documentSessions.close('A');documentSessions.open('A');assert.equal(deck().props.activeKey,'PART_DESIGN.model','closing document clears presentation state');
  configuredTabs=configuredTabs.filter(tab=>tab.id==='PART_DESIGN.document');assert.deepEqual(deck().props.items.map(item=>item.key),['PART_DESIGN.document'],'only configured context Tabs are presented');
  assert.deepEqual({closed,opened,fitted},beforeTab,'Tab callback changes presentation without executing a command');
  assert.equal(store.activeToolID,'select');assert.equal(registrations,1);

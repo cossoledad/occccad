@@ -9,9 +9,13 @@ import { selectionSetToken } from "../../cad/interaction/selection-identity";
 import type { InstancePath, Selection } from "../../types";
 import { filterTree } from "./tree-filter";
 import { resolveTreeSelection, type TreeSelectionModifiers } from "./tree-selection";
-import { canToggleNodeVisibility } from "./tree-node-descriptors";
+import { treeVisibilityAction } from "./tree-visibility-action";
 import { isEditTargetNode, type EditSession } from "./edit-session";
 import { ContextMenuIcon } from "../../components/context-menu-icon";
+import { registerDocumentState, type DocumentSessions } from "../../cad/document/document-session";
+import { useDocumentState } from "../../cad/document/document-session-context";
+
+const treeState = registerDocumentState<{ query: string; expanded: string[]; knownBranches: string[] }>("workbench.tree");
 
 export type SpecificationTreeNode = {
   axis?:string;
@@ -28,7 +32,7 @@ export type SpecificationTreeNode = {
   capabilities?: Array<"ACTIVATE" | "DEACTIVATE" | "DELETE" | "SUPPRESS" | "EDIT" | "DETACH" | "RECONNECT" | "REFRESH" | "CREATE_PART" | "UPDATE_REFERENCES" | "PIN_VERSION" | "FOLLOW_HEAD">; ownerEntityId?: string; role?: "PROFILE" | "CONSTRUCTION";
   definitionDigest?: string;
   suppressed?: boolean; diagnostic?: string; hidden?: boolean;
-  localVisible?: boolean; visibilityMode?: "SHOW" | "HIDE" | "INHERIT";
+  definitionVisible?: boolean; localVisible?: boolean; visibilityMode?: "SHOW" | "HIDE" | "INHERIT";
   hiddenByAncestor?: boolean; visibilityBlocker?: string;
 };
 
@@ -77,7 +81,8 @@ function initiallyExpandedKeys(nodes: SpecificationTreeNode[], output = new Set<
   return output;
 }
 
-export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onRename, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+export function SpecificationTree({ documentSessions, hostDocumentId, nodes, selectedKeys, ancestorHintKeys, selectionToken, highlightedKey, editSession, activeDocumentId, activeInstancePath, workingBodyId, onSelect, onActivate, onOpenDocumentTab, onViewResult, onEdit, onRename, onCreatePart, onReferenceMode, onDetach, onReconnect, onRefresh, onHover, onDelete, onToggleConstruction, onToggleVisibility, onToggleSuppression }: {
+  documentSessions?: DocumentSessions; hostDocumentId?: string;
   nodes: SpecificationTreeNode[]; selectedKeys: readonly string[]; ancestorHintKeys?: readonly string[];
   selectionToken: string; highlightedKey?: string; editSession?: EditSession;
   activeDocumentId?: string; activeInstancePath?: string; workingBodyId?: string;
@@ -94,17 +99,20 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
   onRefresh?: (node: SpecificationTreeNode) => void;
   onDelete?: (nodes: SpecificationTreeNode[]) => void;
   onToggleConstruction?: (node: SpecificationTreeNode) => void;
-  onToggleVisibility?: (node: SpecificationTreeNode, scope: "DEFINITION" | "OCCURRENCE" | "SESSION", mode?: "SHOW" | "HIDE" | "INHERIT") => void;
+  onToggleVisibility?: (node: SpecificationTreeNode, scope: "DEFINITION" | "OCCURRENCE", mode?: "SHOW" | "HIDE" | "INHERIT") => void;
   onToggleSuppression?: (node: SpecificationTreeNode) => void;
 }) {
   const registry=useOptionalCommandRegistry();
   const declaration=(id:string)=>registry?.declaration(id)??builtinCatalog.commands.find(command=>command.id===id);
   const menuLabel=(id:string,variant="default",count=0)=>{const command=declaration(id);return (command?.labels?.[variant]??command?.name??id).replace("{count}",String(count));};
   const menuIcon=(id:string)=><ContextMenuIcon><CadIcon name={declaration(id)?.iconKey??""}/></ContextMenuIcon>;
-  const [query, setQuery] = useState("");
+  const [savedTree, setSavedTree] = useDocumentState(documentSessions, hostDocumentId, treeState, () => ({ query: "", expanded: [], knownBranches: [] }));
+  const query = savedTree.query;
+  const setQuery = (query: string) => setSavedTree(current => ({ ...current, query }));
   const [focusedKey, setFocusedKey] = useState<string>();
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const knownBranches = useRef(new Set<string>());
+  const expanded = useMemo(() => new Set(savedTree.expanded), [savedTree.expanded]);
+  const setExpanded = (next: Set<string> | ((previous: Set<string>) => Set<string>)) => setSavedTree(current => ({ ...current,
+    expanded: [...(typeof next === "function" ? next(new Set(current.expanded)) : next)] }));
   const [contextMenu, setContextMenu] = useState<{ nodeKey: string; selectionSignature: string }>();
   const anchorKey = useRef<string | undefined>(undefined);
   const scrollElement = useRef<HTMLElement>(null);
@@ -120,11 +128,10 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
   }, [ancestorHintKeys, nodes, selectedKeys]);
   useEffect(() => {
     const available = branchKeys(nodes);
-    setExpanded((current) => new Set([
-      ...[...current].filter((key) => available.has(key)),
-      ...[...initiallyExpandedKeys(nodes)].filter((key) => !knownBranches.current.has(key)),
-    ]));
-    knownBranches.current = available;
+    setSavedTree(current => ({ ...current, knownBranches: [...available], expanded: [
+      ...current.expanded.filter(key => available.has(key)),
+      ...[...initiallyExpandedKeys(nodes)].filter(key => !current.knownBranches.includes(key)),
+    ] }));
   // Node identity changes only when a new document view arrives.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes]);
@@ -201,6 +208,7 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
       {virtualizer.getVirtualItems().map((item) => {
         const entry = visible[item.index];
         const { node, depth, hasChildren } = entry;
+        const visibility = treeVisibilityAction(node, editSession);
         const isExpanded = hasChildren && (depth === 0 || expanded.has(node.key) || Boolean(query.trim()));
         const isSelected = selected.has(node.key);
         const selectedNodes = isSelected && node.presentationRole !== "INPUT_REFERENCE"
@@ -270,20 +278,8 @@ export function SpecificationTree({ nodes, selectedKeys, ancestorHintKeys, selec
               onClick: () => { setContextMenu(undefined); onReconnect?.(node); } } : null,
             node.capabilities?.includes("REFRESH") ? { key: "refresh", icon: menuIcon('tree.refresh'), label: menuLabel('tree.refresh'),
               onClick: () => { setContextMenu(undefined); onRefresh?.(node); } } : null,
-            canToggleNodeVisibility(node.kind) && node.instancePath?.canonical && ["INSTANCE", "BODY", "SKETCH", "SKETCH_ENTITY"].includes(node.kind ?? "")
-              ? {key:"occurrence-visibility",icon:menuIcon("tree.visibility"),
-                label:menuLabel("tree.visibility",node.visibilityMode === "HIDE" || node.visibilityMode !== "SHOW" && node.localVisible === false ? "show-occurrence" : "hide-occurrence"),
-                onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"OCCURRENCE",
-                  node.visibilityMode === "HIDE" || node.visibilityMode !== "SHOW" && node.localVisible === false ? "SHOW" : "HIDE");}} : null,
-            canToggleNodeVisibility(node.kind) && node.instancePath?.canonical && node.visibilityMode && node.visibilityMode !== "INHERIT"
-              ? {key:"restore-visibility",icon:menuIcon('tree.visibility'),label:menuLabel('tree.visibility','restore'),onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"OCCURRENCE","INHERIT");}} : null,
-            canToggleNodeVisibility(node.kind) && ["BODY", "SKETCH", "SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT","ASSEMBLY_CONSTRAINT_SET"].includes(node.kind ?? "") &&
-              (!node.instancePath?.canonical || node.documentId === activeDocumentId)
-              ? {key:"definition-visibility",icon:menuIcon('tree.visibility'),label:menuLabel('tree.visibility',`${node.localVisible!==false?'hide':'show'}-${node.kind==='ASSEMBLY_CONSTRAINT_SET'?'constraints':node.kind==='ASSEMBLY_CONSTRAINT'?'constraint':'definition'}`),
-                onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,"DEFINITION");}} : null,
-            canToggleNodeVisibility(node.kind) && !["INSTANCE", "BODY", "SKETCH", "SKETCH_ENTITY","ORIGIN","PLANE","AXIS_SYSTEM","AXIS","DATUM_AXIS","DATUM_POINT","ASSEMBLY_CONSTRAINT","ASSEMBLY_CONSTRAINT_SET"].includes(node.kind ?? "")
-              ? { key: "session-visibility", icon: menuIcon('tree.visibility'), label: menuLabel('tree.visibility',node.hidden?'show-session':'hide-session'),
-                onClick: () => { setContextMenu(undefined); onToggleVisibility?.(node,"SESSION"); } } : null,
+            visibility ? {key:"visibility",icon:menuIcon("tree.visibility"),label:menuLabel("tree.visibility",visibility.label),
+              onClick:()=>{setContextMenu(undefined);onToggleVisibility?.(node,visibility.scope,visibility.mode);}} : null,
             node.kind==="PARAMETER"&&node.parameterAlias ? {key:"copy-alias",icon:menuIcon('tree.copy-alias'),label:menuLabel('tree.copy-alias'),onClick:()=>{
               setContextMenu(undefined);void registry?.execute("tree.copy-alias",{payload:{node}}).catch(error=>message.error(String(error)));
             }} : null,

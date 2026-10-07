@@ -186,7 +186,7 @@ function mapStructureNode(node: DocumentStructureNode, view: DocumentView, editi
     icon: treeNodeIcon(node), kind: node.kind,
     axis:node.axis, parameterAlias:node.parameterAlias, entityId: node.entityId, documentId: node.documentId, documentType: node.documentType, instancePath: node.instancePath,
     ownerDocumentId: node.ownerDocumentId, bodyId: node.bodyId, presentationRole: node.presentationRole,
-    localVisible: node.localVisible, visibilityMode: node.visibilityMode,
+    definitionVisible: node.localVisible, localVisible: node.localVisible, visibilityMode: node.visibilityMode,
     childrenState: node.childrenState, resolutionStatus: node.resolutionStatus,
     connectionStatus: node.connectionStatus, currencyStatus: node.currencyStatus,
     evaluationStatus: node.evaluationStatus,
